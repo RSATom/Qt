@@ -1373,6 +1373,30 @@ QT_USE_NAMESPACE
     [self discoverIncludedServices];
 }
 
+- (void)peripheral:(CBPeripheral *)aPeripheral
+        didModifyServices:(NSArray<CBService *> *)invalidatedServices
+{
+    Q_UNUSED(aPeripheral)
+    Q_UNUSED(invalidatedServices)
+
+    qCWarning(QT_BT_OSX) << "The peripheral has modified its services.";
+    // "This method is invoked whenever one or more services of a peripheral have changed.
+    // A peripheral’s services have changed if:
+    // * A service is removed from the peripheral’s database
+    // * A new service is added to the peripheral’s database
+    // * A service that was previously removed from the peripheral’s
+    //   database is readded to the database at a different location"
+
+    // In case new services were added - we have to discover them.
+    // In case some were removed - we can end up with dangling pointers
+    // (see our 'watchdogs', for example). To handle the situation
+    // we stop all current operations here, report to QLowEnergyController
+    // so that it can trigger re-discovery.
+    [self reset];
+    managerState = OSXBluetooth::CentralManagerIdle;
+    if (notifier)
+        emit notifier->servicesWereModified();
+}
 
 - (void)peripheral:(CBPeripheral *)aPeripheral didDiscoverIncludedServicesForService:(CBService *)service
         error:(NSError *)error

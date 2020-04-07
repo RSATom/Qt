@@ -2905,7 +2905,10 @@ void QStyleSheetStyle::polish(QPalette &pal)
 
 void QStyleSheetStyle::repolish(QWidget *w)
 {
-    QList<const QObject *> children = w->findChildren<const QObject *>(QString());
+    QList<const QObject *> children;
+    children.reserve(w->children().size() + 1);
+    for (auto child: qAsConst(w->children()))
+        children.append(child);
     children.append(w);
     styleSheetCaches->styleSheetCache.remove(w);
     updateObjects(children);
@@ -4590,8 +4593,12 @@ void QStyleSheetStyle::drawPrimitive(PrimitiveElement pe, const QStyleOption *op
         break;
 #if QT_CONFIG(tabbar)
     case PE_IndicatorTabClose:
-        if (w)
+        if (w) {
+            // QMacStyle needs a real widget, not its parent - to implement
+            // 'document mode' properly, drawing nothing if a tab is not hovered.
+            baseStyle()->setProperty("_q_styleSheetRealCloseButton", QVariant::fromValue((void *)w));
             w = w->parentWidget(); //match on the QTabBar instead of the CloseButton
+        }
         pseudoElement = PseudoElement_TabBarTabCloseButton;
 #endif
 
@@ -4609,6 +4616,9 @@ void QStyleSheetStyle::drawPrimitive(PrimitiveElement pe, const QStyleOption *op
     } else {
         baseStyle()->drawPrimitive(pe, opt, p, w);
     }
+
+    if (baseStyle()->property("_q_styleSheetRealCloseButton").toBool())
+        baseStyle()->setProperty("_q_styleSheetRealCloseButton", QVariant(QVariant::Invalid));
 }
 
 QPixmap QStyleSheetStyle::generatedIconPixmap(QIcon::Mode iconMode, const QPixmap& pixmap,

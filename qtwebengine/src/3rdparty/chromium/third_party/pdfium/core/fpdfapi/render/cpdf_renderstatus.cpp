@@ -1859,9 +1859,18 @@ bool CPDF_RenderStatus::ProcessType3Text(CPDF_TextObject* textobj,
           if (!glyph.m_pGlyph)
             continue;
 
+          pdfium::base::CheckedNumeric<int> left = glyph.m_Origin.x;
+          left += glyph.m_pGlyph->m_Left;
+          if (!left.IsValid())
+            continue;
+
+          pdfium::base::CheckedNumeric<int> top = glyph.m_Origin.y;
+          top -= glyph.m_pGlyph->m_Top;
+          if (!top.IsValid())
+            continue;
+
           m_pDevice->SetBitMask(glyph.m_pGlyph->m_pBitmap,
-                                glyph.m_Origin.x + glyph.m_pGlyph->m_Left,
-                                glyph.m_Origin.y - glyph.m_pGlyph->m_Top,
+                                left.ValueOrDie(), top.ValueOrDie(),
                                 fill_argb);
         }
         glyphs.clear();

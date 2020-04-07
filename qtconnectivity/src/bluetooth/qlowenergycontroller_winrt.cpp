@@ -779,7 +779,7 @@ void QLowEnergyControllerPrivateWinRT::readDescriptor(const QSharedPointer<QLowE
 
     HRESULT hr;
     hr = QEventDispatcherWinRT::runOnXamlThread([charHandle, descHandle, service, this]() {
-        QLowEnergyServicePrivate::CharData charData = service->characteristicList.value(charHandle);
+        const QLowEnergyServicePrivate::CharData charData = service->characteristicList.value(charHandle);
         ComPtr<IGattCharacteristic> characteristic = getNativeCharacteristic(service->uuid, charData.uuid);
         if (!characteristic) {
             qCDebug(QT_BT_WINRT) << "Could not obtain native characteristic" << charData.uuid
@@ -791,12 +791,13 @@ void QLowEnergyControllerPrivateWinRT::readDescriptor(const QSharedPointer<QLowE
         // Get native descriptor
         if (!charData.descriptorList.contains(descHandle))
             qCDebug(QT_BT_WINRT) << "Descriptor" << descHandle << "cannot be found in characteristic" << charHandle;
-        QLowEnergyServicePrivate::DescData descData = charData.descriptorList.value(descHandle);
-        if (descData.uuid == QBluetoothUuid(QBluetoothUuid::ClientCharacteristicConfiguration)) {
+        const QLowEnergyServicePrivate::DescData descData = charData.descriptorList.value(descHandle);
+        const QBluetoothUuid descUuid = descData.uuid;
+        if (descUuid == QBluetoothUuid(QBluetoothUuid::ClientCharacteristicConfiguration)) {
             ComPtr<IAsyncOperation<ClientCharConfigDescriptorResult *>> readOp;
             HRESULT hr = characteristic->ReadClientCharacteristicConfigurationDescriptorAsync(&readOp);
             Q_ASSERT_SUCCEEDED(hr);
-            auto readCompletedLambda = [&charData, charHandle, &descData, descHandle, service]
+            auto readCompletedLambda = [charHandle, descHandle, service]
                     (IAsyncOperation<ClientCharConfigDescriptorResult *> *op, AsyncStatus status)
             {
                 if (status == AsyncStatus::Canceled || status == AsyncStatus::Error) {
@@ -837,9 +838,11 @@ void QLowEnergyControllerPrivateWinRT::readDescriptor(const QSharedPointer<QLowE
                     service->setError(QLowEnergyService::DescriptorReadError);
                     return S_OK;
                 }
+                QLowEnergyServicePrivate::DescData descData;
+                descData.uuid = QBluetoothUuid::ClientCharacteristicConfiguration;
                 descData.value = QByteArray(2, Qt::Uninitialized);
                 qToLittleEndian(result, descData.value.data());
-                charData.descriptorList.insert(descHandle, descData);
+                service->characteristicList[charHandle].descriptorList[descHandle] = descData;
                 emit service->descriptorRead(QLowEnergyDescriptor(service, charHandle, descHandle),
                     descData.value);
                 return S_OK;
@@ -857,7 +860,7 @@ void QLowEnergyControllerPrivateWinRT::readDescriptor(const QSharedPointer<QLowE
             ComPtr<IAsyncOperation<GattReadResult*>> readOp;
             hr = descriptor->ReadValueWithCacheModeAsync(BluetoothCacheMode_Uncached, &readOp);
             Q_ASSERT_SUCCEEDED(hr);
-            auto readCompletedLambda = [&charData, charHandle, &descData, descHandle, service]
+            auto readCompletedLambda = [charHandle, descHandle, descUuid, service]
                     (IAsyncOperation<GattReadResult*> *op, AsyncStatus status)
             {
                 if (status == AsyncStatus::Canceled || status == AsyncStatus::Error) {
@@ -873,11 +876,12 @@ void QLowEnergyControllerPrivateWinRT::readDescriptor(const QSharedPointer<QLowE
                     service->setError(QLowEnergyService::DescriptorReadError);
                     return S_OK;
                 }
-                if (descData.uuid == QBluetoothUuid::CharacteristicUserDescription)
+                QLowEnergyServicePrivate::DescData descData;
+                if (descUuid == QBluetoothUuid::CharacteristicUserDescription)
                     descData.value = byteArrayFromGattResult(descriptorValue, true);
                 else
                     descData.value = byteArrayFromGattResult(descriptorValue);
-                charData.descriptorList.insert(descHandle, descData);
+                service->characteristicList[charHandle].descriptorList[descHandle] = descData;
                 emit service->descriptorRead(QLowEnergyDescriptor(service, charHandle, descHandle),
                     descData.value);
                 return S_OK;

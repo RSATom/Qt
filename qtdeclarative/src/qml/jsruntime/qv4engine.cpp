@@ -169,7 +169,7 @@ ExecutionEngine::ExecutionEngine(QJSEngine *jsEngine)
         bool ok = false;
         maxCallDepth = qEnvironmentVariableIntValue("QV4_MAX_CALL_DEPTH", &ok);
         if (!ok || maxCallDepth <= 0) {
-#ifdef QT_NO_DEBUG
+#if defined(QT_NO_DEBUG) && !defined(__SANITIZE_ADDRESS__) && !QT_HAS_FEATURE(address_sanitizer)
             maxCallDepth = 1234;
 #else
             // no (tail call) optimization is done, so there'll be a lot mare stack frames active
@@ -1537,6 +1537,10 @@ QV4::ReturnedValue QV4::ExecutionEngine::fromVariant(const QVariant &variant)
             case QMetaType::QLocale:
                 return QQmlLocale::wrap(this, *reinterpret_cast<const QLocale*>(ptr));
 #endif
+            case QMetaType::QPixmap:
+            case QMetaType::QImage:
+                // Scarce value types
+                return QV4::Encode(newVariantObject(variant));
             default:
                 break;
         }

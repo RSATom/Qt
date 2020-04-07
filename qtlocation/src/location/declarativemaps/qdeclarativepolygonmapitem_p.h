@@ -108,7 +108,6 @@ public:
     bool contains(const QPointF &point) const override;
     const QGeoShape &geoShape() const override;
     void setGeoShape(const QGeoShape &shape) override;
-    QGeoMap::ItemType itemType() const override;
 
 Q_SIGNALS:
     void pathChanged();

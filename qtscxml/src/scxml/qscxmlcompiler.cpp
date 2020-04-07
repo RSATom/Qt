@@ -1589,7 +1589,7 @@ bool QScxmlCompilerPrivate::preReadElementOnEntry()
             current().instructionContainer = m_doc->newSequence(&s->onEntry);
             break;
         }
-        // intentional fall-through
+        Q_FALLTHROUGH();
     default:
         addError(QStringLiteral("unexpected container state for onentry"));
         break;
@@ -1608,7 +1608,7 @@ bool QScxmlCompilerPrivate::preReadElementOnExit()
             current().instructionContainer = m_doc->newSequence(&s->onExit);
             break;
         }
-        // intentional fall-through
+        Q_FALLTHROUGH();
     default:
         addError(QStringLiteral("unexpected container state for onexit"));
         break;

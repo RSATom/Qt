@@ -70,6 +70,7 @@ installPackages+=(speech-dispatcher-devel)
 installPackages+=(python-devel python-pip)
 # Python 3 with python-devel, pip and virtualenv
 installPackages+=(rh-python36)
+installPackages+=(python36-devel)
 # WebEngine
 installPackages+=(bison)
 installPackages+=(flex)
@@ -112,6 +113,8 @@ installPackages+=(xcb-util-renderutil-devel)
 # ODBC support
 installPackages+=(unixODBC-devel)
 installPackages+=(unixODBC)
+# Vulkan support
+installPackages+=(vulkan-devel)
 
 sudo yum -y install "${installPackages[@]}"
 
@@ -124,7 +127,8 @@ sudo pip install virtualenv wheel
 
 sudo /usr/local/bin/pip3 install wheel
 # Install all needed packages in a special wheel cache directory
-/usr/local/bin/pip3 wheel --wheel-dir $HOME/python3-wheels -r ${BASH_SOURCE%/*}/../common/shared/requirements.txt
+/usr/local/bin/pip3 wheel --wheel-dir "$HOME/python3-wheels" -r "${BASH_SOURCE%/*}/../common/shared/requirements.txt"
 
+# shellcheck source=../common/unix/SetEnvVar.sh
 source "${BASH_SOURCE%/*}/../common/unix/SetEnvVar.sh"
 SetEnvVar "PYTHON3_WHEEL_CACHE" "$HOME/python3-wheels"

@@ -196,7 +196,7 @@ QVector<int> QConnectedReplicaImplementation::childIndices() const
     return m_childIndices;
 }
 
-void QConnectedReplicaImplementation::initialize(const QVariantList &values)
+void QConnectedReplicaImplementation::initialize(QVariantList &values)
 {
     qCDebug(QT_REMOTEOBJECT) << "initialize()" << m_propertyStorage.size();
     const int nParam = values.size();
@@ -207,7 +207,7 @@ void QConnectedReplicaImplementation::initialize(const QVariantList &values)
         changedProperties[i] = -1;
         if (m_propertyStorage[i] != values.at(i)) {
             const QMetaProperty property = m_metaObject->property(i+offset);
-            m_propertyStorage[i] = QRemoteObjectPackets::deserializedProperty(values.at(i), property);
+            m_propertyStorage[i] = QRemoteObjectPackets::decodeVariant(values[i], property.userType());
             changedProperties[i] = i;
         }
         qCDebug(QT_REMOTEOBJECT) << "SETPROPERTY" << i << m_metaObject->property(i+offset).name() << values.at(i).typeName() << values.at(i).toString();

@@ -129,7 +129,7 @@ private Q_SLOTS:
             QCOMPARE(simm.parameterType(2), int(QMetaType::QString));
         }
 
-        int slotIdx = mo->indexOfSlot("testEnumParamsInSlots(Enum1,bool,int)");
+        int slotIdx = mo->indexOfSlot("testEnumParamsInSlots(MyInterfaceReplica::Enum1,bool,int)");
         QVERIFY(slotIdx != -1);
         auto slmm = mo->method(slotIdx);
         {
@@ -143,7 +143,7 @@ private Q_SLOTS:
 
         int enumVal = 0;
         mo->invokeMethod(rep.data(), "testEnumParamsInSlots",
-                                    QGenericArgument("Enum1", &enumVal),
+                                    QGenericArgument("MyInterfaceReplica::Enum1", &enumVal),
                                     Q_ARG(bool, true), Q_ARG(int, 1234));
 
         int enumIdx = mo->indexOfProperty("enum1");

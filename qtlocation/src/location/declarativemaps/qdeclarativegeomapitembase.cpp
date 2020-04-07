@@ -281,6 +281,11 @@ QSGNode *QDeclarativeGeoMapItemBase::updateMapItemPaintNode(QSGNode *oldNode, Up
     return 0;
 }
 
+QGeoMap::ItemType QDeclarativeGeoMapItemBase::itemType() const
+{
+    return m_itemType;
+}
+
 /*!
     \internal
 

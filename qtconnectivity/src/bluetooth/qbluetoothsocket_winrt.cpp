@@ -765,7 +765,7 @@ HRESULT QBluetoothSocketPrivateWinRT::handleConnectOpFinished(ABI::Windows::Foun
         return S_OK;
     }
 
-    HRESULT hr = action->GetResults();
+    DWORD hr = action->GetResults();
     switch (hr) {
     case 0x8007274c: // A connection attempt failed because the connected party did not properly respond after a period of time, or established connection failed because connected host has failed to respond.
         errorString = QBluetoothSocket::tr("Connection timed out");

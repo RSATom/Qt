@@ -2,8 +2,6 @@ TARGET = QtScxml
 QT = core-private
 MODULE_CONFIG += c++11 qscxmlc
 
-load(qt_module)
-
 QMAKE_DOCS = $$PWD/doc/qtscxml.qdocconf
 
 CONFIG  += $$MODULE_CONFIG
@@ -56,6 +54,8 @@ qtConfig(scxml-ecmascriptdatamodel) {
         qscxmlecmascriptdatamodel.cpp \
         qscxmlecmascriptplatformproperties.cpp
 }
+
+load(qt_module)
 
 FEATURES += ../../mkspecs/features/qscxmlc.prf
 features.files = $$FEATURES

@@ -702,6 +702,8 @@ public:
     }
     STDMETHOD(GetConnectionInterface)(IID *pIID)
     {
+        if (!pIID)
+            return E_POINTER;
         *pIID = iid;
         return S_OK;
     }

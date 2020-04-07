@@ -40,6 +40,7 @@
 #include <QtQml/qqml.h>
 #include <QtQml/qqmlextensionplugin.h>
 #include <QtQml/qqmlcomponent.h>
+#include <QtQml/qqmlengine.h>
 #include "qquickmessagedialog_p.h"
 #include "qquickabstractmessagedialog_p.h"
 #include "qquickdialogassets_p.h"
@@ -87,12 +88,6 @@ class QtQuick2DialogsPlugin : public QQmlExtensionPlugin
 public:
     QtQuick2DialogsPlugin() : QQmlExtensionPlugin(), m_useResources(true) { }
 
-    virtual void initializeEngine(QQmlEngine *engine, const char * uri) {
-        qCDebug(lcRegistration) << uri << m_decorationComponentUrl;
-        QQuickAbstractDialog::m_decorationComponent =
-            new QQmlComponent(engine, m_decorationComponentUrl, QQmlComponent::Asynchronous);
-    }
-
     virtual void registerTypes(const char *uri) {
         Q_ASSERT(QLatin1String(uri) == QLatin1String("QtQuick.Dialogs"));
         bool hasTopLevelWindows = QGuiApplicationPrivate::platformIntegration()->
@@ -114,7 +109,7 @@ public:
             m_useResources = false;
 #endif
 #endif
-        m_decorationComponentUrl = m_useResources ?
+        QQuickAbstractDialog::m_decorationComponentUrl = m_useResources ?
             QUrl("qrc:/QtQuick/Dialogs/qml/DefaultWindowDecoration.qml") :
 #ifndef QT_STATIC
             QUrl::fromLocalFile(qmlDir.filePath(QString("qml/DefaultWindowDecoration.qml")));
@@ -256,7 +251,6 @@ protected:
         qmlRegisterType(dialogQmlPath, uri, versionMajor, versionMinor, qmlName);
     }
 
-    QUrl m_decorationComponentUrl;
     bool m_useResources;
 };
 

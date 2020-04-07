@@ -72,6 +72,8 @@ class QRemoteObjectRootSource;
 
 namespace QRemoteObjectPackets {
 
+Q_NAMESPACE
+
 class DataStreamPacket;
 
 struct ObjectInfo
@@ -99,7 +101,8 @@ inline QDataStream& operator>>(QDataStream &stream, ObjectInfo &info)
 
 typedef QVector<ObjectInfo> ObjectInfoList;
 
-enum class ObjectType : quint8 { CLASS, MODEL };
+enum class ObjectType : quint8 { CLASS, MODEL, GADGET };
+Q_ENUM_NS(ObjectType)
 
 // Use a short name, as QVariant::save writes the name every time a qvariant of
 // this type is serialized
@@ -108,18 +111,19 @@ class QRO_
 public:
     QRO_() : type(ObjectType::CLASS), isNull(true) {}
     explicit QRO_(QRemoteObjectSourceBase *source);
+    explicit QRO_(const QVariant &value);
     QString name, typeName;
     ObjectType type;
     bool isNull;
     QByteArray classDefinition;
-    QVariantList parameters;
+    QByteArray parameters;
 };
 
 inline QDebug operator<<(QDebug dbg, const QRO_ &info)
 {
-    dbg.nospace() << "QRO_(name: " << info.name << "typeName: " << info.typeName << "type: " << (info.type == ObjectType::CLASS ? "Class" : "Model")
-                  << ", valid: " << (info.isNull ? "true" : "false")
-                  << ", paremeters: {" << info.parameters <<")";
+    dbg.nospace() << "QRO_(name: " << info.name << ", typeName: " << info.typeName << ", type: " << info.type
+                  << ", valid: " << (info.isNull ? "true" : "false") << ", paremeters: {" << info.parameters <<")"
+                  << (info.classDefinition.isEmpty() ? " no definitions)" : " with definitions)");
     return dbg.space();
 }
 
@@ -129,13 +133,6 @@ QDataStream& operator>>(QDataStream &stream, QRO_ &info);
 
 void serializeObjectListPacket(DataStreamPacket&, const ObjectInfoList&);
 void deserializeObjectListPacket(QDataStream&, ObjectInfoList&);
-
-struct GadgetProperty {
-    QByteArray name;
-    QByteArray type;
-};
-
-using GadgetsData = QHash<QByteArray, QVector<GadgetProperty>>;
 
 //Helper class for creating a QByteArray from a QRemoteObjectPacket
 class DataStreamPacket : public QDataStream
@@ -171,8 +168,10 @@ private:
     Q_DISABLE_COPY(DataStreamPacket)
 };
 
-void serializeProperty(DataStreamPacket &, const QRemoteObjectSourceBase *source, int internalIndex);
-QVariant deserializedProperty(const QVariant &in, const QMetaProperty &property);
+const QVariant encodeVariant(const QVariant &value);
+QVariant &decodeVariant(QVariant &value, int type);
+
+void serializeProperty(QDataStream &, const QRemoteObjectSourceBase *source, int internalIndex);
 
 void serializeHandshakePacket(DataStreamPacket &);
 void serializeInitPacket(DataStreamPacket &, const QRemoteObjectRootSource*);

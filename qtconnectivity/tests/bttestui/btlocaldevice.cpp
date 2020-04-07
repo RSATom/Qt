@@ -93,6 +93,9 @@ BtLocalDevice::BtLocalDevice(QObject *parent) :
         connect(socket, &QBluetoothSocket::connected, this, &BtLocalDevice::socketConnected);
         connect(socket, &QBluetoothSocket::disconnected, this, &BtLocalDevice::socketDisconnected);
         connect(socket, &QIODevice::readyRead, this, &BtLocalDevice::readData);
+        connect(socket, &QBluetoothSocket::bytesWritten, this, [](qint64 bytesWritten){
+            qDebug() << "Bytes Written to Client socket:" << bytesWritten;
+        });
         setSecFlags(static_cast<int>(socket->preferredSecurityFlags()));
 
         server = new QBluetoothServer(SOCKET_PROTOCOL, this);
@@ -682,6 +685,9 @@ void BtLocalDevice::serverNewConnection()
     connect(client, QOverload<QBluetoothSocket::SocketError>::of(&QBluetoothSocket::error),
             this, &BtLocalDevice::socketError);
     connect(client, &QBluetoothSocket::connected, this, &BtLocalDevice::socketConnected);
+    connect(client, &QBluetoothSocket::bytesWritten, this, [](qint64 bytesWritten){
+        qDebug() << "Bytes Written to Server socket:" << bytesWritten;
+    });
     serverSockets.append(client);
 }
 

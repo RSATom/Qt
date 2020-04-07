@@ -43,6 +43,7 @@
 #include "profile_adapter.h"
 #include "qwebengineprofile_p.h"
 
+#include "QFileInfo"
 
 QT_BEGIN_NAMESPACE
 
@@ -117,7 +118,7 @@ static inline QWebEngineDownloadItem::DownloadInterruptReason toDownloadInterrup
     \l{QWebEngineProfile::downloadRequested}{downloadRequested} signal together
     with a newly created QWebEngineDownloadItem. The application can then
     examine this item and decide whether to accept it or not. A signal handler
-    must explicitly call accept() on the item for Qt WebEngine to actually start
+    must explicitly call accept() on the item for \QWE to actually start
     downloading and writing data to disk. If no signal handler calls accept(),
     then the download request will be automatically rejected and nothing will be
     written to disk.
@@ -147,7 +148,7 @@ static inline QWebEngineDownloadItem::DownloadInterruptReason toDownloadInterrup
     \section2 Web Page Downloads
 
     In addition to normal file downloads, which consist simply of retrieving
-    some raw bytes from the network and writing them to disk, Qt WebEngine also
+    some raw bytes from the network and writing them to disk, \QWE also
     supports saving complete web pages, which involves parsing the page's HTML,
     downloading any dependent resources, and potentially packaging everything
     into a special file format (\l savePageFormat). To check if a download is
@@ -531,6 +532,16 @@ void QWebEngineDownloadItem::setPath(QString path)
     Q_D(QWebEngineDownloadItem);
     if (d->downloadState != QWebEngineDownloadItem::DownloadRequested) {
         qWarning("Setting the download path is not allowed after the download has been accepted.");
+        return;
+    }
+
+    if (QFileInfo(path).fileName().isEmpty()) {
+        qWarning("The download path does not include file name.");
+        return;
+    }
+
+    if (QFileInfo(path).isDir()) {
+        qWarning("The download path matches with an already existing directory path.");
         return;
     }
 

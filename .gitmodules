@@ -1,76 +1,87 @@
 [submodule "qtbase"]
 	path = qtbase
 	url = ../qtbase.git
-	branch = 5.12.3
+	branch = 5.12.4
 	status = essential
+	repoType = inherited
 [submodule "qtsvg"]
 	depends = qtbase
 	path = qtsvg
 	url = ../qtsvg.git
-	branch = 5.12.3
+	branch = 5.12.4
 	status = addon
+	repoType = inherited
 [submodule "qtdeclarative"]
 	depends = qtbase
 	recommends = qtsvg
 	path = qtdeclarative
 	url = ../qtdeclarative.git
-	branch = 5.12.3
+	branch = 5.12.4
 	status = essential
+	repoType = inherited
 [submodule "qtactiveqt"]
 	depends = qtbase
 	path = qtactiveqt
 	url = ../qtactiveqt.git
-	branch = 5.12.3
+	branch = 5.12.4
 	status = addon
+	repoType = inherited
 [submodule "qtscript"]
 	depends = qtbase
 	recommends = qttools
 	path = qtscript
 	url = ../qtscript.git
-	branch = 5.12.3
+	branch = 5.12.4
 	status = deprecated
+	repoType = inherited
 [submodule "qtmultimedia"]
 	depends = qtbase
 	recommends = qtdeclarative
 	path = qtmultimedia
 	url = ../qtmultimedia.git
-	branch = 5.12.3
+	branch = 5.12.4
 	status = essential
+	repoType = inherited
 [submodule "qttools"]
 	depends = qtbase
 	recommends = qtdeclarative qtactiveqt
 	path = qttools
 	url = ../qttools.git
-	branch = 5.12.3
+	branch = 5.12.4
 	status = essential
+	repoType = inherited
 [submodule "qtxmlpatterns"]
 	depends = qtbase
 	recommends = qtdeclarative
 	path = qtxmlpatterns
 	url = ../qtxmlpatterns.git
-	branch = 5.12.3
+	branch = 5.12.4
 	status = addon
+	repoType = inherited
 [submodule "qttranslations"]
 	depends = qttools
 	path = qttranslations
 	url = ../qttranslations.git
-	branch = 5.12.3
+	branch = 5.12.4
 	status = essential
 	priority = 30
+	repoType = inherited
 [submodule "qtdoc"]
 	depends = qtdeclarative qttools
 	recommends = qtmultimedia qtquickcontrols qtquickcontrols2
 	path = qtdoc
 	url = ../qtdoc.git
-	branch = 5.12.3
+	branch = 5.12.4
 	status = essential
 	priority = 40
+	repoType = inherited
 [submodule "qtrepotools"]
 	path = qtrepotools
 	url = ../qtrepotools.git
 	branch = master
 	status = essential
 	project = -
+	repoType = inherited
 [submodule "qtqa"]
 	depends = qtbase
 	path = qtqa
@@ -78,20 +89,23 @@
 	branch = master
 	status = essential
 	priority = 50
+	repoType = inherited
 [submodule "qtlocation"]
 	depends = qtbase
 	recommends = qtdeclarative qtquickcontrols qtquickcontrols2 qtserialport
 	path = qtlocation
 	url = ../qtlocation.git
-	branch = 5.12.3
+	branch = 5.12.4
 	status = addon
+	repoType = inherited
 [submodule "qtsensors"]
 	depends = qtbase
 	recommends = qtdeclarative
 	path = qtsensors
 	url = ../qtsensors.git
-	branch = 5.12.3
+	branch = 5.12.4
 	status = addon
+	repoType = inherited
 [submodule "qtsystems"]
 	depends = qtbase
 	recommends = qtdeclarative
@@ -99,6 +113,7 @@
 	url = ../qtsystems.git
 	branch = dev
 	status = ignore
+	repoType = inherited
 [submodule "qtfeedback"]
 	depends = qtdeclarative
 	recommends = qtmultimedia
@@ -106,202 +121,310 @@
 	url = ../qtfeedback.git
 	branch = master
 	status = ignore
+	repoType = inherited
 [submodule "qtdocgallery"]
 	depends = qtdeclarative
 	path = qtdocgallery
 	url = ../qtdocgallery.git
 	branch = master
 	status = ignore
+	repoType = inherited
 [submodule "qtpim"]
 	depends = qtdeclarative
 	path = qtpim
 	url = ../qtpim.git
 	branch = dev
 	status = ignore
+	repoType = inherited
 [submodule "qtconnectivity"]
 	depends = qtbase
 	recommends = qtdeclarative qtandroidextras
 	path = qtconnectivity
 	url = ../qtconnectivity.git
-	branch = 5.12.3
+	branch = 5.12.4
 	status = addon
+	repoType = inherited
 [submodule "qtwayland"]
 	depends = qtbase
 	recommends = qtdeclarative
 	path = qtwayland
 	url = ../qtwayland.git
-	branch = 5.12.3
+	branch = 5.12.4
 	status = addon
+	repoType = inherited
 [submodule "qt3d"]
 	depends = qtbase
 	recommends = qtdeclarative qtimageformats qtgamepad
 	path = qt3d
 	url = ../qt3d.git
-	branch = 5.12.3
+	branch = 5.12.4
 	status = addon
+	repoType = inherited
 [submodule "qtimageformats"]
 	depends = qtbase
 	path = qtimageformats
 	url = ../qtimageformats.git
-	branch = 5.12.3
+	branch = 5.12.4
 	status = addon
+	repoType = inherited
 [submodule "qtgraphicaleffects"]
 	depends = qtdeclarative
 	path = qtgraphicaleffects
 	url = ../qtgraphicaleffects.git
-	branch = 5.12.3
+	branch = 5.12.4
 	status = addon
+	repoType = inherited
 [submodule "qtquickcontrols"]
 	depends = qtdeclarative
 	recommends = qtgraphicaleffects
 	path = qtquickcontrols
 	url = ../qtquickcontrols.git
-	branch = 5.12.3
+	branch = 5.12.4
 	status = addon
+	repoType = inherited
 [submodule "qtserialbus"]
 	depends = qtserialport
 	path = qtserialbus
 	url = ../qtserialbus.git
-	branch = 5.12.3
+	branch = 5.12.4
 	status = addon
+	repoType = inherited
 [submodule "qtserialport"]
 	depends = qtbase
 	path = qtserialport
 	url = ../qtserialport.git
-	branch = 5.12.3
+	branch = 5.12.4
 	status = addon
+	repoType = inherited
 [submodule "qtx11extras"]
 	depends = qtbase
 	path = qtx11extras
 	url = ../qtx11extras.git
-	branch = 5.12.3
+	branch = 5.12.4
 	status = addon
+	repoType = inherited
 [submodule "qtmacextras"]
 	depends = qtbase
 	path = qtmacextras
 	url = ../qtmacextras.git
-	branch = 5.12.3
+	branch = 5.12.4
 	status = addon
+	repoType = inherited
 [submodule "qtwinextras"]
 	depends = qtbase
 	recommends = qtdeclarative qtmultimedia
 	path = qtwinextras
 	url = ../qtwinextras.git
-	branch = 5.12.3
+	branch = 5.12.4
 	status = addon
+	repoType = inherited
 [submodule "qtandroidextras"]
 	depends = qtbase
 	path = qtandroidextras
 	url = ../qtandroidextras.git
-	branch = 5.12.3
+	branch = 5.12.4
 	status = addon
+	repoType = inherited
 [submodule "qtwebsockets"]
 	depends = qtbase
 	recommends = qtdeclarative
 	path = qtwebsockets
 	url = ../qtwebsockets.git
-	branch = 5.12.3
+	branch = 5.12.4
 	status = addon
+	repoType = inherited
 [submodule "qtwebchannel"]
 	depends = qtbase
 	recommends = qtdeclarative qtwebsockets
 	path = qtwebchannel
 	url = ../qtwebchannel.git
-	branch = 5.12.3
+	branch = 5.12.4
 	status = addon
+	repoType = inherited
 [submodule "qtwebengine"]
 	depends = qtdeclarative
 	recommends = qtquickcontrols qtquickcontrols2 qtlocation qtwebchannel qttools
 	path = qtwebengine
 	url = ../qtwebengine.git
-	branch = 5.12.3
+	branch = 5.12.4
 	status = addon
 	priority = 10
+	repoType = inherited
 [submodule "qtcanvas3d"]
 	depends = qtdeclarative
 	path = qtcanvas3d
 	url = ../qtcanvas3d.git
-	branch = 5.12.3
+	branch = 5.12.4
 	status = addon
+	repoType = inherited
 [submodule "qtwebview"]
 	depends = qtdeclarative
 	recommends = qtwebengine
 	path = qtwebview
 	url = ../qtwebview.git
-	branch = 5.12.3
+	branch = 5.12.4
 	status = addon
+	repoType = inherited
 [submodule "qtquickcontrols2"]
 	depends = qtgraphicaleffects
 	recommends = qtimageformats
 	path = qtquickcontrols2
 	url = ../qtquickcontrols2.git
-	branch = 5.12.3
+	branch = 5.12.4
 	status = essential
+	repoType = inherited
 [submodule "qtpurchasing"]
 	depends = qtbase
 	recommends = qtdeclarative qtandroidextras
 	path = qtpurchasing
 	url = ../qtpurchasing.git
-	branch = 5.12.3
+	branch = 5.12.4
 	status = addon
+	repoType = inherited
 [submodule "qtcharts"]
 	depends = qtbase
 	recommends = qtdeclarative qtmultimedia
 	path = qtcharts
 	url = ../qtcharts.git
-	branch = 5.12.3
+	branch = 5.12.4
 	status = addon
+	repoType = inherited
 [submodule "qtdatavis3d"]
 	depends = qtbase
 	recommends = qtdeclarative qtmultimedia
 	path = qtdatavis3d
 	url = ../qtdatavis3d.git
-	branch = 5.12.3
+	branch = 5.12.4
 	status = addon
+	repoType = inherited
 [submodule "qtvirtualkeyboard"]
 	depends = qtbase qtdeclarative qtsvg
 	recommends = qtmultimedia qtquickcontrols
 	path = qtvirtualkeyboard
 	url = ../qtvirtualkeyboard.git
-	branch = 5.12.3
+	branch = 5.12.4
 	status = addon
+	repoType = inherited
 [submodule "qtgamepad"]
 	depends = qtbase
 	recommends = qtdeclarative
 	path = qtgamepad
 	url = ../qtgamepad.git
-	branch = 5.12.3
+	branch = 5.12.4
 	status = addon
+	repoType = inherited
 [submodule "qtscxml"]
 	depends = qtbase qtdeclarative
 	path = qtscxml
 	url = ../qtscxml.git
-	branch = 5.12.3
+	branch = 5.12.4
 	status = addon
+	repoType = inherited
 [submodule "qtspeech"]
 	depends = qtbase
 	recommends = qtdeclarative qtmultimedia
 	path = qtspeech
 	url = ../qtspeech.git
-	branch = 5.12.3
+	branch = 5.12.4
 	status = addon
+	repoType = inherited
 [submodule "qtnetworkauth"]
 	depends = qtbase
 	path = qtnetworkauth
 	url = ../qtnetworkauth.git
-	branch = 5.12.3
+	branch = 5.12.4
 	status = addon
+	repoType = inherited
 [submodule "qtremoteobjects"]
 	depends = qtbase
 	recommends = qtdeclarative
 	path = qtremoteobjects
 	url = ../qtremoteobjects.git
-	branch = 5.12.3
+	branch = 5.12.4
 	status = addon
+	repoType = inherited
 [submodule "qtwebglplugin"]
 	depends = qtbase qtwebsockets
 	recommends = qtdeclarative
 	path = qtwebglplugin
 	url = ../qtwebglplugin.git
-	branch = 5.12.3
+	branch = 5.12.4
 	status = addon
+	repoType = inherited
+[submodule "qtknx"]
+	depends = qtbase
+	recommends = qtdeclarative
+	path = qtknx
+	url = ../qtknx.git
+	branch = 5.12.4
+	status = addon
+	project = qtknx.pro
+[submodule "qtmqtt"]
+	depends = qtbase
+	path = qtmqtt
+	url = ../qtmqtt.git
+	branch = 5.12.4
+	status = addon
+	project = qtmqtt.pro
+[submodule "emulator"]
+	depends = qtbase qtdeclarative
+	path = emulator
+	url = ../../tqtc-boot2qt/emulator
+	branch = master
+	status = addon
+[submodule "qtopcua"]
+	depends = qtbase qtdeclarative
+	path = qtopcua
+	url = ../qtopcua.git
+	branch = 5.12.4
+	status = addon
+[submodule "GammaRay"]
+	depends = qtbase qtdeclarative qtlocation qtsvg qttools qtconnectivity qt3d qtivi qtscxml qtwayland
+	path = GammaRay
+	url = https://github.com/KDAB/GammaRay
+	branch = 5.12
+	status = ignore
+	project = gammaray-qt-ci-only.pro
+[submodule "qtsimulator"]
+	depends = qtbase
+	path = qtsimulator
+	url = ../../tqtc-boot2qt/qtsimulator
+	branch = master
+	status = ignore
+[submodule "neptune3-ui"]
+	depends = qtbase qtdeclarative qtquickcontrols2 qttools qtapplicationmanager qtivi
+	path = neptune3-ui
+	url = ../../qt-apps/neptune3-ui
+	branch = 5.12
+	status = ignore
+[submodule "qtauto-deployment-server"]
+	depends = qtbase
+	path = qtauto-deployment-server
+	url = ../../qt-apps/qtauto-deployment-server
+	branch = 5.12
+	status = ignore
+[submodule "qmllive"]
+	depends = qtbase qtdeclarative
+	path = qmllive
+	url = ../../qt-apps/qmllive
+	branch = 5.12
+	status = ignore
+[submodule "qtapplicationmanager"]
+	depends = qtbase qtdeclarative qtwayland qtandroidextras
+	path = qtapplicationmanager
+	url = ../qtapplicationmanager
+	branch = 5.12
+	status = ignore
+	project = application-manager.pro
+[submodule "qtivi"]
+	depends = qtbase qtdeclarative qtquickcontrols2 qtmultimedia qtremoteobjects qtsimulator
+	path = qtivi
+	url = ../qtivi
+	branch = 5.12
+	status = ignore
+[submodule "qtwebbrowser"]
+	depends = qtbase qtdeclarative qtwebengine
+	path = qtwebbrowser
+	url = ../../qt-apps/qtwebbrowser
+	branch = dev
+	status = ignore

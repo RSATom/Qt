@@ -13,6 +13,7 @@
 #include "core/fxcrt/fx_coordinates.h"
 #include "core/fxcrt/unowned_ptr.h"
 #include "core/fxge/dib/cfx_imagerenderer.h"
+#include "third_party/base/optional.h"
 
 class CFX_DIBitmap;
 class CFX_DIBSource;
@@ -62,6 +63,12 @@ class CPDF_ImageRenderer {
                           CFX_Matrix* pNewMatrix,
                           const FX_RECT& rect) const;
   void HandleFilters();
+  Optional<FX_RECT> GetUnitRect() const;
+  bool GetDimensionsFromUnitRect(const FX_RECT& rect,
+                                 int* left,
+                                 int* top,
+                                 int* width,
+                                 int* height) const;
 
   UnownedPtr<CPDF_RenderStatus> m_pRenderStatus;
   UnownedPtr<CPDF_ImageObject> m_pImageObject;

@@ -39,6 +39,7 @@ namespace internal {
   V(kObjectTagged, "The object is tagged")                                     \
   V(kOffsetOutOfRange, "Offset out of range")                                  \
   V(kOperandIsASmi, "Operand is a smi")                                        \
+  V(kPromiseAlreadySettled, "Promise already settled")                         \
   V(kOperandIsASmiAndNotABoundFunction,                                        \
     "Operand is a smi and not a bound function")                               \
   V(kOperandIsASmiAndNotAConstructor,                                          \

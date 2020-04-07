@@ -48,6 +48,7 @@
 #include <QtLocation/private/qgeofiletilecache_p.h>
 
 #include <QtNetwork/QNetworkAccessManager>
+#include <QtNetwork/QNetworkDiskCache>
 
 QT_BEGIN_NAMESPACE
 
@@ -68,7 +69,20 @@ QGeoTiledMappingManagerEngineOsm::QGeoTiledMappingManagerEngineOsm(const QVarian
 
     setTileSize(QSize(256, 256));
 
-    QNetworkAccessManager *nm = new QNetworkAccessManager();
+    const QByteArray pluginName = "osm";
+    if (parameters.contains(QStringLiteral("osm.mapping.cache.directory"))) {
+        m_cacheDirectory = parameters.value(QStringLiteral("osm.mapping.cache.directory")).toString();
+    } else {
+        // managerName() is not yet set, we have to hardcode the plugin name below
+        m_cacheDirectory = QAbstractGeoTileCache::baseLocationCacheDirectory() + QLatin1String(pluginName);
+    }
+    QNetworkAccessManager *nmCached = new QNetworkAccessManager(this);
+    QNetworkDiskCache *diskCache = new QNetworkDiskCache(this);
+    diskCache->setCacheDirectory(m_cacheDirectory + QLatin1String("/providers"));
+    diskCache->setMaximumCacheSize(100000000000); // enough to prevent diskCache to fiddle with tile cache. it's anyway used only for providers.
+    nmCached->setCache(diskCache);
+
+    QNetworkAccessManager *nm = new QNetworkAccessManager(); // Gets owned by QGeoTileFetcherOsm
     QString domain = QStringLiteral("http://maps-redirect.qt.io/osm/5.8/");
     if (parameters.contains(QStringLiteral("osm.mapping.providersrepository.address"))) {
         QString customAddress = parameters.value(QStringLiteral("osm.mapping.providersrepository.address")).toString();
@@ -162,26 +176,25 @@ QGeoTiledMappingManagerEngineOsm::QGeoTiledMappingManagerEngineOsm(const QVarian
 
 
     /* QGeoTileProviderOsms setup */
-    const QByteArray pluginName = "osm";
-    m_providers.push_back( new QGeoTileProviderOsm( nm,
+    m_providers.push_back( new QGeoTileProviderOsm( nmCached,
             QGeoMapType(QGeoMapType::StreetMap, tr("Street Map"), tr("Street map view in daylight mode"), false, false, 1, pluginName, cameraCaps),
             providers_street, cameraCaps ));
-    m_providers.push_back( new QGeoTileProviderOsm( nm,
+    m_providers.push_back( new QGeoTileProviderOsm( nmCached,
             QGeoMapType(QGeoMapType::SatelliteMapDay, tr("Satellite Map"), tr("Satellite map view in daylight mode"), false, false, 2, pluginName, cameraCaps),
             providers_satellite, cameraCaps ));
-    m_providers.push_back( new QGeoTileProviderOsm( nm,
+    m_providers.push_back( new QGeoTileProviderOsm( nmCached,
             QGeoMapType(QGeoMapType::CycleMap, tr("Cycle Map"), tr("Cycle map view in daylight mode"), false, false, 3, pluginName, cameraCaps),
             providers_cycle, cameraCaps ));
-    m_providers.push_back( new QGeoTileProviderOsm( nm,
+    m_providers.push_back( new QGeoTileProviderOsm( nmCached,
             QGeoMapType(QGeoMapType::TransitMap, tr("Transit Map"), tr("Public transit map view in daylight mode"), false, false, 4, pluginName, cameraCaps),
             providers_transit, cameraCaps ));
-    m_providers.push_back( new QGeoTileProviderOsm( nm,
+    m_providers.push_back( new QGeoTileProviderOsm( nmCached,
             QGeoMapType(QGeoMapType::TransitMap, tr("Night Transit Map"), tr("Public transit map view in night mode"), false, true, 5, pluginName, cameraCaps),
             providers_nighttransit, cameraCaps ));
-    m_providers.push_back( new QGeoTileProviderOsm( nm,
+    m_providers.push_back( new QGeoTileProviderOsm( nmCached,
             QGeoMapType(QGeoMapType::TerrainMap, tr("Terrain Map"), tr("Terrain map view"), false, false, 6, pluginName, cameraCaps),
             providers_terrain, cameraCaps ));
-    m_providers.push_back( new QGeoTileProviderOsm( nm,
+    m_providers.push_back( new QGeoTileProviderOsm( nmCached,
             QGeoMapType(QGeoMapType::PedestrianMap, tr("Hiking Map"), tr("Hiking map view"), false, false, 7, pluginName, cameraCaps),
             providers_hiking, cameraCaps ));
 
@@ -205,7 +218,7 @@ QGeoTiledMappingManagerEngineOsm::QGeoTiledMappingManagerEngineOsm(const QVarian
             m_customCopyright = parameters.value(QStringLiteral("osm.mapping.copyright")).toString();
 
         m_providers.push_back(
-            new QGeoTileProviderOsm( nm,
+            new QGeoTileProviderOsm( nmCached,
                 QGeoMapType(QGeoMapType::CustomMap, tr("Custom URL Map"), tr("Custom url map view set via urlprefix parameter"), false, false, 8, pluginName, cameraCaps),
                 { new TileProvider(tmsServer + QStringLiteral("%z/%x/%y.png"),
                     QStringLiteral("png"),
@@ -235,12 +248,6 @@ QGeoTiledMappingManagerEngineOsm::QGeoTiledMappingManagerEngineOsm(const QVarian
 
 
     /* TILE CACHE */
-    if (parameters.contains(QStringLiteral("osm.mapping.cache.directory"))) {
-        m_cacheDirectory = parameters.value(QStringLiteral("osm.mapping.cache.directory")).toString();
-    } else {
-        // managerName() is not yet set, we have to hardcode the plugin name below
-        m_cacheDirectory = QAbstractGeoTileCache::baseLocationCacheDirectory() + QLatin1String(pluginName);
-    }
     if (parameters.contains(QStringLiteral("osm.mapping.offline.directory")))
         m_offlineDirectory = parameters.value(QStringLiteral("osm.mapping.offline.directory")).toString();
     QGeoFileTileCacheOsm *tileCache = new QGeoFileTileCacheOsm(m_providers, m_offlineDirectory, m_cacheDirectory);

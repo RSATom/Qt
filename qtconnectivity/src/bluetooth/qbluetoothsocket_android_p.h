@@ -112,6 +112,8 @@ public:
     bool canReadLine() const override;
     qint64 bytesToWrite() const override;
 
+    static QBluetoothUuid reverseUuid(const QBluetoothUuid &serviceUuid);
+
     QAndroidJniObject adapter;
     QAndroidJniObject socketObject;
     QAndroidJniObject remoteDevice;

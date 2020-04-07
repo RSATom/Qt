@@ -413,12 +413,12 @@ Reason:
 <context>
     <name>FilterNameDialogClass</name>
     <message>
-        <source>Add Filter Name</source>
-        <translation>Добавление фильтра</translation>
-    </message>
-    <message>
         <source>Filter Name:</source>
         <translation>Название фильтра:</translation>
+    </message>
+    <message>
+        <source>Add Filter Name</source>
+        <translation>Добавление фильтра</translation>
     </message>
 </context>
 <context>
@@ -875,18 +875,6 @@ Reason:
         <translation>Фильтр:</translation>
     </message>
     <message>
-        <source>Attributes:</source>
-        <translation>Атрибуты:</translation>
-    </message>
-    <message>
-        <source>1</source>
-        <translation>1</translation>
-    </message>
-    <message>
-        <source>Add</source>
-        <translation>Добавить</translation>
-    </message>
-    <message>
         <source>Remove</source>
         <translation>Удалить</translation>
     </message>
@@ -949,6 +937,18 @@ Reason:
     <message>
         <source>&lt;Filter&gt;</source>
         <translation>&lt;Фильтр&gt;</translation>
+    </message>
+    <message>
+        <source>Attributes:</source>
+        <translation>Атрибуты:</translation>
+    </message>
+    <message>
+        <source>1</source>
+        <translation>1</translation>
+    </message>
+    <message>
+        <source>Add</source>
+        <translation>Добавить</translation>
     </message>
 </context>
 <context>

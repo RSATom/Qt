@@ -1,5 +1,5 @@
 /*
-    Copyright (C) 2015 The Qt Company Ltd.
+    Copyright (C) 2019 The Qt Company Ltd.
     Copyright (C) 2008, 2009, 2012 Nokia Corporation and/or its subsidiary(-ies)
     Copyright (C) 2007 Staikos Computing Services Inc.
     Copyright (C) 2007 Apple Inc.
@@ -381,6 +381,11 @@
     used as part of the user interface, and not to display external data, for example, when
     displaying a list of results.
 
+    \note The loading process is started and the loadStarted() signal is emitted
+    \e before the request is accepted or rejected. Therefore, a loadFinished()
+    signal that returns \c false is to be expected even after delegating the
+    request.
+
     The \l{QWebEngineUrlRequestInterceptor} class offers further options for intercepting and
     manipulating requests.
 */
@@ -438,7 +443,7 @@
 /*!
     \fn void QWebEnginePage::triggerAction(WebAction action, bool checked = false)
     This function can be called to trigger the specified \a action.
-    It is also called by Qt WebEngine if the user triggers the action, for example
+    It is also called by \QWE if the user triggers the action, for example
     through a context menu item.
 
     If \a action is a checkable action, then \a checked specifies whether the action
@@ -528,7 +533,7 @@
 
     This signal is emitted when a page starts loading content.
 
-    \sa loadFinished()
+    \sa loadFinished(), acceptNavigationRequest()
 */
 
 /*!
@@ -548,7 +553,14 @@
     is independent of script execution or page rendering.
     \a ok will indicate whether the load was successful or any error occurred.
 
-    \sa loadStarted()
+    \note Navigation requests can be delegated to the Qt application instead
+    of having the HTML handler engine process them by overloading the
+    acceptNavigationRequest() function. Because the loading process is started
+    and the loadStarted() signal is emitted \e before the request is accepted
+    or rejected, a \c loadFinished() signal that returns \c false is to be
+    expected even after delegating the request.
+
+    \sa loadStarted(), acceptNavigationRequest()
 */
 
 /*!
@@ -757,6 +769,11 @@
     \code
     page.runJavaScript("document.title", [](const QVariant &v) { qDebug() << v.toString(); });
     \endcode
+
+    Only "plain data" can be returned from JavaScript as the result value.
+    Supported data types include all of the JSON data types as well as, for
+    example, \c{Date} and \c{ArrayBuffer}. Unsupported data types include, for
+    example, \c{Function} and \c{Promise}.
 
     \warning Do not execute lengthy routines in the callback function, because it might block the
     rendering of the web engine page.

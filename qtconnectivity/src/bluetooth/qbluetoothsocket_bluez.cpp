@@ -674,6 +674,9 @@ bool QBluetoothSocketPrivateBluez::setSocketDescriptor(int socketDescriptor, QBl
     connectWriteNotifier = nullptr;
 
     socketType = socketType_;
+    if (socket != -1)
+        QT_CLOSE(socket);
+
     socket = socketDescriptor;
 
     // ensure that O_NONBLOCK is set on new connections.

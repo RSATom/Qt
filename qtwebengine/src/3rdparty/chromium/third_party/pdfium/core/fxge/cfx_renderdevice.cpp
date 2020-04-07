@@ -979,10 +979,22 @@ bool CFX_RenderDevice::DrawNormalText(int nChars,
     for (const FXTEXT_GLYPHPOS& glyph : glyphs) {
       if (!glyph.m_pGlyph)
         continue;
+
+      pdfium::base::CheckedNumeric<int> left = glyph.m_Origin.x;
+      left += glyph.m_pGlyph->m_Left;
+      left -= pixel_left;
+      if (!left.IsValid())
+        continue;
+
+      pdfium::base::CheckedNumeric<int> top = glyph.m_Origin.y;
+      top -= glyph.m_pGlyph->m_Top;
+      top -= pixel_top;
+      if (!top.IsValid())
+        continue;
+
       RetainPtr<CFX_DIBitmap> pGlyph = glyph.m_pGlyph->m_pBitmap;
       bitmap->TransferBitmap(
-          glyph.m_Origin.x + glyph.m_pGlyph->m_Left - pixel_left,
-          glyph.m_Origin.y - glyph.m_pGlyph->m_Top - pixel_top,
+          left.ValueOrDie(), top.ValueOrDie(),
           pGlyph->GetWidth(), pGlyph->GetHeight(), pGlyph, 0, 0);
     }
     return SetBitMask(bitmap, bmp_rect.left, bmp_rect.top, fill_color);

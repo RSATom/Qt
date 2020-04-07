@@ -360,8 +360,8 @@ qint64 QBluetoothSocket::bytesToWrite() const
 /*!
     Attempts to connect to the service described by \a service.
 
-    The socket is opened in the given \a openMode. The \l socketType() may change
-    depending on the protocol required by \a service.
+    The socket is opened in the given \a openMode. The \l socketType() is ignored
+    if \a service specifies a differing \l QBluetoothServiceInfo::socketProtocol().
 
     The socket first enters ConnectingState and attempts to connect to the device providing
     \a service. If a connection is established, QBluetoothSocket enters ConnectedState and
@@ -371,6 +371,9 @@ qint64 QBluetoothSocket::bytesToWrite() const
 
     Note that most platforms require a pairing prior to connecting to the remote device. Otherwise
     the connection process may fail.
+
+    On Android, only RFCOMM connections are possible. This function ignores any socket protocol indicator
+    and assumes RFCOMM.
 
     \sa state(), disconnectFromService()
 */

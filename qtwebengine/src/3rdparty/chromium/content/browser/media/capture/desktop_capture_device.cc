@@ -46,6 +46,10 @@
 #include "third_party/webrtc/modules/desktop_capture/fake_desktop_capturer.h"
 #include "third_party/webrtc/modules/desktop_capture/mouse_cursor_monitor.h"
 
+#if defined(TOOLKIT_QT) && defined(OS_MACOSX)
+#include "base/message_loop/message_pump_mac.h"
+#endif
+
 namespace content {
 
 namespace {
@@ -578,6 +582,12 @@ DesktopCaptureDevice::DesktopCaptureDevice(
     std::unique_ptr<webrtc::DesktopCapturer> capturer,
     DesktopMediaID::Type type)
     : thread_("desktopCaptureThread") {
+#if defined(TOOLKIT_QT) && defined(OS_MACOSX)
+  // Desktop capture needs a CFRunLoop-based message pump.
+  base::Thread::Options options;
+  options.message_pump_factory = base::BindRepeating(&base::MessagePumpMac::Create);
+  CHECK(thread_.StartWithOptions(options));
+#else
 #if defined(OS_WIN) || defined(OS_MACOSX)
   // On Windows/OSX the thread must be a UI thread.
   base::MessageLoop::Type thread_type = base::MessageLoop::TYPE_UI;
@@ -586,6 +596,7 @@ DesktopCaptureDevice::DesktopCaptureDevice(
 #endif
 
   thread_.StartWithOptions(base::Thread::Options(thread_type, 0));
+#endif
 
   core_.reset(new Core(thread_.task_runner(), std::move(capturer), type));
 }

@@ -24,4 +24,4 @@ SUBDIRS += \
 contains(QT_CONFIG, ssl): SUBDIRS += external_IODevice
 
 qtHaveModule(qml): SUBDIRS += qml
-qtConfig(process): SUBDIRS += integration_multiprocess integration_external restart
+qtConfig(process): SUBDIRS += integration_multiprocess proxy_multiprocess integration_external restart

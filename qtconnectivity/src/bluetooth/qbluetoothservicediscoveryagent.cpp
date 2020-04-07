@@ -573,7 +573,8 @@ bool QBluetoothServiceDiscoveryAgentPrivate::isDuplicatedService(
         const QBluetoothServiceInfo &info = discoveredServices.at(j);
         if (info.device() == serviceInfo.device()
                 && info.serviceClassUuids() == serviceInfo.serviceClassUuids()
-                && info.serviceUuid() == serviceInfo.serviceUuid()) {
+                && info.serviceUuid() == serviceInfo.serviceUuid()
+                && info.serverChannel() == serviceInfo.serverChannel()) {
             return true;
         }
     }

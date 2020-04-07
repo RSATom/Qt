@@ -573,8 +573,6 @@ bool QGamepad::buttonA() const
  *
  * The state of the B button.
  * The value is \c true when pressed, and \c false when not pressed.
- *
- * \sa QGamepadManager::connectedGamepads()
  */
 /*!
  * \qmlproperty bool Gamepad::buttonB
@@ -582,8 +580,6 @@ bool QGamepad::buttonA() const
  *
  * The state of the B button.
  * The value is \c true when pressed, and \c false when not pressed.
- *
- * \sa GamepadManager::connectedGamepads()
  */
 bool QGamepad::buttonB() const
 {

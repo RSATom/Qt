@@ -99,7 +99,7 @@ public:
     QSGNode *updatePaintNode(QSGNode *, UpdatePaintNodeData *);
     virtual QSGNode *updateMapItemPaintNode(QSGNode *, UpdatePaintNodeData *);
 
-    virtual QGeoMap::ItemType itemType() const = 0;
+    QGeoMap::ItemType itemType() const;
     qreal mapItemOpacity() const;
 
     void setParentGroup(QDeclarativeGeoMapItemGroup &parentGroup);
@@ -118,6 +118,8 @@ protected:
     float zoomLevelOpacity() const;
     bool childMouseEventFilter(QQuickItem *item, QEvent *event);
     bool isPolishScheduled() const;
+
+    QGeoMap::ItemType m_itemType = QGeoMap::NoItem;
 
 private Q_SLOTS:
     void baseCameraDataChanged(const QGeoCameraData &camera);

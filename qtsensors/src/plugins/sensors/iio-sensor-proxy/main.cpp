@@ -46,6 +46,9 @@
 #include <qsensorbackend.h>
 #include <qsensormanager.h>
 
+#include <QtDBus/QDBusConnection>
+#include <QtDBus/QDBusConnectionInterface>
+
 #include <QtCore/QFile>
 #include <QtCore/QDebug>
 
@@ -57,12 +60,14 @@ class IIOSensorProxySensorPlugin : public QObject, public QSensorPluginInterface
 public:
     void registerSensors() override
     {
-        if (!QSensorManager::isBackendRegistered(QOrientationSensor::type, IIOSensorProxyOrientationSensor::id))
-            QSensorManager::registerBackend(QOrientationSensor::type, IIOSensorProxyOrientationSensor::id, this);
-        if (!QSensorManager::isBackendRegistered(QLightSensor::type, IIOSensorProxyLightSensor::id))
-            QSensorManager::registerBackend(QLightSensor::type, IIOSensorProxyLightSensor::id, this);
-        if (!QSensorManager::isBackendRegistered(QCompass::type, IIOSensorProxyCompass::id))
-            QSensorManager::registerBackend(QCompass::type, IIOSensorProxyCompass::id, this);
+        if (QDBusConnection::systemBus().interface()->isServiceRegistered("net.hadess.SensorProxy")) {
+            if (!QSensorManager::isBackendRegistered(QOrientationSensor::type, IIOSensorProxyOrientationSensor::id))
+                QSensorManager::registerBackend(QOrientationSensor::type, IIOSensorProxyOrientationSensor::id, this);
+            if (!QSensorManager::isBackendRegistered(QLightSensor::type, IIOSensorProxyLightSensor::id))
+                QSensorManager::registerBackend(QLightSensor::type, IIOSensorProxyLightSensor::id, this);
+            if (!QSensorManager::isBackendRegistered(QCompass::type, IIOSensorProxyCompass::id))
+                QSensorManager::registerBackend(QCompass::type, IIOSensorProxyCompass::id, this);
+        }
     }
 
     QSensorBackend *createBackend(QSensor *sensor) override

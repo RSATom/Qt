@@ -101,6 +101,7 @@ See \l{Qt Licensing} for further details.
     \li \l {Remote Object Interaction}
     \li \l {Using Qt Remote Objects}
     \li \l {Troubleshooting Qt Remote Objects}
+    \li \l {Qt Remote Objects Protocol Versioning}
 
  \endlist
 

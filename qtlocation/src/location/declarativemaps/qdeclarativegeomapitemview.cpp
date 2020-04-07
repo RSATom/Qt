@@ -140,17 +140,17 @@ void QDeclarativeGeoMapItemView::classBegin()
 //    connect(m_delegateModel, &QQmlInstanceModel::initItem, this, &QDeclarativeGeoMapItemView::initItem);
 }
 
-void QDeclarativeGeoMapItemView::destroyingItem(QObject */*object*/)
+void QDeclarativeGeoMapItemView::destroyingItem(QObject * /*object*/)
 {
 
 }
 
-void QDeclarativeGeoMapItemView::initItem(int /*index*/, QObject */*object*/)
+void QDeclarativeGeoMapItemView::initItem(int /*index*/, QObject * /*object*/)
 {
 
 }
 
-void QDeclarativeGeoMapItemView::createdItem(int index, QObject */*object*/)
+void QDeclarativeGeoMapItemView::createdItem(int index, QObject * /*object*/)
 {
     if (!m_map)
         return;

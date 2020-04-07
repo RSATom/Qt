@@ -366,6 +366,10 @@ private slots:
     void tailCallWithArguments();
     void deleteSparseInIteration();
     void saveAccumulatorBeforeToInt32();
+    void intMinDividedByMinusOne();
+    void undefinedPropertiesInObjectWrapper();
+    void hugeRegexpQuantifiers();
+    void singletonTypeWrapperLookup();
 
 private:
 //    static void propertyVarWeakRefCallback(v8::Persistent<v8::Value> object, void* parameter);
@@ -8939,6 +8943,90 @@ void tst_qqmlecmascript::saveAccumulatorBeforeToInt32()
     const QJSValue value = engine.evaluate("function a(){a(a&a+a)}a()");
     QVERIFY(value.isError());
     QCOMPARE(value.toString(), QLatin1String("RangeError: Maximum call stack size exceeded."));
+}
+
+void tst_qqmlecmascript::intMinDividedByMinusOne()
+{
+    QQmlEngine engine;
+    QQmlComponent component(&engine);
+    component.setData(QByteArray("import QtQml 2.2\n"
+                                 "QtObject {\n"
+                                 "   property int intMin: -2147483648\n"
+                                 "   property int minusOne: -1\n"
+                                 "   property double doesNotFitInInt: intMin / minusOne\n"
+                                 "}"), QUrl());
+    QVERIFY(component.isReady());
+    QScopedPointer<QObject> object(component.create());
+    QVERIFY(!object.isNull());
+    QCOMPARE(object->property("doesNotFitInInt").toUInt(), 2147483648u);
+}
+
+void tst_qqmlecmascript::undefinedPropertiesInObjectWrapper()
+{
+    QQmlEngine engine;
+    QQmlComponent component(&engine, testFile("undefinedPropertiesInObjectWrapper.qml"));
+    QVERIFY(component.isReady());
+    QScopedPointer<QObject> object(component.create());
+    QVERIFY(!object.isNull());
+}
+
+void tst_qqmlecmascript::hugeRegexpQuantifiers()
+{
+    QJSEngine engine;
+    QJSValue value = engine.evaluate("/({3072140529})?{3072140529}/");
+
+    // It's a regular expression, but it won't match anything.
+    // The RegExp compiler also shouldn't crash.
+    QVERIFY(value.isRegExp());
+}
+
+struct CppSingleton1 : public QObject
+{
+    Q_OBJECT
+    Q_PROPERTY(int testVar MEMBER testVar CONSTANT)
+public:
+    const int testVar = 0;
+};
+
+struct CppSingleton2 : public QObject
+{
+    Q_OBJECT
+    Q_PROPERTY(int testVar MEMBER testVar CONSTANT)
+public:
+    const int testVar = 1;
+};
+
+void tst_qqmlecmascript::singletonTypeWrapperLookup()
+{
+    QQmlEngine engine;
+
+    auto singletonTypeId1 = qmlRegisterSingletonType<CppSingleton1>("Test.Singletons", 1, 0, "CppSingleton1",
+                                                                    [](QQmlEngine *, QJSEngine *) -> QObject * {
+            return new CppSingleton1;
+    });
+
+    auto singletonTypeId2 = qmlRegisterSingletonType<CppSingleton2>("Test.Singletons", 1, 0, "CppSingleton2",
+                                                                    [](QQmlEngine *, QJSEngine *) -> QObject * {
+            return new CppSingleton2;
+    });
+
+    auto cleanup = qScopeGuard([&]() {
+       qmlUnregisterType(singletonTypeId1);
+       qmlUnregisterType(singletonTypeId2);
+    });
+
+    QQmlComponent component(&engine, testFileUrl("SingletonLookupTest.qml"));
+    QScopedPointer<QObject> test(component.create());
+    QVERIFY2(!test.isNull(), qPrintable(component.errorString()));
+
+    auto singleton1 = engine.singletonInstance<CppSingleton1*>(singletonTypeId1);
+    QVERIFY(singleton1);
+
+    auto singleton2 = engine.singletonInstance<CppSingleton2*>(singletonTypeId2);
+    QVERIFY(singleton2);
+
+    QCOMPARE(test->property("firstLookup").toInt(), singleton1->testVar);
+    QCOMPARE(test->property("secondLookup").toInt(), singleton2->testVar);
 }
 
 QTEST_MAIN(tst_qqmlecmascript)

@@ -107,6 +107,7 @@ namespace JobTypes {
         SyncFilterEntityByLayer,
         SyncMaterialGatherer,
         UpdateLayerEntity,
+        UpdateEntityHierarchy,
         SendTextureChangesToFrontend
     };
 

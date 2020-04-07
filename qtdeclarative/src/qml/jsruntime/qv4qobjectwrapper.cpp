@@ -565,9 +565,9 @@ void QObjectWrapper::setProperty(ExecutionEngine *engine, QObject *object, QQmlP
 
         QQmlContextData *callingQmlContext = scope.engine->callingQmlContext();
         if (!QQmlPropertyPrivate::write(object, *property, v, callingQmlContext)) {
-            const char *valueType = nullptr;
-            if (v.userType() == QVariant::Invalid) valueType = "null";
-            else valueType = QMetaType::typeName(v.userType());
+            const char *valueType = (v.userType() == QMetaType::UnknownType)
+                    ? "an unknown type"
+                    : QMetaType::typeName(v.userType());
 
             const char *targetTypeName = QMetaType::typeName(property->propType());
             if (!targetTypeName)
@@ -856,7 +856,7 @@ ReturnedValue QObjectWrapper::virtualResolveLookupGetter(const Object *object, E
     if (!ddata || !ddata->propertyCache) {
         QQmlPropertyData local;
         QQmlPropertyData *property = QQmlPropertyCache::property(engine->jsEngine(), qobj, name, qmlContext, local);
-        return getProperty(engine, qobj, property);
+        return property ? getProperty(engine, qobj, property) : QV4::Encode::undefined();
     }
     QQmlPropertyData *property = ddata->propertyCache->property(name.getPointer(), qobj, qmlContext);
 
@@ -870,7 +870,6 @@ ReturnedValue QObjectWrapper::virtualResolveLookupGetter(const Object *object, E
     }
 
     lookup->qobjectLookup.ic = This->internalClass();
-    lookup->qobjectLookup.staticQObject = nullptr;
     lookup->qobjectLookup.propertyCache = ddata->propertyCache;
     lookup->qobjectLookup.propertyCache->addref();
     lookup->qobjectLookup.propertyData = property;

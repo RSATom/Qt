@@ -195,6 +195,11 @@ private Q_SLOTS:
     void deletePage();
     void closeOpenerTab();
     void switchPage();
+    void setPageDeletesImplicitPage();
+    void setPageDeletesImplicitPage2();
+    void setViewDeletesImplicitPage();
+    void setPagePreservesExplicitPage();
+    void setViewPreservesExplicitPage();
 };
 
 // This will be called before the first test function is executed.
@@ -3194,6 +3199,62 @@ void tst_QWebEngineView::switchPage()
       QTRY_COMPARE(webView.grab().toImage().pixelColor(QPoint(150,150)), Qt::white);
       webView.setPage(&page1);
       QTRY_COMPARE(webView.grab().toImage().pixelColor(QPoint(150,150)), Qt::black);
+}
+
+void tst_QWebEngineView::setPageDeletesImplicitPage()
+{
+    QWebEngineView view;
+    QPointer<QWebEnginePage> implicitPage = view.page();
+    QWebEnginePage explicitPage;
+    view.setPage(&explicitPage);
+    QCOMPARE(view.page(), &explicitPage);
+    QVERIFY(!implicitPage); // should be deleted
+}
+
+void tst_QWebEngineView::setPageDeletesImplicitPage2()
+{
+    QWebEngineView view1;
+    QWebEngineView view2;
+    QPointer<QWebEnginePage> implicitPage = view1.page();
+    view2.setPage(view1.page());
+    QVERIFY(implicitPage);
+    QVERIFY(view1.page() != implicitPage);
+    QWebEnginePage explicitPage;
+    view2.setPage(&explicitPage);
+    QCOMPARE(view2.page(), &explicitPage);
+    QVERIFY(!implicitPage); // should be deleted
+}
+
+void tst_QWebEngineView::setViewDeletesImplicitPage()
+{
+    QWebEngineView view;
+    QPointer<QWebEnginePage> implicitPage = view.page();
+    QWebEnginePage explicitPage;
+    explicitPage.setView(&view);
+    QCOMPARE(view.page(), &explicitPage);
+    QVERIFY(!implicitPage); // should be deleted
+}
+
+void tst_QWebEngineView::setPagePreservesExplicitPage()
+{
+    QWebEngineView view;
+    QPointer<QWebEnginePage> explicitPage1 = new QWebEnginePage(&view);
+    QPointer<QWebEnginePage> explicitPage2 = new QWebEnginePage(&view);
+    view.setPage(explicitPage1.data());
+    view.setPage(explicitPage2.data());
+    QCOMPARE(view.page(), explicitPage2.data());
+    QVERIFY(explicitPage1); // should not be deleted
+}
+
+void tst_QWebEngineView::setViewPreservesExplicitPage()
+{
+    QWebEngineView view;
+    QPointer<QWebEnginePage> explicitPage1 = new QWebEnginePage(&view);
+    QPointer<QWebEnginePage> explicitPage2 = new QWebEnginePage(&view);
+    explicitPage1->setView(&view);
+    explicitPage2->setView(&view);
+    QCOMPARE(view.page(), explicitPage2.data());
+    QVERIFY(explicitPage1); // should not be deleted
 }
 
 QTEST_MAIN(tst_QWebEngineView)

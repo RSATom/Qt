@@ -3259,10 +3259,6 @@ Do you want overwrite the template?</source>
 <context>
     <name>WidgetDataBase</name>
     <message>
-        <source>A custom widget plugin whose class name (%1) matches that of an existing class has been found.</source>
-        <translation>Обнаружен пользовательский модуль виджета, имя класса которого (%1) совпадает с уже имеющимся.</translation>
-    </message>
-    <message>
         <source>The file contains a custom widget &apos;%1&apos; whose base class (%2) differs from the current entry in the widget database (%3). The widget database is left unchanged.</source>
         <translation>Файл содержит пользовательский виджет «%1», базовый класс (%2) которого отличается от текущей записи в базе виджетов (%3). База виджетов оставлена без изменений.</translation>
     </message>
@@ -4535,12 +4531,12 @@ Please select another name.</source>
 <context>
     <name>qdesigner_internal::ObjectInspector</name>
     <message>
-        <source>&amp;Find in Text...</source>
-        <translation>&amp;Найти в тексте...</translation>
-    </message>
-    <message>
         <source>Change Current Page</source>
         <translation>Смена текущей страницы</translation>
+    </message>
+    <message>
+        <source>&amp;Find in Text...</source>
+        <translation>&amp;Найти в тексте...</translation>
     </message>
 </context>
 <context>
@@ -5701,6 +5697,13 @@ Class: %2</source>
     <message>
         <source>Edit name</source>
         <translation>Изменить имя</translation>
+    </message>
+</context>
+<context>
+    <name>qdesigner_internal::WidgetDataBase</name>
+    <message>
+        <source>A custom widget plugin whose class name (%1) matches that of an existing class has been found.</source>
+        <translation>Обнаружен пользовательский модуль виджета, имя класса которого (%1) совпадает с уже имеющимся.</translation>
     </message>
 </context>
 <context>

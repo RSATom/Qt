@@ -900,7 +900,7 @@ bool readInputFile(Options *options)
             options->extraPlugins = extraPlugins.toString().split(QLatin1Char(','));
     }
 
-    if (!options->auxMode) {
+    {
         const QJsonValue stdcppPath = jsonObject.value(QStringLiteral("stdcpp-path"));
         if (stdcppPath.isUndefined()) {
             fprintf(stderr, "No stdcpp-path defined in json file.\n");
@@ -2898,6 +2898,8 @@ int main(int argc, char *argv[])
             return CannotCopyQtFiles;
         if (!copyAndroidExtraResources(options))
             return CannotCopyAndroidExtraResources;
+        if (!copyAndroidExtraLibs(options))
+            return CannotCopyAndroidExtraLibs;
         if (!stripLibraries(options))
             return CannotStripLibraries;
         if (!updateAndroidFiles(options))

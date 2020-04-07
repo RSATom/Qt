@@ -60,6 +60,8 @@ class NoOpGLSurface : public GLSurface {
   DISALLOW_COPY_AND_ASSIGN(NoOpGLSurface);
 };
 
+const int kOpenGL3_2Core = 0x3200;
+const int kOpenGL4_1Core = 0x4100;
 }  // namespace
 
 std::vector<GLImplementation> GetAllowedGLImplementations() {
@@ -79,16 +81,32 @@ bool GetGLWindowSystemBindingInfo(GLWindowSystemBindingInfo* info) {
   return false;
 }
 
+scoped_refptr<GLContext> tryCreateCoreProfileContext(GLShareGroup* share_group,
+                                                     GLSurface* compatible_surface,
+                                                     const GLContextAttribs& attribs) {
+  scoped_refptr<GLContext> context = InitializeGLContext(new GLContextCGL(share_group,
+                                                                          kOpenGL4_1Core),
+                                                         compatible_surface, attribs);
+  if (context != nullptr)
+    return context;
+
+  return InitializeGLContext(new GLContextCGL(share_group, kOpenGL3_2Core),
+                             compatible_surface, attribs);
+}
+
+
 scoped_refptr<GLContext> CreateGLContext(GLShareGroup* share_group,
                                          GLSurface* compatible_surface,
                                          const GLContextAttribs& attribs) {
   TRACE_EVENT0("gpu", "gl::init::CreateGLContext");
   switch (GetGLImplementation()) {
     case kGLImplementationDesktopGL:
-    case kGLImplementationDesktopGLCoreProfile:
     case kGLImplementationAppleGL:
       return InitializeGLContext(new GLContextCGL(share_group),
                                  compatible_surface, attribs);
+    case kGLImplementationDesktopGLCoreProfile:
+      return tryCreateCoreProfileContext(share_group,
+                                         compatible_surface, attribs);
 #if BUILDFLAG(USE_EGL_ON_MAC)
     case kGLImplementationEGLGLES2:
     case kGLImplementationSwiftShaderGL:

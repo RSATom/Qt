@@ -98,7 +98,6 @@ public:
 
     const QGeoShape &geoShape() const override;
     void setGeoShape(const QGeoShape &shape) override;
-    QGeoMap::ItemType itemType() const override;
 
 Q_SIGNALS:
     void coordinateChanged();

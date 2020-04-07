@@ -167,7 +167,8 @@ protected: // variables and methods for pure-QML implementations only
     bool m_visibleChangedConnected;
     bool m_dialogHelperInUse;
 
-    static QQmlComponent *m_decorationComponent;
+    QQmlComponent *m_decorationComponent = nullptr;
+    static QUrl m_decorationComponentUrl;
 
     friend class QtQuick2DialogsPlugin;
 

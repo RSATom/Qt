@@ -118,6 +118,7 @@ QDeclarativeRectangleMapItem::QDeclarativeRectangleMapItem(QQuickItem *parent)
 :   QDeclarativeGeoMapItemBase(parent), border_(this), color_(Qt::transparent), dirtyMaterial_(true),
     updatingGeometry_(false)
 {
+    m_itemType = QGeoMap::MapRectangle;
     setFlag(ItemHasContents, true);
     QObject::connect(&border_, SIGNAL(colorChanged(QColor)),
                      this, SLOT(markSourceDirtyAndUpdate()));
@@ -368,11 +369,6 @@ void QDeclarativeRectangleMapItem::setGeoShape(const QGeoShape &shape)
         emit topLeftChanged(rectangle_.topLeft());
     if (brHasChanged)
         emit bottomRightChanged(rectangle_.bottomRight());
-}
-
-QGeoMap::ItemType QDeclarativeRectangleMapItem::itemType() const
-{
-    return QGeoMap::MapRectangle;
 }
 
 /*!

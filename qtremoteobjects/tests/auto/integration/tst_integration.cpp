@@ -345,8 +345,9 @@ private slots:
         // set property on the replica (test property change packet)
         {
             QSignalSpy spy(tc_rep.data(), SIGNAL(classEnumChanged(TestClassReplica::ClassEnum)));
+            QVERIFY(spy.isValid());
             tc_rep->pushClassEnum(TestClassReplica::Two);
-            QVERIFY(spy.wait());
+            QVERIFY(spy.count() || spy.wait());
 
             QCOMPARE((qint32)tc.classEnum(), (qint32)tc_rep->classEnum());
         }
@@ -405,7 +406,7 @@ private slots:
             QSignalSpy spy(tc_rep.data(), SIGNAL(classEnumChanged(TestClassReplica::ClassEnum)));
             bool res = property.write(tc_repDynamic.data(), TestClassReplica::Two);
             QVERIFY(!res);
-            int methodIndex = metaObject->indexOfMethod("pushClassEnum(ClassEnum)");
+            int methodIndex = metaObject->indexOfMethod("pushClassEnum(TestClassReplica::ClassEnum)");
             QVERIFY(methodIndex >= 0);
             QMetaMethod method = metaObject->method(methodIndex);
             QVERIFY(method.isValid());

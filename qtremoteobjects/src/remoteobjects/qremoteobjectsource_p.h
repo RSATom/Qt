@@ -72,7 +72,7 @@ public:
     void resetObject(QObject *newObject);
     int qt_metacall(QMetaObject::Call call, int methodId, void **a) final;
     QObject *m_object, *m_adapter;
-    const SourceApiMap * const m_api;
+    const SourceApiMap *m_api;
     QVariantList m_marshalledArgs;
     bool hasAdapter() const { return m_adapter; }
     virtual QString name() const = 0;
@@ -84,7 +84,7 @@ public:
     QByteArray m_objectChecksum;
     QMap<int, QPointer<QRemoteObjectSourceBase>> m_children;
     struct Private {
-        Private(QRemoteObjectSourceIo *io) : m_sourceIo(io), isDynamic(false) {}
+        Private(QRemoteObjectSourceIo *io, QRemoteObjectRootSource *root) : m_sourceIo(io), isDynamic(false), root(root) {}
         QRemoteObjectSourceIo *m_sourceIo;
         QVector<IoDeviceBase*> m_listeners;
         QRemoteObjectPackets::DataStreamPacket m_packet;
@@ -92,6 +92,7 @@ public:
         // Types needed during recursively sending a root to a new listener
         QSet<QString> sentTypes;
         bool isDynamic;
+        QRemoteObjectRootSource *root;
     };
     Private *d;
     static const int qobjectPropertyOffset;
@@ -134,6 +135,7 @@ public:
     ~DynamicApiMap() override {}
     QString name() const override { return m_name; }
     QString typeName() const override { return m_typeName; }
+    QByteArray className() const override { return QByteArray(m_metaObject->className()); }
     int enumCount() const override { return m_enumCount; }
     int propertyCount() const override { return m_properties.size(); }
     int signalCount() const override { return m_signals.size(); }
@@ -189,7 +191,7 @@ public:
     QByteArray objectSignature() const override { return m_objectSignature; }
 
     bool isDynamic() const override { return true; }
-private:
+
     int parameterCount(int objectIndex) const;
     int parameterType(int objectIndex, int paramIndex) const;
     const QByteArray signature(int objectIndex) const;

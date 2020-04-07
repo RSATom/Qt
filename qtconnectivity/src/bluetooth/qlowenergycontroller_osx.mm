@@ -339,6 +339,21 @@ void QLowEnergyControllerPrivateOSX::_q_serviceDetailsDiscoveryFinished(QSharedP
     qtService->setState(QLowEnergyService::ServiceDiscovered);
 }
 
+void QLowEnergyControllerPrivateOSX::_q_servicesWereModified()
+{
+    if (!(controllerState == QLowEnergyController::DiscoveringState
+          || controllerState == QLowEnergyController::DiscoveredState)) {
+        qCWarning(QT_BT_OSX) << "services were modified while controller is not in Discovered/Discovering state";
+        return;
+    }
+
+    if (controllerState == QLowEnergyController::DiscoveredState)
+        invalidateServices();
+
+    controllerState = QLowEnergyController::ConnectedState;
+    q_ptr->discoverServices();
+}
+
 void QLowEnergyControllerPrivateOSX::_q_characteristicRead(QLowEnergyHandle charHandle,
                                                            const QByteArray &value)
 {
@@ -989,6 +1004,8 @@ bool QLowEnergyControllerPrivateOSX::connectSlots(OSXBluetooth::LECBManagerNotif
                        this, &QLowEnergyControllerPrivateOSX::_q_serviceDiscoveryFinished);
     ok = ok && connect(notifier, &LECBManagerNotifier::serviceDetailsDiscoveryFinished,
                        this, &QLowEnergyControllerPrivateOSX::_q_serviceDetailsDiscoveryFinished);
+    ok = ok && connect(notifier, &LECBManagerNotifier::servicesWereModified,
+                       this, &QLowEnergyControllerPrivateOSX::_q_servicesWereModified);
     ok = ok && connect(notifier, &LECBManagerNotifier::characteristicRead,
                        this, &QLowEnergyControllerPrivateOSX::_q_characteristicRead);
     ok = ok && connect(notifier, &LECBManagerNotifier::characteristicWritten,

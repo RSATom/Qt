@@ -468,12 +468,21 @@ Node* PromiseBuiltinsAssembler::TriggerPromiseReactions(
     VARIABLE(var_reversed, MachineRepresentation::kTagged,
              SmiConstant(Smi::kZero));
 
+    // As an additional safety net against misuse of the V8 Extras API, we
+    // sanity check the {reactions} to make sure that they are actually
+    // PromiseReaction instances and not actual JavaScript values (which
+    // would indicate that we're rejecting or resolving an already settled
+    // promise), see https://crbug.com/931640 for details on this.
+    TNode<Map> promise_reaction_map =
+        CAST(LoadRoot(Heap::kPromiseReactionMapRootIndex));
+
     Label loop(this, {&var_current, &var_reversed}), done_loop(this);
     Goto(&loop);
     BIND(&loop);
     {
       Node* current = var_current.value();
       GotoIf(TaggedIsSmi(current), &done_loop);
+      CSA_CHECK(this, WordEqual(LoadMap(CAST(current)), promise_reaction_map));
       var_current.Bind(LoadObjectField(current, PromiseReaction::kNextOffset));
       StoreObjectField(current, PromiseReaction::kNextOffset,
                        var_reversed.value());
@@ -935,9 +944,19 @@ TF_BUILTIN(PromiseInternalReject, PromiseBuiltinsAssembler) {
   Node* const promise = Parameter(Descriptor::kPromise);
   Node* const reason = Parameter(Descriptor::kReason);
   Node* const context = Parameter(Descriptor::kContext);
+
+  // Main V8 Extras invariant that {promise} is still "pending" at
+  // this point, aka that {promise} is not resolved multiple times.
+  Label if_promise_is_settled(this, Label::kDeferred);
+  GotoIfNot(IsPromiseStatus(PromiseStatus(promise), v8::Promise::kPending),
+            &if_promise_is_settled);
+
   // We pass true to trigger the debugger's on exception handler.
   Return(CallBuiltin(Builtins::kRejectPromise, context, promise, reason,
                      TrueConstant()));
+
+  BIND(&if_promise_is_settled);
+  Abort(AbortReason::kPromiseAlreadySettled);
 }
 
 // V8 Extras: v8.resolvePromise(promise, resolution)
@@ -945,7 +964,17 @@ TF_BUILTIN(PromiseInternalResolve, PromiseBuiltinsAssembler) {
   Node* const promise = Parameter(Descriptor::kPromise);
   Node* const resolution = Parameter(Descriptor::kResolution);
   Node* const context = Parameter(Descriptor::kContext);
+
+  // Main V8 Extras invariant that {promise} is still "pending" at
+  // this point, aka that {promise} is not resolved multiple times.
+  Label if_promise_is_settled(this, Label::kDeferred);
+  GotoIfNot(IsPromiseStatus(PromiseStatus(promise), v8::Promise::kPending),
+            &if_promise_is_settled);
+
   Return(CallBuiltin(Builtins::kResolvePromise, context, promise, resolution));
+
+  BIND(&if_promise_is_settled);
+  Abort(AbortReason::kPromiseAlreadySettled);
 }
 
 // ES#sec-promise.prototype.then

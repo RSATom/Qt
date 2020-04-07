@@ -293,7 +293,6 @@ ReturnedValue QQmlContextWrapper::getPropertyAndBase(const QQmlContextWrapper *r
                         ScopedValue val(scope, base ? *base : Value::fromReturnedValue(QV4::QObjectWrapper::wrap(v4, scopeObject)));
                         const QObjectWrapper *That = static_cast<const QObjectWrapper *>(val->objectValue());
                         lookup->qobjectLookup.ic = That->internalClass();
-                        lookup->qobjectLookup.staticQObject = nullptr;
                         lookup->qobjectLookup.propertyCache = ddata->propertyCache;
                         lookup->qobjectLookup.propertyCache->addref();
                         lookup->qobjectLookup.propertyData = propertyData;
@@ -326,7 +325,6 @@ ReturnedValue QQmlContextWrapper::getPropertyAndBase(const QQmlContextWrapper *r
                             ScopedValue val(scope, base ? *base : Value::fromReturnedValue(QV4::QObjectWrapper::wrap(v4, context->contextObject)));
                             const QObjectWrapper *That = static_cast<const QObjectWrapper *>(val->objectValue());
                             lookup->qobjectLookup.ic = That->internalClass();
-                            lookup->qobjectLookup.staticQObject = nullptr;
                             lookup->qobjectLookup.propertyCache = ddata->propertyCache;
                             lookup->qobjectLookup.propertyCache->addref();
                             lookup->qobjectLookup.propertyData = propertyData;
@@ -458,11 +456,17 @@ ReturnedValue QQmlContextWrapper::resolveQmlContextPropertyLookupGetter(Lookup *
     // into the handler expression through the locals of the call context. So for onClicked: { ... }
     // the parameters of the clicked signal are injected and we must allow for them to be found here
     // before any other property from the QML context.
-    ExecutionContext &ctx = static_cast<ExecutionContext &>(engine->currentStackFrame->jsFrame->context);
-    if (ctx.d()->type == Heap::ExecutionContext::Type_CallContext) {
-        uint index = ctx.d()->internalClass->indexOfValueOrGetter(name);
-        if (index < UINT_MAX)
-            return static_cast<Heap::CallContext*>(ctx.d())->locals[index].asReturnedValue();
+    for (Heap::ExecutionContext *ctx = engine->currentContext()->d(); ctx; ctx = ctx->outer) {
+        if (ctx->type == Heap::ExecutionContext::Type_CallContext) {
+            const uint index = ctx->internalClass->indexOfValueOrGetter(name);
+            if (index < std::numeric_limits<uint>::max())
+                return static_cast<Heap::CallContext *>(ctx)->locals[index].asReturnedValue();
+        }
+
+        // Skip only block contexts within the current call context.
+        // Other contexts need a regular QML property lookup. See below.
+        if (ctx->type != Heap::ExecutionContext::Type_BlockContext)
+            break;
     }
 
     bool hasProperty = false;

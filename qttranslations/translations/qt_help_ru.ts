@@ -31,6 +31,14 @@
         <translation>Не удалось создать индексные таблицы в файле %1.</translation>
     </message>
     <message>
+        <source>Cannot register index tables in file %1.</source>
+        <translation>Невозможно зарегистрировать индексную таблицу в файле %1.</translation>
+    </message>
+    <message>
+        <source>Cannot unregister index tables in file %1.</source>
+        <translation>Невозможно дерегистрировать индексную таблицу в файле %1.</translation>
+    </message>
+    <message>
         <source>The collection file &quot;%1&quot; already exists.</source>
         <translation>Файл коллекции справки «%1» уже существует.</translation>
     </message>

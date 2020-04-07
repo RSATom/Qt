@@ -63,7 +63,7 @@ QT_BEGIN_NAMESPACE
 namespace QtRemoteObjects {
 
 static const int dataStreamVersion = QDataStream::Qt_5_12;
-static const QLatin1String protocolVersion("QtRO 1.2");
+static const QLatin1String protocolVersion("QtRO 1.3");
 
 }
 

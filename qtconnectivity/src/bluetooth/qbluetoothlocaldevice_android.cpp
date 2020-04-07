@@ -90,23 +90,16 @@ static QAndroidJniObject getDefaultAdapter()
     QAndroidJniObject adapter = QAndroidJniObject::callStaticObjectMethod(
                                     "android/bluetooth/BluetoothAdapter", "getDefaultAdapter",
                                     "()Landroid/bluetooth/BluetoothAdapter;");
+    QAndroidJniExceptionCleaner exCleaner{QAndroidJniExceptionCleaner::OutputMode::Verbose};
     if (!adapter.isValid()) {
-        QAndroidJniEnvironment env;
-        if (env->ExceptionCheck()) {
-            env->ExceptionDescribe();
-            env->ExceptionClear();
-        }
+        exCleaner.clean();
 
         // workaround stupid bt implementations where first call of BluetoothAdapter.getDefaultAdapter() always fails
         adapter = QAndroidJniObject::callStaticObjectMethod(
                                             "android/bluetooth/BluetoothAdapter", "getDefaultAdapter",
                                             "()Landroid/bluetooth/BluetoothAdapter;");
-        if (!adapter.isValid()) {
-            if (env->ExceptionCheck()) {
-                env->ExceptionDescribe();
-                env->ExceptionClear();
-            }
-        }
+        if (!adapter.isValid())
+            exCleaner.clean();
     }
     return adapter;
 }

@@ -40,6 +40,7 @@
 #include "qremoteobjectsource.h"
 #include "qremoteobjectsource_p.h"
 #include "qremoteobjectnode.h"
+#include "qremoteobjectdynamicreplica.h"
 
 #include "qconnectionfactories_p.h"
 #include "qremoteobjectsourceio_p.h"
@@ -145,7 +146,7 @@ QRemoteObjectSource::QRemoteObjectSource(QObject *obj, Private *d, const SourceA
 
 QRemoteObjectRootSource::QRemoteObjectRootSource(QObject *obj, const SourceApiMap *api,
                                                  QObject *adapter, QRemoteObjectSourceIo *sourceIo)
-    : QRemoteObjectSourceBase(obj, new Private(sourceIo), api, adapter)
+    : QRemoteObjectSourceBase(obj, new Private(sourceIo, this), api, adapter)
     , m_name(api->name())
 {
     d->m_sourceIo->registerSource(this);
@@ -189,6 +190,18 @@ void QRemoteObjectSourceBase::resetObject(QObject *newObject)
         m_adapter->disconnect(this);
         delete m_adapter;
         m_adapter = nullptr;
+    }
+    // We need some dynamic replica specific code here, in case an object had null sub-classes that
+    // have been replaced with real objects.  In this case, the ApiMap could be wrong and need updating.
+    if (newObject && qobject_cast<QRemoteObjectDynamicReplica *>(newObject) && m_api->isDynamic()) {
+        auto api = static_cast<const DynamicApiMap*>(m_api);
+        if (api->m_properties[0] == 0) { // 0 is an index into QObject itself, so this isn't a valid QtRO index
+            const auto rep = qobject_cast<QRemoteObjectDynamicReplica *>(newObject);
+            auto tmp = m_api;
+            m_api = new DynamicApiMap(newObject, rep->metaObject(), api->m_name, QLatin1String(rep->metaObject()->className()));
+            qCDebug(QT_REMOTEOBJECT) << "  Reset m_api for" << api->m_name << "using new metaObject:" << rep->metaObject()->className();
+            delete tmp;
+        }
     }
 
     m_object = newObject;
@@ -352,7 +365,9 @@ void QRemoteObjectSourceBase::handleMetaCall(int index, QMetaObject::Call call, 
     }
 
     qCDebug(QT_REMOTEOBJECT) << "# Listeners" << d->m_listeners.length();
-    qCDebug(QT_REMOTEOBJECT) << "Invoke args:" << m_object << call << index << marshalArgs(index, a);
+    qCDebug(QT_REMOTEOBJECT) << "Invoke args:" << m_object
+                             << (call == 0 ? QLatin1String("InvokeMetaMethod") : QStringLiteral("Non-invoked call: %d").arg(call))
+                             << m_api->signalSignature(index) << *marshalArgs(index, a);
 
     serializeInvokePacket(d->m_packet, name(), call, index, *marshalArgs(index, a), -1, propertyIndex);
     d->m_packet.baseAddress = 0;
@@ -364,7 +379,7 @@ void QRemoteObjectSourceBase::handleMetaCall(int index, QMetaObject::Call call, 
 void QRemoteObjectRootSource::addListener(IoDeviceBase *io, bool dynamic)
 {
     d->m_listeners.append(io);
-    d->isDynamic = dynamic;
+    d->isDynamic = d->isDynamic || dynamic;
 
     if (dynamic) {
         d->sentTypes.clear();
@@ -374,11 +389,6 @@ void QRemoteObjectRootSource::addListener(IoDeviceBase *io, bool dynamic)
         serializeInitPacket(d->m_packet, this);
         io->write(d->m_packet.array, d->m_packet.size);
     }
-
-    //Setting isDynamic == false will prevent class definitions from being sent if the
-    //QObject pointer is changed (setting a new subclass pointer).  I.e., class definitions
-    //are only sent by serializeInitDynamicPacket, not propertyChangePackets.
-    d->isDynamic = false;
 }
 
 int QRemoteObjectRootSource::removeListener(IoDeviceBase *io, bool shouldSendRemove)

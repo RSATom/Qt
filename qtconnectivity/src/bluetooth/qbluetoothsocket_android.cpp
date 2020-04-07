@@ -182,30 +182,6 @@ private:
     QPointer<SocketConnectWorker> workerPointer;
 };
 
-/*
- * This function is part of a workaround for QTBUG-61392
- *
- * Returns null uuid if the given \a serviceUuid is not a uuid
- * derived from the Bluetooth base uuid.
- */
-static QBluetoothUuid reverseUuid(const QBluetoothUuid &serviceUuid)
-{
-    if (serviceUuid.isNull())
-        return QBluetoothUuid();
-
-    bool isBaseUuid = false;
-    serviceUuid.toUInt32(&isBaseUuid);
-    if (isBaseUuid)
-        return serviceUuid;
-
-    const quint128 original = serviceUuid.toUInt128();
-    quint128 reversed;
-    for (int i = 0; i < 16; i++)
-        reversed.data[15-i] = original.data[i];
-
-    return QBluetoothUuid(reversed);
-}
-
 QBluetoothSocketPrivateAndroid::QBluetoothSocketPrivateAndroid()
   :
     inputThread(0)
@@ -518,7 +494,33 @@ void QBluetoothSocketPrivateAndroid::connectToService(
         return;
     }
 
-    if (!ensureNativeSocket(service.socketProtocol())) {
+    // Workaround for QTBUG-75035
+    /* Not all Android devices publish or discover the SPP uuid for serial services.
+     * Also, Android does not permit the detection of the protocol used by a serial
+     * Bluetooth connection.
+     *
+     * Therefore, QBluetoothServiceDiscoveryAgentPrivate::populateDiscoveredServices()
+     * may have to guess what protocol a potential custom uuid uses. The guessing works
+     * reasonably well as long as the SDP discovery finds the SPP uuid. Otherwise
+     * the SPP and rfcomm protocol info is missing in \a service.
+     *
+     * Android only supports RFCOMM (no L2CP). We assume (in favor of user experience)
+     * that a non-RFCOMM protocol implies a missing SPP uuid during discovery but the user
+     * still wanting to connect with the given \a service instance.
+     */
+
+    auto protocol = service.socketProtocol();
+    switch (protocol) {
+    case QBluetoothServiceInfo::L2capProtocol:
+    case QBluetoothServiceInfo::UnknownProtocol:
+        qCWarning(QT_BT_ANDROID) << "Changing socket protocol to RFCOMM";
+        protocol = QBluetoothServiceInfo::RfcommProtocol;
+        break;
+    case QBluetoothServiceInfo::RfcommProtocol:
+        break;
+    }
+
+    if (!ensureNativeSocket(protocol)) {
         errorString = QBluetoothSocket::tr("Socket type not supported");
         q->setSocketError(QBluetoothSocket::UnsupportedProtocolError);
         return;
@@ -940,6 +942,32 @@ qint64 QBluetoothSocketPrivateAndroid::bytesAvailable() const
 qint64 QBluetoothSocketPrivateAndroid::bytesToWrite() const
 {
     return 0; // nothing because always unbuffered
+}
+
+/*
+ * This function is part of a workaround for QTBUG-61392
+ *
+ * Returns null uuid if the given \a serviceUuid is not a uuid
+ * derived from the Bluetooth base uuid.
+ */
+QBluetoothUuid QBluetoothSocketPrivateAndroid::reverseUuid(const QBluetoothUuid &serviceUuid)
+{
+    if (QtAndroid::androidSdkVersion() < 23)
+        return serviceUuid;
+
+    if (serviceUuid.isNull())
+        return QBluetoothUuid();
+
+    bool isBaseUuid = false;
+    serviceUuid.toUInt32(&isBaseUuid);
+    if (isBaseUuid)
+        return serviceUuid;
+
+    const quint128 original = serviceUuid.toUInt128();
+    quint128 reversed;
+    for (int i = 0; i < 16; i++)
+        reversed.data[15-i] = original.data[i];
+    return QBluetoothUuid{reversed};
 }
 
 bool QBluetoothSocketPrivateAndroid::canReadLine() const

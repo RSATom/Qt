@@ -1423,6 +1423,16 @@ void tst_QSvgRenderer::testUseElement()
         "   <circle fill=\"#a6ce39\" cx=\"0\" cy=\"0\" r=\"33\" />"
         "  </g>"
         " </defs>"
+        "</svg>",
+        // 17 - Indirect self referral
+        "<svg>"
+        " <defs>"
+        "   <g id=\"g0\">"
+        "     <g id=\"g1\"><use href=\"#g2\"/></g>"
+        "     <g id=\"g2\"><use href=\"#g1\"/></g>"
+        "   </g>"
+        " </defs>"
+        " <use xlink:href=\"#g0\" fill=\"black\"/>"
         "</svg>"
     };
 

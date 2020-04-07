@@ -7,15 +7,12 @@ QT += qml quick webview-private
 SOURCES += \
     $$PWD/webview.cpp
 
-QMLDIR_CONT = \
+DYNAMIC_QMLDIR = \
     "module QtWebView" \
     "plugin declarative_webview" \
     "typeinfo plugins.qmltypes" \
     "classname QWebViewModule"
-qtHaveModule(webengine):QMLDIR_CONT += "depends QtWebEngine 1.0"
-
-QMLDIR_FILE = $$_PRO_FILE_PWD_/qmldir
-write_file($$QMLDIR_FILE, QMLDIR_CONT)|error("Aborting.")
+qtHaveModule(webengine):DYNAMIC_QMLDIR += "depends QtWebEngine 1.0"
 load(qml_plugin)
 
 OTHER_FILES += qmldir

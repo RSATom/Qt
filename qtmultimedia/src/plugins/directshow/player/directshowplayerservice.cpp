@@ -403,8 +403,6 @@ void DirectShowPlayerService::doSetUrlSource(QMutexLocker *locker)
             m_pendingTasks |= SetRate;
 
         m_source = source;
-    } else if (!m_resources.isEmpty()) {
-        m_pendingTasks |= SetUrlSource;
     } else {
         m_graphStatus = InvalidMedia;
 
@@ -951,7 +949,6 @@ void DirectShowPlayerService::pause()
 
     if (m_executedTasks & Render) {
         if (m_executedTasks & Stop) {
-            m_atEnd = false;
             if (m_seekPosition == -1) {
                 m_dontCacheNextSeekResult = true;
                 m_seekPosition = 0;
@@ -977,7 +974,8 @@ void DirectShowPlayerService::doPause(QMutexLocker *locker)
         control->Release();
 
         if (SUCCEEDED(hr)) {
-            if (IMediaSeeking *seeking = com_cast<IMediaSeeking>(m_graph, IID_IMediaSeeking)) {
+            IMediaSeeking *seeking = com_cast<IMediaSeeking>(m_graph, IID_IMediaSeeking);
+            if (!m_atEnd && seeking) {
                 LONGLONG position = 0;
 
                 seeking->GetCurrentPosition(&position);
@@ -986,6 +984,7 @@ void DirectShowPlayerService::doPause(QMutexLocker *locker)
                 m_position = position / qt_directShowTimeScale;
             } else {
                 m_position = 0;
+                m_atEnd = false;
             }
 
             m_executedTasks |= Pause;
@@ -1616,7 +1615,7 @@ void DirectShowPlayerService::updateStatus()
         m_playerControl->updateStatus(QMediaPlayer::LoadingMedia);
         break;
     case Loaded:
-        if ((m_pendingTasks | m_executingTask | m_executedTasks) & (Play | Pause)) {
+        if ((m_executingTask | m_executedTasks) & (Play | Pause)) {
             if (m_buffering)
                 m_playerControl->updateStatus(QMediaPlayer::BufferingMedia);
             else

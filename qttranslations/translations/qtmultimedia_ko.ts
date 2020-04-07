@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!DOCTYPE TS>
-<TS version="2.0" language="ko">
+<TS version="2.1" language="ko">
 <context>
     <name>AudioContainerControl</name>
     <message>
@@ -23,116 +23,116 @@
     <name>BbCameraAudioEncoderSettingsControl</name>
     <message>
         <source>No compression</source>
-        <translation>압축 없음</translation>
+        <translation type="vanished">압축 없음</translation>
     </message>
     <message>
         <source>AAC compression</source>
-        <translation>AAC 압축</translation>
+        <translation type="vanished">AAC 압축</translation>
     </message>
     <message>
         <source>PCM uncompressed</source>
-        <translation>PCM 비압축</translation>
+        <translation type="vanished">PCM 비압축</translation>
     </message>
 </context>
 <context>
     <name>BbCameraMediaRecorderControl</name>
     <message>
         <source>Unable to retrieve mute status</source>
-        <translation>음소거 상태를 가져올 수 없음</translation>
+        <translation type="vanished">음소거 상태를 가져올 수 없음</translation>
     </message>
     <message>
         <source>Unable to retrieve audio input volume</source>
-        <translation>오디오 입력 음량을 가져올 수 없음</translation>
+        <translation type="vanished">오디오 입력 음량을 가져올 수 없음</translation>
     </message>
     <message>
         <source>Unable to set mute status</source>
-        <translation>음소거 상태를 설정할 수 없음</translation>
+        <translation type="vanished">음소거 상태를 설정할 수 없음</translation>
     </message>
     <message>
         <source>Unable to set audio input volume</source>
-        <translation>오디오 입력 음량을 설정할 수 없음</translation>
+        <translation type="vanished">오디오 입력 음량을 설정할 수 없음</translation>
     </message>
 </context>
 <context>
     <name>BbCameraSession</name>
     <message>
         <source>Camera provides image in unsupported format</source>
-        <translation>카메라에서 제공하는 그림 형식을 지원하지 않음</translation>
+        <translation type="vanished">카메라에서 제공하는 그림 형식을 지원하지 않음</translation>
     </message>
     <message>
         <source>Could not load JPEG data from frame</source>
-        <translation>프레임에서 JPEG 데이터를 불러올 수 없음</translation>
+        <translation type="vanished">프레임에서 JPEG 데이터를 불러올 수 없음</translation>
     </message>
     <message>
         <source>Camera not ready</source>
-        <translation>카메라가 준비되지 않음</translation>
+        <translation type="vanished">카메라가 준비되지 않음</translation>
     </message>
     <message>
         <source>Unable to apply video settings</source>
-        <translation>동영상 설정을 적용할 수 없음</translation>
+        <translation type="vanished">동영상 설정을 적용할 수 없음</translation>
     </message>
     <message>
         <source>Could not open destination file:
 %1</source>
-        <translation>대상 파일을 열 수 없음:
+        <translation type="vanished">대상 파일을 열 수 없음:
 %1</translation>
     </message>
     <message>
         <source>Unable to open camera</source>
-        <translation>카메라를 열 수 없음</translation>
+        <translation type="vanished">카메라를 열 수 없음</translation>
     </message>
     <message>
         <source>Unable to retrieve native camera orientation</source>
-        <translation>네이티브 카메라 방향을 가져올 수 없음</translation>
+        <translation type="vanished">네이티브 카메라 방향을 가져올 수 없음</translation>
     </message>
     <message>
         <source>Unable to close camera</source>
-        <translation>카메라를 닫을 수 없음</translation>
+        <translation type="vanished">카메라를 닫을 수 없음</translation>
     </message>
     <message>
         <source>Unable to start video recording</source>
-        <translation>동영상 녹화를 시작할 수 없음</translation>
+        <translation type="vanished">동영상 녹화를 시작할 수 없음</translation>
     </message>
     <message>
         <source>Unable to stop video recording</source>
-        <translation>동영상 녹화를 중지할 수 없음</translation>
+        <translation type="vanished">동영상 녹화를 중지할 수 없음</translation>
     </message>
 </context>
 <context>
     <name>BbCameraVideoEncoderSettingsControl</name>
     <message>
         <source>No compression</source>
-        <translation>압축 없음</translation>
+        <translation type="vanished">압축 없음</translation>
     </message>
     <message>
         <source>AVC1 compression</source>
-        <translation>AVC1 압축</translation>
+        <translation type="vanished">AVC1 압축</translation>
     </message>
     <message>
         <source>H264 compression</source>
-        <translation>H264 압축</translation>
+        <translation type="vanished">H264 압축</translation>
     </message>
 </context>
 <context>
     <name>BbImageEncoderControl</name>
     <message>
         <source>JPEG image</source>
-        <translation>JPEG 그림</translation>
+        <translation type="vanished">JPEG 그림</translation>
     </message>
 </context>
 <context>
     <name>BbVideoDeviceSelectorControl</name>
     <message>
         <source>Front Camera</source>
-        <translation>전면 카메라</translation>
+        <translation type="vanished">전면 카메라</translation>
     </message>
     <message>
         <source>Rear Camera</source>
-        <translation>후면 카메라</translation>
+        <translation type="vanished">후면 카메라</translation>
     </message>
     <message>
         <source>Desktop Camera</source>
-        <translation>데스크톱 카메라</translation>
+        <translation type="vanished">데스크톱 카메라</translation>
     </message>
 </context>
 <context>
@@ -174,12 +174,52 @@
 <context>
     <name>DSCameraSession</name>
     <message>
+        <source>Failed to configure preview format</source>
+        <translation>미리 보기 형식을 설정할 수 없음</translation>
+    </message>
+    <message>
+        <source>Failed to connect graph</source>
+        <translation>그래프를 연결할 수 없음</translation>
+    </message>
+    <message>
+        <source>Failed to get stream control</source>
+        <translation>스트림 제어를 가져올 수 없음</translation>
+    </message>
+    <message>
+        <source>Failed to start</source>
+        <translation>시작할 수 없음</translation>
+    </message>
+    <message>
+        <source>Failed to stop</source>
+        <translation>중지할 수 없음</translation>
+    </message>
+    <message>
         <source>Camera not ready for capture</source>
         <translation>카메라에서 캡처가 준비되지 않음</translation>
     </message>
     <message>
         <source>Could not save image to file.</source>
         <translation>그림을 파일로 저장할 수 없습니다.</translation>
+    </message>
+    <message>
+        <source>Failed to create filter graph</source>
+        <translation>필터 그래프를 만들 수 없음</translation>
+    </message>
+    <message>
+        <source>Failed to create graph builder</source>
+        <translation>그래프 빌더를 만들 수 없음</translation>
+    </message>
+    <message>
+        <source>Failed to connect capture graph and filter graph</source>
+        <translation>캡처 그래프와 필터 그래프를 연결할 수 없음</translation>
+    </message>
+    <message>
+        <source>No capture device found</source>
+        <translation>캡처 장치를 찾을 수 없음</translation>
+    </message>
+    <message>
+        <source>Failed to create null renderer</source>
+        <translation>빈 렌더러를 만들 수 없음</translation>
     </message>
 </context>
 <context>
@@ -190,7 +230,7 @@
     </message>
     <message>
         <source>Attempting to play invalid Qt resource.</source>
-        <translation>잘못된 Qt 자원을 재생하려고 하였습니다.</translation>
+        <translation>잘못된 Qt 리소스를 재생하려고 했습니다.</translation>
     </message>
     <message>
         <source>The system cannot find the file specified.</source>
@@ -262,11 +302,11 @@
     </message>
     <message>
         <source>Media session non-fatal error.</source>
-        <translation>미디어 세션에서 치명적이지 않은 오류가 발생하였습니다.</translation>
+        <translation>미디어 세션에서 치명적이지 않은 오류가 발생했습니다.</translation>
     </message>
     <message>
         <source>Media session serious error.</source>
-        <translation>미디어 세션에서 치명적인 오류가 발생하였습니다.</translation>
+        <translation>미디어 세션에서 치명적인 오류가 발생했습니다.</translation>
     </message>
     <message>
         <source>Unsupported media, a codec is missing.</source>
@@ -396,7 +436,7 @@
     <name>QGstreamerAudioEncode</name>
     <message>
         <source>Raw PCM audio</source>
-        <translation>원본 PCM 오디오</translation>
+        <translation type="vanished">원본 PCM 오디오</translation>
     </message>
 </context>
 <context>
@@ -442,7 +482,7 @@
     <name>QGstreamerPlayerControl</name>
     <message>
         <source>Attempting to play invalid Qt resource</source>
-        <translation>잘못된 Qt 자원을 재생하려고 함</translation>
+        <translation type="vanished">잘못된 Qt 자원을 재생하려고 함</translation>
     </message>
     <message>
         <source>Attempting to play invalid user stream</source>
@@ -461,7 +501,7 @@
     </message>
     <message>
         <source>Media is loaded as a playlist</source>
-        <translation>재생 목록으로 미디어를 불러옴</translation>
+        <translation type="vanished">재생 목록으로 미디어를 불러옴</translation>
     </message>
 </context>
 <context>
@@ -490,7 +530,7 @@
     <name>QMediaPlayer</name>
     <message>
         <source>Attempting to play invalid Qt resource</source>
-        <translation>잘못된 Qt 자원을 재생하려고 함</translation>
+        <translation>잘못된 Qt 리소스를 재생하려고 함</translation>
     </message>
     <message>
         <source>The QMediaPlayer object does not have a valid service</source>
@@ -558,6 +598,10 @@
         <translation>재생 목록 파일에 잘못된 줄이 있음</translation>
     </message>
     <message>
+        <source>Invalid stream</source>
+        <translation>잘못된 스트림</translation>
+    </message>
+    <message>
         <source>Empty file provided</source>
         <translation>빈 파일을 제공함</translation>
     </message>
@@ -570,15 +614,15 @@
     <name>QPlaylistFileParserPrivate</name>
     <message>
         <source>%1 playlist type is unknown</source>
-        <translation>%1 재생 목록 형식을 알 수 없음</translation>
+        <translation type="vanished">%1 재생 목록 형식을 알 수 없음</translation>
     </message>
     <message>
         <source>invalid line in playlist file</source>
-        <translation>재생 목록 파일에 잘못된 줄이 있음</translation>
+        <translation type="vanished">재생 목록 파일에 잘못된 줄이 있음</translation>
     </message>
     <message>
         <source>Empty file provided</source>
-        <translation>빈 파일을 제공함</translation>
+        <translation type="vanished">빈 파일을 제공함</translation>
     </message>
 </context>
 <context>

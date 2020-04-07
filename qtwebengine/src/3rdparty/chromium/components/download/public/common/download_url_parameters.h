@@ -275,6 +275,9 @@ class COMPONENTS_DOWNLOAD_EXPORT DownloadUrlParameters {
     return render_frame_host_routing_id_;
   }
 
+  void set_frame_tree_node_id(int id) { frame_tree_node_id_ = id; }
+  int frame_tree_node_id() const { return frame_tree_node_id_; }
+
   const RequestHeadersType& request_headers() const { return request_headers_; }
   net::URLRequestContextGetter* url_request_context_getter() {
     return url_request_context_getter_.get();
@@ -328,6 +331,7 @@ class COMPONENTS_DOWNLOAD_EXPORT DownloadUrlParameters {
   int render_view_host_routing_id_;
   int render_frame_host_routing_id_;
   scoped_refptr<net::URLRequestContextGetter> url_request_context_getter_;
+  int frame_tree_node_id_;
   DownloadSaveInfo save_info_;
   GURL url_;
   bool do_not_prompt_for_login_;

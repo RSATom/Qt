@@ -37,7 +37,9 @@
 
 set -ex
 
+# shellcheck source=../common/unix/DownloadURL.sh
 source "${BASH_SOURCE%/*}/../common/unix/DownloadURL.sh"
+# shellcheck source=../common/unix/SetEnvVar.sh
 source "${BASH_SOURCE%/*}/../common/unix/SetEnvVar.sh"
 
 echo "Installing Yocto toolchain for 32-bit b2qt..."
@@ -76,7 +78,7 @@ chmod +x "$yoctoInstaller"
 /bin/bash "$yoctoInstaller" -y -d "$yoctoLocationARM64"
 rm -rf "$yoctoInstaller"
 
-if [ -e "$yoctoLocationARMv7/$sysrootARMv7" -a -e "$yoctoLocationARMv7/${crosscompileARMv7}g++" -a -e "$yoctoLocationARM64/$sysrootARM64" -a -e "$yoctoLocationARM64/${crosscompileARM64}g++" ]; then
+if [ -e "$yoctoLocationARMv7/$sysrootARMv7" ] && [ -e "$yoctoLocationARMv7/${crosscompileARMv7}g++" ] && [ -e "$yoctoLocationARM64/$sysrootARM64" ] && [ -e "$yoctoLocationARM64/${crosscompileARM64}g++" ]; then
     SetEnvVar "QEMUARMV7_TOOLCHAIN_SYSROOT" "$yoctoLocationARMv7/$sysrootARMv7"
     SetEnvVar "QEMUARMV7_TOOLCHAIN_CROSS_COMPILE" "$yoctoLocationARMv7/$crosscompileARMv7"
     SetEnvVar "QEMUARM64_TOOLCHAIN_SYSROOT" "$yoctoLocationARM64/$sysrootARM64"
@@ -88,3 +90,9 @@ fi
 
 echo "Yocto ARMv7 toolchain = $versionARM" >> ~/versions.txt
 echo "Yocto ARM64 toolchain = $versionARM64" >> ~/versions.txt
+
+# List qt user in qemu toolchain sysroots
+sudo sh -c "grep ^qt /etc/passwd >> /opt/yocto-armv7/sysroots/armv7ahf-neon-poky-linux-gnueabi/etc/passwd"
+sudo sh -c "grep ^qt /etc/group >> /opt/yocto-armv7/sysroots/armv7ahf-neon-poky-linux-gnueabi/etc/group"
+sudo sh -c "grep ^qt /etc/passwd >> /opt/yocto-arm64/sysroots/aarch64-poky-linux/etc/passwd"
+sudo sh -c "grep ^qt /etc/group >> /opt/yocto-arm64/sysroots/aarch64-poky-linux/etc/group"

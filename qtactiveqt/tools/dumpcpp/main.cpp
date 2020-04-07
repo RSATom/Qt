@@ -935,6 +935,19 @@ static QByteArrayList vTableOnlyStubsFromTypeLib(ITypeLib *typelib, const QStrin
     return result;
 }
 
+static void writeForwardDeclaration(QTextStream &declOut, const QByteArray &className)
+{
+    if (className.startsWith("enum ")) {
+        declOut << "#ifndef Q_CC_MINGW\n"
+                << "    " << className << ';' << endl // Only MSVC accepts this
+                << "#else\n"
+                << "    " << className << " {};" << endl
+                << "#endif\n";
+    } else {
+        declOut << "    " << className << ';' << endl;
+    }
+}
+
 bool generateTypeLibrary(QString typeLibFile, QString outname,
                          const QString &nameSpace, ObjectCategories category)
 {
@@ -1116,7 +1129,7 @@ bool generateTypeLibrary(QString typeLibFile, QString outname,
                     for (int c = 0; c < classList.count(); ++c) {
                         QByteArray className = classList.at(c);
                         if (className.contains(' ')) {
-                            declOut << "    " << className << ';' << endl;
+                            writeForwardDeclaration(declOut, className);
                             namespaceForType.insert(className.mid(className.indexOf(' ') + 1), nspace);
                         } else {
                             declOut << "    class " << className << ';' << endl;

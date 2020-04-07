@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!DOCTYPE TS>
-<TS version="2.0" language="ko_KR">
+<TS version="2.1" language="ko">
 <context>
     <name>AboutDialog</name>
     <message>
@@ -77,7 +77,7 @@
     <message numerus="yes">
         <source>Batch translated %n entries</source>
         <translation>
-            <numerusform>항목 %n개를 일괄 번역하였습니다</numerusform>
+            <numerusform>항목 %n개를 일괄 번역했습니다</numerusform>
         </translation>
     </message>
 </context>
@@ -101,7 +101,7 @@
     </message>
     <message>
         <source>&lt;p&gt;* Context: %1&lt;br&gt;* Source: %2</source>
-        <translation>&lt;p&gt;* 컨텍스트: %1&lt;br&gt;* 원본: %2</translation>
+        <translation>&lt;p&gt;* 콘텍스트: %1&lt;br&gt;* 원본: %2</translation>
     </message>
     <message>
         <source>&lt;br&gt;* Comment: %3</source>
@@ -116,6 +116,11 @@ Will assume a single universal form.</source>
     <message>
         <source>Cannot create &apos;%2&apos;: %1</source>
         <translation>&apos;%2&apos;을(를) 만들 수 없음: %1</translation>
+    </message>
+    <message>
+        <source>%1 (%2)</source>
+        <extracomment>&lt;language&gt; (&lt;country&gt;)</extracomment>
+        <translation>%1(%2)</translation>
     </message>
     <message>
         <source>Universal Form</source>
@@ -133,12 +138,16 @@ Will assume a single universal form.</source>
         <translation>번역된 메시지에 가속기가 빠졌습니다.</translation>
     </message>
     <message>
+        <source>Translation does not have same leading and trailing whitespace as the source text.</source>
+        <translation>번역된 메시지가 원본 메시지와 같은 공백 문자로 시작하거나 끝나지 않았습니다.</translation>
+    </message>
+    <message>
         <source>Translation does not end with the same punctuation as the source text.</source>
         <translation>번역된 메시지가 원본 메시지와 같은 문장 부호로 끝나지 않았습니다.</translation>
     </message>
     <message>
         <source>A phrase book suggestion for &apos;%1&apos; was ignored.</source>
-        <translation>단어장에서 제안한 &apos;%1&apos;을(를) 무시하였습니다.</translation>
+        <translation>단어장에서 제안한 &apos;%1&apos;을(를) 무시했습니다.</translation>
     </message>
     <message>
         <source>Translation does not refer to the same place markers as in the source text.</source>
@@ -150,7 +159,7 @@ Will assume a single universal form.</source>
     </message>
     <message>
         <source>Translation does not contain the necessary %n place marker.</source>
-        <translation>필요한 %n개의 자리 표시자가 번역된 메시지에 포함되지 않았습니다.</translation>
+        <translation type="vanished">필요한 %n개의 자리 표시자가 번역된 메시지에 포함되지 않았습니다.</translation>
     </message>
     <message>
         <source>Unknown error</source>
@@ -232,7 +241,7 @@ Will assume a single universal form.</source>
     </message>
     <message>
         <source>Comments and contexts are searched when checked.</source>
-        <translation>선택하면 설명과 컨텍스트에서 찾습니다.</translation>
+        <translation>선택하면 설명과 콘텍스트에서 찾습니다.</translation>
     </message>
     <message>
         <source>&amp;Comments</source>
@@ -270,6 +279,14 @@ Will assume a single universal form.</source>
     <message>
         <source>Skip &amp;obsolete</source>
         <translation>오래된 항목 건너뛰기(&amp;O)</translation>
+    </message>
+    <message>
+        <source>Lets you use a Perl-compatible regular expression</source>
+        <translation>펄 호환 정규 표현식을 사용할 수 있도록 합니다</translation>
+    </message>
+    <message>
+        <source>Regular &amp;expression</source>
+        <translation>정규 표현식(&amp;E)</translation>
     </message>
 </context>
 <context>
@@ -388,7 +405,7 @@ Return value:
     2 on read failures
     3 on write failures
 </source>
-        <translation>
+        <translation type="vanished">
 사용 방법:
     lconvert [옵션] &lt;infile&gt; [&lt;infile&gt;...]
 
@@ -507,7 +524,7 @@ Options:
     -version
            Display the version of lrelease and exit
 </source>
-        <translation>사용 방법:
+        <translation type="vanished">사용 방법:
     lrelease [옵션] project-file
     lrelease [옵션] ts-files [-qm qm-file]
 
@@ -536,63 +553,63 @@ XML 기반 번역물은 QTranslator에서 사용할 수 있는 &apos;컴파일�
     </message>
     <message>
         <source>lrelease error: %1</source>
-        <translation>lrelease 오류: %1</translation>
+        <translation type="vanished">lrelease 오류: %1</translation>
     </message>
     <message>
         <source>Updating &apos;%1&apos;...
 </source>
-        <translation>&apos;%1&apos; 업데이트 중...
+        <translation type="vanished">&apos;%1&apos; 업데이트 중...
 </translation>
     </message>
     <message>
         <source>Removing translations equal to source text in &apos;%1&apos;...
 </source>
-        <translation>&apos;%1&apos;의 원문과 동일한 번역문 삭제 중...
+        <translation type="vanished">&apos;%1&apos;의 원문과 동일한 번역문 삭제 중...
 </translation>
     </message>
     <message>
         <source>lrelease error: cannot create &apos;%1&apos;: %2
 </source>
-        <translation>lrelease 오류: &apos;%1&apos;을(를) 만들 수 없음: %2
+        <translation type="vanished">lrelease 오류: &apos;%1&apos;을(를) 만들 수 없음: %2
 </translation>
     </message>
     <message>
         <source>lrelease error: cannot save &apos;%1&apos;: %2</source>
-        <translation>lrelease 오류: &apos;%1&apos;을(를) 저장할 수 없음: %2</translation>
+        <translation type="vanished">lrelease 오류: &apos;%1&apos;을(를) 저장할 수 없음: %2</translation>
     </message>
     <message>
         <source>lrelease version %1
 </source>
-        <translation>lrelease 버전 %1
+        <translation type="vanished">lrelease 버전 %1
 </translation>
     </message>
     <message>
         <source>lrelease error: cannot read project file &apos;%1&apos;.
 </source>
-        <translation>lrelease 오류: 프로젝트 파일 &apos;%1&apos;을(를) 읽을 수 없습니다.</translation>
+        <translation type="vanished">lrelease 오류: 프로젝트 파일 &apos;%1&apos;을(를) 읽을 수 없습니다.</translation>
     </message>
     <message>
         <source>lrelease error: cannot process project file &apos;%1&apos;.
 </source>
-        <translation>lrelease 오류: 프로젝트 파일 &apos;%1&apos;을(를) 처리할 수 없습니다.
+        <translation type="vanished">lrelease 오류: 프로젝트 파일 &apos;%1&apos;을(를) 처리할 수 없습니다.
 </translation>
     </message>
     <message>
         <source>lrelease warning: Met no &apos;TRANSLATIONS&apos; entry in project file &apos;%1&apos;
 </source>
-        <translation>lrelease 경고: 프로젝트 파일 &apos;%1&apos;에 &apos;TRANSLATIONS&apos; 항목이 없음
+        <translation type="vanished">lrelease 경고: 프로젝트 파일 &apos;%1&apos;에 &apos;TRANSLATIONS&apos; 항목이 없음
 </translation>
     </message>
     <message numerus="yes">
         <source>Dropped %n message(s) which had no ID.</source>
         <translation>
-            <numerusform>ID가 없는 메시지 %n개를 삭제하였습니다.</numerusform>
+            <numerusform>ID가 없는 메시지 %n개를 삭제했습니다.</numerusform>
         </translation>
     </message>
     <message numerus="yes">
         <source>Excess context/disambiguation dropped from %n message(s).</source>
         <translation>
-            <numerusform>메시지 %n개에서 불필요한 컨텍스트/동음이의 정보를 삭제하였습니다.</numerusform>
+            <numerusform>메시지 %n개에서 불필요한 콘텍스트/동음이의 정보를 삭제했습니다.</numerusform>
         </translation>
     </message>
     <message numerus="yes">
@@ -613,195 +630,195 @@ XML 기반 번역물은 QTranslator에서 사용할 수 있는 &apos;컴파일�
     <message>
         <source>Parenthesis/bracket/brace mismatch between #if and #else branches; using #if branch
 </source>
-        <translation>#if와 #else 분기 사이에서 소/중/대괄호가 일치하지 않음. #if 분기를 사용함
+        <translation type="vanished">#if와 #else 분기 사이에서 소/중/대괄호가 일치하지 않음. #if 분기를 사용함
 </translation>
     </message>
     <message>
         <source>Parenthesis/brace mismatch between #if and #else branches; using #if branch
 </source>
-        <translation>#if와 #else 분기 사이에서 소/중괄호가 일치하지 않음. #if 분기를 사용함
+        <translation type="vanished">#if와 #else 분기 사이에서 소/중괄호가 일치하지 않음. #if 분기를 사용함
 </translation>
     </message>
     <message>
         <source>Unterminated C++ comment
 </source>
-        <translation>C++ 주석이 종료되지 않음
+        <translation type="vanished">C++ 주석이 종료되지 않음
 </translation>
     </message>
     <message>
         <source>Unterminated C++ string
 </source>
-        <translation>C++ 문자열이 종료되지 않음
+        <translation type="vanished">C++ 문자열이 종료되지 않음
 </translation>
     </message>
     <message>
         <source>Excess closing brace in C++ code (or abuse of the C++ preprocessor)
 </source>
-        <translation>C++ 코드에 불필요한 닫는 중괄호가 있음(또는 C++ 전처리기의 잘못된 사용)
+        <translation type="vanished">C++ 코드에 불필요한 닫는 중괄호가 있음(또는 C++ 전처리기의 잘못된 사용)
 </translation>
     </message>
     <message>
         <source>Excess closing parenthesis in C++ code (or abuse of the C++ preprocessor)
 </source>
-        <translation>C++ 코드에 불필요한 닫는 소괄호가 있음(또는 C++ 전처리기의 잘못된 사용)
+        <translation type="vanished">C++ 코드에 불필요한 닫는 소괄호가 있음(또는 C++ 전처리기의 잘못된 사용)
 </translation>
     </message>
     <message>
         <source>Excess closing bracket in C++ code (or abuse of the C++ preprocessor)
 </source>
-        <translation>C++ 코드에 불필요한 닫는 대괄호가 있음(또는 C++ 전처리기의 잘못된 사용)
+        <translation type="vanished">C++ 코드에 불필요한 닫는 대괄호가 있음(또는 C++ 전처리기의 잘못된 사용)
 </translation>
     </message>
     <message>
         <source>circular inclusion of %1
 </source>
-        <translation>%1이(가) 재귀적으로 포함됨
+        <translation type="vanished">%1이(가) 재귀적으로 포함됨
 </translation>
     </message>
     <message>
         <source>Cannot open %1: %2
 </source>
-        <translation>%1을(를) 열 수 없음: %2
+        <translation type="vanished">%1을(를) 열 수 없음: %2
 </translation>
     </message>
     <message>
         <source>//% cannot be used with tr() / QT_TR_NOOP(). Ignoring
 </source>
-        <translation>//%는 tr()/QT_TR_NOOP()와 같이 사용할 수 없음. 무시함
+        <translation type="vanished">//%는 tr()/QT_TR_NOOP()와 같이 사용할 수 없음. 무시함
 </translation>
     </message>
     <message>
         <source>Qualifying with unknown namespace/class %1::%2
 </source>
-        <translation>알 수 없는 네임스페이스/클래스 %1::%2와(과) 일치함</translation>
+        <translation type="vanished">알 수 없는 네임스페이스/클래스 %1::%2와(과) 일치함</translation>
     </message>
     <message>
         <source>tr() cannot be called without context
 </source>
-        <translation>tr()은 컨텍스트 없이 호출될 수 없음
+        <translation type="vanished">tr()은 컨텍스트 없이 호출될 수 없음
 </translation>
     </message>
     <message>
         <source>Class &apos;%1&apos; lacks Q_OBJECT macro
 </source>
-        <translation>클래스 &apos;%1&apos;에 Q_OBJECT 매크로가 없음
+        <translation type="vanished">클래스 &apos;%1&apos;에 Q_OBJECT 매크로가 없음
 </translation>
     </message>
     <message>
         <source>It is not recommended to call tr() from within a constructor &apos;%1::%2&apos;
 </source>
-        <translation>생성자 &apos;%1::%2&apos;에서 tr()을 호출하는 것은 권장하지 않음
+        <translation type="vanished">생성자 &apos;%1::%2&apos;에서 tr()을 호출하는 것은 권장하지 않음
 </translation>
     </message>
     <message>
         <source>//% cannot be used with translate() / QT_TRANSLATE_NOOP(). Ignoring
 </source>
-        <translation>//%는 translate()/QT_TR_NOOP()와 같이 사용할 수 없음. 무시함
+        <translation type="vanished">//%는 translate()/QT_TR_NOOP()와 같이 사용할 수 없음. 무시함
 </translation>
     </message>
     <message>
         <source>//= cannot be used with qtTrId() / QT_TRID_NOOP(). Ignoring
 </source>
-        <translation>//=은 qtTrId()/QT_TRID_NOOP()와 같이 사용할 수 없음. 무시함
+        <translation type="vanished">//=은 qtTrId()/QT_TRID_NOOP()와 같이 사용할 수 없음. 무시함
 </translation>
     </message>
     <message>
         <source>Unexpected character in meta string
 </source>
-        <translation>메타 문자열에 예상하지 못한 글자가 있음
+        <translation type="vanished">메타 문자열에 예상하지 못한 글자가 있음
 </translation>
     </message>
     <message>
         <source>Unterminated meta string
 </source>
-        <translation>메타 문자열이 종료되지 않음
+        <translation type="vanished">메타 문자열이 종료되지 않음
 </translation>
     </message>
     <message>
         <source>Cannot invoke tr() like this
 </source>
-        <translation>tr()을 이렇게 호출할 수 없음
+        <translation type="vanished">tr()을 이렇게 호출할 수 없음
 </translation>
     </message>
     <message>
         <source>Discarding unconsumed meta data
 </source>
-        <translation>사용되지 않은 메타데이터를 무시함
+        <translation type="vanished">사용되지 않은 메타데이터를 무시함
 </translation>
     </message>
     <message>
         <source>Unbalanced opening brace in C++ code (or abuse of the C++ preprocessor)
 </source>
-        <translation>C++ 코드의 여는 중괄호 쌍이 맞지 않음(또는 C++ 전처리기의 잘못된 사용)
+        <translation type="vanished">C++ 코드의 여는 중괄호 쌍이 맞지 않음(또는 C++ 전처리기의 잘못된 사용)
 </translation>
     </message>
     <message>
         <source>Unbalanced opening parenthesis in C++ code (or abuse of the C++ preprocessor)
 </source>
-        <translation>C++ 코드의 여는 소괄호 쌍이 맞지 않음(또는 C++ 전처리기의 잘못된 사용)
+        <translation type="vanished">C++ 코드의 여는 소괄호 쌍이 맞지 않음(또는 C++ 전처리기의 잘못된 사용)
 </translation>
     </message>
     <message>
         <source>Unbalanced opening bracket in C++ code (or abuse of the C++ preprocessor)
 </source>
-        <translation>C++ 코드의 여는 대괄호 쌍이 맞지 않음(또는 C++ 전처리기의 잘못된 사용)
+        <translation type="vanished">C++ 코드의 여는 대괄호 쌍이 맞지 않음(또는 C++ 전처리기의 잘못된 사용)
 </translation>
     </message>
     <message>
         <source>Cannot open %1: %2</source>
-        <translation>%1을(를) 열 수 없음: %2</translation>
+        <translation type="vanished">%1을(를) 열 수 없음: %2</translation>
     </message>
     <message>
         <source>Unterminated Java comment.
 </source>
-        <translation>Java 주석이 종료되지 않았습니다.
+        <translation type="vanished">Java 주석이 종료되지 않았습니다.
 </translation>
     </message>
     <message>
         <source>Invalid Unicode value.
 </source>
-        <translation>유니코드 값이 잘못되었습니다.
+        <translation type="vanished">유니코드 값이 잘못되었습니다.
 </translation>
     </message>
     <message>
         <source>Unterminated string.
 </source>
-        <translation>문자열이 종료되지 않았습니다.
+        <translation type="vanished">문자열이 종료되지 않았습니다.
 </translation>
     </message>
     <message>
         <source>String used in translation can contain only literals concatenated with other literals, not expressions or numbers.
 </source>
-        <translation>번역에 사용하는 문자열은 서로 다른 문자열끼리만 연결되어 있어야 하며, 표현식이나 숫자와는 연결할 수 없습니다.
+        <translation type="vanished">번역에 사용하는 문자열은 서로 다른 문자열끼리만 연결되어 있어야 하며, 표현식이나 숫자와는 연결할 수 없습니다.
 </translation>
     </message>
     <message>
         <source>&apos;class&apos; must be followed by a class name.
 </source>
-        <translation>&apos;class&apos; 다음에는 클래스 이름이 와야 합니다.
+        <translation type="vanished">&apos;class&apos; 다음에는 클래스 이름이 와야 합니다.
 </translation>
     </message>
     <message>
         <source>Excess closing brace.
 </source>
-        <translation>불필요한 닫는 중괄호가 있습니다.</translation>
+        <translation type="vanished">불필요한 닫는 중괄호가 있습니다.</translation>
     </message>
     <message>
         <source>&apos;package&apos; must be followed by package name.
 </source>
-        <translation>&apos;package&apos; 다음에는 패키지 이름이 와야 합니다.
+        <translation type="vanished">&apos;package&apos; 다음에는 패키지 이름이 와야 합니다.
 </translation>
     </message>
     <message>
         <source>Unbalanced opening brace.
 </source>
-        <translation>여는 중괄호의 쌍이 맞지 않습니다.
+        <translation type="vanished">여는 중괄호의 쌍이 맞지 않습니다.
 </translation>
     </message>
     <message>
         <source>Unbalanced opening parenthesis.
 </source>
-        <translation>여는 소괄호의 쌍이 맞지 않습니다.
+        <translation type="vanished">여는 소괄호의 쌍이 맞지 않습니다.
 </translation>
     </message>
     <message>
@@ -861,7 +878,7 @@ Options:
     @lst-file
            Read additional file names (one per line) from lst-file.
 </source>
-        <translation>사용 방법:
+        <translation type="vanished">사용 방법:
     lupdate [옵션] [project-file]...
     lupdate [옵션] [source-file|path|@lst-file]... -ts ts-files|@lst-file
 
@@ -925,179 +942,179 @@ Java, JavaScript/QtScript 원본 코드에서 번역 가능한 문자열을 추�
     <message>
         <source>lupdate warning: Codec for tr() &apos;%1&apos; disagrees with existing file&apos;s codec &apos;%2&apos;. Expect trouble.
 </source>
-        <translation>lupdate 경고: tr()의 코덱 &apos;%1&apos;이(가) 파일의 코덱 &apos;%2&apos;와(과) 일치하지 않습니다. 내보낼 때 문제가 생길 수 있습니다.
+        <translation type="vanished">lupdate 경고: tr()의 코덱 &apos;%1&apos;이(가) 파일의 코덱 &apos;%2&apos;와(과) 일치하지 않습니다. 내보낼 때 문제가 생길 수 있습니다.
 </translation>
     </message>
     <message>
         <source>lupdate warning: Specified target language &apos;%1&apos; disagrees with existing file&apos;s language &apos;%2&apos;. Ignoring.
 </source>
-        <translation>lupdate 경고: 지정한 대상 언어 &apos;%1&apos;이(가) 파일의 언어 &apos;%2&apos;와(과) 다릅니다. 무시합니다.
+        <translation type="vanished">lupdate 경고: 지정한 대상 언어 &apos;%1&apos;이(가) 파일의 언어 &apos;%2&apos;와(과) 다릅니다. 무시합니다.
 </translation>
     </message>
     <message>
         <source>lupdate warning: Specified source language &apos;%1&apos; disagrees with existing file&apos;s language &apos;%2&apos;. Ignoring.
 </source>
-        <translation>lupdate 경고: 지정한 원본 언어 &apos;%1&apos;이(가) 파일의 언어 &apos;%2&apos;와(과) 다릅니다. 무시합니다.
+        <translation type="vanished">lupdate 경고: 지정한 원본 언어 &apos;%1&apos;이(가) 파일의 언어 &apos;%2&apos;와(과) 다릅니다. 무시합니다.
 </translation>
     </message>
     <message>
         <source>Updating &apos;%1&apos;...
 </source>
-        <translation>&apos;%1&apos; 업데이트 중...
+        <translation type="vanished">&apos;%1&apos; 업데이트 중...
 </translation>
     </message>
     <message>
         <source>Stripping non plural forms in &apos;%1&apos;...
 </source>
-        <translation>&apos;%1&apos;의 단수형 삭제하는 중...
+        <translation type="vanished">&apos;%1&apos;의 단수형 삭제하는 중...
 </translation>
     </message>
     <message>
         <source>lupdate warning: Codec for source &apos;%1&apos; is invalid. Falling back to codec for tr().
 </source>
-        <translation>lupdate 경고: 원본 코덱 &apos;%1&apos;이(가) 올바르지 않습니다. tr()의 코덱을 사용합니다.
+        <translation type="vanished">lupdate 경고: 원본 코덱 &apos;%1&apos;이(가) 올바르지 않습니다. tr()의 코덱을 사용합니다.
 </translation>
     </message>
     <message>
         <source>lupdate warning: TS files from command line will override TRANSLATIONS in %1.
 </source>
-        <translation>lupdate 경고: 명령행으로 지정한 TS 파일이 %1의 TRANSLATIONS를 재정의합니다.
+        <translation type="vanished">lupdate 경고: 명령행으로 지정한 TS 파일이 %1의 TRANSLATIONS를 재정의합니다.
 </translation>
     </message>
     <message>
         <source>lupdate warning: TS files from command line prevent recursing into %1.
 </source>
-        <translation>lupdate 경고: 명령행으로 지정한 TS 파일이 %1(으)로 재귀하는 것을 방지합니다.
+        <translation type="vanished">lupdate 경고: 명령행으로 지정한 TS 파일이 %1(으)로 재귀하는 것을 방지합니다.
 </translation>
     </message>
     <message>
         <source>lupdate warning: no TS files specified. Only diagnostics will be produced for &apos;%1&apos;.
 </source>
-        <translation>lupdate 경고: TS 파일이 지정되지 않았습니다. &apos;%1&apos;의 검사만 진행됩니다.
+        <translation type="vanished">lupdate 경고: TS 파일이 지정되지 않았습니다. &apos;%1&apos;의 검사만 진행됩니다.
 </translation>
     </message>
     <message>
         <source>The option -target-language requires a parameter.
 </source>
-        <translation>--target-language 옵션에는 인자가 필요합니다.
+        <translation type="vanished">--target-language 옵션에는 인자가 필요합니다.
 </translation>
     </message>
     <message>
         <source>The option -source-language requires a parameter.
 </source>
-        <translation>--source-language 옵션에는 인자가 필요합니다.
+        <translation type="vanished">--source-language 옵션에는 인자가 필요합니다.
 </translation>
     </message>
     <message>
         <source>The option -disable-heuristic requires a parameter.
 </source>
-        <translation>--disable-heuristic 옵션에는 인자가 필요합니다.
+        <translation type="vanished">--disable-heuristic 옵션에는 인자가 필요합니다.
 </translation>
     </message>
     <message>
         <source>Invalid heuristic name passed to -disable-heuristic.
 </source>
-        <translation>--disable-heuristic에 잘못된 휴리스틱 이름이 전달되었습니다.</translation>
+        <translation type="vanished">--disable-heuristic에 잘못된 휴리스틱 이름이 전달되었습니다.</translation>
     </message>
     <message>
         <source>The option -locations requires a parameter.
 </source>
-        <translation>-locations 옵션에는 인자가 필요합니다.
+        <translation type="vanished">-locations 옵션에는 인자가 필요합니다.
 </translation>
     </message>
     <message>
         <source>Invalid parameter passed to -locations.
 </source>
-        <translation>-locations 옵션에 잘못된 인자가 전달되었습니다.
+        <translation type="vanished">-locations 옵션에 잘못된 인자가 전달되었습니다.
 </translation>
     </message>
     <message>
         <source>The -codecfortr option should be followed by a codec name.
 </source>
-        <translation>-codecfortr 옵션 다음에는 코덱 이름이 와야 합니다.
+        <translation type="vanished">-codecfortr 옵션 다음에는 코덱 이름이 와야 합니다.
 </translation>
     </message>
     <message>
         <source>The -extensions option should be followed by an extension list.
 </source>
-        <translation>-extensions 옵션 다음에는 확장자 목록이 와야 합니다.
+        <translation type="vanished">-extensions 옵션 다음에는 확장자 목록이 와야 합니다.
 </translation>
     </message>
     <message>
         <source>The -pro option should be followed by a filename of .pro file.
 </source>
-        <translation>-pro 옵션 다음에는 .pro 파일이 와야 합니다.
+        <translation type="vanished">-pro 옵션 다음에는 .pro 파일이 와야 합니다.
 </translation>
     </message>
     <message>
         <source>The -I option should be followed by a path.
 </source>
-        <translation>-I 옵션 다음에는 경로가 와야 합니다.
+        <translation type="vanished">-I 옵션 다음에는 경로가 와야 합니다.
 </translation>
     </message>
     <message>
         <source>Unrecognized option &apos;%1&apos;.
 </source>
-        <translation>알 수 없는 옵션 &apos;%1&apos;.
+        <translation type="vanished">알 수 없는 옵션 &apos;%1&apos;.
 </translation>
     </message>
     <message>
         <source>lupdate error: List file &apos;%1&apos; is not readable.
 </source>
-        <translation>lupdate 오류: 목록 파일 &apos;%1&apos;을(를) 읽을 수 없습니다.
+        <translation type="vanished">lupdate 오류: 목록 파일 &apos;%1&apos;을(를) 읽을 수 없습니다.
 </translation>
     </message>
     <message>
         <source>lupdate warning: For some reason, &apos;%1&apos; is not writable.
 </source>
-        <translation>lupdate 경고: 파일 &apos;%1&apos;에 쓸 수 없습니다.</translation>
+        <translation type="vanished">lupdate 경고: 파일 &apos;%1&apos;에 쓸 수 없습니다.</translation>
     </message>
     <message>
         <source>lupdate error: File &apos;%1&apos; has no recognized extension.
 </source>
-        <translation>lupdate 오류: 파일 &apos;%1&apos;의 확장자는 알려져 있지 않습니다.
+        <translation type="vanished">lupdate 오류: 파일 &apos;%1&apos;의 확장자는 알려져 있지 않습니다.
 </translation>
     </message>
     <message>
         <source>lupdate error: File &apos;%1&apos; does not exist.
 </source>
-        <translation>lupdate 오류: 파일 &apos;%1&apos;이(가) 없습니다.
+        <translation type="vanished">lupdate 오류: 파일 &apos;%1&apos;이(가) 없습니다.
 </translation>
     </message>
     <message>
         <source>Scanning directory &apos;%1&apos;...
 </source>
-        <translation>디렉터리 &apos;%1&apos; 검사 중...
+        <translation type="vanished">디렉터리 &apos;%1&apos; 검사 중...
 </translation>
     </message>
     <message>
         <source>lupdate warning: -target-language usually only makes sense with exactly one TS file.
 </source>
-        <translation>lupdate 경고: -target-language는 TS 파일을 하나만 지정했을 때 적용됩니다.
+        <translation type="vanished">lupdate 경고: -target-language는 TS 파일을 하나만 지정했을 때 적용됩니다.
 </translation>
     </message>
     <message>
         <source>lupdate warning: -codecfortr has no effect without -ts.
 </source>
-        <translation>lupdate 경고: --codecfortr 옵션은 -ts 옵션을 지정해야 적용됩니다.
+        <translation type="vanished">lupdate 경고: --codecfortr 옵션은 -ts 옵션을 지정해야 적용됩니다.
 </translation>
     </message>
     <message>
         <source>lupdate warning: no TS files specified. Only diagnostics will be produced.
 </source>
-        <translation>lupdate 경고: TS 파일이 지정되지 않았습니다. 검사만 진행됩니다.
+        <translation type="vanished">lupdate 경고: TS 파일이 지정되지 않았습니다. 검사만 진행됩니다.
 </translation>
     </message>
     <message>
         <source>lupdate error: Both project and source files / include paths specified.
 </source>
-        <translation>lupdate 오류: 프로젝트 파일과 원본 파일/포함 경로 둘 다를 지정하였습니다.
+        <translation type="vanished">lupdate 오류: 프로젝트 파일과 원본 파일/포함 경로 둘 다를 지정하였습니다.
 </translation>
     </message>
     <message numerus="yes">
         <source>    Found %n source text(s) (%1 new and %2 already existing)
 </source>
-        <translation>
+        <translation type="vanished">
             <numerusform>    원본 문자열 %n개 찾음 (새 문자열 %1개, 기존 문자열 %2개)
 </numerusform>
         </translation>
@@ -1105,7 +1122,7 @@ Java, JavaScript/QtScript 원본 코드에서 번역 가능한 문자열을 추�
     <message numerus="yes">
         <source>    Removed %n obsolete entries
 </source>
-        <translation>
+        <translation type="vanished">
             <numerusform>    오래된 항목 %n개 삭제됨
 </numerusform>
         </translation>
@@ -1113,7 +1130,7 @@ Java, JavaScript/QtScript 원본 코드에서 번역 가능한 문자열을 추�
     <message numerus="yes">
         <source>    Kept %n obsolete entries
 </source>
-        <translation>
+        <translation type="vanished">
             <numerusform>    오래된 항목 %n개 보존됨
 </numerusform>
         </translation>
@@ -1121,7 +1138,7 @@ Java, JavaScript/QtScript 원본 코드에서 번역 가능한 문자열을 추�
     <message numerus="yes">
         <source>    Number heuristic provided %n translation(s)
 </source>
-        <translation>
+        <translation type="vanished">
             <numerusform>    숫자 휴리스틱으로 %n개 번역됨
 </numerusform>
         </translation>
@@ -1129,7 +1146,7 @@ Java, JavaScript/QtScript 원본 코드에서 번역 가능한 문자열을 추�
     <message numerus="yes">
         <source>    Same-text heuristic provided %n translation(s)
 </source>
-        <translation>
+        <translation type="vanished">
             <numerusform>    동일 텍스트 휴리스틱으로 %n개 번역됨
 </numerusform>
         </translation>
@@ -1137,18 +1154,18 @@ Java, JavaScript/QtScript 원본 코드에서 번역 가능한 문자열을 추�
     <message numerus="yes">
         <source>    Similar-text heuristic provided %n translation(s)
 </source>
-        <translation>
+        <translation type="vanished">
             <numerusform>    비슷한 텍스트 휴리스틱으로 %n개 번역됨
 </numerusform>
         </translation>
     </message>
     <message>
         <source>Illegal character</source>
-        <translation>잘못된 문자</translation>
+        <translation type="vanished">잘못된 문자</translation>
     </message>
     <message>
         <source>Unclosed string at end of line</source>
-        <translation>줄 끝에서 문자열이 닫히지 않았음</translation>
+        <translation type="vanished">줄 끝에서 문자열이 닫히지 않았음</translation>
     </message>
     <message>
         <source>Illegal escape squence</source>
@@ -1156,82 +1173,82 @@ Java, JavaScript/QtScript 원본 코드에서 번역 가능한 문자열을 추�
     </message>
     <message>
         <source>Illegal escape sequence</source>
-        <translation>잘못된 탈출 시퀀스</translation>
+        <translation type="vanished">잘못된 탈출 시퀀스</translation>
     </message>
     <message>
         <source>Illegal unicode escape sequence</source>
-        <translation>잘못된 유니코드 탈출 문자</translation>
+        <translation type="vanished">잘못된 유니코드 탈출 문자</translation>
     </message>
     <message>
         <source>Unclosed comment at end of file</source>
-        <translation>파일 끝에서 주석이 닫히지 않았음</translation>
+        <translation type="vanished">파일 끝에서 주석이 닫히지 않았음</translation>
     </message>
     <message>
         <source>Illegal syntax for exponential number</source>
-        <translation>지수 표기법이 잘못됨</translation>
+        <translation type="vanished">지수 표기법이 잘못됨</translation>
     </message>
     <message>
         <source>Identifier cannot start with numeric literal</source>
-        <translation>식별자는 숫자 리터럴로 시작할 수 없음</translation>
+        <translation type="vanished">식별자는 숫자 리터럴로 시작할 수 없음</translation>
     </message>
     <message>
         <source>Unterminated regular expression literal</source>
-        <translation>종료되지 않은 정규 표현식 리터럴</translation>
+        <translation type="vanished">종료되지 않은 정규 표현식 리터럴</translation>
     </message>
     <message>
         <source>//% cannot be used with %1(). Ignoring
 </source>
-        <translation>//%는 %1()와(과) 사용될 수 없음. 무시함
+        <translation type="vanished">//%는 %1()와(과) 사용될 수 없음. 무시함
 </translation>
     </message>
     <message>
         <source>%1() requires at least two arguments.
 </source>
-        <translation>%1()에는 최소 2개의 인자가 필요합니다.
+        <translation type="vanished">%1()에는 최소 2개의 인자가 필요합니다.
 </translation>
     </message>
     <message>
         <source>%1(): both arguments must be literal strings.
 </source>
-        <translation>%1(): 두 인자는 문자열 리터럴이어야 합니다.
+        <translation type="vanished">%1(): 두 인자는 문자열 리터럴이어야 합니다.
 </translation>
     </message>
     <message>
         <source>%1() requires at least one argument.
 </source>
-        <translation>%1()에는 최소 1개의 인자가 필요합니다.
+        <translation type="vanished">%1()에는 최소 1개의 인자가 필요합니다.
 </translation>
     </message>
     <message>
         <source>%1(): text to translate must be a literal string.
 </source>
-        <translation>%1(): 번역할 텍스트는 문자열 리터럴이어야 합니다.
+        <translation type="vanished">%1(): 번역할 텍스트는 문자열 리터럴이어야 합니다.
 </translation>
     </message>
     <message>
         <source>//= cannot be used with %1(). Ignoring
 </source>
-        <translation>//=은 %1()와(과) 같이 사용할 수 없음. 무시함
+        <translation type="vanished">//=은 %1()와(과) 같이 사용할 수 없음. 무시함
 </translation>
     </message>
     <message>
         <source>%1(): identifier must be a literal string.
 </source>
-        <translation>%1(): 식별자는 문자열 리터럴이어야 합니다.
+        <translation type="vanished">%1(): 식별자는 문자열 리터럴이어야 합니다.
 </translation>
     </message>
     <message>
         <source>Expected </source>
         <extracomment>Beginning of the string that contains comma-separated list of expected tokens</extracomment>
-        <translation>예상한 토큰</translation>
+        <translation type="vanished">예상한 토큰</translation>
     </message>
     <message>
         <source>XML error: Parse error at line %1, column %2 (%3).</source>
-        <translation>XML 오류: %1번째 줄, %2번째 칸에서 처리 오류 발생(%3).</translation>
+        <translation type="vanished">XML 오류: %1번째 줄, %2번째 칸에서 처리 오류 발생(%3).</translation>
     </message>
     <message>
         <source>Parse error in UI file</source>
-        <translation>UI 파일 처리 오류</translation>
+        <translation type="vanished">UI 파일 처리 오류</translation>
     </message>
 </context>
 <context>
@@ -1550,11 +1567,11 @@ Java, JavaScript/QtScript 원본 코드에서 번역 가능한 문자열을 추�
     </message>
     <message>
         <source>Toggle the validity check of accelerators</source>
-        <translation>가속기 키 유효성 검사 활성화/비활성화</translation>
+        <translation type="vanished">가속기 키 유효성 검사 활성화/비활성화</translation>
     </message>
     <message>
         <source>Toggle the validity check of accelerators, i.e. whether the number of ampersands in the source and translation text is the same. If the check fails, a message is shown in the warnings window.</source>
-        <translation>가속기 키 검사를 켜거나 끕니다. 검사가 켜져 있으면 원문과 번역문의 &amp; 기호 개수가 똑같은 지 검사합니다. 검사가 실패하면 경고 창에 메시지를 표시합니다.</translation>
+        <translation type="vanished">가속기 키 검사를 켜거나 끕니다. 검사가 켜져 있으면 원문과 번역문의 &amp; 기호 개수가 똑같은 지 검사합니다. 검사가 실패하면 경고 창에 메시지를 표시합니다.</translation>
     </message>
     <message>
         <source>&amp;Ending Punctuation</source>
@@ -1562,11 +1579,11 @@ Java, JavaScript/QtScript 원본 코드에서 번역 가능한 문자열을 추�
     </message>
     <message>
         <source>Toggle the validity check of ending punctuation</source>
-        <translation>끝맺는 문장 부호 유효성 검사 활성화/비활성화</translation>
+        <translation type="vanished">끝맺는 문장 부호 유효성 검사 활성화/비활성화</translation>
     </message>
     <message>
         <source>Toggle the validity check of ending punctuation. If the check fails, a message is shown in the warnings window.</source>
-        <translation>원문과 번역문의 끝맺는 문장 부호가 서로 같은지 검사합니다. 검사가 실패하면 경고 창에 메시지를 표시합니다.</translation>
+        <translation type="vanished">원문과 번역문의 끝맺는 문장 부호가 서로 같은지 검사합니다. 검사가 실패하면 경고 창에 메시지를 표시합니다.</translation>
     </message>
     <message>
         <source>&amp;Phrase matches</source>
@@ -1574,11 +1591,11 @@ Java, JavaScript/QtScript 원본 코드에서 번역 가능한 문자열을 추�
     </message>
     <message>
         <source>Toggle checking that phrase suggestions are used</source>
-        <translation>단어장에서 제안한 단어 사용 여부 검사 활성화/비활성화</translation>
+        <translation type="vanished">단어장에서 제안한 단어 사용 여부 검사 활성화/비활성화</translation>
     </message>
     <message>
         <source>Toggle checking that phrase suggestions are used. If the check fails, a message is shown in the warnings window.</source>
-        <translation>단어장에서 제안한 단어를 사용했는지 여부를 검사합니다. 검사가 실패하면 경고 창에 메시지를 표시합니다.</translation>
+        <translation type="vanished">단어장에서 제안한 단어를 사용했는지 여부를 검사합니다. 검사가 실패하면 경고 창에 메시지를 표시합니다.</translation>
     </message>
     <message>
         <source>Place &amp;Marker Matches</source>
@@ -1586,11 +1603,11 @@ Java, JavaScript/QtScript 원본 코드에서 번역 가능한 문자열을 추�
     </message>
     <message>
         <source>Toggle the validity check of place markers</source>
-        <translation>자리 표시자 일치 검사 활성화/비활성화</translation>
+        <translation type="vanished">자리 표시자 일치 검사 활성화/비활성화</translation>
     </message>
     <message>
         <source>Toggle the validity check of place markers, i.e. whether %1, %2, ... are used consistently in the source text and translation text. If the check fails, a message is shown in the warnings window.</source>
-        <translation>원문과 번역문에 있는 %1, %2와 같은 자리 표시자가 올바르게 사용되었는지 검사합니다. 검사가 실패하면 경고 창에 메시지를 표시합니다.</translation>
+        <translation type="vanished">원문과 번역문에 있는 %1, %2와 같은 자리 표시자가 올바르게 사용되었는지 검사합니다. 검사가 실패하면 경고 창에 메시지를 표시합니다.</translation>
     </message>
     <message>
         <source>&amp;New Phrase Book...</source>
@@ -1658,7 +1675,7 @@ Java, JavaScript/QtScript 원본 코드에서 번역 가능한 문자열을 추�
     </message>
     <message>
         <source>Display information about the Qt toolkit by Nokia.</source>
-        <translation>Qt 툴킷의 정보를 표시합니다.</translation>
+        <translation type="vanished">Qt 툴킷의 정보를 표시합니다.</translation>
     </message>
     <message>
         <source>&amp;What&apos;s This?</source>
@@ -1791,7 +1808,7 @@ Java, JavaScript/QtScript 원본 코드에서 번역 가능한 문자열을 추�
     </message>
     <message>
         <source>Context</source>
-        <translation>컨텍스트</translation>
+        <translation>콘텍스트</translation>
     </message>
     <message>
         <source>Items</source>
@@ -1799,7 +1816,7 @@ Java, JavaScript/QtScript 원본 코드에서 번역 가능한 문자열을 추�
     </message>
     <message>
         <source>This panel lists the source contexts.</source>
-        <translation>이 패널은 원본 컨텍스트 목록입니다.</translation>
+        <translation>이 패널은 원본 콘텍스트 목록입니다.</translation>
     </message>
     <message>
         <source>Strings</source>
@@ -1872,7 +1889,7 @@ All files (*)</source>
     </message>
     <message>
         <source>File created.</source>
-        <translation>파일을 생성하였습니다.</translation>
+        <translation>파일을 생성했습니다.</translation>
     </message>
     <message>
         <source>Printing...</source>
@@ -1880,7 +1897,7 @@ All files (*)</source>
     </message>
     <message>
         <source>Context: %1</source>
-        <translation>컨텍스트: %1</translation>
+        <translation>콘텍스트: %1</translation>
     </message>
     <message>
         <source>finished</source>
@@ -1929,7 +1946,7 @@ All files (*)</source>
     <message numerus="yes">
         <source>Translated %n entry(s)</source>
         <translation>
-            <numerusform>항목 %n개를 번역하였습니다</numerusform>
+            <numerusform>항목 %n개를 번역했습니다</numerusform>
         </translation>
     </message>
     <message>
@@ -1989,12 +2006,16 @@ All files (*)</source>
         <translation>버전 %1</translation>
     </message>
     <message>
+        <source>&lt;center&gt;&lt;img src=&quot;:/images/icons/linguist-128-32.png&quot;/&gt;&lt;/img&gt;&lt;p&gt;%1&lt;/p&gt;&lt;/center&gt;&lt;p&gt;Qt Linguist is a tool for adding translations to Qt applications.&lt;/p&gt;&lt;p&gt;Copyright (C) %2 The Qt Company Ltd.</source>
+        <translation>&lt;center&gt;&lt;img src=&quot;:/images/icons/linguist-128-32.png&quot;/&gt;&lt;/img&gt;&lt;p&gt;%1&lt;/p&gt;&lt;/center&gt;&lt;p&gt;Qt Linguist는 Qt 프로그램을 번역하는 도구입니다.&lt;/p&gt;&lt;p&gt;Copyright (C) %2 The Qt Company Ltd.</translation>
+    </message>
+    <message>
         <source>&lt;center&gt;&lt;img src=&quot;:/images/splash.png&quot;/&gt;&lt;/img&gt;&lt;p&gt;%1&lt;/p&gt;&lt;/center&gt;&lt;p&gt;Qt Linguist is a tool for adding translations to Qt applications.&lt;/p&gt;&lt;p&gt;Copyright (C) %2 The Qt Company Ltd.</source>
-        <translation>&lt;center&gt;&lt;img src=&quot;:/images/splash.png&quot;/&gt;&lt;/img&gt;&lt;p&gt;%1&lt;/p&gt;&lt;/center&gt;&lt;p&gt;Qt Linguist는 Qt 프로그램을 번역하는 도구입니다.&lt;/p&gt;&lt;p&gt;저작권자 (C) %2 The Qt Company Ltd.</translation>
+        <translation type="vanished">&lt;center&gt;&lt;img src=&quot;:/images/splash.png&quot;/&gt;&lt;/img&gt;&lt;p&gt;%1&lt;/p&gt;&lt;/center&gt;&lt;p&gt;Qt Linguist는 Qt 프로그램을 번역하는 도구입니다.&lt;/p&gt;&lt;p&gt;저작권자 (C) %2 The Qt Company Ltd.</translation>
     </message>
     <message>
         <source>&lt;center&gt;&lt;img src=&quot;:/images/splash.png&quot;/&gt;&lt;/img&gt;&lt;p&gt;%1&lt;/p&gt;&lt;/center&gt;&lt;p&gt;Qt Linguist is a tool for adding translations to Qt applications.&lt;/p&gt;&lt;p&gt;Copyright (C) 2012 Nokia Corporation and/or its subsidiary(-ies).</source>
-        <translation>&lt;center&gt;&lt;img src=&quot;:/images/splash.png&quot;/&gt;&lt;/img&gt;&lt;p&gt;%1&lt;/p&gt;&lt;/center&gt;&lt;p&gt;Qt Linguist는 Qt 프로그램을 번역하는 도구입니다.&lt;/p&gt;&lt;p&gt;저작권자 (C) 2012 Nokia Corporation and/or its subsidiary(-ies).</translation>
+        <translation type="vanished">&lt;center&gt;&lt;img src=&quot;:/images/splash.png&quot;/&gt;&lt;/img&gt;&lt;p&gt;%1&lt;/p&gt;&lt;/center&gt;&lt;p&gt;Qt Linguist는 Qt 프로그램을 번역하는 도구입니다.&lt;/p&gt;&lt;p&gt;저작권자 (C) 2012 Nokia Corporation and/or its subsidiary(-ies).</translation>
     </message>
     <message>
         <source>Do you want to save the modified files?</source>
@@ -2116,6 +2137,12 @@ All files (*)</source>
         <source>Do you want to save phrase book &apos;%1&apos;?</source>
         <translation>단어장 &apos;%1&apos;을(를) 저장하시겠습니까?</translation>
     </message>
+    <message numerus="yes">
+        <source>%n unfinished message(s) left.</source>
+        <translation>
+            <numerusform>미완료 항목 %n개가 남아 있습니다.</numerusform>
+        </translation>
+    </message>
     <message>
         <source>All</source>
         <translation>모두</translation>
@@ -2134,7 +2161,7 @@ All files (*)</source>
     </message>
     <message>
         <source>Toggle visualize whitespace in editors</source>
-        <translation>편집기에서 공백 문자 표시를 켜거나 끕니다</translation>
+        <translation type="vanished">편집기에서 공백 문자 표시를 켜거나 끕니다</translation>
     </message>
     <message>
         <source>Increase</source>
@@ -2160,6 +2187,90 @@ All files (*)</source>
         <source>Ctrl+0</source>
         <translation>Ctrl+0</translation>
     </message>
+    <message>
+        <source>Guesses</source>
+        <translation>추측</translation>
+    </message>
+    <message>
+        <source>Toggles the validity check of accelerators</source>
+        <translation>가속기 키 유효성 검사 활성화/비활성화</translation>
+    </message>
+    <message>
+        <source>Toggles the validity check of accelerators, i.e. whether the number of ampersands in the source and translation text is the same. If the check fails, a message is shown in the warnings window.</source>
+        <translation>가속기 키 검사를 켜거나 끕니다. 검사가 켜져 있으면 원문과 번역문의 &amp; 기호 개수가 똑같은지 검사합니다. 검사가 실패하면 경고 창에 메시지를 표시합니다.</translation>
+    </message>
+    <message>
+        <source>Surrounding &amp;Whitespace</source>
+        <translation>둘러싸는 공백 문자(&amp;W)</translation>
+    </message>
+    <message>
+        <source>Toggles the validity check of surrounding whitespace.</source>
+        <translation>둘러싸는 공백 문자 검사를 켜거나 끕니다.</translation>
+    </message>
+    <message>
+        <source>Toggles the validity check of surrounding whitespace. If the check fails, a message is shown in the warnings window.</source>
+        <translation>둘러싸는 공백 문자 검사를 켜거나 끕니다. 검사가 실패하면 경고 창에 메시지를 표시합니다.</translation>
+    </message>
+    <message>
+        <source>Toggles the validity check of ending punctuation</source>
+        <translation>끝맺는 문장 부호 유효성 검사 활성화/비활성화</translation>
+    </message>
+    <message>
+        <source>Toggles the validity check of ending punctuation. If the check fails, a message is shown in the warnings window.</source>
+        <translation>원문과 번역문의 끝맺는 문장 부호가 서로 같은지 검사합니다. 검사가 실패하면 경고 창에 메시지를 표시합니다.</translation>
+    </message>
+    <message>
+        <source>Toggles checking that phrase suggestions are used</source>
+        <translation>단어장에서 제안한 단어 사용 여부 검사 활성화/비활성화</translation>
+    </message>
+    <message>
+        <source>Toggles checking that phrase suggestions are used. If the check fails, a message is shown in the warnings window.</source>
+        <translation>단어장에서 제안한 단어를 사용했는지 여부를 검사합니다. 검사가 실패하면 경고 창에 메시지를 표시합니다.</translation>
+    </message>
+    <message>
+        <source>Toggles the validity check of place markers</source>
+        <translation>자리 표시자 일치 검사 활성화/비활성화</translation>
+    </message>
+    <message>
+        <source>Toggles the validity check of place markers, i.e. whether %1, %2, ... are used consistently in the source text and translation text. If the check fails, a message is shown in the warnings window.</source>
+        <translation>원문과 번역문에 있는 %1, %2, ...과 같은 자리 표시자가 올바르게 사용되었는지 검사합니다. 검사가 실패하면 경고 창에 메시지를 표시합니다.</translation>
+    </message>
+    <message>
+        <source>Toggles visualize whitespace in editors</source>
+        <translation>편집기에서 공백 문자 표시를 켜거나 끕니다</translation>
+    </message>
+    <message>
+        <source>Show more</source>
+        <translation>더 보기</translation>
+    </message>
+    <message>
+        <source>Alt++</source>
+        <translation>Alt++</translation>
+    </message>
+    <message>
+        <source>Show fewer</source>
+        <translation>덜 보기</translation>
+    </message>
+    <message>
+        <source>Alt+-</source>
+        <translation>Alt+-</translation>
+    </message>
+    <message>
+        <source>Alt+0</source>
+        <translation>Alt+0</translation>
+    </message>
+    <message>
+        <source>D&amp;one</source>
+        <translation>완료 표시(&amp;O)</translation>
+    </message>
+    <message>
+        <source>Mark item as done</source>
+        <translation>항목을 완료된 것으로 표시</translation>
+    </message>
+    <message>
+        <source>Mark this item as done.</source>
+        <translation>항목을 완료된 것으로 표시합니다.</translation>
+    </message>
 </context>
 <context>
     <name>MessageEditor</name>
@@ -2170,27 +2281,27 @@ All files (*)</source>
     </message>
     <message>
         <source>Russian</source>
-        <translation>러시아어</translation>
+        <translation type="vanished">러시아어</translation>
     </message>
     <message>
         <source>German</source>
-        <translation>독일어</translation>
+        <translation type="vanished">독일어</translation>
     </message>
     <message>
         <source>Japanese</source>
-        <translation>일본어</translation>
+        <translation type="vanished">일본어</translation>
     </message>
     <message>
         <source>French</source>
-        <translation>프랑스어</translation>
+        <translation type="vanished">프랑스어</translation>
     </message>
     <message>
         <source>Polish</source>
-        <translation>폴란드어</translation>
+        <translation type="vanished">폴란드어</translation>
     </message>
     <message>
         <source>Chinese</source>
-        <translation>중국어</translation>
+        <translation type="vanished">중국어</translation>
     </message>
     <message>
         <source>This whole panel allows you to view and edit the translation of some source text.</source>
@@ -2225,8 +2336,20 @@ All files (*)</source>
         <translation>역자주를 입력할 수 있습니다. 번역된 프로그램에는 나타나지 않습니다.</translation>
     </message>
     <message>
+        <source>Translation to %1 (%2)</source>
+        <translation>%1(%2) 번역</translation>
+    </message>
+    <message>
+        <source>Translation to %1</source>
+        <translation>%1 번역</translation>
+    </message>
+    <message>
+        <source>Translator comments for %1</source>
+        <translation>%1 역자주</translation>
+    </message>
+    <message>
         <source>%1 translation (%2)</source>
-        <translation>%1 번역 (%2)</translation>
+        <translation type="vanished">%1 번역 (%2)</translation>
     </message>
     <message>
         <source>This is where you can enter or modify the translation of the above source text.</source>
@@ -2234,11 +2357,11 @@ All files (*)</source>
     </message>
     <message>
         <source>%1 translation</source>
-        <translation>%1 번역</translation>
+        <translation type="vanished">%1 번역</translation>
     </message>
     <message>
         <source>%1 translator comments</source>
-        <translation>%1 역자주</translation>
+        <translation type="vanished">%1 역자주</translation>
     </message>
     <message>
         <source>&apos;%1&apos;
@@ -2259,11 +2382,17 @@ Line: %2</source>
     </message>
     <message>
         <source>&lt;context comment&gt;</source>
-        <translation>&lt;컨텍스트 주석&gt;</translation>
+        <translation>&lt;콘텍스트 주석&gt;</translation>
     </message>
     <message>
         <source>&lt;unnamed context&gt;</source>
-        <translation>&lt;이름 없는 컨텍스트&gt;</translation>
+        <translation>&lt;이름 없는 콘텍스트&gt;</translation>
+    </message>
+    <message numerus="yes">
+        <source>%n unfinished message(s) left.</source>
+        <translation>
+            <numerusform>미완료 항목 %n개가 남아 있습니다.</numerusform>
+        </translation>
     </message>
 </context>
 <context>
@@ -2391,52 +2520,64 @@ Line: %2</source>
         <translation>편집</translation>
     </message>
     <message>
+        <source>Go to</source>
+        <translation>다음으로 이동</translation>
+    </message>
+    <message>
+        <source>Guess from &apos;%1&apos; (%2)</source>
+        <translation>&apos;%1&apos;에서 추측함(%2)</translation>
+    </message>
+    <message>
+        <source>Guess from &apos;%1&apos;</source>
+        <translation>&apos;%1&apos;에서 추측함</translation>
+    </message>
+    <message>
         <source>Guess (%1)</source>
-        <translation>추측 (%1)</translation>
+        <translation type="vanished">추측 (%1)</translation>
     </message>
     <message>
         <source>Guess</source>
-        <translation>추측</translation>
+        <translation type="vanished">추측</translation>
     </message>
 </context>
 <context>
     <name>QObject</name>
     <message>
         <source>GNU Gettext localization files</source>
-        <translation>GNU Gettext 번역 파일</translation>
+        <translation type="vanished">GNU Gettext 번역 파일</translation>
     </message>
     <message>
         <source>GNU Gettext localization template files</source>
-        <translation>GNU Gettext 번역 템플릿 파일</translation>
+        <translation type="vanished">GNU Gettext 번역 템플릿 파일</translation>
     </message>
     <message>
         <source>Compiled Qt translations</source>
-        <translation>컴파일된 Qt 번역</translation>
+        <translation type="vanished">컴파일된 Qt 번역</translation>
     </message>
     <message>
         <source>Qt Linguist &apos;Phrase Book&apos;</source>
-        <translation>Qt Linguist &apos;단어장&apos;</translation>
+        <translation type="vanished">Qt Linguist &apos;단어장&apos;</translation>
     </message>
     <message>
         <source>Qt translation sources (format 1.1)</source>
-        <translation>Qt 번역 원본 파일 (1.1 형식)</translation>
+        <translation type="vanished">Qt 번역 원본 파일 (1.1 형식)</translation>
     </message>
     <message>
         <source>Qt translation sources (format 2.0)</source>
-        <translation>Qt 번역 원본 파일 (2.0 형식)</translation>
+        <translation type="vanished">Qt 번역 원본 파일 (2.0 형식)</translation>
     </message>
     <message>
         <source>Qt translation sources (latest format)</source>
-        <translation>Qt 번역 원본 파일 (최신 형식)</translation>
+        <translation type="vanished">Qt 번역 원본 파일 (최신 형식)</translation>
     </message>
     <message>
         <source>XLIFF localization files</source>
-        <translation>XLIFF 번역 파일</translation>
+        <translation type="vanished">XLIFF 번역 파일</translation>
     </message>
     <message>
         <source>lupdate version %1
 </source>
-        <translation>lupdate 버전 %1
+        <translation type="vanished">lupdate 버전 %1
 </translation>
     </message>
     <message>
@@ -2578,6 +2719,11 @@ Line: %2</source>
     <message>
         <source>Target language</source>
         <translation>대상 언어</translation>
+    </message>
+    <message>
+        <source>%1 (%2)</source>
+        <extracomment>&lt;english&gt; (&lt;endonym&gt;) (language and country names)</extracomment>
+        <translation>%1(%2)</translation>
     </message>
     <message>
         <source>Settings for &apos;%1&apos; - Qt Linguist</source>

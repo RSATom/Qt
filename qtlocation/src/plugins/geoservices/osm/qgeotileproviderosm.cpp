@@ -336,6 +336,7 @@ void TileProvider::resolveProvider()
     request.setHeader(QNetworkRequest::UserAgentHeader, QByteArrayLiteral("QGeoTileFetcherOsm"));
     request.setUrl(m_urlRedirector);
     request.setAttribute(QNetworkRequest::BackgroundRequestAttribute, true);
+    request.setAttribute(QNetworkRequest::CacheLoadControlAttribute, QNetworkRequest::PreferNetwork);
     QNetworkReply *reply = m_nm->get(request);
     connect(reply, SIGNAL(finished()), this, SLOT(onNetworkReplyFinished()) );
     connect(reply, SIGNAL(error(QNetworkReply::NetworkError)), this, SLOT(onNetworkReplyError(QNetworkReply::NetworkError)));

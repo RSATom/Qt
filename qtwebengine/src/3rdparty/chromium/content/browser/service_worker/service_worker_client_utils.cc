@@ -275,8 +275,21 @@ void NavigateClientOnUI(const GURL& url,
     return;
   }
 
-  int frame_tree_node_id = rfhi->frame_tree_node()->frame_tree_node_id();
+  // Reject the navigate() call if there is an ongoing browser-initiated
+  // navigation. Not rejecting it would allow websites to prevent the user from
+  // navigating away. See https://crbug.com/930154.
+  NavigationRequest* ongoing_navigation_request =
+      rfhi->frame_tree_node()->frame_tree()->root()->navigation_request();
+  if (ongoing_navigation_request &&
+      ongoing_navigation_request->browser_initiated()) {
+    BrowserThread::PostTask(
+        BrowserThread::IO, FROM_HERE,
+        base::BindOnce(std::move(callback), ChildProcessHost::kInvalidUniqueID,
+                       MSG_ROUTING_NONE));
+    return;
+  }
 
+  int frame_tree_node_id = rfhi->frame_tree_node()->frame_tree_node_id();
   Navigator* navigator = rfhi->frame_tree_node()->navigator();
   navigator->RequestOpenURL(
       rfhi, url, false /* uses_post */, nullptr /* body */,

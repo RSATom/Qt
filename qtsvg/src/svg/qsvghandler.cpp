@@ -2615,17 +2615,17 @@ static QSvgStyleProperty *createFontNode(QSvgNode *parent,
         parent = parent->parent();
     }
 
-    if (parent) {
+    if (parent && !myId.isEmpty()) {
         QSvgTinyDocument *doc = static_cast<QSvgTinyDocument*>(parent);
-        QSvgFont *font = new QSvgFont(horizAdvX);
-        font->setFamilyName(myId);
-        if (!font->familyName().isEmpty()) {
-            if (!doc->svgFont(font->familyName()))
-                doc->addSvgFont(font);
+        QSvgFont *font = doc->svgFont(myId);
+        if (!font) {
+            font = new QSvgFont(horizAdvX);
+            font->setFamilyName(myId);
+            doc->addSvgFont(font);
         }
         return new QSvgFontStyle(font, doc);
     }
-    return 0;
+    return nullptr;
 }
 
 static bool parseFontFaceNode(QSvgStyleProperty *parent,
@@ -3744,6 +3744,13 @@ bool QSvgHandler::startElement(const QString &localName,
             case QSvgNode::DEFS:
             case QSvgNode::SWITCH:
             {
+                if (node->type() == QSvgNode::TSPAN) {
+                    const QByteArray msg = QByteArrayLiteral("\'tspan\' element in wrong context.");
+                    qCWarning(lcSvgHandler, "%s", prefixMessage(msg, xml).constData());
+                    delete node;
+                    node = 0;
+                    break;
+                }
                 QSvgStructureNode *group =
                     static_cast<QSvgStructureNode*>(m_nodes.top());
                 group->addChild(node, someId(attributes));

@@ -414,8 +414,8 @@ void XsdSchemaChecker::checkSimpleTypeConstraints()
                 const XsdSimpleType::Ptr simpleItemType = itemType;
                 const AnySimpleType::List memberTypes = simpleItemType->memberTypes();
                 for (int j = 0; j < memberTypes.count(); ++j) {
-                    if (memberTypes.at(j)->category() != SchemaType::SimpleTypeAtomic) {
-                        m_context->error(QtXmlPatterns::tr("Variety of member types of %1 must be atomic.").arg(formatType(m_namePool, simpleItemType)), XsdSchemaContext::XSDError, location);
+                    if (memberTypes.at(j)->category() != SchemaType::SimpleTypeAtomic && memberTypes.at(j)->category() != SchemaType::SimpleTypeUnion) {
+                        m_context->error(QtXmlPatterns::tr("Variety of member types of %1 must be atomic or union.").arg(formatType(m_namePool, simpleItemType)), XsdSchemaContext::XSDError, location);
                         return;
                     }
                 }
@@ -891,8 +891,9 @@ void XsdSchemaChecker::checkSimpleDerivationRestrictions()
                 const XsdSimpleType::Ptr simpleItemType = itemType;
                 const AnySimpleType::List memberTypes = simpleItemType->memberTypes();
                 for (int j = 0; j < memberTypes.count(); ++j) {
-                    if (memberTypes.at(j)->category() != SchemaType::SimpleTypeAtomic) {
-                        m_context->error(QtXmlPatterns::tr("Variety of member types of %1 must be atomic.").arg(formatType(m_namePool, simpleItemType)), XsdSchemaContext::XSDError, location);
+                    if (memberTypes.at(j)->category() != SchemaType::SimpleTypeAtomic && memberTypes.at(j)->category() != SchemaType::SimpleTypeUnion) {
+                        m_context->error(QtXmlPatterns::tr("Variety of member types of %1 must be atomic or union.").arg(formatType(m_namePool, simpleItemType)),
+                                         XsdSchemaContext::XSDError, location);
                         return;
                     }
                 }

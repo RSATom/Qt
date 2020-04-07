@@ -738,6 +738,7 @@ bool QGeoMapPolylineGeometry::contains(const QPointF &point) const
 QDeclarativePolylineMapItem::QDeclarativePolylineMapItem(QQuickItem *parent)
 :   QDeclarativeGeoMapItemBase(parent), line_(this), dirtyMaterial_(true), updatingGeometry_(false)
 {
+    m_itemType = QGeoMap::MapPolyline;
     setFlag(ItemHasContents, true);
     QObject::connect(&line_, SIGNAL(colorChanged(QColor)),
                      this, SLOT(updateAfterLinePropertiesChanged()));
@@ -1147,11 +1148,6 @@ void QDeclarativePolylineMapItem::setGeoShape(const QGeoShape &shape)
     markSourceDirtyAndUpdate();
     if (pathHasChanged)
         emit pathChanged();
-}
-
-QGeoMap::ItemType QDeclarativePolylineMapItem::itemType() const
-{
-    return QGeoMap::MapPolyline;
 }
 
 //////////////////////////////////////////////////////////////////////

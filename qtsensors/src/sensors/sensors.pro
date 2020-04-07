@@ -12,8 +12,6 @@ qtHaveModule(simulator) {
 
 QMAKE_DOCS = $$PWD/doc/qtsensors.qdocconf
 
-ANDROID_BUNDLED_JAR_DEPENDENCIES = \
-    jar/QtSensors.jar:org.qtproject.qt5.android.sensors.QtSensors
 ANDROID_LIB_DEPENDENCIES = \
     plugins/sensors/libqtsensors_android.so
 

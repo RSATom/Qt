@@ -98,6 +98,7 @@ private Q_SLOTS:
 
     void _q_serviceDiscoveryFinished();
     void _q_serviceDetailsDiscoveryFinished(QSharedPointer<QLowEnergyServicePrivate> service);
+    void _q_servicesWereModified();
 
     void _q_characteristicRead(QLowEnergyHandle charHandle, const QByteArray &value);
     void _q_characteristicWritten(QLowEnergyHandle charHandle, const QByteArray &value);

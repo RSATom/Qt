@@ -135,6 +135,7 @@ QDeclarativeGeoMapQuickItem::QDeclarativeGeoMapQuickItem(QQuickItem *parent)
 :   QDeclarativeGeoMapItemBase(parent), zoomLevel_(0.0),
     mapAndSourceItemSet_(false), updatingGeometry_(false), matrix_(nullptr)
 {
+    m_itemType = QGeoMap::MapQuickItem;
     setFlag(ItemHasContents, true);
     opacityContainer_ = new QQuickItem(this);
     opacityContainer_->setParentItem(this);
@@ -360,11 +361,6 @@ void QDeclarativeGeoMapQuickItem::setGeoShape(const QGeoShape &shape)
     polishAndUpdate();
     emit coordinateChanged();
 
-}
-
-QGeoMap::ItemType QDeclarativeGeoMapQuickItem::itemType() const
-{
-    return QGeoMap::MapQuickItem;
 }
 
 /*!

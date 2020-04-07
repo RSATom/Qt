@@ -100,6 +100,16 @@ static CborError _cbor_value_dup_string(const CborValue *, void **, size_t *, Cb
     Q_UNREACHABLE();
     return CborErrorInternalError;
 }
+static CborError cbor_value_get_half_float_as_float(const CborValue *, float *)
+{
+    Q_UNREACHABLE();
+    return CborErrorInternalError;
+}
+static CborError cbor_encode_float_as_half_float(CborEncoder *, float)
+{
+    Q_UNREACHABLE();
+    return CborErrorInternalError;
+}
 QT_WARNING_POP
 
 Q_DECLARE_TYPEINFO(CborEncoder, Q_PRIMITIVE_TYPE);
@@ -1430,6 +1440,7 @@ bool QCborStreamWriter::endMap()
 
 /*!
    \class QCborStreamReader::StringResult
+   \inmodule QtCore
 
    This class is returned by readString() and readByteArray(), with either the
    contents of the string that was read or an indication that the parsing is

@@ -158,7 +158,7 @@ public:
     bool isInitialized() const override;
     bool waitForSource(int timeout) override;
     QVector<int> childIndices() const;
-    void initialize(const QVariantList &values);
+    void initialize(QVariantList &values);
     void configurePrivate(QRemoteObjectReplica *) override;
     void requestRemoteObjectSource();
     bool sendCommand();

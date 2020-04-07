@@ -1,6 +1,31 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!DOCTYPE TS>
-<TS version="2.0" language="ko">
+<TS version="2.1" language="ko">
+<context>
+    <name>QQuickXmlListModel</name>
+    <message>
+        <source>&quot;%1&quot; duplicates a previous role name and will be disabled.</source>
+        <translation>&quot;%1&quot;에서 이전에 선언된 역할을 재정의하므로 비활성화되었습니다.</translation>
+    </message>
+    <message>
+        <source>invalid query: &quot;%1&quot;</source>
+        <translation>잘못된 쿼리: &quot;%1&quot;</translation>
+    </message>
+</context>
+<context>
+    <name>QQuickXmlListModelRole</name>
+    <message>
+        <source>An XmlRole query must not start with &apos;/&apos;</source>
+        <translation>XmlRole 질의는 &apos;/&apos;로 시작할 수  없음</translation>
+    </message>
+</context>
+<context>
+    <name>QQuickXmlRoleList</name>
+    <message>
+        <source>An XmlListModel query must start with &apos;/&apos; or &quot;//&quot;</source>
+        <translation>XmlListModel 쿼리는 &apos;/&apos; 또는 &quot;//&quot;로 시작해야 함</translation>
+    </message>
+</context>
 <context>
     <name>QXmlPatternistCLI</name>
     <message>
@@ -1325,7 +1350,7 @@
     </message>
     <message>
         <source>%1 element is not allowed in this context.</source>
-        <translation>이 컨텍스트에는 %1 원소가 허용되지 않습니다.</translation>
+        <translation>이 콘텍스트에는 %1 원소가 허용되지 않습니다.</translation>
     </message>
     <message>
         <source>%1 attribute of %2 element has larger value than %3 attribute.</source>

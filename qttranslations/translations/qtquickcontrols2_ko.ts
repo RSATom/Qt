@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!DOCTYPE TS>
-<TS version="2.0" language="ko_KR">
+<TS version="2.1" language="ko">
 <context>
     <name>QQuickPlatformDialog</name>
     <message>
@@ -10,6 +10,13 @@
     <message>
         <source>Cannot create an instance of StandardButton</source>
         <translation>StandardButton의 인스턴스를 만들 수 없음</translation>
+    </message>
+</context>
+<context>
+    <name>QtQuickControls2ImagineStylePlugin</name>
+    <message>
+        <source>Imagine is an attached property</source>
+        <translation>Imagine은 첨부된 속성임</translation>
     </message>
 </context>
 <context>

@@ -1354,7 +1354,7 @@ void tst_QScriptExtQObject::callQtInvokable2()
 
     // first time we expect failure because the metatype is not registered
     m_myObject->resetQtFunctionInvoked();
-    QCOMPARE(QMetaType::type("QVector<CustomType>"), QMetaType::UnknownType); // this type should not be registered yet
+    QCOMPARE(QMetaType::Type(QMetaType::type("QVector<CustomType>")), QMetaType::UnknownType); // this type should not be registered yet
     QCOMPARE(m_engine->evaluate("myObject.myInvokableReturningVectorOfCustomType()").isError(), true);
     QCOMPARE(m_myObject->qtFunctionInvoked(), -1);
 

@@ -42,6 +42,7 @@
 #include "qremoteobjectpacket_p.h"
 #include "qremoteobjectsource_p.h"
 #include "qremoteobjectnode_p.h"
+#include "qremoteobjectpendingcall.h"
 #include "qtremoteobjectglobal.h"
 
 #include <QtCore/qstringlist.h>
@@ -234,17 +235,39 @@ void QRemoteObjectSourceIo::onServerRead(QObject *conn)
                     }
                     if (source->m_api->isAdapterMethod(index))
                         qRODebug(this) << "Adapter (method) Invoke-->" << m_rxName << source->m_adapter->metaObject()->method(resolvedIndex).name();
-                    else
-                        qRODebug(this) << "Source (method) Invoke-->" << m_rxName << source->m_object->metaObject()->method(resolvedIndex).name();
+                    else {
+                        qRODebug(this) << "Source (method) Invoke-->" << m_rxName << source->m_object->metaObject()->method(resolvedIndex).methodSignature();
+                        auto method = source->m_object->metaObject()->method(resolvedIndex);
+                        const int parameterCount = method.parameterCount();
+                        for (int i = 0; i < parameterCount; i++)
+                            decodeVariant(m_rxArgs[i], method.parameterType(i));
+                    }
                     int typeId = QMetaType::type(source->m_api->typeName(index).constData());
                     if (!QMetaType(typeId).sizeOf())
                         typeId = QVariant::Invalid;
                     QVariant returnValue(typeId, nullptr);
+                    // If a Replica is used as a Source (which node->proxy() does) we can have a PendingCall return value.
+                    // In this case, we need to wait for the pending call and send that.
+                    if (source->m_api->typeName(index) == QByteArrayLiteral("QRemoteObjectPendingCall"))
+                        returnValue = QVariant::fromValue<QRemoteObjectPendingCall>(QRemoteObjectPendingCall());
                     source->invoke(QMetaObject::InvokeMetaMethod, index, m_rxArgs, &returnValue);
                     // send reply if wanted
                     if (serialId >= 0) {
-                        serializeInvokeReplyPacket(m_packet, m_rxName, serialId, returnValue);
-                        connection->write(m_packet.array, m_packet.size);
+                        if (returnValue.canConvert<QRemoteObjectPendingCall>()) {
+                            QRemoteObjectPendingCall call = returnValue.value<QRemoteObjectPendingCall>();
+                            // Watcher will be destroyed when connection is, or when the finished lambda is called
+                            QRemoteObjectPendingCallWatcher *watcher = new QRemoteObjectPendingCallWatcher(call, connection);
+                            QObject::connect(watcher, &QRemoteObjectPendingCallWatcher::finished, connection, [this, serialId, connection, watcher]() {
+                                if (watcher->error() == QRemoteObjectPendingCall::NoError) {
+                                    serializeInvokeReplyPacket(this->m_packet, this->m_rxName, serialId, encodeVariant(watcher->returnValue()));
+                                    connection->write(m_packet.array, m_packet.size);
+                                }
+                                watcher->deleteLater();
+                            });
+                        } else {
+                            serializeInvokeReplyPacket(m_packet, m_rxName, serialId, encodeVariant(returnValue));
+                            connection->write(m_packet.array, m_packet.size);
+                        }
                     }
                 } else {
                     const int resolvedIndex = source->m_api->sourcePropertyIndex(index);

@@ -91,7 +91,7 @@ public:
 
     const QMetaObject *metaObjectForType(const QString &type);
     QMetaObject *addDynamicType(IoDeviceBase* connection, QDataStream &in);
-    void addFromReplica(QConnectedReplicaImplementation *rep);
+    void addFromMetaObject(const QMetaObject *);
 
 private:
     QHash<QString, QMetaObject*> dynamicTypes;
@@ -116,6 +116,9 @@ public:
     QRemoteObjectHostBase::RemoteObjectNameFilter proxyFilter;
     QRemoteObjectHostBase::RemoteObjectNameFilter reverseFilter;
     QHash<QString, ProxyReplicaInfo*> proxiedReplicas;
+
+private:
+    void disableAndDeleteObject(ProxyReplicaInfo* info);
 };
 
 struct ProxyReplicaInfo

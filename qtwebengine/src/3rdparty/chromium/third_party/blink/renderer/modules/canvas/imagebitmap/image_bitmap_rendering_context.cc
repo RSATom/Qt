@@ -32,6 +32,10 @@ void ImageBitmapRenderingContext::transferFromImageBitmap(
     return;
   }
 
+  if (image_bitmap && image_bitmap->WouldTaintOrigin(nullptr)) {
+    Host()->SetOriginTainted();
+  }
+
   SetImage(image_bitmap);
 }
 

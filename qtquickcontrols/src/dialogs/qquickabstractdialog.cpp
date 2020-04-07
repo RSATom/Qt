@@ -52,7 +52,7 @@ QT_BEGIN_NAMESPACE
 
 Q_LOGGING_CATEGORY(lcWindow, "qt.quick.dialogs.window")
 
-QQmlComponent *QQuickAbstractDialog::m_decorationComponent(0);
+QUrl QQuickAbstractDialog::m_decorationComponentUrl = QUrl();
 
 QQuickAbstractDialog::QQuickAbstractDialog(QObject *parent)
     : QObject(parent)
@@ -151,6 +151,8 @@ void QQuickAbstractDialog::setVisible(bool v)
             // If the platform does not support multiple windows, but the dialog is
             // implemented as an Item, then try to decorate it as a fake window and make it visible.
             if (!m_windowDecoration) {
+                if (!m_decorationComponent)
+                    m_decorationComponent = new QQmlComponent(qmlEngine(this), m_decorationComponentUrl, QQmlComponent::Asynchronous, this);
                 if (m_decorationComponent) {
                     if (m_decorationComponent->isLoading())
                         connect(m_decorationComponent, SIGNAL(statusChanged(QQmlComponent::Status)),
@@ -232,7 +234,7 @@ void QQuickAbstractDialog::decorationLoaded()
                 "cannot be used as a window decoration because it's not an Item";
             delete decoration;
             delete m_decorationComponent;
-            m_decorationComponent = 0;
+            m_decorationComponent = nullptr;
         }
     }
     // Window decoration wasn't possible, so just reparent it into the scene

@@ -99,7 +99,6 @@ QList<QBluetoothUuid> ServiceDiscoveryBroadcastReceiver::convertParcelableArray(
 {
     QList<QBluetoothUuid> result;
     QAndroidJniEnvironment env;
-    QAndroidJniObject p;
 
     jobjectArray parcels = parcelUuidArray.object<jobjectArray>();
     if (!parcels)
@@ -107,7 +106,7 @@ QList<QBluetoothUuid> ServiceDiscoveryBroadcastReceiver::convertParcelableArray(
 
     jint size = env->GetArrayLength(parcels);
     for (int i = 0; i < size; i++) {
-        p = env->GetObjectArrayElement(parcels, i);
+        auto p = QAndroidJniObject::fromLocalRef(env->GetObjectArrayElement(parcels, i));
 
         QBluetoothUuid uuid(p.callObjectMethod<jstring>("toString").toString());
         //qCDebug(QT_BT_ANDROID) << uuid.toString();

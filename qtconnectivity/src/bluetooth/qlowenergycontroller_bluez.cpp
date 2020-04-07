@@ -3115,6 +3115,14 @@ void QLowEnergyControllerPrivateBluez::handleConnectionRequest()
     if (connectionHandle == 0)
         qCWarning(QT_BT_BLUEZ) << "Received client connection, but no connection complete event";
 
+    if (l2cpSocket) {
+        disconnect(l2cpSocket);
+        if (l2cpSocket->isOpen())
+            l2cpSocket->close();
+
+        l2cpSocket->deleteLater();
+        l2cpSocket = nullptr;
+    }
     closeServerSocket();
 
     QBluetoothSocketPrivateBluez *rawSocketPrivate = new QBluetoothSocketPrivateBluez();

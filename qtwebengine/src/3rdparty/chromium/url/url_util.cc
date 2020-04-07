@@ -14,6 +14,7 @@
 #include "url/url_constants.h"
 #include "url/url_file.h"
 #include "url/url_util_internal.h"
+#include "url/url_util_qt.h"
 
 namespace url {
 
@@ -305,6 +306,15 @@ bool DoResolveRelative(const char* base_spec,
                                               base_spec_len);
     base_is_authority_based = num_slashes > 1;
     base_is_hierarchical = num_slashes > 0;
+
+    // NOTE(juvaldma)(Chromium 69.0.3497.128): Force all custom schemes to be
+    // hierarchical. This really only affects QWebEngineUrlScheme::Syntax::Path
+    // schemes since the rest are already canonicalized to start with a slash.
+    // The effect is to allow, for example, GURL("qrc:foo").Resolve("bar") to
+    // return "qrc:bar" instead of just erroring out.
+    base::StringPiece scheme_piece(&base_spec[base_parsed.scheme.begin], base_parsed.scheme.len);
+    if (CustomScheme::FindScheme(scheme_piece))
+        base_is_hierarchical = true;
   }
 
   SchemeType unused_scheme_type = SCHEME_WITH_HOST_PORT_AND_USER_INFORMATION;

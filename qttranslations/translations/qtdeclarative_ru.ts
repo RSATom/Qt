@@ -876,6 +876,10 @@
         <translation>Некорректный тип свойства</translation>
     </message>
     <message>
+        <source>Cyclic alias</source>
+        <translation>Зацикленный псевдоним</translation>
+    </message>
+    <message>
         <source>Invalid alias target</source>
         <translation>Неверная цель псевдонима</translation>
     </message>
@@ -929,6 +933,10 @@
     <message>
         <source>Invalid grouped property access</source>
         <translation>Некорректный доступ к сгруппированному свойству</translation>
+    </message>
+    <message>
+        <source>Invalid grouped property access: Property &quot;%1&quot; with type &quot;%2&quot;, which is not a value type</source>
+        <translation>Неверный доступ к групповому свойству: свойство «%1» типа «%2», не являющегося значением</translation>
     </message>
     <message>
         <source>Cannot assign to non-existent default property</source>
@@ -1573,31 +1581,6 @@ Install a driver providing OpenGL 2.0 or higher, or, if this is not possible, ma
     <message>
         <source>Conflicting properties &apos;visible&apos; and &apos;visibility&apos;</source>
         <translation>Свойства «visible» и «visibility» конфликтуют</translation>
-    </message>
-</context>
-<context>
-    <name>QQuickXmlListModel</name>
-    <message>
-        <source>&quot;%1&quot; duplicates a previous role name and will be disabled.</source>
-        <translation>«%1» повторяет имя предыдущей роли и будет отключено.</translation>
-    </message>
-    <message>
-        <source>invalid query: &quot;%1&quot;</source>
-        <translation>Некорректный запрос: «%1»</translation>
-    </message>
-</context>
-<context>
-    <name>QQuickXmlListModelRole</name>
-    <message>
-        <source>An XmlRole query must not start with &apos;/&apos;</source>
-        <translation>Запрос XmlRole не должен начинаться с «/»</translation>
-    </message>
-</context>
-<context>
-    <name>QQuickXmlRoleList</name>
-    <message>
-        <source>An XmlListModel query must start with &apos;/&apos; or &quot;//&quot;</source>
-        <translation>Запрос XmlListModel должен начинаться с «/» или «//»</translation>
     </message>
 </context>
 <context>
