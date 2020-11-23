@@ -89,8 +89,10 @@ public:
     inline Qt::BrushStyle style() const;
     void setStyle(Qt::BrushStyle);
 
-    inline const QMatrix &matrix() const;
-    void setMatrix(const QMatrix &mat);
+#if QT_DEPRECATED_SINCE(5, 15)
+    QT_DEPRECATED_X("Use transform()") inline const QMatrix &matrix() const;
+    QT_DEPRECATED_X("Use setTransform()") void setMatrix(const QMatrix &mat);
+#endif // QT_DEPRECATED_SINCE(5, 15)
 
     inline QTransform transform() const;
     void setTransform(const QTransform &);
@@ -157,7 +159,10 @@ struct QBrushData
 
 inline Qt::BrushStyle QBrush::style() const { return d->style; }
 inline const QColor &QBrush::color() const { return d->color; }
+#if QT_DEPRECATED_SINCE(5, 15)
+QT_DEPRECATED_X("Use transform()")
 inline const QMatrix &QBrush::matrix() const { return d->transform.toAffine(); }
+#endif // QT_DEPRECATED_SINCE(5, 15)
 inline QTransform QBrush::transform() const { return d->transform; }
 inline bool QBrush::isDetached() const { return d->ref.loadRelaxed() == 1; }
 
@@ -400,16 +405,7 @@ public:
     inline bool operator!=(const QGradient &other) const
     { return !operator==(other); }
 
-private:
-    friend class QLinearGradient;
-    friend class QRadialGradient;
-    friend class QConicalGradient;
-    friend class QBrush;
-
-    Type m_type;
-    Spread m_spread;
-    QGradientStops m_stops;
-    union {
+    union QGradientData {
         struct {
             qreal x1, y1, x2, y2;
         } linear;
@@ -419,7 +415,18 @@ private:
         struct {
             qreal cx, cy, angle;
         } conical;
-    } m_data;
+    };
+
+private:
+    friend class QLinearGradient;
+    friend class QRadialGradient;
+    friend class QConicalGradient;
+    friend class QBrush;
+
+    Type m_type;
+    Spread m_spread;
+    QGradientStops m_stops;
+    QGradientData m_data;
     void *dummy; // ### Qt 6: replace with actual content (CoordinateMode, InterpolationMode, ...)
 };
 

@@ -60,7 +60,6 @@ void QDeclarativeLocationTestModel::timerFired()
     //qDebug() << "timer fired" ;
     repopulate();
     if (crazyMode_) {
-        //qDebug() << "raw randomw value: " << qrand();
         int delay = (QRandomGenerator::global()->bounded(uint(INT_MAX) + 1) % crazyLevel_); // writing software is exact science
         delay = qMax(1000, delay); // 3 ms at minimum
         qDebug() << "starting timer with : " << delay;

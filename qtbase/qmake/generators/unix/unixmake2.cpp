@@ -198,18 +198,13 @@ UnixMakefileGenerator::writeMakeParts(QTextStream &t)
     t << "CXXFLAGS      = " << var("QMAKE_CXXFLAGS") << " $(DEFINES)\n";
     t << "INCPATH       =";
     {
-        QString isystem = var("QMAKE_CFLAGS_ISYSTEM");
         const ProStringList &incs = project->values("INCLUDEPATH");
         for(int i = 0; i < incs.size(); ++i) {
             const ProString &inc = incs.at(i);
             if (inc.isEmpty())
                 continue;
 
-            if (!isystem.isEmpty() && isSystemInclude(inc.toQString()))
-                t << ' ' << isystem << ' ';
-            else
-                t << " -I";
-            t << escapeFilePath(inc);
+            t << " -I" << escapeFilePath(inc);
         }
     }
     if(!project->isEmpty("QMAKE_FRAMEWORKPATH_FLAGS"))
@@ -1393,8 +1388,7 @@ void UnixMakefileGenerator::init2()
     }
 
     if (include_deps && project->isActiveConfig("gcc_MD_depends")) {
-        // use -MMD if we know about -isystem too
-        ProString MD_flag(project->values("QMAKE_CFLAGS_ISYSTEM").isEmpty() ? "-MD" : "-MMD");
+        ProString MD_flag("-MD");
         project->values("QMAKE_CFLAGS") += MD_flag;
         project->values("QMAKE_CXXFLAGS") += MD_flag;
     }
@@ -1544,14 +1538,14 @@ std::pair<bool, QString> UnixMakefileGenerator::writeObjectsPart(QTextStream &t,
                 t << "\\\n\t\t" << (*objit);
         }
         if (incrs_out.count() == objs.count()) { //we just switched places, no real incrementals to be done!
-            t << escapeFilePaths(incrs_out).join(QString(" \\\n\t\t")) << endl;
+            t << escapeFilePaths(incrs_out).join(QString(" \\\n\t\t")) << Qt::endl;
         } else if (!incrs_out.count()) {
-            t << endl;
+            t << Qt::endl;
         } else {
             src_incremental = true;
-            t << endl;
+            t << Qt::endl;
             t << "INCREMENTAL_OBJECTS = "
-              << escapeFilePaths(incrs_out).join(QString(" \\\n\t\t")) << endl;
+              << escapeFilePaths(incrs_out).join(QString(" \\\n\t\t")) << Qt::endl;
         }
     } else {
         const ProString &objMax = project->first("QMAKE_LINK_OBJECT_MAX");
@@ -1560,7 +1554,7 @@ std::pair<bool, QString> UnixMakefileGenerator::writeObjectsPart(QTextStream &t,
             objectsLinkLine = "$(OBJECTS)";
         } else {
             QString ld_response_file = fileVar("OBJECTS_DIR");
-            ld_response_file += var("QMAKE_LINK_OBJECT_SCRIPT") + "." + var("TARGET");
+            ld_response_file += var("QMAKE_LINK_OBJECT_SCRIPT") + "." + var("QMAKE_TARGET");
             if (!var("BUILD_NAME").isEmpty())
                 ld_response_file += "." + var("BUILD_NAME");
             if (!var("MAKEFILE").isEmpty())
@@ -1568,7 +1562,7 @@ std::pair<bool, QString> UnixMakefileGenerator::writeObjectsPart(QTextStream &t,
             createResponseFile(ld_response_file, objs);
             objectsLinkLine = "@" + escapeFilePath(ld_response_file);
         }
-        t << "OBJECTS       = " << valList(escapeDependencyPaths(objs)) << endl;
+        t << "OBJECTS       = " << valList(escapeDependencyPaths(objs)) << Qt::endl;
     }
     return std::make_pair(src_incremental, objectsLinkLine);
 }

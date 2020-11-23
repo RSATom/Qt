@@ -126,7 +126,7 @@ class CompositorEventAckBrowserTest : public ContentBrowserTest {
  protected:
   void LoadURL(const char* page_data) {
     const GURL data_url(page_data);
-    NavigateToURL(shell(), data_url);
+    EXPECT_TRUE(NavigateToURL(shell(), data_url));
 
     RenderWidgetHostImpl* host = GetWidgetHost();
     host->GetView()->SetSize(gfx::Size(400, 400));
@@ -165,7 +165,9 @@ class CompositorEventAckBrowserTest : public ContentBrowserTest {
     // This event never completes its processing. As kCompositorEventAckDataURL
     // will block the renderer's main thread once it is received.
     blink::WebMouseWheelEvent wheel_event =
-        SyntheticWebMouseWheelEventBuilder::Build(10, 10, 0, -53, 0, true);
+        SyntheticWebMouseWheelEventBuilder::Build(
+            10, 10, 0, -53, 0,
+            ui::input_types::ScrollGranularity::kScrollByPrecisePixel);
     wheel_event.phase = blink::WebMouseWheelEvent::kPhaseBegan;
     GetWidgetHost()->ForwardWheelEvent(wheel_event);
 

@@ -12,17 +12,17 @@
 #include "content/public/browser/url_data_source.h"
 #include "url/gurl.h"
 
-// Serves files at chrome://test/ from //src/chrome/test/data/webui.
+// Serves files at chrome://test/ from //src/chrome/test/data/<root>.
 class TestDataSource : public content::URLDataSource {
  public:
-  TestDataSource() = default;
+  explicit TestDataSource(std::string root);
   ~TestDataSource() override = default;
 
  private:
   void StartDataRequest(
-      const std::string& path,
-      const content::ResourceRequestInfo::WebContentsGetter& wc_getter,
-      const content::URLDataSource::GotDataCallback& callback) override;
+      const GURL& url,
+      const content::WebContents::Getter& wc_getter,
+      content::URLDataSource::GotDataCallback callback) override;
 
   std::string GetMimeType(const std::string& path) override;
 
@@ -37,10 +37,10 @@ class TestDataSource : public content::URLDataSource {
   GURL GetURLForPath(const std::string& path);
 
   void ReadFile(const std::string& path,
-                const content::URLDataSource::GotDataCallback& callback);
+                content::URLDataSource::GotDataCallback callback);
 
-  base::FilePath test_data_;
-  base::FilePath source_root_;
+  base::FilePath src_root_;
+  base::FilePath gen_root_;
 
   DISALLOW_COPY_AND_ASSIGN(TestDataSource);
 };

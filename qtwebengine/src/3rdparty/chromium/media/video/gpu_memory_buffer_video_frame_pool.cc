@@ -38,6 +38,11 @@
 #include "ui/gfx/color_space.h"
 #include "ui/gl/trace_util.h"
 
+#if defined(OS_MACOSX)
+#include "base/mac/mac_util.h"
+#include "ui/gfx/mac/io_surface.h"
+#endif
+
 namespace media {
 
 // Implementation of a pool of GpuMemoryBuffers used to back VideoFrames.
@@ -239,9 +244,6 @@ gfx::BufferFormat GpuMemoryBufferFormat(
     case GpuVideoAcceleratorFactories::OutputFormat::NV12_DUAL_GMB:
       DCHECK_LE(plane, 1u);
       return plane == 0 ? gfx::BufferFormat::R_8 : gfx::BufferFormat::RG_88;
-    case GpuVideoAcceleratorFactories::OutputFormat::UYVY:
-      DCHECK_EQ(0u, plane);
-      return gfx::BufferFormat::UYVY_422;
     case GpuVideoAcceleratorFactories::OutputFormat::XR30:
       DCHECK_EQ(0u, plane);
       return gfx::BufferFormat::BGRX_1010102;
@@ -265,7 +267,6 @@ gfx::BufferFormat GpuMemoryBufferFormat(
 size_t PlanesPerCopy(GpuVideoAcceleratorFactories::OutputFormat format) {
   switch (format) {
     case GpuVideoAcceleratorFactories::OutputFormat::I420:
-    case GpuVideoAcceleratorFactories::OutputFormat::UYVY:
     case GpuVideoAcceleratorFactories::OutputFormat::RGBA:
     case GpuVideoAcceleratorFactories::OutputFormat::BGRA:
       return 1;
@@ -290,14 +291,14 @@ VideoPixelFormat VideoFormat(
     case GpuVideoAcceleratorFactories::OutputFormat::NV12_SINGLE_GMB:
     case GpuVideoAcceleratorFactories::OutputFormat::NV12_DUAL_GMB:
       return PIXEL_FORMAT_NV12;
-    case GpuVideoAcceleratorFactories::OutputFormat::UYVY:
-      return PIXEL_FORMAT_UYVY;
-    case GpuVideoAcceleratorFactories::OutputFormat::XR30:
     case GpuVideoAcceleratorFactories::OutputFormat::BGRA:
       return PIXEL_FORMAT_ARGB;
-    case GpuVideoAcceleratorFactories::OutputFormat::XB30:
     case GpuVideoAcceleratorFactories::OutputFormat::RGBA:
       return PIXEL_FORMAT_ABGR;
+    case GpuVideoAcceleratorFactories::OutputFormat::XR30:
+      return PIXEL_FORMAT_XR30;
+    case GpuVideoAcceleratorFactories::OutputFormat::XB30:
+      return PIXEL_FORMAT_XB30;
     case GpuVideoAcceleratorFactories::OutputFormat::UNDEFINED:
       NOTREACHED();
       break;
@@ -314,8 +315,6 @@ size_t NumGpuMemoryBuffers(GpuVideoAcceleratorFactories::OutputFormat format) {
       return 1;
     case GpuVideoAcceleratorFactories::OutputFormat::NV12_DUAL_GMB:
       return 2;
-    case GpuVideoAcceleratorFactories::OutputFormat::UYVY:
-      return 1;
     case GpuVideoAcceleratorFactories::OutputFormat::XR30:
     case GpuVideoAcceleratorFactories::OutputFormat::XB30:
       return 1;
@@ -413,38 +412,6 @@ void CopyRowsToNV12Buffer(int first_row,
       rows);
 }
 
-void CopyRowsToUYVYBuffer(int first_row,
-                          int rows,
-                          int width,
-                          const VideoFrame* source_frame,
-                          uint8_t* output,
-                          int dest_stride,
-                          base::OnceClosure done) {
-  base::ScopedClosureRunner done_runner(std::move(done));
-  TRACE_EVENT2("media", "CopyRowsToUYVYBuffer", "bytes_per_row", width * 2,
-               "rows", rows);
-
-  if (!output)
-    return;
-
-  DCHECK_NE(dest_stride, 0);
-  DCHECK_LE(width, std::abs(dest_stride / 2));
-  DCHECK_EQ(0, first_row % 2);
-  DCHECK(source_frame->format() == PIXEL_FORMAT_I420 ||
-         source_frame->format() == PIXEL_FORMAT_YV12);
-  libyuv::I420ToUYVY(
-      source_frame->visible_data(VideoFrame::kYPlane) +
-          first_row * source_frame->stride(VideoFrame::kYPlane),
-      source_frame->stride(VideoFrame::kYPlane),
-      source_frame->visible_data(VideoFrame::kUPlane) +
-          first_row / 2 * source_frame->stride(VideoFrame::kUPlane),
-      source_frame->stride(VideoFrame::kUPlane),
-      source_frame->visible_data(VideoFrame::kVPlane) +
-          first_row / 2 * source_frame->stride(VideoFrame::kVPlane),
-      source_frame->stride(VideoFrame::kVPlane),
-      output + first_row * dest_stride, dest_stride, width, rows);
-}
-
 void CopyRowsToRGB10Buffer(bool is_argb,
                            int first_row,
                            int rows,
@@ -491,7 +458,17 @@ void CopyRowsToRGB10Buffer(bool is_argb,
                          v_plane, v_plane_stride, dest_rgb10, dest_stride,
                          width, rows);
     }
-  } else {
+  } else if (skyuv == kBT2020_SkYUVColorSpace) {
+    if (is_argb) {
+      libyuv::U010ToAR30(y_plane, y_plane_stride, u_plane, u_plane_stride,
+                         v_plane, v_plane_stride, dest_rgb10, dest_stride,
+                         width, rows);
+    } else {
+      libyuv::U010ToAB30(y_plane, y_plane_stride, u_plane, u_plane_stride,
+                         v_plane, v_plane_stride, dest_rgb10, dest_stride,
+                         width, rows);
+    }
+  } else {  // BT.709
     if (is_argb) {
       libyuv::H010ToAR30(y_plane, y_plane_stride, u_plane, u_plane_stride,
                          v_plane, v_plane_stride, dest_rgb10, dest_stride,
@@ -558,7 +535,6 @@ gfx::Size CodedSize(const VideoFrame* video_frame,
       output = gfx::Size((video_frame->visible_rect().width() + 1) & ~1,
                          (video_frame->visible_rect().height() + 1) & ~1);
       break;
-    case GpuVideoAcceleratorFactories::OutputFormat::UYVY:
     case GpuVideoAcceleratorFactories::OutputFormat::XR30:
     case GpuVideoAcceleratorFactories::OutputFormat::XB30:
     case GpuVideoAcceleratorFactories::OutputFormat::RGBA:
@@ -602,14 +578,7 @@ void GpuMemoryBufferVideoFramePool::PoolImpl::CreateHardwareFrame(
 
   bool passthrough = false;
 #if defined(OS_MACOSX)
-  // GPU memory buffers do not support full-range YUV video on mac.
-  // Fortunately, the hardware decoders never produce full-range video.
-  // https://crbug/882627
-  gfx::ColorSpace color_space = video_frame->ColorSpace();
-  gfx::ColorSpace as_rgb = color_space.GetAsRGB();
-  gfx::ColorSpace as_full_range_rgb = color_space.GetAsFullRangeRGB();
-
-  if (color_space != as_rgb && as_rgb == as_full_range_rgb)
+  if (!IOSurfaceCanSetColorSpace(video_frame->ColorSpace()))
     passthrough = true;
 #endif
   if (output_format_ == GpuVideoAcceleratorFactories::OutputFormat::UNDEFINED)
@@ -628,13 +597,12 @@ void GpuMemoryBufferVideoFramePool::PoolImpl::CreateHardwareFrame(
     case PIXEL_FORMAT_I444:
     case PIXEL_FORMAT_NV12:
     case PIXEL_FORMAT_NV21:
-    case PIXEL_FORMAT_UYVY:
     case PIXEL_FORMAT_YUY2:
     case PIXEL_FORMAT_ARGB:
+    case PIXEL_FORMAT_BGRA:
     case PIXEL_FORMAT_XRGB:
     case PIXEL_FORMAT_RGB24:
     case PIXEL_FORMAT_MJPEG:
-    case PIXEL_FORMAT_MT21:
     case PIXEL_FORMAT_YUV422P9:
     case PIXEL_FORMAT_YUV444P9:
     case PIXEL_FORMAT_YUV422P10:
@@ -645,6 +613,8 @@ void GpuMemoryBufferVideoFramePool::PoolImpl::CreateHardwareFrame(
     case PIXEL_FORMAT_ABGR:
     case PIXEL_FORMAT_XBGR:
     case PIXEL_FORMAT_P016LE:
+    case PIXEL_FORMAT_XR30:
+    case PIXEL_FORMAT_XB30:
     case PIXEL_FORMAT_UNKNOWN:
       if (is_software_backed_video_frame) {
         UMA_HISTOGRAM_ENUMERATION(
@@ -852,18 +822,6 @@ void GpuMemoryBufferVideoFramePool::PoolImpl::CopyVideoFrameToGpuMemoryBuffers(
           break;
         }
 
-        case GpuVideoAcceleratorFactories::OutputFormat::UYVY:
-          // Using base::Unretained(video_frame) here is safe because |barrier|
-          // keeps refptr of |video_frame| until all copy tasks are done.
-          worker_task_runner_->PostTask(
-              FROM_HERE,
-              base::BindOnce(&CopyRowsToUYVYBuffer, row, rows_to_copy,
-                             coded_size.width(),
-                             base::Unretained(video_frame.get()),
-                             static_cast<uint8_t*>(buffer->memory(0)),
-                             buffer->stride(0), barrier));
-          break;
-
         case GpuVideoAcceleratorFactories::OutputFormat::XR30:
         case GpuVideoAcceleratorFactories::OutputFormat::XB30: {
           const bool is_argb = output_format_ ==
@@ -967,24 +925,29 @@ void GpuMemoryBufferVideoFramePool::PoolImpl::
   frame->set_color_space(video_frame->ColorSpace());
 
   bool allow_overlay = false;
+#if defined(OS_WIN)
+  // Windows direct composition path only supports dual GMB NV12 video overlays.
+  allow_overlay = (output_format_ ==
+                   GpuVideoAcceleratorFactories::OutputFormat::NV12_DUAL_GMB);
+#else
   switch (output_format_) {
     case GpuVideoAcceleratorFactories::OutputFormat::I420:
       allow_overlay =
           video_frame->metadata()->IsTrue(VideoFrameMetadata::ALLOW_OVERLAY);
       break;
     case GpuVideoAcceleratorFactories::OutputFormat::NV12_SINGLE_GMB:
-    case GpuVideoAcceleratorFactories::OutputFormat::UYVY:
       allow_overlay = true;
       break;
     case GpuVideoAcceleratorFactories::OutputFormat::NV12_DUAL_GMB:
-#if defined(OS_WIN)
-      allow_overlay = true;
-#endif
+      // Only used on Windows where we can't use single NV12 textures.
       break;
     case GpuVideoAcceleratorFactories::OutputFormat::XR30:
     case GpuVideoAcceleratorFactories::OutputFormat::XB30:
       // TODO(mcasas): Enable this for ChromeOS https://crbug.com/776093.
       allow_overlay = false;
+#if defined(OS_MACOSX)
+      allow_overlay = IOSurfaceCanSetColorSpace(video_frame->ColorSpace());
+#endif
       // We've converted the YUV to RGB, fix the color space.
       // TODO(hubbe): The libyuv YUV to RGB conversion may not have
       // honored the color space conversion 100%. We should either fix
@@ -998,7 +961,7 @@ void GpuMemoryBufferVideoFramePool::PoolImpl::
     case GpuVideoAcceleratorFactories::OutputFormat::UNDEFINED:
       break;
   }
-
+#endif  // OS_WIN
   frame->metadata()->MergeMetadataFrom(video_frame->metadata());
   frame->metadata()->SetBoolean(VideoFrameMetadata::ALLOW_OVERLAY,
                                 allow_overlay);

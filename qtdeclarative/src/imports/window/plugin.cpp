@@ -39,7 +39,9 @@
 
 #include <QtQml/qqmlextensionplugin.h>
 
-#include <private/qquickwindowmodule_p.h>
+#include "plugin.h"
+
+extern void qml_register_types_QtQuick_Window();
 
 QT_BEGIN_NAMESPACE
 
@@ -58,21 +60,16 @@ QT_BEGIN_NAMESPACE
     \endqml
 */
 
-
 //![class decl]
-class QtQuick2WindowPlugin : public QQmlExtensionPlugin
+class QtQuick2WindowPlugin : public QQmlEngineExtensionPlugin
 {
     Q_OBJECT
-    Q_PLUGIN_METADATA(IID QQmlExtensionInterface_iid)
+    Q_PLUGIN_METADATA(IID QQmlEngineExtensionInterface_iid)
 public:
-    QtQuick2WindowPlugin(QObject *parent = nullptr) : QQmlExtensionPlugin(parent) { }
-    void registerTypes(const char *uri) override
+    QtQuick2WindowPlugin(QObject *parent = nullptr) : QQmlEngineExtensionPlugin(parent)
     {
-        Q_ASSERT(QLatin1String(uri) == QLatin1String("QtQuick.Window"));
-        QQuickWindowModule::defineModule();
-
-        // Auto-increment the import to stay in sync with ALL future QtQuick minor versions from 5.11 onward
-        qmlRegisterModule(uri, 2, QT_VERSION_MINOR);
+        volatile auto registration = &qml_register_types_QtQuick_Window;
+        Q_UNUSED(registration);
     }
 };
 //![class decl]

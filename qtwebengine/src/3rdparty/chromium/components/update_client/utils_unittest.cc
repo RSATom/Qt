@@ -31,7 +31,7 @@ TEST(UpdateClientUtils, VerifyFileHash256) {
   EXPECT_TRUE(VerifyFileHash256(
       MakeTestFilePath("jebgalgnebhfojomionfpkfelancnnkf.crx"),
       std::string(
-          "6fc4b93fd11134de1300c2c0bb88c12b644a4ec0fd7c9b12cb7cc067667bde87")));
+          "7ab32f071cd9b5ef8e0d7913be161f532d98b3e9fa284a7cd8059c3409ce0498")));
 
   EXPECT_FALSE(VerifyFileHash256(
       MakeTestFilePath("jebgalgnebhfojomionfpkfelancnnkf.crx"),
@@ -119,7 +119,7 @@ TEST(UpdateClientUtils, IsValidInstallerAttributeName) {
 }
 
 // Tests that the value of an InstallerAttribute matches
-// ^[-.,;+_=a-zA-Z0-9]{0,256}$
+// ^[-.,;+_=$a-zA-Z0-9]{0,256}$
 TEST(UpdateClientUtils, IsValidInstallerAttributeValue) {
   // Test the length boundaries.
   EXPECT_TRUE(IsValidInstallerAttribute(
@@ -129,8 +129,8 @@ TEST(UpdateClientUtils, IsValidInstallerAttributeValue) {
   EXPECT_FALSE(IsValidInstallerAttribute(
       make_pair(std::string("name"), std::string(257, 'a'))));
 
-  const char* const valid_values[] = {"",  "a=1", "A", "Z",      "a",
-                                      "z", "0",   "9", "-.,;+_="};
+  const char* const valid_values[] = {"",  "a=1", "A", "Z",       "a",
+                                      "z", "0",   "9", "-.,;+_=$"};
   for (const char* value : valid_values)
     EXPECT_TRUE(IsValidInstallerAttribute(
         make_pair(std::string("name"), std::string(value))));

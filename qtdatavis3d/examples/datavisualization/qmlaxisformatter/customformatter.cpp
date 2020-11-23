@@ -164,6 +164,6 @@ void CustomFormatter::setSelectionFormat(const QString &format)
 //! [0]
 QDateTime CustomFormatter::valueToDateTime(qreal value) const
 {
-    return QDateTime(m_originDate).addMSecs(qint64(oneDayMs * value));
+    return m_originDate.startOfDay().addMSecs(qint64(oneDayMs * value));
 }
 //! [0]

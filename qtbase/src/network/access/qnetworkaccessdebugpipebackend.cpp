@@ -70,13 +70,13 @@ QNetworkAccessDebugPipeBackendFactory::create(QNetworkAccessManager::Operation o
 
     default:
         // no, we can't handle this operation
-        return 0;
+        return nullptr;
     }
 
     QUrl url = request.url();
     if (url.scheme() == QLatin1String("debugpipe"))
         return new QNetworkAccessDebugPipeBackend;
-    return 0;
+    return nullptr;
 }
 
 QNetworkAccessDebugPipeBackend::QNetworkAccessDebugPipeBackend()
@@ -98,7 +98,7 @@ void QNetworkAccessDebugPipeBackend::open()
 
     // socket ready read -> we can push from socket to downstream
     connect(&socket, SIGNAL(readyRead()), SLOT(socketReadyRead()));
-    connect(&socket, SIGNAL(error(QAbstractSocket::SocketError)), SLOT(socketError()));
+    connect(&socket, SIGNAL(errorOccurred(QAbstractSocket::SocketError)), SLOT(socketError()));
     connect(&socket, SIGNAL(disconnected()), SLOT(socketDisconnected()));
     connect(&socket, SIGNAL(connected()), SLOT(socketConnected()));
     // socket bytes written -> we can push more from upstream to socket
@@ -188,7 +188,7 @@ void QNetworkAccessDebugPipeBackend::pushFromUpstreamToSocket()
                 emitReplyUploadProgress(bytesUploaded, bytesUploaded);
                 possiblyFinish();
                 break;
-            } else if (haveRead == 0 || readPointer == 0) {
+            } else if (haveRead == 0 || readPointer == nullptr) {
                 // nothing to read right now, we will be called again later
                 break;
             } else {

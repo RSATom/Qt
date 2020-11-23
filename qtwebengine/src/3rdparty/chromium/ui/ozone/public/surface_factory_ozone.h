@@ -78,8 +78,13 @@ class COMPONENT_EXPORT(OZONE_BASE) SurfaceFactoryOzone {
 #if BUILDFLAG(ENABLE_VULKAN)
   // Creates the vulkan implementation. This object should be capable of
   // creating surfaces that swap to a platform window.
-  virtual std::unique_ptr<gpu::VulkanImplementation>
-  CreateVulkanImplementation();
+  // |allow_protected_memory| suggests that the vulkan implementation should
+  // create protected-capable resources, such as VkQueue.
+  // |enforce_protected_memory| suggests that the vulkan implementation should
+  // always use protected memory and resources, such as CommandBuffers.
+  virtual std::unique_ptr<gpu::VulkanImplementation> CreateVulkanImplementation(
+      bool allow_protected_memory,
+      bool enforce_protected_memory);
 
   // Creates a scanout NativePixmap that can be rendered using Vulkan.
   // TODO(spang): Remove this once VK_EXT_image_drm_format_modifier is
@@ -103,12 +108,14 @@ class COMPONENT_EXPORT(OZONE_BASE) SurfaceFactoryOzone {
   virtual std::unique_ptr<OverlaySurface> CreateOverlaySurface(
       gfx::AcceleratedWidget window);
 
-  // Create SurfaceOzoneCanvas for the specified gfx::AcceleratedWidget.
+  // Create SurfaceOzoneCanvas for the specified gfx::AcceleratedWidget. The
+  // |task_runner| may be null if the gpu service runs in a host process.
   //
   // Note: The platform must support creation of SurfaceOzoneCanvas from the
   // Browser Process using only the handle contained in gfx::AcceleratedWidget.
   virtual std::unique_ptr<SurfaceOzoneCanvas> CreateCanvasForWidget(
-      gfx::AcceleratedWidget widget);
+      gfx::AcceleratedWidget widget,
+      base::TaskRunner* task_runner);
 
   // Create a single native buffer to be used for overlay planes or zero copy
   // for |widget| representing a particular display controller or default

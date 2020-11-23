@@ -1,5 +1,5 @@
 //
-// Copyright (c) 2013 The ANGLE Project Authors. All rights reserved.
+// Copyright 2013 The ANGLE Project Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 //
@@ -52,6 +52,10 @@ BlendState::BlendState()
     blendEquationAlpha    = GL_FUNC_ADD;
     sampleAlphaToCoverage = false;
     dither                = true;
+    colorMaskRed          = true;
+    colorMaskGreen        = true;
+    colorMaskBlue         = true;
+    colorMaskAlpha        = true;
 }
 
 BlendState::BlendState(const BlendState &other)

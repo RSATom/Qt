@@ -45,29 +45,25 @@ void BitmapImageMetrics::CountImageOrientation(
 }
 
 void BitmapImageMetrics::CountImageJpegDensity(int image_min_side,
-                                               uint64_t density_centi_bpp) {
-  // Values are reported in the range 0.01 to 10 bpp, in different metrics
-  // depending on the image category (small, medium, large).
-  if (image_min_side >= 1000) {
+                                               uint64_t density_centi_bpp,
+                                               size_t image_size_bytes) {
+  // All bpp samples are reported in the range 0.01 to 10 bpp as integer number
+  // of 0.01 bpp. We don't report for any sample for small images (0 to 99px on
+  // the smallest dimension).
+  //
+  // The histogram JpegDensity.KiBWeighted reports the number of KiB decoded for
+  // a given bpp value.
+
+  if (image_min_side >= 100) {
     DEFINE_THREAD_SAFE_STATIC_LOCAL(
         CustomCountHistogram, density_histogram,
-        ("Blink.DecodedImage.JpegDensity.1000px", 1, 1000, 100));
-    density_histogram.Count(
-        base::saturated_cast<base::Histogram::Sample>(density_centi_bpp));
-  } else if (image_min_side >= 400) {
-    DEFINE_THREAD_SAFE_STATIC_LOCAL(
-        CustomCountHistogram, density_histogram,
-        ("Blink.DecodedImage.JpegDensity.400px", 1, 1000, 100));
-    density_histogram.Count(
-        base::saturated_cast<base::Histogram::Sample>(density_centi_bpp));
-  } else if (image_min_side >= 100) {
-    DEFINE_THREAD_SAFE_STATIC_LOCAL(
-        CustomCountHistogram, density_histogram,
-        ("Blink.DecodedImage.JpegDensity.100px", 1, 1000, 100));
-    density_histogram.Count(
-        base::saturated_cast<base::Histogram::Sample>(density_centi_bpp));
-  } else {
-    // We don't report for images with 0 to 99px on the smallest dimension.
+        ("Blink.DecodedImage.JpegDensity.KiBWeighted", 1, 1000, 100));
+    int image_size_kib = (image_size_bytes + 512) / 1024;
+    if (image_size_kib > 0) {
+      density_histogram.CountMany(
+          base::saturated_cast<base::Histogram::Sample>(density_centi_bpp),
+          image_size_kib);
+    }
   }
 }
 

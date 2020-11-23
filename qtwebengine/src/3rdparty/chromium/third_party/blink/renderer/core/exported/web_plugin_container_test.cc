@@ -37,7 +37,6 @@
 #include "cc/layers/layer.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "third_party/blink/public/common/frame/frame_owner_element_type.h"
-#include "third_party/blink/public/platform/platform.h"
 #include "third_party/blink/public/platform/web_coalesced_input_event.h"
 #include "third_party/blink/public/platform/web_mouse_wheel_event.h"
 #include "third_party/blink/public/platform/web_pointer_event.h"
@@ -82,9 +81,7 @@ class WebPluginContainerTest : public testing::Test {
   WebPluginContainerTest() : base_url_("http://www.test.com/") {}
 
   void TearDown() override {
-    Platform::Current()
-        ->GetURLLoaderMockFactory()
-        ->UnregisterAllURLsAndClearMemoryCache();
+    url_test_helpers::UnregisterAllURLsAndClearMemoryCache();
   }
 
   void CalculateGeometry(WebPluginContainerImpl* plugin_container_impl,
@@ -98,6 +95,8 @@ class WebPluginContainerTest : public testing::Test {
   void RegisterMockedURL(
       const std::string& file_name,
       const std::string& mime_type = std::string("text/html")) {
+    // TODO(crbug.com/751425): We should use the mock functionality
+    // via the WebViewHelper in each test case.
     url_test_helpers::RegisterMockedURLLoadFromBase(
         WebString::FromUTF8(base_url_), test::CoreTestDataPath(),
         WebString::FromUTF8(file_name), WebString::FromUTF8(mime_type));
@@ -325,95 +324,6 @@ TEST_F(WebPluginContainerTest, WindowToLocalPointTest) {
       plugin_container_two->RootFrameToLocalPoint(WebPoint(-10, 10));
   ASSERT_EQ(10, point4.x);
   ASSERT_EQ(10, point4.y);
-}
-
-TEST_F(WebPluginContainerTest, PluginDocumentPluginIsFocused) {
-  RegisterMockedURL("test.pdf", "application/pdf");
-
-  // Must outlive |web_view_helper|.
-  TestPluginWebFrameClient plugin_web_frame_client;
-  frame_test_helpers::WebViewHelper web_view_helper;
-  WebViewImpl* web_view = web_view_helper.InitializeAndLoad(
-      base_url_ + "test.pdf", &plugin_web_frame_client);
-  DCHECK(web_view);
-  UpdateAllLifecyclePhases(web_view);
-
-  WebDocument document = web_view->MainFrameImpl()->GetDocument();
-  EXPECT_TRUE(document.IsPluginDocument());
-  WebPluginContainer* plugin_container =
-      GetWebPluginContainer(web_view, "plugin");
-  EXPECT_EQ(document.FocusedElement(), plugin_container->GetElement());
-}
-
-TEST_F(WebPluginContainerTest, IFramePluginDocumentNotFocused) {
-  RegisterMockedURL("test.pdf", "application/pdf");
-  RegisterMockedURL("iframe_pdf.html", "text/html");
-
-  // Must outlive |web_view_helper|.
-  TestPluginWebFrameClient plugin_web_frame_client;
-  frame_test_helpers::WebViewHelper web_view_helper;
-  WebViewImpl* web_view = web_view_helper.InitializeAndLoad(
-      base_url_ + "iframe_pdf.html", &plugin_web_frame_client);
-  DCHECK(web_view);
-  UpdateAllLifecyclePhases(web_view);
-
-  WebDocument document = web_view->MainFrameImpl()->GetDocument();
-  WebLocalFrame* iframe =
-      web_view->MainFrame()->FirstChild()->ToWebLocalFrame();
-  EXPECT_TRUE(iframe->GetDocument().IsPluginDocument());
-  WebPluginContainer* plugin_container =
-      iframe->GetDocument().GetElementById("plugin").PluginContainer();
-  EXPECT_NE(document.FocusedElement(), plugin_container->GetElement());
-  EXPECT_NE(iframe->GetDocument().FocusedElement(),
-            plugin_container->GetElement());
-}
-
-TEST_F(WebPluginContainerTest, PrintOnePage) {
-  RegisterMockedURL("test.pdf", "application/pdf");
-
-  // Must outlive |web_view_helper|.
-  TestPluginWebFrameClient plugin_web_frame_client;
-  frame_test_helpers::WebViewHelper web_view_helper;
-  WebViewImpl* web_view = web_view_helper.InitializeAndLoad(
-      base_url_ + "test.pdf", &plugin_web_frame_client);
-  DCHECK(web_view);
-  UpdateAllLifecyclePhases(web_view);
-  RunPendingTasks();
-  WebLocalFrame* frame = web_view->MainFrameImpl();
-
-  WebPrintParams print_params;
-  print_params.print_content_area.width = 500;
-  print_params.print_content_area.height = 500;
-
-  frame->PrintBegin(print_params);
-  PaintRecorder recorder;
-  frame->PrintPage(0, recorder.beginRecording(IntRect()));
-  frame->PrintEnd();
-  DCHECK(plugin_web_frame_client.PrintedAtLeastOnePage());
-}
-
-TEST_F(WebPluginContainerTest, PrintAllPages) {
-  RegisterMockedURL("test.pdf", "application/pdf");
-
-  // Must outlive |web_view_helper|.
-  TestPluginWebFrameClient plugin_web_frame_client;
-  frame_test_helpers::WebViewHelper web_view_helper;
-  WebViewImpl* web_view = web_view_helper.InitializeAndLoad(
-      base_url_ + "test.pdf", &plugin_web_frame_client);
-  DCHECK(web_view);
-  UpdateAllLifecyclePhases(web_view);
-  RunPendingTasks();
-  WebLocalFrame* frame = web_view->MainFrameImpl();
-
-  WebPrintParams print_params;
-  print_params.print_content_area.width = 500;
-  print_params.print_content_area.height = 500;
-
-  frame->PrintBegin(print_params);
-  PaintRecorder recorder;
-  frame->PrintPagesForTesting(recorder.beginRecording(IntRect()), WebSize());
-  frame->PrintEnd();
-  DCHECK(plugin_web_frame_client.PrintedAtLeastOnePage());
 }
 
 TEST_F(WebPluginContainerTest, LocalToWindowPointTest) {
@@ -885,7 +795,7 @@ TEST_F(WebPluginContainerTest, TouchEventScrolled) {
   WebViewImpl* web_view = web_view_helper.InitializeAndLoad(
       base_url_ + "plugin_scroll.html", &plugin_web_frame_client);
   EnablePlugins(web_view, WebSize(300, 300));
-  web_view->SmoothScroll(0, 200, 0);
+  web_view->SmoothScroll(0, 200, base::TimeDelta());
   UpdateAllLifecyclePhases(web_view);
   RunPendingTasks();
 
@@ -926,7 +836,7 @@ TEST_F(WebPluginContainerTest, TouchEventScrolledWithCoalescedTouches) {
   WebViewImpl* web_view = web_view_helper.InitializeAndLoad(
       base_url_ + "plugin_scroll.html", &plugin_web_frame_client);
   EnablePlugins(web_view, WebSize(300, 300));
-  web_view->SmoothScroll(0, 200, 0);
+  web_view->SmoothScroll(0, 200, base::TimeDelta());
   UpdateAllLifecyclePhases(web_view);
   RunPendingTasks();
 
@@ -1020,7 +930,7 @@ TEST_F(WebPluginContainerTest, MouseWheelEventScrolled) {
   WebViewImpl* web_view = web_view_helper.InitializeAndLoad(
       base_url_ + "plugin_scroll.html", &plugin_web_frame_client);
   EnablePlugins(web_view, WebSize(300, 300));
-  web_view->SmoothScroll(0, 200, 0);
+  web_view->SmoothScroll(0, 200, base::TimeDelta());
   UpdateAllLifecyclePhases(web_view);
   RunPendingTasks();
 
@@ -1057,7 +967,7 @@ TEST_F(WebPluginContainerTest, MouseEventScrolled) {
   WebViewImpl* web_view = web_view_helper.InitializeAndLoad(
       base_url_ + "plugin_scroll.html", &plugin_web_frame_client);
   EnablePlugins(web_view, WebSize(300, 300));
-  web_view->SmoothScroll(0, 200, 0);
+  web_view->SmoothScroll(0, 200, base::TimeDelta());
   UpdateAllLifecyclePhases(web_view);
   RunPendingTasks();
 
@@ -1096,7 +1006,7 @@ TEST_F(WebPluginContainerTest, MouseEventZoomed) {
   web_view->GetSettings()->SetPluginsEnabled(true);
   web_view->MainFrameWidget()->Resize(WebSize(300, 300));
   web_view->SetPageScaleFactor(2);
-  web_view->SmoothScroll(0, 300, 0);
+  web_view->SmoothScroll(0, 300, base::TimeDelta());
   UpdateAllLifecyclePhases(web_view);
   RunPendingTasks();
 
@@ -1137,7 +1047,7 @@ TEST_F(WebPluginContainerTest, MouseWheelEventZoomed) {
   web_view->GetSettings()->SetPluginsEnabled(true);
   web_view->MainFrameWidget()->Resize(WebSize(300, 300));
   web_view->SetPageScaleFactor(2);
-  web_view->SmoothScroll(0, 300, 0);
+  web_view->SmoothScroll(0, 300, base::TimeDelta());
   UpdateAllLifecyclePhases(web_view);
   RunPendingTasks();
 
@@ -1179,7 +1089,7 @@ TEST_F(WebPluginContainerTest, TouchEventZoomed) {
   web_view->GetSettings()->SetPluginsEnabled(true);
   web_view->MainFrameWidget()->Resize(WebSize(300, 300));
   web_view->SetPageScaleFactor(2);
-  web_view->SmoothScroll(0, 300, 0);
+  web_view->SmoothScroll(0, 300, base::TimeDelta());
   UpdateAllLifecyclePhases(web_view);
   RunPendingTasks();
 
@@ -1362,7 +1272,8 @@ TEST_F(WebPluginContainerTest, ClippedRectsForShiftedIframedElement) {
   for (auto& root_document_scroll_to : root_document_scrolls_to) {
     for (auto& iframe_scroll_to : iframe_scrolls_to) {
       web_view->SmoothScroll(root_document_scroll_to.Width(),
-                             root_document_scroll_to.Height(), 0);
+                             root_document_scroll_to.Height(),
+                             base::TimeDelta());
       iframe->SetScrollOffset(iframe_scroll_to);
       UpdateAllLifecyclePhases(web_view);
       RunPendingTasks();
@@ -1549,21 +1460,6 @@ TEST_F(WebPluginContainerTest, NeedsWheelEvents) {
                   ->GetFrame()
                   ->GetEventHandlerRegistry()
                   .HasEventHandlers(EventHandlerRegistry::kWheelEventBlocking));
-}
-
-TEST_F(WebPluginContainerTest, IFramePluginDocumentDisplayNone) {
-  RegisterMockedURL("test.pdf", "application/pdf");
-  RegisterMockedURL("iframe_pdf_display_none.html", "text/html");
-
-  TestPluginWebFrameClient plugin_web_frame_client;
-  frame_test_helpers::WebViewHelper web_view_helper;
-  WebViewImpl* web_view = web_view_helper.InitializeAndLoad(
-      base_url_ + "iframe_pdf_display_none.html", &plugin_web_frame_client);
-  UpdateAllLifecyclePhases(web_view);
-
-  WebFrame* web_iframe = web_view->MainFrame()->FirstChild();
-  LocalFrame* iframe = To<LocalFrame>(WebFrame::ToCoreFrame(*web_iframe));
-  EXPECT_TRUE(iframe->GetWebPluginContainer());
 }
 
 }  // namespace blink

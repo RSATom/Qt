@@ -268,11 +268,11 @@ void tst_dialogs::fileDialogDefaultModality()
     // Click to show
     QObject *dlg = qvariant_cast<QObject *>(window->rootObject()->property("fileDialog"));
     QSignalSpy spyVisibilityChanged(dlg, SIGNAL(visibilityChanged()));
-    QTest::mouseClick(window, Qt::LeftButton, 0, QPoint(1000, 100));  // show
+    QTest::mouseClick(window, Qt::LeftButton, {}, QPoint(1000, 100));  // show
     QTRY_VERIFY(spyVisibilityChanged.count() > 0);
     int visibilityChangedCount = spyVisibilityChanged.count();
     // Can't hide by clicking the main window, because dialog is modal.
-    QTest::mouseClick(window, Qt::LeftButton, 0, QPoint(1000, 100));
+    QTest::mouseClick(window, Qt::LeftButton, {}, QPoint(1000, 100));
     /*
         On OS X, if you send an event directly to a window, the modal dialog
         doesn't block the event, so the window will process it normally. This
@@ -315,11 +315,11 @@ void tst_dialogs::fileDialogNonModal()
     QObject *dlg = qvariant_cast<QObject *>(window->rootObject()->property("fileDialog"));
     dlg->setProperty("modality", QVariant((int)Qt::NonModal));
     QSignalSpy spyVisibilityChanged(dlg, SIGNAL(visibilityChanged()));
-    QTest::mouseClick(window, Qt::LeftButton, 0, QPoint(1000, 100));  // show
+    QTest::mouseClick(window, Qt::LeftButton, {}, QPoint(1000, 100));  // show
     QTRY_VERIFY(spyVisibilityChanged.count() > 0);
     int visibilityChangedCount = spyVisibilityChanged.count();
     QCOMPARE(dlg->property("visible").toBool(), true);
-    QTest::mouseClick(window, Qt::LeftButton, 0, QPoint(1000, 100));  // hide
+    QTest::mouseClick(window, Qt::LeftButton, {}, QPoint(1000, 100));  // hide
     QTRY_VERIFY(spyVisibilityChanged.count() > visibilityChangedCount);
     QCOMPARE(dlg->property("visible").toBool(), false);
 #ifdef Q_OS_WIN

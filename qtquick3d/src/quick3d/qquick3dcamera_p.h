@@ -58,17 +58,19 @@ public:
     };
     Q_ENUM(FieldOfViewOrientation)
 
-    QQuick3DCamera();
+    explicit QQuick3DCamera(QQuick3DNode *parent = nullptr);
 
     Q_INVOKABLE QVector3D mapToViewport(const QVector3D &scenePos) const;
     Q_INVOKABLE QVector3D mapFromViewport(const QVector3D &viewportPos) const;
-
     QVector3D mapToViewport(const QVector3D &scenePos,
                             qreal width,
                             qreal height);
     QVector3D mapFromViewport(const QVector3D &viewportPos,
                               qreal width,
                               qreal height);
+
+    Q_REVISION(1) Q_INVOKABLE void lookAt(const QVector3D &scenePos);
+    Q_REVISION(1) Q_INVOKABLE void lookAt(QQuick3DNode *node);
 
     QSSGRenderCamera *cameraNode() const;
     void setCameraNode(QSSGRenderCamera *camera) { m_cameraNode = camera; }

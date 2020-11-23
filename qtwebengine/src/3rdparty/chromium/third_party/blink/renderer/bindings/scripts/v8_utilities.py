@@ -210,7 +210,7 @@ CALL_WITH_ARGUMENTS = {
     'ScriptState': 'script_state',
     'ExecutionContext': 'execution_context',
     'Document': 'document',
-    'ThisValue': 'ScriptValue(script_state, info.Holder())',
+    'ThisValue': 'ScriptValue(info.GetIsolate(), info.Holder())',
 }
 # List because key order matters, as we want arguments in deterministic order
 CALL_WITH_VALUES = [
@@ -400,9 +400,11 @@ def cpp_name_or_partial(interface):
 def measure_as(definition_or_member, interface):
     extended_attributes = definition_or_member.extended_attributes
     if 'MeasureAs' in extended_attributes:
+        includes.add('core/frame/web_feature.h')
         includes.add('platform/instrumentation/use_counter.h')
         return lambda suffix: extended_attributes['MeasureAs']
     if 'Measure' in extended_attributes:
+        includes.add('core/frame/web_feature.h')
         includes.add('platform/instrumentation/use_counter.h')
         measure_as_name = capitalize(definition_or_member.name)
         if interface is not None:

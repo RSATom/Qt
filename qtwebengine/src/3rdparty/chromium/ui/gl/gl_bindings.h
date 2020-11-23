@@ -127,7 +127,7 @@
 
 // GL_ANGLE_request_extension
 #define GL_REQUESTABLE_EXTENSIONS_ANGLE 0x93A8
-#define GL_NUM_REQUESTABLE_EXTENSIONS_ANGLE 0x93A8
+#define GL_NUM_REQUESTABLE_EXTENSIONS_ANGLE 0x93A9
 
 // GL_ANGLE_memory_size
 #define GL_MEMORY_SIZE_ANGLE 0x93AD
@@ -144,6 +144,7 @@
 
 // GL_CHROMIUM_command_buffer_query
 #define GL_COMMANDS_ISSUED_CHROMIUM                      0x6004
+#define GL_COMMANDS_ISSUED_TIMESTAMP_CHROMIUM            0x6005
 
 /* GL_CHROMIUM_get_error_query */
 #define GL_GET_ERROR_QUERY_CHROMIUM                      0x6003

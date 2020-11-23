@@ -4,6 +4,8 @@
 
 #include "third_party/blink/renderer/core/html/canvas/canvas_rendering_context_host.h"
 
+#include "base/feature_list.h"
+#include "third_party/blink/public/common/features.h"
 #include "third_party/blink/public/platform/platform.h"
 #include "third_party/blink/renderer/core/html/canvas/canvas_async_blob_creator.h"
 #include "third_party/blink/renderer/core/html/canvas/canvas_rendering_context.h"
@@ -11,6 +13,7 @@
 #include "third_party/blink/renderer/platform/graphics/gpu/shared_gpu_context.h"
 #include "third_party/blink/renderer/platform/graphics/skia/skia_utils.h"
 #include "third_party/blink/renderer/platform/graphics/static_bitmap_image.h"
+#include "third_party/blink/renderer/platform/graphics/unaccelerated_static_bitmap_image.h"
 #include "third_party/blink/renderer/platform/heap/heap.h"
 #include "third_party/blink/renderer/platform/instrumentation/histogram.h"
 #include "third_party/skia/include/core/SkSurface.h"
@@ -50,7 +53,7 @@ CanvasRenderingContextHost::CreateTransparentImage(const IntSize& size) const {
       SkSurface::MakeRaster(info, info.minRowBytes(), nullptr);
   if (!surface)
     return nullptr;
-  return StaticBitmapImage::Create(surface->makeImageSnapshot());
+  return UnacceleratedStaticBitmapImage::Create(surface->makeImageSnapshot());
 }
 
 void CanvasRenderingContextHost::Commit(scoped_refptr<CanvasResource>,
@@ -108,24 +111,25 @@ CanvasRenderingContextHost::GetOrCreateCanvasResourceProviderImpl(
               kSoftwareCompositedResourceUsage;
         }
 
-        CanvasResourceProvider::PresentationMode presentation_mode;
-        if (RuntimeEnabledFeatures::WebGLSwapChainEnabled()) {
-          presentation_mode =
-              CanvasResourceProvider::kAllowSwapChainPresentationMode;
-        } else if (RuntimeEnabledFeatures::WebGLImageChromiumEnabled()) {
-          presentation_mode =
+        uint8_t presentation_mode =
+            CanvasResourceProvider::kDefaultPresentationMode;
+        if (RuntimeEnabledFeatures::WebGLImageChromiumEnabled()) {
+          presentation_mode |=
               CanvasResourceProvider::kAllowImageChromiumPresentationMode;
-        } else {
-          presentation_mode = CanvasResourceProvider::kDefaultPresentationMode;
         }
-
-        const bool is_origin_top_left =
-            !SharedGpuContext::IsGpuCompositingEnabled();
+        if (RenderingContext() && RenderingContext()->UsingSwapChain()) {
+          DCHECK(LowLatencyEnabled());
+          // Allow swap chain presentation only if 3d context is using a swap
+          // chain since we'll be importing it as a passthrough texture.
+          presentation_mode |=
+              CanvasResourceProvider::kAllowSwapChainPresentationMode;
+        }
 
         ReplaceResourceProvider(CanvasResourceProvider::CreateForCanvas(
             Size(), usage, SharedGpuContext::ContextProviderWrapper(),
-            0 /* msaa_sample_count */, ColorParams(), presentation_mode,
-            std::move(dispatcher), is_origin_top_left));
+            0 /* msaa_sample_count */, FilterQuality(), ColorParams(),
+            presentation_mode, std::move(dispatcher),
+            RenderingContext()->IsOriginTopLeft()));
       } else {
         DCHECK(Is2d());
         const bool want_acceleration =
@@ -145,19 +149,37 @@ CanvasRenderingContextHost::GetOrCreateCanvasResourceProviderImpl(
               kSoftwareCompositedResourceUsage;
         }
 
-        const CanvasResourceProvider::PresentationMode presentation_mode =
-            (RuntimeEnabledFeatures::Canvas2dImageChromiumEnabled() ||
-             (LowLatencyEnabled() && want_acceleration))
-                ? CanvasResourceProvider::kAllowImageChromiumPresentationMode
-                : CanvasResourceProvider::kDefaultPresentationMode;
+        uint8_t presentation_mode =
+            CanvasResourceProvider::kDefaultPresentationMode;
+        // Allow GMB image resources if the runtime feature is enabled or if
+        // we want to use it for low latency mode.
+        if (RuntimeEnabledFeatures::Canvas2dImageChromiumEnabled() ||
+            (base::FeatureList::IsEnabled(
+                 features::kLowLatencyCanvas2dImageChromium) &&
+             LowLatencyEnabled() && want_acceleration)) {
+          presentation_mode |=
+              CanvasResourceProvider::kAllowImageChromiumPresentationMode;
+        }
+        // Allow swap chains only if the runtime feature is enabled and we're
+        // in low latency mode too.
+        if (base::FeatureList::IsEnabled(
+                features::kLowLatencyCanvas2dSwapChain) &&
+            LowLatencyEnabled() && want_acceleration) {
+          presentation_mode |=
+              CanvasResourceProvider::kAllowSwapChainPresentationMode;
+        }
 
+        // It is important to not use the context's IsOriginTopLeft() here
+        // because that denotes the current state and could change after the
+        // new resource provider is created e.g. due to switching between
+        // unaccelerated and accelerated modes during tab switching.
         const bool is_origin_top_left =
             !want_acceleration || LowLatencyEnabled();
 
         ReplaceResourceProvider(CanvasResourceProvider::CreateForCanvas(
             Size(), usage, SharedGpuContext::ContextProviderWrapper(),
-            GetMSAASampleCountFor2dContext(), ColorParams(), presentation_mode,
-            std::move(dispatcher), is_origin_top_left));
+            GetMSAASampleCountFor2dContext(), FilterQuality(), ColorParams(),
+            presentation_mode, std::move(dispatcher), is_origin_top_left));
 
         if (ResourceProvider()) {
           // Always save an initial frame, to support resetting the top level
@@ -183,7 +205,7 @@ CanvasColorParams CanvasRenderingContextHost::ColorParams() const {
 ScriptPromise CanvasRenderingContextHost::convertToBlob(
     ScriptState* script_state,
     const ImageEncodeOptions* options,
-    ExceptionState& exception_state) const {
+    ExceptionState& exception_state) {
   WTF::String object_name = "Canvas";
   if (this->IsOffscreenCanvas())
     object_name = "OffscreenCanvas";
@@ -201,8 +223,14 @@ ScriptPromise CanvasRenderingContextHost::convertToBlob(
     return ScriptPromise();
   }
 
+  // It's possible that there are recorded commands that have not been resolved
+  // Finalize frame will be called in GetImage, but if there's no
+  // resourceProvider yet then the IsPaintable check will fail
+  if (RenderingContext())
+    RenderingContext()->FinalizeFrame();
+
   if (!this->IsPaintable() || Size().IsEmpty()) {
-    error_msg << "The size of " << object_name << " iz zero.";
+    error_msg << "The size of " << object_name << " is zero.";
     exception_state.ThrowDOMException(DOMExceptionCode::kIndexSizeError,
                                       error_msg.str().c_str());
     return ScriptPromise();

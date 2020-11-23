@@ -2,6 +2,8 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#include <fuzzer/FuzzedDataProvider.h>
+
 #include "base/logging.h"
 #include "base/run_loop.h"
 #include "base/stl_util.h"
@@ -18,7 +20,6 @@
 #include "net/spdy/spdy_test_util_common.h"
 #include "net/ssl/ssl_config.h"
 #include "net/traffic_annotation/network_traffic_annotation_test_helper.h"
-#include "third_party/libFuzzer/src/utils/FuzzedDataProvider.h"
 
 namespace {
 
@@ -38,8 +39,8 @@ class FuzzerDelegate : public net::SpdyStream::Delegate {
   void OnDataReceived(std::unique_ptr<net::SpdyBuffer> buffer) override {}
   void OnDataSent() override {}
   void OnTrailers(const spdy::SpdyHeaderBlock& trailers) override {}
-
   void OnClose(int status) override { done_closure_.Run(); }
+  bool CanGreaseFrameType() const override { return false; }
 
   net::NetLogSource source_dependency() const override {
     return net::NetLogSource();
@@ -101,7 +102,7 @@ FuzzedSocketFactoryWithMockSSLData::CreateSSLClientSocket(
 //
 // |data| is used to create a FuzzedServerSocket.
 extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) {
-  net::BoundTestNetLog bound_test_net_log;
+  net::RecordingBoundTestNetLog bound_test_net_log;
   FuzzedDataProvider data_provider(data, size);
   net::FuzzedSocketFactoryWithMockSSLData socket_factory(&data_provider);
   socket_factory.set_fuzz_connect_result(false);
@@ -121,7 +122,8 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) {
   net::SpdySessionKey session_key(net::HostPortPair("127.0.0.1", 80),
                                   direct_connect, net::PRIVACY_MODE_DISABLED,
                                   net::SpdySessionKey::IsProxySession::kFalse,
-                                  net::SocketTag());
+                                  net::SocketTag(), net::NetworkIsolationKey(),
+                                  false /* disable_secure_dns */);
   base::WeakPtr<net::SpdySession> spdy_session(net::CreateSpdySession(
       http_session.get(), session_key, bound_test_net_log.bound()));
 

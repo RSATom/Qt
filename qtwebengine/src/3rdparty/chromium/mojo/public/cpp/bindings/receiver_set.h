@@ -14,6 +14,7 @@
 #include "base/callback.h"
 #include "base/macros.h"
 #include "base/memory/ptr_util.h"
+#include "base/stl_util.h"
 #include "mojo/public/cpp/bindings/connection_error_callback.h"
 #include "mojo/public/cpp/bindings/message.h"
 #include "mojo/public/cpp/bindings/pending_receiver.h"
@@ -95,6 +96,8 @@ class ReceiverSetBase {
   using PreDispatchCallback = base::RepeatingCallback<void(const Context&)>;
 
   ReceiverSetBase() = default;
+  ReceiverSetBase(ReceiverSetBase&&) = default;
+  ReceiverSetBase& operator=(ReceiverSetBase&&) = default;
 
   // Sets a callback to be invoked any time a receiver in the set is
   // disconnected. The callback is invoked *after* the receiver in question
@@ -164,6 +167,13 @@ class ReceiverSetBase {
   // disconnection notifications until a new receiver is added to the set.
   void Clear() { receivers_.clear(); }
 
+  // Predicate to test if a receiver exists in the set.
+  //
+  // Returns |true| if the receiver is in the set and |false| if not.
+  bool HasReceiver(ReceiverId id) const {
+    return base::Contains(receivers_, id);
+  }
+
   bool empty() const { return receivers_.empty(); }
 
   size_t size() const { return receivers_.size(); }
@@ -231,10 +241,35 @@ class ReceiverSetBase {
   }
 
   void FlushForTesting() {
-    for (const auto& it : receivers_) {
-      if (it.second)
-        it.second->FlushForTesting();
+    // We avoid flushing while iterating over |receivers_| because this set
+    // may be mutated during individual flush operations.  Instead, snapshot
+    // the ReceiverIds first, then iterate over them. This is less efficient,
+    // but it's only a testing API. This also allows for correct behavior in
+    // reentrant calls to FlushForTesting().
+    std::vector<ReceiverId> ids;
+    for (const auto& receiver : receivers_)
+      ids.push_back(receiver.first);
+
+    auto weak_self = weak_ptr_factory_.GetWeakPtr();
+    for (const auto& id : ids) {
+      if (!weak_self)
+        return;
+      auto it = receivers_.find(id);
+      if (it != receivers_.end())
+        it->second->FlushForTesting();
     }
+  }
+
+  // Swaps the interface implementation with a different one, to allow tests
+  // to modify behavior.
+  //
+  // Returns the existing interface implementation to the caller.
+  ImplPointerType SwapImplForTesting(ReceiverId id, ImplPointerType new_impl) {
+    auto it = receivers_.find(id);
+    if (it == receivers_.end())
+      return nullptr;
+
+    return it->second->SwapImplForTesting(new_impl);
   }
 
  private:
@@ -254,25 +289,31 @@ class ReceiverSetBase {
           receiver_set_(receiver_set),
           receiver_id_(receiver_id),
           context_(std::move(context)) {
-      receiver_.AddFilter(std::make_unique<DispatchFilter>(this));
+      receiver_.SetFilter(std::make_unique<DispatchFilter>(this));
       receiver_.set_disconnect_with_reason_handler(
           base::BindOnce(&Entry::OnDisconnect, base::Unretained(this)));
+    }
+
+    ImplPointerType SwapImplForTesting(ImplPointerType new_impl) {
+      return receiver_.SwapImplForTesting(new_impl);
     }
 
     void FlushForTesting() { receiver_.FlushForTesting(); }
 
    private:
-    class DispatchFilter : public MessageReceiver {
+    class DispatchFilter : public MessageFilter {
      public:
       explicit DispatchFilter(Entry* entry) : entry_(entry) {}
       ~DispatchFilter() override {}
 
      private:
-      // MessageReceiver:
-      bool Accept(Message* message) override {
+      // MessageFilter:
+      bool WillDispatch(Message* message) override {
         entry_->WillDispatch();
         return true;
       }
+
+      void DidDispatchOrReject(Message* message, bool accepted) override {}
 
       Entry* entry_;
 

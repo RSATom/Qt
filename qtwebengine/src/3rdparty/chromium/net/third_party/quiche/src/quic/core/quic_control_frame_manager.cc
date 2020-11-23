@@ -14,6 +14,14 @@
 
 namespace quic {
 
+namespace {
+
+// The maximum number of buffered control frames which are waiting to be ACKed
+// or sent for the first time.
+const size_t kMaxNumControlFrames = 1000;
+
+}  // namespace
+
 QuicControlFrameManager::QuicControlFrameManager(QuicSession* session)
     : last_control_frame_id_(kInvalidControlFrameId),
       least_unacked_(1),
@@ -30,6 +38,15 @@ QuicControlFrameManager::~QuicControlFrameManager() {
 void QuicControlFrameManager::WriteOrBufferQuicFrame(QuicFrame frame) {
   const bool had_buffered_frames = HasBufferedFrames();
   control_frames_.emplace_back(frame);
+  if (control_frames_.size() > kMaxNumControlFrames) {
+    session_->connection()->CloseConnection(
+        QUIC_TOO_MANY_BUFFERED_CONTROL_FRAMES,
+        QuicStrCat("More than ", kMaxNumControlFrames,
+                   "buffered control frames, least_unacked: ", least_unacked_,
+                   ", least_unsent_: ", least_unsent_),
+        ConnectionCloseBehavior::SEND_CONNECTION_CLOSE_PACKET);
+    return;
+  }
   if (had_buffered_frames) {
     return;
   }
@@ -101,6 +118,15 @@ void QuicControlFrameManager::WritePing() {
   }
   control_frames_.emplace_back(
       QuicFrame(QuicPingFrame(++last_control_frame_id_)));
+  if (control_frames_.size() > kMaxNumControlFrames) {
+    session_->connection()->CloseConnection(
+        QUIC_TOO_MANY_BUFFERED_CONTROL_FRAMES,
+        QuicStrCat("More than ", kMaxNumControlFrames,
+                   "buffered control frames, least_unacked: ", least_unacked_,
+                   ", least_unsent_: ", least_unsent_),
+        ConnectionCloseBehavior::SEND_CONNECTION_CLOSE_PACKET);
+    return;
+  }
   WriteBufferedFrames();
 }
 
@@ -172,6 +198,9 @@ void QuicControlFrameManager::OnControlFrameLost(const QuicFrame& frame) {
   }
   if (!QuicContainsKey(pending_retransmissions_, id)) {
     pending_retransmissions_[id] = true;
+    QUIC_BUG_IF(pending_retransmissions_.size() > control_frames_.size())
+        << "least_unacked_: " << least_unacked_
+        << ", least_unsent_: " << least_unsent_;
   }
 }
 
@@ -245,9 +274,7 @@ bool QuicControlFrameManager::RetransmitControlFrame(const QuicFrame& frame) {
 
 void QuicControlFrameManager::WriteBufferedFrames() {
   while (HasBufferedFrames()) {
-    if (session_->session_decides_what_to_write()) {
-      session_->SetTransmissionType(NOT_RETRANSMISSION);
-    }
+    session_->SetTransmissionType(NOT_RETRANSMISSION);
     QuicFrame frame_to_send =
         control_frames_.at(least_unsent_ - least_unacked_);
     QuicFrame copy = CopyRetransmittableControlFrame(frame_to_send);

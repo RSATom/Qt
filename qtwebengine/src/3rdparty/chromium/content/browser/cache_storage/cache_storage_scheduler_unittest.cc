@@ -10,7 +10,7 @@
 #include "base/test/scoped_feature_list.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "content/public/common/content_features.h"
-#include "content/public/test/test_browser_thread_bundle.h"
+#include "content/public/test/browser_task_environment.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
 namespace content {
@@ -66,12 +66,12 @@ class TestScheduler : public CacheStorageScheduler {
 class CacheStorageSchedulerTest : public testing::Test {
  protected:
   CacheStorageSchedulerTest()
-      : browser_thread_bundle_(TestBrowserThreadBundle::IO_MAINLOOP),
+      : task_environment_(BrowserTaskEnvironment::IO_MAINLOOP),
         task1_(&scheduler_),
         task2_(&scheduler_),
         task3_(&scheduler_) {}
 
-  TestBrowserThreadBundle browser_thread_bundle_;
+  BrowserTaskEnvironment task_environment_;
   TestScheduler scheduler_;
   TestTask task1_;
   TestTask task2_;
@@ -83,7 +83,7 @@ TEST_F(CacheStorageSchedulerTest, ScheduleOne) {
   scheduler_.SetDoneStartingClosure(done_loop.QuitClosure());
   scheduler_.ScheduleOperation(
       task1_.id(), CacheStorageSchedulerMode::kExclusive,
-      CacheStorageSchedulerOp::kTest,
+      CacheStorageSchedulerOp::kTest, CacheStorageSchedulerPriority::kNormal,
       base::BindOnce(&TestTask::Run, base::Unretained(&task1_)));
   task1_.run_loop().Run();
   done_loop.Run();
@@ -95,7 +95,7 @@ TEST_F(CacheStorageSchedulerTest, ScheduledOperations) {
   scheduler_.SetDoneStartingClosure(done_loop.QuitClosure());
   scheduler_.ScheduleOperation(
       task1_.id(), CacheStorageSchedulerMode::kExclusive,
-      CacheStorageSchedulerOp::kTest,
+      CacheStorageSchedulerOp::kTest, CacheStorageSchedulerPriority::kNormal,
       base::BindOnce(&TestTask::Run, base::Unretained(&task1_)));
   EXPECT_TRUE(scheduler_.ScheduledOperations());
   task1_.run_loop().Run();
@@ -115,13 +115,13 @@ TEST_F(CacheStorageSchedulerTest, ScheduleTwoExclusive) {
 
   scheduler_.ScheduleOperation(
       task1_.id(), CacheStorageSchedulerMode::kExclusive,
-      CacheStorageSchedulerOp::kTest,
+      CacheStorageSchedulerOp::kTest, CacheStorageSchedulerPriority::kNormal,
       base::BindOnce(&TestTask::Run, base::Unretained(&task1_)));
   base::RunLoop done_loop1;
   scheduler_.SetDoneStartingClosure(done_loop1.QuitClosure());
   scheduler_.ScheduleOperation(
       task2_.id(), CacheStorageSchedulerMode::kExclusive,
-      CacheStorageSchedulerOp::kTest,
+      CacheStorageSchedulerOp::kTest, CacheStorageSchedulerPriority::kNormal,
       base::BindOnce(&TestTask::Run, base::Unretained(&task2_)));
 
   // Should only run the first exclusive op.
@@ -151,13 +151,13 @@ TEST_F(CacheStorageSchedulerTest, ScheduleTwoShared) {
 
   scheduler_.ScheduleOperation(
       task1_.id(), CacheStorageSchedulerMode::kShared,
-      CacheStorageSchedulerOp::kTest,
+      CacheStorageSchedulerOp::kTest, CacheStorageSchedulerPriority::kNormal,
       base::BindOnce(&TestTask::Run, base::Unretained(&task1_)));
   base::RunLoop done_loop1;
   scheduler_.SetDoneStartingClosure(done_loop1.QuitClosure());
   scheduler_.ScheduleOperation(
       task2_.id(), CacheStorageSchedulerMode::kShared,
-      CacheStorageSchedulerOp::kTest,
+      CacheStorageSchedulerOp::kTest, CacheStorageSchedulerPriority::kNormal,
       base::BindOnce(&TestTask::Run, base::Unretained(&task2_)));
 
   // Should run both shared ops in paralle.
@@ -199,13 +199,13 @@ TEST_F(CacheStorageSchedulerTest, ScheduleOneExclusiveOneShared) {
 
   scheduler_.ScheduleOperation(
       task1_.id(), CacheStorageSchedulerMode::kExclusive,
-      CacheStorageSchedulerOp::kTest,
+      CacheStorageSchedulerOp::kTest, CacheStorageSchedulerPriority::kNormal,
       base::BindOnce(&TestTask::Run, base::Unretained(&task1_)));
   base::RunLoop done_loop1;
   scheduler_.SetDoneStartingClosure(done_loop1.QuitClosure());
   scheduler_.ScheduleOperation(
       task2_.id(), CacheStorageSchedulerMode::kShared,
-      CacheStorageSchedulerOp::kTest,
+      CacheStorageSchedulerOp::kTest, CacheStorageSchedulerPriority::kNormal,
       base::BindOnce(&TestTask::Run, base::Unretained(&task2_)));
 
   // Should only run the first exclusive op.
@@ -238,13 +238,13 @@ TEST_F(CacheStorageSchedulerTest, ScheduleOneSharedOneExclusive) {
 
   scheduler_.ScheduleOperation(
       task1_.id(), CacheStorageSchedulerMode::kShared,
-      CacheStorageSchedulerOp::kTest,
+      CacheStorageSchedulerOp::kTest, CacheStorageSchedulerPriority::kNormal,
       base::BindOnce(&TestTask::Run, base::Unretained(&task1_)));
   base::RunLoop done_loop1;
   scheduler_.SetDoneStartingClosure(done_loop1.QuitClosure());
   scheduler_.ScheduleOperation(
       task2_.id(), CacheStorageSchedulerMode::kExclusive,
-      CacheStorageSchedulerOp::kTest,
+      CacheStorageSchedulerOp::kTest, CacheStorageSchedulerPriority::kNormal,
       base::BindOnce(&TestTask::Run, base::Unretained(&task2_)));
 
   // Should only run the first shared op.
@@ -277,17 +277,17 @@ TEST_F(CacheStorageSchedulerTest, ScheduleTwoSharedOneExclusive) {
 
   scheduler_.ScheduleOperation(
       task1_.id(), CacheStorageSchedulerMode::kShared,
-      CacheStorageSchedulerOp::kTest,
+      CacheStorageSchedulerOp::kTest, CacheStorageSchedulerPriority::kNormal,
       base::BindOnce(&TestTask::Run, base::Unretained(&task1_)));
   scheduler_.ScheduleOperation(
       task2_.id(), CacheStorageSchedulerMode::kShared,
-      CacheStorageSchedulerOp::kTest,
+      CacheStorageSchedulerOp::kTest, CacheStorageSchedulerPriority::kNormal,
       base::BindOnce(&TestTask::Run, base::Unretained(&task2_)));
   base::RunLoop done_loop1;
   scheduler_.SetDoneStartingClosure(done_loop1.QuitClosure());
   scheduler_.ScheduleOperation(
       task3_.id(), CacheStorageSchedulerMode::kExclusive,
-      CacheStorageSchedulerOp::kTest,
+      CacheStorageSchedulerOp::kTest, CacheStorageSchedulerPriority::kNormal,
       base::BindOnce(&TestTask::Run, base::Unretained(&task3_)));
 
   // Should run the two shared ops in parallel.
@@ -337,17 +337,17 @@ TEST_F(CacheStorageSchedulerTest, ScheduleOneExclusiveTwoShared) {
 
   scheduler_.ScheduleOperation(
       task1_.id(), CacheStorageSchedulerMode::kExclusive,
-      CacheStorageSchedulerOp::kTest,
+      CacheStorageSchedulerOp::kTest, CacheStorageSchedulerPriority::kNormal,
       base::BindOnce(&TestTask::Run, base::Unretained(&task1_)));
   scheduler_.ScheduleOperation(
       task2_.id(), CacheStorageSchedulerMode::kShared,
-      CacheStorageSchedulerOp::kTest,
+      CacheStorageSchedulerOp::kTest, CacheStorageSchedulerPriority::kNormal,
       base::BindOnce(&TestTask::Run, base::Unretained(&task2_)));
   base::RunLoop done_loop1;
   scheduler_.SetDoneStartingClosure(done_loop1.QuitClosure());
   scheduler_.ScheduleOperation(
       task3_.id(), CacheStorageSchedulerMode::kShared,
-      CacheStorageSchedulerOp::kTest,
+      CacheStorageSchedulerOp::kTest, CacheStorageSchedulerPriority::kNormal,
       base::BindOnce(&TestTask::Run, base::Unretained(&task3_)));
 
   // Should only run the first exclusive op.
@@ -395,17 +395,17 @@ TEST_F(CacheStorageSchedulerTest, ScheduleOneSharedOneExclusiveOneShared) {
 
   scheduler_.ScheduleOperation(
       task1_.id(), CacheStorageSchedulerMode::kShared,
-      CacheStorageSchedulerOp::kTest,
+      CacheStorageSchedulerOp::kTest, CacheStorageSchedulerPriority::kNormal,
       base::BindOnce(&TestTask::Run, base::Unretained(&task1_)));
   scheduler_.ScheduleOperation(
       task2_.id(), CacheStorageSchedulerMode::kExclusive,
-      CacheStorageSchedulerOp::kTest,
+      CacheStorageSchedulerOp::kTest, CacheStorageSchedulerPriority::kNormal,
       base::BindOnce(&TestTask::Run, base::Unretained(&task2_)));
   base::RunLoop done_loop1;
   scheduler_.SetDoneStartingClosure(done_loop1.QuitClosure());
   scheduler_.ScheduleOperation(
       task3_.id(), CacheStorageSchedulerMode::kShared,
-      CacheStorageSchedulerOp::kTest,
+      CacheStorageSchedulerOp::kTest, CacheStorageSchedulerPriority::kNormal,
       base::BindOnce(&TestTask::Run, base::Unretained(&task3_)));
 
   // Should only run the first shared op.
@@ -455,13 +455,13 @@ TEST_F(CacheStorageSchedulerTest, ScheduleTwoSharedNotParallel) {
 
   scheduler_.ScheduleOperation(
       task1_.id(), CacheStorageSchedulerMode::kShared,
-      CacheStorageSchedulerOp::kTest,
+      CacheStorageSchedulerOp::kTest, CacheStorageSchedulerPriority::kNormal,
       base::BindOnce(&TestTask::Run, base::Unretained(&task1_)));
   base::RunLoop done_loop1;
   scheduler_.SetDoneStartingClosure(done_loop1.QuitClosure());
   scheduler_.ScheduleOperation(
       task2_.id(), CacheStorageSchedulerMode::kShared,
-      CacheStorageSchedulerOp::kTest,
+      CacheStorageSchedulerOp::kTest, CacheStorageSchedulerPriority::kNormal,
       base::BindOnce(&TestTask::Run, base::Unretained(&task2_)));
 
   // Should only run one shared op since the max shared is set to 1.
@@ -482,6 +482,55 @@ TEST_F(CacheStorageSchedulerTest, ScheduleTwoSharedNotParallel) {
   EXPECT_EQ(1, task1_.callback_count());
   EXPECT_EQ(1, task2_.callback_count());
   EXPECT_FALSE(scheduler_.IsRunningExclusiveOperation());
+}
+
+TEST_F(CacheStorageSchedulerTest, ScheduleByPriorityTwoNormalOneHigh) {
+  scheduler_.ScheduleOperation(
+      task1_.id(), CacheStorageSchedulerMode::kExclusive,
+      CacheStorageSchedulerOp::kTest, CacheStorageSchedulerPriority::kNormal,
+      base::BindOnce(&TestTask::Run, base::Unretained(&task1_)));
+  base::RunLoop done_loop1;
+  scheduler_.SetDoneStartingClosure(done_loop1.QuitClosure());
+  scheduler_.ScheduleOperation(
+      task2_.id(), CacheStorageSchedulerMode::kExclusive,
+      CacheStorageSchedulerOp::kTest, CacheStorageSchedulerPriority::kNormal,
+      base::BindOnce(&TestTask::Run, base::Unretained(&task2_)));
+  scheduler_.ScheduleOperation(
+      task3_.id(), CacheStorageSchedulerMode::kExclusive,
+      CacheStorageSchedulerOp::kTest, CacheStorageSchedulerPriority::kHigh,
+      base::BindOnce(&TestTask::Run, base::Unretained(&task3_)));
+
+  // Should run the first normal priority op because the queue was empty
+  // when it was added.
+  task1_.run_loop().Run();
+  done_loop1.Run();
+  EXPECT_EQ(1, task1_.callback_count());
+  EXPECT_EQ(0, task2_.callback_count());
+  EXPECT_EQ(0, task3_.callback_count());
+
+  base::RunLoop done_loop3;
+  scheduler_.SetDoneStartingClosure(done_loop3.QuitClosure());
+
+  // Should run the high priority op next.
+  task1_.Done();
+  task3_.run_loop().Run();
+  done_loop3.Run();
+  EXPECT_EQ(1, task1_.callback_count());
+  EXPECT_EQ(0, task2_.callback_count());
+  EXPECT_EQ(1, task3_.callback_count());
+
+  base::RunLoop done_loop2;
+  scheduler_.SetDoneStartingClosure(done_loop2.QuitClosure());
+
+  // Should run the final normal priority op after the high priority op
+  // completes.
+  task3_.Done();
+  EXPECT_TRUE(scheduler_.ScheduledOperations());
+  task2_.run_loop().Run();
+  done_loop2.Run();
+  EXPECT_EQ(1, task1_.callback_count());
+  EXPECT_EQ(1, task2_.callback_count());
+  EXPECT_EQ(1, task3_.callback_count());
 }
 
 }  // namespace cache_storage_scheduler_unittest

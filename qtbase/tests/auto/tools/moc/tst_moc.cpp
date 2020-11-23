@@ -33,6 +33,7 @@
 #include <stdio.h>
 #include <qobject.h>
 #include <qmetaobject.h>
+#include <qjsondocument.h>
 
 #include "using-namespaces.h"
 #include "assign-namespace.h"
@@ -717,6 +718,8 @@ private slots:
     void testQNamespace();
     void cxx17Namespaces();
     void cxxAttributes();
+    void mocJsonOutput();
+    void requiredProperties();
 
 signals:
     void sigWithUnsignedArg(unsigned foo);
@@ -3834,6 +3837,7 @@ void tst_Moc::gadgetHierarchy()
 {
     QCOMPARE(NonGadgetParent::Derived::staticMetaObject.superClass(), static_cast<const QMetaObject*>(nullptr));
     QCOMPARE(GrandParentGadget::DerivedGadget::staticMetaObject.superClass(), &GrandParentGadget::BaseGadget::staticMetaObject);
+    QCOMPARE(GrandParentGadget::CRTPDerivedGadget::staticMetaObject.superClass(), &GrandParentGadget::BaseGadget::staticMetaObject);
 }
 
 void tst_Moc::optionsFileError_data()
@@ -3969,6 +3973,80 @@ void tst_Moc::cxxAttributes()
     QCOMPARE(meta.name(), "TestEnum1");
     QCOMPARE(meta.enclosingMetaObject(), &TestQNamespaceDeprecated::staticMetaObject);
     QCOMPARE(meta.keyCount(), 7);
+}
+
+void tst_Moc::mocJsonOutput()
+{
+    const auto readFile = [](const QString &fileName) {
+        QFile f(fileName);
+        f.open(QIODevice::ReadOnly);
+        return QJsonDocument::fromJson(f.readAll());
+    };
+
+    const QString actualFile = QStringLiteral(":/allmocs.json");
+    const QString expectedFile = QStringLiteral(":/allmocs_baseline.json");
+
+    QVERIFY2(QFile::exists(actualFile), qPrintable(actualFile));
+    QVERIFY2(QFile::exists(expectedFile), qPrintable(expectedFile));
+
+    QJsonDocument actualOutput = readFile(QLatin1String(":/allmocs.json"));
+    QJsonDocument expectedOutput = readFile(QLatin1String(":/allmocs_baseline.json"));
+
+    const auto showPotentialDiff = [](const QJsonDocument &actual, const QJsonDocument &expected) -> QByteArray {
+#if defined(Q_OS_UNIX)
+        QByteArray actualStr = actual.toJson();
+        QByteArray expectedStr = expected.toJson();
+
+        QTemporaryFile actualFile;
+        if (!actualFile.open())
+            return "Error opening actual temp file";
+        actualFile.write(actualStr);
+        actualFile.flush();
+
+        QTemporaryFile expectedFile;
+        if (!expectedFile.open())
+            return "Error opening expected temp file";
+        expectedFile.write(expectedStr);
+        expectedFile.flush();
+
+        QProcess diffProc;
+        diffProc.setProgram("diff");
+        diffProc.setArguments(QStringList() << "-ub" << expectedFile.fileName() << actualFile.fileName());
+        diffProc.start();
+        if (!diffProc.waitForStarted())
+            return "Error waiting for diff process to start.";
+        if (!diffProc.waitForFinished())
+            return "Error waiting for diff process to finish.";
+        return diffProc.readAllStandardOutput();
+#else
+        return "Cannot launch diff. Please check allmocs.json and allmocs_baseline.json on disk.";
+#endif
+    };
+
+    QVERIFY2(actualOutput == expectedOutput, showPotentialDiff(actualOutput, expectedOutput).constData());
+}
+
+class RequiredTest :public QObject
+{
+    Q_OBJECT
+
+    Q_PROPERTY(int required MEMBER m_required REQUIRED)
+    Q_PROPERTY(int notRequired MEMBER m_notRequired)
+
+private:
+    int m_required;
+    int m_notRequired;
+};
+
+void tst_Moc::requiredProperties()
+{
+    QMetaObject mo = RequiredTest::staticMetaObject;
+    QMetaProperty required = mo.property(mo.indexOfProperty("required"));
+    QVERIFY(required.isValid());
+    QVERIFY(required.isRequired());
+    QMetaProperty notRequired = mo.property(mo.indexOfProperty("notRequired"));
+    QVERIFY(notRequired.isValid());
+    QVERIFY(!notRequired.isRequired());
 }
 
 QTEST_MAIN(tst_Moc)

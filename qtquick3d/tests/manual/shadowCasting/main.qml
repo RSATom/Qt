@@ -1,7 +1,7 @@
 import QtQuick 2.11
 import QtQuick.Window 2.11
-import QtQuick3D 1.0
-import QtQuick3D.Helpers 1.0
+import QtQuick3D 1.15
+import QtQuick3D.Helpers 1.15
 
 Window {
     visible: true
@@ -17,80 +17,57 @@ Window {
         DirectionalLight {
             castsShadow: true
             shadowFactor: 25
-            rotation: Qt.vector3d(45, 0, 0)
-
+            eulerRotation: Qt.vector3d(-60, -20, 0)
         }
-
 
         Model {
             id: ground
             source: "#Cube"
-
             scale: Qt.vector3d(10, 0.01, 10)
-
             materials: DefaultMaterial {
-                //diffuseColor: "green"
+                diffuseColor: Qt.rgba(1.0, 1.0, 0.0, 1.0)
             }
-
             castsShadows: false
         }
 
         Model {
             source: "#Sphere"
-
             y: 50
-
             materials: DefaultMaterial {
-
             }
-
             castsShadows: false
         }
 
         Model {
             source: "#Cylinder"
             y: 200
-
             x: -250
             scale: Qt.vector3d(1, 5, 1)
-
             materials: DefaultMaterial {
-
             }
-
             castsShadows: true
         }
 
         Model {
             source: "#Cube"
-
             x: -250
             z: 250
             y: 50
-
             materials: DefaultMaterial {
-
             }
-
             receivesShadows: false
         }
 
         PerspectiveCamera {
             id: camera1
-            z: -300
-            y: 200
+            z: 600
+            y: 300
             clipFar: 1000
-
-            rotation: Qt.vector3d(45, 0, 0)
-
+            eulerRotation: Qt.vector3d(-20, 0, 0)
         }
-
-
-
     }
 
     WasdController {
-
         controlledObject: view.camera
     }
 

@@ -299,6 +299,22 @@ void QCocoaWindow::setCocoaGeometry(const QRect &rect)
     // will call QPlatformWindow::setGeometry(rect) during resize confirmation (see qnsview.mm)
 }
 
+bool QCocoaWindow::startSystemMove()
+{
+    switch (NSApp.currentEvent.type) {
+    case NSEventTypeLeftMouseDown:
+    case NSEventTypeRightMouseDown:
+    case NSEventTypeOtherMouseDown:
+    case NSEventTypeMouseMoved:
+        // The documentation only describes starting a system move
+        // based on mouse down events, but move events also work.
+        [m_view.window performWindowDragWithEvent:NSApp.currentEvent];
+        return true;
+    default:
+        return false;
+    }
+}
+
 void QCocoaWindow::setVisible(bool visible)
 {
     qCDebug(lcQpaWindow) << "QCocoaWindow::setVisible" << window() << visible;
@@ -360,8 +376,18 @@ void QCocoaWindow::setVisible(bool visible)
                 } else if (window()->modality() == Qt::ApplicationModal) {
                     // Show the window as application modal
                     eventDispatcher()->beginModalSession(window());
-                } else if (m_view.window.canBecomeKeyWindow && !eventDispatcher()->hasModalSession()) {
-                    [m_view.window makeKeyAndOrderFront:nil];
+                } else if (m_view.window.canBecomeKeyWindow) {
+                    bool shouldBecomeKeyNow = !NSApp.modalWindow || m_view.window.worksWhenModal;
+
+                    // Panels with becomesKeyOnlyIfNeeded set should not activate until a view
+                    // with needsPanelToBecomeKey, for example a line edit, is clicked.
+                    if ([m_view.window isKindOfClass:[NSPanel class]])
+                        shouldBecomeKeyNow &= !(static_cast<NSPanel*>(m_view.window).becomesKeyOnlyIfNeeded);
+
+                    if (shouldBecomeKeyNow)
+                        [m_view.window makeKeyAndOrderFront:nil];
+                    else
+                        [m_view.window orderFront:nil];
                 } else {
                     [m_view.window orderFront:nil];
                 }
@@ -879,12 +905,11 @@ void QCocoaWindow::setWindowIcon(const QIcon &icon)
     QMacAutoReleasePool pool;
 
     if (icon.isNull()) {
-        NSWorkspace *workspace = [NSWorkspace sharedWorkspace];
-        [iconButton setImage:[workspace iconForFile:m_view.window.representedFilename]];
+        iconButton.image = [NSWorkspace.sharedWorkspace iconForFile:m_view.window.representedFilename];
     } else {
-        QPixmap pixmap = icon.pixmap(QSize(22, 22));
-        NSImage *image = static_cast<NSImage *>(qt_mac_create_nsimage(pixmap));
-        [iconButton setImage:[image autorelease]];
+        // Fall back to a size that looks good on the highest resolution screen available
+        auto fallbackSize = iconButton.frame.size.height * qGuiApp->devicePixelRatio();
+        iconButton.image = [NSImage imageFromQIcon:icon withSize:fallbackSize];
     }
 }
 
@@ -1224,7 +1249,9 @@ void QCocoaWindow::windowDidOrderOffScreen()
 
 void QCocoaWindow::windowDidChangeOcclusionState()
 {
-    if (m_view.window.occlusionState & NSWindowOcclusionStateVisible)
+    bool visible = m_view.window.occlusionState & NSWindowOcclusionStateVisible;
+    qCDebug(lcQpaWindow) << "QCocoaWindow::windowDidChangeOcclusionState" << window() << "is now" << (visible ? "visible" : "occluded");
+    if (visible)
         [m_view setNeedsDisplay:YES];
     else
         handleExposeEvent(QRegion());
@@ -1619,6 +1646,7 @@ QCocoaNSWindow *QCocoaWindow::createNSWindow(bool shouldBePanel)
 
     nsWindow.restorable = NO;
     nsWindow.level = windowLevel(flags);
+    nsWindow.tabbingMode = NSWindowTabbingModeDisallowed;
 
     if (shouldBePanel) {
         // Qt::Tool windows hide on app deactivation, unless Qt::WA_MacAlwaysShowToolWindow is set
@@ -1800,8 +1828,17 @@ void QCocoaWindow::updateNSToolbar()
 
 bool QCocoaWindow::testContentBorderAreaPosition(int position) const
 {
-    return isContentView() && m_drawContentBorderGradient &&
-            0 <= position && position < [m_view.window contentBorderThicknessForEdge:NSMaxYEdge];
+    if (!m_drawContentBorderGradient || !isContentView())
+        return false;
+
+    // Determine if the given y postion (relative to the content area) is inside the
+    // unified toolbar area. Note that the value returned by contentBorderThicknessForEdge
+    // includes the title bar height; subtract it.
+    const int contentBorderThickness = [m_view.window contentBorderThicknessForEdge:NSMaxYEdge];
+    const NSRect frameRect = m_view.window.frame;
+    const NSRect contentRect = [m_view.window contentRectForFrameRect:frameRect];
+    const CGFloat titlebarHeight = frameRect.size.height - contentRect.size.height;
+    return 0 <= position && position < (contentBorderThickness - titlebarHeight);
 }
 
 qreal QCocoaWindow::devicePixelRatio() const
@@ -1818,7 +1855,7 @@ qreal QCocoaWindow::devicePixelRatio() const
 QWindow *QCocoaWindow::childWindowAt(QPoint windowPoint)
 {
     QWindow *targetWindow = window();
-    foreach (QObject *child, targetWindow->children())
+    for (QObject *child : targetWindow->children())
         if (QWindow *childWindow = qobject_cast<QWindow *>(child))
             if (QPlatformWindow *handle = childWindow->handle())
                 if (handle->isExposed() && childWindow->geometry().contains(windowPoint))

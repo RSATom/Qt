@@ -3,11 +3,12 @@
 // found in the LICENSE file.
 
 #include "third_party/blink/renderer/platform/scheduler/worker/worker_scheduler_proxy.h"
+
 #include "base/bind.h"
 #include "base/run_loop.h"
 #include "base/synchronization/waitable_event.h"
 #include "base/task/sequence_manager/test/sequence_manager_for_test.h"
-#include "base/test/scoped_task_environment.h"
+#include "base/test/task_environment.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "third_party/blink/renderer/platform/scheduler/main_thread/frame_scheduler_impl.h"
@@ -27,7 +28,7 @@ class WorkerThreadSchedulerForTest : public WorkerThreadScheduler {
   WorkerThreadSchedulerForTest(base::sequence_manager::SequenceManager* manager,
                                WorkerSchedulerProxy* proxy,
                                base::WaitableEvent* throtting_state_changed)
-      : WorkerThreadScheduler(WebThreadType::kTestThread, manager, proxy),
+      : WorkerThreadScheduler(ThreadType::kTestThread, manager, proxy),
         throtting_state_changed_(throtting_state_changed) {}
 
   void OnLifecycleStateChanged(
@@ -47,7 +48,7 @@ class WorkerThreadForTest : public WorkerThread {
  public:
   WorkerThreadForTest(FrameScheduler* frame_scheduler,
                       base::WaitableEvent* throtting_state_changed)
-      : WorkerThread(ThreadCreationParams(WebThreadType::kTestThread)
+      : WorkerThread(ThreadCreationParams(ThreadType::kTestThread)
                          .SetFrameOrWorkerScheduler(frame_scheduler)),
         throtting_state_changed_(throtting_state_changed) {}
 
@@ -103,8 +104,8 @@ class WorkerSchedulerProxyTest : public testing::Test {
  public:
   WorkerSchedulerProxyTest()
       : task_environment_(
-            base::test::ScopedTaskEnvironment::TimeSource::MOCK_TIME,
-            base::test::ScopedTaskEnvironment::ThreadPoolExecutionMode::QUEUED),
+            base::test::TaskEnvironment::TimeSource::MOCK_TIME,
+            base::test::TaskEnvironment::ThreadPoolExecutionMode::QUEUED),
         main_thread_scheduler_(std::make_unique<MainThreadSchedulerImpl>(
             base::sequence_manager::SequenceManagerForTest::Create(
                 nullptr,
@@ -127,7 +128,7 @@ class WorkerSchedulerProxyTest : public testing::Test {
   }
 
  protected:
-  base::test::ScopedTaskEnvironment task_environment_;
+  base::test::TaskEnvironment task_environment_;
   std::unique_ptr<MainThreadSchedulerImpl> main_thread_scheduler_;
   std::unique_ptr<PageSchedulerImpl> page_scheduler_;
   std::unique_ptr<FrameSchedulerImpl> frame_scheduler_;

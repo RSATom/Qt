@@ -58,9 +58,6 @@ public:
     QSvgIOHandler();
     ~QSvgIOHandler();
     bool canRead() const override;
-#if QT_DEPRECATED_SINCE(5, 13)
-    QByteArray name() const override;
-#endif
     bool read(QImage *image) override;
     static bool canRead(QIODevice *device);
     QVariant option(ImageOption option) const override;

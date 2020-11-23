@@ -46,8 +46,8 @@
   \section1 Prerequisites
 
   To make the Qt \WebView module function correctly across all platforms, it's necessary
-  to call \l {qtwebview-initialize}{QtWebView::initialize}() right after creating the
-  QGuiApplication instance.
+  to call \l {qtwebview-initialize}{QtWebView::initialize}() before creating the
+  QGuiApplication instance and before window's QPlatformOpenGLContext is created.
 
   \section1 QML Types
 

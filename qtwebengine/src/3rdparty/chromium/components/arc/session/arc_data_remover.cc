@@ -10,7 +10,7 @@
 #include "base/callback_helpers.h"
 #include "base/logging.h"
 #include "chromeos/dbus/dbus_thread_manager.h"
-#include "chromeos/dbus/debug_daemon_client.h"
+#include "chromeos/dbus/debug_daemon/debug_daemon_client.h"
 #include "chromeos/dbus/upstart/upstart_client.h"
 #include "components/arc/arc_prefs.h"
 #include "components/arc/arc_util.h"
@@ -30,7 +30,7 @@ constexpr char kArcRemoveDataUpstartJob[] = "arc_2dremove_2ddata";
 
 ArcDataRemover::ArcDataRemover(PrefService* prefs,
                                const cryptohome::Identification& cryptohome_id)
-    : cryptohome_id_(cryptohome_id), weak_factory_(this) {
+    : cryptohome_id_(cryptohome_id) {
   pref_.Init(prefs::kArcDataRemoveRequested, prefs);
 }
 

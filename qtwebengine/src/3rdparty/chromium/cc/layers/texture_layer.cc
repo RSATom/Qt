@@ -101,6 +101,13 @@ void TextureLayer::SetBlendBackgroundColor(bool blend) {
   SetNeedsCommit();
 }
 
+void TextureLayer::SetForceTextureToOpaque(bool opaque) {
+  if (force_texture_to_opaque_ == opaque)
+    return;
+  force_texture_to_opaque_ = opaque;
+  SetNeedsCommit();
+}
+
 void TextureLayer::SetTransferableResourceInternal(
     const viz::TransferableResource& resource,
     std::unique_ptr<viz::SingleReleaseCallback> release_callback,
@@ -214,6 +221,7 @@ void TextureLayer::PushPropertiesTo(LayerImpl* layer) {
   texture_layer->SetVertexOpacity(vertex_opacity_);
   texture_layer->SetPremultipliedAlpha(premultiplied_alpha_);
   texture_layer->SetBlendBackgroundColor(blend_background_color_);
+  texture_layer->SetForceTextureToOpaque(force_texture_to_opaque_);
   if (needs_set_resource_) {
     viz::TransferableResource resource;
     std::unique_ptr<viz::SingleReleaseCallback> release_callback;

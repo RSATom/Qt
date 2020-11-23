@@ -41,7 +41,7 @@
 // We mean it.
 //
 
-#include <QtQuick3D/private/qquick3dobject_p.h>
+#include <QtQuick3D/qquick3dobject.h>
 #include <QtQuick/private/qquickitemchangelistener_p.h>
 #include <QtQuick/QSGNode>
 #include <QtCore/QUrl>
@@ -124,7 +124,7 @@ public:
     };
     Q_ENUM(Format)
 
-    QQuick3DTexture();
+    explicit QQuick3DTexture(QQuick3DObject *parent = nullptr);
     ~QQuick3DTexture() override;
 
     QUrl source() const;
@@ -140,7 +140,6 @@ public:
     float pivotU() const;
     float pivotV() const;
     bool flipV() const;
-    QQuick3DObject::Type type() const override;
 
     QSSGRenderImage *getRenderImage();
 
@@ -189,7 +188,7 @@ private Q_SLOTS:
     void sourceItemDestroyed(QObject *item);
 
 private:
-    void ensureTexture();
+    void createLayerTexture();
 
     enum class DirtyFlag {
         TransformDirty = (1 << 0),
@@ -217,7 +216,8 @@ private:
     DirtyFlags m_dirtyFlags = DirtyFlags(DirtyFlag::TransformDirty)
                               | DirtyFlags(DirtyFlag::SourceDirty);
     QMetaObject::Connection m_textureProviderConnection;
-    QPointer<QQuick3DSceneManager> m_sceneManagerForLayer;
+    QSharedPointer<QQuick3DSceneManager> m_sceneManagerForLayer;
+    bool m_initialized = false;
     void trySetSourceParent();
 };
 

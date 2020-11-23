@@ -7,12 +7,10 @@
 #include "build/build_config.h"
 #include "third_party/blink/public/mojom/autoplay/autoplay.mojom-blink.h"
 #include "third_party/blink/public/mojom/feature_policy/feature_policy.mojom-blink.h"
-#include "third_party/blink/public/platform/web_content_settings_client.h"
 #include "third_party/blink/public/platform/web_media_player.h"
 #include "third_party/blink/public/web/web_local_frame.h"
 #include "third_party/blink/public/web/web_local_frame_client.h"
 #include "third_party/blink/public/web/web_settings.h"
-#include "third_party/blink/public/web/web_user_media_client.h"
 #include "third_party/blink/renderer/core/dom/document.h"
 #include "third_party/blink/renderer/core/frame/local_frame.h"
 #include "third_party/blink/renderer/core/frame/settings.h"
@@ -145,19 +143,8 @@ bool AutoplayPolicy::DocumentShouldAutoplayMutedVideos(
 
 // static
 bool AutoplayPolicy::DocumentIsCapturingUserMedia(const Document& document) {
-  if (!document.GetFrame())
-    return false;
-
-  WebFrame* web_frame = WebFrame::FromFrame(document.GetFrame());
-  if (!web_frame)
-    return false;
-
-  WebLocalFrame* frame = web_frame->ToWebLocalFrame();
-  if (!frame || !frame->Client())
-    return false;
-
-  if (WebUserMediaClient* media_client = frame->Client()->UserMediaClient())
-    return media_client->IsCapturing();
+  if (auto* local_frame = document.GetFrame())
+    return local_frame->IsCapturingMedia();
 
   return false;
 }
@@ -188,7 +175,7 @@ void AutoplayPolicy::DidMoveToNewDocument(Document& old_document) {
 }
 
 bool AutoplayPolicy::IsEligibleForAutoplayMuted() const {
-  if (!element_->IsHTMLVideoElement())
+  if (!IsA<HTMLVideoElement>(element_.Get()))
     return false;
 
   if (RuntimeEnabledFeatures::VideoAutoFullscreenEnabled() &&
@@ -293,7 +280,7 @@ bool AutoplayPolicy::IsOrWillBeAutoplayingMuted() const {
 }
 
 bool AutoplayPolicy::IsOrWillBeAutoplayingMutedInternal(bool muted) const {
-  if (!element_->IsHTMLVideoElement() ||
+  if (!IsA<HTMLVideoElement>(element_.Get()) ||
       !DocumentShouldAutoplayMutedVideos(element_->GetDocument())) {
     return false;
   }
@@ -319,10 +306,9 @@ bool AutoplayPolicy::IsGestureNeededForPlayback() const {
   if (!IsLockedPendingUserGesture())
     return false;
 
-  // We want to allow muted video to autoplay if:
-  // - The element is allowed to autoplay muted;
-  // - Autoplay is enabled in settings.
-  return !(IsEligibleForAutoplayMuted() && IsAutoplayAllowedPerSettings());
+  // We want to allow muted video to autoplay if the element is allowed to
+  // autoplay muted.
+  return !IsEligibleForAutoplayMuted();
 }
 
 String AutoplayPolicy::GetPlayErrorMessage() const {
@@ -387,15 +373,6 @@ void AutoplayPolicy::MaybeSetAutoplayInitiated() {
     if (!feature_policy_enabled)
       break;
   }
-}
-
-bool AutoplayPolicy::IsAutoplayAllowedPerSettings() const {
-  LocalFrame* frame = element_->GetDocument().GetFrame();
-  if (!frame)
-    return false;
-  if (auto* settings_client = frame->GetContentSettingsClient())
-    return settings_client->AllowAutoplay(true /* default_value */);
-  return true;
 }
 
 bool AutoplayPolicy::ShouldAutoplay() {

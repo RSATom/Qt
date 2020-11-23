@@ -15,6 +15,7 @@
 #include "base/macros.h"
 #include "base/strings/utf_string_conversions.h"
 #include "ui/accessibility/ax_action_data.h"
+#include "ui/accessibility/ax_enums.mojom.h"
 #include "ui/accessibility/ax_node_data.h"
 #include "ui/base/l10n/l10n_util.h"
 #include "ui/base/models/menu_model.h"
@@ -29,7 +30,7 @@
 #include "ui/gfx/image/image.h"
 #include "ui/gfx/paint_vector_icon.h"
 #include "ui/gfx/text_utils.h"
-#include "ui/native_theme/common_theme.h"
+#include "ui/native_theme/native_theme.h"
 #include "ui/strings/grit/ui_strings.h"
 #include "ui/views/controls/button/menu_button.h"
 #include "ui/views/controls/image_view.h"
@@ -40,6 +41,7 @@
 #include "ui/views/controls/menu/menu_separator.h"
 #include "ui/views/controls/menu/submenu_view.h"
 #include "ui/views/controls/separator.h"
+#include "ui/views/style/typography.h"
 #include "ui/views/vector_icons.h"
 #include "ui/views/view_class_properties.h"
 #include "ui/views/widget/widget.h"
@@ -116,7 +118,7 @@ MenuItemView::MenuItemView(MenuDelegate* delegate)
       bottom_margin_(-1),
       left_icon_margin_(0),
       right_icon_margin_(0),
-      requested_menu_position_(POSITION_BEST_FIT),
+      requested_menu_position_(MenuPosition::kBestFit),
       actual_menu_position_(requested_menu_position_),
       use_right_margin_(true) {
   // NOTE: don't check the delegate for NULL, UpdateMenuPartSizes() supplies a
@@ -178,10 +180,10 @@ void MenuItemView::GetAccessibleNodeData(ui::AXNodeData* node_data) {
     // The first child is taking over, just use its accessible name instead of
     // |title_|.
     View* child = children().front();
-    ui::AXNodeData node_data;
-    child->GetAccessibleNodeData(&node_data);
+    ui::AXNodeData child_node_data;
+    child->GetAccessibleNodeData(&child_node_data);
     item_text =
-        node_data.GetString16Attribute(ax::mojom::StringAttribute::kName);
+        child_node_data.GetString16Attribute(ax::mojom::StringAttribute::kName);
   } else {
     item_text = title_;
   }
@@ -198,6 +200,7 @@ void MenuItemView::GetAccessibleNodeData(ui::AXNodeData* node_data) {
       node_data->SetCheckedState(is_checked ? ax::mojom::CheckedState::kTrue
                                             : ax::mojom::CheckedState::kFalse);
     } break;
+    case TITLE:
     case NORMAL:
     case SEPARATOR:
     case EMPTY:
@@ -275,10 +278,10 @@ MenuItemView* MenuItemView::AddMenuItemAt(
     int index,
     int item_id,
     const base::string16& label,
-    const base::string16& sublabel,
     const base::string16& minor_text,
     const gfx::VectorIcon* minor_icon,
     const gfx::ImageSkia& icon,
+    const gfx::VectorIcon* vector_icon,
     Type type,
     ui::MenuSeparatorType separator_style) {
   DCHECK_NE(type, EMPTY);
@@ -295,9 +298,12 @@ MenuItemView* MenuItemView::AddMenuItemAt(
     item->SetTitle(GetDelegate()->GetLabel(item_id));
   else
     item->SetTitle(label);
-  item->SetSubtitle(sublabel);
   item->SetMinorText(minor_text);
   item->SetMinorIcon(minor_icon);
+  if (vector_icon) {
+    DCHECK(icon.isNull());
+    item->SetIcon(vector_icon);
+  }
   if (!icon.isNull())
     item->SetIcon(icon);
   if (type == SUBMENU || type == ACTIONABLE_SUBMENU)
@@ -332,69 +338,35 @@ void MenuItemView::RemoveAllMenuItems() {
 
 MenuItemView* MenuItemView::AppendMenuItem(int item_id,
                                            const base::string16& label,
-                                           Type type) {
-  return AppendMenuItemImpl(item_id, label, base::string16(), base::string16(),
-                            nullptr, gfx::ImageSkia(), type,
-                            ui::NORMAL_SEPARATOR);
+                                           const gfx::ImageSkia& icon) {
+  return AppendMenuItemImpl(item_id, label, icon, NORMAL);
 }
 
 MenuItemView* MenuItemView::AppendSubMenu(int item_id,
-                                          const base::string16& label) {
-  return AppendMenuItemImpl(item_id, label, base::string16(), base::string16(),
-                            nullptr, gfx::ImageSkia(), SUBMENU,
-                            ui::NORMAL_SEPARATOR);
-}
-
-MenuItemView* MenuItemView::AppendSubMenuWithIcon(int item_id,
-                                                  const base::string16& label,
-                                                  const gfx::ImageSkia& icon) {
-  return AppendMenuItemImpl(item_id, label, base::string16(), base::string16(),
-                            nullptr, icon, SUBMENU, ui::NORMAL_SEPARATOR);
-}
-
-MenuItemView* MenuItemView::AppendMenuItemWithLabel(
-    int item_id,
-    const base::string16& label) {
-  return AppendMenuItem(item_id, label, NORMAL);
-}
-
-MenuItemView* MenuItemView::AppendDelegateMenuItem(int item_id) {
-  return AppendMenuItem(item_id, base::string16(), NORMAL);
+                                          const base::string16& label,
+                                          const gfx::ImageSkia& icon) {
+  return AppendMenuItemImpl(item_id, label, icon, SUBMENU);
 }
 
 void MenuItemView::AppendSeparator() {
-  AppendMenuItemImpl(0, base::string16(), base::string16(), base::string16(),
-                     nullptr, gfx::ImageSkia(), SEPARATOR,
-                     ui::NORMAL_SEPARATOR);
+  AppendMenuItemImpl(0, base::string16(), gfx::ImageSkia(), SEPARATOR);
 }
 
 void MenuItemView::AddSeparatorAt(int index) {
   AddMenuItemAt(index, /*item_id=*/0, /*label=*/base::string16(),
-                /*sub_label=*/base::string16(),
                 /*minor_text=*/base::string16(), /*minor_icon=*/nullptr,
-                /*icon=*/gfx::ImageSkia(), /*type=*/SEPARATOR,
+                /*icon=*/gfx::ImageSkia(), /*vector_icon=*/nullptr,
+                /*type=*/SEPARATOR,
                 /*separator_style=*/ui::NORMAL_SEPARATOR);
 }
 
-MenuItemView* MenuItemView::AppendMenuItemWithIcon(int item_id,
-                                                   const base::string16& label,
-                                                   const gfx::ImageSkia& icon) {
-  return AppendMenuItemImpl(item_id, label, base::string16(), base::string16(),
-                            nullptr, icon, NORMAL, ui::NORMAL_SEPARATOR);
-}
-
-MenuItemView* MenuItemView::AppendMenuItemImpl(
-    int item_id,
-    const base::string16& label,
-    const base::string16& sublabel,
-    const base::string16& minor_text,
-    const gfx::VectorIcon* minor_icon,
-    const gfx::ImageSkia& icon,
-    Type type,
-    ui::MenuSeparatorType separator_style) {
+MenuItemView* MenuItemView::AppendMenuItemImpl(int item_id,
+                                               const base::string16& label,
+                                               const gfx::ImageSkia& icon,
+                                               Type type) {
   const int index = submenu_ ? int{submenu_->children().size()} : 0;
-  return AddMenuItemAt(index, item_id, label, sublabel, minor_text, minor_icon,
-                       icon, type, separator_style);
+  return AddMenuItemAt(index, item_id, label, base::string16(), nullptr, icon,
+                       nullptr, type, ui::NORMAL_SEPARATOR);
 }
 
 SubmenuView* MenuItemView::CreateSubmenu() {
@@ -423,11 +395,6 @@ bool MenuItemView::SubmenuIsShowing() const {
 
 void MenuItemView::SetTitle(const base::string16& title) {
   title_ = title;
-  invalidate_dimensions();  // Triggers preferred size recalculation.
-}
-
-void MenuItemView::SetSubtitle(const base::string16& subtitle) {
-  subtitle_ = subtitle;
   invalidate_dimensions();  // Triggers preferred size recalculation.
 }
 
@@ -472,6 +439,8 @@ void MenuItemView::SetIcon(const gfx::ImageSkia& icon, int item_id) {
 }
 
 void MenuItemView::SetIcon(const gfx::ImageSkia& icon) {
+  vector_icon_ = nullptr;
+
   if (icon.isNull()) {
     SetIconView(nullptr);
     return;
@@ -482,7 +451,27 @@ void MenuItemView::SetIcon(const gfx::ImageSkia& icon) {
   SetIconView(icon_view);
 }
 
-void MenuItemView::SetIconView(View* icon_view) {
+void MenuItemView::SetIcon(const gfx::VectorIcon* icon) {
+  vector_icon_ = icon;
+}
+
+void MenuItemView::UpdateIconViewFromVectorIconAndTheme() {
+  if (!vector_icon_)
+    return;
+
+  if (!icon_view_)
+    SetIconView(new ImageView());
+
+  const bool use_touchable_layout =
+      GetMenuController() && GetMenuController()->use_touchable_layout();
+  const int icon_size = use_touchable_layout ? 20 : 16;
+  icon_view_->SetImage(
+      gfx::CreateVectorIcon(*vector_icon_, icon_size,
+                            GetNativeTheme()->GetSystemColor(
+                                ui::NativeTheme::kColorId_DefaultIconColor)));
+}
+
+void MenuItemView::SetIconView(ImageView* icon_view) {
   if (icon_view_) {
     RemoveChildView(icon_view_);
     delete icon_view_;
@@ -497,7 +486,7 @@ void MenuItemView::SetIconView(View* icon_view) {
 }
 
 void MenuItemView::OnPaint(gfx::Canvas* canvas) {
-  PaintButton(canvas, PB_NORMAL);
+  PaintButton(canvas, PaintButtonMode::kNormal);
 }
 
 gfx::Size MenuItemView::CalculatePreferredSize() const {
@@ -519,6 +508,11 @@ int MenuItemView::GetHeightForWidth(int width) const {
   height += margins.height();
 
   return height;
+}
+
+void MenuItemView::OnThemeChanged() {
+  View::OnThemeChanged();
+  UpdateIconViewFromVectorIconAndTheme();
 }
 
 gfx::Rect MenuItemView::GetSubmenuAreaOfActionableSubmenu() const {
@@ -644,7 +638,7 @@ void MenuItemView::Layout() {
   } else {
     // Child views are laid out right aligned and given the full height. To
     // right align start with the last view and progress to the first.
-    int x = width() - (use_right_margin_ ? item_right_margin_ : 0);
+    int child_x = width() - (use_right_margin_ ? item_right_margin_ : 0);
     for (View* child : base::Reversed(children())) {
       if (icon_view_ == child)
         continue;
@@ -655,8 +649,8 @@ void MenuItemView::Layout() {
       if (vertical_separator_ == child)
         continue;
       int width = child->GetPreferredSize().width();
-      child->SetBounds(x - width, 0, width, height());
-      x -= width + kChildXPadding;
+      child->SetBounds(child_x - width, 0, width, height());
+      child_x -= width + kChildXPadding;
     }
     // Position |icon_view|.
     const MenuConfig& config = MenuConfig::instance();
@@ -749,7 +743,7 @@ MenuItemView::MenuItemView(MenuItemView* parent,
       bottom_margin_(-1),
       left_icon_margin_(0),
       right_icon_margin_(0),
-      requested_menu_position_(POSITION_BEST_FIT),
+      requested_menu_position_(MenuPosition::kBestFit),
       actual_menu_position_(requested_menu_position_),
       use_right_margin_(true) {
   Init(parent, command, type, nullptr);
@@ -797,6 +791,8 @@ void MenuItemView::UpdateMenuPartSizes() {
   EmptyMenuMenuItem menu_item(this);
   menu_item.set_controller(GetMenuController());
   pref_menu_height_ = menu_item.GetPreferredSize().height();
+
+  UpdateIconViewFromVectorIconAndTheme();
 }
 
 void MenuItemView::Init(MenuItemView* parent,
@@ -836,7 +832,7 @@ void MenuItemView::Init(MenuItemView* parent,
     vertical_separator_->SetFocusBehavior(FocusBehavior::NEVER);
     const MenuConfig& config = MenuConfig::instance();
     vertical_separator_->SetColor(GetNativeTheme()->GetSystemColor(
-        ui::NativeTheme::kColorId_ActionableSubmenuVerticalSeparatorColor));
+        ui::NativeTheme::kColorId_MenuSeparatorColor));
     vertical_separator_->SetPreferredSize(
         gfx::Size(config.actionable_submenu_vertical_separator_width,
                   config.actionable_submenu_vertical_separator_height));
@@ -946,7 +942,7 @@ void MenuItemView::AdjustBoundsForRTLUI(gfx::Rect* rect) const {
 void MenuItemView::PaintButton(gfx::Canvas* canvas, PaintButtonMode mode) {
   const MenuConfig& config = MenuConfig::instance();
   bool render_selection =
-      (mode == PB_NORMAL && IsSelected() &&
+      (mode == PaintButtonMode::kNormal && IsSelected() &&
        parent_menu_item_->GetSubmenu()->GetShowSelection(this) &&
        (NonIconChildViewsCount() == 0));
   if (forced_visual_selection_.has_value())
@@ -968,8 +964,6 @@ void MenuItemView::PaintButton(gfx::Canvas* canvas, PaintButtonMode mode) {
   GetLabelStyle(&style);
 
   SkColor icon_color = color_utils::DeriveDefaultIconColor(style.foreground);
-  if (GetMenuController() && GetMenuController()->use_touchable_layout())
-    icon_color = config.touchable_icon_color;
 
   // Render the check.
   if (type_ == CHECKBOX && delegate->IsItemChecked(GetCommand())) {
@@ -979,8 +973,8 @@ void MenuItemView::PaintButton(gfx::Canvas* canvas, PaintButtonMode mode) {
     const gfx::VectorIcon& radio_icon =
         toggled ? kMenuRadioSelectedIcon : kMenuRadioEmptyIcon;
     const SkColor radio_icon_color = GetNativeTheme()->GetSystemColor(
-        toggled ? ui::NativeTheme::kColorId_ProminentButtonColor
-                : ui::NativeTheme::kColorId_ButtonEnabledColor);
+        toggled ? ui::NativeTheme::kColorId_ButtonEnabledColor
+                : ui::NativeTheme::kColorId_ButtonUncheckedColor);
     radio_check_image_view_->SetImage(
         gfx::CreateVectorIcon(radio_icon, kMenuCheckSize, radio_icon_color));
   }
@@ -993,23 +987,13 @@ void MenuItemView::PaintButton(gfx::Canvas* canvas, PaintButtonMode mode) {
       (!delegate ||
        delegate->ShouldReserveSpaceForSubmenuIndicator() ?
            item_right_margin_ : config.arrow_to_edge_padding);
-  gfx::Rect text_bounds(label_start, top_margin, width,
-                        subtitle_.empty() ? available_height
-                                          : available_height / 2);
+  gfx::Rect text_bounds(label_start, top_margin, width, available_height);
   text_bounds.set_x(GetMirroredXForRect(text_bounds));
   int flags = GetDrawStringFlags();
-  if (mode == PB_FOR_DRAG)
+  if (mode == PaintButtonMode::kForDrag)
     flags |= gfx::Canvas::NO_SUBPIXEL_RENDERING;
   canvas->DrawStringRectWithFlags(title(), style.font_list, style.foreground,
                                   text_bounds, flags);
-  if (!subtitle_.empty()) {
-    canvas->DrawStringRectWithFlags(
-        subtitle_, style.font_list,
-        GetNativeTheme()->GetSystemColor(
-            ui::NativeTheme::kColorId_MenuItemMinorTextColor),
-        text_bounds + gfx::Vector2d(0, style.font_list.GetHeight()), flags);
-  }
-
   PaintMinorIconAndText(canvas, style);
 
   // Set the submenu indicator (arrow) image and color.
@@ -1023,24 +1007,17 @@ void MenuItemView::PaintBackground(gfx::Canvas* canvas,
   if (type_ == HIGHLIGHTED || is_alerted_) {
     SkColor color = gfx::kPlaceholderColor;
 
-    // Highligted items always have a different-colored background, and ignore
-    // system theme.
     if (type_ == HIGHLIGHTED) {
       const ui::NativeTheme::ColorId color_id =
           render_selection
-              ? ui::NativeTheme::
-                    kColorId_FocusedHighlightedMenuItemBackgroundColor
+              ? ui::NativeTheme::kColorId_FocusedMenuItemBackgroundColor
               : ui::NativeTheme::kColorId_HighlightedMenuItemBackgroundColor;
       color = GetNativeTheme()->GetSystemColor(color_id);
     } else {
-      const SkColor color_max = GetNativeTheme()->GetSystemColor(
-          ui::NativeTheme::kColorId_MenuItemAlertBackgroundColorMax);
-      const SkColor color_min = GetNativeTheme()->GetSystemColor(
-          ui::NativeTheme::kColorId_MenuItemAlertBackgroundColorMin);
-      color = color_utils::AlphaBlend(
-          color_max, color_min,
-          static_cast<float>(
-              GetMenuController()->GetAlertAnimation()->GetCurrentValue()));
+      color = GetNativeTheme()->GetSystemColor(
+          ui::NativeTheme::kColorId_MenuItemAlertBackgroundColor);
+      const auto* animation = GetMenuController()->GetAlertAnimation();
+      color = SkColorSetA(color, animation->CurrentValueBetween(0x4D, 0x1A));
     }
 
     DCHECK_NE(color, gfx::kPlaceholderColor);
@@ -1096,7 +1073,8 @@ void MenuItemView::PaintMinorIconAndText(
       max_minor_text_width, available_height);
   minor_text_bounds.set_x(GetMirroredXForRect(minor_text_bounds));
 
-  auto render_text = gfx::RenderText::CreateHarfBuzzInstance();
+  std::unique_ptr<gfx::RenderText> render_text =
+      gfx::RenderText::CreateRenderText();
   if (!minor_text.empty()) {
     render_text->SetText(minor_text);
     render_text->SetFontList(style.font_list);
@@ -1123,23 +1101,24 @@ void MenuItemView::PaintMinorIconAndText(
 }
 
 SkColor MenuItemView::GetTextColor(bool minor, bool render_selection) const {
-  ui::NativeTheme::ColorId color_id =
-      minor ? ui::NativeTheme::kColorId_MenuItemMinorTextColor
-            : ui::NativeTheme::kColorId_EnabledMenuItemForegroundColor;
-  if (GetEnabled()) {
-    if (render_selection)
-      color_id = ui::NativeTheme::kColorId_SelectedMenuItemForegroundColor;
-  } else {
-    color_id = ui::NativeTheme::kColorId_DisabledMenuItemForegroundColor;
-  }
+  style::TextContext context =
+      GetMenuController() && GetMenuController()->use_touchable_layout()
+          ? style::CONTEXT_TOUCH_MENU
+          : style::CONTEXT_MENU;
 
-  if (GetMenuController() && GetMenuController()->use_touchable_layout())
-    color_id = ui::NativeTheme::kColorId_TouchableMenuItemLabelColor;
+  style::TextStyle text_style = style::STYLE_PRIMARY;
+  if (type_ == Type::TITLE)
+    text_style = style::STYLE_PRIMARY;
+  else if (type_ == HIGHLIGHTED)
+    text_style = style::STYLE_HIGHLIGHTED;
+  else if (!GetEnabled())
+    text_style = style::STYLE_DISABLED;
+  else if (render_selection)
+    text_style = style::STYLE_SELECTED;
+  else if (minor)
+    text_style = style::STYLE_SECONDARY;
 
-  if (type_ == HIGHLIGHTED)
-    color_id = ui::NativeTheme::kColorId_HighlightedMenuItemForegroundColor;
-
-  return GetNativeTheme()->GetSystemColor(color_id);
+  return style::GetColor(*this, context, text_style);
 }
 
 void MenuItemView::DestroyAllMenuHosts() {
@@ -1265,11 +1244,6 @@ MenuItemView::MenuItemDimensions MenuItemView::CalculateDimensions() const {
 
   // Determine the length of the label text.
   int string_width = gfx::GetStringWidth(title_, style.font_list);
-  if (!subtitle_.empty()) {
-    string_width =
-        std::max(string_width, gfx::GetStringWidth(subtitle_, style.font_list));
-  }
-
   dimensions.standard_width = string_width + label_start +
       item_right_margin_;
   // Determine the length of the right-side text.
@@ -1277,10 +1251,9 @@ MenuItemView::MenuItemDimensions MenuItemView::CalculateDimensions() const {
       minor_text.empty() ? 0 : gfx::GetStringWidth(minor_text, style.font_list);
 
   // Determine the height to use.
-  dimensions.height = std::max(
-      dimensions.height, (subtitle_.empty() ? 0 : style.font_list.GetHeight()) +
-                             style.font_list.GetHeight() + GetBottomMargin() +
-                             GetTopMargin());
+  dimensions.height =
+      std::max(dimensions.height, style.font_list.GetHeight() +
+                                      GetBottomMargin() + GetTopMargin());
   dimensions.height =
       std::max(dimensions.height, MenuConfig::instance().item_min_height);
 
@@ -1385,8 +1358,8 @@ int MenuItemView::GetMaxIconViewWidth() const {
     }
     if (item->HasSubmenu())
       return item->GetMaxIconViewWidth();
-    return (item->icon_view() && !MenuConfig::instance().icons_in_label)
-               ? item->icon_view()->GetPreferredSize().width()
+    return (item->icon_view_ && !MenuConfig::instance().icons_in_label)
+               ? item->icon_view_->GetPreferredSize().width()
                : 0;
   };
   std::transform(menu_items.cbegin(), menu_items.cend(), widths.begin(),

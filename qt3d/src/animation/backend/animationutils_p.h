@@ -98,10 +98,10 @@ struct MappingData
 inline QDebug operator<<(QDebug dbg, const MappingData &mapping)
 {
     QDebugStateSaver saver(dbg);
-    dbg << "targetId =" << mapping.targetId << endl
-        << "jointIndex =" << mapping.jointIndex << endl
-        << "jointTransformComponent: " << mapping.jointTransformComponent << endl
-        << "propertyName:" << mapping.propertyName << endl
+    dbg << "targetId =" << mapping.targetId << Qt::endl
+        << "jointIndex =" << mapping.jointIndex << Qt::endl
+        << "jointTransformComponent: " << mapping.jointTransformComponent << Qt::endl
+        << "propertyName:" << mapping.propertyName << Qt::endl
         << "channelIndices:" << mapping.channelIndices;
     return dbg;
 }
@@ -251,7 +251,7 @@ inline QDebug operator<<(QDebug dbg, const ClipFormat &format)
             dbg << format.sourceClipIndices[j] << "";
 
         dbg << "src clip mask =" << format.sourceClipMask[i];
-        dbg << endl;
+        dbg << Qt::endl;
         sourceIndex += componentCount;
     }
     return dbg;
@@ -318,11 +318,15 @@ AnimatorEvaluationData evaluationDataForAnimator(Animator animator,
 inline bool isFinalFrame(double localTime,
                          double duration,
                          int currentLoop,
-                         int loopCount)
+                         int loopCount,
+                         double playbackRate)
 {
-    return (localTime >= duration &&
-            loopCount != 0 &&
-            currentLoop >= loopCount - 1);
+    // We must be on the final loop and
+    // - if playing forward, localTime must be equal or above the duration
+    // - if playing backward, localTime must be equal or below 0
+    if (playbackRate >= 0.0)
+        return (loopCount != 0 && currentLoop >= loopCount - 1 && localTime >= duration);
+    return (loopCount != 0  && currentLoop <= 0 && localTime <= 0);
 }
 
 inline bool isValidNormalizedTime(float t)

@@ -141,6 +141,12 @@ void DumpMockReadWrite(const MockReadWrite<type>& r) {
   DVLOG(1) << "Stage:   " << (r.sequence_number & ~MockRead::STOPLOOP) << stop;
 }
 
+void RunClosureIfNonNull(base::OnceClosure closure) {
+  if (!closure.is_null()) {
+    std::move(closure).Run();
+  }
+}
+
 }  // namespace
 
 MockConnect::MockConnect() : mode(ASYNC), result(OK) {
@@ -805,18 +811,31 @@ std::unique_ptr<SSLClientSocket> MockClientSocketFactory::CreateSSLClientSocket(
         next_ssl_data->next_protos_expected_in_ssl_config.value().end(),
         ssl_config.alpn_protos.begin()));
   }
-  EXPECT_EQ(next_ssl_data->expected_ssl_version_min, ssl_config.version_min);
-  EXPECT_EQ(next_ssl_data->expected_ssl_version_max, ssl_config.version_max);
+
+  // The protocol version used is a combination of the per-socket SSLConfig and
+  // the SSLConfigService.
+  EXPECT_EQ(
+      next_ssl_data->expected_ssl_version_min,
+      ssl_config.version_min_override.value_or(context->config().version_min));
+  EXPECT_EQ(
+      next_ssl_data->expected_ssl_version_max,
+      ssl_config.version_max_override.value_or(context->config().version_max));
+
   if (next_ssl_data->expected_send_client_cert) {
-    EXPECT_EQ(*next_ssl_data->expected_send_client_cert,
-              ssl_config.send_client_cert);
-    DCHECK_EQ(*next_ssl_data->expected_send_client_cert,
-              next_ssl_data->expected_client_cert != nullptr);
-    if (next_ssl_data->expected_client_cert) {
+    // Client certificate preferences come from |context|.
+    scoped_refptr<X509Certificate> client_cert;
+    scoped_refptr<SSLPrivateKey> client_private_key;
+    bool send_client_cert = context->GetClientCertificate(
+        host_and_port, &client_cert, &client_private_key);
+
+    EXPECT_EQ(*next_ssl_data->expected_send_client_cert, send_client_cert);
+    // Note |send_client_cert| may be true while |client_cert| is null if the
+    // socket is configured to continue without a certificate, as opposed to
+    // surfacing the certificate challenge.
+    EXPECT_EQ(!!next_ssl_data->expected_client_cert, !!client_cert);
+    if (next_ssl_data->expected_client_cert && client_cert) {
       EXPECT_TRUE(next_ssl_data->expected_client_cert->EqualsIncludingChain(
-          ssl_config.client_cert.get()));
-    } else {
-      EXPECT_FALSE(ssl_config.client_cert);
+          client_cert.get()));
     }
   }
   if (next_ssl_data->expected_host_and_port) {
@@ -969,7 +988,7 @@ int MockTCPClientSocket::Read(IOBuffer* buf,
   // takes a weak ptr of the base class, MockClientSocket.
   int rv = ReadIfReadyImpl(
       buf, buf_len,
-      base::Bind(&MockTCPClientSocket::RetryRead, base::Unretained(this)));
+      base::BindOnce(&MockTCPClientSocket::RetryRead, base::Unretained(this)));
   if (rv == ERR_IO_PENDING) {
     DCHECK(callback);
 
@@ -1211,9 +1230,9 @@ void MockTCPClientSocket::RetryRead(int rv) {
   DCHECK_LT(0, pending_read_buf_len_);
 
   if (rv == OK) {
-    rv = ReadIfReadyImpl(
-        pending_read_buf_.get(), pending_read_buf_len_,
-        base::Bind(&MockTCPClientSocket::RetryRead, base::Unretained(this)));
+    rv = ReadIfReadyImpl(pending_read_buf_.get(), pending_read_buf_len_,
+                         base::BindOnce(&MockTCPClientSocket::RetryRead,
+                                        base::Unretained(this)));
     if (rv == ERR_IO_PENDING)
       return;
   }
@@ -1507,6 +1526,7 @@ int MockSSLClientSocket::Connect(CompletionOnceCallback callback) {
   data_->is_connect_data_consumed = true;
   if (data_->connect.result == OK)
     connected_ = true;
+  RunClosureIfNonNull(std::move(data_->connect_callback));
   if (data_->connect.mode == ASYNC) {
     RunCallbackAsync(std::move(callback), data_->connect.result);
     return ERR_IO_PENDING;
@@ -1530,6 +1550,7 @@ int MockSSLClientSocket::ConfirmHandshake(CompletionOnceCallback callback) {
   DCHECK(stream_socket_->IsConnected());
   if (data_->is_confirm_data_consumed)
     return data_->confirm.result;
+  RunClosureIfNonNull(std::move(data_->confirm_callback));
   if (data_->confirm.mode == ASYNC) {
     RunCallbackAsync(
         base::BindOnce(&MockSSLClientSocket::RunConfirmHandshakeCallback,
@@ -1668,9 +1689,10 @@ MockUDPClientSocket::MockUDPClientSocket(SocketDataProvider* data,
       pending_read_buf_(nullptr),
       pending_read_buf_len_(0),
       net_log_(NetLogWithSource::Make(net_log, NetLogSourceType::NONE)) {
-  DCHECK(data_);
-  data_->Initialize(this);
-  peer_addr_ = data->connect_data().peer_addr;
+  if (data_) {
+    data_->Initialize(this);
+    peer_addr_ = data->connect_data().peer_addr;
+  }
 }
 
 MockUDPClientSocket::~MockUDPClientSocket() {
@@ -1832,6 +1854,9 @@ void MockUDPClientSocket::Close() {
 }
 
 int MockUDPClientSocket::GetPeerAddress(IPEndPoint* address) const {
+  if (!data_)
+    return ERR_UNEXPECTED;
+
   *address = peer_addr_;
   return OK;
 }
@@ -2062,8 +2087,8 @@ MockTransportClientSocketPool::MockConnectJob::~MockConnectJob() = default;
 
 int MockTransportClientSocketPool::MockConnectJob::Connect() {
   socket_->ApplySocketTag(socket_tag_);
-  int rv = socket_->Connect(base::Bind(&MockConnectJob::OnConnect,
-                                       base::Unretained(this)));
+  int rv = socket_->Connect(
+      base::BindOnce(&MockConnectJob::OnConnect, base::Unretained(this)));
   if (rv != ERR_IO_PENDING) {
     user_callback_.Reset();
     OnConnect(rv);
@@ -2122,8 +2147,7 @@ MockTransportClientSocketPool::MockTransportClientSocketPool(
           base::TimeDelta::FromSeconds(10) /* unused_idle_socket_timeout */,
           ProxyServer::Direct(),
           false /* is_for_websockets */,
-          common_connect_job_params,
-          nullptr /* ssl_config_service */),
+          common_connect_job_params),
       client_socket_factory_(common_connect_job_params->client_socket_factory),
       last_request_priority_(DEFAULT_PRIORITY),
       release_count_(0),

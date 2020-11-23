@@ -8,9 +8,8 @@
 #include "base/macros.h"
 #include "base/observer_list.h"
 #include "base/values.h"
-#import "ios/web/public/web_state/ui/crw_web_view_proxy.h"
-#include "ios/web/public/web_state/web_state_observer.h"
-#import "ios/web/public/web_state/web_state_user_data.h"
+#include "ios/web/public/web_state_observer.h"
+#import "ios/web/public/web_state_user_data.h"
 
 namespace autofill {
 

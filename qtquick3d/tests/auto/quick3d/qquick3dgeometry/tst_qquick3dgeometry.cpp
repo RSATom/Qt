@@ -48,6 +48,7 @@ class tst_QQuick3DGeometry : public QObject
 private slots:
     void testProperties();
     void testGeometry();
+    void testGeometry2();
 };
 
 void tst_QQuick3DGeometry::testProperties()
@@ -159,6 +160,90 @@ void tst_QQuick3DGeometry::testGeometry()
 
     for (auto componentType : types) {
         geom.addAttribute(QSSGRenderGeometry::Attribute::PositionSemantic, 0, componentType);
+        QCOMPARE(componentType, geom.attribute(0).componentType);
+        geom.clear();
+    }
+}
+
+
+void tst_QQuick3DGeometry::testGeometry2()
+{
+    Geometry geom;
+    QThread::sleep(10);
+
+    QByteArray vertexData;
+    vertexData.resize(100);
+    vertexData.fill(0);
+    geom.setVertexData(vertexData);
+    QCOMPARE(vertexData.size(), geom.vertexBuffer().size());
+    QVERIFY(geom.vertexBuffer().compare(vertexData) == 0);
+
+    QByteArray indexData;
+    indexData.resize(100);
+    indexData.fill(0);
+    geom.setIndexData(indexData);
+    QCOMPARE(indexData.size(), geom.indexBuffer().size());
+    QVERIFY(geom.indexBuffer().compare(indexData) == 0);
+
+    const int stride = 20;
+    geom.setStride(stride);
+    QCOMPARE(stride, geom.stride());
+
+    const QVector3D minimum(-10.f, -10.f, -10.f);
+    const QVector3D maximum(10.f, 10.f, 10.f);
+    geom.setBounds(minimum, maximum);
+    QVERIFY(qFuzzyCompare(minimum, geom.boundsMin()));
+    QVERIFY(qFuzzyCompare(maximum, geom.boundsMax()));
+
+    geom.clear();
+    QCOMPARE(geom.vertexBuffer().size(), 0);
+    QCOMPARE(geom.indexBuffer().size(), 0);
+    QCOMPARE(geom.attributeCount(), 0);
+
+    const QQuick3DGeometry::PrimitiveType primitiveTypes[] = {
+        QQuick3DGeometry::PrimitiveType::Points,
+        QQuick3DGeometry::PrimitiveType::LineStrip,
+        QQuick3DGeometry::PrimitiveType::Lines,
+        QQuick3DGeometry::PrimitiveType::TriangleStrip,
+        QQuick3DGeometry::PrimitiveType::TriangleFan,
+        QQuick3DGeometry::PrimitiveType::Triangles,
+    };
+    for (const auto primitiveType : primitiveTypes) {
+        geom.setPrimitiveType(primitiveType);
+        QCOMPARE(primitiveType, geom.primitiveType());
+    }
+
+    const QQuick3DGeometry::Attribute::Semantic semantics[] = {
+        QQuick3DGeometry::Attribute::IndexSemantic,
+        QQuick3DGeometry::Attribute::PositionSemantic,
+        QQuick3DGeometry::Attribute::NormalSemantic,
+        QQuick3DGeometry::Attribute::TexCoordSemantic,
+        QQuick3DGeometry::Attribute::TangentSemantic,
+        QQuick3DGeometry::Attribute::BinormalSemantic,
+    };
+
+    const int offsets[] = {
+        0, 16, 21, 33, 46, 52,
+    };
+
+    const QQuick3DGeometry::Attribute::ComponentType types[] = {
+        QQuick3DGeometry::Attribute::U16Type,
+        QQuick3DGeometry::Attribute::U32Type,
+        QQuick3DGeometry::Attribute::F32Type,
+    };
+
+    for (int i = 0; i < 6; i++) {
+        geom.addAttribute(semantics[i], offsets[i], QQuick3DGeometry::Attribute::F32Type);
+        QCOMPARE(semantics[i], geom.attribute(i).semantic);
+        QCOMPARE(offsets[i], geom.attribute(i).offset);
+        QCOMPARE(geom.attributeCount(), i+1);
+    }
+    QCOMPARE(geom.attributeCount(), 6);
+    geom.clear();
+    QCOMPARE(geom.attributeCount(), 0);
+
+    for (auto componentType : types) {
+        geom.addAttribute(QQuick3DGeometry::Attribute::PositionSemantic, 0, componentType);
         QCOMPARE(componentType, geom.attribute(0).componentType);
         geom.clear();
     }

@@ -119,6 +119,7 @@ const char kGlslVertShaderNoExplicitLocation[] =
 // A GLSL vertex shader with a weirdly packed block.
 const char kGlslShaderWeirdPacking[] =
     R"(#version 450
+       layout(set = 0, binding = 0)
        buffer B { float x; vec3 foo; } my_ssbo;
        void main() { my_ssbo.x = 1.0; })";
 
@@ -370,6 +371,12 @@ TEST_F(CompilerTest, SpirvTargetVersion1_3Succeeds) {
 
 TEST_F(CompilerTest, SpirvTargetVersion1_4Succeeds) {
   compiler_.SetTargetSpirv(Compiler::SpirvVersion::v1_4);
+  EXPECT_TRUE(SimpleCompilationSucceeds(kVulkanVertexShader, EShLangVertex));
+  EXPECT_THAT(errors_, Eq(""));
+}
+
+TEST_F(CompilerTest, SpirvTargetVersion1_5Succeeds) {
+  compiler_.SetTargetSpirv(Compiler::SpirvVersion::v1_5);
   EXPECT_TRUE(SimpleCompilationSucceeds(kVulkanVertexShader, EShLangVertex));
   EXPECT_THAT(errors_, Eq(""));
 }

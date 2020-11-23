@@ -14,7 +14,10 @@
 #include "base/macros.h"
 #include "base/pickle.h"
 #include "base/strings/string16.h"
+#include "base/util/type_safety/strong_alias.h"
 #include "build/build_config.h"
+#include "components/password_manager/core/browser/compromised_credentials_table.h"
+#include "components/password_manager/core/browser/field_info_table.h"
 #include "components/password_manager/core/browser/password_store.h"
 #include "components/password_manager/core/browser/password_store_change.h"
 #include "components/password_manager/core/browser/password_store_sync.h"
@@ -40,13 +43,22 @@ class SQLTableBuilder;
 extern const int kCurrentVersionNumber;
 extern const int kCompatibleVersionNumber;
 
+using IsAccountStore = util::StrongAlias<class IsAccountStoreTag, bool>;
+
 // Interface to the database storage of login information, intended as a helper
 // for PasswordStore on platforms that need internal storage of some or all of
 // the login information.
 class LoginDatabase : public PasswordStoreSync::MetadataStore {
  public:
-  explicit LoginDatabase(const base::FilePath& db_path);
+  LoginDatabase(const base::FilePath& db_path, IsAccountStore is_account_store);
   ~LoginDatabase() override;
+
+  // Returns whether this is the profile-scoped or the account-scoped storage:
+  // true:  Gaia-account-scoped store, which is used for signed-in but not
+  //        syncing users.
+  // false: Profile-scoped store, which is used for local storage and for
+  //        syncing users.
+  bool is_account_store() const { return is_account_store_.value(); }
 
   // Actually creates/opens the database. If false is returned, no other method
   // should be called.
@@ -119,6 +131,11 @@ class LoginDatabase : public PasswordStoreSync::MetadataStore {
                  std::vector<std::unique_ptr<autofill::PasswordForm>>* forms)
       WARN_UNUSED_RESULT;
 
+  // Gets a list of credentials with password_value=|plain_text_password|.
+  bool GetLoginsByPassword(const base::string16& plain_text_password,
+                           std::vector<std::unique_ptr<autofill::PasswordForm>>*
+                               forms) WARN_UNUSED_RESULT;
+
   // Gets all logins created from |begin| onwards (inclusive) and before |end|.
   // You may use a null Time value to do an unbounded search in either
   // direction. |key_to_form_map| must not be null and will be used to return
@@ -189,11 +206,17 @@ class LoginDatabase : public PasswordStoreSync::MetadataStore {
   bool CommitTransaction();
 
   StatisticsTable& stats_table() { return stats_table_; }
+  CompromisedCredentialsTable& compromised_credentials_table() {
+    return compromised_credentials_table_;
+  }
+
+  FieldInfoTable& field_info_table() { return field_info_table_; }
 
 #if defined(OS_POSIX) && !defined(OS_MACOSX)
+  void enable_encryption() { use_encryption_ = true; }
   // This instance should not encrypt/decrypt password values using OSCrypt.
   void disable_encryption() { use_encryption_ = false; }
-#endif  // defined(OS_POSIX)
+#endif  // defined(OS_POSIX) && !defined(OS_MACOSX)
 
  private:
 #if defined(OS_IOS)
@@ -296,10 +319,14 @@ class LoginDatabase : public PasswordStoreSync::MetadataStore {
   // enabled, or false otherwise. On all other platforms it returns false.
   bool IsUsingCleanupMechanism() const;
 
-  base::FilePath db_path_;
+  const base::FilePath db_path_;
+  const IsAccountStore is_account_store_;
+
   mutable sql::Database db_;
   sql::MetaTable meta_table_;
   StatisticsTable stats_table_;
+  FieldInfoTable field_info_table_;
+  CompromisedCredentialsTable compromised_credentials_table_;
 
   // These cached strings are used to build SQL statements.
   std::string add_statement_;

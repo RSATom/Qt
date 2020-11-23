@@ -70,6 +70,9 @@
 #include <QJsonArray>
 #include <QFileInfo>
 #include <QtCore/qobjectdefs.h>
+#ifdef Q_OS_ANDROID
+#include <QtAndroid>
+#endif
 
 class extractor
 {
@@ -247,10 +250,30 @@ public:
 
 #include "main.moc"
 
+#ifdef Q_OS_ANDROID
+// Request permissions because we're using QStandardPaths::writableLocation()
+bool requestStoragePermissions() {
+    using namespace QtAndroid;
+
+    QString permission = QStringLiteral("android.permission.WRITE_EXTERNAL_STORAGE");
+    const QHash<QString, PermissionResult> results = requestPermissionsSync(QStringList({permission}));
+    if (!results.contains(permission) || results[permission] == PermissionResult::Denied) {
+        qWarning() << "Couldn't get permission: " << permission;
+        return false;
+    }
+
+    return true;
+}
+#endif
+
 int main(int argc, char *argv[])
 {
     QCoreApplication::setAttribute(Qt::AA_EnableHighDpiScaling);
     QApplication app(argc, argv);
+#ifdef Q_OS_ANDROID
+    if (!requestStoragePermissions())
+        return -1;
+#endif
 
     QQmlApplicationEngine engine;
     QUrl absoluteFilePath = argc > 1 ?

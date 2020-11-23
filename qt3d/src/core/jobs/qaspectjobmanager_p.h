@@ -63,24 +63,26 @@ namespace Qt3DCore {
 
 class QThreadPooler;
 class DependencyHandler;
+class QAspectManager;
 
 class Q_3DCORE_PRIVATE_EXPORT QAspectJobManager : public QAbstractAspectJobManager
 {
     Q_OBJECT
 public:
-    explicit QAspectJobManager(QObject *parent = 0);
+    explicit QAspectJobManager(QAspectManager *parent = nullptr);
     ~QAspectJobManager();
 
     void initialize() override;
 
     void enqueueJobs(const QVector<QAspectJobPtr> &jobQueue) override;
 
-    void waitForAllJobs() override;
+    int waitForAllJobs() override;
 
     void waitForPerThreadFunction(JobFunction func, void *arg) override;
 
 private:
     QThreadPooler *m_threadPooler;
+    QAspectManager *m_aspectManager;
 };
 
 } // namespace Qt3DCore

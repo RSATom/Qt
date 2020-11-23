@@ -19,8 +19,6 @@
 #include "extensions/browser/api/sockets_tcp/tcp_socket_event_dispatcher.h"
 #include "extensions/common/api/sockets/sockets_manifest_data.h"
 #include "net/base/net_errors.h"
-#include "net/url_request/url_request_context.h"
-#include "net/url_request/url_request_context_getter.h"
 
 using extensions::ResumableTCPSocket;
 using extensions::api::sockets_tcp::SocketInfo;
@@ -530,7 +528,6 @@ void SocketsTcpSecureFunction::AsyncWorkStart() {
     }
   }
 
-  network::mojom::TLSClientSocketPtr tls_socket;
   socket->UpgradeToTLS(
       &legacy_params,
       base::BindOnce(&SocketsTcpSecureFunction::TlsConnectDone, this));
@@ -538,7 +535,7 @@ void SocketsTcpSecureFunction::AsyncWorkStart() {
 
 void SocketsTcpSecureFunction::TlsConnectDone(
     int result,
-    network::mojom::TLSClientSocketPtr tls_socket,
+    mojo::PendingRemote<network::mojom::TLSClientSocket> tls_socket,
     const net::IPEndPoint& local_addr,
     const net::IPEndPoint& peer_addr,
     mojo::ScopedDataPipeConsumerHandle receive_pipe_handle,

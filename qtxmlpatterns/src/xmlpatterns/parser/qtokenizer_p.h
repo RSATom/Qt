@@ -63,7 +63,7 @@
  * Macro for the data type of semantic values; int by default.
  * See section Data Types of Semantic Values.
  */
-#define YYSTYPE QPatternist::TokenValue
+#define XPATHSTYPE QPatternist::TokenValue
 
 #include <private/qquerytransformparser_p.h> /* This inclusion must be after TokenValue. */
 

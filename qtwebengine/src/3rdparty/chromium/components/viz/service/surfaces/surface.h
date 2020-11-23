@@ -35,6 +35,7 @@ class CopyOutputRequest;
 
 namespace gfx {
 struct PresentationFeedback;
+struct SwapTimings;
 }
 
 namespace ui {
@@ -78,13 +79,16 @@ class VIZ_SERVICE_EXPORT Surface final {
  public:
   class PresentationHelper {
    public:
-    PresentationHelper(base::WeakPtr<Surface> surface, uint32_t frame_token);
+    PresentationHelper(base::WeakPtr<SurfaceClient> surface_client,
+                       uint32_t frame_token);
     ~PresentationHelper();
 
-    void DidPresent(const gfx::PresentationFeedback& feedback);
+    void DidPresent(base::TimeTicks draw_start_timestamp,
+                    const gfx::SwapTimings& timings,
+                    const gfx::PresentationFeedback& feedback);
 
    private:
-    base::WeakPtr<Surface> surface_;
+    base::WeakPtr<SurfaceClient> surface_client_;
     const uint32_t frame_token_;
 
     DISALLOW_COPY_AND_ASSIGN(PresentationHelper);
@@ -186,8 +190,6 @@ class VIZ_SERVICE_EXPORT Surface final {
   // PresentationHelper, at the appropriate point in the future.
   std::unique_ptr<Surface::PresentationHelper>
   TakePresentationHelperForPresentNotification();
-  void DidPresentSurface(uint32_t presentation_token,
-                         const gfx::PresentationFeedback& feedback);
   void SendAckToClient();
   void MarkAsDrawn();
   void NotifyAggregatedDamage(const gfx::Rect& damage_rect,

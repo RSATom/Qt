@@ -6,6 +6,7 @@ class MyInterface
     PROP(Enum1 enum1 = First READWRITE)
 
     PROP(bool started = false)
+    PROP(int initialValue)
 
     SLOT(bool start())
     SLOT(bool stop())

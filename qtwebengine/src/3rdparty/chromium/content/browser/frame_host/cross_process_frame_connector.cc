@@ -34,27 +34,11 @@ namespace content {
 
 namespace {
 
-// If |frame| is an iframe or a GuestView, returns its parent, null otherwise.
-RenderFrameHostImpl* ParentRenderFrameHost(RenderFrameHostImpl* frame) {
-  // Find the parent in the FrameTree (iframe).
-  if (frame->GetParent())
-    return frame->GetParent();
-
-  // Find the parent in the WebContentsTree (GuestView).
-  FrameTreeNode* frame_in_embedder =
-      frame->frame_tree_node()->render_manager()->GetOuterDelegateNode();
-  if (frame_in_embedder)
-    return frame_in_embedder->current_frame_host()->GetParent();
-
-  // No parent found.
-  return nullptr;
-}
-
 // Return the root RenderFrameHost in the outermost WebContents.
 RenderFrameHostImpl* RootRenderFrameHost(RenderFrameHostImpl* frame) {
   RenderFrameHostImpl* current = frame;
   while (true) {
-    RenderFrameHostImpl* parent = ParentRenderFrameHost(current);
+    RenderFrameHostImpl* parent = current->ParentOrOuterDelegateFrame();
     if (!parent)
       return current;
     current = parent;
@@ -94,10 +78,7 @@ bool CrossProcessFrameConnector::OnMessageReceived(const IPC::Message& msg) {
                         OnSynchronizeVisualProperties)
     IPC_MESSAGE_HANDLER(FrameHostMsg_UpdateViewportIntersection,
                         OnUpdateViewportIntersection)
-    IPC_MESSAGE_HANDLER(FrameHostMsg_VisibilityChanged, OnVisibilityChanged)
     IPC_MESSAGE_HANDLER(FrameHostMsg_SetIsInert, OnSetIsInert)
-    IPC_MESSAGE_HANDLER(FrameHostMsg_SetInheritedEffectiveTouchAction,
-                        OnSetInheritedEffectiveTouchAction)
     IPC_MESSAGE_HANDLER(FrameHostMsg_UpdateRenderThrottlingStatus,
                         OnUpdateRenderThrottlingStatus)
     IPC_MESSAGE_UNHANDLED(handled = false)
@@ -179,14 +160,6 @@ void CrossProcessFrameConnector::RenderProcessGone() {
   auto* parent_view = GetParentRenderWidgetHostView();
   if (parent_view && parent_view->host()->delegate())
     parent_view->host()->delegate()->SubframeCrashed(visibility_);
-}
-
-void CrossProcessFrameConnector::FirstSurfaceActivation(
-    const viz::SurfaceInfo& surface_info) {
-  if (!features::IsSurfaceSynchronizationEnabled()) {
-    frame_proxy_in_parent_renderer_->Send(new FrameMsg_FirstSurfaceActivation(
-        frame_proxy_in_parent_renderer_->GetRoutingID(), surface_info));
-  }
 }
 
 void CrossProcessFrameConnector::SendIntrinsicSizingInfoToParent(
@@ -292,10 +265,10 @@ void CrossProcessFrameConnector::FocusRootView() {
     root_view->Focus();
 }
 
-bool CrossProcessFrameConnector::LockMouse() {
+bool CrossProcessFrameConnector::LockMouse(bool request_unadjusted_movement) {
   RenderWidgetHostViewBase* root_view = GetRootRenderWidgetHostView();
   if (root_view)
-    return root_view->LockMouse();
+    return root_view->LockMouse(request_unadjusted_movement);
   return false;
 }
 
@@ -339,15 +312,10 @@ void CrossProcessFrameConnector::OnSynchronizeVisualProperties(
 }
 
 void CrossProcessFrameConnector::OnUpdateViewportIntersection(
-    const gfx::Rect& viewport_intersection,
-    const gfx::Rect& compositor_visible_rect,
-    blink::FrameOcclusionState occlusion_state) {
-  viewport_intersection_rect_ = viewport_intersection;
-  compositor_visible_rect_ = compositor_visible_rect;
-  occlusion_state_ = occlusion_state;
+    const blink::ViewportIntersectionState& intersection_state) {
+  intersection_state_ = intersection_state;
   if (view_)
-    view_->UpdateViewportIntersection(viewport_intersection,
-                                      compositor_visible_rect, occlusion_state);
+    view_->UpdateViewportIntersection(intersection_state);
 
   if (IsVisible()) {
     // Record metrics if a crashed subframe became visible as a result of this
@@ -420,7 +388,7 @@ RenderWidgetHostViewBase*
 CrossProcessFrameConnector::GetParentRenderWidgetHostView() {
   RenderFrameHostImpl* current =
       frame_proxy_in_parent_renderer_->frame_tree_node()->current_frame_host();
-  RenderFrameHostImpl* parent = ParentRenderFrameHost(current);
+  RenderFrameHostImpl* parent = current->ParentOrOuterDelegateFrame();
   return parent ? static_cast<RenderWidgetHostViewBase*>(parent->GetView())
                 : nullptr;
 }
@@ -567,7 +535,7 @@ void CrossProcessFrameConnector::DelegateWasShown() {
 bool CrossProcessFrameConnector::IsVisible() {
   if (visibility_ == blink::mojom::FrameVisibility::kNotRendered)
     return false;
-  if (viewport_intersection_rect().IsEmpty())
+  if (intersection_state().viewport_intersection.IsEmpty())
     return false;
 
   Visibility embedder_visibility =

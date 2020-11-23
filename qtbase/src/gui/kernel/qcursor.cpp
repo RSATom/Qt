@@ -325,7 +325,7 @@ QDataStream &operator<<(QDataStream &s, const QCursor &c)
         if (isPixmap)
             s << c.pixmap();
         else
-            s << *c.bitmap() << *c.mask();
+            s << c.bitmap(Qt::ReturnByValue) << c.mask(Qt::ReturnByValue);
         s << c.hotSpot();
     }
     return s;
@@ -386,7 +386,7 @@ QDataStream &operator>>(QDataStream &s, QCursor &c)
 */
 
 QCursor::QCursor(const QPixmap &pixmap, int hotX, int hotY)
-    : d(0)
+    : d(nullptr)
 {
     QImage img = pixmap.toImage().convertToFormat(QImage::Format_Indexed8, Qt::ThresholdDither|Qt::AvoidDither);
     QBitmap bm = QBitmap::fromImage(img, Qt::ThresholdDither|Qt::AvoidDither);
@@ -442,7 +442,7 @@ QCursor::QCursor(const QPixmap &pixmap, int hotX, int hotY)
 */
 
 QCursor::QCursor(const QBitmap &bitmap, const QBitmap &mask, int hotX, int hotY)
-    : d(0)
+    : d(nullptr)
 {
     d = QCursorData::setBitmap(bitmap, mask, hotX, hotY, 1.0);
 }
@@ -454,7 +454,7 @@ QCursor::QCursor()
 {
     if (!QCursorData::initialized) {
         if (QCoreApplication::startingUp()) {
-            d = 0;
+            d = nullptr;
             return;
         }
         QCursorData::initialize();
@@ -472,7 +472,7 @@ QCursor::QCursor()
     \sa setShape()
 */
 QCursor::QCursor(Qt::CursorShape shape)
-    : d(0)
+    : d(nullptr)
 {
     if (!QCursorData::initialized)
         QCursorData::initialize();
@@ -552,7 +552,7 @@ void QCursor::setShape(Qt::CursorShape shape)
 {
     if (!QCursorData::initialized)
         QCursorData::initialize();
-    QCursorData *c = uint(shape) <= Qt::LastCursor ? qt_cursorTable[shape] : 0;
+    QCursorData *c = uint(shape) <= Qt::LastCursor ? qt_cursorTable[shape] : nullptr;
     if (!c)
         c = qt_cursorTable[0];
     c->ref.ref();
@@ -565,7 +565,12 @@ void QCursor::setShape(Qt::CursorShape shape)
     }
 }
 
+#if QT_DEPRECATED_SINCE(5, 15)
 /*!
+    \deprecated
+
+    New code should use the other overload which returns QBitmap by-value.
+
     Returns the cursor bitmap, or \nullptr if it is one of the
     standard cursors.
 */
@@ -577,6 +582,10 @@ const QBitmap *QCursor::bitmap() const
 }
 
 /*!
+    \deprecated
+
+    New code should use the other overload which returns QBitmap by-value.
+
     Returns the cursor bitmap mask, or \nullptr if it is one of the
     standard cursors.
 */
@@ -586,6 +595,71 @@ const QBitmap *QCursor::mask() const
     if (!QCursorData::initialized)
         QCursorData::initialize();
     return d->bmm;
+}
+#endif // QT_DEPRECATED_SINCE(5, 15)
+
+/*!
+    \since 5.15
+
+    Returns the cursor bitmap, or a null bitmap if it is one of the
+    standard cursors.
+
+    Previously, Qt provided a version of \c bitmap() which returned the bitmap
+    by-pointer. That version is now deprecated. To maintain compatibility
+    with old code, you can explicitly differentiate between the by-pointer
+    function and the by-value function:
+
+    \code
+    const QBitmap *bmpPtr = cursor->bitmap();
+    QBitmap bmpVal = cursor->bitmap(Qt::ReturnByValue);
+    \endcode
+
+    If you disable the deprecated version using the QT_DISABLE_DEPRECATED_BEFORE
+    macro, then you can omit \c Qt::ReturnByValue as shown below:
+
+    \code
+    QBitmap bmpVal = cursor->bitmap();
+    \endcode
+*/
+QBitmap QCursor::bitmap(Qt::ReturnByValueConstant) const
+{
+    if (!QCursorData::initialized)
+        QCursorData::initialize();
+    if (d->bm)
+        return *(d->bm);
+    return QBitmap();
+}
+
+/*!
+    \since 5.15
+
+    Returns the cursor bitmap mask, or a null bitmap if it is one of the
+    standard cursors.
+
+    Previously, Qt provided a version of \c mask() which returned the bitmap
+    by-pointer. That version is now deprecated. To maintain compatibility
+    with old code, you can explicitly differentiate between the by-pointer
+    function and the by-value function:
+
+    \code
+    const QBitmap *bmpPtr = cursor->mask();
+    QBitmap bmpVal = cursor->mask(Qt::ReturnByValue);
+    \endcode
+
+    If you disable the deprecated version using the QT_DISABLE_DEPRECATED_BEFORE
+    macro, then you can omit \c Qt::ReturnByValue as shown below:
+
+    \code
+    QBitmap bmpVal = cursor->mask();
+    \endcode
+*/
+QBitmap QCursor::mask(Qt::ReturnByValueConstant) const
+{
+    if (!QCursorData::initialized)
+        QCursorData::initialize();
+    if (d->bmm)
+        return *(d->bmm);
+    return QBitmap();
 }
 
 /*!
@@ -657,7 +731,7 @@ QCursor &QCursor::operator=(const QCursor &c)
 */
 QCursor::operator QVariant() const
 {
-    return QVariant(QVariant::Cursor, this);
+    return QVariant(QMetaType::QCursor, this);
 }
 
 #ifndef QT_NO_DEBUG_STREAM
@@ -677,7 +751,7 @@ QCursorData *qt_cursorTable[Qt::LastCursor + 1];
 bool QCursorData::initialized = false;
 
 QCursorData::QCursorData(Qt::CursorShape s)
-    : ref(1), cshape(s), bm(0), bmm(0), hx(0), hy(0)
+    : ref(1), cshape(s), bm(nullptr), bmm(nullptr), hx(0), hy(0)
 {
 }
 
@@ -697,7 +771,7 @@ void QCursorData::cleanup()
         // In case someone has a static QCursor defined with this shape
         if (!qt_cursorTable[shape]->ref.deref())
             delete qt_cursorTable[shape];
-        qt_cursorTable[shape] = 0;
+        qt_cursorTable[shape] = nullptr;
     }
     QCursorData::initialized = false;
 }

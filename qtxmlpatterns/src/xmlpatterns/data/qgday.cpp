@@ -75,7 +75,8 @@ GDay::Ptr GDay::fromLexical(const QString &lexical)
 
 GDay::Ptr GDay::fromDateTime(const QDateTime &dt)
 {
-    QDateTime result(QDate(DefaultYear, DefaultMonth, dt.date().day()));
+    const QDate date(DefaultYear, DefaultMonth, dt.date().day());
+    QDateTime result(date.startOfDay());
     copyTimeSpec(dt, result);
 
     return GDay::Ptr(new GDay(result));

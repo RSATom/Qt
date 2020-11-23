@@ -437,7 +437,7 @@ QList<QGeoAreaMonitorInfo> QGeoAreaMonitorPolling::activeMonitors(const QGeoShap
 
 QGeoAreaMonitorSource::AreaMonitorFeatures QGeoAreaMonitorPolling::supportedAreaMonitorFeatures() const
 {
-    return 0;
+    return {};
 }
 
 void QGeoAreaMonitorPolling::connectNotify(const QMetaMethod &/*signal*/)

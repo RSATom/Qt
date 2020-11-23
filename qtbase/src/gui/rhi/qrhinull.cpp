@@ -67,13 +67,6 @@ QT_BEGIN_NAMESPACE
     \brief Empty.
  */
 
-/*!
-    \class QRhiNullTextureNativeHandles
-    \internal
-    \inmodule QtGui
-    \brief Empty.
- */
-
 QRhiNull::QRhiNull(QRhiNullInitParams *params)
     : offscreenCommandBuffer(this)
 {
@@ -153,7 +146,9 @@ int QRhiNull::resourceLimit(QRhi::ResourceLimit limit) const
     case QRhi::MaxColorAttachments:
         return 8;
     case QRhi::FramesInFlight:
-        return 2; // dummy
+        return 1;
+    case QRhi::MaxAsyncReadbackFrames:
+        return 1;
     default:
         Q_UNREACHABLE();
         return 0;
@@ -200,9 +195,9 @@ QRhiTexture *QRhiNull::createTexture(QRhiTexture::Format format, const QSize &pi
 
 QRhiSampler *QRhiNull::createSampler(QRhiSampler::Filter magFilter, QRhiSampler::Filter minFilter,
                                      QRhiSampler::Filter mipmapMode,
-                                     QRhiSampler::AddressMode u, QRhiSampler::AddressMode v)
+                                     QRhiSampler::AddressMode u, QRhiSampler::AddressMode v, QRhiSampler::AddressMode w)
 {
-    return new QNullSampler(this, magFilter, minFilter, mipmapMode, u, v);
+    return new QNullSampler(this, magFilter, minFilter, mipmapMode, u, v, w);
 }
 
 QRhiTextureRenderTarget *QRhiNull::createTextureRenderTarget(const QRhiTextureRenderTargetDescription &desc,
@@ -638,9 +633,9 @@ bool QNullTexture::build()
     return true;
 }
 
-bool QNullTexture::buildFrom(const QRhiNativeHandles *src)
+bool QNullTexture::buildFrom(QRhiTexture::NativeTexture src)
 {
-    Q_UNUSED(src);
+    Q_UNUSED(src)
     QRHI_RES_RHI(QRhiNull);
     const bool isCube = m_flags.testFlag(CubeMap);
     const bool hasMipMaps = m_flags.testFlag(MipMapped);
@@ -651,14 +646,9 @@ bool QNullTexture::buildFrom(const QRhiNativeHandles *src)
     return true;
 }
 
-const QRhiNativeHandles *QNullTexture::nativeHandles()
-{
-    return &nativeHandlesStruct;
-}
-
 QNullSampler::QNullSampler(QRhiImplementation *rhi, Filter magFilter, Filter minFilter, Filter mipmapMode,
-                           AddressMode u, AddressMode v)
-    : QRhiSampler(rhi, magFilter, minFilter, mipmapMode, u, v)
+                           AddressMode u, AddressMode v, AddressMode w)
+    : QRhiSampler(rhi, magFilter, minFilter, mipmapMode, u, v, w)
 {
 }
 
@@ -688,6 +678,12 @@ QNullRenderPassDescriptor::~QNullRenderPassDescriptor()
 
 void QNullRenderPassDescriptor::release()
 {
+}
+
+bool QNullRenderPassDescriptor::isCompatible(const QRhiRenderPassDescriptor *other) const
+{
+    Q_UNUSED(other);
+    return true;
 }
 
 QNullReferenceRenderTarget::QNullReferenceRenderTarget(QRhiImplementation *rhi)

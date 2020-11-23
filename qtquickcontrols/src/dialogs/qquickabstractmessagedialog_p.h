@@ -76,7 +76,7 @@ public:
     QQuickAbstractMessageDialog(QObject *parent = 0);
     virtual ~QQuickAbstractMessageDialog();
 
-    virtual QString title() const { return m_options->windowTitle(); }
+    QString title() const override { return m_options->windowTitle(); }
     QString text() const { return m_options->text(); }
     QString informativeText() const { return m_options->informativeText(); }
     QString detailedText() const { return m_options->detailedText(); }
@@ -98,8 +98,8 @@ public:
     StandardButton clickedButton() const { return m_clickedButton; }
 
 public Q_SLOTS:
-    virtual void setVisible(bool v);
-    virtual void setTitle(const QString &arg);
+    void setVisible(bool v) override;
+    void setTitle(const QString &arg) override;
     void setText(const QString &arg);
     void setInformativeText(const QString &arg);
     void setDetailedText(const QString &arg);

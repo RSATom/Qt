@@ -42,6 +42,12 @@ private Q_SLOTS:
         m_repNode.reset(new QRemoteObjectNode);
         m_repNode->connectToNode(QUrl(QStringLiteral("tcp://127.0.0.1:65213")));
         m_rep.reset(m_repNode->acquire<MyInterfaceReplica>());
+        connect(m_rep.data(), &MyInterfaceReplica::notified, [&]() { m_notified = true; });
+        connect(m_rep.data(), &MyInterfaceReplica::initialValueChanged, [&]() {
+            // this value is only set when the replica first connects to the source
+            QCOMPARE(m_notified, false);
+            QCOMPARE(m_rep->initialValue(), 18);
+        });
         QVERIFY(m_rep->waitForSource());
     }
 
@@ -187,6 +193,7 @@ private Q_SLOTS:
 private:
     QScopedPointer<QRemoteObjectNode> m_repNode;
     QScopedPointer<MyInterfaceReplica> m_rep;
+    bool m_notified = false;
 };
 
 QTEST_MAIN(tst_Client_Process)

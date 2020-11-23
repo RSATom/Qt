@@ -48,8 +48,8 @@
 **
 ****************************************************************************/
 
-import QtQuick3D 1.14
-import QtQuick 2.14
+import QtQuick3D 1.15
+import QtQuick 2.15
 
 Rectangle {
     id: scopedLights
@@ -73,14 +73,12 @@ Rectangle {
 
         PerspectiveCamera {
             id: camera
-            position: Qt.vector3d(0, 0, -600)
-            rotationOrder: Node.YZX
+            position: Qt.vector3d(0, 0, 600)
             clipFar: 5000
         }
 
         DirectionalLight {
             id: light
-            rotationOrder: Node.YZX
             color: Qt.rgba(0.486275, 0.992157, 1, 1)
             shadowFactor: 10
             shadowFilter: 36.97999954223633
@@ -90,7 +88,6 @@ Rectangle {
         Model {
             id: cube
             position: Qt.vector3d(-284.867, 0, 0)
-            rotationOrder: Node.YZX
             source: "#Cube"
             
             
@@ -111,7 +108,6 @@ Rectangle {
         Model {
             id: cube2
             position: Qt.vector3d(340.036, 0, 0)
-            rotationOrder: Node.YZX
             source: "#Cube"
             
             
@@ -131,7 +127,6 @@ Rectangle {
 
         DirectionalLight {
             id: light2
-            rotationOrder: Node.YZX
             color: Qt.rgba(0.682353, 0.682353, 1, 1)
             shadowFactor: 10
             scope: cube2
@@ -154,15 +149,13 @@ Rectangle {
 
         PerspectiveCamera {
             id: camera_001
-            position: Qt.vector3d(0, 0, -600)
-            rotationOrder: Node.YZX
+            position: Qt.vector3d(0, 0, 600)
             clipFar: 5000
         }
 
         Model {
             id: cube_001
             position: Qt.vector3d(0, 169.409, 0)
-            rotationOrder: Node.YZX
             source: "#Cube"
             
             

@@ -71,12 +71,17 @@ void IncrementCounters(const webrtc::DataChannelInterface& channel) {
   if (channel.negotiated())
     IncrementCounter(DataChannelCounters::kNegotiated);
 
-  UMA_HISTOGRAM_CUSTOM_COUNTS("WebRTC.DataChannelMaxRetransmits",
-                              channel.maxRetransmits(), 1,
-                              std::numeric_limits<uint16_t>::max(), 50);
-  UMA_HISTOGRAM_CUSTOM_COUNTS("WebRTC.DataChannelMaxRetransmitTime",
-                              channel.maxRetransmitTime(), 1,
-                              std::numeric_limits<uint16_t>::max(), 50);
+  // Only record max retransmits and max packet life time if set.
+  if (channel.maxRetransmitsOpt()) {
+    UMA_HISTOGRAM_CUSTOM_COUNTS("WebRTC.DataChannelMaxRetransmits",
+                                *(channel.maxRetransmitsOpt()), 1,
+                                std::numeric_limits<uint16_t>::max(), 50);
+  }
+  if (channel.maxPacketLifeTime()) {
+    UMA_HISTOGRAM_CUSTOM_COUNTS("WebRTC.DataChannelMaxPacketLifeTime",
+                                *channel.maxPacketLifeTime(), 1,
+                                std::numeric_limits<uint16_t>::max(), 50);
+  }
 }
 
 void RecordMessageSent(const webrtc::DataChannelInterface& channel,
@@ -213,7 +218,7 @@ RTCDataChannel::RTCDataChannel(
       buffered_amount_(0U),
       stopped_(false),
       observer_(base::MakeRefCounted<Observer>(
-          context->GetTaskRunner(TaskType::kInternalMedia),
+          context->GetTaskRunner(TaskType::kNetworking),
           this,
           channel)) {
   DCHECK(peer_connection_handler);
@@ -243,42 +248,52 @@ RTCDataChannel::RTCDataChannel(
 RTCDataChannel::~RTCDataChannel() = default;
 
 String RTCDataChannel::label() const {
-  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
-  return WebString::FromUTF8(channel()->label());
+  DCHECK_CALLED_ON_VALID_THREAD(thread_checker_);
+  return String::FromUTF8(channel()->label());
 }
 
 bool RTCDataChannel::reliable() const {
-  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
+  DCHECK_CALLED_ON_VALID_THREAD(thread_checker_);
   return channel()->reliable();
 }
 
 bool RTCDataChannel::ordered() const {
-  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
+  DCHECK_CALLED_ON_VALID_THREAD(thread_checker_);
   return channel()->ordered();
 }
 
-uint16_t RTCDataChannel::maxRetransmitTime() const {
-  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
-  return channel()->maxRetransmitTime();
+uint16_t RTCDataChannel::maxPacketLifeTime(bool& is_null) const {
+  DCHECK_CALLED_ON_VALID_THREAD(thread_checker_);
+  if (channel()->maxPacketLifeTime()) {
+    is_null = false;
+    return *(channel()->maxPacketLifeTime());
+  }
+  is_null = true;
+  return -1;
 }
 
-uint16_t RTCDataChannel::maxRetransmits() const {
-  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
-  return channel()->maxRetransmits();
+uint16_t RTCDataChannel::maxRetransmits(bool& is_null) const {
+  DCHECK_CALLED_ON_VALID_THREAD(thread_checker_);
+  if (channel()->maxRetransmitsOpt()) {
+    is_null = false;
+    return *(channel()->maxRetransmitsOpt());
+  }
+  is_null = true;
+  return -1;
 }
 
 String RTCDataChannel::protocol() const {
-  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
-  return WebString::FromUTF8(channel()->protocol());
+  DCHECK_CALLED_ON_VALID_THREAD(thread_checker_);
+  return String::FromUTF8(channel()->protocol());
 }
 
 bool RTCDataChannel::negotiated() const {
-  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
+  DCHECK_CALLED_ON_VALID_THREAD(thread_checker_);
   return channel()->negotiated();
 }
 
 uint16_t RTCDataChannel::id(bool& is_null) const {
-  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
+  DCHECK_CALLED_ON_VALID_THREAD(thread_checker_);
   if (channel()->id() == -1) {
     is_null = true;
     return 0;
@@ -338,14 +353,13 @@ void RTCDataChannel::setBinaryType(const String& binary_type,
 }
 
 void RTCDataChannel::send(const String& data, ExceptionState& exception_state) {
-  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
+  DCHECK_CALLED_ON_VALID_THREAD(thread_checker_);
   if (state_ != webrtc::DataChannelInterface::kOpen) {
     ThrowNotOpenException(&exception_state);
     return;
   }
 
-  std::string utf8_buffer = static_cast<WebString>(data).Utf8();
-  webrtc::DataBuffer data_buffer(utf8_buffer);
+  webrtc::DataBuffer data_buffer(data.Utf8());
   buffered_amount_ += data_buffer.size();
   RecordMessageSent(*channel().get(), data_buffer.size());
   if (!channel()->Send(data_buffer)) {
@@ -362,7 +376,7 @@ void RTCDataChannel::send(DOMArrayBuffer* data,
     return;
   }
 
-  size_t data_length = data->ByteLength();
+  size_t data_length = data->ByteLengthAsSizeT();
   if (!data_length)
     return;
 
@@ -376,9 +390,9 @@ void RTCDataChannel::send(DOMArrayBuffer* data,
 
 void RTCDataChannel::send(NotShared<DOMArrayBufferView> data,
                           ExceptionState& exception_state) {
-  buffered_amount_ += data.View()->byteLength();
+  buffered_amount_ += data.View()->deprecatedByteLengthAsUnsigned();
   if (!SendRawData(static_cast<const char*>(data.View()->BaseAddress()),
-                   data.View()->byteLength())) {
+                   data.View()->deprecatedByteLengthAsUnsigned())) {
     // TODO(https://crbug.com/937848): Don't throw an exception if data is
     // queued.
     ThrowCouldNotSendDataException(&exception_state);
@@ -391,7 +405,7 @@ void RTCDataChannel::send(Blob* data, ExceptionState& exception_state) {
 }
 
 void RTCDataChannel::close() {
-  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
+  DCHECK_CALLED_ON_VALID_THREAD(thread_checker_);
   if (observer_)
     channel()->Close();
   // Note that even though Close() will run synchronously, the readyState has
@@ -462,7 +476,7 @@ void RTCDataChannel::Trace(Visitor* visitor) {
 
 void RTCDataChannel::OnStateChange(
     webrtc::DataChannelInterface::DataState state) {
-  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
+  DCHECK_CALLED_ON_VALID_THREAD(thread_checker_);
 
   if (state_ == webrtc::DataChannelInterface::kClosed)
     return;
@@ -483,7 +497,7 @@ void RTCDataChannel::OnStateChange(
 }
 
 void RTCDataChannel::OnBufferedAmountChange(unsigned sent_data_size) {
-  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
+  DCHECK_CALLED_ON_VALID_THREAD(thread_checker_);
   unsigned previous_amount = buffered_amount_;
   DVLOG(1) << "OnBufferedAmountChange " << previous_amount;
   DCHECK_GE(buffered_amount_, sent_data_size);
@@ -496,7 +510,7 @@ void RTCDataChannel::OnBufferedAmountChange(unsigned sent_data_size) {
 }
 
 void RTCDataChannel::OnMessage(std::unique_ptr<webrtc::DataBuffer> buffer) {
-  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
+  DCHECK_CALLED_ON_VALID_THREAD(thread_checker_);
 
   if (buffer->binary) {
     if (binary_type_ == kBinaryTypeBlob) {
@@ -554,7 +568,7 @@ const scoped_refptr<webrtc::DataChannelInterface>& RTCDataChannel::channel()
 }
 
 bool RTCDataChannel::SendRawData(const char* data, size_t length) {
-  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
+  DCHECK_CALLED_ON_VALID_THREAD(thread_checker_);
   rtc::CopyOnWriteBuffer buffer(data, length);
   webrtc::DataBuffer data_buffer(buffer, true);
   RecordMessageSent(*channel().get(), data_buffer.size());

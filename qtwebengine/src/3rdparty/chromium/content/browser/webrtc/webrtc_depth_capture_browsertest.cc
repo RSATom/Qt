@@ -63,7 +63,7 @@ class WebRtcDepthCaptureBrowserTest : public WebRtcContentBrowserTestBase {
         fake_device_switch,
         base::StringPrintf("device-count=%d", device_count));
     if (enable_video_kind) {
-      command_line->AppendSwitchASCII("--enable-blink-features",
+      command_line->AppendSwitchASCII(switches::kEnableBlinkFeatures,
                                       "MediaCaptureDepthVideoKind");
     }
     WebRtcContentBrowserTestBase::SetUpCommandLine(command_line);
@@ -89,7 +89,7 @@ IN_PROC_BROWSER_TEST_F(WebRtcTwoDeviceDepthCaptureBrowserTest,
 
   GURL url(
       embedded_test_server()->GetURL("/media/getusermedia-depth-capture.html"));
-  NavigateToURL(shell(), url);
+  EXPECT_TRUE(NavigateToURL(shell(), url));
 
   ExecuteJavascriptAndWaitForOk(base::StringPrintf(
       "%s({video: true});", kGetDepthStreamAndCallCreateImageBitmap));
@@ -101,7 +101,7 @@ IN_PROC_BROWSER_TEST_F(WebRtcTwoDeviceDepthCaptureVideoKindBrowserTest,
 
   GURL url(
       embedded_test_server()->GetURL("/media/getusermedia-depth-capture.html"));
-  NavigateToURL(shell(), url);
+  EXPECT_TRUE(NavigateToURL(shell(), url));
 
   ExecuteJavascriptAndWaitForOk(
       base::StringPrintf("%s({video: true});", kGetStreamsByVideoKind));
@@ -113,7 +113,7 @@ IN_PROC_BROWSER_TEST_F(WebRtcOneDeviceDepthCaptureVideoKindBrowserTest,
 
   GURL url(
       embedded_test_server()->GetURL("/media/getusermedia-depth-capture.html"));
-  NavigateToURL(shell(), url);
+  EXPECT_TRUE(NavigateToURL(shell(), url));
 
   ExecuteJavascriptAndWaitForOk(
       base::StringPrintf("%s({video: true});", kGetStreamsByVideoKindNoDepth));

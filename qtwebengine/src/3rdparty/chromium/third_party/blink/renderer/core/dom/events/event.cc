@@ -34,6 +34,7 @@
 #include "third_party/blink/renderer/core/execution_context/execution_context.h"
 #include "third_party/blink/renderer/core/frame/hosts_using_features.h"
 #include "third_party/blink/renderer/core/frame/local_dom_window.h"
+#include "third_party/blink/renderer/core/frame/web_feature.h"
 #include "third_party/blink/renderer/core/svg/svg_element.h"
 #include "third_party/blink/renderer/core/timing/dom_window_performance.h"
 #include "third_party/blink/renderer/core/timing/window_performance.h"
@@ -102,6 +103,7 @@ Event::Event(const AtomicString& event_type,
       legacy_did_listeners_throw_flag_(false),
       fire_only_capture_listeners_at_target_(false),
       fire_only_non_capture_listeners_at_target_(false),
+      copy_event_path_from_underlying_event_(false),
       handling_passive_(PassiveMode::kNotPassiveDefault),
       event_phase_(0),
       current_target_(nullptr),
@@ -291,7 +293,9 @@ void Event::SetUnderlyingEvent(Event* ue) {
 }
 
 void Event::InitEventPath(Node& node) {
-  if (!event_path_) {
+  if (copy_event_path_from_underlying_event_) {
+    event_path_ = underlying_event_->GetEventPath();
+  } else if (!event_path_) {
     event_path_ = MakeGarbageCollected<EventPath>(node, this);
   } else {
     event_path_->InitializeWith(node, this);
@@ -300,7 +304,7 @@ void Event::InitEventPath(Node& node) {
 
 ScriptValue Event::path(ScriptState* script_state) const {
   return ScriptValue(
-      script_state,
+      script_state->GetIsolate(),
       ToV8(PathInternal(script_state, kNonEmptyAfterDispatch), script_state));
 }
 
@@ -315,10 +319,6 @@ void Event::SetHandlingPassive(PassiveMode mode) {
 
 HeapVector<Member<EventTarget>> Event::PathInternal(ScriptState* script_state,
                                                     EventPathMode mode) const {
-  if (target_)
-    HostsUsingFeatures::CountHostOrIsolatedWorldHumanReadableName(
-        script_state, *target_, HostsUsingFeatures::Feature::kEventPath);
-
   if (!current_target_) {
     DCHECK_EQ(Event::kNone, event_phase_);
     if (!event_path_) {

@@ -313,6 +313,30 @@ bool QIdentityProxyModel::removeRows(int row, int count, const QModelIndex& pare
 
 /*!
     \reimp
+    \since 5.15
+ */
+bool QIdentityProxyModel::moveRows(const QModelIndex &sourceParent, int sourceRow, int count, const QModelIndex &destinationParent, int destinationChild)
+{
+    Q_ASSERT(sourceParent.isValid() ? sourceParent.model() == this : true);
+    Q_ASSERT(destinationParent.isValid() ? destinationParent.model() == this : true);
+    Q_D(QIdentityProxyModel);
+    return d->model->moveRows(mapToSource(sourceParent), sourceRow, count, mapToSource(destinationParent), destinationChild);
+}
+
+/*!
+    \reimp
+    \since 5.15
+ */
+bool QIdentityProxyModel::moveColumns(const QModelIndex &sourceParent, int sourceColumn, int count, const QModelIndex &destinationParent, int destinationChild)
+{
+    Q_ASSERT(sourceParent.isValid() ? sourceParent.model() == this : true);
+    Q_ASSERT(destinationParent.isValid() ? destinationParent.model() == this : true);
+    Q_D(QIdentityProxyModel);
+    return d->model->moveColumns(mapToSource(sourceParent), sourceColumn, count, mapToSource(destinationParent), destinationChild);
+}
+
+/*!
+    \reimp
  */
 int QIdentityProxyModel::rowCount(const QModelIndex& parent) const
 {
@@ -508,7 +532,7 @@ void QIdentityProxyModelPrivate::_q_sourceLayoutAboutToBeChanged(const QList<QPe
     emit q->layoutAboutToBeChanged(parents, hint);
 
     const auto proxyPersistentIndexes = q->persistentIndexList();
-    for (const QPersistentModelIndex &proxyPersistentIndex : proxyPersistentIndexes) {
+    for (const QModelIndex &proxyPersistentIndex : proxyPersistentIndexes) {
         proxyIndexes << proxyPersistentIndex;
         Q_ASSERT(proxyPersistentIndex.isValid());
         const QPersistentModelIndex srcPersistentIndex = q->mapToSource(proxyPersistentIndex);

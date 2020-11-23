@@ -41,7 +41,6 @@
 
 #include <QtGui/qtguiglobal.h>
 #include <QtGui/qmatrix.h>
-#include <QtGui/qpainterpath.h>
 #include <QtGui/qpolygon.h>
 #include <QtGui/qregion.h>
 #include <QtGui/qwindowdefs.h>
@@ -51,8 +50,8 @@
 
 QT_BEGIN_NAMESPACE
 
-
 class QVariant;
+class QPainterPath;
 
 class Q_GUI_EXPORT QTransform
 {
@@ -73,7 +72,9 @@ public:
                qreal h31, qreal h32, qreal h33 = 1.0);
     QTransform(qreal h11, qreal h12, qreal h21,
                qreal h22, qreal dx, qreal dy);
+#if QT_DEPRECATED_SINCE(5, 15)
     explicit QTransform(const QMatrix &mtx);
+#endif // QT_DEPRECATED_SINCE(5, 15)
 
 #if QT_VERSION < QT_VERSION_CHECK(6, 0, 0)
     // ### Qt 6: remove; the compiler-generated ones are fine!
@@ -158,7 +159,9 @@ public:
     void map(int x, int y, int *tx, int *ty) const;
     void map(qreal x, qreal y, qreal *tx, qreal *ty) const;
 
+#if QT_DEPRECATED_SINCE(5, 15)
     const QMatrix &toAffine() const;
+#endif // QT_DEPRECATED_SINCE(5, 15)
 
     QTransform &operator*=(qreal div);
     QTransform &operator/=(qreal div);
@@ -404,8 +407,6 @@ inline QPolygonF operator *(const QPolygonF &a, const QTransform &m)
 { return m.map(a); }
 inline QRegion operator *(const QRegion &r, const QTransform &m)
 { return m.map(r); }
-inline QPainterPath operator *(const QPainterPath &p, const QTransform &m)
-{ return m.map(p); }
 
 inline QTransform operator *(const QTransform &a, qreal n)
 { QTransform t(a); t *= n; return t; }

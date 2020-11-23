@@ -21,11 +21,11 @@ class UserEventModelTypeController : public syncer::ModelTypeController,
   // |sync_service| must not be null and must outlive this object.
   UserEventModelTypeController(
       SyncService* sync_service,
-      std::unique_ptr<ModelTypeControllerDelegate> delegate_on_disk);
+      std::unique_ptr<ModelTypeControllerDelegate> delegate_for_full_sync_mode);
   ~UserEventModelTypeController() override;
 
   // syncer::DataTypeController implementation.
-  bool ReadyForStart() const override;
+  PreconditionState GetPreconditionState() const override;
 
   // syncer::SyncServiceObserver implementation.
   void OnStateChanged(syncer::SyncService* sync) override;

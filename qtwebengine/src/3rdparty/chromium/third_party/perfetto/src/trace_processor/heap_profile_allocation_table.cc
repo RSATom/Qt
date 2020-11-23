@@ -26,8 +26,8 @@ HeapProfileAllocationTable::HeapProfileAllocationTable(
 
 void HeapProfileAllocationTable::RegisterTable(sqlite3* db,
                                                const TraceStorage* storage) {
-  Table::Register<HeapProfileAllocationTable>(db, storage,
-                                              "heap_profile_allocation");
+  SqliteTable::Register<HeapProfileAllocationTable>(db, storage,
+                                                    "heap_profile_allocation");
 }
 
 StorageSchema HeapProfileAllocationTable::CreateStorageSchema() {
@@ -48,7 +48,7 @@ uint32_t HeapProfileAllocationTable::RowCount() {
 
 int HeapProfileAllocationTable::BestIndex(const QueryConstraints& qc,
                                           BestIndexInfo* info) {
-  info->order_by_consumed = true;
+  info->sqlite_omit_order_by = true;
   info->estimated_cost = HasEqConstraint(qc, "id") ? 1 : RowCount();
   return SQLITE_OK;
 }

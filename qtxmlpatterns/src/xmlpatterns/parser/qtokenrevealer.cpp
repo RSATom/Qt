@@ -60,7 +60,7 @@ void TokenRevealer::setParserContext(const ParserContext::Ptr &parseInfo)
     m_tokenizer->setParserContext(parseInfo);
 }
 
-Tokenizer::Token TokenRevealer::nextToken(YYLTYPE *const sourceLocator)
+Tokenizer::Token TokenRevealer::nextToken(XPATHLTYPE *const sourceLocator)
 {
     const Token token(m_tokenizer->nextToken(sourceLocator));
     const QString asString(tokenToString(token));

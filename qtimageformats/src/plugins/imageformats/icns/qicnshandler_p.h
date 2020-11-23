@@ -132,10 +132,6 @@ public:
     bool read(QImage *image) override;
     bool write(const QImage &image) override;
 
-#if QT_DEPRECATED_SINCE(5, 13)
-    QByteArray name() const override;
-#endif
-
     bool supportsOption(ImageOption option) const override;
     QVariant option(ImageOption option) const override;
 

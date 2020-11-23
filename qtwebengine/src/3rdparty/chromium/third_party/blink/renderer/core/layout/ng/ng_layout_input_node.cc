@@ -7,7 +7,6 @@
 #include "third_party/blink/renderer/core/layout/geometry/logical_size.h"
 #include "third_party/blink/renderer/core/layout/intrinsic_sizing_info.h"
 #include "third_party/blink/renderer/core/layout/layout_replaced.h"
-#include "third_party/blink/renderer/core/layout/layout_table_cell.h"
 #include "third_party/blink/renderer/core/layout/layout_view.h"
 #include "third_party/blink/renderer/core/layout/min_max_size.h"
 #include "third_party/blink/renderer/core/layout/ng/inline/ng_inline_node.h"
@@ -76,40 +75,36 @@ void NGLayoutInputNode::IntrinsicSize(
     base::Optional<LayoutUnit>* computed_block_size,
     LogicalSize* aspect_ratio) const {
   DCHECK(IsReplaced());
+
+  LayoutUnit override_inline_size = OverrideIntrinsicContentInlineSize();
+  if (override_inline_size != kIndefiniteSize)
+    *computed_inline_size = override_inline_size;
+
+  LayoutUnit override_block_size = OverrideIntrinsicContentBlockSize();
+  if (override_block_size != kIndefiniteSize)
+    *computed_block_size = override_block_size;
+
   if (ShouldApplySizeContainment()) {
-    *computed_inline_size = LayoutUnit();
-    *computed_block_size = LayoutUnit();
-    *aspect_ratio = LogicalSize(LayoutUnit(), LayoutUnit());
-    return;
+    if (!*computed_inline_size)
+      *computed_inline_size = LayoutUnit();
+    if (!*computed_block_size)
+      *computed_block_size = LayoutUnit();
   }
-  if (DisplayLockInducesSizeContainment()) {
-    *computed_inline_size =
-        GetDisplayLockContext().GetLockedContentLogicalWidth();
-    *computed_block_size =
-        GetDisplayLockContext().GetLockedContentLogicalHeight();
+  if (*computed_inline_size && *computed_block_size) {
     *aspect_ratio = LogicalSize(**computed_inline_size, **computed_block_size);
     return;
   }
+
   IntrinsicSizingInfo legacy_sizing_info;
 
   ToLayoutReplaced(box_)->ComputeIntrinsicSizingInfo(legacy_sizing_info);
-  if (legacy_sizing_info.has_width)
+  if (!*computed_inline_size && legacy_sizing_info.has_width)
     *computed_inline_size = LayoutUnit(legacy_sizing_info.size.Width());
-  if (legacy_sizing_info.has_height)
+  if (!*computed_block_size && legacy_sizing_info.has_height)
     *computed_block_size = LayoutUnit(legacy_sizing_info.size.Height());
   *aspect_ratio =
       LogicalSize(LayoutUnit(legacy_sizing_info.aspect_ratio.Width()),
                   LayoutUnit(legacy_sizing_info.aspect_ratio.Height()));
-}
-
-LayoutUnit NGLayoutInputNode::IntrinsicPaddingBlockStart() const {
-  DCHECK(IsTableCell());
-  return LayoutUnit(ToLayoutTableCell(box_)->IntrinsicPaddingBefore());
-}
-
-LayoutUnit NGLayoutInputNode::IntrinsicPaddingBlockEnd() const {
-  DCHECK(IsTableCell());
-  return LayoutUnit(ToLayoutTableCell(box_)->IntrinsicPaddingAfter());
 }
 
 NGLayoutInputNode NGLayoutInputNode::NextSibling() {

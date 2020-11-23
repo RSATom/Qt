@@ -9,22 +9,23 @@
 #include "base/bind.h"
 #include "base/bind_helpers.h"
 #include "base/run_loop.h"
+#include "base/test/bind_test_util.h"
 #include "base/test/mock_callback.h"
 #include "base/threading/thread.h"
 #include "content/public/browser/video_capture_device_launcher.h"
-#include "content/public/test/test_browser_thread_bundle.h"
-#include "mojo/public/cpp/bindings/binding.h"
-#include "mojo/public/cpp/bindings/binding_set.h"
-#include "services/service_manager/public/cpp/binder_registry.h"
-#include "services/service_manager/public/cpp/service.h"
-#include "services/service_manager/public/cpp/service_binding.h"
-#include "services/service_manager/public/cpp/test/test_connector_factory.h"
-#include "services/video_capture/public/cpp/mock_device_factory_provider.h"
+#include "content/public/browser/video_capture_service.h"
+#include "content/public/test/browser_task_environment.h"
+#include "mojo/public/cpp/bindings/pending_receiver.h"
+#include "mojo/public/cpp/bindings/pending_remote.h"
+#include "mojo/public/cpp/bindings/receiver.h"
+#include "mojo/public/cpp/bindings/receiver_set.h"
 #include "services/video_capture/public/cpp/mock_push_subscription.h"
+#include "services/video_capture/public/cpp/mock_video_capture_service.h"
 #include "services/video_capture/public/cpp/mock_video_source.h"
 #include "services/video_capture/public/cpp/mock_video_source_provider.h"
-#include "services/video_capture/public/mojom/constants.mojom.h"
 #include "services/video_capture/public/mojom/producer.mojom.h"
+#include "services/video_capture/public/mojom/video_capture_service.mojom.h"
+#include "services/video_capture/public/mojom/video_frame_handler.mojom.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
@@ -39,49 +40,6 @@ static const media::VideoCaptureParams kArbitraryParams;
 static const base::WeakPtr<media::VideoFrameReceiver> kNullReceiver;
 static const auto kIgnoreLogMessageCB =
     base::BindRepeating([](const std::string&) {});
-
-class FakeVideoCaptureService : public service_manager::Service {
- public:
-  explicit FakeVideoCaptureService(
-      service_manager::mojom::ServiceRequest request)
-      : binding_(this, std::move(request)) {}
-
-  void OnStart() {
-    registry_.AddInterface<video_capture::mojom::DeviceFactoryProvider>(
-        // Unretained |this| is safe because |registry_| is owned by |this|.
-        base::BindRepeating(
-            &FakeVideoCaptureService::OnDeviceFactoryProviderRequest,
-            base::Unretained(this)));
-  }
-
-  void OnBindInterface(const service_manager::BindSourceInfo& source_info,
-                       const std::string& interface_name,
-                       mojo::ScopedMessagePipeHandle interface_pipe) override {
-    registry_.BindInterface(interface_name, std::move(interface_pipe));
-  }
-
-  void OnDeviceFactoryProviderRequest(
-      video_capture::mojom::DeviceFactoryProviderRequest request) {
-    BindFactoryProvider(&request);
-  }
-
-  MOCK_METHOD1(
-      BindFactoryProvider,
-      void(video_capture::mojom::DeviceFactoryProviderRequest* request));
-
- private:
-  service_manager::ServiceBinding binding_;
-  service_manager::BinderRegistry registry_;
-};
-
-class NullService : public service_manager::Service {
- public:
-  explicit NullService(service_manager::mojom::ServiceRequest request)
-      : binding_(this, std::move(request)) {}
-
- private:
-  service_manager::ServiceBinding binding_;
-};
 
 class MockVideoCaptureDeviceLauncherCallbacks
     : public VideoCaptureDeviceLauncher::Callbacks {
@@ -100,14 +58,13 @@ class MockVideoCaptureDeviceLauncherCallbacks
 class ServiceVideoCaptureProviderTest : public testing::Test {
  public:
   ServiceVideoCaptureProviderTest()
-      : fake_video_capture_service_(connector_factory_.RegisterInstance(
-            video_capture::mojom::kServiceName)),
-        fake_service_manager_(connector_factory_.RegisterInstance(
-            service_manager::mojom::kServiceName)),
-        factory_provider_binding_(&mock_device_factory_provider_),
-        factory_provider_is_bound_(false),
-        source_provider_binding_(&mock_source_provider_) {}
-  ~ServiceVideoCaptureProviderTest() override {}
+      : source_provider_receiver_(&mock_source_provider_) {
+    OverrideVideoCaptureServiceForTesting(&mock_video_capture_service_);
+  }
+
+  ~ServiceVideoCaptureProviderTest() override {
+    OverrideVideoCaptureServiceForTesting(nullptr);
+  }
 
  protected:
   void SetUp() override {
@@ -116,33 +73,20 @@ class ServiceVideoCaptureProviderTest : public testing::Test {
         base::BindRepeating([]() {
           return std::unique_ptr<video_capture::mojom::AcceleratorFactory>();
         }),
-        connector_factory_.GetDefaultConnector(), kIgnoreLogMessageCB);
+        kIgnoreLogMessageCB);
 #else
-    provider_ = std::make_unique<ServiceVideoCaptureProvider>(
-        connector_factory_.GetDefaultConnector(), kIgnoreLogMessageCB);
+    provider_ =
+        std::make_unique<ServiceVideoCaptureProvider>(kIgnoreLogMessageCB);
 #endif  // defined(OS_CHROMEOS)
 
-    ON_CALL(fake_video_capture_service_, BindFactoryProvider(_))
+    ON_CALL(mock_video_capture_service_, DoConnectToVideoSourceProvider(_))
         .WillByDefault(Invoke(
             [this](
-                video_capture::mojom::DeviceFactoryProviderRequest* request) {
-              if (factory_provider_binding_.is_bound())
-                factory_provider_binding_.Close();
-              factory_provider_binding_.Bind(std::move(*request));
-              factory_provider_is_bound_ = true;
-              factory_provider_binding_.set_connection_error_handler(
-                  base::BindOnce(
-                      [](bool* factory_provider_is_bound) {
-                        *factory_provider_is_bound = false;
-                      },
-                      &factory_provider_is_bound_));
-            }));
-    ON_CALL(mock_device_factory_provider_, DoConnectToVideoSourceProvider(_))
-        .WillByDefault(Invoke(
-            [this](video_capture::mojom::VideoSourceProviderRequest& request) {
-              if (source_provider_binding_.is_bound())
-                source_provider_binding_.Close();
-              source_provider_binding_.Bind(std::move(request));
+                mojo::PendingReceiver<video_capture::mojom::VideoSourceProvider>
+                    receiver) {
+              if (source_provider_receiver_.is_bound())
+                source_provider_receiver_.reset();
+              source_provider_receiver_.Bind(std::move(receiver));
               wait_for_connection_to_service_.Quit();
             }));
 
@@ -154,23 +98,26 @@ class ServiceVideoCaptureProviderTest : public testing::Test {
         }));
 
     ON_CALL(mock_source_provider_, DoGetVideoSource(_, _))
-        .WillByDefault(
-            Invoke([this](const std::string& device_id,
-                          video_capture::mojom::VideoSourceRequest* request) {
-              source_bindings_.AddBinding(&mock_source_, std::move(*request));
+        .WillByDefault(Invoke(
+            [this](const std::string& device_id,
+                   mojo::PendingReceiver<video_capture::mojom::VideoSource>*
+                       receiver) {
+              source_receivers_.Add(&mock_source_, std::move(*receiver));
             }));
 
     ON_CALL(mock_source_, DoCreatePushSubscription(_, _, _, _, _))
         .WillByDefault(Invoke(
-            [this](video_capture::mojom::ReceiverPtr& subscriber,
+            [this](mojo::PendingRemote<video_capture::mojom::VideoFrameHandler>
+                       subscriber,
                    const media::VideoCaptureParams& requested_settings,
                    bool force_reopen_with_new_settings,
-                   video_capture::mojom::PushVideoStreamSubscriptionRequest&
+                   mojo::PendingReceiver<
+                       video_capture::mojom::PushVideoStreamSubscription>
                        subscription,
                    video_capture::mojom::VideoSource::
                        CreatePushSubscriptionCallback& callback) {
-              subscription_bindings_.AddBinding(&mock_subscription_,
-                                                std::move(subscription));
+              subscription_receivers_.Add(&mock_subscription_,
+                                          std::move(subscription));
               std::move(callback).Run(
                   video_capture::mojom::CreatePushSubscriptionResultCode::
                       kCreatedWithRequestedSettings,
@@ -180,22 +127,16 @@ class ServiceVideoCaptureProviderTest : public testing::Test {
 
   void TearDown() override {}
 
-  content::TestBrowserThreadBundle test_browser_thread_bundle_;
-  service_manager::TestConnectorFactory connector_factory_;
-  FakeVideoCaptureService fake_video_capture_service_;
-  NullService fake_service_manager_;
-  video_capture::MockDeviceFactoryProvider mock_device_factory_provider_;
-  mojo::Binding<video_capture::mojom::DeviceFactoryProvider>
-      factory_provider_binding_;
-  bool factory_provider_is_bound_;
+  content::BrowserTaskEnvironment task_environment_;
+  video_capture::MockVideoCaptureService mock_video_capture_service_;
   video_capture::MockVideoSourceProvider mock_source_provider_;
-  mojo::Binding<video_capture::mojom::VideoSourceProvider>
-      source_provider_binding_;
+  mojo::Receiver<video_capture::mojom::VideoSourceProvider>
+      source_provider_receiver_;
   video_capture::MockVideoSource mock_source_;
-  mojo::BindingSet<video_capture::mojom::VideoSource> source_bindings_;
+  mojo::ReceiverSet<video_capture::mojom::VideoSource> source_receivers_;
   video_capture::MockPushSubcription mock_subscription_;
-  mojo::BindingSet<video_capture::mojom::PushVideoStreamSubscription>
-      subscription_bindings_;
+  mojo::ReceiverSet<video_capture::mojom::PushVideoStreamSubscription>
+      subscription_receivers_;
   std::unique_ptr<ServiceVideoCaptureProvider> provider_;
   base::MockCallback<VideoCaptureProvider::GetDeviceInfosCallback> results_cb_;
   base::MockCallback<
@@ -241,9 +182,7 @@ TEST_F(ServiceVideoCaptureProviderTest,
   wait_for_call_to_arrive_at_service.Run();
 
   // Simulate that the service goes down by cutting the connections.
-  source_provider_binding_.Close();
-  factory_provider_binding_.Close();
-
+  source_provider_receiver_.reset();
   wait_for_callback_from_service.Run();
 }
 
@@ -273,13 +212,9 @@ TEST_F(ServiceVideoCaptureProviderTest,
   // Setup part 2: Now that the connection to the service is established, we can
   // listen for disconnects.
   base::RunLoop wait_for_connection_to_source_provider_to_close;
-  base::RunLoop wait_for_connection_to_device_factory_provider_to_close;
-  source_provider_binding_.set_connection_error_handler(
+  source_provider_receiver_.set_disconnect_handler(
       base::BindOnce([](base::RunLoop* run_loop) { run_loop->Quit(); },
                      &wait_for_connection_to_source_provider_to_close));
-  factory_provider_binding_.set_connection_error_handler(
-      base::BindOnce([](base::RunLoop* run_loop) { run_loop->Quit(); },
-                     &wait_for_connection_to_device_factory_provider_to_close));
 
   // Exercise part 2: The service responds
   std::vector<media::VideoCaptureDeviceInfo> arbitrarily_empty_results;
@@ -287,9 +222,6 @@ TEST_F(ServiceVideoCaptureProviderTest,
 
   // Verification: Expect |provider_| to close the connection to the service.
   wait_for_connection_to_source_provider_to_close.Run();
-  if (factory_provider_is_bound_) {
-    wait_for_connection_to_device_factory_provider_to_close.Run();
-  }
 }
 
 // Tests that |ServiceVideoCaptureProvider| does not close the connection to the
@@ -312,12 +244,7 @@ TEST_F(ServiceVideoCaptureProviderTest,
 
   // Monitor if connection gets closed
   bool connection_has_been_closed = false;
-  source_provider_binding_.set_connection_error_handler(base::BindOnce(
-      [](bool* connection_has_been_closed) {
-        *connection_has_been_closed = true;
-      },
-      &connection_has_been_closed));
-  factory_provider_binding_.set_connection_error_handler(base::BindOnce(
+  source_provider_receiver_.set_disconnect_handler(base::BindOnce(
       [](bool* connection_has_been_closed) {
         *connection_has_been_closed = true;
       },
@@ -408,12 +335,7 @@ TEST_F(ServiceVideoCaptureProviderTest,
 
   // Monitor if connection gets closed
   bool connection_has_been_closed = false;
-  source_provider_binding_.set_connection_error_handler(base::BindOnce(
-      [](bool* connection_has_been_closed) {
-        *connection_has_been_closed = true;
-      },
-      &connection_has_been_closed));
-  factory_provider_binding_.set_connection_error_handler(base::BindOnce(
+  source_provider_receiver_.set_disconnect_handler(base::BindOnce(
       [](bool* connection_has_been_closed) {
         *connection_has_been_closed = true;
       },

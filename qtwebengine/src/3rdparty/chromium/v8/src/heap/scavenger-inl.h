@@ -135,8 +135,8 @@ CopyAndForwardResult Scavenger::SemiSpaceCopyObject(
                 "Only FullHeapObjectSlot and HeapObjectSlot are expected here");
   DCHECK(heap()->AllowedToBeMigrated(map, object, NEW_SPACE));
   AllocationAlignment alignment = HeapObject::RequiredAlignment(map);
-  AllocationResult allocation =
-      allocator_.Allocate(NEW_SPACE, object_size, alignment);
+  AllocationResult allocation = allocator_.Allocate(
+      NEW_SPACE, object_size, AllocationOrigin::kGC, alignment);
 
   HeapObject target;
   if (allocation.To(&target)) {
@@ -171,8 +171,8 @@ CopyAndForwardResult Scavenger::PromoteObject(Map map, THeapObjectSlot slot,
                     std::is_same<THeapObjectSlot, HeapObjectSlot>::value,
                 "Only FullHeapObjectSlot and HeapObjectSlot are expected here");
   AllocationAlignment alignment = HeapObject::RequiredAlignment(map);
-  AllocationResult allocation =
-      allocator_.Allocate(OLD_SPACE, object_size, alignment);
+  AllocationResult allocation = allocator_.Allocate(
+      OLD_SPACE, object_size, AllocationOrigin::kGC, alignment);
 
   HeapObject target;
   if (allocation.To(&target)) {
@@ -482,7 +482,7 @@ int ScavengeVisitor::VisitEphemeronHashTable(Map map,
   // later. This allows to only iterate the tables' values, which are treated
   // as strong independetly of whether the key is live.
   scavenger_->AddEphemeronHashTable(table);
-  for (int i = 0; i < table.Capacity(); i++) {
+  for (InternalIndex i : table.IterateEntries()) {
     ObjectSlot value_slot =
         table.RawFieldOfElementAt(EphemeronHashTable::EntryToValueIndex(i));
     VisitPointer(table, value_slot);

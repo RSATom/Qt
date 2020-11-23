@@ -14,7 +14,7 @@
 #include "base/strings/string_split.h"
 #include "base/strings/stringprintf.h"
 #include "build/build_config.h"
-#include "gpu/config/gpu_blacklist.h"
+#include "gpu/config/gpu_blocklist.h"
 #include "gpu/config/gpu_crash_keys.h"
 #include "gpu/config/gpu_driver_bug_list.h"
 #include "gpu/config/gpu_driver_bug_workaround_type.h"
@@ -24,6 +24,8 @@
 #include "gpu/config/gpu_info_collector.h"
 #include "gpu/config/gpu_preferences.h"
 #include "gpu/config/gpu_switches.h"
+#include "gpu/vulkan/buildflags.h"
+#include "third_party/vulkan/include/vulkan/vulkan.h"
 #include "ui/gfx/extension_set.h"
 #include "ui/gl/buildflags.h"
 #include "ui/gl/gl_switches.h"
@@ -64,6 +66,24 @@ GpuFeatureStatus GetMetalFeatureStatus(
     return kGpuFeatureStatusBlacklisted;
 
   if (!gpu_preferences.enable_metal)
+    return kGpuFeatureStatusDisabled;
+
+  return kGpuFeatureStatusEnabled;
+#else
+  return kGpuFeatureStatusDisabled;
+#endif
+}
+
+GpuFeatureStatus GetVulkanFeatureStatus(
+    const std::set<int>& blacklisted_features,
+    const GpuPreferences& gpu_preferences) {
+#if BUILDFLAG(ENABLE_VULKAN)
+  // Only blacklist native vulkan.
+  if (gpu_preferences.use_vulkan == VulkanImplementationName::kNative &&
+      blacklisted_features.count(GPU_FEATURE_TYPE_VULKAN))
+    return kGpuFeatureStatusBlacklisted;
+
+  if (gpu_preferences.use_vulkan == VulkanImplementationName::kNone)
     return kGpuFeatureStatusDisabled;
 
   return kGpuFeatureStatusEnabled;
@@ -217,15 +237,14 @@ GpuFeatureStatus GetAcceleratedVideoDecodeFeatureStatus(
   return kGpuFeatureStatusEnabled;
 }
 
-GpuFeatureStatus GetGpuCompositingFeatureStatus(
-    const std::set<int>& blacklisted_features,
-    bool use_swift_shader) {
+GpuFeatureStatus GetGLFeatureStatus(const std::set<int>& blacklisted_features,
+                                    bool use_swift_shader) {
   if (use_swift_shader) {
     // This is for testing only. Chrome should exercise the GPU accelerated
     // path on top of SwiftShader driver.
     return kGpuFeatureStatusEnabled;
   }
-  if (blacklisted_features.count(GPU_FEATURE_TYPE_GPU_COMPOSITING))
+  if (blacklisted_features.count(GPU_FEATURE_TYPE_ACCELERATED_GL))
     return kGpuFeatureStatusBlacklisted;
   return kGpuFeatureStatusEnabled;
 }
@@ -257,8 +276,10 @@ void AppendWorkaroundsToCommandLine(const GpuFeatureInfo& gpu_feature_info,
   if (gpu_feature_info.IsWorkaroundEnabled(DISABLE_DIRECT_COMPOSITION)) {
     command_line->AppendSwitch(switches::kDisableDirectComposition);
   }
-  if (gpu_feature_info.IsWorkaroundEnabled(DISABLE_DIRECT_COMPOSITION_LAYERS)) {
-    command_line->AppendSwitch(switches::kDisableDirectCompositionLayers);
+  if (gpu_feature_info.IsWorkaroundEnabled(
+          DISABLE_DIRECT_COMPOSITION_VIDEO_OVERLAYS)) {
+    command_line->AppendSwitch(
+        switches::kDisableDirectCompositionVideoOverlays);
   }
 #endif
 }
@@ -286,8 +307,6 @@ GpuFeatureInfo ComputeGpuFeatureInfoWithHardwareAccelerationDisabled() {
   GpuFeatureInfo gpu_feature_info;
   gpu_feature_info.status_values[GPU_FEATURE_TYPE_ACCELERATED_2D_CANVAS] =
       kGpuFeatureStatusSoftware;
-  gpu_feature_info.status_values[GPU_FEATURE_TYPE_GPU_COMPOSITING] =
-      kGpuFeatureStatusDisabled;
   gpu_feature_info.status_values[GPU_FEATURE_TYPE_ACCELERATED_WEBGL] =
       kGpuFeatureStatusSoftware;
   gpu_feature_info.status_values[GPU_FEATURE_TYPE_FLASH3D] =
@@ -308,7 +327,11 @@ GpuFeatureInfo ComputeGpuFeatureInfoWithHardwareAccelerationDisabled() {
       kGpuFeatureStatusDisabled;
   gpu_feature_info.status_values[GPU_FEATURE_TYPE_ANDROID_SURFACE_CONTROL] =
       kGpuFeatureStatusDisabled;
+  gpu_feature_info.status_values[GPU_FEATURE_TYPE_ACCELERATED_GL] =
+      kGpuFeatureStatusDisabled;
   gpu_feature_info.status_values[GPU_FEATURE_TYPE_METAL] =
+      kGpuFeatureStatusDisabled;
+  gpu_feature_info.status_values[GPU_FEATURE_TYPE_VULKAN] =
       kGpuFeatureStatusDisabled;
 #if DCHECK_IS_ON()
   for (int ii = 0; ii < NUMBER_OF_GPU_FEATURE_TYPES; ++ii) {
@@ -322,8 +345,6 @@ GpuFeatureInfo ComputeGpuFeatureInfoWithNoGpu() {
   GpuFeatureInfo gpu_feature_info;
   gpu_feature_info.status_values[GPU_FEATURE_TYPE_ACCELERATED_2D_CANVAS] =
       kGpuFeatureStatusSoftware;
-  gpu_feature_info.status_values[GPU_FEATURE_TYPE_GPU_COMPOSITING] =
-      kGpuFeatureStatusDisabled;
   gpu_feature_info.status_values[GPU_FEATURE_TYPE_ACCELERATED_WEBGL] =
       kGpuFeatureStatusDisabled;
   gpu_feature_info.status_values[GPU_FEATURE_TYPE_FLASH3D] =
@@ -344,7 +365,11 @@ GpuFeatureInfo ComputeGpuFeatureInfoWithNoGpu() {
       kGpuFeatureStatusDisabled;
   gpu_feature_info.status_values[GPU_FEATURE_TYPE_ANDROID_SURFACE_CONTROL] =
       kGpuFeatureStatusDisabled;
+  gpu_feature_info.status_values[GPU_FEATURE_TYPE_ACCELERATED_GL] =
+      kGpuFeatureStatusDisabled;
   gpu_feature_info.status_values[GPU_FEATURE_TYPE_METAL] =
+      kGpuFeatureStatusDisabled;
+  gpu_feature_info.status_values[GPU_FEATURE_TYPE_VULKAN] =
       kGpuFeatureStatusDisabled;
 #if DCHECK_IS_ON()
   for (int ii = 0; ii < NUMBER_OF_GPU_FEATURE_TYPES; ++ii) {
@@ -358,8 +383,6 @@ GpuFeatureInfo ComputeGpuFeatureInfoForSwiftShader() {
   GpuFeatureInfo gpu_feature_info;
   gpu_feature_info.status_values[GPU_FEATURE_TYPE_ACCELERATED_2D_CANVAS] =
       kGpuFeatureStatusSoftware;
-  gpu_feature_info.status_values[GPU_FEATURE_TYPE_GPU_COMPOSITING] =
-      kGpuFeatureStatusDisabled;
   gpu_feature_info.status_values[GPU_FEATURE_TYPE_ACCELERATED_WEBGL] =
       kGpuFeatureStatusSoftware;
   gpu_feature_info.status_values[GPU_FEATURE_TYPE_FLASH3D] =
@@ -380,7 +403,11 @@ GpuFeatureInfo ComputeGpuFeatureInfoForSwiftShader() {
       kGpuFeatureStatusDisabled;
   gpu_feature_info.status_values[GPU_FEATURE_TYPE_ANDROID_SURFACE_CONTROL] =
       kGpuFeatureStatusDisabled;
+  gpu_feature_info.status_values[GPU_FEATURE_TYPE_ACCELERATED_GL] =
+      kGpuFeatureStatusDisabled;
   gpu_feature_info.status_values[GPU_FEATURE_TYPE_METAL] =
+      kGpuFeatureStatusDisabled;
+  gpu_feature_info.status_values[GPU_FEATURE_TYPE_VULKAN] =
       kGpuFeatureStatusDisabled;
 #if DCHECK_IS_ON()
   for (int ii = 0; ii < NUMBER_OF_GPU_FEATURE_TYPES; ++ii) {
@@ -405,12 +432,16 @@ GpuFeatureInfo ComputeGpuFeatureInfo(const GPUInfo& gpu_info,
     else if (use_gl == gl::kGLImplementationDisabledName)
       return ComputeGpuFeatureInfoWithNoGpu();
   }
+  if (gpu_preferences.use_vulkan ==
+      gpu::VulkanImplementationName::kSwiftshader) {
+    use_swift_shader = true;
+  }
 
   GpuFeatureInfo gpu_feature_info;
   std::set<int> blacklisted_features;
   if (!gpu_preferences.ignore_gpu_blacklist &&
       !command_line->HasSwitch(switches::kUseGpuInTests)) {
-    std::unique_ptr<GpuBlacklist> list(GpuBlacklist::Create());
+    std::unique_ptr<GpuBlocklist> list(GpuBlocklist::Create());
     if (gpu_preferences.log_gpu_control_list_decisions)
       list->EnableControlListLogging("gpu_blacklist");
     unsigned target_test_group = 0u;
@@ -446,8 +477,6 @@ GpuFeatureInfo ComputeGpuFeatureInfo(const GPUInfo& gpu_info,
   gpu_feature_info.status_values[GPU_FEATURE_TYPE_ACCELERATED_VIDEO_DECODE] =
       GetAcceleratedVideoDecodeFeatureStatus(blacklisted_features,
                                              use_swift_shader);
-  gpu_feature_info.status_values[GPU_FEATURE_TYPE_GPU_COMPOSITING] =
-      GetGpuCompositingFeatureStatus(blacklisted_features, use_swift_shader);
   gpu_feature_info.status_values[GPU_FEATURE_TYPE_PROTECTED_VIDEO_DECODE] =
       GetProtectedVideoDecodeFeatureStatus(blacklisted_features, gpu_info,
                                            use_swift_shader);
@@ -457,8 +486,12 @@ GpuFeatureInfo ComputeGpuFeatureInfo(const GPUInfo& gpu_info,
   gpu_feature_info.status_values[GPU_FEATURE_TYPE_ANDROID_SURFACE_CONTROL] =
       GetAndroidSurfaceControlFeatureStatus(blacklisted_features,
                                             gpu_preferences);
+  gpu_feature_info.status_values[GPU_FEATURE_TYPE_ACCELERATED_GL] =
+      GetGLFeatureStatus(blacklisted_features, use_swift_shader);
   gpu_feature_info.status_values[GPU_FEATURE_TYPE_METAL] =
       GetMetalFeatureStatus(blacklisted_features, gpu_preferences);
+  gpu_feature_info.status_values[GPU_FEATURE_TYPE_VULKAN] =
+      GetVulkanFeatureStatus(blacklisted_features, gpu_preferences);
 #if DCHECK_IS_ON()
   for (int ii = 0; ii < NUMBER_OF_GPU_FEATURE_TYPES; ++ii) {
     DCHECK_NE(kGpuFeatureStatusUndefined, gpu_feature_info.status_values[ii]);
@@ -479,7 +512,7 @@ GpuFeatureInfo ComputeGpuFeatureInfo(const GPUInfo& gpu_info,
 
   std::set<int> enabled_driver_bug_workarounds;
   std::vector<std::string> driver_bug_disabled_extensions;
-  if (!gpu_preferences.disable_gpu_driver_bug_workarounds) {
+  if (!command_line->HasSwitch(switches::kDisableGpuDriverBugWorkarounds)) {
     std::unique_ptr<gpu::GpuDriverBugList> list(GpuDriverBugList::Create());
     unsigned target_test_group = 0u;
     if (command_line->HasSwitch(switches::kGpuDriverBugListTestGroup)) {
@@ -536,7 +569,12 @@ void SetKeysForCrashLogging(const GPUInfo& gpu_info) {
       base::StringPrintf("0x%04x", active_gpu.vendor_id));
   crash_keys::gpu_device_id.Set(
       base::StringPrintf("0x%04x", active_gpu.device_id));
-#endif
+#endif  // !OS_ANDROID
+#if defined(OS_WIN)
+  crash_keys::gpu_sub_sys_id.Set(
+      base::StringPrintf("0x%08x", active_gpu.sub_sys_id));
+  crash_keys::gpu_revision.Set(base::StringPrintf("%u", active_gpu.revision));
+#endif  // OS_WIN
   crash_keys::gpu_driver_version.Set(active_gpu.driver_version);
   crash_keys::gpu_pixel_shader_version.Set(gpu_info.pixel_shader_version);
   crash_keys::gpu_vertex_shader_version.Set(gpu_info.vertex_shader_version);
@@ -597,7 +635,7 @@ bool InitializeGLThreadSafe(base::CommandLine* command_line,
   }
   if (gl::GetGLImplementation() == gl::kGLImplementationNone) {
     // Some tests initialize bindings by themselves.
-    if (!gl::init::InitializeGLNoExtensionsOneOff()) {
+    if (!gl::init::InitializeGLNoExtensionsOneOff(/*init_bindings*/ true)) {
       VLOG(1) << "gl::init::InitializeGLNoExtensionsOneOff failed";
       return false;
     }
@@ -624,13 +662,14 @@ bool EnableSwiftShaderIfNeeded(base::CommandLine* command_line,
                                bool disable_software_rasterizer,
                                bool blacklist_needs_more_info) {
 #if BUILDFLAG(ENABLE_SWIFTSHADER)
-  if (disable_software_rasterizer)
+  if (disable_software_rasterizer || blacklist_needs_more_info)
     return false;
   // Don't overwrite user preference.
   if (command_line->HasSwitch(switches::kUseGL))
     return false;
-  if (!blacklist_needs_more_info &&
-      gpu_feature_info.status_values[GPU_FEATURE_TYPE_ACCELERATED_WEBGL] !=
+  if (gpu_feature_info.status_values[GPU_FEATURE_TYPE_ACCELERATED_WEBGL] !=
+          kGpuFeatureStatusEnabled ||
+      gpu_feature_info.status_values[GPU_FEATURE_TYPE_ACCELERATED_GL] !=
           kGpuFeatureStatusEnabled) {
     command_line->AppendSwitchASCII(
         switches::kUseGL, gl::kGLImplementationSwiftShaderForWebGLName);
@@ -648,8 +687,11 @@ GpuSeriesType GetGpuSeriesType(uint32_t vendor_id, uint32_t device_id) {
   // and we don't want to expose an extra bit other than the already recorded
   // vendor_id and device_id.
   if (vendor_id == 0x8086) {  // Intel
-    // https://en.wikipedia.org/wiki/List_of_Intel_graphics_processing_units
     // We only identify Intel 6th gen or newer.
+    // The device id can be referred to in the following locations:
+    // https://en.wikipedia.org/wiki/List_of_Intel_graphics_processing_units
+    // and the heade files in Mesa sources:
+    // include/pci_ids/i965_pci_ids.h
     uint32_t masked_device_id = device_id & 0xFF00;
     switch (masked_device_id) {
       case 0x0100:
@@ -657,44 +699,130 @@ GpuSeriesType GetGpuSeriesType(uint32_t vendor_id, uint32_t device_id) {
           case 0x0100:
           case 0x0110:
           case 0x0120:
-            return GpuSeriesType::kIntelSandyBridge;
+            return GpuSeriesType::kIntelSandybridge;
           case 0x0150:
             if (device_id == 0x0155 || device_id == 0x0157)
-              return GpuSeriesType::kIntelValleyView;
-            if (device_id == 0x0152 || device_id == 0x015A)
-              return GpuSeriesType::kIntelIvyBridge;
+              return GpuSeriesType::kIntelBaytrail;
+            if (device_id == 0x0152 || device_id == 0x015A
+                || device_id == 0x0156)
+              return GpuSeriesType::kIntelIvybridge;
             break;
           case 0x0160:
-            return GpuSeriesType::kIntelIvyBridge;
+            return GpuSeriesType::kIntelIvybridge;
           default:
             break;
         }
         break;
       case 0x0F00:
-        return GpuSeriesType::kIntelValleyView;
+        return GpuSeriesType::kIntelBaytrail;
       case 0x0400:
       case 0x0A00:
+      case 0x0C00:
       case 0x0D00:
         return GpuSeriesType::kIntelHaswell;
       case 0x2200:
-        return GpuSeriesType::kIntelCherryView;
+        return GpuSeriesType::kIntelCherrytrail;
       case 0x1600:
         return GpuSeriesType::kIntelBroadwell;
       case 0x5A00:
-        return GpuSeriesType::kIntelApolloLake;
+        if (device_id == 0x5A85 || device_id == 0x5A84)
+          return GpuSeriesType::kIntelApollolake;
+        return GpuSeriesType::kIntelCannonlake;
       case 0x1900:
-        return GpuSeriesType::kIntelSkyLake;
+        return GpuSeriesType::kIntelSkylake;
       case 0x3100:
-        return GpuSeriesType::kIntelGeminiLake;
+        return GpuSeriesType::kIntelGeminilake;
       case 0x5900:
-        return GpuSeriesType::kIntelKabyLake;
+        return GpuSeriesType::kIntelKabylake;
+      case 0x8700:
+        if (device_id == 0x87C0)
+          return GpuSeriesType::kIntelKabylake;
+        if (device_id == 0x87CA)
+          return GpuSeriesType::kIntelCoffeelake;
+        break;
       case 0x3E00:
-        return GpuSeriesType::kIntelCoffeeLake;
+        if (device_id == 0x3EA0 || device_id == 0x3EA1 || device_id == 0x3EA2
+            || device_id == 0x3EA4 || device_id == 0x3EA3)
+          return GpuSeriesType::kIntelWhiskeylake;
+        return GpuSeriesType::kIntelCoffeelake;
+      case 0x9B00:
+        return GpuSeriesType::kIntelCometlake;
+      case 0x8A00:
+        return GpuSeriesType::kIntelIcelake;
       default:
         break;
     }
   }
   return GpuSeriesType::kUnknown;
+}
+
+std::string GetIntelGpuGeneration(uint32_t vendor_id, uint32_t device_id) {
+  if (vendor_id == 0x8086) {
+    GpuSeriesType gpu_series = GetGpuSeriesType(vendor_id, device_id);
+    switch (gpu_series) {
+      case GpuSeriesType::kIntelSandybridge:
+        return "6";
+      case GpuSeriesType::kIntelBaytrail:
+      case GpuSeriesType::kIntelIvybridge:
+      case GpuSeriesType::kIntelHaswell:
+        return "7";
+      case GpuSeriesType::kIntelCherrytrail:
+      case GpuSeriesType::kIntelBroadwell:
+        return "8";
+      case GpuSeriesType::kIntelApollolake:
+      case GpuSeriesType::kIntelSkylake:
+      case GpuSeriesType::kIntelGeminilake:
+      case GpuSeriesType::kIntelKabylake:
+      case GpuSeriesType::kIntelCoffeelake:
+      case GpuSeriesType::kIntelWhiskeylake:
+      case GpuSeriesType::kIntelCometlake:
+        return "9";
+      case GpuSeriesType::kIntelCannonlake:
+        return "10";
+      case GpuSeriesType::kIntelIcelake:
+        return "11";
+      default:
+        break;
+    }
+  }
+  return "";
+}
+
+#if defined(OS_WIN)
+std::string D3DFeatureLevelToString(uint32_t d3d_feature_level) {
+  if (d3d_feature_level == 0) {
+    return "Not supported";
+  } else {
+    return base::StringPrintf("D3D %d.%d", (d3d_feature_level >> 12) & 0xF,
+                              (d3d_feature_level >> 8) & 0xF);
+  }
+}
+
+std::string VulkanVersionToString(uint32_t vulkan_version) {
+  if (vulkan_version == 0) {
+    return "Not supported";
+  } else {
+    // Vulkan version number VK_MAKE_VERSION(major, minor, patch)
+    // (((major) << 22) | ((minor) << 12) | (patch))
+    return base::StringPrintf(
+        "Vulkan API %d.%d.%d", (vulkan_version >> 22) & 0x3FF,
+        (vulkan_version >> 12) & 0x3FF, vulkan_version & 0xFFF);
+  }
+}
+#endif  // OS_WIN
+
+VulkanVersion ConvertToHistogramVulkanVersion(uint32_t vulkan_version) {
+  switch (vulkan_version) {
+    case 0:
+      return VulkanVersion::kVulkanVersionUnknown;
+    case VK_MAKE_VERSION(1, 0, 0):
+      return VulkanVersion::kVulkanVersion_1_0_0;
+    case VK_MAKE_VERSION(1, 1, 0):
+      return VulkanVersion::kVulkanVersion_1_1_0;
+    default:
+      NOTREACHED();
+      return VulkanVersion::kVulkanVersionUnknown;
+  }
 }
 
 }  // namespace gpu

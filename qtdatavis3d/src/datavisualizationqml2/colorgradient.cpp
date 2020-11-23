@@ -77,7 +77,7 @@ ColorGradient::~ColorGradient()
 
 QQmlListProperty<ColorGradientStop> ColorGradient::stops()
 {
-    return QQmlListProperty<ColorGradientStop>(this, m_stops);
+    return QQmlListProperty<ColorGradientStop>(this, &m_stops);
 }
 
 void ColorGradient::doUpdate()

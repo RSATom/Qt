@@ -7,10 +7,10 @@
 #include "build/build_config.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
+#include "third_party/blink/public/mojom/filesystem/file_system.mojom-blink.h"
 #include "third_party/blink/public/platform/platform.h"
 #include "third_party/blink/public/platform/scheduler/test/renderer_scheduler_test_support.h"
 #include "third_party/blink/public/platform/web_crypto_algorithm_params.h"
-#include "third_party/blink/public/platform/web_rtc_certificate_generator.h"
 #include "third_party/blink/renderer/bindings/core/v8/script_function.h"
 #include "third_party/blink/renderer/bindings/core/v8/script_value.h"
 #include "third_party/blink/renderer/bindings/core/v8/to_v8_for_core.h"
@@ -30,6 +30,7 @@
 #include "third_party/blink/renderer/modules/filesystem/dom_file_system.h"
 #include "third_party/blink/renderer/modules/imagecapture/point_2d.h"
 #include "third_party/blink/renderer/modules/peerconnection/rtc_certificate.h"
+#include "third_party/blink/renderer/modules/peerconnection/rtc_certificate_generator.h"
 #include "third_party/blink/renderer/modules/shapedetection/landmark.h"
 #include "third_party/blink/renderer/platform/bindings/exception_state.h"
 #include "third_party/blink/renderer/platform/testing/unit_test_helpers.h"
@@ -155,8 +156,8 @@ static const uint8_t kEcdsaCertificateEncoded[] = {
 
 TEST(V8ScriptValueSerializerForModulesTest, RoundTripRTCCertificate) {
   // If WebRTC is not supported in this build, this test is meaningless.
-  std::unique_ptr<WebRTCCertificateGenerator> certificate_generator(
-      Platform::Current()->CreateRTCCertificateGenerator());
+  std::unique_ptr<RTCCertificateGenerator> certificate_generator =
+      std::make_unique<RTCCertificateGenerator>();
   if (!certificate_generator)
     return;
 
@@ -185,8 +186,8 @@ TEST(V8ScriptValueSerializerForModulesTest, RoundTripRTCCertificate) {
 
 TEST(V8ScriptValueSerializerForModulesTest, DecodeRTCCertificate) {
   // If WebRTC is not supported in this build, this test is meaningless.
-  std::unique_ptr<WebRTCCertificateGenerator> certificate_generator(
-      Platform::Current()->CreateRTCCertificateGenerator());
+  std::unique_ptr<RTCCertificateGenerator> certificate_generator =
+      std::make_unique<RTCCertificateGenerator>();
   if (!certificate_generator)
     return;
 
@@ -233,40 +234,42 @@ TEST(V8ScriptValueSerializerForModulesTest, DecodeInvalidRTCCertificate) {
 using CryptoKeyPair = std::pair<CryptoKey*, CryptoKey*>;
 
 template <typename T>
-T ConvertCryptoResult(const ScriptValue&);
+T ConvertCryptoResult(v8::Isolate*, const ScriptValue&);
 template <>
-CryptoKey* ConvertCryptoResult<CryptoKey*>(const ScriptValue& value) {
-  return V8CryptoKey::ToImplWithTypeCheck(value.GetIsolate(), value.V8Value());
+CryptoKey* ConvertCryptoResult<CryptoKey*>(v8::Isolate* isolate,
+                                           const ScriptValue& value) {
+  return V8CryptoKey::ToImplWithTypeCheck(isolate, value.V8Value());
 }
 template <>
-CryptoKeyPair ConvertCryptoResult<CryptoKeyPair>(const ScriptValue& value) {
+CryptoKeyPair ConvertCryptoResult<CryptoKeyPair>(v8::Isolate* isolate,
+                                                 const ScriptValue& value) {
   NonThrowableExceptionState exception_state;
-  Dictionary dictionary(value.GetIsolate(), value.V8Value(), exception_state);
+  Dictionary dictionary(isolate, value.V8Value(), exception_state);
   v8::Local<v8::Value> private_key, public_key;
   EXPECT_TRUE(dictionary.Get("publicKey", public_key));
   EXPECT_TRUE(dictionary.Get("privateKey", private_key));
-  return std::make_pair(
-      V8CryptoKey::ToImplWithTypeCheck(value.GetIsolate(), public_key),
-      V8CryptoKey::ToImplWithTypeCheck(value.GetIsolate(), private_key));
+  return std::make_pair(V8CryptoKey::ToImplWithTypeCheck(isolate, public_key),
+                        V8CryptoKey::ToImplWithTypeCheck(isolate, private_key));
 }
 template <>
-DOMException* ConvertCryptoResult<DOMException*>(const ScriptValue& value) {
-  return V8DOMException::ToImplWithTypeCheck(value.GetIsolate(),
-                                             value.V8Value());
+DOMException* ConvertCryptoResult<DOMException*>(v8::Isolate* isolate,
+                                                 const ScriptValue& value) {
+  return V8DOMException::ToImplWithTypeCheck(isolate, value.V8Value());
 }
 template <>
 WebVector<unsigned char> ConvertCryptoResult<WebVector<unsigned char>>(
+    v8::Isolate* isolate,
     const ScriptValue& value) {
   WebVector<unsigned char> vector;
-  if (DOMArrayBuffer* buffer = V8ArrayBuffer::ToImplWithTypeCheck(
-          value.GetIsolate(), value.V8Value())) {
+  if (DOMArrayBuffer* buffer =
+          V8ArrayBuffer::ToImplWithTypeCheck(isolate, value.V8Value())) {
     vector.Assign(reinterpret_cast<const unsigned char*>(buffer->Data()),
-                  buffer->ByteLength());
+                  buffer->ByteLengthAsSizeT());
   }
   return vector;
 }
 template <>
-bool ConvertCryptoResult<bool>(const ScriptValue& value) {
+bool ConvertCryptoResult<bool>(v8::Isolate*, const ScriptValue& value) {
   return value.V8Value()->IsTrue();
 }
 
@@ -279,7 +282,8 @@ class WebCryptoResultAdapter : public ScriptFunction {
 
  private:
   ScriptValue Call(ScriptValue value) final {
-    function_.Run(ConvertCryptoResult<T>(value));
+    function_.Run(
+        ConvertCryptoResult<T>(GetScriptState()->GetIsolate(), value));
     return ScriptValue::From(GetScriptState(), ToV8UndefinedGenerator());
   }
 

@@ -17,9 +17,10 @@
 #include "media/capabilities/video_decode_stats_db.h"
 #include "media/capabilities/video_decode_stats_db_provider.h"
 #include "media/learning/impl/feature_provider.h"
-#include "media/mojo/interfaces/video_decode_perf_history.mojom.h"
+#include "media/mojo/mojom/video_decode_perf_history.mojom.h"
 #include "media/mojo/services/media_mojo_export.h"
-#include "mojo/public/cpp/bindings/binding_set.h"
+#include "mojo/public/cpp/bindings/pending_receiver.h"
+#include "mojo/public/cpp/bindings/receiver_set.h"
 #include "services/metrics/public/cpp/ukm_source_id.h"
 #include "ui/gfx/geometry/size.h"
 
@@ -53,6 +54,7 @@ class MEDIA_MOJO_EXPORT VideoDecodePerfHistory
       public base::SupportsUserData::Data {
  public:
   static const char kMaxSmoothDroppedFramesPercentParamName[];
+  static const char kEmeMaxSmoothDroppedFramesPercentParamName[];
 
   explicit VideoDecodePerfHistory(
       std::unique_ptr<VideoDecodeStatsDB> db,
@@ -60,9 +62,10 @@ class MEDIA_MOJO_EXPORT VideoDecodePerfHistory
           learning::FeatureProviderFactoryCB());
   ~VideoDecodePerfHistory() override;
 
-  // Bind the mojo request to this instance. Single instance will be used to
-  // serve multiple requests.
-  void BindRequest(mojom::VideoDecodePerfHistoryRequest request);
+  // Bind the mojo receiver to this instance. Single instance will be used to
+  // serve multiple receivers.
+  void BindReceiver(
+      mojo::PendingReceiver<mojom::VideoDecodePerfHistory> receiver);
 
   // mojom::VideoDecodePerfHistory implementation:
   void GetPerfInfo(mojom::PredictionFeaturesPtr features,
@@ -95,7 +98,7 @@ class MEDIA_MOJO_EXPORT VideoDecodePerfHistory
 
   // Decode capabilities will be described as "smooth" whenever the percentage
   // of dropped frames is less-than-or-equal-to this value.
-  static double GetMaxSmoothDroppedFramesPercent();
+  static double GetMaxSmoothDroppedFramesPercent(bool is_eme);
 
   // Track the status of database lazy initialization.
   enum InitStatus {
@@ -162,7 +165,8 @@ class MEDIA_MOJO_EXPORT VideoDecodePerfHistory
                         const VideoDecodeStatsDB::DecodeStatsEntry& new_stats,
                         VideoDecodeStatsDB::DecodeStatsEntry* past_stats);
 
-  void AssessStats(const VideoDecodeStatsDB::DecodeStatsEntry* stats,
+  void AssessStats(const VideoDecodeStatsDB::VideoDescKey& key,
+                   const VideoDecodeStatsDB::DecodeStatsEntry* stats,
                    bool* is_smooth,
                    bool* is_power_efficient);
 
@@ -184,9 +188,9 @@ class MEDIA_MOJO_EXPORT VideoDecodePerfHistory
   // completes.
   std::vector<base::OnceClosure> init_deferred_api_calls_;
 
-  // Maps bindings from several render-processes to this single browser-process
+  // Maps receivers from several render-processes to this single browser-process
   // service.
-  mojo::BindingSet<mojom::VideoDecodePerfHistory> bindings_;
+  mojo::ReceiverSet<mojom::VideoDecodePerfHistory> receivers_;
 
   // Optional helper for local learning.
   std::unique_ptr<LearningHelper> learning_helper_;

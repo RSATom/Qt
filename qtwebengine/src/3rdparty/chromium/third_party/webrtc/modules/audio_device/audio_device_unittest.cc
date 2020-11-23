@@ -12,10 +12,10 @@
 
 #include <algorithm>
 #include <cstring>
+#include <list>
 #include <memory>
 #include <numeric>
 
-#include "absl/memory/memory.h"
 #include "absl/types/optional.h"
 #include "api/array_view.h"
 #include "api/scoped_refptr.h"
@@ -23,6 +23,7 @@
 #include "api/task_queue/task_queue_factory.h"
 #include "modules/audio_device/audio_device_impl.h"
 #include "modules/audio_device/include/mock_audio_transport.h"
+#include "rtc_base/arraysize.h"
 #include "rtc_base/buffer.h"
 #include "rtc_base/critical_section.h"
 #include "rtc_base/event.h"
@@ -501,10 +502,13 @@ class MockAudioTransport : public test::MockAudioTransport {
 
 // AudioDeviceTest test fixture.
 
-// Don't run these tests in combination with sanitizers.
-// TODO(webrtc:9778): Re-enable on THREAD_SANITIZER?
+// bugs.webrtc.org/9808
+// Both the tests and the code under test are very old, unstaffed and not
+// a part of webRTC stack.
+// Here sanitizers make the tests hang, without providing usefull report.
+// So we are just disabling them, without intention to re-enable them.
 #if defined(ADDRESS_SANITIZER) || defined(MEMORY_SANITIZER) || \
-    defined(THREAD_SANITIZER)
+    defined(THREAD_SANITIZER) || defined(UNDEFINED_SANITIZER)
 #define MAYBE_AudioDeviceTest DISABLED_AudioDeviceTest
 #else
 #define MAYBE_AudioDeviceTest AudioDeviceTest
@@ -592,7 +596,7 @@ class MAYBE_AudioDeviceTest
       // We must initialize the COM library on a thread before we calling any of
       // the library functions. All COM functions in the ADM will return
       // CO_E_NOTINITIALIZED otherwise.
-      com_initializer_ = absl::make_unique<webrtc_win::ScopedCOMInitializer>(
+      com_initializer_ = std::make_unique<webrtc_win::ScopedCOMInitializer>(
           webrtc_win::ScopedCOMInitializer::kMTA);
       EXPECT_TRUE(com_initializer_->Succeeded());
       EXPECT_TRUE(webrtc_win::core_audio_utility::IsSupported());
@@ -664,7 +668,7 @@ class MAYBE_AudioDeviceTest
 
 // Instead of using the test fixture, verify that the different factory methods
 // work as intended.
-TEST(AudioDeviceTestWin, ConstructDestructWithFactory) {
+TEST(MAYBE_AudioDeviceTestWin, ConstructDestructWithFactory) {
   std::unique_ptr<TaskQueueFactory> task_queue_factory =
       CreateDefaultTaskQueueFactory();
   rtc::scoped_refptr<AudioDeviceModule> audio_device;
@@ -803,6 +807,60 @@ TEST_P(MAYBE_AudioDeviceTest, StartStopRecording) {
   SKIP_TEST_IF_NOT(requirements_satisfied());
   StartRecording();
   StopRecording();
+}
+
+// Tests Start/Stop playout for all available input devices to ensure that
+// the selected device can be created and used as intended.
+TEST_P(MAYBE_AudioDeviceTest, StartStopPlayoutWithRealDevice) {
+  SKIP_TEST_IF_NOT(requirements_satisfied());
+  int num_devices = audio_device()->PlayoutDevices();
+  if (NewWindowsAudioDeviceModuleIsUsed()) {
+    num_devices += 2;
+  }
+  EXPECT_GT(num_devices, 0);
+  // Verify that all available playout devices can be set and used.
+  for (int i = 0; i < num_devices; ++i) {
+    EXPECT_EQ(0, audio_device()->SetPlayoutDevice(i));
+    StartPlayout();
+    StopPlayout();
+  }
+#ifdef WEBRTC_WIN
+  AudioDeviceModule::WindowsDeviceType device_role[] = {
+      AudioDeviceModule::kDefaultDevice,
+      AudioDeviceModule::kDefaultCommunicationDevice};
+  for (size_t i = 0; i < arraysize(device_role); ++i) {
+    EXPECT_EQ(0, audio_device()->SetPlayoutDevice(device_role[i]));
+    StartPlayout();
+    StopPlayout();
+  }
+#endif
+}
+
+// Tests Start/Stop recording for all available input devices to ensure that
+// the selected device can be created and used as intended.
+TEST_P(MAYBE_AudioDeviceTest, StartStopRecordingWithRealDevice) {
+  SKIP_TEST_IF_NOT(requirements_satisfied());
+  int num_devices = audio_device()->RecordingDevices();
+  if (NewWindowsAudioDeviceModuleIsUsed()) {
+    num_devices += 2;
+  }
+  EXPECT_GT(num_devices, 0);
+  // Verify that all available recording devices can be set and used.
+  for (int i = 0; i < num_devices; ++i) {
+    EXPECT_EQ(0, audio_device()->SetRecordingDevice(i));
+    StartRecording();
+    StopRecording();
+  }
+#ifdef WEBRTC_WIN
+  AudioDeviceModule::WindowsDeviceType device_role[] = {
+      AudioDeviceModule::kDefaultDevice,
+      AudioDeviceModule::kDefaultCommunicationDevice};
+  for (size_t i = 0; i < arraysize(device_role); ++i) {
+    EXPECT_EQ(0, audio_device()->SetRecordingDevice(device_role[i]));
+    StartRecording();
+    StopRecording();
+  }
+#endif
 }
 
 // Tests Init/Stop/Init recording without any registered audio callback.
@@ -1010,11 +1068,29 @@ TEST_P(MAYBE_AudioDeviceTest, StartPlayoutVerifyCallbacks) {
   StartPlayout();
   event()->Wait(kTestTimeOutInMilliseconds);
   StopPlayout();
+  PreTearDown();
 }
+
+// Don't run these tests in combination with sanitizers.
+// They are already flaky *without* sanitizers.
+// Sanitizers seem to increase flakiness (which brings noise),
+// without reporting anything.
+// TODO(webrtc:10867): Re-enable when flakiness fixed.
+#if defined(ADDRESS_SANITIZER) || defined(MEMORY_SANITIZER) || \
+    defined(THREAD_SANITIZER)
+#define MAYBE_StartRecordingVerifyCallbacks \
+  DISABLED_StartRecordingVerifyCallbacks
+#define MAYBE_StartPlayoutAndRecordingVerifyCallbacks \
+  DISABLED_StartPlayoutAndRecordingVerifyCallbacks
+#else
+#define MAYBE_StartRecordingVerifyCallbacks StartRecordingVerifyCallbacks
+#define MAYBE_StartPlayoutAndRecordingVerifyCallbacks \
+  StartPlayoutAndRecordingVerifyCallbacks
+#endif
 
 // Start recording and verify that the native audio layer starts providing real
 // audio samples using the RecordedDataIsAvailable() callback.
-TEST_P(MAYBE_AudioDeviceTest, StartRecordingVerifyCallbacks) {
+TEST_P(MAYBE_AudioDeviceTest, MAYBE_StartRecordingVerifyCallbacks) {
   SKIP_TEST_IF_NOT(requirements_satisfied());
   MockAudioTransport mock(TransportType::kRecord);
   mock.HandleCallbacks(event(), nullptr, kNumCallbacks);
@@ -1030,7 +1106,7 @@ TEST_P(MAYBE_AudioDeviceTest, StartRecordingVerifyCallbacks) {
 
 // Start playout and recording (full-duplex audio) and verify that audio is
 // active in both directions.
-TEST_P(MAYBE_AudioDeviceTest, StartPlayoutAndRecordingVerifyCallbacks) {
+TEST_P(MAYBE_AudioDeviceTest, MAYBE_StartPlayoutAndRecordingVerifyCallbacks) {
   SKIP_TEST_IF_NOT(requirements_satisfied());
   MockAudioTransport mock(TransportType::kPlayAndRecord);
   mock.HandleCallbacks(event(), nullptr, kNumCallbacks);
@@ -1080,13 +1156,14 @@ TEST_P(MAYBE_AudioDeviceTest, RunPlayoutAndRecordingInFullDuplex) {
       std::max(kTestTimeOutInMilliseconds, 1000 * kFullDuplexTimeInSec)));
   StopRecording();
   StopPlayout();
+  // Avoid concurrent access to audio_stream.
+  PreTearDown();
   // This thresholds is set rather high to accommodate differences in hardware
   // in several devices. The main idea is to capture cases where a very large
   // latency is built up. See http://bugs.webrtc.org/7744 for examples on
   // bots where relatively large average latencies can happen.
   EXPECT_LE(audio_stream.average_size(), 25u);
   PRINT("\n");
-  PreTearDown();
 }
 
 // Runs audio in full duplex until user hits Enter. Intended as a manual test
@@ -1145,13 +1222,14 @@ TEST_P(MAYBE_AudioDeviceTest, DISABLED_MeasureLoopbackLatency) {
       std::max(kTestTimeOutInMilliseconds, 1000 * kMeasureLatencyTimeInSec)));
   StopRecording();
   StopPlayout();
+  // Avoid concurrent access to audio_stream.
+  PreTearDown();
   // Verify that a sufficient number of transmitted impulses are detected.
   EXPECT_GE(audio_stream.num_latency_values(),
             static_cast<size_t>(
                 kImpulseFrequencyInHz * kMeasureLatencyTimeInSec - 2));
   // Print out min, max and average delay values for debugging purposes.
   audio_stream.PrintResults();
-  PreTearDown();
 }
 
 #ifdef WEBRTC_WIN

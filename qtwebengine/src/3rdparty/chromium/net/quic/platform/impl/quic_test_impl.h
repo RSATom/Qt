@@ -6,7 +6,7 @@
 #define NET_QUIC_PLATFORM_IMPL_QUIC_TEST_IMPL_H_
 
 #include "base/logging.h"
-#include "net/test/test_with_scoped_task_environment.h"
+#include "net/test/test_with_task_environment.h"
 #include "net/third_party/quiche/src/quic/core/quic_versions.h"
 #include "net/third_party/quiche/src/quic/platform/api/quic_flags.h"
 #include "testing/gmock/include/gmock/gmock.h"      // IWYU pragma: export
@@ -56,11 +56,10 @@ class QuicTestWithParamImpl : public ::testing::TestWithParam<T> {
 class ScopedEnvironmentForThreadsImpl {
  public:
   ScopedEnvironmentForThreadsImpl()
-      : scoped_task_environment_(
-            base::test::ScopedTaskEnvironment::MainThreadType::IO) {}
+      : task_environment_(base::test::TaskEnvironment::MainThreadType::IO) {}
 
  public:
-  base::test::ScopedTaskEnvironment scoped_task_environment_;
+  base::test::TaskEnvironment task_environment_;
 };
 
 #define QUIC_TEST_DISABLED_IN_CHROME_IMPL(name) DISABLED_##name
@@ -76,5 +75,16 @@ namespace quic {
 // function can be removed.
 ParsedQuicVersionVector AllVersionsExcept99();
 }  // namespace quic
+
+#if GTEST_HAS_DEATH_TEST && !defined(NDEBUG)
+#define EXPECT_QUIC_DEBUG_DEATH_IMPL(condition, message) \
+  EXPECT_DEBUG_DEATH(condition, message)
+#else
+#define EXPECT_QUIC_DEBUG_DEATH_IMPL(condition, message) \
+  do {                                                   \
+  } while (0)
+#endif
+
+#define QUIC_SLOW_TEST_IMPL(name) DISABLED_##name
 
 #endif  // NET_QUIC_PLATFORM_IMPL_QUIC_TEST_IMPL_H_

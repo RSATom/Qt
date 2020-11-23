@@ -71,10 +71,31 @@ QT_BEGIN_NAMESPACE
 */
 
 QScreen::QScreen(QPlatformScreen *screen)
-    : QObject(*new QScreenPrivate(), 0)
+    : QObject(*new QScreenPrivate(), nullptr)
 {
     Q_D(QScreen);
     d->setPlatformScreen(screen);
+}
+
+void QScreenPrivate::updateGeometriesWithSignals()
+{
+    const QRect oldGeometry = geometry;
+    const QRect oldAvailableGeometry = availableGeometry;
+    updateHighDpi();
+    emitGeometryChangeSignals(oldGeometry != geometry, oldAvailableGeometry != availableGeometry);
+}
+
+void QScreenPrivate::emitGeometryChangeSignals(bool geometryChanged, bool availableGeometryChanged)
+{
+    Q_Q(QScreen);
+    if (availableGeometryChanged)
+        emit q->availableGeometryChanged(availableGeometry);
+
+    if (geometryChanged || availableGeometryChanged) {
+        const auto siblings = q->virtualSiblings();
+        for (QScreen* sibling : siblings)
+            emit sibling->virtualGeometryChanged(sibling->virtualGeometry());
+    }
 }
 
 void QScreenPrivate::setPlatformScreen(QPlatformScreen *screen)
@@ -83,9 +104,6 @@ void QScreenPrivate::setPlatformScreen(QPlatformScreen *screen)
     platformScreen = screen;
     platformScreen->d_func()->screen = q;
     orientation = platformScreen->orientation();
-    geometry = platformScreen->deviceIndependentGeometry();
-    availableGeometry = QHighDpi::fromNative(platformScreen->availableGeometry(),
-                        QHighDpiScaling::factor(platformScreen), geometry.topLeft());
 
     logicalDpi = QPlatformScreen::overrideDpi(platformScreen->logicalDpi());
 
@@ -699,6 +717,25 @@ bool QScreen::isLandscape(Qt::ScreenOrientation o) const
 void QScreenPrivate::updatePrimaryOrientation()
 {
     primaryOrientation = geometry.width() >= geometry.height() ? Qt::LandscapeOrientation : Qt::PortraitOrientation;
+}
+
+/*!
+    Returns the screen at \a point within the set of \l QScreen::virtualSiblings(),
+    or \c nullptr if outside of any screen.
+
+    The \a point is in relation to the virtualGeometry() of each set of virtual
+    siblings.
+
+    \since 5.15
+*/
+QScreen *QScreen::virtualSiblingAt(QPoint point)
+{
+    const auto &siblings = virtualSiblings();
+    for (QScreen *sibling : siblings) {
+        if (sibling->geometry().contains(point))
+            return sibling;
+    }
+    return nullptr;
 }
 
 /*!

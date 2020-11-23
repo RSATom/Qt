@@ -8,11 +8,19 @@
 
 namespace openscreen {
 
+namespace platform {
+class TaskRunner;
+}  // namespace platform
+
+namespace osp {
+
 // static
 std::unique_ptr<ServicePublisher> MdnsServicePublisherFactory::Create(
     const ServicePublisher::Config& config,
-    ServicePublisher::Observer* observer) {
-  return InternalServices::CreatePublisher(config, observer);
+    ServicePublisher::Observer* observer,
+    platform::TaskRunner* task_runner) {
+  return InternalServices::CreatePublisher(config, observer, task_runner);
 }
 
+}  // namespace osp
 }  // namespace openscreen

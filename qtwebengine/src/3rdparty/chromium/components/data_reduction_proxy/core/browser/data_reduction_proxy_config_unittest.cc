@@ -31,6 +31,7 @@
 #include "base/threading/platform_thread.h"
 #include "base/time/default_clock.h"
 #include "base/time/time.h"
+#include "build/build_config.h"
 #include "components/data_reduction_proxy/core/browser/data_reduction_proxy_config_test_utils.h"
 #include "components/data_reduction_proxy/core/browser/data_reduction_proxy_configurator.h"
 #include "components/data_reduction_proxy/core/browser/data_reduction_proxy_mutable_config_values.h"
@@ -44,7 +45,7 @@
 #include "components/data_reduction_proxy/core/common/data_reduction_proxy_type_info.h"
 #include "components/data_reduction_proxy/proto/client_config.pb.h"
 #include "components/variations/variations_associated_data.h"
-#include "content/public/test/test_browser_thread_bundle.h"
+#include "content/public/test/browser_task_environment.h"
 #include "net/base/load_flags.h"
 #include "net/base/net_errors.h"
 #include "net/base/network_change_notifier.h"
@@ -117,10 +118,6 @@ class DataReductionProxyConfigTest : public testing::Test {
       test_config()->ResetParamFlagsForTest();
   }
 
-  scoped_refptr<base::SingleThreadTaskRunner> task_runner() {
-    return task_environment_.GetMainThreadTaskRunner();
-  }
-
   class TestResponder {
    public:
     void ExecuteCallback(SecureProxyCheckerCallback callback) {
@@ -173,7 +170,6 @@ class DataReductionProxyConfigTest : public testing::Test {
   std::unique_ptr<DataReductionProxyConfig> BuildConfig(
       std::unique_ptr<DataReductionProxyParams> params) {
     return std::make_unique<DataReductionProxyConfig>(
-        task_runner(), task_runner(),
         network::TestNetworkConnectionTracker::GetInstance(), std::move(params),
         test_context_->configurator());
   }
@@ -205,8 +201,8 @@ class DataReductionProxyConfigTest : public testing::Test {
     return test_context_->GetConfiguredProxiesForHttp();
   }
 
-  content::TestBrowserThreadBundle task_environment_{
-      base::test::ScopedTaskEnvironment::MainThreadType::IO};
+  content::BrowserTaskEnvironment task_environment_{
+      base::test::SingleThreadTaskEnvironment::MainThreadType::IO};
 
   std::unique_ptr<DataReductionProxyTestContext> test_context_;
 
@@ -217,7 +213,6 @@ class DataReductionProxyConfigTest : public testing::Test {
 };
 
 TEST_F(DataReductionProxyConfigTest, TestReloadConfigHoldback) {
-  base::FieldTrialList field_trial_list(nullptr);
   ASSERT_TRUE(base::FieldTrialList::CreateFieldTrial(
       "DataCompressionProxyHoldback", "Enabled"));
 
@@ -279,7 +274,8 @@ TEST_F(DataReductionProxyConfigTest, TestOnConnectionChangePersistedData) {
 }
 
 // Flaky on Linux. http://crbug.com/973385
-#if defined(OS_LINUX)
+// Flaky on Win. http://crbug.com/1010685
+#if defined(OS_LINUX) || defined(OS_WIN)
 #define MAYBE_TestOnNetworkChanged DISABLED_TestOnNetworkChanged
 #else
 #define MAYBE_TestOnNetworkChanged TestOnNetworkChanged
@@ -377,7 +373,7 @@ TEST_F(DataReductionProxyConfigTest, MAYBE_TestOnNetworkChanged) {
 }
 
 // Verifies that the warm up URL is fetched correctly.
-TEST_F(DataReductionProxyConfigTest, WarmupURL) {
+TEST_F(DataReductionProxyConfigTest, DISABLED_WarmupURL) {
   const net::ProxyServer kHttpsProxy = net::ProxyServer::FromURI(
       "https://secure_origin.net:443", net::ProxyServer::SCHEME_HTTP);
   const net::ProxyServer kHttpProxy = net::ProxyServer::FromURI(
@@ -408,6 +404,9 @@ TEST_F(DataReductionProxyConfigTest, WarmupURL) {
 
     ResetSettings();
 
+    base::test::ScopedFeatureList scoped_feature_list;
+    scoped_feature_list.Init();
+
     variations::testing::ClearAllVariationParams();
     std::map<std::string, std::string> variation_params;
 
@@ -416,17 +415,14 @@ TEST_F(DataReductionProxyConfigTest, WarmupURL) {
     ASSERT_TRUE(variations::AssociateVariationParams(
         params::GetQuicFieldTrialName(), "Enabled", variation_params));
 
-    base::FieldTrialList field_trial_list(nullptr);
     base::FieldTrialList::CreateFieldTrial(params::GetQuicFieldTrialName(),
                                            "Enabled");
 
-    TestDataReductionProxyConfig config(task_runner(), task_runner(),
-                                        configurator());
+    TestDataReductionProxyConfig config(configurator());
 
     NetworkPropertiesManager network_properties_manager(
-        base::DefaultClock::GetInstance(), test_context_->pref_service(),
-        test_context_->task_runner());
-    config.InitializeOnIOThread(
+        base::DefaultClock::GetInstance(), test_context_->pref_service());
+    config.Initialize(
         test_context_->url_loader_factory(),
         base::BindRepeating([](const std::vector<DataReductionProxyServer>&) {
           return network::mojom::CustomProxyConfig::New();
@@ -764,7 +760,6 @@ TEST_F(DataReductionProxyConfigTest,
   ASSERT_LT(0U, expected_proxies.size());
 
   DataReductionProxyConfig config(
-      task_runner(), task_runner(),
       network::TestNetworkConnectionTracker::GetInstance(), std::move(params),
       configurator());
 
@@ -824,7 +819,6 @@ TEST_F(DataReductionProxyConfigTest,
 
   config_values->UpdateValues(proxies_for_http);
   std::unique_ptr<DataReductionProxyConfig> config(new DataReductionProxyConfig(
-      task_runner(), task_runner(),
       network::TestNetworkConnectionTracker::GetInstance(),
       std::move(config_values), configurator()));
   for (const auto& test : tests) {

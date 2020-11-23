@@ -30,7 +30,7 @@
 #include "build/build_config.h"
 #include "components/crash/core/common/crash_key.h"
 #include "components/discardable_memory/common/discardable_shared_memory_heap.h"
-#include "mojo/public/cpp/bindings/strong_binding.h"
+#include "mojo/public/cpp/bindings/self_owned_receiver.h"
 
 #if defined(OS_LINUX)
 #include "base/files/file_path.h"
@@ -125,6 +125,11 @@ class DiscardableMemoryImpl : public base::DiscardableMemory {
     return shared_memory_->memory();
   }
 
+  void DiscardForTesting() override {
+    DCHECK(is_locked_);
+    shared_memory_->Purge(base::Time::Now());
+  }
+
   base::trace_event::MemoryAllocatorDump* CreateMemoryAllocatorDump(
       const char* name,
       base::trace_event::ProcessMemoryDump* pmd) const override {
@@ -156,6 +161,12 @@ int64_t GetDefaultMemoryLimit() {
   // Bypass IsLowEndDevice() check and fix max_default_memory_limit to 64MB on
   // Chromecast devices. Set value here as IsLowEndDevice() is used on some, but
   // not all Chromecast devices.
+  int64_t max_default_memory_limit = 64 * kMegabyte;
+#elif defined(OS_FUCHSIA)
+  // Fuchsia doesn't implement MemoryPressureMonitor and the default limit is
+  // too high for some devices. Set it to the same value as for low-end devices.
+  // TODO(crbug.com/996030): Implement MemoryPressureMonitor for Fuchsia and
+  // remove this ifdef.
   int64_t max_default_memory_limit = 64 * kMegabyte;
 #else
 #if defined(OS_ANDROID)
@@ -279,8 +290,7 @@ DiscardableSharedMemoryManager* DiscardableSharedMemoryManager::Get() {
 }
 
 void DiscardableSharedMemoryManager::Bind(
-    mojom::DiscardableSharedMemoryManagerRequest request,
-    const service_manager::BindSourceInfo& source_info) {
+    mojo::PendingReceiver<mojom::DiscardableSharedMemoryManager> receiver) {
   DCHECK(!mojo_thread_message_loop_ ||
          mojo_thread_message_loop_ == base::MessageLoopCurrent::Get());
   if (!mojo_thread_task_runner_) {
@@ -290,10 +300,10 @@ void DiscardableSharedMemoryManager::Bind(
     mojo_thread_task_runner_ = base::ThreadTaskRunnerHandle::Get();
   }
 
-  mojo::MakeStrongBinding(
+  mojo::MakeSelfOwnedReceiver(
       std::make_unique<MojoDiscardableSharedMemoryManagerImpl>(
           next_client_id_++, mojo_thread_weak_ptr_factory_.GetWeakPtr()),
-      std::move(request));
+      std::move(receiver));
 }
 
 std::unique_ptr<base::DiscardableMemory>
@@ -413,7 +423,7 @@ void DiscardableSharedMemoryManager::EnforceMemoryPolicy() {
   ReduceMemoryUsageUntilWithinMemoryLimit();
 }
 
-size_t DiscardableSharedMemoryManager::GetBytesAllocated() {
+size_t DiscardableSharedMemoryManager::GetBytesAllocated() const {
   base::AutoLock lock(lock_);
 
   return bytes_allocated_;

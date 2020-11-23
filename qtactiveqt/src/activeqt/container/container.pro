@@ -29,4 +29,3 @@ MODULE_CONFIG = dumpcpp
 MODULE_MASTER_HEADER = ActiveQt
 CONFIG += no_module_headers
 load(qt_module)
-DEFINES -= QT_NO_CAST_TO_ASCII QT_USE_QSTRINGBUILDER

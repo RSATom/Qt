@@ -1404,7 +1404,7 @@ bool QScxmlCompilerPrivate::preReadElementScxml()
     const QXmlStreamAttributes attributes = m_reader->attributes();
     if (attributes.hasAttribute(QStringLiteral("initial"))) {
         const QString initial = attributes.value(QStringLiteral("initial")).toString();
-        scxml->initial += initial.split(QChar::Space, QString::SkipEmptyParts);
+        scxml->initial += initial.split(QChar::Space, Qt::SkipEmptyParts);
     }
 
     const QStringRef datamodel = attributes.value(QLatin1String("datamodel"));
@@ -1460,7 +1460,7 @@ bool QScxmlCompilerPrivate::preReadElementState()
 
     if (attributes.hasAttribute(QStringLiteral("initial"))) {
         const QString initial = attributes.value(QStringLiteral("initial")).toString();
-        newState->initial += initial.split(QChar::Space, QString::SkipEmptyParts);
+        newState->initial += initial.split(QChar::Space, Qt::SkipEmptyParts);
     }
     m_currentState = newState;
     return true;
@@ -1525,8 +1525,8 @@ bool QScxmlCompilerPrivate::preReadElementTransition()
     }
 
     const QXmlStreamAttributes attributes = m_reader->attributes();
-    transition->events = attributes.value(QLatin1String("event")).toString().split(QLatin1Char(' '), QString::SkipEmptyParts);
-    transition->targets = attributes.value(QLatin1String("target")).toString().split(QLatin1Char(' '), QString::SkipEmptyParts);
+    transition->events = attributes.value(QLatin1String("event")).toString().split(QLatin1Char(' '), Qt::SkipEmptyParts);
+    transition->targets = attributes.value(QLatin1String("target")).toString().split(QLatin1Char(' '), Qt::SkipEmptyParts);
     if (attributes.hasAttribute(QStringLiteral("cond")))
         transition->condition.reset(new QString(attributes.value(QLatin1String("cond")).toString()));
     QStringRef type = attributes.value(QLatin1String("type"));
@@ -1813,7 +1813,7 @@ bool QScxmlCompilerPrivate::preReadElementSend()
     send->target = attributes.value(QLatin1String("target")).toString();
     send->targetexpr = attributes.value(QLatin1String("targetexpr")).toString();
     if (attributes.hasAttribute(QLatin1String("namelist")))
-        send->namelist = attributes.value(QLatin1String("namelist")).toString().split(QLatin1Char(' '), QString::SkipEmptyParts);
+        send->namelist = attributes.value(QLatin1String("namelist")).toString().split(QLatin1Char(' '), Qt::SkipEmptyParts);
     current().instruction = send;
     return true;
 }
@@ -1854,7 +1854,7 @@ bool QScxmlCompilerPrivate::preReadElementInvoke()
         invoke->autoforward = true;
     else
         invoke->autoforward = false;
-    invoke->namelist = attributes.value(QLatin1String("namelist")).toString().split(QLatin1Char(' '), QString::SkipEmptyParts);
+    invoke->namelist = attributes.value(QLatin1String("namelist")).toString().split(QLatin1Char(' '), Qt::SkipEmptyParts);
     current().instruction = invoke;
     return true;
 }

@@ -67,6 +67,7 @@ class Q_LOCATION_PRIVATE_EXPORT QGeoMapItemGeometry
 {
 public:
     QGeoMapItemGeometry();
+    virtual ~QGeoMapItemGeometry();
 
     inline bool isSourceDirty() const { return sourceDirty_; }
     inline bool isScreenDirty() const { return screenDirty_; }
@@ -74,6 +75,7 @@ public:
     inline void markScreenDirty() { screenDirty_ = true; clipToViewport_ = true; }
     inline void markFullScreenDirty() { screenDirty_ = true; clipToViewport_ = false;}
     inline void markClean() { screenDirty_ = (sourceDirty_ = false); clipToViewport_ = true;}
+    inline void clearScreen() { screenDirty_ = false; }
 
     inline void setPreserveGeometry(bool value, const QGeoCoordinate &geoLeftBound = QGeoCoordinate())
     {
@@ -85,6 +87,7 @@ public:
 
     inline QRectF sourceBoundingBox() const { return sourceBounds_; }
     inline QRectF screenBoundingBox() const { return screenBounds_; }
+    inline void clearBounds() { sourceBounds_ = screenBounds_ = QRectF(); firstPointOffset_ = QPointF(); }
 
     inline QPointF firstPointOffset() const { return firstPointOffset_; }
     void translate(const QPointF &offset);
@@ -127,6 +130,8 @@ public:
                                            const QGeoCoordinate &toCoord);
 
     static QRectF translateToCommonOrigin(const QList<QGeoMapItemGeometry *> &geoms);
+
+    mutable bool m_dataChanged = false;
 
 private:
     QGeoMapItemGeometry(const QGeoMapItemGeometry &other); // Or else it may crash on copy

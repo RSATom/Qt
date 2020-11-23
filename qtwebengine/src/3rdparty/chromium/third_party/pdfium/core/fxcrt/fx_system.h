@@ -142,9 +142,9 @@ size_t FXSYS_wcsftime(wchar_t* strDest,
                       size_t maxsize,
                       const wchar_t* format,
                       const struct tm* timeptr);
-
+#define FXSYS_SetLastError SetLastError
+#define FXSYS_GetLastError GetLastError
 #else  // _FX_PLATFORM_ == _FX_PLATFORM_WINDOWS_
-
 int FXSYS_GetACP();
 char* FXSYS_itoa(int value, char* str, int radix);
 int FXSYS_WideCharToMultiByte(uint32_t codepage,
@@ -169,6 +169,8 @@ wchar_t* FXSYS_wcslwr(wchar_t* str);
 wchar_t* FXSYS_wcsupr(wchar_t* str);
 #define FXSYS_pow(a, b) (float)pow(a, b)
 #define FXSYS_wcsftime wcsftime
+void FXSYS_SetLastError(uint32_t err);
+uint32_t FXSYS_GetLastError();
 #endif  // _FX_PLATFORM_ == _FX_PLATFORM_WINDOWS_
 
 #define FXWORD_GET_LSBFIRST(p)                                \
@@ -188,7 +190,8 @@ uint32_t FXSYS_atoui(const char* str);
 int32_t FXSYS_wtoi(const wchar_t* str);
 int64_t FXSYS_atoi64(const char* str);
 const char* FXSYS_i64toa(int64_t value, char* str, int radix);
-int FXSYS_round(float f);
+int FXSYS_roundf(float f);
+int FXSYS_round(double d);
 #define FXSYS_sqrt2(a, b) (float)sqrt((a) * (a) + (b) * (b))
 #ifdef __cplusplus
 }  // extern C

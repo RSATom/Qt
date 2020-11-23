@@ -58,7 +58,7 @@ QGeoCodeReplyOsm::QGeoCodeReplyOsm(QNetworkReply *reply, bool includeExtraData, 
         return;
     }
     connect(reply, SIGNAL(finished()), this, SLOT(networkReplyFinished()));
-    connect(reply, SIGNAL(error(QNetworkReply::NetworkError)),
+    connect(reply, SIGNAL(errorOccurred(QNetworkReply::NetworkError)),
             this, SLOT(networkReplyError(QNetworkReply::NetworkError)));
     connect(this, &QGeoCodeReply::aborted, reply, &QNetworkReply::abort);
     connect(this, &QObject::destroyed, reply, &QObject::deleteLater);
@@ -112,7 +112,7 @@ static void injectExtra(QGeoLocation &location, const QJsonObject &object)
                                                QStringLiteral("place_id"),
                                                QStringLiteral("class") };
 
-    for (const auto k: extraKeys) {
+    for (const auto &k: extraKeys) {
         if (object.contains(k)) {
             extra[k] = object.value(k).toVariant();
             if (k == QStringLiteral("geojson"))

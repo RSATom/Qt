@@ -99,7 +99,7 @@ angle::Result HardwareBufferImageSiblingVkAndroid::initImpl(DisplayVk *displayVk
                                                                         &bufferProperties));
 
     const vk::Format &vkFormat       = renderer->getFormat(internalFormat);
-    const angle::Format &imageFormat = vkFormat.imageFormat();
+    const angle::Format &imageFormat = vkFormat.actualImageFormat();
     bool isDepthOrStencilFormat      = imageFormat.depthBits > 0 || imageFormat.stencilBits > 0;
     const VkImageUsageFlags usage =
         VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT |
@@ -122,10 +122,13 @@ angle::Result HardwareBufferImageSiblingVkAndroid::initImpl(DisplayVk *displayVk
     externalMemoryImageCreateInfo.handleTypes =
         VK_EXTERNAL_MEMORY_HANDLE_TYPE_ANDROID_HARDWARE_BUFFER_BIT_ANDROID;
 
+    VkExtent3D vkExtents;
+    gl_vk::GetExtent(mSize, &vkExtents);
+
     mImage = new vk::ImageHelper();
-    ANGLE_TRY(mImage->initExternal(displayVk, gl::TextureType::_2D, mSize, vkFormat, 1, usage,
+    ANGLE_TRY(mImage->initExternal(displayVk, gl::TextureType::_2D, vkExtents, vkFormat, 1, usage,
                                    vk::ImageLayout::ExternalPreInitialized,
-                                   &externalMemoryImageCreateInfo, 1, 1));
+                                   &externalMemoryImageCreateInfo, 0, 0, 1, 1));
 
     VkImportAndroidHardwareBufferInfoANDROID importHardwareBufferInfo = {};
     importHardwareBufferInfo.sType  = VK_STRUCTURE_TYPE_IMPORT_ANDROID_HARDWARE_BUFFER_INFO_ANDROID;
@@ -198,13 +201,12 @@ vk::ImageHelper *HardwareBufferImageSiblingVkAndroid::getImage() const
     return mImage;
 }
 
-void HardwareBufferImageSiblingVkAndroid::release(DisplayVk *display,
-                                                  std::vector<vk::GarbageObjectBase> *garbageQueue)
+void HardwareBufferImageSiblingVkAndroid::release(RendererVk *renderer)
 {
     if (mImage != nullptr)
     {
-        mImage->releaseImage(display, garbageQueue);
-        mImage->releaseStagingBuffer(display, garbageQueue);
+        mImage->releaseImage(renderer);
+        mImage->releaseStagingBuffer(renderer);
         SafeDelete(mImage);
     }
 }

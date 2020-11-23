@@ -15,6 +15,10 @@
 #include "src/sksl/ir/SkSLIndexExpression.h"
 #include "src/sksl/ir/SkSLVariableReference.h"
 
+#ifdef SK_VULKAN
+#include "src/gpu/vk/GrVkCaps.h"
+#endif
+
 namespace SkSL {
 
 static const int32_t SKSL_MAGIC  = 0x0; // FIXME: we should probably register a magic number
@@ -101,7 +105,9 @@ void SPIRVCodeGenerator::setupIntrinsics() {
     fIntrinsicMap[String("dFdy")]        = SPECIAL(DFdy);
     fIntrinsicMap[String("fwidth")]      = std::make_tuple(kSPIRV_IntrinsicKind, SpvOpFwidth,
                                                            SpvOpUndef, SpvOpUndef, SpvOpUndef);
-    fIntrinsicMap[String("texture")]     = SPECIAL(Texture);
+    fIntrinsicMap[String("makeSampler2D")] = SPECIAL(SampledImage);
+
+    fIntrinsicMap[String("sample")]      = SPECIAL(Texture);
     fIntrinsicMap[String("subpassLoad")] = SPECIAL(SubpassLoad);
 
     fIntrinsicMap[String("any")]              = std::make_tuple(kSPIRV_IntrinsicKind, SpvOpUndef,
@@ -206,6 +212,7 @@ void SPIRVCodeGenerator::writeOpCode(SpvOp_ opCode, int length, OutputStream& ou
         case SpvOpTypeStruct:        // fall through
         case SpvOpTypeImage:         // fall through
         case SpvOpTypeSampledImage:  // fall through
+        case SpvOpTypeSampler:       // fall through
         case SpvOpVariable:          // fall through
         case SpvOpFunction:          // fall through
         case SpvOpFunctionParameter: // fall through
@@ -526,20 +533,27 @@ SpvId SPIRVCodeGenerator::getType(const Type& rawType, const MemoryLayout& layou
             case Type::kSampler_Kind: {
                 SpvId image = result;
                 if (SpvDimSubpassData != type.dimensions()) {
-                    image = this->nextId();
+                    image = this->getType(type.textureType(), layout);
                 }
                 if (SpvDimBuffer == type.dimensions()) {
                     fCapabilities |= (((uint64_t) 1) << SpvCapabilitySampledBuffer);
                 }
-                this->writeInstruction(SpvOpTypeImage, image,
+                if (SpvDimSubpassData != type.dimensions()) {
+                    this->writeInstruction(SpvOpTypeSampledImage, result, image, fConstantBuffer);
+                }
+                break;
+            }
+            case Type::kSeparateSampler_Kind: {
+                this->writeInstruction(SpvOpTypeSampler, result, fConstantBuffer);
+                break;
+            }
+            case Type::kTexture_Kind: {
+                this->writeInstruction(SpvOpTypeImage, result,
                                        this->getType(*fContext.fFloat_Type, layout),
                                        type.dimensions(), type.isDepth(), type.isArrayed(),
                                        type.isMultisampled(), type.isSampled() ? 1 : 2,
                                        SpvImageFormatUnknown, fConstantBuffer);
-                fImageTypeMap[key] = image;
-                if (SpvDimSubpassData != type.dimensions()) {
-                    this->writeInstruction(SpvOpTypeSampledImage, result, image, fConstantBuffer);
-                }
+                fImageTypeMap[key] = result;
                 break;
             }
             default:
@@ -817,6 +831,18 @@ SpvId SPIRVCodeGenerator::writeSpecialIntrinsic(const FunctionCall& c, SpecialIn
             for (SpvId id : arguments) {
                 this->writeWord(id, out);
             }
+            break;
+        }
+        case kSampledImage_SpecialIntrinsic: {
+            SkASSERT(2 == c.fArguments.size());
+            SpvId img = this->writeExpression(*c.fArguments[0], out);
+            SpvId sampler = this->writeExpression(*c.fArguments[1], out);
+            this->writeInstruction(SpvOpSampledImage,
+                                   this->getType(c.fType),
+                                   result,
+                                   img,
+                                   sampler,
+                                   out);
             break;
         }
         case kSubpassLoad_SpecialIntrinsic: {
@@ -1786,10 +1812,26 @@ SpvId SPIRVCodeGenerator::writeVariableReference(const VariableReference& ref, O
             std::shared_ptr<SymbolTable> st(new SymbolTable(&fErrors));
             SkASSERT(fRTHeightFieldIndex == (SpvId) -1);
             std::vector<Type::Field> fields;
-            fields.emplace_back(Modifiers(), SKSL_RTHEIGHT_NAME, fContext.fFloat_Type.get());
+            SkASSERT(fProgram.fSettings.fRTHeightOffset >= 0);
+            fields.emplace_back(Modifiers(Layout(0, -1, fProgram.fSettings.fRTHeightOffset, -1,
+                                                 -1, -1, -1, -1, Layout::Format::kUnspecified,
+                                                 Layout::kUnspecified_Primitive, -1, -1, "",
+                                                 Layout::kNo_Key, Layout::CType::kDefault), 0),
+                                SKSL_RTHEIGHT_NAME, fContext.fFloat_Type.get());
             StringFragment name("sksl_synthetic_uniforms");
             Type intfStruct(-1, name, fields);
-            Layout layout(0, -1, -1, 1, -1, -1, -1, -1, Layout::Format::kUnspecified,
+            int binding;
+            int set;
+#ifdef SK_VULKAN
+            const GrVkCaps* vkCaps = fProgram.fSettings.fVkCaps;
+            SkASSERT(vkCaps);
+            binding = vkCaps->getFragmentUniformBinding();
+            set = vkCaps->getFragmentUniformSet();
+#else
+            binding = 0;
+            set = 0;
+#endif
+            Layout layout(0, -1, -1, binding, -1, set, -1, -1, Layout::Format::kUnspecified,
                           Layout::kUnspecified_Primitive, -1, -1, "", Layout::kNo_Key,
                           Layout::CType::kDefault);
             Variable* intfVar = (Variable*) fSynthetics.takeOwnership(std::unique_ptr<Symbol>(
@@ -1881,25 +1923,25 @@ SpvId SPIRVCodeGenerator::writeSwizzle(const Swizzle& swizzle, OutputStream& out
         this->writeWord(this->getType(swizzle.fType), out);
         this->writeWord(result, out);
         this->writeWord(base, out);
-        SpvId other;
-        int last = swizzle.fComponents.back();
-        if (last < 0) {
-            if (!fConstantZeroOneVector) {
-                FloatLiteral zero(fContext, -1, 0);
-                SpvId zeroId = this->writeFloatLiteral(zero);
-                FloatLiteral one(fContext, -1, 1);
-                SpvId oneId = this->writeFloatLiteral(one);
-                SpvId type = this->getType(*fContext.fFloat2_Type);
-                fConstantZeroOneVector = this->nextId();
-                this->writeOpCode(SpvOpConstantComposite, 5, fConstantBuffer);
-                this->writeWord(type, fConstantBuffer);
-                this->writeWord(fConstantZeroOneVector, fConstantBuffer);
-                this->writeWord(zeroId, fConstantBuffer);
-                this->writeWord(oneId, fConstantBuffer);
+        SpvId other = base;
+        for (int c : swizzle.fComponents) {
+            if (c < 0) {
+                if (!fConstantZeroOneVector) {
+                    FloatLiteral zero(fContext, -1, 0);
+                    SpvId zeroId = this->writeFloatLiteral(zero);
+                    FloatLiteral one(fContext, -1, 1);
+                    SpvId oneId = this->writeFloatLiteral(one);
+                    SpvId type = this->getType(*fContext.fFloat2_Type);
+                    fConstantZeroOneVector = this->nextId();
+                    this->writeOpCode(SpvOpConstantComposite, 5, fConstantBuffer);
+                    this->writeWord(type, fConstantBuffer);
+                    this->writeWord(fConstantZeroOneVector, fConstantBuffer);
+                    this->writeWord(zeroId, fConstantBuffer);
+                    this->writeWord(oneId, fConstantBuffer);
+                }
+                other = fConstantZeroOneVector;
+                break;
             }
-            other = fConstantZeroOneVector;
-        } else {
-            other = base;
         }
         this->writeWord(other, out);
         for (int component : swizzle.fComponents) {
@@ -2436,10 +2478,12 @@ SpvId SPIRVCodeGenerator::writeIntLiteral(const IntLiteral& i) {
         type = ConstantType::kInt;
     } else if (i.fType == *fContext.fUInt_Type) {
         type = ConstantType::kUInt;
-    } else if (i.fType == *fContext.fShort_Type) {
+    } else if (i.fType == *fContext.fShort_Type || i.fType == *fContext.fByte_Type) {
         type = ConstantType::kShort;
-    } else if (i.fType == *fContext.fUShort_Type) {
+    } else if (i.fType == *fContext.fUShort_Type || i.fType == *fContext.fUByte_Type) {
         type = ConstantType::kUShort;
+    } else {
+        SkASSERT(false);
     }
     std::pair<ConstantValue, ConstantType> key(i.fValue, type);
     auto entry = fNumberConstants.find(key);
@@ -2669,6 +2713,22 @@ void SPIRVCodeGenerator::writePrecisionModifier(Precision precision, SpvId id) {
     }
 }
 
+bool is_dead(const Variable& var) {
+    if (var.fReadCount || var.fWriteCount) {
+        return false;
+    }
+    // not entirely sure what the rules are for when it's safe to elide interface variables, but it
+    // causes various problems to elide some of them even when dead. But it also causes problems
+    // *not* to elide sk_SampleMask when it's not being used.
+    if (!(var.fModifiers.fFlags & (Modifiers::kIn_Flag |
+                                   Modifiers::kOut_Flag |
+                                   Modifiers::kUniform_Flag |
+                                   Modifiers::kBuffer_Flag))) {
+        return true;
+    }
+    return var.fModifiers.fLayout.fBuiltin == SK_SAMPLEMASK_BUILTIN;
+}
+
 #define BUILTIN_IGNORE 9999
 void SPIRVCodeGenerator::writeGlobalVars(Program::Kind kind, const VarDeclarations& decl,
                                          OutputStream& out) {
@@ -2681,10 +2741,10 @@ void SPIRVCodeGenerator::writeGlobalVars(Program::Kind kind, const VarDeclaratio
         // These haven't been implemented in our SPIR-V generator yet and we only currently use them
         // in the OpenGL backend.
         SkASSERT(!(var->fModifiers.fFlags & (Modifiers::kReadOnly_Flag |
-                                           Modifiers::kWriteOnly_Flag |
-                                           Modifiers::kCoherent_Flag |
-                                           Modifiers::kVolatile_Flag |
-                                           Modifiers::kRestrict_Flag)));
+                                             Modifiers::kWriteOnly_Flag |
+                                             Modifiers::kCoherent_Flag |
+                                             Modifiers::kVolatile_Flag |
+                                             Modifiers::kRestrict_Flag)));
         if (var->fModifiers.fLayout.fBuiltin == BUILTIN_IGNORE) {
             continue;
         }
@@ -2693,13 +2753,7 @@ void SPIRVCodeGenerator::writeGlobalVars(Program::Kind kind, const VarDeclaratio
             SkASSERT(!fProgram.fSettings.fFragColorIsInOut);
             continue;
         }
-        if (!var->fReadCount && !var->fWriteCount &&
-                !(var->fModifiers.fFlags & (Modifiers::kIn_Flag |
-                                            Modifiers::kOut_Flag |
-                                            Modifiers::kUniform_Flag |
-                                            Modifiers::kBuffer_Flag))) {
-            // variable is dead and not an input / output var (the Vulkan debug layers complain if
-            // we elide an interface var, even if it's dead)
+        if (is_dead(*var)) {
             continue;
         }
         SpvStorageClass_ storageClass;
@@ -2708,7 +2762,9 @@ void SPIRVCodeGenerator::writeGlobalVars(Program::Kind kind, const VarDeclaratio
         } else if (var->fModifiers.fFlags & Modifiers::kOut_Flag) {
             storageClass = SpvStorageClassOutput;
         } else if (var->fModifiers.fFlags & Modifiers::kUniform_Flag) {
-            if (var->fType.kind() == Type::kSampler_Kind) {
+            if (var->fType.kind() == Type::kSampler_Kind ||
+                var->fType.kind() == Type::kSeparateSampler_Kind ||
+                var->fType.kind() == Type::kTexture_Kind) {
                 storageClass = SpvStorageClassUniformConstant;
             } else {
                 storageClass = SpvStorageClassUniform;
@@ -3115,7 +3171,8 @@ void SPIRVCodeGenerator::writeInstructions(const Program& program, OutputStream&
             SpvId id = this->writeInterfaceBlock(intf);
             if (((intf.fVariable.fModifiers.fFlags & Modifiers::kIn_Flag) ||
                 (intf.fVariable.fModifiers.fFlags & Modifiers::kOut_Flag)) &&
-                intf.fVariable.fModifiers.fLayout.fBuiltin == -1) {
+                intf.fVariable.fModifiers.fLayout.fBuiltin == -1 &&
+                !is_dead(intf.fVariable)) {
                 interfaceVars.insert(id);
             }
         }
@@ -3144,7 +3201,7 @@ void SPIRVCodeGenerator::writeInstructions(const Program& program, OutputStream&
         const Variable* var = entry.first;
         if (var->fStorage == Variable::kGlobal_Storage &&
             ((var->fModifiers.fFlags & Modifiers::kIn_Flag) ||
-             (var->fModifiers.fFlags & Modifiers::kOut_Flag))) {
+             (var->fModifiers.fFlags & Modifiers::kOut_Flag)) && !is_dead(*var)) {
             interfaceVars.insert(entry.second);
         }
     }

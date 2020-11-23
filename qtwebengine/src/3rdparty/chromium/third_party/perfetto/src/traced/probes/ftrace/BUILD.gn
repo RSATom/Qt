@@ -15,10 +15,10 @@
 import("../../../../gn/fuzzer.gni")
 import("../../../../gn/perfetto.gni")
 import("../../../../gn/proto_library.gni")
-import("../../../../gn/protozero_library.gni")
+import("../../../../gn/test.gni")
 
 # For use_libfuzzer.
-if (perfetto_build_standalone || perfetto_build_with_android) {
+if (perfetto_root_path == "//") {
   import("//gn/standalone/sanitizers/vars.gni")
 } else {
   import("//build/config/sanitizers/sanitizers.gni")
@@ -29,6 +29,7 @@ source_set("test_support") {
   deps = [
     ":ftrace",
     "../../../../gn:default_deps",
+    "../../../base:test_support",
     "../../../protozero",
   ]
   public_deps = [
@@ -41,7 +42,7 @@ source_set("test_support") {
   ]
 }
 
-source_set("unittests") {
+perfetto_unittest_source_set("unittests") {
   testonly = true
   deps = [
     ":format_parser",
@@ -68,20 +69,15 @@ source_set("unittests") {
   ]
 }
 
-ftrace_reader_test_proto_sources = [ "test/test_messages.proto" ]
-
-protozero_library("test_messages_zero") {
-  sources = ftrace_reader_test_proto_sources
-  proto_in_dir = perfetto_root_path
-  proto_out_dir = perfetto_root_path
-  generator_plugin_options = "wrapper_namespace=pbzero"
-}
-
-proto_library("test_messages_lite") {
-  generate_python = false
-  sources = ftrace_reader_test_proto_sources
-  proto_in_dir = perfetto_root_path
-  proto_out_dir = perfetto_root_path
+perfetto_proto_library("test_messages_@TYPE@") {
+  proto_generators = [
+    "lite",
+    "zero",
+  ]
+  sources = [
+    "test/test_messages.proto",
+  ]
+  proto_path = perfetto_root_path
 }
 
 # These tests require access to a real ftrace implementation and must
@@ -104,6 +100,7 @@ source_set("integrationtests") {
 
 source_set("ftrace") {
   public_deps = [
+    "../../../../protos/perfetto/config/ftrace:cpp",
     "../../../../protos/perfetto/trace/ftrace:zero",
     "../../../tracing",
   ]
@@ -112,7 +109,6 @@ source_set("ftrace") {
     "..:data_source",
     "../../../../gn:default_deps",
     "../../../../include/perfetto/ext/traced",
-    "../../../../protos/perfetto/config:lite",
     "../../../android_internal:lazy_library_loader",
     "../../../base",
     "../../../protozero",
@@ -122,6 +118,8 @@ source_set("ftrace") {
     "atrace_hal_wrapper.h",
     "atrace_wrapper.cc",
     "atrace_wrapper.h",
+    "compact_sched.cc",
+    "compact_sched.h",
     "cpu_reader.cc",
     "cpu_reader.h",
     "cpu_stats_parser.cc",
@@ -130,8 +128,6 @@ source_set("ftrace") {
     "event_info.h",
     "event_info_constants.cc",
     "event_info_constants.h",
-    "ftrace_config.cc",
-    "ftrace_config.h",
     "ftrace_config_muxer.cc",
     "ftrace_config_muxer.h",
     "ftrace_config_utils.cc",
@@ -140,7 +136,6 @@ source_set("ftrace") {
     "ftrace_controller.h",
     "ftrace_data_source.cc",
     "ftrace_data_source.h",
-    "ftrace_metadata.cc",
     "ftrace_metadata.h",
     "ftrace_procfs.cc",
     "ftrace_procfs.h",
@@ -162,7 +157,7 @@ source_set("format_parser") {
   ]
 }
 
-if (perfetto_build_standalone) {
+if (enable_perfetto_benchmarks) {
   source_set("benchmarks") {
     testonly = true
     deps = [

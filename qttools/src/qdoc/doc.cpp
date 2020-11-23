@@ -1325,6 +1325,12 @@ void DocParser::parse(const QString &source, DocPrivate *docPrivate,
                 case NOT_A_CMD:
                     if (metaCommandSet.contains(cmdStr)) {
                         priv->metacommandsUsed.insert(cmdStr);
+                        // Force a linebreak after \obsolete or \deprecated
+                        // to treat potential arguments as a new text paragraph.
+                        if (pos < len &&
+                            (cmdStr == QLatin1String("obsolete") ||
+                             cmdStr == QLatin1String("deprecated")))
+                            input_[pos] = '\n';
                         QString arg = getMetaCommandArgument(cmdStr);
                         priv->metaCommandMap[cmdStr].append(ArgLocPair(arg, location()));
                         if (possibleTopics.contains(cmdStr)) {
@@ -1375,7 +1381,7 @@ void DocParser::parse(const QString &source, DocPrivate *docPrivate,
                             // The QML and JS property group commands are no longer required
                             // for grouping QML and JS properties. They are allowed but ignored.
                             location().warning(tr("Unknown command '\\%1'").arg(cmdStr),
-                                               detailsUnknownCommand(metaCommandSet,cmdStr));
+                                               detailsUnknownCommand(metaCommandSet, cmdStr));
                         }
                         enterPara();
                         append(Atom::UnknownCommand, cmdStr);
@@ -1567,7 +1573,7 @@ void DocParser::include(const QString &fileName, const QString &identifier)
         location().fatal(tr("Too many nested '\\%1's").arg(cmdName(CMD_INCLUDE)));
 
     QString userFriendlyFilePath;
-    QString filePath = Doc::config()->getIncludeFilePath(fileName);
+    QString filePath = Config::instance().getIncludeFilePath(fileName);
     if (filePath.isEmpty()) {
         location().warning(tr("Cannot find qdoc include file '%1'").arg(fileName));
     } else {
@@ -1814,7 +1820,7 @@ void DocParser::parseAlso()
         if (input_[pos] == '{') {
             target = getArgument();
             skipSpacesOnLine();
-            if (input_[pos] == '{') {
+            if (pos < len && input_[pos] == '{') {
                 str = getArgument();
 
                 // hack for C++ to support links like \l{QString::}{count()}
@@ -1841,7 +1847,7 @@ void DocParser::parseAlso()
         if (pos < len && input_[pos] == ',') {
             pos++;
             skipSpacesOrOneEndl();
-        } else if (input_[pos] != '\n') {
+        } else if (pos >= len || input_[pos] != '\n') {
             location().warning(tr("Missing comma in '\\%1'").arg(cmdName(CMD_SA)));
         }
     }
@@ -2080,7 +2086,7 @@ void DocParser::expandMacro(const QString &name, const QString &def, int numPara
 
         for (int i = 0; i < numParams; ++i) {
             if (numParams == 1 || isLeftBraceAhead()) {
-                args << getArgument(true);
+                args << getArgument();
             } else {
                 location().warning(tr("Macro '\\%1' invoked with too few"
                                       " arguments (expected %2, got %3)")
@@ -2433,7 +2439,7 @@ QString DocParser::getCode(int cmd, CodeMarker *marker, const QString &argStr)
     QString code = untabifyEtc(getUntilEnd(cmd));
 
     if (!argStr.isEmpty()) {
-        QStringList args = argStr.split(" ", QString::SkipEmptyParts);
+        QStringList args = argStr.split(" ", Qt::SkipEmptyParts);
         int paramNo, j = 0;
         while (j < code.size()) {
             if (code[j] == '\\' && j < code.size() - 1 && (paramNo = code[j + 1].digitValue()) >= 1
@@ -3011,10 +3017,9 @@ const QStringMultiMap &Doc::metaTagMap() const
     return priv && priv->extra ? priv->extra->metaMap_ : *null_QStringMultiMap();
 }
 
-const Config *Doc::config_ = nullptr;
-
-void Doc::initialize(const Config &config)
+void Doc::initialize()
 {
+    Config &config = Config::instance();
     DocParser::tabSize = config.getInt(CONFIG_TABSIZE);
     DocParser::exampleFiles = config.getCanonicalPathList(CONFIG_EXAMPLES);
     DocParser::exampleDirs = config.getCanonicalPathList(CONFIG_EXAMPLEDIRS);
@@ -3024,7 +3029,6 @@ void Doc::initialize(const Config &config)
 
     QmlTypeNode::qmlOnly = config.getBool(CONFIG_QMLONLY);
     QStringMap reverseAliasMap;
-    config_ = &config;
 
     for (const auto &a : config.subVars(CONFIG_ALIAS)) {
         QString alias = config.getString(CONFIG_ALIAS + Config::dot + a);

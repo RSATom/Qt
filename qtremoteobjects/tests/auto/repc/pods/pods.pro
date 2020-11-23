@@ -1,5 +1,5 @@
 CONFIG += testcase
-TARGET = tst_pods
+TARGET = tst_repc_pods
 QT += testlib remoteobjects
 QT -= gui
 

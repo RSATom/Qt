@@ -8,7 +8,7 @@ import "components/autofill/core/common/mojom/autofill_types.mojom";
 import "mojo/public/mojom/base/string16.mojom";
 import "mojo/public/mojom/base/text_direction.mojom";
 import "mojo/public/mojom/base/time.mojom";
-import "ui/gfx/geometry/mojo/geometry.mojom";
+import "ui/gfx/geometry/mojom/geometry.mojom";
 import "url/mojom/url.mojom";
 
 // There is one instance of this interface per render frame host in the browser
@@ -102,9 +102,12 @@ interface PasswordManagerDriver {
   // save/update prompt anchored to the omnibox icon should be removed.
   HideManualFallbackForSaving();
 
-  // Notification that same-document navigation happened and at this moment we
-  // have filled password form. We use this as a signal for successful login.
-  SameDocumentNavigation(PasswordForm password_form);
+  // Notification that same-document navigation happened. We use this as a
+  // signal for successful login.
+  // TODO(crbug.com/949519): Rename this method to a more generic name since
+  // it's called in many scenarios other than SameDocumentNavigation such as
+  // FRAME_DETACHED.
+  SameDocumentNavigation(SubmissionIndicatorEvent submission_indication_event);
 
   // Sends |log| to browser for displaying to the user. Only strings passed as
   // an argument to methods overriding SavePasswordProgressLogger::SendLog may
@@ -126,6 +129,9 @@ interface PasswordManagerDriver {
   ShowPasswordSuggestions(mojo_base.mojom.TextDirection text_direction,
                           mojo_base.mojom.String16 typed_username,
                           int32 options, gfx.mojom.RectF bounds);
+
+  // Instructs the browser to show the Touch To Fill UI.
+  ShowTouchToFill();
 
   // Checks the safe browsing reputation of the website where the focused
   // username/password field is on.

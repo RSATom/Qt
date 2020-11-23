@@ -27,7 +27,7 @@
 **
 ****************************************************************************/
 
-import QtQuick 2.12
+import QtQuick 2.15
 import HelperWidgets 2.0
 import QtQuick.Layouts 1.12
 
@@ -73,7 +73,8 @@ Column {
             SecondColumnLayout {
                 SpinBox {
                     minimumValue: 0
-                    maximumValue: 100
+                    maximumValue: 9999999
+                    realDragRange: 5000
                     decimals: 0
                     backendValue: backendValues.width
                     Layout.fillWidth: true
@@ -87,7 +88,8 @@ Column {
             SecondColumnLayout {
                 SpinBox {
                     minimumValue: 0
-                    maximumValue: 100
+                    maximumValue: 9999999
+                    realDragRange: 5000
                     decimals: 0
                     backendValue: backendValues.height
                     Layout.fillWidth: true

@@ -29,7 +29,6 @@
 #ifndef HELPPROJECTWRITER_H
 #define HELPPROJECTWRITER_H
 
-#include "config.h"
 #include "node.h"
 
 #include <QtCore/qstring.h>
@@ -45,11 +44,9 @@ using NodeTypeSet = QSet<unsigned char>;
 
 struct SubProject
 {
-    using NodeTypeToSet = QHash<unsigned char, NodeTypeSet>;
-
     QString title;
     QString indexTitle;
-    NodeTypeToSet selectors;
+    NodeTypeSet selectors;
     bool sortPages;
     QString type;
     QHash<QString, const Node *> nodes;
@@ -83,8 +80,8 @@ class HelpProjectWriter
     Q_DECLARE_TR_FUNCTIONS(QDoc::HelpProjectWriter)
 
 public:
-    HelpProjectWriter(const Config &config, const QString &defaultFileName, Generator *g);
-    void reset(const Config &config, const QString &defaultFileName, Generator *g);
+    HelpProjectWriter(const QString &defaultFileName, Generator *g);
+    void reset(const QString &defaultFileName, Generator *g);
     void addExtraFile(const QString &file);
     void addExtraFiles(const QSet<QString> &files);
     void generate();

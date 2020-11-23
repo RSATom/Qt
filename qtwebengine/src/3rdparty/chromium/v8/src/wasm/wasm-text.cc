@@ -102,7 +102,7 @@ void PrintWasmText(const WasmModule* module, const ModuleWireBytes& wire_bytes,
       case kExprIf:
       case kExprBlock:
       case kExprTry: {
-        BlockTypeImmediate<Decoder::kNoValidate> imm(kAllWasmFeatures, &i,
+        BlockTypeImmediate<Decoder::kNoValidate> imm(WasmFeatures::All(), &i,
                                                      i.pc());
         os << WasmOpcodes::OpcodeName(opcode);
         if (imm.type == kWasmBottom) {
@@ -142,7 +142,7 @@ void PrintWasmText(const WasmModule* module, const ModuleWireBytes& wire_bytes,
       }
       case kExprCallIndirect:
       case kExprReturnCallIndirect: {
-        CallIndirectImmediate<Decoder::kNoValidate> imm(kAllWasmFeatures, &i,
+        CallIndirectImmediate<Decoder::kNoValidate> imm(WasmFeatures::All(), &i,
                                                         i.pc());
         DCHECK_EQ(0, imm.table_index);
         os << WasmOpcodes::OpcodeName(opcode) << ' ' << imm.sig_index;
@@ -154,9 +154,9 @@ void PrintWasmText(const WasmModule* module, const ModuleWireBytes& wire_bytes,
         os << WasmOpcodes::OpcodeName(opcode) << ' ' << imm.index;
         break;
       }
-      case kExprGetLocal:
-      case kExprSetLocal:
-      case kExprTeeLocal: {
+      case kExprLocalGet:
+      case kExprLocalSet:
+      case kExprLocalTee: {
         LocalIndexImmediate<Decoder::kNoValidate> imm(&i, i.pc());
         os << WasmOpcodes::OpcodeName(opcode) << ' ' << imm.index;
         break;
@@ -166,8 +166,8 @@ void PrintWasmText(const WasmModule* module, const ModuleWireBytes& wire_bytes,
         os << WasmOpcodes::OpcodeName(opcode) << ' ' << imm.index;
         break;
       }
-      case kExprGetGlobal:
-      case kExprSetGlobal: {
+      case kExprGlobalGet:
+      case kExprGlobalSet: {
         GlobalIndexImmediate<Decoder::kNoValidate> imm(&i, i.pc());
         os << WasmOpcodes::OpcodeName(opcode) << ' ' << imm.index;
         break;
@@ -304,8 +304,10 @@ void PrintWasmText(const WasmModule* module, const ModuleWireBytes& wire_bytes,
             break;
           }
 
-          case kExprI8x16ExtractLane:
-          case kExprI16x8ExtractLane:
+          case kExprI8x16ExtractLaneS:
+          case kExprI8x16ExtractLaneU:
+          case kExprI16x8ExtractLaneS:
+          case kExprI16x8ExtractLaneU:
           case kExprI32x4ExtractLane:
           case kExprI64x2ExtractLane:
           case kExprF32x4ExtractLane:
@@ -318,23 +320,6 @@ void PrintWasmText(const WasmModule* module, const ModuleWireBytes& wire_bytes,
           case kExprF64x2ReplaceLane: {
             SimdLaneImmediate<Decoder::kNoValidate> imm(&i, i.pc());
             os << WasmOpcodes::OpcodeName(opcode) << ' ' << imm.lane;
-            break;
-          }
-
-          case kExprI8x16Shl:
-          case kExprI8x16ShrS:
-          case kExprI8x16ShrU:
-          case kExprI16x8Shl:
-          case kExprI16x8ShrS:
-          case kExprI16x8ShrU:
-          case kExprI32x4Shl:
-          case kExprI32x4ShrS:
-          case kExprI32x4ShrU:
-          case kExprI64x2Shl:
-          case kExprI64x2ShrS:
-          case kExprI64x2ShrU: {
-            SimdShiftImmediate<Decoder::kNoValidate> imm(&i, i.pc());
-            os << WasmOpcodes::OpcodeName(opcode) << ' ' << imm.shift;
             break;
           }
 

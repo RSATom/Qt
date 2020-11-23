@@ -11,6 +11,7 @@
 #include "base/bind.h"
 #include "base/bind_helpers.h"
 #include "base/files/file_path.h"
+#include "base/memory/scoped_refptr.h"
 #include "base/memory/weak_ptr.h"
 #include "base/metrics/histogram_macros.h"
 #include "base/stl_util.h"
@@ -25,19 +26,19 @@
 #include "extensions/browser/content_hash_reader.h"
 #include "extensions/browser/content_verifier_delegate.h"
 #include "extensions/browser/extension_file_task_runner.h"
-#include "extensions/browser/extension_registry.h"
 #include "extensions/common/constants.h"
 #include "extensions/common/extension_l10n_util.h"
 #include "extensions/common/file_util.h"
 #include "extensions/common/manifest_handlers/background_info.h"
 #include "extensions/common/manifest_handlers/content_scripts_handler.h"
+#include "mojo/public/cpp/bindings/pending_remote.h"
 #include "services/network/public/mojom/network_context.mojom.h"
 
 namespace extensions {
 
 namespace {
 
-ContentVerifier::TestObserver* g_content_verifier_test_observer = NULL;
+ContentVerifier::TestObserver* g_content_verifier_test_observer = nullptr;
 
 // This function converts paths like "//foo/bar", "./foo/bar", and
 // "/foo/bar" to "foo/bar". It also converts path separators to "/".
@@ -81,6 +82,11 @@ bool HasPageFileExt(const base::FilePath& requested_path) {
 std::unique_ptr<ContentVerifierIOData::ExtensionData> CreateIOData(
     const Extension* extension,
     ContentVerifierDelegate* delegate) {
+  ContentVerifierDelegate::VerifierSourceType source_type =
+      delegate->GetVerifierSourceType(*extension);
+  if (source_type == ContentVerifierDelegate::VerifierSourceType::NONE)
+    return nullptr;
+
   // The browser image paths from the extension may not be relative (eg
   // they might have leading '/' or './'), so we strip those to make
   // comparing to actual relative paths work later on.
@@ -114,7 +120,7 @@ std::unique_ptr<ContentVerifierIOData::ExtensionData> CreateIOData(
 
   return std::make_unique<ContentVerifierIOData::ExtensionData>(
       std::move(image_paths), std::move(background_or_content_paths),
-      extension->version());
+      extension->version(), source_type);
 }
 
 }  // namespace
@@ -178,13 +184,13 @@ class ContentVerifier::HashHelper {
   //
   // Must be called on IO thread. The method responds through |callback| on IO
   // thread.
-  void GetContentHash(const ContentHash::ExtensionKey& extension_key,
-                      ContentHash::FetchParams fetch_params,
+  void GetContentHash(ContentHash::FetchKey fetch_key,
+                      ContentVerifierDelegate::VerifierSourceType source_type,
                       bool force_missing_computed_hashes_creation,
                       ContentHashCallback callback) {
     DCHECK_CURRENTLY_ON(content::BrowserThread::IO);
-    auto callback_key = std::make_pair(extension_key.extension_id,
-                                       extension_key.extension_version);
+    auto callback_key =
+        std::make_pair(fetch_key.extension_id, fetch_key.extension_version);
     auto iter = callback_infos_.find(callback_key);
     if (iter != callback_infos_.end()) {
       iter->second.callbacks.push_back(std::move(callback));
@@ -203,8 +209,8 @@ class ContentVerifier::HashHelper {
     GetExtensionFileTaskRunner()->PostTask(
         FROM_HERE,
         base::BindOnce(
-            &HashHelper::ReadHashOnFileTaskRunner, extension_key,
-            std::move(fetch_params),
+            &HashHelper::ReadHashOnFileTaskRunner, std::move(fetch_key),
+            source_type,
             base::BindRepeating(&IsCancelledChecker::IsCancelled, checker),
             base::BindOnce(&HashHelper::DidReadHash, weak_factory_.GetWeakPtr(),
                            callback_key, checker)));
@@ -280,18 +286,18 @@ class ContentVerifier::HashHelper {
     if (was_cancelled)
       return;
 
-    base::PostTaskWithTraits(
+    base::PostTask(
         FROM_HERE, {content::BrowserThread::IO},
         base::BindOnce(std::move(callback), content_hash, was_cancelled));
   }
 
   static void ReadHashOnFileTaskRunner(
-      const ContentHash::ExtensionKey& extension_key,
-      ContentHash::FetchParams fetch_params,
+      ContentHash::FetchKey fetch_key,
+      ContentVerifierDelegate::VerifierSourceType source_type,
       const IsCancelledCallback& is_cancelled,
       ContentHash::CreatedCallback created_callback) {
     ContentHash::Create(
-        extension_key, std::move(fetch_params), is_cancelled,
+        std::move(fetch_key), source_type, is_cancelled,
         base::BindOnce(&HashHelper::ForwardToIO, std::move(created_callback)));
   }
 
@@ -391,7 +397,7 @@ void ContentVerifier::SetObserverForTests(TestObserver* observer) {
 ContentVerifier::ContentVerifier(
     content::BrowserContext* context,
     std::unique_ptr<ContentVerifierDelegate> delegate)
-    : context_(context), delegate_(std::move(delegate)), observer_(this) {}
+    : context_(context), delegate_(std::move(delegate)) {}
 
 ContentVerifier::~ContentVerifier() {
 }
@@ -404,9 +410,8 @@ void ContentVerifier::Start() {
 void ContentVerifier::Shutdown() {
   shutdown_on_ui_ = true;
   delegate_->Shutdown();
-  base::PostTaskWithTraits(
-      FROM_HERE, {content::BrowserThread::IO},
-      base::BindOnce(&ContentVerifier::ShutdownOnIO, this));
+  base::PostTask(FROM_HERE, {content::BrowserThread::IO},
+                 base::BindOnce(&ContentVerifier::ShutdownOnIO, this));
   observer_.RemoveAll();
 }
 
@@ -435,14 +440,14 @@ scoped_refptr<ContentVerifyJob> ContentVerifier::CreateAndStartJobFor(
   // hopping solution, but that requires a substantial change in
   // ContnetVerifier/ContentVerifyJob.
   if (!data)
-    return NULL;
+    return nullptr;
 
   base::FilePath normalized_unix_path = NormalizeRelativePath(relative_path);
 
   std::set<base::FilePath> unix_paths;
   unix_paths.insert(normalized_unix_path);
   if (!ShouldVerifyAnyPaths(extension_id, extension_root, unix_paths))
-    return NULL;
+    return nullptr;
 
   // TODO(asargent) - we can probably get some good performance wins by having
   // a cache of ContentHashReader's that we hold onto past the end of each job.
@@ -468,10 +473,9 @@ void ContentVerifier::GetContentHash(
     // TODO(lazyboy): Make CreateJobFor return a scoped_refptr instead of raw
     // pointer to fix this. Also add unit test to exercise this code path
     // explicitly.
-    base::PostTaskWithTraits(
-        FROM_HERE, {content::BrowserThread::IO},
-        base::BindOnce(base::DoNothing::Once<ContentHashCallback>(),
-                       std::move(callback)));
+    base::PostTask(FROM_HERE, {content::BrowserThread::IO},
+                   base::BindOnce(base::DoNothing::Once<ContentHashCallback>(),
+                                  std::move(callback)));
     return;
   }
 
@@ -480,21 +484,20 @@ void ContentVerifier::GetContentHash(
   auto cache_iter = cache_.find(cache_key);
   if (cache_iter != cache_.end()) {
     // Currently, we expect |callback| to be called asynchronously.
-    base::PostTaskWithTraits(
-        FROM_HERE, {content::BrowserThread::IO},
-        base::BindOnce(std::move(callback), cache_iter->second));
+    base::PostTask(FROM_HERE, {content::BrowserThread::IO},
+                   base::BindOnce(std::move(callback), cache_iter->second));
     return;
   }
 
-  ContentHash::ExtensionKey extension_key(extension_id, extension_root,
-                                          extension_version,
-                                          delegate_->GetPublicKey());
-  ContentHash::FetchParams fetch_params =
-      GetFetchParams(extension_id, extension_version);
+  const ContentVerifierIOData::ExtensionData* data =
+      io_data_.GetData(extension_id);
+  DCHECK(data);
+  ContentHash::FetchKey fetch_key =
+      GetFetchKey(extension_id, extension_root, extension_version);
   // Since |shutdown_on_io_| = false, GetOrCreateHashHelper() must return
   // non-nullptr instance of HashHelper.
   GetOrCreateHashHelper()->GetContentHash(
-      extension_key, std::move(fetch_params),
+      std::move(fetch_key), data->source_type,
       force_missing_computed_hashes_creation,
       base::BindOnce(&ContentVerifier::DidGetContentHash, this, cache_key,
                      std::move(callback)));
@@ -503,9 +506,9 @@ void ContentVerifier::GetContentHash(
 void ContentVerifier::VerifyFailed(const ExtensionId& extension_id,
                                    ContentVerifyJob::FailureReason reason) {
   if (!content::BrowserThread::CurrentlyOn(content::BrowserThread::UI)) {
-    base::PostTaskWithTraits(FROM_HERE, {content::BrowserThread::UI},
-                             base::BindOnce(&ContentVerifier::VerifyFailed,
-                                            this, extension_id, reason));
+    base::PostTask(FROM_HERE, {content::BrowserThread::UI},
+                   base::BindOnce(&ContentVerifier::VerifyFailed, this,
+                                  extension_id, reason));
     return;
   }
   if (shutdown_on_ui_)
@@ -523,12 +526,13 @@ void ContentVerifier::OnExtensionLoaded(
   if (shutdown_on_ui_)
     return;
 
-  if (delegate_->ShouldBeVerified(*extension)) {
-    base::PostTaskWithTraits(
-        FROM_HERE, {content::BrowserThread::IO},
-        base::BindOnce(&ContentVerifier::OnExtensionLoadedOnIO, this,
-                       extension->id(), extension->path(), extension->version(),
-                       CreateIOData(extension, delegate_.get())));
+  std::unique_ptr<ContentVerifierIOData::ExtensionData> io_data =
+      CreateIOData(extension, delegate_.get());
+  if (io_data) {
+    base::PostTask(FROM_HERE, {content::BrowserThread::IO},
+                   base::BindOnce(&ContentVerifier::OnExtensionLoadedOnIO, this,
+                                  extension->id(), extension->path(),
+                                  extension->version(), std::move(io_data)));
   }
 }
 
@@ -553,10 +557,9 @@ void ContentVerifier::OnExtensionUnloaded(
     UnloadedExtensionReason reason) {
   if (shutdown_on_ui_)
     return;
-  base::PostTaskWithTraits(
-      FROM_HERE, {content::BrowserThread::IO},
-      base::BindOnce(&ContentVerifier::OnExtensionUnloadedOnIO, this,
-                     extension->id(), extension->version()));
+  base::PostTask(FROM_HERE, {content::BrowserThread::IO},
+                 base::BindOnce(&ContentVerifier::OnExtensionUnloadedOnIO, this,
+                                extension->id(), extension->version()));
 }
 
 GURL ContentVerifier::GetSignatureFetchUrlForTest(
@@ -595,41 +598,54 @@ void ContentVerifier::OnExtensionUnloadedOnIO(
 void ContentVerifier::OnFetchComplete(
     const scoped_refptr<const ContentHash>& content_hash) {
   DCHECK_CURRENTLY_ON(content::BrowserThread::IO);
-  ExtensionId extension_id = content_hash->extension_key().extension_id;
+  ExtensionId extension_id = content_hash->extension_id();
   if (g_content_verifier_test_observer) {
     g_content_verifier_test_observer->OnFetchComplete(
-        extension_id, content_hash->has_verified_contents());
+        extension_id, content_hash->succeeded());
   }
 
   VLOG(1) << "OnFetchComplete " << extension_id
           << " success:" << content_hash->succeeded();
 
-  const bool did_hash_mismatch = ShouldVerifyAnyPaths(
-      extension_id, content_hash->extension_key().extension_root,
-      content_hash->hash_mismatch_unix_paths());
+  const bool did_hash_mismatch =
+      ShouldVerifyAnyPaths(extension_id, content_hash->extension_root(),
+                           content_hash->hash_mismatch_unix_paths());
   if (!did_hash_mismatch)
     return;
 
   VerifyFailed(extension_id, ContentVerifyJob::HASH_MISMATCH);
 }
 
-ContentHash::FetchParams ContentVerifier::GetFetchParams(
+ContentHash::FetchKey ContentVerifier::GetFetchKey(
     const ExtensionId& extension_id,
+    const base::FilePath& extension_root,
     const base::Version& extension_version) {
   DCHECK_CURRENTLY_ON(content::BrowserThread::IO);
 
+  const ContentVerifierIOData::ExtensionData* data =
+      io_data_.GetData(extension_id);
+  DCHECK(data);
+  if (data->source_type ==
+      ContentVerifierDelegate::VerifierSourceType::UNSIGNED_HASHES) {
+    return ContentHash::FetchKey(extension_id, extension_root,
+                                 extension_version, mojo::NullRemote(),
+                                 GURL::EmptyGURL(), ContentVerifierKey());
+  }
+
   // Create a new mojo pipe. It's safe to pass this around and use immediately,
   // even though it needs to finish initialization on the UI thread.
-  network::mojom::URLLoaderFactoryPtr url_loader_factory_ptr;
-  base::PostTaskWithTraits(
+  mojo::PendingRemote<network::mojom::URLLoaderFactory>
+      url_loader_factory_remote;
+  base::PostTask(
       FROM_HERE, {content::BrowserThread::UI},
-      base::BindOnce(&ContentVerifier::BindURLLoaderFactoryRequestOnUIThread,
-                     this, mojo::MakeRequest(&url_loader_factory_ptr)));
-  network::mojom::URLLoaderFactoryPtrInfo url_loader_factory_info =
-      url_loader_factory_ptr.PassInterface();
-  return ContentHash::FetchParams(
-      std::move(url_loader_factory_info),
-      delegate_->GetSignatureFetchUrl(extension_id, extension_version));
+      base::BindOnce(
+          &ContentVerifier::BindURLLoaderFactoryReceiverOnUIThread, this,
+          url_loader_factory_remote.InitWithNewPipeAndPassReceiver()));
+  return ContentHash::FetchKey(
+      extension_id, extension_root, extension_version,
+      std::move(url_loader_factory_remote),
+      delegate_->GetSignatureFetchUrl(extension_id, extension_version),
+      delegate_->GetPublicKey());
 }
 
 void ContentVerifier::DidGetContentHash(
@@ -640,15 +656,16 @@ void ContentVerifier::DidGetContentHash(
   std::move(original_callback).Run(content_hash);
 }
 
-void ContentVerifier::BindURLLoaderFactoryRequestOnUIThread(
-    network::mojom::URLLoaderFactoryRequest url_loader_factory_request) {
+void ContentVerifier::BindURLLoaderFactoryReceiverOnUIThread(
+    mojo::PendingReceiver<network::mojom::URLLoaderFactory>
+        url_loader_factory_receiver) {
   DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
   if (shutdown_on_ui_)
     return;
 
   content::BrowserContext::GetDefaultStoragePartition(context_)
       ->GetURLLoaderFactoryForBrowserProcess()
-      ->Clone(std::move(url_loader_factory_request));
+      ->Clone(std::move(url_loader_factory_receiver));
 }
 
 bool ContentVerifier::ShouldVerifyAnyPaths(

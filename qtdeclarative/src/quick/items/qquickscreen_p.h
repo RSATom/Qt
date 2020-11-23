@@ -54,7 +54,7 @@
 #include <qqml.h>
 #include <QRect>
 #include <QSize>
-#include <private/qqmlglobal_p.h>
+#include <private/qtquickglobal_p.h>
 
 QT_BEGIN_NAMESPACE
 
@@ -64,7 +64,7 @@ class QQuickWindow;
 class QScreen;
 
 
-class Q_AUTOTEST_EXPORT QQuickScreenInfo : public QObject
+class Q_QUICK_PRIVATE_EXPORT QQuickScreenInfo : public QObject
 {
     Q_OBJECT
     Q_PROPERTY(QString name READ name NOTIFY nameChanged)
@@ -78,9 +78,7 @@ class Q_AUTOTEST_EXPORT QQuickScreenInfo : public QObject
     Q_PROPERTY(qreal logicalPixelDensity READ logicalPixelDensity NOTIFY logicalPixelDensityChanged)
     Q_PROPERTY(qreal pixelDensity READ pixelDensity NOTIFY pixelDensityChanged)
     Q_PROPERTY(qreal devicePixelRatio READ devicePixelRatio NOTIFY devicePixelRatioChanged)
-    // TODO Qt 6 Rename primaryOrientation to orientation
     Q_PROPERTY(Qt::ScreenOrientation primaryOrientation READ primaryOrientation NOTIFY primaryOrientationChanged)
-    // TODO Qt 6 Remove this orientation -> incomplete device orientation -> better use OrientationSensor
     Q_PROPERTY(Qt::ScreenOrientation orientation READ orientation NOTIFY orientationChanged)
 
     Q_PROPERTY(int virtualX READ virtualX NOTIFY virtualXChanged REVISION 3)
@@ -128,7 +126,7 @@ protected:
     QPointer<QScreen> m_screen;
 };
 
-class Q_AUTOTEST_EXPORT QQuickScreenAttached : public QQuickScreenInfo
+class Q_QUICK_PRIVATE_EXPORT QQuickScreenAttached : public QQuickScreenInfo
 {
     Q_OBJECT
     Q_PROPERTY(Qt::ScreenOrientations orientationUpdateMask READ orientationUpdateMask
@@ -152,22 +150,23 @@ protected Q_SLOTS:
     void screenChanged(QScreen*);
 
 private:
-    QQuickWindow* m_window;
+    QQuickWindow* m_window = nullptr;
     QQuickItem* m_attachee;
     Qt::ScreenOrientations m_updateMask;
-    bool m_updateMaskSet;
+    bool m_updateMaskSet = false;
 };
 
-class Q_AUTOTEST_EXPORT QQuickScreen : public QObject
+class Q_QUICK_PRIVATE_EXPORT QQuickScreen : public QObject
 {
     Q_OBJECT
+    QML_ATTACHED(QQuickScreenAttached)
+
 public:
     static QQuickScreenAttached *qmlAttachedProperties(QObject *object){ return new QQuickScreenAttached(object); }
 };
 
 QT_END_NAMESPACE
 
-QML_DECLARE_TYPEINFO(QQuickScreen, QML_HAS_ATTACHED_PROPERTIES)
 QML_DECLARE_TYPE(QQuickScreenInfo)
 
 #endif

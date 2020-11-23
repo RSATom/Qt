@@ -241,7 +241,7 @@
 #include "qstringlist.h"
 #include "qurl.h"
 
-#ifndef QT_NO_BEARERMANAGEMENT
+#ifndef QT_NO_BEARERMANAGEMENT // ### Qt6: Remove section
 #include <QtNetwork/QNetworkConfiguration>
 #endif
 
@@ -254,13 +254,13 @@ class QGlobalNetworkProxy
 {
 public:
     QGlobalNetworkProxy()
-        : applicationLevelProxy(0)
-        , applicationLevelProxyFactory(0)
+        : applicationLevelProxy(nullptr)
+        , applicationLevelProxyFactory(nullptr)
 #if QT_CONFIG(socks5)
-        , socks5SocketEngineHandler(0)
+        , socks5SocketEngineHandler(nullptr)
 #endif
 #if QT_CONFIG(http)
-        , httpSocketEngineHandler(0)
+        , httpSocketEngineHandler(nullptr)
 #endif
 #ifdef QT_USE_SYSTEM_PROXIES
         , useSystemProxies(true)
@@ -313,7 +313,7 @@ public:
             applicationLevelProxy = new QNetworkProxy;
         *applicationLevelProxy = proxy;
         delete applicationLevelProxyFactory;
-        applicationLevelProxyFactory = 0;
+        applicationLevelProxyFactory = nullptr;
         useSystemProxies = false;
     }
 
@@ -501,7 +501,7 @@ template<> void QSharedDataPointer<QNetworkProxyPrivate>::detach()
     \sa setType(), setApplicationProxy()
 */
 QNetworkProxy::QNetworkProxy()
-    : d(0)
+    : d(nullptr)
 {
     // make sure we have QGlobalNetworkProxy singleton created, otherwise
     // you don't have any socket engine handler created when directly setting
@@ -983,11 +983,6 @@ template<> void QSharedDataPointer<QNetworkProxyQueryPrivate>::detach()
     this information is provided in case a better choice can be made,
     like choosing an caching HTTP proxy for HTTP-based connections,
     but a more powerful SOCKSv5 proxy for all others.
-
-    The network configuration specifies which configuration to use,
-    when bearer management is used. For example on a mobile phone
-    the proxy settings are likely to be different for the cellular
-    network vs WLAN.
 
     Some of the criteria may not make sense in all of the types of
     query. The following table lists the criteria that are most

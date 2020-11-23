@@ -95,6 +95,7 @@ public:
     explicit QIOPipePrivate(QIODevice *iodevice, bool proxying);
     ~QIOPipePrivate() override;
 
+    void initialize();
     bool readAvailableData();
     void pumpData(const QByteArray &ba);
     void pushData(const QByteArray &ba);

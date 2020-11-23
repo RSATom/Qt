@@ -71,7 +71,7 @@ public:
 
     QPixmap standardPixmap(StandardPixmap sp, const QSizeF &size) const override;
 
-    QIcon fileIcon(const QFileInfo &fileInfo, QPlatformTheme::IconOptions iconOptions = nullptr) const override;
+    QIcon fileIcon(const QFileInfo &fileInfo, QPlatformTheme::IconOptions iconOptions = {}) const override;
 
     void windowsThemeChanged(QWindow *window);
     void displayChanged() { refreshIconPixmapSizes(); }
@@ -84,13 +84,15 @@ public:
     void showPlatformMenuBar() override;
 
     static bool useNativeMenus();
+    static bool queryDarkMode();
+    static bool queryHighContrast();
 
     void refreshFonts();
+    void refresh();
 
     static const char *name;
 
 private:
-    void refresh() { refreshPalettes(); refreshFonts(); }
     void clearPalettes();
     void refreshPalettes();
     void clearFonts();

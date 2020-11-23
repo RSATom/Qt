@@ -142,14 +142,22 @@ void FakeBluetoothAdapterClient::StartDiscovery(
     return;
   }
 
+  if (set_start_discovery_should_fail_) {
+    set_start_discovery_should_fail_ = false;
+    PostDelayedTask(
+        base::BindOnce(std::move(callback), Error(kUnknownAdapterError, "")));
+    return;
+  }
+
   ++discovering_count_;
   VLOG(1) << "StartDiscovery: " << object_path.value() << ", "
           << "count is now " << discovering_count_;
   PostDelayedTask(base::BindOnce(std::move(callback), base::nullopt));
 
   if (discovering_count_ == 1) {
-    properties_->discovering.ReplaceValue(true);
-
+    PostDelayedTask(
+        base::BindOnce(&FakeBluetoothAdapterClient::UpdateDiscoveringProperty,
+                       weak_ptr_factory_.GetWeakPtr(), /*discovering=*/true));
     FakeBluetoothDeviceClient* device_client =
         static_cast<FakeBluetoothDeviceClient*>(
             bluez::BluezDBusManager::Get()->GetBluetoothDeviceClient());
@@ -190,24 +198,30 @@ void FakeBluetoothAdapterClient::StopDiscovery(
     }
 
     discovery_filter_.reset();
-    properties_->discovering.ReplaceValue(false);
+    PostDelayedTask(
+        base::BindOnce(&FakeBluetoothAdapterClient::UpdateDiscoveringProperty,
+                       weak_ptr_factory_.GetWeakPtr(), /*discovering=*/false));
   }
+}
+
+void FakeBluetoothAdapterClient::UpdateDiscoveringProperty(bool discovering) {
+  properties_->discovering.ReplaceValue(discovering);
 }
 
 void FakeBluetoothAdapterClient::PauseDiscovery(
     const dbus::ObjectPath& object_path,
-    const base::Closure& callback,
+    base::OnceClosure callback,
     ErrorCallback error_callback) {
   ++pause_count_;
-  callback.Run();
+  std::move(callback).Run();
 }
 
 void FakeBluetoothAdapterClient::UnpauseDiscovery(
     const dbus::ObjectPath& object_path,
-    const base::Closure& callback,
+    base::OnceClosure callback,
     ErrorCallback error_callback) {
   ++unpause_count_;
-  callback.Run();
+  std::move(callback).Run();
 }
 
 void FakeBluetoothAdapterClient::RemoveDevice(
@@ -232,6 +246,10 @@ void FakeBluetoothAdapterClient::RemoveDevice(
 
 void FakeBluetoothAdapterClient::MakeSetDiscoveryFilterFail() {
   set_discovery_filter_should_fail_ = true;
+}
+
+void FakeBluetoothAdapterClient::MakeStartDiscoveryFail() {
+  set_start_discovery_should_fail_ = true;
 }
 
 void FakeBluetoothAdapterClient::SetDiscoveryFilter(

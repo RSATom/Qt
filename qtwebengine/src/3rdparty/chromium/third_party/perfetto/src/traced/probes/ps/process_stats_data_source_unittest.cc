@@ -18,24 +18,23 @@
 
 #include <dirent.h>
 
-#include <gmock/gmock.h>
-#include <gtest/gtest.h>
 #include "perfetto/ext/base/temp_file.h"
 #include "perfetto/protozero/scattered_heap_buffer.h"
 #include "perfetto/tracing/core/data_source_config.h"
 #include "src/base/test/test_task_runner.h"
 #include "src/tracing/core/trace_writer_for_testing.h"
+#include "test/gtest_and_gmock.h"
 
-#include "perfetto/config/process_stats/process_stats_config.pbzero.h"
-#include "perfetto/trace/trace_packet.pbzero.h"
+#include "protos/perfetto/config/process_stats/process_stats_config.pbzero.h"
+#include "protos/perfetto/trace/trace_packet.pbzero.h"
 
+using ::perfetto::protos::pbzero::ProcessStatsConfig;
 using ::testing::_;
 using ::testing::ElementsAreArray;
 using ::testing::Invoke;
 using ::testing::Mock;
 using ::testing::Return;
 using ::testing::Truly;
-using ::perfetto::protos::pbzero::ProcessStatsConfig;
 
 namespace perfetto {
 namespace {
@@ -73,19 +72,21 @@ class ProcessStatsDataSourceTest : public ::testing::Test {
 TEST_F(ProcessStatsDataSourceTest, WriteOnceProcess) {
   auto data_source = GetProcessStatsDataSource(DataSourceConfig());
   EXPECT_CALL(*data_source, ReadProcPidFile(42, "status"))
-      .WillOnce(Return("Name: foo\nTgid:\t42\nPid:   42\nPPid:  17\n"));
+      .WillOnce(Return(
+          "Name: foo\nTgid:\t42\nPid:   42\nPPid:  17\nUid:  43 44 45 56\n"));
   EXPECT_CALL(*data_source, ReadProcPidFile(42, "cmdline"))
       .WillOnce(Return(std::string("foo\0bar\0baz\0", 12)));
 
   data_source->OnPids({42});
 
   std::vector<protos::TracePacket> trace = writer_raw_->GetAllTracePackets();
-  ASSERT_EQ(trace.size(), 1);
+  ASSERT_EQ(trace.size(), 1u);
   auto ps_tree = trace[0].process_tree();
   ASSERT_EQ(ps_tree.processes_size(), 1);
   auto first_process = ps_tree.processes(0);
   ASSERT_EQ(first_process.pid(), 42);
   ASSERT_EQ(first_process.ppid(), 17);
+  ASSERT_EQ(first_process.uid(), 43);
   ASSERT_THAT(first_process.cmdline(), ElementsAreArray({"foo", "bar", "baz"}));
 }
 
@@ -131,7 +132,7 @@ TEST_F(ProcessStatsDataSourceTest, DontRescanCachedPIDsAndTIDs) {
 
   // check written contents
   std::vector<protos::TracePacket> trace = writer_raw_->GetAllTracePackets();
-  EXPECT_EQ(trace.size(), 3);
+  EXPECT_EQ(trace.size(), 3u);
 
   // first packet - two unique processes, four threads
   auto ps_tree = trace[0].process_tree();
@@ -168,7 +169,7 @@ TEST_F(ProcessStatsDataSourceTest, IncrementalStateClear) {
 
   {
     std::vector<protos::TracePacket> trace = writer_raw_->GetAllTracePackets();
-    ASSERT_EQ(trace.size(), 1);
+    ASSERT_EQ(trace.size(), 1u);
     auto packet = trace[0];
     // First packet in the trace has no previous state, so the clear marker is
     // emitted.
@@ -191,7 +192,7 @@ TEST_F(ProcessStatsDataSourceTest, IncrementalStateClear) {
 
   {
     std::vector<protos::TracePacket> trace = writer_raw_->GetAllTracePackets();
-    ASSERT_EQ(trace.size(), 1);
+    ASSERT_EQ(trace.size(), 1u);
   }
 
   // Invalidate incremental state, and look up the same pid again, which should
@@ -208,7 +209,7 @@ TEST_F(ProcessStatsDataSourceTest, IncrementalStateClear) {
   {
     // Second packet with new proc information.
     std::vector<protos::TracePacket> trace = writer_raw_->GetAllTracePackets();
-    ASSERT_EQ(trace.size(), 2);
+    ASSERT_EQ(trace.size(), 2u);
     auto packet = trace[1];
     ASSERT_TRUE(packet.incremental_state_cleared());
 
@@ -264,7 +265,7 @@ TEST_F(ProcessStatsDataSourceTest, RenamePids) {
 
   // check written contents
   std::vector<protos::TracePacket> trace = writer_raw_->GetAllTracePackets();
-  EXPECT_EQ(trace.size(), 3);
+  EXPECT_EQ(trace.size(), 3u);
 
   // first packet - two unique processes
   auto ps_tree = trace[0].process_tree();
@@ -350,9 +351,12 @@ TEST_F(ProcessStatsDataSourceTest, ProcessStats) {
   iter = 0;
   for (const auto& proc_counters : processes) {
     int32_t pid = proc_counters.pid();
-    ASSERT_EQ(proc_counters.vm_size_kb(), pid * 100 + iter * 10 + 1);
-    ASSERT_EQ(proc_counters.vm_rss_kb(), pid * 100 + iter * 10 + 2);
-    ASSERT_EQ(proc_counters.oom_score_adj(), pid * 100 + iter * 10 + 3);
+    ASSERT_EQ(static_cast<int>(proc_counters.vm_size_kb()),
+              pid * 100 + iter * 10 + 1);
+    ASSERT_EQ(static_cast<int>(proc_counters.vm_rss_kb()),
+              pid * 100 + iter * 10 + 2);
+    ASSERT_EQ(static_cast<int>(proc_counters.oom_score_adj()),
+              pid * 100 + iter * 10 + 3);
     if (pid == kPids[base::ArraySize(kPids) - 1])
       iter++;
   }
@@ -418,12 +422,12 @@ TEST_F(ProcessStatsDataSourceTest, CacheProcessStats) {
   // a) emissions happen at 0ms, 105ms, 210ms, 315ms
   // b) clear events happen at 220ms, 440ms...
   // Therefore, we should see the emissions at 0ms and 315ms.
-  ASSERT_EQ(processes.size(), 2);
+  ASSERT_EQ(processes.size(), 2u);
   for (const auto& proc_counters : processes) {
     ASSERT_EQ(proc_counters.pid(), kPid);
-    ASSERT_EQ(proc_counters.vm_size_kb(), kPid * 100 + 1);
-    ASSERT_EQ(proc_counters.vm_rss_kb(), kPid * 100 + 2);
-    ASSERT_EQ(proc_counters.oom_score_adj(), kPid * 100);
+    ASSERT_EQ(static_cast<int>(proc_counters.vm_size_kb()), kPid * 100 + 1);
+    ASSERT_EQ(static_cast<int>(proc_counters.vm_rss_kb()), kPid * 100 + 2);
+    ASSERT_EQ(static_cast<int>(proc_counters.oom_score_adj()), kPid * 100);
   }
 
   // Cleanup |fake_proc|. TempDir checks that the directory is empty.

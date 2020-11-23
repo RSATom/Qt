@@ -7,6 +7,7 @@ import("//build/config/ui.gni")
 import("//chrome/common/extensions/api/api_sources.gni")
 import("//chrome/common/features.gni")
 import("//extensions/buildflags/buildflags.gni")
+import("//media/media_options.gni")
 import("//tools/json_schema_compiler/json_features.gni")
 import("//tools/json_schema_compiler/json_schema_api.gni")
 

@@ -80,10 +80,12 @@ struct QQmlImportInstance
     QString uri; // e.g. QtQuick
     QString url; // the base path of the import
     QString localDirectoryPath; // the base path of the import if it's a local file
+    QQmlType containingType; // points to the containing type for inline components
     int majversion; // the major version imported
     int minversion; // the minor version imported
     bool isLibrary; // true means that this is not a file import
     bool implicitlyImported = false;
+    bool isInlineComponent = false;
     QQmlDirComponents qmlDirComponents; // a copy of the components listed in the qmldir
     QQmlDirScripts qmlDirScripts; // a copy of the scripts in the qmldir
 
@@ -114,13 +116,18 @@ public:
                      int *vmajor, int *vminor, QQmlType* type_return,
                      QString *base = nullptr, QList<QQmlError> *errors = nullptr,
                      QQmlType::RegistrationType registrationType = QQmlType::AnyRegistrationType,
-                     QQmlImport::RecursionRestriction recursionRestriction = QQmlImport::PreventRecursion);
+                     bool *typeRecursionDeteced = nullptr);
 
     // Prefix when used as a qualified import.  Otherwise empty.
     QHashedString prefix;
 
     // Used by QQmlImportsPrivate::qualifiedSets
+    // set to this in unqualifiedSet to indicate that the lists of imports needs
+    // to be sorted when an inline component import was added
+    // We can't use flag pointer, as that does not work with QFieldList
     QQmlImportNamespace *nextNamespace;
+    bool needsSorting() const;
+    void setNeedsSorting(bool needsSorting);
 };
 
 class Q_QML_PRIVATE_EXPORT QQmlImports
@@ -142,8 +149,7 @@ public:
                      QQmlImportNamespace **ns_return,
                      QList<QQmlError> *errors = nullptr,
                      QQmlType::RegistrationType registrationType = QQmlType::AnyRegistrationType,
-                     QQmlImport::RecursionRestriction recursionRestriction
-                     = QQmlImport::PreventRecursion) const;
+                     bool *typeRecursionDetected = nullptr) const;
     bool resolveType(QQmlImportNamespace *,
                      const QHashedStringRef& type,
                      QQmlType *type_return, int *version_major, int *version_minor,
@@ -151,6 +157,8 @@ public:
                      = QQmlType::AnyRegistrationType) const;
 
     bool addImplicitImport(QQmlImportDatabase *importDb, QList<QQmlError> *errors);
+
+    bool addInlineComponentImport(QQmlImportInstance  *const importInstance, const QString &name, const QUrl importUrl, QQmlType containingType);
 
     bool addFileImport(QQmlImportDatabase *,
                        const QString& uri, const QString& prefix, int vmaj, int vmin, bool incomplete,
@@ -164,9 +172,15 @@ public:
                              const QString &uri, const QString &prefix,
                              const QString &qmldirIdentifier, const QString &qmldirUrl, QList<QQmlError> *errors);
 
-    bool locateQmldir(QQmlImportDatabase *,
-                      const QString &uri, int vmaj, int vmin,
-                      QString *qmldirFilePath, QString *url);
+    enum LocalQmldirResult {
+        QmldirFound,
+        QmldirNotFound,
+        QmldirInterceptedToRemote
+    };
+
+    LocalQmldirResult locateLocalQmldir(
+            QQmlImportDatabase *, const QString &uri, int vmaj, int vmin,
+            QString *qmldirFilePath, QString *url);
 
     void populateCache(QQmlTypeNameCache *cache) const;
 
@@ -203,7 +217,7 @@ private:
     QQmlImportsPrivate *d;
 };
 
-class QQmlImportDatabase
+class Q_QML_PRIVATE_EXPORT QQmlImportDatabase
 {
     Q_DECLARE_TR_FUNCTIONS(QQmlImportDatabase)
 public:
@@ -214,6 +228,8 @@ public:
 
 #if QT_CONFIG(library)
     bool importDynamicPlugin(const QString &filePath, const QString &uri, const QString &importNamespace, int vmaj, QList<QQmlError> *errors);
+    bool removeDynamicPlugin(const QString &filePath);
+    QStringList dynamicPlugins() const;
 #endif
 
     QStringList importPathList(PathType type = LocalOrRemote) const;
@@ -235,9 +251,8 @@ private:
                           const QString &baseName);
     bool importStaticPlugin(QObject *instance, const QString &basePath, const QString &uri,
                           const QString &typeNamespace, int vmaj, QList<QQmlError> *errors);
-    bool registerPluginTypes(QObject *instance, const QString &basePath,
-                          const QString &uri, const QString &typeNamespace, int vmaj, QList<QQmlError> *errors);
     void clearDirCache();
+    void finalizePlugin(QObject *instance, const QString &path, const QString &uri);
 
     struct QmldirCache {
         int versionMajor;

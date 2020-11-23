@@ -15,6 +15,7 @@
 #include "third_party/blink/renderer/modules/background_fetch/background_fetch_registration.h"
 #include "third_party/blink/renderer/modules/background_fetch/background_fetch_ui_options.h"
 #include "third_party/blink/renderer/modules/event_interface_modules_names.h"
+#include "third_party/blink/renderer/modules/manifest/image_resource.h"
 #include "third_party/blink/renderer/modules/service_worker/wait_until_observer.h"
 #include "third_party/blink/renderer/platform/bindings/script_state.h"
 #include "third_party/blink/renderer/platform/heap/heap.h"
@@ -100,7 +101,7 @@ void BackgroundFetchUpdateUIEvent::DidGetIcon(
     const String& title,
     const SkBitmap& icon,
     int64_t ideal_to_chosen_icon_size) {
-  registration()->GetRegistrationService()->UpdateUI(
+  registration()->UpdateUI(
       title, icon,
       WTF::Bind(&BackgroundFetchUpdateUIEvent::DidUpdateUI,
                 WrapPersistent(this), WrapPersistent(resolver)));

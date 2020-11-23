@@ -9,10 +9,10 @@
 
 #include "base/macros.h"
 #include "base/memory/ptr_util.h"
+#include "cc/animation/scroll_offset_animation_curve_factory.h"
 #include "third_party/blink/renderer/platform/animation/compositor_animation_curve.h"
 #include "third_party/blink/renderer/platform/geometry/float_point.h"
 #include "third_party/blink/renderer/platform/platform_export.h"
-#include "third_party/blink/renderer/platform/wtf/time.h"
 
 namespace cc {
 class ScrollOffsetAnimationCurve;
@@ -23,13 +23,9 @@ namespace blink {
 class PLATFORM_EXPORT CompositorScrollOffsetAnimationCurve
     : public CompositorAnimationCurve {
  public:
-  enum ScrollDurationBehavior {
-    kScrollDurationDeltaBased = 0,
-    kScrollDurationConstant,
-    kScrollDurationInverseDelta
-  };
+  using ScrollType = cc::ScrollOffsetAnimationCurveFactory::ScrollType;
 
-  CompositorScrollOffsetAnimationCurve(FloatPoint, ScrollDurationBehavior);
+  CompositorScrollOffsetAnimationCurve(FloatPoint, ScrollType);
   explicit CompositorScrollOffsetAnimationCurve(
       cc::ScrollOffsetAnimationCurve*);
 

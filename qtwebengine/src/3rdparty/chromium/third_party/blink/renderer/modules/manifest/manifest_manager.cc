@@ -7,7 +7,6 @@
 #include <utility>
 
 #include "base/bind.h"
-#include "mojo/public/cpp/bindings/strong_binding.h"
 #include "third_party/blink/public/platform/interface_registry.h"
 #include "third_party/blink/renderer/core/dom/document.h"
 #include "third_party/blink/renderer/core/frame/frame_console.h"
@@ -57,7 +56,7 @@ ManifestManager::ManifestManager(LocalFrame& frame)
     manifest_change_notifier_ =
         MakeGarbageCollected<ManifestChangeNotifier>(frame);
     frame.GetInterfaceRegistry()->AddInterface(WTF::BindRepeating(
-        &ManifestManager::BindToRequest, WrapWeakPersistent(this)));
+        &ManifestManager::BindReceiver, WrapWeakPersistent(this)));
   }
 }
 
@@ -101,7 +100,7 @@ void ManifestManager::RequestManifestForTesting(
 bool ManifestManager::CanFetchManifest() {
   if (!GetSupplementable())
     return false;
-  // Do not fetch the manifest if we are on an opqaue origin.
+  // Do not fetch the manifest if we are on an opaque origin.
   return !GetSupplementable()->GetDocument()->GetSecurityOrigin()->IsOpaque();
 }
 
@@ -150,7 +149,7 @@ void ManifestManager::DidCommitLoad() {
 
 void ManifestManager::FetchManifest() {
   if (!CanFetchManifest()) {
-    ManifestUmaUtil::FetchFailed(ManifestUmaUtil::FETCH_FROM_UNIQUE_ORIGIN);
+    ManifestUmaUtil::FetchFailed(ManifestUmaUtil::FETCH_FROM_OPAQUE_ORIGIN);
     ResolveCallbacks(ResolveStateFailure);
     return;
   }
@@ -250,16 +249,12 @@ bool ManifestManager::ManifestUseCredentials() const {
       "use-credentials");
 }
 
-void ManifestManager::BindToRequest(
-    mojom::blink::ManifestManagerRequest request) {
-  bindings_.AddBinding(this, std::move(request));
+void ManifestManager::BindReceiver(
+    mojo::PendingReceiver<mojom::blink::ManifestManager> receiver) {
+  receivers_.Add(this, std::move(receiver));
 }
 
 void ManifestManager::ContextDestroyed(ExecutionContext*) {
-  Dispose();
-}
-
-void ManifestManager::Dispose() {
   if (fetcher_)
     fetcher_->Cancel();
 
@@ -268,7 +263,11 @@ void ManifestManager::Dispose() {
   // in the renderer process should be correctly notified.
   ResolveCallbacks(ResolveStateFailure);
 
-  bindings_.CloseAllBindings();
+  receivers_.Clear();
+}
+
+void ManifestManager::Prefinalize() {
+  receivers_.Clear();
 }
 
 void ManifestManager::Trace(blink::Visitor* visitor) {

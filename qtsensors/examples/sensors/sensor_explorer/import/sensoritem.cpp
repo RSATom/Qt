@@ -325,7 +325,7 @@ QQmlListProperty<QPropertyInfo> QSensorItem::properties()
     _properties.clear();
     _properties.append(_sensorProperties);
     _properties.append(_readerProperties);
-    return QQmlListProperty<QPropertyInfo> (this, _properties);
+    return QQmlListProperty<QPropertyInfo> (this, &_properties);
 }
 
 QT_END_NAMESPACE

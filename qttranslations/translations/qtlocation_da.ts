@@ -11,6 +11,13 @@ Besøg venligst https://developers.arcgis.com/authentication/accessing-arcgis-on
     </message>
 </context>
 <context>
+    <name>PlaceSearchReplyEsri</name>
+    <message>
+        <source>Response parse error</source>
+        <translation>Fejl ved parsing af svar</translation>
+    </message>
+</context>
+<context>
     <name>QDeclarativeGeoMap</name>
     <message>
         <source>No Map</source>
@@ -86,6 +93,18 @@ Besøg venligst https://developers.arcgis.com/authentication/accessing-arcgis-on
 </context>
 <context>
     <name>QGeoMappingManagerEngineMapboxGL</name>
+    <message>
+        <source>China Streets</source>
+        <translation>Kina gader</translation>
+    </message>
+    <message>
+        <source>China Light</source>
+        <translation>Kina let</translation>
+    </message>
+    <message>
+        <source>China Dark</source>
+        <translation>Kina mørkt</translation>
+    </message>
     <message>
         <source>Streets</source>
         <translation>Gader</translation>
@@ -521,6 +540,7 @@ Besøg venligst https://developers.arcgis.com/authentication/accessing-arcgis-on
     </message>
     <message>
         <source>Head %1</source>
+        <extracomment>%1 is &quot;North&quot;, &quot;South&quot;, &quot;East&quot; or &quot;West&quot;</extracomment>
         <translation>Tag mod %1</translation>
     </message>
     <message>
@@ -895,6 +915,7 @@ Besøg venligst https://developers.arcgis.com/authentication/accessing-arcgis-on
     </message>
     <message>
         <source> and continue straight</source>
+        <extracomment>This string will be prepended with lane instructions. E.g., &quot;Use the left or the right lane and continue straight&quot;</extracomment>
         <translation> og fortsæt ligeud</translation>
     </message>
     <message>

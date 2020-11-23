@@ -25,6 +25,7 @@
 #include "base/strings/stringprintf.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/task/post_task.h"
+#include "base/test/bind_test_util.h"
 #include "base/test/mock_entropy_provider.h"
 #include "base/test/scoped_feature_list.h"
 #include "base/threading/platform_thread.h"
@@ -39,12 +40,11 @@
 #include "components/download/public/common/download_task_runner.h"
 #include "components/download/public/common/parallel_download_configs.h"
 #include "content/browser/download/download_manager_impl.h"
-#include "content/browser/download/download_resource_handler.h"
 #include "content/browser/web_contents/web_contents_impl.h"
 #include "content/public/browser/browser_task_traits.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/download_request_utils.h"
-#include "content/public/browser/resource_throttle.h"
+#include "content/public/common/content_client.h"
 #include "content/public/common/content_paths.h"
 #include "content/public/common/content_switches.h"
 #include "content/public/common/webplugininfo.h"
@@ -57,10 +57,10 @@
 #include "content/public/test/test_file_error_injector.h"
 #include "content/public/test/test_navigation_observer.h"
 #include "content/public/test/test_utils.h"
+#include "content/public/test/url_loader_interceptor.h"
 #include "content/shell/browser/shell.h"
 #include "content/shell/browser/shell_browser_context.h"
 #include "content/shell/browser/shell_download_manager_delegate.h"
-#include "content/shell/browser/shell_network_delegate.h"
 #include "content/test/content_browser_test_utils_internal.h"
 #include "content/test/test_content_browser_client.h"
 #include "net/dns/mock_host_resolver.h"
@@ -69,8 +69,6 @@
 #include "net/test/embedded_test_server/http_response.h"
 #include "net/traffic_annotation/network_traffic_annotation_test_helper.h"
 #include "ppapi/buildflags/buildflags.h"
-#include "services/network/public/cpp/features.h"
-#include "services/service_manager/public/cpp/connector.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "third_party/blink/public/common/features.h"
@@ -80,6 +78,10 @@
 
 #if BUILDFLAG(ENABLE_PLUGINS)
 #include "content/browser/plugin_service_impl.h"
+#endif
+
+#if defined(OS_ANDROID)
+#include "base/android/build_info.h"
 #endif
 
 using ::testing::AllOf;
@@ -101,10 +103,36 @@ namespace {
 // Default request count for parallel download tests.
 constexpr int kTestRequestCount = 3;
 
-const std::string kOriginOne = "one.example";
-const std::string kOriginTwo = "two.example";
-const std::string kOriginThree = "example.com";
+// Offset for download to pause.
+const int kPauseOffset = 100 * 1024;
+
+const char kOriginOne[] = "one.example";
+const char kOriginTwo[] = "two.example";
+const char kOriginThree[] = "example.com";
 const char k404Response[] = "HTTP/1.1 404 Not found\r\n\r\n";
+
+void ExpectRequestNetworkIsolationKey(
+    const GURL& request_url,
+    const net::NetworkIsolationKey& network_isolation_key,
+    base::Callback<void()> function) {
+  base::RunLoop request_waiter;
+  std::unique_ptr<content::URLLoaderInterceptor> url_loader_interceptor_ =
+      std::make_unique<content::URLLoaderInterceptor>(
+          base::BindLambdaForTesting(
+              [&](content::URLLoaderInterceptor::RequestParams* params) {
+                const network::ResourceRequest& request = params->url_request;
+                if (request.url == request_url) {
+                  EXPECT_TRUE(request.trusted_params.has_value());
+                  EXPECT_EQ(request.trusted_params->network_isolation_key,
+                            network_isolation_key);
+                  request_waiter.Quit();
+                }
+                return false;  // Do not intercept
+              }));
+
+  function.Run();
+  request_waiter.Run();
+}
 
 // Implementation of TestContentBrowserClient that overrides
 // AllowRenderingMhtmlOverHttp() and allows consumers to set a value.
@@ -143,7 +171,7 @@ class MockDownloadItemObserver : public download::DownloadItem::Observer {
 
 class MockDownloadManagerObserver : public DownloadManager::Observer {
  public:
-  MockDownloadManagerObserver(DownloadManager* manager) {
+  explicit MockDownloadManagerObserver(DownloadManager* manager) {
     manager_ = manager;
     manager->AddObserver(this);
   }
@@ -164,6 +192,7 @@ class MockDownloadManagerObserver : public DownloadManager::Observer {
   }
 
   MOCK_METHOD1(MockManagerGoingDown, void(DownloadManager*));
+
  private:
   DownloadManager* manager_;
 };
@@ -194,18 +223,19 @@ class DownloadFileWithDelay : public download::DownloadFileImpl {
   // storing it in the factory that produced this object for later
   // retrieval.
   void RenameAndUniquify(const base::FilePath& full_path,
-                         const RenameCompletionCallback& callback) override;
-  void RenameAndAnnotate(const base::FilePath& full_path,
-                         const std::string& client_guid,
-                         const GURL& source_url,
-                         const GURL& referrer_url,
-                         std::unique_ptr<service_manager::Connector> connector,
-                         const RenameCompletionCallback& callback) override;
+                         RenameCompletionCallback callback) override;
+  void RenameAndAnnotate(
+      const base::FilePath& full_path,
+      const std::string& client_guid,
+      const GURL& source_url,
+      const GURL& referrer_url,
+      mojo::PendingRemote<quarantine::mojom::Quarantine> remote_quarantine,
+      RenameCompletionCallback callback) override;
 
  private:
   static void RenameCallbackWrapper(
       const base::WeakPtr<DownloadFileWithDelayFactory>& factory,
-      const RenameCompletionCallback& original_callback,
+      RenameCompletionCallback original_callback,
       download::DownloadInterruptReason reason,
       const base::FilePath& path);
 
@@ -233,14 +263,14 @@ class DownloadFileWithDelayFactory : public download::DownloadFileFactory {
       uint32_t download_id,
       base::WeakPtr<download::DownloadDestinationObserver> observer) override;
 
-  void AddRenameCallback(base::Closure callback);
-  void GetAllRenameCallbacks(std::vector<base::Closure>* results);
+  void AddRenameCallback(base::OnceClosure callback);
+  void GetAllRenameCallbacks(std::vector<base::OnceClosure>* results);
 
   // Do not return until GetAllRenameCallbacks() will return a non-empty list.
   void WaitForSomeCallback();
 
  private:
-  std::vector<base::Closure> rename_callbacks_;
+  std::vector<base::OnceClosure> rename_callbacks_;
   base::OnceClosure stop_waiting_;
   base::WeakPtrFactory<DownloadFileWithDelayFactory> weak_ptr_factory_{this};
 
@@ -265,11 +295,11 @@ DownloadFileWithDelay::~DownloadFileWithDelay() {}
 
 void DownloadFileWithDelay::RenameAndUniquify(
     const base::FilePath& full_path,
-    const RenameCompletionCallback& callback) {
+    RenameCompletionCallback callback) {
   DCHECK(download::GetDownloadTaskRunner()->RunsTasksInCurrentSequence());
   download::DownloadFileImpl::RenameAndUniquify(
-      full_path, base::Bind(DownloadFileWithDelay::RenameCallbackWrapper,
-                            owner_, callback));
+      full_path, base::BindOnce(DownloadFileWithDelay::RenameCallbackWrapper,
+                                owner_, std::move(callback)));
 }
 
 void DownloadFileWithDelay::RenameAndAnnotate(
@@ -277,25 +307,26 @@ void DownloadFileWithDelay::RenameAndAnnotate(
     const std::string& client_guid,
     const GURL& source_url,
     const GURL& referrer_url,
-    std::unique_ptr<service_manager::Connector> connector,
-    const RenameCompletionCallback& callback) {
+    mojo::PendingRemote<quarantine::mojom::Quarantine> remote_quarantine,
+    RenameCompletionCallback callback) {
   DCHECK(download::GetDownloadTaskRunner()->RunsTasksInCurrentSequence());
   download::DownloadFileImpl::RenameAndAnnotate(
-      full_path, client_guid, source_url, referrer_url, nullptr,
-      base::Bind(DownloadFileWithDelay::RenameCallbackWrapper, owner_,
-                 callback));
+      full_path, client_guid, source_url, referrer_url, mojo::NullRemote(),
+      base::BindOnce(DownloadFileWithDelay::RenameCallbackWrapper, owner_,
+                     std::move(callback)));
 }
 
 // static
 void DownloadFileWithDelay::RenameCallbackWrapper(
     const base::WeakPtr<DownloadFileWithDelayFactory>& factory,
-    const RenameCompletionCallback& original_callback,
+    RenameCompletionCallback original_callback,
     download::DownloadInterruptReason reason,
     const base::FilePath& path) {
   DCHECK_CURRENTLY_ON(BrowserThread::UI);
   if (!factory)
     return;
-  factory->AddRenameCallback(base::Bind(original_callback, reason, path));
+  factory->AddRenameCallback(
+      base::BindOnce(std::move(original_callback), reason, path));
 }
 
 DownloadFileWithDelayFactory::DownloadFileWithDelayFactory() {}
@@ -313,7 +344,8 @@ download::DownloadFile* DownloadFileWithDelayFactory::CreateFile(
       download_id, observer, weak_ptr_factory_.GetWeakPtr());
 }
 
-void DownloadFileWithDelayFactory::AddRenameCallback(base::Closure callback) {
+void DownloadFileWithDelayFactory::AddRenameCallback(
+    base::OnceClosure callback) {
   DCHECK_CURRENTLY_ON(BrowserThread::UI);
   rename_callbacks_.push_back(std::move(callback));
   if (stop_waiting_)
@@ -321,7 +353,7 @@ void DownloadFileWithDelayFactory::AddRenameCallback(base::Closure callback) {
 }
 
 void DownloadFileWithDelayFactory::GetAllRenameCallbacks(
-    std::vector<base::Closure>* results) {
+    std::vector<base::OnceClosure>* results) {
   DCHECK_CURRENTLY_ON(BrowserThread::UI);
   results->swap(rename_callbacks_);
 }
@@ -533,6 +565,7 @@ class TestShellDownloadManagerDelegate : public ShellDownloadManagerDelegate {
       std::vector<DownloadOpenDelayedCallback>* callbacks) {
     callbacks->swap(delayed_callbacks_);
   }
+
  private:
   bool delay_download_open_;
   std::vector<DownloadOpenDelayedCallback> delayed_callbacks_;
@@ -541,7 +574,7 @@ class TestShellDownloadManagerDelegate : public ShellDownloadManagerDelegate {
 // Get the next created download.
 class DownloadCreateObserver : DownloadManager::Observer {
  public:
-  DownloadCreateObserver(DownloadManager* manager)
+  explicit DownloadCreateObserver(DownloadManager* manager)
       : manager_(manager), item_(nullptr) {
     manager_->AddObserver(this);
   }
@@ -583,6 +616,35 @@ class DownloadCreateObserver : DownloadManager::Observer {
   base::Closure completion_closure_;
 };
 
+class DownloadInProgressObserver : public DownloadTestObserverInProgress {
+ public:
+  explicit DownloadInProgressObserver(DownloadManager* manager)
+      : DownloadTestObserverInProgress(manager, 1 /* wait_count */),
+        manager_(manager) {}
+
+  download::DownloadItem* WaitAndGetInProgressDownload() {
+    DownloadTestObserverInProgress::WaitForFinished();
+
+    DownloadManager::DownloadVector items;
+    manager_->GetAllDownloads(&items);
+
+    download::DownloadItem* download_item = nullptr;
+    for (auto iter = items.begin(); iter != items.end(); ++iter) {
+      if ((*iter)->GetState() == download::DownloadItem::IN_PROGRESS) {
+        // There should be only one IN_PROGRESS item.
+        EXPECT_FALSE(download_item);
+        download_item = *iter;
+      }
+    }
+    EXPECT_TRUE(download_item);
+    EXPECT_EQ(download::DownloadItem::IN_PROGRESS, download_item->GetState());
+    return download_item;
+  }
+
+ private:
+  DownloadManager* manager_;
+};
+
 class ErrorStreamCountingObserver : download::DownloadItem::Observer {
  public:
   ErrorStreamCountingObserver() : item_(nullptr), count_(0) {}
@@ -595,9 +657,8 @@ class ErrorStreamCountingObserver : download::DownloadItem::Observer {
   void OnDownloadUpdated(download::DownloadItem* download) override {
     std::unique_ptr<base::HistogramSamples> samples =
         histogram_tester_.GetHistogramSamplesSinceCreation(
-            "Download.ParallelDownloadAddStreamSuccess");
-    if (samples->GetCount(0 /* failure */) == count_ &&
-        !completion_closure_.is_null())
+            "Download.ParallelDownload.CreationFailureReason");
+    if (samples->TotalCount() == count_ && !completion_closure_.is_null())
       std::move(completion_closure_).Run();
   }
 
@@ -759,8 +820,8 @@ class TestRequestPauseHandler {
     EXPECT_FALSE(used_) << "GetOnPauseHandler() should only be called once for "
                            "an instance of TestRequestPauseHandler.";
     used_ = true;
-    return base::Bind(&TestRequestPauseHandler::OnPauseHandler,
-                      base::Unretained(this));
+    return base::BindRepeating(&TestRequestPauseHandler::OnPauseHandler,
+                               base::Unretained(this));
   }
 
   // Wait until the OnPauseHandler returned in a prior call to
@@ -777,8 +838,8 @@ class TestRequestPauseHandler {
   }
 
  private:
-  void OnPauseHandler(const base::Closure& resume_callback) {
-    resume_callback_ = resume_callback;
+  void OnPauseHandler(base::OnceClosure resume_callback) {
+    resume_callback_ = std::move(resume_callback);
     if (run_loop_.running())
       run_loop_.Quit();
   }
@@ -789,6 +850,12 @@ class TestRequestPauseHandler {
 };
 
 class DownloadContentTest : public ContentBrowserTest {
+ public:
+  DownloadContentTest() {
+    feature_list_.InitAndDisableFeature(
+        download::features::kAllowDownloadResumptionWithoutStrongValidators);
+  }
+
  protected:
   void SetUpOnMainThread() override {
     ASSERT_TRUE(downloads_directory_.CreateUniqueTempDir());
@@ -813,13 +880,14 @@ class DownloadContentTest : public ContentBrowserTest {
     host_resolver()->AddRule(kOriginOne, real_host);
     host_resolver()->AddRule(kOriginTwo, real_host);
     host_resolver()->AddRule(kOriginThree, real_host);
-    host_resolver()->AddRule(SlowDownloadHttpResponse::kSlowDownloadHostName,
+    host_resolver()->AddRule(SlowDownloadHttpResponse::kSlowResponseHostName,
                              real_host);
     host_resolver()->AddRule(TestDownloadHttpResponse::kTestDownloadHostName,
                              real_host);
   }
 
   void SetUpCommandLine(base::CommandLine* command_line) override {
+    ContentBrowserTest::SetUpCommandLine(command_line);
     IsolateAllSitesForTesting(command_line);
   }
 
@@ -888,12 +956,28 @@ class DownloadContentTest : public ContentBrowserTest {
         std::move(factory));
   }
 
+  // Navigate to a URL and wait for a download, expecting that the URL will not
+  // result in a new committed navigation. This is typically the case for most
+  // downloads.
   void NavigateToURLAndWaitForDownload(
       Shell* shell,
       const GURL& url,
       download::DownloadItem::DownloadState expected_terminal_state) {
     std::unique_ptr<DownloadTestObserver> observer(CreateWaiter(shell, 1));
-    NavigateToURL(shell, url);
+    EXPECT_TRUE(NavigateToURLAndExpectNoCommit(shell, url));
+    observer->WaitForFinished();
+    EXPECT_EQ(1u, observer->NumDownloadsSeenInState(expected_terminal_state));
+  }
+
+  // Navigate to a URL, expecting it to commit, and wait for a download. This
+  // is useful when the URL actually commits and then starts a download via
+  // script.
+  void NavigateToCommittedURLAndWaitForDownload(
+      Shell* shell,
+      const GURL& url,
+      download::DownloadItem::DownloadState expected_terminal_state) {
+    std::unique_ptr<DownloadTestObserver> observer(CreateWaiter(shell, 1));
+    EXPECT_TRUE(NavigateToURL(shell, url));
     observer->WaitForFinished();
     EXPECT_EQ(1u, observer->NumDownloadsSeenInState(expected_terminal_state));
   }
@@ -938,19 +1022,85 @@ class DownloadContentTest : public ContentBrowserTest {
     return observer->WaitForFinished();
   }
 
+  TestDownloadResponseHandler* test_response_handler() {
+    return &test_response_handler_;
+  }
+
+  static bool PathExists(const base::FilePath& path) {
+    base::ScopedAllowBlockingForTesting allow_blocking;
+    return base::PathExists(path);
+  }
+
+  static void ReadAndVerifyFileContents(int seed,
+                                        int64_t expected_size,
+                                        const base::FilePath& path) {
+    base::ScopedAllowBlockingForTesting allow_blocking;
+    base::File file(path, base::File::FLAG_OPEN | base::File::FLAG_READ);
+    ASSERT_TRUE(file.IsValid());
+    int64_t file_length = file.GetLength();
+    ASSERT_EQ(expected_size, file_length);
+
+    const int64_t kBufferSize = 64 * 1024;
+    std::string pattern;
+    std::vector<char> data;
+    pattern.resize(kBufferSize);
+    data.resize(kBufferSize);
+    for (int64_t offset = 0; offset < file_length;) {
+      int bytes_read = file.Read(offset, &data.front(), kBufferSize);
+      ASSERT_LT(0, bytes_read);
+      ASSERT_GE(kBufferSize, bytes_read);
+
+      pattern =
+          TestDownloadHttpResponse::GetPatternBytes(seed, offset, bytes_read);
+      ASSERT_EQ(0, memcmp(pattern.data(), &data.front(), bytes_read))
+          << "Comparing block at offset " << offset << " and length "
+          << bytes_read;
+      offset += bytes_read;
+    }
+  }
+
+  TestDownloadHttpResponse::InjectErrorCallback inject_error_callback() {
+    return inject_error_callback_;
+  }
+
+  void RegisterServiceWorker(Shell* shell, const std::string& worker_url) {
+    EXPECT_TRUE(NavigateToURL(shell, embedded_test_server()->GetURL(
+                                         "/register_service_worker.html")));
+    EXPECT_EQ("DONE", EvalJs(shell, "register('" + worker_url + "')"));
+  }
+
+  void ClearAutoResumptionCount(download::DownloadItem* download) {
+    static_cast<download::DownloadItemImpl*>(download)
+        ->SetAutoResumeCountForTesting(0);
+  }
+
+ private:
+  // Location of the downloads directory for these tests
+  base::ScopedTempDir downloads_directory_;
+  std::unique_ptr<TestShellDownloadManagerDelegate> test_delegate_;
+  TestDownloadResponseHandler test_response_handler_;
+  TestDownloadHttpResponse::InjectErrorCallback inject_error_callback_;
+  base::test::ScopedFeatureList feature_list_;
+};
+
+constexpr int kValidationLength = 1024;
+
+class DownloadContentTestWithoutStrongValidators : public DownloadContentTest {
+ public:
+  DownloadContentTestWithoutStrongValidators() {
+    std::map<std::string, std::string> params = {
+        {download::kDownloadContentValidationLengthFinchKey,
+         base::NumberToString(kValidationLength)}};
+    scoped_feature_list_.InitAndEnableFeatureWithParameters(
+        download::features::kAllowDownloadResumptionWithoutStrongValidators,
+        params);
+  }
+
   // Starts a download without strong validators, interrupts it, and resumes it.
   // If |fail_content_validation| is true, download content will change during
   // resumption.
   void InterruptAndResumeDownloadWithoutStrongValidators(
       bool fail_content_validation) {
-    int validation_length = 1024;
-    base::test::ScopedFeatureList scoped_feature_list;
-    std::map<std::string, std::string> params = {
-        {download::kDownloadContentValidationLengthFinchKey,
-         base::NumberToString(validation_length)}};
-    scoped_feature_list.InitAndEnableFeatureWithParameters(
-        download::features::kAllowDownloadResumptionWithoutStrongValidators,
-        params);
     SetupErrorInjectionDownloads();
     GURL url = TestDownloadHttpResponse::GetNextURLForDownload();
     GURL server_url = embedded_test_server()->GetURL(url.host(), url.path());
@@ -1002,7 +1152,7 @@ class DownloadContentTest : public ContentBrowserTest {
                 requests[1]->http_request.headers.end());
     EXPECT_EQ(
         base::StringPrintf("bytes=%" PRId64 "-",
-                           interruption_offset - validation_length),
+                           interruption_offset - kValidationLength),
         requests[1]->http_request.headers.at(net::HttpRequestHeaders::kRange));
     if (fail_content_validation) {
       // The third request is a restart request.
@@ -1013,64 +1163,8 @@ class DownloadContentTest : public ContentBrowserTest {
     }
   }
 
-  TestDownloadResponseHandler* test_response_handler() {
-    return &test_response_handler_;
-  }
-
-  static bool PathExists(const base::FilePath& path) {
-    base::ScopedAllowBlockingForTesting allow_blocking;
-    return base::PathExists(path);
-  }
-
-  static void ReadAndVerifyFileContents(int seed,
-                                        int64_t expected_size,
-                                        const base::FilePath& path) {
-    base::ScopedAllowBlockingForTesting allow_blocking;
-    base::File file(path, base::File::FLAG_OPEN | base::File::FLAG_READ);
-    ASSERT_TRUE(file.IsValid());
-    int64_t file_length = file.GetLength();
-    ASSERT_EQ(expected_size, file_length);
-
-    const int64_t kBufferSize = 64 * 1024;
-    std::string pattern;
-    std::vector<char> data;
-    pattern.resize(kBufferSize);
-    data.resize(kBufferSize);
-    for (int64_t offset = 0; offset < file_length;) {
-      int bytes_read = file.Read(offset, &data.front(), kBufferSize);
-      ASSERT_LT(0, bytes_read);
-      ASSERT_GE(kBufferSize, bytes_read);
-
-      pattern =
-          TestDownloadHttpResponse::GetPatternBytes(seed, offset, bytes_read);
-      ASSERT_EQ(0, memcmp(pattern.data(), &data.front(), bytes_read))
-          << "Comparing block at offset " << offset << " and length "
-          << bytes_read;
-      offset += bytes_read;
-    }
-  }
-
-  TestDownloadHttpResponse::InjectErrorCallback inject_error_callback() {
-    return inject_error_callback_;
-  }
-
-  void RegisterServiceWorker(Shell* shell, const std::string& worker_url) {
-    NavigateToURL(
-        shell, embedded_test_server()->GetURL("/register_service_worker.html"));
-    EXPECT_EQ("DONE", EvalJs(shell, "register('" + worker_url + "')"));
-  }
-
-  void ClearAutoResumptionCount(download::DownloadItem* download) {
-    static_cast<download::DownloadItemImpl*>(download)
-        ->SetAutoResumeCountForTesting(0);
-  }
-
  private:
-  // Location of the downloads directory for these tests
-  base::ScopedTempDir downloads_directory_;
-  std::unique_ptr<TestShellDownloadManagerDelegate> test_delegate_;
-  TestDownloadResponseHandler test_response_handler_;
-  TestDownloadHttpResponse::InjectErrorCallback inject_error_callback_;
+  base::test::ScopedFeatureList scoped_feature_list_;
 };
 
 // Test fixture for parallel downloading.
@@ -1095,7 +1189,7 @@ class ParallelDownloadTest : public DownloadContentTest {
       const base::FilePath& path,
       const std::vector<GURL>& url_chain,
       const download::DownloadItem::ReceivedSlices& slices,
-      TestDownloadHttpResponse::Parameters& parameters) {
+      const TestDownloadHttpResponse::Parameters& parameters) {
     std::string output;
     int64_t total_bytes = 0u;
     const int64_t kBufferSize = 64 * 1024;
@@ -1142,10 +1236,6 @@ class ParallelDownloadTest : public DownloadContentTest {
       int64_t total_length,
       size_t expected_request_count,
       bool support_partial_response) {
-    EXPECT_TRUE(
-        base::FeatureList::IsEnabled(download::features::kParallelDownloading));
-    GURL url = TestDownloadHttpResponse::GetNextURLForDownload();
-    GURL server_url = embedded_test_server()->GetURL(url.host(), url.path());
     TestDownloadHttpResponse::Parameters parameters;
     parameters.etag = "ABC";
     parameters.size = total_length;
@@ -1153,6 +1243,19 @@ class ParallelDownloadTest : public DownloadContentTest {
     parameters.support_partial_response = support_partial_response;
     // Needed to specify HTTP connection type to create parallel download.
     parameters.connection_type = net::HttpResponseInfo::CONNECTION_INFO_HTTP1_1;
+    RunResumptionTestWithParameters(received_slices, expected_request_count,
+                                    parameters);
+  }
+
+  // Similar to the above method, but with given http response parameters.
+  void RunResumptionTestWithParameters(
+      const download::DownloadItem::ReceivedSlices& received_slices,
+      size_t expected_request_count,
+      const TestDownloadHttpResponse::Parameters& parameters) {
+    EXPECT_TRUE(
+        base::FeatureList::IsEnabled(download::features::kParallelDownloading));
+    GURL url = TestDownloadHttpResponse::GetNextURLForDownload();
+    GURL server_url = embedded_test_server()->GetURL(url.host(), url.path());
     TestDownloadHttpResponse::StartServing(parameters, server_url);
 
     base::FilePath intermediate_file_path =
@@ -1170,7 +1273,7 @@ class ParallelDownloadTest : public DownloadContentTest {
     // TODO(qinmin): count the failed partial responses in DownloadJob when
     // support_partial_response is false. EmbeddedTestServer doesn't know
     // whether completing or canceling the response will come first.
-    if (support_partial_response) {
+    if (parameters.support_partial_response) {
       test_response_handler()->WaitUntilCompletion(expected_request_count);
 
       // Verify number of requests sent to the server.
@@ -1202,7 +1305,7 @@ class ParallelDownloadTest : public DownloadContentTest {
     parameters.on_pause_handler = request_pause_handler.GetOnPauseHandler();
     // Send some data for the first request and pause it so download won't
     // complete before other parallel requests are created.
-    parameters.pause_offset = DownloadRequestCore::kDownloadByteStreamSize;
+    parameters.pause_offset = kPauseOffset;
     TestDownloadHttpResponse::StartServing(parameters, server_url);
 
     download::DownloadItem* download =
@@ -1242,7 +1345,7 @@ IN_PROC_BROWSER_TEST_F(DownloadContentTest, DownloadCancelled) {
   // we're in the expected state.
   download::DownloadItem* download = StartDownloadAndReturnItem(
       shell(), embedded_test_server()->GetURL(
-                   SlowDownloadHttpResponse::kSlowDownloadHostName,
+                   SlowDownloadHttpResponse::kSlowResponseHostName,
                    SlowDownloadHttpResponse::kUnknownSizeUrl));
   ASSERT_EQ(download::DownloadItem::IN_PROGRESS, download->GetState());
 
@@ -1264,7 +1367,7 @@ IN_PROC_BROWSER_TEST_F(DownloadContentTest, MultiDownload) {
   // we're in the expected state.
   download::DownloadItem* download1 = StartDownloadAndReturnItem(
       shell(), embedded_test_server()->GetURL(
-                   SlowDownloadHttpResponse::kSlowDownloadHostName,
+                   SlowDownloadHttpResponse::kSlowResponseHostName,
                    SlowDownloadHttpResponse::kUnknownSizeUrl));
   ASSERT_EQ(download::DownloadItem::IN_PROGRESS, download1->GetState());
 
@@ -1278,9 +1381,11 @@ IN_PROC_BROWSER_TEST_F(DownloadContentTest, MultiDownload) {
 
   // Allow the first request to finish.
   std::unique_ptr<DownloadTestObserver> observer2(CreateWaiter(shell(), 1));
-  NavigateToURL(shell(), embedded_test_server()->GetURL(
-                             SlowDownloadHttpResponse::kSlowDownloadHostName,
-                             SlowDownloadHttpResponse::kFinishDownloadUrl));
+  EXPECT_TRUE(NavigateToURL(
+      shell(), embedded_test_server()->GetURL(
+                   SlowDownloadHttpResponse::kSlowResponseHostName,
+                   SlowDownloadHttpResponse::kFinishSlowResponseUrl)));
+
   observer2->WaitForFinished();  // Wait for the third request.
 
   EXPECT_EQ(
@@ -1294,8 +1399,8 @@ IN_PROC_BROWSER_TEST_F(DownloadContentTest, MultiDownload) {
   // |file1| should be full of '*'s, and |file2| should be the same as the
   // source file.
   base::FilePath file1(download1->GetTargetFilePath());
-  size_t file_size1 = SlowDownloadHttpResponse::kFirstDownloadSize +
-                      SlowDownloadHttpResponse::kSecondDownloadSize;
+  size_t file_size1 = SlowDownloadHttpResponse::kFirstResponsePartSize +
+                      SlowDownloadHttpResponse::kSecondResponsePartSize;
   std::string expected_contents(file_size1, '*');
   ASSERT_TRUE(VerifyFile(file1, expected_contents, file_size1));
 
@@ -1419,15 +1524,15 @@ IN_PROC_BROWSER_TEST_F(DownloadContentTest, CancelAtFinalRename) {
       std::unique_ptr<download::DownloadFileFactory>(file_factory));
 
   // Create a download
-  NavigateToURL(shell(),
-                embedded_test_server()->GetURL("/download/download-test.lib"));
+  EXPECT_TRUE(NavigateToURLAndExpectNoCommit(
+      shell(), embedded_test_server()->GetURL("/download/download-test.lib")));
 
   // Wait until the first (intermediate file) rename and execute the callback.
   file_factory->WaitForSomeCallback();
-  std::vector<base::Closure> callbacks;
+  std::vector<base::OnceClosure> callbacks;
   file_factory->GetAllRenameCallbacks(&callbacks);
   ASSERT_EQ(1u, callbacks.size());
-  callbacks[0].Run();
+  std::move(callbacks[0]).Run();
   callbacks.clear();
 
   // Wait until the second (final) rename callback is posted.
@@ -1446,7 +1551,7 @@ IN_PROC_BROWSER_TEST_F(DownloadContentTest, CancelAtFinalRename) {
   EXPECT_EQ(download::DownloadItem::CANCELLED, items[0]->GetState());
 
   // Run final rename callback.
-  callbacks[0].Run();
+  std::move(callbacks[0]).Run();
   callbacks.clear();
 
   // Check state.
@@ -1468,15 +1573,15 @@ IN_PROC_BROWSER_TEST_F(DownloadContentTest, CancelAtRelease) {
       std::unique_ptr<download::DownloadFileFactory>(file_factory));
 
   // Create a download
-  NavigateToURL(shell(),
-                embedded_test_server()->GetURL("/download/download-test.lib"));
+  EXPECT_TRUE(NavigateToURLAndExpectNoCommit(
+      shell(), embedded_test_server()->GetURL("/download/download-test.lib")));
 
   // Wait until the first (intermediate file) rename and execute the callback.
   file_factory->WaitForSomeCallback();
-  std::vector<base::Closure> callbacks;
+  std::vector<base::OnceClosure> callbacks;
   file_factory->GetAllRenameCallbacks(&callbacks);
   ASSERT_EQ(1u, callbacks.size());
-  callbacks[0].Run();
+  std::move(callbacks[0]).Run();
   callbacks.clear();
 
   // Wait until the second (final) rename callback is posted.
@@ -1485,7 +1590,7 @@ IN_PROC_BROWSER_TEST_F(DownloadContentTest, CancelAtRelease) {
   ASSERT_EQ(1u, callbacks.size());
 
   // Call it.
-  callbacks[0].Run();
+  std::move(callbacks[0]).Run();
   callbacks.clear();
 
   // Confirm download still IN_PROGRESS (internal state COMPLETING).
@@ -1515,7 +1620,7 @@ IN_PROC_BROWSER_TEST_F(DownloadContentTest, ShutdownInProgress) {
   // Create a download that won't complete.
   download::DownloadItem* download = StartDownloadAndReturnItem(
       shell(), embedded_test_server()->GetURL(
-                   SlowDownloadHttpResponse::kSlowDownloadHostName,
+                   SlowDownloadHttpResponse::kSlowResponseHostName,
                    SlowDownloadHttpResponse::kUnknownSizeUrl));
 
   EXPECT_EQ(download::DownloadItem::IN_PROGRESS, download->GetState());
@@ -1550,15 +1655,13 @@ IN_PROC_BROWSER_TEST_F(DownloadContentTest, ShutdownInProgress) {
   // a chance to get the second stall onto the IO thread queue after the cancel
   // message created by Shutdown and before the notification callback
   // created by the IO thread in canceling the request.
-  base::PostTaskWithTraits(
-      FROM_HERE, {BrowserThread::IO},
-      base::BindOnce(&base::PlatformThread::Sleep,
-                     base::TimeDelta::FromMilliseconds(25)));
+  base::PostTask(FROM_HERE, {BrowserThread::IO},
+                 base::BindOnce(&base::PlatformThread::Sleep,
+                                base::TimeDelta::FromMilliseconds(25)));
   DownloadManagerForShell(shell())->Shutdown();
-  base::PostTaskWithTraits(
-      FROM_HERE, {BrowserThread::IO},
-      base::BindOnce(&base::PlatformThread::Sleep,
-                     base::TimeDelta::FromMilliseconds(25)));
+  base::PostTask(FROM_HERE, {BrowserThread::IO},
+                 base::BindOnce(&base::PlatformThread::Sleep,
+                                base::TimeDelta::FromMilliseconds(25)));
 }
 
 // Try to shutdown just after we release the download file, by delaying
@@ -1576,15 +1679,15 @@ IN_PROC_BROWSER_TEST_F(DownloadContentTest, ShutdownAtRelease) {
       std::unique_ptr<download::DownloadFileFactory>(file_factory));
 
   // Create a download
-  NavigateToURL(shell(),
-                embedded_test_server()->GetURL("/download/download-test.lib"));
+  EXPECT_TRUE(NavigateToURLAndExpectNoCommit(
+      shell(), embedded_test_server()->GetURL("/download/download-test.lib")));
 
   // Wait until the first (intermediate file) rename and execute the callback.
   file_factory->WaitForSomeCallback();
-  std::vector<base::Closure> callbacks;
+  std::vector<base::OnceClosure> callbacks;
   file_factory->GetAllRenameCallbacks(&callbacks);
   ASSERT_EQ(1u, callbacks.size());
-  callbacks[0].Run();
+  std::move(callbacks[0]).Run();
   callbacks.clear();
 
   // Wait until the second (final) rename callback is posted.
@@ -1593,7 +1696,7 @@ IN_PROC_BROWSER_TEST_F(DownloadContentTest, ShutdownAtRelease) {
   ASSERT_EQ(1u, callbacks.size());
 
   // Call it.
-  callbacks[0].Run();
+  std::move(callbacks[0]).Run();
   callbacks.clear();
 
   // Confirm download isn't complete yet.
@@ -1680,13 +1783,14 @@ IN_PROC_BROWSER_TEST_F(DownloadContentTest, ResumeWithStrongValidators) {
 }
 
 // Test resumption when strong validators are not present in the response.
-IN_PROC_BROWSER_TEST_F(DownloadContentTest, ResumeWithoutStrongValidators) {
+IN_PROC_BROWSER_TEST_F(DownloadContentTestWithoutStrongValidators,
+                       ResumeWithoutStrongValidators) {
   InterruptAndResumeDownloadWithoutStrongValidators(false);
 }
 
 // Test resumption when strong validators are not present in the response and
 // the content of the download changes.
-IN_PROC_BROWSER_TEST_F(DownloadContentTest,
+IN_PROC_BROWSER_TEST_F(DownloadContentTestWithoutStrongValidators,
                        ResumeWithoutStrongValidatorsAndFailValidation) {
   InterruptAndResumeDownloadWithoutStrongValidators(true);
 }
@@ -1831,7 +1935,7 @@ IN_PROC_BROWSER_TEST_F(DownloadContentTest, RedirectDownload) {
   // Start a download and explicitly specify to support redirect.
   std::unique_ptr<DownloadTestObserver> observer(CreateWaiter(shell(), 1));
   auto download_parameters = std::make_unique<download::DownloadUrlParameters>(
-      first_url, TRAFFIC_ANNOTATION_FOR_TESTS);
+      first_url, TRAFFIC_ANNOTATION_FOR_TESTS, net::NetworkIsolationKey());
   download_parameters->set_cross_origin_redirects(
       network::mojom::RedirectMode::kFollow);
   DownloadManagerForShell(shell())->DownloadUrl(std::move(download_parameters));
@@ -1864,7 +1968,7 @@ IN_PROC_BROWSER_TEST_F(DownloadContentTest, FailCrossOriginDownload) {
   // Start a download and explicitly specify to fail cross-origin redirect.
   std::unique_ptr<DownloadTestObserver> observer(CreateWaiter(shell(), 1));
   auto download_parameters = std::make_unique<download::DownloadUrlParameters>(
-      first_url, TRAFFIC_ANNOTATION_FOR_TESTS);
+      first_url, TRAFFIC_ANNOTATION_FOR_TESTS, net::NetworkIsolationKey());
   download_parameters->set_cross_origin_redirects(
       network::mojom::RedirectMode::kError);
   DownloadManagerForShell(shell())->DownloadUrl(std::move(download_parameters));
@@ -1900,7 +2004,7 @@ IN_PROC_BROWSER_TEST_F(DownloadContentTest, RedirectUnsafeDownload) {
           download_manager, 1,
           DownloadTestObserver::ON_DANGEROUS_DOWNLOAD_FAIL);
   auto download_parameters = std::make_unique<download::DownloadUrlParameters>(
-      first_url, TRAFFIC_ANNOTATION_FOR_TESTS);
+      first_url, TRAFFIC_ANNOTATION_FOR_TESTS, net::NetworkIsolationKey());
   download_parameters->set_cross_origin_redirects(
       network::mojom::RedirectMode::kFollow);
   download_manager->DownloadUrl(std::move(download_parameters));
@@ -1916,60 +2020,6 @@ IN_PROC_BROWSER_TEST_F(DownloadContentTest, RedirectUnsafeDownload) {
   // tests may also fail even if the download passed the security check.
   EXPECT_EQ(download::DOWNLOAD_INTERRUPT_REASON_NETWORK_INVALID_REQUEST,
             downloads[0]->GetLastReason());
-}
-
-// Test that content length mismatch errors are handled properly.
-IN_PROC_BROWSER_TEST_F(DownloadContentTest, ContentLengthMismatch) {
-  // TODO(http://crbug.com/984097): Fix this with network service disabled.
-  if (!base::FeatureList::IsEnabled(network::features::kNetworkService))
-    return;
-
-  GURL url = TestDownloadHttpResponse::GetNextURLForDownload();
-  GURL server_url = embedded_test_server()->GetURL(url.host(), url.path());
-  // Server response doesn't contain strong validators.
-  TestDownloadHttpResponse::StartServingStaticResponse(
-      "HTTP/1.1 200 OK\r\n"
-      "Content-Length: 100000\r\n"
-      "\r\n"
-      "abc\r\n",
-      server_url);
-
-  auto download_parameters = std::make_unique<download::DownloadUrlParameters>(
-      server_url, TRAFFIC_ANNOTATION_FOR_TESTS);
-  DownloadManagerForShell(shell())->DownloadUrl(std::move(download_parameters));
-  std::unique_ptr<DownloadTestObserver> observer(CreateWaiter(shell(), 1));
-  observer->WaitForFinished();
-
-  // Verify download completed without any interruptions.
-  std::vector<download::DownloadItem*> downloads;
-  DownloadManagerForShell(shell())->GetAllDownloads(&downloads);
-  EXPECT_EQ(1u, downloads.size());
-  EXPECT_EQ(download::DownloadItem::COMPLETE, downloads[0]->GetState());
-  EXPECT_EQ(download::DOWNLOAD_INTERRUPT_REASON_NONE,
-            downloads[0]->GetLastReason());
-  EXPECT_EQ(0, downloads[0]->GetAutoResumeCount());
-  downloads[0]->Remove();
-
-  // Change server response to include strong validators.
-  TestDownloadHttpResponse::StartServingStaticResponse(
-      "HTTP/1.1 200 OK\r\n"
-      "Content-Length: 100000\r\n"
-      "Etag: xyz\r\n"
-      "\r\n"
-      "abc\r\n",
-      server_url);
-  download_parameters = std::make_unique<download::DownloadUrlParameters>(
-      server_url, TRAFFIC_ANNOTATION_FOR_TESTS);
-  DownloadManagerForShell(shell())->DownloadUrl(std::move(download_parameters));
-  std::unique_ptr<DownloadTestObserver> observer2(CreateWaiter(shell(), 1));
-  observer2->WaitForFinished();
-
-  // Verify the new download completed with 1 auto resumption attempt.
-  downloads.clear();
-  DownloadManagerForShell(shell())->GetAllDownloads(&downloads);
-  EXPECT_EQ(1u, downloads.size());
-  EXPECT_EQ(download::DownloadItem::COMPLETE, downloads[0]->GetState());
-  EXPECT_EQ(1, downloads[0]->GetAutoResumeCount());
 }
 
 // If the server response for the resumption request specifies a bad range (i.e.
@@ -2591,7 +2641,7 @@ IN_PROC_BROWSER_TEST_F(DownloadContentTest, CancelResumingDownload) {
   // Resume and cancel download. We expect only a single OnDownloadCreated()
   // call, and that's for the second download created below.
   MockDownloadManagerObserver dm_observer(DownloadManagerForShell(shell()));
-  EXPECT_CALL(dm_observer, OnDownloadCreated(_,_)).Times(1);
+  EXPECT_CALL(dm_observer, OnDownloadCreated(_, _)).Times(1);
 
   TestRequestPauseHandler request_pause_handler;
   parameters.on_pause_handler = request_pause_handler.GetOnPauseHandler();
@@ -3244,9 +3294,6 @@ IN_PROC_BROWSER_TEST_F(DownloadContentTest, CookiePolicy) {
   net::EmbeddedTestServer origin_one;
   net::EmbeddedTestServer origin_two;
 
-  // Block third-party cookies.
-  ShellNetworkDelegate::SetBlockThirdPartyCookies(true);
-
   // |url| redirects to a different origin |download| which tries to set a
   // cookie.
   base::StringPairs cookie_header;
@@ -3319,8 +3366,8 @@ IN_PROC_BROWSER_TEST_F(DownloadContentTest,
                                  "application/octet-stream", "Hello"));
   origin_two.StartAcceptingConnections();
 
-  NavigateToURLAndWaitForDownload(shell(), referrer_url,
-                                  download::DownloadItem::COMPLETE);
+  NavigateToCommittedURLAndWaitForDownload(shell(), referrer_url,
+                                           download::DownloadItem::COMPLETE);
 
   std::vector<download::DownloadItem*> downloads;
   DownloadManagerForShell(shell())->GetAllDownloads(&downloads);
@@ -3370,8 +3417,8 @@ IN_PROC_BROWSER_TEST_F(DownloadContentTest,
   origin_one.StartAcceptingConnections();
   origin_two.StartAcceptingConnections();
 
-  NavigateToURLAndWaitForDownload(shell(), referrer_url,
-                                  download::DownloadItem::COMPLETE);
+  NavigateToCommittedURLAndWaitForDownload(shell(), referrer_url,
+                                           download::DownloadItem::COMPLETE);
 
   std::vector<download::DownloadItem*> downloads;
   DownloadManagerForShell(shell())->GetAllDownloads(&downloads);
@@ -3385,8 +3432,10 @@ IN_PROC_BROWSER_TEST_F(DownloadContentTest,
 
 // A file type that Blink can handle should not be downloaded if there are cross
 // origin redirects in the middle of the redirect chain.
+// TODO(https://crbug.com/1009913): Fix flakes on various bots and re-enable
+// this test.
 IN_PROC_BROWSER_TEST_F(DownloadContentTest,
-                       DownloadAttributeSameOriginRedirectNavigation) {
+                       DISABLED_DownloadAttributeSameOriginRedirectNavigation) {
   net::EmbeddedTestServer origin_one;
   net::EmbeddedTestServer origin_two;
   ASSERT_TRUE(origin_one.InitializeAndListen());
@@ -3420,7 +3469,9 @@ IN_PROC_BROWSER_TEST_F(DownloadContentTest,
 
   base::string16 expected_title(base::UTF8ToUTF16("hello"));
   TitleWatcher observer(shell()->web_contents(), expected_title);
-  NavigateToURL(shell(), referrer_url);
+  EXPECT_TRUE(
+      NavigateToURL(shell(), referrer_url,
+                    origin_two.GetURL("/download") /* expected_commit_url */));
   ASSERT_EQ(expected_title, observer.WaitAndGetTitle());
 
   std::vector<download::DownloadItem*> downloads;
@@ -3517,7 +3568,7 @@ IN_PROC_BROWSER_TEST_F(DownloadContentTest,
   origin_two.StartAcceptingConnections();
 
   std::unique_ptr<DownloadTestObserver> observer(CreateWaiter(shell(), 1));
-  NavigateToURL(shell(), referrer_url);
+  EXPECT_TRUE(NavigateToURL(shell(), referrer_url));
 
   // Alt-click the link.
   blink::WebMouseEvent mouse_event(
@@ -3562,8 +3613,8 @@ IN_PROC_BROWSER_TEST_F(DownloadContentTest, DownloadAttributeDataUrl) {
   server.ServeFilesFromDirectory(GetTestFilePath("download", ""));
   server.StartAcceptingConnections();
 
-  NavigateToURLAndWaitForDownload(shell(), url,
-                                  download::DownloadItem::COMPLETE);
+  NavigateToCommittedURLAndWaitForDownload(shell(), url,
+                                           download::DownloadItem::COMPLETE);
 
   std::vector<download::DownloadItem*> downloads;
   DownloadManagerForShell(shell())->GetAllDownloads(&downloads);
@@ -3633,33 +3684,11 @@ IN_PROC_BROWSER_TEST_F(DownloadContentTest, DownloadAttributeInvalidURL) {
       std::make_unique<content::TestNavigationObserver>(GURL(kBlockedURL));
   observer->WatchExistingWebContents();
   observer->StartWatchingNewWebContents();
-  NavigateToURL(shell(), url);
+  shell()->LoadURL(url);
   observer->WaitForNavigationFinished();
 }
 
 IN_PROC_BROWSER_TEST_F(DownloadContentTest, DownloadAttributeBlobURL) {
-  GURL document_url =
-      embedded_test_server()->GetURL("/download/download-attribute-blob.html");
-  download::DownloadItem* download =
-      StartDownloadAndReturnItem(shell(), document_url);
-  WaitForCompletion(download);
-
-  EXPECT_STREQ(FILE_PATH_LITERAL("suggested-filename.txt"),
-               download->GetTargetFilePath().BaseName().value().c_str());
-}
-
-class DownloadContentTestWithMojoBlobURLs : public DownloadContentTest {
- public:
-  DownloadContentTestWithMojoBlobURLs() {
-    scoped_feature_list_.InitAndEnableFeature(blink::features::kMojoBlobURLs);
-  }
-
- private:
-  base::test::ScopedFeatureList scoped_feature_list_;
-};
-
-IN_PROC_BROWSER_TEST_F(DownloadContentTestWithMojoBlobURLs,
-                       DownloadAttributeBlobURL) {
   GURL document_url =
       embedded_test_server()->GetURL("/download/download-attribute-blob.html");
   download::DownloadItem* download =
@@ -3783,6 +3812,60 @@ IN_PROC_BROWSER_TEST_F(DownloadContentTest, DuplicateContentDisposition) {
             downloads[0]->GetTargetFilePath().BaseName().value());
 }
 
+// Test that the network isolation key is populated for:
+// (1) <a download> triggered download request that doesn't go through the
+// navigation path
+// (2) the request resuming an interrupted download.
+IN_PROC_BROWSER_TEST_F(DownloadContentTest,
+                       AnchorDownload_Resume_NetworkIsolationKeyPopulated) {
+  SetupEnsureNoPendingDownloads();
+
+  GURL slow_download_url = embedded_test_server()->GetURL(
+      kOriginTwo, SlowDownloadHttpResponse::kKnownSizeUrl);
+  url::Origin top_frame_origin =
+      url::Origin::Create(embedded_test_server()->GetURL(kOriginOne, "/"));
+  url::Origin subframe_origin =
+      url::Origin::Create(embedded_test_server()->GetURL(kOriginTwo, "/"));
+  net::NetworkIsolationKey expected_network_isolation_key =
+      net::NetworkIsolationKey(top_frame_origin, subframe_origin);
+
+  GURL frame_url = embedded_test_server()->GetURL(
+      kOriginTwo,
+      "/download/download-attribute.html?noclick=" + slow_download_url.spec());
+  GURL document_url = embedded_test_server()->GetURL(
+      kOriginOne, "/download/iframe-host.html?target=" + frame_url.spec());
+
+  // Load a page that contains a cross-origin iframe, where the iframe contains
+  // a <a download> link same-origin to the iframe's origin.
+  TestNavigationObserver same_tab_observer(shell()->web_contents(), 1);
+  shell()->LoadURL(document_url);
+  same_tab_observer.Wait();
+
+  // Click the <a download> link in the child frame.
+  download::DownloadItem* download_item = nullptr;
+  ExpectRequestNetworkIsolationKey(
+      slow_download_url, expected_network_isolation_key,
+      base::BindLambdaForTesting([&]() {
+        DownloadInProgressObserver observer(DownloadManagerForShell(shell()));
+        EXPECT_TRUE(
+            ExecJs(shell()->web_contents()->GetAllFrames()[1],
+                   "var anchorElement = document.querySelector('a[download]'); "
+                   "anchorElement.click();"));
+        download_item = observer.WaitAndGetInProgressDownload();
+      }));
+
+  download_item->SimulateErrorForTesting(
+      download::DOWNLOAD_INTERRUPT_REASON_NETWORK_FAILED);
+  EXPECT_EQ(download::DownloadItem::INTERRUPTED, download_item->GetState());
+
+  ExpectRequestNetworkIsolationKey(
+      slow_download_url, expected_network_isolation_key,
+      base::BindLambdaForTesting([&]() { download_item->Resume(true); }));
+
+  EXPECT_EQ(download::DownloadItem::IN_PROGRESS, download_item->GetState());
+  download_item->Cancel(true);
+}
+
 IN_PROC_BROWSER_TEST_F(DownloadContentTest, DownloadAttributeSameOriginIFrame) {
   GURL frame_url = embedded_test_server()->GetURL(
       "/download/download-attribute.html?target=/download/download-test.lib");
@@ -3823,14 +3906,8 @@ IN_PROC_BROWSER_TEST_F(DownloadContentTest,
                download->GetTargetFilePath().BaseName().value().c_str());
 }
 
-#if defined(OS_WIN)
-// Flaky on windows: https://crbug.com/810982
-#define MAYBE_ParallelDownloadComplete DISABLED_ParallelDownloadComplete
-#else
-#define MAYBE_ParallelDownloadComplete ParallelDownloadComplete
-#endif
 // Verify parallel download in normal case.
-IN_PROC_BROWSER_TEST_F(ParallelDownloadTest, MAYBE_ParallelDownloadComplete) {
+IN_PROC_BROWSER_TEST_F(ParallelDownloadTest, ParallelDownloadComplete) {
   TestDownloadHttpResponse::Parameters parameters;
   parameters.etag = "ABC";
   parameters.size = 5097152;
@@ -3947,6 +4024,31 @@ IN_PROC_BROWSER_TEST_F(ParallelDownloadTest, ResumptionNoPartialResponse) {
                     false /* support_partial_response */);
 }
 
+// Verify that if a temporary error happens to one of the parallel request,
+// resuming a parallel download should still complete.
+IN_PROC_BROWSER_TEST_F(ParallelDownloadTest,
+                       ResumptionMiddleSliceTemporaryError) {
+  // Create the received slices data.
+  std::vector<download::DownloadItem::ReceivedSlice> received_slices = {
+      download::DownloadItem::ReceivedSlice(0, 1000),
+      download::DownloadItem::ReceivedSlice(1000000, 1000),
+      download::DownloadItem::ReceivedSlice(2000000, 1000,
+                                            false /* finished */)};
+
+  TestDownloadHttpResponse::Parameters parameters;
+  parameters.etag = "ABC";
+  parameters.size = 3000000;
+  parameters.connection_type = net::HttpResponseInfo::CONNECTION_INFO_HTTP1_1;
+  // The 2nd slice will fail. Once the first and the third slices
+  // complete, download will resume on the 2nd slice.
+  parameters.SetResponseForRangeRequest(1000000, 1010000, k404Response,
+                                        true /* is_transient */);
+
+  // A total of 4 requests will be sent, 3 during the initial attempt, and 1
+  // for the retry attempt on the 2nd slice.
+  RunResumptionTestWithParameters(received_slices, kTestRequestCount + 1,
+                                  parameters);
+}
 // Test to verify that the browser-side enforcement of X-Frame-Options does
 // not impact downloads. Since XFO is only checked for subframes, this test
 // initiates a download in an iframe and expects it to succeed.
@@ -4113,7 +4215,7 @@ IN_PROC_BROWSER_TEST_F(DownloadContentTest, FetchErrorResponseBodyResumption) {
 IN_PROC_BROWSER_TEST_F(DownloadContentTest, DownloadFromWebUI) {
   GURL webui_url(
       GetWebUIURL("resources/images/apps/topbar_button_maximize.png"));
-  NavigateToURL(shell(), webui_url);
+  EXPECT_TRUE(NavigateToURL(shell(), webui_url));
   SetupEnsureNoPendingDownloads();
 
   // Creates download parameters with renderer process information.
@@ -4136,12 +4238,12 @@ IN_PROC_BROWSER_TEST_F(DownloadContentTest, DownloadFromWebUI) {
 // process.
 IN_PROC_BROWSER_TEST_F(DownloadContentTest, DownloadFromWebUIWithoutRenderer) {
   GURL webui_url("chrome://resources/images/apps/topbar_button_maximize.png");
-  NavigateToURL(shell(), webui_url);
+  EXPECT_TRUE(NavigateToURL(shell(), webui_url));
   SetupEnsureNoPendingDownloads();
 
   // Creates download parameters without any renderer process information.
   auto download_parameters = std::make_unique<download::DownloadUrlParameters>(
-      webui_url, TRAFFIC_ANNOTATION_FOR_TESTS);
+      webui_url, TRAFFIC_ANNOTATION_FOR_TESTS, net::NetworkIsolationKey());
   std::unique_ptr<DownloadTestObserver> observer(CreateWaiter(shell(), 1));
   DownloadManagerForShell(shell())->DownloadUrl(std::move(download_parameters));
   observer->WaitForFinished();
@@ -4156,6 +4258,37 @@ IN_PROC_BROWSER_TEST_F(DownloadContentTest, DownloadFromWebUIWithoutRenderer) {
   // render frame host, download should gracefully fail without triggering
   // crash.
   ASSERT_EQ(download::DownloadItem::INTERRUPTED, downloads[0]->GetState());
+}
+
+IN_PROC_BROWSER_TEST_F(DownloadContentTest, SaveImageAt) {
+  // Navigate to a page containing a data-URL image in the top-left corner.
+  GURL main_url(
+      embedded_test_server()->GetURL("/download/page_with_data_image.html"));
+  EXPECT_TRUE(NavigateToURL(shell(), main_url));
+
+  // Ask the frame to save a data-URL image at the given coordinates.
+  std::unique_ptr<DownloadTestObserver> observer(CreateWaiter(shell(), 1));
+  shell()->web_contents()->GetMainFrame()->SaveImageAt(100, 100);
+  observer->WaitForFinished();
+  EXPECT_EQ(
+      1u, observer->NumDownloadsSeenInState(download::DownloadItem::COMPLETE));
+
+  // Verify that there was one, appropriately named download.
+  std::vector<download::DownloadItem*> downloads;
+  DownloadManagerForShell(shell())->GetAllDownloads(&downloads);
+  ASSERT_EQ(1u, downloads.size());
+  EXPECT_EQ(FILE_PATH_LITERAL("download.png"),
+            downloads[0]->GetTargetFilePath().BaseName().value());
+
+  // Verify file contents.
+  std::string expected_content;
+  {
+    base::ScopedAllowBlockingForTesting allow_blocking;
+    ASSERT_TRUE(ReadFileToString(GetTestFilePath("media", "blackwhite.png"),
+                                 &expected_content));
+  }
+  ASSERT_TRUE(VerifyFile(downloads[0]->GetFullPath(), expected_content,
+                         expected_content.size()));
 }
 
 // Test fixture for forcing MHTML download.
@@ -4240,7 +4373,7 @@ IN_PROC_BROWSER_TEST_F(MhtmlLoadingTest, AllowRenderMultipartRelatedPage) {
   observer->WatchExistingWebContents();
   observer->StartWatchingNewWebContents();
 
-  NavigateToURL(shell(), url);
+  EXPECT_TRUE(NavigateToURL(shell(), url));
 
   observer->WaitForNavigationFinished();
 }
@@ -4252,7 +4385,7 @@ IN_PROC_BROWSER_TEST_F(MhtmlLoadingTest, AllowRenderMessageRfc822Page) {
   observer->WatchExistingWebContents();
   observer->StartWatchingNewWebContents();
 
-  NavigateToURL(shell(), url);
+  EXPECT_TRUE(NavigateToURL(shell(), url));
 
   observer->WaitForNavigationFinished();
 }

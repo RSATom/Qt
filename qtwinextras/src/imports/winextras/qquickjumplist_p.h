@@ -55,6 +55,7 @@
 #include <QObject>
 #include <QQmlParserStatus>
 #include <QQmlListProperty>
+#include <QVector>
 
 QT_BEGIN_NAMESPACE
 
@@ -102,7 +103,7 @@ private:
     QQuickJumpListCategory *m_recent = nullptr;
     QQuickJumpListCategory *m_frequent = nullptr;
     QQuickJumpListCategory *m_tasks = nullptr;
-    QList<QQuickJumpListCategory *> m_categories;
+    QVector<QQuickJumpListCategory *> m_categories;
 };
 
 QT_END_NAMESPACE

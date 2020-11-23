@@ -383,6 +383,16 @@ void QAbstractItemModelReplicaImplementation::handleModelResetDone(QRemoteObject
     m_rootItem.columnCount = size.width();
     m_headerData[0].resize(size.width());
     m_headerData[1].resize(size.height());
+    {
+        QVector<CacheEntry> &headerEntries = m_headerData[0];
+        for (int i = 0; i < size.width(); ++i )
+            headerEntries[i].data.clear();
+    }
+    {
+        QVector<CacheEntry> &headerEntries = m_headerData[1];
+        for (int i = 0; i < size.height(); ++i )
+            headerEntries[i].data.clear();
+    }
     if (m_initialAction == QtRemoteObjects::PrefetchData) {
         auto entries = watcher->returnValue().value<MetaAndDataEntries>();
         for (int i = 0; i < entries.data.size(); ++i)

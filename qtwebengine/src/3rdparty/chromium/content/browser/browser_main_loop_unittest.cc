@@ -5,10 +5,9 @@
 #include "content/browser/browser_main_loop.h"
 
 #include "base/command_line.h"
-#include "base/message_loop/message_loop.h"
 #include "base/system/sys_info.h"
 #include "base/task/post_task.h"
-#include "base/task/thread_pool/thread_pool.h"
+#include "base/task/thread_pool/thread_pool_instance.h"
 #include "base/test/mock_callback.h"
 #include "base/test/scoped_command_line.h"
 #include "content/browser/browser_thread_impl.h"
@@ -72,9 +71,10 @@ TEST_F(BrowserMainLoopTest, CreateThreadsInSingleProcess) {
   browser_main_loop.CreateThreads();
   EXPECT_GE(base::ThreadPoolInstance::Get()
                 ->GetMaxConcurrentNonBlockedTasksWithTraitsDeprecated(
-                    {base::TaskPriority::USER_VISIBLE}),
+                    {base::ThreadPool(), base::TaskPriority::USER_VISIBLE}),
             base::SysInfo::NumberOfProcessors() - 1);
   browser_main_loop.ShutdownThreadsAndCleanUp();
+  BrowserTaskExecutor::ResetForTesting();
 }
 
 TEST_F(BrowserMainLoopTest,
@@ -94,9 +94,8 @@ TEST_F(BrowserMainLoopTest,
   StrickMockTask task;
 
   // No task should run because IO thread has not been initialized yet.
-  base::PostTaskWithTraits(FROM_HERE, {BrowserThread::IO}, task.Get());
-  base::CreateTaskRunnerWithTraits({BrowserThread::IO})
-      ->PostTask(FROM_HERE, task.Get());
+  base::PostTask(FROM_HERE, {BrowserThread::IO}, task.Get());
+  base::CreateTaskRunner({BrowserThread::IO})->PostTask(FROM_HERE, task.Get());
 
   content::RunAllPendingInMessageLoop(BrowserThread::IO);
 
@@ -105,6 +104,7 @@ TEST_F(BrowserMainLoopTest,
   content::RunAllPendingInMessageLoop(BrowserThread::IO);
 
   browser_main_loop.ShutdownThreadsAndCleanUp();
+  BrowserTaskExecutor::ResetForTesting();
 }
 
 }  // namespace content

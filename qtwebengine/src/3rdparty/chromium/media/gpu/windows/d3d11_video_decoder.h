@@ -80,8 +80,11 @@ class MEDIA_GPU_EXPORT D3D11VideoDecoder : public VideoDecoder,
 
   // D3D11VideoDecoderClient implementation.
   D3D11PictureBuffer* GetPicture() override;
-  void OutputResult(const CodecPicture* picture,
+  bool OutputResult(const CodecPicture* picture,
                     D3D11PictureBuffer* picture_buffer) override;
+
+  static bool GetD3D11FeatureLevel(ComD3D11Device dev,
+                                   D3D_FEATURE_LEVEL* feature_level);
 
   // Return the set of video decoder configs that we support.
   static std::vector<SupportedVideoDecoderConfig>
@@ -162,6 +165,20 @@ class MEDIA_GPU_EXPORT D3D11VideoDecoder : public VideoDecoder,
     kMaxValue = kCouldNotGetD3D11Device
   };
 
+  enum class D3D11LifetimeProgression {
+    kInitializeStarted = 0,
+    kInitializeSucceeded = 1,
+    kPlaybackSucceeded = 2,
+
+    // For UMA. Must be the last entry. It should be initialized to the
+    // numerically largest value above; if you add more entries, then please
+    // update this to the last one.
+    kMaxValue = kPlaybackSucceeded
+  };
+
+  // Log UMA progression state.
+  void AddLifetimeProgressionStage(D3D11LifetimeProgression stage);
+
   std::unique_ptr<MediaLog> media_log_;
 
   enum class State {
@@ -205,6 +222,9 @@ class MEDIA_GPU_EXPORT D3D11VideoDecoder : public VideoDecoder,
 
   // Task runner for |impl_|.  This must be the GPU main thread.
   scoped_refptr<base::SequencedTaskRunner> impl_task_runner_;
+
+  // Set in initialize, and used to determine reinitializations.
+  bool already_initialized_;
 
   gpu::GpuPreferences gpu_preferences_;
   gpu::GpuDriverBugWorkarounds gpu_workarounds_;
@@ -250,6 +270,9 @@ class MEDIA_GPU_EXPORT D3D11VideoDecoder : public VideoDecoder,
 
   State state_ = State::kInitializing;
 
+  // Profile of the video being decoded.
+  VideoCodecProfile profile_ = VIDEO_CODEC_PROFILE_UNKNOWN;
+
   // Callback to get a command buffer helper.  Must be called from the gpu
   // main thread only.
   base::RepeatingCallback<scoped_refptr<CommandBufferHelper>()> get_helper_cb_;
@@ -259,7 +282,7 @@ class MEDIA_GPU_EXPORT D3D11VideoDecoder : public VideoDecoder,
 
   SupportedConfigs supported_configs_;
 
-  base::WeakPtrFactory<D3D11VideoDecoder> weak_factory_;
+  base::WeakPtrFactory<D3D11VideoDecoder> weak_factory_{this};
 
   DISALLOW_COPY_AND_ASSIGN(D3D11VideoDecoder);
 };

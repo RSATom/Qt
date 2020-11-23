@@ -45,7 +45,7 @@
 #include "QtCore/qcoreapplication.h"
 #include "QtCore/qdatetime.h"
 #include "QtNetwork/qsslconfiguration.h"
-#include "QtNetwork/qnetworksession.h"
+#include "QtNetwork/qnetworksession.h" // ### Qt6: Remove include
 #include "qnetworkaccessmanager_p.h"
 
 #include <QtCore/QCoreApplication>
@@ -53,9 +53,9 @@
 QT_BEGIN_NAMESPACE
 
 inline QNetworkReplyImplPrivate::QNetworkReplyImplPrivate()
-    : backend(0), outgoingData(0),
-      copyDevice(0),
-      cacheEnabled(false), cacheSaveDevice(0),
+    : backend(nullptr), outgoingData(nullptr),
+      copyDevice(nullptr),
+      cacheEnabled(false), cacheSaveDevice(nullptr),
       notificationHandlingPaused(false),
       bytesDownloaded(0), lastBytesDownloaded(-1), bytesUploaded(-1), preMigrationDownloaded(-1),
       httpStatusCode(0),
@@ -63,7 +63,7 @@ inline QNetworkReplyImplPrivate::QNetworkReplyImplPrivate()
       , downloadBufferReadPosition(0)
       , downloadBufferCurrentSize(0)
       , downloadBufferMaximumSize(0)
-      , downloadBuffer(0)
+      , downloadBuffer(nullptr)
 {
     if (request.attribute(QNetworkRequest::EmitAllUploadProgressSignalsAttribute).toBool() == true)
         emitAllUploadProgressSignals = true;
@@ -88,7 +88,7 @@ void QNetworkReplyImplPrivate::_q_startOperation()
         return;
     }
 
-#ifndef QT_NO_BEARERMANAGEMENT
+#ifndef QT_NO_BEARERMANAGEMENT // ### Qt6: Remove section
     Q_Q(QNetworkReplyImpl);
     // Do not start background requests if they are not allowed by session policy
     QSharedPointer<QNetworkSession> session(manager->d_func()->getNetworkSession());
@@ -102,7 +102,7 @@ void QNetworkReplyImplPrivate::_q_startOperation()
 #endif
 
     if (!backend->start()) {
-#ifndef QT_NO_BEARERMANAGEMENT
+#ifndef QT_NO_BEARERMANAGEMENT // ### Qt6: Remove section
         // backend failed to start because the session state is not Connected.
         // QNetworkAccessManager will call _q_startOperation again for us when the session
         // state changes.
@@ -132,7 +132,7 @@ void QNetworkReplyImplPrivate::_q_startOperation()
 #endif
         return;
     } else {
-#ifndef QT_NO_BEARERMANAGEMENT
+#ifndef QT_NO_BEARERMANAGEMENT // ### Qt6: Remove section
         if (session) {
             QObject::connect(session.data(), SIGNAL(stateChanged(QNetworkSession::State)),
                              q, SLOT(_q_networkSessionStateChanged(QNetworkSession::State)), Qt::QueuedConnection);
@@ -140,7 +140,7 @@ void QNetworkReplyImplPrivate::_q_startOperation()
 #endif
     }
 
-#ifndef QT_NO_BEARERMANAGEMENT
+#ifndef QT_NO_BEARERMANAGEMENT // ### Qt6: Remove section
     if (session) {
         //get notification of policy changes.
         QObject::connect(session.data(), SIGNAL(usagePoliciesChanged(QNetworkSession::UsagePolicies)),
@@ -287,7 +287,7 @@ void QNetworkReplyImplPrivate::_q_bufferOutgoingData()
     }
 }
 
-#ifndef QT_NO_BEARERMANAGEMENT
+#ifndef QT_NO_BEARERMANAGEMENT // ### Qt6: Remove section
 void QNetworkReplyImplPrivate::_q_networkSessionConnected()
 {
     Q_Q(QNetworkReplyImpl);
@@ -489,7 +489,7 @@ void QNetworkReplyImplPrivate::resumeNotificationHandling()
 QAbstractNetworkCache *QNetworkReplyImplPrivate::networkCache() const
 {
     if (!backend)
-        return 0;
+        return nullptr;
     return backend->networkCache();
 }
 
@@ -504,7 +504,7 @@ void QNetworkReplyImplPrivate::createCache()
 
 bool QNetworkReplyImplPrivate::isCachingEnabled() const
 {
-    return (cacheEnabled && networkCache() != 0);
+    return (cacheEnabled && networkCache() != nullptr);
 }
 
 void QNetworkReplyImplPrivate::setCachingEnabled(bool enable)
@@ -529,7 +529,7 @@ void QNetworkReplyImplPrivate::setCachingEnabled(bool enable)
                "backend %s probably needs to be fixed",
                backend->metaObject()->className());
         networkCache()->remove(url);
-        cacheSaveDevice = 0;
+        cacheSaveDevice = nullptr;
         cacheEnabled = false;
     }
 }
@@ -541,7 +541,7 @@ void QNetworkReplyImplPrivate::completeCacheSave()
     } else if (cacheEnabled && cacheSaveDevice) {
         networkCache()->insert(cacheSaveDevice);
     }
-    cacheSaveDevice = 0;
+    cacheSaveDevice = nullptr;
     cacheEnabled = false;
 }
 
@@ -610,7 +610,7 @@ void QNetworkReplyImplPrivate::initCacheSaveDevice()
                   networkCache()->metaObject()->className());
 
         networkCache()->remove(url);
-        cacheSaveDevice = 0;
+        cacheSaveDevice = nullptr;
         cacheEnabled = false;
     }
 }
@@ -787,7 +787,7 @@ void QNetworkReplyImplPrivate::finished()
         totalSize = totalSize.toLongLong() + preMigrationDownloaded;
 
     if (!manager.isNull()) {
-#ifndef QT_NO_BEARERMANAGEMENT
+#ifndef QT_NO_BEARERMANAGEMENT // ### Qt6: Remove section
         QSharedPointer<QNetworkSession> session (manager->d_func()->getNetworkSession());
         if (session && session->state() == QNetworkSession::Roaming &&
             state == Working && errorCode != QNetworkReply::OperationCanceledError) {
@@ -855,7 +855,7 @@ void QNetworkReplyImplPrivate::error(QNetworkReplyImpl::NetworkError code, const
     // note: might not be a good idea, since users could decide to delete us
     // which would delete the backend too...
     // maybe we should protect the backend
-    emit q->error(code);
+    emit q->errorOccurred(code);
 }
 
 void QNetworkReplyImplPrivate::metaDataChanged()
@@ -927,9 +927,9 @@ void QNetworkReplyImpl::abort()
 
     // stop both upload and download
     if (d->outgoingData)
-        disconnect(d->outgoingData, 0, this, 0);
+        disconnect(d->outgoingData, nullptr, this, nullptr);
     if (d->copyDevice)
-        disconnect(d->copyDevice, 0, this, 0);
+        disconnect(d->copyDevice, nullptr, this, nullptr);
 
     QNetworkReply::close();
 
@@ -943,7 +943,7 @@ void QNetworkReplyImpl::abort()
     // finished may access the backend
     if (d->backend) {
         d->backend->deleteLater();
-        d->backend = 0;
+        d->backend = nullptr;
     }
 }
 
@@ -958,7 +958,7 @@ void QNetworkReplyImpl::close()
     if (d->backend)
         d->backend->closeDownstreamChannel();
     if (d->copyDevice)
-        disconnect(d->copyDevice, 0, this, 0);
+        disconnect(d->copyDevice, nullptr, this, nullptr);
 
     QNetworkReply::close();
 
@@ -1110,31 +1110,6 @@ bool QNetworkReplyImplPrivate::migrateBackend()
     QMetaObject::invokeMethod(q, "_q_startOperation", Qt::QueuedConnection);
 
     return true;
-}
-
-QDisabledNetworkReply::QDisabledNetworkReply(QObject *parent,
-                                             const QNetworkRequest &req,
-                                             QNetworkAccessManager::Operation op)
-:   QNetworkReply(parent)
-{
-    setRequest(req);
-    setUrl(req.url());
-    setOperation(op);
-    setFinished(true);
-
-    qRegisterMetaType<QNetworkReply::NetworkError>();
-
-    QString msg = QCoreApplication::translate("QNetworkAccessManager",
-                                              "Network access is disabled.");
-    setError(UnknownNetworkError, msg);
-
-    QMetaObject::invokeMethod(this, "error", Qt::QueuedConnection,
-        Q_ARG(QNetworkReply::NetworkError, UnknownNetworkError));
-    QMetaObject::invokeMethod(this, "finished", Qt::QueuedConnection);
-}
-
-QDisabledNetworkReply::~QDisabledNetworkReply()
-{
 }
 
 QT_END_NAMESPACE

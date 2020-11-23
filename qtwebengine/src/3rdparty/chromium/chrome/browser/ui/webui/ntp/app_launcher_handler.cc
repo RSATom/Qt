@@ -20,9 +20,9 @@
 #include "base/strings/string_util.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/values.h"
+#include "chrome/browser/apps/launch_service/launch_service.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/chrome_notification_types.h"
-#include "chrome/browser/extensions/bookmark_app_extension_util.h"
 #include "chrome/browser/extensions/crx_installer.h"
 #include "chrome/browser/extensions/extension_service.h"
 #include "chrome/browser/extensions/extension_ui_util.h"
@@ -37,12 +37,12 @@
 #include "chrome/browser/ui/browser_window.h"
 #include "chrome/browser/ui/chrome_pages.h"
 #include "chrome/browser/ui/extensions/app_launch_params.h"
-#include "chrome/browser/ui/extensions/application_launch.h"
 #include "chrome/browser/ui/extensions/extension_enable_flow.h"
 #include "chrome/browser/ui/tabs/tab_strip_model.h"
 #include "chrome/browser/ui/webui/extensions/extension_basic_info.h"
 #include "chrome/browser/ui/webui/extensions/extension_icon_source.h"
 #include "chrome/browser/ui/webui/ntp/new_tab_ui.h"
+#include "chrome/browser/web_applications/extensions/bookmark_app_finalizer_utils.h"
 #include "chrome/browser/web_applications/extensions/bookmark_app_util.h"
 #include "chrome/common/buildflags.h"
 #include "chrome/common/chrome_switches.h"
@@ -145,8 +145,8 @@ void AppLauncherHandler::CreateAppInfo(const Extension* extension,
   bool enabled =
       service->IsExtensionEnabled(extension->id()) &&
       !extensions::ExtensionRegistry::Get(service->GetBrowserContext())
-           ->GetExtensionById(extension->id(),
-                              extensions::ExtensionRegistry::TERMINATED);
+           ->terminated_extensions()
+           .GetByID(extension->id());
   extensions::GetExtensionBasicInfo(extension, enabled, value);
 
   value->SetBoolean("mayDisable", extensions::ExtensionSystem::Get(
@@ -303,7 +303,8 @@ void AppLauncherHandler::Observe(int type,
           content::Details<const std::string>(details).ptr();
       if (id) {
         const Extension* extension =
-            extension_service_->GetInstalledExtension(*id);
+            ExtensionRegistry::Get(extension_service_->profile())
+                ->GetInstalledExtension(*id);
         if (!extension) {
           // Extension could still be downloading or installing.
           return;
@@ -376,8 +377,10 @@ void AppLauncherHandler::FillAppDictionary(base::DictionaryValue* dictionary) {
   Profile* profile = Profile::FromWebUI(web_ui());
   PrefService* prefs = profile->GetPrefs();
 
+  ExtensionRegistry* registry =
+      ExtensionRegistry::Get(extension_service_->profile());
   for (auto it = visible_apps_.begin(); it != visible_apps_.end(); ++it) {
-    const Extension* extension = extension_service_->GetInstalledExtension(*it);
+    const Extension* extension = registry->GetInstalledExtension(*it);
     if (extension && extensions::ui_util::ShouldDisplayInNewTabPage(
             extension, profile)) {
       installed_extensions->Append(GetAppInfo(extension));
@@ -488,16 +491,17 @@ void AppLauncherHandler::HandleLaunchApp(const base::ListValue* args) {
   CHECK(launch_bucket >= 0 &&
         launch_bucket < extension_misc::APP_LAUNCH_BUCKET_BOUNDARY);
 
+  Profile* profile = extension_service_->profile();
+
   const Extension* extension =
-      extension_service_->GetExtensionById(extension_id, false);
+      extensions::ExtensionRegistry::Get(profile)->enabled_extensions().GetByID(
+          extension_id);
 
   // Prompt the user to re-enable the application if disabled.
   if (!extension) {
     PromptToEnableApp(extension_id);
     return;
   }
-
-  Profile* profile = extension_service_->profile();
 
   WindowOpenDisposition disposition =
       args->GetSize() > 3 ? webui::GetDispositionFromClick(args, 3)
@@ -523,14 +527,14 @@ void AppLauncherHandler::HandleLaunchApp(const base::ListValue* args) {
       disposition == WindowOpenDisposition::NEW_BACKGROUND_TAB ||
       disposition == WindowOpenDisposition::NEW_WINDOW) {
     // TODO(jamescook): Proper support for background tabs.
-    AppLaunchParams params(
-        profile, extension_id,
+    apps::AppLaunchParams params(
+        extension_id,
         disposition == WindowOpenDisposition::NEW_WINDOW
-            ? extensions::LaunchContainer::kLaunchContainerWindow
-            : extensions::LaunchContainer::kLaunchContainerTab,
-        disposition, extensions::AppLaunchSource::kSourceNewTabPage);
+            ? apps::mojom::LaunchContainer::kLaunchContainerWindow
+            : apps::mojom::LaunchContainer::kLaunchContainerTab,
+        disposition, apps::mojom::AppLaunchSource::kSourceNewTabPage);
     params.override_url = override_url;
-    OpenApplication(params);
+    apps::LaunchService::Get(profile)->OpenApplication(params);
   } else {
     // To give a more "launchy" experience when using the NTP launcher, we close
     // it automatically.
@@ -540,13 +544,14 @@ void AppLauncherHandler::HandleLaunchApp(const base::ListValue* args) {
     if (browser)
       old_contents = browser->tab_strip_model()->GetActiveWebContents();
 
-    AppLaunchParams params = CreateAppLaunchParamsUserContainer(
+    apps::AppLaunchParams params = CreateAppLaunchParamsUserContainer(
         profile, extension,
         old_contents ? WindowOpenDisposition::CURRENT_TAB
                      : WindowOpenDisposition::NEW_FOREGROUND_TAB,
         extensions::AppLaunchSource::kSourceNewTabPage);
     params.override_url = override_url;
-    WebContents* new_contents = OpenApplication(params);
+    WebContents* new_contents =
+        apps::LaunchService::Get(profile)->OpenApplication(params);
 
     // This will also destroy the handler, so do not perform any actions after.
     if (new_contents != old_contents && browser &&
@@ -563,7 +568,11 @@ void AppLauncherHandler::HandleSetLaunchType(const base::ListValue* args) {
   CHECK(args->GetDouble(1, &launch_type));
 
   const Extension* extension =
-      extension_service_->GetExtensionById(extension_id, true);
+      extensions::ExtensionRegistry::Get(extension_service_->profile())
+          ->GetExtensionById(extension_id,
+                             extensions::ExtensionRegistry::ENABLED |
+                                 extensions::ExtensionRegistry::DISABLED |
+                                 extensions::ExtensionRegistry::TERMINATED);
   if (!extension)
     return;
 
@@ -579,8 +588,9 @@ void AppLauncherHandler::HandleUninstallApp(const base::ListValue* args) {
   std::string extension_id;
   CHECK(args->GetString(0, &extension_id));
 
-  const Extension* extension = extension_service_->GetInstalledExtension(
-      extension_id);
+  const Extension* extension =
+      ExtensionRegistry::Get(extension_service_->profile())
+          ->GetInstalledExtension(extension_id);
   if (!extension)
     return;
 
@@ -615,7 +625,11 @@ void AppLauncherHandler::HandleCreateAppShortcut(const base::ListValue* args) {
   CHECK(args->GetString(0, &extension_id));
 
   const Extension* extension =
-      extension_service_->GetExtensionById(extension_id, true);
+      extensions::ExtensionRegistry::Get(extension_service_->profile())
+          ->GetExtensionById(extension_id,
+                             extensions::ExtensionRegistry::ENABLED |
+                                 extensions::ExtensionRegistry::DISABLED |
+                                 extensions::ExtensionRegistry::TERMINATED);
   if (!extension)
     return;
 
@@ -631,7 +645,11 @@ void AppLauncherHandler::HandleInstallAppLocally(const base::ListValue* args) {
   CHECK(args->GetString(0, &extension_id));
 
   const Extension* extension =
-      extension_service_->GetExtensionById(extension_id, true);
+      extensions::ExtensionRegistry::Get(extension_service_->profile())
+          ->GetExtensionById(extension_id,
+                             extensions::ExtensionRegistry::ENABLED |
+                                 extensions::ExtensionRegistry::DISABLED |
+                                 extensions::ExtensionRegistry::TERMINATED);
   if (!extension)
     return;
 
@@ -654,7 +672,11 @@ void AppLauncherHandler::HandleShowAppInfo(const base::ListValue* args) {
   CHECK(args->GetString(0, &extension_id));
 
   const Extension* extension =
-      extension_service_->GetExtensionById(extension_id, true);
+      extensions::ExtensionRegistry::Get(extension_service_->profile())
+          ->GetExtensionById(extension_id,
+                             extensions::ExtensionRegistry::ENABLED |
+                                 extensions::ExtensionRegistry::DISABLED |
+                                 extensions::ExtensionRegistry::TERMINATED);
   if (!extension)
     return;
 
@@ -697,9 +719,6 @@ void AppLauncherHandler::HandleReorderApps(const base::ListValue* args) {
 
   // Don't update the page; it already knows the apps have been reordered.
   base::AutoReset<bool> auto_reset(&ignore_changes_, true);
-  ExtensionPrefs* extension_prefs =
-      ExtensionPrefs::Get(extension_service_->GetBrowserContext());
-  extension_prefs->SetAppDraggedByUser(dragged_app_id);
   ExtensionSystem::Get(extension_service_->GetBrowserContext())
       ->app_sorting()
       ->OnExtensionMoved(dragged_app_id, predecessor_to_moved_ext,
@@ -786,16 +805,13 @@ void AppLauncherHandler::HandlePageSelected(const base::ListValue* args) {
 void AppLauncherHandler::OnFaviconForApp(
     std::unique_ptr<AppInstallInfo> install_info,
     const favicon_base::FaviconImageResult& image_result) {
-  std::unique_ptr<WebApplicationInfo> web_app(new WebApplicationInfo());
+  auto web_app = std::make_unique<WebApplicationInfo>();
   web_app->title = install_info->title;
   web_app->app_url = install_info->app_url;
 
   if (!image_result.image.IsEmpty()) {
-    WebApplicationInfo::IconInfo icon;
-    icon.data = image_result.image.AsBitmap();
-    icon.width = icon.data.width();
-    icon.height = icon.data.height();
-    web_app->icons.push_back(icon);
+    web_app->icon_bitmaps[image_result.image.Width()] =
+        image_result.image.AsBitmap();
   }
 
   scoped_refptr<CrxInstaller> installer(
@@ -831,8 +847,8 @@ void AppLauncherHandler::PromptToEnableApp(const std::string& extension_id) {
     return;  // Only one prompt at a time.
 
   extension_id_prompting_ = extension_id;
-  extension_enable_flow_.reset(new ExtensionEnableFlow(
-      Profile::FromWebUI(web_ui()), extension_id, this));
+  extension_enable_flow_ = std::make_unique<ExtensionEnableFlow>(
+      Profile::FromWebUI(web_ui()), extension_id, this);
   extension_enable_flow_->StartForWebContents(web_ui()->GetWebContents());
 }
 
@@ -862,7 +878,11 @@ void AppLauncherHandler::ExtensionEnableFlowAborted(bool user_initiated) {
   // We record the histograms here because ExtensionUninstallCanceled is also
   // called when the extension uninstall dialog is canceled.
   const Extension* extension =
-      extension_service_->GetExtensionById(extension_id_prompting_, true);
+      extensions::ExtensionRegistry::Get(extension_service_->profile())
+          ->GetExtensionById(extension_id_prompting_,
+                             extensions::ExtensionRegistry::ENABLED |
+                                 extensions::ExtensionRegistry::DISABLED |
+                                 extensions::ExtensionRegistry::TERMINATED);
   std::string histogram_name = user_initiated ? "ReEnableCancel"
                                               : "ReEnableAbort";
   extensions::ExtensionService::RecordPermissionMessagesHistogram(

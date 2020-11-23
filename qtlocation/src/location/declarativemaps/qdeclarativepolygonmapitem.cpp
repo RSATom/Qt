@@ -34,7 +34,11 @@
  **
  ****************************************************************************/
 
+#include "qdeclarativegeomapitemutils_p.h"
 #include "qdeclarativepolygonmapitem_p.h"
+#include "qdeclarativepolylinemapitem_p_p.h"
+#include "qdeclarativepolygonmapitem_p_p.h"
+#include "qdeclarativerectanglemapitem_p_p.h"
 #include "qlocationutils_p.h"
 #include "error_messages_p.h"
 #include "locationvaluetypehelper_p.h"
@@ -51,6 +55,10 @@
 #include <QtPositioning/private/qdoublevector2d_p.h>
 #include <QtPositioning/private/qclipperutils_p.h>
 #include <QtPositioning/private/qgeopolygon_p.h>
+#include <QtPositioning/private/qwebmercator_p.h>
+#include <QtQuick/private/qsgmaterialshader_p.h>
+#include <QtQuick/private/qquickitem_p.h>
+#include <QtQuick/qsgnode.h>
 
 /* poly2tri triangulator includes */
 #include <clip2tri.h>
@@ -326,17 +334,307 @@ void QGeoMapPolygonGeometry::updateScreenPoints(const QGeoMap &map, qreal stroke
         this->translate(QPointF(strokeWidth, strokeWidth));
 }
 
-QDeclarativePolygonMapItem::QDeclarativePolygonMapItem(QQuickItem *parent)
-:   QDeclarativeGeoMapItemBase(parent), border_(this), color_(Qt::transparent), dirtyMaterial_(true),
-    updatingGeometry_(false)
+QGeoMapPolygonGeometryOpenGL::QGeoMapPolygonGeometryOpenGL(){
+}
+
+void QGeoMapPolygonGeometryOpenGL::updateSourcePoints(const QGeoMap &map, const QList<QDoubleVector2D> &path)
 {
+    QList<QGeoCoordinate> geopath;
+    for (const auto &c: path)
+        geopath.append(QWebMercator::mercatorToCoord(c));
+    updateSourcePoints(map, geopath);
+}
+
+// wrapPath always preserves the geometry
+// This one handles holes
+static void wrapPath(const QGeoPolygon &poly
+                     ,const QGeoCoordinate &geoLeftBound
+                     ,const QGeoProjectionWebMercator &p
+                     ,QList<QList<QDoubleVector2D> > &wrappedPaths
+                     ,QDoubleVector2D *leftBoundWrapped = nullptr)
+{
+    QList<QList<QDoubleVector2D> > paths;
+    for (int i = 0; i < 1+poly.holesCount(); ++i) {
+        QList<QDoubleVector2D> path;
+        if (!i) {
+            for (const QGeoCoordinate &c : poly.path())
+                path << p.geoToMapProjection(c);
+        } else {
+            for (const QGeoCoordinate &c : poly.holePath(i-1))
+                path << p.geoToMapProjection(c);
+        }
+        paths.append(path);
+    }
+
+    const QDoubleVector2D leftBound = p.geoToMapProjection(geoLeftBound);
+    wrappedPaths.clear();
+
+    QList<QDoubleVector2D> wrappedPath;
+    // compute 3 sets of "wrapped" coordinates: one w regular mercator, one w regular mercator +- 1.0
+    for (int j = 0; j < paths.size(); ++j) {
+        const QList<QDoubleVector2D> &path = paths.at(j);
+        wrappedPath.clear();
+        for (int i = 0; i < path.size(); ++i) {
+            QDoubleVector2D coord = path.at(i);
+
+            // We can get NaN if the map isn't set up correctly, or the projection
+            // is faulty -- probably best thing to do is abort
+            if (!qIsFinite(coord.x()) || !qIsFinite(coord.y())) {
+                wrappedPaths.clear();
+                return;
+            }
+
+            const bool isPointLessThanUnwrapBelowX = (coord.x() < leftBound.x());
+            // unwrap x to preserve geometry if moved to border of map
+            if (isPointLessThanUnwrapBelowX)
+                coord.setX(coord.x() + 1.0);
+            wrappedPath.append(coord);
+        }
+        wrappedPaths.append(wrappedPath);
+    }
+
+    if (leftBoundWrapped)
+        *leftBoundWrapped = leftBound;
+}
+
+static void cutPathEars(const QList<QList<QDoubleVector2D>> &wrappedPaths,
+                        QVector<QDeclarativeGeoMapItemUtils::vec2> &screenVertices,
+                        QVector<quint32> &screenIndices)
+{
+    using Coord = double;
+    using N = uint32_t;
+    using Point = std::array<Coord, 2>;
+    screenVertices.clear();
+    screenIndices.clear();
+
+    std::vector<std::vector<Point>> polygon;
+    std::vector<Point> poly;
+
+    for (const QList<QDoubleVector2D> &wrappedPath: wrappedPaths) {
+        poly.clear();
+        for (const QDoubleVector2D &v: wrappedPath) {
+            screenVertices << v;
+            Point pt = {{ v.x(), v.y() }};
+            poly.push_back( pt );
+        }
+        polygon.push_back(poly);
+    }
+
+    std::vector<N> indices = qt_mapbox::earcut<N>(polygon);
+
+    for (const auto &i: indices)
+        screenIndices << quint32(i);
+}
+
+static void cutPathEars(const QList<QDoubleVector2D> &wrappedPath,
+                        QVector<QDeclarativeGeoMapItemUtils::vec2> &screenVertices,
+                        QVector<quint32> &screenIndices)
+{
+    using Coord = double;
+    using N = uint32_t;
+    using Point = std::array<Coord, 2>;
+    screenVertices.clear();
+    screenIndices.clear();
+
+    std::vector<std::vector<Point>> polygon;
+    std::vector<Point> poly;
+
+    for (const QDoubleVector2D &v: wrappedPath) {
+        screenVertices << v;
+        Point pt = {{ v.x(), v.y() }};
+        poly.push_back( pt );
+    }
+    polygon.push_back(poly);
+
+    std::vector<N> indices = qt_mapbox::earcut<N>(polygon);
+
+    for (const auto &i: indices)
+        screenIndices << quint32(i);
+}
+
+/*!
+    \internal
+*/
+// This one does only a perimeter
+void QGeoMapPolygonGeometryOpenGL::updateSourcePoints(const QGeoMap &map,
+                                                const QList<QGeoCoordinate> &perimeter)
+{
+    if (!sourceDirty_)
+        return;
+    const QGeoProjectionWebMercator &p = static_cast<const QGeoProjectionWebMercator&>(map.geoProjection());
+
+    // build the actual path
+    // The approach is the same as described in QGeoMapPolylineGeometry::updateSourcePoints
+    srcOrigin_ = geoLeftBound_;
+
+    QDoubleVector2D leftBoundWrapped;
+    // 1) pre-compute 3 sets of "wrapped" coordinates: one w regular mercator, one w regular mercator +- 1.0
+    QList<QDoubleVector2D> wrappedPath;
+    QDeclarativeGeoMapItemUtils::wrapPath(perimeter, geoLeftBound_, p,
+             wrappedPath, &leftBoundWrapped);
+
+    // 1.1) do the same for the bbox
+    QList<QDoubleVector2D> wrappedBbox, wrappedBboxPlus1, wrappedBboxMinus1;
+    QGeoPolygon bbox(QGeoPath(perimeter).boundingGeoRectangle());
+    QDeclarativeGeoMapItemUtils::wrapPath(bbox.path(), bbox.boundingGeoRectangle().topLeft(), p,
+             wrappedBbox, wrappedBboxMinus1, wrappedBboxPlus1, &m_bboxLeftBoundWrapped);
+
+    // 2) Store the triangulated polygon, and the wrapped bbox paths.
+    //    the triangulations can be used as they are, as they "bypass" the QtQuick display chain
+    //    the bbox wraps have to be however clipped, and then projected, in order to figure out the geometry.
+    //    Note that this might still cause the geometryChanged method to fail under some extreme conditions.
+    cutPathEars(wrappedPath, m_screenVertices, m_screenIndices);
+
+    m_wrappedPolygons.resize(3);
+    m_wrappedPolygons[0].wrappedBboxes = wrappedBboxMinus1;
+    m_wrappedPolygons[1].wrappedBboxes = wrappedBbox;
+    m_wrappedPolygons[2].wrappedBboxes = wrappedBboxPlus1;
+}
+
+// This one handles whole QGeoPolygon w. holes
+void QGeoMapPolygonGeometryOpenGL::updateSourcePoints(const QGeoMap &map, const QGeoPolygon &poly)
+{
+    if (!sourceDirty_)
+        return;
+    const QGeoProjectionWebMercator &p = static_cast<const QGeoProjectionWebMercator&>(map.geoProjection());
+
+    // build the actual path
+    // The approach is the same as described in QGeoMapPolylineGeometry::updateSourcePoints
+    srcOrigin_ = geoLeftBound_;
+
+    QDoubleVector2D leftBoundWrapped;
+    QList<QList<QDoubleVector2D>> wrappedPath;
+    // 1) pre-compute 3 sets of "wrapped" coordinates: one w regular mercator, one w regular mercator +- 1.0
+    wrapPath(poly, geoLeftBound_, p,
+             wrappedPath, &leftBoundWrapped);
+
+    // 1.1) do the same for the bbox
+    QList<QDoubleVector2D> wrappedBbox, wrappedBboxPlus1, wrappedBboxMinus1;
+    QGeoPolygon bbox(poly.boundingGeoRectangle());
+    QDeclarativeGeoMapItemUtils::wrapPath(bbox.path(), bbox.boundingGeoRectangle().topLeft(), p,
+             wrappedBbox, wrappedBboxMinus1, wrappedBboxPlus1, &m_bboxLeftBoundWrapped);
+
+    // 2) Store the triangulated polygon, and the wrapped bbox paths.
+    //    the triangulations can be used as they are, as they "bypass" the QtQuick display chain
+    //    the bbox wraps have to be however clipped, and then projected, in order to figure out the geometry.
+    //    Note that this might still cause the geometryChanged method to fail under some extreme conditions.
+    cutPathEars(wrappedPath, m_screenVertices, m_screenIndices);
+    m_wrappedPolygons.resize(3);
+    m_wrappedPolygons[0].wrappedBboxes = wrappedBboxMinus1;
+    m_wrappedPolygons[1].wrappedBboxes = wrappedBbox;
+    m_wrappedPolygons[2].wrappedBboxes = wrappedBboxPlus1;
+}
+
+void QGeoMapPolygonGeometryOpenGL::updateSourcePoints(const QGeoMap &map, const QGeoRectangle &rect)
+{
+    if (!sourceDirty_)
+        return;
+    const QList<QGeoCoordinate> perimeter = QDeclarativeRectangleMapItemPrivateCPU::path(rect);
+    updateSourcePoints(map, perimeter);
+}
+
+/*!
+    \internal
+*/
+void QGeoMapPolygonGeometryOpenGL::updateScreenPoints(const QGeoMap &map, qreal strokeWidth , const QColor &strokeColor)
+{
+    if (map.viewportWidth() == 0 || map.viewportHeight() == 0) {
+        clear();
+        return;
+    }
+
+    // 1) identify which set to use: std, +1 or -1
+    const QGeoProjectionWebMercator &p = static_cast<const QGeoProjectionWebMercator&>(map.geoProjection());
+    const QDoubleVector2D leftBoundMercator = p.geoToMapProjection(srcOrigin_);
+    m_wrapOffset = p.projectionWrapFactor(leftBoundMercator) + 1; // +1 to get the offset into QLists
+
+    // 1.1) select geometry set
+    // This could theoretically be skipped for those polygons whose bbox is not even projectable.
+    // However, such optimization could only be introduced if not calculating bboxes lazily.
+    // Hence not doing it.
+    if (sourceDirty_) {
+        m_dataChanged = true;
+    }
+
+    if (strokeWidth == 0.0 || strokeColor.alpha() == 0) // or else the geometry of the border is used, so no point in calculating 2 of them
+        updateQuickGeometry(p, strokeWidth);
+}
+
+void QGeoMapPolygonGeometryOpenGL::updateQuickGeometry(const QGeoProjectionWebMercator &p, qreal /*strokeWidth*/)
+{
+     // 2) clip bbox
+    // BBox handling --  this is related to the bounding box geometry
+    // that has to inevitably follow the old projection codepath
+    // As it needs to provide projected coordinates for QtQuick interaction.
+    // This could be futher optimized to be updated in a lazy fashion.
+    const QList<QDoubleVector2D> &wrappedBbox = m_wrappedPolygons.at(m_wrapOffset).wrappedBboxes;
+    QList<QList<QDoubleVector2D> > clippedBbox;
+    QDoubleVector2D bboxLeftBoundWrapped = m_bboxLeftBoundWrapped;
+    bboxLeftBoundWrapped.setX(bboxLeftBoundWrapped.x() + double(m_wrapOffset - 1));
+    QDeclarativeGeoMapItemUtils::clipPolygon(wrappedBbox, p, clippedBbox, &bboxLeftBoundWrapped);
+
+    // 3) project bbox
+    QPainterPath ppi;
+    if (!clippedBbox.size() || clippedBbox.first().size() < 3) {
+        sourceBounds_ = screenBounds_ = QRectF();
+        firstPointOffset_ = QPointF();
+        screenOutline_ = ppi;
+        return;
+    }
+
+    QDeclarativeGeoMapItemUtils::projectBbox(clippedBbox.first(), p, ppi); // Using first because a clipped box should always result in one polygon
+    const QRectF brect = ppi.boundingRect();
+    firstPointOffset_ = QPointF(brect.topLeft());
+    screenOutline_ = ppi;
+
+    // 4) Set Screen bbox
+    screenBounds_ = brect;
+    sourceBounds_.setX(0);
+    sourceBounds_.setY(0);
+    sourceBounds_.setWidth(brect.width());
+    sourceBounds_.setHeight(brect.height());
+}
+
+/*
+ * QDeclarativePolygonMapItem Private Implementations
+ */
+
+QDeclarativePolygonMapItemPrivate::~QDeclarativePolygonMapItemPrivate() {}
+
+QDeclarativePolygonMapItemPrivateCPU::~QDeclarativePolygonMapItemPrivateCPU() {}
+
+QDeclarativePolygonMapItemPrivateOpenGL::~QDeclarativePolygonMapItemPrivateOpenGL() {}
+
+/*
+ * QDeclarativePolygonMapItem Implementation
+ */
+
+struct PolygonBackendSelector
+{
+    PolygonBackendSelector()
+    {
+        backend = (qgetenv("QTLOCATION_OPENGL_ITEMS").toInt()) ? QDeclarativePolygonMapItem::OpenGL : QDeclarativePolygonMapItem::Software;
+    }
+    QDeclarativePolygonMapItem::Backend backend = QDeclarativePolygonMapItem::Software;
+};
+
+Q_GLOBAL_STATIC(PolygonBackendSelector, mapPolygonBackendSelector)
+
+QDeclarativePolygonMapItem::QDeclarativePolygonMapItem(QQuickItem *parent)
+:   QDeclarativeGeoMapItemBase(parent), m_border(this), m_color(Qt::transparent), m_dirtyMaterial(true),
+    m_updatingGeometry(false)
+  , m_d(new QDeclarativePolygonMapItemPrivateCPU(*this))
+
+{
+    // ToDo: handle envvar, and switch implementation.
     m_itemType = QGeoMap::MapPolygon;
-    geopath_ = QGeoPolygonEager();
+    m_geopoly = QGeoPolygonEager();
     setFlag(ItemHasContents, true);
-    QObject::connect(&border_, SIGNAL(colorChanged(QColor)),
-                     this, SLOT(markSourceDirtyAndUpdate()));
-    QObject::connect(&border_, SIGNAL(widthChanged(qreal)),
-                     this, SLOT(markSourceDirtyAndUpdate()));
+    QObject::connect(&m_border, SIGNAL(colorChanged(QColor)),
+                     this, SLOT(onLinePropertiesChanged())); // ToDo: fix this, only flag material?
+    QObject::connect(&m_border, SIGNAL(widthChanged(qreal)),
+                     this, SLOT(onLinePropertiesChanged()));
+    setBackend(mapPolygonBackendSelector->backend);
 }
 
 QDeclarativePolygonMapItem::~QDeclarativePolygonMapItem()
@@ -359,7 +657,44 @@ QDeclarativePolygonMapItem::~QDeclarativePolygonMapItem()
 
 QDeclarativeMapLineProperties *QDeclarativePolygonMapItem::border()
 {
-    return &border_;
+    return &m_border;
+}
+
+/*!
+    \qmlproperty MapPolygon.Backend QtLocation::MapPolygon::backend
+
+    This property holds which backend is in use to render the map item.
+    Valid values are \b MapPolygon.Software and \b{MapPolygon.OpenGL}.
+    The default value is \b{MapPolygon.Software}.
+
+    \note \b{The release of this API with Qt 5.15 is a Technology Preview}.
+    Ideally, as the OpenGL backends for map items mature, there will be
+    no more need to also offer the legacy software-projection backend.
+    So this property will likely disappear at some later point.
+    To select OpenGL-accelerated item backends without using this property,
+    it is also possible to set the environment variable \b QTLOCATION_OPENGL_ITEMS
+    to \b{1}.
+    Also note that all current OpenGL backends won't work as expected when enabling
+    layers on the individual item, or when running on OpenGL core profiles greater than 2.x.
+
+    \since 5.15
+*/
+QDeclarativePolygonMapItem::Backend QDeclarativePolygonMapItem::backend() const
+{
+    return m_backend;
+}
+
+void QDeclarativePolygonMapItem::setBackend(QDeclarativePolygonMapItem::Backend b)
+{
+    if (b == m_backend)
+        return;
+    m_backend = b;
+    QScopedPointer<QDeclarativePolygonMapItemPrivate> d((m_backend == Software)
+                                                        ? static_cast<QDeclarativePolygonMapItemPrivate *>(new QDeclarativePolygonMapItemPrivateCPU(*this))
+                                                        : static_cast<QDeclarativePolygonMapItemPrivate * >(new QDeclarativePolygonMapItemPrivateOpenGL(*this)));
+    m_d.swap(d);
+    m_d->onGeoGeometryChanged();
+    emit backendChanged();
 }
 
 /*!
@@ -368,12 +703,8 @@ QDeclarativeMapLineProperties *QDeclarativePolygonMapItem::border()
 void QDeclarativePolygonMapItem::setMap(QDeclarativeGeoMap *quickMap, QGeoMap *map)
 {
     QDeclarativeGeoMapItemBase::setMap(quickMap,map);
-    if (map) {
-        regenerateCache();
-        geometry_.markSourceDirty();
-        borderGeometry_.markSourceDirty();
-        polishAndUpdate();
-    }
+    if (map)
+        m_d->onMapSet();
 }
 
 /*!
@@ -387,7 +718,7 @@ void QDeclarativePolygonMapItem::setMap(QDeclarativeGeoMap *quickMap, QGeoMap *m
 */
 QJSValue QDeclarativePolygonMapItem::path() const
 {
-    return fromList(this, geopath_.path());
+    return fromList(this, m_geopoly.path());
 }
 
 void QDeclarativePolygonMapItem::setPath(const QJSValue &value)
@@ -398,15 +729,12 @@ void QDeclarativePolygonMapItem::setPath(const QJSValue &value)
     QList<QGeoCoordinate> pathList = toList(this, value);
 
     // Equivalent to QDeclarativePolylineMapItem::setPathFromGeoList
-    if (geopath_.path() == pathList)
+    if (m_geopoly.path() == pathList)
         return;
 
-    geopath_.setPath(pathList);
+    m_geopoly.setPath(pathList);
 
-    regenerateCache();
-    geometry_.setPreserveGeometry(true, geopath_.boundingGeoRectangle().topLeft());
-    borderGeometry_.setPreserveGeometry(true, geopath_.boundingGeoRectangle().topLeft());
-    markSourceDirtyAndUpdate();
+    m_d->onGeoGeometryChanged();
     emit pathChanged();
 }
 
@@ -423,11 +751,8 @@ void QDeclarativePolygonMapItem::addCoordinate(const QGeoCoordinate &coordinate)
     if (!coordinate.isValid())
         return;
 
-    geopath_.addCoordinate(coordinate);
-    updateCache();
-    geometry_.setPreserveGeometry(true, geopath_.boundingGeoRectangle().topLeft());
-    borderGeometry_.setPreserveGeometry(true, geopath_.boundingGeoRectangle().topLeft());
-    markSourceDirtyAndUpdate();
+    m_geopoly.addCoordinate(coordinate);
+    m_d->onGeoGeometryUpdated();
     emit pathChanged();
 }
 
@@ -443,15 +768,12 @@ void QDeclarativePolygonMapItem::addCoordinate(const QGeoCoordinate &coordinate)
 */
 void QDeclarativePolygonMapItem::removeCoordinate(const QGeoCoordinate &coordinate)
 {
-    int length = geopath_.path().length();
-    geopath_.removeCoordinate(coordinate);
-    if (geopath_.path().length() == length)
+    int length = m_geopoly.path().length();
+    m_geopoly.removeCoordinate(coordinate);
+    if (m_geopoly.path().length() == length)
         return;
 
-    regenerateCache();
-    geometry_.setPreserveGeometry(true, geopath_.boundingGeoRectangle().topLeft());
-    borderGeometry_.setPreserveGeometry(true, geopath_.boundingGeoRectangle().topLeft());
-    markSourceDirtyAndUpdate();
+    m_d->onGeoGeometryChanged();
     emit pathChanged();
 }
 
@@ -465,18 +787,18 @@ void QDeclarativePolygonMapItem::removeCoordinate(const QGeoCoordinate &coordina
 
 QColor QDeclarativePolygonMapItem::color() const
 {
-    return color_;
+    return m_color;
 }
 
 void QDeclarativePolygonMapItem::setColor(const QColor &color)
 {
-    if (color_ == color)
+    if (m_color == color)
         return;
 
-    color_ = color;
-    dirtyMaterial_ = true;
-    update();
-    emit colorChanged(color_);
+    m_color = color;
+    m_dirtyMaterial = true;
+    polishAndUpdate(); // in case color was transparent and now is not or vice versa
+    emit colorChanged(m_color);
 }
 
 /*!
@@ -484,22 +806,7 @@ void QDeclarativePolygonMapItem::setColor(const QColor &color)
 */
 QSGNode *QDeclarativePolygonMapItem::updateMapItemPaintNode(QSGNode *oldNode, UpdatePaintNodeData *data)
 {
-    Q_UNUSED(data);
-    MapPolygonNode *node = static_cast<MapPolygonNode *>(oldNode);
-
-    if (!node)
-        node = new MapPolygonNode();
-
-    //TODO: update only material
-    if (geometry_.isScreenDirty() || borderGeometry_.isScreenDirty() || dirtyMaterial_) {
-        node->update(color_, border_.color(), &geometry_, &borderGeometry_);
-        geometry_.setPreserveGeometry(false);
-        borderGeometry_.setPreserveGeometry(false);
-        geometry_.markClean();
-        borderGeometry_.markClean();
-        dirtyMaterial_ = false;
-    }
-    return node;
+    return m_d->updateMapItemPaintNode(oldNode, data);
 }
 
 /*!
@@ -509,62 +816,23 @@ void QDeclarativePolygonMapItem::updatePolish()
 {
     if (!map() || map()->geoProjection().projectionType() != QGeoProjection::ProjectionWebMercator)
         return;
-    if (geopath_.path().length() == 0) { // Possibly cleared
-        geometry_.clear();
-        borderGeometry_.clear();
-        setWidth(0);
-        setHeight(0);
-        return;
-    }
+    m_d->updatePolish();
+}
 
-    const QGeoProjectionWebMercator &p = static_cast<const QGeoProjectionWebMercator&>(map()->geoProjection());
-    QScopedValueRollback<bool> rollback(updatingGeometry_);
-    updatingGeometry_ = true;
-
-    geometry_.updateSourcePoints(*map(), geopathProjected_);
-    geometry_.updateScreenPoints(*map(), border_.width());
-
-    QList<QGeoMapItemGeometry *> geoms;
-    geoms << &geometry_;
-    borderGeometry_.clear();
-
-    if (border_.color() != Qt::transparent && border_.width() > 0) {
-        QList<QDoubleVector2D> closedPath = geopathProjected_;
-        closedPath << closedPath.first();
-
-        borderGeometry_.setPreserveGeometry(true, geopath_.boundingGeoRectangle().topLeft());
-
-        const QGeoCoordinate &geometryOrigin = geometry_.origin();
-
-        borderGeometry_.srcPoints_.clear();
-        borderGeometry_.srcPointTypes_.clear();
-
-        QDoubleVector2D borderLeftBoundWrapped;
-        QList<QList<QDoubleVector2D > > clippedPaths = borderGeometry_.clipPath(*map(), closedPath, borderLeftBoundWrapped);
-        if (clippedPaths.size()) {
-            borderLeftBoundWrapped = p.geoToWrappedMapProjection(geometryOrigin);
-            borderGeometry_.pathToScreen(*map(), clippedPaths, borderLeftBoundWrapped);
-            borderGeometry_.updateScreenPoints(*map(), border_.width());
-
-            geoms << &borderGeometry_;
-        } else {
-            borderGeometry_.clear();
-        }
-    }
-
-    QRectF combined = QGeoMapItemGeometry::translateToCommonOrigin(geoms);
-    setWidth(combined.width() + 2 * border_.width());
-    setHeight(combined.height() + 2 * border_.width());
-
-    setPositionOnMap(geometry_.origin(), -1 * geometry_.sourceBoundingBox().topLeft()
-                                            + QPointF(border_.width(), border_.width()));
+void QDeclarativePolygonMapItem::setMaterialDirty()
+{
+    m_dirtyMaterial = true;
+    update();
 }
 
 void QDeclarativePolygonMapItem::markSourceDirtyAndUpdate()
 {
-    geometry_.markSourceDirty();
-    borderGeometry_.markSourceDirty();
-    polishAndUpdate();
+    m_d->markSourceDirtyAndUpdate();
+}
+
+void QDeclarativePolygonMapItem::onLinePropertiesChanged()
+{
+    m_d->onLinePropertiesChanged();
 }
 
 /*!
@@ -572,39 +840,10 @@ void QDeclarativePolygonMapItem::markSourceDirtyAndUpdate()
 */
 void QDeclarativePolygonMapItem::afterViewportChanged(const QGeoMapViewportChangeEvent &event)
 {
-    if (event.mapSize.width() <= 0 || event.mapSize.height() <= 0)
+    if (event.mapSize.isEmpty())
         return;
 
-    geometry_.setPreserveGeometry(true, geometry_.geoLeftBound());
-    borderGeometry_.setPreserveGeometry(true, borderGeometry_.geoLeftBound());
-    geometry_.markSourceDirty();
-    borderGeometry_.markSourceDirty();
-    polishAndUpdate();
-}
-
-/*!
-    \internal
-*/
-void QDeclarativePolygonMapItem::regenerateCache()
-{
-    if (!map() || map()->geoProjection().projectionType() != QGeoProjection::ProjectionWebMercator)
-        return;
-    const QGeoProjectionWebMercator &p = static_cast<const QGeoProjectionWebMercator&>(map()->geoProjection());
-    geopathProjected_.clear();
-    geopathProjected_.reserve(geopath_.path().size());
-    for (const QGeoCoordinate &c : geopath_.path())
-        geopathProjected_ << p.geoToMapProjection(c);
-}
-
-/*!
-    \internal
-*/
-void QDeclarativePolygonMapItem::updateCache()
-{
-    if (!map() || map()->geoProjection().projectionType() != QGeoProjection::ProjectionWebMercator)
-        return;
-    const QGeoProjectionWebMercator &p = static_cast<const QGeoProjectionWebMercator&>(map()->geoProjection());
-    geopathProjected_ << p.geoToMapProjection(geopath_.path().last());
+    m_d->afterViewportChanged();
 }
 
 /*!
@@ -612,24 +851,21 @@ void QDeclarativePolygonMapItem::updateCache()
 */
 bool QDeclarativePolygonMapItem::contains(const QPointF &point) const
 {
-    return (geometry_.contains(point) || borderGeometry_.contains(point));
+    return m_d->contains(point);
 }
 
 const QGeoShape &QDeclarativePolygonMapItem::geoShape() const
 {
-    return geopath_;
+    return m_geopoly;
 }
 
 void QDeclarativePolygonMapItem::setGeoShape(const QGeoShape &shape)
 {
-    if (shape == geopath_)
+    if (shape == m_geopoly)
         return;
 
-    geopath_ = QGeoPolygonEager(shape);
-    regenerateCache();
-    geometry_.setPreserveGeometry(true, geopath_.boundingGeoRectangle().topLeft());
-    borderGeometry_.setPreserveGeometry(true, geopath_.boundingGeoRectangle().topLeft());
-    markSourceDirtyAndUpdate();
+    m_geopoly = QGeoPolygonEager(shape);
+    m_d->onGeoGeometryChanged();
     emit pathChanged();
 }
 
@@ -638,7 +874,7 @@ void QDeclarativePolygonMapItem::setGeoShape(const QGeoShape &shape)
 */
 void QDeclarativePolygonMapItem::geometryChanged(const QRectF &newGeometry, const QRectF &oldGeometry)
 {
-    if (!map() || !geopath_.isValid() || updatingGeometry_ || newGeometry.topLeft() == oldGeometry.topLeft()) {
+    if (newGeometry.topLeft() == oldGeometry.topLeft() || !map() || !m_geopoly.isValid() || m_updatingGeometry) {
         QDeclarativeGeoMapItemBase::geometryChanged(newGeometry, oldGeometry);
         return;
     }
@@ -652,11 +888,8 @@ void QDeclarativePolygonMapItem::geometryChanged(const QRectF &newGeometry, cons
     if (offsetLati == 0.0 && offsetLongi == 0.0)
         return;
 
-    geopath_.translate(offsetLati, offsetLongi);
-    regenerateCache();
-    geometry_.setPreserveGeometry(true, geopath_.boundingGeoRectangle().topLeft());
-    borderGeometry_.setPreserveGeometry(true, geopath_.boundingGeoRectangle().topLeft());
-    markSourceDirtyAndUpdate();
+    m_geopoly.translate(offsetLati, offsetLongi);
+    m_d->onGeoGeometryChanged();
     emit pathChanged();
 
     // Not calling QDeclarativeGeoMapItemBase::geometryChanged() as it will be called from a nested
@@ -664,6 +897,25 @@ void QDeclarativePolygonMapItem::geometryChanged(const QRectF &newGeometry, cons
 }
 
 //////////////////////////////////////////////////////////////////////
+
+QSGMaterialShader *MapPolygonMaterial::createShader() const
+{
+    return new MapPolygonShader();
+}
+
+int MapPolygonMaterial::compare(const QSGMaterial *other) const
+{
+    const MapPolygonMaterial &o = *static_cast<const MapPolygonMaterial *>(other);
+    if (o.m_center == m_center && o.m_geoProjection == m_geoProjection && o.m_wrapOffset == m_wrapOffset)
+        return QSGFlatColorMaterial::compare(other);
+    return -1;
+}
+
+QSGMaterialType *MapPolygonMaterial::type() const
+{
+    static QSGMaterialType type;
+    return &type;
+}
 
 MapPolygonNode::MapPolygonNode() :
     border_(new MapPolylineNode()),
@@ -701,6 +953,9 @@ void MapPolygonNode::update(const QColor &fillColor, const QColor &borderColor,
     setSubtreeBlocked(false);
 
 
+    // TODO: do this only if the geometry has changed!!
+    // No need to do this every frame.
+    // Then benchmark the difference!
     QSGGeometry *fill = QSGGeometryNode::geometry();
     fillShape->allocateAndFill(fill);
     markDirty(DirtyGeometry);
@@ -710,6 +965,92 @@ void MapPolygonNode::update(const QColor &fillColor, const QColor &borderColor,
         setMaterial(&fill_material_);
         markDirty(DirtyMaterial);
     }
+}
+
+MapPolygonNodeGL::MapPolygonNodeGL() :
+    //fill_material_(this),
+    fill_material_(),
+    geometry_(QSGGeometry::defaultAttributes_Point2D(), 0)
+{
+    geometry_.setDrawingMode(QSGGeometry::DrawTriangles);
+    QSGGeometryNode::setMaterial(&fill_material_);
+    QSGGeometryNode::setGeometry(&geometry_);
+}
+
+MapPolygonNodeGL::~MapPolygonNodeGL()
+{
+}
+
+/*!
+    \internal
+*/
+void MapPolygonNodeGL::update(const QColor &fillColor,
+                            const QGeoMapPolygonGeometryOpenGL *fillShape,
+                            const QMatrix4x4 &geoProjection,
+                            const QDoubleVector3D &center)
+{
+    if (fillShape->m_screenIndices.size() < 3 || fillColor.alpha() == 0) {
+        setSubtreeBlocked(true);
+        return;
+    }
+    setSubtreeBlocked(false);
+
+    QSGGeometry *fill = QSGGeometryNode::geometry();
+    if (fillShape->m_dataChanged || !fill->vertexCount()) {
+        fillShape->allocateAndFillPolygon(fill);
+        markDirty(DirtyGeometry);
+        fillShape->m_dataChanged = false;
+    }
+
+    //if (fillColor != fill_material_.color()) // Any point in optimizing this?
+    {
+        fill_material_.setColor(fillColor);
+        fill_material_.setGeoProjection(geoProjection);
+        fill_material_.setCenter(center);
+        fill_material_.setWrapOffset(fillShape->m_wrapOffset - 1);
+        setMaterial(&fill_material_);
+        markDirty(DirtyMaterial);
+    }
+}
+
+MapPolygonShader::MapPolygonShader() : QSGMaterialShader(*new QSGMaterialShaderPrivate)
+{
+
+}
+
+void MapPolygonShader::updateState(const QSGMaterialShader::RenderState &state, QSGMaterial *newEffect, QSGMaterial *oldEffect)
+{
+    Q_ASSERT(oldEffect == nullptr || newEffect->type() == oldEffect->type());
+    MapPolygonMaterial *oldMaterial = static_cast<MapPolygonMaterial *>(oldEffect);
+    MapPolygonMaterial *newMaterial = static_cast<MapPolygonMaterial *>(newEffect);
+
+    const QColor &c = newMaterial->color();
+    const QMatrix4x4 &geoProjection = newMaterial->geoProjection();
+    const QDoubleVector3D &center = newMaterial->center();
+
+    QVector3D vecCenter, vecCenter_lowpart;
+    for (int i = 0; i < 3; i++)
+        QLocationUtils::split_double(center.get(i), &vecCenter[i], &vecCenter_lowpart[i]);
+
+    if (oldMaterial == nullptr || c != oldMaterial->color() || state.isOpacityDirty()) {
+        float opacity = state.opacity() * c.alphaF();
+        QVector4D v(c.redF() * opacity,
+                    c.greenF() *  opacity,
+                    c.blueF() * opacity,
+                    opacity);
+        program()->setUniformValue(m_color_id, v);
+    }
+
+    if (state.isMatrixDirty())
+    {
+        program()->setUniformValue(m_matrix_id, state.projectionMatrix());
+    }
+
+    program()->setUniformValue(m_mapProjection_id, geoProjection);
+
+    program()->setUniformValue(m_center_id, vecCenter);
+    program()->setUniformValue(m_center_lowpart_id, vecCenter_lowpart);
+    program()->setUniformValue(m_wrapOffset_id, float(newMaterial->wrapOffset()));
 }
 
 QT_END_NAMESPACE

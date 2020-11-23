@@ -15,7 +15,6 @@
 #include "net/base/load_flags.h"
 #include "net/url_request/url_fetcher.h"
 #include "services/network/public/cpp/resource_request.h"
-#include "services/network/public/cpp/shared_url_loader_factory.h"
 #include "services/network/public/cpp/simple_url_loader.h"
 
 namespace feedback {
@@ -60,11 +59,9 @@ GURL GetFeedbackPostGURL() {
 }  // namespace
 
 FeedbackUploader::FeedbackUploader(
-    scoped_refptr<network::SharedURLLoaderFactory> url_loader_factory,
     content::BrowserContext* context,
     scoped_refptr<base::SingleThreadTaskRunner> task_runner)
-    : url_loader_factory_(std::move(url_loader_factory)),
-      context_(context),
+    : context_(context),
       feedback_reports_path_(GetPathFromContext(context)),
       task_runner_(task_runner),
       feedback_post_url_(GetFeedbackPostGURL()),
@@ -82,7 +79,17 @@ void FeedbackUploader::SetMinimumRetryDelayForTesting(base::TimeDelta delay) {
 }
 
 void FeedbackUploader::QueueReport(std::unique_ptr<std::string> data) {
-  QueueReportWithDelay(std::move(data), base::TimeDelta());
+  reports_queue_.emplace(base::MakeRefCounted<FeedbackReport>(
+      feedback_reports_path_, base::Time::Now(), std::move(data),
+      task_runner_));
+  UpdateUploadTimer();
+}
+
+void FeedbackUploader::RequeueReport(scoped_refptr<FeedbackReport> report) {
+  DCHECK_EQ(task_runner_, report->reports_task_runner());
+  report->set_upload_at(base::Time::Now());
+  reports_queue_.emplace(std::move(report));
+  UpdateUploadTimer();
 }
 
 void FeedbackUploader::StartDispatchingReport() {
@@ -159,7 +166,7 @@ void FeedbackUploader::DispatchReport() {
         })");
   auto resource_request = std::make_unique<network::ResourceRequest>();
   resource_request->url = feedback_post_url_;
-  resource_request->allow_credentials = false;
+  resource_request->credentials_mode = network::mojom::CredentialsMode::kOmit;
   resource_request->method = "POST";
 
   // Tell feedback server about the variation state of this install.
@@ -179,6 +186,15 @@ void FeedbackUploader::DispatchReport() {
                                            kProtoBufMimeType);
   auto it = uploads_in_progress_.insert(uploads_in_progress_.begin(),
                                         std::move(simple_url_loader));
+
+  // Creating the StoragePartitionImpl is costly, so don't do it until
+  // necessary (most importantly, avoid doing so during startup).
+  if (!url_loader_factory_) {
+    url_loader_factory_ =
+        content::BrowserContext::GetDefaultStoragePartition(context_)
+            ->GetURLLoaderFactoryForBrowserProcess();
+  }
+
   simple_url_loader_ptr->DownloadToStringOfUnboundedSizeUntilCrashAndDie(
       url_loader_factory_.get(),
       base::BindOnce(&FeedbackUploader::OnDispatchComplete,
@@ -247,14 +263,6 @@ void FeedbackUploader::UpdateUploadTimer() {
     upload_timer_.Start(FROM_HERE, delay, this,
                         &FeedbackUploader::UpdateUploadTimer);
   }
-}
-
-void FeedbackUploader::QueueReportWithDelay(std::unique_ptr<std::string> data,
-                                            base::TimeDelta delay) {
-  reports_queue_.emplace(base::MakeRefCounted<FeedbackReport>(
-      feedback_reports_path_, base::Time::Now() + delay, std::move(data),
-      task_runner_));
-  UpdateUploadTimer();
 }
 
 }  // namespace feedback

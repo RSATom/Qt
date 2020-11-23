@@ -84,8 +84,10 @@ class VirtualTable {
   //
   // |sqlite_table| must have been returned by VirtualTable::SqliteTable().
   static inline VirtualTable* FromSqliteTable(sqlite3_vtab* sqlite_table) {
-//    static_assert(std::is_standard_layout<VirtualTable>::value,
-//                  "needed for the reinterpret_cast below");
+#if 0
+    static_assert(std::is_standard_layout<VirtualTable>::value,
+                  "needed for the reinterpret_cast below");
+#endif
     static_assert(offsetof(VirtualTable, sqlite_table_) == 0,
                   "sqlite_table_ must be the first member of the class");
     VirtualTable* const result = reinterpret_cast<VirtualTable*>(sqlite_table);

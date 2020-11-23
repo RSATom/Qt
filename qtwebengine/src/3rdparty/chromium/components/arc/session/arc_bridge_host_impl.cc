@@ -10,56 +10,56 @@
 #include "ash/public/cpp/arc_notifications_host_initializer.h"
 #include "base/bind.h"
 #include "base/bind_helpers.h"
-#include "components/arc/common/accessibility_helper.mojom.h"
-#include "components/arc/common/app.mojom.h"
-#include "components/arc/common/app_permissions.mojom.h"
-#include "components/arc/common/appfuse.mojom.h"
-#include "components/arc/common/audio.mojom.h"
-#include "components/arc/common/auth.mojom.h"
-#include "components/arc/common/backup_settings.mojom.h"
-#include "components/arc/common/bluetooth.mojom.h"
-#include "components/arc/common/boot_phase_monitor.mojom.h"
-#include "components/arc/common/camera.mojom.h"
-#include "components/arc/common/cast_receiver.mojom.h"
-#include "components/arc/common/cert_store.mojom.h"
-#include "components/arc/common/clipboard.mojom.h"
-#include "components/arc/common/crash_collector.mojom.h"
-#include "components/arc/common/disk_quota.mojom.h"
-#include "components/arc/common/enterprise_reporting.mojom.h"
-#include "components/arc/common/file_system.mojom.h"
-#include "components/arc/common/ime.mojom.h"
-#include "components/arc/common/input_method_manager.mojom.h"
-#include "components/arc/common/intent_helper.mojom.h"
-#include "components/arc/common/keymaster.mojom.h"
-#include "components/arc/common/kiosk.mojom.h"
-#include "components/arc/common/lock_screen.mojom.h"
-#include "components/arc/common/media_session.mojom.h"
-#include "components/arc/common/metrics.mojom.h"
-#include "components/arc/common/midis.mojom.h"
-#include "components/arc/common/net.mojom.h"
-#include "components/arc/common/notifications.mojom.h"
-#include "components/arc/common/obb_mounter.mojom.h"
-#include "components/arc/common/oemcrypto.mojom.h"
-#include "components/arc/common/pip.mojom.h"
-#include "components/arc/common/policy.mojom.h"
-#include "components/arc/common/power.mojom.h"
-#include "components/arc/common/print.mojom.h"
-#include "components/arc/common/print_spooler.mojom.h"
-#include "components/arc/common/process.mojom.h"
-#include "components/arc/common/property.mojom.h"
-#include "components/arc/common/rotation_lock.mojom.h"
-#include "components/arc/common/screen_capture.mojom.h"
-#include "components/arc/common/storage_manager.mojom.h"
-#include "components/arc/common/timer.mojom.h"
-#include "components/arc/common/tracing.mojom.h"
-#include "components/arc/common/tts.mojom.h"
-#include "components/arc/common/usb_host.mojom.h"
-#include "components/arc/common/video.mojom.h"
-#include "components/arc/common/voice_interaction_arc_home.mojom.h"
-#include "components/arc/common/voice_interaction_framework.mojom.h"
-#include "components/arc/common/volume_mounter.mojom.h"
-#include "components/arc/common/wake_lock.mojom.h"
-#include "components/arc/common/wallpaper.mojom.h"
+#include "components/arc/mojom/accessibility_helper.mojom.h"
+#include "components/arc/mojom/app.mojom.h"
+#include "components/arc/mojom/app_permissions.mojom.h"
+#include "components/arc/mojom/appfuse.mojom.h"
+#include "components/arc/mojom/audio.mojom.h"
+#include "components/arc/mojom/auth.mojom.h"
+#include "components/arc/mojom/backup_settings.mojom.h"
+#include "components/arc/mojom/bluetooth.mojom.h"
+#include "components/arc/mojom/boot_phase_monitor.mojom.h"
+#include "components/arc/mojom/camera.mojom.h"
+#include "components/arc/mojom/cast_receiver.mojom.h"
+#include "components/arc/mojom/cert_store.mojom.h"
+#include "components/arc/mojom/clipboard.mojom.h"
+#include "components/arc/mojom/crash_collector.mojom.h"
+#include "components/arc/mojom/disk_quota.mojom.h"
+#include "components/arc/mojom/enterprise_reporting.mojom.h"
+#include "components/arc/mojom/file_system.mojom.h"
+#include "components/arc/mojom/ime.mojom.h"
+#include "components/arc/mojom/input_method_manager.mojom.h"
+#include "components/arc/mojom/intent_helper.mojom.h"
+#include "components/arc/mojom/keymaster.mojom.h"
+#include "components/arc/mojom/kiosk.mojom.h"
+#include "components/arc/mojom/lock_screen.mojom.h"
+#include "components/arc/mojom/media_session.mojom.h"
+#include "components/arc/mojom/metrics.mojom.h"
+#include "components/arc/mojom/midis.mojom.h"
+#include "components/arc/mojom/net.mojom.h"
+#include "components/arc/mojom/notifications.mojom.h"
+#include "components/arc/mojom/obb_mounter.mojom.h"
+#include "components/arc/mojom/oemcrypto.mojom.h"
+#include "components/arc/mojom/pip.mojom.h"
+#include "components/arc/mojom/policy.mojom.h"
+#include "components/arc/mojom/power.mojom.h"
+#include "components/arc/mojom/print.mojom.h"
+#include "components/arc/mojom/print_spooler.mojom.h"
+#include "components/arc/mojom/process.mojom.h"
+#include "components/arc/mojom/property.mojom.h"
+#include "components/arc/mojom/rotation_lock.mojom.h"
+#include "components/arc/mojom/screen_capture.mojom.h"
+#include "components/arc/mojom/storage_manager.mojom.h"
+#include "components/arc/mojom/timer.mojom.h"
+#include "components/arc/mojom/tracing.mojom.h"
+#include "components/arc/mojom/tts.mojom.h"
+#include "components/arc/mojom/usb_host.mojom.h"
+#include "components/arc/mojom/video.mojom.h"
+#include "components/arc/mojom/voice_interaction_arc_home.mojom.h"
+#include "components/arc/mojom/voice_interaction_framework.mojom.h"
+#include "components/arc/mojom/volume_mounter.mojom.h"
+#include "components/arc/mojom/wake_lock.mojom.h"
+#include "components/arc/mojom/wallpaper.mojom.h"
 #include "components/arc/session/arc_bridge_service.h"
 #include "components/arc/session/mojo_channel.h"
 #include "content/public/browser/system_connector.h"
@@ -70,14 +70,14 @@ namespace arc {
 ArcBridgeHostImpl::ArcBridgeHostImpl(ArcBridgeService* arc_bridge_service,
                                      mojom::ArcBridgeInstancePtr instance)
     : arc_bridge_service_(arc_bridge_service),
-      binding_(this),
+      receiver_(this),
       instance_(std::move(instance)) {
   DCHECK(arc_bridge_service_);
   DCHECK(instance_.is_bound());
   instance_.set_connection_error_handler(
       base::BindOnce(&ArcBridgeHostImpl::OnClosed, base::Unretained(this)));
   mojom::ArcBridgeHostPtr host_proxy;
-  binding_.Bind(mojo::MakeRequest(&host_proxy));
+  receiver_.Bind(mojo::MakeRequest(&host_proxy));
   instance_->Init(std::move(host_proxy));
 }
 
@@ -293,6 +293,12 @@ void ArcBridgeHostImpl::OnScreenCaptureInstanceReady(
                   std::move(screen_capture_ptr));
 }
 
+void ArcBridgeHostImpl::OnSmartCardManagerInstanceReady(
+    mojom::SmartCardManagerInstancePtr smart_card_manager_ptr) {
+  OnInstanceReady(arc_bridge_service_->smart_card_manager(),
+                  std::move(smart_card_manager_ptr));
+}
+
 void ArcBridgeHostImpl::OnStorageManagerInstanceReady(
     mojom::StorageManagerInstancePtr storage_manager_ptr) {
   OnInstanceReady(arc_bridge_service_->storage_manager(),
@@ -353,11 +359,15 @@ void ArcBridgeHostImpl::OnClosed() {
   DCHECK_CALLED_ON_VALID_THREAD(thread_checker_);
   VLOG(1) << "Mojo connection lost";
 
+  arc_bridge_service_->ObserveBeforeArcBridgeClosed();
+
   // Close all mojo channels.
   mojo_channels_.clear();
   instance_.reset();
-  if (binding_.is_bound())
-    binding_.Close();
+  if (receiver_.is_bound())
+    receiver_.reset();
+
+  arc_bridge_service_->ObserveAfterArcBridgeClosed();
 }
 
 template <typename InstanceType, typename HostType>
@@ -365,7 +375,7 @@ void ArcBridgeHostImpl::OnInstanceReady(
     ConnectionHolder<InstanceType, HostType>* holder,
     mojo::InterfacePtr<InstanceType> ptr) {
   DCHECK_CALLED_ON_VALID_THREAD(thread_checker_);
-  DCHECK(binding_.is_bound());
+  DCHECK(receiver_.is_bound());
   DCHECK(ptr.is_bound());
 
   // Track |channel|'s lifetime via |mojo_channels_| so that it will be

@@ -15,10 +15,12 @@
 #include "components/autofill/core/browser/autofill_manager.h"
 #include "components/autofill/core/browser/form_structure.h"
 #include "components/autofill/core/browser/payments/payments_service_url.h"
+#include "content/public/browser/back_forward_cache.h"
 #include "content/public/browser/browser_context.h"
 #include "content/public/browser/navigation_controller.h"
 #include "content/public/browser/navigation_handle.h"
 #include "content/public/browser/render_frame_host.h"
+#include "content/public/browser/render_process_host.h"
 #include "content/public/browser/render_view_host.h"
 #include "content/public/browser/render_widget_host.h"
 #include "content/public/browser/render_widget_host_view.h"
@@ -41,7 +43,8 @@ ContentAutofillDriver::ContentAutofillDriver(
     AutofillProvider* provider)
     : render_frame_host_(render_frame_host),
       autofill_manager_(nullptr),
-      key_press_handler_manager_(this) {
+      key_press_handler_manager_(this),
+      log_manager_(client->GetLogManager()) {
   // AutofillManager isn't used if provider is valid, Autofill provider is
   // currently used by Android WebView only.
   if (provider) {
@@ -82,14 +85,16 @@ bool ContentAutofillDriver::IsInMainFrame() const {
   return render_frame_host_->GetParent() == nullptr;
 }
 
-ui::AXTreeID ContentAutofillDriver::GetAxTreeId() const {
-  return render_frame_host_->GetAXTreeID();
+bool ContentAutofillDriver::CanShowAutofillUi() const {
+  // TODO(crbug.com/1041021): Use RenderFrameHost::IsActive here when available.
+  return !content::BackForwardCache::EvictIfCached(
+      {render_frame_host_->GetProcess()->GetID(),
+       render_frame_host_->GetRoutingID()},
+      "ContentAutofillDriver::CanShowAutofillUi");
 }
 
-net::URLRequestContextGetter* ContentAutofillDriver::GetURLRequestContext() {
-  return content::BrowserContext::GetDefaultStoragePartition(
-      render_frame_host_->GetSiteInstance()->GetBrowserContext())->
-          GetURLRequestContext();
+ui::AXTreeID ContentAutofillDriver::GetAxTreeId() const {
+  return render_frame_host_->GetAXTreeID();
 }
 
 scoped_refptr<network::SharedURLLoaderFactory>
@@ -104,13 +109,13 @@ bool ContentAutofillDriver::RendererIsAvailable() {
 }
 
 void ContentAutofillDriver::ConnectToAuthenticator(
-    blink::mojom::InternalAuthenticatorRequest request) {
+    mojo::PendingReceiver<blink::mojom::InternalAuthenticator> receiver) {
 #if defined(OS_ANDROID)
-  render_frame_host_->GetJavaInterfaces()->GetInterface(std::move(request));
+  render_frame_host_->GetJavaInterfaces()->GetInterface(std::move(receiver));
 #else
   authenticator_impl_ = std::make_unique<content::InternalAuthenticatorImpl>(
       render_frame_host_, url::Origin::Create(payments::GetBaseSecureUrl()));
-  authenticator_impl_->Bind(std::move(request));
+  authenticator_impl_->Bind(std::move(receiver));
 #endif
 }
 
@@ -135,6 +140,11 @@ void ContentAutofillDriver::PropagateAutofillPredictions(
     const std::vector<FormStructure*>& forms) {
   autofill_manager_->client()->PropagateAutofillPredictions(render_frame_host_,
                                                             forms);
+}
+
+void ContentAutofillDriver::HandleParsedForms(
+    const std::vector<FormStructure*>& forms) {
+  // No op.
 }
 
 void ContentAutofillDriver::SendAutofillTypePredictionsToRenderer(
@@ -181,10 +191,10 @@ void ContentAutofillDriver::RendererShouldPreviewFieldWithValue(
 }
 
 void ContentAutofillDriver::RendererShouldSetSuggestionAvailability(
-    bool available) {
+    const mojom::AutofillState state) {
   if (!RendererIsAvailable())
     return;
-  GetAutofillAgent()->SetSuggestionAvailability(available);
+  GetAutofillAgent()->SetSuggestionAvailability(state);
 }
 
 void ContentAutofillDriver::PopupHidden() {
@@ -205,6 +215,10 @@ gfx::RectF ContentAutofillDriver::TransformBoundingBoxToViewportCoordinates(
       view->TransformPointToRootCoordSpaceF(orig_point);
   return gfx::RectF(transformed_point.x(), transformed_point.y(),
                     bounding_box.width(), bounding_box.height());
+}
+
+net::NetworkIsolationKey ContentAutofillDriver::NetworkIsolationKey() {
+  return render_frame_host_->GetNetworkIsolationKey();
 }
 
 void ContentAutofillDriver::FormsSeen(const std::vector<FormData>& forms,
@@ -338,7 +352,8 @@ void ContentAutofillDriver::RemoveHandler(
 }
 
 void ContentAutofillDriver::SetAutofillProvider(AutofillProvider* provider) {
-  autofill_handler_ = std::make_unique<AutofillHandlerProxy>(this, provider);
+  autofill_handler_ =
+      std::make_unique<AutofillHandlerProxy>(this, log_manager_, provider);
   GetAutofillAgent()->SetUserGestureRequired(false);
   GetAutofillAgent()->SetSecureContextRequired(true);
   GetAutofillAgent()->SetFocusRequiresScroll(false);

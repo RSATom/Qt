@@ -5,12 +5,14 @@
 #include "content/browser/service_worker/service_worker_storage.h"
 
 #include <stddef.h>
+
 #include <memory>
 #include <utility>
 
 #include "base/bind_helpers.h"
 #include "base/files/file_util.h"
 #include "base/memory/ptr_util.h"
+#include "base/run_loop.h"
 #include "base/sequenced_task_runner.h"
 #include "base/task/post_task.h"
 #include "base/task_runner_util.h"
@@ -66,9 +68,6 @@ const base::FilePath::CharType kDatabaseName[] =
 const base::FilePath::CharType kDiskCacheName[] =
     FILE_PATH_LITERAL("ScriptCache");
 
-// Taken from AppCache's in-memory cache size.
-const int kMaxServiceWorkerStorageMemDiskCacheSize = 10 * 1024 * 1024;
-
 blink::ServiceWorkerStatusCode DatabaseStatusToStatusCode(
     ServiceWorkerDatabase::Status status) {
   switch (status) {
@@ -120,7 +119,7 @@ ServiceWorkerStorage::~ServiceWorkerStorage() {
 // static
 std::unique_ptr<ServiceWorkerStorage> ServiceWorkerStorage::Create(
     const base::FilePath& user_data_directory,
-    const base::WeakPtr<ServiceWorkerContextCore>& context,
+    ServiceWorkerContextCore* context,
     scoped_refptr<base::SequencedTaskRunner> database_task_runner,
     storage::QuotaManagerProxy* quota_manager_proxy,
     storage::SpecialStoragePolicy* special_storage_policy) {
@@ -131,7 +130,7 @@ std::unique_ptr<ServiceWorkerStorage> ServiceWorkerStorage::Create(
 
 // static
 std::unique_ptr<ServiceWorkerStorage> ServiceWorkerStorage::Create(
-    const base::WeakPtr<ServiceWorkerContextCore>& context,
+    ServiceWorkerContextCore* context,
     ServiceWorkerStorage* old_storage) {
   return base::WrapUnique(
       new ServiceWorkerStorage(old_storage->user_data_directory_, context,
@@ -140,10 +139,10 @@ std::unique_ptr<ServiceWorkerStorage> ServiceWorkerStorage::Create(
                                old_storage->special_storage_policy_.get()));
 }
 
-void ServiceWorkerStorage::FindRegistrationForDocument(
-    const GURL& document_url,
+void ServiceWorkerStorage::FindRegistrationForClientUrl(
+    const GURL& client_url,
     FindRegistrationCallback callback) {
-  DCHECK(!document_url.has_ref());
+  DCHECK(!client_url.has_ref());
   switch (state_) {
     case STORAGE_STATE_DISABLED:
       CompleteFindNow(scoped_refptr<ServiceWorkerRegistration>(),
@@ -153,49 +152,50 @@ void ServiceWorkerStorage::FindRegistrationForDocument(
     case STORAGE_STATE_INITIALIZING:  // Fall-through.
     case STORAGE_STATE_UNINITIALIZED:
       LazyInitialize(base::BindOnce(
-          &ServiceWorkerStorage::FindRegistrationForDocument,
-          weak_factory_.GetWeakPtr(), document_url, std::move(callback)));
+          &ServiceWorkerStorage::FindRegistrationForClientUrl,
+          weak_factory_.GetWeakPtr(), client_url, std::move(callback)));
       TRACE_EVENT_INSTANT1(
           "ServiceWorker",
-          "ServiceWorkerStorage::FindRegistrationForDocument:LazyInitialize",
-          TRACE_EVENT_SCOPE_THREAD, "URL", document_url.spec());
+          "ServiceWorkerStorage::FindRegistrationForClientUrl:LazyInitialize",
+          TRACE_EVENT_SCOPE_THREAD, "URL", client_url.spec());
       return;
     case STORAGE_STATE_INITIALIZED:
       break;
   }
 
   // See if there are any stored registrations for the origin.
-  if (!base::Contains(registered_origins_, document_url.GetOrigin())) {
+  if (!base::Contains(registered_origins_, client_url.GetOrigin())) {
     // Look for something currently being installed.
     scoped_refptr<ServiceWorkerRegistration> installing_registration =
-        FindInstallingRegistrationForDocument(document_url);
+        FindInstallingRegistrationForClientUrl(client_url);
     blink::ServiceWorkerStatusCode status =
         installing_registration
             ? blink::ServiceWorkerStatusCode::kOk
             : blink::ServiceWorkerStatusCode::kErrorNotFound;
     TRACE_EVENT_INSTANT2(
         "ServiceWorker",
-        "ServiceWorkerStorage::FindRegistrationForDocument:CheckInstalling",
-        TRACE_EVENT_SCOPE_THREAD, "URL", document_url.spec(), "Status",
+        "ServiceWorkerStorage::FindRegistrationForClientUrl:CheckInstalling",
+        TRACE_EVENT_SCOPE_THREAD, "URL", client_url.spec(), "Status",
         blink::ServiceWorkerStatusToString(status));
     CompleteFindNow(std::move(installing_registration), status,
                     std::move(callback));
     return;
   }
 
-  // To connect this TRACE_EVENT with the callback, TimeTicks is used for
+  // To connect this TRACE_EVENT with the callback, Time is used for
   // callback id.
-  int64_t callback_id = base::TimeTicks::Now().ToInternalValue();
+  int64_t callback_id =
+      base::Time::Now().ToDeltaSinceWindowsEpoch().InMicroseconds();
   TRACE_EVENT_ASYNC_BEGIN1("ServiceWorker",
-                           "ServiceWorkerStorage::FindRegistrationForDocument",
-                           callback_id, "URL", document_url.spec());
+                           "ServiceWorkerStorage::FindRegistrationForClientUrl",
+                           callback_id, "URL", client_url.spec());
   database_task_runner_->PostTask(
       FROM_HERE,
       base::BindOnce(
-          &FindForDocumentInDB, database_.get(),
-          base::ThreadTaskRunnerHandle::Get(), document_url,
-          base::BindOnce(&ServiceWorkerStorage::DidFindRegistrationForDocument,
-                         weak_factory_.GetWeakPtr(), document_url,
+          &FindForClientUrlInDB, database_.get(),
+          base::ThreadTaskRunnerHandle::Get(), client_url,
+          base::BindOnce(&ServiceWorkerStorage::DidFindRegistrationForClientUrl,
+                         weak_factory_.GetWeakPtr(), client_url,
                          std::move(callback), callback_id)));
 }
 
@@ -501,21 +501,30 @@ void ServiceWorkerStorage::UpdateToActiveState(
 }
 
 void ServiceWorkerStorage::UpdateLastUpdateCheckTime(
-    ServiceWorkerRegistration* registration) {
+    ServiceWorkerRegistration* registration,
+    StatusCallback callback) {
   DCHECK(registration);
   DCHECK(state_ == STORAGE_STATE_INITIALIZED ||
          state_ == STORAGE_STATE_DISABLED)
       << state_;
-  if (IsDisabled())
+  if (IsDisabled()) {
+    RunSoon(FROM_HERE,
+            base::BindOnce(std::move(callback),
+                           blink::ServiceWorkerStatusCode::kErrorAbort));
     return;
+  }
 
-  database_task_runner_->PostTask(
-      FROM_HERE,
+  base::PostTaskAndReplyWithResult(
+      database_task_runner_.get(), FROM_HERE,
+      base::BindOnce(&ServiceWorkerDatabase::UpdateLastCheckTime,
+                     base::Unretained(database_.get()), registration->id(),
+                     registration->scope().GetOrigin(),
+                     registration->last_update_check()),
       base::BindOnce(
-          base::IgnoreResult(&ServiceWorkerDatabase::UpdateLastCheckTime),
-          base::Unretained(database_.get()), registration->id(),
-          registration->scope().GetOrigin(),
-          registration->last_update_check()));
+          [](StatusCallback callback, ServiceWorkerDatabase::Status status) {
+            std::move(callback).Run(DatabaseStatusToStatusCode(status));
+          },
+          std::move(callback)));
 }
 
 void ServiceWorkerStorage::UpdateNavigationPreloadEnabled(
@@ -1140,7 +1149,7 @@ void ServiceWorkerStorage::PurgeResources(const ResourceList& resources) {
 
 ServiceWorkerStorage::ServiceWorkerStorage(
     const base::FilePath& user_data_directory,
-    base::WeakPtr<ServiceWorkerContextCore> context,
+    ServiceWorkerContextCore* context,
     scoped_refptr<base::SequencedTaskRunner> database_task_runner,
     storage::QuotaManagerProxy* quota_manager_proxy,
     storage::SpecialStoragePolicy* special_storage_policy)
@@ -1176,13 +1185,19 @@ base::FilePath ServiceWorkerStorage::GetDiskCachePath() {
       .Append(kDiskCacheName);
 }
 
-void ServiceWorkerStorage::LazyInitializeForTest(base::OnceClosure callback) {
-  if (state_ == STORAGE_STATE_UNINITIALIZED ||
-      state_ == STORAGE_STATE_INITIALIZING) {
-    LazyInitialize(std::move(callback));
+void ServiceWorkerStorage::LazyInitializeForTest() {
+  DCHECK_NE(state_, STORAGE_STATE_DISABLED);
+
+  if (state_ == STORAGE_STATE_INITIALIZED)
     return;
-  }
-  base::ThreadTaskRunnerHandle::Get()->PostTask(FROM_HERE, std::move(callback));
+  base::RunLoop loop;
+  LazyInitialize(loop.QuitClosure());
+  loop.Run();
+}
+
+void ServiceWorkerStorage::SetPurgingCompleteCallbackForTest(
+    base::OnceClosure callback) {
+  purging_complete_callback_for_test_ = std::move(callback);
 }
 
 void ServiceWorkerStorage::LazyInitialize(base::OnceClosure callback) {
@@ -1228,8 +1243,8 @@ void ServiceWorkerStorage::DidReadInitialData(
   pending_tasks_.clear();
 }
 
-void ServiceWorkerStorage::DidFindRegistrationForDocument(
-    const GURL& document_url,
+void ServiceWorkerStorage::DidFindRegistrationForClientUrl(
+    const GURL& client_url,
     FindRegistrationCallback callback,
     int64_t callback_id,
     const ServiceWorkerDatabase::RegistrationData& data,
@@ -1238,17 +1253,15 @@ void ServiceWorkerStorage::DidFindRegistrationForDocument(
   if (status == ServiceWorkerDatabase::STATUS_OK) {
     ReturnFoundRegistration(std::move(callback), data, resources);
     TRACE_EVENT_ASYNC_END1(
-        "ServiceWorker",
-        "ServiceWorkerStorage::FindRegistrationForDocument",
-        callback_id,
-        "Status", ServiceWorkerDatabase::StatusToString(status));
+        "ServiceWorker", "ServiceWorkerStorage::FindRegistrationForClientUrl",
+        callback_id, "Status", ServiceWorkerDatabase::StatusToString(status));
     return;
   }
 
   if (status == ServiceWorkerDatabase::STATUS_ERROR_NOT_FOUND) {
     // Look for something currently being installed.
     scoped_refptr<ServiceWorkerRegistration> installing_registration =
-        FindInstallingRegistrationForDocument(document_url);
+        FindInstallingRegistrationForClientUrl(client_url);
     blink::ServiceWorkerStatusCode installing_status =
         installing_registration
             ? blink::ServiceWorkerStatusCode::kOk
@@ -1256,7 +1269,7 @@ void ServiceWorkerStorage::DidFindRegistrationForDocument(
     std::move(callback).Run(installing_status,
                             std::move(installing_registration));
     TRACE_EVENT_ASYNC_END2(
-        "ServiceWorker", "ServiceWorkerStorage::FindRegistrationForDocument",
+        "ServiceWorker", "ServiceWorkerStorage::FindRegistrationForClientUrl",
         callback_id, "Status", ServiceWorkerDatabase::StatusToString(status),
         "Info",
         (installing_status == blink::ServiceWorkerStatusCode::kOk)
@@ -1269,10 +1282,8 @@ void ServiceWorkerStorage::DidFindRegistrationForDocument(
   std::move(callback).Run(DatabaseStatusToStatusCode(status),
                           scoped_refptr<ServiceWorkerRegistration>());
   TRACE_EVENT_ASYNC_END1(
-      "ServiceWorker",
-      "ServiceWorkerStorage::FindRegistrationForDocument",
-      callback_id,
-      "Status", ServiceWorkerDatabase::StatusToString(status));
+      "ServiceWorker", "ServiceWorkerStorage::FindRegistrationForClientUrl",
+      callback_id, "Status", ServiceWorkerDatabase::StatusToString(status));
 }
 
 void ServiceWorkerStorage::DidFindRegistrationForScope(
@@ -1622,8 +1633,8 @@ ServiceWorkerStorage::GetOrCreateRegistration(
 
   blink::mojom::ServiceWorkerRegistrationOptions options(
       data.scope, data.script_type, data.update_via_cache);
-  registration =
-      new ServiceWorkerRegistration(options, data.registration_id, context_);
+  registration = new ServiceWorkerRegistration(options, data.registration_id,
+                                               context_->AsWeakPtr());
   registration->set_resources_total_size_bytes(data.resources_total_size_bytes);
   registration->set_last_update_check(data.last_update_check);
   DCHECK(uninstalling_registrations_.find(data.registration_id) ==
@@ -1634,7 +1645,7 @@ ServiceWorkerStorage::GetOrCreateRegistration(
   if (!version) {
     version = base::MakeRefCounted<ServiceWorkerVersion>(
         registration.get(), data.script, data.script_type, data.version_id,
-        context_);
+        context_->AsWeakPtr());
     version->set_fetch_handler_existence(
         data.has_fetch_handler
             ? ServiceWorkerVersion::FetchHandlerExistence::EXISTS
@@ -1663,11 +1674,11 @@ ServiceWorkerStorage::GetOrCreateRegistration(
 }
 
 ServiceWorkerRegistration*
-ServiceWorkerStorage::FindInstallingRegistrationForDocument(
-    const GURL& document_url) {
-  DCHECK(!document_url.has_ref());
+ServiceWorkerStorage::FindInstallingRegistrationForClientUrl(
+    const GURL& client_url) {
+  DCHECK(!client_url.has_ref());
 
-  LongestScopeMatcher matcher(document_url);
+  LongestScopeMatcher matcher(client_url);
   ServiceWorkerRegistration* match = nullptr;
 
   // TODO(nhiroki): This searches over installing registrations linearly and it
@@ -1710,9 +1721,7 @@ ServiceWorkerDiskCache* ServiceWorkerStorage::disk_cache() {
 
   base::FilePath path = GetDiskCachePath();
   if (path.empty()) {
-    int rv = disk_cache_->InitWithMemBackend(
-        kMaxServiceWorkerStorageMemDiskCacheSize,
-        net::CompletionOnceCallback());
+    int rv = disk_cache_->InitWithMemBackend(0, net::CompletionOnceCallback());
     DCHECK_EQ(net::OK, rv);
     return disk_cache_.get();
   }
@@ -1768,8 +1777,13 @@ void ServiceWorkerStorage::StartPurgingResources(
 }
 
 void ServiceWorkerStorage::ContinuePurgingResources() {
-  if (purgeable_resource_ids_.empty() || is_purge_pending_)
+  if (is_purge_pending_)
     return;
+  if (purgeable_resource_ids_.empty()) {
+    if (purging_complete_callback_for_test_)
+      std::move(purging_complete_callback_for_test_).Run();
+    return;
+  }
 
   // Do one at a time until we're done, use RunSoon to avoid recursion when
   // DoomEntry returns immediately.
@@ -1977,12 +1991,12 @@ void ServiceWorkerStorage::WriteRegistrationInDB(
 }
 
 // static
-void ServiceWorkerStorage::FindForDocumentInDB(
+void ServiceWorkerStorage::FindForClientUrlInDB(
     ServiceWorkerDatabase* database,
     scoped_refptr<base::SequencedTaskRunner> original_task_runner,
-    const GURL& document_url,
+    const GURL& client_url,
     FindInDBCallback callback) {
-  GURL origin = document_url.GetOrigin();
+  GURL origin = client_url.GetOrigin();
   RegistrationList registration_data_list;
   ServiceWorkerDatabase::Status status = database->GetRegistrationsForOrigin(
       origin, &registration_data_list, nullptr);
@@ -1999,7 +2013,7 @@ void ServiceWorkerStorage::FindForDocumentInDB(
   status = ServiceWorkerDatabase::STATUS_ERROR_NOT_FOUND;
 
   // Find one with a scope match.
-  LongestScopeMatcher matcher(document_url);
+  LongestScopeMatcher matcher(client_url);
   int64_t match = blink::mojom::kInvalidServiceWorkerRegistrationId;
   for (const auto& registration_data : registration_data_list)
     if (matcher.MatchLongest(registration_data.scope))
@@ -2206,9 +2220,11 @@ void ServiceWorkerStorage::DidDeleteDatabase(
   // TODO(nhiroki): What if there is a bunch of files in the cache directory?
   // Deleting the directory could take a long time and restart could be delayed.
   // We should probably rename the directory and delete it later.
-  PostTaskWithTraitsAndReplyWithResult(
-      FROM_HERE, {base::MayBlock(), base::TaskShutdownBehavior::BLOCK_SHUTDOWN},
-      base::BindOnce(&base::DeleteFile, GetDiskCachePath(), true),
+  PostTaskAndReplyWithResult(
+      FROM_HERE,
+      {base::ThreadPool(), base::MayBlock(),
+       base::TaskShutdownBehavior::BLOCK_SHUTDOWN},
+      base::BindOnce(&base::DeleteFileRecursively, GetDiskCachePath()),
       base::BindOnce(&ServiceWorkerStorage::DidDeleteDiskCache,
                      weak_factory_.GetWeakPtr(), std::move(callback)));
 }

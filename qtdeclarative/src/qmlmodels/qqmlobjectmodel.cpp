@@ -91,6 +91,15 @@ public:
         static_cast<QQmlObjectModelPrivate *>(prop->data)->clear();
     }
 
+    static void children_replace(QQmlListProperty<QObject> *prop, int index, QObject *item) {
+        static_cast<QQmlObjectModelPrivate *>(prop->data)->replace(index, item);
+    }
+
+    static void children_removeLast(QQmlListProperty<QObject> *prop) {
+        auto data = static_cast<QQmlObjectModelPrivate *>(prop->data);
+        data->remove(data->children.count() - 1, 1);
+    }
+
     void insert(int index, QObject *item) {
         Q_Q(QQmlObjectModel);
         children.insert(index, Item(item));
@@ -102,6 +111,18 @@ public:
         changeSet.insert(index, 1);
         emit q->modelUpdated(changeSet, false);
         emit q->countChanged();
+        emit q->childrenChanged();
+    }
+
+    void replace(int index, QObject *item) {
+        Q_Q(QQmlObjectModel);
+        auto *attached = QQmlObjectModelAttached::properties(children.at(index).item);
+        attached->setIndex(-1);
+        children.replace(index, Item(item));
+        QQmlObjectModelAttached::properties(children.at(index).item)->setIndex(index);
+        QQmlChangeSet changeSet;
+        changeSet.change(index, 1);
+        emit q->modelUpdated(changeSet, false);
         emit q->childrenChanged();
     }
 
@@ -226,12 +247,13 @@ QQmlObjectModel::QQmlObjectModel(QObject *parent)
 QQmlListProperty<QObject> QQmlObjectModel::children()
 {
     Q_D(QQmlObjectModel);
-    return QQmlListProperty<QObject>(this,
-                                        d,
-                                        d->children_append,
-                                        d->children_count,
-                                        d->children_at,
-                                        d->children_clear);
+    return QQmlListProperty<QObject>(this, d,
+                                     QQmlObjectModelPrivate::children_append,
+                                     QQmlObjectModelPrivate::children_count,
+                                     QQmlObjectModelPrivate::children_at,
+                                     QQmlObjectModelPrivate::children_clear,
+                                     QQmlObjectModelPrivate::children_replace,
+                                     QQmlObjectModelPrivate::children_removeLast);
 }
 
 /*!
@@ -262,7 +284,7 @@ QObject *QQmlObjectModel::object(int index, QQmlIncubator::IncubationMode)
     return item.item;
 }
 
-QQmlInstanceModel::ReleaseFlags QQmlObjectModel::release(QObject *item)
+QQmlInstanceModel::ReleaseFlags QQmlObjectModel::release(QObject *item, ReusableFlag)
 {
     Q_D(QQmlObjectModel);
     int idx = d->indexOf(item);
@@ -270,7 +292,7 @@ QQmlInstanceModel::ReleaseFlags QQmlObjectModel::release(QObject *item)
         if (!d->children[idx].deref())
             return QQmlInstanceModel::Referenced;
     }
-    return nullptr;
+    return {};
 }
 
 QVariant QQmlObjectModel::variantValue(int index, const QString &role)
@@ -278,7 +300,7 @@ QVariant QQmlObjectModel::variantValue(int index, const QString &role)
     Q_D(QQmlObjectModel);
     if (index < 0 || index >= d->children.count())
         return QString();
-    return QQmlEngine::contextForObject(d->children.at(index).item)->contextProperty(role);
+    return d->children.at(index).item->property(role.toUtf8().constData());
 }
 
 QQmlIncubator::Status QQmlObjectModel::incubationStatus(int)

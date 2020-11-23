@@ -18,7 +18,7 @@
 #define INCLUDE_PERFETTO_EXT_BASE_STRING_WRITER_H_
 
 #include <inttypes.h>
-#include <math.h>
+#include <cmath>
 #include <stdlib.h>
 #include <string.h>
 #include <limits>
@@ -69,7 +69,7 @@ class StringWriter {
   // digits of the integer is less than |padding|.
   template <char padchar, uint64_t padding>
   void AppendPaddedInt(int64_t sign_value) {
-    const bool negate = signbit(static_cast<double>(sign_value));
+    const bool negate = std::signbit(static_cast<double>(sign_value));
     uint64_t absolute_value = static_cast<uint64_t>(std::abs(sign_value));
     AppendPaddedInt<padchar, padding>(absolute_value, negate);
   }

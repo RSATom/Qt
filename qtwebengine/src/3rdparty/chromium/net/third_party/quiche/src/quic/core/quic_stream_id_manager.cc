@@ -16,56 +16,53 @@
 
 namespace quic {
 
-#define ENDPOINT                                                   \
-  (session_->perspective() == Perspective::IS_SERVER ? " Server: " \
-                                                     : " Client: ")
+#define ENDPOINT \
+  (perspective_ == Perspective::IS_SERVER ? " Server: " : " Client: ")
 
 QuicStreamIdManager::QuicStreamIdManager(
-    QuicSession* session,
+    DelegateInterface* delegate,
     bool unidirectional,
+    Perspective perspective,
+    QuicTransportVersion transport_version,
+    QuicStreamCount num_expected_static_streams,
     QuicStreamCount max_allowed_outgoing_streams,
     QuicStreamCount max_allowed_incoming_streams)
-    : session_(session),
+    : delegate_(delegate),
       unidirectional_(unidirectional),
+      perspective_(perspective),
+      transport_version_(transport_version),
+      num_expected_static_streams_(num_expected_static_streams),
+      is_config_negotiated_(false),
       outgoing_max_streams_(max_allowed_outgoing_streams),
       next_outgoing_stream_id_(GetFirstOutgoingStreamId()),
       outgoing_stream_count_(0),
-      outgoing_static_stream_count_(0),
       using_default_max_streams_(true),
       incoming_actual_max_streams_(max_allowed_incoming_streams),
       // Advertised max starts at actual because it's communicated in the
       // handshake.
       incoming_advertised_max_streams_(max_allowed_incoming_streams),
       incoming_initial_max_open_streams_(max_allowed_incoming_streams),
-      incoming_static_stream_count_(0),
       incoming_stream_count_(0),
       largest_peer_created_stream_id_(
-          QuicUtils::GetInvalidStreamId(transport_version())),
-      max_streams_window_(0) {
+          QuicUtils::GetInvalidStreamId(transport_version)),
+      max_streams_window_(0),
+      pending_max_streams_(false),
+      pending_streams_blocked_(
+          QuicUtils::GetInvalidStreamId(transport_version)) {
   CalculateIncomingMaxStreamsWindow();
 }
 
-QuicStreamIdManager::~QuicStreamIdManager() {
-}
+QuicStreamIdManager::~QuicStreamIdManager() {}
 
 bool QuicStreamIdManager::OnMaxStreamsFrame(const QuicMaxStreamsFrame& frame) {
   // Ensure that the frame has the correct directionality.
   DCHECK_EQ(frame.unidirectional, unidirectional_);
   QUIC_CODE_COUNT_N(quic_max_streams_received, 2, 2);
-  const QuicStreamCount current_outgoing_max_streams = outgoing_max_streams_;
 
   // Set the limit to be exactly the stream count in the frame.
-  if (!ConfigureMaxOpenOutgoingStreams(frame.stream_count)) {
-    return false;
-  }
-  // If we were at the previous limit and this MAX_STREAMS frame
-  // increased the limit, inform the application that new streams are
-  // available.
-  if (outgoing_stream_count_ == current_outgoing_max_streams &&
-      current_outgoing_max_streams < outgoing_max_streams_) {
-    session_->OnCanCreateNewOutgoingStream(unidirectional_);
-  }
-  return true;
+  // Also informs the higher layers that they can create more
+  // streams if the limit is increased.
+  return SetMaxOpenOutgoingStreams(frame.stream_count);
 }
 
 // The peer sends a streams blocked frame when it can not open any more
@@ -82,9 +79,8 @@ bool QuicStreamIdManager::OnStreamsBlockedFrame(
     // TODO(fkastenholz): revise when proper IETF Connection Close support is
     // done.
     QUIC_CODE_COUNT(quic_streams_blocked_too_big);
-    session_->connection()->CloseConnection(
-        QUIC_STREAMS_BLOCKED_ERROR, "Invalid stream count specified",
-        ConnectionCloseBehavior::SEND_CONNECTION_CLOSE_PACKET);
+    delegate_->OnError(QUIC_STREAMS_BLOCKED_ERROR,
+                       "Invalid stream count specified");
     return false;
   }
   if (frame.stream_count < incoming_actual_max_streams_) {
@@ -99,8 +95,17 @@ bool QuicStreamIdManager::OnStreamsBlockedFrame(
 
 // Used when configuration has been done and we have an initial
 // maximum stream count from the peer.
-bool QuicStreamIdManager::ConfigureMaxOpenOutgoingStreams(
-    size_t max_open_streams) {
+bool QuicStreamIdManager::SetMaxOpenOutgoingStreams(size_t max_open_streams) {
+  if (max_open_streams < num_expected_static_streams_) {
+    QUIC_DLOG(ERROR) << "Received max streams " << max_open_streams << " < "
+                     << num_expected_static_streams_;
+    delegate_->OnError(QUIC_MAX_STREAMS_ERROR,
+                       unidirectional_
+                           ? "New unidirectional stream limit is too low."
+                           : "New bidirectional stream limit is too low.");
+
+    return false;
+  }
   if (using_default_max_streams_) {
     // This is the first MAX_STREAMS/transport negotiation we've received. Treat
     // this a bit differently than later ones. The difference is that
@@ -110,10 +115,8 @@ bool QuicStreamIdManager::ConfigureMaxOpenOutgoingStreams(
     // be less than the number of existing outgoing streams. If that happens,
     // close the connection.
     if (max_open_streams < outgoing_stream_count_) {
-      session_->connection()->CloseConnection(
-          QUIC_MAX_STREAMS_ERROR,
-          "Stream limit less than existing stream count",
-          ConnectionCloseBehavior::SEND_CONNECTION_CLOSE_PACKET);
+      delegate_->OnError(QUIC_MAX_STREAMS_ERROR,
+                         "Stream limit less than existing stream count");
       return false;
     }
     using_default_max_streams_ = false;
@@ -129,51 +132,23 @@ bool QuicStreamIdManager::ConfigureMaxOpenOutgoingStreams(
   // if it would exceed the max 32 bits can express.
   outgoing_max_streams_ = std::min<size_t>(
       max_open_streams,
-      QuicUtils::GetMaxStreamCount(unidirectional_, session_->perspective()));
+      QuicUtils::GetMaxStreamCount(unidirectional_, perspective_));
+
+  // Inform the higher layers that the stream limit has increased and that
+  // new streams may be created.
+  delegate_->OnCanCreateNewOutgoingStream(unidirectional_);
+
   return true;
-}
-
-void QuicStreamIdManager::SetMaxOpenOutgoingStreams(size_t max_open_streams) {
-  QUIC_BUG_IF(!using_default_max_streams_);
-  // TODO(fkastenholz): when static streams are removed from I-Quic, this
-  // should be revised to invoke ConfigureMaxOpen...
-  AdjustMaxOpenOutgoingStreams(max_open_streams);
-}
-
-// Adjust the outgoing stream limit - max_open_streams is the limit, not
-// including static streams. If the new stream limit wraps, will peg
-// the limit at the implementation max.
-// TODO(fkastenholz): AdjustMax is cognizant of the number of static streams and
-// sets the maximum to be max_streams + number_of_statics. This should be
-// removed from IETF QUIC when static streams are gone.
-void QuicStreamIdManager::AdjustMaxOpenOutgoingStreams(
-    size_t max_open_streams) {
-  if ((outgoing_static_stream_count_ + max_open_streams) < max_open_streams) {
-    // New limit causes us to wrap, set limit to be the implementation maximum.
-    ConfigureMaxOpenOutgoingStreams(
-        QuicUtils::GetMaxStreamCount(unidirectional_, perspective()));
-    return;
-  }
-  // Does not wrap, set limit to what is requested.
-  ConfigureMaxOpenOutgoingStreams(outgoing_static_stream_count_ +
-                                  max_open_streams);
 }
 
 void QuicStreamIdManager::SetMaxOpenIncomingStreams(size_t max_open_streams) {
   QuicStreamCount implementation_max =
       QuicUtils::GetMaxStreamCount(unidirectional_, perspective());
-  QuicStreamCount new_max =
-      std::min(implementation_max,
-               static_cast<QuicStreamCount>(max_open_streams +
-                                            incoming_static_stream_count_));
-  if (new_max < max_open_streams) {
-    // wrapped around ...
-    new_max = implementation_max;
-  }
+  QuicStreamCount new_max = std::min(
+      implementation_max, static_cast<QuicStreamCount>(max_open_streams));
   if (new_max < incoming_stream_count_) {
-    session_->connection()->CloseConnection(
-        QUIC_MAX_STREAMS_ERROR, "Stream limit less than existing stream count",
-        ConnectionCloseBehavior::SEND_CONNECTION_CLOSE_PACKET);
+    delegate_->OnError(QUIC_MAX_STREAMS_ERROR,
+                       "Stream limit less than existing stream count");
     return;
   }
   incoming_actual_max_streams_ = new_max;
@@ -193,8 +168,16 @@ void QuicStreamIdManager::MaybeSendMaxStreamsFrame() {
 }
 
 void QuicStreamIdManager::SendMaxStreamsFrame() {
+  if (!is_config_negotiated_) {
+    // The config has not yet been negotiated, so we can not send the
+    // MAX STREAMS frame yet. Record that we would have sent one and then
+    // return. A new frame will be generated once the configuration is
+    // received.
+    pending_max_streams_ = true;
+    return;
+  }
   incoming_advertised_max_streams_ = incoming_actual_max_streams_;
-  session_->SendMaxStreams(incoming_advertised_max_streams_, unidirectional_);
+  delegate_->SendMaxStreams(incoming_advertised_max_streams_, unidirectional_);
 }
 
 void QuicStreamIdManager::OnStreamClosed(QuicStreamId stream_id) {
@@ -221,7 +204,8 @@ QuicStreamId QuicStreamIdManager::GetNextOutgoingStreamId() {
   // TODO(fkastenholz): Should we close the connection?
   QUIC_BUG_IF(outgoing_stream_count_ >= outgoing_max_streams_)
       << "Attempt to allocate a new outgoing stream that would exceed the "
-         "limit";
+         "limit ("
+      << outgoing_max_streams_ << ")";
   QuicStreamId id = next_outgoing_stream_id_;
   next_outgoing_stream_id_ += QuicUtils::StreamIdDelta(transport_version());
   outgoing_stream_count_++;
@@ -234,74 +218,28 @@ bool QuicStreamIdManager::CanOpenNextOutgoingStream() {
     return true;
   }
   // Next stream ID would exceed the limit, need to inform the peer.
-  session_->SendStreamsBlocked(outgoing_max_streams_, unidirectional_);
-  QUIC_CODE_COUNT(quic_reached_outgoing_stream_id_limit);
-  return false;
-}
 
-bool QuicStreamIdManager::RegisterStaticStream(QuicStreamId stream_id,
-                                               bool stream_already_counted) {
-  DCHECK_NE(QuicUtils::IsBidirectionalStreamId(stream_id), unidirectional_);
-  if (IsIncomingStream(stream_id)) {
-    // This code is predicated on static stream ids being allocated densely, in
-    // order, and starting with the first stream allowed. QUIC_BUG if this is
-    // not so.
-    // This is a stream id for a stream that is started by the peer, deal with
-    // the incoming stream ids. Increase the floor and adjust everything
-    // accordingly.
-
-    QUIC_BUG_IF(incoming_actual_max_streams_ >
-                QuicUtils::GetMaxStreamCount(unidirectional_, perspective()));
-
-    // If we have reached the limit on stream creation, do not create
-    // the static stream; return false.
-    if (incoming_stream_count_ >=
-        QuicUtils::GetMaxStreamCount(unidirectional_, perspective())) {
-      return false;
-    }
-
-    if (incoming_actual_max_streams_ <
-        QuicUtils::GetMaxStreamCount(unidirectional_, perspective())) {
-      incoming_actual_max_streams_++;
-    }
-    if (incoming_advertised_max_streams_ <
-        QuicUtils::GetMaxStreamCount(unidirectional_, perspective())) {
-      incoming_advertised_max_streams_++;
-    }
-
-    if (!stream_already_counted) {
-      incoming_stream_count_++;
-    }
-    incoming_static_stream_count_++;
-    return true;
-  }
-
-  QUIC_BUG_IF(!using_default_max_streams_)
-      << "Attempted to allocate static stream (id " << stream_id
-      << ") after receiving a MAX_STREAMS frame";
-
-  // If we have reached the limit on stream creation, do not create
-  // the static stream; return false.
-  if (outgoing_max_streams_ >=
-      QuicUtils::GetMaxStreamCount(unidirectional_, perspective())) {
+  if (!is_config_negotiated_) {
+    // The config is not negotiated, so we can not send the STREAMS_BLOCKED
+    // frame yet. Record that we would have sent one, and what the limit was
+    // when we were blocked, and return.
+    pending_streams_blocked_ = outgoing_max_streams_;
     return false;
   }
-
-  // Increase the outgoing_max_streams_ limit to reflect the semantic that
-  // outgoing_max_streams_ was inialized to a "maximum request/response" count
-  // and only becomes a maximum stream count when we receive the first
-  // MAX_STREAMS.
-  outgoing_max_streams_++;
-  outgoing_static_stream_count_++;
-  return true;
+  delegate_->SendStreamsBlocked(outgoing_max_streams_, unidirectional_);
+  QUIC_CODE_COUNT(quic_reached_outgoing_stream_id_limit);
+  return false;
 }
 
 // Stream_id is the id of a new incoming stream. Check if it can be
 // created (doesn't violate limits, etc).
 bool QuicStreamIdManager::MaybeIncreaseLargestPeerStreamId(
     const QuicStreamId stream_id) {
+  // |stream_id| must be an incoming stream of the right directionality.
   DCHECK_NE(QuicUtils::IsBidirectionalStreamId(stream_id), unidirectional_);
-
+  DCHECK_NE(
+      QuicUtils::IsServerInitiatedStreamId(transport_version(), stream_id),
+      perspective() == Perspective::IS_SERVER);
   available_streams_.erase(stream_id);
 
   if (largest_peer_created_stream_id_ !=
@@ -336,11 +274,10 @@ bool QuicStreamIdManager::MaybeIncreaseLargestPeerStreamId(
                     << "Failed to create a new incoming stream with id:"
                     << stream_id << ", reaching MAX_STREAMS limit: "
                     << incoming_advertised_max_streams_ << ".";
-    session_->connection()->CloseConnection(
+    delegate_->OnError(
         QUIC_INVALID_STREAM_ID,
         QuicStrCat("Stream id ", stream_id, " would exceed stream count limit ",
-                   incoming_advertised_max_streams_),
-        ConnectionCloseBehavior::SEND_CONNECTION_CLOSE_PACKET);
+                   incoming_advertised_max_streams_));
     return false;
   }
 
@@ -398,7 +335,7 @@ QuicStreamId QuicStreamIdManager::GetFirstIncomingStreamId() const {
 }
 
 Perspective QuicStreamIdManager::perspective() const {
-  return session_->perspective();
+  return perspective_;
 }
 
 Perspective QuicStreamIdManager::peer_perspective() const {
@@ -406,7 +343,7 @@ Perspective QuicStreamIdManager::peer_perspective() const {
 }
 
 QuicTransportVersion QuicStreamIdManager::transport_version() const {
-  return session_->connection()->transport_version();
+  return transport_version_;
 }
 
 size_t QuicStreamIdManager::available_incoming_streams() {
@@ -417,6 +354,27 @@ void QuicStreamIdManager::CalculateIncomingMaxStreamsWindow() {
   max_streams_window_ = incoming_actual_max_streams_ / kMaxStreamsWindowDivisor;
   if (max_streams_window_ == 0) {
     max_streams_window_ = 1;
+  }
+}
+
+void QuicStreamIdManager::OnConfigNegotiated() {
+  is_config_negotiated_ = true;
+  // If a STREAMS_BLOCKED or MAX_STREAMS is pending, send it and clear
+  // the pending state.
+  if (pending_streams_blocked_ !=
+      QuicUtils::GetInvalidStreamId(transport_version())) {
+    if (pending_streams_blocked_ >= outgoing_max_streams_) {
+      // There is a pending STREAMS_BLOCKED frame and the current limit does not
+      // let new streams be formed. Regenerate and send the frame.
+      delegate_->SendStreamsBlocked(outgoing_max_streams_, unidirectional_);
+    }
+    pending_streams_blocked_ =
+        QuicUtils::GetInvalidStreamId(transport_version());
+  }
+  if (pending_max_streams_) {
+    // Generate a MAX_STREAMS using the current stream limits.
+    SendMaxStreamsFrame();
+    pending_max_streams_ = false;
   }
 }
 

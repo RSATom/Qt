@@ -4,25 +4,35 @@
 
 #include "third_party/blink/renderer/modules/peerconnection/rtc_rtp_receiver.h"
 
+#include "media/media_buildflags.h"
 #include "third_party/blink/public/platform/web_media_stream.h"
 #include "third_party/blink/public/platform/web_media_stream_track.h"
-#include "third_party/blink/public/platform/web_rtc_rtp_source.h"
 #include "third_party/blink/renderer/core/loader/document_loader.h"
 #include "third_party/blink/renderer/modules/peerconnection/rtc_dtls_transport.h"
 #include "third_party/blink/renderer/modules/peerconnection/rtc_peer_connection.h"
+#include "third_party/blink/renderer/modules/peerconnection/rtc_rtcp_parameters.h"
 #include "third_party/blink/renderer/modules/peerconnection/rtc_rtp_capabilities.h"
+#include "third_party/blink/renderer/modules/peerconnection/rtc_rtp_codec_parameters.h"
+#include "third_party/blink/renderer/modules/peerconnection/rtc_rtp_decoding_parameters.h"
+#include "third_party/blink/renderer/modules/peerconnection/rtc_rtp_header_extension_capability.h"
+#include "third_party/blink/renderer/modules/peerconnection/rtc_rtp_header_extension_parameters.h"
 #include "third_party/blink/renderer/modules/peerconnection/rtc_rtp_sender.h"
 #include "third_party/blink/renderer/modules/peerconnection/rtc_stats_report.h"
 #include "third_party/blink/renderer/modules/peerconnection/web_rtc_stats_report_callback_resolver.h"
 #include "third_party/blink/renderer/platform/bindings/microtask.h"
+#include "third_party/blink/renderer/platform/peerconnection/rtc_stats.h"
 #include "third_party/blink/renderer/platform/wtf/std_lib_extras.h"
 #include "third_party/blink/renderer/platform/wtf/text/wtf_string.h"
 #include "third_party/webrtc/api/rtp_parameters.h"
 
+#if BUILDFLAG(ENABLE_WEBRTC)
+#include "third_party/blink/renderer/modules/peerconnection/peer_connection_dependency_factory.h"
+#endif
+
 namespace blink {
 
 RTCRtpReceiver::RTCRtpReceiver(RTCPeerConnection* pc,
-                               std::unique_ptr<WebRTCRtpReceiver> receiver,
+                               std::unique_ptr<RTCRtpReceiverPlatform> receiver,
                                MediaStreamTrack* track,
                                MediaStreamVector streams)
     : pc_(pc),
@@ -46,25 +56,23 @@ RTCDtlsTransport* RTCRtpReceiver::rtcpTransport() {
   return nullptr;
 }
 
-double RTCRtpReceiver::jitterBufferDelayHint(bool& is_null, ExceptionState&) {
-  is_null = !jitter_buffer_delay_hint_.has_value();
-  return jitter_buffer_delay_hint_.value_or(0.0);
+double RTCRtpReceiver::playoutDelayHint(bool& is_null, ExceptionState&) {
+  is_null = !playout_delay_hint_.has_value();
+  return playout_delay_hint_.value_or(0.0);
 }
 
-void RTCRtpReceiver::setJitterBufferDelayHint(double value,
-                                              bool is_null,
-                                              ExceptionState& exception_state) {
+void RTCRtpReceiver::setPlayoutDelayHint(double value,
+                                         bool is_null,
+                                         ExceptionState& exception_state) {
   base::Optional<double> hint =
       is_null ? base::nullopt : base::Optional<double>(value);
   if (hint && *hint < 0.0) {
-    exception_state.ThrowDOMException(
-        DOMExceptionCode::kInvalidAccessError,
-        "jitterBufferDelayHint can't be negative");
+    exception_state.ThrowTypeError("playoutDelayHint can't be negative");
     return;
   }
 
-  jitter_buffer_delay_hint_ = hint;
-  receiver_->SetJitterBufferMinimumDelay(jitter_buffer_delay_hint_);
+  playout_delay_hint_ = hint;
+  receiver_->SetJitterBufferMinimumDelay(playout_delay_hint_);
 }
 
 HeapVector<Member<RTCRtpSynchronizationSource>>
@@ -76,14 +84,14 @@ RTCRtpReceiver::getSynchronizationSources() {
 
   HeapVector<Member<RTCRtpSynchronizationSource>> synchronization_sources;
   for (const auto& web_source : web_sources_) {
-    if (web_source->SourceType() != WebRTCRtpSource::Type::kSSRC)
+    if (web_source->SourceType() != RTCRtpSource::Type::kSSRC)
       continue;
     RTCRtpSynchronizationSource* synchronization_source =
         MakeGarbageCollected<RTCRtpSynchronizationSource>();
     synchronization_source->setTimestamp(
         time_converter
             .MonotonicTimeToPseudoWallTime(
-                pc_->WebRtcMsToBlinkTimeTicks(web_source->TimestampMs()))
+                pc_->WebRtcTimestampToBlinkTimestamp(web_source->Timestamp()))
             .InMilliseconds());
     synchronization_source->setSource(web_source->Source());
     if (web_source->AudioLevel())
@@ -103,14 +111,14 @@ RTCRtpReceiver::getContributingSources() {
 
   HeapVector<Member<RTCRtpContributingSource>> contributing_sources;
   for (const auto& web_source : web_sources_) {
-    if (web_source->SourceType() != WebRTCRtpSource::Type::kCSRC)
+    if (web_source->SourceType() != RTCRtpSource::Type::kCSRC)
       continue;
     RTCRtpContributingSource* contributing_source =
         MakeGarbageCollected<RTCRtpContributingSource>();
     contributing_source->setTimestamp(
         time_converter
             .MonotonicTimeToPseudoWallTime(
-                pc_->WebRtcMsToBlinkTimeTicks(web_source->TimestampMs()))
+                pc_->WebRtcTimestampToBlinkTimestamp(web_source->Timestamp()))
             .InMilliseconds());
     contributing_source->setSource(web_source->Source());
     if (web_source->AudioLevel())
@@ -130,7 +138,7 @@ ScriptPromise RTCRtpReceiver::getStats(ScriptState* script_state) {
   return promise;
 }
 
-WebRTCRtpReceiver* RTCRtpReceiver::web_receiver() {
+RTCRtpReceiverPlatform* RTCRtpReceiver::platform_receiver() {
   return receiver_.get();
 }
 
@@ -179,6 +187,7 @@ void RTCRtpReceiver::Trace(blink::Visitor* visitor) {
 }
 
 RTCRtpCapabilities* RTCRtpReceiver::getCapabilities(const String& kind) {
+#if BUILDFLAG(ENABLE_WEBRTC)
   if (kind != "audio" && kind != "video")
     return nullptr;
 
@@ -188,14 +197,15 @@ RTCRtpCapabilities* RTCRtpReceiver::getCapabilities(const String& kind) {
       HeapVector<Member<RTCRtpHeaderExtensionCapability>>());
 
   std::unique_ptr<webrtc::RtpCapabilities> rtc_capabilities =
-      blink::Platform::Current()->GetRtpSenderCapabilities(kind);
+      PeerConnectionDependencyFactory::GetInstance()->GetSenderCapabilities(
+          kind.Utf8());
 
   HeapVector<Member<RTCRtpCodecCapability>> codecs;
   codecs.ReserveInitialCapacity(
       SafeCast<wtf_size_t>(rtc_capabilities->codecs.size()));
   for (const auto& rtc_codec : rtc_capabilities->codecs) {
     auto* codec = RTCRtpCodecCapability::Create();
-    codec->setMimeType(WTF::String::FromUTF8(rtc_codec.mime_type().c_str()));
+    codec->setMimeType(WTF::String::FromUTF8(rtc_codec.mime_type()));
     if (rtc_codec.clock_rate)
       codec->setClockRate(rtc_codec.clock_rate.value());
     if (rtc_codec.num_channels)
@@ -218,13 +228,15 @@ RTCRtpCapabilities* RTCRtpReceiver::getCapabilities(const String& kind) {
       SafeCast<wtf_size_t>(rtc_capabilities->header_extensions.size()));
   for (const auto& rtc_header_extension : rtc_capabilities->header_extensions) {
     auto* header_extension = RTCRtpHeaderExtensionCapability::Create();
-    header_extension->setUri(
-        WTF::String::FromUTF8(rtc_header_extension.uri.c_str()));
+    header_extension->setUri(WTF::String::FromUTF8(rtc_header_extension.uri));
     header_extensions.push_back(header_extension);
   }
   capabilities->setHeaderExtensions(header_extensions);
 
   return capabilities;
+#else
+  return nullptr;
+#endif
 }
 
 RTCRtpReceiveParameters* RTCRtpReceiver::getParameters() {

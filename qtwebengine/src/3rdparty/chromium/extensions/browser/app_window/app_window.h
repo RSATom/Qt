@@ -410,10 +410,10 @@ class AppWindow : public content::WebContentsDelegate,
   void EnterFullscreenModeForTab(
       content::WebContents* source,
       const GURL& origin,
-      const blink::WebFullscreenOptions& options) override;
+      const blink::mojom::FullscreenOptions& options) override;
   void ExitFullscreenModeForTab(content::WebContents* source) override;
   bool IsFullscreenForTabOrPending(const content::WebContents* source) override;
-  blink::WebDisplayMode GetDisplayMode(
+  blink::mojom::DisplayMode GetDisplayMode(
       const content::WebContents* source) override;
   void RequestMediaAccessPermission(
       content::WebContents* web_contents,
@@ -451,6 +451,7 @@ class AppWindow : public content::WebContentsDelegate,
       const viz::SurfaceId& surface_id,
       const gfx::Size& natural_size) override;
   void ExitPictureInPicture() override;
+  bool ShouldShowStaleContentOnEviction(content::WebContents* source) override;
 
   // content::WebContentsObserver implementation.
   bool OnMessageReceived(const IPC::Message& message,
@@ -587,8 +588,8 @@ class AppWindow : public content::WebContentsDelegate,
   // race condition of loading custom app icon and app content simultaneously.
   bool window_ready_ = false;
 
-  // PlzNavigate: these callbacks are called when the navigation is finished on
-  // both browser and renderer sides.
+  // These callbacks are called when the navigation is finished on both browser
+  // and renderer sides.
   std::vector<DidFinishFirstNavigationCallback>
       on_did_finish_first_navigation_callbacks_;
   // Whether the first navigation was completed in both browser and renderer

@@ -194,7 +194,7 @@ QQuickPinchAreaPrivate::~QQuickPinchAreaPrivate()
 */
 
 /*!
-    \qmlsignal QtQuick::PinchArea::pinchStarted()
+    \qmlsignal QtQuick::PinchArea::pinchStarted(PinchEvent pinch)
 
     This signal is emitted when the pinch area detects that a pinch gesture has
     started: two touch points (fingers) have been detected, and they have moved
@@ -210,12 +210,10 @@ QQuickPinchAreaPrivate::~QQuickPinchAreaPrivate()
 
     To ignore this gesture set the \c pinch.accepted property to false.  The gesture
     will be canceled and no further events will be sent.
-
-    The corresponding handler is \c onPinchStarted.
 */
 
 /*!
-    \qmlsignal QtQuick::PinchArea::pinchUpdated()
+    \qmlsignal QtQuick::PinchArea::pinchUpdated(PinchEvent pinch)
 
     This signal is emitted when the pinch area detects that a pinch gesture has changed.
 
@@ -224,24 +222,20 @@ QQuickPinchAreaPrivate::~QQuickPinchAreaPrivate()
     reflect changes only since the beginning of the current gesture, and
     therefore are not limited by the minimum and maximum limits in the
     \l {PinchArea}{pinch} property.
-
-    The corresponding handler is \c onPinchUpdated.
 */
 
 /*!
-    \qmlsignal QtQuick::PinchArea::pinchFinished()
+    \qmlsignal QtQuick::PinchArea::pinchFinished(PinchEvent pinch)
 
     This signal is emitted when the pinch area detects that a pinch gesture has finished.
 
     The \l {PinchEvent}{pinch} parameter (not the same as the \l {PinchArea}{pinch}
     property) provides information about the pinch gesture, including the
     scale, center and angle of the pinch.
-
-    The corresponding handler is \c onPinchFinished.
 */
 
 /*!
-    \qmlsignal QtQuick::PinchArea::smartZoom()
+    \qmlsignal QtQuick::PinchArea::smartZoom(PinchEvent pinch)
     \since 5.5
 
     This signal is emitted when the pinch area detects the smart zoom gesture.
@@ -252,8 +246,6 @@ QQuickPinchAreaPrivate::~QQuickPinchAreaPrivate()
     will be greater than zero when the gesture indicates that the user wishes to
     enter smart zoom, and zero when exiting (even though typically the same gesture
     is used to toggle between the two states).
-
-    The corresponding handler is \c onSmartZoom.
 */
 
 

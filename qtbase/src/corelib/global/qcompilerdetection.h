@@ -365,7 +365,6 @@
 #        define Q_COMPILER_ATTRIBUTES
 #        define Q_COMPILER_AUTO_FUNCTION
 #        define Q_COMPILER_CLASS_ENUM
-#        define Q_COMPILER_CONSTEXPR
 #        define Q_COMPILER_DECLTYPE
 #        define Q_COMPILER_DEFAULT_MEMBERS
 #        define Q_COMPILER_DELETE_MEMBERS
@@ -1305,6 +1304,14 @@
 #  define QT_WARNING_DISABLE_CLANG(text)
 #  define QT_WARNING_DISABLE_GCC(text)
 #  define QT_WARNING_DISABLE_DEPRECATED
+#endif
+
+#ifndef QT_IGNORE_DEPRECATIONS
+#define QT_IGNORE_DEPRECATIONS(statement) \
+    QT_WARNING_PUSH \
+    QT_WARNING_DISABLE_DEPRECATED \
+    statement \
+    QT_WARNING_POP
 #endif
 
 /*

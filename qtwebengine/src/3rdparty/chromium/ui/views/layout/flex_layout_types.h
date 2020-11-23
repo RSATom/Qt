@@ -57,7 +57,7 @@ enum class MinimumFlexSizeRule {
 
 // Describes a simple rule for how a child view should grow in a layout when
 // there is extra size avaialble for that view to occupy.
-enum MaximumFlexSizeRule {
+enum class MaximumFlexSizeRule {
   kPreferred,  // Don't resize above preferred size.
   kUnbounded   // Allow resize to arbitrary size.
 };
@@ -100,9 +100,12 @@ class VIEWS_EXPORT FlexSpecification {
   static FlexSpecification ForCustomRule(FlexRule rule);
 
   // Creates a flex specification using the specififed minimum size and size
-  // bounds rules.
+  // bounds rules. If |adjust_height_for_width| is specified, extra calculations
+  // will be done to ensure that the view can become taller if it is made
+  // narrower (typically only useful for multiline text controls).
   static FlexSpecification ForSizeRule(MinimumFlexSizeRule minimum_size_rule,
-                                       MaximumFlexSizeRule maximum_size_rule);
+                                       MaximumFlexSizeRule maximum_size_rule,
+                                       bool adjust_height_for_width = false);
 
   // Makes a copy of this specification with a different order.
   FlexSpecification WithOrder(int order) const;
@@ -112,22 +115,34 @@ class VIEWS_EXPORT FlexSpecification {
   // needs.
   FlexSpecification WithWeight(int weight) const;
 
+  // Makes a copy of this specification with a different alignment. The default
+  // is kStretch, which means the child view will always fill the bounds
+  // allocated for it; specifying kLeading, kTrailing, or kCenter will cause the
+  // view to grow to a maximum of its preferred size and then "float" to either
+  // the center, leading, or trailing edge of the allocated space.
+  FlexSpecification WithAlignment(LayoutAlignment alignment) const;
+
   const FlexRule& rule() const { return rule_; }
   int weight() const { return weight_; }
   int order() const { return order_; }
+  LayoutAlignment alignment() const { return alignment_; }
 
  private:
-  FlexSpecification(FlexRule rule, int order, int weight);
+  FlexSpecification(FlexRule rule,
+                    int order,
+                    int weight,
+                    LayoutAlignment alignment);
 
   FlexRule rule_;
   int order_ = 1;
   int weight_ = 0;
+  LayoutAlignment alignment_ = LayoutAlignment::kStretch;
 };
 
 // Represents insets in a single dimension.
-class Inset1D {
+class VIEWS_EXPORT Inset1D {
  public:
-  constexpr Inset1D() = default;
+  constexpr Inset1D() {}
   constexpr explicit Inset1D(int all) : leading_(all), trailing_(all) {}
   constexpr Inset1D(int leading, int trailing)
       : leading_(leading), trailing_(trailing) {}
@@ -156,9 +171,9 @@ class Inset1D {
 };
 
 // Represents a line segment in one dimension with a starting point and length.
-class Span {
+class VIEWS_EXPORT Span {
  public:
-  constexpr Span() = default;
+  constexpr Span() {}
   constexpr Span(int start, int length) : start_(start), length_(length) {}
 
   constexpr int start() const { return start_; }

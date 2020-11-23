@@ -11,8 +11,6 @@
 #include "base/metrics/field_trial_params.h"
 #include "base/metrics/histogram_functions.h"
 #include "base/metrics/histogram_macros.h"
-#include "base/task/cancelable_task_tracker.h"
-#include "components/favicon/core/favicon_server_fetcher_params.h"
 #include "components/favicon/core/favicon_service.h"
 #include "components/favicon/core/features.h"
 #include "components/favicon/core/large_icon_service.h"
@@ -26,22 +24,29 @@ namespace favicon {
 
 namespace {
 
-void RecordFaviconAvailabilityMetric(
+void RecordFaviconAvailabilityAndLatencyMetric(
     HistoryUiFaviconRequestOrigin origin_for_uma,
+    base::Time request_start_time_for_uma,
     FaviconAvailability availability) {
+  base::TimeDelta latency = base::Time::Now() - request_start_time_for_uma;
   switch (origin_for_uma) {
     case HistoryUiFaviconRequestOrigin::kHistory:
       UMA_HISTOGRAM_ENUMERATION("Sync.SyncedHistoryFaviconAvailability.HISTORY",
                                 availability);
+      UMA_HISTOGRAM_TIMES("Sync.SyncedHistoryFaviconLatency.HISTORY", latency);
       break;
     case HistoryUiFaviconRequestOrigin::kHistorySyncedTabs:
       UMA_HISTOGRAM_ENUMERATION(
           "Sync.SyncedHistoryFaviconAvailability.SYNCED_TABS", availability);
+      UMA_HISTOGRAM_TIMES("Sync.SyncedHistoryFaviconLatency.SYNCED_TABS",
+                          latency);
       break;
     case HistoryUiFaviconRequestOrigin::kRecentTabs:
       UMA_HISTOGRAM_ENUMERATION(
           "Sync.SyncedHistoryFaviconAvailability.RECENTLY_CLOSED_TABS",
           availability);
+      UMA_HISTOGRAM_TIMES(
+          "Sync.SyncedHistoryFaviconLatency.RECENTLY_CLOSED_TABS", latency);
       break;
   }
 }
@@ -114,8 +119,7 @@ void HistoryUiFaviconRequestHandlerImpl::GetRawFaviconForPageURL(
     favicon_base::FaviconRawBitmapCallback callback,
     FaviconRequestPlatform request_platform,
     HistoryUiFaviconRequestOrigin request_origin_for_uma,
-    const GURL& icon_url_for_uma,
-    base::CancelableTaskTracker* tracker) {
+    const GURL& icon_url_for_uma) {
   // First attempt to find the icon locally.
   favicon_service_->GetRawFaviconForPageURL(
       page_url, GetIconTypesForLocalQuery(), desired_size_in_pixel,
@@ -125,16 +129,15 @@ void HistoryUiFaviconRequestHandlerImpl::GetRawFaviconForPageURL(
           weak_ptr_factory_.GetWeakPtr(), CanQueryGoogleServer(), page_url,
           desired_size_in_pixel,
           /*response_callback=*/std::move(callback), request_platform,
-          request_origin_for_uma, icon_url_for_uma, tracker),
-      tracker);
+          request_origin_for_uma, icon_url_for_uma, base::Time::Now()),
+      &cancelable_task_tracker_);
 }
 
 void HistoryUiFaviconRequestHandlerImpl::GetFaviconImageForPageURL(
     const GURL& page_url,
     favicon_base::FaviconImageCallback callback,
     HistoryUiFaviconRequestOrigin request_origin_for_uma,
-    const GURL& icon_url_for_uma,
-    base::CancelableTaskTracker* tracker) {
+    const GURL& icon_url_for_uma) {
   // First attempt to find the icon locally.
   favicon_service_->GetFaviconImageForPageURL(
       page_url,
@@ -142,8 +145,8 @@ void HistoryUiFaviconRequestHandlerImpl::GetFaviconImageForPageURL(
           &HistoryUiFaviconRequestHandlerImpl::OnImageLocalDataAvailable,
           weak_ptr_factory_.GetWeakPtr(), CanQueryGoogleServer(), page_url,
           /*response_callback=*/std::move(callback), request_origin_for_uma,
-          icon_url_for_uma, tracker),
-      tracker);
+          icon_url_for_uma, base::Time::Now()),
+      &cancelable_task_tracker_);
 }
 
 void HistoryUiFaviconRequestHandlerImpl::OnBitmapLocalDataAvailable(
@@ -154,13 +157,14 @@ void HistoryUiFaviconRequestHandlerImpl::OnBitmapLocalDataAvailable(
     FaviconRequestPlatform platform,
     HistoryUiFaviconRequestOrigin origin_for_uma,
     const GURL& icon_url_for_uma,
-    base::CancelableTaskTracker* tracker,
+    base::Time request_start_time_for_uma,
     const favicon_base::FaviconRawBitmapResult& bitmap_result) {
   if (bitmap_result.is_valid()) {
     // The icon comes from local storage now even though it may have been
     // originally retrieved from Google server.
-    RecordFaviconAvailabilityMetric(origin_for_uma,
-                                    FaviconAvailability::kLocal);
+    RecordFaviconAvailabilityAndLatencyMetric(origin_for_uma,
+                                              request_start_time_for_uma,
+                                              FaviconAvailability::kLocal);
     large_icon_service_->TouchIconFromGoogleServer(bitmap_result.icon_url);
     std::move(response_callback).Run(bitmap_result);
     return;
@@ -171,22 +175,20 @@ void HistoryUiFaviconRequestHandlerImpl::OnBitmapLocalDataAvailable(
     base::RepeatingCallback<void(const favicon_base::FaviconRawBitmapResult&)>
         repeating_response_callback =
             base::AdaptCallbackForRepeating(std::move(response_callback));
-    std::unique_ptr<FaviconServerFetcherParams> server_parameters =
-        platform == FaviconRequestPlatform::kMobile
-            ? FaviconServerFetcherParams::CreateForMobile(page_url)
-            : FaviconServerFetcherParams::CreateForDesktop(page_url);
     RequestFromGoogleServer(
-        page_url, std::move(server_parameters),
+        page_url,
         /*empty_response_callback=*/
         base::BindOnce(repeating_response_callback,
                        favicon_base::FaviconRawBitmapResult()),
         /*local_lookup_callback=*/
         base::BindOnce(
             base::IgnoreResult(&FaviconService::GetRawFaviconForPageURL),
+            // base::Unretained() is safe here as RequestFromGoogleServer()
+            // doesn't execute the callback if |this| is deleted.
             base::Unretained(favicon_service_), page_url,
             GetIconTypesForLocalQuery(), desired_size_in_pixel, kFallbackToHost,
-            repeating_response_callback, tracker),
-        origin_for_uma, icon_url_for_uma);
+            repeating_response_callback, &cancelable_task_tracker_),
+        origin_for_uma, icon_url_for_uma, request_start_time_for_uma);
     return;
   }
 
@@ -194,7 +196,8 @@ void HistoryUiFaviconRequestHandlerImpl::OnBitmapLocalDataAvailable(
       synced_favicon_getter_.Run(page_url);
   if (sync_bitmap_result.is_valid()) {
     // If request to sync succeeds, resize bitmap to desired size and send.
-    RecordFaviconAvailabilityMetric(origin_for_uma, FaviconAvailability::kSync);
+    RecordFaviconAvailabilityAndLatencyMetric(
+        origin_for_uma, request_start_time_for_uma, FaviconAvailability::kSync);
     std::move(response_callback)
         .Run(favicon_base::ResizeFaviconBitmapResult({sync_bitmap_result},
                                                      desired_size_in_pixel));
@@ -202,8 +205,9 @@ void HistoryUiFaviconRequestHandlerImpl::OnBitmapLocalDataAvailable(
   }
 
   // If sync does not have the favicon, send empty response.
-  RecordFaviconAvailabilityMetric(origin_for_uma,
-                                  FaviconAvailability::kNotAvailable);
+  RecordFaviconAvailabilityAndLatencyMetric(origin_for_uma,
+                                            request_start_time_for_uma,
+                                            FaviconAvailability::kNotAvailable);
   std::move(response_callback).Run(favicon_base::FaviconRawBitmapResult());
 }
 
@@ -213,13 +217,14 @@ void HistoryUiFaviconRequestHandlerImpl::OnImageLocalDataAvailable(
     favicon_base::FaviconImageCallback response_callback,
     HistoryUiFaviconRequestOrigin origin_for_uma,
     const GURL& icon_url_for_uma,
-    base::CancelableTaskTracker* tracker,
+    base::Time request_start_time_for_uma,
     const favicon_base::FaviconImageResult& image_result) {
   if (!image_result.image.IsEmpty()) {
     // The icon comes from local storage now even though it may have been
     // originally retrieved from Google server.
-    RecordFaviconAvailabilityMetric(origin_for_uma,
-                                    FaviconAvailability::kLocal);
+    RecordFaviconAvailabilityAndLatencyMetric(origin_for_uma,
+                                              request_start_time_for_uma,
+                                              FaviconAvailability::kLocal);
     large_icon_service_->TouchIconFromGoogleServer(image_result.icon_url);
     std::move(response_callback).Run(image_result);
     return;
@@ -233,16 +238,18 @@ void HistoryUiFaviconRequestHandlerImpl::OnImageLocalDataAvailable(
     // We use CreateForDesktop because GetFaviconImageForPageURL is only called
     // by desktop.
     RequestFromGoogleServer(
-        page_url, FaviconServerFetcherParams::CreateForDesktop(page_url),
+        page_url,
         /*empty_response_callback=*/
         base::BindOnce(repeating_response_callback,
                        favicon_base::FaviconImageResult()),
         /*local_lookup_callback=*/
         base::BindOnce(
             base::IgnoreResult(&FaviconService::GetFaviconImageForPageURL),
+            // base::Unretained() is safe here as RequestFromGoogleServer()
+            // doesn't execture the callback if |this| is deleted.
             base::Unretained(favicon_service_), page_url,
-            repeating_response_callback, tracker),
-        origin_for_uma, icon_url_for_uma);
+            repeating_response_callback, &cancelable_task_tracker_),
+        origin_for_uma, icon_url_for_uma, request_start_time_for_uma);
     return;
   }
 
@@ -251,7 +258,8 @@ void HistoryUiFaviconRequestHandlerImpl::OnImageLocalDataAvailable(
   if (sync_bitmap_result.is_valid()) {
     // If request to sync succeeds, convert the retrieved bitmap to image and
     // send.
-    RecordFaviconAvailabilityMetric(origin_for_uma, FaviconAvailability::kSync);
+    RecordFaviconAvailabilityAndLatencyMetric(
+        origin_for_uma, request_start_time_for_uma, FaviconAvailability::kSync);
     favicon_base::FaviconImageResult sync_image_result;
     sync_image_result.image =
         gfx::Image::CreateFrom1xPNGBytes(sync_bitmap_result.bitmap_data.get());
@@ -260,18 +268,19 @@ void HistoryUiFaviconRequestHandlerImpl::OnImageLocalDataAvailable(
   }
 
   // If sync does not have the favicon, send empty response.
-  RecordFaviconAvailabilityMetric(origin_for_uma,
-                                  FaviconAvailability::kNotAvailable);
+  RecordFaviconAvailabilityAndLatencyMetric(origin_for_uma,
+                                            request_start_time_for_uma,
+                                            FaviconAvailability::kNotAvailable);
   std::move(response_callback).Run(favicon_base::FaviconImageResult());
 }
 
 void HistoryUiFaviconRequestHandlerImpl::RequestFromGoogleServer(
     const GURL& page_url,
-    std::unique_ptr<FaviconServerFetcherParams> server_parameters,
     base::OnceClosure empty_response_callback,
     base::OnceClosure local_lookup_callback,
     HistoryUiFaviconRequestOrigin origin_for_uma,
-    const GURL& icon_url_for_uma) {
+    const GURL& icon_url_for_uma,
+    base::Time request_start_time_for_uma) {
   net::NetworkTrafficAnnotationTag traffic_annotation =
       net::DefineNetworkTrafficAnnotation(
           "history_ui_favicon_request_handler_get_favicon",
@@ -317,15 +326,15 @@ void HistoryUiFaviconRequestHandlerImpl::RequestFromGoogleServer(
       /* default_value= */ false);
   large_icon_service_
       ->GetLargeIconOrFallbackStyleFromGoogleServerSkippingLocalCache(
-          std::move(server_parameters),
+          page_url,
           /*may_page_url_be_private=*/true, should_trim_url_path,
           traffic_annotation,
           base::BindOnce(
               &HistoryUiFaviconRequestHandlerImpl::OnGoogleServerDataAvailable,
               weak_ptr_factory_.GetWeakPtr(),
               std::move(empty_response_callback),
-              std::move(local_lookup_callback), origin_for_uma,
-              group_to_clear));
+              std::move(local_lookup_callback), origin_for_uma, group_to_clear,
+              request_start_time_for_uma));
 }
 
 void HistoryUiFaviconRequestHandlerImpl::OnGoogleServerDataAvailable(
@@ -333,6 +342,7 @@ void HistoryUiFaviconRequestHandlerImpl::OnGoogleServerDataAvailable(
     base::OnceClosure local_lookup_callback,
     HistoryUiFaviconRequestOrigin origin_for_uma,
     const GURL& group_to_clear,
+    base::Time request_start_time_for_uma,
     favicon_base::GoogleFaviconServerRequestStatus status) {
   if (!group_to_clear.is_empty()) {
     auto it = group_callbacks_count_.find(group_to_clear);
@@ -351,12 +361,14 @@ void HistoryUiFaviconRequestHandlerImpl::OnGoogleServerDataAvailable(
                     FAILURE_ICON_EXISTS_IN_DB) {
     // We record the metrics as kLocal since the icon will be subsequently
     // retrieved from local storage.
-    RecordFaviconAvailabilityMetric(origin_for_uma,
-                                    FaviconAvailability::kLocal);
+    RecordFaviconAvailabilityAndLatencyMetric(origin_for_uma,
+                                              request_start_time_for_uma,
+                                              FaviconAvailability::kLocal);
     std::move(local_lookup_callback).Run();
   } else {
-    RecordFaviconAvailabilityMetric(origin_for_uma,
-                                    FaviconAvailability::kNotAvailable);
+    RecordFaviconAvailabilityAndLatencyMetric(
+        origin_for_uma, request_start_time_for_uma,
+        FaviconAvailability::kNotAvailable);
     std::move(empty_response_callback).Run();
   }
 }

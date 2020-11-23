@@ -121,8 +121,6 @@ class HttpStreamFactory::JobController
                         const ProxyInfo& used_proxy_info,
                         HttpAuthController* auth_controller) override;
 
-  bool OnInitConnection(const ProxyInfo& proxy_info) override;
-
   // Invoked when the |job| finishes pre-connecting sockets.
   void OnPreconnectsComplete(Job* job) override;
 
@@ -282,8 +280,8 @@ class HttpStreamFactory::JobController
   // given error code is simply returned.
   int ReconsiderProxyAfterError(Job* job, int error);
 
-  // Returns true if QUIC is whitelisted for |host|.
-  bool IsQuicWhitelistedForHost(const std::string& host);
+  // Returns true if QUIC is allowed for |host|.
+  bool IsQuicAllowedForHost(const std::string& host);
 
   HttpStreamFactory* factory_;
   HttpNetworkSession* session_;

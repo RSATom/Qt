@@ -60,7 +60,6 @@
 #include "globjwin.h"
 #include "glbox.h"
 #include <QApplication>
-#include <QtOpenGL>
 //! [0]
 #include <QAxFactory>
 

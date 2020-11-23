@@ -974,7 +974,7 @@ static bool read_xpm_body(
             } else {
                 char b[16];
                 b[cpp] = '\0';
-                for (x=0; x<w && d<end; x++) {
+                for (x=0; x<w && d+cpp<end; x++) {
                     memcpy(b, (char *)d, cpp);
                     *p++ = (uchar)colorMap[xpmHash(b)];
                     d += cpp;
@@ -1175,7 +1175,7 @@ QXpmHandler::QXpmHandler()
 bool QXpmHandler::readHeader()
 {
     state = Error;
-    if (!read_xpm_header(device(), 0, index, buffer, &cpp, &ncols, &width, &height))
+    if (!read_xpm_header(device(), nullptr, index, buffer, &cpp, &ncols, &width, &height))
         return false;
     state = ReadHeader;
     return true;
@@ -1191,7 +1191,7 @@ bool QXpmHandler::readImage(QImage *image)
         return false;
     }
 
-    if (!read_xpm_body(device(), 0, index, buffer, cpp, ncols, width, height, *image)) {
+    if (!read_xpm_body(device(), nullptr, index, buffer, cpp, ncols, width, height, *image)) {
         state = Error;
         return false;
     }
@@ -1279,13 +1279,6 @@ void QXpmHandler::setOption(ImageOption option, const QVariant &value)
     if (option == Name)
         fileName = value.toString();
 }
-
-#if QT_DEPRECATED_SINCE(5, 13)
-QByteArray QXpmHandler::name() const
-{
-    return "xpm";
-}
-#endif
 
 QT_END_NAMESPACE
 

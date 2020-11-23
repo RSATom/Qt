@@ -16,9 +16,7 @@
 #include "content/public/browser/render_frame_host.h"
 #include "content/public/browser/render_process_host.h"
 #include "content/public/browser/render_view_host.h"
-#include "content/public/browser/stream_info.h"
 #include "content/public/browser/web_contents.h"
-#include "content/public/common/mime_handler_view_mode.h"
 #include "extensions/browser/api/extensions_api_client.h"
 #include "extensions/browser/bad_message.h"
 #include "extensions/browser/extension_registry.h"
@@ -117,21 +115,21 @@ void ExtensionsGuestViewMessageFilter::CreateMimeHandlerViewGuest(
     const std::string& view_id,
     int32_t element_instance_id,
     const gfx::Size& element_size,
-    mime_handler::BeforeUnloadControlPtr before_unload_control) {
-  base::PostTaskWithTraits(
+    mojo::PendingRemote<mime_handler::BeforeUnloadControl>
+        before_unload_control) {
+  base::PostTask(
       FROM_HERE, {content::BrowserThread::UI},
       base::BindOnce(&ExtensionsGuestViewMessageFilter::
                          CreateMimeHandlerViewGuestOnUIThread,
                      this, render_frame_id, view_id, element_instance_id,
-                     element_size, before_unload_control.PassInterface(),
-                     false));
+                     element_size, std::move(before_unload_control), false));
 }
 
 void ExtensionsGuestViewMessageFilter::ReadyToCreateMimeHandlerView(
     int32_t render_frame_id,
     bool success) {
   if (!content::BrowserThread::CurrentlyOn(content::BrowserThread::UI)) {
-    base::PostTaskWithTraits(
+    base::PostTask(
         FROM_HERE, {content::BrowserThread::UI},
         base::BindOnce(
             &ExtensionsGuestViewMessageFilter::ReadyToCreateMimeHandlerView,
@@ -150,7 +148,8 @@ void ExtensionsGuestViewMessageFilter::CreateMimeHandlerViewGuestOnUIThread(
     const std::string& view_id,
     int element_instance_id,
     const gfx::Size& element_size,
-    mime_handler::BeforeUnloadControlPtrInfo before_unload_control,
+    mojo::PendingRemote<mime_handler::BeforeUnloadControl>
+        before_unload_control,
     bool is_full_page_plugin) {
   DCHECK_CURRENTLY_ON(BrowserThread::UI);
 
@@ -204,13 +203,12 @@ void ExtensionsGuestViewMessageFilter::CreateEmbeddedMimeHandlerViewGuest(
     const gfx::Size& element_size,
     content::mojom::TransferrableURLLoaderPtr transferrable_url_loader) {
   if (!content::BrowserThread::CurrentlyOn(content::BrowserThread::UI)) {
-    base::PostTaskWithTraits(
-        FROM_HERE, {content::BrowserThread::UI},
-        base::BindOnce(&ExtensionsGuestViewMessageFilter::
-                           CreateEmbeddedMimeHandlerViewGuest,
-                       this, render_frame_id, tab_id, original_url,
-                       element_instance_id, element_size,
-                       base::Passed(&transferrable_url_loader)));
+    base::PostTask(FROM_HERE, {content::BrowserThread::UI},
+                   base::BindOnce(&ExtensionsGuestViewMessageFilter::
+                                      CreateEmbeddedMimeHandlerViewGuest,
+                                  this, render_frame_id, tab_id, original_url,
+                                  element_instance_id, element_size,
+                                  base::Passed(&transferrable_url_loader)));
     return;
   }
 
@@ -239,7 +237,7 @@ void ExtensionsGuestViewMessageFilter::CreateEmbeddedMimeHandlerViewGuest(
 
   std::string view_id = base::GenerateGUID();
   std::unique_ptr<StreamContainer> stream_container(new StreamContainer(
-      nullptr, tab_id, true /* embedded */, handler_url, extension_id,
+      tab_id, true /* embedded */, handler_url, extension_id,
       std::move(transferrable_url_loader), original_url));
   MimeHandlerStreamManager::Get(browser_context)
       ->AddStream(view_id, std::move(stream_container),
@@ -248,7 +246,7 @@ void ExtensionsGuestViewMessageFilter::CreateEmbeddedMimeHandlerViewGuest(
 
   CreateMimeHandlerViewGuestOnUIThread(render_frame_id, view_id,
                                        element_instance_id, element_size,
-                                       nullptr, false);
+                                       mojo::NullRemote(), false);
 }
 
 void ExtensionsGuestViewMessageFilter::MimeHandlerViewGuestCreatedCallback(
@@ -256,7 +254,8 @@ void ExtensionsGuestViewMessageFilter::MimeHandlerViewGuestCreatedCallback(
     int embedder_render_process_id,
     int embedder_render_frame_id,
     const gfx::Size& element_size,
-    mime_handler::BeforeUnloadControlPtrInfo before_unload_control,
+    mojo::PendingRemote<mime_handler::BeforeUnloadControl>
+        before_unload_control,
     bool is_full_page_plugin,
     WebContents* web_contents) {
   auto* guest_view = MimeHandlerViewGuest::FromWebContents(web_contents);
@@ -286,12 +285,6 @@ void ExtensionsGuestViewMessageFilter::MimeHandlerViewGuestCreatedCallback(
   }
   manager->AttachGuest(embedder_render_process_id, element_instance_id,
                        guest_instance_id, attach_params);
-
-  if (!content::MimeHandlerViewMode::UsesCrossProcessFrame()) {
-    rfh->Send(new ExtensionsGuestViewMsg_CreateMimeHandlerViewGuestACK(
-        element_instance_id));
-    return;
-  }
 }
 
 }  // namespace extensions

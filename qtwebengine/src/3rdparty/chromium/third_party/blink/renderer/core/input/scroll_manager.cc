@@ -26,14 +26,13 @@
 #include "third_party/blink/renderer/core/page/page.h"
 #include "third_party/blink/renderer/core/page/scrolling/overscroll_controller.h"
 #include "third_party/blink/renderer/core/page/scrolling/root_scroller_controller.h"
-#include "third_party/blink/renderer/core/page/scrolling/root_scroller_util.h"
 #include "third_party/blink/renderer/core/page/scrolling/scroll_state.h"
 #include "third_party/blink/renderer/core/page/scrolling/scrolling_coordinator.h"
-#include "third_party/blink/renderer/core/page/scrolling/snap_coordinator.h"
 #include "third_party/blink/renderer/core/paint/paint_layer.h"
 #include "third_party/blink/renderer/core/paint/paint_layer_scrollable_area.h"
 #include "third_party/blink/renderer/core/scroll/scroll_animator_base.h"
 #include "third_party/blink/renderer/core/scroll/scroll_customization.h"
+#include "third_party/blink/renderer/platform/heap/heap.h"
 #include "third_party/blink/renderer/platform/instrumentation/histogram.h"
 #include "third_party/blink/renderer/platform/instrumentation/tracing/trace_event.h"
 
@@ -63,16 +62,6 @@ cc::SnapFlingController::GestureScrollUpdateInfo GetGestureScrollUpdateInfo(
               WebGestureEvent::InertialPhaseState::kMomentum,
           event.TimeStamp()};
 }
-
-ScrollableArea* ScrollableAreaForSnapping(LayoutBox* layout_box) {
-  if (!layout_box)
-    return nullptr;
-
-  return layout_box->IsLayoutView()
-             ? layout_box->GetFrameView()->GetScrollableArea()
-             : layout_box->GetScrollableArea();
-}
-
 }  // namespace
 
 ScrollManager::ScrollManager(LocalFrame& frame) : frame_(frame) {
@@ -100,6 +89,7 @@ void ScrollManager::ClearGestureScrollState() {
   last_gesture_scroll_over_embedded_content_view_ = false;
   scroll_gesture_handling_node_ = nullptr;
   previous_gesture_scrolled_node_ = nullptr;
+  last_scroll_delta_for_scroll_gesture_ = FloatSize();
   delta_consumed_for_scroll_sequence_ = false;
   did_scroll_x_for_scroll_gesture_ = false;
   did_scroll_y_for_scroll_gesture_ = false;
@@ -110,6 +100,15 @@ void ScrollManager::ClearGestureScrollState() {
     bool reset_y = true;
     page->GetOverscrollController().ResetAccumulated(reset_x, reset_y);
   }
+}
+
+Node* ScrollManager::GetScrollEventTarget() {
+  // Send the overscroll event to the node that scrolling is latched to which
+  // is either previously scrolled node or the last node in the scroll chain.
+  Node* scroll_target = previous_gesture_scrolled_node_;
+  if (!scroll_target && !current_scroll_chain_.IsEmpty())
+    scroll_target = DOMNodeIds::NodeForId(current_scroll_chain_.front());
+  return scroll_target;
 }
 
 void ScrollManager::StopAutoscroll() {
@@ -199,6 +198,17 @@ bool ScrollManager::CanScroll(const ScrollState& scroll_state,
   if (current_node.GetLayoutBox()->IsGlobalRootScroller())
     return true;
 
+  // If this is the main LayoutView, and it's not the root scroller, that means
+  // we have a non-default root scroller on the page. In this case, attempts to
+  // scroll the LayoutView should cause panning of the visual viewport as well
+  // so ensure it gets added to the scroll chain. See LTHI::ApplyScroll for the
+  // equivalent behavior in CC. Node::NativeApplyScroll contains a special
+  // handler for this case.
+  if (current_node.GetLayoutBox()->IsLayoutView() &&
+      current_node.GetDocument().GetFrame()->IsMainFrame()) {
+    return true;
+  }
+
   ScrollableArea* scrollable_area =
       current_node.GetLayoutBox()->GetScrollableArea();
 
@@ -250,7 +260,8 @@ bool ScrollManager::LogicalScroll(ScrollDirection direction,
   Deque<DOMNodeId> scroll_chain;
   std::unique_ptr<ScrollStateData> scroll_state_data =
       std::make_unique<ScrollStateData>();
-  ScrollState* scroll_state = ScrollState::Create(std::move(scroll_state_data));
+  auto* scroll_state =
+      MakeGarbageCollected<ScrollState>(std::move(scroll_state_data));
   RecomputeScrollChain(*node, *scroll_state, scroll_chain);
 
   while (!scroll_chain.IsEmpty()) {
@@ -264,24 +275,9 @@ bool ScrollManager::LogicalScroll(ScrollDirection direction,
         ToPhysicalDirection(direction, box->IsHorizontalWritingMode(),
                             box->Style()->IsFlippedBlocksWritingMode());
 
-    ScrollableArea* scrollable_area = nullptr;
-
-    // The global root scroller must be scrolled by the RootFrameViewport.
-    if (box->IsGlobalRootScroller()) {
-      LocalFrame& main_frame = frame_->LocalFrameRoot();
-      // The local root must be the main frame if we have the global root
-      // scroller since it can't yet be set on OOPIFs.
-      DCHECK(main_frame.IsMainFrame());
-
-      scrollable_area = main_frame.View()->GetScrollableArea();
-    } else {
-      scrollable_area = box->GetScrollableArea();
-    }
-
+    ScrollableArea* scrollable_area = ScrollableArea::GetForScrolling(box);
     DCHECK(scrollable_area);
 
-    SnapCoordinator* snap_coordinator =
-        frame_->GetDocument()->GetSnapCoordinator();
     ScrollOffset delta = ToScrollDelta(physical_direction, 1);
     delta.Scale(scrollable_area->ScrollStep(granularity, kHorizontalScrollbar),
                 scrollable_area->ScrollStep(granularity, kVerticalScrollbar));
@@ -291,12 +287,12 @@ bool ScrollManager::LogicalScroll(ScrollDirection direction,
     // scroll with intended end position only.
     switch (granularity) {
       case ScrollGranularity::kScrollByLine: {
-        if (snap_coordinator->SnapForDirection(*box, delta))
+        if (scrollable_area->SnapForDirection(delta))
           return true;
         break;
       }
       case ScrollGranularity::kScrollByPage: {
-        if (snap_coordinator->SnapForEndAndDirection(*box, delta))
+        if (scrollable_area->SnapForEndAndDirection(delta))
           return true;
         break;
       }
@@ -306,8 +302,8 @@ bool ScrollManager::LogicalScroll(ScrollDirection direction,
                           physical_direction == kScrollRight;
         bool scrolled_y = physical_direction == kScrollUp ||
                           physical_direction == kScrollDown;
-        if (snap_coordinator->SnapForEndPosition(*box, end_position, scrolled_x,
-                                                 scrolled_y))
+        if (scrollable_area->SnapForEndPosition(end_position, scrolled_x,
+                                                scrolled_y))
           return true;
         break;
       }
@@ -316,11 +312,12 @@ bool ScrollManager::LogicalScroll(ScrollDirection direction,
     }
 
     ScrollableArea::ScrollCallback callback;
-    if (RuntimeEnabledFeatures::UpdateHoverAtBeginFrameEnabled()) {
+    if (RuntimeEnabledFeatures::UpdateHoverAtBeginFrameEnabled() ||
+        RuntimeEnabledFeatures::OverscrollCustomizationEnabled()) {
       callback = ScrollableArea::ScrollCallback(WTF::Bind(
           [](WeakPersistent<ScrollableArea> area) {
             if (area)
-              area->MarkHoverStateDirty();
+              area->OnScrollFinished();
           },
           WrapWeakPersistent(scrollable_area)));
     }
@@ -476,9 +473,23 @@ WebInputEventResult ScrollManager::HandleGestureScrollBegin(
       gesture_event.SourceDevice() == WebGestureDevice::kTouchscreen;
   scroll_state_data->delta_consumed_for_scroll_sequence =
       delta_consumed_for_scroll_sequence_;
-  ScrollState* scroll_state = ScrollState::Create(std::move(scroll_state_data));
-  RecomputeScrollChain(*scroll_gesture_handling_node_.Get(), *scroll_state,
-                       current_scroll_chain_);
+  auto* scroll_state =
+      MakeGarbageCollected<ScrollState>(std::move(scroll_state_data));
+  // For middle click autoscroll, only scrollable area for
+  // |scroll_gesture_handling_node_| should receive and handle all scroll
+  // events. It should not bubble up to the ancestor.
+  if (gesture_event.SourceDevice() == WebGestureDevice::kSyntheticAutoscroll) {
+    LayoutBox* scrollable = LayoutBox::FindAutoscrollable(
+        scroll_gesture_handling_node_->GetLayoutObject(),
+        /*is_middle_click_autoscroll*/ true);
+    if (scrollable) {
+      Node* scrollable_node = scrollable->GetNode();
+      current_scroll_chain_.push_back(DOMNodeIds::IdForNode(scrollable_node));
+    }
+  } else {
+    RecomputeScrollChain(*scroll_gesture_handling_node_.Get(), *scroll_state,
+                         current_scroll_chain_);
+  }
 
   TRACE_EVENT_INSTANT1("input", "Computed Scroll Chain",
                        TRACE_EVENT_SCOPE_THREAD, "length",
@@ -591,7 +602,8 @@ WebInputEventResult ScrollManager::HandleGestureScrollUpdate(
   scroll_state_data->from_user_input = true;
   scroll_state_data->delta_consumed_for_scroll_sequence =
       delta_consumed_for_scroll_sequence_;
-  ScrollState* scroll_state = ScrollState::Create(std::move(scroll_state_data));
+  auto* scroll_state =
+      MakeGarbageCollected<ScrollState>(std::move(scroll_state_data));
   if (previous_gesture_scrolled_node_) {
     // The ScrollState needs to know what the current
     // native scrolling element is, so that for an
@@ -605,6 +617,8 @@ WebInputEventResult ScrollManager::HandleGestureScrollUpdate(
   previous_gesture_scrolled_node_ = scroll_state->CurrentNativeScrollingNode();
   delta_consumed_for_scroll_sequence_ =
       scroll_state->DeltaConsumedForScrollSequence();
+
+  last_scroll_delta_for_scroll_gesture_ = delta;
 
   bool did_scroll_x = scroll_state->deltaX() != delta.Width();
   bool did_scroll_y = scroll_state->deltaY() != delta.Height();
@@ -624,13 +638,7 @@ WebInputEventResult ScrollManager::HandleGestureScrollUpdate(
     return WebInputEventResult::kHandledSystem;
 
   if (RuntimeEnabledFeatures::OverscrollCustomizationEnabled()) {
-    // Send the overscroll event to the node that scrolling is latched to which
-    // is either previously scrolled node or the last node in the scroll chain.
-    Node* overscroll_target = previous_gesture_scrolled_node_;
-    if (!overscroll_target && !current_scroll_chain_.IsEmpty())
-      overscroll_target = DOMNodeIds::NodeForId(current_scroll_chain_.front());
-
-    if (overscroll_target) {
+    if (Node* overscroll_target = GetScrollEventTarget()) {
       overscroll_target->GetDocument().EnqueueOverscrollEventForNode(
           overscroll_target, delta.Width(), delta.Height());
     }
@@ -651,7 +659,6 @@ WebInputEventResult ScrollManager::HandleGestureScrollEnd(
     const WebGestureEvent& gesture_event) {
   TRACE_EVENT0("input", "ScrollManager::handleGestureScrollEnd");
   Node* node = scroll_gesture_handling_node_;
-  bool snap_at_gesture_scroll_end = false;
 
   if (node && node->GetLayoutObject()) {
     // If the GSE is for a scrollable area that has an in-progress animation,
@@ -685,37 +692,36 @@ WebInputEventResult ScrollManager::HandleGestureScrollEnd(
         gesture_event.SourceDevice() == WebGestureDevice::kTouchscreen;
     scroll_state_data->delta_consumed_for_scroll_sequence =
         delta_consumed_for_scroll_sequence_;
-    ScrollState* scroll_state =
-        ScrollState::Create(std::move(scroll_state_data));
+    auto* scroll_state =
+        MakeGarbageCollected<ScrollState>(std::move(scroll_state_data));
     CustomizedScroll(*scroll_state);
-    snap_at_gesture_scroll_end = SnapAtGestureScrollEnd();
-    NotifyScrollPhaseEndForCustomizedScroll();
 
-    if (RuntimeEnabledFeatures::OverscrollCustomizationEnabled()) {
-      // Send the scrollend event to the node that scrolling is latched to
-      // which is either previously scrolled node or the last node in the
-      // scroll chain.
-      DCHECK(!current_scroll_chain_.IsEmpty());
-      if (previous_gesture_scrolled_node_) {
-        previous_gesture_scrolled_node_->GetDocument()
-            .EnqueueScrollEndEventForNode(previous_gesture_scrolled_node_);
-      } else if (Node* scroll_end_target =
-                     DOMNodeIds::NodeForId(current_scroll_chain_.front())) {
-        scroll_end_target->GetDocument().EnqueueScrollEndEventForNode(
-            scroll_end_target);
-      }
-    }
+    // We add a callback to set the hover state dirty and send a scroll end
+    // event when the scroll ends without snap or the snap point is the same as
+    // the scroll position.
+    base::ScopedClosureRunner callback(WTF::Bind(
+        [](WeakPersistent<LocalFrame> local_frame,
+           WeakPersistent<ScrollManager> scroll_manager) {
+          if (RuntimeEnabledFeatures::UpdateHoverAtBeginFrameEnabled() &&
+              local_frame) {
+            local_frame->GetEventHandler().MarkHoverStateDirty();
+          }
+
+          Node* scroll_end_target = scroll_manager->GetScrollEventTarget();
+          if (RuntimeEnabledFeatures::OverscrollCustomizationEnabled() &&
+              scroll_end_target) {
+            scroll_end_target->GetDocument().EnqueueScrollEndEventForNode(
+                scroll_end_target);
+          }
+        },
+        WrapWeakPersistent(&(frame_->LocalFrameRoot())),
+        WrapWeakPersistent(this)));
+
+    SnapAtGestureScrollEnd(gesture_event, std::move(callback));
+    NotifyScrollPhaseEndForCustomizedScroll();
   }
 
   ClearGestureScrollState();
-
-  // If we are performing a snap at the scrollend gesture, we should update
-  // hover state dirty at the end of the programmatic scroll animation caused
-  // by the snap, and we should avoid marking the hover state dirty here.
-  if (!snap_at_gesture_scroll_end &&
-      RuntimeEnabledFeatures::UpdateHoverAtBeginFrameEnabled()) {
-    frame_->LocalFrameRoot().GetEventHandler().MarkHoverStateDirty();
-  }
 
   return WebInputEventResult::kNotHandled;
 }
@@ -726,30 +732,58 @@ LayoutBox* ScrollManager::LayoutBoxForSnapping() const {
   return previous_gesture_scrolled_node_->GetLayoutBox();
 }
 
-bool ScrollManager::SnapAtGestureScrollEnd() {
+ScrollOffset GetScrollDirection(FloatSize delta) {
+  return delta.ShrunkTo(FloatSize(1, 1)).ExpandedTo(FloatSize(-1, -1));
+}
+
+bool ScrollManager::SnapAtGestureScrollEnd(
+    const WebGestureEvent& end_event,
+    base::ScopedClosureRunner on_finish) {
   if (!previous_gesture_scrolled_node_ ||
       (!did_scroll_x_for_scroll_gesture_ && !did_scroll_y_for_scroll_gesture_))
     return false;
-  SnapCoordinator* snap_coordinator =
-      frame_->GetDocument()->GetSnapCoordinator();
-  LayoutBox* layout_box = LayoutBoxForSnapping();
-  if (!snap_coordinator || !layout_box)
+  ScrollableArea* scrollable_area =
+      ScrollableArea::GetForScrolling(LayoutBoxForSnapping());
+  if (!scrollable_area)
     return false;
 
-  return snap_coordinator->SnapAtCurrentPosition(
-      *layout_box, did_scroll_x_for_scroll_gesture_,
-      did_scroll_y_for_scroll_gesture_);
+  bool is_mouse_wheel =
+      end_event.SourceDevice() == WebGestureDevice::kTouchpad &&
+      end_event.data.scroll_end.delta_units !=
+          ScrollGranularity::kScrollByPrecisePixel;
+
+  // Treat mouse wheel scrolls as direction only scroll with its last scroll
+  // delta amout. This means each wheel tick will prefer the next snap position
+  // in the given direction. This leads to a much better UX for wheels.
+  //
+  // Precise wheel and trackpads continue to be treated similar as end position
+  // scrolling.
+  if (is_mouse_wheel && !last_scroll_delta_for_scroll_gesture_.IsZero()) {
+    // TODO(majidvp): Currently DirectionStrategy uses current offset + delta as
+    // the intended offset and chooses snap offset closest to that intended
+    // offset. In this case, this is not correct because we are already at the
+    // intended position. DirectionStategy should be updated to use current
+    // offset as intended position. This requires changing how we snap in
+    // |ScrollManager::LogicalScroll()|. For now use a unit scroll offset to
+    // limit the miscalculation to 1px.
+    ScrollOffset scroll_direction =
+        GetScrollDirection(last_scroll_delta_for_scroll_gesture_);
+    return scrollable_area->SnapForDirection(scroll_direction,
+                                             std::move(on_finish));
+  }
+
+  return scrollable_area->SnapAtCurrentPosition(
+      did_scroll_x_for_scroll_gesture_, did_scroll_y_for_scroll_gesture_,
+      std::move(on_finish));
 }
 
-bool ScrollManager::GetSnapFlingInfo(
+bool ScrollManager::GetSnapFlingInfoAndSetSnapTarget(
     const gfx::Vector2dF& natural_displacement,
     gfx::Vector2dF* out_initial_position,
     gfx::Vector2dF* out_target_position) const {
-  SnapCoordinator* snap_coordinator =
-      frame_->GetDocument()->GetSnapCoordinator();
-  LayoutBox* layout_box = LayoutBoxForSnapping();
-  ScrollableArea* scrollable_area = ScrollableAreaForSnapping(layout_box);
-  if (!snap_coordinator || !layout_box || !scrollable_area)
+  ScrollableArea* scrollable_area =
+      ScrollableArea::GetForScrolling(LayoutBoxForSnapping());
+  if (!scrollable_area)
     return false;
 
   FloatPoint current_position = scrollable_area->ScrollPosition();
@@ -759,7 +793,7 @@ bool ScrollManager::GetSnapFlingInfo(
           gfx::ScrollOffset(*out_initial_position),
           gfx::ScrollOffset(natural_displacement));
   base::Optional<FloatPoint> snap_end =
-      snap_coordinator->GetSnapPosition(*layout_box, *strategy);
+      scrollable_area->GetSnapPositionAndSetTarget(*strategy);
   if (!snap_end.has_value())
     return false;
   *out_target_position = gfx::Vector2dF(snap_end.value());
@@ -769,7 +803,7 @@ bool ScrollManager::GetSnapFlingInfo(
 gfx::Vector2dF ScrollManager::ScrollByForSnapFling(
     const gfx::Vector2dF& delta) {
   ScrollableArea* scrollable_area =
-      ScrollableAreaForSnapping(LayoutBoxForSnapping());
+      ScrollableArea::GetForScrolling(LayoutBoxForSnapping());
   if (!scrollable_area)
     return gfx::Vector2dF();
 
@@ -785,7 +819,8 @@ gfx::Vector2dF ScrollManager::ScrollByForSnapFling(
       static_cast<double>(ScrollGranularity::kScrollByPrecisePixel);
   scroll_state_data->delta_consumed_for_scroll_sequence =
       delta_consumed_for_scroll_sequence_;
-  ScrollState* scroll_state = ScrollState::Create(std::move(scroll_state_data));
+  auto* scroll_state =
+      MakeGarbageCollected<ScrollState>(std::move(scroll_state_data));
   scroll_state->SetCurrentNativeScrollingNode(previous_gesture_scrolled_node_);
 
   CustomizedScroll(*scroll_state);
@@ -794,6 +829,12 @@ gfx::Vector2dF ScrollManager::ScrollByForSnapFling(
 }
 
 void ScrollManager::ScrollEndForSnapFling() {
+  if (RuntimeEnabledFeatures::OverscrollCustomizationEnabled()) {
+    if (Node* scroll_end_target = GetScrollEventTarget()) {
+      scroll_end_target->GetDocument().EnqueueScrollEndEventForNode(
+          scroll_end_target);
+    }
+  }
   if (current_scroll_chain_.IsEmpty()) {
     NotifyScrollPhaseEndForCustomizedScroll();
     ClearGestureScrollState();
@@ -806,7 +847,8 @@ void ScrollManager::ScrollEndForSnapFling() {
   scroll_state_data->from_user_input = true;
   scroll_state_data->delta_consumed_for_scroll_sequence =
       delta_consumed_for_scroll_sequence_;
-  ScrollState* scroll_state = ScrollState::Create(std::move(scroll_state_data));
+  auto* scroll_state =
+      MakeGarbageCollected<ScrollState>(std::move(scroll_state_data));
   CustomizedScroll(*scroll_state);
   NotifyScrollPhaseEndForCustomizedScroll();
   ClearGestureScrollState();
@@ -979,7 +1021,7 @@ Node* ScrollManager::NodeTargetForScrollableAreaElementId(
   Page* page = frame_->GetPage();
   DCHECK(page);
   ScrollableArea* scrollable_area = nullptr;
-  if (page->GetVisualViewport().GetCompositorElementId() == element_id) {
+  if (page->GetVisualViewport().GetScrollElementId() == element_id) {
     // If the element_id is the visual viewport, redirect to the
     // root LocalFrameView's scrollable area (i.e. the RootFrameViewport).
     scrollable_area = frame_->LocalFrameRoot().View()->GetScrollableArea();

@@ -2,9 +2,10 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "base/test/scoped_task_environment.h"
+#include <fuzzer/FuzzedDataProvider.h>
+
+#include "base/test/task_environment.h"
 #include "media/learning/impl/learning_task_controller_impl.h"
-#include "third_party/libFuzzer/src/utils/FuzzedDataProvider.h"
 
 using media::learning::FeatureValue;
 using media::learning::FeatureVector;
@@ -40,7 +41,7 @@ FeatureVector ConsumeFeatureVector(FuzzedDataProvider* provider) {
 }
 
 extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) {
-  base::test::ScopedTaskEnvironment scoped_task_environment;
+  base::test::TaskEnvironment task_environment;
   FuzzedDataProvider provider(data, size);
 
   LearningTask task;
@@ -63,11 +64,15 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) {
   // Build random examples.
   while (provider.remaining_bytes() > 0) {
     base::UnguessableToken id = base::UnguessableToken::Create();
-    controller.BeginObservation(id, ConsumeFeatureVector(&provider));
+    base::Optional<TargetValue> default_target;
+    if (provider.ConsumeBool())
+      default_target = TargetValue(ConsumeDouble(&provider));
+    controller.BeginObservation(id, ConsumeFeatureVector(&provider),
+                                default_target);
     controller.CompleteObservation(
         id, ObservationCompletion(TargetValue(ConsumeDouble(&provider)),
                                   ConsumeDouble(&provider)));
-    scoped_task_environment.RunUntilIdle();
+    task_environment.RunUntilIdle();
   }
 
   return 0;

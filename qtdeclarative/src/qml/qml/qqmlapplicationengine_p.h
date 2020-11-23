@@ -70,10 +70,14 @@ public:
     void cleanUp();
 
     void startLoad(const QUrl &url, const QByteArray &data = QByteArray(), bool dataFlag = false);
-    void loadTranslations(const QUrl &rootFile);
+    void _q_loadTranslations();
     void finishLoad(QQmlComponent *component);
     QList<QObject *> objects;
     QVariantMap initialProperties;
+    QString translationsDirectory;
+#if QT_CONFIG(translation)
+    QScopedPointer<QTranslator> activeTranslator;
+#endif
 };
 
 QT_END_NAMESPACE

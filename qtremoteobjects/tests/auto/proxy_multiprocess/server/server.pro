@@ -2,7 +2,7 @@ TEMPLATE = app
 QT       += remoteobjects core testlib
 QT       -= gui
 
-TARGET = server
+TARGET = proxy_multiprocess_server
 DESTDIR = ./
 CONFIG   += c++11
 CONFIG   -= app_bundle

@@ -37,20 +37,6 @@
     </message>
 </context>
 <context>
-    <name>QInputMethod</name>
-    <message>
-        <source>InputMethod is an abstract class</source>
-        <translation>InputMethod ― это абстрактный класс</translation>
-    </message>
-</context>
-<context>
-    <name>QQmlAbstractDelegateComponent</name>
-    <message>
-        <source>Cannot create instance of abstract class AbstractDelegateComponent.</source>
-        <translation>Нельзя создавать экземпляры абстрактного класса AbstractDelegateComponent.</translation>
-    </message>
-</context>
-<context>
     <name>QQmlAnonymousComponentResolver</name>
     <message>
         <source>Component objects cannot declare new functions.</source>
@@ -291,6 +277,14 @@
 		  отладочных сообщений в консоли отладчика.</translation>
     </message>
     <message>
+        <source>helps to see if a translated text
+		  will result in an elided text
+		  in QML elements.</source>
+        <translation>помогает увидеть, приведёт ли переведенный текст
+		  к пропаже его части
+		  в элементах QML.</translation>
+    </message>
+    <message>
         <source>Other services offered by qmltooling plugins that implement QQmlDebugServiceFactory and which can be found in the standard plugin paths will also be available and can be specified. If no &quot;services&quot; argument is given, all services found this way, including the default ones, are loaded.</source>
         <translation>Другие сервисы, предоставляемые модулями qmltooling, реализующими QQmlDebugServiceFactory и находящимися в стандартных каталогах модулей, также будут доступны и могут быть указаны. Если параметр «services» не указан, то будут загружены все найденные сервисы.</translation>
     </message>
@@ -416,10 +410,6 @@
 <context>
     <name>QQmlEngine</name>
     <message>
-        <source>Locale cannot be instantiated.  Use Qt.locale()</source>
-        <translation>Нельзя создать локаль. Используйте Qt.locale()</translation>
-    </message>
-    <message>
         <source>Locale cannot be instantiated. Use Qt.locale()</source>
         <translation>Нельзя создать локаль. Используйте Qt.locale()</translation>
     </message>
@@ -478,8 +468,16 @@
         <translation>«%1» неоднозначно. Найдено в %2 и %3</translation>
     </message>
     <message>
+        <source>- %1 is neither a type nor a namespace</source>
+        <translation>- %1 не является ни типом, ни пространством имён</translation>
+    </message>
+    <message>
         <source>- %1 is not a namespace</source>
-        <translation>- %1 ― некорректное пространство имён</translation>
+        <translation>- %1 не является пространством имён</translation>
+    </message>
+    <message>
+        <source>- %1 is not a type</source>
+        <translation>- %1 не является типом</translation>
     </message>
     <message>
         <source>- nested namespaces not allowed</source>
@@ -550,24 +548,8 @@
         <translation>каталог «%1» не содержит ни qmldir, ни namespace</translation>
     </message>
     <message>
-        <source>Module loaded for URI &apos;%1&apos; does not implement QQmlTypesExtensionInterface</source>
-        <translation>Модуль загруженный для URI «%1» не реализует QQmlTypesExtensionInterface</translation>
-    </message>
-    <message>
         <source>File name case mismatch for &quot;%1&quot;</source>
         <translation>Регистр имени файла не соответствует «%1»</translation>
-    </message>
-    <message>
-        <source>Module namespace &apos;%1&apos; does not match import URI &apos;%2&apos;</source>
-        <translation>Пространство имён модуля «%1» не совпадает с импортируемым URI «%2»</translation>
-    </message>
-    <message>
-        <source>Namespace &apos;%1&apos; has already been used for type registration</source>
-        <translation>Пространство имён «%1» уже используется для регистрации типов</translation>
-    </message>
-    <message>
-        <source>Module &apos;%1&apos; does not contain a module identifier directive - it cannot be protected from external registrations.</source>
-        <translation>Модуль «%1» не содержит директивы определения модуля ― он не может быть защищён от внешних регистраций.</translation>
     </message>
 </context>
 <context>
@@ -1111,10 +1093,6 @@
         <translation>Невозможно присвоить свойству неизвестного типа «%1».</translation>
     </message>
     <message>
-        <source>Unexpected object assignment for property &quot;%1&quot;</source>
-        <translation>Неожиданное присваивание объекта для свойства «%1»</translation>
-    </message>
-    <message>
         <source>Cannot assign object of type &quot;%1&quot; to property of type &quot;%2&quot; as the former is neither the same as the latter nor a sub-class of it.</source>
         <translation>Нельзя назначить объект типа «%1» свойству типа «%2», так как тип первого не совпадает со вторым и не является его производным.</translation>
     </message>
@@ -1180,6 +1158,10 @@
         <translation>Нет такого файла или каталога</translation>
     </message>
     <message>
+        <source>Type %1 has no inline component type called %2</source>
+        <translation>У типа %1 отсутствует встроенный компонентный тип %2</translation>
+    </message>
+    <message>
         <source>File is empty</source>
         <translation>Файл пуст</translation>
     </message>
@@ -1209,21 +1191,6 @@
     <message>
         <source>Cannot animate read-only property &quot;%1&quot;</source>
         <translation>Невозможно анимировать свойство только для чтения «%1»</translation>
-    </message>
-    <message>
-        <source>Animation is an abstract class</source>
-        <translation>Animation ― это абстрактный класс</translation>
-    </message>
-    <message>
-        <source>Animator is an abstract class</source>
-        <translation>Animator ― это абстрактный класс</translation>
-    </message>
-</context>
-<context>
-    <name>QQuickAccessibleAttached</name>
-    <message>
-        <source>Accessible is only available via attached properties</source>
-        <translation>Accessible доступна только через прикреплённые свойства</translation>
     </message>
 </context>
 <context>
@@ -1285,20 +1252,6 @@
     </message>
 </context>
 <context>
-    <name>QQuickAnimatedImage</name>
-    <message>
-        <source>Qt was built without support for QMovie</source>
-        <translation>Qt было собрано без поддержки QMovie</translation>
-    </message>
-</context>
-<context>
-    <name>QQuickApplication</name>
-    <message>
-        <source>Application is an abstract class</source>
-        <translation>Application ― это абстрактный класс</translation>
-    </message>
-</context>
-<context>
     <name>QQuickBehavior</name>
     <message>
         <source>Cannot change the animation assigned to a Behavior.</source>
@@ -1306,28 +1259,10 @@
     </message>
 </context>
 <context>
-    <name>QQuickDragAttached</name>
-    <message>
-        <source>Drag is only available via attached properties</source>
-        <translation>Drag доступна только через прикреплённые свойства</translation>
-    </message>
-</context>
-<context>
-    <name>QQuickDragHandler</name>
-    <message>
-        <source>DragAxis is only available as a grouped property of DragHandler</source>
-        <translation>DragAxis доступен только как сгруппированное свойство DragHandler</translation>
-    </message>
-</context>
-<context>
     <name>QQuickEnterKeyAttached</name>
     <message>
         <source>EnterKey attached property only works with Items</source>
         <translation>Подключённое свойство EnterKey работает только с элементами</translation>
-    </message>
-    <message>
-        <source>EnterKey is only available via attached properties</source>
-        <translation>EnterKey доступно только через подключённые свойства</translation>
     </message>
 </context>
 <context>
@@ -1342,43 +1277,14 @@
     </message>
 </context>
 <context>
-    <name>QQuickGraphicsInfo</name>
-    <message>
-        <source>GraphicsInfo is only available via attached properties</source>
-        <translation>GraphicsInfo доступен только через подключаемые свойства</translation>
-    </message>
-</context>
-<context>
     <name>QQuickItemView</name>
-    <message>
-        <source>ItemView is an abstract base class</source>
-        <translation>ItemView ― это абстрактный базовый класс</translation>
-    </message>
     <message>
         <source>Delegate must be of Item type</source>
         <translation>Делегат должен иметь тип Item</translation>
     </message>
 </context>
 <context>
-    <name>QQuickKeyNavigationAttached</name>
-    <message>
-        <source>KeyNavigation is only available via attached properties</source>
-        <translation>KeyNavigation доступна только через прикреплённые свойства</translation>
-    </message>
-</context>
-<context>
-    <name>QQuickKeysAttached</name>
-    <message>
-        <source>Keys is only available via attached properties</source>
-        <translation>Keys доступны только через прикреплённые свойства</translation>
-    </message>
-</context>
-<context>
     <name>QQuickLayoutMirroringAttached</name>
-    <message>
-        <source>LayoutMirroring is only available via attached properties</source>
-        <translation>LayoutMirroring доступно только через подключаемые свойства</translation>
-    </message>
     <message>
         <source>LayoutDirection attached property only works with Items and Windows</source>
         <translation>Подключённое свойство LayoutDirection работает только с элементами и окнами</translation>
@@ -1389,31 +1295,6 @@
     <message>
         <source>setSource: value is not an object</source>
         <translation>setSource: значение не является объектом</translation>
-    </message>
-</context>
-<context>
-    <name>QQuickMouseEvent</name>
-    <message>
-        <source>GestureEvent is only available in the context of handling the gestureStarted signal from MultiPointTouchArea</source>
-        <translation>GestureEvent доступен только в контексте обработки сигнала gestureStarted от MultiPointTouchArea</translation>
-    </message>
-    <message>
-        <source>MouseEvent is only available within handlers in MouseArea</source>
-        <translation>MouseEvent доступен только внутри обработчиков в MouseArea</translation>
-    </message>
-</context>
-<context>
-    <name>QQuickOpenGLInfo</name>
-    <message>
-        <source>OpenGLInfo is only available via attached properties</source>
-        <translation>OpenGLInfo доступно только через подключаемые свойства</translation>
-    </message>
-</context>
-<context>
-    <name>QQuickPaintedItem</name>
-    <message>
-        <source>Cannot create instance of abstract class PaintedItem</source>
-        <translation>Нельзя создавать экземпляры абстрактного класса PaintedItem</translation>
     </message>
 </context>
 <context>
@@ -1495,41 +1376,6 @@
     </message>
 </context>
 <context>
-    <name>QQuickPointerHandler</name>
-    <message>
-        <source>PointerEvent is only available as a parameter of several signals in PointerHandler</source>
-        <translation>PointerEvent доступен только, как параметр ряда сигналов PointerHandler</translation>
-    </message>
-    <message>
-        <source>PointerMouseEvent is only available as a parameter of several signals in PointerHandler</source>
-        <translation>PointerMouseEvent доступен только как параметр нескольких сигналов в PointerHandler</translation>
-    </message>
-    <message>
-        <source>PointerTouchEvent is only available as a parameter of several signals in PointerHandler</source>
-        <translation>PointerTouchEvent доступен только как параметр нескольких сигналов в PointerHandler</translation>
-    </message>
-    <message>
-        <source>EventPoint is only available as a member of PointerEvent</source>
-        <translation>EventPoint доступен только, как член PointerEvent</translation>
-    </message>
-    <message>
-        <source>EventTouchPoint is only available as a member of PointerEvent</source>
-        <translation>EventTouchPoint доступен только, как член PointerEvent</translation>
-    </message>
-    <message>
-        <source>PointerDevice is only available as a property of PointerEvent</source>
-        <translation>PointerDevice доступен только, как свойство PointerEvent</translation>
-    </message>
-    <message>
-        <source>PointerHandler is an abstract base class</source>
-        <translation>PointerHandler — абстрактный базовый класс</translation>
-    </message>
-    <message>
-        <source>ImageBase is an abstract base class</source>
-        <translation>ImageBase ― это абстрактный класс</translation>
-    </message>
-</context>
-<context>
     <name>QQuickPropertyAnimation</name>
     <message>
         <source>Cannot set a duration of &lt; 0</source>
@@ -1559,20 +1405,6 @@
     </message>
 </context>
 <context>
-    <name>QQuickShaderEffectMesh</name>
-    <message>
-        <source>Cannot create instance of abstract class ShaderEffectMesh.</source>
-        <translation>Нельзя создавать экземпляры абстрактного класса ShaderEffectMesh.</translation>
-    </message>
-</context>
-<context>
-    <name>QQuickShapeGradient</name>
-    <message>
-        <source>ShapeGradient is an abstract base class</source>
-        <translation>ShapeGradient ― это абстрактный базовый класс</translation>
-    </message>
-</context>
-<context>
     <name>QQuickTextUtil</name>
     <message>
         <source>%1 does not support loading non-visual cursor delegates.</source>
@@ -1581,20 +1413,6 @@
     <message>
         <source>Could not load cursor delegate</source>
         <translation>Не удалось загрузить делегат курсора</translation>
-    </message>
-</context>
-<context>
-    <name>QQuickTouchPoint</name>
-    <message>
-        <source>PointingDeviceUniqueId is only available via read-only properties</source>
-        <translation>PointingDeviceUniqueId доступен только через только читаемые свойства</translation>
-    </message>
-</context>
-<context>
-    <name>QQuickViewTransitionAttached</name>
-    <message>
-        <source>ViewTransition is only available via attached properties</source>
-        <translation>ViewTransition доступна только через прикреплённые свойства</translation>
     </message>
 </context>
 <context>
@@ -1614,6 +1432,10 @@ Install a driver providing OpenGL 2.0 or higher, or, if this is not possible, ma
         <source>Failed to create %1 context for format %2</source>
         <extracomment>%1 Context type (Open GL, EGL), %2 format specification</extracomment>
         <translation>Не удалось создать контекст %1 для формата %2</translation>
+    </message>
+    <message>
+        <source>Failed to initialize graphics backend for %1.</source>
+        <translation>Не удалось инициализировать графический интерфейс для %1.</translation>
     </message>
 </context>
 <context>
@@ -1682,10 +1504,6 @@ Install a driver providing OpenGL 2.0 or higher, or, if this is not possible, ma
     <message>
         <source>Invalid QML %1 name &quot;%2&quot;; type names must begin with an uppercase letter</source>
         <translation>Имя «%2» недопустимо для QML %1, имена типов должны начинаться с заглавной буквы</translation>
-    </message>
-    <message>
-        <source>Cannot install %1 &apos;%2&apos; into protected namespace &apos;%3&apos;</source>
-        <translation>Нельзя устанавливать %1 «%2» в защищённое пространство имён «%3»</translation>
     </message>
     <message>
         <source>Cannot install %1 &apos;%2&apos; into protected module &apos;%3&apos; version &apos;%4&apos;</source>

@@ -5,17 +5,19 @@
 #ifndef UI_EVENTS_OZONE_GAMEPAD_GAMEPAD_EVENT_H_
 #define UI_EVENTS_OZONE_GAMEPAD_GAMEPAD_EVENT_H_
 
+#include "base/component_export.h"
 #include "base/time/time.h"
-#include "ui/events/ozone/gamepad/webgamepad_constants.h"
 
 namespace ui {
 
-class GamepadEvent {
+// We care about three type of gamepad events.
+enum class GamepadEventType { BUTTON, AXIS, FRAME };
+
+class COMPONENT_EXPORT(EVENTS_OZONE) GamepadEvent {
  public:
   GamepadEvent(int device_id,
                GamepadEventType type,
                uint16_t code,
-               uint16_t raw_code,
                double value,
                base::TimeTicks timestamp);
 
@@ -24,8 +26,6 @@ class GamepadEvent {
   GamepadEventType type() const { return type_; }
 
   uint16_t code() const { return code_; }
-
-  uint16_t raw_code() const { return raw_code_; }
 
   double value() const { return value_; }
 
@@ -36,11 +36,8 @@ class GamepadEvent {
 
   GamepadEventType type_;
 
-  // Web Gamepad keycode.
-  uint16_t code_;
-
   // Evdev scancode.
-  uint16_t raw_code_;
+  uint16_t code_;
 
   double value_;
 

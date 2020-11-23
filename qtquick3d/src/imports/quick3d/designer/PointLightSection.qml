@@ -27,7 +27,7 @@
 **
 ****************************************************************************/
 
-import QtQuick 2.12
+import QtQuick 2.15
 import HelperWidgets 2.0
 import QtQuick.Layouts 1.12
 
@@ -74,6 +74,7 @@ Column {
                     minimumValue: 0
                     maximumValue: 10
                     decimals: 2
+                    stepSize: 0.1
                     backendValue: backendValues.constantFade
                     Layout.fillWidth: true
                 }
@@ -88,6 +89,7 @@ Column {
                     minimumValue: 0
                     maximumValue: 10
                     decimals: 2
+                    stepSize: 0.1
                     backendValue: backendValues.linearFade
                     Layout.fillWidth: true
                 }
@@ -102,6 +104,7 @@ Column {
                     minimumValue: 0
                     maximumValue: 10
                     decimals: 2
+                    stepSize: 0.1
                     backendValue: backendValues.quadraticFade
                     Layout.fillWidth: true
                 }

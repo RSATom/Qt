@@ -294,8 +294,9 @@ int32_t H264EncoderImpl::InitEncode(const VideoCodec* inst,
   }
 
   SimulcastRateAllocator init_allocator(codec_);
-  VideoBitrateAllocation allocation = init_allocator.GetAllocation(
-      codec_.startBitrate * 1000, codec_.maxFramerate);
+  VideoBitrateAllocation allocation =
+      init_allocator.Allocate(VideoBitrateAllocationParameters(
+          DataRate::kbps(codec_.startBitrate), codec_.maxFramerate));
   SetRates(RateControlParameters(allocation, codec_.maxFramerate));
   return WEBRTC_VIDEO_CODEC_OK;
 }
@@ -622,6 +623,7 @@ VideoEncoder::EncoderInfo H264EncoderImpl::GetEncoderInfo() const {
       VideoEncoder::ScalingSettings(kLowH264QpThreshold, kHighH264QpThreshold);
   info.is_hardware_accelerated = false;
   info.has_internal_source = false;
+  info.supports_simulcast = true;
   return info;
 }
 

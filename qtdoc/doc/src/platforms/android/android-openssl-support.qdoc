@@ -1,0 +1,167 @@
+/****************************************************************************
+**
+** Copyright (C) 2020 The Qt Company Ltd.
+** Contact: https://www.qt.io/licensing/
+**
+** This file is part of the documentation of the Qt Toolkit.
+**
+** $QT_BEGIN_LICENSE:FDL$
+** Commercial License Usage
+** Licensees holding valid commercial Qt licenses may use this file in
+** accordance with the commercial license agreement provided with the
+** Software or, alternatively, in accordance with the terms contained in
+** a written agreement between you and The Qt Company. For licensing terms
+** and conditions see https://www.qt.io/terms-conditions. For further
+** information use the contact form at https://www.qt.io/contact-us.
+**
+** GNU Free Documentation License Usage
+** Alternatively, this file may be used under the terms of the GNU Free
+** Documentation License version 1.3 as published by the Free Software
+** Foundation and appearing in the file included in the packaging of
+** this file. Please review the following information to ensure
+** the GNU Free Documentation License version 1.3 requirements
+** will be met: https://www.gnu.org/licenses/fdl-1.3.html.
+** $QT_END_LICENSE$
+**
+****************************************************************************/
+
+/*!
+\page android-openssl-support.html
+\title Adding OpenSSL Support for Android
+\brief Provides instructions to package OpenSSL libraries with your Qt application for Android.
+
+The Qt installation package comes with OpenSSL support but the OpenSSL libraries
+are not part of the package due to legal restrictions in some countries. If your
+application depends on OpenSSL, consider packaging the SSL libraries with your
+Application Package (APK) as the target device may or may not have them.
+
+You can use the \l {QSslSocket::supportsSsl()} static function to check for SSL
+support on the target device. First include the header:
+\code
+#include <QSslSocket>
+\endcode
+
+Then use the following line to check if SSL is supported:
+\code
+qDebug() << "Device supports OpenSSL: " << QSslSocket::supportsSsl();
+\endcode
+
+Check Qt Creator's \c {Application Output} section or the Android \c logcat for
+the result.
+
+\section1 Building OpenSSL for Android
+
+A convenient Github repository with prebuilt and a build script can be used
+without the need for manual step-by-step build. For more information, see
+\l {OpenSSL for Android}. If you download the repository, you can then skip
+to \l {Using OpenSSL Libraries with Qt for Android}.
+
+The following instructions guide you to build the OpenSSL libraries manually:
+
+\list 1
+    \li Download \l{OpenSSL Source}{OpenSSL} 1.1.x sources.
+
+    \li Extract the sources to a folder and navigate to that folder using
+        the CLI.
+        \note If your development platform is Windows, you need \c msys with
+        \c perl v5.14 or later to build OpenSSL.
+
+    \li Add the Android LLVM toolchain (NDK r20b or r21) to your path:
+
+        \badcode
+        export PATH="<android_ndk_path>/toolchains/llvm/prebuilt/<host>/bin":$PATH
+        \endcode
+
+    \li Configure the OpenSSL sources to build for Android using
+        the following command:
+
+        \badcode
+        ./Configure shared android-<arch> -D__ANDROID_API__=21
+        \endcode
+
+        Where <arch> can take a value of: \c arm, \c arm64, \c x86, \c x86_64.
+
+        \note You must consider enabling or disabling the SSL features based on
+        the legal restrictions in the region where your application is available.
+        For more information about the configurable features, see
+        \l{OpenSSL Configure Options}.
+
+    \li To build \c libcrypto and \c libssl shared libraries that are not versioned,
+        but with an \e _1_1 suffix, run:
+
+        \code
+        make -j$(nproc) SHLIB_VERSION_NUMBER= SHLIB_EXT=_1_1.so build_libs
+        \endcode
+
+        Without a suffix, Android 5 (API 21) will load the system libraries
+        \e {libcrypto.so} and \e {libssl.so}, which are OpenSSL 1.0, rather than
+        your libraries.
+
+        If you want to use a different suffix, you must change \c SHLIB_EXT in
+        the previous command, and set the \c ANDROID_OPENSSL_SUFFIX environment
+        variable before you access the Qt Network API.
+
+        \badcode
+        make -j$(nproc) SHLIB_VERSION_NUMBER= SHLIB_EXT=<custom_suffix>.so build_libs
+        \endcode
+
+        Then set the environment variable in your main.ccp file:
+
+        \code
+        qputenv("ANDROID_OPENSSL_SUFFIX", "<custom_suffix>");
+        \endcode
+
+        \note Android does not load versioned libraries.
+\endlist
+
+\section1 Using OpenSSL Libraries with Qt for Android
+
+Depending on the method you obtained the OpenSSL libraries, you can use one of
+the following step to include those libraries in your project:
+
+\list
+
+    \li Using the project files:
+
+        Using the convenience \l {OpenSSL for Android} repository,
+        you can directly add the include projects into your own project, by adding
+        the following to your \c {.pro} file:
+
+        \badcode
+        android: include(<path/to/android_openssl/openssl.pri)
+        \endcode
+
+        Or if using CMake, add the following to your \c {CMakeLists.txt}:
+
+        \badcode
+        if (ANDROID)
+            include(<path/to/android_openssl/CMakeLists.txt)
+        endif()
+        \endcode
+
+        Alternatively, you can either use the Qt for Android variable ANDROID_EXTRA_LIBS to add
+        extra libraries, mainly \c libcrypto and \c libssl. For QMake use:
+
+        \badcode
+        ANDROID_EXTRA_LIBS += \
+            <path_to_libs_dir>/libcrypto_1_1.so \
+            <path_to_libs_dir>/libssl_1_1.so
+        \endcode
+
+        For CMake:
+
+        \badcode
+        set(ANDROID_EXTRA_LIBS
+            <path_to_libs_dir>/ibcrypto_1_1.so
+            <path_to_libs_dir>/libssl_1_1.so
+        CACHE INTERNAL "")
+        \endcode
+
+        \note When targeting multiple architectures, include OpenSSL libraries
+              for all the targeted architectures.
+
+    \li Using Qt Creator, it is possible to add extra libraries. For more
+        information, see \l {Qt Creator: Adding Libraries to Projects}.
+\endlist
+
+*/

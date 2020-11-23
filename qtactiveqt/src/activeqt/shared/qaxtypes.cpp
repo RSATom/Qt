@@ -440,7 +440,7 @@ bool QVariantToVARIANT(const QVariant &var, VARIANT &arg, const QByteArray &type
 
     case QVariant::List:
         {
-            const QList<QVariant> list = qvar.toList();
+            const auto list = qvar.toList();
             const int count = list.count();
             VARTYPE vt = VT_VARIANT;
             QVariant::Type listType = QVariant::Type(QMetaType::QVariant);

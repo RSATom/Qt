@@ -24,7 +24,8 @@ QOBJS = \
 	qfile.o qfiledevice.o qfileinfo.o qfilesystemengine.o \
 	qfilesystementry.o qfsfileengine.o qfsfileengine_iterator.o \
 	qiodevice.o qsettings.o qtemporaryfile.o qtextstream.o \
-	qjsonarray.o qjson.o qjsondocument.o qjsonobject.o qjsonparser.o qjsonvalue.o \
+	qcborstreamwriter.o qcborvalue.o \
+	qjsoncbor.o qjsonarray.o qjsondocument.o qjsonobject.o qjsonparser.o qjsonvalue.o \
 	qmetatype.o qsystemerror.o qvariant.o \
 	quuid.o \
 	qarraydata.o qbitarray.o qbytearray.o qbytearraylist.o qbytearraymatcher.o \
@@ -36,7 +37,6 @@ QOBJS = \
 	$(QTOBJS) $(QTOBJS2)
 # QTOBJS and QTOBJS2 are populated by Makefile.unix.* as for QTSRC (see below).
 # Note: qlibraryinfo.o omitted deliberately - see below.
-# Note: qcore_mac_objc.o is in SOURCES (see qmake.pri) but not QOBJS.
 
 #all sources, used for the depend target (please keep alphabetic in each block)
 DEPEND_SRC = \
@@ -91,14 +91,15 @@ DEPEND_SRC = \
 	   $(SOURCE_PATH)/src/corelib/io/qiodevice.cpp \
 	   $(SOURCE_PATH)/src/corelib/io/qsettings.cpp \
 	   $(SOURCE_PATH)/src/corelib/io/qtemporaryfile.cpp \
-	   $(SOURCE_PATH)/src/corelib/kernel/qcore_mac_objc.mm \
 	   $(SOURCE_PATH)/src/corelib/kernel/qmetatype.cpp \
 	   $(SOURCE_PATH)/src/corelib/kernel/qsystemerror.cpp \
 	   $(SOURCE_PATH)/src/corelib/kernel/qvariant.cpp \
 	   $(SOURCE_PATH)/src/corelib/plugin/quuid.cpp \
+	   $(SOURCE_PATH)/src/corelib/serialization/qcborstreamwriter.cpp \
+	   $(SOURCE_PATH)/src/corelib/serialization/qcborvalue.cpp \
 	   $(SOURCE_PATH)/src/corelib/serialization/qdatastream.cpp \
 	   $(SOURCE_PATH)/src/corelib/serialization/qjsonarray.cpp \
-	   $(SOURCE_PATH)/src/corelib/serialization/qjson.cpp \
+	   $(SOURCE_PATH)/src/corelib/serialization/qjsoncbor.cpp \
 	   $(SOURCE_PATH)/src/corelib/serialization/qjsondocument.cpp \
 	   $(SOURCE_PATH)/src/corelib/serialization/qjsonobject.cpp \
 	   $(SOURCE_PATH)/src/corelib/serialization/qjsonparser.cpp \
@@ -135,6 +136,7 @@ DEPEND_SRC = \
 
 CPPFLAGS = -g $(EXTRA_CPPFLAGS) \
 	   -I$(QMKSRC) -I$(QMKLIBSRC) -I$(QMKGENSRC) \
+	   -I$(SOURCE_PATH)/src/3rdparty/tinycbor/src \
 	   -I$(QMKGENSRC)/unix -I$(QMKGENSRC)/win32 -I$(QMKGENSRC)/mac \
 	   -I$(INC_PATH) -I$(INC_PATH)/QtCore \
 	   -I$(INC_PATH)/QtCore/$(QT_VERSION) -I$(INC_PATH)/QtCore/$(QT_VERSION)/QtCore \
@@ -322,7 +324,7 @@ qbytearraymatcher.o: $(SOURCE_PATH)/src/corelib/text/qbytearraymatcher.cpp
 qmetatype.o: $(SOURCE_PATH)/src/corelib/kernel/qmetatype.cpp
 	$(CXX) -c -o $@ $(CXXFLAGS) $<
 
-qcore_mac.o: $(SOURCE_PATH)/src/corelib/kernel/qcore_mac.cpp
+qcore_mac.o: $(SOURCE_PATH)/src/corelib/kernel/qcore_mac.mm
 	$(CXX) -c -o $@ $(CXXFLAGS) $<
 
 qcore_unix.o: $(SOURCE_PATH)/src/corelib/kernel/qcore_unix.cpp
@@ -335,9 +337,6 @@ qoperatingsystemversion_win.o: $(SOURCE_PATH)/src/corelib/global/qoperatingsyste
 	$(CXX) -c -o $@ $(CXXFLAGS) $<
 
 qoperatingsystemversion_darwin.o: $(SOURCE_PATH)/src/corelib/global/qoperatingsystemversion_darwin.mm
-	$(CXX) -c -o $@ $(CXXFLAGS) $<
-
-qcore_mac_objc.o: $(SOURCE_PATH)/src/corelib/kernel/qcore_mac_objc.mm
 	$(CXX) -c -o $@ $(CXXFLAGS) $<
 
 qcore_foundation.o: $(SOURCE_PATH)/src/corelib/kernel/qcore_foundation.mm
@@ -466,7 +465,13 @@ qsystemlibrary.o: $(SOURCE_PATH)/src/corelib/plugin/qsystemlibrary.cpp
 qdatastream.o: $(SOURCE_PATH)/src/corelib/serialization/qdatastream.cpp
 	$(CXX) -c -o $@ $(CXXFLAGS) $<
 
-qjson.o: $(SOURCE_PATH)/src/corelib/serialization/qjson.cpp
+qcborstreamwriter.o: $(SOURCE_PATH)/src/corelib/serialization/qcborstreamwriter.cpp
+	$(CXX) -c -o $@ $(CXXFLAGS) $<
+
+qcborvalue.o: $(SOURCE_PATH)/src/corelib/serialization/qcborvalue.cpp
+	$(CXX) -c -o $@ $(CXXFLAGS) $<
+
+qjsoncbor.o: $(SOURCE_PATH)/src/corelib/serialization/qjsoncbor.cpp
 	$(CXX) -c -o $@ $(CXXFLAGS) $<
 
 qjsondocument.o: $(SOURCE_PATH)/src/corelib/serialization/qjsondocument.cpp

@@ -24,9 +24,10 @@
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_util.h"
 #include "base/strings/stringprintf.h"
+#include "base/strings/utf_string_conversions.h"
 #include "base/test/metrics/histogram_tester.h"
 #include "base/test/scoped_feature_list.h"
-#include "base/test/scoped_task_environment.h"
+#include "base/test/task_environment.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "base/time/time.h"
 #include "build/build_config.h"
@@ -50,6 +51,7 @@
 #include "components/autofill/core/common/autofill_payments_features.h"
 #include "components/autofill/core/common/autofill_prefs.h"
 #include "components/autofill/core/common/autofill_switches.h"
+#include "components/autofill/core/common/autofill_tick_clock.h"
 #include "components/autofill/core/common/autofill_util.h"
 #include "components/prefs/pref_service.h"
 #include "components/security_state/core/security_state.h"
@@ -57,8 +59,6 @@
 #include "components/sync/driver/test_sync_service.h"
 #include "components/version_info/channel.h"
 #include "net/base/url_util.h"
-#include "net/url_request/url_request_context_getter.h"
-#include "net/url_request/url_request_test_util.h"
 #include "services/metrics/public/cpp/ukm_builders.h"
 #include "services/network/public/cpp/shared_url_loader_factory.h"
 #include "testing/gtest/include/gtest/gtest.h"
@@ -76,13 +76,13 @@ const char kTestNumber[] = "4234567890123456";  // Visa
 
 std::string NextYear() {
   base::Time::Exploded now;
-  base::Time::Now().LocalExplode(&now);
+  AutofillClock::Now().LocalExplode(&now);
   return base::NumberToString(now.year + 1);
 }
 
 std::string NextMonth() {
   base::Time::Exploded now;
-  base::Time::Now().LocalExplode(&now);
+  AutofillClock::Now().LocalExplode(&now);
   return base::NumberToString(now.month % 12 + 1);
 }
 
@@ -106,9 +106,6 @@ class CreditCardCVCAuthenticatorTest : public testing::Test {
     requester_.reset(new TestAuthenticationRequester());
     autofill_driver_ =
         std::make_unique<testing::NiceMock<TestAutofillDriver>>();
-    request_context_ = new net::TestURLRequestContextGetter(
-        base::ThreadTaskRunnerHandle::Get());
-    autofill_driver_->SetURLRequestContext(request_context_.get());
 
     payments::TestPaymentsClient* payments_client =
         new payments::TestPaymentsClient(
@@ -127,8 +124,6 @@ class CreditCardCVCAuthenticatorTest : public testing::Test {
 
     personal_data_manager_.SetPrefService(nullptr);
     personal_data_manager_.ClearCreditCards();
-
-    request_context_ = nullptr;
   }
 
   CreditCard CreateServerCard(std::string guid, std::string number) {
@@ -150,15 +145,23 @@ class CreditCardCVCAuthenticatorTest : public testing::Test {
     payments::FullCardRequest* full_card_request =
         cvc_authenticator_->full_card_request_.get();
     DCHECK(full_card_request);
-    full_card_request->OnDidGetRealPan(result, real_pan);
+
+    // Mock user response.
+    payments::FullCardRequest::UserProvidedUnmaskDetails details;
+    details.cvc = base::ASCIIToUTF16("123");
+    full_card_request->OnUnmaskPromptAccepted(details);
+
+    // Mock payments response.
+    payments::PaymentsClient::UnmaskResponseDetails response;
+    full_card_request->OnDidGetRealPan(result,
+                                       response.with_real_pan(real_pan));
   }
 
  protected:
   std::unique_ptr<TestAuthenticationRequester> requester_;
-  base::test::ScopedTaskEnvironment scoped_task_environment_;
+  base::test::TaskEnvironment task_environment_;
   TestAutofillClient autofill_client_;
   std::unique_ptr<TestAutofillDriver> autofill_driver_;
-  scoped_refptr<net::TestURLRequestContextGetter> request_context_;
   scoped_refptr<AutofillWebDataService> database_;
   TestPersonalDataManager personal_data_manager_;
   base::test::ScopedFeatureList scoped_feature_list_;
@@ -170,7 +173,7 @@ TEST_F(CreditCardCVCAuthenticatorTest, AuthenticateServerCardSuccess) {
 
   cvc_authenticator_->Authenticate(&card, requester_->GetWeakPtr(),
                                    &personal_data_manager_,
-                                   base::TimeTicks::Now());
+                                   AutofillTickClock::NowTicks());
 
   OnDidGetRealPan(AutofillClient::SUCCESS, kTestNumber);
   EXPECT_TRUE(requester_->did_succeed());
@@ -182,7 +185,7 @@ TEST_F(CreditCardCVCAuthenticatorTest, AuthenticateServerCardNetworkError) {
 
   cvc_authenticator_->Authenticate(&card, requester_->GetWeakPtr(),
                                    &personal_data_manager_,
-                                   base::TimeTicks::Now());
+                                   AutofillTickClock::NowTicks());
 
   OnDidGetRealPan(AutofillClient::NETWORK_ERROR, std::string());
   EXPECT_FALSE(requester_->did_succeed());
@@ -193,7 +196,7 @@ TEST_F(CreditCardCVCAuthenticatorTest, AuthenticateServerCardPermanentFailure) {
 
   cvc_authenticator_->Authenticate(&card, requester_->GetWeakPtr(),
                                    &personal_data_manager_,
-                                   base::TimeTicks::Now());
+                                   AutofillTickClock::NowTicks());
 
   OnDidGetRealPan(AutofillClient::PERMANENT_FAILURE, std::string());
   EXPECT_FALSE(requester_->did_succeed());
@@ -204,7 +207,7 @@ TEST_F(CreditCardCVCAuthenticatorTest, AuthenticateServerCardTryAgainFailure) {
 
   cvc_authenticator_->Authenticate(&card, requester_->GetWeakPtr(),
                                    &personal_data_manager_,
-                                   base::TimeTicks::Now());
+                                   AutofillTickClock::NowTicks());
 
   OnDidGetRealPan(AutofillClient::TRY_AGAIN_FAILURE, std::string());
   EXPECT_FALSE(requester_->did_succeed());

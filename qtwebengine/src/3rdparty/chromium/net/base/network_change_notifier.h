@@ -18,7 +18,6 @@
 
 namespace net {
 
-struct DnsConfig;
 class NetworkChangeNotifierFactory;
 struct NetworkInterface;
 class SystemDnsConfigChangeNotifier;
@@ -146,16 +145,7 @@ class NET_EXPORT NetworkChangeNotifier {
   class NET_EXPORT DNSObserver {
    public:
     // Will be called when the DNS settings of the system may have changed.
-    // Use GetDnsConfig to obtain the current settings.
     virtual void OnDNSChanged() = 0;
-    // Will be called when DNS settings of the system have been loaded.
-    // Use GetDnsConfig to obtain the current settings.
-    // NOTE(pauljensen): This will not be called if the initial DNS config
-    // has already been read before this observer is registered.
-    // Determining if a DNS config has already been read can be done by
-    // calling GetDnsConfig() after registering an observer, and seeing if
-    // the DnsConfig's IsValid() returns true.
-    virtual void OnInitialDNSConfigRead();
 
    protected:
     DNSObserver();
@@ -288,17 +278,17 @@ class NET_EXPORT NetworkChangeNotifier {
   // The method will take over the ownership of |factory| object.
   static void SetFactory(NetworkChangeNotifierFactory* factory);
 
-  // Creates the process-wide, platform-specific NetworkChangeNotifier.  The
-  // caller owns the returned pointer.  You may call this on any thread.  You
-  // may also avoid creating this entirely (in which case nothing will be
-  // monitored), but if you do create it, you must do so before any other
-  // threads try to access the API below, and it must outlive all other threads
-  // which might try to use it.
-  static std::unique_ptr<NetworkChangeNotifier> Create();
-
-  // Returns whether the process-wide, platform-specific NetworkChangeNotifier
-  // has been created.
-  static bool HasNetworkChangeNotifier();
+  // Creates the process-wide, platform-specific NetworkChangeNotifier if it
+  // hasn't been created. The caller owns the returned pointer.  You may call
+  // this on any thread. If the process-wide NetworkChangeNotifier already
+  // exists, this call will return a nullptr. Otherwise, it will guaranteed
+  // to return a valid instance. You may also avoid creating this entirely
+  // (in which case nothing will be monitored), but if you do create it, you
+  // must do so before any other threads try to access the API below, and it
+  // must outlive all other threads which might try to use it.
+  static std::unique_ptr<NetworkChangeNotifier> CreateIfNeeded(
+      NetworkChangeNotifier::ConnectionType initial_type = CONNECTION_NONE,
+      NetworkChangeNotifier::ConnectionSubtype initial_subtype = SUBTYPE_NONE);
 
   // Returns the connection type.
   // A return value of |CONNECTION_NONE| is a pretty strong indicator that the
@@ -368,12 +358,13 @@ class NET_EXPORT NetworkChangeNotifier {
   // Requires NetworkHandles support, see AreNetworkHandlesSupported().
   static NetworkHandle GetDefaultNetwork();
 
-  // Retrieve the last read DnsConfig. This could be expensive if the system has
-  // a large HOSTS file.
-  //
-  // TODO(crbug.com/971411): Remove once HostResolverManager converted to
-  // directly use SystemDnsConfigChangeNotifier.
-  static void GetDnsConfig(DnsConfig* config);
+  // Get the underlying SystemDnsConfigChangeNotifier, or null if there is none.
+  // Only intended for code building HostResolverManagers. Other code intending
+  // to watch for DNS config changes should use
+  // NetworkChangeNotifier::AddDNSObserver to receive notifications about both
+  // underlying system config changes and effective changes added on top by
+  // Chrome net code.
+  static SystemDnsConfigChangeNotifier* GetSystemDnsConfigNotifier();
 
 #if defined(OS_LINUX)
   // Returns the AddressTrackerLinux if present.
@@ -404,9 +395,9 @@ class NET_EXPORT NetworkChangeNotifier {
   static ConnectionType ConnectionTypeFromInterfaceList(
       const NetworkInterfaceList& interfaces);
 
-  // Like Create(), but for use in tests.  The mock object doesn't monitor any
-  // events, it merely rebroadcasts notifications when requested.
-  static std::unique_ptr<NetworkChangeNotifier> CreateMock();
+  // Like CreateIfNeeded(), but for use in tests. The mock object doesn't
+  // monitor any events, it merely rebroadcasts notifications when requested.
+  static std::unique_ptr<NetworkChangeNotifier> CreateMockIfNeeded();
 
   // Registers |observer| to receive notifications of network changes.  The
   // thread on which this is called is the thread on which |observer| will be
@@ -444,13 +435,15 @@ class NET_EXPORT NetworkChangeNotifier {
   static void RemoveMaxBandwidthObserver(MaxBandwidthObserver* observer);
   static void RemoveNetworkObserver(NetworkObserver* observer);
 
+  // Called to signify a non-system DNS config change.
+  static void TriggerNonSystemDnsChange();
+
   // Allow unit tests to trigger notifications.
   static void NotifyObserversOfIPAddressChangeForTests();
   static void NotifyObserversOfConnectionTypeChangeForTests(
       ConnectionType type);
   static void NotifyObserversOfDNSChangeForTests();
   static void NotifyObserversOfNetworkChangeForTests(ConnectionType type);
-  static void NotifyObserversOfInitialDNSConfigReadForTests();
   static void NotifyObserversOfMaxBandwidthChangeForTests(
       double max_bandwidth_mbps,
       ConnectionType type);
@@ -541,6 +534,7 @@ class NET_EXPORT NetworkChangeNotifier {
   virtual ConnectionType GetCurrentNetworkConnectionType(
       NetworkHandle network) const;
   virtual NetworkHandle GetCurrentDefaultNetwork() const;
+  virtual SystemDnsConfigChangeNotifier* GetCurrentSystemDnsConfigNotifier();
 
   // Broadcasts a notification to all registered observers.  Note that this
   // happens asynchronously, even for observers on the current thread, even in
@@ -548,28 +542,16 @@ class NET_EXPORT NetworkChangeNotifier {
   static void NotifyObserversOfIPAddressChange();
   static void NotifyObserversOfConnectionTypeChange();
   static void NotifyObserversOfDNSChange();
-  static void NotifyObserversOfInitialDNSConfigRead();
   static void NotifyObserversOfNetworkChange(ConnectionType type);
   static void NotifyObserversOfMaxBandwidthChange(double max_bandwidth_mbps,
                                                   ConnectionType type);
   static void NotifyObserversOfSpecificNetworkChange(NetworkChangeType type,
                                                      NetworkHandle network);
 
-  // Stores |config| in NetworkState and notifies observers. The first
-  // notification will be OnInitialDNSConfigRead, and after that OnDNSChanged.
-  static void SetDnsConfigForTesting(const DnsConfig& config);
-
-  // Clears previous DnsConfig, if any, to simulate the first one being set.
-  static void ClearDnsConfigForTesting();
-
   // Infer connection type from |GetNetworkList|. If all network interfaces
   // have the same type, return it, otherwise return CONNECTION_UNKNOWN.
   static ConnectionType ConnectionTypeFromInterfaces();
 
-  SystemDnsConfigChangeNotifier* system_dns_config_notifier() {
-    DCHECK(system_dns_config_notifier_);
-    return system_dns_config_notifier_;
-  }
   // Unregisters and clears |system_dns_config_notifier_|. Useful if a subclass
   // owns the notifier and is destroying it before |this|'s destructor is called
   void StopSystemDnsConfigNotifier();
@@ -590,7 +572,6 @@ class NET_EXPORT NetworkChangeNotifier {
   void NotifyObserversOfIPAddressChangeImpl();
   void NotifyObserversOfConnectionTypeChangeImpl(ConnectionType type);
   void NotifyObserversOfDNSChangeImpl();
-  void NotifyObserversOfInitialDNSConfigReadImpl();
   void NotifyObserversOfNetworkChangeImpl(ConnectionType type);
   void NotifyObserversOfMaxBandwidthChangeImpl(double max_bandwidth_mbps,
                                                ConnectionType type);

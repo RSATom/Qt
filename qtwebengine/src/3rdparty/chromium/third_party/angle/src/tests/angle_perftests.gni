@@ -8,6 +8,8 @@ _angle_perf_test_common_sources = [
   "perf_tests/ANGLEPerfTest.h",
   "perf_tests/ANGLEPerfTestArgs.cpp",
   "perf_tests/ANGLEPerfTestArgs.h",
+  "perf_tests/third_party/perf/perf_result_reporter.cc",
+  "perf_tests/third_party/perf/perf_result_reporter.h",
   "perf_tests/third_party/perf/perf_test.cc",
   "perf_tests/third_party/perf/perf_test.h",
   "test_utils/angle_test_configs.cpp",
@@ -16,6 +18,13 @@ _angle_perf_test_common_sources = [
   "test_utils/angle_test_instantiate.h",
   "test_utils/gl_raii.h",
 ]
+
+if (is_mac) {
+  _angle_perf_test_common_sources += [
+    "test_utils/angle_test_instantiate_apple.mm",
+    "test_utils/angle_test_instantiate_apple.h",
+  ]
+}
 
 angle_perf_tests_sources = _angle_perf_test_common_sources + [
                              "perf_tests/BlitFramebufferPerf.cpp",

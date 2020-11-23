@@ -129,8 +129,12 @@ public:
                    Qt::TransformationMode mode = Qt::FastTransformation) const;
     QPixmap scaledToWidth(int w, Qt::TransformationMode mode = Qt::FastTransformation) const;
     QPixmap scaledToHeight(int h, Qt::TransformationMode mode = Qt::FastTransformation) const;
+#if QT_DEPRECATED_SINCE(5, 15)
+    QT_DEPRECATED_X("Use transformed(const QTransform &, Qt::TransformationMode mode)")
     QPixmap transformed(const QMatrix &, Qt::TransformationMode mode = Qt::FastTransformation) const;
+    QT_DEPRECATED_X("Use trueMatrix(const QTransform &m, int w, int h)")
     static QMatrix trueMatrix(const QMatrix &m, int w, int h);
+#endif // QT_DEPRECATED_SINCE(5, 15)
     QPixmap transformed(const QTransform &, Qt::TransformationMode mode = Qt::FastTransformation) const;
     static QTransform trueMatrix(const QTransform &m, int w, int h);
 
@@ -227,7 +231,10 @@ inline bool QPixmap::loadFromData(const QByteArray &buf, const char *format,
 #if QT_DEPRECATED_SINCE(5, 0)
 inline QPixmap QPixmap::alphaChannel() const
 {
+    QT_WARNING_PUSH
+    QT_WARNING_DISABLE_DEPRECATED
     return QPixmap::fromImage(toImage().alphaChannel());
+    QT_WARNING_POP
 }
 
 inline void QPixmap::setAlphaChannel(const QPixmap &p)

@@ -16,6 +16,7 @@
 #include "ui/ozone/platform/wayland/gpu/wayland_canvas_surface.h"
 #include "ui/ozone/platform/wayland/host/wayland_connection.h"
 #include "ui/ozone/platform/wayland/host/wayland_window.h"
+#include "ui/ozone/platform/wayland/host/wayland_window_manager.h"
 
 #if defined(WAYLAND_GBM)
 #include "ui/ozone/platform/wayland/gpu/gbm_pixmap_wayland.h"
@@ -61,7 +62,8 @@ scoped_refptr<gl::GLSurface> GLOzoneEGLWayland::CreateViewGLSurface(
       !connection_)
     return nullptr;
 
-  WaylandWindow* window = connection_->GetWindow(widget);
+  WaylandWindow* window =
+      connection_->wayland_window_manager()->GetWindow(widget);
   if (!window)
     return nullptr;
 
@@ -126,7 +128,8 @@ WaylandSurfaceFactory::WaylandSurfaceFactory(
 WaylandSurfaceFactory::~WaylandSurfaceFactory() = default;
 
 std::unique_ptr<SurfaceOzoneCanvas>
-WaylandSurfaceFactory::CreateCanvasForWidget(gfx::AcceleratedWidget widget) {
+WaylandSurfaceFactory::CreateCanvasForWidget(gfx::AcceleratedWidget widget,
+                                             base::TaskRunner* task_runner) {
   return std::make_unique<WaylandCanvasSurface>(buffer_manager_, widget);
 }
 
@@ -159,13 +162,30 @@ scoped_refptr<gfx::NativePixmap> WaylandSurfaceFactory::CreateNativePixmap(
     gfx::BufferUsage usage) {
 #if defined(WAYLAND_GBM)
   scoped_refptr<GbmPixmapWayland> pixmap =
-      base::MakeRefCounted<GbmPixmapWayland>(buffer_manager_, widget);
+      base::MakeRefCounted<GbmPixmapWayland>(buffer_manager_);
+
+  if (widget != gfx::kNullAcceleratedWidget)
+    pixmap->SetAcceleratedWiget(widget);
+
   if (!pixmap->InitializeBuffer(size, format, usage))
     return nullptr;
   return pixmap;
 #else
   return nullptr;
 #endif
+}
+
+void WaylandSurfaceFactory::CreateNativePixmapAsync(
+    gfx::AcceleratedWidget widget,
+    VkDevice vk_device,
+    gfx::Size size,
+    gfx::BufferFormat format,
+    gfx::BufferUsage usage,
+    NativePixmapCallback callback) {
+  // CreateNativePixmap is non-blocking operation. Thus, it is safe to call it
+  // and return the result with the provided callback.
+  std::move(callback).Run(
+      CreateNativePixmap(widget, vk_device, size, format, usage));
 }
 
 scoped_refptr<gfx::NativePixmap>

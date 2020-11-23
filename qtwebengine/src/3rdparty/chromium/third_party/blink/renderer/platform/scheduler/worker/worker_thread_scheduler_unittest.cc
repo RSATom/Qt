@@ -10,7 +10,7 @@
 #include "base/single_thread_task_runner.h"
 #include "base/task/sequence_manager/test/fake_task.h"
 #include "base/task/sequence_manager/test/sequence_manager_for_test.h"
-#include "base/test/scoped_task_environment.h"
+#include "base/test/task_environment.h"
 #include "components/ukm/test_ukm_recorder.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
@@ -78,7 +78,7 @@ class WorkerThreadSchedulerForTest : public WorkerThreadScheduler {
   WorkerThreadSchedulerForTest(base::sequence_manager::SequenceManager* manager,
                                const base::TickClock* clock_,
                                Vector<String>* timeline)
-      : WorkerThreadScheduler(WebThreadType::kTestThread, manager, nullptr),
+      : WorkerThreadScheduler(ThreadType::kTestThread, manager, nullptr),
         clock_(clock_),
         timeline_(timeline) {}
 
@@ -86,7 +86,7 @@ class WorkerThreadSchedulerForTest : public WorkerThreadScheduler {
                                const base::TickClock* clock_,
                                Vector<String>* timeline,
                                WorkerSchedulerProxy* proxy)
-      : WorkerThreadScheduler(WebThreadType::kTestThread, manager, proxy),
+      : WorkerThreadScheduler(ThreadType::kTestThread, manager, proxy),
         clock_(clock_),
         timeline_(timeline) {}
 
@@ -140,8 +140,8 @@ class WorkerThreadSchedulerTest : public testing::Test {
  public:
   WorkerThreadSchedulerTest()
       : task_environment_(
-            base::test::ScopedTaskEnvironment::TimeSource::MOCK_TIME,
-            base::test::ScopedTaskEnvironment::ThreadPoolExecutionMode::QUEUED),
+            base::test::TaskEnvironment::TimeSource::MOCK_TIME,
+            base::test::TaskEnvironment::ThreadPoolExecutionMode::QUEUED),
         sequence_manager_(
             base::sequence_manager::SequenceManagerForTest::Create(
                 nullptr,
@@ -207,7 +207,7 @@ class WorkerThreadSchedulerTest : public testing::Test {
   }
 
  protected:
-  base::test::ScopedTaskEnvironment task_environment_;
+  base::test::TaskEnvironment task_environment_;
   // Needs to be initialized immediately after |task_environment_|, specifically
   // before |scheduler_|.
   ScopedSaveStartTicks save_start_ticks_{task_environment_.NowTicks()};
@@ -427,10 +427,10 @@ TEST_F(WorkerThreadSchedulerTest, TestMicrotaskCheckpointTiming) {
 
   base::TimeTicks start_time = task_environment_.NowTicks();
   default_task_runner_->PostTask(
-      FROM_HERE, WTF::Bind(&base::test::ScopedTaskEnvironment::FastForwardBy,
+      FROM_HERE, WTF::Bind(&base::test::TaskEnvironment::FastForwardBy,
                            base::Unretained(&task_environment_), kTaskTime));
   scheduler_->set_on_microtask_checkpoint(
-      WTF::Bind(&base::test::ScopedTaskEnvironment::FastForwardBy,
+      WTF::Bind(&base::test::TaskEnvironment::FastForwardBy,
                 base::Unretained(&task_environment_), kMicrotaskTime));
 
   RecordingTaskTimeObserver observer;
@@ -464,6 +464,10 @@ class FrameSchedulerDelegateWithUkmSourceId : public FrameScheduler::Delegate {
 
   void UpdateActiveSchedulerTrackedFeatures(uint64_t features_mask) override {}
 
+  const base::UnguessableToken& GetAgentClusterId() const override {
+    return base::UnguessableToken::Null();
+  }
+
  private:
   ukm::SourceId source_id_;
 };
@@ -474,8 +478,8 @@ class WorkerThreadSchedulerWithProxyTest : public testing::Test {
  public:
   WorkerThreadSchedulerWithProxyTest()
       : task_environment_(
-            base::test::ScopedTaskEnvironment::TimeSource::MOCK_TIME,
-            base::test::ScopedTaskEnvironment::ThreadPoolExecutionMode::QUEUED),
+            base::test::TaskEnvironment::TimeSource::MOCK_TIME,
+            base::test::TaskEnvironment::ThreadPoolExecutionMode::QUEUED),
         sequence_manager_(
             base::sequence_manager::SequenceManagerForTest::Create(
                 nullptr,
@@ -510,7 +514,7 @@ class WorkerThreadSchedulerWithProxyTest : public testing::Test {
   }
 
  protected:
-  base::test::ScopedTaskEnvironment task_environment_;
+  base::test::TaskEnvironment task_environment_;
   std::unique_ptr<base::sequence_manager::SequenceManagerForTest>
       sequence_manager_;
   Vector<String> timeline_;
@@ -549,7 +553,7 @@ TEST_F(WorkerThreadSchedulerWithProxyTest, UkmTaskRecording) {
   EXPECT_EQ(entries.size(), static_cast<size_t>(1));
 
   ukm::TestUkmRecorder::ExpectEntryMetric(
-      entries[0], "ThreadType", static_cast<int>(WebThreadType::kTestThread));
+      entries[0], "ThreadType", static_cast<int>(ThreadType::kTestThread));
   ukm::TestUkmRecorder::ExpectEntryMetric(entries[0], "RendererBackgrounded",
                                           true);
   ukm::TestUkmRecorder::ExpectEntryMetric(

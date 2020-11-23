@@ -190,8 +190,9 @@
     \snippet snippets/code/doc_src_i18n.cpp 8
 
     For a translation-aware application, a QTranslator object is created, then a
-    translation is loaded according to the current locale at runtime, and
-    finally, the translator object is installed into the application.
+    translation is loaded according to the user's preferred UI display locale at
+    runtime, and finally, the translator object is installed into the
+    application.
 
     \section1 Locating Qt Translations
 
@@ -496,7 +497,6 @@
     \title Writing Source Code for Translation
     \ingroup internationalization
     \previouspage Internationalization with Qt
-    \contentspage Internationalization with Qt
     \nextpage Translation Rules for Plurals
     \brief How to write source code in a way that makes it possible for user-visible text to be translated.
 
@@ -856,7 +856,6 @@
     \title Translation Rules for Plurals
     \ingroup internationalization
     \previouspage Writing Source Code for Translation
-    \contentspage Internationalization with Qt
     \brief A summary of the translation rules for plurals produced by Qt's i18n tools.
 
     The table below shows the specific rules that are produced by Qt Linguist

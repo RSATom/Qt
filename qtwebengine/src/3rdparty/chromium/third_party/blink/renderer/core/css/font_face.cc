@@ -66,7 +66,7 @@
 #include "third_party/blink/renderer/platform/instrumentation/histogram.h"
 #include "third_party/blink/renderer/platform/instrumentation/use_counter.h"
 #include "third_party/blink/renderer/platform/runtime_enabled_features.h"
-#include "third_party/blink/renderer/platform/shared_buffer.h"
+#include "third_party/blink/renderer/platform/wtf/shared_buffer.h"
 
 namespace blink {
 
@@ -142,7 +142,7 @@ FontFace* FontFace::Create(ExecutionContext* context,
   FontFace* font_face =
       MakeGarbageCollected<FontFace>(context, family, descriptors);
   font_face->InitCSSFontFace(static_cast<const unsigned char*>(source->Data()),
-                             source->ByteLength());
+                             source->ByteLengthAsSizeT());
   return font_face;
 }
 
@@ -154,7 +154,7 @@ FontFace* FontFace::Create(ExecutionContext* context,
       MakeGarbageCollected<FontFace>(context, family, descriptors);
   font_face->InitCSSFontFace(
       static_cast<const unsigned char*>(source->BaseAddress()),
-      source->byteLength());
+      source->byteLengthAsSizeT());
   return font_face;
 }
 
@@ -414,11 +414,6 @@ void FontFace::SetLoadStatus(LoadStatusType status) {
   if (!GetExecutionContext())
     return;
 
-  // When promises are resolved with 'thenables', instead of the object being
-  // returned directly, the 'then' method is executed (the resolver tries to
-  // resolve the thenable). This can lead to synchronous script execution, so we
-  // post a task. This does not apply to promise rejection (i.e. a thenable
-  // would be returned as is).
   if (status_ == kLoaded || status_ == kError) {
     if (loaded_property_) {
       if (status_ == kLoaded) {
@@ -428,8 +423,14 @@ void FontFace::SetLoadStatus(LoadStatusType status) {
                        WTF::Bind(&LoadedProperty::Resolve<FontFace*>,
                                  WrapPersistent(loaded_property_.Get()),
                                  WrapPersistent(this)));
-      } else
-        loaded_property_->Reject(error_.Get());
+      } else {
+        GetExecutionContext()
+            ->GetTaskRunner(TaskType::kDOMManipulation)
+            ->PostTask(FROM_HERE,
+                       WTF::Bind(&LoadedProperty::Reject<DOMException*>,
+                                 WrapPersistent(loaded_property_.Get()),
+                                 WrapPersistent(error_.Get())));
+      }
     }
 
     GetExecutionContext()
@@ -779,13 +780,8 @@ bool FontFace::HasPendingActivity() const {
   return status_ == kLoading && GetExecutionContext();
 }
 
-FontDisplay FontFace::GetFontDisplayWithFallback() const {
-  if (display_)
-    return CSSValueToFontDisplay(display_.Get());
-  ExecutionContext* context = GetExecutionContext();
-  if (!context || !context->IsDocument())
-    return kFontDisplayAuto;
-  return To<Document>(context)->GetStyleEngine().GetDefaultFontDisplay(family_);
+FontDisplay FontFace::GetFontDisplay() const {
+  return CSSValueToFontDisplay(display_.Get());
 }
 
 }  // namespace blink

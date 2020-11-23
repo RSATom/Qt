@@ -53,6 +53,7 @@
 
 #include <qqml.h>
 
+#include <QtQmlWorkerScript/private/qtqmlworkerscriptglobal_p.h>
 #include <QtQml/qqmlparserstatus.h>
 #include <QtCore/qthread.h>
 #include <QtQml/qjsvalue.h>
@@ -87,6 +88,9 @@ class Q_AUTOTEST_EXPORT QQuickWorkerScript : public QObject, public QQmlParserSt
 {
     Q_OBJECT
     Q_PROPERTY(QUrl source READ source WRITE setSource NOTIFY sourceChanged)
+    Q_PROPERTY(bool ready READ ready NOTIFY readyChanged REVISION 15)
+
+    QML_NAMED_ELEMENT(WorkerScript);
 
     Q_INTERFACES(QQmlParserStatus)
 public:
@@ -96,11 +100,14 @@ public:
     QUrl source() const;
     void setSource(const QUrl &);
 
+    bool ready() const;
+
 public Q_SLOTS:
     void sendMessage(QQmlV4Function*);
 
 Q_SIGNALS:
     void sourceChanged();
+    Q_REVISION(15) void readyChanged();
     void message(const QJSValue &messageObject);
 
 protected:

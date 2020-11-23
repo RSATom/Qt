@@ -5,6 +5,7 @@
 #ifndef OSP_PUBLIC_SERVICE_LISTENER_H_
 #define OSP_PUBLIC_SERVICE_LISTENER_H_
 
+#include <atomic>
 #include <cstdint>
 #include <string>
 #include <vector>
@@ -14,6 +15,7 @@
 #include "platform/base/macros.h"
 
 namespace openscreen {
+namespace osp {
 
 // Used to report an error from a ServiceListener implementation.
 struct ServiceListenerError {
@@ -133,8 +135,6 @@ class ServiceListener {
   // (kRunning|kSuspended).
   virtual bool SearchNow() = 0;
 
-  virtual void RunTasks() = 0;
-
   virtual void AddObserver(Observer* observer) = 0;
   virtual void RemoveObserver(Observer* observer) = 0;
 
@@ -150,13 +150,14 @@ class ServiceListener {
  protected:
   ServiceListener();
 
-  State state_ = State::kStopped;
+  std::atomic<State> state_;
   ServiceListenerError last_error_;
   std::vector<Observer*> observers_;
 
   OSP_DISALLOW_COPY_AND_ASSIGN(ServiceListener);
 };
 
+}  // namespace osp
 }  // namespace openscreen
 
 #endif  // OSP_PUBLIC_SERVICE_LISTENER_H_

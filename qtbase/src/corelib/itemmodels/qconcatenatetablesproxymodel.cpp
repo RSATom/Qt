@@ -448,6 +448,17 @@ QSize QConcatenateTablesProxyModel::span(const QModelIndex &index) const
 }
 
 /*!
+    Returns a list of models that were added as source models for this proxy model.
+
+    \since 5.15
+*/
+QList<QAbstractItemModel *> QConcatenateTablesProxyModel::sourceModels() const
+{
+    Q_D(const QConcatenateTablesProxyModel);
+    return d->m_models.toList();
+}
+
+/*!
     Adds a source model \a sourceModel, below all previously added source models.
 
     The ownership of \a sourceModel is not affected by this.
@@ -497,7 +508,7 @@ void QConcatenateTablesProxyModel::removeSourceModel(QAbstractItemModel *sourceM
 {
     Q_D(QConcatenateTablesProxyModel);
     Q_ASSERT(d->m_models.contains(sourceModel));
-    disconnect(sourceModel, 0, this, 0);
+    disconnect(sourceModel, nullptr, this, nullptr);
 
     const int rowsRemoved = sourceModel->rowCount();
     const int rowsPrior = d->computeRowsPrior(sourceModel);   // location of removed section
@@ -631,7 +642,7 @@ void QConcatenateTablesProxyModelPrivate::_q_slotSourceLayoutAboutToBeChanged(co
     layoutChangePersistentIndexes.reserve(persistentIndexList.size());
     layoutChangeProxyIndexes.reserve(persistentIndexList.size());
 
-    for (const QPersistentModelIndex &proxyPersistentIndex : persistentIndexList) {
+    for (const QModelIndex &proxyPersistentIndex : persistentIndexList) {
         layoutChangeProxyIndexes.append(proxyPersistentIndex);
         Q_ASSERT(proxyPersistentIndex.isValid());
         const QPersistentModelIndex srcPersistentIndex = q->mapToSource(proxyPersistentIndex);

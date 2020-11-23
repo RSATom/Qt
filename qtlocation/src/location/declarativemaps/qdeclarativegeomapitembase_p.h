@@ -85,6 +85,8 @@ class Q_LOCATION_PRIVATE_EXPORT QDeclarativeGeoMapItemBase : public QQuickItem
 
     Q_PROPERTY(QGeoShape geoShape READ geoShape WRITE setGeoShape STORED false )
     Q_PROPERTY(bool autoFadeIn READ autoFadeIn WRITE setAutoFadeIn REVISION 14)
+    Q_PROPERTY(int lodThreshold READ lodThreshold WRITE setLodThreshold NOTIFY lodThresholdChanged REVISION 15)
+
 public:
     explicit QDeclarativeGeoMapItemBase(QQuickItem *parent = 0);
     virtual ~QDeclarativeGeoMapItemBase();
@@ -92,13 +94,17 @@ public:
     virtual void setMap(QDeclarativeGeoMap *quickMap, QGeoMap *map);
     virtual void setPositionOnMap(const QGeoCoordinate &coordinate, const QPointF &offset);
 
-    QDeclarativeGeoMap *quickMap() { return quickMap_; }
-    QGeoMap *map() { return map_; }
+    QDeclarativeGeoMap *quickMap() const { return quickMap_; }
+    QGeoMap *map() const { return map_; }
     virtual const QGeoShape &geoShape() const = 0;
     virtual void setGeoShape(const QGeoShape &shape) = 0;
 
     bool autoFadeIn() const;
     void setAutoFadeIn(bool fadeIn);
+
+    int lodThreshold() const;
+    void setLodThreshold(int lt);
+    unsigned int zoomForLOD(int zoom) const;
 
     QSGNode *updatePaintNode(QSGNode *, UpdatePaintNodeData *);
     virtual QSGNode *updateMapItemPaintNode(QSGNode *, UpdatePaintNodeData *);
@@ -108,10 +114,28 @@ public:
 
     void setParentGroup(QDeclarativeGeoMapItemGroup &parentGroup);
 
+    template <typename T = QObject>
+
+    QList<T*> quickChildren() const
+    {
+        QList<T*> res;
+        QObjectList kids = children();
+        QList<QQuickItem *> quickKids = childItems();
+        for (int i = 0; i < quickKids.count(); ++i)
+            kids.append(quickKids.at(i));
+        for (auto kid : qAsConst(kids)) {
+            auto val = qobject_cast<T*>(kid);
+            if (val)
+                res.push_back(val);
+        }
+        return res;
+    }
+
 Q_SIGNALS:
     void mapItemOpacityChanged();
     Q_REVISION(12) void addTransitionFinished();
     Q_REVISION(12) void removeTransitionFinished();
+    void lodThresholdChanged();
 
 protected Q_SLOTS:
     virtual void afterChildrenChanged();
@@ -122,6 +146,7 @@ protected:
     float zoomLevelOpacity() const;
     bool childMouseEventFilter(QQuickItem *item, QEvent *event);
     bool isPolishScheduled() const;
+    virtual void setMaterialDirty();
 
     QGeoMap::ItemType m_itemType = QGeoMap::NoItem;
 
@@ -140,6 +165,7 @@ private:
 
     QScopedPointer<QDeclarativeGeoMapItemTransitionManager> m_transitionManager;
     bool m_autoFadeIn = true;
+    int m_lodThreshold = 0;
 
     friend class QDeclarativeGeoMap;
     friend class QDeclarativeGeoMapItemView;

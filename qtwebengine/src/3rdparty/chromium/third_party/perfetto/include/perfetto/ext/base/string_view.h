@@ -22,6 +22,7 @@
 #include <algorithm>
 #include <string>
 
+#include "perfetto/base/build_config.h"
 #include "perfetto/base/logging.h"
 #include "perfetto/ext/base/hash.h"
 
@@ -38,14 +39,14 @@ class StringView {
   StringView(const StringView&) = default;
   StringView& operator=(const StringView&) = default;
   StringView(const char* data, size_t size) : data_(data), size_(size) {
-    PERFETTO_DCHECK(data != nullptr);
+    PERFETTO_DCHECK(size == 0 || data != nullptr);
   }
 
   // Allow implicit conversion from any class that has a |data| and |size| field
   // and has the kConvertibleToStringView trait (e.g., protozero::ConstChars).
   template <typename T, typename = std::enable_if<T::kConvertibleToStringView>>
   StringView(const T& x) : StringView(x.data, x.size) {
-    PERFETTO_DCHECK(x.data != nullptr);
+    PERFETTO_DCHECK(x.size == 0 || x.data != nullptr);
   }
 
   // Creates a StringView from a null-terminated C string.
@@ -70,12 +71,24 @@ class StringView {
     return data_[pos];
   }
 
-  size_t find(char c) const {
-    for (size_t i = 0; i < size_; ++i) {
+  size_t find(char c, size_t start_pos = 0) const {
+    for (size_t i = start_pos; i < size_; ++i) {
       if (data_[i] == c)
         return i;
     }
     return npos;
+  }
+
+  size_t find(const StringView& str, size_t start_pos = 0) const {
+    if (start_pos > size())
+      return npos;
+    auto it = std::search(begin() + start_pos, end(), str.begin(), str.end());
+    size_t pos = static_cast<size_t>(it - begin());
+    return pos + str.size() <= size() ? pos : npos;
+  }
+
+  size_t find(const char* str, size_t start_pos = 0) const {
+    return find(StringView(str), start_pos);
   }
 
   size_t rfind(char c) const {
@@ -91,6 +104,18 @@ class StringView {
       return StringView("", 0);
     size_t rcount = std::min(count, size_ - pos);
     return StringView(data_ + pos, rcount);
+  }
+
+  bool CaseInsensitiveEq(const StringView& other) {
+    if (size() != other.size())
+      return false;
+    if (size() == 0)
+      return true;
+#if PERFETTO_BUILDFLAG(PERFETTO_OS_WIN)
+    return _strnicmp(data(), other.data(), size()) == 0;
+#else
+    return strncasecmp(data(), other.data(), size()) == 0;
+#endif
   }
 
   std::string ToStdString() const {

@@ -11,13 +11,21 @@
 
 namespace openscreen {
 
+namespace platform {
+class TaskRunner;
+}  // namespace platform
+
+namespace osp {
+
 class ProtocolConnectionClientFactory {
  public:
   static std::unique_ptr<ProtocolConnectionClient> Create(
       MessageDemuxer* demuxer,
-      ProtocolConnectionServiceObserver* observer);
+      ProtocolConnectionServiceObserver* observer,
+      platform::TaskRunner* task_runner);
 };
 
+}  // namespace osp
 }  // namespace openscreen
 
 #endif  // OSP_PUBLIC_PROTOCOL_CONNECTION_CLIENT_FACTORY_H_

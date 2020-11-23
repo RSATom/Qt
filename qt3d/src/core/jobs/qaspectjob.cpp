@@ -56,6 +56,7 @@ bool isDependencyNull(const QWeakPointer<QAspectJob> &dep)
 } // anonymous
 
 QAspectJobPrivate::QAspectJobPrivate()
+    : m_jobName(QLatin1String("UnknowJob"))
 {
 }
 
@@ -66,9 +67,9 @@ QAspectJobPrivate *QAspectJobPrivate::get(QAspectJob *job)
     return job->d_func();
 }
 
-const QAspectJobPrivate *QAspectJobPrivate::get(const QAspectJob *job)
+bool QAspectJobPrivate::isRequired() const
 {
-    return job->d_func();
+    return true;
 }
 
 void QAspectJobPrivate::postFrame(QAspectManager *aspectManager)
@@ -143,6 +144,13 @@ QVector<QWeakPointer<QAspectJob> > QAspectJob::dependencies() const
 {
     Q_D(const QAspectJob);
     return d->m_dependencies;
+}
+
+void QAspectJob::postFrame(QAspectManager *aspectManager)
+{
+    Q_D(QAspectJob);
+    if (aspectManager)
+        d->postFrame(aspectManager);
 }
 
 } // namespace Qt3DCore

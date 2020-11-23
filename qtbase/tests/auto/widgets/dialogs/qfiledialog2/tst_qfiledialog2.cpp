@@ -53,7 +53,10 @@
 #include "../../../../../src/widgets/dialogs/qfilesystemmodel_p.h"
 #include "../../../../../src/widgets/dialogs/qfiledialog_p.h"
 
+#include <private/qguiapplication_p.h>
+
 #include <qpa/qplatformdialoghelper.h>
+#include <qpa/qplatformintegration.h>
 
 #if defined(Q_OS_WIN)
 #include "../../../network-settings.h"
@@ -365,7 +368,7 @@ void tst_QFileDialog2::task143519_deleteAndRenameActionBehavior()
     fd.selectFile(ctx.file.fileName());
     fd.show();
 
-    QVERIFY(QTest::qWaitForWindowActive(&fd));
+    QVERIFY(QTest::qWaitForWindowExposed(&fd));
 
     // grab some internals:
     QAction *rm = fd.findChild<QAction*>("qt_delete_action");
@@ -548,7 +551,7 @@ void tst_QFileDialog2::task227304_proxyOnFileDialog()
     QFileDialog fd(0, "", QDir::currentPath(), 0);
     fd.setProxyModel(new FilterDirModel(QDir::currentPath()));
     fd.show();
-    QVERIFY(QTest::qWaitForWindowActive(&fd));
+    QVERIFY(QTest::qWaitForWindowExposed(&fd));
     QLineEdit *edit = fd.findChild<QLineEdit*>("fileNameEdit");
     QVERIFY(edit);
     QTest::keyClick(edit, Qt::Key_T);
@@ -558,7 +561,7 @@ void tst_QFileDialog2::task227304_proxyOnFileDialog()
     CrashDialog *dialog = new CrashDialog(0, QString("crash dialog test"), QDir::homePath(), QString("*") );
     dialog->setFileMode(QFileDialog::ExistingFile);
     dialog->show();
-    QVERIFY(QTest::qWaitForWindowActive(dialog));
+    QVERIFY(QTest::qWaitForWindowExposed(dialog));
 
     QListView *list = dialog->findChild<QListView*>("listView");
     QVERIFY(list);
@@ -568,14 +571,15 @@ void tst_QFileDialog2::task227304_proxyOnFileDialog()
     dialog->close();
     fd.close();
 
-    QFileDialog fd2(0, "I should not crash with a proxy", tempDir.path(), 0);
+    QFileDialog fd2(0, "I should not crash with a proxy", tempDir.path(), {});
     QSortFilterProxyModel *pm = new QSortFilterProxyModel;
     fd2.setProxyModel(pm);
     fd2.show();
     QSidebar *sidebar = fd2.findChild<QSidebar*>("sidebar");
     sidebar->setFocus();
     sidebar->selectUrl(QUrl::fromLocalFile(QDir::homePath()));
-    QTest::mouseClick(sidebar->viewport(), Qt::LeftButton, 0, sidebar->visualRect(sidebar->model()->index(1, 0)).center());
+    QTest::mouseClick(sidebar->viewport(), Qt::LeftButton, {},
+                      sidebar->visualRect(sidebar->model()->index(1, 0)).center());
     QTest::qWait(250);
     //We shouldn't crash
 }
@@ -600,7 +604,7 @@ void tst_QFileDialog2::task227930_correctNavigationKeyboardBehavior()
     fd.setViewMode(QFileDialog::List);
     fd.setDirectory(current.absolutePath());
     fd.show();
-    QVERIFY(QTest::qWaitForWindowActive(&fd));
+    QVERIFY(QTest::qWaitForWindowExposed(&fd));
 
     // Ensure LayoutRequest event is processed so that the list view
     // is sorted correctly to have the directory entires at the top.
@@ -610,7 +614,7 @@ void tst_QFileDialog2::task227930_correctNavigationKeyboardBehavior()
     QVERIFY(list);
     QTest::keyClick(list, Qt::Key_Down);
     QTest::keyClick(list, Qt::Key_Return);
-    QTest::mouseClick(list->viewport(), Qt::LeftButton,0);
+    QTest::mouseClick(list->viewport(), Qt::LeftButton, {});
     QTest::keyClick(list, Qt::Key_Down);
     QTest::keyClick(list, Qt::Key_Backspace);
     QTest::keyClick(list, Qt::Key_Down);
@@ -765,7 +769,7 @@ void tst_QFileDialog2::task235069_hideOnEscape()
     fd.setDirectory(current.absolutePath());
     fd.setAcceptMode(QFileDialog::AcceptSave);
     fd.show();
-    QVERIFY(QTest::qWaitForWindowActive(&fd));
+    QVERIFY(QTest::qWaitForWindowExposed(&fd));
     QWidget *child = fd.findChild<QWidget *>(childName);
     QVERIFY(child);
     child->setFocus();
@@ -787,7 +791,7 @@ void tst_QFileDialog2::task236402_dontWatchDeletedDir()
     fd.setDirectory(current.absolutePath());
     fd.setAcceptMode( QFileDialog::AcceptSave);
     fd.show();
-    QVERIFY(QTest::qWaitForWindowActive(&fd));
+    QVERIFY(QTest::qWaitForWindowExposed(&fd));
     QListView *list = fd.findChild<QListView*>("listView");
     QVERIFY(list);
     list->setFocus();
@@ -808,7 +812,7 @@ void tst_QFileDialog2::task203703_returnProperSeparator()
     fd.setViewMode(QFileDialog::List);
     fd.setFileMode(QFileDialog::Directory);
     fd.show();
-    QVERIFY(QTest::qWaitForWindowActive(&fd));
+    QVERIFY(QTest::qWaitForWindowExposed(&fd));
     QListView *list = fd.findChild<QListView*>("listView");
     QVERIFY(list);
     list->setFocus();
@@ -844,7 +848,7 @@ void tst_QFileDialog2::task228844_ensurePreviousSorting()
     fd.setDirectory(current.absolutePath());
     fd.setViewMode(QFileDialog::Detail);
     fd.show();
-    QVERIFY(QTest::qWaitForWindowActive(&fd));
+    QVERIFY(QTest::qWaitForWindowExposed(&fd));
     QTreeView *tree = fd.findChild<QTreeView*>("treeView");
     QVERIFY(tree);
     tree->header()->setSortIndicator(3,Qt::DescendingOrder);
@@ -859,7 +863,7 @@ void tst_QFileDialog2::task228844_ensurePreviousSorting()
     current.cd("aaaaaaaaaaaaaaaaaa");
     fd2.setDirectory(current.absolutePath());
     fd2.show();
-    QVERIFY(QTest::qWaitForWindowActive(&fd2));
+    QVERIFY(QTest::qWaitForWindowExposed(&fd2));
     QTreeView *tree2 = fd2.findChild<QTreeView*>("treeView");
     QVERIFY(tree2);
     tree2->setFocus();
@@ -878,7 +882,7 @@ void tst_QFileDialog2::task228844_ensurePreviousSorting()
     fd3.restoreState(fd.saveState());
     fd3.setFileMode(QFileDialog::Directory);
     fd3.show();
-    QVERIFY(QTest::qWaitForWindowActive(&fd3));
+    QVERIFY(QTest::qWaitForWindowExposed(&fd3));
     QTreeView *tree3 = fd3.findChild<QTreeView*>("treeView");
     QVERIFY(tree3);
     tree3->setFocus();
@@ -912,7 +916,7 @@ void tst_QFileDialog2::task239706_editableFilterCombo()
     QFileDialog d;
     d.setNameFilter("*.cpp *.h");
     d.show();
-    QVERIFY(QTest::qWaitForWindowActive(&d));
+    QVERIFY(QTest::qWaitForWindowExposed(&d));
 
     QList<QComboBox *> comboList = d.findChildren<QComboBox *>();
     QComboBox *filterCombo = 0;
@@ -963,13 +967,14 @@ void tst_QFileDialog2::task251321_sideBarHiddenEntries()
     urls << QUrl::fromLocalFile(hiddenSubDir.absolutePath());
     fd.setSidebarUrls(urls);
     fd.show();
-    QVERIFY(QTest::qWaitForWindowActive(&fd));
+    QVERIFY(QTest::qWaitForWindowExposed(&fd));
 
     QSidebar *sidebar = fd.findChild<QSidebar*>("sidebar");
     QVERIFY(sidebar);
     sidebar->setFocus();
     sidebar->selectUrl(QUrl::fromLocalFile(hiddenSubDir.absolutePath()));
-    QTest::mouseClick(sidebar->viewport(), Qt::LeftButton, 0, sidebar->visualRect(sidebar->model()->index(0, 0)).center());
+    QTest::mouseClick(sidebar->viewport(), Qt::LeftButton, {},
+                      sidebar->visualRect(sidebar->model()->index(0, 0)).center());
     // give the background processes more time on windows mobile
     QTest::qWait(250);
 
@@ -1017,14 +1022,15 @@ void tst_QFileDialog2::task251341_sideBarRemoveEntries()
     urls << QUrl::fromLocalFile("NotFound");
     fd.setSidebarUrls(urls);
     fd.show();
-    QVERIFY(QTest::qWaitForWindowActive(&fd));
+    QVERIFY(QTest::qWaitForWindowExposed(&fd));
 
     QSidebar *sidebar = fd.findChild<QSidebar*>("sidebar");
     QVERIFY(sidebar);
     sidebar->setFocus();
     //We enter in the first bookmark
     sidebar->selectUrl(QUrl::fromLocalFile(testSubDir.absolutePath()));
-    QTest::mouseClick(sidebar->viewport(), Qt::LeftButton, 0, sidebar->visualRect(sidebar->model()->index(0, 0)).center());
+    QTest::mouseClick(sidebar->viewport(), Qt::LeftButton, {},
+                      sidebar->visualRect(sidebar->model()->index(0, 0)).center());
 
     QFileSystemModel *model = fd.findChild<QFileSystemModel*>("qt_filesystem_model");
     QVERIFY(model);
@@ -1037,7 +1043,8 @@ void tst_QFileDialog2::task251341_sideBarRemoveEntries()
     sidebar->setFocus();
     //We enter in the second bookmark which is invalid
     sidebar->selectUrl(QUrl::fromLocalFile("NotFound"));
-    QTest::mouseClick(sidebar->viewport(), Qt::LeftButton, 0, sidebar->visualRect(sidebar->model()->index(1, 0)).center());
+    QTest::mouseClick(sidebar->viewport(), Qt::LeftButton, {},
+                      sidebar->visualRect(sidebar->model()->index(1, 0)).center());
 
     //We fallback to root because the entry in the bookmark is invalid
     QCOMPARE(model->rowCount(model->index("NotFound")), model->rowCount(model->index(model->rootPath())));
@@ -1089,7 +1096,7 @@ void tst_QFileDialog2::task254490_selectFileMultipleTimes()
     fd.selectFile("new_file.txt");
 
     fd.show();
-    QVERIFY(QTest::qWaitForWindowActive(&fd));
+    QVERIFY(QTest::qWaitForWindowExposed(&fd));
 
     QLineEdit *lineEdit = fd.findChild<QLineEdit*>("fileNameEdit");
     QVERIFY(lineEdit);
@@ -1133,7 +1140,7 @@ void tst_QFileDialog2::task259105_filtersCornerCases()
     fd.setNameFilter(QLatin1String("All Files! (*);;Text Files (*.txt)"));
     fd.setOption(QFileDialog::HideNameFilterDetails, true);
     fd.show();
-    QVERIFY(QTest::qWaitForWindowActive(&fd));
+    QVERIFY(QTest::qWaitForWindowExposed(&fd));
 
     //Extensions are hidden
     QComboBox *filters = fd.findChild<QComboBox*>("fileTypeCombo");
@@ -1170,6 +1177,9 @@ void tst_QFileDialog2::task259105_filtersCornerCases()
 
 void tst_QFileDialog2::QTBUG4419_lineEditSelectAll()
 {
+    if (!QGuiApplicationPrivate::platformIntegration()->hasCapability(QPlatformIntegration::WindowActivation))
+        QSKIP("Window activation is not supported");
+
     QString tempPath = tempDir.path();
     QTemporaryFile temporaryFile(tempPath + "/tst_qfiledialog2_lineEditSelectAll.XXXXXX");
     QVERIFY2(temporaryFile.open(), qPrintable(temporaryFile.errorString()));
@@ -1195,6 +1205,9 @@ void tst_QFileDialog2::QTBUG4419_lineEditSelectAll()
 
 void tst_QFileDialog2::QTBUG6558_showDirsOnly()
 {
+    if (!QGuiApplicationPrivate::platformIntegration()->hasCapability(QPlatformIntegration::WindowActivation))
+        QSKIP("Window activation is not supported");
+
     const QString tempPath = tempDir.path();
     QDir dirTemp(tempPath);
     const QString tempName = QLatin1String("showDirsOnly.") + QString::number(QRandomGenerator::global()->generate());
@@ -1261,6 +1274,9 @@ void tst_QFileDialog2::QTBUG6558_showDirsOnly()
 
 void tst_QFileDialog2::QTBUG4842_selectFilterWithHideNameFilterDetails()
 {
+    if (!QGuiApplicationPrivate::platformIntegration()->hasCapability(QPlatformIntegration::WindowActivation))
+        QSKIP("Window activation is not supported");
+
     QStringList filtersStr;
     filtersStr << "Images (*.png *.xpm *.jpg)" << "Text files (*.txt)" << "XML files (*.xml)";
     QString chosenFilterString("Text files (*.txt)");
@@ -1301,6 +1317,9 @@ void tst_QFileDialog2::QTBUG4842_selectFilterWithHideNameFilterDetails()
 
 void tst_QFileDialog2::dontShowCompleterOnRoot()
 {
+    if (!QGuiApplicationPrivate::platformIntegration()->hasCapability(QPlatformIntegration::WindowActivation))
+        QSKIP("Window activation is not supported");
+
     QFileDialog fd(0, "TestFileDialog");
     fd.setAcceptMode(QFileDialog::AcceptSave);
     fd.show();

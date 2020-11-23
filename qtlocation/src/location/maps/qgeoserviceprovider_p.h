@@ -121,8 +121,8 @@ public:
     QLocale locale;
     bool localeSet;
 
-    static QHash<QString, QJsonObject> plugins(bool reload = false);
-    static void loadPluginMetadata(QHash<QString, QJsonObject> &list);
+    static QMultiHash<QString, QJsonObject> plugins(bool reload = false);
+    static void loadPluginMetadata(QMultiHash<QString, QJsonObject> &list);
 };
 
 QT_END_NAMESPACE

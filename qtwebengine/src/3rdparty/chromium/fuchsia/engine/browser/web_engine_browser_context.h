@@ -12,9 +12,8 @@
 #include "components/keyed_service/core/simple_factory_key.h"
 #include "content/public/browser/browser_context.h"
 
-class WebEngineNetLog;
+class WebEngineNetLogObserver;
 class WebEnginePermissionManager;
-class WebEngineURLRequestContextGetter;
 
 class WebEngineBrowserContext : public content::BrowserContext {
  public:
@@ -33,6 +32,7 @@ class WebEngineBrowserContext : public content::BrowserContext {
   content::BrowserPluginGuestManager* GetGuestManager() override;
   storage::SpecialStoragePolicy* GetSpecialStoragePolicy() override;
   content::PushMessagingService* GetPushMessagingService() override;
+  content::StorageNotificationService* GetStorageNotificationService() override;
   content::SSLHostStateDelegate* GetSSLHostStateDelegate() override;
   content::PermissionControllerDelegate* GetPermissionControllerDelegate()
       override;
@@ -42,10 +42,6 @@ class WebEngineBrowserContext : public content::BrowserContext {
   content::BackgroundSyncController* GetBackgroundSyncController() override;
   content::BrowsingDataRemoverDelegate* GetBrowsingDataRemoverDelegate()
       override;
-  net::URLRequestContextGetter* CreateRequestContext(
-      content::ProtocolHandlerMap* protocol_handlers,
-      content::URLRequestInterceptorScopedVector request_interceptors) override;
-  net::URLRequestContextGetter* CreateMediaRequestContext() override;
 
  private:
   // Contains URLRequestContextGetter required for resource loading.
@@ -53,8 +49,7 @@ class WebEngineBrowserContext : public content::BrowserContext {
 
   base::FilePath data_dir_path_;
 
-  std::unique_ptr<WebEngineNetLog> net_log_;
-  scoped_refptr<WebEngineURLRequestContextGetter> url_request_getter_;
+  std::unique_ptr<WebEngineNetLogObserver> net_log_observer_;
   std::unique_ptr<SimpleFactoryKey> simple_factory_key_;
   std::unique_ptr<ResourceContext> resource_context_;
   std::unique_ptr<WebEnginePermissionManager> permission_manager_;

@@ -97,17 +97,17 @@ static QString createArguments(const QStringList &arguments)
         QString tmp = arguments.at(i);
         // Quotes are escaped and their preceding backslashes are doubled.
         tmp.replace(QRegularExpression(QLatin1String("(\\\\*)\"")), QLatin1String("\\1\\1\\\""));
-        if (tmp.isEmpty() || tmp.contains(QLatin1Char(' ')) || tmp.contains(QLatin1Char('\t'))) {
+        if (tmp.isEmpty() || tmp.contains(u' ') || tmp.contains(u'\t')) {
             // The argument must not end with a \ since this would be interpreted
             // as escaping the quote -- rather put the \ behind the quote: e.g.
             // rather use "foo"\ than "foo\"
             int i = tmp.length();
-            while (i > 0 && tmp.at(i - 1) == QLatin1Char('\\'))
+            while (i > 0 && tmp.at(i - 1) == u'\\')
                 --i;
-            tmp.insert(i, QLatin1Char('"'));
-            tmp.prepend(QLatin1Char('"'));
+            tmp.insert(i, u'"');
+            tmp.prepend(u'"');
         }
-        args += QLatin1Char(' ') + tmp;
+        args += u' ' + tmp;
     }
     return args;
 }
@@ -120,7 +120,7 @@ void QWinJumpListPrivate::warning(const char *function, HRESULT hresult)
 
 QString QWinJumpListPrivate::iconsDirPath()
 {
-    QString iconDirPath = QDir::tempPath() + QLatin1Char('/')
+    QString iconDirPath = QDir::tempPath() + u'/'
         + QCoreApplication::applicationName() + QLatin1String("/qt-jl-icons/");
     QDir().mkpath(iconDirPath);
     return iconDirPath;
@@ -480,7 +480,7 @@ void QWinJumpList::setIdentifier(const QString &identifier)
 {
     Q_D(QWinJumpList);
     QString id = identifier;
-    id.replace(QLatin1Char(' '), QLatin1Char('_'));
+    id.replace(u' ', u'_');
     if (id.size() > 128)
         id.truncate(128);
     if (d->identifier != id) {

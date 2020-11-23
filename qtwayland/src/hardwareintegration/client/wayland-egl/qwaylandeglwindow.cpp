@@ -54,8 +54,8 @@ QT_BEGIN_NAMESPACE
 
 namespace QtWaylandClient {
 
-QWaylandEglWindow::QWaylandEglWindow(QWindow *window)
-    : QWaylandWindow(window)
+QWaylandEglWindow::QWaylandEglWindow(QWindow *window, QWaylandDisplay *display)
+    : QWaylandWindow(window, display)
     , m_clientBufferIntegration(static_cast<QWaylandEglClientBufferIntegration *>(mDisplay->clientBufferIntegration()))
 {
     QSurfaceFormat fmt = window->requestedFormat();
@@ -160,13 +160,6 @@ QRect QWaylandEglWindow::contentsRect() const
 QSurfaceFormat QWaylandEglWindow::format() const
 {
     return m_format;
-}
-
-void QWaylandEglWindow::setVisible(bool visible)
-{
-    QWaylandWindow::setVisible(visible);
-    if (!visible)
-        invalidateSurface();
 }
 
 void QWaylandEglWindow::invalidateSurface()

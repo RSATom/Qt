@@ -30,11 +30,7 @@
 
 QT_BEGIN_NAMESPACE
 
-TestRenderer::TestRenderer()
-    : m_changes(0)
-    , m_managers(nullptr)
-{
-}
+TestRenderer::TestRenderer() = default;
 
 TestRenderer::~TestRenderer()
 {
@@ -42,7 +38,7 @@ TestRenderer::~TestRenderer()
 
 void TestRenderer::markDirty(Qt3DRender::Render::AbstractRenderer::BackendNodeDirtySet changes, Qt3DRender::Render::BackendNode *node)
 {
-    Q_UNUSED(node);
+    Q_UNUSED(node)
     m_changes |= changes;
 }
 
@@ -54,13 +50,13 @@ Qt3DRender::Render::AbstractRenderer::BackendNodeDirtySet TestRenderer::dirtyBit
 #if defined(QT_BUILD_INTERNAL)
 void TestRenderer::clearDirtyBits(Qt3DRender::Render::AbstractRenderer::BackendNodeDirtySet changes)
 {
-    m_changes &= changes;
+    m_changes &= ~changes;
 }
 #endif
 
 void TestRenderer::resetDirty()
 {
-    m_changes = 0;
+    m_changes = {};
 }
 
 QVariant TestRenderer::executeCommand(const QStringList &args)

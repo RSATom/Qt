@@ -21,6 +21,10 @@ class BrowserHandler : public DevToolsDomainHandler, public Browser::Backend {
   BrowserHandler();
   ~BrowserHandler() override;
 
+  static Response FindBrowserContext(
+      const Maybe<std::string>& browser_context_id,
+      BrowserContext** browser_context);
+
   void Wire(UberDispatcher* dispatcher) override;
 
   Response Disable() override;
@@ -45,6 +49,12 @@ class BrowserHandler : public DevToolsDomainHandler, public Browser::Backend {
   Response GetBrowserCommandLine(
       std::unique_ptr<protocol::Array<std::string>>* arguments) override;
 
+  Response SetPermission(
+      const std::string& origin,
+      std::unique_ptr<protocol::Browser::PermissionDescriptor> permission,
+      const protocol::Browser::PermissionSetting& setting,
+      Maybe<std::string> browser_context_id) override;
+
   Response GrantPermissions(
       const std::string& origin,
       std::unique_ptr<protocol::Array<protocol::Browser::PermissionType>>
@@ -57,9 +67,6 @@ class BrowserHandler : public DevToolsDomainHandler, public Browser::Backend {
   Response CrashGpuProcess() override;
 
  private:
-  Response FindBrowserContext(const Maybe<std::string>& browser_context_id,
-                              BrowserContext** browser_context);
-
   base::flat_set<std::string> contexts_with_overridden_permissions_;
 
   DISALLOW_COPY_AND_ASSIGN(BrowserHandler);

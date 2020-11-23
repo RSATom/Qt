@@ -257,8 +257,8 @@ class BlockedSchemeNavigationBrowserTest
           base::StringPrintf("data:%s,%s", mimetype.c_str(), content.c_str()));
     }
     // We need an origin to create a filesystem URL on, so navigate to one.
-    NavigateToURL(shell(),
-                  embedded_test_server()->GetURL("a.com", "/simple_page.html"));
+    EXPECT_TRUE(NavigateToURL(
+        shell(), embedded_test_server()->GetURL("a.com", "/simple_page.html")));
     return CreateFileSystemUrl(filename, content, mimetype);
   }
 
@@ -493,7 +493,9 @@ class BlockedSchemeNavigationBrowserTest
         shell()->web_contents()->GetBrowserContext());
     DownloadTestObserverTerminal download_observer(
         download_manager, 1, DownloadTestObserver::ON_DANGEROUS_DOWNLOAD_FAIL);
-    NavigateToURL(shell(), url);
+    // Since this navigation will result in a download, there should be no
+    // commit.
+    EXPECT_TRUE(NavigateToURLAndExpectNoCommit(shell(), url));
 
     // If no download happens, this will timeout.
     download_observer.WaitForFinished();
@@ -579,7 +581,7 @@ class BlockedSchemeNavigationBrowserTest
   DISALLOW_COPY_AND_ASSIGN(BlockedSchemeNavigationBrowserTest);
 };
 
-INSTANTIATE_TEST_SUITE_P(,
+INSTANTIATE_TEST_SUITE_P(All,
                          BlockedSchemeNavigationBrowserTest,
                          ::testing::Values(url::kDataScheme,
                                            url::kFileSystemScheme));

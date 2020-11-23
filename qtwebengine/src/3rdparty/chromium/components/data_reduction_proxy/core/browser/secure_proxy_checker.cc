@@ -11,6 +11,7 @@
 #include "net/traffic_annotation/network_traffic_annotation.h"
 #include "services/network/public/cpp/shared_url_loader_factory.h"
 #include "services/network/public/cpp/simple_url_loader.h"
+#include "services/network/public/mojom/url_response_head.mojom.h"
 
 namespace {
 
@@ -59,7 +60,7 @@ void SecureProxyChecker::OnURLLoadCompleteOrRedirect(
 
 void SecureProxyChecker::OnURLLoaderRedirect(
     const net::RedirectInfo& redirect_info,
-    const network::ResourceResponseHead& response_head,
+    const network::mojom::URLResponseHead& response_head,
     std::vector<std::string>* to_be_removed_headers) {
   OnURLLoadCompleteOrRedirect(std::string(), net::ERR_ABORTED,
                               redirect_info.status_code);
@@ -97,7 +98,7 @@ void SecureProxyChecker::CheckIfSecureProxyIsAllowed(
   resource_request->url = params::GetSecureProxyCheckURL();
   resource_request->load_flags =
       net::LOAD_DISABLE_CACHE | net::LOAD_BYPASS_PROXY;
-  resource_request->allow_credentials = false;
+  resource_request->credentials_mode = network::mojom::CredentialsMode::kOmit;
   url_loader_ = network::SimpleURLLoader::Create(std::move(resource_request),
                                                  traffic_annotation);
 

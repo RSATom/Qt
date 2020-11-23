@@ -32,6 +32,7 @@
 #include <QtQuick3DRender/private/qssgrenderbackendinputassemblergl_p.h>
 #include <QtQuick3DRender/private/qssgrenderbackendrenderstatesgl_p.h>
 #include <QtQuick3DRender/private/qssgrenderbackendshaderprogramgl_p.h>
+#include <QtQuick3DRender/private/qssgopenglextensions_p.h>
 
 QT_BEGIN_NAMESPACE
 
@@ -218,7 +219,7 @@ void QSSGRenderBackendGLES2Impl::setTextureData3D(QSSGRenderBackendTextureObject
 {
     GLuint texID = HandleToID_cast(GLuint, quintptr, to);
     GLenum glTarget = GLConversion::fromTextureTargetToGL(target);
-    GL_CALL_EXTRA_FUNCTION(glActiveTexture(GL_TEXTURE0));
+    setActiveTexture(GL_TEXTURE0);
     GL_CALL_EXTRA_FUNCTION(glBindTexture(glTarget, texID));
     bool conversionRequired = format != internalFormat;
 
@@ -259,7 +260,7 @@ void QSSGRenderBackendGLES2Impl::setTextureData2D(QSSGRenderBackendTextureObject
 {
     GLuint texID = HandleToID_cast(GLuint, quintptr, to);
     GLenum glTarget = GLConversion::fromTextureTargetToGL(target);
-    GL_CALL_EXTRA_FUNCTION(glActiveTexture(GL_TEXTURE0));
+    setActiveTexture(GL_TEXTURE0);
     GL_CALL_EXTRA_FUNCTION(glBindTexture(glTarget, texID));
     bool conversionRequired = format != internalFormat;
 
@@ -393,7 +394,7 @@ void QSSGRenderBackendGLES2Impl::generateMipMaps(QSSGRenderBackendTextureObject 
 {
     GLuint texID = HandleToID_cast(GLuint, quintptr, to);
     GLenum glTarget = GLConversion::fromTextureTargetToGL(target);
-    GL_CALL_EXTRA_FUNCTION(glActiveTexture(GL_TEXTURE0));
+    setActiveTexture(GL_TEXTURE0);
     GL_CALL_EXTRA_FUNCTION(glBindTexture(glTarget, texID));
     GL_CALL_EXTRA_FUNCTION(glGenerateMipmap(glTarget));
     GL_CALL_EXTRA_FUNCTION(glBindTexture(glTarget, 0));
@@ -420,10 +421,8 @@ bool QSSGRenderBackendGLES2Impl::setInputAssembler(QSSGRenderBackendInputAssembl
     if (pProgram->m_shaderInput)
         shaderAttribBuffer = pProgram->m_shaderInput->m_shaderInputEntries;
 
-    if ((attribLayout->m_layoutAttribEntries.size() < shaderAttribBuffer.size())
-        || (inputAssembler->m_vertexbufferHandles.size() <= attribLayout->m_maxInputSlot)) {
+    if (inputAssembler->m_vertexbufferHandles.size() <= attribLayout->m_maxInputSlot)
         return false;
-    }
 
     if (inputAssembler->m_vaoID == 0) {
         // generate vao
@@ -444,9 +443,9 @@ bool QSSGRenderBackendGLES2Impl::setInputAssembler(QSSGRenderBackendInputAssembl
                     qCCritical(RENDER_INVALID_OPERATION, "Attrib %s dn't match vertex layout", attrib.m_attribName.constData());
                     Q_ASSERT(false);
                     return false;
-                } else {
-                    entryData.m_attribIndex = attrib.m_attribLocation;
                 }
+
+                entryData.m_attribIndex = attrib.m_attribLocation;
             } else {
                 qCWarning(RENDER_WARNING, "Failed to Bind attribute %s", attrib.m_attribName.constData());
             }
@@ -567,7 +566,7 @@ void QSSGRenderBackendGLES2Impl::copyFramebufferTexture(qint32 srcX0,
 {
     GLuint texID = HandleToID_cast(GLuint, quintptr, texture);
     GLenum glTarget = GLConversion::fromTextureTargetToGL(target);
-    GL_CALL_EXTRA_FUNCTION(glActiveTexture(GL_TEXTURE0))
+    setActiveTexture(GL_TEXTURE0);
     GL_CALL_EXTRA_FUNCTION(glBindTexture(glTarget, texID))
     GL_CALL_EXTRA_FUNCTION(glCopyTexSubImage2D(GL_TEXTURE_2D, 0, srcX0, srcY0, dstX0, dstY0,
                                                width, height))
@@ -731,11 +730,8 @@ void *QSSGRenderBackendGLES2Impl::mapBuffer(QSSGRenderBackendBufferObject,
 
 bool QSSGRenderBackendGLES2Impl::unmapBuffer(QSSGRenderBackendBufferObject, QSSGRenderBufferType bindFlags)
 {
-    GLboolean ret;
-
-    ret = GL_CALL_EXTRA_FUNCTION(glUnmapBuffer(m_conversion.fromBindBufferFlagsToGL(bindFlags)));
-
-    return (ret) ? true : false;
+    const GLboolean ret = GL_CALL_EXTRA_FUNCTION(glUnmapBuffer(m_conversion.fromBindBufferFlagsToGL(bindFlags)));
+    return (ret != 0);
 }
 
 qint32 QSSGRenderBackendGLES2Impl::getConstantBufferCount(QSSGRenderBackendShaderProgramObject po)

@@ -242,6 +242,8 @@ struct QQmlEasingValueType
 {
     QEasingCurve v;
     Q_GADGET
+    QML_NAMED_ELEMENT(Easing)
+    QML_UNCREATABLE("Use the Type enum.")
 
     Q_PROPERTY(QQmlEasingValueType::Type type READ type WRITE setType FINAL)
     Q_PROPERTY(qreal amplitude READ amplitude WRITE setAmplitude FINAL)
@@ -287,6 +289,17 @@ public:
     void setPeriod(qreal);
     void setBezierCurve(const QVariantList &);
     QVariantList bezierCurve() const;
+};
+
+struct QQmlPropertyValueType
+{
+    QQmlProperty v;
+    Q_PROPERTY(QObject *object READ object CONSTANT FINAL)
+    Q_PROPERTY(QString name READ name CONSTANT FINAL)
+    Q_GADGET
+public:
+    QObject *object() const;
+    QString name() const;
 };
 
 template<typename T>

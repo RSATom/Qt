@@ -365,8 +365,8 @@ ScrollView {
         Set this property to wrap the text to the TextArea item's width.
 
         \list
-        \li TextEdit.NoWrap - no wrapping will be performed.
-        \li TextEdit.WordWrap (default) - wrapping is done on word boundaries only.
+        \li TextEdit.NoWrap (default) - no wrapping will be performed.
+        \li TextEdit.WordWrap - wrapping is done on word boundaries only.
         \li TextEdit.WrapAnywhere - wrapping is done at any point on a line, even if it occurs in the middle of a word.
         \li TextEdit.Wrap - if possible, wrapping occurs at a word boundary; otherwise it will occur at the appropriate point on the line, even in the middle of a word.
         \endlist
@@ -765,8 +765,8 @@ ScrollView {
 
             Connections {
                 target: area.viewport
-                onWidthChanged: edit.doLayout()
-                onHeightChanged: edit.doLayout()
+                function onWidthChanged() { edit.doLayout() }
+                function onHeightChanged() { edit.doLayout() }
             }
             onContentWidthChanged: edit.doLayout()
             onContentHeightChanged: edit.doLayout()

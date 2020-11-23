@@ -25,8 +25,11 @@ declare_args() {
 config("swiftshader_reactor_private_config") {
   if (is_win) {
     cflags = [
+      "/wd4141",  # 'inline' used more than once. (LLVM 7.0)
+      "/wd4146",  # unary minus operator applied to unsigned type. (LLVM 7.0)
       "/wd4201",  # nameless struct/union
       "/wd4245",  # conversion from int to unsigned int (llvm)
+      "/wd4624",  # destructor was implicitly defined as deleted (LLVM 7.0)
     ]
   } else {
     cflags = [ "-Wno-unused-local-typedef" ]
@@ -44,9 +47,9 @@ config("swiftshader_reactor_private_config") {
 swiftshader_source_set("swiftshader_reactor_base") {
   sources = [
     "Debug.cpp",
+    "EmulatedReactor.cpp",
     "ExecutableMemory.cpp",
     "Reactor.cpp",
-    "Routine.cpp",
   ]
 }
 

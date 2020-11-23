@@ -53,7 +53,8 @@ HEADERS = ASTItem.h                     \
           XQTSTestCase.h                \
           XSDTestSuiteHandler.h         \
           XSDTSTestCase.h               \
-          XSLTTestSuiteHandler.h
+          XSLTTestSuiteHandler.h        \
+          XmlParseHelper.h
 
 SOURCES = ASTItem.cpp                   \
           DebugExpressionFactory.cpp    \
@@ -80,4 +81,5 @@ SOURCES = ASTItem.cpp                   \
           XQTSTestCase.cpp              \
           XSDTestSuiteHandler.cpp       \
           XSDTSTestCase.cpp             \
-          XSLTTestSuiteHandler.cpp
+          XSLTTestSuiteHandler.cpp      \
+          XmlParseHelper.cpp

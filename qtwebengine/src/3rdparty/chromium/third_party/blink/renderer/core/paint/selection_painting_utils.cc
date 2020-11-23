@@ -40,7 +40,7 @@ scoped_refptr<ComputedStyle> GetUncachedSelectionStyle(Node* node) {
     if (root->IsUserAgent()) {
       if (Element* shadow_host = node->OwnerShadowHost()) {
         return shadow_host->StyleForPseudoElement(
-            PseudoStyleRequest(kPseudoIdSelection));
+            PseudoElementStyleRequest(kPseudoIdSelection));
       }
     }
   }
@@ -61,7 +61,8 @@ scoped_refptr<ComputedStyle> GetUncachedSelectionStyle(Node* node) {
     return nullptr;
   }
 
-  return element->StyleForPseudoElement(PseudoStyleRequest(kPseudoIdSelection));
+  return element->StyleForPseudoElement(
+      PseudoElementStyleRequest(kPseudoIdSelection));
 }
 
 Color SelectionColor(const Document& document,
@@ -76,13 +77,27 @@ Color SelectionColor(const Document& document,
     return style.VisitedDependentColor(color_property);
 
   if (scoped_refptr<ComputedStyle> pseudo_style =
-          GetUncachedSelectionStyle(node))
+          GetUncachedSelectionStyle(node)) {
+    if (document.InForcedColorsMode() &&
+        pseudo_style->ForcedColorAdjust() != EForcedColorAdjust::kNone) {
+      return LayoutTheme::GetTheme().SystemColor(CSSValueID::kHighlighttext,
+                                                 style.UsedColorScheme());
+    }
     return pseudo_style->VisitedDependentColor(color_property);
+  }
+
+  if (document.InForcedColorsMode()) {
+    return LayoutTheme::GetTheme().SystemColor(CSSValueID::kHighlighttext,
+                                               style.UsedColorScheme());
+  }
+
   if (!LayoutTheme::GetTheme().SupportsSelectionForegroundColors())
     return style.VisitedDependentColor(color_property);
   return document.GetFrame()->Selection().FrameIsFocusedAndActive()
-             ? LayoutTheme::GetTheme().ActiveSelectionForegroundColor()
-             : LayoutTheme::GetTheme().InactiveSelectionForegroundColor();
+             ? LayoutTheme::GetTheme().ActiveSelectionForegroundColor(
+                   style.UsedColorScheme())
+             : LayoutTheme::GetTheme().InactiveSelectionForegroundColor(
+                   style.UsedColorScheme());
 }
 
 const ComputedStyle* SelectionPseudoStyle(Node* node) {
@@ -92,7 +107,7 @@ const ComputedStyle* SelectionPseudoStyle(Node* node) {
   if (!element)
     return nullptr;
   return element->CachedStyleForPseudoElement(
-      PseudoStyleRequest(kPseudoIdSelection));
+      PseudoElementStyleRequest(kPseudoIdSelection));
 }
 
 }  // anonymous namespace
@@ -106,13 +121,25 @@ Color SelectionPaintingUtils::SelectionBackgroundColor(
 
   if (scoped_refptr<ComputedStyle> pseudo_style =
           GetUncachedSelectionStyle(node)) {
+    if (document.InForcedColorsMode() &&
+        pseudo_style->ForcedColorAdjust() != EForcedColorAdjust::kNone) {
+      return LayoutTheme::GetTheme().SystemColor(CSSValueID::kHighlight,
+                                                 style.UsedColorScheme());
+    }
     return pseudo_style->VisitedDependentColor(GetCSSPropertyBackgroundColor())
         .BlendWithWhite();
   }
 
+  if (document.InForcedColorsMode()) {
+    return LayoutTheme::GetTheme().SystemColor(CSSValueID::kHighlight,
+                                               style.UsedColorScheme());
+  }
+
   return document.GetFrame()->Selection().FrameIsFocusedAndActive()
-             ? LayoutTheme::GetTheme().ActiveSelectionBackgroundColor()
-             : LayoutTheme::GetTheme().InactiveSelectionBackgroundColor();
+             ? LayoutTheme::GetTheme().ActiveSelectionBackgroundColor(
+                   style.UsedColorScheme())
+             : LayoutTheme::GetTheme().InactiveSelectionBackgroundColor(
+                   style.UsedColorScheme());
 }
 
 Color SelectionPaintingUtils::SelectionForegroundColor(

@@ -52,7 +52,7 @@ sk_sp<SkShader> SkMakeBitmapShaderForPaint(const SkPaint& paint, const SkBitmap&
  *  SkImageInfo, or the bitmap's pixels cannot be accessed, this will return
  *  nullptr.
  */
-extern SK_API sk_sp<SkImage> SkMakeImageFromRasterBitmap(const SkBitmap&, SkCopyPixelsMode);
+extern SK_SPI sk_sp<SkImage> SkMakeImageFromRasterBitmap(const SkBitmap&, SkCopyPixelsMode);
 
 // Given an image created from SkNewImageFromBitmap, return its pixelref. This
 // may be called to see if the surface and the image share the same pixelref,
@@ -90,12 +90,5 @@ void SkImage_unpinAsTexture(const SkImage*, GrContext*);
  *  this returns (0,0,width,height). For a lazy-image, it may return a subset of that rect.
  */
 SkIRect SkImage_getSubset(const SkImage*);
-
-/**
- *  Returns a new image containing the same pixel values as the source, but with a different color
- *  space assigned. This performs no color space conversion. Primarily used in tests, to visualize
- *  the results of rendering in wide or narrow gamuts.
- */
-sk_sp<SkImage> SkImageMakeRasterCopyAndAssignColorSpace(const SkImage*, SkColorSpace*);
 
 #endif

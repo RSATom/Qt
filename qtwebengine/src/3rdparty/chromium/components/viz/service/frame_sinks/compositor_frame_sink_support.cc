@@ -23,6 +23,29 @@
 #include "mojo/public/cpp/system/platform_handle.h"
 
 namespace viz {
+namespace {
+
+// These values are logged to UMA. Entries should not be renumbered and numeric
+// values should never be reused. Please keep in sync with
+// "SendBeginFrameResult" in src/tools/metrics/histograms/enums.xml.
+enum class SendBeginFrameResult {
+  kSendFrameTiming = 0,
+  kStopNotRequest = 1,
+  kStopUnresponsiveClient = 2,
+  kThrottleUnresponsiveClient = 3,
+  kSendNoActiveSurface = 4,
+  kSendBlockedEmbedded = 5,
+  kThrottleUndrawnFrames = 6,
+  kSendDefault = 7,
+  kMaxValue = kSendDefault
+};
+
+void RecordShouldSendBeginFrame(SendBeginFrameResult result) {
+  UMA_HISTOGRAM_ENUMERATION(
+      "Compositing.CompositorFrameSinkSupport.ShouldSendBeginFrame", result);
+}
+
+}  // namespace
 
 CompositorFrameSinkSupport::CompositorFrameSinkSupport(
     mojom::CompositorFrameSinkClient* client,
@@ -150,7 +173,7 @@ void CompositorFrameSinkSupport::OnSurfaceActivated(Surface* surface) {
   MaybeEvictSurfaces();
 }
 
-void CompositorFrameSinkSupport::OnSurfaceDrawn(Surface* surface) {
+void CompositorFrameSinkSupport::OnSurfaceWillDraw(Surface* surface) {
   if (last_drawn_frame_index_ >= surface->GetActiveFrameIndex())
     return;
   last_drawn_frame_index_ = surface->GetActiveFrameIndex();
@@ -196,8 +219,11 @@ void CompositorFrameSinkSupport::OnSurfaceDestroyed(Surface* surface) {
 
 void CompositorFrameSinkSupport::OnSurfacePresented(
     uint32_t frame_token,
+    base::TimeTicks draw_start_timestamp,
+    const gfx::SwapTimings& swap_timings,
     const gfx::PresentationFeedback& feedback) {
-  DidPresentCompositorFrame(frame_token, feedback);
+  DidPresentCompositorFrame(frame_token, draw_start_timestamp, swap_timings,
+                            feedback);
 }
 
 bool CompositorFrameSinkSupport::NeedsSyncTokens() const {
@@ -308,6 +334,8 @@ void CompositorFrameSinkSupport::DidNotProduceFrame(const BeginFrameAck& ack) {
                ack.sequence_number);
   DCHECK_GE(ack.sequence_number, BeginFrameArgs::kStartingFrameNumber);
 
+  begin_frame_tracker_.ReceivedAck(ack);
+
   // Override the has_damage flag (ignoring invalid data from clients).
   BeginFrameAck modified_ack(ack);
   modified_ack.has_damage = false;
@@ -315,8 +343,10 @@ void CompositorFrameSinkSupport::DidNotProduceFrame(const BeginFrameAck& ack) {
   if (last_activated_surface_id_.is_valid())
     surface_manager_->SurfaceModified(last_activated_surface_id_, modified_ack);
 
-  if (begin_frame_source_)
+  if (begin_frame_source_) {
     begin_frame_source_->DidFinishFrame(this);
+    frame_sink_manager_->DidFinishFrame(frame_sink_id_, last_begin_frame_args_);
+  }
 }
 
 void CompositorFrameSinkSupport::SubmitCompositorFrame(
@@ -382,6 +412,9 @@ SubmitResult CompositorFrameSinkSupport::MaybeSubmitCompositorFrameInternal(
     UpdateNeedsBeginFramesInternal();
   }
 
+  base::TimeTicks now_time = base::TimeTicks::Now();
+  pending_received_frame_times_.emplace(frame.metadata.frame_token, now_time);
+
   // Ensure no CopyOutputRequests have been submitted if they are banned.
   if (!allow_copy_output_requests_ && frame.HasCopyOutputRequests()) {
     TRACE_EVENT_INSTANT0("viz", "CopyOutputRequests not allowed",
@@ -407,7 +440,8 @@ SubmitResult CompositorFrameSinkSupport::MaybeSubmitCompositorFrameInternal(
   }
   for (ui::LatencyInfo& latency : frame.metadata.latency_info) {
     if (latency.latency_components().size() > 0) {
-      latency.AddLatencyNumber(ui::DISPLAY_COMPOSITOR_RECEIVED_FRAME_COMPONENT);
+      latency.AddLatencyNumberWithTimestamp(
+          ui::DISPLAY_COMPOSITOR_RECEIVED_FRAME_COMPONENT, now_time);
     }
   }
 
@@ -514,8 +548,10 @@ SubmitResult CompositorFrameSinkSupport::MaybeSubmitCompositorFrameInternal(
       break;
   }
 
-  if (begin_frame_source_)
+  if (begin_frame_source_) {
     begin_frame_source_->DidFinishFrame(this);
+    frame_sink_manager_->DidFinishFrame(frame_sink_id_, last_begin_frame_args_);
+  }
 
   return SubmitResult::ACCEPTED;
 }
@@ -555,23 +591,43 @@ void CompositorFrameSinkSupport::DidReceiveCompositorFrameAck() {
 }
 
 void CompositorFrameSinkSupport::DidPresentCompositorFrame(
-    uint32_t presentation_token,
+    uint32_t frame_token,
+    base::TimeTicks draw_start_timestamp,
+    const gfx::SwapTimings& swap_timings,
     const gfx::PresentationFeedback& feedback) {
-  DCHECK(presentation_token);
+  DCHECK(frame_token);
+  DCHECK((feedback.flags & gfx::PresentationFeedback::kFailure) ||
+         (!draw_start_timestamp.is_null() && !swap_timings.is_null()));
+
+  DCHECK_LE(pending_received_frame_times_.size(), 25u);
+  auto received_frame_timestamp =
+      pending_received_frame_times_.find(frame_token);
+  DCHECK(received_frame_timestamp != pending_received_frame_times_.end());
+
   FrameTimingDetails details;
+  details.received_compositor_frame_timestamp =
+      received_frame_timestamp->second;
+  details.draw_start_timestamp = draw_start_timestamp;
+  details.swap_timings = swap_timings;
   details.presentation_feedback = feedback;
-  frame_timing_details_.emplace(presentation_token, details);
+  pending_received_frame_times_.erase(received_frame_timestamp);
+
+  // We should only ever get one PresentationFeedback per frame_token.
+  DCHECK(frame_timing_details_.find(frame_token) ==
+         frame_timing_details_.end());
+  frame_timing_details_.emplace(frame_token, details);
+
   UpdateNeedsBeginFramesInternal();
 }
 
 void CompositorFrameSinkSupport::DidRejectCompositorFrame(
-    uint32_t presentation_token,
+    uint32_t frame_token,
     std::vector<TransferableResource> frame_resource_list) {
   std::vector<ReturnedResource> resources =
       TransferableResource::ReturnResources(frame_resource_list);
   ReturnResources(resources);
   DidReceiveCompositorFrameAck();
-  DidPresentCompositorFrame(presentation_token,
+  DidPresentCompositorFrame(frame_token, base::TimeTicks(), gfx::SwapTimings(),
                             gfx::PresentationFeedback::Failure());
 }
 
@@ -612,6 +668,8 @@ void CompositorFrameSinkSupport::OnBeginFrame(const BeginFrameArgs& args) {
                            "IssueBeginFrame");
     last_frame_time_ = args.frame_time;
     client_->OnBeginFrame(copy_args, std::move(frame_timing_details_));
+    begin_frame_tracker_.SentBeginFrame(args);
+    frame_sink_manager_->DidBeginFrame(frame_sink_id_, args);
     frame_timing_details_.clear();
     UpdateNeedsBeginFramesInternal();
   }
@@ -654,6 +712,8 @@ SubmitResult CompositorFrameSinkSupport::MaybeSubmitCompositorFrame(
     base::Optional<HitTestRegionList> hit_test_region_list,
     uint64_t submit_time,
     mojom::CompositorFrameSink::SubmitCompositorFrameSyncCallback callback) {
+  begin_frame_tracker_.ReceivedAck(frame.metadata.begin_frame_ack);
+
   SubmitResult result = MaybeSubmitCompositorFrameInternal(
       local_surface_id, std::move(frame), std::move(hit_test_region_list),
       submit_time, std::move(callback));
@@ -753,19 +813,45 @@ bool CompositorFrameSinkSupport::ShouldSendBeginFrame(
     base::TimeTicks frame_time) {
   // If there are pending timing details from the previous frame(s),
   // then the client needs to receive the begin-frame.
-  if (!frame_timing_details_.empty())
+  if (!frame_timing_details_.empty()) {
+    RecordShouldSendBeginFrame(SendBeginFrameResult::kSendFrameTiming);
     return true;
+  }
 
-  if (!client_needs_begin_frame_)
+  if (!client_needs_begin_frame_) {
+    RecordShouldSendBeginFrame(SendBeginFrameResult::kStopNotRequest);
     return false;
+  }
 
-  if (!last_activated_surface_id_.is_valid())
+  // Stop sending BeginFrames to clients that are totally unresponsive.
+  if (begin_frame_tracker_.ShouldStopBeginFrame()) {
+    RecordShouldSendBeginFrame(SendBeginFrameResult::kStopUnresponsiveClient);
+    return false;
+  }
+
+  // We might throttle this OnBeginFrame() if it's been less than a second since
+  // the last one was sent.
+  bool can_throttle =
+      (frame_time - last_frame_time_) < base::TimeDelta::FromSeconds(1);
+
+  // Throttle clients that are unresponsive.
+  if (can_throttle && begin_frame_tracker_.ShouldThrottleBeginFrame()) {
+    RecordShouldSendBeginFrame(
+        SendBeginFrameResult::kThrottleUnresponsiveClient);
+    return false;
+  }
+
+  if (!last_activated_surface_id_.is_valid()) {
+    RecordShouldSendBeginFrame(SendBeginFrameResult::kSendNoActiveSurface);
     return true;
+  }
 
   // We should never throttle BeginFrames if there is another client waiting for
   // this client to submit a frame.
-  if (surface_manager_->HasBlockedEmbedder(frame_sink_id_))
+  if (surface_manager_->HasBlockedEmbedder(frame_sink_id_)) {
+    RecordShouldSendBeginFrame(SendBeginFrameResult::kSendBlockedEmbedded);
     return true;
+  }
 
   Surface* surface =
       surface_manager_->GetSurfaceForId(last_activated_surface_id_);
@@ -775,19 +861,21 @@ bool CompositorFrameSinkSupport::ShouldSendBeginFrame(
 
   uint64_t active_frame_index = surface->GetActiveFrameIndex();
 
-  // Since we have an active frame, and frame indexes strictly increase during
-  // the lifetime of the CompositorFrameSinkSupport, our active frame index
-  // must be at least as large as our last drawn frame index.
+  // Since we have an active frame, and frame indexes strictly increase
+  // during the lifetime of the CompositorFrameSinkSupport, our active frame
+  // index must be at least as large as our last drawn frame index.
   DCHECK_GE(active_frame_index, last_drawn_frame_index_);
 
+  // Throttle clients that have submitted too many undrawn frames.
   uint64_t num_undrawn_frames = active_frame_index - last_drawn_frame_index_;
-  if (num_undrawn_frames <= kUndrawnFrameLimit)
-    return true;
+  if (can_throttle && num_undrawn_frames > kUndrawnFrameLimit) {
+    RecordShouldSendBeginFrame(SendBeginFrameResult::kThrottleUndrawnFrames);
+    return false;
+  }
 
-  // Send begin-frames if the previous begin-frame was sent more than 1 second
-  // ago.
-  constexpr base::TimeDelta throttled_rate = base::TimeDelta::FromSeconds(1);
-  return (frame_time - last_frame_time_) >= throttled_rate;
+  // No other conditions apply so send the begin frame.
+  RecordShouldSendBeginFrame(SendBeginFrameResult::kSendDefault);
+  return true;
 }
 
 bool CompositorFrameSinkSupport::IsEvicted(

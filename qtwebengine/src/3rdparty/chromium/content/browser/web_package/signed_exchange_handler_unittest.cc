@@ -13,14 +13,18 @@
 #include "base/path_service.h"
 #include "base/test/metrics/histogram_tester.h"
 #include "base/test/scoped_feature_list.h"
+#include "content/browser/frame_host/frame_tree_node.h"
 #include "content/browser/web_package/signed_exchange_cert_fetcher_factory.h"
 #include "content/browser/web_package/signed_exchange_devtools_proxy.h"
 #include "content/browser/web_package/signed_exchange_signature_verifier.h"
 #include "content/browser/web_package/signed_exchange_test_utils.h"
+#include "content/browser/web_package/signed_exchange_utils.h"
 #include "content/public/browser/content_browser_client.h"
+#include "content/public/common/content_client.h"
 #include "content/public/common/content_features.h"
 #include "content/public/common/content_paths.h"
-#include "content/public/test/test_browser_thread_bundle.h"
+#include "content/public/test/browser_task_environment.h"
+#include "mojo/public/cpp/bindings/remote.h"
 #include "net/base/io_buffer.h"
 #include "net/base/load_flags.h"
 #include "net/base/test_completion_callback.h"
@@ -132,6 +136,7 @@ class GMockCertVerifier : public net::CertVerifier {
              net::CompletionOnceCallback callback,
              std::unique_ptr<net::CertVerifier::Request>* out_req,
              const net::NetLogWithSource& net_log) override {
+    verify_result->Reset();
     return VerifyImpl(params, verify_result, out_req, net_log);
   }
 
@@ -183,7 +188,7 @@ class SignedExchangeHandlerTest
 
   void SetUp() override {
     original_client_ = SetBrowserClientForTesting(&browser_client_);
-    SignedExchangeHandler::SetVerificationTimeForTesting(
+    signed_exchange_utils::SetVerificationTimeForTesting(
         base::Time::UnixEpoch() +
         base::TimeDelta::FromSeconds(kSignatureHeaderDate));
     feature_list_.InitAndEnableFeature(features::kSignedHTTPExchange);
@@ -210,7 +215,7 @@ class SignedExchangeHandlerTest
     }
     SignedExchangeHandler::SetNetworkContextForTesting(nullptr);
     network::NetworkContext::SetCertVerifierForTesting(nullptr);
-    SignedExchangeHandler::SetVerificationTimeForTesting(
+    signed_exchange_utils::SetVerificationTimeForTesting(
         base::Optional<base::Time>());
     SetBrowserClientForTesting(original_client_);
   }
@@ -301,8 +306,8 @@ class SignedExchangeHandlerTest
   SignedExchangeLoadResult result() const { return result_; }
   net::Error error() const { return error_; }
   const GURL& inner_url() const { return inner_url_; }
-  const network::ResourceResponseHead& resource_response() const {
-    return resource_response_;
+  const network::mojom::URLResponseHead& resource_response() const {
+    return *resource_response_;
   }
 
   // Creates a TestURLRequestContext that uses |mock_ct_policy_enforcer_|.
@@ -320,7 +325,7 @@ class SignedExchangeHandlerTest
       std::unique_ptr<net::TestURLRequestContext> context) {
     url_request_context_ = std::move(context);
     network_context_ = std::make_unique<network::NetworkContext>(
-        nullptr, mojo::MakeRequest(&network_context_ptr_),
+        nullptr, network_context_remote_.BindNewPipeAndPassReceiver(),
         url_request_context_.get(),
         /*cors_exempt_header_list=*/std::vector<std::string>());
     SignedExchangeHandler::SetNetworkContextForTesting(network_context_.get());
@@ -334,14 +339,14 @@ class SignedExchangeHandlerTest
         std::make_unique<blink::SignedExchangeRequestMatcher>(
             net::HttpRequestHeaders(), std::string() /* accept_langs */),
         nullptr /* devtools_proxy */, nullptr /* reporter */,
-        base::RepeatingCallback<int(void)>());
+        FrameTreeNode::kFrameTreeNodeInvalidId);
   }
 
   void WaitForHeader() {
     while (!read_header()) {
       while (source_->awaiting_completion())
         source_->CompleteNextRead();
-      browser_thread_bundle_.RunUntilIdle();
+      task_environment_.RunUntilIdle();
     }
   }
 
@@ -380,13 +385,13 @@ class SignedExchangeHandlerTest
   void OnHeaderFound(SignedExchangeLoadResult result,
                      net::Error error,
                      const GURL& url,
-                     const network::ResourceResponseHead& resource_response,
+                     network::mojom::URLResponseHeadPtr resource_response,
                      std::unique_ptr<net::SourceStream> payload_stream) {
     read_header_ = true;
     result_ = result;
     error_ = error;
     inner_url_ = url;
-    resource_response_ = resource_response;
+    resource_response_ = std::move(resource_response);
     payload_stream_ = std::move(payload_stream);
   }
 
@@ -400,12 +405,12 @@ class SignedExchangeHandlerTest
   }
 
   base::test::ScopedFeatureList feature_list_;
-  content::TestBrowserThreadBundle browser_thread_bundle_;
+  content::BrowserTaskEnvironment task_environment_;
   TestBrowserClient browser_client_;
   ContentBrowserClient* original_client_;
   std::unique_ptr<net::TestURLRequestContext> url_request_context_;
   std::unique_ptr<network::NetworkContext> network_context_;
-  network::mojom::NetworkContextPtr network_context_ptr_;
+  mojo::Remote<network::mojom::NetworkContext> network_context_remote_;
   const url::Origin request_initiator_;
   std::unique_ptr<SignedExchangeCertificateChain::IgnoreErrorsSPKIList>
       original_ignore_errors_spki_list_;
@@ -416,7 +421,7 @@ class SignedExchangeHandlerTest
   SignedExchangeLoadResult result_;
   net::Error error_;
   GURL inner_url_;
-  network::ResourceResponseHead resource_response_;
+  network::mojom::URLResponseHeadPtr resource_response_;
   std::unique_ptr<net::SourceStream> payload_stream_;
   std::string source_stream_contents_;
 };
@@ -564,8 +569,7 @@ TEST_P(SignedExchangeHandlerTest, CertWithoutExtensionShouldBeRejected) {
   ReadStream(source_, nullptr);
 }
 
-TEST_P(SignedExchangeHandlerTest,
-       CertIssuedAfterMay2019AndValidMoreThan90DaysShouldBeRejected) {
+TEST_P(SignedExchangeHandlerTest, CertValidMoreThan90DaysShouldBeRejected) {
   mock_cert_fetcher_factory_->ExpectFetch(
       GURL("https://cert.example.org/cert.msg"),
       GetTestFileContents(
@@ -586,60 +590,10 @@ TEST_P(SignedExchangeHandlerTest,
 }
 
 TEST_P(SignedExchangeHandlerTest,
-       CertIssuedAfterMay2019AndValidFor90DaysShouldBeAccepted) {
-  SignedExchangeHandler::SetVerificationTimeForTesting(
-      base::Time::UnixEpoch() +
-      base::TimeDelta::FromSeconds(kCertValidityPeriodEnforcementDate));
-  mock_cert_fetcher_factory_->ExpectFetch(
-      GURL("https://cert.example.org/cert.msg"),
-      GetTestFileContents(
-          "test.example.org-valid-for-90-days.public.pem.cbor"));
-  SetupMockCertVerifier("prime256v1-sha256-valid-for-90-days.public.pem",
-                        CreateCertVerifyResult());
-  SetSourceStreamContents("test.example.org_cert_valid_for_90_days.sxg");
-
-  CreateSignedExchangeHandler(CreateTestURLRequestContext());
-  WaitForHeader();
-
-  ASSERT_TRUE(read_header());
-  EXPECT_EQ(SignedExchangeLoadResult::kSuccess, result());
-  EXPECT_EQ(net::OK, error());
-  std::string payload;
-  int rv = ReadPayloadStream(&payload);
-  std::string expected_payload = GetTestFileContents("test.html");
-
-  EXPECT_EQ(expected_payload, payload);
-  EXPECT_EQ(static_cast<int>(expected_payload.size()), rv);
-}
-
-TEST_P(SignedExchangeHandlerTest,
-       CertValidMoreThan90DaysShouldBeRejectedAfterAugust2019) {
-  SignedExchangeHandler::SetVerificationTimeForTesting(
-      base::Time::UnixEpoch() +
-      base::TimeDelta::FromSeconds(kCertValidityPeriodEnforcementDate));
-  mock_cert_fetcher_factory_->ExpectFetch(
-      GURL("https://cert.example.org/cert.msg"),
-      GetTestFileContents("test.example.org.public.pem.cbor"));
-  SetupMockCertVerifier("prime256v1-sha256.public.pem",
-                        CreateCertVerifyResult());
-  SetSourceStreamContents("test.example.org_test.sxg");
-
-  CreateSignedExchangeHandler(CreateTestURLRequestContext());
-  WaitForHeader();
-
-  ASSERT_TRUE(read_header());
-  EXPECT_EQ(SignedExchangeLoadResult::kCertValidityPeriodTooLong, result());
-  EXPECT_EQ(net::ERR_INVALID_SIGNED_EXCHANGE, error());
-  EXPECT_EQ(kTestSxgInnerURL, inner_url());
-  // Drain the MockSourceStream, otherwise its destructer causes DCHECK failure.
-  ReadStream(source_, nullptr);
-}
-
-TEST_P(SignedExchangeHandlerTest,
        CertValidMoreThan90DaysShouldBeAllowedByIgnoreErrorsSPKIListFlag) {
   SetIgnoreCertificateErrorsSPKIList(kPEMECDSAP256SPKIHash);
 
-  SignedExchangeHandler::SetVerificationTimeForTesting(
+  signed_exchange_utils::SetVerificationTimeForTesting(
       base::Time::UnixEpoch() +
       base::TimeDelta::FromSeconds(kCertValidityPeriodEnforcementDate));
   mock_cert_fetcher_factory_->ExpectFetch(

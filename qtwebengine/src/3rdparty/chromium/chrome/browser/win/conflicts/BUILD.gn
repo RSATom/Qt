@@ -33,9 +33,12 @@ source_set("module_info") {
   deps = [
     "//base:i18n",
   ]
+
+  libs = [ "crypt32.lib" ]
+
   if (safe_browsing_mode == 1) {
     deps += [
-      "//chrome/common/safe_browsing:binary_feature_extractor",
+      "//chrome/common/safe_browsing:pe_image_reader",
     ]
   }
 }

@@ -89,7 +89,7 @@ SerializedScriptValue* History::state(ExceptionState& exception_state) {
 }
 
 SerializedScriptValue* History::StateInternal() const {
-  if (!GetFrame())
+  if (!GetFrame() || !GetFrame()->Loader().GetDocumentLoader())
     return nullptr;
 
   if (HistoryItem* history_item =
@@ -195,6 +195,8 @@ void History::go(ScriptState* script_state,
     return;
 
   if (delta) {
+    if (Page* page = GetFrame()->GetPage())
+      page->HistoryNavigationVirtualTimePauser().PauseVirtualTime();
     GetFrame()->Client()->NavigateBackForward(delta);
   } else {
     // We intentionally call reload() for the current frame if delta is zero.
@@ -253,7 +255,7 @@ bool History::CanChangeToUrl(const KURL& url,
   scoped_refptr<const SecurityOrigin> requested_origin =
       SecurityOrigin::Create(url);
   if (requested_origin->IsOpaque() ||
-      !requested_origin->IsSameSchemeHostPort(document_origin)) {
+      !requested_origin->IsSameOriginWith(document_origin)) {
     return false;
   }
 

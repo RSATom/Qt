@@ -60,7 +60,7 @@
     \title Qt Quick Controls 1 Styles
     \brief The Qt Quick Controls Styles submodule provides custom styles for Qt Quick Controls.
 
-    \deprecation-warning
+    \deprecationwarning
 
     The Qt Quick Controls Styles submodule allows custom styling for \l {Qt Quick Controls 1}.
 
@@ -132,7 +132,7 @@
     \ingroup qmlmodules
     \brief Provides QML types for Qt Quick Controls styles.
 
-    \deprecation-warning
+    \deprecationwarning
 
     The \l{Qt Quick Controls 1} module provides a set of QML types for handling
     styles.

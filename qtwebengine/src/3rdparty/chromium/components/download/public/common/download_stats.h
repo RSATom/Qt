@@ -267,21 +267,10 @@ COMPONENTS_DOWNLOAD_EXPORT void RecordDownloadInterrupted(
     int64_t total,
     bool is_parallelizable,
     bool is_parallel_download_enabled,
-    DownloadSource download_source,
-    bool post_content_length_mismatch);
-
-// Record that a download has been classified as malicious.
-COMPONENTS_DOWNLOAD_EXPORT void RecordMaliciousDownloadClassified(
-    DownloadDangerType danger_type);
+    DownloadSource download_source);
 
 // Record a dangerous download accept event.
 COMPONENTS_DOWNLOAD_EXPORT void RecordDangerousDownloadAccept(
-    DownloadDangerType danger_type,
-    const base::FilePath& file_path);
-
-// Record a dangerous download discard event.
-COMPONENTS_DOWNLOAD_EXPORT void RecordDangerousDownloadDiscard(
-    DownloadDiscardReason reason,
     DownloadDangerType danger_type,
     const base::FilePath& file_path);
 
@@ -473,6 +462,15 @@ COMPONENTS_DOWNLOAD_EXPORT void RecordDownloadResumed(
 // Records connection info of the download.
 COMPONENTS_DOWNLOAD_EXPORT void RecordDownloadConnectionInfo(
     net::HttpResponseInfo::ConnectionInfo connection_info);
+
+COMPONENTS_DOWNLOAD_EXPORT void RecordDownloadManagerCreationTimeSinceStartup(
+    base::TimeDelta elapsed_time);
+
+COMPONENTS_DOWNLOAD_EXPORT void RecordDownloadManagerMemoryUsage(
+    size_t bytes_used);
+
+COMPONENTS_DOWNLOAD_EXPORT void RecordParallelRequestCreationFailure(
+    DownloadInterruptReason reason);
 
 #if defined(OS_ANDROID)
 // Records the download interrupt reason for the first background download.

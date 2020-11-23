@@ -25,8 +25,8 @@
             "webengine-native-spellchecker": "boolean",
             "webengine-extensions": "boolean",
             "webengine-webrtc": "boolean",
+            "webengine-webrtc-pipewire": "boolean",
             "webengine-geolocation": "boolean",
-            "webengine-v8-snapshot": "boolean",
             "webengine-webchannel": "boolean",
             "webengine-kerberos": "boolean",
             "alsa": { "type": "boolean", "name": "webengine-alsa" },
@@ -68,6 +68,12 @@
             "sources": [
                 { "type": "pkgConfig", "args": "libpulse >= 0.9.10 libpulse-mainloop-glib" }
             ]
+        },
+        "webengine-gio": {
+            "label": "gio",
+            "sources": [
+                { "type": "pkgConfig", "args": "gio-2.0" }
+            ]
         }
     },
     "tests" : {
@@ -86,25 +92,15 @@
             "label": "embedded build",
             "type": "detectEmbedded"
         },
-        "webengine-sanitizer": {
-            "label" : "sanitizer support",
-            "type": "isSanitizerSupported"
-        },
-        "webengine-arm-thumb" : {
-            "label": "thumb instruction set",
-            "type": "hasThumbFlag"
-        },
-        "webengine-noexecstack" : {
-            "label": "linker supports -z noexecstack",
-            "type": "linkerSupportsFlag",
-            "flag": "-z,noexecstack"
+        "webengine-nodejs": {
+            "label": "node.js",
+            "type": "detectNodeJS"
         }
     },
     "features": {
         "webengine-embedded-build": {
             "label": "Embedded build",
             "purpose": "Enables the embedded build configuration.",
-            "section": "WebEngine",
             "condition": "config.unix",
             "autoDetect": "tests.webengine-embedded-build",
             "output": [ "privateFeature" ]
@@ -114,14 +110,8 @@
             "condition": "config.unix && libs.webengine-alsa",
             "output": [ "privateFeature" ]
         },
-        "webengine-v8-snapshot": {
-            "label" : "Use v8 snapshot",
-            "purpose": "Enables the v8 snapshot, for fast v8 context creation",
-            "output": [ "privateFeature" ]
-        },
         "webengine-v8-snapshot-support": {
             "label" : "Building v8 snapshot supported",
-            "autoDetect": "features.webengine-v8-snapshot",
             "condition": "!config.unix || !features.cross_compile || arch.arm64 || tests.webengine-host-compiler",
             "output": [ "privateFeature" ]
         },
@@ -139,14 +129,12 @@
         "webengine-pepper-plugins": {
             "label": "Pepper Plugins",
             "purpose": "Enables use of Pepper Flash plugins.",
-            "section": "WebEngine",
             "autoDetect": "!features.webengine-embedded-build",
             "output": [ "privateFeature" ]
         },
         "webengine-printing-and-pdf": {
             "label": "Printing and PDF",
             "purpose": "Provides printing and output to PDF.",
-            "section": "WebEngine",
             "condition": "module.printsupport && features.printer",
             "autoDetect": "!features.webengine-embedded-build",
             "output": [ "privateFeature" ]
@@ -161,7 +149,6 @@
         "webengine-proprietary-codecs": {
             "label": "Proprietary Codecs",
             "purpose": "Enables the use of proprietary codecs such as h.264/h.265 and MP3.",
-            "section": "WebEngine",
             "autoDetect": false,
             "output": [ "privateFeature" ]
         },
@@ -175,13 +162,11 @@
         "webengine-spellchecker": {
             "label": "Spellchecker",
             "purpose": "Provides a spellchecker.",
-            "section": "WebEngine",
             "output": [ "publicFeature" ]
         },
         "webengine-native-spellchecker": {
             "label": "Native Spellchecker",
             "purpose": "Use the system's native spellchecking engine.",
-            "section": "WebEngine",
             "autoDetect": false,
             "condition": "config.macos && features.webengine-spellchecker",
             "output": [ "publicFeature" ]
@@ -197,36 +182,25 @@
         "webengine-webrtc": {
             "label": "WebRTC",
             "purpose": "Provides WebRTC support.",
-            "section": "WebEngine",
             "autoDetect": "!features.webengine-embedded-build",
             "output": [ "privateFeature" ]
         },
-        "webengine-ozone-x11" : {
-             "label": "Support qpa-xcb",
-             "condition": "config.unix
-                          && features.webengine-system-x11
-                          && features.webengine-system-libdrm
-                          && features.webengine-system-xcomposite
-                          && features.webengine-system-xcursor
-                          && features.webengine-system-xi
-                          && features.webengine-system-xtst",
-             "output": [ "privateFeature" ]
-        },
-        "webengine-sanitizer" : {
-            "label": "Sanitizer",
-            "autoDetect": "config.sanitizer && tests.webengine-sanitizer",
-            "condition": "config.sanitizer",
+        "webengine-webrtc-pipewire": {
+            "label": "PipeWire over GIO",
+            "purpose": "Provides PipeWire support in WebRTC using GIO.",
+            "condition": "features.webengine-webrtc && libs.webengine-gio",
+            "autoDetect": "false",
             "output": [ "privateFeature" ]
+        },
+        "webengine-ozone" : {
+             "label": "Support qpa-xcb",
+             "condition": "features.webengine-ozone-x11",
+             "output": [ "privateFeature" ]
         },
         "webengine-poppler-cpp": {
             "label": "poppler-cpp",
             "autoDetect": "config.unix",
             "condition": "libs.webengine-poppler-cpp",
-            "output": [ "privateFeature" ]
-        },
-        "webengine-arm-thumb": {
-            "label": "Thumb instruction set",
-            "condition": "config.linux && features.webengine-embedded-build && arch.arm && tests.webengine-arm-thumb",
             "output": [ "privateFeature" ]
         },
         "webengine-full-debug-info": {
@@ -239,19 +213,14 @@
               { "type": "privateConfig", "name": "webcore_debug" }
             ]
         },
-        "webengine-noexecstack": {
-            "label": "linker supports -z noexecstack",
-            "condition": "config.unix && tests.webengine-noexecstack",
+        "webengine-nodejs": {
+            "label": "Node.js",
+            "condition": "tests.webengine-nodejs",
             "output": [ "privateFeature" ]
         }
     },
 
     "report": [
-        {
-            "type": "warning",
-            "condition": "config.sanitizer && !tests.webengine-sanitizer && !features.webengine-sanitizer",
-            "message": "Qt WebEngine cannot be built with the chosen sanitizer configuration. Check config.log for details or use -feature-webengine-sanitizer to force the build."
-        },
         {
             "type": "warning",
             "condition": "config.unix && !features.webengine-host-pkg-config",
@@ -264,8 +233,13 @@
         },
         {
             "type": "warning",
-            "condition": "config.linux && features.webengine-v8-snapshot && !features.webengine-v8-snapshot-support",
+            "condition": "config.unix && config.cross_compile && !features.webengine-v8-snapshot-support",
             "message": "V8 snapshot cannot be built. Most likely, the 32-bit host compiler does not work. Please make sure you have 32-bit devel environment installed."
+        },
+        {
+            "type": "warning",
+            "condition": "!features.webengine-nodejs",
+            "message": "Building without node.js will disable some features of QtWebEngine DevTools."
         }
     ],
 
@@ -282,20 +256,21 @@
                 "webengine-spellchecker",
                 "webengine-native-spellchecker",
                 "webengine-webrtc",
+                "webengine-webrtc-pipewire",
                 "webengine-geolocation",
                 "webengine-webchannel",
-                "webengine-v8-snapshot",
                 "webengine-kerberos",
                 "webengine-extensions",
+                "webengine-nodejs",
                 {
                     "type": "feature",
-                    "args": "webengine-ozone-x11",
+                    "args": "webengine-ozone",
                     "condition": "config.unix"
                 },
                 {
                     "type": "feature",
                     "args": "webengine-v8-snapshot-support",
-                    "condition": "config.unix && config.cross_compile && features.webengine-v8-snapshot"
+                    "condition": "config.unix && config.cross_compile"
                 },
                 {
                     "type": "feature",
@@ -306,11 +281,6 @@
                     "type": "feature",
                     "args": "webengine-pulseaudio",
                     "condition": "config.unix"
-                },
-                {
-                    "type": "feature",
-                    "args": "webengine-sanitizer",
-                    "condition": "config.sanitizer"
                 },
                 {
                     "message": "macOS version",

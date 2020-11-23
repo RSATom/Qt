@@ -56,6 +56,7 @@
 
 #include <QtCore/private/qcore_mac_p.h>
 
+#include <QtGui/qpainterpath.h>
 #include <QtGui/private/qcoregraphics_p.h>
 #include <QtGui/qpa/qplatformfontdatabase.h>
 #include <QtGui/qpa/qplatformtheme.h>
@@ -236,6 +237,18 @@ static QLinearGradient titlebarGradientInactive()
 }
 
 #if QT_CONFIG(tabwidget)
+/*
+    Since macOS 10.14 AppKit is using transparency more extensively, especially for the
+    dark theme. Inactive buttons, for example, are semi-transparent. And we use them to
+    draw tab widget's tab bar. The combination of NSBox (also a part of tab widget)
+    and these transparent buttons gives us an undesired side-effect: an outline of
+    NSBox is visible through transparent buttons. To avoid this, we have this hack below:
+    we clip the area where the line would be visible through the buttons. The area we
+    want to clip away can be described as an intersection of the option's rect and
+    the tab widget's tab bar rect. But some adjustments are required, since those rects
+    are anyway adjusted during the rendering and they are not exactly what you'll see on
+    the screen. Thus this switch-statement inside.
+*/
 static void clipTabBarFrame(const QStyleOption *option, const QMacStyle *style, CGContextRef ctx)
 {
     Q_ASSERT(option);
@@ -246,7 +259,19 @@ static void clipTabBarFrame(const QStyleOption *option, const QMacStyle *style, 
         QTabWidget *tabWidget = qobject_cast<QTabWidget *>(option->styleObject);
         Q_ASSERT(tabWidget);
 
-        const QRect tabBarRect = style->subElementRect(QStyle::SE_TabWidgetTabBar, option, tabWidget).adjusted(2, 2, -3, -2);
+        QRect tabBarRect = style->subElementRect(QStyle::SE_TabWidgetTabBar, option, tabWidget).adjusted(2, 0, -3, 0);
+        switch (tabWidget->tabPosition()) {
+        case QTabWidget::South:
+            tabBarRect.setY(tabBarRect.y() + tabBarRect.height() / 2);
+            break;
+        case QTabWidget::North:
+        case QTabWidget::West:
+            tabBarRect = tabBarRect.adjusted(0, 2, 0, -2);
+            break;
+        case QTabWidget::East:
+            tabBarRect = tabBarRect.adjusted(tabBarRect.width() / 2, 2, tabBarRect.width() / 2, -2);
+        }
+
         const QRegion clipPath = QRegion(option->rect) - tabBarRect;
         QVarLengthArray<CGRect, 3> cgRects;
         for (const QRect &qtRect : clipPath)
@@ -1388,13 +1413,21 @@ void QMacStylePrivate::tabLayout(const QStyleOptionTab *opt, const QWidget *widg
         // High-dpi icons do not need adjustment; make sure tabIconSize is not larger than iconSize
         tabIconSize = QSize(qMin(tabIconSize.width(), iconSize.width()), qMin(tabIconSize.height(), iconSize.height()));
 
-        *iconRect = QRect(tr.left(), tr.center().y() - tabIconSize.height() / 2,
-                    tabIconSize.width(), tabIconSize.height());
+        const int stylePadding = proxyStyle->pixelMetric(QStyle::PM_TabBarTabHSpace, opt, widget) / 2 - hpadding;
+
+        if (opt->documentMode) {
+            // documents show the icon as part of the the text
+            const int textWidth =
+                opt->fontMetrics.boundingRect(tr, Qt::AlignCenter | Qt::TextShowMnemonic, opt->text).width();
+            *iconRect = QRect(tr.center().x() - textWidth / 2 - stylePadding - tabIconSize.width(),
+                              tr.center().y() - tabIconSize.height() / 2,
+                              tabIconSize.width(), tabIconSize.height());
+        } else {
+            *iconRect = QRect(tr.left() + stylePadding, tr.center().y() - tabIconSize.height() / 2,
+                        tabIconSize.width(), tabIconSize.height());
+        }
         if (!verticalTabs)
             *iconRect = proxyStyle->visualRect(opt->direction, opt->rect, *iconRect);
-
-        int stylePadding = proxyStyle->pixelMetric(QStyle::PM_TabBarTabHSpace, opt, widget) / 2;
-        stylePadding -= hpadding;
 
         tr.setLeft(tr.left() + stylePadding + tabIconSize.width() + 4);
         tr.setRight(tr.right() - stylePadding - tabIconSize.width() - 4);
@@ -2553,7 +2586,7 @@ QPalette QMacStyle::standardPalette() const
     auto platformTheme = QGuiApplicationPrivate::platformTheme();
     auto styleNames = platformTheme->themeHint(QPlatformTheme::StyleNames);
     if (styleNames.toStringList().contains("macintosh"))
-        return *platformTheme->palette();
+        return QPalette(); // Inherit everything from theme
     else
         return QStyle::standardPalette();
 }
@@ -2873,7 +2906,7 @@ int QMacStyle::styleHint(StyleHint sh, const QStyleOption *opt, const QWidget *w
         ret = false;
         break;
     case SH_Table_GridLineColor:
-        ret = int(qt_mac_toQColor(NSColor.gridColor).rgb());
+        ret = int(qt_mac_toQColor(NSColor.gridColor).rgba());
         break;
     default:
         ret = QCommonStyle::styleHint(sh, opt, w, hret);
@@ -3064,13 +3097,18 @@ void QMacStyle::drawPrimitive(PrimitiveElement pe, const QStyleOption *opt, QPai
         bool needTranslation = false;
         if (QOperatingSystemVersion::current() >= QOperatingSystemVersion::MacOSMojave
             && !qt_mac_applicationIsInDarkMode()) {
-            // Another surprise from AppKit (SDK 10.14) - -displayRectIgnoringOpacity:
-            // is different from drawRect: for some Apple-known reason box is smaller
-            // in height than we need, resulting in tab buttons sitting too high/not
-            // centered. Attempts to play with insets etc did not work - the same wrong
-            // height. Simple translation is not working (too much space "at bottom"),
-            // so we make it bigger and translate (otherwise it's clipped at bottom btw).
-            adjustedRect.adjust(0, 0, 0, 3);
+            // In Aqua theme we have to use the 'default' NSBox (as opposite
+            // to the 'custom' QDarkNSBox we use in dark theme). Since -drawRect:
+            // does nothing in default NSBox, we call -displayRectIgnoringOpaticty:.
+            // Unfortunately, the resulting box is smaller then the actual rect we
+            // wanted. This can be seen, e.g. because tabs (buttons) are misaligned
+            // vertically and even worse, if QTabWidget has autoFillBackground
+            // set, this background overpaints NSBox making it to disappear.
+            // We trick our NSBox to render in a larger rectangle, so that
+            // the actuall result (which is again smaller than requested),
+            // more or less is what we really want. We'll have to adjust CTM
+            // and translate accordingly.
+            adjustedRect.adjust(0, 0, 6, 6);
             needTranslation = true;
         }
         d->drawNSViewInRect(box, adjustedRect, p, ^(CGContextRef ctx, const CGRect &rect) {
@@ -3085,7 +3123,7 @@ void QMacStyle::drawPrimitive(PrimitiveElement pe, const QStyleOption *opt, QPai
                 [box drawRect:rect];
             } else {
                 if (needTranslation)
-                    CGContextTranslateCTM(ctx, 0.0, 4.0);
+                    CGContextTranslateCTM(ctx, -3.0, 5.0);
                 [box displayRectIgnoringOpacity:box.bounds inContext:NSGraphicsContext.currentContext];
             }
         });
@@ -3939,13 +3977,19 @@ void QMacStyle::drawControl(ControlElement ce, const QStyleOption *opt, QPainter
                 // which makes no sense on tabs.
                 NSPopUpArrowPosition oldPosition = NSPopUpArrowAtCenter;
                 NSPopUpButtonCell *pbCell = nil;
-                if (isPopupButton) {
+                auto rAdjusted = r;
+                if (isPopupButton && tp == QStyleOptionTab::OnlyOneTab) {
                     pbCell = static_cast<NSPopUpButtonCell *>(pb.cell);
                     oldPosition = pbCell.arrowPosition;
                     pbCell.arrowPosition = NSPopUpNoArrow;
+                    if (pb.state == NSControlStateValueOff) {
+                        // NSPopUpButton in this state is smaller.
+                        rAdjusted.origin.x -= 3;
+                        rAdjusted.size.width += 6;
+                    }
                 }
 
-                [pb.cell drawBezelWithFrame:r inView:pb.superview];
+                [pb.cell drawBezelWithFrame:rAdjusted inView:pb.superview];
 
                 if (pbCell) // Restore, we may reuse it for a ComboBox.
                     pbCell.arrowPosition = oldPosition;
@@ -4594,6 +4638,7 @@ QRect QMacStyle::subElementRect(SubElement sr, const QStyleOption *opt,
     case SE_ToolBoxTabContents:
         rect = QCommonStyle::subElementRect(sr, opt, widget);
         break;
+    case SE_PushButtonBevel:
     case SE_PushButtonContents:
         if (const QStyleOptionButton *btn = qstyleoption_cast<const QStyleOptionButton *>(opt)) {
             // Comment from the old HITheme days:
@@ -4607,9 +4652,18 @@ QRect QMacStyle::subElementRect(SubElement sr, const QStyleOption *opt,
             const auto ct = cocoaControlType(btn, widget);
             const auto cs = d->effectiveAquaSizeConstrain(btn, widget);
             const auto cw = QMacStylePrivate::CocoaControl(ct, cs);
-            const auto frameRect = cw.adjustedControlFrame(btn->rect);
-            const auto titleMargins = cw.titleMargins();
-            rect = (frameRect - titleMargins).toRect();
+            auto frameRect = cw.adjustedControlFrame(btn->rect);
+            if (sr == SE_PushButtonContents) {
+                frameRect -= cw.titleMargins();
+            } else if (cw.type != QMacStylePrivate::Button_SquareButton) {
+                auto *pb = static_cast<NSButton *>(d->cocoaControl(cw));
+                frameRect = QRectF::fromCGRect([pb alignmentRectForFrame:frameRect.toCGRect()]);
+                if (cw.type == QMacStylePrivate::Button_PushButton)
+                    frameRect -= pushButtonShadowMargins[cw.size];
+                else if (cw.type == QMacStylePrivate::Button_PullDown)
+                    frameRect -= pullDownButtonShadowMargins[cw.size];
+            }
+            rect = frameRect.toRect();
         }
         break;
     case SE_HeaderLabel: {
@@ -5343,7 +5397,6 @@ void QMacStyle::drawComplexControl(ComplexControl cc, const QStyleOptionComplex 
                 } else
 #endif
                 {
-                    [slider calcSize];
                     if (!hasDoubleTicks)
                         fixStaleGeometry(slider);
                     NSSliderCell *cell = slider.cell;
@@ -5355,7 +5408,18 @@ void QMacStyle::drawComplexControl(ComplexControl cc, const QStyleOptionComplex 
 
                     const CGRect barRect = [cell barRectFlipped:hasTicks];
                     if (drawBar) {
-                        [cell drawBarInside:barRect flipped:!verticalFlip];
+                        if (!isHorizontal && !sl->upsideDown && (hasDoubleTicks || !hasTicks)) {
+                            // The logic behind verticalFlip and upsideDown is the twisted one.
+                            // Bar is the only part of the cell affected by this 'flipped'
+                            // parameter in the call below, all other parts (knob, etc.) 'fixed'
+                            // by scaling/translating. With ticks on one side it's not a problem
+                            // at all - the bar is gray anyway. Without ticks or with ticks on
+                            // the both sides, for inverted appearance and vertical orientation -
+                            // we must flip so that knob and blue filling work in accordance.
+                            [cell drawBarInside:barRect flipped:true];
+                        } else {
+                            [cell drawBarInside:barRect flipped:!verticalFlip];
+                        }
                         // This ain't HIG kosher: force unfilled bar look.
                         if (hasDoubleTicks)
                             slider.numberOfTickMarks = numberOfTickMarks;
@@ -5728,7 +5792,6 @@ QStyle::SubControl QMacStyle::hitTestComplexControl(ComplexControl cc,
             if (!setupSlider(slider, sl))
                 break;
 
-            [slider calcSize];
             NSSliderCell *cell = slider.cell;
             const auto barRect = QRectF::fromCGRect([cell barRectFlipped:hasTicks]);
             const auto knobRect = QRectF::fromCGRect([cell knobRectFlipped:NO]);
@@ -5833,7 +5896,6 @@ QRect QMacStyle::subControlRect(ComplexControl cc, const QStyleOptionComplex *op
             if (!setupSlider(slider, sl))
                 break;
 
-            [slider calcSize];
             NSSliderCell *cell = slider.cell;
             if (sc == SC_SliderHandle) {
                 ret = QRectF::fromCGRect([cell knobRectFlipped:NO]).toRect();

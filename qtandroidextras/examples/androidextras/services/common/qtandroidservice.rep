@@ -1,0 +1,4 @@
+class QtAndroidService {
+    SLOT(void sendToService(const QString &name));
+    SIGNAL(messageFromService(const QString &message));
+}

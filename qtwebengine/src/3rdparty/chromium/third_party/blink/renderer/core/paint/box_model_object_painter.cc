@@ -103,7 +103,7 @@ PhysicalRect BoxModelObjectPainter::AdjustRectForScrolledContent(
 
   // Adjust the paint rect to reflect a scrolled content box with borders at
   // the ends.
-  PhysicalOffset offset(this_box.ScrolledContentOffset());
+  PhysicalOffset offset(this_box.PixelSnappedScrolledContentOffset());
   scrolled_paint_rect.Move(-offset);
   LayoutRectOutsets border = AdjustedBorderOutsets(info);
   scrolled_paint_rect.SetWidth(border.Left() + this_box.ScrollWidth() +
@@ -129,7 +129,8 @@ BoxPainterBase::FillLayerInfo BoxModelObjectPainter::GetFillLayerInfo(
       box_model_.GetDocument(), box_model_.StyleRef(),
       box_model_.HasOverflowClip(), color, bg_layer, bleed_avoidance,
       (flow_box_ ? flow_box_->IncludeLogicalLeftEdge() : true),
-      (flow_box_ ? flow_box_->IncludeLogicalRightEdge() : true));
+      (flow_box_ ? flow_box_->IncludeLogicalRightEdge() : true),
+      box_model_.IsInline());
 }
 
 }  // namespace blink

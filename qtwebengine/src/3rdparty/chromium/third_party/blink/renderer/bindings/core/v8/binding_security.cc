@@ -30,6 +30,7 @@
 
 #include "third_party/blink/renderer/bindings/core/v8/binding_security.h"
 
+#include "third_party/blink/public/mojom/feature_policy/feature_policy.mojom-blink.h"
 #include "third_party/blink/renderer/bindings/core/v8/v8_binding_for_core.h"
 #include "third_party/blink/renderer/bindings/core/v8/v8_location.h"
 #include "third_party/blink/renderer/bindings/core/v8/v8_window.h"
@@ -39,12 +40,24 @@
 #include "third_party/blink/renderer/core/frame/local_frame.h"
 #include "third_party/blink/renderer/core/frame/location.h"
 #include "third_party/blink/renderer/core/frame/settings.h"
+#include "third_party/blink/renderer/core/frame/web_feature.h"
 #include "third_party/blink/renderer/core/html/html_frame_element_base.h"
 #include "third_party/blink/renderer/platform/bindings/exception_state.h"
 #include "third_party/blink/renderer/platform/instrumentation/use_counter.h"
 #include "third_party/blink/renderer/platform/weborigin/security_origin.h"
 
 namespace blink {
+
+namespace {
+
+// Documents that have the same WindowAgentFactory should be able to
+// share data with each other if they have the same Agent and are
+// SameOriginDomain.
+bool IsSameWindowAgentFactory(Document* doc1, Document* doc2) {
+  return doc1->GetWindowAgentFactory() == doc2->GetWindowAgentFactory();
+}
+
+}  // namespace
 
 void BindingSecurity::Init() {
   BindingSecurityForPlatform::SetShouldAllowAccessToV8ContextWithExceptionState(
@@ -60,13 +73,17 @@ void BindingSecurity::Init() {
 
 namespace {
 
-void ReportOrThrowSecurityError(const LocalDOMWindow* accessing_window,
-                                const DOMWindow* target_window,
-                                ExceptionState& exception_state) {
+void ReportOrThrowSecurityError(
+    const LocalDOMWindow* accessing_window,
+    const DOMWindow* target_window,
+    DOMWindow::CrossDocumentAccessPolicy cross_document_access,
+    ExceptionState& exception_state) {
   if (target_window) {
     exception_state.ThrowSecurityError(
-        target_window->SanitizedCrossDomainAccessErrorMessage(accessing_window),
-        target_window->CrossDomainAccessErrorMessage(accessing_window));
+        target_window->SanitizedCrossDomainAccessErrorMessage(
+            accessing_window, cross_document_access),
+        target_window->CrossDomainAccessErrorMessage(accessing_window,
+                                                     cross_document_access));
   } else {
     exception_state.ThrowSecurityError("Cross origin access was denied.");
   }
@@ -75,13 +92,15 @@ void ReportOrThrowSecurityError(const LocalDOMWindow* accessing_window,
 void ReportOrThrowSecurityError(
     const LocalDOMWindow* accessing_window,
     const DOMWindow* target_window,
+    DOMWindow::CrossDocumentAccessPolicy cross_document_access,
     BindingSecurity::ErrorReportOption reporting_option) {
   if (reporting_option == BindingSecurity::ErrorReportOption::kDoNotReport)
     return;
 
   if (accessing_window && target_window) {
     accessing_window->PrintErrorMessage(
-        target_window->CrossDomainAccessErrorMessage(accessing_window));
+        target_window->CrossDomainAccessErrorMessage(accessing_window,
+                                                     cross_document_access));
   } else if (accessing_window) {
     accessing_window->PrintErrorMessage("Cross origin access was denied.");
   } else {
@@ -89,10 +108,14 @@ void ReportOrThrowSecurityError(
   }
 }
 
-bool CanAccessWindowInternal(const LocalDOMWindow* accessing_window,
-                             const DOMWindow* target_window) {
+bool CanAccessWindowInternal(
+    const LocalDOMWindow* accessing_window,
+    const DOMWindow* target_window,
+    DOMWindow::CrossDocumentAccessPolicy* cross_document_access) {
   SECURITY_CHECK(!(target_window && target_window->GetFrame()) ||
                  target_window == target_window->GetFrame()->DomWindow());
+  DCHECK_EQ(DOMWindow::CrossDocumentAccessPolicy::kAllowed,
+            *cross_document_access);
 
   // It's important to check that target_window is a LocalDOMWindow: it's
   // possible for a remote frame and local frame to have the same security
@@ -118,8 +141,21 @@ bool CanAccessWindowInternal(const LocalDOMWindow* accessing_window,
         can_access ? WebFeature::kDocumentDomainEnabledCrossOriginAccess
                    : WebFeature::kDocumentDomainBlockedCrossOriginAccess);
   }
-  if (!can_access)
+  if (!can_access) {
+    // Ensure that if we got a cluster mismatch that it was due to a feature
+    // policy being enabled and not a logic bug.
+    if (detail == SecurityOrigin::AccessResultDomainDetail::
+                      kDomainNotRelevantAgentClusterMismatch) {
+      // Assert that because the agent clusters are different than the
+      // WindowAgentFactories must also be different.
+      SECURITY_CHECK(!IsSameWindowAgentFactory(
+          accessing_window->document(), local_target_window->document()));
+
+      *cross_document_access =
+          DOMWindow::CrossDocumentAccessPolicy::kDisallowed;
+    }
     return false;
+  }
 
   // Notify the loader's client if the initial document has been accessed.
   LocalFrame* target_frame = local_target_window->GetFrame();
@@ -134,10 +170,14 @@ template <typename ExceptionStateOrErrorReportOption>
 bool CanAccessWindow(const LocalDOMWindow* accessing_window,
                      const DOMWindow* target_window,
                      ExceptionStateOrErrorReportOption& error_report) {
-  if (CanAccessWindowInternal(accessing_window, target_window))
+  DOMWindow::CrossDocumentAccessPolicy cross_document_access =
+      DOMWindow::CrossDocumentAccessPolicy::kAllowed;
+  if (CanAccessWindowInternal(accessing_window, target_window,
+                              &cross_document_access))
     return true;
 
-  ReportOrThrowSecurityError(accessing_window, target_window, error_report);
+  ReportOrThrowSecurityError(accessing_window, target_window,
+                             cross_document_access, error_report);
   return false;
 }
 
@@ -328,6 +368,7 @@ bool ShouldAllowAccessToV8ContextInternal(
   // are unconditionally treated as cross origin.
   if (target_context.IsEmpty()) {
     ReportOrThrowSecurityError(ToLocalDOMWindow(accessing_context), nullptr,
+                               DOMWindow::CrossDocumentAccessPolicy::kAllowed,
                                error_report);
     return false;
   }
@@ -432,13 +473,28 @@ void BindingSecurity::FailedAccessCheckFor(v8::Isolate* isolate,
   if (!target->GetFrame())
     return;
 
+  auto* local_dom_window = CurrentDOMWindow(isolate);
+  // Determine if the access check failure was because of cross-origin or if the
+  // WindowAgentFactory is different. If the WindowAgentFactories are different
+  // it indicates that the "disallowdocumentaccess" attribute was used on an
+  // iframe somewhere in the ancestor chain so report the error as "restricted"
+  // instead of "cross-origin".
+  DOMWindow::CrossDocumentAccessPolicy cross_document_access =
+      (!target->ToLocalDOMWindow() ||
+       IsSameWindowAgentFactory(local_dom_window->document(),
+                                target->ToLocalDOMWindow()->document()))
+          ? DOMWindow::CrossDocumentAccessPolicy::kAllowed
+          : DOMWindow::CrossDocumentAccessPolicy::kDisallowed;
+
   // TODO(dcheng): Add ContextType, interface name, and property name as
   // arguments, so the generated exception can be more descriptive.
   ExceptionState exception_state(isolate, ExceptionState::kUnknownContext,
                                  nullptr, nullptr);
   exception_state.ThrowSecurityError(
-      target->SanitizedCrossDomainAccessErrorMessage(CurrentDOMWindow(isolate)),
-      target->CrossDomainAccessErrorMessage(CurrentDOMWindow(isolate)));
+      target->SanitizedCrossDomainAccessErrorMessage(local_dom_window,
+                                                     cross_document_access),
+      target->CrossDomainAccessErrorMessage(local_dom_window,
+                                            cross_document_access));
 }
 
 bool BindingSecurity::ShouldAllowNamedAccessTo(

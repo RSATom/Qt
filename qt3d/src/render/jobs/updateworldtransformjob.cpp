@@ -42,7 +42,6 @@
 #include <Qt3DCore/qtransform.h>
 #include <Qt3DCore/private/qtransform_p.h>
 #include <Qt3DCore/private/qaspectmanager_p.h>
-#include <Qt3DRender/private/renderer_p.h>
 #include <Qt3DRender/private/entity_p.h>
 #include <Qt3DRender/private/transform_p.h>
 #include <Qt3DRender/private/renderlogging_p.h>
@@ -109,7 +108,7 @@ UpdateWorldTransformJob::UpdateWorldTransformJob()
     , m_node(nullptr)
     , m_manager(nullptr)
 {
-    SET_JOB_RUN_STAT_TYPE(this, JobTypes::UpdateTransform, 0);
+    SET_JOB_RUN_STAT_TYPE(this, JobTypes::UpdateTransform, 0)
 }
 
 void UpdateWorldTransformJob::setRoot(Entity *root)
@@ -131,7 +130,7 @@ void UpdateWorldTransformJob::run()
     // TODO: Parallelise this on each level using a parallel_for
     // implementation.
 
-    Q_DJOB(UpdateWorldTransformJob);
+    Q_D(UpdateWorldTransformJob);
     qCDebug(Jobs) << "Entering" << Q_FUNC_INFO << QThread::currentThread();
 
     Matrix4x4 parentTransform;

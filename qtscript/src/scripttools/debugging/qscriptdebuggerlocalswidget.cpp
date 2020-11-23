@@ -343,7 +343,7 @@ void QScriptDebuggerLocalsItemDelegate::paint(QPainter *painter, const QStyleOpt
 }
 
 QScriptDebuggerLocalsWidget::QScriptDebuggerLocalsWidget(QWidget *parent)
-    : QScriptDebuggerLocalsWidgetInterface(*new QScriptDebuggerLocalsWidgetPrivate, parent, 0)
+    : QScriptDebuggerLocalsWidgetInterface(*new QScriptDebuggerLocalsWidgetPrivate, parent, {})
 {
     Q_D(QScriptDebuggerLocalsWidget);
     d->view = new QTreeView();

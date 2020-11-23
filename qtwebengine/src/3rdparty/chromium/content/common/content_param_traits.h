@@ -14,12 +14,12 @@
 #ifndef CONTENT_COMMON_CONTENT_PARAM_TRAITS_H_
 #define CONTENT_COMMON_CONTENT_PARAM_TRAITS_H_
 
+#include "base/memory/ref_counted.h"
+#include "cc/ipc/cc_param_traits_macros.h"
 #include "content/common/content_param_traits_macros.h"
 #include "content/common/cursors/webcursor.h"
 #include "ipc/ipc_mojo_param_traits.h"
 #include "net/base/hash_value.h"
-#include "storage/common/blob_storage/blob_handle.h"
-#include "third_party/blink/public/platform/web_input_event.h"
 #include "ui/accessibility/ax_mode.h"
 
 namespace blink {
@@ -53,18 +53,6 @@ struct CONTENT_EXPORT ParamTraits<content::WebCursor> {
   static void Log(const param_type& p, std::string* l);
 };
 
-typedef const blink::WebInputEvent* WebInputEventPointer;
-template <>
-struct ParamTraits<WebInputEventPointer> {
-  typedef WebInputEventPointer param_type;
-  static void Write(base::Pickle* m, const param_type& p);
-  // Note: upon read, the event has the lifetime of the message.
-  static bool Read(const base::Pickle* m,
-                   base::PickleIterator* iter,
-                   param_type* r);
-  static void Log(const param_type& p, std::string* l);
-};
-
 template <>
 struct CONTENT_EXPORT ParamTraits<blink::MessagePortChannel> {
   typedef blink::MessagePortChannel param_type;
@@ -88,16 +76,6 @@ struct CONTENT_EXPORT ParamTraits<blink::PolicyValue> {
 template <>
 struct CONTENT_EXPORT ParamTraits<ui::AXMode> {
   typedef ui::AXMode param_type;
-  static void Write(base::Pickle* m, const param_type& p);
-  static bool Read(const base::Pickle* m,
-                   base::PickleIterator* iter,
-                   param_type* r);
-  static void Log(const param_type& p, std::string* l);
-};
-
-template <>
-struct CONTENT_EXPORT ParamTraits<scoped_refptr<storage::BlobHandle>> {
-  typedef scoped_refptr<storage::BlobHandle> param_type;
   static void Write(base::Pickle* m, const param_type& p);
   static bool Read(const base::Pickle* m,
                    base::PickleIterator* iter,

@@ -153,15 +153,15 @@ namespace QPatternist
     };
 }
 
-struct YYLTYPE
+struct XPATHLTYPE
 {
   int first_line;
   int first_column;
   int last_line;
   int last_column;
 };
-#ifndef YYLTYPE_IS_DECLARED
-#  define YYLTYPE_IS_DECLARED
+#ifndef XPATHLTYPE_IS_DECLARED
+#  define XPATHLTYPE_IS_DECLARED
 #endif
 
 QT_END_NAMESPACE

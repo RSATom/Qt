@@ -46,6 +46,7 @@
 #include <qdebug.h>
 #include <qvector.h>
 #include <qregexp.h>
+#include <qregularexpression.h>
 #include <qstack.h>
 #include <qbitarray.h>
 #include <qdatetime.h>
@@ -60,7 +61,7 @@ Q_LOGGING_CATEGORY(lcCheckIndex, "qt.core.qabstractitemmodel.checkindex")
 QPersistentModelIndexData *QPersistentModelIndexData::create(const QModelIndex &index)
 {
     Q_ASSERT(index.isValid()); // we will _never_ insert an invalid index in the list
-    QPersistentModelIndexData *d = 0;
+    QPersistentModelIndexData *d = nullptr;
     QAbstractItemModel *model = const_cast<QAbstractItemModel *>(index.model());
     QHash<QModelIndex, QPersistentModelIndexData *> &indexes = model->d_func()->persistent.indexes;
     const auto it = indexes.constFind(index);
@@ -138,7 +139,7 @@ void QPersistentModelIndexData::destroy(QPersistentModelIndexData *data)
 */
 
 QPersistentModelIndex::QPersistentModelIndex()
-    : d(0)
+    : d(nullptr)
 {
 }
 
@@ -160,7 +161,7 @@ QPersistentModelIndex::QPersistentModelIndex(const QPersistentModelIndex &other)
 */
 
 QPersistentModelIndex::QPersistentModelIndex(const QModelIndex &index)
-    : d(0)
+    : d(nullptr)
 {
     if (index.isValid()) {
         d = QPersistentModelIndexData::create(index);
@@ -178,7 +179,7 @@ QPersistentModelIndex::~QPersistentModelIndex()
 {
     if (d && !d->ref.deref()) {
         QPersistentModelIndexData::destroy(d);
-        d = 0;
+        d = nullptr;
     }
 }
 
@@ -259,7 +260,7 @@ QPersistentModelIndex &QPersistentModelIndex::operator=(const QModelIndex &other
         d = QPersistentModelIndexData::create(other);
         if (d) d->ref.ref();
     } else {
-        d = 0;
+        d = nullptr;
     }
     return *this;
 }
@@ -346,7 +347,7 @@ void *QPersistentModelIndex::internalPointer() const
 {
     if (d)
         return d->index.internalPointer();
-    return 0;
+    return nullptr;
 }
 
 /*!
@@ -434,7 +435,7 @@ Qt::ItemFlags QPersistentModelIndex::flags() const
 {
     if (d)
         return d->index.flags();
-    return 0;
+    return { };
 }
 
 /*!
@@ -444,7 +445,7 @@ const QAbstractItemModel *QPersistentModelIndex::model() const
 {
     if (d)
         return d->index.model();
-    return 0;
+    return nullptr;
 }
 
 /*!
@@ -486,7 +487,7 @@ QDebug operator<<(QDebug dbg, const QPersistentModelIndex &idx)
 class QEmptyItemModel : public QAbstractItemModel
 {
 public:
-    explicit QEmptyItemModel(QObject *parent = 0) : QAbstractItemModel(parent) {}
+    explicit QEmptyItemModel(QObject *parent = nullptr) : QAbstractItemModel(parent) {}
     QModelIndex index(int, int, const QModelIndex &) const override { return QModelIndex(); }
     QModelIndex parent(const QModelIndex &) const override { return QModelIndex(); }
     int rowCount(const QModelIndex &) const override { return 0; }
@@ -554,32 +555,32 @@ const QHash<int,QByteArray> &QAbstractItemModelPrivate::defaultRoleNames()
 bool QAbstractItemModelPrivate::isVariantLessThan(const QVariant &left, const QVariant &right,
                                                   Qt::CaseSensitivity cs, bool isLocaleAware)
 {
-    if (left.userType() == QVariant::Invalid)
+    if (left.userType() == QMetaType::UnknownType)
         return false;
-    if (right.userType() == QVariant::Invalid)
+    if (right.userType() == QMetaType::UnknownType)
         return true;
     switch (left.userType()) {
-    case QVariant::Int:
+    case QMetaType::Int:
         return left.toInt() < right.toInt();
-    case QVariant::UInt:
+    case QMetaType::UInt:
         return left.toUInt() < right.toUInt();
-    case QVariant::LongLong:
+    case QMetaType::LongLong:
         return left.toLongLong() < right.toLongLong();
-    case QVariant::ULongLong:
+    case QMetaType::ULongLong:
         return left.toULongLong() < right.toULongLong();
     case QMetaType::Float:
         return left.toFloat() < right.toFloat();
-    case QVariant::Double:
+    case QMetaType::Double:
         return left.toDouble() < right.toDouble();
-    case QVariant::Char:
+    case QMetaType::QChar:
         return left.toChar() < right.toChar();
-    case QVariant::Date:
+    case QMetaType::QDate:
         return left.toDate() < right.toDate();
-    case QVariant::Time:
+    case QMetaType::QTime:
         return left.toTime() < right.toTime();
-    case QVariant::DateTime:
+    case QMetaType::QDateTime:
         return left.toDateTime() < right.toDateTime();
-    case QVariant::String:
+    case QMetaType::QString:
     default:
         if (isLocaleAware)
             return left.toString().localeAwareCompare(right.toString()) < 0;
@@ -593,19 +594,19 @@ static uint typeOfVariant(const QVariant &value)
 {
     //return 0 for integer, 1 for floating point and 2 for other
     switch (value.userType()) {
-        case QVariant::Bool:
-        case QVariant::Int:
-        case QVariant::UInt:
-        case QVariant::LongLong:
-        case QVariant::ULongLong:
-        case QVariant::Char:
+        case QMetaType::Bool:
+        case QMetaType::Int:
+        case QMetaType::UInt:
+        case QMetaType::LongLong:
+        case QMetaType::ULongLong:
+        case QMetaType::QChar:
         case QMetaType::Short:
         case QMetaType::UShort:
         case QMetaType::UChar:
         case QMetaType::ULong:
         case QMetaType::Long:
             return 0;
-        case QVariant::Double:
+        case QMetaType::Double:
         case QMetaType::Float:
             return 1;
         default:
@@ -1952,10 +1953,10 @@ QStringList QAbstractItemModel::mimeTypes() const
 QMimeData *QAbstractItemModel::mimeData(const QModelIndexList &indexes) const
 {
     if (indexes.count() <= 0)
-        return 0;
+        return nullptr;
     QStringList types = mimeTypes();
     if (types.isEmpty())
-        return 0;
+        return nullptr;
     QMimeData *data = new QMimeData();
     QString format = types.at(0);
     QByteArray encoded;
@@ -2298,7 +2299,7 @@ Qt::ItemFlags QAbstractItemModel::flags(const QModelIndex &index) const
 {
     Q_D(const QAbstractItemModel);
     if (!d->indexValid(index))
-        return 0;
+        return { };
 
     return Qt::ItemIsSelectable|Qt::ItemIsEnabled;
 }
@@ -2361,6 +2362,7 @@ QModelIndexList QAbstractItemModel::match(const QModelIndex &start, int role,
     bool wrap = flags & Qt::MatchWrap;
     bool allHits = (hits == -1);
     QString text; // only convert to a string if it is needed
+    QRegularExpression rx; // only create it if needed
     const int column = start.column();
     QModelIndex p = parent(start);
     int from = start.row();
@@ -2377,17 +2379,42 @@ QModelIndexList QAbstractItemModel::match(const QModelIndex &start, int role,
             if (matchType == Qt::MatchExactly) {
                 if (value == v)
                     result.append(idx);
-            } else { // QString based matching
-                if (text.isEmpty()) // lazy conversion
-                    text = value.toString();
+            } else { // QString or regular expression based matching
+                if (matchType == Qt::MatchRegularExpression) {
+                    if (rx.pattern().isEmpty()) {
+                        if (value.userType() == QMetaType::QRegularExpression) {
+                            rx = value.toRegularExpression();
+                        } else {
+                            rx.setPattern(value.toString());
+                            if (cs == Qt::CaseInsensitive)
+                                rx.setPatternOptions(QRegularExpression::CaseInsensitiveOption);
+                        }
+                    }
+                } else if (matchType == Qt::MatchWildcard) {
+                    if (rx.pattern().isEmpty())
+                        rx.setPattern(QRegularExpression::wildcardToRegularExpression(value.toString()));
+                    if (cs == Qt::CaseInsensitive)
+                        rx.setPatternOptions(QRegularExpression::CaseInsensitiveOption);
+                } else {
+                    if (text.isEmpty()) // lazy conversion
+                        text = value.toString();
+                }
+
                 QString t = v.toString();
                 switch (matchType) {
+#if QT_DEPRECATED_SINCE(5, 15)
+QT_WARNING_PUSH
+QT_WARNING_DISABLE_DEPRECATED
                 case Qt::MatchRegExp:
                     if (QRegExp(text, cs).exactMatch(t))
                         result.append(idx);
                     break;
+QT_WARNING_POP
+#endif
+                case Qt::MatchRegularExpression:
+                    Q_FALLTHROUGH();
                 case Qt::MatchWildcard:
-                    if (QRegExp(text, cs, QRegExp::Wildcard).exactMatch(t))
+                    if (t.contains(rx))
                         result.append(idx);
                     break;
                 case Qt::MatchStartsWith:

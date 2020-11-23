@@ -54,7 +54,7 @@ class BODYMOVIN_EXPORT BMRepeater : public BMShape
 {
 public:
     BMRepeater() = default;
-    explicit BMRepeater(const BMRepeater &other);
+    explicit BMRepeater(const BMRepeater &other) = default;
     BMRepeater(const QJsonObject &definition, BMBase *parent = nullptr);
 
     BMBase *clone() const override;

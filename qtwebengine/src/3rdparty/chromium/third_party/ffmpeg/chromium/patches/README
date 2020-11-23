@@ -208,16 +208,6 @@ Affects:
     libavutil/x86/x86inc.asm
 
 ------------------------------------------------------------------
-commit bd4eee53ada8fab27217d37c2ca881dae3bb3ba4
-Author: Dale Curtis <dalecurtis@chromium.org>
-Date:   Tue Sep 15 18:37:44 2015 -0700
-
-    Restore removal of const EbmlSyntax to fix Windows compile error.
-
-Affects:
-    libavformat/matroskadec.c
-
-------------------------------------------------------------------
 commit 703d465a5e4ffd326abb7b68e8541df370a26d55
 Author: Dale Curtis <dalecurtis@chromium.org>
 Date:   Wed Sep 16 15:08:49 2015 -0700
@@ -381,7 +371,6 @@ Date:   Tue Jan 17 17:44:18 2017 -0800
 
 Affects:
     compat/atomics/win32/stdatomic.h
-    libavformat/matroskadec.c
 
 ------------------------------------------------------------------
 commit f058fa86bb0e7e43d4208eb05a71c8ce46487611
@@ -682,27 +671,6 @@ Affects:
     configure
 
 ------------------------------------------------------------------
-commit a5ef4a7a43af84dda13a34db34d709bad59f004c
-Author: liberato@chromium.org <liberato@chromium.org>
-Date:   Wed May 9 10:50:32 2018 -0700
-
-    Explicitly turn off v4l2 in configure.
-
-    configure seems to enable v4l2-m2m even if we explicitly turn it
-    off with arguments.
-
-    This CL makes configure check the command-line arguments, and skip
-    v4l2 (and v4l2-m2m) if they're turned off.
-
-    Bug: 841360
-    Change-Id: I3c597c12e91631ecd9b526cdea056e064901e008
-    Reviewed-on: https://chromium-review.googlesource.com/1052372
-    Reviewed-by: Matthew Wolenetz <wolenetz@chromium.org>
-
-Affects:
-    configure
-
-------------------------------------------------------------------
 commit f3680cd7365f99a0c3f77b06d664adc69a0624c4
 Author: liberato@chromium.org <liberato@chromium.org>
 Date:   Thu May 24 13:43:24 2018 -0700
@@ -829,40 +797,17 @@ Affects:
     libavcodec/libopusdec.c
 
 ------------------------------------------------------------------
-commit feb5456cf973a819ace9a5001256f168631b6788
-Merge: 464c195d8b 81d3d7dd44
-Author: Matt Wolenetz <wolenetz@chromium.org>
-Date:   Fri Jul 12 15:20:19 2019 -0700
+commit d7ba23c23434eb938c6fcae4fe77ca1e2a2fbeff
+Author: liberato@chromium.org <liberato@chromium.org>
+Date:   Thu Aug 22 10:52:09 2019 -0700
 
-    Merge remote-tracking branch 'upstream/master' into sushi-2019-07-12-14-09-15
+    Fail matroska parsing with an error rather than assert.
 
-    Manually resolved conflicts:
-            .gitignore
-            configure
-            libavformat/matroskadec.c
+    Bug: 995706
+    Change-Id: I6f9865e0fdf44def6cc40e369954e66a7e0ad1d1
+    Reviewed-on: https://chromium-review.googlesource.com/c/chromium/third_party/ffmpeg/+/1765951
+    Reviewed-by: Matthew Wolenetz <wolenetz@chromium.org>
 
 Affects:
     libavformat/matroskadec.c
-
-------------------------------------------------------------------
-commit dfc85c1198d09a2e3c3e3aa6cba330894d8a94c4
-Author: Matt Wolenetz <wolenetz@chromium.org>
-Date:   Wed Jul 24 16:28:05 2019 -0700
-
-    wavdec: Fail bext parsing on incomplete reads
-
-    avio_read can successfully return even when less than the requested
-    amount of input was read. wavdec's bext parsing mistakenly assumed a
-    successful avio_read always read the full amount that was requested.
-    The result could be dictionary tags populated with partially
-    uninitialized values.
-
-    This change also fixes a broken assertion in wav_parse_bext_string that
-    was off-by-one, though no known current usage of that method hits that
-    broken case.
-
-    BUG=987270
-
-Affects:
-    libavformat/wavdec.c
 

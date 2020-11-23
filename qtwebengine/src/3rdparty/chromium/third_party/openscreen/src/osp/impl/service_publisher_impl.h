@@ -10,6 +10,7 @@
 #include "platform/base/macros.h"
 
 namespace openscreen {
+namespace osp {
 
 class ServicePublisherImpl final : public ServicePublisher,
                                    public WithDestructionCallback {
@@ -26,7 +27,6 @@ class ServicePublisherImpl final : public ServicePublisher,
     virtual void StopPublisher() = 0;
     virtual void SuspendPublisher() = 0;
     virtual void ResumePublisher() = 0;
-    virtual void RunTasksPublisher() = 0;
 
    protected:
     void SetState(State state) { publisher_->SetState(state); }
@@ -47,8 +47,6 @@ class ServicePublisherImpl final : public ServicePublisher,
   bool Suspend() override;
   bool Resume() override;
 
-  void RunTasks() override;
-
  private:
   // Called by |delegate_| to transition the state machine (except kStarting and
   // kStopping which are done automatically).
@@ -63,6 +61,7 @@ class ServicePublisherImpl final : public ServicePublisher,
   OSP_DISALLOW_COPY_AND_ASSIGN(ServicePublisherImpl);
 };
 
+}  // namespace osp
 }  // namespace openscreen
 
 #endif  // OSP_IMPL_SERVICE_PUBLISHER_IMPL_H_

@@ -15,7 +15,6 @@
 #include "third_party/blink/renderer/core/page/event_with_hit_test_results.h"
 #include "third_party/blink/renderer/platform/timer.h"
 #include "third_party/blink/renderer/platform/wtf/allocator/allocator.h"
-#include "third_party/blink/renderer/platform/wtf/time.h"
 
 namespace blink {
 
@@ -23,7 +22,6 @@ class ContainerNode;
 class DragState;
 class DataTransfer;
 class Element;
-class FloatQuad;
 class HitTestResult;
 class InputDeviceCapabilities;
 class LocalFrame;
@@ -34,7 +32,7 @@ enum class DragInitiator;
 // This class takes care of dispatching all mouse events and keeps track of
 // positions and states of mouse.
 class CORE_EXPORT MouseEventManager final
-    : public GarbageCollectedFinalized<MouseEventManager>,
+    : public GarbageCollected<MouseEventManager>,
       public SynchronousMutationObserver {
   USING_GARBAGE_COLLECTED_MIXIN(MouseEventManager);
 
@@ -51,7 +49,9 @@ class CORE_EXPORT MouseEventManager final
                                          const String& canvas_region_id,
                                          const FloatPoint* last_position,
                                          EventTarget* related_target,
-                                         bool check_for_listener = false);
+                                         bool check_for_listener = false,
+                                         const PointerId& pointer_id = 0,
+                                         const String& pointer_type = "");
 
   WebInputEventResult SetMousePositionAndDispatchMouseEvent(
       Element* target_element,
@@ -62,7 +62,9 @@ class CORE_EXPORT MouseEventManager final
   WebInputEventResult DispatchMouseClickIfNeeded(
       Element* mouse_release_target,
       const WebMouseEvent& mouse_event,
-      const String& canvas_region_id);
+      const String& canvas_region_id,
+      const PointerId& pointer_id,
+      const String& pointer_type);
 
   WebInputEventResult DispatchDragSrcEvent(const AtomicString& event_type,
                                            const WebMouseEvent&);
@@ -93,7 +95,7 @@ class CORE_EXPORT MouseEventManager final
   void CancelFakeMouseMoveEvent();
   void MayUpdateHoverWhenContentUnderMouseChanged(
       MouseEventManager::UpdateHoverReason);
-  void MayUpdateHoverAfterScroll(const FloatQuad&);
+  void MayUpdateHoverAfterScroll(const FloatRect&);
 
   void SetLastKnownMousePosition(const WebMouseEvent&);
   void SetLastMousePositionAsUnknown();

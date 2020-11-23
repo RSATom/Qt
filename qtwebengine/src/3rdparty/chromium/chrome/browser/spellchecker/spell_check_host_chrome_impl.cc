@@ -5,6 +5,7 @@
 #include "chrome/browser/spellchecker/spell_check_host_chrome_impl.h"
 
 #include "base/bind.h"
+#include "base/no_destructor.h"
 #include "base/strings/utf_string_conversions.h"
 #include "chrome/browser/spellchecker/spellcheck_custom_dictionary.h"
 #include "chrome/browser/spellchecker/spellcheck_factory.h"
@@ -13,25 +14,49 @@
 #include "components/spellcheck/browser/spellcheck_platform.h"
 #include "content/public/browser/browser_context.h"
 #include "content/public/browser/browser_thread.h"
-#include "mojo/public/cpp/bindings/strong_binding.h"
+#include "content/public/browser/render_process_host.h"
+#include "mojo/public/cpp/bindings/self_owned_receiver.h"
 
-#if BUILDFLAG(USE_BROWSER_SPELLCHECKER)
+#if BUILDFLAG(USE_BROWSER_SPELLCHECKER) && BUILDFLAG(ENABLE_SPELLING_SERVICE)
 #include "chrome/browser/spellchecker/spelling_request.h"
 #endif
 
-SpellCheckHostChromeImpl::SpellCheckHostChromeImpl(
-    const service_manager::Identity& renderer_identity)
-    : renderer_identity_(renderer_identity) {}
+#if BUILDFLAG(USE_WIN_HYBRID_SPELLCHECKER)
+#include "components/spellcheck/common/spellcheck_common.h"
+#endif  // BUILDFLAG(USE_WIN_HYBRID_SPELLCHECKER)
+
+namespace {
+
+SpellCheckHostChromeImpl::Binder& GetSpellCheckHostBinderOverride() {
+  static base::NoDestructor<SpellCheckHostChromeImpl::Binder> binder;
+  return *binder;
+}
+
+}  // namespace
+
+SpellCheckHostChromeImpl::SpellCheckHostChromeImpl(int render_process_id)
+    : render_process_id_(render_process_id) {}
 
 SpellCheckHostChromeImpl::~SpellCheckHostChromeImpl() = default;
 
 // static
 void SpellCheckHostChromeImpl::Create(
-    spellcheck::mojom::SpellCheckHostRequest request,
-    const service_manager::BindSourceInfo& source_info) {
-  mojo::MakeStrongBinding(
-      std::make_unique<SpellCheckHostChromeImpl>(source_info.identity),
-      std::move(request));
+    int render_process_id,
+    mojo::PendingReceiver<spellcheck::mojom::SpellCheckHost> receiver) {
+  auto& binder = GetSpellCheckHostBinderOverride();
+  if (binder) {
+    binder.Run(render_process_id, std::move(receiver));
+    return;
+  }
+
+  mojo::MakeSelfOwnedReceiver(
+      std::make_unique<SpellCheckHostChromeImpl>(render_process_id),
+      std::move(receiver));
+}
+
+// static
+void SpellCheckHostChromeImpl::OverrideBinderForTesting(Binder binder) {
+  GetSpellCheckHostBinderOverride() = std::move(binder);
 }
 
 void SpellCheckHostChromeImpl::RequestDictionary() {
@@ -47,7 +72,9 @@ void SpellCheckHostChromeImpl::RequestDictionary() {
 
   // The spellchecker initialization already started and finished; just
   // send it to the renderer.
-  spellcheck->InitForRenderer(renderer_identity_);
+  auto* host = content::RenderProcessHost::FromID(render_process_id_);
+  if (host)
+    spellcheck->InitForRenderer(host);
 
   // TODO(rlp): Ensure that we do not initialize the hunspell dictionary
   // more than once if we get requests from different renderers.
@@ -72,7 +99,7 @@ void SpellCheckHostChromeImpl::CallSpellingService(
 
   if (text.empty()) {
     std::move(callback).Run(false, std::vector<SpellCheckResult>());
-    mojo::ReportBadMessage(__FUNCTION__);
+    mojo::ReportBadMessage("Requested spelling service with empty text");
     return;
   }
 
@@ -80,11 +107,13 @@ void SpellCheckHostChromeImpl::CallSpellingService(
   // service if a user enables the "Use enhanced spell check" option. When
   // a response is received (including an error) from the remote Spelling
   // service, calls CallSpellingServiceDone.
-  content::BrowserContext* context =
-      content::BrowserContext::GetBrowserContextForServiceInstanceGroup(
-          renderer_identity_.instance_group());
+  auto* host = content::RenderProcessHost::FromID(render_process_id_);
+  if (!host) {
+    std::move(callback).Run(false, std::vector<SpellCheckResult>());
+    return;
+  }
   client_.RequestTextCheck(
-      context, SpellingServiceClient::SPELLCHECK, text,
+      host->GetBrowserContext(), SpellingServiceClient::SPELLCHECK, text,
       base::BindOnce(&SpellCheckHostChromeImpl::CallSpellingServiceDone,
                      weak_factory_.GetWeakPtr(), std::move(callback)));
 }
@@ -125,8 +154,7 @@ std::vector<SpellCheckResult> SpellCheckHostChromeImpl::FilterCustomWordResults(
 }
 #endif  // BUILDFLAG(USE_RENDERER_SPELLCHECKER)
 
-#if BUILDFLAG(USE_BROWSER_SPELLCHECKER)
-
+#if BUILDFLAG(USE_BROWSER_SPELLCHECKER) && BUILDFLAG(ENABLE_SPELLING_SERVICE)
 void SpellCheckHostChromeImpl::CheckSpelling(const base::string16& word,
                                              int route_id,
                                              CheckSpellingCallback callback) {
@@ -147,6 +175,42 @@ void SpellCheckHostChromeImpl::RequestTextCheck(
     int route_id,
     RequestTextCheckCallback callback) {
   DCHECK(!text.empty());
+
+  // OK to store unretained |this| in a |SpellingRequest| owned by |this|.
+  auto request = std::make_unique<SpellingRequest>(
+      &client_, text, render_process_id_, route_id, std::move(callback),
+      base::BindOnce(&SpellCheckHostChromeImpl::OnRequestFinished,
+                     base::Unretained(this)));
+  QueueRequest(std::move(request));
+}
+
+#if BUILDFLAG(USE_WIN_HYBRID_SPELLCHECKER)
+void SpellCheckHostChromeImpl::GetPerLanguageSuggestions(
+    const base::string16& word,
+    GetPerLanguageSuggestionsCallback callback) {
+  spellcheck_platform::GetPerLanguageSuggestions(word, std::move(callback));
+}
+
+void SpellCheckHostChromeImpl::RequestPartialTextCheck(
+    const base::string16& text,
+    int route_id,
+    const std::vector<SpellCheckResult>& partial_results,
+    bool fill_suggestions,
+    RequestPartialTextCheckCallback callback) {
+  DCHECK(!text.empty());
+
+  // OK to store unretained |this| in a |SpellingRequest| owned by |this|.
+  auto request = std::make_unique<SpellingRequest>(
+      &client_, text, render_process_id_, route_id, partial_results,
+      fill_suggestions, std::move(callback),
+      base::BindOnce(&SpellCheckHostChromeImpl::OnRequestFinished,
+                     base::Unretained(this)));
+  QueueRequest(std::move(request));
+}
+#endif  // BUILDFLAG(USE_WIN_HYBRID_SPELLCHECKER)
+
+void SpellCheckHostChromeImpl::QueueRequest(
+    std::unique_ptr<SpellingRequest> request) {
   DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
 
   // Initialize the spellcheck service if needed. The service will send the
@@ -155,12 +219,7 @@ void SpellCheckHostChromeImpl::RequestTextCheck(
   // happen on UI thread.
   GetSpellcheckService();
 
-  // |SpellingRequest| self-destructs on completion.
-  // OK to store unretained |this| in a |SpellingRequest| owned by |this|.
-  requests_.insert(std::make_unique<SpellingRequest>(
-      &client_, text, renderer_identity_, route_id, std::move(callback),
-      base::BindOnce(&SpellCheckHostChromeImpl::OnRequestFinished,
-                     base::Unretained(this))));
+  requests_.insert(std::move(request));
 }
 
 void SpellCheckHostChromeImpl::OnRequestFinished(SpellingRequest* request) {
@@ -174,7 +233,8 @@ void SpellCheckHostChromeImpl::CombineResultsForTesting(
     const std::vector<SpellCheckResult>& local_results) {
   SpellingRequest::CombineResults(remote_results, local_results);
 }
-#endif  // defined(OS_MACOSX) || defined(OS_WIN)
+#endif  //  BUILDFLAG(USE_BROWSER_SPELLCHECKER) &&
+        //  BUILDFLAG(ENABLE_SPELLING_SERVICE)
 
 #if defined(OS_MACOSX)
 int SpellCheckHostChromeImpl::ToDocumentTag(int route_id) {
@@ -193,5 +253,8 @@ void SpellCheckHostChromeImpl::RetireDocumentTag(int route_id) {
 #endif  // defined(OS_MACOSX)
 
 SpellcheckService* SpellCheckHostChromeImpl::GetSpellcheckService() const {
-  return SpellcheckServiceFactory::GetForRenderer(renderer_identity_);
+  auto* host = content::RenderProcessHost::FromID(render_process_id_);
+  if (!host)
+    return nullptr;
+  return SpellcheckServiceFactory::GetForContext(host->GetBrowserContext());
 }

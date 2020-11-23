@@ -182,7 +182,7 @@ struct QOpenGLFunctionsPrivateEx : public QOpenGLExtensionsPrivate, public QOpen
 
 Q_GLOBAL_STATIC(QOpenGLMultiGroupSharedResource, qt_gl_functions_resource)
 
-static QOpenGLFunctionsPrivateEx *qt_gl_functions(QOpenGLContext *context = 0)
+static QOpenGLFunctionsPrivateEx *qt_gl_functions(QOpenGLContext *context = nullptr)
 {
     if (!context)
         context = QOpenGLContext::currentContext();
@@ -200,7 +200,7 @@ static QOpenGLFunctionsPrivateEx *qt_gl_functions(QOpenGLContext *context = 0)
     \sa initializeOpenGLFunctions()
 */
 QOpenGLFunctions::QOpenGLFunctions()
-    : d_ptr(0)
+    : d_ptr(nullptr)
 {
 }
 
@@ -218,7 +218,7 @@ QOpenGLFunctions::QOpenGLFunctions()
     \sa initializeOpenGLFunctions()
 */
 QOpenGLFunctions::QOpenGLFunctions(QOpenGLContext *context)
-    : d_ptr(0)
+    : d_ptr(nullptr)
 {
     if (context && QOpenGLContextGroup::currentContextGroup() == context->shareGroup())
         d_ptr = qt_gl_functions(context);
@@ -493,7 +493,7 @@ QOpenGLFunctions::OpenGLFeatures QOpenGLFunctions::openGLFeatures() const
 {
     QOpenGLFunctionsPrivateEx *d = static_cast<QOpenGLFunctionsPrivateEx *>(d_ptr);
     if (!d)
-        return 0;
+        return { };
     if (d->m_features == -1)
         d->m_features = qt_gl_resolve_features();
     return QOpenGLFunctions::OpenGLFeatures(d->m_features);
@@ -531,7 +531,7 @@ QOpenGLExtensions::OpenGLExtensions QOpenGLExtensions::openGLExtensions()
 {
     QOpenGLFunctionsPrivateEx *d = static_cast<QOpenGLFunctionsPrivateEx *>(d_ptr);
     if (!d)
-        return 0;
+        return { };
     if (d->m_extensions == -1)
         d->m_extensions = qt_gl_resolve_extensions();
     return QOpenGLExtensions::OpenGLExtensions(d->m_extensions);

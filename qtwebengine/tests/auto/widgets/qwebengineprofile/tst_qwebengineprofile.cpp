@@ -71,6 +71,7 @@ private Q_SLOTS:
     void urlSchemeHandlerInstallation();
     void urlSchemeHandlerXhrStatus();
     void urlSchemeHandlerScriptModule();
+    void urlSchemeHandlerLongReply();
     void customUserAgent();
     void httpAcceptLanguage();
     void downloadItem();
@@ -135,12 +136,13 @@ void tst_QWebEngineProfile::privateProfile()
     QCOMPARE(otrProfile.httpCacheType(), QWebEngineProfile::MemoryHttpCache);
     QCOMPARE(otrProfile.persistentCookiesPolicy(), QWebEngineProfile::NoPersistentCookies);
     QCOMPARE(otrProfile.cachePath(), QString());
-    QCOMPARE(otrProfile.persistentStoragePath(), QString());
+    QCOMPARE(otrProfile.persistentStoragePath(), QStandardPaths::writableLocation(QStandardPaths::DataLocation)
+             + QStringLiteral("/QtWebEngine/OffTheRecord"));
     // TBD: setters do not really work
     otrProfile.setCachePath(QStringLiteral("/home/foo/bar"));
     QCOMPARE(otrProfile.cachePath(), QString());
     otrProfile.setPersistentStoragePath(QStringLiteral("/home/foo/bar"));
-    QCOMPARE(otrProfile.persistentStoragePath(), QString());
+    QCOMPARE(otrProfile.persistentStoragePath(), QStringLiteral("/home/foo/bar"));
     otrProfile.setHttpCacheType(QWebEngineProfile::DiskHttpCache);
     QCOMPARE(otrProfile.httpCacheType(), QWebEngineProfile::MemoryHttpCache);
     otrProfile.setPersistentCookiesPolicy(QWebEngineProfile::ForcePersistentCookies);
@@ -172,7 +174,6 @@ public:
 
     ~AutoDir() { removeRecursively(); }
 };
-
 qint64 totalSize(QDir dir)
 {
     qint64 sum = 0;
@@ -222,21 +223,10 @@ private:
     }
 };
 
-static bool loadSync(QWebEnginePage *page, const QUrl &url, bool ok = true)
-{
-    QSignalSpy spy(page, &QWebEnginePage::loadFinished);
-    page->load(url);
-    return (!spy.empty() || spy.wait(20000)) && (spy.front().value(0).toBool() == ok);
-}
-
-static bool loadSync(QWebEngineView *view, const QUrl &url, bool ok = true)
-{
-    return loadSync(view->page(), url, ok);
-}
-
 void tst_QWebEngineProfile::clearDataFromCache()
 {
     TestServer server;
+    QSignalSpy serverSpy(&server, &HttpServer::newRequest);
     QVERIFY(server.start());
 
     AutoDir cacheDir("./tst_QWebEngineProfile_clearDataFromCache");
@@ -247,6 +237,8 @@ void tst_QWebEngineProfile::clearDataFromCache()
 
     QWebEnginePage page(&profile);
     QVERIFY(loadSync(&page, server.url("/hedgehog.html")));
+    // Wait for GET /favicon.ico
+    QTRY_COMPARE(serverSpy.size(), 3);
 
     QVERIFY(cacheDir.exists("Cache"));
     qint64 sizeBeforeClear = totalSize(cacheDir);
@@ -255,7 +247,7 @@ void tst_QWebEngineProfile::clearDataFromCache()
     QTest::qWait(1000);
     QVERIFY(sizeBeforeClear > totalSize(cacheDir));
 
-    QVERIFY(server.stop());
+    (void)server.stop();
 }
 
 void tst_QWebEngineProfile::disableCache()
@@ -280,7 +272,7 @@ void tst_QWebEngineProfile::disableCache()
     QVERIFY(loadSync(&page, server.url("/hedgehog.html")));
     QVERIFY(cacheDir.exists("Cache"));
 
-    QVERIFY(server.stop());
+    (void)server.stop();
 }
 
 class RedirectingUrlSchemeHandler : public QWebEngineUrlSchemeHandler
@@ -355,7 +347,7 @@ protected:
             memcpy(data, m_data.constData() + m_bytesRead, len);
             m_bytesAvailable -= len;
             m_bytesRead += len;
-        } else if (m_data.size() > 0)
+        } else if (atEnd())
             return -1;
 
         return len;
@@ -760,6 +752,31 @@ void tst_QWebEngineProfile::urlSchemeHandlerScriptModule()
     QCOMPARE(evaluateJavaScriptSync(&page, QStringLiteral("test")).toString(), QStringLiteral("SUCCESS"));
 }
 
+class LongReplyUrlSchemeHandler : public QWebEngineUrlSchemeHandler
+{
+public:
+    LongReplyUrlSchemeHandler(QObject *parent = nullptr) : QWebEngineUrlSchemeHandler(parent) {}
+    ~LongReplyUrlSchemeHandler() {}
+
+    void requestStarted(QWebEngineUrlRequestJob *job)
+    {
+        QBuffer *buffer = new QBuffer(job);
+        buffer->setData(QByteArray(128 * 1024, ' ') +
+                        "<html><head><title>Minify this!</title></head></html>");
+        job->reply("text/html", buffer);
+    }
+};
+
+void tst_QWebEngineProfile::urlSchemeHandlerLongReply()
+{
+    LongReplyUrlSchemeHandler handler;
+    QWebEngineProfile profile;
+    profile.installUrlSchemeHandler("aviancarrier", &handler);
+    QWebEnginePage page(&profile);
+    page.load(QUrl("aviancarrier:/"));
+    QTRY_COMPARE(page.title(), QString("Minify this!"));
+}
+
 void tst_QWebEngineProfile::customUserAgent()
 {
     QString defaultUserAgent = QWebEngineProfile::defaultProfile()->httpUserAgent();
@@ -848,7 +865,7 @@ void tst_QWebEngineProfile::changePersistentPath()
     QVERIFY(loadSync(&page, server.url("/hedgehog.html")));
     QVERIFY(dataDir2.exists());
 
-    QVERIFY(server.stop());
+    (void)server.stop();
 }
 
 void tst_QWebEngineProfile::changeHttpUserAgent()
@@ -907,8 +924,6 @@ void tst_QWebEngineProfile::changeHttpAcceptLanguage()
 
 void tst_QWebEngineProfile::changeUseForGlobalCertificateVerification()
 {
-    QSKIP("Needs 3rdparty fix");
-
     TestServer server;
     QVERIFY(server.start());
 
@@ -922,7 +937,8 @@ void tst_QWebEngineProfile::changeUseForGlobalCertificateVerification()
     profile.setUseForGlobalCertificateVerification(true);
     page.reset(new QWebEnginePage(&profile));
     QVERIFY(loadSync(page.get(), server.url("/hedgehog.html")));
-    QVERIFY(server.stop());
+    // Don't check for error: there can be disconnects during GET hedgehog.png.
+    (void)server.stop();
 }
 
 void tst_QWebEngineProfile::changePersistentCookiesPolicy()
@@ -946,7 +962,7 @@ void tst_QWebEngineProfile::changePersistentCookiesPolicy()
     QVERIFY(loadSync(&page, server.url("/hedgehog.html")));
     QVERIFY(dataDir.exists("Cookies"));
 
-    QVERIFY(server.stop());
+    (void)server.stop();
 }
 
 class InitiatorSpy : public QWebEngineUrlSchemeHandler
@@ -965,26 +981,32 @@ void tst_QWebEngineProfile::initiator()
     InitiatorSpy handler;
     QWebEngineProfile profile;
     profile.installUrlSchemeHandler("foo", &handler);
-    QWebEnginePage page(&profile);
+    QWebEnginePage page(&profile, nullptr);
     QSignalSpy loadFinishedSpy(&page, SIGNAL(loadFinished(bool)));
+    page.load(QUrl("about:blank"));
+    QTRY_COMPARE(loadFinishedSpy.count(), 1);
+    loadFinishedSpy.clear();
 
     // about:blank has a unique origin, so initiator should be QUrl("null")
     evaluateJavaScriptSync(&page, "window.location = 'foo:bar'");
-    QVERIFY(loadFinishedSpy.wait());
+    QTRY_COMPARE(loadFinishedSpy.count(), 1);
+    loadFinishedSpy.clear();
     QCOMPARE(handler.initiator, QUrl("null"));
 
     page.setHtml("", QUrl("http://test:123/foo%20bar"));
-    QVERIFY(loadFinishedSpy.wait());
+    QTRY_COMPARE(loadFinishedSpy.count(), 1);
+    loadFinishedSpy.clear();
 
     // baseUrl determines the origin, so QUrl("http://test:123")
     evaluateJavaScriptSync(&page, "window.location = 'foo:bar'");
-    QVERIFY(loadFinishedSpy.wait());
+    QTRY_COMPARE(loadFinishedSpy.count(), 1);
+    loadFinishedSpy.clear();
     QCOMPARE(handler.initiator, QUrl("http://test:123"));
 
     // Directly calling load/setUrl should have initiator QUrl(), meaning
     // browser-initiated, trusted.
     page.load(QUrl("foo:bar"));
-    QVERIFY(loadFinishedSpy.wait());
+    QTRY_COMPARE(loadFinishedSpy.count(), 1);
     QCOMPARE(handler.initiator, QUrl());
 }
 

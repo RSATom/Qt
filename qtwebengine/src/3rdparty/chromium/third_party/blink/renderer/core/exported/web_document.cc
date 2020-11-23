@@ -84,11 +84,6 @@ WebSecurityOrigin WebDocument::GetSecurityOrigin() const {
   return WebSecurityOrigin(ConstUnwrap<Document>()->GetSecurityOrigin());
 }
 
-void WebDocument::GrantLoadLocalResources() {
-  if (Document* document = Unwrap<Document>())
-    document->GetMutableSecurityOrigin()->GrantLoadLocalResources();
-}
-
 bool WebDocument::IsSecureContext() const {
   const Document* document = ConstUnwrap<Document>();
   return document && document->IsSecureContext();
@@ -186,8 +181,8 @@ void WebDocument::Forms(WebVector<WebFormElement>& results) const {
   for (size_t i = 0; i < source_length; ++i) {
     Element* element = forms->item(i);
     // Strange but true, sometimes node can be 0.
-    if (element && element->IsHTMLElement())
-      temp.push_back(WebFormElement(ToHTMLFormElement(element)));
+    if (auto* html_form_element = DynamicTo<HTMLFormElement>(element))
+      temp.push_back(WebFormElement(html_form_element));
   }
   results.Assign(temp);
 }
@@ -272,10 +267,6 @@ WebDistillabilityFeatures WebDocument::DistillabilityFeatures() {
 void WebDocument::SetShowBeforeUnloadDialog(bool show_dialog) {
   if (!IsHTMLDocument())
     return;
-  if (!IsPluginDocument() &&
-      !RuntimeEnabledFeatures::MimeHandlerViewInCrossProcessFrameEnabled()) {
-    return;
-  }
 
   Document* doc = Unwrap<Document>();
   doc->SetShowBeforeUnloadDialog(show_dialog);

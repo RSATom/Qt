@@ -196,7 +196,8 @@ TestCase {
         mousePress(control, control.width / 2, control.height / 2, Qt.LeftButton);
         mouseMove(control, control.width / 2 + distance, control.height / 2);
         mouseRelease(control, control.width / 2 + distance, control.height / 2, Qt.LeftButton);
-        compare(control.swipe.position, to);
+        compare(control.swipe.position, to, "Expected swipe.position to be " + to
+            + " after swiping from " + from + ", but it's " + control.swipe.position);
 
         if (control.swipe.position === -1.0) {
             if (control.swipe.right)
@@ -1108,6 +1109,70 @@ TestCase {
 
         // Swiping after closing should work as normal.
         swipe(control, 0.0, -1.0);
+    }
+
+    function test_callCloseWhenAlreadyClosed() {
+        let control = createTemporaryObject(swipeDelegateComponent, testCase)
+        verify(control)
+
+        let closedSpy = signalSpyComponent.createObject(control, { target: control.swipe, signalName: "closed" })
+        verify(closedSpy)
+        verify(closedSpy.valid)
+
+        // Calling close() when it's already closed should have no effect.
+        control.swipe.close()
+        compare(closedSpy.count, 0)
+
+        // The game goes for calling close() in response to a click.
+        control.clicked.connect(function() { control.swipe.close() })
+        mouseClick(control)
+        compare(closedSpy.count, 0)
+    }
+
+    // Can't just connect to pressed in QML, because there is a pressed property
+    // that conflicts with the signal.
+    Component {
+        id: swipeDelegateCloseOnPressedComponent
+
+        SwipeDelegate {
+            text: "SwipeDelegate"
+            width: 150
+            swipe.right: Rectangle {
+                objectName: "rightItem"
+                width: parent.width / 2
+                height: parent.height
+                color: "tomato"
+            }
+
+            onPressed: swipe.close()
+        }
+    }
+
+    /*
+        We don't want to support closing on pressed(); released() or clicked()
+        should be used instead. However, calling swipe.close() in response to
+        a press should still not cause closed() to be emitted.
+    */
+    function test_closeOnPressed() {
+        let control = createTemporaryObject(swipeDelegateCloseOnPressedComponent, testCase)
+        verify(control)
+
+        swipe(control, 0.0, -1.0)
+
+        let closedSpy = signalSpyComponent.createObject(control, { target: control.swipe, signalName: "closed" })
+        verify(closedSpy)
+        verify(closedSpy.valid)
+
+        mousePress(control, control.width * 0.1)
+        compare(closedSpy.count, 0)
+        compare(control.swipe.position, -1.0)
+
+        // Simulate a somewhat realistic delay between press and release
+        // to ensure that the bug is triggered.
+        wait(100)
+        mouseRelease(control, control.width * 0.1)
+        compare(closedSpy.count, 0)
+        compare(control.swipe.position, -1.0)
     }
 
     Component {

@@ -7,6 +7,7 @@
 
 #include <string>
 #include "base/macros.h"
+#include "base/time/time.h"
 
 class Profile;
 
@@ -24,6 +25,7 @@ bool ExtensionSupportsConnectionFromNativeApp(const std::string& extension_id,
 // |host_id|.
 void LaunchNativeMessageHostFromNativeApp(const std::string& extension_id,
                                           const std::string& host_id,
+                                          const std::string& connection_id,
                                           Profile* profile);
 
 class ScopedAllowNativeAppConnectionForTest {
@@ -39,6 +41,19 @@ class ScopedAllowNativeAppConnectionForTest {
   DISALLOW_COPY_AND_ASSIGN(ScopedAllowNativeAppConnectionForTest);
 };
 
+class ScopedNativeMessagingErrorTimeoutOverrideForTest {
+ public:
+  explicit ScopedNativeMessagingErrorTimeoutOverrideForTest(
+      base::TimeDelta timeout);
+  ~ScopedNativeMessagingErrorTimeoutOverrideForTest();
+
+  base::TimeDelta timeout() const { return timeout_; }
+
+ private:
+  const base::TimeDelta timeout_;
+
+  DISALLOW_COPY_AND_ASSIGN(ScopedNativeMessagingErrorTimeoutOverrideForTest);
+};
 }  // namespace extensions
 
 #endif  // CHROME_BROWSER_EXTENSIONS_API_MESSAGING_NATIVE_MESSAGING_LAUNCH_FROM_NATIVE_H_

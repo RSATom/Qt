@@ -64,7 +64,7 @@ public:
     virtual ~QQuickPlatformMessageDialog1();
 
 protected:
-    QPlatformMessageDialogHelper *helper();
+    QPlatformMessageDialogHelper *helper() override;
 
     Q_DISABLE_COPY(QQuickPlatformMessageDialog1)
 };

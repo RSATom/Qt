@@ -5,13 +5,13 @@
 module remote_cocoa.mojom;
 
 import "mojo/public/mojom/base/string16.mojom";
-import "ui/base/accelerators/mojo/accelerator.mojom";
+import "ui/base/accelerators/mojom/accelerator.mojom";
 import "ui/base/mojom/ui_base_types.mojom";
 import "ui/base/mojom/window_open_disposition.mojom";
 import "ui/display/mojom/display.mojom";
-import "ui/events/mojo/event.mojom";
-import "ui/gfx/geometry/mojo/geometry.mojom";
-import "ui/gfx/mojo/ca_layer_params.mojom";
+import "ui/events/mojom/event.mojom";
+import "ui/gfx/geometry/mojom/geometry.mojom";
+import "ui/gfx/mojom/ca_layer_params.mojom";
 
 struct ValidateUserInterfaceItemResult {
   // Whether or not the specified sender should be enabled.
@@ -150,6 +150,10 @@ interface NativeWidgetNSWindowHost {
   OnWindowKeyStatusChanged(bool is_key,
                            bool is_content_first_responder,
                            bool full_keyboard_access_enabled);
+
+  // Called when the blob of data that represents the NSWindow's restorable
+  // state has changed.
+  OnWindowStateRestorationDataChanged(array<uint8> data);
 
   // Accept or cancel the current dialog window (depending on the value of
   // |button|), if a current dialog exists.

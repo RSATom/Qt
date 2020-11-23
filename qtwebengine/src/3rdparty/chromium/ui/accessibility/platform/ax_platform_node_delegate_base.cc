@@ -36,13 +36,16 @@ const AXTree::Selection AXPlatformNodeDelegateBase::GetUnignoredSelection()
 }
 
 AXNodePosition::AXPositionInstance
-AXPlatformNodeDelegateBase::CreateTextPositionAt(
-    int offset,
-    ax::mojom::TextAffinity affinity) const {
+AXPlatformNodeDelegateBase::CreateTextPositionAt(int offset) const {
   return AXNodePosition::CreateNullPosition();
 }
 
 gfx::NativeViewAccessible AXPlatformNodeDelegateBase::GetNSWindow() {
+  return nullptr;
+}
+
+gfx::NativeViewAccessible
+AXPlatformNodeDelegateBase::GetNativeViewAccessible() {
   return nullptr;
 }
 
@@ -144,6 +147,21 @@ int AXPlatformNodeDelegateBase::ChildIteratorBase::GetIndexInParent() const {
   return index_;
 }
 
+AXPlatformNodeDelegate& AXPlatformNodeDelegateBase::ChildIteratorBase::
+operator*() const {
+  AXPlatformNode* platform_node =
+      AXPlatformNode::FromNativeViewAccessible(GetNativeViewAccessible());
+  DCHECK(platform_node && platform_node->GetDelegate());
+  return *(platform_node->GetDelegate());
+}
+
+AXPlatformNodeDelegate* AXPlatformNodeDelegateBase::ChildIteratorBase::
+operator->() const {
+  AXPlatformNode* platform_node =
+      AXPlatformNode::FromNativeViewAccessible(GetNativeViewAccessible());
+  return platform_node ? platform_node->GetDelegate() : nullptr;
+}
+
 std::unique_ptr<AXPlatformNodeDelegate::ChildIterator>
 AXPlatformNodeDelegateBase::ChildrenBegin() {
   return std::make_unique<ChildIteratorBase>(this, 0);
@@ -219,6 +237,12 @@ gfx::NativeViewAccessible AXPlatformNodeDelegateBase::GetFocus() {
 }
 
 AXPlatformNode* AXPlatformNodeDelegateBase::GetFromNodeID(int32_t id) {
+  return nullptr;
+}
+
+AXPlatformNode* AXPlatformNodeDelegateBase::GetFromTreeIDAndNodeID(
+    const ui::AXTreeID& ax_tree_id,
+    int32_t id) {
   return nullptr;
 }
 
@@ -398,8 +422,26 @@ base::string16 AXPlatformNodeDelegateBase::GetLocalizedStringForLandmarkType()
 }
 
 base::string16
+AXPlatformNodeDelegateBase::GetLocalizedStringForRoleDescription() const {
+  return base::string16();
+}
+
+base::string16
 AXPlatformNodeDelegateBase::GetStyleNameAttributeAsLocalizedString() const {
   return base::string16();
+}
+
+TextAttributeMap AXPlatformNodeDelegateBase::ComputeTextAttributeMap(
+    const TextAttributeList& default_attributes) const {
+  ui::TextAttributeMap attributes_map;
+  attributes_map[0] = default_attributes;
+  return attributes_map;
+}
+
+std::string AXPlatformNodeDelegateBase::GetInheritedFontFamilyName() const {
+  // We don't have access to AXNodeData here, so we cannot return
+  // an inherited font family name.
+  return std::string();
 }
 
 bool AXPlatformNodeDelegateBase::ShouldIgnoreHoveredStateForTesting() {
@@ -415,6 +457,10 @@ bool AXPlatformNodeDelegateBase::IsMinimized() const {
 }
 
 bool AXPlatformNodeDelegateBase::IsWebContent() const {
+  return false;
+}
+
+bool AXPlatformNodeDelegateBase::HasVisibleCaretOrSelection() const {
   return false;
 }
 
@@ -473,7 +519,7 @@ const AXUniqueId& AXPlatformNodeDelegateBase::GetUniqueId() const {
 base::Optional<int> AXPlatformNodeDelegateBase::FindTextBoundary(
     AXTextBoundary boundary,
     int offset,
-    TextBoundaryDirection direction,
+    AXTextBoundaryDirection direction,
     ax::mojom::TextAffinity affinity) const {
   return base::nullopt;
 }
@@ -494,6 +540,27 @@ AXPlatformNodeDelegate* AXPlatformNodeDelegateBase::GetParentDelegate() {
     return parent_node->GetDelegate();
 
   return nullptr;
+}
+
+std::string AXPlatformNodeDelegateBase::SubtreeToStringHelper(size_t level) {
+  std::string result(level * 2, '+');
+  result += ToString();
+  result += '\n';
+
+  // We can't use ChildrenBegin() and ChildrenEnd() here, because they both
+  // return an std::unique_ptr<ChildIterator> which is an abstract class.
+  //
+  // TODO(accessibility): Refactor ChildIterator into a separate base
+  // (non-abstract) class.
+  auto iter_start = ChildIteratorBase(this, 0);
+  auto iter_end = ChildIteratorBase(this, GetChildCount());
+  for (auto iter = iter_start; iter != iter_end; ++iter) {
+    AXPlatformNodeDelegateBase& child =
+        static_cast<AXPlatformNodeDelegateBase&>(*iter);
+    result += child.SubtreeToStringHelper(level + 1);
+  }
+
+  return result;
 }
 
 }  // namespace ui

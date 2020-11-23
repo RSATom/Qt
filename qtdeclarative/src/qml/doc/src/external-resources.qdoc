@@ -45,7 +45,7 @@
     \title Mozilla Developer Network Date Reference
 */
 /*!
-    \externalpage hhttps://www.froglogic.com/squish/gui-testing
+    \externalpage https://www.froglogic.com/squish/gui-testing
     \title Squish
 */
 /*!
@@ -75,4 +75,8 @@
 /*!
     \externalpage https://fontawesome.com/
     \title Font Awesome
+*/
+/*!
+    \externalpage https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Operators/Nullish_coalescing_operator
+    \title Nullish Coalescing
 */

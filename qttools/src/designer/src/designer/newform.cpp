@@ -103,13 +103,10 @@ QDialogButtonBox *NewForm::createButtonBox()
     QDesignerActions *da = m_workbench->actionManager();
     QMenu *recentFilesMenu = new QMenu(tr("&Recent Forms"), m_recentButton);
     // Pop the "Recent Files" stuff in here.
-    const QList<QAction *> recentActions = da->recentFilesActions()->actions();
-    if (!recentActions.empty()) {
-        const QList<QAction *>::const_iterator acend = recentActions.constEnd();
-        for (QList<QAction *>::const_iterator it = recentActions.constBegin(); it != acend; ++it) {
-            recentFilesMenu->addAction(*it);
-            connect(*it, &QAction::triggered, this, &NewForm::recentFileChosen);
-        }
+    const auto recentActions = da->recentFilesActions()->actions();
+    for (auto action : recentActions) {
+        recentFilesMenu->addAction(action);
+        connect(action, &QAction::triggered, this, &NewForm::recentFileChosen);
     }
     m_recentButton->setMenu(recentFilesMenu);
     connect(buttonBox, &QDialogButtonBox::clicked, this, &NewForm::slotButtonBoxClicked);
@@ -144,7 +141,7 @@ void NewForm::slotCurrentTemplateChanged(bool templateSelected)
 
 void NewForm::slotTemplateActivated()
 {
-    m_createButton->animateClick(0);
+    m_createButton->animateClick();
 }
 
 void NewForm::slotButtonBoxClicked(QAbstractButton *btn)

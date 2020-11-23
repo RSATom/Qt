@@ -11,6 +11,7 @@
 #include <vector>
 
 #include "base/callback.h"
+#include "build/build_config.h"
 #include "content/common/content_export.h"
 #include "content/public/browser/native_web_keyboard_event.h"
 #include "content/public/common/drop_data.h"
@@ -35,6 +36,10 @@ class Point;
 
 namespace ui {
 class LatencyInfo;
+}
+
+namespace viz {
+class FrameSinkId;
 }
 
 namespace content {
@@ -123,6 +128,12 @@ class CONTENT_EXPORT RenderWidgetHost : public IPC::Sender {
   static std::unique_ptr<RenderWidgetHostIterator> GetRenderWidgetHosts();
 
   ~RenderWidgetHost() override {}
+
+  // Returns the viz::FrameSinkId that this object uses to put things on screen.
+  // This value is constant throughout the lifetime of this object. Note that
+  // until a RenderWidgetHostView is created, initialized, and assigned to this
+  // object, viz may not be aware of this FrameSinkId.
+  virtual const viz::FrameSinkId& GetFrameSinkId() = 0;
 
   // Update the text direction of the focused input element and notify it to a
   // renderer process.
@@ -230,11 +241,32 @@ class CONTENT_EXPORT RenderWidgetHost : public IPC::Sender {
     virtual void OnInputEventAck(InputEventAckSource source,
                                  InputEventAckState state,
                                  const blink::WebInputEvent&) {}
+
+#if defined(OS_ANDROID)
+    // Not all key events are triggered through InputEvent on Android.
+    // InputEvents are only triggered when user typed in through number bar on
+    // Android keyboard. This function is triggered when text is committed in
+    // input form.
+    virtual void OnImeTextCommittedEvent(const base::string16& text_str) {}
+    // This function is triggered when composing text is updated. Note that
+    // text_str contains all text that is currently under composition rather
+    // than updated text only.
+    virtual void OnImeSetComposingTextEvent(const base::string16& text_str) {}
+    // This function is triggered when composing text is filled into the input
+    // form.
+    virtual void OnImeFinishComposingTextEvent() {}
+#endif
   };
 
   // Add/remove an input event observer.
   virtual void AddInputEventObserver(InputEventObserver* observer) = 0;
   virtual void RemoveInputEventObserver(InputEventObserver* observer) = 0;
+
+#if defined(OS_ANDROID)
+  // Add/remove an Ime input event observer.
+  virtual void AddImeInputEventObserver(InputEventObserver* observer) = 0;
+  virtual void RemoveImeInputEventObserver(InputEventObserver* observer) = 0;
+#endif
 
   // Add and remove observers for widget host events. The order in which
   // notifications are sent to observers is undefined. Observers must be sure to

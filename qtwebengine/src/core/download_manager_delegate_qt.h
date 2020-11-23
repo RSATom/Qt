@@ -77,15 +77,12 @@ public:
 
     void GetSaveDir(content::BrowserContext* browser_context,
                     base::FilePath* website_save_dir,
-                    base::FilePath* download_save_dir,
-                    bool* skip_dir_check) override;
+                    base::FilePath* download_save_dir) override;
     void ChooseSavePath(content::WebContents *web_contents,
                         const base::FilePath &suggested_path,
                         const base::FilePath::StringType &default_extension,
                         bool can_save_as_complete,
-                        const content::SavePackagePathPickedCallback &callback) override;
-    bool IsMostRecentDownloadItemAtFilePath(download::DownloadItem* download) override;
-
+                        content::SavePackagePathPickedCallback callback) override;
 
     void cancelDownload(quint32 downloadId);
     void pauseDownload(quint32 downloadId);

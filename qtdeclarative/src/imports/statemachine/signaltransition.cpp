@@ -176,12 +176,14 @@ void SignalTransition::connectTriggered()
     int signalIndex = QMetaObjectPrivate::signalIndex(metaMethod);
 
     auto f = m_compilationUnit->runtimeFunctions[binding->value.compiledScriptIndex];
-    QQmlBoundSignalExpression *expression =
-            ctxtdata ? new QQmlBoundSignalExpression(target, signalIndex, ctxtdata, this, f)
-                     : nullptr;
-    if (expression)
+    if (ctxtdata) {
+        QQmlBoundSignalExpression *expression =
+                new QQmlBoundSignalExpression(target, signalIndex, ctxtdata, this, f);
         expression->setNotifyOnValueChanged(false);
-    m_signalExpression = expression;
+        m_signalExpression.take(expression);
+    } else {
+        m_signalExpression.take(nullptr);
+    }
 }
 
 void SignalTransitionParser::verifyBindings(const QQmlRefPointer<QV4::ExecutableCompilationUnit> &compilationUnit, const QList<const QV4::CompiledData::Binding *> &props)
@@ -268,8 +270,6 @@ void SignalTransitionParser::applyBindings(
     \qmlsignal QAbstractTransition::triggered()
 
     This signal is emitted when the transition has been triggered.
-
-    The corresponding handler is \c onTriggered.
 */
 
 /*!

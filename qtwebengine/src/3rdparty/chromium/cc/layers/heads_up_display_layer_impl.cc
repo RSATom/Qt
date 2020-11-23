@@ -37,6 +37,7 @@
 #include "components/viz/common/quads/texture_draw_quad.h"
 #include "components/viz/common/resources/bitmap_allocation.h"
 #include "components/viz/common/resources/platform_color.h"
+#include "gpu/GLES2/gl2extchromium.h"
 #include "gpu/command_buffer/client/context_support.h"
 #include "gpu/command_buffer/client/gles2_interface.h"
 #include "gpu/command_buffer/client/raster_interface.h"
@@ -223,9 +224,8 @@ void HeadsUpDisplayLayerImpl::UpdateHudTexture(
   bool use_oopr = false;
   if (raster_context_provider) {
     lock.emplace(raster_context_provider);
-    use_oopr = raster_context_provider->GetGpuFeatureInfo()
-                   .status_values[gpu::GPU_FEATURE_TYPE_OOP_RASTERIZATION] ==
-               gpu::kGpuFeatureStatusEnabled;
+    use_oopr =
+        raster_context_provider->ContextCapabilities().supports_oop_raster;
     if (!use_oopr) {
       raster_context_provider = nullptr;
       lock.reset();
@@ -371,10 +371,12 @@ void HeadsUpDisplayLayerImpl::UpdateHudTexture(
     } else {
       auto* gl = context_provider->ContextGL();
       GLuint mailbox_texture_id =
-          gl->CreateAndConsumeTextureCHROMIUM(backing->mailbox.name);
+          gl->CreateAndTexStorage2DSharedImageCHROMIUM(backing->mailbox.name);
+      gl->BeginSharedImageAccessDirectCHROMIUM(
+          mailbox_texture_id, GL_SHARED_IMAGE_ACCESS_MODE_READWRITE_CHROMIUM);
 
       {
-        ScopedGpuRaster gpu_raster(context_provider);
+        ScopedGpuRaster scoped_gpu_raster(context_provider);
         viz::ClientResourceProvider::ScopedSkSurface scoped_surface(
             context_provider->GrContext(),
             pool_resource.color_space().ToSkColorSpace(), mailbox_texture_id,
@@ -390,6 +392,7 @@ void HeadsUpDisplayLayerImpl::UpdateHudTexture(
         DrawHudContents(&canvas);
       }
 
+      gl->EndSharedImageAccessDirectCHROMIUM(mailbox_texture_id);
       gl->DeleteTextures(1, &mailbox_texture_id);
       backing->mailbox_sync_token =
           viz::ClientResourceProvider::GenerateSyncTokenHelper(gl);
@@ -399,9 +402,8 @@ void HeadsUpDisplayLayerImpl::UpdateHudTexture(
     // into a software bitmap and upload it to a texture for compositing.
     DCHECK(pool_resource.gpu_backing());
     auto* backing = static_cast<HudGpuBacking*>(pool_resource.gpu_backing());
-    viz::ContextProvider* context_provider =
-        layer_tree_impl()->context_provider();
-    gpu::gles2::GLES2Interface* gl = context_provider->ContextGL();
+    gpu::gles2::GLES2Interface* gl =
+        layer_tree_impl()->context_provider()->ContextGL();
 
     if (!staging_surface_ ||
         gfx::SkISizeToSize(staging_surface_->getCanvas()->getBaseLayerSize()) !=
@@ -416,8 +418,12 @@ void HeadsUpDisplayLayerImpl::UpdateHudTexture(
     TRACE_EVENT0("cc", "UploadHudTexture");
     SkPixmap pixmap;
     staging_surface_->peekPixels(&pixmap);
+
     GLuint mailbox_texture_id =
-        gl->CreateAndConsumeTextureCHROMIUM(backing->mailbox.name);
+        gl->CreateAndTexStorage2DSharedImageCHROMIUM(backing->mailbox.name);
+    gl->BeginSharedImageAccessDirectCHROMIUM(
+        mailbox_texture_id, GL_SHARED_IMAGE_ACCESS_MODE_READWRITE_CHROMIUM);
+
     gl->BindTexture(backing->texture_target, mailbox_texture_id);
     DCHECK(GLSupportsFormat(pool_resource.format()));
     // We should use gl compatible format for skia SW rasterization.
@@ -426,6 +432,8 @@ void HeadsUpDisplayLayerImpl::UpdateHudTexture(
     gl->TexSubImage2D(
         backing->texture_target, 0, 0, 0, pool_resource.size().width(),
         pool_resource.size().height(), format, type, pixmap.addr());
+
+    gl->EndSharedImageAccessDirectCHROMIUM(mailbox_texture_id);
     gl->DeleteTextures(1, &mailbox_texture_id);
     backing->mailbox_sync_token =
         viz::ClientResourceProvider::GenerateSyncTokenHelper(gl);
@@ -886,14 +894,6 @@ SkRect HeadsUpDisplayLayerImpl::DrawGpuRasterizationStatus(PaintCanvas* canvas,
       status = "off (device)";
       color = SK_ColorRED;
       break;
-    case GpuRasterizationStatus::OFF_VIEWPORT:
-      status = "off (viewport)";
-      color = SK_ColorYELLOW;
-      break;
-    case GpuRasterizationStatus::MSAA_CONTENT:
-      status = "MSAA (content)";
-      color = SK_ColorCYAN;
-      break;
   }
 
   if (status.empty())
@@ -1036,6 +1036,14 @@ void HeadsUpDisplayLayerImpl::DrawDebugRects(
         fill_color = DebugColors::NonFastScrollableRectFillColor();
         stroke_width = DebugColors::NonFastScrollableRectBorderWidth();
         label_text = "repaints on scroll";
+        break;
+      case MAIN_THREAD_SCROLLING_REASON_RECT_TYPE:
+        stroke_color = DebugColors::MainThreadScrollingReasonRectBorderColor();
+        fill_color = DebugColors::MainThreadScrollingReasonRectFillColor();
+        stroke_width = DebugColors::MainThreadScrollingReasonRectBorderWidth();
+        label_text = "main thread scrolling: ";
+        label_text.append(base::ToLowerASCII(MainThreadScrollingReason::AsText(
+            debug_rects[i].main_thread_scrolling_reasons)));
         break;
       case ANIMATION_BOUNDS_RECT_TYPE:
         stroke_color = DebugColors::LayerAnimationBoundsBorderColor();

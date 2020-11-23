@@ -782,10 +782,8 @@ XSDTestSuiteHandler::XSDTestSuiteHandler(const QUrl &catalogFile) : m_ts(0)
                 << QLatin1String("wildZ010");
 }
 
-bool XSDTestSuiteHandler::startElement(const QString &namespaceURI,
-                                        const QString &localName,
-                                        const QString &/*qName*/,
-                                        const QXmlAttributes &atts)
+bool XSDTestSuiteHandler::startElement(const QStringRef &namespaceURI, const QStringRef &localName,
+                                       const QStringRef & /*qName*/, const QXmlStreamAttributes &atts)
 {
     if(namespaceURI != QString::fromLatin1("http://www.w3.org/XML/2004/xml-schema-test-suite/"))
         return true;
@@ -793,16 +791,16 @@ bool XSDTestSuiteHandler::startElement(const QString &namespaceURI,
     if (localName == QLatin1String("testSet")) {
         m_currentTestSet = new TestGroup(m_topLevelGroup);
         Q_ASSERT(m_currentTestSet);
-        m_currentTestSet->setTitle(atts.value("name"));
+        m_currentTestSet->setTitle(atts.value("name").toString());
         m_topLevelGroup->appendChild(m_currentTestSet);
     } else if (localName == QLatin1String("testGroup")) {
         m_currentTestGroup = new TestGroup(m_currentTestSet);
         Q_ASSERT(m_currentTestGroup);
-        m_currentTestGroup->setTitle(atts.value("name"));
+        m_currentTestGroup->setTitle(atts.value("name").toString());
         m_currentTestSet->appendChild(m_currentTestGroup);
         m_inTestGroup = true;
     } else if (localName == QLatin1String("schemaTest")) {
-        if (m_blackList.contains(atts.value("name"))) {
+        if (m_blackList.contains(atts.value("name").toString())) {
             m_currentTestCase = 0;
             m_schemaBlacklisted = true;
             return true;
@@ -832,12 +830,12 @@ bool XSDTestSuiteHandler::startElement(const QString &namespaceURI,
         m_inInstanceTest = true;
     } else if (localName == QLatin1String("schemaDocument") || localName == QLatin1String("instanceDocument")) {
         if (m_inSchemaTest) {
-            m_currentTestCase->setSchemaUri(QUrl(atts.value("xlink:href")));
+            m_currentTestCase->setSchemaUri(QUrl(atts.value("xlink:href").toString()));
             if (m_currentSchemaLink.isEmpty()) // we only use the first schema document for validation
-                m_currentSchemaLink = atts.value("xlink:href");
+                m_currentSchemaLink = atts.value("xlink:href").toString();
         }
         if (m_inInstanceTest) {
-            m_currentTestCase->setInstanceUri(QUrl(atts.value("xlink:href")));
+            m_currentTestCase->setInstanceUri(QUrl(atts.value("xlink:href").toString()));
             m_currentTestCase->setSchemaUri(QUrl(m_currentSchemaLink));
         }
     } else if (localName == QLatin1String("expected") && (m_inSchemaTest || m_inInstanceTest)) {
@@ -858,9 +856,9 @@ bool XSDTestSuiteHandler::startElement(const QString &namespaceURI,
     return true;
 }
 
-bool XSDTestSuiteHandler::endElement(const QString &/*namespaceURI*/,
-                                      const QString &localName,
-                                      const QString &/*qName*/)
+bool XSDTestSuiteHandler::endElement(const QStringRef &/*namespaceURI*/,
+                                      const QStringRef &localName,
+                                      const QStringRef &/*qName*/)
 {
     if (localName == QLatin1String("testGroup")) {
         m_inTestGroup = false;
@@ -880,7 +878,7 @@ bool XSDTestSuiteHandler::endElement(const QString &/*namespaceURI*/,
     return true;
 }
 
-bool XSDTestSuiteHandler::characters(const QString &ch)
+bool XSDTestSuiteHandler::characters(const QStringRef &ch)
 {
     if (m_inDescription)
         m_documentation += ch;

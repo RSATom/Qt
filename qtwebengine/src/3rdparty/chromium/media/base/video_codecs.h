@@ -40,7 +40,7 @@ enum VideoCodec {
 };
 
 // Video codec profiles. Keep in sync with mojo::VideoCodecProfile (see
-// media/mojo/interfaces/media_types.mojom), gpu::VideoCodecProfile (see
+// media/mojo/mojom/media_types.mojom), gpu::VideoCodecProfile (see
 // gpu/config/gpu_info.h), and PP_VideoDecoder_Profile (translation is performed
 // in content/renderer/pepper/ppb_video_decoder_impl.cc).
 // NOTE: These values are histogrammed over time in UMA so the values must never
@@ -132,13 +132,13 @@ MEDIA_EXPORT bool ParseAVCCodecId(const std::string& codec_id,
                                   VideoCodecProfile* profile,
                                   uint8_t* level_idc);
 
-#if BUILDFLAG(ENABLE_HEVC_DEMUXING)
+#if BUILDFLAG(ENABLE_PLATFORM_HEVC)
 MEDIA_EXPORT bool ParseHEVCCodecId(const std::string& codec_id,
                                    VideoCodecProfile* profile,
                                    uint8_t* level_idc);
 #endif
 
-#if BUILDFLAG(ENABLE_DOLBY_VISION_DEMUXING)
+#if BUILDFLAG(ENABLE_PLATFORM_DOLBY_VISION)
 MEDIA_EXPORT bool ParseDolbyVisionCodecId(const std::string& codec_id,
                                           VideoCodecProfile* profile,
                                           uint8_t* level_id);

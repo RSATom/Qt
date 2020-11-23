@@ -19,7 +19,7 @@
 #include "base/run_loop.h"
 #include "base/test/scoped_command_line.h"
 #include "base/test/scoped_feature_list.h"
-#include "base/test/scoped_task_environment.h"
+#include "base/test/task_environment.h"
 #include "base/time/default_clock.h"
 #include "build/build_config.h"
 #include "chrome/browser/flag_descriptions.h"
@@ -38,8 +38,10 @@
 #include "components/previews/core/previews_logger.h"
 #include "components/previews/core/previews_logger_observer.h"
 #include "components/previews/core/previews_switches.h"
-#include "content/public/test/test_browser_thread_bundle.h"
-#include "mojo/public/cpp/bindings/binding.h"
+#include "content/public/test/browser_task_environment.h"
+#include "mojo/public/cpp/bindings/pending_receiver.h"
+#include "mojo/public/cpp/bindings/pending_remote.h"
+#include "mojo/public/cpp/bindings/receiver.h"
 #include "net/base/features.h"
 #include "net/nqe/effective_connection_type.h"
 #include "net/nqe/network_quality_estimator_params.h"
@@ -145,8 +147,8 @@ class TestInterventionsInternalsPage
     : public mojom::InterventionsInternalsPage {
  public:
   TestInterventionsInternalsPage(
-      mojom::InterventionsInternalsPageRequest request)
-      : binding_(this, std::move(request)), blacklist_ignored_(false) {}
+      mojo::PendingReceiver<mojom::InterventionsInternalsPage> receiver)
+      : receiver_(this, std::move(receiver)), blacklist_ignored_(false) {}
 
   ~TestInterventionsInternalsPage() override {}
 
@@ -188,7 +190,7 @@ class TestInterventionsInternalsPage
   bool blacklist_ignored() const { return blacklist_ignored_; }
 
  private:
-  mojo::Binding<mojom::InterventionsInternalsPage> binding_;
+  mojo::Receiver<mojom::InterventionsInternalsPage> receiver_;
 
   // The MessageLogPtr passed in LogNewMessage method.
   std::unique_ptr<mojom::MessageLogPtr> message_;
@@ -285,21 +287,21 @@ class InterventionsInternalsPageHandlerTest : public testing::Test {
 
     ASSERT_TRUE(profile_manager_.SetUp());
 
-    mojom::InterventionsInternalsPageHandlerPtr page_handler_ptr;
-
-    mojom::InterventionsInternalsPageHandlerRequest handler_request =
-        mojo::MakeRequest(&page_handler_ptr);
+    mojo::PendingReceiver<mojom::InterventionsInternalsPageHandler>
+        handler_receiver =
+            mojo::PendingRemote<mojom::InterventionsInternalsPageHandler>()
+                .InitWithNewPipeAndPassReceiver();
     page_handler_ = std::make_unique<InterventionsInternalsPageHandler>(
-        std::move(handler_request), previews_ui_service_.get(),
+        std::move(handler_receiver), previews_ui_service_.get(),
         &test_network_quality_tracker_);
 
-    mojom::InterventionsInternalsPagePtr page_ptr;
-    mojom::InterventionsInternalsPageRequest page_request =
-        mojo::MakeRequest(&page_ptr);
+    mojo::PendingRemote<mojom::InterventionsInternalsPage> page;
+    mojo::PendingReceiver<mojom::InterventionsInternalsPage> page_receiver =
+        page.InitWithNewPipeAndPassReceiver();
     page_ = std::make_unique<TestInterventionsInternalsPage>(
-        std::move(page_request));
+        std::move(page_receiver));
 
-    page_handler_->SetClientPage(std::move(page_ptr));
+    page_handler_->SetClientPage(std::move(page));
 
     scoped_feature_list_ = std::make_unique<base::test::ScopedFeatureList>();
   }
@@ -310,7 +312,7 @@ class InterventionsInternalsPageHandlerTest : public testing::Test {
     page_.reset();
   }
 
-  content::TestBrowserThreadBundle thread_bundle_;
+  content::BrowserTaskEnvironment task_environment_;
 
  protected:
   TestingProfileManager profile_manager_;

@@ -6,7 +6,7 @@
 
 #include "base/bind.h"
 #include "base/strings/stringprintf.h"
-#include "base/test/scoped_task_environment.h"
+#include "base/test/task_environment.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "build/build_config.h"
 #include "content/renderer/media/audio/audio_device_factory.h"
@@ -48,14 +48,14 @@ class RendererWebAudioDeviceImplUnderTest : public RendererWebAudioDeviceImpl {
       const blink::WebAudioLatencyHint& latency_hint,
       blink::WebAudioDevice::RenderCallback* callback,
       const base::UnguessableToken& session_id)
-      : RendererWebAudioDeviceImpl(layout,
-                                   channels,
-                                   latency_hint,
-                                   callback,
-                                   session_id,
-                                   base::Bind(&MockGetOutputDeviceParameters),
-                                   base::Bind(&MockFrameIdFromCurrentContext)) {
-  }
+      : RendererWebAudioDeviceImpl(
+            layout,
+            channels,
+            latency_hint,
+            callback,
+            session_id,
+            base::BindOnce(&MockGetOutputDeviceParameters),
+            base::BindOnce(&MockFrameIdFromCurrentContext)) {}
 };
 
 }  // namespace
@@ -120,7 +120,7 @@ class RendererWebAudioDeviceImplTest
   void TearDown() override { webaudio_device_.reset(); }
 
   std::unique_ptr<RendererWebAudioDeviceImpl> webaudio_device_;
-  base::test::ScopedTaskEnvironment task_environment_;
+  base::test::SingleThreadTaskEnvironment task_environment_;
 };
 
 TEST_F(RendererWebAudioDeviceImplTest, ChannelLayout) {

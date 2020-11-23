@@ -87,9 +87,12 @@ class QuicTextUtilsImpl {
   }
 
   // Converts |data| from a hexadecimal ASCII string to a binary string
-  // that is |data.length()/2| bytes long.
+  // that is |data.length()/2| bytes long. On failure returns empty string.
   static std::string HexDecode(QuicStringPiece data) {
-    return net::HexDecode(data);
+    std::string result;
+    if (!base::HexStringToString(data, &result))
+      result.clear();
+    return result;
   }
 
   // Base64 encodes with no padding |data_len| bytes of |data| into |output|.
@@ -125,10 +128,16 @@ class QuicTextUtilsImpl {
     return std::any_of(data.begin(), data.end(), base::IsAsciiUpper<char>);
   }
 
+  // Returns true if |data| contains only decimal digits.
+  static bool IsAllDigits(QuicStringPiece data) {
+    return std::all_of(data.begin(), data.end(),
+                       base::IsAsciiDigit<QuicStringPiece::value_type>);
+  }
+
   // Splits |data| into a vector of pieces delimited by |delim|.
   static std::vector<QuicStringPiece> Split(QuicStringPiece data, char delim) {
     return base::SplitStringPiece(data, QuicStringPiece(&delim, 1),
-                                  base::TRIM_WHITESPACE, base::SPLIT_WANT_ALL);
+                                  base::KEEP_WHITESPACE, base::SPLIT_WANT_ALL);
   }
 };
 

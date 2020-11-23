@@ -2,12 +2,8 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-// https://github.com/gpuweb/gpuweb/blob/master/design/sketch.webidl
+// https://gpuweb.github.io/gpuweb/
 
-dictionary GPUShaderModuleDescriptor {
-    DOMString label;
-    // TODO(kainino): should be:
-    //   [AllowShared, FlexibleArrayBufferView] required ArrayBufferView code;
-    // (or BufferSource?)
-    required Uint32Array code;
+dictionary GPUShaderModuleDescriptor : GPUObjectDescriptorBase {
+    [AllowShared] required Uint32Array code;
 };

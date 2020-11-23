@@ -7,6 +7,8 @@
 
 #include "base/time/time.h"
 
+#include <algorithm>
+
 namespace media {
 
 // Utility class for maintaining an exponentially-decaying average of feedback

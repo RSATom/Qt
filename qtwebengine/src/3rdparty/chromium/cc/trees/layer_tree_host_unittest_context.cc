@@ -388,8 +388,6 @@ class LayerTreeHostClientNotVisibleDoesNotCreateLayerTreeFrameSink
   }
 
   void DidInitializeLayerTreeFrameSink() override { EXPECT_TRUE(false); }
-
-  void AfterTest() override {}
 };
 
 SINGLE_AND_MULTI_THREAD_TEST_F(
@@ -448,8 +446,6 @@ class LayerTreeHostClientTakeAwayLayerTreeFrameSink
     layer_tree_host()->SetVisible(true);
   }
 
-  void AfterTest() override {}
-
   int setos_counter_;
 };
 
@@ -477,8 +473,6 @@ class MultipleCompositeDoesNotCreateLayerTreeFrameSink
   }
 
   void DidInitializeLayerTreeFrameSink() override { EXPECT_TRUE(false); }
-
-  void AfterTest() override {}
 
   int request_count_;
 };
@@ -534,8 +528,6 @@ class FailedCreateDoesNotCreateExtraLayerTreeFrameSink
     has_failed_ = true;
   }
 
-  void AfterTest() override {}
-
   int num_requests_;
   bool has_failed_;
 };
@@ -577,8 +569,6 @@ class LayerTreeHostContextTestCommitAfterDelayedLayerTreeFrameSink
       EndTest();
   }
 
-  void AfterTest() override {}
-
   bool creating_output_;
 };
 
@@ -609,8 +599,6 @@ class LayerTreeHostContextTestAvoidUnnecessaryComposite
   }
 
   void ScheduleComposite() override { EXPECT_FALSE(in_composite_); }
-
-  void AfterTest() override {}
 
   bool in_composite_;
 };
@@ -762,8 +750,8 @@ class LayerTreeHostContextTestLostContextAndEvictTextures
   }
 
   void DrawLayersOnThread(LayerTreeHostImpl* impl) override {
-    FakePictureLayerImpl* picture_impl = static_cast<FakePictureLayerImpl*>(
-        impl->active_tree()->root_layer_for_testing());
+    FakePictureLayerImpl* picture_impl =
+        static_cast<FakePictureLayerImpl*>(impl->active_tree()->root_layer());
     EXPECT_TRUE(picture_impl->HighResTiling()
                     ->TileAt(0, 0)
                     ->draw_info()
@@ -775,8 +763,6 @@ class LayerTreeHostContextTestLostContextAndEvictTextures
   }
 
   void DidInitializeLayerTreeFrameSink() override {}
-
-  void AfterTest() override {}
 
  protected:
   bool lose_after_evict_;
@@ -843,7 +829,7 @@ class LayerTreeHostContextTestLayersNotified : public LayerTreeHostContextTest {
     // fail before second activation.
     if (num_commits_ >= 2) {
       root_picture = static_cast<FakePictureLayerImpl*>(
-          host_impl->active_tree()->root_layer_for_testing());
+          host_impl->active_tree()->root_layer());
       child_picture = static_cast<FakePictureLayerImpl*>(
           host_impl->active_tree()->LayerById(child_->id()));
       grandchild_picture = static_cast<FakePictureLayerImpl*>(
@@ -882,8 +868,6 @@ class LayerTreeHostContextTestLayersNotified : public LayerTreeHostContextTest {
         NOTREACHED();
     }
   }
-
-  void AfterTest() override {}
 
  private:
   int num_commits_;
@@ -952,7 +936,7 @@ class LayerTreeHostContextTestDontUseLostResources
         PictureLayer::Create(&client_);
     layer_with_mask->SetBounds(gfx::Size(10, 10));
     layer_with_mask->SetIsDrawable(true);
-    layer_with_mask->SetMaskLayer(mask.get());
+    layer_with_mask->SetMaskLayer(mask);
     root->AddChild(layer_with_mask);
 
     scoped_refptr<VideoLayer> video_color =
@@ -999,8 +983,8 @@ class LayerTreeHostContextTestDontUseLostResources
     layer_tree_host()->SetDebugState(debug_state);
 
     scoped_refptr<PaintedScrollbarLayer> scrollbar =
-        PaintedScrollbarLayer::Create(
-            std::unique_ptr<Scrollbar>(new FakeScrollbar), layer->element_id());
+        PaintedScrollbarLayer::Create(base::MakeRefCounted<FakeScrollbar>());
+    scrollbar->SetScrollElementId(layer->element_id());
     scrollbar->SetBounds(gfx::Size(10, 10));
     scrollbar->SetIsDrawable(true);
     root->AddChild(scrollbar);
@@ -1099,8 +1083,6 @@ class LayerTreeHostContextTestImplSidePainting
     PostSetNeedsCommitToMainThread();
   }
 
-  void AfterTest() override {}
-
   void DidInitializeLayerTreeFrameSink() override { EndTest(); }
 
  private:
@@ -1122,8 +1104,6 @@ class ScrollbarLayerLostContext : public LayerTreeHostContextTest {
     layer_tree_host()->root_layer()->AddChild(scroll_layer);
     PostSetNeedsCommitToMainThread();
   }
-
-  void AfterTest() override {}
 
   void CommitCompleteOnThread(LayerTreeHostImpl* impl) override {
     LayerTreeHostContextTest::CommitCompleteOnThread(impl);
@@ -1158,7 +1138,6 @@ class UIResourceLostTest : public LayerTreeHostContextTest {
  public:
   UIResourceLostTest() : time_step_(0) {}
   void BeginTest() override { PostSetNeedsCommitToMainThread(); }
-  void AfterTest() override {}
 
   // This is called on the main thread after each commit and
   // DidActivateTreeOnThread, with the value of time_step_ at the time
@@ -1615,8 +1594,6 @@ class UIResourceFreedIfLostWhileExported : public LayerTreeHostContextTest {
     EndTest();
   }
 
-  void AfterTest() override {}
-
   std::unique_ptr<FakeScopedUIResource> ui_resource_;
 };
 
@@ -1671,8 +1648,6 @@ class TileResourceFreedIfLostWhileExported : public LayerTreeHostContextTest {
         EndTest();
     }
   }
-
-  void AfterTest() override {}
 
   FakeContentLayerClient client_;
   size_t num_textures_ = 0;
@@ -1743,8 +1718,6 @@ class SoftwareTileResourceFreedIfLostWhileExported : public LayerTreeTest {
     }
   }
 
-  void AfterTest() override {}
-
   FakeContentLayerClient client_;
   viz::ResourceId exported_resource_id_ = 0;
 };
@@ -1798,8 +1771,6 @@ class LayerTreeHostContextTestLoseAfterSendingBeginMainFrame
   }
 
   void DidCommitAndDrawFrame() override { EndTest(); }
-
-  void AfterTest() override {}
 
   std::unique_ptr<ScopedDeferMainFrameUpdate> scoped_defer_main_frame_update_;
   bool deferred_ = false;

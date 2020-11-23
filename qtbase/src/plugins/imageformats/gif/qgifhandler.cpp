@@ -53,8 +53,7 @@ QT_BEGIN_NAMESPACE
 #define Q_TRANSPARENT 0x00ffffff
 
 // avoid going through QImage::scanLine() which calls detach
-#define FAST_SCAN_LINE(bits, bpl, y) (bits + (y) * bpl)
-
+#define FAST_SCAN_LINE(bits, bpl, y) (bits + qptrdiff(y) * bpl)
 
 /*
   Incremental image decoder for GIF image format.
@@ -78,6 +77,10 @@ public:
 private:
     void fillRect(QImage *image, int x, int y, int w, int h, QRgb col);
     inline QRgb color(uchar index) const;
+    static bool withinSizeLimit(int width, int height)
+    {
+        return quint64(width) * height < 16384 * 16384; // Reject unreasonable header values
+    }
 
     // GIF specific stuff
     QRgb* globalcmap;
@@ -147,8 +150,8 @@ private:
 */
 QGIFFormat::QGIFFormat()
 {
-    globalcmap = 0;
-    localcmap = 0;
+    globalcmap = nullptr;
+    localcmap = nullptr;
     lncols = 0;
     gncols = 0;
     disposal = NoDisposal;
@@ -160,9 +163,9 @@ QGIFFormat::QGIFFormat()
     lcmap = false;
     newFrame = false;
     partialNewFrame = false;
-    table[0] = 0;
-    table[1] = 0;
-    stack = 0;
+    table[0] = nullptr;
+    table[1] = nullptr;
+    stack = nullptr;
 }
 
 /*!
@@ -339,9 +342,9 @@ int QGIFFormat::decode(QImage *image, const uchar *buffer, int length,
 
                 // disbelieve ridiculous logical screen sizes,
                 // unless the image frames are also large.
-                if (swidth/10 > qMax(newwidth,200))
+                if (swidth/10 > qMax(newwidth,16384))
                     swidth = -1;
-                if (sheight/10 > qMax(newheight,200))
+                if (sheight/10 > qMax(newheight,16384))
                     sheight = -1;
 
                 if (swidth <= 0)
@@ -351,6 +354,10 @@ int QGIFFormat::decode(QImage *image, const uchar *buffer, int length,
 
                 QImage::Format format = trans_index >= 0 ? QImage::Format_ARGB32 : QImage::Format_RGB32;
                 if (image->isNull()) {
+                    if (!withinSizeLimit(swidth, sheight)) {
+                        state = Error;
+                        return -1;
+                    }
                     (*image) = QImage(swidth, sheight, format);
                     bpl = image->bytesPerLine();
                     bits = image->bits();
@@ -412,6 +419,11 @@ int QGIFFormat::decode(QImage *image, const uchar *buffer, int length,
 
                     if (backingstore.width() < w
                         || backingstore.height() < h) {
+
+                        if (!withinSizeLimit(w, h)) {
+                            state = Error;
+                            return -1;
+                        }
                         // We just use the backing store as a byte array
                         backingstore = QImage(qMax(backingstore.width(), w),
                                               qMax(backingstore.height(), h),
@@ -478,6 +490,10 @@ int QGIFFormat::decode(QImage *image, const uchar *buffer, int length,
             break;
           case ImageDataBlock:
             count++;
+            if (bitcount < 0 || bitcount > 31) {
+                state = Error;
+                return -1;
+            }
             accum|=(ch<<bitcount);
             bitcount+=8;
             while (bitcount>=code_size && state==ImageDataBlock) {
@@ -550,7 +566,7 @@ int QGIFFormat::decode(QImage *image, const uchar *buffer, int length,
                         }
                         oldcode=incode;
                         const int h = image->height();
-                        QRgb *line = 0;
+                        QRgb *line = nullptr;
                         if (!out_of_bounds && h > y)
                             line = (QRgb*)FAST_SCAN_LINE(bits, bpl, y);
                         while (sp>stack) {
@@ -629,7 +645,8 @@ int QGIFFormat::decode(QImage *image, const uchar *buffer, int length,
             count++;
             if (count==hold[0]+1) {
                 disposePrevious(image);
-                disposal=Disposal((hold[1]>>2)&0x7);
+                uint dBits = (hold[1] >> 2) & 0x7;
+                disposal = (dBits <= RestoreImage) ? Disposal(dBits) : NoDisposal;
                 //UNUSED: waitforuser=!!((hold[1]>>1)&0x1);
                 int delay=count>3 ? LM(hold[2], hold[3]) : 1;
                 // IE and mozilla use a minimum delay of 10. With the minimum delay of 10
@@ -1214,12 +1231,5 @@ int QGifHandler::currentImageNumber() const
 {
     return frameNumber;
 }
-
-#if QT_DEPRECATED_SINCE(5, 13)
-QByteArray QGifHandler::name() const
-{
-    return "gif";
-}
-#endif
 
 QT_END_NAMESPACE

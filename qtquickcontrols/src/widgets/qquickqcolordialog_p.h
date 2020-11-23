@@ -64,7 +64,7 @@ public:
     virtual ~QQuickQColorDialog();
 
 protected:
-    QPlatformColorDialogHelper *helper();
+    QPlatformColorDialogHelper *helper() override;
 
     Q_DISABLE_COPY(QQuickQColorDialog)
 };

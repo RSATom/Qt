@@ -8,6 +8,7 @@ include_rules = [
   "-ui/base/ime/init",
   "+ui/display",
   "+ui/events",
+  "+ui/base/clipboard/clipboard_buffer.h",
   "+ui/base/cursor",
   "+ui/gfx",
   "+ui/gl",
@@ -16,10 +17,5 @@ include_rules = [
 specific_include_rules = {
   "run_all_unittests\.cc": [
     "+mojo/core/embedder/embedder.h",
-  ],
-
-  # Dependencies specific for fuzz targets and other fuzzing-related code.
-  ".*fuzz.*": [
-    "+third_party/libFuzzer/src/utils",  # This contains FuzzedDataProvider.
   ],
 }

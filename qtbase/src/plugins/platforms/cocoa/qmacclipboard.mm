@@ -38,14 +38,14 @@
 ****************************************************************************/
 
 #include "qmacclipboard.h"
-#include "qclipboard.h"
-#include "qguiapplication.h"
-#include "qbitmap.h"
-#include "qdatetime.h"
-#include "qdebug.h"
-#include "qguiapplication.h"
-#include "qevent.h"
-#include "qurl.h"
+#include <QtGui/qclipboard.h>
+#include <QtGui/qguiapplication.h>
+#include <QtGui/qbitmap.h>
+#include <QtCore/qdatetime.h>
+#include <QtCore/qdebug.h>
+#include <QtGui/qguiapplication.h>
+#include <QtGui/qevent.h>
+#include <QtCore/qurl.h>
 #include <stdlib.h>
 #include <string.h>
 #include "qcocoahelpers.h"
@@ -138,8 +138,12 @@ QMacPasteboard::QMacPasteboard(CFStringRef name, uchar mt)
 
 QMacPasteboard::~QMacPasteboard()
 {
-    // commit all promises for paste after exit close
-    resolvingBeforeDestruction = true;
+    /*
+        Commit all promises for paste when shutting down,
+        unless we are the stack-allocated clipboard used by QCocoaDrag.
+    */
+    if (mime_type == QMacInternalPasteboardMime::MIME_DND)
+        resolvingBeforeDestruction = true;
     PasteboardResolvePromises(paste);
     if (paste)
         CFRelease(paste);

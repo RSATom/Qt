@@ -69,7 +69,8 @@ struct QSSGShaderLightProperties
             // we lit in world sapce
             dir *= -1;
             m_lightData.position = QVector4D(dir, 0.0);
-        } else if (inLight->m_lightType == QSSGRenderLight::Type::Area) {
+        } else if (inLight->m_lightType == QSSGRenderLight::Type::Area
+                   || inLight->m_lightType == QSSGRenderLight::Type::Spot) {
             dir = inLight->getScalingCorrectDirection();
             m_lightData.position = QVector4D(inLight->getGlobalPos(), 1.0);
         } else {
@@ -106,7 +107,14 @@ struct QSSGShaderLightProperties
             m_lightData.linearAttenuation = aux::translateLinearAttenuation(inLight->m_linearFade);
             m_lightData.quadraticAttenuation
                     = aux::translateQuadraticAttenuation(inLight->m_quadraticFade);
-            m_lightData.spotCutoff = 180.0;
+            m_lightData.coneAngle = 180.0f;
+            if (inLight->m_lightType == QSSGRenderLight::Type::Spot) {
+                m_lightData.coneAngle = qCos(qDegreesToRadians(inLight->m_coneAngle));
+                float innerConeAngle = inLight->m_innerConeAngle;
+                if (inLight->m_innerConeAngle > inLight->m_coneAngle)
+                    innerConeAngle = inLight->m_coneAngle;
+                m_lightData.innerConeAngle = qCos(qDegreesToRadians(innerConeAngle));
+            }
         }
 
         if (m_lightType == QSSGRenderLight::Type::Point) {
@@ -385,7 +393,7 @@ struct QSSGShaderGenerator : public QSSGMaterialShaderGeneratorInterface
         return pCB;
     }
 
-    bool generateVertexShader(QSSGShaderDefaultMaterialKey &, const QByteArray &inShaderPathName)
+    bool generateVertexShader(QSSGShaderDefaultMaterialKey &inKey, const QByteArray &inShaderPathName)
     {
         const QSSGRef<QSSGDynamicObjectSystem> &theDynamicSystem(m_renderContext->dynamicObjectSystem());
         QByteArray vertSource = theDynamicSystem->getShaderSource(inShaderPathName);
@@ -426,7 +434,7 @@ struct QSSGShaderGenerator : public QSSGMaterialShaderGeneratorInterface
         }
 
         // the pipeline opens/closes up the shaders stages
-        vertexGenerator().beginVertexGeneration(displacementImageIdx, displacementImage);
+        vertexGenerator().beginVertexGeneration(inKey, displacementImageIdx, displacementImage);
         return false;
     }
 
@@ -489,7 +497,7 @@ struct QSSGShaderGenerator : public QSSGMaterialShaderGeneratorInterface
     {
         Q_UNUSED(inProgram)
         if (inShadow) {
-            if (shadowMap == false && inShadow->m_depthCube && (numShadowCubes < QSSG_MAX_NUM_SHADOWS)) {
+            if (!shadowMap && inShadow->m_depthCube && (numShadowCubes < QSSG_MAX_NUM_SHADOWS)) {
                 shadowCubes.m_array[numShadowCubes] = inShadow->m_depthCube.data();
                 ++numShadowCubes;
             } else if (shadowMap && inShadow->m_depthMap && (numShadowMaps < QSSG_MAX_NUM_SHADOWS)) {
@@ -935,7 +943,7 @@ struct QSSGShaderGenerator : public QSSGMaterialShaderGeneratorInterface
                             "}\n\n";
     }
 
-    bool generateFragmentShader(QSSGShaderDefaultMaterialKey &,
+    bool generateFragmentShader(QSSGShaderDefaultMaterialKey &inKey,
                                 const QByteArray &inShaderPathName,
                                 bool hasCustomVertShader)
     {
@@ -963,10 +971,10 @@ struct QSSGShaderGenerator : public QSSGMaterialShaderGeneratorInterface
         }
 
         if (!hasCustomVertShader) {
-            vertexGenerator().generateUVCoords(0);
+            vertexGenerator().generateUVCoords(inKey, 0);
             // for lightmaps we expect a second set of uv coordinates
             if (hasLightmaps)
-                vertexGenerator().generateUVCoords(1);
+                vertexGenerator().generateUVCoords(inKey, 1);
         }
 
         QSSGDefaultMaterialVertexPipelineInterface &vertexShader(vertexGenerator());
@@ -1007,8 +1015,8 @@ struct QSSGShaderGenerator : public QSSGMaterialShaderGeneratorInterface
         if (hasCustomFragShader) {
             fragmentShader << "#define FRAGMENT_SHADER\n\n";
             if (!hasCustomVertShader) {
-                vertexShader.generateWorldNormal();
-                vertexShader.generateVarTangentAndBinormal();
+                vertexShader.generateWorldNormal(inKey);
+                vertexShader.generateVarTangentAndBinormal(inKey);
                 vertexShader.generateWorldPosition();
 
                 vertexShader.generateViewVector();
@@ -1040,8 +1048,8 @@ struct QSSGShaderGenerator : public QSSGMaterialShaderGeneratorInterface
         // We write this here because the functions below may also write to
         // the fragment shader
         if (material().hasLighting()) {
-            vertexShader.generateWorldNormal();
-            vertexShader.generateVarTangentAndBinormal();
+            vertexShader.generateWorldNormal(inKey);
+            vertexShader.generateVarTangentAndBinormal(inKey);
             vertexShader.generateWorldPosition();
 
             if (material().isSpecularEnabled()) {

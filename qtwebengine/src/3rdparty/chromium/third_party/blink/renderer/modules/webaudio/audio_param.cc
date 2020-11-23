@@ -26,9 +26,11 @@
 #include "third_party/blink/renderer/modules/webaudio/audio_param.h"
 
 #include "third_party/blink/renderer/core/inspector/console_message.h"
+#include "third_party/blink/renderer/modules/webaudio/audio_graph_tracer.h"
 #include "third_party/blink/renderer/modules/webaudio/audio_node.h"
 #include "third_party/blink/renderer/modules/webaudio/audio_node_output.h"
 #include "third_party/blink/renderer/platform/audio/audio_utilities.h"
+#include "third_party/blink/renderer/platform/audio/vector_math.h"
 #include "third_party/blink/renderer/platform/bindings/exception_state.h"
 #include "third_party/blink/renderer/platform/instrumentation/histogram.h"
 #include "third_party/blink/renderer/platform/wtf/math_extras.h"
@@ -92,7 +94,7 @@ String AudioParamHandler::GetParamName() const {
     case kParamTypeBiquadFilterQ:
       return "BiquadFilter.Q";
     case kParamTypeBiquadFilterGain:
-      return "BiquadFilter.Gain";
+      return "BiquadFilter.gain";
     case kParamTypeBiquadFilterDetune:
       return "BiquadFilter.detune";
     case kParamTypeDelayDelayTime:
@@ -226,11 +228,9 @@ float AudioParamHandler::FinalValue() {
 void AudioParamHandler::CalculateSampleAccurateValues(
     float* values,
     unsigned number_of_values) {
-  bool is_safe =
-      GetDeferredTaskHandler().IsAudioThread() && values && number_of_values;
-  DCHECK(is_safe);
-  if (!is_safe)
-    return;
+  DCHECK(GetDeferredTaskHandler().IsAudioThread());
+  DCHECK(values);
+  DCHECK_GT(number_of_values, 0u);
 
   CalculateFinalValues(values, number_of_values, IsAudioRate());
 }
@@ -238,11 +238,9 @@ void AudioParamHandler::CalculateSampleAccurateValues(
 void AudioParamHandler::CalculateFinalValues(float* values,
                                              unsigned number_of_values,
                                              bool sample_accurate) {
-  bool is_good =
-      GetDeferredTaskHandler().IsAudioThread() && values && number_of_values;
-  DCHECK(is_good);
-  if (!is_good)
-    return;
+  DCHECK(GetDeferredTaskHandler().IsAudioThread());
+  DCHECK(values);
+  DCHECK_GT(number_of_values, 0u);
 
   // The calculated result will be the "intrinsic" value summed with all
   // audio-rate connections.
@@ -286,6 +284,13 @@ void AudioParamHandler::CalculateFinalValues(float* values,
       // Sum, with unity-gain.
       summing_bus_->SumFrom(*connection_bus);
     }
+
+    // Clamp the values now to the nominal range
+    float min_value = MinValue();
+    float max_value = MaxValue();
+
+    vector_math::Vclip(values, 1, &min_value, &max_value, values, 1,
+                       number_of_values);
   }
 }
 
@@ -315,7 +320,7 @@ AudioParam::AudioParam(BaseAudioContext& context,
                        AudioParamHandler::AutomationRateMode rate_mode,
                        float min_value,
                        float max_value)
-    : InspectorHelperMixin(parent_uuid),
+    : InspectorHelperMixin(context.GraphTracer(), parent_uuid),
       handler_(AudioParamHandler::Create(context,
                                          param_type,
                                          default_value,
@@ -352,6 +357,7 @@ AudioParam::~AudioParam() {
 
 void AudioParam::Trace(blink::Visitor* visitor) {
   visitor->Trace(context_);
+  InspectorHelperMixin::Trace(visitor);
   ScriptWrappable::Trace(visitor);
 }
 

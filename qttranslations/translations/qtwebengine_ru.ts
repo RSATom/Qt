@@ -173,6 +173,37 @@
     </message>
 </context>
 <context>
+    <name>QQuickPdfDocument</name>
+    <message>
+        <source>no error</source>
+        <translation>нет ошибок</translation>
+    </message>
+    <message>
+        <source>data not yet available</source>
+        <translation>данные ещё недоступны</translation>
+    </message>
+    <message>
+        <source>file not found</source>
+        <translation>файл не найден</translation>
+    </message>
+    <message>
+        <source>invalid file format</source>
+        <translation>неверный формат файла</translation>
+    </message>
+    <message>
+        <source>incorrect password</source>
+        <translation>неверный пароль</translation>
+    </message>
+    <message>
+        <source>unsupported security scheme</source>
+        <translation>неподдерживаемая схема безопасности</translation>
+    </message>
+    <message>
+        <source>unknown error</source>
+        <translation>неизвестная ошибка</translation>
+    </message>
+</context>
+<context>
     <name>QQuickWebEngineView</name>
     <message>
         <source>Stop</source>
@@ -338,62 +369,15 @@
         <translation>Покинуть страницу? Сделанные изменения могут быть утеряны.</translation>
     </message>
     <message>
-        <source>&amp;Back</source>
-        <translation>&amp;Назад</translation>
-    </message>
-    <message>
-        <source>&amp;Forward</source>
-        <translation>&amp;Вперёд</translation>
-    </message>
-    <message>
-        <source>&amp;Reload</source>
-        <translation>&amp;Перезагрузить</translation>
-    </message>
-    <message>
         <source>Select folder to upload</source>
         <translation>Выберите каталог для передачи</translation>
     </message>
 </context>
 <context>
-    <name>QtWebEngineCore</name>
-    <message>
-        <source>Javascript Alert - %1</source>
-        <translation>Извещение Javascript - %1</translation>
-    </message>
-    <message>
-        <source>Javascript Confirm - %1</source>
-        <translation>Подтверждение Javascript - %1</translation>
-    </message>
-    <message>
-        <source>Javascript Prompt - %1</source>
-        <translation>Приглашение Javascript - %1</translation>
-    </message>
-    <message>
-        <source>Are you sure you want to leave this page?</source>
-        <translation>Покинуть страницу?</translation>
-    </message>
-    <message>
-        <source>Changes that you made may not be saved.</source>
-        <translation>Внесённые изменения могут быть утеряны.</translation>
-    </message>
-</context>
-<context>
     <name>QtWebEnginePlugin</name>
-    <message>
-        <source>Cannot create a separate instance of WebEngineDownloadItem</source>
-        <translation>Невозможно создать отдельный экземпляр WebEngineDownloadItem</translation>
-    </message>
     <message>
         <source>Cannot create separate instance of WebEngineNewViewRequest</source>
         <translation>Невозможно создать отдельный экземпляр WebEngineNewViewRequest</translation>
-    </message>
-    <message>
-        <source>Cannot create a separate instance of NavigationHistory</source>
-        <translation>Невозможно создать отдельный экземпляр NavigationHistory</translation>
-    </message>
-    <message>
-        <source>Cannot create a separate instance of FullScreenRequest</source>
-        <translation>Невозможно создать отдельный экземпляр FullScreenRequest</translation>
     </message>
     <message>
         <source>Cannot create separate instance of %1</source>
@@ -516,6 +500,26 @@
 </context>
 <context>
     <name>UIDelegatesManager</name>
+    <message>
+        <source>Javascript Alert - %1</source>
+        <translation>Извещение Javascript - %1</translation>
+    </message>
+    <message>
+        <source>Javascript Confirm - %1</source>
+        <translation>Подтверждение Javascript - %1</translation>
+    </message>
+    <message>
+        <source>Javascript Prompt - %1</source>
+        <translation>Приглашение Javascript - %1</translation>
+    </message>
+    <message>
+        <source>Are you sure you want to leave this page?</source>
+        <translation>Покинуть страницу?</translation>
+    </message>
+    <message>
+        <source>Changes that you made may not be saved.</source>
+        <translation>Внесённые изменения могут быть утеряны.</translation>
+    </message>
     <message>
         <source>Connect to proxy &quot;%1&quot; using:</source>
         <translation>Подключение к прокси «%1» с использованием:</translation>

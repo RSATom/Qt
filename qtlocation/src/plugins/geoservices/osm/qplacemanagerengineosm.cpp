@@ -354,6 +354,6 @@ void QPlaceManagerEngineOsm::fetchNextCategoryLocale()
 
     m_categoriesReply = m_networkManager->get(QNetworkRequest(requestUrl));
     connect(m_categoriesReply, SIGNAL(finished()), this, SLOT(categoryReplyFinished()));
-    connect(m_categoriesReply, SIGNAL(error(QNetworkReply::NetworkError)),
+    connect(m_categoriesReply, SIGNAL(errorOccurred(QNetworkReply::NetworkError)),
             this, SLOT(categoryReplyError()));
 }

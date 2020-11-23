@@ -26,7 +26,7 @@ class BackgroundSyncNetworkObserverAndroid
   // Creates a BackgroundSyncNetworkObserver. |network_changed_callback| is
   // called via PostMessage when the network connection changes.
   BackgroundSyncNetworkObserverAndroid(
-      const base::Closure& network_changed_callback);
+      base::RepeatingClosure network_changed_callback);
 
   ~BackgroundSyncNetworkObserverAndroid() override;
 
@@ -74,7 +74,8 @@ class BackgroundSyncNetworkObserverAndroid
   // Accessed on UI Thread
   scoped_refptr<Observer> observer_;
 
-  base::WeakPtrFactory<BackgroundSyncNetworkObserverAndroid> weak_ptr_factory_;
+  base::WeakPtrFactory<BackgroundSyncNetworkObserverAndroid> weak_ptr_factory_{
+      this};
 };
 
 }  // namespace content

@@ -42,20 +42,20 @@
 
 #include "qqmlsettings_p.h"
 
+extern void qml_register_types_Qt_labs_settings();
+
 QT_BEGIN_NAMESPACE
 
-class QmlSettingsPlugin : public QQmlExtensionPlugin
+class QmlSettingsPlugin : public QQmlEngineExtensionPlugin
 {
     Q_OBJECT
-    Q_PLUGIN_METADATA(IID QQmlExtensionInterface_iid)
+    Q_PLUGIN_METADATA(IID QQmlEngineExtensionInterface_iid)
 
 public:
-    QmlSettingsPlugin(QObject *parent = nullptr) : QQmlExtensionPlugin(parent) { }
-    void registerTypes(const char *uri) override
+    QmlSettingsPlugin(QObject *parent = nullptr) : QQmlEngineExtensionPlugin(parent)
     {
-        Q_ASSERT(QByteArray(uri) == QByteArray("Qt.labs.settings"));
-        qmlRegisterType<QQmlSettings>(uri, 1, 0, "Settings");
-        qmlRegisterModule(uri, 1, 1); // QTBUG-73239
+        volatile auto registration = &qml_register_types_Qt_labs_settings;
+        Q_UNUSED(registration);
     }
 };
 

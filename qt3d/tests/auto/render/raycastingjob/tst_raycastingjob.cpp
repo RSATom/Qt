@@ -38,6 +38,7 @@
 #include <Qt3DCore/private/qaspectmanager_p.h>
 #include <Qt3DCore/private/qscene_p.h>
 #include <Qt3DCore/private/qaspectengine_p.h>
+#include <Qt3DCore/private/qaspectjob_p.h>
 #include <QtQuick/qquickwindow.h>
 
 #include <Qt3DRender/QCamera>
@@ -179,7 +180,7 @@ void runRequiredJobs(Qt3DRender::TestAspect *test)
     updateWorldTransform.run();
 
     // For each buffer
-    QVector<Qt3DRender::Render::HBuffer> bufferHandles = test->nodeManagers()->bufferManager()->activeHandles();
+    const std::vector<Qt3DRender::Render::HBuffer> &bufferHandles = test->nodeManagers()->bufferManager()->activeHandles();
     for (auto bufferHandle : bufferHandles) {
         Qt3DRender::Render::LoadBufferJob loadBuffer(bufferHandle);
         loadBuffer.setNodeManager(test->nodeManagers());
@@ -205,7 +206,7 @@ void runRequiredJobs(Qt3DRender::TestAspect *test)
     updateTriangleList.run();
 
     // For each geometry id
-    QVector<Qt3DRender::Render::HGeometryRenderer> geometryRenderHandles = test->nodeManagers()->geometryRendererManager()->activeHandles();
+    const std::vector<Qt3DRender::Render::HGeometryRenderer> &geometryRenderHandles = test->nodeManagers()->geometryRendererManager()->activeHandles();
     for (auto geometryRenderHandle : geometryRenderHandles) {
         Qt3DCore::QNodeId geometryRendererId = test->nodeManagers()->geometryRendererManager()->data(geometryRenderHandle)->peerId();
         Qt3DRender::Render::CalcGeometryTriangleVolumes calcGeometryTriangles(geometryRendererId, test->nodeManagers());
@@ -285,7 +286,7 @@ private Q_SLOTS:
         initializeJob(&rayCastingJob, test.data());
 
         bool earlyReturn = !rayCastingJob.runHelper();
-        Qt3DCore::QAspectJobPrivate::get(&rayCastingJob)->postFrame(test->aspectManager());
+        rayCastingJob.postFrame(test->aspectManager());
         QCoreApplication::processEvents();
 
         // THEN
@@ -345,7 +346,7 @@ private Q_SLOTS:
         initializeJob(&rayCastingJob, test.data());
 
         bool earlyReturn = !rayCastingJob.runHelper();
-        Qt3DCore::QAspectJobPrivate::get(&rayCastingJob)->postFrame(test->aspectManager());
+        rayCastingJob.postFrame(test->aspectManager());
         QCoreApplication::processEvents();
 
         // THEN

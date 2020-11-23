@@ -18,6 +18,7 @@
 #include "dawn_native/Buffer.h"
 #include "dawn_native/CommandAllocator.h"
 #include "dawn_native/ComputePipeline.h"
+#include "dawn_native/RenderBundle.h"
 #include "dawn_native/RenderPipeline.h"
 #include "dawn_native/Texture.h"
 
@@ -86,6 +87,14 @@ namespace dawn_native {
                     EndRenderPassCmd* cmd = commands->NextCommand<EndRenderPassCmd>();
                     cmd->~EndRenderPassCmd();
                 } break;
+                case Command::ExecuteBundles: {
+                    ExecuteBundlesCmd* cmd = commands->NextCommand<ExecuteBundlesCmd>();
+                    auto bundles = commands->NextData<Ref<RenderBundleBase>>(cmd->count);
+                    for (size_t i = 0; i < cmd->count; ++i) {
+                        (&bundles[i])->~Ref<RenderBundleBase>();
+                    }
+                    cmd->~ExecuteBundlesCmd();
+                } break;
                 case Command::InsertDebugMarker: {
                     InsertDebugMarkerCmd* cmd = commands->NextCommand<InsertDebugMarkerCmd>();
                     commands->NextData<char>(cmd->length + 1);
@@ -127,7 +136,7 @@ namespace dawn_native {
                 case Command::SetBindGroup: {
                     SetBindGroupCmd* cmd = commands->NextCommand<SetBindGroupCmd>();
                     if (cmd->dynamicOffsetCount > 0) {
-                        commands->NextData<uint64_t>(cmd->dynamicOffsetCount);
+                        commands->NextData<uint32_t>(cmd->dynamicOffsetCount);
                     }
                     cmd->~SetBindGroupCmd();
                 } break;
@@ -135,14 +144,9 @@ namespace dawn_native {
                     SetIndexBufferCmd* cmd = commands->NextCommand<SetIndexBufferCmd>();
                     cmd->~SetIndexBufferCmd();
                 } break;
-                case Command::SetVertexBuffers: {
-                    SetVertexBuffersCmd* cmd = commands->NextCommand<SetVertexBuffersCmd>();
-                    auto buffers = commands->NextData<Ref<BufferBase>>(cmd->count);
-                    for (size_t i = 0; i < cmd->count; ++i) {
-                        (&buffers[i])->~Ref<BufferBase>();
-                    }
-                    commands->NextData<uint64_t>(cmd->count);
-                    cmd->~SetVertexBuffersCmd();
+                case Command::SetVertexBuffer: {
+                    SetVertexBufferCmd* cmd = commands->NextCommand<SetVertexBufferCmd>();
+                    cmd->~SetVertexBufferCmd();
                 } break;
             }
         }
@@ -207,6 +211,11 @@ namespace dawn_native {
                 commands->NextCommand<EndRenderPassCmd>();
                 break;
 
+            case Command::ExecuteBundles: {
+                auto* cmd = commands->NextCommand<ExecuteBundlesCmd>();
+                commands->NextData<Ref<RenderBundleBase>>(cmd->count);
+            } break;
+
             case Command::InsertDebugMarker: {
                 InsertDebugMarkerCmd* cmd = commands->NextCommand<InsertDebugMarkerCmd>();
                 commands->NextData<char>(cmd->length + 1);
@@ -245,18 +254,19 @@ namespace dawn_native {
                 commands->NextCommand<SetBlendColorCmd>();
                 break;
 
-            case Command::SetBindGroup:
-                commands->NextCommand<SetBindGroupCmd>();
-                break;
+            case Command::SetBindGroup: {
+                SetBindGroupCmd* cmd = commands->NextCommand<SetBindGroupCmd>();
+                if (cmd->dynamicOffsetCount > 0) {
+                    commands->NextData<uint32_t>(cmd->dynamicOffsetCount);
+                }
+            } break;
 
             case Command::SetIndexBuffer:
                 commands->NextCommand<SetIndexBufferCmd>();
                 break;
 
-            case Command::SetVertexBuffers: {
-                auto* cmd = commands->NextCommand<SetVertexBuffersCmd>();
-                commands->NextData<Ref<BufferBase>>(cmd->count);
-                commands->NextData<uint64_t>(cmd->count);
+            case Command::SetVertexBuffer: {
+                commands->NextCommand<SetVertexBufferCmd>();
             } break;
         }
     }

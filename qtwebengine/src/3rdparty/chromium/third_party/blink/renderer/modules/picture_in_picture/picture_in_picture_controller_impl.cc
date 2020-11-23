@@ -9,9 +9,9 @@
 
 #include "base/bind_helpers.h"
 #include "mojo/public/cpp/bindings/pending_remote.h"
-#include "services/service_manager/public/cpp/interface_provider.h"
-#include "third_party/blink/public/common/manifest/web_display_mode.h"
+#include "third_party/blink/public/common/browser_interface_broker_proxy.h"
 #include "third_party/blink/public/mojom/feature_policy/feature_policy.mojom-blink.h"
+#include "third_party/blink/public/mojom/manifest/display_mode.mojom-shared.h"
 #include "third_party/blink/renderer/core/dom/document.h"
 #include "third_party/blink/renderer/core/dom/dom_exception.h"
 #include "third_party/blink/renderer/core/dom/events/event.h"
@@ -39,7 +39,7 @@ bool IsVideoElement(const Element& element) {
   if (!element.IsMediaElement())
     return false;
 
-  return static_cast<const HTMLMediaElement&>(element).IsHTMLVideoElement();
+  return IsA<HTMLVideoElement>(static_cast<const HTMLMediaElement&>(element));
 }
 
 }  // namespace
@@ -177,8 +177,7 @@ void PictureInPictureControllerImpl::EnterPictureInPicture(
       video_element->GetWebMediaPlayer()->GetDelegateId(),
       video_element->GetWebMediaPlayer()->GetSurfaceId(),
       video_element->GetWebMediaPlayer()->NaturalSize(),
-      ShouldShowPlayPauseButton(*video_element),
-      ShouldShowMuteButton(*video_element), std::move(session_observer),
+      ShouldShowPlayPauseButton(*video_element), std::move(session_observer),
       WTF::Bind(&PictureInPictureControllerImpl::OnEnteredPictureInPicture,
                 WrapPersistent(this), WrapPersistent(video_element),
                 WrapPersistent(resolver)));
@@ -321,7 +320,7 @@ bool PictureInPictureControllerImpl::IsEnterAutoPictureInPictureAllowed()
         Fullscreen::FullscreenElementFrom(*GetSupplementable()) ||
         (GetSupplementable()->View() &&
          GetSupplementable()->View()->DisplayMode() !=
-             WebDisplayMode::kWebDisplayModeBrowser &&
+             blink::mojom::DisplayMode::kBrowser &&
          GetSupplementable()->IsInWebAppScope()))) {
     return false;
   }
@@ -386,8 +385,7 @@ void PictureInPictureControllerImpl::OnPictureInPictureStateChange() {
       picture_in_picture_element_->GetWebMediaPlayer()->GetDelegateId(),
       picture_in_picture_element_->GetWebMediaPlayer()->GetSurfaceId(),
       picture_in_picture_element_->GetWebMediaPlayer()->NaturalSize(),
-      ShouldShowPlayPauseButton(*picture_in_picture_element_),
-      ShouldShowMuteButton(*picture_in_picture_element_));
+      ShouldShowPlayPauseButton(*picture_in_picture_element_));
 }
 
 void PictureInPictureControllerImpl::OnWindowSizeChanged(
@@ -398,13 +396,6 @@ void PictureInPictureControllerImpl::OnWindowSizeChanged(
 
 void PictureInPictureControllerImpl::OnStopped() {
   OnExitedPictureInPicture(nullptr);
-}
-
-bool PictureInPictureControllerImpl::ShouldShowMuteButton(
-    const HTMLVideoElement& element) {
-  DCHECK(GetSupplementable());
-  return element.HasAudio() && RuntimeEnabledFeatures::MuteButtonEnabled(
-                                   GetSupplementable()->GetExecutionContext());
 }
 
 void PictureInPictureControllerImpl::Trace(blink::Visitor* visitor) {
@@ -432,7 +423,7 @@ bool PictureInPictureControllerImpl::EnsureService() {
   scoped_refptr<base::SingleThreadTaskRunner> task_runner =
       GetSupplementable()->GetFrame()->GetTaskRunner(
           TaskType::kMediaElementEvent);
-  GetSupplementable()->GetFrame()->GetInterfaceProvider().GetInterface(
+  GetSupplementable()->GetBrowserInterfaceBroker().GetInterface(
       picture_in_picture_service_.BindNewPipeAndPassReceiver(task_runner));
   return true;
 }

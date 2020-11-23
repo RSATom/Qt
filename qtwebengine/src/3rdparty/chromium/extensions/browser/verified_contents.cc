@@ -11,7 +11,6 @@
 #include "base/files/file_util.h"
 #include "base/json/json_reader.h"
 #include "base/memory/ptr_util.h"
-#include "base/metrics/histogram_macros.h"
 #include "base/strings/string_util.h"
 #include "base/timer/elapsed_timer.h"
 #include "base/values.h"
@@ -19,6 +18,7 @@
 #include "components/crx_file/id_util.h"
 #include "crypto/signature_verifier.h"
 #include "extensions/browser/content_verifier/content_verifier_utils.h"
+#include "extensions/browser/content_verifier/scoped_uma_recorder.h"
 #include "extensions/common/extension.h"
 
 namespace {
@@ -60,40 +60,10 @@ const base::Value* FindDictionaryWithValue(const base::Value& list,
   return nullptr;
 }
 
-// Helper to record UMA for results of initializing verified_contents.json file.
-// TODO(lazyboy): Merge this with ScopedUMARecorder in computed_hashes.cc.
-class ScopedUMARecorder {
- public:
-  ScopedUMARecorder() = default;
-
-  ~ScopedUMARecorder() {
-    if (recorded_)
-      return;
-    RecordImpl(false);
-  }
-
-  void RecordSuccess() {
-    recorded_ = true;
-    RecordImpl(true);
-  }
-
- private:
-  void RecordImpl(bool success) {
-    if (success) {
-      UMA_HISTOGRAM_TIMES(
-          "Extensions.ContentVerification.VerifiedContentsInitTime",
-          timer_.Elapsed());
-    }
-    UMA_HISTOGRAM_BOOLEAN(
-        "Extensions.ContentVerification.VerifiedContentsInitResult", success);
-  }
-
- private:
-  base::ElapsedTimer timer_;
-  bool recorded_ = false;
-
-  DISALLOW_COPY_AND_ASSIGN(ScopedUMARecorder);
-};
+constexpr char kUMAVerifiedContentsInitResult[] =
+    "Extensions.ContentVerification.VerifiedContentsInitResult";
+constexpr char kUMAVerifiedContentsInitTime[] =
+    "Extensions.ContentVerification.VerifiedContentsInitTime";
 
 }  // namespace
 
@@ -130,7 +100,9 @@ VerifiedContents::~VerifiedContents() {
 std::unique_ptr<VerifiedContents> VerifiedContents::Create(
     base::span<const uint8_t> public_key,
     const base::FilePath& path) {
-  ScopedUMARecorder uma_recorder;
+  ScopedUMARecorder<kUMAVerifiedContentsInitTime,
+                    kUMAVerifiedContentsInitResult>
+      uma_recorder;
   // Note: VerifiedContents constructor is private.
   auto verified_contents = base::WrapUnique(new VerifiedContents(public_key));
   std::string payload;
@@ -215,7 +187,7 @@ std::unique_ptr<VerifiedContents> VerifiedContents::Create(
                                                      &trimmed_path)) {
         verified_contents->root_hashes_.insert(
             std::make_pair(trimmed_path, i->second));
-     }
+      }
 #endif  // defined(OS_WIN)
     }
 
@@ -227,8 +199,7 @@ std::unique_ptr<VerifiedContents> VerifiedContents::Create(
 
 bool VerifiedContents::HasTreeHashRoot(
     const base::FilePath& relative_path) const {
-  base::FilePath::StringType path = base::ToLowerASCII(
-      relative_path.NormalizePathSeparatorsTo('/').value());
+  base::FilePath::StringType path = NormalizeResourcePath(relative_path);
   if (base::Contains(root_hashes_, path))
     return true;
 
@@ -243,7 +214,7 @@ bool VerifiedContents::HasTreeHashRoot(
 bool VerifiedContents::TreeHashRootEquals(const base::FilePath& relative_path,
                                           const std::string& expected) const {
   base::FilePath::StringType normalized_relative_path =
-      base::ToLowerASCII(relative_path.NormalizePathSeparatorsTo('/').value());
+      NormalizeResourcePath(relative_path);
   if (TreeHashRootEqualsImpl(normalized_relative_path, expected))
     return true;
 
@@ -255,6 +226,13 @@ bool VerifiedContents::TreeHashRootEquals(const base::FilePath& relative_path,
   }
 #endif  // defined(OS_WIN)
   return false;
+}
+
+// static
+base::FilePath::StringType VerifiedContents::NormalizeResourcePath(
+    const base::FilePath& relative_path) {
+  return base::ToLowerASCII(
+      relative_path.NormalizePathSeparatorsTo('/').value());
 }
 
 // We're loosely following the "JSON Web Signature" draft spec for signing

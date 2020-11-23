@@ -145,7 +145,7 @@ QDateTime AbstractDateTime::create(AtomicValue::Ptr &errorMessage,
     /* Only deal with time if time is needed. */
     if(captTable.hour == -1)
     {
-        QDateTime result(date);
+        QDateTime result = date.startOfDay();
         setUtcOffset(result, zoResult, offset);
         return result;
     }

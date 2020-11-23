@@ -144,41 +144,32 @@ class QSQLiteDriverPrivate : public QSqlDriverPrivate
     Q_DECLARE_PUBLIC(QSQLiteDriver)
 
 public:
-    inline QSQLiteDriverPrivate() : QSqlDriverPrivate(), access(0) { dbmsType = QSqlDriver::SQLite; }
-    sqlite3 *access;
-    QList <QSQLiteResult *> results;
+    inline QSQLiteDriverPrivate() : QSqlDriverPrivate(QSqlDriver::SQLite) {}
+    sqlite3 *access = nullptr;
+    QVector<QSQLiteResult *> results;
     QStringList notificationid;
 };
 
 
-class QSQLiteResultPrivate: public QSqlCachedResultPrivate
+class QSQLiteResultPrivate : public QSqlCachedResultPrivate
 {
     Q_DECLARE_PUBLIC(QSQLiteResult)
 
 public:
     Q_DECLARE_SQLDRIVER_PRIVATE(QSQLiteDriver)
-    QSQLiteResultPrivate(QSQLiteResult *q, const QSQLiteDriver *drv);
+    using QSqlCachedResultPrivate::QSqlCachedResultPrivate;
     void cleanup();
     bool fetchNext(QSqlCachedResult::ValueCache &values, int idx, bool initialFetch);
     // initializes the recordInfo and the cache
     void initColumns(bool emptyResultset);
     void finalize();
 
-    sqlite3_stmt *stmt;
-
-    bool skippedStatus; // the status of the fetchNext() that's skipped
-    bool skipRow; // skip the next fetchNext()?
+    sqlite3_stmt *stmt = nullptr;
     QSqlRecord rInf;
     QVector<QVariant> firstRow;
+    bool skippedStatus = false; // the status of the fetchNext() that's skipped
+    bool skipRow = false; // skip the next fetchNext()?
 };
-
-QSQLiteResultPrivate::QSQLiteResultPrivate(QSQLiteResult *q, const QSQLiteDriver *drv)
-    : QSqlCachedResultPrivate(q, drv),
-      stmt(0),
-      skippedStatus(false),
-      skipRow(false)
-{
-}
 
 void QSQLiteResultPrivate::cleanup()
 {
@@ -505,7 +496,7 @@ bool QSQLiteResult::exec()
             if (value.isNull()) {
                 res = sqlite3_bind_null(d->stmt, i + 1);
             } else {
-                switch (value.type()) {
+                switch (value.userType()) {
                 case QVariant::ByteArray: {
                     const QByteArray *ba = static_cast<const QByteArray*>(value.constData());
                     res = sqlite3_bind_blob(d->stmt, i + 1, ba->constData(),
@@ -1044,7 +1035,12 @@ void QSQLiteDriver::handleNotification(const QString &tableName, qint64 rowid)
 {
     Q_D(const QSQLiteDriver);
     if (d->notificationid.contains(tableName)) {
+#if QT_DEPRECATED_SINCE(5, 15)
+QT_WARNING_PUSH
+QT_WARNING_DISABLE_DEPRECATED
         emit notification(tableName);
+QT_WARNING_POP
+#endif
         emit notification(tableName, QSqlDriver::UnknownSource, QVariant(rowid));
     }
 }

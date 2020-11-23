@@ -19,34 +19,41 @@ import {QueryResponse} from '../common/queries';
 import {EngineConfig} from '../common/state';
 
 import {globals} from './globals';
+import {executeSearch} from './search_handler';
 
 const QUERY_ID = 'quicksearch';
 
+const SEARCH = Symbol('search');
+const COMMAND = Symbol('command');
+type Mode = typeof SEARCH|typeof COMMAND;
+
+const PLACEHOLDER = {
+  [SEARCH]: 'Search',
+  [COMMAND]: 'e.g. select * from sched left join thread using(utid) limit 10'
+};
+
 let selResult = 0;
 let numResults = 0;
-let mode: 'search'|'command' = 'search';
-let omniboxValue = '';
-
-function enterCommandMode() {
-  if (mode === 'search') {
-    mode = 'command';
-    globals.rafScheduler.scheduleFullRedraw();
-  }
-}
+let mode: Mode = SEARCH;
+let displayStepThrough = false;
 
 function clearOmniboxResults(e: Event) {
   globals.queryResults.delete(QUERY_ID);
   globals.dispatch(Actions.deleteQuery({queryId: QUERY_ID}));
   const txt = (e.target as HTMLInputElement);
   if (txt.value.length <= 0) {
-    mode = 'search';
+    mode = SEARCH;
     globals.rafScheduler.scheduleFullRedraw();
   }
 }
 
 function onKeyDown(e: Event) {
-  e.stopPropagation();
-  const key = (e as KeyboardEvent).key;
+  const event = (e as KeyboardEvent);
+  const key = event.key;
+  if (key !== 'Enter') {
+    e.stopPropagation();
+  }
+  const txt = (e.target as HTMLInputElement);
 
   // Avoid that the global 'a', 'd', 'w', 's' handler sees these keystrokes.
   // TODO: this seems a bug in the pan_and_zoom_handler.ts.
@@ -54,15 +61,30 @@ function onKeyDown(e: Event) {
     e.preventDefault();
     return;
   }
-  const txt = (e.target as HTMLInputElement);
-  omniboxValue = txt.value;
+
+  if (mode === SEARCH && txt.value === '' && key === ':') {
+    e.preventDefault();
+    mode = COMMAND;
+    globals.rafScheduler.scheduleFullRedraw();
+    return;
+  }
+
+  if (mode === COMMAND && txt.value === '' && key === 'Backspace') {
+    mode = SEARCH;
+    globals.rafScheduler.scheduleFullRedraw();
+    return;
+  }
+
+  if (mode === SEARCH && key === 'Enter') {
+    txt.blur();
+  }
 }
 
 function onKeyUp(e: Event) {
   e.stopPropagation();
-  const key = (e as KeyboardEvent).key;
+  const event = (e as KeyboardEvent);
+  const key = event.key;
   const txt = e.target as HTMLInputElement;
-  omniboxValue = txt.value;
   if (key === 'ArrowUp' || key === 'ArrowDown') {
     selResult += (key === 'ArrowUp') ? -1 : 1;
     selResult = Math.max(selResult, 0);
@@ -71,17 +93,17 @@ function onKeyUp(e: Event) {
     globals.rafScheduler.scheduleFullRedraw();
     return;
   }
-  if (txt.value.length <= 0 || key === 'Escape') {
+
+  if (key === 'Escape') {
     globals.queryResults.delete(QUERY_ID);
-    globals.dispatch(Actions.deleteQuery({queryId: QUERY_ID}));
-    mode = 'search';
+    globals.dispatch(Actions.deleteQuery({queryId: 'command'}));
+    mode = SEARCH;
     txt.value = '';
-    omniboxValue = txt.value;
     txt.blur();
     globals.rafScheduler.scheduleFullRedraw();
     return;
   }
-  if (mode === 'command' && key === 'Enter') {
+  if (mode === COMMAND && key === 'Enter') {
     globals.dispatch(Actions.executeQuery(
         {engineId: '0', queryId: 'command', query: txt.value}));
   }
@@ -90,8 +112,6 @@ function onKeyUp(e: Event) {
 class Omnibox implements m.ClassComponent {
   oncreate(vnode: m.VnodeDOM) {
     const txt = vnode.dom.querySelector('input') as HTMLInputElement;
-    txt.addEventListener('focus', enterCommandMode);
-    txt.addEventListener('click', enterCommandMode);
     txt.addEventListener('blur', clearOmniboxResults);
     txt.addEventListener('keydown', onKeyDown);
     txt.addEventListener('keyup', onKeyUp);
@@ -124,30 +144,93 @@ class Omnibox implements m.ClassComponent {
         results.push(m(`div${clazz}`, resp.rows[i][resp.columns[0]]));
       }
     }
-    const placeholder = {
-      search: 'Click to enter command mode',
-      command: 'e.g. select * from sched left join thread using(utid) limit 10'
-    };
-
-    const commandMode = mode === 'command';
+    const commandMode = mode === COMMAND;
+    const state = globals.frontendLocalState;
     return m(
         `.omnibox${commandMode ? '.command-mode' : ''}`,
-        m(`input[placeholder=${placeholder[mode]}]`, {
-          onchange: m.withAttr('value', v => omniboxValue = v),
-          value: omniboxValue,
+        m('input', {
+          placeholder: PLACEHOLDER[mode],
+          oninput: m.withAttr(
+              'value',
+              v => {
+                globals.frontendLocalState.setOmnibox(
+                    v, commandMode ? 'COMMAND' : 'SEARCH');
+                if (mode === SEARCH) {
+                  globals.frontendLocalState.setSearchIndex(-1);
+                  displayStepThrough = v.length >= 4;
+                  globals.rafScheduler.scheduleFullRedraw();
+                }
+              }),
+          value: globals.frontendLocalState.omnibox,
         }),
+        displayStepThrough ?
+            m(
+                '.stepthrough',
+                m('.current',
+                  `${
+                      globals.currentSearchResults.totalResults === 0 ?
+                          '0 / 0' :
+                          `${state.searchIndex + 1} / ${
+                              globals.currentSearchResults.totalResults}`}`),
+                m('button',
+                  {
+                    disabled: state.searchIndex <= 0,
+                    onclick: () => {
+                      executeSearch(true /* reverse direction */);
+                    }
+                  },
+                  m('i.material-icons.left', 'keyboard_arrow_left')),
+                m('button',
+                  {
+                    disabled: state.searchIndex ===
+                        globals.currentSearchResults.totalResults - 1,
+                    onclick: () => {
+                      executeSearch();
+                    }
+                  },
+                  m('i.material-icons.right', 'keyboard_arrow_right')),
+                ) :
+            '',
         m('.omnibox-results', results));
+  }
+}
+
+class Progress implements m.ClassComponent {
+  private loading: () => void;
+  private progressBar?: HTMLElement;
+
+  constructor() {
+    this.loading = () => this.loadingAnimation();
+  }
+
+  oncreate(vnodeDom: m.CVnodeDOM) {
+    this.progressBar = vnodeDom.dom as HTMLElement;
+    globals.rafScheduler.addRedrawCallback(this.loading);
+  }
+
+  onremove() {
+    globals.rafScheduler.removeRedrawCallback(this.loading);
+  }
+
+  view() {
+    return m('.progress');
+  }
+
+  loadingAnimation() {
+    if (this.progressBar === undefined) return;
+    const engine: EngineConfig = globals.state.engines['0'];
+    if (globals.state.queries[QUERY_ID] !== undefined ||
+        (engine !== undefined && !engine.ready) ||
+        globals.numQueuedQueries > 0) {
+      this.progressBar.classList.add('progress-anim');
+    } else {
+      this.progressBar.classList.remove('progress-anim');
+    }
   }
 }
 
 export class Topbar implements m.ClassComponent {
   view() {
-    const progBar = [];
-    const engine: EngineConfig = globals.state.engines['0'];
-    if (globals.state.queries[QUERY_ID] !== undefined ||
-        (engine !== undefined && !engine.ready)) {
-      progBar.push(m('.progress'));
-    }
-    return m('.topbar', m(Omnibox), ...progBar);
+    return m('.topbar', m(Omnibox), m(Progress));
   }
 }

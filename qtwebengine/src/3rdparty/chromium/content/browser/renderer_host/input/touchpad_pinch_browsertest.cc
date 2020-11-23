@@ -78,7 +78,7 @@ class TouchpadPinchBrowserTest : public ContentBrowserTest,
  protected:
   void LoadURL() {
     const GURL data_url(kTouchpadPinchDataURL);
-    NavigateToURL(shell(), data_url);
+    EXPECT_TRUE(NavigateToURL(shell(), data_url));
     HitTestRegionObserver observer(GetRenderWidgetHost()->GetFrameSinkId());
     observer.WaitForHitTestData();
   }
@@ -103,7 +103,7 @@ class TouchpadPinchBrowserTest : public ContentBrowserTest,
   DISALLOW_COPY_AND_ASSIGN(TouchpadPinchBrowserTest);
 };
 
-INSTANTIATE_TEST_SUITE_P(, TouchpadPinchBrowserTest, testing::Bool());
+INSTANTIATE_TEST_SUITE_P(All, TouchpadPinchBrowserTest, testing::Bool());
 
 // Performing a touchpad pinch gesture should change the page scale.
 IN_PROC_BROWSER_TEST_P(TouchpadPinchBrowserTest,
@@ -222,7 +222,7 @@ IN_PROC_BROWSER_TEST_P(TouchpadPinchBrowserTest, WheelListenerPreventingPinch) {
 // If the synthetic wheel event for a touchpad double tap is canceled, we
 // should not change the page scale.
 IN_PROC_BROWSER_TEST_P(TouchpadPinchBrowserTest,
-                       WheelListenerPreventingDoubleTap) {
+                       DISABLED_WheelListenerPreventingDoubleTap) {
   LoadURL();
 
   WebPreferences prefs =

@@ -68,10 +68,10 @@ CodeParser::~CodeParser()
 /*!
   Initialize the code parser base class.
  */
-void CodeParser::initializeParser(const Config &config)
+void CodeParser::initializeParser()
 {
-    showInternal_ = config.getBool(CONFIG_SHOWINTERNAL);
-    singleExec_ = config.getBool(CONFIG_SINGLEEXEC);
+    showInternal_ = Config::instance().getBool(CONFIG_SHOWINTERNAL);
+    singleExec_ = Config::instance().getBool(CONFIG_SINGLEEXEC);
 }
 
 /*!
@@ -96,10 +96,10 @@ void CodeParser::parseHeaderFile(const Location &location, const QString &filePa
   All the code parsers in the static list are initialized here,
   after the qdoc configuration variables have been set.
  */
-void CodeParser::initialize(const Config &config)
+void CodeParser::initialize()
 {
     for (const auto &parser : qAsConst(parsers))
-        parser->initializeParser(config);
+        parser->initializeParser();
 }
 
 /*!
@@ -161,11 +161,11 @@ const QSet<QString> &CodeParser::commonMetaCommands()
                             << COMMAND_INJSMODULE << COMMAND_INMODULE << COMMAND_INPUBLICGROUP
                             << COMMAND_INQMLMODULE << COMMAND_INTERNAL << COMMAND_MAINCLASS
                             << COMMAND_NOAUTOLIST << COMMAND_NONREENTRANT << COMMAND_OBSOLETE
-                            << COMMAND_PAGEKEYWORDS << COMMAND_PRELIMINARY << COMMAND_QMLABSTRACT
-                            << COMMAND_QMLDEFAULT << COMMAND_QMLINHERITS << COMMAND_QMLREADONLY
-                            << COMMAND_QTVARIABLE << COMMAND_REENTRANT << COMMAND_SINCE
-                            << COMMAND_STARTPAGE << COMMAND_SUBTITLE << COMMAND_THREADSAFE
-                            << COMMAND_TITLE << COMMAND_WRAPPER;
+                            << COMMAND_PRELIMINARY << COMMAND_QMLABSTRACT << COMMAND_QMLDEFAULT
+                            << COMMAND_QMLINHERITS << COMMAND_QMLREADONLY << COMMAND_QTVARIABLE
+                            << COMMAND_REENTRANT << COMMAND_SINCE << COMMAND_STARTPAGE
+                            << COMMAND_SUBTITLE << COMMAND_THREADSAFE << COMMAND_TITLE
+                            << COMMAND_WRAPPER;
     }
     return commonMetaCommands_;
 }
@@ -270,24 +270,27 @@ void CodeParser::checkModuleInclusion(Node *n)
 {
     if (n->physicalModuleName().isEmpty()) {
         n->setPhysicalModuleName(Generator::defaultModuleName());
-        QString word;
-        switch (n->nodeType()) {
-        case Node::Class:
-            word = QLatin1String("Class");
-            break;
-        case Node::Struct:
-            word = QLatin1String("Struct");
-            break;
-        case Node::Union:
-            word = QLatin1String("Union");
-            break;
-        case Node::Namespace:
-            word = QLatin1String("Namespace");
-            break;
-        default:
-            return;
-        }
+
         if (n->isInAPI() && !n->name().isEmpty()) {
+            QString word;
+            switch (n->nodeType()) {
+            case Node::Class:
+                word = QLatin1String("Class");
+                break;
+            case Node::Struct:
+                word = QLatin1String("Struct");
+                break;
+            case Node::Union:
+                word = QLatin1String("Union");
+                break;
+            case Node::Namespace:
+                word = QLatin1String("Namespace");
+                break;
+            default:
+                return;
+            }
+
+            qdb_->addToModule(Generator::defaultModuleName(), n);
             n->doc().location().warning(tr("%1 %2 has no \\inmodule command; "
                                            "using project name by default: %3")
                                                 .arg(word)

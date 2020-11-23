@@ -8,6 +8,7 @@
 #ifndef SkShaper_DEFINED
 #define SkShaper_DEFINED
 
+#include "include/core/SkFontMgr.h"
 #include "include/core/SkPoint.h"
 #include "include/core/SkRefCnt.h"
 #include "include/core/SkScalar.h"
@@ -29,12 +30,12 @@ class SkShaper {
 public:
     static std::unique_ptr<SkShaper> MakePrimitive();
     #ifdef SK_SHAPER_HARFBUZZ_AVAILABLE
-    static std::unique_ptr<SkShaper> MakeShaperDrivenWrapper();
-    static std::unique_ptr<SkShaper> MakeShapeThenWrap();
-    static std::unique_ptr<SkShaper> MakeShapeDontWrapOrReorder();
+    static std::unique_ptr<SkShaper> MakeShaperDrivenWrapper(sk_sp<SkFontMgr> = nullptr);
+    static std::unique_ptr<SkShaper> MakeShapeThenWrap(sk_sp<SkFontMgr> = nullptr);
+    static std::unique_ptr<SkShaper> MakeShapeDontWrapOrReorder(sk_sp<SkFontMgr> = nullptr);
     #endif
 
-    static std::unique_ptr<SkShaper> Make();
+    static std::unique_ptr<SkShaper> Make(sk_sp<SkFontMgr> = nullptr);
 
     SkShaper();
     virtual ~SkShaper();
@@ -49,14 +50,33 @@ public:
         /** Return true if consume should no longer be called. */
         virtual bool atEnd() const = 0;
     };
+    class FontRunIterator : public RunIterator {
+    public:
+        virtual const SkFont& currentFont() const = 0;
+    };
+    class BiDiRunIterator : public RunIterator {
+    public:
+        /** The unicode bidi embedding level (even ltr, odd rtl) */
+        virtual uint8_t currentLevel() const = 0;
+    };
+    class ScriptRunIterator : public RunIterator {
+    public:
+        /** Should be iso15924 codes. */
+        virtual SkFourByteTag currentScript() const = 0;
+    };
+    class LanguageRunIterator : public RunIterator {
+    public:
+        /** Should be BCP-47, c locale names may also work. */
+        virtual const char* currentLanguage() const = 0;
+    };
 
 private:
     template <typename RunIteratorSubclass>
     class TrivialRunIterator : public RunIteratorSubclass {
     public:
         static_assert(std::is_base_of<RunIterator, RunIteratorSubclass>::value, "");
-        TrivialRunIterator(size_t utf8Bytes) : fEnd(utf8Bytes), fAtEnd(false) {}
-        void consume() override { fAtEnd = true; }
+        TrivialRunIterator(size_t utf8Bytes) : fEnd(utf8Bytes), fAtEnd(fEnd == 0) {}
+        void consume() override { SkASSERT(!fAtEnd); fAtEnd = true; }
         size_t endOfCurrentRun() const override { return fAtEnd ? fEnd : 0; }
         bool atEnd() const override { return fAtEnd; }
     private:
@@ -65,13 +85,14 @@ private:
     };
 
 public:
-    class FontRunIterator : public RunIterator {
-    public:
-        virtual const SkFont& currentFont() const = 0;
-    };
     static std::unique_ptr<FontRunIterator>
     MakeFontMgrRunIterator(const char* utf8, size_t utf8Bytes,
                            const SkFont& font, sk_sp<SkFontMgr> fallback);
+    static std::unique_ptr<SkShaper::FontRunIterator>
+    MakeFontMgrRunIterator(const char* utf8, size_t utf8Bytes,
+                           const SkFont& font, sk_sp<SkFontMgr> fallback,
+                           const char* requestName, SkFontStyle requestStyle,
+                           const SkShaper::LanguageRunIterator*);
     class TrivialFontRunIterator : public TrivialRunIterator<FontRunIterator> {
     public:
         TrivialFontRunIterator(const SkFont& font, size_t utf8Bytes)
@@ -81,11 +102,8 @@ public:
         SkFont fFont;
     };
 
-    class BiDiRunIterator : public RunIterator {
-    public:
-        /** The unicode bidi embedding level (even ltr, odd rtl) */
-        virtual uint8_t currentLevel() const = 0;
-    };
+    static std::unique_ptr<BiDiRunIterator>
+    MakeBiDiRunIterator(const char* utf8, size_t utf8Bytes, uint8_t bidiLevel);
     #ifdef SK_SHAPER_HARFBUZZ_AVAILABLE
     static std::unique_ptr<BiDiRunIterator>
     MakeIcuBiDiRunIterator(const char* utf8, size_t utf8Bytes, uint8_t bidiLevel);
@@ -99,11 +117,8 @@ public:
         uint8_t fBidiLevel;
     };
 
-    class ScriptRunIterator : public RunIterator {
-    public:
-        /** Should be iso15924 codes. */
-        virtual SkFourByteTag currentScript() const = 0;
-    };
+    static std::unique_ptr<ScriptRunIterator>
+    MakeScriptRunIterator(const char* utf8, size_t utf8Bytes, SkFourByteTag script);
     #ifdef SK_SHAPER_HARFBUZZ_AVAILABLE
     static std::unique_ptr<ScriptRunIterator>
     MakeHbIcuScriptRunIterator(const char* utf8, size_t utf8Bytes);
@@ -117,11 +132,6 @@ public:
         SkFourByteTag fScript;
     };
 
-    class LanguageRunIterator : public RunIterator {
-    public:
-        /** Should be BCP-47, c locale names may also work. */
-        virtual const char* currentLanguage() const = 0;
-    };
     static std::unique_ptr<LanguageRunIterator>
     MakeStdLanguageRunIterator(const char* utf8, size_t utf8Bytes);
     class TrivialLanguageRunIterator : public TrivialRunIterator<LanguageRunIterator> {

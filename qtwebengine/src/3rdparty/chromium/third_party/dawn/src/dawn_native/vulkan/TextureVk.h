@@ -18,17 +18,40 @@
 #include "dawn_native/Texture.h"
 
 #include "common/vulkan_platform.h"
-#include "dawn_native/vulkan/MemoryAllocator.h"
+#include "dawn_native/ResourceMemoryAllocation.h"
+#include "dawn_native/vulkan/ExternalHandle.h"
+#include "dawn_native/vulkan/external_memory/MemoryService.h"
 
 namespace dawn_native { namespace vulkan {
 
-    VkFormat VulkanImageFormat(dawn::TextureFormat format);
-    VkImageUsageFlags VulkanImageUsage(dawn::TextureUsageBit usage, const Format& format);
+    struct CommandRecordingContext;
+    class Device;
+    struct ExternalImageDescriptor;
+
+    VkFormat VulkanImageFormat(wgpu::TextureFormat format);
+    VkImageUsageFlags VulkanImageUsage(wgpu::TextureUsage usage, const Format& format);
     VkSampleCountFlagBits VulkanSampleCount(uint32_t sampleCount);
+
+    MaybeError ValidateVulkanImageCanBeWrapped(const DeviceBase* device,
+                                               const TextureDescriptor* descriptor);
+
+    bool IsSampleCountSupported(const dawn_native::vulkan::Device* device,
+                                const VkImageCreateInfo& imageCreateInfo);
 
     class Texture : public TextureBase {
       public:
-        Texture(Device* device, const TextureDescriptor* descriptor);
+        // Used to create a regular texture from a descriptor.
+        static ResultOrError<Texture*> Create(Device* device, const TextureDescriptor* descriptor);
+
+        // Creates a texture and initializes it with a VkImage that references an external memory
+        // object. Before the texture can be used, the VkDeviceMemory associated with the external
+        // image must be bound via Texture::BindExternalMemory.
+        static ResultOrError<Texture*> CreateFromExternal(
+            Device* device,
+            const ExternalImageDescriptor* descriptor,
+            const TextureDescriptor* textureDescriptor,
+            external_memory::Service* externalMemoryService);
+
         Texture(Device* device, const TextureDescriptor* descriptor, VkImage nativeImage);
         ~Texture();
 
@@ -38,37 +61,71 @@ namespace dawn_native { namespace vulkan {
         // Transitions the texture to be used as `usage`, recording any necessary barrier in
         // `commands`.
         // TODO(cwallez@chromium.org): coalesce barriers and do them early when possible.
-        void TransitionUsageNow(VkCommandBuffer commands, dawn::TextureUsageBit usage);
-        void EnsureSubresourceContentInitialized(VkCommandBuffer commands,
+        void TransitionUsageNow(CommandRecordingContext* recordingContext,
+                                wgpu::TextureUsage usage);
+        void EnsureSubresourceContentInitialized(CommandRecordingContext* recordingContext,
                                                  uint32_t baseMipLevel,
                                                  uint32_t levelCount,
                                                  uint32_t baseArrayLayer,
                                                  uint32_t layerCount);
 
+        MaybeError SignalAndDestroy(VkSemaphore* outSignalSemaphore);
+        // Binds externally allocated memory to the VkImage and on success, takes ownership of
+        // semaphores.
+        MaybeError BindExternalMemory(const ExternalImageDescriptor* descriptor,
+                                      VkSemaphore signalSemaphore,
+                                      VkDeviceMemory externalMemoryAllocation,
+                                      std::vector<VkSemaphore> waitSemaphores);
+
       private:
+        using TextureBase::TextureBase;
+        MaybeError InitializeAsInternalTexture();
+
+        MaybeError InitializeFromExternal(const ExternalImageDescriptor* descriptor,
+                                          external_memory::Service* externalMemoryService);
+
         void DestroyImpl() override;
-        void ClearTexture(VkCommandBuffer commands,
-                          uint32_t baseMipLevel,
-                          uint32_t levelCount,
-                          uint32_t baseArrayLayer,
-                          uint32_t layerCount);
+        MaybeError ClearTexture(CommandRecordingContext* recordingContext,
+                                uint32_t baseMipLevel,
+                                uint32_t levelCount,
+                                uint32_t baseArrayLayer,
+                                uint32_t layerCount,
+                                TextureBase::ClearValue);
 
         VkImage mHandle = VK_NULL_HANDLE;
-        DeviceMemoryAllocation mMemoryAllocation;
+        ResourceMemoryAllocation mMemoryAllocation;
+        VkDeviceMemory mExternalAllocation = VK_NULL_HANDLE;
+
+        enum class ExternalState {
+            InternalOnly,
+            PendingAcquire,
+            Acquired,
+            PendingRelease,
+            Released
+        };
+        ExternalState mExternalState = ExternalState::InternalOnly;
+        ExternalState mLastExternalState = ExternalState::InternalOnly;
+
+        VkSemaphore mSignalSemaphore = VK_NULL_HANDLE;
+        std::vector<VkSemaphore> mWaitRequirements;
 
         // A usage of none will make sure the texture is transitioned before its first use as
-        // required by the spec.
-        dawn::TextureUsageBit mLastUsage = dawn::TextureUsageBit::None;
+        // required by the Vulkan spec.
+        wgpu::TextureUsage mLastUsage = wgpu::TextureUsage::None;
     };
 
     class TextureView : public TextureViewBase {
       public:
-        TextureView(TextureBase* texture, const TextureViewDescriptor* descriptor);
+        static ResultOrError<TextureView*> Create(TextureBase* texture,
+                                                  const TextureViewDescriptor* descriptor);
         ~TextureView();
 
         VkImageView GetHandle() const;
 
       private:
+        using TextureViewBase::TextureViewBase;
+        MaybeError Initialize(const TextureViewDescriptor* descriptor);
+
         VkImageView mHandle = VK_NULL_HANDLE;
     };
 

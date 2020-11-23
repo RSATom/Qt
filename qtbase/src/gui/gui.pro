@@ -8,6 +8,7 @@ DEFINES   += QT_NO_USING_NAMESPACE QT_NO_FOREACH
 QMAKE_DOCS = $$PWD/doc/qtgui.qdocconf
 
 MODULE_PLUGIN_TYPES = \
+    accessiblebridge \
     platforms \
     platforms/darwin \
     xcbglintegrations \
@@ -59,15 +60,16 @@ load(cmake_functions)
 win32: CMAKE_WINDOWS_BUILD = True
 
 qtConfig(angle) {
+    !mingw|qtConfig(debug_and_release): debug_suffix="d"
     CMAKE_GL_INCDIRS = $$CMAKE_INCLUDE_DIR
     CMAKE_ANGLE_EGL_DLL_RELEASE = libEGL.dll
     CMAKE_ANGLE_EGL_IMPLIB_RELEASE = libEGL.$${QMAKE_EXTENSION_STATICLIB}
     CMAKE_ANGLE_GLES2_DLL_RELEASE = libGLESv2.dll
     CMAKE_ANGLE_GLES2_IMPLIB_RELEASE = libGLESv2.$${QMAKE_EXTENSION_STATICLIB}
-    CMAKE_ANGLE_EGL_DLL_DEBUG = libEGLd.dll
-    CMAKE_ANGLE_EGL_IMPLIB_DEBUG = libEGLd.$${QMAKE_EXTENSION_STATICLIB}
-    CMAKE_ANGLE_GLES2_DLL_DEBUG = libGLESv2d.dll
-    CMAKE_ANGLE_GLES2_IMPLIB_DEBUG = libGLESv2d.$${QMAKE_EXTENSION_STATICLIB}
+    CMAKE_ANGLE_EGL_DLL_DEBUG = libEGL$${debug_suffix}.dll
+    CMAKE_ANGLE_EGL_IMPLIB_DEBUG = libEGL$${debug_suffix}.$${QMAKE_EXTENSION_STATICLIB}
+    CMAKE_ANGLE_GLES2_DLL_DEBUG = libGLESv2$${debug_suffix}.dll
+    CMAKE_ANGLE_GLES2_IMPLIB_DEBUG = libGLESv2$${debug_suffix}.$${QMAKE_EXTENSION_STATICLIB}
 
     CMAKE_QT_OPENGL_IMPLEMENTATION = GLESv2
 } else {
@@ -99,4 +101,4 @@ qtConfig(egl): CMAKE_EGL_INCDIRS = $$cmakePortablePaths($$QMAKE_INCDIR_EGL)
 QMAKE_DYNAMIC_LIST_FILE = $$PWD/QtGui.dynlist
 
 TRACEPOINT_PROVIDER = $$PWD/qtgui.tracepoints
-CONFIG += qt_tracepoints
+CONFIG += qt_tracepoints metatypes install_metatypes

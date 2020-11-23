@@ -12,6 +12,7 @@
 #include "base/path_service.h"
 #include "base/strings/pattern.h"
 #include "base/strings/string_util.h"
+#include "base/strings/stringprintf.h"
 #include "base/values.h"
 #include "extensions/common/extension_l10n_util.h"
 #include "extensions/common/extension_paths.h"
@@ -44,8 +45,9 @@ base::Value LoadManifestFile(const base::FilePath& manifest_path,
       std::string::npos) {
     base::DictionaryValue* manifest_dictionary = nullptr;
     manifest->GetAsDictionary(&manifest_dictionary);
-    extension_l10n_util::LocalizeExtension(extension_path, manifest_dictionary,
-                                           error);
+    extension_l10n_util::LocalizeExtension(
+        extension_path, manifest_dictionary,
+        extension_l10n_util::GzippedMessagesPermission::kDisallow, error);
   }
 
   return base::Value(std::move(*manifest));
@@ -269,6 +271,9 @@ void ManifestTest::RunTestcases(const Testcase* testcases,
 
 void ManifestTest::RunTestcase(const Testcase& testcase,
                                         ExpectType type) {
+  SCOPED_TRACE(base::StringPrintf("Testing file '%s'",
+                                  testcase.manifest_filename_.c_str()));
+
   switch (type) {
     case EXPECT_TYPE_ERROR:
       LoadAndExpectError(testcase.manifest_filename_.c_str(),

@@ -115,9 +115,9 @@ ControlView {
         // Called to update the style after the user has edited a property.
         Connections {
             target: customizerItem
-            onMinimumValueAngleChanged: __style.minimumValueAngle = customizerItem.minimumValueAngle
-            onMaximumValueAngleChanged: __style.maximumValueAngle = customizerItem.maximumValueAngle
-            onLabelStepSizeChanged: __style.tickmarkStepSize = __style.labelStepSize = customizerItem.labelStepSize
+            function onMinimumValueAngleChanged() { __style.minimumValueAngle = customizerItem.minimumValueAngle }
+            function onMaximumValueAngleChanged() { __style.maximumValueAngle = customizerItem.maximumValueAngle }
+            function onLabelStepSizeChanged() { __style.tickmarkStepSize = __style.labelStepSize = customizerItem.labelStepSize }
         }
 
         Behavior on value {

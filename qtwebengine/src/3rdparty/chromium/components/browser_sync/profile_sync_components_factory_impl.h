@@ -51,7 +51,10 @@ class ProfileSyncComponentsFactoryImpl
           web_data_service_on_disk,
       const scoped_refptr<autofill::AutofillWebDataService>&
           web_data_service_in_memory,
-      const scoped_refptr<password_manager::PasswordStore>& password_store,
+      const scoped_refptr<password_manager::PasswordStore>&
+          profile_password_store,
+      const scoped_refptr<password_manager::PasswordStore>&
+          account_password_store,
       sync_bookmarks::BookmarkSyncService* bookmark_sync_service);
   ~ProfileSyncComponentsFactoryImpl() override;
 
@@ -75,9 +78,6 @@ class ProfileSyncComponentsFactoryImpl
       const std::string& name,
       invalidation::InvalidationService* invalidator,
       const base::WeakPtr<syncer::SyncPrefs>& sync_prefs) override;
-  syncer::SyncApiComponentFactory::SyncComponents CreateBookmarkSyncComponents(
-      std::unique_ptr<syncer::DataTypeErrorHandler> error_handler,
-      syncer::UserShare* user_share) override;
 
  private:
   // Factory function for ModelTypeController instances for models living on
@@ -119,7 +119,8 @@ class ProfileSyncComponentsFactoryImpl
       web_data_service_on_disk_;
   const scoped_refptr<autofill::AutofillWebDataService>
       web_data_service_in_memory_;
-  const scoped_refptr<password_manager::PasswordStore> password_store_;
+  const scoped_refptr<password_manager::PasswordStore> profile_password_store_;
+  const scoped_refptr<password_manager::PasswordStore> account_password_store_;
   sync_bookmarks::BookmarkSyncService* const bookmark_sync_service_;
 
   DISALLOW_COPY_AND_ASSIGN(ProfileSyncComponentsFactoryImpl);

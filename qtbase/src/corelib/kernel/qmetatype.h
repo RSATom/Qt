@@ -175,6 +175,7 @@ inline Q_DECL_CONSTEXPR int qMetaTypeId();
     F(QVector4D, 84, QVector4D) \
     F(QQuaternion, 85, QQuaternion) \
     F(QPolygonF, 86, QPolygonF) \
+    F(QColorSpace, 87, QColorSpace) \
 
 
 #define QT_FOR_EACH_STATIC_WIDGETS_CLASS(F)\
@@ -437,7 +438,7 @@ public:
         FirstCoreType = Bool,
         LastCoreType = QCborMap,
         FirstGuiType = QFont,
-        LastGuiType = QPolygonF,
+        LastGuiType = QColorSpace,
         FirstWidgetsType = QSizePolicy,
         LastWidgetsType = QSizePolicy,
         HighestInternalId = LastWidgetsType,
@@ -472,12 +473,12 @@ public:
         QIcon = 69, QImage = 70, QPolygon = 71, QRegion = 72, QBitmap = 73,
         QCursor = 74, QKeySequence = 75, QPen = 76, QTextLength = 77, QTextFormat = 78,
         QMatrix = 79, QTransform = 80, QMatrix4x4 = 81, QVector2D = 82,
-        QVector3D = 83, QVector4D = 84, QQuaternion = 85, QPolygonF = 86,
+        QVector3D = 83, QVector4D = 84, QQuaternion = 85, QPolygonF = 86, QColorSpace = 87,
 
         // Widget types
         QSizePolicy = 121,
         LastCoreType = QCborMap,
-        LastGuiType = QPolygonF,
+        LastGuiType = QColorSpace,
         User = 1024
     };
 #endif
@@ -572,7 +573,7 @@ public:
     static bool load(QDataStream &stream, int type, void *data);
 #endif
 
-    explicit QMetaType(const int type); // ### Qt6: drop const
+    explicit QMetaType(const int type = QMetaType::UnknownType); // ### Qt6: drop const
     inline ~QMetaType();
 
     inline bool isValid() const;
@@ -581,11 +582,23 @@ public:
     inline int sizeOf() const;
     inline TypeFlags flags() const;
     inline const QMetaObject *metaObject() const;
+    QT_PREPEND_NAMESPACE(QByteArray) name() const;
 
     inline void *create(const void *copy = nullptr) const;
     inline void destroy(void *data) const;
     inline void *construct(void *where, const void *copy = nullptr) const;
     inline void destruct(void *data) const;
+
+    template<typename T>
+    static QMetaType fromType()
+    { return QMetaType(qMetaTypeId<T>()); }
+
+    friend bool operator==(const QMetaType &a, const QMetaType &b)
+    { return a.m_typeId == b.m_typeId; }
+
+    friend bool operator!=(const QMetaType &a, const QMetaType &b)
+    { return a.m_typeId != b.m_typeId; }
+
 
 public:
     template<typename T>
@@ -1001,6 +1014,24 @@ struct ContainerCapabilitiesImpl<Container, decltype(std::declval<Container>().p
     { static_cast<Container *>(const_cast<void *>(container))->push_back(*static_cast<const typename Container::value_type *>(value)); }
 };
 
+namespace QtPrivate {
+namespace ContainerCapabilitiesMetaProgrammingHelper {
+    template<typename... Ts>
+    using void_t = void;
+}
+}
+
+template<typename Container>
+struct ContainerCapabilitiesImpl<Container, QtPrivate::ContainerCapabilitiesMetaProgrammingHelper::void_t<decltype(std::declval<Container>().insert(std::declval<typename Container::value_type>())), decltype(std::declval<typename Container::value_type>() == std::declval<typename Container::value_type>())>>
+{
+    enum {ContainerCapabilities = ContainerIsAppendable};
+
+    // The code below invokes undefined behavior if and only if the pointer passed into QSequentialIterableImpl
+    // pointed to a const object to begin with
+    static void appendImpl(const void *container, const void *value)
+    { static_cast<Container *>(const_cast<void *>(container))->insert(*static_cast<const typename Container::value_type *>(value)); }
+};
+
 template<typename T, typename Category = typename std::iterator_traits<typename T::const_iterator>::iterator_category>
 struct CapabilitiesImpl;
 
@@ -1284,9 +1315,12 @@ public:
     { IteratorOwner<typename T::const_iterator>::assign(iterator,
                                                         static_cast<const T*>(container)->find(*static_cast<const typename T::key_type*>(p))); }
 
+    QT_WARNING_PUSH
+    QT_WARNING_DISABLE_DEPRECATED // Hits on the deprecated QHash::iterator::operator--()
     template<class T>
     static void advanceImpl(void **p, int step)
     { std::advance(*static_cast<typename T::const_iterator*>(*p), step); }
+    QT_WARNING_POP
 
     template<class T>
     static void beginImpl(const void *container, void **iterator)

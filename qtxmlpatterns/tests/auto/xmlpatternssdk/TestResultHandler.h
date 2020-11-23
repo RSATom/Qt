@@ -31,9 +31,9 @@
 
 #include <QHash>
 #include <QString>
-#include <QtXml/QXmlDefaultHandler>
 
 #include "TestResult.h"
+#include "XmlParseHelper.h"
 
 QT_BEGIN_NAMESPACE
 
@@ -46,7 +46,7 @@ namespace QPatternistSDK
      * @author Frans Englich <frans.englich@nokia.com>
      * @ingroup PatternistSDK
      */
-    class TestResultHandler : public QXmlDefaultHandler
+    class TestResultHandler : public XmlParseHelper
     {
     public:
         /**
@@ -68,15 +68,13 @@ namespace QPatternistSDK
         /**
          * Performs finalization.
          */
-        virtual bool endDocument();
+        bool endDocument() override;
 
         /**
          * Reads the <tt>test-case</tt> element and its attributes, everything else is ignored.
          */
-        virtual bool startElement(const QString &namespaceURI,
-                                  const QString &localName,
-                                  const QString &qName,
-                                  const QXmlAttributes &atts);
+        bool startElement(const QStringRef &namespaceURI, const QStringRef &localName,
+                          const QStringRef &qName, const QXmlStreamAttributes &atts) override;
         /**
          * @note Do not reimplement this function.
          * @returns the result obtained from reading the XML file.

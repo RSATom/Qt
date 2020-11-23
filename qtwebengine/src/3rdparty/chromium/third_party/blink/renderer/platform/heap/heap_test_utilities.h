@@ -8,7 +8,7 @@
 #define THIRD_PARTY_BLINK_RENDERER_PLATFORM_HEAP_HEAP_TEST_UTILITIES_H_
 
 #include "base/callback.h"
-#include "base/test/scoped_task_environment.h"
+#include "base/test/task_environment.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "third_party/blink/renderer/platform/heap/blink_gc.h"
 #include "third_party/blink/renderer/platform/heap/garbage_collected.h"
@@ -38,7 +38,7 @@ class TestSupportingGC : public testing::Test {
   void CompleteSweepingIfNeeded();
 
  protected:
-  base::test::ScopedTaskEnvironment scoped_task_environment_;
+  base::test::TaskEnvironment task_environment_;
 };
 
 template <typename T>
@@ -139,6 +139,62 @@ class LinkedObject : public GarbageCollected<LinkedObject> {
 
  private:
   Member<LinkedObject> next_;
+};
+
+// Test driver for incremental marking. Assumes that no stack handling is
+// required.
+class IncrementalMarkingTestDriver {
+ public:
+  explicit IncrementalMarkingTestDriver(ThreadState* thread_state)
+      : thread_state_(thread_state) {}
+  ~IncrementalMarkingTestDriver();
+
+  void Start();
+  bool SingleStep(BlinkGC::StackState stack_state =
+                      BlinkGC::StackState::kNoHeapPointersOnStack);
+  void FinishSteps(BlinkGC::StackState stack_state =
+                       BlinkGC::StackState::kNoHeapPointersOnStack);
+  void FinishGC(bool complete_sweep = true);
+
+  // Methods for forcing a concurrent marking step without any assistance from
+  // mutator thread (i.e. without incremental marking on the mutator thread).
+  bool SingleConcurrentStep(BlinkGC::StackState stack_state =
+                                BlinkGC::StackState::kNoHeapPointersOnStack);
+  void FinishConcurrentSteps(BlinkGC::StackState stack_state =
+                                 BlinkGC::StackState::kNoHeapPointersOnStack);
+
+  size_t GetHeapCompactLastFixupCount() const;
+
+ private:
+  ThreadState* const thread_state_;
+};
+
+class IntegerObject : public GarbageCollected<IntegerObject> {
+ public:
+  void Trace(blink::Visitor* visitor) {}
+
+  int Value() const { return x_; }
+
+  bool operator==(const IntegerObject& other) const {
+    return other.Value() == Value();
+  }
+
+  unsigned GetHash() { return IntHash<int>::GetHash(x_); }
+
+  explicit IntegerObject(int x) : x_(x) {}
+
+ private:
+  int x_;
+};
+
+struct IntegerObjectHash {
+  static unsigned GetHash(const IntegerObject& key) {
+    return WTF::HashInt(static_cast<uint32_t>(key.Value()));
+  }
+
+  static bool Equal(const IntegerObject& a, const IntegerObject& b) {
+    return a == b;
+  }
 };
 
 }  // namespace blink

@@ -11,9 +11,10 @@
 #include <vector>
 
 #include "base/bind.h"
+#include "base/message_loop/message_pump_type.h"
 #include "base/run_loop.h"
 #include "base/single_thread_task_runner.h"
-#include "base/test/scoped_task_environment.h"
+#include "base/test/task_environment.h"
 #include "base/threading/thread.h"
 #include "base/threading/thread_restrictions.h"
 #include "dbus/bus.h"
@@ -56,8 +57,8 @@ class ObjectManagerTest
                                 const std::string& interface_name) override {
     Properties* properties = new Properties(
         object_proxy, interface_name,
-        base::Bind(&ObjectManagerTest::OnPropertyChanged,
-                   base::Unretained(this), object_path));
+        base::BindRepeating(&ObjectManagerTest::OnPropertyChanged,
+                            base::Unretained(this), object_path));
     return static_cast<PropertySet*>(properties);
   }
 
@@ -68,7 +69,7 @@ class ObjectManagerTest
     // Start the D-Bus thread.
     dbus_thread_.reset(new base::Thread("D-Bus Thread"));
     base::Thread::Options thread_options;
-    thread_options.message_loop_type = base::MessageLoop::TYPE_IO;
+    thread_options.message_pump_type = base::MessagePumpType::IO;
     ASSERT_TRUE(dbus_thread_->StartWithOptions(thread_options));
 
     // Start the test service, using the D-Bus thread.
@@ -198,14 +199,13 @@ class ObjectManagerTest
     writer.AppendString(action);
     writer.AppendObjectPath(object_path);
 
-    object_proxy->CallMethod(&method_call,
-                             ObjectProxy::TIMEOUT_USE_DEFAULT,
-                             base::Bind(&ObjectManagerTest::MethodCallback,
-                                        base::Unretained(this)));
+    object_proxy->CallMethod(&method_call, ObjectProxy::TIMEOUT_USE_DEFAULT,
+                             base::BindOnce(&ObjectManagerTest::MethodCallback,
+                                            base::Unretained(this)));
     WaitForMethodCallback();
   }
 
-  base::test::ScopedTaskEnvironment scoped_task_environment_;
+  base::test::SingleThreadTaskEnvironment task_environment_;
   std::unique_ptr<base::RunLoop> run_loop_;
   std::unique_ptr<base::Thread> dbus_thread_;
   scoped_refptr<Bus> bus_;
@@ -405,7 +405,7 @@ TEST_F(ObjectManagerTest, PropertiesChangedAsObjectsReceived) {
   // after setting up the match rule for PropertiesChanged. We should process
   // the PropertiesChanged event right after that. If we don't receive it within
   // 2 seconds, then fail the test.
-  scoped_task_environment_.GetMainThreadTaskRunner()->PostDelayedTask(
+  task_environment_.GetMainThreadTaskRunner()->PostDelayedTask(
       FROM_HERE,
       base::BindOnce(&ObjectManagerTest::PropertiesChangedTestTimeout,
                      base::Unretained(this)),

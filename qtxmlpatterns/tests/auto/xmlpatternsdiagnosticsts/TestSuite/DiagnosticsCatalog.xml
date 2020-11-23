@@ -782,14 +782,6 @@
        <output-file role="principal" compare="Ignore"/>
     </test-case>
 
-    <test-case is-XPath2="false" name="fail-17" FilePath="ShouldFail/"
-               scenario="standard" Creator="Frans Englich" >
-       <description>Space is significant.</description>
-       <query name="fail-17" date="2007-06-07"/>
-       <input-file role="principal-data" variable="input-context">emptydoc</input-file>
-       <output-file role="principal" compare="XML">fail-3.txt</output-file>
-    </test-case>
-
     <test-case is-XPath2="false" name="fail-18" FilePath="ShouldFail/"
                scenario="runtime-error" Creator="Frans Englich" >
                <description>Test that XML documents that differs on the top level, are flagged(type being runtime-error).</description>
@@ -1038,6 +1030,13 @@
         <query name="succeed-14" date="2008-02-19"/>
         <output-file compare="XML" role="principal">succeed-14.txt</output-file>                   
      </test-case>
+
+     <test-case is-XPath2="false" name="succeed-15" FilePath="ShouldSucceed/" scenario="standard" Creator="Frans Englich" >
+       <description>Space is ignored.</description>
+       <query name="succeed-15" date="2007-06-07"/>
+       <input-file role="principal-data" variable="input-context">emptydoc</input-file>
+       <output-file role="principal" compare="XML">succeed-15.txt</output-file>
+    </test-case>
 
   </test-group>
 

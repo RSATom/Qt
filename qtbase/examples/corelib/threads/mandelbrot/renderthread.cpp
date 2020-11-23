@@ -57,9 +57,6 @@
 RenderThread::RenderThread(QObject *parent)
     : QThread(parent)
 {
-    restart = false;
-    abort = false;
-
     for (int i = 0; i < ColormapSize; ++i)
         colormap[i] = rgbFromWaveLength(380.0 + (i * 400.0 / ColormapSize));
 }
@@ -79,13 +76,14 @@ RenderThread::~RenderThread()
 
 //! [2]
 void RenderThread::render(double centerX, double centerY, double scaleFactor,
-                          QSize resultSize)
+                          QSize resultSize, double devicePixelRatio)
 {
     QMutexLocker locker(&mutex);
 
     this->centerX = centerX;
     this->centerY = centerY;
     this->scaleFactor = scaleFactor;
+    this->devicePixelRatio = devicePixelRatio;
     this->resultSize = resultSize;
 
     if (!isRunning()) {
@@ -102,10 +100,12 @@ void RenderThread::run()
 {
     forever {
         mutex.lock();
-        QSize resultSize = this->resultSize;
-        double scaleFactor = this->scaleFactor;
-        double centerX = this->centerX;
-        double centerY = this->centerY;
+        const double devicePixelRatio = this->devicePixelRatio;
+        const QSize resultSize = this->resultSize * devicePixelRatio;
+        const double requestedScaleFactor = this->scaleFactor;
+        const double scaleFactor = requestedScaleFactor / devicePixelRatio;
+        const double centerX = this->centerX;
+        const double centerY = this->centerY;
         mutex.unlock();
 //! [3]
 
@@ -114,6 +114,7 @@ void RenderThread::run()
 //! [4] //! [5]
         int halfHeight = resultSize.height() / 2;
         QImage image(resultSize, QImage::Format_RGB32);
+        image.setDevicePixelRatio(devicePixelRatio);
 
         const int NumPasses = 8;
         int pass = 0;
@@ -128,20 +129,20 @@ void RenderThread::run()
                 if (abort)
                     return;
 
-                uint *scanLine =
+                auto scanLine =
                         reinterpret_cast<uint *>(image.scanLine(y + halfHeight));
-                double ay = centerY + (y * scaleFactor);
+                const double ay = centerY + (y * scaleFactor);
 
                 for (int x = -halfWidth; x < halfWidth; ++x) {
-                    double ax = centerX + (x * scaleFactor);
+                    const double ax = centerX + (x * scaleFactor);
                     double a1 = ax;
                     double b1 = ay;
                     int numIterations = 0;
 
                     do {
                         ++numIterations;
-                        double a2 = (a1 * a1) - (b1 * b1) + ax;
-                        double b2 = (2 * a1 * b1) + ay;
+                        const double a2 = (a1 * a1) - (b1 * b1) + ax;
+                        const double b2 = (2 * a1 * b1) + ay;
                         if ((a2 * a2) + (b2 * b2) > Limit)
                             break;
 
@@ -165,7 +166,7 @@ void RenderThread::run()
                 pass = 4;
             } else {
                 if (!restart)
-                    emit renderedImage(image, scaleFactor);
+                    emit renderedImage(image, requestedScaleFactor);
 //! [5] //! [6]
                 ++pass;
             }
@@ -187,9 +188,9 @@ void RenderThread::run()
 //! [10]
 uint RenderThread::rgbFromWaveLength(double wave)
 {
-    double r = 0.0;
-    double g = 0.0;
-    double b = 0.0;
+    double r = 0;
+    double g = 0;
+    double b = 0;
 
     if (wave >= 380.0 && wave <= 440.0) {
         r = -1.0 * (wave - 440.0) / (440.0 - 380.0);

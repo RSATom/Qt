@@ -42,7 +42,7 @@ protected:
         } else {
             SkPath p;
             p.addOval(r);
-            p.setFillType(SkPath::kInverseWinding_FillType);
+            p.setFillType(SkPathFillType::kInverseWinding);
             paint.setBlendMode(SkBlendMode::kDstOut);
             canvas->drawPath(p, paint);
         }
@@ -50,7 +50,7 @@ protected:
 
     virtual void onDrawContent(SkCanvas* canvas) {
         SkRect  r;
-        r.set(SkIntToScalar(20), SkIntToScalar(20), SkIntToScalar(120), SkIntToScalar(120));
+        r.setLTRB(20, 20, 120, 120);
         canvas->saveLayer(&r, nullptr);
         canvas->drawColor(SK_ColorRED);
         drawMask(canvas, r);

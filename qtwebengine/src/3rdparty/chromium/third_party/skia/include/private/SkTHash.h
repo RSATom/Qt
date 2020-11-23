@@ -274,6 +274,13 @@ public:
         return nullptr;
     }
 
+    V& operator[](const K& key) {
+        if (V* val = this->find(key)) {
+            return *val;
+        }
+        return *this->set(key, V{});
+    }
+
     // Remove the key/value entry in the table with this key.
     void remove(const K& key) {
         SkASSERT(this->find(key));
@@ -319,6 +326,9 @@ public:
 
     // How many items are in the set?
     int count() const { return fTable.count(); }
+
+    // Is empty?
+    bool empty() const { return fTable.count() == 0; }
 
     // Approximately how many bytes of memory do we use beyond sizeof(*this)?
     size_t approxBytesUsed() const { return fTable.approxBytesUsed(); }

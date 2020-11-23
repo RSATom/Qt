@@ -14,6 +14,7 @@
 #include "platform/base/macros.h"
 
 namespace openscreen {
+namespace osp {
 
 class ServiceListenerImpl final : public ServiceListener,
                                   public WithDestructionCallback {
@@ -31,7 +32,6 @@ class ServiceListenerImpl final : public ServiceListener,
     virtual void SuspendListener() = 0;
     virtual void ResumeListener() = 0;
     virtual void SearchNow(State from) = 0;
-    virtual void RunTasksListener() = 0;
 
    protected:
     void SetState(State state) { listener_->SetState(state); }
@@ -60,8 +60,6 @@ class ServiceListenerImpl final : public ServiceListener,
   bool Resume() override;
   bool SearchNow() override;
 
-  void RunTasks() override;
-
   void AddObserver(Observer* observer) override;
   void RemoveObserver(Observer* observer) override;
 
@@ -82,6 +80,7 @@ class ServiceListenerImpl final : public ServiceListener,
   OSP_DISALLOW_COPY_AND_ASSIGN(ServiceListenerImpl);
 };
 
+}  // namespace osp
 }  // namespace openscreen
 
 #endif  // OSP_IMPL_SERVICE_LISTENER_IMPL_H_

@@ -73,6 +73,11 @@ QGeoMappingManagerEngineMapboxGL::QGeoMappingManagerEngineMapboxGL(const QVarian
         m_useChinaEndpoint = parameters.value(QStringLiteral("mapboxgl.china")).toBool();
     }
 
+    if (parameters.contains(QStringLiteral("mapboxgl.api_base_url"))) {
+        const QString apiBaseUrl = parameters.value(QStringLiteral("mapboxgl.api_base_url")).toString();
+        m_settings.setApiBaseUrl(apiBaseUrl);
+    }
+
     QVariantMap metadata;
     metadata["isHTTPS"] = true;
 
@@ -114,7 +119,7 @@ QGeoMappingManagerEngineMapboxGL::QGeoMappingManagerEngineMapboxGL(const QVarian
 
     if (parameters.contains(QStringLiteral("mapboxgl.mapping.additional_style_urls"))) {
         const QString ids = parameters.value(QStringLiteral("mapboxgl.mapping.additional_style_urls")).toString();
-        const QStringList idList = ids.split(',', QString::SkipEmptyParts);
+        const QStringList idList = ids.split(',', Qt::SkipEmptyParts);
 
         for (auto it = idList.crbegin(), end = idList.crend(); it != end; ++it) {
             if ((*it).isEmpty())

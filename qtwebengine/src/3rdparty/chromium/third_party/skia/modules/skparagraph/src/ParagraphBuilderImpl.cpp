@@ -49,7 +49,7 @@ void ParagraphBuilderImpl::pop() {
         fTextStyles.pop();
     } else {
         // In this case we use paragraph style and skip Pop operation
-        SkDebugf("SkParagraphBuilder.Pop() called too many times.\n");
+        SkDEBUGF("SkParagraphBuilder.Pop() called too many times.\n");
     }
 
     auto top = fTextStyles.top();
@@ -72,13 +72,58 @@ void ParagraphBuilderImpl::addText(const std::u16string& text) {
     unicode.setTo((UChar*)text.data());
     std::string str;
     unicode.toUTF8String(str);
-    // SkDebugf("Layout text16: '%s'\n", str.c_str());
     fUtf8.insert(fUtf8.size(), str.c_str());
+
+    UText utf16UText = UTEXT_INITIALIZER;
+    UErrorCode errorCode = U_ZERO_ERROR;
+
+    auto iter = ubrk_open(UBRK_WORD, icu::Locale().getName(), nullptr, 0, &errorCode);
+    if (U_FAILURE(errorCode)) {
+        SkDEBUGF("Could not create line break iterator: %s", u_errorName(errorCode));
+        return;
+    }
+
+    utext_openUnicodeString(&utf16UText, &unicode, &errorCode);
+    if (U_FAILURE(errorCode)) {
+        SkDEBUGF("Could not create utf8UText: %s", u_errorName(errorCode));
+        return;
+    }
+
+    ubrk_setUText(iter, &utf16UText, &errorCode);
+    if (U_FAILURE(errorCode)) {
+        SkDEBUGF("Could not setText on break iterator: %s", u_errorName(errorCode));
+        return;
+    }
 }
 
 void ParagraphBuilderImpl::addText(const char* text) {
-    // SkDebugf("Layout text8: '%s'\n", text);
     fUtf8.insert(fUtf8.size(), text);
+}
+
+void ParagraphBuilderImpl::addText(const char* text, size_t len) {
+    fUtf8.insert(fUtf8.size(), text, len);
+}
+
+void ParagraphBuilderImpl::addPlaceholder(const PlaceholderStyle& placeholderStyle) {
+    addPlaceholder(placeholderStyle, false);
+}
+
+void ParagraphBuilderImpl::addPlaceholder(const PlaceholderStyle& placeholderStyle, bool lastOne) {
+    this->endRunIfNeeded();
+
+    BlockRange stylesBefore(fPlaceholders.empty() ? 0 : fPlaceholders.back().fBlocksBefore.end + 1,
+                            fStyledBlocks.size());
+    TextRange textBefore(fPlaceholders.empty() ? 0 : fPlaceholders.back().fRange.end,
+                            fUtf8.size());
+    auto start = fUtf8.size();
+    auto topStyle = fTextStyles.top();
+    if (!lastOne) {
+        pushStyle(TextStyle(topStyle, true));
+        addText(std::u16string(1ull, 0xFFFC));
+        pop();
+    }
+    auto end = fUtf8.size();
+    fPlaceholders.emplace_back(start, end, placeholderStyle, topStyle, stylesBefore, textBefore);
 }
 
 void ParagraphBuilderImpl::endRunIfNeeded() {
@@ -98,8 +143,11 @@ std::unique_ptr<Paragraph> ParagraphBuilderImpl::Build() {
     if (!fUtf8.isEmpty()) {
         this->endRunIfNeeded();
     }
+
+    // Add one fake placeholder with the rest of the text
+    addPlaceholder(PlaceholderStyle(), true);
     return skstd::make_unique<ParagraphImpl>(
-            fUtf8, fParagraphStyle, fStyledBlocks, fFontCollection);
+            fUtf8, fParagraphStyle, fStyledBlocks, fPlaceholders, fFontCollection);
 }
 
 }  // namespace textlayout

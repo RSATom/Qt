@@ -11,11 +11,11 @@
 #include "base/files/scoped_temp_dir.h"
 #include "base/logging.h"
 #include "base/macros.h"
-#include "base/message_loop/message_loop.h"
 #include "base/run_loop.h"
 #include "base/sanitizer_buildflags.h"
 #include "base/strings/string_piece.h"
 #include "base/test/scoped_feature_list.h"
+#include "base/test/task_environment.h"
 #include "build/build_config.h"
 
 #include "testing/gmock/include/gmock/gmock.h"
@@ -32,14 +32,15 @@
 #endif
 
 #if defined(OS_WIN)
-#include <excpt.h>
 #include <windows.h>
+#include <excpt.h>
 #endif  // OS_WIN
 
 #if defined(OS_FUCHSIA)
 #include <fuchsia/logger/cpp/fidl.h>
 #include <fuchsia/logger/cpp/fidl_test_base.h>
 #include <lib/fidl/cpp/binding.h>
+#include <lib/sys/cpp/component_context.h>
 #include <lib/zx/channel.h>
 #include <lib/zx/event.h>
 #include <lib/zx/exception.h>
@@ -51,8 +52,8 @@
 #include <zircon/syscalls/exception.h>
 #include <zircon/types.h>
 
+#include "base/fuchsia/default_context.h"
 #include "base/fuchsia/fuchsia_logging.h"
-#include "base/fuchsia/service_directory_client.h"
 #endif  // OS_FUCHSIA
 
 namespace logging {
@@ -93,7 +94,8 @@ class LogStateSaver {
 
 class LoggingTest : public testing::Test {
  private:
-  base::MessageLoopForIO message_loop_;
+  base::test::SingleThreadTaskEnvironment task_environment_{
+      base::test::SingleThreadTaskEnvironment::MainThreadType::IO};
   LogStateSaver log_state_saver_;
 };
 
@@ -118,7 +120,7 @@ TEST_F(LoggingTest, BasicLogging) {
   SetMinLogLevel(LOG_INFO);
 
   EXPECT_TRUE(LOG_IS_ON(INFO));
-  EXPECT_TRUE((DCHECK_IS_ON() != 0) == DLOG_IS_ON(INFO));
+  EXPECT_EQ(DCHECK_IS_ON(), DLOG_IS_ON(INFO));
   EXPECT_TRUE(VLOG_IS_ON(0));
 
   LOG(INFO) << mock_log_source.Log();
@@ -259,7 +261,7 @@ void TestForLogToStderr(int log_destinations,
   base::FilePath file_logs_path;
   if (log_destinations & LOG_TO_FILE) {
     file_logs_path = temp_dir.GetPath().Append("file.log");
-    settings.log_file = file_logs_path.value().c_str();
+    settings.log_file_path = file_logs_path.value().c_str();
   }
   InitLogging(settings);
 
@@ -314,6 +316,64 @@ TEST_F(LoggingTest, AlwaysLogErrorsToStderr) {
   EXPECT_TRUE(did_log_error);
 }
 #endif
+
+#if defined(OS_CHROMEOS)
+TEST_F(LoggingTest, InitWithFileDescriptor) {
+  const char kErrorLogMessage[] = "something bad happened";
+
+  // Open a file to pass to the InitLogging.
+  base::ScopedTempDir temp_dir;
+  ASSERT_TRUE(temp_dir.CreateUniqueTempDir());
+  base::FilePath file_log_path = temp_dir.GetPath().Append("file.log");
+  FILE* log_file = fopen(file_log_path.value().c_str(), "w");
+  CHECK(log_file);
+
+  // Set up logging.
+  LoggingSettings settings;
+  settings.logging_dest = LOG_TO_FILE;
+  settings.log_file = log_file;
+  InitLogging(settings);
+
+  LOG(ERROR) << kErrorLogMessage;
+
+  // Check the message was written to the log file.
+  std::string written_logs;
+  ASSERT_TRUE(base::ReadFileToString(file_log_path, &written_logs));
+  ASSERT_NE(written_logs.find(kErrorLogMessage), std::string::npos);
+}
+
+TEST_F(LoggingTest, DuplicateLogFile) {
+  const char kErrorLogMessage1[] = "something really bad happened";
+  const char kErrorLogMessage2[] = "some other bad thing happened";
+
+  base::ScopedTempDir temp_dir;
+  ASSERT_TRUE(temp_dir.CreateUniqueTempDir());
+  base::FilePath file_log_path = temp_dir.GetPath().Append("file.log");
+
+  // Set up logging.
+  LoggingSettings settings;
+  settings.logging_dest = LOG_TO_FILE;
+  settings.log_file_path = file_log_path.value().c_str();
+  InitLogging(settings);
+
+  LOG(ERROR) << kErrorLogMessage1;
+
+  // Duplicate the log FILE, close the original (to make sure we actually
+  // duplicated it), and write to the duplicate.
+  FILE* log_file_dup = DuplicateLogFILE();
+  CHECK(log_file_dup);
+  CloseLogFile();
+  fprintf(log_file_dup, "%s\n", kErrorLogMessage2);
+  fflush(log_file_dup);
+
+  // Check the messages were written to the log file.
+  std::string written_logs;
+  ASSERT_TRUE(base::ReadFileToString(file_log_path, &written_logs));
+  ASSERT_NE(written_logs.find(kErrorLogMessage1), std::string::npos);
+  ASSERT_NE(written_logs.find(kErrorLogMessage2), std::string::npos);
+  fclose(log_file_dup);
+}
+#endif  // defined(OS_CHROMEOS)
 
 // Official builds have CHECKs directly call BreakDebugger.
 #if !defined(OFFICIAL_BUILD)
@@ -949,8 +1009,9 @@ TEST_F(LoggingTest, FuchsiaSystemLogging) {
         std::make_unique<fuchsia::logger::LogFilterOptions>();
     options->tags = {"base_unittests__exec"};
     fuchsia::logger::LogPtr logger =
-        base::fuchsia::ServiceDirectoryClient::ForCurrentProcess()
-            ->ConnectToService<fuchsia::logger::Log>();
+        base::fuchsia::ComponentContextForCurrentProcess()
+            ->svc()
+            ->Connect<fuchsia::logger::Log>();
     logger->DumpLogs(binding.NewBinding(), std::move(options));
     listener.RunUntilDone();
   } while (!listener.DidReceiveString(kLogMessage, &logged_message));
@@ -973,7 +1034,7 @@ TEST_F(LoggingTest, FuchsiaLogging) {
   SetMinLogLevel(LOG_INFO);
 
   EXPECT_TRUE(LOG_IS_ON(INFO));
-  EXPECT_TRUE((DCHECK_IS_ON() != 0) == DLOG_IS_ON(INFO));
+  EXPECT_EQ(DCHECK_IS_ON(), DLOG_IS_ON(INFO));
 
   ZX_LOG(INFO, ZX_ERR_INTERNAL) << mock_log_source.Log();
   ZX_DLOG(INFO, ZX_ERR_INTERNAL) << mock_log_source.Log();

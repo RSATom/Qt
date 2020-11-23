@@ -368,6 +368,10 @@ class FPDFFormFillListBoxFormEmbedderTest
     // - "Listbox_SingleSelect" - Ff: 0, 3 options with pair values.
     // - "Listbox_MultiSelect" - Ff: 2097152, 26 options with single values.
     // - "Listbox_ReadOnly" - Ff: 1, 3 options with single values.
+    // - "Listbox_MultiSelectMultipleSelected" - Ff: 2097152, 5 options with
+    // single values.
+    // - "Listbox_SingleSelectLastSelected" - Ff: 0, 10 options with single
+    // values.
     return "listbox_form.pdf";
   }
 
@@ -382,6 +386,17 @@ class FPDFFormFillListBoxFormEmbedderTest
               GetFormTypeAtPoint(MultiSelectFirstVisibleOption()));
     EXPECT_EQ(GetFormType(),
               GetFormTypeAtPoint(MultiSelectSecondVisibleOption()));
+    EXPECT_EQ(
+        GetFormType(),
+        GetFormTypeAtPoint(MultiSelectMultipleSelectedFirstVisibleOption()));
+    EXPECT_EQ(
+        GetFormType(),
+        GetFormTypeAtPoint(MultiSelectMultipleSelectedSecondVisibleOption()));
+    EXPECT_EQ(GetFormType(),
+              GetFormTypeAtPoint(SingleSelectLastSelectedFirstVisibleOption()));
+    EXPECT_EQ(
+        GetFormType(),
+        GetFormTypeAtPoint(SingleSelectLastSelectedSecondVisibleOption()));
   }
 
   void ClickOnSingleSelectFormOption(int item_index) {
@@ -408,12 +423,44 @@ class FPDFFormFillListBoxFormEmbedderTest
     }
   }
 
+  void ClickOnMultiSelectMultipleSelectedFormOption(int item_index) {
+    // Only two indices are visible so can only click on those
+    // without scrolling.
+    ASSERT(item_index >= 0);
+    ASSERT(item_index < 2);
+    if (item_index == 0) {
+      ClickOnFormFieldAtPoint(MultiSelectMultipleSelectedFirstVisibleOption());
+    } else {
+      ClickOnFormFieldAtPoint(MultiSelectMultipleSelectedSecondVisibleOption());
+    }
+  }
+
+  void ClickOnSingleSelectLastSelectedFormOption(int item_index) {
+    // Only two indices are visible so can only click on those
+    // without scrolling.
+    ASSERT(item_index >= 0);
+    ASSERT(item_index < 2);
+    if (item_index == 0) {
+      ClickOnFormFieldAtPoint(SingleSelectLastSelectedFirstVisibleOption());
+    } else {
+      ClickOnFormFieldAtPoint(SingleSelectLastSelectedSecondVisibleOption());
+    }
+  }
+
   void FocusOnSingleSelectForm() {
     FocusOnPoint(SingleSelectFirstVisibleOption());
   }
 
   void FocusOnMultiSelectForm() {
     FocusOnPoint(MultiSelectFirstVisibleOption());
+  }
+
+  void FocusOnMultiSelectMultipleSelectedForm() {
+    FocusOnPoint(MultiSelectMultipleSelectedFirstVisibleOption());
+  }
+
+  void FocusOnSingleSelectLastSelectedForm() {
+    FocusOnPoint(SingleSelectLastSelectedFirstVisibleOption());
   }
 
   void FocusOnPoint(const CFX_PointF& point) {
@@ -440,12 +487,40 @@ class FPDFFormFillListBoxFormEmbedderTest
     return point;
   }
 
+  const CFX_PointF& MultiSelectMultipleSelectedFirstVisibleOption() const {
+    static const CFX_PointF point(
+        kFormBeginX, kMultiFormMultipleSelectedYFirstVisibleOption);
+    return point;
+  }
+
+  const CFX_PointF& MultiSelectMultipleSelectedSecondVisibleOption() const {
+    static const CFX_PointF point(
+        kFormBeginX, kMultiFormMultipleSelectedYSecondVisibleOption);
+    return point;
+  }
+
+  const CFX_PointF& SingleSelectLastSelectedFirstVisibleOption() const {
+    static const CFX_PointF point(kFormBeginX,
+                                  kSingleFormLastSelectedYFirstVisibleOption);
+    return point;
+  }
+
+  const CFX_PointF& SingleSelectLastSelectedSecondVisibleOption() const {
+    static const CFX_PointF point(kFormBeginX,
+                                  kSingleFormLastSelectedYSecondVisibleOption);
+    return point;
+  }
+
  private:
   static constexpr float kFormBeginX = 102.0;
   static constexpr float kSingleFormYFirstVisibleOption = 371.0;
   static constexpr float kSingleFormYSecondVisibleOption = 358.0;
   static constexpr float kMultiFormYFirstVisibleOption = 423.0;
   static constexpr float kMultiFormYSecondVisibleOption = 408.0;
+  static constexpr float kMultiFormMultipleSelectedYFirstVisibleOption = 223.0;
+  static constexpr float kMultiFormMultipleSelectedYSecondVisibleOption = 208.0;
+  static constexpr float kSingleFormLastSelectedYFirstVisibleOption = 123.0;
+  static constexpr float kSingleFormLastSelectedYSecondVisibleOption = 108.0;
 };
 
 TEST_F(FPDFFormFillEmbedderTest, FirstTest) {
@@ -628,6 +703,26 @@ TEST_F(FPDFFormFillEmbedderTest, DocumentAActions) {
   EXPECT_STREQ(L"Did Print", alerts[3].message.c_str());
 }
 
+TEST_F(FPDFFormFillEmbedderTest, DocumentAActionsDisableJavaScript) {
+  EmbedderTestTimerHandlingDelegate delegate;
+  SetDelegate(&delegate);
+
+  EXPECT_TRUE(OpenDocumentWithoutJavaScript("document_aactions.pdf"));
+  FPDF_PAGE page = LoadPage(0);
+  EXPECT_TRUE(page);
+
+  const auto& alerts = delegate.GetAlerts();
+  EXPECT_EQ(0U, alerts.size());
+
+  FORM_DoDocumentAAction(form_handle(), FPDFDOC_AACTION_WS);
+  FORM_DoDocumentAAction(form_handle(), FPDFDOC_AACTION_DS);
+  FORM_DoDocumentAAction(form_handle(), FPDFDOC_AACTION_WP);
+  FORM_DoDocumentAAction(form_handle(), FPDFDOC_AACTION_DP);
+  UnloadPage(page);
+
+  ASSERT_EQ(0U, alerts.size());
+}
+
 TEST_F(FPDFFormFillEmbedderTest, BUG_551248) {
   // Test that timers fire once and intervals fire repeatedly.
   EmbedderTestTimerHandlingDelegate delegate;
@@ -789,7 +884,13 @@ TEST_F(FPDFFormFillEmbedderTest, BUG_765384) {
 }
 #endif  // PDF_ENABLE_V8
 
-TEST_F(FPDFFormFillEmbedderTest, FormText) {
+// TODO(crbug.com/pdfium/11): Fix this test and enable.
+#if defined(_SKIA_SUPPORT_) || defined(_SKIA_SUPPORT_PATHS_)
+#define MAYBE_FormText DISABLED_FormText
+#else
+#define MAYBE_FormText FormText
+#endif
+TEST_F(FPDFFormFillEmbedderTest, MAYBE_FormText) {
 #if defined(OS_MACOSX)
   const char md5_1[] = "5f11dbe575fe197a37c3fb422559f8ff";
   const char md5_2[] = "35b1a4b679eafc749a0b6fda750c0e8d";
@@ -813,6 +914,8 @@ TEST_F(FPDFFormFillEmbedderTest, FormText) {
     // Click on the textfield
     EXPECT_EQ(FPDF_FORMFIELD_TEXTFIELD,
               FPDFPage_HasFormFieldAtPoint(form_handle(), page, 120.0, 120.0));
+    EXPECT_EQ(
+        0, FPDFPage_FormFieldZOrderAtPoint(form_handle(), page, 120.0, 120.0));
     FORM_OnMouseMove(form_handle(), page, 0, 120.0, 120.0);
     FORM_OnLButtonDown(form_handle(), page, 0, 120.0, 120.0);
     FORM_OnLButtonUp(form_handle(), page, 0, 120.0, 120.0);
@@ -824,12 +927,19 @@ TEST_F(FPDFFormFillEmbedderTest, FormText) {
     ScopedFPDFBitmap bitmap2 = RenderLoadedPage(page);
     CompareBitmap(bitmap2.get(), 300, 300, md5_2);
 
+    // Focus remains despite right clicking out of the textfield
+    FORM_OnMouseMove(form_handle(), page, 0, 15.0, 15.0);
+    FORM_OnRButtonDown(form_handle(), page, 0, 15.0, 15.0);
+    FORM_OnRButtonUp(form_handle(), page, 0, 15.0, 15.0);
+    ScopedFPDFBitmap bitmap3 = RenderLoadedPage(page);
+    CompareBitmap(bitmap3.get(), 300, 300, md5_2);
+
     // Take out focus by clicking out of the textfield
     FORM_OnMouseMove(form_handle(), page, 0, 15.0, 15.0);
     FORM_OnLButtonDown(form_handle(), page, 0, 15.0, 15.0);
     FORM_OnLButtonUp(form_handle(), page, 0, 15.0, 15.0);
-    ScopedFPDFBitmap bitmap3 = RenderLoadedPage(page);
-    CompareBitmap(bitmap3.get(), 300, 300, md5_3);
+    ScopedFPDFBitmap bitmap4 = RenderLoadedPage(page);
+    CompareBitmap(bitmap4.get(), 300, 300, md5_3);
 
     EXPECT_TRUE(FPDF_SaveAsCopy(document(), this, 0));
 
@@ -842,7 +952,13 @@ TEST_F(FPDFFormFillEmbedderTest, FormText) {
 
 // Tests using FPDF_REVERSE_BYTE_ORDER with FPDF_FFLDraw(). The two rendered
 // bitmaps should be different.
-TEST_F(FPDFFormFillEmbedderTest, BUG_1281) {
+// TODO(crbug.com/pdfium/11): Fix this test and enable.
+#if defined(_SKIA_SUPPORT_) || defined(_SKIA_SUPPORT_PATHS_)
+#define MAYBE_BUG_1281 DISABLED_BUG_1281
+#else
+#define MAYBE_BUG_1281 BUG_1281
+#endif
+TEST_F(FPDFFormFillEmbedderTest, MAYBE_BUG_1281) {
   const char kMd5Normal[] = "6c674642154408e877d88c6c082d67e9";
   const char kMd5ReverseByteOrder[] = "24fff03d1e663b7ece5f6e69ad837124";
 
@@ -2126,9 +2242,13 @@ TEST_F(FPDFFormFillListBoxFormEmbedderTest,
     CheckIsIndexSelected(i, expected);
   }
 
-  ClickOnMultiSelectFormOption(0);
+  // TODO(bug_1377): Behavior should be changed to the one described below.
+  // Multiselect field set to 'Cherry' (index 2), which is index 1 among the
+  // visible form options because the listbox is scrolled down to have 'Banana'
+  // (index 1) at the top.
+  ClickOnMultiSelectFormOption(1);
   for (int i = 0; i < 26; i++) {
-    bool expected = i == 0;
+    bool expected = i == 1;
     CheckIsIndexSelected(i, expected);
   }
 }
@@ -2263,12 +2383,58 @@ TEST_F(FPDFFormFillListBoxFormEmbedderTest,
 
   // Check that above actions are interchangeable with click actions, should be
   // able to use a combination of both.
+  // TODO(bug_1377): Change to click on form option 0 instead of form option 1
   ClickOnMultiSelectFormOption(1);
   for (int i = 0; i < 26; i++) {
     bool expected = i == 1;
     CheckIsIndexSelected(i, expected);
   }
   CheckFocusedFieldText(L"Banana");
+}
+
+TEST_F(FPDFFormFillListBoxFormEmbedderTest, CheckIfMultipleSelected) {
+  // Multiselect field set to 'Gamma' (index 2) and 'Epsilon' (index 4) upon
+  // opening.
+  FocusOnMultiSelectMultipleSelectedForm();
+  for (int i = 0; i < 5; i++) {
+    // TODO(bug_1377): Should be selected at index 2 and index 4.
+    bool expected = false;
+    CheckIsIndexSelected(i, expected);
+  }
+}
+
+TEST_F(FPDFFormFillListBoxFormEmbedderTest,
+       CheckIfVerticalScrollIsAtFirstSelected) {
+  // Multiselect field set to 'Gamma' (index 2) and 'Epsilon' (index 4) upon
+  // opening.
+
+  // TODO(bug_1377): Behavior should be changed to the one described below.
+  // The top visible option is 'Gamma' (index 2), so the first selection should
+  // not change. The second selection, 'Epsilon,' should be deselected.
+  ClickOnMultiSelectMultipleSelectedFormOption(0);
+  for (int i = 0; i < 5; i++) {
+    bool expected = i == 0;
+    CheckIsIndexSelected(i, expected);
+  }
+}
+
+TEST_F(FPDFFormFillListBoxFormEmbedderTest, CheckForNoOverscroll) {
+  // Only the last option in the list, 'Saskatchewan', is selected.
+  FocusOnSingleSelectLastSelectedForm();
+  for (int i = 0; i < 10; i++) {
+    bool expected = i == 9;
+    CheckIsIndexSelected(i, expected);
+  }
+
+  // Even though the top index is specified to be at 'Saskatchewan' (index 9),
+  // the top visible option will be the one above it, 'Quebec' (index 8), to
+  // prevent overscrolling. Therefore, clicking on the first visible option of
+  // the list should select 'Quebec' instead of 'Saskatchewan.'
+  ClickOnSingleSelectLastSelectedFormOption(0);
+  for (int i = 0; i < 10; i++) {
+    bool expected = i == 8;
+    CheckIsIndexSelected(i, expected);
+  }
 }
 
 TEST_F(FPDFFormFillTextFormEmbedderTest, ReplaceSelection) {

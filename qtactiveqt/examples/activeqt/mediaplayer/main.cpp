@@ -51,7 +51,7 @@
 #include <QApplication>
 #include <QMessageBox>
 #include <QMainWindow>
-#include <QDesktopWidget>
+#include <QScreen>
 #include <QVariant>
 #include <QSettings>
 #include <QFileDialog>
@@ -90,7 +90,7 @@ MainWindow::MainWindow()
 
     const QByteArray restoredGeometry = settings.value(QLatin1String(geometryKey)).toByteArray();
     if (restoredGeometry.isEmpty() || !restoreGeometry(restoredGeometry)) {
-        const QRect availableGeometry = QApplication::desktop()->availableGeometry(this);
+        const QRect availableGeometry = screen()->availableGeometry();
         const QSize size = (availableGeometry.size() * 4) / 5;
         resize(size);
         move(availableGeometry.center() - QPoint(size.width(), size.height()) / 2);

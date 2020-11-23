@@ -20,6 +20,7 @@
 
 #include "absl/types/optional.h"
 #include "api/fec_controller.h"
+#include "api/rtc_event_log/rtc_event_log.h"
 #include "api/video/encoded_image.h"
 #include "api/video/video_bitrate_allocation.h"
 #include "api/video/video_bitrate_allocator.h"
@@ -30,7 +31,6 @@
 #include "call/rtp_config.h"
 #include "call/rtp_transport_controller_send_interface.h"
 #include "call/rtp_video_sender_interface.h"
-#include "logging/rtc_event_log/rtc_event_log.h"
 #include "modules/include/module_common_types.h"
 #include "modules/rtp_rtcp/include/rtp_rtcp_defines.h"
 #include "modules/utility/include/process_thread.h"
@@ -87,8 +87,7 @@ class VideoSendStreamImpl : public webrtc::BitrateAllocatorObserver,
       std::map<uint32_t, RtpState> suspended_ssrcs,
       std::map<uint32_t, RtpPayloadState> suspended_payload_states,
       VideoEncoderConfig::ContentType content_type,
-      std::unique_ptr<FecController> fec_controller,
-      MediaTransportInterface* media_transport);
+      std::unique_ptr<FecController> fec_controller);
   ~VideoSendStreamImpl() override;
 
   // RegisterProcessThread register |module_process_thread| with those objects
@@ -127,6 +126,9 @@ class VideoSendStreamImpl : public webrtc::BitrateAllocatorObserver,
       const EncodedImage& encoded_image,
       const CodecSpecificInfo* codec_specific_info,
       const RTPFragmentationHeader* fragmentation) override;
+
+  // Implements EncodedImageCallback.
+  void OnDroppedFrame(EncodedImageCallback::DropReason reason) override;
 
   // Implements VideoBitrateAllocationObserver.
   void OnBitrateAllocationUpdated(
@@ -196,10 +198,6 @@ class VideoSendStreamImpl : public webrtc::BitrateAllocatorObserver,
   };
   absl::optional<VbaSendContext> video_bitrate_allocation_context_
       RTC_GUARDED_BY(worker_queue_);
-  MediaTransportInterface* const media_transport_;
-  rtc::CriticalSection media_transport_id_lock_;
-  int64_t media_transport_frame_id_ RTC_GUARDED_BY(media_transport_id_lock_) =
-      0;
 };
 }  // namespace internal
 }  // namespace webrtc

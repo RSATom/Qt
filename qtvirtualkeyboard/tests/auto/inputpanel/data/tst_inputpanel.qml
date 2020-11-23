@@ -104,6 +104,7 @@ Rectangle {
                 textInput.text = ""
             }
             textInput.inputMethodHints = data !== undefined && data.hasOwnProperty("initInputMethodHints") ? data.initInputMethodHints : Qt.ImhNone
+            textInput.selectByMouse = false
             handwritingInputPanel.available = false
             inputPanel.setHandwritingMode(false)
             textInput.forceActiveFocus()
@@ -423,6 +424,8 @@ Rectangle {
             return [
                 { initInputMethodHints: Qt.ImhNoPredictiveText, toggleShiftCount: 0, inputSequence: "aaa bbb", outputText: "Aaa bbb", autoCapitalizationEnabled: true, toggleShiftEnabled: true },
                 { initInputMethodHints: Qt.ImhNoPredictiveText, toggleShiftCount: 1, inputSequence: "aaa bbb", outputText: "aaa bbb", autoCapitalizationEnabled: true, toggleShiftEnabled: true },
+                { initInputMethodHints: Qt.ImhNoPredictiveText, toggleShiftCount: 2, inputSequence: "aaa. bbb", outputText: "Aaa. Bbb", autoCapitalizationEnabled: true, toggleShiftEnabled: true },
+                { initInputMethodHints: Qt.ImhNoPredictiveText, toggleShiftCount: 2, inputSequence: "aaa.bbb", outputText: "Aaa.bbb", autoCapitalizationEnabled: true, toggleShiftEnabled: true },
                 { initInputMethodHints: Qt.ImhNoPredictiveText | Qt.ImhNoAutoUppercase, toggleShiftCount: 0, inputSequence: "aaa bbb", outputText: "aaa bbb", autoCapitalizationEnabled: false, toggleShiftEnabled: true },
                 { initInputMethodHints: Qt.ImhNoPredictiveText | Qt.ImhNoAutoUppercase, toggleShiftCount: 0, inputSequence: "aaa. bbb", outputText: "aaa. bbb", autoCapitalizationEnabled: false, toggleShiftEnabled: true },
                 { initInputMethodHints: Qt.ImhNoPredictiveText | Qt.ImhNoAutoUppercase, toggleShiftCount: 1, inputSequence: "aaa bbb", outputText: "Aaa bbb", autoCapitalizationEnabled: false, toggleShiftEnabled: true },
@@ -1195,6 +1198,39 @@ Rectangle {
 
             if (data.hasOwnProperty("expectedCursorPosition"))
                 compare(textInput.cursorPosition, data.expectedCursorPosition)
+        }
+
+        function test_japaneseInputSelectionCursorPosition_data() {
+            return [
+                // Selection for first word of text
+                { initLocale: "ja_JP", initInputMode: "Hiragana", inputSequence: ["i"], expectedCandidates: [ "\u3044\u3064\u3082" ], outputText: "\u3044\u3064\u3082", expectedCursorPosition: 3 },
+                // Selection for last word of text
+                { initLocale: "ja_JP", initInputMode: "Hiragana", inputSequence: ["i",Qt.Key_Space,Qt.Key_Return,Qt.Key_Space,"i"], expectedCandidates: [ "\u3044\u3064\u3082" ], outputText: "\u3044\u3000\u3044\u3064\u3082", expectedCursorPosition: 5 },
+                // Selection for word in middle of text
+                { initLocale: "ja_JP", initInputMode: "Hiragana", inputSequence: [
+                                // Input two words
+                                "i",Qt.Key_Space,Qt.Key_Return,Qt.Key_Space,"i",Qt.Key_Space,Qt.Key_Return,
+                                // Move betwen the words and add space
+                                Qt.Key_Left,Qt.Key_Left,Qt.Key_Space,
+                                // Input first letter of new word
+                                "i"], expectedCandidates: [ "\u3044\u3064\u3082" ], outputText: "\u3044\u3000\u3044\u3064\u3082\u3000\u3044", expectedCursorPosition: 5 }
+                ]
+        }
+
+        function test_japaneseInputSelectionCursorPosition(data) {
+            prepareTest(data, true)
+
+            for (var inputIndex in data.inputSequence) {
+                verify(inputPanel.virtualKeyClick(data.inputSequence[inputIndex]))
+            }
+            waitForRendering(inputPanel)
+
+            for (var candidateIndex in data.expectedCandidates) {
+                verify(inputPanel.selectionListSearchSuggestion(data.expectedCandidates[candidateIndex]))
+                verify(inputPanel.selectionListSelectCurrentItem())
+            }
+
+            compare(textInput.cursorPosition, data.expectedCursorPosition)
         }
 
         function test_baseKeyNoModifier() {
@@ -2078,6 +2114,18 @@ Rectangle {
             verify(inputPanel.virtualKeyClick(Qt.Key_A))
             verify(inputPanel.virtualKeyClick(Qt.Key_Return))
             compare(inputPanel.shadowInput.text, "")
+        }
+
+        function test_fullScreenModeSelectByMouse() {
+            prepareTest()
+
+            inputPanel.setFullScreenMode(true)
+
+            // The default value for TextInput/TextEdit is false.
+            compare(inputPanel.shadowInput.selectByMouse, false)
+
+            textInput.selectByMouse = true
+            compare(inputPanel.shadowInput.selectByMouse, true)
         }
 
         function test_userDictionary_data() {

@@ -19,15 +19,16 @@
 #include "chrome/browser/safe_browsing/test_safe_browsing_blocking_page_quiet.h"
 #include "chrome/browser/safe_browsing/ui_manager.h"
 #include "chrome/browser/ssl/bad_clock_blocking_page.h"
+#include "chrome/browser/ssl/blocked_interception_blocking_page.h"
+#include "chrome/browser/ssl/chrome_security_blocking_page_factory.h"
 #include "chrome/browser/ssl/mitm_software_blocking_page.h"
-#include "chrome/browser/ssl/ssl_blocking_page.h"
 #include "chrome/common/buildflags.h"
 #include "chrome/common/url_constants.h"
 #include "components/grit/components_resources.h"
 #include "components/safe_browsing/db/database_manager.h"
 #include "components/security_interstitials/content/origin_policy_ui.h"
+#include "components/security_interstitials/core/ssl_error_options_mask.h"
 #include "components/security_interstitials/core/ssl_error_ui.h"
-#include "components/supervised_user_error_page/supervised_user_error_page.h"
 #include "content/public/browser/interstitial_page_delegate.h"
 #include "content/public/browser/render_frame_host.h"
 #include "content/public/browser/render_process_host.h"
@@ -42,11 +43,17 @@
 #include "net/cert/x509_util.h"
 #include "net/ssl/ssl_info.h"
 #include "services/metrics/public/cpp/ukm_source_id.h"
+#include "services/network/public/cpp/origin_policy.h"
 #include "ui/base/resource/resource_bundle.h"
 #include "ui/base/webui/web_ui_util.h"
 
 #if BUILDFLAG(ENABLE_CAPTIVE_PORTAL_DETECTION)
 #include "chrome/browser/ssl/captive_portal_blocking_page.h"
+#endif
+
+#if BUILDFLAG(ENABLE_SUPERVISED_USERS)
+#include "chrome/browser/supervised_user/supervised_user_error_page/supervised_user_error_page.h"
+#include "chrome/browser/supervised_user/supervised_user_interstitial.h"
 #endif
 
 using security_interstitials::TestSafeBrowsingBlockingPageQuiet;
@@ -88,53 +95,19 @@ class InterstitialHTMLSource : public content::URLDataSource {
   std::string GetContentSecurityPolicyStyleSrc() override;
   std::string GetContentSecurityPolicyImgSrc() override;
   void StartDataRequest(
-      const std::string& path,
-      const content::ResourceRequestInfo::WebContentsGetter& wc_getter,
-      const content::URLDataSource::GotDataCallback& callback) override;
+      const GURL& url,
+      const content::WebContents::Getter& wc_getter,
+      content::URLDataSource::GotDataCallback callback) override;
 
  private:
+#if BUILDFLAG(ENABLE_SUPERVISED_USERS)
   std::string GetSupervisedUserInterstitialHTML(const std::string& path);
+#endif
 
   DISALLOW_COPY_AND_ASSIGN(InterstitialHTMLSource);
 };
 
-#if BUILDFLAG(ENABLE_CAPTIVE_PORTAL_DETECTION)
-// Provides fake connection information to the captive portal blocking page so
-// that both Wi-Fi and non Wi-Fi blocking pages can be displayed.
-class CaptivePortalBlockingPageWithNetInfo : public CaptivePortalBlockingPage {
- public:
-  CaptivePortalBlockingPageWithNetInfo(
-      content::WebContents* web_contents,
-      const GURL& request_url,
-      const GURL& login_url,
-      const net::SSLInfo& ssl_info,
-      const base::Callback<void(content::CertificateRequestResultType)>&
-          callback,
-      bool is_wifi,
-      const std::string& wifi_ssid)
-      : CaptivePortalBlockingPage(web_contents,
-                                  request_url,
-                                  login_url,
-                                  nullptr,
-                                  ssl_info,
-                                  net::ERR_CERT_COMMON_NAME_INVALID,
-                                  callback),
-        is_wifi_(is_wifi),
-        wifi_ssid_(wifi_ssid) {}
-
- private:
-  // CaptivePortalBlockingPage methods:
-  bool IsWifiConnection() const override { return is_wifi_; }
-  std::string GetWiFiSSID() const override { return wifi_ssid_; }
-
-  const bool is_wifi_;
-  const std::string wifi_ssid_;
-
-  DISALLOW_COPY_AND_ASSIGN(CaptivePortalBlockingPageWithNetInfo);
-};
-#endif
-
-SSLBlockingPage* CreateSSLBlockingPage(content::WebContents* web_contents) {
+SSLBlockingPage* CreateSslBlockingPage(content::WebContents* web_contents) {
   // Random parameters for SSL blocking page.
   int cert_error = net::ERR_CERT_CONTAINS_ERRORS;
   GURL request_url("https://example.com");
@@ -174,13 +147,14 @@ SSLBlockingPage* CreateSSLBlockingPage(content::WebContents* web_contents) {
   // This delegate doesn't create an interstitial.
   int options_mask = 0;
   if (overridable)
-    options_mask |= security_interstitials::SSLErrorUI::SOFT_OVERRIDE_ENABLED;
+    options_mask |=
+        security_interstitials::SSLErrorOptionsMask::SOFT_OVERRIDE_ENABLED;
   if (strict_enforcement)
-    options_mask |= security_interstitials::SSLErrorUI::STRICT_ENFORCEMENT;
-  return SSLBlockingPage::Create(
+    options_mask |=
+        security_interstitials::SSLErrorOptionsMask::STRICT_ENFORCEMENT;
+  return ChromeSecurityBlockingPageFactory::CreateSSLPage(
       web_contents, cert_error, ssl_info, request_url, options_mask,
-      time_triggered_, GURL(), nullptr,
-      base::Callback<void(content::CertificateRequestResultType)>());
+      time_triggered_, GURL(), nullptr);
 }
 
 MITMSoftwareBlockingPage* CreateMITMSoftwareBlockingPage(
@@ -198,10 +172,20 @@ MITMSoftwareBlockingPage* CreateMITMSoftwareBlockingPage(
 
   net::SSLInfo ssl_info;
   ssl_info.cert = ssl_info.unverified_cert = CreateFakeCert();
-  return new MITMSoftwareBlockingPage(
-      web_contents, cert_error, request_url, nullptr, ssl_info,
-      mitm_software_name, is_enterprise_managed,
-      base::Callback<void(content::CertificateRequestResultType)>());
+  return new MITMSoftwareBlockingPage(web_contents, cert_error, request_url,
+                                      nullptr, ssl_info, mitm_software_name,
+                                      is_enterprise_managed);
+}
+
+BlockedInterceptionBlockingPage* CreateBlockedInterceptionBlockingPage(
+    content::WebContents* web_contents) {
+  const int cert_error = net::ERR_CERT_AUTHORITY_INVALID;
+  const GURL request_url("https://example.com");
+
+  net::SSLInfo ssl_info;
+  ssl_info.cert = ssl_info.unverified_cert = CreateFakeCert();
+  return new BlockedInterceptionBlockingPage(web_contents, cert_error,
+                                             request_url, nullptr, ssl_info);
 }
 
 BadClockBlockingPage* CreateBadClockBlockingPage(
@@ -244,13 +228,14 @@ BadClockBlockingPage* CreateBadClockBlockingPage(
   // This delegate doesn't create an interstitial.
   int options_mask = 0;
   if (overridable)
-    options_mask |= security_interstitials::SSLErrorUI::SOFT_OVERRIDE_ENABLED;
+    options_mask |=
+        security_interstitials::SSLErrorOptionsMask::SOFT_OVERRIDE_ENABLED;
   if (strict_enforcement)
-    options_mask |= security_interstitials::SSLErrorUI::STRICT_ENFORCEMENT;
-  return new BadClockBlockingPage(
-      web_contents, cert_error, ssl_info, request_url, base::Time::Now(),
-      clock_state, nullptr,
-      base::Callback<void(content::CertificateRequestResultType)>());
+    options_mask |=
+        security_interstitials::SSLErrorOptionsMask::STRICT_ENFORCEMENT;
+  return new BadClockBlockingPage(web_contents, cert_error, ssl_info,
+                                  request_url, base::Time::Now(), clock_state,
+                                  nullptr);
 }
 
 LookalikeUrlInterstitialPage* CreateLookalikeInterstitialPage(
@@ -321,7 +306,7 @@ safe_browsing::SafeBrowsingBlockingPage* CreateSafeBrowsingBlockingPage(
   // parts which depend on the NavigationEntry are not hit.
   return safe_browsing::SafeBrowsingBlockingPage::CreateBlockingPage(
       g_browser_process->safe_browsing_service()->ui_manager().get(),
-      web_contents, main_frame_url, resource);
+      web_contents, main_frame_url, resource, true);
 }
 
 TestSafeBrowsingBlockingPageQuiet* CreateSafeBrowsingQuietBlockingPage(
@@ -411,10 +396,10 @@ CaptivePortalBlockingPage* CreateCaptivePortalBlockingPage(
   net::SSLInfo ssl_info;
   ssl_info.cert = ssl_info.unverified_cert = CreateFakeCert();
   CaptivePortalBlockingPage* blocking_page =
-      new CaptivePortalBlockingPageWithNetInfo(
-          web_contents, request_url, landing_url, ssl_info,
-          base::Callback<void(content::CertificateRequestResultType)>(),
-          is_wifi_connection, wifi_ssid);
+      ChromeSecurityBlockingPageFactory::CreateCaptivePortalBlockingPage(
+          web_contents, request_url, landing_url, nullptr, ssl_info,
+          net::ERR_CERT_COMMON_NAME_INVALID);
+  blocking_page->OverrideWifiInfoForTesting(is_wifi_connection, wifi_ssid);
   return blocking_page;
 }
 #endif
@@ -461,9 +446,13 @@ std::string InterstitialHTMLSource::GetContentSecurityPolicyImgSrc() {
 }
 
 void InterstitialHTMLSource::StartDataRequest(
-    const std::string& path,
-    const content::ResourceRequestInfo::WebContentsGetter& wc_getter,
-    const content::URLDataSource::GotDataCallback& callback) {
+    const GURL& request_url,
+    const content::WebContents::Getter& wc_getter,
+    content::URLDataSource::GotDataCallback callback) {
+  // TODO(crbug/1009127): Simplify usages of |path| since |request_url| is
+  // available.
+  const std::string path =
+      content::URLDataSource::URLToRequestPath(request_url);
   content::WebContents* web_contents = wc_getter.Run();
   if (!web_contents) {
     // When browser-side navigation is enabled, web_contents can be null if
@@ -478,9 +467,12 @@ void InterstitialHTMLSource::StartDataRequest(
       GURL(chrome::kChromeUIInterstitialURL).GetWithEmptyPath().Resolve(path);
   std::string path_without_query = url.path();
   if (path_without_query == "/ssl") {
-    interstitial_delegate.reset(CreateSSLBlockingPage(web_contents));
+    interstitial_delegate.reset(CreateSslBlockingPage(web_contents));
   } else if (path_without_query == "/mitm-software-ssl") {
     interstitial_delegate.reset(CreateMITMSoftwareBlockingPage(web_contents));
+  } else if (path_without_query == "/blocked-interception") {
+    interstitial_delegate.reset(
+        CreateBlockedInterceptionBlockingPage(web_contents));
   } else if (path_without_query == "/safebrowsing") {
     interstitial_delegate.reset(CreateSafeBrowsingBlockingPage(web_contents));
   } else if (path_without_query == "/clock") {
@@ -496,24 +488,27 @@ void InterstitialHTMLSource::StartDataRequest(
         CreateOriginPolicyInterstitialPage(web_contents));
   }
 
-  if (path_without_query == "/supervised_user") {
-    html = GetSupervisedUserInterstitialHTML(path);
-  } else if (path_without_query == "/quietsafebrowsing") {
+  if (path_without_query == "/quietsafebrowsing") {
     TestSafeBrowsingBlockingPageQuiet* blocking_page =
         CreateSafeBrowsingQuietBlockingPage(web_contents);
     interstitial_delegate.reset(blocking_page);
     html = blocking_page->GetHTML();
+#if BUILDFLAG(ENABLE_SUPERVISED_USERS)
+  } else if (path_without_query == "/supervised_user") {
+    html = GetSupervisedUserInterstitialHTML(path);
+#endif
   } else if (interstitial_delegate.get()) {
     html = interstitial_delegate.get()->GetHTMLContents();
   } else {
-    html = ui::ResourceBundle::GetSharedInstance().DecompressDataResource(
+    html = ui::ResourceBundle::GetSharedInstance().LoadDataResourceString(
         IDR_SECURITY_INTERSTITIAL_UI_HTML);
   }
   scoped_refptr<base::RefCountedString> html_bytes = new base::RefCountedString;
   html_bytes->data().assign(html.begin(), html.end());
-  callback.Run(html_bytes.get());
+  std::move(callback).Run(html_bytes.get());
 }
 
+#if BUILDFLAG(ENABLE_SUPERVISED_USERS)
 std::string InterstitialHTMLSource::GetSupervisedUserInterstitialHTML(
     const std::string& path) {
   GURL url("https://localhost/" + path);
@@ -571,3 +566,4 @@ std::string InterstitialHTMLSource::GetSupervisedUserInterstitialHTML(
       is_child_account, is_deprecated, reason,
       g_browser_process->GetApplicationLocale());
 }
+#endif

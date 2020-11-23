@@ -39,11 +39,11 @@
 
 // This file is included from qnsview.mm, and only used to organize the code
 
-#include <qcocoaapplicationdelegate.h>
-#include <qcocoansmenu.h>
-#include <qcocoamenuitem.h>
-#include <qcocoamenu.h>
-#include <qcocoamenubar.h>
+#include "qcocoaapplicationdelegate.h"
+#include "qcocoansmenu.h"
+#include "qcocoamenuitem.h"
+#include "qcocoamenu.h"
+#include "qcocoamenubar.h"
 
 static bool selectorIsCutCopyPaste(SEL selector)
 {
@@ -84,7 +84,8 @@ static bool selectorIsCutCopyPaste(SEL selector)
             menuParent = menuObject->menuParent();
         }
 
-        if (menubar && menubar->cocoaWindow() != self.platformWindow)
+        // we have no menubar parent for the application menu items, e.g About and Preferences
+        if (!menubar || menubar->cocoaWindow() != self.platformWindow)
             return NO;
     }
 

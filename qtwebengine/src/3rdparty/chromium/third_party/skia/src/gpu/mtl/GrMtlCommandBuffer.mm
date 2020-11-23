@@ -6,8 +6,9 @@
  */
 
 #include "src/gpu/mtl/GrMtlCommandBuffer.h"
+
 #include "src/gpu/mtl/GrMtlGpu.h"
-#include "src/gpu/mtl/GrMtlGpuCommandBuffer.h"
+#include "src/gpu/mtl/GrMtlOpsRenderPass.h"
 #include "src/gpu/mtl/GrMtlPipelineState.h"
 
 #if !__has_feature(objc_arc)
@@ -70,7 +71,7 @@ static bool compatible(const MTLRenderPassAttachmentDescriptor* first,
 
 id<MTLRenderCommandEncoder> GrMtlCommandBuffer::getRenderCommandEncoder(
         MTLRenderPassDescriptor* descriptor, const GrMtlPipelineState* pipelineState,
-        GrMtlGpuRTCommandBuffer* gpuCommandBuffer) {
+        GrMtlOpsRenderPass* opsRenderPass) {
     if (nil != fPreviousRenderPassDescriptor) {
         if (compatible(fPreviousRenderPassDescriptor.colorAttachments[0],
                        descriptor.colorAttachments[0], pipelineState) &&
@@ -82,8 +83,8 @@ id<MTLRenderCommandEncoder> GrMtlCommandBuffer::getRenderCommandEncoder(
 
     this->endAllEncoding();
     fActiveRenderCommandEncoder = [fCmdBuffer renderCommandEncoderWithDescriptor:descriptor];
-    if (gpuCommandBuffer) {
-        gpuCommandBuffer->initRenderState(fActiveRenderCommandEncoder);
+    if (opsRenderPass) {
+        opsRenderPass->initRenderState(fActiveRenderCommandEncoder);
     }
     fPreviousRenderPassDescriptor = descriptor;
 
@@ -110,9 +111,28 @@ void GrMtlCommandBuffer::endAllEncoding() {
     if (nil != fActiveRenderCommandEncoder) {
         [fActiveRenderCommandEncoder endEncoding];
         fActiveRenderCommandEncoder = nil;
+        fPreviousRenderPassDescriptor = nil;
     }
     if (nil != fActiveBlitCommandEncoder) {
         [fActiveBlitCommandEncoder endEncoding];
         fActiveBlitCommandEncoder = nil;
     }
 }
+
+void GrMtlCommandBuffer::encodeSignalEvent(id<MTLEvent> event, uint64_t eventValue) {
+    SkASSERT(fCmdBuffer);
+    this->endAllEncoding(); // ensure we don't have any active command encoders
+    if (@available(macOS 10.14, iOS 12.0, *)) {
+        [fCmdBuffer encodeSignalEvent:event value:eventValue];
+    }
+}
+
+void GrMtlCommandBuffer::encodeWaitForEvent(id<MTLEvent> event, uint64_t eventValue) {
+    SkASSERT(fCmdBuffer);
+    this->endAllEncoding(); // ensure we don't have any active command encoders
+                            // TODO: not sure if needed but probably
+    if (@available(macOS 10.14, iOS 12.0, *)) {
+        [fCmdBuffer encodeWaitForEvent:event value:eventValue];
+    }
+}
+

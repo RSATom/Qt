@@ -1,6 +1,6 @@
 /****************************************************************************
 **
-** Copyright (C) 2016 The Qt Company Ltd.
+** Copyright (C) 2020 The Qt Company Ltd.
 ** Copyright (C) 2018 Intel Corporation.
 ** Copyright (C) 2019 Mail.ru Group.
 ** Contact: https://www.qt.io/licensing/
@@ -159,6 +159,18 @@ static inline bool qt_ends_with(QStringView haystack, QStringView needle, Qt::Ca
 static inline bool qt_ends_with(QStringView haystack, QLatin1String needle, Qt::CaseSensitivity cs);
 static inline bool qt_ends_with(QStringView haystack, QChar needle, Qt::CaseSensitivity cs);
 
+#if defined(__SSE2__) && defined(Q_CC_GNU) && !defined(Q_CC_INTEL)
+#  if defined(__SANITIZE_ADDRESS__) && Q_CC_GNU < 800 && !defined(Q_CC_CLANG)
+#     warning "The __attribute__ on below will likely cause a build failure with your GCC version. Your choices are:"
+#     warning "1) disable ASan;"
+#     warning "2) disable the optimized code in qustrlen (change __SSE2__ to anything else);"
+#     warning "3) upgrade your compiler (preferred)."
+#  endif
+
+// We may overrun the buffer, but that's a false positive:
+// this won't crash nor produce incorrect results
+__attribute__((__no_sanitize_address__))
+#endif
 qsizetype QtPrivate::qustrlen(const ushort *str) noexcept
 {
     qsizetype result = 0;
@@ -557,37 +569,32 @@ bool QtPrivate::isLatin1(QStringView s) noexcept
     const QChar *ptr = s.begin();
     const QChar *end = s.end();
 
-#if defined(__SSE4_1__)
+#ifdef __SSE2__
     const char *ptr8 = reinterpret_cast<const char *>(ptr);
     const char *end8 = reinterpret_cast<const char *>(end);
     if (!simdTestMask(ptr8, end8, 0xff00ff00))
         return false;
     ptr = reinterpret_cast<const QChar *>(ptr8);
-#elif defined(__SSE2__)
-    // Testing if every other byte is non-zero can be done efficiently by
-    // using PUNPCKHBW (unpack high order bytes) and comparing that to zero.
-    while (ptr + 32 < end) {
-        __m128i data1 = _mm_loadu_si128(reinterpret_cast<const __m128i *>(ptr));
-        __m128i data2 = _mm_loadu_si128(reinterpret_cast<const __m128i *>(ptr + 16));
-        __m128i high = _mm_unpackhi_epi8(data1, data2);
-        __m128i comparison = _mm_cmpeq_epi16(high, _mm_setzero_si128());
-        if (_mm_movemask_epi8(comparison))
-            return false;
-        ptr += 16;
-    }
-    if (ptr + 16 < end) {
-        __m128i data1 = _mm_loadu_si128(reinterpret_cast<const __m128i *>(ptr));
-        __m128i high = _mm_unpackhi_epi8(data1, data1);
-        __m128i comparison = _mm_cmpeq_epi16(high, _mm_setzero_si128());
-        if (_mm_movemask_epi8(comparison))
-            return false;
-    }
 #endif
 
     while (ptr != end) {
         if ((*ptr++).unicode() > 0xff)
             return false;
     }
+    return true;
+}
+
+bool QtPrivate::isValidUtf16(QStringView s) noexcept
+{
+    Q_CONSTEXPR uint InvalidCodePoint = UINT_MAX;
+
+    QStringIterator i(s);
+    while (i.hasNext()) {
+        uint c = i.next(InvalidCodePoint);
+        if (c == InvalidCodePoint)
+            return false;
+    }
+
     return true;
 }
 
@@ -1218,6 +1225,8 @@ static int qt_compare_strings(QLatin1String lhs, QLatin1String rhs, Qt::CaseSens
     Case-sensitive comparison is based exclusively on the numeric Unicode values
     of the characters and is very fast, but is not what a human would expect.
     Consider sorting user-visible strings with QString::localeAwareCompare().
+
+    \sa {Comparing Strings}
 */
 int QtPrivate::compareStrings(QStringView lhs, QStringView rhs, Qt::CaseSensitivity cs) noexcept
 {
@@ -1238,6 +1247,8 @@ int QtPrivate::compareStrings(QStringView lhs, QStringView rhs, Qt::CaseSensitiv
     Case-sensitive comparison is based exclusively on the numeric Unicode values
     of the characters and is very fast, but is not what a human would expect.
     Consider sorting user-visible strings with QString::localeAwareCompare().
+
+    \sa {Comparing Strings}
 */
 int QtPrivate::compareStrings(QStringView lhs, QLatin1String rhs, Qt::CaseSensitivity cs) noexcept
 {
@@ -1258,6 +1269,8 @@ int QtPrivate::compareStrings(QStringView lhs, QLatin1String rhs, Qt::CaseSensit
     Case-sensitive comparison is based exclusively on the numeric Unicode values
     of the characters and is very fast, but is not what a human would expect.
     Consider sorting user-visible strings with QString::localeAwareCompare().
+
+    \sa {Comparing Strings}
 */
 int QtPrivate::compareStrings(QLatin1String lhs, QStringView rhs, Qt::CaseSensitivity cs) noexcept
 {
@@ -1278,6 +1291,8 @@ int QtPrivate::compareStrings(QLatin1String lhs, QStringView rhs, Qt::CaseSensit
     Case-sensitive comparison is based exclusively on the numeric Latin-1 values
     of the characters and is very fast, but is not what a human would expect.
     Consider sorting user-visible strings with QString::localeAwareCompare().
+
+    \sa {Comparing Strings}
 */
 int QtPrivate::compareStrings(QLatin1String lhs, QLatin1String rhs, Qt::CaseSensitivity cs) noexcept
 {
@@ -1550,17 +1565,30 @@ const QString::Null QString::null = { };
     how many times a particular character or substring occurs in the
     string, use count().
 
+    To obtain a pointer to the actual character data, call data() or
+    constData(). These functions return a pointer to the beginning of
+    the QChar data. The pointer is guaranteed to remain valid until a
+    non-const function is called on the QString.
+
+    \section2 Comparing Strings
+
     QStrings can be compared using overloaded operators such as \l
     operator<(), \l operator<=(), \l operator==(), \l operator>=(),
     and so on.  Note that the comparison is based exclusively on the
     numeric Unicode values of the characters. It is very fast, but is
     not what a human would expect; the QString::localeAwareCompare()
-    function is a better choice for sorting user-interface strings.
+    function is usually a better choice for sorting user-interface
+    strings, when such a comparison is available.
 
-    To obtain a pointer to the actual character data, call data() or
-    constData(). These functions return a pointer to the beginning of
-    the QChar data. The pointer is guaranteed to remain valid until a
-    non-const function is called on the QString.
+    On Unix-like platforms (including Linux, \macos and iOS), when Qt
+    is linked with the ICU library (which it usually is), its
+    locale-aware sorting is used.  Otherwise, on \macos and iOS, \l
+    localeAwareCompare() compares according the "Order for sorted
+    lists" setting in the International preferences panel. On other
+    Unix-like systems without ICU, the comparison falls back to the
+    system library's \c strcoll(), falling back when it considers
+    strings equal to QString's (locale-unaware) comparison, described
+    above,
 
     \section1 Converting Between 8-Bit Strings and Unicode Strings
 
@@ -1765,6 +1793,9 @@ const QString::Null QString::null = { };
 /*!
     \enum QString::SplitBehavior
 
+    \obsolete
+    Use Qt::SplitBehavior instead.
+
     This enum specifies how the split() function should behave with
     respect to empty strings.
 
@@ -1786,15 +1817,10 @@ const QString::Null QString::null = { };
 
 /*! \typedef QString::const_iterator
 
-    This typedef provides an STL-style const iterator for QString.
-
     \sa QString::iterator
 */
 
 /*! \typedef QString::iterator
-
-    The QString::iterator typedef provides an STL-style non-const
-    iterator for QString.
 
     \sa QString::const_iterator
 */
@@ -1802,41 +1828,28 @@ const QString::Null QString::null = { };
 /*! \typedef QString::const_reverse_iterator
     \since 5.6
 
-    This typedef provides an STL-style const reverse iterator for QString.
-
     \sa QString::reverse_iterator, QString::const_iterator
 */
 
 /*! \typedef QString::reverse_iterator
     \since 5.6
 
-    This typedef provides an STL-style non-const reverse iterator for QString.
-
     \sa QString::const_reverse_iterator, QString::iterator
 */
 
 /*!
     \typedef QString::size_type
-
-    The QString::size_type typedef provides an STL-style type for sizes (int).
 */
 
 /*!
     \typedef QString::difference_type
-
-    The QString::size_type typedef provides an STL-style type for difference between pointers.
 */
 
 /*!
     \typedef QString::const_reference
-
-    This typedef provides an STL-style const reference for a QString element (QChar).
 */
 /*!
     \typedef QString::reference
-
-    This typedef provides an STL-style
-    reference for a QString element (QChar).
 */
 
 /*!
@@ -1854,8 +1867,6 @@ const QString::Null QString::null = { };
 
 /*!
     \typedef QString::value_type
-
-    This typedef provides an STL-style value type for QString.
 */
 
 /*! \fn QString::iterator QString::begin()
@@ -2595,13 +2606,11 @@ QString& QString::insert(int i, const QChar *unicode, int size)
         return *this;
 
     const ushort *s = (const ushort *)unicode;
-    if (s >= d->data() && s < d->data() + d->alloc) {
+    const std::less<const ushort*> less = {};
+    if (!less(s, d->data()) && less(s, d->data() + d->alloc)) {
         // Part of me - take a copy
-        ushort *tmp = static_cast<ushort *>(::malloc(size * sizeof(QChar)));
-        Q_CHECK_PTR(tmp);
-        memcpy(tmp, s, size * sizeof(QChar));
-        insert(i, reinterpret_cast<const QChar *>(tmp), size);
-        ::free(tmp);
+        const QVarLengthArray<ushort> copy(s, s + size);
+        insert(i, reinterpret_cast<const QChar *>(copy.data()), size);
         return *this;
     }
 
@@ -2859,16 +2868,30 @@ QString &QString::remove(int pos, int len)
 template<typename T>
 static void removeStringImpl(QString &s, const T &needle, Qt::CaseSensitivity cs)
 {
-    const int needleSize = needle.size();
-    if (needleSize) {
-        if (needleSize == 1) {
-            s.remove(needle.front(), cs);
-        } else {
-            int i = 0;
-            while ((i = s.indexOf(needle, i, cs)) != -1)
-                s.remove(i, needleSize);
-        }
+    const auto needleSize = needle.size();
+    if (!needleSize)
+        return;
+
+    // avoid detach if nothing to do:
+    int i = s.indexOf(needle, 0, cs);
+    if (i < 0)
+        return;
+
+    const auto beg = s.begin(); // detaches
+    auto dst = beg + i;
+    auto src = beg + i + needleSize;
+    const auto end = s.end();
+    // loop invariant: [beg, dst[ is partial result
+    //                 [src, end[ still to be checked for needles
+    while (src < end) {
+        const auto i = s.indexOf(needle, src - beg, cs);
+        const auto hit = i == -1 ? end : beg + i;
+        const auto skipped = hit - src;
+        memmove(dst, src, skipped * sizeof(QChar));
+        dst += skipped;
+        src = hit + needleSize;
     }
+    s.truncate(dst - beg);
 }
 
 /*!
@@ -2884,7 +2907,15 @@ static void removeStringImpl(QString &s, const T &needle, Qt::CaseSensitivity cs
 */
 QString &QString::remove(const QString &str, Qt::CaseSensitivity cs)
 {
-    removeStringImpl(*this, str, cs);
+    const auto s = reinterpret_cast<const ushort *>(str.data());
+    const std::less<const ushort *> less = {};
+    if (!less(s, d->data()) && less(s, d->data() + d->alloc)) {
+        // Part of me - take a copy
+        const QVarLengthArray<ushort> copy(s, s + str.size());
+        removeStringImpl(*this, QStringView{copy.data(), copy.size()}, cs);
+    } else {
+        removeStringImpl(*this, qToStringViewIgnoringNull(str), cs);
+    }
     return *this;
 }
 
@@ -3054,7 +3085,8 @@ QChar *textCopy(const QChar *start, int len)
 bool pointsIntoRange(const QChar *ptr, const ushort *base, int len)
 {
     const QChar *const start = reinterpret_cast<const QChar *>(base);
-    return start <= ptr && ptr < start + len;
+    const std::less<const QChar *> less = {};
+    return !less(ptr, start) && less(ptr, start + len);
 }
 } // end namespace
 
@@ -3373,10 +3405,7 @@ QString &QString::replace(QChar c, QLatin1String after, Qt::CaseSensitivity cs)
   Returns \c true if string \a s1 is equal to string \a s2; otherwise
   returns \c false.
 
-  The comparison is based exclusively on the numeric Unicode values of
-  the characters and is very fast, but is not what a human would
-  expect. Consider sorting user-interface strings with
-  localeAwareCompare().
+  \sa {Comparing Strings}
 */
 bool operator==(const QString &s1, const QString &s2) noexcept
 {
@@ -3438,10 +3467,7 @@ bool QString::operator==(QLatin1String other) const noexcept
     Returns \c true if string \a s1 is lexically less than string
     \a s2; otherwise returns \c false.
 
-    The comparison is based exclusively on the numeric Unicode values
-    of the characters and is very fast, but is not what a human would
-    expect. Consider sorting user-interface strings using the
-    QString::localeAwareCompare() function.
+    \sa {Comparing Strings}
 */
 bool operator<(const QString &s1, const QString &s2) noexcept
 {
@@ -3500,10 +3526,7 @@ bool QString::operator<(QLatin1String other) const noexcept
     Returns \c true if string \a s1 is lexically less than or equal to
     string \a s2; otherwise returns \c false.
 
-    The comparison is based exclusively on the numeric Unicode values
-    of the characters and is very fast, but is not what a human would
-    expect. Consider sorting user-interface strings with
-    localeAwareCompare().
+    \sa {Comparing Strings}
 */
 
 /*! \fn bool QString::operator<=(QLatin1String other) const
@@ -3551,10 +3574,7 @@ bool QString::operator<(QLatin1String other) const noexcept
     Returns \c true if string \a s1 is lexically greater than string \a s2;
     otherwise returns \c false.
 
-    The comparison is based exclusively on the numeric Unicode values
-    of the characters and is very fast, but is not what a human would
-    expect. Consider sorting user-interface strings with
-    localeAwareCompare().
+    \sa {Comparing Strings}
 */
 
 /*!
@@ -3605,10 +3625,7 @@ bool QString::operator>(QLatin1String other) const noexcept
     Returns \c true if string \a s1 is lexically greater than or equal to
     string \a s2; otherwise returns \c false.
 
-    The comparison is based exclusively on the numeric Unicode values
-    of the characters and is very fast, but is not what a human would
-    expect. Consider sorting user-interface strings with
-    localeAwareCompare().
+    \sa {Comparing Strings}
 */
 
 /*! \fn bool QString::operator>=(QLatin1String other) const
@@ -3656,10 +3673,7 @@ bool QString::operator>(QLatin1String other) const noexcept
     Returns \c true if string \a s1 is not equal to string \a s2;
     otherwise returns \c false.
 
-    The comparison is based exclusively on the numeric Unicode values
-    of the characters and is very fast, but is not what a human would
-    expect. Consider sorting user-interface strings with
-    localeAwareCompare().
+    \sa {Comparing Strings}
 */
 
 /*! \fn bool QString::operator!=(QLatin1String other) const
@@ -4686,7 +4700,7 @@ int QString::count(const QRegularExpression &re) const
 
 QString QString::section(const QString &sep, int start, int end, SectionFlags flags) const
 {
-    const QVector<QStringRef> sections = splitRef(sep, KeepEmptyParts,
+    const QVector<QStringRef> sections = splitRef(sep, Qt::KeepEmptyParts,
                                                   (flags & SectionCaseInsensitiveSeps) ? Qt::CaseInsensitive : Qt::CaseSensitive);
     const int sectionsSize = sections.size();
     if (!(flags & SectionSkipEmpty)) {
@@ -6116,10 +6130,7 @@ QString& QString::fill(QChar ch, int size)
     returns \c false.  For \a s1 != 0, this is equivalent to \c
     {compare(s1, s2) < 0}.
 
-    The comparison is based exclusively on the numeric Unicode values
-    of the characters and is very fast, but is not what a human would
-    expect. Consider sorting user-interface strings using the
-    QString::localeAwareCompare() function.
+    \sa {Comparing Strings}
 */
 
 /*!
@@ -6130,10 +6141,7 @@ QString& QString::fill(QChar ch, int size)
     otherwise returns \c false.  For \a s1 != 0, this is equivalent to \c
     {compare(s1, s2) <= 0}.
 
-    The comparison is based exclusively on the numeric Unicode values
-    of the characters and is very fast, but is not what a human would
-    expect. Consider sorting user-interface strings with
-    QString::localeAwareCompare().
+    \sa {Comparing Strings}
 */
 
 /*!
@@ -6143,10 +6151,7 @@ QString& QString::fill(QChar ch, int size)
     Returns \c true if \a s1 is lexically greater than \a s2; otherwise
     returns \c false.  Equivalent to \c {compare(s1, s2) > 0}.
 
-    The comparison is based exclusively on the numeric Unicode values
-    of the characters and is very fast, but is not what a human would
-    expect. Consider sorting user-interface strings using the
-    QString::localeAwareCompare() function.
+    \sa {Comparing Strings}
 */
 
 /*!
@@ -6157,10 +6162,7 @@ QString& QString::fill(QChar ch, int size)
     otherwise returns \c false.  For \a s1 != 0, this is equivalent to \c
     {compare(s1, s2) >= 0}.
 
-    The comparison is based exclusively on the numeric Unicode values
-    of the characters and is very fast, but is not what a human would
-    expect. Consider sorting user-interface strings using the
-    QString::localeAwareCompare() function.
+    \sa {Comparing Strings}
 */
 
 /*!
@@ -6227,7 +6229,7 @@ QString& QString::fill(QChar ch, int size)
 
     \snippet qstring/main.cpp 16
 
-    \sa operator==(), operator<(), operator>()
+    \sa operator==(), operator<(), operator>(), {Comparing Strings}
 */
 
 /*!
@@ -6256,6 +6258,16 @@ QString& QString::fill(QChar ch, int size)
     \overload compare()
 
     Performs a comparison of this with \a s, using the case
+    sensitivity setting \a cs.
+*/
+
+/*!
+    \fn int QString::compare(QChar ch, Qt::CaseSensitivity cs = Qt::CaseSensitive) const
+
+    \since 5.14
+    \overload compare()
+
+    Performs a comparison of this with \a ch, using the case
     sensitivity setting \a cs.
 */
 
@@ -6361,10 +6373,7 @@ int QString::compare_helper(const QChar *data1, int length1, QLatin1String s2,
     platform-dependent manner. Use this function to present sorted
     lists of strings to the user.
 
-    On \macos and iOS this function compares according the
-    "Order for sorted lists" setting in the International preferences panel.
-
-    \sa compare(), QLocale
+    \sa compare(), QLocale, {Comparing Strings}
 */
 
 /*!
@@ -6381,6 +6390,8 @@ int QString::compare_helper(const QChar *data1, int length1, QLatin1String s2,
     lists of strings to the user.
 
     Same as \c {localeAwareCompare(*this, other)}.
+
+    \sa {Comparing Strings}
 */
 
 /*!
@@ -6395,6 +6406,8 @@ int QString::compare_helper(const QChar *data1, int length1, QLatin1String s2,
     The comparison is performed in a locale- and also
     platform-dependent manner. Use this function to present sorted
     lists of strings to the user.
+
+    \sa {Comparing Strings}
 */
 
 
@@ -6416,6 +6429,8 @@ int QString::compare_helper(const QChar *data1, int length1, QLatin1String s2,
     lists of strings to the user.
 
     Same as \c {localeAwareCompare(*this, other)}.
+
+    \sa {Comparing Strings}
 */
 int QString::localeAwareCompare(const QString &other) const
 {
@@ -7711,22 +7726,32 @@ QString QString::number(double n, char f, int prec)
 namespace {
 template<class ResultList, class StringSource>
 static ResultList splitString(const StringSource &source, const QChar *sep,
-                              QString::SplitBehavior behavior, Qt::CaseSensitivity cs, const int separatorSize)
+                              Qt::SplitBehavior behavior, Qt::CaseSensitivity cs, const int separatorSize)
 {
     ResultList list;
     typename StringSource::size_type start = 0;
     typename StringSource::size_type end;
     typename StringSource::size_type extra = 0;
     while ((end = QtPrivate::findString(QStringView(source.constData(), source.size()), start + extra, QStringView(sep, separatorSize), cs)) != -1) {
-        if (start != end || behavior == QString::KeepEmptyParts)
+        if (start != end || behavior == Qt::KeepEmptyParts)
             list.append(source.mid(start, end - start));
         start = end + separatorSize;
         extra = (separatorSize == 0 ? 1 : 0);
     }
-    if (start != source.size() || behavior == QString::KeepEmptyParts)
+    if (start != source.size() || behavior == Qt::KeepEmptyParts)
         list.append(source.mid(start, -1));
     return list;
 }
+
+#if QT_DEPRECATED_SINCE(5, 15)
+Qt::SplitBehavior mapSplitBehavior(QString::SplitBehavior sb)
+{
+QT_WARNING_PUSH
+QT_WARNING_DISABLE_DEPRECATED
+    return sb & QString::SkipEmptyParts ? Qt::SkipEmptyParts : Qt::KeepEmptyParts;
+QT_WARNING_POP
+}
+#endif
 
 } // namespace
 
@@ -7757,11 +7782,24 @@ static ResultList splitString(const StringSource &source, const QChar *sep,
     \snippet qstring/main.cpp 62-slashes
 
     \sa QStringList::join(), section()
+
+    \since 5.14
 */
-QStringList QString::split(const QString &sep, SplitBehavior behavior, Qt::CaseSensitivity cs) const
+QStringList QString::split(const QString &sep, Qt::SplitBehavior behavior, Qt::CaseSensitivity cs) const
 {
     return splitString<QStringList>(*this, sep.constData(), behavior, cs, sep.size());
 }
+
+#if QT_DEPRECATED_SINCE(5, 15)
+/*!
+    \overload
+    \obsolete
+*/
+QStringList QString::split(const QString &sep, SplitBehavior behavior, Qt::CaseSensitivity cs) const
+{
+    return split(sep, mapSplitBehavior(behavior), cs);
+}
+#endif
 
 /*!
     Splits the string into substring references wherever \a sep occurs, and
@@ -7773,29 +7811,68 @@ QStringList QString::split(const QString &sep, SplitBehavior behavior, Qt::CaseS
     \note All references are valid as long this string is alive. Destroying this
     string will cause all references to be dangling pointers.
 
-    \since 5.4
+    \since 5.14
     \sa QStringRef split()
+*/
+QVector<QStringRef> QString::splitRef(const QString &sep, Qt::SplitBehavior behavior,
+                                      Qt::CaseSensitivity cs) const
+{
+    return splitString<QVector<QStringRef>>(QStringRef(this), sep.constData(), behavior,
+                                            cs, sep.size());
+}
+
+#if QT_DEPRECATED_SINCE(5, 15)
+/*!
+    \overload
+    \obsolete
+    \since 5.4
 */
 QVector<QStringRef> QString::splitRef(const QString &sep, SplitBehavior behavior, Qt::CaseSensitivity cs) const
 {
-    return splitString<QVector<QStringRef> >(QStringRef(this), sep.constData(), behavior, cs, sep.size());
+    return splitRef(sep, mapSplitBehavior(behavior), cs);
 }
+#endif
+
 /*!
     \overload
+    \since 5.14
 */
-QStringList QString::split(QChar sep, SplitBehavior behavior, Qt::CaseSensitivity cs) const
+QStringList QString::split(QChar sep, Qt::SplitBehavior behavior, Qt::CaseSensitivity cs) const
 {
     return splitString<QStringList>(*this, &sep, behavior, cs, 1);
 }
 
+#if QT_DEPRECATED_SINCE(5, 15)
+/*!
+    \overload
+    \obsolete
+*/
+QStringList QString::split(QChar sep, SplitBehavior behavior, Qt::CaseSensitivity cs) const
+{
+    return split(sep, mapSplitBehavior(behavior), cs);
+}
+#endif
+
+/*!
+    \overload
+    \since 5.14
+*/
+QVector<QStringRef> QString::splitRef(QChar sep, Qt::SplitBehavior behavior,
+                                      Qt::CaseSensitivity cs) const
+{
+    return splitString<QVector<QStringRef> >(QStringRef(this), &sep, behavior, cs, 1);
+}
+
+#if QT_DEPRECATED_SINCE(5, 15)
 /*!
     \overload
     \since 5.4
 */
 QVector<QStringRef> QString::splitRef(QChar sep, SplitBehavior behavior, Qt::CaseSensitivity cs) const
 {
-    return splitString<QVector<QStringRef> >(QStringRef(this), &sep, behavior, cs, 1);
+    return splitRef(sep, mapSplitBehavior(behavior), cs);
 }
+#endif
 
 /*!
     Splits the string into substrings references wherever \a sep occurs, and
@@ -7807,26 +7884,50 @@ QVector<QStringRef> QString::splitRef(QChar sep, SplitBehavior behavior, Qt::Cas
     \note All references are valid as long this string is alive. Destroying this
     string will cause all references to be dangling pointers.
 
-    \since 5.4
+    \since 5.14
 */
-QVector<QStringRef> QStringRef::split(const QString &sep, QString::SplitBehavior behavior, Qt::CaseSensitivity cs) const
+QVector<QStringRef> QStringRef::split(const QString &sep, Qt::SplitBehavior behavior, Qt::CaseSensitivity cs) const
 {
     return splitString<QVector<QStringRef> >(*this, sep.constData(), behavior, cs, sep.size());
 }
 
+#if QT_DEPRECATED_SINCE(5, 15)
 /*!
     \overload
     \since 5.4
+    \obsolete
 */
-QVector<QStringRef> QStringRef::split(QChar sep, QString::SplitBehavior behavior, Qt::CaseSensitivity cs) const
+QVector<QStringRef> QStringRef::split(const QString &sep, QString::SplitBehavior behavior, Qt::CaseSensitivity cs) const
+{
+    return split(sep, mapSplitBehavior(behavior), cs);
+}
+#endif
+
+/*!
+    \overload
+    \since 5.14
+*/
+QVector<QStringRef> QStringRef::split(QChar sep, Qt::SplitBehavior behavior, Qt::CaseSensitivity cs) const
 {
     return splitString<QVector<QStringRef> >(*this, &sep, behavior, cs, 1);
 }
 
+#if QT_DEPRECATED_SINCE(5, 15)
+/*!
+    \overload
+    \since 5.4
+    \obsolete
+*/
+QVector<QStringRef> QStringRef::split(QChar sep, QString::SplitBehavior behavior, Qt::CaseSensitivity cs) const
+{
+    return split(sep, mapSplitBehavior(behavior), cs);
+}
+#endif
+
 #ifndef QT_NO_REGEXP
 namespace {
 template<class ResultList, typename MidMethod>
-static ResultList splitString(const QString &source, MidMethod mid, const QRegExp &rx, QString::SplitBehavior behavior)
+static ResultList splitString(const QString &source, MidMethod mid, const QRegExp &rx, Qt::SplitBehavior behavior)
 {
     QRegExp rx2(rx);
     ResultList list;
@@ -7835,12 +7936,12 @@ static ResultList splitString(const QString &source, MidMethod mid, const QRegEx
     int end;
     while ((end = rx2.indexIn(source, start + extra)) != -1) {
         int matchedLen = rx2.matchedLength();
-        if (start != end || behavior == QString::KeepEmptyParts)
+        if (start != end || behavior == Qt::KeepEmptyParts)
             list.append((source.*mid)(start, end - start));
         start = end + matchedLen;
         extra = (matchedLen == 0) ? 1 : 0;
     }
-    if (start != source.size() || behavior == QString::KeepEmptyParts)
+    if (start != source.size() || behavior == Qt::KeepEmptyParts)
         list.append((source.*mid)(start, -1));
     return list;
 }
@@ -7848,6 +7949,7 @@ static ResultList splitString(const QString &source, MidMethod mid, const QRegEx
 
 /*!
     \overload
+    \since 5.14
 
     Splits the string into substrings wherever the regular expression
     \a rx matches, and returns the list of those strings. If \a rx
@@ -7872,14 +7974,25 @@ static ResultList splitString(const QString &source, MidMethod mid, const QRegEx
 
     \sa QStringList::join(), section()
 */
-QStringList QString::split(const QRegExp &rx, SplitBehavior behavior) const
+QStringList QString::split(const QRegExp &rx, Qt::SplitBehavior behavior) const
 {
     return splitString<QStringList>(*this, &QString::mid, rx, behavior);
 }
 
+#  if QT_DEPRECATED_SINCE(5, 15)
 /*!
     \overload
-    \since 5.4
+    \obsolete
+*/
+QStringList QString::split(const QRegExp &rx, SplitBehavior behavior) const
+{
+    return split(rx, mapSplitBehavior(behavior));
+}
+#  endif
+
+/*!
+    \overload
+    \since 5.14
 
     Splits the string into substring references wherever the regular expression
     \a rx matches, and returns the list of those strings. If \a rx
@@ -7891,17 +8004,29 @@ QStringList QString::split(const QRegExp &rx, SplitBehavior behavior) const
 
     \sa QStringRef split()
 */
-QVector<QStringRef> QString::splitRef(const QRegExp &rx, SplitBehavior behavior) const
+QVector<QStringRef> QString::splitRef(const QRegExp &rx, Qt::SplitBehavior behavior) const
 {
     return splitString<QVector<QStringRef> >(*this, &QString::midRef, rx, behavior);
 }
-#endif
+
+#  if QT_DEPRECATED_SINCE(5, 15)
+/*!
+    \overload
+    \since 5.4
+    \obsolete
+*/
+QVector<QStringRef> QString::splitRef(const QRegExp &rx, SplitBehavior behavior) const
+{
+    return splitRef(rx, mapSplitBehavior(behavior));
+}
+#  endif
+#endif // QT_NO_REGEXP
 
 #if QT_CONFIG(regularexpression)
 namespace {
 template<class ResultList, typename MidMethod>
 static ResultList splitString(const QString &source, MidMethod mid, const QRegularExpression &re,
-                              QString::SplitBehavior behavior)
+                              Qt::SplitBehavior behavior)
 {
     ResultList list;
     if (!re.isValid()) {
@@ -7915,12 +8040,12 @@ static ResultList splitString(const QString &source, MidMethod mid, const QRegul
     while (iterator.hasNext()) {
         QRegularExpressionMatch match = iterator.next();
         end = match.capturedStart();
-        if (start != end || behavior == QString::KeepEmptyParts)
+        if (start != end || behavior == Qt::KeepEmptyParts)
             list.append((source.*mid)(start, end - start));
         start = match.capturedEnd();
     }
 
-    if (start != source.size() || behavior == QString::KeepEmptyParts)
+    if (start != source.size() || behavior == Qt::KeepEmptyParts)
         list.append((source.*mid)(start, -1));
 
     return list;
@@ -7929,7 +8054,7 @@ static ResultList splitString(const QString &source, MidMethod mid, const QRegul
 
 /*!
     \overload
-    \since 5.0
+    \since 5.14
 
     Splits the string into substrings wherever the regular expression
     \a re matches, and returns the list of those strings. If \a re
@@ -7954,14 +8079,26 @@ static ResultList splitString(const QString &source, MidMethod mid, const QRegul
 
     \sa QStringList::join(), section()
 */
-QStringList QString::split(const QRegularExpression &re, SplitBehavior behavior) const
+QStringList QString::split(const QRegularExpression &re, Qt::SplitBehavior behavior) const
 {
     return splitString<QStringList>(*this, &QString::mid, re, behavior);
 }
 
+#  if QT_DEPRECATED_SINCE(5, 15)
 /*!
     \overload
-    \since 5.4
+    \since 5.0
+    \obsolete
+*/
+QStringList QString::split(const QRegularExpression &re, SplitBehavior behavior) const
+{
+    return split(re, mapSplitBehavior(behavior));
+}
+#  endif
+
+/*!
+    \overload
+    \since 5.14
 
     Splits the string into substring references wherever the regular expression
     \a re matches, and returns the list of those strings. If \a re
@@ -7973,10 +8110,22 @@ QStringList QString::split(const QRegularExpression &re, SplitBehavior behavior)
 
     \sa split() QStringRef
 */
-QVector<QStringRef> QString::splitRef(const QRegularExpression &re, SplitBehavior behavior) const
+QVector<QStringRef> QString::splitRef(const QRegularExpression &re, Qt::SplitBehavior behavior) const
 {
     return splitString<QVector<QStringRef> >(*this, &QString::midRef, re, behavior);
 }
+
+#  if QT_DEPRECATED_SINCE(5, 15)
+/*!
+    \overload
+    \since 5.4
+    \obsolete
+*/
+QVector<QStringRef> QString::splitRef(const QRegularExpression &re, SplitBehavior behavior) const
+{
+    return splitRef(re, mapSplitBehavior(behavior));
+}
+#  endif
 #endif // QT_CONFIG(regularexpression)
 
 /*!
@@ -8691,9 +8840,7 @@ QString QString::arg(qulonglong a, int fieldWidth, int base, QChar fillChar) con
 */
 QString QString::arg(QChar a, int fieldWidth, QChar fillChar) const
 {
-    QString c;
-    c += a;
-    return arg(c, fieldWidth, fillChar);
+    return arg(QStringView{&a, 1}, fieldWidth, fillChar);
 }
 
 /*!
@@ -8703,9 +8850,7 @@ QString QString::arg(QChar a, int fieldWidth, QChar fillChar) const
 */
 QString QString::arg(char a, int fieldWidth, QChar fillChar) const
 {
-    QString c;
-    c += QLatin1Char(a);
-    return arg(c, fieldWidth, fillChar);
+    return arg(QLatin1Char(a), fieldWidth, fillChar);
 }
 
 /*!
@@ -9060,6 +9205,21 @@ bool QString::isRightToLeft() const
     return QtPrivate::isRightToLeft(QStringView(*this));
 }
 
+/*!
+    \fn bool QString::isValidUtf16() const noexcept
+    \since 5.15
+
+    Returns \c true if the string contains valid UTF-16 encoded data,
+    or \c false otherwise.
+
+    Note that this function does not perform any special validation of the
+    data; it merely checks if it can be successfully decoded from UTF-16.
+    The data is assumed to be in host byte order; the presence of a BOM
+    is meaningless.
+
+    \sa QStringView::isValidUtf16()
+*/
+
 /*! \fn QChar *QString::data()
 
     Returns a pointer to the data stored in the QString. The pointer
@@ -9361,8 +9521,6 @@ QString &QString::setRawData(const QChar *unicode, int size)
     \typedef QLatin1String::iterator
     \since 5.10
 
-    This typedef provides an STL-style const iterator for QLatin1String.
-
     QLatin1String does not support mutable iterators, so this is the same
     as const_iterator.
 
@@ -9373,16 +9531,12 @@ QString &QString::setRawData(const QChar *unicode, int size)
     \typedef QLatin1String::const_iterator
     \since 5.10
 
-    This typedef provides an STL-style const iterator for QLatin1String.
-
     \sa iterator, const_reverse_iterator
 */
 
 /*!
     \typedef QLatin1String::reverse_iterator
     \since 5.10
-
-    This typedef provides an STL-style const reverse iterator for QLatin1String.
 
     QLatin1String does not support mutable reverse iterators, so this is the
     same as const_reverse_iterator.
@@ -9393,8 +9547,6 @@ QString &QString::setRawData(const QChar *unicode, int size)
 /*!
     \typedef QLatin1String::const_reverse_iterator
     \since 5.10
-
-    This typedef provides an STL-style const reverse iterator for QLatin1String.
 
     \sa reverse_iterator, const_iterator
 */
@@ -9540,6 +9692,23 @@ QString &QString::setRawData(const QChar *unicode, int size)
 
     \sa front(), at(), operator[]()
 */
+
+/*!
+    \fn int QLatin1String::compare(QStringView str, Qt::CaseSensitivity cs) const
+    \fn int QLatin1String::compare(QLatin1String l1, Qt::CaseSensitivity cs) const
+    \fn int QLatin1String::compare(QChar ch) const
+    \fn int QLatin1String::compare(QChar ch, Qt::CaseSensitivity cs) const
+    \since 5.14
+
+    Returns an integer that compares to zero as this Latin-1 string compares to the
+    string-view \a str, Latin-1 string \a l1, or character \a ch, respectively.
+
+    If \a cs is Qt::CaseSensitive (the default), the comparison is case sensitive;
+    otherwise the comparison is case-insensitive.
+
+    \sa operator==(), operator<(), operator>()
+*/
+
 
 /*!
     \fn bool QLatin1String::startsWith(QStringView str, Qt::CaseSensitivity cs) const
@@ -9830,10 +9999,7 @@ QString &QString::setRawData(const QChar *unicode, int size)
     Returns \c true if this string is equal to string \a other;
     otherwise returns \c false.
 
-    The comparison is based exclusively on the numeric Unicode values
-    of the characters and is very fast, but is not what a human would
-    expect. Consider sorting user-interface strings with
-    QString::localeAwareCompare().
+    \sa {Comparing Strings}
 */
 
 /*!
@@ -9873,10 +10039,7 @@ QString &QString::setRawData(const QChar *unicode, int size)
     Returns \c true if this string is not equal to string \a other;
     otherwise returns \c false.
 
-    The comparison is based exclusively on the numeric Unicode values
-    of the characters and is very fast, but is not what a human would
-    expect. Consider sorting user-interface strings with
-    QString::localeAwareCompare().
+    \sa {Comparing Strings}
 */
 
 /*!
@@ -9917,10 +10080,7 @@ QString &QString::setRawData(const QChar *unicode, int size)
     Returns \c true if this string is lexically greater than string \a
     other; otherwise returns \c false.
 
-    The comparison is based exclusively on the numeric Unicode values
-    of the characters and is very fast, but is not what a human would
-    expect. Consider sorting user-interface strings with
-    QString::localeAwareCompare().
+    \sa {Comparing Strings}
 */
 
 /*!
@@ -9961,10 +10121,7 @@ QString &QString::setRawData(const QChar *unicode, int size)
     Returns \c true if this string is lexically less than the \a other
     string; otherwise returns \c false.
 
-    The comparison is based exclusively on the numeric Unicode values
-    of the characters and is very fast, but is not what a human would
-    expect. Consider sorting user-interface strings using the
-    QString::localeAwareCompare() function.
+    \sa {Comparing Strings}
 */
 
 /*!
@@ -10005,10 +10162,7 @@ QString &QString::setRawData(const QChar *unicode, int size)
     Returns \c true if this string is lexically greater than or equal
     to string \a other; otherwise returns \c false.
 
-    The comparison is based exclusively on the numeric Unicode values
-    of the characters and is very fast, but is not what a human would
-    expect. Consider sorting user-interface strings with
-    QString::localeAwareCompare().
+    \sa {Comparing Strings}
 */
 
 /*!
@@ -10048,10 +10202,7 @@ QString &QString::setRawData(const QChar *unicode, int size)
     Returns \c true if this string is lexically less than or equal
     to string \a other; otherwise returns \c false.
 
-    The comparison is based exclusively on the numeric Unicode values
-    of the characters and is very fast, but is not what a human would
-    expect. Consider sorting user-interface strings with
-    QString::localeAwareCompare().
+    \sa {Comparing Strings}
 */
 
 /*!
@@ -10279,16 +10430,12 @@ QDataStream &operator>>(QDataStream &in, QString &str)
     \typedef QStringRef::const_iterator
     \since 5.4
 
-    This typedef provides an STL-style const iterator for QStringRef.
-
     \sa QStringRef::const_reverse_iterator
 */
 
 /*!
     \typedef QStringRef::const_reverse_iterator
     \since 5.7
-
-    This typedef provides an STL-style const reverse iterator for QStringRef.
 
     \sa QStringRef::const_iterator
 */
@@ -10570,10 +10717,7 @@ bool operator==(QLatin1String s1, const QStringRef &s2) noexcept
     Returns \c true if string reference \a s1 is lexically less than
     string reference \a s2; otherwise returns \c false.
 
-    The comparison is based exclusively on the numeric Unicode values
-    of the characters and is very fast, but is not what a human would
-    expect. Consider sorting user-interface strings using the
-    QString::localeAwareCompare() function.
+    \sa {Comparing Strings}
 */
 bool operator<(const QStringRef &s1,const QStringRef &s2) noexcept
 {
@@ -10587,10 +10731,7 @@ bool operator<(const QStringRef &s1,const QStringRef &s2) noexcept
     Returns \c true if string reference \a s1 is lexically less than
     or equal to string reference \a s2; otherwise returns \c false.
 
-    The comparison is based exclusively on the numeric Unicode values
-    of the characters and is very fast, but is not what a human would
-    expect. Consider sorting user-interface strings using the
-    QString::localeAwareCompare() function.
+    \sa {Comparing Strings}
 */
 
 /*!\fn bool operator>=(const QStringRef &s1,const QStringRef &s2)
@@ -10600,10 +10741,7 @@ bool operator<(const QStringRef &s1,const QStringRef &s2) noexcept
     Returns \c true if string reference \a s1 is lexically greater than
     or equal to string reference \a s2; otherwise returns \c false.
 
-    The comparison is based exclusively on the numeric Unicode values
-    of the characters and is very fast, but is not what a human would
-    expect. Consider sorting user-interface strings using the
-    QString::localeAwareCompare() function.
+    \sa {Comparing Strings}
 */
 
 /*!\fn bool operator>(const QStringRef &s1,const QStringRef &s2)
@@ -10613,10 +10751,7 @@ bool operator<(const QStringRef &s1,const QStringRef &s2) noexcept
     Returns \c true if string reference \a s1 is lexically greater than
     string reference \a s2; otherwise returns \c false.
 
-    The comparison is based exclusively on the numeric Unicode values
-    of the characters and is very fast, but is not what a human would
-    expect. Consider sorting user-interface strings using the
-    QString::localeAwareCompare() function.
+    \sa {Comparing Strings}
 */
 
 
@@ -10909,6 +11044,19 @@ QStringRef QStringRef::appendTo(QString *string) const
 
 /*!
     \overload
+    \fn int QStringRef::compare(QChar ch, Qt::CaseSensitivity cs = Qt::CaseSensitive) const
+    \since 5.14
+
+    Compares this string with \a ch and returns an
+    integer less than, equal to, or greater than zero if this string
+    is less than, equal to, or greater than \a ch, interpreted as a string of length one.
+
+    If \a cs is Qt::CaseSensitive, the comparison is case sensitive;
+    otherwise the comparison is case insensitive.
+*/
+
+/*!
+    \overload
     \fn int QStringRef::compare(QLatin1String other, Qt::CaseSensitivity cs = Qt::CaseSensitive) const
     \since 4.5
 
@@ -10950,10 +11098,7 @@ QStringRef QStringRef::appendTo(QString *string) const
     platform-dependent manner. Use this function to present sorted
     lists of strings to the user.
 
-    On \macos and iOS, this function compares according the
-    "Order for sorted lists" setting in the International prefereces panel.
-
-    \sa compare(), QLocale
+    \sa compare(), QLocale, {Comparing Strings}
 */
 
 /*!
@@ -10969,6 +11114,7 @@ QStringRef QStringRef::appendTo(QString *string) const
     platform-dependent manner. Use this function to present sorted
     lists of strings to the user.
 
+    \sa {Comparing Strings}
 */
 
 /*!
@@ -10983,6 +11129,8 @@ QStringRef QStringRef::appendTo(QString *string) const
     The comparison is performed in a locale- and also
     platform-dependent manner. Use this function to present sorted
     lists of strings to the user.
+
+    \sa {Comparing Strings}
 */
 
 /*!
@@ -10997,6 +11145,8 @@ QStringRef QStringRef::appendTo(QString *string) const
     The comparison is performed in a locale- and also
     platform-dependent manner. Use this function to present sorted
     lists of strings to the user.
+
+    \sa {Comparing Strings}
 */
 
 /*!

@@ -5,7 +5,7 @@
 #ifndef THIRD_PARTY_BLINK_RENDERER_MODULES_SERVICE_WORKER_RESPOND_WITH_OBSERVER_H_
 #define THIRD_PARTY_BLINK_RENDERER_MODULES_SERVICE_WORKER_RESPOND_WITH_OBSERVER_H_
 
-#include "third_party/blink/public/mojom/service_worker/service_worker_error_type.mojom-blink.h"
+#include "third_party/blink/public/mojom/service_worker/service_worker_error_type.mojom-blink-forward.h"
 #include "third_party/blink/renderer/core/dom/events/event_target.h"
 #include "third_party/blink/renderer/core/execution_context/context_lifecycle_observer.h"
 #include "third_party/blink/renderer/modules/modules_export.h"
@@ -25,7 +25,7 @@ class WaitUntilObserver;
 // each event should implement the procedure of the three behaviors by
 // overriding onResponseFulfilled, onResponseRejected and onNoResponse.
 class MODULES_EXPORT RespondWithObserver
-    : public GarbageCollectedFinalized<RespondWithObserver>,
+    : public GarbageCollected<RespondWithObserver>,
       public ContextClient {
   USING_GARBAGE_COLLECTED_MIXIN(RespondWithObserver);
 
@@ -45,7 +45,8 @@ class MODULES_EXPORT RespondWithObserver
   virtual void OnResponseRejected(mojom::ServiceWorkerResponseError) = 0;
 
   // Called when the respondWith() promise was fulfilled.
-  virtual void OnResponseFulfilled(const ScriptValue&,
+  virtual void OnResponseFulfilled(ScriptState*,
+                                   const ScriptValue&,
                                    ExceptionState::ContextType,
                                    const char* interface_name,
                                    const char* property_name) = 0;
@@ -65,7 +66,8 @@ class MODULES_EXPORT RespondWithObserver
 
   void ResponseWasRejected(mojom::ServiceWorkerResponseError,
                            const ScriptValue&);
-  void ResponseWasFulfilled(ExceptionState::ContextType,
+  void ResponseWasFulfilled(ScriptState* state,
+                            ExceptionState::ContextType,
                             const char* interface_name,
                             const char* property_name,
                             const ScriptValue&);

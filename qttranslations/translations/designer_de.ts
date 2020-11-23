@@ -4597,6 +4597,66 @@ Please select another name.</source>
         <source>Active</source>
         <translation>Aktiv</translation>
     </message>
+    <message>
+        <source>Save...</source>
+        <translation>Speichern...</translation>
+    </message>
+    <message>
+        <source>Load...</source>
+        <translation>Laden...</translation>
+    </message>
+    <message>
+        <source>Lighter</source>
+        <translation>Heller</translation>
+    </message>
+    <message>
+        <source>Darker</source>
+        <translation>Dunkler</translation>
+    </message>
+    <message>
+        <source>Copy color %1</source>
+        <translation>Farbe %1 kopieren</translation>
+    </message>
+    <message>
+        <source>QPalette UI file (*.xml)</source>
+        <translation>QPalette-UI-Datei (*.xml)</translation>
+    </message>
+    <message>
+        <source>Cannot open %1 for writing: %2</source>
+        <translation>Die Datei &apos;%1&apos; konnte nicht zum Schreiben geöffnet werden: %2</translation>
+    </message>
+    <message>
+        <source>Cannot write %1: %2</source>
+        <translation>%1 konnte nicht geschrieben werden: %2</translation>
+    </message>
+    <message>
+        <source>Cannot read palette from %1:%2:%3</source>
+        <translation>Es konnte keine Palette gelesen werden %1:%2:%3</translation>
+    </message>
+    <message>
+        <source>Cannot open %1 for reading: %2</source>
+        <translation>Die Datei &apos;%1&apos; konnte nicht zum Lesen geöffnet werden: %2</translation>
+    </message>
+    <message>
+        <source>Invalid element &quot;%1&quot;, expected &quot;palette&quot;.</source>
+        <translation>Ungültiges Element &quot;%1&quot;, es wird &quot;palette&quot; erwartet.</translation>
+    </message>
+    <message>
+        <source>Save Palette</source>
+        <translation>Palette speichern</translation>
+    </message>
+    <message>
+        <source>Error Writing Palette</source>
+        <translation>Fehler beim Schreiben der Palette</translation>
+    </message>
+    <message>
+        <source>Load Palette</source>
+        <translation>Palette laden</translation>
+    </message>
+    <message>
+        <source>Error Reading Palette</source>
+        <translation>Fehler beim Lesen der Palette</translation>
+    </message>
 </context>
 <context>
     <name>qdesigner_internal::PaletteEditorButton</name>
@@ -4810,24 +4870,9 @@ ate the goose who was loose.</translation>
         <translation>PushButton</translation>
     </message>
     <message>
-        <source>ButtonGroup2</source>
-        <extracomment>Palette Editor Preview Widget</extracomment>
-        <translation>ButtonGroup2</translation>
-    </message>
-    <message>
         <source>CheckBox1</source>
         <extracomment>Palette Editor Preview Widget</extracomment>
         <translation>CheckBox1</translation>
-    </message>
-    <message>
-        <source>CheckBox2</source>
-        <extracomment>Palette Editor Preview Widget</extracomment>
-        <translation>CheckBox2</translation>
-    </message>
-    <message>
-        <source>ButtonGroup</source>
-        <extracomment>Palette Editor Preview Widget</extracomment>
-        <translation>ButtonGroup</translation>
     </message>
     <message>
         <source>RadioButton1</source>
@@ -4843,6 +4888,99 @@ ate the goose who was loose.</translation>
         <source>RadioButton3</source>
         <extracomment>Palette Editor Preview Widget</extracomment>
         <translation>RadioButton3</translation>
+    </message>
+    <message>
+        <source>Buttons</source>
+        <extracomment>Palette Editor Preview Widget</extracomment>
+        <translation>Buttons</translation>
+    </message>
+    <message>
+        <source>Tristate CheckBox</source>
+        <extracomment>Palette Editor Preview Widget</extracomment>
+        <translation>Tristate CheckBox</translation>
+    </message>
+    <message>
+        <source>ToggleButton</source>
+        <extracomment>Palette Editor Preview Widget</extracomment>
+        <translation>ToggleButton</translation>
+    </message>
+    <message>
+        <source>ToolButton</source>
+        <extracomment>Palette Editor Preview Widget</extracomment>
+        <translation>ToolButton</translation>
+    </message>
+    <message>
+        <source>Menu</source>
+        <extracomment>Palette Editor Preview Widget</extracomment>
+        <translation>Menü</translation>
+    </message>
+    <message>
+        <source>Item Views</source>
+        <extracomment>Palette Editor Preview Widget</extracomment>
+        <translation>Item Views</translation>
+    </message>
+    <message>
+        <source>Column 1</source>
+        <extracomment>Palette Editor Preview Widget</extracomment>
+        <translation>Column 1</translation>
+    </message>
+    <message>
+        <source>Top Level 1</source>
+        <extracomment>Palette Editor Preview Widget</extracomment>
+        <translation>Top Level 1</translation>
+    </message>
+    <message>
+        <source>Nested Item 1</source>
+        <extracomment>Palette Editor Preview Widget</extracomment>
+        <translation>Nested Item 1</translation>
+    </message>
+    <message>
+        <source>Nested Item 2</source>
+        <extracomment>Palette Editor Preview Widget</extracomment>
+        <translation>Nested Item 2</translation>
+    </message>
+    <message>
+        <source>Nested Item 3</source>
+        <extracomment>Palette Editor Preview Widget</extracomment>
+        <translation>Nested Item 3</translation>
+    </message>
+    <message>
+        <source>Simple Input Widgets</source>
+        <extracomment>Palette Editor Preview Widget</extracomment>
+        <translation>Simple Input Widgets</translation>
+    </message>
+    <message>
+        <source>Item1</source>
+        <extracomment>Palette Editor Preview Widget</extracomment>
+        <translation>Item1</translation>
+    </message>
+    <message>
+        <source>Item2</source>
+        <extracomment>Palette Editor Preview Widget</extracomment>
+        <translation>Item2</translation>
+    </message>
+    <message>
+        <source>Display Widgets</source>
+        <extracomment>Palette Editor Preview Widget</extracomment>
+        <translation>Display Widgets</translation>
+    </message>
+    <message>
+        <source>QLabel</source>
+        <extracomment>Palette Editor Preview Widget</extracomment>
+        <translation>QLabel</translation>
+    </message>
+    <message>
+        <source>QLabel with frame</source>
+        <extracomment>Palette Editor Preview Widget</extracomment>
+        <translation>QLabel with frame</translation>
+    </message>
+    <message>
+        <source>Option 1</source>
+        <translation>Option 1</translation>
+    </message>
+    <message>
+        <source>Checkable</source>
+        <translation>Checkable</translation>
     </message>
 </context>
 <context>

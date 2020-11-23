@@ -2,6 +2,17 @@
 <!DOCTYPE TS>
 <TS version="2.1" language="de">
 <context>
+    <name>FilterNameDialogClass</name>
+    <message>
+        <source>Add Filter</source>
+        <translation>Filter hinzufügen</translation>
+    </message>
+    <message>
+        <source>Filter Name:</source>
+        <translation>Name des Filters:</translation>
+    </message>
+</context>
+<context>
     <name>QHelp</name>
     <message>
         <source>Untitled</source>
@@ -96,6 +107,81 @@
     </message>
 </context>
 <context>
+    <name>QHelpFilterSettingsWidget</name>
+    <message>
+        <source>Form</source>
+        <translation>Form</translation>
+    </message>
+    <message>
+        <source>Filter</source>
+        <translation>Filter</translation>
+    </message>
+    <message>
+        <source>Components</source>
+        <translation>Komponenten</translation>
+    </message>
+    <message>
+        <source>Versions</source>
+        <translation>Versionen</translation>
+    </message>
+    <message>
+        <source>Add...</source>
+        <translation>Hinzufügen...</translation>
+    </message>
+    <message>
+        <source>Rename...</source>
+        <translation>Umbenennen...</translation>
+    </message>
+    <message>
+        <source>Remove</source>
+        <translation>Löschen</translation>
+    </message>
+    <message>
+        <source>Add Filter</source>
+        <translation>Filter hinzufügen</translation>
+    </message>
+    <message>
+        <source>New Filter</source>
+        <translation>Neuer Filter</translation>
+    </message>
+    <message>
+        <source>Rename Filter</source>
+        <translation>Filter umbenennen</translation>
+    </message>
+    <message>
+        <source>Remove Filter</source>
+        <translation>Filter löschen</translation>
+    </message>
+    <message>
+        <source>Are you sure you want to remove the &quot;%1&quot; filter?</source>
+        <translation>Möchten Sie den Filter &quot;%1&quot; wirklich löschen?</translation>
+    </message>
+    <message>
+        <source>Filter Exists</source>
+        <translation>Filter existiert bereits</translation>
+    </message>
+    <message>
+        <source>The filter &quot;%1&quot; already exists.</source>
+        <translation>Der Filter &quot;%1&quot; existiert bereits.</translation>
+    </message>
+    <message>
+        <source>No Component</source>
+        <translation>Keine Komponente</translation>
+    </message>
+    <message>
+        <source>Invalid Component</source>
+        <translation>Ungültige Komponente</translation>
+    </message>
+    <message>
+        <source>No Version</source>
+        <translation>Keine Version</translation>
+    </message>
+    <message>
+        <source>Invalid Version</source>
+        <translation>Ungültige Version</translation>
+    </message>
+</context>
+<context>
     <name>QHelpSearchQueryWidget</name>
     <message>
         <source>Search for:</source>
@@ -126,6 +212,17 @@
     <message>
         <source>0 - 0 of 0 Hits</source>
         <translation>0 - 0 von 0 Treffern</translation>
+    </message>
+</context>
+<context>
+    <name>QOptionsWidget</name>
+    <message>
+        <source>No Option</source>
+        <translation>Keine Option</translation>
+    </message>
+    <message>
+        <source>Invalid Option</source>
+        <translation>Ungültige Option</translation>
     </message>
 </context>
 <context>

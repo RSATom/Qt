@@ -7,13 +7,14 @@
 #include "base/callback.h"
 #include "base/containers/span.h"
 #include "base/run_loop.h"
-#include "base/test/scoped_task_environment.h"
+#include "base/test/task_environment.h"
 #include "base/time/time.h"
 #include "build/build_config.h"
 #include "net/base/load_states.h"
 #include "net/base/load_timing_info.h"
 #include "net/base/load_timing_info_test_util.h"
 #include "net/base/net_errors.h"
+#include "net/base/network_isolation_key.h"
 #include "net/dns/mock_host_resolver.h"
 #include "net/log/net_log.h"
 #include "net/socket/client_socket_factory.h"
@@ -24,7 +25,7 @@
 #include "net/socket/socks_connect_job.h"
 #include "net/socket/transport_connect_job.h"
 #include "net/test/gtest_util.h"
-#include "net/test/test_with_scoped_task_environment.h"
+#include "net/test/test_with_task_environment.h"
 #include "net/traffic_annotation/network_traffic_annotation_test_helper.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
@@ -37,8 +38,7 @@ const int kProxyPort = 4321;
 
 constexpr base::TimeDelta kTinyTime = base::TimeDelta::FromMicroseconds(1);
 
-class SOCKSConnectJobTest : public testing::Test,
-                            public WithScopedTaskEnvironment {
+class SOCKSConnectJobTest : public testing::Test, public WithTaskEnvironment {
  public:
   enum class SOCKSVersion {
     V4,
@@ -46,8 +46,7 @@ class SOCKSConnectJobTest : public testing::Test,
   };
 
   SOCKSConnectJobTest()
-      : WithScopedTaskEnvironment(
-            base::test::ScopedTaskEnvironment::TimeSource::MOCK_TIME_AND_NOW),
+      : WithTaskEnvironment(base::test::TaskEnvironment::TimeSource::MOCK_TIME),
         common_connect_job_params_(
             &client_socket_factory_,
             &host_resolver_,
@@ -61,26 +60,26 @@ class SOCKSConnectJobTest : public testing::Test,
             nullptr /* ssl_client_context */,
             nullptr /* socket_performance_watcher_factory */,
             nullptr /* network_quality_estimator */,
-            &net_log_,
+            NetLog::Get(),
             nullptr /* websocket_endpoint_lock_manager */) {}
 
   ~SOCKSConnectJobTest() override {}
 
   static scoped_refptr<SOCKSSocketParams> CreateSOCKSParams(
-      SOCKSVersion socks_version) {
+      SOCKSVersion socks_version,
+      bool disable_secure_dns = false) {
     return base::MakeRefCounted<SOCKSSocketParams>(
         base::MakeRefCounted<TransportSocketParams>(
-            HostPortPair(kProxyHostName, kProxyPort),
-            OnHostResolutionCallback()),
+            HostPortPair(kProxyHostName, kProxyPort), NetworkIsolationKey(),
+            disable_secure_dns, OnHostResolutionCallback()),
         socks_version == SOCKSVersion::V5,
         socks_version == SOCKSVersion::V4
             ? HostPortPair(kSOCKS4TestHost, kSOCKS4TestPort)
             : HostPortPair(kSOCKS5TestHost, kSOCKS5TestPort),
-        TRAFFIC_ANNOTATION_FOR_TESTS);
+        NetworkIsolationKey(), TRAFFIC_ANNOTATION_FOR_TESTS);
   }
 
  protected:
-  NetLog net_log_;
   MockHostResolver host_resolver_;
   MockTaggingClientSocketFactory client_socket_factory_;
   const CommonConnectJobParams common_connect_job_params_;
@@ -344,6 +343,23 @@ TEST_F(SOCKSConnectJobTest, Priority) {
       socks_connect_job.ChangePriority(
           static_cast<RequestPriority>(initial_priority));
       EXPECT_EQ(initial_priority, host_resolver_.request_priority(request_id));
+    }
+  }
+}
+
+TEST_F(SOCKSConnectJobTest, DisableSecureDns) {
+  for (bool disable_secure_dns : {false, true}) {
+    TestConnectJobDelegate test_delegate;
+    SOCKSConnectJob socks_connect_job(
+        DEFAULT_PRIORITY, SocketTag(), &common_connect_job_params_,
+        CreateSOCKSParams(SOCKSVersion::V4, disable_secure_dns), &test_delegate,
+        nullptr /* net_log */);
+    ASSERT_THAT(socks_connect_job.Connect(), test::IsError(ERR_IO_PENDING));
+    EXPECT_EQ(disable_secure_dns,
+              host_resolver_.last_secure_dns_mode_override().has_value());
+    if (disable_secure_dns) {
+      EXPECT_EQ(net::DnsConfig::SecureDnsMode::OFF,
+                host_resolver_.last_secure_dns_mode_override().value());
     }
   }
 }

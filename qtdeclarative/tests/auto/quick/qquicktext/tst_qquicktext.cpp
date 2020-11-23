@@ -30,6 +30,7 @@
 #include <QTextDocument>
 #include <QtQml/qqmlengine.h>
 #include <QtQml/qqmlcomponent.h>
+#include <QtQml/qjsvalue.h>
 #include <QtQuick/private/qquicktext_p.h>
 #include <QtQuick/private/qquickmousearea_p.h>
 #include <QtQuickTest/QtQuickTest>
@@ -119,6 +120,7 @@ private slots:
     void lineLaidOut();
     void lineLaidOutRelayout();
     void lineLaidOutHAlign();
+    void lineLaidOutImplicitWidth();
 
     void imgTagsBaseUrl_data();
     void imgTagsBaseUrl();
@@ -165,6 +167,8 @@ private slots:
     void verticallyAlignedImageInTable();
 
     void transparentBackground();
+
+    void displaySuperscriptedTag();
 
 private:
     QStringList standard;
@@ -1035,7 +1039,7 @@ void tst_qquicktext::hAlignImplicitWidth()
     {
         if ((QGuiApplication::platformName() == QLatin1String("offscreen"))
             || (QGuiApplication::platformName() == QLatin1String("minimal")))
-            QEXPECT_FAIL("", "Failure due to grabWindow not functional on offscreen/minimimal platforms", Abort);
+            QEXPECT_FAIL("", "Failure due to grabWindow not functional on offscreen/minimal platforms", Abort);
 
         // Left Align
         QImage image = view.grabWindow();
@@ -2871,6 +2875,13 @@ void tst_qquicktext::lineLaidOut()
             QCOMPARE(r.height(), qreal(20));
         }
     }
+
+    // Ensure that isLast was correctly emitted
+    int lastLineNumber = myText->property("lastLineNumber").toInt();
+    QCOMPARE(lastLineNumber, myText->lineCount() - 1);
+    // Ensure that only one line was considered last (after changing its width)
+    bool receivedMultipleLastLines = myText->property("receivedMultipleLastLines").toBool();
+    QVERIFY(!receivedMultipleLastLines);
 }
 
 void tst_qquicktext::lineLaidOutRelayout()
@@ -2973,6 +2984,53 @@ void tst_qquicktext::imgTagsBaseUrl_data()
             << QUrl("http://testserver/images/")
             << testFileUrl("nonexistant/app.qml")
             << 181.;
+}
+
+void tst_qquicktext::lineLaidOutImplicitWidth()
+{
+    QScopedPointer<QQuickView> window(createView(testFile("lineLayoutImplicitWidth.qml")));
+
+    QQuickText *myText = window->rootObject()->findChild<QQuickText*>("myText");
+    QVERIFY(myText != nullptr);
+
+    QQuickTextPrivate *textPrivate = QQuickTextPrivate::get(myText);
+    QVERIFY(textPrivate != nullptr);
+
+    // Retrieve the saved implicitWidth values of each rendered line
+    QVariant widthsProperty = myText->property("lineImplicitWidths");
+    QVERIFY(!widthsProperty.isNull());
+    QVERIFY(widthsProperty.isValid());
+    QVERIFY(widthsProperty.canConvert<QJSValue>());
+    QJSValue widthsValue = widthsProperty.value<QJSValue>();
+    QVERIFY(widthsValue.isArray());
+    int lineCount = widthsValue.property("length").toInt();
+    QVERIFY(lineCount > 0);
+
+    // Create the same text layout by hand
+    // Note that this approach needs additional processing for styled text,
+    // so we only use it for plain text here.
+    QTextLayout layout;
+    layout.setCacheEnabled(true);
+    layout.setText(myText->text());
+    layout.setTextOption(textPrivate->layout.textOption());
+    layout.setFont(myText->font());
+    layout.beginLayout();
+    for (QTextLine line = layout.createLine(); line.isValid(); line = layout.createLine()) {
+        line.setLineWidth(myText->width());
+    }
+    layout.endLayout();
+
+    // Line count of the just created layout should match the rendered text
+    QCOMPARE(lineCount, layout.lineCount());
+
+    // Go through each line and verify that the values emitted by lineLaidOut are correct
+    for (int i = 0; i < layout.lineCount(); ++i) {
+        qreal implicitWidth = widthsValue.property(i).toNumber();
+        QVERIFY(implicitWidth > 0);
+
+        QTextLine line = layout.lineAt(i);
+        QCOMPARE(implicitWidth, line.naturalTextWidth());
+    }
 }
 
 static QUrl substituteTestServerUrl(const QUrl &serverUrl, const QUrl &testUrl)
@@ -4435,7 +4493,7 @@ void tst_qquicktext::transparentBackground()
 {
     if ((QGuiApplication::platformName() == QLatin1String("offscreen"))
         || (QGuiApplication::platformName() == QLatin1String("minimal")))
-        QSKIP("Skipping due to grabToImage not functional on offscreen/minimimal platforms");
+        QSKIP("Skipping due to grabToImage not functional on offscreen/minimal platforms");
 
     QScopedPointer<QQuickView> window(new QQuickView);
     window->setSource(testFileUrl("transparentBackground.qml"));
@@ -4451,6 +4509,32 @@ void tst_qquicktext::transparentBackground()
     QCOMPARE(color.blue(), 255);
     QCOMPARE(color.green(), 255);
 }
+
+void tst_qquicktext::displaySuperscriptedTag()
+{
+    if ((QGuiApplication::platformName() == QLatin1String("offscreen"))
+        || (QGuiApplication::platformName() == QLatin1String("minimal")))
+        QSKIP("Skipping due to grabToImage not functional on offscreen/minimal platforms");
+
+    QScopedPointer<QQuickView> window(new QQuickView);
+    window->setSource(testFileUrl("displaySuperscriptedTag.qml"));
+    QTRY_COMPARE(window->status(), QQuickView::Ready);
+
+    window->show();
+    QVERIFY(QTest::qWaitForWindowExposed(window.data()));
+
+    QQuickText *text = window->findChild<QQuickText *>("text");
+    QVERIFY(text);
+
+    QImage img = window->grabWindow();
+    QCOMPARE(img.isNull(), false);
+
+    QColor color = img.pixelColor(1, static_cast<int>(text->contentHeight()) / 4 * 3);
+    QCOMPARE(color.red(), 255);
+    QCOMPARE(color.blue(), 255);
+    QCOMPARE(color.green(), 255);
+}
+
 QTEST_MAIN(tst_qquicktext)
 
 #include "tst_qquicktext.moc"

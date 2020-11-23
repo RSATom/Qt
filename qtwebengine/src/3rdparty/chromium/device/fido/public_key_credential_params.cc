@@ -70,10 +70,10 @@ cbor::Value AsCBOR(const PublicKeyCredentialParams& params) {
 
   for (const auto& credential : params.public_key_credential_params()) {
     cbor::Value::MapValue cbor_credential_map;
-    cbor_credential_map.emplace(cbor::Value(kCredentialTypeMapKey),
-                                cbor::Value(CredentialTypeToString(credential.type)));
-    cbor_credential_map.emplace(cbor::Value(kCredentialAlgorithmMapKey),
-                                cbor::Value(credential.algorithm));
+    cbor_credential_map.emplace(kCredentialTypeMapKey,
+                                CredentialTypeToString(credential.type));
+    cbor_credential_map.emplace(kCredentialAlgorithmMapKey,
+                                credential.algorithm);
     credential_param_array.emplace_back(std::move(cbor_credential_map));
   }
   return cbor::Value(std::move(credential_param_array));

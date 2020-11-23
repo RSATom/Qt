@@ -35,9 +35,9 @@
 #include "content/public/browser/web_contents.h"
 #include "content/public/common/content_client.h"
 #include "content/public/common/url_constants.h"
-#include "storage/browser/fileapi/file_system_url.h"
-#include "storage/browser/fileapi/isolated_context.h"
-#include "storage/common/fileapi/file_system_util.h"
+#include "storage/browser/file_system/file_system_url.h"
+#include "storage/browser/file_system/isolated_context.h"
+#include "storage/common/file_system/file_system_util.h"
 #include "ui/base/l10n/l10n_util.h"
 #include "ui/shell_dialogs/select_file_dialog.h"
 
@@ -77,15 +77,17 @@ class SelectFileDialog : public ui::SelectFileDialog::Listener,
   void Show(ui::SelectFileDialog::Type type,
             const base::FilePath& default_path) {
     AddRef();  // Balanced in the three listener outcomes.
+    base::FilePath::StringType ext;
+    ui::SelectFileDialog::FileTypeInfo file_type_info;
+    if (type == ui::SelectFileDialog::SELECT_SAVEAS_FILE &&
+        default_path.Extension().length() > 0) {
+      ext = default_path.Extension().substr(1);
+      file_type_info.extensions.resize(1);
+      file_type_info.extensions[0].push_back(ext);
+    }
     select_file_dialog_->SelectFile(
-      type,
-      base::string16(),
-      default_path,
-      NULL,
-      0,
-      base::FilePath::StringType(),
-      platform_util::GetTopLevel(web_contents_->GetNativeView()),
-      NULL);
+        type, base::string16(), default_path, &file_type_info, 0, ext,
+        platform_util::GetTopLevel(web_contents_->GetNativeView()), nullptr);
   }
 
   // ui::SelectFileDialog::Listener implementation.
@@ -217,8 +219,8 @@ DevToolsFileHelper::DevToolsFileHelper(WebContents* web_contents,
     : web_contents_(web_contents),
       profile_(profile),
       delegate_(delegate),
-      file_task_runner_(
-          base::CreateSequencedTaskRunnerWithTraits({base::MayBlock()})) {
+      file_task_runner_(base::CreateSequencedTaskRunner(
+          {base::ThreadPool(), base::MayBlock()})) {
   pref_change_registrar_.Init(profile_->GetPrefs());
 }
 

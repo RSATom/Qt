@@ -31,10 +31,10 @@ const char kAlertsInitialized[] = "extensions.alerts.initialized";
 const char kAllowedInstallSites[] = "extensions.allowed_install_sites";
 const char kAllowedTypes[] = "extensions.allowed_types";
 const char kAppFullscreenAllowed[] = "apps.fullscreen.allowed";
+const char kBlockExternalExtensions[] = "extensions.block_external_extensions";
 const char kExtensions[] = "extensions.settings";
+const char kExtensionCheckupOnStartup[] = "extensions.checkup_on_startup";
 const char kExtensionManagement[] = "extensions.management";
-const char kInsecureExtensionUpdatesEnabled[] =
-    "extension_updates.insecure_extension_updates_enabled";
 const char kInstallAllowList[] = "extensions.install.allowlist";
 const char kInstallDenyList[] = "extensions.install.denylist";
 const char kInstallForceList[] = "extensions.install.forcelist";
@@ -55,10 +55,6 @@ const char kPrefIncognitoPreferences[] = "incognito_preferences";
 const char kPrefRegularOnlyPreferences[] = "regular_only_preferences";
 const char kPrefContentSettings[] = "content_settings";
 const char kPrefIncognitoContentSettings[] = "incognito_content_settings";
-
-// Deprecated 1/2019.
-const char kNextUpdateCheck[] = "extensions.autoupdate.next_check";
-const char kLastUpdateCheck[] = "extensions.autoupdate.last_check";
 
 }  // namespace pref_names
 }  // namespace extensions

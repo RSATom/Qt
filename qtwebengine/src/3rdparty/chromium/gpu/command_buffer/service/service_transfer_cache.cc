@@ -131,7 +131,7 @@ ServiceTransferCache::ServiceTransferCache()
   // Don't register a dump provider in these cases.
   if (base::ThreadTaskRunnerHandle::IsSet()) {
     base::trace_event::MemoryDumpManager::GetInstance()->RegisterDumpProvider(
-        this, "cc::GpuImageDecodeCache", base::ThreadTaskRunnerHandle::Get());
+        this, "gpu::ServiceTransferCache", base::ThreadTaskRunnerHandle::Get());
   }
 }
 
@@ -157,6 +157,10 @@ bool ServiceTransferCache::CreateLockedEntry(const EntryKey& key,
     return false;
 
   total_size_ += entry->CachedSize();
+  if (key.entry_type == cc::TransferCacheEntryType::kImage) {
+    total_image_count_++;
+    total_image_size_ += entry->CachedSize();
+  }
   entries_.Put(key, CacheEntryInternal(handle, std::move(entry)));
   EnforceLimits();
   return true;
@@ -172,6 +176,10 @@ void ServiceTransferCache::CreateLocalEntry(
   DeleteEntry(key);
 
   total_size_ += entry->CachedSize();
+  if (key.entry_type == cc::TransferCacheEntryType::kImage) {
+    total_image_count_++;
+    total_image_size_ += entry->CachedSize();
+  }
 
   entries_.Put(key, CacheEntryInternal(base::nullopt, std::move(entry)));
   EnforceLimits();
@@ -195,6 +203,10 @@ Iterator ServiceTransferCache::ForceDeleteEntry(Iterator it) {
 
   DCHECK_GE(total_size_, it->second.entry->CachedSize());
   total_size_ -= it->second.entry->CachedSize();
+  if (it->first.entry_type == cc::TransferCacheEntryType::kImage) {
+    total_image_count_--;
+    total_image_size_ -= it->second.entry->CachedSize();
+  }
   return entries_.Erase(it);
 }
 
@@ -227,6 +239,10 @@ void ServiceTransferCache::EnforceLimits() {
     }
 
     total_size_ -= it->second.entry->CachedSize();
+    if (it->first.entry_type == cc::TransferCacheEntryType::kImage) {
+      total_image_count_--;
+      total_image_size_ -= it->second.entry->CachedSize();
+    }
     it = entries_.Erase(it);
   }
 }
@@ -267,6 +283,7 @@ bool ServiceTransferCache::CreateLockedHardwareDecodedImageEntry(
     GrContext* context,
     std::vector<sk_sp<SkImage>> plane_images,
     cc::YUVDecodeFormat plane_images_format,
+    SkYUVColorSpace yuv_color_space,
     size_t buffer_byte_size,
     bool needs_mips) {
   EntryKey key(decoder_id, cc::TransferCacheEntryType::kImage, entry_id);
@@ -276,14 +293,18 @@ bool ServiceTransferCache::CreateLockedHardwareDecodedImageEntry(
 
   // Create the service-side image transfer cache entry.
   auto entry = std::make_unique<cc::ServiceImageTransferCacheEntry>();
-  if (!entry->BuildFromHardwareDecodedImage(context, std::move(plane_images),
-                                            plane_images_format,
-                                            buffer_byte_size, needs_mips)) {
+  if (!entry->BuildFromHardwareDecodedImage(
+          context, std::move(plane_images), plane_images_format,
+          yuv_color_space, buffer_byte_size, needs_mips)) {
     return false;
   }
 
   // Insert it in the transfer cache.
   total_size_ += entry->CachedSize();
+  if (key.entry_type == cc::TransferCacheEntryType::kImage) {
+    total_image_count_++;
+    total_image_size_ += entry->CachedSize();
+  }
   entries_.Put(key, CacheEntryInternal(handle, std::move(entry)));
   EnforceLimits();
   return true;
@@ -301,7 +322,16 @@ bool ServiceTransferCache::OnMemoryDump(
                            reinterpret_cast<uintptr_t>(this));
     MemoryAllocatorDump* dump = pmd->CreateAllocatorDump(dump_name);
     dump->AddScalar(MemoryAllocatorDump::kNameSize,
-                    MemoryAllocatorDump::kUnitsBytes, total_size_);
+                    MemoryAllocatorDump::kUnitsBytes, total_image_size_);
+
+    if (total_image_count_ > 0) {
+      MemoryAllocatorDump* dump_avg_size =
+          pmd->CreateAllocatorDump(dump_name + "/avg_image_size");
+      const size_t avg_image_size =
+          total_image_size_ / (total_image_count_ * 1.0);
+      dump_avg_size->AddScalar("average_size", MemoryAllocatorDump::kUnitsBytes,
+                               avg_image_size);
+    }
 
     // Early out, no need for more detail in a BACKGROUND dump.
     return true;

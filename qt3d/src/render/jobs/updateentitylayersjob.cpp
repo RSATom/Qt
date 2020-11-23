@@ -52,7 +52,7 @@ namespace Render {
 UpdateEntityLayersJob::UpdateEntityLayersJob()
     : m_manager(nullptr)
 {
-    SET_JOB_RUN_STAT_TYPE(this, JobTypes::UpdateLayerEntity, 0);
+    SET_JOB_RUN_STAT_TYPE(this, JobTypes::UpdateLayerEntity, 0)
 
 }
 
@@ -61,7 +61,7 @@ void UpdateEntityLayersJob::run()
     Q_ASSERT(m_manager);
     EntityManager *entityManager = m_manager->renderNodesManager();
 
-    const QVector<HEntity> handles = entityManager->activeHandles();
+    const std::vector<HEntity> &handles = entityManager->activeHandles();
 
     // Clear list of recursive layerIds
     for (const HEntity &handle : handles) {

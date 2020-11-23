@@ -43,6 +43,8 @@ js_library("a11y_page") {
 js_library("manage_a11y_page") {
   deps = [
     "..:route",
+    "..:route_origin_behavior",
+    "../device_page:device_page_browser_proxy",
     "//ui/webui/resources/js:load_time_data",
     "//ui/webui/resources/js:web_ui_listener_behavior",
   ]
@@ -52,10 +54,12 @@ js_library("manage_a11y_page") {
 js_library("switch_access_subpage") {
   deps = [
     "..:route",
+    "../prefs:prefs_behavior",
     "//ui/webui/resources/js:i18n_behavior",
     "//ui/webui/resources/js:load_time_data",
     "//ui/webui/resources/js:web_ui_listener_behavior",
   ]
+  externs_list = [ "$externs_path/settings_private.js" ]
 }
 
 js_library("tts_subpage") {

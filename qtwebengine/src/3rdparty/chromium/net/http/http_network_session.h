@@ -34,7 +34,6 @@
 #include "net/socket/next_proto.h"
 #include "net/socket/websocket_endpoint_lock_manager.h"
 #include "net/spdy/spdy_session_pool.h"
-#include "net/ssl/ssl_client_auth_cache.h"
 #include "net/ssl/ssl_client_session_cache.h"
 #include "net/third_party/quiche/src/spdy/core/spdy_protocol.h"
 
@@ -44,10 +43,6 @@ namespace trace_event {
 class ProcessMemoryDump;
 }
 }
-
-namespace quic {
-class QuicClock;
-}  // namespace quic
 
 namespace net {
 
@@ -82,6 +77,9 @@ class TransportSecurityState;
 // Specifies the maximum HPACK dynamic table size the server is allowed to set.
 const uint32_t kSpdyMaxHeaderTableSize = 64 * 1024;
 
+// The maximum size of header list that the server is allowed to send.
+const uint32_t kSpdyMaxHeaderListSize = 256 * 1024;
+
 // Specifies the maximum concurrent streams server could send (via push).
 const uint32_t kSpdyMaxConcurrentPushedStreams = 1000;
 
@@ -106,6 +104,8 @@ class NET_EXPORT HttpNetworkSession {
     bool enable_spdy_ping_based_connection_checking;
     bool enable_http2;
     size_t spdy_session_max_recv_window_size;
+    // Maximum number of capped frames that can be queued at any time.
+    int spdy_session_max_queued_capped_frames;
     // HTTP/2 connection settings.
     // Unknown settings will still be sent to the server.
     // Might contain unknown setting identifiers from a predefined set that
@@ -136,18 +136,13 @@ class NET_EXPORT HttpNetworkSession {
     // If true, HTTPS URLs can be sent to QUIC proxies.
     bool enable_quic_proxies_for_https_urls;
 
-    // QUIC runtime configuration options and active experiments.
-    QuicParams quic_params;
-
     // If non-empty, QUIC will only be spoken to hosts in this list.
-    base::flat_set<std::string> quic_host_whitelist;
-
-    // Enable HTTP/0.9 for HTTP/HTTPS on ports other than the default one for
-    // each protocol.
-    bool http_09_on_non_default_ports_enabled;
+    base::flat_set<std::string> quic_host_allowlist;
 
     // If true, idle sockets won't be closed when memory pressure happens.
     bool disable_idle_sockets_close_on_memory_pressure;
+
+    bool key_auth_cache_server_entries_by_network_isolation_key;
   };
 
   // Structure with pointers to the dependencies of the HttpNetworkSession.
@@ -172,15 +167,12 @@ class NET_EXPORT HttpNetworkSession {
     NetLog* net_log;
     SocketPerformanceWatcherFactory* socket_performance_watcher_factory;
     NetworkQualityEstimator* network_quality_estimator;
+    QuicContext* quic_context;
 #if BUILDFLAG(ENABLE_REPORTING)
     ReportingService* reporting_service;
     NetworkErrorLoggingService* network_error_logging_service;
 #endif
 
-    // Source of time for QUIC connections.
-    quic::QuicClock* quic_clock;
-    // Source of entropy for QUIC connections.
-    quic::QuicRandom* quic_random;
     // Optional factory to use for creating QuicCryptoClientStreams.
     QuicCryptoClientStreamFactory* quic_crypto_client_stream_factory;
   };
@@ -195,9 +187,7 @@ class NET_EXPORT HttpNetworkSession {
   ~HttpNetworkSession();
 
   HttpAuthCache* http_auth_cache() { return &http_auth_cache_; }
-  SSLClientAuthCache* ssl_client_auth_cache() {
-    return &ssl_client_auth_cache_;
-  }
+  SSLClientContext* ssl_client_context() { return &ssl_client_context_; }
 
   void AddResponseDrainer(std::unique_ptr<HttpResponseBodyDrainer> drainer);
 
@@ -258,18 +248,13 @@ class NET_EXPORT HttpNetworkSession {
   // Returns the original Context used to construct this session.
   const Context& context() const { return context_; }
 
-  bool IsProtocolEnabled(NextProto protocol) const;
-
   void SetServerPushDelegate(std::unique_ptr<ServerPushDelegate> push_delegate);
 
   // Populates |*alpn_protos| with protocols to be used with ALPN.
   void GetAlpnProtos(NextProtoVector* alpn_protos) const;
 
-  // Populates |server_config| and |proxy_config| based on this session and
-  // |request|.
-  void GetSSLConfig(const HttpRequestInfo& request,
-                    SSLConfig* server_config,
-                    SSLConfig* proxy_config) const;
+  // Populates |server_config| and |proxy_config| based on this session.
+  void GetSSLConfig(SSLConfig* server_config, SSLConfig* proxy_config) const;
 
   // Dumps memory allocation stats. |parent_dump_absolute_name| is the name
   // used by the parent MemoryAllocatorDump in the memory dump hierarchy.
@@ -315,7 +300,6 @@ class NET_EXPORT HttpNetworkSession {
   SSLConfigService* const ssl_config_service_;
 
   HttpAuthCache http_auth_cache_;
-  SSLClientAuthCache ssl_client_auth_cache_;
   SSLClientSessionCache ssl_client_session_cache_;
   SSLClientContext ssl_client_context_;
   WebSocketEndpointLockManager websocket_endpoint_lock_manager_;

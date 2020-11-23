@@ -380,10 +380,10 @@ void JavaStyle::drawControl(ControlElement control, const QStyleOption *option,
             QRect rect = bar->rect;
             if (bar->orientation == Qt::Vertical) {
                 rect = QRect(rect.left(), rect.top(), rect.height(), rect.width());
-                QMatrix m;
+                QTransform m;
                 m.translate(rect.height()-1, 0);
                 m.rotate(90.0);
-                painter->setMatrix(m);
+                painter->setTransform(m);
             }
 
             painter->setPen(bar->palette.color(QPalette::Mid));
@@ -2589,7 +2589,7 @@ int JavaStyle::styleHint(StyleHint hint, const QStyleOption *option,
 
     switch (hint) {
         case SH_Table_GridLineColor: {
-            ret = static_cast<int>(option->palette.color(QPalette::Mid).rgb());
+            ret = static_cast<int>(option->palette.color(QPalette::Mid).rgba());
             break;
         }
         case QStyle::SH_Menu_Scrollable:

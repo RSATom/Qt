@@ -12,7 +12,6 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-
 ''' Runs the given job in an isolated docker container.
 
 Also streams stdout/err onto the firebase realtime DB.
@@ -36,6 +35,7 @@ from oauth2client.client import GoogleCredentials
 from config import DB, SANDBOX_IMG
 from common_utils import init_logging, req, ConcurrentModificationError, SCOPES
 
+CUR_DIR = os.path.dirname(__file__)
 SCOPES.append('https://www.googleapis.com/auth/firebase.database')
 SCOPES.append('https://www.googleapis.com/auth/userinfo.email')
 
@@ -70,7 +70,6 @@ def log_thread(job_id, queue):
   logging.debug('Uploader thread terminated')
 
 
-
 def main(argv):
   init_logging()
   if len(argv) != 2:
@@ -96,15 +95,19 @@ def main(argv):
     logging.warn('Job runner got signal %s, terminating job %s', sig, job_id)
     subprocess.call(['sudo', 'docker', 'kill', container])
     os._exit(1)  # sys.exit throws a SystemExit exception, _exit really exits.
+
   signal.signal(signal.SIGTERM, sig_handler)
 
   log_thd = threading.Thread(target=log_thread, args=(job_id, q))
   log_thd.start()
 
   # SYS_PTRACE is required for gtest death tests and LSan.
-  cmd = ['sudo', 'docker', 'run', '--name', container, '--hostname', container,
-         '--cap-add', 'SYS_PTRACE', '--rm', '--tmpfs', '/ci/ramdisk:exec',
-         '--tmpfs', '/tmp:exec', '--env', 'PERFETTO_TEST_JOB=%s' % job_id]
+  cmd = [
+      'sudo', 'docker', 'run', '--name', container, '--hostname', container,
+      '--cap-add', 'SYS_PTRACE', '--rm', '--tmpfs', '/ci/ramdisk:exec',
+      '--tmpfs', '/tmp:exec', '--env',
+      'PERFETTO_TEST_JOB=%s' % job_id
+  ]
 
   # Propagate environment variables coming from the job config.
   for kv in [kv for kv in os.environ.items() if kv[0].startswith('PERFETTO_')]:
@@ -124,20 +127,20 @@ def main(argv):
   artifacts_dir = None
   if os.getenv('ARTIFACTS_DIR'):
     artifacts_dir = os.path.join(os.getenv('ARTIFACTS_DIR'), job_id)
-    artifacts_tmp = artifacts_dir + '.tmp'
-    subprocess.call(['sudo', 'rm', '-rf', artifacts_dir, artifacts_tmp])
-    os.mkdir(artifacts_tmp)
-    cmd += ['--volume=%s:/ci/artifacts' % artifacts_tmp]
+    subprocess.call(['sudo', 'rm', '-rf', artifacts_dir])
+    os.mkdir(artifacts_dir)
+    cmd += ['--volume=%s:/ci/artifacts' % artifacts_dir]
 
   cmd += os.getenv('SANDBOX_NETWORK_ARGS', '').split()
   cmd += [SANDBOX_IMG]
 
   logging.info('Starting %s', ' '.join(cmd))
-  proc = subprocess.Popen(cmd,
-                          stdin=open(os.devnull),
-                          stdout=subprocess.PIPE,
-                          stderr=subprocess.STDOUT,
-                          bufsize=65536)
+  proc = subprocess.Popen(
+      cmd,
+      stdin=open(os.devnull),
+      stdout=subprocess.PIPE,
+      stderr=subprocess.STDOUT,
+      bufsize=65536)
   stdout = ''
   tstart = time.time()
   while True:
@@ -171,7 +174,9 @@ def main(argv):
   log_thd.join()
 
   if artifacts_dir:
-    os.rename(artifacts_tmp, artifacts_dir)
+    artifacts_uploader = os.path.join(CUR_DIR, 'artifacts_uploader.py')
+    cmd = ['setsid', artifacts_uploader, '--job-id=%s' % job_id, '--rm']
+    subprocess.call(cmd)
 
   return res
 

@@ -26,6 +26,7 @@ test("services_unittests") {
     "//services/metrics/public/cpp:tests",
     "//services/network:tests",
     "//services/network/public/cpp:tests",
+    "//services/network/public/cpp/cert_verifier:tests",
     "//services/test:run_all_unittests",
   ]
 
@@ -42,12 +43,11 @@ test("services_unittests") {
       "//services/image_annotation/public/cpp:tests",
       "//services/media_session:tests",
       "//services/media_session/public/cpp:tests",
-      "//services/preferences:tests",
       "//services/proxy_resolver:tests",
       "//services/resource_coordinator:tests",
       "//services/shape_detection:tests",
       "//services/tracing:tests",
-      "//services/viz/privileged/interfaces:unit_tests",
+      "//services/viz/privileged/mojom:unit_tests",
       "//services/viz/public/cpp/compositing:tests",
       "//services/viz/public/cpp/gpu:tests",
       "//services/viz/public/cpp/hit_test:tests",
@@ -56,6 +56,7 @@ test("services_unittests") {
 
   if (is_android) {
     deps += [
+      "//components/signin/public/identity_manager/android:java",
       "//services/data_decoder/public/cpp/android:safe_json_java",
       "//services/device:java",
       "//services/identity:java",
@@ -123,8 +124,8 @@ if (is_android) {
       "//services/device/public/mojom:generic_sensor_java",
       "//services/device/public/mojom:mojom_java",
       "//services/shape_detection:shape_detection_java",
-      "//skia/public/interfaces:interfaces_java",
-      "//third_party/android_deps:com_android_support_support_annotations_java",
+      "//skia/public/mojom:mojom_java",
+      "//third_party/android_deps:androidx_annotation_annotation_java",
     ]
   }
 
@@ -148,10 +149,12 @@ if (is_android) {
       "//mojo/public/mojom/base:base_java",
       "//services/shape_detection:shape_detection_java",
       "//services/shape_detection/public/mojom:mojom_java",
-      "//skia/public/interfaces:interfaces_java",
+      "//skia/public/mojom:mojom_java",
+      "//third_party/android_deps:androidx_test_monitor_java",
+      "//third_party/android_deps:androidx_test_runner_java",
       "//third_party/android_support_test_runner:runner_java",
       "//third_party/junit",
-      "//ui/gfx/geometry/mojo:mojo_java",
+      "//ui/gfx/geometry/mojom:mojom_java",
     ]
     data = [
       "test/data/",

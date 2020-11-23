@@ -68,41 +68,29 @@ def isInChromiumBlacklist(file_path):
         or file_path.startswith('buildtools/third_party/libunwind')
         or (file_path.startswith('chrome/') and
             not file_path.startswith('chrome/VERSION') and
+            not file_path.startswith('chrome/app/resources/') and
+            not file_path.startswith('chrome/app/theme/') and
             not file_path.startswith('chrome/browser/chrome_notification_types.h') and
-            not '/app/theme/' in file_path and
-            not '/app/resources/' in file_path and
-            not '/browser/printing/' in file_path and
-            not ('/browser/resources/' in file_path and not '/chromeos/' in file_path) and
-            not '/renderer/resources/' in file_path and
-            not 'repack_locales' in file_path and
-            not 'third_party/chromevox' in file_path and
-            not 'media/webrtc/desktop_media_list.h' in file_path and
-            not 'media/webrtc/desktop_streams_registry.' in file_path and
-            not 'browser/net/chrome_mojo_proxy_resolver_factory.' in file_path and
-            not '/browser/accessibility/' in file_path and
-            not '/browser/custom_handlers/' in file_path and
-            not '/browser/devtools/' in file_path and
-            not '/browser/ui/webui/' in file_path and
-            not 'common/chrome_constants.' in file_path and
-            not 'common/chrome_paths' in file_path and
-            not 'common/chrome_switches.' in file_path and
-            not 'common/content_restriction.h' in file_path and
-            not 'common/custom_handlers/' in file_path and
-            not 'common/spellcheck_' in file_path and
-            not 'common/url_constants.' in file_path and
-            not 'common/webui_url_constants.' in file_path and
-            not '/extensions/api/' in file_path and
-            not '/extensions/browser/api/' in file_path and
-            not '/extensions/permissions/' in file_path and
-            not '/renderer_host/pepper/' in file_path and
-            not '/renderer/pepper/' in file_path and
-            not '/spellchecker/' in file_path and
-            not '/tools/convert_dict/' in file_path and
-            not file_path.endswith('cf_resources.rc') and
-            not file_path.endswith('version.py') and
+            not file_path.startswith('chrome/browser/accessibility/') and
+            not file_path.startswith('chrome/browser/custom_handlers/') and
+            not file_path.startswith('chrome/browser/devtools/') and
+            not file_path.startswith('chrome/browser/extensions/api/') and
+            not file_path.startswith('chrome/browser/media/webrtc/') and
+            not file_path.startswith('chrome/browser/net/') and
+            not file_path.startswith('chrome/browser/prefs/') and
+            not file_path.startswith('chrome/browser/printing/') and
+            not file_path.startswith('chrome/browser/renderer_host/') and
+            not file_path.startswith('chrome/browser/spellchecker') and
+            not file_path.startswith('chrome/browser/ui/webui/') and
+            not (file_path.startswith('chrome/browser/resources/') and
+                 not '/chromeos/' in file_path and
+                 not '/settings/' in file_path and
+                 not '/mediarouter/' in file_path) and
+            not (file_path.startswith('chrome/common/') and not file_path.startswith('chrome/common/extensions/docs')) and
+            not file_path.startswith('chrome/renderer/') and
+            not file_path.startswith('chrome/tools/convert_dict/') and
             not file_path.endswith('.grd') and
             not file_path.endswith('.grdp') and
-            not file_path.endswith('.json') and
             not file_path.endswith('chrome_version.rc.version'))
         or file_path.startswith('chrome_elf')
         or file_path.startswith('chromecast')
@@ -144,14 +132,16 @@ def isInChromiumBlacklist(file_path):
         or file_path.startswith('testing/buildbot')
         or (file_path.startswith('third_party/') and (
             file_path.startswith('third_party/WebKit/LayoutTests')
-            or file_path.startswith('third_party/accessibility-audit')
+            or file_path.startswith('third_party/accessibility')
             or file_path.startswith('third_party/afl')
             or file_path.startswith('third_party/android_')
-            or file_path.startswith('third_party/apache-win32')
+            or file_path.startswith('third_party/angle/third_party/deqp')
+            or file_path.startswith('third_party/angle/third_party/glmark2')
+            or file_path.startswith('third_party/angle/third_party/vulkan-validation-layers')
+            or file_path.startswith('third_party/apache-')
             or file_path.startswith('third_party/arcode-android-sdk')
             or file_path.startswith('third_party/ashmem')
             or file_path.startswith('third_party/binutils')
-            or file_path.startswith('third_party/bison')
             or file_path.startswith('third_party/blink/perf_tests/')
             or file_path.startswith('third_party/blink/web_tests/')
             or file_path.startswith('third_party/breakpad/src/processor/testdata/')
@@ -167,10 +157,9 @@ def isInChromiumBlacklist(file_path):
             or file_path.startswith('third_party/catapult/tracing/test_data/')
             or file_path.startswith('third_party/chromevox')
             or file_path.startswith('third_party/chromite')
-            or file_path.startswith('third_party/closure_compiler')
             or file_path.startswith('third_party/colorama')
             or file_path.startswith('third_party/depot_tools')
-            or file_path.startswith('third_party/elfutils')
+            or file_path.startswith('third_party/devtools-frontend/src/node-modules/')
             or file_path.startswith('third_party/fuschsia-sdk/')
             or file_path.startswith('third_party/glslang/src/Test/')
             or file_path.startswith('third_party/google_')
@@ -179,7 +168,6 @@ def isInChromiumBlacklist(file_path):
             or file_path.startswith('third_party/icu/android')
             or file_path.startswith('third_party/icu/cast')
             or file_path.startswith('third_party/icu/chromeos')
-            or file_path.startswith('third_party/icu/ios')
             or file_path.startswith('third_party/instrumented_libraries')
             or file_path.startswith('third_party/jsr-305')
             or file_path.startswith('third_party/junit')
@@ -205,7 +193,7 @@ def isInChromiumBlacklist(file_path):
             or file_path.startswith('third_party/skia/infra')
             or file_path.startswith('third_party/sqlite/sqlite-src-')
             or file_path.startswith('third_party/speech-dispatcher')
-            or file_path.startswith('third_party/spirv-cross/')
+            or file_path.startswith('third_party/spirv-cross/spirv-cross/reference/')
             or file_path.startswith('third_party/swiftshader/third_party/')
             or file_path.startswith('third_party/wayland')
             or file_path.startswith('third_party/webgl')
@@ -243,6 +231,7 @@ def isInChromiumBlacklist(file_path):
             not '/webrtc/' in file_path and
             not file_path.startswith('net/test/') and
             not file_path.endswith('mock_chrome_application_mac.h') and
+            not file_path.endswith('test_mock_time_task_runner.h') and
             not file_path.endswith('perftimer.h') and
             not file_path.endswith('test-torque.tq') and
             not file_path.endswith('fonts.conf') and
@@ -294,10 +283,10 @@ def clearDirectory(directory):
             shutil.rmtree(direntry)
     os.chdir(currentDir)
 
-def listFilesInCurrentRepository():
+def listFilesInCurrentRepository(use_deps=False):
     currentRepo = GitSubmodule.Submodule(os.getcwd())
     files = subprocess.check_output(['git', 'ls-files']).splitlines()
-    submodules = currentRepo.readSubmodules()
+    submodules = currentRepo.readSubmodules(use_deps)
     for submodule in submodules:
         submodule_files = submodule.listFiles()
         for submodule_file in submodule_files:
@@ -340,7 +329,7 @@ def exportChromium():
     os.makedirs(third_party_chromium);
     print 'exporting contents of:' + third_party_upstream_chromium
     os.chdir(third_party_upstream_chromium)
-    files = listFilesInCurrentRepository()
+    files = listFilesInCurrentRepository(True)
     # Add LASTCHANGE files which are not tracked by git.
     files.append('build/util/LASTCHANGE')
     files.append('build/util/LASTCHANGE.committime')

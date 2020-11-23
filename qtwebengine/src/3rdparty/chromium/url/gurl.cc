@@ -10,20 +10,14 @@
 #include <ostream>
 #include <utility>
 
-#include "base/lazy_instance.h"
 #include "base/logging.h"
+#include "base/no_destructor.h"
 #include "base/strings/string_piece.h"
 #include "base/strings/string_util.h"
 #include "base/trace_event/memory_usage_estimator.h"
 #include "url/url_canon_stdstring.h"
 #include "url/url_util.h"
 #include "url/url_util_qt.h"
-
-namespace {
-
-static base::LazyInstance<GURL>::Leaky empty_gurl = LAZY_INSTANCE_INITIALIZER;
-
-}  // namespace
 
 GURL::GURL() : is_valid_(false) {
 }
@@ -407,14 +401,14 @@ std::string GURL::ExtractFileName() const {
   return ComponentString(file_component);
 }
 
-std::string GURL::PathForRequest() const {
+base::StringPiece GURL::PathForRequestPiece() const {
   DCHECK(parsed_.path.len > 0)
       << "Canonical path for requests should be non-empty";
   if (parsed_.ref.len >= 0) {
     // Clip off the reference when it exists. The reference starts after the
     // #-sign, so we have to subtract one to also remove it.
-    return std::string(spec_, parsed_.path.begin,
-                       parsed_.ref.begin - parsed_.path.begin - 1);
+    return base::StringPiece(&spec_[parsed_.path.begin],
+                             parsed_.ref.begin - parsed_.path.begin - 1);
   }
   // Compute the actual path length, rather than depending on the spec's
   // terminator. If we're an inner_url, our spec continues on into our outer
@@ -423,7 +417,11 @@ std::string GURL::PathForRequest() const {
   if (parsed_.query.is_valid())
     path_len = parsed_.query.end() - parsed_.path.begin;
 
-  return std::string(spec_, parsed_.path.begin, path_len);
+  return base::StringPiece(&spec_[parsed_.path.begin], path_len);
+}
+
+std::string GURL::PathForRequest() const {
+  return PathForRequestPiece().as_string();
 }
 
 std::string GURL::HostNoBrackets() const {
@@ -454,7 +452,8 @@ bool GURL::HostIsIPAddress() const {
 }
 
 const GURL& GURL::EmptyGURL() {
-  return empty_gurl.Get();
+  static base::NoDestructor<GURL> empty_gurl;
+  return *empty_gurl;
 }
 
 bool GURL::DomainIs(base::StringPiece canonical_domain) const {

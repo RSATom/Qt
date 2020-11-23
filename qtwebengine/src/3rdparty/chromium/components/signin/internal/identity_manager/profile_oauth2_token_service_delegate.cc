@@ -4,8 +4,8 @@
 
 #include "components/signin/internal/identity_manager/profile_oauth2_token_service_delegate.h"
 
+#include "components/signin/internal/identity_manager/profile_oauth2_token_service_observer.h"
 #include "google_apis/gaia/oauth2_access_token_consumer.h"
-#include "google_apis/gaia/oauth2_token_service_observer.h"
 #include "services/network/public/cpp/shared_url_loader_factory.h"
 
 ProfileOAuth2TokenServiceDelegate::ScopedBatchChange::ScopedBatchChange(
@@ -33,8 +33,8 @@ bool ProfileOAuth2TokenServiceDelegate::ValidateAccountId(
   // Note that some tests don't use email strings as account id, and after
   // the gaia id migration it won't be an email.  So only check for
   // canonicalization if the account_id is suspected to be an email.
-  if (account_id.id.find('@') != std::string::npos &&
-      gaia::CanonicalizeEmail(account_id.id) != account_id.id) {
+  if (account_id.ToString().find('@') != std::string::npos &&
+      gaia::CanonicalizeEmail(account_id.ToString()) != account_id.ToString()) {
     valid = false;
   }
 
@@ -43,12 +43,12 @@ bool ProfileOAuth2TokenServiceDelegate::ValidateAccountId(
 }
 
 void ProfileOAuth2TokenServiceDelegate::AddObserver(
-    OAuth2TokenServiceObserver* observer) {
+    ProfileOAuth2TokenServiceObserver* observer) {
   observer_list_.AddObserver(observer);
 }
 
 void ProfileOAuth2TokenServiceDelegate::RemoveObserver(
-    OAuth2TokenServiceObserver* observer) {
+    ProfileOAuth2TokenServiceObserver* observer) {
   observer_list_.RemoveObserver(observer);
 }
 

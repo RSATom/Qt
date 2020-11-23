@@ -52,11 +52,10 @@
 #define ASSISTANT_H
 
 #include <QCoreApplication>
+#include <QProcess>
+#include <QScopedPointer>
 #include <QString>
 
-QT_BEGIN_NAMESPACE
-class QProcess;
-QT_END_NAMESPACE
 
 class Assistant
 {
@@ -69,7 +68,10 @@ public:
 
 private:
     bool startAssistant();
-    QProcess *proc;
+    void showError(const QString &message);
+    void finished(int exitCode, QProcess::ExitStatus status);
+
+    QScopedPointer<QProcess> m_process;
 };
 
 #endif

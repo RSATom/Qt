@@ -14,12 +14,14 @@
 
 namespace device {
 
+class WinWebAuthnApi;
+
 // Instantiates the authenticator subclass for forwarding requests to external
 // authenticators via the Windows WebAuthn API.
 class COMPONENT_EXPORT(DEVICE_FIDO) WinWebAuthnApiAuthenticatorDiscovery
     : public FidoDiscoveryBase {
  public:
-  WinWebAuthnApiAuthenticatorDiscovery(HWND parent_window);
+  WinWebAuthnApiAuthenticatorDiscovery(HWND parent_window, WinWebAuthnApi* api);
   ~WinWebAuthnApiAuthenticatorDiscovery() override;
 
   // FidoDiscoveryBase:
@@ -30,8 +32,10 @@ class COMPONENT_EXPORT(DEVICE_FIDO) WinWebAuthnApiAuthenticatorDiscovery
 
   std::unique_ptr<WinWebAuthnApiAuthenticator> authenticator_;
   const HWND parent_window_;
+  WinWebAuthnApi* api_;
 
-  base::WeakPtrFactory<WinWebAuthnApiAuthenticatorDiscovery> weak_factory_;
+  base::WeakPtrFactory<WinWebAuthnApiAuthenticatorDiscovery> weak_factory_{
+      this};
 };
 
 }  // namespace device

@@ -5,41 +5,37 @@
  * found in the LICENSE file.
  */
 
-#include "GrDawnRenderTarget.h"
+#include "src/gpu/dawn/GrDawnRenderTarget.h"
 
 #include "include/gpu/GrBackendSurface.h"
 #include "src/gpu/dawn/GrDawnGpu.h"
 #include "src/gpu/dawn/GrDawnUtil.h"
 
 GrDawnRenderTarget::GrDawnRenderTarget(GrDawnGpu* gpu,
-                                       const GrSurfaceDesc& desc,
+                                       const SkISize& dimensions,
+                                       GrPixelConfig config,
                                        int sampleCnt,
-                                       const GrDawnImageInfo& info,
-                                       GrBackendObjectOwnership ownership)
-        : GrSurface(gpu, desc, GrProtected::kNo)
-        , GrRenderTarget(gpu, desc, sampleCnt, GrProtected::kNo)
-        , fInfo(info) {
-    this->registerWithCacheWrapped(GrWrapCacheable::kNo);
+                                       const GrDawnImageInfo& info)
+        : GrSurface(gpu, dimensions, config, GrProtected::kNo)
+        , GrRenderTarget(gpu, dimensions, config, sampleCnt, GrProtected::kNo)
+        , fInfo(info) {}
+
+sk_sp<GrDawnRenderTarget> GrDawnRenderTarget::MakeWrapped(GrDawnGpu* gpu,
+                                                          const SkISize& dimensions,
+                                                          GrPixelConfig config,
+                                                          int sampleCnt,
+                                                          const GrDawnImageInfo& info) {
+    sk_sp<GrDawnRenderTarget> rt(new GrDawnRenderTarget(gpu, dimensions, config, sampleCnt, info));
+    rt->registerWithCacheWrapped(GrWrapCacheable::kNo);
+    return rt;
 }
 
-GrDawnRenderTarget*
-GrDawnRenderTarget::Create(GrDawnGpu* gpu,
-                           const GrSurfaceDesc& desc,
-                           int sampleCnt,
-                           const GrDawnImageInfo& info,
-                           GrBackendObjectOwnership ownership) {
-    SkASSERT(1 == info.fLevelCount);
-    return new GrDawnRenderTarget(gpu, desc, sampleCnt, info, ownership);
-}
-
-sk_sp<GrDawnRenderTarget>
-GrDawnRenderTarget::MakeWrapped(GrDawnGpu* gpu,
-                                const GrSurfaceDesc& desc,
-                                int sampleCnt,
-                                const GrDawnImageInfo& info) {
-    return sk_sp<GrDawnRenderTarget>(
-        GrDawnRenderTarget::Create(gpu, desc, sampleCnt, info,
-                                  GrBackendObjectOwnership::kBorrowed));
+size_t GrDawnRenderTarget::onGpuMemorySize() const {
+    // The plus 1 is to account for the resolve texture or if not using msaa the RT itself
+    int numSamples = this->numSamples() + 1;
+    const GrCaps& caps = *getGpu()->caps();
+    return GrSurface::ComputeSize(caps, this->backendFormat(), this->dimensions(), numSamples,
+                                  GrMipMapped::kNo);
 }
 
 bool GrDawnRenderTarget::completeStencilAttachment() {

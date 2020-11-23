@@ -20,6 +20,7 @@
 #include "build/build_config.h"
 #include "ui/base/ui_base_types.h"
 #include "ui/gfx/native_widget_types.h"
+#include "ui/views/buildflags.h"
 #include "ui/views/views_export.h"
 #include "ui/views/widget/widget.h"
 
@@ -72,9 +73,9 @@ class VIEWS_EXPORT ViewsDelegate {
     // is needed and the menu should be kept open.
     LEAVE_MENU_OPEN,
 
-    // The accelerator was not handled. Menu should be closed and the
-    // accelerator will be reposted to be handled after the menu closes.
-    CLOSE_MENU
+    // The accelerator was not handled. The menu should be closed and event
+    // handling should stop for this event.
+    CLOSE_MENU,
   };
 
   virtual ~ViewsDelegate();
@@ -130,7 +131,7 @@ class VIEWS_EXPORT ViewsDelegate {
   // Returns true if the window passed in is in the Windows 8 metro
   // environment.
   virtual bool IsWindowInMetro(gfx::NativeWindow window) const;
-#elif defined(OS_LINUX) && !defined(OS_CHROMEOS)
+#elif defined(OS_LINUX) && BUILDFLAG(ENABLE_DESKTOP_AURA)
   virtual gfx::ImageSkia* GetDefaultWindowIcon() const;
 #endif
 

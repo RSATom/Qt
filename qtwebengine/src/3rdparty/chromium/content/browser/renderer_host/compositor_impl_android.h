@@ -29,7 +29,8 @@
 #include "content/public/browser/android/compositor.h"
 #include "gpu/command_buffer/common/capabilities.h"
 #include "gpu/ipc/common/surface_handle.h"
-#include "services/viz/privileged/interfaces/compositing/display_private.mojom.h"
+#include "mojo/public/cpp/bindings/associated_remote.h"
+#include "services/viz/privileged/mojom/compositing/display_private.mojom.h"
 #include "services/viz/public/cpp/gpu/context_provider_command_buffer.h"
 #include "third_party/khronos/GLES2/gl2.h"
 #include "ui/android/resources/resource_manager_impl.h"
@@ -37,7 +38,6 @@
 #include "ui/android/window_android.h"
 #include "ui/android/window_android_compositor.h"
 #include "ui/compositor/compositor_lock.h"
-#include "ui/compositor/external_begin_frame_client.h"
 #include "ui/display/display_observer.h"
 
 struct ANativeWindow;
@@ -46,10 +46,6 @@ namespace cc {
 class AnimationHost;
 class Layer;
 class LayerTreeHost;
-}
-
-namespace ui {
-class ExternalBeginFrameControllerClientImpl;
 }
 
 namespace viz {
@@ -103,6 +99,7 @@ class CONTENT_EXPORT CompositorImpl
   void SetWindowBounds(const gfx::Size& size) override;
   void SetRequiresAlphaChannel(bool flag) override;
   void SetNeedsComposite() override;
+  void SetNeedsRedraw() override;
   ui::UIResourceProvider& GetUIResourceProvider() override;
   ui::ResourceManager& GetResourceManager() override;
   void CacheBackBufferForCurrentSurface() override;
@@ -114,6 +111,8 @@ class CONTENT_EXPORT CompositorImpl
   void WillUpdateLayers() override {}
   void DidUpdateLayers() override;
   void BeginMainFrame(const viz::BeginFrameArgs& args) override {}
+  void OnDeferMainFrameUpdatesChanged(bool) override {}
+  void OnDeferCommitsChanged(bool) override {}
   void BeginMainFrameNotExpectedSoon() override {}
   void BeginMainFrameNotExpectedUntil(base::TimeTicks time) override {}
   void UpdateLayerTreeHost() override;
@@ -138,6 +137,8 @@ class CONTENT_EXPORT CompositorImpl
       const gfx::PresentationFeedback& feedback) override {}
   void RecordStartOfFrameMetrics() override {}
   void RecordEndOfFrameMetrics(base::TimeTicks frame_begin_time) override {}
+  std::unique_ptr<cc::BeginMainFrameMetrics> GetBeginMainFrameMetrics()
+      override;
 
   // LayerTreeHostSingleThreadClient implementation.
   void DidSubmitCompositorFrame() override;
@@ -252,7 +253,7 @@ class CONTENT_EXPORT CompositorImpl
   bool has_submitted_frame_since_became_visible_ = false;
 
   // Viz-specific members for communicating with the display.
-  viz::mojom::DisplayPrivateAssociatedPtr display_private_;
+  mojo::AssociatedRemote<viz::mojom::DisplayPrivate> display_private_;
   std::unique_ptr<viz::HostDisplayClient> display_client_;
   bool vsync_paused_ = false;
 
@@ -264,7 +265,7 @@ class CONTENT_EXPORT CompositorImpl
 
   size_t num_of_consecutive_surface_failures_ = 0u;
 
-  base::WeakPtrFactory<CompositorImpl> weak_factory_;
+  base::WeakPtrFactory<CompositorImpl> weak_factory_{this};
 
   DISALLOW_COPY_AND_ASSIGN(CompositorImpl);
 };

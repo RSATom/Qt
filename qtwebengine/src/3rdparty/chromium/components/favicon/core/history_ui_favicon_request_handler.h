@@ -8,10 +8,6 @@
 #include "components/favicon_base/favicon_callback.h"
 #include "components/keyed_service/core/keyed_service.h"
 
-namespace base {
-class CancelableTaskTracker;
-}
-
 class GURL;
 
 namespace favicon {
@@ -44,14 +40,14 @@ class HistoryUiFaviconRequestHandler : public KeyedService {
   // is enabled. If a non-empty |icon_url_for_uma| (optional) is passed, it will
   // be used to record UMA about the grouping of requests to the favicon server.
   // |request_platform| specifies whether the caller is mobile or desktop code.
+  // TODO(victorvianna): Remove platform parameter since it's no longer needed.
   virtual void GetRawFaviconForPageURL(
       const GURL& page_url,
       int desired_size_in_pixel,
       favicon_base::FaviconRawBitmapCallback callback,
       FaviconRequestPlatform request_platform,
       HistoryUiFaviconRequestOrigin request_origin_for_uma,
-      const GURL& icon_url_for_uma,
-      base::CancelableTaskTracker* tracker) = 0;
+      const GURL& icon_url_for_uma) = 0;
 
   // Requests favicon image at |page_url|.
   // Tries to fetch the icon from local storage and falls back to sync, or to
@@ -64,8 +60,7 @@ class HistoryUiFaviconRequestHandler : public KeyedService {
       const GURL& page_url,
       favicon_base::FaviconImageCallback callback,
       HistoryUiFaviconRequestOrigin request_origin_for_uma,
-      const GURL& icon_url_for_uma,
-      base::CancelableTaskTracker* tracker) = 0;
+      const GURL& icon_url_for_uma) = 0;
 };
 
 }  // namespace favicon

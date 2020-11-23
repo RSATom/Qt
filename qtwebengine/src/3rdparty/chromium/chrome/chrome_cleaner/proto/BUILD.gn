@@ -4,6 +4,9 @@
 
 import("//third_party/protobuf/proto_library.gni")
 
+# Nothing outside //chrome/chrome_cleaner can depend on these targets.
+visibility = [ "//chrome/chrome_cleaner/*" ]
+
 proto_library("uwe_matcher_proto") {
   sources = [
     "uwe_matcher.proto",
@@ -21,12 +24,6 @@ proto_library("file_digest_proto") {
 proto_library("shared_pup_enums_proto") {
   sources = [
     "shared_pup_enums.proto",
-  ]
-}
-
-proto_library("spec_footprints_proto") {
-  sources = [
-    "spec_footprints.proto",
   ]
 }
 

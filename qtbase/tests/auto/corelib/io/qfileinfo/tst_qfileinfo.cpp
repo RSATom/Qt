@@ -1813,19 +1813,22 @@ void tst_QFileInfo::ntfsJunctionPointsAndSymlinks()
     QVERIFY2(creationResult == ERROR_SUCCESS, qPrintable(errorMessage));
 
     QFileInfo fi(path);
-    const bool actualIsSymLink = fi.isSymbolicLink();
+    auto guard = qScopeGuard([&fi, this]() {
+        // Ensure that junctions, mountpoints are removed. If this fails, do not remove
+        // temporary directory to prevent it from trashing the system.
+        if (fi.isDir()) {
+            if (!QDir().rmdir(fi.filePath())) {
+                qWarning("Unable to remove NTFS junction '%ls', keeping '%ls'.",
+                         qUtf16Printable(fi.fileName()),
+                         qUtf16Printable(QDir::toNativeSeparators(m_dir.path())));
+                m_dir.setAutoRemove(false);
+            }
+        }
+    });
     const QString actualSymLinkTarget = isSymLink ? fi.symLinkTarget() : QString();
     const QString actualCanonicalFilePath = isSymLink ? fi.canonicalFilePath() : QString();
-    // Ensure that junctions, mountpoints are removed. If this fails, do not remove
-    // temporary directory to prevent it from trashing the system.
-    if (fi.isDir()) {
-        if (!QDir().rmdir(fi.filePath())) {
-            qWarning("Unable to remove NTFS junction '%s'', keeping '%s'.",
-                     qPrintable(fi.fileName()), qPrintable(QDir::toNativeSeparators(m_dir.path())));
-            m_dir.setAutoRemove(false);
-        }
-    }
-    QCOMPARE(actualIsSymLink, isSymLink);
+    QCOMPARE(fi.isJunction(), resource.type == NtfsTestResource::Junction);
+    QCOMPARE(fi.isSymbolicLink(), isSymLink);
     if (isSymLink) {
         QCOMPARE(actualSymLinkTarget, linkTarget);
         QCOMPARE(actualCanonicalFilePath, canonicalFilePath);
@@ -1884,10 +1887,11 @@ void tst_QFileInfo::isWritable()
 #if defined (Q_OS_QNX) // On QNX /etc is usually on a read-only filesystem
     QVERIFY(!QFileInfo("/etc/passwd").isWritable());
 #elif defined (Q_OS_UNIX) && !defined(Q_OS_VXWORKS) // VxWorks does not have users/groups
-    if (::getuid() == 0)
-        QVERIFY(QFileInfo("/etc/passwd").isWritable());
-    else
-        QVERIFY(!QFileInfo("/etc/passwd").isWritable());
+    for (const char *attempt : { "/etc/passwd", "/etc/machine-id", "/proc/version" }) {
+        if (access(attempt, F_OK) == -1)
+            continue;
+        QCOMPARE(QFileInfo(attempt).isWritable(), ::access(attempt, W_OK) == 0);
+    }
 #endif
 }
 

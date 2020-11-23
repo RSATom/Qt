@@ -84,10 +84,10 @@ public:
         ModelIndexRole
     };
 
-    QHash<int, QByteArray> roleNames() const;
-    int rowCount(const QModelIndex &parent = QModelIndex()) const;
-    QVariant data(const QModelIndex &, int role) const;
-    bool setData(const QModelIndex &index, const QVariant &value, int role);
+    QHash<int, QByteArray> roleNames() const override;
+    int rowCount(const QModelIndex &parent = QModelIndex()) const override;
+    QVariant data(const QModelIndex &, int role) const override;
+    bool setData(const QModelIndex &index, const QVariant &value, int role) override;
 
     void clearModelData();
 
@@ -95,7 +95,7 @@ public:
     bool childrenVisible(const QModelIndex &index);
 
     const QModelIndex &mapToModel(const QModelIndex &index) const;
-    Q_INVOKABLE QModelIndex mapRowToModelIndex(int row) const;
+    Q_INVOKABLE QPersistentModelIndex mapRowToModelIndex(int row) const;
 
     Q_INVOKABLE QItemSelection selectionForRowRange(const QModelIndex &fromIndex, const QModelIndex &toIndex) const;
 

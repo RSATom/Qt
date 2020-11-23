@@ -25,6 +25,7 @@
 #include "core/fpdfapi/parser/cpdf_string.h"
 #include "core/fxcodec/fx_codec.h"
 #include "core/fxcodec/jpeg/jpegmodule.h"
+#include "core/fxcrt/fx_memory_wrappers.h"
 #include "core/fxcrt/fx_stream.h"
 #include "core/fxge/dib/cfx_dibitmap.h"
 #include "core/fxge/fx_dib.h"
@@ -61,7 +62,7 @@ CPDF_Image::CPDF_Image(CPDF_Document* pDoc, uint32_t dwStreamObjNum)
 CPDF_Image::~CPDF_Image() = default;
 
 void CPDF_Image::FinishInitialization(CPDF_Dictionary* pStreamDict) {
-  m_pOC = pStreamDict->GetDictFor("OC");
+  m_pOC.Reset(pStreamDict->GetDictFor("OC"));
   m_bIsMask = !pStreamDict->KeyExist("ColorSpace") ||
               pStreamDict->GetIntegerFor("ImageMask");
   m_bInterpolate = !!pStreamDict->GetIntegerFor("Interpolate");
@@ -141,8 +142,8 @@ void CPDF_Image::SetJpegImage(const RetainPtr<IFX_SeekableReadStream>& pFile) {
   RetainPtr<CPDF_Dictionary> pDict = InitJPEG(data);
   if (!pDict && size > dwEstimateSize) {
     data.resize(size);
-    pFile->ReadBlockAtOffset(data.data(), 0, size);
-    pDict = InitJPEG(data);
+    if (pFile->ReadBlockAtOffset(data.data(), 0, size))
+      pDict = InitJPEG(data);
   }
   if (!pDict)
     return;

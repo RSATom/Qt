@@ -19,7 +19,7 @@ class MarkingVerifier final : public Visitor {
 
   void Visit(void* object, TraceDescriptor desc) final;
   void VisitWeak(void* object,
-                 void** object_slot,
+                 void* object_weak_ref,
                  TraceDescriptor desc,
                  WeakCallback callback) final;
 
@@ -28,14 +28,14 @@ class MarkingVerifier final : public Visitor {
   void VisitBackingStoreWeakly(void*,
                                void**,
                                TraceDescriptor,
+                               TraceDescriptor,
                                WeakCallback,
                                void*) final;
 
   // Unused overrides.
   void VisitBackingStoreOnly(void*, void**) final {}
-  void RegisterBackingStoreCallback(void**, MovingObjectCallback, void*) final {
-  }
-  void RegisterWeakCallback(void*, WeakCallback) final {}
+  void RegisterBackingStoreCallback(void*, MovingObjectCallback) final {}
+  void RegisterWeakCallback(WeakCallback, void*) final {}
   void Visit(const TraceWrapperV8Reference<v8::Value>&) final {}
 
  private:

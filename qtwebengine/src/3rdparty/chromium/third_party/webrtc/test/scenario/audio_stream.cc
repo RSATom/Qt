@@ -73,8 +73,7 @@ SendAudioStream::SendAudioStream(
     rtc::scoped_refptr<AudioEncoderFactory> encoder_factory,
     Transport* send_transport)
     : sender_(sender), config_(config) {
-  AudioSendStream::Config send_config(send_transport,
-                                      webrtc::MediaTransportConfig());
+  AudioSendStream::Config send_config(send_transport);
   ssrc_ = sender->GetNextAudioSsrc();
   send_config.rtp.ssrc = ssrc_;
   SdpAudioFormat::Parameters sdp_params;
@@ -182,8 +181,8 @@ ReceiveAudioStream::ReceiveAudioStream(
   receiver->ssrc_media_types_[recv_config.rtp.remote_ssrc] = MediaType::AUDIO;
   if (config.stream.in_bandwidth_estimation) {
     recv_config.rtp.transport_cc = true;
-    recv_config.rtp.extensions = {
-        {RtpExtension::kTransportSequenceNumberUri, 8}};
+    recv_config.rtp.extensions = {{RtpExtension::kTransportSequenceNumberUri,
+                                   kTransportSequenceNumberExtensionId}};
   }
   receiver_->AddExtensions(recv_config.rtp.extensions);
   recv_config.decoder_factory = decoder_factory;

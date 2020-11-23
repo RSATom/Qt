@@ -63,9 +63,8 @@ QT_BEGIN_NAMESPACE
   qdoc database that is constructing the tree. This might not
   be necessary, and it might be removed later.
 
-  \a camelCaseModuleName is the project name for this tree,
-  which was obtained from the qdocconf file via the Config
-  singleton.
+  \a camelCaseModuleName is the project name for this tree
+  as it appears in the qdocconf file.
  */
 Tree::Tree(const QString &camelCaseModuleName, QDocDatabase *qdb)
     : treeHasBeenAnalyzed_(false),
@@ -79,9 +78,9 @@ Tree::Tree(const QString &camelCaseModuleName, QDocDatabase *qdb)
 {
     root_.setPhysicalModuleName(physicalModuleName_);
     root_.setTree(this);
-    if (Generator::writeQaPages()) {
+    const auto &config = Config::instance();
+    if (config.getBool(CONFIG_WRITEQAPAGES))
         targetListMap_ = new TargetListMap;
-    }
 }
 
 /*!
@@ -105,7 +104,8 @@ Tree::~Tree()
     }
     nodesByTargetRef_.clear();
     nodesByTargetTitle_.clear();
-    if (Generator::writeQaPages() && targetListMap_) {
+    const auto &config = Config::instance();
+    if (config.getBool(CONFIG_WRITEQAPAGES) && targetListMap_) {
         for (auto target = targetListMap_->begin(); target != targetListMap_->end(); ++target) {
             TargetList *tlist = target.value();
             if (tlist) {
@@ -355,11 +355,14 @@ void Tree::resolveCppToQmlLinks()
 /*!
   For each C++ class node, resolve any \c using clauses
   that appeared in the class declaration.
+
+  For type aliases, resolve the aliased node.
  */
-void Tree::resolveUsingClauses()
+void Tree::resolveUsingClauses(Aggregate *parent)
 {
-    const NodeList &children = root_.childNodes();
-    for (auto *child : children) {
+    if (!parent)
+        parent = &root_;
+    for (auto *child : parent->childNodes()) {
         if (child->isClassNode()) {
             ClassNode *cn = static_cast<ClassNode *>(child);
             QVector<UsingClause> &usingClauses = cn->usingClauses();
@@ -370,7 +373,13 @@ void Tree::resolveUsingClauses()
                         usingClause.setNode(n);
                 }
             }
+        } else if (child->isTypeAlias()) {
+            TypeAliasNode *ta = static_cast<TypeAliasNode *>(child);
+            ta->setAliasedNode(qdb_->findNodeForTarget(ta->aliasedType(), child->parent()));
         }
+
+    if (child->genus() == Node::CPP && child->isAggregate())
+        resolveUsingClauses(static_cast<Aggregate *>(child));
     }
 }
 

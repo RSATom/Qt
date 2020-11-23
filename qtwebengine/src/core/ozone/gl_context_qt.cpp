@@ -59,7 +59,7 @@ namespace {
 
 inline void *resourceForContext(const QByteArray &resource)
 {
-#ifndef QT_NO_OPENGL
+#if QT_CONFIG(opengl)
     QOpenGLContext *shareContext = qt_gl_global_share_context();
     if (!shareContext) {
         qFatal("QWebEngine: OpenGL resource sharing is not set up in QtQuick. Please make sure to call QtWebEngine::initialize() in your main() function.");
@@ -81,6 +81,15 @@ void GLContextHelper::initialize()
 {
     if (!contextHelper)
         contextHelper = new GLContextHelper;
+#if QT_CONFIG(opengl)
+    if (QGuiApplication::platformName() == QLatin1String("offscreen")){
+        contextHelper->m_robustness = false;
+        return;
+    }
+
+    if (QOpenGLContext *context = qt_gl_global_share_context())
+        contextHelper->m_robustness = context->format().testOption(QSurfaceFormat::ResetNotification);
+#endif
 }
 
 void GLContextHelper::destroy()
@@ -144,7 +153,7 @@ void* GLContextHelper::getNativeDisplay()
 QFunctionPointer GLContextHelper::getGlXGetProcAddress()
 {
      QFunctionPointer get_proc_address = nullptr;
-#ifndef QT_NO_OPENGL
+#if QT_CONFIG(opengl)
     if (QOpenGLContext *context = qt_gl_global_share_context()) {
         get_proc_address = context->getProcAddress("glXGetProcAddress");
     }
@@ -155,7 +164,7 @@ QFunctionPointer GLContextHelper::getGlXGetProcAddress()
 QFunctionPointer GLContextHelper::getEglGetProcAddress()
 {
      QFunctionPointer get_proc_address = nullptr;
-#ifndef QT_NO_OPENGL
+#if QT_CONFIG(opengl)
     if (QOpenGLContext *context = qt_gl_global_share_context()) {
         get_proc_address = context->getProcAddress("eglGetProcAddress");
     }
@@ -165,15 +174,9 @@ QFunctionPointer GLContextHelper::getEglGetProcAddress()
 
 bool GLContextHelper::isCreateContextRobustnessSupported()
 {
-#if QT_CONFIG(opengl)
-    if (QGuiApplication::platformName() == QLatin1String("offscreen"))
-        return false;
-
-    if (QOpenGLContext *context = qt_gl_global_share_context())
-        return context->format().testOption(QSurfaceFormat::ResetNotification);
-#endif
-    return false;
+    return contextHelper->m_robustness;
 }
+
 QT_END_NAMESPACE
 
 #if defined(OS_WIN)

@@ -31,8 +31,7 @@
 #include "third_party/blink/renderer/core/frame/fullscreen_controller.h"
 
 #include "base/memory/ptr_util.h"
-#include "third_party/blink/public/platform/web_layer_tree_view.h"
-#include "third_party/blink/public/web/web_fullscreen_options.h"
+#include "third_party/blink/public/mojom/frame/fullscreen.mojom-blink.h"
 #include "third_party/blink/public/web/web_local_frame_client.h"
 #include "third_party/blink/renderer/core/dom/document.h"
 #include "third_party/blink/renderer/core/exported/web_view_impl.h"
@@ -48,17 +47,6 @@
 #include "third_party/blink/renderer/core/page/spatial_navigation_controller.h"
 
 namespace blink {
-
-namespace {
-
-WebLocalFrameClient& GetWebFrameClient(LocalFrame& frame) {
-  WebLocalFrameImpl* web_frame = WebLocalFrameImpl::FromFrame(frame);
-  DCHECK(web_frame);
-  DCHECK(web_frame->Client());
-  return *web_frame->Client();
-}
-
-}  // anonymous namespace
 
 FullscreenController::FullscreenController(WebViewImpl* web_view_base)
     : web_view_base_(web_view_base),
@@ -77,24 +65,7 @@ void FullscreenController::DidEnterFullscreen() {
 
   state_ = State::kFullscreen;
 
-  // Notify all pending local frames in order that we have entered fullscreen.
-  for (LocalFrame* frame : *pending_frames_) {
-    if (frame) {
-      if (Document* document = frame->GetDocument())
-        Fullscreen::DidEnterFullscreen(*document);
-    }
-  }
-
-  // Notify all local frames that we have entered fullscreen.
-  for (Frame* frame = web_view_base_->GetPage()->MainFrame(); frame;
-       frame = frame->Tree().TraverseNext()) {
-    auto* local_frame = DynamicTo<LocalFrame>(frame);
-    if (!local_frame)
-      continue;
-    if (Document* document = local_frame->GetDocument())
-      Fullscreen::DidEnterFullscreen(*document);
-  }
-  pending_frames_->clear();
+  NotifyFramesOfFullscreenEntry(true /* success */);
 
   // TODO(foolip): If the top level browsing context (main frame) ends up with
   // no fullscreen element, exit fullscreen again to recover.
@@ -135,7 +106,8 @@ void FullscreenController::DidExitFullscreen() {
 }
 
 void FullscreenController::EnterFullscreen(LocalFrame& frame,
-                                           const FullscreenOptions* options) {
+                                           const FullscreenOptions* options,
+                                           bool for_cross_process_descendant) {
   // TODO(dtapuska): If we are already in fullscreen. If the options are
   // different than the currently requested one we may wish to request
   // fullscreen mode again.
@@ -169,11 +141,14 @@ void FullscreenController::EnterFullscreen(LocalFrame& frame,
     return;
 
   DCHECK(state_ == State::kInitial);
-  blink::WebFullscreenOptions blink_options;
-  // Only clone options if the feature is enabled.
-  blink_options.prefers_navigation_bar = options->navigationUI() != "hide";
-  GetWebFrameClient(frame).EnterFullscreen(blink_options);
-
+  // Don't send redundant EnterFullscreen message to the browser for the
+  // ancestor frames if the subframe has already entered fullscreen.
+  if (!for_cross_process_descendant) {
+      frame.GetLocalFrameHostRemote().EnterFullscreen(
+          mojom::blink::FullscreenOptions::New(options->navigationUI() != "hide"),
+          WTF::Bind(&FullscreenController::EnterFullscreenCallback,
+                    WTF::Unretained(this)));
+  }
   state_ = State::kEnteringFullscreen;
 }
 
@@ -185,7 +160,7 @@ void FullscreenController::ExitFullscreen(LocalFrame& frame) {
   if (state_ != State::kFullscreen)
     return;
 
-  GetWebFrameClient(frame).ExitFullscreen();
+  frame.GetLocalFrameHostRemote().ExitFullscreen();
 
   state_ = State::kExitingFullscreen;
 }
@@ -196,13 +171,14 @@ void FullscreenController::FullscreenElementChanged(Element* old_element,
 
   // We only override the WebView's background color for overlay fullscreen
   // video elements, so have to restore the override when the element changes.
-  if (IsHTMLVideoElement(old_element))
+  auto* old_video_element = DynamicTo<HTMLVideoElement>(old_element);
+  if (old_video_element)
     RestoreBackgroundColorOverride();
 
   if (new_element) {
     DCHECK(Fullscreen::IsFullscreenElement(*new_element));
 
-    if (auto* video_element = ToHTMLVideoElementOrNull(*new_element)) {
+    if (auto* video_element = DynamicTo<HTMLVideoElement>(*new_element)) {
       video_element->DidEnterFullscreen();
 
       // If the video uses overlay fullscreen mode, make the background
@@ -215,15 +191,15 @@ void FullscreenController::FullscreenElementChanged(Element* old_element,
   if (old_element) {
     DCHECK(!Fullscreen::IsFullscreenElement(*old_element));
 
-    if (auto* video_element = ToHTMLVideoElementOrNull(*old_element))
-      video_element->DidExitFullscreen();
+    if (old_video_element)
+      old_video_element->DidExitFullscreen();
   }
 
   // Tell the browser the fullscreen state has changed.
   if (Element* owner = new_element ? new_element : old_element) {
     Document& doc = owner->GetDocument();
     if (LocalFrame* frame = doc.GetFrame()) {
-      GetWebFrameClient(*frame).FullscreenStateChanged(!!new_element);
+      frame->GetLocalFrameHostRemote().FullscreenStateChanged(!!new_element);
       if (IsSpatialNavigationEnabled(frame)) {
         doc.GetPage()->GetSpatialNavigationController().FullscreenStateChanged(
             new_element);
@@ -246,6 +222,40 @@ void FullscreenController::RestoreBackgroundColorOverride() {
   }
 }
 
+void FullscreenController::NotifyFramesOfFullscreenEntry(bool granted) {
+  // Notify all pending local frames in order whether or not we successfully
+  // entered fullscreen.
+  for (LocalFrame* frame : *pending_frames_) {
+    if (frame) {
+      if (Document* document = frame->GetDocument()) {
+        Fullscreen::DidResolveEnterFullscreenRequest(*document, granted);
+      }
+    }
+  }
+
+  // Notify all local frames whether or not we successfully entered fullscreen.
+  for (Frame* frame = web_view_base_->GetPage()->MainFrame(); frame;
+       frame = frame->Tree().TraverseNext()) {
+    auto* local_frame = DynamicTo<LocalFrame>(frame);
+    if (!local_frame)
+      continue;
+    if (Document* document = local_frame->GetDocument()) {
+      Fullscreen::DidResolveEnterFullscreenRequest(*document, granted);
+    }
+  }
+  pending_frames_->clear();
+}
+
+void FullscreenController::EnterFullscreenCallback(bool granted) {
+  if (granted) {
+    // If the fullscreen is granted, then the VisualPropertiesUpdated message
+    // will later be fired and the state will be updated then.
+  } else {
+    state_ = State::kInitial;
+    NotifyFramesOfFullscreenEntry(false /* granted */);
+  }
+}
+
 void FullscreenController::UpdateSize() {
   DCHECK(web_view_base_->GetPage());
 
@@ -261,8 +271,7 @@ void FullscreenController::UpdatePageScaleConstraints(bool reset_constraints) {
     web_view_base_->GetPageScaleConstraintsSet().SetNeedsReset(true);
   } else {
     fullscreen_constraints = PageScaleConstraints(1.0, 1.0, 1.0);
-    fullscreen_constraints.layout_size =
-        FloatSize(web_view_base_->MainFrameWidget()->Size());
+    fullscreen_constraints.layout_size = FloatSize(web_view_base_->Size());
   }
   web_view_base_->GetPageScaleConstraintsSet().SetFullscreenConstraints(
       fullscreen_constraints);

@@ -112,12 +112,11 @@ base::string16 GetActivationErrorMessage(MobileActivator::ActivationError error,
       MobileActivator::ActivationError::kActivationFailed, carrier);
 }
 
-void DataRequestFailed(
-    const std::string& service_path,
-    const content::URLDataSource::GotDataCallback& callback) {
+void DataRequestFailed(const std::string& service_path,
+                       content::URLDataSource::GotDataCallback callback) {
   NET_LOG(ERROR) << "Data Request Failed for Mobile Setup: " << service_path;
   scoped_refptr<base::RefCountedBytes> html_bytes(new base::RefCountedBytes);
-  callback.Run(html_bytes.get());
+  std::move(callback).Run(html_bytes.get());
 }
 
 // Keys for the dictionary that is set to activation UI and that contains the
@@ -177,9 +176,9 @@ class MobileSetupUIHTMLSource : public content::URLDataSource {
   // content::URLDataSource implementation.
   std::string GetSource() override;
   void StartDataRequest(
-      const std::string& path,
-      const content::ResourceRequestInfo::WebContentsGetter& wc_getter,
-      const content::URLDataSource::GotDataCallback& callback) override;
+      const GURL& url,
+      const content::WebContents::Getter& wc_getter,
+      content::URLDataSource::GotDataCallback callback) override;
   std::string GetMimeType(const std::string&) override { return "text/html"; }
   bool ShouldAddContentSecurityPolicy() override { return false; }
   bool AllowCaching() override {
@@ -189,7 +188,7 @@ class MobileSetupUIHTMLSource : public content::URLDataSource {
   }
 
  private:
-  base::WeakPtrFactory<MobileSetupUIHTMLSource> weak_ptr_factory_;
+  base::WeakPtrFactory<MobileSetupUIHTMLSource> weak_ptr_factory_{this};
 
   DISALLOW_COPY_AND_ASSIGN(MobileSetupUIHTMLSource);
 };
@@ -251,7 +250,7 @@ class MobileSetupHandler : public content::WebUIMessageHandler,
   // connection state. This value is reflected in portal webui for lte networks.
   // Initial value is true.
   bool lte_portal_reachable_;
-  base::WeakPtrFactory<MobileSetupHandler> weak_ptr_factory_;
+  base::WeakPtrFactory<MobileSetupHandler> weak_ptr_factory_{this};
 
   DISALLOW_COPY_AND_ASSIGN(MobileSetupHandler);
 };
@@ -262,29 +261,30 @@ class MobileSetupHandler : public content::WebUIMessageHandler,
 //
 ////////////////////////////////////////////////////////////////////////////////
 
-MobileSetupUIHTMLSource::MobileSetupUIHTMLSource() : weak_ptr_factory_(this) {}
+MobileSetupUIHTMLSource::MobileSetupUIHTMLSource() {}
 
 std::string MobileSetupUIHTMLSource::GetSource() {
   return chrome::kChromeUIMobileSetupHost;
 }
 
 void MobileSetupUIHTMLSource::StartDataRequest(
-    const std::string& path,
-    const content::ResourceRequestInfo::WebContentsGetter& wc_getter,
-    const content::URLDataSource::GotDataCallback& callback) {
+    const GURL& url,
+    const content::WebContents::Getter& wc_getter,
+    content::URLDataSource::GotDataCallback callback) {
+  const std::string path = content::URLDataSource::URLToRequestPath(url);
   // Sanity checks that activation was requested for an appropriate network.
   const NetworkState* network =
       NetworkHandler::Get()->network_state_handler()->GetNetworkState(path);
 
   if (!network) {
     NET_LOG(ERROR) << "Network for mobile setup not found: " << path;
-    DataRequestFailed(path, callback);
+    DataRequestFailed(path, std::move(callback));
     return;
   }
 
   if (!network->Matches(NetworkTypePattern::Cellular())) {
     NET_LOG(ERROR) << "Mobile setup attempt for non cellular network: " << path;
-    DataRequestFailed(path, callback);
+    DataRequestFailed(path, std::move(callback));
     return;
   }
 
@@ -293,7 +293,7 @@ void MobileSetupUIHTMLSource::StartDataRequest(
     NET_LOG(ERROR) << "Mobile setup network in unexpected state: " << path
                    << " payment_url: " << network->payment_url()
                    << " activation_state: " << network->activation_state();
-    DataRequestFailed(path, callback);
+    DataRequestFailed(path, std::move(callback));
     return;
   }
 
@@ -303,7 +303,7 @@ void MobileSetupUIHTMLSource::StartDataRequest(
   if (!device) {
     NET_LOG(ERROR) << "Network device for mobile setup not found: "
                    << network->device_path();
-    DataRequestFailed(path, callback);
+    DataRequestFailed(path, std::move(callback));
     return;
   }
 
@@ -353,7 +353,7 @@ void MobileSetupUIHTMLSource::StartDataRequest(
     full_html = webui::GetI18nTemplateHtml(html_for_non_activated, &strings);
   }
 
-  callback.Run(base::RefCountedString::TakeString(&full_html));
+  std::move(callback).Run(base::RefCountedString::TakeString(&full_html));
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -362,10 +362,7 @@ void MobileSetupUIHTMLSource::StartDataRequest(
 //
 ////////////////////////////////////////////////////////////////////////////////
 MobileSetupHandler::MobileSetupHandler()
-    : type_(TYPE_UNDETERMINED),
-      active_(false),
-      lte_portal_reachable_(true),
-      weak_ptr_factory_(this) {}
+    : type_(TYPE_UNDETERMINED), active_(false), lte_portal_reachable_(true) {}
 
 MobileSetupHandler::~MobileSetupHandler() {
   Reset();

@@ -1,6 +1,7 @@
 # Copyright 2017 The Chromium Authors. All rights reserved.
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
+import("//build/config/dcheck_always_on.gni")
 import("//third_party/blink/renderer/core/core.gni")
 
 blink_core_sources("exported") {
@@ -34,6 +35,7 @@ blink_core_sources("exported") {
     "web_heap.cc",
     "web_history_item.cc",
     "web_hit_test_result.cc",
+    "web_image.cc",
     "web_image_cache.cc",
     "web_input_element.cc",
     "web_input_method_controller_impl.cc",
@@ -73,16 +75,17 @@ blink_core_sources("exported") {
     "web_settings_impl.h",
     "web_shared_worker_impl.cc",
     "web_shared_worker_impl.h",
-    "web_surrounding_text.cc",
     "web_text_checking_result.cc",
     "web_user_gesture_indicator.cc",
-    "web_user_gesture_token.cc",
     "web_v8_context_snapshot.cc",
     "web_view_impl.cc",
     "web_view_impl.h",
-    "worker_shadow_page.cc",
-    "worker_shadow_page.h",
   ]
+
+  if (is_debug || dcheck_always_on) {
+    sources += [ "web_disallow_transition_scope.cc" ]
+  }
+
 
   defines = [ "BLINK_IMPLEMENTATION=1" ]
 }

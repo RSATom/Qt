@@ -9,7 +9,6 @@
 #include "base/bind.h"
 #include "base/macros.h"
 #include "base/memory/ref_counted.h"
-#include "base/message_loop/message_loop.h"
 #include "base/single_thread_task_runner.h"
 #include "base/task/post_task.h"
 #include "mojo/public/cpp/bindings/binding_set.h"
@@ -54,10 +53,11 @@ std::unique_ptr<DeviceService> CreateTestDeviceService(
 }  // namespace
 
 DeviceServiceTestBase::DeviceServiceTestBase()
-    : file_task_runner_(base::CreateSingleThreadTaskRunnerWithTraits(
-          {base::MayBlock(), base::TaskPriority::BEST_EFFORT})),
-      io_task_runner_(base::CreateSingleThreadTaskRunnerWithTraits(
-          {base::TaskPriority::USER_VISIBLE})),
+    : file_task_runner_(base::CreateSingleThreadTaskRunner(
+          {base::ThreadPool(), base::MayBlock(),
+           base::TaskPriority::BEST_EFFORT})),
+      io_task_runner_(base::CreateSingleThreadTaskRunner(
+          {base::ThreadPool(), base::TaskPriority::USER_VISIBLE})),
       network_connection_tracker_(
           network::TestNetworkConnectionTracker::CreateInstance()),
       connector_(test_connector_factory_.CreateConnector()) {}

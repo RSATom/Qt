@@ -44,7 +44,7 @@ static bool associateFileType()
 {
     const QString applicationBinary = QCoreApplication::applicationFilePath();
     QString exeFileName = applicationBinary;
-    const int lastSlashPos = exeFileName.lastIndexOf(QLatin1Char('/'));
+    const int lastSlashPos = exeFileName.lastIndexOf(u'/');
     exeFileName.remove(0, lastSlashPos + 1);
     QSettings regApplications("HKEY_CURRENT_USER\\Software\\Classes\\Applications\\" + exeFileName, QSettings::NativeFormat);
     regApplications.setValue("FriendlyAppName", QGuiApplication::applicationDisplayName());

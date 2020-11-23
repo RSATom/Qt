@@ -322,9 +322,15 @@ QWaylandGLContext::QWaylandGLContext(EGLDisplay eglDisplay, QWaylandDisplay *dis
     if (!eglGetConfigAttrib(m_eglDisplay, m_config, a, &a) ||
         !eglGetConfigAttrib(m_eglDisplay, m_config, b, &b) ||
         a > 0) {
-       mSupportNonBlockingSwap = false;
+       m_supportNonBlockingSwap = false;
     }
-    if (!mSupportNonBlockingSwap) {
+    {
+        bool ok;
+        int supportNonBlockingSwap = qEnvironmentVariableIntValue("QT_WAYLAND_FORCE_NONBLOCKING_SWAP_SUPPORT", &ok);
+        if (ok)
+            m_supportNonBlockingSwap = supportNonBlockingSwap != 0;
+    }
+    if (!m_supportNonBlockingSwap) {
         qWarning(lcQpaWayland) << "Non-blocking swap buffers not supported."
                                << "Subsurface rendering can be affected."
                                << "It may also cause the event loop to freeze in some situations";
@@ -346,7 +352,11 @@ void QWaylandGLContext::updateGLFormat()
 
     wl_surface *wlSurface = m_display->createSurface(nullptr);
     wl_egl_window *eglWindow = wl_egl_window_create(wlSurface, 1, 1);
-    EGLSurface eglSurface = eglCreateWindowSurface(m_eglDisplay, m_config, eglWindow, 0);
+#if QT_CONFIG(egl_extension_platform_wayland)
+    EGLSurface eglSurface = eglCreatePlatformWindowSurface(m_eglDisplay, m_config, eglWindow, nullptr);
+#else
+    EGLSurface eglSurface = eglCreateWindowSurface(m_eglDisplay, m_config, eglWindow, nullptr);
+#endif
 
     if (eglMakeCurrent(m_eglDisplay, eglSurface, eglSurface, m_context)) {
         if (m_format.renderableType() == QSurfaceFormat::OpenGL
@@ -474,7 +484,7 @@ void QWaylandGLContext::swapBuffers(QPlatformSurface *surface)
         eglMakeCurrent(currentDisplay, currentSurfaceDraw, currentSurfaceRead, currentContext);
     }
 
-    int swapInterval = mSupportNonBlockingSwap ? 0 : m_format.swapInterval();
+    int swapInterval = m_supportNonBlockingSwap ? 0 : m_format.swapInterval();
     eglSwapInterval(m_eglDisplay, swapInterval);
     if (swapInterval == 0 && m_format.swapInterval() > 0) {
         // Emulating a blocking swap

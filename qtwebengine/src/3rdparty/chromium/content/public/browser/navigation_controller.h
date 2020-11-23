@@ -20,10 +20,12 @@
 #include "content/public/browser/global_request_id.h"
 #include "content/public/browser/navigation_ui_data.h"
 #include "content/public/browser/reload_type.h"
+#include "content/public/browser/render_frame_host.h"
 #include "content/public/browser/restore_type.h"
 #include "content/public/browser/session_storage_namespace.h"
 #include "content/public/browser/site_instance.h"
 #include "content/public/common/referrer.h"
+#include "content/public/common/was_activated_option.mojom.h"
 #include "services/network/public/cpp/resource_request_body.h"
 #include "services/network/public/cpp/shared_url_loader_factory.h"
 #include "ui/base/page_transition_types.h"
@@ -38,10 +40,12 @@ class RefCountedString;
 
 namespace content {
 
-enum class WasActivatedOption;
+class BackForwardCache;
 class BrowserContext;
 class NavigationEntry;
+class RenderFrameHost;
 class WebContents;
+struct OpenURLParams;
 
 // A NavigationController maintains the back-forward list for a WebContents and
 // manages all navigation within that list.
@@ -101,8 +105,8 @@ class NavigationController {
   // Extra headers are separated by \n.
   CONTENT_EXPORT static std::unique_ptr<NavigationEntry> CreateNavigationEntry(
       const GURL& url,
-      const Referrer& referrer,
-      const base::Optional<url::Origin>& initiator_origin,
+      Referrer referrer,
+      base::Optional<url::Origin> initiator_origin,
       ui::PageTransition transition,
       bool is_renderer_initiated,
       const std::string& extra_headers,
@@ -130,15 +134,15 @@ class NavigationController {
     scoped_refptr<SiteInstance> source_site_instance;
 
     // See LoadURLType comments above.
-    LoadURLType load_type;
+    LoadURLType load_type = LOAD_TYPE_DEFAULT;
 
     // PageTransition for this load. See PageTransition for details.
     // Note the default value in constructor below.
-    ui::PageTransition transition_type;
+    ui::PageTransition transition_type = ui::PAGE_TRANSITION_LINK;
 
     // The browser-global FrameTreeNode ID for the frame to navigate, or
     // RenderFrameHost::kNoFrameTreeNodeId for the main frame.
-    int frame_tree_node_id;
+    int frame_tree_node_id = RenderFrameHost::kNoFrameTreeNodeId;
 
     // Referrer for this load. Empty if none.
     Referrer referrer;
@@ -156,7 +160,7 @@ class NavigationController {
 
     // User agent override for this load. See comments in
     // UserAgentOverrideOption definition.
-    UserAgentOverrideOption override_user_agent;
+    UserAgentOverrideOption override_user_agent = UA_OVERRIDE_INHERIT;
 
     // Used in LOAD_TYPE_DATA loads only. Used for specifying a base URL
     // for pages loaded via data URLs.
@@ -180,18 +184,18 @@ class NavigationController {
     scoped_refptr<network::ResourceRequestBody> post_data;
 
     // True if this URL should be able to access local resources.
-    bool can_load_local_resources;
+    bool can_load_local_resources = false;
 
     // Indicates whether this navigation should replace the current
     // navigation entry.
-    bool should_replace_current_entry;
+    bool should_replace_current_entry = false;
 
     // Used to specify which frame to navigate. If empty, the main frame is
     // navigated. This is currently only used in tests.
     std::string frame_name;
 
     // Indicates that the navigation was triggered by a user gesture.
-    bool has_user_gesture;
+    bool has_user_gesture = false;
 
     // Indicates that during this navigation, the session history should be
     // cleared such that the resulting page is the first and only entry of the
@@ -199,10 +203,10 @@ class NavigationController {
     //
     // The clearing is done asynchronously, and completes when this navigation
     // commits.
-    bool should_clear_history_list;
+    bool should_clear_history_list = false;
 
     // Indicates whether or not this navigation was initiated via context menu.
-    bool started_from_context_menu;
+    bool started_from_context_menu = false;
 
     // Optional URLLoaderFactory to facilitate navigation to a blob URL.
     scoped_refptr<network::SharedURLLoaderFactory> blob_url_loader_factory;
@@ -214,7 +218,7 @@ class NavigationController {
 
     // Whether this navigation was triggered by a x-origin redirect following a
     // prior (most likely <a download>) download attempt.
-    bool from_download_cross_origin_redirect;
+    bool from_download_cross_origin_redirect = false;
 
     // Time at which the input leading to this navigation occurred. This field
     // is set for links clicked by the user; the embedder is recommended to set
@@ -223,7 +227,8 @@ class NavigationController {
 
     // Set to |kYes| if the navigation should propagate user activation. This
     // is used by embedders where the activation has occurred outside the page.
-    WasActivatedOption was_activated;
+    mojom::WasActivatedOption was_activated =
+        mojom::WasActivatedOption::kUnknown;
 
     // If this navigation was initiated from a link that specified the
     // hrefTranslate attribute, this contains the attribute's value (a BCP47
@@ -234,6 +239,12 @@ class NavigationController {
     ReloadType reload_type = ReloadType::NONE;
 
     explicit LoadURLParams(const GURL& url);
+
+    // Copies |open_url_params| into LoadURLParams, attempting to copy all
+    // fields that are present in both structs (some properties are ignored
+    // because they are unique to LoadURLParams or OpenURLParams).
+    explicit LoadURLParams(const OpenURLParams& open_url_params);
+
     ~LoadURLParams();
     LoadURLParams(LoadURLParams &&) = default;
     LoadURLParams& operator=(LoadURLParams &&) = default;
@@ -374,6 +385,18 @@ class NavigationController {
   // explicitly requested using SetNeedsReload().
   virtual void LoadIfNecessary() = 0;
 
+  // Navigates directly to an error page in response to an event on the last
+  // committed page (e.g., triggered by a subresource), with |error_page_html|
+  // as the contents and |url| as the URL.
+
+  // The error page will create a NavigationEntry that temporarily replaces the
+  // original page's entry. The original entry will be put back into the entry
+  // list after any other navigation.
+  virtual void LoadPostCommitErrorPage(RenderFrameHost* render_frame_host,
+                                       const GURL& url,
+                                       const std::string& error_page_html,
+                                       net::Error error) = 0;
+
   // Renavigation --------------------------------------------------------------
 
   // Navigation relative to the "current entry"
@@ -405,6 +428,10 @@ class NavigationController {
   // committed index or the pending entry, this does nothing and returns false.
   // Otherwise this call discards any transient or pending entries.
   virtual bool RemoveEntryAtIndex(int index) = 0;
+
+  // Discards any transient or pending entries, then discards all entries after
+  // the current entry index.
+  virtual void PruneForwardEntries() = 0;
 
   // Random --------------------------------------------------------------------
 
@@ -505,6 +532,9 @@ class NavigationController {
   // such that the user is not able to use the back button to go to the previous
   // page they interacted with.
   virtual bool IsEntryMarkedToBeSkipped(int index) = 0;
+
+  // Gets the BackForwardCache for this NavigationController.
+  virtual BackForwardCache& GetBackForwardCache() = 0;
 
  private:
   // This interface should only be implemented inside content.

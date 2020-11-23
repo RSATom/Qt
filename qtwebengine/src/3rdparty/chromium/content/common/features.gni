@@ -14,3 +14,5 @@ declare_args() {
 
   enable_web_auth = !is_android
 }
+
+enable_screen_capture = is_linux || is_mac || is_win || is_android

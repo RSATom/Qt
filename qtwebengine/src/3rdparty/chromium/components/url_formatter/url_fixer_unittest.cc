@@ -258,18 +258,6 @@ static const SegmentCase segment_cases[] = {
         url::Component(43, 17),            // query
         url::Component(),                  // ref
     },
-    {
-        "chrome-devtools://bundled/devtools/inspector.html?ws=localhost:9221",
-        "devtools",
-        url::Component(),        // scheme
-        url::Component(),        // username
-        url::Component(),        // password
-        url::Component(18, 7),   // host
-        url::Component(),        // port
-        url::Component(25, 24),  // path
-        url::Component(50, 17),  // query
-        url::Component(),        // ref
-    },
 };
 
 typedef testing::Test URLFixerTest;
@@ -280,6 +268,8 @@ TEST(URLFixerTest, SegmentURL) {
 
   for (size_t i = 0; i < base::size(segment_cases); ++i) {
     SegmentCase value = segment_cases[i];
+    SCOPED_TRACE(testing::Message() << "test #" << i << ": " << value.input);
+
     result = url_formatter::SegmentURL(value.input, &parts);
     EXPECT_EQ(value.result, result);
     EXPECT_EQ(value.scheme, parts.scheme);
@@ -380,7 +370,7 @@ struct FixupCase {
     {"::1", "http://:1/"},
     // Semicolon as scheme separator for standard schemes.
     {"http;//www.google.com/", "http://www.google.com/"},
-    {"about;chrome", "chrome://chrome/"},
+    {"about;help", "chrome://help/"},
     // Semicolon in non-standard schemes is not replaced by colon.
     {"whatsup;//fool", "http://whatsup%3B//fool"},
     // Semicolon left as-is in URL itself.
@@ -393,15 +383,8 @@ struct FixupCase {
     // Devtools scheme.
     {"devtools://bundled/devtools/node.html",
      "devtools://bundled/devtools/node.html"},
-    // Devtools fallback scheme.
-    {"chrome-devtools://bundled/devtools/toolbox.html",
-     "devtools://bundled/devtools/toolbox.html"},
     // Devtools scheme with websocket query.
     {"devtools://bundled/devtools/inspector.html?ws=ws://localhost:9222/guid",
-     "devtools://bundled/devtools/inspector.html?ws=ws://localhost:9222/guid"},
-    // Devtools fallback scheme with websocket query.
-    {"chrome-devtools://bundled/devtools/inspector.html?ws=ws://localhost:9222/"
-     "guid",
      "devtools://bundled/devtools/inspector.html?ws=ws://localhost:9222/guid"},
 };
 
@@ -626,7 +609,7 @@ TEST(URLFixerTest, FixupRelativeFile) {
 
   // done with the subdir
   EXPECT_TRUE(base::DeleteFile(full_path, false));
-  EXPECT_TRUE(base::DeleteFile(new_dir, true));
+  EXPECT_TRUE(base::DeleteFileRecursively(new_dir));
 
   // Test that an obvious HTTP URL isn't accidentally treated as an absolute
   // file path (on account of system-specific craziness).

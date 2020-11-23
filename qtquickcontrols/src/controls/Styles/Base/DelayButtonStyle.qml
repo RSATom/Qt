@@ -94,8 +94,8 @@ CircularButtonStyle {
 
             Connections {
                 target: control
-                onPressedChanged: backgroundCanvas.requestPaint()
-                onCheckedChanged: backgroundCanvas.requestPaint()
+                function onPressedChanged() { backgroundCanvas.requestPaint() }
+                function onCheckedChanged() { backgroundCanvas.requestPaint() }
             }
 
             onPaint: {
@@ -157,8 +157,8 @@ CircularButtonStyle {
 
         Connections {
             target: control
-            onActivated: state = "activated"
-            onCheckedChanged: if (!control.checked) state = "normal"
+            function onActivated() { state = "activated" }
+            function onCheckedChanged() { if (!control.checked) state = "normal" }
         }
 
         CircularProgressBar {
@@ -187,7 +187,7 @@ CircularButtonStyle {
 
             Connections {
                 target: delayButtonStyle
-                onProgressBarGradientChanged: progressBar.updateGradient()
+                function onProgressBarGradientChanged() { progressBar.updateGradient() }
             }
         }
 

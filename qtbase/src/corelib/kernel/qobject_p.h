@@ -165,7 +165,7 @@ public:
         uint id = 0;
         ushort method_offset;
         ushort method_relative;
-        int signal_index : 27; // In signal range (see QObjectPrivate::signalIndex())
+        signed int signal_index : 27; // In signal range (see QObjectPrivate::signalIndex())
         ushort connectionType : 3; // 0 == auto, 1 == direct, 2 == queued, 4 == blocking
         ushort isSlotObject : 1;
         ushort ownArgumentTypes : 1;
@@ -322,6 +322,8 @@ public:
     virtual ~QObjectPrivate();
     void deleteChildren();
 
+    inline void checkForIncompatibleLibraryVersion(int version) const;
+
     void setParent_helper(QObject *);
     void moveToThread_helper();
     void setThreadData_helper(QThreadData *currentData, QThreadData *targetData);
@@ -374,7 +376,12 @@ public:
     }
 public:
     ExtraData *extraData;    // extra data set by the user
-    QThreadData *threadData; // id of the thread that owns the object
+    // This atomic requires acquire/release semantics in a few places,
+    // e.g. QObject::moveToThread must synchronize with QCoreApplication::postEvent,
+    // because postEvent is thread-safe.
+    // However, most of the code paths involving QObject are only reentrant and
+    // not thread-safe, so synchronization should not be necessary there.
+    QAtomicPointer<QThreadData> threadData; // id of the thread that owns the object
 
     using ConnectionDataPointer = QExplicitlySharedDataPointer<ConnectionData>;
     QAtomicPointer<ConnectionData> connections;
@@ -390,6 +397,28 @@ public:
 };
 
 Q_DECLARE_TYPEINFO(QObjectPrivate::ConnectionList, Q_MOVABLE_TYPE);
+
+/*
+    Catch mixing of incompatible library versions.
+
+    Should be called from the constructor of every non-final subclass
+    of QObjectPrivate, to ensure we catch incompatibilities between
+    the intermediate base and subclasses thereof.
+*/
+inline void QObjectPrivate::checkForIncompatibleLibraryVersion(int version) const
+{
+#if defined(QT_BUILD_INTERNAL)
+    // Don't check the version parameter in internal builds.
+    // This allows incompatible versions to be loaded, possibly for testing.
+    Q_UNUSED(version);
+#else
+    if (Q_UNLIKELY(version != QObjectPrivateVersion)) {
+        qFatal("Cannot mix incompatible Qt library (%d.%d.%d) with this library (%d.%d.%d)",
+                (version >> 16) & 0xff, (version >> 8) & 0xff, version & 0xff,
+                (QObjectPrivateVersion >> 16) & 0xff, (QObjectPrivateVersion >> 8) & 0xff, QObjectPrivateVersion & 0xff);
+    }
+#endif
+}
 
 inline bool QObjectPrivate::isDeclarativeSignalConnected(uint signal_index) const
 {

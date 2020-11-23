@@ -79,7 +79,7 @@ void WebFormElement::GetFormControlElements(
 WebFormElement::WebFormElement(HTMLFormElement* e) : WebElement(e) {}
 
 DEFINE_WEB_NODE_TYPE_CASTS(WebFormElement,
-                           IsHTMLFormElement(ConstUnwrap<Node>()))
+                           IsA<HTMLFormElement>(ConstUnwrap<Node>()))
 
 WebFormElement& WebFormElement::operator=(HTMLFormElement* e) {
   private_ = e;
@@ -87,7 +87,7 @@ WebFormElement& WebFormElement::operator=(HTMLFormElement* e) {
 }
 
 WebFormElement::operator HTMLFormElement*() const {
-  return ToHTMLFormElement(private_.Get());
+  return blink::To<HTMLFormElement>(private_.Get());
 }
 
 }  // namespace blink

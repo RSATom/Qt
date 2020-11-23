@@ -111,6 +111,8 @@ public:
             SkPicture::playback was called.
 
             @return  true to stop playback
+
+        example: https://fiddle.skia.org/c/@Picture_AbortCallback_abort
         */
         virtual bool abort() = 0;
     };
@@ -123,6 +125,8 @@ public:
 
         @param canvas    receiver of drawing commands
         @param callback  allows interruption of playback
+
+        example: https://fiddle.skia.org/c/@Picture_playback
     */
     virtual void playback(SkCanvas* canvas, AbortCallback* callback = nullptr) const = 0;
 
@@ -134,6 +138,8 @@ public:
         cull.
 
         @return  bounds passed when SkPicture was created
+
+        example: https://fiddle.skia.org/c/@Picture_cullRect
     */
     virtual SkRect cullRect() const = 0;
 
@@ -153,6 +159,8 @@ public:
 
         @param procs  custom serial data encoders; may be nullptr
         @return       storage containing serialized SkPicture
+
+        example: https://fiddle.skia.org/c/@Picture_serialize
     */
     sk_sp<SkData> serialize(const SkSerialProcs* procs = nullptr) const;
 
@@ -165,6 +173,8 @@ public:
 
         @param stream  writable serial data stream
         @param procs   custom serial data encoders; may be nullptr
+
+        example: https://fiddle.skia.org/c/@Picture_serialize_2
     */
     void serialize(SkWStream* stream, const SkSerialProcs* procs = nullptr) const;
 
@@ -177,6 +187,8 @@ public:
 
         @param cull  placeholder dimensions
         @return      placeholder with unique identifier
+
+        example: https://fiddle.skia.org/c/@Picture_MakePlaceholder
     */
     static sk_sp<SkPicture> MakePlaceholder(SkRect cull);
 
@@ -186,6 +198,8 @@ public:
         calls may be optimized away.
 
         @return  approximate operation count
+
+        example: https://fiddle.skia.org/c/@Picture_approximateOpCount
     */
     virtual int approximateOpCount() const = 0;
 
@@ -193,6 +207,8 @@ public:
         referenced by SkPicture.
 
         @return  approximate size
+
+        example: https://fiddle.skia.org/c/@Picture_approximateBytesUsed
     */
     virtual size_t approximateBytesUsed() const = 0;
 
@@ -243,47 +259,6 @@ private:
     virtual const class SkBigPicture* asSkBigPicture() const { return nullptr; }
 
     friend struct SkPathCounter;
-
-    // V35: Store SkRect (rather then width & height) in header
-    // V36: Remove (obsolete) alphatype from SkColorTable
-    // V37: Added shadow only option to SkDropShadowImageFilter (last version to record CLEAR)
-    // V38: Added PictureResolution option to SkPictureImageFilter
-    // V39: Added FilterLevel option to SkPictureImageFilter
-    // V40: Remove UniqueID serialization from SkImageFilter.
-    // V41: Added serialization of SkBitmapSource's filterQuality parameter
-    // V42: Added a bool to SkPictureShader serialization to indicate did-we-serialize-a-picture?
-    // V43: Added DRAW_IMAGE and DRAW_IMAGE_RECT opt codes to serialized data
-    // V44: Move annotations from paint to drawAnnotation
-    // V45: Add invNormRotation to SkLightingShader.
-    // V46: Add drawTextRSXform
-    // V47: Add occluder rect to SkBlurMaskFilter
-    // V48: Read and write extended SkTextBlobs.
-    // V49: Gradients serialized as SkColor4f + SkColorSpace
-    // V50: SkXfermode -> SkBlendMode
-    // V51: more SkXfermode -> SkBlendMode
-    // V52: Remove SkTextBlob::fRunCount
-    // V53: SaveLayerRec clip mask
-    // V54: ComposeShader can use a Mode or a Lerp
-    // V55: Drop blendmode[] from MergeImageFilter
-    // V56: Add TileMode in SkBlurImageFilter.
-    // V57: Sweep tiling info.
-    // V58: No more 2pt conical flipping.
-    // V59: No more LocalSpace option on PictureImageFilter
-    // V60: Remove flags in picture header
-    // V61: Change SkDrawPictureRec to take two colors rather than two alphas
-    // V62: Don't negate size of custom encoded images (don't write origin x,y either)
-    // V63: Store image bounds (including origin) instead of just width/height to support subsets
-    // V64: Remove occluder feature from blur maskFilter
-    // V65: Float4 paint color
-    // V66: Add saveBehind
-    // V67: Blobs serialize fonts instead of paints
-    // V68: Paint doesn't serialize font-related stuff
-
-    // Only SKPs within the min/current picture version range (inclusive) can be read.
-    static const uint32_t     MIN_PICTURE_VERSION = 56;     // august 2017
-    static const uint32_t CURRENT_PICTURE_VERSION = 68;
-
-    static_assert(MIN_PICTURE_VERSION <= 62, "Remove kFontAxes_bad from SkFontDescriptor.cpp");
 
     static bool IsValidPictInfo(const struct SkPictInfo& info);
     static sk_sp<SkPicture> Forwardport(const struct SkPictInfo&,

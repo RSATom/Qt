@@ -12,105 +12,39 @@
 #include "components/signin/public/base/test_signin_client.h"
 #include "components/sync_preferences/testing_pref_service_syncable.h"
 #include "google_apis/gaia/gaia_auth_util.h"
-#include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
-
-namespace {
-
-class DiceTestSigninClient : public testing::StrictMock<TestSigninClient> {
- public:
-  DiceTestSigninClient(PrefService* prefs)
-      : testing::StrictMock<TestSigninClient>(prefs) {}
-
-  MOCK_METHOD1(SetReadyForDiceMigration, void(bool is_ready));
-};
-
-}  // namespace
 
 namespace signin {
 
 TEST(DiceAccountReconcilorDelegateTest, RevokeTokens) {
   sync_preferences::TestingPrefServiceSyncable pref_service;
   TestSigninClient client(&pref_service);
-  {
-    // Dice is enabled, revoke only tokens in error state.
-    DiceAccountReconcilorDelegate delegate(&client,
-                                           AccountConsistencyMethod::kDice);
-    EXPECT_EQ(AccountReconcilorDelegate::RevokeTokenOption::kRevokeIfInError,
-              delegate.ShouldRevokeSecondaryTokensBeforeReconcile(
-                  std::vector<gaia::ListedAccount>()));
-  }
-  {
-    DiceAccountReconcilorDelegate delegate(
-        &client, AccountConsistencyMethod::kDiceMigration);
-    // Gaia accounts are not empty, don't revoke.
-    gaia::ListedAccount gaia_account;
-    gaia_account.id = CoreAccountId("other");
-    EXPECT_EQ(AccountReconcilorDelegate::RevokeTokenOption::kDoNotRevoke,
-              delegate.ShouldRevokeSecondaryTokensBeforeReconcile(
-                  std::vector<gaia::ListedAccount>{gaia_account}));
-    // Revoke.
-    EXPECT_EQ(AccountReconcilorDelegate::RevokeTokenOption::kRevoke,
-              delegate.ShouldRevokeSecondaryTokensBeforeReconcile(
-                  std::vector<gaia::ListedAccount>()));
-  }
+  gaia::ListedAccount gaia_account;
+  gaia_account.id = CoreAccountId("other");
+  DiceAccountReconcilorDelegate delegate(&client, /*migration_completed=*/true);
+  EXPECT_EQ(
+      signin::AccountReconcilorDelegate::RevokeTokenOption::kRevokeIfInError,
+      delegate.ShouldRevokeSecondaryTokensBeforeReconcile(
+          std::vector<gaia::ListedAccount>()));
 }
 
-TEST(DiceAccountReconcilorDelegateTest, OnReconcileFinished) {
-  sync_preferences::TestingPrefServiceSyncable pref_service;
-  pref_service.registry()->RegisterBooleanPref(
-      prefs::kTokenServiceDiceCompatible, false);
-
-  DiceTestSigninClient client(&pref_service);
-
-  {
-    // Dice migration enabled, but token service is not ready.
-    testing::InSequence mock_sequence;
-    EXPECT_CALL(client, SetReadyForDiceMigration(false)).Times(1);
-    DiceAccountReconcilorDelegate delegate(
-        &client, AccountConsistencyMethod::kDiceMigration);
-    delegate.OnReconcileFinished(CoreAccountId("account"),
-                                 true /* is_reconcile_noop */);
-  }
-
-  pref_service.SetBoolean(prefs::kTokenServiceDiceCompatible, true);
-
-  {
-    // Dice migration enabled, token service is ready, but reconcile is not
-    // no-op.
-    testing::InSequence mock_sequence;
-    EXPECT_CALL(client, SetReadyForDiceMigration(false)).Times(1);
-    DiceAccountReconcilorDelegate delegate(
-        &client, AccountConsistencyMethod::kDiceMigration);
-    delegate.OnReconcileFinished(CoreAccountId("account"),
-                                 false /* is_reconcile_noop */);
-  }
-
-  {
-    // Ready for migration.
-    testing::InSequence mock_sequence;
-    EXPECT_CALL(client, SetReadyForDiceMigration(true)).Times(1);
-    DiceAccountReconcilorDelegate delegate(
-        &client, AccountConsistencyMethod::kDiceMigration);
-    delegate.OnReconcileFinished(CoreAccountId("account"),
-                                 true /* is_reconcile_noop */);
-  }
-}
-
-TEST(DiceAccountReconcilorDelegateTest, ShouldRevokeTokensOnCookieDeleted) {
+TEST(DiceAccountReconcilorDelegateTest, ShouldRevokeTokensBasedOnCookies) {
   sync_preferences::TestingPrefServiceSyncable pref_service;
   TestSigninClient client(&pref_service);
   {
     // Dice is enabled, revoke tokens when Gaia cookie is deleted.
     DiceAccountReconcilorDelegate delegate(&client,
-                                           AccountConsistencyMethod::kDice);
+                                           /*migration_completed=*/true);
     EXPECT_EQ(true, delegate.ShouldRevokeTokensOnCookieDeleted());
+    EXPECT_EQ(false, delegate.ShouldRevokeTokensNotInCookies());
   }
   {
-    // Dice is not enabled, do not revoke tokens when Gaia cookie is deleted.
-    DiceAccountReconcilorDelegate delegate(
-        &client, AccountConsistencyMethod::kDiceMigration);
-    EXPECT_EQ(false, delegate.ShouldRevokeTokensOnCookieDeleted());
+    // Dice is enabled, migration not completed, revoke tokens when
+    // Gaia cookie is deleted.
+    DiceAccountReconcilorDelegate delegate(&client,
+                                           /*migration_completed=*/false);
+    EXPECT_EQ(true, delegate.ShouldRevokeTokensOnCookieDeleted());
+    EXPECT_EQ(true, delegate.ShouldRevokeTokensNotInCookies());
   }
 }
 

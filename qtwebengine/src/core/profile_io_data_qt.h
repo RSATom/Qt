@@ -40,16 +40,12 @@
 #ifndef PROFILE_IO_DATA_QT_H
 #define PROFILE_IO_DATA_QT_H
 
-#include "profile_adapter.h"
 #include "content/public/browser/browsing_data_remover.h"
-#include "content/public/common/url_loader_throttle.h"
 #include "chrome/browser/profiles/profile.h"
-#include "chrome/browser/custom_handlers/protocol_handler_registry.h"
 #include "extensions/buildflags/buildflags.h"
-#include "mojo/public/cpp/bindings/strong_binding_set.h"
-#include "services/network/cookie_settings.h"
-#include "services/network/public/mojom/restricted_cookie_manager.mojom.h"
-#include "services/proxy_resolver/public/mojom/proxy_resolver.mojom.h"
+
+#include "net/proxy_config_monitor.h"
+#include "profile_adapter.h"
 
 #include <QtCore/QString>
 #include <QtCore/QPointer>
@@ -57,16 +53,7 @@
 
 namespace net {
 class ClientCertStore;
-class DhcpPacFileFetcherFactory;
-class HttpAuthPreferences;
-class HttpNetworkSession;
-class HostResolver;
-class NetworkDelegate;
-class ProxyConfigService;
 class URLRequestContext;
-class URLRequestContextStorage;
-class URLRequestJobFactoryImpl;
-class TransportSecurityPersister;
 }
 
 namespace extensions {
@@ -79,7 +66,6 @@ struct ClientCertificateStoreData;
 class ProfileIODataQt;
 class ProfileQt;
 
-
 class BrowsingDataRemoverObserverQt : public content::BrowsingDataRemover::Observer {
 public:
     BrowsingDataRemoverObserverQt(ProfileIODataQt *profileIOData);
@@ -89,7 +75,6 @@ public:
 private:
     ProfileIODataQt *m_profileIOData;
 };
-
 
 // ProfileIOData contains data that lives on the IOthread
 // we still use shared memebers and use mutex which breaks
@@ -103,58 +88,22 @@ public:
 
     QPointer<ProfileAdapter> profileAdapter();
     content::ResourceContext *resourceContext();
-    net::URLRequestContext *urlRequestContext();
 #if BUILDFLAG(ENABLE_EXTENSIONS)
     extensions::ExtensionSystemQt* GetExtensionSystem();
 #endif // BUILDFLAG(ENABLE_EXTENSIONS)
 
-    ProtocolHandlerRegistry::IOThreadDelegate *protocolHandlerRegistryIOThreadDelegate()
-    {
-        return m_protocolHandlerRegistryIOThreadDelegate.get();
-    }
-
-    void initializeOnIOThread();
     void initializeOnUIThread(); // runs on ui thread
     void shutdownOnUIThread(); // runs on ui thread
 
-    void cancelAllUrlRequests();
-    void generateAllStorage();
-    void generateStorage();
-    void generateCookieStore();
-    void generateHttpCache();
-    void generateUserAgent();
-    void generateJobFactory();
-    void regenerateJobFactory();
-    bool canSetCookie(const QUrl &firstPartyUrl, const QByteArray &cookieLine, const QUrl &url) const;
     bool canGetCookies(const QUrl &firstPartyUrl, const QUrl &url) const;
-    void setGlobalCertificateVerification();
 
     // Used in NetworkDelegateQt::OnBeforeURLRequest.
-    bool isInterceptorDeprecated() const; // Remove for Qt6
-    QWebEngineUrlRequestInterceptor *acquireInterceptor(); // Remove for Qt6
-    void releaseInterceptor();
-    QWebEngineUrlRequestInterceptor *requestInterceptor();
-
-    void setRequestContextData(content::ProtocolHandlerMap *protocolHandlers,
-                               content::URLRequestInterceptorScopedVector request_interceptors);
     void setFullConfiguration(); // runs on ui thread
-    void updateStorageSettings(); // runs on ui thread
-    void updateUserAgent(); // runs on ui thread
-    void updateCookieStore(); // runs on ui thread
-    void updateHttpCache(); // runs on ui thread
-    void updateJobFactory(); // runs on ui thread
-    void updateRequestInterceptor(); // runs on ui thread
-    void requestStorageGeneration(); //runs on ui thread
-    void createProxyConfig(); //runs on ui thread
-    void updateUsedForGlobalCertificateVerification(); // runs on ui thread
-    bool hasPageInterceptors();
+    void resetNetworkContext(); // runs on ui thread
+    void clearHttpCache(); // runs on ui thread
+    bool isClearHttpCacheInProgress() { return m_clearHttpCacheInProgress; }
 
-    void CreateRestrictedCookieManager(network::mojom::RestrictedCookieManagerRequest request,
-                                       network::mojom::RestrictedCookieManagerRole role,
-                                       const url::Origin &origin,
-                                       bool is_service_worker,
-                                       int32_t process_id,
-                                       int32_t routing_id);
+    network::mojom::NetworkContextParamsPtr CreateNetworkContextParams();
 
 #if QT_CONFIG(ssl)
     ClientCertificateStoreData *clientCertificateStoreData();
@@ -163,47 +112,29 @@ public:
     static ProfileIODataQt *FromBrowserContext(content::BrowserContext *browser_context);
     static ProfileIODataQt *FromResourceContext(content::ResourceContext *resource_context);
 
-    base::WeakPtr<ProfileIODataQt> getWeakPtrOnUIThread();
+    base::WeakPtr<ProfileIODataQt> getWeakPtrOnIOThread();
+
+    CookieMonsterDelegateQt *cookieDelegate() const { return m_cookieDelegate.get(); }
 
 private:
     void removeBrowsingDataRemoverObserver();
 
     ProfileQt *m_profile;
-    std::unique_ptr<net::URLRequestContextStorage> m_storage;
-    std::unique_ptr<net::NetworkDelegate> m_networkDelegate;
     std::unique_ptr<content::ResourceContext> m_resourceContext;
-    std::unique_ptr<net::URLRequestContext> m_urlRequestContext;
-    std::unique_ptr<net::HttpNetworkSession> m_httpNetworkSession;
-    scoped_refptr<ProtocolHandlerRegistry::IOThreadDelegate>
-            m_protocolHandlerRegistryIOThreadDelegate;
-    std::unique_ptr<net::DhcpPacFileFetcherFactory> m_dhcpPacFileFetcherFactory;
-    std::unique_ptr<net::HttpAuthPreferences> m_httpAuthPreferences;
-    std::unique_ptr<net::URLRequestJobFactory> m_jobFactory;
-    std::unique_ptr<net::TransportSecurityPersister> m_transportSecurityPersister;
-    std::unique_ptr<net::HostResolver> m_hostResolver;
-    base::WeakPtr<ProfileIODataQt> m_weakPtr;
     scoped_refptr<CookieMonsterDelegateQt> m_cookieDelegate;
-    content::URLRequestInterceptorScopedVector m_requestInterceptors;
-    content::ProtocolHandlerMap m_protocolHandlers;
-    mojo::InterfacePtrInfo<proxy_resolver::mojom::ProxyResolverFactory> m_proxyResolverFactoryInterface;
-    net::URLRequestJobFactoryImpl *m_baseJobFactory = nullptr;
-    QAtomicPointer<net::ProxyConfigService> m_proxyConfigService;
     QPointer<ProfileAdapter> m_profileAdapter; // never dereferenced in IO thread and it is passed by qpointer
     ProfileAdapter::PersistentCookiesPolicy m_persistentCookiesPolicy;
-    mojo::StrongBindingSet<network::mojom::RestrictedCookieManager> m_restrictedCookieManagerBindings;
+    std::unique_ptr<ProxyConfigMonitor> m_proxyConfigMonitor;
 
 #if QT_CONFIG(ssl)
     ClientCertificateStoreData *m_clientCertificateStoreData;
 #endif
-    QString m_cookiesPath;
     QString m_httpAcceptLanguage;
     QString m_httpUserAgent;
     ProfileAdapter::HttpCacheType m_httpCacheType;
     QString m_httpCachePath;
-    QList<QByteArray> m_customUrlSchemes;
-    QList<QByteArray> m_installedCustomSchemes;
-    QWebEngineUrlRequestInterceptor* m_requestInterceptor = nullptr;
-    network::CookieSettings m_cookieSettings;
+    QString m_storageName;
+    bool m_inMemoryOnly;
 #if QT_VERSION < QT_VERSION_CHECK(5, 14, 0)
     QMutex m_mutex{QMutex::Recursive};
     using QRecursiveMutex = QMutex;
@@ -211,17 +142,11 @@ private:
     QRecursiveMutex m_mutex;
 #endif
     int m_httpCacheMaxSize = 0;
-    bool m_initialized = false;
-    bool m_updateAllStorage = false;
-    bool m_updateJobFactory = false;
-    bool m_ignoreCertificateErrors = false;
     bool m_useForGlobalCertificateVerification = false;
-    bool m_hasPageInterceptors = false;
     BrowsingDataRemoverObserverQt m_removerObserver;
-    base::WeakPtrFactory<ProfileIODataQt> m_weakPtrFactory; // this should be always the last member
     QString m_dataPath;
-    bool m_pendingStorageRequestGeneration = false;
-    volatile bool m_isInterceptorDeprecated = false; // Remove for Qt6
+    bool m_clearHttpCacheInProgress = false;
+    base::WeakPtrFactory<ProfileIODataQt> m_weakPtrFactory; // this should be always the last member
     DISALLOW_COPY_AND_ASSIGN(ProfileIODataQt);
 
     friend class BrowsingDataRemoverObserverQt;

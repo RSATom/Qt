@@ -3,12 +3,13 @@
 // found in the LICENSE file.
 
 #include "content/browser/appcache/appcache_disk_cache.h"
+
 #include "base/bind.h"
 #include "base/files/file_util.h"
 #include "base/files/scoped_temp_dir.h"
 #include "base/run_loop.h"
 #include "base/single_thread_task_runner.h"
-#include "base/test/scoped_task_environment.h"
+#include "base/test/task_environment.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "net/base/completion_repeating_callback.h"
 #include "net/base/io_buffer.h"
@@ -29,18 +30,18 @@ class AppCacheDiskCacheTest : public testing::Test {
         &AppCacheDiskCacheTest::OnComplete, base::Unretained(this));
   }
 
-  void TearDown() override { scoped_task_environment_.RunUntilIdle(); }
+  void TearDown() override { task_environment_.RunUntilIdle(); }
 
   void FlushCacheTasks() {
     disk_cache::FlushCacheThreadForTesting();
-    scoped_task_environment_.RunUntilIdle();
+    task_environment_.RunUntilIdle();
   }
 
   void OnComplete(int err) {
     completion_results_.push_back(err);
   }
 
-  base::test::ScopedTaskEnvironment scoped_task_environment_;
+  base::test::TaskEnvironment task_environment_;
   base::ScopedTempDir directory_;
   net::CompletionRepeatingCallback completion_callback_;
   std::vector<int> completion_results_;
@@ -77,7 +78,7 @@ TEST_F(AppCacheDiskCacheTest, DisablePriorToInitCompletion) {
   // Ensure the directory can be deleted at this point.
   EXPECT_TRUE(base::DirectoryExists(directory_.GetPath()));
   EXPECT_FALSE(base::IsDirectoryEmpty(directory_.GetPath()));
-  EXPECT_TRUE(base::DeleteFile(directory_.GetPath(), true));
+  EXPECT_TRUE(base::DeleteFileRecursively(directory_.GetPath()));
   EXPECT_FALSE(base::DirectoryExists(directory_.GetPath()));
 }
 
@@ -98,7 +99,7 @@ TEST_F(AppCacheDiskCacheTest, DisableAfterInitted) {
   // Ensure the directory can be deleted at this point.
   EXPECT_TRUE(base::DirectoryExists(directory_.GetPath()));
   EXPECT_FALSE(base::IsDirectoryEmpty(directory_.GetPath()));
-  EXPECT_TRUE(base::DeleteFile(directory_.GetPath(), true));
+  EXPECT_TRUE(base::DeleteFileRecursively(directory_.GetPath()));
   EXPECT_FALSE(base::DirectoryExists(directory_.GetPath()));
 
   // Methods should return immediately when disabled and not invoke
@@ -164,7 +165,7 @@ TEST_F(AppCacheDiskCacheTest, DISABLED_DisableWithEntriesOpen) {
   // Ensure the directory can be deleted at this point.
   EXPECT_TRUE(base::DirectoryExists(directory_.GetPath()));
   EXPECT_FALSE(base::IsDirectoryEmpty(directory_.GetPath()));
-  EXPECT_TRUE(base::DeleteFile(directory_.GetPath(), true));
+  EXPECT_TRUE(base::DeleteFileRecursively(directory_.GetPath()));
   EXPECT_FALSE(base::DirectoryExists(directory_.GetPath()));
 
   disk_cache.reset(nullptr);
@@ -197,7 +198,7 @@ TEST_F(AppCacheDiskCacheTest, CleanupCallback) {
   // Ensure the directory can be deleted at this point.
   EXPECT_TRUE(base::DirectoryExists(directory_.GetPath()));
   EXPECT_FALSE(base::IsDirectoryEmpty(directory_.GetPath()));
-  EXPECT_TRUE(base::DeleteFile(directory_.GetPath(), true));
+  EXPECT_TRUE(base::DeleteFileRecursively(directory_.GetPath()));
   EXPECT_FALSE(base::DirectoryExists(directory_.GetPath()));
 }
 

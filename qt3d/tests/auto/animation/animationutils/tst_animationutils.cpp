@@ -38,7 +38,6 @@
 #include <Qt3DAnimation/private/additiveclipblend_p.h>
 #include <Qt3DAnimation/private/lerpclipblend_p.h>
 #include <Qt3DAnimation/private/managers_p.h>
-#include <Qt3DCore/qpropertyupdatedchange.h>
 #include <QtGui/qvector2d.h>
 #include <QtGui/qvector3d.h>
 #include <QtGui/qvector4d.h>
@@ -57,7 +56,6 @@ Q_DECLARE_METATYPE(Clock *)
 Q_DECLARE_METATYPE(ChannelMapper *)
 Q_DECLARE_METATYPE(AnimationClip *)
 Q_DECLARE_METATYPE(QVector<MappingData>)
-Q_DECLARE_METATYPE(QVector<Qt3DCore::QPropertyUpdatedChangePtr>)
 Q_DECLARE_METATYPE(Channel)
 Q_DECLARE_METATYPE(AnimatorEvaluationData)
 Q_DECLARE_METATYPE(ClipEvaluationData)
@@ -325,9 +323,19 @@ private Q_SLOTS:
                                                       qMetaTypeId<QVector<float>>(),
                                                       6,
                                                       channelMapping->peerId() };
+            ChannelNameAndType rgbColor = { QLatin1String("rgbColor"),
+                                            static_cast<int>(QVariant::Color),
+                                            3,
+                                            channelMapping->peerId() };
+
+            ChannelNameAndType rgbaColor = { QLatin1String("rgbaColor"),
+                                            static_cast<int>(QVariant::Color),
+                                            4,
+                                            channelMapping->peerId() };
+
             QVector<ChannelNameAndType> channelNamesAndTypes
                     = { rotation, location, baseColor, metalness, roughness,
-                        morphTargetWeightsList, morphTargetWeightsVec };
+                        morphTargetWeightsList, morphTargetWeightsVec, rgbColor, rgbaColor };
 
             // And the matching indices
             ComponentIndices rotationIndices = { 0, 1, 2, 3 };
@@ -337,10 +345,12 @@ private Q_SLOTS:
             ComponentIndices roughnessIndices = { 11 };
             ComponentIndices morphTargetListIndices = { 12, 13, 14, 15, 16 };
             ComponentIndices morphTargetVecIndices = { 17, 18, 19, 20, 21, 22 };
+            ComponentIndices rgbColorIndices = { 23, 24, 25 };
+            ComponentIndices rgbaColorIndices = { 26, 27, 28, 29 };
             QVector<ComponentIndices> channelComponentIndices
                     = { rotationIndices, locationIndices, baseColorIndices,
                         metalnessIndices, roughnessIndices, morphTargetListIndices,
-                        morphTargetVecIndices };
+                        morphTargetVecIndices, rgbColorIndices, rgbaColorIndices };
 
             QVector<QBitArray> sourceClipMask = { QBitArray(4, true),
                                                   QBitArray(3, true),
@@ -348,7 +358,10 @@ private Q_SLOTS:
                                                   QBitArray(1, true),
                                                   QBitArray(1, true),
                                                   QBitArray(5, true),
-                                                  QBitArray(6, true) };
+                                                  QBitArray(6, true),
+                                                  QBitArray(3, true),
+                                                  QBitArray(4, true),
+                                                };
 
             MappingData expectedMapping;
             expectedMapping.targetId = channelMapping->targetId();
@@ -971,7 +984,29 @@ private Q_SLOTS:
             expectedChanges.normalizedTime = 1.1f; // Invalid
             expectedChanges.targetChanges.push_back({mapping.targetId, mapping.propertyName, QVariant::fromValue(QColor::fromRgbF(0.5f, 0.4f, 0.3f))});
 
-            QTest::newRow("QColor color")
+            QTest::newRow("QColor rgb color")
+                    << animatorId << mappingData << channelResults << expectedChanges;
+
+            mappingData.clear();
+            channelResults.clear();
+            expectedChanges.targetChanges.clear();
+        }
+
+        // Single property, QColor
+        {
+            animatorId = Qt3DCore::QNodeId::createId();
+            MappingData mapping;
+            mapping.targetId = Qt3DCore::QNodeId::createId();
+            mapping.propertyName = "color";
+            mapping.type = static_cast<int>(QVariant::Color);
+            mapping.channelIndices = QVector<int>() << 0 << 1 << 2 << 3;
+            mappingData.push_back(mapping);
+            channelResults = QVector<float>() << 0.5f << 0.4f << 0.3f << 0.2f;
+            expectedChanges.finalFrame = false;
+            expectedChanges.normalizedTime = 1.1f; // Invalid
+            expectedChanges.targetChanges.push_back({mapping.targetId, mapping.propertyName, QVariant::fromValue(QColor::fromRgbF(0.5f, 0.4f, 0.3f, 0.2f))});
+
+            QTest::newRow("QColor rgba color")
                     << animatorId << mappingData << channelResults << expectedChanges;
 
             mappingData.clear();
@@ -1047,7 +1082,7 @@ private Q_SLOTS:
             mapping.type = static_cast<int>(QVariant::Vector3D);
             mapping.channelIndices = QVector<int>() << 0 << 1 << 2;
             mapping.callback = &callback;
-            mapping.callbackFlags = 0;
+            mapping.callbackFlags = {};
             mappingData.push_back(mapping);
             channelResults = QVector<float>() << 1.0f << 2.0f << 3.0f;
 
@@ -1073,7 +1108,7 @@ private Q_SLOTS:
             mapping.type = static_cast<int>(QVariant::Double);
             mapping.channelIndices = QVector<int>() << 0;
             mapping.callback = &callback;
-            mapping.callbackFlags = 0;
+            mapping.callbackFlags = {};
             mappingData.push_back(mapping);
             channelResults = QVector<float>() << 1.0f;
 
@@ -1615,7 +1650,7 @@ private Q_SLOTS:
             expectedResults.clear();
         }
 
-        // color with and without offset
+        // color with and without offset 3 components
         {
             channel = Channel();
             channel.name = QLatin1String("Color");
@@ -1630,7 +1665,7 @@ private Q_SLOTS:
             suffixes = (QVector<char>() << 'R' << 'G' << 'B');
             expectedResults = (QVector<int>() << 0 << 1 << 2);
 
-            QTest::newRow("QColor Color, offset = 0")
+            QTest::newRow("QColor RGB Color, offset = 0")
                     << channel << dataType << expectedChannelComponentCount
                     << offset << suffixes << expectedResults;
 
@@ -1638,7 +1673,39 @@ private Q_SLOTS:
 
             offset = 10;
             expectedResults = (QVector<int>() << 10 << 11 << 12);
-            QTest::newRow("QColor Color, offset = 10")
+            QTest::newRow("QColor RGB Color, offset = 10")
+                    << channel << dataType << expectedChannelComponentCount
+                    << offset << suffixes << expectedResults;
+
+            suffixes.clear();
+            expectedResults.clear();
+        }
+
+        // color with and without offset 4 components
+        {
+            channel = Channel();
+            channel.name = QLatin1String("Color");
+            channel.channelComponents.resize(4);
+            channel.channelComponents[0].name = QLatin1String("Color R");
+            channel.channelComponents[1].name = QLatin1String("Color G");
+            channel.channelComponents[2].name = QLatin1String("Color B");
+            channel.channelComponents[3].name = QLatin1String("Color A");
+
+            dataType = static_cast<int>(QVariant::Color);
+            expectedChannelComponentCount = 4;
+            offset = 0;
+            suffixes = (QVector<char>() << 'R' << 'G' << 'B' << 'A');
+            expectedResults = (QVector<int>() << 0 << 1 << 2 << 3);
+
+            QTest::newRow("QColor RGBA Color, offset = 0")
+                    << channel << dataType << expectedChannelComponentCount
+                    << offset << suffixes << expectedResults;
+
+            expectedResults.clear();
+
+            offset = 10;
+            expectedResults = (QVector<int>() << 10 << 11 << 12 << 13);
+            QTest::newRow("QColor RGBA Color, offset = 10")
                     << channel << dataType << expectedChannelComponentCount
                     << offset << suffixes << expectedResults;
 
@@ -1805,14 +1872,41 @@ private Q_SLOTS:
             offset = 0;
             expectedResults = (QVector<int>() << 0 << 1 << 2);
 
-            QTest::newRow("QColor Color, offset = 0")
+            QTest::newRow("QColor RGB Color, offset = 0")
                     << channel << dataType << componentCount << offset << expectedResults;
 
             expectedResults.clear();
 
             offset = 10;
             expectedResults = (QVector<int>() << 10 << 11 << 12);
-            QTest::newRow("QColor Color, offset = 10")
+            QTest::newRow("QColor RGB Color, offset = 10")
+                    << channel << dataType << componentCount << offset << expectedResults;
+
+            expectedResults.clear();
+        }
+
+        {
+            channel = Channel();
+            channel.name = QLatin1String("Color");
+            channel.channelComponents.resize(4);
+            channel.channelComponents[0].name = QLatin1String("Color R");
+            channel.channelComponents[1].name = QLatin1String("Color G");
+            channel.channelComponents[2].name = QLatin1String("Color B");
+            channel.channelComponents[3].name = QLatin1String("Color A");
+
+            dataType = static_cast<int>(QVariant::Color);
+            componentCount = 4;
+            offset = 0;
+            expectedResults = (QVector<int>() << 0 << 1 << 2 << 3);
+
+            QTest::newRow("QColor RGBA Color, offset = 0")
+                    << channel << dataType << componentCount << offset << expectedResults;
+
+            expectedResults.clear();
+
+            offset = 10;
+            expectedResults = (QVector<int>() << 10 << 11 << 12 << 13);
+            QTest::newRow("QColor RGBA Color, offset = 10")
                     << channel << dataType << componentCount << offset << expectedResults;
 
             expectedResults.clear();
@@ -1963,6 +2057,114 @@ private Q_SLOTS:
             clipData.isFinalFrame = true;
 
             QTest::newRow("clip1.json, elapsedTime = duration + 1, loops = 2, current_loop = 1")
+                    << handler << clip << animatorData << clipData;
+        }
+
+        {
+            handler = new Handler();
+            clip = createAnimationClipLoader(handler, QUrl("qrc:/clip1.json"));
+            const qint64 globalStartTimeNS = clip->duration();
+            const int loops = 1;
+            auto animator = createClipAnimator(handler, globalStartTimeNS, loops);
+            animator->setCurrentLoop(1);
+            clipData.currentLoop = animator->currentLoop();
+            const qint64 elapsedTimeNS = toNsecs(clip->duration() * 0.5); // +1 to ensure beyond end of clip
+
+            Clock clock;
+            clock.setPlaybackRate(-1.0);
+
+            animatorData = evaluationDataForAnimator(animator, &clock, elapsedTimeNS); // Tested elsewhere
+
+            clipData.localTime = localTimeFromElapsedTime(animatorData.currentTime,
+                                                         animatorData.elapsedTime,
+                                                         animatorData.playbackRate,
+                                                         clip->duration(),
+                                                         animatorData.loopCount,
+                                                         clipData.currentLoop); // Tested elsewhere
+            clipData.isFinalFrame = false;
+
+            QTest::newRow("clip1.json, elapsedTime = duration / 2, loops = 1, current_loop = 1, playback_rate = -1")
+                    << handler << clip << animatorData << clipData;
+        }
+
+        {
+            handler = new Handler();
+            clip = createAnimationClipLoader(handler, QUrl("qrc:/clip1.json"));
+            const qint64 globalStartTimeNS = clip->duration();
+            const int loops = 1;
+            auto animator = createClipAnimator(handler, globalStartTimeNS, loops);
+            animator->setCurrentLoop(1);
+            clipData.currentLoop = animator->currentLoop();
+            const qint64 elapsedTimeNS = toNsecs(clip->duration() + 1); // +1 to ensure beyond end of clip
+
+            Clock clock;
+            clock.setPlaybackRate(-1.0);
+
+            animatorData = evaluationDataForAnimator(animator, &clock, elapsedTimeNS); // Tested elsewhere
+
+            clipData.localTime = localTimeFromElapsedTime(animatorData.currentTime,
+                                                          animatorData.elapsedTime,
+                                                          animatorData.playbackRate,
+                                                          clip->duration(),
+                                                          animatorData.loopCount,
+                                                          clipData.currentLoop); // Tested elsewhere
+            clipData.isFinalFrame = true;
+
+            QTest::newRow("clip1.json, elapsedTime = duration + 1, loops = 1, current_loop = 1, playback_rate = -1")
+                    << handler << clip << animatorData << clipData;
+        }
+
+        {
+            handler = new Handler();
+            clip = createAnimationClipLoader(handler, QUrl("qrc:/clip1.json"));
+            const qint64 globalStartTimeNS = clip->duration();
+            const int loops = 2;
+            auto animator = createClipAnimator(handler, globalStartTimeNS, loops);
+            animator->setCurrentLoop(0);
+            clipData.currentLoop = animator->currentLoop();
+            const qint64 elapsedTimeNS = toNsecs(clip->duration() + 1); // +1 to ensure beyond end of clip
+
+            Clock clock;
+            clock.setPlaybackRate(-1.0);
+
+            animatorData = evaluationDataForAnimator(animator, &clock, elapsedTimeNS); // Tested elsewhere
+
+            clipData.localTime = localTimeFromElapsedTime(animatorData.currentTime,
+                                                          animatorData.elapsedTime,
+                                                          animatorData.playbackRate,
+                                                          clip->duration(),
+                                                          animatorData.loopCount,
+                                                          clipData.currentLoop); // Tested elsewhere
+            clipData.isFinalFrame = true;
+
+            QTest::newRow("clip1.json, elapsedTime = duration + 1, loops = 2, current_loop = 0, playback_rate = -1")
+                    << handler << clip << animatorData << clipData;
+        }
+
+        {
+            handler = new Handler();
+            clip = createAnimationClipLoader(handler, QUrl("qrc:/clip1.json"));
+            const qint64 globalStartTimeNS = clip->duration();
+            const int loops = 2;
+            auto animator = createClipAnimator(handler, globalStartTimeNS, loops);
+            animator->setCurrentLoop(1);
+            clipData.currentLoop = animator->currentLoop();
+            const qint64 elapsedTimeNS = toNsecs(clip->duration() * 2.0 + 1); // +1 to ensure beyond end of clip
+
+            Clock clock;
+            clock.setPlaybackRate(-1.0);
+
+            animatorData = evaluationDataForAnimator(animator, &clock, elapsedTimeNS); // Tested elsewhere
+
+            clipData.localTime = localTimeFromElapsedTime(animatorData.currentTime,
+                                                          animatorData.elapsedTime,
+                                                          animatorData.playbackRate,
+                                                          clip->duration(),
+                                                          animatorData.loopCount,
+                                                          clipData.currentLoop); // Tested elsewhere
+            clipData.isFinalFrame = true;
+
+            QTest::newRow("clip1.json, elapsedTime = duration + 1, loops = 2, current_loop = 1, playback_rate = -1")
                     << handler << clip << animatorData << clipData;
         }
     }

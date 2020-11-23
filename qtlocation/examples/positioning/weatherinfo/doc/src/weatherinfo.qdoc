@@ -55,18 +55,12 @@
     \snippet weatherinfo/appmodel.h 0
     \snippet weatherinfo/appmodel.h 1
 
-    AppModel models the state of the entire application. At startup, the
-    application first begins by waiting for network connectivity. We do
-    this using the QNetworkConfigurationManager and QNetworkSession family
-    of C++ APIs.
+    AppModel models the state of the entire application. At startup, we
+    get the platform's default position source using
+    QGeoPositionInfo::createDefaultSource()
 
     \snippet weatherinfo/appmodel.cpp 0
     \snippet weatherinfo/appmodel.cpp 1
-
-    Once the network session is open, we proceed to get the platform's
-    default position source using QGeoPositionInfo::createDefaultSource()
-
-    \snippet weatherinfo/appmodel.cpp 2
 
     If no default source is available, we take a static position and fetch
     weather for that. If, however, we do have a position source, we connect
@@ -77,7 +71,7 @@
     of the returned coordinate to retrieve the current "city" name for use
     in the weather lookup.
 
-    \snippet weatherinfo/appmodel.cpp 3
+    \snippet weatherinfo/appmodel.cpp 2
 
     To inform the UI about this process, the cityChanged() signal is emitted
     when a new city is used, and the weatherChanged() signal whenever a

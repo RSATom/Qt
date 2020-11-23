@@ -58,6 +58,7 @@
 #include "private/qapplication_p.h"
 #include "private/qtextdocumentlayout_p.h"
 #include "private/qabstracttextdocumentlayout_p.h"
+#include "private/qmenu_p.h"
 #include "qtextdocument.h"
 #include "private/qtextdocument_p.h"
 #include "qtextlist.h"
@@ -125,7 +126,7 @@ static QTextLine currentTextLine(const QTextCursor &cursor)
 }
 
 QWidgetTextControlPrivate::QWidgetTextControlPrivate()
-    : doc(0), cursorOn(false), cursorVisible(false), cursorIsFocusIndicator(false),
+    : doc(nullptr), cursorOn(false), cursorVisible(false), cursorIsFocusIndicator(false),
 #ifndef Q_OS_ANDROID
       interactionFlags(Qt::TextEditorInteraction),
 #else
@@ -683,7 +684,7 @@ void QWidgetTextControlPrivate::_q_contentsChanged(int from, int charsRemoved, i
         // always report the right number of removed chars, but in lack of the real string use spaces
         QString oldText = QString(charsRemoved, QLatin1Char(' '));
 
-        QAccessibleEvent *ev = 0;
+        QAccessibleEvent *ev = nullptr;
         if (charsRemoved == 0) {
             ev = new QAccessibleTextInsertEvent(q->parent(), from, newText);
         } else if (charsAdded == 0) {
@@ -906,12 +907,12 @@ void QWidgetTextControl::setDocument(QTextDocument *document)
 
     d->doc->disconnect(this);
     d->doc->documentLayout()->disconnect(this);
-    d->doc->documentLayout()->setPaintDevice(0);
+    d->doc->documentLayout()->setPaintDevice(nullptr);
 
     if (d->doc->parent() == this)
         delete d->doc;
 
-    d->doc = 0;
+    d->doc = nullptr;
     d->setContent(Qt::RichText, QString(), document);
 }
 
@@ -992,12 +993,12 @@ void QWidgetTextControl::selectAll()
 
 void QWidgetTextControl::processEvent(QEvent *e, const QPointF &coordinateOffset, QWidget *contextWidget)
 {
-    QMatrix m;
-    m.translate(coordinateOffset.x(), coordinateOffset.y());
-    processEvent(e, m, contextWidget);
+    QTransform t;
+    t.translate(coordinateOffset.x(), coordinateOffset.y());
+    processEvent(e, t, contextWidget);
 }
 
-void QWidgetTextControl::processEvent(QEvent *e, const QMatrix &matrix, QWidget *contextWidget)
+void QWidgetTextControl::processEvent(QEvent *e, const QTransform &transform, QWidget *contextWidget)
 {
     Q_D(QWidgetTextControl);
     if (d->interactionFlags == Qt::NoTextInteraction) {
@@ -1038,22 +1039,22 @@ void QWidgetTextControl::processEvent(QEvent *e, const QMatrix &matrix, QWidget 
             break;
         case QEvent::MouseButtonPress: {
             QMouseEvent *ev = static_cast<QMouseEvent *>(e);
-            d->mousePressEvent(ev, ev->button(), matrix.map(ev->pos()), ev->modifiers(),
+            d->mousePressEvent(ev, ev->button(), transform.map(ev->pos()), ev->modifiers(),
                                ev->buttons(), ev->globalPos());
             break; }
         case QEvent::MouseMove: {
             QMouseEvent *ev = static_cast<QMouseEvent *>(e);
-            d->mouseMoveEvent(ev, ev->button(), matrix.map(ev->pos()), ev->modifiers(),
+            d->mouseMoveEvent(ev, ev->button(), transform.map(ev->pos()), ev->modifiers(),
                               ev->buttons(), ev->globalPos());
             break; }
         case QEvent::MouseButtonRelease: {
             QMouseEvent *ev = static_cast<QMouseEvent *>(e);
-            d->mouseReleaseEvent(ev, ev->button(), matrix.map(ev->pos()), ev->modifiers(),
+            d->mouseReleaseEvent(ev, ev->button(), transform.map(ev->pos()), ev->modifiers(),
                                  ev->buttons(), ev->globalPos());
             break; }
         case QEvent::MouseButtonDblClick: {
             QMouseEvent *ev = static_cast<QMouseEvent *>(e);
-            d->mouseDoubleClickEvent(ev, ev->button(), matrix.map(ev->pos()), ev->modifiers(),
+            d->mouseDoubleClickEvent(ev, ev->button(), transform.map(ev->pos()), ev->modifiers(),
                                      ev->buttons(), ev->globalPos());
             break; }
         case QEvent::InputMethod:
@@ -1062,7 +1063,7 @@ void QWidgetTextControl::processEvent(QEvent *e, const QMatrix &matrix, QWidget 
 #ifndef QT_NO_CONTEXTMENU
     case QEvent::ContextMenu: {
             QContextMenuEvent *ev = static_cast<QContextMenuEvent *>(e);
-            d->contextMenuEvent(ev->globalPos(), matrix.map(ev->pos()), contextWidget);
+            d->contextMenuEvent(ev->globalPos(), transform.map(ev->pos()), contextWidget);
             break; }
 #endif // QT_NO_CONTEXTMENU
         case QEvent::FocusIn:
@@ -1077,7 +1078,7 @@ void QWidgetTextControl::processEvent(QEvent *e, const QMatrix &matrix, QWidget 
 #ifndef QT_NO_TOOLTIP
         case QEvent::ToolTip: {
             QHelpEvent *ev = static_cast<QHelpEvent *>(e);
-            d->showToolTip(ev->globalPos(), matrix.map(ev->pos()), contextWidget);
+            d->showToolTip(ev->globalPos(), transform.map(ev->pos()), contextWidget);
             break;
         }
 #endif // QT_NO_TOOLTIP
@@ -1094,13 +1095,13 @@ void QWidgetTextControl::processEvent(QEvent *e, const QMatrix &matrix, QWidget 
             break;
         case QEvent::DragMove: {
             QDragMoveEvent *ev = static_cast<QDragMoveEvent *>(e);
-            if (d->dragMoveEvent(e, ev->mimeData(), matrix.map(ev->pos())))
+            if (d->dragMoveEvent(e, ev->mimeData(), transform.map(ev->pos())))
                 ev->acceptProposedAction();
             break;
         }
         case QEvent::Drop: {
             QDropEvent *ev = static_cast<QDropEvent *>(e);
-            if (d->dropEvent(ev->mimeData(), matrix.map(ev->pos()), ev->dropAction(), ev->source()))
+            if (d->dropEvent(ev->mimeData(), transform.map(ev->pos()), ev->dropAction(), ev->source()))
                 ev->acceptProposedAction();
             break;
         }
@@ -1109,32 +1110,32 @@ void QWidgetTextControl::processEvent(QEvent *e, const QMatrix &matrix, QWidget 
 #if QT_CONFIG(graphicsview)
         case QEvent::GraphicsSceneMousePress: {
             QGraphicsSceneMouseEvent *ev = static_cast<QGraphicsSceneMouseEvent *>(e);
-            d->mousePressEvent(ev, ev->button(), matrix.map(ev->pos()), ev->modifiers(), ev->buttons(),
+            d->mousePressEvent(ev, ev->button(), transform.map(ev->pos()), ev->modifiers(), ev->buttons(),
                                ev->screenPos());
             break; }
         case QEvent::GraphicsSceneMouseMove: {
             QGraphicsSceneMouseEvent *ev = static_cast<QGraphicsSceneMouseEvent *>(e);
-            d->mouseMoveEvent(ev, ev->button(), matrix.map(ev->pos()), ev->modifiers(), ev->buttons(),
+            d->mouseMoveEvent(ev, ev->button(), transform.map(ev->pos()), ev->modifiers(), ev->buttons(),
                               ev->screenPos());
             break; }
         case QEvent::GraphicsSceneMouseRelease: {
             QGraphicsSceneMouseEvent *ev = static_cast<QGraphicsSceneMouseEvent *>(e);
-            d->mouseReleaseEvent(ev, ev->button(), matrix.map(ev->pos()), ev->modifiers(), ev->buttons(),
+            d->mouseReleaseEvent(ev, ev->button(), transform.map(ev->pos()), ev->modifiers(), ev->buttons(),
                                  ev->screenPos());
             break; }
         case QEvent::GraphicsSceneMouseDoubleClick: {
             QGraphicsSceneMouseEvent *ev = static_cast<QGraphicsSceneMouseEvent *>(e);
-            d->mouseDoubleClickEvent(ev, ev->button(), matrix.map(ev->pos()), ev->modifiers(), ev->buttons(),
+            d->mouseDoubleClickEvent(ev, ev->button(), transform.map(ev->pos()), ev->modifiers(), ev->buttons(),
                                      ev->screenPos());
             break; }
         case QEvent::GraphicsSceneContextMenu: {
             QGraphicsSceneContextMenuEvent *ev = static_cast<QGraphicsSceneContextMenuEvent *>(e);
-            d->contextMenuEvent(ev->screenPos(), matrix.map(ev->pos()), contextWidget);
+            d->contextMenuEvent(ev->screenPos(), transform.map(ev->pos()), contextWidget);
             break; }
 
         case QEvent::GraphicsSceneHoverMove: {
             QGraphicsSceneHoverEvent *ev = static_cast<QGraphicsSceneHoverEvent *>(e);
-            d->mouseMoveEvent(ev, Qt::NoButton, matrix.map(ev->pos()), ev->modifiers(),Qt::NoButton,
+            d->mouseMoveEvent(ev, Qt::NoButton, transform.map(ev->pos()), ev->modifiers(),Qt::NoButton,
                               ev->screenPos());
             break; }
 
@@ -1148,12 +1149,12 @@ void QWidgetTextControl::processEvent(QEvent *e, const QMatrix &matrix, QWidget 
             break;
         case QEvent::GraphicsSceneDragMove: {
             QGraphicsSceneDragDropEvent *ev = static_cast<QGraphicsSceneDragDropEvent *>(e);
-            if (d->dragMoveEvent(e, ev->mimeData(), matrix.map(ev->pos())))
+            if (d->dragMoveEvent(e, ev->mimeData(), transform.map(ev->pos())))
                 ev->acceptProposedAction();
             break; }
         case QEvent::GraphicsSceneDrop: {
             QGraphicsSceneDragDropEvent *ev = static_cast<QGraphicsSceneDragDropEvent *>(e);
-            if (d->dropEvent(ev->mimeData(), matrix.map(ev->pos()), ev->dropAction(), ev->source()))
+            if (d->dropEvent(ev->mimeData(), transform.map(ev->pos()), ev->dropAction(), ev->source()))
                 ev->accept();
             break; }
 #endif // QT_CONFIG(graphicsview)
@@ -1941,6 +1942,10 @@ void QWidgetTextControlPrivate::contextMenuEvent(const QPoint &screenPos, const 
     if (!menu)
         return;
     menu->setAttribute(Qt::WA_DeleteOnClose);
+    if (auto *window = static_cast<QWidget *>(parent)->window()->windowHandle()) {
+        QMenuPrivate::get(menu)->topData()->initialScreenIndex =
+                QGuiApplication::screens().indexOf(window->screen());
+    }
     menu->popup(screenPos);
 #endif
 }
@@ -2236,6 +2241,7 @@ void QWidgetTextControlPrivate::focusEvent(QFocusEvent *e)
 #endif
     } else {
         setCursorVisible(false);
+        cursorOn = false;
 
         if (cursorIsFocusIndicator
             && e->reason() != Qt::ActiveWindowFocusReason
@@ -2308,7 +2314,7 @@ QMenu *QWidgetTextControl::createStandardContextMenu(const QPointF &pos, QWidget
         d->linkToCopy = anchorAt(pos);
 
     if (d->linkToCopy.isEmpty() && !showTextSelectionActions)
-        return 0;
+        return nullptr;
 
     QMenu *menu = new QMenu(parent);
     QAction *a;
@@ -2662,7 +2668,7 @@ void QWidgetTextControl::print(QPagedPaintDevice *printer) const
     Q_D(const QWidgetTextControl);
     if (!printer)
         return;
-    QTextDocument *tempDoc = 0;
+    QTextDocument *tempDoc = nullptr;
     const QTextDocument *doc = d->doc;
     if (QPagedPaintDevicePrivate::get(printer)->printSelectionOnly) {
         if (!d->cursor.hasSelection())

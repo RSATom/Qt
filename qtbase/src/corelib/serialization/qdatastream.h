@@ -285,6 +285,13 @@ QDataStream &readListBasedContainer(QDataStream &s, Container &c)
     return s;
 }
 
+template <typename T>
+struct MultiContainer { using type = T; };
+template <typename K, typename V>
+struct MultiContainer<QMap<K, V>> { using type = QMultiMap<K, V>; };
+template <typename K, typename V>
+struct MultiContainer<QHash<K, V>> { using type = QMultiHash<K, V>; };
+
 template <typename Container>
 QDataStream &readAssociativeContainer(QDataStream &s, Container &c)
 {
@@ -301,7 +308,7 @@ QDataStream &readAssociativeContainer(QDataStream &s, Container &c)
             c.clear();
             break;
         }
-        c.insertMulti(k, t);
+        static_cast<typename MultiContainer<Container>::type &>(c).insert(k, t);
     }
 
     return s;
@@ -321,15 +328,33 @@ template <typename Container>
 QDataStream &writeAssociativeContainer(QDataStream &s, const Container &c)
 {
     s << quint32(c.size());
+#if QT_VERSION < QT_VERSION_CHECK(6, 0, 0) && QT_DEPRECATED_SINCE(5, 15)
     // Deserialization should occur in the reverse order.
     // Otherwise, value() will return the least recently inserted
     // value instead of the most recently inserted one.
     auto it = c.constEnd();
     auto begin = c.constBegin();
     while (it != begin) {
+        QT_WARNING_PUSH
+        QT_WARNING_DISABLE_DEPRECATED
         --it;
+        QT_WARNING_POP
         s << it.key() << it.value();
     }
+#else
+    auto it = c.constBegin();
+    auto end = c.constEnd();
+    while (it != end) {
+        const auto rangeStart = it++;
+        while (it != end && rangeStart.key() == it.key())
+            ++it;
+        const qint64 last = std::distance(rangeStart, it) - 1;
+        for (qint64 i = last; i >= 0; --i) {
+            auto next = std::next(rangeStart, i);
+            s << next.key() << next.value();
+        }
+    }
+#endif
 
     return s;
 }

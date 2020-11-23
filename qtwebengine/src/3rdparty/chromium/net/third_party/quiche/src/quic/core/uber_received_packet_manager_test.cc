@@ -4,11 +4,12 @@
 
 #include "net/third_party/quiche/src/quic/core/uber_received_packet_manager.h"
 
+#include <utility>
+
 #include "net/third_party/quiche/src/quic/core/congestion_control/rtt_stats.h"
 #include "net/third_party/quiche/src/quic/core/crypto/crypto_protocol.h"
 #include "net/third_party/quiche/src/quic/core/quic_connection_stats.h"
 #include "net/third_party/quiche/src/quic/core/quic_utils.h"
-#include "net/third_party/quiche/src/quic/platform/api/quic_ptr_util.h"
 #include "net/third_party/quiche/src/quic/platform/api/quic_test.h"
 #include "net/third_party/quiche/src/quic/test_tools/mock_clock.h"
 
@@ -49,7 +50,7 @@ const QuicTime::Delta kDelayedAckTime =
 class UberReceivedPacketManagerTest : public QuicTest {
  protected:
   UberReceivedPacketManagerTest() {
-    manager_ = QuicMakeUnique<UberReceivedPacketManager>(&stats_);
+    manager_ = std::make_unique<UberReceivedPacketManager>(&stats_);
     clock_.AdvanceTime(QuicTime::Delta::FromSeconds(1));
     rtt_stats_.UpdateRtt(kMinRttMs, QuicTime::Delta::Zero(), QuicTime::Zero());
     manager_->set_save_timestamps(true);
@@ -98,7 +99,7 @@ class UberReceivedPacketManagerTest : public QuicTest {
     manager_->MaybeUpdateAckTimeout(
         should_last_packet_instigate_acks, decrypted_packet_level,
         QuicPacketNumber(last_received_packet_number), clock_.ApproximateNow(),
-        clock_.ApproximateNow(), &rtt_stats_, kDelayedAckTime);
+        clock_.ApproximateNow(), &rtt_stats_);
   }
 
   void CheckAckTimeout(QuicTime time) {
@@ -376,6 +377,20 @@ TEST_F(UberReceivedPacketManagerTest, SendDelayedAfterQuiescence) {
   RecordPacketReceipt(3, clock_.ApproximateNow());
   MaybeUpdateAckTimeout(kInstigateAck, 3);
   CheckAckTimeout(ack_time);
+}
+
+TEST_F(UberReceivedPacketManagerTest, SendDelayedMaxAckDelay) {
+  EXPECT_FALSE(HasPendingAck());
+  QuicTime::Delta max_ack_delay = QuicTime::Delta::FromMilliseconds(100);
+  manager_->set_max_ack_delay(max_ack_delay);
+  QuicTime ack_time = clock_.ApproximateNow() + max_ack_delay;
+
+  RecordPacketReceipt(1, clock_.ApproximateNow());
+  MaybeUpdateAckTimeout(kInstigateAck, 1);
+  CheckAckTimeout(ack_time);
+  // Simulate delayed ack alarm firing.
+  clock_.AdvanceTime(max_ack_delay);
+  CheckAckTimeout(clock_.ApproximateNow());
 }
 
 TEST_F(UberReceivedPacketManagerTest, SendDelayedAckDecimation) {
@@ -765,7 +780,12 @@ TEST_F(UberReceivedPacketManagerTest, AckSendingDifferentPacketNumberSpaces) {
   MaybeUpdateAckTimeout(kInstigateAck, ENCRYPTION_HANDSHAKE, 3);
   EXPECT_TRUE(HasPendingAck());
   // Delayed ack is scheduled.
-  CheckAckTimeout(clock_.ApproximateNow() + kDelayedAckTime);
+  CheckAckTimeout(clock_.ApproximateNow() +
+                  QuicTime::Delta::FromMilliseconds(1));
+  // Send delayed handshake data ACK.
+  clock_.AdvanceTime(QuicTime::Delta::FromMilliseconds(1));
+  CheckAckTimeout(clock_.ApproximateNow());
+  EXPECT_FALSE(HasPendingAck());
 
   RecordPacketReceipt(ENCRYPTION_FORWARD_SECURE, 3);
   MaybeUpdateAckTimeout(kInstigateAck, ENCRYPTION_FORWARD_SECURE, 3);
@@ -776,12 +796,6 @@ TEST_F(UberReceivedPacketManagerTest, AckSendingDifferentPacketNumberSpaces) {
   RecordPacketReceipt(ENCRYPTION_FORWARD_SECURE, 2);
   MaybeUpdateAckTimeout(kInstigateAck, ENCRYPTION_FORWARD_SECURE, 2);
   // Application data ACK should be sent immediately.
-  CheckAckTimeout(clock_.ApproximateNow());
-  // Delayed ACK of handshake data is pending.
-  CheckAckTimeout(clock_.ApproximateNow() + kDelayedAckTime);
-
-  // Send delayed handshake data ACK.
-  clock_.AdvanceTime(kDelayedAckTime);
   CheckAckTimeout(clock_.ApproximateNow());
   EXPECT_FALSE(HasPendingAck());
 }

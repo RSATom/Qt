@@ -42,6 +42,7 @@
 #include <QtGui/qopengl.h>
 #include <QtNetwork/qnetworkaccessmanager.h>
 #include <QtNetwork/qnetworkreply.h>
+#include <QtNetwork/qtcpsocket.h>
 #include <QtWebSockets/qwebsocket.h>
 
 #include "parameters.h"

@@ -8,11 +8,12 @@
 #ifndef GrXferProcessor_DEFINED
 #define GrXferProcessor_DEFINED
 
-#include "include/gpu/GrBlend.h"
 #include "include/gpu/GrTypes.h"
+#include "src/gpu/GrBlend.h"
 #include "src/gpu/GrNonAtomicRef.h"
 #include "src/gpu/GrProcessor.h"
 #include "src/gpu/GrProcessorAnalysis.h"
+#include "src/gpu/GrSurfaceProxyView.h"
 
 class GrGLSLXferProcessor;
 class GrProcessorSet;
@@ -53,51 +54,52 @@ public:
      * to the space of the texture. Depending on GPU capabilities a DstTexture may be used by a
      * GrXferProcessor for blending in the fragment shader.
      */
-    class DstProxy {
+    class DstProxyView {
     public:
-        DstProxy() { fOffset.set(0, 0); }
+        DstProxyView() { fOffset.set(0, 0); }
 
-        DstProxy(const DstProxy& other) {
+        DstProxyView(const DstProxyView& other) {
             *this = other;
         }
 
-        DstProxy(sk_sp<GrTextureProxy> proxy, const SkIPoint& offset)
-            : fProxy(std::move(proxy)) {
-            if (fProxy) {
+        DstProxyView(GrSurfaceProxyView view, const SkIPoint& offset)
+            : fProxyView(std::move(view)) {
+            if (fProxyView.proxy()) {
                 fOffset = offset;
             } else {
                 fOffset.set(0, 0);
             }
         }
 
-        DstProxy& operator=(const DstProxy& other) {
-            fProxy = other.fProxy;
+        DstProxyView& operator=(const DstProxyView& other) {
+            fProxyView = other.fProxyView;
             fOffset = other.fOffset;
             return *this;
         }
 
-        bool operator==(const DstProxy& that) const {
-            return fProxy == that.fProxy && fOffset == that.fOffset;
+        bool operator==(const DstProxyView& that) const {
+            return fProxyView == that.fProxyView && fOffset == that.fOffset;
         }
-        bool operator!=(const DstProxy& that) const { return !(*this == that); }
+        bool operator!=(const DstProxyView& that) const { return !(*this == that); }
 
         const SkIPoint& offset() const { return fOffset; }
 
         void setOffset(const SkIPoint& offset) { fOffset = offset; }
         void setOffset(int ox, int oy) { fOffset.set(ox, oy); }
 
-        GrTextureProxy* proxy() const { return fProxy.get(); }
+        GrTextureProxy* proxy() const { return fProxyView.asTextureProxy(); }
+        const GrSurfaceProxyView& proxyView() const { return fProxyView; }
 
-        void setProxy(sk_sp<GrTextureProxy> proxy) {
-            fProxy = std::move(proxy);
-            if (!fProxy) {
+        void setProxyView(GrSurfaceProxyView view) {
+            fProxyView = std::move(view);
+            if (!fProxyView.proxy()) {
                 fOffset = {0, 0};
             }
         }
 
     private:
-        sk_sp<GrTextureProxy> fProxy;
-        SkIPoint              fOffset;
+        GrSurfaceProxyView fProxyView;
+        SkIPoint           fOffset;
     };
 
     /**
@@ -249,7 +251,7 @@ private:
 #endif
 class GrXPFactory {
 public:
-    typedef GrXferProcessor::DstProxy DstProxy;
+    typedef GrXferProcessor::DstProxyView DstProxyView;
 
     enum class AnalysisProperties : unsigned {
         kNone = 0x0,
@@ -317,6 +319,6 @@ private:
 #pragma clang diagnostic pop
 #endif
 
-GR_MAKE_BITFIELD_CLASS_OPS(GrXPFactory::AnalysisProperties);
+GR_MAKE_BITFIELD_CLASS_OPS(GrXPFactory::AnalysisProperties)
 
 #endif

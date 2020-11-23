@@ -119,8 +119,6 @@ class WebWorkerFetchContext : public base::RefCounted<WebWorkerFetchContext> {
   virtual void DidRunInsecureContent(const WebSecurityOrigin&,
                                      const WebURL& insecure_url) {}
 
-  virtual void SetApplicationCacheHostID(const base::UnguessableToken& id) {}
-
   // Sets the builder object of WebDocumentSubresourceFilter on the main thread
   // which will be used in TakeSubresourceFilter() to create a
   // WebDocumentSubresourceFilter on the worker thread.
@@ -146,6 +144,12 @@ class WebWorkerFetchContext : public base::RefCounted<WebWorkerFetchContext> {
 
   // Returns the current list of user prefered languages.
   virtual blink::WebString GetAcceptLanguages() const = 0;
+
+  // Returns mojo::PendingReceiver<blink::mojom::blink::WorkerTimingContainer>
+  // for the blink::ResourceResponse with the given |request_id|. Null if the
+  // request has not been intercepted by a service worker.
+  virtual mojo::ScopedMessagePipeHandle TakePendingWorkerTimingReceiver(
+      int request_id) = 0;
 };
 
 }  // namespace blink

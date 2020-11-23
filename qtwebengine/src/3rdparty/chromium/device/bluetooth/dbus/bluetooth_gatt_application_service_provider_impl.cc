@@ -18,8 +18,7 @@ BluetoothGattApplicationServiceProviderImpl::
             services)
     : origin_thread_id_(base::PlatformThread::CurrentId()),
       bus_(bus),
-      object_path_(object_path),
-      weak_ptr_factory_(this) {
+      object_path_(object_path) {
   VLOG(1) << "Creating Bluetooth GATT application: " << object_path_.value();
   DCHECK(object_path_.IsValid());
   if (!bus_)
@@ -129,7 +128,7 @@ void BluetoothGattApplicationServiceProviderImpl::GetManagedObjects(
   writer.CloseContainer(&array_writer);
   VLOG(3) << "Sending response to BlueZ for GetManagedObjects: \n"
           << response->ToString();
-  response_sender.Run(std::move(response));
+  std::move(response_sender).Run(std::move(response));
 }
 
 // Called by dbus:: when a method is exported.

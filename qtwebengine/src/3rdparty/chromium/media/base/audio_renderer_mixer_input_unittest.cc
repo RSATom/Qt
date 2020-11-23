@@ -9,7 +9,7 @@
 #include "base/bind_helpers.h"
 #include "base/macros.h"
 #include "base/run_loop.h"
-#include "base/test/scoped_task_environment.h"
+#include "base/test/task_environment.h"
 #include "media/base/audio_latency.h"
 #include "media/base/audio_renderer_mixer.h"
 #include "media/base/audio_renderer_mixer_input.h"
@@ -53,7 +53,7 @@ class AudioRendererMixerInputTest : public testing::Test,
     mixer_input_ = new AudioRendererMixerInput(this, kRenderFrameId, device_id,
                                                AudioLatency::LATENCY_PLAYBACK);
     mixer_input_->GetOutputDeviceInfoAsync(base::DoNothing());
-    scoped_task_environment_.RunUntilIdle();
+    task_environment_.RunUntilIdle();
   }
 
   AudioRendererMixer* GetMixer(int owner_id,
@@ -109,7 +109,7 @@ class AudioRendererMixerInputTest : public testing::Test,
  protected:
   ~AudioRendererMixerInputTest() override = default;
 
-  base::test::ScopedTaskEnvironment scoped_task_environment_;
+  base::test::SingleThreadTaskEnvironment task_environment_;
   AudioParameters audio_parameters_;
   std::unique_ptr<AudioRendererMixer> mixers_[2];
   scoped_refptr<AudioRendererMixerInput> mixer_input_;
@@ -166,7 +166,7 @@ TEST_F(AudioRendererMixerInputTest, StartAfterStop) {
   mixer_input_->Stop();
 
   mixer_input_->GetOutputDeviceInfoAsync(base::DoNothing());
-  scoped_task_environment_.RunUntilIdle();
+  task_environment_.RunUntilIdle();
   mixer_input_->Start();
   mixer_input_->Stop();
 }
@@ -178,7 +178,7 @@ TEST_F(AudioRendererMixerInputTest, InitializeAfterStop) {
   mixer_input_->Stop();
 
   mixer_input_->GetOutputDeviceInfoAsync(base::DoNothing());
-  scoped_task_environment_.RunUntilIdle();
+  task_environment_.RunUntilIdle();
   mixer_input_->Initialize(audio_parameters_, fake_callback_.get());
   mixer_input_->Stop();
 }
@@ -193,8 +193,8 @@ TEST_F(AudioRendererMixerInputTest, SwitchOutputDevice) {
   EXPECT_EQ(old_mixer, mixers_[0].get());
   base::RunLoop run_loop;
   mixer_input_->SwitchOutputDevice(
-      kDeviceId, base::Bind(&AudioRendererMixerInputTest::SwitchCallback,
-                            base::Unretained(this), &run_loop));
+      kDeviceId, base::BindOnce(&AudioRendererMixerInputTest::SwitchCallback,
+                                base::Unretained(this), &run_loop));
   run_loop.Run();
   AudioRendererMixer* new_mixer = GetInputMixer();
   EXPECT_EQ(new_mixer, mixers_[1].get());
@@ -210,8 +210,9 @@ TEST_F(AudioRendererMixerInputTest, SwitchOutputDeviceToSameDevice) {
   AudioRendererMixer* old_mixer = GetInputMixer();
   base::RunLoop run_loop;
   mixer_input_->SwitchOutputDevice(
-      kDefaultDeviceId, base::Bind(&AudioRendererMixerInputTest::SwitchCallback,
-                                   base::Unretained(this), &run_loop));
+      kDefaultDeviceId,
+      base::BindOnce(&AudioRendererMixerInputTest::SwitchCallback,
+                     base::Unretained(this), &run_loop));
   run_loop.Run();
   AudioRendererMixer* new_mixer = GetInputMixer();
   EXPECT_EQ(old_mixer, new_mixer);
@@ -226,8 +227,9 @@ TEST_F(AudioRendererMixerInputTest, SwitchOutputDeviceToAnotherDevice) {
   AudioRendererMixer* old_mixer = GetInputMixer();
   base::RunLoop run_loop;
   mixer_input_->SwitchOutputDevice(
-      kAnotherDeviceId, base::Bind(&AudioRendererMixerInputTest::SwitchCallback,
-                                   base::Unretained(this), &run_loop));
+      kAnotherDeviceId,
+      base::BindOnce(&AudioRendererMixerInputTest::SwitchCallback,
+                     base::Unretained(this), &run_loop));
   run_loop.Run();
   AudioRendererMixer* new_mixer = GetInputMixer();
   EXPECT_NE(old_mixer, new_mixer);
@@ -243,8 +245,8 @@ TEST_F(AudioRendererMixerInputTest, SwitchOutputDeviceToNonexistentDevice) {
   base::RunLoop run_loop;
   mixer_input_->SwitchOutputDevice(
       kNonexistentDeviceId,
-      base::Bind(&AudioRendererMixerInputTest::SwitchCallback,
-                 base::Unretained(this), &run_loop));
+      base::BindOnce(&AudioRendererMixerInputTest::SwitchCallback,
+                     base::Unretained(this), &run_loop));
   run_loop.Run();
   mixer_input_->Stop();
 }
@@ -258,8 +260,8 @@ TEST_F(AudioRendererMixerInputTest, SwitchOutputDeviceToUnauthorizedDevice) {
   base::RunLoop run_loop;
   mixer_input_->SwitchOutputDevice(
       kUnauthorizedDeviceId,
-      base::Bind(&AudioRendererMixerInputTest::SwitchCallback,
-                 base::Unretained(this), &run_loop));
+      base::BindOnce(&AudioRendererMixerInputTest::SwitchCallback,
+                     base::Unretained(this), &run_loop));
   run_loop.Run();
   mixer_input_->Stop();
 }
@@ -270,8 +272,9 @@ TEST_F(AudioRendererMixerInputTest, SwitchOutputDeviceBeforeStart) {
   base::RunLoop run_loop;
   EXPECT_CALL(*this, SwitchCallbackCalled(OUTPUT_DEVICE_STATUS_OK));
   mixer_input_->SwitchOutputDevice(
-      kAnotherDeviceId, base::Bind(&AudioRendererMixerInputTest::SwitchCallback,
-                                   base::Unretained(this), &run_loop));
+      kAnotherDeviceId,
+      base::BindOnce(&AudioRendererMixerInputTest::SwitchCallback,
+                     base::Unretained(this), &run_loop));
   mixer_input_->Start();
   run_loop.Run();
   mixer_input_->Stop();
@@ -284,8 +287,9 @@ TEST_F(AudioRendererMixerInputTest, SwitchOutputDeviceWithoutStart) {
   base::RunLoop run_loop;
   EXPECT_CALL(*this, SwitchCallbackCalled(OUTPUT_DEVICE_STATUS_OK));
   mixer_input_->SwitchOutputDevice(
-      kAnotherDeviceId, base::Bind(&AudioRendererMixerInputTest::SwitchCallback,
-                                   base::Unretained(this), &run_loop));
+      kAnotherDeviceId,
+      base::BindOnce(&AudioRendererMixerInputTest::SwitchCallback,
+                     base::Unretained(this), &run_loop));
   run_loop.Run();
   mixer_input_->Stop();
 }
@@ -300,8 +304,9 @@ TEST_F(AudioRendererMixerInputTest, SwitchOutputDeviceAfterStopBeforeRestart) {
   base::RunLoop run_loop;
   EXPECT_CALL(*this, SwitchCallbackCalled(OUTPUT_DEVICE_STATUS_OK));
   mixer_input_->SwitchOutputDevice(
-      kAnotherDeviceId, base::Bind(&AudioRendererMixerInputTest::SwitchCallback,
-                                   base::Unretained(this), &run_loop));
+      kAnotherDeviceId,
+      base::BindOnce(&AudioRendererMixerInputTest::SwitchCallback,
+                     base::Unretained(this), &run_loop));
   run_loop.Run();
 
   mixer_input_->Start();
@@ -315,8 +320,9 @@ TEST_F(AudioRendererMixerInputTest, SwitchOutputDeviceBeforeInitialize) {
   base::RunLoop run_loop;
   EXPECT_CALL(*this, SwitchCallbackCalled(OUTPUT_DEVICE_STATUS_OK));
   mixer_input_->SwitchOutputDevice(
-      kAnotherDeviceId, base::Bind(&AudioRendererMixerInputTest::SwitchCallback,
-                                   base::Unretained(this), &run_loop));
+      kAnotherDeviceId,
+      base::BindOnce(&AudioRendererMixerInputTest::SwitchCallback,
+                     base::Unretained(this), &run_loop));
   run_loop.Run();
 
   mixer_input_->Initialize(audio_parameters_, fake_callback_.get());
@@ -363,7 +369,7 @@ TEST_F(AudioRendererMixerInputTest, SwitchOutputDeviceDuringGODIA) {
     EXPECT_CALL(*this, OnDeviceInfoReceived(_))
         .WillOnce(testing::SaveArg<0>(&info));
     EXPECT_CALL(*this, SwitchCallbackCalled(OUTPUT_DEVICE_STATUS_OK));
-    scoped_task_environment_.RunUntilIdle();
+    task_environment_.RunUntilIdle();
     EXPECT_EQ(kExpectedStatus, info.device_status());
     EXPECT_EQ(kDefaultDeviceId, info.device_id());
   }
@@ -394,7 +400,7 @@ TEST_F(AudioRendererMixerInputTest, GODIADuringSwitchOutputDevice) {
     constexpr auto kExpectedStatus = OUTPUT_DEVICE_STATUS_OK;
     EXPECT_CALL(*this, OnDeviceInfoReceived(_))
         .WillOnce(testing::SaveArg<0>(&info));
-    scoped_task_environment_.RunUntilIdle();
+    task_environment_.RunUntilIdle();
     EXPECT_EQ(kExpectedStatus, info.device_status());
     EXPECT_EQ(kAnotherDeviceId, info.device_id());
   }
@@ -426,7 +432,7 @@ TEST_F(AudioRendererMixerInputTest, GODIADuringSwitchOutputDeviceWhichFails) {
     constexpr auto kExpectedStatus = OUTPUT_DEVICE_STATUS_OK;
     EXPECT_CALL(*this, OnDeviceInfoReceived(_))
         .WillOnce(testing::SaveArg<0>(&info));
-    scoped_task_environment_.RunUntilIdle();
+    task_environment_.RunUntilIdle();
     EXPECT_EQ(kExpectedStatus, info.device_status());
     EXPECT_EQ(kDefaultDeviceId, info.device_id());
   }

@@ -68,7 +68,7 @@ QScriptDebuggerCodeViewPrivate::~QScriptDebuggerCodeViewPrivate()
 }
 
 QScriptDebuggerCodeView::QScriptDebuggerCodeView(QWidget *parent)
-    : QScriptDebuggerCodeViewInterface(*new QScriptDebuggerCodeViewPrivate, parent, 0)
+    : QScriptDebuggerCodeViewInterface(*new QScriptDebuggerCodeViewPrivate, parent, {})
 {
     Q_D(QScriptDebuggerCodeView);
     d->editor = new QScriptEdit();

@@ -156,18 +156,7 @@ TEST_P(PaintPropertyTreeBuilderTest, FixedPosition) {
   auto* positioned_scroll_translation =
       positioned_scroll_properties->ScrollTranslation();
   auto* positioned_scroll_node = positioned_scroll_translation->ScrollNode();
-  // TODO(crbug.com/732611): CAP invalidations are incorrect if there is
-  // scrolling.
-  if (RuntimeEnabledFeatures::CompositeAfterPaintEnabled()) {
-    EXPECT_EQ(GetDocument()
-                  .GetPage()
-                  ->GetVisualViewport()
-                  .GetScrollTranslationNode()
-                  ->ScrollNode(),
-              positioned_scroll_node->Parent());
-  } else {
-    EXPECT_EQ(DocScroll(), positioned_scroll_node->Parent());
-  }
+  EXPECT_EQ(DocScroll(), positioned_scroll_node->Parent());
   EXPECT_EQ(FloatSize(0, -3), positioned_scroll_translation->Translation2D());
   EXPECT_EQ(nullptr, target1_properties->ScrollTranslation());
   CHECK_EXACT_VISUAL_RECT(PhysicalRect(200, 150, 100, 100),
@@ -193,18 +182,7 @@ TEST_P(PaintPropertyTreeBuilderTest, FixedPosition) {
   auto* transformed_scroll_translation =
       transformed_scroll_properties->ScrollTranslation();
   auto* transformed_scroll_node = transformed_scroll_translation->ScrollNode();
-  // TODO(crbug.com/732611): CAP invalidations are incorrect if there is
-  // scrolling.
-  if (RuntimeEnabledFeatures::CompositeAfterPaintEnabled()) {
-    EXPECT_EQ(GetDocument()
-                  .GetPage()
-                  ->GetVisualViewport()
-                  .GetScrollTranslationNode()
-                  ->ScrollNode(),
-              positioned_scroll_node->Parent());
-  } else {
-    EXPECT_EQ(DocScroll(), transformed_scroll_node->Parent());
-  }
+  EXPECT_EQ(DocScroll(), transformed_scroll_node->Parent());
   EXPECT_EQ(FloatSize(0, -5), transformed_scroll_translation->Translation2D());
   EXPECT_EQ(nullptr, target2_properties->ScrollTranslation());
 
@@ -561,15 +539,8 @@ TEST_P(PaintPropertyTreeBuilderTest, Perspective) {
   // paint offset.
   EXPECT_EQ(FloatPoint3D(250, 250, 0),
             perspective_properties->Perspective()->Origin());
-  // TODO(crbug.com/732611): CAP invalidations are incorrect if there is
-  // scrolling.
-  if (RuntimeEnabledFeatures::CompositeAfterPaintEnabled()) {
-    EXPECT_EQ(DocPreTranslation(),
-              perspective_properties->Perspective()->Parent());
-  } else {
-    EXPECT_EQ(DocScrollTranslation(),
-              perspective_properties->Perspective()->Parent());
-  }
+  EXPECT_EQ(DocScrollTranslation(),
+            perspective_properties->Perspective()->Parent());
 
   // Adding perspective doesn't clear paint offset. The paint offset will be
   // passed down to children.
@@ -590,15 +561,8 @@ TEST_P(PaintPropertyTreeBuilderTest, Perspective) {
             perspective_properties->Perspective()->Matrix());
   EXPECT_EQ(FloatPoint3D(250, 250, 0),
             perspective_properties->Perspective()->Origin());
-  // TODO(crbug.com/732611): CAP invalidations are incorrect if there is
-  // scrolling.
-  if (RuntimeEnabledFeatures::CompositeAfterPaintEnabled()) {
-    EXPECT_EQ(DocPreTranslation(),
-              perspective_properties->Perspective()->Parent());
-  } else {
-    EXPECT_EQ(DocScrollTranslation(),
-              perspective_properties->Perspective()->Parent());
-  }
+  EXPECT_EQ(DocScrollTranslation(),
+            perspective_properties->Perspective()->Parent());
 
   perspective->setAttribute(html_names::kStyleAttr,
                             "perspective-origin: 5% 20%");
@@ -607,15 +571,8 @@ TEST_P(PaintPropertyTreeBuilderTest, Perspective) {
             perspective_properties->Perspective()->Matrix());
   EXPECT_EQ(FloatPoint3D(70, 160, 0),
             perspective_properties->Perspective()->Origin());
-  // TODO(crbug.com/732611): CAP invalidations are incorrect if there is
-  // scrolling.
-  if (RuntimeEnabledFeatures::CompositeAfterPaintEnabled()) {
-    EXPECT_EQ(DocPreTranslation(),
-              perspective_properties->Perspective()->Parent());
-  } else {
-    EXPECT_EQ(DocScrollTranslation(),
-              perspective_properties->Perspective()->Parent());
-  }
+  EXPECT_EQ(DocScrollTranslation(),
+            perspective_properties->Perspective()->Parent());
 }
 
 TEST_P(PaintPropertyTreeBuilderTest, Transform) {
@@ -716,11 +673,30 @@ TEST_P(PaintPropertyTreeBuilderTest, Perspective3DTransformedDescendant) {
 }
 
 TEST_P(PaintPropertyTreeBuilderTest,
-       TransformNodeWithActiveAnimationHasDirectCompositingReason) {
-  if (!RuntimeEnabledFeatures::CompositeAfterPaintEnabled() &&
-      !RuntimeEnabledFeatures::BlinkGenPropertyTreesEnabled())
-    return;
+       TransformPerspective3DTransformedDescendant) {
+  SetBodyInnerHTML(R"HTML(
+    <style> body { margin: 0 } </style>
+    <div id='perspective' style='transform: perspective(800px);'>
+      <div id='transform' style='margin-left: 50px; margin-top: 100px;
+          width: 400px; height: 300px;
+          transform: translate3d(123px, 456px, 789px)'>
+      </div>
+    </div>
+  )HTML");
 
+  Element* perspective = GetDocument().getElementById("perspective");
+  const ObjectPaintProperties* perspective_properties =
+      perspective->GetLayoutObject()->FirstFragment().PaintProperties();
+
+  EXPECT_TRUE(perspective_properties->Transform());
+  if (RuntimeEnabledFeatures::CompositeAfterPaintEnabled()) {
+    EXPECT_TRUE(
+        perspective_properties->Transform()->HasDirectCompositingReasons());
+  }
+}
+
+TEST_P(PaintPropertyTreeBuilderTest,
+       TransformNodeWithActiveAnimationHasDirectCompositingReason) {
   LoadTestData("transform-animation.html");
   EXPECT_TRUE(PaintPropertiesForElement("target")
                   ->Transform()
@@ -733,14 +709,8 @@ TEST_P(PaintPropertyTreeBuilderTest,
   // TODO(flackr): Verify that after https://crbug.com/900241 is fixed we no
   // longer create opacity or filter nodes for transform animations.
   EXPECT_NE(nullptr, PaintPropertiesForElement("target")->Transform());
-  if (RuntimeEnabledFeatures::BlinkGenPropertyTreesEnabled() ||
-      RuntimeEnabledFeatures::CompositeAfterPaintEnabled()) {
-    EXPECT_NE(nullptr, PaintPropertiesForElement("target")->Effect());
-    EXPECT_NE(nullptr, PaintPropertiesForElement("target")->Filter());
-  } else {
-    EXPECT_EQ(nullptr, PaintPropertiesForElement("target")->Effect());
-    EXPECT_EQ(nullptr, PaintPropertiesForElement("target")->Filter());
-  }
+  EXPECT_NE(nullptr, PaintPropertiesForElement("target")->Effect());
+  EXPECT_NE(nullptr, PaintPropertiesForElement("target")->Filter());
 }
 
 TEST_P(PaintPropertyTreeBuilderTest,
@@ -750,19 +720,11 @@ TEST_P(PaintPropertyTreeBuilderTest,
   // longer create transform or filter nodes for opacity animations.
   EXPECT_NE(nullptr, PaintPropertiesForElement("target")->Transform());
   EXPECT_NE(nullptr, PaintPropertiesForElement("target")->Effect());
-  if (RuntimeEnabledFeatures::BlinkGenPropertyTreesEnabled() ||
-      RuntimeEnabledFeatures::CompositeAfterPaintEnabled())
-    EXPECT_NE(nullptr, PaintPropertiesForElement("target")->Filter());
-  else
-    EXPECT_EQ(nullptr, PaintPropertiesForElement("target")->Filter());
+  EXPECT_NE(nullptr, PaintPropertiesForElement("target")->Filter());
 }
 
 TEST_P(PaintPropertyTreeBuilderTest,
        EffectNodeWithActiveAnimationHasDirectCompositingReason) {
-  if (!RuntimeEnabledFeatures::CompositeAfterPaintEnabled() &&
-      !RuntimeEnabledFeatures::BlinkGenPropertyTreesEnabled())
-    return;
-
   LoadTestData("opacity-animation.html");
   EXPECT_TRUE(PaintPropertiesForElement("target")
                   ->Effect()
@@ -850,15 +812,8 @@ TEST_P(PaintPropertyTreeBuilderTest, RelativePositionInline) {
       inline_block->GetLayoutObject()->FirstFragment().PaintProperties();
   EXPECT_EQ(FloatSize(135, 490),
             inline_block_properties->PaintOffsetTranslation()->Translation2D());
-  // TODO(crbug.com/732611): CAP invalidations are incorrect if there is
-  // scrolling.
-  if (RuntimeEnabledFeatures::CompositeAfterPaintEnabled()) {
-    EXPECT_EQ(DocPreTranslation(),
-              inline_block_properties->PaintOffsetTranslation()->Parent());
-  } else {
-    EXPECT_EQ(DocScrollTranslation(),
-              inline_block_properties->PaintOffsetTranslation()->Parent());
-  }
+  EXPECT_EQ(DocScrollTranslation(),
+            inline_block_properties->PaintOffsetTranslation()->Parent());
   CHECK_EXACT_VISUAL_RECT(PhysicalRect(135, 490, 10, 20),
                           inline_block->GetLayoutObject(),
                           GetDocument().View()->GetLayoutView());
@@ -1189,17 +1144,10 @@ TEST_P(PaintPropertyTreeBuilderTest, TransformNodesInSVG) {
   EXPECT_EQ(FloatSize(70, 25),
             svg_root_with3d_transform_properties->PaintOffsetTranslation()
                 ->Translation2D());
-  // TODO(crbug.com/732611): CAP invalidations are incorrect if there is
-  // scrolling.
-  if (RuntimeEnabledFeatures::CompositeAfterPaintEnabled()) {
-    EXPECT_EQ(DocPreTranslation(),
-              svg_root_with3d_transform_properties->PaintOffsetTranslation()
-                  ->Parent());
-  } else {
-    EXPECT_EQ(DocScrollTranslation(),
-              svg_root_with3d_transform_properties->PaintOffsetTranslation()
-                  ->Parent());
-  }
+  EXPECT_EQ(
+      DocScrollTranslation(),
+      svg_root_with3d_transform_properties->PaintOffsetTranslation()->Parent());
+
   LayoutObject& rect_with2d_transform =
       *GetLayoutObjectByElementId("rectWith2dTransform");
   const ObjectPaintProperties* rect_with2d_transform_properties =
@@ -1281,15 +1229,8 @@ TEST_P(PaintPropertyTreeBuilderTest, SVGRootPaintOffsetTransformNode) {
   EXPECT_EQ(FloatSize(50, 25),
             svg_properties->PaintOffsetTranslation()->Translation2D());
   EXPECT_EQ(nullptr, svg_properties->ReplacedContentTransform());
-  // TODO(crbug.com/732611): CAP invalidations are incorrect if there is
-  // scrolling.
-  if (RuntimeEnabledFeatures::CompositeAfterPaintEnabled()) {
-    EXPECT_EQ(DocPreTranslation(),
-              svg_properties->PaintOffsetTranslation()->Parent());
-  } else {
-    EXPECT_EQ(DocScrollTranslation(),
-              svg_properties->PaintOffsetTranslation()->Parent());
-  }
+  EXPECT_EQ(DocScrollTranslation(),
+            svg_properties->PaintOffsetTranslation()->Parent());
 }
 
 TEST_P(PaintPropertyTreeBuilderTest, SVGRootLocalToBorderBoxTransformNode) {
@@ -1667,20 +1608,11 @@ TEST_P(PaintPropertyTreeBuilderTest, ControlClip) {
   LayoutObject& button = *GetLayoutObjectByElementId("button");
   const ObjectPaintProperties* button_properties =
       button.FirstFragment().PaintProperties();
-  // TODO(crbug.com/732611): CAP invalidations are incorrect if there is
-  // scrolling.
-  if (RuntimeEnabledFeatures::CompositeAfterPaintEnabled()) {
-    EXPECT_TRUE(DocPreTranslation());
-    EXPECT_FALSE(DocScrollTranslation());
-    EXPECT_EQ(DocPreTranslation(),
-              &button_properties->OverflowClip()->LocalTransformSpace());
-  } else {
-    // Always create scroll translation for layout view even the document does
-    // not scroll (not enough content).
-    EXPECT_TRUE(DocScrollTranslation());
-    EXPECT_EQ(DocScrollTranslation(),
-              &button_properties->OverflowClip()->LocalTransformSpace());
-  }
+  // Always create scroll translation for layout view even the document does
+  // not scroll (not enough content).
+  EXPECT_TRUE(DocScrollTranslation());
+  EXPECT_EQ(DocScrollTranslation(),
+            &button_properties->OverflowClip()->LocalTransformSpace());
 
   EXPECT_EQ(FloatRoundedRect(5, 5, 335, 113),
             button_properties->OverflowClip()->ClipRect());
@@ -1707,16 +1639,9 @@ TEST_P(PaintPropertyTreeBuilderTest, ControlClipInsideForeignObject) {
   LayoutObject& button = *GetLayoutObjectByElementId("button");
   const ObjectPaintProperties* button_properties =
       button.FirstFragment().PaintProperties();
-  // TODO(crbug.com/732611): CAP invalidations are incorrect if there is
-  // scrolling.
-  if (RuntimeEnabledFeatures::CompositeAfterPaintEnabled()) {
-    EXPECT_FALSE(DocScrollTranslation());
-  } else {
-    // Always create scroll translation for layout view even the document does
-    // not scroll (not enough content).
-    EXPECT_TRUE(DocScrollTranslation());
-  }
-
+  // Always create scroll translation for layout view even the document does
+  // not scroll (not enough content).
+  EXPECT_TRUE(DocScrollTranslation());
   EXPECT_EQ(FloatRoundedRect(2, 2, 341, 119),
             button_properties->OverflowClip()->ClipRect());
   CHECK_EXACT_VISUAL_RECT(PhysicalRect(8, 8, 345, 123), &button,
@@ -1747,19 +1672,12 @@ TEST_P(PaintPropertyTreeBuilderTest, BorderRadiusClip) {
   const ObjectPaintProperties* div_properties =
       div.FirstFragment().PaintProperties();
 
-  // TODO(crbug.com/732611): CAP invalidations are incorrect if there is
-  // scrolling.
-  if (RuntimeEnabledFeatures::CompositeAfterPaintEnabled()) {
-    EXPECT_FALSE(DocScrollTranslation());
-    EXPECT_EQ(DocPreTranslation(),
-              &div_properties->OverflowClip()->LocalTransformSpace());
-  } else {
-    // Always create scroll translation for layout view even the document does
-    // not scroll (not enough content).
-    EXPECT_TRUE(DocScrollTranslation());
-    EXPECT_EQ(DocScrollTranslation(),
-              &div_properties->OverflowClip()->LocalTransformSpace());
-  }
+  // Always create scroll translation for layout view even the document does
+  // not scroll (not enough content).
+  EXPECT_TRUE(DocScrollTranslation());
+  EXPECT_EQ(DocScrollTranslation(),
+            &div_properties->OverflowClip()->LocalTransformSpace());
+
   // The overflow clip rect includes only the padding box.
   // padding box = border box(500+60+50, 400+45+55) - border outset(60+50,
   // 45+55) - scrollbars(15, 15)
@@ -1767,14 +1685,8 @@ TEST_P(PaintPropertyTreeBuilderTest, BorderRadiusClip) {
             div_properties->OverflowClip()->ClipRect());
   const ClipPaintPropertyNode* border_radius_clip =
       div_properties->OverflowClip()->Parent();
-  // TODO(crbug.com/732611): CAP invalidations are incorrect if there is
-  // scrolling.
-  if (RuntimeEnabledFeatures::CompositeAfterPaintEnabled()) {
-    EXPECT_EQ(DocPreTranslation(), &border_radius_clip->LocalTransformSpace());
-  } else {
-    EXPECT_EQ(DocScrollTranslation(),
-              &border_radius_clip->LocalTransformSpace());
-  }
+  EXPECT_EQ(DocScrollTranslation(), &border_radius_clip->LocalTransformSpace());
+
   // The border radius clip is the area enclosed by inner border edge, including
   // the scrollbars.  As the border-radius is specified in outer radius, the
   // inner radius is calculated by:
@@ -2173,15 +2085,8 @@ TEST_P(PaintPropertyTreeBuilderTest, TableCellLayoutLocation) {
 
   LayoutObject& target = *GetLayoutObjectByElementId("target");
   EXPECT_EQ(PhysicalOffset(170, 170), target.FirstFragment().PaintOffset());
-  // TODO(crbug.com/732611): CAP invalidations are incorrect if there is
-  // scrolling.
-  if (RuntimeEnabledFeatures::CompositeAfterPaintEnabled()) {
-    EXPECT_EQ(DocPreTranslation(),
-              &target.FirstFragment().LocalBorderBoxProperties().Transform());
-  } else {
-    EXPECT_EQ(DocScrollTranslation(),
-              &target.FirstFragment().LocalBorderBoxProperties().Transform());
-  }
+  EXPECT_EQ(DocScrollTranslation(),
+            &target.FirstFragment().LocalBorderBoxProperties().Transform());
   CHECK_EXACT_VISUAL_RECT(PhysicalRect(170, 170, 100, 100), &target,
                           GetDocument().View()->GetLayoutView());
 }
@@ -2218,15 +2123,8 @@ TEST_P(PaintPropertyTreeBuilderTest, CSSClipFixedPositionDescendant) {
   const ObjectPaintProperties* clip_properties =
       clip.FirstFragment().PaintProperties();
   EXPECT_EQ(DocContentClip(), clip_properties->CssClip()->Parent());
-  // TODO(crbug.com/732611): CAP invalidations are incorrect if there is
-  // scrolling.
-  if (RuntimeEnabledFeatures::CompositeAfterPaintEnabled()) {
-    EXPECT_EQ(DocPreTranslation(),
-              &clip_properties->CssClip()->LocalTransformSpace());
-  } else {
-    EXPECT_EQ(DocScrollTranslation(),
-              &clip_properties->CssClip()->LocalTransformSpace());
-  }
+  EXPECT_EQ(DocScrollTranslation(),
+            &clip_properties->CssClip()->LocalTransformSpace());
   EXPECT_EQ(FloatRoundedRect(FloatRect(absolute_clip_rect)),
             clip_properties->CssClip()->ClipRect());
   CHECK_VISUAL_RECT(absolute_clip_rect, &clip,
@@ -2282,19 +2180,11 @@ TEST_P(PaintPropertyTreeBuilderTest, CSSClipAbsPositionDescendant) {
   const ObjectPaintProperties* clip_properties =
       clip->FirstFragment().PaintProperties();
   EXPECT_EQ(DocContentClip(), clip_properties->CssClip()->Parent());
-  // TODO(crbug.com/732611): CAP invalidations are incorrect if there is
-  // scrolling.
-  if (RuntimeEnabledFeatures::CompositeAfterPaintEnabled()) {
-    EXPECT_FALSE(DocScrollTranslation());
-    EXPECT_EQ(DocPreTranslation(),
-              &clip_properties->CssClip()->LocalTransformSpace());
-  } else {
-    // Always create scroll translation for layout view even the document does
-    // not scroll (not enough content).
-    EXPECT_TRUE(DocScrollTranslation());
-    EXPECT_EQ(DocScrollTranslation(),
-              &clip_properties->CssClip()->LocalTransformSpace());
-  }
+  // Always create scroll translation for layout view even the document does
+  // not scroll (not enough content).
+  EXPECT_TRUE(DocScrollTranslation());
+  EXPECT_EQ(DocScrollTranslation(),
+            &clip_properties->CssClip()->LocalTransformSpace());
   EXPECT_EQ(FloatRoundedRect(FloatRect(absolute_clip_rect)),
             clip_properties->CssClip()->ClipRect());
   CHECK_VISUAL_RECT(absolute_clip_rect, clip,
@@ -2306,19 +2196,9 @@ TEST_P(PaintPropertyTreeBuilderTest, CSSClipAbsPositionDescendant) {
   auto* absolute = GetLayoutObjectByElementId("absolute");
   EXPECT_EQ(clip_properties->CssClip(),
             &absolute->FirstFragment().LocalBorderBoxProperties().Clip());
-  // TODO(crbug.com/732611): CAP invalidations are incorrect if there is
-  // scrolling.
-  if (RuntimeEnabledFeatures::CompositeAfterPaintEnabled()) {
-    EXPECT_FALSE(DocScrollTranslation());
-    EXPECT_EQ(
-        DocPreTranslation(),
-        &absolute->FirstFragment().LocalBorderBoxProperties().Transform());
-  } else {
-    EXPECT_TRUE(DocScrollTranslation());
-    EXPECT_EQ(
-        DocScrollTranslation(),
-        &absolute->FirstFragment().LocalBorderBoxProperties().Transform());
-  }
+  EXPECT_TRUE(DocScrollTranslation());
+  EXPECT_EQ(DocScrollTranslation(),
+            &absolute->FirstFragment().LocalBorderBoxProperties().Transform());
   EXPECT_EQ(PhysicalOffset(777, 777), absolute->FirstFragment().PaintOffset());
   CHECK_VISUAL_RECT(PhysicalRect(), absolute,
                     GetDocument().View()->GetLayoutView(),
@@ -2354,19 +2234,11 @@ TEST_P(PaintPropertyTreeBuilderTest, CSSClipSubpixel) {
   const ObjectPaintProperties* clip_properties =
       clip->FirstFragment().PaintProperties();
   EXPECT_EQ(DocContentClip(), clip_properties->CssClip()->Parent());
-  // TODO(crbug.com/732611): CAP invalidations are incorrect if there is
-  // scrolling.
-  if (RuntimeEnabledFeatures::CompositeAfterPaintEnabled()) {
-    EXPECT_TRUE(DocPreTranslation());
-    EXPECT_EQ(DocPreTranslation(),
-              &clip_properties->CssClip()->LocalTransformSpace());
-  } else {
-    // Always create scroll translation for layout view even the document does
-    // not scroll (not enough content).
-    EXPECT_TRUE(DocScrollTranslation());
-    EXPECT_EQ(DocScrollTranslation(),
-              &clip_properties->CssClip()->LocalTransformSpace());
-  }
+  // Always create scroll translation for layout view even the document does
+  // not scroll (not enough content).
+  EXPECT_TRUE(DocScrollTranslation());
+  EXPECT_EQ(DocScrollTranslation(),
+            &clip_properties->CssClip()->LocalTransformSpace());
   EXPECT_EQ(FloatRoundedRect(FloatRect(absolute_clip_rect)),
             clip_properties->CssClip()->ClipRect());
 }
@@ -2410,19 +2282,11 @@ TEST_P(PaintPropertyTreeBuilderTest, CSSClipFixedPositionDescendantNonShared) {
   const ObjectPaintProperties* overflow_properties =
       overflow.FirstFragment().PaintProperties();
   EXPECT_EQ(DocContentClip(), overflow_properties->OverflowClip()->Parent());
-  // TODO(crbug.com/732611): CAP invalidations are incorrect if there is
-  // scrolling.
-  if (RuntimeEnabledFeatures::CompositeAfterPaintEnabled()) {
-    EXPECT_TRUE(DocPreTranslation());
-    EXPECT_EQ(DocPreTranslation(),
-              overflow_properties->ScrollTranslation()->Parent()->Parent());
-  } else {
-    // Always create scroll translation for layout view even the document does
-    // not scroll (not enough content).
-    EXPECT_TRUE(DocScrollTranslation());
-    EXPECT_EQ(DocScrollTranslation(),
-              overflow_properties->ScrollTranslation()->Parent()->Parent());
-  }
+  // Always create scroll translation for layout view even the document does
+  // not scroll (not enough content).
+  EXPECT_TRUE(DocScrollTranslation());
+  EXPECT_EQ(DocScrollTranslation(),
+            overflow_properties->ScrollTranslation()->Parent()->Parent());
   CHECK_EXACT_VISUAL_RECT(PhysicalRect(0, 0, 50, 50), &overflow,
                           GetDocument().View()->GetLayoutView());
 
@@ -3185,9 +3049,6 @@ TEST_P(PaintPropertyTreeBuilderTest, PerspectiveIsNotFlattened) {
 }
 
 TEST_P(PaintPropertyTreeBuilderTest, FlatteningIn3DContext) {
-  if (!RuntimeEnabledFeatures::BlinkGenPropertyTreesEnabled())
-    return;
-
   SetBodyInnerHTML(R"HTML(
     <div id="a" style="transform-style: preserve-3d">
       <div id="b" style="transform: translate3d(0, 0, 33px)">
@@ -3413,44 +3274,22 @@ TEST_P(PaintPropertyTreeBuilderTest, OverflowClipContentsTreeState) {
       clipper->FirstFragment().PaintProperties();
   LayoutObject* child = GetLayoutObjectByElementId("child");
 
-  // TODO(crbug.com/732611): CAP invalidations are incorrect if there is
-  // scrolling.
-  if (RuntimeEnabledFeatures::CompositeAfterPaintEnabled()) {
-    EXPECT_FALSE(DocScrollTranslation());
-    EXPECT_TRUE(DocPreTranslation());
-    EXPECT_EQ(DocPreTranslation(),
-              &clipper->FirstFragment().LocalBorderBoxProperties().Transform());
-  } else {
-    // Always create scroll translation for layout view even the document does
-    // not scroll (not enough content).
-    EXPECT_TRUE(DocScrollTranslation());
-    EXPECT_EQ(DocScrollTranslation(),
-              &clipper->FirstFragment().LocalBorderBoxProperties().Transform());
-  }
+  // Always create scroll translation for layout view even the document does
+  // not scroll (not enough content).
+  EXPECT_TRUE(DocScrollTranslation());
+  EXPECT_EQ(DocScrollTranslation(),
+            &clipper->FirstFragment().LocalBorderBoxProperties().Transform());
   EXPECT_EQ(DocContentClip(),
             &clipper->FirstFragment().LocalBorderBoxProperties().Clip());
 
   auto contents_properties = clipper->FirstFragment().ContentsProperties();
   EXPECT_EQ(PhysicalOffset(30, 20), clipper->FirstFragment().PaintOffset());
 
-  // TODO(crbug.com/732611): CAP invalidations are incorrect if there is
-  // scrolling.
-  if (RuntimeEnabledFeatures::CompositeAfterPaintEnabled()) {
-    EXPECT_EQ(DocPreTranslation(), &contents_properties.Transform());
-  } else {
-    EXPECT_EQ(DocScrollTranslation(), &contents_properties.Transform());
-  }
+  EXPECT_EQ(DocScrollTranslation(), &contents_properties.Transform());
   EXPECT_EQ(clip_properties->OverflowClip(), &contents_properties.Clip());
 
-  // TODO(crbug.com/732611): CAP invalidations are incorrect if there is
-  // scrolling.
-  if (RuntimeEnabledFeatures::CompositeAfterPaintEnabled()) {
-    EXPECT_EQ(DocPreTranslation(),
-              &child->FirstFragment().LocalBorderBoxProperties().Transform());
-  } else {
-    EXPECT_EQ(DocScrollTranslation(),
-              &child->FirstFragment().LocalBorderBoxProperties().Transform());
-  }
+  EXPECT_EQ(DocScrollTranslation(),
+            &child->FirstFragment().LocalBorderBoxProperties().Transform());
   EXPECT_EQ(clip_properties->OverflowClip(),
             &child->FirstFragment().LocalBorderBoxProperties().Clip());
 
@@ -3555,30 +3394,16 @@ TEST_P(PaintPropertyTreeBuilderTest, ContainPaintOrStyleLayoutTreeState) {
     // Isolation transform node should be identity.
     EXPECT_TRUE(clip_properties->TransformIsolationNode()->IsIdentity());
 
-    // TODO(crbug.com/732611): CAP invalidations are incorrect if there is
-    // scrolling.
-    if (RuntimeEnabledFeatures::CompositeAfterPaintEnabled()) {
-      EXPECT_FALSE(DocScrollTranslation());
-      EXPECT_TRUE(DocPreTranslation());
-      // Isolation induces paint offset translation, so the node should be
-      // different from the doc node, but its parent is the same as the doc
-      // node.
-      EXPECT_EQ(DocPreTranslation(), clipper->FirstFragment()
-                                         .LocalBorderBoxProperties()
-                                         .Transform()
-                                         .Parent());
-    } else {
-      // Always create scroll translation for layout view even the document does
-      // not scroll (not enough content).
-      EXPECT_TRUE(DocScrollTranslation());
-      // Isolation induces paint offset translation, so the node should be
-      // different from the doc node, but its parent is the same as the doc
-      // node.
-      EXPECT_EQ(DocScrollTranslation(), clipper->FirstFragment()
-                                            .LocalBorderBoxProperties()
-                                            .Transform()
-                                            .Parent());
-    }
+    // Always create scroll translation for layout view even the document does
+    // not scroll (not enough content).
+    EXPECT_TRUE(DocScrollTranslation());
+    // Isolation induces paint offset translation, so the node should be
+    // different from the doc node, but its parent is the same as the doc
+    // node.
+    EXPECT_EQ(DocScrollTranslation(), clipper->FirstFragment()
+                                          .LocalBorderBoxProperties()
+                                          .Transform()
+                                          .Parent());
 
     // Verify clip:
 
@@ -3725,32 +3550,18 @@ TEST_P(PaintPropertyTreeBuilderTest, CssClipContentsTreeState) {
       clipper->FirstFragment().PaintProperties();
   LayoutObject* child = GetLayoutObjectByElementId("child");
 
-  // TODO(crbug.com/732611): CAP invalidations are incorrect if there is
-  // scrolling.
-  if (RuntimeEnabledFeatures::CompositeAfterPaintEnabled()) {
-    EXPECT_TRUE(DocPreTranslation());
-    EXPECT_EQ(DocPreTranslation(),
-              &clipper->FirstFragment().LocalBorderBoxProperties().Transform());
-  } else {
-    // Always create scroll translation for layout view even the document does
-    // not scroll (not enough content).
-    EXPECT_TRUE(DocScrollTranslation());
-    EXPECT_EQ(DocScrollTranslation(),
-              &clipper->FirstFragment().LocalBorderBoxProperties().Transform());
-  }
+  // Always create scroll translation for layout view even the document does
+  // not scroll (not enough content).
+  EXPECT_TRUE(DocScrollTranslation());
+  EXPECT_EQ(DocScrollTranslation(),
+            &clipper->FirstFragment().LocalBorderBoxProperties().Transform());
   // CSS clip on an element causes it to clip itself, not just descendants.
   EXPECT_EQ(clip_properties->CssClip(),
             &clipper->FirstFragment().LocalBorderBoxProperties().Clip());
 
   auto contents_properties = clipper->FirstFragment().ContentsProperties();
   EXPECT_EQ(PhysicalOffset(30, 20), clipper->FirstFragment().PaintOffset());
-  // TODO(crbug.com/732611): CAP invalidations are incorrect if there is
-  // scrolling.
-  if (RuntimeEnabledFeatures::CompositeAfterPaintEnabled()) {
-    EXPECT_EQ(DocPreTranslation(), &contents_properties.Transform());
-  } else {
-    EXPECT_EQ(DocScrollTranslation(), &contents_properties.Transform());
-  }
+  EXPECT_EQ(DocScrollTranslation(), &contents_properties.Transform());
   EXPECT_EQ(clip_properties->CssClip(), &contents_properties.Clip());
 
   CHECK_EXACT_VISUAL_RECT(PhysicalRect(0, 0, 400, 500), child, clipper);
@@ -3784,13 +3595,7 @@ TEST_P(PaintPropertyTreeBuilderTest,
   EXPECT_EQ(paint_offset_translation, &svg_with_view_box.FirstFragment()
                                            .LocalBorderBoxProperties()
                                            .Transform());
-  // TODO(crbug.com/732611): CAP invalidations are incorrect if there is
-  // scrolling.
-  if (RuntimeEnabledFeatures::CompositeAfterPaintEnabled()) {
-    EXPECT_EQ(DocPreTranslation(), paint_offset_translation->Parent());
-  } else {
-    EXPECT_EQ(DocScrollTranslation(), paint_offset_translation->Parent());
-  }
+  EXPECT_EQ(DocScrollTranslation(), paint_offset_translation->Parent());
   EXPECT_EQ(FloatSize(30, 20), paint_offset_translation->Translation2D());
   EXPECT_EQ(PhysicalOffset(), svg_with_view_box.FirstFragment().PaintOffset());
 
@@ -3862,16 +3667,8 @@ TEST_P(PaintPropertyTreeBuilderTest, FrameOverflowHiddenScrollProperties) {
   UpdateAllLifecyclePhasesForTest();
 
   EXPECT_EQ(FloatSize(0, -37), DocScrollTranslation()->Translation2D());
-
-  // TODO(crbug.com/732611): CAP invalidations are incorrect if there is
-  // scrolling.
-  if (RuntimeEnabledFeatures::CompositeAfterPaintEnabled()) {
-    EXPECT_EQ(nullptr, DocScrollTranslation()->ScrollNode());
-    EXPECT_EQ(nullptr, DocScroll());
-  } else {
-    EXPECT_TRUE(DocScrollTranslation()->ScrollNode());
-    EXPECT_TRUE(DocScroll());
-  }
+  EXPECT_TRUE(DocScrollTranslation()->ScrollNode());
+  EXPECT_TRUE(DocScroll());
 }
 
 TEST_P(PaintPropertyTreeBuilderTest, NestedScrollProperties) {
@@ -3916,18 +3713,7 @@ TEST_P(PaintPropertyTreeBuilderTest, NestedScrollProperties) {
   auto* scroll_a_translation =
       overflow_a_scroll_properties->ScrollTranslation();
   auto* overflow_a_scroll_node = scroll_a_translation->ScrollNode();
-  // TODO(crbug.com/732611): CAP invalidations are incorrect if there is
-  // scrolling.
-  if (RuntimeEnabledFeatures::CompositeAfterPaintEnabled()) {
-    EXPECT_EQ(GetDocument()
-                  .GetPage()
-                  ->GetVisualViewport()
-                  .GetScrollTranslationNode()
-                  ->ScrollNode(),
-              overflow_a_scroll_node->Parent());
-  } else {
-    EXPECT_EQ(DocScroll(), overflow_a_scroll_node->Parent());
-  }
+  EXPECT_EQ(DocScroll(), overflow_a_scroll_node->Parent());
   EXPECT_EQ(FloatSize(0, -37), scroll_a_translation->Translation2D());
   EXPECT_EQ(IntRect(0, 0, 5, 3), overflow_a_scroll_node->ContainerRect());
   // 107 is the forceScroll element plus the height of the overflow scroll child
@@ -4093,18 +3879,7 @@ TEST_P(PaintPropertyTreeBuilderTest, NestedPositionedScrollProperties) {
   auto* scroll_a_translation =
       overflow_a_scroll_properties->ScrollTranslation();
   auto* overflow_a_scroll_node = scroll_a_translation->ScrollNode();
-  // TODO(crbug.com/732611): CAP invalidations are incorrect if there is
-  // scrolling.
-  if (RuntimeEnabledFeatures::CompositeAfterPaintEnabled()) {
-    EXPECT_EQ(GetDocument()
-                  .GetPage()
-                  ->GetVisualViewport()
-                  .GetScrollTranslationNode()
-                  ->ScrollNode(),
-              overflow_a_scroll_node->Parent());
-  } else {
-    EXPECT_EQ(DocScroll(), overflow_a_scroll_node->Parent());
-  }
+  EXPECT_EQ(DocScroll(), overflow_a_scroll_node->Parent());
   EXPECT_EQ(FloatSize(0, -37), scroll_a_translation->Translation2D());
   EXPECT_EQ(IntRect(0, 0, 20, 20), overflow_a_scroll_node->ContainerRect());
   // 100 is the forceScroll element's height because the overflow child does not
@@ -4163,10 +3938,6 @@ TEST_P(PaintPropertyTreeBuilderTest, SVGRootNoClip) {
 }
 
 TEST_P(PaintPropertyTreeBuilderTest, MainThreadScrollReasonsWithoutScrolling) {
-  // This test needs the |FastMobileScrolling| feature to be disabled
-  // although it is stable on Android.
-  ScopedFastMobileScrollingForTest fast_mobile_scrolling(false);
-
   SetBodyInnerHTML(R"HTML(
     <style>
       #overflow {
@@ -4870,10 +4641,6 @@ TEST_P(PaintPropertyTreeBuilderTest, ChangePositionUpdateDescendantProperties) {
 
 TEST_P(PaintPropertyTreeBuilderTest,
        TransformNodeNotAnimatedStillHasCompositorElementId) {
-  if (!RuntimeEnabledFeatures::CompositeAfterPaintEnabled() &&
-      !RuntimeEnabledFeatures::BlinkGenPropertyTreesEnabled())
-    return;
-
   SetBodyInnerHTML("<div id='target' style='transform: translateX(2em)'></div");
   const ObjectPaintProperties* properties = PaintPropertiesForElement("target");
   EXPECT_TRUE(properties->Transform());
@@ -4883,10 +4650,6 @@ TEST_P(PaintPropertyTreeBuilderTest,
 
 TEST_P(PaintPropertyTreeBuilderTest,
        EffectNodeNotAnimatedStillHasCompositorElementId) {
-  if (!RuntimeEnabledFeatures::CompositeAfterPaintEnabled() &&
-      !RuntimeEnabledFeatures::BlinkGenPropertyTreesEnabled())
-    return;
-
   SetBodyInnerHTML("<div id='target' style='opacity: 0.5'></div");
   const ObjectPaintProperties* properties = PaintPropertiesForElement("target");
   EXPECT_TRUE(properties->Effect());
@@ -4899,10 +4662,6 @@ TEST_P(PaintPropertyTreeBuilderTest,
 
 TEST_P(PaintPropertyTreeBuilderTest,
        TransformNodeAnimatedHasCompositorElementId) {
-  if (!RuntimeEnabledFeatures::CompositeAfterPaintEnabled() &&
-      !RuntimeEnabledFeatures::BlinkGenPropertyTreesEnabled())
-    return;
-
   LoadTestData("transform-animation.html");
   const ObjectPaintProperties* properties = PaintPropertiesForElement("target");
   EXPECT_TRUE(properties->Transform());
@@ -4912,10 +4671,6 @@ TEST_P(PaintPropertyTreeBuilderTest,
 }
 
 TEST_P(PaintPropertyTreeBuilderTest, EffectNodeAnimatedHasCompositorElementId) {
-  if (!RuntimeEnabledFeatures::CompositeAfterPaintEnabled() &&
-      !RuntimeEnabledFeatures::BlinkGenPropertyTreesEnabled())
-    return;
-
   LoadTestData("opacity-animation.html");
   const ObjectPaintProperties* properties = PaintPropertiesForElement("target");
   EXPECT_TRUE(properties->Effect());
@@ -4952,10 +4707,6 @@ TEST_P(PaintPropertyTreeBuilderTest, FloatUnderInline) {
 }
 
 TEST_P(PaintPropertyTreeBuilderTest, ScrollNodeHasCompositorElementId) {
-  if (!RuntimeEnabledFeatures::CompositeAfterPaintEnabled() &&
-      !RuntimeEnabledFeatures::BlinkGenPropertyTreesEnabled())
-    return;
-
   SetBodyInnerHTML(R"HTML(
     <div id='target' style='overflow: auto; width: 100px; height: 100px'>
       <div style='width: 200px; height: 200px'></div>
@@ -5107,7 +4858,7 @@ TEST_P(PaintPropertyTreeBuilderTest, MaskEscapeClip) {
   const auto* absolute = GetLayoutObjectByElementId("absolute");
   if (RuntimeEnabledFeatures::CompositeAfterPaintEnabled()) {
     EXPECT_EQ(
-        DocPreTranslation(),
+        DocScrollTranslation(),
         &absolute->FirstFragment().LocalBorderBoxProperties().Transform());
   } else {
     // For SPv1, |absolute| is composited so we created PaintOffsetTranslation.
@@ -5310,18 +5061,7 @@ TEST_P(PaintPropertyTreeBuilderTest, ScrollBoundsOffset) {
   auto* scroll_translation = scroll_properties->ScrollTranslation();
   auto* paint_offset_translation = scroll_properties->PaintOffsetTranslation();
   auto* scroll_node = scroll_translation->ScrollNode();
-  // TODO(crbug.com/732611): CAP invalidations are incorrect if there is
-  // scrolling.
-  if (RuntimeEnabledFeatures::CompositeAfterPaintEnabled()) {
-    EXPECT_EQ(GetDocument()
-                  .GetPage()
-                  ->GetVisualViewport()
-                  .GetScrollTranslationNode()
-                  ->ScrollNode(),
-              scroll_node->Parent());
-  } else {
-    EXPECT_EQ(DocScroll(), scroll_node->Parent());
-  }
+  EXPECT_EQ(DocScroll(), scroll_node->Parent());
   EXPECT_EQ(FloatSize(0, -42), scroll_translation->Translation2D());
   // The paint offset node should be offset by the margin.
   EXPECT_EQ(FloatSize(7, 11), paint_offset_translation->Translation2D());
@@ -5369,15 +5109,10 @@ TEST_P(PaintPropertyTreeBuilderTest, BackfaceHidden) {
   }
 
   const auto* transform = target_properties->Transform();
-  if (RuntimeEnabledFeatures::CompositeAfterPaintEnabled() ||
-      RuntimeEnabledFeatures::BlinkGenPropertyTreesEnabled()) {
-    ASSERT_NE(nullptr, transform);
-    EXPECT_TRUE(transform->IsIdentity());
-    EXPECT_EQ(TransformPaintPropertyNode::BackfaceVisibility::kHidden,
-              transform->GetBackfaceVisibilityForTesting());
-  } else {
-    EXPECT_EQ(nullptr, transform);
-  }
+  ASSERT_NE(nullptr, transform);
+  EXPECT_TRUE(transform->IsIdentity());
+  EXPECT_EQ(TransformPaintPropertyNode::BackfaceVisibility::kHidden,
+            transform->GetBackfaceVisibilityForTesting());
 
   To<Element>(target->GetNode())->setAttribute(html_names::kStyleAttr, "");
   UpdateAllLifecyclePhasesForTest();
@@ -5407,14 +5142,7 @@ TEST_P(PaintPropertyTreeBuilderTest, FrameBorderRadius) {
                              radius, radius),
             border_radius_clip->ClipRect());
   EXPECT_EQ(DocContentClip(), border_radius_clip->Parent());
-  // TODO(crbug.com/732611): CAP invalidations are incorrect if there is
-  // scrolling.
-  if (RuntimeEnabledFeatures::CompositeAfterPaintEnabled()) {
-    EXPECT_EQ(DocPreTranslation(), &border_radius_clip->LocalTransformSpace());
-  } else {
-    EXPECT_EQ(DocScrollTranslation(),
-              &border_radius_clip->LocalTransformSpace());
-  }
+  EXPECT_EQ(DocScrollTranslation(), &border_radius_clip->LocalTransformSpace());
   EXPECT_EQ(nullptr, properties->InnerBorderRadiusClip());
 }
 
@@ -5441,14 +5169,7 @@ TEST_P(PaintPropertyTreeBuilderTest, ImageBorderRadius) {
                              radius),
             border_radius_clip->ClipRect());
   EXPECT_EQ(DocContentClip(), border_radius_clip->Parent());
-  // TODO(crbug.com/732611): CAP invalidations are incorrect if there is
-  // scrolling.
-  if (RuntimeEnabledFeatures::CompositeAfterPaintEnabled()) {
-    EXPECT_EQ(DocPreTranslation(), &border_radius_clip->LocalTransformSpace());
-  } else {
-    EXPECT_EQ(DocScrollTranslation(),
-              &border_radius_clip->LocalTransformSpace());
-  }
+  EXPECT_EQ(DocScrollTranslation(), &border_radius_clip->LocalTransformSpace());
   EXPECT_EQ(nullptr, properties->InnerBorderRadiusClip());
 }
 
@@ -5586,21 +5307,20 @@ TEST_P(PaintPropertyTreeBuilderTest,
   Element* opacity_element = GetDocument().getElementById("opacity");
   const auto* target = GetLayoutObjectByElementId("target");
 
-  EXPECT_FALSE(ToLayoutBoxModelObject(target)->Layer()->NeedsRepaint());
+  EXPECT_FALSE(ToLayoutBoxModelObject(target)->Layer()->SelfNeedsRepaint());
 
   opacity_element->setAttribute(html_names::kStyleAttr, "opacity: 0.5");
   GetDocument().View()->UpdateAllLifecyclePhasesExceptPaint();
 
-  if (RuntimeEnabledFeatures::BlinkGenPropertyTreesEnabled() &&
-      !RuntimeEnabledFeatures::CompositeAfterPaintEnabled()) {
-    // TODO(crbug.com/900241): In BlinkGenPropertyTrees (but not
-    // CompoisteAfterPaint) we create effect and filter nodes when the transform
-    // node needs compositing for will-change:transform, for crbug.com/942681.
-    EXPECT_FALSE(ToLayoutBoxModelObject(target)->Layer()->NeedsRepaint());
+  if (!RuntimeEnabledFeatures::CompositeAfterPaintEnabled()) {
+    // TODO(crbug.com/900241): Without CompositeAfterPaint, we create effect and
+    // filter nodes when the transform node needs compositing for
+    // will-change:transform, for crbug.com/942681.
+    EXPECT_FALSE(ToLayoutBoxModelObject(target)->Layer()->SelfNeedsRepaint());
   } else {
     // All paint chunks contained by the new opacity effect node need to be
     // re-painted.
-    EXPECT_TRUE(ToLayoutBoxModelObject(target)->Layer()->NeedsRepaint());
+    EXPECT_TRUE(ToLayoutBoxModelObject(target)->Layer()->SelfNeedsRepaint());
   }
 }
 
@@ -5670,23 +5390,15 @@ TEST_P(PaintPropertyTreeBuilderTest, RootHasCompositedScrolling) {
   )HTML");
 
   // When the root scrolls, there should be direct compositing reasons.
-  if (RuntimeEnabledFeatures::CompositeAfterPaintEnabled() ||
-      RuntimeEnabledFeatures::BlinkGenPropertyTreesEnabled())
-    EXPECT_TRUE(DocScrollTranslation()->HasDirectCompositingReasons());
+  EXPECT_TRUE(DocScrollTranslation()->HasDirectCompositingReasons());
 
   // Remove scrolling from the root.
   Element* force_scroll_element = GetDocument().getElementById("forceScroll");
   force_scroll_element->setAttribute(html_names::kStyleAttr, "");
   GetDocument().View()->UpdateAllLifecyclePhasesExceptPaint();
-  // TODO(crbug.com/732611): CAP invalidations are incorrect if there is
-  // scrolling.
-  if (RuntimeEnabledFeatures::CompositeAfterPaintEnabled()) {
-    EXPECT_FALSE(DocScrollTranslation());
-  } else {
-    // Always create scroll translation for layout view even the document does
-    // not scroll (not enough content).
-    EXPECT_TRUE(DocScrollTranslation());
-  }
+  // Always create scroll translation for layout view even the document does
+  // not scroll (not enough content).
+  EXPECT_TRUE(DocScrollTranslation());
 }
 
 TEST_P(PaintPropertyTreeBuilderTest, IframeDoesNotRequireCompositedScrolling) {
@@ -5699,9 +5411,7 @@ TEST_P(PaintPropertyTreeBuilderTest, IframeDoesNotRequireCompositedScrolling) {
   )HTML");
   UpdateAllLifecyclePhasesForTest();
 
-  if (RuntimeEnabledFeatures::CompositeAfterPaintEnabled() ||
-      RuntimeEnabledFeatures::BlinkGenPropertyTreesEnabled())
-    EXPECT_TRUE(DocScrollTranslation()->HasDirectCompositingReasons());
+  EXPECT_TRUE(DocScrollTranslation()->HasDirectCompositingReasons());
 
   // When the child iframe scrolls, there should not be direct compositing
   // reasons because only the root frame needs scrolling compositing reasons.
@@ -5792,11 +5502,11 @@ TEST_P(PaintPropertyTreeBuilderTest, ClipHitTestChangeDoesNotCauseFullRepaint) {
   UpdateAllLifecyclePhasesForTest();
 
   auto* child_layer = ToLayoutBox(GetLayoutObjectByElementId("child"))->Layer();
-  EXPECT_FALSE(child_layer->NeedsRepaint());
+  EXPECT_FALSE(child_layer->SelfNeedsRepaint());
 
   GetDocument().body()->setAttribute(html_names::kClassAttr, "noscrollbars");
   GetDocument().View()->UpdateAllLifecyclePhasesExceptPaint();
-  EXPECT_FALSE(child_layer->NeedsRepaint());
+  EXPECT_FALSE(child_layer->SelfNeedsRepaint());
 }
 
 TEST_P(PaintPropertyTreeBuilderTest, ClipPathInheritanceWithoutMutation) {
@@ -6023,8 +5733,9 @@ TEST_P(PaintPropertyTreeBuilderTest, RepeatingTableSectionInPagedMedia) {
     <div></div>
   )HTML");
 
-  const auto* head = ToLayoutTableSection(GetLayoutObjectByElementId("head"));
-  const auto* foot = ToLayoutTableSection(GetLayoutObjectByElementId("foot"));
+  // TODO(958381) Make this code TableNG compatible.
+  const auto* head = To<LayoutTableSection>(GetLayoutObjectByElementId("head"));
+  const auto* foot = To<LayoutTableSection>(GetLayoutObjectByElementId("foot"));
   EXPECT_FALSE(head->IsRepeatingHeaderGroup());
   EXPECT_EQ(1u, NumFragments(head));
   EXPECT_EQ(1u, NumFragments(head->FirstRow()));
@@ -6038,8 +5749,8 @@ TEST_P(PaintPropertyTreeBuilderTest, RepeatingTableSectionInPagedMedia) {
   GetFrame().StartPrinting(page_size, page_size, 1);
   GetDocument().View()->UpdateLifecyclePhasesForPrinting();
   // In LayoutNG, these may be different objects
-  head = ToLayoutTableSection(GetLayoutObjectByElementId("head"));
-  foot = ToLayoutTableSection(GetLayoutObjectByElementId("foot"));
+  head = To<LayoutTableSection>(GetLayoutObjectByElementId("head"));
+  foot = To<LayoutTableSection>(GetLayoutObjectByElementId("foot"));
 
   // "fixed" should create fragments to repeat in each printed page.
   EXPECT_TRUE(head->IsRepeatingHeaderGroup());
@@ -6074,8 +5785,8 @@ TEST_P(PaintPropertyTreeBuilderTest, RepeatingTableSectionInPagedMedia) {
 
   GetFrame().EndPrinting();
   UpdateAllLifecyclePhasesForTest();
-  head = ToLayoutTableSection(GetLayoutObjectByElementId("head"));
-  foot = ToLayoutTableSection(GetLayoutObjectByElementId("foot"));
+  head = To<LayoutTableSection>(GetLayoutObjectByElementId("head"));
+  foot = To<LayoutTableSection>(GetLayoutObjectByElementId("foot"));
   EXPECT_FALSE(head->IsRepeatingHeaderGroup());
   EXPECT_EQ(1u, NumFragments(head));
   EXPECT_EQ(1u, NumFragments(head->FirstRow()));
@@ -6138,6 +5849,34 @@ TEST_P(PaintPropertyTreeBuilderTest,
   EXPECT_EQ(PhysicalOffset(100, 85), paint_offset("float-right-vlr"));
   EXPECT_EQ(PhysicalOffset(), paint_offset("float-left-rtl-vlr"));
   EXPECT_EQ(PhysicalOffset(100, 85), paint_offset("float-right-rtl-vlr"));
+}
+
+TEST_P(PaintPropertyTreeBuilderTest, PaintOffsetForTextareaWithResizer) {
+  GetPage().GetSettings().SetTextAreasAreResizable(true);
+  SetBodyInnerHTML(R"HTML(
+    <!doctype HTML>
+    <style>
+      div {
+        width: 100%;
+        height: 100px;
+      }
+      textarea {
+        width: 200px;
+        height: 100px;
+      }
+      ::-webkit-resizer {
+        background-color: red;
+      }
+    </style>
+    <div></div>
+    <textarea id="target"></textarea>
+  )HTML");
+
+  const auto* box = ToLayoutBox(GetLayoutObjectByElementId("target"));
+  const auto& fragment = box->FirstFragment();
+  ASSERT_TRUE(fragment.PaintProperties());
+  EXPECT_NE(fragment.PaintProperties()->PaintOffsetTranslation(), nullptr);
+  EXPECT_EQ(PhysicalOffset(), fragment.PaintOffset());
 }
 
 TEST_P(PaintPropertyTreeBuilderTest, SubpixelPositionedScrollNode) {
@@ -6247,8 +5986,6 @@ TEST_P(PaintPropertyTreeBuilderTest, StickyConstraintChain) {
             outer_properties->StickyTranslation()->Translation2D());
   ASSERT_NE(nullptr,
             outer_properties->StickyTranslation()->GetStickyConstraint());
-  EXPECT_TRUE(
-      outer_properties->StickyTranslation()->GetStickyConstraint()->is_sticky);
   EXPECT_EQ(CompositorElementId(), outer_properties->StickyTranslation()
                                        ->GetStickyConstraint()
                                        ->nearest_element_shifting_sticky_box);
@@ -6263,8 +6000,6 @@ TEST_P(PaintPropertyTreeBuilderTest, StickyConstraintChain) {
             middle_properties->StickyTranslation()->Translation2D());
   ASSERT_NE(nullptr,
             middle_properties->StickyTranslation()->GetStickyConstraint());
-  EXPECT_TRUE(
-      middle_properties->StickyTranslation()->GetStickyConstraint()->is_sticky);
   EXPECT_EQ(CompositorElementId(), middle_properties->StickyTranslation()
                                        ->GetStickyConstraint()
                                        ->nearest_element_shifting_sticky_box);
@@ -6279,8 +6014,6 @@ TEST_P(PaintPropertyTreeBuilderTest, StickyConstraintChain) {
             inner_properties->StickyTranslation()->Translation2D());
   ASSERT_NE(nullptr,
             inner_properties->StickyTranslation()->GetStickyConstraint());
-  EXPECT_TRUE(
-      inner_properties->StickyTranslation()->GetStickyConstraint()->is_sticky);
   EXPECT_EQ(middle_properties->StickyTranslation()->GetCompositorElementId(),
             inner_properties->StickyTranslation()
                 ->GetStickyConstraint()
@@ -6366,7 +6099,8 @@ TEST_P(PaintPropertyTreeBuilderTest, WillChangeOpacityInducesAnEffectNode) {
   auto* div = GetDocument().getElementById("div");
   div->setAttribute(html_names::kClassAttr, "transluscent");
   GetDocument().View()->UpdateAllLifecyclePhasesExceptPaint();
-  EXPECT_FALSE(ToLayoutBox(div->GetLayoutObject())->Layer()->NeedsRepaint());
+  EXPECT_FALSE(
+      ToLayoutBox(div->GetLayoutObject())->Layer()->SelfNeedsRepaint());
 
   ASSERT_TRUE(properties->Effect());
   EXPECT_FLOAT_EQ(properties->Effect()->Opacity(), 0.5f);
@@ -6466,9 +6200,7 @@ TEST_P(PaintPropertyTreeBuilderTest, SVGRootCompositedClipPath) {
   const auto* transform = properties->Transform();
   ASSERT_NE(nullptr, transform);
   EXPECT_EQ(properties->PaintOffsetTranslation(), transform->Parent());
-  if (RuntimeEnabledFeatures::CompositeAfterPaintEnabled() ||
-      RuntimeEnabledFeatures::BlinkGenPropertyTreesEnabled())
-    EXPECT_TRUE(transform->HasDirectCompositingReasons());
+  EXPECT_TRUE(transform->HasDirectCompositingReasons());
 
   if (RuntimeEnabledFeatures::CompositeAfterPaintEnabled()) {
     EXPECT_EQ(nullptr, properties->MaskClip());
@@ -6530,11 +6262,9 @@ TEST_P(PaintPropertyTreeBuilderTest, SVGRootCompositedClipPath) {
 }
 
 TEST_P(PaintPropertyTreeBuilderTest, SimpleOpacityChangeDoesNotCausePacUpdate) {
-  // This is a BGPT test only.
-  if (!RuntimeEnabledFeatures::BlinkGenPropertyTreesEnabled() ||
-      // TODO(vmpstr): For CompositeAfterPaint, we don't seem to get a
-      // cc_effect, which we need to investigate.
-      RuntimeEnabledFeatures::CompositeAfterPaintEnabled())
+  // TODO(vmpstr): For CompositeAfterPaint, we don't seem to get a
+  // cc_effect, which we need to investigate.
+  if (RuntimeEnabledFeatures::CompositeAfterPaintEnabled())
     return;
 
   SetHtmlInnerHTML(R"HTML(
@@ -6587,10 +6317,8 @@ TEST_P(PaintPropertyTreeBuilderTest, SimpleOpacityChangeDoesNotCausePacUpdate) {
 }
 
 TEST_P(PaintPropertyTreeBuilderTest, SimpleScrollChangeDoesNotCausePacUpdate) {
-  // This is a BGPT test only.
-  if (!RuntimeEnabledFeatures::BlinkGenPropertyTreesEnabled() ||
-      // TODO(vmpstr): Make this test pass for CompositeAfterPaint.
-      RuntimeEnabledFeatures::CompositeAfterPaintEnabled())
+  // TODO(vmpstr): Make this test pass for CompositeAfterPaint.
+  if (RuntimeEnabledFeatures::CompositeAfterPaintEnabled())
     return;
 
   SetHtmlInnerHTML(R"HTML(
@@ -6661,6 +6389,37 @@ TEST_P(PaintPropertyTreeBuilderTest, SimpleScrollChangeDoesNotCausePacUpdate) {
 }
 
 TEST_P(PaintPropertyTreeBuilderTest,
+       NonCompositedTransformChangeCausesPacUpdate) {
+  SetBodyInnerHTML(R"HTML(
+    <style>
+      #outer {
+        width: 100px;
+        height: 100px;
+        transform: translateY(0);
+      }
+      #inner {
+        width: 10px;
+        height: 10px;
+        will-change: transform;
+      }
+    </style>
+    <div id="outer">
+      <div id="inner"></div>
+    </div>
+  )HTML");
+
+  EXPECT_FALSE(
+      GetDocument().View()->GetPaintArtifactCompositor()->NeedsUpdate());
+
+  Element* outer = GetDocument().getElementById("outer");
+  outer->setAttribute(html_names::kStyleAttr, "transform: translateY(10px)");
+  GetDocument().View()->UpdateAllLifecyclePhasesExceptPaint();
+
+  EXPECT_TRUE(
+      GetDocument().View()->GetPaintArtifactCompositor()->NeedsUpdate());
+}
+
+TEST_P(PaintPropertyTreeBuilderTest,
        ColumnSpanAllUnderContainPaintAndClipPath) {
   // This test doesn't apply in CompositeAfterPaint mode.
   if (RuntimeEnabledFeatures::CompositeAfterPaintEnabled())
@@ -6686,15 +6445,10 @@ TEST_P(PaintPropertyTreeBuilderTest,
                                    .LocalBorderBoxProperties();
   EXPECT_EQ(clip_path_properties->MaskClip(),
             span_all_state.Clip().Parent()->Parent());
-  if (RuntimeEnabledFeatures::BlinkGenPropertyTreesEnabled()) {
-    // TODO(crbug.com/900241): In BlinkGenPropertyTrees/CompositeAfterPaint we
-    // create effect and filter nodes when the transform node needs compositing,
-    // for crbug.com/942681.
-    EXPECT_EQ(clip_path_properties->Effect(),
-              span_all_state.Effect().Parent()->Parent()->Parent());
-  } else {
-    EXPECT_EQ(clip_path_properties->Effect(), span_all_state.Effect().Parent());
-  }
+  // TODO(crbug.com/900241): We create effect and filter nodes when the
+  // transform node needs compositing, for crbug.com/942681.
+  EXPECT_EQ(clip_path_properties->Effect(),
+            span_all_state.Effect().Parent()->Parent()->Parent());
 }
 
 TEST_P(PaintPropertyTreeBuilderTest, VideoClipRect) {
@@ -6876,8 +6630,6 @@ TEST_P(PaintPropertyTreeBuilderTest, IsAffectedByOuterViewportBoundsDelta) {
 }
 
 TEST_P(PaintPropertyTreeBuilderTest, TransformAnimationAxisAlignment) {
-  if (!RuntimeEnabledFeatures::BlinkGenPropertyTreesEnabled())
-    return;
   SetBodyInnerHTML(R"HTML(
       <!DOCTYPE html>
       <style>
@@ -6918,6 +6670,86 @@ TEST_P(PaintPropertyTreeBuilderTest, TransformAnimationAxisAlignment) {
       PaintPropertiesForElement("rotation_animation")->Transform();
   EXPECT_TRUE(rotation->HasActiveTransformAnimation());
   EXPECT_FALSE(rotation->TransformAnimationIsAxisAligned());
+}
+
+TEST_P(PaintPropertyTreeBuilderTest, OverflowScrollPropertyHierarchy) {
+  SetBodyInnerHTML(R"HTML(
+    <div id="top-scroller"
+        style="position: relative; width: 50px; height: 50px; overflow: scroll">
+      <div id="middle-scroller"
+           style="width: 100px; height: 100px; overflow: scroll; opacity: 0.9">
+        <div id="fixed" style="position: fixed"></div>
+        <div id="absolute" style="position: absolute"></div>
+        <div id="relative" style="position: relative; height: 1000px"></div>
+      </div>
+    </div>
+  )HTML");
+
+  auto* top_properties = PaintPropertiesForElement("top-scroller");
+  ASSERT_TRUE(top_properties->OverflowClip());
+  EXPECT_EQ(top_properties->ScrollTranslation()->ScrollNode(),
+            top_properties->Scroll());
+
+  auto* middle_properties = PaintPropertiesForElement("middle-scroller");
+  EXPECT_EQ(middle_properties->PaintOffsetTranslation(),
+            &middle_properties->OverflowClip()->LocalTransformSpace());
+  EXPECT_EQ(top_properties->OverflowClip(),
+            middle_properties->OverflowClip()->Parent());
+  EXPECT_EQ(top_properties->Scroll(), middle_properties->Scroll()->Parent());
+  EXPECT_EQ(middle_properties->ScrollTranslation()->ScrollNode(),
+            middle_properties->Scroll());
+  EXPECT_EQ(top_properties->ScrollTranslation(),
+            middle_properties->ScrollTranslation()->Parent()->Parent());
+  EXPECT_EQ(middle_properties->PaintOffsetTranslation(),
+            &middle_properties->Effect()->LocalTransformSpace());
+
+  // |fixed| escapes both top and middle scrollers.
+  auto& fixed_fragment = GetLayoutObjectByElementId("fixed")->FirstFragment();
+  // The difference is because of the extra PaintOffsetTranslation on |fixed|
+  // in pre-CompositeAfterPaint.
+  EXPECT_EQ(DocPreTranslation(),
+            RuntimeEnabledFeatures::CompositeAfterPaintEnabled()
+                ? &fixed_fragment.PreTransform()
+                : fixed_fragment.PreTransform().Parent());
+  EXPECT_EQ(top_properties->OverflowClip()->Parent(),
+            &fixed_fragment.PreClip());
+
+  // |absolute| escapes |middle-scroller| (position: static), but is contained
+  // by |top-scroller| (position: relative)
+  auto& absolute_fragment =
+      GetLayoutObjectByElementId("absolute")->FirstFragment();
+  // The difference is because of the extra PaintOffsetTranslation on |absolute|
+  // in pre-CompositeAfterPaint.
+  EXPECT_EQ(top_properties->ScrollTranslation(),
+            RuntimeEnabledFeatures::CompositeAfterPaintEnabled()
+                ? &absolute_fragment.PreTransform()
+                : absolute_fragment.PreTransform().Parent());
+  EXPECT_EQ(top_properties->OverflowClip(), &absolute_fragment.PreClip());
+
+  // |relative| is contained by |middle-scroller|.
+  auto& relative_fragment =
+      GetLayoutObjectByElementId("relative")->FirstFragment();
+  EXPECT_EQ(middle_properties->ScrollTranslation(),
+            &relative_fragment.PreTransform());
+  EXPECT_EQ(middle_properties->OverflowClip(), &relative_fragment.PreClip());
+
+  // The opacity on |middle-scroller| applies to all children.
+  EXPECT_EQ(middle_properties->Effect(), &fixed_fragment.PreEffect());
+  EXPECT_EQ(middle_properties->Effect(), &absolute_fragment.PreEffect());
+  EXPECT_EQ(middle_properties->Effect(), &relative_fragment.PreEffect());
+}
+
+TEST_P(PaintPropertyTreeBuilderTest, CompositedInline) {
+  SetBodyInnerHTML(R"HTML(
+    <span id="span" style="will-change: transform; position: relative">
+      SPAN
+    </span>
+  )HTML");
+
+  auto* properties = PaintPropertiesForElement("span");
+  ASSERT_TRUE(properties);
+  ASSERT_TRUE(properties->Transform());
+  EXPECT_TRUE(properties->Transform()->HasDirectCompositingReasons());
 }
 
 }  // namespace blink

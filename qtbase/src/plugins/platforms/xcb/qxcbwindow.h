@@ -108,8 +108,8 @@ public:
 
     bool windowEvent(QEvent *event) override;
 
-    bool startSystemResize(const QPoint &pos, Qt::Corner corner) override;
-    bool startSystemMove(const QPoint &pos) override;
+    bool startSystemResize(Qt::Edges edges) override;
+    bool startSystemMove() override;
 
     void setOpacity(qreal level) override;
     void setMask(const QRegion &region) override;
@@ -138,10 +138,8 @@ public:
     void handleFocusInEvent(const xcb_focus_in_event_t *event) override;
     void handleFocusOutEvent(const xcb_focus_out_event_t *event) override;
     void handlePropertyNotifyEvent(const xcb_property_notify_event_t *event) override;
-#if QT_CONFIG(xcb_xinput)
     void handleXIMouseEvent(xcb_ge_event_t *, Qt::MouseEventSource source = Qt::MouseEventNotSynthesized) override;
     void handleXIEnterLeave(xcb_ge_event_t *) override;
-#endif
 
     QXcbWindow *toWindow() override;
 
@@ -171,8 +169,8 @@ public:
 
     QXcbScreen *xcbScreen() const;
 
-    bool startSystemMoveResize(const QPoint &pos, int corner);
-    void doStartSystemMoveResize(const QPoint &globalPos, int corner);
+    bool startSystemMoveResize(const QPoint &pos, int edges);
+    void doStartSystemMoveResize(const QPoint &globalPos, int edges);
 
     static bool isTrayIconWindow(QWindow *window)
     {
@@ -267,6 +265,7 @@ protected:
 
     QRegion m_exposeRegion;
     QSize m_oldWindowSize;
+    QPoint m_lastPointerPosition;
 
     xcb_visualid_t m_visualId = 0;
     // Last sent state. Initialized to an invalid state, on purpose.

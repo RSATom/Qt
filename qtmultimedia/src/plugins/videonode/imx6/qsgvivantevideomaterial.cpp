@@ -50,10 +50,8 @@
 #include <unistd.h>
 
 #include <QtMultimedia/private/qtmultimediaglobal_p.h>
-#if QT_CONFIG(gstreamer_imxcommon)
 #include "private/qgstvideobuffer_p.h"
-#include <gst/allocators/imx/phys_mem_meta.h>
-#endif
+#include <gst/allocators/gstphysmemory.h>
 
 //#define QT_VIVANTE_VIDEO_DEBUG
 
@@ -107,7 +105,7 @@ void QSGVivanteVideoMaterial::updateBlending() {
 void QSGVivanteVideoMaterial::setCurrentFrame(const QVideoFrame &frame, QSGVideoNode::FrameFlags flags)
 {
     QMutexLocker lock(&mFrameMutex);
-    mNextFrame = frame;
+    mCurrentFrame = frame;
     mMappable = mMapError == GL_NO_ERROR && !flags.testFlag(QSGVideoNode::FrameFiltered);
 
 #ifdef QT_VIVANTE_VIDEO_DEBUG
@@ -124,12 +122,8 @@ void QSGVivanteVideoMaterial::bind()
     }
 
     QMutexLocker lock(&mFrameMutex);
-    if (mNextFrame.isValid()) {
-        mCurrentFrame.unmap();
-
-        mCurrentFrame = mNextFrame;
-        mCurrentTexture = vivanteMapping(mNextFrame);
-    }
+    if (mCurrentFrame.isValid())
+        mCurrentTexture = vivanteMapping(mCurrentFrame);
     else
         glBindTexture(GL_TEXTURE_2D, mCurrentTexture);
 }
@@ -229,11 +223,12 @@ GLuint QSGVivanteVideoMaterial::vivanteMapping(QVideoFrame vF)
 #endif
 
                 GLuint physical = ~0U;
-#if QT_CONFIG(gstreamer_imxcommon)
+#if GST_CHECK_VERSION(1,14,0)
                 auto buffer = reinterpret_cast<QGstVideoBuffer *>(vF.buffer());
-                GstImxPhysMemMeta *meta = GST_IMX_PHYS_MEM_META_GET(buffer->buffer());
-                if (meta && meta->phys_addr)
-                    physical = meta->phys_addr;
+                auto mem = gst_buffer_peek_memory(buffer->buffer(), 0);
+                auto phys_addr = gst_is_phys_memory(mem) ? gst_phys_memory_get_phys_addr(mem) : 0;
+                if (phys_addr)
+                    physical = phys_addr;
 #endif
                 glBindTexture(GL_TEXTURE_2D, tmpTexId);
                 glTexDirectVIVMap_LOCAL(GL_TEXTURE_2D,

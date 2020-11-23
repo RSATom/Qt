@@ -99,7 +99,7 @@ SettingsForm {
 
     Connections {
         target: CustomerModel.selection
-        onSelectionChanged: form.readData()
+        function onSelectionChanged() { form.readData() }
     }
 
     Component.onCompleted: readData()

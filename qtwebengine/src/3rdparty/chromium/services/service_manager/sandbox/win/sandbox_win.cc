@@ -18,7 +18,6 @@
 #include "base/hash/hash.h"
 #include "base/hash/sha1.h"
 #include "base/logging.h"
-#include "base/memory/shared_memory.h"
 #include "base/metrics/field_trial.h"
 #include "base/metrics/histogram_functions.h"
 #include "base/metrics/histogram_macros.h"
@@ -38,7 +37,6 @@
 #include "base/win/scoped_handle.h"
 #include "base/win/win_util.h"
 #include "base/win/windows_version.h"
-#include "sandbox/constants.h"
 #include "sandbox/win/src/app_container_profile.h"
 #include "sandbox/win/src/job.h"
 #include "sandbox/win/src/process_mitigations.h"
@@ -49,6 +47,7 @@
 #include "services/service_manager/sandbox/features.h"
 #include "services/service_manager/sandbox/sandbox_type.h"
 #include "services/service_manager/sandbox/switches.h"
+#include "services/service_manager/sandbox/win/sandbox_diagnostics.h"
 
 namespace service_manager {
 namespace {
@@ -329,16 +328,6 @@ sandbox::ResultCode AddGenericPolicy(sandbox::TargetPolicy* policy) {
   if (result != sandbox::SBOX_ALL_OK)
     return result;
 
-  // Add the policy for the server side of nacl pipe. It is just a file
-  // in the \pipe\ namespace. We restrict it to pipes that start with
-  // "chrome.nacl" so the sandboxed process cannot connect to
-  // system services.
-  result = policy->AddRule(sandbox::TargetPolicy::SUBSYS_NAMED_PIPES,
-                           sandbox::TargetPolicy::NAMEDPIPES_ALLOW_ANY,
-                           L"\\\\.\\pipe\\chrome.nacl.*");
-  if (result != sandbox::SBOX_ALL_OK)
-    return result;
-
   // Allow the server side of sync sockets, which are pipes that have
   // the "chrome.sync" namespace and a randomly generated suffix.
   result = policy->AddRule(sandbox::TargetPolicy::SUBSYS_NAMED_PIPES,
@@ -438,7 +427,12 @@ sandbox::ResultCode AddPolicyForSandboxedProcess(
     return result;
   policy->SetLockdownDefaultDacl();
 
+#ifdef TOOLKIT_QT
+  // Disable alternate window station due to QTBUG-83300
+  result = policy->SetAlternateDesktop(false);
+#else
   result = policy->SetAlternateDesktop(true);
+#endif
   if (result != sandbox::SBOX_ALL_OK) {
     // We ignore the result of setting the alternate desktop, however log
     // a launch warning.
@@ -553,16 +547,9 @@ BOOL WINAPI DuplicateHandlePatch(HANDLE source_process_handle,
 bool IsAppContainerEnabled() {
   if (base::win::GetVersion() < base::win::Version::WIN8)
     return false;
-  const base::CommandLine& command_line =
-      *base::CommandLine::ForCurrentProcess();
-  const std::string appcontainer_group_name =
-      base::FieldTrialList::FindFullName("EnableAppContainer");
-  if (command_line.HasSwitch(service_manager::switches::kDisableAppContainer))
-    return false;
-  if (command_line.HasSwitch(service_manager::switches::kEnableAppContainer))
-    return true;
-  return base::StartsWith(appcontainer_group_name, "Enabled",
-                          base::CompareCase::INSENSITIVE_ASCII);
+
+  return base::FeatureList::IsEnabled(
+      {"RendererAppContainer", base::FEATURE_DISABLED_BY_DEFAULT});
 }
 
 sandbox::ResultCode SetJobMemoryLimit(const base::CommandLine& cmd_line,
@@ -725,13 +712,16 @@ sandbox::ResultCode SandboxWin::AddWin32kLockdownPolicy(
   if (!service_manager::IsWin32kLockdownEnabled())
     return sandbox::SBOX_ALL_OK;
 
-  // Enable win32k lockdown if not already.
   sandbox::MitigationFlags flags = policy->GetProcessMitigations();
-  if ((flags & sandbox::MITIGATION_WIN32K_DISABLE) ==
-      sandbox::MITIGATION_WIN32K_DISABLE)
-    return sandbox::SBOX_ALL_OK;
+  // Check not enabling twice. Should not happen.
+  DCHECK_EQ(0U, flags & sandbox::MITIGATION_WIN32K_DISABLE);
 
-  sandbox::ResultCode result =
+  flags |= sandbox::MITIGATION_WIN32K_DISABLE;
+  sandbox::ResultCode result = policy->SetProcessMitigations(flags);
+  if (result != sandbox::SBOX_ALL_OK)
+    return result;
+
+  result =
       policy->AddRule(sandbox::TargetPolicy::SUBSYS_WIN32K_LOCKDOWN,
                       enable_opm ? sandbox::TargetPolicy::IMPLEMENT_OPM_APIS
                                  : sandbox::TargetPolicy::FAKE_USER_GDI_INIT,
@@ -741,8 +731,7 @@ sandbox::ResultCode SandboxWin::AddWin32kLockdownPolicy(
   if (enable_opm)
     policy->SetEnableOPMRedirection();
 
-  flags |= sandbox::MITIGATION_WIN32K_DISABLE;
-  return policy->SetProcessMitigations(flags);
+  return result;
 #else
   return sandbox::SBOX_ALL_OK;
 #endif
@@ -882,7 +871,7 @@ sandbox::ResultCode SandboxWin::StartSandboxedProcess(
         sandbox::Job job_obj;
         DWORD result = job_obj.Init(sandbox::JOB_UNPROTECTED, nullptr, 0, 0);
         if (result != ERROR_SUCCESS)
-          return sandbox::SBOX_ERROR_GENERIC;
+          return sandbox::SBOX_ERROR_CANNOT_INIT_JOB;
         g_job_object_handle = job_obj.Take().Take();
       }
       options.job_handle = g_job_object_handle;
@@ -1045,6 +1034,15 @@ sandbox::ResultCode SandboxWin::StartSandboxedProcess(
 
   *process = base::Process(target.TakeProcessHandle());
   return sandbox::SBOX_ALL_OK;
+}
+
+sandbox::ResultCode SandboxWin::GetPolicyDiagnostics(
+    base::OnceCallback<void(base::Value)> response) {
+  CHECK(g_broker_services);
+  CHECK(!response.is_null());
+  auto receiver = std::make_unique<ServiceManagerDiagnosticsReceiver>(
+      base::SequencedTaskRunnerHandle::Get(), std::move(response));
+  return g_broker_services->GetPolicyDiagnostics(std::move(receiver));
 }
 
 }  // namespace service_manager

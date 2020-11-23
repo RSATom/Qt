@@ -27,8 +27,7 @@
 
 /*!
     \page 21-0-qdoc-configuration.html
-    \previouspage Creating DITA Maps
-    \contentspage QDoc Manual
+    \previouspage Miscellaneous
     \nextpage Generic Configuration Variables
 
     \title The QDoc Configuration File
@@ -91,7 +90,7 @@
     \li \l {Cpp.ignoredirectives-variable} {Cpp.ignoredirectives}
     \li \l {Cpp.ignoretokens-variable} {Cpp.ignoretokens}
     \li \l {defines-variable} {defines}
-    \li \l {edition-variable} {edition}
+    \li \l {depends-variable} {depends}
     \li \l {exampledirs-variable} {exampledirs}
     \li \l {examples-variable} {examples}
     \li \l {examples.fileextensions-variable} {examples.fileextensions}
@@ -106,10 +105,13 @@
     \li \l {HTML.postheader-variable} {HTML.postheader}
     \li \l {HTML.style-variable} {HTML.style}
     \li \l {ignorewords-variable} {ignorewords}
+    \li \l {ignoresince-variable} {ignoresince}
     \li \l {imagedirs-variable} {imagedirs}
     \li \l {images-variable} {images}
     \li \l {images.fileextensions-variable} {images.fileextensions}
+    \li \l {indexes-variable} {indexes}
     \li \l {language-variable} {language}
+    \li \l {locationinfo-variable} {locationinfo}
     \li \l {macro-variable} {macro}
     \li \l {manifestmeta-variable} {manifestmeta}
     \li \l {navigation-variable} {navigation}
@@ -117,6 +119,7 @@
     \li \l {outputformats-variable} {outputformats}
     \li \l {outputprefixes-variable} {outputprefixes}
     \li \l {outputsuffixes-variable} {outputsuffixes}
+    \li \l {project-variable} {project}
     \li \l {sourcedirs-variable} {sourcedirs}
     \li \l {sources-variable} {sources}
     \li \l {sources.fileextensions-variable} {sources.fileextensions}
@@ -149,7 +152,6 @@
 /*!
     \page 22-qdoc-configuration-generalvariables.html
     \previouspage The QDoc Configuration File
-    \contentspage QDoc Manual
     \nextpage Creating Help Project Files
 
     \title Generic Configuration Variables
@@ -241,45 +243,66 @@
     line using the -D option. For example:
 
     \badcode
-        currentdirectory$ qdoc -Dconsoleedition qtgui.qdocconf
+        currentdirectory$ qdoc -Dqtforpython qtgui.qdocconf
     \endcode
 
-    In this case the -D option ensures that the \c consoleedition
+    In this case the -D option ensures that the \c qtforpython
     preprocessor symbol is defined when QDoc processes the source
     files defined in the qtgui.qdocconf file.
 
     See also \l {falsehoods-variable} {falsehoods} and \l {if-command} {\\if}.
 
-    \target edition-variable
-    \section1 edition
+    \target depends-variable
+    \section1 depends
 
-    The \c edition variable specifies which modules are included in
-    each edition of a package, and provides QDoc with information to
-    provide class lists for each edition.
+    The \c depends variable defines a list of other documentation projects
+    that this project depends on for resolving link targets for type
+    inheritance and anything else the documentation needs to link to.
 
-    This feature is mostly used when providing documentation for Qt
-    packages.
+    Like Qt itself, documentation for Qt is distributed across multiple
+    modules. In a multi-module documentation project, the minimum set
+    of dependencies for a single module consists of actual build
+    dependencies. In addition, if there is a documentation project
+    (module) that acts as a top-level entry point for the entire
+    documentation set and provides \l {navigation-variable}[navigation}
+    links, each module documentation should include it as a dependency.
 
-    The \c edition variable is always used with a particular edition
-    name to define the modules for that edition:
-
-    \badcode
-        edition.Console      = QtCore QtNetwork QtSql QtXml
-        edition.Desktop      = QtCore QtGui QtNetwork QtOpenGL QtSql QtXml \
-                               QtDesigner QtAssistant Qt3Support QAxContainer \
-                               QAxServer
-        edition.DesktopLight = QtCore QtGui Qt3SupportLight
-    \endcode
-
-    In the above examples, the \c Console edition only includes the
-    contents of four modules. Only the classes from these modules will
-    be used when the \l{Miscellaneous#generatelist-command}
-    {generatelist} command is used to generate a list of classes for
-    this edition:
+    When QDoc generates documentation for a project, it will also generate
+    an \c .index file containing URLs to each linkable entity in the project.
+    Each dependency is a (lowercase) name of a project. This name must
+    match with the base name of the index file generated for that
+    project.
 
     \badcode
-        \generatelist{classesbyedition Console}
+    depends = \
+        qtdoc \
+        qtcore \
+        qtquick
     \endcode
+
+    When invoking QDoc on a project that has dependencies and uses the
+    \c depends variable, one or more \c -indexdir path(s) must be passed
+    as command line option(s). QDoc uses these paths to search for
+    the dependencies' index files.
+
+    \badcode
+    qdoc mydoc.qdocconf -outputdir $PWD/html -indexdir $QT_INSTALL_DOCS
+    \endcode
+
+    With above, QDoc will search for a file
+    \c {$T_INSTALL_DOCS/qtdoc/qtdoc.index} for a dependency to \c qtdoc.
+    If an index file for a dependency is not found, QDoc will output a
+    warning.
+
+    The \c depends command accepts also a special value of '*'. This
+    instructs QDoc to load all index files found in specified index
+    directories; that is, "depends on everything".
+
+    \badcode
+    depends = *
+    \endcode
+
+    See also \l indexes, \l project, and \l url.
 
     \target exampledirs-variable
     \section1 exampledirs
@@ -367,7 +390,7 @@
     \section1 examples.fileextensions
 
     The \c examples.fileextensions variable specifies the file
-    extensions that qdoc will look for when collecting example files
+    extensions that QDoc will look for when collecting example files
     for display in the documentation.
 
     The default extensions are *.cpp, *.h, *.js, *.xq, *.svg, *.xml
@@ -386,7 +409,7 @@
     \section1 excludedirs
 
     The \c excludedirs variable is for listing directories that should \e{not}
-    be processed by qdoc, even if the same directories are included by the
+    be processed by QDoc, even if the same directories are included by the
     \l {sourcedirs-variable} {sourcedirs} or \l {headerdirs-variable} {headerdirs}
     variables.
 
@@ -399,7 +422,7 @@
 
     When executed, QDoc will exclude the listed directories from
     further consideration. Files in these directories will not be
-    read by qdoc.
+    read by QDoc.
 
     See also \l {excludefiles-variable} {excludefiles}.
 
@@ -407,7 +430,7 @@
     \section1 excludefiles
 
     The \c excludefiles variable allows you to specify individual files
-    that should \e{not} be processed by qdoc.
+    that should \e{not} be processed by QDoc.
 
     \badcode
     excludefiles += $QT_CORE_SOURCES/../../src/widgets/kernel/qwidget.h \
@@ -629,6 +652,37 @@
 
     The \c ignorewords variable was introduced in QDoc 5.14.
 
+    \target ignoresince-variable
+    \section1 ignoresince
+
+    The \c ignoresince variable is used for setting a cutoff value for
+    versions passed to the \l {since-command}{\\since} command. All
+    \\since commands that define a version lower than the cutoff are
+    ignored and do not generate output.
+
+    The cutoff values are project-specific. The project name can be
+    defined as a subvariable. The default project name is \e Qt. For
+    example:
+
+    \badcode
+    ignoresince      = 5.0
+    ignoresince.QDoc = 5.0
+    \endcode
+
+    These will ignore \\since commands where the major version is 4
+    or lower and the project is either \c QDoc or undefined.
+
+    \badcode
+    \since 3.2          # Ignored
+    \since 5.2          # Documented (as 'Qt 5.2')
+    \since QDoc 4.6     # Ignored
+    \since QtQuick 2.5  # Documented
+    \endcode
+
+    The \c ignoresince variable was introduced in QDoc 5.15.
+
+    See also \l {since-command}{\\since}.
+
     \target imagedirs-variable
     \section1 imagedirs
 
@@ -757,6 +811,28 @@
 
     This identifies C++ as the language of the Qt source code.
 
+    \target locationinfo-variable
+    \section1 locationinfo
+
+    The \c locationinfo boolean variable determines whether detailed
+    location information about each entity is written to
+    \c {.index}-files and \c {.webxml}-files (when using the WebXML
+    output format).
+
+    Location information consists of the full path and line
+    number of either the declaration or documentation comment block
+    in the source code.
+
+    Setting this to \c false turns off location info:
+
+    \badcode
+        locationinfo = false
+    \endcode
+
+    The default value is \c true.
+
+    The \c locationinfo variable was introduced in QDoc 5.15.
+
     \target macro-variable
     \section1 macro
 
@@ -766,9 +842,7 @@
 
     A macro variable can be restricted for use in one type of output
     generation. By appending \c {.HTML} to the macro name, for
-    example, the macro is only used when generating HTML output. By
-    appending \c {.DITAXML} to the macro name, the macro is only used
-    when generating DITA XML.
+    example, the macro is only used when generating HTML output.
 
     \badcode
         macro.gui              = "\\b"
@@ -834,7 +908,7 @@
     \section1 naturallanguage
 
     The \c naturallanguage variable specifies the natural language
-    used for the documentation generated by qdoc.
+    used for the documentation generated by QDoc.
 
     \badcode
         naturallanguage = zh-Hans
@@ -843,7 +917,7 @@
     By default, the natural language is \c en for compatibility with
     legacy documentation.
 
-    qdoc will add the natural language information to the HTML it
+    QDoc will add the natural language information to the HTML it
     generates, using the \c lang and \c xml:lang attributes.
 
     See also \l {sourceencoding-variable} {sourceencoding},
@@ -937,7 +1011,7 @@
     \section1 outputencoding
 
     The \c outputencoding variable specifies the encoding used for the
-    documentation generated by qdoc.
+    documentation generated by QDoc.
 
     \badcode
         outputencoding = UTF-8
@@ -949,7 +1023,7 @@
     languages, this is not sufficient and an encoding such as UTF-8 is
     required.
 
-    qdoc will encode HTML using this encoding and generate the correct
+    QDoc will encode HTML using this encoding and generate the correct
     declarations to indicate to browsers which encoding is being
     used. The \l naturallanguage configuration variable should also be
     specified to provide browsers with a complete set of character
@@ -963,9 +1037,10 @@
     The \c outputformats variable specifies the format(s) of
     the generated documentation.
 
-    Since Qt 5.11, QDoc supports the HTML and WebXML formats. If no
+    Since Qt 5.11, QDoc supports the HTML and WebXML formats; since
+    Qt 5.15, it can also generate the documentation in DocBook. If no
     \c outputformats are specified, QDoc generates the documentation
-    in HTML (the default format). Both output formats can be specified,
+    in HTML (the default format). All output formats can be specified,
     with dedicated output directories and other settings. For example:
 
     \badcode
@@ -1081,7 +1156,7 @@
     particularly non-European languages, this is not sufficient and an
     encoding such as UTF-8 is required.
 
-    Although qdoc will use the encoding to read source and
+    Although QDoc will use the encoding to read source and
     documentation files, limitations of C++ compilers may prevent you
     from using non-ASCII characters in source code comments. In cases
     like these, it is possible to write API documentation completely
@@ -1263,7 +1338,6 @@
 /*!
     \page 22-creating-help-project-files.html
     \previouspage Generic Configuration Variables
-    \contentspage QDoc Manual
     \nextpage C++ Specific Configuration Variables
 
     \title Creating Help Project Files
@@ -1397,7 +1471,6 @@
 /*!
     \page 23-qdoc-configuration-cppvariables.html
     \previouspage Creating Help Project Files
-    \contentspage QDoc Manual
     \nextpage Format-specific Configuration Variables
 
     \title C++ Specific Configuration Variables
@@ -1508,7 +1581,6 @@
 /*!
     \page 24-qdoc-configuration-htmlvariables.html
     \previouspage C++ Specific Configuration Variables
-    \contentspage QDoc Manual
     \nextpage Supporting Derived Projects
 
     \keyword HTML Specific Configuration Variables
@@ -1659,7 +1731,6 @@
 /*!
     \page 25-qdoc-configuration-derivedprojects.html
     \previouspage Format-specific Configuration Variables
-    \contentspage QDoc Manual
     \nextpage Example Manifest Files
 
     \title Supporting Derived Projects
@@ -1681,24 +1752,30 @@
     \target indexes-variable
     \section1 indexes
 
-    The \c indexes variable lists the index files that will be used to
-    generate references.
-
-    For example. to make a derived Qt project contain links to the Qt
-    Reference documentation, you need to specify the associated index
-    file:
+    The \l {indexes-variable}[indexes} variable defines a set of paths
+    to index files to load.
 
     \badcode
-        indexes = $QTDIR/doc/html/qt.index
+    indexes = \
+        $QT_INSTALL_DOCS/qtcore/qtcore.index \
+        $SOME_OTHER_PROJECT/doc/foo.index
     \endcode
 
-    See also \l project and \l url.
+    The \c indexes variable provides an alternative to \l depends for
+    defining project's dependencies. As direct paths are provided, no
+    \c -indexdir command line option(s) are required when invoking QDoc.
+
+    It is possible to define dependencies using either variable. Qt
+    documentation only uses the \c depends variable.
+
+    See also \l depends, \l project and \l url.
 
     \target project-variable
     \section1 project
 
     The \c project variable provides a name for the project associated
-    with the \c .qdocconf file.
+    with the \c .qdocconf file. This is a mandatory variable that all
+    projects must set.
 
     The project's name is used to form a file name for the associated
     project's \e index file.
@@ -1710,12 +1787,16 @@
     This will cause an index file called \c qtcreator.index to be
     created.
 
-    See also \l description and \l indexes.
+    If the project name contains whitespace or special characters,
+    these are replaced with dashes ('-') in the generated index file
+    name.
+
+    See also \l depends, \l indexes, and \l description.
 
     \target url-variable
     \section1 url
 
-    The \c url variable holds the base URL for the reference
+    The \c url variable holds the base URL for the
     documentation associated with the current project.
 
     The URL is stored in the generated index file for the
@@ -1724,18 +1805,18 @@
     other things listed in the index.
 
     \badcode
-    project     = Qt
-    description = Qt Reference Documentation
+    project     = QtCore
+    description = Qt Core Reference Documentation
     url         = https://doc.qt.io/qt/
 
-         ...
+    ...
     \endcode
 
-    This makes sure that whenever \c qt.index is used to generate
-    references to for example Qt classes, the base URL is \c
-    https://doc.qt.io/qt/.
+    This ensures that whenever QDoc generates
+    references to entities in the Qt Core module, the base URL is
+    \c https://doc.qt.io/qt/.
 
-    See also \l indexes and \l {url.examples}.
+    See also \l depends, \l indexes and \l {url.examples}.
 
     \target url.examples-variable
     \section1 url.examples
@@ -1795,29 +1876,29 @@
     This feature makes use of the comprehensive indexes generated by
     QDoc when it creates the Qt reference documentation.
 
-    For example, \l qtgui.qdocconf (the configuration file for Qt)
+    For example, \l qtgui.qdocconf (the configuration file for Qt GUI)
     contains the following variable definitions:
 
     \badcode
-        project     = Qt
-        description = Qt Reference Documentation
+        project     = QtGui
+        description = Qt GUI Reference Documentation
         url         = http://doc.qt.io/qt/
 
         ...
     \endcode
 
     The \l project variable name is used to form a file name for the
-    index file; in this case the \c qt.index file is created. The \l
+    index file; in this case the \c qtgui.index file is created. The \l
     url is stored in the index file. Afterwards, QDoc will use this
     as the base URL when constructing links to classes, functions,
     and other things listed in the index.
 
+    See also \l depends, \l indexes, \l project, and \l url.
 */
 
 /*!
     \page 26-qdoc-configuration-example-manifest-files.html
     \previouspage Supporting Derived Projects
-    \contentspage QDoc Manual
 
     \title Example Manifest Files
 
@@ -1895,71 +1976,11 @@
     another tag is applied to all examples by using just \c {*} as the
     match string.
 */
-/*!
-    \page 21-3-qt-dita-xml-output.html
-    \previouspage minimum.qdocconf
-    \contentspage QDoc Manual
-    \nextpage QA Pages
-
-    \title Generating DITA XML Output
-
-    QDoc can generate \l {http://dita.xml.org} {DITA XML output}.
-
-    In your configuration file, set your \c {outputformats} variable
-    to \c {DITAXML}, and send the output to an appropriate directory:
-
-    \badcode
-    outputdir                  = $QTDIR/doc/ditaxml
-    outputformats              = DITAXML
-    \endcode
-
-    And include these macros in your configuration file to prevent
-    QDoc from doing some escaping that doesn't validate in XML:
-
-    \badcode
-    macro.aacute.DITAXML       = "&aacute;"
-    macro.Aring.DITAXML        = "&Aring;"
-    macro.aring.DITAXML        = "&aring;"
-    macro.Auml.DITAXML         = "&Auml;"
-    macro.br.DITAXML           = " "
-    macro.BR.DITAXML           = " "
-    macro.copyright.DITAXML    = "&copy;"
-    macro.eacute.DITAXML       = "&eacute;"
-    macro.hr.DITAXML           = " "
-    macro.iacute.DITAXML       = "&iacute;"
-    macro.oslash.DITAXML       = "&oslash;"
-    macro.ouml.DITAXML         = "&ouml;"
-    macro.raisedaster.DITAXML  = "<sup>*</sup>"
-    macro.rarrow.DITAXML       = "&rarr;"
-    macro.reg.DITAXML          = "<sup>&reg;</sup>"
-    macro.uuml.DITAXML         = "&uuml;"
-    macro.mdash.DITAXML        = "&mdash;"
-    macro.emptyspan.DITAXML    = " "
-    \endcode
-
-    You can also set default values for some of the tags in the DITA
-    \c {<prolog>} and \c {<metadata>} elements:
-
-    \badcode
-    dita.metadata.default.author      = Qt Development Frameworks
-    dita.metadata.default.permissions = all
-    dita.metadata.default.publisher   = Qt Project
-    dita.metadata.default.copyryear = 2020
-    dita.metadata.default.copyrholder = Qt Project
-    dita.metadata.default.audience = programmer
-    \endcode
-
-    See the \l {meta-command}
-    {\\meta} command for more details on DITA metadata.
-
-*/
-
 
 /*!
     \page 21-1-minimum-qdocconf.html
     \previouspage qtgui.qdocconf
-    \contentspage QDoc Manual
-    \nextpage Generating DITA XML Output
+    \nextpage The QDoc Configuration File
 
     \title minimum.qdocconf
 
@@ -1969,7 +1990,6 @@
 /*!
     \page 21-2-qtgui-qdocconf.html
     \previouspage Supporting Derived Projects
-    \contentspage QDoc Manual
     \nextpage minimum.qdocconf
 
     \title qtgui.qdocconf

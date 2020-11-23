@@ -84,7 +84,6 @@
 #define DEBUGCANVAS_ATTRIBUTE_PATHEFFECT "pathEffect"
 #define DEBUGCANVAS_ATTRIBUTE_MASKFILTER "maskFilter"
 #define DEBUGCANVAS_ATTRIBUTE_XFERMODE "xfermode"
-#define DEBUGCANVAS_ATTRIBUTE_LOOPER "looper"
 #define DEBUGCANVAS_ATTRIBUTE_BACKDROP "backdrop"
 #define DEBUGCANVAS_ATTRIBUTE_COLORFILTER "colorfilter"
 #define DEBUGCANVAS_ATTRIBUTE_IMAGEFILTER "imagefilter"
@@ -519,18 +518,18 @@ void DrawCommand::MakeJsonMatrix(SkJSONWriter& writer, const SkMatrix& matrix) {
 
 void DrawCommand::MakeJsonPath(SkJSONWriter& writer, const SkPath& path) {
     writer.beginObject();
-    switch (path.getFillType()) {
-        case SkPath::kWinding_FillType:
+    switch (path.getNewFillType()) {
+        case SkPathFillType::kWinding:
             writer.appendString(DEBUGCANVAS_ATTRIBUTE_FILLTYPE, DEBUGCANVAS_FILLTYPE_WINDING);
             break;
-        case SkPath::kEvenOdd_FillType:
+        case SkPathFillType::kEvenOdd:
             writer.appendString(DEBUGCANVAS_ATTRIBUTE_FILLTYPE, DEBUGCANVAS_FILLTYPE_EVENODD);
             break;
-        case SkPath::kInverseWinding_FillType:
+        case SkPathFillType::kInverseWinding:
             writer.appendString(DEBUGCANVAS_ATTRIBUTE_FILLTYPE,
                                 DEBUGCANVAS_FILLTYPE_INVERSEWINDING);
             break;
-        case SkPath::kInverseEvenOdd_FillType:
+        case SkPathFillType::kInverseEvenOdd:
             writer.appendString(DEBUGCANVAS_ATTRIBUTE_FILLTYPE,
                                 DEBUGCANVAS_FILLTYPE_INVERSEEVENODD);
             break;
@@ -677,7 +676,7 @@ bool DrawCommand::flatten(const SkImage&  image,
     size_t       rowBytes = 4 * image.width();
     SkAutoMalloc buffer(rowBytes * image.height());
     SkImageInfo  dstInfo =
-            SkImageInfo::Make(image.width(), image.height(), kN32_SkColorType, kPremul_SkAlphaType);
+            SkImageInfo::Make(image.dimensions(), kN32_SkColorType, kPremul_SkAlphaType);
     if (!image.readPixels(dstInfo, buffer.get(), rowBytes, 0, 0)) {
         SkDebugf("readPixels failed\n");
         return false;
@@ -948,9 +947,6 @@ void DrawCommand::MakeJsonPaint(SkJSONWriter&   writer,
     apply_paint_patheffect(paint, writer, urlDataManager);
     apply_paint_maskfilter(paint, writer, urlDataManager);
     apply_flattenable(DEBUGCANVAS_ATTRIBUTE_SHADER, paint.getShader(), writer, urlDataManager);
-#ifdef SK_SUPPORT_LEGACY_DRAWLOOPER
-    apply_flattenable(DEBUGCANVAS_ATTRIBUTE_LOOPER, paint.getLooper(), writer, urlDataManager);
-#endif
     apply_flattenable(
             DEBUGCANVAS_ATTRIBUTE_IMAGEFILTER, paint.getImageFilter(), writer, urlDataManager);
     apply_flattenable(
@@ -1971,7 +1967,7 @@ void DrawShadowCommand::toJSON(SkJSONWriter& writer, UrlDataManager& urlDataMana
 DrawEdgeAAQuadCommand::DrawEdgeAAQuadCommand(const SkRect&         rect,
                                              const SkPoint         clip[],
                                              SkCanvas::QuadAAFlags aa,
-                                             SkColor               color,
+                                             const SkColor4f&      color,
                                              SkBlendMode           mode)
         : INHERITED(kDrawEdgeAAQuad_OpType)
         , fRect(rect)

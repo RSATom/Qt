@@ -223,7 +223,8 @@ Chunk *MemorySegment::allocate(size_t size)
             pageReservation.commit(candidate, size);
             for (uint i = 0; i < requiredChunks; ++i)
                 setBit(candidate - base + i);
-            DEBUG << "allocated chunk " << candidate << hex << size;
+            DEBUG << "allocated chunk " << candidate << Qt::hex << size;
+
             return candidate;
         }
     }
@@ -478,12 +479,15 @@ void Chunk::sortIntoBins(HeapItem **bins, uint nBins)
             uint freeStart = i*Bits + index;
             usedSlots &= ~((static_cast<quintptr>(1) << index) - 1);
             while (!usedSlots) {
-                ++i;
-                if (i == EntriesInBitmap) {
-                    usedSlots = (quintptr)-1;
+                if (++i < EntriesInBitmap) {
+                    usedSlots = (objectBitmap[i]|extendsBitmap[i]);
+                } else {
+                    Q_ASSERT(i == EntriesInBitmap);
+                    // Overflows to 0 when counting trailing zeroes above in next iteration.
+                    // Then, all the bits are zeroes and we break.
+                    usedSlots = std::numeric_limits<quintptr>::max();
                     break;
                 }
-                usedSlots = (objectBitmap[i]|extendsBitmap[i]);
 #ifndef QT_NO_DEBUG
                 allocatedSlots += qPopulationCount(usedSlots);
 //                qDebug() << hex << "   i=" << i << "used=" << usedSlots;
@@ -847,16 +851,18 @@ Heap::Object *MemoryManager::allocObjectWithMemberData(const QV4::VTable *vtable
 static uint markStackSize = 0;
 
 MarkStack::MarkStack(ExecutionEngine *engine)
-    : engine(engine)
+    : m_engine(engine)
 {
-    base = (Heap::Base **)engine->gcStack->base();
-    top = base;
-    limit = base + engine->maxGCStackSize()/sizeof(Heap::Base)*3/4;
+    m_base = (Heap::Base **)engine->gcStack->base();
+    m_top = m_base;
+    const size_t size = engine->maxGCStackSize() / sizeof(Heap::Base);
+    m_hardLimit = m_base + size;
+    m_softLimit = m_base + size * 3 / 4;
 }
 
 void MarkStack::drain()
 {
-    while (top > base) {
+    while (m_top > m_base) {
         Heap::Base *h = pop();
         ++markStackSize;
         Q_ASSERT(h); // at this point we should only have Heap::Base objects in this area on the stack. If not, weird things might happen.
@@ -903,20 +909,15 @@ void MemoryManager::collectRoots(MarkStack *markStack)
 
         if (keepAlive)
             qobjectWrapper->mark(markStack);
-
-        if (markStack->top >= markStack->limit)
-            markStack->drain();
     }
 }
 
 void MemoryManager::mark()
 {
     markStackSize = 0;
-
     MarkStack markStack(engine);
     collectRoots(&markStack);
-
-    markStack.drain();
+    // dtor of MarkStack drains
 }
 
 void MemoryManager::sweep(bool lastSweep, ClassDestroyStatsCallback classCountPtr)
@@ -1024,7 +1025,7 @@ static size_t dumpBins(BlockAllocator *b, const char *title)
     SDUMP() << "    large slot map";
     HeapItem *h = b->freeBins[BlockAllocator::NumBins - 1];
     while (h) {
-        SDUMP() << "        " << hex << (quintptr(h)/32) << h->freeData.availableSlots;
+        SDUMP() << "        " << Qt::hex << (quintptr(h)/32) << h->freeData.availableSlots;
         h = h->freeData.next;
     }
 
@@ -1219,8 +1220,6 @@ void MemoryManager::collectFromJSStack(MarkStack *markStack) const
             Q_ASSERT(m->inUse());
             // Skip pointers to already freed objects, they are bogus as well
             m->mark(markStack);
-            if (markStack->top >= markStack->limit)
-                markStack->drain();
         }
         ++v;
     }

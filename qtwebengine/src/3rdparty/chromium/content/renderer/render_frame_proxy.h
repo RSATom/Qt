@@ -11,11 +11,16 @@
 #include "components/viz/common/surfaces/parent_local_surface_id_allocator.h"
 #include "content/common/content_export.h"
 #include "content/common/frame_messages.h"
+#include "content/common/frame_proxy.mojom.h"
 #include "content/common/frame_visual_properties.h"
 #include "content/public/common/screen_info.h"
 #include "content/renderer/child_frame_compositor.h"
 #include "ipc/ipc_listener.h"
 #include "ipc/ipc_sender.h"
+#include "mojo/public/cpp/bindings/associated_remote.h"
+#include "services/service_manager/public/cpp/binder_registry.h"
+#include "third_party/blink/public/common/associated_interfaces/associated_interface_provider.h"
+#include "third_party/blink/public/common/associated_interfaces/associated_interface_registry.h"
 #include "third_party/blink/public/common/feature_policy/feature_policy.h"
 #include "third_party/blink/public/common/frame/user_activation_update_type.h"
 #include "third_party/blink/public/platform/web_focus_type.h"
@@ -30,12 +35,9 @@ struct WebRect;
 struct WebScrollIntoViewParams;
 }
 
-namespace viz {
-class SurfaceInfo;
-}
-
 namespace content {
 
+class BlinkInterfaceRegistryImpl;
 class ChildFrameCompositingHelper;
 class RenderFrameImpl;
 class RenderViewImpl;
@@ -123,6 +125,9 @@ class CONTENT_EXPORT RenderFrameProxy : public IPC::Listener,
 
   // IPC::Listener
   bool OnMessageReceived(const IPC::Message& msg) override;
+  void OnAssociatedInterfaceRequest(
+      const std::string& interface_name,
+      mojo::ScopedInterfaceEndpointHandle handle) override;
 
   // Out-of-process child frames receive a signal from RenderWidget when the
   // ScreenInfo has changed.
@@ -156,9 +161,6 @@ class CONTENT_EXPORT RenderFrameProxy : public IPC::Listener,
 
   int provisional_frame_routing_id() { return provisional_frame_routing_id_; }
 
-  // Returns the widget used for the local frame root.
-  RenderWidget* render_widget() { return render_widget_; }
-
   void SynchronizeVisualProperties();
 
   const gfx::Rect& screen_space_rect() const {
@@ -181,30 +183,24 @@ class CONTENT_EXPORT RenderFrameProxy : public IPC::Listener,
   void ForwardPostMessage(blink::WebLocalFrame* sourceFrame,
                           blink::WebRemoteFrame* targetFrame,
                           blink::WebSecurityOrigin target,
-                          blink::WebDOMMessageEvent event,
-                          bool has_user_gesture) override;
-  void Navigate(
-      const blink::WebURLRequest& request,
-      bool should_replace_current_entry,
-      bool is_opener_navigation,
-      bool has_download_sandbox_flag,
-      bool blocking_downloads_in_sandbox_without_user_activation_enabled,
-      bool initiator_frame_is_ad,
-      mojo::ScopedMessagePipeHandle blob_url_token) override;
+                          blink::WebDOMMessageEvent event) override;
+  void Navigate(const blink::WebURLRequest& request,
+                bool should_replace_current_entry,
+                bool is_opener_navigation,
+                bool has_download_sandbox_flag,
+                bool blocking_downloads_in_sandbox_enabled,
+                bool initiator_frame_is_ad,
+                mojo::ScopedMessagePipeHandle blob_url_token) override;
   void FrameRectsChanged(const blink::WebRect& local_frame_rect,
                          const blink::WebRect& screen_space_rect) override;
   void UpdateRemoteViewportIntersection(
-      const blink::WebRect& viewport_intersection,
-      blink::FrameOcclusionState occlusion_state) override;
-  void VisibilityChanged(blink::mojom::FrameVisibility visibility) override;
+      const blink::ViewportIntersectionState& intersection_state) override;
   void SetIsInert(bool) override;
-  void SetInheritedEffectiveTouchAction(cc::TouchAction) override;
   void UpdateRenderThrottlingStatus(bool is_throttled,
                                     bool subtree_throttled) override;
   void DidChangeOpener(blink::WebFrame* opener) override;
   void AdvanceFocus(blink::WebFocusType type,
                     blink::WebLocalFrame* source) override;
-  void FrameFocused() override;
   base::UnguessableToken GetDevToolsFrameToken() override;
   uint32_t Print(const blink::WebRect& rect, cc::PaintCanvas* canvas) override;
 
@@ -227,11 +223,13 @@ class CONTENT_EXPORT RenderFrameProxy : public IPC::Listener,
 
   void ResendVisualProperties();
 
+  mojom::RenderFrameProxyHost* GetFrameProxyHost();
+  blink::AssociatedInterfaceProvider* GetRemoteAssociatedInterfaces();
+
   // IPC handlers
   void OnDeleteProxy();
   void OnChildFrameProcessGone();
   void OnCompositorFrameSwapped(const IPC::Message& message);
-  void OnFirstSurfaceActivation(const viz::SurfaceInfo& surface_info);
   void OnIntrinsicSizingInfoOfChildChanged(
       blink::WebIntrinsicSizingInfo sizing_info);
   void OnUpdateOpener(int opener_routing_id);
@@ -243,21 +241,13 @@ class CONTENT_EXPORT RenderFrameProxy : public IPC::Listener,
       blink::ParsedFeaturePolicy parsed_feature_policy);
   void OnForwardResourceTimingToParent(
       const ResourceTimingInfo& resource_timing);
-  void OnDispatchLoad();
   void OnSetNeedsOcclusionTracking(bool);
-  void OnCollapse(bool collapsed);
   void OnDidUpdateName(const std::string& name, const std::string& unique_name);
   void OnAddContentSecurityPolicies(
       const std::vector<ContentSecurityPolicyHeader>& header);
-  void OnResetContentSecurityPolicy();
   void OnEnforceInsecureRequestPolicy(blink::WebInsecureRequestPolicy policy);
-  void OnEnforceInsecureNavigationsSet(const std::vector<uint32_t>& set);
   void OnSetFrameOwnerProperties(const FrameOwnerProperties& properties);
-  void OnDidUpdateOrigin(const url::Origin& origin,
-                         bool is_potentially_trustworthy_unique_origin);
   void OnSetPageFocus(bool is_focused);
-  void OnSetFocusedFrame();
-  void OnWillEnterFullscreen();
   void OnUpdateUserActivationState(blink::UserActivationUpdateType update_type);
   void OnTransferUserActivationFrom(int32_t source_routing_id);
   void OnScrollRectToVisible(const gfx::Rect& rect_to_scroll,
@@ -290,11 +280,21 @@ class CONTENT_EXPORT RenderFrameProxy : public IPC::Listener,
   blink::WebRemoteFrame* web_frame_;
   std::string unique_name_;
 
+  // Provides the mojo interface to this RenderFrameProxy's
+  // RenderFrameProxyHost.
+  mojo::AssociatedRemote<mojom::RenderFrameProxyHost> frame_proxy_host_remote_;
+  std::unique_ptr<blink::AssociatedInterfaceProvider>
+      remote_associated_interfaces_;
+
   // Can be nullptr when this RenderFrameProxy's parent is not a RenderFrame.
   std::unique_ptr<ChildFrameCompositingHelper> compositing_helper_;
 
   RenderViewImpl* render_view_;
-  RenderWidget* render_widget_;
+
+  // The widget used for the local frame root. Can be nullptr if there
+  // is no local frame root. This happens for main frame proxies or subframes of
+  // main frame proxies.
+  RenderWidget* render_widget_ = nullptr;
 
   // Contains token to be used as a frame id in the devtools protocol.
   // It is derived from the content's devtools_frame_token, is
@@ -317,15 +317,12 @@ class CONTENT_EXPORT RenderFrameProxy : public IPC::Listener,
   std::unique_ptr<viz::ParentLocalSurfaceIdAllocator>
       parent_local_surface_id_allocator_;
 
-  bool enable_surface_synchronization_ = false;
-
-  gfx::Rect last_intersection_rect_;
-  gfx::Rect last_compositor_visible_rect_;
-  blink::FrameOcclusionState last_occlusion_state_ =
-      blink::FrameOcclusionState::kUnknown;
-
   // The layer used to embed the out-of-process content.
   scoped_refptr<cc::Layer> embedded_layer_;
+
+  service_manager::BinderRegistry binder_registry_;
+  blink::AssociatedInterfaceRegistry associated_interfaces_;
+  std::unique_ptr<BlinkInterfaceRegistryImpl> blink_interface_registry_;
 
   DISALLOW_COPY_AND_ASSIGN(RenderFrameProxy);
 };

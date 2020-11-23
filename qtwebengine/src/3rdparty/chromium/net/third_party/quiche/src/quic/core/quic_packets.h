@@ -204,8 +204,13 @@ struct QUIC_EXPORT_PRIVATE QuicIetfStatelessResetPacket {
 
 class QUIC_EXPORT_PRIVATE QuicData {
  public:
+  // Creates a QuicData from a buffer and length. Does not own the buffer.
   QuicData(const char* buffer, size_t length);
+  // Creates a QuicData from a buffer and length,
+  // optionally taking ownership of the buffer.
   QuicData(const char* buffer, size_t length, bool owns_buffer);
+  // Creates a QuicData from a QuicStringPiece. Does not own the buffer.
+  QuicData(QuicStringPiece data);
   QuicData(const QuicData&) = delete;
   QuicData& operator=(const QuicData&) = delete;
   virtual ~QuicData();
@@ -263,8 +268,16 @@ class QUIC_EXPORT_PRIVATE QuicPacket : public QuicData {
 
 class QUIC_EXPORT_PRIVATE QuicEncryptedPacket : public QuicData {
  public:
+  // Creates a QuicEncryptedPacket from a buffer and length.
+  // Does not own the buffer.
   QuicEncryptedPacket(const char* buffer, size_t length);
+  // Creates a QuicEncryptedPacket from a buffer and length,
+  // optionally taking ownership of the buffer.
   QuicEncryptedPacket(const char* buffer, size_t length, bool owns_buffer);
+  // Creates a QuicEncryptedPacket from a QuicStringPiece.
+  // Does not own the buffer.
+  QuicEncryptedPacket(QuicStringPiece data);
+
   QuicEncryptedPacket(const QuicEncryptedPacket&) = delete;
   QuicEncryptedPacket& operator=(const QuicEncryptedPacket&) = delete;
 
@@ -357,6 +370,7 @@ struct QUIC_EXPORT_PRIVATE SerializedPacket {
   const char* encrypted_buffer;
   QuicPacketLength encrypted_length;
   QuicFrames retransmittable_frames;
+  QuicFrames nonretransmittable_frames;
   IsHandshake has_crypto_handshake;
   // -1: full padding to the end of a max-sized packet
   //  0: no padding
@@ -365,14 +379,24 @@ struct QUIC_EXPORT_PRIVATE SerializedPacket {
   QuicPacketNumber packet_number;
   QuicPacketNumberLength packet_number_length;
   EncryptionLevel encryption_level;
+  // TODO(fayang): Remove has_ack and has_stop_waiting.
   bool has_ack;
   bool has_stop_waiting;
   TransmissionType transmission_type;
-  QuicPacketNumber original_packet_number;
   // The largest acked of the AckFrame in this packet if has_ack is true,
   // 0 otherwise.
   QuicPacketNumber largest_acked;
+  // Indicates whether this packet has a copy of ack frame in
+  // nonretransmittable_frames.
+  bool has_ack_frame_copy;
 };
+
+// Make a copy of |serialized| (including the underlying frames). |copy_buffer|
+// indicates whether the encrypted buffer should be copied.
+QUIC_EXPORT_PRIVATE SerializedPacket* CopySerializedPacket(
+    const SerializedPacket& serialized,
+    QuicBufferAllocator* allocator,
+    bool copy_buffer);
 
 // Deletes and clears all the frames and the packet from serialized packet.
 QUIC_EXPORT_PRIVATE void ClearSerializedPacket(
@@ -381,6 +405,10 @@ QUIC_EXPORT_PRIVATE void ClearSerializedPacket(
 // Allocates a new char[] of size |packet.encrypted_length| and copies in
 // |packet.encrypted_buffer|.
 QUIC_EXPORT_PRIVATE char* CopyBuffer(const SerializedPacket& packet);
+// Allocates a new char[] of size |encrypted_length| and copies in
+// |encrypted_buffer|.
+QUIC_EXPORT_PRIVATE char* CopyBuffer(const char* encrypted_buffer,
+                                     QuicPacketLength encrypted_length);
 
 struct QUIC_EXPORT_PRIVATE SerializedPacketDeleter {
   void operator()(SerializedPacket* packet) {
@@ -422,9 +450,11 @@ struct QUIC_EXPORT_PRIVATE ReceivedPacketInfo {
   const QuicSocketAddress& peer_address;
   const QuicReceivedPacket& packet;
 
-  // Fields below are populated by QuicFramer::ProcessPacketDispatcher.
   PacketHeaderFormat form;
+  // This is only used if the form is IETF_QUIC_LONG_HEADER_PACKET.
+  QuicLongHeaderType long_packet_type;
   bool version_flag;
+  bool use_length_prefix;
   QuicVersionLabel version_label;
   ParsedQuicVersion version;
   QuicConnectionId destination_connection_id;

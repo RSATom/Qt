@@ -39,6 +39,15 @@ worker.postMessage({
 })
 ```
 
+### 3. Pausing the animation
+```js
+worker.postMessage({
+  control: {
+    play: false
+  }
+})
+```
+
 ## Message field description
 ```python
 data: {
@@ -51,6 +60,42 @@ data: {
   params: {
     loop: 'Set "true" for a looping animation',
     autoplay: 'Set "true" for the animation to autoplay on load',
+  },
+  control: {
+    play: 'Set "true" to play a paused animation or "false" to pause a playing animation',
   }
 },
+```
+
+## Events fired back to the parent thread
+The web worker running the lottie player will send the following events back to
+its parent thread:
+1. **'initialized'**
+```javascript
+{
+    name: 'initialized',
+    success: true/false // True if the animation was successfully initialized.
+}
+```
+2. **'playing'**
+```javascript
+{
+    name: 'playing'
+}
+```
+3. **'paused'**
+```javascript
+{
+    name: 'paused'
+}
+```
+4. **'resized'**
+```javascript
+{
+    name: 'resized',
+    size: {
+        height: HEIGHT, // Current height of canvas in pixels.
+        width: WIDTH    // Current width of canvas in pixels.
+    }
+}
 ```

@@ -127,7 +127,8 @@ class MEDIA_EXPORT MediaCodecLoop {
     base::TimeDelta presentation_time;
 
     bool is_eos = false;
-    EncryptionScheme encryption_scheme;
+    EncryptionScheme encryption_scheme = EncryptionScheme::kUnencrypted;
+    base::Optional<EncryptionPattern> encryption_pattern;
   };
 
   // Handy enum for "no buffer".
@@ -334,7 +335,7 @@ class MEDIA_EXPORT MediaCodecLoop {
   const bool disable_timer_;
 
   // NOTE: Weak pointers must be invalidated before all other member variables.
-  base::WeakPtrFactory<MediaCodecLoop> weak_factory_;
+  base::WeakPtrFactory<MediaCodecLoop> weak_factory_{this};
 
   DISALLOW_COPY_AND_ASSIGN(MediaCodecLoop);
 };

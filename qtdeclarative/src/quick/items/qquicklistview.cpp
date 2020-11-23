@@ -49,6 +49,7 @@
 #include <QtCore/qmath.h>
 
 #include <private/qquicksmoothedanimation_p_p.h>
+#include <private/qqmlcomponent_p.h>
 #include "qplatformdefs.h"
 
 QT_BEGIN_NAMESPACE
@@ -91,7 +92,7 @@ public:
 
     FxViewItem *newViewItem(int index, QQuickItem *item) override;
     void initializeViewItem(FxViewItem *item) override;
-    bool releaseItem(FxViewItem *item) override;
+    bool releaseItem(FxViewItem *item, QQmlInstanceModel::ReusableFlag reusableFlag) override;
     void repositionItemAt(FxViewItem *item, int index, qreal sizeBuffer) override;
     void repositionPackageItemAt(QQuickItem *item, int index) override;
     void resetFirstItemPosition(qreal pos = 0.0) override;
@@ -137,6 +138,8 @@ public:
     void fixup(AxisData &data, qreal minExtent, qreal maxExtent) override;
     bool flick(QQuickItemViewPrivate::AxisData &data, qreal minExtent, qreal maxExtent, qreal vSize,
                QQuickTimeLineCallback::Callback fixupCallback, qreal velocity) override;
+
+    QQuickItemViewAttached *getAttachedObject(const QObject *object) const override;
 
     void fixupHeader();
     void fixupHeaderCompleted();
@@ -200,6 +203,8 @@ public:
     }
 
     friend class QQuickViewSection;
+
+    static void setSectionHelper(QQmlContext *context, QQuickItem *sectionItem, const QString &section);
 };
 
 //----------------------------------------------------------------------------
@@ -641,15 +646,15 @@ void QQuickListViewPrivate::initializeViewItem(FxViewItem *item)
     }
 }
 
-bool QQuickListViewPrivate::releaseItem(FxViewItem *item)
+bool QQuickListViewPrivate::releaseItem(FxViewItem *item, QQmlInstanceModel::ReusableFlag reusableFlag)
 {
     if (!item || !model)
-        return QQuickItemViewPrivate::releaseItem(item);
+        return QQuickItemViewPrivate::releaseItem(item, reusableFlag);
 
     QPointer<QQuickItem> it = item->item;
     QQuickListViewAttached *att = static_cast<QQuickListViewAttached*>(item->attached);
 
-    bool released = QQuickItemViewPrivate::releaseItem(item);
+    bool released = QQuickItemViewPrivate::releaseItem(item, reusableFlag);
     if (released && it && att && att->m_sectionItem) {
         // We hold no more references to this item
         int i = 0;
@@ -689,7 +694,7 @@ bool QQuickListViewPrivate::addVisibleItems(qreal fillFrom, qreal fillTo, qreal 
         int newModelIdx = qBound(0, modelIndex + count, model->count());
         count = newModelIdx - modelIndex;
         if (count) {
-            releaseVisibleItems();
+            releaseVisibleItems(reusableFlag);
             modelIndex = newModelIdx;
             visibleIndex = modelIndex;
             visiblePos = itemEnd + count * (averageSize + spacing);
@@ -744,7 +749,7 @@ void QQuickListViewPrivate::removeItem(FxViewItem *item)
         releasePendingTransition.append(item);
     } else {
         qCDebug(lcItemViewDelegateLifecycle) << "\treleasing stationary item" << item->index << (QObject *)(item->item);
-        releaseItem(item);
+        releaseItem(item, reusableFlag);
     }
 }
 
@@ -1003,14 +1008,20 @@ QQuickItem * QQuickListViewPrivate::getSectionItem(const QString &section)
         sectionCache[i] = nullptr;
         sectionItem->setVisible(true);
         QQmlContext *context = QQmlEngine::contextForObject(sectionItem)->parentContext();
-        context->setContextProperty(QLatin1String("section"), section);
+        setSectionHelper(context, sectionItem, section);
     } else {
         QQmlContext *creationContext = sectionCriteria->delegate()->creationContext();
         QQmlContext *context = new QQmlContext(
                 creationContext ? creationContext : qmlContext(q));
-        context->setContextProperty(QLatin1String("section"), section);
-        QObject *nobj = sectionCriteria->delegate()->beginCreate(context);
+        QQmlComponent* delegate = sectionCriteria->delegate();
+        QQmlComponentPrivate* delegatePriv = QQmlComponentPrivate::get(delegate);
+        QObject *nobj = delegate->beginCreate(context);
         if (nobj) {
+            if (delegatePriv->hadRequiredProperties()) {
+                delegate->setInitialProperties(nobj, {{"section", section}});
+            } else {
+                context->setContextProperty(QLatin1String("section"), section);
+            }
             QQml_setParent_noEvent(context, nobj);
             sectionItem = qobject_cast<QQuickItem *>(nobj);
             if (!sectionItem) {
@@ -1080,7 +1091,7 @@ void QQuickListViewPrivate::updateInlineSection(FxListItemSG *listItem)
             listItem->setPosition(pos);
         } else {
             QQmlContext *context = QQmlEngine::contextForObject(listItem->section())->parentContext();
-            context->setContextProperty(QLatin1String("section"), listItem->attached->m_section);
+            setSectionHelper(context, listItem->section(), listItem->attached->m_section);
         }
     } else if (listItem->section()) {
         qreal pos = listItem->position();
@@ -1136,7 +1147,7 @@ void QQuickListViewPrivate::updateStickySections()
             currentSectionItem = getSectionItem(currentSection);
         } else if (QString::compare(currentStickySection, currentSection, Qt::CaseInsensitive)) {
             QQmlContext *context = QQmlEngine::contextForObject(currentSectionItem)->parentContext();
-            context->setContextProperty(QLatin1String("section"), currentSection);
+            setSectionHelper(context, currentSectionItem, currentSection);
         }
         currentStickySection = currentSection;
         if (!currentSectionItem)
@@ -1170,7 +1181,7 @@ void QQuickListViewPrivate::updateStickySections()
             nextSectionItem = getSectionItem(nextSection);
         } else if (QString::compare(nextStickySection, nextSection, Qt::CaseInsensitive)) {
             QQmlContext *context = QQmlEngine::contextForObject(nextSectionItem)->parentContext();
-            context->setContextProperty(QLatin1String("section"), nextSection);
+            setSectionHelper(context, nextSectionItem, nextSection);
         }
         nextStickySection = nextSection;
         if (!nextSectionItem)
@@ -1893,6 +1904,20 @@ bool QQuickListViewPrivate::flick(AxisData &data, qreal minExtent, qreal maxExte
     }
 }
 
+void QQuickListViewPrivate::setSectionHelper(QQmlContext *context, QQuickItem *sectionItem, const QString &section)
+{
+    if (context->contextProperty(QLatin1String("section")).isValid())
+        context->setContextProperty(QLatin1String("section"), section);
+    else
+        sectionItem->setProperty("section", section);
+}
+
+QQuickItemViewAttached *QQuickListViewPrivate::getAttachedObject(const QObject *object) const
+{
+    QObject *attachedObject = qmlAttachedPropertiesObject<QQuickListView>(object);
+    return static_cast<QQuickItemViewAttached *>(attachedObject);
+}
+
 //----------------------------------------------------------------------------
 
 /*!
@@ -1942,8 +1967,30 @@ bool QQuickListViewPrivate::flick(AxisData &data, qreal minExtent, qreal maxExte
     The list view itself is a focus scope (see \l{Keyboard Focus in Qt Quick} for more details).
 
     Delegates are instantiated as needed and may be destroyed at any time.
-    They are parented to ListView's \l {Flickable::contentItem}{contentItem}, not to the view itself.
-    State should \e never be stored in a delegate.
+    As such, state should \e never be stored in a delegate.
+    Delegates are usually parented to ListView's \l {Flickable::contentItem}{contentItem}, but
+    typically depending on whether it's visible in the view or not, the \l parent
+    can change, and sometimes be \c null. Because of that, binding to
+    the parent's properties from within the delegate is \i not recommended. If you
+    want the delegate to fill out the width of the ListView, consider
+    using one of the following approaches instead:
+
+    \code
+    ListView {
+        id: listView
+        // ...
+
+        delegate: Item {
+            // Incorrect.
+            width: parent.width
+
+            // Correct.
+            width: listView.width
+            width: ListView.view.width
+            // ...
+        }
+    }
+    \endcode
 
     ListView attaches a number of properties to the root item of the delegate, for example
     \c ListView.isCurrentItem.  In the following example, the root delegate item can access
@@ -2041,6 +2088,39 @@ bool QQuickListViewPrivate::flick(AxisData &data, qreal minExtent, qreal maxExte
     of type \l [QML] {real}, so it is possible to set fractional
     values like \c 0.1.
 
+    \section1 Reusing items
+
+    Since 5.15, ListView can be configured to recycle items instead of instantiating
+    from the \l delegate whenever new rows are flicked into view. This approach improves
+    performance, depending on the complexity of the delegate. Reusing
+    items is off by default (for backwards compatibility reasons), but can be switched
+    on by setting the \l reuseItems property to \c true.
+
+    When an item is flicked out, it moves to the \e{reuse pool}, which is an
+    internal cache of unused items. When this happens, the \l ListView::pooled
+    signal is emitted to inform the item about it. Likewise, when the item is
+    moved back from the pool, the \l ListView::reused signal is emitted.
+
+    Any item properties that come from the model are updated when the
+    item is reused. This includes \c index and \c row, but also
+    any model roles.
+
+    \note Avoid storing any state inside a delegate. If you do, reset it
+    manually on receiving the \l ListView::reused signal.
+
+    If an item has timers or animations, consider pausing them on receiving
+    the \l ListView::pooled signal. That way you avoid using the CPU resources
+    for items that are not visible. Likewise, if an item has resources that
+    cannot be reused, they could be freed up.
+
+    \note While an item is in the pool, it might still be alive and respond
+    to connected signals and bindings.
+
+    The following example shows a delegate that animates a spinning rectangle. When
+    it is pooled, the animation is temporarily paused:
+
+    \snippet qml/listview/reusabledelegate.qml 0
+
     \sa {QML Data Models}, GridView, PathView, {Qt Quick Examples - Views}
 */
 QQuickListView::QQuickListView(QQuickItem *parent)
@@ -2120,8 +2200,6 @@ QQuickListView::~QQuickListView()
 
     If an \l add transition is specified, it is applied immediately after
     this signal is handled.
-
-    The corresponding handler is \c onAdd.
 */
 
 /*!
@@ -2130,8 +2208,6 @@ QQuickListView::~QQuickListView()
 
     If a \l remove transition has been specified, it is applied after
     this signal is handled, providing that \l delayRemove is false.
-
-    The corresponding handler is \c onRemove.
 */
 
 /*!
@@ -2204,6 +2280,20 @@ QQuickListView::~QQuickListView()
 /*!
   \qmlproperty int QtQuick::ListView::count
   This property holds the number of items in the view.
+*/
+
+/*!
+    \qmlproperty bool QtQuick::ListView::reuseItems
+
+    This property enables you to reuse items that are instantiated
+    from the \l delegate. If set to \c false, any currently
+    pooled items are destroyed.
+
+    This property is \c false by default.
+
+    \since 5.15
+
+    \sa {Reusing items}, ListView::pooled, ListView::reused
 */
 
 /*!
@@ -2372,7 +2462,7 @@ void QQuickListView::setOrientation(QQuickListView::Orientation orientation)
 
   \list
   \li Qt.LeftToRight (default) - Items will be laid out from left to right.
-  \li Qt.RightToLeft - Items will be laid out from right to let.
+  \li Qt.RightToLeft - Items will be laid out from right to left.
   \endlist
 
   Setting this property has no effect if the \l orientation is Qt.Vertical.
@@ -2776,21 +2866,25 @@ void QQuickListView::setSnapMode(SnapMode mode)
 
     This property determines the positioning of the \l{headerItem}{header item}.
 
-    The possible values are:
-    \list
-    \li ListView.InlineHeader (default) - the header is positioned in the beginning
+    \value ListView.InlineHeader (default) The header is positioned at the beginning
     of the content and moves together with the content like an ordinary item.
-    \li ListView.OverlayHeader - the header is positioned in the beginning of the view.
-    \li ListView.PullBackHeader - the header is positioned in the beginning of the view.
+
+    \value ListView.OverlayHeader  The header is positioned at the beginning of the view.
+
+    \value ListView.PullBackHeader The header is positioned at the beginning of the view.
     The header can be pushed away by moving the content forwards, and pulled back by
     moving the content backwards.
-    \endlist
 
     \note This property has no effect on the \l {QQuickItem::z}{stacking order}
     of the header. For example, if the header should be shown above the
     \l delegate items when using \c ListView.OverlayHeader, its Z value
     should be set to a value higher than that of the delegates. For more
     information, see \l {Stacking Order in ListView}.
+
+    \note If \c headerPositioning is not set to \c ListView.InlineHeader, the
+    user cannot press and flick the list from the header. In any case, the
+    \l{headerItem}{header item} may contain items or event handlers that
+    provide custom handling of mouse or touch input.
 */
 QQuickListView::HeaderPositioning QQuickListView::headerPositioning() const
 {
@@ -2819,21 +2913,25 @@ void QQuickListView::setHeaderPositioning(QQuickListView::HeaderPositioning posi
 
     This property determines the positioning of the \l{footerItem}{footer item}.
 
-    The possible values are:
-    \list
-    \li ListView.InlineFooter (default) - the footer is positioned in the end
+    \value ListView.InlineFooter (default) The footer is positioned at the end
     of the content and moves together with the content like an ordinary item.
-    \li ListView.OverlayFooter - the footer is positioned in the end of the view.
-    \li ListView.PullBackFooter - the footer is positioned in the end of the view.
+
+    \value ListView.OverlayFooter The footer is positioned at the end of the view.
+
+    \value ListView.PullBackFooter The footer is positioned at the end of the view.
     The footer can be pushed away by moving the content backwards, and pulled back by
     moving the content forwards.
-    \endlist
 
     \note This property has no effect on the \l {QQuickItem::z}{stacking order}
     of the footer. For example, if the footer should be shown above the
     \l delegate items when using \c ListView.OverlayFooter, its Z value
     should be set to a value higher than that of the delegates. For more
     information, see \l {Stacking Order in ListView}.
+
+    \note If \c footerPositioning is not set to \c ListView.InlineFooter, the
+    user cannot press and flick the list from the footer. In any case, the
+    \l{footerItem}{footer item} may contain items or event handlers that
+    provide custom handling of mouse or touch input.
 */
 QQuickListView::FooterPositioning QQuickListView::footerPositioning() const
 {
@@ -3307,6 +3405,13 @@ void QQuickListView::keyPressEvent(QKeyEvent *event)
 void QQuickListView::geometryChanged(const QRectF &newGeometry, const QRectF &oldGeometry)
 {
     Q_D(QQuickListView);
+
+    if (d->model) {
+        // When the view changes size, we force the pool to
+        // shrink by releasing all pooled items.
+        d->model->drainReusableItemsPool(0);
+    }
+
     if (d->isRightToLeft()) {
         // maintain position relative to the right edge
         qreal dx = newGeometry.width() - oldGeometry.width();
@@ -3712,6 +3817,23 @@ void QQuickListViewPrivate::translateAndTransitionItemsAfter(int afterModelIndex
 QQuickListViewAttached *QQuickListView::qmlAttachedProperties(QObject *obj)
 {
     return new QQuickListViewAttached(obj);
+}
+
+bool QQuickListView::contains(const QPointF &point) const
+{
+    bool ret = QQuickItemView::contains(point);
+    // QTBUG-74046: if a mouse press "falls through" a floating header or footer, don't allow dragging the list from there
+    if (ret) {
+        if (auto header = headerItem()) {
+            if (headerPositioning() != QQuickListView::InlineHeader && header->contains(mapToItem(header, point)))
+                ret = false;
+        }
+        if (auto footer = footerItem()) {
+            if (footerPositioning() != QQuickListView::InlineFooter && footer->contains(mapToItem(footer, point)))
+                ret = false;
+        }
+    }
+    return ret;
 }
 
 QT_END_NAMESPACE

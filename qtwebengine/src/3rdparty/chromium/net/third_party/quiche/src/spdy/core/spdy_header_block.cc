@@ -11,7 +11,6 @@
 
 #include "net/third_party/quiche/src/spdy/platform/api/spdy_estimate_memory_usage.h"
 #include "net/third_party/quiche/src/spdy/platform/api/spdy_logging.h"
-#include "net/third_party/quiche/src/spdy/platform/api/spdy_ptr_util.h"
 #include "net/third_party/quiche/src/spdy/platform/api/spdy_string_utils.h"
 #include "net/third_party/quiche/src/spdy/platform/api/spdy_unsafe_arena.h"
 
@@ -218,11 +217,11 @@ SpdyHeaderBlock::ValueProxy& SpdyHeaderBlock::ValueProxy::operator=(
   return *this;
 }
 
-SpdyString SpdyHeaderBlock::ValueProxy::as_string() const {
+std::string SpdyHeaderBlock::ValueProxy::as_string() const {
   if (lookup_result_ == block_->end()) {
     return "";
   } else {
-    return SpdyString(lookup_result_->second.value());
+    return std::string(lookup_result_->second.value());
   }
 }
 
@@ -262,12 +261,12 @@ bool SpdyHeaderBlock::operator!=(const SpdyHeaderBlock& other) const {
   return !(operator==(other));
 }
 
-SpdyString SpdyHeaderBlock::DebugString() const {
+std::string SpdyHeaderBlock::DebugString() const {
   if (empty()) {
     return "{}";
   }
 
-  SpdyString output = "\n{\n";
+  std::string output = "\n{\n";
   for (auto it = begin(); it != end(); ++it) {
     SpdyStrAppend(&output, "  ", it->first, " ", it->second, "\n");
   }
@@ -362,7 +361,7 @@ void SpdyHeaderBlock::AppendHeader(const SpdyStringPiece key,
 
 SpdyHeaderBlock::Storage* SpdyHeaderBlock::GetStorage() {
   if (storage_ == nullptr) {
-    storage_ = SpdyMakeUnique<Storage>();
+    storage_ = std::make_unique<Storage>();
   }
   return storage_.get();
 }

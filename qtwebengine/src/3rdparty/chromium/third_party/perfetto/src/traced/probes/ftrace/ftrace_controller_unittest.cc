@@ -20,8 +20,7 @@
 #include <sys/stat.h>
 #include <sys/types.h>
 
-#include <gmock/gmock.h>
-#include <gtest/gtest.h>
+#include "src/traced/probes/ftrace/compact_sched.h"
 #include "src/traced/probes/ftrace/cpu_reader.h"
 #include "src/traced/probes/ftrace/ftrace_config_muxer.h"
 #include "src/traced/probes/ftrace/ftrace_config_utils.h"
@@ -29,11 +28,12 @@
 #include "src/traced/probes/ftrace/ftrace_procfs.h"
 #include "src/traced/probes/ftrace/proto_translation_table.h"
 #include "src/tracing/core/trace_writer_for_testing.h"
+#include "test/gtest_and_gmock.h"
 
-#include "perfetto/trace/ftrace/ftrace_event_bundle.pbzero.h"
-#include "perfetto/trace/ftrace/ftrace_stats.pbzero.h"
-#include "perfetto/trace/trace_packet.pb.h"
-#include "perfetto/trace/trace_packet.pbzero.h"
+#include "protos/perfetto/trace/ftrace/ftrace_event_bundle.pbzero.h"
+#include "protos/perfetto/trace/ftrace/ftrace_stats.pbzero.h"
+#include "protos/perfetto/trace/trace_packet.pb.h"
+#include "protos/perfetto/trace/trace_packet.pbzero.h"
 
 using testing::_;
 using testing::AnyNumber;
@@ -46,6 +46,7 @@ using testing::Mock;
 using testing::NiceMock;
 using testing::Pair;
 using testing::Return;
+using testing::UnorderedElementsAre;
 
 using Table = perfetto::ProtoTranslationTable;
 using FtraceEventBundle = perfetto::protos::pbzero::FtraceEventBundle;
@@ -69,26 +70,25 @@ class MockTaskRunner : public base::TaskRunner {
 std::unique_ptr<Table> FakeTable(FtraceProcfs* ftrace) {
   std::vector<Field> common_fields;
   std::vector<Event> events;
-
   {
-    Event event;
+    events.push_back(Event{});
+    auto& event = events.back();
     event.name = "foo";
     event.group = "group";
     event.ftrace_event_id = 1;
-    events.push_back(event);
   }
-
   {
-    Event event;
+    events.push_back(Event{});
+    auto& event = events.back();
     event.name = "bar";
     event.group = "group";
     event.ftrace_event_id = 10;
-    events.push_back(event);
   }
 
   return std::unique_ptr<Table>(
       new Table(ftrace, events, std::move(common_fields),
-                ProtoTranslationTable::DefaultPageHeaderSpecForTesting()));
+                ProtoTranslationTable::DefaultPageHeaderSpecForTesting(),
+                InvalidCompactSchedEventFormatForTesting()));
 }
 
 std::unique_ptr<FtraceConfigMuxer> FakeModel(FtraceProcfs* ftrace,
@@ -276,7 +276,8 @@ TEST(FtraceControllerTest, OneSink) {
   // Verify single posted read task.
   Mock::VerifyAndClearExpectations(controller->runner());
 
-  EXPECT_CALL(*controller->procfs(), WriteToFile("/root/buffer_size_kb", "0"));
+  // State clearing on tracing teardown.
+  EXPECT_CALL(*controller->procfs(), WriteToFile("/root/buffer_size_kb", "4"));
   EXPECT_CALL(*controller->procfs(), ClearFile("/root/trace"))
       .WillOnce(Return(true));
   EXPECT_CALL(*controller->procfs(),
@@ -321,9 +322,10 @@ TEST(FtraceControllerTest, MultipleSinks) {
 
   data_sourceA.reset();
 
+  // State clearing on tracing teardown.
   EXPECT_CALL(*controller->procfs(), WriteToFile(kFooEnablePath, "0"));
   EXPECT_CALL(*controller->procfs(), WriteToFile(kBarEnablePath, "0"));
-  EXPECT_CALL(*controller->procfs(), WriteToFile("/root/buffer_size_kb", "0"));
+  EXPECT_CALL(*controller->procfs(), WriteToFile("/root/buffer_size_kb", "4"));
   EXPECT_CALL(*controller->procfs(), WriteToFile("/root/tracing_on", "0"));
   EXPECT_CALL(*controller->procfs(), WriteToFile("/root/events/enable", "0"));
   EXPECT_CALL(*controller->procfs(), ClearFile("/root/trace"));
@@ -344,6 +346,7 @@ TEST(FtraceControllerTest, ControllerMayDieFirst) {
   EXPECT_CALL(*controller->procfs(), WriteToFile("/root/tracing_on", "1"));
   ASSERT_TRUE(controller->StartDataSource(data_source.get()));
 
+  // State clearing on tracing teardown.
   EXPECT_CALL(*controller->procfs(), WriteToFile(kFooEnablePath, "0"));
   EXPECT_CALL(*controller->procfs(), ClearFile("/root/trace"))
       .WillOnce(Return(true));
@@ -351,7 +354,7 @@ TEST(FtraceControllerTest, ControllerMayDieFirst) {
               ClearFile(MatchesRegex("/root/per_cpu/cpu[0-9]/trace")))
       .WillRepeatedly(Return(true));
   EXPECT_CALL(*controller->procfs(), WriteToFile("/root/tracing_on", "0"));
-  EXPECT_CALL(*controller->procfs(), WriteToFile("/root/buffer_size_kb", "0"));
+  EXPECT_CALL(*controller->procfs(), WriteToFile("/root/buffer_size_kb", "4"));
   EXPECT_CALL(*controller->procfs(), WriteToFile("/root/events/enable", "0"));
   controller.reset();
   data_source.reset();
@@ -363,6 +366,11 @@ TEST(FtraceControllerTest, BufferSize) {
   // For this test we don't care about most calls to WriteToFile/ClearFile.
   EXPECT_CALL(*controller->procfs(), WriteToFile(_, _)).Times(AnyNumber());
   EXPECT_CALL(*controller->procfs(), ClearFile(_)).Times(AnyNumber());
+
+  // Every time a fake data source is destroyed, the controller will reset the
+  // buffer size to a single page.
+  EXPECT_CALL(*controller->procfs(), WriteToFile("/root/buffer_size_kb", "4"))
+      .Times(AnyNumber());
 
   {
     // No buffer size -> good default.
@@ -395,9 +403,8 @@ TEST(FtraceControllerTest, BufferSize) {
   }
 
   {
-    // Your size ends up with less than 1 page per cpu -> 1 page.
-    EXPECT_CALL(*controller->procfs(),
-                WriteToFile("/root/buffer_size_kb", "4"));
+    // Your size ends up with less than 1 page per cpu -> 1 page (gmock already
+    // covered by the cleanup expectation above).
     FtraceConfig config = CreateFtraceConfig({"group/foo"});
     config.set_buffer_size_kb(1);
     auto data_source = controller->AddFakeDataSource(config);
@@ -467,14 +474,12 @@ TEST(FtraceControllerTest, PeriodicDrainConfig) {
 
 TEST(FtraceMetadataTest, Clear) {
   FtraceMetadata metadata;
-  metadata.inode_and_device.push_back(std::make_pair(1, 1));
-  metadata.pids.push_back(2);
-  metadata.overwrite_count = 3;
+  metadata.inode_and_device.insert(std::make_pair(1, 1));
+  metadata.pids.insert(2);
   metadata.last_seen_device_id = 100;
   metadata.Clear();
   EXPECT_THAT(metadata.inode_and_device, IsEmpty());
   EXPECT_THAT(metadata.pids, IsEmpty());
-  EXPECT_EQ(0u, metadata.overwrite_count);
   EXPECT_EQ(BlockDeviceID(0), metadata.last_seen_device_id);
 }
 
@@ -502,7 +507,7 @@ TEST(FtraceMetadataTest, AddInode) {
   metadata.AddInode(5);
 
   EXPECT_THAT(metadata.inode_and_device,
-              ElementsAre(Pair(2, 3), Pair(1, 3), Pair(3, 4)));
+              UnorderedElementsAre(Pair(2, 3), Pair(1, 3), Pair(3, 4)));
 }
 
 TEST(FtraceMetadataTest, AddPid) {
@@ -532,9 +537,9 @@ TEST(FtraceStatsTest, Write) {
 
   protos::TracePacket result_packet = writer->GetOnlyTracePacket();
   auto result = result_packet.ftrace_stats().cpu_stats(0);
-  EXPECT_EQ(result.cpu(), 0);
-  EXPECT_EQ(result.entries(), 1);
-  EXPECT_EQ(result.overrun(), 2);
+  EXPECT_EQ(result.cpu(), 0u);
+  EXPECT_EQ(result.entries(), 1u);
+  EXPECT_EQ(result.overrun(), 2u);
 }
 
 }  // namespace perfetto

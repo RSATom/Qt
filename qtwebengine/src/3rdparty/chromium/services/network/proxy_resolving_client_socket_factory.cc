@@ -37,6 +37,7 @@ ProxyResolvingClientSocketFactory::ProxyResolvingClientSocketFactory(
       request_context->http_auth_handler_factory();
   session_context.http_server_properties =
       request_context->http_server_properties();
+  session_context.quic_context = request_context->quic_context();
   session_context.net_log = request_context->net_log();
 
   const net::HttpNetworkSession::Params* reference_params =
@@ -80,19 +81,22 @@ ProxyResolvingClientSocketFactory::CreateSocket(
   // might have since entered proxy credentials. Clear the http auth of
   // |network_session_| and copy over the data from |request_context|'s auth
   // cache.
+  //
+  // TODO(davidben): This does not share the SSLClientContext, so proxy client
+  // certificate credentials do not work. However, client certificates for both
+  // proxy and origin are handled at the socket layer, so doing so would pick up
+  // both sets. Depending on how these sockets are used, this may not be what we
+  // want. Toggling privacy mode (i.e. CORS uncredentialed mode) on the
+  // ConnectJob should give proxy auth without origin auth, but only after
+  // https://crbug.com/775438 is fixed.
   network_session_->http_auth_cache()->ClearAllEntries();
   net::HttpAuthCache* other_auth_cache =
       request_context_->http_transaction_factory()
           ->GetSession()
           ->http_auth_cache();
-  network_session_->http_auth_cache()->UpdateAllFrom(*other_auth_cache);
-  net::SSLConfig ssl_config;
-  // Unconditionally get the |ssl_config| regardless of |use_tls|, because
-  // SSLConfig is used for the proxy even !|use_tls|.
-  request_context_->ssl_config_service()->GetSSLConfig(&ssl_config);
+  network_session_->http_auth_cache()->CopyProxyEntriesFrom(*other_auth_cache);
   return std::make_unique<ProxyResolvingClientSocket>(
-      network_session_.get(), common_connect_job_params_.get(), ssl_config, url,
-      use_tls);
+      network_session_.get(), common_connect_job_params_.get(), url, use_tls);
 }
 
 }  // namespace network

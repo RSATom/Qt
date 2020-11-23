@@ -86,19 +86,19 @@ Item {
 
     Connections {
         target: viewport
-        onWidthChanged: layoutTimer.running = true
-        onHeightChanged: layoutTimer.running = true
+        function onWidthChanged() { layoutTimer.running = true }
+        function onHeightChanged() { layoutTimer.running = true }
     }
 
     Connections {
         target: flickableItem
-        onContentWidthChanged: layoutTimer.running = true
-        onContentHeightChanged: layoutTimer.running = true
-        onContentXChanged: {
+        function onContentWidthChanged() { layoutTimer.running = true }
+        function onContentHeightChanged() { layoutTimer.running = true }
+        function onContentXChanged() {
             hscrollbar.flash()
             vscrollbar.flash()
         }
-        onContentYChanged: {
+        function onContentYChanged() {
             hscrollbar.flash()
             vscrollbar.flash()
         }

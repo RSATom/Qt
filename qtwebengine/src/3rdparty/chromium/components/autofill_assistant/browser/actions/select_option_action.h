@@ -27,11 +27,11 @@ class SelectOptionAction : public Action {
 
   void OnWaitForElement(ProcessActionCallback callback,
                         const Selector& selector,
-                        bool element_found);
+                        const ClientStatus& element_status);
   void OnSelectOption(ProcessActionCallback callback,
                       const ClientStatus& status);
 
-  base::WeakPtrFactory<SelectOptionAction> weak_ptr_factory_;
+  base::WeakPtrFactory<SelectOptionAction> weak_ptr_factory_{this};
 
   DISALLOW_COPY_AND_ASSIGN(SelectOptionAction);
 };

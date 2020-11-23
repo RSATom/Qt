@@ -6,7 +6,6 @@
 
 #include <stddef.h>
 
-#include <memory>
 #include <utility>
 
 #include "base/bind.h"
@@ -15,17 +14,15 @@
 #include "base/macros.h"
 #include "base/memory/ref_counted.h"
 #include "base/stl_util.h"
-#include "base/task/post_task.h"
 #include "build/build_config.h"
 #include "chrome/common/custom_handlers/protocol_handler.h"
 #include "chrome/common/pref_names.h"
 #include "components/pref_registry/pref_registry_syncable.h"
 #include "components/prefs/pref_service.h"
 #include "components/user_prefs/user_prefs.h"
-#include "content/public/browser/browser_task_traits.h"
 #include "content/public/browser/child_process_security_policy.h"
-#include "net/base/network_delegate.h"
-#include "net/url_request/url_request_redirect_job.h"
+#include "net/url_request/url_request.h"
+#include "url/url_util_qt.h"
 
 using content::BrowserThread;
 using content::ChildProcessSecurityPolicy;
@@ -76,64 +73,6 @@ GURL TranslateUrl(
 
 }  // namespace
 
-// IOThreadDelegate ------------------------------------------------------------
-
-ProtocolHandlerRegistry::IOThreadDelegate::IOThreadDelegate(bool)
-    : enabled_(true) {}
-ProtocolHandlerRegistry::IOThreadDelegate::~IOThreadDelegate() {}
-
-bool ProtocolHandlerRegistry::IOThreadDelegate::IsHandledProtocol(
-    const std::string& scheme) const {
-  DCHECK_CURRENTLY_ON(BrowserThread::IO);
-  return enabled_ && !LookupHandler(default_handlers_, scheme).IsEmpty();
-}
-
-void ProtocolHandlerRegistry::IOThreadDelegate::ClearDefault(
-    const std::string& scheme) {
-  DCHECK_CURRENTLY_ON(BrowserThread::IO);
-  default_handlers_.erase(scheme);
-}
-
-void ProtocolHandlerRegistry::IOThreadDelegate::SetDefault(
-    const ProtocolHandler& handler) {
-  DCHECK_CURRENTLY_ON(BrowserThread::IO);
-  ClearDefault(handler.protocol());
-  default_handlers_.insert(std::make_pair(handler.protocol(), handler));
-}
-
-GURL ProtocolHandlerRegistry::IOThreadDelegate::Translate(
-    const GURL& url) const {
-  DCHECK_CURRENTLY_ON(BrowserThread::IO);
-  return TranslateUrl(default_handlers_, url);
-}
-
-// Create a new job for the supplied |URLRequest| if a default handler
-// is registered and the associated handler is able to interpret
-// the url from |request|.
-net::URLRequestJob* ProtocolHandlerRegistry::IOThreadDelegate::MaybeCreateJob(
-    net::URLRequest* request, net::NetworkDelegate* network_delegate) const {
-  DCHECK_CURRENTLY_ON(BrowserThread::IO);
-
-  GURL translated_url(Translate(request->url()));
-  if (translated_url.is_empty())
-    return nullptr;
-
-  return new net::URLRequestRedirectJob(
-      request, network_delegate, translated_url,
-      net::URLRequestRedirectJob::REDIRECT_307_TEMPORARY_REDIRECT,
-      "Protocol Handler Registry");
-}
-
-void ProtocolHandlerRegistry::IOThreadDelegate::Enable() {
-  DCHECK_CURRENTLY_ON(BrowserThread::IO);
-  enabled_ = true;
-}
-
-void ProtocolHandlerRegistry::IOThreadDelegate::Disable() {
-  DCHECK_CURRENTLY_ON(BrowserThread::IO);
-  enabled_ = false;
-}
-
 // Delegate --------------------------------------------------------------------
 
 ProtocolHandlerRegistry::Delegate::~Delegate() {}
@@ -153,51 +92,49 @@ void ProtocolHandlerRegistry::Delegate::DeregisterExternalHandler(
 
 bool ProtocolHandlerRegistry::Delegate::IsExternalHandlerRegistered(
     const std::string& protocol) {
+#if defined(TOOLKIT_QT)
+  return url::IsHandledProtocol(protocol);
+#else
   // NOTE(koz): This function is safe to call from any thread, despite living
   // in ProfileIOData.
-#if defined(TOOLKIT_QT)
-  return net::URLRequest::IsHandledProtocol(protocol);
-#else
   return ProfileIOData::IsHandledProtocol(protocol);
 #endif
 }
 
-void ProtocolHandlerRegistry::Delegate::RegisterWithOSAsDefaultClient(
-    const std::string& protocol, ProtocolHandlerRegistry* registry) {
 #if !defined(TOOLKIT_QT)
+void ProtocolHandlerRegistry::Delegate::RegisterWithOSAsDefaultClient(
+    const std::string& protocol,
+    shell_integration::DefaultWebClientWorkerCallback callback) {
   // The worker pointer is reference counted. While it is running, the
   // sequence it runs on will hold references it will be automatically freed
   // once all its tasks have finished.
   base::MakeRefCounted<shell_integration::DefaultProtocolClientWorker>(
-      registry->GetDefaultWebClientCallback(protocol), protocol)
+      std::move(callback), protocol)
       ->StartSetAsDefault();
-#endif
 }
 
 void ProtocolHandlerRegistry::Delegate::CheckDefaultClientWithOS(
     const std::string& protocol,
-    ProtocolHandlerRegistry* registry) {
-#if !defined(TOOLKIT_QT)
+    shell_integration::DefaultWebClientWorkerCallback callback) {
   // The worker pointer is reference counted. While it is running, the
   // sequence it runs on will hold references it will be automatically freed
   // once all its tasks have finished.
   base::MakeRefCounted<shell_integration::DefaultProtocolClientWorker>(
-      registry->GetDefaultWebClientCallback(protocol), protocol)
+      std::move(callback), protocol)
       ->StartCheckIsDefault();
-#endif
 }
+#endif
 
 // ProtocolHandlerRegistry -----------------------------------------------------
 
 ProtocolHandlerRegistry::ProtocolHandlerRegistry(
     content::BrowserContext* context,
-    Delegate* delegate)
+    std::unique_ptr<Delegate> delegate)
     : context_(context),
-      delegate_(delegate),
+      delegate_(std::move(delegate)),
       enabled_(true),
       is_loading_(false),
-      is_loaded_(false),
-      io_thread_delegate_(new IOThreadDelegate(enabled_)) {}
+      is_loaded_(false) {}
 
 bool ProtocolHandlerRegistry::SilentlyHandleRegisterHandlerRequest(
     const ProtocolHandler& handler) {
@@ -216,7 +153,8 @@ bool ProtocolHandlerRegistry::SilentlyHandleRegisterHandlerRequest(
 void ProtocolHandlerRegistry::OnAcceptRegisterProtocolHandler(
     const ProtocolHandler& handler) {
   DCHECK_CURRENTLY_ON(BrowserThread::UI);
-  RegisterProtocolHandler(handler, USER);
+  if (!RegisterProtocolHandler(handler, USER))
+    return;
   SetDefault(handler);
   Save();
   NotifyChanged();
@@ -276,9 +214,6 @@ void ProtocolHandlerRegistry::ClearDefault(const std::string& scheme) {
   DCHECK_CURRENTLY_ON(BrowserThread::UI);
 
   default_handlers_.erase(scheme);
-  base::PostTaskWithTraits(FROM_HERE, {BrowserThread::IO},
-                           base::BindOnce(&IOThreadDelegate::ClearDefault,
-                                          io_thread_delegate_, scheme));
   Save();
   NotifyChanged();
 }
@@ -335,7 +270,9 @@ void ProtocolHandlerRegistry::InitProtocolSettings() {
   if (ShouldRemoveHandlersNotInOS()) {
     for (ProtocolHandlerMap::const_iterator p = default_handlers_.begin();
          p != default_handlers_.end(); ++p) {
-      delegate_->CheckDefaultClientWithOS(p->second.protocol(), this);
+      const std::string& protocol = p->second.protocol();
+      delegate_->CheckDefaultClientWithOS(
+          protocol, GetDefaultWebClientCallback(protocol));
     }
   }
 #endif
@@ -540,11 +477,6 @@ void ProtocolHandlerRegistry::RemoveHandler(
       // NOTE We pass a copy because SetDefault() modifies handlers.
       SetDefault(ProtocolHandler(handlers[0]));
     } else {
-      base::PostTaskWithTraits(
-          FROM_HERE, {BrowserThread::IO},
-          base::BindOnce(&IOThreadDelegate::ClearDefault, io_thread_delegate_,
-                         q->second.protocol()));
-
       default_handlers_.erase(q);
     }
   }
@@ -581,10 +513,6 @@ void ProtocolHandlerRegistry::Enable() {
     return;
   }
   enabled_ = true;
-  base::PostTaskWithTraits(
-      FROM_HERE, {BrowserThread::IO},
-      base::BindOnce(&IOThreadDelegate::Enable, io_thread_delegate_));
-
   ProtocolHandlerMap::const_iterator p;
   for (p = default_handlers_.begin(); p != default_handlers_.end(); ++p) {
     delegate_->RegisterExternalHandler(p->first);
@@ -599,9 +527,6 @@ void ProtocolHandlerRegistry::Disable() {
     return;
   }
   enabled_ = false;
-  base::PostTaskWithTraits(
-      FROM_HERE, {BrowserThread::IO},
-      base::BindOnce(&IOThreadDelegate::Disable, io_thread_delegate_));
 
   ProtocolHandlerMap::const_iterator p;
   for (p = default_handlers_.begin(); p != default_handlers_.end(); ++p) {
@@ -684,18 +609,20 @@ ProtocolHandlerRegistry::GetHandlerList(
 
 void ProtocolHandlerRegistry::SetDefault(const ProtocolHandler& handler) {
   DCHECK_CURRENTLY_ON(BrowserThread::UI);
-  ProtocolHandlerMap::const_iterator p = default_handlers_.find(
-      handler.protocol());
+
+  const std::string& protocol = handler.protocol();
+  ProtocolHandlerMap::const_iterator p = default_handlers_.find(protocol);
   // If we're not loading, and we are setting a default for a new protocol,
   // register with the OS.
+#if !defined(TOOLKIT_QT)
   if (!is_loading_ && p == default_handlers_.end())
-      delegate_->RegisterWithOSAsDefaultClient(handler.protocol(), this);
-  default_handlers_.erase(handler.protocol());
-  default_handlers_.insert(std::make_pair(handler.protocol(), handler));
+    delegate_->RegisterWithOSAsDefaultClient(
+        protocol, GetDefaultWebClientCallback(protocol));
+#endif
+  default_handlers_.erase(protocol);
+  default_handlers_.insert(std::make_pair(protocol, handler));
+
   PromoteHandler(handler);
-  base::PostTaskWithTraits(FROM_HERE, {BrowserThread::IO},
-                           base::BindOnce(&IOThreadDelegate::SetDefault,
-                                          io_thread_delegate_, handler));
 }
 
 void ProtocolHandlerRegistry::InsertHandler(const ProtocolHandler& handler) {
@@ -743,23 +670,29 @@ void ProtocolHandlerRegistry::NotifyChanged() {
     observer.OnProtocolHandlerRegistryChanged();
 }
 
-void ProtocolHandlerRegistry::RegisterProtocolHandler(
+bool ProtocolHandlerRegistry::RegisterProtocolHandler(
     const ProtocolHandler& handler,
     const HandlerSource source) {
   DCHECK_CURRENTLY_ON(BrowserThread::UI);
   DCHECK(CanSchemeBeOverridden(handler.protocol()));
   DCHECK(!handler.IsEmpty());
+
+  // Ignore invalid handlers.
+  if (!handler.IsValid())
+    return false;
+
   ProtocolHandlerMultiMap& map =
       (source == POLICY) ? policy_protocol_handlers_ : user_protocol_handlers_;
   ProtocolHandlerList& list = map[handler.protocol()];
   if (!HandlerExists(handler, list))
     list.push_back(handler);
   if (IsRegistered(handler)) {
-    return;
+    return true;
   }
   if (enabled_ && !delegate_->IsExternalHandlerRegistered(handler.protocol()))
     delegate_->RegisterExternalHandler(handler.protocol());
   InsertHandler(handler);
+  return true;
 }
 
 std::vector<const base::DictionaryValue*>
@@ -800,7 +733,8 @@ void ProtocolHandlerRegistry::RegisterProtocolHandlersFromPref(
        p != registered_handlers.end();
        ++p) {
     ProtocolHandler handler = ProtocolHandler::CreateProtocolHandler(*p);
-    RegisterProtocolHandler(handler, source);
+    if (!RegisterProtocolHandler(handler, source))
+      continue;
     bool is_default = false;
     if ((*p)->GetBoolean("default", &is_default) && is_default) {
       SetDefault(handler);

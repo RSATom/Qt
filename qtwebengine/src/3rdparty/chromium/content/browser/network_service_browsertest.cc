@@ -11,7 +11,6 @@
 #include "content/browser/storage_partition_impl.h"
 #include "content/public/browser/browser_context.h"
 #include "content/public/browser/network_service_instance.h"
-#include "content/public/browser/system_connector.h"
 #include "content/public/browser/url_data_source.h"
 #include "content/public/browser/web_contents.h"
 #include "content/public/browser/web_contents_observer.h"
@@ -20,7 +19,6 @@
 #include "content/public/common/content_features.h"
 #include "content/public/common/content_switches.h"
 #include "content/public/common/network_service_util.h"
-#include "content/public/common/service_names.mojom.h"
 #include "content/public/common/url_utils.h"
 #include "content/public/test/browser_test_utils.h"
 #include "content/public/test/content_browser_test.h"
@@ -29,6 +27,7 @@
 #include "content/public/test/test_utils.h"
 #include "content/shell/browser/shell.h"
 #include "content/test/content_browser_test_utils_internal.h"
+#include "mojo/public/cpp/bindings/remote.h"
 #include "net/dns/mock_host_resolver.h"
 #include "net/http/http_response_headers.h"
 #include "net/test/embedded_test_server/default_handlers.h"
@@ -39,7 +38,6 @@
 #include "services/network/public/cpp/resource_request.h"
 #include "services/network/public/cpp/simple_url_loader.h"
 #include "services/network/public/mojom/network_service_test.mojom.h"
-#include "services/service_manager/public/cpp/connector.h"
 
 #if defined(OS_ANDROID)
 #include "base/android/application_status_listener.h"
@@ -81,14 +79,13 @@ class TestWebUIDataSource : public URLDataSource {
 
   std::string GetSource() override { return "webui"; }
 
-  void StartDataRequest(
-      const std::string& path,
-      const ResourceRequestInfo::WebContentsGetter& wc_getter,
-      const URLDataSource::GotDataCallback& callback) override {
+  void StartDataRequest(const GURL& url,
+                        const WebContents::Getter& wc_getter,
+                        URLDataSource::GotDataCallback callback) override {
     std::string dummy_html = "<html><body>Foo</body></html>";
     scoped_refptr<base::RefCountedString> response =
         base::RefCountedString::TakeString(&dummy_html);
-    callback.Run(response.get());
+    std::move(callback).Run(response.get());
   }
 
   std::string GetMimeType(const std::string& path) override {
@@ -102,8 +99,6 @@ class TestWebUIDataSource : public URLDataSource {
 class NetworkServiceBrowserTest : public ContentBrowserTest {
  public:
   NetworkServiceBrowserTest() {
-    scoped_feature_list_.InitAndEnableFeature(
-        network::features::kNetworkService);
     EXPECT_TRUE(embedded_test_server()->Start());
     EXPECT_TRUE(temp_dir_.CreateUniqueTempDir());
 
@@ -168,6 +163,11 @@ class NetworkServiceBrowserTest : public ContentBrowserTest {
     std::unique_ptr<network::ResourceRequest> request =
         std::make_unique<network::ResourceRequest>();
     request->url = url;
+    url::Origin origin = url::Origin::Create(url);
+    request->trusted_params = network::ResourceRequest::TrustedParams();
+    request->trusted_params->network_isolation_key =
+        net::NetworkIsolationKey(origin, origin);
+
     SimpleURLLoaderTestHelper simple_loader_helper;
     std::unique_ptr<network::SimpleURLLoader> simple_loader =
         network::SimpleURLLoader::Create(std::move(request),
@@ -181,7 +181,6 @@ class NetworkServiceBrowserTest : public ContentBrowserTest {
 
  private:
   WebUITestWebUIControllerFactory factory_;
-  base::test::ScopedFeatureList scoped_feature_list_;
   base::ScopedTempDir temp_dir_;
 
   DISALLOW_COPY_AND_ASSIGN(NetworkServiceBrowserTest);
@@ -190,7 +189,7 @@ class NetworkServiceBrowserTest : public ContentBrowserTest {
 // Verifies that WebUI pages with WebUI bindings can't make network requests.
 IN_PROC_BROWSER_TEST_F(NetworkServiceBrowserTest, WebUIBindingsNoHttp) {
   GURL test_url(GetWebUIURL("webui/"));
-  NavigateToURL(shell(), test_url);
+  EXPECT_TRUE(NavigateToURL(shell(), test_url));
   RenderProcessHostKillWaiter kill_waiter(
       shell()->web_contents()->GetMainFrame()->GetProcess());
   ASSERT_FALSE(CheckCanLoadHttp());
@@ -200,7 +199,7 @@ IN_PROC_BROWSER_TEST_F(NetworkServiceBrowserTest, WebUIBindingsNoHttp) {
 // Verifies that WebUI pages without WebUI bindings can make network requests.
 IN_PROC_BROWSER_TEST_F(NetworkServiceBrowserTest, NoWebUIBindingsHttp) {
   GURL test_url(GetWebUIURL("webui/nobinding/"));
-  NavigateToURL(shell(), test_url);
+  EXPECT_TRUE(NavigateToURL(shell(), test_url));
   ASSERT_TRUE(CheckCanLoadHttp());
 }
 
@@ -209,7 +208,7 @@ IN_PROC_BROWSER_TEST_F(NetworkServiceBrowserTest, NoWebUIBindingsHttp) {
 IN_PROC_BROWSER_TEST_F(NetworkServiceBrowserTest,
                        FileSystemBindingsCorrectOrigin) {
   GURL test_url(GetWebUIURL("webui/nobinding/"));
-  NavigateToURL(shell(), test_url);
+  EXPECT_TRUE(NavigateToURL(shell(), test_url));
 
   // Note: must be filesystem scheme (obviously).
   //       file: is not a safe web scheme (see IsWebSafeScheme),
@@ -250,20 +249,21 @@ IN_PROC_BROWSER_TEST_F(NetworkServiceBrowserTest,
   base::ScopedAllowBlockingForTesting allow_blocking;
 
   // Create network context with cache pointing to the temp cache dir.
-  network::mojom::NetworkContextPtr network_context;
+  mojo::Remote<network::mojom::NetworkContext> network_context;
   network::mojom::NetworkContextParamsPtr context_params =
       network::mojom::NetworkContextParams::New();
   context_params->http_cache_path = GetCacheDirectory();
-  GetNetworkService()->CreateNetworkContext(mojo::MakeRequest(&network_context),
-                                            std::move(context_params));
+  GetNetworkService()->CreateNetworkContext(
+      network_context.BindNewPipeAndPassReceiver(), std::move(context_params));
 
   network::mojom::URLLoaderFactoryParamsPtr params =
       network::mojom::URLLoaderFactoryParams::New();
   params->process_id = network::mojom::kBrowserProcessId;
   params->is_corb_enabled = false;
-  network::mojom::URLLoaderFactoryPtr loader_factory;
-  network_context->CreateURLLoaderFactory(mojo::MakeRequest(&loader_factory),
-                                          std::move(params));
+  params->is_trusted = true;
+  mojo::Remote<network::mojom::URLLoaderFactory> loader_factory;
+  network_context->CreateURLLoaderFactory(
+      loader_factory.BindNewPipeAndPassReceiver(), std::move(params));
 
   // Load a URL and check the cache index size.
   LoadURL(embedded_test_server()->GetURL("/cachetime"), loader_factory.get());
@@ -346,9 +346,9 @@ IN_PROC_BROWSER_TEST_F(NetworkServiceBrowserTest,
   if (IsInProcessNetworkService())
     return;
 
-  network::mojom::NetworkServiceTestPtr network_service_test;
-  GetSystemConnector()->BindInterface(mojom::kNetworkServiceName,
-                                      &network_service_test);
+  mojo::Remote<network::mojom::NetworkServiceTest> network_service_test;
+  GetNetworkService()->BindTestInterface(
+      network_service_test.BindNewPipeAndPassReceiver());
   // TODO(crbug.com/901026): Make sure the network process is started to avoid a
   // deadlock on Android.
   network_service_test.FlushForTesting();
@@ -375,25 +375,24 @@ IN_PROC_BROWSER_TEST_F(NetworkServiceBrowserTest, SyncXHROnCrash) {
   if (IsInProcessNetworkService())
     return;
 
-  network::mojom::NetworkServiceTestPtr network_service_test;
-  GetSystemConnector()->BindInterface(mojom::kNetworkServiceName,
-                                      &network_service_test);
-  network::mojom::NetworkServiceTestPtrInfo network_service_test_info =
-      network_service_test.PassInterface();
+  mojo::PendingRemote<network::mojom::NetworkServiceTest>
+      pending_network_service_test;
+  GetNetworkService()->BindTestInterface(
+      pending_network_service_test.InitWithNewPipeAndPassReceiver());
 
   net::EmbeddedTestServer http_server;
-  net::test_server::RegisterDefaultHandlers(&http_server);
+  http_server.AddDefaultHandlers(GetTestDataFilePath());
   http_server.RegisterRequestMonitor(base::BindLambdaForTesting(
       [&](const net::test_server::HttpRequest& request) {
         if (request.relative_url == "/hung") {
-          network::mojom::NetworkServiceTestPtr network_service_test2(
-              std::move(network_service_test_info));
-          network_service_test2->SimulateCrash();
+          mojo::Remote<network::mojom::NetworkServiceTest> network_service_test(
+              std::move(pending_network_service_test));
+          network_service_test->SimulateCrash();
         }
       }));
   EXPECT_TRUE(http_server.Start());
 
-  NavigateToURL(shell(), http_server.GetURL("/empty.html"));
+  EXPECT_TRUE(NavigateToURL(shell(), http_server.GetURL("/empty.html")));
 
   FetchResource(http_server.GetURL("/hung"), true);
   // If the renderer is hung the test will hang.
@@ -404,12 +403,13 @@ IN_PROC_BROWSER_TEST_F(NetworkServiceBrowserTest, SyncCookieGetOnCrash) {
   if (IsInProcessNetworkService())
     return;
 
-  network::mojom::NetworkServiceTestPtr network_service_test;
-  GetSystemConnector()->BindInterface(mojom::kNetworkServiceName,
-                                      &network_service_test);
+  mojo::Remote<network::mojom::NetworkServiceTest> network_service_test;
+  GetNetworkService()->BindTestInterface(
+      network_service_test.BindNewPipeAndPassReceiver());
   network_service_test->CrashOnGetCookieList();
 
-  NavigateToURL(shell(), embedded_test_server()->GetURL("/empty.html"));
+  EXPECT_TRUE(
+      NavigateToURL(shell(), embedded_test_server()->GetURL("/empty.html")));
 
   ASSERT_TRUE(
       content::ExecuteScript(shell()->web_contents(), "document.cookie"));
@@ -420,7 +420,6 @@ class NetworkServiceInProcessBrowserTest : public ContentBrowserTest {
  public:
   NetworkServiceInProcessBrowserTest() {
     std::vector<base::Feature> features;
-    features.push_back(network::features::kNetworkService);
     features.push_back(features::kNetworkServiceInProcess);
     scoped_feature_list_.InitWithFeatures(features,
                                           std::vector<base::Feature>());
@@ -443,17 +442,14 @@ IN_PROC_BROWSER_TEST_F(NetworkServiceInProcessBrowserTest, Basic) {
   StoragePartitionImpl* partition = static_cast<StoragePartitionImpl*>(
       BrowserContext::GetDefaultStoragePartition(
           shell()->web_contents()->GetBrowserContext()));
-  NavigateToURL(shell(), test_url);
+  EXPECT_TRUE(NavigateToURL(shell(), test_url));
   ASSERT_EQ(net::OK,
             LoadBasicRequest(partition->GetNetworkContext(), test_url));
 }
 
 class NetworkServiceInvalidLogBrowserTest : public ContentBrowserTest {
  public:
-  NetworkServiceInvalidLogBrowserTest() {
-    scoped_feature_list_.InitAndEnableFeature(
-        network::features::kNetworkService);
-  }
+  NetworkServiceInvalidLogBrowserTest() {}
 
   void SetUpCommandLine(base::CommandLine* command_line) override {
     command_line->AppendSwitchASCII(network::switches::kLogNetLog, "/abc/def");
@@ -465,7 +461,6 @@ class NetworkServiceInvalidLogBrowserTest : public ContentBrowserTest {
   }
 
  private:
-  base::test::ScopedFeatureList scoped_feature_list_;
 
   DISALLOW_COPY_AND_ASSIGN(NetworkServiceInvalidLogBrowserTest);
 };
@@ -476,9 +471,125 @@ IN_PROC_BROWSER_TEST_F(NetworkServiceInvalidLogBrowserTest, Basic) {
   StoragePartitionImpl* partition = static_cast<StoragePartitionImpl*>(
       BrowserContext::GetDefaultStoragePartition(
           shell()->web_contents()->GetBrowserContext()));
-  NavigateToURL(shell(), test_url);
+  EXPECT_TRUE(NavigateToURL(shell(), test_url));
   ASSERT_EQ(net::OK,
             LoadBasicRequest(partition->GetNetworkContext(), test_url));
+}
+
+// TODO(yhirano): Merge this to NetworkServiceTest when OOR_CORS is enabled by
+// default.
+class NetworkServiceWithCorsBrowserTest : public NetworkServiceBrowserTest {
+ public:
+  NetworkServiceWithCorsBrowserTest() {
+    scoped_feature_list_.InitAndEnableFeature(
+        network::features::kOutOfBlinkCors);
+  }
+  NetworkServiceWithCorsBrowserTest(const NetworkServiceWithCorsBrowserTest&) =
+      delete;
+  NetworkServiceWithCorsBrowserTest& operator=(
+      const NetworkServiceWithCorsBrowserTest&) = delete;
+
+ private:
+  base::test::ScopedFeatureList scoped_feature_list_;
+};
+
+// Tests that CORS is performed by the network service when |factory_override|
+// is used.
+IN_PROC_BROWSER_TEST_F(NetworkServiceWithCorsBrowserTest, FactoryOverride) {
+  class TestURLLoaderFactory final : public network::mojom::URLLoaderFactory {
+   public:
+    void CreateLoaderAndStart(
+        mojo::PendingReceiver<network::mojom::URLLoader> receiver,
+        int32_t routing_id,
+        int32_t request_id,
+        uint32_t options,
+        const network::ResourceRequest& resource_request,
+        mojo::PendingRemote<network::mojom::URLLoaderClient> pending_client,
+        const net::MutableNetworkTrafficAnnotationTag& traffic_annotation)
+        override {
+      mojo::Remote<network::mojom::URLLoaderClient> client(
+          std::move(pending_client));
+      EXPECT_EQ(resource_request.url,
+                GURL("https://www.example.com/hello.txt"));
+      if (resource_request.method == "OPTIONS") {
+        has_received_preflight_ = true;
+        auto response = network::mojom::URLResponseHead::New();
+        response->headers =
+            base::MakeRefCounted<net::HttpResponseHeaders>("HTTP/1.1 200 OK");
+        response->headers->AddHeader(
+            "access-control-allow-origin: https://www2.example.com");
+        response->headers->AddHeader("access-control-allow-methods: *");
+        client->OnReceiveResponse(std::move(response));
+      } else if (resource_request.method == "custom-method") {
+        has_received_request_ = true;
+        auto response = network::mojom::URLResponseHead::New();
+        response->headers = base::MakeRefCounted<net::HttpResponseHeaders>(
+            "HTTP/1.1 202 Accepted");
+        response->headers->AddHeader(
+            "access-control-allow-origin: https://www2.example.com");
+        client->OnReceiveResponse(std::move(response));
+        client->OnComplete(network::URLLoaderCompletionStatus(net::OK));
+      } else {
+        client->OnComplete(
+            network::URLLoaderCompletionStatus(net::ERR_INVALID_ARGUMENT));
+      }
+    }
+    void Clone(mojo::PendingReceiver<network::mojom::URLLoaderFactory> receiver)
+        override {
+      NOTREACHED();
+    }
+
+    bool has_received_preflight() const { return has_received_preflight_; }
+    bool has_received_request() const { return has_received_request_; }
+
+   private:
+    bool has_received_preflight_ = false;
+    bool has_received_request_ = false;
+  };
+
+  // Create a request that will trigger a CORS preflight request.
+  auto request = std::make_unique<network::ResourceRequest>();
+  request->url = GURL("https://www.example.com/hello.txt");
+  request->mode = network::mojom::RequestMode::kCors;
+  request->credentials_mode = network::mojom::CredentialsMode::kSameOrigin;
+  request->method = "custom-method";
+  request->request_initiator =
+      url::Origin::Create(GURL("https://www2.example.com/"));
+
+  // Inject TestURLLoaderFactory as the factory override.
+  auto test_loader_factory = std::make_unique<TestURLLoaderFactory>();
+  mojo::Receiver<network::mojom::URLLoaderFactory> test_loader_factory_receiver(
+      test_loader_factory.get());
+  mojo::Remote<network::mojom::URLLoaderFactory> loader_factory_remote;
+  auto loader = network::SimpleURLLoader::Create(std::move(request),
+                                                 TRAFFIC_ANNOTATION_FOR_TESTS);
+  auto params = network::mojom::URLLoaderFactoryParams::New();
+  params->process_id = 0;
+  params->factory_override = network::mojom::URLLoaderFactoryOverride::New();
+  params->factory_override->overriding_factory =
+      test_loader_factory_receiver.BindNewPipeAndPassRemote();
+  BrowserContext::GetDefaultStoragePartition(
+      shell()->web_contents()->GetBrowserContext())
+      ->GetNetworkContext()
+      ->CreateURLLoaderFactory(
+          loader_factory_remote.BindNewPipeAndPassReceiver(),
+          std::move(params));
+  scoped_refptr<net::HttpResponseHeaders> headers;
+
+  // Perform the request.
+  base::RunLoop loop;
+  loader->DownloadHeadersOnly(
+      loader_factory_remote.get(),
+      base::BindLambdaForTesting(
+          [&](scoped_refptr<net::HttpResponseHeaders> passed_headers) {
+            headers = passed_headers;
+            loop.Quit();
+          }));
+  loop.Run();
+  ASSERT_TRUE(headers.get());
+  EXPECT_EQ(headers->response_code(), 202);
+  EXPECT_TRUE(test_loader_factory->has_received_preflight());
+  EXPECT_TRUE(test_loader_factory->has_received_request());
 }
 
 }  // namespace

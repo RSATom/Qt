@@ -35,13 +35,14 @@
 #include <utility>
 
 #include "net/base/url_util.h"
+#include "third_party/blink/renderer/platform/blob/blob_url.h"
+#include "third_party/blink/renderer/platform/blob/blob_url_null_origin_map.h"
 #include "third_party/blink/renderer/platform/runtime_enabled_features.h"
 #include "third_party/blink/renderer/platform/weborigin/known_ports.h"
 #include "third_party/blink/renderer/platform/weborigin/kurl.h"
 #include "third_party/blink/renderer/platform/weborigin/origin_access_entry.h"
 #include "third_party/blink/renderer/platform/weborigin/scheme_registry.h"
 #include "third_party/blink/renderer/platform/weborigin/security_policy.h"
-#include "third_party/blink/renderer/platform/weborigin/url_security_origin_map.h"
 #include "third_party/blink/renderer/platform/wtf/std_lib_extras.h"
 #include "third_party/blink/renderer/platform/wtf/text/string_builder.h"
 #include "third_party/blink/renderer/platform/wtf/text/string_utf8_adaptor.h"
@@ -63,14 +64,6 @@ const String& EnsureNonNull(const String& string) {
 }
 
 }  // namespace
-
-static URLSecurityOriginMap* g_url_origin_map = nullptr;
-
-static SecurityOrigin* GetOriginFromMap(const KURL& url) {
-  if (g_url_origin_map)
-    return g_url_origin_map->GetOrigin(url);
-  return nullptr;
-}
 
 bool SecurityOrigin::IsBroken() const {
   return !IsOpaque() && ToUrlOrigin().opaque();
@@ -96,10 +89,6 @@ KURL SecurityOrigin::ExtractInnerURL(const KURL& url) {
   // FIXME: Update this callsite to use the innerURL member function when
   // we finish implementing it.
   return KURL(url.GetPath());
-}
-
-void SecurityOrigin::SetMap(URLSecurityOriginMap* map) {
-  g_url_origin_map = map;
 }
 
 static bool ShouldTreatAsOpaqueOrigin(const KURL& url) {
@@ -155,7 +144,7 @@ SecurityOrigin::SecurityOrigin(const KURL& url)
       port_(IsDefaultPortForProtocol(url.Port(), protocol_) ? kInvalidPort
                                                             : url.Port()),
       effective_port_(port_ ? port_ : DefaultPortForProtocol(protocol_)) {
-//  DCHECK(!ShouldTreatAsOpaqueOrigin(url));
+  DCHECK(!ShouldTreatAsOpaqueOrigin(url));
 
   // NOTE(juvaldma)(Chromium 67.0.3396.47)
   //
@@ -185,7 +174,8 @@ SecurityOrigin::SecurityOrigin(const url::Origin::Nonce& nonce,
                                const SecurityOrigin* precursor)
     : nonce_if_opaque_(nonce), precursor_origin_(precursor) {}
 
-SecurityOrigin::SecurityOrigin(const SecurityOrigin* other)
+SecurityOrigin::SecurityOrigin(const SecurityOrigin* other,
+                               ConstructIsolatedCopy)
     : protocol_(other->protocol_.IsolatedCopy()),
       host_(other->host_.IsolatedCopy()),
       domain_(other->domain_.IsolatedCopy()),
@@ -199,15 +189,39 @@ SecurityOrigin::SecurityOrigin(const SecurityOrigin* other)
           other->block_local_access_from_local_origin_),
       is_opaque_origin_potentially_trustworthy_(
           other->is_opaque_origin_potentially_trustworthy_),
+      cross_agent_cluster_access_(other->cross_agent_cluster_access_),
+      agent_cluster_id_(other->agent_cluster_id_),
       precursor_origin_(other->precursor_origin_
                             ? other->precursor_origin_->IsolatedCopy()
                             : nullptr) {}
 
+SecurityOrigin::SecurityOrigin(const SecurityOrigin* other,
+                               ConstructSameThreadCopy)
+    : protocol_(other->protocol_),
+      host_(other->host_),
+      domain_(other->domain_),
+      port_(other->port_),
+      effective_port_(other->effective_port_),
+      nonce_if_opaque_(other->nonce_if_opaque_),
+      universal_access_(other->universal_access_),
+      domain_was_set_in_dom_(other->domain_was_set_in_dom_),
+      can_load_local_resources_(other->can_load_local_resources_),
+      block_local_access_from_local_origin_(
+          other->block_local_access_from_local_origin_),
+      is_opaque_origin_potentially_trustworthy_(
+          other->is_opaque_origin_potentially_trustworthy_),
+      cross_agent_cluster_access_(other->cross_agent_cluster_access_),
+      agent_cluster_id_(other->agent_cluster_id_),
+      precursor_origin_(other->precursor_origin_) {}
+
 scoped_refptr<SecurityOrigin> SecurityOrigin::CreateWithReferenceOrigin(
     const KURL& url,
     const SecurityOrigin* reference_origin) {
-  if (scoped_refptr<SecurityOrigin> origin = GetOriginFromMap(url))
-    return origin;
+  if (url.ProtocolIs("blob") && BlobURL::GetOrigin(url) == "null") {
+    if (scoped_refptr<SecurityOrigin> origin =
+            BlobURLNullOriginMap::GetInstance()->Get(url))
+      return origin;
+  }
 
   if (ShouldTreatAsOpaqueOrigin(url)) {
     if (!reference_origin)
@@ -288,7 +302,8 @@ url::Origin SecurityOrigin::ToUrlOrigin() const {
 }
 
 scoped_refptr<SecurityOrigin> SecurityOrigin::IsolatedCopy() const {
-  return base::AdoptRef(new SecurityOrigin(this));
+  return base::AdoptRef(new SecurityOrigin(
+      this, ConstructIsolatedCopy::kConstructIsolatedCopyBit));
 }
 
 void SecurityOrigin::SetDomainFromDOM(const String& new_domain) {
@@ -316,16 +331,6 @@ bool SecurityOrigin::IsSecure(const KURL& url) {
     return true;
 
   if (SecurityPolicy::IsUrlTrustworthySafelisted(url))
-    return true;
-
-  return false;
-}
-
-bool SecurityOrigin::SerializesAsNull() const {
-  if (IsOpaque())
-    return true;
-
-  if (IsLocal() && block_local_access_from_local_origin_)
     return true;
 
   return false;
@@ -401,6 +406,14 @@ bool SecurityOrigin::CanAccess(const SecurityOrigin* other,
     can_access = false;
   }
 
+  // Compare that the clusters are the same.
+  if (can_access && !cross_agent_cluster_access_ &&
+      !agent_cluster_id_.is_empty() && !other->agent_cluster_id_.is_empty() &&
+      agent_cluster_id_ != other->agent_cluster_id_) {
+    detail = AccessResultDomainDetail::kDomainNotRelevantAgentClusterMismatch;
+    can_access = false;
+  }
+
   return can_access;
 }
 
@@ -416,11 +429,22 @@ bool SecurityOrigin::CanRequest(const KURL& url) const {
   if (universal_access_)
     return true;
 
-  if (GetOriginFromMap(url) == this)
-    return true;
-
-  if (IsOpaque())
+  if (SerializesAsNull()) {
+    // Allow the request if the URL is blob and it has the same "null" origin
+    // with |this|.
+    if (!url.ProtocolIs("blob") || BlobURL::GetOrigin(url) != "null")
+      return false;
+    if (BlobURLNullOriginMap::GetInstance()->Get(url) == this)
+      return true;
+    // BlobURLNullOriginMap doesn't work for cross-thread blob URL loading
+    // (e.g., top-level worker script loading) because SecurityOrigin and
+    // BlobURLNullOriginMap are thread-specific. For the case, check
+    // BlobURLOpaqueOriginNonceMap.
+    base::Optional<base::UnguessableToken> nonce = GetNonceForSerialization();
+    if (nonce && BlobURLOpaqueOriginNonceMap::GetInstance().Get(url) == nonce)
+      return true;
     return false;
+  }
 
   scoped_refptr<const SecurityOrigin> target_origin =
       SecurityOrigin::Create(url);
@@ -428,9 +452,9 @@ bool SecurityOrigin::CanRequest(const KURL& url) const {
   if (target_origin->IsOpaque())
     return false;
 
-  // We call isSameSchemeHostPort here instead of canAccess because we want
-  // to ignore document.domain effects.
-  if (IsSameSchemeHostPort(target_origin.get()))
+  // We call IsSameOriginWith here instead of canAccess because we want to
+  // ignore `document.domain` effects.
+  if (IsSameOriginWith(target_origin.get()))
     return true;
 
   if (SecurityPolicy::IsOriginAccessAllowed(this, target_origin.get()))
@@ -512,6 +536,10 @@ void SecurityOrigin::GrantUniversalAccess() {
   universal_access_ = true;
 }
 
+void SecurityOrigin::GrantCrossAgentClusterAccess() {
+  cross_agent_cluster_access_ = true;
+}
+
 void SecurityOrigin::BlockLocalAccessFromLocalOrigin() {
   DCHECK(IsLocal());
   block_local_access_from_local_origin_ = true;
@@ -578,11 +606,16 @@ void SecurityOrigin::BuildRawString(StringBuilder& builder) const {
 }
 
 String SecurityOrigin::ToTokenForFastCheck() const {
+  CHECK(!agent_cluster_id_.is_empty());
   if (SerializesAsNull())
     return String();
 
   StringBuilder result;
   BuildRawString(result);
+  // Append the agent cluster id to the generated token to prevent
+  // access from two contexts that have the same origin but are
+  // in different agent clusters.
+  result.Append(agent_cluster_id_.ToString().c_str());
   return result.ToString();
 }
 
@@ -601,7 +634,7 @@ scoped_refptr<SecurityOrigin> SecurityOrigin::Create(const String& protocol,
   return Create(KURL(NullURL(), protocol + "://" + host + port_part + "/"));
 }
 
-bool SecurityOrigin::IsSameSchemeHostPort(const SecurityOrigin* other) const {
+bool SecurityOrigin::IsSameOriginWith(const SecurityOrigin* other) const {
   // This is needed to ensure a local origin considered to have the same scheme,
   // host, and port to itself.
   // TODO(tzik): Make the local origin unique but not opaque, and remove this
@@ -627,10 +660,10 @@ bool SecurityOrigin::IsSameSchemeHostPort(const SecurityOrigin* other) const {
   return true;
 }
 
-bool SecurityOrigin::AreSameSchemeHostPort(const KURL& a, const KURL& b) {
+bool SecurityOrigin::AreSameOrigin(const KURL& a, const KURL& b) {
   scoped_refptr<const SecurityOrigin> origin_a = SecurityOrigin::Create(a);
   scoped_refptr<const SecurityOrigin> origin_b = SecurityOrigin::Create(b);
-  return origin_b->IsSameSchemeHostPort(origin_a.get());
+  return origin_b->IsSameOriginWith(origin_a.get());
 }
 
 const KURL& SecurityOrigin::UrlWithUniqueOpaqueOrigin() {
@@ -692,6 +725,26 @@ String SecurityOrigin::CanonicalizeHost(const String& host, bool* success) {
                                      &canon_output, &out_host);
   }
   return String::FromUTF8(canon_output.data(), canon_output.length());
+}
+
+scoped_refptr<SecurityOrigin> SecurityOrigin::GetOriginForAgentCluster(
+    const base::UnguessableToken& agent_cluster_id) {
+  if (agent_cluster_id_ == agent_cluster_id)
+    return this;
+  auto result = base::AdoptRef(new SecurityOrigin(
+      this, ConstructSameThreadCopy::kConstructSameThreadCopyBit));
+  result->agent_cluster_id_ = agent_cluster_id;
+  return result;
+}
+
+bool SecurityOrigin::SerializesAsNull() const {
+  if (IsOpaque())
+    return true;
+
+  if (IsLocal() && block_local_access_from_local_origin_)
+    return true;
+
+  return false;
 }
 
 }  // namespace blink

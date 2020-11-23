@@ -7,7 +7,7 @@ package org.chromium.ui.modelutil;
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.equalTo;
 
-import android.support.annotation.Nullable;
+import androidx.annotation.Nullable;
 
 import org.junit.Before;
 import org.junit.Test;
@@ -26,7 +26,7 @@ import java.util.List;
 @RunWith(BaseRobolectricTestRunner.class)
 @Config(manifest = Config.NONE)
 public class PropertyListModelTest implements ListObservable.ListObserver<PropertyKey> {
-    private static final int METHOD_COUNT = 31;
+    private static final int METHOD_COUNT = 32;
     private static final PropertyModel.WritableIntPropertyKey INTEGER_KEY =
             new PropertyModel.WritableIntPropertyKey();
 

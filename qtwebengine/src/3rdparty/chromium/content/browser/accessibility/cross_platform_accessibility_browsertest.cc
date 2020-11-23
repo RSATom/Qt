@@ -77,7 +77,7 @@ class CrossPlatformAccessibilityBrowserTest : public ContentBrowserTest {
     AccessibilityNotificationWaiter waiter(shell()->web_contents(),
                                            accessibility_mode,
                                            ax::mojom::Event::kLoadComplete);
-    NavigateToURL(shell(), url);
+    EXPECT_TRUE(NavigateToURL(shell(), url));
     waiter.WaitForNotification();
   }
 
@@ -190,7 +190,7 @@ IN_PROC_BROWSER_TEST_F(CrossPlatformAccessibilityBrowserTest,
       "<body><input type='button' value='push' /><input type='checkbox' />"
       "</body></html>";
   GURL url(url_str);
-  NavigateToURL(shell(), url);
+  EXPECT_TRUE(NavigateToURL(shell(), url));
   const ui::AXTree& tree = GetAXTree();
   const ui::AXNode* root = tree.root();
 
@@ -252,7 +252,7 @@ IN_PROC_BROWSER_TEST_F(CrossPlatformAccessibilityBrowserTest,
       "<input value=\"Hello, world.\"/>"
       "</body></html>";
   GURL url(url_str);
-  NavigateToURL(shell(), url);
+  EXPECT_TRUE(NavigateToURL(shell(), url));
 
   const ui::AXTree& tree = GetAXTree();
   const ui::AXNode* root = tree.root();
@@ -283,7 +283,7 @@ IN_PROC_BROWSER_TEST_F(CrossPlatformAccessibilityBrowserTest,
       "<input value=\"Hello, world.\"/>"
       "</body></html>";
   GURL url(url_str);
-  NavigateToURL(shell(), url);
+  EXPECT_TRUE(NavigateToURL(shell(), url));
 
   const ui::AXTree& tree = GetAXTree();
   const ui::AXNode* root = tree.root();
@@ -315,7 +315,7 @@ IN_PROC_BROWSER_TEST_F(CrossPlatformAccessibilityBrowserTest,
       "  }, 1);\n"
       "</script>";
   GURL url(url_str);
-  NavigateToURL(shell(), url);
+  EXPECT_TRUE(NavigateToURL(shell(), url));
 
   const ui::AXTree& tree = GetAXTree();
   const ui::AXNode* root = tree.root();
@@ -337,7 +337,7 @@ IN_PROC_BROWSER_TEST_F(CrossPlatformAccessibilityBrowserTest,
       "<button>Button 3</button>"
       "</body></html>";
   GURL url(url_str);
-  NavigateToURL(shell(), url);
+  EXPECT_TRUE(NavigateToURL(shell(), url));
 
   const ui::AXTree& tree = GetAXTree();
   const ui::AXNode* root = tree.root();
@@ -389,7 +389,7 @@ IN_PROC_BROWSER_TEST_F(CrossPlatformAccessibilityBrowserTest,
       "<button>Button 3</button>"
       "</body></html>");
 
-  NavigateToURL(shell(), url);
+  EXPECT_TRUE(NavigateToURL(shell(), url));
   waiter.WaitForNotification();
   WaitForAccessibilityTreeToContainNodeWithName(shell()->web_contents(),
                                                 "Button 2");
@@ -449,7 +449,7 @@ IN_PROC_BROWSER_TEST_F(CrossPlatformAccessibilityBrowserTest,
       "<button>Button 4</button>"
       "</body></html>");
 
-  NavigateToURL(shell(), url);
+  EXPECT_TRUE(NavigateToURL(shell(), url));
   waiter.WaitForNotification();
   WaitForAccessibilityTreeToContainNodeWithName(shell()->web_contents(),
                                                 "Button 2");
@@ -495,7 +495,7 @@ IN_PROC_BROWSER_TEST_F(CrossPlatformAccessibilityBrowserTest,
       "<!doctype html>"
       "<em><code ><h4 ></em>";
   GURL url(url_str);
-  NavigateToURL(shell(), url);
+  EXPECT_TRUE(NavigateToURL(shell(), url));
 
   const ui::AXTree& tree = GetAXTree();
   const ui::AXNode* root = tree.root();
@@ -522,7 +522,7 @@ IN_PROC_BROWSER_TEST_F(CrossPlatformAccessibilityBrowserTest, MAYBE_TableSpan) {
       " </tr>"
       "</table>";
   GURL url(url_str);
-  NavigateToURL(shell(), url);
+  EXPECT_TRUE(NavigateToURL(shell(), url));
 
   const ui::AXTree& tree = GetAXTree();
   const ui::AXNode* root = tree.root();
@@ -573,7 +573,7 @@ IN_PROC_BROWSER_TEST_F(CrossPlatformAccessibilityBrowserTest, WritableElement) {
       " Some text"
       "</div>";
   GURL url(url_str);
-  NavigateToURL(shell(), url);
+  EXPECT_TRUE(NavigateToURL(shell(), url));
   const ui::AXTree& tree = GetAXTree();
   const ui::AXNode* root = tree.root();
   ASSERT_EQ(1u, root->GetUnignoredChildCount());
@@ -594,7 +594,7 @@ IN_PROC_BROWSER_TEST_F(CrossPlatformAccessibilityBrowserTest,
       "<th scope='col'>col header 3</th>"
       "</tr></table>";
   GURL url(url_str);
-  NavigateToURL(shell(), url);
+  EXPECT_TRUE(NavigateToURL(shell(), url));
 
   const ui::AXTree& tree = GetAXTree();
   const ui::AXNode* root = tree.root();
@@ -649,7 +649,7 @@ IN_PROC_BROWSER_TEST_F(CrossPlatformAccessibilityBrowserTest,
       "<div role='region' aria-label='region'></div>"
       "<div role='search' aria-label='search'></div>");
 
-  NavigateToURL(shell(), url);
+  EXPECT_TRUE(NavigateToURL(shell(), url));
   waiter.WaitForNotification();
 
   BrowserAccessibility* root = GetManager()->GetRoot();
@@ -671,17 +671,17 @@ IN_PROC_BROWSER_TEST_F(CrossPlatformAccessibilityBrowserTest,
       };
 
   // For testing purposes, assume we get en-US localized strings.
-  TestLocalizedLandmarkType(0, ax::mojom::Role::kBanner, "header",
+  TestLocalizedLandmarkType(0, ax::mojom::Role::kHeader, "header",
                             base::ASCIIToUTF16("banner"));
   TestLocalizedLandmarkType(1, ax::mojom::Role::kComplementary, "aside",
                             base::ASCIIToUTF16("complementary"));
   TestLocalizedLandmarkType(2, ax::mojom::Role::kFooter, "footer",
-                            base::ASCIIToUTF16("content info"));
+                            base::ASCIIToUTF16("content information"));
   TestLocalizedLandmarkType(3, ax::mojom::Role::kForm, "form");
   TestLocalizedLandmarkType(4, ax::mojom::Role::kMain, "main");
   TestLocalizedLandmarkType(5, ax::mojom::Role::kNavigation, "nav");
-  TestLocalizedLandmarkType(6, ax::mojom::Role::kRegion, "");
-  TestLocalizedLandmarkType(7, ax::mojom::Role::kRegion, "section",
+  TestLocalizedLandmarkType(6, ax::mojom::Role::kSection, "");
+  TestLocalizedLandmarkType(7, ax::mojom::Role::kSection, "section",
                             base::ASCIIToUTF16("region"));
 
   TestLocalizedLandmarkType(8, ax::mojom::Role::kBanner, "banner",
@@ -689,7 +689,7 @@ IN_PROC_BROWSER_TEST_F(CrossPlatformAccessibilityBrowserTest,
   TestLocalizedLandmarkType(9, ax::mojom::Role::kComplementary, "complementary",
                             base::ASCIIToUTF16("complementary"));
   TestLocalizedLandmarkType(10, ax::mojom::Role::kContentInfo, "contentinfo",
-                            base::ASCIIToUTF16("content info"));
+                            base::ASCIIToUTF16("content information"));
   TestLocalizedLandmarkType(11, ax::mojom::Role::kForm, "role_form");
   TestLocalizedLandmarkType(12, ax::mojom::Role::kMain, "role_main");
   TestLocalizedLandmarkType(13, ax::mojom::Role::kNavigation, "role_nav");
@@ -697,6 +697,83 @@ IN_PROC_BROWSER_TEST_F(CrossPlatformAccessibilityBrowserTest,
   TestLocalizedLandmarkType(15, ax::mojom::Role::kRegion, "region",
                             base::ASCIIToUTF16("region"));
   TestLocalizedLandmarkType(16, ax::mojom::Role::kSearch, "search");
+}
+
+// TODO(https://crbug.com/1020456) re-enable when crashing on linux is resolved.
+#if defined(OS_LINUX)
+#define MAYBE_LocalizedRoleDescription DISABLED_LocalizedRoleDescription
+#else
+#define MAYBE_LocalizedRoleDescription LocalizedRoleDescription
+#endif
+IN_PROC_BROWSER_TEST_F(CrossPlatformAccessibilityBrowserTest,
+                       MAYBE_LocalizedRoleDescription) {
+  AccessibilityNotificationWaiter waiter(shell()->web_contents(),
+                                         ui::kAXModeComplete,
+                                         ax::mojom::Event::kLoadComplete);
+  GURL url(
+      "data:text/html,"
+      "<article></article>"
+      "<audio controls></audio>"
+      "<details></details>"
+      "<figure></figure>"
+      "<footer></footer>"
+      "<header></header>"
+      "<input>"
+      "<input type='color'>"
+      "<input type='date'>"
+      "<input type='datetime-local'>"
+      "<input type='email'>"
+      "<input type='tel'>"
+      "<input type='url'>"
+      "<input type='week'>"
+      "<mark></mark>"
+      "<meter></meter>"
+      "<output></output>"
+      "<section></section>"
+      "<section aria-label='section'></section>"
+      "<time></time>"
+      "<div role='contentinfo' aria-label='contentinfo'></div>");
+
+  EXPECT_TRUE(NavigateToURL(shell(), url));
+  waiter.WaitForNotification();
+
+  BrowserAccessibility* root = GetManager()->GetRoot();
+  ASSERT_NE(nullptr, root);
+  ASSERT_EQ(21u, root->PlatformChildCount());
+
+  auto TestLocalizedRoleDescription =
+      [root](int child_index,
+             const base::string16& expected_localized_role_description = {}) {
+        BrowserAccessibility* node = root->PlatformGetChild(child_index);
+        ASSERT_NE(nullptr, node);
+
+        EXPECT_EQ(expected_localized_role_description,
+                  node->GetLocalizedStringForRoleDescription());
+      };
+
+  // For testing purposes, assume we get en-US localized strings.
+  TestLocalizedRoleDescription(0, base::ASCIIToUTF16("article"));
+  TestLocalizedRoleDescription(1, base::ASCIIToUTF16("audio"));
+  TestLocalizedRoleDescription(2, base::ASCIIToUTF16("details"));
+  TestLocalizedRoleDescription(3, base::ASCIIToUTF16("figure"));
+  TestLocalizedRoleDescription(4, base::ASCIIToUTF16("footer"));
+  TestLocalizedRoleDescription(5, base::ASCIIToUTF16("header"));
+  TestLocalizedRoleDescription(6, base::ASCIIToUTF16(""));
+  TestLocalizedRoleDescription(7, base::ASCIIToUTF16("color picker"));
+  TestLocalizedRoleDescription(8, base::ASCIIToUTF16("date picker"));
+  TestLocalizedRoleDescription(
+      9, base::ASCIIToUTF16("local date and time picker"));
+  TestLocalizedRoleDescription(10, base::ASCIIToUTF16("email"));
+  TestLocalizedRoleDescription(11, base::ASCIIToUTF16("telephone"));
+  TestLocalizedRoleDescription(12, base::ASCIIToUTF16("url"));
+  TestLocalizedRoleDescription(13, base::ASCIIToUTF16("week picker"));
+  TestLocalizedRoleDescription(14, base::ASCIIToUTF16("highlight"));
+  TestLocalizedRoleDescription(15, base::ASCIIToUTF16("meter"));
+  TestLocalizedRoleDescription(16, base::ASCIIToUTF16("output"));
+  TestLocalizedRoleDescription(17, base::ASCIIToUTF16(""));
+  TestLocalizedRoleDescription(18, base::ASCIIToUTF16("section"));
+  TestLocalizedRoleDescription(19, base::ASCIIToUTF16("time"));
+  TestLocalizedRoleDescription(20, base::ASCIIToUTF16("content information"));
 }
 
 IN_PROC_BROWSER_TEST_F(CrossPlatformAccessibilityBrowserTest,
@@ -709,7 +786,7 @@ IN_PROC_BROWSER_TEST_F(CrossPlatformAccessibilityBrowserTest,
       "<!doctype html>"
       "<p>text <mark>mark text</mark></p>");
 
-  NavigateToURL(shell(), url);
+  EXPECT_TRUE(NavigateToURL(shell(), url));
   waiter.WaitForNotification();
 
   BrowserAccessibility* root = GetManager()->GetRoot();
@@ -738,17 +815,16 @@ IN_PROC_BROWSER_TEST_F(CrossPlatformAccessibilityBrowserTest,
                                              ax::mojom::Role::kStaticText);
 
   BrowserAccessibility* mark_node = para_node->PlatformGetChild(1);
-  TestGetStyleNameAttributeAsLocalizedString(
-      mark_node, ax::mojom::Role::kMark,
-      base::ASCIIToUTF16("highlighted content"));
+  TestGetStyleNameAttributeAsLocalizedString(mark_node, ax::mojom::Role::kMark,
+                                             base::ASCIIToUTF16("highlight"));
 
   // Android doesn't always have a child in this case.
   if (mark_node->PlatformChildCount() > 0u) {
     BrowserAccessibility* mark_text_node = mark_node->PlatformGetChild(0);
     ASSERT_EQ(0u, mark_text_node->PlatformChildCount());
-    TestGetStyleNameAttributeAsLocalizedString(
-        mark_text_node, ax::mojom::Role::kStaticText,
-        base::ASCIIToUTF16("highlighted content"));
+    TestGetStyleNameAttributeAsLocalizedString(mark_text_node,
+                                               ax::mojom::Role::kStaticText,
+                                               base::ASCIIToUTF16("highlight"));
   }
 }
 
@@ -761,7 +837,7 @@ IN_PROC_BROWSER_TEST_F(CrossPlatformAccessibilityBrowserTest,
       "<input type='text' title='title' aria-labelledby='inputlabel'>"
       "<div id='inputlabel'>aria-labelledby</div>";
   GURL url(url_str);
-  NavigateToURL(shell(), url);
+  EXPECT_TRUE(NavigateToURL(shell(), url));
 
   const ui::AXTree& tree = GetAXTree();
   const ui::AXNode* root = tree.root();
@@ -792,7 +868,7 @@ IN_PROC_BROWSER_TEST_F(
       "<input type='text' placeholder='placeholder'>"
       "<input type='text' placeholder='placeholder' aria-label='label'>";
   GURL url(url_str);
-  NavigateToURL(shell(), url);
+  EXPECT_TRUE(NavigateToURL(shell(), url));
 
   const ui::AXTree& tree = GetAXTree();
   const ui::AXNode* root = tree.root();
@@ -936,7 +1012,7 @@ IN_PROC_BROWSER_TEST_F(CrossPlatformAccessibilityBrowserTest,
     AccessibilityNotificationWaiter waiter(shell()->web_contents(),
                                            ui::kAXModeComplete,
                                            ax::mojom::Event::kLoadComplete);
-    NavigateToURL(shell(), url);
+    EXPECT_TRUE(NavigateToURL(shell(), url));
     waiter.WaitForNotification();
   }
 
@@ -1012,7 +1088,7 @@ IN_PROC_BROWSER_TEST_F(CrossPlatformAccessibilityBrowserTest,
     AccessibilityNotificationWaiter waiter(shell()->web_contents(),
                                            ui::kAXModeComplete,
                                            ax::mojom::Event::kLoadComplete);
-    NavigateToURL(shell(), url);
+    EXPECT_TRUE(NavigateToURL(shell(), url));
     waiter.WaitForNotification();
   }
 

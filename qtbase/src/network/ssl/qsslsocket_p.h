@@ -74,6 +74,7 @@ class QSslContext;
 #include <CoreFoundation/CFArray.h>
 #elif defined(Q_OS_WIN)
 #include <QtCore/qt_windows.h>
+#include <memory>
 #ifndef Q_OS_WINRT
 #include <wincrypt.h>
 #endif // !Q_OS_WINRT
@@ -89,6 +90,20 @@ QT_BEGIN_NAMESPACE
     typedef OSStatus (*PtrSecTrustSettingsCopyCertificates)(int, CFArrayRef*);
     typedef OSStatus (*PtrSecTrustCopyAnchorCertificates)(CFArrayRef*);
 #endif
+
+#if defined(Q_OS_WIN)
+
+// Those are needed by both OpenSSL and SChannel back-ends on Windows:
+struct QHCertStoreDeleter {
+    void operator()(HCERTSTORE store)
+    {
+        CertCloseStore(store, 0);
+    }
+};
+
+using QHCertStorePointer = std::unique_ptr<void, QHCertStoreDeleter>;
+
+#endif // Q_OS_WIN
 
 class QSslSocketPrivate : public QTcpSocketPrivate
 {
@@ -127,7 +142,6 @@ public:
     static long sslLibraryBuildVersionNumber();
     static QString sslLibraryBuildVersionString();
     static void ensureInitialized();
-    static void deinitialize();
     static QList<QSslCipher> defaultCiphers();
     static QList<QSslCipher> supportedCiphers();
     static void setDefaultCiphers(const QList<QSslCipher> &ciphers);
@@ -208,7 +222,9 @@ protected:
     bool verifyErrorsHaveBeenIgnored();
     bool paused;
     bool flushTriggered;
+    bool systemOrSslErrorDetected = false;
     QVector<QOcspResponse> ocspResponses;
+    bool fetchAuthorityInformation = false;
 };
 
 #if QT_CONFIG(securetransport) || QT_CONFIG(schannel)

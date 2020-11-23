@@ -33,6 +33,8 @@ void TlsClientHandshaker::ProofVerifierCallbackImpl::Run(
   parent_->verify_result_ = ok ? ssl_verify_ok : ssl_verify_invalid;
   parent_->state_ = STATE_HANDSHAKE_RUNNING;
   parent_->proof_verify_callback_ = nullptr;
+  parent_->proof_handler_->OnProofVerifyDetailsAvailable(
+      *parent_->verify_details_);
   parent_->AdvanceHandshake();
 }
 
@@ -41,30 +43,26 @@ void TlsClientHandshaker::ProofVerifierCallbackImpl::Cancel() {
 }
 
 TlsClientHandshaker::TlsClientHandshaker(
+    const QuicServerId& server_id,
     QuicCryptoStream* stream,
     QuicSession* session,
-    const QuicServerId& server_id,
-    ProofVerifier* proof_verifier,
-    SSL_CTX* ssl_ctx,
     std::unique_ptr<ProofVerifyContext> verify_context,
-    const std::string& user_agent_id)
-    : TlsHandshaker(stream, session, ssl_ctx),
+    QuicCryptoClientConfig* crypto_config,
+    QuicCryptoClientStream::ProofHandler* proof_handler)
+    : TlsHandshaker(stream, session, crypto_config->ssl_ctx()),
       server_id_(server_id),
-      proof_verifier_(proof_verifier),
+      proof_verifier_(crypto_config->proof_verifier()),
       verify_context_(std::move(verify_context)),
-      user_agent_id_(user_agent_id),
+      proof_handler_(proof_handler),
+      session_cache_(crypto_config->session_cache()),
+      user_agent_id_(crypto_config->user_agent_id()),
       crypto_negotiated_params_(new QuicCryptoNegotiatedParameters),
-      tls_connection_(ssl_ctx, this) {}
+      tls_connection_(crypto_config->ssl_ctx(), this) {}
 
 TlsClientHandshaker::~TlsClientHandshaker() {
   if (proof_verify_callback_) {
     proof_verify_callback_->Cancel();
   }
-}
-
-// static
-bssl::UniquePtr<SSL_CTX> TlsClientHandshaker::CreateSslCtx() {
-  return TlsClientConnection::CreateSslCtx();
 }
 
 bool TlsClientHandshaker::CryptoConnect() {
@@ -76,36 +74,70 @@ bool TlsClientHandshaker::CryptoConnect() {
     return false;
   }
 
-  std::string alpn_string = AlpnForVersion(session()->connection()->version());
-  if (alpn_string.length() > std::numeric_limits<uint8_t>::max()) {
-    QUIC_BUG << "ALPN too long: '" << alpn_string << "'";
-    CloseConnection(QUIC_HANDSHAKE_FAILED, "ALPN too long");
+  if (!SetAlpn()) {
+    CloseConnection(QUIC_HANDSHAKE_FAILED, "Client failed to set ALPN");
     return false;
   }
-  const uint8_t alpn_length = alpn_string.length();
-  // SSL_set_alpn_protos expects a sequence of one-byte-length-prefixed strings
-  // so we copy alpn_string to a new buffer that has the length in alpn[0].
-  uint8_t alpn[std::numeric_limits<uint8_t>::max() + 1];
-  alpn[0] = alpn_length;
-  memcpy(reinterpret_cast<char*>(alpn + 1), alpn_string.data(), alpn_length);
-  if (SSL_set_alpn_protos(ssl(), alpn,
-                          static_cast<unsigned>(alpn_length) + 1) != 0) {
-    QUIC_BUG << "Failed to set ALPN: '" << alpn_string << "'";
-    CloseConnection(QUIC_HANDSHAKE_FAILED, "Failed to set ALPN");
-    return false;
-  }
-  QUIC_DLOG(INFO) << "Client using ALPN: '" << alpn_string << "'";
 
   // Set the Transport Parameters to send in the ClientHello
   if (!SetTransportParameters()) {
     CloseConnection(QUIC_HANDSHAKE_FAILED,
-                    "Failed to set Transport Parameters");
+                    "Client failed to set Transport Parameters");
     return false;
+  }
+
+  // Set a session to resume, if there is one.
+  if (session_cache_) {
+    std::unique_ptr<QuicResumptionState> cached_state =
+        session_cache_->Lookup(server_id_, SSL_get_SSL_CTX(ssl()));
+    if (cached_state) {
+      SSL_set_session(ssl(), cached_state->tls_session.get());
+    }
   }
 
   // Start the handshake.
   AdvanceHandshake();
   return session()->connection()->connected();
+}
+
+static bool IsValidAlpn(const std::string& alpn_string) {
+  return alpn_string.length() <= std::numeric_limits<uint8_t>::max();
+}
+
+bool TlsClientHandshaker::SetAlpn() {
+  std::vector<std::string> alpns = session()->GetAlpnsToOffer();
+  if (alpns.empty()) {
+    if (allow_empty_alpn_for_tests_) {
+      return true;
+    }
+
+    QUIC_BUG << "ALPN missing";
+    return false;
+  }
+  if (!std::all_of(alpns.begin(), alpns.end(), IsValidAlpn)) {
+    QUIC_BUG << "ALPN too long";
+    return false;
+  }
+
+  // SSL_set_alpn_protos expects a sequence of one-byte-length-prefixed
+  // strings.
+  uint8_t alpn[1024];
+  QuicDataWriter alpn_writer(sizeof(alpn), reinterpret_cast<char*>(alpn));
+  bool success = true;
+  for (const std::string& alpn_string : alpns) {
+    success = success && alpn_writer.WriteUInt8(alpn_string.size()) &&
+              alpn_writer.WriteStringPiece(alpn_string);
+  }
+  success =
+      success && (SSL_set_alpn_protos(ssl(), alpn, alpn_writer.length()) == 0);
+  if (!success) {
+    QUIC_BUG << "Failed to set ALPN: "
+             << QuicTextUtils::HexDump(
+                    QuicStringPiece(alpn_writer.data(), alpn_writer.length()));
+    return false;
+  }
+  QUIC_DLOG(INFO) << "Client using ALPN: '" << alpns[0] << "'";
+  return true;
 }
 
 bool TlsClientHandshaker::SetTransportParameters() {
@@ -120,7 +152,8 @@ bool TlsClientHandshaker::SetTransportParameters() {
   params.google_quic_params->SetStringPiece(kUAID, user_agent_id_);
 
   std::vector<uint8_t> param_bytes;
-  return SerializeTransportParameters(params, &param_bytes) &&
+  return SerializeTransportParameters(session()->connection()->version(),
+                                      params, &param_bytes) &&
          SSL_set_quic_transport_params(ssl(), param_bytes.data(),
                                        param_bytes.size()) == 1;
 }
@@ -132,8 +165,9 @@ bool TlsClientHandshaker::ProcessTransportParameters(
   size_t param_bytes_len;
   SSL_get_peer_quic_transport_params(ssl(), &param_bytes, &param_bytes_len);
   if (param_bytes_len == 0 ||
-      !ParseTransportParameters(param_bytes, param_bytes_len,
-                                Perspective::IS_SERVER, &params)) {
+      !ParseTransportParameters(session()->connection()->version(),
+                                Perspective::IS_SERVER, param_bytes,
+                                param_bytes_len, &params)) {
     *error_details = "Unable to parse Transport Parameters";
     return false;
   }
@@ -171,6 +205,11 @@ int TlsClientHandshaker::num_sent_client_hellos() const {
   return 0;
 }
 
+bool TlsClientHandshaker::IsResumption() const {
+  QUIC_BUG_IF(!handshake_confirmed_);
+  return SSL_session_reused(ssl()) == 1;
+}
+
 int TlsClientHandshaker::num_scup_messages_received() const {
   // SCUP messages aren't sent or received when using the TLS handshake.
   return 0;
@@ -197,6 +236,11 @@ CryptoMessageParser* TlsClientHandshaker::crypto_message_parser() {
   return TlsHandshaker::crypto_message_parser();
 }
 
+size_t TlsClientHandshaker::BufferSizeLimitForLevel(
+    EncryptionLevel level) const {
+  return TlsHandshaker::BufferSizeLimitForLevel(level);
+}
+
 void TlsClientHandshaker::AdvanceHandshake() {
   if (state_ == STATE_CONNECTION_CLOSED) {
     QUIC_LOG(INFO)
@@ -204,11 +248,15 @@ void TlsClientHandshaker::AdvanceHandshake() {
     return;
   }
   if (state_ == STATE_IDLE) {
-    CloseConnection(QUIC_HANDSHAKE_FAILED, "TLS handshake failed");
+    CloseConnection(QUIC_HANDSHAKE_FAILED,
+                    "Client observed TLS handshake idle failure");
     return;
   }
   if (state_ == STATE_HANDSHAKE_COMPLETE) {
-    // TODO(nharper): Handle post-handshake messages.
+    int rv = SSL_process_quic_post_handshake(ssl());
+    if (rv != 1) {
+      CloseConnection(QUIC_HANDSHAKE_FAILED, "Unexpected post-handshake data");
+    }
     return;
   }
 
@@ -234,7 +282,8 @@ void TlsClientHandshaker::AdvanceHandshake() {
     // TODO(nharper): Surface error details from the error queue when ssl_error
     // is SSL_ERROR_SSL.
     QUIC_LOG(WARNING) << "SSL_do_handshake failed; closing connection";
-    CloseConnection(QUIC_HANDSHAKE_FAILED, "TLS handshake failed");
+    CloseConnection(QUIC_HANDSHAKE_FAILED,
+                    "Client observed TLS handshake failure");
   }
 }
 
@@ -259,29 +308,46 @@ void TlsClientHandshaker::FinishHandshake() {
   const uint8_t* alpn_data = nullptr;
   unsigned alpn_length = 0;
   SSL_get0_alpn_selected(ssl(), &alpn_data, &alpn_length);
-  // TODO(b/130164908) Act on ALPN.
-  if (alpn_length != 0) {
-    std::string received_alpn_string(reinterpret_cast<const char*>(alpn_data),
-                                     alpn_length);
-    std::string sent_alpn_string =
-        AlpnForVersion(session()->connection()->version());
-    if (received_alpn_string != sent_alpn_string) {
-      QUIC_LOG(ERROR) << "Client: received mismatched ALPN '"
-                      << received_alpn_string << "', expected '"
-                      << sent_alpn_string << "'";
-      CloseConnection(QUIC_HANDSHAKE_FAILED, "Mismatched ALPN");
-      return;
-    }
-    QUIC_DLOG(INFO) << "Client: server selected ALPN: '" << received_alpn_string
-                    << "'";
-  } else {
-    QUIC_DLOG(INFO) << "Client: server did not select ALPN";
+
+  if (alpn_length == 0) {
+    QUIC_DLOG(ERROR) << "Client: server did not select ALPN";
+    // TODO(b/130164908) this should send no_application_protocol
+    // instead of QUIC_HANDSHAKE_FAILED.
+    CloseConnection(QUIC_HANDSHAKE_FAILED, "Server did not select ALPN");
+    return;
   }
 
-  session()->connection()->SetDefaultEncryptionLevel(ENCRYPTION_FORWARD_SECURE);
-  session()->NeuterUnencryptedData();
+  std::string received_alpn_string(reinterpret_cast<const char*>(alpn_data),
+                                   alpn_length);
+  std::vector<std::string> offered_alpns = session()->GetAlpnsToOffer();
+  if (std::find(offered_alpns.begin(), offered_alpns.end(),
+                received_alpn_string) == offered_alpns.end()) {
+    QUIC_LOG(ERROR) << "Client: received mismatched ALPN '"
+                    << received_alpn_string;
+    // TODO(b/130164908) this should send no_application_protocol
+    // instead of QUIC_HANDSHAKE_FAILED.
+    CloseConnection(QUIC_HANDSHAKE_FAILED, "Client received mismatched ALPN");
+    return;
+  }
+  session()->OnAlpnSelected(received_alpn_string);
+  QUIC_DLOG(INFO) << "Client: server selected ALPN: '" << received_alpn_string
+                  << "'";
+
   encryption_established_ = true;
   handshake_confirmed_ = true;
+  delegate()->SetDefaultEncryptionLevel(ENCRYPTION_FORWARD_SECURE);
+
+  // Fill crypto_negotiated_params_:
+  const SSL_CIPHER* cipher = SSL_get_current_cipher(ssl());
+  if (cipher) {
+    crypto_negotiated_params_->cipher_suite = SSL_CIPHER_get_value(cipher);
+  }
+  crypto_negotiated_params_->key_exchange_group = SSL_get_curve_id(ssl());
+  crypto_negotiated_params_->peer_signature_algorithm =
+      SSL_get_peer_signature_algorithm(ssl());
+  // TODO(fayang): Replace this with DiscardOldKeys(ENCRYPTION_HANDSHAKE) when
+  // handshake key discarding settles down.
+  delegate()->NeuterHandshakeData();
 }
 
 enum ssl_verify_result_t TlsClientHandshaker::VerifyCert(uint8_t* out_alert) {
@@ -323,6 +389,7 @@ enum ssl_verify_result_t TlsClientHandshaker::VerifyCert(uint8_t* out_alert) {
       std::unique_ptr<ProofVerifierCallback>(proof_verify_callback));
   switch (verify_result) {
     case QUIC_SUCCESS:
+      proof_handler_->OnProofVerifyDetailsAvailable(*verify_details_);
       return ssl_verify_ok;
     case QUIC_PENDING:
       proof_verify_callback_ = proof_verify_callback;
@@ -334,6 +401,27 @@ enum ssl_verify_result_t TlsClientHandshaker::VerifyCert(uint8_t* out_alert) {
                      << cert_verify_error_details_;
       return ssl_verify_invalid;
   }
+}
+
+void TlsClientHandshaker::InsertSession(bssl::UniquePtr<SSL_SESSION> session) {
+  if (session_cache_ == nullptr) {
+    QUIC_DVLOG(1) << "No session cache, not inserting a session";
+    return;
+  }
+  auto cache_state = std::make_unique<QuicResumptionState>();
+  cache_state->tls_session = std::move(session);
+  session_cache_->Insert(server_id_, std::move(cache_state));
+}
+
+void TlsClientHandshaker::WriteMessage(EncryptionLevel level,
+                                       QuicStringPiece data) {
+  if (level == ENCRYPTION_HANDSHAKE &&
+      state_ < STATE_ENCRYPTION_HANDSHAKE_DATA_SENT) {
+    state_ = STATE_ENCRYPTION_HANDSHAKE_DATA_SENT;
+    delegate()->DiscardOldEncryptionKey(ENCRYPTION_INITIAL);
+    delegate()->DiscardOldDecryptionKey(ENCRYPTION_INITIAL);
+  }
+  TlsHandshaker::WriteMessage(level, data);
 }
 
 }  // namespace quic

@@ -15,6 +15,7 @@
 #include "build/build_config.h"
 #include "device/gamepad/gamepad_data_fetcher.h"
 #include "device/gamepad/gamepad_test_helpers.h"
+#include "services/service_manager/public/cpp/connector.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
 namespace device {
@@ -24,11 +25,11 @@ namespace {
 // Helper class to generate and record user gesture callbacks.
 class UserGestureListener {
  public:
-  UserGestureListener() : has_user_gesture_(false), weak_factory_(this) {}
+  UserGestureListener() : has_user_gesture_(false) {}
 
-  base::Closure GetClosure() {
-    return base::Bind(&UserGestureListener::GotUserGesture,
-                      weak_factory_.GetWeakPtr());
+  base::OnceClosure GetClosure() {
+    return base::BindOnce(&UserGestureListener::GotUserGesture,
+                          weak_factory_.GetWeakPtr());
   }
 
   bool has_user_gesture() const { return has_user_gesture_; }
@@ -37,17 +38,19 @@ class UserGestureListener {
   void GotUserGesture() { has_user_gesture_ = true; }
 
   bool has_user_gesture_;
-  base::WeakPtrFactory<UserGestureListener> weak_factory_;
+  base::WeakPtrFactory<UserGestureListener> weak_factory_{this};
 };
 
 // Main test fixture
 class GamepadProviderTest : public testing::Test, public GamepadTestHelper {
  public:
   GamepadProvider* CreateProvider(const Gamepads& test_data) {
-    mock_data_fetcher_ = new MockGamepadDataFetcher(test_data);
-    provider_.reset(new GamepadProvider(
-        nullptr, std::unique_ptr<GamepadDataFetcher>(mock_data_fetcher_),
-        std::unique_ptr<base::Thread>()));
+    auto fetcher = std::make_unique<MockGamepadDataFetcher>(test_data);
+    mock_data_fetcher_ = fetcher.get();
+    provider_ = std::make_unique<GamepadProvider>(
+        /*connection_change_client=*/nullptr,
+        /*service_manager_connector=*/nullptr, std::move(fetcher),
+        /*polling_thread=*/nullptr);
     return provider_.get();
   }
 

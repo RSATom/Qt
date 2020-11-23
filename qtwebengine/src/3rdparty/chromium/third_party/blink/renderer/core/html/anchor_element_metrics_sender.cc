@@ -5,13 +5,13 @@
 #include "third_party/blink/renderer/core/html/anchor_element_metrics_sender.h"
 
 #include "base/metrics/histogram_macros.h"
-#include "services/service_manager/public/cpp/interface_provider.h"
+#include "third_party/blink/public/common/browser_interface_broker_proxy.h"
 #include "third_party/blink/public/common/features.h"
 #include "third_party/blink/renderer/core/dom/document.h"
 #include "third_party/blink/renderer/core/frame/local_frame.h"
 #include "third_party/blink/renderer/core/html/anchor_element_metrics.h"
 #include "third_party/blink/renderer/core/html/html_anchor_element.h"
-#include "ui/gfx/geometry/mojo/geometry.mojom-shared.h"
+#include "ui/gfx/geometry/mojom/geometry.mojom-shared.h"
 
 namespace blink {
 
@@ -113,8 +113,8 @@ bool AnchorElementMetricsSender::AssociateInterface() {
   if (!document->GetFrame())
     return false;
 
-  document->GetFrame()->GetInterfaceProvider().GetInterface(
-      mojo::MakeRequest(&metrics_host_));
+  document->GetBrowserInterfaceBroker().GetInterface(
+      metrics_host_.BindNewPipeAndPassReceiver());
   return true;
 }
 

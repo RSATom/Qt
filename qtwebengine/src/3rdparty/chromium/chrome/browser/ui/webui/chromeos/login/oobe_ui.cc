@@ -12,6 +12,7 @@
 
 #include "ash/public/cpp/ash_features.h"
 #include "ash/public/cpp/ash_switches.h"
+#include "ash/public/cpp/network_config_service.h"
 #include "ash/public/cpp/resources/grit/ash_public_unscaled_resources.h"
 #include "base/bind.h"
 #include "base/command_line.h"
@@ -20,6 +21,7 @@
 #include "base/stl_util.h"
 #include "base/strings/stringprintf.h"
 #include "base/values.h"
+#include "build/branding_buildflags.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/browser_process_platform_part.h"
 #include "chrome/browser/chromeos/login/enrollment/auto_enrollment_check_screen_view.h"
@@ -28,6 +30,7 @@
 #include "chrome/browser/chromeos/login/screens/error_screen.h"
 #include "chrome/browser/chromeos/login/ui/login_display_host.h"
 #include "chrome/browser/chromeos/login/wizard_controller.h"
+#include "chrome/browser/chromeos/multidevice_setup/multidevice_setup_service_factory.h"
 #include "chrome/browser/chromeos/policy/browser_policy_connector_chromeos.h"
 #include "chrome/browser/chromeos/settings/shutdown_policy_handler.h"
 #include "chrome/browser/chromeos/system/input_device_settings.h"
@@ -47,6 +50,7 @@
 #include "chrome/browser/ui/webui/chromeos/login/demo_setup_screen_handler.h"
 #include "chrome/browser/ui/webui/chromeos/login/device_disabled_screen_handler.h"
 #include "chrome/browser/ui/webui/chromeos/login/discover_screen_handler.h"
+#include "chrome/browser/ui/webui/chromeos/login/enable_adb_sideloading_screen_handler.h"
 #include "chrome/browser/ui/webui/chromeos/login/enable_debugging_screen_handler.h"
 #include "chrome/browser/ui/webui/chromeos/login/encryption_migration_screen_handler.h"
 #include "chrome/browser/ui/webui/chromeos/login/enrollment_screen_handler.h"
@@ -63,6 +67,7 @@
 #include "chrome/browser/ui/webui/chromeos/login/network_screen_handler.h"
 #include "chrome/browser/ui/webui/chromeos/login/network_state_informer.h"
 #include "chrome/browser/ui/webui/chromeos/login/oobe_display_chooser.h"
+#include "chrome/browser/ui/webui/chromeos/login/packaged_license_screen_handler.h"
 #include "chrome/browser/ui/webui/chromeos/login/recommend_apps_screen_handler.h"
 #include "chrome/browser/ui/webui/chromeos/login/reset_screen_handler.h"
 #include "chrome/browser/ui/webui/chromeos/login/signin_screen_handler.h"
@@ -87,8 +92,8 @@
 #include "chrome/grit/chrome_unscaled_resources.h"
 #include "chrome/grit/component_extension_resources.h"
 #include "chromeos/constants/chromeos_switches.h"
-#include "chromeos/services/multidevice_setup/public/mojom/constants.mojom.h"
-#include "chromeos/services/network_config/public/mojom/constants.mojom.h"
+#include "chromeos/services/multidevice_setup/multidevice_setup_service.h"
+#include "chromeos/services/network_config/public/mojom/cros_network_config.mojom.h"  // nogncheck
 #include "components/policy/core/common/cloud/cloud_policy_constants.h"
 #include "components/prefs/pref_service.h"
 #include "content/public/browser/browser_context.h"
@@ -96,7 +101,6 @@
 #include "content/public/browser/web_ui_data_source.h"
 #include "content/public/common/content_features.h"
 #include "content/public/common/content_switches.h"
-#include "services/service_manager/public/cpp/connector.h"
 #include "ui/base/resource/resource_bundle.h"
 #include "ui/base/ui_base_features.h"
 #include "ui/base/webui/web_ui_util.h"
@@ -133,9 +137,8 @@ constexpr char kOobeJSPath[] = "oobe.js";
 constexpr char kProductLogoPath[] = "product-logo.png";
 constexpr char kRecommendAppListViewHTMLPath[] = "recommend_app_list_view.html";
 constexpr char kRecommendAppListViewJSPath[] = "recommend_app_list_view.js";
-constexpr char kStringsJSPath[] = "strings.js";
 
-#if defined(GOOGLE_CHROME_BUILD)
+#if BUILDFLAG(GOOGLE_CHROME_BRANDING)
 constexpr char kLogo24PX1XSvgPath[] = "logo_24px-1x.svg";
 constexpr char kLogo24PX2XSvgPath[] = "logo_24px-2x.svg";
 constexpr char kSyncConsentIcons[] = "sync-consent-icons.html";
@@ -147,7 +150,7 @@ void AddProductLogoResources(content::WebUIDataSource* source) {
   source->AddResourcePath(kArcAssistantLogoPath, IDR_ASSISTANT_LOGO_PNG);
   source->AddResourcePath(kArcSupervisionIconPath, IDR_SUPERVISION_ICON_PNG);
 
-#if defined(GOOGLE_CHROME_BUILD)
+#if BUILDFLAG(GOOGLE_CHROME_BRANDING)
   source->AddResourcePath(kLogo24PX1XSvgPath, IDR_PRODUCT_LOGO_24PX_1X);
   source->AddResourcePath(kLogo24PX2XSvgPath, IDR_PRODUCT_LOGO_24PX_2X);
 #endif
@@ -157,7 +160,7 @@ void AddProductLogoResources(content::WebUIDataSource* source) {
 }
 
 void AddSyncConsentResources(content::WebUIDataSource* source) {
-#if defined(GOOGLE_CHROME_BUILD)
+#if BUILDFLAG(GOOGLE_CHROME_BRANDING)
   source->AddResourcePath(kSyncConsentIcons,
                           IDR_PRODUCT_CHROMEOS_SYNC_CONSENT_SCREEN_ICONS);
   // No #else section here as Sync Settings screen is Chrome-specific.
@@ -179,12 +182,21 @@ void AddArcScreensResources(content::WebUIDataSource* source) {
                           IDR_ARC_SUPPORT_RECOMMEND_APP_LIST_VIEW_HTML);
 }
 
+void AddAssistantScreensResources(content::WebUIDataSource* source) {
+  source->AddResourcePath("voice_match_animation.json",
+                          IDR_ASSISTANT_VOICE_MATCH_ANIMATION);
+  source->AddResourcePath("voice_match_already_setup_animation.json",
+                          IDR_ASSISTANT_VOICE_MATCH_ALREADY_SETUP_ANIMATION);
+  source->OverrideContentSecurityPolicyWorkerSrc("worker-src blob: 'self';");
+}
+
 void AddFingerprintResources(content::WebUIDataSource* source) {
   int animation_id;
+  bool is_lottie_animation = false;
   switch (quick_unlock::GetFingerprintLocation()) {
     case quick_unlock::FingerprintLocation::TABLET_POWER_BUTTON:
-      animation_id =
-          IDR_LOGIN_FINGERPRINT_SCANNER_TABLET_POWER_BUTTON_ANIMATION;
+      is_lottie_animation = true;
+      animation_id = IDR_LOGIN_FINGER_PRINT_TABLET_ANIMATION;
       break;
     case quick_unlock::FingerprintLocation::KEYBOARD_BOTTOM_RIGHT:
       animation_id =
@@ -194,7 +206,20 @@ void AddFingerprintResources(content::WebUIDataSource* source) {
       animation_id = IDR_LOGIN_FINGERPRINT_SCANNER_LAPTOP_TOP_RIGHT_ANIMATION;
       break;
   }
-  source->AddResourcePath("fingerprint_scanner_animation.png", animation_id);
+  if (is_lottie_animation) {
+    source->AddResourcePath("fingerprint_scanner_animation.json", animation_id);
+
+    // To use lottie, the worker-src CSP needs to be updated for the web ui that
+    // is using it. Since as of now there are only a couple of webuis using
+    // lottie animations, this update has to be performed manually. As the usage
+    // increases, set this as the default so manual override is no longer
+    // required.
+    source->OverrideContentSecurityPolicyWorkerSrc("worker-src blob: 'self';");
+  } else {
+    source->AddResourcePath("fingerprint_scanner_animation.png", animation_id);
+  }
+
+  source->AddBoolean("useLottieAnimationForFingerprint", is_lottie_animation);
 }
 
 // Default and non-shared resource definition for kOobeDisplay display type.
@@ -235,7 +260,7 @@ content::WebUIDataSource* CreateOobeUIDataSource(
   content::WebUIDataSource* source =
       content::WebUIDataSource::Create(chrome::kChromeUIOobeHost);
   source->AddLocalizedStrings(localized_strings);
-  source->SetJsonPath(kStringsJSPath);
+  source->UseStringsJs();
 
   // First, configure default and non-shared resources for the current display
   // type.
@@ -255,6 +280,7 @@ content::WebUIDataSource* CreateOobeUIDataSource(
   AddFingerprintResources(source);
   AddSyncConsentResources(source);
   AddArcScreensResources(source);
+  AddAssistantScreensResources(source);
 
   source->AddResourcePath(kKeyboardUtilsJSPath, IDR_KEYBOARD_UTILS_JS);
   source->OverrideContentSecurityPolicyObjectSrc(
@@ -322,6 +348,9 @@ void OobeUI::ConfigureOobeDisplay() {
 
   AddScreenHandler(std::make_unique<NetworkScreenHandler>(
       js_calls_container_.get(), core_handler_));
+
+  AddScreenHandler(std::make_unique<EnableAdbSideloadingScreenHandler>(
+      js_calls_container_.get()));
 
   AddScreenHandler(std::make_unique<EnableDebuggingScreenHandler>(
       js_calls_container_.get()));
@@ -435,6 +464,9 @@ void OobeUI::ConfigureOobeDisplay() {
   AddScreenHandler(std::make_unique<MultiDeviceSetupScreenHandler>(
       js_calls_container_.get()));
 
+  AddScreenHandler(std::make_unique<PackagedLicenseScreenHandler>(
+      js_calls_container_.get()));
+
   Profile* profile = Profile::FromWebUI(web_ui());
   // Set up the chrome://theme/ source, for Chrome logo.
   content::URLDataSource::Add(profile, std::make_unique<ThemeSource>(profile));
@@ -459,33 +491,30 @@ void OobeUI::ConfigureOobeDisplay() {
     oobe_display_chooser_ = std::make_unique<OobeDisplayChooser>();
 }
 
-service_manager::Connector* OobeUI::GetLoggedInUserMojoConnector() {
-  // This function should only be called after the user has logged in.
-  DCHECK(
-      user_manager::UserManager::Get()->IsUserLoggedIn() &&
-      user_manager::UserManager::Get()->GetActiveUser()->is_profile_created());
-  return content::BrowserContext::GetConnectorFor(
-      ProfileManager::GetActiveUserProfile());
-}
-
 void OobeUI::BindMultiDeviceSetup(
-    multidevice_setup::mojom::MultiDeviceSetupRequest request) {
-  GetLoggedInUserMojoConnector()->BindInterface(
-      multidevice_setup::mojom::kServiceName, std::move(request));
+    mojo::PendingReceiver<multidevice_setup::mojom::MultiDeviceSetup>
+        receiver) {
+  multidevice_setup::MultiDeviceSetupService* service =
+      multidevice_setup::MultiDeviceSetupServiceFactory::GetForProfile(
+          ProfileManager::GetActiveUserProfile());
+  if (service)
+    service->BindMultiDeviceSetup(std::move(receiver));
 }
 
 void OobeUI::BindPrivilegedHostDeviceSetter(
-    multidevice_setup::mojom::PrivilegedHostDeviceSetterRequest request) {
-  GetLoggedInUserMojoConnector()->BindInterface(
-      multidevice_setup::mojom::kServiceName, std::move(request));
+    mojo::PendingReceiver<multidevice_setup::mojom::PrivilegedHostDeviceSetter>
+        receiver) {
+  multidevice_setup::MultiDeviceSetupService* service =
+      multidevice_setup::MultiDeviceSetupServiceFactory::GetForProfile(
+          ProfileManager::GetActiveUserProfile());
+  if (service)
+    service->BindPrivilegedHostDeviceSetter(std::move(receiver));
 }
 
 void OobeUI::BindCrosNetworkConfig(
-    chromeos::network_config::mojom::CrosNetworkConfigRequest request) {
-  content::BrowserContext::GetConnectorFor(
-      web_ui()->GetWebContents()->GetBrowserContext())
-      ->BindInterface(chromeos::network_config::mojom::kServiceName,
-                      std::move(request));
+    mojo::PendingReceiver<chromeos::network_config::mojom::CrosNetworkConfig>
+        receiver) {
+  ash::GetNetworkConfigService(std::move(receiver));
 }
 
 OobeUI::OobeUI(content::WebUI* web_ui, const GURL& url)
@@ -552,7 +581,7 @@ void OobeUI::GetLocalizedStrings(base::DictionaryValue* localized_strings) {
   const std::string& app_locale = g_browser_process->GetApplicationLocale();
   webui::SetLoadTimeDataDefaults(app_locale, localized_strings);
 
-#if defined(GOOGLE_CHROME_BUILD)
+#if BUILDFLAG(GOOGLE_CHROME_BRANDING)
   localized_strings->SetString("buildType", "chrome");
 #else
   localized_strings->SetString("buildType", "chromium");
@@ -604,7 +633,7 @@ void OobeUI::CurrentScreenChanged(OobeScreenId new_screen) {
 
   current_screen_ = new_screen;
   for (Observer& observer : observer_list_)
-    observer.OnCurrentScreenChanged(current_screen_, new_screen);
+    observer.OnCurrentScreenChanged(previous_screen_, new_screen);
 }
 
 bool OobeUI::IsScreenInitialized(OobeScreenId screen) {

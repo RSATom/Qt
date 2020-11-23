@@ -40,6 +40,7 @@
 #include "third_party/blink/renderer/core/dom/shadow_root.h"
 #include "third_party/blink/renderer/core/events/keyboard_event.h"
 #include "third_party/blink/renderer/core/events/mouse_event.h"
+#include "third_party/blink/renderer/core/frame/web_feature.h"
 #include "third_party/blink/renderer/core/html/forms/html_data_list_element.h"
 #include "third_party/blink/renderer/core/html/forms/html_data_list_options_collection.h"
 #include "third_party/blink/renderer/core/html/forms/html_input_element.h"
@@ -58,8 +59,6 @@
 #include "third_party/blink/renderer/platform/wtf/math_extras.h"
 
 namespace blink {
-
-using namespace html_names;
 
 static const int kRangeDefaultMinimum = 0;
 static const int kRangeDefaultMaximum = 100;
@@ -93,7 +92,7 @@ InputType::ValueMode RangeInputType::GetValueMode() const {
 void RangeInputType::CountUsage() {
   CountUsageIfVisible(WebFeature::kInputTypeRange);
   if (const ComputedStyle* style = GetElement().GetComputedStyle()) {
-    if (style->Appearance() == kSliderVerticalPart) {
+    if (style->EffectiveAppearance() == kSliderVerticalPart) {
       UseCounter::Count(GetElement().GetDocument(),
                         WebFeature::kInputTypeRangeVerticalAppearance);
     }
@@ -130,16 +129,17 @@ StepRange RangeInputType::CreateStepRange(
       (kRangeDefaultStep, kRangeDefaultStepBase, kRangeStepScaleFactor));
 
   const Decimal step_base = FindStepBase(kRangeDefaultStepBase);
-  const Decimal minimum = ParseToNumber(GetElement().FastGetAttribute(kMinAttr),
-                                        kRangeDefaultMinimum);
-  const Decimal maximum =
-      EnsureMaximum(ParseToNumber(GetElement().FastGetAttribute(kMaxAttr),
-                                  kRangeDefaultMaximum),
-                    minimum);
+  const Decimal minimum =
+      ParseToNumber(GetElement().FastGetAttribute(html_names::kMinAttr),
+                    kRangeDefaultMinimum);
+  const Decimal maximum = EnsureMaximum(
+      ParseToNumber(GetElement().FastGetAttribute(html_names::kMaxAttr),
+                    kRangeDefaultMaximum),
+      minimum);
 
-  const Decimal step =
-      StepRange::ParseStep(any_step_handling, step_description,
-                           GetElement().FastGetAttribute(kStepAttr));
+  const Decimal step = StepRange::ParseStep(
+      any_step_handling, step_description,
+      GetElement().FastGetAttribute(html_names::kStepAttr));
   // Range type always has range limitations because it has default
   // minimum/maximum.
   // https://html.spec.whatwg.org/C/#range-state-(type=range):concept-input-min-default
@@ -184,10 +184,11 @@ void RangeInputType::HandleKeydownEvent(KeyboardEvent& event) {
 
   // FIXME: We can't use stepUp() for the step value "any". So, we increase
   // or decrease the value by 1/100 of the value range. Is it reasonable?
-  const Decimal step = DeprecatedEqualIgnoringCase(
-                           GetElement().FastGetAttribute(kStepAttr), "any")
-                           ? (step_range.Maximum() - step_range.Minimum()) / 100
-                           : step_range.Step();
+  const Decimal step =
+      DeprecatedEqualIgnoringCase(
+          GetElement().FastGetAttribute(html_names::kStepAttr), "any")
+          ? (step_range.Maximum() - step_range.Minimum()) / 100
+          : step_range.Step();
   const Decimal big_step =
       std::max((step_range.Maximum() - step_range.Minimum()) / 10, step);
 
@@ -195,7 +196,8 @@ void RangeInputType::HandleKeydownEvent(KeyboardEvent& event) {
   bool is_vertical = false;
   if (GetElement().GetLayoutObject()) {
     dir = ComputedTextDirection();
-    ControlPart part = GetElement().GetLayoutObject()->Style()->Appearance();
+    ControlPart part =
+        GetElement().GetLayoutObject()->Style()->EffectiveAppearance();
     is_vertical = part == kSliderVerticalPart;
   }
 
@@ -244,7 +246,7 @@ void RangeInputType::CreateShadowSubtree() {
   Document& document = GetElement().GetDocument();
   auto* track = MakeGarbageCollected<HTMLDivElement>(document);
   track->SetShadowPseudoId(AtomicString("-webkit-slider-runnable-track"));
-  track->setAttribute(kIdAttr, shadow_element_names::SliderTrack());
+  track->setAttribute(html_names::kIdAttr, shadow_element_names::SliderTrack());
   track->AppendChild(MakeGarbageCollected<SliderThumbElement>(document));
   auto* container = MakeGarbageCollected<SliderContainerElement>(document);
   container->AppendChild(track);
@@ -411,6 +413,10 @@ Decimal RangeInputType::FindClosestTickMarkValue(const Decimal& value) {
   if (closest_right - value < value - closest_left)
     return closest_right;
   return closest_left;
+}
+
+void RangeInputType::ValueAttributeChanged() {
+  UpdateView();
 }
 
 }  // namespace blink

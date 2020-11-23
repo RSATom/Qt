@@ -32,6 +32,7 @@
 #include "config.h"
 #include "generator.h"
 #include "location.h"
+#include "loggingcategory.h"
 #include "qdocdatabase.h"
 #include "qdoctagfiles.h"
 
@@ -69,6 +70,7 @@ QDocIndexFiles *QDocIndexFiles::qdocIndexFiles_ = nullptr;
 QDocIndexFiles::QDocIndexFiles() : gen_(nullptr)
 {
     qdb_ = QDocDatabase::qdocDB();
+    storeLocationInfo_ = Config::instance().getBool(CONFIG_LOCATIONINFO);
 }
 
 /*!
@@ -108,8 +110,7 @@ void QDocIndexFiles::destroyQDocIndexFiles()
 void QDocIndexFiles::readIndexes(const QStringList &indexFiles)
 {
     for (const QString &file : indexFiles) {
-        QString msg = "Loading index file: " + file;
-        Location::logToStdErr(msg);
+        qCDebug(lcQdoc) << "Loading index file: " << file;
         readIndexFile(file);
     }
 }
@@ -420,7 +421,7 @@ void QDocIndexFiles::readIndexSection(QXmlStreamReader &reader, Node *current,
         node = pn;
 
     } else if (elementName == QLatin1String("enum")) {
-        EnumNode *enumNode = new EnumNode(parent, name);
+        EnumNode *enumNode = new EnumNode(parent, name, attributes.hasAttribute("scoped"));
 
         if (!indexUrl.isEmpty())
             location = Location(indexUrl + QLatin1Char('/') + parent->name().toLower() + ".html");
@@ -448,6 +449,13 @@ void QDocIndexFiles::readIndexSection(QXmlStreamReader &reader, Node *current,
     } else if (elementName == QLatin1String("typedef")) {
         node = new TypedefNode(parent, name);
 
+        if (!indexUrl.isEmpty())
+            location = Location(indexUrl + QLatin1Char('/') + parent->name().toLower() + ".html");
+        else if (!indexUrl.isNull())
+            location = Location(parent->name().toLower() + ".html");
+
+    } else if (elementName == QLatin1String("alias")) {
+        node = new TypeAliasNode(parent, name, attributes.value(QLatin1String("aliasedtype")).toString());
         if (!indexUrl.isEmpty())
             location = Location(indexUrl + QLatin1Char('/') + parent->name().toLower() + ".html");
         else if (!indexUrl.isNull())
@@ -586,6 +594,8 @@ void QDocIndexFiles::readIndexSection(QXmlStreamReader &reader, Node *current,
             node->setStatus(Node::Active);
         else if (status == QLatin1String("internal"))
             node->setStatus(Node::Internal);
+        else if (status == QLatin1String("ignored"))
+            node->setStatus(Node::DontDocument);
         else
             node->setStatus(Node::Active);
 
@@ -736,6 +746,8 @@ static const QString getStatusString(Node::Status t)
         return QLatin1String("active");
     case Node::Internal:
         return QLatin1String("internal");
+    case Node::DontDocument:
+        return QLatin1String("ignored");
     default:
         break;
     }
@@ -859,6 +871,9 @@ bool QDocIndexFiles::generateIndexSection(QXmlStreamWriter &writer, Node *node,
     case Node::Typedef:
         nodeName = "typedef";
         break;
+    case Node::TypeAlias:
+        nodeName = "alias";
+        break;
     case Node::Property:
         nodeName = "property";
         break;
@@ -930,7 +945,7 @@ bool QDocIndexFiles::generateIndexSection(QXmlStreamWriter &writer, Node *node,
     const Location &declLocation = node->declLocation();
     if (!declLocation.fileName().isEmpty())
         writer.writeAttribute("location", declLocation.fileName());
-    if (!declLocation.filePath().isEmpty()) {
+    if (storeLocationInfo_ && !declLocation.filePath().isEmpty()) {
         writer.writeAttribute("filepath", declLocation.filePath());
         writer.writeAttribute("lineno", QString("%1").arg(declLocation.lineNo()));
     }
@@ -1174,6 +1189,8 @@ bool QDocIndexFiles::generateIndexSection(QXmlStreamWriter &writer, Node *node,
     } break;
     case Node::Enum: {
         const EnumNode *enumNode = static_cast<const EnumNode *>(node);
+        if (enumNode->isScoped())
+            writer.writeAttribute("scoped", "true");
         if (enumNode->flagsType())
             writer.writeAttribute("typedef", enumNode->flagsType()->fullDocumentName());
         const auto &items = enumNode->items();
@@ -1189,6 +1206,9 @@ bool QDocIndexFiles::generateIndexSection(QXmlStreamWriter &writer, Node *node,
         if (typedefNode->associatedEnum())
             writer.writeAttribute("enum", typedefNode->associatedEnum()->fullDocumentName());
     } break;
+    case Node::TypeAlias:
+        writer.writeAttribute("aliasedtype", static_cast<const TypeAliasNode *>(node)->aliasedType());
+        break;
     case Node::Function: // Now processed in generateFunctionSection()
     default:
         break;
@@ -1321,7 +1341,7 @@ void QDocIndexFiles::generateFunctionSection(QXmlStreamWriter &writer, FunctionN
     const Location &declLocation = fn->declLocation();
     if (!declLocation.fileName().isEmpty())
         writer.writeAttribute("location", declLocation.fileName());
-    if (!declLocation.filePath().isEmpty()) {
+    if (storeLocationInfo_ && !declLocation.filePath().isEmpty()) {
         writer.writeAttribute("filepath", declLocation.filePath());
         writer.writeAttribute("lineno", QString("%1").arg(declLocation.lineNo()));
     }
@@ -1357,7 +1377,7 @@ void QDocIndexFiles::generateFunctionSection(QXmlStreamWriter &writer, FunctionN
             writer.writeAttribute("refness", QString::number(2));
         if (fn->hasAssociatedProperties()) {
             QStringList associatedProperties;
-            for (const auto *node : qAsConst(fn->associatedProperties())) {
+            for (const auto *node : fn->associatedProperties()) {
                 associatedProperties << node->name();
             }
             associatedProperties.sort();
@@ -1503,11 +1523,10 @@ void QDocIndexFiles::generateIndexSections(QXmlStreamWriter &writer, Node *node,
 }
 
 /*!
-  Writes aqdoc module index in XML to a file named \afilerName.
-  \a url becaomes the \c url attribute of the <INDEX> element.
-  \a title becomes the \c title attribute of the <INDEX> element.
-  \a g is used to get the Config object that contains the variables
-  from the module's .qdocconf file.
+  Writes a qdoc module index in XML to a file named \a fileName.
+  \a url is the \c url attribute of the <INDEX> element.
+  \a title is the \c title attribute of the <INDEX> element.
+  \a g is a pointer to the current Generator in use, stored for later use.
  */
 void QDocIndexFiles::generateIndex(const QString &fileName, const QString &url,
                                    const QString &title, Generator *g)
@@ -1516,8 +1535,7 @@ void QDocIndexFiles::generateIndex(const QString &fileName, const QString &url,
     if (!file.open(QFile::WriteOnly | QFile::Text))
         return;
 
-    QString msg = "Writing index file: " + fileName;
-    Location::logToStdErr(msg);
+    qCDebug(lcQdoc) << "Writing index file:" << fileName;
 
     gen_ = g;
     QXmlStreamWriter writer(&file);
@@ -1529,7 +1547,7 @@ void QDocIndexFiles::generateIndex(const QString &fileName, const QString &url,
     writer.writeAttribute("url", url);
     writer.writeAttribute("title", title);
     writer.writeAttribute("version", qdb_->version());
-    writer.writeAttribute("project", g->config()->getString(CONFIG_PROJECT));
+    writer.writeAttribute("project", Config::instance().getString(CONFIG_PROJECT));
 
     root_ = qdb_->primaryTreeRoot();
     if (!root_->tree()->indexTitle().isEmpty())

@@ -33,7 +33,6 @@
     layouts.
 
     \previouspage Qt Widgets
-    \contentspage Qt Widgets
     \nextpage {Styles and Style Aware Widgets}{Styles}
 
     \ingroup frameworks-technologies
@@ -300,7 +299,7 @@
     \list
         \li  A data structure to store the items handled by the layout. Each
             item is a \l{QLayoutItem}{QLayoutItem}. We will use a
-            QList in this example.
+            QVector in this example.
         \li  \l{QLayout::}{addItem()}, how to add items to the layout.
         \li  \l{QLayout::}{setGeometry()}, how to perform the layout.
         \li  \l{QLayout::}{sizeHint()}, the preferred size of the layout.

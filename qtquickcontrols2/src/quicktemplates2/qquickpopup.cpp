@@ -451,7 +451,7 @@ bool QQuickPopupPrivate::prepareExitTransition()
     if (transitionState == ExitTransition && transitionManager.isRunning())
         return false;
 
-    if (transitionState != ExitTransition) {
+    if (transitionState != ExitTransition && !hadActiveFocusBeforeExitTransition) {
         // The setFocus(false) call below removes any active focus before we're
         // able to check it in finalizeExitTransition.
         hadActiveFocusBeforeExitTransition = popupItem->hasActiveFocus();
@@ -471,6 +471,7 @@ void QQuickPopupPrivate::finalizeEnterTransition()
     if (focus)
         popupItem->setFocus(true);
     transitionState = NoTransition;
+    getPositioner()->reposition();
     emit q->openedChanged();
     emit q->opened();
 }
@@ -1842,6 +1843,8 @@ void QQuickPopup::setModal(bool modal)
     if (d->complete && d->visible)
         d->toggleOverlay();
     emit modalChanged();
+
+    QQuickItemPrivate::get(d->popupItem)->isTabFence = modal;
 
     if (!d->hasDim) {
         setDim(modal);

@@ -30,6 +30,7 @@
 
 #include "base/optional.h"
 #include "build/build_config.h"
+#include "components/paint_preview/common/paint_preview_tracker.h"
 #include "skia/ext/platform_canvas.h"
 #include "third_party/blink/renderer/platform/fonts/text_run_paint_info.h"
 #include "third_party/blink/renderer/platform/geometry/float_rect.h"
@@ -89,12 +90,14 @@ class GraphicsContext::DarkModeFlags final {
 
 GraphicsContext::GraphicsContext(PaintController& paint_controller,
                                  DisabledMode disable_context_or_painting,
-                                 printing::MetafileSkia* metafile)
+                                 printing::MetafileSkia* metafile,
+                                 paint_preview::PaintPreviewTracker* tracker)
     : canvas_(nullptr),
       paint_controller_(paint_controller),
       paint_state_stack_(),
       paint_state_index_(0),
       metafile_(metafile),
+      tracker_(tracker),
 #if DCHECK_IS_ON()
       layer_count_(0),
       disable_destruction_checks_(false),
@@ -102,6 +105,7 @@ GraphicsContext::GraphicsContext(PaintController& paint_controller,
       disabled_state_(disable_context_or_painting),
       device_scale_factor_(1.0f),
       printing_(false),
+      is_painting_preview_(false),
       in_drawing_recorder_(false) {
   // FIXME: Do some tests to determine how many states are typically used, and
   // allocate several here.
@@ -302,6 +306,8 @@ void GraphicsContext::BeginRecording(const FloatRect& bounds) {
   canvas_ = paint_recorder_.beginRecording(bounds);
   if (metafile_)
     canvas_->SetPrintingMetafile(metafile_);
+  if (tracker_)
+    canvas_->SetPaintPreviewTracker(tracker_);
 }
 
 namespace {
@@ -640,13 +646,14 @@ static void EnforceDotsAtEndpoints(GraphicsContext& context,
     if (use_start_dot) {
       SkRect start_dot;
       if (is_vertical_line) {
-        start_dot.set(p1.X() - width / 2, p1.Y(), p1.X() + width - width / 2,
-                      p1.Y() + width + start_dot_growth);
+        start_dot.setLTRB(p1.X() - width / 2, p1.Y(),
+                          p1.X() + width - width / 2,
+                          p1.Y() + width + start_dot_growth);
         p1.SetY(p1.Y() + (2 * width + start_line_offset));
       } else {
-        start_dot.set(p1.X(), p1.Y() - width / 2,
-                      p1.X() + width + start_dot_growth,
-                      p1.Y() + width - width / 2);
+        start_dot.setLTRB(p1.X(), p1.Y() - width / 2,
+                          p1.X() + width + start_dot_growth,
+                          p1.Y() + width - width / 2);
         p1.SetX(p1.X() + (2 * width + start_line_offset));
       }
       context.DrawRect(start_dot, fill_flags);
@@ -654,13 +661,13 @@ static void EnforceDotsAtEndpoints(GraphicsContext& context,
     if (use_end_dot) {
       SkRect end_dot;
       if (is_vertical_line) {
-        end_dot.set(p2.X() - width / 2, p2.Y() - width - end_dot_growth,
-                    p2.X() + width - width / 2, p2.Y());
+        end_dot.setLTRB(p2.X() - width / 2, p2.Y() - width - end_dot_growth,
+                        p2.X() + width - width / 2, p2.Y());
         // Be sure to stop drawing before we get to the last dot
         p2.SetY(p2.Y() - (width + end_dot_growth + 1));
       } else {
-        end_dot.set(p2.X() - width - end_dot_growth, p2.Y() - width / 2, p2.X(),
-                    p2.Y() + width - width / 2);
+        end_dot.setLTRB(p2.X() - width - end_dot_growth, p2.Y() - width / 2,
+                        p2.X(), p2.Y() + width - width / 2);
         // Be sure to stop drawing before we get to the last dot
         p2.SetX(p2.X() - (width + end_dot_growth + 1));
       }
@@ -669,7 +676,9 @@ static void EnforceDotsAtEndpoints(GraphicsContext& context,
   }
 }
 
-void GraphicsContext::DrawLine(const IntPoint& point1, const IntPoint& point2) {
+void GraphicsContext::DrawLine(const IntPoint& point1,
+                               const IntPoint& point2,
+                               const DarkModeFilter::ElementRole role) {
   if (ContextDisabled())
     return;
   DCHECK(canvas_);
@@ -688,8 +697,7 @@ void GraphicsContext::DrawLine(const IntPoint& point1, const IntPoint& point2) {
   // probably worth the speed up of no square root, which also won't be exact.
   FloatSize disp = p2 - p1;
   int length = SkScalarRoundToInt(disp.Width() + disp.Height());
-  const DarkModeFlags flags(this, ImmutableState()->StrokeFlags(length),
-                            DarkModeFilter::ElementRole::kBackground);
+  const DarkModeFlags flags(this, ImmutableState()->StrokeFlags(length), role);
 
   if (pen_style == kDottedStroke) {
     if (StrokeData::StrokeIsDashed(width, pen_style)) {
@@ -742,13 +750,14 @@ void GraphicsContext::DrawLineForText(const FloatPoint& pt, float width) {
       flags = ImmutableState()->FillFlags();
       // Text lines are drawn using the stroke color.
       flags.setColor(StrokeColor().Rgb());
-      DrawRect(r, flags);
+      DrawRect(r, flags, DarkModeFilter::ElementRole::kText);
       return;
     }
     case kDottedStroke:
     case kDashedStroke: {
       int y = floorf(pt.Y() + std::max<float>(StrokeThickness() / 2.0f, 0.5f));
-      DrawLine(IntPoint(pt.X(), y), IntPoint(pt.X() + width, y));
+      DrawLine(IntPoint(pt.X(), y), IntPoint(pt.X() + width, y),
+               DarkModeFilter::ElementRole::kText);
       return;
     }
     case kWavyStroke:
@@ -913,6 +922,7 @@ void GraphicsContext::DrawImage(
     Image::ImageDecodingMode decode_mode,
     const FloatRect& dest,
     const FloatRect* src_ptr,
+    bool has_filter_property,
     SkBlendMode op,
     RespectImageOrientationEnum should_respect_image_orientation) {
   if (ContextDisabled() || !image)
@@ -925,7 +935,9 @@ void GraphicsContext::DrawImage(
   image_flags.setColor(SK_ColorBLACK);
   image_flags.setFilterQuality(ComputeFilterQuality(image, dest, src));
 
-  dark_mode_filter_.ApplyToImageFlagsIfNeeded(src, image, &image_flags);
+  // Do not classify the image if the element has any CSS filters.
+  if (!has_filter_property)
+    dark_mode_filter_.ApplyToImageFlagsIfNeeded(src, dest, image, &image_flags);
 
   image->Draw(canvas_, image_flags, dest, src, should_respect_image_orientation,
               Image::kClampImageToSourceRect, decode_mode);
@@ -937,14 +949,15 @@ void GraphicsContext::DrawImageRRect(
     Image::ImageDecodingMode decode_mode,
     const FloatRoundedRect& dest,
     const FloatRect& src_rect,
+    bool has_filter_property,
     SkBlendMode op,
     RespectImageOrientationEnum respect_orientation) {
   if (ContextDisabled() || !image)
     return;
 
   if (!dest.IsRounded()) {
-    DrawImage(image, decode_mode, dest.Rect(), &src_rect, op,
-              respect_orientation);
+    DrawImage(image, decode_mode, dest.Rect(), &src_rect, has_filter_property,
+              op, respect_orientation);
     return;
   }
 
@@ -961,7 +974,8 @@ void GraphicsContext::DrawImageRRect(
   image_flags.setFilterQuality(
       ComputeFilterQuality(image, dest.Rect(), src_rect));
 
-  dark_mode_filter_.ApplyToImageFlagsIfNeeded(src_rect, image, &image_flags);
+  dark_mode_filter_.ApplyToImageFlagsIfNeeded(src_rect, dest.Rect(), image,
+                                              &image_flags);
 
   bool use_shader = (visible_src == src_rect) &&
                     (respect_orientation == kDoNotRespectImageOrientation);
@@ -1026,34 +1040,34 @@ void GraphicsContext::DrawImageTiled(Image* image,
   paint_controller_.SetImagePainted();
 }
 
-void GraphicsContext::DrawOval(const SkRect& oval, const PaintFlags& flags) {
+void GraphicsContext::DrawOval(const SkRect& oval,
+                               const PaintFlags& flags,
+                               const DarkModeFilter::ElementRole role) {
   if (ContextDisabled())
     return;
   DCHECK(canvas_);
 
-  canvas_->drawOval(
-      oval,
-      DarkModeFlags(this, flags, DarkModeFilter::ElementRole::kBackground));
+  canvas_->drawOval(oval, DarkModeFlags(this, flags, role));
 }
 
-void GraphicsContext::DrawPath(const SkPath& path, const PaintFlags& flags) {
+void GraphicsContext::DrawPath(const SkPath& path,
+                               const PaintFlags& flags,
+                               const DarkModeFilter::ElementRole role) {
   if (ContextDisabled())
     return;
   DCHECK(canvas_);
 
-  canvas_->drawPath(
-      path,
-      DarkModeFlags(this, flags, DarkModeFilter::ElementRole::kBackground));
+  canvas_->drawPath(path, DarkModeFlags(this, flags, role));
 }
 
-void GraphicsContext::DrawRect(const SkRect& rect, const PaintFlags& flags) {
+void GraphicsContext::DrawRect(const SkRect& rect,
+                               const PaintFlags& flags,
+                               const DarkModeFilter::ElementRole role) {
   if (ContextDisabled())
     return;
   DCHECK(canvas_);
 
-  canvas_->drawRect(
-      rect,
-      DarkModeFlags(this, flags, DarkModeFilter::ElementRole::kBackground));
+  canvas_->drawRect(rect, DarkModeFlags(this, flags, role));
 }
 
 void GraphicsContext::DrawRRect(const SkRRect& rrect, const PaintFlags& flags) {
@@ -1090,9 +1104,16 @@ void GraphicsContext::FillRect(const FloatRect& rect) {
   DrawRect(rect, ImmutableState()->FillFlags());
 }
 
+void GraphicsContext::FillRect(const IntRect& rect,
+                               const Color& color,
+                               DarkModeFilter::ElementRole role) {
+  FillRect(FloatRect(rect), color, SkBlendMode::kSrcOver, role);
+}
+
 void GraphicsContext::FillRect(const FloatRect& rect,
                                const Color& color,
-                               SkBlendMode xfer_mode) {
+                               SkBlendMode xfer_mode,
+                               DarkModeFilter::ElementRole role) {
   if (ContextDisabled())
     return;
 
@@ -1100,7 +1121,7 @@ void GraphicsContext::FillRect(const FloatRect& rect,
   flags.setColor(color.Rgb());
   flags.setBlendMode(xfer_mode);
 
-  DrawRect(rect, flags);
+  DrawRect(rect, flags, role);
 }
 
 void GraphicsContext::FillRoundedRect(const FloatRoundedRect& rrect,
@@ -1353,6 +1374,12 @@ void GraphicsContext::SetURLForRect(const KURL& link,
     return;
   DCHECK(canvas_);
 
+  // Intercept URL rects when painting previews.
+  if (IsPaintingPreview() && tracker_) {
+    tracker_->AnnotateLink(GURL(link), dest_rect);
+    return;
+  }
+
   sk_sp<SkData> url(SkData::MakeWithCString(link.GetString().Utf8().c_str()));
   canvas_->Annotate(cc::PaintCanvas::AnnotationType::URL, dest_rect,
                     std::move(url));
@@ -1363,6 +1390,12 @@ void GraphicsContext::SetURLFragmentForRect(const String& dest_name,
   if (ContextDisabled())
     return;
   DCHECK(canvas_);
+
+  // Intercept URL rects when painting previews.
+  if (IsPaintingPreview() && tracker_) {
+    tracker_->AnnotateLink(GURL(dest_name.Utf8()), rect);
+    return;
+  }
 
   sk_sp<SkData> sk_dest_name(SkData::MakeWithCString(dest_name.Utf8().c_str()));
   canvas_->Annotate(cc::PaintCanvas::AnnotationType::LINK_TO_DESTINATION, rect,

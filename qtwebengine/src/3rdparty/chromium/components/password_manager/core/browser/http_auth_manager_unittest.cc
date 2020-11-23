@@ -14,14 +14,14 @@
 #include "base/test/metrics/histogram_tester.h"
 #include "base/test/metrics/user_action_tester.h"
 #include "base/test/scoped_feature_list.h"
-#include "base/test/scoped_task_environment.h"
+#include "base/test/task_environment.h"
 #include "base/test/test_mock_time_task_runner.h"
 #include "build/build_config.h"
 #include "components/autofill/core/common/form_field_data.h"
 #include "components/password_manager/core/browser/form_fetcher_impl.h"
 #include "components/password_manager/core/browser/http_auth_manager_impl.h"
 #include "components/password_manager/core/browser/mock_password_store.h"
-#include "components/password_manager/core/browser/new_password_form_manager.h"
+#include "components/password_manager/core/browser/password_form_manager.h"
 #include "components/password_manager/core/browser/password_form_manager_for_ui.h"
 #include "components/password_manager/core/browser/password_manager_driver.h"
 #include "components/password_manager/core/browser/password_store.h"
@@ -56,7 +56,7 @@ class MockPasswordManagerClient : public StubPasswordManagerClient {
   MOCK_METHOD2(AutofillHttpAuth,
                void(const autofill::PasswordForm&,
                     const PasswordFormManagerForUI*));
-  MOCK_CONST_METHOD0(GetPasswordStore, PasswordStore*());
+  MOCK_CONST_METHOD0(GetProfilePasswordStore, PasswordStore*());
   MOCK_METHOD0(PromptUserToSaveOrUpdatePasswordPtr, void());
 
   // Workaround for std::unique_ptr<> lacking a copy constructor.
@@ -103,7 +103,8 @@ class HttpAuthManagerTest : public testing::Test {
     ASSERT_TRUE(
         store_->Init(syncer::SyncableService::StartSyncFlare(), nullptr));
 
-    ON_CALL(client_, GetPasswordStore()).WillByDefault(Return(store_.get()));
+    ON_CALL(client_, GetProfilePasswordStore())
+        .WillByDefault(Return(store_.get()));
     EXPECT_CALL(*store_, GetSiteStatsImpl(_)).Times(AnyNumber());
 
     httpauth_manager_.reset(new HttpAuthManagerImpl(&client_));
@@ -122,7 +123,7 @@ class HttpAuthManagerTest : public testing::Test {
 
   HttpAuthManagerImpl* httpauth_manager() { return httpauth_manager_.get(); }
 
-  base::test::ScopedTaskEnvironment task_environment_;
+  base::test::TaskEnvironment task_environment_;
   scoped_refptr<MockPasswordStore> store_;
   testing::NiceMock<MockPasswordManagerClient> client_;
   std::unique_ptr<HttpAuthManagerImpl> httpauth_manager_;
@@ -214,6 +215,32 @@ TEST_F(HttpAuthManagerTest, NavigationWithoutSubmission) {
                                                        observed_form);
 
   // Expect no prompt, since no submission was happened.
+  EXPECT_CALL(client_, PromptUserToSaveOrUpdatePasswordPtr()).Times(0);
+  httpauth_manager()->OnDidFinishMainFrameNavigation();
+  httpauth_manager()->DetachObserver(&observer);
+}
+
+TEST_F(HttpAuthManagerTest, NavigationWhenMatchingNotReady) {
+  EXPECT_CALL(client_, IsSavingAndFillingEnabled).WillRepeatedly(Return(true));
+  PasswordForm observed_form;
+  observed_form.scheme = PasswordForm::Scheme::kBasic;
+  observed_form.origin = GURL("http://proxy.com/");
+  observed_form.signon_realm = "proxy.com/realm";
+
+  MockHttpAuthObserver observer;
+  // The password store is queried but it's slow and won't respond.
+  EXPECT_CALL(*store_, GetLogins);
+  // Initiate creating a form manager.
+  httpauth_manager()->SetObserverAndDeliverCredentials(&observer,
+                                                       observed_form);
+
+  PasswordForm submitted_form = observed_form;
+  submitted_form.username_value = ASCIIToUTF16("user");
+  submitted_form.password_value = ASCIIToUTF16("1234");
+  httpauth_manager()->OnPasswordFormSubmitted(submitted_form);
+  httpauth_manager()->OnPasswordFormDismissed();
+
+  // Expect no prompt as the password store didn't reply.
   EXPECT_CALL(client_, PromptUserToSaveOrUpdatePasswordPtr()).Times(0);
   httpauth_manager()->OnDidFinishMainFrameNavigation();
   httpauth_manager()->DetachObserver(&observer);

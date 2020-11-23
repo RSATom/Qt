@@ -367,8 +367,6 @@ bool QSystemTrayIcon::event(QEvent *e)
     This signal is emitted when the message displayed using showMessage()
     was clicked by the user.
 
-    Currently this signal is not sent on \macos.
-
     \note We follow Microsoft Windows behavior, so the
     signal is also emitted when the user clicks on a tray icon with
     a balloon message displayed.
@@ -455,7 +453,7 @@ void QSystemTrayIconPrivate::_q_emitActivated(QPlatformSystemTrayIcon::Activatio
 }
 
 //////////////////////////////////////////////////////////////////////
-static QBalloonTip *theSolitaryBalloonTip = 0;
+static QBalloonTip *theSolitaryBalloonTip = nullptr;
 
 void QBalloonTip::showBalloon(const QIcon &icon, const QString &title,
                               const QString &message, QSystemTrayIcon *trayIcon,
@@ -477,7 +475,7 @@ void QBalloonTip::hideBalloon()
         return;
     theSolitaryBalloonTip->hide();
     delete theSolitaryBalloonTip;
-    theSolitaryBalloonTip = 0;
+    theSolitaryBalloonTip = nullptr;
 }
 
 void QBalloonTip::updateBalloonPosition(const QPoint& pos)
@@ -495,7 +493,7 @@ bool QBalloonTip::isBalloonVisible()
 
 QBalloonTip::QBalloonTip(const QIcon &icon, const QString &title,
                          const QString &message, QSystemTrayIcon *ti)
-    : QWidget(0, Qt::ToolTip),
+    : QWidget(nullptr, Qt::ToolTip),
       trayIcon(ti),
       timerId(-1),
       showArrow(true)
@@ -585,7 +583,7 @@ QBalloonTip::QBalloonTip(const QIcon &icon, const QString &title,
 
 QBalloonTip::~QBalloonTip()
 {
-    theSolitaryBalloonTip = 0;
+    theSolitaryBalloonTip = nullptr;
 }
 
 void QBalloonTip::paintEvent(QPaintEvent *)

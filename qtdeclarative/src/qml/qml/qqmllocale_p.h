@@ -94,6 +94,9 @@ private:
 class Q_QML_PRIVATE_EXPORT QQmlLocale
 {
     Q_GADGET
+    QML_NAMED_ELEMENT(Locale)
+    QML_UNCREATABLE("Locale cannot be instantiated. Use Qt.locale().")
+    QML_ADDED_IN_MINOR_VERSION(2)
 
 public:
     ~QQmlLocale();
@@ -128,6 +131,16 @@ public:
         Saturday = Qt::Saturday
     };
     Q_ENUM(DayOfWeek)
+    enum NumberOptions {
+        DefaultNumberOptions = QLocale::DefaultNumberOptions,
+        OmitGroupSeparator = QLocale::OmitGroupSeparator,
+        RejectGroupSeparator = QLocale::RejectGroupSeparator,
+        OmitLeadingZeroInExponent = QLocale::OmitLeadingZeroInExponent,
+        RejectLeadingZeroInExponent = QLocale::RejectLeadingZeroInExponent,
+        IncludeTrailingZeroesAfterDot = QLocale::IncludeTrailingZeroesAfterDot,
+        RejectTrailingZeroesAfterDot = QLocale::RejectTrailingZeroesAfterDot
+    };
+    Q_ENUM(NumberOptions)
 
     static QV4::ReturnedValue locale(QV4::ExecutionEngine *engine, const QString &localeName);
     static QV4::ReturnedValue wrap(QV4::ExecutionEngine *engine, const QLocale &locale);
@@ -197,6 +210,9 @@ struct QQmlLocaleData : public QV4::Object
     static QV4::ReturnedValue method_get_exponential(const QV4::FunctionObject *, const QV4::Value *thisObject, const QV4::Value *argv, int argc);
     static QV4::ReturnedValue method_get_amText(const QV4::FunctionObject *, const QV4::Value *thisObject, const QV4::Value *argv, int argc);
     static QV4::ReturnedValue method_get_pmText(const QV4::FunctionObject *, const QV4::Value *thisObject, const QV4::Value *argv, int argc);
+
+    static QV4::ReturnedValue method_get_numberOptions(const QV4::FunctionObject *, const QV4::Value *thisObject, const QV4::Value *argv, int argc);
+    static QV4::ReturnedValue method_set_numberOptions(const QV4::FunctionObject *, const QV4::Value *thisObject, const QV4::Value *argv, int argc);
 };
 
 }

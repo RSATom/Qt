@@ -67,7 +67,7 @@
 #include "media/capture/video/fake_video_capture_device.h"
 #include "media/capture/video/fake_video_capture_device_factory.h"
 #include "media/capture/video/video_capture_system_impl.h"
-#include "media/mojo/interfaces/display_media_information.mojom.h"
+#include "media/mojo/mojom/display_media_information.mojom.h"
 #include "services/video_capture/public/uma/video_capture_service_event.h"
 #include "url/gurl.h"
 #include "url/origin.h"
@@ -97,6 +97,9 @@ using blink::StreamControls;
 using blink::TrackControls;
 using blink::mojom::MediaStreamRequestResult;
 using blink::mojom::MediaStreamType;
+using blink::mojom::StreamSelectionInfo;
+using blink::mojom::StreamSelectionInfoPtr;
+using blink::mojom::StreamSelectionStrategy;
 
 namespace {
 // Creates a random label used to identify requests.
@@ -284,6 +287,7 @@ class MediaStreamManager::DeviceRequest {
       int requester_id,
       int page_request_id,
       bool user_gesture,
+      StreamSelectionInfoPtr audio_stream_selection_info_ptr,
       MediaStreamRequestType request_type,
       const StreamControls& controls,
       MediaDeviceSaltAndOrigin salt_and_origin,
@@ -293,6 +297,8 @@ class MediaStreamManager::DeviceRequest {
         requester_id(requester_id),
         page_request_id(page_request_id),
         user_gesture(user_gesture),
+        audio_stream_selection_info_ptr(
+            std::move(audio_stream_selection_info_ptr)),
         controls(controls),
         salt_and_origin(std::move(salt_and_origin)),
         device_stopped_cb(std::move(device_stopped_cb)),
@@ -439,6 +445,11 @@ class MediaStreamManager::DeviceRequest {
 
   const bool user_gesture;
 
+  // Information as of how to select a stream for an audio device provided by
+  // the caller.
+  // NB: This information is invalid after the request has been processed.
+  StreamSelectionInfoPtr audio_stream_selection_info_ptr;
+
   const StreamControls controls;
 
   const MediaDeviceSaltAndOrigin salt_and_origin;
@@ -475,8 +486,9 @@ class MediaStreamManager::DeviceRequest {
 
 // static
 void MediaStreamManager::SendMessageToNativeLog(const std::string& message) {
+  DVLOG(1) << message;
   if (!BrowserThread::CurrentlyOn(BrowserThread::IO)) {
-    base::PostTaskWithTraits(
+    base::PostTask(
         FROM_HERE, {BrowserThread::IO},
         base::BindOnce(&MediaStreamManager::SendMessageToNativeLog, message));
     return;
@@ -508,6 +520,10 @@ MediaStreamManager::MediaStreamManager(
       return std::make_unique<FakeMediaStreamUIProxy>(
           /*tests_use_fake_render_frame_hosts=*/false);
     });
+  }
+  if (base::FeatureList::IsEnabled(media::kUseFakeDeviceForMediaStream)) {
+    base::CommandLine::ForCurrentProcess()->AppendSwitch(
+        switches::kUseFakeDeviceForMediaStream);
   }
 
   DCHECK(audio_system_);
@@ -549,7 +565,6 @@ MediaStreamManager::MediaStreamManager(
     if (base::FeatureList::IsEnabled(features::kMojoVideoCapture)) {
       video_capture_provider = std::make_unique<VideoCaptureProviderSwitcher>(
           std::make_unique<ServiceVideoCaptureProvider>(
-              GetSystemConnector(),
               base::BindRepeating(&SendVideoCaptureLogMessage)),
           InProcessVideoCaptureProvider::CreateInstanceForNonDeviceCapture(
               std::move(device_task_runner),
@@ -563,8 +578,7 @@ MediaStreamManager::MediaStreamManager(
       video_capture_provider = InProcessVideoCaptureProvider::CreateInstance(
           std::make_unique<media::VideoCaptureSystemImpl>(
               media::CreateVideoCaptureDeviceFactory(
-                  base::CreateSingleThreadTaskRunnerWithTraits(
-                      {BrowserThread::UI}))),
+                  base::CreateSingleThreadTaskRunner({BrowserThread::UI}))),
           std::move(device_task_runner),
           base::BindRepeating(&SendVideoCaptureLogMessage));
     }
@@ -641,9 +655,14 @@ std::string MediaStreamManager::MakeMediaAccessRequest(
     MediaAccessRequestCallback callback) {
   DCHECK_CURRENTLY_ON(BrowserThread::IO);
 
+  StreamSelectionInfoPtr audio_stream_selection_info_ptr =
+      StreamSelectionInfo::New(
+          blink::mojom::StreamSelectionStrategy::SEARCH_BY_DEVICE_ID,
+          base::nullopt);
   auto request = std::make_unique<DeviceRequest>(
       render_process_id, render_frame_id, requester_id, page_request_id,
-      false /* user gesture */, blink::MEDIA_DEVICE_ACCESS, controls,
+      false /* user gesture */, std::move(audio_stream_selection_info_ptr),
+      blink::MEDIA_DEVICE_ACCESS, controls,
       MediaDeviceSaltAndOrigin{std::string() /* salt */,
                                std::string() /* group_id_salt */,
                                security_origin});
@@ -656,9 +675,9 @@ std::string MediaStreamManager::MakeMediaAccessRequest(
   // and thus can not handle a response. Using base::Unretained is safe since
   // MediaStreamManager is deleted on the UI thread, after the IO thread has
   // been stopped.
-  base::PostTaskWithTraits(FROM_HERE, {BrowserThread::IO},
-                           base::BindOnce(&MediaStreamManager::SetUpRequest,
-                                          base::Unretained(this), label));
+  base::PostTask(FROM_HERE, {BrowserThread::IO},
+                 base::BindOnce(&MediaStreamManager::SetUpRequest,
+                                base::Unretained(this), label));
   return label;
 }
 
@@ -670,6 +689,7 @@ void MediaStreamManager::GenerateStream(
     const StreamControls& controls,
     MediaDeviceSaltAndOrigin salt_and_origin,
     bool user_gesture,
+    StreamSelectionInfoPtr audio_stream_selection_info_ptr,
     GenerateStreamCallback generate_stream_cb,
     DeviceStoppedCallback device_stopped_cb,
     DeviceChangedCallback device_changed_cb) {
@@ -678,8 +698,9 @@ void MediaStreamManager::GenerateStream(
 
   DeviceRequest* request = new DeviceRequest(
       render_process_id, render_frame_id, requester_id, page_request_id,
-      user_gesture, blink::MEDIA_GENERATE_STREAM, controls,
-      std::move(salt_and_origin), std::move(device_stopped_cb));
+      user_gesture, std::move(audio_stream_selection_info_ptr),
+      blink::MEDIA_GENERATE_STREAM, controls, std::move(salt_and_origin),
+      std::move(device_stopped_cb));
   request->device_changed_cb = std::move(device_changed_cb);
 
   const std::string& label = AddRequest(base::WrapUnique(request));
@@ -704,9 +725,9 @@ void MediaStreamManager::GenerateStream(
   // and thus can not handle a response. Using base::Unretained is safe since
   // MediaStreamManager is deleted on the UI thread, after the IO thread has
   // been stopped.
-  base::PostTaskWithTraits(FROM_HERE, {BrowserThread::IO},
-                           base::BindOnce(&MediaStreamManager::SetUpRequest,
-                                          base::Unretained(this), label));
+  base::PostTask(FROM_HERE, {BrowserThread::IO},
+                 base::BindOnce(&MediaStreamManager::SetUpRequest,
+                                base::Unretained(this), label));
 }
 
 void MediaStreamManager::CancelRequest(int render_process_id,
@@ -904,9 +925,16 @@ void MediaStreamManager::OpenDevice(int render_process_id,
   } else {
     NOTREACHED();
   }
+  // For pepper, we default to searching for a device always based on device ID,
+  // independently of whether the request is for an audio or a video device.
+  StreamSelectionInfoPtr audio_stream_selection_info_ptr =
+      StreamSelectionInfo::New(
+          blink::mojom::StreamSelectionStrategy::SEARCH_BY_DEVICE_ID,
+          base::nullopt);
   auto request = std::make_unique<DeviceRequest>(
       render_process_id, render_frame_id, requester_id, page_request_id,
-      false /* user gesture */, blink::MEDIA_OPEN_DEVICE_PEPPER_ONLY, controls,
+      false /* user gesture */, std::move(audio_stream_selection_info_ptr),
+      blink::MEDIA_OPEN_DEVICE_PEPPER_ONLY, controls,
       std::move(salt_and_origin), std::move(device_stopped_cb));
 
   request->open_device_cb = std::move(open_device_cb);
@@ -917,9 +945,9 @@ void MediaStreamManager::OpenDevice(int render_process_id,
   // and thus can not handle a response. Using base::Unretained is safe since
   // MediaStreamManager is deleted on the UI thread, after the IO thread has
   // been stopped.
-  base::PostTaskWithTraits(FROM_HERE, {BrowserThread::IO},
-                           base::BindOnce(&MediaStreamManager::SetUpRequest,
-                                          base::Unretained(this), label));
+  base::PostTask(FROM_HERE, {BrowserThread::IO},
+                 base::BindOnce(&MediaStreamManager::SetUpRequest,
+                                base::Unretained(this), label));
 }
 
 bool MediaStreamManager::TranslateSourceIdToDeviceId(
@@ -1337,7 +1365,7 @@ bool MediaStreamManager::SetUpTabCaptureRequest(DeviceRequest* request,
     return false;
   }
 
-  base::PostTaskWithTraitsAndReplyWithResult(
+  base::PostTaskAndReplyWithResult(
       FROM_HERE, {BrowserThread::UI},
       base::BindOnce(&MediaStreamManager::ResolveTabCaptureDeviceIdOnUIThread,
                      base::Unretained(this), capture_device_id,
@@ -1358,8 +1386,8 @@ DesktopMediaID MediaStreamManager::ResolveTabCaptureDeviceIdOnUIThread(
   DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
   // Resolve DesktopMediaID for the specified device id.
   return DesktopStreamsRegistry::GetInstance()->RequestMediaForStreamId(
-      capture_device_id, requesting_process_id, requesting_frame_id, origin,
-      nullptr, kRegistryStreamTypeTab);
+      capture_device_id, requesting_process_id, requesting_frame_id,
+      url::Origin::Create(origin), nullptr, kRegistryStreamTypeTab);
 }
 
 void MediaStreamManager::FinishTabCaptureRequestSetupWithDeviceId(
@@ -1465,17 +1493,49 @@ bool MediaStreamManager::FindExistingRequestedDevice(
   DCHECK(existing_device);
   DCHECK(existing_request_state);
 
-  std::string source_id = GetHMACForMediaDeviceID(
+  std::string hashed_source_id = GetHMACForMediaDeviceID(
       new_request.salt_and_origin.device_id_salt,
       new_request.salt_and_origin.origin, new_device.id);
 
+  bool is_audio_capture =
+      new_device.type == MediaStreamType::DEVICE_AUDIO_CAPTURE &&
+      new_request.audio_type() == MediaStreamType::DEVICE_AUDIO_CAPTURE;
+  StreamSelectionStrategy strategy =
+      new_request.audio_stream_selection_info_ptr->strategy;
+  if (is_audio_capture &&
+      strategy == blink::mojom::StreamSelectionStrategy::FORCE_NEW_STREAM) {
+    return false;
+  }
+
+  base::Optional<base::UnguessableToken> requested_session_id =
+      new_request.audio_stream_selection_info_ptr->session_id;
+#if DCHECK_IS_ON()
+  if (strategy == StreamSelectionStrategy::SEARCH_BY_SESSION_ID) {
+    DCHECK(requested_session_id);
+    DCHECK(!requested_session_id->is_empty());
+  }
+#endif
   for (const LabeledDeviceRequest& labeled_request : requests_) {
     const DeviceRequest* request = labeled_request.second.get();
     if (request->requesting_process_id == new_request.requesting_process_id &&
         request->requesting_frame_id == new_request.requesting_frame_id &&
         request->request_type() == new_request.request_type()) {
       for (const MediaStreamDevice& device : request->devices) {
-        if (device.id == source_id && device.type == new_device.type) {
+        bool is_same_device =
+            device.id == hashed_source_id && device.type == new_device.type;
+        // If |strategy| is equal to SEARCH_BY_DEVICE_ID, the
+        // search is performed only based on the |device.id|. If, however,
+        // |strategy| is equal to SEARCH_BY_SESSION_ID, the
+        // search also includes the session ID provided in the request.
+        // NB: this only applies to audio. In case of media stream types that
+        // are not an audio capture, the session id is always ignored.
+        bool is_same_session =
+            !is_audio_capture ||
+            strategy == StreamSelectionStrategy::SEARCH_BY_DEVICE_ID ||
+            (strategy == StreamSelectionStrategy::SEARCH_BY_SESSION_ID &&
+             device.session_id() == *requested_session_id);
+
+        if (is_same_device && is_same_session) {
           *existing_device = device;
           // Make sure that the audio |effects| reflect what the request
           // is set to and not what the capabilities are.
@@ -1547,7 +1607,7 @@ void MediaStreamManager::FinalizeRequestFailed(
         if (device.type == MediaStreamType::GUM_DESKTOP_VIDEO_CAPTURE) {
           DesktopMediaID source = DesktopMediaID::Parse(device.id);
           DCHECK(source.type == DesktopMediaID::TYPE_WEB_CONTENTS);
-          base::PostTaskWithTraits(
+          base::PostTask(
               FROM_HERE, {BrowserThread::UI},
               base::BindOnce(&MediaStreamManager::ActivateTabOnUIThread,
                              base::Unretained(this), source));
@@ -1619,11 +1679,10 @@ void MediaStreamManager::InitializeMaybeAsync(
   // initialization is done synchronously. Other clients call this from a
   // different thread and expect initialization to run asynchronously.
   if (!BrowserThread::CurrentlyOn(BrowserThread::IO)) {
-    base::PostTaskWithTraits(
-        FROM_HERE, {BrowserThread::IO},
-        base::BindOnce(&MediaStreamManager::InitializeMaybeAsync,
-                       base::Unretained(this),
-                       std::move(video_capture_provider)));
+    base::PostTask(FROM_HERE, {BrowserThread::IO},
+                   base::BindOnce(&MediaStreamManager::InitializeMaybeAsync,
+                                  base::Unretained(this),
+                                  std::move(video_capture_provider)));
     return;
   }
 
@@ -1795,7 +1854,7 @@ void MediaStreamManager::UseFakeUIFactoryForTests(
 // static
 void MediaStreamManager::RegisterNativeLogCallback(
     int renderer_host_id,
-    const base::Callback<void(const std::string&)>& callback) {
+    base::RepeatingCallback<void(const std::string&)> callback) {
   DCHECK_CURRENTLY_ON(BrowserThread::IO);
   MediaStreamManager* msm = g_media_stream_manager_tls_ptr.Pointer()->Get();
   if (!msm) {
@@ -1803,7 +1862,7 @@ void MediaStreamManager::RegisterNativeLogCallback(
     return;
   }
 
-  msm->DoNativeLogCallbackRegistration(renderer_host_id, callback);
+  msm->DoNativeLogCallbackRegistration(renderer_host_id, std::move(callback));
 }
 
 // static
@@ -2101,10 +2160,10 @@ void MediaStreamManager::OnMediaStreamUIWindowId(
 
 void MediaStreamManager::DoNativeLogCallbackRegistration(
     int renderer_host_id,
-    const base::Callback<void(const std::string&)>& callback) {
+    base::RepeatingCallback<void(const std::string&)> callback) {
   DCHECK_CURRENTLY_ON(BrowserThread::IO);
   // Re-registering (overwriting) is allowed and happens in some tests.
-  log_callbacks_[renderer_host_id] = callback;
+  log_callbacks_[renderer_host_id] = std::move(callback);
 }
 
 void MediaStreamManager::DoNativeLogCallbackUnregistration(

@@ -28,16 +28,17 @@ namespace dawn_native {
 
     struct BeginRenderPassCmd;
 
-    class CommandEncoderBase : public ObjectBase {
+    class CommandEncoder final : public ObjectBase {
       public:
-        CommandEncoderBase(DeviceBase* device, const CommandEncoderDescriptor* descriptor);
+        CommandEncoder(DeviceBase* device, const CommandEncoderDescriptor* descriptor);
 
         CommandIterator AcquireCommands();
         CommandBufferResourceUsage AcquireResourceUsages();
 
         // Dawn API
-        ComputePassEncoderBase* BeginComputePass(const ComputePassDescriptor* descriptor);
-        RenderPassEncoderBase* BeginRenderPass(const RenderPassDescriptor* descriptor);
+        ComputePassEncoder* BeginComputePass(const ComputePassDescriptor* descriptor);
+        RenderPassEncoder* BeginRenderPass(const RenderPassDescriptor* descriptor);
+
         void CopyBufferToBuffer(BufferBase* source,
                                 uint64_t sourceOffset,
                                 BufferBase* destination,
@@ -52,19 +53,20 @@ namespace dawn_native {
         void CopyTextureToTexture(const TextureCopyView* source,
                                   const TextureCopyView* destination,
                                   const Extent3D* copySize);
+
+        void InsertDebugMarker(const char* groupLabel);
+        void PopDebugGroup();
+        void PushDebugGroup(const char* groupLabel);
+
         CommandBufferBase* Finish(const CommandBufferDescriptor* descriptor);
 
       private:
-        MaybeError ValidateFinish(const CommandBufferDescriptor* descriptor);
-        MaybeError ValidateComputePass(CommandIterator* commands);
-        MaybeError ValidateRenderPass(CommandIterator* commands, BeginRenderPassCmd* renderPass);
+        MaybeError ValidateFinish(CommandIterator* commands,
+                                  const PerPassUsages& perPassUsages) const;
 
         EncodingContext mEncodingContext;
-
-        bool mWereResourceUsagesAcquired = false;
-        CommandBufferResourceUsage mResourceUsages;
-
-        unsigned int mDebugGroupStackSize = 0;
+        std::set<BufferBase*> mTopLevelBuffers;
+        std::set<TextureBase*> mTopLevelTextures;
     };
 
 }  // namespace dawn_native

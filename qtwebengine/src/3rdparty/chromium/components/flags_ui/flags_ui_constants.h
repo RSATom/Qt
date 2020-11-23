@@ -10,6 +10,7 @@ namespace flags_ui {
 // Resource paths.
 // Must match the resource file names.
 extern const char kFlagsJS[];
+extern const char kFlagsCSS[];
 
 // Message handlers.
 // Must match the constants used in the resource files.
@@ -24,7 +25,6 @@ extern const char kRestartBrowser[];
 extern const char kFlagsRestartButton[];
 extern const char kFlagsRestartNotice[];
 extern const char kNeedsRestart[];
-extern const char kOwnerEmail[];
 extern const char kReturnExperimentalFeatures[];
 extern const char kShowBetaChannelPromotion[];
 extern const char kShowDevChannelPromotion[];

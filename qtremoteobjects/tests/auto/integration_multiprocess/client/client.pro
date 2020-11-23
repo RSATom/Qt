@@ -2,7 +2,7 @@ TEMPLATE = app
 QT       += remoteobjects core testlib
 QT       -= gui
 
-TARGET = client
+TARGET = integration_multiprocess_client
 DESTDIR = ./
 CONFIG   += c++11
 CONFIG   -= app_bundle

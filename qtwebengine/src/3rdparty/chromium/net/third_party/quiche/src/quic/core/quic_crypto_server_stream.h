@@ -98,6 +98,7 @@ class QUIC_EXPORT_PRIVATE QuicCryptoServerStream
     virtual bool ZeroRttAttempted() const = 0;
     virtual void SetPreviousCachedNetworkParams(
         CachedNetworkParameters cached_network_params) = 0;
+    virtual void OnPacketDecrypted(EncryptionLevel level) = 0;
 
     // NOTE: Indicating that the Expect-CT header should be sent here presents a
     // layering violation to some extent. The Expect-CT header only applies to
@@ -119,17 +120,15 @@ class QUIC_EXPORT_PRIVATE QuicCryptoServerStream
 
     // Used by QuicCryptoStream to parse data received on this stream.
     virtual CryptoMessageParser* crypto_message_parser() = 0;
+
+    // Used by QuicCryptoStream to know how much unprocessed data can be
+    // buffered at each encryption level.
+    virtual size_t BufferSizeLimitForLevel(EncryptionLevel level) const = 0;
   };
 
-  class Helper {
+  class QUIC_EXPORT_PRIVATE Helper {
    public:
     virtual ~Helper() {}
-
-    // Given the current connection_id, generates a new ConnectionId to
-    // be returned with a reject.
-    virtual QuicConnectionId GenerateConnectionIdForReject(
-        QuicTransportVersion version,
-        QuicConnectionId connection_id) const = 0;
 
     // Returns true if |message|, which was received on |self_address| is
     // acceptable according to the visitor's policy. Otherwise, returns false
@@ -178,6 +177,8 @@ class QUIC_EXPORT_PRIVATE QuicCryptoServerStream
   const QuicCryptoNegotiatedParameters& crypto_negotiated_params()
       const override;
   CryptoMessageParser* crypto_message_parser() override;
+  void OnPacketDecrypted(EncryptionLevel level) override;
+  size_t BufferSizeLimitForLevel(EncryptionLevel level) const override;
   void OnSuccessfulVersionNegotiation(
       const ParsedQuicVersion& version) override;
 

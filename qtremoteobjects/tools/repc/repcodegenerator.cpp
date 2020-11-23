@@ -179,13 +179,13 @@ void RepCodeGenerator::generate(const AST &ast, Mode mode, QString fileName)
 {
     QTextStream stream(m_outputDevice);
     if (fileName.isEmpty())
-        stream << "#pragma once" << endl << endl;
+        stream << "#pragma once" << Qt::endl << Qt::endl;
     else {
         fileName = QFileInfo(fileName).fileName();
         fileName = fileName.toUpper();
         fileName.replace(QLatin1Char('.'), QLatin1Char('_'));
-        stream << "#ifndef " << fileName << endl;
-        stream << "#define " << fileName << endl << endl;
+        stream << "#ifndef " << fileName << Qt::endl;
+        stream << "#define " << fileName << Qt::endl << Qt::endl;
     }
 
     generateHeader(mode, stream, ast);
@@ -244,9 +244,9 @@ void RepCodeGenerator::generate(const AST &ast, Mode mode, QString fileName)
 
     generateStreamOperatorsForEnums(stream, ast.enumUses);
 
-    stream << endl;
+    stream << Qt::endl;
     if (!fileName.isEmpty())
-        stream << "#endif // " << fileName << endl;
+        stream << "#endif // " << fileName << Qt::endl;
 }
 
 void RepCodeGenerator::generateHeader(Mode mode, QTextStream &out, const AST &ast)
@@ -403,13 +403,13 @@ void RepCodeGenerator::generateSimpleSetter(QTextStream &out, const ASTProperty 
     out << "void set" << cap(property.name) << "(" << typeForMode(property, SIMPLE_SOURCE) << " " << property.name << ")";
     if (generateOverride)
         out << " override";
-    out << endl;
-    out << "    {" << endl;
-    out << "        if (" << property.name << " != m_" << property.name << ") {" << endl;
-    out << "            m_" << property.name << " = " << property.name << ";" << endl;
-    out << "            Q_EMIT " << property.name << "Changed(m_" << property.name << ");" << endl;
-    out << "        }" << endl;
-    out << "    }" << endl;
+    out << Qt::endl;
+    out << "    {" << Qt::endl;
+    out << "        if (" << property.name << " != m_" << property.name << ") {" << Qt::endl;
+    out << "            m_" << property.name << " = " << property.name << ";" << Qt::endl;
+    out << "            Q_EMIT " << property.name << "Changed(m_" << property.name << ");" << Qt::endl;
+    out << "        }" << Qt::endl;
+    out << "    }" << Qt::endl;
 }
 
 void RepCodeGenerator::generatePOD(QTextStream &out, const POD &pod)
@@ -466,20 +466,20 @@ QString getEnumType(const ASTEnum &en)
 void RepCodeGenerator::generateDeclarationsForEnums(QTextStream &out, const QVector<ASTEnum> &enums, bool generateQENUM)
 {
     if (!generateQENUM) {
-        out << "    // You need to add this enum as well as Q_ENUM to your" << endl;
-        out << "    // QObject class in order to use .rep enums over QtRO for" << endl;
-        out << "    // non-repc generated QObjects." << endl;
+        out << "    // You need to add this enum as well as Q_ENUM to your" << Qt::endl;
+        out << "    // QObject class in order to use .rep enums over QtRO for" << Qt::endl;
+        out << "    // non-repc generated QObjects." << Qt::endl;
     }
     for (const ASTEnum &en : enums) {
         m_globalEnumsPODs[en.name] = enumSignature(en);
-        out << "    enum " << en.name << " {" << endl;
+        out << "    enum " << en.name << " {" << Qt::endl;
         for (const ASTEnumParam &p : en.params)
-            out << "        " << p.name << " = " << p.value << "," << endl;
+            out << "        " << p.name << " = " << p.value << "," << Qt::endl;
 
-        out << "    };" << endl;
+        out << "    };" << Qt::endl;
 
         if (generateQENUM)
-            out << "    Q_ENUM(" << en.name << ")" << endl;
+            out << "    Q_ENUM(" << en.name << ")" << Qt::endl;
     }
 }
 
@@ -600,41 +600,41 @@ QString RepCodeGenerator::generateMetaTypeRegistrationForEnums(const QVector<QSt
 
 void RepCodeGenerator::generateStreamOperatorsForEnums(QTextStream &out, const QVector<QString> &enumUses)
 {
-    out << "QT_BEGIN_NAMESPACE" << endl;
+    out << "QT_BEGIN_NAMESPACE" << Qt::endl;
     for (const QString &enumName : enumUses) {
-        out << "inline QDataStream &operator<<(QDataStream &out, " << enumName << " value)" << endl;
-        out << "{" << endl;
-        out << "    out << static_cast<qint32>(value);" << endl;
-        out << "    return out;" << endl;
-        out << "}" << endl;
-        out << endl;
-        out << "inline QDataStream &operator>>(QDataStream &in, " << enumName << " &value)" << endl;
-        out << "{" << endl;
-        out << "    qint32 intValue = 0;" << endl;
-        out << "    in >> intValue;" << endl;
-        out << "    value = static_cast<" << enumName << ">(intValue);" << endl;
-        out << "    return in;" << endl;
-        out << "}" << endl;
-        out << endl;
+        out << "inline QDataStream &operator<<(QDataStream &out, " << enumName << " value)" << Qt::endl;
+        out << "{" << Qt::endl;
+        out << "    out << static_cast<qint32>(value);" << Qt::endl;
+        out << "    return out;" << Qt::endl;
+        out << "}" << Qt::endl;
+        out << Qt::endl;
+        out << "inline QDataStream &operator>>(QDataStream &in, " << enumName << " &value)" << Qt::endl;
+        out << "{" << Qt::endl;
+        out << "    qint32 intValue = 0;" << Qt::endl;
+        out << "    in >> intValue;" << Qt::endl;
+        out << "    value = static_cast<" << enumName << ">(intValue);" << Qt::endl;
+        out << "    return in;" << Qt::endl;
+        out << "}" << Qt::endl;
+        out << Qt::endl;
     }
-    out << "QT_END_NAMESPACE" << endl << endl;
+    out << "QT_END_NAMESPACE" << Qt::endl << Qt::endl;
 }
 
 void RepCodeGenerator::generateClass(Mode mode, QTextStream &out, const ASTClass &astClass, const QString &metaTypeRegistrationCode)
 {
     const QString className = (astClass.name + (mode == REPLICA ? QStringLiteral("Replica") : mode == SOURCE ? QStringLiteral("Source") : QStringLiteral("SimpleSource")));
     if (mode == REPLICA)
-        out << "class " << className << " : public QRemoteObjectReplica" << endl;
+        out << "class " << className << " : public QRemoteObjectReplica" << Qt::endl;
     else if (mode == SIMPLE_SOURCE)
-        out << "class " << className << " : public " << astClass.name << "Source" << endl;
+        out << "class " << className << " : public " << astClass.name << "Source" << Qt::endl;
     else
-        out << "class " << className << " : public QObject" << endl;
+        out << "class " << className << " : public QObject" << Qt::endl;
 
-    out << "{" << endl;
-    out << "    Q_OBJECT" << endl;
+    out << "{" << Qt::endl;
+    out << "    Q_OBJECT" << Qt::endl;
     if (mode != SIMPLE_SOURCE) {
-        out << "    Q_CLASSINFO(QCLASSINFO_REMOTEOBJECT_TYPE, \"" << astClass.name << "\")" << endl;
-        out << "    Q_CLASSINFO(QCLASSINFO_REMOTEOBJECT_SIGNATURE, \"" << QLatin1String(classSignature(astClass)) << "\")" << endl;
+        out << "    Q_CLASSINFO(QCLASSINFO_REMOTEOBJECT_TYPE, \"" << astClass.name << "\")" << Qt::endl;
+        out << "    Q_CLASSINFO(QCLASSINFO_REMOTEOBJECT_SIGNATURE, \"" << QLatin1String(classSignature(astClass)) << "\")" << Qt::endl;
         for (int i = 0; i < astClass.modelMetadata.count(); i++) {
             const auto model = astClass.modelMetadata.at(i);
             const auto modelName = astClass.properties.at(model.propertyIndex).name;
@@ -642,7 +642,7 @@ void RepCodeGenerator::generateClass(Mode mode, QTextStream &out, const ASTClass
                 QStringList list;
                 for (auto role : model.roles)
                     list << role.name;
-                out << QString::fromLatin1("    Q_CLASSINFO(\"%1_ROLES\", \"%2\")").arg(modelName.toUpper(), list.join(QChar::fromLatin1('|'))) << endl;
+                out << QString::fromLatin1("    Q_CLASSINFO(\"%1_ROLES\", \"%2\")").arg(modelName.toUpper(), list.join(QChar::fromLatin1('|'))) << Qt::endl;
             }
         }
 
@@ -665,105 +665,105 @@ void RepCodeGenerator::generateClass(Mode mode, QTextStream &out, const ASTClass
                 else // The Source can use the setter, since non-asynchronous
                     out << " WRITE set" << cap(property.name) << " NOTIFY " << property.name << "Changed";
             }
-            out << ")" << endl;
+            out << ")" << Qt::endl;
         }
 
         if (!astClass.enums.isEmpty()) {
-            out << "" << endl;
-            out << "public:" << endl;
+            out << "" << Qt::endl;
+            out << "public:" << Qt::endl;
             generateDeclarationsForEnums(out, astClass.enums);
         }
     }
 
-    out << "" << endl;
-    out << "public:" << endl;
+    out << "" << Qt::endl;
+    out << "public:" << Qt::endl;
 
     if (mode == REPLICA) {
-        out << "    " << className << "() : QRemoteObjectReplica() { initialize(); }" << endl;
-        out << "    static void registerMetatypes()" << endl;
-        out << "    {" << endl;
-        out << "        static bool initialized = false;" << endl;
-        out << "        if (initialized)" << endl;
-        out << "            return;" << endl;
-        out << "        initialized = true;" << endl;
+        out << "    " << className << "() : QRemoteObjectReplica() { initialize(); }" << Qt::endl;
+        out << "    static void registerMetatypes()" << Qt::endl;
+        out << "    {" << Qt::endl;
+        out << "        static bool initialized = false;" << Qt::endl;
+        out << "        if (initialized)" << Qt::endl;
+        out << "            return;" << Qt::endl;
+        out << "        initialized = true;" << Qt::endl;
 
         if (!metaTypeRegistrationCode.isEmpty())
-            out << metaTypeRegistrationCode << endl;
+            out << metaTypeRegistrationCode << Qt::endl;
 
-        out << "    }" << endl;
+        out << "    }" << Qt::endl;
 
         if (astClass.hasPointerObjects())
         {
-            out << "    void setNode(QRemoteObjectNode *node) override" << endl;
-            out << "    {" << endl;
-            out << "        QRemoteObjectReplica::setNode(node);" << endl;
+            out << "    void setNode(QRemoteObjectNode *node) override" << Qt::endl;
+            out << "    {" << Qt::endl;
+            out << "        QRemoteObjectReplica::setNode(node);" << Qt::endl;
             for (int index = 0; index < astClass.properties.count(); ++index) {
                 const ASTProperty &property = astClass.properties.at(index);
                 if (!property.isPointer)
                     continue;
                 if (astClass.subClassPropertyIndices.contains(index))
                     out << QString::fromLatin1("        setChild(%1, QVariant::fromValue(node->acquire<%2Replica>(QRemoteObjectStringLiterals::CLASS().arg(\"%3\"))));")
-                                              .arg(QString::number(index), property.type, property.name) << endl;
+                                              .arg(QString::number(index), property.type, property.name) << Qt::endl;
                 else
                     out << QString::fromLatin1("        setChild(%1, QVariant::fromValue(node->acquireModel(QRemoteObjectStringLiterals::MODEL().arg(\"%2\"))));")
-                                              .arg(QString::number(index), property.name) << endl;
-                out << "        Q_EMIT " << property.name << "Changed(" << property.name << "()" << ");" << endl;
+                                              .arg(QString::number(index), property.name) << Qt::endl;
+                out << "        Q_EMIT " << property.name << "Changed(" << property.name << "()" << ");" << Qt::endl;
 
             }
-            out << "    }" << endl;
+            out << "    }" << Qt::endl;
         }
-        out << "" << endl;
-        out << "private:" << endl;
-        out << "    " << className << "(QRemoteObjectNode *node, const QString &name = QString())" << endl;
-        out << "        : QRemoteObjectReplica(ConstructWithNode)" << endl;
-        out << "    {" << endl;
-        out << "        initializeNode(node, name);" << endl;
+        out << "" << Qt::endl;
+        out << "private:" << Qt::endl;
+        out << "    " << className << "(QRemoteObjectNode *node, const QString &name = QString())" << Qt::endl;
+        out << "        : QRemoteObjectReplica(ConstructWithNode)" << Qt::endl;
+        out << "    {" << Qt::endl;
+        out << "        initializeNode(node, name);" << Qt::endl;
         for (int index = 0; index < astClass.properties.count(); ++index) {
             const ASTProperty &property = astClass.properties.at(index);
             if (!property.isPointer)
                 continue;
             if (astClass.subClassPropertyIndices.contains(index))
                 out << QString::fromLatin1("        setChild(%1, QVariant::fromValue(node->acquire<%2Replica>(QRemoteObjectStringLiterals::CLASS().arg(\"%3\"))));")
-                                          .arg(QString::number(index), property.type, property.name) << endl;
+                                          .arg(QString::number(index), property.type, property.name) << Qt::endl;
             else
                 out << QString::fromLatin1("        setChild(%1, QVariant::fromValue(node->acquireModel(QRemoteObjectStringLiterals::MODEL().arg(\"%2\"))));")
-                                          .arg(QString::number(index), property.name) << endl;
+                                          .arg(QString::number(index), property.name) << Qt::endl;
         }
-        out << "    }" << endl;
+        out << "    }" << Qt::endl;
 
-        out << "" << endl;
+        out << "" << Qt::endl;
 
-        out << "    void initialize() override" << endl;
-        out << "    {" << endl;
-        out << "        " << className << "::registerMetatypes();" << endl;
-        out << "        QVariantList properties;" << endl;
-        out << "        properties.reserve(" << astClass.properties.size() << ");" << endl;
+        out << "    void initialize() override" << Qt::endl;
+        out << "    {" << Qt::endl;
+        out << "        " << className << "::registerMetatypes();" << Qt::endl;
+        out << "        QVariantList properties;" << Qt::endl;
+        out << "        properties.reserve(" << astClass.properties.size() << ");" << Qt::endl;
         for (const ASTProperty &property : astClass.properties) {
             if (property.isPointer)
-                out << "        properties << QVariant::fromValue((" << typeForMode(property, mode) << ")" << property.defaultValue << ");" << endl;
+                out << "        properties << QVariant::fromValue((" << typeForMode(property, mode) << ")" << property.defaultValue << ");" << Qt::endl;
             else
-                out << "        properties << QVariant::fromValue(" << typeForMode(property, mode) << "(" << property.defaultValue << "));" << endl;
+                out << "        properties << QVariant::fromValue(" << typeForMode(property, mode) << "(" << property.defaultValue << "));" << Qt::endl;
         }
         int nPersisted = 0;
         if (astClass.hasPersisted) {
-            out << "        QVariantList stored = retrieveProperties(\"" << astClass.name << "\", \"" << classSignature(astClass) << "\");" << endl;
-            out << "        if (!stored.isEmpty()) {" << endl;
+            out << "        QVariantList stored = retrieveProperties(\"" << astClass.name << "\", \"" << classSignature(astClass) << "\");" << Qt::endl;
+            out << "        if (!stored.isEmpty()) {" << Qt::endl;
             for (int i = 0; i < astClass.properties.size(); i++) {
                 if (astClass.properties.at(i).persisted) {
-                    out << "            properties[" << i << "] = stored.at(" << nPersisted << ");" << endl;
+                    out << "            properties[" << i << "] = stored.at(" << nPersisted << ");" << Qt::endl;
                     nPersisted++;
                 }
             }
-            out << "        }" << endl;
+            out << "        }" << Qt::endl;
         }
-        out << "        setProperties(properties);" << endl;
-        out << "    }" << endl;
+        out << "        setProperties(properties);" << Qt::endl;
+        out << "    }" << Qt::endl;
     } else if (mode == SOURCE) {
-        out << "    explicit " << className << "(QObject *parent = nullptr) : QObject(parent)" << endl;
-        out << "    {" << endl;
+        out << "    explicit " << className << "(QObject *parent = nullptr) : QObject(parent)" << Qt::endl;
+        out << "    {" << Qt::endl;
         if (!metaTypeRegistrationCode.isEmpty())
-            out << metaTypeRegistrationCode << endl;
-        out << "    }" << endl;
+            out << metaTypeRegistrationCode << Qt::endl;
+        out << "    }" << Qt::endl;
     } else {
         QVector<int> constIndices;
         for (int index = 0; index < astClass.properties.count(); ++index) {
@@ -772,7 +772,7 @@ void RepCodeGenerator::generateClass(Mode mode, QTextStream &out, const ASTClass
                 constIndices.append(index);
         }
         if (constIndices.isEmpty()) {
-            out << "    explicit " << className << "(QObject *parent = nullptr) : " << astClass.name << "Source(parent)" << endl;
+            out << "    explicit " << className << "(QObject *parent = nullptr) : " << astClass.name << "Source(parent)" << Qt::endl;
         } else {
             QStringList parameters;
             for (int index : constIndices) {
@@ -780,35 +780,35 @@ void RepCodeGenerator::generateClass(Mode mode, QTextStream &out, const ASTClass
                 parameters.append(QString::fromLatin1("%1 %2 = %3").arg(typeForMode(property, SOURCE), property.name, property.defaultValue));
             }
             parameters.append(QStringLiteral("QObject *parent = nullptr"));
-            out << "    explicit " << className << "(" << parameters.join(QStringLiteral(", ")) << ") : " << astClass.name << "Source(parent)" << endl;
+            out << "    explicit " << className << "(" << parameters.join(QStringLiteral(", ")) << ") : " << astClass.name << "Source(parent)" << Qt::endl;
         }
         for (const ASTProperty &property : astClass.properties) {
             if (property.modifier == ASTProperty::Constant)
-                out << "    , m_" << property.name << "(" << property.name << ")" << endl;
+                out << "    , m_" << property.name << "(" << property.name << ")" << Qt::endl;
             else
-                out << "    , m_" << property.name << "(" << property.defaultValue << ")" << endl;
+                out << "    , m_" << property.name << "(" << property.defaultValue << ")" << Qt::endl;
         }
-        out << "    {" << endl;
-        out << "    }" << endl;
+        out << "    {" << Qt::endl;
+        out << "    }" << Qt::endl;
     }
 
-    out << "" << endl;
-    out << "public:" << endl;
+    out << "" << Qt::endl;
+    out << "public:" << Qt::endl;
 
     if (mode == REPLICA && astClass.hasPersisted) {
-        out << "    ~" << className << "() override {" << endl;
-        out << "        QVariantList persisted;" << endl;
+        out << "    ~" << className << "() override {" << Qt::endl;
+        out << "        QVariantList persisted;" << Qt::endl;
         for (int i = 0; i < astClass.properties.size(); i++) {
             if (astClass.properties.at(i).persisted) {
-                out << "        persisted << propAsVariant(" << i << ");" << endl;
+                out << "        persisted << propAsVariant(" << i << ");" << Qt::endl;
             }
         }
-        out << "        persistProperties(\"" << astClass.name << "\", \"" << classSignature(astClass) << "\", persisted);" << endl;
-        out << "    }" << endl;
+        out << "        persistProperties(\"" << astClass.name << "\", \"" << classSignature(astClass) << "\", persisted);" << Qt::endl;
+        out << "    }" << Qt::endl;
     } else {
-        out << "    ~" << className << "() override = default;" << endl;
+        out << "    ~" << className << "() override = default;" << Qt::endl;
     }
-    out << "" << endl;
+    out << "" << Qt::endl;
 
     if (mode != SIMPLE_SOURCE)
         generateConversionFunctionsForEnums(out, astClass.enums);
@@ -819,46 +819,46 @@ void RepCodeGenerator::generateClass(Mode mode, QTextStream &out, const ASTClass
         for (const ASTProperty &property : astClass.properties) {
             auto type = typeForMode(property, mode);
             if (type == QLatin1String("QVariant")) {
-                out << "    " << type << " " << property.name << "() const" << endl;
-                out << "    {" << endl;
-                out << "        return propAsVariant(" << i << ");" << endl;
-                out << "    }" << endl;
+                out << "    " << type << " " << property.name << "() const" << Qt::endl;
+                out << "    {" << Qt::endl;
+                out << "        return propAsVariant(" << i << ");" << Qt::endl;
+                out << "    }" << Qt::endl;
             } else {
-                out << "    " << type << " " << property.name << "() const" << endl;
-                out << "    {" << endl;
-                out << "        const QVariant variant = propAsVariant(" << i << ");" << endl;
-                out << "        if (!variant.canConvert<" << type << ">()) {" << endl;
-                out << "            qWarning() << \"QtRO cannot convert the property " << property.name << " to type " << type << "\";" << endl;
-                out << "        }" << endl;
-                out << "        return variant.value<" << type << " >();" << endl;
-                out << "    }" << endl;
+                out << "    " << type << " " << property.name << "() const" << Qt::endl;
+                out << "    {" << Qt::endl;
+                out << "        const QVariant variant = propAsVariant(" << i << ");" << Qt::endl;
+                out << "        if (!variant.canConvert<" << type << ">()) {" << Qt::endl;
+                out << "            qWarning() << \"QtRO cannot convert the property " << property.name << " to type " << type << "\";" << Qt::endl;
+                out << "        }" << Qt::endl;
+                out << "        return variant.value<" << type << " >();" << Qt::endl;
+                out << "    }" << Qt::endl;
             }
             i++;
             if (property.modifier == ASTProperty::ReadWrite) {
-                out << "" << endl;
-                out << "    void set" << cap(property.name) << "(" << property.type << " " << property.name << ")" << endl;
-                out << "    {" << endl;
-                out << "        static int __repc_index = " << className << "::staticMetaObject.indexOfProperty(\"" << property.name << "\");" << endl;
-                out << "        QVariantList __repc_args;" << endl;
-                out << "        __repc_args << QVariant::fromValue(" << property.name << ");" << endl;
-                out << "        send(QMetaObject::WriteProperty, __repc_index, __repc_args);" << endl;
-                out << "    }" << endl;
+                out << "" << Qt::endl;
+                out << "    void set" << cap(property.name) << "(" << property.type << " " << property.name << ")" << Qt::endl;
+                out << "    {" << Qt::endl;
+                out << "        static int __repc_index = " << className << "::staticMetaObject.indexOfProperty(\"" << property.name << "\");" << Qt::endl;
+                out << "        QVariantList __repc_args;" << Qt::endl;
+                out << "        __repc_args << QVariant::fromValue(" << property.name << ");" << Qt::endl;
+                out << "        send(QMetaObject::WriteProperty, __repc_index, __repc_args);" << Qt::endl;
+                out << "    }" << Qt::endl;
             }
-            out << "" << endl;
+            out << "" << Qt::endl;
         }
     } else if (mode == SOURCE) {
         for (const ASTProperty &property : astClass.properties)
-            out << "    virtual " << typeForMode(property, mode) << " " << property.name << "() const = 0;" << endl;
+            out << "    virtual " << typeForMode(property, mode) << " " << property.name << "() const = 0;" << Qt::endl;
         for (const ASTProperty &property : astClass.properties) {
             if (property.modifier == ASTProperty::ReadWrite ||
                     property.modifier == ASTProperty::ReadPush ||
                     property.modifier == ASTProperty::SourceOnlySetter)
-                out << "    virtual void set" << cap(property.name) << "(" << typeForMode(property, mode) << " " << property.name << ") = 0;" << endl;
+                out << "    virtual void set" << cap(property.name) << "(" << typeForMode(property, mode) << " " << property.name << ") = 0;" << Qt::endl;
         }
     } else {
         for (const ASTProperty &property : astClass.properties)
             out << "    " << typeForMode(property, mode) << " " << property.name << "() const override { return m_"
-                << property.name << "; }" << endl;
+                << property.name << "; }" << Qt::endl;
         for (const ASTProperty &property : astClass.properties) {
             if (property.modifier == ASTProperty::ReadWrite ||
                     property.modifier == ASTProperty::ReadPush ||
@@ -871,23 +871,23 @@ void RepCodeGenerator::generateClass(Mode mode, QTextStream &out, const ASTClass
     if (mode != SIMPLE_SOURCE) {
         //Next output property signals
         if (!astClass.properties.isEmpty() || !astClass.signalsList.isEmpty()) {
-            out << "" << endl;
-            out << "Q_SIGNALS:" << endl;
+            out << "" << Qt::endl;
+            out << "Q_SIGNALS:" << Qt::endl;
             for (const ASTProperty &property : astClass.properties) {
                 if (property.modifier != ASTProperty::Constant)
-                    out << "    void " << property.name << "Changed(" << fullyQualifiedTypeName(astClass, className, typeForMode(property, mode)) << " " << property.name << ");" << endl;
+                    out << "    void " << property.name << "Changed(" << fullyQualifiedTypeName(astClass, className, typeForMode(property, mode)) << " " << property.name << ");" << Qt::endl;
             }
 
             const QVector<ASTFunction> signalsList = transformEnumParams(astClass, astClass.signalsList, className);
             for (const ASTFunction &signal : signalsList)
-                out << "    void " << signal.name << "(" << signal.paramsAsString() << ");" << endl;
+                out << "    void " << signal.name << "(" << signal.paramsAsString() << ");" << Qt::endl;
 
             // CONSTANT source properties still need an onChanged signal on the Replica side to
             // update (once) when the value is initialized.  Put these last, so they don't mess
             // up the signal index order
             for (const ASTProperty &property : astClass.properties) {
                 if (mode == REPLICA && property.modifier == ASTProperty::Constant)
-                    out << "    void " << property.name << "Changed(" << fullyQualifiedTypeName(astClass, className, typeForMode(property, mode)) << " " << property.name << ");" << endl;
+                    out << "    void " << property.name << "Changed(" << fullyQualifiedTypeName(astClass, className, typeForMode(property, mode)) << " " << property.name << ");" << Qt::endl;
             }
         }
         bool hasWriteSlots = false;
@@ -898,24 +898,24 @@ void RepCodeGenerator::generateClass(Mode mode, QTextStream &out, const ASTClass
             }
         }
         if (hasWriteSlots || !astClass.slotsList.isEmpty()) {
-            out << "" << endl;
-            out << "public Q_SLOTS:" << endl;
+            out << "" << Qt::endl;
+            out << "public Q_SLOTS:" << Qt::endl;
             for (const ASTProperty &property : astClass.properties) {
                 if (property.modifier == ASTProperty::ReadPush) {
                     const auto type = fullyQualifiedTypeName(astClass, className, property.type);
                     if (mode != REPLICA) {
-                        out << "    virtual void push" << cap(property.name) << "(" << type << " " << property.name << ")" << endl;
-                        out << "    {" << endl;
-                        out << "        set" << cap(property.name) << "(" << property.name << ");" << endl;
-                        out << "    }" << endl;
+                        out << "    virtual void push" << cap(property.name) << "(" << type << " " << property.name << ")" << Qt::endl;
+                        out << "    {" << Qt::endl;
+                        out << "        set" << cap(property.name) << "(" << property.name << ");" << Qt::endl;
+                        out << "    }" << Qt::endl;
                     } else {
-                        out << "    void push" << cap(property.name) << "(" << type << " " << property.name << ")" << endl;
-                        out << "    {" << endl;
-                        out << "        static int __repc_index = " << className << "::staticMetaObject.indexOfSlot(\"push" << cap(property.name) << "(" << type << ")\");" << endl;
-                        out << "        QVariantList __repc_args;" << endl;
-                        out << "        __repc_args << QVariant::fromValue(" << property.name << ");" << endl;
-                        out << "        send(QMetaObject::InvokeMetaMethod, __repc_index, __repc_args);" << endl;
-                        out << "    }" << endl;
+                        out << "    void push" << cap(property.name) << "(" << type << " " << property.name << ")" << Qt::endl;
+                        out << "    {" << Qt::endl;
+                        out << "        static int __repc_index = " << className << "::staticMetaObject.indexOfSlot(\"push" << cap(property.name) << "(" << type << ")\");" << Qt::endl;
+                        out << "        QVariantList __repc_args;" << Qt::endl;
+                        out << "        __repc_args << QVariant::fromValue(" << property.name << ");" << Qt::endl;
+                        out << "        send(QMetaObject::InvokeMetaMethod, __repc_index, __repc_args);" << Qt::endl;
+                        out << "    }" << Qt::endl;
                     }
                 }
             }
@@ -923,30 +923,30 @@ void RepCodeGenerator::generateClass(Mode mode, QTextStream &out, const ASTClass
             for (const ASTFunction &slot : slotsList) {
                 const auto returnType = fullyQualifiedTypeName(astClass, className, slot.returnType);
                 if (mode != REPLICA) {
-                    out << "    virtual " << returnType << " " << slot.name << "(" << slot.paramsAsString() << ") = 0;" << endl;
+                    out << "    virtual " << returnType << " " << slot.name << "(" << slot.paramsAsString() << ") = 0;" << Qt::endl;
                 } else {
                     // TODO: Discuss whether it is a good idea to special-case for void here,
                     const bool isVoid = slot.returnType == QStringLiteral("void");
 
                     if (isVoid)
-                        out << "    void " << slot.name << "(" << slot.paramsAsString() << ")" << endl;
+                        out << "    void " << slot.name << "(" << slot.paramsAsString() << ")" << Qt::endl;
                     else
-                        out << "    QRemoteObjectPendingReply<" << returnType << "> " << slot.name << "(" << slot.paramsAsString()<< ")" << endl;
-                    out << "    {" << endl;
-                    out << "        static int __repc_index = " << className << "::staticMetaObject.indexOfSlot(\"" << slot.name << "(" << slot.paramsAsString(ASTFunction::Normalized) << ")\");" << endl;
-                    out << "        QVariantList __repc_args;" << endl;
+                        out << "    QRemoteObjectPendingReply<" << returnType << "> " << slot.name << "(" << slot.paramsAsString()<< ")" << Qt::endl;
+                    out << "    {" << Qt::endl;
+                    out << "        static int __repc_index = " << className << "::staticMetaObject.indexOfSlot(\"" << slot.name << "(" << slot.paramsAsString(ASTFunction::Normalized) << ")\");" << Qt::endl;
+                    out << "        QVariantList __repc_args;" << Qt::endl;
                     const auto &paramNames = slot.paramNames();
                     if (!paramNames.isEmpty()) {
-                        out << "        __repc_args" << endl;
+                        out << "        __repc_args" << Qt::endl;
                         for (const QString &name : paramNames)
-                            out << "            << " << "QVariant::fromValue(" << name << ")" << endl;
-                        out << "        ;" << endl;
+                            out << "            << " << "QVariant::fromValue(" << name << ")" << Qt::endl;
+                        out << "        ;" << Qt::endl;
                     }
                     if (isVoid)
-                        out << "        send(QMetaObject::InvokeMetaMethod, __repc_index, __repc_args);" << endl;
+                        out << "        send(QMetaObject::InvokeMetaMethod, __repc_index, __repc_args);" << Qt::endl;
                     else
-                        out << "        return QRemoteObjectPendingReply<" << returnType << ">(sendWithReply(QMetaObject::InvokeMetaMethod, __repc_index, __repc_args));" << endl;
-                    out << "    }" << endl;
+                        out << "        return QRemoteObjectPendingReply<" << returnType << ">(sendWithReply(QMetaObject::InvokeMetaMethod, __repc_index, __repc_args));" << Qt::endl;
+                    out << "    }" << Qt::endl;
                 }
             }
         }
@@ -956,8 +956,8 @@ void RepCodeGenerator::generateClass(Mode mode, QTextStream &out, const ASTClass
             for (const ASTProperty &property : astClass.properties) {
                 if (property.modifier == ASTProperty::ReadOnly) {
                     if (addProtected) {
-                        out << "" << endl;
-                        out << "protected:" << endl;
+                        out << "" << Qt::endl;
+                        out << "protected:" << Qt::endl;
                         addProtected = false;
                     }
                     generateSimpleSetter(out, property, false);
@@ -966,57 +966,57 @@ void RepCodeGenerator::generateClass(Mode mode, QTextStream &out, const ASTClass
         }
     }
 
-    out << "" << endl;
-    out << "private:" << endl;
+    out << "" << Qt::endl;
+    out << "private:" << Qt::endl;
 
     //Next output data members
     if (mode == SIMPLE_SOURCE) {
         for (const ASTProperty &property : astClass.properties)
-            out << "    " << typeForMode(property, SOURCE) << " " << "m_" << property.name << ";" << endl;
+            out << "    " << typeForMode(property, SOURCE) << " " << "m_" << property.name << ";" << Qt::endl;
     }
 
     if (mode != SIMPLE_SOURCE)
-        out << "    friend class QT_PREPEND_NAMESPACE(QRemoteObjectNode);" << endl;
+        out << "    friend class QT_PREPEND_NAMESPACE(QRemoteObjectNode);" << Qt::endl;
 
-    out << "};" << endl;
-    out << "" << endl;
+    out << "};" << Qt::endl;
+    out << "" << Qt::endl;
 
     if (mode != SIMPLE_SOURCE)
         generateStreamOperatorsForEnums(out, astClass.enums, className);
 
-    out << "" << endl;
+    out << "" << Qt::endl;
 }
 
 void RepCodeGenerator::generateSourceAPI(QTextStream &out, const ASTClass &astClass)
 {
     const QString className = astClass.name + QStringLiteral("SourceAPI");
-    out << QStringLiteral("template <class ObjectType>") << endl;
-    out << QString::fromLatin1("struct %1 : public SourceApiMap").arg(className) << endl;
-    out << QStringLiteral("{") << endl;
+    out << QStringLiteral("template <class ObjectType>") << Qt::endl;
+    out << QString::fromLatin1("struct %1 : public SourceApiMap").arg(className) << Qt::endl;
+    out << QStringLiteral("{") << Qt::endl;
     if (!astClass.enums.isEmpty()) {
         // Include enum definition in SourceAPI
         generateDeclarationsForEnums(out, astClass.enums, false);
     }
-    out << QString::fromLatin1("    %1(ObjectType *object, const QString &name = QLatin1String(\"%2\"))").arg(className, astClass.name) << endl;
-    out << QStringLiteral("        : SourceApiMap(), m_name(name)") << endl;
-    out << QStringLiteral("    {") << endl;
+    out << QString::fromLatin1("    %1(ObjectType *object, const QString &name = QLatin1String(\"%2\"))").arg(className, astClass.name) << Qt::endl;
+    out << QStringLiteral("        : SourceApiMap(), m_name(name)") << Qt::endl;
+    out << QStringLiteral("    {") << Qt::endl;
     if (!astClass.hasPointerObjects())
-        out << QStringLiteral("        Q_UNUSED(object);") << endl;
+        out << QStringLiteral("        Q_UNUSED(object);") << Qt::endl;
 
     const int enumCount = astClass.enums.count();
     for (int i : astClass.subClassPropertyIndices) {
         const ASTProperty &child = astClass.properties.at(i);
         out << QString::fromLatin1("        using %1_type_t = typename std::remove_pointer<decltype(object->%1())>::type;")
-                                  .arg(child.name) << endl;
+                                  .arg(child.name) << Qt::endl;
     }
-    out << QString::fromLatin1("        m_enums[0] = %1;").arg(enumCount) << endl;
+    out << QString::fromLatin1("        m_enums[0] = %1;").arg(enumCount) << Qt::endl;
     for (int i = 0; i < enumCount; ++i) {
         const auto enumerator = astClass.enums.at(i);
         out << QString::fromLatin1("        m_enums[%1] = ObjectType::staticMetaObject.indexOfEnumerator(\"%2\");")
-                             .arg(i+1).arg(enumerator.name) << endl;
+                             .arg(i+1).arg(enumerator.name) << Qt::endl;
     }
     const int propCount = astClass.properties.count();
-    out << QString::fromLatin1("        m_properties[0] = %1;").arg(propCount) << endl;
+    out << QString::fromLatin1("        m_properties[0] = %1;").arg(propCount) << Qt::endl;
     QList<ASTProperty> onChangeProperties;
     QList<int> propertyChangeIndex;
     for (int i = 0; i < propCount; ++i) {
@@ -1024,33 +1024,33 @@ void RepCodeGenerator::generateSourceAPI(QTextStream &out, const ASTClass &astCl
         const QString propTypeName = fullyQualifiedTypeName(astClass, QStringLiteral("typename ObjectType"), typeForMode(prop, SOURCE));
         out << QString::fromLatin1("        m_properties[%1] = QtPrivate::qtro_property_index<ObjectType>(&ObjectType::%2, "
                               "static_cast<%3 (QObject::*)()>(0),\"%2\");")
-                             .arg(QString::number(i+1), prop.name, propTypeName) << endl;
+                             .arg(QString::number(i+1), prop.name, propTypeName) << Qt::endl;
         if (prop.modifier == prop.ReadWrite) //Make sure we have a setter function
             out << QStringLiteral("        QtPrivate::qtro_method_test<ObjectType>(&ObjectType::set%1, static_cast<void (QObject::*)(%2)>(0));")
-                                 .arg(cap(prop.name), propTypeName) << endl;
+                                 .arg(cap(prop.name), propTypeName) << Qt::endl;
         if (prop.modifier != prop.Constant) { //Make sure we have an onChange signal
             out << QStringLiteral("        QtPrivate::qtro_method_test<ObjectType>(&ObjectType::%1Changed, static_cast<void (QObject::*)()>(0));")
-                                 .arg(prop.name) << endl;
+                                 .arg(prop.name) << Qt::endl;
             onChangeProperties << prop;
             propertyChangeIndex << i + 1; //m_properties[0] is the count, so index is one higher
         }
     }
     const int signalCount = astClass.signalsList.count();
     const int changedCount = onChangeProperties.size();
-    out << QString::fromLatin1("        m_signals[0] = %1;").arg(signalCount+onChangeProperties.size()) << endl;
+    out << QString::fromLatin1("        m_signals[0] = %1;").arg(signalCount+onChangeProperties.size()) << Qt::endl;
     for (int i = 0; i < changedCount; ++i)
         out << QString::fromLatin1("        m_signals[%1] = QtPrivate::qtro_signal_index<ObjectType>(&ObjectType::%2Changed, "
                               "static_cast<void (QObject::*)(%3)>(0),m_signalArgCount+%4,&m_signalArgTypes[%4]);")
                              .arg(QString::number(i+1), onChangeProperties.at(i).name,
                                   fullyQualifiedTypeName(astClass, QStringLiteral("typename ObjectType"), typeForMode(onChangeProperties.at(i), SOURCE)),
-                                  QString::number(i)) << endl;
+                                  QString::number(i)) << Qt::endl;
 
     QVector<ASTFunction> signalsList = transformEnumParams(astClass, astClass.signalsList, QStringLiteral("typename ObjectType"));
     for (int i = 0; i < signalCount; ++i) {
         const ASTFunction &sig = signalsList.at(i);
         out << QString::fromLatin1("        m_signals[%1] = QtPrivate::qtro_signal_index<ObjectType>(&ObjectType::%2, "
                               "static_cast<void (QObject::*)(%3)>(0),m_signalArgCount+%4,&m_signalArgTypes[%4]);")
-                             .arg(QString::number(changedCount+i+1), sig.name, sig.paramsAsString(ASTFunction::Normalized), QString::number(changedCount+i)) << endl;
+                             .arg(QString::number(changedCount+i+1), sig.name, sig.paramsAsString(ASTFunction::Normalized), QString::number(changedCount+i)) << Qt::endl;
     }
     const int slotCount = astClass.slotsList.count();
     QVector<ASTProperty> pushProps;
@@ -1060,7 +1060,7 @@ void RepCodeGenerator::generateSourceAPI(QTextStream &out, const ASTClass &astCl
     }
     const int pushCount = pushProps.count();
     const int methodCount = slotCount + pushCount;
-    out << QString::fromLatin1("        m_methods[0] = %1;").arg(methodCount) << endl;
+    out << QString::fromLatin1("        m_methods[0] = %1;").arg(methodCount) << Qt::endl;
     for (int i = 0; i < pushCount; ++i) {
         const ASTProperty &prop = pushProps.at(i);
         const QString propTypeName = fullyQualifiedTypeName(astClass, QStringLiteral("typename ObjectType"), prop.type);
@@ -1068,7 +1068,7 @@ void RepCodeGenerator::generateSourceAPI(QTextStream &out, const ASTClass &astCl
                               "static_cast<void (QObject::*)(%3)>(0),\"push%2(%4)\",m_methodArgCount+%5,&m_methodArgTypes[%5]);")
                              .arg(QString::number(i+1), cap(prop.name), propTypeName,
                                   QString(propTypeName).remove(QStringLiteral("typename ObjectType::")), // we don't want this in the string signature
-                                  QString::number(i)) << endl;
+                                  QString::number(i)) << Qt::endl;
     }
 
     QVector<ASTFunction> slotsList = transformEnumParams(astClass, astClass.slotsList, QStringLiteral("typename ObjectType"));
@@ -1079,130 +1079,130 @@ void RepCodeGenerator::generateSourceAPI(QTextStream &out, const ASTClass &astCl
                               "static_cast<void (QObject::*)(%3)>(0),\"%2(%4)\",m_methodArgCount+%5,&m_methodArgTypes[%5]);")
                              .arg(QString::number(i+pushCount+1), slot.name, params,
                                   QString(params).remove(QStringLiteral("typename ObjectType::")), // we don't want this in the string signature
-                                  QString::number(i+pushCount)) << endl;
+                                  QString::number(i+pushCount)) << Qt::endl;
     }
     for (const auto &model : astClass.modelMetadata) {
         const ASTProperty &property = astClass.properties.at(model.propertyIndex);
-        out << QString::fromLatin1("        m_models << ModelInfo({object->%1(),").arg(property.name) << endl;
-        out << QString::fromLatin1("                               QStringLiteral(\"%1\"),").arg(property.name) << endl;
+        out << QString::fromLatin1("        m_models << ModelInfo({object->%1(),").arg(property.name) << Qt::endl;
+        out << QString::fromLatin1("                               QStringLiteral(\"%1\"),").arg(property.name) << Qt::endl;
         QStringList list;
         if (!model.roles.isEmpty()) {
             for (auto role : model.roles)
                 list << role.name;
         }
-        out << QString::fromLatin1("                               QByteArrayLiteral(\"%1\")});").arg(list.join(QChar::fromLatin1('|'))) << endl;
+        out << QString::fromLatin1("                               QByteArrayLiteral(\"%1\")});").arg(list.join(QChar::fromLatin1('|'))) << Qt::endl;
     }
     for (int i : astClass.subClassPropertyIndices) {
         const ASTProperty &child = astClass.properties.at(i);
         out << QString::fromLatin1("        m_subclasses << new %2SourceAPI<%1_type_t>(object->%1(), QStringLiteral(\"%1\"));")
-                                   .arg(child.name, child.type) << endl;
+                                   .arg(child.name, child.type) << Qt::endl;
     }
-    out << QStringLiteral("    }") << endl;
-    out << QStringLiteral("") << endl;
-    out << QString::fromLatin1("    QString name() const override { return m_name; }") << endl;
-    out << QString::fromLatin1("    QString typeName() const override { return QStringLiteral(\"%1\"); }").arg(astClass.name) << endl;
-    out << QStringLiteral("    int enumCount() const override { return m_enums[0]; }") << endl;
-    out << QStringLiteral("    int propertyCount() const override { return m_properties[0]; }") << endl;
-    out << QStringLiteral("    int signalCount() const override { return m_signals[0]; }") << endl;
-    out << QStringLiteral("    int methodCount() const override { return m_methods[0]; }") << endl;
-    out << QStringLiteral("    int sourceEnumIndex(int index) const override") << endl;
-    out << QStringLiteral("    {") << endl;
-    out << QStringLiteral("        if (index < 0 || index >= m_enums[0])") << endl;
-    out << QStringLiteral("            return -1;") << endl;
-    out << QStringLiteral("        return m_enums[index+1];") << endl;
-    out << QStringLiteral("    }") << endl;
-    out << QStringLiteral("    int sourcePropertyIndex(int index) const override") << endl;
-    out << QStringLiteral("    {") << endl;
-    out << QStringLiteral("        if (index < 0 || index >= m_properties[0])") << endl;
-    out << QStringLiteral("            return -1;") << endl;
-    out << QStringLiteral("        return m_properties[index+1];") << endl;
-    out << QStringLiteral("    }") << endl;
-    out << QStringLiteral("    int sourceSignalIndex(int index) const override") << endl;
-    out << QStringLiteral("    {") << endl;
-    out << QStringLiteral("        if (index < 0 || index >= m_signals[0])") << endl;
-    out << QStringLiteral("            return -1;") << endl;
-    out << QStringLiteral("        return m_signals[index+1];") << endl;
-    out << QStringLiteral("    }") << endl;
-    out << QStringLiteral("    int sourceMethodIndex(int index) const override") << endl;
-    out << QStringLiteral("    {") << endl;
-    out << QStringLiteral("        if (index < 0 || index >= m_methods[0])") << endl;
-    out << QStringLiteral("            return -1;") << endl;
-    out << QStringLiteral("        return m_methods[index+1];") << endl;
-    out << QStringLiteral("    }") << endl;
+    out << QStringLiteral("    }") << Qt::endl;
+    out << QStringLiteral("") << Qt::endl;
+    out << QString::fromLatin1("    QString name() const override { return m_name; }") << Qt::endl;
+    out << QString::fromLatin1("    QString typeName() const override { return QStringLiteral(\"%1\"); }").arg(astClass.name) << Qt::endl;
+    out << QStringLiteral("    int enumCount() const override { return m_enums[0]; }") << Qt::endl;
+    out << QStringLiteral("    int propertyCount() const override { return m_properties[0]; }") << Qt::endl;
+    out << QStringLiteral("    int signalCount() const override { return m_signals[0]; }") << Qt::endl;
+    out << QStringLiteral("    int methodCount() const override { return m_methods[0]; }") << Qt::endl;
+    out << QStringLiteral("    int sourceEnumIndex(int index) const override") << Qt::endl;
+    out << QStringLiteral("    {") << Qt::endl;
+    out << QStringLiteral("        if (index < 0 || index >= m_enums[0])") << Qt::endl;
+    out << QStringLiteral("            return -1;") << Qt::endl;
+    out << QStringLiteral("        return m_enums[index+1];") << Qt::endl;
+    out << QStringLiteral("    }") << Qt::endl;
+    out << QStringLiteral("    int sourcePropertyIndex(int index) const override") << Qt::endl;
+    out << QStringLiteral("    {") << Qt::endl;
+    out << QStringLiteral("        if (index < 0 || index >= m_properties[0])") << Qt::endl;
+    out << QStringLiteral("            return -1;") << Qt::endl;
+    out << QStringLiteral("        return m_properties[index+1];") << Qt::endl;
+    out << QStringLiteral("    }") << Qt::endl;
+    out << QStringLiteral("    int sourceSignalIndex(int index) const override") << Qt::endl;
+    out << QStringLiteral("    {") << Qt::endl;
+    out << QStringLiteral("        if (index < 0 || index >= m_signals[0])") << Qt::endl;
+    out << QStringLiteral("            return -1;") << Qt::endl;
+    out << QStringLiteral("        return m_signals[index+1];") << Qt::endl;
+    out << QStringLiteral("    }") << Qt::endl;
+    out << QStringLiteral("    int sourceMethodIndex(int index) const override") << Qt::endl;
+    out << QStringLiteral("    {") << Qt::endl;
+    out << QStringLiteral("        if (index < 0 || index >= m_methods[0])") << Qt::endl;
+    out << QStringLiteral("            return -1;") << Qt::endl;
+    out << QStringLiteral("        return m_methods[index+1];") << Qt::endl;
+    out << QStringLiteral("    }") << Qt::endl;
     if (signalCount+changedCount > 0) {
-        out << QStringLiteral("    int signalParameterCount(int index) const override") << endl;
-        out << QStringLiteral("    {") << endl;
-        out << QStringLiteral("        if (index < 0 || index >= m_signals[0])") << endl;
-        out << QStringLiteral("            return -1;") << endl;
-        out << QStringLiteral("        return m_signalArgCount[index];") << endl;
-        out << QStringLiteral("    }") << endl;
-        out << QStringLiteral("    int signalParameterType(int sigIndex, int paramIndex) const override") << endl;
-        out << QStringLiteral("    {") << endl;
-        out << QStringLiteral("        if (sigIndex < 0 || sigIndex >= m_signals[0] || paramIndex < 0 || paramIndex >= m_signalArgCount[sigIndex])") << endl;
-        out << QStringLiteral("            return -1;") << endl;
-        out << QStringLiteral("        return m_signalArgTypes[sigIndex][paramIndex];") << endl;
-        out << QStringLiteral("    }") << endl;
+        out << QStringLiteral("    int signalParameterCount(int index) const override") << Qt::endl;
+        out << QStringLiteral("    {") << Qt::endl;
+        out << QStringLiteral("        if (index < 0 || index >= m_signals[0])") << Qt::endl;
+        out << QStringLiteral("            return -1;") << Qt::endl;
+        out << QStringLiteral("        return m_signalArgCount[index];") << Qt::endl;
+        out << QStringLiteral("    }") << Qt::endl;
+        out << QStringLiteral("    int signalParameterType(int sigIndex, int paramIndex) const override") << Qt::endl;
+        out << QStringLiteral("    {") << Qt::endl;
+        out << QStringLiteral("        if (sigIndex < 0 || sigIndex >= m_signals[0] || paramIndex < 0 || paramIndex >= m_signalArgCount[sigIndex])") << Qt::endl;
+        out << QStringLiteral("            return -1;") << Qt::endl;
+        out << QStringLiteral("        return m_signalArgTypes[sigIndex][paramIndex];") << Qt::endl;
+        out << QStringLiteral("    }") << Qt::endl;
     } else {
-        out << QStringLiteral("    int signalParameterCount(int index) const override { Q_UNUSED(index); return -1; }") << endl;
-        out << QStringLiteral("    int signalParameterType(int sigIndex, int paramIndex) const override") << endl;
-        out << QStringLiteral("    { Q_UNUSED(sigIndex); Q_UNUSED(paramIndex); return -1; }") << endl;
+        out << QStringLiteral("    int signalParameterCount(int index) const override { Q_UNUSED(index); return -1; }") << Qt::endl;
+        out << QStringLiteral("    int signalParameterType(int sigIndex, int paramIndex) const override") << Qt::endl;
+        out << QStringLiteral("    { Q_UNUSED(sigIndex); Q_UNUSED(paramIndex); return -1; }") << Qt::endl;
     }
     if (methodCount > 0) {
-        out << QStringLiteral("    int methodParameterCount(int index) const override") << endl;
-        out << QStringLiteral("    {") << endl;
-        out << QStringLiteral("        if (index < 0 || index >= m_methods[0])") << endl;
-        out << QStringLiteral("            return -1;") << endl;
-        out << QStringLiteral("        return m_methodArgCount[index];") << endl;
-        out << QStringLiteral("    }") << endl;
-        out << QStringLiteral("    int methodParameterType(int methodIndex, int paramIndex) const override") << endl;
-        out << QStringLiteral("    {") << endl;
-        out << QStringLiteral("        if (methodIndex < 0 || methodIndex >= m_methods[0] || paramIndex < 0 || paramIndex >= m_methodArgCount[methodIndex])") << endl;
-        out << QStringLiteral("            return -1;") << endl;
-        out << QStringLiteral("        return m_methodArgTypes[methodIndex][paramIndex];") << endl;
-        out << QStringLiteral("    }") << endl;
+        out << QStringLiteral("    int methodParameterCount(int index) const override") << Qt::endl;
+        out << QStringLiteral("    {") << Qt::endl;
+        out << QStringLiteral("        if (index < 0 || index >= m_methods[0])") << Qt::endl;
+        out << QStringLiteral("            return -1;") << Qt::endl;
+        out << QStringLiteral("        return m_methodArgCount[index];") << Qt::endl;
+        out << QStringLiteral("    }") << Qt::endl;
+        out << QStringLiteral("    int methodParameterType(int methodIndex, int paramIndex) const override") << Qt::endl;
+        out << QStringLiteral("    {") << Qt::endl;
+        out << QStringLiteral("        if (methodIndex < 0 || methodIndex >= m_methods[0] || paramIndex < 0 || paramIndex >= m_methodArgCount[methodIndex])") << Qt::endl;
+        out << QStringLiteral("            return -1;") << Qt::endl;
+        out << QStringLiteral("        return m_methodArgTypes[methodIndex][paramIndex];") << Qt::endl;
+        out << QStringLiteral("    }") << Qt::endl;
     } else {
-        out << QStringLiteral("    int methodParameterCount(int index) const override { Q_UNUSED(index); return -1; }") << endl;
-        out << QStringLiteral("    int methodParameterType(int methodIndex, int paramIndex) const override") << endl;
-        out << QStringLiteral("    { Q_UNUSED(methodIndex); Q_UNUSED(paramIndex); return -1; }") << endl;
+        out << QStringLiteral("    int methodParameterCount(int index) const override { Q_UNUSED(index); return -1; }") << Qt::endl;
+        out << QStringLiteral("    int methodParameterType(int methodIndex, int paramIndex) const override") << Qt::endl;
+        out << QStringLiteral("    { Q_UNUSED(methodIndex); Q_UNUSED(paramIndex); return -1; }") << Qt::endl;
     }
     //propertyIndexFromSignal method
-    out << QStringLiteral("    int propertyIndexFromSignal(int index) const override") << endl;
-    out << QStringLiteral("    {") << endl;
+    out << QStringLiteral("    int propertyIndexFromSignal(int index) const override") << Qt::endl;
+    out << QStringLiteral("    {") << Qt::endl;
     if (!propertyChangeIndex.isEmpty()) {
-        out << QStringLiteral("        switch (index) {") << endl;
+        out << QStringLiteral("        switch (index) {") << Qt::endl;
         for (int i = 0; i < propertyChangeIndex.size(); ++i)
-            out << QString::fromLatin1("        case %1: return m_properties[%2];").arg(i).arg(propertyChangeIndex.at(i)) << endl;
-        out << QStringLiteral("        }") << endl;
+            out << QString::fromLatin1("        case %1: return m_properties[%2];").arg(i).arg(propertyChangeIndex.at(i)) << Qt::endl;
+        out << QStringLiteral("        }") << Qt::endl;
     } else
-        out << QStringLiteral("        Q_UNUSED(index);") << endl;
-    out << QStringLiteral("        return -1;") << endl;
-    out << QStringLiteral("    }") << endl;
+        out << QStringLiteral("        Q_UNUSED(index);") << Qt::endl;
+    out << QStringLiteral("        return -1;") << Qt::endl;
+    out << QStringLiteral("    }") << Qt::endl;
     //propertyRawIndexFromSignal method
-    out << QStringLiteral("    int propertyRawIndexFromSignal(int index) const override") << endl;
-    out << QStringLiteral("    {") << endl;
+    out << QStringLiteral("    int propertyRawIndexFromSignal(int index) const override") << Qt::endl;
+    out << QStringLiteral("    {") << Qt::endl;
     if (!propertyChangeIndex.isEmpty()) {
-        out << QStringLiteral("        switch (index) {") << endl;
+        out << QStringLiteral("        switch (index) {") << Qt::endl;
         for (int i = 0; i < propertyChangeIndex.size(); ++i)
-            out << QString::fromLatin1("        case %1: return %2;").arg(i).arg(propertyChangeIndex.at(i)-1) << endl;
-        out << QStringLiteral("        }") << endl;
+            out << QString::fromLatin1("        case %1: return %2;").arg(i).arg(propertyChangeIndex.at(i)-1) << Qt::endl;
+        out << QStringLiteral("        }") << Qt::endl;
     } else
-        out << QStringLiteral("        Q_UNUSED(index);") << endl;
-    out << QStringLiteral("        return -1;") << endl;
-    out << QStringLiteral("    }") << endl;
+        out << QStringLiteral("        Q_UNUSED(index);") << Qt::endl;
+    out << QStringLiteral("        return -1;") << Qt::endl;
+    out << QStringLiteral("    }") << Qt::endl;
 
     //signalSignature method
-    out << QStringLiteral("    const QByteArray signalSignature(int index) const override") << endl;
-    out << QStringLiteral("    {") << endl;
+    out << QStringLiteral("    const QByteArray signalSignature(int index) const override") << Qt::endl;
+    out << QStringLiteral("    {") << Qt::endl;
     if (signalCount+changedCount > 0) {
-        out << QStringLiteral("        switch (index) {") << endl;
+        out << QStringLiteral("        switch (index) {") << Qt::endl;
         for (int i = 0; i < changedCount; ++i) {
             const ASTProperty &prop = onChangeProperties.at(i);
             if (isClassEnum(astClass, prop.type))
                 out << QString::fromLatin1("        case %1: return QByteArrayLiteral(\"%2Changed($1)\").replace(\"$1\", QtPrivate::qtro_enum_signature<ObjectType>(\"%3\"));")
-                    .arg(QString::number(i), prop.name, prop.type) << endl;
+                    .arg(QString::number(i), prop.name, prop.type) << Qt::endl;
             else
                 out << QString::fromLatin1("        case %1: return QByteArrayLiteral(\"%2Changed(%3)\");")
-                    .arg(QString::number(i), prop.name, typeForMode(prop, SOURCE)) << endl;
+                    .arg(QString::number(i), prop.name, typeForMode(prop, SOURCE)) << Qt::endl;
         }
         for (int i = 0; i < signalCount; ++i)
         {
@@ -1219,36 +1219,36 @@ void RepCodeGenerator::generateSourceAPI(QTextStream &out, const ASTClass &astCl
                 }
             }
             out << QString::fromLatin1("        case %1: return QByteArrayLiteral(\"%2(%3)\")%4;")
-                                    .arg(QString::number(i+changedCount), sig.name, paramsAsString, enumString) << endl;
+                                    .arg(QString::number(i+changedCount), sig.name, paramsAsString, enumString) << Qt::endl;
         }
-        out << QStringLiteral("        }") << endl;
+        out << QStringLiteral("        }") << Qt::endl;
     } else
-        out << QStringLiteral("        Q_UNUSED(index);") << endl;
-    out << QStringLiteral("        return QByteArrayLiteral(\"\");") << endl;
-    out << QStringLiteral("    }") << endl;
+        out << QStringLiteral("        Q_UNUSED(index);") << Qt::endl;
+    out << QStringLiteral("        return QByteArrayLiteral(\"\");") << Qt::endl;
+    out << QStringLiteral("    }") << Qt::endl;
 
     //signalParameterNames method
-    out << QStringLiteral("    QList<QByteArray> signalParameterNames(int index) const override") << endl;
-    out << QStringLiteral("    {") << endl;
-    out << QStringLiteral("        if (index < 0 || index >= m_signals[0])") << endl;
-    out << QStringLiteral("            return QList<QByteArray>();") << endl;
-    out << QStringLiteral("        return ObjectType::staticMetaObject.method(m_signals[index + 1]).parameterNames();") << endl;
-    out << QStringLiteral("    }") << endl;
+    out << QStringLiteral("    QList<QByteArray> signalParameterNames(int index) const override") << Qt::endl;
+    out << QStringLiteral("    {") << Qt::endl;
+    out << QStringLiteral("        if (index < 0 || index >= m_signals[0])") << Qt::endl;
+    out << QStringLiteral("            return QList<QByteArray>();") << Qt::endl;
+    out << QStringLiteral("        return ObjectType::staticMetaObject.method(m_signals[index + 1]).parameterNames();") << Qt::endl;
+    out << QStringLiteral("    }") << Qt::endl;
 
     //methodSignature method
-    out << QStringLiteral("    const QByteArray methodSignature(int index) const override") << endl;
-    out << QStringLiteral("    {") << endl;
+    out << QStringLiteral("    const QByteArray methodSignature(int index) const override") << Qt::endl;
+    out << QStringLiteral("    {") << Qt::endl;
     if (methodCount > 0) {
-        out << QStringLiteral("        switch (index) {") << endl;
+        out << QStringLiteral("        switch (index) {") << Qt::endl;
         for (int i = 0; i < pushCount; ++i)
         {
             const ASTProperty &prop = pushProps.at(i);
             if (isClassEnum(astClass, prop.type))
                 out << QString::fromLatin1("        case %1: return QByteArrayLiteral(\"push%2($1)\").replace(\"$1\", QtPrivate::qtro_enum_signature<ObjectType>(\"%3\"));")
-                    .arg(QString::number(i), prop.name, prop.type) << endl;
+                    .arg(QString::number(i), prop.name, prop.type) << Qt::endl;
             else
                 out << QString::fromLatin1("        case %1: return QByteArrayLiteral(\"push%2(%3)\");")
-                                        .arg(QString::number(i), cap(prop.name), prop.type) << endl;
+                                        .arg(QString::number(i), cap(prop.name), prop.type) << Qt::endl;
         }
         for (int i = 0; i < slotCount; ++i)
         {
@@ -1265,75 +1265,75 @@ void RepCodeGenerator::generateSourceAPI(QTextStream &out, const ASTClass &astCl
                 }
             }
             out << QString::fromLatin1("        case %1: return QByteArrayLiteral(\"%2(%3)\")%4;")
-                                    .arg(QString::number(i+pushCount), slot.name, paramsAsString, enumString) << endl;
+                                    .arg(QString::number(i+pushCount), slot.name, paramsAsString, enumString) << Qt::endl;
         }
-        out << QStringLiteral("        }") << endl;
+        out << QStringLiteral("        }") << Qt::endl;
     } else
-        out << QStringLiteral("        Q_UNUSED(index);") << endl;
-    out << QStringLiteral("        return QByteArrayLiteral(\"\");") << endl;
-    out << QStringLiteral("    }") << endl;
+        out << QStringLiteral("        Q_UNUSED(index);") << Qt::endl;
+    out << QStringLiteral("        return QByteArrayLiteral(\"\");") << Qt::endl;
+    out << QStringLiteral("    }") << Qt::endl;
 
     //methodType method
-    out << QStringLiteral("    QMetaMethod::MethodType methodType(int) const override") << endl;
-    out << QStringLiteral("    {") << endl;
-    out << QStringLiteral("        return QMetaMethod::Slot;") << endl;
-    out << QStringLiteral("    }") << endl;
+    out << QStringLiteral("    QMetaMethod::MethodType methodType(int) const override") << Qt::endl;
+    out << QStringLiteral("    {") << Qt::endl;
+    out << QStringLiteral("        return QMetaMethod::Slot;") << Qt::endl;
+    out << QStringLiteral("    }") << Qt::endl;
 
     //methodParameterNames method
-    out << QStringLiteral("    QList<QByteArray> methodParameterNames(int index) const override") << endl;
-    out << QStringLiteral("    {") << endl;
-    out << QStringLiteral("        if (index < 0 || index >= m_methods[0])") << endl;
-    out << QStringLiteral("            return QList<QByteArray>();") << endl;
-    out << QStringLiteral("        return ObjectType::staticMetaObject.method(m_methods[index + 1]).parameterNames();") << endl;
-    out << QStringLiteral("    }") << endl;
+    out << QStringLiteral("    QList<QByteArray> methodParameterNames(int index) const override") << Qt::endl;
+    out << QStringLiteral("    {") << Qt::endl;
+    out << QStringLiteral("        if (index < 0 || index >= m_methods[0])") << Qt::endl;
+    out << QStringLiteral("            return QList<QByteArray>();") << Qt::endl;
+    out << QStringLiteral("        return ObjectType::staticMetaObject.method(m_methods[index + 1]).parameterNames();") << Qt::endl;
+    out << QStringLiteral("    }") << Qt::endl;
 
     //typeName method
-    out << QStringLiteral("    const QByteArray typeName(int index) const override") << endl;
-    out << QStringLiteral("    {") << endl;
+    out << QStringLiteral("    const QByteArray typeName(int index) const override") << Qt::endl;
+    out << QStringLiteral("    {") << Qt::endl;
     if (methodCount > 0) {
-        out << QStringLiteral("        switch (index) {") << endl;
+        out << QStringLiteral("        switch (index) {") << Qt::endl;
         for (int i = 0; i < pushCount; ++i)
         {
             out << QString::fromLatin1("        case %1: return QByteArrayLiteral(\"void\");")
-                                      .arg(QString::number(i)) << endl;
+                                      .arg(QString::number(i)) << Qt::endl;
         }
         for (int i = 0; i < slotCount; ++i)
         {
             const ASTFunction &slot = astClass.slotsList.at(i);
             if (isClassEnum(astClass, slot.returnType))
                 out << QString::fromLatin1("        case %1: return QByteArrayLiteral(\"$1\").replace(\"$1\", QtPrivate::qtro_enum_signature<ObjectType>(\"%2\"));")
-                                          .arg(QString::number(i+pushCount), slot.returnType) << endl;
+                                          .arg(QString::number(i+pushCount), slot.returnType) << Qt::endl;
             else
                 out << QString::fromLatin1("        case %1: return QByteArrayLiteral(\"%2\");")
-                                          .arg(QString::number(i+pushCount), slot.returnType) << endl;
+                                          .arg(QString::number(i+pushCount), slot.returnType) << Qt::endl;
         }
-        out << QStringLiteral("        }") << endl;
+        out << QStringLiteral("        }") << Qt::endl;
     } else
-        out << QStringLiteral("        Q_UNUSED(index);") << endl;
-    out << QStringLiteral("        return QByteArrayLiteral(\"\");") << endl;
-    out << QStringLiteral("    }") << endl;
+        out << QStringLiteral("        Q_UNUSED(index);") << Qt::endl;
+    out << QStringLiteral("        return QByteArrayLiteral(\"\");") << Qt::endl;
+    out << QStringLiteral("    }") << Qt::endl;
 
     //objectSignature method
     out << QStringLiteral("    QByteArray objectSignature() const override { return QByteArray{\"")
         << QLatin1String(classSignature(astClass))
-        << QStringLiteral("\"}; }") << endl;
+        << QStringLiteral("\"}; }") << Qt::endl;
 
-    out << QStringLiteral("") << endl;
-    out << QString::fromLatin1("    int m_enums[%1];").arg(enumCount + 1) << endl;
-    out << QString::fromLatin1("    int m_properties[%1];").arg(propCount+1) << endl;
-    out << QString::fromLatin1("    int m_signals[%1];").arg(signalCount+changedCount+1) << endl;
-    out << QString::fromLatin1("    int m_methods[%1];").arg(methodCount+1) << endl;
-    out << QString::fromLatin1("    const QString m_name;") << endl;
+    out << QStringLiteral("") << Qt::endl;
+    out << QString::fromLatin1("    int m_enums[%1];").arg(enumCount + 1) << Qt::endl;
+    out << QString::fromLatin1("    int m_properties[%1];").arg(propCount+1) << Qt::endl;
+    out << QString::fromLatin1("    int m_signals[%1];").arg(signalCount+changedCount+1) << Qt::endl;
+    out << QString::fromLatin1("    int m_methods[%1];").arg(methodCount+1) << Qt::endl;
+    out << QString::fromLatin1("    const QString m_name;") << Qt::endl;
     if (signalCount+changedCount > 0) {
-        out << QString::fromLatin1("    int m_signalArgCount[%1];").arg(signalCount+changedCount) << endl;
-        out << QString::fromLatin1("    const int* m_signalArgTypes[%1];").arg(signalCount+changedCount) << endl;
+        out << QString::fromLatin1("    int m_signalArgCount[%1];").arg(signalCount+changedCount) << Qt::endl;
+        out << QString::fromLatin1("    const int* m_signalArgTypes[%1];").arg(signalCount+changedCount) << Qt::endl;
     }
     if (methodCount > 0) {
-        out << QString::fromLatin1("    int m_methodArgCount[%1];").arg(methodCount) << endl;
-        out << QString::fromLatin1("    const int* m_methodArgTypes[%1];").arg(methodCount) << endl;
+        out << QString::fromLatin1("    int m_methodArgCount[%1];").arg(methodCount) << Qt::endl;
+        out << QString::fromLatin1("    const int* m_methodArgTypes[%1];").arg(methodCount) << Qt::endl;
     }
-    out << QStringLiteral("};") << endl;
-    out << "" << endl;
+    out << QStringLiteral("};") << Qt::endl;
+    out << "" << Qt::endl;
 }
 
 QT_END_NAMESPACE

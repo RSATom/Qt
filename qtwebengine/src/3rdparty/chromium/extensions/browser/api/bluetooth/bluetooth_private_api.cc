@@ -519,13 +519,16 @@ void BluetoothPrivateSetDiscoveryFilterFunction::DoWork(
     discovery_filter.reset(new device::BluetoothDiscoveryFilter(transport));
 
     if (df_param.uuids.get()) {
-      std::vector<device::BluetoothUUID> uuids;
       if (df_param.uuids->as_string.get()) {
-        discovery_filter->AddUUID(
+        device::BluetoothDiscoveryFilter::DeviceInfoFilter device_filter;
+        device_filter.uuids.insert(
             device::BluetoothUUID(*df_param.uuids->as_string));
+        discovery_filter->AddDeviceFilter(std::move(device_filter));
       } else if (df_param.uuids->as_strings.get()) {
         for (const auto& iter : *df_param.uuids->as_strings) {
-          discovery_filter->AddUUID(device::BluetoothUUID(iter));
+          device::BluetoothDiscoveryFilter::DeviceInfoFilter device_filter;
+          device_filter.uuids.insert(device::BluetoothUUID(iter));
+          discovery_filter->AddDeviceFilter(std::move(device_filter));
         }
       }
     }
@@ -589,8 +592,8 @@ void BluetoothPrivateConnectFunction::DoWork(
           ->GetPairingDelegate(GetExtensionId());
   device->Connect(
       pairing_delegate,
-      base::Bind(&BluetoothPrivateConnectFunction::OnSuccessCallback, this),
-      base::Bind(&BluetoothPrivateConnectFunction::OnErrorCallback, this));
+      base::BindOnce(&BluetoothPrivateConnectFunction::OnSuccessCallback, this),
+      base::BindOnce(&BluetoothPrivateConnectFunction::OnErrorCallback, this));
 }
 
 void BluetoothPrivateConnectFunction::OnSuccessCallback() {
@@ -666,8 +669,8 @@ void BluetoothPrivatePairFunction::DoWork(
 
   device->Pair(
       pairing_delegate,
-      base::Bind(&BluetoothPrivatePairFunction::OnSuccessCallback, this),
-      base::Bind(&BluetoothPrivatePairFunction::OnErrorCallback, this));
+      base::BindOnce(&BluetoothPrivatePairFunction::OnSuccessCallback, this),
+      base::BindOnce(&BluetoothPrivatePairFunction::OnErrorCallback, this));
 }
 
 void BluetoothPrivatePairFunction::OnSuccessCallback() {
@@ -697,6 +700,8 @@ void BluetoothPrivateRecordPairingFunction::DoWork(
   RecordPairingResult(params_->success, params_->transport,
                       params_->pairing_duration_ms);
   RecordPairingTransport(params_->transport);
+
+  Respond(NoArguments());
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -720,6 +725,8 @@ void BluetoothPrivateRecordReconnectionFunction::DoWork(
   base::UmaHistogramBoolean(
       "Bluetooth.ChromeOS.UserInitiatedReconnectionAttempt.Result.Settings",
       params_->success);
+
+  Respond(NoArguments());
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -758,6 +765,8 @@ void BluetoothPrivateRecordDeviceSelectionFunction::DoWork(
       base::TimeDelta::FromMilliseconds(params_->selection_duration_ms),
       device::BluetoothUiSurface::kSettings, params_->was_paired, transport);
 #endif
+
+  Respond(NoArguments());
 }
 
 ////////////////////////////////////////////////////////////////////////////////

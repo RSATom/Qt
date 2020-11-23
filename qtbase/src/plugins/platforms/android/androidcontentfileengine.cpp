@@ -44,9 +44,10 @@
 
 #include <QDebug>
 
-AndroidContentFileEngine::AndroidContentFileEngine(const QString &fileName)
-    : QFSFileEngine(fileName)
+AndroidContentFileEngine::AndroidContentFileEngine(const QString &f)
+    : m_file(f)
 {
+    setFileName(f);
 }
 
 bool AndroidContentFileEngine::open(QIODevice::OpenMode openMode)
@@ -78,6 +79,66 @@ bool AndroidContentFileEngine::open(QIODevice::OpenMode openMode)
     return QFSFileEngine::open(openMode, fd, QFile::AutoCloseHandle);
 }
 
+qint64 AndroidContentFileEngine::size() const
+{
+    const jlong size = QJNIObjectPrivate::callStaticMethod<jlong>(
+            "org/qtproject/qt5/android/QtNative", "getSize",
+            "(Landroid/content/Context;Ljava/lang/String;)J", QtAndroidPrivate::context(),
+            QJNIObjectPrivate::fromString(fileName(DefaultName)).object());
+    return (qint64)size;
+}
+
+AndroidContentFileEngine::FileFlags AndroidContentFileEngine::fileFlags(FileFlags type) const
+{
+    FileFlags commonFlags(ReadOwnerPerm|ReadUserPerm|ReadGroupPerm|ReadOtherPerm|ExistsFlag);
+    FileFlags flags;
+    const bool isDir = QJNIObjectPrivate::callStaticMethod<jboolean>(
+            "org/qtproject/qt5/android/QtNative", "checkIfDir",
+            "(Landroid/content/Context;Ljava/lang/String;)Z", QtAndroidPrivate::context(),
+            QJNIObjectPrivate::fromString(fileName(DefaultName)).object());
+    // If it is a directory then we know it exists so there is no reason to explicitly check
+    const bool exists = isDir ? true : QJNIObjectPrivate::callStaticMethod<jboolean>(
+            "org/qtproject/qt5/android/QtNative", "checkFileExists",
+            "(Landroid/content/Context;Ljava/lang/String;)Z", QtAndroidPrivate::context(),
+            QJNIObjectPrivate::fromString(fileName(DefaultName)).object());
+    if (!exists && !isDir)
+        return flags;
+    if (isDir)
+        flags = DirectoryType | commonFlags;
+    else
+        flags = FileType | commonFlags;
+    return type & flags;
+}
+
+QString AndroidContentFileEngine::fileName(FileName f) const
+{
+    switch (f) {
+        case PathName:
+        case AbsolutePathName:
+        case CanonicalPathName:
+        case DefaultName:
+        case AbsoluteName:
+        case CanonicalName:
+            return m_file;
+        case BaseName:
+        {
+            const int pos = m_file.lastIndexOf(QChar(QLatin1Char('/')));
+            return m_file.mid(pos);
+        }
+        default:
+            return QString();
+    }
+}
+
+QAbstractFileEngine::Iterator *AndroidContentFileEngine::beginEntryList(QDir::Filters filters, const QStringList &filterNames)
+{
+    return new AndroidContentFileEngineIterator(filters, filterNames);
+}
+
+QAbstractFileEngine::Iterator *AndroidContentFileEngine::endEntryList()
+{
+    return nullptr;
+}
 
 AndroidContentFileEngineHandler::AndroidContentFileEngineHandler() = default;
 AndroidContentFileEngineHandler::~AndroidContentFileEngineHandler() = default;
@@ -89,4 +150,59 @@ QAbstractFileEngine* AndroidContentFileEngineHandler::create(const QString &file
     }
 
     return new AndroidContentFileEngine(fileName);
+}
+
+AndroidContentFileEngineIterator::AndroidContentFileEngineIterator(QDir::Filters filters,
+                                                                   const QStringList &filterNames)
+    : QAbstractFileEngineIterator(filters, filterNames)
+{
+}
+
+AndroidContentFileEngineIterator::~AndroidContentFileEngineIterator()
+{
+}
+
+QString AndroidContentFileEngineIterator::next()
+{
+    if (!hasNext())
+        return QString();
+    ++m_index;
+    return currentFilePath();
+}
+
+bool AndroidContentFileEngineIterator::hasNext() const
+{
+    if (m_index == -1) {
+        if (path().isEmpty())
+            return false;
+        const bool isDir = QJNIObjectPrivate::callStaticMethod<jboolean>(
+                             "org/qtproject/qt5/android/QtNative", "checkIfDir",
+                             "(Landroid/content/Context;Ljava/lang/String;)Z",
+                             QtAndroidPrivate::context(),
+                             QJNIObjectPrivate::fromString(path()).object());
+        if (isDir) {
+            QJNIObjectPrivate objArray = QJNIObjectPrivate::callStaticObjectMethod("org/qtproject/qt5/android/QtNative",
+                                           "listContentsFromTreeUri",
+                                           "(Landroid/content/Context;Ljava/lang/String;)[Ljava/lang/String;",
+                                           QtAndroidPrivate::context(),
+                                           QJNIObjectPrivate::fromString(path()).object());
+            if (objArray.isValid()) {
+                QJNIEnvironmentPrivate env;
+                const jsize length = env->GetArrayLength(static_cast<jarray>(objArray.object()));
+                for (int i = 0; i != length; ++i) {
+                    m_entries << QJNIObjectPrivate(env->GetObjectArrayElement(
+                                static_cast<jobjectArray>(objArray.object()), i)).toString();
+                }
+            }
+        }
+        m_index = 0;
+    }
+    return m_index < m_entries.size();
+}
+
+QString AndroidContentFileEngineIterator::currentFileName() const
+{
+    if (m_index <= 0 || m_index > m_entries.size())
+        return QString();
+    return m_entries.at(m_index - 1);
 }

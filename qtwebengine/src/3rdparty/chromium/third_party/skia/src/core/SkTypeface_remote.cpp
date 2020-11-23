@@ -29,7 +29,6 @@ void SkScalerContextProxy::initCache(SkStrike* cache, SkStrikeCache* strikeCache
 
 unsigned SkScalerContextProxy::generateGlyphCount()  {
     SK_ABORT("Should never be called.");
-    return 0;
 }
 
 bool SkScalerContextProxy::generateAdvance(SkGlyph* glyph) {
@@ -46,7 +45,7 @@ void SkScalerContextProxy::generateMetrics(SkGlyph* glyph) {
 
     // Since the scaler context is being called, we don't have the needed data. Try to find a
     // fallback before failing.
-    if (fCache && fCache->belongsToCache(glyph)) {
+    if (fCache && fCache->glyphOrNull(glyph->getPackedID()) != nullptr) {
         // First check the original cache, in case there is a sub-pixel pos mismatch.
         if (const SkGlyph* from =
                     fCache->getCachedGlyphAnySubPix(glyph->getGlyphID(), glyph->getPackedID())) {

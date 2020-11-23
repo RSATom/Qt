@@ -5,13 +5,15 @@
 package org.chromium.components.signin;
 
 import android.os.SystemClock;
-import android.support.annotation.IntDef;
+
+import androidx.annotation.IntDef;
+import androidx.annotation.VisibleForTesting;
 
 import org.chromium.base.Log;
 import org.chromium.base.ObserverList;
 import org.chromium.base.ThreadUtils;
-import org.chromium.base.VisibleForTesting;
 import org.chromium.base.annotations.CalledByNative;
+import org.chromium.base.annotations.NativeMethods;
 import org.chromium.base.metrics.RecordHistogram;
 import org.chromium.base.task.AsyncTask;
 
@@ -162,7 +164,8 @@ public class AccountTrackerService {
                         return;
                     }
                     if (areAccountIdsValid(accountIdNameMap[0])) {
-                        nativeSeedAccountsInfo(mNativeAccountTrackerService, accountIdNameMap[0],
+                        AccountTrackerServiceJni.get().seedAccountsInfo(
+                                mNativeAccountTrackerService, accountIdNameMap[0],
                                 accountIdNameMap[1]);
                         mSystemAccountsSeedingStatus = SystemAccountsSeedingStatus.SEEDING_DONE;
                         notifyObserversOnSeedingComplete();
@@ -197,7 +200,8 @@ public class AccountTrackerService {
         mSystemAccountsSeedingStatus = SystemAccountsSeedingStatus.SEEDING_IN_PROGRESS;
         mSystemAccountsChanged = false;
         mSyncForceRefreshedForTest = true;
-        nativeSeedAccountsInfo(mNativeAccountTrackerService, accountIds, accountNames);
+        AccountTrackerServiceJni.get().seedAccountsInfo(
+                mNativeAccountTrackerService, accountIds, accountNames);
         mSystemAccountsSeedingStatus = SystemAccountsSeedingStatus.SEEDING_DONE;
     }
 
@@ -237,7 +241,8 @@ public class AccountTrackerService {
             for (int i = 0; i < accounts.size(); ++i) {
                 accountNames[i] = accounts.get(i).name;
             }
-            if (nativeAreAccountsSeeded(mNativeAccountTrackerService, accountNames)) {
+            if (AccountTrackerServiceJni.get().areAccountsSeeded(
+                        mNativeAccountTrackerService, accountNames)) {
                 mSystemAccountsSeedingStatus = SystemAccountsSeedingStatus.SEEDING_DONE;
                 notifyObserversOnSeedingComplete();
             }
@@ -250,8 +255,10 @@ public class AccountTrackerService {
         }
     }
 
-    private static native void nativeSeedAccountsInfo(
-            long accountTrackerServicePtr, String[] gaiaIds, String[] accountNames);
-    private static native boolean nativeAreAccountsSeeded(
-            long accountTrackerServicePtr, String[] accountNames);
+    @NativeMethods
+    interface Natives {
+        public void seedAccountsInfo(
+                long nativeAccountTrackerService, String[] gaiaIds, String[] accountNames);
+        public boolean areAccountsSeeded(long nativeAccountTrackerService, String[] accountNames);
+    }
 }

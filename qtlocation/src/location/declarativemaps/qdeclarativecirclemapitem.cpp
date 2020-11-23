@@ -57,6 +57,7 @@
 #include <sweep/cdt.h>
 
 #include <QtPositioning/private/qclipperutils_p.h>
+#include "qdeclarativecirclemapitem_p_p.h"
 
 QT_BEGIN_NAMESPACE
 
@@ -138,8 +139,6 @@ QT_BEGIN_NAMESPACE
 
     \since 5.14
 */
-
-static const int CircleSamples = 128;
 
 struct Vertex
 {
@@ -274,83 +273,36 @@ void QGeoMapCircleGeometry::updateScreenPointsInvert(const QList<QDoubleVector2D
     sourceBounds_ = screenBounds_;
 }
 
-bool QDeclarativeCircleMapItem::crossEarthPole(const QGeoCoordinate &center, qreal distance)
+struct CircleBackendSelector
 {
-    qreal poleLat = 90;
-    QGeoCoordinate northPole = QGeoCoordinate(poleLat, center.longitude());
-    QGeoCoordinate southPole = QGeoCoordinate(-poleLat, center.longitude());
-    // approximate using great circle distance
-    qreal distanceToNorthPole = center.distanceTo(northPole);
-    qreal distanceToSouthPole = center.distanceTo(southPole);
-    if (distanceToNorthPole < distance || distanceToSouthPole < distance)
-        return true;
-    return false;
-}
-
-void QDeclarativeCircleMapItem::calculatePeripheralPoints(QList<QGeoCoordinate> &path,
-                                      const QGeoCoordinate &center,
-                                      qreal distance,
-                                      int steps,
-                                      QGeoCoordinate &leftBound)
-{
-    // Calculate points based on great-circle distance
-    // Calculation is the same as GeoCoordinate's atDistanceAndAzimuth function
-    // but tweaked here for computing multiple points
-
-    // pre-calculations
-    steps = qMax(steps, 3);
-    qreal centerLon = center.longitude();
-    qreal minLon = centerLon;
-    qreal latRad = QLocationUtils::radians(center.latitude());
-    qreal lonRad = QLocationUtils::radians(centerLon);
-    qreal cosLatRad = std::cos(latRad);
-    qreal sinLatRad = std::sin(latRad);
-    qreal ratio = (distance / QLocationUtils::earthMeanRadius());
-    qreal cosRatio = std::cos(ratio);
-    qreal sinRatio = std::sin(ratio);
-    qreal sinLatRad_x_cosRatio = sinLatRad * cosRatio;
-    qreal cosLatRad_x_sinRatio = cosLatRad * sinRatio;
-    int idx = 0;
-    for (int i = 0; i < steps; ++i) {
-        qreal azimuthRad = 2 * M_PI * i / steps;
-        qreal resultLatRad = std::asin(sinLatRad_x_cosRatio
-                                   + cosLatRad_x_sinRatio * std::cos(azimuthRad));
-        qreal resultLonRad = lonRad + std::atan2(std::sin(azimuthRad) * cosLatRad_x_sinRatio,
-                                       cosRatio - sinLatRad * std::sin(resultLatRad));
-        qreal lat2 = QLocationUtils::degrees(resultLatRad);
-        qreal lon2 = QLocationUtils::wrapLong(QLocationUtils::degrees(resultLonRad));
-
-        path << QGeoCoordinate(lat2, lon2, center.altitude());
-        // Consider only points in the left half of the circle for the left bound.
-        if (azimuthRad > M_PI) {
-            if (lon2 > centerLon) // if point and center are on different hemispheres
-                lon2 -= 360;
-            if (lon2 < minLon) {
-                minLon = lon2;
-                idx = i;
-            }
-        }
+    CircleBackendSelector()
+    {
+        backend = (qgetenv("QTLOCATION_OPENGL_ITEMS").toInt()) ? QDeclarativeCircleMapItem::OpenGL : QDeclarativeCircleMapItem::Software;
     }
-    leftBound = path.at(idx);
-}
+    QDeclarativeCircleMapItem::Backend backend = QDeclarativeCircleMapItem::Software;
+};
+
+Q_GLOBAL_STATIC(CircleBackendSelector, mapCircleBackendSelector)
 
 QDeclarativeCircleMapItem::QDeclarativeCircleMapItem(QQuickItem *parent)
-:   QDeclarativeGeoMapItemBase(parent), border_(this), color_(Qt::transparent), dirtyMaterial_(true),
-    updatingGeometry_(false)
+:   QDeclarativeGeoMapItemBase(parent), m_border(this), m_color(Qt::transparent), m_dirtyMaterial(true),
+    m_updatingGeometry(false)
+  , m_d(new QDeclarativeCircleMapItemPrivateCPU(*this))
 {
+    // ToDo: handle envvar, and switch implementation.
     m_itemType = QGeoMap::MapCircle;
     setFlag(ItemHasContents, true);
-    QObject::connect(&border_, SIGNAL(colorChanged(QColor)),
-                     this, SLOT(markSourceDirtyAndUpdate()));
-    QObject::connect(&border_, SIGNAL(widthChanged(qreal)),
-                     this, SLOT(markSourceDirtyAndUpdate()));
+    QObject::connect(&m_border, SIGNAL(colorChanged(QColor)),
+                     this, SLOT(onLinePropertiesChanged()));
+    QObject::connect(&m_border, SIGNAL(widthChanged(qreal)),
+                     this, SLOT(onLinePropertiesChanged()));
 
     // assume that circles are not self-intersecting
     // to speed up processing
     // FIXME: unfortunately they self-intersect at the poles due to current drawing method
     // so the line is commented out until fixed
     //geometry_.setAssumeSimple(true);
-
+    setBackend(mapCircleBackendSelector->backend);
 }
 
 QDeclarativeCircleMapItem::~QDeclarativeCircleMapItem()
@@ -371,23 +323,24 @@ QDeclarativeCircleMapItem::~QDeclarativeCircleMapItem()
 */
 QDeclarativeMapLineProperties *QDeclarativeCircleMapItem::border()
 {
-    return &border_;
+    return &m_border;
 }
 
 void QDeclarativeCircleMapItem::markSourceDirtyAndUpdate()
 {
-    geometry_.markSourceDirty();
-    borderGeometry_.markSourceDirty();
-    polishAndUpdate();
+    m_d->markSourceDirtyAndUpdate();
+}
+
+void QDeclarativeCircleMapItem::onLinePropertiesChanged()
+{
+    m_d->onLinePropertiesChanged();
 }
 
 void QDeclarativeCircleMapItem::setMap(QDeclarativeGeoMap *quickMap, QGeoMap *map)
 {
     QDeclarativeGeoMapItemBase::setMap(quickMap,map);
-    if (!map)
-        return;
-    updateCirclePath();
-    markSourceDirtyAndUpdate();
+    if (map)
+        m_d->onMapSet();
 }
 
 /*!
@@ -399,18 +352,18 @@ void QDeclarativeCircleMapItem::setMap(QDeclarativeGeoMap *quickMap, QGeoMap *ma
 */
 void QDeclarativeCircleMapItem::setCenter(const QGeoCoordinate &center)
 {
-    if (circle_.center() == center)
+    if (m_circle.center() == center)
         return;
 
-    circle_.setCenter(center);
-    updateCirclePath();
-    markSourceDirtyAndUpdate();
+    possiblySwitchBackend(m_circle.center(), m_circle.radius(), center, m_circle.radius());
+    m_circle.setCenter(center);
+    m_d->onGeoGeometryChanged();
     emit centerChanged(center);
 }
 
 QGeoCoordinate QDeclarativeCircleMapItem::center()
 {
-    return circle_.center();
+    return m_circle.center();
 }
 
 /*!
@@ -421,17 +374,17 @@ QGeoCoordinate QDeclarativeCircleMapItem::center()
 */
 void QDeclarativeCircleMapItem::setColor(const QColor &color)
 {
-    if (color_ == color)
+    if (m_color == color)
         return;
-    color_ = color;
-    dirtyMaterial_ = true;
+    m_color = color;
+    m_dirtyMaterial = true;
     update();
-    emit colorChanged(color_);
+    emit colorChanged(m_color);
 }
 
 QColor QDeclarativeCircleMapItem::color() const
 {
-    return color_;
+    return m_color;
 }
 
 /*!
@@ -443,18 +396,18 @@ QColor QDeclarativeCircleMapItem::color() const
 */
 void QDeclarativeCircleMapItem::setRadius(qreal radius)
 {
-    if (circle_.radius() == radius)
+    if (m_circle.radius() == radius)
         return;
 
-    circle_.setRadius(radius);
-    updateCirclePath();
-    markSourceDirtyAndUpdate();
+    possiblySwitchBackend(m_circle.center(), m_circle.radius(), m_circle.center(), radius);
+    m_circle.setRadius(radius);
+    m_d->onGeoGeometryChanged();
     emit radiusChanged(radius);
 }
 
 qreal QDeclarativeCircleMapItem::radius() const
 {
-    return circle_.radius();
+    return m_circle.radius();
 }
 
 /*!
@@ -472,23 +425,7 @@ qreal QDeclarativeCircleMapItem::radius() const
 */
 QSGNode *QDeclarativeCircleMapItem::updateMapItemPaintNode(QSGNode *oldNode, UpdatePaintNodeData *data)
 {
-    Q_UNUSED(data);
-
-    MapPolygonNode *node = static_cast<MapPolygonNode *>(oldNode);
-
-    if (!node)
-        node = new MapPolygonNode();
-
-    //TODO: update only material
-    if (geometry_.isScreenDirty() || borderGeometry_.isScreenDirty() || dirtyMaterial_) {
-        node->update(color_, border_.color(), &geometry_, &borderGeometry_);
-        geometry_.setPreserveGeometry(false);
-        borderGeometry_.setPreserveGeometry(false);
-        geometry_.markClean();
-        borderGeometry_.markClean();
-        dirtyMaterial_ = false;
-    }
-    return node;
+    return m_d->updateMapItemPaintNode(oldNode, data);
 }
 
 /*!
@@ -498,84 +435,30 @@ void QDeclarativeCircleMapItem::updatePolish()
 {
     if (!map() || map()->geoProjection().projectionType() != QGeoProjection::ProjectionWebMercator)
         return;
-    if (!circle_.isValid()) {
-        geometry_.clear();
-        borderGeometry_.clear();
-        setWidth(0);
-        setHeight(0);
+    m_d->updatePolish();
+}
+
+/*!
+    \internal
+
+    The OpenGL backend doesn't do circles crossing poles yet.
+    So if that backend is selected and the circle crosses the poles, use the CPU backend instead.
+*/
+void QDeclarativeCircleMapItem::possiblySwitchBackend(const QGeoCoordinate &oldCenter, qreal oldRadius, const QGeoCoordinate &newCenter, qreal newRadius)
+{
+    if (m_backend != QDeclarativeCircleMapItem::OpenGL)
         return;
+
+    // if old does not cross and new crosses, move to CPU.
+    if (!QDeclarativeCircleMapItemPrivate::crossEarthPole(oldCenter, oldRadius)
+            && !QDeclarativeCircleMapItemPrivate::crossEarthPole(newCenter, newRadius)) {
+        QScopedPointer<QDeclarativeCircleMapItemPrivate> d(static_cast<QDeclarativeCircleMapItemPrivate *>(new QDeclarativeCircleMapItemPrivateCPU(*this)));
+        m_d.swap(d);
+    } else if (QDeclarativeCircleMapItemPrivate::crossEarthPole(oldCenter, oldRadius)
+               && !QDeclarativeCircleMapItemPrivate::crossEarthPole(newCenter, newRadius)) { // else if old crosses and new does not cross, move back to OpenGL
+        QScopedPointer<QDeclarativeCircleMapItemPrivate> d(static_cast<QDeclarativeCircleMapItemPrivate *>(new QDeclarativeCircleMapItemPrivateOpenGL(*this)));
+        m_d.swap(d);
     }
-
-    const QGeoProjectionWebMercator &p = static_cast<const QGeoProjectionWebMercator&>(map()->geoProjection());
-    QScopedValueRollback<bool> rollback(updatingGeometry_);
-    updatingGeometry_ = true;
-
-    QList<QDoubleVector2D> circlePath = circlePath_;
-
-    int pathCount = circlePath.size();
-    bool preserve = preserveCircleGeometry(circlePath, circle_.center(), circle_.radius(), p);
-    // using leftBound_ instead of the analytically calculated circle_.boundingGeoRectangle().topLeft());
-    // to fix QTBUG-62154
-    geometry_.setPreserveGeometry(true, leftBound_); // to set the geoLeftBound_
-    geometry_.setPreserveGeometry(preserve, leftBound_);
-
-    bool invertedCircle = false;
-    if (crossEarthPole(circle_.center(), circle_.radius()) && circlePath.size() == pathCount) {
-        geometry_.updateScreenPointsInvert(circlePath, *map()); // invert fill area for really huge circles
-        invertedCircle = true;
-    } else {
-        geometry_.updateSourcePoints(*map(), circlePath);
-        geometry_.updateScreenPoints(*map(), border_.width());
-    }
-
-    borderGeometry_.clear();
-    QList<QGeoMapItemGeometry *> geoms;
-    geoms << &geometry_;
-
-    if (border_.color() != Qt::transparent && border_.width() > 0) {
-        QList<QDoubleVector2D> closedPath = circlePath;
-        closedPath << closedPath.first();
-
-        if (invertedCircle) {
-            closedPath = circlePath_;
-            closedPath << closedPath.first();
-            std::reverse(closedPath.begin(), closedPath.end());
-        }
-
-        borderGeometry_.setPreserveGeometry(true, leftBound_);
-        borderGeometry_.setPreserveGeometry(preserve, leftBound_);
-
-        // Use srcOrigin_ from fill geometry after clipping to ensure that translateToCommonOrigin won't fail.
-        const QGeoCoordinate &geometryOrigin = geometry_.origin();
-
-        borderGeometry_.srcPoints_.clear();
-        borderGeometry_.srcPointTypes_.clear();
-
-        QDoubleVector2D borderLeftBoundWrapped;
-        QList<QList<QDoubleVector2D > > clippedPaths = borderGeometry_.clipPath(*map(), closedPath, borderLeftBoundWrapped);
-        if (clippedPaths.size()) {
-            borderLeftBoundWrapped = p.geoToWrappedMapProjection(geometryOrigin);
-            borderGeometry_.pathToScreen(*map(), clippedPaths, borderLeftBoundWrapped);
-            borderGeometry_.updateScreenPoints(*map(), border_.width());
-            geoms << &borderGeometry_;
-        } else {
-            borderGeometry_.clear();
-        }
-    }
-
-    QRectF combined = QGeoMapItemGeometry::translateToCommonOrigin(geoms);
-
-    if (invertedCircle || !preserve) {
-        setWidth(combined.width());
-        setHeight(combined.height());
-        setPositionOnMap(geometry_.origin(), geometry_.firstPointOffset());
-    } else {
-        setWidth(combined.width() + 2 * border_.width());
-        setHeight(combined.height() + 2 * border_.width());
-    }
-
-    // No offsetting here, even in normal case, because first point offset is already translated
-    setPositionOnMap(geometry_.origin(), geometry_.firstPointOffset());
 }
 
 /*!
@@ -583,26 +466,10 @@ void QDeclarativeCircleMapItem::updatePolish()
 */
 void QDeclarativeCircleMapItem::afterViewportChanged(const QGeoMapViewportChangeEvent &event)
 {
-    if (event.mapSize.width() <= 0 || event.mapSize.height() <= 0)
+    if (event.mapSize.isEmpty())
         return;
 
-    markSourceDirtyAndUpdate();
-}
-
-/*!
-    \internal
-*/
-void QDeclarativeCircleMapItem::updateCirclePath()
-{
-    if (!map() || map()->geoProjection().projectionType() != QGeoProjection::ProjectionWebMercator)
-        return;
-
-    const QGeoProjectionWebMercator &p = static_cast<const QGeoProjectionWebMercator&>(map()->geoProjection());
-    QList<QGeoCoordinate> path;
-    calculatePeripheralPoints(path, circle_.center(), circle_.radius(), CircleSamples, leftBound_);
-    circlePath_.clear();
-    for (const QGeoCoordinate &c : path)
-        circlePath_ << p.geoToMapProjection(c);
+    m_d->afterViewportChanged();
 }
 
 /*!
@@ -610,30 +477,69 @@ void QDeclarativeCircleMapItem::updateCirclePath()
 */
 bool QDeclarativeCircleMapItem::contains(const QPointF &point) const
 {
-    return (geometry_.contains(point) || borderGeometry_.contains(point));
+    return m_d->contains(point);
+    //
 }
 
 const QGeoShape &QDeclarativeCircleMapItem::geoShape() const
 {
-    return circle_;
+    return m_circle;
 }
 
 void QDeclarativeCircleMapItem::setGeoShape(const QGeoShape &shape)
 {
-    if (shape == circle_)
+    if (shape == m_circle)
         return;
 
     const QGeoCircle circle(shape); // if shape isn't a circle, circle will be created as a default-constructed circle
-    const bool centerHasChanged = circle.center() != circle_.center();
-    const bool radiusHasChanged = circle.radius() != circle_.radius();
-    circle_ = circle;
+    const bool centerHasChanged = circle.center() != m_circle.center();
+    const bool radiusHasChanged = circle.radius() != m_circle.radius();
+    possiblySwitchBackend(m_circle.center(), m_circle.radius(), circle.center(), circle.radius());
+    m_circle = circle;
 
-    updateCirclePath();
-    markSourceDirtyAndUpdate();
+    m_d->onGeoGeometryChanged();
     if (centerHasChanged)
-        emit centerChanged(circle_.center());
+        emit centerChanged(m_circle.center());
     if (radiusHasChanged)
-        emit radiusChanged(circle_.radius());
+        emit radiusChanged(m_circle.radius());
+}
+
+/*!
+    \qmlproperty MapCircle.Backend QtLocation::MapCircle::backend
+
+    This property holds which backend is in use to render the map item.
+    Valid values are \b MapCircle.Software and \b{MapCircle.OpenGL}.
+    The default value is \b{MapCircle.Software}.
+
+    \note \b{The release of this API with Qt 5.15 is a Technology Preview}.
+    Ideally, as the OpenGL backends for map items mature, there will be
+    no more need to also offer the legacy software-projection backend.
+    So this property will likely disappear at some later point.
+    To select OpenGL-accelerated item backends without using this property,
+    it is also possible to set the environment variable \b QTLOCATION_OPENGL_ITEMS
+    to \b{1}.
+    Also note that all current OpenGL backends won't work as expected when enabling
+    layers on the individual item, or when running on OpenGL core profiles greater than 2.x.
+
+    \since 5.15
+*/
+
+QDeclarativeCircleMapItem::Backend QDeclarativeCircleMapItem::backend() const
+{
+    return m_backend;
+}
+
+void QDeclarativeCircleMapItem::setBackend(QDeclarativeCircleMapItem::Backend b)
+{
+    if (b == m_backend)
+        return;
+    m_backend = b;
+    QScopedPointer<QDeclarativeCircleMapItemPrivate> d((m_backend == Software)
+                                                        ? static_cast<QDeclarativeCircleMapItemPrivate *>(new QDeclarativeCircleMapItemPrivateCPU(*this))
+                                                        : static_cast<QDeclarativeCircleMapItemPrivate * >(new QDeclarativeCircleMapItemPrivateOpenGL(*this)));
+    m_d.swap(d);
+    m_d->onGeoGeometryChanged();
+    emit backendChanged();
 }
 
 /*!
@@ -641,21 +547,27 @@ void QDeclarativeCircleMapItem::setGeoShape(const QGeoShape &shape)
 */
 void QDeclarativeCircleMapItem::geometryChanged(const QRectF &newGeometry, const QRectF &oldGeometry)
 {
-    if (!map() || !circle_.isValid() || updatingGeometry_ || newGeometry == oldGeometry) {
+    if (!map() || !m_circle.isValid() || m_updatingGeometry || newGeometry == oldGeometry) {
         QDeclarativeGeoMapItemBase::geometryChanged(newGeometry, oldGeometry);
         return;
     }
 
-    QDoubleVector2D newPoint = QDoubleVector2D(x(),y()) + QDoubleVector2D(width(), height()) / 2;
+    QDoubleVector2D newPoint = QDoubleVector2D(x(),y()) + QDoubleVector2D(width(), height()) * 0.5;
     QGeoCoordinate newCoordinate = map()->geoProjection().itemPositionToCoordinate(newPoint, false);
     if (newCoordinate.isValid())
-        setCenter(newCoordinate);
+        setCenter(newCoordinate); // ToDo: this is incorrect. setting such center might yield to another geometry changed.
 
     // Not calling QDeclarativeGeoMapItemBase::geometryChanged() as it will be called from a nested
     // call to this function.
 }
 
-bool QDeclarativeCircleMapItem::preserveCircleGeometry (QList<QDoubleVector2D> &path,
+QDeclarativeCircleMapItemPrivate::~QDeclarativeCircleMapItemPrivate() {}
+
+QDeclarativeCircleMapItemPrivateCPU::~QDeclarativeCircleMapItemPrivateCPU() {}
+
+QDeclarativeCircleMapItemPrivateOpenGL::~QDeclarativeCircleMapItemPrivateOpenGL() {}
+
+bool QDeclarativeCircleMapItemPrivate::preserveCircleGeometry (QList<QDoubleVector2D> &path,
                                     const QGeoCoordinate &center, qreal distance, const QGeoProjectionWebMercator &p)
 {
     // if circle crosses north/south pole, then don't preserve circular shape,
@@ -664,7 +576,6 @@ bool QDeclarativeCircleMapItem::preserveCircleGeometry (QList<QDoubleVector2D> &
         return false;
     }
     return true;
-
 }
 
 /*
@@ -684,7 +595,7 @@ bool QDeclarativeCircleMapItem::preserveCircleGeometry (QList<QDoubleVector2D> &
  *  |    ____    |
  *   \__/    \__/
  */
-void QDeclarativeCircleMapItem::updateCirclePathForRendering(QList<QDoubleVector2D> &path,
+void QDeclarativeCircleMapItemPrivate::updateCirclePathForRendering(QList<QDoubleVector2D> &path,
                                                              const QGeoCoordinate &center,
                                                              qreal distance, const QGeoProjectionWebMercator &p)
 {
@@ -741,6 +652,66 @@ void QDeclarativeCircleMapItem::updateCirclePathForRendering(QList<QDoubleVector
             newPoleLat = 1.0 - newPoleLat;
         }
     }
+}
+
+bool QDeclarativeCircleMapItemPrivate::crossEarthPole(const QGeoCoordinate &center, qreal distance)
+{
+    qreal poleLat = 90;
+    QGeoCoordinate northPole = QGeoCoordinate(poleLat, center.longitude());
+    QGeoCoordinate southPole = QGeoCoordinate(-poleLat, center.longitude());
+    // approximate using great circle distance
+    qreal distanceToNorthPole = center.distanceTo(northPole);
+    qreal distanceToSouthPole = center.distanceTo(southPole);
+    if (distanceToNorthPole < distance || distanceToSouthPole < distance)
+        return true;
+    return false;
+}
+
+void QDeclarativeCircleMapItemPrivate::calculatePeripheralPoints(QList<QGeoCoordinate> &path,
+                                      const QGeoCoordinate &center,
+                                      qreal distance,
+                                      int steps,
+                                      QGeoCoordinate &leftBound)
+{
+    // Calculate points based on great-circle distance
+    // Calculation is the same as GeoCoordinate's atDistanceAndAzimuth function
+    // but tweaked here for computing multiple points
+
+    // pre-calculations
+    steps = qMax(steps, 3);
+    qreal centerLon = center.longitude();
+    qreal minLon = centerLon;
+    qreal latRad = QLocationUtils::radians(center.latitude());
+    qreal lonRad = QLocationUtils::radians(centerLon);
+    qreal cosLatRad = std::cos(latRad);
+    qreal sinLatRad = std::sin(latRad);
+    qreal ratio = (distance / QLocationUtils::earthMeanRadius());
+    qreal cosRatio = std::cos(ratio);
+    qreal sinRatio = std::sin(ratio);
+    qreal sinLatRad_x_cosRatio = sinLatRad * cosRatio;
+    qreal cosLatRad_x_sinRatio = cosLatRad * sinRatio;
+    int idx = 0;
+    for (int i = 0; i < steps; ++i) {
+        qreal azimuthRad = 2 * M_PI * i / steps;
+        qreal resultLatRad = std::asin(sinLatRad_x_cosRatio
+                                   + cosLatRad_x_sinRatio * std::cos(azimuthRad));
+        qreal resultLonRad = lonRad + std::atan2(std::sin(azimuthRad) * cosLatRad_x_sinRatio,
+                                       cosRatio - sinLatRad * std::sin(resultLatRad));
+        qreal lat2 = QLocationUtils::degrees(resultLatRad);
+        qreal lon2 = QLocationUtils::wrapLong(QLocationUtils::degrees(resultLonRad));
+
+        path << QGeoCoordinate(lat2, lon2, center.altitude());
+        // Consider only points in the left half of the circle for the left bound.
+        if (azimuthRad > M_PI) {
+            if (lon2 > centerLon) // if point and center are on different hemispheres
+                lon2 -= 360;
+            if (lon2 < minLon) {
+                minLon = lon2;
+                idx = i;
+            }
+        }
+    }
+    leftBound = path.at(idx);
 }
 
 //////////////////////////////////////////////////////////////////////

@@ -83,9 +83,9 @@ public:
         FromString,
         DateTimeEdit
     };
-    QDateTimeParser(QVariant::Type t, Context ctx, const QCalendar &cal = QCalendar())
-        : currentSectionIndex(-1), display(nullptr), cachedDay(-1), parserType(t),
-        fixday(false), spec(Qt::LocalTime), context(ctx), calendar(cal)
+    QDateTimeParser(QMetaType::Type t, Context ctx, const QCalendar &cal = QCalendar())
+        : currentSectionIndex(-1), cachedDay(-1), parserType(t),
+        fixday(false), context(ctx), calendar(cal)
     {
         defaultLocale = QLocale::system();
         first.type = FirstSection;
@@ -181,6 +181,7 @@ public:
 #if QT_CONFIG(datestring)
     StateNode parse(QString input, int position, const QDateTime &defaultValue, bool fixup) const;
     bool fromString(const QString &text, QDate *date, QTime *time) const;
+    bool fromString(const QString &text, QDateTime* datetime) const;
 #endif
     bool parseFormat(const QString &format);
 
@@ -220,12 +221,12 @@ private:
                   int year, QString *monthName = nullptr, int *used = nullptr) const;
     int findDay(const QString &str1, int intDaystart, int sectionIndex,
                 QString *dayName = nullptr, int *used = nullptr) const;
+    ParsedSection findUtcOffset(QStringRef str) const;
+    ParsedSection findTimeZoneName(QStringRef str, const QDateTime &when) const;
     ParsedSection findTimeZone(QStringRef str, const QDateTime &when,
                                int maxVal, int minVal) const;
-#if QT_CONFIG(timezone)
     // Implemented in qdatetime.cpp:
     static int startsWithLocalTimeZone(const QStringRef name);
-#endif
 
     enum AmPmFinder {
         Neither = -1,
@@ -295,9 +296,8 @@ protected: // for the benefit of QDateTimeEditPrivate
     QStringList separators;
     QString displayFormat;
     QLocale defaultLocale;
-    QVariant::Type parserType;
+    QMetaType::Type parserType;
     bool fixday;
-    Qt::TimeSpec spec; // spec if used by QDateTimeEdit
     Context context;
     QCalendar calendar;
 };

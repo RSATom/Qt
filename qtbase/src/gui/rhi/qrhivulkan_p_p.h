@@ -76,6 +76,7 @@ struct QVkBuffer : public QRhiBuffer
     ~QVkBuffer();
     void release() override;
     bool build() override;
+    QRhiBuffer::NativeBuffer nativeBuffer() override;
 
     VkBuffer buffers[QVK_FRAMES_IN_FLIGHT];
     QVkAlloc allocations[QVK_FRAMES_IN_FLIGHT];
@@ -120,8 +121,9 @@ struct QVkTexture : public QRhiTexture
     ~QVkTexture();
     void release() override;
     bool build() override;
-    bool buildFrom(const QRhiNativeHandles *src) override;
-    const QRhiNativeHandles *nativeHandles() override;
+    bool buildFrom(NativeTexture src) override;
+    NativeTexture nativeTexture() override;
+    void setNativeLayout(int layout) override;
 
     bool prepareBuild(QSize *adjustedSize = nullptr);
     bool finishBuild();
@@ -134,7 +136,6 @@ struct QVkTexture : public QRhiTexture
     QVkAlloc stagingAllocations[QVK_FRAMES_IN_FLIGHT];
     VkImageView perLevelImageViews[QRhi::MAX_LEVELS];
     bool owns = true;
-    QRhiVulkanTextureNativeHandles nativeHandlesStruct;
     struct UsageState {
         // no tracking of subresource layouts (some operations can keep
         // subresources in different layouts for some time, but that does not
@@ -155,7 +156,7 @@ struct QVkTexture : public QRhiTexture
 struct QVkSampler : public QRhiSampler
 {
     QVkSampler(QRhiImplementation *rhi, Filter magFilter, Filter minFilter, Filter mipmapMode,
-               AddressMode u, AddressMode v);
+               AddressMode u, AddressMode v, AddressMode w);
     ~QVkSampler();
     void release() override;
     bool build() override;
@@ -171,10 +172,16 @@ struct QVkRenderPassDescriptor : public QRhiRenderPassDescriptor
     QVkRenderPassDescriptor(QRhiImplementation *rhi);
     ~QVkRenderPassDescriptor();
     void release() override;
+    bool isCompatible(const QRhiRenderPassDescriptor *other) const override;
     const QRhiNativeHandles *nativeHandles() override;
 
     VkRenderPass rp = VK_NULL_HANDLE;
     bool ownsRp = false;
+    QVarLengthArray<VkAttachmentDescription, 8> attDescs;
+    QVarLengthArray<VkAttachmentReference, 8> colorRefs;
+    QVarLengthArray<VkAttachmentReference, 8> resolveRefs;
+    bool hasDepthStencil = false;
+    VkAttachmentReference dsRef;
     QRhiVulkanRenderPassNativeHandles nativeHandlesStruct;
     int lastActiveFrameSlot = -1;
 };
@@ -247,10 +254,13 @@ struct QVkShaderResourceBindings : public QRhiShaderResourceBindings
         uint generation;
     };
     struct BoundSampledTextureData {
-        quint64 texId;
-        uint texGeneration;
-        quint64 samplerId;
-        uint samplerGeneration;
+        int count;
+        struct {
+            quint64 texId;
+            uint texGeneration;
+            quint64 samplerId;
+            uint samplerGeneration;
+        } d[QRhiShaderResourceBinding::Data::MAX_TEX_SAMPLER_ARRAY_SIZE];
     };
     struct BoundStorageImageData {
         quint64 id;
@@ -365,6 +375,13 @@ struct QVkCommandBuffer : public QRhiCommandBuffer
     QVarLengthArray<VkCommandBuffer, 4> secondaryCbs;
     bool inExternal;
 
+    struct {
+        QHash<QRhiResource *, QPair<VkAccessFlags, bool> > writtenResources;
+        void reset() {
+            writtenResources.clear();
+        }
+    } computePassState;
+
     struct Command {
         enum Cmd {
             CopyBuffer,
@@ -424,12 +441,14 @@ struct QVkCommandBuffer : public QRhiCommandBuffer
             struct {
                 VkPipelineStageFlags srcStageMask;
                 VkPipelineStageFlags dstStageMask;
-                VkImageMemoryBarrier desc;
+                int count;
+                int index;
             } imageBarrier;
             struct {
                 VkPipelineStageFlags srcStageMask;
                 VkPipelineStageFlags dstStageMask;
-                VkBufferMemoryBarrier desc;
+                int count;
+                int index;
             } bufferBarrier;
             struct {
                 VkImage src;
@@ -532,6 +551,8 @@ struct QVkCommandBuffer : public QRhiCommandBuffer
         pools.vertexBuffer.clear();
         pools.vertexBufferOffset.clear();
         pools.debugMarkerData.clear();
+        pools.imageBarrier.clear();
+        pools.bufferBarrier.clear();
     }
 
     struct {
@@ -541,6 +562,8 @@ struct QVkCommandBuffer : public QRhiCommandBuffer
         QVarLengthArray<VkBuffer, 4> vertexBuffer;
         QVarLengthArray<VkDeviceSize, 4> vertexBufferOffset;
         QVarLengthArray<QByteArray, 4> debugMarkerData;
+        QVarLengthArray<VkImageMemoryBarrier, 8> imageBarrier;
+        QVarLengthArray<VkBufferMemoryBarrier, 8> bufferBarrier;
     } pools;
 
     friend class QRhiVulkan;
@@ -639,9 +662,12 @@ public:
                                const QSize &pixelSize,
                                int sampleCount,
                                QRhiTexture::Flags flags) override;
-    QRhiSampler *createSampler(QRhiSampler::Filter magFilter, QRhiSampler::Filter minFilter,
+    QRhiSampler *createSampler(QRhiSampler::Filter magFilter,
+                               QRhiSampler::Filter minFilter,
                                QRhiSampler::Filter mipmapMode,
-                               QRhiSampler:: AddressMode u, QRhiSampler::AddressMode v) override;
+                               QRhiSampler:: AddressMode u,
+                               QRhiSampler::AddressMode v,
+                               QRhiSampler::AddressMode w) override;
 
     QRhiTextureRenderTarget *createTextureRenderTarget(const QRhiTextureRenderTargetDescription &desc,
                                                        QRhiTextureRenderTarget::Flags flags) override;
@@ -727,11 +753,11 @@ public:
 
     VkFormat optimalDepthStencilFormat();
     VkSampleCountFlagBits effectiveSampleCount(int sampleCount);
-    bool createDefaultRenderPass(VkRenderPass *rp,
+    bool createDefaultRenderPass(QVkRenderPassDescriptor *rpD,
                                  bool hasDepthStencil,
                                  VkSampleCountFlagBits samples,
                                  VkFormat colorFormat);
-    bool createOffscreenRenderPass(VkRenderPass *rp,
+    bool createOffscreenRenderPass(QVkRenderPassDescriptor *rpD,
                                    const QRhiColorAttachment *firstColorAttachment,
                                    const QRhiColorAttachment *lastColorAttachment,
                                    bool preserveColor,
@@ -756,7 +782,7 @@ public:
                              size_t *curOfs, void *mp,
                              BufferImageCopyList *copyInfos);
     void enqueueResourceUpdates(QVkCommandBuffer *cbD, QRhiResourceUpdateBatch *resourceUpdates);
-    void executeBufferHostWritesForCurrentFrame(QVkBuffer *bufD);
+    void executeBufferHostWritesForSlot(QVkBuffer *bufD, int slot);
     void enqueueTransitionPassResources(QVkCommandBuffer *cbD);
     void recordPrimaryCommandBuffer(QVkCommandBuffer *cbD);
     void trackedRegisterBuffer(QRhiPassResourceTracker *passResTracker,
@@ -788,6 +814,7 @@ public:
 
     QVulkanInstance *inst = nullptr;
     QWindow *maybeWindow = nullptr;
+    QByteArrayList requestedDeviceExtensions;
     bool importedDevice = false;
     VkPhysicalDevice physDev = VK_NULL_HANDLE;
     VkDevice dev = VK_NULL_HANDLE;

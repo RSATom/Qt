@@ -68,7 +68,7 @@ class MenuModelBase : public ui::MenuModel {
 
   int GetGroupIdAt(int index) const override { return 0; }
 
-  bool GetIconAt(int index, gfx::Image* icon) override { return false; }
+  bool GetIconAt(int index, gfx::Image* icon) const override { return false; }
 
   ui::ButtonMenuItemModel* GetButtonMenuItemAt(int index) const override {
     return nullptr;
@@ -213,6 +213,9 @@ void CheckSubmenu(const RootModel& model,
 
     // Check type.
     switch (model_item.type) {
+      case ui::MenuModel::TYPE_TITLE:
+        EXPECT_EQ(views::MenuItemView::TITLE, item->GetType());
+        break;
       case ui::MenuModel::TYPE_COMMAND:
         EXPECT_EQ(views::MenuItemView::NORMAL, item->GetType());
         break;
@@ -287,6 +290,9 @@ TEST_F(MenuModelAdapterTest, BasicTest) {
 
     // Check type.
     switch (model_item.type) {
+      case ui::MenuModel::TYPE_TITLE:
+        EXPECT_EQ(views::MenuItemView::TITLE, item->GetType());
+        break;
       case ui::MenuModel::TYPE_COMMAND:
         EXPECT_EQ(views::MenuItemView::NORMAL, item->GetType());
         break;

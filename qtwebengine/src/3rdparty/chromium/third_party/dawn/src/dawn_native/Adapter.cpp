@@ -38,6 +38,31 @@ namespace dawn_native {
         return mInstance;
     }
 
+    ExtensionsSet AdapterBase::GetSupportedExtensions() const {
+        return mSupportedExtensions;
+    }
+
+    bool AdapterBase::SupportsAllRequestedExtensions(
+        const std::vector<const char*>& requestedExtensions) const {
+        for (const char* extensionStr : requestedExtensions) {
+            Extension extensionEnum = mInstance->ExtensionNameToEnum(extensionStr);
+            if (extensionEnum == Extension::InvalidEnum) {
+                return false;
+            }
+            if (!mSupportedExtensions.IsEnabled(extensionEnum)) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    WGPUDeviceProperties AdapterBase::GetAdapterProperties() const {
+        WGPUDeviceProperties adapterProperties = {};
+
+        mSupportedExtensions.InitializeDeviceProperties(&adapterProperties);
+        return adapterProperties;
+    }
+
     DeviceBase* AdapterBase::CreateDevice(const DeviceDescriptor* descriptor) {
         DeviceBase* result = nullptr;
 
@@ -50,6 +75,12 @@ namespace dawn_native {
 
     MaybeError AdapterBase::CreateDeviceInternal(DeviceBase** result,
                                                  const DeviceDescriptor* descriptor) {
+        if (descriptor != nullptr) {
+            if (!SupportsAllRequestedExtensions(descriptor->requiredExtensions)) {
+                return DAWN_VALIDATION_ERROR("One or more requested extensions are not supported");
+            }
+        }
+
         // TODO(cwallez@chromium.org): This will eventually have validation that the device
         // descriptor is valid and is a subset what's allowed on this adapter.
         DAWN_TRY_ASSIGN(*result, CreateDeviceImpl(descriptor));

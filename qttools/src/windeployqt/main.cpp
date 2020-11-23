@@ -274,6 +274,7 @@ struct Options {
     QStringList qmlImportPaths; // Custom QML module locations.
     QString directory;
     QString translationsDirectory; // Translations target directory
+    QStringList languages;
     QString libraryDirectory;
     QString pluginDirectory;
     QStringList binaries;
@@ -283,6 +284,7 @@ struct Options {
     bool deployPdb = false;
     bool dryRun = false;
     bool patchQt = true;
+    bool ignoreLibraryErrors = false;
 
     inline bool isWinRt() const { return platform.testFlag(WinRt); }
 };
@@ -372,6 +374,10 @@ static inline int parseArguments(const QStringList &arguments, QCommandLineParse
                                        QStringLiteral("Do not patch the Qt5Core library."));
     parser->addOption(noPatchQtOption);
 
+    QCommandLineOption ignoreErrorOption(QStringLiteral("ignore-library-errors"),
+                                         QStringLiteral("Ignore errors when libraries cannot be found."));
+    parser->addOption(ignoreErrorOption);
+
     QCommandLineOption noPluginsOption(QStringLiteral("no-plugins"),
                                        QStringLiteral("Skip plugin deployment."));
     parser->addOption(noPluginsOption);
@@ -393,6 +399,12 @@ static inline int parseArguments(const QStringList &arguments, QCommandLineParse
     QCommandLineOption noQuickImportOption(QStringLiteral("no-quick-import"),
                                            QStringLiteral("Skip deployment of Qt Quick imports."));
     parser->addOption(noQuickImportOption);
+
+
+    QCommandLineOption translationOption(QStringLiteral("translations"),
+                                         QStringLiteral("A comma-separated list of languages to deploy (de,fi)."),
+                                         QStringLiteral("languages"));
+    parser->addOption(translationOption);
 
     QCommandLineOption noTranslationOption(QStringLiteral("no-translations"),
                                            QStringLiteral("Skip deployment of translations."));
@@ -492,6 +504,8 @@ static inline int parseArguments(const QStringList &arguments, QCommandLineParse
     options->plugins = !parser->isSet(noPluginsOption);
     options->libraries = !parser->isSet(noLibraryOption);
     options->translations = !parser->isSet(noTranslationOption);
+    if (parser->isSet(translationOption))
+        options->languages = parser->value(translationOption).split(QLatin1Char(','));
     options->systemD3dCompiler = !parser->isSet(noSystemD3DCompilerOption);
     options->quickImports = !parser->isSet(noQuickImportOption);
 
@@ -553,6 +567,7 @@ static inline int parseArguments(const QStringList &arguments, QCommandLineParse
     }
 
     options->patchQt = !parser->isSet(noPatchQtOption);
+    options->ignoreLibraryErrors = parser->isSet(ignoreErrorOption);
 
     for (int i = 0; i < qtModulesCount; ++i) {
         if (parser->isSet(*enabledModuleOptions.at(i)))
@@ -848,6 +863,7 @@ static const PluginModuleMapping pluginModuleMappings[] =
     {"qtwebengine", QtWebEngineModule | QtWebEngineCoreModule | QtWebEngineWidgetsModule},
     {"styles", QtWidgetsModule},
     {"sceneparsers", Qt3DRendererModule},
+    {"renderers", Qt3DRendererModule},
     {"renderplugins", Qt3DRendererModule},
     {"geometryloaders", Qt3DRendererModule},
     {"webview", QtWebViewModule}
@@ -996,9 +1012,9 @@ static bool deployTranslations(const QString &sourcePath, quint64 usedQtModules,
     const QStringList qmFilter = QStringList(QStringLiteral("qtbase_*.qm"));
     const QFileInfoList &qmFiles = sourceDir.entryInfoList(qmFilter);
     for (const QFileInfo &qmFi : qmFiles) {
-        QString qmFile = qmFi.baseName();
-        qmFile.remove(0, 7);
-        prefixes.push_back(qmFile);
+        const QString prefix = qmFi.baseName().mid(7);
+        if (options.languages.isEmpty() || options.languages.contains(prefix))
+            prefixes.append(prefix);
     }
     if (prefixes.isEmpty()) {
         std::wcerr << "Warning: Could not find any translations in "
@@ -1202,9 +1218,15 @@ static inline QString qtlibInfixFromCoreLibName(const QString &path, bool isDebu
 static bool updateLibrary(const QString &sourceFileName, const QString &targetDirectory,
                           const Options &options, QString *errorMessage)
 {
-
-    if (!updateFile(sourceFileName, targetDirectory, options.updateFileFlags, options.json, errorMessage))
+    if (!updateFile(sourceFileName, targetDirectory, options.updateFileFlags, options.json, errorMessage)) {
+        if (options.ignoreLibraryErrors) {
+            std::wcerr << "Warning: Could not update " << sourceFileName << " :" << *errorMessage << '\n';
+            errorMessage->clear();
+            return true;
+        }
         return false;
+    }
+
     if (options.deployPdb) {
         const QFileInfo pdb(pdbFileName(sourceFileName));
         if (pdb.isFile())

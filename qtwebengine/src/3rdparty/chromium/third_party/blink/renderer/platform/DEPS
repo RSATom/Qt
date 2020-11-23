@@ -6,6 +6,7 @@ include_rules = [
     "+base/bind.h",
     "+base/bind_helpers.h",
     "+base/bit_cast.h",
+    "+base/command_line.h",
     "+base/compiler_specific.h",
     "+base/cpu.h",
     "+base/feature_list.h",
@@ -28,6 +29,7 @@ include_rules = [
     "+base/metrics/sparse_histogram.h",
     "+base/numerics/checked_math.h",
     "+base/numerics/safe_conversions.h",
+    "+base/process/memory.h",
     "+base/rand_util.h",
     "+base/run_loop.h",
     "+base/strings/pattern.h",
@@ -55,15 +57,19 @@ include_rules = [
     "+gpu/command_buffer/common/sync_token.h",
     "+mojo/public",
     "+mozilla",
+    "+services/metrics/public/cpp/metrics_utils.h",
+    "+services/metrics/public/cpp/ukm_builders.h",
     "+services/metrics/public/cpp/ukm_entry_builder.h",
     "+services/metrics/public/cpp/ukm_recorder.h",
-    "+services/viz/public/interfaces/compositing/compositor_frame_sink.mojom-blink.h",
+    "+services/metrics/public/cpp/ukm_source_id.h",
+    "+services/viz/public/mojom/compositing/compositor_frame_sink.mojom-blink.h",
     "+skia/ext",
     #TODO(nverne): remove this
     "+third_party/blink/public/web/blink.h",
     "+third_party/ced/src/compact_enc_det/compact_enc_det.h",
     "+third_party/khronos",
     "+third_party/skia",
+    "+ui/base/resource/scale_factor.h",
     "+ui/gfx",
     "+url",
     "+webp",
@@ -84,9 +90,5 @@ specific_include_rules = {
     ],
     "ukm_time_aggregator_test.cc" : [
         "+components/ukm/test_ukm_recorder.h"
-    ],
-    "data_resource_helper.cc" : [
-        "+third_party/zlib/google/compression_utils.h",
-        "+ui/base/resource",
     ],
 }

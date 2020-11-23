@@ -175,6 +175,7 @@ private slots:
     void checkSyncView_differentSizedModels();
     void checkSyncView_connect_late_data();
     void checkSyncView_connect_late();
+    void delegateWithRequiredProperties();
     void checkThatFetchMoreIsCalledWhenScrolledToTheEndOfTable();
     void replaceModel();
 };
@@ -1315,15 +1316,22 @@ void tst_QQuickTableView::checkSpacingValues()
     QCOMPARE(tableView->contentWidth(), expectedInitialContentWidth);
     QCOMPARE(tableView->contentHeight(), expectedInitialContentHeight);
 
-    // Invalid assignments (should ignore)
+    // Negative spacing is allowed, and can be used to eliminate double edges
+    // in the grid if the delegate is a rectangle with a border.
     tableView->setRowSpacing(-1);
-    tableView->setColumnSpacing(-5);
+    tableView->setColumnSpacing(-1);
+    QCOMPARE(tableView->rowSpacing(), -1);
+    QCOMPARE(tableView->columnSpacing(), -1);
+
+    tableView->setRowSpacing(10);
+    tableView->setColumnSpacing(10);
+    // Invalid assignments (should ignore)
     tableView->setRowSpacing(INFINITY);
     tableView->setColumnSpacing(INFINITY);
     tableView->setRowSpacing(NAN);
     tableView->setColumnSpacing(NAN);
-    QCOMPARE(tableView->rowSpacing(), 42);
-    QCOMPARE(tableView->columnSpacing(), 12);
+    QCOMPARE(tableView->rowSpacing(), 10);
+    QCOMPARE(tableView->columnSpacing(), 10);
 }
 
 void tst_QQuickTableView::checkDelegateParent()
@@ -2699,6 +2707,50 @@ void tst_QQuickTableView::checkThatFetchMoreIsCalledWhenScrolledToTheEndOfTable(
 
     QCOMPARE(tableView->rows(), 6);
     QCOMPARE(tableView->columns(), 5);
+}
+
+void tst_QQuickTableView::delegateWithRequiredProperties()
+{
+    constexpr static int PositionRole = Qt::UserRole+1;
+    struct MyTable : QAbstractTableModel {
+
+
+        using QAbstractTableModel::QAbstractTableModel;
+
+        int rowCount(const QModelIndex& = QModelIndex()) const override {
+            return 3;
+        }
+
+        int columnCount(const QModelIndex& = QModelIndex()) const override {
+            return 3;
+        }
+
+        QVariant data(const QModelIndex &index, int = Qt::DisplayRole) const override {
+            return QVariant::fromValue(QString::asprintf("R%d:C%d", index.row(), index.column()));
+        }
+
+        QHash<int, QByteArray> roleNames() const override {
+            return QHash<int, QByteArray> { {PositionRole, "position"} };
+        }
+    };
+
+    auto model =  QVariant::fromValue(QSharedPointer<MyTable>(new MyTable));
+    {
+        QTest::ignoreMessage(QtMsgType::QtInfoMsg, "success");
+        LOAD_TABLEVIEW("delegateWithRequired.qml");
+        QVERIFY(tableView);
+        tableView->setModel(model);
+        WAIT_UNTIL_POLISHED;
+        QVERIFY(view->errors().empty());
+    }
+    {
+        QTest::ignoreMessage(QtMsgType::QtWarningMsg, QRegularExpression(R"|(TableView: failed loading index: \d)|"));
+        LOAD_TABLEVIEW("delegatewithRequiredUnset.qml");
+        QVERIFY(tableView);
+        tableView->setModel(model);
+        WAIT_UNTIL_POLISHED;
+        QTRY_VERIFY(view->errors().empty());
+    }
 }
 
 void tst_QQuickTableView::replaceModel()

@@ -95,6 +95,12 @@ source_set("libpng_sources") {
     ]
   }
 
+  if ((current_cpu == "arm" || current_cpu == "arm64") && !arm_use_neon) {
+    defines += [
+      "PNG_ARM_NEON_OPT=0"
+    ]
+  }
+
   configs -= [ "//build/config/compiler:chromium_code" ]
   configs += [ "//build/config/compiler:no_chromium_code" ]
 

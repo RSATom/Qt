@@ -44,6 +44,7 @@
 #include "third_party/blink/renderer/core/dom/whitespace_attacher.h"
 #include "third_party/blink/renderer/core/events/mutation_event.h"
 #include "third_party/blink/renderer/core/frame/local_frame_view.h"
+#include "third_party/blink/renderer/core/frame/web_feature.h"
 #include "third_party/blink/renderer/core/html/forms/radio_node_list.h"
 #include "third_party/blink/renderer/core/html/html_collection.h"
 #include "third_party/blink/renderer/core/html/html_frame_owner_element.h"
@@ -485,7 +486,7 @@ void ContainerNode::ParserInsertBefore(Node* new_child, Node& next_child) {
   DCHECK(new_child);
   DCHECK_EQ(next_child.parentNode(), this);
   DCHECK(!new_child->IsDocumentFragment());
-  DCHECK(!IsHTMLTemplateElement(this));
+  DCHECK(!IsA<HTMLTemplateElement>(this));
 
   if (next_child.previousSibling() == new_child ||
       &next_child == new_child)  // nothing to do
@@ -869,7 +870,7 @@ Node* ContainerNode::AppendChild(Node* new_child) {
 void ContainerNode::ParserAppendChild(Node* new_child) {
   DCHECK(new_child);
   DCHECK(!new_child->IsDocumentFragment());
-  DCHECK(!IsHTMLTemplateElement(this));
+  DCHECK(!IsA<HTMLTemplateElement>(this));
 
   RUNTIME_CALL_TIMER_SCOPE(V8PerIsolateData::MainThreadIsolate(),
                            RuntimeCallStats::CounterId::kParserAppendChild);
@@ -977,8 +978,8 @@ void ContainerNode::RemovedFrom(ContainerNode& insertion_point) {
 DISABLE_CFI_PERF
 void ContainerNode::AttachLayoutTree(AttachContext& context) {
   auto* element = DynamicTo<Element>(this);
-  if (element &&
-      element->StyleRecalcBlockedByDisplayLock(DisplayLockContext::kChildren)) {
+  if (element && element->StyleRecalcBlockedByDisplayLock(
+                     DisplayLockLifecycleTarget::kChildren)) {
     // Since we block style recalc on descendants of this node due to display
     // locking, none of its descendants should have the NeedsReattachLayoutTree
     // bit set.
@@ -1024,8 +1025,10 @@ void ContainerNode::ChildrenChanged(const ChildrenChange& change) {
     return;
   }
   Node* inserted_node = change.sibling_changed;
-  if (inserted_node->IsContainerNode() || inserted_node->IsTextNode())
+  if (inserted_node->IsContainerNode() || inserted_node->IsTextNode()) {
+    inserted_node->ClearFlatTreeNodeDataIfHostChanged(*this);
     inserted_node->SetStyleChangeOnInsertion();
+  }
 }
 
 void ContainerNode::CloneChildNodesFrom(const ContainerNode& node) {
@@ -1048,7 +1051,7 @@ void ContainerNode::FocusStateChanged() {
     return;
 
   StyleChangeType change_type =
-      GetComputedStyle()->HasPseudoStyle(kPseudoIdFirstLetter)
+      GetComputedStyle()->HasPseudoElementStyle(kPseudoIdFirstLetter)
           ? kSubtreeStyleChange
           : kLocalStyleChange;
   SetNeedsStyleRecalc(
@@ -1069,7 +1072,7 @@ void ContainerNode::FocusVisibleStateChanged() {
   if (!RuntimeEnabledFeatures::CSSFocusVisibleEnabled())
     return;
   StyleChangeType change_type =
-      GetComputedStyle()->HasPseudoStyle(kPseudoIdFirstLetter)
+      GetComputedStyle()->HasPseudoElementStyle(kPseudoIdFirstLetter)
           ? kSubtreeStyleChange
           : kLocalStyleChange;
   SetNeedsStyleRecalc(change_type,
@@ -1085,7 +1088,7 @@ void ContainerNode::FocusVisibleStateChanged() {
 void ContainerNode::FocusWithinStateChanged() {
   if (GetComputedStyle() && GetComputedStyle()->AffectedByFocusWithin()) {
     StyleChangeType change_type =
-        GetComputedStyle()->HasPseudoStyle(kPseudoIdFirstLetter)
+        GetComputedStyle()->HasPseudoElementStyle(kPseudoIdFirstLetter)
             ? kSubtreeStyleChange
             : kLocalStyleChange;
     SetNeedsStyleRecalc(change_type,
@@ -1194,7 +1197,7 @@ void ContainerNode::SetDragged(bool new_value) {
 
   if (GetComputedStyle()->AffectedByDrag()) {
     StyleChangeType change_type =
-        GetComputedStyle()->HasPseudoStyle(kPseudoIdFirstLetter)
+        GetComputedStyle()->HasPseudoElementStyle(kPseudoIdFirstLetter)
             ? kSubtreeStyleChange
             : kLocalStyleChange;
     SetNeedsStyleRecalc(change_type,
@@ -1391,7 +1394,7 @@ void ContainerNode::RebuildChildrenLayoutTrees(
   DCHECK(!NeedsReattachLayoutTree());
 
   if (IsActiveSlotOrActiveV0InsertionPoint()) {
-    if (auto* slot = ToHTMLSlotElementOrNull(this)) {
+    if (auto* slot = DynamicTo<HTMLSlotElement>(this)) {
       slot->RebuildDistributedChildrenLayoutTrees(whitespace_attacher);
     } else {
       To<V0InsertionPoint>(this)->RebuildDistributedChildrenLayoutTrees(
@@ -1414,7 +1417,7 @@ void ContainerNode::CheckForSiblingStyleChanges(SiblingCheckType change_type,
                                                 Node* node_before_change,
                                                 Node* node_after_change) {
   if (!InActiveDocument() || GetDocument().HasPendingForcedStyleRecalc() ||
-      GetStyleChangeType() >= kSubtreeStyleChange)
+      GetStyleChangeType() == kSubtreeStyleChange)
     return;
 
   if (!HasRestyleFlag(DynamicRestyleFlags::kChildrenAffectedByStructuralRules))
@@ -1553,7 +1556,7 @@ ClassCollection* ContainerNode::getElementsByClassName(
 
 RadioNodeList* ContainerNode::GetRadioNodeList(const AtomicString& name,
                                                bool only_match_img_elements) {
-  DCHECK(IsHTMLFormElement(this) || IsHTMLFieldSetElement(this));
+  DCHECK(IsA<HTMLFormElement>(this) || IsA<HTMLFieldSetElement>(this));
   CollectionType type =
       only_match_img_elements ? kRadioImgNodeListType : kRadioNodeListType;
   return EnsureCachedCollection<RadioNodeList>(type, name);

@@ -22,6 +22,7 @@
 
 #include "third_party/blink/renderer/core/html/html_plugin_element.h"
 
+#include "third_party/blink/public/mojom/feature_policy/feature_policy.mojom-blink.h"
 #include "third_party/blink/public/mojom/loader/request_context_frame_type.mojom-blink.h"
 #include "third_party/blink/public/platform/web_url_request.h"
 #include "third_party/blink/renderer/bindings/core/v8/script_controller.h"
@@ -52,6 +53,7 @@
 #include "third_party/blink/renderer/core/page/scrolling/scrolling_coordinator.h"
 #include "third_party/blink/renderer/platform/bindings/v8_per_isolate_data.h"
 #include "third_party/blink/renderer/platform/instrumentation/histogram.h"
+#include "third_party/blink/renderer/platform/instrumentation/use_counter.h"
 #include "third_party/blink/renderer/platform/loader/fetch/resource_request.h"
 #include "third_party/blink/renderer/platform/network/mime/mime_type_from_url.h"
 #include "third_party/blink/renderer/platform/network/mime/mime_type_registry.h"
@@ -59,8 +61,6 @@
 #include "third_party/blink/renderer/platform/scheduler/public/scheduling_policy.h"
 
 namespace blink {
-
-using namespace html_names;
 
 namespace {
 
@@ -312,6 +312,7 @@ void HTMLPlugInElement::DetachLayoutTree(bool performing_reattach) {
   if (!performing_reattach)
     SetDisposeView();
 
+  RemovePluginFromFrameView(plugin);
   ResetInstance();
 
   HTMLFrameOwnerElement::DetachLayoutTree(performing_reattach);
@@ -396,8 +397,9 @@ WebPluginContainerImpl* HTMLPlugInElement::OwnedPlugin() const {
 
 bool HTMLPlugInElement::IsPresentationAttribute(
     const QualifiedName& name) const {
-  if (name == kWidthAttr || name == kHeightAttr || name == kVspaceAttr ||
-      name == kHspaceAttr || name == kAlignAttr)
+  if (name == html_names::kWidthAttr || name == html_names::kHeightAttr ||
+      name == html_names::kVspaceAttr || name == html_names::kHspaceAttr ||
+      name == html_names::kAlignAttr)
     return true;
   return HTMLFrameOwnerElement::IsPresentationAttribute(name);
 }
@@ -406,17 +408,17 @@ void HTMLPlugInElement::CollectStyleForPresentationAttribute(
     const QualifiedName& name,
     const AtomicString& value,
     MutableCSSPropertyValueSet* style) {
-  if (name == kWidthAttr) {
+  if (name == html_names::kWidthAttr) {
     AddHTMLLengthToStyle(style, CSSPropertyID::kWidth, value);
-  } else if (name == kHeightAttr) {
+  } else if (name == html_names::kHeightAttr) {
     AddHTMLLengthToStyle(style, CSSPropertyID::kHeight, value);
-  } else if (name == kVspaceAttr) {
+  } else if (name == html_names::kVspaceAttr) {
     AddHTMLLengthToStyle(style, CSSPropertyID::kMarginTop, value);
     AddHTMLLengthToStyle(style, CSSPropertyID::kMarginBottom, value);
-  } else if (name == kHspaceAttr) {
+  } else if (name == html_names::kHspaceAttr) {
     AddHTMLLengthToStyle(style, CSSPropertyID::kMarginLeft, value);
     AddHTMLLengthToStyle(style, CSSPropertyID::kMarginRight, value);
-  } else if (name == kAlignAttr) {
+  } else if (name == html_names::kAlignAttr) {
     ApplyAlignmentAttributeToStyle(value, style);
   } else {
     HTMLFrameOwnerElement::CollectStyleForPresentationAttribute(name, value,
@@ -516,8 +518,7 @@ HTMLPlugInElement::ObjectContentType HTMLPlugInElement::GetObjectContentType()
   bool plugin_supports_mime_type =
       plugin_data && plugin_data->SupportsMimeType(mime_type);
   if (plugin_supports_mime_type &&
-      plugin_data->IsExternalPluginMimeType(mime_type) &&
-      RuntimeEnabledFeatures::MimeHandlerViewInCrossProcessFrameEnabled()) {
+      plugin_data->IsExternalPluginMimeType(mime_type)) {
     return ObjectContentType::kExternalPlugin;
   }
 
@@ -579,6 +580,16 @@ bool HTMLPlugInElement::RequestObject(const PluginParameters& plugin_params) {
     ResetInstance();
   if (object_type == ObjectContentType::kFrame ||
       object_type == ObjectContentType::kImage || handled_externally) {
+    if (object_type == ObjectContentType::kFrame) {
+      UseCounter::Count(GetDocument(),
+                        WebFeature::kPluginElementLoadedDocument);
+    } else if (object_type == ObjectContentType::kImage) {
+      UseCounter::Count(GetDocument(), WebFeature::kPluginElementLoadedImage);
+    } else {
+      UseCounter::Count(GetDocument(),
+                        WebFeature::kPluginElementLoadedExternal);
+    }
+
     if (ContentFrame() && ContentFrame()->IsRemoteFrame()) {
       // During lazy reattaching, the plugin element loses EmbeddedContentView.
       // Since the ContentFrame() is not torn down the options here are to
@@ -626,7 +637,9 @@ bool HTMLPlugInElement::LoadPlugin(const KURL& url,
   loaded_url_ = url;
 
   if (persisted_plugin_) {
+    auto* plugin = persisted_plugin_.Get();
     SetEmbeddedContentView(persisted_plugin_.Release());
+    layout_object->GetFrameView()->AddPlugin(plugin);
   } else {
     bool load_manually =
         GetDocument().IsPluginDocument() && !GetDocument().ContainsPlugins();
@@ -634,7 +647,7 @@ bool HTMLPlugInElement::LoadPlugin(const KURL& url,
         *this, url, plugin_params.Names(), plugin_params.Values(), mime_type,
         load_manually);
     if (!plugin) {
-      if (layout_object && !layout_object->ShowsUnavailablePluginIndicator()) {
+      if (!layout_object->ShowsUnavailablePluginIndicator()) {
         plugin_is_available_ = false;
         layout_object->SetPluginAvailability(
             LayoutEmbeddedObject::kPluginMissing);
@@ -642,12 +655,8 @@ bool HTMLPlugInElement::LoadPlugin(const KURL& url,
       return false;
     }
 
-    if (layout_object) {
-      SetEmbeddedContentView(plugin);
-      layout_object->GetFrameView()->AddPlugin(plugin);
-    } else {
-      SetPersistedPlugin(plugin);
-    }
+    SetEmbeddedContentView(plugin);
+    layout_object->GetFrameView()->AddPlugin(plugin);
   }
 
   GetDocument().SetContainsPlugins();
@@ -720,6 +729,25 @@ bool HTMLPlugInElement::AllowedToLoadPlugin(const KURL& url,
     return false;
   }
   return true;
+}
+
+void HTMLPlugInElement::RemovePluginFromFrameView(
+    WebPluginContainerImpl* plugin) {
+  if (!plugin)
+    return;
+
+  auto* layout_object = GetLayoutEmbeddedObject();
+  if (!layout_object)
+    return;
+
+  auto* frame_view = layout_object->GetFrameView();
+  if (!frame_view)
+    return;
+
+  if (!frame_view->Plugins().Contains(plugin))
+    return;
+
+  frame_view->RemovePlugin(plugin);
 }
 
 void HTMLPlugInElement::DidAddUserAgentShadowRoot(ShadowRoot&) {

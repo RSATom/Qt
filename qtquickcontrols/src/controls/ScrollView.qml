@@ -244,13 +244,13 @@ FocusScope {
         Connections {
             target: flickableItem
 
-            onContentYChanged:  {
+            function onContentYChanged() {
                 scroller.blockUpdates = true
                 scroller.verticalScrollBar.value = flickableItem.contentY - flickableItem.originY
                 scroller.blockUpdates = false
             }
 
-            onContentXChanged:  {
+            function onContentXChanged() {
                 scroller.blockUpdates = true
                 scroller.horizontalScrollBar.value = flickableItem.contentX - flickableItem.originX
                 scroller.blockUpdates = false
@@ -309,12 +309,12 @@ FocusScope {
             Connections {
                 target: flickableItem
 
-                onContentYChanged: {
+                function onContentYChanged() {
                     wheelArea.verticalRecursionGuard = true
                     wheelArea.verticalValue = flickableItem.contentY - flickableItem.originY
                     wheelArea.verticalRecursionGuard = false
                 }
-                onContentXChanged: {
+                function onContentXChanged() {
                     wheelArea.horizontalRecursionGuard = true
                     wheelArea.horizontalValue = flickableItem.contentX - flickableItem.originX
                     wheelArea.horizontalRecursionGuard = false

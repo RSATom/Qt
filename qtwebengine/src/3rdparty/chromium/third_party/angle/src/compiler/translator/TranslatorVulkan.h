@@ -1,5 +1,5 @@
 //
-// Copyright (c) 2016 The ANGLE Project Authors. All rights reserved.
+// Copyright 2016 The ANGLE Project Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 //
@@ -17,16 +17,37 @@
 namespace sh
 {
 
+class TOutputVulkanGLSL;
+
 class TranslatorVulkan : public TCompiler
 {
   public:
     TranslatorVulkan(sh::GLenum type, ShShaderSpec spec);
 
   protected:
-    void translate(TIntermBlock *root,
-                   ShCompileOptions compileOptions,
-                   PerformanceDiagnostics *perfDiagnostics) override;
+    ANGLE_NO_DISCARD bool translate(TIntermBlock *root,
+                                    ShCompileOptions compileOptions,
+                                    PerformanceDiagnostics *perfDiagnostics) override;
     bool shouldFlattenPragmaStdglInvariantAll() override;
+
+    TIntermBinary *getDriverUniformNegViewportYScaleRef(const TVariable *driverUniforms) const;
+    TIntermBinary *getDriverUniformDepthRangeReservedFieldRef(
+        const TVariable *driverUniforms) const;
+    // Subclass can call this method to transform the AST before writing the final output.
+    // See TranslatorMetal.cpp.
+    ANGLE_NO_DISCARD bool translateImpl(TIntermBlock *root,
+                                        ShCompileOptions compileOptions,
+                                        PerformanceDiagnostics *perfDiagnostics,
+                                        const TVariable **driverUniformsOut,
+                                        TOutputVulkanGLSL *outputGLSL);
+
+    // Give subclass such as TranslatorMetal a chance to do depth transform before
+    // TranslatorVulkan apply its own transform.
+    ANGLE_NO_DISCARD virtual bool transformDepthBeforeCorrection(TIntermBlock *root,
+                                                                 const TVariable *driverUniforms)
+    {
+        return true;
+    }
 };
 
 }  // namespace sh

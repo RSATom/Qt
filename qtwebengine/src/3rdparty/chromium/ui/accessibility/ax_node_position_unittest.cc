@@ -4,6 +4,7 @@
 
 #include <stdint.h>
 
+#include <algorithm>
 #include <memory>
 #include <string>
 #include <utility>
@@ -20,24 +21,43 @@
 #include "ui/accessibility/ax_node_position.h"
 #include "ui/accessibility/ax_range.h"
 #include "ui/accessibility/ax_serializable_tree.h"
+#include "ui/accessibility/ax_text_boundary.h"
 #include "ui/accessibility/ax_tree_serializer.h"
 #include "ui/accessibility/ax_tree_update.h"
 
 namespace ui {
 
 using TestPositionType = std::unique_ptr<AXPosition<AXNodePosition, AXNode>>;
+using TestPositionRange = AXRange<AXPosition<AXNodePosition, AXNode>>;
 
 namespace {
 
-int32_t ROOT_ID = 1;
-int32_t BUTTON_ID = 2;
-int32_t CHECK_BOX_ID = 3;
-int32_t TEXT_FIELD_ID = 4;
-int32_t STATIC_TEXT1_ID = 5;
-int32_t INLINE_BOX1_ID = 6;
-int32_t LINE_BREAK_ID = 7;
-int32_t STATIC_TEXT2_ID = 8;
-int32_t INLINE_BOX2_ID = 9;
+constexpr AXNode::AXID ROOT_ID = 1;
+constexpr AXNode::AXID BUTTON_ID = 2;
+constexpr AXNode::AXID CHECK_BOX_ID = 3;
+constexpr AXNode::AXID TEXT_FIELD_ID = 4;
+constexpr AXNode::AXID STATIC_TEXT1_ID = 5;
+constexpr AXNode::AXID INLINE_BOX1_ID = 6;
+constexpr AXNode::AXID LINE_BREAK_ID = 7;
+constexpr AXNode::AXID STATIC_TEXT2_ID = 8;
+constexpr AXNode::AXID INLINE_BOX2_ID = 9;
+
+// A group of basic and extended characters.
+constexpr const wchar_t* kGraphemeClusters[] = {
+    // The English word "hey" consisting of four ASCII characters.
+    L"h",
+    L"e",
+    L"y",
+    // A Hindi word (which means "Hindi") consisting of two Devanagari
+    // grapheme clusters.
+    L"\x0939\x093F",
+    L"\x0928\x094D\x0926\x0940",
+    // A Thai word (which means "feel") consisting of three Thai grapheme
+    // clusters.
+    L"\x0E23\x0E39\x0E49",
+    L"\x0E2A\x0E36",
+    L"\x0E01",
+};
 
 class AXPositionTest : public testing::Test {
  public:
@@ -50,8 +70,190 @@ class AXPositionTest : public testing::Test {
   void SetUp() override;
   void TearDown() override;
 
+  AXTree* CreateMultipageDocument(AXNodeData& root_data,
+                                  AXNodeData& page_1_data,
+                                  AXNodeData& page_1_text_data,
+                                  AXNodeData& page_2_data,
+                                  AXNodeData& page_2_text_data,
+                                  AXNodeData& page_3_data,
+                                  AXNodeData& page_3_text_data) {
+    AXNodePosition::SetTree(nullptr);
+
+    root_data.id = 1;
+    root_data.role = ax::mojom::Role::kDocument;
+
+    page_1_data.id = 2;
+    page_1_data.role = ax::mojom::Role::kRegion;
+    page_1_data.AddBoolAttribute(
+        ax::mojom::BoolAttribute::kIsPageBreakingObject, true);
+
+    page_1_text_data.id = 3;
+    page_1_text_data.role = ax::mojom::Role::kStaticText;
+    page_1_text_data.SetName("some text on page 1");
+    page_1_text_data.AddBoolAttribute(
+        ax::mojom::BoolAttribute::kIsLineBreakingObject, true);
+    page_1_data.child_ids = {3};
+
+    page_2_data.id = 4;
+    page_2_data.role = ax::mojom::Role::kRegion;
+    page_2_data.AddBoolAttribute(
+        ax::mojom::BoolAttribute::kIsPageBreakingObject, true);
+
+    page_2_text_data.id = 5;
+    page_2_text_data.role = ax::mojom::Role::kStaticText;
+    page_2_text_data.SetName("some text on page 2");
+    page_2_text_data.AddIntAttribute(
+        ax::mojom::IntAttribute::kTextStyle,
+        static_cast<int32_t>(ax::mojom::TextStyle::kBold));
+    page_2_data.child_ids = {5};
+
+    page_3_data.id = 6;
+    page_3_data.role = ax::mojom::Role::kRegion;
+    page_3_data.AddBoolAttribute(
+        ax::mojom::BoolAttribute::kIsPageBreakingObject, true);
+
+    page_3_text_data.id = 7;
+    page_3_text_data.role = ax::mojom::Role::kStaticText;
+    page_3_text_data.SetName("some more text on page 3");
+    page_3_data.child_ids = {7};
+
+    root_data.child_ids = {2, 4, 6};
+
+    AXTreeUpdate update;
+    AXTreeData tree_data;
+    AXTreeID new_id = AXTreeID::CreateNewAXTreeID();
+    tree_data.tree_id = new_id;
+    update.tree_data = tree_data;
+    update.has_tree_data = true;
+    update.root_id = root_data.id;
+    update.nodes = {root_data,       page_1_data,      page_1_text_data,
+                    page_2_data,     page_2_text_data, page_3_data,
+                    page_3_text_data};
+
+    return new AXTree(update);
+  }
+
+  AXTree* CreateMultipageDocument(AXNodeData& root_data,
+                                  AXNodeData& page_1_data,
+                                  AXNodeData& page_1_text_data,
+                                  AXNodeData& page_2_data,
+                                  AXNodeData& page_2_text_data,
+                                  AXNodeData& page_3_data,
+                                  AXNodeData& page_3_text_data) const {
+    root_data.id = 1;
+    root_data.role = ax::mojom::Role::kDocument;
+
+    page_1_data.id = 2;
+    page_1_data.role = ax::mojom::Role::kRegion;
+    page_1_data.AddBoolAttribute(
+        ax::mojom::BoolAttribute::kIsPageBreakingObject, true);
+
+    page_1_text_data.id = 3;
+    page_1_text_data.role = ax::mojom::Role::kStaticText;
+    page_1_text_data.SetName("some text on page 1");
+    page_1_text_data.AddBoolAttribute(
+        ax::mojom::BoolAttribute::kIsLineBreakingObject, true);
+    page_1_data.child_ids = {3};
+
+    page_2_data.id = 4;
+    page_2_data.role = ax::mojom::Role::kRegion;
+    page_2_data.AddBoolAttribute(
+        ax::mojom::BoolAttribute::kIsPageBreakingObject, true);
+
+    page_2_text_data.id = 5;
+    page_2_text_data.role = ax::mojom::Role::kStaticText;
+    page_2_text_data.SetName("some text on page 2");
+    page_2_text_data.AddIntAttribute(
+        ax::mojom::IntAttribute::kTextStyle,
+        static_cast<int32_t>(ax::mojom::TextStyle::kBold));
+    page_2_data.child_ids = {5};
+
+    page_3_data.id = 6;
+    page_3_data.role = ax::mojom::Role::kRegion;
+    page_3_data.AddBoolAttribute(
+        ax::mojom::BoolAttribute::kIsPageBreakingObject, true);
+
+    page_3_text_data.id = 7;
+    page_3_text_data.role = ax::mojom::Role::kStaticText;
+    page_3_text_data.SetName("some more text on page 3");
+    page_3_data.child_ids = {7};
+
+    root_data.child_ids = {2, 4, 6};
+
+    AXTreeUpdate update;
+    AXTreeData tree_data;
+    AXTreeID new_id = AXTreeID::CreateNewAXTreeID();
+    tree_data.tree_id = new_id;
+    update.tree_data = tree_data;
+    update.has_tree_data = true;
+    update.root_id = root_data.id;
+    update.nodes = {root_data,       page_1_data,      page_1_text_data,
+                    page_2_data,     page_2_text_data, page_3_data,
+                    page_3_text_data};
+
+    return new AXTree(update);
+  }
+
+  // Creates a document with three static text objects each containing text in a
+  // different language.
+  std::unique_ptr<AXTree> CreateMultilingualDocument(
+      std::vector<int>* text_offsets) {
+    EXPECT_NE(nullptr, text_offsets);
+    text_offsets->push_back(0);
+
+    base::string16 english_text;
+    for (int i = 0; i < 3; ++i) {
+      base::string16 grapheme = base::WideToUTF16(kGraphemeClusters[i]);
+      EXPECT_EQ(1u, grapheme.length())
+          << "All English characters should be one UTF16 code unit in length.";
+      text_offsets->push_back(text_offsets->back() + int{grapheme.length()});
+      english_text.append(grapheme);
+    }
+
+    base::string16 hindi_text;
+    for (int i = 3; i < 5; ++i) {
+      base::string16 grapheme = base::WideToUTF16(kGraphemeClusters[i]);
+      EXPECT_LE(2u, grapheme.length()) << "All Hindi characters should be two "
+                                          "or more UTF16 code units in length.";
+      text_offsets->push_back(text_offsets->back() + int{grapheme.length()});
+      hindi_text.append(grapheme);
+    }
+
+    base::string16 thai_text;
+    for (int i = 5; i < 8; ++i) {
+      base::string16 grapheme = base::WideToUTF16(kGraphemeClusters[i]);
+      EXPECT_LT(0u, grapheme.length())
+          << "One of the Thai characters should be one UTF16 code unit, "
+             "whilst others should be two or more.";
+      text_offsets->push_back(text_offsets->back() + int{grapheme.length()});
+      thai_text.append(grapheme);
+    }
+
+    AXNodeData root_data;
+    root_data.id = 1;
+    root_data.role = ax::mojom::Role::kRootWebArea;
+
+    AXNodeData text_data1;
+    text_data1.id = 2;
+    text_data1.role = ax::mojom::Role::kStaticText;
+    text_data1.SetName(english_text);
+
+    AXNodeData text_data2;
+    text_data2.id = 3;
+    text_data2.role = ax::mojom::Role::kStaticText;
+    text_data2.SetName(hindi_text);
+
+    AXNodeData text_data3;
+    text_data3.id = 4;
+    text_data3.role = ax::mojom::Role::kStaticText;
+    text_data3.SetName(thai_text);
+
+    root_data.child_ids = {text_data1.id, text_data2.id, text_data3.id};
+    return CreateAXTree({root_data, text_data1, text_data2, text_data3});
+  }
+
   void AssertTextLengthEquals(const AXTree* tree,
-                              int32_t node_id,
+                              AXNode::AXID node_id,
                               int expected_text_length) {
     TestPositionType text_position = AXNodePosition::CreateTextPosition(
         tree->data().tree_id, node_id, 0 /* text_offset */,
@@ -65,17 +267,16 @@ class AXPositionTest : public testing::Test {
 
   // Creates a new AXTree from a vector of nodes.
   // Assumes the first node in the vector is the root.
-  std::unique_ptr<AXTree> CreateAXTree(
-      const std::vector<ui::AXNodeData>& nodes) {
-    ui::AXTreeUpdate update;
-    ui::AXTreeData tree_data;
-    tree_data.tree_id = ui::AXTreeID::CreateNewAXTreeID();
+  std::unique_ptr<AXTree> CreateAXTree(const std::vector<AXNodeData>& nodes) {
+    AXTreeUpdate update;
+    AXTreeData tree_data;
+    tree_data.tree_id = AXTreeID::CreateNewAXTreeID();
     update.tree_data = tree_data;
     update.has_tree_data = true;
     update.root_id = nodes[0].id;
     update.nodes = nodes;
 
-    tree_data.tree_id = ui::AXTreeID::CreateNewAXTreeID();
+    tree_data.tree_id = AXTreeID::CreateNewAXTreeID();
     update.tree_data = tree_data;
     std::unique_ptr<AXTree> tree = std::make_unique<AXTree>(update);
     AXNodePosition::SetTree(tree.get());
@@ -97,46 +298,157 @@ class AXPositionTest : public testing::Test {
   DISALLOW_COPY_AND_ASSIGN(AXPositionTest);
 };
 
-// Used by parameterized tests.
-// The test starts from a pre-determined position and repeats until there are no
-// more expectations.
-// TODO(nektar): Only text positions are tested for now.
-struct TestParam {
-  TestParam() = default;
+// Used by AXPositionExpandToEnclosingTextBoundaryTestWithParam.
+//
+// Every test instance starts from a pre-determined position and calls the
+// ExpandToEnclosingTextBoundary method with the arguments provided in this
+// struct.
+struct ExpandToEnclosingTextBoundaryTestParam {
+  ExpandToEnclosingTextBoundaryTestParam() = default;
 
   // Required by GTest framework.
-  TestParam(const TestParam& other) = default;
-  TestParam& operator=(const TestParam& other) = default;
+  ExpandToEnclosingTextBoundaryTestParam(
+      const ExpandToEnclosingTextBoundaryTestParam& other) = default;
+  ExpandToEnclosingTextBoundaryTestParam& operator=(
+      const ExpandToEnclosingTextBoundaryTestParam& other) = default;
 
-  ~TestParam() = default;
+  ~ExpandToEnclosingTextBoundaryTestParam() = default;
+
+  // The text boundary to expand to.
+  AXTextBoundary boundary;
+
+  // Determines how to expand to the enclosing range when the starting position
+  // is already at a text boundary.
+  AXRangeExpandBehavior expand_behavior;
+
+  // The text position that should be returned for the anchor of the range.
+  std::string expected_anchor_position;
+
+  // The text position that should be returned for the focus of the range.
+  std::string expected_focus_position;
+};
+
+// This is a fixture for a set of parameterized tests that test the
+// |ExpandToEnclosingTextBoundary| method with all possible input arguments.
+class AXPositionExpandToEnclosingTextBoundaryTestWithParam
+    : public AXPositionTest,
+      public testing::WithParamInterface<
+          ExpandToEnclosingTextBoundaryTestParam> {
+ public:
+  AXPositionExpandToEnclosingTextBoundaryTestWithParam() = default;
+  ~AXPositionExpandToEnclosingTextBoundaryTestWithParam() override = default;
+
+  DISALLOW_COPY_AND_ASSIGN(
+      AXPositionExpandToEnclosingTextBoundaryTestWithParam);
+};
+
+// Used by AXPositionCreatePositionAtTextBoundaryTestWithParam.
+//
+// Every test instance starts from a pre-determined position and calls the
+// CreatePositionAtTextBoundary method with the arguments provided in this
+// struct.
+struct CreatePositionAtTextBoundaryTestParam {
+  CreatePositionAtTextBoundaryTestParam() = default;
+
+  // Required by GTest framework.
+  CreatePositionAtTextBoundaryTestParam(
+      const CreatePositionAtTextBoundaryTestParam& other) = default;
+  CreatePositionAtTextBoundaryTestParam& operator=(
+      const CreatePositionAtTextBoundaryTestParam& other) = default;
+
+  ~CreatePositionAtTextBoundaryTestParam() = default;
+
+  // The text boundary to move to.
+  AXTextBoundary boundary;
+
+  // The direction to move to.
+  AXTextBoundaryDirection direction;
+
+  // What to do when the starting position is already at a text boundary, or
+  // when the movement operation will cause us to cross the starting object's
+  // boundary.
+  AXBoundaryBehavior boundary_behavior;
+
+  // The text position that should be returned, if the method was called on a
+  // text position instance.
+  std::string expected_text_position;
+};
+
+// This is a fixture for a set of parameterized tests that test the
+// |CreatePositionAtTextBoundary| method with all possible input arguments.
+class AXPositionCreatePositionAtTextBoundaryTestWithParam
+    : public AXPositionTest,
+      public testing::WithParamInterface<
+          CreatePositionAtTextBoundaryTestParam> {
+ public:
+  AXPositionCreatePositionAtTextBoundaryTestWithParam() = default;
+  ~AXPositionCreatePositionAtTextBoundaryTestWithParam() override = default;
+
+  DISALLOW_COPY_AND_ASSIGN(AXPositionCreatePositionAtTextBoundaryTestWithParam);
+};
+
+// Used by |AXPositionTextNavigationTestWithParam|.
+//
+// The test starts from a pre-determined position and repeats a text navigation
+// operation, such as |CreateNextWordStartPosition|, until it runs out of
+// expectations.
+struct TextNavigationTestParam {
+  TextNavigationTestParam() = default;
+
+  // Required by GTest framework.
+  TextNavigationTestParam(const TextNavigationTestParam& other) = default;
+  TextNavigationTestParam& operator=(const TextNavigationTestParam& other) =
+      default;
+
+  ~TextNavigationTestParam() = default;
 
   // Stores the method that should be called repeatedly by the test to create
   // the next position.
   base::RepeatingCallback<TestPositionType(const TestPositionType&)> TestMethod;
 
   // The node at which the test should start.
-  int32_t start_node_id_;
+  AXNode::AXID start_node_id;
 
   // The text offset at which the test should start.
-  int start_offset_;
+  int start_offset;
 
   // A list of positions that should be returned from the method being tested,
   // in stringified form.
   std::vector<std::string> expectations;
 };
 
-class AXPositionTestWithParam : public AXPositionTest,
-                                public testing::WithParamInterface<TestParam> {
+// This is a fixture for a set of parameterized tests that ensure that text
+// navigation operations, such as |CreateNextWordStartPosition|, work properly.
+//
+// Starting from a given position, test instances call a given text navigation
+// method repeatedly and compare the return values to a set of expectations.
+//
+// TODO(nektar): Only text positions are tested for now.
+class AXPositionTextNavigationTestWithParam
+    : public AXPositionTest,
+      public testing::WithParamInterface<TextNavigationTestParam> {
  public:
-  AXPositionTestWithParam() = default;
-  ~AXPositionTestWithParam() override = default;
+  AXPositionTextNavigationTestWithParam() = default;
+  ~AXPositionTextNavigationTestWithParam() override = default;
 
-  DISALLOW_COPY_AND_ASSIGN(AXPositionTestWithParam);
+  DISALLOW_COPY_AND_ASSIGN(AXPositionTextNavigationTestWithParam);
 };
 
 const char* AXPositionTest::TEXT_VALUE = "Line 1\nLine 2";
 
 void AXPositionTest::SetUp() {
+  // root_
+  //  |
+  //  +------------+-----------+
+  //  |            |           |
+  // button_  check_box_  text_field_
+  //                           |
+  //               +-----------+------------+
+  //               |           |            |
+  //        static_text1_  line_break_   static_text2_
+  //               |                        |
+  //        inline_box1_                 inline_box2_
+
   root_.id = ROOT_ID;
   button_.id = BUTTON_ID;
   check_box_.id = CHECK_BOX_ID;
@@ -156,8 +468,6 @@ void AXPositionTest::SetUp() {
   button_.SetHasPopup(ax::mojom::HasPopup::kMenu);
   button_.SetName("Button");
   button_.relative_bounds.bounds = gfx::RectF(20, 20, 200, 30);
-  button_.AddIntAttribute(ax::mojom::IntAttribute::kNextOnLineId,
-                          check_box_.id);
   root_.child_ids.push_back(button_.id);
 
   check_box_.role = ax::mojom::Role::kCheckBox;
@@ -166,8 +476,6 @@ void AXPositionTest::SetUp() {
   check_box_.SetCheckedState(ax::mojom::CheckedState::kTrue);
   check_box_.SetName("Check box");
   check_box_.relative_bounds.bounds = gfx::RectF(20, 50, 200, 30);
-  check_box_.AddIntAttribute(ax::mojom::IntAttribute::kPreviousOnLineId,
-                             button_.id);
   root_.child_ids.push_back(check_box_.id);
 
   text_field_.role = ax::mojom::Role::kTextField;
@@ -436,7 +744,7 @@ TEST_F(AXPositionTest, GetMaxTextOffsetFromNullPosition) {
   TestPositionType text_position = AXNodePosition::CreateNullPosition();
   ASSERT_NE(nullptr, text_position);
   ASSERT_TRUE(text_position->IsNullPosition());
-  ASSERT_EQ(AXNodePosition::INVALID_INDEX, text_position->MaxTextOffset());
+  ASSERT_EQ(AXNodePosition::INVALID_OFFSET, text_position->MaxTextOffset());
 }
 
 TEST_F(AXPositionTest, GetMaxTextOffsetFromRoot) {
@@ -505,16 +813,16 @@ TEST_F(AXPositionTest, GetMaxTextOffsetFromLineBreak) {
 TEST_F(AXPositionTest, GetMaxTextOffsetUpdate) {
   AXNodePosition::SetTree(nullptr);
 
-  ui::AXNodeData root_data;
+  AXNodeData root_data;
   root_data.id = 1;
   root_data.role = ax::mojom::Role::kRootWebArea;
 
-  ui::AXNodeData text_data;
+  AXNodeData text_data;
   text_data.id = 2;
   text_data.role = ax::mojom::Role::kStaticText;
   text_data.SetName("some text");
 
-  ui::AXNodeData more_text_data;
+  AXNodeData more_text_data;
   more_text_data.id = 3;
   more_text_data.role = ax::mojom::Role::kStaticText;
   more_text_data.SetName("more text");
@@ -859,6 +1167,124 @@ TEST_F(AXPositionTest, AtStartOfParagraphWithTextPosition) {
   EXPECT_FALSE(text_position->AtStartOfParagraph());
 }
 
+TEST_F(AXPositionTest, AtStartOfParagraphOnAListMarkerDescendant) {
+  // This test updates the tree structure to test a specific edge case -
+  // AtStartOfParagraph should return false on the next sibling of a list marker
+  // text descendant.
+  // ++1 kRootWebArea
+  // ++++2 kList
+  // ++++++3 kListItem
+  // ++++++++4 kListMarker
+  // ++++++++++5 kStaticText
+  // ++++++++++++6 kInlineTextBox "1. "
+  // ++++++++7 kStaticText
+  // ++++++++++8 kInlineTextBox "content"
+  // ++++++9 kListItem
+  // ++++++++10 kListMarker
+  // +++++++++++11 kStaticText
+  // ++++++++++++++12 kInlineTextBox "2. "
+  // ++++13 kStaticText
+  // +++++++14 kInlineTextBox "after"
+  AXNodePosition::SetTree(nullptr);
+
+  AXNodeData root;
+  AXNodeData list;
+  AXNodeData list_item1;
+  AXNodeData list_item2;
+  AXNodeData list_marker1;
+  AXNodeData list_marker2;
+  AXNodeData inline_box1;
+  AXNodeData inline_box2;
+  AXNodeData inline_box3;
+  AXNodeData inline_box4;
+  AXNodeData static_text1;
+  AXNodeData static_text2;
+  AXNodeData static_text3;
+  AXNodeData static_text4;
+
+  root.id = 1;
+  list.id = 2;
+  list_item1.id = 3;
+  list_marker1.id = 4;
+  static_text1.id = 5;
+  inline_box1.id = 6;
+  static_text2.id = 7;
+  inline_box2.id = 8;
+  list_item2.id = 9;
+  list_marker2.id = 10;
+  static_text3.id = 11;
+  inline_box3.id = 12;
+  static_text4.id = 13;
+  inline_box4.id = 14;
+
+  root.role = ax::mojom::Role::kRootWebArea;
+  root.child_ids = {list.id, static_text4.id};
+
+  list.role = ax::mojom::Role::kList;
+  list.child_ids = {list_item1.id, list_item2.id};
+
+  list_item1.role = ax::mojom::Role::kListItem;
+  list_item1.child_ids = {list_marker1.id, static_text2.id};
+  list_item1.AddBoolAttribute(ax::mojom::BoolAttribute::kIsLineBreakingObject,
+                              true);
+
+  list_marker1.role = ax::mojom::Role::kListMarker;
+  list_marker1.child_ids = {static_text1.id};
+
+  static_text1.role = ax::mojom::Role::kStaticText;
+  static_text1.child_ids = {inline_box1.id};
+
+  inline_box1.role = ax::mojom::Role::kInlineTextBox;
+  inline_box1.SetName("1. ");
+
+  static_text2.role = ax::mojom::Role::kStaticText;
+  static_text2.child_ids = {inline_box2.id};
+
+  inline_box2.role = ax::mojom::Role::kInlineTextBox;
+  inline_box2.SetName("content");
+  inline_box2.AddIntAttribute(ax::mojom::IntAttribute::kPreviousOnLineId,
+                              inline_box1.id);
+
+  list_item2.role = ax::mojom::Role::kListItem;
+  list_item2.child_ids = {list_marker2.id};
+  list_item2.AddBoolAttribute(ax::mojom::BoolAttribute::kIsLineBreakingObject,
+                              true);
+
+  list_marker2.role = ax::mojom::Role::kListMarker;
+  list_marker2.child_ids = {static_text3.id};
+
+  static_text3.role = ax::mojom::Role::kStaticText;
+  static_text3.child_ids = {inline_box3.id};
+
+  inline_box3.role = ax::mojom::Role::kInlineTextBox;
+  inline_box3.SetName("2. ");
+
+  static_text4.role = ax::mojom::Role::kStaticText;
+  static_text4.child_ids = {inline_box4.id};
+
+  inline_box4.role = ax::mojom::Role::kInlineTextBox;
+  inline_box4.SetName("after");
+
+  std::unique_ptr<AXTree> new_tree = CreateAXTree(
+      {root, list, list_item1, list_marker1, static_text1, inline_box1,
+       static_text2, inline_box2, list_item2, list_marker2, static_text3,
+       inline_box3, static_text4, inline_box4});
+
+  TestPositionType text_position = AXNodePosition::CreateTextPosition(
+      new_tree->data().tree_id, inline_box2.id, 0 /* text_offset */,
+      ax::mojom::TextAffinity::kDownstream);
+  ASSERT_NE(nullptr, text_position);
+  ASSERT_TRUE(text_position->IsTextPosition());
+  ASSERT_FALSE(text_position->AtStartOfParagraph());
+
+  text_position = AXNodePosition::CreateTextPosition(
+      new_tree->data().tree_id, inline_box4.id, 0 /* text_offset */,
+      ax::mojom::TextAffinity::kDownstream);
+  ASSERT_NE(nullptr, text_position);
+  ASSERT_TRUE(text_position->IsTextPosition());
+  ASSERT_TRUE(text_position->AtStartOfParagraph());
+}
+
 TEST_F(AXPositionTest, AtEndOfParagraphWithTextPosition) {
   // End of |inline_box1_| is not the end of paragraph since it's
   // followed by a whitespace-only line breaking object
@@ -902,6 +1328,639 @@ TEST_F(AXPositionTest, AtEndOfParagraphWithTextPosition) {
   ASSERT_NE(nullptr, text_position);
   ASSERT_TRUE(text_position->IsTextPosition());
   EXPECT_TRUE(text_position->AtEndOfParagraph());
+}
+
+TEST_F(AXPositionTest, AtEndOfParagraphOnAListMarkerDescendant) {
+  // This test updates the tree structure to test a specific edge case -
+  // AtEndOfParagraph should return false on a child of a list marker if the
+  // list item has content. When the list marker is the only child of a list
+  // item, it should return true.
+  // ++1 kRootWebArea
+  // ++++2 kList
+  // ++++++3 kListItem
+  // ++++++++4 kListMarker
+  // ++++++++++5 kStaticText
+  // ++++++++++++6 kInlineTextBox "1. "
+  // ++++++++7 kStaticText
+  // ++++++++++8 kInlineTextBox "content"
+  // ++++++9 kListItem
+  // ++++++++10 kListMarker
+  // +++++++++++11 kStaticText
+  // ++++++++++++++12 kInlineTextBox "2. "
+  AXNodePosition::SetTree(nullptr);
+
+  AXNodeData root;
+  AXNodeData list;
+  AXNodeData list_item1;
+  AXNodeData list_item2;
+  AXNodeData list_marker1;
+  AXNodeData list_marker2;
+  AXNodeData inline_box1;
+  AXNodeData inline_box2;
+  AXNodeData inline_box3;
+  AXNodeData static_text1;
+  AXNodeData static_text2;
+  AXNodeData static_text3;
+
+  root.id = 1;
+  list.id = 2;
+  list_item1.id = 3;
+  list_marker1.id = 4;
+  static_text1.id = 5;
+  inline_box1.id = 6;
+  static_text2.id = 7;
+  inline_box2.id = 8;
+  list_item2.id = 9;
+  list_marker2.id = 10;
+  static_text3.id = 11;
+  inline_box3.id = 12;
+
+  root.role = ax::mojom::Role::kRootWebArea;
+  root.child_ids = {list.id};
+
+  list.role = ax::mojom::Role::kList;
+  list.child_ids = {list_item1.id, list_item2.id};
+
+  list_item1.role = ax::mojom::Role::kListItem;
+  list_item1.child_ids = {list_marker1.id, static_text2.id};
+  list_item1.AddBoolAttribute(ax::mojom::BoolAttribute::kIsLineBreakingObject,
+                              true);
+
+  list_marker1.role = ax::mojom::Role::kListMarker;
+  list_marker1.child_ids = {static_text1.id};
+
+  static_text1.role = ax::mojom::Role::kStaticText;
+  static_text1.child_ids = {inline_box1.id};
+
+  inline_box1.role = ax::mojom::Role::kInlineTextBox;
+  inline_box1.SetName("1. ");
+
+  static_text2.role = ax::mojom::Role::kStaticText;
+  static_text2.child_ids = {inline_box2.id};
+
+  inline_box2.role = ax::mojom::Role::kInlineTextBox;
+  inline_box2.SetName("content");
+
+  list_item2.role = ax::mojom::Role::kListItem;
+  list_item2.child_ids = {list_marker2.id};
+  list_item2.AddBoolAttribute(ax::mojom::BoolAttribute::kIsLineBreakingObject,
+                              true);
+
+  list_marker2.role = ax::mojom::Role::kListMarker;
+  list_marker2.child_ids = {static_text3.id};
+
+  static_text3.role = ax::mojom::Role::kStaticText;
+  static_text3.child_ids = {inline_box3.id};
+
+  inline_box3.role = ax::mojom::Role::kInlineTextBox;
+  inline_box3.SetName("2. ");
+
+  std::unique_ptr<AXTree> new_tree =
+      CreateAXTree({root, list, list_item1, list_marker1, static_text1,
+                    inline_box1, static_text2, inline_box2, list_item2,
+                    list_marker2, static_text3, inline_box3});
+
+  TestPositionType text_position = AXNodePosition::CreateTextPosition(
+      new_tree->data().tree_id, inline_box1.id, 3 /* text_offset */,
+      ax::mojom::TextAffinity::kDownstream);
+  ASSERT_NE(nullptr, text_position);
+  ASSERT_TRUE(text_position->IsTextPosition());
+  ASSERT_FALSE(text_position->AtEndOfParagraph());
+
+  text_position = AXNodePosition::CreateTextPosition(
+      new_tree->data().tree_id, inline_box3.id, 3 /* text_offset */,
+      ax::mojom::TextAffinity::kDownstream);
+  ASSERT_NE(nullptr, text_position);
+  ASSERT_TRUE(text_position->IsTextPosition());
+  ASSERT_TRUE(text_position->AtEndOfParagraph());
+}
+
+TEST_F(AXPositionTest, ParagraphEdgesWithPreservedNewLine) {
+  // This test updates the tree structure to test a specific edge case -
+  // At{Start|End}OfParagraph when an ancestor position can resolve to a
+  // preserved newline descendant.
+  // ++1 kRootWebArea isLineBreakingObject
+  // ++++2 kStaticText
+  // ++++++3 kInlineTextBox "some text"
+  // ++++4 kGenericContainer isLineBreakingObject
+  // ++++++5 kStaticText
+  // ++++++++6 kInlineTextBox "\n" isLineBreakingObject
+  // ++++++++7 kInlineTextBox "more text"
+  AXNodePosition::SetTree(nullptr);
+
+  AXNodeData root_data;
+  root_data.id = 1;
+  root_data.role = ax::mojom::Role::kRootWebArea;
+  root_data.AddBoolAttribute(ax::mojom::BoolAttribute::kIsLineBreakingObject,
+                             true);
+
+  AXNodeData static_text_data_1;
+  static_text_data_1.id = 2;
+  static_text_data_1.role = ax::mojom::Role::kStaticText;
+  static_text_data_1.SetName("some text");
+
+  AXNodeData some_text_data;
+  some_text_data.id = 3;
+  some_text_data.role = ax::mojom::Role::kInlineTextBox;
+  some_text_data.SetName("some text");
+
+  AXNodeData container_data;
+  container_data.id = 4;
+  container_data.role = ax::mojom::Role::kGenericContainer;
+  container_data.AddBoolAttribute(
+      ax::mojom::BoolAttribute::kIsLineBreakingObject, true);
+
+  AXNodeData static_text_data_2;
+  static_text_data_2.id = 5;
+  static_text_data_2.role = ax::mojom::Role::kStaticText;
+  static_text_data_2.SetName("\nmore text");
+
+  AXNodeData preserved_newline_data;
+  preserved_newline_data.id = 6;
+  preserved_newline_data.role = ax::mojom::Role::kInlineTextBox;
+  preserved_newline_data.SetName("\n");
+  preserved_newline_data.AddBoolAttribute(
+      ax::mojom::BoolAttribute::kIsLineBreakingObject, true);
+
+  AXNodeData more_text_data;
+  more_text_data.id = 7;
+  more_text_data.role = ax::mojom::Role::kInlineTextBox;
+  more_text_data.SetName("more text");
+
+  static_text_data_1.child_ids = {3};
+  container_data.child_ids = {5};
+  static_text_data_2.child_ids = {6, 7};
+  root_data.child_ids = {2, 4};
+
+  std::unique_ptr<AXTree> new_tree = CreateAXTree(
+      {root_data, static_text_data_1, some_text_data, container_data,
+       static_text_data_2, preserved_newline_data, more_text_data});
+
+  TestPositionType text_position1 = AXNodePosition::CreateTextPosition(
+      new_tree->data().tree_id, root_data.id, 8 /* text_offset */,
+      ax::mojom::TextAffinity::kDownstream);
+  EXPECT_FALSE(text_position1->AtEndOfParagraph());
+  EXPECT_FALSE(text_position1->AtStartOfParagraph());
+
+  TestPositionType text_position2 = AXNodePosition::CreateTextPosition(
+      new_tree->data().tree_id, root_data.id, 9 /* text_offset */,
+      ax::mojom::TextAffinity::kDownstream);
+  EXPECT_FALSE(text_position2->AtEndOfParagraph());
+  EXPECT_FALSE(text_position2->AtStartOfParagraph());
+
+  TestPositionType text_position3 = AXNodePosition::CreateTextPosition(
+      new_tree->data().tree_id, root_data.id, 9 /* text_offset */,
+      ax::mojom::TextAffinity::kUpstream);
+  EXPECT_FALSE(text_position3->AtEndOfParagraph());
+  EXPECT_FALSE(text_position3->AtStartOfParagraph());
+
+  TestPositionType text_position4 = AXNodePosition::CreateTextPosition(
+      new_tree->data().tree_id, root_data.id, 10 /* text_offset */,
+      ax::mojom::TextAffinity::kDownstream);
+  EXPECT_FALSE(text_position4->AtEndOfParagraph());
+  EXPECT_TRUE(text_position4->AtStartOfParagraph());
+
+  TestPositionType text_position5 = AXNodePosition::CreateTextPosition(
+      new_tree->data().tree_id, root_data.id, 10 /* text_offset */,
+      ax::mojom::TextAffinity::kUpstream);
+  EXPECT_TRUE(text_position5->AtEndOfParagraph());
+  EXPECT_FALSE(text_position5->AtStartOfParagraph());
+
+  TestPositionType text_position6 = AXNodePosition::CreateTextPosition(
+      new_tree->data().tree_id, container_data.id, 0 /* text_offset */,
+      ax::mojom::TextAffinity::kDownstream);
+  EXPECT_FALSE(text_position6->AtEndOfParagraph());
+  EXPECT_FALSE(text_position6->AtStartOfParagraph());
+
+  TestPositionType text_position7 = AXNodePosition::CreateTextPosition(
+      new_tree->data().tree_id, container_data.id, 1 /* text_offset */,
+      ax::mojom::TextAffinity::kDownstream);
+  EXPECT_FALSE(text_position7->AtEndOfParagraph());
+  EXPECT_TRUE(text_position7->AtStartOfParagraph());
+
+  TestPositionType text_position8 = AXNodePosition::CreateTextPosition(
+      new_tree->data().tree_id, container_data.id, 1 /* text_offset */,
+      ax::mojom::TextAffinity::kUpstream);
+  EXPECT_TRUE(text_position8->AtEndOfParagraph());
+  EXPECT_FALSE(text_position8->AtStartOfParagraph());
+
+  TestPositionType text_position9 = AXNodePosition::CreateTextPosition(
+      new_tree->data().tree_id, static_text_data_2.id, 1 /* text_offset */,
+      ax::mojom::TextAffinity::kDownstream);
+  EXPECT_FALSE(text_position9->AtEndOfParagraph());
+  EXPECT_TRUE(text_position9->AtStartOfParagraph());
+
+  TestPositionType text_position10 = AXNodePosition::CreateTextPosition(
+      new_tree->data().tree_id, static_text_data_2.id, 1 /* text_offset */,
+      ax::mojom::TextAffinity::kUpstream);
+  EXPECT_TRUE(text_position10->AtEndOfParagraph());
+  EXPECT_FALSE(text_position10->AtStartOfParagraph());
+
+  TestPositionType text_position11 = AXNodePosition::CreateTextPosition(
+      new_tree->data().tree_id, preserved_newline_data.id, 0 /* text_offset */,
+      ax::mojom::TextAffinity::kDownstream);
+  EXPECT_FALSE(text_position11->AtEndOfParagraph());
+  EXPECT_FALSE(text_position11->AtStartOfParagraph());
+
+  TestPositionType text_position12 = AXNodePosition::CreateTextPosition(
+      new_tree->data().tree_id, preserved_newline_data.id, 1 /* text_offset */,
+      ax::mojom::TextAffinity::kDownstream);
+  EXPECT_TRUE(text_position12->AtEndOfParagraph());
+  EXPECT_FALSE(text_position12->AtStartOfParagraph());
+
+  TestPositionType text_position13 = AXNodePosition::CreateTextPosition(
+      new_tree->data().tree_id, more_text_data.id, 0 /* text_offset */,
+      ax::mojom::TextAffinity::kDownstream);
+  EXPECT_FALSE(text_position13->AtEndOfParagraph());
+  EXPECT_TRUE(text_position13->AtStartOfParagraph());
+
+  TestPositionType text_position14 = AXNodePosition::CreateTextPosition(
+      new_tree->data().tree_id, more_text_data.id, 1 /* text_offset */,
+      ax::mojom::TextAffinity::kDownstream);
+  EXPECT_FALSE(text_position14->AtEndOfParagraph());
+  EXPECT_FALSE(text_position14->AtStartOfParagraph());
+}
+
+TEST_F(
+    AXPositionTest,
+    PreviousParagraphEndStopAtAnchorBoundaryWithConsecutiveParentChildLineBreakingObjects) {
+  // This test updates the tree structure to test a specific edge case -
+  // CreatePreviousParagraphEndPosition(), stopping at an anchor boundary,
+  // with consecutive parent-child line breaking objects.
+  // ++1 rootWebArea
+  // ++++2 staticText name="first"
+  // ++++3 genericContainer isLineBreakingObject
+  // ++++++4 genericContainer isLineBreakingObject
+  // ++++++5 staticText name="second"
+  AXNodePosition::SetTree(nullptr);
+
+  AXNodeData root_data;
+  root_data.id = 1;
+  root_data.role = ax::mojom::Role::kRootWebArea;
+
+  AXNodeData static_text_data_a;
+  static_text_data_a.id = 2;
+  static_text_data_a.role = ax::mojom::Role::kStaticText;
+  static_text_data_a.SetName("first");
+
+  AXNodeData container_data_a;
+  container_data_a.id = 3;
+  container_data_a.role = ax::mojom::Role::kGenericContainer;
+  container_data_a.AddBoolAttribute(
+      ax::mojom::BoolAttribute::kIsLineBreakingObject, true);
+
+  AXNodeData container_data_b;
+  container_data_b.id = 4;
+  container_data_b.role = ax::mojom::Role::kGenericContainer;
+  container_data_b.AddBoolAttribute(
+      ax::mojom::BoolAttribute::kIsLineBreakingObject, true);
+
+  AXNodeData static_text_data_b;
+  static_text_data_b.id = 5;
+  static_text_data_b.role = ax::mojom::Role::kStaticText;
+  static_text_data_b.SetName("second");
+
+  root_data.child_ids = {static_text_data_a.id, container_data_a.id};
+  container_data_a.child_ids = {container_data_b.id, static_text_data_b.id};
+
+  std::unique_ptr<AXTree> new_tree =
+      CreateAXTree({root_data, static_text_data_a, container_data_a,
+                    container_data_b, static_text_data_b});
+
+  TestPositionType test_position = AXNodePosition::CreateTextPosition(
+      new_tree->data().tree_id, root_data.id, 11 /* text_offset */,
+      ax::mojom::TextAffinity::kDownstream);
+
+  test_position = test_position->CreatePreviousParagraphEndPosition(
+      ui::AXBoundaryBehavior::StopAtAnchorBoundary);
+  EXPECT_TRUE(test_position->IsTextPosition());
+  EXPECT_EQ(root_data.id, test_position->anchor_id());
+  EXPECT_EQ(5, test_position->text_offset());
+}
+
+TEST_F(AXPositionTest,
+       AtStartOrEndOfParagraphWithLeadingAndTrailingDocumentWhitespace) {
+  // This test updates the tree structure to test a specific edge case -
+  // At{Start|End}OfParagraph when an ancestor position can resolve to a
+  // preserved newline descendant.
+  // ++1 kRootWebArea isLineBreakingObject
+  // ++++2 kGenericContainer isLineBreakingObject
+  // ++++++3 kStaticText
+  // ++++++++4 kInlineTextBox "\n" isLineBreakingObject
+  // ++++5 kGenericContainer isLineBreakingObject
+  // ++++++6 kStaticText
+  // ++++++++7 kInlineTextBox "some"
+  // ++++++++8 kInlineTextBox " "
+  // ++++++++9 kInlineTextBox "text"
+  // ++++10 kGenericContainer isLineBreakingObject
+  // ++++++11 kStaticText
+  // ++++++++12 kInlineTextBox "\n" isLineBreakingObject
+  AXNodePosition::SetTree(nullptr);
+
+  AXNodeData root_data;
+  root_data.id = 1;
+  root_data.role = ax::mojom::Role::kRootWebArea;
+  root_data.AddBoolAttribute(ax::mojom::BoolAttribute::kIsLineBreakingObject,
+                             true);
+
+  AXNodeData container_data_a;
+  container_data_a.id = 2;
+  container_data_a.role = ax::mojom::Role::kGenericContainer;
+  container_data_a.AddBoolAttribute(
+      ax::mojom::BoolAttribute::kIsLineBreakingObject, true);
+
+  AXNodeData static_text_data_a;
+  static_text_data_a.id = 3;
+  static_text_data_a.role = ax::mojom::Role::kStaticText;
+  static_text_data_a.SetName("\n");
+
+  AXNodeData inline_text_data_a;
+  inline_text_data_a.id = 4;
+  inline_text_data_a.role = ax::mojom::Role::kInlineTextBox;
+  inline_text_data_a.SetName("\n");
+  inline_text_data_a.AddBoolAttribute(
+      ax::mojom::BoolAttribute::kIsLineBreakingObject, true);
+
+  AXNodeData container_data_b;
+  container_data_b.id = 5;
+  container_data_b.role = ax::mojom::Role::kGenericContainer;
+  container_data_b.AddBoolAttribute(
+      ax::mojom::BoolAttribute::kIsLineBreakingObject, true);
+
+  AXNodeData static_text_data_b;
+  static_text_data_b.id = 6;
+  static_text_data_b.role = ax::mojom::Role::kStaticText;
+  static_text_data_b.SetName("some text");
+
+  AXNodeData inline_text_data_b_1;
+  inline_text_data_b_1.id = 7;
+  inline_text_data_b_1.role = ax::mojom::Role::kInlineTextBox;
+  inline_text_data_b_1.SetName("some");
+
+  AXNodeData inline_text_data_b_2;
+  inline_text_data_b_2.id = 8;
+  inline_text_data_b_2.role = ax::mojom::Role::kInlineTextBox;
+  inline_text_data_b_2.SetName(" ");
+
+  AXNodeData inline_text_data_b_3;
+  inline_text_data_b_3.id = 9;
+  inline_text_data_b_3.role = ax::mojom::Role::kInlineTextBox;
+  inline_text_data_b_3.SetName("text");
+
+  AXNodeData container_data_c;
+  container_data_c.id = 10;
+  container_data_c.role = ax::mojom::Role::kGenericContainer;
+  container_data_c.AddBoolAttribute(
+      ax::mojom::BoolAttribute::kIsLineBreakingObject, true);
+
+  AXNodeData static_text_data_c;
+  static_text_data_c.id = 11;
+  static_text_data_c.role = ax::mojom::Role::kStaticText;
+  static_text_data_c.SetName("\n");
+
+  AXNodeData inline_text_data_c;
+  inline_text_data_c.id = 12;
+  inline_text_data_c.role = ax::mojom::Role::kInlineTextBox;
+  inline_text_data_c.SetName("\n");
+  inline_text_data_c.AddBoolAttribute(
+      ax::mojom::BoolAttribute::kIsLineBreakingObject, true);
+
+  root_data.child_ids = {container_data_a.id, container_data_b.id,
+                         container_data_c.id};
+  container_data_a.child_ids = {static_text_data_a.id};
+  static_text_data_a.child_ids = {inline_text_data_a.id};
+  container_data_b.child_ids = {static_text_data_b.id};
+  static_text_data_b.child_ids = {inline_text_data_b_1.id,
+                                  inline_text_data_b_2.id,
+                                  inline_text_data_b_3.id};
+  container_data_c.child_ids = {static_text_data_c.id};
+  static_text_data_c.child_ids = {inline_text_data_c.id};
+
+  std::unique_ptr<AXTree> new_tree = CreateAXTree(
+      {root_data, container_data_a, container_data_b, container_data_c,
+       static_text_data_a, static_text_data_b, static_text_data_c,
+       inline_text_data_a, inline_text_data_b_1, inline_text_data_b_2,
+       inline_text_data_b_3, inline_text_data_c});
+
+  TestPositionType text_position1 = AXNodePosition::CreateTextPosition(
+      new_tree->data().tree_id, inline_text_data_a.id, 0 /* text_offset */,
+      ax::mojom::TextAffinity::kDownstream);
+  EXPECT_FALSE(text_position1->AtEndOfParagraph());
+  EXPECT_TRUE(text_position1->AtStartOfParagraph());
+
+  TestPositionType text_position2 = AXNodePosition::CreateTextPosition(
+      new_tree->data().tree_id, inline_text_data_a.id, 1 /* text_offset */,
+      ax::mojom::TextAffinity::kDownstream);
+  EXPECT_TRUE(text_position2->AtEndOfParagraph());
+  EXPECT_FALSE(text_position2->AtStartOfParagraph());
+
+  TestPositionType text_position3 = AXNodePosition::CreateTextPosition(
+      new_tree->data().tree_id, inline_text_data_b_1.id, 0 /* text_offset */,
+      ax::mojom::TextAffinity::kDownstream);
+  EXPECT_FALSE(text_position3->AtEndOfParagraph());
+  EXPECT_TRUE(text_position3->AtStartOfParagraph());
+
+  TestPositionType text_position4 = AXNodePosition::CreateTextPosition(
+      new_tree->data().tree_id, inline_text_data_b_1.id, 4 /* text_offset */,
+      ax::mojom::TextAffinity::kDownstream);
+  EXPECT_FALSE(text_position4->AtEndOfParagraph());
+  EXPECT_FALSE(text_position4->AtStartOfParagraph());
+
+  TestPositionType text_position5 = AXNodePosition::CreateTextPosition(
+      new_tree->data().tree_id, inline_text_data_b_2.id, 0 /* text_offset */,
+      ax::mojom::TextAffinity::kDownstream);
+  EXPECT_FALSE(text_position5->AtEndOfParagraph());
+  EXPECT_FALSE(text_position5->AtStartOfParagraph());
+
+  TestPositionType text_position6 = AXNodePosition::CreateTextPosition(
+      new_tree->data().tree_id, inline_text_data_b_2.id, 1 /* text_offset */,
+      ax::mojom::TextAffinity::kDownstream);
+  EXPECT_FALSE(text_position6->AtEndOfParagraph());
+  EXPECT_FALSE(text_position6->AtStartOfParagraph());
+
+  TestPositionType text_position7 = AXNodePosition::CreateTextPosition(
+      new_tree->data().tree_id, inline_text_data_b_3.id, 0 /* text_offset */,
+      ax::mojom::TextAffinity::kDownstream);
+  EXPECT_FALSE(text_position7->AtEndOfParagraph());
+  EXPECT_FALSE(text_position7->AtStartOfParagraph());
+
+  TestPositionType text_position8 = AXNodePosition::CreateTextPosition(
+      new_tree->data().tree_id, inline_text_data_b_3.id, 4 /* text_offset */,
+      ax::mojom::TextAffinity::kDownstream);
+  EXPECT_FALSE(text_position8->AtEndOfParagraph());
+  EXPECT_FALSE(text_position8->AtStartOfParagraph());
+
+  TestPositionType text_position9 = AXNodePosition::CreateTextPosition(
+      new_tree->data().tree_id, inline_text_data_c.id, 0 /* text_offset */,
+      ax::mojom::TextAffinity::kDownstream);
+  EXPECT_FALSE(text_position9->AtEndOfParagraph());
+  EXPECT_FALSE(text_position9->AtStartOfParagraph());
+
+  TestPositionType text_position10 = AXNodePosition::CreateTextPosition(
+      new_tree->data().tree_id, inline_text_data_c.id, 1 /* text_offset */,
+      ax::mojom::TextAffinity::kDownstream);
+  EXPECT_TRUE(text_position10->AtEndOfParagraph());
+  EXPECT_FALSE(text_position10->AtStartOfParagraph());
+}
+
+TEST_F(AXPositionTest, AtStartOrEndOfParagraphWithIgnoredNodes) {
+  // This test updates the tree structure to test a specific edge case -
+  // At{Start|End}OfParagraph when there are ignored nodes present near
+  // a paragraph boundary.
+  // ++1 kRootWebArea isLineBreakingObject
+  // ++++2 kGenericContainer ignored
+  // ++++++3 kStaticText ignored
+  // ++++++++4 kInlineTextBox "ignored text" ignored
+  // ++++5 kGenericContainer
+  // ++++++6 kStaticText
+  // ++++++++7 kInlineTextBox "some"
+  // ++++++++8 kInlineTextBox " "
+  // ++++++++9 kInlineTextBox "text"
+  // ++++10 kGenericContainer ignored
+  // ++++++11 kStaticText ignored
+  // ++++++++12 kInlineTextBox "ignored text" ignored
+  AXNodePosition::SetTree(nullptr);
+
+  AXNodeData root_data;
+  root_data.id = 1;
+  root_data.role = ax::mojom::Role::kRootWebArea;
+  root_data.AddBoolAttribute(ax::mojom::BoolAttribute::kIsLineBreakingObject,
+                             true);
+
+  AXNodeData container_data_a;
+  container_data_a.id = 2;
+  container_data_a.role = ax::mojom::Role::kGenericContainer;
+  container_data_a.AddState(ax::mojom::State::kIgnored);
+
+  AXNodeData static_text_data_a;
+  static_text_data_a.id = 3;
+  static_text_data_a.role = ax::mojom::Role::kStaticText;
+  static_text_data_a.SetName("ignored text");
+  static_text_data_a.AddState(ax::mojom::State::kIgnored);
+
+  AXNodeData inline_text_data_a;
+  inline_text_data_a.id = 4;
+  inline_text_data_a.role = ax::mojom::Role::kInlineTextBox;
+  inline_text_data_a.SetName("ignored text");
+  inline_text_data_a.AddState(ax::mojom::State::kIgnored);
+
+  AXNodeData container_data_b;
+  container_data_b.id = 5;
+  container_data_b.role = ax::mojom::Role::kGenericContainer;
+
+  AXNodeData static_text_data_b;
+  static_text_data_b.id = 6;
+  static_text_data_b.role = ax::mojom::Role::kStaticText;
+  static_text_data_b.SetName("some text");
+
+  AXNodeData inline_text_data_b_1;
+  inline_text_data_b_1.id = 7;
+  inline_text_data_b_1.role = ax::mojom::Role::kInlineTextBox;
+  inline_text_data_b_1.SetName("some");
+
+  AXNodeData inline_text_data_b_2;
+  inline_text_data_b_2.id = 8;
+  inline_text_data_b_2.role = ax::mojom::Role::kInlineTextBox;
+  inline_text_data_b_2.SetName(" ");
+
+  AXNodeData inline_text_data_b_3;
+  inline_text_data_b_3.id = 9;
+  inline_text_data_b_3.role = ax::mojom::Role::kInlineTextBox;
+  inline_text_data_b_3.SetName("text");
+
+  AXNodeData container_data_c;
+  container_data_c.id = 10;
+  container_data_c.role = ax::mojom::Role::kGenericContainer;
+  container_data_c.AddState(ax::mojom::State::kIgnored);
+
+  AXNodeData static_text_data_c;
+  static_text_data_c.id = 11;
+  static_text_data_c.role = ax::mojom::Role::kStaticText;
+  static_text_data_c.SetName("ignored text");
+  static_text_data_c.AddState(ax::mojom::State::kIgnored);
+
+  AXNodeData inline_text_data_c;
+  inline_text_data_c.id = 12;
+  inline_text_data_c.role = ax::mojom::Role::kInlineTextBox;
+  inline_text_data_c.SetName("ignored text");
+  inline_text_data_c.AddState(ax::mojom::State::kIgnored);
+
+  root_data.child_ids = {container_data_a.id, container_data_b.id,
+                         container_data_c.id};
+  container_data_a.child_ids = {static_text_data_a.id};
+  static_text_data_a.child_ids = {inline_text_data_a.id};
+  container_data_b.child_ids = {static_text_data_b.id};
+  static_text_data_b.child_ids = {inline_text_data_b_1.id,
+                                  inline_text_data_b_2.id,
+                                  inline_text_data_b_3.id};
+  container_data_c.child_ids = {static_text_data_c.id};
+  static_text_data_c.child_ids = {inline_text_data_c.id};
+
+  std::unique_ptr<AXTree> new_tree = CreateAXTree(
+      {root_data, container_data_a, container_data_b, container_data_c,
+       static_text_data_a, static_text_data_b, static_text_data_c,
+       inline_text_data_a, inline_text_data_b_1, inline_text_data_b_2,
+       inline_text_data_b_3, inline_text_data_c});
+
+  TestPositionType text_position1 = AXNodePosition::CreateTextPosition(
+      new_tree->data().tree_id, inline_text_data_a.id, 0 /* text_offset */,
+      ax::mojom::TextAffinity::kDownstream);
+  EXPECT_FALSE(text_position1->AtEndOfParagraph());
+  EXPECT_FALSE(text_position1->AtStartOfParagraph());
+
+  TestPositionType text_position2 = AXNodePosition::CreateTextPosition(
+      new_tree->data().tree_id, inline_text_data_a.id, 12 /* text_offset */,
+      ax::mojom::TextAffinity::kDownstream);
+  EXPECT_FALSE(text_position2->AtEndOfParagraph());
+  EXPECT_FALSE(text_position2->AtStartOfParagraph());
+
+  TestPositionType text_position3 = AXNodePosition::CreateTextPosition(
+      new_tree->data().tree_id, inline_text_data_b_1.id, 0 /* text_offset */,
+      ax::mojom::TextAffinity::kDownstream);
+  EXPECT_FALSE(text_position3->AtEndOfParagraph());
+  EXPECT_TRUE(text_position3->AtStartOfParagraph());
+
+  TestPositionType text_position4 = AXNodePosition::CreateTextPosition(
+      new_tree->data().tree_id, inline_text_data_b_1.id, 4 /* text_offset */,
+      ax::mojom::TextAffinity::kDownstream);
+  EXPECT_FALSE(text_position4->AtEndOfParagraph());
+  EXPECT_FALSE(text_position4->AtStartOfParagraph());
+
+  TestPositionType text_position5 = AXNodePosition::CreateTextPosition(
+      new_tree->data().tree_id, inline_text_data_b_2.id, 0 /* text_offset */,
+      ax::mojom::TextAffinity::kDownstream);
+  EXPECT_FALSE(text_position5->AtEndOfParagraph());
+  EXPECT_FALSE(text_position5->AtStartOfParagraph());
+
+  TestPositionType text_position6 = AXNodePosition::CreateTextPosition(
+      new_tree->data().tree_id, inline_text_data_b_2.id, 1 /* text_offset */,
+      ax::mojom::TextAffinity::kDownstream);
+  EXPECT_FALSE(text_position6->AtEndOfParagraph());
+  EXPECT_FALSE(text_position6->AtStartOfParagraph());
+
+  TestPositionType text_position7 = AXNodePosition::CreateTextPosition(
+      new_tree->data().tree_id, inline_text_data_b_3.id, 0 /* text_offset */,
+      ax::mojom::TextAffinity::kDownstream);
+  EXPECT_FALSE(text_position7->AtEndOfParagraph());
+  EXPECT_FALSE(text_position7->AtStartOfParagraph());
+
+  TestPositionType text_position8 = AXNodePosition::CreateTextPosition(
+      new_tree->data().tree_id, inline_text_data_b_3.id, 4 /* text_offset */,
+      ax::mojom::TextAffinity::kDownstream);
+  EXPECT_TRUE(text_position8->AtEndOfParagraph());
+  EXPECT_FALSE(text_position8->AtStartOfParagraph());
+
+  TestPositionType text_position9 = AXNodePosition::CreateTextPosition(
+      new_tree->data().tree_id, inline_text_data_c.id, 0 /* text_offset */,
+      ax::mojom::TextAffinity::kDownstream);
+  EXPECT_FALSE(text_position9->AtEndOfParagraph());
+  EXPECT_FALSE(text_position9->AtStartOfParagraph());
+
+  TestPositionType text_position10 = AXNodePosition::CreateTextPosition(
+      new_tree->data().tree_id, inline_text_data_c.id, 12 /* text_offset */,
+      ax::mojom::TextAffinity::kDownstream);
+  EXPECT_FALSE(text_position10->AtEndOfParagraph());
+  EXPECT_FALSE(text_position10->AtStartOfParagraph());
 }
 
 TEST_F(AXPositionTest, LowestCommonAncestor) {
@@ -1194,6 +2253,19 @@ TEST_F(AXPositionTest, AsLeafTextPositionWithTextPosition) {
   EXPECT_EQ(ax::mojom::TextAffinity::kDownstream, test_position->affinity());
 
   text_position = AXNodePosition::CreateTextPosition(
+      tree_.data().tree_id, root_.id, 0 /* text_offset */,
+      ax::mojom::TextAffinity::kDownstream);
+  ASSERT_NE(nullptr, text_position);
+  ASSERT_TRUE(text_position->IsTextPosition());
+  test_position = text_position->AsLeafTextPosition();
+  ASSERT_NE(nullptr, test_position);
+  EXPECT_TRUE(test_position->IsTextPosition());
+  EXPECT_EQ(tree_.data().tree_id, test_position->tree_id());
+  EXPECT_EQ(button_.id, test_position->anchor_id());
+  EXPECT_EQ(0, test_position->text_offset());
+  EXPECT_EQ(ax::mojom::TextAffinity::kDownstream, test_position->affinity());
+
+  text_position = AXNodePosition::CreateTextPosition(
       tree_.data().tree_id, text_field_.id, 0 /* text_offset */,
       ax::mojom::TextAffinity::kDownstream);
   ASSERT_NE(nullptr, text_position);
@@ -1217,9 +2289,7 @@ TEST_F(AXPositionTest, AsLeafTextPositionWithTextPosition) {
   EXPECT_EQ(tree_.data().tree_id, test_position->tree_id());
   EXPECT_EQ(inline_box1_.id, test_position->anchor_id());
   EXPECT_EQ(0, test_position->text_offset());
-  // Even though upstream affinity doesn't make sense on a leaf node, there is
-  // no need to reset it to downstream.
-  EXPECT_EQ(ax::mojom::TextAffinity::kUpstream, test_position->affinity());
+  EXPECT_EQ(ax::mojom::TextAffinity::kDownstream, test_position->affinity());
 
   // Create a text position on the root, pointing to the line break character
   // inside the text field but with an upstream affinity which will cause the
@@ -1236,9 +2306,7 @@ TEST_F(AXPositionTest, AsLeafTextPositionWithTextPosition) {
   EXPECT_EQ(tree_.data().tree_id, test_position->tree_id());
   EXPECT_EQ(inline_box1_.id, test_position->anchor_id());
   EXPECT_EQ(6, test_position->text_offset());
-  // Even though upstream affinity doesn't make sense on a leaf node, there is
-  // no need to reset it to downstream.
-  EXPECT_EQ(ax::mojom::TextAffinity::kUpstream, test_position->affinity());
+  EXPECT_EQ(ax::mojom::TextAffinity::kDownstream, test_position->affinity());
 
   // Create a text position pointing to the line break character inside the text
   // field but with an upstream affinity which will cause the leaf text position
@@ -1253,9 +2321,7 @@ TEST_F(AXPositionTest, AsLeafTextPositionWithTextPosition) {
   EXPECT_EQ(tree_.data().tree_id, test_position->tree_id());
   EXPECT_EQ(inline_box1_.id, test_position->anchor_id());
   EXPECT_EQ(6, test_position->text_offset());
-  // Even though upstream affinity doesn't make sense on a leaf node, there is
-  // no need to reset it to downstream.
-  EXPECT_EQ(ax::mojom::TextAffinity::kUpstream, test_position->affinity());
+  EXPECT_EQ(ax::mojom::TextAffinity::kDownstream, test_position->affinity());
 
   // Create a text position on the root, pointing to the line break character
   // inside the text field.
@@ -1325,8 +2391,91 @@ TEST_F(AXPositionTest, AsLeafTextPositionWithTextPosition) {
   EXPECT_EQ(tree_.data().tree_id, test_position->tree_id());
   EXPECT_EQ(inline_box2_.id, test_position->anchor_id());
   EXPECT_EQ(3, test_position->text_offset());
-  // Even though upstream affinity doesn't make sense on a leaf node, there is
-  // no need to reset it to downstream.
+  EXPECT_EQ(ax::mojom::TextAffinity::kDownstream, test_position->affinity());
+}
+
+TEST_F(AXPositionTest, AsLeafTextPositionWithTextPositionAndEmptyTextSandwich) {
+  // This test updates the tree structure to test a specific edge case -
+  // AsLeafTextPosition when there is an empty leaf text node between
+  // two non-empty text nodes.
+  AXNodePosition::SetTree(nullptr);
+
+  AXNodeData root_data;
+  root_data.id = 1;
+  root_data.role = ax::mojom::Role::kRootWebArea;
+
+  AXNodeData text_data;
+  text_data.id = 2;
+  text_data.role = ax::mojom::Role::kInlineTextBox;
+  text_data.SetName("some text");
+
+  AXNodeData button_data;
+  button_data.id = 3;
+  button_data.role = ax::mojom::Role::kButton;
+  button_data.SetName("");
+
+  AXNodeData more_text_data;
+  more_text_data.id = 4;
+  more_text_data.role = ax::mojom::Role::kInlineTextBox;
+  more_text_data.SetName("more text");
+
+  root_data.child_ids = {text_data.id, button_data.id, more_text_data.id};
+
+  std::unique_ptr<AXTree> new_tree =
+      CreateAXTree({root_data, text_data, button_data, more_text_data});
+  AXNodePosition::SetTree(new_tree.get());
+
+  // Create a text position on the root pointing to just after the
+  // first static text leaf node.
+  TestPositionType text_position = AXNodePosition::CreateTextPosition(
+      tree_.data().tree_id, root_data.id, 9 /* text_offset */,
+      ax::mojom::TextAffinity::kDownstream);
+  ASSERT_NE(nullptr, text_position);
+  ASSERT_TRUE(text_position->IsTextPosition());
+  TestPositionType test_position = text_position->AsLeafTextPosition();
+  ASSERT_NE(nullptr, test_position);
+  EXPECT_TRUE(test_position->IsTextPosition());
+  EXPECT_EQ(tree_.data().tree_id, test_position->tree_id());
+  EXPECT_EQ(button_data.id, test_position->anchor_id());
+  EXPECT_EQ(0, test_position->text_offset());
+  EXPECT_EQ(ax::mojom::TextAffinity::kDownstream, test_position->affinity());
+
+  text_position = AXNodePosition::CreateTextPosition(
+      tree_.data().tree_id, root_data.id, 9 /* text_offset */,
+      ax::mojom::TextAffinity::kUpstream);
+  ASSERT_NE(nullptr, text_position);
+  ASSERT_TRUE(text_position->IsTextPosition());
+  test_position = text_position->AsLeafTextPosition();
+  ASSERT_NE(nullptr, test_position);
+  EXPECT_TRUE(test_position->IsTextPosition());
+  EXPECT_EQ(tree_.data().tree_id, test_position->tree_id());
+  EXPECT_EQ(text_data.id, test_position->anchor_id());
+  EXPECT_EQ(9, test_position->text_offset());
+  EXPECT_EQ(ax::mojom::TextAffinity::kDownstream, test_position->affinity());
+}
+
+TEST_F(AXPositionTest, CreatePositionAtInvalidGraphemeBoundary) {
+  std::vector<int> text_offsets;
+  std::unique_ptr<AXTree> new_tree = CreateMultilingualDocument(&text_offsets);
+  ASSERT_NE(nullptr, new_tree.get());
+  ASSERT_NE(nullptr, new_tree->root());
+
+  TestPositionType test_position = AXNodePosition::CreateTextPosition(
+      new_tree->data().tree_id, new_tree->root()->id(), 4 /* text_offset */,
+      ax::mojom::TextAffinity::kDownstream);
+  ASSERT_NE(nullptr, test_position);
+  EXPECT_TRUE(test_position->IsTextPosition());
+  EXPECT_EQ(new_tree->root()->id(), test_position->anchor_id());
+  EXPECT_EQ(4, test_position->text_offset());
+  EXPECT_EQ(ax::mojom::TextAffinity::kDownstream, test_position->affinity());
+
+  test_position = AXNodePosition::CreateTextPosition(
+      new_tree->data().tree_id, new_tree->root()->id(), 10 /* text_offset */,
+      ax::mojom::TextAffinity::kUpstream);
+  ASSERT_NE(nullptr, test_position);
+  EXPECT_TRUE(test_position->IsTextPosition());
+  EXPECT_EQ(new_tree->root()->id(), test_position->anchor_id());
+  EXPECT_EQ(10, test_position->text_offset());
   EXPECT_EQ(ax::mojom::TextAffinity::kUpstream, test_position->affinity());
 }
 
@@ -1378,7 +2527,7 @@ TEST_F(AXPositionTest, CreatePositionAtStartOfAnchorWithTextPosition) {
   ASSERT_TRUE(text_position->IsTextPosition());
   TestPositionType test_position =
       text_position->CreatePositionAtStartOfAnchor();
-  EXPECT_NE(nullptr, test_position);
+  ASSERT_NE(nullptr, test_position);
   EXPECT_TRUE(test_position->IsTextPosition());
   EXPECT_EQ(inline_box1_.id, test_position->anchor_id());
   EXPECT_EQ(0, test_position->text_offset());
@@ -1465,31 +2614,50 @@ TEST_F(AXPositionTest, CreatePositionAtPreviousFormatStartWithNullPosition) {
       AXBoundaryBehavior::CrossBoundary);
   EXPECT_NE(nullptr, test_position);
   EXPECT_TRUE(test_position->IsNullPosition());
+  test_position = null_position->CreatePreviousFormatStartPosition(
+      AXBoundaryBehavior::StopAtAnchorBoundary);
+  EXPECT_NE(nullptr, test_position);
+  EXPECT_TRUE(test_position->IsNullPosition());
 }
 
 TEST_F(AXPositionTest, CreatePositionAtPreviousFormatStartWithTreePosition) {
   TestPositionType tree_position = AXNodePosition::CreateTreePosition(
-      tree_.data().tree_id, inline_box1_.id, 0 /* child_index */);
+      tree_.data().tree_id, static_text1_.id, 1 /* child_index */);
   ASSERT_NE(nullptr, tree_position);
+  ASSERT_TRUE(tree_position->IsTreePosition());
+
   TestPositionType test_position =
       tree_position->CreatePreviousFormatStartPosition(
           AXBoundaryBehavior::CrossBoundary);
   EXPECT_NE(nullptr, test_position);
   EXPECT_TRUE(test_position->IsTreePosition());
-  EXPECT_EQ(button_.id, test_position->anchor_id());
+  EXPECT_EQ(static_text1_.id, test_position->anchor_id());
   EXPECT_EQ(0, test_position->child_index());
 
-  // AXBoundaryBehavior::StopIfAlreadyAtBoundary shouldn't move, since it's
-  // already at a boundary.
+  test_position = test_position->CreatePreviousFormatStartPosition(
+      AXBoundaryBehavior::StopAtLastAnchorBoundary);
+  EXPECT_NE(nullptr, test_position);
+  EXPECT_TRUE(test_position->IsTreePosition());
+  EXPECT_EQ(button_.id, test_position->anchor_id());
+  EXPECT_EQ(AXNodePosition::BEFORE_TEXT, test_position->child_index());
+
+  // StopIfAlreadyAtBoundary shouldn't move, since it's already at a boundary.
   test_position = test_position->CreatePreviousFormatStartPosition(
       AXBoundaryBehavior::StopIfAlreadyAtBoundary);
   EXPECT_NE(nullptr, test_position);
   EXPECT_TRUE(test_position->IsTreePosition());
   EXPECT_EQ(button_.id, test_position->anchor_id());
-  EXPECT_EQ(0, test_position->child_index());
+  EXPECT_EQ(AXNodePosition::BEFORE_TEXT, test_position->child_index());
 
-  // AXBoundaryBehavior::CrossBoundary should return a null position when it
-  // reaches the start of the document
+  // StopAtLastAnchorBoundary should stop at the start of the document while
+  // CrossBoundary should return a null position when crossing it.
+  test_position = test_position->CreatePreviousFormatStartPosition(
+      AXBoundaryBehavior::StopAtLastAnchorBoundary);
+  EXPECT_NE(nullptr, test_position);
+  EXPECT_TRUE(test_position->IsTreePosition());
+  EXPECT_EQ(button_.id, test_position->anchor_id());
+  EXPECT_EQ(AXNodePosition::BEFORE_TEXT, test_position->child_index());
+
   test_position = test_position->CreatePreviousFormatStartPosition(
       AXBoundaryBehavior::CrossBoundary);
   EXPECT_NE(nullptr, test_position);
@@ -1502,6 +2670,7 @@ TEST_F(AXPositionTest, CreatePositionAtPreviousFormatStartWithTextPosition) {
       ax::mojom::TextAffinity::kDownstream);
   ASSERT_NE(nullptr, text_position);
   ASSERT_TRUE(text_position->IsTextPosition());
+
   TestPositionType test_position =
       text_position->CreatePreviousFormatStartPosition(
           AXBoundaryBehavior::CrossBoundary);
@@ -1509,23 +2678,36 @@ TEST_F(AXPositionTest, CreatePositionAtPreviousFormatStartWithTextPosition) {
   EXPECT_TRUE(test_position->IsTextPosition());
   EXPECT_EQ(inline_box1_.id, test_position->anchor_id());
   EXPECT_EQ(0, test_position->text_offset());
+  EXPECT_EQ(ax::mojom::TextAffinity::kDownstream, test_position->affinity());
 
-  // AXBoundaryBehavior::StopIfAlreadyAtBoundary shouldn't move, since it's
-  // already at a boundary.
   test_position = test_position->CreatePreviousFormatStartPosition(
-      AXBoundaryBehavior::StopIfAlreadyAtBoundary);
-  EXPECT_NE(nullptr, test_position);
-  EXPECT_TRUE(test_position->IsTextPosition());
-  EXPECT_EQ(inline_box1_.id, test_position->anchor_id());
-  EXPECT_EQ(0, test_position->text_offset());
-
-  // This time, it should move due to AXBoundaryBehavior::CrossBoundary
-  test_position = test_position->CreatePreviousFormatStartPosition(
-      AXBoundaryBehavior::CrossBoundary);
+      AXBoundaryBehavior::StopAtLastAnchorBoundary);
   EXPECT_NE(nullptr, test_position);
   EXPECT_TRUE(test_position->IsTextPosition());
   EXPECT_EQ(button_.id, test_position->anchor_id());
   EXPECT_EQ(0, test_position->text_offset());
+
+  // StopIfAlreadyAtBoundary shouldn't move, since it's already at a boundary.
+  test_position = test_position->CreatePreviousFormatStartPosition(
+      AXBoundaryBehavior::StopIfAlreadyAtBoundary);
+  EXPECT_NE(nullptr, test_position);
+  EXPECT_TRUE(test_position->IsTextPosition());
+  EXPECT_EQ(button_.id, test_position->anchor_id());
+  EXPECT_EQ(0, test_position->text_offset());
+
+  // StopAtLastAnchorBoundary should stop at the start of the document while
+  // CrossBoundary should return a null position when crossing it.
+  test_position = test_position->CreatePreviousFormatStartPosition(
+      AXBoundaryBehavior::StopAtLastAnchorBoundary);
+  EXPECT_NE(nullptr, test_position);
+  EXPECT_TRUE(test_position->IsTextPosition());
+  EXPECT_EQ(button_.id, test_position->anchor_id());
+  EXPECT_EQ(0, test_position->text_offset());
+
+  test_position = test_position->CreatePreviousFormatStartPosition(
+      AXBoundaryBehavior::CrossBoundary);
+  EXPECT_NE(nullptr, test_position);
+  EXPECT_TRUE(test_position->IsNullPosition());
 }
 
 TEST_F(AXPositionTest, CreatePositionAtNextFormatEndWithNullPosition) {
@@ -1545,6 +2727,8 @@ TEST_F(AXPositionTest, CreatePositionAtNextFormatEndWithTreePosition) {
   TestPositionType tree_position = AXNodePosition::CreateTreePosition(
       tree_.data().tree_id, inline_box1_.id, 0 /* child_index */);
   ASSERT_NE(nullptr, tree_position);
+  ASSERT_TRUE(tree_position->IsTreePosition());
+
   TestPositionType test_position = tree_position->CreateNextFormatEndPosition(
       AXBoundaryBehavior::CrossBoundary);
   EXPECT_NE(nullptr, test_position);
@@ -1552,19 +2736,30 @@ TEST_F(AXPositionTest, CreatePositionAtNextFormatEndWithTreePosition) {
   EXPECT_EQ(line_break_.id, test_position->anchor_id());
   EXPECT_EQ(0, test_position->child_index());
 
-  // AXBoundaryBehavior::StopIfAlreadyAtBoundary shouldn't move, since it's
-  // already at a boundary.
-  test_position = test_position->CreatePreviousFormatStartPosition(
+  test_position = test_position->CreateNextFormatEndPosition(
+      AXBoundaryBehavior::StopAtLastAnchorBoundary);
+  EXPECT_NE(nullptr, test_position);
+  EXPECT_TRUE(test_position->IsTreePosition());
+  EXPECT_EQ(inline_box2_.id, test_position->anchor_id());
+  EXPECT_EQ(0, test_position->child_index());
+
+  // StopIfAlreadyAtBoundary shouldn't move, since it's already at a boundary.
+  test_position = test_position->CreateNextFormatEndPosition(
       AXBoundaryBehavior::StopIfAlreadyAtBoundary);
   EXPECT_NE(nullptr, test_position);
   EXPECT_TRUE(test_position->IsTreePosition());
-  EXPECT_EQ(line_break_.id, test_position->anchor_id());
+  EXPECT_EQ(inline_box2_.id, test_position->anchor_id());
   EXPECT_EQ(0, test_position->child_index());
 
-  // AXBoundaryBehavior::CrossBoundary should return a null position when it
-  // reaches the end of the document
+  // StopAtLastAnchorBoundary should stop at the end of the document while
+  // CrossBoundary should return a null position when crossing it.
   test_position = test_position->CreateNextFormatEndPosition(
-      AXBoundaryBehavior::CrossBoundary);
+      AXBoundaryBehavior::StopAtLastAnchorBoundary);
+  EXPECT_NE(nullptr, test_position);
+  EXPECT_TRUE(test_position->IsTreePosition());
+  EXPECT_EQ(inline_box2_.id, test_position->anchor_id());
+  EXPECT_EQ(0, test_position->child_index());
+
   test_position = test_position->CreateNextFormatEndPosition(
       AXBoundaryBehavior::CrossBoundary);
   EXPECT_NE(nullptr, test_position);
@@ -1573,28 +2768,12 @@ TEST_F(AXPositionTest, CreatePositionAtNextFormatEndWithTreePosition) {
 
 TEST_F(AXPositionTest, CreatePositionAtNextFormatEndWithTextPosition) {
   TestPositionType text_position = AXNodePosition::CreateTextPosition(
-      tree_.data().tree_id, inline_box1_.id, 2 /* text_offset */,
+      tree_.data().tree_id, inline_box1_.id, 6 /* text_offset */,
       ax::mojom::TextAffinity::kDownstream);
   ASSERT_NE(nullptr, text_position);
   ASSERT_TRUE(text_position->IsTextPosition());
+
   TestPositionType test_position = text_position->CreateNextFormatEndPosition(
-      AXBoundaryBehavior::CrossBoundary);
-  EXPECT_NE(nullptr, test_position);
-  EXPECT_TRUE(test_position->IsTextPosition());
-  EXPECT_EQ(inline_box1_.id, test_position->anchor_id());
-  EXPECT_EQ(6, test_position->text_offset());
-
-  // AXBoundaryBehavior::StopIfAlreadyAtBoundary shouldn't move, since it's
-  // already at a boundary.
-  test_position = test_position->CreateNextFormatEndPosition(
-      AXBoundaryBehavior::StopIfAlreadyAtBoundary);
-  EXPECT_NE(nullptr, test_position);
-  EXPECT_TRUE(test_position->IsTextPosition());
-  EXPECT_EQ(inline_box1_.id, test_position->anchor_id());
-  EXPECT_EQ(6, test_position->text_offset());
-
-  // This time, it should move due to AXBoundaryBehavior::CrossBoundary
-  test_position = test_position->CreateNextFormatEndPosition(
       AXBoundaryBehavior::CrossBoundary);
   EXPECT_NE(nullptr, test_position);
   EXPECT_TRUE(test_position->IsTextPosition());
@@ -1602,11 +2781,33 @@ TEST_F(AXPositionTest, CreatePositionAtNextFormatEndWithTextPosition) {
   EXPECT_EQ(1, test_position->text_offset());
 
   test_position = test_position->CreateNextFormatEndPosition(
-      AXBoundaryBehavior::CrossBoundary);
+      AXBoundaryBehavior::StopAtLastAnchorBoundary);
   EXPECT_NE(nullptr, test_position);
   EXPECT_TRUE(test_position->IsTextPosition());
   EXPECT_EQ(inline_box2_.id, test_position->anchor_id());
   EXPECT_EQ(6, test_position->text_offset());
+
+  // StopIfAlreadyAtBoundary shouldn't move, since it's already at a boundary.
+  test_position = test_position->CreateNextFormatEndPosition(
+      AXBoundaryBehavior::StopIfAlreadyAtBoundary);
+  EXPECT_NE(nullptr, test_position);
+  EXPECT_TRUE(test_position->IsTextPosition());
+  EXPECT_EQ(inline_box2_.id, test_position->anchor_id());
+  EXPECT_EQ(6, test_position->text_offset());
+
+  // StopAtLastAnchorBoundary should stop at the end of the document while
+  // CrossBoundary should return a null position when crossing it.
+  test_position = test_position->CreateNextFormatEndPosition(
+      AXBoundaryBehavior::StopAtLastAnchorBoundary);
+  EXPECT_NE(nullptr, test_position);
+  EXPECT_TRUE(test_position->IsTextPosition());
+  EXPECT_EQ(inline_box2_.id, test_position->anchor_id());
+  EXPECT_EQ(6, test_position->text_offset());
+
+  test_position = test_position->CreateNextFormatEndPosition(
+      AXBoundaryBehavior::CrossBoundary);
+  EXPECT_NE(nullptr, test_position);
+  EXPECT_TRUE(test_position->IsNullPosition());
 }
 
 TEST_F(AXPositionTest, CreatePositionAtFormatBoundaryWithTextPosition) {
@@ -1631,16 +2832,8 @@ TEST_F(AXPositionTest, CreatePositionAtFormatBoundaryWithTextPosition) {
 
   root_data.child_ids = {text_data.id, more_text_data.id};
 
-  AXTreeUpdate update;
-  AXTreeData tree_data;
-  tree_data.tree_id = AXTreeID::CreateNewAXTreeID();
-  update.tree_data = tree_data;
-  update.has_tree_data = true;
-  update.root_id = root_data.id;
-  update.nodes = {root_data, text_data, more_text_data};
-
-  std::unique_ptr<AXTree> new_tree;
-  new_tree.reset(new AXTree(update));
+  std::unique_ptr<AXTree> new_tree =
+      CreateAXTree({root_data, text_data, more_text_data});
   AXNodePosition::SetTree(new_tree.get());
 
   // Test CreatePreviousFormatStartPosition at the start of the document.
@@ -1667,8 +2860,343 @@ TEST_F(AXPositionTest, CreatePositionAtFormatBoundaryWithTextPosition) {
   EXPECT_TRUE(test_position->IsTextPosition());
   EXPECT_EQ(more_text_data.id, test_position->anchor_id());
   EXPECT_EQ(9, test_position->text_offset());
-
   AXNodePosition::SetTree(&tree_);
+}
+
+TEST_F(AXPositionTest, CreatePositionAtPageBoundaryWithTextPosition) {
+  AXNodeData root_data, page_1_data, page_1_text_data, page_2_data,
+      page_2_text_data, page_3_data, page_3_text_data;
+  std::unique_ptr<AXTree> new_tree(CreateMultipageDocument(
+      root_data, page_1_data, page_1_text_data, page_2_data, page_2_text_data,
+      page_3_data, page_3_text_data));
+  AXNodePosition::SetTree(new_tree.get());
+
+  // Test CreateNextPageStartPosition at the start of the document.
+  TestPositionType text_position = AXNodePosition::CreateTextPosition(
+      new_tree->data().tree_id, page_1_text_data.id, 0 /* text_offset */,
+      ax::mojom::TextAffinity::kDownstream);
+  ASSERT_NE(nullptr, text_position);
+  ASSERT_TRUE(text_position->IsTextPosition());
+
+  // StopIfAlreadyAtBoundary shouldn't move at all since it's at a boundary.
+  TestPositionType test_position = text_position->CreateNextPageStartPosition(
+      AXBoundaryBehavior::StopIfAlreadyAtBoundary);
+  EXPECT_NE(nullptr, test_position);
+  EXPECT_TRUE(test_position->IsTextPosition());
+  EXPECT_EQ(page_1_text_data.id, test_position->anchor_id());
+  EXPECT_EQ(0, test_position->text_offset());
+
+  test_position = text_position->CreateNextPageStartPosition(
+      AXBoundaryBehavior::CrossBoundary);
+  EXPECT_NE(nullptr, test_position);
+  EXPECT_TRUE(test_position->IsTextPosition());
+  EXPECT_EQ(page_2_text_data.id, test_position->anchor_id());
+  EXPECT_EQ(0, test_position->text_offset());
+
+  test_position = text_position->CreateNextPageStartPosition(
+      AXBoundaryBehavior::StopAtLastAnchorBoundary);
+  EXPECT_NE(nullptr, test_position);
+  EXPECT_TRUE(test_position->IsTextPosition());
+  EXPECT_EQ(page_2_text_data.id, test_position->anchor_id());
+  EXPECT_EQ(0, test_position->text_offset());
+
+  // Test CreateNextPageEndPosition until the end of document is reached.
+  test_position = test_position->CreateNextPageEndPosition(
+      AXBoundaryBehavior::StopAtLastAnchorBoundary);
+  EXPECT_NE(nullptr, test_position);
+  EXPECT_TRUE(test_position->IsTextPosition());
+  EXPECT_EQ(page_2_text_data.id, test_position->anchor_id());
+  EXPECT_EQ(19, test_position->text_offset());
+
+  test_position = test_position->CreateNextPageEndPosition(
+      AXBoundaryBehavior::CrossBoundary);
+  EXPECT_NE(nullptr, test_position);
+  EXPECT_TRUE(test_position->IsTextPosition());
+  EXPECT_EQ(page_3_text_data.id, test_position->anchor_id());
+  EXPECT_EQ(24, test_position->text_offset());
+
+  test_position = test_position->CreateNextPageEndPosition(
+      AXBoundaryBehavior::StopIfAlreadyAtBoundary);
+  EXPECT_NE(nullptr, test_position);
+  EXPECT_TRUE(test_position->IsTextPosition());
+  EXPECT_EQ(page_3_text_data.id, test_position->anchor_id());
+  EXPECT_EQ(24, test_position->text_offset());
+
+  // StopAtLastAnchorBoundary shouldn't move past the end of the document.
+  test_position = test_position->CreateNextPageStartPosition(
+      AXBoundaryBehavior::StopAtLastAnchorBoundary);
+  EXPECT_NE(nullptr, test_position);
+  EXPECT_TRUE(test_position->IsTextPosition());
+  EXPECT_EQ(page_3_text_data.id, test_position->anchor_id());
+  EXPECT_EQ(24, test_position->text_offset());
+
+  test_position = test_position->CreateNextPageEndPosition(
+      AXBoundaryBehavior::StopAtLastAnchorBoundary);
+  EXPECT_NE(nullptr, test_position);
+  EXPECT_TRUE(test_position->IsTextPosition());
+  EXPECT_EQ(page_3_text_data.id, test_position->anchor_id());
+  EXPECT_EQ(24, test_position->text_offset());
+
+  // Moving forward past the end should return a null position.
+  TestPositionType null_position = test_position->CreateNextPageStartPosition(
+      AXBoundaryBehavior::CrossBoundary);
+  EXPECT_NE(nullptr, null_position);
+  EXPECT_TRUE(null_position->IsNullPosition());
+
+  null_position = test_position->CreateNextPageEndPosition(
+      AXBoundaryBehavior::CrossBoundary);
+  EXPECT_NE(nullptr, null_position);
+  EXPECT_TRUE(null_position->IsNullPosition());
+
+  // Now move backward through the document.
+  text_position = test_position->CreatePreviousPageEndPosition(
+      AXBoundaryBehavior::StopIfAlreadyAtBoundary);
+  EXPECT_NE(nullptr, text_position);
+  EXPECT_TRUE(text_position->IsTextPosition());
+  EXPECT_EQ(page_3_text_data.id, text_position->anchor_id());
+  EXPECT_EQ(24, text_position->text_offset());
+
+  test_position = text_position->CreatePreviousPageEndPosition(
+      AXBoundaryBehavior::StopAtLastAnchorBoundary);
+  EXPECT_NE(nullptr, test_position);
+  EXPECT_TRUE(test_position->IsTextPosition());
+  EXPECT_EQ(page_2_text_data.id, test_position->anchor_id());
+  EXPECT_EQ(19, test_position->text_offset());
+
+  test_position = text_position->CreatePreviousPageEndPosition(
+      AXBoundaryBehavior::CrossBoundary);
+  EXPECT_NE(nullptr, test_position);
+  EXPECT_TRUE(test_position->IsTextPosition());
+  EXPECT_EQ(page_2_text_data.id, test_position->anchor_id());
+  EXPECT_EQ(19, test_position->text_offset());
+
+  test_position = test_position->CreatePreviousPageStartPosition(
+      AXBoundaryBehavior::CrossBoundary);
+  EXPECT_NE(nullptr, test_position);
+  EXPECT_TRUE(test_position->IsTextPosition());
+  EXPECT_EQ(page_2_text_data.id, test_position->anchor_id());
+  EXPECT_EQ(0, test_position->text_offset());
+
+  test_position = test_position->CreatePreviousPageStartPosition(
+      AXBoundaryBehavior::StopAtLastAnchorBoundary);
+  EXPECT_NE(nullptr, test_position);
+  EXPECT_TRUE(test_position->IsTextPosition());
+  EXPECT_EQ(page_1_text_data.id, test_position->anchor_id());
+  EXPECT_EQ(0, test_position->text_offset());
+
+  test_position = test_position->CreatePreviousPageStartPosition(
+      AXBoundaryBehavior::StopIfAlreadyAtBoundary);
+  EXPECT_NE(nullptr, test_position);
+  EXPECT_TRUE(test_position->IsTextPosition());
+  EXPECT_EQ(page_1_text_data.id, test_position->anchor_id());
+  EXPECT_EQ(0, test_position->text_offset());
+
+  // StopAtLastAnchorBoundary shouldn't move past the start of the document.
+  test_position = test_position->CreatePreviousPageStartPosition(
+      AXBoundaryBehavior::StopAtLastAnchorBoundary);
+  EXPECT_NE(nullptr, test_position);
+  EXPECT_TRUE(test_position->IsTextPosition());
+  EXPECT_EQ(page_1_text_data.id, test_position->anchor_id());
+  EXPECT_EQ(0, test_position->text_offset());
+
+  test_position = test_position->CreatePreviousPageEndPosition(
+      AXBoundaryBehavior::StopAtLastAnchorBoundary);
+  EXPECT_NE(nullptr, test_position);
+  EXPECT_TRUE(test_position->IsTextPosition());
+  EXPECT_EQ(page_1_text_data.id, test_position->anchor_id());
+  EXPECT_EQ(0, test_position->text_offset());
+
+  // Moving before the start should return a null position.
+  null_position = test_position->CreatePreviousPageStartPosition(
+      AXBoundaryBehavior::CrossBoundary);
+  EXPECT_NE(nullptr, null_position);
+  EXPECT_TRUE(null_position->IsNullPosition());
+
+  null_position = test_position->CreatePreviousPageEndPosition(
+      AXBoundaryBehavior::CrossBoundary);
+  EXPECT_NE(nullptr, null_position);
+  EXPECT_TRUE(null_position->IsNullPosition());
+  AXNodePosition::SetTree(&tree_);
+}
+
+TEST_F(AXPositionTest, CreatePositionAtPageBoundaryWithTreePosition) {
+  AXNodeData root_data, page_1_data, page_1_text_data, page_2_data,
+      page_2_text_data, page_3_data, page_3_text_data;
+  std::unique_ptr<AXTree> new_tree(CreateMultipageDocument(
+      root_data, page_1_data, page_1_text_data, page_2_data, page_2_text_data,
+      page_3_data, page_3_text_data));
+  AXNodePosition::SetTree(new_tree.get());
+
+  // Test CreateNextPageStartPosition at the start of the document.
+  TestPositionType tree_position = AXNodePosition::CreateTreePosition(
+      new_tree->data().tree_id, page_1_data.id, 0 /* child_index */);
+  ASSERT_NE(nullptr, tree_position);
+  ASSERT_TRUE(tree_position->IsTreePosition());
+
+  // StopIfAlreadyAtBoundary shouldn't move at all since it's at a boundary.
+  TestPositionType test_position = tree_position->CreateNextPageStartPosition(
+      AXBoundaryBehavior::StopIfAlreadyAtBoundary);
+  EXPECT_NE(nullptr, test_position);
+  EXPECT_TRUE(test_position->IsTreePosition());
+  EXPECT_EQ(page_1_data.id, test_position->anchor_id());
+  EXPECT_EQ(0, test_position->child_index());
+
+  test_position = tree_position->CreateNextPageStartPosition(
+      AXBoundaryBehavior::CrossBoundary);
+  EXPECT_NE(nullptr, test_position);
+  EXPECT_TRUE(test_position->IsTreePosition());
+  EXPECT_EQ(page_2_text_data.id, test_position->anchor_id());
+  EXPECT_EQ(AXNodePosition::BEFORE_TEXT, test_position->child_index());
+
+  test_position = tree_position->CreateNextPageStartPosition(
+      AXBoundaryBehavior::StopAtLastAnchorBoundary);
+  EXPECT_NE(nullptr, test_position);
+  EXPECT_TRUE(test_position->IsTreePosition());
+  EXPECT_EQ(page_2_text_data.id, test_position->anchor_id());
+  EXPECT_EQ(AXNodePosition::BEFORE_TEXT, test_position->child_index());
+
+  // Test CreateNextPageEndPosition until the end of document is reached.
+  test_position = tree_position->CreateNextPageEndPosition(
+      AXBoundaryBehavior::StopAtLastAnchorBoundary);
+  EXPECT_NE(nullptr, test_position);
+  EXPECT_TRUE(test_position->IsTreePosition());
+  EXPECT_EQ(page_2_text_data.id, test_position->anchor_id());
+  EXPECT_EQ(0, test_position->child_index());
+
+  test_position = test_position->CreateNextPageEndPosition(
+      AXBoundaryBehavior::CrossBoundary);
+  EXPECT_NE(nullptr, test_position);
+  EXPECT_TRUE(test_position->IsTreePosition());
+  EXPECT_EQ(page_3_text_data.id, test_position->anchor_id());
+  EXPECT_EQ(0, test_position->child_index());
+
+  test_position = test_position->CreateNextPageEndPosition(
+      AXBoundaryBehavior::StopIfAlreadyAtBoundary);
+  EXPECT_NE(nullptr, test_position);
+  EXPECT_TRUE(test_position->IsTreePosition());
+  EXPECT_EQ(page_3_text_data.id, test_position->anchor_id());
+  EXPECT_EQ(0, test_position->child_index());
+
+  // StopAtLastAnchorBoundary shouldn't move past the end of the document.
+  test_position = test_position->CreateNextPageStartPosition(
+      AXBoundaryBehavior::StopAtLastAnchorBoundary);
+  EXPECT_NE(nullptr, test_position);
+  EXPECT_TRUE(test_position->IsTreePosition());
+  EXPECT_EQ(page_3_text_data.id, test_position->anchor_id());
+  EXPECT_EQ(0, test_position->child_index());
+
+  test_position = test_position->CreateNextPageEndPosition(
+      AXBoundaryBehavior::StopAtLastAnchorBoundary);
+  EXPECT_NE(nullptr, test_position);
+  EXPECT_TRUE(test_position->IsTreePosition());
+  EXPECT_EQ(page_3_text_data.id, test_position->anchor_id());
+  EXPECT_EQ(0, test_position->child_index());
+
+  // Moving forward past the end should return a null position.
+  TestPositionType null_position = test_position->CreateNextPageStartPosition(
+      AXBoundaryBehavior::CrossBoundary);
+  EXPECT_NE(nullptr, null_position);
+  EXPECT_TRUE(null_position->IsNullPosition());
+
+  null_position = test_position->CreateNextPageEndPosition(
+      AXBoundaryBehavior::CrossBoundary);
+  EXPECT_NE(nullptr, null_position);
+  EXPECT_TRUE(null_position->IsNullPosition());
+
+  // Now move backward through the document.
+  tree_position = test_position->CreatePreviousPageEndPosition(
+      AXBoundaryBehavior::StopIfAlreadyAtBoundary);
+  EXPECT_NE(nullptr, tree_position);
+  EXPECT_TRUE(tree_position->IsTreePosition());
+  EXPECT_EQ(page_3_text_data.id, tree_position->anchor_id());
+  EXPECT_EQ(0, tree_position->child_index());
+
+  test_position = tree_position->CreatePreviousPageEndPosition(
+      AXBoundaryBehavior::StopAtLastAnchorBoundary);
+  EXPECT_NE(nullptr, test_position);
+  EXPECT_TRUE(test_position->IsTreePosition());
+  EXPECT_EQ(page_2_text_data.id, test_position->anchor_id());
+  EXPECT_EQ(0, test_position->child_index());
+
+  test_position = tree_position->CreatePreviousPageEndPosition(
+      AXBoundaryBehavior::CrossBoundary);
+  EXPECT_NE(nullptr, test_position);
+  EXPECT_TRUE(test_position->IsTreePosition());
+  EXPECT_EQ(page_2_text_data.id, test_position->anchor_id());
+  EXPECT_EQ(0, test_position->child_index());
+
+  test_position = test_position->CreatePreviousPageStartPosition(
+      AXBoundaryBehavior::CrossBoundary);
+  EXPECT_NE(nullptr, test_position);
+  EXPECT_TRUE(test_position->IsTreePosition());
+  EXPECT_EQ(page_2_text_data.id, test_position->anchor_id());
+  EXPECT_EQ(AXNodePosition::BEFORE_TEXT, test_position->child_index());
+
+  test_position = test_position->CreatePreviousPageStartPosition(
+      AXBoundaryBehavior::StopAtLastAnchorBoundary);
+  EXPECT_NE(nullptr, test_position);
+  EXPECT_TRUE(test_position->IsTreePosition());
+  EXPECT_EQ(page_1_text_data.id, test_position->anchor_id());
+  EXPECT_EQ(AXNodePosition::BEFORE_TEXT, test_position->child_index());
+
+  test_position = test_position->CreatePreviousPageStartPosition(
+      AXBoundaryBehavior::StopIfAlreadyAtBoundary);
+  EXPECT_NE(nullptr, test_position);
+  EXPECT_TRUE(test_position->IsTreePosition());
+  EXPECT_EQ(page_1_text_data.id, test_position->anchor_id());
+  EXPECT_EQ(AXNodePosition::BEFORE_TEXT, test_position->child_index());
+
+  // StopAtLastAnchorBoundary shouldn't move past the start of the document.
+  test_position = test_position->CreatePreviousPageStartPosition(
+      AXBoundaryBehavior::StopAtLastAnchorBoundary);
+  EXPECT_NE(nullptr, test_position);
+  EXPECT_TRUE(test_position->IsTreePosition());
+  EXPECT_EQ(page_1_text_data.id, test_position->anchor_id());
+  EXPECT_EQ(AXNodePosition::BEFORE_TEXT, test_position->child_index());
+
+  test_position = test_position->CreatePreviousPageEndPosition(
+      AXBoundaryBehavior::StopAtLastAnchorBoundary);
+  EXPECT_NE(nullptr, test_position);
+  EXPECT_TRUE(test_position->IsTreePosition());
+  EXPECT_EQ(page_1_text_data.id, test_position->anchor_id());
+  EXPECT_EQ(AXNodePosition::BEFORE_TEXT, test_position->child_index());
+
+  // Moving before the start should return a null position.
+  null_position = test_position->CreatePreviousPageStartPosition(
+      AXBoundaryBehavior::CrossBoundary);
+  EXPECT_NE(nullptr, null_position);
+  EXPECT_TRUE(null_position->IsNullPosition());
+
+  null_position = test_position->CreatePreviousPageEndPosition(
+      AXBoundaryBehavior::CrossBoundary);
+  EXPECT_NE(nullptr, null_position);
+  EXPECT_TRUE(null_position->IsNullPosition());
+  AXNodePosition::SetTree(&tree_);
+}
+
+TEST_F(AXPositionTest, CreatePagePositionWithNullPosition) {
+  TestPositionType null_position = AXNodePosition::CreateNullPosition();
+  ASSERT_NE(nullptr, null_position);
+  TestPositionType test_position =
+      null_position->CreatePreviousPageStartPosition(
+          AXBoundaryBehavior::StopIfAlreadyAtBoundary);
+  EXPECT_NE(nullptr, test_position);
+  EXPECT_TRUE(test_position->IsNullPosition());
+
+  test_position = null_position->CreateNextPageStartPosition(
+      AXBoundaryBehavior::StopIfAlreadyAtBoundary);
+  EXPECT_NE(nullptr, test_position);
+  EXPECT_TRUE(test_position->IsNullPosition());
+
+  test_position = null_position->CreatePreviousPageEndPosition(
+      AXBoundaryBehavior::StopIfAlreadyAtBoundary);
+  EXPECT_NE(nullptr, test_position);
+  EXPECT_TRUE(test_position->IsNullPosition());
+
+  test_position = null_position->CreatePreviousPageStartPosition(
+      AXBoundaryBehavior::StopIfAlreadyAtBoundary);
+  EXPECT_NE(nullptr, test_position);
+  EXPECT_TRUE(test_position->IsNullPosition());
 }
 
 TEST_F(AXPositionTest, CreatePositionAtStartOfDocumentWithNullPosition) {
@@ -1676,6 +3204,77 @@ TEST_F(AXPositionTest, CreatePositionAtStartOfDocumentWithNullPosition) {
   ASSERT_NE(nullptr, null_position);
   TestPositionType test_position =
       null_position->CreatePositionAtStartOfDocument();
+  EXPECT_NE(nullptr, test_position);
+  EXPECT_TRUE(test_position->IsNullPosition());
+}
+
+TEST_F(AXPositionTest, CreatePagePositionWithNonPaginatedDocument) {
+  TestPositionType text_position = AXNodePosition::CreateTextPosition(
+      tree_.data().tree_id, static_text1_.id, 0 /* text_offset */,
+      ax::mojom::TextAffinity::kDownstream);
+  ASSERT_NE(nullptr, text_position);
+
+  // Non-paginated documents should move to the start of the document for
+  // CreatePreviousPageStartPosition (treating the entire document as a single
+  // page)
+  TestPositionType test_position =
+      text_position->CreatePreviousPageStartPosition(
+          AXBoundaryBehavior::StopIfAlreadyAtBoundary);
+  EXPECT_NE(nullptr, test_position);
+  EXPECT_TRUE(test_position->IsTextPosition());
+  EXPECT_EQ(button_.id, test_position->anchor_id());
+  EXPECT_EQ(0, test_position->text_offset());
+
+  // Since there is no next page, CreateNextPageStartPosition should return a
+  // null position
+  test_position = text_position->CreateNextPageStartPosition(
+      AXBoundaryBehavior::StopIfAlreadyAtBoundary);
+  EXPECT_NE(nullptr, test_position);
+  EXPECT_TRUE(test_position->IsNullPosition());
+
+  // Since there is no previous page, CreatePreviousPageEndPosition should
+  // return a null position
+  test_position = text_position->CreatePreviousPageEndPosition(
+      AXBoundaryBehavior::CrossBoundary);
+  EXPECT_NE(nullptr, test_position);
+  EXPECT_TRUE(test_position->IsNullPosition());
+
+  // Since there are no distinct pages, CreateNextPageEndPosition should move
+  // to the end of the document, as if it's one large page.
+  test_position = text_position->CreateNextPageEndPosition(
+      AXBoundaryBehavior::StopIfAlreadyAtBoundary);
+  EXPECT_NE(nullptr, test_position);
+  EXPECT_TRUE(test_position->IsTextPosition());
+  EXPECT_EQ(inline_box2_.id, test_position->anchor_id());
+  EXPECT_EQ(6, test_position->text_offset());
+
+  // CreatePreviousPageStartPosition should move back to the beginning of the
+  // document
+  test_position = test_position->CreatePreviousPageStartPosition(
+      AXBoundaryBehavior::CrossBoundary);
+  EXPECT_NE(nullptr, test_position);
+  EXPECT_TRUE(test_position->IsTextPosition());
+  EXPECT_EQ(button_.id, test_position->anchor_id());
+  EXPECT_EQ(0, test_position->text_offset());
+
+  // Since there's no next page, CreateNextPageStartPosition should return a
+  // null position
+  test_position = test_position->CreateNextPageStartPosition(
+      AXBoundaryBehavior::CrossBoundary);
+  EXPECT_NE(nullptr, test_position);
+  EXPECT_TRUE(test_position->IsNullPosition());
+
+  // Since there's no previous page, CreatePreviousPageEndPosition should return
+  // a null position
+  test_position = text_position->CreatePreviousPageEndPosition(
+      AXBoundaryBehavior::CrossBoundary);
+  EXPECT_NE(nullptr, test_position);
+  EXPECT_TRUE(test_position->IsNullPosition());
+
+  // Since there's no previous page, CreatePreviousPageStartPosition should
+  // return a null position
+  test_position = text_position->CreatePreviousPageStartPosition(
+      AXBoundaryBehavior::CrossBoundary);
   EXPECT_NE(nullptr, test_position);
   EXPECT_TRUE(test_position->IsNullPosition());
 }
@@ -1897,25 +3496,23 @@ TEST_F(AXPositionTest, CreateParentPositionWithTextPosition) {
   EXPECT_EQ(ax::mojom::TextAffinity::kDownstream, test_position->affinity());
 }
 
-TEST_F(AXPositionTest,
-       CreateNextAndPreviousTextAnchorPositionWithNullPosition) {
+TEST_F(AXPositionTest, CreateNextAndPreviousLeafTextPositionWithNullPosition) {
   TestPositionType null_position = AXNodePosition::CreateNullPosition();
   ASSERT_NE(nullptr, null_position);
-  TestPositionType test_position =
-      null_position->CreateNextTextAnchorPosition();
+  TestPositionType test_position = null_position->CreateNextLeafTextPosition();
   EXPECT_NE(nullptr, test_position);
   EXPECT_TRUE(test_position->IsNullPosition());
-  test_position = null_position->CreatePreviousTextAnchorPosition();
+  test_position = null_position->CreatePreviousLeafTextPosition();
   EXPECT_NE(nullptr, test_position);
   EXPECT_TRUE(test_position->IsNullPosition());
 }
 
-TEST_F(AXPositionTest, CreateNextTextAnchorPosition) {
+TEST_F(AXPositionTest, CreateNextLeafTextPosition) {
   TestPositionType check_box_position = AXNodePosition::CreateTreePosition(
       tree_.data().tree_id, root_.id, 1 /* child_index */);
   ASSERT_NE(nullptr, check_box_position);
   TestPositionType test_position =
-      check_box_position->CreateNextTextAnchorPosition();
+      check_box_position->CreateNextLeafTextPosition();
   EXPECT_NE(nullptr, test_position);
   EXPECT_TRUE(test_position->IsTextPosition());
   EXPECT_EQ(tree_.data().tree_id, test_position->tree_id());
@@ -1929,7 +3526,7 @@ TEST_F(AXPositionTest, CreateNextTextAnchorPosition) {
       ax::mojom::TextAffinity::kDownstream);
   ASSERT_NE(nullptr, root_position);
   ASSERT_TRUE(root_position->IsTextPosition());
-  test_position = root_position->CreateNextTextAnchorPosition();
+  test_position = root_position->CreateNextLeafTextPosition();
   EXPECT_NE(nullptr, test_position);
   EXPECT_TRUE(test_position->IsTextPosition());
   EXPECT_EQ(tree_.data().tree_id, test_position->tree_id());
@@ -1941,42 +3538,42 @@ TEST_F(AXPositionTest, CreateNextTextAnchorPosition) {
       ax::mojom::TextAffinity::kDownstream);
   ASSERT_NE(nullptr, button_position);
   ASSERT_TRUE(button_position->IsTextPosition());
-  test_position = button_position->CreateNextTextAnchorPosition();
+  test_position = button_position->CreateNextLeafTextPosition();
   EXPECT_NE(nullptr, test_position);
   EXPECT_TRUE(test_position->IsTextPosition());
   EXPECT_EQ(tree_.data().tree_id, test_position->tree_id());
   EXPECT_EQ(check_box_.id, test_position->anchor_id());
   EXPECT_EQ(0, test_position->text_offset());
 
-  test_position = test_position->CreateNextTextAnchorPosition();
+  test_position = test_position->CreateNextLeafTextPosition();
   EXPECT_NE(nullptr, test_position);
   EXPECT_TRUE(test_position->IsTextPosition());
   EXPECT_EQ(tree_.data().tree_id, test_position->tree_id());
   EXPECT_EQ(inline_box1_.id, test_position->anchor_id());
   EXPECT_EQ(0, test_position->text_offset());
 
-  test_position = test_position->CreateNextTextAnchorPosition();
+  test_position = test_position->CreateNextLeafTextPosition();
   EXPECT_NE(nullptr, test_position);
   EXPECT_TRUE(test_position->IsTextPosition());
   EXPECT_EQ(tree_.data().tree_id, test_position->tree_id());
   EXPECT_EQ(line_break_.id, test_position->anchor_id());
   EXPECT_EQ(0, test_position->text_offset());
 
-  test_position = test_position->CreateNextTextAnchorPosition();
+  test_position = test_position->CreateNextLeafTextPosition();
   EXPECT_NE(nullptr, test_position);
   EXPECT_TRUE(test_position->IsTextPosition());
   EXPECT_EQ(tree_.data().tree_id, test_position->tree_id());
   EXPECT_EQ(inline_box2_.id, test_position->anchor_id());
   EXPECT_EQ(0, test_position->text_offset());
 
-  test_position = test_position->CreateNextTextAnchorPosition();
+  test_position = test_position->CreateNextLeafTextPosition();
   EXPECT_NE(nullptr, test_position);
   EXPECT_TRUE(test_position->IsNullPosition());
 
   TestPositionType text_field_position = AXNodePosition::CreateTreePosition(
       tree_.data().tree_id, root_.id, 2 /* child_index */);
   ASSERT_NE(nullptr, text_field_position);
-  test_position = text_field_position->CreateNextTextAnchorPosition();
+  test_position = text_field_position->CreateNextLeafTextPosition();
   EXPECT_NE(nullptr, test_position);
   EXPECT_TRUE(test_position->IsTextPosition());
   EXPECT_EQ(tree_.data().tree_id, test_position->tree_id());
@@ -1990,7 +3587,7 @@ TEST_F(AXPositionTest, CreateNextTextAnchorPosition) {
       ax::mojom::TextAffinity::kDownstream);
   ASSERT_NE(nullptr, root_position2);
   ASSERT_TRUE(root_position2->IsTextPosition());
-  test_position = root_position2->CreateNextTextAnchorPosition();
+  test_position = root_position2->CreateNextLeafTextPosition();
   EXPECT_NE(nullptr, test_position);
   EXPECT_TRUE(test_position->IsTextPosition());
   EXPECT_EQ(tree_.data().tree_id, test_position->tree_id());
@@ -1998,14 +3595,14 @@ TEST_F(AXPositionTest, CreateNextTextAnchorPosition) {
   EXPECT_EQ(3, test_position->text_offset());
 }
 
-TEST_F(AXPositionTest, CreatePreviousTextAnchorPosition) {
+TEST_F(AXPositionTest, CreatePreviousLeafTextPosition) {
   TestPositionType text_position = AXNodePosition::CreateTextPosition(
       tree_.data().tree_id, inline_box2_.id, 5 /* text_offset */,
       ax::mojom::TextAffinity::kDownstream);
   ASSERT_NE(nullptr, text_position);
   ASSERT_TRUE(text_position->IsTextPosition());
   TestPositionType test_position =
-      text_position->CreatePreviousTextAnchorPosition();
+      text_position->CreatePreviousLeafTextPosition();
   EXPECT_NE(nullptr, test_position);
   EXPECT_TRUE(test_position->IsTextPosition());
   EXPECT_EQ(tree_.data().tree_id, test_position->tree_id());
@@ -2016,42 +3613,42 @@ TEST_F(AXPositionTest, CreatePreviousTextAnchorPosition) {
   TestPositionType before_text_position = AXNodePosition::CreateTreePosition(
       tree_.data().tree_id, inline_box2_.id, AXNodePosition::BEFORE_TEXT);
   ASSERT_NE(nullptr, before_text_position);
-  test_position = before_text_position->CreatePreviousTextAnchorPosition();
+  test_position = before_text_position->CreatePreviousLeafTextPosition();
   EXPECT_NE(nullptr, test_position);
   EXPECT_TRUE(test_position->IsTextPosition());
   EXPECT_EQ(tree_.data().tree_id, test_position->tree_id());
   EXPECT_EQ(line_break_.id, test_position->anchor_id());
   EXPECT_EQ(0, test_position->text_offset());
 
-  test_position = test_position->CreatePreviousTextAnchorPosition();
+  test_position = test_position->CreatePreviousLeafTextPosition();
   EXPECT_NE(nullptr, test_position);
   EXPECT_TRUE(test_position->IsTextPosition());
   EXPECT_EQ(tree_.data().tree_id, test_position->tree_id());
   EXPECT_EQ(inline_box1_.id, test_position->anchor_id());
   EXPECT_EQ(0, test_position->text_offset());
 
-  test_position = test_position->CreatePreviousTextAnchorPosition();
+  test_position = test_position->CreatePreviousLeafTextPosition();
   EXPECT_NE(nullptr, test_position);
   EXPECT_TRUE(test_position->IsTextPosition());
   EXPECT_EQ(tree_.data().tree_id, test_position->tree_id());
   EXPECT_EQ(check_box_.id, test_position->anchor_id());
   EXPECT_EQ(0, test_position->text_offset());
 
-  test_position = test_position->CreatePreviousTextAnchorPosition();
+  test_position = test_position->CreatePreviousLeafTextPosition();
   EXPECT_NE(nullptr, test_position);
   EXPECT_TRUE(test_position->IsTextPosition());
   EXPECT_EQ(tree_.data().tree_id, test_position->tree_id());
   EXPECT_EQ(button_.id, test_position->anchor_id());
   EXPECT_EQ(0, test_position->text_offset());
 
-  test_position = test_position->CreatePreviousTextAnchorPosition();
+  test_position = test_position->CreatePreviousLeafTextPosition();
   EXPECT_NE(nullptr, test_position);
   EXPECT_TRUE(test_position->IsNullPosition());
 
   TestPositionType text_field_position = AXNodePosition::CreateTreePosition(
       tree_.data().tree_id, text_field_.id, 2 /* child_index */);
   ASSERT_NE(nullptr, text_field_position);
-  test_position = text_field_position->CreatePreviousTextAnchorPosition();
+  test_position = text_field_position->CreatePreviousLeafTextPosition();
   EXPECT_NE(nullptr, test_position);
   EXPECT_TRUE(test_position->IsTextPosition());
   EXPECT_EQ(tree_.data().tree_id, test_position->tree_id());
@@ -2065,7 +3662,7 @@ TEST_F(AXPositionTest, CreatePreviousTextAnchorPosition) {
       ax::mojom::TextAffinity::kDownstream);
   ASSERT_NE(nullptr, check_box_position);
   ASSERT_TRUE(check_box_position->IsTextPosition());
-  test_position = check_box_position->CreatePreviousTextAnchorPosition();
+  test_position = check_box_position->CreatePreviousLeafTextPosition();
   EXPECT_NE(nullptr, test_position);
   EXPECT_TRUE(test_position->IsTextPosition());
   EXPECT_EQ(tree_.data().tree_id, test_position->tree_id());
@@ -2079,7 +3676,7 @@ TEST_F(AXPositionTest, CreatePreviousTextAnchorPosition) {
       ax::mojom::TextAffinity::kDownstream);
   ASSERT_NE(nullptr, root_position2);
   ASSERT_TRUE(root_position2->IsTextPosition());
-  test_position = root_position2->CreatePreviousTextAnchorPosition();
+  test_position = root_position2->CreatePreviousLeafTextPosition();
   EXPECT_NE(nullptr, test_position);
   EXPECT_TRUE(test_position->IsTextPosition());
   EXPECT_EQ(tree_.data().tree_id, test_position->tree_id());
@@ -2087,17 +3684,117 @@ TEST_F(AXPositionTest, CreatePreviousTextAnchorPosition) {
   EXPECT_EQ(3, test_position->text_offset());
 }
 
-TEST_F(AXPositionTest, AsPositionBeforeAndAfterCharacterWithNullPosition) {
+TEST_F(AXPositionTest, CreateNextLeafTreePosition) {
+  TestPositionType root_position = AXNodePosition::CreateTreePosition(
+      tree_.data().tree_id, root_.id, 0 /* child_index */);
+  ASSERT_TRUE(root_position->IsTreePosition());
+
+  TestPositionType button_position = AXNodePosition::CreateTreePosition(
+      tree_.data().tree_id, button_.id, AXNodePosition::BEFORE_TEXT);
+  TestPositionType checkbox_position = AXNodePosition::CreateTreePosition(
+      tree_.data().tree_id, check_box_.id, AXNodePosition::BEFORE_TEXT);
+  TestPositionType inline_box1_position = AXNodePosition::CreateTreePosition(
+      tree_.data().tree_id, inline_box1_.id, AXNodePosition::BEFORE_TEXT);
+  TestPositionType line_break_position = AXNodePosition::CreateTreePosition(
+      tree_.data().tree_id, line_break_.id, AXNodePosition::BEFORE_TEXT);
+  TestPositionType inline_box2_position = AXNodePosition::CreateTreePosition(
+      tree_.data().tree_id, inline_box2_.id, AXNodePosition::BEFORE_TEXT);
+
+  TestPositionType test_position = root_position->CreateNextLeafTreePosition();
+  EXPECT_TRUE(test_position->IsTreePosition());
+  EXPECT_EQ(*test_position, *button_position);
+
+  test_position = test_position->CreateNextLeafTreePosition();
+  EXPECT_TRUE(test_position->IsTreePosition());
+  EXPECT_EQ(*test_position, *checkbox_position);
+
+  test_position = test_position->CreateNextLeafTreePosition();
+  EXPECT_TRUE(test_position->IsTreePosition());
+  EXPECT_EQ(*test_position, *inline_box1_position);
+
+  test_position = test_position->CreateNextLeafTreePosition();
+  EXPECT_TRUE(test_position->IsTreePosition());
+  EXPECT_EQ(*test_position, *line_break_position);
+
+  test_position = test_position->CreateNextLeafTreePosition();
+  EXPECT_TRUE(test_position->IsTreePosition());
+  EXPECT_EQ(*test_position, *inline_box2_position);
+
+  test_position = test_position->CreateNextLeafTreePosition();
+  EXPECT_TRUE(test_position->IsNullPosition());
+
+  TestPositionType root_text_position = AXNodePosition::CreateTextPosition(
+      tree_.data().tree_id, root_.id, 2 /* text_offset */,
+      ax::mojom::TextAffinity::kDownstream);
+  EXPECT_TRUE(root_text_position->IsTextPosition());
+
+  test_position = root_text_position->CreateNextLeafTreePosition();
+  EXPECT_TRUE(test_position->IsTreePosition());
+  EXPECT_EQ(*test_position, *inline_box1_position);
+
+  TestPositionType inline_box1_text_position =
+      AXNodePosition::CreateTextPosition(tree_.data().tree_id, inline_box1_.id,
+                                         2 /* text_offset */,
+                                         ax::mojom::TextAffinity::kDownstream);
+  EXPECT_TRUE(inline_box1_text_position->IsTextPosition());
+
+  test_position = inline_box1_text_position->CreateNextLeafTreePosition();
+  EXPECT_TRUE(test_position->IsTreePosition());
+  EXPECT_EQ(*test_position, *line_break_position);
+}
+
+TEST_F(AXPositionTest, CreatePreviousLeafTreePosition) {
+  TestPositionType inline_box2_position = AXNodePosition::CreateTreePosition(
+      tree_.data().tree_id, inline_box2_.id, AXNodePosition::BEFORE_TEXT);
+  ASSERT_TRUE(inline_box2_position->IsTreePosition());
+
+  TestPositionType line_break_position = AXNodePosition::CreateTreePosition(
+      tree_.data().tree_id, line_break_.id, AXNodePosition::BEFORE_TEXT);
+  TestPositionType inline_box1_position = AXNodePosition::CreateTreePosition(
+      tree_.data().tree_id, inline_box1_.id, AXNodePosition::BEFORE_TEXT);
+  TestPositionType checkbox_position = AXNodePosition::CreateTreePosition(
+      tree_.data().tree_id, check_box_.id, AXNodePosition::BEFORE_TEXT);
+  TestPositionType button_position = AXNodePosition::CreateTreePosition(
+      tree_.data().tree_id, button_.id, AXNodePosition::BEFORE_TEXT);
+
+  TestPositionType test_position =
+      inline_box2_position->CreatePreviousLeafTreePosition();
+  EXPECT_TRUE(test_position->IsTreePosition());
+  EXPECT_EQ(*test_position, *line_break_position);
+
+  test_position = test_position->CreatePreviousLeafTreePosition();
+  EXPECT_TRUE(test_position->IsTreePosition());
+  EXPECT_EQ(*test_position, *inline_box1_position);
+
+  test_position = test_position->CreatePreviousLeafTreePosition();
+  EXPECT_TRUE(test_position->IsTreePosition());
+  EXPECT_EQ(*test_position, *checkbox_position);
+
+  test_position = test_position->CreatePreviousLeafTreePosition();
+  EXPECT_TRUE(test_position->IsTreePosition());
+  EXPECT_EQ(*test_position, *button_position);
+
+  test_position = test_position->CreatePreviousLeafTreePosition();
+  EXPECT_TRUE(test_position->IsNullPosition());
+
+  TestPositionType inline_box2_text_position =
+      AXNodePosition::CreateTextPosition(tree_.data().tree_id, inline_box2_.id,
+                                         2 /* text_offset */,
+                                         ax::mojom::TextAffinity::kDownstream);
+  EXPECT_TRUE(inline_box2_text_position->IsTextPosition());
+
+  test_position = inline_box2_text_position->CreatePreviousLeafTreePosition();
+  EXPECT_TRUE(test_position->IsTreePosition());
+  EXPECT_EQ(*test_position, *line_break_position);
+}
+
+TEST_F(AXPositionTest,
+       AsLeafTextPositionBeforeAndAfterCharacterWithNullPosition) {
   TestPositionType null_position = AXNodePosition::CreateNullPosition();
   ASSERT_NE(nullptr, null_position);
   ASSERT_TRUE(null_position->IsNullPosition());
-  TestPositionType test_position = null_position->AsPositionBeforeCharacter();
-  EXPECT_NE(nullptr, test_position);
-  EXPECT_TRUE(test_position->IsNullPosition());
-  test_position = null_position->AsLeafTextPositionBeforeCharacter();
-  EXPECT_NE(nullptr, test_position);
-  EXPECT_TRUE(test_position->IsNullPosition());
-  test_position = null_position->AsPositionAfterCharacter();
+  TestPositionType test_position =
+      null_position->AsLeafTextPositionBeforeCharacter();
   EXPECT_NE(nullptr, test_position);
   EXPECT_TRUE(test_position->IsNullPosition());
   test_position = null_position->AsLeafTextPositionAfterCharacter();
@@ -2105,30 +3802,76 @@ TEST_F(AXPositionTest, AsPositionBeforeAndAfterCharacterWithNullPosition) {
   EXPECT_TRUE(test_position->IsNullPosition());
 }
 
-TEST_F(AXPositionTest, AsPositionBeforeCharacter) {
+TEST_F(AXPositionTest,
+       AsLeafTextPositionBeforeAndAfterCharacterAtInvalidGraphemeBoundary) {
+  std::vector<int> text_offsets;
+  std::unique_ptr<AXTree> new_tree = CreateMultilingualDocument(&text_offsets);
+  ASSERT_NE(nullptr, new_tree.get());
+  ASSERT_NE(nullptr, new_tree->root());
+
+  TestPositionType test_position = AXNodePosition::CreateTextPosition(
+      new_tree->data().tree_id, new_tree->root()->id(), 4 /* text_offset */,
+      ax::mojom::TextAffinity::kDownstream);
+  test_position = test_position->AsLeafTextPositionAfterCharacter();
+  ASSERT_NE(nullptr, test_position);
+  EXPECT_TRUE(test_position->IsTextPosition());
+  EXPECT_EQ(new_tree->root()->children()[1]->id(), test_position->anchor_id());
+  // "text_offset_" should have been adjusted to the next grapheme boundary.
+  EXPECT_EQ(2, test_position->text_offset());
+  EXPECT_EQ(ax::mojom::TextAffinity::kDownstream, test_position->affinity());
+
+  test_position = AXNodePosition::CreateTextPosition(
+      new_tree->data().tree_id, new_tree->root()->id(), 10 /* text_offset */,
+      ax::mojom::TextAffinity::kDownstream);
+  test_position = test_position->AsLeafTextPositionBeforeCharacter();
+  ASSERT_NE(nullptr, test_position);
+  EXPECT_TRUE(test_position->IsTextPosition());
+  EXPECT_EQ(new_tree->root()->children()[2]->id(), test_position->anchor_id());
+  // "text_offset_" should have been adjusted to the previous grapheme boundary.
+  EXPECT_EQ(0, test_position->text_offset());
+  EXPECT_EQ(ax::mojom::TextAffinity::kDownstream, test_position->affinity());
+
+  test_position = AXNodePosition::CreateTextPosition(
+      new_tree->data().tree_id, new_tree->root()->id(), 10 /* text_offset */,
+      ax::mojom::TextAffinity::kUpstream);
+  test_position = test_position->AsLeafTextPositionBeforeCharacter();
+  ASSERT_NE(nullptr, test_position);
+  EXPECT_TRUE(test_position->IsTextPosition());
+  EXPECT_EQ(new_tree->root()->children()[2]->id(), test_position->anchor_id());
+  // The same as above, "text_offset_" should have been adjusted to the previous
+  // grapheme boundary.
+  EXPECT_EQ(0, test_position->text_offset());
+  // An upstream affinity should have had no effect on the outcome and so, it
+  // should have been reset in order to provide consistent output from the
+  // method regardless of input affinity.
+  EXPECT_EQ(ax::mojom::TextAffinity::kDownstream, test_position->affinity());
+}
+
+TEST_F(AXPositionTest, AsLeafTextPositionBeforeCharacterNoAdjustment) {
   // A text offset that is on the line break right after "Line 1".
   TestPositionType text_position = AXNodePosition::CreateTextPosition(
       tree_.data().tree_id, root_.id, 6 /* text_offset */,
       ax::mojom::TextAffinity::kDownstream);
   ASSERT_NE(nullptr, text_position);
   ASSERT_TRUE(text_position->IsTextPosition());
-  TestPositionType test_position = text_position->AsPositionBeforeCharacter();
+  TestPositionType test_position =
+      text_position->AsLeafTextPositionBeforeCharacter();
   EXPECT_NE(nullptr, test_position);
   EXPECT_TRUE(test_position->IsTextPosition());
-  EXPECT_EQ(root_.id, test_position->anchor_id());
-  EXPECT_EQ(6, test_position->text_offset());
+  EXPECT_EQ(line_break_.id, test_position->anchor_id());
+  EXPECT_EQ(0, test_position->text_offset());
 
-  // A text offset that is on the line break right after "Line 1".
+  // A text offset that is before the line break right after "Line 1".
   text_position = AXNodePosition::CreateTextPosition(
       tree_.data().tree_id, text_field_.id, 6 /* text_offset */,
       ax::mojom::TextAffinity::kUpstream);
   ASSERT_NE(nullptr, text_position);
   ASSERT_TRUE(text_position->IsTextPosition());
-  test_position = text_position->AsPositionBeforeCharacter();
+  test_position = text_position->AsLeafTextPositionBeforeCharacter();
   EXPECT_NE(nullptr, test_position);
   EXPECT_TRUE(test_position->IsTextPosition());
-  EXPECT_EQ(text_field_.id, test_position->anchor_id());
-  EXPECT_EQ(6, test_position->text_offset());
+  EXPECT_EQ(line_break_.id, test_position->anchor_id());
+  EXPECT_EQ(0, test_position->text_offset());
   EXPECT_EQ(ax::mojom::TextAffinity::kDownstream, test_position->affinity());
 
   text_position = AXNodePosition::CreateTextPosition(
@@ -2136,7 +3879,7 @@ TEST_F(AXPositionTest, AsPositionBeforeCharacter) {
       ax::mojom::TextAffinity::kDownstream);
   ASSERT_NE(nullptr, text_position);
   ASSERT_TRUE(text_position->IsTextPosition());
-  test_position = text_position->AsPositionBeforeCharacter();
+  test_position = text_position->AsLeafTextPositionBeforeCharacter();
   EXPECT_NE(nullptr, test_position);
   EXPECT_TRUE(test_position->IsNullPosition());
 
@@ -2145,7 +3888,7 @@ TEST_F(AXPositionTest, AsPositionBeforeCharacter) {
       ax::mojom::TextAffinity::kDownstream);
   ASSERT_NE(nullptr, text_position);
   ASSERT_TRUE(text_position->IsTextPosition());
-  test_position = text_position->AsPositionBeforeCharacter();
+  test_position = text_position->AsLeafTextPositionBeforeCharacter();
   EXPECT_NE(nullptr, test_position);
   EXPECT_TRUE(test_position->IsTextPosition());
   EXPECT_EQ(line_break_.id, test_position->anchor_id());
@@ -2156,7 +3899,7 @@ TEST_F(AXPositionTest, AsPositionBeforeCharacter) {
       ax::mojom::TextAffinity::kDownstream);
   ASSERT_NE(nullptr, text_position);
   ASSERT_TRUE(text_position->IsTextPosition());
-  test_position = text_position->AsPositionBeforeCharacter();
+  test_position = text_position->AsLeafTextPositionBeforeCharacter();
   EXPECT_NE(nullptr, test_position);
   EXPECT_TRUE(test_position->IsTextPosition());
   EXPECT_EQ(line_break_.id, test_position->anchor_id());
@@ -2167,25 +3910,26 @@ TEST_F(AXPositionTest, AsPositionBeforeCharacter) {
       ax::mojom::TextAffinity::kDownstream);
   ASSERT_NE(nullptr, text_position);
   ASSERT_TRUE(text_position->IsTextPosition());
-  test_position = text_position->AsPositionBeforeCharacter();
+  test_position = text_position->AsLeafTextPositionBeforeCharacter();
   EXPECT_NE(nullptr, test_position);
   EXPECT_TRUE(test_position->IsTextPosition());
   EXPECT_EQ(inline_box2_.id, test_position->anchor_id());
   EXPECT_EQ(0, test_position->text_offset());
 }
 
-TEST_F(AXPositionTest, AsPositionAfterCharacter) {
+TEST_F(AXPositionTest, AsLeafTextPositionAfterCharacterNoAdjustment) {
   // A text offset that is after "Line 2".
   TestPositionType text_position = AXNodePosition::CreateTextPosition(
       tree_.data().tree_id, root_.id, 13 /* text_offset */,
       ax::mojom::TextAffinity::kDownstream);
   ASSERT_NE(nullptr, text_position);
   ASSERT_TRUE(text_position->IsTextPosition());
-  TestPositionType test_position = text_position->AsPositionAfterCharacter();
+  TestPositionType test_position =
+      text_position->AsLeafTextPositionAfterCharacter();
   EXPECT_NE(nullptr, test_position);
   EXPECT_TRUE(test_position->IsTextPosition());
-  EXPECT_EQ(root_.id, test_position->anchor_id());
-  EXPECT_EQ(13, test_position->text_offset());
+  EXPECT_EQ(inline_box2_.id, test_position->anchor_id());
+  EXPECT_EQ(6, test_position->text_offset());
 
   // A text offset that is before "Line 2".
   text_position = AXNodePosition::CreateTextPosition(
@@ -2193,11 +3937,11 @@ TEST_F(AXPositionTest, AsPositionAfterCharacter) {
       ax::mojom::TextAffinity::kDownstream);
   ASSERT_NE(nullptr, text_position);
   ASSERT_TRUE(text_position->IsTextPosition());
-  test_position = text_position->AsPositionAfterCharacter();
+  test_position = text_position->AsLeafTextPositionAfterCharacter();
   EXPECT_NE(nullptr, test_position);
   EXPECT_TRUE(test_position->IsTextPosition());
-  EXPECT_EQ(root_.id, test_position->anchor_id());
-  EXPECT_EQ(7, test_position->text_offset());
+  EXPECT_EQ(line_break_.id, test_position->anchor_id());
+  EXPECT_EQ(1, test_position->text_offset());
 
   // A text offset that is on the line break right after "Line 1".
   text_position = AXNodePosition::CreateTextPosition(
@@ -2205,30 +3949,30 @@ TEST_F(AXPositionTest, AsPositionAfterCharacter) {
       ax::mojom::TextAffinity::kUpstream);
   ASSERT_NE(nullptr, text_position);
   ASSERT_TRUE(text_position->IsTextPosition());
-  test_position = text_position->AsPositionAfterCharacter();
+  test_position = text_position->AsLeafTextPositionAfterCharacter();
   EXPECT_NE(nullptr, test_position);
   EXPECT_TRUE(test_position->IsTextPosition());
-  EXPECT_EQ(text_field_.id, test_position->anchor_id());
+  EXPECT_EQ(inline_box1_.id, test_position->anchor_id());
   EXPECT_EQ(6, test_position->text_offset());
-  EXPECT_EQ(ax::mojom::TextAffinity::kUpstream, test_position->affinity());
+  EXPECT_EQ(ax::mojom::TextAffinity::kDownstream, test_position->affinity());
 
   text_position = AXNodePosition::CreateTextPosition(
       tree_.data().tree_id, text_field_.id, 13 /* text_offset */,
       ax::mojom::TextAffinity::kDownstream);
   ASSERT_NE(nullptr, text_position);
   ASSERT_TRUE(text_position->IsTextPosition());
-  test_position = text_position->AsPositionAfterCharacter();
+  test_position = text_position->AsLeafTextPositionAfterCharacter();
   EXPECT_NE(nullptr, test_position);
   EXPECT_TRUE(test_position->IsTextPosition());
-  EXPECT_EQ(text_field_.id, test_position->anchor_id());
-  EXPECT_EQ(13, test_position->text_offset());
+  EXPECT_EQ(inline_box2_.id, test_position->anchor_id());
+  EXPECT_EQ(6, test_position->text_offset());
 
   text_position = AXNodePosition::CreateTextPosition(
       tree_.data().tree_id, line_break_.id, 0 /* text_offset */,
       ax::mojom::TextAffinity::kDownstream);
   ASSERT_NE(nullptr, text_position);
   ASSERT_TRUE(text_position->IsTextPosition());
-  test_position = text_position->AsPositionAfterCharacter();
+  test_position = text_position->AsLeafTextPositionAfterCharacter();
   EXPECT_NE(nullptr, test_position);
   EXPECT_TRUE(test_position->IsTextPosition());
   EXPECT_EQ(inline_box1_.id, test_position->anchor_id());
@@ -2239,7 +3983,7 @@ TEST_F(AXPositionTest, AsPositionAfterCharacter) {
       ax::mojom::TextAffinity::kDownstream);
   ASSERT_NE(nullptr, text_position);
   ASSERT_TRUE(text_position->IsTextPosition());
-  test_position = text_position->AsPositionAfterCharacter();
+  test_position = text_position->AsLeafTextPositionAfterCharacter();
   EXPECT_NE(nullptr, test_position);
   EXPECT_TRUE(test_position->IsTextPosition());
   EXPECT_EQ(line_break_.id, test_position->anchor_id());
@@ -2250,7 +3994,7 @@ TEST_F(AXPositionTest, AsPositionAfterCharacter) {
       ax::mojom::TextAffinity::kDownstream);
   ASSERT_NE(nullptr, text_position);
   ASSERT_TRUE(text_position->IsTextPosition());
-  test_position = text_position->AsPositionAfterCharacter();
+  test_position = text_position->AsLeafTextPositionAfterCharacter();
   EXPECT_NE(nullptr, test_position);
   EXPECT_TRUE(test_position->IsTextPosition());
   EXPECT_EQ(inline_box2_.id, test_position->anchor_id());
@@ -2259,23 +4003,12 @@ TEST_F(AXPositionTest, AsPositionAfterCharacter) {
 
 TEST_F(AXPositionTest, AsLeafTextPositionBeforeCharacter) {
   TestPositionType text_position = AXNodePosition::CreateTextPosition(
-      tree_.data().tree_id, root_.id, 0 /* text_offset */,
+      tree_.data().tree_id, inline_box1_.id, 3 /* text_offset */,
       ax::mojom::TextAffinity::kDownstream);
   ASSERT_NE(nullptr, text_position);
   ASSERT_TRUE(text_position->IsTextPosition());
   TestPositionType test_position =
       text_position->AsLeafTextPositionBeforeCharacter();
-  EXPECT_NE(nullptr, test_position);
-  EXPECT_TRUE(test_position->IsTextPosition());
-  EXPECT_EQ(inline_box1_.id, test_position->anchor_id());
-  EXPECT_EQ(0, test_position->text_offset());
-
-  text_position = AXNodePosition::CreateTextPosition(
-      tree_.data().tree_id, inline_box1_.id, 3 /* text_offset */,
-      ax::mojom::TextAffinity::kDownstream);
-  ASSERT_NE(nullptr, text_position);
-  ASSERT_TRUE(text_position->IsTextPosition());
-  test_position = text_position->AsLeafTextPositionBeforeCharacter();
   EXPECT_NE(nullptr, test_position);
   EXPECT_TRUE(test_position->IsTextPosition());
   EXPECT_EQ(inline_box1_.id, test_position->anchor_id());
@@ -2294,7 +4027,7 @@ TEST_F(AXPositionTest, AsLeafTextPositionBeforeCharacter) {
 
   text_position = AXNodePosition::CreateTextPosition(
       tree_.data().tree_id, inline_box2_.id, 0 /* text_offset */,
-      ax::mojom::TextAffinity::kDownstream);
+      ax::mojom::TextAffinity::kUpstream);
   ASSERT_NE(nullptr, text_position);
   ASSERT_TRUE(text_position->IsTextPosition());
   test_position = text_position->AsLeafTextPositionBeforeCharacter();
@@ -2305,6 +4038,15 @@ TEST_F(AXPositionTest, AsLeafTextPositionBeforeCharacter) {
 
   text_position = AXNodePosition::CreateTextPosition(
       tree_.data().tree_id, inline_box2_.id, 6 /* text_offset */,
+      ax::mojom::TextAffinity::kUpstream);
+  ASSERT_NE(nullptr, text_position);
+  ASSERT_TRUE(text_position->IsTextPosition());
+  test_position = text_position->AsLeafTextPositionBeforeCharacter();
+  EXPECT_NE(nullptr, test_position);
+  EXPECT_TRUE(test_position->IsNullPosition());
+
+  text_position = AXNodePosition::CreateTextPosition(
+      tree_.data().tree_id, root_.id, 13 /* text_offset */,
       ax::mojom::TextAffinity::kDownstream);
   ASSERT_NE(nullptr, text_position);
   ASSERT_TRUE(text_position->IsTextPosition());
@@ -2337,7 +4079,7 @@ TEST_F(AXPositionTest, AsLeafTextPositionAfterCharacter) {
 
   text_position = AXNodePosition::CreateTextPosition(
       tree_.data().tree_id, line_break_.id, 1 /* text_offset */,
-      ax::mojom::TextAffinity::kDownstream);
+      ax::mojom::TextAffinity::kUpstream);
   ASSERT_NE(nullptr, text_position);
   ASSERT_TRUE(text_position->IsTextPosition());
   test_position = text_position->AsLeafTextPositionAfterCharacter();
@@ -2348,7 +4090,7 @@ TEST_F(AXPositionTest, AsLeafTextPositionAfterCharacter) {
 
   text_position = AXNodePosition::CreateTextPosition(
       tree_.data().tree_id, inline_box2_.id, 0 /* text_offset */,
-      ax::mojom::TextAffinity::kDownstream);
+      ax::mojom::TextAffinity::kUpstream);
   ASSERT_NE(nullptr, text_position);
   ASSERT_TRUE(text_position->IsTextPosition());
   test_position = text_position->AsLeafTextPositionAfterCharacter();
@@ -2358,15 +4100,13 @@ TEST_F(AXPositionTest, AsLeafTextPositionAfterCharacter) {
   EXPECT_EQ(1, test_position->text_offset());
 
   text_position = AXNodePosition::CreateTextPosition(
-      tree_.data().tree_id, root_.id, 13 /* text_offset */,
+      tree_.data().tree_id, root_.id, 0 /* text_offset */,
       ax::mojom::TextAffinity::kDownstream);
   ASSERT_NE(nullptr, text_position);
   ASSERT_TRUE(text_position->IsTextPosition());
   test_position = text_position->AsLeafTextPositionAfterCharacter();
   EXPECT_NE(nullptr, test_position);
-  EXPECT_TRUE(test_position->IsTextPosition());
-  EXPECT_EQ(inline_box2_.id, test_position->anchor_id());
-  EXPECT_EQ(6, test_position->text_offset());
+  EXPECT_TRUE(test_position->IsNullPosition());
 }
 
 TEST_F(AXPositionTest, CreateNextAndPreviousCharacterPositionWithNullPosition) {
@@ -2388,8 +4128,27 @@ TEST_F(AXPositionTest, CreateNextCharacterPosition) {
       ax::mojom::TextAffinity::kDownstream);
   ASSERT_NE(nullptr, text_position);
   ASSERT_TRUE(text_position->IsTextPosition());
+
   TestPositionType test_position = text_position->CreateNextCharacterPosition(
+      AXBoundaryBehavior::StopIfAlreadyAtBoundary);
+  EXPECT_NE(nullptr, test_position);
+  EXPECT_TRUE(test_position->IsTextPosition());
+  EXPECT_EQ(inline_box1_.id, test_position->anchor_id());
+  EXPECT_EQ(4, test_position->text_offset());
+  test_position = text_position->CreateNextCharacterPosition(
       AXBoundaryBehavior::CrossBoundary);
+  EXPECT_NE(nullptr, test_position);
+  EXPECT_TRUE(test_position->IsTextPosition());
+  EXPECT_EQ(inline_box1_.id, test_position->anchor_id());
+  EXPECT_EQ(5, test_position->text_offset());
+  test_position = text_position->CreateNextCharacterPosition(
+      AXBoundaryBehavior::StopAtAnchorBoundary);
+  EXPECT_NE(nullptr, test_position);
+  EXPECT_TRUE(test_position->IsTextPosition());
+  EXPECT_EQ(inline_box1_.id, test_position->anchor_id());
+  EXPECT_EQ(5, test_position->text_offset());
+  test_position = text_position->CreateNextCharacterPosition(
+      AXBoundaryBehavior::StopAtLastAnchorBoundary);
   EXPECT_NE(nullptr, test_position);
   EXPECT_TRUE(test_position->IsTextPosition());
   EXPECT_EQ(inline_box1_.id, test_position->anchor_id());
@@ -2402,42 +4161,108 @@ TEST_F(AXPositionTest, CreateNextCharacterPosition) {
   ASSERT_TRUE(text_position->IsTextPosition());
 
   test_position = text_position->CreateNextCharacterPosition(
-      AXBoundaryBehavior::StopAtAnchorBoundary);
+      AXBoundaryBehavior::StopIfAlreadyAtBoundary);
   EXPECT_NE(nullptr, test_position);
   EXPECT_TRUE(test_position->IsTextPosition());
   EXPECT_EQ(inline_box1_.id, test_position->anchor_id());
-  EXPECT_EQ(6, test_position->text_offset());
-  test_position = test_position->CreateNextCharacterPosition(
-      AXBoundaryBehavior::StopAtAnchorBoundary);
-  EXPECT_NE(nullptr, test_position);
-  EXPECT_TRUE(test_position->IsTextPosition());
-  EXPECT_EQ(inline_box1_.id, test_position->anchor_id());
-  EXPECT_EQ(6, test_position->text_offset());
-  test_position = test_position->CreateNextCharacterPosition(
+  EXPECT_EQ(5, test_position->text_offset());
+  test_position = text_position->CreateNextCharacterPosition(
       AXBoundaryBehavior::CrossBoundary);
+  EXPECT_NE(nullptr, test_position);
+  EXPECT_TRUE(test_position->IsTextPosition());
+  EXPECT_EQ(inline_box1_.id, test_position->anchor_id());
+  EXPECT_EQ(6, test_position->text_offset());
+  test_position = text_position->CreateNextCharacterPosition(
+      AXBoundaryBehavior::StopAtAnchorBoundary);
+  EXPECT_NE(nullptr, test_position);
+  EXPECT_TRUE(test_position->IsTextPosition());
+  EXPECT_EQ(inline_box1_.id, test_position->anchor_id());
+  EXPECT_EQ(6, test_position->text_offset());
+  test_position = text_position->CreateNextCharacterPosition(
+      AXBoundaryBehavior::StopAtLastAnchorBoundary);
+  EXPECT_NE(nullptr, test_position);
+  EXPECT_TRUE(test_position->IsTextPosition());
+  EXPECT_EQ(inline_box1_.id, test_position->anchor_id());
+  EXPECT_EQ(6, test_position->text_offset());
+
+  text_position = AXNodePosition::CreateTextPosition(
+      tree_.data().tree_id, inline_box1_.id, 6 /* text_offset */,
+      ax::mojom::TextAffinity::kDownstream);
+  ASSERT_NE(nullptr, text_position);
+  ASSERT_TRUE(text_position->IsTextPosition());
+
+  test_position = text_position->CreateNextCharacterPosition(
+      AXBoundaryBehavior::StopIfAlreadyAtBoundary);
+  EXPECT_NE(nullptr, test_position);
+  EXPECT_TRUE(test_position->IsTextPosition());
+  EXPECT_EQ(inline_box1_.id, test_position->anchor_id());
+  EXPECT_EQ(6, test_position->text_offset());
+  test_position = text_position->CreateNextCharacterPosition(
+      AXBoundaryBehavior::CrossBoundary);
+  EXPECT_NE(nullptr, test_position);
+  EXPECT_TRUE(test_position->IsTextPosition());
+  EXPECT_EQ(line_break_.id, test_position->anchor_id());
+  EXPECT_EQ(1, test_position->text_offset());
+  test_position = text_position->CreateNextCharacterPosition(
+      AXBoundaryBehavior::StopAtAnchorBoundary);
+  EXPECT_NE(nullptr, test_position);
+  EXPECT_TRUE(test_position->IsTextPosition());
+  EXPECT_EQ(inline_box1_.id, test_position->anchor_id());
+  EXPECT_EQ(6, test_position->text_offset());
+  test_position = text_position->CreateNextCharacterPosition(
+      AXBoundaryBehavior::StopAtLastAnchorBoundary);
   EXPECT_NE(nullptr, test_position);
   EXPECT_TRUE(test_position->IsTextPosition());
   EXPECT_EQ(line_break_.id, test_position->anchor_id());
   EXPECT_EQ(1, test_position->text_offset());
 
-  test_position = test_position->CreateNextCharacterPosition(
-      AXBoundaryBehavior::StopAtAnchorBoundary);
-  EXPECT_NE(nullptr, test_position);
-  EXPECT_TRUE(test_position->IsTextPosition());
-  EXPECT_EQ(line_break_.id, test_position->anchor_id());
-  EXPECT_EQ(1, test_position->text_offset());
-  test_position = test_position->CreateNextCharacterPosition(
+  text_position = AXNodePosition::CreateTextPosition(
+      tree_.data().tree_id, inline_box2_.id, 6 /* text_offset */,
+      ax::mojom::TextAffinity::kDownstream);
+  ASSERT_NE(nullptr, text_position);
+  ASSERT_TRUE(text_position->IsTextPosition());
+
+  test_position = text_position->CreateNextCharacterPosition(
       AXBoundaryBehavior::CrossBoundary);
+  EXPECT_NE(nullptr, test_position);
+  EXPECT_TRUE(test_position->IsNullPosition());
+  test_position = text_position->CreateNextCharacterPosition(
+      AXBoundaryBehavior::StopIfAlreadyAtBoundary);
   EXPECT_NE(nullptr, test_position);
   EXPECT_TRUE(test_position->IsTextPosition());
   EXPECT_EQ(inline_box2_.id, test_position->anchor_id());
-  EXPECT_EQ(1, test_position->text_offset());
+  EXPECT_EQ(6, test_position->text_offset());
+  test_position = text_position->CreateNextCharacterPosition(
+      AXBoundaryBehavior::StopAtAnchorBoundary);
+  EXPECT_NE(nullptr, test_position);
+  EXPECT_TRUE(test_position->IsTextPosition());
+  EXPECT_EQ(inline_box2_.id, test_position->anchor_id());
+  EXPECT_EQ(6, test_position->text_offset());
+  test_position = text_position->CreateNextCharacterPosition(
+      AXBoundaryBehavior::StopAtLastAnchorBoundary);
+  EXPECT_NE(nullptr, test_position);
+  EXPECT_TRUE(test_position->IsTextPosition());
+  EXPECT_EQ(inline_box2_.id, test_position->anchor_id());
+  EXPECT_EQ(6, test_position->text_offset());
 
   text_position = AXNodePosition::CreateTextPosition(
       tree_.data().tree_id, check_box_.id, 0 /* text_offset */,
       ax::mojom::TextAffinity::kDownstream);
   ASSERT_NE(nullptr, text_position);
   ASSERT_TRUE(text_position->IsTextPosition());
+
+  test_position = text_position->CreateNextCharacterPosition(
+      AXBoundaryBehavior::CrossBoundary);
+  EXPECT_NE(nullptr, test_position);
+  EXPECT_TRUE(test_position->IsTextPosition());
+  EXPECT_EQ(inline_box1_.id, test_position->anchor_id());
+  EXPECT_EQ(1, test_position->text_offset());
+  test_position = text_position->CreateNextCharacterPosition(
+      AXBoundaryBehavior::StopIfAlreadyAtBoundary);
+  EXPECT_NE(nullptr, test_position);
+  EXPECT_TRUE(test_position->IsTextPosition());
+  EXPECT_EQ(check_box_.id, test_position->anchor_id());
+  EXPECT_EQ(0, test_position->text_offset());
   test_position = text_position->CreateNextCharacterPosition(
       AXBoundaryBehavior::StopAtAnchorBoundary);
   EXPECT_NE(nullptr, test_position);
@@ -2445,7 +4270,7 @@ TEST_F(AXPositionTest, CreateNextCharacterPosition) {
   EXPECT_EQ(check_box_.id, test_position->anchor_id());
   EXPECT_EQ(0, test_position->text_offset());
   test_position = text_position->CreateNextCharacterPosition(
-      AXBoundaryBehavior::CrossBoundary);
+      AXBoundaryBehavior::StopAtLastAnchorBoundary);
   EXPECT_NE(nullptr, test_position);
   EXPECT_TRUE(test_position->IsTextPosition());
   EXPECT_EQ(inline_box1_.id, test_position->anchor_id());
@@ -2456,6 +4281,7 @@ TEST_F(AXPositionTest, CreateNextCharacterPosition) {
       ax::mojom::TextAffinity::kUpstream);
   ASSERT_NE(nullptr, text_position);
   ASSERT_TRUE(text_position->IsTextPosition());
+
   test_position = text_position->CreateNextCharacterPosition(
       AXBoundaryBehavior::CrossBoundary);
   EXPECT_NE(nullptr, test_position);
@@ -2470,6 +4296,7 @@ TEST_F(AXPositionTest, CreateNextCharacterPosition) {
       ax::mojom::TextAffinity::kUpstream);
   ASSERT_NE(nullptr, text_position);
   ASSERT_TRUE(text_position->IsTextPosition());
+
   test_position = text_position->CreateNextCharacterPosition(
       AXBoundaryBehavior::CrossBoundary);
   EXPECT_NE(nullptr, test_position);
@@ -2486,21 +4313,72 @@ TEST_F(AXPositionTest, CreatePreviousCharacterPosition) {
       ax::mojom::TextAffinity::kDownstream);
   ASSERT_NE(nullptr, text_position);
   ASSERT_TRUE(text_position->IsTextPosition());
+
   TestPositionType test_position =
       text_position->CreatePreviousCharacterPosition(
-          AXBoundaryBehavior::CrossBoundary);
+          AXBoundaryBehavior::StopIfAlreadyAtBoundary);
+  EXPECT_NE(nullptr, test_position);
+  EXPECT_TRUE(test_position->IsTextPosition());
+  EXPECT_EQ(inline_box2_.id, test_position->anchor_id());
+  EXPECT_EQ(5, test_position->text_offset());
+  test_position = text_position->CreatePreviousCharacterPosition(
+      AXBoundaryBehavior::CrossBoundary);
   EXPECT_NE(nullptr, test_position);
   EXPECT_TRUE(test_position->IsTextPosition());
   EXPECT_EQ(inline_box2_.id, test_position->anchor_id());
   EXPECT_EQ(4, test_position->text_offset());
+  test_position = text_position->CreatePreviousCharacterPosition(
+      AXBoundaryBehavior::StopAtAnchorBoundary);
+  EXPECT_NE(nullptr, test_position);
+  EXPECT_TRUE(test_position->IsTextPosition());
+  EXPECT_EQ(inline_box2_.id, test_position->anchor_id());
+  EXPECT_EQ(4, test_position->text_offset());
+  test_position = text_position->CreatePreviousCharacterPosition(
+      AXBoundaryBehavior::StopAtLastAnchorBoundary);
+  EXPECT_NE(nullptr, test_position);
+  EXPECT_TRUE(test_position->IsTextPosition());
+  EXPECT_EQ(inline_box2_.id, test_position->anchor_id());
+  EXPECT_EQ(4, test_position->text_offset());
+
+  text_position = AXNodePosition::CreateTextPosition(
+      tree_.data().tree_id, inline_box2_.id, 1 /* text_offset */,
+      ax::mojom::TextAffinity::kDownstream);
+  ASSERT_NE(nullptr, text_position);
+  ASSERT_TRUE(text_position->IsTextPosition());
+
+  test_position = text_position->CreatePreviousCharacterPosition(
+      AXBoundaryBehavior::StopIfAlreadyAtBoundary);
+  EXPECT_NE(nullptr, test_position);
+  EXPECT_TRUE(test_position->IsTextPosition());
+  EXPECT_EQ(inline_box2_.id, test_position->anchor_id());
+  EXPECT_EQ(1, test_position->text_offset());
+  test_position = text_position->CreatePreviousCharacterPosition(
+      AXBoundaryBehavior::CrossBoundary);
+  EXPECT_NE(nullptr, test_position);
+  EXPECT_TRUE(test_position->IsTextPosition());
+  EXPECT_EQ(inline_box2_.id, test_position->anchor_id());
+  EXPECT_EQ(0, test_position->text_offset());
+  test_position = text_position->CreatePreviousCharacterPosition(
+      AXBoundaryBehavior::StopAtAnchorBoundary);
+  EXPECT_NE(nullptr, test_position);
+  EXPECT_TRUE(test_position->IsTextPosition());
+  EXPECT_EQ(inline_box2_.id, test_position->anchor_id());
+  EXPECT_EQ(0, test_position->text_offset());
+  test_position = text_position->CreatePreviousCharacterPosition(
+      AXBoundaryBehavior::StopAtLastAnchorBoundary);
+  EXPECT_NE(nullptr, test_position);
+  EXPECT_TRUE(test_position->IsTextPosition());
+  EXPECT_EQ(inline_box2_.id, test_position->anchor_id());
+  EXPECT_EQ(0, test_position->text_offset());
 
   text_position = AXNodePosition::CreateTextPosition(
       tree_.data().tree_id, inline_box2_.id, 0 /* text_offset */,
       ax::mojom::TextAffinity::kDownstream);
   ASSERT_NE(nullptr, text_position);
   ASSERT_TRUE(text_position->IsTextPosition());
+
   test_position = text_position->CreatePreviousCharacterPosition(
-      AXBoundaryBehavior::StopAtAnchorBoundary);
+      AXBoundaryBehavior::StopIfAlreadyAtBoundary);
   EXPECT_NE(nullptr, test_position);
   EXPECT_TRUE(test_position->IsTextPosition());
   EXPECT_EQ(inline_box2_.id, test_position->anchor_id());
@@ -2511,32 +4389,35 @@ TEST_F(AXPositionTest, CreatePreviousCharacterPosition) {
   EXPECT_TRUE(test_position->IsTextPosition());
   EXPECT_EQ(line_break_.id, test_position->anchor_id());
   EXPECT_EQ(0, test_position->text_offset());
-
-  test_position = test_position->CreatePreviousCharacterPosition(
+  test_position = text_position->CreatePreviousCharacterPosition(
       AXBoundaryBehavior::StopAtAnchorBoundary);
+  EXPECT_NE(nullptr, test_position);
+  EXPECT_TRUE(test_position->IsTextPosition());
+  EXPECT_EQ(inline_box2_.id, test_position->anchor_id());
+  EXPECT_EQ(0, test_position->text_offset());
+  test_position = text_position->CreatePreviousCharacterPosition(
+      AXBoundaryBehavior::StopAtLastAnchorBoundary);
   EXPECT_NE(nullptr, test_position);
   EXPECT_TRUE(test_position->IsTextPosition());
   EXPECT_EQ(line_break_.id, test_position->anchor_id());
   EXPECT_EQ(0, test_position->text_offset());
-  test_position = test_position->CreatePreviousCharacterPosition(
-      AXBoundaryBehavior::CrossBoundary);
-  EXPECT_NE(nullptr, test_position);
-  EXPECT_TRUE(test_position->IsTextPosition());
-  EXPECT_EQ(inline_box1_.id, test_position->anchor_id());
-  EXPECT_EQ(5, test_position->text_offset());
-
-  test_position = test_position->CreatePreviousCharacterPosition(
-      AXBoundaryBehavior::CrossBoundary);
-  EXPECT_NE(nullptr, test_position);
-  EXPECT_TRUE(test_position->IsTextPosition());
-  EXPECT_EQ(inline_box1_.id, test_position->anchor_id());
-  EXPECT_EQ(4, test_position->text_offset());
 
   text_position = AXNodePosition::CreateTextPosition(
       tree_.data().tree_id, inline_box1_.id, 0 /* text_offset */,
       ax::mojom::TextAffinity::kDownstream);
   ASSERT_NE(nullptr, text_position);
   ASSERT_TRUE(text_position->IsTextPosition());
+
+  test_position = text_position->CreatePreviousCharacterPosition(
+      AXBoundaryBehavior::CrossBoundary);
+  EXPECT_NE(nullptr, test_position);
+  EXPECT_TRUE(test_position->IsNullPosition());
+  test_position = text_position->CreatePreviousCharacterPosition(
+      AXBoundaryBehavior::StopIfAlreadyAtBoundary);
+  EXPECT_NE(nullptr, test_position);
+  EXPECT_TRUE(test_position->IsTextPosition());
+  EXPECT_EQ(inline_box1_.id, test_position->anchor_id());
+  EXPECT_EQ(0, test_position->text_offset());
   test_position = text_position->CreatePreviousCharacterPosition(
       AXBoundaryBehavior::StopAtAnchorBoundary);
   EXPECT_NE(nullptr, test_position);
@@ -2544,15 +4425,47 @@ TEST_F(AXPositionTest, CreatePreviousCharacterPosition) {
   EXPECT_EQ(inline_box1_.id, test_position->anchor_id());
   EXPECT_EQ(0, test_position->text_offset());
   test_position = text_position->CreatePreviousCharacterPosition(
+      AXBoundaryBehavior::StopAtLastAnchorBoundary);
+  EXPECT_NE(nullptr, test_position);
+  EXPECT_TRUE(test_position->IsTextPosition());
+  EXPECT_EQ(inline_box1_.id, test_position->anchor_id());
+  EXPECT_EQ(0, test_position->text_offset());
+
+  text_position = AXNodePosition::CreateTextPosition(
+      tree_.data().tree_id, check_box_.id, 0 /* text_offset */,
+      ax::mojom::TextAffinity::kDownstream);
+  ASSERT_NE(nullptr, text_position);
+  ASSERT_TRUE(text_position->IsTextPosition());
+
+  test_position = text_position->CreatePreviousCharacterPosition(
       AXBoundaryBehavior::CrossBoundary);
   EXPECT_NE(nullptr, test_position);
   EXPECT_TRUE(test_position->IsNullPosition());
+  test_position = text_position->CreatePreviousCharacterPosition(
+      AXBoundaryBehavior::StopIfAlreadyAtBoundary);
+  EXPECT_NE(nullptr, test_position);
+  EXPECT_TRUE(test_position->IsTextPosition());
+  EXPECT_EQ(check_box_.id, test_position->anchor_id());
+  EXPECT_EQ(0, test_position->text_offset());
+  test_position = text_position->CreatePreviousCharacterPosition(
+      AXBoundaryBehavior::StopAtAnchorBoundary);
+  EXPECT_NE(nullptr, test_position);
+  EXPECT_TRUE(test_position->IsTextPosition());
+  EXPECT_EQ(check_box_.id, test_position->anchor_id());
+  EXPECT_EQ(0, test_position->text_offset());
+  test_position = text_position->CreatePreviousCharacterPosition(
+      AXBoundaryBehavior::StopAtLastAnchorBoundary);
+  EXPECT_NE(nullptr, test_position);
+  EXPECT_TRUE(test_position->IsTextPosition());
+  EXPECT_EQ(check_box_.id, test_position->anchor_id());
+  EXPECT_EQ(0, test_position->text_offset());
 
   text_position = AXNodePosition::CreateTextPosition(
       tree_.data().tree_id, text_field_.id, 1 /* text_offset */,
       ax::mojom::TextAffinity::kUpstream);
   ASSERT_NE(nullptr, text_position);
   ASSERT_TRUE(text_position->IsTextPosition());
+
   test_position = text_position->CreatePreviousCharacterPosition(
       AXBoundaryBehavior::CrossBoundary);
   EXPECT_NE(nullptr, test_position);
@@ -2560,6 +4473,159 @@ TEST_F(AXPositionTest, CreatePreviousCharacterPosition) {
   EXPECT_EQ(text_field_.id, test_position->anchor_id());
   EXPECT_EQ(0, test_position->text_offset());
   // Affinity should have been reset to downstream.
+  EXPECT_EQ(ax::mojom::TextAffinity::kDownstream, test_position->affinity());
+}
+
+TEST_F(AXPositionTest, CreateNextCharacterPositionAtGraphemeBoundary) {
+  std::vector<int> text_offsets;
+  std::unique_ptr<AXTree> new_tree = CreateMultilingualDocument(&text_offsets);
+  ASSERT_NE(nullptr, new_tree.get());
+  ASSERT_NE(nullptr, new_tree->root());
+
+  TestPositionType test_position = AXNodePosition::CreateTextPosition(
+      new_tree->data().tree_id, new_tree->root()->id(), 0 /* text_offset */,
+      ax::mojom::TextAffinity::kDownstream);
+  ASSERT_NE(nullptr, test_position);
+  ASSERT_TRUE(test_position->IsTextPosition());
+
+  for (auto iter = (text_offsets.begin() + 1); iter != text_offsets.end();
+       ++iter) {
+    const int text_offset = *iter;
+    test_position = test_position->CreateNextCharacterPosition(
+        AXBoundaryBehavior::CrossBoundary);
+    ASSERT_NE(nullptr, test_position);
+    EXPECT_TRUE(test_position->IsTextPosition());
+
+    testing::Message message;
+    message << "Expecting character boundary at " << text_offset << " in\n"
+            << *test_position;
+    SCOPED_TRACE(message);
+
+    EXPECT_EQ(new_tree->root()->id(), test_position->anchor_id());
+    EXPECT_EQ(text_offset, test_position->text_offset());
+    EXPECT_EQ(ax::mojom::TextAffinity::kDownstream, test_position->affinity());
+  }
+
+  test_position = AXNodePosition::CreateTextPosition(
+      new_tree->data().tree_id, new_tree->root()->id(), 3 /* text_offset */,
+      ax::mojom::TextAffinity::kDownstream);
+  test_position = test_position->CreateNextCharacterPosition(
+      AXBoundaryBehavior::StopIfAlreadyAtBoundary);
+  ASSERT_NE(nullptr, test_position);
+  EXPECT_TRUE(test_position->IsTextPosition());
+  EXPECT_EQ(new_tree->root()->id(), test_position->anchor_id());
+  EXPECT_EQ(3, test_position->text_offset());
+  EXPECT_EQ(ax::mojom::TextAffinity::kDownstream, test_position->affinity());
+
+  test_position = AXNodePosition::CreateTextPosition(
+      new_tree->data().tree_id, new_tree->root()->id(), 4 /* text_offset */,
+      ax::mojom::TextAffinity::kDownstream);
+  test_position = test_position->CreateNextCharacterPosition(
+      AXBoundaryBehavior::StopIfAlreadyAtBoundary);
+  ASSERT_NE(nullptr, test_position);
+  EXPECT_TRUE(test_position->IsTextPosition());
+  EXPECT_EQ(new_tree->root()->id(), test_position->anchor_id());
+  EXPECT_EQ(5, test_position->text_offset());
+  EXPECT_EQ(ax::mojom::TextAffinity::kDownstream, test_position->affinity());
+
+  test_position = AXNodePosition::CreateTextPosition(
+      new_tree->data().tree_id, new_tree->root()->id(), 9 /* text_offset */,
+      ax::mojom::TextAffinity::kUpstream);
+  test_position = test_position->CreateNextCharacterPosition(
+      AXBoundaryBehavior::StopIfAlreadyAtBoundary);
+  ASSERT_NE(nullptr, test_position);
+  EXPECT_TRUE(test_position->IsTextPosition());
+  EXPECT_EQ(new_tree->root()->id(), test_position->anchor_id());
+  EXPECT_EQ(9, test_position->text_offset());
+  EXPECT_EQ(ax::mojom::TextAffinity::kUpstream, test_position->affinity());
+
+  test_position = AXNodePosition::CreateTextPosition(
+      new_tree->data().tree_id, new_tree->root()->id(), 10 /* text_offset */,
+      ax::mojom::TextAffinity::kUpstream);
+  test_position = test_position->CreateNextCharacterPosition(
+      AXBoundaryBehavior::StopIfAlreadyAtBoundary);
+  ASSERT_NE(nullptr, test_position);
+  EXPECT_TRUE(test_position->IsTextPosition());
+  EXPECT_EQ(new_tree->root()->id(), test_position->anchor_id());
+  EXPECT_EQ(12, test_position->text_offset());
+  // Affinity should have been reset to downstream because there was a move.
+  EXPECT_EQ(ax::mojom::TextAffinity::kDownstream, test_position->affinity());
+}
+
+TEST_F(AXPositionTest, CreatePreviousCharacterPositionAtGraphemeBoundary) {
+  std::vector<int> text_offsets;
+  std::unique_ptr<AXTree> new_tree = CreateMultilingualDocument(&text_offsets);
+  ASSERT_NE(nullptr, new_tree.get());
+  ASSERT_NE(nullptr, new_tree->root());
+
+  TestPositionType test_position = AXNodePosition::CreateTextPosition(
+      new_tree->data().tree_id, new_tree->root()->id(),
+      text_offsets.back() /* text_offset */,
+      ax::mojom::TextAffinity::kDownstream);
+  ASSERT_NE(nullptr, test_position);
+  ASSERT_TRUE(test_position->IsTextPosition());
+
+  for (auto iter = (text_offsets.rbegin() + 1); iter != text_offsets.rend();
+       ++iter) {
+    const int text_offset = *iter;
+    test_position = test_position->CreatePreviousCharacterPosition(
+        AXBoundaryBehavior::CrossBoundary);
+    ASSERT_NE(nullptr, test_position);
+    EXPECT_TRUE(test_position->IsTextPosition());
+
+    testing::Message message;
+    message << "Expecting character boundary at " << text_offset << " in\n"
+            << *test_position;
+    SCOPED_TRACE(message);
+
+    EXPECT_EQ(new_tree->root()->id(), test_position->anchor_id());
+    EXPECT_EQ(text_offset, test_position->text_offset());
+    EXPECT_EQ(ax::mojom::TextAffinity::kDownstream, test_position->affinity());
+  }
+
+  test_position = AXNodePosition::CreateTextPosition(
+      new_tree->data().tree_id, new_tree->root()->id(), 3 /* text_offset */,
+      ax::mojom::TextAffinity::kDownstream);
+  test_position = test_position->CreatePreviousCharacterPosition(
+      AXBoundaryBehavior::StopIfAlreadyAtBoundary);
+  ASSERT_NE(nullptr, test_position);
+  EXPECT_TRUE(test_position->IsTextPosition());
+  EXPECT_EQ(new_tree->root()->id(), test_position->anchor_id());
+  EXPECT_EQ(3, test_position->text_offset());
+  EXPECT_EQ(ax::mojom::TextAffinity::kDownstream, test_position->affinity());
+
+  test_position = AXNodePosition::CreateTextPosition(
+      new_tree->data().tree_id, new_tree->root()->id(), 4 /* text_offset */,
+      ax::mojom::TextAffinity::kDownstream);
+  test_position = test_position->CreatePreviousCharacterPosition(
+      AXBoundaryBehavior::StopIfAlreadyAtBoundary);
+  ASSERT_NE(nullptr, test_position);
+  EXPECT_TRUE(test_position->IsTextPosition());
+  EXPECT_EQ(new_tree->root()->id(), test_position->anchor_id());
+  EXPECT_EQ(3, test_position->text_offset());
+  EXPECT_EQ(ax::mojom::TextAffinity::kDownstream, test_position->affinity());
+
+  test_position = AXNodePosition::CreateTextPosition(
+      new_tree->data().tree_id, new_tree->root()->id(), 9 /* text_offset */,
+      ax::mojom::TextAffinity::kUpstream);
+  test_position = test_position->CreatePreviousCharacterPosition(
+      AXBoundaryBehavior::StopIfAlreadyAtBoundary);
+  ASSERT_NE(nullptr, test_position);
+  EXPECT_TRUE(test_position->IsTextPosition());
+  EXPECT_EQ(new_tree->root()->id(), test_position->anchor_id());
+  EXPECT_EQ(9, test_position->text_offset());
+  EXPECT_EQ(ax::mojom::TextAffinity::kUpstream, test_position->affinity());
+
+  test_position = AXNodePosition::CreateTextPosition(
+      new_tree->data().tree_id, new_tree->root()->id(), 10 /* text_offset */,
+      ax::mojom::TextAffinity::kUpstream);
+  test_position = test_position->CreatePreviousCharacterPosition(
+      AXBoundaryBehavior::StopIfAlreadyAtBoundary);
+  ASSERT_NE(nullptr, test_position);
+  EXPECT_TRUE(test_position->IsTextPosition());
+  EXPECT_EQ(new_tree->root()->id(), test_position->anchor_id());
+  EXPECT_EQ(9, test_position->text_offset());
+  // Affinity should have been reset to downstream because there was a move.
   EXPECT_EQ(ax::mojom::TextAffinity::kDownstream, test_position->affinity());
 }
 
@@ -2916,6 +4982,57 @@ TEST_F(AXPositionTest, OperatorsLessThanAndGreaterThan) {
   EXPECT_EQ(*text_position1, *text_position2);
 }
 
+TEST_F(AXPositionTest, Swap) {
+  TestPositionType null_position1 = AXNodePosition::CreateNullPosition();
+  ASSERT_NE(nullptr, null_position1);
+  TestPositionType null_position2 = AXNodePosition::CreateNullPosition();
+  ASSERT_NE(nullptr, null_position2);
+
+  swap(*null_position1, *null_position2);
+  EXPECT_TRUE(null_position1->IsNullPosition());
+  EXPECT_TRUE(null_position2->IsNullPosition());
+
+  TestPositionType tree_position1 = AXNodePosition::CreateTreePosition(
+      tree_.data().tree_id, root_.id, 2 /* child_index */);
+  ASSERT_NE(nullptr, tree_position1);
+  TestPositionType tree_position2 = AXNodePosition::CreateTreePosition(
+      tree_.data().tree_id, text_field_.id, 3 /* child_index */);
+  ASSERT_NE(nullptr, tree_position2);
+
+  swap(*tree_position1, *tree_position2);
+  EXPECT_TRUE(tree_position1->IsTreePosition());
+  EXPECT_EQ(tree_.data().tree_id, tree_position1->tree_id());
+  EXPECT_EQ(text_field_.id, tree_position1->anchor_id());
+  EXPECT_EQ(3, tree_position1->child_index());
+  EXPECT_TRUE(tree_position1->IsTreePosition());
+  EXPECT_EQ(tree_.data().tree_id, tree_position2->tree_id());
+  EXPECT_EQ(root_.id, tree_position2->anchor_id());
+  EXPECT_EQ(2, tree_position2->child_index());
+
+  swap(*tree_position1, *null_position1);
+  EXPECT_TRUE(tree_position1->IsNullPosition());
+  EXPECT_TRUE(null_position1->IsTreePosition());
+  EXPECT_EQ(tree_.data().tree_id, null_position1->tree_id());
+  EXPECT_EQ(text_field_.id, null_position1->anchor_id());
+  EXPECT_EQ(3, null_position1->child_index());
+
+  TestPositionType text_position = AXNodePosition::CreateTextPosition(
+      tree_.data().tree_id, line_break_.id, 1 /* text_offset */,
+      ax::mojom::TextAffinity::kDownstream);
+  ASSERT_NE(nullptr, text_position);
+
+  swap(*text_position, *null_position1);
+  EXPECT_TRUE(null_position1->IsTextPosition());
+  EXPECT_EQ(tree_.data().tree_id, text_position->tree_id());
+  EXPECT_EQ(line_break_.id, null_position1->anchor_id());
+  EXPECT_EQ(1, null_position1->text_offset());
+  EXPECT_EQ(ax::mojom::TextAffinity::kDownstream, null_position1->affinity());
+  EXPECT_TRUE(text_position->IsTreePosition());
+  EXPECT_EQ(tree_.data().tree_id, text_position->tree_id());
+  EXPECT_EQ(text_field_.id, text_position->anchor_id());
+  EXPECT_EQ(3, text_position->child_index());
+}
+
 TEST_F(AXPositionTest, CreateNextAnchorPosition) {
   // This test updates the tree structure to test a specific edge case -
   // CreateNextAnchorPosition on an empty text field.
@@ -2947,17 +5064,8 @@ TEST_F(AXPositionTest, CreateNextAnchorPosition) {
   root_data.child_ids = {text_data.id, text_field_data.id, more_text_data.id};
   text_field_data.child_ids = {empty_text_data.id};
 
-  AXTreeUpdate update;
-  AXTreeData tree_data;
-  tree_data.tree_id = AXTreeID::CreateNewAXTreeID();
-  update.tree_data = tree_data;
-  update.has_tree_data = true;
-  update.root_id = root_data.id;
-  update.nodes = {root_data, text_data, text_field_data, empty_text_data,
-                  more_text_data};
-
-  std::unique_ptr<AXTree> new_tree;
-  new_tree.reset(new AXTree(update));
+  std::unique_ptr<AXTree> new_tree = CreateAXTree(
+      {root_data, text_data, text_field_data, empty_text_data, more_text_data});
   AXNodePosition::SetTree(new_tree.get());
 
   // Test that CreateNextAnchorPosition will successfully navigate past the
@@ -2969,17 +5077,499 @@ TEST_F(AXPositionTest, CreateNextAnchorPosition) {
   ASSERT_FALSE(text_position1->CreateNextAnchorPosition()
                    ->CreateNextAnchorPosition()
                    ->IsNullPosition());
+}
 
+TEST_F(AXPositionTest, CreateLinePositionsMultipleAnchorsInSingleLine) {
+  // This test updates the tree structure to test a specific edge case -
+  // Create next and previous line start/end positions on a single line composed
+  // by multiple anchors; only two line boundaries should be resolved: either
+  // the start of the "before" text or at the end of "after".
+  // ++1 kRootWebArea
+  // ++++2 kStaticText
+  // ++++++3 kInlineTextBox "before" kNextOnLineId=6
+  // ++++4 kGenericContainer
+  // ++++++5 kStaticText
+  // ++++++++6 kInlineTextBox "inside" kPreviousOnLineId=3 kNextOnLineId=8
+  // ++++7 kStaticText
+  // ++++++8 kInlineTextBox "after" kPreviousOnLineId=6
   AXNodePosition::SetTree(&tree_);
+
+  AXNodeData root;
+  AXNodeData inline_box1;
+  AXNodeData inline_box2;
+  AXNodeData inline_box3;
+  AXNodeData inline_block;
+  AXNodeData static_text1;
+  AXNodeData static_text2;
+  AXNodeData static_text3;
+
+  root.id = 1;
+  static_text1.id = 2;
+  inline_box1.id = 3;
+  inline_block.id = 4;
+  static_text2.id = 5;
+  inline_box2.id = 6;
+  static_text3.id = 7;
+  inline_box3.id = 8;
+
+  root.role = ax::mojom::Role::kRootWebArea;
+  root.child_ids = {static_text1.id, inline_block.id, static_text3.id};
+
+  static_text1.role = ax::mojom::Role::kStaticText;
+  static_text1.SetName("before");
+  static_text1.child_ids = {inline_box1.id};
+
+  inline_box1.role = ax::mojom::Role::kInlineTextBox;
+  inline_box1.SetName("before");
+  inline_box1.AddIntAttribute(ax::mojom::IntAttribute::kNextOnLineId,
+                              inline_box2.id);
+
+  inline_block.role = ax::mojom::Role::kGenericContainer;
+  inline_block.child_ids = {static_text2.id};
+
+  static_text2.role = ax::mojom::Role::kStaticText;
+  static_text2.SetName("inside");
+  static_text2.child_ids = {inline_box2.id};
+
+  inline_box2.role = ax::mojom::Role::kInlineTextBox;
+  inline_box2.SetName("inside");
+  inline_box2.AddIntAttribute(ax::mojom::IntAttribute::kPreviousOnLineId,
+                              inline_box1.id);
+  inline_box2.AddIntAttribute(ax::mojom::IntAttribute::kNextOnLineId,
+                              inline_box3.id);
+
+  static_text3.role = ax::mojom::Role::kStaticText;
+  static_text3.SetName("after");
+  static_text3.child_ids = {inline_box3.id};
+
+  inline_box3.role = ax::mojom::Role::kInlineTextBox;
+  inline_box3.SetName("after");
+  inline_box3.AddIntAttribute(ax::mojom::IntAttribute::kPreviousOnLineId,
+                              inline_box2.id);
+
+  std::unique_ptr<AXTree> new_tree =
+      CreateAXTree({root, static_text1, inline_box1, inline_block, static_text2,
+                    inline_box2, static_text3, inline_box3});
+
+  TestPositionType text_position = AXNodePosition::CreateTextPosition(
+      new_tree->data().tree_id, inline_block.id, 3 /* text_offset */,
+      ax::mojom::TextAffinity::kDownstream);
+  ASSERT_NE(nullptr, text_position);
+  ASSERT_TRUE(text_position->IsTextPosition());
+
+  TestPositionType next_line_start_position =
+      text_position->CreateNextLineStartPosition(
+          AXBoundaryBehavior::StopAtLastAnchorBoundary);
+  ASSERT_NE(nullptr, next_line_start_position);
+  EXPECT_TRUE(next_line_start_position->IsTextPosition());
+  EXPECT_EQ(inline_box3.id, next_line_start_position->anchor_id());
+  EXPECT_EQ(5, next_line_start_position->text_offset());
+
+  TestPositionType previous_line_start_position =
+      text_position->CreatePreviousLineStartPosition(
+          AXBoundaryBehavior::StopAtLastAnchorBoundary);
+  ASSERT_NE(nullptr, previous_line_start_position);
+  EXPECT_TRUE(previous_line_start_position->IsTextPosition());
+  EXPECT_EQ(inline_box1.id, previous_line_start_position->anchor_id());
+  EXPECT_EQ(0, previous_line_start_position->text_offset());
+
+  TestPositionType next_line_end_position =
+      text_position->CreateNextLineEndPosition(
+          AXBoundaryBehavior::StopAtLastAnchorBoundary);
+  ASSERT_NE(nullptr, next_line_end_position);
+  EXPECT_TRUE(next_line_end_position->IsTextPosition());
+  EXPECT_EQ(inline_box3.id, next_line_end_position->anchor_id());
+  EXPECT_EQ(5, next_line_end_position->text_offset());
+
+  TestPositionType previous_line_end_position =
+      text_position->CreatePreviousLineEndPosition(
+          AXBoundaryBehavior::StopAtLastAnchorBoundary);
+  ASSERT_NE(nullptr, previous_line_end_position);
+  EXPECT_TRUE(previous_line_end_position->IsTextPosition());
+  EXPECT_EQ(inline_box1.id, previous_line_end_position->anchor_id());
+  EXPECT_EQ(0, previous_line_end_position->text_offset());
+}
+
+TEST_F(AXPositionTest, CreateNextWordPositionInList) {
+  // This test updates the tree structure to test a specific edge case -
+  // next word navigation inside a list with AXListMarkers nodes.
+  // ++1 kRootWebArea
+  // ++++2 kList
+  // ++++++3 kListItem
+  // ++++++++4 kListMarker
+  // ++++++++++5 kStaticText
+  // ++++++++++++6 kInlineTextBox "1. "
+  // ++++++++7 kStaticText
+  // ++++++++++8 kInlineTextBox "first item"
+  // ++++++9 kListItem
+  // ++++++++10 kListMarker
+  // +++++++++++11 kStaticText
+  // ++++++++++++++12 kInlineTextBox "2. "
+  // ++++++++13 kStaticText
+  // ++++++++++14 kInlineTextBox "second item"
+  AXNodePosition::SetTree(nullptr);
+
+  AXNodeData root;
+  AXNodeData list;
+  AXNodeData list_item1;
+  AXNodeData list_item2;
+  AXNodeData list_marker1;
+  AXNodeData list_marker2;
+  AXNodeData inline_box1;
+  AXNodeData inline_box2;
+  AXNodeData inline_box3;
+  AXNodeData inline_box4;
+  AXNodeData static_text1;
+  AXNodeData static_text2;
+  AXNodeData static_text3;
+  AXNodeData static_text4;
+
+  root.id = 1;
+  list.id = 2;
+  list_item1.id = 3;
+  list_marker1.id = 4;
+  static_text1.id = 5;
+  inline_box1.id = 6;
+  static_text2.id = 7;
+  inline_box2.id = 8;
+  list_item2.id = 9;
+  list_marker2.id = 10;
+  static_text3.id = 11;
+  inline_box3.id = 12;
+  static_text4.id = 13;
+  inline_box4.id = 14;
+
+  root.role = ax::mojom::Role::kRootWebArea;
+  root.child_ids = {list.id};
+
+  list.role = ax::mojom::Role::kList;
+  list.child_ids = {list_item1.id, list_item2.id};
+
+  list_item1.role = ax::mojom::Role::kListItem;
+  list_item1.child_ids = {list_marker1.id, static_text2.id};
+  list_item1.AddBoolAttribute(ax::mojom::BoolAttribute::kIsLineBreakingObject,
+                              true);
+
+  list_marker1.role = ax::mojom::Role::kListMarker;
+  list_marker1.child_ids = {static_text1.id};
+
+  static_text1.role = ax::mojom::Role::kStaticText;
+  static_text1.SetName("1. ");
+  static_text1.child_ids = {inline_box1.id};
+
+  inline_box1.role = ax::mojom::Role::kInlineTextBox;
+  inline_box1.SetName("1. ");
+  inline_box1.AddIntListAttribute(ax::mojom::IntListAttribute::kWordStarts,
+                                  std::vector<int32_t>{0});
+  inline_box1.AddIntListAttribute(ax::mojom::IntListAttribute::kWordEnds,
+                                  std::vector<int32_t>{3});
+
+  static_text2.role = ax::mojom::Role::kStaticText;
+  static_text2.SetName("first item");
+  static_text2.child_ids = {inline_box2.id};
+
+  inline_box2.role = ax::mojom::Role::kInlineTextBox;
+  inline_box2.SetName("first item");
+  inline_box2.AddIntListAttribute(ax::mojom::IntListAttribute::kWordStarts,
+                                  std::vector<int32_t>{0, 6});
+  inline_box2.AddIntListAttribute(ax::mojom::IntListAttribute::kWordEnds,
+                                  std::vector<int32_t>{5});
+
+  list_item2.role = ax::mojom::Role::kListItem;
+  list_item2.child_ids = {list_marker2.id, static_text4.id};
+  list_item2.AddBoolAttribute(ax::mojom::BoolAttribute::kIsLineBreakingObject,
+                              true);
+
+  list_marker2.role = ax::mojom::Role::kListMarker;
+  list_marker2.child_ids = {static_text3.id};
+
+  static_text3.role = ax::mojom::Role::kStaticText;
+  static_text3.SetName("2. ");
+  static_text3.child_ids = {inline_box3.id};
+
+  inline_box3.role = ax::mojom::Role::kInlineTextBox;
+  inline_box3.SetName("2. ");
+  inline_box3.AddIntListAttribute(ax::mojom::IntListAttribute::kWordStarts,
+                                  std::vector<int32_t>{0});
+  inline_box3.AddIntListAttribute(ax::mojom::IntListAttribute::kWordEnds,
+                                  std::vector<int32_t>{3});
+
+  static_text4.role = ax::mojom::Role::kStaticText;
+  static_text4.SetName("second item");
+  static_text4.child_ids = {inline_box4.id};
+
+  inline_box4.role = ax::mojom::Role::kInlineTextBox;
+  inline_box4.SetName("second item");
+  inline_box4.AddIntListAttribute(ax::mojom::IntListAttribute::kWordStarts,
+                                  std::vector<int32_t>{0, 7});
+  inline_box4.AddIntListAttribute(ax::mojom::IntListAttribute::kWordEnds,
+                                  std::vector<int32_t>{6});
+
+  std::unique_ptr<AXTree> new_tree = CreateAXTree(
+      {root, list, list_item1, list_marker1, static_text1, inline_box1,
+       static_text2, inline_box2, list_item2, list_marker2, static_text3,
+       inline_box3, static_text4, inline_box4});
+
+  TestPositionType text_position = AXNodePosition::CreateTextPosition(
+      new_tree->data().tree_id, inline_box1.id, 0 /* text_offset */,
+      ax::mojom::TextAffinity::kDownstream);
+  ASSERT_NE(nullptr, text_position);
+  ASSERT_TRUE(text_position->IsTextPosition());
+  ASSERT_EQ(inline_box1.id, text_position->anchor_id());
+  ASSERT_EQ(0, text_position->text_offset());
+
+  // "1. <f>irst item\n2. second item"
+  text_position = text_position->CreateNextWordStartPosition(
+      AXBoundaryBehavior::StopAtLastAnchorBoundary);
+  ASSERT_NE(nullptr, text_position);
+  ASSERT_TRUE(text_position->IsTextPosition());
+  ASSERT_EQ(inline_box2.id, text_position->anchor_id());
+  ASSERT_EQ(0, text_position->text_offset());
+
+  // "1. first <i>tem\n2. second item"
+  text_position = text_position->CreateNextWordStartPosition(
+      AXBoundaryBehavior::StopAtLastAnchorBoundary);
+  ASSERT_NE(nullptr, text_position);
+  ASSERT_TRUE(text_position->IsTextPosition());
+  ASSERT_EQ(inline_box2.id, text_position->anchor_id());
+  ASSERT_EQ(6, text_position->text_offset());
+
+  // "1. first item\n<2>. second item"
+  text_position = text_position->CreateNextWordStartPosition(
+      AXBoundaryBehavior::StopAtLastAnchorBoundary);
+  ASSERT_NE(nullptr, text_position);
+  ASSERT_TRUE(text_position->IsTextPosition());
+  ASSERT_EQ(inline_box3.id, text_position->anchor_id());
+  ASSERT_EQ(0, text_position->text_offset());
+
+  // "1. first item\n2. <s>econd item"
+  text_position = text_position->CreateNextWordStartPosition(
+      AXBoundaryBehavior::StopAtLastAnchorBoundary);
+  ASSERT_NE(nullptr, text_position);
+  ASSERT_TRUE(text_position->IsTextPosition());
+  ASSERT_EQ(inline_box4.id, text_position->anchor_id());
+  ASSERT_EQ(0, text_position->text_offset());
+
+  // "1. first item\n2. second <i>tem"
+  text_position = text_position->CreateNextWordStartPosition(
+      AXBoundaryBehavior::StopAtLastAnchorBoundary);
+  ASSERT_NE(nullptr, text_position);
+  ASSERT_TRUE(text_position->IsTextPosition());
+  ASSERT_EQ(inline_box4.id, text_position->anchor_id());
+  ASSERT_EQ(7, text_position->text_offset());
+}
+
+TEST_F(AXPositionTest, CreatePreviousWordPositionInList) {
+  // This test updates the tree structure to test a specific edge case -
+  // previous word navigation inside a list with AXListMarkers nodes.
+  // ++1 kRootWebArea
+  // ++++2 kList
+  // ++++++3 kListItem
+  // ++++++++4 kListMarker
+  // ++++++++++5 kStaticText
+  // ++++++++++++6 kInlineTextBox "1. "
+  // ++++++++7 kStaticText
+  // ++++++++++8 kInlineTextBox "first item"
+  // ++++++9 kListItem
+  // ++++++++10 kListMarker
+  // +++++++++++11 kStaticText
+  // ++++++++++++++12 kInlineTextBox "2. "
+  // ++++++++13 kStaticText
+  // ++++++++++14 kInlineTextBox "second item"
+  AXNodePosition::SetTree(nullptr);
+
+  AXNodeData root;
+  AXNodeData list;
+  AXNodeData list_item1;
+  AXNodeData list_item2;
+  AXNodeData list_marker1;
+  AXNodeData list_marker2;
+  AXNodeData inline_box1;
+  AXNodeData inline_box2;
+  AXNodeData inline_box3;
+  AXNodeData inline_box4;
+  AXNodeData static_text1;
+  AXNodeData static_text2;
+  AXNodeData static_text3;
+  AXNodeData static_text4;
+
+  root.id = 1;
+  list.id = 2;
+  list_item1.id = 3;
+  list_marker1.id = 4;
+  static_text1.id = 5;
+  inline_box1.id = 6;
+  static_text2.id = 7;
+  inline_box2.id = 8;
+  list_item2.id = 9;
+  list_marker2.id = 10;
+  static_text3.id = 11;
+  inline_box3.id = 12;
+  static_text4.id = 13;
+  inline_box4.id = 14;
+
+  root.role = ax::mojom::Role::kRootWebArea;
+  root.child_ids = {list.id};
+
+  list.role = ax::mojom::Role::kList;
+  list.child_ids = {list_item1.id, list_item2.id};
+
+  list_item1.role = ax::mojom::Role::kListItem;
+  list_item1.child_ids = {list_marker1.id, static_text2.id};
+  list_item1.AddBoolAttribute(ax::mojom::BoolAttribute::kIsLineBreakingObject,
+                              true);
+
+  list_marker1.role = ax::mojom::Role::kListMarker;
+  list_marker1.child_ids = {static_text1.id};
+
+  static_text1.role = ax::mojom::Role::kStaticText;
+  static_text1.SetName("1. ");
+  static_text1.child_ids = {inline_box1.id};
+
+  inline_box1.role = ax::mojom::Role::kInlineTextBox;
+  inline_box1.SetName("1. ");
+  inline_box1.AddIntListAttribute(ax::mojom::IntListAttribute::kWordStarts,
+                                  std::vector<int32_t>{0});
+  inline_box1.AddIntListAttribute(ax::mojom::IntListAttribute::kWordEnds,
+                                  std::vector<int32_t>{3});
+
+  static_text2.role = ax::mojom::Role::kStaticText;
+  static_text2.SetName("first item");
+  static_text2.child_ids = {inline_box2.id};
+
+  inline_box2.role = ax::mojom::Role::kInlineTextBox;
+  inline_box2.SetName("first item");
+  inline_box2.AddIntListAttribute(ax::mojom::IntListAttribute::kWordStarts,
+                                  std::vector<int32_t>{0, 6});
+  inline_box2.AddIntListAttribute(ax::mojom::IntListAttribute::kWordEnds,
+                                  std::vector<int32_t>{5});
+
+  list_item2.role = ax::mojom::Role::kListItem;
+  list_item2.child_ids = {list_marker2.id, static_text4.id};
+  list_item2.AddBoolAttribute(ax::mojom::BoolAttribute::kIsLineBreakingObject,
+                              true);
+
+  list_marker2.role = ax::mojom::Role::kListMarker;
+  list_marker2.child_ids = {static_text3.id};
+
+  static_text3.role = ax::mojom::Role::kStaticText;
+  static_text3.SetName("2. ");
+  static_text3.child_ids = {inline_box3.id};
+
+  inline_box3.role = ax::mojom::Role::kInlineTextBox;
+  inline_box3.SetName("2. ");
+  inline_box3.AddIntListAttribute(ax::mojom::IntListAttribute::kWordStarts,
+                                  std::vector<int32_t>{0});
+  inline_box3.AddIntListAttribute(ax::mojom::IntListAttribute::kWordEnds,
+                                  std::vector<int32_t>{3});
+
+  static_text4.role = ax::mojom::Role::kStaticText;
+  static_text4.SetName("second item");
+  static_text4.child_ids = {inline_box4.id};
+
+  inline_box4.role = ax::mojom::Role::kInlineTextBox;
+  inline_box4.SetName("second item");
+  inline_box4.AddIntListAttribute(ax::mojom::IntListAttribute::kWordStarts,
+                                  std::vector<int32_t>{0, 7});
+  inline_box4.AddIntListAttribute(ax::mojom::IntListAttribute::kWordEnds,
+                                  std::vector<int32_t>{6});
+
+  std::unique_ptr<AXTree> new_tree = CreateAXTree(
+      {root, list, list_item1, list_marker1, static_text1, inline_box1,
+       static_text2, inline_box2, list_item2, list_marker2, static_text3,
+       inline_box3, static_text4, inline_box4});
+
+  TestPositionType text_position = AXNodePosition::CreateTextPosition(
+      new_tree->data().tree_id, inline_box4.id, 11 /* text_offset */,
+      ax::mojom::TextAffinity::kDownstream);
+  ASSERT_NE(nullptr, text_position);
+  ASSERT_TRUE(text_position->IsTextPosition());
+  ASSERT_EQ(inline_box4.id, text_position->anchor_id());
+  ASSERT_EQ(11, text_position->text_offset());
+
+  // "1. first item\n2. second <i>tem"
+  text_position = text_position->CreatePreviousWordStartPosition(
+      AXBoundaryBehavior::StopAtLastAnchorBoundary);
+  ASSERT_NE(nullptr, text_position);
+  ASSERT_TRUE(text_position->IsTextPosition());
+  ASSERT_EQ(inline_box4.id, text_position->anchor_id());
+  ASSERT_EQ(7, text_position->text_offset());
+
+  // "1. first item\n2. <s>econd item"
+  text_position = text_position->CreatePreviousWordStartPosition(
+      AXBoundaryBehavior::StopAtLastAnchorBoundary);
+  ASSERT_NE(nullptr, text_position);
+  ASSERT_TRUE(text_position->IsTextPosition());
+  ASSERT_EQ(inline_box4.id, text_position->anchor_id());
+  ASSERT_EQ(0, text_position->text_offset());
+
+  // "1. first item\n<2>. second item"
+  text_position = text_position->CreatePreviousWordStartPosition(
+      AXBoundaryBehavior::StopAtLastAnchorBoundary);
+  ASSERT_NE(nullptr, text_position);
+  ASSERT_TRUE(text_position->IsTextPosition());
+  ASSERT_EQ(inline_box3.id, text_position->anchor_id());
+  ASSERT_EQ(0, text_position->text_offset());
+
+  // "1. first <i>tem\n2. <s>econd item"
+  text_position = text_position->CreatePreviousWordStartPosition(
+      AXBoundaryBehavior::StopAtLastAnchorBoundary);
+  ASSERT_NE(nullptr, text_position);
+  ASSERT_TRUE(text_position->IsTextPosition());
+  ASSERT_EQ(inline_box2.id, text_position->anchor_id());
+  ASSERT_EQ(6, text_position->text_offset());
+
+  // "1. <f>irst item\n2. second item"
+  text_position = text_position->CreatePreviousWordStartPosition(
+      AXBoundaryBehavior::StopAtLastAnchorBoundary);
+  ASSERT_NE(nullptr, text_position);
+  ASSERT_TRUE(text_position->IsTextPosition());
+  ASSERT_EQ(inline_box2.id, text_position->anchor_id());
+  ASSERT_EQ(0, text_position->text_offset());
+
+  // "<1>. first item\n2. second item"
+  text_position = text_position->CreatePreviousWordStartPosition(
+      AXBoundaryBehavior::StopAtLastAnchorBoundary);
+  ASSERT_NE(nullptr, text_position);
+  ASSERT_TRUE(text_position->IsTextPosition());
+  ASSERT_EQ(inline_box1.id, text_position->anchor_id());
+  ASSERT_EQ(0, text_position->text_offset());
 }
 
 //
 // Parameterized tests.
 //
 
-TEST_P(AXPositionTestWithParam, TraverseTreeStartingWithAffinityDownstream) {
+TEST_P(AXPositionExpandToEnclosingTextBoundaryTestWithParam,
+       TextPositionBeforeLine2) {
+  // Create a text position right before "Line 2". This should be at the start
+  // of many text boundaries, e.g. line, paragraph and word.
   TestPositionType text_position = AXNodePosition::CreateTextPosition(
-      tree_.data().tree_id, GetParam().start_node_id_, GetParam().start_offset_,
+      tree_.data().tree_id, text_field_.id, 7 /* text_offset */,
+      ax::mojom::TextAffinity::kDownstream);
+  ASSERT_TRUE(text_position->IsTextPosition());
+  TestPositionRange range = text_position->ExpandToEnclosingTextBoundary(
+      GetParam().boundary, GetParam().expand_behavior);
+  EXPECT_EQ(GetParam().expected_anchor_position, range.anchor()->ToString());
+  EXPECT_EQ(GetParam().expected_focus_position, range.focus()->ToString());
+}
+
+TEST_P(AXPositionCreatePositionAtTextBoundaryTestWithParam,
+       TextPositionBeforeStaticText) {
+  TestPositionType text_position = AXNodePosition::CreateTextPosition(
+      tree_.data().tree_id, static_text2_.id, 0 /* text_offset */,
+      ax::mojom::TextAffinity::kDownstream);
+  ASSERT_TRUE(text_position->IsTextPosition());
+  text_position = text_position->CreatePositionAtTextBoundary(
+      GetParam().boundary, GetParam().direction, GetParam().boundary_behavior);
+  EXPECT_NE(nullptr, text_position);
+  EXPECT_EQ(GetParam().expected_text_position, text_position->ToString());
+}
+
+TEST_P(AXPositionTextNavigationTestWithParam,
+       TraverseTreeStartingWithAffinityDownstream) {
+  TestPositionType text_position = AXNodePosition::CreateTextPosition(
+      tree_.data().tree_id, GetParam().start_node_id, GetParam().start_offset,
       ax::mojom::TextAffinity::kDownstream);
   ASSERT_TRUE(text_position->IsTextPosition());
   for (const std::string& expectation : GetParam().expectations) {
@@ -2989,9 +5579,10 @@ TEST_P(AXPositionTestWithParam, TraverseTreeStartingWithAffinityDownstream) {
   }
 }
 
-TEST_P(AXPositionTestWithParam, TraverseTreeStartingWithAffinityUpstream) {
+TEST_P(AXPositionTextNavigationTestWithParam,
+       TraverseTreeStartingWithAffinityUpstream) {
   TestPositionType text_position = AXNodePosition::CreateTextPosition(
-      tree_.data().tree_id, GetParam().start_node_id_, GetParam().start_offset_,
+      tree_.data().tree_id, GetParam().start_node_id, GetParam().start_offset,
       ax::mojom::TextAffinity::kUpstream);
   ASSERT_TRUE(text_position->IsTextPosition());
   for (const std::string& expectation : GetParam().expectations) {
@@ -3006,1866 +5597,3068 @@ TEST_P(AXPositionTestWithParam, TraverseTreeStartingWithAffinityUpstream) {
 //
 
 INSTANTIATE_TEST_SUITE_P(
-    CreateNextWordStartPositionWithBoundaryBehaviorCrossBoundary,
-    AXPositionTestWithParam,
+    ExpandToEnclosingTextBoundary,
+    AXPositionExpandToEnclosingTextBoundaryTestWithParam,
     testing::Values(
-        TestParam{base::BindRepeating([](const TestPositionType& position) {
-                    return position->CreateNextWordStartPosition(
-                        AXBoundaryBehavior::CrossBoundary);
-                  }),
-                  ROOT_ID,
-                  0 /* text_offset */,
-                  {"TextPosition anchor_id=1 text_offset=5 "
-                   "affinity=downstream annotated_text=Line <1>\nLine 2",
-                   "TextPosition anchor_id=1 text_offset=7 "
-                   "affinity=downstream annotated_text=Line 1\n<L>ine 2",
-                   "TextPosition anchor_id=1 text_offset=12 "
-                   "affinity=downstream annotated_text=Line 1\nLine <2>",
-                   "TextPosition anchor_id=1 text_offset=13 "
-                   "affinity=downstream annotated_text=Line 1\nLine 2<>",
-                   "NullPosition"}},
-        TestParam{base::BindRepeating([](const TestPositionType& position) {
-                    return position->CreateNextWordStartPosition(
-                        AXBoundaryBehavior::CrossBoundary);
-                  }),
-                  TEXT_FIELD_ID,
-                  0 /* text_offset */,
-                  {"TextPosition anchor_id=4 text_offset=5 "
-                   "affinity=downstream annotated_text=Line <1>\nLine 2",
-                   "TextPosition anchor_id=4 text_offset=7 "
-                   "affinity=downstream annotated_text=Line 1\n<L>ine 2",
-                   "TextPosition anchor_id=4 text_offset=12 "
-                   "affinity=downstream annotated_text=Line 1\nLine <2>",
-                   "TextPosition anchor_id=4 text_offset=13 "
-                   "affinity=downstream annotated_text=Line 1\nLine 2<>",
-                   "NullPosition"}},
-        TestParam{base::BindRepeating([](const TestPositionType& position) {
-                    return position->CreateNextWordStartPosition(
-                        AXBoundaryBehavior::CrossBoundary);
-                  }),
-                  STATIC_TEXT1_ID,
-                  1 /* text_offset */,
-                  {"TextPosition anchor_id=5 text_offset=5 "
-                   "affinity=downstream annotated_text=Line <1>",
-                   "TextPosition anchor_id=9 text_offset=0 "
-                   "affinity=downstream annotated_text=<L>ine 2",
-                   "TextPosition anchor_id=9 text_offset=5 "
-                   "affinity=downstream annotated_text=Line <2>",
-                   "TextPosition anchor_id=9 text_offset=6 "
-                   "affinity=downstream annotated_text=Line 2<>",
-                   "NullPosition"}},
-        TestParam{base::BindRepeating([](const TestPositionType& position) {
-                    return position->CreateNextWordStartPosition(
-                        AXBoundaryBehavior::CrossBoundary);
-                  }),
-                  INLINE_BOX2_ID,
-                  4 /* text_offset */,
-                  {"TextPosition anchor_id=9 text_offset=5 "
-                   "affinity=downstream annotated_text=Line <2>",
-                   "TextPosition anchor_id=9 text_offset=6 "
-                   "affinity=downstream annotated_text=Line 2<>",
-                   "NullPosition"}}));
+        ExpandToEnclosingTextBoundaryTestParam{
+            AXTextBoundary::kCharacter, AXRangeExpandBehavior::kLeftFirst,
+            "TextPosition anchor_id=4 text_offset=6 affinity=downstream "
+            "annotated_text=Line 1<\n>Line 2",
+            "TextPosition anchor_id=4 text_offset=7 affinity=downstream "
+            "annotated_text=Line 1\n<L>ine 2"},
+        ExpandToEnclosingTextBoundaryTestParam{
+            AXTextBoundary::kCharacter, AXRangeExpandBehavior::kRightFirst,
+            "TextPosition anchor_id=4 text_offset=7 affinity=downstream "
+            "annotated_text=Line 1\n<L>ine 2",
+            "TextPosition anchor_id=4 text_offset=8 affinity=downstream "
+            "annotated_text=Line 1\nL<i>ne 2"},
+        ExpandToEnclosingTextBoundaryTestParam{
+            AXTextBoundary::kFormatChange, AXRangeExpandBehavior::kLeftFirst,
+            "TextPosition anchor_id=4 text_offset=0 affinity=downstream "
+            "annotated_text=<L>ine 1\nLine 2",
+            "TextPosition anchor_id=4 text_offset=13 affinity=downstream "
+            "annotated_text=Line 1\nLine 2<>"},
+        ExpandToEnclosingTextBoundaryTestParam{
+            AXTextBoundary::kFormatChange, AXRangeExpandBehavior::kRightFirst,
+            "TextPosition anchor_id=4 text_offset=0 affinity=downstream "
+            "annotated_text=<L>ine 1\nLine 2",
+            "TextPosition anchor_id=4 text_offset=13 affinity=downstream "
+            "annotated_text=Line 1\nLine 2<>"},
+        ExpandToEnclosingTextBoundaryTestParam{
+            AXTextBoundary::kLineEnd, AXRangeExpandBehavior::kLeftFirst,
+            "TextPosition anchor_id=4 text_offset=6 affinity=downstream "
+            "annotated_text=Line 1<\n>Line 2",
+            "TextPosition anchor_id=4 text_offset=13 affinity=downstream "
+            "annotated_text=Line 1\nLine 2<>"},
+        ExpandToEnclosingTextBoundaryTestParam{
+            AXTextBoundary::kLineEnd, AXRangeExpandBehavior::kRightFirst,
+            "TextPosition anchor_id=4 text_offset=6 affinity=downstream "
+            "annotated_text=Line 1<\n>Line 2",
+            "TextPosition anchor_id=4 text_offset=13 affinity=downstream "
+            "annotated_text=Line 1\nLine 2<>"},
+        ExpandToEnclosingTextBoundaryTestParam{
+            AXTextBoundary::kLineStart, AXRangeExpandBehavior::kLeftFirst,
+            "TextPosition anchor_id=4 text_offset=0 affinity=downstream "
+            "annotated_text=<L>ine 1\nLine 2",
+            "TextPosition anchor_id=4 text_offset=7 affinity=downstream "
+            "annotated_text=Line 1\n<L>ine 2"},
+        ExpandToEnclosingTextBoundaryTestParam{
+            AXTextBoundary::kLineStart, AXRangeExpandBehavior::kRightFirst,
+            "TextPosition anchor_id=4 text_offset=7 affinity=downstream "
+            "annotated_text=Line 1\n<L>ine 2",
+            "TextPosition anchor_id=4 text_offset=13 affinity=downstream "
+            "annotated_text=Line 1\nLine 2<>"},
+        ExpandToEnclosingTextBoundaryTestParam{
+            AXTextBoundary::kLineStartOrEnd, AXRangeExpandBehavior::kLeftFirst,
+            "TextPosition anchor_id=4 text_offset=0 affinity=downstream "
+            "annotated_text=<L>ine 1\nLine 2",
+            "TextPosition anchor_id=4 text_offset=6 affinity=downstream "
+            "annotated_text=Line 1<\n>Line 2"},
+        ExpandToEnclosingTextBoundaryTestParam{
+            AXTextBoundary::kLineStartOrEnd, AXRangeExpandBehavior::kRightFirst,
+            "TextPosition anchor_id=4 text_offset=7 affinity=downstream "
+            "annotated_text=Line 1\n<L>ine 2",
+            "TextPosition anchor_id=4 text_offset=13 affinity=downstream "
+            "annotated_text=Line 1\nLine 2<>"},
+        ExpandToEnclosingTextBoundaryTestParam{
+            AXTextBoundary::kObject, AXRangeExpandBehavior::kLeftFirst,
+            "TextPosition anchor_id=4 text_offset=0 affinity=downstream "
+            "annotated_text=<L>ine 1\nLine 2",
+            "TextPosition anchor_id=4 text_offset=13 affinity=downstream "
+            "annotated_text=Line 1\nLine 2<>"},
+        ExpandToEnclosingTextBoundaryTestParam{
+            AXTextBoundary::kObject, AXRangeExpandBehavior::kRightFirst,
+            "TextPosition anchor_id=4 text_offset=0 affinity=downstream "
+            "annotated_text=<L>ine 1\nLine 2",
+            "TextPosition anchor_id=4 text_offset=13 affinity=downstream "
+            "annotated_text=Line 1\nLine 2<>"},
+        ExpandToEnclosingTextBoundaryTestParam{
+            AXTextBoundary::kParagraphEnd, AXRangeExpandBehavior::kLeftFirst,
+            "TextPosition anchor_id=4 text_offset=0 affinity=downstream "
+            "annotated_text=<L>ine 1\nLine 2",
+            "TextPosition anchor_id=4 text_offset=7 affinity=upstream "
+            "annotated_text=Line 1\n<L>ine 2"},
+        ExpandToEnclosingTextBoundaryTestParam{
+            AXTextBoundary::kParagraphEnd, AXRangeExpandBehavior::kRightFirst,
+            "TextPosition anchor_id=4 text_offset=7 affinity=upstream "
+            "annotated_text=Line 1\n<L>ine 2",
+            "TextPosition anchor_id=4 text_offset=13 affinity=downstream "
+            "annotated_text=Line 1\nLine 2<>"},
+        ExpandToEnclosingTextBoundaryTestParam{
+            AXTextBoundary::kParagraphStart, AXRangeExpandBehavior::kLeftFirst,
+            "TextPosition anchor_id=4 text_offset=0 affinity=downstream "
+            "annotated_text=<L>ine 1\nLine 2",
+            "TextPosition anchor_id=4 text_offset=7 affinity=downstream "
+            "annotated_text=Line 1\n<L>ine 2"},
+        ExpandToEnclosingTextBoundaryTestParam{
+            AXTextBoundary::kParagraphStart, AXRangeExpandBehavior::kRightFirst,
+            "TextPosition anchor_id=4 text_offset=7 affinity=downstream "
+            "annotated_text=Line 1\n<L>ine 2",
+            "TextPosition anchor_id=4 text_offset=13 affinity=downstream "
+            "annotated_text=Line 1\nLine 2<>"},
+        ExpandToEnclosingTextBoundaryTestParam{
+            AXTextBoundary::kParagraphStartOrEnd,
+            AXRangeExpandBehavior::kLeftFirst,
+            "TextPosition anchor_id=4 text_offset=0 affinity=downstream "
+            "annotated_text=<L>ine 1\nLine 2",
+            "TextPosition anchor_id=4 text_offset=7 affinity=upstream "
+            "annotated_text=Line 1\n<L>ine 2"},
+        ExpandToEnclosingTextBoundaryTestParam{
+            AXTextBoundary::kParagraphStartOrEnd,
+            AXRangeExpandBehavior::kRightFirst,
+            "TextPosition anchor_id=4 text_offset=7 affinity=downstream "
+            "annotated_text=Line 1\n<L>ine 2",
+            "TextPosition anchor_id=4 text_offset=13 affinity=downstream "
+            "annotated_text=Line 1\nLine 2<>"},
+        // TODO(accessibility): Add tests for sentence boundary.
+        ExpandToEnclosingTextBoundaryTestParam{
+            AXTextBoundary::kWebPage, AXRangeExpandBehavior::kLeftFirst,
+            "TextPosition anchor_id=1 text_offset=0 affinity=downstream "
+            "annotated_text=<L>ine 1\nLine 2",
+            "TextPosition anchor_id=9 text_offset=6 affinity=downstream "
+            "annotated_text=Line 2<>"},
+        ExpandToEnclosingTextBoundaryTestParam{
+            AXTextBoundary::kWebPage, AXRangeExpandBehavior::kRightFirst,
+            "TextPosition anchor_id=1 text_offset=0 affinity=downstream "
+            "annotated_text=<L>ine 1\nLine 2",
+            "TextPosition anchor_id=9 text_offset=6 affinity=downstream "
+            "annotated_text=Line 2<>"},
+        ExpandToEnclosingTextBoundaryTestParam{
+            AXTextBoundary::kWordEnd, AXRangeExpandBehavior::kLeftFirst,
+            "TextPosition anchor_id=4 text_offset=6 affinity=downstream "
+            "annotated_text=Line 1<\n>Line 2",
+            "TextPosition anchor_id=4 text_offset=11 affinity=downstream "
+            "annotated_text=Line 1\nLine< >2"},
+        ExpandToEnclosingTextBoundaryTestParam{
+            AXTextBoundary::kWordEnd, AXRangeExpandBehavior::kRightFirst,
+            "TextPosition anchor_id=4 text_offset=6 affinity=downstream "
+            "annotated_text=Line 1<\n>Line 2",
+            "TextPosition anchor_id=4 text_offset=11 affinity=downstream "
+            "annotated_text=Line 1\nLine< >2"},
+        ExpandToEnclosingTextBoundaryTestParam{
+            AXTextBoundary::kWordStart, AXRangeExpandBehavior::kLeftFirst,
+            "TextPosition anchor_id=4 text_offset=5 affinity=downstream "
+            "annotated_text=Line <1>\nLine 2",
+            "TextPosition anchor_id=4 text_offset=7 affinity=downstream "
+            "annotated_text=Line 1\n<L>ine 2"},
+        ExpandToEnclosingTextBoundaryTestParam{
+            AXTextBoundary::kWordStart, AXRangeExpandBehavior::kRightFirst,
+            "TextPosition anchor_id=4 text_offset=7 affinity=downstream "
+            "annotated_text=Line 1\n<L>ine 2",
+            "TextPosition anchor_id=4 text_offset=12 affinity=downstream "
+            "annotated_text=Line 1\nLine <2>"},
+        ExpandToEnclosingTextBoundaryTestParam{
+            AXTextBoundary::kWordStartOrEnd, AXRangeExpandBehavior::kLeftFirst,
+            "TextPosition anchor_id=4 text_offset=5 affinity=downstream "
+            "annotated_text=Line <1>\nLine 2",
+            "TextPosition anchor_id=4 text_offset=6 affinity=downstream "
+            "annotated_text=Line 1<\n>Line 2"},
+        ExpandToEnclosingTextBoundaryTestParam{
+            AXTextBoundary::kWordStartOrEnd, AXRangeExpandBehavior::kRightFirst,
+            "TextPosition anchor_id=4 text_offset=7 affinity=downstream "
+            "annotated_text=Line 1\n<L>ine 2",
+            "TextPosition anchor_id=4 text_offset=11 affinity=downstream "
+            "annotated_text=Line 1\nLine< >2"}));
+
+// Only test with AXBoundaryBehavior::CrossBoundary for now.
+// TODO(accessibility): Add more tests for other boundary behaviors if needed.
+INSTANTIATE_TEST_SUITE_P(
+    CreatePositionAtTextBoundary,
+    AXPositionCreatePositionAtTextBoundaryTestWithParam,
+    testing::Values(
+        CreatePositionAtTextBoundaryTestParam{
+            AXTextBoundary::kCharacter, AXTextBoundaryDirection::kBackwards,
+            AXBoundaryBehavior::CrossBoundary,
+            "TextPosition anchor_id=7 text_offset=0 affinity=downstream "
+            "annotated_text=<\n>"},
+        CreatePositionAtTextBoundaryTestParam{
+            AXTextBoundary::kCharacter, AXTextBoundaryDirection::kForwards,
+            AXBoundaryBehavior::CrossBoundary,
+            "TextPosition anchor_id=8 text_offset=1 affinity=downstream "
+            "annotated_text=L<i>ne 2"},
+        CreatePositionAtTextBoundaryTestParam{
+            AXTextBoundary::kFormatChange, AXTextBoundaryDirection::kBackwards,
+            AXBoundaryBehavior::CrossBoundary,
+            "TextPosition anchor_id=7 text_offset=0 affinity=downstream "
+            "annotated_text=<\n>"},
+        CreatePositionAtTextBoundaryTestParam{
+            AXTextBoundary::kFormatChange, AXTextBoundaryDirection::kForwards,
+            AXBoundaryBehavior::CrossBoundary,
+            "TextPosition anchor_id=8 text_offset=6 affinity=downstream "
+            "annotated_text=Line 2<>"},
+        CreatePositionAtTextBoundaryTestParam{
+            AXTextBoundary::kLineEnd, AXTextBoundaryDirection::kBackwards,
+            AXBoundaryBehavior::CrossBoundary,
+            "TextPosition anchor_id=6 text_offset=6 affinity=downstream "
+            "annotated_text=Line 1<>"},
+        CreatePositionAtTextBoundaryTestParam{
+            AXTextBoundary::kLineEnd, AXTextBoundaryDirection::kForwards,
+            AXBoundaryBehavior::CrossBoundary,
+            "TextPosition anchor_id=8 text_offset=6 affinity=downstream "
+            "annotated_text=Line 2<>"},
+        CreatePositionAtTextBoundaryTestParam{
+            AXTextBoundary::kLineStart, AXTextBoundaryDirection::kBackwards,
+            AXBoundaryBehavior::CrossBoundary,
+            "TextPosition anchor_id=6 text_offset=0 affinity=downstream "
+            "annotated_text=<L>ine 1"},
+        CreatePositionAtTextBoundaryTestParam{
+            AXTextBoundary::kLineStart, AXTextBoundaryDirection::kForwards,
+            AXBoundaryBehavior::CrossBoundary, "NullPosition"},
+        CreatePositionAtTextBoundaryTestParam{
+            AXTextBoundary::kLineStartOrEnd,
+            AXTextBoundaryDirection::kBackwards,
+            AXBoundaryBehavior::CrossBoundary,
+            "TextPosition anchor_id=6 text_offset=0 affinity=downstream "
+            "annotated_text=<L>ine 1"},
+        CreatePositionAtTextBoundaryTestParam{
+            AXTextBoundary::kLineStartOrEnd, AXTextBoundaryDirection::kForwards,
+            AXBoundaryBehavior::CrossBoundary,
+            "TextPosition anchor_id=8 text_offset=6 affinity=downstream "
+            "annotated_text=Line 2<>"},
+        CreatePositionAtTextBoundaryTestParam{
+            AXTextBoundary::kObject, AXTextBoundaryDirection::kBackwards,
+            AXBoundaryBehavior::CrossBoundary,
+            "TextPosition anchor_id=8 text_offset=0 affinity=downstream "
+            "annotated_text=<L>ine 2"},
+        CreatePositionAtTextBoundaryTestParam{
+            AXTextBoundary::kObject, AXTextBoundaryDirection::kForwards,
+            AXBoundaryBehavior::CrossBoundary,
+            "TextPosition anchor_id=8 text_offset=6 affinity=downstream "
+            "annotated_text=Line 2<>"},
+        CreatePositionAtTextBoundaryTestParam{
+            AXTextBoundary::kParagraphEnd, AXTextBoundaryDirection::kBackwards,
+            AXBoundaryBehavior::CrossBoundary,
+            "TextPosition anchor_id=3 text_offset=0 affinity=downstream "
+            "annotated_text=<>"},
+        CreatePositionAtTextBoundaryTestParam{
+            AXTextBoundary::kParagraphEnd, AXTextBoundaryDirection::kForwards,
+            AXBoundaryBehavior::CrossBoundary,
+            "TextPosition anchor_id=8 text_offset=6 affinity=downstream "
+            "annotated_text=Line 2<>"},
+        CreatePositionAtTextBoundaryTestParam{
+            AXTextBoundary::kParagraphStart,
+            AXTextBoundaryDirection::kBackwards,
+            AXBoundaryBehavior::CrossBoundary,
+            "TextPosition anchor_id=6 text_offset=0 affinity=downstream "
+            "annotated_text=<L>ine 1"},
+        CreatePositionAtTextBoundaryTestParam{
+            AXTextBoundary::kParagraphStart, AXTextBoundaryDirection::kForwards,
+            AXBoundaryBehavior::CrossBoundary, "NullPosition"},
+        CreatePositionAtTextBoundaryTestParam{
+            AXTextBoundary::kParagraphStartOrEnd,
+            AXTextBoundaryDirection::kBackwards,
+            AXBoundaryBehavior::CrossBoundary,
+            "TextPosition anchor_id=6 text_offset=0 affinity=downstream "
+            "annotated_text=<L>ine 1"},
+        CreatePositionAtTextBoundaryTestParam{
+            AXTextBoundary::kParagraphStartOrEnd,
+            AXTextBoundaryDirection::kForwards,
+            AXBoundaryBehavior::CrossBoundary,
+            "TextPosition anchor_id=8 text_offset=6 affinity=downstream "
+            "annotated_text=Line 2<>"},
+        // TODO(accessibility): Add tests for sentence boundary.
+        CreatePositionAtTextBoundaryTestParam{
+            AXTextBoundary::kWebPage, AXTextBoundaryDirection::kBackwards,
+            AXBoundaryBehavior::CrossBoundary,
+            "TextPosition anchor_id=1 text_offset=0 affinity=downstream "
+            "annotated_text=<L>ine 1\nLine 2"},
+        CreatePositionAtTextBoundaryTestParam{
+            AXTextBoundary::kWebPage, AXTextBoundaryDirection::kForwards,
+            AXBoundaryBehavior::CrossBoundary,
+            "TextPosition anchor_id=9 text_offset=6 affinity=downstream "
+            "annotated_text=Line 2<>"},
+        CreatePositionAtTextBoundaryTestParam{
+            AXTextBoundary::kWordEnd, AXTextBoundaryDirection::kBackwards,
+            AXBoundaryBehavior::CrossBoundary,
+            "TextPosition anchor_id=6 text_offset=6 affinity=downstream "
+            "annotated_text=Line 1<>"},
+        CreatePositionAtTextBoundaryTestParam{
+            AXTextBoundary::kWordEnd, AXTextBoundaryDirection::kForwards,
+            AXBoundaryBehavior::CrossBoundary,
+            "TextPosition anchor_id=8 text_offset=4 affinity=downstream "
+            "annotated_text=Line< >2"},
+        CreatePositionAtTextBoundaryTestParam{
+            AXTextBoundary::kWordStart, AXTextBoundaryDirection::kBackwards,
+            AXBoundaryBehavior::CrossBoundary,
+            "TextPosition anchor_id=6 text_offset=5 affinity=downstream "
+            "annotated_text=Line <1>"},
+        CreatePositionAtTextBoundaryTestParam{
+            AXTextBoundary::kWordStart, AXTextBoundaryDirection::kForwards,
+            AXBoundaryBehavior::CrossBoundary,
+            "TextPosition anchor_id=8 text_offset=5 affinity=downstream "
+            "annotated_text=Line <2>"},
+        CreatePositionAtTextBoundaryTestParam{
+            AXTextBoundary::kWordStartOrEnd,
+            AXTextBoundaryDirection::kBackwards,
+            AXBoundaryBehavior::CrossBoundary,
+            "TextPosition anchor_id=6 text_offset=5 affinity=downstream "
+            "annotated_text=Line <1>"},
+        CreatePositionAtTextBoundaryTestParam{
+            AXTextBoundary::kWordStartOrEnd, AXTextBoundaryDirection::kForwards,
+            AXBoundaryBehavior::CrossBoundary,
+            "TextPosition anchor_id=8 text_offset=4 affinity=downstream "
+            "annotated_text=Line< >2"}));
+
+INSTANTIATE_TEST_SUITE_P(
+    CreateNextWordStartPositionWithBoundaryBehaviorCrossBoundary,
+    AXPositionTextNavigationTestWithParam,
+    testing::Values(
+        TextNavigationTestParam{
+            base::BindRepeating([](const TestPositionType& position) {
+              return position->CreateNextWordStartPosition(
+                  AXBoundaryBehavior::CrossBoundary);
+            }),
+            ROOT_ID,
+            0 /* text_offset */,
+            {"TextPosition anchor_id=1 text_offset=5 "
+             "affinity=downstream annotated_text=Line <1>\nLine 2",
+             "TextPosition anchor_id=1 text_offset=7 "
+             "affinity=downstream annotated_text=Line 1\n<L>ine 2",
+             "TextPosition anchor_id=1 text_offset=12 "
+             "affinity=downstream annotated_text=Line 1\nLine <2>",
+             "NullPosition"}},
+        TextNavigationTestParam{
+            base::BindRepeating([](const TestPositionType& position) {
+              return position->CreateNextWordStartPosition(
+                  AXBoundaryBehavior::CrossBoundary);
+            }),
+            TEXT_FIELD_ID,
+            0 /* text_offset */,
+            {"TextPosition anchor_id=4 text_offset=5 "
+             "affinity=downstream annotated_text=Line <1>\nLine 2",
+             "TextPosition anchor_id=4 text_offset=7 "
+             "affinity=downstream annotated_text=Line 1\n<L>ine 2",
+             "TextPosition anchor_id=4 text_offset=12 "
+             "affinity=downstream annotated_text=Line 1\nLine <2>",
+             "NullPosition"}},
+        TextNavigationTestParam{
+            base::BindRepeating([](const TestPositionType& position) {
+              return position->CreateNextWordStartPosition(
+                  AXBoundaryBehavior::CrossBoundary);
+            }),
+            STATIC_TEXT1_ID,
+            1 /* text_offset */,
+            {"TextPosition anchor_id=5 text_offset=5 "
+             "affinity=downstream annotated_text=Line <1>",
+             "TextPosition anchor_id=9 text_offset=0 "
+             "affinity=downstream annotated_text=<L>ine 2",
+             "TextPosition anchor_id=9 text_offset=5 "
+             "affinity=downstream annotated_text=Line <2>",
+             "NullPosition"}},
+        TextNavigationTestParam{
+            base::BindRepeating([](const TestPositionType& position) {
+              return position->CreateNextWordStartPosition(
+                  AXBoundaryBehavior::CrossBoundary);
+            }),
+            INLINE_BOX2_ID,
+            4 /* text_offset */,
+            {"TextPosition anchor_id=9 text_offset=5 "
+             "affinity=downstream annotated_text=Line <2>",
+             "NullPosition"}}));
 
 INSTANTIATE_TEST_SUITE_P(
     CreateNextWordStartPositionWithBoundaryBehaviorStopAtAnchorBoundary,
-    AXPositionTestWithParam,
+    AXPositionTextNavigationTestWithParam,
     testing::Values(
-        TestParam{base::BindRepeating([](const TestPositionType& position) {
-                    return position->CreateNextWordStartPosition(
-                        AXBoundaryBehavior::StopAtAnchorBoundary);
-                  }),
-                  ROOT_ID,
-                  0 /* text_offset */,
-                  {"TextPosition anchor_id=1 text_offset=5 "
-                   "affinity=downstream annotated_text=Line <1>\nLine 2",
-                   "TextPosition anchor_id=1 text_offset=7 "
-                   "affinity=downstream annotated_text=Line 1\n<L>ine 2",
-                   "TextPosition anchor_id=1 text_offset=12 "
-                   "affinity=downstream annotated_text=Line 1\nLine <2>",
-                   "TextPosition anchor_id=1 text_offset=13 "
-                   "affinity=downstream annotated_text=Line 1\nLine 2<>"}},
-        TestParam{base::BindRepeating([](const TestPositionType& position) {
-                    return position->CreateNextWordStartPosition(
-                        AXBoundaryBehavior::StopAtAnchorBoundary);
-                  }),
-                  TEXT_FIELD_ID,
-                  0 /* text_offset */,
-                  {"TextPosition anchor_id=4 text_offset=5 "
-                   "affinity=downstream annotated_text=Line <1>\nLine 2",
-                   "TextPosition anchor_id=4 text_offset=7 "
-                   "affinity=downstream annotated_text=Line 1\n<L>ine 2",
-                   "TextPosition anchor_id=4 text_offset=12 "
-                   "affinity=downstream annotated_text=Line 1\nLine <2>",
-                   "TextPosition anchor_id=4 text_offset=13 "
-                   "affinity=downstream annotated_text=Line 1\nLine 2<>"}},
-        TestParam{base::BindRepeating([](const TestPositionType& position) {
-                    return position->CreateNextWordStartPosition(
-                        AXBoundaryBehavior::StopAtAnchorBoundary);
-                  }),
-                  STATIC_TEXT1_ID,
-                  1 /* text_offset */,
-                  {"TextPosition anchor_id=5 text_offset=5 "
-                   "affinity=downstream annotated_text=Line <1>",
-                   "TextPosition anchor_id=5 text_offset=6 "
-                   "affinity=downstream annotated_text=Line 1<>"}},
-        TestParam{base::BindRepeating([](const TestPositionType& position) {
-                    return position->CreateNextWordStartPosition(
-                        AXBoundaryBehavior::StopAtAnchorBoundary);
-                  }),
-                  INLINE_BOX2_ID,
-                  4 /* text_offset */,
-                  {"TextPosition anchor_id=9 text_offset=5 "
-                   "affinity=downstream annotated_text=Line <2>",
-                   "TextPosition anchor_id=9 text_offset=6 "
-                   "affinity=downstream annotated_text=Line 2<>"}}));
+        TextNavigationTestParam{
+            base::BindRepeating([](const TestPositionType& position) {
+              return position->CreateNextWordStartPosition(
+                  AXBoundaryBehavior::StopAtAnchorBoundary);
+            }),
+            ROOT_ID,
+            0 /* text_offset */,
+            {"TextPosition anchor_id=1 text_offset=5 "
+             "affinity=downstream annotated_text=Line <1>\nLine 2",
+             "TextPosition anchor_id=1 text_offset=7 "
+             "affinity=downstream annotated_text=Line 1\n<L>ine 2",
+             "TextPosition anchor_id=1 text_offset=12 "
+             "affinity=downstream annotated_text=Line 1\nLine <2>",
+             "TextPosition anchor_id=1 text_offset=13 "
+             "affinity=downstream annotated_text=Line 1\nLine 2<>"}},
+        TextNavigationTestParam{
+            base::BindRepeating([](const TestPositionType& position) {
+              return position->CreateNextWordStartPosition(
+                  AXBoundaryBehavior::StopAtAnchorBoundary);
+            }),
+            TEXT_FIELD_ID,
+            0 /* text_offset */,
+            {"TextPosition anchor_id=4 text_offset=5 "
+             "affinity=downstream annotated_text=Line <1>\nLine 2",
+             "TextPosition anchor_id=4 text_offset=7 "
+             "affinity=downstream annotated_text=Line 1\n<L>ine 2",
+             "TextPosition anchor_id=4 text_offset=12 "
+             "affinity=downstream annotated_text=Line 1\nLine <2>",
+             "TextPosition anchor_id=4 text_offset=13 "
+             "affinity=downstream annotated_text=Line 1\nLine 2<>"}},
+        TextNavigationTestParam{
+            base::BindRepeating([](const TestPositionType& position) {
+              return position->CreateNextWordStartPosition(
+                  AXBoundaryBehavior::StopAtAnchorBoundary);
+            }),
+            STATIC_TEXT1_ID,
+            1 /* text_offset */,
+            {"TextPosition anchor_id=5 text_offset=5 "
+             "affinity=downstream annotated_text=Line <1>",
+             "TextPosition anchor_id=5 text_offset=6 "
+             "affinity=downstream annotated_text=Line 1<>"}},
+        TextNavigationTestParam{
+            base::BindRepeating([](const TestPositionType& position) {
+              return position->CreateNextWordStartPosition(
+                  AXBoundaryBehavior::StopAtAnchorBoundary);
+            }),
+            INLINE_BOX2_ID,
+            4 /* text_offset */,
+            {"TextPosition anchor_id=9 text_offset=5 "
+             "affinity=downstream annotated_text=Line <2>",
+             "TextPosition anchor_id=9 text_offset=6 "
+             "affinity=downstream annotated_text=Line 2<>"}}));
 
 INSTANTIATE_TEST_SUITE_P(
     CreateNextWordStartPositionWithBoundaryBehaviorStopIfAlreadyAtBoundary,
-    AXPositionTestWithParam,
+    AXPositionTextNavigationTestWithParam,
     testing::Values(
-        TestParam{base::BindRepeating([](const TestPositionType& position) {
-                    return position->CreateNextWordStartPosition(
-                        AXBoundaryBehavior::StopIfAlreadyAtBoundary);
-                  }),
-                  ROOT_ID,
-                  0 /* text_offset */,
-                  {"TextPosition anchor_id=1 text_offset=0 "
-                   "affinity=downstream annotated_text=<L>ine 1\nLine 2",
-                   "TextPosition anchor_id=1 text_offset=0 "
-                   "affinity=downstream annotated_text=<L>ine 1\nLine 2"}},
-        TestParam{base::BindRepeating([](const TestPositionType& position) {
-                    return position->CreateNextWordStartPosition(
-                        AXBoundaryBehavior::StopIfAlreadyAtBoundary);
-                  }),
-                  TEXT_FIELD_ID,
-                  0 /* text_offset */,
-                  {"TextPosition anchor_id=4 text_offset=0 "
-                   "affinity=downstream annotated_text=<L>ine 1\nLine 2",
-                   "TextPosition anchor_id=4 text_offset=0 "
-                   "affinity=downstream annotated_text=<L>ine 1\nLine 2"}},
-        TestParam{base::BindRepeating([](const TestPositionType& position) {
-                    return position->CreateNextWordStartPosition(
-                        AXBoundaryBehavior::StopIfAlreadyAtBoundary);
-                  }),
-                  STATIC_TEXT1_ID,
-                  1 /* text_offset */,
-                  {"TextPosition anchor_id=5 text_offset=5 "
-                   "affinity=downstream annotated_text=Line <1>",
-                   "TextPosition anchor_id=5 text_offset=5 "
-                   "affinity=downstream annotated_text=Line <1>"}},
-        TestParam{base::BindRepeating([](const TestPositionType& position) {
-                    return position->CreateNextWordStartPosition(
-                        AXBoundaryBehavior::StopIfAlreadyAtBoundary);
-                  }),
-                  INLINE_BOX2_ID,
-                  4 /* text_offset */,
-                  {"TextPosition anchor_id=9 text_offset=5 "
-                   "affinity=downstream annotated_text=Line <2>",
-                   "TextPosition anchor_id=9 text_offset=5 "
-                   "affinity=downstream annotated_text=Line <2>"}}));
+        TextNavigationTestParam{
+            base::BindRepeating([](const TestPositionType& position) {
+              return position->CreateNextWordStartPosition(
+                  AXBoundaryBehavior::StopIfAlreadyAtBoundary);
+            }),
+            ROOT_ID,
+            0 /* text_offset */,
+            {"TextPosition anchor_id=1 text_offset=0 "
+             "affinity=downstream annotated_text=<L>ine 1\nLine 2",
+             "TextPosition anchor_id=1 text_offset=0 "
+             "affinity=downstream annotated_text=<L>ine 1\nLine 2"}},
+        TextNavigationTestParam{
+            base::BindRepeating([](const TestPositionType& position) {
+              return position->CreateNextWordStartPosition(
+                  AXBoundaryBehavior::StopIfAlreadyAtBoundary);
+            }),
+            TEXT_FIELD_ID,
+            0 /* text_offset */,
+            {"TextPosition anchor_id=4 text_offset=0 "
+             "affinity=downstream annotated_text=<L>ine 1\nLine 2",
+             "TextPosition anchor_id=4 text_offset=0 "
+             "affinity=downstream annotated_text=<L>ine 1\nLine 2"}},
+        TextNavigationTestParam{
+            base::BindRepeating([](const TestPositionType& position) {
+              return position->CreateNextWordStartPosition(
+                  AXBoundaryBehavior::StopIfAlreadyAtBoundary);
+            }),
+            STATIC_TEXT1_ID,
+            1 /* text_offset */,
+            {"TextPosition anchor_id=5 text_offset=5 "
+             "affinity=downstream annotated_text=Line <1>",
+             "TextPosition anchor_id=5 text_offset=5 "
+             "affinity=downstream annotated_text=Line <1>"}},
+        TextNavigationTestParam{
+            base::BindRepeating([](const TestPositionType& position) {
+              return position->CreateNextWordStartPosition(
+                  AXBoundaryBehavior::StopIfAlreadyAtBoundary);
+            }),
+            INLINE_BOX2_ID,
+            4 /* text_offset */,
+            {"TextPosition anchor_id=9 text_offset=5 "
+             "affinity=downstream annotated_text=Line <2>",
+             "TextPosition anchor_id=9 text_offset=5 "
+             "affinity=downstream annotated_text=Line <2>"}}));
+
+INSTANTIATE_TEST_SUITE_P(
+    CreateNextWordStartPositionWithBoundaryBehaviorStopAtLastAnchorBoundary,
+    AXPositionTextNavigationTestWithParam,
+    testing::Values(
+        TextNavigationTestParam{
+            base::BindRepeating([](const TestPositionType& position) {
+              return position->CreateNextWordStartPosition(
+                  AXBoundaryBehavior::StopAtLastAnchorBoundary);
+            }),
+            ROOT_ID,
+            0 /* text_offset */,
+            {"TextPosition anchor_id=1 text_offset=5 "
+             "affinity=downstream annotated_text=Line <1>\nLine 2",
+             "TextPosition anchor_id=1 text_offset=7 "
+             "affinity=downstream annotated_text=Line 1\n<L>ine 2",
+             "TextPosition anchor_id=1 text_offset=12 "
+             "affinity=downstream annotated_text=Line 1\nLine <2>",
+             "TextPosition anchor_id=1 text_offset=13 "
+             "affinity=downstream annotated_text=Line 1\nLine 2<>",
+             "TextPosition anchor_id=1 text_offset=13 "
+             "affinity=downstream annotated_text=Line 1\nLine 2<>"}},
+        TextNavigationTestParam{
+            base::BindRepeating([](const TestPositionType& position) {
+              return position->CreateNextWordStartPosition(
+                  AXBoundaryBehavior::StopAtLastAnchorBoundary);
+            }),
+            TEXT_FIELD_ID,
+            0 /* text_offset */,
+            {"TextPosition anchor_id=4 text_offset=5 "
+             "affinity=downstream annotated_text=Line <1>\nLine 2",
+             "TextPosition anchor_id=4 text_offset=7 "
+             "affinity=downstream annotated_text=Line 1\n<L>ine 2",
+             "TextPosition anchor_id=4 text_offset=12 "
+             "affinity=downstream annotated_text=Line 1\nLine <2>",
+             "TextPosition anchor_id=4 text_offset=13 "
+             "affinity=downstream annotated_text=Line 1\nLine 2<>",
+             "TextPosition anchor_id=4 text_offset=13 "
+             "affinity=downstream annotated_text=Line 1\nLine 2<>"}},
+        TextNavigationTestParam{
+            base::BindRepeating([](const TestPositionType& position) {
+              return position->CreateNextWordStartPosition(
+                  AXBoundaryBehavior::StopAtLastAnchorBoundary);
+            }),
+            STATIC_TEXT1_ID,
+            1 /* text_offset */,
+            {"TextPosition anchor_id=5 text_offset=5 "
+             "affinity=downstream annotated_text=Line <1>",
+             "TextPosition anchor_id=9 text_offset=0 "
+             "affinity=downstream annotated_text=<L>ine 2",
+             "TextPosition anchor_id=9 text_offset=5 "
+             "affinity=downstream annotated_text=Line <2>",
+             "TextPosition anchor_id=9 text_offset=6 "
+             "affinity=downstream annotated_text=Line 2<>",
+             "TextPosition anchor_id=9 text_offset=6 "
+             "affinity=downstream annotated_text=Line 2<>"}},
+        TextNavigationTestParam{
+            base::BindRepeating([](const TestPositionType& position) {
+              return position->CreateNextWordStartPosition(
+                  AXBoundaryBehavior::StopAtLastAnchorBoundary);
+            }),
+            INLINE_BOX2_ID,
+            4 /* text_offset */,
+            {"TextPosition anchor_id=9 text_offset=5 "
+             "affinity=downstream annotated_text=Line <2>",
+             "TextPosition anchor_id=9 text_offset=6 "
+             "affinity=downstream annotated_text=Line 2<>",
+             "TextPosition anchor_id=9 text_offset=6 "
+             "affinity=downstream annotated_text=Line 2<>"}}));
 
 INSTANTIATE_TEST_SUITE_P(
     CreatePreviousWordStartPositionWithBoundaryBehaviorCrossBoundary,
-    AXPositionTestWithParam,
+    AXPositionTextNavigationTestWithParam,
     testing::Values(
-        TestParam{base::BindRepeating([](const TestPositionType& position) {
-                    return position->CreatePreviousWordStartPosition(
-                        AXBoundaryBehavior::CrossBoundary);
-                  }),
-                  ROOT_ID,
-                  13 /* text_offset at end of root. */,
-                  {"TextPosition anchor_id=1 text_offset=12 "
-                   "affinity=downstream annotated_text=Line 1\nLine <2>",
-                   "TextPosition anchor_id=1 text_offset=7 "
-                   "affinity=downstream annotated_text=Line 1\n<L>ine 2",
-                   "TextPosition anchor_id=1 text_offset=5 "
-                   "affinity=downstream annotated_text=Line <1>\nLine 2",
-                   "TextPosition anchor_id=1 text_offset=0 "
-                   "affinity=downstream annotated_text=<L>ine 1\nLine 2",
-                   "NullPosition"}},
-        TestParam{base::BindRepeating([](const TestPositionType& position) {
-                    return position->CreatePreviousWordStartPosition(
-                        AXBoundaryBehavior::CrossBoundary);
-                  }),
-                  TEXT_FIELD_ID,
-                  13 /* text_offset at end of text field */,
-                  {"TextPosition anchor_id=4 text_offset=12 "
-                   "affinity=downstream annotated_text=Line 1\nLine <2>",
-                   "TextPosition anchor_id=4 text_offset=7 "
-                   "affinity=downstream annotated_text=Line 1\n<L>ine 2",
-                   "TextPosition anchor_id=4 text_offset=5 "
-                   "affinity=downstream annotated_text=Line <1>\nLine 2",
-                   "TextPosition anchor_id=4 text_offset=0 "
-                   "affinity=downstream annotated_text=<L>ine 1\nLine 2",
-                   "NullPosition"}},
-        TestParam{base::BindRepeating([](const TestPositionType& position) {
-                    return position->CreatePreviousWordStartPosition(
-                        AXBoundaryBehavior::CrossBoundary);
-                  }),
-                  STATIC_TEXT1_ID,
-                  5 /* text_offset */,
-                  {"TextPosition anchor_id=5 text_offset=0 "
-                   "affinity=downstream annotated_text=<L>ine 1",
-                   "NullPosition"}},
-        TestParam{base::BindRepeating([](const TestPositionType& position) {
-                    return position->CreatePreviousWordStartPosition(
-                        AXBoundaryBehavior::CrossBoundary);
-                  }),
-                  INLINE_BOX2_ID,
-                  4 /* text_offset */,
-                  {"TextPosition anchor_id=9 text_offset=0 "
-                   "affinity=downstream annotated_text=<L>ine 2",
-                   "TextPosition anchor_id=6 text_offset=5 "
-                   "affinity=downstream annotated_text=Line <1>",
-                   "TextPosition anchor_id=6 text_offset=0 "
-                   "affinity=downstream annotated_text=<L>ine 1",
-                   "NullPosition"}}));
+        TextNavigationTestParam{
+            base::BindRepeating([](const TestPositionType& position) {
+              return position->CreatePreviousWordStartPosition(
+                  AXBoundaryBehavior::CrossBoundary);
+            }),
+            ROOT_ID,
+            13 /* text_offset at end of root. */,
+            {"TextPosition anchor_id=1 text_offset=12 "
+             "affinity=downstream annotated_text=Line 1\nLine <2>",
+             "TextPosition anchor_id=1 text_offset=7 "
+             "affinity=downstream annotated_text=Line 1\n<L>ine 2",
+             "TextPosition anchor_id=1 text_offset=5 "
+             "affinity=downstream annotated_text=Line <1>\nLine 2",
+             "TextPosition anchor_id=1 text_offset=0 "
+             "affinity=downstream annotated_text=<L>ine 1\nLine 2",
+             "NullPosition"}},
+        TextNavigationTestParam{
+            base::BindRepeating([](const TestPositionType& position) {
+              return position->CreatePreviousWordStartPosition(
+                  AXBoundaryBehavior::CrossBoundary);
+            }),
+            TEXT_FIELD_ID,
+            13 /* text_offset at end of text field */,
+            {"TextPosition anchor_id=4 text_offset=12 "
+             "affinity=downstream annotated_text=Line 1\nLine <2>",
+             "TextPosition anchor_id=4 text_offset=7 "
+             "affinity=downstream annotated_text=Line 1\n<L>ine 2",
+             "TextPosition anchor_id=4 text_offset=5 "
+             "affinity=downstream annotated_text=Line <1>\nLine 2",
+             "TextPosition anchor_id=4 text_offset=0 "
+             "affinity=downstream annotated_text=<L>ine 1\nLine 2",
+             "NullPosition"}},
+        TextNavigationTestParam{
+            base::BindRepeating([](const TestPositionType& position) {
+              return position->CreatePreviousWordStartPosition(
+                  AXBoundaryBehavior::CrossBoundary);
+            }),
+            STATIC_TEXT1_ID,
+            5 /* text_offset */,
+            {"TextPosition anchor_id=5 text_offset=0 "
+             "affinity=downstream annotated_text=<L>ine 1",
+             "NullPosition"}},
+        TextNavigationTestParam{
+            base::BindRepeating([](const TestPositionType& position) {
+              return position->CreatePreviousWordStartPosition(
+                  AXBoundaryBehavior::CrossBoundary);
+            }),
+            INLINE_BOX2_ID,
+            4 /* text_offset */,
+            {"TextPosition anchor_id=9 text_offset=0 "
+             "affinity=downstream annotated_text=<L>ine 2",
+             "TextPosition anchor_id=6 text_offset=5 "
+             "affinity=downstream annotated_text=Line <1>",
+             "TextPosition anchor_id=6 text_offset=0 "
+             "affinity=downstream annotated_text=<L>ine 1",
+             "NullPosition"}}));
 
 INSTANTIATE_TEST_SUITE_P(
     CreatePreviousWordStartPositionWithBoundaryBehaviorStopAtAnchorBoundary,
-    AXPositionTestWithParam,
+    AXPositionTextNavigationTestWithParam,
     testing::Values(
-        TestParam{base::BindRepeating([](const TestPositionType& position) {
-                    return position->CreatePreviousWordStartPosition(
-                        AXBoundaryBehavior::StopAtAnchorBoundary);
-                  }),
-                  ROOT_ID,
-                  13 /* text_offset at end of root. */,
-                  {"TextPosition anchor_id=1 text_offset=12 "
-                   "affinity=downstream annotated_text=Line 1\nLine <2>",
-                   "TextPosition anchor_id=1 text_offset=7 "
-                   "affinity=downstream annotated_text=Line 1\n<L>ine 2",
-                   "TextPosition anchor_id=1 text_offset=5 "
-                   "affinity=downstream annotated_text=Line <1>\nLine 2",
-                   "TextPosition anchor_id=1 text_offset=0 "
-                   "affinity=downstream annotated_text=<L>ine 1\nLine 2",
-                   "TextPosition anchor_id=1 text_offset=0 "
-                   "affinity=downstream annotated_text=<L>ine 1\nLine 2"}},
-        TestParam{base::BindRepeating([](const TestPositionType& position) {
-                    return position->CreatePreviousWordStartPosition(
-                        AXBoundaryBehavior::StopAtAnchorBoundary);
-                  }),
-                  TEXT_FIELD_ID,
-                  13 /* text_offset at end of text field */,
-                  {"TextPosition anchor_id=4 text_offset=12 "
-                   "affinity=downstream annotated_text=Line 1\nLine <2>",
-                   "TextPosition anchor_id=4 text_offset=7 "
-                   "affinity=downstream annotated_text=Line 1\n<L>ine 2",
-                   "TextPosition anchor_id=4 text_offset=5 "
-                   "affinity=downstream annotated_text=Line <1>\nLine 2",
-                   "TextPosition anchor_id=4 text_offset=0 "
-                   "affinity=downstream annotated_text=<L>ine 1\nLine 2",
-                   "TextPosition anchor_id=4 text_offset=0 "
-                   "affinity=downstream annotated_text=<L>ine 1\nLine 2"}},
-        TestParam{base::BindRepeating([](const TestPositionType& position) {
-                    return position->CreatePreviousWordStartPosition(
-                        AXBoundaryBehavior::StopAtAnchorBoundary);
-                  }),
-                  STATIC_TEXT1_ID,
-                  5 /* text_offset */,
-                  {"TextPosition anchor_id=5 text_offset=0 "
-                   "affinity=downstream annotated_text=<L>ine 1",
-                   "TextPosition anchor_id=5 text_offset=0 "
-                   "affinity=downstream annotated_text=<L>ine 1"}},
-        TestParam{base::BindRepeating([](const TestPositionType& position) {
-                    return position->CreatePreviousWordStartPosition(
-                        AXBoundaryBehavior::StopAtAnchorBoundary);
-                  }),
-                  INLINE_BOX2_ID,
-                  4 /* text_offset */,
-                  {"TextPosition anchor_id=9 text_offset=0 "
-                   "affinity=downstream annotated_text=<L>ine 2",
-                   "TextPosition anchor_id=9 text_offset=0 "
-                   "affinity=downstream annotated_text=<L>ine 2"}}));
+        TextNavigationTestParam{
+            base::BindRepeating([](const TestPositionType& position) {
+              return position->CreatePreviousWordStartPosition(
+                  AXBoundaryBehavior::StopAtAnchorBoundary);
+            }),
+            ROOT_ID,
+            13 /* text_offset at end of root. */,
+            {"TextPosition anchor_id=1 text_offset=12 "
+             "affinity=downstream annotated_text=Line 1\nLine <2>",
+             "TextPosition anchor_id=1 text_offset=7 "
+             "affinity=downstream annotated_text=Line 1\n<L>ine 2",
+             "TextPosition anchor_id=1 text_offset=5 "
+             "affinity=downstream annotated_text=Line <1>\nLine 2",
+             "TextPosition anchor_id=1 text_offset=0 "
+             "affinity=downstream annotated_text=<L>ine 1\nLine 2",
+             "TextPosition anchor_id=1 text_offset=0 "
+             "affinity=downstream annotated_text=<L>ine 1\nLine 2"}},
+        TextNavigationTestParam{
+            base::BindRepeating([](const TestPositionType& position) {
+              return position->CreatePreviousWordStartPosition(
+                  AXBoundaryBehavior::StopAtAnchorBoundary);
+            }),
+            TEXT_FIELD_ID,
+            13 /* text_offset at end of text field */,
+            {"TextPosition anchor_id=4 text_offset=12 "
+             "affinity=downstream annotated_text=Line 1\nLine <2>",
+             "TextPosition anchor_id=4 text_offset=7 "
+             "affinity=downstream annotated_text=Line 1\n<L>ine 2",
+             "TextPosition anchor_id=4 text_offset=5 "
+             "affinity=downstream annotated_text=Line <1>\nLine 2",
+             "TextPosition anchor_id=4 text_offset=0 "
+             "affinity=downstream annotated_text=<L>ine 1\nLine 2",
+             "TextPosition anchor_id=4 text_offset=0 "
+             "affinity=downstream annotated_text=<L>ine 1\nLine 2"}},
+        TextNavigationTestParam{
+            base::BindRepeating([](const TestPositionType& position) {
+              return position->CreatePreviousWordStartPosition(
+                  AXBoundaryBehavior::StopAtAnchorBoundary);
+            }),
+            STATIC_TEXT1_ID,
+            5 /* text_offset */,
+            {"TextPosition anchor_id=5 text_offset=0 "
+             "affinity=downstream annotated_text=<L>ine 1",
+             "TextPosition anchor_id=5 text_offset=0 "
+             "affinity=downstream annotated_text=<L>ine 1"}},
+        TextNavigationTestParam{
+            base::BindRepeating([](const TestPositionType& position) {
+              return position->CreatePreviousWordStartPosition(
+                  AXBoundaryBehavior::StopAtAnchorBoundary);
+            }),
+            INLINE_BOX2_ID,
+            4 /* text_offset */,
+            {"TextPosition anchor_id=9 text_offset=0 "
+             "affinity=downstream annotated_text=<L>ine 2",
+             "TextPosition anchor_id=9 text_offset=0 "
+             "affinity=downstream annotated_text=<L>ine 2"}}));
 
 INSTANTIATE_TEST_SUITE_P(
     CreatePreviousWordStartPositionWithBoundaryBehaviorStopIfAlreadyAtBoundary,
-    AXPositionTestWithParam,
+    AXPositionTextNavigationTestWithParam,
     testing::Values(
-        TestParam{base::BindRepeating([](const TestPositionType& position) {
-                    return position->CreatePreviousWordStartPosition(
-                        AXBoundaryBehavior::StopIfAlreadyAtBoundary);
-                  }),
-                  ROOT_ID,
-                  13 /* text_offset at end of root. */,
-                  {"TextPosition anchor_id=1 text_offset=12 "
-                   "affinity=downstream annotated_text=Line 1\nLine <2>",
-                   "TextPosition anchor_id=1 text_offset=12 "
-                   "affinity=downstream annotated_text=Line 1\nLine <2>"}},
-        TestParam{base::BindRepeating([](const TestPositionType& position) {
-                    return position->CreatePreviousWordStartPosition(
-                        AXBoundaryBehavior::StopIfAlreadyAtBoundary);
-                  }),
-                  TEXT_FIELD_ID,
-                  13 /* text_offset at end of text field */,
-                  {"TextPosition anchor_id=4 text_offset=12 "
-                   "affinity=downstream annotated_text=Line 1\nLine <2>",
-                   "TextPosition anchor_id=4 text_offset=12 "
-                   "affinity=downstream annotated_text=Line 1\nLine <2>"}},
-        TestParam{base::BindRepeating([](const TestPositionType& position) {
-                    return position->CreatePreviousWordStartPosition(
-                        AXBoundaryBehavior::StopIfAlreadyAtBoundary);
-                  }),
-                  STATIC_TEXT1_ID,
-                  5 /* text_offset */,
-                  {"TextPosition anchor_id=5 text_offset=5 "
-                   "affinity=downstream annotated_text=Line <1>"}},
-        TestParam{base::BindRepeating([](const TestPositionType& position) {
-                    return position->CreatePreviousWordStartPosition(
-                        AXBoundaryBehavior::StopIfAlreadyAtBoundary);
-                  }),
-                  INLINE_BOX2_ID,
-                  4 /* text_offset */,
-                  {"TextPosition anchor_id=9 text_offset=0 "
-                   "affinity=downstream annotated_text=<L>ine 2",
-                   "TextPosition anchor_id=9 text_offset=0 "
-                   "affinity=downstream annotated_text=<L>ine 2"}}));
+        TextNavigationTestParam{
+            base::BindRepeating([](const TestPositionType& position) {
+              return position->CreatePreviousWordStartPosition(
+                  AXBoundaryBehavior::StopIfAlreadyAtBoundary);
+            }),
+            ROOT_ID,
+            13 /* text_offset at end of root. */,
+            {"TextPosition anchor_id=1 text_offset=12 "
+             "affinity=downstream annotated_text=Line 1\nLine <2>",
+             "TextPosition anchor_id=1 text_offset=12 "
+             "affinity=downstream annotated_text=Line 1\nLine <2>"}},
+        TextNavigationTestParam{
+            base::BindRepeating([](const TestPositionType& position) {
+              return position->CreatePreviousWordStartPosition(
+                  AXBoundaryBehavior::StopIfAlreadyAtBoundary);
+            }),
+            TEXT_FIELD_ID,
+            13 /* text_offset at end of text field */,
+            {"TextPosition anchor_id=4 text_offset=12 "
+             "affinity=downstream annotated_text=Line 1\nLine <2>",
+             "TextPosition anchor_id=4 text_offset=12 "
+             "affinity=downstream annotated_text=Line 1\nLine <2>"}},
+        TextNavigationTestParam{
+            base::BindRepeating([](const TestPositionType& position) {
+              return position->CreatePreviousWordStartPosition(
+                  AXBoundaryBehavior::StopIfAlreadyAtBoundary);
+            }),
+            STATIC_TEXT1_ID,
+            5 /* text_offset */,
+            {"TextPosition anchor_id=5 text_offset=5 "
+             "affinity=downstream annotated_text=Line <1>"}},
+        TextNavigationTestParam{
+            base::BindRepeating([](const TestPositionType& position) {
+              return position->CreatePreviousWordStartPosition(
+                  AXBoundaryBehavior::StopIfAlreadyAtBoundary);
+            }),
+            INLINE_BOX2_ID,
+            4 /* text_offset */,
+            {"TextPosition anchor_id=9 text_offset=0 "
+             "affinity=downstream annotated_text=<L>ine 2",
+             "TextPosition anchor_id=9 text_offset=0 "
+             "affinity=downstream annotated_text=<L>ine 2"}}));
+
+INSTANTIATE_TEST_SUITE_P(
+    CreatePreviousWordStartPositionWithBoundaryBehaviorStopAtLastAnchorBoundary,
+    AXPositionTextNavigationTestWithParam,
+    testing::Values(
+        TextNavigationTestParam{
+            base::BindRepeating([](const TestPositionType& position) {
+              return position->CreatePreviousWordStartPosition(
+                  AXBoundaryBehavior::StopAtLastAnchorBoundary);
+            }),
+            ROOT_ID,
+            13 /* text_offset */,
+            {"TextPosition anchor_id=1 text_offset=12 "
+             "affinity=downstream annotated_text=Line 1\nLine <2>",
+             "TextPosition anchor_id=1 text_offset=7 "
+             "affinity=downstream annotated_text=Line 1\n<L>ine 2",
+             "TextPosition anchor_id=1 text_offset=5 "
+             "affinity=downstream annotated_text=Line <1>\nLine 2",
+             "TextPosition anchor_id=1 text_offset=0 "
+             "affinity=downstream annotated_text=<L>ine 1\nLine 2",
+             "TextPosition anchor_id=1 text_offset=0 "
+             "affinity=downstream annotated_text=<L>ine 1\nLine 2",
+             "TextPosition anchor_id=1 text_offset=0 "
+             "affinity=downstream annotated_text=<L>ine 1\nLine 2"}},
+        TextNavigationTestParam{
+            base::BindRepeating([](const TestPositionType& position) {
+              return position->CreatePreviousWordStartPosition(
+                  AXBoundaryBehavior::StopAtLastAnchorBoundary);
+            }),
+            TEXT_FIELD_ID,
+            13 /* text_offset */,
+            {"TextPosition anchor_id=4 text_offset=12 "
+             "affinity=downstream annotated_text=Line 1\nLine <2>",
+             "TextPosition anchor_id=4 text_offset=7 "
+             "affinity=downstream annotated_text=Line 1\n<L>ine 2",
+             "TextPosition anchor_id=4 text_offset=5 "
+             "affinity=downstream annotated_text=Line <1>\nLine 2",
+             "TextPosition anchor_id=4 text_offset=0 "
+             "affinity=downstream annotated_text=<L>ine 1\nLine 2",
+             "TextPosition anchor_id=2 text_offset=0 "
+             "affinity=downstream annotated_text=<>",
+             "TextPosition anchor_id=2 text_offset=0 "
+             "affinity=downstream annotated_text=<>"}},
+        TextNavigationTestParam{
+            base::BindRepeating([](const TestPositionType& position) {
+              return position->CreatePreviousWordStartPosition(
+                  AXBoundaryBehavior::StopAtLastAnchorBoundary);
+            }),
+            STATIC_TEXT1_ID,
+            5 /* text_offset */,
+            {"TextPosition anchor_id=5 text_offset=0 "
+             "affinity=downstream annotated_text=<L>ine 1",
+             "TextPosition anchor_id=2 text_offset=0 "
+             "affinity=downstream annotated_text=<>",
+             "TextPosition anchor_id=2 text_offset=0 "
+             "affinity=downstream annotated_text=<>"}},
+        TextNavigationTestParam{
+            base::BindRepeating([](const TestPositionType& position) {
+              return position->CreatePreviousWordStartPosition(
+                  AXBoundaryBehavior::StopAtLastAnchorBoundary);
+            }),
+            INLINE_BOX2_ID,
+            4 /* text_offset */,
+            {"TextPosition anchor_id=9 text_offset=0 "
+             "affinity=downstream annotated_text=<L>ine 2",
+             "TextPosition anchor_id=6 text_offset=5 "
+             "affinity=downstream annotated_text=Line <1>",
+             "TextPosition anchor_id=6 text_offset=0 "
+             "affinity=downstream annotated_text=<L>ine 1",
+             "TextPosition anchor_id=2 text_offset=0 "
+             "affinity=downstream annotated_text=<>",
+             "TextPosition anchor_id=2 text_offset=0 "
+             "affinity=downstream annotated_text=<>"}}));
 
 INSTANTIATE_TEST_SUITE_P(
     CreateNextWordEndPositionWithBoundaryBehaviorCrossBoundary,
-    AXPositionTestWithParam,
+    AXPositionTextNavigationTestWithParam,
     testing::Values(
-        TestParam{base::BindRepeating([](const TestPositionType& position) {
-                    return position->CreateNextWordEndPosition(
-                        AXBoundaryBehavior::CrossBoundary);
-                  }),
-                  ROOT_ID,
-                  0 /* text_offset */,
-                  {"TextPosition anchor_id=1 text_offset=4 "
-                   "affinity=downstream annotated_text=Line< >1\nLine 2",
-                   "TextPosition anchor_id=1 text_offset=6 "
-                   "affinity=downstream annotated_text=Line 1<\n>Line 2",
-                   "TextPosition anchor_id=1 text_offset=11 "
-                   "affinity=downstream annotated_text=Line 1\nLine< >2",
-                   "TextPosition anchor_id=1 text_offset=13 "
-                   "affinity=downstream annotated_text=Line 1\nLine 2<>",
-                   "NullPosition"}},
-        TestParam{base::BindRepeating([](const TestPositionType& position) {
-                    return position->CreateNextWordEndPosition(
-                        AXBoundaryBehavior::CrossBoundary);
-                  }),
-                  TEXT_FIELD_ID,
-                  0 /* text_offset */,
-                  {"TextPosition anchor_id=4 text_offset=4 "
-                   "affinity=downstream annotated_text=Line< >1\nLine 2",
-                   "TextPosition anchor_id=4 text_offset=6 "
-                   "affinity=downstream annotated_text=Line 1<\n>Line 2",
-                   "TextPosition anchor_id=4 text_offset=11 "
-                   "affinity=downstream annotated_text=Line 1\nLine< >2",
-                   "TextPosition anchor_id=4 text_offset=13 "
-                   "affinity=downstream annotated_text=Line 1\nLine 2<>",
-                   "NullPosition"}},
-        TestParam{base::BindRepeating([](const TestPositionType& position) {
-                    return position->CreateNextWordEndPosition(
-                        AXBoundaryBehavior::CrossBoundary);
-                  }),
-                  STATIC_TEXT1_ID,
-                  1 /* text_offset */,
-                  {"TextPosition anchor_id=5 text_offset=4 "
-                   "affinity=downstream annotated_text=Line< >1",
-                   "TextPosition anchor_id=5 text_offset=6 "
-                   "affinity=downstream annotated_text=Line 1<>",
-                   "TextPosition anchor_id=9 text_offset=4 "
-                   "affinity=downstream annotated_text=Line< >2",
-                   "TextPosition anchor_id=9 text_offset=6 "
-                   "affinity=downstream annotated_text=Line 2<>",
-                   "NullPosition"}},
-        TestParam{base::BindRepeating([](const TestPositionType& position) {
-                    return position->CreateNextWordEndPosition(
-                        AXBoundaryBehavior::CrossBoundary);
-                  }),
-                  INLINE_BOX2_ID,
-                  4 /* text_offset */,
-                  {"TextPosition anchor_id=9 text_offset=6 "
-                   "affinity=downstream annotated_text=Line 2<>",
-                   "NullPosition"}}));
+        TextNavigationTestParam{
+            base::BindRepeating([](const TestPositionType& position) {
+              return position->CreateNextWordEndPosition(
+                  AXBoundaryBehavior::CrossBoundary);
+            }),
+            ROOT_ID,
+            0 /* text_offset */,
+            {"TextPosition anchor_id=1 text_offset=4 "
+             "affinity=downstream annotated_text=Line< >1\nLine 2",
+             "TextPosition anchor_id=1 text_offset=6 "
+             "affinity=downstream annotated_text=Line 1<\n>Line 2",
+             "TextPosition anchor_id=1 text_offset=11 "
+             "affinity=downstream annotated_text=Line 1\nLine< >2",
+             "TextPosition anchor_id=1 text_offset=13 "
+             "affinity=downstream annotated_text=Line 1\nLine 2<>",
+             "NullPosition"}},
+        TextNavigationTestParam{
+            base::BindRepeating([](const TestPositionType& position) {
+              return position->CreateNextWordEndPosition(
+                  AXBoundaryBehavior::CrossBoundary);
+            }),
+            TEXT_FIELD_ID,
+            0 /* text_offset */,
+            {"TextPosition anchor_id=4 text_offset=4 "
+             "affinity=downstream annotated_text=Line< >1\nLine 2",
+             "TextPosition anchor_id=4 text_offset=6 "
+             "affinity=downstream annotated_text=Line 1<\n>Line 2",
+             "TextPosition anchor_id=4 text_offset=11 "
+             "affinity=downstream annotated_text=Line 1\nLine< >2",
+             "TextPosition anchor_id=4 text_offset=13 "
+             "affinity=downstream annotated_text=Line 1\nLine 2<>",
+             "NullPosition"}},
+        TextNavigationTestParam{
+            base::BindRepeating([](const TestPositionType& position) {
+              return position->CreateNextWordEndPosition(
+                  AXBoundaryBehavior::CrossBoundary);
+            }),
+            STATIC_TEXT1_ID,
+            1 /* text_offset */,
+            {"TextPosition anchor_id=5 text_offset=4 "
+             "affinity=downstream annotated_text=Line< >1",
+             "TextPosition anchor_id=5 text_offset=6 "
+             "affinity=downstream annotated_text=Line 1<>",
+             "TextPosition anchor_id=9 text_offset=4 "
+             "affinity=downstream annotated_text=Line< >2",
+             "TextPosition anchor_id=9 text_offset=6 "
+             "affinity=downstream annotated_text=Line 2<>",
+             "NullPosition"}},
+        TextNavigationTestParam{
+            base::BindRepeating([](const TestPositionType& position) {
+              return position->CreateNextWordEndPosition(
+                  AXBoundaryBehavior::CrossBoundary);
+            }),
+            INLINE_BOX2_ID,
+            4 /* text_offset */,
+            {"TextPosition anchor_id=9 text_offset=6 "
+             "affinity=downstream annotated_text=Line 2<>",
+             "NullPosition"}}));
 
 INSTANTIATE_TEST_SUITE_P(
     CreateNextWordEndPositionWithBoundaryBehaviorStopAtAnchorBoundary,
-    AXPositionTestWithParam,
+    AXPositionTextNavigationTestWithParam,
     testing::Values(
-        TestParam{base::BindRepeating([](const TestPositionType& position) {
-                    return position->CreateNextWordEndPosition(
-                        AXBoundaryBehavior::StopAtAnchorBoundary);
-                  }),
-                  ROOT_ID,
-                  0 /* text_offset */,
-                  {"TextPosition anchor_id=1 text_offset=4 "
-                   "affinity=downstream annotated_text=Line< >1\nLine 2",
-                   "TextPosition anchor_id=1 text_offset=6 "
-                   "affinity=downstream annotated_text=Line 1<\n>Line 2",
-                   "TextPosition anchor_id=1 text_offset=11 "
-                   "affinity=downstream annotated_text=Line 1\nLine< >2",
-                   "TextPosition anchor_id=1 text_offset=13 "
-                   "affinity=downstream annotated_text=Line 1\nLine 2<>",
-                   "TextPosition anchor_id=1 text_offset=13 "
-                   "affinity=downstream annotated_text=Line 1\nLine 2<>"}},
-        TestParam{base::BindRepeating([](const TestPositionType& position) {
-                    return position->CreateNextWordEndPosition(
-                        AXBoundaryBehavior::StopAtAnchorBoundary);
-                  }),
-                  TEXT_FIELD_ID,
-                  0 /* text_offset */,
-                  {"TextPosition anchor_id=4 text_offset=4 "
-                   "affinity=downstream annotated_text=Line< >1\nLine 2",
-                   "TextPosition anchor_id=4 text_offset=6 "
-                   "affinity=downstream annotated_text=Line 1<\n>Line 2",
-                   "TextPosition anchor_id=4 text_offset=11 "
-                   "affinity=downstream annotated_text=Line 1\nLine< >2",
-                   "TextPosition anchor_id=4 text_offset=13 "
-                   "affinity=downstream annotated_text=Line 1\nLine 2<>",
-                   "TextPosition anchor_id=4 text_offset=13 "
-                   "affinity=downstream annotated_text=Line 1\nLine 2<>"}},
-        TestParam{base::BindRepeating([](const TestPositionType& position) {
-                    return position->CreateNextWordEndPosition(
-                        AXBoundaryBehavior::StopAtAnchorBoundary);
-                  }),
-                  STATIC_TEXT1_ID,
-                  1 /* text_offset */,
-                  {"TextPosition anchor_id=5 text_offset=4 "
-                   "affinity=downstream annotated_text=Line< >1",
-                   "TextPosition anchor_id=5 text_offset=6 "
-                   "affinity=downstream annotated_text=Line 1<>",
-                   "TextPosition anchor_id=5 text_offset=6 "
-                   "affinity=downstream annotated_text=Line 1<>"}},
-        TestParam{base::BindRepeating([](const TestPositionType& position) {
-                    return position->CreateNextWordEndPosition(
-                        AXBoundaryBehavior::StopAtAnchorBoundary);
-                  }),
-                  INLINE_BOX2_ID,
-                  4 /* text_offset */,
-                  {"TextPosition anchor_id=9 text_offset=6 "
-                   "affinity=downstream annotated_text=Line 2<>",
-                   "TextPosition anchor_id=9 text_offset=6 "
-                   "affinity=downstream annotated_text=Line 2<>"}}));
+        TextNavigationTestParam{
+            base::BindRepeating([](const TestPositionType& position) {
+              return position->CreateNextWordEndPosition(
+                  AXBoundaryBehavior::StopAtAnchorBoundary);
+            }),
+            ROOT_ID,
+            0 /* text_offset */,
+            {"TextPosition anchor_id=1 text_offset=4 "
+             "affinity=downstream annotated_text=Line< >1\nLine 2",
+             "TextPosition anchor_id=1 text_offset=6 "
+             "affinity=downstream annotated_text=Line 1<\n>Line 2",
+             "TextPosition anchor_id=1 text_offset=11 "
+             "affinity=downstream annotated_text=Line 1\nLine< >2",
+             "TextPosition anchor_id=1 text_offset=13 "
+             "affinity=downstream annotated_text=Line 1\nLine 2<>",
+             "TextPosition anchor_id=1 text_offset=13 "
+             "affinity=downstream annotated_text=Line 1\nLine 2<>"}},
+        TextNavigationTestParam{
+            base::BindRepeating([](const TestPositionType& position) {
+              return position->CreateNextWordEndPosition(
+                  AXBoundaryBehavior::StopAtAnchorBoundary);
+            }),
+            TEXT_FIELD_ID,
+            0 /* text_offset */,
+            {"TextPosition anchor_id=4 text_offset=4 "
+             "affinity=downstream annotated_text=Line< >1\nLine 2",
+             "TextPosition anchor_id=4 text_offset=6 "
+             "affinity=downstream annotated_text=Line 1<\n>Line 2",
+             "TextPosition anchor_id=4 text_offset=11 "
+             "affinity=downstream annotated_text=Line 1\nLine< >2",
+             "TextPosition anchor_id=4 text_offset=13 "
+             "affinity=downstream annotated_text=Line 1\nLine 2<>",
+             "TextPosition anchor_id=4 text_offset=13 "
+             "affinity=downstream annotated_text=Line 1\nLine 2<>"}},
+        TextNavigationTestParam{
+            base::BindRepeating([](const TestPositionType& position) {
+              return position->CreateNextWordEndPosition(
+                  AXBoundaryBehavior::StopAtAnchorBoundary);
+            }),
+            STATIC_TEXT1_ID,
+            1 /* text_offset */,
+            {"TextPosition anchor_id=5 text_offset=4 "
+             "affinity=downstream annotated_text=Line< >1",
+             "TextPosition anchor_id=5 text_offset=6 "
+             "affinity=downstream annotated_text=Line 1<>",
+             "TextPosition anchor_id=5 text_offset=6 "
+             "affinity=downstream annotated_text=Line 1<>"}},
+        TextNavigationTestParam{
+            base::BindRepeating([](const TestPositionType& position) {
+              return position->CreateNextWordEndPosition(
+                  AXBoundaryBehavior::StopAtAnchorBoundary);
+            }),
+            INLINE_BOX2_ID,
+            4 /* text_offset */,
+            {"TextPosition anchor_id=9 text_offset=6 "
+             "affinity=downstream annotated_text=Line 2<>",
+             "TextPosition anchor_id=9 text_offset=6 "
+             "affinity=downstream annotated_text=Line 2<>"}}));
 
 INSTANTIATE_TEST_SUITE_P(
     CreateNextWordEndPositionWithBoundaryBehaviorStopIfAlreadyAtBoundary,
-    AXPositionTestWithParam,
+    AXPositionTextNavigationTestWithParam,
     testing::Values(
-        TestParam{base::BindRepeating([](const TestPositionType& position) {
-                    return position->CreateNextWordEndPosition(
-                        AXBoundaryBehavior::StopIfAlreadyAtBoundary);
-                  }),
-                  ROOT_ID,
-                  0 /* text_offset */,
-                  {"TextPosition anchor_id=1 text_offset=4 "
-                   "affinity=downstream annotated_text=Line< >1\nLine 2",
-                   "TextPosition anchor_id=1 text_offset=4 "
-                   "affinity=downstream annotated_text=Line< >1\nLine 2"}},
-        TestParam{base::BindRepeating([](const TestPositionType& position) {
-                    return position->CreateNextWordEndPosition(
-                        AXBoundaryBehavior::StopIfAlreadyAtBoundary);
-                  }),
-                  TEXT_FIELD_ID,
-                  0 /* text_offset */,
-                  {"TextPosition anchor_id=4 text_offset=4 "
-                   "affinity=downstream annotated_text=Line< >1\nLine 2",
-                   "TextPosition anchor_id=4 text_offset=4 "
-                   "affinity=downstream annotated_text=Line< >1\nLine 2"}},
-        TestParam{base::BindRepeating([](const TestPositionType& position) {
-                    return position->CreateNextWordEndPosition(
-                        AXBoundaryBehavior::StopIfAlreadyAtBoundary);
-                  }),
-                  STATIC_TEXT1_ID,
-                  1 /* text_offset */,
-                  {"TextPosition anchor_id=5 text_offset=4 "
-                   "affinity=downstream annotated_text=Line< >1",
-                   "TextPosition anchor_id=5 text_offset=4 "
-                   "affinity=downstream annotated_text=Line< >1"}},
-        TestParam{base::BindRepeating([](const TestPositionType& position) {
-                    return position->CreateNextWordEndPosition(
-                        AXBoundaryBehavior::StopIfAlreadyAtBoundary);
-                  }),
-                  INLINE_BOX2_ID,
-                  4 /* text_offset */,
-                  {"TextPosition anchor_id=9 text_offset=4 "
-                   "affinity=downstream annotated_text=Line< >2"}}));
+        TextNavigationTestParam{
+            base::BindRepeating([](const TestPositionType& position) {
+              return position->CreateNextWordEndPosition(
+                  AXBoundaryBehavior::StopIfAlreadyAtBoundary);
+            }),
+            ROOT_ID,
+            0 /* text_offset */,
+            {"TextPosition anchor_id=1 text_offset=4 "
+             "affinity=downstream annotated_text=Line< >1\nLine 2",
+             "TextPosition anchor_id=1 text_offset=4 "
+             "affinity=downstream annotated_text=Line< >1\nLine 2"}},
+        TextNavigationTestParam{
+            base::BindRepeating([](const TestPositionType& position) {
+              return position->CreateNextWordEndPosition(
+                  AXBoundaryBehavior::StopIfAlreadyAtBoundary);
+            }),
+            TEXT_FIELD_ID,
+            0 /* text_offset */,
+            {"TextPosition anchor_id=4 text_offset=4 "
+             "affinity=downstream annotated_text=Line< >1\nLine 2",
+             "TextPosition anchor_id=4 text_offset=4 "
+             "affinity=downstream annotated_text=Line< >1\nLine 2"}},
+        TextNavigationTestParam{
+            base::BindRepeating([](const TestPositionType& position) {
+              return position->CreateNextWordEndPosition(
+                  AXBoundaryBehavior::StopIfAlreadyAtBoundary);
+            }),
+            STATIC_TEXT1_ID,
+            1 /* text_offset */,
+            {"TextPosition anchor_id=5 text_offset=4 "
+             "affinity=downstream annotated_text=Line< >1",
+             "TextPosition anchor_id=5 text_offset=4 "
+             "affinity=downstream annotated_text=Line< >1"}},
+        TextNavigationTestParam{
+            base::BindRepeating([](const TestPositionType& position) {
+              return position->CreateNextWordEndPosition(
+                  AXBoundaryBehavior::StopIfAlreadyAtBoundary);
+            }),
+            INLINE_BOX2_ID,
+            4 /* text_offset */,
+            {"TextPosition anchor_id=9 text_offset=4 "
+             "affinity=downstream annotated_text=Line< >2"}}));
+
+INSTANTIATE_TEST_SUITE_P(
+    CreateNextWordEndPositionWithBoundaryBehaviorStopAtLastAnchorBoundary,
+    AXPositionTextNavigationTestWithParam,
+    testing::Values(
+        TextNavigationTestParam{
+            base::BindRepeating([](const TestPositionType& position) {
+              return position->CreateNextWordEndPosition(
+                  AXBoundaryBehavior::StopAtLastAnchorBoundary);
+            }),
+            ROOT_ID,
+            0 /* text_offset */,
+            {"TextPosition anchor_id=1 text_offset=4 "
+             "affinity=downstream annotated_text=Line< >1\nLine 2",
+             "TextPosition anchor_id=1 text_offset=6 "
+             "affinity=downstream annotated_text=Line 1<\n>Line 2",
+             "TextPosition anchor_id=1 text_offset=11 "
+             "affinity=downstream annotated_text=Line 1\nLine< >2",
+             "TextPosition anchor_id=1 text_offset=13 "
+             "affinity=downstream annotated_text=Line 1\nLine 2<>",
+             "TextPosition anchor_id=1 text_offset=13 "
+             "affinity=downstream annotated_text=Line 1\nLine 2<>"}},
+        TextNavigationTestParam{
+            base::BindRepeating([](const TestPositionType& position) {
+              return position->CreateNextWordEndPosition(
+                  AXBoundaryBehavior::StopAtLastAnchorBoundary);
+            }),
+            TEXT_FIELD_ID,
+            0 /* text_offset */,
+            {"TextPosition anchor_id=4 text_offset=4 "
+             "affinity=downstream annotated_text=Line< >1\nLine 2",
+             "TextPosition anchor_id=4 text_offset=6 "
+             "affinity=downstream annotated_text=Line 1<\n>Line 2",
+             "TextPosition anchor_id=4 text_offset=11 "
+             "affinity=downstream annotated_text=Line 1\nLine< >2",
+             "TextPosition anchor_id=4 text_offset=13 "
+             "affinity=downstream annotated_text=Line 1\nLine 2<>",
+             "TextPosition anchor_id=4 text_offset=13 "
+             "affinity=downstream annotated_text=Line 1\nLine 2<>"}},
+        TextNavigationTestParam{
+            base::BindRepeating([](const TestPositionType& position) {
+              return position->CreateNextWordEndPosition(
+                  AXBoundaryBehavior::StopAtLastAnchorBoundary);
+            }),
+            STATIC_TEXT1_ID,
+            1 /* text_offset */,
+            {"TextPosition anchor_id=5 text_offset=4 "
+             "affinity=downstream annotated_text=Line< >1",
+             "TextPosition anchor_id=5 text_offset=6 "
+             "affinity=downstream annotated_text=Line 1<>",
+             "TextPosition anchor_id=9 text_offset=4 "
+             "affinity=downstream annotated_text=Line< >2",
+             "TextPosition anchor_id=9 text_offset=6 "
+             "affinity=downstream annotated_text=Line 2<>",
+             "TextPosition anchor_id=9 text_offset=6 "
+             "affinity=downstream annotated_text=Line 2<>"}},
+        TextNavigationTestParam{
+            base::BindRepeating([](const TestPositionType& position) {
+              return position->CreateNextWordEndPosition(
+                  AXBoundaryBehavior::StopAtLastAnchorBoundary);
+            }),
+            INLINE_BOX2_ID,
+            4 /* text_offset */,
+            {"TextPosition anchor_id=9 text_offset=6 "
+             "affinity=downstream annotated_text=Line 2<>",
+             "TextPosition anchor_id=9 text_offset=6 "
+             "affinity=downstream annotated_text=Line 2<>"}}));
 
 INSTANTIATE_TEST_SUITE_P(
     CreatePreviousWordEndPositionWithBoundaryBehaviorCrossBoundary,
-    AXPositionTestWithParam,
+    AXPositionTextNavigationTestWithParam,
     testing::Values(
-        TestParam{base::BindRepeating([](const TestPositionType& position) {
-                    return position->CreatePreviousWordEndPosition(
-                        AXBoundaryBehavior::CrossBoundary);
-                  }),
-                  ROOT_ID,
-                  13 /* text_offset at end of root. */,
-                  {"TextPosition anchor_id=1 text_offset=11 "
-                   "affinity=downstream annotated_text=Line 1\nLine< >2",
-                   "TextPosition anchor_id=1 text_offset=6 "
-                   "affinity=downstream annotated_text=Line 1<\n>Line 2",
-                   "TextPosition anchor_id=1 text_offset=4 "
-                   "affinity=downstream annotated_text=Line< >1\nLine 2",
-                   "TextPosition anchor_id=1 text_offset=0 "
-                   "affinity=downstream annotated_text=<L>ine 1\nLine 2",
-                   "NullPosition"}},
-        TestParam{base::BindRepeating([](const TestPositionType& position) {
-                    return position->CreatePreviousWordEndPosition(
-                        AXBoundaryBehavior::CrossBoundary);
-                  }),
-                  TEXT_FIELD_ID,
-                  13 /* text_offset at end of text field */,
-                  {"TextPosition anchor_id=4 text_offset=11 "
-                   "affinity=downstream annotated_text=Line 1\nLine< >2",
-                   "TextPosition anchor_id=4 text_offset=6 "
-                   "affinity=downstream annotated_text=Line 1<\n>Line 2",
-                   "TextPosition anchor_id=4 text_offset=4 "
-                   "affinity=downstream annotated_text=Line< >1\nLine 2",
-                   "TextPosition anchor_id=4 text_offset=0 "
-                   "affinity=downstream annotated_text=<L>ine 1\nLine 2",
-                   "NullPosition"}},
-        TestParam{base::BindRepeating([](const TestPositionType& position) {
-                    return position->CreatePreviousWordEndPosition(
-                        AXBoundaryBehavior::CrossBoundary);
-                  }),
-                  STATIC_TEXT1_ID,
-                  5 /* text_offset */,
-                  {"TextPosition anchor_id=5 text_offset=4 "
-                   "affinity=downstream annotated_text=Line< >1",
-                   "TextPosition anchor_id=5 text_offset=0 "
-                   "affinity=downstream annotated_text=<L>ine 1",
-                   "NullPosition"}},
-        TestParam{base::BindRepeating([](const TestPositionType& position) {
-                    return position->CreatePreviousWordEndPosition(
-                        AXBoundaryBehavior::CrossBoundary);
-                  }),
-                  INLINE_BOX2_ID,
-                  4 /* text_offset */,
-                  {"TextPosition anchor_id=6 text_offset=6 "
-                   "affinity=downstream annotated_text=Line 1<>",
-                   "TextPosition anchor_id=6 text_offset=4 "
-                   "affinity=downstream annotated_text=Line< >1",
-                   "TextPosition anchor_id=6 text_offset=0 "
-                   "affinity=downstream annotated_text=<L>ine 1",
-                   "NullPosition"}}));
+        TextNavigationTestParam{
+            base::BindRepeating([](const TestPositionType& position) {
+              return position->CreatePreviousWordEndPosition(
+                  AXBoundaryBehavior::CrossBoundary);
+            }),
+            ROOT_ID,
+            13 /* text_offset at end of root. */,
+            {"TextPosition anchor_id=1 text_offset=11 "
+             "affinity=downstream annotated_text=Line 1\nLine< >2",
+             "TextPosition anchor_id=1 text_offset=6 "
+             "affinity=downstream annotated_text=Line 1<\n>Line 2",
+             "TextPosition anchor_id=1 text_offset=4 "
+             "affinity=downstream annotated_text=Line< >1\nLine 2",
+             "NullPosition"}},
+        TextNavigationTestParam{
+            base::BindRepeating([](const TestPositionType& position) {
+              return position->CreatePreviousWordEndPosition(
+                  AXBoundaryBehavior::CrossBoundary);
+            }),
+            TEXT_FIELD_ID,
+            13 /* text_offset at end of text field */,
+            {"TextPosition anchor_id=4 text_offset=11 "
+             "affinity=downstream annotated_text=Line 1\nLine< >2",
+             "TextPosition anchor_id=4 text_offset=6 "
+             "affinity=downstream annotated_text=Line 1<\n>Line 2",
+             "TextPosition anchor_id=4 text_offset=4 "
+             "affinity=downstream annotated_text=Line< >1\nLine 2",
+             "NullPosition"}},
+        TextNavigationTestParam{
+            base::BindRepeating([](const TestPositionType& position) {
+              return position->CreatePreviousWordEndPosition(
+                  AXBoundaryBehavior::CrossBoundary);
+            }),
+            STATIC_TEXT1_ID,
+            5 /* text_offset */,
+            {"TextPosition anchor_id=5 text_offset=4 "
+             "affinity=downstream annotated_text=Line< >1",
+             "NullPosition"}},
+        TextNavigationTestParam{
+            base::BindRepeating([](const TestPositionType& position) {
+              return position->CreatePreviousWordEndPosition(
+                  AXBoundaryBehavior::CrossBoundary);
+            }),
+            INLINE_BOX2_ID,
+            4 /* text_offset */,
+            {"TextPosition anchor_id=6 text_offset=6 "
+             "affinity=downstream annotated_text=Line 1<>",
+             "TextPosition anchor_id=6 text_offset=4 "
+             "affinity=downstream annotated_text=Line< >1",
+             "NullPosition"}}));
 
 INSTANTIATE_TEST_SUITE_P(
     CreatePreviousWordEndPositionWithBoundaryBehaviorStopAtAnchorBoundary,
-    AXPositionTestWithParam,
+    AXPositionTextNavigationTestWithParam,
     testing::Values(
-        TestParam{base::BindRepeating([](const TestPositionType& position) {
-                    return position->CreatePreviousWordEndPosition(
-                        AXBoundaryBehavior::StopAtAnchorBoundary);
-                  }),
-                  ROOT_ID,
-                  13 /* text_offset at end of root. */,
-                  {
-                      "TextPosition anchor_id=1 text_offset=11 "
-                      "affinity=downstream annotated_text=Line 1\nLine< >2",
-                      "TextPosition anchor_id=1 text_offset=6 "
-                      "affinity=downstream annotated_text=Line 1<\n>Line 2",
-                      "TextPosition anchor_id=1 text_offset=4 "
-                      "affinity=downstream annotated_text=Line< >1\nLine 2",
-                      "TextPosition anchor_id=1 text_offset=0 "
-                      "affinity=downstream annotated_text=<L>ine 1\nLine 2",
-                  }},
-        TestParam{base::BindRepeating([](const TestPositionType& position) {
-                    return position->CreatePreviousWordEndPosition(
-                        AXBoundaryBehavior::StopAtAnchorBoundary);
-                  }),
-                  TEXT_FIELD_ID,
-                  13 /* text_offset at end of text field */,
-                  {"TextPosition anchor_id=4 text_offset=11 "
-                   "affinity=downstream annotated_text=Line 1\nLine< >2",
-                   "TextPosition anchor_id=4 text_offset=6 "
-                   "affinity=downstream annotated_text=Line 1<\n>Line 2",
-                   "TextPosition anchor_id=4 text_offset=4 "
-                   "affinity=downstream annotated_text=Line< >1\nLine 2",
-                   "TextPosition anchor_id=4 text_offset=0 "
-                   "affinity=downstream annotated_text=<L>ine 1\nLine 2"}},
-        TestParam{base::BindRepeating([](const TestPositionType& position) {
-                    return position->CreatePreviousWordEndPosition(
-                        AXBoundaryBehavior::StopAtAnchorBoundary);
-                  }),
-                  STATIC_TEXT1_ID,
-                  5 /* text_offset */,
-                  {"TextPosition anchor_id=5 text_offset=4 "
-                   "affinity=downstream annotated_text=Line< >1",
-                   "TextPosition anchor_id=5 text_offset=0 "
-                   "affinity=downstream annotated_text=<L>ine 1"}},
-        TestParam{base::BindRepeating([](const TestPositionType& position) {
-                    return position->CreatePreviousWordEndPosition(
-                        AXBoundaryBehavior::StopAtAnchorBoundary);
-                  }),
-                  INLINE_BOX2_ID,
-                  4 /* text_offset */,
-                  {"TextPosition anchor_id=9 text_offset=0 "
-                   "affinity=downstream annotated_text=<L>ine 2"}}));
+        TextNavigationTestParam{
+            base::BindRepeating([](const TestPositionType& position) {
+              return position->CreatePreviousWordEndPosition(
+                  AXBoundaryBehavior::StopAtAnchorBoundary);
+            }),
+            ROOT_ID,
+            13 /* text_offset at end of root. */,
+            {
+                "TextPosition anchor_id=1 text_offset=11 "
+                "affinity=downstream annotated_text=Line 1\nLine< >2",
+                "TextPosition anchor_id=1 text_offset=6 "
+                "affinity=downstream annotated_text=Line 1<\n>Line 2",
+                "TextPosition anchor_id=1 text_offset=4 "
+                "affinity=downstream annotated_text=Line< >1\nLine 2",
+                "TextPosition anchor_id=1 text_offset=0 "
+                "affinity=downstream annotated_text=<L>ine 1\nLine 2",
+            }},
+        TextNavigationTestParam{
+            base::BindRepeating([](const TestPositionType& position) {
+              return position->CreatePreviousWordEndPosition(
+                  AXBoundaryBehavior::StopAtAnchorBoundary);
+            }),
+            TEXT_FIELD_ID,
+            13 /* text_offset at end of text field */,
+            {"TextPosition anchor_id=4 text_offset=11 "
+             "affinity=downstream annotated_text=Line 1\nLine< >2",
+             "TextPosition anchor_id=4 text_offset=6 "
+             "affinity=downstream annotated_text=Line 1<\n>Line 2",
+             "TextPosition anchor_id=4 text_offset=4 "
+             "affinity=downstream annotated_text=Line< >1\nLine 2",
+             "TextPosition anchor_id=4 text_offset=0 "
+             "affinity=downstream annotated_text=<L>ine 1\nLine 2"}},
+        TextNavigationTestParam{
+            base::BindRepeating([](const TestPositionType& position) {
+              return position->CreatePreviousWordEndPosition(
+                  AXBoundaryBehavior::StopAtAnchorBoundary);
+            }),
+            STATIC_TEXT1_ID,
+            5 /* text_offset */,
+            {"TextPosition anchor_id=5 text_offset=4 "
+             "affinity=downstream annotated_text=Line< >1",
+             "TextPosition anchor_id=5 text_offset=0 "
+             "affinity=downstream annotated_text=<L>ine 1"}},
+        TextNavigationTestParam{
+            base::BindRepeating([](const TestPositionType& position) {
+              return position->CreatePreviousWordEndPosition(
+                  AXBoundaryBehavior::StopAtAnchorBoundary);
+            }),
+            INLINE_BOX2_ID,
+            4 /* text_offset */,
+            {"TextPosition anchor_id=9 text_offset=0 "
+             "affinity=downstream annotated_text=<L>ine 2"}}));
 
 INSTANTIATE_TEST_SUITE_P(
     CreatePreviousWordEndPositionWithBoundaryBehaviorStopIfAlreadyAtBoundary,
-    AXPositionTestWithParam,
+    AXPositionTextNavigationTestWithParam,
     testing::Values(
-        TestParam{base::BindRepeating([](const TestPositionType& position) {
-                    return position->CreatePreviousWordEndPosition(
-                        AXBoundaryBehavior::StopIfAlreadyAtBoundary);
-                  }),
-                  ROOT_ID,
-                  13 /* text_offset at end of root. */,
-                  {"TextPosition anchor_id=1 text_offset=13 "
-                   "affinity=downstream annotated_text=Line 1\nLine 2<>"}},
-        TestParam{base::BindRepeating([](const TestPositionType& position) {
-                    return position->CreatePreviousWordEndPosition(
-                        AXBoundaryBehavior::StopIfAlreadyAtBoundary);
-                  }),
-                  TEXT_FIELD_ID,
-                  13 /* text_offset at end of text field */,
-                  {"TextPosition anchor_id=4 text_offset=13 "
-                   "affinity=downstream annotated_text=Line 1\nLine 2<>"}},
-        TestParam{base::BindRepeating([](const TestPositionType& position) {
-                    return position->CreatePreviousWordEndPosition(
-                        AXBoundaryBehavior::StopIfAlreadyAtBoundary);
-                  }),
-                  STATIC_TEXT1_ID,
-                  5 /* text_offset */,
-                  {"TextPosition anchor_id=5 text_offset=4 "
-                   "affinity=downstream annotated_text=Line< >1",
-                   "TextPosition anchor_id=5 text_offset=4 "
-                   "affinity=downstream annotated_text=Line< >1"}},
-        TestParam{base::BindRepeating([](const TestPositionType& position) {
-                    return position->CreatePreviousWordEndPosition(
-                        AXBoundaryBehavior::StopIfAlreadyAtBoundary);
-                  }),
-                  INLINE_BOX2_ID,
-                  4 /* text_offset */,
-                  {"TextPosition anchor_id=9 text_offset=4 "
-                   "affinity=downstream annotated_text=Line< >2"}}));
+        TextNavigationTestParam{
+            base::BindRepeating([](const TestPositionType& position) {
+              return position->CreatePreviousWordEndPosition(
+                  AXBoundaryBehavior::StopIfAlreadyAtBoundary);
+            }),
+            ROOT_ID,
+            13 /* text_offset at end of root. */,
+            {"TextPosition anchor_id=1 text_offset=13 "
+             "affinity=downstream annotated_text=Line 1\nLine 2<>"}},
+        TextNavigationTestParam{
+            base::BindRepeating([](const TestPositionType& position) {
+              return position->CreatePreviousWordEndPosition(
+                  AXBoundaryBehavior::StopIfAlreadyAtBoundary);
+            }),
+            TEXT_FIELD_ID,
+            13 /* text_offset at end of text field */,
+            {"TextPosition anchor_id=4 text_offset=13 "
+             "affinity=downstream annotated_text=Line 1\nLine 2<>"}},
+        TextNavigationTestParam{
+            base::BindRepeating([](const TestPositionType& position) {
+              return position->CreatePreviousWordEndPosition(
+                  AXBoundaryBehavior::StopIfAlreadyAtBoundary);
+            }),
+            STATIC_TEXT1_ID,
+            5 /* text_offset */,
+            {"TextPosition anchor_id=5 text_offset=4 "
+             "affinity=downstream annotated_text=Line< >1",
+             "TextPosition anchor_id=5 text_offset=4 "
+             "affinity=downstream annotated_text=Line< >1"}},
+        TextNavigationTestParam{
+            base::BindRepeating([](const TestPositionType& position) {
+              return position->CreatePreviousWordEndPosition(
+                  AXBoundaryBehavior::StopIfAlreadyAtBoundary);
+            }),
+            INLINE_BOX2_ID,
+            4 /* text_offset */,
+            {"TextPosition anchor_id=9 text_offset=4 "
+             "affinity=downstream annotated_text=Line< >2"}}));
+
+INSTANTIATE_TEST_SUITE_P(
+    CreatePreviousWordEndPositionWithBoundaryBehaviorStopAtLastAnchorBoundary,
+    AXPositionTextNavigationTestWithParam,
+    testing::Values(
+        TextNavigationTestParam{
+            base::BindRepeating([](const TestPositionType& position) {
+              return position->CreatePreviousWordEndPosition(
+                  AXBoundaryBehavior::StopAtLastAnchorBoundary);
+            }),
+            ROOT_ID,
+            13 /* text_offset at end of root. */,
+            {"TextPosition anchor_id=1 text_offset=11 "
+             "affinity=downstream annotated_text=Line 1\nLine< >2",
+             "TextPosition anchor_id=1 text_offset=6 "
+             "affinity=downstream annotated_text=Line 1<\n>Line 2",
+             "TextPosition anchor_id=1 text_offset=4 "
+             "affinity=downstream annotated_text=Line< >1\nLine 2",
+             "TextPosition anchor_id=1 text_offset=0 "
+             "affinity=downstream annotated_text=<L>ine 1\nLine 2",
+             "TextPosition anchor_id=1 text_offset=0 "
+             "affinity=downstream annotated_text=<L>ine 1\nLine 2"}},
+        TextNavigationTestParam{
+            base::BindRepeating([](const TestPositionType& position) {
+              return position->CreatePreviousWordEndPosition(
+                  AXBoundaryBehavior::StopAtLastAnchorBoundary);
+            }),
+            TEXT_FIELD_ID,
+            13 /* text_offset at end of text field */,
+            {"TextPosition anchor_id=4 text_offset=11 "
+             "affinity=downstream annotated_text=Line 1\nLine< >2",
+             "TextPosition anchor_id=4 text_offset=6 "
+             "affinity=downstream annotated_text=Line 1<\n>Line 2",
+             "TextPosition anchor_id=4 text_offset=4 "
+             "affinity=downstream annotated_text=Line< >1\nLine 2",
+             "TextPosition anchor_id=2 text_offset=0 "
+             "affinity=downstream annotated_text=<>",
+             "TextPosition anchor_id=2 text_offset=0 "
+             "affinity=downstream annotated_text=<>"}},
+        TextNavigationTestParam{
+            base::BindRepeating([](const TestPositionType& position) {
+              return position->CreatePreviousWordEndPosition(
+                  AXBoundaryBehavior::StopAtLastAnchorBoundary);
+            }),
+            STATIC_TEXT1_ID,
+            5 /* text_offset */,
+            {"TextPosition anchor_id=5 text_offset=4 "
+             "affinity=downstream annotated_text=Line< >1",
+             "TextPosition anchor_id=2 text_offset=0 "
+             "affinity=downstream annotated_text=<>",
+             "TextPosition anchor_id=2 text_offset=0 "
+             "affinity=downstream annotated_text=<>"}},
+        TextNavigationTestParam{
+            base::BindRepeating([](const TestPositionType& position) {
+              return position->CreatePreviousWordEndPosition(
+                  AXBoundaryBehavior::StopAtLastAnchorBoundary);
+            }),
+            INLINE_BOX2_ID,
+            4 /* text_offset */,
+            {"TextPosition anchor_id=6 text_offset=6 "
+             "affinity=downstream annotated_text=Line 1<>",
+             "TextPosition anchor_id=6 text_offset=4 "
+             "affinity=downstream annotated_text=Line< >1",
+             "TextPosition anchor_id=2 text_offset=0 "
+             "affinity=downstream annotated_text=<>",
+             "TextPosition anchor_id=2 text_offset=0 "
+             "affinity=downstream annotated_text=<>"}}));
 
 INSTANTIATE_TEST_SUITE_P(
     CreateNextLineStartPositionWithBoundaryBehaviorCrossBoundary,
-    AXPositionTestWithParam,
+    AXPositionTextNavigationTestWithParam,
     testing::Values(
-        TestParam{base::BindRepeating([](const TestPositionType& position) {
-                    return position->CreateNextLineStartPosition(
-                        AXBoundaryBehavior::CrossBoundary);
-                  }),
-                  ROOT_ID,
-                  0 /* text_offset */,
-                  {"TextPosition anchor_id=1 text_offset=7 "
-                   "affinity=downstream annotated_text=Line 1\n<L>ine 2",
-                   "TextPosition anchor_id=1 text_offset=13 "
-                   "affinity=downstream annotated_text=Line 1\nLine 2<>",
-                   "NullPosition"}},
-        TestParam{base::BindRepeating([](const TestPositionType& position) {
-                    return position->CreateNextLineStartPosition(
-                        AXBoundaryBehavior::CrossBoundary);
-                  }),
-                  TEXT_FIELD_ID,
-                  0 /* text_offset */,
-                  {"TextPosition anchor_id=4 text_offset=7 "
-                   "affinity=downstream annotated_text=Line 1\n<L>ine 2",
-                   "TextPosition anchor_id=4 text_offset=13 "
-                   "affinity=downstream annotated_text=Line 1\nLine 2<>",
-                   "NullPosition"}},
-        TestParam{base::BindRepeating([](const TestPositionType& position) {
-                    return position->CreateNextLineStartPosition(
-                        AXBoundaryBehavior::CrossBoundary);
-                  }),
-                  STATIC_TEXT1_ID,
-                  1 /* text_offset */,
-                  {"TextPosition anchor_id=9 text_offset=0 "
-                   "affinity=downstream annotated_text=<L>ine 2",
-                   "TextPosition anchor_id=9 text_offset=6 "
-                   "affinity=downstream annotated_text=Line 2<>",
-                   "NullPosition"}},
-        TestParam{base::BindRepeating([](const TestPositionType& position) {
-                    return position->CreateNextLineStartPosition(
-                        AXBoundaryBehavior::CrossBoundary);
-                  }),
-                  INLINE_BOX2_ID,
-                  4 /* text_offset */,
-                  {"TextPosition anchor_id=9 text_offset=6 "
-                   "affinity=downstream annotated_text=Line 2<>",
-                   "NullPosition"}}));
+        TextNavigationTestParam{
+            base::BindRepeating([](const TestPositionType& position) {
+              return position->CreateNextLineStartPosition(
+                  AXBoundaryBehavior::CrossBoundary);
+            }),
+            ROOT_ID,
+            0 /* text_offset */,
+            {"TextPosition anchor_id=1 text_offset=7 "
+             "affinity=downstream annotated_text=Line 1\n<L>ine 2",
+             "NullPosition"}},
+        TextNavigationTestParam{
+            base::BindRepeating([](const TestPositionType& position) {
+              return position->CreateNextLineStartPosition(
+                  AXBoundaryBehavior::CrossBoundary);
+            }),
+            TEXT_FIELD_ID,
+            0 /* text_offset */,
+            {"TextPosition anchor_id=4 text_offset=7 "
+             "affinity=downstream annotated_text=Line 1\n<L>ine 2",
+             "NullPosition"}},
+        TextNavigationTestParam{
+            base::BindRepeating([](const TestPositionType& position) {
+              return position->CreateNextLineStartPosition(
+                  AXBoundaryBehavior::CrossBoundary);
+            }),
+            STATIC_TEXT1_ID,
+            1 /* text_offset */,
+            {"TextPosition anchor_id=9 text_offset=0 "
+             "affinity=downstream annotated_text=<L>ine 2",
+             "NullPosition"}},
+        TextNavigationTestParam{
+            base::BindRepeating([](const TestPositionType& position) {
+              return position->CreateNextLineStartPosition(
+                  AXBoundaryBehavior::CrossBoundary);
+            }),
+            INLINE_BOX2_ID,
+            4 /* text_offset */,
+            {"NullPosition"}}));
 
 INSTANTIATE_TEST_SUITE_P(
     CreateNextLineStartPositionWithBoundaryBehaviorStopAtAnchorBoundary,
-    AXPositionTestWithParam,
+    AXPositionTextNavigationTestWithParam,
     testing::Values(
-        TestParam{base::BindRepeating([](const TestPositionType& position) {
-                    return position->CreateNextLineStartPosition(
-                        AXBoundaryBehavior::StopAtAnchorBoundary);
-                  }),
-                  ROOT_ID,
-                  0 /* text_offset */,
-                  {"TextPosition anchor_id=1 text_offset=7 "
-                   "affinity=downstream annotated_text=Line 1\n<L>ine 2",
-                   "TextPosition anchor_id=1 text_offset=13 "
-                   "affinity=downstream annotated_text=Line 1\nLine 2<>"}},
-        TestParam{base::BindRepeating([](const TestPositionType& position) {
-                    return position->CreateNextLineStartPosition(
-                        AXBoundaryBehavior::StopAtAnchorBoundary);
-                  }),
-                  TEXT_FIELD_ID,
-                  0 /* text_offset */,
-                  {"TextPosition anchor_id=4 text_offset=7 "
-                   "affinity=downstream annotated_text=Line 1\n<L>ine 2",
-                   "TextPosition anchor_id=4 text_offset=13 "
-                   "affinity=downstream annotated_text=Line 1\nLine 2<>"}},
-        TestParam{base::BindRepeating([](const TestPositionType& position) {
-                    return position->CreateNextLineStartPosition(
-                        AXBoundaryBehavior::StopAtAnchorBoundary);
-                  }),
-                  STATIC_TEXT1_ID,
-                  1 /* text_offset */,
-                  {"TextPosition anchor_id=5 text_offset=6 "
-                   "affinity=downstream annotated_text=Line 1<>"}},
-        TestParam{base::BindRepeating([](const TestPositionType& position) {
-                    return position->CreateNextLineStartPosition(
-                        AXBoundaryBehavior::StopAtAnchorBoundary);
-                  }),
-                  INLINE_BOX2_ID,
-                  4 /* text_offset */,
-                  {"TextPosition anchor_id=9 text_offset=6 "
-                   "affinity=downstream annotated_text=Line 2<>"}}));
+        TextNavigationTestParam{
+            base::BindRepeating([](const TestPositionType& position) {
+              return position->CreateNextLineStartPosition(
+                  AXBoundaryBehavior::StopAtAnchorBoundary);
+            }),
+            ROOT_ID,
+            0 /* text_offset */,
+            {"TextPosition anchor_id=1 text_offset=7 "
+             "affinity=downstream annotated_text=Line 1\n<L>ine 2",
+             "TextPosition anchor_id=1 text_offset=13 "
+             "affinity=downstream annotated_text=Line 1\nLine 2<>"}},
+        TextNavigationTestParam{
+            base::BindRepeating([](const TestPositionType& position) {
+              return position->CreateNextLineStartPosition(
+                  AXBoundaryBehavior::StopAtAnchorBoundary);
+            }),
+            TEXT_FIELD_ID,
+            0 /* text_offset */,
+            {"TextPosition anchor_id=4 text_offset=7 "
+             "affinity=downstream annotated_text=Line 1\n<L>ine 2",
+             "TextPosition anchor_id=4 text_offset=13 "
+             "affinity=downstream annotated_text=Line 1\nLine 2<>"}},
+        TextNavigationTestParam{
+            base::BindRepeating([](const TestPositionType& position) {
+              return position->CreateNextLineStartPosition(
+                  AXBoundaryBehavior::StopAtAnchorBoundary);
+            }),
+            STATIC_TEXT1_ID,
+            1 /* text_offset */,
+            {"TextPosition anchor_id=5 text_offset=6 "
+             "affinity=downstream annotated_text=Line 1<>"}},
+        TextNavigationTestParam{
+            base::BindRepeating([](const TestPositionType& position) {
+              return position->CreateNextLineStartPosition(
+                  AXBoundaryBehavior::StopAtAnchorBoundary);
+            }),
+            INLINE_BOX2_ID,
+            4 /* text_offset */,
+            {"TextPosition anchor_id=9 text_offset=6 "
+             "affinity=downstream annotated_text=Line 2<>"}}));
 
 INSTANTIATE_TEST_SUITE_P(
     CreateNextLineStartPositionWithBoundaryBehaviorStopIfAlreadyAtBoundary,
-    AXPositionTestWithParam,
+    AXPositionTextNavigationTestWithParam,
     testing::Values(
-        TestParam{base::BindRepeating([](const TestPositionType& position) {
-                    return position->CreateNextLineStartPosition(
-                        AXBoundaryBehavior::StopIfAlreadyAtBoundary);
-                  }),
-                  ROOT_ID,
-                  0 /* text_offset */,
-                  {"TextPosition anchor_id=1 text_offset=0 "
-                   "affinity=downstream annotated_text=<L>ine 1\nLine 2",
-                   "TextPosition anchor_id=1 text_offset=0 "
-                   "affinity=downstream annotated_text=<L>ine 1\nLine 2"}},
-        TestParam{base::BindRepeating([](const TestPositionType& position) {
-                    return position->CreateNextLineStartPosition(
-                        AXBoundaryBehavior::StopIfAlreadyAtBoundary);
-                  }),
-                  TEXT_FIELD_ID,
-                  0 /* text_offset */,
-                  {"TextPosition anchor_id=4 text_offset=0 "
-                   "affinity=downstream annotated_text=<L>ine 1\nLine 2",
-                   "TextPosition anchor_id=4 text_offset=0 "
-                   "affinity=downstream annotated_text=<L>ine 1\nLine 2"}},
-        TestParam{base::BindRepeating([](const TestPositionType& position) {
-                    return position->CreateNextLineStartPosition(
-                        AXBoundaryBehavior::StopIfAlreadyAtBoundary);
-                  }),
-                  STATIC_TEXT1_ID,
-                  1 /* text_offset */,
-                  {"TextPosition anchor_id=9 text_offset=0 "
-                   "affinity=downstream annotated_text=<L>ine 2",
-                   "TextPosition anchor_id=9 text_offset=0 "
-                   "affinity=downstream annotated_text=<L>ine 2"}},
-        TestParam{base::BindRepeating([](const TestPositionType& position) {
-                    return position->CreateNextLineStartPosition(
-                        AXBoundaryBehavior::StopIfAlreadyAtBoundary);
-                  }),
-                  INLINE_BOX2_ID,
-                  4 /* text_offset */,
-                  {"TextPosition anchor_id=9 text_offset=6 affinity=downstream "
-                   "annotated_text=Line 2<>",
-                   "TextPosition anchor_id=9 text_offset=6 affinity=downstream "
-                   "annotated_text=Line 2<>"}}));
+        TextNavigationTestParam{
+            base::BindRepeating([](const TestPositionType& position) {
+              return position->CreateNextLineStartPosition(
+                  AXBoundaryBehavior::StopIfAlreadyAtBoundary);
+            }),
+            ROOT_ID,
+            0 /* text_offset */,
+            {"TextPosition anchor_id=1 text_offset=0 "
+             "affinity=downstream annotated_text=<L>ine 1\nLine 2",
+             "TextPosition anchor_id=1 text_offset=0 "
+             "affinity=downstream annotated_text=<L>ine 1\nLine 2"}},
+        TextNavigationTestParam{
+            base::BindRepeating([](const TestPositionType& position) {
+              return position->CreateNextLineStartPosition(
+                  AXBoundaryBehavior::StopIfAlreadyAtBoundary);
+            }),
+            TEXT_FIELD_ID,
+            0 /* text_offset */,
+            {"TextPosition anchor_id=4 text_offset=0 "
+             "affinity=downstream annotated_text=<L>ine 1\nLine 2",
+             "TextPosition anchor_id=4 text_offset=0 "
+             "affinity=downstream annotated_text=<L>ine 1\nLine 2"}},
+        TextNavigationTestParam{
+            base::BindRepeating([](const TestPositionType& position) {
+              return position->CreateNextLineStartPosition(
+                  AXBoundaryBehavior::StopIfAlreadyAtBoundary);
+            }),
+            STATIC_TEXT1_ID,
+            1 /* text_offset */,
+            {"TextPosition anchor_id=9 text_offset=0 "
+             "affinity=downstream annotated_text=<L>ine 2",
+             "TextPosition anchor_id=9 text_offset=0 "
+             "affinity=downstream annotated_text=<L>ine 2"}},
+        TextNavigationTestParam{
+            base::BindRepeating([](const TestPositionType& position) {
+              return position->CreateNextLineStartPosition(
+                  AXBoundaryBehavior::StopIfAlreadyAtBoundary);
+            }),
+            INLINE_BOX2_ID,
+            4 /* text_offset */,
+            {"NullPosition"}}));
+
+INSTANTIATE_TEST_SUITE_P(
+    CreateNextLineStartPositionWithBoundaryBehaviorStopAtLastAnchorBoundary,
+    AXPositionTextNavigationTestWithParam,
+    testing::Values(
+        TextNavigationTestParam{
+            base::BindRepeating([](const TestPositionType& position) {
+              return position->CreateNextLineStartPosition(
+                  AXBoundaryBehavior::StopAtLastAnchorBoundary);
+            }),
+            ROOT_ID,
+            0 /* text_offset */,
+            {"TextPosition anchor_id=1 text_offset=7 "
+             "affinity=downstream annotated_text=Line 1\n<L>ine 2",
+             "TextPosition anchor_id=1 text_offset=13 "
+             "affinity=downstream annotated_text=Line 1\nLine 2<>",
+             "TextPosition anchor_id=1 text_offset=13 "
+             "affinity=downstream annotated_text=Line 1\nLine 2<>"}},
+        TextNavigationTestParam{
+            base::BindRepeating([](const TestPositionType& position) {
+              return position->CreateNextLineStartPosition(
+                  AXBoundaryBehavior::StopAtLastAnchorBoundary);
+            }),
+            TEXT_FIELD_ID,
+            0 /* text_offset */,
+            {"TextPosition anchor_id=4 text_offset=7 "
+             "affinity=downstream annotated_text=Line 1\n<L>ine 2",
+             "TextPosition anchor_id=4 text_offset=13 "
+             "affinity=downstream annotated_text=Line 1\nLine 2<>",
+             "TextPosition anchor_id=4 text_offset=13 "
+             "affinity=downstream annotated_text=Line 1\nLine 2<>"}},
+        TextNavigationTestParam{
+            base::BindRepeating([](const TestPositionType& position) {
+              return position->CreateNextLineStartPosition(
+                  AXBoundaryBehavior::StopAtLastAnchorBoundary);
+            }),
+            STATIC_TEXT1_ID,
+            1 /* text_offset */,
+            {"TextPosition anchor_id=9 text_offset=0 "
+             "affinity=downstream annotated_text=<L>ine 2",
+             "TextPosition anchor_id=9 text_offset=6 "
+             "affinity=downstream annotated_text=Line 2<>",
+             "TextPosition anchor_id=9 text_offset=6 "
+             "affinity=downstream annotated_text=Line 2<>"}},
+        TextNavigationTestParam{
+            base::BindRepeating([](const TestPositionType& position) {
+              return position->CreateNextLineStartPosition(
+                  AXBoundaryBehavior::StopAtLastAnchorBoundary);
+            }),
+            INLINE_BOX2_ID,
+            4 /* text_offset */,
+            {"TextPosition anchor_id=9 text_offset=6 "
+             "affinity=downstream annotated_text=Line 2<>",
+             "TextPosition anchor_id=9 text_offset=6 "
+             "affinity=downstream annotated_text=Line 2<>"}}));
 
 INSTANTIATE_TEST_SUITE_P(
     CreatePreviousLineStartPositionWithBoundaryBehaviorCrossBoundary,
-    AXPositionTestWithParam,
+    AXPositionTextNavigationTestWithParam,
     testing::Values(
-        TestParam{base::BindRepeating([](const TestPositionType& position) {
-                    return position->CreatePreviousLineStartPosition(
-                        AXBoundaryBehavior::CrossBoundary);
-                  }),
-                  ROOT_ID,
-                  13 /* text_offset at the end of root. */,
-                  {"TextPosition anchor_id=1 text_offset=7 "
-                   "affinity=downstream annotated_text=Line 1\n<L>ine 2",
-                   "TextPosition anchor_id=1 text_offset=0 "
-                   "affinity=downstream annotated_text=<L>ine 1\nLine 2",
-                   "NullPosition"}},
-        TestParam{base::BindRepeating([](const TestPositionType& position) {
-                    return position->CreatePreviousLineStartPosition(
-                        AXBoundaryBehavior::CrossBoundary);
-                  }),
-                  TEXT_FIELD_ID,
-                  13 /* text_offset at end of text field */,
-                  {"TextPosition anchor_id=4 text_offset=7 "
-                   "affinity=downstream annotated_text=Line 1\n<L>ine 2",
-                   "TextPosition anchor_id=4 text_offset=0 "
-                   "affinity=downstream annotated_text=<L>ine 1\nLine 2",
-                   "NullPosition"}},
-        TestParam{base::BindRepeating([](const TestPositionType& position) {
-                    return position->CreatePreviousLineStartPosition(
-                        AXBoundaryBehavior::CrossBoundary);
-                  }),
-                  STATIC_TEXT1_ID,
-                  5 /* text_offset */,
-                  {"TextPosition anchor_id=5 text_offset=0 "
-                   "affinity=downstream annotated_text=<L>ine 1",
-                   "NullPosition"}},
-        TestParam{base::BindRepeating([](const TestPositionType& position) {
-                    return position->CreatePreviousLineStartPosition(
-                        AXBoundaryBehavior::CrossBoundary);
-                  }),
-                  INLINE_BOX2_ID,
-                  4 /* text_offset */,
-                  {"TextPosition anchor_id=9 text_offset=0 "
-                   "affinity=downstream annotated_text=<L>ine 2",
-                   "TextPosition anchor_id=6 text_offset=0 "
-                   "affinity=downstream annotated_text=<L>ine 1",
-                   "NullPosition"}}));
+        TextNavigationTestParam{
+            base::BindRepeating([](const TestPositionType& position) {
+              return position->CreatePreviousLineStartPosition(
+                  AXBoundaryBehavior::CrossBoundary);
+            }),
+            ROOT_ID,
+            13 /* text_offset at the end of root. */,
+            {"TextPosition anchor_id=1 text_offset=7 "
+             "affinity=downstream annotated_text=Line 1\n<L>ine 2",
+             "TextPosition anchor_id=1 text_offset=0 "
+             "affinity=downstream annotated_text=<L>ine 1\nLine 2",
+             "NullPosition"}},
+        TextNavigationTestParam{
+            base::BindRepeating([](const TestPositionType& position) {
+              return position->CreatePreviousLineStartPosition(
+                  AXBoundaryBehavior::CrossBoundary);
+            }),
+            TEXT_FIELD_ID,
+            13 /* text_offset at end of text field */,
+            {"TextPosition anchor_id=4 text_offset=7 "
+             "affinity=downstream annotated_text=Line 1\n<L>ine 2",
+             "TextPosition anchor_id=4 text_offset=0 "
+             "affinity=downstream annotated_text=<L>ine 1\nLine 2",
+             "NullPosition"}},
+        TextNavigationTestParam{
+            base::BindRepeating([](const TestPositionType& position) {
+              return position->CreatePreviousLineStartPosition(
+                  AXBoundaryBehavior::CrossBoundary);
+            }),
+            STATIC_TEXT1_ID,
+            5 /* text_offset */,
+            {"TextPosition anchor_id=5 text_offset=0 "
+             "affinity=downstream annotated_text=<L>ine 1",
+             "NullPosition"}},
+        TextNavigationTestParam{
+            base::BindRepeating([](const TestPositionType& position) {
+              return position->CreatePreviousLineStartPosition(
+                  AXBoundaryBehavior::CrossBoundary);
+            }),
+            INLINE_BOX2_ID,
+            4 /* text_offset */,
+            {"TextPosition anchor_id=9 text_offset=0 "
+             "affinity=downstream annotated_text=<L>ine 2",
+             "TextPosition anchor_id=6 text_offset=0 "
+             "affinity=downstream annotated_text=<L>ine 1",
+             "NullPosition"}}));
 
 INSTANTIATE_TEST_SUITE_P(
     CreatePreviousLineStartPositionWithBoundaryBehaviorStopAtAnchorBoundary,
-    AXPositionTestWithParam,
+    AXPositionTextNavigationTestWithParam,
     testing::Values(
-        TestParam{base::BindRepeating([](const TestPositionType& position) {
-                    return position->CreatePreviousLineStartPosition(
-                        AXBoundaryBehavior::StopAtAnchorBoundary);
-                  }),
-                  ROOT_ID,
-                  13 /* text_offset at the end of root. */,
-                  {"TextPosition anchor_id=1 text_offset=7 "
-                   "affinity=downstream annotated_text=Line 1\n<L>ine 2",
-                   "TextPosition anchor_id=1 text_offset=0 "
-                   "affinity=downstream annotated_text=<L>ine 1\nLine 2",
-                   "TextPosition anchor_id=1 text_offset=0 "
-                   "affinity=downstream annotated_text=<L>ine 1\nLine 2"}},
-        TestParam{base::BindRepeating([](const TestPositionType& position) {
-                    return position->CreatePreviousLineStartPosition(
-                        AXBoundaryBehavior::StopAtAnchorBoundary);
-                  }),
-                  TEXT_FIELD_ID,
-                  13 /* text_offset at end of text field */,
-                  {"TextPosition anchor_id=4 text_offset=7 "
-                   "affinity=downstream annotated_text=Line 1\n<L>ine 2",
-                   "TextPosition anchor_id=4 text_offset=0 "
-                   "affinity=downstream annotated_text=<L>ine 1\nLine 2",
-                   "TextPosition anchor_id=4 text_offset=0 "
-                   "affinity=downstream annotated_text=<L>ine 1\nLine 2"}},
-        TestParam{base::BindRepeating([](const TestPositionType& position) {
-                    return position->CreatePreviousLineStartPosition(
-                        AXBoundaryBehavior::StopAtAnchorBoundary);
-                  }),
-                  STATIC_TEXT1_ID,
-                  5 /* text_offset */,
-                  {"TextPosition anchor_id=5 text_offset=0 "
-                   "affinity=downstream annotated_text=<L>ine 1",
-                   "TextPosition anchor_id=5 text_offset=0 "
-                   "affinity=downstream annotated_text=<L>ine 1"}},
-        TestParam{base::BindRepeating([](const TestPositionType& position) {
-                    return position->CreatePreviousLineStartPosition(
-                        AXBoundaryBehavior::StopAtAnchorBoundary);
-                  }),
-                  INLINE_BOX2_ID,
-                  4 /* text_offset */,
-                  {"TextPosition anchor_id=9 text_offset=0 "
-                   "affinity=downstream annotated_text=<L>ine 2",
-                   "TextPosition anchor_id=9 text_offset=0 "
-                   "affinity=downstream annotated_text=<L>ine 2"}}));
+        TextNavigationTestParam{
+            base::BindRepeating([](const TestPositionType& position) {
+              return position->CreatePreviousLineStartPosition(
+                  AXBoundaryBehavior::StopAtAnchorBoundary);
+            }),
+            ROOT_ID,
+            13 /* text_offset at the end of root. */,
+            {"TextPosition anchor_id=1 text_offset=7 "
+             "affinity=downstream annotated_text=Line 1\n<L>ine 2",
+             "TextPosition anchor_id=1 text_offset=0 "
+             "affinity=downstream annotated_text=<L>ine 1\nLine 2",
+             "TextPosition anchor_id=1 text_offset=0 "
+             "affinity=downstream annotated_text=<L>ine 1\nLine 2"}},
+        TextNavigationTestParam{
+            base::BindRepeating([](const TestPositionType& position) {
+              return position->CreatePreviousLineStartPosition(
+                  AXBoundaryBehavior::StopAtAnchorBoundary);
+            }),
+            TEXT_FIELD_ID,
+            13 /* text_offset at end of text field */,
+            {"TextPosition anchor_id=4 text_offset=7 "
+             "affinity=downstream annotated_text=Line 1\n<L>ine 2",
+             "TextPosition anchor_id=4 text_offset=0 "
+             "affinity=downstream annotated_text=<L>ine 1\nLine 2",
+             "TextPosition anchor_id=4 text_offset=0 "
+             "affinity=downstream annotated_text=<L>ine 1\nLine 2"}},
+        TextNavigationTestParam{
+            base::BindRepeating([](const TestPositionType& position) {
+              return position->CreatePreviousLineStartPosition(
+                  AXBoundaryBehavior::StopAtAnchorBoundary);
+            }),
+            STATIC_TEXT1_ID,
+            5 /* text_offset */,
+            {"TextPosition anchor_id=5 text_offset=0 "
+             "affinity=downstream annotated_text=<L>ine 1",
+             "TextPosition anchor_id=5 text_offset=0 "
+             "affinity=downstream annotated_text=<L>ine 1"}},
+        TextNavigationTestParam{
+            base::BindRepeating([](const TestPositionType& position) {
+              return position->CreatePreviousLineStartPosition(
+                  AXBoundaryBehavior::StopAtAnchorBoundary);
+            }),
+            INLINE_BOX2_ID,
+            4 /* text_offset */,
+            {"TextPosition anchor_id=9 text_offset=0 "
+             "affinity=downstream annotated_text=<L>ine 2",
+             "TextPosition anchor_id=9 text_offset=0 "
+             "affinity=downstream annotated_text=<L>ine 2"}}));
 
 INSTANTIATE_TEST_SUITE_P(
     CreatePreviousLineStartPositionWithBoundaryBehaviorStopIfAlreadyAtBoundary,
-    AXPositionTestWithParam,
+    AXPositionTextNavigationTestWithParam,
     testing::Values(
-        TestParam{base::BindRepeating([](const TestPositionType& position) {
-                    return position->CreatePreviousLineStartPosition(
-                        AXBoundaryBehavior::StopIfAlreadyAtBoundary);
-                  }),
-                  ROOT_ID,
-                  13 /* text_offset at the end of root. */,
-                  {"TextPosition anchor_id=1 text_offset=7 "
-                   "affinity=downstream annotated_text=Line 1\n<L>ine 2",
-                   "TextPosition anchor_id=1 text_offset=7 "
-                   "affinity=downstream annotated_text=Line 1\n<L>ine 2"}},
-        TestParam{base::BindRepeating([](const TestPositionType& position) {
-                    return position->CreatePreviousLineStartPosition(
-                        AXBoundaryBehavior::StopIfAlreadyAtBoundary);
-                  }),
-                  TEXT_FIELD_ID,
-                  13 /* text_offset at end of text field */,
-                  {"TextPosition anchor_id=4 text_offset=7 "
-                   "affinity=downstream annotated_text=Line 1\n<L>ine 2",
-                   "TextPosition anchor_id=4 text_offset=7 "
-                   "affinity=downstream annotated_text=Line 1\n<L>ine 2"}},
-        TestParam{base::BindRepeating([](const TestPositionType& position) {
-                    return position->CreatePreviousLineStartPosition(
-                        AXBoundaryBehavior::StopIfAlreadyAtBoundary);
-                  }),
-                  STATIC_TEXT1_ID,
-                  5 /* text_offset */,
-                  {"TextPosition anchor_id=5 text_offset=0 "
-                   "affinity=downstream annotated_text=<L>ine 1",
-                   "TextPosition anchor_id=5 text_offset=0 "
-                   "affinity=downstream annotated_text=<L>ine 1"}},
-        TestParam{base::BindRepeating([](const TestPositionType& position) {
-                    return position->CreatePreviousLineStartPosition(
-                        AXBoundaryBehavior::StopIfAlreadyAtBoundary);
-                  }),
-                  INLINE_BOX2_ID,
-                  4 /* text_offset */,
-                  {"TextPosition anchor_id=9 text_offset=0 "
-                   "affinity=downstream annotated_text=<L>ine 2",
-                   "TextPosition anchor_id=9 text_offset=0 "
-                   "affinity=downstream annotated_text=<L>ine 2"}}));
+        TextNavigationTestParam{
+            base::BindRepeating([](const TestPositionType& position) {
+              return position->CreatePreviousLineStartPosition(
+                  AXBoundaryBehavior::StopIfAlreadyAtBoundary);
+            }),
+            ROOT_ID,
+            13 /* text_offset at the end of root. */,
+            {"TextPosition anchor_id=1 text_offset=7 "
+             "affinity=downstream annotated_text=Line 1\n<L>ine 2",
+             "TextPosition anchor_id=1 text_offset=7 "
+             "affinity=downstream annotated_text=Line 1\n<L>ine 2"}},
+        TextNavigationTestParam{
+            base::BindRepeating([](const TestPositionType& position) {
+              return position->CreatePreviousLineStartPosition(
+                  AXBoundaryBehavior::StopIfAlreadyAtBoundary);
+            }),
+            TEXT_FIELD_ID,
+            13 /* text_offset at end of text field */,
+            {"TextPosition anchor_id=4 text_offset=7 "
+             "affinity=downstream annotated_text=Line 1\n<L>ine 2",
+             "TextPosition anchor_id=4 text_offset=7 "
+             "affinity=downstream annotated_text=Line 1\n<L>ine 2"}},
+        TextNavigationTestParam{
+            base::BindRepeating([](const TestPositionType& position) {
+              return position->CreatePreviousLineStartPosition(
+                  AXBoundaryBehavior::StopIfAlreadyAtBoundary);
+            }),
+            STATIC_TEXT1_ID,
+            5 /* text_offset */,
+            {"TextPosition anchor_id=5 text_offset=0 "
+             "affinity=downstream annotated_text=<L>ine 1",
+             "TextPosition anchor_id=5 text_offset=0 "
+             "affinity=downstream annotated_text=<L>ine 1"}},
+        TextNavigationTestParam{
+            base::BindRepeating([](const TestPositionType& position) {
+              return position->CreatePreviousLineStartPosition(
+                  AXBoundaryBehavior::StopIfAlreadyAtBoundary);
+            }),
+            INLINE_BOX2_ID,
+            4 /* text_offset */,
+            {"TextPosition anchor_id=9 text_offset=0 "
+             "affinity=downstream annotated_text=<L>ine 2",
+             "TextPosition anchor_id=9 text_offset=0 "
+             "affinity=downstream annotated_text=<L>ine 2"}}));
+
+INSTANTIATE_TEST_SUITE_P(
+    CreatePreviousLineStartPositionWithBoundaryBehaviorStopAtLastAnchorBoundary,
+    AXPositionTextNavigationTestWithParam,
+    testing::Values(
+        TextNavigationTestParam{
+            base::BindRepeating([](const TestPositionType& position) {
+              return position->CreatePreviousLineStartPosition(
+                  AXBoundaryBehavior::StopAtLastAnchorBoundary);
+            }),
+            ROOT_ID,
+            13 /* text_offset at the end of root. */,
+            {"TextPosition anchor_id=1 text_offset=7 "
+             "affinity=downstream annotated_text=Line 1\n<L>ine 2",
+             "TextPosition anchor_id=1 text_offset=0 "
+             "affinity=downstream annotated_text=<L>ine 1\nLine 2",
+             "TextPosition anchor_id=1 text_offset=0 "
+             "affinity=downstream annotated_text=<L>ine 1\nLine 2",
+             "TextPosition anchor_id=1 text_offset=0 "
+             "affinity=downstream annotated_text=<L>ine 1\nLine 2"}},
+        TextNavigationTestParam{
+            base::BindRepeating([](const TestPositionType& position) {
+              return position->CreatePreviousLineStartPosition(
+                  AXBoundaryBehavior::StopAtLastAnchorBoundary);
+            }),
+            TEXT_FIELD_ID,
+            13 /* text_offset at end of text field */,
+            {"TextPosition anchor_id=4 text_offset=7 "
+             "affinity=downstream annotated_text=Line 1\n<L>ine 2",
+             "TextPosition anchor_id=4 text_offset=0 "
+             "affinity=downstream annotated_text=<L>ine 1\nLine 2",
+             "TextPosition anchor_id=2 text_offset=0 "
+             "affinity=downstream annotated_text=<>",
+             "TextPosition anchor_id=2 text_offset=0 "
+             "affinity=downstream annotated_text=<>"}},
+        TextNavigationTestParam{
+            base::BindRepeating([](const TestPositionType& position) {
+              return position->CreatePreviousLineStartPosition(
+                  AXBoundaryBehavior::StopAtLastAnchorBoundary);
+            }),
+            STATIC_TEXT1_ID,
+            5 /* text_offset */,
+            {"TextPosition anchor_id=5 text_offset=0 "
+             "affinity=downstream annotated_text=<L>ine 1",
+             "TextPosition anchor_id=2 text_offset=0 "
+             "affinity=downstream annotated_text=<>",
+             "TextPosition anchor_id=2 text_offset=0 "
+             "affinity=downstream annotated_text=<>"}},
+        TextNavigationTestParam{
+            base::BindRepeating([](const TestPositionType& position) {
+              return position->CreatePreviousLineStartPosition(
+                  AXBoundaryBehavior::StopAtLastAnchorBoundary);
+            }),
+            INLINE_BOX2_ID,
+            4 /* text_offset */,
+            {"TextPosition anchor_id=9 text_offset=0 "
+             "affinity=downstream annotated_text=<L>ine 2",
+             "TextPosition anchor_id=6 text_offset=0 "
+             "affinity=downstream annotated_text=<L>ine 1",
+             "TextPosition anchor_id=2 text_offset=0 "
+             "affinity=downstream annotated_text=<>",
+             "TextPosition anchor_id=2 text_offset=0 "
+             "affinity=downstream annotated_text=<>"}}));
 
 INSTANTIATE_TEST_SUITE_P(
     CreateNextLineEndPositionWithBoundaryBehaviorCrossBoundary,
-    AXPositionTestWithParam,
+    AXPositionTextNavigationTestWithParam,
     testing::Values(
-        TestParam{base::BindRepeating([](const TestPositionType& position) {
-                    return position->CreateNextLineEndPosition(
-                        AXBoundaryBehavior::CrossBoundary);
-                  }),
-                  ROOT_ID,
-                  0 /* text_offset */,
-                  {"TextPosition anchor_id=1 text_offset=6 "
-                   "affinity=downstream annotated_text=Line 1<\n>Line 2",
-                   "TextPosition anchor_id=1 text_offset=13 "
-                   "affinity=downstream annotated_text=Line 1\nLine 2<>",
-                   "NullPosition"}},
-        TestParam{base::BindRepeating([](const TestPositionType& position) {
-                    return position->CreateNextLineEndPosition(
-                        AXBoundaryBehavior::CrossBoundary);
-                  }),
-                  TEXT_FIELD_ID,
-                  0 /* text_offset */,
-                  {"TextPosition anchor_id=4 text_offset=6 "
-                   "affinity=downstream annotated_text=Line 1<\n>Line 2",
-                   "TextPosition anchor_id=4 text_offset=13 "
-                   "affinity=downstream annotated_text=Line 1\nLine 2<>",
-                   "NullPosition"}},
-        TestParam{base::BindRepeating([](const TestPositionType& position) {
-                    return position->CreateNextLineEndPosition(
-                        AXBoundaryBehavior::CrossBoundary);
-                  }),
-                  STATIC_TEXT1_ID,
-                  1 /* text_offset */,
-                  {"TextPosition anchor_id=5 text_offset=6 "
-                   "affinity=downstream annotated_text=Line 1<>",
-                   "TextPosition anchor_id=9 text_offset=6 "
-                   "affinity=downstream annotated_text=Line 2<>",
-                   "NullPosition"}},
-        TestParam{base::BindRepeating([](const TestPositionType& position) {
-                    return position->CreateNextLineEndPosition(
-                        AXBoundaryBehavior::CrossBoundary);
-                  }),
-                  INLINE_BOX2_ID,
-                  4 /* text_offset */,
-                  {"TextPosition anchor_id=9 text_offset=6 "
-                   "affinity=downstream annotated_text=Line 2<>",
-                   "NullPosition"}}));
+        TextNavigationTestParam{
+            base::BindRepeating([](const TestPositionType& position) {
+              return position->CreateNextLineEndPosition(
+                  AXBoundaryBehavior::CrossBoundary);
+            }),
+            ROOT_ID,
+            0 /* text_offset */,
+            {"TextPosition anchor_id=1 text_offset=6 "
+             "affinity=downstream annotated_text=Line 1<\n>Line 2",
+             "TextPosition anchor_id=1 text_offset=13 "
+             "affinity=downstream annotated_text=Line 1\nLine 2<>",
+             "NullPosition"}},
+        TextNavigationTestParam{
+            base::BindRepeating([](const TestPositionType& position) {
+              return position->CreateNextLineEndPosition(
+                  AXBoundaryBehavior::CrossBoundary);
+            }),
+            TEXT_FIELD_ID,
+            0 /* text_offset */,
+            {"TextPosition anchor_id=4 text_offset=6 "
+             "affinity=downstream annotated_text=Line 1<\n>Line 2",
+             "TextPosition anchor_id=4 text_offset=13 "
+             "affinity=downstream annotated_text=Line 1\nLine 2<>",
+             "NullPosition"}},
+        TextNavigationTestParam{
+            base::BindRepeating([](const TestPositionType& position) {
+              return position->CreateNextLineEndPosition(
+                  AXBoundaryBehavior::CrossBoundary);
+            }),
+            STATIC_TEXT1_ID,
+            1 /* text_offset */,
+            {"TextPosition anchor_id=5 text_offset=6 "
+             "affinity=downstream annotated_text=Line 1<>",
+             "TextPosition anchor_id=9 text_offset=6 "
+             "affinity=downstream annotated_text=Line 2<>",
+             "NullPosition"}},
+        TextNavigationTestParam{
+            base::BindRepeating([](const TestPositionType& position) {
+              return position->CreateNextLineEndPosition(
+                  AXBoundaryBehavior::CrossBoundary);
+            }),
+            INLINE_BOX2_ID,
+            4 /* text_offset */,
+            {"TextPosition anchor_id=9 text_offset=6 "
+             "affinity=downstream annotated_text=Line 2<>",
+             "NullPosition"}}));
 
 INSTANTIATE_TEST_SUITE_P(
     CreateNextLineEndPositionWithBoundaryBehaviorStopAtAnchorBoundary,
-    AXPositionTestWithParam,
+    AXPositionTextNavigationTestWithParam,
     testing::Values(
-        TestParam{base::BindRepeating([](const TestPositionType& position) {
-                    return position->CreateNextLineEndPosition(
-                        AXBoundaryBehavior::StopAtAnchorBoundary);
-                  }),
-                  ROOT_ID,
-                  0 /* text_offset */,
-                  {"TextPosition anchor_id=1 text_offset=6 "
-                   "affinity=downstream annotated_text=Line 1<\n>Line 2",
-                   "TextPosition anchor_id=1 text_offset=13 "
-                   "affinity=downstream annotated_text=Line 1\nLine 2<>",
-                   "TextPosition anchor_id=1 text_offset=13 "
-                   "affinity=downstream annotated_text=Line 1\nLine 2<>"}},
-        TestParam{base::BindRepeating([](const TestPositionType& position) {
-                    return position->CreateNextLineEndPosition(
-                        AXBoundaryBehavior::StopAtAnchorBoundary);
-                  }),
-                  TEXT_FIELD_ID,
-                  0 /* text_offset */,
-                  {"TextPosition anchor_id=4 text_offset=6 "
-                   "affinity=downstream annotated_text=Line 1<\n>Line 2",
-                   "TextPosition anchor_id=4 text_offset=13 "
-                   "affinity=downstream annotated_text=Line 1\nLine 2<>",
-                   "TextPosition anchor_id=4 text_offset=13 "
-                   "affinity=downstream annotated_text=Line 1\nLine 2<>"}},
-        TestParam{base::BindRepeating([](const TestPositionType& position) {
-                    return position->CreateNextLineEndPosition(
-                        AXBoundaryBehavior::StopAtAnchorBoundary);
-                  }),
-                  STATIC_TEXT1_ID,
-                  1 /* text_offset */,
-                  {"TextPosition anchor_id=5 text_offset=6 "
-                   "affinity=downstream annotated_text=Line 1<>",
-                   "TextPosition anchor_id=5 text_offset=6 "
-                   "affinity=downstream annotated_text=Line 1<>"}},
-        TestParam{base::BindRepeating([](const TestPositionType& position) {
-                    return position->CreateNextLineEndPosition(
-                        AXBoundaryBehavior::StopAtAnchorBoundary);
-                  }),
-                  INLINE_BOX2_ID,
-                  4 /* text_offset */,
-                  {"TextPosition anchor_id=9 text_offset=6 "
-                   "affinity=downstream annotated_text=Line 2<>",
-                   "TextPosition anchor_id=9 text_offset=6 "
-                   "affinity=downstream annotated_text=Line 2<>"}}));
+        TextNavigationTestParam{
+            base::BindRepeating([](const TestPositionType& position) {
+              return position->CreateNextLineEndPosition(
+                  AXBoundaryBehavior::StopAtAnchorBoundary);
+            }),
+            ROOT_ID,
+            0 /* text_offset */,
+            {"TextPosition anchor_id=1 text_offset=6 "
+             "affinity=downstream annotated_text=Line 1<\n>Line 2",
+             "TextPosition anchor_id=1 text_offset=13 "
+             "affinity=downstream annotated_text=Line 1\nLine 2<>",
+             "TextPosition anchor_id=1 text_offset=13 "
+             "affinity=downstream annotated_text=Line 1\nLine 2<>"}},
+        TextNavigationTestParam{
+            base::BindRepeating([](const TestPositionType& position) {
+              return position->CreateNextLineEndPosition(
+                  AXBoundaryBehavior::StopAtAnchorBoundary);
+            }),
+            TEXT_FIELD_ID,
+            0 /* text_offset */,
+            {"TextPosition anchor_id=4 text_offset=6 "
+             "affinity=downstream annotated_text=Line 1<\n>Line 2",
+             "TextPosition anchor_id=4 text_offset=13 "
+             "affinity=downstream annotated_text=Line 1\nLine 2<>",
+             "TextPosition anchor_id=4 text_offset=13 "
+             "affinity=downstream annotated_text=Line 1\nLine 2<>"}},
+        TextNavigationTestParam{
+            base::BindRepeating([](const TestPositionType& position) {
+              return position->CreateNextLineEndPosition(
+                  AXBoundaryBehavior::StopAtAnchorBoundary);
+            }),
+            STATIC_TEXT1_ID,
+            1 /* text_offset */,
+            {"TextPosition anchor_id=5 text_offset=6 "
+             "affinity=downstream annotated_text=Line 1<>",
+             "TextPosition anchor_id=5 text_offset=6 "
+             "affinity=downstream annotated_text=Line 1<>"}},
+        TextNavigationTestParam{
+            base::BindRepeating([](const TestPositionType& position) {
+              return position->CreateNextLineEndPosition(
+                  AXBoundaryBehavior::StopAtAnchorBoundary);
+            }),
+            INLINE_BOX2_ID,
+            4 /* text_offset */,
+            {"TextPosition anchor_id=9 text_offset=6 "
+             "affinity=downstream annotated_text=Line 2<>",
+             "TextPosition anchor_id=9 text_offset=6 "
+             "affinity=downstream annotated_text=Line 2<>"}}));
 
 INSTANTIATE_TEST_SUITE_P(
     CreateNextLineEndPositionWithBoundaryBehaviorStopIfAlreadyAtBoundary,
-    AXPositionTestWithParam,
+    AXPositionTextNavigationTestWithParam,
     testing::Values(
-        TestParam{base::BindRepeating([](const TestPositionType& position) {
-                    return position->CreateNextLineEndPosition(
-                        AXBoundaryBehavior::StopIfAlreadyAtBoundary);
-                  }),
-                  ROOT_ID,
-                  0 /* text_offset */,
-                  {"TextPosition anchor_id=1 text_offset=6 "
-                   "affinity=downstream annotated_text=Line 1<\n>Line 2",
-                   "TextPosition anchor_id=1 text_offset=6 "
-                   "affinity=downstream annotated_text=Line 1<\n>Line 2"}},
-        TestParam{base::BindRepeating([](const TestPositionType& position) {
-                    return position->CreateNextLineEndPosition(
-                        AXBoundaryBehavior::StopIfAlreadyAtBoundary);
-                  }),
-                  TEXT_FIELD_ID,
-                  0 /* text_offset */,
-                  {"TextPosition anchor_id=4 text_offset=6 "
-                   "affinity=downstream annotated_text=Line 1<\n>Line 2",
-                   "TextPosition anchor_id=4 text_offset=6 "
-                   "affinity=downstream annotated_text=Line 1<\n>Line 2"}},
-        TestParam{base::BindRepeating([](const TestPositionType& position) {
-                    return position->CreateNextLineEndPosition(
-                        AXBoundaryBehavior::StopIfAlreadyAtBoundary);
-                  }),
-                  STATIC_TEXT1_ID,
-                  1 /* text_offset */,
-                  {"TextPosition anchor_id=5 text_offset=6 "
-                   "affinity=downstream annotated_text=Line 1<>",
-                   "TextPosition anchor_id=5 text_offset=6 "
-                   "affinity=downstream annotated_text=Line 1<>"}},
-        TestParam{base::BindRepeating([](const TestPositionType& position) {
-                    return position->CreateNextLineEndPosition(
-                        AXBoundaryBehavior::StopIfAlreadyAtBoundary);
-                  }),
-                  INLINE_BOX2_ID,
-                  4 /* text_offset */,
-                  {"TextPosition anchor_id=9 text_offset=6 "
-                   "affinity=downstream annotated_text=Line 2<>",
-                   "TextPosition anchor_id=9 text_offset=6 "
-                   "affinity=downstream annotated_text=Line 2<>"}}));
+        TextNavigationTestParam{
+            base::BindRepeating([](const TestPositionType& position) {
+              return position->CreateNextLineEndPosition(
+                  AXBoundaryBehavior::StopIfAlreadyAtBoundary);
+            }),
+            ROOT_ID,
+            0 /* text_offset */,
+            {"TextPosition anchor_id=1 text_offset=6 "
+             "affinity=downstream annotated_text=Line 1<\n>Line 2",
+             "TextPosition anchor_id=1 text_offset=6 "
+             "affinity=downstream annotated_text=Line 1<\n>Line 2"}},
+        TextNavigationTestParam{
+            base::BindRepeating([](const TestPositionType& position) {
+              return position->CreateNextLineEndPosition(
+                  AXBoundaryBehavior::StopIfAlreadyAtBoundary);
+            }),
+            TEXT_FIELD_ID,
+            0 /* text_offset */,
+            {"TextPosition anchor_id=4 text_offset=6 "
+             "affinity=downstream annotated_text=Line 1<\n>Line 2",
+             "TextPosition anchor_id=4 text_offset=6 "
+             "affinity=downstream annotated_text=Line 1<\n>Line 2"}},
+        TextNavigationTestParam{
+            base::BindRepeating([](const TestPositionType& position) {
+              return position->CreateNextLineEndPosition(
+                  AXBoundaryBehavior::StopIfAlreadyAtBoundary);
+            }),
+            STATIC_TEXT1_ID,
+            1 /* text_offset */,
+            {"TextPosition anchor_id=5 text_offset=6 "
+             "affinity=downstream annotated_text=Line 1<>",
+             "TextPosition anchor_id=5 text_offset=6 "
+             "affinity=downstream annotated_text=Line 1<>"}},
+        TextNavigationTestParam{
+            base::BindRepeating([](const TestPositionType& position) {
+              return position->CreateNextLineEndPosition(
+                  AXBoundaryBehavior::StopIfAlreadyAtBoundary);
+            }),
+            INLINE_BOX2_ID,
+            4 /* text_offset */,
+            {"TextPosition anchor_id=9 text_offset=6 "
+             "affinity=downstream annotated_text=Line 2<>",
+             "TextPosition anchor_id=9 text_offset=6 "
+             "affinity=downstream annotated_text=Line 2<>"}}));
+
+INSTANTIATE_TEST_SUITE_P(
+    CreateNextLineEndPositionWithBoundaryBehaviorStopAtLastAnchorBoundary,
+    AXPositionTextNavigationTestWithParam,
+    testing::Values(
+        TextNavigationTestParam{
+            base::BindRepeating([](const TestPositionType& position) {
+              return position->CreateNextLineEndPosition(
+                  AXBoundaryBehavior::StopAtLastAnchorBoundary);
+            }),
+            ROOT_ID,
+            0 /* text_offset */,
+            {"TextPosition anchor_id=1 text_offset=6 "
+             "affinity=downstream annotated_text=Line 1<\n>Line 2",
+             "TextPosition anchor_id=1 text_offset=13 "
+             "affinity=downstream annotated_text=Line 1\nLine 2<>",
+             "TextPosition anchor_id=1 text_offset=13 "
+             "affinity=downstream annotated_text=Line 1\nLine 2<>"}},
+        TextNavigationTestParam{
+            base::BindRepeating([](const TestPositionType& position) {
+              return position->CreateNextLineEndPosition(
+                  AXBoundaryBehavior::StopAtLastAnchorBoundary);
+            }),
+            TEXT_FIELD_ID,
+            0 /* text_offset */,
+            {"TextPosition anchor_id=4 text_offset=6 "
+             "affinity=downstream annotated_text=Line 1<\n>Line 2",
+             "TextPosition anchor_id=4 text_offset=13 "
+             "affinity=downstream annotated_text=Line 1\nLine 2<>",
+             "TextPosition anchor_id=4 text_offset=13 "
+             "affinity=downstream annotated_text=Line 1\nLine 2<>"}},
+        TextNavigationTestParam{
+            base::BindRepeating([](const TestPositionType& position) {
+              return position->CreateNextLineEndPosition(
+                  AXBoundaryBehavior::StopAtLastAnchorBoundary);
+            }),
+            STATIC_TEXT1_ID,
+            1 /* text_offset */,
+            {"TextPosition anchor_id=5 text_offset=6 "
+             "affinity=downstream annotated_text=Line 1<>",
+             "TextPosition anchor_id=9 text_offset=6 "
+             "affinity=downstream annotated_text=Line 2<>",
+             "TextPosition anchor_id=9 text_offset=6 "
+             "affinity=downstream annotated_text=Line 2<>"}},
+        TextNavigationTestParam{
+            base::BindRepeating([](const TestPositionType& position) {
+              return position->CreateNextLineEndPosition(
+                  AXBoundaryBehavior::StopAtLastAnchorBoundary);
+            }),
+            INLINE_BOX2_ID,
+            4 /* text_offset */,
+            {"TextPosition anchor_id=9 text_offset=6 "
+             "affinity=downstream annotated_text=Line 2<>",
+             "TextPosition anchor_id=9 text_offset=6 "
+             "affinity=downstream annotated_text=Line 2<>"}}));
 
 INSTANTIATE_TEST_SUITE_P(
     CreatePreviousLineEndPositionWithBoundaryBehaviorCrossBoundary,
-    AXPositionTestWithParam,
+    AXPositionTextNavigationTestWithParam,
     testing::Values(
-        TestParam{base::BindRepeating([](const TestPositionType& position) {
-                    return position->CreatePreviousLineEndPosition(
-                        AXBoundaryBehavior::CrossBoundary);
-                  }),
-                  ROOT_ID,
-                  13 /* text_offset at end of root. */,
-                  {"TextPosition anchor_id=1 text_offset=6 "
-                   "affinity=downstream annotated_text=Line 1<\n>Line 2",
-                   "TextPosition anchor_id=1 text_offset=0 "
-                   "affinity=downstream annotated_text=<L>ine 1\nLine 2",
-                   "NullPosition"}},
-        TestParam{base::BindRepeating([](const TestPositionType& position) {
-                    return position->CreatePreviousLineEndPosition(
-                        AXBoundaryBehavior::CrossBoundary);
-                  }),
-                  TEXT_FIELD_ID,
-                  13 /* text_offset at end of text field */,
-                  {"TextPosition anchor_id=4 text_offset=6 "
-                   "affinity=downstream annotated_text=Line 1<\n>Line 2",
-                   "TextPosition anchor_id=4 text_offset=0 "
-                   "affinity=downstream annotated_text=<L>ine 1\nLine 2",
-                   "NullPosition"}},
-        TestParam{base::BindRepeating([](const TestPositionType& position) {
-                    return position->CreatePreviousLineEndPosition(
-                        AXBoundaryBehavior::CrossBoundary);
-                  }),
-                  ROOT_ID,
-                  5 /* text_offset on the last character of "Line 1". */,
-                  {"TextPosition anchor_id=1 text_offset=0 "
-                   "affinity=downstream annotated_text=<L>ine 1\nLine 2",
-                   "NullPosition"}},
-        TestParam{base::BindRepeating([](const TestPositionType& position) {
-                    return position->CreatePreviousLineEndPosition(
-                        AXBoundaryBehavior::CrossBoundary);
-                  }),
-                  TEXT_FIELD_ID,
-                  5 /* text_offset on the last character of "Line 1". */,
-                  {"TextPosition anchor_id=4 text_offset=0 "
-                   "affinity=downstream annotated_text=<L>ine 1\nLine 2",
-                   "NullPosition"}},
-        TestParam{base::BindRepeating([](const TestPositionType& position) {
-                    return position->CreatePreviousLineEndPosition(
-                        AXBoundaryBehavior::CrossBoundary);
-                  }),
-                  INLINE_BOX2_ID,
-                  4 /* text_offset */,
-                  {"TextPosition anchor_id=6 text_offset=6 "
-                   "affinity=downstream annotated_text=Line 1<>",
-                   "TextPosition anchor_id=6 text_offset=0 "
-                   "affinity=downstream annotated_text=<L>ine 1",
-                   "NullPosition"}},
-        TestParam{base::BindRepeating([](const TestPositionType& position) {
-                    return position->CreatePreviousLineEndPosition(
-                        AXBoundaryBehavior::CrossBoundary);
-                  }),
-                  INLINE_BOX2_ID,
-                  0 /* text_offset */,
-                  {"TextPosition anchor_id=6 text_offset=6 "
-                   "affinity=downstream annotated_text=Line 1<>",
-                   "TextPosition anchor_id=6 text_offset=0 "
-                   "affinity=downstream annotated_text=<L>ine 1",
-                   "NullPosition"}}));
+        TextNavigationTestParam{
+            base::BindRepeating([](const TestPositionType& position) {
+              return position->CreatePreviousLineEndPosition(
+                  AXBoundaryBehavior::CrossBoundary);
+            }),
+            ROOT_ID,
+            13 /* text_offset at end of root. */,
+            {"TextPosition anchor_id=1 text_offset=6 "
+             "affinity=downstream annotated_text=Line 1<\n>Line 2",
+             "NullPosition"}},
+        TextNavigationTestParam{
+            base::BindRepeating([](const TestPositionType& position) {
+              return position->CreatePreviousLineEndPosition(
+                  AXBoundaryBehavior::CrossBoundary);
+            }),
+            TEXT_FIELD_ID,
+            13 /* text_offset at end of text field */,
+            {"TextPosition anchor_id=4 text_offset=6 "
+             "affinity=downstream annotated_text=Line 1<\n>Line 2",
+             "NullPosition"}},
+        TextNavigationTestParam{
+            base::BindRepeating([](const TestPositionType& position) {
+              return position->CreatePreviousLineEndPosition(
+                  AXBoundaryBehavior::CrossBoundary);
+            }),
+            ROOT_ID,
+            5 /* text_offset on the last character of "Line 1". */,
+            {"NullPosition"}},
+        TextNavigationTestParam{
+            base::BindRepeating([](const TestPositionType& position) {
+              return position->CreatePreviousLineEndPosition(
+                  AXBoundaryBehavior::CrossBoundary);
+            }),
+            TEXT_FIELD_ID,
+            5 /* text_offset on the last character of "Line 1". */,
+            {"NullPosition"}},
+        TextNavigationTestParam{
+            base::BindRepeating([](const TestPositionType& position) {
+              return position->CreatePreviousLineEndPosition(
+                  AXBoundaryBehavior::CrossBoundary);
+            }),
+            INLINE_BOX2_ID,
+            4 /* text_offset */,
+            {"TextPosition anchor_id=6 text_offset=6 "
+             "affinity=downstream annotated_text=Line 1<>",
+             "NullPosition"}},
+        TextNavigationTestParam{
+            base::BindRepeating([](const TestPositionType& position) {
+              return position->CreatePreviousLineEndPosition(
+                  AXBoundaryBehavior::CrossBoundary);
+            }),
+            INLINE_BOX2_ID,
+            0 /* text_offset */,
+            {"TextPosition anchor_id=6 text_offset=6 "
+             "affinity=downstream annotated_text=Line 1<>",
+             "NullPosition"}}));
 
 INSTANTIATE_TEST_SUITE_P(
     CreatePreviousLineEndPositionWithBoundaryBehaviorStopAtAnchorBoundary,
-    AXPositionTestWithParam,
+    AXPositionTextNavigationTestWithParam,
     testing::Values(
-        // Note that for the first two tests we can't go past the line ending at
-        // "Line 1" to test for "NullPosition'", because the text position at
-        // the beginning of the soft line break is equivalent to the position at
-        // the end of the line's text and so an infinite recursion will occur.
-        TestParam{base::BindRepeating([](const TestPositionType& position) {
-                    return position->CreatePreviousLineEndPosition(
-                        AXBoundaryBehavior::StopAtAnchorBoundary);
-                  }),
-                  ROOT_ID,
-                  13 /* text_offset at end of root. */,
-                  {"TextPosition anchor_id=1 text_offset=6 "
-                   "affinity=downstream annotated_text=Line 1<\n>Line 2",
-                   "TextPosition anchor_id=1 text_offset=0 "
-                   "affinity=downstream annotated_text=<L>ine 1\nLine 2"}},
-        TestParam{base::BindRepeating([](const TestPositionType& position) {
-                    return position->CreatePreviousLineEndPosition(
-                        AXBoundaryBehavior::StopAtAnchorBoundary);
-                  }),
-                  TEXT_FIELD_ID,
-                  13 /* text_offset at end of text field */,
-                  {"TextPosition anchor_id=4 text_offset=6 "
-                   "affinity=downstream annotated_text=Line 1<\n>Line 2",
-                   "TextPosition anchor_id=4 text_offset=0 "
-                   "affinity=downstream annotated_text=<L>ine 1\nLine 2"}},
-        TestParam{base::BindRepeating([](const TestPositionType& position) {
-                    return position->CreatePreviousLineEndPosition(
-                        AXBoundaryBehavior::StopAtAnchorBoundary);
-                  }),
-                  ROOT_ID,
-                  5 /* text_offset on the last character of "Line 1". */,
-                  {"TextPosition anchor_id=1 text_offset=0 "
-                   "affinity=downstream annotated_text=<L>ine 1\nLine 2",
-                   "TextPosition anchor_id=1 text_offset=0 "
-                   "affinity=downstream annotated_text=<L>ine 1\nLine 2"}},
-        TestParam{base::BindRepeating([](const TestPositionType& position) {
-                    return position->CreatePreviousLineEndPosition(
-                        AXBoundaryBehavior::StopAtAnchorBoundary);
-                  }),
-                  TEXT_FIELD_ID,
-                  5 /* text_offset on the last character of "Line 1". */,
-                  {"TextPosition anchor_id=4 text_offset=0 "
-                   "affinity=downstream annotated_text=<L>ine 1\nLine 2",
-                   "TextPosition anchor_id=4 text_offset=0 "
-                   "affinity=downstream annotated_text=<L>ine 1\nLine 2"}},
-        TestParam{base::BindRepeating([](const TestPositionType& position) {
-                    return position->CreatePreviousLineEndPosition(
-                        AXBoundaryBehavior::StopAtAnchorBoundary);
-                  }),
-                  INLINE_BOX2_ID,
-                  4 /* text_offset */,
-                  {"TextPosition anchor_id=9 text_offset=0 "
-                   "affinity=downstream annotated_text=<L>ine 2",
-                   "TextPosition anchor_id=9 text_offset=0 "
-                   "affinity=downstream annotated_text=<L>ine 2"}},
-        TestParam{base::BindRepeating([](const TestPositionType& position) {
-                    return position->CreatePreviousLineEndPosition(
-                        AXBoundaryBehavior::StopAtAnchorBoundary);
-                  }),
-                  INLINE_BOX2_ID,
-                  0 /* text_offset */,
-                  {"TextPosition anchor_id=9 text_offset=0 "
-                   "affinity=downstream annotated_text=<L>ine 2",
-                   "TextPosition anchor_id=9 text_offset=0 "
-                   "affinity=downstream annotated_text=<L>ine 2"}}));
+        TextNavigationTestParam{
+            base::BindRepeating([](const TestPositionType& position) {
+              return position->CreatePreviousLineEndPosition(
+                  AXBoundaryBehavior::StopAtAnchorBoundary);
+            }),
+            ROOT_ID,
+            13 /* text_offset at end of root. */,
+            {"TextPosition anchor_id=1 text_offset=6 "
+             "affinity=downstream annotated_text=Line 1<\n>Line 2",
+             "TextPosition anchor_id=1 text_offset=0 "
+             "affinity=downstream annotated_text=<L>ine 1\nLine 2"}},
+        TextNavigationTestParam{
+            base::BindRepeating([](const TestPositionType& position) {
+              return position->CreatePreviousLineEndPosition(
+                  AXBoundaryBehavior::StopAtAnchorBoundary);
+            }),
+            TEXT_FIELD_ID,
+            13 /* text_offset at end of text field */,
+            {"TextPosition anchor_id=4 text_offset=6 "
+             "affinity=downstream annotated_text=Line 1<\n>Line 2",
+             "TextPosition anchor_id=4 text_offset=0 "
+             "affinity=downstream annotated_text=<L>ine 1\nLine 2"}},
+        TextNavigationTestParam{
+            base::BindRepeating([](const TestPositionType& position) {
+              return position->CreatePreviousLineEndPosition(
+                  AXBoundaryBehavior::StopAtAnchorBoundary);
+            }),
+            ROOT_ID,
+            5 /* text_offset on the last character of "Line 1". */,
+            {"TextPosition anchor_id=1 text_offset=0 "
+             "affinity=downstream annotated_text=<L>ine 1\nLine 2",
+             "TextPosition anchor_id=1 text_offset=0 "
+             "affinity=downstream annotated_text=<L>ine 1\nLine 2"}},
+        TextNavigationTestParam{
+            base::BindRepeating([](const TestPositionType& position) {
+              return position->CreatePreviousLineEndPosition(
+                  AXBoundaryBehavior::StopAtAnchorBoundary);
+            }),
+            TEXT_FIELD_ID,
+            5 /* text_offset on the last character of "Line 1". */,
+            {"TextPosition anchor_id=4 text_offset=0 "
+             "affinity=downstream annotated_text=<L>ine 1\nLine 2",
+             "TextPosition anchor_id=4 text_offset=0 "
+             "affinity=downstream annotated_text=<L>ine 1\nLine 2"}},
+        TextNavigationTestParam{
+            base::BindRepeating([](const TestPositionType& position) {
+              return position->CreatePreviousLineEndPosition(
+                  AXBoundaryBehavior::StopAtAnchorBoundary);
+            }),
+            INLINE_BOX2_ID,
+            4 /* text_offset */,
+            {"TextPosition anchor_id=9 text_offset=0 "
+             "affinity=downstream annotated_text=<L>ine 2",
+             "TextPosition anchor_id=9 text_offset=0 "
+             "affinity=downstream annotated_text=<L>ine 2"}},
+        TextNavigationTestParam{
+            base::BindRepeating([](const TestPositionType& position) {
+              return position->CreatePreviousLineEndPosition(
+                  AXBoundaryBehavior::StopAtAnchorBoundary);
+            }),
+            INLINE_BOX2_ID,
+            0 /* text_offset */,
+            {"TextPosition anchor_id=9 text_offset=0 "
+             "affinity=downstream annotated_text=<L>ine 2",
+             "TextPosition anchor_id=9 text_offset=0 "
+             "affinity=downstream annotated_text=<L>ine 2"}}));
 
 INSTANTIATE_TEST_SUITE_P(
     CreatePreviousLineEndPositionWithBoundaryBehaviorStopIfAlreadyAtBoundary,
-    AXPositionTestWithParam,
+    AXPositionTextNavigationTestWithParam,
     testing::Values(
-        TestParam{base::BindRepeating([](const TestPositionType& position) {
-                    return position->CreatePreviousLineEndPosition(
-                        AXBoundaryBehavior::StopIfAlreadyAtBoundary);
-                  }),
-                  ROOT_ID,
-                  12 /* text_offset one before the end of root. */,
-                  {"TextPosition anchor_id=1 text_offset=6 "
-                   "affinity=downstream annotated_text=Line 1<\n>Line 2",
-                   "TextPosition anchor_id=1 text_offset=6 "
-                   "affinity=downstream annotated_text=Line 1<\n>Line 2"}},
-        TestParam{base::BindRepeating([](const TestPositionType& position) {
-                    return position->CreatePreviousLineEndPosition(
-                        AXBoundaryBehavior::StopIfAlreadyAtBoundary);
-                  }),
-                  TEXT_FIELD_ID,
-                  12 /* text_offset one before the end of text field */,
-                  {"TextPosition anchor_id=4 text_offset=6 "
-                   "affinity=downstream annotated_text=Line 1<\n>Line 2",
-                   "TextPosition anchor_id=4 text_offset=6 "
-                   "affinity=downstream annotated_text=Line 1<\n>Line 2"}},
-        TestParam{base::BindRepeating([](const TestPositionType& position) {
-                    return position->CreatePreviousLineEndPosition(
-                        AXBoundaryBehavior::StopIfAlreadyAtBoundary);
-                  }),
-                  INLINE_BOX1_ID,
-                  2 /* text_offset */,
-                  {"TextPosition anchor_id=6 text_offset=0 "
-                   "affinity=downstream annotated_text=<L>ine 1",
-                   "TextPosition anchor_id=6 text_offset=0 "
-                   "affinity=downstream annotated_text=<L>ine 1"}},
-        TestParam{base::BindRepeating([](const TestPositionType& position) {
-                    return position->CreatePreviousLineEndPosition(
-                        AXBoundaryBehavior::StopIfAlreadyAtBoundary);
-                  }),
-                  INLINE_BOX2_ID,
-                  4 /* text_offset */,
-                  {"TextPosition anchor_id=6 text_offset=6 "
-                   "affinity=downstream annotated_text=Line 1<>",
-                   "TextPosition anchor_id=6 text_offset=6 "
-                   "affinity=downstream annotated_text=Line 1<>"}},
-        TestParam{base::BindRepeating([](const TestPositionType& position) {
-                    return position->CreatePreviousLineEndPosition(
-                        AXBoundaryBehavior::StopIfAlreadyAtBoundary);
-                  }),
-                  INLINE_BOX2_ID,
-                  0 /* text_offset */,
-                  {"TextPosition anchor_id=6 text_offset=6 "
-                   "affinity=downstream annotated_text=Line 1<>",
-                   "TextPosition anchor_id=6 text_offset=6 "
-                   "affinity=downstream annotated_text=Line 1<>"}}));
+        TextNavigationTestParam{
+            base::BindRepeating([](const TestPositionType& position) {
+              return position->CreatePreviousLineEndPosition(
+                  AXBoundaryBehavior::StopIfAlreadyAtBoundary);
+            }),
+            ROOT_ID,
+            12 /* text_offset one before the end of root. */,
+            {"TextPosition anchor_id=1 text_offset=6 "
+             "affinity=downstream annotated_text=Line 1<\n>Line 2",
+             "TextPosition anchor_id=1 text_offset=6 "
+             "affinity=downstream annotated_text=Line 1<\n>Line 2"}},
+        TextNavigationTestParam{
+            base::BindRepeating([](const TestPositionType& position) {
+              return position->CreatePreviousLineEndPosition(
+                  AXBoundaryBehavior::StopIfAlreadyAtBoundary);
+            }),
+            TEXT_FIELD_ID,
+            12 /* text_offset one before the end of text field */,
+            {"TextPosition anchor_id=4 text_offset=6 "
+             "affinity=downstream annotated_text=Line 1<\n>Line 2",
+             "TextPosition anchor_id=4 text_offset=6 "
+             "affinity=downstream annotated_text=Line 1<\n>Line 2"}},
+        TextNavigationTestParam{
+            base::BindRepeating([](const TestPositionType& position) {
+              return position->CreatePreviousLineEndPosition(
+                  AXBoundaryBehavior::StopIfAlreadyAtBoundary);
+            }),
+            INLINE_BOX1_ID,
+            2 /* text_offset */,
+            {"NullPosition"}},
+        TextNavigationTestParam{
+            base::BindRepeating([](const TestPositionType& position) {
+              return position->CreatePreviousLineEndPosition(
+                  AXBoundaryBehavior::StopIfAlreadyAtBoundary);
+            }),
+            INLINE_BOX2_ID,
+            4 /* text_offset */,
+            {"TextPosition anchor_id=6 text_offset=6 "
+             "affinity=downstream annotated_text=Line 1<>",
+             "TextPosition anchor_id=6 text_offset=6 "
+             "affinity=downstream annotated_text=Line 1<>"}},
+        TextNavigationTestParam{
+            base::BindRepeating([](const TestPositionType& position) {
+              return position->CreatePreviousLineEndPosition(
+                  AXBoundaryBehavior::StopIfAlreadyAtBoundary);
+            }),
+            INLINE_BOX2_ID,
+            0 /* text_offset */,
+            {"TextPosition anchor_id=6 text_offset=6 "
+             "affinity=downstream annotated_text=Line 1<>",
+             "TextPosition anchor_id=6 text_offset=6 "
+             "affinity=downstream annotated_text=Line 1<>"}}));
+
+INSTANTIATE_TEST_SUITE_P(
+    CreatePreviousLineEndPositionWithBoundaryBehaviorStopAtLastAnchorBoundary,
+    AXPositionTextNavigationTestWithParam,
+    testing::Values(
+        TextNavigationTestParam{
+            base::BindRepeating([](const TestPositionType& position) {
+              return position->CreatePreviousLineEndPosition(
+                  AXBoundaryBehavior::StopAtLastAnchorBoundary);
+            }),
+            ROOT_ID,
+            13 /* text_offset at end of root. */,
+            {"TextPosition anchor_id=1 text_offset=6 "
+             "affinity=downstream annotated_text=Line 1<\n>Line 2",
+             "TextPosition anchor_id=1 text_offset=0 "
+             "affinity=downstream annotated_text=<L>ine 1\nLine 2",
+             "TextPosition anchor_id=1 text_offset=0 "
+             "affinity=downstream annotated_text=<L>ine 1\nLine 2"}},
+        TextNavigationTestParam{
+            base::BindRepeating([](const TestPositionType& position) {
+              return position->CreatePreviousLineEndPosition(
+                  AXBoundaryBehavior::StopAtLastAnchorBoundary);
+            }),
+            TEXT_FIELD_ID,
+            13 /* text_offset at end of text field */,
+            {"TextPosition anchor_id=4 text_offset=6 "
+             "affinity=downstream annotated_text=Line 1<\n>Line 2",
+             "TextPosition anchor_id=2 text_offset=0 "
+             "affinity=downstream annotated_text=<>",
+             "TextPosition anchor_id=2 text_offset=0 "
+             "affinity=downstream annotated_text=<>"}},
+        TextNavigationTestParam{
+            base::BindRepeating([](const TestPositionType& position) {
+              return position->CreatePreviousLineEndPosition(
+                  AXBoundaryBehavior::StopAtLastAnchorBoundary);
+            }),
+            ROOT_ID,
+            5 /* text_offset on the last character of "Line 1". */,
+            {"TextPosition anchor_id=1 text_offset=0 "
+             "affinity=downstream annotated_text=<L>ine 1\nLine 2",
+             "TextPosition anchor_id=1 text_offset=0 "
+             "affinity=downstream annotated_text=<L>ine 1\nLine 2"}},
+        TextNavigationTestParam{
+            base::BindRepeating([](const TestPositionType& position) {
+              return position->CreatePreviousLineEndPosition(
+                  AXBoundaryBehavior::StopAtLastAnchorBoundary);
+            }),
+            TEXT_FIELD_ID,
+            5 /* text_offset on the last character of "Line 1". */,
+            {"TextPosition anchor_id=2 text_offset=0 "
+             "affinity=downstream annotated_text=<>",
+             "TextPosition anchor_id=2 text_offset=0 "
+             "affinity=downstream annotated_text=<>"}},
+        TextNavigationTestParam{
+            base::BindRepeating([](const TestPositionType& position) {
+              return position->CreatePreviousLineEndPosition(
+                  AXBoundaryBehavior::StopAtLastAnchorBoundary);
+            }),
+            INLINE_BOX2_ID,
+            4 /* text_offset */,
+            {"TextPosition anchor_id=6 text_offset=6 "
+             "affinity=downstream annotated_text=Line 1<>",
+             "TextPosition anchor_id=2 text_offset=0 "
+             "affinity=downstream annotated_text=<>",
+             "TextPosition anchor_id=2 text_offset=0 "
+             "affinity=downstream annotated_text=<>"}},
+        TextNavigationTestParam{
+            base::BindRepeating([](const TestPositionType& position) {
+              return position->CreatePreviousLineEndPosition(
+                  AXBoundaryBehavior::StopAtLastAnchorBoundary);
+            }),
+            INLINE_BOX2_ID,
+            0 /* text_offset */,
+            {"TextPosition anchor_id=6 text_offset=6 "
+             "affinity=downstream annotated_text=Line 1<>",
+             "TextPosition anchor_id=2 text_offset=0 "
+             "affinity=downstream annotated_text=<>",
+             "TextPosition anchor_id=2 text_offset=0 "
+             "affinity=downstream annotated_text=<>"}}));
 
 INSTANTIATE_TEST_SUITE_P(
     CreateNextParagraphStartPositionWithBoundaryBehaviorCrossBoundary,
-    AXPositionTestWithParam,
+    AXPositionTextNavigationTestWithParam,
     testing::Values(
-        TestParam{base::BindRepeating([](const TestPositionType& position) {
-                    return position->CreateNextParagraphStartPosition(
-                        AXBoundaryBehavior::CrossBoundary);
-                  }),
-                  ROOT_ID,
-                  0 /* text_offset */,
-                  {"TextPosition anchor_id=1 text_offset=7 "
-                   "affinity=downstream annotated_text=Line 1\n<L>ine 2"}},
-        TestParam{base::BindRepeating([](const TestPositionType& position) {
-                    return position->CreateNextParagraphStartPosition(
-                        AXBoundaryBehavior::CrossBoundary);
-                  }),
-                  TEXT_FIELD_ID,
-                  0 /* text_offset */,
-                  {"TextPosition anchor_id=4 text_offset=7 "
-                   "affinity=downstream annotated_text=Line 1\n<L>ine 2"}},
-        TestParam{base::BindRepeating([](const TestPositionType& position) {
-                    return position->CreateNextParagraphStartPosition(
-                        AXBoundaryBehavior::CrossBoundary);
-                  }),
-                  STATIC_TEXT1_ID,
-                  1 /* text_offset */,
-                  {"TextPosition anchor_id=9 text_offset=0 "
-                   "affinity=downstream annotated_text=<L>ine 2"}},
-        TestParam{base::BindRepeating([](const TestPositionType& position) {
-                    return position->CreateNextParagraphStartPosition(
-                        AXBoundaryBehavior::CrossBoundary);
-                  }),
-                  INLINE_BOX2_ID,
-                  4 /* text_offset */,
-                  {"NullPosition"}}));
+        TextNavigationTestParam{
+            base::BindRepeating([](const TestPositionType& position) {
+              return position->CreateNextParagraphStartPosition(
+                  AXBoundaryBehavior::CrossBoundary);
+            }),
+            ROOT_ID,
+            0 /* text_offset */,
+            {"TextPosition anchor_id=1 text_offset=7 "
+             "affinity=downstream annotated_text=Line 1\n<L>ine 2"}},
+        TextNavigationTestParam{
+            base::BindRepeating([](const TestPositionType& position) {
+              return position->CreateNextParagraphStartPosition(
+                  AXBoundaryBehavior::CrossBoundary);
+            }),
+            TEXT_FIELD_ID,
+            0 /* text_offset */,
+            {"TextPosition anchor_id=4 text_offset=7 "
+             "affinity=downstream annotated_text=Line 1\n<L>ine 2"}},
+        TextNavigationTestParam{
+            base::BindRepeating([](const TestPositionType& position) {
+              return position->CreateNextParagraphStartPosition(
+                  AXBoundaryBehavior::CrossBoundary);
+            }),
+            STATIC_TEXT1_ID,
+            1 /* text_offset */,
+            {"TextPosition anchor_id=9 text_offset=0 "
+             "affinity=downstream annotated_text=<L>ine 2"}},
+        TextNavigationTestParam{
+            base::BindRepeating([](const TestPositionType& position) {
+              return position->CreateNextParagraphStartPosition(
+                  AXBoundaryBehavior::CrossBoundary);
+            }),
+            INLINE_BOX2_ID,
+            4 /* text_offset */,
+            {"NullPosition"}}));
 
 INSTANTIATE_TEST_SUITE_P(
     CreateNextParagraphStartPositionWithBoundaryBehaviorStopAtAnchorBoundary,
-    AXPositionTestWithParam,
+    AXPositionTextNavigationTestWithParam,
     testing::Values(
-        TestParam{base::BindRepeating([](const TestPositionType& position) {
-                    return position->CreateNextParagraphStartPosition(
-                        AXBoundaryBehavior::StopAtAnchorBoundary);
-                  }),
-                  ROOT_ID,
-                  0 /* text_offset */,
-                  {"TextPosition anchor_id=1 text_offset=7 "
-                   "affinity=downstream annotated_text=Line 1\n<L>ine 2",
-                   "TextPosition anchor_id=1 text_offset=13 "
-                   "affinity=downstream annotated_text=Line 1\nLine 2<>"}},
-        TestParam{base::BindRepeating([](const TestPositionType& position) {
-                    return position->CreateNextParagraphStartPosition(
-                        AXBoundaryBehavior::StopAtAnchorBoundary);
-                  }),
-                  TEXT_FIELD_ID,
-                  0 /* text_offset */,
-                  {"TextPosition anchor_id=4 text_offset=7 "
-                   "affinity=downstream annotated_text=Line 1\n<L>ine 2",
-                   "TextPosition anchor_id=4 text_offset=13 "
-                   "affinity=downstream annotated_text=Line 1\nLine 2<>"}},
-        TestParam{base::BindRepeating([](const TestPositionType& position) {
-                    return position->CreateNextParagraphStartPosition(
-                        AXBoundaryBehavior::StopAtAnchorBoundary);
-                  }),
-                  STATIC_TEXT1_ID,
-                  1 /* text_offset */,
-                  {"TextPosition anchor_id=5 text_offset=6 "
-                   "affinity=downstream annotated_text=Line 1<>"}},
-        TestParam{base::BindRepeating([](const TestPositionType& position) {
-                    return position->CreateNextParagraphStartPosition(
-                        AXBoundaryBehavior::StopAtAnchorBoundary);
-                  }),
-                  INLINE_BOX2_ID,
-                  4 /* text_offset */,
-                  {"TextPosition anchor_id=9 text_offset=6 "
-                   "affinity=downstream annotated_text=Line 2<>"}}));
+        TextNavigationTestParam{
+            base::BindRepeating([](const TestPositionType& position) {
+              return position->CreateNextParagraphStartPosition(
+                  AXBoundaryBehavior::StopAtAnchorBoundary);
+            }),
+            ROOT_ID,
+            0 /* text_offset */,
+            {"TextPosition anchor_id=1 text_offset=7 "
+             "affinity=downstream annotated_text=Line 1\n<L>ine 2",
+             "TextPosition anchor_id=1 text_offset=13 "
+             "affinity=downstream annotated_text=Line 1\nLine 2<>"}},
+        TextNavigationTestParam{
+            base::BindRepeating([](const TestPositionType& position) {
+              return position->CreateNextParagraphStartPosition(
+                  AXBoundaryBehavior::StopAtAnchorBoundary);
+            }),
+            TEXT_FIELD_ID,
+            0 /* text_offset */,
+            {"TextPosition anchor_id=4 text_offset=7 "
+             "affinity=downstream annotated_text=Line 1\n<L>ine 2",
+             "TextPosition anchor_id=4 text_offset=13 "
+             "affinity=downstream annotated_text=Line 1\nLine 2<>"}},
+        TextNavigationTestParam{
+            base::BindRepeating([](const TestPositionType& position) {
+              return position->CreateNextParagraphStartPosition(
+                  AXBoundaryBehavior::StopAtAnchorBoundary);
+            }),
+            STATIC_TEXT1_ID,
+            1 /* text_offset */,
+            {"TextPosition anchor_id=5 text_offset=6 "
+             "affinity=downstream annotated_text=Line 1<>"}},
+        TextNavigationTestParam{
+            base::BindRepeating([](const TestPositionType& position) {
+              return position->CreateNextParagraphStartPosition(
+                  AXBoundaryBehavior::StopAtAnchorBoundary);
+            }),
+            INLINE_BOX2_ID,
+            4 /* text_offset */,
+            {"TextPosition anchor_id=9 text_offset=6 "
+             "affinity=downstream annotated_text=Line 2<>"}}));
 
 INSTANTIATE_TEST_SUITE_P(
     CreateNextParagraphStartPositionWithBoundaryBehaviorStopIfAlreadyAtBoundary,
-    AXPositionTestWithParam,
+    AXPositionTextNavigationTestWithParam,
     testing::Values(
-        TestParam{base::BindRepeating([](const TestPositionType& position) {
-                    return position->CreateNextParagraphStartPosition(
-                        AXBoundaryBehavior::StopIfAlreadyAtBoundary);
-                  }),
-                  ROOT_ID,
-                  0 /* text_offset */,
-                  {"TextPosition anchor_id=1 text_offset=0 "
-                   "affinity=downstream annotated_text=<L>ine 1\nLine 2",
-                   "TextPosition anchor_id=1 text_offset=0 "
-                   "affinity=downstream annotated_text=<L>ine 1\nLine 2"}},
-        TestParam{base::BindRepeating([](const TestPositionType& position) {
-                    return position->CreateNextParagraphStartPosition(
-                        AXBoundaryBehavior::StopIfAlreadyAtBoundary);
-                  }),
-                  TEXT_FIELD_ID,
-                  0 /* text_offset */,
-                  {"TextPosition anchor_id=4 text_offset=0 "
-                   "affinity=downstream annotated_text=<L>ine 1\nLine 2",
-                   "TextPosition anchor_id=4 text_offset=0 "
-                   "affinity=downstream annotated_text=<L>ine 1\nLine 2"}},
-        TestParam{base::BindRepeating([](const TestPositionType& position) {
-                    return position->CreateNextParagraphStartPosition(
-                        AXBoundaryBehavior::StopIfAlreadyAtBoundary);
-                  }),
-                  STATIC_TEXT1_ID,
-                  1 /* text_offset */,
-                  {"TextPosition anchor_id=9 text_offset=0 "
-                   "affinity=downstream annotated_text=<L>ine 2",
-                   "TextPosition anchor_id=9 text_offset=0 "
-                   "affinity=downstream annotated_text=<L>ine 2"}},
-        TestParam{base::BindRepeating([](const TestPositionType& position) {
-                    return position->CreateNextParagraphStartPosition(
-                        AXBoundaryBehavior::StopIfAlreadyAtBoundary);
-                  }),
-                  INLINE_BOX2_ID,
-                  4 /* text_offset */,
-                  {"NullPosition"}}));
+        TextNavigationTestParam{
+            base::BindRepeating([](const TestPositionType& position) {
+              return position->CreateNextParagraphStartPosition(
+                  AXBoundaryBehavior::StopIfAlreadyAtBoundary);
+            }),
+            ROOT_ID,
+            0 /* text_offset */,
+            {"TextPosition anchor_id=1 text_offset=0 "
+             "affinity=downstream annotated_text=<L>ine 1\nLine 2",
+             "TextPosition anchor_id=1 text_offset=0 "
+             "affinity=downstream annotated_text=<L>ine 1\nLine 2"}},
+        TextNavigationTestParam{
+            base::BindRepeating([](const TestPositionType& position) {
+              return position->CreateNextParagraphStartPosition(
+                  AXBoundaryBehavior::StopIfAlreadyAtBoundary);
+            }),
+            TEXT_FIELD_ID,
+            0 /* text_offset */,
+            {"TextPosition anchor_id=4 text_offset=0 "
+             "affinity=downstream annotated_text=<L>ine 1\nLine 2",
+             "TextPosition anchor_id=4 text_offset=0 "
+             "affinity=downstream annotated_text=<L>ine 1\nLine 2"}},
+        TextNavigationTestParam{
+            base::BindRepeating([](const TestPositionType& position) {
+              return position->CreateNextParagraphStartPosition(
+                  AXBoundaryBehavior::StopIfAlreadyAtBoundary);
+            }),
+            STATIC_TEXT1_ID,
+            1 /* text_offset */,
+            {"TextPosition anchor_id=9 text_offset=0 "
+             "affinity=downstream annotated_text=<L>ine 2",
+             "TextPosition anchor_id=9 text_offset=0 "
+             "affinity=downstream annotated_text=<L>ine 2"}},
+        TextNavigationTestParam{
+            base::BindRepeating([](const TestPositionType& position) {
+              return position->CreateNextParagraphStartPosition(
+                  AXBoundaryBehavior::StopIfAlreadyAtBoundary);
+            }),
+            INLINE_BOX2_ID,
+            4 /* text_offset */,
+            {"NullPosition"}}));
+
+INSTANTIATE_TEST_SUITE_P(
+    CreateNextParagraphStartPositionWithBoundaryBehaviorStopAtLastAnchorBoundary,
+    AXPositionTextNavigationTestWithParam,
+    testing::Values(
+        TextNavigationTestParam{
+            base::BindRepeating([](const TestPositionType& position) {
+              return position->CreateNextParagraphStartPosition(
+                  AXBoundaryBehavior::StopAtLastAnchorBoundary);
+            }),
+            ROOT_ID,
+            0 /* text_offset */,
+            {"TextPosition anchor_id=1 text_offset=7 "
+             "affinity=downstream annotated_text=Line 1\n<L>ine 2",
+             "TextPosition anchor_id=1 text_offset=13 "
+             "affinity=downstream annotated_text=Line 1\nLine 2<>",
+             "TextPosition anchor_id=1 text_offset=13 "
+             "affinity=downstream annotated_text=Line 1\nLine 2<>"}},
+        TextNavigationTestParam{
+            base::BindRepeating([](const TestPositionType& position) {
+              return position->CreateNextParagraphStartPosition(
+                  AXBoundaryBehavior::StopAtLastAnchorBoundary);
+            }),
+            TEXT_FIELD_ID,
+            0 /* text_offset */,
+            {"TextPosition anchor_id=4 text_offset=7 "
+             "affinity=downstream annotated_text=Line 1\n<L>ine 2",
+             "TextPosition anchor_id=4 text_offset=13 "
+             "affinity=downstream annotated_text=Line 1\nLine 2<>",
+             "TextPosition anchor_id=4 text_offset=13 "
+             "affinity=downstream annotated_text=Line 1\nLine 2<>"}},
+        TextNavigationTestParam{
+            base::BindRepeating([](const TestPositionType& position) {
+              return position->CreateNextParagraphStartPosition(
+                  AXBoundaryBehavior::StopAtLastAnchorBoundary);
+            }),
+            STATIC_TEXT1_ID,
+            1 /* text_offset */,
+            {"TextPosition anchor_id=9 text_offset=0 "
+             "affinity=downstream annotated_text=<L>ine 2",
+             "TextPosition anchor_id=9 text_offset=6 "
+             "affinity=downstream annotated_text=Line 2<>",
+             "TextPosition anchor_id=9 text_offset=6 "
+             "affinity=downstream annotated_text=Line 2<>"}},
+        TextNavigationTestParam{
+            base::BindRepeating([](const TestPositionType& position) {
+              return position->CreateNextParagraphStartPosition(
+                  AXBoundaryBehavior::StopAtLastAnchorBoundary);
+            }),
+            INLINE_BOX2_ID,
+            4 /* text_offset */,
+            {"TextPosition anchor_id=9 text_offset=6 "
+             "affinity=downstream annotated_text=Line 2<>",
+             "TextPosition anchor_id=9 text_offset=6 "
+             "affinity=downstream annotated_text=Line 2<>"}}));
 
 INSTANTIATE_TEST_SUITE_P(
     CreatePreviousParagraphStartPositionWithBoundaryBehaviorCrossBoundary,
-    AXPositionTestWithParam,
+    AXPositionTextNavigationTestWithParam,
     testing::Values(
-        TestParam{base::BindRepeating([](const TestPositionType& position) {
-                    return position->CreatePreviousParagraphStartPosition(
-                        AXBoundaryBehavior::CrossBoundary);
-                  }),
-                  ROOT_ID,
-                  13 /* text_offset at the end of root. */,
-                  {"TextPosition anchor_id=1 text_offset=7 "
-                   "affinity=downstream annotated_text=Line 1\n<L>ine 2",
-                   "TextPosition anchor_id=1 text_offset=0 "
-                   "affinity=downstream annotated_text=<L>ine 1\nLine 2",
-                   "NullPosition"}},
-        TestParam{base::BindRepeating([](const TestPositionType& position) {
-                    return position->CreatePreviousParagraphStartPosition(
-                        AXBoundaryBehavior::CrossBoundary);
-                  }),
-                  TEXT_FIELD_ID,
-                  13 /* text_offset at end of text field */,
-                  {"TextPosition anchor_id=4 text_offset=7 "
-                   "affinity=downstream annotated_text=Line 1\n<L>ine 2",
-                   "TextPosition anchor_id=4 text_offset=0 "
-                   "affinity=downstream annotated_text=<L>ine 1\nLine 2",
-                   "NullPosition"}},
-        TestParam{base::BindRepeating([](const TestPositionType& position) {
-                    return position->CreatePreviousParagraphStartPosition(
-                        AXBoundaryBehavior::CrossBoundary);
-                  }),
-                  STATIC_TEXT1_ID,
-                  5 /* text_offset */,
-                  {"TextPosition anchor_id=5 text_offset=0 "
-                   "affinity=downstream annotated_text=<L>ine 1",
-                   "NullPosition"}},
-        TestParam{base::BindRepeating([](const TestPositionType& position) {
-                    return position->CreatePreviousParagraphStartPosition(
-                        AXBoundaryBehavior::CrossBoundary);
-                  }),
-                  INLINE_BOX2_ID,
-                  4 /* text_offset */,
-                  {"TextPosition anchor_id=9 text_offset=0 "
-                   "affinity=downstream annotated_text=<L>ine 2",
-                   "TextPosition anchor_id=6 text_offset=0 "
-                   "affinity=downstream annotated_text=<L>ine 1",
-                   "NullPosition"}}));
+        TextNavigationTestParam{
+            base::BindRepeating([](const TestPositionType& position) {
+              return position->CreatePreviousParagraphStartPosition(
+                  AXBoundaryBehavior::CrossBoundary);
+            }),
+            ROOT_ID,
+            13 /* text_offset at the end of root. */,
+            {"TextPosition anchor_id=1 text_offset=7 "
+             "affinity=downstream annotated_text=Line 1\n<L>ine 2",
+             "TextPosition anchor_id=1 text_offset=0 "
+             "affinity=downstream annotated_text=<L>ine 1\nLine 2",
+             "NullPosition"}},
+        TextNavigationTestParam{
+            base::BindRepeating([](const TestPositionType& position) {
+              return position->CreatePreviousParagraphStartPosition(
+                  AXBoundaryBehavior::CrossBoundary);
+            }),
+            TEXT_FIELD_ID,
+            13 /* text_offset at end of text field */,
+            {"TextPosition anchor_id=4 text_offset=7 "
+             "affinity=downstream annotated_text=Line 1\n<L>ine 2",
+             "TextPosition anchor_id=4 text_offset=0 "
+             "affinity=downstream annotated_text=<L>ine 1\nLine 2",
+             "NullPosition"}},
+        TextNavigationTestParam{
+            base::BindRepeating([](const TestPositionType& position) {
+              return position->CreatePreviousParagraphStartPosition(
+                  AXBoundaryBehavior::CrossBoundary);
+            }),
+            STATIC_TEXT1_ID,
+            5 /* text_offset */,
+            {"TextPosition anchor_id=5 text_offset=0 "
+             "affinity=downstream annotated_text=<L>ine 1",
+             "NullPosition"}},
+        TextNavigationTestParam{
+            base::BindRepeating([](const TestPositionType& position) {
+              return position->CreatePreviousParagraphStartPosition(
+                  AXBoundaryBehavior::CrossBoundary);
+            }),
+            INLINE_BOX2_ID,
+            4 /* text_offset */,
+            {"TextPosition anchor_id=9 text_offset=0 "
+             "affinity=downstream annotated_text=<L>ine 2",
+             "TextPosition anchor_id=6 text_offset=0 "
+             "affinity=downstream annotated_text=<L>ine 1",
+             "NullPosition"}}));
 
 INSTANTIATE_TEST_SUITE_P(
     CreatePreviousParagraphStartPositionWithBoundaryBehaviorStopAtAnchorBoundary,
-    AXPositionTestWithParam,
+    AXPositionTextNavigationTestWithParam,
     testing::Values(
-        TestParam{base::BindRepeating([](const TestPositionType& position) {
-                    return position->CreatePreviousParagraphStartPosition(
-                        AXBoundaryBehavior::StopAtAnchorBoundary);
-                  }),
-                  ROOT_ID,
-                  13 /* text_offset at the end of root. */,
-                  {"TextPosition anchor_id=1 text_offset=7 "
-                   "affinity=downstream annotated_text=Line 1\n<L>ine 2",
-                   "TextPosition anchor_id=1 text_offset=0 "
-                   "affinity=downstream annotated_text=<L>ine 1\nLine 2",
-                   "TextPosition anchor_id=1 text_offset=0 "
-                   "affinity=downstream annotated_text=<L>ine 1\nLine 2"}},
-        TestParam{base::BindRepeating([](const TestPositionType& position) {
-                    return position->CreatePreviousParagraphStartPosition(
-                        AXBoundaryBehavior::StopAtAnchorBoundary);
-                  }),
-                  TEXT_FIELD_ID,
-                  13 /* text_offset at end of text field */,
-                  {"TextPosition anchor_id=4 text_offset=7 "
-                   "affinity=downstream annotated_text=Line 1\n<L>ine 2",
-                   "TextPosition anchor_id=4 text_offset=0 "
-                   "affinity=downstream annotated_text=<L>ine 1\nLine 2",
-                   "TextPosition anchor_id=4 text_offset=0 "
-                   "affinity=downstream annotated_text=<L>ine 1\nLine 2"}},
-        TestParam{base::BindRepeating([](const TestPositionType& position) {
-                    return position->CreatePreviousParagraphStartPosition(
-                        AXBoundaryBehavior::StopAtAnchorBoundary);
-                  }),
-                  STATIC_TEXT1_ID,
-                  5 /* text_offset */,
-                  {"TextPosition anchor_id=5 text_offset=0 "
-                   "affinity=downstream annotated_text=<L>ine 1",
-                   "TextPosition anchor_id=5 text_offset=0 "
-                   "affinity=downstream annotated_text=<L>ine 1"}},
-        TestParam{base::BindRepeating([](const TestPositionType& position) {
-                    return position->CreatePreviousParagraphStartPosition(
-                        AXBoundaryBehavior::StopAtAnchorBoundary);
-                  }),
-                  INLINE_BOX2_ID,
-                  4 /* text_offset */,
-                  {"TextPosition anchor_id=9 text_offset=0 "
-                   "affinity=downstream annotated_text=<L>ine 2",
-                   "TextPosition anchor_id=9 text_offset=0 "
-                   "affinity=downstream annotated_text=<L>ine 2"}}));
+        TextNavigationTestParam{
+            base::BindRepeating([](const TestPositionType& position) {
+              return position->CreatePreviousParagraphStartPosition(
+                  AXBoundaryBehavior::StopAtAnchorBoundary);
+            }),
+            ROOT_ID,
+            13 /* text_offset at the end of root. */,
+            {"TextPosition anchor_id=1 text_offset=7 "
+             "affinity=downstream annotated_text=Line 1\n<L>ine 2",
+             "TextPosition anchor_id=1 text_offset=0 "
+             "affinity=downstream annotated_text=<L>ine 1\nLine 2",
+             "TextPosition anchor_id=1 text_offset=0 "
+             "affinity=downstream annotated_text=<L>ine 1\nLine 2"}},
+        TextNavigationTestParam{
+            base::BindRepeating([](const TestPositionType& position) {
+              return position->CreatePreviousParagraphStartPosition(
+                  AXBoundaryBehavior::StopAtAnchorBoundary);
+            }),
+            TEXT_FIELD_ID,
+            13 /* text_offset at end of text field */,
+            {"TextPosition anchor_id=4 text_offset=7 "
+             "affinity=downstream annotated_text=Line 1\n<L>ine 2",
+             "TextPosition anchor_id=4 text_offset=0 "
+             "affinity=downstream annotated_text=<L>ine 1\nLine 2",
+             "TextPosition anchor_id=4 text_offset=0 "
+             "affinity=downstream annotated_text=<L>ine 1\nLine 2"}},
+        TextNavigationTestParam{
+            base::BindRepeating([](const TestPositionType& position) {
+              return position->CreatePreviousParagraphStartPosition(
+                  AXBoundaryBehavior::StopAtAnchorBoundary);
+            }),
+            STATIC_TEXT1_ID,
+            5 /* text_offset */,
+            {"TextPosition anchor_id=5 text_offset=0 "
+             "affinity=downstream annotated_text=<L>ine 1",
+             "TextPosition anchor_id=5 text_offset=0 "
+             "affinity=downstream annotated_text=<L>ine 1"}},
+        TextNavigationTestParam{
+            base::BindRepeating([](const TestPositionType& position) {
+              return position->CreatePreviousParagraphStartPosition(
+                  AXBoundaryBehavior::StopAtAnchorBoundary);
+            }),
+            INLINE_BOX2_ID,
+            4 /* text_offset */,
+            {"TextPosition anchor_id=9 text_offset=0 "
+             "affinity=downstream annotated_text=<L>ine 2",
+             "TextPosition anchor_id=9 text_offset=0 "
+             "affinity=downstream annotated_text=<L>ine 2"}}));
 
 INSTANTIATE_TEST_SUITE_P(
     CreatePreviousParagraphStartPositionWithBoundaryBehaviorStopIfAlreadyAtBoundary,
-    AXPositionTestWithParam,
+    AXPositionTextNavigationTestWithParam,
     testing::Values(
-        TestParam{base::BindRepeating([](const TestPositionType& position) {
-                    return position->CreatePreviousParagraphStartPosition(
-                        AXBoundaryBehavior::StopIfAlreadyAtBoundary);
-                  }),
-                  ROOT_ID,
-                  13 /* text_offset at the end of root. */,
-                  {"TextPosition anchor_id=1 text_offset=7 "
-                   "affinity=downstream annotated_text=Line 1\n<L>ine 2",
-                   "TextPosition anchor_id=1 text_offset=7 "
-                   "affinity=downstream annotated_text=Line 1\n<L>ine 2"}},
-        TestParam{base::BindRepeating([](const TestPositionType& position) {
-                    return position->CreatePreviousParagraphStartPosition(
-                        AXBoundaryBehavior::StopIfAlreadyAtBoundary);
-                  }),
-                  TEXT_FIELD_ID,
-                  13 /* text_offset at end of text field */,
-                  {"TextPosition anchor_id=4 text_offset=7 "
-                   "affinity=downstream annotated_text=Line 1\n<L>ine 2",
-                   "TextPosition anchor_id=4 text_offset=7 "
-                   "affinity=downstream annotated_text=Line 1\n<L>ine 2"}},
-        TestParam{base::BindRepeating([](const TestPositionType& position) {
-                    return position->CreatePreviousParagraphStartPosition(
-                        AXBoundaryBehavior::StopIfAlreadyAtBoundary);
-                  }),
-                  STATIC_TEXT1_ID,
-                  5 /* text_offset */,
-                  {"TextPosition anchor_id=5 text_offset=0 "
-                   "affinity=downstream annotated_text=<L>ine 1",
-                   "TextPosition anchor_id=5 text_offset=0 "
-                   "affinity=downstream annotated_text=<L>ine 1"}},
-        TestParam{base::BindRepeating([](const TestPositionType& position) {
-                    return position->CreatePreviousParagraphStartPosition(
-                        AXBoundaryBehavior::StopIfAlreadyAtBoundary);
-                  }),
-                  INLINE_BOX2_ID,
-                  4 /* text_offset */,
-                  {"TextPosition anchor_id=9 text_offset=0 "
-                   "affinity=downstream annotated_text=<L>ine 2",
-                   "TextPosition anchor_id=9 text_offset=0 "
-                   "affinity=downstream annotated_text=<L>ine 2"}}));
+        TextNavigationTestParam{
+            base::BindRepeating([](const TestPositionType& position) {
+              return position->CreatePreviousParagraphStartPosition(
+                  AXBoundaryBehavior::StopIfAlreadyAtBoundary);
+            }),
+            ROOT_ID,
+            13 /* text_offset at the end of root. */,
+            {"TextPosition anchor_id=1 text_offset=7 "
+             "affinity=downstream annotated_text=Line 1\n<L>ine 2",
+             "TextPosition anchor_id=1 text_offset=7 "
+             "affinity=downstream annotated_text=Line 1\n<L>ine 2"}},
+        TextNavigationTestParam{
+            base::BindRepeating([](const TestPositionType& position) {
+              return position->CreatePreviousParagraphStartPosition(
+                  AXBoundaryBehavior::StopIfAlreadyAtBoundary);
+            }),
+            TEXT_FIELD_ID,
+            13 /* text_offset at end of text field */,
+            {"TextPosition anchor_id=4 text_offset=7 "
+             "affinity=downstream annotated_text=Line 1\n<L>ine 2",
+             "TextPosition anchor_id=4 text_offset=7 "
+             "affinity=downstream annotated_text=Line 1\n<L>ine 2"}},
+        TextNavigationTestParam{
+            base::BindRepeating([](const TestPositionType& position) {
+              return position->CreatePreviousParagraphStartPosition(
+                  AXBoundaryBehavior::StopIfAlreadyAtBoundary);
+            }),
+            STATIC_TEXT1_ID,
+            5 /* text_offset */,
+            {"TextPosition anchor_id=5 text_offset=0 "
+             "affinity=downstream annotated_text=<L>ine 1",
+             "TextPosition anchor_id=5 text_offset=0 "
+             "affinity=downstream annotated_text=<L>ine 1"}},
+        TextNavigationTestParam{
+            base::BindRepeating([](const TestPositionType& position) {
+              return position->CreatePreviousParagraphStartPosition(
+                  AXBoundaryBehavior::StopIfAlreadyAtBoundary);
+            }),
+            INLINE_BOX2_ID,
+            4 /* text_offset */,
+            {"TextPosition anchor_id=9 text_offset=0 "
+             "affinity=downstream annotated_text=<L>ine 2",
+             "TextPosition anchor_id=9 text_offset=0 "
+             "affinity=downstream annotated_text=<L>ine 2"}}));
+
+INSTANTIATE_TEST_SUITE_P(
+    CreatePreviousParagraphStartPositionWithBoundaryBehaviorStopAtLastAnchorBoundary,
+    AXPositionTextNavigationTestWithParam,
+    testing::Values(
+        TextNavigationTestParam{
+            base::BindRepeating([](const TestPositionType& position) {
+              return position->CreatePreviousParagraphStartPosition(
+                  AXBoundaryBehavior::StopAtLastAnchorBoundary);
+            }),
+            ROOT_ID,
+            13 /* text_offset at the end of root. */,
+            {"TextPosition anchor_id=1 text_offset=7 "
+             "affinity=downstream annotated_text=Line 1\n<L>ine 2",
+             "TextPosition anchor_id=1 text_offset=0 "
+             "affinity=downstream annotated_text=<L>ine 1\nLine 2",
+             "TextPosition anchor_id=1 text_offset=0 "
+             "affinity=downstream annotated_text=<L>ine 1\nLine 2",
+             "TextPosition anchor_id=1 text_offset=0 "
+             "affinity=downstream annotated_text=<L>ine 1\nLine 2"}},
+        TextNavigationTestParam{
+            base::BindRepeating([](const TestPositionType& position) {
+              return position->CreatePreviousParagraphStartPosition(
+                  AXBoundaryBehavior::StopAtLastAnchorBoundary);
+            }),
+            TEXT_FIELD_ID,
+            13 /* text_offset at end of text field */,
+            {"TextPosition anchor_id=4 text_offset=7 "
+             "affinity=downstream annotated_text=Line 1\n<L>ine 2",
+             "TextPosition anchor_id=4 text_offset=0 "
+             "affinity=downstream annotated_text=<L>ine 1\nLine 2",
+             "TextPosition anchor_id=2 text_offset=0 "
+             "affinity=downstream annotated_text=<>",
+             "TextPosition anchor_id=2 text_offset=0 "
+             "affinity=downstream annotated_text=<>"}},
+        TextNavigationTestParam{
+            base::BindRepeating([](const TestPositionType& position) {
+              return position->CreatePreviousParagraphStartPosition(
+                  AXBoundaryBehavior::StopAtLastAnchorBoundary);
+            }),
+            STATIC_TEXT1_ID,
+            5 /* text_offset */,
+            {"TextPosition anchor_id=5 text_offset=0 "
+             "affinity=downstream annotated_text=<L>ine 1",
+             "TextPosition anchor_id=2 text_offset=0 "
+             "affinity=downstream annotated_text=<>",
+             "TextPosition anchor_id=2 text_offset=0 "
+             "affinity=downstream annotated_text=<>"}},
+        TextNavigationTestParam{
+            base::BindRepeating([](const TestPositionType& position) {
+              return position->CreatePreviousParagraphStartPosition(
+                  AXBoundaryBehavior::StopAtLastAnchorBoundary);
+            }),
+            INLINE_BOX2_ID,
+            4 /* text_offset */,
+            {"TextPosition anchor_id=9 text_offset=0 "
+             "affinity=downstream annotated_text=<L>ine 2",
+             "TextPosition anchor_id=6 text_offset=0 "
+             "affinity=downstream annotated_text=<L>ine 1",
+             "TextPosition anchor_id=2 text_offset=0 "
+             "affinity=downstream annotated_text=<>",
+             "TextPosition anchor_id=2 text_offset=0 "
+             "affinity=downstream annotated_text=<>"}}));
 
 INSTANTIATE_TEST_SUITE_P(
     CreateNextParagraphEndPositionWithBoundaryBehaviorCrossBoundary,
-    AXPositionTestWithParam,
+    AXPositionTextNavigationTestWithParam,
     testing::Values(
-        TestParam{base::BindRepeating([](const TestPositionType& position) {
-                    return position->CreateNextParagraphEndPosition(
-                        AXBoundaryBehavior::CrossBoundary);
-                  }),
-                  ROOT_ID,
-                  0 /* text_offset */,
-                  {"TextPosition anchor_id=1 text_offset=7 "
-                   "affinity=upstream annotated_text=Line 1\n<L>ine 2",
-                   "TextPosition anchor_id=1 text_offset=13 "
-                   "affinity=downstream annotated_text=Line 1\nLine 2<>",
-                   "NullPosition"}},
-        TestParam{base::BindRepeating([](const TestPositionType& position) {
-                    return position->CreateNextParagraphEndPosition(
-                        AXBoundaryBehavior::CrossBoundary);
-                  }),
-                  TEXT_FIELD_ID,
-                  0 /* text_offset */,
-                  {"TextPosition anchor_id=4 text_offset=7 "
-                   "affinity=upstream annotated_text=Line 1\n<L>ine 2",
-                   "TextPosition anchor_id=4 text_offset=13 "
-                   "affinity=downstream annotated_text=Line 1\nLine 2<>",
-                   "NullPosition"}},
-        TestParam{base::BindRepeating([](const TestPositionType& position) {
-                    return position->CreateNextParagraphEndPosition(
-                        AXBoundaryBehavior::CrossBoundary);
-                  }),
-                  STATIC_TEXT1_ID,
-                  1 /* text_offset */,
-                  {"TextPosition anchor_id=7 text_offset=1 "
-                   "affinity=downstream annotated_text=\n<>",
-                   "TextPosition anchor_id=9 text_offset=6 "
-                   "affinity=downstream annotated_text=Line 2<>",
-                   "NullPosition"}},
-        TestParam{base::BindRepeating([](const TestPositionType& position) {
-                    return position->CreateNextParagraphEndPosition(
-                        AXBoundaryBehavior::CrossBoundary);
-                  }),
-                  INLINE_BOX2_ID,
-                  4 /* text_offset */,
-                  {"TextPosition anchor_id=9 text_offset=6 "
-                   "affinity=downstream annotated_text=Line 2<>",
-                   "NullPosition"}}));
+        TextNavigationTestParam{
+            base::BindRepeating([](const TestPositionType& position) {
+              return position->CreateNextParagraphEndPosition(
+                  AXBoundaryBehavior::CrossBoundary);
+            }),
+            ROOT_ID,
+            0 /* text_offset */,
+            {"TextPosition anchor_id=1 text_offset=7 "
+             "affinity=upstream annotated_text=Line 1\n<L>ine 2",
+             "TextPosition anchor_id=1 text_offset=13 "
+             "affinity=downstream annotated_text=Line 1\nLine 2<>",
+             "NullPosition"}},
+        TextNavigationTestParam{
+            base::BindRepeating([](const TestPositionType& position) {
+              return position->CreateNextParagraphEndPosition(
+                  AXBoundaryBehavior::CrossBoundary);
+            }),
+            TEXT_FIELD_ID,
+            0 /* text_offset */,
+            {"TextPosition anchor_id=4 text_offset=7 "
+             "affinity=upstream annotated_text=Line 1\n<L>ine 2",
+             "TextPosition anchor_id=4 text_offset=13 "
+             "affinity=downstream annotated_text=Line 1\nLine 2<>",
+             "NullPosition"}},
+        TextNavigationTestParam{
+            base::BindRepeating([](const TestPositionType& position) {
+              return position->CreateNextParagraphEndPosition(
+                  AXBoundaryBehavior::CrossBoundary);
+            }),
+            STATIC_TEXT1_ID,
+            1 /* text_offset */,
+            {"TextPosition anchor_id=7 text_offset=1 "
+             "affinity=downstream annotated_text=\n<>",
+             "TextPosition anchor_id=9 text_offset=6 "
+             "affinity=downstream annotated_text=Line 2<>",
+             "NullPosition"}},
+        TextNavigationTestParam{
+            base::BindRepeating([](const TestPositionType& position) {
+              return position->CreateNextParagraphEndPosition(
+                  AXBoundaryBehavior::CrossBoundary);
+            }),
+            INLINE_BOX2_ID,
+            4 /* text_offset */,
+            {"TextPosition anchor_id=9 text_offset=6 "
+             "affinity=downstream annotated_text=Line 2<>",
+             "NullPosition"}}));
 
 INSTANTIATE_TEST_SUITE_P(
     CreateNextParagraphEndPositionWithBoundaryBehaviorStopAtAnchorBoundary,
-    AXPositionTestWithParam,
+    AXPositionTextNavigationTestWithParam,
     testing::Values(
-        TestParam{base::BindRepeating([](const TestPositionType& position) {
-                    return position->CreateNextParagraphEndPosition(
-                        AXBoundaryBehavior::StopAtAnchorBoundary);
-                  }),
-                  ROOT_ID,
-                  0 /* text_offset */,
-                  {"TextPosition anchor_id=1 text_offset=7 "
-                   "affinity=upstream annotated_text=Line 1\n<L>ine 2",
-                   "TextPosition anchor_id=1 text_offset=13 "
-                   "affinity=downstream annotated_text=Line 1\nLine 2<>",
-                   "TextPosition anchor_id=1 text_offset=13 "
-                   "affinity=downstream annotated_text=Line 1\nLine 2<>"}},
-        TestParam{base::BindRepeating([](const TestPositionType& position) {
-                    return position->CreateNextParagraphEndPosition(
-                        AXBoundaryBehavior::StopAtAnchorBoundary);
-                  }),
-                  TEXT_FIELD_ID,
-                  0 /* text_offset */,
-                  {"TextPosition anchor_id=4 text_offset=7 "
-                   "affinity=upstream annotated_text=Line 1\n<L>ine 2",
-                   "TextPosition anchor_id=4 text_offset=13 "
-                   "affinity=downstream annotated_text=Line 1\nLine 2<>",
-                   "TextPosition anchor_id=4 text_offset=13 "
-                   "affinity=downstream annotated_text=Line 1\nLine 2<>"}},
-        TestParam{base::BindRepeating([](const TestPositionType& position) {
-                    return position->CreateNextParagraphEndPosition(
-                        AXBoundaryBehavior::StopAtAnchorBoundary);
-                  }),
-                  STATIC_TEXT1_ID,
-                  1 /* text_offset */,
-                  {"TextPosition anchor_id=5 text_offset=6 "
-                   "affinity=downstream annotated_text=Line 1<>",
-                   "TextPosition anchor_id=5 text_offset=6 "
-                   "affinity=downstream annotated_text=Line 1<>"}},
-        TestParam{base::BindRepeating([](const TestPositionType& position) {
-                    return position->CreateNextParagraphEndPosition(
-                        AXBoundaryBehavior::StopAtAnchorBoundary);
-                  }),
-                  INLINE_BOX2_ID,
-                  4 /* text_offset */,
-                  {"TextPosition anchor_id=9 text_offset=6 "
-                   "affinity=downstream annotated_text=Line 2<>",
-                   "TextPosition anchor_id=9 text_offset=6 "
-                   "affinity=downstream annotated_text=Line 2<>"}}));
+        TextNavigationTestParam{
+            base::BindRepeating([](const TestPositionType& position) {
+              return position->CreateNextParagraphEndPosition(
+                  AXBoundaryBehavior::StopAtAnchorBoundary);
+            }),
+            ROOT_ID,
+            0 /* text_offset */,
+            {"TextPosition anchor_id=1 text_offset=7 "
+             "affinity=upstream annotated_text=Line 1\n<L>ine 2",
+             "TextPosition anchor_id=1 text_offset=13 "
+             "affinity=downstream annotated_text=Line 1\nLine 2<>",
+             "TextPosition anchor_id=1 text_offset=13 "
+             "affinity=downstream annotated_text=Line 1\nLine 2<>",
+             "TextPosition anchor_id=1 text_offset=13 "
+             "affinity=downstream annotated_text=Line 1\nLine 2<>"}},
+        TextNavigationTestParam{
+            base::BindRepeating([](const TestPositionType& position) {
+              return position->CreateNextParagraphEndPosition(
+                  AXBoundaryBehavior::StopAtAnchorBoundary);
+            }),
+            TEXT_FIELD_ID,
+            0 /* text_offset */,
+            {"TextPosition anchor_id=4 text_offset=7 "
+             "affinity=upstream annotated_text=Line 1\n<L>ine 2",
+             "TextPosition anchor_id=4 text_offset=13 "
+             "affinity=downstream annotated_text=Line 1\nLine 2<>",
+             "TextPosition anchor_id=4 text_offset=13 "
+             "affinity=downstream annotated_text=Line 1\nLine 2<>",
+             "TextPosition anchor_id=4 text_offset=13 "
+             "affinity=downstream annotated_text=Line 1\nLine 2<>"}},
+        TextNavigationTestParam{
+            base::BindRepeating([](const TestPositionType& position) {
+              return position->CreateNextParagraphEndPosition(
+                  AXBoundaryBehavior::StopAtAnchorBoundary);
+            }),
+            STATIC_TEXT1_ID,
+            1 /* text_offset */,
+            {"TextPosition anchor_id=5 text_offset=6 "
+             "affinity=downstream annotated_text=Line 1<>",
+             "TextPosition anchor_id=5 text_offset=6 "
+             "affinity=downstream annotated_text=Line 1<>"}},
+        TextNavigationTestParam{
+            base::BindRepeating([](const TestPositionType& position) {
+              return position->CreateNextParagraphEndPosition(
+                  AXBoundaryBehavior::StopAtAnchorBoundary);
+            }),
+            INLINE_BOX2_ID,
+            4 /* text_offset */,
+            {"TextPosition anchor_id=9 text_offset=6 "
+             "affinity=downstream annotated_text=Line 2<>",
+             "TextPosition anchor_id=9 text_offset=6 "
+             "affinity=downstream annotated_text=Line 2<>"}}));
 
 INSTANTIATE_TEST_SUITE_P(
     CreateNextParagraphEndPositionWithBoundaryBehaviorStopIfAlreadyAtBoundary,
-    AXPositionTestWithParam,
+    AXPositionTextNavigationTestWithParam,
     testing::Values(
-        TestParam{base::BindRepeating([](const TestPositionType& position) {
-                    return position->CreateNextParagraphEndPosition(
-                        AXBoundaryBehavior::StopIfAlreadyAtBoundary);
-                  }),
-                  ROOT_ID,
-                  0 /* text_offset */,
-                  {"TextPosition anchor_id=1 text_offset=0 "
-                   "affinity=upstream annotated_text=<L>ine 1\nLine 2",
-                   "TextPosition anchor_id=1 text_offset=0 "
-                   "affinity=upstream annotated_text=<L>ine 1\nLine 2"}},
-        TestParam{base::BindRepeating([](const TestPositionType& position) {
-                    return position->CreateNextParagraphEndPosition(
-                        AXBoundaryBehavior::StopIfAlreadyAtBoundary);
-                  }),
-                  TEXT_FIELD_ID,
-                  0 /* text_offset */,
-                  {"TextPosition anchor_id=4 text_offset=7 "
-                   "affinity=upstream annotated_text=Line 1\n<L>ine 2",
-                   "TextPosition anchor_id=4 text_offset=7 "
-                   "affinity=upstream annotated_text=Line 1\n<L>ine 2"}},
-        TestParam{base::BindRepeating([](const TestPositionType& position) {
-                    return position->CreateNextParagraphEndPosition(
-                        AXBoundaryBehavior::StopIfAlreadyAtBoundary);
-                  }),
-                  STATIC_TEXT1_ID,
-                  1 /* text_offset */,
-                  {"TextPosition anchor_id=7 text_offset=1 "
-                   "affinity=downstream annotated_text=\n<>",
-                   "TextPosition anchor_id=7 text_offset=1 "
-                   "affinity=downstream annotated_text=\n<>"}},
-        TestParam{base::BindRepeating([](const TestPositionType& position) {
-                    return position->CreateNextParagraphEndPosition(
-                        AXBoundaryBehavior::StopIfAlreadyAtBoundary);
-                  }),
-                  INLINE_BOX2_ID,
-                  4 /* text_offset */,
-                  {"TextPosition anchor_id=9 text_offset=6 "
-                   "affinity=downstream annotated_text=Line 2<>",
-                   "TextPosition anchor_id=9 text_offset=6 "
-                   "affinity=downstream annotated_text=Line 2<>"}},
-        TestParam{base::BindRepeating([](const TestPositionType& position) {
-                    return position->CreateNextParagraphEndPosition(
-                        AXBoundaryBehavior::StopIfAlreadyAtBoundary);
-                  }),
-                  LINE_BREAK_ID,
-                  0 /* text_offset */,
-                  {"TextPosition anchor_id=7 text_offset=1 "
-                   "affinity=downstream annotated_text=\n<>",
-                   "TextPosition anchor_id=7 text_offset=1 "
-                   "affinity=downstream annotated_text=\n<>"}},
-        TestParam{base::BindRepeating([](const TestPositionType& position) {
-                    return position->CreateNextParagraphEndPosition(
-                        AXBoundaryBehavior::StopIfAlreadyAtBoundary);
-                  }),
-                  LINE_BREAK_ID,
-                  1 /* text_offset */,
-                  {"TextPosition anchor_id=7 text_offset=1 "
-                   "affinity=downstream annotated_text=\n<>",
-                   "TextPosition anchor_id=7 text_offset=1 "
-                   "affinity=downstream annotated_text=\n<>"}}));
+        TextNavigationTestParam{
+            base::BindRepeating([](const TestPositionType& position) {
+              return position->CreateNextParagraphEndPosition(
+                  AXBoundaryBehavior::StopIfAlreadyAtBoundary);
+            }),
+            ROOT_ID,
+            0 /* text_offset */,
+            {"TextPosition anchor_id=1 text_offset=0 "
+             "affinity=downstream annotated_text=<L>ine 1\nLine 2",
+             "TextPosition anchor_id=1 text_offset=0 "
+             "affinity=downstream annotated_text=<L>ine 1\nLine 2"}},
+        TextNavigationTestParam{
+            base::BindRepeating([](const TestPositionType& position) {
+              return position->CreateNextParagraphEndPosition(
+                  AXBoundaryBehavior::StopIfAlreadyAtBoundary);
+            }),
+            TEXT_FIELD_ID,
+            0 /* text_offset */,
+            {"TextPosition anchor_id=4 text_offset=7 "
+             "affinity=upstream annotated_text=Line 1\n<L>ine 2",
+             "TextPosition anchor_id=4 text_offset=7 "
+             "affinity=upstream annotated_text=Line 1\n<L>ine 2"}},
+        TextNavigationTestParam{
+            base::BindRepeating([](const TestPositionType& position) {
+              return position->CreateNextParagraphEndPosition(
+                  AXBoundaryBehavior::StopIfAlreadyAtBoundary);
+            }),
+            STATIC_TEXT1_ID,
+            1 /* text_offset */,
+            {"TextPosition anchor_id=7 text_offset=1 "
+             "affinity=downstream annotated_text=\n<>",
+             "TextPosition anchor_id=7 text_offset=1 "
+             "affinity=downstream annotated_text=\n<>"}},
+        TextNavigationTestParam{
+            base::BindRepeating([](const TestPositionType& position) {
+              return position->CreateNextParagraphEndPosition(
+                  AXBoundaryBehavior::StopIfAlreadyAtBoundary);
+            }),
+            INLINE_BOX2_ID,
+            4 /* text_offset */,
+            {"TextPosition anchor_id=9 text_offset=6 "
+             "affinity=downstream annotated_text=Line 2<>",
+             "TextPosition anchor_id=9 text_offset=6 "
+             "affinity=downstream annotated_text=Line 2<>"}},
+        TextNavigationTestParam{
+            base::BindRepeating([](const TestPositionType& position) {
+              return position->CreateNextParagraphEndPosition(
+                  AXBoundaryBehavior::StopIfAlreadyAtBoundary);
+            }),
+            LINE_BREAK_ID,
+            0 /* text_offset */,
+            {"TextPosition anchor_id=7 text_offset=1 "
+             "affinity=downstream annotated_text=\n<>",
+             "TextPosition anchor_id=7 text_offset=1 "
+             "affinity=downstream annotated_text=\n<>"}},
+        TextNavigationTestParam{
+            base::BindRepeating([](const TestPositionType& position) {
+              return position->CreateNextParagraphEndPosition(
+                  AXBoundaryBehavior::StopIfAlreadyAtBoundary);
+            }),
+            LINE_BREAK_ID,
+            1 /* text_offset */,
+            {"TextPosition anchor_id=7 text_offset=1 "
+             "affinity=downstream annotated_text=\n<>",
+             "TextPosition anchor_id=7 text_offset=1 "
+             "affinity=downstream annotated_text=\n<>"}}));
+
+INSTANTIATE_TEST_SUITE_P(
+    CreateNextParagraphEndPositionWithBoundaryBehaviorStopAtLastAnchorBoundary,
+    AXPositionTextNavigationTestWithParam,
+    testing::Values(
+        TextNavigationTestParam{
+            base::BindRepeating([](const TestPositionType& position) {
+              return position->CreateNextParagraphEndPosition(
+                  AXBoundaryBehavior::StopAtLastAnchorBoundary);
+            }),
+            ROOT_ID,
+            0 /* text_offset */,
+            {"TextPosition anchor_id=1 text_offset=7 "
+             "affinity=upstream annotated_text=Line 1\n<L>ine 2",
+             "TextPosition anchor_id=1 text_offset=13 "
+             "affinity=downstream annotated_text=Line 1\nLine 2<>",
+             "TextPosition anchor_id=1 text_offset=13 "
+             "affinity=downstream annotated_text=Line 1\nLine 2<>"}},
+        TextNavigationTestParam{
+            base::BindRepeating([](const TestPositionType& position) {
+              return position->CreateNextParagraphEndPosition(
+                  AXBoundaryBehavior::StopAtLastAnchorBoundary);
+            }),
+            TEXT_FIELD_ID,
+            0 /* text_offset */,
+            {"TextPosition anchor_id=4 text_offset=7 "
+             "affinity=upstream annotated_text=Line 1\n<L>ine 2",
+             "TextPosition anchor_id=4 text_offset=13 "
+             "affinity=downstream annotated_text=Line 1\nLine 2<>",
+             "TextPosition anchor_id=4 text_offset=13 "
+             "affinity=downstream annotated_text=Line 1\nLine 2<>"}},
+        TextNavigationTestParam{
+            base::BindRepeating([](const TestPositionType& position) {
+              return position->CreateNextParagraphEndPosition(
+                  AXBoundaryBehavior::StopAtLastAnchorBoundary);
+            }),
+            STATIC_TEXT1_ID,
+            1 /* text_offset */,
+            {"TextPosition anchor_id=7 text_offset=1 "
+             "affinity=downstream annotated_text=\n<>",
+             "TextPosition anchor_id=9 text_offset=6 "
+             "affinity=downstream annotated_text=Line 2<>",
+             "TextPosition anchor_id=9 text_offset=6 "
+             "affinity=downstream annotated_text=Line 2<>"}},
+        TextNavigationTestParam{
+            base::BindRepeating([](const TestPositionType& position) {
+              return position->CreateNextParagraphEndPosition(
+                  AXBoundaryBehavior::StopAtLastAnchorBoundary);
+            }),
+            INLINE_BOX2_ID,
+            4 /* text_offset */,
+            {"TextPosition anchor_id=9 text_offset=6 "
+             "affinity=downstream annotated_text=Line 2<>",
+             "TextPosition anchor_id=9 text_offset=6 "
+             "affinity=downstream annotated_text=Line 2<>"}}));
 
 INSTANTIATE_TEST_SUITE_P(
     CreatePreviousParagraphEndPositionWithBoundaryBehaviorCrossBoundary,
-    AXPositionTestWithParam,
+    AXPositionTextNavigationTestWithParam,
     testing::Values(
-        TestParam{base::BindRepeating([](const TestPositionType& position) {
-                    return position->CreatePreviousParagraphEndPosition(
-                        AXBoundaryBehavior::CrossBoundary);
-                  }),
-                  ROOT_ID,
-                  13 /* text_offset at end of root. */,
-                  {"TextPosition anchor_id=1 text_offset=7 "
-                   "affinity=upstream annotated_text=Line 1\n<L>ine 2",
-                   "TextPosition anchor_id=1 text_offset=0 "
-                   "affinity=upstream annotated_text=<L>ine 1\nLine 2",
-                   "NullPosition"}},
-        TestParam{base::BindRepeating([](const TestPositionType& position) {
-                    return position->CreatePreviousParagraphEndPosition(
-                        AXBoundaryBehavior::CrossBoundary);
-                  }),
-                  TEXT_FIELD_ID,
-                  13 /* text_offset at end of text field */,
-                  {"TextPosition anchor_id=4 text_offset=7 "
-                   "affinity=upstream annotated_text=Line 1\n<L>ine 2",
-                   "TextPosition anchor_id=3 text_offset=0 "
-                   "affinity=downstream annotated_text=<>",
-                   "NullPosition"}},
-        TestParam{base::BindRepeating([](const TestPositionType& position) {
-                    return position->CreatePreviousParagraphEndPosition(
-                        AXBoundaryBehavior::CrossBoundary);
-                  }),
-                  ROOT_ID,
-                  5 /* text_offset on the last character of "Line 1". */,
-                  {"TextPosition anchor_id=1 text_offset=0 "
-                   "affinity=upstream annotated_text=<L>ine 1\nLine 2",
-                   "NullPosition"}},
-        TestParam{base::BindRepeating([](const TestPositionType& position) {
-                    return position->CreatePreviousParagraphEndPosition(
-                        AXBoundaryBehavior::CrossBoundary);
-                  }),
-                  TEXT_FIELD_ID,
-                  5 /* text_offset on the last character of "Line 1". */,
-                  {"TextPosition anchor_id=3 text_offset=0 "
-                   "affinity=downstream annotated_text=<>",
-                   "NullPosition"}},
-        TestParam{base::BindRepeating([](const TestPositionType& position) {
-                    return position->CreatePreviousParagraphEndPosition(
-                        AXBoundaryBehavior::CrossBoundary);
-                  }),
-                  INLINE_BOX2_ID,
-                  4 /* text_offset */,
-                  {"TextPosition anchor_id=7 text_offset=1 "
-                   "affinity=downstream annotated_text=\n<>",
-                   "TextPosition anchor_id=3 text_offset=0 "
-                   "affinity=downstream annotated_text=<>",
-                   "NullPosition"}},
-        TestParam{base::BindRepeating([](const TestPositionType& position) {
-                    return position->CreatePreviousParagraphEndPosition(
-                        AXBoundaryBehavior::CrossBoundary);
-                  }),
-                  INLINE_BOX2_ID,
-                  0 /* text_offset */,
-                  {"TextPosition anchor_id=3 text_offset=0 "
-                   "affinity=downstream annotated_text=<>",
-                   "NullPosition"}}));
+        TextNavigationTestParam{
+            base::BindRepeating([](const TestPositionType& position) {
+              return position->CreatePreviousParagraphEndPosition(
+                  AXBoundaryBehavior::CrossBoundary);
+            }),
+            ROOT_ID,
+            13 /* text_offset at end of root. */,
+            {"TextPosition anchor_id=1 text_offset=7 "
+             "affinity=upstream annotated_text=Line 1\n<L>ine 2",
+             "TextPosition anchor_id=1 text_offset=0 "
+             "affinity=downstream annotated_text=<L>ine 1\nLine 2",
+             "NullPosition"}},
+        TextNavigationTestParam{
+            base::BindRepeating([](const TestPositionType& position) {
+              return position->CreatePreviousParagraphEndPosition(
+                  AXBoundaryBehavior::CrossBoundary);
+            }),
+            TEXT_FIELD_ID,
+            13 /* text_offset at end of text field */,
+            {"TextPosition anchor_id=4 text_offset=7 "
+             "affinity=upstream annotated_text=Line 1\n<L>ine 2",
+             "TextPosition anchor_id=3 text_offset=0 "
+             "affinity=downstream annotated_text=<>",
+             "NullPosition"}},
+        TextNavigationTestParam{
+            base::BindRepeating([](const TestPositionType& position) {
+              return position->CreatePreviousParagraphEndPosition(
+                  AXBoundaryBehavior::CrossBoundary);
+            }),
+            ROOT_ID,
+            5 /* text_offset on the last character of "Line 1". */,
+            {"TextPosition anchor_id=1 text_offset=0 "
+             "affinity=downstream annotated_text=<L>ine 1\nLine 2",
+             "NullPosition"}},
+        TextNavigationTestParam{
+            base::BindRepeating([](const TestPositionType& position) {
+              return position->CreatePreviousParagraphEndPosition(
+                  AXBoundaryBehavior::CrossBoundary);
+            }),
+            TEXT_FIELD_ID,
+            5 /* text_offset on the last character of "Line 1". */,
+            {"TextPosition anchor_id=3 text_offset=0 "
+             "affinity=downstream annotated_text=<>",
+             "NullPosition"}},
+        TextNavigationTestParam{
+            base::BindRepeating([](const TestPositionType& position) {
+              return position->CreatePreviousParagraphEndPosition(
+                  AXBoundaryBehavior::CrossBoundary);
+            }),
+            INLINE_BOX2_ID,
+            4 /* text_offset */,
+            {"TextPosition anchor_id=7 text_offset=1 "
+             "affinity=downstream annotated_text=\n<>",
+             "TextPosition anchor_id=3 text_offset=0 "
+             "affinity=downstream annotated_text=<>",
+             "NullPosition"}},
+        TextNavigationTestParam{
+            base::BindRepeating([](const TestPositionType& position) {
+              return position->CreatePreviousParagraphEndPosition(
+                  AXBoundaryBehavior::CrossBoundary);
+            }),
+            INLINE_BOX2_ID,
+            0 /* text_offset */,
+            {"TextPosition anchor_id=3 text_offset=0 "
+             "affinity=downstream annotated_text=<>",
+             "NullPosition"}}));
 
 INSTANTIATE_TEST_SUITE_P(
     CreatePreviousParagraphEndPositionWithBoundaryBehaviorStopAtAnchorBoundary,
-    AXPositionTestWithParam,
+    AXPositionTextNavigationTestWithParam,
     testing::Values(
-        // Note that for the first two tests we can't go past the line ending at
-        // "Line 1" to test for "NullPosition'", because the text position at
-        // the beginning of the soft line break is equivalent to the position at
-        // the end of the line's text and so an infinite recursion will occur.
-        TestParam{base::BindRepeating([](const TestPositionType& position) {
-                    return position->CreatePreviousParagraphEndPosition(
-                        AXBoundaryBehavior::StopAtAnchorBoundary);
-                  }),
-                  ROOT_ID,
-                  13 /* text_offset at end of root. */,
-                  {"TextPosition anchor_id=1 text_offset=7 "
-                   "affinity=upstream annotated_text=Line 1\n<L>ine 2",
-                   "TextPosition anchor_id=1 text_offset=0 "
-                   "affinity=upstream annotated_text=<L>ine 1\nLine 2"}},
-        TestParam{base::BindRepeating([](const TestPositionType& position) {
-                    return position->CreatePreviousParagraphEndPosition(
-                        AXBoundaryBehavior::StopAtAnchorBoundary);
-                  }),
-                  TEXT_FIELD_ID,
-                  13 /* text_offset at end of text field */,
-                  {"TextPosition anchor_id=4 text_offset=7 "
-                   "affinity=upstream annotated_text=Line 1\n<L>ine 2",
-                   "TextPosition anchor_id=4 text_offset=0 "
-                   "affinity=downstream annotated_text=<L>ine 1\nLine 2"}},
-        TestParam{base::BindRepeating([](const TestPositionType& position) {
-                    return position->CreatePreviousParagraphEndPosition(
-                        AXBoundaryBehavior::StopAtAnchorBoundary);
-                  }),
-                  ROOT_ID,
-                  5 /* text_offset on the last character of "Line 1". */,
-                  {"TextPosition anchor_id=1 text_offset=0 "
-                   "affinity=upstream annotated_text=<L>ine 1\nLine 2",
-                   "TextPosition anchor_id=1 text_offset=0 "
-                   "affinity=downstream annotated_text=<L>ine 1\nLine 2"}},
-        TestParam{base::BindRepeating([](const TestPositionType& position) {
-                    return position->CreatePreviousParagraphEndPosition(
-                        AXBoundaryBehavior::StopAtAnchorBoundary);
-                  }),
-                  TEXT_FIELD_ID,
-                  5 /* text_offset on the last character of "Line 1". */,
-                  {"TextPosition anchor_id=4 text_offset=0 "
-                   "affinity=downstream annotated_text=<L>ine 1\nLine 2",
-                   "TextPosition anchor_id=4 text_offset=0 "
-                   "affinity=downstream annotated_text=<L>ine 1\nLine 2"}},
-        TestParam{base::BindRepeating([](const TestPositionType& position) {
-                    return position->CreatePreviousParagraphEndPosition(
-                        AXBoundaryBehavior::StopAtAnchorBoundary);
-                  }),
-                  INLINE_BOX2_ID,
-                  4 /* text_offset */,
-                  {"TextPosition anchor_id=9 text_offset=0 "
-                   "affinity=downstream annotated_text=<L>ine 2",
-                   "TextPosition anchor_id=9 text_offset=0 "
-                   "affinity=downstream annotated_text=<L>ine 2"}},
-        TestParam{base::BindRepeating([](const TestPositionType& position) {
-                    return position->CreatePreviousParagraphEndPosition(
-                        AXBoundaryBehavior::StopAtAnchorBoundary);
-                  }),
-                  INLINE_BOX2_ID,
-                  0 /* text_offset */,
-                  {"TextPosition anchor_id=9 text_offset=0 "
-                   "affinity=downstream annotated_text=<L>ine 2",
-                   "TextPosition anchor_id=9 text_offset=0 "
-                   "affinity=downstream annotated_text=<L>ine 2"}}));
+        TextNavigationTestParam{
+            base::BindRepeating([](const TestPositionType& position) {
+              return position->CreatePreviousParagraphEndPosition(
+                  AXBoundaryBehavior::StopAtAnchorBoundary);
+            }),
+            ROOT_ID,
+            13 /* text_offset at end of root. */,
+            {"TextPosition anchor_id=1 text_offset=7 "
+             "affinity=upstream annotated_text=Line 1\n<L>ine 2",
+             "TextPosition anchor_id=1 text_offset=0 "
+             "affinity=downstream annotated_text=<L>ine 1\nLine 2",
+             "TextPosition anchor_id=1 text_offset=0 "
+             "affinity=downstream annotated_text=<L>ine 1\nLine 2"}},
+        TextNavigationTestParam{
+            base::BindRepeating([](const TestPositionType& position) {
+              return position->CreatePreviousParagraphEndPosition(
+                  AXBoundaryBehavior::StopAtAnchorBoundary);
+            }),
+            TEXT_FIELD_ID,
+            13 /* text_offset at end of text field */,
+            {"TextPosition anchor_id=4 text_offset=7 "
+             "affinity=upstream annotated_text=Line 1\n<L>ine 2",
+             "TextPosition anchor_id=4 text_offset=0 "
+             "affinity=downstream annotated_text=<L>ine 1\nLine 2",
+             "TextPosition anchor_id=4 text_offset=0 "
+             "affinity=downstream annotated_text=<L>ine 1\nLine 2"}},
+        TextNavigationTestParam{
+            base::BindRepeating([](const TestPositionType& position) {
+              return position->CreatePreviousParagraphEndPosition(
+                  AXBoundaryBehavior::StopAtAnchorBoundary);
+            }),
+            ROOT_ID,
+            5 /* text_offset on the last character of "Line 1". */,
+            {"TextPosition anchor_id=1 text_offset=0 "
+             "affinity=downstream annotated_text=<L>ine 1\nLine 2",
+             "TextPosition anchor_id=1 text_offset=0 "
+             "affinity=downstream annotated_text=<L>ine 1\nLine 2"}},
+        TextNavigationTestParam{
+            base::BindRepeating([](const TestPositionType& position) {
+              return position->CreatePreviousParagraphEndPosition(
+                  AXBoundaryBehavior::StopAtAnchorBoundary);
+            }),
+            TEXT_FIELD_ID,
+            5 /* text_offset on the last character of "Line 1". */,
+            {"TextPosition anchor_id=4 text_offset=0 "
+             "affinity=downstream annotated_text=<L>ine 1\nLine 2",
+             "TextPosition anchor_id=4 text_offset=0 "
+             "affinity=downstream annotated_text=<L>ine 1\nLine 2"}},
+        TextNavigationTestParam{
+            base::BindRepeating([](const TestPositionType& position) {
+              return position->CreatePreviousParagraphEndPosition(
+                  AXBoundaryBehavior::StopAtAnchorBoundary);
+            }),
+            INLINE_BOX2_ID,
+            4 /* text_offset */,
+            {"TextPosition anchor_id=9 text_offset=0 "
+             "affinity=downstream annotated_text=<L>ine 2",
+             "TextPosition anchor_id=9 text_offset=0 "
+             "affinity=downstream annotated_text=<L>ine 2"}},
+        TextNavigationTestParam{
+            base::BindRepeating([](const TestPositionType& position) {
+              return position->CreatePreviousParagraphEndPosition(
+                  AXBoundaryBehavior::StopAtAnchorBoundary);
+            }),
+            INLINE_BOX2_ID,
+            0 /* text_offset */,
+            {"TextPosition anchor_id=9 text_offset=0 "
+             "affinity=downstream annotated_text=<L>ine 2",
+             "TextPosition anchor_id=9 text_offset=0 "
+             "affinity=downstream annotated_text=<L>ine 2"}}));
 
 INSTANTIATE_TEST_SUITE_P(
     CreatePreviousParagraphEndPositionWithBoundaryBehaviorStopIfAlreadyAtBoundary,
-    AXPositionTestWithParam,
+    AXPositionTextNavigationTestWithParam,
     testing::Values(
-        TestParam{base::BindRepeating([](const TestPositionType& position) {
-                    return position->CreatePreviousParagraphEndPosition(
-                        AXBoundaryBehavior::StopIfAlreadyAtBoundary);
-                  }),
-                  ROOT_ID,
-                  12 /* text_offset one before the end of root. */,
-                  {"TextPosition anchor_id=1 text_offset=7 "
-                   "affinity=upstream annotated_text=Line 1\n<L>ine 2",
-                   "TextPosition anchor_id=1 text_offset=7 "
-                   "affinity=upstream annotated_text=Line 1\n<L>ine 2"}},
-        TestParam{base::BindRepeating([](const TestPositionType& position) {
-                    return position->CreatePreviousParagraphEndPosition(
-                        AXBoundaryBehavior::StopIfAlreadyAtBoundary);
-                  }),
-                  TEXT_FIELD_ID,
-                  12 /* text_offset one before the end of text field */,
-                  {"TextPosition anchor_id=4 text_offset=7 "
-                   "affinity=upstream annotated_text=Line 1\n<L>ine 2",
-                   "TextPosition anchor_id=4 text_offset=7 "
-                   "affinity=upstream annotated_text=Line 1\n<L>ine 2"}},
-        TestParam{base::BindRepeating([](const TestPositionType& position) {
-                    return position->CreatePreviousParagraphEndPosition(
-                        AXBoundaryBehavior::StopIfAlreadyAtBoundary);
-                  }),
-                  INLINE_BOX1_ID,
-                  2 /* text_offset */,
-                  {"TextPosition anchor_id=3 text_offset=0 "
-                   "affinity=downstream annotated_text=<>",
-                   "TextPosition anchor_id=3 text_offset=0 "
-                   "affinity=downstream annotated_text=<>"}},
-        TestParam{base::BindRepeating([](const TestPositionType& position) {
-                    return position->CreatePreviousParagraphEndPosition(
-                        AXBoundaryBehavior::StopIfAlreadyAtBoundary);
-                  }),
-                  INLINE_BOX2_ID,
-                  4 /* text_offset */,
-                  {"TextPosition anchor_id=7 text_offset=1 "
-                   "affinity=downstream annotated_text=\n<>",
-                   "TextPosition anchor_id=7 text_offset=1 "
-                   "affinity=downstream annotated_text=\n<>"}},
-        TestParam{base::BindRepeating([](const TestPositionType& position) {
-                    return position->CreatePreviousParagraphEndPosition(
-                        AXBoundaryBehavior::StopIfAlreadyAtBoundary);
-                  }),
-                  INLINE_BOX2_ID,
-                  0 /* text_offset */,
-                  {"TextPosition anchor_id=7 text_offset=1 "
-                   "affinity=downstream annotated_text=\n<>",
-                   "TextPosition anchor_id=7 text_offset=1 "
-                   "affinity=downstream annotated_text=\n<>"}},
-        TestParam{base::BindRepeating([](const TestPositionType& position) {
-                    return position->CreatePreviousParagraphEndPosition(
-                        AXBoundaryBehavior::StopIfAlreadyAtBoundary);
-                  }),
-                  LINE_BREAK_ID,
-                  0 /* text_offset */,
-                  {"TextPosition anchor_id=3 text_offset=0 "
-                   "affinity=downstream annotated_text=<>",
-                   "TextPosition anchor_id=3 text_offset=0 "
-                   "affinity=downstream annotated_text=<>"}},
-        TestParam{base::BindRepeating([](const TestPositionType& position) {
-                    return position->CreatePreviousParagraphEndPosition(
-                        AXBoundaryBehavior::StopIfAlreadyAtBoundary);
-                  }),
-                  LINE_BREAK_ID,
-                  1 /* text_offset */,
-                  {"TextPosition anchor_id=7 text_offset=1 "
-                   "affinity=downstream annotated_text=\n<>",
-                   "TextPosition anchor_id=7 text_offset=1 "
-                   "affinity=downstream annotated_text=\n<>"}}));
+        TextNavigationTestParam{
+            base::BindRepeating([](const TestPositionType& position) {
+              return position->CreatePreviousParagraphEndPosition(
+                  AXBoundaryBehavior::StopIfAlreadyAtBoundary);
+            }),
+            ROOT_ID,
+            12 /* text_offset one before the end of root. */,
+            {"TextPosition anchor_id=1 text_offset=7 "
+             "affinity=upstream annotated_text=Line 1\n<L>ine 2",
+             "TextPosition anchor_id=1 text_offset=7 "
+             "affinity=upstream annotated_text=Line 1\n<L>ine 2"}},
+        TextNavigationTestParam{
+            base::BindRepeating([](const TestPositionType& position) {
+              return position->CreatePreviousParagraphEndPosition(
+                  AXBoundaryBehavior::StopIfAlreadyAtBoundary);
+            }),
+            TEXT_FIELD_ID,
+            12 /* text_offset one before the end of text field */,
+            {"TextPosition anchor_id=4 text_offset=7 "
+             "affinity=upstream annotated_text=Line 1\n<L>ine 2",
+             "TextPosition anchor_id=4 text_offset=7 "
+             "affinity=upstream annotated_text=Line 1\n<L>ine 2"}},
+        TextNavigationTestParam{
+            base::BindRepeating([](const TestPositionType& position) {
+              return position->CreatePreviousParagraphEndPosition(
+                  AXBoundaryBehavior::StopIfAlreadyAtBoundary);
+            }),
+            INLINE_BOX1_ID,
+            2 /* text_offset */,
+            {"TextPosition anchor_id=3 text_offset=0 "
+             "affinity=downstream annotated_text=<>",
+             "TextPosition anchor_id=3 text_offset=0 "
+             "affinity=downstream annotated_text=<>"}},
+        TextNavigationTestParam{
+            base::BindRepeating([](const TestPositionType& position) {
+              return position->CreatePreviousParagraphEndPosition(
+                  AXBoundaryBehavior::StopIfAlreadyAtBoundary);
+            }),
+            INLINE_BOX2_ID,
+            4 /* text_offset */,
+            {"TextPosition anchor_id=7 text_offset=1 "
+             "affinity=downstream annotated_text=\n<>",
+             "TextPosition anchor_id=7 text_offset=1 "
+             "affinity=downstream annotated_text=\n<>"}},
+        TextNavigationTestParam{
+            base::BindRepeating([](const TestPositionType& position) {
+              return position->CreatePreviousParagraphEndPosition(
+                  AXBoundaryBehavior::StopIfAlreadyAtBoundary);
+            }),
+            INLINE_BOX2_ID,
+            0 /* text_offset */,
+            {"TextPosition anchor_id=7 text_offset=1 "
+             "affinity=downstream annotated_text=\n<>",
+             "TextPosition anchor_id=7 text_offset=1 "
+             "affinity=downstream annotated_text=\n<>"}},
+        TextNavigationTestParam{
+            base::BindRepeating([](const TestPositionType& position) {
+              return position->CreatePreviousParagraphEndPosition(
+                  AXBoundaryBehavior::StopIfAlreadyAtBoundary);
+            }),
+            LINE_BREAK_ID,
+            0 /* text_offset */,
+            {"TextPosition anchor_id=3 text_offset=0 "
+             "affinity=downstream annotated_text=<>",
+             "TextPosition anchor_id=3 text_offset=0 "
+             "affinity=downstream annotated_text=<>"}},
+        TextNavigationTestParam{
+            base::BindRepeating([](const TestPositionType& position) {
+              return position->CreatePreviousParagraphEndPosition(
+                  AXBoundaryBehavior::StopIfAlreadyAtBoundary);
+            }),
+            LINE_BREAK_ID,
+            1 /* text_offset */,
+            {"TextPosition anchor_id=7 text_offset=1 "
+             "affinity=downstream annotated_text=\n<>",
+             "TextPosition anchor_id=7 text_offset=1 "
+             "affinity=downstream annotated_text=\n<>"}}));
+
+INSTANTIATE_TEST_SUITE_P(
+    CreatePreviousParagraphEndPositionWithBoundaryBehaviorStopAtLastAnchorBoundary,
+    AXPositionTextNavigationTestWithParam,
+    testing::Values(
+        TextNavigationTestParam{
+            base::BindRepeating([](const TestPositionType& position) {
+              return position->CreatePreviousParagraphEndPosition(
+                  AXBoundaryBehavior::StopAtLastAnchorBoundary);
+            }),
+            ROOT_ID,
+            13 /* text_offset at end of root. */,
+            {"TextPosition anchor_id=1 text_offset=7 "
+             "affinity=upstream annotated_text=Line 1\n<L>ine 2",
+             "TextPosition anchor_id=1 text_offset=0 "
+             "affinity=downstream annotated_text=<L>ine 1\nLine 2",
+             "TextPosition anchor_id=1 text_offset=0 "
+             "affinity=downstream annotated_text=<L>ine 1\nLine 2"}},
+        TextNavigationTestParam{
+            base::BindRepeating([](const TestPositionType& position) {
+              return position->CreatePreviousParagraphEndPosition(
+                  AXBoundaryBehavior::StopAtLastAnchorBoundary);
+            }),
+            TEXT_FIELD_ID,
+            13 /* text_offset at end of text field */,
+            {"TextPosition anchor_id=4 text_offset=7 "
+             "affinity=upstream annotated_text=Line 1\n<L>ine 2",
+             "TextPosition anchor_id=3 text_offset=0 "
+             "affinity=downstream annotated_text=<>",
+             // The following text position is equal to the previous one.
+             "TextPosition anchor_id=2 text_offset=0 "
+             "affinity=downstream annotated_text=<>"}},
+        TextNavigationTestParam{
+            base::BindRepeating([](const TestPositionType& position) {
+              return position->CreatePreviousParagraphEndPosition(
+                  AXBoundaryBehavior::StopAtLastAnchorBoundary);
+            }),
+            ROOT_ID,
+            5 /* text_offset on the last character of "Line 1". */,
+            {"TextPosition anchor_id=1 text_offset=0 "
+             "affinity=downstream annotated_text=<L>ine 1\nLine 2",
+             "TextPosition anchor_id=1 text_offset=0 "
+             "affinity=downstream annotated_text=<L>ine 1\nLine 2"}},
+        TextNavigationTestParam{
+            base::BindRepeating([](const TestPositionType& position) {
+              return position->CreatePreviousParagraphEndPosition(
+                  AXBoundaryBehavior::StopAtLastAnchorBoundary);
+            }),
+            TEXT_FIELD_ID,
+            5 /* text_offset on the last character of "Line 1". */,
+            {"TextPosition anchor_id=3 text_offset=0 "
+             "affinity=downstream annotated_text=<>",
+             // The following text position is equal to the previous one.
+             "TextPosition anchor_id=2 text_offset=0 "
+             "affinity=downstream annotated_text=<>"}},
+        TextNavigationTestParam{
+            base::BindRepeating([](const TestPositionType& position) {
+              return position->CreatePreviousParagraphEndPosition(
+                  AXBoundaryBehavior::StopAtLastAnchorBoundary);
+            }),
+            INLINE_BOX2_ID,
+            4 /* text_offset */,
+            {"TextPosition anchor_id=7 text_offset=1 "
+             "affinity=downstream annotated_text=\n<>",
+             "TextPosition anchor_id=3 text_offset=0 "
+             "affinity=downstream annotated_text=<>",
+             // The following text position is equal to the previous one.
+             "TextPosition anchor_id=2 text_offset=0 "
+             "affinity=downstream annotated_text=<>"}},
+        TextNavigationTestParam{
+            base::BindRepeating([](const TestPositionType& position) {
+              return position->CreatePreviousParagraphEndPosition(
+                  AXBoundaryBehavior::StopAtLastAnchorBoundary);
+            }),
+            INLINE_BOX2_ID,
+            0 /* text_offset */,
+            {"TextPosition anchor_id=3 text_offset=0 "
+             "affinity=downstream annotated_text=<>",
+             // The following text position is equal to the previous one.
+             "TextPosition anchor_id=2 text_offset=0 "
+             "affinity=downstream annotated_text=<>"}}));
+
 }  // namespace ui

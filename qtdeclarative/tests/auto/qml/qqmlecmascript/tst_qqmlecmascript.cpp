@@ -74,6 +74,7 @@ public:
 
 private slots:
     void initTestCase();
+    void arrayIncludesValueType();
     void assignBasicTypes();
     void assignDate_data();
     void assignDate();
@@ -380,6 +381,7 @@ private slots:
     void getThisObject();
     void semicolonAfterProperty();
     void hugeStack();
+    void variantConversionMethod();
 
     void gcCrashRegressionTest();
 
@@ -412,6 +414,36 @@ void tst_qqmlecmascript::initTestCase()
 {
     QQmlDataTest::initTestCase();
     registerTypes();
+}
+
+void tst_qqmlecmascript::arrayIncludesValueType()
+{
+    QQmlEngine engine;
+    QQmlComponent component(&engine);
+    // It is vital that QtQuick is imported below else we get a warning about
+    // QQml_colorProvider and tst_qqmlecmascript::signalParameterTypes fails due
+    // to some static variable being initialized with the wrong value
+    component.setData(R"(
+    import QtQuick 2.15
+    import QtQml 2.15
+    QtObject {
+        id: root
+        property color r: Qt.rgba(1, 0, 0)
+        property color g: Qt.rgba(0, 1, 0)
+        property color b: Qt.rgba(0, 0, 1)
+        property var colors: [r, g, b]
+        property bool success: false
+
+        Component.onCompleted: {
+            root.success = root.colors.includes(root.g)
+        }
+    }
+    )", QUrl("testData"));
+    QScopedPointer<QObject> o(component.create());
+    QVERIFY(o);
+    auto success = o->property("success");
+    QVERIFY(success.isValid());
+    QVERIFY(success.toBool());
 }
 
 void tst_qqmlecmascript::assignBasicTypes()
@@ -6439,6 +6471,8 @@ void tst_qqmlecmascript::topLevelGeneratorFunction()
     QQmlComponent component(&engine, testFileUrl("generatorFunction.qml"));
 
     QScopedPointer<QObject> o {component.create()};
+    if (!o)
+        qDebug() << component.errorString();
     QVERIFY(o != nullptr);
 
     // check that generator works correctly in QML
@@ -7271,7 +7305,7 @@ void tst_qqmlecmascript::forInLoop()
 
     QMetaObject::invokeMethod(object, "listProperty");
 
-    QStringList r = object->property("listResult").toString().split("|", QString::SkipEmptyParts);
+    QStringList r = object->property("listResult").toString().split("|", Qt::SkipEmptyParts);
     QCOMPARE(r.size(), 3);
     QCOMPARE(r[0],QLatin1String("0=obj1"));
     QCOMPARE(r[1],QLatin1String("1=obj2"));
@@ -9257,6 +9291,19 @@ void tst_qqmlecmascript::gcCrashRegressionTest()
     QVERIFY(pid != 0);
     QVERIFY(process.waitForFinished());
     QCOMPARE(process.exitCode(), 0);
+}
+
+void tst_qqmlecmascript::variantConversionMethod()
+{
+    QQmlEngine qmlengine;
+
+    VariantConvertObject obj;
+    qmlengine.rootContext()->setContextProperty("variantObject", &obj);
+
+    QQmlComponent component(&qmlengine, testFileUrl("variantConvert.qml"));
+    QScopedPointer<QObject> o(component.create());
+    QVERIFY(o != nullptr);
+    QCOMPARE(obj.funcCalled, QLatin1String("QModelIndex"));
 }
 
 QTEST_MAIN(tst_qqmlecmascript)

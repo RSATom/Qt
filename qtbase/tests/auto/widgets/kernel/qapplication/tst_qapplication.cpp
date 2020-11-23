@@ -26,6 +26,8 @@
 **
 ****************************************************************************/
 
+#define QT_STATICPLUGIN
+#include <QtWidgets/qstyleplugin.h>
 
 #include <qdebug.h>
 
@@ -50,8 +52,11 @@
 #include <QtWidgets/QLineEdit>
 #include <QtWidgets/QLabel>
 #include <QtWidgets/QMainWindow>
+#include <QtWidgets/QScrollArea>
+#include <QtWidgets/QScrollBar>
 #include <QtWidgets/private/qapplication_p.h>
 #include <QtWidgets/QStyle>
+#include <QtWidgets/qproxystyle.h>
 
 #include <qpa/qwindowsysteminterface.h>
 #include <qpa/qwindowsysteminterface_p.h>
@@ -93,7 +98,11 @@ private slots:
     void quitOnLastWindowClosed();
     void closeAllWindows();
     void testDeleteLater();
-    void testDeleteLaterProcessEvents();
+    void testDeleteLaterProcessEvents1();
+    void testDeleteLaterProcessEvents2();
+    void testDeleteLaterProcessEvents3();
+    void testDeleteLaterProcessEvents4();
+    void testDeleteLaterProcessEvents5();
 
 #if QT_CONFIG(library)
     void libraryPaths();
@@ -121,6 +130,7 @@ private slots:
     void task109149();
 
     void style();
+    void applicationPalettePolish();
 
     void allWidgets();
     void topLevelWidgets();
@@ -128,6 +138,8 @@ private slots:
     void setAttribute();
 
     void touchEventPropagation();
+    void wheelEventPropagation_data();
+    void wheelEventPropagation();
 
     void qtbug_12673();
     void noQuitOnHide();
@@ -1225,6 +1237,11 @@ void DeleteLaterWidget::runTest()
 
     QCoreApplication::processEvents();
 
+    // At this point, the event queue is empty. As we want a deferred
+    // deletion to occur before the timer event, we should provoke the
+    // event dispatcher for the next spin.
+    QCoreApplication::eventDispatcher()->interrupt();
+
     QVERIFY(!stillAlive); // verify at the end to make test terminate
 }
 
@@ -1254,8 +1271,10 @@ void tst_QApplication::testDeleteLater()
     QObject *stillAlive = wgt->findChild<QObject*>("deleteLater");
     QVERIFY(stillAlive);
 
+    wgt->show();
     QCoreApplication::exec();
 
+    QVERIFY(wgt->isHidden());
     delete wgt;
 
 }
@@ -1333,10 +1352,8 @@ public slots:
     }
 };
 
-void tst_QApplication::testDeleteLaterProcessEvents()
+void tst_QApplication::testDeleteLaterProcessEvents1()
 {
-    int argc = 0;
-
     // Calling processEvents() with no event dispatcher does nothing.
     QObject *object = new QObject;
     QPointer<QObject> p(object);
@@ -1344,75 +1361,85 @@ void tst_QApplication::testDeleteLaterProcessEvents()
     QApplication::processEvents();
     QVERIFY(p);
     delete object;
+}
 
-    {
-        QApplication app(argc, nullptr);
-        // If you call processEvents() with an event dispatcher present, but
-        // outside any event loops, deferred deletes are not processed unless
-        // sendPostedEvents(0, DeferredDelete) is called.
-        object = new QObject;
-        p = object;
-        object->deleteLater();
-        QCoreApplication::processEvents();
-        QVERIFY(p);
-        QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
-        QVERIFY(!p);
+void tst_QApplication::testDeleteLaterProcessEvents2()
+{
+    int argc = 0;
+    QApplication app(argc, nullptr);
+    // If you call processEvents() with an event dispatcher present, but
+    // outside any event loops, deferred deletes are not processed unless
+    // sendPostedEvents(0, DeferredDelete) is called.
+    auto object = new QObject;
+    QPointer<QObject> p(object);
+    object->deleteLater();
+    QCoreApplication::processEvents();
+    QVERIFY(p);
+    QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
+    QVERIFY(!p);
 
-        // If you call deleteLater() on an object when there is no parent
-        // event loop, and then enter an event loop, the object will get
-        // deleted.
-        object = new QObject;
-        p = object;
-        object->deleteLater();
-        QEventLoop loop;
-        QTimer::singleShot(1000, &loop, &QEventLoop::quit);
-        loop.exec();
-        QVERIFY(!p);
-    }
-    {
-        // When an object is in an event loop, then calls deleteLater() and enters
-        // an event loop recursively, it should not die until the parent event
-        // loop continues.
-        QApplication app(argc, nullptr);
-        QEventLoop loop;
-        EventLoopNester *nester = new EventLoopNester;
-        p = nester;
-        QTimer::singleShot(3000, &loop, &QEventLoop::quit);
-        QTimer::singleShot(0, nester, &EventLoopNester::deleteLaterAndEnterLoop);
+    // If you call deleteLater() on an object when there is no parent
+    // event loop, and then enter an event loop, the object will get
+    // deleted.
+    QEventLoop loop;
+    object = new QObject;
+    connect(object, &QObject::destroyed, &loop, &QEventLoop::quit);
+    p = object;
+    object->deleteLater();
+    QTimer::singleShot(1000, &loop, &QEventLoop::quit);
+    loop.exec();
+    QVERIFY(!p);
+}
 
-        loop.exec();
-        QVERIFY(!p);
-    }
+void tst_QApplication::testDeleteLaterProcessEvents3()
+{
+    int argc = 0;
+    // When an object is in an event loop, then calls deleteLater() and enters
+    // an event loop recursively, it should not die until the parent event
+    // loop continues.
+    QApplication app(argc, nullptr);
+    QEventLoop loop;
+    EventLoopNester *nester = new EventLoopNester;
+    QPointer<QObject> p(nester);
+    QTimer::singleShot(3000, &loop, &QEventLoop::quit);
+    QTimer::singleShot(0, nester, &EventLoopNester::deleteLaterAndEnterLoop);
 
-    {
-        // When the event loop that calls deleteLater() is exited
-        // immediately, the object should die when returning to the
-        // parent event loop
-        QApplication app(argc, nullptr);
-        QEventLoop loop;
-        EventLoopNester *nester = new EventLoopNester;
-        p = nester;
-        QTimer::singleShot(3000, &loop, &QEventLoop::quit);
-        QTimer::singleShot(0, nester, &EventLoopNester::deleteLaterAndExitLoop);
+    loop.exec();
+    QVERIFY(!p);
+}
 
-        loop.exec();
-        QVERIFY(!p);
-    }
+void tst_QApplication::testDeleteLaterProcessEvents4()
+{
+    int argc = 0;
+    // When the event loop that calls deleteLater() is exited
+    // immediately, the object should die when returning to the
+    // parent event loop
+    QApplication app(argc, nullptr);
+    QEventLoop loop;
+    EventLoopNester *nester = new EventLoopNester;
+    QPointer<QObject> p(nester);
+    QTimer::singleShot(3000, &loop, &QEventLoop::quit);
+    QTimer::singleShot(0, nester, &EventLoopNester::deleteLaterAndExitLoop);
 
-    {
-        // when the event loop that calls deleteLater() also calls
-        // processEvents() immediately afterwards, the object should
-        // not die until the parent loop continues
-        QApplication app(argc, nullptr);
-        QEventLoop loop;
-        EventLoopNester *nester = new EventLoopNester();
-        p = nester;
-        QTimer::singleShot(3000, &loop, &QEventLoop::quit);
-        QTimer::singleShot(0, nester, &EventLoopNester::deleteLaterAndProcessEvents);
+    loop.exec();
+    QVERIFY(!p);
+}
 
-        loop.exec();
-        QVERIFY(!p);
-    }
+void tst_QApplication::testDeleteLaterProcessEvents5()
+{
+    // when the event loop that calls deleteLater() also calls
+    // processEvents() immediately afterwards, the object should
+    // not die until the parent loop continues
+    int argc = 0;
+    QApplication app(argc, nullptr);
+    QEventLoop loop;
+    EventLoopNester *nester = new EventLoopNester();
+    QPointer<QObject> p(nester);
+    QTimer::singleShot(3000, &loop, &QEventLoop::quit);
+    QTimer::singleShot(0, nester, &EventLoopNester::deleteLaterAndProcessEvents);
+
+    loop.exec();
+    QVERIFY(!p);
 }
 
 /*
@@ -1704,6 +1731,9 @@ void tst_QApplication::focusMouseClick()
     int argc = 1;
     QApplication app(argc, &argv0);
 
+    if (!QGuiApplicationPrivate::platformIntegration()->hasCapability(QPlatformIntegration::WindowActivation))
+        QSKIP("Window activation is not supported");
+
     QWidget w;
     w.setWindowTitle(QLatin1String(QTest::currentTestFunction()));
     w.setFocusPolicy(Qt::StrongFocus);
@@ -1784,6 +1814,78 @@ void tst_QApplication::style()
 
     // qApp style can never be 0
     QVERIFY(QApplication::style() != nullptr);
+}
+
+class CustomStyle : public QProxyStyle
+{
+public:
+    CustomStyle() : QProxyStyle("Windows") { Q_ASSERT(!polished); }
+    ~CustomStyle() { polished = 0; }
+    void polish(QPalette &palette)
+    {
+        polished++;
+        palette.setColor(QPalette::Active, QPalette::Link, Qt::red);
+    }
+    static int polished;
+};
+
+int CustomStyle::polished = 0;
+
+class CustomStylePlugin : public QStylePlugin
+{
+    Q_OBJECT
+    Q_PLUGIN_METADATA(IID "org.qt-project.Qt.QStyleFactoryInterface" FILE "customstyle.json")
+public:
+    QStyle *create(const QString &) { return new CustomStyle; }
+};
+
+Q_IMPORT_PLUGIN(CustomStylePlugin)
+
+void tst_QApplication::applicationPalettePolish()
+{
+    int argc = 1;
+
+#if defined(QT_BUILD_INTERNAL)
+    {
+        qputenv("QT_DESKTOP_STYLE_KEY", "customstyle");
+        QApplication app(argc, &argv0);
+        QVERIFY(CustomStyle::polished);
+        QVERIFY(!app.palette().resolve());
+        QCOMPARE(app.palette().color(QPalette::Link), Qt::red);
+        qunsetenv("QT_DESKTOP_STYLE_KEY");
+    }
+#endif
+
+    {
+        QApplication::setStyle(new CustomStyle);
+        QApplication app(argc, &argv0);
+        QVERIFY(CustomStyle::polished);
+        QVERIFY(!app.palette().resolve());
+        QCOMPARE(app.palette().color(QPalette::Link), Qt::red);
+    }
+
+    {
+        QApplication app(argc, &argv0);
+        app.setStyle(new CustomStyle);
+        QVERIFY(CustomStyle::polished);
+        QVERIFY(!app.palette().resolve());
+        QCOMPARE(app.palette().color(QPalette::Link), Qt::red);
+
+        CustomStyle::polished = 0;
+        app.setPalette(QPalette());
+        QVERIFY(CustomStyle::polished);
+        QVERIFY(!app.palette().resolve());
+        QCOMPARE(app.palette().color(QPalette::Link), Qt::red);
+
+        CustomStyle::polished = 0;
+        QPalette palette;
+        palette.setColor(QPalette::Active, QPalette::Highlight, Qt::green);
+        app.setPalette(palette);
+        QVERIFY(CustomStyle::polished);
+        QVERIFY(app.palette().resolve());
+        QCOMPARE(app.palette().color(QPalette::Link), Qt::red);
+        QCOMPARE(app.palette().color(QPalette::Highlight), Qt::green);
+    }
 }
 
 void tst_QApplication::allWidgets()
@@ -2094,6 +2196,167 @@ void tst_QApplication::touchEventPropagation()
         QVERIFY(!widget.seenMouseEvent);
         QVERIFY(window.seenTouchEvent);
         QVERIFY(!window.seenMouseEvent);
+    }
+}
+
+/*!
+    Test that wheel events are propagated correctly.
+
+    The event propagation of wheel events is complex: generally, they are propagated
+    up the parent tree like other input events, until a widget accepts the event. However,
+    wheel events are ignored by default (unlike mouse events, which are accepted by default,
+    and ignored in the default implementation of the event handler of QWidget).
+
+    And Qt tries to make sure that wheel events that "belong together" are going to the same
+    widget. However, for low-precision events as generated by an old-fashioned
+    mouse wheel, each event is a distinct event, so Qt has no choice than to deliver the event
+    to the widget under the mouse.
+    High-precision events, as generated by track pads or other kinetic scrolling devices, come
+    in a continuous stream, with different phases. Qt tries to make sure that all events in the
+    same stream go to the widget that accepted the first event.
+
+    Also, QAbstractScrollArea forwards wheel events from the viewport to the relevant scrollbar,
+    which adds more complexity to the handling.
+
+    This tests two scenarios:
+    1) a large widget inside a scrollarea that scrolls, inside a scrollarea that also scrolls
+    2) a large widget inside a scrollarea that doesn't scroll, within a scrollarea that does
+
+    For scenario 1 "inner", the expectation is that the inner scrollarea handles all wheel
+    events.
+    For scenario 2 "outer", the expectation is that the outer scrollarea handles all wheel
+    events.
+*/
+struct WheelEvent
+{
+    WheelEvent(Qt::ScrollPhase p = Qt::NoScrollPhase, Qt::Orientation o = Qt::Vertical)
+    : phase(p), orientation(o)
+    {}
+    Qt::ScrollPhase phase = Qt::NoScrollPhase;
+    Qt::Orientation orientation = Qt::Vertical;
+};
+using WheelEventList = QList<WheelEvent>;
+Q_DECLARE_METATYPE(WheelEvent);
+
+void tst_QApplication::wheelEventPropagation_data()
+{
+    qRegisterMetaType<WheelEventList>();
+
+    QTest::addColumn<bool>("innerScrolls");
+    QTest::addColumn<WheelEventList>("events");
+
+    QTest::addRow("inner, classic")
+        << true
+        << WheelEventList{{}, {}, {}};
+    QTest::addRow("outer, classic")
+        << false
+        << WheelEventList{{}, {}, {}};
+    QTest::addRow("inner, kinetic")
+        << true
+        << WheelEventList{Qt::ScrollBegin, Qt::ScrollUpdate, Qt::ScrollMomentum, Qt::ScrollEnd};
+    QTest::addRow("outer, kinetic")
+        << false
+        << WheelEventList{Qt::ScrollBegin, Qt::ScrollUpdate, Qt::ScrollMomentum, Qt::ScrollEnd};
+    QTest::addRow("inner, partial kinetic")
+        << true
+        << WheelEventList{Qt::ScrollUpdate, Qt::ScrollMomentum, Qt::ScrollEnd};
+    QTest::addRow("outer, partial kinetic")
+        << false
+        << WheelEventList{Qt::ScrollUpdate, Qt::ScrollMomentum, Qt::ScrollEnd};
+    QTest::addRow("inner, changing direction")
+        << true
+        << WheelEventList{Qt::ScrollUpdate, {Qt::ScrollUpdate, Qt::Horizontal}, Qt::ScrollMomentum, Qt::ScrollEnd};
+    QTest::addRow("outer, changing direction")
+        << false
+        << WheelEventList{Qt::ScrollUpdate, {Qt::ScrollUpdate, Qt::Horizontal}, Qt::ScrollMomentum, Qt::ScrollEnd};
+}
+
+void tst_QApplication::wheelEventPropagation()
+{
+#ifdef Q_OS_WINRT
+    QSKIP("Not enough available screen space on WinRT for this test");
+#endif
+
+    QFETCH(bool, innerScrolls);
+    QFETCH(WheelEventList, events);
+
+    const QSize baseSize(500, 500);
+    const QPointF center(baseSize.width() / 2, baseSize.height() / 2);
+    int scrollStep = 50;
+
+    int argc = 1;
+    QApplication app(argc, &argv0);
+
+    QScrollArea outerArea;
+    outerArea.setObjectName("outerArea");
+    outerArea.viewport()->setObjectName("outerArea_viewport");
+    QScrollArea innerArea;
+    innerArea.setObjectName("innerArea");
+    innerArea.viewport()->setObjectName("innerArea_viewport");
+    QWidget largeWidget;
+    largeWidget.setObjectName("largeWidget");
+    QScrollBar trap(Qt::Vertical, &largeWidget);
+    trap.setObjectName("It's a trap!");
+
+    largeWidget.setFixedSize(baseSize * 8);
+
+    // classic wheel events will be grabbed by the widget under the mouse, so don't place a trap
+    if (events.at(0).phase == Qt::NoScrollPhase)
+        trap.hide();
+    // kinetic wheel events should all go to the first widget; place a trap
+    else
+        trap.setGeometry(center.x() - 50, center.y() + scrollStep, 100, baseSize.height());
+
+    // if the inner area is large enough to host the widget, then it won't scroll
+    innerArea.setWidget(&largeWidget);
+    innerArea.setFixedSize(innerScrolls ? baseSize * 4
+                                        : largeWidget.minimumSize() + QSize(100, 100));
+    // the outer area always scrolls
+    outerArea.setFixedSize(baseSize);
+    outerArea.setWidget(&innerArea);
+    outerArea.show();
+
+    if (!QTest::qWaitForWindowExposed(&outerArea))
+        QSKIP("Window failed to show, can't run test");
+
+    auto innerVBar = innerArea.verticalScrollBar();
+    innerVBar->setObjectName("innerArea_vbar");
+    QCOMPARE(innerVBar->isVisible(), innerScrolls);
+    auto innerHBar = innerArea.horizontalScrollBar();
+    innerHBar->setObjectName("innerArea_hbar");
+    QCOMPARE(innerHBar->isVisible(), innerScrolls);
+    auto outerVBar = outerArea.verticalScrollBar();
+    outerVBar->setObjectName("outerArea_vbar");
+    QVERIFY(outerVBar->isVisible());
+    auto outerHBar = outerArea.horizontalScrollBar();
+    outerHBar->setObjectName("outerArea_hbar");
+    QVERIFY(outerHBar->isVisible());
+
+    const QPointF global(outerArea.mapToGlobal(center.toPoint()));
+
+    QSignalSpy innerVSpy(innerVBar, &QAbstractSlider::valueChanged);
+    QSignalSpy innerHSpy(innerHBar, &QAbstractSlider::valueChanged);
+    QSignalSpy outerVSpy(outerVBar, &QAbstractSlider::valueChanged);
+    QSignalSpy outerHSpy(outerHBar, &QAbstractSlider::valueChanged);
+
+    int vcount = 0;
+    int hcount = 0;
+
+    for (const auto &event : qAsConst(events)) {
+        const QPoint pixelDelta = event.orientation == Qt::Vertical ? QPoint(0, -scrollStep) : QPoint(-scrollStep, 0);
+        const QPoint angleDelta = event.orientation == Qt::Vertical ? QPoint(0, -120) : QPoint(-120, 0);
+        QWindowSystemInterface::handleWheelEvent(outerArea.windowHandle(), center, global,
+                                                 pixelDelta, angleDelta, Qt::NoModifier,
+                                                 event.phase);
+        if (event.orientation == Qt::Vertical)
+            ++vcount;
+        else
+            ++hcount;
+        QCoreApplication::processEvents();
+        QCOMPARE(innerVSpy.count(), innerScrolls ? vcount : 0);
+        QCOMPARE(innerHSpy.count(), innerScrolls ? hcount : 0);
+        QCOMPARE(outerVSpy.count(), innerScrolls ? 0 : vcount);
+        QCOMPARE(outerHSpy.count(), innerScrolls ? 0 : hcount);
     }
 }
 

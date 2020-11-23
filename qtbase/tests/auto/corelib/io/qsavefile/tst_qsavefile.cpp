@@ -136,6 +136,10 @@ void tst_QSaveFile::retryTransactionalWrite()
 {
 #ifndef Q_OS_UNIX
     QSKIP("This test is Unix only");
+#else
+    // root can open the read-only file for writing...
+    if (geteuid() == 0)
+        QSKIP("This test does not work as the root user");
 #endif
     QTemporaryDir dir;
     QVERIFY2(dir.isValid(), qPrintable(dir.errorString()));
@@ -356,7 +360,7 @@ void tst_QSaveFile::transactionalWriteErrorRenaming()
 #ifdef Q_OS_UNIX
     // Make rename() fail for lack of permissions in the directory
     QFile dirAsFile(dir.path()); // yay, I have to use QFile to change a dir's permissions...
-    QVERIFY(dirAsFile.setPermissions(QFile::Permissions(0))); // no permissions
+    QVERIFY(dirAsFile.setPermissions(QFile::Permissions{})); // no permissions
     PermissionRestorer permissionRestorer(dir.path());
 #else
     // Windows: Make rename() fail for lack of permissions on an existing target file

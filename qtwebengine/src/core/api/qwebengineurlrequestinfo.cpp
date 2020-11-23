@@ -131,10 +131,12 @@ ASSERT_ENUMS_MATCH(QtWebEngineCore::WebContentsAdapterClient::RedirectNavigation
 
 QWebEngineUrlRequestInfoPrivate::QWebEngineUrlRequestInfoPrivate(QWebEngineUrlRequestInfo::ResourceType resource,
                                                                  QWebEngineUrlRequestInfo::NavigationType navigation,
-                                                                 const QUrl &u, const QUrl &fpu, const QUrl &i, const QByteArray &m)
+                                                                 const QUrl &u, const QUrl &fpu, const QUrl &i,
+                                                                 const QByteArray &m)
     : resourceType(resource)
     , navigationType(navigation)
     , shouldBlockRequest(false)
+    , shouldRedirectRequest(false)
     , url(u)
     , firstPartyUrl(fpu)
     , initiator(i)
@@ -145,7 +147,21 @@ QWebEngineUrlRequestInfoPrivate::QWebEngineUrlRequestInfoPrivate(QWebEngineUrlRe
 /*!
     \internal
 */
+QWebEngineUrlRequestInfo::QWebEngineUrlRequestInfo() {}
+
+/*!
+    \internal
+*/
 QWebEngineUrlRequestInfo::QWebEngineUrlRequestInfo(QWebEngineUrlRequestInfo &&p) : d_ptr(p.d_ptr.take()) {}
+
+/*!
+    \internal
+*/
+QWebEngineUrlRequestInfo &QWebEngineUrlRequestInfo::operator=(QWebEngineUrlRequestInfo &&p)
+{
+    d_ptr.reset(p.d_ptr.take());
+    return *this;
+}
 
 /*!
     \internal
@@ -296,6 +312,7 @@ void QWebEngineUrlRequestInfo::redirect(const QUrl &url)
 {
     d_ptr->changed = true;
     d_ptr->url = url;
+    d_ptr->shouldRedirectRequest = true;
 }
 
 /*!

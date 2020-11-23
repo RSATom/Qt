@@ -20,6 +20,7 @@
 #include "base/sequence_checker.h"
 #include "base/time/time.h"
 #include "build/build_config.h"
+#include "components/ui_devtools/buildflags.h"
 #include "components/viz/host/gpu_host_impl.h"
 #include "content/common/content_export.h"
 #include "content/public/browser/browser_child_process_host_delegate.h"
@@ -32,14 +33,15 @@
 #include "gpu/config/gpu_mode.h"
 #include "gpu/ipc/common/surface_handle.h"
 #include "ipc/ipc_sender.h"
-#include "mojo/public/cpp/bindings/binding.h"
-#include "services/viz/privileged/interfaces/compositing/frame_sink_manager.mojom.h"
-#include "services/viz/privileged/interfaces/gl/gpu_host.mojom.h"
-#include "services/viz/privileged/interfaces/gl/gpu_service.mojom.h"
-#include "services/viz/privileged/interfaces/viz_main.mojom.h"
+#include "mojo/public/cpp/bindings/generic_pending_receiver.h"
+#include "mojo/public/cpp/bindings/pending_receiver.h"
+#include "services/viz/privileged/mojom/compositing/frame_sink_manager.mojom.h"
+#include "services/viz/privileged/mojom/gl/gpu_host.mojom.h"
+#include "services/viz/privileged/mojom/gl/gpu_service.mojom.h"
+#include "services/viz/privileged/mojom/viz_main.mojom.h"
 #include "url/gurl.h"
 
-#if defined(USE_VIZ_DEVTOOLS)
+#if BUILDFLAG(USE_VIZ_DEVTOOLS)
 #include "content/browser/gpu/viz_devtools_connector.h"
 #endif
 
@@ -98,6 +100,10 @@ class GpuProcessHost : public BrowserChildProcessHostDelegate,
   // Forcefully terminates the GPU process.
   void ForceShutdown();
 
+  // Asks the GPU process to run a service instance corresponding to the
+  // specific interface receiver type carried by |receiver|.
+  void RunService(mojo::GenericPendingReceiver receiver);
+
   CONTENT_EXPORT viz::mojom::GpuService* gpu_service();
 
   CONTENT_EXPORT int GetIDForTesting() const;
@@ -105,8 +111,6 @@ class GpuProcessHost : public BrowserChildProcessHostDelegate,
   viz::GpuHostImpl* gpu_host() { return gpu_host_.get(); }
 
  private:
-  class ConnectionFilterImpl;
-
   enum class GpuTerminationOrigin {
     kUnknownOrigin = 0,
     kOzoneWaylandProxy = 1,
@@ -151,11 +155,13 @@ class GpuProcessHost : public BrowserChildProcessHostDelegate,
   void RecordLogMessage(int32_t severity,
                         const std::string& header,
                         const std::string& message) override;
-  void BindDiscardableMemoryRequest(
-      discardable_memory::mojom::DiscardableSharedMemoryManagerRequest request)
+  void BindDiscardableMemoryReceiver(
+      mojo::PendingReceiver<
+          discardable_memory::mojom::DiscardableSharedMemoryManager> receiver)
       override;
   void BindInterface(const std::string& interface_name,
                      mojo::ScopedMessagePipeHandle interface_pipe) override;
+  void BindHostReceiver(mojo::GenericPendingReceiver generic_receiver) override;
   void RunService(
       const std::string& service_name,
       mojo::PendingReceiver<service_manager::mojom::Service> receiver) override;
@@ -205,8 +211,6 @@ class GpuProcessHost : public BrowserChildProcessHostDelegate,
   // Time Init started.  Used to log total GPU process startup time to UMA.
   base::TimeTicks init_start_time_;
 
-  int connection_filter_id_;
-
   // The GPU process reported failure to initialize.
   bool did_fail_initialize_ = false;
 
@@ -237,7 +241,7 @@ class GpuProcessHost : public BrowserChildProcessHostDelegate,
 
   std::unique_ptr<viz::GpuHostImpl> gpu_host_;
 
-#if defined(USE_VIZ_DEVTOOLS)
+#if BUILDFLAG(USE_VIZ_DEVTOOLS)
   std::unique_ptr<VizDevToolsConnector> devtools_connector_;
 #endif
 

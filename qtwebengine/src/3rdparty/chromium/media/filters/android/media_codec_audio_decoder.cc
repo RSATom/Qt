@@ -34,8 +34,7 @@ MediaCodecAudioDecoder::MediaCodecAudioDecoder(
       sample_rate_(0),
       media_crypto_context_(nullptr),
       cdm_registration_id_(0),
-      pool_(new AudioBufferMemoryPool()),
-      weak_factory_(this) {
+      pool_(new AudioBufferMemoryPool()) {
   DVLOG(1) << __func__;
 }
 
@@ -312,12 +311,11 @@ MediaCodecLoop::InputData MediaCodecAudioDecoder::ProvideInputData() {
     input_data.length = decoder_buffer->data_size();
     const DecryptConfig* decrypt_config = decoder_buffer->decrypt_config();
     if (decrypt_config) {
-      // TODO(crbug.com/813845): Use encryption scheme settings from
-      // DecryptConfig.
       input_data.key_id = decrypt_config->key_id();
       input_data.iv = decrypt_config->iv();
       input_data.subsamples = decrypt_config->subsamples();
-      input_data.encryption_scheme = config_.encryption_scheme();
+      input_data.encryption_scheme = decrypt_config->encryption_scheme();
+      input_data.encryption_pattern = decrypt_config->encryption_pattern();
     }
     input_data.presentation_time = decoder_buffer->timestamp();
   }

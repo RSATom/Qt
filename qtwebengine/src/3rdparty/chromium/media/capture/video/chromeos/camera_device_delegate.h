@@ -11,19 +11,20 @@
 #include "base/memory/weak_ptr.h"
 #include "base/optional.h"
 #include "base/single_thread_task_runner.h"
-#include "media/capture/video/chromeos/mojo/camera3.mojom.h"
-#include "media/capture/video/chromeos/mojo/camera_common.mojom.h"
+#include "media/capture/video/chromeos/mojom/camera3.mojom.h"
+#include "media/capture/video/chromeos/mojom/camera_common.mojom.h"
 #include "media/capture/video/video_capture_device.h"
 #include "media/capture/video_capture_types.h"
+#include "mojo/public/cpp/bindings/remote.h"
 #include "ui/gfx/geometry/size.h"
 #include "ui/gfx/range/range.h"
 
 namespace media {
 
 class Camera3AController;
+class CameraAppDeviceImpl;
 class CameraDeviceContext;
 class CameraHalDelegate;
-class ReprocessManager;
 class RequestManager;
 
 enum class StreamType : uint64_t {
@@ -76,7 +77,7 @@ class CAPTURE_EXPORT CameraDeviceDelegate final {
       VideoCaptureDeviceDescriptor device_descriptor,
       scoped_refptr<CameraHalDelegate> camera_hal_delegate,
       scoped_refptr<base::SingleThreadTaskRunner> ipc_task_runner,
-      ReprocessManager* reprocess_manager);
+      CameraAppDeviceImpl* camera_app_device);
 
   ~CameraDeviceDelegate();
 
@@ -194,7 +195,7 @@ class CAPTURE_EXPORT CameraDeviceDelegate final {
   // settings, etc.
   cros::mojom::CameraMetadataPtr static_metadata_;
 
-  cros::mojom::Camera3DeviceOpsPtr device_ops_;
+  mojo::Remote<cros::mojom::Camera3DeviceOps> device_ops_;
 
   // Where all the Mojo IPC calls takes place.
   const scoped_refptr<base::SingleThreadTaskRunner> ipc_task_runner_;
@@ -203,9 +204,9 @@ class CAPTURE_EXPORT CameraDeviceDelegate final {
 
   VideoCaptureDevice::SetPhotoOptionsCallback set_photo_option_callback_;
 
-  ReprocessManager* reprocess_manager_;  // weak
+  CameraAppDeviceImpl* camera_app_device_;  // Weak.
 
-  base::WeakPtrFactory<CameraDeviceDelegate> weak_ptr_factory_;
+  base::WeakPtrFactory<CameraDeviceDelegate> weak_ptr_factory_{this};
 
   DISALLOW_IMPLICIT_CONSTRUCTORS(CameraDeviceDelegate);
 };

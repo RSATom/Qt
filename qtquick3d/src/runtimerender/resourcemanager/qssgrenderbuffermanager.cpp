@@ -32,6 +32,7 @@
 
 #include <QtQuick3DRuntimeRender/private/qssgrenderprefiltertexture_p.h>
 #include <QtQuick3DRuntimeRender/private/qssgruntimerenderlogging_p.h>
+#include <QtQuick3DAssetImport/private/qssgmeshbvhbuilder_p.h>
 
 #include <QtQuick/QSGTexture>
 
@@ -78,13 +79,13 @@ QSSGBufferManager::QSSGBufferManager(const QSSGRef<QSSGRenderContext> &ctx,
 QSSGBufferManager::~QSSGBufferManager()
 { clear(); }
 
-void QSSGBufferManager::setImageHasTransparency(QString inImagePath, bool inHasTransparency)
+void QSSGBufferManager::setImageHasTransparency(const QString &inImagePath, bool inHasTransparency)
 {
     ImageMap::iterator theImage = imageMap.insert(inImagePath, QSSGRenderImageTextureData());
     theImage.value().m_textureFlags.setHasTransparency(inHasTransparency);
 }
 
-bool QSSGBufferManager::getImageHasTransparency(QString inSourcePath) const
+bool QSSGBufferManager::getImageHasTransparency(const QString &inSourcePath) const
 {
     ImageMap::const_iterator theIter = imageMap.find(inSourcePath);
     if (theIter != imageMap.end())
@@ -92,7 +93,7 @@ bool QSSGBufferManager::getImageHasTransparency(QString inSourcePath) const
     return false;
 }
 
-void QSSGBufferManager::setImageTransparencyToFalseIfNotSet(QString inSourcePath)
+void QSSGBufferManager::setImageTransparencyToFalseIfNotSet(const QString &inSourcePath)
 {
     ImageMap::iterator theImage = imageMap.find(inSourcePath);
 
@@ -101,20 +102,22 @@ void QSSGBufferManager::setImageTransparencyToFalseIfNotSet(QString inSourcePath
         theImage.value().m_textureFlags.setHasTransparency(false);
 }
 
-void QSSGBufferManager::setInvertImageUVCoords(QString inImagePath, bool inShouldInvertCoords)
+void QSSGBufferManager::setInvertImageUVCoords(const QString &inImagePath, bool inShouldInvertCoords)
 {
     ImageMap::iterator theImage = imageMap.find(inImagePath);
     if (theImage != imageMap.end())
         theImage.value().m_textureFlags.setInvertUVCoords(inShouldInvertCoords);
 }
 
-bool QSSGBufferManager::isImageLoaded(QString inSourcePath)
+bool QSSGBufferManager::isImageLoaded(const QString &inSourcePath)
 {
     QMutexLocker locker(&loadedImageSetMutex);
     return loadedImageSet.find(inSourcePath) != loadedImageSet.end();
 }
 
-bool QSSGBufferManager::aliasImagePath(QString inSourcePath, QString inAliasPath, bool inIgnoreIfLoaded)
+bool QSSGBufferManager::aliasImagePath(const QString &inSourcePath,
+                                       const QString &inAliasPath,
+                                       bool inIgnoreIfLoaded)
 {
     if (inSourcePath.isEmpty() || inAliasPath.isEmpty())
         return false;
@@ -125,7 +128,7 @@ bool QSSGBufferManager::aliasImagePath(QString inSourcePath, QString inAliasPath
     return true;
 }
 
-void QSSGBufferManager::unaliasImagePath(QString inSourcePath)
+void QSSGBufferManager::unaliasImagePath(const QString &inSourcePath)
 {
     aliasImageMap.remove(inSourcePath);
 }
@@ -286,7 +289,7 @@ QSSGRenderImageTextureData QSSGBufferManager::loadRenderImage(const QString &inI
                     // have absolute path at this point. It points to the wrong place with
                     // the new project structure, so we need to split it up and construct
                     // the new absolute path here.
-                    QString wholePath = realImagePath;
+                    const QString &wholePath = realImagePath;
                     QStringList splitPath = wholePath.split(QLatin1String("../"));
                     if (splitPath.size() > 1) {
                         QString searchPath = splitPath.at(0) + splitPath.at(1);
@@ -357,10 +360,9 @@ QSSGMeshUtilities::MultiLoadResult QSSGBufferManager::loadPrimitive(const QStrin
             QSharedPointer<QIODevice> theInStream(inputStreamFactory->getStreamForFile(pathBuilder));
             if (theInStream)
                 return QSSGMeshUtilities::Mesh::loadMulti(*theInStream, id);
-            else {
-                qCCritical(INTERNAL_ERROR, "Unable to find mesh primitive %s", qPrintable(pathBuilder));
-                return QSSGMeshUtilities::MultiLoadResult();
-            }
+
+            qCCritical(INTERNAL_ERROR, "Unable to find mesh primitive %s", qPrintable(pathBuilder));
+            return QSSGMeshUtilities::MultiLoadResult();
         }
     }
     return QSSGMeshUtilities::MultiLoadResult();
@@ -445,8 +447,11 @@ QSSGRenderMesh *QSSGBufferManager::createRenderMesh(
     }
     const auto &entries = result.m_mesh->m_vertexBuffer.m_entries;
     entryBuffer.resize(entries.size());
-    for (quint32 entryIdx = 0, entryEnd = entries.size(); entryIdx < entryEnd; ++entryIdx)
+    for (quint32 entryIdx = 0, entryEnd = entries.size(); entryIdx < entryEnd; ++entryIdx) {
         entryBuffer[entryIdx] = entries.index(baseAddress, entryIdx).toVertexBufferEntry(baseAddress);
+
+        newMesh->inputLayoutInputNames.append(QByteArray(entryBuffer[entryIdx].m_name));
+    }
 
     // create our attribute layout
     auto attribLayout = context->createAttributeLayout(toDataView(entryBuffer.constData(), entryBuffer.count()));
@@ -498,6 +503,7 @@ QSSGRenderMesh *QSSGBufferManager::createRenderMesh(
         QSSGRenderSubset subset;
         const QSSGMeshUtilities::MeshSubset &source(result.m_mesh->m_subsets.index(baseAddress, subsetIdx));
         subset.bounds = source.m_bounds;
+        subset.bvhRoot = nullptr;
         subset.count = source.m_count;
         subset.offset = source.m_offset;
         subset.joints = newMesh->joints;
@@ -583,25 +589,7 @@ QSSGRenderMesh *QSSGBufferManager::loadMesh(const QSSGRenderMeshPath &inMeshPath
         return meshItr.value();
 
     // loading new mesh
-    QSSGMeshUtilities::MultiLoadResult result;
-
-    // check to see if this is a primitive mesh
-    if (inMeshPath.path.startsWith('#'))
-        result = loadPrimitive(inMeshPath.path);
-
-    // Attempt a load from the filesystem if this mesh isn't a primitive.
-    if (result.m_mesh == nullptr) {
-        QString pathBuilder = inMeshPath.path;
-        int poundIndex = pathBuilder.lastIndexOf('#');
-        int id = 0;
-        if (poundIndex != -1) {
-            id = pathBuilder.midRef(poundIndex + 1).toInt();
-            pathBuilder = pathBuilder.left(poundIndex);
-        }
-        QSharedPointer<QIODevice> ioStream(inputStreamFactory->getStreamForFile(pathBuilder));
-        if (ioStream)
-            result = QSSGMeshUtilities::Mesh::loadMulti(*ioStream, id);
-    }
+    QSSGMeshUtilities::MultiLoadResult result = loadMeshData(inMeshPath);
 
     if (result.m_mesh == nullptr) {
         qCWarning(WARNING, "Failed to load mesh: %s", qPrintable(inMeshPath.path));
@@ -631,6 +619,51 @@ QSSGRenderMesh *QSSGBufferManager::loadCustomMesh(const QSSGRenderMeshPath &inSo
         }
     }
     return nullptr;
+}
+
+QSSGMeshBVH *QSSGBufferManager::loadMeshBVH(const QSSGRenderMeshPath &inSourcePath)
+{
+    // loading new mesh
+    QSSGMeshUtilities::MultiLoadResult result = loadMeshData(inSourcePath);
+
+    if (result.m_mesh == nullptr) {
+        qCWarning(WARNING, "Failed to load mesh: %s", qPrintable(inSourcePath.path));
+        return nullptr;
+    }
+
+    // Build BVH for Mesh
+    QSSGMeshBVHBuilder meshBVHBuilder(result.m_mesh);
+    auto bvh = meshBVHBuilder.buildTree();
+
+    ::free(result.m_mesh);
+    return bvh;
+}
+
+QSSGMeshUtilities::MultiLoadResult QSSGBufferManager::loadMeshData(const QSSGRenderMeshPath &inMeshPath) const
+{
+    // loading new mesh
+    QSSGMeshUtilities::MultiLoadResult result;
+
+    // check to see if this is a primitive mesh
+    if (inMeshPath.path.startsWith('#'))
+        result = loadPrimitive(inMeshPath.path);
+
+    // Attempt a load from the filesystem if this mesh isn't a primitive.
+    if (result.m_mesh == nullptr) {
+        QString pathBuilder = inMeshPath.path;
+        int poundIndex = pathBuilder.lastIndexOf('#');
+        int id = 0;
+        if (poundIndex != -1) {
+            id = pathBuilder.midRef(poundIndex + 1).toInt();
+            pathBuilder = pathBuilder.left(poundIndex);
+        }
+        if (!pathBuilder.isEmpty()) {
+            QSharedPointer<QIODevice> ioStream(inputStreamFactory->getStreamForFile(pathBuilder));
+            if (ioStream)
+                result = QSSGMeshUtilities::Mesh::loadMulti(*ioStream, id);
+        }
+    }
+    return result;
 }
 
 QSSGRenderMesh *QSSGBufferManager::createMesh(const QString &inSourcePath, quint8 *inVertData, quint32 inNumVerts, quint32 inVertStride, quint32 *inIndexData, quint32 inIndexCount, QSSGBounds3 inBounds)
@@ -726,7 +759,7 @@ QSSGRenderMesh *QSSGBufferManager::createMesh(const QString &inSourcePath, quint
         }
 
         // Pull out just the mesh object name from the total path
-        QString fullName(inSourcePath);
+        const QString &fullName = inSourcePath;
         QString subName(inSourcePath);
 
         int indexOfSub = fullName.lastIndexOf('#');

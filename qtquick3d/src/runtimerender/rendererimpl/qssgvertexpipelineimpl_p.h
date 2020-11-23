@@ -44,6 +44,7 @@
 
 #include <QtQuick3DRuntimeRender/private/qssgrenderdefaultmaterialshadergenerator_p.h>
 #include <QtQuick3DRuntimeRender/private/qssgrendertessmodevalues_p.h>
+#include <QtQuick3DRuntimeRender/private/qssgrendershaderkeys_p.h>
 
 #include <QtCore/QSharedPointer>
 
@@ -78,9 +79,9 @@ struct QSSGVertexPipelineImpl : public QSSGDefaultMaterialVertexPipelineInterfac
     QSSGRenderableImage *m_displacementImage;
     QList<QByteArray> m_addedFunctions;
 
-    QSSGVertexPipelineImpl(QSSGRef<QSSGMaterialShaderGeneratorInterface> inMaterial,
-                             QSSGRef<QSSGShaderProgramGeneratorInterface> inProgram,
-                             bool inWireframe /* only works if tessellation is true */)
+    QSSGVertexPipelineImpl(const QSSGRef<QSSGMaterialShaderGeneratorInterface> &inMaterial,
+                           const QSSGRef<QSSGShaderProgramGeneratorInterface> &inProgram,
+                           bool inWireframe /* only works if tessellation is true */)
 
         : m_materialGenerator(inMaterial)
         , m_programGenerator(inProgram)
@@ -227,7 +228,7 @@ struct QSSGVertexPipelineImpl : public QSSGDefaultMaterialVertexPipelineInterfac
         }
     }
 
-    void generateUVCoords(quint32 inUVSet = 0) override
+    void generateUVCoords(const QSSGShaderDefaultMaterialKey &inKey, quint32 inUVSet = 0) override
     {
         if (inUVSet == 0 && setCode(GenerationFlag::UVCoords))
             return;
@@ -236,20 +237,29 @@ struct QSSGVertexPipelineImpl : public QSSGDefaultMaterialVertexPipelineInterfac
 
         Q_ASSERT(inUVSet == 0 || inUVSet == 1);
 
-        if (inUVSet == 0)
-            addInterpolationParameter("varTexCoord0", "vec2");
-        else if (inUVSet == 1)
-            addInterpolationParameter("varTexCoord1", "vec2");
-
-        doGenerateUVCoords(inUVSet);
+        if (inUVSet == 0) {
+            if (hasAttributeInKey(QSSGShaderKeyVertexAttribute::TexCoord0, inKey)) {
+                addInterpolationParameter("varTexCoord0", "vec2");
+                doGenerateUVCoords(inUVSet);
+            } else {
+                fragment() << "    vec2 varTexCoord0 = vec2(0.0);\n";
+            }
+        } else if (inUVSet == 1) {
+            if (hasAttributeInKey(QSSGShaderKeyVertexAttribute::TexCoord1, inKey)) {
+                addInterpolationParameter("varTexCoord1", "vec2");
+                doGenerateUVCoords(inUVSet);
+            } else {
+                fragment() << "    vec2 varTexCoord1 = vec2(0.0);\n";
+            }
+        }
     }
-    void generateEnvMapReflection() override
+    void generateEnvMapReflection(const QSSGShaderDefaultMaterialKey &inKey) override
     {
         if (setCode(GenerationFlag::EnvMapReflection))
             return;
 
         generateWorldPosition();
-        generateWorldNormal();
+        generateWorldNormal(inKey);
         QSSGShaderStageGeneratorInterface &activeGenerator(activeStage());
         activeGenerator.addInclude("viewProperties.glsllib");
         addInterpolationParameter("var_object_to_camera", "vec3");
@@ -280,12 +290,18 @@ struct QSSGVertexPipelineImpl : public QSSGDefaultMaterialVertexPipelineInterfac
 
     // fragment shader expects varying vertex normal
     // lighting in vertex pipeline expects world_normal
-    void generateWorldNormal() override
+    void generateWorldNormal(const QSSGShaderDefaultMaterialKey &inKey) override
     {
         if (setCode(GenerationFlag::WorldNormal))
             return;
-        addInterpolationParameter("varNormal", "vec3");
-        doGenerateWorldNormal();
+
+        if (hasAttributeInKey(QSSGShaderKeyVertexAttribute::Normal, inKey)) {
+            addInterpolationParameter("varNormal", "vec3");
+            doGenerateWorldNormal();
+        } else {
+            generateWorldPosition();
+            fragment().append("    vec3 varNormal = cross(dFdx(varWorldPos), dFdy(varWorldPos));");
+        }
         fragment().append("    vec3 world_normal = normalize( varNormal );");
     }
     void generateObjectNormal() override
@@ -306,23 +322,38 @@ struct QSSGVertexPipelineImpl : public QSSGDefaultMaterialVertexPipelineInterfac
 
         assignOutput("varWorldPos", "local_model_world_position");
     }
-    void generateVarTangentAndBinormal() override
+    void generateVarTangentAndBinormal(const QSSGShaderDefaultMaterialKey &inKey) override
     {
         if (setCode(GenerationFlag::TangentBinormal))
             return;
-        addInterpolationParameter("varTangent", "vec3");
-        addInterpolationParameter("varBinormal", "vec3");
-        doGenerateVarTangentAndBinormal();
-        fragment() << "    vec3 tangent = normalize(varTangent);\n"
-                   << "    vec3 binormal = normalize(varBinormal);\n";
+
+        // I assume that there is no mesh having only binormal without tangent
+        // since it is an abnormal case
+        if (hasAttributeInKey(QSSGShaderKeyVertexAttribute::Tangent, inKey)) {
+            const bool hasBinormal = hasAttributeInKey(QSSGShaderKeyVertexAttribute::Binormal, inKey);
+            addInterpolationParameter("varTangent", "vec3");
+            doGenerateVarTangent();
+            fragment() << "    vec3 tangent = normalize(varTangent);\n";
+
+            if (hasBinormal) {
+                addInterpolationParameter("varBinormal", "vec3");
+                doGenerateVarBinormal();
+                fragment() << "    vec3 binormal = normalize(varBinormal);\n";
+            } else {
+                fragment() << "    vec3 binormal = vec3(0.0);\n";
+            }
+        } else {
+            fragment() << "    vec3 tangent = vec3(0.0);\n"
+                       << "    vec3 binormal = vec3(0.0);\n";
+        }
     }
-    void generateVertexColor() override
+    void generateVertexColor(const QSSGShaderDefaultMaterialKey &inKey) override
     {
         if (setCode(GenerationFlag::VertexColor))
             return;
-        addInterpolationParameter("varColor", "vec3");
-        doGenerateVertexColor();
-        fragment().append("    vec3 vertColor = varColor;");
+        addInterpolationParameter("varColor", "vec4");
+        doGenerateVertexColor(inKey);
+        fragment().append("    vec4 vertColor = varColor;");
     }
 
     bool hasActiveWireframe() override { return m_wireframe; }
@@ -366,7 +397,7 @@ struct QSSGVertexPipelineImpl : public QSSGDefaultMaterialVertexPipelineInterfac
         return const_cast<QSSGVertexPipelineImpl *>(this)->activeStage().stage();
     }
 
-    void beginVertexGeneration(quint32 displacementImageIdx, QSSGRenderableImage *displacementImage) override = 0;
+    void beginVertexGeneration(const QSSGShaderDefaultMaterialKey &inKey, quint32 displacementImageIdx, QSSGRenderableImage *displacementImage) override = 0;
     void assignOutput(const QByteArray &inVarName, const QByteArray &inVarValueExpr) override = 0;
     void endVertexGeneration(bool customShader) override = 0;
 
@@ -380,8 +411,15 @@ struct QSSGVertexPipelineImpl : public QSSGDefaultMaterialVertexPipelineInterfac
     virtual void doGenerateWorldNormal() = 0;
     virtual void doGenerateObjectNormal() = 0;
     virtual void doGenerateWorldPosition() = 0;
-    virtual void doGenerateVarTangentAndBinormal() = 0;
-    virtual void doGenerateVertexColor() = 0;
+    virtual void doGenerateVarTangent() = 0;
+    virtual void doGenerateVarBinormal() = 0;
+    virtual void doGenerateVertexColor(const QSSGShaderDefaultMaterialKey &inKey) = 0;
+    virtual bool hasAttributeInKey(QSSGShaderKeyVertexAttribute::VertexAttributeBits inAttr, const QSSGShaderDefaultMaterialKey &inKey) {
+        // it returns true by default
+        Q_UNUSED(inAttr)
+        Q_UNUSED(inKey)
+        return true;
+    }
 };
 QT_END_NAMESPACE
 

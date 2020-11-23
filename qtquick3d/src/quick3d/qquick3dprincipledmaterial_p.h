@@ -60,6 +60,7 @@ class Q_QUICK3D_EXPORT QQuick3DPrincipledMaterial : public QQuick3DMaterial
 
     Q_PROPERTY(float metalness READ metalness WRITE setMetalness NOTIFY metalnessChanged)
     Q_PROPERTY(QQuick3DTexture *metalnessMap READ metalnessMap WRITE setMetalnessMap NOTIFY metalnessMapChanged)
+    Q_PROPERTY(TextureChannelMapping metalnessChannel READ metalnessChannel WRITE setMetalnessChannel NOTIFY metalnessChannelChanged REVISION 1)
 
     Q_PROPERTY(float specularAmount READ specularAmount WRITE setSpecularAmount NOTIFY specularAmountChanged)
     Q_PROPERTY(QQuick3DTexture *specularMap READ specularMap WRITE setSpecularMap NOTIFY specularMapChanged)
@@ -67,6 +68,7 @@ class Q_QUICK3D_EXPORT QQuick3DPrincipledMaterial : public QQuick3DMaterial
 
     Q_PROPERTY(float roughness READ roughness WRITE setRoughness NOTIFY roughnessChanged)
     Q_PROPERTY(QQuick3DTexture *roughnessMap READ roughnessMap WRITE setRoughnessMap NOTIFY roughnessMapChanged)
+    Q_PROPERTY(TextureChannelMapping roughnessChannel READ roughnessChannel WRITE setRoughnessChannel NOTIFY roughnessChannelChanged REVISION 1)
 
     Q_PROPERTY(float indexOfRefraction READ indexOfRefraction WRITE setIndexOfRefraction NOTIFY indexOfRefractionChanged)
 
@@ -75,6 +77,7 @@ class Q_QUICK3D_EXPORT QQuick3DPrincipledMaterial : public QQuick3DMaterial
 
     Q_PROPERTY(float opacity READ opacity WRITE setOpacity NOTIFY opacityChanged)
     Q_PROPERTY(QQuick3DTexture *opacityMap READ opacityMap WRITE setOpacityMap NOTIFY opacityMapChanged)
+    Q_PROPERTY(TextureChannelMapping opacityChannel READ opacityChannel WRITE setOpacityChannel NOTIFY opacityChannelChanged REVISION 1)
 
     Q_PROPERTY(QQuick3DTexture *normalMap READ normalMap WRITE setNormalMap NOTIFY normalMapChanged)
     Q_PROPERTY(float normalStrength READ normalStrength WRITE setNormalStrength NOTIFY normalStrengthChanged)
@@ -82,11 +85,11 @@ class Q_QUICK3D_EXPORT QQuick3DPrincipledMaterial : public QQuick3DMaterial
     Q_PROPERTY(QQuick3DTexture *specularReflectionMap READ specularReflectionMap WRITE setSpecularReflectionMap NOTIFY specularReflectionMapChanged)
 
     Q_PROPERTY(QQuick3DTexture *occlusionMap READ occlusionMap WRITE setOcclusionMap NOTIFY occlusionMapChanged)
+    Q_PROPERTY(TextureChannelMapping occlusionChannel READ occlusionChannel WRITE setOcclusionChannel NOTIFY occlusionChannelChanged REVISION 1)
     Q_PROPERTY(float occlusionAmount READ occlusionAmount WRITE setOcclusionAmount NOTIFY occlusionAmountChanged)
 
     Q_PROPERTY(AlphaMode alphaMode READ alphaMode WRITE setAlphaMode NOTIFY alphaModeChanged)
     Q_PROPERTY(float alphaCutoff READ alphaCutoff WRITE setAlphaCutoff NOTIFY alphaCutoffChanged)
-
 
 public:
     enum Lighting {
@@ -112,10 +115,8 @@ public:
     };
     Q_ENUM(AlphaMode)
 
-    QQuick3DPrincipledMaterial();
+    explicit QQuick3DPrincipledMaterial(QQuick3DObject *parent = nullptr);
     ~QQuick3DPrincipledMaterial() override;
-
-    QQuick3DObject::Type type() const override;
 
     Lighting lighting() const;
     BlendMode blendMode() const;
@@ -140,6 +141,10 @@ public:
     float occlusionAmount() const;
     AlphaMode alphaMode() const;
     float alphaCutoff() const;
+    Q_REVISION(1) TextureChannelMapping metalnessChannel() const;
+    Q_REVISION(1) TextureChannelMapping roughnessChannel() const;
+    Q_REVISION(1) TextureChannelMapping opacityChannel() const;
+    Q_REVISION(1) TextureChannelMapping occlusionChannel() const;
 
 public Q_SLOTS:
     void setLighting(Lighting lighting);
@@ -165,6 +170,10 @@ public Q_SLOTS:
     void setOcclusionAmount(float occlusionAmount);
     void setAlphaMode(AlphaMode alphaMode);
     void setAlphaCutoff(float alphaCutoff);
+    Q_REVISION(1) void setMetalnessChannel(TextureChannelMapping channel);
+    Q_REVISION(1) void setRoughnessChannel(TextureChannelMapping channel);
+    Q_REVISION(1) void setOpacityChannel(TextureChannelMapping channel);
+    Q_REVISION(1) void setOcclusionChannel(TextureChannelMapping channel);
 
 Q_SIGNALS:
     void lightingChanged(Lighting lighting);
@@ -190,13 +199,17 @@ Q_SIGNALS:
     void occlusionAmountChanged(float occlusionAmount);
     void alphaModeChanged(AlphaMode alphaMode);
     void alphaCutoffChanged(float alphaCutoff);
+    Q_REVISION(1) void metalnessChannelChanged(TextureChannelMapping channel);
+    Q_REVISION(1) void roughnessChannelChanged(TextureChannelMapping channel);
+    Q_REVISION(1) void opacityChannelChanged(TextureChannelMapping channel);
+    Q_REVISION(1) void occlusionChannelChanged(TextureChannelMapping channel);
 
 protected:
     QSSGRenderGraphObject *updateSpatialNode(QSSGRenderGraphObject *node) override;
     void markAllDirty() override;
     void itemChange(ItemChange, const ItemChangeData &) override;
 private:
-    using ConnectionMap = QHash<QObject*, QMetaObject::Connection>;
+    using ConnectionMap = QHash<QByteArray, QMetaObject::Connection>;
 
     enum DirtyType {
         LightingModeDirty = 0x00000001,
@@ -213,7 +226,7 @@ private:
         IorDirty = 0x00000800
     };
 
-    void updateSceneManager(QQuick3DSceneManager *window);
+    void updateSceneManager(const QSharedPointer<QQuick3DSceneManager> &window);
     Lighting m_lighting = FragmentLighting;
     BlendMode m_blendMode = SourceOver;
     AlphaMode m_alphaMode = Opaque;
@@ -240,15 +253,13 @@ private:
     float m_normalStrength = 1.0f;
     float m_occlusionAmount = 1.0f;
     float m_alphaCutoff = 0.5f;
+    TextureChannelMapping m_metalnessChannel = QQuick3DMaterial::B;
+    TextureChannelMapping m_roughnessChannel = QQuick3DMaterial::G;
+    TextureChannelMapping m_opacityChannel = QQuick3DMaterial::A;
+    TextureChannelMapping m_occlusionChannel = QQuick3DMaterial::R;
 
     quint32 m_dirtyAttributes = 0xffffffff; // all dirty by default
     void markDirty(DirtyType type);
-    static void updateProperyListener(QQuick3DObject *,
-                                      QQuick3DObject *,
-                                      QQuick3DSceneManager *,
-                                      QQuick3DPrincipledMaterial::ConnectionMap &,
-                                      std::function<void(QQuick3DObject *o)>);
-
 };
 
 QT_END_NAMESPACE

@@ -102,6 +102,10 @@ used when committed.
     update the clang-format binaries that come with a checkout of Chromium
 
 ### General Development
+*   [Contributing to Chromium](contributing.md) - Reference workflow process for
+    contributing to the Chromium code base.
+*   [Commit Checklist](commit_checklist.md) - Streamlined checklist to go
+    through before uploading CLs on Gerrit.
 *   [Code Reviews](code_reviews.md) - Code review requirements and guidelines
 *   [Respectful Code Reviews](cr_respect.md) - A guide for code reviewers
 *   [Respectful Changes](cl_respect.md) - A guide for code authors
@@ -169,6 +173,7 @@ used when committed.
     Capture stack traces on layout test crashes without an attached debugger
 *   [Test Descriptions](testing/test_descriptions.md) - Unit test targets that can be
     built, with associated desciptions.
+*   [Fuzz Testing](../testing/libfuzzer/README.md) - Fuzz testing in Chromium.
 *   [IPC Fuzzer](testing/ipc_fuzzer.md) - Fuzz testing of Chromium IPC interfaces.
 *   [Running Chrome tests with AddressSanitizer (asan) and LeakSanitizer (lsan)](testing/linux_running_asan_tests.md) -
     Run Chrome tests with ASAN and LSAN builds to detect addressability issues and memory leaks.
@@ -270,6 +275,8 @@ used when committed.
     How to build Android app bundles for Chrome.
 *   [Dynamic Feature Modules (DFMs)](android_dynamic_feature_modules.md) - How
     to create dynamic feature modules.
+*   [Chrome for Android UI](ui/android/overview.md) - Resources and best practices for
+    developing UI
 
 ### Misc iOS-Specific Docs
 *   [Continuous Build and Test Infrastructure for Chromium for iOS](ios/infra.md)
@@ -296,12 +303,12 @@ used when committed.
 *   [Autoplay of HTMLMediaElements](media/autoplay.md) - How HTMLMediaElements
     are autoplayed.
 *   [Piranha Plant](piranha_plant.md) - Future architecture of MediaStreams
-*   [Video Decode/Encode Accelerator Tests](media/gpu/vdatest_usage.md) - How to
-    use the accelerated video decoder/encoder test programs.
+*   [Video Encode Accelerator Tests](media/gpu/veatest_usage.md) - How to
+    use the accelerated video encoder test program.
 *   [Video Decoder Tests](media/gpu/video_decoder_test_usage.md) - Running the
-    new video decoder tests.
+    video decoder tests.
 *   [Video Decoder Performance Tests](media/gpu/video_decoder_perf_test_usage.md) -
-    Running the new video decoder performance tests.
+    Running the video decoder performance tests.
 
 ### Accessibility
 *   [Accessibility Overview](accessibility/overview.md) - Overview of
@@ -370,12 +377,14 @@ used when committed.
 *   [Mojo “Style” Guide](security/mojo.md) - Recommendations for best practices
     from Mojo and IPC reviewers
 
+### WebXR
+*   [Running OpenVR Without Headset](xr/run_openvr_without_headset.md) -
+    Instructions for running OpenVR on Windows without a headset
+
 ### Probably Obsolete
 *   [TPM Quick Reference](tpm_quick_ref.md) - Trusted Platform Module notes.
 *   [System Hardening Features](system_hardening_features.md) - A list of
     current and planned Chrome OS security features.
-*   [Browser View Resizer](browser_view_resizer.md) - Design doc for making
-    browser window resizing easier on Windows.
 *   [WebView Policies](webview_policies.md)
 *   [Linux Profiling](linux_profiling.md) - How to profile Chromium on Linux
 *   [Linux Graphics Pipeline](linux_graphics_pipeline.md)

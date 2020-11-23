@@ -22,32 +22,29 @@ class V8_EXPORT_PRIVATE PromiseBuiltinsAssembler : public CodeStubAssembler {
   //
   // This uses undefined as the parent promise for the promise init
   // hook.
-  Node* AllocateAndInitJSPromise(Node* context);
+  TNode<JSPromise> AllocateAndInitJSPromise(TNode<Context> context);
   // This uses the given parent as the parent promise for the promise
   // init hook.
-  Node* AllocateAndInitJSPromise(Node* context, Node* parent);
+  TNode<JSPromise> AllocateAndInitJSPromise(TNode<Context> context,
+                                            TNode<Object> parent);
 
   // This allocates and initializes a promise with the given state and
   // fields.
-  Node* AllocateAndSetJSPromise(Node* context, v8::Promise::PromiseState status,
-                                Node* result);
+  TNode<JSPromise> AllocateAndSetJSPromise(TNode<Context> context,
+                                           v8::Promise::PromiseState status,
+                                           TNode<Object> result);
 
-  Node* AllocatePromiseReaction(Node* next, Node* promise_or_capability,
-                                Node* fulfill_handler, Node* reject_handler);
+  TNode<PromiseReaction> AllocatePromiseReaction(
+      TNode<Object> next, TNode<HeapObject> promise_or_capability,
+      TNode<HeapObject> fulfill_handler, TNode<HeapObject> reject_handler);
 
-  Node* AllocatePromiseReactionJobTask(RootIndex map_root_index, Node* context,
-                                       Node* argument, Node* handler,
-                                       Node* promise_or_capability);
-  Node* AllocatePromiseReactionJobTask(Node* map, Node* context, Node* argument,
-                                       Node* handler,
-                                       Node* promise_or_capability);
-  Node* AllocatePromiseResolveThenableJobTask(Node* promise_to_resolve,
-                                              Node* then, Node* thenable,
-                                              Node* context);
+  TNode<PromiseReactionJobTask> AllocatePromiseReactionJobTask(
+      TNode<Map> map, TNode<Context> context, TNode<Object> argument,
+      TNode<HeapObject> handler, TNode<HeapObject> promise_or_capability);
 
-  std::pair<Node*, Node*> CreatePromiseResolvingFunctions(Node* promise,
-                                                          Node* debug_event,
-                                                          Node* native_context);
+  TNode<PromiseResolveThenableJobTask> AllocatePromiseResolveThenableJobTask(
+      TNode<JSPromise> promise_to_resolve, TNode<JSReceiver> then,
+      TNode<JSReceiver> thenable, TNode<Context> context);
 
   Node* PromiseHasHandler(Node* promise);
 
@@ -65,36 +62,29 @@ class V8_EXPORT_PRIVATE PromiseBuiltinsAssembler : public CodeStubAssembler {
                                                            Node* native_context,
                                                            int slot_index);
 
-  Node* CreatePromiseResolvingFunctionsContext(Node* promise, Node* debug_event,
-                                               Node* native_context);
+  TNode<Context> CreatePromiseResolvingFunctionsContext(
+      TNode<JSPromise> promise, TNode<Object> debug_event,
+      TNode<NativeContext> native_context);
 
-  Node* CreatePromiseGetCapabilitiesExecutorContext(Node* promise_capability,
-                                                    Node* native_context);
-
- protected:
+  void BranchIfAccessCheckFailed(SloppyTNode<Context> context,
+                                 SloppyTNode<Context> native_context,
+                                 TNode<Object> promise_constructor,
+                                 TNode<Object> executor, Label* if_noaccess);
   void PromiseInit(Node* promise);
 
+ protected:
   void PromiseSetHasHandler(Node* promise);
   void PromiseSetHandledHint(Node* promise);
-
-  void PerformPromiseThen(Node* context, Node* promise, Node* on_fulfilled,
-                          Node* on_rejected,
-                          Node* result_promise_or_capability);
-
-  Node* CreatePromiseContext(Node* native_context, int slots);
-
-  Node* TriggerPromiseReactions(Node* context, Node* promise, Node* result,
-                                PromiseReaction::Type type);
 
   // We can skip the "resolve" lookup on {constructor} if it's the (initial)
   // Promise constructor and the Promise.resolve() protector is intact, as
   // that guards the lookup path for the "resolve" property on the %Promise%
   // intrinsic object.
   void BranchIfPromiseResolveLookupChainIntact(Node* native_context,
-                                               Node* constructor,
+                                               SloppyTNode<Object> constructor,
                                                Label* if_fast, Label* if_slow);
   void GotoIfNotPromiseResolveLookupChainIntact(Node* native_context,
-                                                Node* constructor,
+                                                SloppyTNode<Object> constructor,
                                                 Label* if_slow);
 
   // We can shortcut the SpeciesConstructor on {promise_map} if it's
@@ -118,11 +108,7 @@ class V8_EXPORT_PRIVATE PromiseBuiltinsAssembler : public CodeStubAssembler {
   Node* CallResolve(Node* native_context, Node* constructor, Node* resolve,
                     Node* value, Label* if_exception, Variable* var_exception);
   template <typename... TArgs>
-  Node* InvokeThen(Node* native_context, Node* receiver, TArgs... args);
-
-  void BranchIfAccessCheckFailed(Node* context, Node* native_context,
-                                 Node* promise_constructor, Node* executor,
-                                 Label* if_noaccess);
+  TNode<Object> InvokeThen(Node* native_context, Node* receiver, TArgs... args);
 
   std::pair<Node*, Node*> CreatePromiseFinallyFunctions(Node* on_finally,
                                                         Node* constructor,
@@ -136,12 +122,12 @@ class V8_EXPORT_PRIVATE PromiseBuiltinsAssembler : public CodeStubAssembler {
                                   TNode<NativeContext> native_context,
                                   TNode<PromiseCapability> capability)>;
 
-  Node* PerformPromiseAll(
+  TNode<Object> PerformPromiseAll(
       Node* context, Node* constructor, Node* capability,
       const TorqueStructIteratorRecord& record,
       const PromiseAllResolvingElementFunction& create_resolve_element_function,
       const PromiseAllResolvingElementFunction& create_reject_element_function,
-      Label* if_exception, Variable* var_exception);
+      Label* if_exception, TVariable<Object>* var_exception);
 
   void SetForwardingHandlerIfTrue(Node* context, Node* condition,
                                   const NodeGenerator& object);
@@ -153,16 +139,15 @@ class V8_EXPORT_PRIVATE PromiseBuiltinsAssembler : public CodeStubAssembler {
   void SetPromiseHandledByIfTrue(Node* context, Node* condition, Node* promise,
                                  const NodeGenerator& handled_by);
 
-  Node* PromiseStatus(Node* promise);
+  TNode<Word32T> PromiseStatus(Node* promise);
 
   void PromiseReactionJob(Node* context, Node* argument, Node* handler,
                           Node* promise_or_capability,
                           PromiseReaction::Type type);
 
-  Node* IsPromiseStatus(Node* actual, v8::Promise::PromiseState expected);
-  void PromiseSetStatus(Node* promise, v8::Promise::PromiseState status);
-
-  Node* AllocateJSPromise(Node* context);
+  TNode<BoolT> IsPromiseStatus(TNode<Word32T> actual,
+                               v8::Promise::PromiseState expected);
+  TNode<JSPromise> AllocateJSPromise(TNode<Context> context);
 
   void ExtractHandlerContext(Node* handler, Variable* var_context);
   void Generate_PromiseAll(

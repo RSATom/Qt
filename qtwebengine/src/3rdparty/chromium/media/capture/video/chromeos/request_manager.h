@@ -15,13 +15,15 @@
 #include "base/memory/weak_ptr.h"
 #include "base/optional.h"
 #include "media/capture/mojom/image_capture.mojom.h"
+#include "media/capture/video/chromeos/camera_app_device_impl.h"
 #include "media/capture/video/chromeos/camera_device_delegate.h"
-#include "media/capture/video/chromeos/mojo/camera3.mojom.h"
-#include "media/capture/video/chromeos/reprocess_manager.h"
+#include "media/capture/video/chromeos/mojom/camera3.mojom.h"
+#include "media/capture/video/chromeos/mojom/camera_app.mojom.h"
 #include "media/capture/video/chromeos/request_builder.h"
 #include "media/capture/video/chromeos/stream_buffer_manager.h"
 #include "media/capture/video_capture_types.h"
-#include "mojo/public/cpp/bindings/binding.h"
+#include "mojo/public/cpp/bindings/pending_receiver.h"
+#include "mojo/public/cpp/bindings/receiver.h"
 
 namespace media {
 
@@ -119,13 +121,15 @@ class CAPTURE_EXPORT RequestManager final
     base::Optional<uint64_t> input_buffer_id;
   };
 
-  RequestManager(cros::mojom::Camera3CallbackOpsRequest callback_ops_request,
+  RequestManager(mojo::PendingReceiver<cros::mojom::Camera3CallbackOps>
+                     callback_ops_receiver,
                  std::unique_ptr<StreamCaptureInterface> capture_interface,
                  CameraDeviceContext* device_context,
                  VideoCaptureBufferType buffer_type,
                  std::unique_ptr<CameraBufferFactory> camera_buffer_factory,
                  BlobifyCallback blobify_callback,
-                 scoped_refptr<base::SingleThreadTaskRunner> ipc_task_runner);
+                 scoped_refptr<base::SingleThreadTaskRunner> ipc_task_runner,
+                 CameraAppDeviceImpl* camera_app_device);
   ~RequestManager() override;
 
   // Sets up the stream context and allocate buffers according to the
@@ -216,6 +220,10 @@ class CAPTURE_EXPORT RequestManager final
   void SetSensorTimestamp(cros::mojom::CameraMetadataPtr* settings,
                           uint64_t shutter_timestamp);
 
+  // Puts availability of Zero Shutter Lag into the metadata.
+  void SetZeroShutterLag(cros::mojom::CameraMetadataPtr* settings,
+                         bool enabled);
+
   // Prepares a capture request by mixing repeating request with one-shot
   // request if it exists. If there are reprocess requests in the queue, just
   // build the reprocess capture request without mixing the repeating request.
@@ -272,7 +280,7 @@ class CAPTURE_EXPORT RequestManager final
   // SetRepeatingCaptureMetadata(), update them onto |capture_settings|.
   void UpdateCaptureSettings(cros::mojom::CameraMetadataPtr* capture_settings);
 
-  mojo::Binding<cros::mojom::Camera3CallbackOps> callback_ops_;
+  mojo::Receiver<cros::mojom::Camera3CallbackOps> callback_ops_;
 
   std::unique_ptr<StreamCaptureInterface> capture_interface_;
 
@@ -301,6 +309,15 @@ class CAPTURE_EXPORT RequestManager final
   // metadata and captured buffer of a frame are returned together in one
   // shot.
   uint32_t partial_result_count_;
+
+  // The pipeline depth reported in the ANDROID_REQUEST_PIPELINE_MAX_DEPTH
+  // metadata.
+  size_t pipeline_depth_;
+
+  // The number of preview buffers queued to the camera service.  The request
+  // manager needs to try its best to queue |pipeline_depth_| preview buffers to
+  // avoid camera frame drops.
+  size_t preview_buffers_queued_;
 
   // The shutter time of the first frame.  We derive the |timestamp| of a
   // frame using the difference between the frame's shutter time and
@@ -360,7 +377,9 @@ class CAPTURE_EXPORT RequestManager final
   // duplicate or out of order of frames.
   std::map<StreamType, uint32_t> last_received_frame_number_map_;
 
-  base::WeakPtrFactory<RequestManager> weak_ptr_factory_;
+  CameraAppDeviceImpl* camera_app_device_;  // Weak.
+
+  base::WeakPtrFactory<RequestManager> weak_ptr_factory_{this};
 
   DISALLOW_IMPLICIT_CONSTRUCTORS(RequestManager);
 };

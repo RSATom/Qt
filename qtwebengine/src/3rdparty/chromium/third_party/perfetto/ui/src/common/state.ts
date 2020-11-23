@@ -19,9 +19,66 @@
  */
 export interface ObjectById<Class extends{id: string}> { [id: string]: Class; }
 
+export type Timestamped<T> = {
+  [P in keyof T]: T[P];
+}&{lastUpdate: number};
+
+export type OmniboxState =
+    Timestamped<{omnibox: string; mode: 'SEARCH' | 'COMMAND'}>;
+
+export type VisibleState =
+    Timestamped<{startSec: number; endSec: number; resolution: number;}>;
+
+export type TimestampedAreaSelection = Timestamped<AreaSelection>;
+export interface AreaSelection {
+  area?: Area;
+}
+export interface Area {
+  startSec: number;
+  endSec: number;
+  tracks: string[];
+}
+
 export const MAX_TIME = 180;
 
 export const SCROLLING_TRACK_GROUP = 'ScrollingTracks';
+
+
+export type EngineMode = 'WASM'|'HTTP_RPC';
+
+export type NewEngineMode = 'USE_HTTP_RPC_IF_AVAILABLE'|'FORCE_BUILTIN_WASM';
+
+export interface CallsiteInfo {
+  id: number;
+  parentId: number;
+  depth: number;
+  name?: string;
+  totalSize: number;
+  selfSize: number;
+  mapping: string;
+}
+
+export interface TraceFileSource {
+  type: 'FILE';
+  file: File;
+}
+
+export interface TraceArrayBufferSource {
+  type: 'ARRAY_BUFFER';
+  buffer: ArrayBuffer;
+}
+
+export interface TraceUrlSource {
+  type: 'URL';
+  url: string;
+}
+
+export interface TraceHttpRpcSource {
+  type: 'HTTP_RPC';
+}
+
+export type TraceSource =
+    TraceFileSource|TraceArrayBufferSource|TraceUrlSource|TraceHttpRpcSource;
 
 export interface TrackState {
   id: string;
@@ -29,7 +86,6 @@ export interface TrackState {
   kind: string;
   name: string;
   trackGroup?: string;
-  dataReq?: TrackDataRequest;
   config: {};
 }
 
@@ -42,16 +98,12 @@ export interface TrackGroupState {
   summaryTrackId: string;
 }
 
-export interface TrackDataRequest {
-  start: number;
-  end: number;
-  resolution: number;
-}
-
 export interface EngineConfig {
   id: string;
+  mode?: EngineMode;  // Is undefined until |ready| is true.
   ready: boolean;
-  source: string|File|ArrayBuffer;
+  failed?: string;  // If defined the engine has crashed with the given message.
+  source: TraceSource;
 }
 
 export interface QueryConfig {
@@ -71,8 +123,9 @@ export interface TraceTime {
 }
 
 export interface FrontendLocalState {
-  visibleTraceTime: TraceTime;
-  lastUpdate: number;  // Epoch in seconds (Date.now() / 1000).
+  omniboxState: OmniboxState;
+  visibleState: VisibleState;
+  selectedArea: TimestampedAreaSelection;
 }
 
 export interface Status {
@@ -95,14 +148,35 @@ export interface NoteSelection {
 
 export interface SliceSelection {
   kind: 'SLICE';
-  utid: number;
   id: number;
 }
 
-export interface TimeSpanSelection {
-  kind: 'TIMESPAN';
-  startTs: number;
-  endTs: number;
+export interface CounterSelection {
+  kind: 'COUNTER';
+  leftTs: number;
+  rightTs: number;
+  id: number;
+}
+
+export interface HeapProfileSelection {
+  kind: 'HEAP_PROFILE';
+  id: number;
+  upid: number;
+  ts: number;
+}
+
+export interface HeapProfileFlamegraph {
+  kind: 'HEAP_PROFILE_FLAMEGRAPH';
+  id: number;
+  upid: number;
+  ts: number;
+  expandedCallsite?: CallsiteInfo;
+  viewingOption?: string;
+}
+
+export interface ChromeSliceSelection {
+  kind: 'CHROME_SLICE';
+  id: number;
 }
 
 export interface ThreadStateSelection {
@@ -111,14 +185,25 @@ export interface ThreadStateSelection {
   ts: number;
   dur: number;
   state: string;
+  cpu: number;
 }
 
 type Selection =
-    NoteSelection|SliceSelection|TimeSpanSelection|ThreadStateSelection;
+    (NoteSelection|SliceSelection|CounterSelection|HeapProfileSelection|
+     ChromeSliceSelection|ThreadStateSelection)&{trackId?: string};
 
 export interface LogsPagination {
   offset: number;
   count: number;
+}
+
+export interface RecordingTarget {
+  name: string;
+  os: TargetOs;
+}
+
+export interface AdbRecordingTarget extends RecordingTarget {
+  serial: string;
 }
 
 export interface State {
@@ -136,10 +221,12 @@ export interface State {
   /**
    * Open traces.
    */
+  newEngineMode: NewEngineMode;
   engines: ObjectById<EngineConfig>;
   traceTime: TraceTime;
   trackGroups: ObjectById<TrackGroupState>;
   tracks: ObjectById<TrackState>;
+  visibleTracks: string[];
   scrollingTracks: string[];
   pinnedTracks: string[];
   queries: ObjectById<QueryConfig>;
@@ -147,7 +234,7 @@ export interface State {
   notes: ObjectById<Note>;
   status: Status;
   currentSelection: Selection|null;
-
+  currentHeapProfileFlamegraph: HeapProfileFlamegraph|null;
   logsPagination: LogsPagination;
 
   /**
@@ -160,8 +247,23 @@ export interface State {
 
   video: string | null;
   videoEnabled: boolean;
+  videoOffset: number;
+  videoNoteIds: string[];
+  scrubbingEnabled: boolean;
   flagPauseEnabled: boolean;
-  videoNoteIds: Array<string>;
+
+  /**
+   * Trace recording
+   */
+  recordingInProgress: boolean;
+  recordingCancelled: boolean;
+  extensionInstalled: boolean;
+  recordingTarget: RecordingTarget;
+  availableAdbDevices: AdbRecordingTarget[];
+  lastRecordingError?: string;
+  recordingStatus?: string;
+
+  chromeCategories: string[]|undefined;
 }
 
 export const defaultTraceTime = {
@@ -172,11 +274,31 @@ export const defaultTraceTime = {
 export declare type RecordMode =
     'STOP_WHEN_FULL' | 'RING_BUFFER' | 'LONG_TRACE';
 
+// 'Q','P','O' for Android, 'L' for Linux, 'C' for Chrome.
+export declare type TargetOs = 'Q' | 'P' | 'O' | 'C' | 'L';
+
+export function isAndroidTarget(target: RecordingTarget) {
+  return ['Q', 'P', 'O'].includes(target.os);
+}
+
+export function isChromeTarget(target: RecordingTarget) {
+  return target.os === 'C';
+}
+
+export function isLinuxTarget(target: RecordingTarget) {
+  return target.os === 'L';
+}
+
+export function isAdbTarget(target: RecordingTarget):
+    target is AdbRecordingTarget {
+  if ((target as AdbRecordingTarget).serial) return true;
+  return false;
+}
+
 export interface RecordConfig {
   [key: string]: null|number|boolean|string|string[];
 
   // Global settings
-  targetOS: string;  // 'Q','P','O' for Android, 'L' for Linux
   mode: RecordMode;
   durationMs: number;
   bufferSizeMb: number;
@@ -219,13 +341,21 @@ export interface RecordConfig {
   vmstatPeriodMs: number;
   vmstatCounters: string[];
 
+  heapProfiling: boolean;
+  hpSamplingIntervalBytes: number;
+  hpProcesses: string;
+  hpContinuousDumpsPhase: number;
+  hpContinuousDumpsInterval: number;
+  hpSharedMemoryBuffer: number;
+
   procStats: boolean;
   procStatsPeriodMs: number;
+
+  chromeCategoriesSelected: string[];
 }
 
 export function createEmptyRecordConfig(): RecordConfig {
   return {
-    targetOS: 'Q',
     mode: 'STOP_WHEN_FULL',
     durationMs: 10000.0,
     maxFileSizeMb: 100,
@@ -269,20 +399,41 @@ export function createEmptyRecordConfig(): RecordConfig {
     vmstatPeriodMs: 1000,
     vmstatCounters: [],
 
+    heapProfiling: false,
+    hpSamplingIntervalBytes: 4096,
+    hpProcesses: '',
+    hpContinuousDumpsPhase: 0,
+    hpContinuousDumpsInterval: 0,
+    hpSharedMemoryBuffer: 8 * 1048576,
+
     memLmk: false,
     procStats: false,
     procStatsPeriodMs: 1000,
+
+    chromeCategoriesSelected: [],
   };
+}
+
+export function getDefaultRecordingTargets(): RecordingTarget[] {
+  return [
+    {os: 'Q', name: 'Android Q+'},
+    {os: 'P', name: 'Android P'},
+    {os: 'O', name: 'Android O-'},
+    {os: 'C', name: 'Chrome'},
+    {os: 'L', name: 'Linux desktop'}
+  ];
 }
 
 export function createEmptyState(): State {
   return {
     route: null,
     nextId: 0,
+    newEngineMode: 'USE_HTTP_RPC_IF_AVAILABLE',
     engines: {},
     traceTime: {...defaultTraceTime},
     tracks: {},
     trackGroups: {},
+    visibleTracks: [],
     pinnedTracks: [],
     scrollingTracks: [],
     queries: {},
@@ -293,8 +444,20 @@ export function createEmptyState(): State {
     displayConfigAsPbtxt: false,
 
     frontendLocalState: {
-      visibleTraceTime: {...defaultTraceTime},
-      lastUpdate: 0,
+      omniboxState: {
+        lastUpdate: 0,
+        omnibox: '',
+        mode: 'SEARCH',
+      },
+
+      visibleState: {
+        ...defaultTraceTime,
+        lastUpdate: 0,
+        resolution: 0,
+      },
+      selectedArea: {
+        lastUpdate: 0,
+      },
     },
 
     logsPagination: {
@@ -304,10 +467,33 @@ export function createEmptyState(): State {
 
     status: {msg: '', timestamp: 0},
     currentSelection: null,
+    currentHeapProfileFlamegraph: null,
 
     video: null,
     videoEnabled: false,
-    flagPauseEnabled: false,
+    videoOffset: 0,
     videoNoteIds: [],
+    scrubbingEnabled: false,
+    flagPauseEnabled: false,
+    recordingInProgress: false,
+    recordingCancelled: false,
+    extensionInstalled: false,
+    recordingTarget: getDefaultRecordingTargets()[0],
+    availableAdbDevices: [],
+
+    chromeCategories: undefined,
   };
+}
+
+export function getContainingTrackId(state: State, trackId: string): null|
+    string {
+  const track = state.tracks[trackId];
+  if (!track) {
+    return null;
+  }
+  const parentId = track.trackGroup;
+  if (!parentId) {
+    return null;
+  }
+  return parentId;
 }

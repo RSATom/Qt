@@ -9,7 +9,7 @@
 #include "base/single_thread_task_runner.h"
 #include "media/video/video_encode_accelerator.h"
 #include "third_party/blink/renderer/modules/mediarecorder/video_track_recorder.h"
-#include "third_party/blink/renderer/platform/wtf/time.h"
+
 #include "third_party/blink/renderer/platform/wtf/vector.h"
 #include "ui/gfx/geometry/size.h"
 
@@ -35,6 +35,7 @@ class VEAEncoder final : public VideoTrackRecorder::Encoder,
       int32_t bits_per_second,
       media::VideoCodecProfile codec,
       const gfx::Size& size,
+      bool use_native_input,
       scoped_refptr<base::SingleThreadTaskRunner> task_runner);
 
   // media::VideoEncodeAccelerator::Client implementation.
@@ -52,6 +53,18 @@ class VEAEncoder final : public VideoTrackRecorder::Encoder,
   using VideoParamsAndTimestamp =
       std::pair<media::WebmMuxer::VideoParameters, base::TimeTicks>;
 
+  struct InputBuffer {
+    base::UnsafeSharedMemoryRegion region;
+    base::WritableSharedMemoryMapping mapping;
+  };
+
+  struct OutputBuffer {
+    base::UnsafeSharedMemoryRegion region;
+    base::WritableSharedMemoryMapping mapping;
+
+    bool IsValid();
+  };
+
   VEAEncoder(
       const VideoTrackRecorder::OnEncodedVideoCB& on_encoded_video_callback,
       const VideoTrackRecorder::OnErrorCB& on_error_callback,
@@ -61,14 +74,15 @@ class VEAEncoder final : public VideoTrackRecorder::Encoder,
       scoped_refptr<base::SingleThreadTaskRunner> task_runner);
 
   void UseOutputBitstreamBufferId(int32_t bitstream_buffer_id);
-  void FrameFinished(std::unique_ptr<base::SharedMemory> shm);
+  void FrameFinished(std::unique_ptr<InputBuffer> shm);
 
   // VideoTrackRecorder::Encoder implementation.
   ~VEAEncoder() override;
   void EncodeOnEncodingTaskRunner(scoped_refptr<media::VideoFrame> frame,
                                   base::TimeTicks capture_timestamp) override;
 
-  void ConfigureEncoderOnEncodingTaskRunner(const gfx::Size& size);
+  void ConfigureEncoderOnEncodingTaskRunner(const gfx::Size& size,
+                                            bool use_native_input);
 
   void DestroyOnEncodingTaskRunner(base::WaitableEvent* async_waiter = nullptr);
 
@@ -80,11 +94,11 @@ class VEAEncoder final : public VideoTrackRecorder::Encoder,
   std::unique_ptr<media::VideoEncodeAccelerator> video_encoder_;
 
   // Shared memory buffers for output with the VEA.
-  Vector<std::unique_ptr<base::SharedMemory>> output_buffers_;
+  Vector<std::unique_ptr<OutputBuffer>> output_buffers_;
 
   // Shared memory buffers for output with the VEA as FIFO.
   // TODO(crbug.com/960665): Replace with a WTF equivalent.
-  base::queue<std::unique_ptr<base::SharedMemory>> input_buffers_;
+  base::queue<std::unique_ptr<InputBuffer>> input_buffers_;
 
   // Tracks error status.
   bool error_notified_;

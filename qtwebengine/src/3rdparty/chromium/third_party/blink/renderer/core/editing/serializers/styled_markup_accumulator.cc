@@ -49,8 +49,6 @@ wtf_size_t TotalLength(const Vector<String>& strings) {
 
 }  // namespace
 
-using namespace html_names;
-
 StyledMarkupAccumulator::StyledMarkupAccumulator(
     const TextOffset& start,
     const TextOffset& end,
@@ -116,7 +114,7 @@ void StyledMarkupAccumulator::AppendTextWithInlineStyle(
     AppendText(text);
   } else {
     const bool use_rendered_text = !EnclosingElementWithTag(
-        Position::FirstPositionInNode(text), kSelectTag);
+        Position::FirstPositionInNode(text), html_names::kSelectTag);
     String content =
         use_rendered_text ? RenderedText(text) : StringValueForRange(text);
     StringBuilder buffer;
@@ -148,7 +146,7 @@ void StyledMarkupAccumulator::AppendElementWithInlineStyle(
   AttributeCollection attributes = element.Attributes();
   for (const auto& attribute : attributes) {
     // We'll handle the style attribute separately, below.
-    if (attribute.GetName() == kStyleAttr)
+    if (attribute.GetName() == html_names::kStyleAttr)
       continue;
     AppendAttribute(out, element, attribute);
   }

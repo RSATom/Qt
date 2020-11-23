@@ -30,6 +30,7 @@
 #include "gpu/config/gpu_finch_features.h"
 #include "gpu/ipc/command_buffer_task_executor.h"
 #include "gpu/ipc/common/surface_handle.h"
+#include "gpu/ipc/scheduler_sequence.h"
 #include "gpu/ipc/service/gpu_channel_manager_delegate.h"
 #include "gpu/ipc/service/image_transport_surface.h"
 #include "ui/base/ui_base_switches.h"
@@ -63,6 +64,7 @@
 #endif
 
 #if defined(OS_CHROMEOS)
+#include "components/viz/service/display_embedder/gl_output_surface_chromeos.h"
 #include "components/viz/service/display_embedder/output_surface_unified.h"
 #endif
 
@@ -125,10 +127,13 @@ std::unique_ptr<OutputSurface> OutputSurfaceProviderImpl::CreateOutputSurface(
     NOTIMPLEMENTED();
     return nullptr;
 #else
-    output_surface = SkiaOutputSurfaceImpl::Create(
-        std::make_unique<SkiaOutputSurfaceDependencyImpl>(gpu_service_impl_,
-                                                          surface_handle),
-        renderer_settings);
+    {
+      gpu::ScopedAllowScheduleGpuTask allow_schedule_gpu_task;
+      output_surface = SkiaOutputSurfaceImpl::Create(
+          std::make_unique<SkiaOutputSurfaceDependencyImpl>(gpu_service_impl_,
+                                                            surface_handle),
+          renderer_settings);
+    }
     if (!output_surface) {
 #if defined(OS_CHROMEOS) || defined(IS_CHROMECAST)
       // GPU compositing is expected to always work on Chrome OS so we should
@@ -213,6 +218,9 @@ std::unique_ptr<OutputSurface> OutputSurfaceProviderImpl::CreateOutputSurface(
 #elif defined(OS_ANDROID)
       output_surface = std::make_unique<GLOutputSurfaceAndroid>(
           std::move(context_provider), surface_handle);
+#elif defined(OS_CHROMEOS)
+      output_surface = std::make_unique<GLOutputSurfaceChromeOS>(
+          std::move(context_provider), surface_handle);
 #else
       output_surface = std::make_unique<GLOutputSurface>(
           std::move(context_provider), surface_handle);
@@ -245,13 +253,20 @@ OutputSurfaceProviderImpl::CreateSoftwareOutputDeviceForPlatform(
       ui::OzonePlatform::GetInstance()->GetSurfaceFactoryOzone();
   std::unique_ptr<ui::PlatformWindowSurface> platform_window_surface =
       factory->CreatePlatformWindowSurface(surface_handle);
+  bool in_host_process =
+      !gpu_service_impl_ || gpu_service_impl_->in_host_process();
   std::unique_ptr<ui::SurfaceOzoneCanvas> surface_ozone =
-      factory->CreateCanvasForWidget(surface_handle);
+      factory->CreateCanvasForWidget(
+          surface_handle,
+          in_host_process ? nullptr : gpu_service_impl_->main_runner());
   CHECK(surface_ozone);
   return std::make_unique<SoftwareOutputDeviceOzone>(
       std::move(platform_window_surface), std::move(surface_ozone));
 #elif defined(USE_X11)
-  return std::make_unique<SoftwareOutputDeviceX11>(surface_handle);
+  return std::make_unique<SoftwareOutputDeviceX11>(
+      surface_handle, gpu_service_impl_->in_host_process()
+                          ? nullptr
+                          : gpu_service_impl_->main_runner());
 #endif
 }
 

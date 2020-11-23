@@ -69,7 +69,7 @@ namespace {
 }
 
 static void parseRect(const QString &value, QRect *rect) {
-    const QVector<QStringRef> l = value.splitRef(QLatin1Char(' '));
+    const auto l = value.splitRef(QLatin1Char(' '));
     rect->setRect(l[0].toInt(), l[1].toInt(), l[2].toInt(), l[3].toInt());
 }
 
@@ -474,7 +474,7 @@ DeviceSkin::~DeviceSkin( )
     delete cursorw;
 }
 
-void DeviceSkin::setTransform( const QMatrix& wm )
+void DeviceSkin::setTransform(const QTransform &wm)
 {
     transform = QImage::trueMatrix(wm,m_parameters.skinImageUp.width(),m_parameters.skinImageUp.height());
     calcRegions();
@@ -488,7 +488,7 @@ void DeviceSkin::setTransform( const QMatrix& wm )
 
 void DeviceSkin::setZoom( double z )
 {
-    setTransform(QMatrix().scale(z,z));
+    setTransform(QTransform().scale(z,z));
 }
 
 void DeviceSkin::updateSecondaryScreen()
@@ -535,7 +535,7 @@ void DeviceSkin::paintEvent( QPaintEvent *)
     } else {
         p.drawPixmap(0, 0, skinImageClosed);
     }
-    QList<int> toDraw;
+    QVector<int> toDraw;
     if ( buttonPressed == true ) {
         toDraw += buttonIndex;
     }

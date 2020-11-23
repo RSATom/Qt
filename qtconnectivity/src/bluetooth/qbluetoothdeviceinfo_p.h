@@ -81,7 +81,7 @@ public:
     QBluetoothDeviceInfo::DataCompleteness serviceUuidsCompleteness;
 #endif
     QVector<QBluetoothUuid> serviceUuids;
-    QHash<quint16, QByteArray> manufacturerData;
+    QMultiHash<quint16, QByteArray> manufacturerData;
     QBluetoothDeviceInfo::CoreConfigurations deviceCoreConfiguration;
 
     QBluetoothUuid deviceUuid;

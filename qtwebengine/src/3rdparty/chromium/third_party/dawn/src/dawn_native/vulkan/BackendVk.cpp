@@ -14,6 +14,7 @@
 
 #include "dawn_native/vulkan/BackendVk.h"
 
+#include "common/SystemUtils.h"
 #include "dawn_native/Instance.h"
 #include "dawn_native/VulkanBackend.h"
 #include "dawn_native/vulkan/AdapterVk.h"
@@ -21,10 +22,16 @@
 
 #include <iostream>
 
-#if DAWN_PLATFORM_LINUX
+#if defined(DAWN_PLATFORM_LINUX)
+#    if defined(DAWN_PLATFORM_ANDROID)
+const char kVulkanLibName[] = "libvulkan.so";
+#    else
 const char kVulkanLibName[] = "libvulkan.so.1";
-#elif DAWN_PLATFORM_WINDOWS
+#    endif
+#elif defined(DAWN_PLATFORM_WINDOWS)
 const char kVulkanLibName[] = "vulkan-1.dll";
+#elif defined(DAWN_PLATFORM_FUCHSIA)
+const char kVulkanLibName[] = "libvulkan.so";
 #else
 #    error "Unimplemented Vulkan backend platform"
 #endif
@@ -55,9 +62,29 @@ namespace dawn_native { namespace vulkan {
         return mInstance;
     }
 
+    const VulkanGlobalInfo& Backend::GetGlobalInfo() const {
+        return mGlobalInfo;
+    }
+
     MaybeError Backend::Initialize() {
+#if defined(DAWN_ENABLE_VULKAN_VALIDATION_LAYERS)
+        if (GetInstance()->IsBackendValidationEnabled()) {
+            std::string vkDataDir = GetExecutableDirectory() + DAWN_VK_DATA_DIR;
+            if (!SetEnvironmentVar("VK_LAYER_PATH", vkDataDir.c_str())) {
+                return DAWN_DEVICE_LOST_ERROR("Couldn't set VK_LAYER_PATH");
+            }
+        }
+#endif
+#if defined(DAWN_SWIFTSHADER_VK_ICD_JSON)
+        std::string fullSwiftshaderICDPath =
+            GetExecutableDirectory() + DAWN_SWIFTSHADER_VK_ICD_JSON;
+        if (!SetEnvironmentVar("VK_ICD_FILENAMES", fullSwiftshaderICDPath.c_str())) {
+            return DAWN_DEVICE_LOST_ERROR("Couldn't set VK_ICD_FILENAMES");
+        }
+#endif
+
         if (!mVulkanLib.Open(kVulkanLibName)) {
-            return DAWN_CONTEXT_LOST_ERROR(std::string("Couldn't open ") + kVulkanLibName);
+            return DAWN_DEVICE_LOST_ERROR(std::string("Couldn't open ") + kVulkanLibName);
         }
 
         DAWN_TRY(mFunctions.LoadGlobalProcs(mVulkanLib));
@@ -132,11 +159,28 @@ namespace dawn_native { namespace vulkan {
             }
         }
 
+        if (mGlobalInfo.fuchsiaImagePipeSwapchain) {
+            layersToRequest.push_back(kLayerNameFuchsiaImagePipeSwapchain);
+            usedKnobs.fuchsiaImagePipeSwapchain = true;
+        }
+
         // Always request all extensions used to create VkSurfaceKHR objects so that they are
         // always available for embedders looking to create VkSurfaceKHR on our VkInstance.
         if (mGlobalInfo.macosSurface) {
             extensionsToRequest.push_back(kExtensionNameMvkMacosSurface);
             usedKnobs.macosSurface = true;
+        }
+        if (mGlobalInfo.externalMemoryCapabilities) {
+            extensionsToRequest.push_back(kExtensionNameKhrExternalMemoryCapabilities);
+            usedKnobs.externalMemoryCapabilities = true;
+        }
+        if (mGlobalInfo.externalSemaphoreCapabilities) {
+            extensionsToRequest.push_back(kExtensionNameKhrExternalSemaphoreCapabilities);
+            usedKnobs.externalSemaphoreCapabilities = true;
+        }
+        if (mGlobalInfo.getPhysicalDeviceProperties2) {
+            extensionsToRequest.push_back(kExtensionNameKhrGetPhysicalDeviceProperties2);
+            usedKnobs.getPhysicalDeviceProperties2 = true;
         }
         if (mGlobalInfo.surface) {
             extensionsToRequest.push_back(kExtensionNameKhrSurface);
@@ -158,6 +202,10 @@ namespace dawn_native { namespace vulkan {
             extensionsToRequest.push_back(kExtensionNameKhrXlibSurface);
             usedKnobs.xlibSurface = true;
         }
+        if (mGlobalInfo.fuchsiaImagePipeSurface) {
+            extensionsToRequest.push_back(kExtensionNameFuchsiaImagePipeSurface);
+            usedKnobs.fuchsiaImagePipeSurface = true;
+        }
 
         VkApplicationInfo appInfo;
         appInfo.sType = VK_STRUCTURE_TYPE_APPLICATION_INFO;
@@ -166,7 +214,7 @@ namespace dawn_native { namespace vulkan {
         appInfo.applicationVersion = 0;
         appInfo.pEngineName = nullptr;
         appInfo.engineVersion = 0;
-        appInfo.apiVersion = VK_API_VERSION_1_0;
+        appInfo.apiVersion = mGlobalInfo.apiVersion;
 
         VkInstanceCreateInfo createInfo;
         createInfo.sType = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO;

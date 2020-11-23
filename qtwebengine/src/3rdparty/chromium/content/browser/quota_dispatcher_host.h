@@ -7,6 +7,7 @@
 
 #include "base/macros.h"
 #include "content/public/browser/quota_permission_context.h"
+#include "mojo/public/cpp/bindings/pending_receiver.h"
 #include "storage/browser/quota/quota_manager.h"
 #include "third_party/blink/public/mojom/quota/quota_dispatcher_host.mojom.h"
 
@@ -20,17 +21,14 @@ class Origin;
 
 namespace content {
 class QuotaPermissionContext;
-class RenderProcessHost;
 
 class QuotaDispatcherHost : public blink::mojom::QuotaDispatcherHost {
  public:
-  static void CreateForWorker(blink::mojom::QuotaDispatcherHostRequest request,
-                              RenderProcessHost* host,
-                              const url::Origin& origin);
-
-  static void CreateForFrame(RenderProcessHost* host,
-                             int render_frame_id,
-                             blink::mojom::QuotaDispatcherHostRequest request);
+  static void BindQuotaDispatcherHostOnIOThread(
+      int render_process_id,
+      int render_frame_id,
+      storage::QuotaManager* quota_manager,
+      mojo::PendingReceiver<blink::mojom::QuotaDispatcherHost> receiver);
 
   QuotaDispatcherHost(int process_id,
                       int render_frame_id,

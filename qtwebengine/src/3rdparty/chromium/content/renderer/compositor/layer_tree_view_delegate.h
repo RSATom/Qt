@@ -14,6 +14,7 @@
 
 namespace cc {
 class LayerTreeFrameSink;
+struct BeginMainFrameMetrics;
 struct ElementId;
 }  // namespace cc
 
@@ -49,6 +50,9 @@ class LayerTreeViewDelegate {
   // Notifies that the compositor has issued a BeginMainFrame.
   virtual void BeginMainFrame(base::TimeTicks frame_time) = 0;
 
+  virtual void OnDeferMainFrameUpdatesChanged(bool) = 0;
+  virtual void OnDeferCommitsChanged(bool) = 0;
+
   // Notifies that the layer tree host has completed a call to
   // RequestMainFrameUpdate in response to a BeginMainFrame.
   virtual void DidBeginMainFrame() = 0;
@@ -79,6 +83,14 @@ class LayerTreeViewDelegate {
   // (at the same time Tracing measurements are taken).
   virtual void RecordStartOfFrameMetrics() = 0;
   virtual void RecordEndOfFrameMetrics(base::TimeTicks frame_begin_time) = 0;
+  // Return metrics information for the stages of BeginMainFrame. This is
+  // ultimately implemented by Blink's LocalFrameUKMAggregator. It must be a
+  // distinct call from the FrameMetrics above because the BeginMainFrameMetrics
+  // for compositor latency must be gathered before the layer tree is
+  // committed to the compositor, which is before the call to
+  // RecordEndOfFrameMetrics.
+  virtual std::unique_ptr<cc::BeginMainFrameMetrics>
+  GetBeginMainFrameMetrics() = 0;
 
   // Notification of the beginning and end of LayerTreeHost::UpdateLayers, for
   // metrics collection.

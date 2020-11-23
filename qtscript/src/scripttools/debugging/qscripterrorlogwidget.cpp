@@ -90,7 +90,7 @@ QScriptErrorLogWidgetPrivate::~QScriptErrorLogWidgetPrivate()
 }
 
 QScriptErrorLogWidget::QScriptErrorLogWidget(QWidget *parent)
-    : QScriptErrorLogWidgetInterface(*new QScriptErrorLogWidgetPrivate, parent, 0)
+    : QScriptErrorLogWidgetInterface(*new QScriptErrorLogWidgetPrivate, parent, {})
 {
     Q_D(QScriptErrorLogWidget);
     d->outputEdit = new QScriptErrorLogWidgetOutputEdit();

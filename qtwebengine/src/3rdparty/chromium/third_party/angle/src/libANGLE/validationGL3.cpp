@@ -16,7 +16,7 @@ bool ValidateBeginConditionalRender(Context *context, GLuint id, GLenum mode)
 }
 
 bool ValidateBindFragDataLocation(Context *context,
-                                  GLuint program,
+                                  ShaderProgramID program,
                                   GLuint color,
                                   const GLchar *name)
 {
@@ -24,26 +24,6 @@ bool ValidateBindFragDataLocation(Context *context,
 }
 
 bool ValidateClampColor(Context *context, GLenum target, GLenum clamp)
-{
-    return true;
-}
-
-bool ValidateColorMaski(Context *context,
-                        GLuint index,
-                        GLboolean r,
-                        GLboolean g,
-                        GLboolean b,
-                        GLboolean a)
-{
-    return true;
-}
-
-bool ValidateDisablei(Context *context, GLenum target, GLuint index)
-{
-    return true;
-}
-
-bool ValidateEnablei(Context *context, GLenum target, GLuint index)
 {
     return true;
 }
@@ -56,8 +36,8 @@ bool ValidateEndConditionalRender(Context *context)
 bool ValidateFramebufferTexture1D(Context *context,
                                   GLenum target,
                                   GLenum attachment,
-                                  GLenum textarget,
-                                  GLuint texture,
+                                  TextureTarget textargetPacked,
+                                  TextureID texture,
                                   GLint level)
 {
     return true;
@@ -67,46 +47,9 @@ bool ValidateFramebufferTexture3D(Context *context,
                                   GLenum target,
                                   GLenum attachment,
                                   TextureTarget textargetPacked,
-                                  GLuint texture,
+                                  TextureID texture,
                                   GLint level,
                                   GLint zoffset)
-{
-    return true;
-}
-
-bool ValidateGetTexParameterIiv(Context *context,
-                                TextureType targetPacked,
-                                GLenum pname,
-                                GLint *params)
-{
-    return true;
-}
-
-bool ValidateGetTexParameterIuiv(Context *context,
-                                 TextureType targetPacked,
-                                 GLenum pname,
-                                 GLuint *params)
-{
-    return true;
-}
-
-bool ValidateIsEnabledi(Context *context, GLenum target, GLuint index)
-{
-    return true;
-}
-
-bool ValidateTexParameterIiv(Context *context,
-                             TextureType targetPacked,
-                             GLenum pname,
-                             const GLint *params)
-{
-    return true;
-}
-
-bool ValidateTexParameterIuiv(Context *context,
-                              TextureType targetPacked,
-                              GLenum pname,
-                              const GLuint *params)
 {
     return true;
 }

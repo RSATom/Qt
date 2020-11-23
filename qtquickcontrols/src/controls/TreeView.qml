@@ -49,7 +49,7 @@ BasicTableView {
     property var model: null
     property alias rootIndex: modelAdaptor.rootIndex
 
-    readonly property var currentIndex: modelAdaptor.mapRowToModelIndex(__currentRow)
+    readonly property var currentIndex: modelAdaptor.updateCount, modelAdaptor.mapRowToModelIndex(__currentRow)
     property ItemSelectionModel selection: null
 
     signal activated(var index)
@@ -95,6 +95,12 @@ BasicTableView {
     __model: TreeModelAdaptor {
         id: modelAdaptor
         model: root.model
+
+        // Hack to force re-evaluation of the currentIndex binding
+        property int updateCount: 0
+        onModelReset: updateCount++
+        onRowsInserted: updateCount++
+        onRowsRemoved: updateCount++
 
         onExpanded: root.expanded(index)
         onCollapsed: root.collapsed(index)

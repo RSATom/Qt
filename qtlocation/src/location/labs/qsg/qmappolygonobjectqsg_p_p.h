@@ -52,7 +52,7 @@
 #include <QtLocation/private/qmappolygonobject_p.h>
 #include <QtLocation/private/qmappolygonobject_p_p.h>
 #include <QtLocation/private/qqsgmapobject_p.h>
-#include <QtLocation/private/qdeclarativepolygonmapitem_p.h>
+#include <QtLocation/private/qdeclarativepolygonmapitem_p_p.h>
 #include <QtCore/qscopedvaluerollback.h>
 
 QT_BEGIN_NAMESPACE
@@ -67,6 +67,7 @@ public:
     QList<QDoubleVector2D> projectPath();
 
     // QQSGMapObject
+    void markSourceDirty();
     void updateGeometry() override;
     QSGNode *updateMapObjectNode(QSGNode *oldNode,
                                  VisibleNode **visibleNode,
@@ -84,10 +85,12 @@ public:
     virtual void setGeoShape(const QGeoShape &shape) override;
 
     // Data Members
-    QGeoMapPolygonGeometry m_geometry;
-    QGeoMapPolylineGeometry m_borderGeometry;
-
-    bool m_updatingGeometry = false;
+    QDoubleVector2D m_leftBoundMercator;
+    QGeoMapPolygonGeometryOpenGL m_geometry;
+    QGeoMapPolylineGeometryOpenGL m_borderGeometry;
+    QDeclarativePolygonMapItemPrivateOpenGL::RootNode *m_rootNode = nullptr;
+    MapPolygonNodeGL *m_node = nullptr;
+    MapPolylineNodeOpenGLExtruded *m_polylinenode = nullptr;
 };
 
 QT_END_NAMESPACE

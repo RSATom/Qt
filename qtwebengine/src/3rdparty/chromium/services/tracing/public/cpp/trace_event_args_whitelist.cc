@@ -26,6 +26,8 @@ struct WhitelistEntry {
 
 const char* const kScopedBlockingCallAllowedArgs[] = {"file_name",
                                                       "function_name", nullptr};
+const char* const kFallbackFontAllowedArgs[] = {"font_name",
+                                                "primary_font_name", nullptr};
 const char* const kGetFallbackFontsAllowedArgs[] = {"script", nullptr};
 const char* const kGPUAllowedArgs[] = {nullptr};
 const char* const kInputLatencyAllowedArgs[] = {"data", nullptr};
@@ -50,8 +52,13 @@ const WhitelistEntry kEventArgsWhitelist[] = {
     {"__metadata", "stackFrames", nullptr},
     {"__metadata", "typeNames", nullptr},
     {"base", "ScopedBlockingCall*", kScopedBlockingCallAllowedArgs},
+    {"base", "ScopedThreadMayLoadLibraryOnBackgroundThread",
+     kScopedBlockingCallAllowedArgs},
     {"benchmark", "TestWhitelist*", nullptr},
     {"browser", "KeyedServiceFactory::GetServiceForContext", nullptr},
+    {"fonts", "CachedFontLinkSettings::GetLinkedFonts", nullptr},
+    {"fonts", "QueryLinkedFontsFromRegistry", nullptr},
+    {"fonts", "RenderTextHarfBuzz::ItemizeTextToRuns::Runs", nullptr},
     {"GPU", "*", kGPUAllowedArgs},
     {"ipc", "GpuChannelHost::Send", nullptr},
     {"ipc", "SyncChannel::Send", nullptr},
@@ -68,10 +75,9 @@ const WhitelistEntry kEventArgsWhitelist[] = {
     {TRACE_DISABLED_BY_DEFAULT("memory-infra"), "*", kMemoryDumpAllowedArgs},
     {TRACE_DISABLED_BY_DEFAULT("system_stats"), "*", nullptr},
     {TRACE_DISABLED_BY_DEFAULT("v8.gc"), "*", kV8GCAllowedArgs},
-    {"ui", "CachedFontLinkSettings::GetLinkedFonts", nullptr},
+    {"ui", "RenderTextHarfBuzz::FallbackFont", kFallbackFontAllowedArgs},
     {"ui", "RenderTextHarfBuzz::GetFallbackFonts",
      kGetFallbackFontsAllowedArgs},
-    {"ui", "QueryLinkedFontsFromRegistry", nullptr},
     {"ui", "UserEvent", nullptr},
     {TRACE_DISABLED_BY_DEFAULT("toplevel.flow"), "SequenceManager::PostTask",
      kTopLevelFlowAllowedArgs},
@@ -87,6 +93,7 @@ const char* kMetadataWhitelist[] = {"chrome-bitness",
                                     "field-trials",
                                     "gpu-*",
                                     "highres-ticks",
+                                    "hardware-class",
                                     "last_triggered_rule",
                                     "network-type",
                                     "num-cpus",

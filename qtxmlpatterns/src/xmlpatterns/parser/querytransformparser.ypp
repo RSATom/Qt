@@ -1107,16 +1107,16 @@ static Expression::Ptr createReturnOrderBy(const OrderSpecTransfer::List &orderS
  * specified below. This '%require' directive was introduced in Bison 2.2. */
 %require "2.3a"
 
-%name-prefix="XPath"
+%define api.prefix {XPath}
 
 /* Specifies the name of the generated parser. */
-%output="qquerytransformparser.cpp"
+%output "qquerytransformparser.cpp"
 
 /* Output the .output file. */
 %verbose
 
 /* Yes, we want descriptive error messages. */
-%error-verbose
+%define parse.error verbose
 
 /* We'd like to be reentrant/thread-safe */
 %pure-parser

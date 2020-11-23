@@ -5,7 +5,8 @@
 // https://html.spec.whatwg.org/C/#the-offscreen-2d-rendering-context
 
 [
-    Exposed=(Window,Worker)
+    Exposed=(Window,Worker),
+    RuntimeEnabled=SurfaceEmbeddingFeatures
 ] interface OffscreenCanvasRenderingContext2D {
     // back-reference to the canvas
     [ImplementedAs=offscreenCanvasForBinding] readonly attribute OffscreenCanvas canvas;
@@ -22,6 +23,8 @@
     void translate(unrestricted double x, unrestricted double y);
     void transform(unrestricted double a, unrestricted double b, unrestricted double c, unrestricted double d, unrestricted double e, unrestricted double f);
     void setTransform(unrestricted double a, unrestricted double b, unrestricted double c, unrestricted double d, unrestricted double e, unrestricted double f);
+    [RaisesException] void setTransform(optional DOMMatrix2DInit transform);
+    DOMMatrix getTransform();
     void resetTransform();
 
     // compositing
@@ -57,8 +60,8 @@
     void fill(Path2D path, optional CanvasFillRule winding);
     void stroke();
     void stroke(Path2D path);
-    void clip();
-    void clip(Path2D path);
+    void clip(optional CanvasFillRule winding);
+    void clip(Path2D path, optional CanvasFillRule winding);
     [HighEntropy, MeasureAs=OffscreenCanvasIsPointInPath] boolean isPointInPath(unrestricted double x, unrestricted double y, optional CanvasFillRule winding);
     [HighEntropy, MeasureAs=OffscreenCanvasIsPointInPath] boolean isPointInPath(Path2D path, unrestricted double x, unrestricted double y, optional CanvasFillRule winding);
     [HighEntropy, MeasureAs=OffscreenCanvasIsPointInStroke] boolean isPointInStroke(unrestricted double x, unrestricted double y);

@@ -31,7 +31,7 @@
 #include <QtCore/qobject.h>
 #include <QtCore/qrect.h>
 #include <QtCore/qdatetime.h>
-#include <QtGui/qmatrix.h>
+#include <QtGui/qtransform.h>
 #include <QtGui/qcolor.h>
 #include <QtGui/qvector2d.h>
 #include <QtGui/qvector3d.h>
@@ -104,7 +104,7 @@ class MyQmlObject : public QObject, public MyInterface
     Q_PROPERTY(QString readOnlyString READ readOnlyString)
     Q_PROPERTY(bool enabled READ enabled WRITE setEnabled)
     Q_PROPERTY(QRect rect READ rect WRITE setRect)
-    Q_PROPERTY(QMatrix matrix READ matrix WRITE setMatrix)  //assumed to be unsupported by QML
+    Q_PROPERTY(QTransform transform READ transform WRITE setTransform) //assumed to be unsupported by QML
     Q_PROPERTY(MyInterface *interfaceProperty READ interface WRITE setInterface)
     Q_PROPERTY(int onLiteralSignal READ onLiteralSignal WRITE setOnLiteralSignal)
     Q_PROPERTY(MyCustomVariantType customType READ customType WRITE setCustomType)
@@ -129,8 +129,8 @@ public:
     QRect rect() const { return QRect(); }
     void setRect(const QRect&) {}
 
-    QMatrix matrix() const { return QMatrix(); }
-    void setMatrix(const QMatrix&) {}
+    QTransform transform() const { return QTransform(); }
+    void setTransform(const QTransform &) {}
 
     MyInterface *interface() const { return m_interface; }
     void setInterface(MyInterface *iface) { m_interface = iface; }
@@ -750,6 +750,47 @@ private:
     bool m_ownRWObj;
 };
 
+namespace MyStaticNamespace {
+    Q_NAMESPACE
+    QML_ELEMENT
+
+    enum MyNSEnum {
+        Key1 = 1,
+        Key2,
+        Key5 = 5
+    };
+    Q_ENUM_NS(MyNSEnum);
+
+    enum class MyOtherNSEnum {
+        OtherKey1 = 1,
+        OtherKey2
+    };
+    Q_ENUM_NS(MyOtherNSEnum);
+
+
+    class MyNamespacedType : public QObject
+    {
+        Q_OBJECT
+        Q_PROPERTY(MyStaticNamespace::MyNSEnum myEnum MEMBER m_myEnum)
+        QML_NAMED_ELEMENT(MyStaticNamespacedType)
+        MyStaticNamespace::MyNSEnum m_myEnum = MyNSEnum::Key1;
+    };
+
+    class MySecondNamespacedType : public QObject
+    {
+        Q_OBJECT
+        Q_PROPERTY(QQmlListProperty<MyStaticNamespace::MyNamespacedType> list READ list)
+        QML_NAMED_ELEMENT(MyStaticSecondNamespacedType)
+    public:
+        QQmlListProperty<MyNamespacedType> list()
+        {
+            return QQmlListProperty<MyNamespacedType>(this, &m_list);
+        }
+
+    private:
+        QList<MyNamespacedType *> m_list;
+    };
+}
 
 namespace MyNamespace {
     Q_NAMESPACE
@@ -1420,6 +1461,71 @@ public:
     enum class OtherScopedEnum : int { ScopedVal1, ScopedVal2, ScopedVal3 };
 };
 
+class Extension : public QObject
+{
+    Q_OBJECT
+    Q_PROPERTY(int extension READ extension CONSTANT)
+public:
+    Extension(QObject *parent = nullptr) : QObject(parent) {}
+    int extension() const { return 42; }
+};
+
+class Extended : public QObject
+{
+    Q_OBJECT
+    QML_EXTENDED(Extension)
+    QML_NAMED_ELEMENT(Extended)
+    Q_PROPERTY(int base READ base CONSTANT)
+
+public:
+    int base() const { return 43; }
+};
+
+class Local : public QObject
+{
+    Q_OBJECT
+};
+
+class Foreign
+{
+    Q_GADGET
+    QML_FOREIGN(Local)
+    QML_NAMED_ELEMENT(Foreign)
+};
+
+class ForeignExtended
+{
+    Q_GADGET
+    QML_FOREIGN(Local)
+    QML_NAMED_ELEMENT(ForeignExtended)
+    QML_EXTENDED(Extension)
+};
+
+class BareSingleton : public QObject
+{
+    Q_OBJECT
+    QML_SINGLETON
+    QML_ELEMENT
+
+public:
+    BareSingleton(QObject *parent = nullptr) : QObject(parent)
+    {
+        setObjectName("statically registered");
+    }
+};
+
+class UncreatableSingleton : public QObject
+{
+    Q_OBJECT
+    QML_SINGLETON
+    QML_ELEMENT
+
+public:
+    static UncreatableSingleton *instance();
+
+private:
+    UncreatableSingleton() { setObjectName("uncreatable"); }
+};
 
 void registerTypes();
 

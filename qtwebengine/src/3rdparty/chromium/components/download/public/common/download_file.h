@@ -18,13 +18,11 @@
 #include "components/download/public/common/download_interrupt_reasons.h"
 #include "components/download/public/common/download_item.h"
 #include "components/download/public/common/input_stream.h"
+#include "components/services/quarantine/public/mojom/quarantine.mojom.h"
+#include "mojo/public/cpp/bindings/pending_remote.h"
 #include "mojo/public/cpp/system/data_pipe.h"
 
 class GURL;
-
-namespace service_manager {
-class Connector;
-}
 
 namespace download {
 
@@ -53,8 +51,8 @@ class COMPONENTS_DOWNLOAD_EXPORT DownloadFile {
   // DOWNLOAD_INTERRUPT_REASON_NONE and |path| the path the rename
   // was done to.  On a failed rename, |reason| will contain the
   // error.
-  typedef base::Callback<void(DownloadInterruptReason reason,
-                              const base::FilePath& path)>
+  typedef base::OnceCallback<void(DownloadInterruptReason reason,
+                                  const base::FilePath& path)>
       RenameCompletionCallback;
 
   // Used to drop the request, when the byte stream reader should be closed on
@@ -74,29 +72,27 @@ class COMPONENTS_DOWNLOAD_EXPORT DownloadFile {
   // Add an input stream to write into a slice of the file, used for
   // parallel download.
   virtual void AddInputStream(std::unique_ptr<InputStream> stream,
-                              int64_t offset,
-                              int64_t length) = 0;
+                              int64_t offset) = 0;
 
   // Rename the download file to |full_path|.  If that file exists
   // |full_path| will be uniquified by suffixing " (<number>)" to the
   // file name before the extension.
   virtual void RenameAndUniquify(const base::FilePath& full_path,
-                                 const RenameCompletionCallback& callback) = 0;
+                                 RenameCompletionCallback callback) = 0;
 
   // Rename the download file to |full_path| and annotate it with
   // "Mark of the Web" information about its source.  No uniquification
   // will be performed.
-  // connector is a clone of the service manager connector from
-  // DownloadItemImpl's delegate. It used to create the quarantine service.
-  // In the unexpected case that connector is null, or the service otherwise
-  // fails, mark-of-the-web is manually applied as a fallback.
+  // |remote_quarantine| must be connected to an instance of the Quarantine
+  // service. In the unexpected case that |remote_quarantine| is invalid, or the
+  // service otherwise fails, mark-of-the-web is manually applied as a fallback.
   virtual void RenameAndAnnotate(
       const base::FilePath& full_path,
       const std::string& client_guid,
       const GURL& source_url,
       const GURL& referrer_url,
-      std::unique_ptr<service_manager::Connector> connector,
-      const RenameCompletionCallback& callback) = 0;
+      mojo::PendingRemote<quarantine::mojom::Quarantine> remote_quarantine,
+      RenameCompletionCallback callback) = 0;
 
   // Detach the file so it is not deleted on destruction.
   virtual void Detach() = 0;
@@ -123,17 +119,16 @@ class COMPONENTS_DOWNLOAD_EXPORT DownloadFile {
   // content URI, it will be used for the renaming. Otherwise, A new
   // intermediate URI will be created to write the download file. Once
   // completes, |callback| is called with a content URI to be written into.
-  virtual void RenameToIntermediateUri(
-      const GURL& original_url,
-      const GURL& referrer_url,
-      const base::FilePath& file_name,
-      const std::string& mime_type,
-      const base::FilePath& current_path,
-      const RenameCompletionCallback& callback) = 0;
+  virtual void RenameToIntermediateUri(const GURL& original_url,
+                                       const GURL& referrer_url,
+                                       const base::FilePath& file_name,
+                                       const std::string& mime_type,
+                                       const base::FilePath& current_path,
+                                       RenameCompletionCallback callback) = 0;
 
   // Publishes the download to public. Once completes, |callback| is called with
   // the final content URI.
-  virtual void PublishDownload(const RenameCompletionCallback& callback) = 0;
+  virtual void PublishDownload(RenameCompletionCallback callback) = 0;
 
   // Returns the suggested file path from the system.
   virtual base::FilePath GetDisplayName() = 0;

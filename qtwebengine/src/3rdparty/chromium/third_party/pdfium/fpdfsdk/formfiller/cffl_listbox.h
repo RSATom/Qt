@@ -14,6 +14,7 @@
 #include "fpdfsdk/formfiller/cffl_textobject.h"
 
 class CBA_FontMap;
+class CPWL_ListBox;
 
 class CFFL_ListBox final : public CFFL_TextObject {
  public:
@@ -24,7 +25,8 @@ class CFFL_ListBox final : public CFFL_TextObject {
   CPWL_Wnd::CreateParams GetCreateParam() override;
   std::unique_ptr<CPWL_Wnd> NewPWLWindow(
       const CPWL_Wnd::CreateParams& cp,
-      std::unique_ptr<CPWL_Wnd::PrivateData> pAttachedData) override;
+      std::unique_ptr<IPWL_SystemHandler::PerWindowData> pAttachedData)
+      override;
   bool OnChar(CPDFSDK_Annot* pAnnot, uint32_t nChar, uint32_t nFlags) override;
   bool IsDataChanged(CPDFSDK_PageView* pPageView) override;
   void SaveData(CPDFSDK_PageView* pPageView) override;
@@ -37,6 +39,8 @@ class CFFL_ListBox final : public CFFL_TextObject {
   bool IsIndexSelected(int index) override;
 
  private:
+  CPWL_ListBox* GetListBox(CPDFSDK_PageView* pPageView);
+
   std::set<int> m_OriginSelections;
   std::vector<int> m_State;
 };

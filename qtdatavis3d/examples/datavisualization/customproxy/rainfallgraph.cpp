@@ -138,7 +138,7 @@ void RainfallGraph::addDataSet()
             QString line = stream.readLine();
             if (line.startsWith("#")) // Ignore comments
                 continue;
-            QStringList strList = line.split(",", QString::SkipEmptyParts);
+            QStringList strList = line.split(",", Qt::SkipEmptyParts);
             // Each line has three data items: Year, month, and rainfall value
             if (strList.size() < 3) {
                 qWarning() << "Invalid row read from data:" << line;

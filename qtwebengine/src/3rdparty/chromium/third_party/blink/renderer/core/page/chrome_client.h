@@ -32,7 +32,7 @@
 #include "cc/trees/paint_holding_commit_trigger.h"
 #include "third_party/blink/public/common/dom_storage/session_storage_namespace_id.h"
 #include "third_party/blink/public/common/feature_policy/feature_policy.h"
-#include "third_party/blink/public/mojom/devtools/console_message.mojom-blink.h"
+#include "third_party/blink/public/mojom/devtools/console_message.mojom-blink-forward.h"
 #include "third_party/blink/public/platform/blame_context.h"
 #include "third_party/blink/public/platform/web_drag_operation.h"
 #include "third_party/blink/public/platform/web_focus_type.h"
@@ -76,7 +76,6 @@ class FileChooser;
 class FloatPoint;
 class Frame;
 class FullscreenOptions;
-class GraphicsLayer;
 class HTMLFormControlElement;
 class HTMLInputElement;
 class HTMLSelectElement;
@@ -92,7 +91,6 @@ class PagePopup;
 class PagePopupClient;
 class PopupOpeningObserver;
 class WebDragData;
-class WebLayerTreeView;
 class WebViewImpl;
 
 struct DateTimeChooserParameters;
@@ -105,16 +103,15 @@ struct WebWindowFeatures;
 
 using CompositorElementId = cc::ElementId;
 
-class CORE_EXPORT ChromeClient
-    : public GarbageCollectedFinalized<ChromeClient> {
+class CORE_EXPORT ChromeClient : public GarbageCollected<ChromeClient> {
   DISALLOW_COPY_AND_ASSIGN(ChromeClient);
 
  public:
   virtual ~ChromeClient() = default;
 
-  // Converts the scalar value from the window coordinates to the viewport
-  // scale.
-  virtual float WindowToViewportScalar(const float) const = 0;
+  // Converts the scalar value from window coordinates to viewport scale.
+  virtual float WindowToViewportScalar(LocalFrame*,
+                                       const float value) const = 0;
 
   virtual bool IsPopup() { return false; }
 
@@ -128,7 +125,8 @@ class CORE_EXPORT ChromeClient
   virtual IntRect ViewportToScreen(const IntRect&,
                                    const LocalFrameView*) const = 0;
 
-  virtual void ScheduleAnimation(const LocalFrameView*) = 0;
+  virtual void ScheduleAnimation(const LocalFrameView*,
+                                 base::TimeDelta = base::TimeDelta()) = 0;
 
   // The specified rectangle is adjusted for the minimum window size and the
   // screen, then setWindowRect with the adjusted rectangle is called.
@@ -258,7 +256,7 @@ class CORE_EXPORT ChromeClient
 
   virtual WebViewImpl* GetWebView() const = 0;
 
-  virtual WebScreenInfo GetScreenInfo() const = 0;
+  virtual WebScreenInfo GetScreenInfo(LocalFrame& frame) const = 0;
   virtual void SetCursor(const Cursor&, LocalFrame* local_root) = 0;
 
   virtual void SetCursorOverridden(bool) = 0;
@@ -330,12 +328,6 @@ class CORE_EXPORT ChromeClient
 
   virtual void OpenFileChooser(LocalFrame*, scoped_refptr<FileChooser>) = 0;
 
-  // Pass nullptr as the GraphicsLayer to detach the root layer.
-  // This sets the graphics layer for the LocalFrame's WebWidget, if it has
-  // one. Otherwise it sets it for the WebViewImpl.
-  virtual void AttachRootGraphicsLayer(GraphicsLayer*,
-                                       LocalFrame* local_root) = 0;
-
   // Pass nullptr as the cc::Layer to detach the root layer.
   // This sets the cc::Layer for the LocalFrame's WebWidget, if it has
   // one. Otherwise it sets it for the WebViewImpl.
@@ -352,7 +344,9 @@ class CORE_EXPORT ChromeClient
   virtual void DetachCompositorAnimationTimeline(CompositorAnimationTimeline*,
                                                  LocalFrame* local_root) {}
 
-  virtual void EnterFullscreen(LocalFrame&, const FullscreenOptions*) {}
+  virtual void EnterFullscreen(LocalFrame&,
+                               const FullscreenOptions*,
+                               bool for_cross_process_descendant) {}
   virtual void ExitFullscreen(LocalFrame&) {}
   virtual void FullscreenElementChanged(Element* old_element,
                                         Element* new_element) {}
@@ -387,7 +381,8 @@ class CORE_EXPORT ChromeClient
   virtual void SetBrowserControlsState(float top_height,
                                        float bottom_height,
                                        bool shrinks_layout) {}
-  virtual void SetBrowserControlsShownRatio(float) {}
+  virtual void SetBrowserControlsShownRatio(float top_ratio,
+                                            float bottom_ratio) {}
 
   virtual String AcceptLanguages() = 0;
 
@@ -408,7 +403,10 @@ class CORE_EXPORT ChromeClient
 
   virtual bool IsSVGImageChromeClient() const { return false; }
 
-  virtual bool RequestPointerLock(LocalFrame*) { return false; }
+  virtual bool RequestPointerLock(LocalFrame*,
+                                  bool request_unadjusted_movement) {
+    return false;
+  }
   virtual void RequestPointerUnlock(LocalFrame*) {}
 
   virtual IntSize MinimumWindowSize() const { return IntSize(100, 100); }
@@ -428,8 +426,6 @@ class CORE_EXPORT ChromeClient
   // Input method editor related functions.
   virtual void ShowVirtualKeyboardOnElementFocus(LocalFrame&) {}
 
-  virtual void RegisterViewportLayers() const {}
-
   virtual TransformationMatrix GetDeviceEmulationTransform() const {
     return TransformationMatrix();
   }
@@ -446,7 +442,9 @@ class CORE_EXPORT ChromeClient
 
   virtual void InstallSupplements(LocalFrame&);
 
-  virtual WebLayerTreeView* GetWebLayerTreeView(LocalFrame*) { return nullptr; }
+  virtual viz::FrameSinkId GetFrameSinkId(LocalFrame*) {
+    return viz::FrameSinkId();
+  }
 
   virtual void RequestDecode(LocalFrame*,
                              const PaintImage& image,
@@ -471,10 +469,22 @@ class CORE_EXPORT ChromeClient
   virtual void FallbackCursorModeSetCursorVisibility(LocalFrame* frame,
                                                      bool visible) = 0;
 
+  // Enable or disable BeginMainFrameNotExpected signals from the compositor of
+  // the local root of |frame|. These signals would be consumed by the blink
+  // scheduler.
+  virtual void RequestBeginMainFrameNotExpected(LocalFrame& frame,
+                                                bool request) = 0;
+
+  // A stable numeric Id for |frame|'s local root's compositor. For
+  // tracing/debugging purposes.
+  virtual int GetLayerTreeId(LocalFrame& frame) = 0;
+
   virtual void Trace(blink::Visitor*);
 
   virtual void DidUpdateTextAutosizerPageInfo(const WebTextAutosizerPageInfo&) {
   }
+
+  virtual void DocumentDetached(Document&) {}
 
  protected:
   ChromeClient() = default;

@@ -23,7 +23,6 @@ class VIZ_SERVICE_EXPORT OverlayCandidateValidatorMac
   bool AllowCALayerOverlays() const override;
   bool AllowDCLayerOverlays() const override;
   bool NeedsSurfaceOccludingDamageRect() const override;
-  void CheckOverlaySupport(OverlayCandidateList* surfaces) override;
 
  private:
   const bool ca_layer_disabled_;

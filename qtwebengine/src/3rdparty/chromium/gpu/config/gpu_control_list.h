@@ -123,7 +123,6 @@ class GPU_EXPORT GpuControlList {
   struct GPU_EXPORT DriverInfo {
     const char* driver_vendor;
     Version driver_version;
-    Version driver_date;
 
     bool Contains(const GPUInfo& gpu_info) const;
   };
@@ -159,6 +158,8 @@ class GPU_EXPORT GpuControlList {
 
     uint32_t test_group;
 
+    SupportedOrNot subpixel_font_rendering;
+
     // Return true if GL_VERSION string does not fit the entry info
     // on GL type and GL version.
     bool GLVersionInfoMismatch(const std::string& gl_version_string) const;
@@ -183,6 +184,7 @@ class GPU_EXPORT GpuControlList {
     const MachineModelInfo* machine_model_info;
     size_t gpu_series_list_size;
     const GpuSeriesType* gpu_series_list;
+    Version intel_gpu_generation;
     const More* more;
 
     bool Contains(OsType os_type,

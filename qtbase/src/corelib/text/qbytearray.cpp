@@ -2,6 +2,7 @@
 **
 ** Copyright (C) 2019 The Qt Company Ltd.
 ** Copyright (C) 2016 Intel Corporation.
+** Copyright (C) 2019 Klarälvdalens Datakonsult AB, a KDAB Group company, info@kdab.com, author Giuseppe D'Angelo <giuseppe.dangelo@kdab.com>
 ** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the QtCore module of the Qt Toolkit.
@@ -41,6 +42,7 @@
 #include "qbytearray.h"
 #include "qbytearraymatcher.h"
 #include "private/qtools_p.h"
+#include "qhashfunctions.h"
 #include "qstring.h"
 #include "qlist.h"
 #include "qlocale.h"
@@ -1002,10 +1004,20 @@ QByteArray qUncompress(const uchar* data, int nbytes)
                               four.
     \value OmitTrailingEquals Omits adding the padding equal signs at the end of the encoded
                               data.
+    \value IgnoreBase64DecodingErrors  When decoding Base64-encoded data, ignores errors
+                                       in the input; invalid characters are simply skipped.
+                                       This enum value has been added in Qt 5.15.
+    \value AbortOnBase64DecodingErrors When decoding Base64-encoded data, stops at the first
+                                       decoding error.
+                                       This enum value has been added in Qt 5.15.
 
-    QByteArray::fromBase64() ignores the KeepTrailingEquals and
-    OmitTrailingEquals options and will not flag errors in case they are
-    missing or if there are too many of them.
+    QByteArray::fromBase64Encoding() and QByteArray::fromBase64()
+    ignore the KeepTrailingEquals and OmitTrailingEquals options. If
+    the IgnoreBase64DecodingErrors option is specified, they will not
+    flag errors in case trailing equal signs are missing or if there
+    are too many of them. If instead the AbortOnBase64DecodingErrors is
+    specified, then the input must either have no padding or have the
+    correct amount of equal signs.
 */
 
 /*! \fn QByteArray::iterator QByteArray::begin()
@@ -1630,6 +1642,7 @@ void QByteArray::chop(int n)
 /*! \fn QByteArray &QByteArray::operator+=(const QString &str)
 
     \overload
+    \obsolete
 
     Appends the string \a str onto the end of this byte array and
     returns a reference to this byte array. The Unicode data is
@@ -1775,12 +1788,7 @@ void QByteArray::resize(int size)
         return;
     }
 
-    if (size == 0 && !d->capacityReserved) {
-        Data *x = Data::allocate(0);
-        if (!d->ref.deref())
-            Data::deallocate(d);
-        d = x;
-    } else if (d->size == 0 && d->ref.isStatic()) {
+    if (d->size == 0 && d->ref.isStatic()) {
         //
         // Optimize the idiom:
         //    QByteArray a;
@@ -1795,9 +1803,7 @@ void QByteArray::resize(int size)
         x->data()[size] = '\0';
         d = x;
     } else {
-        if (d->ref.isShared() || uint(size) + 1u > d->alloc
-                || (!d->capacityReserved && size < d->size
-                    && uint(size) + 1u < uint(d->alloc >> 1)))
+        if (d->ref.isShared() || uint(size) + 1u > d->alloc)
             reallocData(uint(size) + 1u, d->detachFlags() | Data::Grow);
         if (d->alloc) {
             d->size = size;
@@ -1998,6 +2004,7 @@ QByteArray &QByteArray::append(const QByteArray &ba)
 /*! \fn QByteArray &QByteArray::append(const QString &str)
 
     \overload
+    \obsolete
 
     Appends the string \a str to this byte array. The Unicode data is
     converted into 8-bit characters using QString::toUtf8().
@@ -2122,6 +2129,7 @@ QByteArray &QByteArray::insert(int i, const QByteArray &ba)
     \fn QByteArray &QByteArray::insert(int i, const QString &str)
 
     \overload
+    \obsolete
 
     Inserts the string \a str at index position \a i in the byte
     array. The Unicode data is converted into 8-bit characters using
@@ -2471,6 +2479,7 @@ QByteArray &QByteArray::replace(const char *before, int bsize, const char *after
 /*! \fn QByteArray &QByteArray::replace(const QString &before, const QByteArray &after)
 
     \overload
+    \obsolete
 
     Replaces every occurrence of the string \a before with the byte
     array \a after. The Unicode data is converted into 8-bit
@@ -2484,6 +2493,7 @@ QByteArray &QByteArray::replace(const char *before, int bsize, const char *after
 
 /*! \fn QByteArray &QByteArray::replace(const QString &before, const char *after)
     \overload
+    \obsolete
 
     Replaces every occurrence of the string \a before with the string
     \a after.
@@ -2514,6 +2524,7 @@ QByteArray &QByteArray::replace(char before, const QByteArray &after)
 /*! \fn QByteArray &QByteArray::replace(char before, const QString &after)
 
     \overload
+    \obsolete
 
     Replaces every occurrence of the character \a before with the
     string \a after. The Unicode data is converted into 8-bit
@@ -2652,6 +2663,7 @@ int QByteArray::indexOf(const QByteArray &ba, int from) const
 /*! \fn int QByteArray::indexOf(const QString &str, int from) const
 
     \overload
+    \obsolete
 
     Returns the index position of the first occurrence of the string
     \a str in the byte array, searching forward from index position
@@ -2776,6 +2788,7 @@ int QByteArray::lastIndexOf(const QByteArray &ba, int from) const
 /*! \fn int QByteArray::lastIndexOf(const QString &str, int from) const
 
     \overload
+    \obsolete
 
     Returns the index position of the last occurrence of the string \a
     str in the byte array, searching backward from index position \a
@@ -4520,7 +4533,140 @@ QByteArray &QByteArray::setRawData(const char *data, uint size)
     return *this;
 }
 
+namespace {
+struct fromBase64_helper_result {
+    qsizetype decodedLength;
+    QByteArray::Base64DecodingStatus status;
+};
+
+fromBase64_helper_result fromBase64_helper(const char *input, qsizetype inputSize,
+                                           char *output /* may alias input */,
+                                           QByteArray::Base64Options options)
+{
+    fromBase64_helper_result result{ 0, QByteArray::Base64DecodingStatus::Ok };
+
+    unsigned int buf = 0;
+    int nbits = 0;
+
+    qsizetype offset = 0;
+    for (qsizetype i = 0; i < inputSize; ++i) {
+        int ch = input[i];
+        int d;
+
+        if (ch >= 'A' && ch <= 'Z') {
+            d = ch - 'A';
+        } else if (ch >= 'a' && ch <= 'z') {
+            d = ch - 'a' + 26;
+        } else if (ch >= '0' && ch <= '9') {
+            d = ch - '0' + 52;
+        } else if (ch == '+' && (options & QByteArray::Base64UrlEncoding) == 0) {
+            d = 62;
+        } else if (ch == '-' && (options & QByteArray::Base64UrlEncoding) != 0) {
+            d = 62;
+        } else if (ch == '/' && (options & QByteArray::Base64UrlEncoding) == 0) {
+            d = 63;
+        } else if (ch == '_' && (options & QByteArray::Base64UrlEncoding) != 0) {
+            d = 63;
+        } else {
+            if (options & QByteArray::AbortOnBase64DecodingErrors) {
+                if (ch == '=') {
+                    // can have 1 or 2 '=' signs, in both cases padding base64Size to
+                    // a multiple of 4. Any other case is illegal.
+                    if ((inputSize % 4) != 0) {
+                        result.status = QByteArray::Base64DecodingStatus::IllegalInputLength;
+                        return result;
+                    } else if ((i == inputSize - 1) ||
+                        (i == inputSize - 2 && input[++i] == '=')) {
+                        d = -1; // ... and exit the loop, normally
+                    } else {
+                        result.status = QByteArray::Base64DecodingStatus::IllegalPadding;
+                        return result;
+                    }
+                } else {
+                    result.status = QByteArray::Base64DecodingStatus::IllegalCharacter;
+                    return result;
+                }
+            } else {
+                d = -1;
+            }
+        }
+
+        if (d != -1) {
+            buf = (buf << 6) | d;
+            nbits += 6;
+            if (nbits >= 8) {
+                nbits -= 8;
+                Q_ASSERT(offset < i);
+                output[offset++] = buf >> nbits;
+                buf &= (1 << nbits) - 1;
+            }
+        }
+    }
+
+    result.decodedLength = offset;
+    return result;
+}
+} // anonymous namespace
+
 /*!
+    \fn QByteArray::FromBase64Result QByteArray::fromBase64Encoding(QByteArray &&base64, Base64Options options)
+    \fn QByteArray::FromBase64Result QByteArray::fromBase64Encoding(const QByteArray &base64, Base64Options options)
+    \since 5.15
+    \overload
+
+    Decodes the Base64 array \a base64, using the options
+    defined by \a options. If \a options contains \c{IgnoreBase64DecodingErrors}
+    (the default), the input is not checked for validity; invalid
+    characters in the input are skipped, enabling the decoding process to
+    continue with subsequent characters. If \a options contains
+    \c{AbortOnBase64DecodingErrors}, then decoding will stop at the first
+    invalid character.
+
+    For example:
+
+    \snippet code/src_corelib_tools_qbytearray.cpp 44ter
+
+    The algorithm used to decode Base64-encoded data is defined in \l{RFC 4648}.
+
+    Returns a QByteArrayFromBase64Result object, containing the decoded
+    data and a flag telling whether decoding was successful. If the
+    \c{AbortOnBase64DecodingErrors} option was passed and the input
+    data was invalid, it is unspecified what the decoded data contains.
+
+    \sa toBase64()
+*/
+QByteArray::FromBase64Result QByteArray::fromBase64Encoding(QByteArray &&base64, Base64Options options)
+{
+    // try to avoid a detach when calling data(), as it would over-allocate
+    // (we need less space when decoding than the one required by the full copy)
+    if (base64.isDetached()) {
+        const auto base64result = fromBase64_helper(base64.data(),
+                                                    base64.size(),
+                                                    base64.data(), // in-place
+                                                    options);
+        base64.truncate(int(base64result.decodedLength));
+        return { std::move(base64), base64result.status };
+    }
+
+    return fromBase64Encoding(base64, options);
+}
+
+
+QByteArray::FromBase64Result QByteArray::fromBase64Encoding(const QByteArray &base64, Base64Options options)
+{
+    const auto base64Size = base64.size();
+    QByteArray result((base64Size * 3) / 4, Qt::Uninitialized);
+    const auto base64result = fromBase64_helper(base64.data(),
+                                                base64Size,
+                                                const_cast<char *>(result.constData()),
+                                                options);
+    result.truncate(int(base64result.decodedLength));
+    return { std::move(result), base64result.status };
+}
+
+/*!
+    \overload
+
     Returns a decoded copy of the Base64 array \a base64. Input is not checked
     for validity; invalid characters in the input are skipped, enabling the
     decoding process to continue with subsequent characters.
@@ -4531,21 +4677,28 @@ QByteArray &QByteArray::setRawData(const char *data, uint size)
 
     The algorithm used to decode Base64-encoded data is defined in \l{RFC 4648}.
 
-    \sa toBase64()
+    \note The fromBase64Encoding() function is recommended in new code.
+
+    \sa toBase64(), fromBase64Encoding()
 */
 QByteArray QByteArray::fromBase64(const QByteArray &base64)
 {
-    return fromBase64(base64, Base64Encoding);
+    if (auto result = fromBase64Encoding(base64, Base64Encoding))
+        return std::move(result.decoded);
+    return QByteArray();
 }
 
 /*!
     \since 5.2
     \overload
 
-    Returns a decoded copy of the Base64 array \a base64, using the alphabet
-    defined by \a options. Input is not checked for validity; invalid
+    Returns a decoded copy of the Base64 array \a base64, using the options
+    defined by \a options. If \a options contains \c{IgnoreBase64DecodingErrors}
+    (the default), the input is not checked for validity; invalid
     characters in the input are skipped, enabling the decoding process to
-    continue with subsequent characters.
+    continue with subsequent characters. If \a options contains
+    \c{AbortOnBase64DecodingErrors}, then decoding will stop at the first
+    invalid character.
 
     For example:
 
@@ -4553,49 +4706,18 @@ QByteArray QByteArray::fromBase64(const QByteArray &base64)
 
     The algorithm used to decode Base64-encoded data is defined in \l{RFC 4648}.
 
-    \sa toBase64()
+    Returns the decoded data, or, if the \c{AbortOnBase64DecodingErrors}
+    option was passed and the input data was invalid, an empty byte array.
+
+    \note The fromBase64Encoding() function is recommended in new code.
+
+    \sa toBase64(), fromBase64Encoding()
 */
 QByteArray QByteArray::fromBase64(const QByteArray &base64, Base64Options options)
 {
-    unsigned int buf = 0;
-    int nbits = 0;
-    QByteArray tmp((base64.size() * 3) / 4, Qt::Uninitialized);
-
-    int offset = 0;
-    for (int i = 0; i < base64.size(); ++i) {
-        int ch = base64.at(i);
-        int d;
-
-        if (ch >= 'A' && ch <= 'Z')
-            d = ch - 'A';
-        else if (ch >= 'a' && ch <= 'z')
-            d = ch - 'a' + 26;
-        else if (ch >= '0' && ch <= '9')
-            d = ch - '0' + 52;
-        else if (ch == '+' && (options & Base64UrlEncoding) == 0)
-            d = 62;
-        else if (ch == '-' && (options & Base64UrlEncoding) != 0)
-            d = 62;
-        else if (ch == '/' && (options & Base64UrlEncoding) == 0)
-            d = 63;
-        else if (ch == '_' && (options & Base64UrlEncoding) != 0)
-            d = 63;
-        else
-            d = -1;
-
-        if (d != -1) {
-            buf = (buf << 6) | d;
-            nbits += 6;
-            if (nbits >= 8) {
-                nbits -= 8;
-                tmp[offset++] = buf >> nbits;
-                buf &= (1 << nbits) - 1;
-            }
-        }
-    }
-
-    tmp.truncate(offset);
-    return tmp;
+    if (auto result = fromBase64Encoding(base64, options))
+        return std::move(result.decoded);
+    return QByteArray();
 }
 
 /*!
@@ -4983,20 +5105,28 @@ namespace QtPrivate {
 namespace DeprecatedRefClassBehavior {
 void warn(WarningType w, EmittingClass c)
 {
-    static const char deprecatedBehaviorString[] =
+    const char *deprecatedBehaviorString =
             "The corresponding behavior is deprecated, and will be changed"
              " in a future version of Qt.";
 
     const char *emittingClassName = nullptr;
-    const char *containerClassName = nullptr;
 
     switch (c) {
     case EmittingClass::QByteRef:
         emittingClassName = "QByteRef";
-        containerClassName = "QByteArray";
         break;
     case EmittingClass::QCharRef:
         emittingClassName = "QCharRef";
+        break;
+    }
+
+    const char *containerClassName = nullptr;
+
+    switch (c) {
+    case EmittingClass::QByteRef:
+        containerClassName = "QByteArray";
+        break;
+    case EmittingClass::QCharRef:
         containerClassName = "QString";
         break;
     }
@@ -5007,7 +5137,7 @@ void warn(WarningType w, EmittingClass c)
                  emittingClassName, containerClassName, deprecatedBehaviorString);
         break;
     case WarningType::DelayedDetach:
-        qWarning("Using %s with on a %s that is not already detached. %s",
+        qWarning("Using %s on a %s that is not already detached. %s",
                  emittingClassName, containerClassName, deprecatedBehaviorString);
         break;
     }
@@ -5015,5 +5145,87 @@ void warn(WarningType w, EmittingClass c)
 } // namespace DeprecatedRefClassBehavior
 } // namespace QtPrivate
 
+/*!
+    \class QByteArray::FromBase64Result
+    \inmodule QtCore
+    \ingroup tools
+    \since 5.15
+
+    \brief The QByteArray::FromBase64Result class holds the result of
+    a call to QByteArray::fromBase64Encoding.
+
+    Objects of this class can be used to check whether the conversion
+    was successful, and if so, retrieve the decoded QByteArray. The
+    conversion operators defined for QByteArray::FromBase64Result make
+    its usage straightforward:
+
+    \snippet code/src_corelib_tools_qbytearray.cpp 44ter
+
+    Alternatively, it is possible to access the conversion status
+    and the decoded data directly:
+
+    \snippet code/src_corelib_tools_qbytearray.cpp 44quater
+
+    \sa QByteArray::fromBase64
+*/
+
+/*!
+    \variable QByteArray::FromBase64Result::decoded
+
+    Contains the decoded byte array.
+*/
+
+/*!
+    \variable QByteArray::FromBase64Result::decodingStatus
+
+    Contains whether the decoding was successful, expressed as a value
+    of type QByteArray::Base64DecodingStatus.
+*/
+
+/*!
+    \fn QByteArray::FromBase64Result::operator bool() const
+
+    Returns whether the decoding was successful. This is equivalent
+    to checking whether the \c{decodingStatus} member is equal to
+    QByteArray::Base64DecodingStatus::Ok.
+*/
+
+/*!
+    \fn QByteArray &QByteArray::FromBase64Result::operator*() const
+
+    Returns the decoded byte array.
+*/
+
+/*!
+    \fn bool operator==(const QByteArray::FromBase64Result &lhs, const QByteArray::FromBase64Result &rhs) noexcept
+    \relates QByteArray::FromBase64Result
+
+    Returns \c true if \a lhs and \a rhs are equal, otherwise returns \c false.
+
+    \a lhs and \a rhs are equal if and only if they contain the same decoding
+    status and, if the status is QByteArray::Base64DecodingStatus::Ok, if and
+    only if they contain the same decoded data.
+*/
+
+/*!
+    \fn bool operator!=(const QByteArray::FromBase64Result &lhs, const QByteArray::FromBase64Result &rhs) noexcept
+    \relates QByteArray::FromBase64Result
+
+    Returns \c true if \a lhs and \a rhs are different, otherwise returns \c false.
+*/
+
+/*!
+    \relates QByteArray::FromBase64Result
+
+    Returns the hash value for \a key, using
+    \a seed to seed the calculation.
+*/
+uint qHash(const QByteArray::FromBase64Result &key, uint seed) noexcept
+{
+    QtPrivate::QHashCombine hash;
+    seed = hash(seed, key.decoded);
+    seed = hash(seed, static_cast<int>(key.decodingStatus));
+    return seed;
+}
 
 QT_END_NAMESPACE

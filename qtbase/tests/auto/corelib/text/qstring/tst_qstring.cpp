@@ -373,6 +373,7 @@ private slots:
     void remove_string();
     void remove_regexp_data();
     void remove_regexp();
+    void remove_extra();
     void swap();
 
     void prepend_qstring()            { prepend_impl<QString>(); }
@@ -596,6 +597,8 @@ private slots:
     void assignQChar();
     void isRightToLeft_data();
     void isRightToLeft();
+    void isValidUtf16_data();
+    void isValidUtf16();
     void unicodeStrings();
 };
 
@@ -3098,6 +3101,15 @@ void tst_QString::remove_regexp()
     }
 }
 
+void tst_QString::remove_extra()
+{
+    {
+        QString s = "The quick brown fox jumps over the lazy dog. "
+                    "The lazy dog jumps over the quick brown fox.";
+        s.remove(s);
+    }
+}
+
 void tst_QString::toNum()
 {
 #if defined (Q_OS_WIN) && defined (Q_CC_MSVC)
@@ -5315,6 +5327,9 @@ void tst_QString::operator_smaller()
     QVERIFY(QString("b") >= QByteArray("a"));
     QVERIFY(QString("b") > QByteArray("a"));
 
+#if QT_DEPRECATED_SINCE(5, 15)
+QT_WARNING_PUSH
+QT_WARNING_DISABLE_DEPRECATED
     QVERIFY(QByteArray("a") < QString("b"));
     QVERIFY(QByteArray("a") <= QString("b"));
     QVERIFY(QByteArray("a") <= QString("a"));
@@ -5322,6 +5337,8 @@ void tst_QString::operator_smaller()
     QVERIFY(QByteArray("a") >= QString("a"));
     QVERIFY(QByteArray("b") >= QString("a"));
     QVERIFY(QByteArray("b") > QString("a"));
+QT_WARNING_POP
+#endif
 
     QVERIFY(QLatin1String("a") < QString("b"));
     QVERIFY(QLatin1String("a") <= QString("b"));
@@ -5822,6 +5839,8 @@ void tst_QString::split(const QString &string, const QString &sep, QStringList r
         QVERIFY(list == result);
     }
 
+QT_WARNING_PUSH
+QT_WARNING_DISABLE_DEPRECATED
     list = str.split(sep, QString::KeepEmptyParts);
     QVERIFY(list == result);
     list = str.split(rx, QString::KeepEmptyParts);
@@ -5844,6 +5863,7 @@ void tst_QString::split(const QString &string, const QString &sep, QStringList r
         list = str.split(sep.at(0), QString::SkipEmptyParts);
         QVERIFY(list == result);
     }
+QT_WARNING_POP
 }
 
 void tst_QString::split()
@@ -7068,6 +7088,52 @@ void tst_QString::isRightToLeft()
     QFETCH(bool, rtl);
 
     QCOMPARE(unicode.isRightToLeft(), rtl);
+}
+
+void tst_QString::isValidUtf16_data()
+{
+    QTest::addColumn<QString>("string");
+    QTest::addColumn<bool>("valid");
+
+    int row = 0;
+    QTest::addRow("valid-%02d", row++) << QString() << true;
+    QTest::addRow("valid-%02d", row++) << QString("") << true;
+    QTest::addRow("valid-%02d", row++) << QString("abc def") << true;
+    QTest::addRow("valid-%02d", row++) << QString("àbç") << true;
+    QTest::addRow("valid-%02d", row++) << QString("ßẞ") << true;
+    QTest::addRow("valid-%02d", row++) << QString("𝐀𝐁𝐂abc𝐃𝐄𝐅def") << true;
+    QTest::addRow("valid-%02d", row++) << QString("abc𝐀𝐁𝐂def𝐃𝐄𝐅") << true;
+    QTest::addRow("valid-%02d", row++) << (QString("abc") + QChar(0x0000) + QString("def")) << true;
+    QTest::addRow("valid-%02d", row++) << (QString("abc") + QChar(0xFFFF) + QString("def")) << true;
+    // check that BOM presence doesn't make any difference
+    QTest::addRow("valid-%02d", row++) << (QString() + QChar(0xFEFF) + QString("abc𝐀𝐁𝐂def𝐃𝐄𝐅")) << true;
+    QTest::addRow("valid-%02d", row++) << (QString() + QChar(0xFFFE) + QString("abc𝐀𝐁𝐂def𝐃𝐄𝐅")) << true;
+
+    row = 0;
+    QTest::addRow("stray-high-%02d", row++) << (QString() + QChar(0xD800)) << false;
+    QTest::addRow("stray-high-%02d", row++) << (QString() + QString("abc") + QChar(0xD800)) << false;
+    QTest::addRow("stray-high-%02d", row++) << (QString() + QChar(0xD800) + QString("def")) << false;
+    QTest::addRow("stray-high-%02d", row++) << (QString() + QString("abc") + QChar(0xD800) + QString("def")) << false;
+    QTest::addRow("stray-high-%02d", row++) << (QString() + QChar(0xD800) + QChar(0xD800)) << false;
+    QTest::addRow("stray-high-%02d", row++) << (QString() + QString("abc") + QChar(0xD800) + QChar(0xD800)) << false;
+    QTest::addRow("stray-high-%02d", row++) << (QString() + QChar(0xD800) + QChar(0xD800) + QString("def")) << false;
+    QTest::addRow("stray-high-%02d", row++) << (QString() + QString("abc") + QChar(0xD800) + QChar(0xD800) + QString("def")) << false;
+
+    row = 0;
+    QTest::addRow("stray-low-%02d", row++) << (QString() + QChar(0xDC00)) << false;
+    QTest::addRow("stray-low-%02d", row++) << (QString() + QString("abc") + QChar(0xDC00)) << false;
+    QTest::addRow("stray-low-%02d", row++) << (QString() + QChar(0xDC00) + QString("def")) << false;
+    QTest::addRow("stray-low-%02d", row++) << (QString() + QString("abc") + QChar(0xDC00) + QString("def")) << false;
+    QTest::addRow("stray-low-%02d", row++) << (QString() + QChar(0xDC00) + QChar(0xDC00)) << false;
+    QTest::addRow("stray-low-%02d", row++) << (QString() + QString("abc") + QChar(0xDC00) + QChar(0xDC00)) << false;
+    QTest::addRow("stray-low-%02d", row++) << (QString() + QChar(0xDC00) + QChar(0xDC00) + QString("def")) << false;
+    QTest::addRow("stray-low-%02d", row++) << (QString() + QString("abc") + QChar(0xDC00) + QChar(0xDC00) + QString("def")) << false;
+}
+
+void tst_QString::isValidUtf16()
+{
+    QFETCH(QString, string);
+    QTEST(string.isValidUtf16(), "valid");
 }
 
 QTEST_APPLESS_MAIN(tst_QString)

@@ -62,7 +62,7 @@
 #include "QtNetwork/qnetworkproxy.h"
 #include "QtNetwork/qnetworksession.h"
 #include "qnetworkaccessauthenticationmanager_p.h"
-#ifndef QT_NO_BEARERMANAGEMENT
+#ifndef QT_NO_BEARERMANAGEMENT // ### Qt6: Remove section
 #include "QtNetwork/qnetworkconfigmanager.h"
 #endif
 
@@ -87,7 +87,7 @@ public:
 #ifndef QT_NO_NETWORKPROXY
           proxyFactory(nullptr),
 #endif
-#ifndef QT_NO_BEARERMANAGEMENT
+#ifndef QT_NO_BEARERMANAGEMENT // ### Qt6: Remove section
           lastSessionState(QNetworkSession::Invalid),
           networkConfiguration(networkConfigurationManager.defaultConfiguration()),
           customNetworkConfiguration(false),
@@ -102,7 +102,7 @@ public:
           redirectPolicy(QNetworkRequest::ManualRedirectPolicy),
           authenticationManager(QSharedPointer<QNetworkAccessAuthenticationManager>::create())
     {
-#ifndef QT_NO_BEARERMANAGEMENT
+#ifndef QT_NO_BEARERMANAGEMENT // ### Qt6: Remove section
         // we would need all active configurations to check for
         // d->networkConfigurationManager.isOnline(), which is asynchronous
         // and potentially expensive. We can just check the configuration here
@@ -120,8 +120,8 @@ public:
     QThread * createThread();
     void destroyThread();
 
-    void _q_replyFinished();
-    void _q_replyEncrypted();
+    void _q_replyFinished(QNetworkReply *reply);
+    void _q_replyEncrypted(QNetworkReply *reply);
     void _q_replySslErrors(const QList<QSslError> &errors);
     void _q_replyPreSharedKeyAuthenticationRequired(QSslPreSharedKeyAuthenticator *authenticator);
     QNetworkReply *postProcess(QNetworkReply *reply);
@@ -153,7 +153,7 @@ public:
     QStringList backendSupportedSchemes() const;
 
     void _q_onlineStateChanged(bool isOnline);
-#ifndef QT_NO_BEARERMANAGEMENT
+#ifndef QT_NO_BEARERMANAGEMENT // ### Qt6: Remove section
     void createSession(const QNetworkConfiguration &config);
     QSharedPointer<QNetworkSession> getNetworkSession() const;
 
@@ -186,7 +186,7 @@ public:
     QNetworkProxyFactory *proxyFactory;
 #endif
 
-#ifndef QT_NO_BEARERMANAGEMENT
+#ifndef QT_NO_BEARERMANAGEMENT // ### Qt6: Remove section
     QSharedPointer<QNetworkSession> networkSessionStrongRef;
     QWeakPointer<QNetworkSession> networkSessionWeakRef;
     QNetworkSession::State lastSessionState;
@@ -225,11 +225,13 @@ public:
     QScopedPointer<QHstsStore> stsStore;
 #endif // QT_CONFIG(settings)
     bool stsEnabled = false;
-    mutable QNetworkStatusMonitor statusMonitor;
+    QNetworkStatusMonitor *statusMonitor = nullptr;
 
     bool autoDeleteReplies = false;
 
-#ifndef QT_NO_BEARERMANAGEMENT
+    int transferTimeout = 0;
+
+#ifndef QT_NO_BEARERMANAGEMENT // ### Qt6: Remove section
     Q_AUTOTEST_EXPORT static const QWeakPointer<const QNetworkSession> getNetworkSession(const QNetworkAccessManager *manager);
 #endif
     Q_DECLARE_PUBLIC(QNetworkAccessManager)

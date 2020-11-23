@@ -2,6 +2,17 @@
 <!DOCTYPE TS>
 <TS version="2.1" language="ru">
 <context>
+    <name>FilterNameDialogClass</name>
+    <message>
+        <source>Add Filter</source>
+        <translation>Добавление фильтра</translation>
+    </message>
+    <message>
+        <source>Filter Name:</source>
+        <translation>Имя фильтра:</translation>
+    </message>
+</context>
+<context>
     <name>QHelp</name>
     <message>
         <source>Untitled</source>
@@ -96,6 +107,81 @@
     </message>
 </context>
 <context>
+    <name>QHelpFilterSettingsWidget</name>
+    <message>
+        <source>Form</source>
+        <translation></translation>
+    </message>
+    <message>
+        <source>Filter</source>
+        <translation>Фильтр</translation>
+    </message>
+    <message>
+        <source>Components</source>
+        <translation>Компоненты</translation>
+    </message>
+    <message>
+        <source>Versions</source>
+        <translation>Версии</translation>
+    </message>
+    <message>
+        <source>Add...</source>
+        <translation>Добавить...</translation>
+    </message>
+    <message>
+        <source>Rename...</source>
+        <translation>Переименовать...</translation>
+    </message>
+    <message>
+        <source>Remove</source>
+        <translation>Удалить</translation>
+    </message>
+    <message>
+        <source>Add Filter</source>
+        <translation>Добавление фильтра</translation>
+    </message>
+    <message>
+        <source>New Filter</source>
+        <translation>Новый фильтр</translation>
+    </message>
+    <message>
+        <source>Rename Filter</source>
+        <translation>Переименование фильтра</translation>
+    </message>
+    <message>
+        <source>Remove Filter</source>
+        <translation>Удаление фильтра</translation>
+    </message>
+    <message>
+        <source>Are you sure you want to remove the &quot;%1&quot; filter?</source>
+        <translation>Удалить фильтр «%1»?</translation>
+    </message>
+    <message>
+        <source>Filter Exists</source>
+        <translation>Фильтр существует</translation>
+    </message>
+    <message>
+        <source>The filter &quot;%1&quot; already exists.</source>
+        <translation>Фильтр «%1» уже существует.</translation>
+    </message>
+    <message>
+        <source>No Component</source>
+        <translation>Без компонента</translation>
+    </message>
+    <message>
+        <source>Invalid Component</source>
+        <translation>Неверный компонент</translation>
+    </message>
+    <message>
+        <source>No Version</source>
+        <translation>Без версии</translation>
+    </message>
+    <message>
+        <source>Invalid Version</source>
+        <translation>Неверная версия</translation>
+    </message>
+</context>
+<context>
     <name>QHelpSearchQueryWidget</name>
     <message>
         <source>Search for:</source>
@@ -127,6 +213,17 @@
     <message>
         <source>0 - 0 of 0 Hits</source>
         <translation>0 - 0 из 0 совпадений</translation>
+    </message>
+</context>
+<context>
+    <name>QOptionsWidget</name>
+    <message>
+        <source>No Option</source>
+        <translation>Без опции</translation>
+    </message>
+    <message>
+        <source>Invalid Option</source>
+        <translation>Неверная опция</translation>
     </message>
 </context>
 <context>

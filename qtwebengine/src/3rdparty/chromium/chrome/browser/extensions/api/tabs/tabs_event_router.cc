@@ -27,6 +27,8 @@
 #include "content/public/browser/favicon_status.h"
 #include "content/public/browser/navigation_entry.h"
 #include "content/public/browser/web_contents.h"
+#include "extensions/common/features/feature.h"
+#include "third_party/blink/public/common/page/page_zoom.h"
 
 using base::DictionaryValue;
 using base::ListValue;
@@ -41,12 +43,16 @@ namespace {
 bool WillDispatchTabUpdatedEvent(
     WebContents* contents,
     const std::set<std::string> changed_property_names,
-    content::BrowserContext* context,
+    content::BrowserContext* browser_context,
+    Feature::Context target_context,
     const Extension* extension,
     Event* event,
     const base::DictionaryValue* listener_filter) {
+  ExtensionTabUtil::ScrubTabBehavior scrub_tab_behavior =
+      ExtensionTabUtil::GetScrubTabBehavior(extension, target_context,
+                                            contents);
   std::unique_ptr<api::tabs::Tab> tab_object =
-      ExtensionTabUtil::CreateTabObject(contents, ExtensionTabUtil::kScrubTab,
+      ExtensionTabUtil::CreateTabObject(contents, scrub_tab_behavior,
                                         extension);
 
   std::unique_ptr<base::DictionaryValue> tab_value = tab_object->ToValue();
@@ -66,14 +72,17 @@ bool WillDispatchTabUpdatedEvent(
 
 bool WillDispatchTabCreatedEvent(WebContents* contents,
                                  bool active,
-                                 content::BrowserContext* context,
+                                 content::BrowserContext* browser_context,
+                                 Feature::Context target_context,
                                  const Extension* extension,
                                  Event* event,
                                  const base::DictionaryValue* listener_filter) {
   event->event_args->Clear();
+  ExtensionTabUtil::ScrubTabBehavior scrub_tab_behavior =
+      ExtensionTabUtil::GetScrubTabBehavior(extension, target_context,
+                                            contents);
   std::unique_ptr<base::DictionaryValue> tab_value =
-      ExtensionTabUtil::CreateTabObject(contents, ExtensionTabUtil::kScrubTab,
-                                        extension)
+      ExtensionTabUtil::CreateTabObject(contents, scrub_tab_behavior, extension)
           ->ToValue();
   tab_value->SetBoolean(tabs_constants::kSelectedKey, active);
   tab_value->SetBoolean(tabs_constants::kActiveKey, active);
@@ -154,10 +163,7 @@ void TabsEventRouter::TabEntry::WebContentsDestroyed() {
 }
 
 TabsEventRouter::TabsEventRouter(Profile* profile)
-    : profile_(profile),
-      favicon_scoped_observer_(this),
-      browser_tab_strip_tracker_(this, this, this),
-      tab_manager_scoped_observer_(this) {
+    : profile_(profile), browser_tab_strip_tracker_(this, this, this) {
   DCHECK(!profile->IsOffTheRecord());
 
   browser_tab_strip_tracker_.Init();
@@ -218,9 +224,6 @@ void TabsEventRouter::OnTabStripModelChanged(
                             replace->index);
       break;
     }
-    case TabStripModelChange::kGroupChanged:
-      // TODO(crbug.com/930988): Dispatch Tab Group-related events.
-      break;
     case TabStripModelChange::kSelectionOnly:
       break;
   }
@@ -230,7 +233,7 @@ void TabsEventRouter::OnTabStripModelChanged(
 
   if (selection.active_tab_changed()) {
     DispatchActiveTabChanged(selection.old_contents, selection.new_contents,
-                             selection.new_model.active(), selection.reason);
+                             selection.new_model.active());
   }
 
   if (selection.selection_changed()) {
@@ -267,9 +270,9 @@ void TabsEventRouter::OnZoomChanged(
   api::tabs::OnZoomChange::ZoomChangeInfo zoom_change_info;
   zoom_change_info.tab_id = tab_id;
   zoom_change_info.old_zoom_factor =
-      content::ZoomLevelToZoomFactor(data.old_zoom_level);
+      blink::PageZoomLevelToZoomFactor(data.old_zoom_level);
   zoom_change_info.new_zoom_factor =
-      content::ZoomLevelToZoomFactor(data.new_zoom_level);
+      blink::PageZoomLevelToZoomFactor(data.new_zoom_level);
   ZoomModeToZoomSettings(data.zoom_mode, &zoom_change_info.zoom_settings);
 
   // Dispatch the |onZoomChange| event.
@@ -395,8 +398,7 @@ void TabsEventRouter::DispatchTabDetachedAt(WebContents* contents,
 
 void TabsEventRouter::DispatchActiveTabChanged(WebContents* old_contents,
                                                WebContents* new_contents,
-                                               int index,
-                                               int reason) {
+                                               int index) {
   auto args = std::make_unique<base::ListValue>();
   int tab_id = ExtensionTabUtil::GetTabId(new_contents);
   args->AppendInteger(tab_id);
@@ -411,24 +413,21 @@ void TabsEventRouter::DispatchActiveTabChanged(WebContents* old_contents,
   // deprecated events take two arguments: tabId, {windowId}.
   Profile* profile =
       Profile::FromBrowserContext(new_contents->GetBrowserContext());
-  EventRouter::UserGestureState gesture =
-      reason & CHANGE_REASON_USER_GESTURE
-      ? EventRouter::USER_GESTURE_ENABLED
-      : EventRouter::USER_GESTURE_NOT_ENABLED;
+
   DispatchEvent(profile, events::TABS_ON_SELECTION_CHANGED,
                 api::tabs::OnSelectionChanged::kEventName,
-                args->CreateDeepCopy(), gesture);
+                args->CreateDeepCopy(), EventRouter::USER_GESTURE_UNKNOWN);
   DispatchEvent(profile, events::TABS_ON_ACTIVE_CHANGED,
                 api::tabs::OnActiveChanged::kEventName, std::move(args),
-                gesture);
+                EventRouter::USER_GESTURE_UNKNOWN);
 
   // The onActivated event takes one argument: {windowId, tabId}.
   auto on_activated_args = std::make_unique<base::ListValue>();
   object_args->Set(tabs_constants::kTabIdKey, std::make_unique<Value>(tab_id));
   on_activated_args->Append(std::move(object_args));
-  DispatchEvent(profile, events::TABS_ON_ACTIVATED,
-                api::tabs::OnActivated::kEventName,
-                std::move(on_activated_args), gesture);
+  DispatchEvent(
+      profile, events::TABS_ON_ACTIVATED, api::tabs::OnActivated::kEventName,
+      std::move(on_activated_args), EventRouter::USER_GESTURE_UNKNOWN);
 }
 
 void TabsEventRouter::DispatchTabSelectionChanged(

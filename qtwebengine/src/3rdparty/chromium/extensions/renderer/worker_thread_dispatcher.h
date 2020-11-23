@@ -13,6 +13,7 @@
 #include "base/threading/platform_thread.h"
 #include "content/public/renderer/render_thread_observer.h"
 #include "content/public/renderer/worker_thread.h"
+#include "extensions/common/extension_id.h"
 #include "ipc/ipc_sync_message_filter.h"
 
 namespace base {
@@ -62,6 +63,7 @@ class WorkerThreadDispatcher : public content::RenderThreadObserver,
 
   void AddWorkerData(
       int64_t service_worker_version_id,
+      int activation_sequence,
       ScriptContext* script_context,
       std::unique_ptr<NativeExtensionBindingsSystem> bindings_system);
   void RemoveWorkerData(int64_t service_worker_version_id);
@@ -79,14 +81,21 @@ class WorkerThreadDispatcher : public content::RenderThreadObserver,
   // content::RenderThreadObserver:
   bool OnControlMessageReceived(const IPC::Message& message) override;
 
+  // Updates bindings of all Service Workers for |extension_id|, after extension
+  // permission update.
+  // Returns whether or not the update request was successfully issued to
+  // each Service Workers.
+  bool UpdateBindingsForWorkers(const ExtensionId& extension_id);
+
  private:
   static bool HandlesMessageOnWorkerThread(const IPC::Message& message);
   static void ForwardIPC(int worker_thread_id, const IPC::Message& message);
+  static void UpdateBindingsOnWorkerThread(const ExtensionId& extension_id);
 
   void OnMessageReceivedOnWorkerThread(int worker_thread_id,
                                        const IPC::Message& message);
 
-  base::TaskRunner* GetTaskRunnerFor(int worker_thread_id);
+  bool PostTaskToWorkerThread(int worker_thread_id, base::OnceClosure task);
 
   // IPC handlers.
   void OnResponseWorker(int worker_thread_id,

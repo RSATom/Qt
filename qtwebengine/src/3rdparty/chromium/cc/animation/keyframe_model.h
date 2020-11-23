@@ -22,9 +22,6 @@ class AnimationCurve;
 // It represents a model of the keyframes (internally represented as a curve).
 class CC_ANIMATION_EXPORT KeyframeModel {
  public:
-  // TODO(yigu): RunState is supposed to be managed/accessed at Animation
-  // level rather than KeyframeModel level. See https://crbug.com/812652.
-  //
   // KeyframeModels begin in the 'WAITING_FOR_TARGET_AVAILABILITY' state. A
   // KeyframeModel waiting for target availibility will run as soon as its
   // target property is free (and all the KeyframeModels animating with it are
@@ -178,12 +175,12 @@ class CC_ANIMATION_EXPORT KeyframeModel {
   }
   bool affects_pending_elements() const { return affects_pending_elements_; }
 
-  KeyframeModel::Phase CalculatePhaseForTesting(
-      base::TimeDelta local_time) const;
-
-  const std::string& GetCustomPropertyNameForTesting() {
+  const std::string& custom_property_name() const {
     return custom_property_name_;
   }
+
+  KeyframeModel::Phase CalculatePhaseForTesting(
+      base::TimeDelta local_time) const;
 
  private:
   KeyframeModel(std::unique_ptr<AnimationCurve> curve,

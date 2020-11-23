@@ -120,6 +120,7 @@ Formoder en enkelt universel form.</translation>
     </message>
     <message>
         <source>%1 (%2)</source>
+        <extracomment>&lt;language&gt; (&lt;country&gt;)</extracomment>
         <translation>%1 (%2)</translation>
     </message>
     <message>
@@ -275,6 +276,14 @@ Formoder en enkelt universel form.</translation>
         <source></source>
         <comment>Choose Edit|Find from the menu bar or press Ctrl+F to pop up the Find dialog</comment>
         <translation></translation>
+    </message>
+    <message>
+        <source>Lets you use a Perl-compatible regular expression</source>
+        <translation>Giver dig mulighed for at bruge et Perl-kompatibelt regulært udtryk</translation>
+    </message>
+    <message>
+        <source>Regular &amp;expression</source>
+        <translation>&amp;Regulært udtryk</translation>
     </message>
 </context>
 <context>
@@ -934,7 +943,7 @@ Formoder en enkelt universel form.</translation>
         <source>The file &apos;%1&apos; does not seem to be related to the currently open file(s) &apos;%2&apos;.
 
 Close the open file(s) first?</source>
-        <translation>Filen &apos;%1&apos; ser ikke ud til at være relaterede til de nuværende åbne fil(er) &apos;%2&apos;.
+        <translation>Filen &apos;%1&apos; ser ikke ud til at have relation til de nuværende åbne fil(er) &apos;%2&apos;.
 
 Luk de åbne fil(er) først?</translation>
     </message>
@@ -942,7 +951,7 @@ Luk de åbne fil(er) først?</translation>
         <source>The file &apos;%1&apos; does not seem to be related to the file &apos;%2&apos; which is being loaded as well.
 
 Skip loading the first named file?</source>
-        <translation>Filen &apos;%1&apos; ser ikke ud til at være relaterede til filen &apos;%2&apos; som også indlæses.
+        <translation>Filen &apos;%1&apos; ser ikke ud til at have relation til filen &apos;%2&apos; som også indlæses.
 
 Spring indlæsningen af den første navngivne fil over?</translation>
     </message>
@@ -1092,8 +1101,8 @@ Alle filer (*)</translation>
         <translation>Version %1</translation>
     </message>
     <message>
-        <source>&lt;center&gt;&lt;img src=&quot;:/images/splash.png&quot;/&gt;&lt;/img&gt;&lt;p&gt;%1&lt;/p&gt;&lt;/center&gt;&lt;p&gt;Qt Linguist is a tool for adding translations to Qt applications.&lt;/p&gt;&lt;p&gt;Copyright (C) %2 The Qt Company Ltd.</source>
-        <translation>&lt;center&gt;&lt;img src=&quot;:/images/splash.png&quot;/&gt;&lt;/img&gt;&lt;p&gt;%1&lt;/p&gt;&lt;/center&gt;&lt;p&gt;Qt Linguist er et værktøj til at føje oversættelser til Qt-programmer.&lt;/p&gt;&lt;p&gt;Ophavsret (C) %2 Qt Company Ltd.</translation>
+        <source>&lt;center&gt;&lt;img src=&quot;:/images/icons/linguist-128-32.png&quot;/&gt;&lt;/img&gt;&lt;p&gt;%1&lt;/p&gt;&lt;/center&gt;&lt;p&gt;Qt Linguist is a tool for adding translations to Qt applications.&lt;/p&gt;&lt;p&gt;Copyright (C) %2 The Qt Company Ltd.</source>
+        <translation>&lt;center&gt;&lt;img src=&quot;:/images/icons/linguist-128-32.png&quot;/&gt;&lt;/img&gt;&lt;p&gt;%1&lt;/p&gt;&lt;/center&gt;&lt;p&gt;Qt Linguist er et værktøj til at redigere oversættelser til Qt-programmer.&lt;/p&gt;&lt;p&gt;Ophavsret (C) %2 Qt Company Ltd.</translation>
     </message>
     <message>
         <source>Do you want to save the modified files?</source>
@@ -1215,6 +1224,13 @@ Alle filer (*)</translation>
         <source>Do you want to save phrase book &apos;%1&apos;?</source>
         <translation>Vil du gemme frasebogen &apos;%1&apos;?</translation>
     </message>
+    <message numerus="yes">
+        <source>%n unfinished message(s) left.</source>
+        <translation>
+            <numerusform>%n ufærdig meddelelse tilbage.</numerusform>
+            <numerusform>%n ufærdige meddelelser tilbage.</numerusform>
+        </translation>
+    </message>
     <message>
         <source>All</source>
         <translation>Alle</translation>
@@ -1266,6 +1282,42 @@ Alle filer (*)</translation>
     <message>
         <source>Toggles visualize whitespace in editors</source>
         <translation>Slår synlighed af blanktegn i redigering til/fra</translation>
+    </message>
+    <message>
+        <source>Guesses</source>
+        <translation>Gæt</translation>
+    </message>
+    <message>
+        <source>Show more</source>
+        <translation>Vis flere</translation>
+    </message>
+    <message>
+        <source>Alt++</source>
+        <translation>Alt++</translation>
+    </message>
+    <message>
+        <source>Show fewer</source>
+        <translation>Vis færre</translation>
+    </message>
+    <message>
+        <source>Alt+-</source>
+        <translation>Alt+-</translation>
+    </message>
+    <message>
+        <source>Alt+0</source>
+        <translation>Alt+0</translation>
+    </message>
+    <message>
+        <source>D&amp;one</source>
+        <translation>&amp;Færdig</translation>
+    </message>
+    <message>
+        <source>Mark item as done</source>
+        <translation>Mærk post som færdig</translation>
+    </message>
+    <message>
+        <source>Mark this item as done.</source>
+        <translation>Mærk posten som færdig.</translation>
     </message>
 </context>
 <context>
@@ -1347,6 +1399,13 @@ Linje: %2</translation>
     <message>
         <source>&lt;unnamed context&gt;</source>
         <translation>&lt;unavngivet kontekst&gt;</translation>
+    </message>
+    <message numerus="yes">
+        <source>%n unfinished message(s) left.</source>
+        <translation>
+            <numerusform>%n ufærdig meddelelse tilbage.</numerusform>
+            <numerusform>%n ufærdige meddelelser tilbage.</numerusform>
+        </translation>
     </message>
 </context>
 <context>
@@ -1474,12 +1533,16 @@ Linje: %2</translation>
         <translation>Rediger</translation>
     </message>
     <message>
-        <source>Guess (%1)</source>
-        <translation>Gæt (%1)</translation>
+        <source>Go to</source>
+        <translation>Gå til</translation>
     </message>
     <message>
-        <source>Guess</source>
-        <translation>Gæt</translation>
+        <source>Guess from &apos;%1&apos; (%2)</source>
+        <translation>Gæt fra &apos;%1&apos; (%2)</translation>
+    </message>
+    <message>
+        <source>Guess from &apos;%1&apos;</source>
+        <translation>Gæt fra &apos;%1&apos;</translation>
     </message>
 </context>
 <context>

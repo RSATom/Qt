@@ -121,7 +121,7 @@ void QScriptDebuggerCodeFinderWidgetPrivate::_q_previous()
 
 QScriptDebuggerCodeFinderWidget::QScriptDebuggerCodeFinderWidget(QWidget *parent)
     : QScriptDebuggerCodeFinderWidgetInterface(
-        *new QScriptDebuggerCodeFinderWidgetPrivate, parent, 0)
+        *new QScriptDebuggerCodeFinderWidgetPrivate, parent, {})
 {
     Q_D(QScriptDebuggerCodeFinderWidget);
     QString system = QLatin1String("win");

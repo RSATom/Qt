@@ -43,6 +43,7 @@
 #include "qquickpixmapcache_p.h"
 #include <QtQuick/private/qsgcontext_p.h>
 #include <private/qqmlglobal_p.h>
+#include <QtGui/qcolorspace.h>
 
 QT_BEGIN_NAMESPACE
 
@@ -291,7 +292,7 @@ void QQuickImageResponse::cancel()
     \image imageprovider.png
 
     See the \l {imageprovider}{Image Provider Example} for the complete implementation.
-    Note that the example registers the provider via a \l{QQmlExtensionPlugin}{plugin}
+    Note that the example registers the provider via a \l{QQmlEngineExtensionPlugin}{plugin}
     instead of registering it in the application \c main() function as shown above.
 
 
@@ -300,7 +301,7 @@ void QQuickImageResponse::cancel()
     Image providers that support QImage or Texture loading automatically include support
     for asychronous loading of images. To enable asynchronous loading for an
     image source, set the \c asynchronous property to \c true for the relevant
-    \l Image, \l BorderImage or \l AnimatedImage object. When this is enabled,
+    \l Image or \l BorderImage object. When this is enabled,
     the image request to the provider is run in a low priority thread,
     allowing image loading to be executed in the background, and reducing the
     performance impact on the user interface.
@@ -329,10 +330,10 @@ void QQuickImageResponse::cancel()
     Images returned by a QQuickImageProvider are automatically cached,
     similar to any image loaded by the QML engine. When an image with a
     "image://" prefix is loaded from cache, requestImage() and requestPixmap()
-    will not be called for the relevant image provider. If an image should always
-    be fetched from the image provider, and should not be cached at all, set the
-    \c cache property to \c false for the relevant \l Image, \l BorderImage or
-    \l AnimatedImage object.
+    will not be called for the relevant image provider. If an image should
+    always be fetched from the image provider, and should not be cached at
+    all, set the \c cache property to \c false for the relevant \l Image
+    or \l BorderImage object.
 
     \sa QQmlEngine::addImageProvider()
 */
@@ -510,6 +511,7 @@ public:
     {
     }
 
+    QColorSpace targetColorSpace;
     QQuickImageProviderOptions::AutoTransform autoTransform = QQuickImageProviderOptions::UsePluginDefaultTransform;
     bool preserveAspectRatioCrop = false;
     bool preserveAspectRatioFit = false;
@@ -558,7 +560,8 @@ bool QQuickImageProviderOptions::operator==(const QQuickImageProviderOptions &ot
 {
     return d->autoTransform == other.d->autoTransform &&
            d->preserveAspectRatioCrop == other.d->preserveAspectRatioCrop &&
-           d->preserveAspectRatioFit == other.d->preserveAspectRatioFit;
+           d->preserveAspectRatioFit == other.d->preserveAspectRatioFit &&
+           d->targetColorSpace == other.d->targetColorSpace;
 }
 
 /*!
@@ -600,6 +603,19 @@ bool QQuickImageProviderOptions::preserveAspectRatioFit() const
 void QQuickImageProviderOptions::setPreserveAspectRatioFit(bool preserveAspectRatioFit)
 {
     d->preserveAspectRatioFit = preserveAspectRatioFit;
+}
+
+/*!
+    Returns the color space the image provider should return the image in.
+*/
+QColorSpace QQuickImageProviderOptions::targetColorSpace() const
+{
+    return d->targetColorSpace;
+}
+
+void QQuickImageProviderOptions::setTargetColorSpace(const QColorSpace &colorSpace)
+{
+    d->targetColorSpace = colorSpace;
 }
 
 QQuickImageProviderWithOptions::QQuickImageProviderWithOptions(ImageType type, Flags flags)
@@ -672,17 +688,17 @@ QSize QQuickImageProviderWithOptions::loadSize(const QSize &originalSize, const 
         return res;
 
     const bool preserveAspectCropOrFit = options.preserveAspectRatioCrop() || options.preserveAspectRatioFit();
-    const bool formatIsSvg = (format == "svg" || format == "svgz");
+    const bool formatIsScalable = (format == "svg" || format == "svgz" || format == "pdf");
 
-    if (!preserveAspectCropOrFit && formatIsSvg && !requestedSize.isEmpty())
+    if (!preserveAspectCropOrFit && formatIsScalable && !requestedSize.isEmpty())
         return requestedSize;
 
     qreal ratio = 0.0;
-    if (requestedSize.width() && (preserveAspectCropOrFit || formatIsSvg ||
+    if (requestedSize.width() && (preserveAspectCropOrFit || formatIsScalable ||
                                   requestedSize.width() < originalSize.width())) {
         ratio = qreal(requestedSize.width()) / originalSize.width();
     }
-    if (requestedSize.height() && (preserveAspectCropOrFit || formatIsSvg ||
+    if (requestedSize.height() && (preserveAspectCropOrFit || formatIsScalable ||
                                    requestedSize.height() < originalSize.height())) {
         qreal hr = qreal(requestedSize.height()) / originalSize.height();
         if (ratio == 0.0)

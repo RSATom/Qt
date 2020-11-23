@@ -57,7 +57,7 @@ class CppCodeParser : public CodeParser
 public:
     CppCodeParser();
 
-    void initializeParser(const Config &config) override;
+    void initializeParser() override;
     void terminateParser() override;
     QString language() override { return QStringLiteral("Cpp"); }
     QStringList headerFileNameFilter() override;
@@ -86,7 +86,7 @@ protected:
     bool hasTooManyTopics(const Doc &doc) const;
 
 private:
-    void setExampleFileLists(PageNode *pn);
+    void setExampleFileLists(ExampleNode *en);
 
 protected:
     typedef bool (Node::*NodeTypeTestFunc)() const;
@@ -94,8 +94,6 @@ protected:
     QMap<QString, Node::NodeType> nodeTypeMap_;
 
 private:
-    static QStringList exampleFiles;
-    static QStringList exampleDirs;
     static QSet<QString> excludeDirs;
     static QSet<QString> excludeFiles;
     QString exampleNameFilter;

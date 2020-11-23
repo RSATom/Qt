@@ -86,6 +86,7 @@ public:
         ExternalPage,
         Function,
         Typedef,
+        TypeAlias,
         Property,
         Variable,
         Group,
@@ -198,8 +199,8 @@ public:
     bool isRelatedNonmember() const { return relatedNonmember_; }
     bool isStruct() const { return nodeType_ == Struct; }
     bool isSharedCommentNode() const { return nodeType_ == SharedComment; }
-    bool isTypeAlias() const { return nodeType_ == Typedef; }
-    bool isTypedef() const { return nodeType_ == Typedef; }
+    bool isTypeAlias() const { return nodeType_ == TypeAlias; }
+    bool isTypedef() const { return nodeType_ == Typedef || nodeType_ == TypeAlias; }
     bool isUnion() const { return nodeType_ == Union; }
     bool isVariable() const { return nodeType_ == Variable; }
     bool isGenericCollection() const { return (nodeType_ == Node::Collection); }
@@ -232,7 +233,7 @@ public:
     QString plainFullName(const Node *relative = nullptr) const;
     QString plainSignature() const;
     QString fullName(const Node *relative = nullptr) const;
-    virtual QString signature(bool, bool) const { return plainName(); }
+    virtual QString signature(bool, bool, bool = false) const { return plainName(); }
 
     const QString &fileNameBase() const { return fileNameBase_; }
     bool hasFileNameBase() const { return !fileNameBase_.isEmpty(); }
@@ -251,7 +252,7 @@ public:
     void setSince(const QString &since);
     void setPhysicalModuleName(const QString &name) { physicalModuleName_ = name; }
     void setUrl(const QString &url) { url_ = url; }
-    void setTemplateStuff(const QString &t) { templateStuff_ = t; }
+    void setTemplateDecl(const QString &t) { templateDecl_ = t; }
     void setReconstitutedBrief(const QString &t) { reconstitutedBrief_ = t; }
     void setParent(Aggregate *n) { parent_ = n; }
     void setIndexNodeFlag(bool isIndexNode = true) { indexNodeFlag_ = isIndexNode; }
@@ -319,10 +320,9 @@ public:
     ThreadSafeness threadSafeness() const;
     ThreadSafeness inheritedThreadSafeness() const;
     QString since() const { return since_; }
-    QString templateStuff() const { return templateStuff_; }
+    const QString &templateDecl() const { return templateDecl_; }
     const QString &reconstitutedBrief() const { return reconstitutedBrief_; }
     QString nodeSubtypeString() const;
-    virtual void addPageKeywords(const QString &) {}
 
     bool isSharingComment() const { return (sharedCommentNode_ != nullptr); }
     bool hasSharedDoc() const;
@@ -387,7 +387,7 @@ private:
     QString physicalModuleName_;
     QString url_;
     QString since_;
-    QString templateStuff_;
+    QString templateDecl_;
     QString reconstitutedBrief_;
     // mutable QString uuid_;
     QString outSubDir_;
@@ -434,8 +434,6 @@ public:
     const QStringList &groupNames() const { return groupNames_; }
     void appendGroupName(const QString &t) override { groupNames_.append(t); }
 
-    const QStringList &pageKeywords() const { return pageKeywds_; }
-    void addPageKeywords(const QString &t) override { pageKeywds_ << t; }
     void setOutputFileName(const QString &f) override { outputFileName_ = f; }
     QString outputFileName() const override { return outputFileName_; }
 
@@ -448,7 +446,6 @@ protected:
     QString subtitle_;
     QString outputFileName_;
     QStringList groupNames_;
-    QStringList pageKeywds_;
 };
 
 class ExternalPageNode : public PageNode
@@ -532,7 +529,7 @@ protected:
 private:
     QStringList includeFiles_;
     NodeList enumChildren_;
-    NodeMap nonfunctionMap_;
+    NodeMultiMap nonfunctionMap_;
     NodeList nonfunctionList_;
 
 protected:
@@ -709,13 +706,19 @@ public:
     void setImageFileName(const QString &ifn) override { imageFileName_ = ifn; }
     const QStringList &files() const { return files_; }
     const QStringList &images() const { return images_; }
-    void setFiles(const QStringList files) { files_ = files; }
+    const QString &projectFile() const { return projectFile_; }
+    void setFiles(const QStringList files, const QString &projectFile)
+    {
+        files_ = files;
+        projectFile_ = projectFile;
+    }
     void setImages(const QStringList images) { images_ = images; }
     void appendFile(QString &file) { files_.append(file); }
     void appendImage(QString &image) { images_.append(image); }
 
 private:
     QString imageFileName_;
+    QString projectFile_;
     QStringList files_;
     QStringList images_;
 };
@@ -864,13 +867,15 @@ private:
 class EnumNode : public Node
 {
 public:
-    EnumNode(Aggregate *parent, const QString &name) : Node(Enum, parent, name), flagsType_(nullptr)
+    EnumNode(Aggregate *parent, const QString &name, bool isScoped = false)
+        : Node(Enum, parent, name), flagsType_(nullptr), isScoped_(isScoped)
     {
     }
 
     void addItem(const EnumItem &item);
     void setFlagsType(TypedefNode *typedeff);
     bool hasItem(const QString &name) const { return names_.contains(name); }
+    bool isScoped() const { return isScoped_; }
 
     const QVector<EnumItem> &items() const { return items_; }
     Access itemAccess(const QString &name) const;
@@ -882,13 +887,14 @@ private:
     QVector<EnumItem> items_;
     QSet<QString> names_;
     const TypedefNode *flagsType_;
+    bool isScoped_;
 };
 
 class TypedefNode : public Node
 {
 public:
-    TypedefNode(Aggregate *parent, const QString &name)
-        : Node(Typedef, parent, name), associatedEnum_(nullptr)
+    TypedefNode(Aggregate *parent, const QString &name, NodeType type = Typedef)
+        : Node(type, parent, name), associatedEnum_(nullptr)
     {
     }
 
@@ -907,16 +913,21 @@ private:
 class TypeAliasNode : public TypedefNode
 {
 public:
-    TypeAliasNode(Aggregate *parent, const QString &name, const QString &aliasedType)
-        : TypedefNode(parent, name), aliasedType_(aliasedType)
+    TypeAliasNode(Aggregate *parent,
+                  const QString &name,
+                  const QString &aliasedType)
+        : TypedefNode(parent, name, NodeType::TypeAlias), aliasedType_(aliasedType)
     {
     }
 
-    QString aliasedType() { return aliasedType_; }
+    const QString &aliasedType() const { return aliasedType_; }
+    const Node *aliasedNode() const { return aliasedNode_; }
+    void setAliasedNode(const Node *node) { aliasedNode_ = node; }
     Node *clone(Aggregate *parent) override;
 
 private:
     QString aliasedType_;
+    const Node *aliasedNode_ {};
 };
 
 inline void EnumNode::setFlagsType(TypedefNode *t)
@@ -952,10 +963,7 @@ public:
         n->setSharedCommentNode(this);
         setGenus(n->genus());
     }
-    void sort()
-    {
-        std::sort(collective_.begin(), collective_.end(), Node::nodeNameLessThan);
-    }
+    void sort() { std::sort(collective_.begin(), collective_.end(), Node::nodeNameLessThan); }
     const QVector<Node *> &collective() const { return collective_; }
     void setOverloadFlags();
     void setRelatedNonmember(bool b) override;
@@ -1058,10 +1066,10 @@ public:
     const Parameters &parameters() const { return parameters_; }
     bool isPrivateSignal() const { return parameters_.isPrivateSignal(); }
     void setParameters(const QString &signature) { parameters_.set(signature); }
-    QString signature(bool values, bool noReturnType) const override;
+    QString signature(bool values, bool noReturnType, bool templateParams = false) const override;
 
     const QString &overridesThis() const { return overridesThis_; }
-    NodeList &associatedProperties() { return associatedProperties_; }
+    const NodeList &associatedProperties() const { return associatedProperties_; }
     const QStringList &parentPath() const { return parentPath_; }
     bool hasAssociatedProperties() const { return !associatedProperties_.isEmpty(); }
     bool hasOneAssociatedProperty() const { return (associatedProperties_.size() == 1); }

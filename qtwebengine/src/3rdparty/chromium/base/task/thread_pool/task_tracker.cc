@@ -20,7 +20,7 @@
 #include "base/sequence_token.h"
 #include "base/synchronization/condition_variable.h"
 #include "base/task/scoped_set_task_priority_for_current_thread.h"
-#include "base/task/thread_pool/thread_pool_clock.h"
+#include "base/task/task_executor.h"
 #include "base/threading/sequence_local_storage_map.h"
 #include "base/threading/sequenced_task_runner_handle.h"
 #include "base/threading/thread_restrictions.h"
@@ -28,6 +28,7 @@
 #include "base/time/time.h"
 #include "base/trace_event/trace_event.h"
 #include "base/values.h"
+#include "build/build_config.h"
 
 namespace base {
 namespace internal {
@@ -82,8 +83,11 @@ HistogramBase* GetLatencyHistogram(StringPiece histogram_name,
                                    StringPiece histogram_label,
                                    StringPiece task_type_suffix) {
   DCHECK(!histogram_name.empty());
-  DCHECK(!histogram_label.empty());
   DCHECK(!task_type_suffix.empty());
+
+  if (histogram_label.empty())
+    return nullptr;
+
   // Mimics the UMA_HISTOGRAM_HIGH_RESOLUTION_CUSTOM_TIMES macro. The minimums
   // and maximums were chosen to place the 1ms mark at around the 70% range
   // coverage for buckets giving us good info for tasks that have a latency
@@ -103,8 +107,11 @@ HistogramBase* GetCountHistogram(StringPiece histogram_name,
                                  StringPiece histogram_label,
                                  StringPiece task_type_suffix) {
   DCHECK(!histogram_name.empty());
-  DCHECK(!histogram_label.empty());
   DCHECK(!task_type_suffix.empty());
+
+  if (histogram_label.empty())
+    return nullptr;
+
   // Mimics the UMA_HISTOGRAM_CUSTOM_COUNTS macro.
   const std::string histogram = JoinString(
       {"ThreadPool", histogram_name, histogram_label, task_type_suffix}, ".");
@@ -115,30 +122,12 @@ HistogramBase* GetCountHistogram(StringPiece histogram_name,
                                HistogramBase::kUmaTargetedHistogramFlag);
 }
 
-// Returns a histogram stored in a 2D array indexed by task priority and
-// whether it may block.
+// Returns a histogram stored in an array indexed by task priority.
 // TODO(jessemckenna): use the STATIC_HISTOGRAM_POINTER_GROUP macro from
 // histogram_macros.h instead.
-HistogramBase* GetHistogramForTaskTraits(
-    TaskTraits task_traits,
-    HistogramBase* const (*histograms)[2]) {
-  return histograms[static_cast<int>(task_traits.priority())]
-                   [task_traits.may_block() ||
-                            task_traits.with_base_sync_primitives()
-                        ? 1
-                        : 0];
-}
-
-// Returns shutdown behavior based on |traits|; returns SKIP_ON_SHUTDOWN if
-// shutdown behavior is BLOCK_SHUTDOWN and |is_delayed|, because delayed tasks
-// are not allowed to block shutdown.
-TaskShutdownBehavior GetEffectiveShutdownBehavior(
-    TaskShutdownBehavior shutdown_behavior,
-    bool is_delayed) {
-  if (shutdown_behavior == TaskShutdownBehavior::BLOCK_SHUTDOWN && is_delayed) {
-    return TaskShutdownBehavior::SKIP_ON_SHUTDOWN;
-  }
-  return shutdown_behavior;
+HistogramBase* GetHistogramForTaskPriority(TaskPriority task_priority,
+                                           HistogramBase* const histograms[3]) {
+  return histograms[static_cast<int>(task_priority)];
 }
 
 bool HasLogBestEffortTasksSwitch() {
@@ -148,6 +137,91 @@ bool HasLogBestEffortTasksSwitch() {
          CommandLine::ForCurrentProcess()->HasSwitch(
              switches::kLogBestEffortTasks);
 }
+
+// Needed for GetContinuationTaskRunner and CurrentThread. This executor lives
+// for the duration of a threadpool task invocation.
+class EphemeralTaskExecutor : public TaskExecutor {
+ public:
+  // |sequenced_task_runner| and |single_thread_task_runner| must outlive this
+  // EphemeralTaskExecutor. Note |single_thread_task_runner| may be null.
+  EphemeralTaskExecutor(
+      scoped_refptr<SequencedTaskRunner> sequenced_task_runner,
+      SingleThreadTaskRunner* single_thread_task_runner,
+      const TaskTraits* sequence_traits)
+      : sequenced_task_runner_(std::move(sequenced_task_runner)),
+        single_thread_task_runner_(single_thread_task_runner),
+        sequence_traits_(sequence_traits) {
+    DCHECK(sequenced_task_runner_);
+    SetTaskExecutorForCurrentThread(this);
+  }
+
+  ~EphemeralTaskExecutor() override {
+    SetTaskExecutorForCurrentThread(nullptr);
+  }
+
+  // TaskExecutor:
+  bool PostDelayedTask(const Location& from_here,
+                       const TaskTraits& traits,
+                       OnceClosure task,
+                       TimeDelta delay) override {
+    CheckTraitsCompatibleWithSequenceTraits(traits);
+    return sequenced_task_runner_->PostDelayedTask(from_here, std::move(task),
+                                                   delay);
+  }
+
+  scoped_refptr<TaskRunner> CreateTaskRunner(
+      const TaskTraits& traits) override {
+    CheckTraitsCompatibleWithSequenceTraits(traits);
+    return sequenced_task_runner_;
+  }
+
+  scoped_refptr<SequencedTaskRunner> CreateSequencedTaskRunner(
+      const TaskTraits& traits) override {
+    CheckTraitsCompatibleWithSequenceTraits(traits);
+    return sequenced_task_runner_;
+  }
+
+  scoped_refptr<SingleThreadTaskRunner> CreateSingleThreadTaskRunner(
+      const TaskTraits& traits,
+      SingleThreadTaskRunnerThreadMode thread_mode) override {
+    CheckTraitsCompatibleWithSequenceTraits(traits);
+    return single_thread_task_runner_;
+  }
+
+#if defined(OS_WIN)
+  scoped_refptr<SingleThreadTaskRunner> CreateCOMSTATaskRunner(
+      const TaskTraits& traits,
+      SingleThreadTaskRunnerThreadMode thread_mode) override {
+    CheckTraitsCompatibleWithSequenceTraits(traits);
+    return single_thread_task_runner_;
+  }
+#endif  // defined(OS_WIN)
+
+  const scoped_refptr<SequencedTaskRunner>& GetContinuationTaskRunner()
+      override {
+    return sequenced_task_runner_;
+  }
+
+ private:
+  // Currently ignores |traits.priority()|.
+  void CheckTraitsCompatibleWithSequenceTraits(const TaskTraits& traits) {
+    if (traits.shutdown_behavior_set_explicitly()) {
+      DCHECK_EQ(traits.shutdown_behavior(),
+                sequence_traits_->shutdown_behavior());
+    }
+
+    DCHECK(!traits.may_block() ||
+           traits.may_block() == sequence_traits_->may_block());
+
+    DCHECK(!traits.with_base_sync_primitives() ||
+           traits.with_base_sync_primitives() ==
+               sequence_traits_->with_base_sync_primitives());
+  }
+
+  const scoped_refptr<SequencedTaskRunner> sequenced_task_runner_;
+  SingleThreadTaskRunner* const single_thread_task_runner_;
+  const TaskTraits* const sequence_traits_;
+};
 
 }  // namespace
 
@@ -243,76 +317,42 @@ class TaskTracker::State {
 
 // TODO(jessemckenna): Write a helper function to avoid code duplication below.
 TaskTracker::TaskTracker(StringPiece histogram_label)
-    : has_log_best_effort_tasks_switch_(HasLogBestEffortTasksSwitch()),
+    : histogram_label_(histogram_label),
+      has_log_best_effort_tasks_switch_(HasLogBestEffortTasksSwitch()),
       state_(new State),
       can_run_policy_(CanRunPolicy::kAll),
       flush_cv_(flush_lock_.CreateConditionVariable()),
       shutdown_lock_(&flush_lock_),
-      task_latency_histograms_{
-          {GetLatencyHistogram("TaskLatencyMicroseconds",
-                               histogram_label,
-                               "BackgroundTaskPriority"),
-           GetLatencyHistogram("TaskLatencyMicroseconds",
-                               histogram_label,
-                               "BackgroundTaskPriority_MayBlock")},
-          {GetLatencyHistogram("TaskLatencyMicroseconds",
-                               histogram_label,
-                               "UserVisibleTaskPriority"),
-           GetLatencyHistogram("TaskLatencyMicroseconds",
-                               histogram_label,
-                               "UserVisibleTaskPriority_MayBlock")},
-          {GetLatencyHistogram("TaskLatencyMicroseconds",
-                               histogram_label,
-                               "UserBlockingTaskPriority"),
-           GetLatencyHistogram("TaskLatencyMicroseconds",
-                               histogram_label,
-                               "UserBlockingTaskPriority_MayBlock")}},
+      task_latency_histograms_{GetLatencyHistogram("TaskLatencyMicroseconds",
+                                                   histogram_label,
+                                                   "BackgroundTaskPriority"),
+                               GetLatencyHistogram("TaskLatencyMicroseconds",
+                                                   histogram_label,
+                                                   "UserVisibleTaskPriority"),
+                               GetLatencyHistogram("TaskLatencyMicroseconds",
+                                                   histogram_label,
+                                                   "UserBlockingTaskPriority")},
       heartbeat_latency_histograms_{
-          {GetLatencyHistogram("HeartbeatLatencyMicroseconds",
-                               histogram_label,
-                               "BackgroundTaskPriority"),
-           GetLatencyHistogram("HeartbeatLatencyMicroseconds",
-                               histogram_label,
-                               "BackgroundTaskPriority_MayBlock")},
-          {GetLatencyHistogram("HeartbeatLatencyMicroseconds",
-                               histogram_label,
-                               "UserVisibleTaskPriority"),
-           GetLatencyHistogram("HeartbeatLatencyMicroseconds",
-                               histogram_label,
-                               "UserVisibleTaskPriority_MayBlock")},
-          {GetLatencyHistogram("HeartbeatLatencyMicroseconds",
-                               histogram_label,
-                               "UserBlockingTaskPriority"),
-           GetLatencyHistogram("HeartbeatLatencyMicroseconds",
-                               histogram_label,
-                               "UserBlockingTaskPriority_MayBlock")}},
+          GetLatencyHistogram("HeartbeatLatencyMicroseconds",
+                              histogram_label,
+                              "BackgroundTaskPriority"),
+          GetLatencyHistogram("HeartbeatLatencyMicroseconds",
+                              histogram_label,
+                              "UserVisibleTaskPriority"),
+          GetLatencyHistogram("HeartbeatLatencyMicroseconds",
+                              histogram_label,
+                              "UserBlockingTaskPriority")},
       num_tasks_run_while_queuing_histograms_{
-          {GetCountHistogram("NumTasksRunWhileQueuing",
-                             histogram_label,
-                             "BackgroundTaskPriority"),
-           GetCountHistogram("NumTasksRunWhileQueuing",
-                             histogram_label,
-                             "BackgroundTaskPriority_MayBlock")},
-          {GetCountHistogram("NumTasksRunWhileQueuing",
-                             histogram_label,
-                             "UserVisibleTaskPriority"),
-           GetCountHistogram("NumTasksRunWhileQueuing",
-                             histogram_label,
-                             "UserVisibleTaskPriority_MayBlock")},
-          {GetCountHistogram("NumTasksRunWhileQueuing",
-                             histogram_label,
-                             "UserBlockingTaskPriority"),
-           GetCountHistogram("NumTasksRunWhileQueuing",
-                             histogram_label,
-                             "UserBlockingTaskPriority_MayBlock")}},
-      tracked_ref_factory_(this) {
-  // Confirm that all |task_latency_histograms_| have been initialized above.
-  for (TaskPriorityType i = 0; i < kNumTaskPriorities; ++i) {
-    for (TaskPriorityType j = 0; j < kNumBlockingModes; ++j) {
-      DCHECK(task_latency_histograms_[i][j]);
-    }
-  }
-}
+          GetCountHistogram("NumTasksRunWhileQueuing",
+                            histogram_label,
+                            "BackgroundTaskPriority"),
+          GetCountHistogram("NumTasksRunWhileQueuing",
+                            histogram_label,
+                            "UserVisibleTaskPriority"),
+          GetCountHistogram("NumTasksRunWhileQueuing",
+                            histogram_label,
+                            "UserBlockingTaskPriority")},
+      tracked_ref_factory_(this) {}
 
 TaskTracker::~TaskTracker() = default;
 
@@ -394,10 +434,9 @@ bool TaskTracker::WillPostTask(Task* task,
 
   if (state_->HasShutdownStarted()) {
     // A non BLOCK_SHUTDOWN task is allowed to be posted iff shutdown hasn't
-    // started.
-    if (GetEffectiveShutdownBehavior(shutdown_behavior,
-                                     !task->delayed_run_time.is_null()) !=
-        TaskShutdownBehavior::BLOCK_SHUTDOWN) {
+    // started and the task is not delayed.
+    if (shutdown_behavior != TaskShutdownBehavior::BLOCK_SHUTDOWN ||
+        !task->delayed_run_time.is_null()) {
       return false;
     }
 
@@ -414,15 +453,18 @@ bool TaskTracker::WillPostTask(Task* task,
   return true;
 }
 
-void TaskTracker::WillPostTaskNow(const Task& task, TaskPriority priority) {
+bool TaskTracker::WillPostTaskNow(const Task& task, TaskPriority priority) {
+  if (!task.delayed_run_time.is_null() && state_->HasShutdownStarted())
+    return false;
   if (has_log_best_effort_tasks_switch_ &&
       priority == TaskPriority::BEST_EFFORT) {
     // A TaskPriority::BEST_EFFORT task is being posted.
     LOG(INFO) << task.posted_from.ToString();
   }
+  return true;
 }
 
-RegisteredTaskSource TaskTracker::WillQueueTaskSource(
+RegisteredTaskSource TaskTracker::RegisterTaskSource(
     scoped_refptr<TaskSource> task_source) {
   DCHECK(task_source);
 
@@ -449,47 +491,32 @@ bool TaskTracker::CanRunPriority(TaskPriority priority) const {
 }
 
 RegisteredTaskSource TaskTracker::RunAndPopNextTask(
-    RunIntentWithRegisteredTaskSource run_intent_with_task_source) {
-  DCHECK(run_intent_with_task_source);
-  auto task_source = run_intent_with_task_source.take_task_source();
+    RegisteredTaskSource task_source) {
+  DCHECK(task_source);
+
+  const bool task_is_worker_task =
+      BeforeRunTask(task_source->shutdown_behavior());
 
   // Run the next task in |task_source|.
   Optional<Task> task;
   TaskTraits traits{ThreadPool()};
   {
-    TaskSource::Transaction task_source_transaction(
-        task_source->BeginTransaction());
-    task = task_source_transaction.TakeTask(&run_intent_with_task_source);
-    traits = task_source_transaction.traits();
+    auto transaction = task_source->BeginTransaction();
+    task = task_is_worker_task ? task_source.TakeTask(&transaction)
+                               : task_source.Clear(&transaction);
+    traits = transaction.traits();
   }
 
   if (task) {
-    const TaskShutdownBehavior effective_shutdown_behavior =
-        GetEffectiveShutdownBehavior(task_source->shutdown_behavior(),
-                                     !task->delayed_run_time.is_null());
-
-    const bool can_run_task = BeforeRunTask(effective_shutdown_behavior);
-
-    RunOrSkipTask(std::move(task.value()), task_source.get(), traits,
-                  can_run_task);
-
-    const bool task_source_must_be_queued =
-        task_source->BeginTransaction().DidProcessTask(
-            std::move(run_intent_with_task_source),
-            can_run_task ? TaskSource::RunResult::kDidRun
-                         : TaskSource::RunResult::kSkippedAtShutdown);
-
-    if (can_run_task) {
-      IncrementNumTasksRun();
-      AfterRunTask(effective_shutdown_behavior);
-    }
-
-    // |task_source| should be reenqueued iff requested by DidProcessTask().
-    if (task_source_must_be_queued) {
-      return task_source;
-    }
+    // Run the |task| (whether it's a worker task or the Clear() closure).
+    RunTask(std::move(task.value()), task_source.get(), traits);
   }
-
+  if (task_is_worker_task)
+    AfterRunTask(task_source->shutdown_behavior());
+  const bool task_source_must_be_queued = task_source.DidProcessTask();
+  // |task_source| should be reenqueued iff requested by DidProcessTask().
+  if (task_source_must_be_queued)
+    return task_source;
   return nullptr;
 }
 
@@ -502,36 +529,28 @@ bool TaskTracker::IsShutdownComplete() const {
   return shutdown_event_ && shutdown_event_->IsSignaled();
 }
 
-void TaskTracker::RecordLatencyHistogram(
-    LatencyHistogramType latency_histogram_type,
-    TaskTraits task_traits,
-    TimeTicks posted_time) const {
-  const TimeDelta task_latency = ThreadPoolClock::Now() - posted_time;
+void TaskTracker::RecordLatencyHistogram(TaskPriority priority,
+                                         TimeTicks posted_time) const {
+  if (histogram_label_.empty())
+    return;
 
-  DCHECK(latency_histogram_type == LatencyHistogramType::TASK_LATENCY ||
-         latency_histogram_type == LatencyHistogramType::HEARTBEAT_LATENCY);
-  const auto& histograms =
-      latency_histogram_type == LatencyHistogramType::TASK_LATENCY
-          ? task_latency_histograms_
-          : heartbeat_latency_histograms_;
-  GetHistogramForTaskTraits(task_traits, histograms)
+  const TimeDelta task_latency = TimeTicks::Now() - posted_time;
+  GetHistogramForTaskPriority(priority, task_latency_histograms_)
       ->AddTimeMicrosecondsGranularity(task_latency);
 }
 
 void TaskTracker::RecordHeartbeatLatencyAndTasksRunWhileQueuingHistograms(
-    TaskPriority task_priority,
-    bool may_block,
+    TaskPriority priority,
     TimeTicks posted_time,
     int num_tasks_run_when_posted) const {
-  TaskTraits task_traits{ThreadPool()};
-  if (may_block)
-    task_traits = TaskTraits(ThreadPool(), task_priority, MayBlock());
-  else
-    task_traits = TaskTraits(ThreadPool(), task_priority);
-  RecordLatencyHistogram(LatencyHistogramType::HEARTBEAT_LATENCY, task_traits,
-                         posted_time);
-  GetHistogramForTaskTraits(task_traits,
-                            num_tasks_run_while_queuing_histograms_)
+  if (histogram_label_.empty())
+    return;
+
+  const TimeDelta task_latency = TimeTicks::Now() - posted_time;
+  GetHistogramForTaskPriority(priority, heartbeat_latency_histograms_)
+      ->AddTimeMicrosecondsGranularity(task_latency);
+
+  GetHistogramForTaskPriority(priority, num_tasks_run_while_queuing_histograms_)
       ->Add(GetNumTasksRun() - num_tasks_run_when_posted);
 }
 
@@ -543,13 +562,11 @@ void TaskTracker::IncrementNumTasksRun() {
   num_tasks_run_.fetch_add(1, std::memory_order_relaxed);
 }
 
-void TaskTracker::RunOrSkipTask(Task task,
-                                TaskSource* task_source,
-                                const TaskTraits& traits,
-                                bool can_run_task) {
+void TaskTracker::RunTask(Task task,
+                          TaskSource* task_source,
+                          const TaskTraits& traits) {
   DCHECK(task_source);
-  RecordLatencyHistogram(LatencyHistogramType::TASK_LATENCY, traits,
-                         task.queue_time);
+  RecordLatencyHistogram(traits.priority(), task.queue_time);
 
   const auto environment = task_source->GetExecutionEnvironment();
 
@@ -583,6 +600,7 @@ void TaskTracker::RunOrSkipTask(Task task,
     // Set up TaskRunnerHandle as expected for the scope of the task.
     Optional<SequencedTaskRunnerHandle> sequenced_task_runner_handle;
     Optional<ThreadTaskRunnerHandle> single_thread_task_runner_handle;
+    Optional<EphemeralTaskExecutor> ephemiral_task_executor;
     switch (task_source->execution_mode()) {
       case TaskSourceExecutionMode::kJob:
       case TaskSourceExecutionMode::kParallel:
@@ -591,29 +609,34 @@ void TaskTracker::RunOrSkipTask(Task task,
         DCHECK(task_source->task_runner());
         sequenced_task_runner_handle.emplace(
             static_cast<SequencedTaskRunner*>(task_source->task_runner()));
+        ephemiral_task_executor.emplace(
+            static_cast<SequencedTaskRunner*>(task_source->task_runner()),
+            nullptr, &traits);
         break;
       case TaskSourceExecutionMode::kSingleThread:
         DCHECK(task_source->task_runner());
         single_thread_task_runner_handle.emplace(
             static_cast<SingleThreadTaskRunner*>(task_source->task_runner()));
+        ephemiral_task_executor.emplace(
+            static_cast<SequencedTaskRunner*>(task_source->task_runner()),
+            static_cast<SingleThreadTaskRunner*>(task_source->task_runner()),
+            &traits);
         break;
     }
 
-    if (can_run_task) {
-      TRACE_TASK_EXECUTION("ThreadPool_RunTask", task);
+    TRACE_TASK_EXECUTION("ThreadPool_RunTask", task);
 
-      // TODO(gab): In a better world this would be tacked on as an extra arg
-      // to the trace event generated above. This is not possible however until
-      // http://crbug.com/652692 is resolved.
-      TRACE_EVENT1("thread_pool", "ThreadPool_TaskInfo", "task_info",
-                   std::make_unique<TaskTracingInfo>(
-                       traits,
-                       kExecutionModeString[static_cast<size_t>(
-                           task_source->execution_mode())],
-                       environment.token));
+    // TODO(gab): In a better world this would be tacked on as an extra arg
+    // to the trace event generated above. This is not possible however until
+    // http://crbug.com/652692 is resolved.
+    TRACE_EVENT1("thread_pool", "ThreadPool_TaskInfo", "task_info",
+                 std::make_unique<TaskTracingInfo>(
+                     traits,
+                     kExecutionModeString[static_cast<size_t>(
+                         task_source->execution_mode())],
+                     environment.token));
 
-      RunTaskWithShutdownBehavior(traits.shutdown_behavior(), &task);
-    }
+    RunTaskWithShutdownBehavior(traits.shutdown_behavior(), &task);
 
     // Make sure the arguments bound to the callback are deleted within the
     // scope in which the callback runs.
@@ -652,9 +675,8 @@ bool TaskTracker::BeforeQueueTaskSource(
   return !state_->HasShutdownStarted();
 }
 
-bool TaskTracker::BeforeRunTask(
-    TaskShutdownBehavior effective_shutdown_behavior) {
-  switch (effective_shutdown_behavior) {
+bool TaskTracker::BeforeRunTask(TaskShutdownBehavior shutdown_behavior) {
+  switch (shutdown_behavior) {
     case TaskShutdownBehavior::BLOCK_SHUTDOWN: {
       // The number of tasks blocking shutdown has been incremented when the
       // task was posted.
@@ -693,9 +715,9 @@ bool TaskTracker::BeforeRunTask(
   return false;
 }
 
-void TaskTracker::AfterRunTask(
-    TaskShutdownBehavior effective_shutdown_behavior) {
-  if (effective_shutdown_behavior == TaskShutdownBehavior::SKIP_ON_SHUTDOWN) {
+void TaskTracker::AfterRunTask(TaskShutdownBehavior shutdown_behavior) {
+  IncrementNumTasksRun();
+  if (shutdown_behavior == TaskShutdownBehavior::SKIP_ON_SHUTDOWN) {
     DecrementNumItemsBlockingShutdown();
   }
 }

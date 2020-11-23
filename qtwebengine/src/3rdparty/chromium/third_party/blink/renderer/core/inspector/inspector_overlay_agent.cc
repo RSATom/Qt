@@ -38,6 +38,7 @@
 #include "third_party/blink/public/platform/platform.h"
 #include "third_party/blink/public/platform/task_type.h"
 #include "third_party/blink/public/platform/web_data.h"
+#include "third_party/blink/public/resources/grit/blink_resources.h"
 #include "third_party/blink/public/web/web_widget_client.h"
 #include "third_party/blink/renderer/bindings/core/v8/sanitize_script_errors.h"
 #include "third_party/blink/renderer/bindings/core/v8/script_controller.h"
@@ -73,6 +74,7 @@
 #include "third_party/blink/renderer/core/page/chrome_client.h"
 #include "third_party/blink/renderer/core/page/page.h"
 #include "third_party/blink/renderer/platform/bindings/script_forbidden_scope.h"
+#include "third_party/blink/renderer/platform/data_resource_helper.h"
 #include "third_party/blink/renderer/platform/graphics/color.h"
 #include "third_party/blink/renderer/platform/graphics/graphics_context.h"
 #include "third_party/blink/renderer/platform/graphics/paint/cull_rect.h"
@@ -113,8 +115,8 @@ void InspectTool::Init(InspectorOverlayAgent* overlay,
   DoInit();
 }
 
-String InspectTool::GetDataResourceName() {
-  return String("inspect_tool_highlight.html");
+int InspectTool::GetDataResourceId() {
+  return IDR_INSPECT_TOOL_HIGHLIGHT_HTML;
 }
 
 bool InspectTool::HandleInputEvent(LocalFrameView* frame_view,
@@ -227,7 +229,9 @@ class InspectorOverlayAgent::InspectorPageOverlayDelegate final
 
     if (RuntimeEnabledFeatures::CompositeAfterPaintEnabled()) {
       layer_->SetBounds(gfx::Size(frame_overlay.Size()));
-      RecordForeignLayer(graphics_context,
+      DEFINE_STATIC_LOCAL(LiteralDebugNameClient, debug_name_client,
+                          ("InspectorOverlay"));
+      RecordForeignLayer(graphics_context, debug_name_client,
                          DisplayItem::kForeignLayerDevToolsOverlay, layer_,
                          FloatPoint(), PropertyTreeState::Root());
       return;
@@ -406,7 +410,7 @@ Response InspectorOverlayAgent::disable() {
   resize_timer_.Stop();
   resize_timer_active_ = false;
   frame_overlay_.reset();
-  frame_resource_name_ = String();
+  frame_resource_name_ = 0;
   PickTheRightTool();
   SetNeedsUnbufferedInput(false);
   return Response::OK();
@@ -826,7 +830,8 @@ float InspectorOverlayAgent::WindowToViewportScale() const {
   LocalFrame* frame = GetFrame();
   if (!frame)
     return 1.0f;
-  return frame->GetPage()->GetChromeClient().WindowToViewportScalar(1.0f);
+  return frame->GetPage()->GetChromeClient().WindowToViewportScalar(frame,
+                                                                    1.0f);
 }
 
 void InspectorOverlayAgent::EnsureOverlayPageCreated() {
@@ -877,10 +882,10 @@ void InspectorOverlayAgent::EnsureOverlayPageCreated() {
 }
 
 void InspectorOverlayAgent::LoadFrameForTool() {
-  if (frame_resource_name_ == inspect_tool_->GetDataResourceName())
+  if (frame_resource_name_ == inspect_tool_->GetDataResourceId())
     return;
 
-  frame_resource_name_ = inspect_tool_->GetDataResourceName();
+  frame_resource_name_ = inspect_tool_->GetDataResourceId();
 
   DEFINE_STATIC_LOCAL(Persistent<LocalFrameClient>, dummy_local_frame_client,
                       (MakeGarbageCollected<EmptyLocalFrameClient>()));
@@ -893,13 +898,12 @@ void InspectorOverlayAgent::LoadFrameForTool() {
 
   scoped_refptr<SharedBuffer> data = SharedBuffer::Create();
   data->Append("<style>", static_cast<size_t>(7));
-  data->Append(Platform::Current()->GetDataResource("inspect_tool_common.css"));
+  data->Append(UncompressResourceAsBinary(IDR_INSPECT_TOOL_COMMON_CSS));
   data->Append("</style>", static_cast<size_t>(8));
   data->Append("<script>", static_cast<size_t>(8));
-  data->Append(Platform::Current()->GetDataResource("inspect_tool_common.js"));
+  data->Append(UncompressResourceAsBinary(IDR_INSPECT_TOOL_COMMON_JS));
   data->Append("</script>", static_cast<size_t>(9));
-  data->Append(Platform::Current()->GetDataResource(
-      frame_resource_name_.Utf8().c_str()));
+  data->Append(UncompressResourceAsBinary(frame_resource_name_));
 
   frame->ForceSynchronousDocumentInstall("text/html", data);
 
@@ -1082,8 +1086,7 @@ Response InspectorOverlayAgent::setInspectMode(
 
   std::vector<uint8_t> serialized_config;
   if (highlight_inspector_object.isJust()) {
-    serialized_config =
-        highlight_inspector_object.fromJust()->serializeToBinary();
+    highlight_inspector_object.fromJust()->AppendSerialized(&serialized_config);
   }
   std::unique_ptr<InspectorHighlightConfig> config;
   Response response = HighlightConfigFromInspectorObject(

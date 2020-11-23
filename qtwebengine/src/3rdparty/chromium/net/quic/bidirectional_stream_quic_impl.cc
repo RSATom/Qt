@@ -76,6 +76,10 @@ void BidirectionalStreamQuicImpl::Start(
   DLOG_IF(WARNING, !session_->IsConnected())
       << "Trying to start request headers after session has been closed.";
 
+  net_log.AddEventReferencingSource(
+      NetLogEventType::BIDIRECTIONAL_STREAM_BOUND_TO_QUIC_SESSION,
+      session_->net_log().source());
+
   send_request_headers_automatically_ = send_request_headers_automatically;
   delegate_ = delegate;
   request_info_ = request_info;
@@ -86,8 +90,8 @@ void BidirectionalStreamQuicImpl::Start(
 
   int rv = session_->RequestStream(
       use_early_data,
-      base::Bind(&BidirectionalStreamQuicImpl::OnStreamReady,
-                 weak_factory_.GetWeakPtr()),
+      base::BindOnce(&BidirectionalStreamQuicImpl::OnStreamReady,
+                     weak_factory_.GetWeakPtr()),
       traffic_annotation);
   if (rv == ERR_IO_PENDING)
     return;
@@ -144,8 +148,8 @@ int BidirectionalStreamQuicImpl::ReadData(IOBuffer* buffer, int buffer_len) {
 
   int rv = stream_->ReadBody(
       buffer, buffer_len,
-      base::Bind(&BidirectionalStreamQuicImpl::OnReadDataComplete,
-                 weak_factory_.GetWeakPtr()));
+      base::BindOnce(&BidirectionalStreamQuicImpl::OnReadDataComplete,
+                     weak_factory_.GetWeakPtr()));
   if (rv == ERR_IO_PENDING) {
     read_buffer_ = buffer;
     read_buffer_len_ = buffer_len;
@@ -193,8 +197,8 @@ void BidirectionalStreamQuicImpl::SendvData(
 
   int rv = stream_->WritevStreamData(
       buffers, lengths, end_stream,
-      base::Bind(&BidirectionalStreamQuicImpl::OnSendDataComplete,
-                 weak_factory_.GetWeakPtr()));
+      base::BindOnce(&BidirectionalStreamQuicImpl::OnSendDataComplete,
+                     weak_factory_.GetWeakPtr()));
 
   if (rv != ERR_IO_PENDING) {
     base::ThreadTaskRunnerHandle::Get()->PostTask(
@@ -212,7 +216,7 @@ int64_t BidirectionalStreamQuicImpl::GetTotalReceivedBytes() const {
   // When QPACK is enabled, headers are sent and received on the stream, so
   // the headers bytes do not need to be accounted for independently.
   int64_t total_received_bytes =
-      quic::VersionUsesQpack(session_->GetQuicVersion())
+      quic::VersionUsesHttp3(session_->GetQuicVersion().transport_version)
           ? 0
           : headers_bytes_received_;
   if (stream_) {
@@ -228,9 +232,10 @@ int64_t BidirectionalStreamQuicImpl::GetTotalReceivedBytes() const {
 int64_t BidirectionalStreamQuicImpl::GetTotalSentBytes() const {
   // When QPACK is enabled, headers are sent and received on the stream, so
   // the headers bytes do not need to be accounted for independently.
-  int64_t total_sent_bytes = quic::VersionUsesQpack(session_->GetQuicVersion())
-                                 ? 0
-                                 : headers_bytes_sent_;
+  int64_t total_sent_bytes =
+      quic::VersionUsesHttp3(session_->GetQuicVersion().transport_version)
+          ? 0
+          : headers_bytes_sent_;
   if (stream_) {
     total_sent_bytes += stream_->stream_bytes_written();
   } else {
@@ -321,8 +326,8 @@ void BidirectionalStreamQuicImpl::OnReadInitialHeadersComplete(int rv) {
 void BidirectionalStreamQuicImpl::ReadInitialHeaders() {
   int rv = stream_->ReadInitialHeaders(
       &initial_headers_,
-      base::Bind(&BidirectionalStreamQuicImpl::OnReadInitialHeadersComplete,
-                 weak_factory_.GetWeakPtr()));
+      base::BindOnce(&BidirectionalStreamQuicImpl::OnReadInitialHeadersComplete,
+                     weak_factory_.GetWeakPtr()));
 
   if (rv != ERR_IO_PENDING)
     OnReadInitialHeadersComplete(rv);
@@ -331,8 +336,9 @@ void BidirectionalStreamQuicImpl::ReadInitialHeaders() {
 void BidirectionalStreamQuicImpl::ReadTrailingHeaders() {
   int rv = stream_->ReadTrailingHeaders(
       &trailing_headers_,
-      base::Bind(&BidirectionalStreamQuicImpl::OnReadTrailingHeadersComplete,
-                 weak_factory_.GetWeakPtr()));
+      base::BindOnce(
+          &BidirectionalStreamQuicImpl::OnReadTrailingHeadersComplete,
+          weak_factory_.GetWeakPtr()));
 
   if (rv != ERR_IO_PENDING)
     OnReadTrailingHeadersComplete(rv);

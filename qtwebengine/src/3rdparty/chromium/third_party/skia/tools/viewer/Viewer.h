@@ -37,11 +37,13 @@ public:
     void onBackendCreated() override;
     void onPaint(SkSurface*) override;
     void onResize(int width, int height) override;
-    bool onTouch(intptr_t owner, InputState state, float x, float y) override;
-    bool onMouse(int x, int y, InputState state, ModifierKey modifiers) override;
+    bool onTouch(intptr_t owner, skui::InputState state, float x, float y) override;
+    bool onMouse(int x, int y, skui::InputState state, skui::ModifierKey modifiers) override;
     void onUIStateChanged(const SkString& stateName, const SkString& stateValue) override;
-    bool onKey(sk_app::Window::Key key, InputState state, ModifierKey modifiers) override;
-    bool onChar(SkUnichar c, ModifierKey modifiers) override;
+    bool onKey(skui::Key key, skui::InputState state, skui::ModifierKey modifiers) override;
+    bool onChar(SkUnichar c, skui::ModifierKey modifiers) override;
+    bool onPinch(skui::InputState state, float scale, float x, float y) override;
+    bool onFling(skui::InputState state) override;
 
     struct SkFontFields {
         bool fTypeface = false;
@@ -56,6 +58,7 @@ public:
         bool fEmbeddedBitmaps = false;
         bool fLinearMetrics = false;
         bool fEmbolden = false;
+        bool fBaselineSnap = false;
     };
     struct SkPaintFields {
         bool fPathEffect = false;
@@ -88,9 +91,10 @@ public:
     };
 private:
     enum class ColorMode {
-        kLegacy,            // 8888, no color management
-        kColorManaged8888,  // 8888 with color management
-        kColorManagedF16,   // F16 with color management
+        kLegacy,                // 8888, no color management
+        kColorManaged8888,      // 8888 with color management
+        kColorManagedF16,       // F16 with color management
+        kColorManagedF16Norm,   // Normalized F16 with color management
     };
 
     void initSlides();

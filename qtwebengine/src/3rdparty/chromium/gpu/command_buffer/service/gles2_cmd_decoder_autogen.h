@@ -4730,6 +4730,18 @@ error::Error GLES2DecoderImpl::HandleDispatchComputeIndirect(
   return error::kUnknownCommand;
 }
 
+error::Error GLES2DecoderImpl::HandleDrawArraysIndirect(
+    uint32_t immediate_data_size,
+    const volatile void* cmd_data) {
+  return error::kUnknownCommand;
+}
+
+error::Error GLES2DecoderImpl::HandleDrawElementsIndirect(
+    uint32_t immediate_data_size,
+    const volatile void* cmd_data) {
+  return error::kUnknownCommand;
+}
+
 error::Error GLES2DecoderImpl::HandleGetProgramInterfaceiv(
     uint32_t immediate_data_size,
     const volatile void* cmd_data) {
@@ -5219,8 +5231,8 @@ error::Error GLES2DecoderImpl::HandleScheduleDCLayerCHROMIUM(
   const volatile gles2::cmds::ScheduleDCLayerCHROMIUM& c =
       *static_cast<const volatile gles2::cmds::ScheduleDCLayerCHROMIUM*>(
           cmd_data);
-  GLuint y_texture_id = static_cast<GLuint>(c.y_texture_id);
-  GLuint uv_texture_id = static_cast<GLuint>(c.uv_texture_id);
+  GLuint texture_0 = static_cast<GLuint>(c.texture_0);
+  GLuint texture_1 = static_cast<GLuint>(c.texture_1);
   GLint z_order = static_cast<GLint>(c.z_order);
   GLint content_x = static_cast<GLint>(c.content_x);
   GLint content_y = static_cast<GLint>(c.content_y);
@@ -5243,7 +5255,7 @@ error::Error GLES2DecoderImpl::HandleScheduleDCLayerCHROMIUM(
   GLint clip_height = static_cast<GLint>(c.clip_height);
   GLuint protected_video_type = static_cast<GLuint>(c.protected_video_type);
   DoScheduleDCLayerCHROMIUM(
-      y_texture_id, uv_texture_id, z_order, content_x, content_y, content_width,
+      texture_0, texture_1, z_order, content_x, content_y, content_width,
       content_height, quad_x, quad_y, quad_width, quad_height, transform_c1r1,
       transform_c2r1, transform_c1r2, transform_c2r2, transform_tx,
       transform_ty, is_clipped, clip_x, clip_y, clip_width, clip_height,
@@ -5350,6 +5362,17 @@ error::Error GLES2DecoderImpl::HandlePathStencilFuncCHROMIUM(
   return error::kNoError;
 }
 
+error::Error GLES2DecoderImpl::HandleContextVisibilityHintCHROMIUM(
+    uint32_t immediate_data_size,
+    const volatile void* cmd_data) {
+  const volatile gles2::cmds::ContextVisibilityHintCHROMIUM& c =
+      *static_cast<const volatile gles2::cmds::ContextVisibilityHintCHROMIUM*>(
+          cmd_data);
+  GLboolean visibility = static_cast<GLboolean>(c.visibility);
+  DoContextVisibilityHintCHROMIUM(visibility);
+  return error::kNoError;
+}
+
 error::Error GLES2DecoderImpl::HandleCoverageModulationCHROMIUM(
     uint32_t immediate_data_size,
     const volatile void* cmd_data) {
@@ -5381,17 +5404,6 @@ error::Error GLES2DecoderImpl::HandleBlendBarrierKHR(
   }
 
   api()->glBlendBarrierKHRFn();
-  return error::kNoError;
-}
-
-error::Error GLES2DecoderImpl::HandleApplyScreenSpaceAntialiasingCHROMIUM(
-    uint32_t immediate_data_size,
-    const volatile void* cmd_data) {
-  if (!features().chromium_screen_space_antialiasing) {
-    return error::kUnknownCommand;
-  }
-
-  DoApplyScreenSpaceAntialiasingCHROMIUM();
   return error::kNoError;
 }
 

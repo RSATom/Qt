@@ -1,5 +1,5 @@
 //
-// Copyright (c) 2013-2017 The ANGLE Project Authors. All rights reserved.
+// Copyright 2013 The ANGLE Project Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 //
@@ -25,6 +25,10 @@ std::string VendorName(VendorID vendor)
     {
         case kVendorID_AMD:
             return "AMD";
+        case kVendorID_ARM:
+            return "ARM";
+        case kVendorID_GOOGLE:
+            return "Google";
         case kVendorID_Intel:
             return "Intel";
         case kVendorID_ImgTec:
@@ -206,13 +210,13 @@ bool ParseMacMachineModel(const std::string &identifier,
     const char *commaPtr  = &identifier[commaLoc + 1];
     char *endPtr          = nullptr;
 
-    int32_t majorTmp = std::strtol(numberPtr, &endPtr, 10);
+    int32_t majorTmp = static_cast<int32_t>(std::strtol(numberPtr, &endPtr, 10));
     if (endPtr == numberPtr)
     {
         return false;
     }
 
-    int32_t minorTmp = std::strtol(commaPtr, &endPtr, 10);
+    int32_t minorTmp = static_cast<int32_t>(std::strtol(commaPtr, &endPtr, 10));
     if (endPtr == commaPtr)
     {
         return false;

@@ -47,8 +47,8 @@
 ** $QT_END_LICENSE$
 **
 ****************************************************************************/
-import QtQuick 2.14
-import QtQuick3D 1.14
+import QtQuick 2.15
+import QtQuick3D 1.15
 
 Node {
     id: torus360
@@ -98,7 +98,6 @@ Node {
         var degrees = mouseAngle - _prevMouseAngle
         degrees *= _draggingOnBackside
         _prevMouseAngle = mouseAngle
-
         _target.rotate(-degrees, _axis, space)
     }
 
@@ -113,7 +112,7 @@ Node {
     RotateGizmoTorus90 {
         id: leftSegment
         pivot: Qt.vector3d(0, -1, 0)
-        rotation: Qt.vector3d(0, 0, 90)
+        eulerRotation: Qt.vector3d(0, 0, 90)
         color: torus360.color
         gizmoAxisRoot: torus360
         pickable: true
@@ -122,7 +121,7 @@ Node {
     RotateGizmoTorus90 {
         id: bottomSegment
         pivot: Qt.vector3d(0, -1, 0)
-        rotation: Qt.vector3d(0, 0, 180)
+        eulerRotation: Qt.vector3d(0, 0, 180)
         color: torus360.color
         gizmoAxisRoot: torus360
         pickable: true
@@ -131,7 +130,7 @@ Node {
     RotateGizmoTorus90 {
         id: rightSegment
         pivot: Qt.vector3d(0, -1, 0)
-        rotation: Qt.vector3d(0, 0, 270)
+        eulerRotation: Qt.vector3d(0, 0, 270)
         color: torus360.color
         gizmoAxisRoot: torus360
         pickable: true

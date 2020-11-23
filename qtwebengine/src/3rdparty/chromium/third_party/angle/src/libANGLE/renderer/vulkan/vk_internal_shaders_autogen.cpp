@@ -58,6 +58,11 @@ namespace
 #include "libANGLE/renderer/vulkan/shaders/gen/BufferUtils.comp.0000000B.inc"
 #include "libANGLE/renderer/vulkan/shaders/gen/ConvertIndex.comp.00000000.inc"
 #include "libANGLE/renderer/vulkan/shaders/gen/ConvertIndex.comp.00000001.inc"
+#include "libANGLE/renderer/vulkan/shaders/gen/ConvertIndex.comp.00000002.inc"
+#include "libANGLE/renderer/vulkan/shaders/gen/ConvertIndex.comp.00000003.inc"
+#include "libANGLE/renderer/vulkan/shaders/gen/ConvertIndexIndirectLineLoop.comp.00000000.inc"
+#include "libANGLE/renderer/vulkan/shaders/gen/ConvertIndexIndirectLineLoop.comp.00000001.inc"
+#include "libANGLE/renderer/vulkan/shaders/gen/ConvertIndirectLineLoop.comp.00000000.inc"
 #include "libANGLE/renderer/vulkan/shaders/gen/ConvertVertex.comp.00000000.inc"
 #include "libANGLE/renderer/vulkan/shaders/gen/ConvertVertex.comp.00000001.inc"
 #include "libANGLE/renderer/vulkan/shaders/gen/ConvertVertex.comp.00000002.inc"
@@ -74,6 +79,7 @@ namespace
 #include "libANGLE/renderer/vulkan/shaders/gen/ConvertVertex.comp.0000000D.inc"
 #include "libANGLE/renderer/vulkan/shaders/gen/ConvertVertex.comp.0000000E.inc"
 #include "libANGLE/renderer/vulkan/shaders/gen/ConvertVertex.comp.0000000F.inc"
+#include "libANGLE/renderer/vulkan/shaders/gen/ConvertVertex.comp.00000010.inc"
 #include "libANGLE/renderer/vulkan/shaders/gen/FullScreenQuad.vert.00000000.inc"
 #include "libANGLE/renderer/vulkan/shaders/gen/ImageClear.frag.00000000.inc"
 #include "libANGLE/renderer/vulkan/shaders/gen/ImageClear.frag.00000001.inc"
@@ -117,6 +123,14 @@ namespace
 #include "libANGLE/renderer/vulkan/shaders/gen/ImageCopy.frag.00000013.inc"
 #include "libANGLE/renderer/vulkan/shaders/gen/ImageCopy.frag.00000014.inc"
 #include "libANGLE/renderer/vulkan/shaders/gen/ImageCopy.frag.00000015.inc"
+#include "libANGLE/renderer/vulkan/shaders/gen/OverlayCull.comp.00000000.inc"
+#include "libANGLE/renderer/vulkan/shaders/gen/OverlayCull.comp.00000001.inc"
+#include "libANGLE/renderer/vulkan/shaders/gen/OverlayCull.comp.00000002.inc"
+#include "libANGLE/renderer/vulkan/shaders/gen/OverlayCull.comp.00000003.inc"
+#include "libANGLE/renderer/vulkan/shaders/gen/OverlayCull.comp.00000004.inc"
+#include "libANGLE/renderer/vulkan/shaders/gen/OverlayCull.comp.00000005.inc"
+#include "libANGLE/renderer/vulkan/shaders/gen/OverlayDraw.comp.00000000.inc"
+#include "libANGLE/renderer/vulkan/shaders/gen/OverlayDraw.comp.00000001.inc"
 
 // This is SPIR-V binary blob and the size.
 struct ShaderBlob
@@ -174,6 +188,17 @@ constexpr ShaderBlob kBufferUtils_comp_shaders[] = {
 constexpr ShaderBlob kConvertIndex_comp_shaders[] = {
     {kConvertIndex_comp_00000000, sizeof(kConvertIndex_comp_00000000)},
     {kConvertIndex_comp_00000001, sizeof(kConvertIndex_comp_00000001)},
+    {kConvertIndex_comp_00000002, sizeof(kConvertIndex_comp_00000002)},
+    {kConvertIndex_comp_00000003, sizeof(kConvertIndex_comp_00000003)},
+};
+constexpr ShaderBlob kConvertIndexIndirectLineLoop_comp_shaders[] = {
+    {kConvertIndexIndirectLineLoop_comp_00000000,
+     sizeof(kConvertIndexIndirectLineLoop_comp_00000000)},
+    {kConvertIndexIndirectLineLoop_comp_00000001,
+     sizeof(kConvertIndexIndirectLineLoop_comp_00000001)},
+};
+constexpr ShaderBlob kConvertIndirectLineLoop_comp_shaders[] = {
+    {kConvertIndirectLineLoop_comp_00000000, sizeof(kConvertIndirectLineLoop_comp_00000000)},
 };
 constexpr ShaderBlob kConvertVertex_comp_shaders[] = {
     {kConvertVertex_comp_00000000, sizeof(kConvertVertex_comp_00000000)},
@@ -192,6 +217,7 @@ constexpr ShaderBlob kConvertVertex_comp_shaders[] = {
     {kConvertVertex_comp_0000000D, sizeof(kConvertVertex_comp_0000000D)},
     {kConvertVertex_comp_0000000E, sizeof(kConvertVertex_comp_0000000E)},
     {kConvertVertex_comp_0000000F, sizeof(kConvertVertex_comp_0000000F)},
+    {kConvertVertex_comp_00000010, sizeof(kConvertVertex_comp_00000010)},
 };
 constexpr ShaderBlob kFullScreenQuad_vert_shaders[] = {
     {kFullScreenQuad_vert_00000000, sizeof(kFullScreenQuad_vert_00000000)},
@@ -246,6 +272,18 @@ constexpr ShaderBlob kImageCopy_frag_shaders[] = {
     {kImageCopy_frag_00000014, sizeof(kImageCopy_frag_00000014)},
     {kImageCopy_frag_00000015, sizeof(kImageCopy_frag_00000015)},
 };
+constexpr ShaderBlob kOverlayCull_comp_shaders[] = {
+    {kOverlayCull_comp_00000000, sizeof(kOverlayCull_comp_00000000)},
+    {kOverlayCull_comp_00000001, sizeof(kOverlayCull_comp_00000001)},
+    {kOverlayCull_comp_00000002, sizeof(kOverlayCull_comp_00000002)},
+    {kOverlayCull_comp_00000003, sizeof(kOverlayCull_comp_00000003)},
+    {kOverlayCull_comp_00000004, sizeof(kOverlayCull_comp_00000004)},
+    {kOverlayCull_comp_00000005, sizeof(kOverlayCull_comp_00000005)},
+};
+constexpr ShaderBlob kOverlayDraw_comp_shaders[] = {
+    {kOverlayDraw_comp_00000000, sizeof(kOverlayDraw_comp_00000000)},
+    {kOverlayDraw_comp_00000001, sizeof(kOverlayDraw_comp_00000001)},
+};
 
 angle::Result GetShader(Context *context,
                         RefCounted<ShaderAndSerial> *shaders,
@@ -293,6 +331,14 @@ void ShaderLibrary::destroy(VkDevice device)
     {
         shader.get().destroy(device);
     }
+    for (RefCounted<ShaderAndSerial> &shader : mConvertIndexIndirectLineLoop_comp_shaders)
+    {
+        shader.get().destroy(device);
+    }
+    for (RefCounted<ShaderAndSerial> &shader : mConvertIndirectLineLoop_comp_shaders)
+    {
+        shader.get().destroy(device);
+    }
     for (RefCounted<ShaderAndSerial> &shader : mConvertVertex_comp_shaders)
     {
         shader.get().destroy(device);
@@ -306,6 +352,14 @@ void ShaderLibrary::destroy(VkDevice device)
         shader.get().destroy(device);
     }
     for (RefCounted<ShaderAndSerial> &shader : mImageCopy_frag_shaders)
+    {
+        shader.get().destroy(device);
+    }
+    for (RefCounted<ShaderAndSerial> &shader : mOverlayCull_comp_shaders)
+    {
+        shader.get().destroy(device);
+    }
+    for (RefCounted<ShaderAndSerial> &shader : mOverlayDraw_comp_shaders)
     {
         shader.get().destroy(device);
     }
@@ -345,6 +399,26 @@ angle::Result ShaderLibrary::getConvertIndex_comp(Context *context,
                      ArraySize(kConvertIndex_comp_shaders), shaderFlags, shaderOut);
 }
 
+angle::Result ShaderLibrary::getConvertIndexIndirectLineLoop_comp(
+    Context *context,
+    uint32_t shaderFlags,
+    RefCounted<ShaderAndSerial> **shaderOut)
+{
+    return GetShader(context, mConvertIndexIndirectLineLoop_comp_shaders,
+                     kConvertIndexIndirectLineLoop_comp_shaders,
+                     ArraySize(kConvertIndexIndirectLineLoop_comp_shaders), shaderFlags, shaderOut);
+}
+
+angle::Result ShaderLibrary::getConvertIndirectLineLoop_comp(
+    Context *context,
+    uint32_t shaderFlags,
+    RefCounted<ShaderAndSerial> **shaderOut)
+{
+    return GetShader(context, mConvertIndirectLineLoop_comp_shaders,
+                     kConvertIndirectLineLoop_comp_shaders,
+                     ArraySize(kConvertIndirectLineLoop_comp_shaders), shaderFlags, shaderOut);
+}
+
 angle::Result ShaderLibrary::getConvertVertex_comp(Context *context,
                                                    uint32_t shaderFlags,
                                                    RefCounted<ShaderAndSerial> **shaderOut)
@@ -375,6 +449,22 @@ angle::Result ShaderLibrary::getImageCopy_frag(Context *context,
 {
     return GetShader(context, mImageCopy_frag_shaders, kImageCopy_frag_shaders,
                      ArraySize(kImageCopy_frag_shaders), shaderFlags, shaderOut);
+}
+
+angle::Result ShaderLibrary::getOverlayCull_comp(Context *context,
+                                                 uint32_t shaderFlags,
+                                                 RefCounted<ShaderAndSerial> **shaderOut)
+{
+    return GetShader(context, mOverlayCull_comp_shaders, kOverlayCull_comp_shaders,
+                     ArraySize(kOverlayCull_comp_shaders), shaderFlags, shaderOut);
+}
+
+angle::Result ShaderLibrary::getOverlayDraw_comp(Context *context,
+                                                 uint32_t shaderFlags,
+                                                 RefCounted<ShaderAndSerial> **shaderOut)
+{
+    return GetShader(context, mOverlayDraw_comp_shaders, kOverlayDraw_comp_shaders,
+                     ArraySize(kOverlayDraw_comp_shaders), shaderFlags, shaderOut);
 }
 
 }  // namespace vk

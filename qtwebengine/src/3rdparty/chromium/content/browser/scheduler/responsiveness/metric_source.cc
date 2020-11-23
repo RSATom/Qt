@@ -33,7 +33,7 @@ void MetricSource::SetUp() {
   RegisterMessageLoopObserverUI();
   native_event_observer_ui_ = CreateNativeEventObserver();
 
-  base::PostTaskWithTraits(
+  base::PostTask(
       FROM_HERE, {content::BrowserThread::IO},
       base::BindOnce(&MetricSource::SetUpOnIOThread, base::Unretained(this)));
 }
@@ -47,7 +47,7 @@ void MetricSource::Destroy(base::ScopedClosureRunner on_finish_destroy) {
   message_loop_observer_ui_.reset();
   native_event_observer_ui_.reset();
 
-  base::PostTaskWithTraits(
+  base::PostTask(
       FROM_HERE, {content::BrowserThread::IO},
       base::BindOnce(&MetricSource::TearDownOnIOThread, base::Unretained(this),
                      std::move(on_finish_destroy)));
@@ -73,10 +73,10 @@ MetricSource::~MetricSource() {
 void MetricSource::RegisterMessageLoopObserverUI() {
   // We can use base::Unretained(delegate_) since delegate_ is retained
   // in the constructor, and we won't release it when it is in use.
-  MessageLoopObserver::TaskCallback will_run_callback = base::BindRepeating(
-      &Delegate::WillRunTaskOnUIThread, base::Unretained(delegate_));
-  MessageLoopObserver::TaskCallback did_run_callback = base::BindRepeating(
-      &Delegate::DidRunTaskOnUIThread, base::Unretained(delegate_));
+  auto will_run_callback = base::BindRepeating(&Delegate::WillRunTaskOnUIThread,
+                                               base::Unretained(delegate_));
+  auto did_run_callback = base::BindRepeating(&Delegate::DidRunTaskOnUIThread,
+                                              base::Unretained(delegate_));
   message_loop_observer_ui_ = std::make_unique<MessageLoopObserver>(
       std::move(will_run_callback), std::move(did_run_callback));
 }
@@ -84,10 +84,10 @@ void MetricSource::RegisterMessageLoopObserverUI() {
 void MetricSource::RegisterMessageLoopObserverIO() {
   // We can use base::Unretained(delegate_) since delegate_ is retained
   // in the constructor, and we won't release it when it is in use.
-  MessageLoopObserver::TaskCallback will_run_callback = base::BindRepeating(
-      &Delegate::WillRunTaskOnIOThread, base::Unretained(delegate_));
-  MessageLoopObserver::TaskCallback did_run_callback = base::BindRepeating(
-      &Delegate::DidRunTaskOnIOThread, base::Unretained(delegate_));
+  auto will_run_callback = base::BindRepeating(&Delegate::WillRunTaskOnIOThread,
+                                               base::Unretained(delegate_));
+  auto did_run_callback = base::BindRepeating(&Delegate::DidRunTaskOnIOThread,
+                                              base::Unretained(delegate_));
   message_loop_observer_io_ = std::make_unique<MessageLoopObserver>(
       std::move(will_run_callback), std::move(did_run_callback));
 }
@@ -108,7 +108,7 @@ void MetricSource::TearDownOnIOThread(
 
   message_loop_observer_io_.reset();
 
-  base::PostTaskWithTraits(
+  base::PostTask(
       FROM_HERE, {content::BrowserThread::UI},
       base::BindOnce(&MetricSource::TearDownOnUIThread, base::Unretained(this),
                      std::move(on_finish_destroy)));

@@ -8,25 +8,14 @@ namespace storage {
 
 namespace features {
 
-#if defined(OS_CHROMEOS)
-// Chrome OS is given a larger fraction, as web content is the considered
-// the primary use of the platform. Chrome OS itself maintains free space by
-// starting to evict data (old profiles) when less than 1GB remains,
-// stopping eviction once 2GB is free.
-// Prior to M66 this was 1/3, same as other platforms.
-const double kTemporaryPoolSizeRatioThirds = 2.0 / 3.0;  // 66%
-#else
-const double kTemporaryPoolSizeRatioThirds = 1.0 / 3.0;  // 33%
-#endif
-
 const base::Feature kQuotaExpandPoolSize{"QuotaExpandPoolSize",
-                                         base::FEATURE_DISABLED_BY_DEFAULT};
+                                         base::FEATURE_ENABLED_BY_DEFAULT};
 
 const base::FeatureParam<double> kExperimentalPoolSizeRatio{
-    &kQuotaExpandPoolSize, "PoolSizeRatio", kTemporaryPoolSizeRatioThirds};
+    &kQuotaExpandPoolSize, "PoolSizeRatio", 0.8};
 
 const base::FeatureParam<double> kPerHostRatio{&kQuotaExpandPoolSize,
-                                               "PerHostRatio", 0.2};
+                                               "PerHostRatio", 0.75};
 
 // StaticHostQuota enables a simpler per-host quota model, where the quota is
 // only based on disk capacity (partition size). When the flag is disabled, the
@@ -41,5 +30,19 @@ const base::Feature kStaticHostQuota{"StaticHostQuota",
 // removing limits on how much disk space the temporary pool can consume.
 const base::Feature kQuotaUnlimitedPoolSize{"QuotaUnlimitedPoolSize",
                                             base::FEATURE_DISABLED_BY_DEFAULT};
+
+// IncognitoDynamicQuota enables dynamic assignment of quota to incognito mode
+// based on the physical memory size and removes the fixed upper cap for it.
+const base::Feature kIncognitoDynamicQuota{"IncognitoDynamicQuota",
+                                           base::FEATURE_DISABLED_BY_DEFAULT};
+
+// Dynamic quota for incognito mode would be set by a random fraction of
+// physical memory, between |IncognitoQuotaRatioLowerBound| and
+// |IncognitoQuotaRatioUpperBound|.
+const base::FeatureParam<double> kIncognitoQuotaRatioLowerBound{
+    &kIncognitoDynamicQuota, "IncognitoQuotaRatioLowerBound", 0.1};
+const base::FeatureParam<double> kIncognitoQuotaRatioUpperBound{
+    &kIncognitoDynamicQuota, "IncognitoQuotaRatioUpperBound", 0.2};
+
 }  // namespace features
 }  // namespace storage

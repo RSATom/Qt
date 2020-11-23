@@ -63,7 +63,7 @@ QT_BEGIN_NAMESPACE
 class QQuickGridLayoutItem : public QGridLayoutItem {
 public:
     QQuickGridLayoutItem(QQuickItem *item, int row, int column,
-                         int rowSpan = 1, int columnSpan = 1, Qt::Alignment alignment = 0)
+                         int rowSpan = 1, int columnSpan = 1, Qt::Alignment alignment = { })
         : QGridLayoutItem(row, column, rowSpan, columnSpan, alignment), m_item(item), sizeHintCacheDirty(true), useFallbackToWidthOrHeight(true) {}
 
 
@@ -95,7 +95,7 @@ public:
 
     void invalidate()
     {
-        quickLayoutDebug() << "engine::invalidate()";
+        qCDebug(lcQuickLayouts) << "QQuickGridLayoutItem::invalidate()";
         sizeHintCacheDirty = true;
     }
 
@@ -112,8 +112,9 @@ public:
         const QSizeF newSize = r.size();
         m_item->setPosition(r.topLeft());
         if (newSize == oldSize) {
+            // We need to enforce a rearrange when the geometry is the same
             if (QQuickLayout *lay = qobject_cast<QQuickLayout *>(m_item)) {
-                if (lay->arrangementIsDirty())
+                if (lay->invalidatedArrangement())
                     lay->rearrange(newSize);
             }
         } else {

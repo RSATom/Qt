@@ -21,7 +21,7 @@
 #include "chrome/browser/chromeos/settings/cros_settings.h"
 #include "chrome/browser/chromeos/system/timezone_util.h"
 #include "chrome/browser/profiles/profile.h"
-#include "chrome/browser/ui/webui/localized_string.h"
+#include "chrome/browser/ui/webui/webui_util.h"
 #include "chrome/common/url_constants.h"
 #include "chrome/grit/browser_resources.h"
 #include "chrome/grit/generated_resources.h"
@@ -33,6 +33,7 @@
 #include "content/public/browser/web_ui.h"
 #include "content/public/browser/web_ui_data_source.h"
 #include "content/public/browser/web_ui_message_handler.h"
+#include "ui/resources/grit/webui_resources.h"
 
 namespace chromeos {
 
@@ -128,6 +129,12 @@ class SetTimeMessageHandler : public content::WebUIMessageHandler,
       return;
     }
 
+    double seconds;
+    if (!args->GetDouble(0, &seconds)) {
+      NOTREACHED();
+      return;
+    }
+
     AccountId account_id;
     bool is_user_logged_in = user_manager::UserManager::Get()->IsUserLoggedIn();
     if (is_user_logged_in) {
@@ -139,7 +146,8 @@ class SetTimeMessageHandler : public content::WebUIMessageHandler,
         base::BindRepeating(&SetTimeMessageHandler::OnParentAccessValidation,
                             weak_factory_.GetWeakPtr()),
         ash::ParentAccessRequestReason::kChangeTime,
-        !is_user_logged_in /* extra_dimmer */);
+        !is_user_logged_in /* extra_dimmer */,
+        base::Time::FromDoubleT(seconds));
   }
 
   void OnParentAccessValidation(bool success) {
@@ -164,8 +172,10 @@ SetTimeUI::SetTimeUI(content::WebUI* web_ui) : WebDialogUI(web_ui) {
   // Set up the chrome://set-time source.
   content::WebUIDataSource* source =
       content::WebUIDataSource::Create(chrome::kChromeUISetTimeHost);
+  source->OverrideContentSecurityPolicyScriptSrc(
+      "script-src chrome://resources chrome://test 'self';");
 
-  static constexpr LocalizedString kStrings[] = {
+  static constexpr webui::LocalizedString kStrings[] = {
       {"setTimeTitle", IDS_SET_TIME_TITLE},
       {"prompt", IDS_SET_TIME_PROMPT},
       {"timezoneLabel", IDS_SET_TIME_TIMEZONE_LABEL},
@@ -173,7 +183,7 @@ SetTimeUI::SetTimeUI(content::WebUI* web_ui) : WebDialogUI(web_ui) {
       {"timeLabel", IDS_SET_TIME_TIME_LABEL},
       {"doneButton", IDS_DONE},
   };
-  AddLocalizedStringsBulk(source, kStrings, base::size(kStrings));
+  AddLocalizedStringsBulk(source, kStrings);
 
   base::DictionaryValue values;
   // List of list of strings: [[ID, name], [ID, name], ...]
@@ -188,14 +198,16 @@ SetTimeUI::SetTimeUI(content::WebUI* web_ui) : WebDialogUI(web_ui) {
   values.SetDouble("buildTime", base::GetBuildTime().ToJsTime());
 
   source->AddLocalizedStrings(values);
-  source->SetJsonPath("strings.js");
+  source->UseStringsJs();
+  source->EnableReplaceI18nInJS();
 
-  source->AddResourcePath("set_time_browser_proxy.html",
-                          IDR_SET_TIME_BROWSER_PROXY_HTML);
   source->AddResourcePath("set_time_browser_proxy.js",
                           IDR_SET_TIME_BROWSER_PROXY_JS);
   source->AddResourcePath("set_time_dialog.js", IDR_SET_TIME_DIALOG_JS);
-  source->SetDefaultResource(IDR_SET_TIME_DIALOG_HTML);
+  source->SetDefaultResource(IDR_SET_TIME_HTML);
+
+  source->AddResourcePath("test_loader.js", IDR_WEBUI_JS_TEST_LOADER);
+  source->AddResourcePath("test_loader.html", IDR_WEBUI_HTML_TEST_LOADER);
 
   content::WebUIDataSource::Add(Profile::FromWebUI(web_ui), source);
 }

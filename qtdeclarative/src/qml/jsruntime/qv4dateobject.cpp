@@ -54,11 +54,28 @@
 
 #include <wtf/MathExtras.h>
 
-#if defined(Q_OS_LINUX) && QT_CONFIG(timezone) && !defined(Q_OS_ANDROID)
+#if QT_CONFIG(timezone) && !defined(Q_OS_WIN)
 /*
   See QTBUG-56899.  Although we don't (yet) have a proper way to reset the
   system zone, the code below, that uses QTimeZone::systemTimeZone(), works
-  adequately on Linux, when the TZ environment variable is changed.
+  adequately on Linux.
+
+  QTimeZone::systemTimeZone() will automatically produce an updated value on
+  non-android Linux systems when the TZ environment variable or the relevant
+  files in /etc are changed. On other platforms it won't, and the information
+  produced here may be incorrect after changes to the system time zone.
+
+  We accept this defect for now because the localtime_r approach will
+  consistently produce incorrect results for some time zones, not only when
+  the system time zone changes. This is a worse problem, see also QTBUG-84474.
+
+  On windows we have a better implementation of getLocalTZA that hopefully
+  updates on time zone changes. However, we currently use the worse
+  implementation of DaylightSavingTA (returning either an hour or 0).
+
+  QTimeZone::systemTimeZone() on Linux is also slower than other approaches
+  because it has to poll the relevant files (if TZ is not set). See
+  QTBUG-75585 for an explanation and possible workarounds.
  */
 #define USE_QTZ_SYSTEM_ZONE
 #endif
@@ -682,17 +699,17 @@ static inline QString ToTimeString(double t)
 
 static inline QString ToLocaleString(double t)
 {
-    return ToDateTime(t, Qt::LocalTime).toString(Qt::DefaultLocaleShortDate);
+    return QLocale().toString(ToDateTime(t, Qt::LocalTime), QLocale::ShortFormat);
 }
 
 static inline QString ToLocaleDateString(double t)
 {
-    return ToDateTime(t, Qt::LocalTime).date().toString(Qt::DefaultLocaleShortDate);
+    return QLocale().toString(ToDateTime(t, Qt::LocalTime).date(), QLocale::ShortFormat);
 }
 
 static inline QString ToLocaleTimeString(double t)
 {
-    return ToDateTime(t, Qt::LocalTime).time().toString(Qt::DefaultLocaleShortDate);
+    return QLocale().toString(ToDateTime(t, Qt::LocalTime).time(), QLocale::ShortFormat);
 }
 
 static double getLocalTZA()

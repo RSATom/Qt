@@ -52,6 +52,7 @@ import java.util.HashMap;
 import java.util.Locale;
 import java.util.List;
 import java.util.ArrayList;
+import java.util.Set;
 
 public class QtTextToSpeech
 {
@@ -174,6 +175,11 @@ public class QtTextToSpeech
         return success;
     }
 
+    public float rate()
+    {
+        return mRate;
+    }
+
     public int setRate(float rate)
     {
         if (Float.compare(rate, mRate) == 0)
@@ -224,7 +230,22 @@ public class QtTextToSpeech
     {
         if (mInitialized && android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.LOLLIPOP) {
             //Log.d("QtTextToSpeech", "Locales: " + mTts.getAvailableLanguages());
-            return new ArrayList<Locale>(mTts.getAvailableLanguages());
+            final Set<Locale> languages = mTts.getAvailableLanguages();
+            ArrayList<Locale> locales = new ArrayList<Locale>();
+
+            for (Locale language : languages) {
+                String languageCode = language.getLanguage();
+                String countryCode = language.getCountry();
+
+                if (languageCode.equals(language.getISO3Language()))
+                    languageCode = convertLanguageCodeThreeDigitToTwoDigit(languageCode);
+                if (countryCode.equals(language.getISO3Country()))
+                    countryCode = convertCountryCodeThreeDigitToTwoDigit(countryCode);
+
+                locales.add(new Locale(languageCode, countryCode));
+            }
+
+            return locales;
         }
         return new ArrayList<Locale>();
     }
@@ -260,5 +281,31 @@ public class QtTextToSpeech
              }
         }
         return false;
+    }
+
+    private String convertLanguageCodeThreeDigitToTwoDigit(String iso3Language)
+    {
+        final String[] isoLanguages = Locale.getISOLanguages();
+
+        for (String isoLanguage : isoLanguages) {
+            if (iso3Language.equals(new Locale(isoLanguage).getISO3Language())) {
+                return isoLanguage;
+            }
+        }
+
+        return iso3Language;
+    }
+
+    private String convertCountryCodeThreeDigitToTwoDigit(String iso3Country)
+    {
+        final String[] isoCountries = Locale.getISOCountries();
+
+        for (String isoCountry : isoCountries) {
+            if (iso3Country.equals(new Locale("en", isoCountry).getISO3Country())) {
+                return isoCountry;
+            }
+        }
+
+        return iso3Country;
     }
 }

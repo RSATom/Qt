@@ -116,7 +116,7 @@ static QWidget *iWantTheFocus(QWidget *ancestor)
                 return candidate;
         }
     }
-    return 0;
+    return nullptr;
 }
 
 static bool objectInheritsXAndXIsCloserThanY(const QObject *object, const QByteArray &classX,
@@ -166,7 +166,7 @@ static const char *changed_signal(int which)
     };
     Q_STATIC_ASSERT(7 == NFallbackDefaultProperties);
     Q_UNREACHABLE();
-    return 0;
+    return nullptr;
 }
 
 class QWizardDefaultProperty
@@ -287,9 +287,9 @@ class QWizardHeader : public QWidget
 public:
     enum RulerType { Ruler };
 
-    inline QWizardHeader(RulerType /* ruler */, QWidget *parent = 0)
+    inline QWizardHeader(RulerType /* ruler */, QWidget *parent = nullptr)
         : QWidget(parent) { setFixedHeight(2); }
-    QWizardHeader(QWidget *parent = 0);
+    QWizardHeader(QWidget *parent = nullptr);
 
     void setup(const QWizardLayoutInfo &info, const QString &title,
                const QString &subTitle, const QPixmap &logo, const QPixmap &banner,
@@ -439,7 +439,7 @@ void QWizardHeader::paintEvent(QPaintEvent * /* event */)
 class QWizardRuler : public QWizardHeader
 {
 public:
-    inline QWizardRuler(QWidget *parent = 0)
+    inline QWizardRuler(QWidget *parent = nullptr)
         : QWizardHeader(Ruler, parent) {}
 };
 
@@ -453,8 +453,8 @@ public:
     }
 
     QSize minimumSizeHint() const override {
-        if (pixmap() && !pixmap()->isNull())
-            return pixmap()->size() / pixmap()->devicePixelRatio();
+        if (!pixmap(Qt::ReturnByValue).isNull())
+            return pixmap(Qt::ReturnByValue).size() / pixmap(Qt::ReturnByValue).devicePixelRatio();
         return QFrame::minimumSizeHint();
     }
 
@@ -685,7 +685,7 @@ void QWizardPrivate::init()
     std::fill(btns, btns + QWizard::NButtons, nullptr);
 
     antiFlickerWidget = new QWizardAntiFlickerWidget(q, this);
-    wizStyle = QWizard::WizardStyle(q->style()->styleHint(QStyle::SH_WizardStyle, 0, q));
+    wizStyle = QWizard::WizardStyle(q->style()->styleHint(QStyle::SH_WizardStyle, nullptr, q));
     if (wizStyle == QWizard::MacStyle) {
         opts = (QWizard::NoDefaultButton | QWizard::NoCancelButton);
     } else if (wizStyle == QWizard::ModernStyle) {
@@ -837,7 +837,7 @@ void QWizardPrivate::switchToPage(int newId, Direction direction)
         newPage && newPage->isCommitPage() ? QWizard::CommitButton : QWizard::NextButton;
     QAbstractButton *nextOrFinishButton =
         btns[canContinue ? nextOrCommit : QWizard::FinishButton];
-    QWidget *candidate = 0;
+    QWidget *candidate = nullptr;
 
     /*
         If there is no default button and the Next or Finish button
@@ -888,7 +888,7 @@ static const char * buttonSlots(QWizard::WizardButton which)
     case QWizard::NoButton:
         Q_UNREACHABLE();
     };
-    return 0;
+    return nullptr;
 };
 
 QWizardLayoutInfo QWizardPrivate::layoutInfoForCurrentPage()
@@ -901,14 +901,14 @@ QWizardLayoutInfo QWizardPrivate::layoutInfoForCurrentPage()
     QStyleOption option;
     option.initFrom(q);
     const int layoutHorizontalSpacing = style->pixelMetric(QStyle::PM_LayoutHorizontalSpacing, &option);
-    info.topLevelMarginLeft = style->pixelMetric(QStyle::PM_LayoutLeftMargin, 0, q);
-    info.topLevelMarginRight = style->pixelMetric(QStyle::PM_LayoutRightMargin, 0, q);
-    info.topLevelMarginTop = style->pixelMetric(QStyle::PM_LayoutTopMargin, 0, q);
-    info.topLevelMarginBottom = style->pixelMetric(QStyle::PM_LayoutBottomMargin, 0, q);
-    info.childMarginLeft = style->pixelMetric(QStyle::PM_LayoutLeftMargin, 0, titleLabel);
-    info.childMarginRight = style->pixelMetric(QStyle::PM_LayoutRightMargin, 0, titleLabel);
-    info.childMarginTop = style->pixelMetric(QStyle::PM_LayoutTopMargin, 0, titleLabel);
-    info.childMarginBottom = style->pixelMetric(QStyle::PM_LayoutBottomMargin, 0, titleLabel);
+    info.topLevelMarginLeft = style->pixelMetric(QStyle::PM_LayoutLeftMargin, nullptr, q);
+    info.topLevelMarginRight = style->pixelMetric(QStyle::PM_LayoutRightMargin, nullptr, q);
+    info.topLevelMarginTop = style->pixelMetric(QStyle::PM_LayoutTopMargin, nullptr, q);
+    info.topLevelMarginBottom = style->pixelMetric(QStyle::PM_LayoutBottomMargin, nullptr, q);
+    info.childMarginLeft = style->pixelMetric(QStyle::PM_LayoutLeftMargin, nullptr, titleLabel);
+    info.childMarginRight = style->pixelMetric(QStyle::PM_LayoutRightMargin, nullptr, titleLabel);
+    info.childMarginTop = style->pixelMetric(QStyle::PM_LayoutTopMargin, nullptr, titleLabel);
+    info.childMarginBottom = style->pixelMetric(QStyle::PM_LayoutBottomMargin, nullptr, titleLabel);
     info.hspacing = (layoutHorizontalSpacing == -1)
         ? style->layoutSpacing(QSizePolicy::DefaultType, QSizePolicy::DefaultType, Qt::Horizontal)
         : layoutHorizontalSpacing;
@@ -962,7 +962,7 @@ void QWizardPrivate::recreateLayout(const QWizardLayoutInfo &info)
     for (int i = mainLayout->count() - 1; i >= 0; --i) {
         QLayoutItem *item = mainLayout->takeAt(i);
         if (item->layout()) {
-            item->layout()->setParent(0);
+            item->layout()->setParent(nullptr);
         } else {
             delete item;
         }
@@ -2284,7 +2284,7 @@ void QWizard::removePage(int id)
 {
     Q_D(QWizard);
 
-    QWizardPage *removedPage = 0;
+    QWizardPage *removedPage = nullptr;
 
     // update startItem accordingly
     if (d->pageMap.count() > 0) { // only if we have any pages
@@ -2377,18 +2377,28 @@ bool QWizard::hasVisitedPage(int theid) const
 }
 
 /*!
+    \since 5.15
+
     Returns the list of IDs of visited pages, in the order in which the pages
     were visited.
 
-    Pressing \uicontrol Back marks the current page as "unvisited" again.
-
     \sa hasVisitedPage()
 */
-QList<int> QWizard::visitedPages() const
+QList<int> QWizard::visitedIds() const
 {
     Q_D(const QWizard);
     return d->history;
 }
+
+/*!
+    \obsolete Use visitedIds() instead
+*/
+#if QT_DEPRECATED_SINCE(5, 15)
+QList<int> QWizard::visitedPages() const
+{
+    return visitedIds();
+}
+#endif
 
 /*!
     Returns the list of page IDs.
@@ -2795,7 +2805,7 @@ QAbstractButton *QWizard::button(WizardButton which) const
         return d->vistaHelper->backButton();
 #endif
     if (!d->ensureButton(which))
-        return 0;
+        return nullptr;
     return d->btns[which];
 }
 
@@ -2927,7 +2937,7 @@ void QWizard::setDefaultProperty(const char *className, const char *property,
     or when the watermark is not provided the side widget is displayed
     on the left side of the wizard.
 
-    Passing 0 shows no side widget.
+    Passing \nullptr shows no side widget.
 
     When the \a widget is not \nullptr the wizard reparents it.
 
@@ -3447,7 +3457,7 @@ int QWizard::nextId() const
     \sa wizard()
 */
 QWizardPage::QWizardPage(QWidget *parent)
-    : QWidget(*new QWizardPagePrivate, parent, 0)
+    : QWidget(*new QWizardPagePrivate, parent, { })
 {
     connect(this, SIGNAL(completeChanged()), this, SLOT(_q_updateCachedCompleteState()));
 }

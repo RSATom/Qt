@@ -423,13 +423,20 @@ void tst_qfloat16::finite()
 {
     QFETCH(qfloat16, value);
     QFETCH(int, mode);
-    QCOMPARE(value.isNormal(), mode != FP_SUBNORMAL);
+    QCOMPARE(value.isNormal(), mode == FP_NORMAL);
     QCOMPARE(value, value); // Fuzzy
     QVERIFY(value == value); // Exact
     QVERIFY(qIsFinite(value));
     QVERIFY(!qIsInf(value));
     QVERIFY(!qIsNaN(value));
     QCOMPARE(qFpClassify(value), mode);
+
+    // *NOT* using QCOMPARE() on finite qfloat16 values, since that uses fuzzy
+    // comparison, and we need exact here.
+    const qfloat16 zero(0), plus(+1), minus(-1);
+    const qfloat16 magnitude = (value < zero) ? -value : value;
+    QVERIFY(value.copySign(plus) == magnitude);
+    QVERIFY(value.copySign(minus) == -magnitude);
 }
 
 void tst_qfloat16::properties()
@@ -534,7 +541,9 @@ void tst_qfloat16::limits() // See also: qNaN() and infinity()
     QVERIFY(Bounds::denorm_min() / rose == zero);
     if (overOptimized)
         QEXPECT_FAIL("", "Over-optimized on ARM", Continue);
-    QVERIFY(-Bounds::denorm_min() / rose == -zero);
+    const qfloat16 under = (-Bounds::denorm_min()) / rose;
+    QVERIFY(under == -zero);
+    QCOMPARE(qfloat16(1).copySign(under), qfloat16(-1));
 }
 
 QTEST_APPLESS_MAIN(tst_qfloat16)

@@ -6,13 +6,21 @@
 # SwiftShader libraries
 
 import("//build_overrides/build.gni")
+import("//build_overrides/spirv_tools.gni")
+import("//build_overrides/swiftshader.gni")
 
-if (build_with_chromium) {
+if (!swiftshader_standalone) {
   import("//build/config/sanitizers/sanitizers.gni")
 } else {
   declare_args() {
     is_ubsan_vptr = false
   }
+}
+
+declare_args() {
+  # By default, build SwiftShader with optimizations enabled in debug
+  # for performance reasons. Set to false to build as unoptimized.
+  swiftshader_optimized_debug_build = true
 }
 
 configs_to_add = []
@@ -22,8 +30,7 @@ if (is_win) {
   configs_to_delete += [ "//build/config/win:unicode" ]
 }
 
-if (is_debug) {
-  # always build optimized version of SwiftShader for performance reasons
+if (is_debug && swiftshader_optimized_debug_build) {
   configs_to_delete += [ "//build/config/compiler:default_optimization" ]
   configs_to_add += [ "//build/config/compiler:optimize" ]
 }
@@ -31,7 +38,7 @@ if (is_debug) {
 configs_to_delete += [ "//build/config/compiler:chromium_code" ]
 configs_to_add += [
   "//build/config/compiler:no_chromium_code",
-  "//third_party/swiftshader:swiftshader_config",
+  "$swiftshader_dir:swiftshader_config",
 ]
 
 template("swiftshader_source_set") {

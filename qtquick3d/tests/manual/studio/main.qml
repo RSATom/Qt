@@ -48,11 +48,11 @@
 **
 ****************************************************************************/
 
-import QtQuick 2.14
+import QtQuick 2.15
 import QtQuick.Window 2.14
 
-import QtQuick3D 1.14
-import QtQuick3D.Helpers 1.14 as Helpers
+import QtQuick3D 1.15
+import QtQuick3D.Helpers 1.15 as Helpers
 
 import QtGraphicalEffects 1.14
 
@@ -93,7 +93,7 @@ ApplicationWindow {
                 PerspectiveCamera {
                     id: perspectiveCamera
                     y: 200
-                    z: -300
+                    z: 300
                     clipFar: 100000
                 }
 
@@ -107,7 +107,7 @@ ApplicationWindow {
                 DirectionalLight {
                     id: light
                     y: 400
-                    rotation: Qt.vector3d(60, 0, 0)
+                    eulerRotation: Qt.vector3d(60, 0, 0)
                 }
 
                 Helpers.AxisHelper {
@@ -121,26 +121,46 @@ ApplicationWindow {
                     objectName: "First pot"
                     y: 200
                     pickable: true
-                    rotation: Qt.vector3d(0, 0, 45)
+                    eulerRotation: Qt.vector3d(0, 0, 45)
                     source: "meshes/teapot.mesh"
                     scale: Qt.vector3d(20, 20, 20)
                     materials: DefaultMaterial {
                         diffuseColor: "salmon"
                     }
                 }
-
+                Node {
+                    x: pot1.x
+                    y: pot1.y + 100
+                    z: pot1.z
+                    rotation: mainView.camera.rotation
+                    visible: showLabelsControl.checked
+                    Text {
+                        visible: false
+                        text: pot1.objectName
+                    }
+                }
                 Model {
                     id: pot2
                     objectName: "Second pot"
                     x: 200
                     y: 200
-                    z: 300
+                    z: -300
                     pickable: true
-                    rotation: Qt.vector3d(45, 45, 0)
+                    eulerRotation: Qt.vector3d(45, 45, 0)
                     source: "meshes/teapot.mesh"
                     scale: Qt.vector3d(20, 40, 20)
                     materials: DefaultMaterial {
                         diffuseColor: "darkkhaki"
+                    }
+                }
+                Node {
+                    x: pot2.x
+                    y: pot2.y + 120
+                    z: pot2.z
+                    rotation: mainView.camera.rotation
+                    visible: showLabelsControl.checked
+                    Text {
+                        text: pot2.objectName
                     }
                 }
             }
@@ -177,24 +197,6 @@ ApplicationWindow {
             xColor: xAxisGizmoColor
             yColor: yAxisGizmoColor
             zColor: zAxisGizmoColor
-        }
-
-        OverlayLabel {
-            id: overlayLabelPot1
-            targetNode: pot1
-            targetView: mainView
-            text: pot1.objectName
-            offsetY: 100
-            visible: showLabelsControl.checked
-        }
-
-        OverlayLabel {
-            id: overlayLabelPot2
-            targetNode: pot2
-            targetView: mainView
-            text: pot2.objectName
-            offsetY: 100
-            visible: showLabelsControl.checked
         }
 
         Helpers.WasdController {
@@ -254,8 +256,8 @@ ApplicationWindow {
                 text: "Front"
                 onClicked: {
                     var dist = perspectiveCamera.scenePosition.minus(nodeBeingManipulated.scenePosition).length()
-                    perspectiveCamera.rotation = Qt.vector3d(0, 0, 0)
-                    perspectiveCamera.position = nodeBeingManipulated.position.plus(Qt.vector3d(0, 0, -dist))
+                    perspectiveCamera.eulerRotation = Qt.vector3d(0, 0, 0)
+                    perspectiveCamera.position = nodeBeingManipulated.position.plus(Qt.vector3d(0, 0, dist))
                     wasd.forceActiveFocus()
                 }
             }
@@ -264,7 +266,7 @@ ApplicationWindow {
                 text: "Right"
                 onClicked: {
                     var dist = perspectiveCamera.scenePosition.minus(nodeBeingManipulated.scenePosition).length()
-                    perspectiveCamera.rotation = Qt.vector3d(0, -90, 0)
+                    perspectiveCamera.eulerRotation = Qt.vector3d(0, 90, 0)
                     perspectiveCamera.position = nodeBeingManipulated.position.plus(Qt.vector3d(dist, 0, 0))
                     wasd.forceActiveFocus()
                 }
@@ -274,7 +276,7 @@ ApplicationWindow {
                 text: "Top"
                 onClicked: {
                     var dist = perspectiveCamera.scenePosition.minus(nodeBeingManipulated.scenePosition).length()
-                    perspectiveCamera.rotation = Qt.vector3d(90, 0, 0)
+                    perspectiveCamera.eulerRotation = Qt.vector3d(-90, 0, 0)
                     perspectiveCamera.position = nodeBeingManipulated.position.plus(Qt.vector3d(0, dist, 0))
                     wasd.forceActiveFocus()
                 }
@@ -332,5 +334,4 @@ ApplicationWindow {
         anchors.bottom: parent.bottom
         anchors.right: parent.right
     }
-
 }

@@ -32,12 +32,12 @@
 #define THIRD_PARTY_BLINK_RENDERER_PLATFORM_WTF_CROSS_THREAD_COPIER_H_
 
 #include <memory>
+#include <string>
 #include <vector>
+#include "base/files/file.h"
 #include "base/memory/scoped_refptr.h"
 #include "base/memory/weak_ptr.h"
-#include "gpu/command_buffer/common/sync_token.h"
-#include "mojo/public/cpp/bindings/interface_ptr_info.h"
-#include "mojo/public/cpp/bindings/interface_request.h"
+#include "mojo/public/cpp/bindings/deprecated_interface_types_forward.h"
 #include "third_party/blink/public/common/messaging/message_port_channel.h"
 #include "third_party/blink/renderer/platform/wtf/assertions.h"
 #include "third_party/blink/renderer/platform/wtf/forward.h"
@@ -51,6 +51,7 @@ class RefCountedThreadSafe;
 class TimeDelta;
 class TimeTicks;
 class Time;
+class UnguessableToken;
 }  // namespace base
 
 class SkRefCnt;
@@ -59,6 +60,15 @@ class sk_sp;
 
 namespace gfx {
 class Size;
+}
+
+namespace gpu {
+struct SyncToken;
+}
+
+namespace mojo {
+template <typename Interface>
+class PendingReceiver;
 }
 
 namespace WTF {
@@ -133,6 +143,19 @@ struct CrossThreadCopier<base::Time>
 };
 
 template <>
+struct CrossThreadCopier<base::File> {
+  STATIC_ONLY(CrossThreadCopier);
+  using Type = base::File;
+  static Type Copy(Type pointer) { return pointer; }
+};
+
+template <>
+struct CrossThreadCopier<base::UnguessableToken>
+    : public CrossThreadCopierPassThrough<base::UnguessableToken> {
+  STATIC_ONLY(CrossThreadCopier);
+};
+
+template <>
 struct CrossThreadCopier<gpu::SyncToken>
     : public CrossThreadCopierPassThrough<gpu::SyncToken> {
   STATIC_ONLY(CrossThreadCopier);
@@ -173,6 +196,15 @@ struct CrossThreadCopier<std::vector<uint8_t>> {
   STATIC_ONLY(CrossThreadCopier);
   using Type = std::vector<uint8_t>;
   static Type Copy(Type value) { return value; }
+};
+
+template <class CharT, class Traits, class Allocator>
+struct CrossThreadCopier<std::basic_string<CharT, Traits, Allocator>> {
+  STATIC_ONLY(CrossThreadCopier);
+  using Type = std::basic_string<CharT, Traits, Allocator>;
+  static Type Copy(Type string) {
+    return string;  // This is in fact a move.
+  }
 };
 
 template <typename T, wtf_size_t inlineCapacity, typename Allocator>
@@ -240,22 +272,12 @@ struct CrossThreadCopier<String> {
   WTF_EXPORT static Type Copy(const String&);
 };
 
-// mojo::InterfacePtrInfo is a cross-thread safe mojo::InterfacePtr.
 template <typename Interface>
-struct CrossThreadCopier<mojo::InterfacePtrInfo<Interface>> {
+struct CrossThreadCopier<mojo::PendingReceiver<Interface>> {
   STATIC_ONLY(CrossThreadCopier);
-  using Type = mojo::InterfacePtrInfo<Interface>;
-  static Type Copy(Type ptr_info) {
-    return ptr_info;  // This is in fact a move.
-  }
-};
-
-template <typename Interface>
-struct CrossThreadCopier<mojo::InterfaceRequest<Interface>> {
-  STATIC_ONLY(CrossThreadCopier);
-  using Type = mojo::InterfaceRequest<Interface>;
-  static Type Copy(Type request) {
-    return request;  // This is in fact a move.
+  using Type = mojo::PendingReceiver<Interface>;
+  static Type Copy(Type receiver) {
+    return receiver;  // This is in fact a move.
   }
 };
 

@@ -45,11 +45,6 @@ QString MingwMakefileGenerator::escapeDependencyPath(const QString &path) const
     return MakefileGenerator::escapeDependencyPath(ret);
 }
 
-QString MingwMakefileGenerator::getManifestFileForRcFile() const
-{
-    return project->first("QMAKE_MANIFEST").toQString();
-}
-
 ProString MingwMakefileGenerator::fixLibFlag(const ProString &lib)
 {
     if (lib.startsWith("-l"))  // Fallback for unresolved -l libs.
@@ -205,17 +200,12 @@ void MingwMakefileGenerator::writeIncPart(QTextStream &t)
 {
     t << "INCPATH       = ";
 
-    QString isystem = var("QMAKE_CFLAGS_ISYSTEM");
     const ProStringList &incs = project->values("INCLUDEPATH");
     for (ProStringList::ConstIterator incit = incs.begin(); incit != incs.end(); ++incit) {
         QString inc = (*incit).toQString();
         inc.replace(QRegExp("\\\\$"), "");
 
-        if (!isystem.isEmpty() && isSystemInclude(inc))
-            t << isystem << ' ';
-        else
-            t << "-I";
-        t << escapeFilePath(inc) << ' ';
+        t << "-I" << escapeFilePath(inc) << ' ';
     }
     t << Qt::endl;
 }

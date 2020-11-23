@@ -113,7 +113,10 @@ void DeclarativeRenderNode::updateFBO()
                                             QRectF(0, 1, 1, -1));
 
     delete m_texture;
-    m_texture = m_window->createTextureFromId(m_fbo->texture(), m_size);
+    const uint id = m_fbo->texture();
+    m_texture =
+        m_window->createTextureFromNativeObject(QQuickWindow::NativeObjectTexture,
+                                                &id, 0 /* nativeLayout */, m_size);
     m_material.setTexture(m_texture);
     m_materialO.setTexture(m_texture);
 

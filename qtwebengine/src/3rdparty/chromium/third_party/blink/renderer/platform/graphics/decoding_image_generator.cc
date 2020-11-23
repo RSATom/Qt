@@ -25,16 +25,17 @@
 
 #include "third_party/blink/renderer/platform/graphics/decoding_image_generator.h"
 
-#include <utility>
 #include <memory>
+#include <utility>
 
 #include "third_party/blink/renderer/platform/graphics/image_frame_generator.h"
 #include "third_party/blink/renderer/platform/graphics/skia/skia_utils.h"
 #include "third_party/blink/renderer/platform/image-decoders/image_decoder.h"
 #include "third_party/blink/renderer/platform/image-decoders/segment_reader.h"
 #include "third_party/blink/renderer/platform/instrumentation/tracing/trace_event.h"
-#include "third_party/blink/renderer/platform/shared_buffer.h"
+#include "third_party/blink/renderer/platform/wtf/shared_buffer.h"
 #include "third_party/skia/include/core/SkData.h"
+#include "third_party/skia/include/core/SkImageInfo.h"
 
 namespace blink {
 
@@ -66,11 +67,13 @@ DecodingImageGenerator::CreateAsSkImageGenerator(sk_sp<SkData> data) {
 
   WebVector<FrameMetadata> frames;
   frames.emplace_back(FrameMetadata());
+  cc::ImageHeaderMetadata image_metadata =
+      decoder->MakeMetadataForDecodeAcceleration();
+  image_metadata.all_data_received_prior_to_decode = true;
   sk_sp<DecodingImageGenerator> generator = DecodingImageGenerator::Create(
       std::move(frame), info, std::move(segment_reader), std::move(frames),
       PaintImage::GetNextContentId(), true /* all_data_received */,
-      true /* is_eligible_for_accelerated_decoding */,
-      false /* can_yuv_decode */);
+      false /* can_yuv_decode */, image_metadata);
   return std::make_unique<SkiaPaintImageGenerator>(
       std::move(generator), PaintImage::kDefaultFrameIndex,
       PaintImage::kDefaultGeneratorClientId);
@@ -84,12 +87,11 @@ sk_sp<DecodingImageGenerator> DecodingImageGenerator::Create(
     WebVector<FrameMetadata> frames,
     PaintImage::ContentId content_id,
     bool all_data_received,
-    bool is_eligible_for_accelerated_decoding,
-    bool can_yuv_decode) {
+    bool can_yuv_decode,
+    const cc::ImageHeaderMetadata& image_metadata) {
   return sk_sp<DecodingImageGenerator>(new DecodingImageGenerator(
       std::move(frame_generator), info, std::move(data), std::move(frames),
-      content_id, all_data_received, is_eligible_for_accelerated_decoding,
-      can_yuv_decode));
+      content_id, all_data_received, can_yuv_decode, image_metadata));
 }
 
 DecodingImageGenerator::DecodingImageGenerator(
@@ -99,22 +101,17 @@ DecodingImageGenerator::DecodingImageGenerator(
     WebVector<FrameMetadata> frames,
     PaintImage::ContentId complete_frame_content_id,
     bool all_data_received,
-    bool is_eligible_for_accelerated_decoding,
-    bool can_yuv_decode)
+    bool can_yuv_decode,
+    const cc::ImageHeaderMetadata& image_metadata)
     : PaintImageGenerator(info, frames.ReleaseVector()),
       frame_generator_(std::move(frame_generator)),
       data_(std::move(data)),
       all_data_received_(all_data_received),
-      is_eligible_for_accelerated_decoding_(
-          is_eligible_for_accelerated_decoding),
       can_yuv_decode_(can_yuv_decode),
-      complete_frame_content_id_(complete_frame_content_id) {}
+      complete_frame_content_id_(complete_frame_content_id),
+      image_metadata_(image_metadata) {}
 
 DecodingImageGenerator::~DecodingImageGenerator() = default;
-
-bool DecodingImageGenerator::IsEligibleForAcceleratedDecoding() const {
-  return is_eligible_for_accelerated_decoding_;
-}
 
 sk_sp<SkData> DecodingImageGenerator::GetEncodedData() const {
   TRACE_EVENT0("blink", "DecodingImageGenerator::refEncodedData");
@@ -195,18 +192,27 @@ bool DecodingImageGenerator::GetPixels(const SkImageInfo& dst_info,
 
   // Convert the color type to the requested one if necessary
   if (decoded && target_info.colorType() != dst_info.colorType()) {
-    auto canvas = SkCanvas::MakeRasterDirect(dst_info, pixels, row_bytes);
-    DCHECK(canvas);
-    SkPaint paint;
-    if (dst_info.colorType() == kARGB_4444_SkColorType ||
-        dst_info.colorType() == kRGB_565_SkColorType) {
+    // Convert the color type by readPixels if dithering is not necessary
+    // (readPixels is potentially cheaper than a full-blown drawBitmap).
+    if (SkColorTypeBytesPerPixel(target_info.colorType()) <=
+        SkColorTypeBytesPerPixel(dst_info.colorType())) {
+      decoded = SkPixmap{target_info, memory, adjusted_row_bytes}.readPixels(
+          SkPixmap{dst_info, pixels, row_bytes});
+      DCHECK(decoded);
+    } else {  // Do dithering by drawBitmap() if dithering is necessary
+      auto canvas = SkCanvas::MakeRasterDirect(dst_info, pixels, row_bytes);
+      DCHECK(canvas);
+
+      SkPaint paint;
       paint.setDither(true);
+      paint.setBlendMode(SkBlendMode::kSrc);
+
+      SkBitmap bitmap;
+      decoded = bitmap.installPixels(target_info, memory, adjusted_row_bytes);
+      DCHECK(decoded);
+
+      canvas->drawBitmap(bitmap, 0, 0, &paint);
     }
-    paint.setBlendMode(SkBlendMode::kSrc);
-    SkBitmap bitmap;
-    decoded = bitmap.installPixels(target_info, memory, adjusted_row_bytes);
-    DCHECK(decoded);
-    canvas->drawBitmap(bitmap, 0, 0, &paint);
   }
   return decoded;
 }
@@ -220,12 +226,6 @@ bool DecodingImageGenerator::QueryYUVA8(
 
   TRACE_EVENT0("blink", "DecodingImageGenerator::queryYUVA8");
 
-  // TODO(crbug.com/915707): Set the colorspace based on image type.
-  // Can pass |color_space| to GetYUVComponentSizes and query a method
-  // in ImageDecoder (to be added) to get the proper value.
-  if (color_space)
-    *color_space = kJPEG_SkYUVColorSpace;
-
   // Indicate that we have three separate planes
   indices[SkYUVAIndex::kY_Index] = {0, SkColorChannel::kR};
   indices[SkYUVAIndex::kU_Index] = {1, SkColorChannel::kR};
@@ -233,7 +233,8 @@ bool DecodingImageGenerator::QueryYUVA8(
   indices[SkYUVAIndex::kA_Index] = {-1, SkColorChannel::kR};
 
   DCHECK(all_data_received_);
-  return frame_generator_->GetYUVComponentSizes(data_.get(), size_info);
+  return frame_generator_->GetYUVComponentSizes(data_.get(), size_info,
+                                                color_space);
 }
 
 bool DecodingImageGenerator::GetYUVA8Planes(const SkYUVASizeInfo& size_info,
@@ -285,6 +286,11 @@ PaintImage::ContentId DecodingImageGenerator::GetContentIdForFrame(
     return complete_frame_content_id_;
 
   return PaintImageGenerator::GetContentIdForFrame(frame_index);
+}
+
+const cc::ImageHeaderMetadata*
+DecodingImageGenerator::GetMetadataForDecodeAcceleration() const {
+  return &image_metadata_;
 }
 
 }  // namespace blink

@@ -92,7 +92,10 @@ void QQuickPopupPositioner::setParentItem(QQuickItem *parent)
 
     QQuickItemPrivate::get(parent)->addItemChangeListener(this, ItemChangeTypes);
     addAncestorListeners(parent->parentItem());
-
+    // Store the scale property so the end result of any transition that could effect the scale
+    // does not influence the top left of the final popup, so it doesn't appear to flip from one
+    // position to another as a result
+    m_popupScale = m_popup->popupItem()->scale();
     if (m_popup->popupItem()->isVisible())
         QQuickPopupPrivate::get(m_popup)->reposition();
 }
@@ -108,10 +111,10 @@ void QQuickPopupPositioner::reposition()
         return;
     }
 
-    const qreal w = popupItem->width();
-    const qreal h = popupItem->height();
-    const qreal iw = popupItem->implicitWidth();
-    const qreal ih = popupItem->implicitHeight();
+    const qreal w = popupItem->width() * m_popupScale;
+    const qreal h = popupItem->height() * m_popupScale;
+    const qreal iw = popupItem->implicitWidth() * m_popupScale;
+    const qreal ih = popupItem->implicitHeight() * m_popupScale;
 
     bool widthAdjusted = false;
     bool heightAdjusted = false;
@@ -257,10 +260,9 @@ void QQuickPopupPositioner::reposition()
     }
 
     if (!p->hasWidth && widthAdjusted && rect.width() > 0)
-        popupItem->setWidth(rect.width());
+        popupItem->setWidth(rect.width() / m_popupScale);
     if (!p->hasHeight && heightAdjusted && rect.height() > 0)
-        popupItem->setHeight(rect.height());
-
+        popupItem->setHeight(rect.height() / m_popupScale);
     m_positioning = false;
 }
 

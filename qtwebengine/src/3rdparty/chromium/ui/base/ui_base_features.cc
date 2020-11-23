@@ -28,9 +28,18 @@ const base::Feature kSettingsShowsPerKeyboardSettings = {
 const base::Feature kInputMethodSettingsUiUpdate = {
     "InputMethodSettingsUiUpdate", base::FEATURE_DISABLED_BY_DEFAULT};
 
+// Enables percent-based scrolling for mousewheel and keyboard initiated
+// scrolls.
+const base::Feature kPercentBasedScrolling = {
+    "PercentBasedScrolling", base::FEATURE_DISABLED_BY_DEFAULT};
+
+// Allows requesting unadjusted movement when entering pointerlock.
+const base::Feature kPointerLockOptions = {"PointerLockOptions",
+                                           base::FEATURE_DISABLED_BY_DEFAULT};
+
 // Allows system caption style for WebVTT Captions.
 const base::Feature kSystemCaptionStyle{"SystemCaptionStyle",
-                                        base::FEATURE_DISABLED_BY_DEFAULT};
+                                        base::FEATURE_ENABLED_BY_DEFAULT};
 
 // Allows system keyboard event capture via the keyboard lock API.
 const base::Feature kSystemKeyboardLock{"SystemKeyboardLock",
@@ -71,6 +80,11 @@ const base::Feature kUiCompositorScrollWithLayers = {
 // gesture events.
 const base::Feature kCompositorThreadedScrollbarScrolling = {
     "CompositorThreadedScrollbarScrolling", base::FEATURE_DISABLED_BY_DEFAULT};
+
+// Enables the use of a touch fling curve that is based on the behavior of
+// native apps on Windows.
+const base::Feature kExperimentalFlingAnimation{
+    "ExperimentalFlingAnimation", base::FEATURE_DISABLED_BY_DEFAULT};
 
 #if defined(OS_WIN)
 // Enables InputPane API for controlling on screen keyboard.
@@ -123,6 +137,10 @@ const base::Feature kDirectManipulationStylus = {
 const base::Feature kFormControlsRefresh = {"FormControlsRefresh",
                                             base::FEATURE_DISABLED_BY_DEFAULT};
 
+// Enable WebUI accessibility enhancements for review and testing.
+const base::Feature kWebUIA11yEnhancements{"WebUIA11yEnhancements",
+                                           base::FEATURE_DISABLED_BY_DEFAULT};
+
 bool IsFormControlsRefreshEnabled() {
   return base::FeatureList::IsEnabled(features::kFormControlsRefresh);
 }
@@ -135,17 +153,6 @@ bool IsAutomaticUiAdjustmentsForTouchEnabled() {
   return false;
 #endif
 }
-
-#if defined(OS_MACOSX)
-// When enabled, the NSWindows for apps will be created in the app's process,
-// and will forward input to the browser process.
-const base::Feature kHostWindowsInAppShimProcess{
-    "HostWindowsInAppShimProcess", base::FEATURE_ENABLED_BY_DEFAULT};
-
-bool HostWindowsInAppShimProcess() {
-  return base::FeatureList::IsEnabled(kHostWindowsInAppShimProcess);
-}
-#endif  //  defined(OS_MACOSX)
 
 const base::Feature kEnableOzoneDrmMojo = {"OzoneDrmMojo",
                                            base::FEATURE_DISABLED_BY_DEFAULT};

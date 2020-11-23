@@ -58,9 +58,6 @@ QWebGLWindow::QWebGLWindow(QWindow *w) :
     QPlatformWindow(w),
     d_ptr(new QWebGLWindowPrivate(this))
 {
-    Q_D(QWebGLWindow);
-    d->raster = false;
-    d->flags = 0;
 }
 
 QWebGLWindow::~QWebGLWindow()
@@ -118,7 +115,7 @@ void QWebGLWindow::destroy()
 
     qt_window_private(window())->updateRequestPending = false;
 
-    d->flags = 0;
+    d->flags = QWebGLWindowPrivate::Flags{};
 
     auto integrationPrivate = QWebGLIntegrationPrivate::instance();
     auto clientData = integrationPrivate->findClientData(surface()->surfaceHandle());

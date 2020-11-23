@@ -535,7 +535,7 @@ void QPixelTool::grabScreen()
 
     const QBrush darkBrush = palette().color(QPalette::Dark);
     const QDesktopWidget *desktopWidget = QApplication::desktop();
-    if (QScreen *screen = QGuiApplication::screens().value(desktopWidget->screenNumber(this), nullptr)) {
+    if (QScreen *screen = this->screen()) {
         m_buffer = screen->grabWindow(desktopWidget->winId(), x, y, w, h);
     } else {
         m_buffer = QPixmap(w, h);
@@ -685,8 +685,8 @@ QTextStream &operator<<(QTextStream &str, const QScreen *screen)
 {
     const QRect geometry = screen->geometry();
     str << '"' << screen->name() << "\" " << geometry.width()
-        << 'x' << geometry.height() << forcesign << geometry.x() << geometry.y()
-        << noforcesign << ", " << qRound(screen->logicalDotsPerInch()) << "DPI"
+        << 'x' << geometry.height() << Qt::forcesign << geometry.x() << geometry.y()
+        << Qt::noforcesign << ", " << qRound(screen->logicalDotsPerInch()) << "DPI"
         << ", Depth: " << screen->depth() << ", " << screen->refreshRate() << "Hz";
     const qreal dpr = screen->devicePixelRatio();
     if (!qFuzzyCompare(dpr, qreal(1)))

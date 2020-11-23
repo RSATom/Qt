@@ -8,10 +8,14 @@ if (is_android) {
 
 source_set("public") {
   sources = [
+    "client_overview.cc",
+    "client_overview.h",
     "display_agent.cc",
     "display_agent.h",
     "features.cc",
     "features.h",
+    "icon_bundle.cc",
+    "icon_bundle.h",
     "impression_detail.cc",
     "impression_detail.h",
     "notification_background_task_scheduler.h",
@@ -23,9 +27,13 @@ source_set("public") {
     "notification_scheduler_client.h",
     "notification_scheduler_client_registrar.cc",
     "notification_scheduler_client_registrar.h",
+    "notification_scheduler_constant.h",
+    "notification_scheduler_types.cc",
     "notification_scheduler_types.h",
     "schedule_params.cc",
     "schedule_params.h",
+    "schedule_service_utils.cc",
+    "schedule_service_utils.h",
     "user_action_handler.h",
   ]
 
@@ -42,4 +50,18 @@ if (is_android) {
       "notification_scheduler_types.h",
     ]
   }
+}
+
+source_set("unit_tests") {
+  testonly = true
+  sources = [
+    "schedule_service_utils_unittest.cc",
+  ]
+
+  deps = [
+    "//chrome/browser/notifications/scheduler/public",
+    "//chrome/browser/notifications/scheduler/test:test_lib",
+    "//chrome/browser/notifications/scheduler/test:test_support",
+    "//testing/gtest",
+  ]
 }

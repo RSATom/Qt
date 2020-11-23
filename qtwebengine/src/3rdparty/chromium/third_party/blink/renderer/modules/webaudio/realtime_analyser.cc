@@ -78,20 +78,14 @@ bool RealtimeAnalyser::SetFftSize(uint32_t size) {
 }
 
 void RealtimeAnalyser::WriteInput(AudioBus* bus, uint32_t frames_to_process) {
-  bool is_bus_good = bus && bus->NumberOfChannels() > 0 &&
-                     bus->Channel(0)->length() >= frames_to_process;
-  DCHECK(is_bus_good);
-  if (!is_bus_good)
-    return;
+  DCHECK(bus);
+  DCHECK_GT(bus->NumberOfChannels(), 0u);
+  DCHECK_GE(bus->Channel(0)->length(), frames_to_process);
 
   unsigned write_index = GetWriteIndex();
   // FIXME : allow to work with non-FFTSize divisible chunking
-  bool is_destination_good =
-      write_index < input_buffer_.size() &&
-      write_index + frames_to_process <= input_buffer_.size();
-  DCHECK(is_destination_good);
-  if (!is_destination_good)
-    return;
+  DCHECK_LT(write_index, input_buffer_.size());
+  DCHECK_LE(write_index + frames_to_process, input_buffer_.size());
 
   // Perform real-time analysis
   float* dest = input_buffer_.Data() + write_index;
@@ -189,8 +183,8 @@ void RealtimeAnalyser::DoFFTAnalysis() {
 
 void RealtimeAnalyser::ConvertFloatToDb(DOMFloat32Array* destination_array) {
   // Convert from linear magnitude to floating-point decibels.
-  unsigned source_length = MagnitudeBuffer().size();
-  size_t len = std::min(source_length, destination_array->length());
+  size_t source_length = MagnitudeBuffer().size();
+  size_t len = std::min(source_length, destination_array->lengthAsSizeT());
   if (len > 0) {
     const float* source = MagnitudeBuffer().Data();
     float* destination = destination_array->Data();
@@ -222,8 +216,8 @@ void RealtimeAnalyser::GetFloatFrequencyData(DOMFloat32Array* destination_array,
 
 void RealtimeAnalyser::ConvertToByteData(DOMUint8Array* destination_array) {
   // Convert from linear magnitude to unsigned-byte decibels.
-  unsigned source_length = MagnitudeBuffer().size();
-  size_t len = std::min(source_length, destination_array->length());
+  size_t source_length = MagnitudeBuffer().size();
+  size_t len = std::min(source_length, destination_array->lengthAsSizeT());
   if (len > 0) {
     const double range_scale_factor = max_decibels_ == min_decibels_
                                           ? 1
@@ -279,13 +273,11 @@ void RealtimeAnalyser::GetFloatTimeDomainData(
   DCHECK(destination_array);
 
   unsigned fft_size = this->FftSize();
-  size_t len = std::min(fft_size, destination_array->length());
+  size_t len =
+      std::min(fft_size, destination_array->deprecatedLengthAsUnsigned());
   if (len > 0) {
-    bool is_input_buffer_good = input_buffer_.size() == kInputBufferSize &&
-                                input_buffer_.size() > fft_size;
-    DCHECK(is_input_buffer_good);
-    if (!is_input_buffer_good)
-      return;
+    DCHECK_EQ(input_buffer_.size(), kInputBufferSize);
+    DCHECK_GT(input_buffer_.size(), fft_size);
 
     float* input_buffer = input_buffer_.Data();
     float* destination = destination_array->Data();
@@ -308,13 +300,11 @@ void RealtimeAnalyser::GetByteTimeDomainData(DOMUint8Array* destination_array) {
   DCHECK(destination_array);
 
   unsigned fft_size = this->FftSize();
-  size_t len = std::min(fft_size, destination_array->length());
+  size_t len =
+      std::min(fft_size, destination_array->deprecatedLengthAsUnsigned());
   if (len > 0) {
-    bool is_input_buffer_good = input_buffer_.size() == kInputBufferSize &&
-                                input_buffer_.size() > fft_size;
-    DCHECK(is_input_buffer_good);
-    if (!is_input_buffer_good)
-      return;
+    DCHECK_EQ(input_buffer_.size(), kInputBufferSize);
+    DCHECK_GT(input_buffer_.size(), fft_size);
 
     float* input_buffer = input_buffer_.Data();
     unsigned char* destination = destination_array->Data();

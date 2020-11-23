@@ -53,9 +53,10 @@ static_library("ntp_tiles") {
     "//components/suggestions",
   ]
   deps = [
+    "//build:branding_buildflags",
     "//components/favicon/core",
     "//components/favicon_base",
-    "//components/google/core/browser",
+    "//components/google/core/common",
     "//components/image_fetcher/core",
     "//components/pref_registry",
     "//components/prefs",
@@ -66,6 +67,7 @@ static_library("ntp_tiles") {
     "//components/url_formatter",
     "//components/variations",
     "//components/variations/service",
+    "//services/data_decoder/public/cpp",
     "//services/network/public/cpp",
     "//ui/base",
   ]
@@ -85,6 +87,7 @@ source_set("unit_tests") {
   deps = [
     ":ntp_tiles",
     "//base/test:test_support",
+    "//build:branding_buildflags",
     "//components/favicon/core",
     "//components/favicon_base",
     "//components/history/core/test",

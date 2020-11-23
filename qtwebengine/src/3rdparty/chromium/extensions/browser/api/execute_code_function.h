@@ -17,7 +17,7 @@ namespace extensions {
 // Base class for javascript code injection.
 // This is used by both chrome.webview.executeScript and
 // chrome.tabs.executeScript.
-class ExecuteCodeFunction : public UIThreadExtensionFunction {
+class ExecuteCodeFunction : public ExtensionFunction {
  public:
   ExecuteCodeFunction();
 
@@ -79,23 +79,20 @@ class ExecuteCodeFunction : public UIThreadExtensionFunction {
                              const GURL& on_url,
                              const base::ListValue& result);
 
-  // Retrieves the file url for the given |extension_path| and optionally
-  // localizes |data|.
+  // Optionally localizes |data|.
   // Localization depends on whether |might_require_localization| was specified.
   // Only CSS file content needs to be localized.
-  void GetFileURLAndMaybeLocalizeInBackground(
+  void MaybeLocalizeInBackground(
       const std::string& extension_id,
       const base::FilePath& extension_path,
       const std::string& extension_default_locale,
       bool might_require_localization,
       std::string* data);
 
-  // Retrieves the file url for the given |extension_path| and optionally
-  // localizes |data|.
-  // Similar to GetFileURLAndMaybeLocalizeInBackground, but only applies
-  // to component extension resource.
-  std::unique_ptr<std::string>
-  GetFileURLAndLocalizeComponentResourceInBackground(
+  // Optionally localizes |data|.
+  // Similar to MaybeLocalizeInBackground, but only applies to component
+  // extension resources.
+  std::unique_ptr<std::string> LocalizeComponentResourceInBackground(
       std::unique_ptr<std::string> data,
       const std::string& extension_id,
       const base::FilePath& extension_path,
@@ -111,8 +108,9 @@ class ExecuteCodeFunction : public UIThreadExtensionFunction {
   // specified in JSON arguments.
   ExtensionResource resource_;
 
-  // The URL of the file being injected into the page.
-  GURL file_url_;
+  // The URL of the file being injected into the page, in the
+  // chrome-extension: scheme.
+  GURL script_url_;
 
   // The ID of the injection host.
   HostID host_id_;

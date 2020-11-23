@@ -9,6 +9,7 @@
     "commandline": {
         "options": {
             "build-qtwebengine-core": "boolean",
+            "build-qtpdf": "boolean",
             "webengine-jumbo-build": { "type": "optionalString", "name": "merge_limit"}
         }
     },
@@ -142,10 +143,13 @@
             "test" : {
                 "main": [
                     "std::string s;",
-                    "RE2 re2(s);"
+                    "re2::FilteredRE2 fre2(1);",
+                    "int id = 0;",
+                    "fre2.Add(s, {}, &id);",
+                    "const RE2 &re2 = fre2.GetRE2(id);"
                 ]
             },
-            "headers": "re2/re2.h",
+            "headers": "re2/filtered_re2.h",
             "sources": [
                 { "type": "pkgConfig", "args": "re2" }
             ]
@@ -202,36 +206,6 @@
                 { "type": "pkgConfig", "args": "libxml-2.0 libxslt" }
             ]
         },
-        "webengine-libdrm": {
-            "label": "libdrm",
-            "sources": [
-                { "type": "pkgConfig", "args": "libdrm" }
-            ]
-        },
-        "webengine-xcomposite": {
-            "label": "xcomposite",
-            "sources": [
-                { "type": "pkgConfig", "args": "xcomposite" }
-            ]
-        },
-        "webengine-xcursor": {
-            "label": "xcursor",
-            "sources": [
-                { "type": "pkgConfig", "args": "xcursor" }
-            ]
-        },
-        "webengine-xi": {
-            "label": "xi",
-            "sources": [
-                { "type": "pkgConfig", "args": "xi" }
-            ]
-        },
-        "webengine-xtst": {
-            "label": "xtst",
-            "sources": [
-                { "type": "pkgConfig", "args": "xtst" }
-            ]
-        },
         "webengine-ffmpeg": {
             "label": "libavcodec libavformat libavutil",
             "sources": [
@@ -241,7 +215,7 @@
         "webengine-opus": {
             "label": "opus",
             "sources": [
-                { "type": "pkgConfig", "args": "opus" }
+                { "type": "pkgConfig", "args": "opus >= 1.3.1" }
             ]
         },
         "webengine-snappy": {
@@ -263,10 +237,11 @@
                 "main": [
                     "vpx_codec_cx_pkt pkt;",
                     "pkt.data.frame.width[0] = 0u;",
-                    "pkt.data.frame.height[0] = 0u;"
+                    "pkt.data.frame.height[0] = 0u;",
+                    "auto a = CONSTRAINED_FROM_ABOVE_DROP;"
                 ]
             },
-            "headers": "vpx/vpx_encoder.h",
+            "headers": [ "vpx/vpx_encoder.h", "vpx/vp8cx.h" ],
             "sources": [
                 { "type": "pkgConfig", "args": "vpx" },
                 "-lvpx"
@@ -369,23 +344,63 @@
         "webengine-nowhitespace" : {
             "label": "build path without whitespace",
             "type": "detectNoWhitespace"
+        },
+        "webengine-arm-thumb" : {
+            "label": "thumb instruction set",
+            "type": "hasThumbFlag"
+        },
+        "webengine-sanitizer": {
+            "label" : "sanitizer support",
+            "type": "isSanitizerSupported"
+        },
+        "webengine-noexecstack" : {
+            "label": "linker supports -z noexecstack",
+            "type": "linkerSupportsFlag",
+            "flag": "-z,noexecstack"
         }
     },
     "features": {
         "webengine-core-support": {
             "label": "Support Qt WebEngine Core",
-            "condition": "module.gui
-                         && features.webengine-python2
+            "condition": "(config.linux || config.win32 || config.macos)
+                         && !config.static
+                         && module.gui
+                         && features.webengine-submodule
+                         && features.webengine-nowhitespace
+                         && !features.webengine-no-platform-support
+                         && features.webengine-arch-support
                          && features.webengine-gperf
                          && features.webengine-bison
                          && features.webengine-flex
+                         && features.webengine-python2
+                         && (!config.sanitizer || features.webengine-sanitizer)
+                         && (!config.linux || features.pkg-config)
+                         && (!config.linux || features.webengine-host-pkg-config)
+                         && (!config.linux || features.webengine-system-glibc)
+                         && (!config.linux || features.webengine-system-khr)
+                         && (!config.linux || features.webengine-system-nss)
+                         && (!config.linux || features.webengine-system-dbus)
+                         && (!config.linux || features.webengine-system-fontconfig)
+                         && (!config.linux || !features.pkg-config || !features.xcb || features.webengine-ozone-x11)
+                         && (!config.win32 || features.webengine-win-compiler64)
+                         && (!config.win32 || features.webengine-winversion)",
+            "output": [ "privateFeature" ]
+        },
+        "webengine-qtpdf-support": {
+            "label": "Support Qt Pdf",
+            "condition": "(config.linux || config.win32 || config.macos || config.ios)
+                         && module.gui
                          && features.webengine-submodule
                          && features.webengine-nowhitespace
-                         && features.webengine-arch-support
                          && !features.webengine-no-platform-support
-                         && !config.static
+                         && features.webengine-arch-support
+                         && features.webengine-gperf
+                         && features.webengine-bison
+                         && features.webengine-flex
+                         && features.webengine-python2
+                         && (!config.sanitizer || features.webengine-sanitizer)
                          && (!config.linux || features.pkg-config)
-                         && (!features.xcb || features.webengine-ozone-x11)
+                         && (!config.linux || features.webengine-host-pkg-config)
                          && (!config.win32 || features.webengine-winversion)",
             "output": [ "privateFeature" ]
         },
@@ -503,7 +518,6 @@
             ]
         },
         "webengine-ozone-x11" : {
-             "label": "Support qpa-xcb",
              "condition": "config.unix
                           && features.xcb
                           && features.webengine-system-x11
@@ -521,31 +535,6 @@
                 "privateFeature",
                 { "type": "varAssign", "name": "QMAKE_JUMBO_MERGE_LIMIT", "value": "tests.webengine-jumbo-build.merge_limit" }
             ]
-        },
-        "webengine-system-libdrm": {
-            "label": "libdrm",
-            "condition": "libs.webengine-libdrm",
-            "output": [ "privateFeature" ]
-        },
-        "webengine-system-xcomposite": {
-            "label": "xcomposite",
-            "condition": "libs.webengine-xcomposite",
-            "output": [ "privateFeature" ]
-        },
-        "webengine-system-xcursor": {
-            "label": "xcursor",
-            "condition": "libs.webengine-xcursor",
-            "output": [ "privateFeature" ]
-        },
-        "webengine-system-xi": {
-            "label": "xi",
-            "condition": "libs.webengine-xi",
-            "output": [ "privateFeature" ]
-        },
-        "webengine-system-xtst": {
-            "label": "xtst",
-            "condition": "libs.webengine-xtst",
-            "output": [ "privateFeature" ]
         },
         "webengine-system-harfbuzz": {
             "label": "harfbuzz",
@@ -676,13 +665,34 @@
                 "privateFeature",
                 { "type": "varAssign", "name": "PLATFORM_ERROR", "value": "tests.webengine-platform-support.platformSupport" }
             ]
+        },
+        "webengine-arm-thumb": {
+            "label": "Thumb instruction set",
+            "condition": "config.linux && arch.arm && tests.webengine-arm-thumb",
+            "output": [ "privateFeature" ]
+        },
+        "webengine-sanitizer" : {
+            "label": "Sanitizer",
+            "autoDetect": "config.sanitizer && tests.webengine-sanitizer",
+            "condition": "config.sanitizer",
+            "output": [ "privateFeature" ]
+        },
+        "webengine-noexecstack": {
+            "label": "linker supports -z noexecstack",
+            "condition": "config.unix && tests.webengine-noexecstack",
+            "output": [ "privateFeature" ]
         }
     },
     "report": [
         {
             "type": "skipBuildWarning",
-            "condition": "!features.webengine-core-support && (features.build-qtwebengine-core || features.build-qtpdf)",
-            "message": "qtwebengine_confCheckError"
+            "condition": "!features.webengine-core-support && features.build-qtwebengine-core",
+            "message": "qtwebengine_confCheckWebEngineCoreError"
+        },
+        {
+            "type": "skipBuildWarning",
+            "condition": "!features.webengine-qtpdf-support && features.build-qtpdf",
+            "message": "qtwebengine_confCheckPdfError"
         },
         {
             "type": "note",
@@ -691,7 +701,7 @@
         },
         {
             "type": "note",
-            "condition": "features.webengine-core-support && !features.build-qtpdf",
+            "condition": "features.webengine-qtpdf-support && !features.build-qtpdf",
             "message": "QtPdf build is disabled by user."
         },
         {
@@ -701,8 +711,13 @@
         },
         {
             "type": "warning",
-            "condition": "!features.webengine-core-support && features.build-qtpdf",
+            "condition": "!features.webengine-qtpdf-support && features.build-qtpdf",
             "message": "QtPdf will not be built."
+        },
+        {
+            "type": "warning",
+            "condition": "config.ios && config.simulator && config.device && features.build-qtpdf",
+            "message": "Building fat libray with device and simulator architectures will disable NEON."
         }
     ],
     "summary": [
@@ -711,14 +726,19 @@
             "entries": [
                 "webengine-system-ninja",
                 "webengine-system-gn",
-                 {
+                {
                     "message": "Jumbo Build Merge Limit",
                     "type": "jumboBuild"
                 },
                 "webengine-developer-build",
                 {
+                    "type": "feature",
+                    "args": "webengine-sanitizer",
+                    "condition": "!config.sanitizer"
+                },
+                {
                     "section": "QtWebEngine required system libraries",
-                    "condition": "config.unix && !config.macos",
+                    "condition": "config.unix && !config.macos && !config.ios",
                     "entries": [
                         "webengine-system-fontconfig",
                         "webengine-system-dbus",
@@ -738,7 +758,7 @@
                         "webengine-system-xi",
                         "webengine-system-xtst"
                      ]
-                 },
+                },
                 {
                     "section": "Optional system libraries used",
                     "condition": "config.unix",

@@ -51,6 +51,7 @@
 #include <QtQml/qqmlcontext.h>
 #include <QtQml/private/qlazilyallocated_p.h>
 #include <private/qqmldelegatemodel_p.h>
+#include <QtQuick/private/qquickaccessibleattached_p.h>
 #include <QtQuick/private/qquickevents_p_p.h>
 #include <QtQuick/private/qquicktextinput_p.h>
 #include <QtQuick/private/qquickitemview_p.h>
@@ -232,13 +233,9 @@ public:
     void updateEditText();
     void updateCurrentText();
     void updateCurrentValue();
-    void updateCurrentText(bool hasDelegateModelObject);
-    void updateCurrentValue(bool hasDelegateModelObject);
     void updateCurrentTextAndValue();
 
     bool isValidIndex(int index) const;
-    QString fastTextAt(int index) const;
-    QVariant fastValueAt(int index) const;
 
     void acceptInput();
     QString tryComplete(const QString &inputText);
@@ -268,6 +265,8 @@ public:
     void itemImplicitWidthChanged(QQuickItem *item) override;
     void itemImplicitHeightChanged(QQuickItem *item) override;
 
+    static void hideOldPopup(QQuickPopup *popup);
+
     bool flat = false;
     bool down = false;
     bool hasDown = false;
@@ -294,6 +293,7 @@ public:
         bool editable = false;
         bool accepting = false;
         bool allowComplete = false;
+        bool selectTextByMouse = false;
         Qt::InputMethodHints inputMethodHints = Qt::ImhNone;
         QString editText;
         QValidator *validator = nullptr;
@@ -404,13 +404,13 @@ void QQuickComboBoxPrivate::createdItem(int index, QObject *object)
     }
 
     if (index == currentIndex && !q->isEditable())
-        updateCurrentText();
+        updateCurrentTextAndValue();
 }
 
 void QQuickComboBoxPrivate::modelUpdated()
 {
     if (!extra.isAllocated() || !extra->accepting)
-        updateCurrentText();
+        updateCurrentTextAndValue();
 }
 
 void QQuickComboBoxPrivate::countChanged()
@@ -441,34 +441,10 @@ void QQuickComboBoxPrivate::updateEditText()
     q->setEditText(text);
 }
 
-// We have these two rather than just using default arguments
-// because QObjectPrivate::connect() doesn't accept lambdas.
 void QQuickComboBoxPrivate::updateCurrentText()
 {
-    updateCurrentText(false);
-}
-
-void QQuickComboBoxPrivate::updateCurrentValue()
-{
-    updateCurrentValue(false);
-}
-
-void QQuickComboBoxPrivate::updateCurrentText(bool hasDelegateModelObject)
-{
     Q_Q(QQuickComboBox);
-    QString text;
-    // If a delegate model object was passed in, it means the calling code
-    // has decided to reuse it for several function calls to speed things up.
-    // So, use the faster (private) version in that case.
-    // For other cases, we use the version that creates the delegate model object
-    // itself in order to have neater, more convenient calling code.
-    if (isValidIndex(currentIndex)) {
-        if (hasDelegateModelObject)
-            text = fastTextAt(currentIndex);
-        else
-            text = q->textAt(currentIndex);
-    }
-
+    const QString text = q->textAt(currentIndex);
     if (currentText != text) {
         currentText = text;
         if (!hasDisplayText)
@@ -483,19 +459,10 @@ void QQuickComboBoxPrivate::updateCurrentText(bool hasDelegateModelObject)
         q->setEditText(currentText);
 }
 
-void QQuickComboBoxPrivate::updateCurrentValue(bool hasDelegateModelObject)
+void QQuickComboBoxPrivate::updateCurrentValue()
 {
     Q_Q(QQuickComboBox);
-    QVariant value;
-    // If a delegate model object was passed in, it means the calling code
-    // has decided to reuse it for several function calls to speed things up.
-    // So, use the faster (private) version in that case.
-    if (isValidIndex(currentIndex)) {
-        if (hasDelegateModelObject)
-            value = fastValueAt(currentIndex);
-        else
-            value = q->valueAt(currentIndex);
-    }
+    const QVariant value = q->valueAt(currentIndex);
     if (currentValue == value)
         return;
 
@@ -505,34 +472,13 @@ void QQuickComboBoxPrivate::updateCurrentValue(bool hasDelegateModelObject)
 
 void QQuickComboBoxPrivate::updateCurrentTextAndValue()
 {
-    QObject *object = nullptr;
-    // For performance reasons, we reuse the same delegate model object: QTBUG-76029.
-    if (isValidIndex(currentIndex))
-        object = delegateModel->object(currentIndex);
-    const bool hasDelegateModelObject = object != nullptr;
-    updateCurrentText(hasDelegateModelObject);
-    updateCurrentValue(hasDelegateModelObject);
-    if (object)
-        delegateModel->release(object);
+    updateCurrentText();
+    updateCurrentValue();
 }
 
 bool QQuickComboBoxPrivate::isValidIndex(int index) const
 {
     return delegateModel && index >= 0 && index < delegateModel->count();
-}
-
-// For performance reasons (QTBUG-76029), both this and valueAt assume that
-// the index is valid and delegateModel->object(index) has been called.
-QString QQuickComboBoxPrivate::fastTextAt(int index) const
-{
-    const QString effectiveTextRole = textRole.isEmpty() ? QStringLiteral("modelData") : textRole;
-    return delegateModel->stringValue(index, effectiveTextRole);
-}
-
-QVariant QQuickComboBoxPrivate::fastValueAt(int index) const
-{
-    const QString effectiveValueRole = valueRole.isEmpty() ? QStringLiteral("modelData") : valueRole;
-    return delegateModel->variantValue(index, effectiveValueRole);
 }
 
 void QQuickComboBoxPrivate::acceptInput()
@@ -832,6 +778,23 @@ void QQuickComboBoxPrivate::itemImplicitHeightChanged(QQuickItem *item)
         emit q->implicitIndicatorHeightChanged();
 }
 
+void QQuickComboBoxPrivate::hideOldPopup(QQuickPopup *popup)
+{
+    if (!popup)
+        return;
+
+    qCDebug(lcItemManagement) << "hiding old popup" << popup;
+
+    popup->setVisible(false);
+    popup->setParentItem(nullptr);
+#if QT_CONFIG(accessibility)
+    // Remove the item from the accessibility tree.
+    QQuickAccessibleAttached *accessible = accessibleAttached(popup);
+    if (accessible)
+        accessible->setIgnored(true);
+#endif
+}
+
 QQuickComboBox::QQuickComboBox(QQuickItem *parent)
     : QQuickControl(*(new QQuickComboBoxPrivate), parent)
 {
@@ -852,7 +815,7 @@ QQuickComboBox::~QQuickComboBox()
         // Disconnect visibleChanged() to avoid a spurious highlightedIndexChanged() signal
         // emission during the destruction of the (visible) popup. (QTBUG-57650)
         QObjectPrivate::disconnect(d->popup.data(), &QQuickPopup::visibleChanged, d, &QQuickComboBoxPrivate::popupVisibleChanged);
-        delete d->popup;
+        QQuickComboBoxPrivate::hideOldPopup(d->popup);
         d->popup = nullptr;
     }
 }
@@ -905,11 +868,11 @@ void QQuickComboBox::setModel(const QVariant& m)
 
     if (QAbstractItemModel* aim = qvariant_cast<QAbstractItemModel *>(d->model)) {
         QObjectPrivate::disconnect(aim, &QAbstractItemModel::dataChanged,
-            d, QOverload<>::of(&QQuickComboBoxPrivate::updateCurrentText));
+            d, QOverload<>::of(&QQuickComboBoxPrivate::updateCurrentTextAndValue));
     }
     if (QAbstractItemModel* aim = qvariant_cast<QAbstractItemModel *>(model)) {
         QObjectPrivate::connect(aim, &QAbstractItemModel::dataChanged,
-            d, QOverload<>::of(&QQuickComboBoxPrivate::updateCurrentText));
+            d, QOverload<>::of(&QQuickComboBoxPrivate::updateCurrentTextAndValue));
     }
 
     d->model = model;
@@ -917,7 +880,7 @@ void QQuickComboBox::setModel(const QVariant& m)
     emit countChanged();
     if (isComponentComplete()) {
         setCurrentIndex(count() > 0 ? 0 : -1);
-        d->updateCurrentText();
+        d->updateCurrentTextAndValue();
     }
     emit modelChanged();
 }
@@ -1194,7 +1157,7 @@ void QQuickComboBox::setIndicator(QQuickItem *indicator)
     const qreal oldImplicitIndicatorHeight = implicitIndicatorHeight();
 
     d->removeImplicitSizeListener(d->indicator);
-    delete d->indicator;
+    QQuickControlPrivate::hideOldItem(d->indicator);
     d->indicator = indicator;
     if (indicator) {
         if (!indicator->parentItem())
@@ -1242,7 +1205,7 @@ void QQuickComboBox::setPopup(QQuickPopup *popup)
 
     if (d->popup) {
         QObjectPrivate::disconnect(d->popup.data(), &QQuickPopup::visibleChanged, d, &QQuickComboBoxPrivate::popupVisibleChanged);
-        delete d->popup;
+        QQuickComboBoxPrivate::hideOldPopup(d->popup);
     }
     if (popup) {
         QQuickPopupPrivate::get(popup)->allowVerticalFlip = true;
@@ -1583,13 +1546,8 @@ QVariant QQuickComboBox::valueAt(int index) const
     if (!d->isValidIndex(index))
         return QVariant();
 
-    QObject *object = d->delegateModel->object(index);
-    QVariant value;
-    if (object) {
-        value = d->fastValueAt(index);
-        d->delegateModel->release(object);
-    }
-    return value;
+    const QString effectiveValueRole = d->valueRole.isEmpty() ? QStringLiteral("modelData") : d->valueRole;
+    return d->delegateModel->variantValue(index, effectiveValueRole);
 }
 
 /*!
@@ -1613,6 +1571,30 @@ int QQuickComboBox::indexOfValue(const QVariant &value) const
 }
 
 /*!
+    \since QtQuick.Controls 2.15 (Qt 5.15)
+    \qmlproperty bool QtQuick.Controls::ComboBox::selectTextByMouse
+
+    This property holds whether the text field for an editable ComboBox
+    can be selected with the mouse.
+
+    The default value is \c false.
+*/
+bool QQuickComboBox::selectTextByMouse() const
+{
+    Q_D(const QQuickComboBox);
+    return d->extra.isAllocated() ? d->extra->selectTextByMouse : false;
+}
+
+void QQuickComboBox::setSelectTextByMouse(bool canSelect)
+{
+    Q_D(QQuickComboBox);
+    if (canSelect == selectTextByMouse())
+        return;
+
+    d->extra.value().selectTextByMouse = canSelect;
+    emit selectTextByMouseChanged();
+}
+/*!
     \qmlmethod string QtQuick.Controls::ComboBox::textAt(int index)
 
     Returns the text for the specified \a index, or an empty string
@@ -1626,13 +1608,8 @@ QString QQuickComboBox::textAt(int index) const
     if (!d->isValidIndex(index))
         return QString();
 
-    QObject *object = d->delegateModel->object(index);
-    QString text;
-    if (object) {
-        text = d->fastTextAt(index);
-        d->delegateModel->release(object);
-    }
-    return text;
+    const QString effectiveTextRole = d->textRole.isEmpty() ? QStringLiteral("modelData") : d->textRole;
+    return d->delegateModel->stringValue(index, effectiveTextRole);
 }
 
 /*!
@@ -1889,6 +1866,14 @@ void QQuickComboBox::wheelEvent(QWheelEvent *event)
     }
 }
 #endif
+
+bool QQuickComboBox::event(QEvent *e)
+{
+    Q_D(QQuickComboBox);
+    if (e->type() == QEvent::LanguageChange)
+        d->updateCurrentTextAndValue();
+    return QQuickControl::event(e);
+}
 
 void QQuickComboBox::componentComplete()
 {

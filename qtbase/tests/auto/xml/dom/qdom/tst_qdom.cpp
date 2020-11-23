@@ -174,6 +174,8 @@ void tst_QDom::setContent_data()
                                    "    </b3>\n"
                                    "</a1>\n");
 
+#if QT_VERSION < QT_VERSION_CHECK(6, 0, 0) && QT_DEPRECATED_SINCE(5, 15)
+    // These configurations cannot be supported by the QXmlStreamReader-based implementation
     QTest::newRow( "02" ) << doc01
                        << QString("http://trolltech.com/xml/features/report-whitespace-only-CharData").split(' ')
                        << QStringList()
@@ -228,6 +230,7 @@ void tst_QDom::setContent_data()
                                    "  <c1/>\n"
                                    " </b3>\n"
                                    "</a1>\n");
+#endif
 
     QTest::newRow("05") << QString("<message>\n"
                                 "    <body>&lt;b&gt;foo&lt;/b&gt;>]]&gt;</body>\n"
@@ -243,6 +246,10 @@ void tst_QDom::setContent()
 {
     QFETCH( QString, doc );
 
+    QDomDocument domDoc;
+#if QT_VERSION < QT_VERSION_CHECK(6, 0, 0) && QT_DEPRECATED_SINCE(5, 15)
+QT_WARNING_PUSH
+QT_WARNING_DISABLE_DEPRECATED
     QXmlInputSource source;
     source.setData( doc );
 
@@ -259,8 +266,12 @@ void tst_QDom::setContent()
         reader.setFeature( *it, false );
     }
 
-    QDomDocument domDoc;
     QVERIFY( domDoc.setContent( &source, &reader ) );
+QT_WARNING_POP
+#else
+    QXmlStreamReader reader(doc);
+    QVERIFY(domDoc.setContent(&reader, true));
+#endif
 
     QString eRes;
     QTextStream ts( &eRes, QIODevice::WriteOnly );
@@ -1485,8 +1496,9 @@ void tst_QDom::normalizeAttributes() const
     QDomDocument doc;
     QVERIFY(doc.setContent(&buffer, true));
 
-    // ### Qt 5: fix this, if we keep QDom at all
+#if QT_VERSION < QT_VERSION_CHECK(6, 0, 0) && QT_DEPRECATED_SINCE(5, 15)
     QEXPECT_FAIL("", "The parser doesn't perform Attribute Value Normalization. Fixing that would change behavior.", Continue);
+#endif
     QCOMPARE(doc.documentElement().attribute(QLatin1String("attribute")), QString::fromLatin1("a a"));
 }
 
@@ -1527,9 +1539,13 @@ void tst_QDom::serializeNamespaces() const
                               "<b:element b:name=''/>"
                               "</doc>";
 
+    QDomDocument doc;
     QByteArray ba(input);
-    QBuffer buffer(&ba);
+#if QT_VERSION < QT_VERSION_CHECK(6, 0, 0) && QT_DEPRECATED_SINCE(5, 15)
+QT_WARNING_PUSH
+QT_WARNING_DISABLE_DEPRECATED
 
+    QBuffer buffer(&ba);
     QVERIFY(buffer.open(QIODevice::ReadOnly));
 
     QXmlInputSource source(&buffer);
@@ -1537,8 +1553,12 @@ void tst_QDom::serializeNamespaces() const
     reader.setFeature("http://xml.org/sax/features/namespaces", true);
     reader.setFeature("http://xml.org/sax/features/namespace-prefixes", false);
 
-    QDomDocument doc;
     QVERIFY(doc.setContent(&source, &reader));
+QT_WARNING_POP
+#else
+    QXmlStreamReader streamReader(input);
+    QVERIFY(doc.setContent(&streamReader, true));
+#endif
 
     const QByteArray serialized(doc.toByteArray());
 
@@ -1562,7 +1582,9 @@ void tst_QDom::flagInvalidNamespaces() const
 
     QDomDocument doc;
     QVERIFY(!doc.setContent(QString::fromLatin1(input, true)));
+#if QT_VERSION < QT_VERSION_CHECK(6, 0, 0) && QT_DEPRECATED_SINCE(5, 15)
     QEXPECT_FAIL("", "The parser doesn't flag identical qualified attribute names. Fixing this would change behavior.", Continue);
+#endif
     QVERIFY(!doc.setContent(QString::fromLatin1(input)));
 }
 
@@ -1573,7 +1595,11 @@ void tst_QDom::flagUndeclaredNamespace() const
                               "<b:element b:name=''/>"
                               "</a:doc>";
 
+    QDomDocument doc;
     QByteArray ba(input);
+#if QT_VERSION < QT_VERSION_CHECK(6, 0, 0) && QT_DEPRECATED_SINCE(5, 15)
+QT_WARNING_PUSH
+QT_WARNING_DISABLE_DEPRECATED
     QBuffer buffer(&ba);
 
     QVERIFY(buffer.open(QIODevice::ReadOnly));
@@ -1583,9 +1609,13 @@ void tst_QDom::flagUndeclaredNamespace() const
     reader.setFeature("http://xml.org/sax/features/namespaces", true);
     reader.setFeature("http://xml.org/sax/features/namespace-prefixes", false);
 
-    QDomDocument doc;
     QEXPECT_FAIL("", "The parser doesn't flag not declared prefixes. Fixing this would change behavior.", Continue);
     QVERIFY(!doc.setContent(&source, &reader));
+QT_WARNING_POP
+#else
+    QXmlStreamReader streamReader(ba);
+    QVERIFY(!doc.setContent(&streamReader, true));
+#endif
 }
 
 void tst_QDom::indentComments() const
@@ -1652,7 +1682,9 @@ void tst_QDom::reportDuplicateAttributes() const
     QDomDocument dd;
     bool isSuccess = dd.setContent(QLatin1String("<test x=\"1\" x=\"2\"/>"));
 
+#if QT_VERSION < QT_VERSION_CHECK(6, 0, 0) && QT_DEPRECATED_SINCE(5, 15)
     QEXPECT_FAIL("", "The parser doesn't flag duplicate attributes. Fixing this would change behavior.", Continue);
+#endif
     QVERIFY2(!isSuccess, "Duplicate attributes are well-formedness errors, and should be reported as such.");
 }
 
@@ -1852,10 +1884,18 @@ void tst_QDom::doubleNamespaceDeclarations() const
     QFile file(testFile);
     QVERIFY(file.open(QIODevice::ReadOnly));
 
+#if QT_VERSION < QT_VERSION_CHECK(6, 0, 0) && QT_DEPRECATED_SINCE(5, 15)
+QT_WARNING_PUSH
+QT_WARNING_DISABLE_DEPRECATED
     QXmlSimpleReader reader;
 
     QXmlInputSource source(&file);
     QVERIFY(doc.setContent(&source, &reader));
+QT_WARNING_POP
+#else
+    QXmlStreamReader streamReader(&file);
+    QVERIFY(doc.setContent(&streamReader, true));
+#endif
 
     // tst_QDom relies on a specific QHash ordering, see QTBUG-25071
     QString docAsString = doc.toString(0);
@@ -1872,11 +1912,18 @@ void tst_QDom::setContentQXmlReaderOverload() const
 {
     QDomDocument doc;
 
+#if QT_VERSION < QT_VERSION_CHECK(6, 0, 0) && QT_DEPRECATED_SINCE(5, 15)
+QT_WARNING_PUSH
+QT_WARNING_DISABLE_DEPRECATED
     QXmlSimpleReader reader;
     QXmlInputSource data;
     data.setData(QByteArray("<e/>"));
-
     doc.setContent(&data, true);
+QT_WARNING_POP
+#else
+    QXmlStreamReader streamReader(QByteArray("<e/>"));
+    doc.setContent(&streamReader, true);
+#endif
     QCOMPARE(doc.documentElement().nodeName(), QString::fromLatin1("e"));
 }
 
@@ -1971,6 +2018,10 @@ void tst_QDom::setContentWhitespace_data() const
 
 void tst_QDom::taskQTBUG4595_dontAssertWhenDocumentSpecifiesUnknownEncoding() const
 {
+    // QXmlStreamReader fails to read XML documents with unknown encoding. It
+    // needs to be modified if we want to support this case with the QXmlStreamReader-based
+    // implementation.
+#if QT_VERSION < QT_VERSION_CHECK(6, 0, 0) && QT_DEPRECATED_SINCE(5, 15)
     QString xmlWithUnknownEncoding("<?xml version='1.0' encoding='unknown-encoding'?>"
                                    "<foo>"
                                    " <bar>How will this sentence be handled?</bar>"
@@ -1980,6 +2031,7 @@ void tst_QDom::taskQTBUG4595_dontAssertWhenDocumentSpecifiesUnknownEncoding() co
 
     QString dontAssert = d.toString(); // this should not assert
     QVERIFY(true);
+#endif
 }
 
 void tst_QDom::cloneDTD_QTBUG8398() const

@@ -8,8 +8,11 @@
 #include <memory>
 
 #include "base/macros.h"
-#include "chromeos/services/network_config/public/mojom/cros_network_config.mojom.h"
-#include "content/public/browser/web_ui_controller.h"
+#include "chrome/browser/ui/webui/app_management/app_management.mojom-forward.h"
+#include "chrome/browser/ui/webui/settings/chromeos/app_management/app_management_page_handler_factory.h"
+#include "chrome/browser/ui/webui/webui_load_timer.h"
+#include "chromeos/services/network_config/public/mojom/cros_network_config.mojom-forward.h"
+#include "mojo/public/cpp/bindings/pending_receiver.h"
 #include "ui/webui/mojo_web_ui_controller.h"
 
 namespace content {
@@ -29,9 +32,15 @@ class OSSettingsUI : public ui::MojoWebUIController {
   void AddSettingsPageUIHandler(
       std::unique_ptr<content::WebUIMessageHandler> handler);
   void BindCrosNetworkConfig(
-      network_config::mojom::CrosNetworkConfigRequest request);
+      mojo::PendingReceiver<network_config::mojom::CrosNetworkConfig> receiver);
+  void BindAppManagementPageHandlerFactory(
+      mojo::PendingReceiver<app_management::mojom::PageHandlerFactory>
+          receiver);
 
-  // TODO(crbug/950007): Create load histograms and embed WebuiLoadTimer.
+  WebuiLoadTimer webui_load_timer_;
+
+  std::unique_ptr<AppManagementPageHandlerFactory>
+      app_management_page_handler_factory_;
 
   DISALLOW_COPY_AND_ASSIGN(OSSettingsUI);
 };

@@ -25,7 +25,6 @@
 #include "net/socket/socket_tag.h"
 
 namespace base {
-class DictionaryValue;
 class Value;
 namespace trace_event {
 class ProcessMemoryDump;
@@ -110,12 +109,11 @@ class NET_EXPORT ClientSocketPool : public LowerLayeredPool {
   class NET_EXPORT GroupId {
    public:
     GroupId();
-    // TODO(mmenke): Remove default |network_isolation_key| value (only used by
-    // tests).
     GroupId(const HostPortPair& destination,
             SocketType socket_type,
             PrivacyMode privacy_mode,
-            NetworkIsolationKey network_isolation_key = NetworkIsolationKey());
+            NetworkIsolationKey network_isolation_key,
+            bool disable_secure_dns);
     GroupId(const GroupId& group_id);
 
     ~GroupId();
@@ -133,21 +131,25 @@ class NET_EXPORT ClientSocketPool : public LowerLayeredPool {
       return network_isolation_key_;
     }
 
+    bool disable_secure_dns() const { return disable_secure_dns_; }
+
     // Returns the group ID as a string, for logging.
     std::string ToString() const;
 
     bool operator==(const GroupId& other) const {
       return std::tie(destination_, socket_type_, privacy_mode_,
-                      network_isolation_key_) ==
+                      network_isolation_key_, disable_secure_dns_) ==
              std::tie(other.destination_, other.socket_type_,
-                      other.privacy_mode_, other.network_isolation_key_);
+                      other.privacy_mode_, other.network_isolation_key_,
+                      other.disable_secure_dns_);
     }
 
     bool operator<(const GroupId& other) const {
       return std::tie(destination_, socket_type_, privacy_mode_,
-                      network_isolation_key_) <
+                      network_isolation_key_, disable_secure_dns_) <
              std::tie(other.destination_, other.socket_type_,
-                      other.privacy_mode_, other.network_isolation_key_);
+                      other.privacy_mode_, other.network_isolation_key_,
+                      other.disable_secure_dns_);
     }
 
    private:
@@ -161,6 +163,9 @@ class NET_EXPORT ClientSocketPool : public LowerLayeredPool {
 
     // Used to separate requests made in different contexts.
     NetworkIsolationKey network_isolation_key_;
+
+    // If host resolutions for this request may not use secure DNS.
+    bool disable_secure_dns_;
   };
 
   // Parameters that, in combination with GroupId, proxy, websocket information,
@@ -326,12 +331,11 @@ class NET_EXPORT ClientSocketPool : public LowerLayeredPool {
                                  const ClientSocketHandle* handle) const = 0;
 
   // Retrieves information on the current state of the pool as a
-  // DictionaryValue.
+  // Value.
   // If |include_nested_pools| is true, the states of any nested
   // ClientSocketPools will be included.
-  virtual std::unique_ptr<base::DictionaryValue> GetInfoAsValue(
-      const std::string& name,
-      const std::string& type) const = 0;
+  virtual base::Value GetInfoAsValue(const std::string& name,
+                                     const std::string& type) const = 0;
 
   // Dumps memory allocation stats. |parent_dump_absolute_name| is the name
   // used by the parent MemoryAllocatorDump in the memory dump hierarchy.

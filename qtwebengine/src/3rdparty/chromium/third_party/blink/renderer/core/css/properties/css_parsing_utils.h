@@ -207,6 +207,7 @@ CSSValue* ConsumeWidthOrHeight(
 CSSValue* ConsumeMarginOrOffset(CSSParserTokenRange&,
                                 CSSParserMode,
                                 css_property_parser_helpers::UnitlessQuirk);
+CSSValue* ConsumeScrollPadding(CSSParserTokenRange&);
 CSSValue* ConsumeOffsetPath(CSSParserTokenRange&, const CSSParserContext&);
 CSSValue* ConsumePathOrNone(CSSParserTokenRange&);
 CSSValue* ConsumeOffsetRotate(CSSParserTokenRange&, const CSSParserContext&);
@@ -263,6 +264,8 @@ CSSValue* ConsumePositionLonghand(CSSParserTokenRange& range,
   return css_property_parser_helpers::ConsumeLengthOrPercent(
       range, css_parser_mode, kValueRangeAll);
 }
+
+CSSValue* ConsumeIntrinsicLength(CSSParserTokenRange&, const CSSParserContext&);
 
 }  // namespace css_parsing_utils
 }  // namespace blink

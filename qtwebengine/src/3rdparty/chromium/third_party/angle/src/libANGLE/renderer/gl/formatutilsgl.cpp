@@ -1,5 +1,5 @@
 //
-// Copyright (c) 2015 The ANGLE Project Authors. All rights reserved.
+// Copyright 2015 The ANGLE Project Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 //
@@ -11,6 +11,7 @@
 
 #include <limits>
 
+#include "anglebase/no_destructor.h"
 #include "common/string_utils.h"
 #include "libANGLE/formatutils.h"
 #include "platform/FeaturesGL.h"
@@ -208,6 +209,16 @@ static InternalFormatInfoMap BuildInternalFormatInfoMap()
     InsertFormatMapping(&map, GL_RGBA32I,           VersionOrExts(3, 0, "GL_EXT_texture_integer"),    NeverSupported(),  VersionOrExts(3, 0, "GL_EXT_texture_integer"), VersionOnly(3, 0),                          NeverSupported(),  VersionOnly(3, 0),                        VersionOnly(3, 0)                         );
     InsertFormatMapping(&map, GL_RGBA32UI,          VersionOrExts(3, 0, "GL_EXT_texture_integer"),    NeverSupported(),  VersionOrExts(3, 0, "GL_EXT_texture_integer"), VersionOnly(3, 0),                          NeverSupported(),  VersionOnly(3, 0),                        VersionOnly(3, 0)                         );
 
+    InsertFormatMapping(&map, GL_R16,               VersionOrExts(3, 0, "GL_ARB_texture_rg"),         AlwaysSupported(), VersionOrExts(3, 0, "GL_ARB_texture_rg"),      ExtsOnly("GL_EXT_texture_norm16"),          AlwaysSupported(), ExtsOnly("GL_EXT_texture_norm16"),        ExtsOnly("GL_EXT_texture_norm16")         );
+    InsertFormatMapping(&map, GL_RG16,              VersionOrExts(3, 0, "GL_ARB_texture_rg"),         AlwaysSupported(), VersionOrExts(3, 0, "GL_ARB_texture_rg"),      ExtsOnly("GL_EXT_texture_norm16"),          AlwaysSupported(), ExtsOnly("GL_EXT_texture_norm16"),        ExtsOnly("GL_EXT_texture_norm16")         );
+    InsertFormatMapping(&map, GL_RGB16,             AlwaysSupported(),                                AlwaysSupported(), NeverSupported(),                              ExtsOnly("GL_EXT_texture_norm16"),          AlwaysSupported(), NeverSupported(),                         NeverSupported()                          );
+    InsertFormatMapping(&map, GL_RGBA16,            AlwaysSupported(),                                AlwaysSupported(), AlwaysSupported(),                             ExtsOnly("GL_EXT_texture_norm16"),          AlwaysSupported(), ExtsOnly("GL_EXT_texture_norm16"),        ExtsOnly("GL_EXT_texture_norm16")         );
+
+    InsertFormatMapping(&map, GL_R16_SNORM,         VersionOnly(3, 1),                                AlwaysSupported(), NeverSupported(),                              ExtsOnly("GL_EXT_texture_norm16"),          AlwaysSupported(), NeverSupported(),                         NeverSupported()                          );
+    InsertFormatMapping(&map, GL_RG16_SNORM,        VersionOnly(3, 1),                                AlwaysSupported(), NeverSupported(),                              ExtsOnly("GL_EXT_texture_norm16"),          AlwaysSupported(), NeverSupported(),                         NeverSupported()                          );
+    InsertFormatMapping(&map, GL_RGB16_SNORM,       VersionOnly(3, 1),                                AlwaysSupported(), NeverSupported(),                              ExtsOnly("GL_EXT_texture_norm16"),          AlwaysSupported(), NeverSupported(),                         NeverSupported()                          );
+    InsertFormatMapping(&map, GL_RGBA16_SNORM,      VersionOnly(3, 1),                                AlwaysSupported(), NeverSupported(),                              ExtsOnly("GL_EXT_texture_norm16"),          AlwaysSupported(), NeverSupported(),                         NeverSupported()                          );
+
     // Unsized formats
     InsertFormatMapping(&map, GL_ALPHA,             NeverSupported(),                                 NeverSupported(),  NeverSupported(),                              AlwaysSupported(),                          AlwaysSupported(), NeverSupported(),                         NeverSupported()                          );
     InsertFormatMapping(&map, GL_LUMINANCE,         NeverSupported(),                                 NeverSupported(),  NeverSupported(),                              AlwaysSupported(),                          AlwaysSupported(), NeverSupported(),                         NeverSupported()                          );
@@ -360,6 +371,20 @@ static InternalFormatInfoMap BuildInternalFormatInfoMap()
     InsertFormatMapping(&map, GL_COMPRESSED_SRGB8_ALPHA8_ASTC_6x6x5_OES, NeverSupported(), NeverSupported(), NeverSupported(), ExtsOnly("GL_OES_texture_compression_astc"),     AlwaysSupported(), NeverSupported(), NeverSupported());
     InsertFormatMapping(&map, GL_COMPRESSED_SRGB8_ALPHA8_ASTC_6x6x6_OES, NeverSupported(), NeverSupported(), NeverSupported(), ExtsOnly("GL_OES_texture_compression_astc"),     AlwaysSupported(), NeverSupported(), NeverSupported());
 
+    // From GL_IMG_texture_compression_pvrtc
+    //                       | Format                               | OpenGL texture support                         | Filter           | Render          | OpenGL ES texture support                      | Filter           | OpenGL ES texture attachment support | OpenGL ES renderbuffer support |
+    InsertFormatMapping(&map, GL_COMPRESSED_RGB_PVRTC_4BPPV1_IMG,    ExtsOnly("GL_IMG_texture_compression_pvrtc"),     AlwaysSupported(), NeverSupported(), ExtsOnly("GL_IMG_texture_compression_pvrtc"),   AlwaysSupported(), NeverSupported(),                      NeverSupported()                );
+    InsertFormatMapping(&map, GL_COMPRESSED_RGB_PVRTC_2BPPV1_IMG,    ExtsOnly("GL_IMG_texture_compression_pvrtc"),     AlwaysSupported(), NeverSupported(), ExtsOnly("GL_IMG_texture_compression_pvrtc"),   AlwaysSupported(), NeverSupported(),                      NeverSupported()                );
+    InsertFormatMapping(&map, GL_COMPRESSED_RGBA_PVRTC_4BPPV1_IMG,   ExtsOnly("GL_IMG_texture_compression_pvrtc"),     AlwaysSupported(), NeverSupported(), ExtsOnly("GL_IMG_texture_compression_pvrtc"),   AlwaysSupported(), NeverSupported(),                      NeverSupported()                );
+    InsertFormatMapping(&map, GL_COMPRESSED_RGBA_PVRTC_2BPPV1_IMG,   ExtsOnly("GL_IMG_texture_compression_pvrtc"),     AlwaysSupported(), NeverSupported(), ExtsOnly("GL_IMG_texture_compression_pvrtc"),   AlwaysSupported(), NeverSupported(),                      NeverSupported()                );
+
+    // From GL_EXT_pvrtc_sRGB
+    //                       | Format                                      | OpenGL texture support  | Filter          | Render          | OpenGL ES texture support      | Filter           | OpenGL ES texture attachment support | OpenGL ES renderbuffer support |
+    InsertFormatMapping(&map, GL_COMPRESSED_SRGB_PVRTC_2BPPV1_EXT,          NeverSupported(),         NeverSupported(), NeverSupported(), ExtsOnly("GL_EXT_pvrtc_sRGB"),   AlwaysSupported(), NeverSupported(),                      NeverSupported()                );
+    InsertFormatMapping(&map, GL_COMPRESSED_SRGB_PVRTC_4BPPV1_EXT,          NeverSupported(),         NeverSupported(), NeverSupported(), ExtsOnly("GL_EXT_pvrtc_sRGB"),   AlwaysSupported(), NeverSupported(),                      NeverSupported()                );
+    InsertFormatMapping(&map, GL_COMPRESSED_SRGB_ALPHA_PVRTC_2BPPV1_EXT,    NeverSupported(),         NeverSupported(), NeverSupported(), ExtsOnly("GL_EXT_pvrtc_sRGB"),   AlwaysSupported(), NeverSupported(),                      NeverSupported()                );
+    InsertFormatMapping(&map, GL_COMPRESSED_SRGB_ALPHA_PVRTC_4BPPV1_EXT,    NeverSupported(),         NeverSupported(), NeverSupported(), ExtsOnly("GL_EXT_pvrtc_sRGB"),   AlwaysSupported(), NeverSupported(),                      NeverSupported()                );
+
     // clang-format on
 
     return map;
@@ -367,8 +392,9 @@ static InternalFormatInfoMap BuildInternalFormatInfoMap()
 
 static const InternalFormatInfoMap &GetInternalFormatMap()
 {
-    static const InternalFormatInfoMap formatMap = BuildInternalFormatInfoMap();
-    return formatMap;
+    static const angle::base::NoDestructor<InternalFormatInfoMap> formatMap(
+        BuildInternalFormatInfoMap());
+    return *formatMap;
 }
 
 const InternalFormat &GetInternalFormatInfo(GLenum internalFormat, StandardGL standard)
@@ -390,8 +416,8 @@ const InternalFormat &GetInternalFormatInfo(GLenum internalFormat, StandardGL st
         }
     }
 
-    static const InternalFormat defaultInternalFormat;
-    return defaultInternalFormat;
+    static const angle::base::NoDestructor<InternalFormat> defaultInternalFormat;
+    return *defaultInternalFormat;
 }
 
 static GLenum GetNativeInternalFormat(const FunctionsGL *functions,

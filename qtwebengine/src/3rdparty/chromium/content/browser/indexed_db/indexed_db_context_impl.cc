@@ -5,6 +5,7 @@
 #include "content/browser/indexed_db/indexed_db_context_impl.h"
 
 #include <algorithm>
+#include <string>
 #include <utility>
 
 #include "base/bind.h"
@@ -12,7 +13,7 @@
 #include "base/files/file_enumerator.h"
 #include "base/files/file_util.h"
 #include "base/logging.h"
-#include "base/metrics/histogram_macros.h"
+#include "base/metrics/histogram_functions.h"
 #include "base/sequenced_task_runner.h"
 #include "base/strings/string_util.h"
 #include "base/strings/utf_string_conversions.h"
@@ -21,6 +22,7 @@
 #include "base/time/default_clock.h"
 #include "base/time/time.h"
 #include "base/values.h"
+#include "components/services/storage/indexed_db/leveldb/leveldb_factory.h"
 #include "content/browser/browser_main_loop.h"
 #include "content/browser/indexed_db/indexed_db_class_factory.h"
 #include "content/browser/indexed_db/indexed_db_connection.h"
@@ -31,7 +33,6 @@
 #include "content/browser/indexed_db/indexed_db_quota_client.h"
 #include "content/browser/indexed_db/indexed_db_tracing.h"
 #include "content/browser/indexed_db/indexed_db_transaction.h"
-#include "content/browser/indexed_db/leveldb/leveldb_env.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/storage_usage_info.h"
 #include "content/public/common/content_switches.h"
@@ -85,20 +86,27 @@ IndexedDBContextImpl::IndexedDBContextImpl(
     const base::FilePath& data_path,
     scoped_refptr<storage::SpecialStoragePolicy> special_storage_policy,
     scoped_refptr<storage::QuotaManagerProxy> quota_manager_proxy,
-    base::Clock* clock)
-    : force_keep_session_state_(false),
+    base::Clock* clock,
+    scoped_refptr<base::SequencedTaskRunner> custom_task_runner)
+    : IndexedDBContext(
+          custom_task_runner
+              ? custom_task_runner
+              : (base::CreateSequencedTaskRunner(
+                    {base::ThreadPool(), base::MayBlock(),
+                     base::WithBaseSyncPrimitives(),
+                     base::TaskPriority::USER_VISIBLE,
+                     // BLOCK_SHUTDOWN to support clearing session-only storage.
+                     base::TaskShutdownBehavior::BLOCK_SHUTDOWN}))),
+      force_keep_session_state_(false),
       special_storage_policy_(special_storage_policy),
       quota_manager_proxy_(quota_manager_proxy),
-      task_runner_(base::CreateSequencedTaskRunnerWithTraits(
-          {base::MayBlock(), base::WithBaseSyncPrimitives(),
-           base::TaskPriority::USER_VISIBLE,
-           // BLOCK_SHUTDOWN to support clearing session-only storage.
-           base::TaskShutdownBehavior::BLOCK_SHUTDOWN})),
+      task_runner_(owning_task_runner()),
       clock_(clock) {
   IDB_TRACE("init");
   if (!data_path.empty())
     data_path_ = data_path.Append(kIndexedDBDirectory);
-  quota_manager_proxy->RegisterClient(new IndexedDBQuotaClient(this));
+  quota_manager_proxy->RegisterClient(
+      base::MakeRefCounted<IndexedDBQuotaClient>(this));
 }
 
 IndexedDBFactoryImpl* IndexedDBContextImpl::GetIDBFactory() {
@@ -108,10 +116,7 @@ IndexedDBFactoryImpl* IndexedDBContextImpl::GetIDBFactory() {
     // detect when dbs are newly created.
     GetOriginSet();
     indexeddb_factory_ = std::make_unique<IndexedDBFactoryImpl>(
-        this,
-        leveldb_factory_for_testing_ ? leveldb_factory_for_testing_
-                                     : indexed_db::LevelDBFactory::Get(),
-        IndexedDBClassFactory::Get(), clock_);
+        this, IndexedDBClassFactory::Get(), clock_);
   }
   return indexeddb_factory_.get();
 }
@@ -322,7 +327,8 @@ void IndexedDBContextImpl::DeleteForOrigin(const Origin& origin) {
   EnsureDiskUsageCacheInitialized(origin);
 
   leveldb::Status s =
-      indexed_db::DefaultLevelDBFactory().DestroyLevelDB(idb_directory);
+      IndexedDBClassFactory::Get()->leveldb_factory().DestroyLevelDB(
+          idb_directory);
   if (!s.ok()) {
     LOG(WARNING) << "Failed to delete LevelDB database: "
                  << idb_directory.AsUTF8Unsafe();
@@ -333,7 +339,7 @@ void IndexedDBContextImpl::DeleteForOrigin(const Origin& origin) {
     const bool kNonRecursive = false;
     base::DeleteFile(idb_directory, kNonRecursive);
   }
-  base::DeleteFile(GetBlobStorePath(origin), true /* recursive */);
+  base::DeleteFileRecursively(GetBlobStorePath(origin));
   QueryDiskAndUpdateQuotaUsage(origin);
   if (s.ok()) {
     GetOriginSet()->erase(origin);
@@ -358,9 +364,8 @@ void IndexedDBContextImpl::CopyOriginData(const Origin& origin,
   // Delete any existing storage paths in the destination context.
   // A previously failed migration may have left behind partially copied
   // directories.
-  for (const base::FilePath& dest_path :
-       dest_context_impl->GetStoragePaths(origin))
-    base::DeleteFile(dest_path, true);
+  for (const auto& dest_path : dest_context_impl->GetStoragePaths(origin))
+    base::DeleteFileRecursively(dest_path);
 
   base::FilePath dest_data_path = dest_context_impl->data_path();
   base::CreateDirectory(dest_data_path);
@@ -375,9 +380,8 @@ void IndexedDBContextImpl::CopyOriginData(const Origin& origin,
 void IndexedDBContextImpl::ForceClose(const Origin origin,
                                       ForceCloseReason reason) {
   DCHECK(TaskRunner()->RunsTasksInCurrentSequence());
-  UMA_HISTOGRAM_ENUMERATION("WebCore.IndexedDB.Context.ForceCloseReason",
-                            reason, FORCE_CLOSE_REASON_MAX);
-
+  base::UmaHistogramEnumeration("WebCore.IndexedDB.Context.ForceCloseReason",
+                                reason, FORCE_CLOSE_REASON_MAX);
   if (!HasOrigin(origin))
     return;
 
@@ -433,11 +437,6 @@ std::vector<base::FilePath> IndexedDBContextImpl::GetStoragePaths(
 base::FilePath IndexedDBContextImpl::GetFilePathForTesting(
     const Origin& origin) {
   return GetLevelDBPath(origin);
-}
-
-void IndexedDBContextImpl::SetTaskRunnerForTesting(
-    scoped_refptr<base::SequencedTaskRunner> task_runner) {
-  task_runner_ = std::move(task_runner);
 }
 
 void IndexedDBContextImpl::ResetCachesForTesting() {
@@ -525,24 +524,20 @@ void IndexedDBContextImpl::NotifyIndexedDBContentChanged(
   }
 }
 
-void IndexedDBContextImpl::SetLevelDBFactoryForTesting(
-    indexed_db::LevelDBFactory* factory) {
-  DCHECK(factory);
-  leveldb_factory_for_testing_ = factory;
-}
-
 IndexedDBContextImpl::~IndexedDBContextImpl() {
-  if (indexeddb_factory_.get()) {
-    TaskRunner()->PostTask(FROM_HERE,
-                           base::BindOnce(&IndexedDBFactory::ContextDestroyed,
-                                          std::move(indexeddb_factory_)));
-  }
+  DCHECK(TaskRunner()->RunsTasksInCurrentSequence());
+  if (indexeddb_factory_.get())
+    indexeddb_factory_->ContextDestroyed();
 }
 
 void IndexedDBContextImpl::Shutdown() {
+  // Important: This function is NOT called on the IDB Task Runner. All variable
+  // access must be thread-safe.
+  DCHECK_CURRENTLY_ON(BrowserThread::UI);
   if (is_incognito())
     return;
 
+  // TODO(dmurph): Make this variable atomic.
   if (force_keep_session_state_)
     return;
 
@@ -553,11 +548,14 @@ void IndexedDBContextImpl::Shutdown() {
         FROM_HERE,
         base::BindOnce(
             [](const base::FilePath& indexeddb_path,
-               std::unique_ptr<IndexedDBFactory> factory,
+               scoped_refptr<IndexedDBContextImpl> context,
                scoped_refptr<storage::SpecialStoragePolicy>
                    special_storage_policy) {
               std::vector<Origin> origins;
               std::vector<base::FilePath> file_paths;
+              // This function only needs the factory, and not the context, but
+              // the context is used because passing that is thread-safe.
+              IndexedDBFactoryImpl* factory = context->GetIDBFactory();
               GetAllOriginsAndPaths(indexeddb_path, &origins, &file_paths);
               DCHECK_EQ(origins.size(), file_paths.size());
               auto file_path = file_paths.cbegin();
@@ -568,13 +566,12 @@ void IndexedDBContextImpl::Shutdown() {
                   continue;
                 if (special_storage_policy->IsStorageProtected(origin_url))
                   continue;
-                if (factory.get())
-                  factory->ForceClose(*origin);
-                base::DeleteFile(*file_path, true);
+                if (factory)
+                  factory->ForceClose(*origin, false);
+                base::DeleteFileRecursively(*file_path);
               }
             },
-            data_path_, std::move(indexeddb_factory_),
-            special_storage_policy_));
+            data_path_, base::WrapRefCounted(this), special_storage_policy_));
   }
 }
 

@@ -7,6 +7,8 @@
 
 #include "src/gpu/mtl/GrMtlResourceProvider.h"
 
+#include "include/gpu/GrContextOptions.h"
+#include "src/gpu/GrContextPriv.h"
 #include "src/gpu/mtl/GrMtlCommandBuffer.h"
 #include "src/gpu/mtl/GrMtlGpu.h"
 #include "src/gpu/mtl/GrMtlPipelineState.h"
@@ -22,14 +24,23 @@ GrMtlResourceProvider::GrMtlResourceProvider(GrMtlGpu* gpu)
     : fGpu(gpu) {
     fPipelineStateCache.reset(new PipelineStateCache(gpu));
     fBufferSuballocator.reset(new BufferSuballocator(gpu->device(), kBufferSuballocatorStartSize));
+    // TODO: maxBufferLength seems like a reasonable metric to determine fBufferSuballocatorMaxSize
+    // but may need tuning. Might also need a GrContextOption to let the client set this.
+#ifdef SK_BUILD_FOR_MAC
+    int64_t maxBufferLength = 1024*1024*1024;
+#else
+    int64_t maxBufferLength = 256*1024*1024;
+#endif
+    if (@available(iOS 12, macOS 10.14, *)) {
+       maxBufferLength = gpu->device().maxBufferLength;
+    }
+    fBufferSuballocatorMaxSize = maxBufferLength/16;
 }
 
 GrMtlPipelineState* GrMtlResourceProvider::findOrCreateCompatiblePipelineState(
-        GrRenderTarget* renderTarget, GrSurfaceOrigin origin,
-        const GrPipeline& pipeline, const GrPrimitiveProcessor& proc,
-        const GrTextureProxy* const primProcProxies[], GrPrimitiveType primType) {
-    return fPipelineStateCache->refPipelineState(renderTarget, origin, proc, primProcProxies,
-                                                 pipeline, primType);
+        GrRenderTarget* renderTarget,
+        const GrProgramInfo& programInfo) {
+    return fPipelineStateCache->refPipelineState(renderTarget, programInfo);
 }
 
 ////////////////////////////////////////////////////////////////////////////////////////////////
@@ -47,12 +58,11 @@ GrMtlDepthStencil* GrMtlResourceProvider::findOrCreateCompatibleDepthStencilStat
     return depthStencilState;
 }
 
-GrMtlSampler* GrMtlResourceProvider::findOrCreateCompatibleSampler(const GrSamplerState& params,
-                                                                   uint32_t maxMipLevel) {
+GrMtlSampler* GrMtlResourceProvider::findOrCreateCompatibleSampler(const GrSamplerState& params) {
     GrMtlSampler* sampler;
-    sampler = fSamplers.find(GrMtlSampler::GenerateKey(params, maxMipLevel));
+    sampler = fSamplers.find(GrMtlSampler::GenerateKey(params));
     if (!sampler) {
-        sampler = GrMtlSampler::Create(fGpu, params, maxMipLevel);
+        sampler = GrMtlSampler::Create(fGpu, params);
         fSamplers.add(sampler);
     }
     SkASSERT(sampler);
@@ -94,7 +104,7 @@ struct GrMtlResourceProvider::PipelineStateCache::Entry {
 };
 
 GrMtlResourceProvider::PipelineStateCache::PipelineStateCache(GrMtlGpu* gpu)
-    : fMap(kMaxEntries)
+    : fMap(gpu->getContext()->priv().options().fRuntimeProgramCacheSize)
     , fGpu(gpu)
 #ifdef GR_PIPELINE_STATE_CACHE_STATS
     , fTotalRequests(0)
@@ -124,24 +134,18 @@ void GrMtlResourceProvider::PipelineStateCache::release() {
 
 GrMtlPipelineState* GrMtlResourceProvider::PipelineStateCache::refPipelineState(
         GrRenderTarget* renderTarget,
-        GrSurfaceOrigin origin,
-        const GrPrimitiveProcessor& primProc,
-        const GrTextureProxy* const primProcProxies[],
-        const GrPipeline& pipeline,
-        GrPrimitiveType primType) {
+        const GrProgramInfo& programInfo) {
 #ifdef GR_PIPELINE_STATE_CACHE_STATS
     ++fTotalRequests;
 #endif
-    // Get GrMtlProgramDesc
-    GrMtlPipelineStateBuilder::Desc desc;
-    if (!GrMtlPipelineStateBuilder::Desc::Build(&desc, renderTarget, primProc, pipeline, primType,
-                                                fGpu)) {
+
+    const GrMtlCaps& caps = fGpu->mtlCaps();
+
+    GrProgramDesc desc = caps.makeDesc(renderTarget, programInfo);
+    if (!desc.isValid()) {
         GrCapsDebugf(fGpu->caps(), "Failed to build mtl program descriptor!\n");
         return nullptr;
     }
-    // If we knew the shader won't depend on origin, we could skip this (and use the same program
-    // for both origins). Instrumenting all fragment processors would be difficult and error prone.
-    desc.setSurfaceOriginKey(GrGLSLFragmentShaderBuilder::KeyForSurfaceOrigin(origin));
 
     std::unique_ptr<Entry>* entry = fMap.find(desc);
     if (!entry) {
@@ -149,8 +153,8 @@ GrMtlPipelineState* GrMtlResourceProvider::PipelineStateCache::refPipelineState(
         ++fCacheMisses;
 #endif
         GrMtlPipelineState* pipelineState(GrMtlPipelineStateBuilder::CreatePipelineState(
-                fGpu, renderTarget, origin, primProc, primProcProxies, pipeline, &desc));
-        if (nullptr == pipelineState) {
+            fGpu, renderTarget, programInfo, &desc));
+        if (!pipelineState) {
             return nullptr;
         }
         entry = fMap.insert(desc, std::unique_ptr<Entry>(new Entry(fGpu, pipelineState)));
@@ -162,12 +166,16 @@ GrMtlPipelineState* GrMtlResourceProvider::PipelineStateCache::refPipelineState(
 ////////////////////////////////////////////////////////////////////////////////////////////////
 
 static id<MTLBuffer> alloc_dynamic_buffer(id<MTLDevice> device, size_t size) {
-    return [device newBufferWithLength: size
+    NSUInteger options = 0;
+    if (@available(macOS 10.11, iOS 9.0, *)) {
 #ifdef SK_BUILD_FOR_MAC
-                               options: MTLResourceStorageModeManaged];
+        options |= MTLResourceStorageModeManaged;
 #else
-                               options: MTLResourceStorageModeShared];
+        options |= MTLResourceStorageModeShared;
 #endif
+    }
+    return [device newBufferWithLength: size
+                               options: options];
 
 }
 
@@ -252,6 +260,10 @@ void GrMtlResourceProvider::BufferSuballocator::addCompletionHandler(
 }
 
 id<MTLBuffer> GrMtlResourceProvider::getDynamicBuffer(size_t size, size_t* offset) {
+#ifdef SK_BUILD_FOR_MAC
+    // Mac requires 4-byte alignment for didModifyRange:
+    size = GrSizeAlignUp(size, 4);
+#endif
     id<MTLBuffer> buffer = fBufferSuballocator->getAllocation(size, offset);
     if (buffer) {
         return buffer;
@@ -261,7 +273,7 @@ id<MTLBuffer> GrMtlResourceProvider::getDynamicBuffer(size_t size, size_t* offse
     // We grow up to a maximum size, and only grow if the requested allocation will
     // fit into half of the new buffer (to prevent very large transient buffers forcing
     // growth when they'll never fit anyway).
-    if (fBufferSuballocator->size() < kBufferSuballocatorMaxSize &&
+    if (fBufferSuballocator->size() < fBufferSuballocatorMaxSize &&
         size <= fBufferSuballocator->size()) {
         fBufferSuballocator.reset(new BufferSuballocator(fGpu->device(),
                                                          2*fBufferSuballocator->size()));

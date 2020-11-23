@@ -71,7 +71,6 @@ QT_BEGIN_NAMESPACE
     \note The OLE-functions used in this class require OleInitialize().
 
     \internal
-    \ingroup qt-lighthouse-win
 */
 
 #ifndef QT_NO_DEBUG_STREAM
@@ -82,7 +81,7 @@ static QDebug operator<<(QDebug d, const QMimeData *mimeData)
     d << "QMimeData(";
     if (mimeData) {
         const QStringList formats = mimeData->formats();
-        d << "formats=" << formats.join(QLatin1String(", "));
+        d << "formats=" << formats.join(u", ");
         if (mimeData->hasText())
             d << ", text=" << mimeData->text();
         if (mimeData->hasHtml())
@@ -110,7 +109,6 @@ static QDebug operator<<(QDebug d, const QMimeData *mimeData)
 
     \sa QWindowsInternalMimeDataBase, QWindowsClipboard
     \internal
-    \ingroup qt-lighthouse-win
 */
 
 IDataObject *QWindowsClipboardRetrievalMimeData::retrieveDataObject() const
@@ -190,7 +188,7 @@ void QWindowsClipboard::releaseIData()
 void QWindowsClipboard::registerViewer()
 {
     m_clipboardViewer = QWindowsContext::instance()->
-        createDummyWindow(QStringLiteral("Qt5ClipboardView"), L"Qt5ClipboardView",
+        createDummyWindow(QStringLiteral("ClipboardView"), L"QtClipboardView",
                           qClipboardViewerWndProc, WS_OVERLAPPED);
 
     // Try format listener API (Vista onwards) first.
@@ -339,7 +337,7 @@ void QWindowsClipboard::setMimeData(QMimeData *mimeData, QClipboard::Mode mode)
 
     if (src != S_OK) {
         QString mimeDataFormats = mimeData ?
-            mimeData->formats().join(QLatin1String(", ")) : QString(QStringLiteral("NULL"));
+            mimeData->formats().join(u", ") : QString(QStringLiteral("NULL"));
         qErrnoWarning("OleSetClipboard: Failed to set mime data (%s) on clipboard: %s",
                       qPrintable(mimeDataFormats),
                       QWindowsContext::comErrorString(src).constData());

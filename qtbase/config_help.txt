@@ -131,14 +131,16 @@ Build options:
                          Currently supported backends are 'etw' (Windows) and
                          'lttng' (Linux), or 'yes' for auto-detection. [no]
 
-  -sanitize {address|thread|memory|undefined}
+  -sanitize {address|thread|memory|fuzzer-no-link|undefined}
                          Instrument with the specified compiler sanitizer.
                          Note that some sanitizers cannot be combined;
                          for example, -sanitize address cannot be combined with
                          -sanitize thread.
 
-  -coverage {trace-pc-guard}
-                         Add code coverage instrumentation (Clang only)
+  -coverage {trace-pc-guard|source-based}
+                         Specify the 'trace-pc-guard' coverage instrumentation for
+                         sanitizers or generate instrumented code to collect execution
+                         counts and enable code coverage analysis, respectively. (Clang only)
 
   -c++std <edition> .... Select C++ standard <edition> [c++2a/c++17/c++14/c++11]
                          (Not supported with MSVC 2015)
@@ -298,8 +300,7 @@ Gui, printing, widget options:
     -gbm ............... Enable backends for GBM [auto] (Linux only)
     -kms ............... Enable backends for KMS [auto] (Linux only)
     -linuxfb ........... Enable Linux Framebuffer support [auto] (Linux only)
-    -xcb ............... Enable X11 support. Select used xcb-* libraries [system/qt/no]
-                         (-qt-xcb still uses system version of libxcb itself)
+    -xcb ............... Enable X11 support [auto] (Linux only)
 
   Input backends:
     -libudev............ Enable udev support [auto]
@@ -308,7 +309,7 @@ Gui, printing, widget options:
     -libinput .......... Enable libinput support [auto]
     -mtdev ............. Enable mtdev support [auto]
     -tslib ............. Enable tslib support [auto]
-    -xcb-xinput ........ Enable XInput2 support [auto]
+    -bundled-xcb-xinput  Use bundled XInput2 support [auto]
     -xkbcommon ......... Enable key mapping support [auto]
 
   Image formats:

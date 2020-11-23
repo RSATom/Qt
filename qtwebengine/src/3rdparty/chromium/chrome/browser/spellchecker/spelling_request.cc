@@ -11,11 +11,12 @@
 #include "chrome/browser/spellchecker/spellcheck_custom_dictionary.h"
 #include "chrome/browser/spellchecker/spellcheck_factory.h"
 #include "components/spellcheck/browser/spellcheck_platform.h"
+#include "components/spellcheck/common/spellcheck_features.h"
 #include "components/spellcheck/common/spellcheck_result.h"
 #include "content/public/browser/browser_context.h"
 #include "content/public/browser/browser_task_traits.h"
 #include "content/public/browser/browser_thread.h"
-#include "mojo/public/cpp/bindings/strong_binding.h"
+#include "content/public/browser/render_process_host.h"
 
 namespace {
 
@@ -25,27 +26,38 @@ bool CompareLocation(const SpellCheckResult& r1, const SpellCheckResult& r2) {
 
 }  // namespace
 
-SpellingRequest::SpellingRequest(
-    SpellingServiceClient* client,
-    const base::string16& text,
-    const service_manager::Identity& renderer_identity,
-    int document_tag,
-    RequestTextCheckCallback callback,
-    DestructionCallback destruction_callback)
+SpellingRequest::SpellingRequest(SpellingServiceClient* client,
+                                 const base::string16& text,
+                                 int render_process_id,
+                                 int document_tag,
+                                 RequestTextCheckCallback callback,
+                                 DestructionCallback destruction_callback)
     : remote_success_(false),
       text_(text),
       callback_(std::move(callback)),
-      destruction_callback_(std::move(destruction_callback)),
-      weak_factory_(this) {
-  DCHECK(!text_.empty());
-  DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
-
-  completion_barrier_ =
-      BarrierClosure(2, base::BindOnce(&SpellingRequest::OnCheckCompleted,
-                                       weak_factory_.GetWeakPtr()));
-  RequestRemoteCheck(client, renderer_identity);
-  RequestLocalCheck(document_tag);
+      destruction_callback_(std::move(destruction_callback)) {
+  StartRequest(client, render_process_id, document_tag);
 }
+
+#if BUILDFLAG(USE_WIN_HYBRID_SPELLCHECKER)
+SpellingRequest::SpellingRequest(
+    SpellingServiceClient* client,
+    const base::string16& text,
+    int render_process_id,
+    int document_tag,
+    const std::vector<SpellCheckResult>& partial_results,
+    bool fill_suggestions,
+    RequestPartialTextCheckCallback callback,
+    DestructionCallback destruction_callback)
+    : remote_success_(false),
+      text_(text),
+      partial_results_(partial_results),
+      fill_suggestions_(fill_suggestions),
+      callback_(std::move(callback)),
+      destruction_callback_(std::move(destruction_callback)) {
+  StartRequest(client, render_process_id, document_tag);
+}
+#endif  // BUILDFLAG(USE_WIN_HYBRID_SPELLCHECKER)
 
 SpellingRequest::~SpellingRequest() = default;
 
@@ -75,22 +87,44 @@ void SpellingRequest::CombineResults(
   }
 }
 
-void SpellingRequest::RequestRemoteCheck(
-    SpellingServiceClient* client,
-    const service_manager::Identity& renderer_identity) {
-  content::BrowserContext* context =
-      content::BrowserContext::GetBrowserContextForServiceInstanceGroup(
-          renderer_identity.instance_group());
+void SpellingRequest::StartRequest(SpellingServiceClient* client,
+                                   int render_process_id,
+                                   int document_tag) {
+  DCHECK(!text_.empty());
+  DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
+
+  completion_barrier_ =
+      BarrierClosure(2, base::BindOnce(&SpellingRequest::OnCheckCompleted,
+                                       weak_factory_.GetWeakPtr()));
+  RequestRemoteCheck(client, render_process_id);
+  RequestLocalCheck(document_tag);
+}
+
+void SpellingRequest::RequestRemoteCheck(SpellingServiceClient* client,
+                                         int render_process_id) {
+  auto* host = content::RenderProcessHost::FromID(render_process_id);
+  if (!host)
+    return;
 
   // |this| may be gone at callback invocation if the owner has been removed.
   client->RequestTextCheck(
-      context, SpellingServiceClient::SPELLCHECK, text_,
+      host->GetBrowserContext(), SpellingServiceClient::SPELLCHECK, text_,
       base::BindOnce(&SpellingRequest::OnRemoteCheckCompleted,
                      weak_factory_.GetWeakPtr()));
 }
 
 void SpellingRequest::RequestLocalCheck(int document_tag) {
   // |this| may be gone at callback invocation if the owner has been removed.
+#if BUILDFLAG(USE_WIN_HYBRID_SPELLCHECKER)
+  if (spellcheck::UseWinHybridSpellChecker()) {
+    spellcheck_platform::RequestTextCheck(
+        document_tag, text_, std::move(partial_results_), fill_suggestions_,
+        base::BindOnce(&SpellingRequest::OnLocalCheckCompletedOnAnyThread,
+                       weak_factory_.GetWeakPtr()));
+    return;
+  }
+#endif  // BUILDFLAG(USE_WIN_HYBRID_SPELLCHECKER)
+
   spellcheck_platform::RequestTextCheck(
       document_tag, text_,
       base::BindOnce(&SpellingRequest::OnLocalCheckCompletedOnAnyThread,
@@ -130,10 +164,9 @@ void SpellingRequest::OnLocalCheckCompletedOnAnyThread(
     base::WeakPtr<SpellingRequest> request,
     const std::vector<SpellCheckResult>& results) {
   // Local checking can happen on any thread - don't DCHECK thread.
-  base::PostTaskWithTraits(
-      FROM_HERE, {content::BrowserThread::UI},
-      base::BindOnce(&SpellingRequest::OnLocalCheckCompleted, request,
-                     results));
+  base::PostTask(FROM_HERE, {content::BrowserThread::UI},
+                 base::BindOnce(&SpellingRequest::OnLocalCheckCompleted,
+                                request, results));
 }
 
 void SpellingRequest::OnLocalCheckCompleted(

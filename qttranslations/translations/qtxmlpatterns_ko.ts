@@ -1,6 +1,31 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!DOCTYPE TS>
-<TS version="2.0" language="ko">
+<TS version="2.1" language="ko">
+<context>
+    <name>QQuickXmlListModel</name>
+    <message>
+        <source>&quot;%1&quot; duplicates a previous role name and will be disabled.</source>
+        <translation>&quot;%1&quot;에서 이전에 선언된 역할을 재정의하므로 비활성화되었습니다.</translation>
+    </message>
+    <message>
+        <source>invalid query: &quot;%1&quot;</source>
+        <translation>잘못된 질의: &quot;%1&quot;</translation>
+    </message>
+</context>
+<context>
+    <name>QQuickXmlListModelRole</name>
+    <message>
+        <source>An XmlRole query must not start with &apos;/&apos;</source>
+        <translation>XmlRole 질의는 &apos;/&apos;로 시작할 수  없음</translation>
+    </message>
+</context>
+<context>
+    <name>QQuickXmlRoleList</name>
+    <message>
+        <source>An XmlListModel query must start with &apos;/&apos; or &quot;//&quot;</source>
+        <translation>XmlListModel 질의는 &apos;/&apos; 또는 &quot;//&quot;로 시작해야 함</translation>
+    </message>
+</context>
 <context>
     <name>QXmlPatternistCLI</name>
     <message>
@@ -36,7 +61,7 @@
     </message>
     <message>
         <source>%1 is an unsupported encoding.</source>
-        <translation>인코딩 %1은(는) 지원하지 않습니다.</translation>
+        <translation>%1 인코딩은 지원하지 않습니다.</translation>
     </message>
     <message>
         <source>%1 contains octets which are disallowed in the requested encoding %2.</source>
@@ -44,7 +69,7 @@
     </message>
     <message>
         <source>The codepoint %1, occurring in %2 using encoding %3, is an invalid XML character.</source>
-        <translation>인코딩 %3을(를) 사용하며 %2에 있는 코드포인트 %1은(는) 올바르지 않은 XML 문자입니다.</translation>
+        <translation>%3 인코딩을 사용하며 %2에 있는 코드포인트 %1은(는) 올바르지 않은 XML 문자입니다.</translation>
     </message>
     <message>
         <source>Network timeout.</source>
@@ -80,7 +105,7 @@
     </message>
     <message>
         <source>Time 24:%1:%2.%3 is invalid. Hour is 24, but minutes, seconds, and milliseconds are not all 0; </source>
-        <translation>24시간제 시간 24:%1:%2.%3이(가) 올바르지 않습니다. 시간은 24이나 분, 초, 밀리초가 모두 0 이상입니다;</translation>
+        <translation>24시간제 시간 24:%1:%2.%3이(가) 올바르지 않습니다. 시간은 24이나 분, 초, 밀리초가 모두 0 이상입니다; </translation>
     </message>
     <message>
         <source>Time %1:%2:%3.%4 is invalid.</source>
@@ -428,19 +453,19 @@
     </message>
     <message>
         <source>Attribute %1 cannot appear on the element %2. Only the standard attributes can appear.</source>
-        <translation>속성 %1이(가) 원소 %2에 사용될 수 없습니다. 표준 속성만 사용할 수 있습니다.</translation>
+        <translation>원소 %2에 속성 %1을(를) 사용할 수 없습니다. 표준 속성만 사용할 수 있습니다.</translation>
     </message>
     <message>
         <source>Attribute %1 cannot appear on the element %2. Only %3 is allowed, and the standard attributes.</source>
-        <translation>속성 %1이(가) 원소 %2에 사용될 수 없습니다. 속성 %3 및 표준 속성만 사용할 수 있습니다.</translation>
+        <translation>원소 %2에 속성 %1을(를) 사용할 수 없습니다. 속성 %3 및 표준 속성만 사용할 수 있습니다.</translation>
     </message>
     <message>
         <source>Attribute %1 cannot appear on the element %2. Allowed is %3, %4, and the standard attributes.</source>
-        <translation>속성 %1이(가) 원소 %2에 사용될 수 없습니다. 속성 %3, %4 및 표준 속성을 사용할 수 있습니다.</translation>
+        <translation>원소 %2에 속성 %1을(를) 사용할 수 없습니다. 속성 %3, %4 및 표준 속성을 사용할 수 있습니다.</translation>
     </message>
     <message>
         <source>Attribute %1 cannot appear on the element %2. Allowed is %3, and the standard attributes.</source>
-        <translation>속성 %1이(가) 원소 %2에 사용될 수 없습니다. 속성 %3 및 표준 속성을 사용할 수 있습니다.</translation>
+        <translation>원소 %2에 속성 %1을(를) 사용할 수 없습니다. 속성 %3 및 표준 속성을 사용할 수 있습니다.</translation>
     </message>
     <message>
         <source>XSL-T attributes on XSL-T elements must be in the null namespace, not in the XSL-T namespace which %1 is.</source>
@@ -484,7 +509,7 @@
     </message>
     <message>
         <source>Only one %1 declaration can occur in the query prolog.</source>
-        <translation>쿼리 선두부에는 %1 선언이 하나만 올 수 있습니다.</translation>
+        <translation>질의 선두부에는 %1 선언이 하나만 올 수 있습니다.</translation>
     </message>
     <message>
         <source>The initialization of variable %1 depends on itself</source>
@@ -500,8 +525,7 @@
     </message>
     <message>
         <source>The encoding %1 is invalid. It must contain Latin characters only, must not contain whitespace, and must match the regular expression %2.</source>
-        <translation>
-인코딩 %1은(는) 올바르지 않습니다. 라틴 알파벳만 포함해야 하며, 공백이 들어가지 않아야 하며, 정규 표현식 %2와(과) 일치해야 합니다.</translation>
+        <translation>%1 인코딩은 올바르지 않습니다. 라틴 알파벳만 포함해야 하며, 공백이 들어가지 않아야 하며, 정규 표현식 %2와(과) 일치해야 합니다.</translation>
     </message>
     <message>
         <source>No function with signature %1 is available</source>
@@ -657,11 +681,11 @@
     </message>
     <message>
         <source>Namespace %1 can only be bound to %2 (and it is, in either case, pre-declared).</source>
-        <translation>네임스페이스 %1은(는) %2에만 바인딩할 수 있습니다 (미리 선언되어야 합니다).</translation>
+        <translation>네임스페이스 %1은(는) %2에만 바인딩할 수 있습니다(미리 선언해야 합니다).</translation>
     </message>
     <message>
         <source>Prefix %1 can only be bound to %2 (and it is, in either case, pre-declared).</source>
-        <translation>접두사 %1은(는) %2에만 바인딩할 수 있습니다 (미리 선언되어야 합니다).</translation>
+        <translation>접두사 %1은(는) %2에만 바인딩할 수 있습니다(미리 선언해야 합니다).</translation>
     </message>
     <message>
         <source>Two namespace declaration attributes have the same name: %1.</source>
@@ -689,7 +713,7 @@
     </message>
     <message>
         <source>%1 is not an atomic type. Casting is only possible to atomic types.</source>
-        <translation>%1은(는) 원자적 타입이 아닙니다. 원자적 타입으로만 변환할 수 있습니다.</translation>
+        <translation>%1은(는) 원자적 형식이 아닙니다. 원자적 형식으로만 변환할 수 있습니다.</translation>
     </message>
     <message>
         <source>%1 is not a valid name for a processing-instruction.</source>
@@ -916,8 +940,8 @@
         <translation>%1 형식의 항목의 파생형은 원자적이거나 공용체여야 합니다.</translation>
     </message>
     <message>
-        <source>Variety of member types of %1 must be atomic.</source>
-        <translation>%1 형식의 항목의 파생형은 원자적이어야 합니다.</translation>
+        <source>Variety of member types of %1 must be atomic or union.</source>
+        <translation>%1 형식의 항목의 파생형은 원자적이거나 공용체여야 합니다.</translation>
     </message>
     <message>
         <source>%1 is not allowed to derive from %2 by list as the latter defines it as final.</source>
@@ -1325,7 +1349,7 @@
     </message>
     <message>
         <source>%1 element is not allowed in this context.</source>
-        <translation>이 컨텍스트에는 %1 원소가 허용되지 않습니다.</translation>
+        <translation>이 콘텍스트에는 %1 원소가 허용되지 않습니다.</translation>
     </message>
     <message>
         <source>%1 attribute of %2 element has larger value than %3 attribute.</source>
@@ -1877,6 +1901,10 @@
     </message>
     <message>
         <source>Field %1 has no simple type.</source>
+        <translation>필드 %1에 간단한 형식이 없습니다.</translation>
+    </message>
+    <message>
+        <source>Field %1 is missing its simple type.</source>
         <translation>필드 %1에 간단한 형식이 없습니다.</translation>
     </message>
     <message>

@@ -149,7 +149,7 @@ class V8_EXPORT_PRIVATE Node final {
 
   Uses uses() { return Uses(this); }
 
-  // Returns true if {owner} is the user of {this} node.
+  // Returns true if {owner} is the only user of {this} node.
   bool OwnedBy(Node* owner) const {
     return first_use_ && first_use_->from() == owner && !first_use_->next;
   }
@@ -200,10 +200,8 @@ class V8_EXPORT_PRIVATE Node final {
                              : reinterpret_cast<OutOfLineInputs*>(start)->node_;
     }
 
-    using InlineField = BitField<bool, 0, 1>;
-    using InputIndexField = BitField<unsigned, 1, 17>;
-    // Leaving some space in the bitset in case we ever decide to record
-    // the output index.
+    using InlineField = base::BitField<bool, 0, 1>;
+    using InputIndexField = base::BitField<unsigned, 1, 31>;
   };
 
   //============================================================================
@@ -287,11 +285,10 @@ class V8_EXPORT_PRIVATE Node final {
 
   void ClearInputs(int start, int count);
 
-  using IdField = BitField<NodeId, 0, 24>;
-  using InlineCountField = BitField<unsigned, 24, 4>;
-  using InlineCapacityField = BitField<unsigned, 28, 4>;
+  using IdField = base::BitField<NodeId, 0, 24>;
+  using InlineCountField = base::BitField<unsigned, 24, 4>;
+  using InlineCapacityField = base::BitField<unsigned, 28, 4>;
   static const int kOutlineMarker = InlineCountField::kMax;
-  static const int kMaxInlineCount = InlineCountField::kMax - 1;
   static const int kMaxInlineCapacity = InlineCapacityField::kMax - 1;
 
   const Operator* op_;

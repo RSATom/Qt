@@ -82,7 +82,7 @@ void QPlatformFontDatabase::registerQPF2Font(const QByteArray &dataArray, void *
 
         if (!fontName.isEmpty() && pixelSize) {
             QFont::Weight fontWeight = QFont::Normal;
-            if (weight.type() == QVariant::Int || weight.type() == QVariant::UInt)
+            if (weight.userType() == QMetaType::Int || weight.userType() == QMetaType::UInt)
                 fontWeight = QFont::Weight(weight.toInt());
 
             QFont::Style fontStyle = static_cast<QFont::Style>(style.toInt());
@@ -368,7 +368,7 @@ QFontEngine *QPlatformFontDatabase::fontEngine(const QByteArray &fontData, qreal
     Q_UNUSED(pixelSize);
     Q_UNUSED(hintingPreference);
     qWarning("This plugin does not support font engines created directly from font data");
-    return 0;
+    return nullptr;
 }
 
 /*!

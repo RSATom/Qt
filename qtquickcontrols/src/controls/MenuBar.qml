@@ -291,7 +291,7 @@ MenuBarPrivate {
 
                     Connections {
                         target: __menuItem
-                        onAboutToHide: {
+                        function onAboutToHide() {
                             if (d.openedMenuIndex === index) {
                                 d.openMenuAtIndex(-1)
                                 menuMouseArea.hoveredItem = null
@@ -301,7 +301,7 @@ MenuBarPrivate {
 
                     Connections {
                         target: __menuItem.__action
-                        onTriggered: d.openMenuAtIndex(__menuItemIndex)
+                        function onTriggered() { d.openMenuAtIndex(__menuItemIndex) }
                     }
 
                     Component.onCompleted: {

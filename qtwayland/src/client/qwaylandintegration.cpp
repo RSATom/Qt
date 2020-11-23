@@ -86,7 +86,7 @@
 #include "qwaylandinputdeviceintegration_p.h"
 #include "qwaylandinputdeviceintegrationfactory_p.h"
 
-#ifndef QT_NO_ACCESSIBILITY_ATSPI_BRIDGE
+#if QT_CONFIG(accessibility_atspi_bridge)
 #include <QtLinuxAccessibilitySupport/private/bridge_p.h>
 #endif
 
@@ -94,41 +94,14 @@
 #include <QtXkbCommonSupport/private/qxkbcommon_p.h>
 #endif
 
+#if QT_CONFIG(vulkan)
+#include "qwaylandvulkaninstance_p.h"
+#include "qwaylandvulkanwindow_p.h"
+#endif
+
 QT_BEGIN_NAMESPACE
 
 namespace QtWaylandClient {
-
-class GenericWaylandTheme: public QGenericUnixTheme
-{
-public:
-    static QStringList themeNames()
-    {
-        QStringList result;
-
-        if (QGuiApplication::desktopSettingsAware()) {
-            const QByteArray desktopEnvironment = QGuiApplicationPrivate::platformIntegration()->services()->desktopEnvironment();
-
-            if (desktopEnvironment == QByteArrayLiteral("KDE")) {
-#if QT_CONFIG(settings)
-                result.push_back(QStringLiteral("kde"));
-#endif
-            } else if (!desktopEnvironment.isEmpty() &&
-                desktopEnvironment != QByteArrayLiteral("UNKNOWN") &&
-                desktopEnvironment != QByteArrayLiteral("GNOME") &&
-                desktopEnvironment != QByteArrayLiteral("UNITY") &&
-                desktopEnvironment != QByteArrayLiteral("MATE") &&
-                desktopEnvironment != QByteArrayLiteral("XFCE") &&
-                desktopEnvironment != QByteArrayLiteral("LXDE"))
-                // Ignore X11 desktop environments
-                result.push_back(QString::fromLocal8Bit(desktopEnvironment.toLower()));
-        }
-
-        if (result.isEmpty())
-            result.push_back(QLatin1String(QGenericUnixTheme::name));
-
-        return result;
-    }
-};
 
 QWaylandIntegration::QWaylandIntegration()
 #if defined(Q_OS_MACOS)
@@ -190,7 +163,12 @@ QPlatformWindow *QWaylandIntegration::createPlatformWindow(QWindow *window) cons
         && mDisplay->clientBufferIntegration())
         return mDisplay->clientBufferIntegration()->createEglWindow(window);
 
-    return new QWaylandShmWindow(window);
+#if QT_CONFIG(vulkan)
+    if (window->surfaceType() == QSurface::VulkanSurface)
+        return new QWaylandVulkanWindow(window, mDisplay.data());
+#endif // QT_CONFIG(vulkan)
+
+    return new QWaylandShmWindow(window, mDisplay.data());
 }
 
 #if QT_CONFIG(opengl)
@@ -204,7 +182,7 @@ QPlatformOpenGLContext *QWaylandIntegration::createPlatformOpenGLContext(QOpenGL
 
 QPlatformBackingStore *QWaylandIntegration::createPlatformBackingStore(QWindow *window) const
 {
-    return new QWaylandShmBackingStore(window);
+    return new QWaylandShmBackingStore(window, mDisplay.data());
 }
 
 QAbstractEventDispatcher *QWaylandIntegration::createEventDispatcher() const
@@ -220,12 +198,10 @@ void QWaylandIntegration::initialize()
 
     int fd = wl_display_get_fd(mDisplay->wl_display());
     QSocketNotifier *sn = new QSocketNotifier(fd, QSocketNotifier::Read, mDisplay.data());
-    QObject::connect(sn, SIGNAL(activated(int)), mDisplay.data(), SLOT(flushRequests()));
+    QObject::connect(sn, SIGNAL(activated(QSocketDescriptor)), mDisplay.data(), SLOT(flushRequests()));
 
-    if (mDisplay->screens().isEmpty()) {
-        qWarning() << "Running on a compositor with no screens is not supported";
-        ::exit(EXIT_FAILURE);
-    }
+    // Qt does not support running with no screens
+    mDisplay->ensureScreen();
 }
 
 QPlatformFontDatabase *QWaylandIntegration::fontDatabase() const
@@ -257,13 +233,6 @@ QVariant QWaylandIntegration::styleHint(StyleHint hint) const
     if (hint == ShowIsFullScreen && mDisplay->windowManagerIntegration())
         return mDisplay->windowManagerIntegration()->showIsFullScreen();
 
-    switch (hint) {
-    case QPlatformIntegration::FontSmoothingGamma:
-        return qreal(1.0);
-    default:
-        break;
-    }
-
     return QPlatformIntegration::styleHint(hint);
 }
 
@@ -271,7 +240,7 @@ QVariant QWaylandIntegration::styleHint(StyleHint hint) const
 QPlatformAccessibility *QWaylandIntegration::accessibility() const
 {
     if (!mAccessibility) {
-#ifndef QT_NO_ACCESSIBILITY_ATSPI_BRIDGE
+#if QT_CONFIG(accessibility_atspi_bridge)
         Q_ASSERT_X(QCoreApplication::eventDispatcher(), "QWaylandIntegration",
             "Initializing accessibility without event-dispatcher!");
         mAccessibility.reset(new QSpiAccessibleBridge());
@@ -302,13 +271,20 @@ QList<int> QWaylandIntegration::possibleKeys(const QKeyEvent *event) const
 
 QStringList QWaylandIntegration::themeNames() const
 {
-    return GenericWaylandTheme::themeNames();
+    return QGenericUnixTheme::themeNames();
 }
 
 QPlatformTheme *QWaylandIntegration::createPlatformTheme(const QString &name) const
 {
-    return GenericWaylandTheme::createUnixTheme(name);
+    return QGenericUnixTheme::createUnixTheme(name);
 }
+
+#if QT_CONFIG(vulkan)
+QPlatformVulkanInstance *QWaylandIntegration::createPlatformVulkanInstance(QVulkanInstance *instance) const
+{
+    return new QWaylandVulkanInstance(instance);
+}
+#endif // QT_CONFIG(vulkan)
 
 // May be called from non-GUI threads
 QWaylandClientBufferIntegration *QWaylandIntegration::clientBufferIntegration() const
@@ -442,6 +418,8 @@ void QWaylandIntegration::initializeShellIntegration()
         qCWarning(lcQpaWayland) << "Loading shell integration failed.";
         qCWarning(lcQpaWayland) << "Attempted to load the following shells" << preferredShells;
     }
+
+    QWindowSystemInterfacePrivate::TabletEvent::setPlatformSynthesizesMouse(false);
 }
 
 QWaylandInputDevice *QWaylandIntegration::createInputDevice(QWaylandDisplay *display, int version, uint32_t id)

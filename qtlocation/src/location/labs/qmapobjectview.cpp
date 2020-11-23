@@ -339,8 +339,10 @@ void QMapObjectView::modelUpdated(const QQmlChangeSet &changeSet, bool reset)
         for (int idx = c.start(); idx < c.end(); idx++) {
             m_instantiatedMapObjects.insert(idx, nullptr);
             QGeoMapObject *mo = qobject_cast<QGeoMapObject *>(m_delegateModel->object(idx, incubationMode));
-            if (mo) // if not, a createdItem signal will be emitted later, else it has been emitted already while createBlocker is in effect.
+            if (mo) {// if not, a createdItem signal will be emitted later, else it has been emitted already while createBlocker is in effect.
+                mo->setParent(this);
                 addMapObjectToMap(mo, idx);
+            }
         }
     }
 }
@@ -395,10 +397,12 @@ void QMapObjectView::createdItem(int index, QObject * /*object*/)
     // or else, it will be destroyed exiting this scope
     QGeoMapObject *mo = nullptr;
     mo = qobject_cast<QGeoMapObject *>(m_delegateModel->object(index, incubationMode));
-    if (mo)
+    if (mo) {
+        mo->setParent(this);
         addMapObjectToMap(mo, index);
-    else
+    } else {
         qWarning() << "QQmlDelegateModel::object called in createdItem for " << index << " produced a null object";
+    }
 }
 
 
@@ -436,7 +440,11 @@ void QMapObjectView::setMap(QGeoMap *map)
         // Map was set, now it has ben re-set to NULL
         flushDelegateModel();
         flushUserAddedMapObjects();
+        bool oldVisible = d_ptr->m_visible;
+        bool oldCmponentCompleted = d_ptr->m_componentCompleted;
         d_ptr = new QMapObjectViewPrivateDefault(*d);
+        d_ptr->m_componentCompleted = oldCmponentCompleted;
+        d_ptr->setVisible(oldVisible);
     } else if (d->m_componentCompleted) {
         // Map was null, now it's set AND delegateModel is already complete.
         // some delegates may have been incubated but not added to the map.

@@ -28,6 +28,8 @@
 #import "base/mac/mac_util.h"
 #import "third_party/blink/public/platform/mac/web_sandbox_support.h"
 #import "third_party/blink/public/platform/platform.h"
+#import "third_party/blink/public/resources/grit/blink_resources.h"
+#import "third_party/blink/public/strings/grit/blink_strings.h"
 #import "third_party/blink/renderer/core/css_value_keywords.h"
 #import "third_party/blink/renderer/core/fileapi/file_list.h"
 #import "third_party/blink/renderer/core/html_names.h"
@@ -221,27 +223,33 @@ LayoutThemeMac::~LayoutThemeMac() {
   [[NSNotificationCenter defaultCenter] removeObserver:notification_observer_];
 }
 
-Color LayoutThemeMac::PlatformActiveSelectionBackgroundColor() const {
+Color LayoutThemeMac::PlatformActiveSelectionBackgroundColor(
+    WebColorScheme color_scheme) const {
   return GetSystemColor(MacSystemColorID::kSelectedTextBackground);
 }
 
-Color LayoutThemeMac::PlatformInactiveSelectionBackgroundColor() const {
+Color LayoutThemeMac::PlatformInactiveSelectionBackgroundColor(
+    WebColorScheme color_scheme) const {
   return GetSystemColor(MacSystemColorID::kSecondarySelectedControl);
 }
 
-Color LayoutThemeMac::PlatformActiveSelectionForegroundColor() const {
+Color LayoutThemeMac::PlatformActiveSelectionForegroundColor(
+    WebColorScheme color_scheme) const {
   return Color::kBlack;
 }
 
-Color LayoutThemeMac::PlatformActiveListBoxSelectionBackgroundColor() const {
+Color LayoutThemeMac::PlatformActiveListBoxSelectionBackgroundColor(
+    WebColorScheme color_scheme) const {
   return GetSystemColor(MacSystemColorID::kAlternateSelectedControl);
 }
 
-Color LayoutThemeMac::PlatformActiveListBoxSelectionForegroundColor() const {
+Color LayoutThemeMac::PlatformActiveListBoxSelectionForegroundColor(
+    WebColorScheme color_scheme) const {
   return Color::kWhite;
 }
 
-Color LayoutThemeMac::PlatformInactiveListBoxSelectionForegroundColor() const {
+Color LayoutThemeMac::PlatformInactiveListBoxSelectionForegroundColor(
+    WebColorScheme color_scheme) const {
   return Color::kBlack;
 }
 
@@ -258,11 +266,14 @@ Color LayoutThemeMac::PlatformFocusRingColor() const {
   if (UsesTestModeFocusRingColor())
     return kOldAquaFocusRingColor;
 
-  return SystemColor(CSSValueID::kWebkitFocusRingColor);
+  // TODO(crbug.com/929098) Need to pass an appropriate color scheme here.
+  return SystemColor(CSSValueID::kWebkitFocusRingColor,
+                     ComputedStyle::InitialStyle().UsedColorScheme());
 }
 
-Color LayoutThemeMac::PlatformInactiveListBoxSelectionBackgroundColor() const {
-  return PlatformInactiveSelectionBackgroundColor();
+Color LayoutThemeMac::PlatformInactiveListBoxSelectionBackgroundColor(
+    WebColorScheme color_scheme) const {
+  return PlatformInactiveSelectionBackgroundColor(color_scheme);
 }
 
 static FontSelectionValue ToFontWeight(NSInteger app_kit_font_weight) {
@@ -328,7 +339,8 @@ void LayoutThemeMac::PlatformColorsDidChange() {
   LayoutTheme::PlatformColorsDidChange();
 }
 
-Color LayoutThemeMac::SystemColor(CSSValueID css_value_id) const {
+Color LayoutThemeMac::SystemColor(CSSValueID css_value_id,
+                                  WebColorScheme color_scheme) const {
   {
     HashMap<CSSValueID, RGBA32>::iterator it =
         system_color_cache_.find(css_value_id);
@@ -365,6 +377,12 @@ Color LayoutThemeMac::SystemColor(CSSValueID css_value_id) const {
       color = GetSystemColor(MacSystemColorID::kControlText);
       break;
     case CSSValueID::kCaptiontext:
+      color = GetSystemColor(MacSystemColorID::kText);
+      break;
+    case CSSValueID::kField:
+      color = GetSystemColor(MacSystemColorID::kControlBackground);
+      break;
+    case CSSValueID::kFieldtext:
       color = GetSystemColor(MacSystemColorID::kText);
       break;
     case CSSValueID::kGraytext:
@@ -427,12 +445,14 @@ Color LayoutThemeMac::SystemColor(CSSValueID css_value_id) const {
       color = GetSystemColor(MacSystemColorID::kKeyboardFocusIndicator);
       break;
     case CSSValueID::kWindow:
+    case CSSValueID::kCanvas:
       color = GetSystemColor(MacSystemColorID::kWindowBackground);
       break;
     case CSSValueID::kWindowframe:
       color = GetSystemColor(MacSystemColorID::kWindowFrame);
       break;
     case CSSValueID::kWindowtext:
+    case CSSValueID::kCanvastext:
       color = GetSystemColor(MacSystemColorID::kWindowFrameText);
       break;
     default:
@@ -441,19 +461,19 @@ Color LayoutThemeMac::SystemColor(CSSValueID css_value_id) const {
   }
 
   if (needs_fallback)
-    color = LayoutTheme::SystemColor(css_value_id);
+    color = LayoutTheme::SystemColor(css_value_id, color_scheme);
 
   system_color_cache_.Set(css_value_id, color.Rgb());
 
   return color;
 }
 
-bool LayoutThemeMac::IsControlStyled(const ComputedStyle& style) const {
-  if (style.Appearance() == kTextFieldPart ||
-      style.Appearance() == kTextAreaPart)
+bool LayoutThemeMac::IsControlStyled(ControlPart part,
+                                     const ComputedStyle& style) const {
+  if (part == kTextFieldPart || part == kTextAreaPart)
     return style.HasAuthorBorder() || style.BoxShadow();
 
-  if (style.Appearance() == kMenulistPart) {
+  if (part == kMenulistPart) {
     // FIXME: This is horrible, but there is not much else that can be done.
     // Menu lists cannot draw properly when scaled. They can't really draw
     // properly when transformed either. We can't detect the transform case
@@ -472,7 +492,7 @@ bool LayoutThemeMac::IsControlStyled(const ComputedStyle& style) const {
   }
   // Some other cells don't work well when scaled.
   if (style.EffectiveZoom() != 1) {
-    switch (style.Appearance()) {
+    switch (part) {
       case kButtonPart:
       case kPushButtonPart:
       case kSearchFieldPart:
@@ -482,13 +502,13 @@ bool LayoutThemeMac::IsControlStyled(const ComputedStyle& style) const {
         break;
     }
   }
-  return LayoutTheme::IsControlStyled(style);
+  return LayoutTheme::IsControlStyled(part, style);
 }
 
 void LayoutThemeMac::AddVisualOverflow(const Node* node,
                                        const ComputedStyle& style,
                                        IntRect& rect) {
-  ControlPart part = style.Appearance();
+  ControlPart part = style.EffectiveAppearance();
   switch (part) {
     case kCheckboxPart:
     case kRadioPart:
@@ -496,8 +516,7 @@ void LayoutThemeMac::AddVisualOverflow(const Node* node,
     case kSquareButtonPart:
     case kButtonPart:
     case kInnerSpinButtonPart:
-      return AddVisualOverflowHelper(style.Appearance(),
-                                     ControlStatesForNode(node, style),
+      return AddVisualOverflowHelper(part, ControlStatesForNode(node, style),
                                      style.EffectiveZoom(), rect);
     default:
       break;
@@ -733,20 +752,20 @@ static const int kStyledPopupPaddingBottom = 2;
 // by LayoutMenuList.
 int LayoutThemeMac::PopupInternalPaddingStart(
     const ComputedStyle& style) const {
-  if (style.Appearance() == kMenulistPart)
+  if (style.EffectiveAppearance() == kMenulistPart)
     return PopupButtonPadding(ControlSizeForFont(style))[kLeftMargin] *
            style.EffectiveZoom();
-  if (style.Appearance() == kMenulistButtonPart)
+  if (style.EffectiveAppearance() == kMenulistButtonPart)
     return kStyledPopupPaddingStart * style.EffectiveZoom();
   return 0;
 }
 
-int LayoutThemeMac::PopupInternalPaddingEnd(const ChromeClient*,
+int LayoutThemeMac::PopupInternalPaddingEnd(LocalFrame*,
                                             const ComputedStyle& style) const {
-  if (style.Appearance() == kMenulistPart)
+  if (style.EffectiveAppearance() == kMenulistPart)
     return PopupButtonPadding(ControlSizeForFont(style))[kRightMargin] *
            style.EffectiveZoom();
-  if (style.Appearance() != kMenulistButtonPart)
+  if (style.EffectiveAppearance() != kMenulistButtonPart)
     return 0;
   float font_scale = style.FontSize() / kBaseFontSize;
   float arrow_width = kMenuListBaseArrowWidth * font_scale;
@@ -756,20 +775,20 @@ int LayoutThemeMac::PopupInternalPaddingEnd(const ChromeClient*,
 }
 
 int LayoutThemeMac::PopupInternalPaddingTop(const ComputedStyle& style) const {
-  if (style.Appearance() == kMenulistPart)
+  if (style.EffectiveAppearance() == kMenulistPart)
     return PopupButtonPadding(ControlSizeForFont(style))[kTopMargin] *
            style.EffectiveZoom();
-  if (style.Appearance() == kMenulistButtonPart)
+  if (style.EffectiveAppearance() == kMenulistButtonPart)
     return kStyledPopupPaddingTop * style.EffectiveZoom();
   return 0;
 }
 
 int LayoutThemeMac::PopupInternalPaddingBottom(
     const ComputedStyle& style) const {
-  if (style.Appearance() == kMenulistPart)
+  if (style.EffectiveAppearance() == kMenulistPart)
     return PopupButtonPadding(ControlSizeForFont(style))[kBottomMargin] *
            style.EffectiveZoom();
-  if (style.Appearance() == kMenulistButtonPart)
+  if (style.EffectiveAppearance() == kMenulistButtonPart)
     return kStyledPopupPaddingBottom * style.EffectiveZoom();
   return 0;
 }
@@ -918,8 +937,8 @@ void LayoutThemeMac::AdjustProgressBarBounds(ComputedStyle& style) const {
 
 void LayoutThemeMac::AdjustSliderThumbSize(ComputedStyle& style) const {
   float zoom_level = style.EffectiveZoom();
-  if (style.Appearance() == kSliderThumbHorizontalPart ||
-      style.Appearance() == kSliderThumbVerticalPart) {
+  if (style.EffectiveAppearance() == kSliderThumbHorizontalPart ||
+      style.EffectiveAppearance() == kSliderThumbVerticalPart) {
     style.SetWidth(
         Length::Fixed(static_cast<int>(kSliderThumbWidth * zoom_level)));
     style.SetHeight(
@@ -993,8 +1012,7 @@ String LayoutThemeMac::FileListNameForWidth(Locale& locale,
 
   String str_to_truncate;
   if (file_list->IsEmpty()) {
-    str_to_truncate =
-        locale.QueryString(WebLocalizedString::kFileButtonNoFileSelectedLabel);
+    str_to_truncate = locale.QueryString(IDS_FORM_FILE_NO_FILE_LABEL);
   } else if (file_list->length() == 1) {
     File* file = file_list->item(0);
     if (file->GetUserVisibility() == File::kIsUserVisible)
@@ -1004,7 +1022,7 @@ String LayoutThemeMac::FileListNameForWidth(Locale& locale,
       str_to_truncate = file->name();
   } else {
     return StringTruncator::RightTruncate(
-        locale.QueryString(WebLocalizedString::kMultipleFileUploadText,
+        locale.QueryString(IDS_FORM_FILE_MULTIPLE_UPLOAD,
                            locale.ConvertToLocalizedNumber(
                                String::Number(file_list->length()))),
         width, font);
@@ -1068,14 +1086,15 @@ String LayoutThemeMac::ExtraFullscreenStyleSheet() {
 
 String LayoutThemeMac::ExtraDefaultStyleSheet() {
   return LayoutTheme::ExtraDefaultStyleSheet() +
-         GetDataResourceAsASCIIString("input_multiple_fields.css") +
-         GetDataResourceAsASCIIString("mac.css");
+         UncompressResourceAsASCIIString(
+             IDR_UASTYLE_THEME_INPUT_MULTIPLE_FIELDS_CSS) +
+         UncompressResourceAsASCIIString(IDR_UASTYLE_THEME_MAC_CSS);
 }
 
 bool LayoutThemeMac::ThemeDrawsFocusRing(const ComputedStyle& style) const {
   if (ShouldUseFallbackTheme(style))
     return false;
-  switch (style.Appearance()) {
+  switch (style.EffectiveAppearance()) {
     case kCheckboxPart:
     case kRadioPart:
     case kPushButtonPart:
@@ -1100,7 +1119,7 @@ bool LayoutThemeMac::ThemeDrawsFocusRing(const ComputedStyle& style) const {
 }
 
 bool LayoutThemeMac::ShouldUseFallbackTheme(const ComputedStyle& style) const {
-  ControlPart part = style.Appearance();
+  ControlPart part = style.EffectiveAppearance();
   if (part == kCheckboxPart || part == kRadioPart)
     return style.EffectiveZoom() != 1;
   return false;
@@ -1186,7 +1205,7 @@ NSView* LayoutThemeMac::EnsuredView(const IntSize& size) {
 
 LayoutUnit LayoutThemeMac::BaselinePositionAdjustment(
     const ComputedStyle& style) const {
-  ControlPart part = style.Appearance();
+  ControlPart part = style.EffectiveAppearance();
   if (part == kCheckboxPart || part == kRadioPart)
     return LayoutUnit(style.EffectiveZoom() * -2);
   return LayoutTheme::BaselinePositionAdjustment(style);
@@ -1371,7 +1390,7 @@ void LayoutThemeMac::AddVisualOverflowHelper(ControlPart part,
 }
 
 void LayoutThemeMac::AdjustControlPartStyle(ComputedStyle& style) {
-  ControlPart part = style.Appearance();
+  ControlPart part = style.EffectiveAppearance();
   switch (part) {
     case kCheckboxPart:
     case kInnerSpinButtonPart:

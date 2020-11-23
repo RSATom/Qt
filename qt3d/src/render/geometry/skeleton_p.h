@@ -72,7 +72,7 @@ namespace Render {
 class JointManager;
 class SkeletonManager;
 
-class Q_AUTOTEST_EXPORT Skeleton : public BackendNode
+class Q_3DRENDERSHARED_PRIVATE_EXPORT Skeleton : public BackendNode
 {
 public:
     enum SkeletonDataType {
@@ -151,8 +151,8 @@ private:
 inline QDebug operator<<(QDebug dbg, const Skeleton &skeleton)
 {
     QDebugStateSaver saver(dbg);
-    dbg << "QNodeId =" << skeleton.peerId() << endl
-        << "Name =" << skeleton.name() << endl;
+    dbg << "QNodeId =" << skeleton.peerId() << Qt::endl
+        << "Name =" << skeleton.name() << Qt::endl;
     return dbg;
 }
 #endif

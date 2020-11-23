@@ -13,20 +13,13 @@
 
 namespace extensions {
 
-namespace api {
 namespace declarative_net_request {
-struct Rule;
-}  // namespace declarative_net_request
-}  // namespace api
-
-namespace declarative_net_request {
-enum class DynamicRuleUpdateAction;
 struct ReadJSONRulesResult;
 }  // namespace declarative_net_request
 
 // Helper base class to update the set of allowed pages.
 class DeclarativeNetRequestUpdateAllowedPagesFunction
-    : public UIThreadExtensionFunction {
+    : public ExtensionFunction {
  protected:
   enum class Action {
     ADD,     // Add allowed pages.
@@ -87,8 +80,7 @@ class DeclarativeNetRequestRemoveAllowedPagesFunction
 
 // Implements the "declarativeNetRequest.getAllowedPages" extension
 // function.
-class DeclarativeNetRequestGetAllowedPagesFunction
-    : public UIThreadExtensionFunction {
+class DeclarativeNetRequestGetAllowedPagesFunction : public ExtensionFunction {
  public:
   DeclarativeNetRequestGetAllowedPagesFunction();
   DECLARE_EXTENSION_FUNCTION("declarativeNetRequest.getAllowedPages",
@@ -106,59 +98,26 @@ class DeclarativeNetRequestGetAllowedPagesFunction
 };
 
 class DeclarativeNetRequestUpdateDynamicRulesFunction
-    : public UIThreadExtensionFunction {
- protected:
+    : public ExtensionFunction {
+ public:
   DeclarativeNetRequestUpdateDynamicRulesFunction();
+  DECLARE_EXTENSION_FUNCTION("declarativeNetRequest.updateDynamicRules",
+                             DECLARATIVENETREQUEST_UPDATEDYNAMICRULES)
+
+ protected:
   ~DeclarativeNetRequestUpdateDynamicRulesFunction() override;
 
-  ExtensionFunction::ResponseAction UpdateDynamicRules(
-      std::vector<api::declarative_net_request::Rule> rules,
-      declarative_net_request::DynamicRuleUpdateAction action);
-
- private:
   // ExtensionFunction override:
   bool PreRunValidation(std::string* error) override;
+  ExtensionFunction::ResponseAction Run() override;
 
+ private:
   void OnDynamicRulesUpdated(base::Optional<std::string> error);
 
   DISALLOW_COPY_AND_ASSIGN(DeclarativeNetRequestUpdateDynamicRulesFunction);
 };
 
-class DeclarativeNetRequestAddDynamicRulesFunction
-    : public DeclarativeNetRequestUpdateDynamicRulesFunction {
- public:
-  DeclarativeNetRequestAddDynamicRulesFunction();
-  DECLARE_EXTENSION_FUNCTION("declarativeNetRequest.addDynamicRules",
-                             DECLARATIVENETREQUEST_ADDDYNAMICRULES)
-
- protected:
-  ~DeclarativeNetRequestAddDynamicRulesFunction() override;
-
-  ExtensionFunction::ResponseAction Run() override;
-
- private:
-  DISALLOW_COPY_AND_ASSIGN(DeclarativeNetRequestAddDynamicRulesFunction);
-};
-
-class DeclarativeNetRequestRemoveDynamicRulesFunction
-    : public DeclarativeNetRequestUpdateDynamicRulesFunction {
- public:
-  DeclarativeNetRequestRemoveDynamicRulesFunction();
-  DECLARE_EXTENSION_FUNCTION("declarativeNetRequest.removeDynamicRules",
-                             DECLARATIVENETREQUEST_REMOVEDYNAMICRULES)
-
- protected:
-  ~DeclarativeNetRequestRemoveDynamicRulesFunction() override;
-
-  // ExtensionFunction override:
-  ExtensionFunction::ResponseAction Run() override;
-
- private:
-  DISALLOW_COPY_AND_ASSIGN(DeclarativeNetRequestRemoveDynamicRulesFunction);
-};
-
-class DeclarativeNetRequestGetDynamicRulesFunction
-    : public UIThreadExtensionFunction {
+class DeclarativeNetRequestGetDynamicRulesFunction : public ExtensionFunction {
  public:
   DeclarativeNetRequestGetDynamicRulesFunction();
   DECLARE_EXTENSION_FUNCTION("declarativeNetRequest.getDynamicRules",
@@ -178,8 +137,7 @@ class DeclarativeNetRequestGetDynamicRulesFunction
   DISALLOW_COPY_AND_ASSIGN(DeclarativeNetRequestGetDynamicRulesFunction);
 };
 
-class DeclarativeNetRequestGetMatchedRulesFunction
-    : public UIThreadExtensionFunction {
+class DeclarativeNetRequestGetMatchedRulesFunction : public ExtensionFunction {
  public:
   DeclarativeNetRequestGetMatchedRulesFunction();
   DECLARE_EXTENSION_FUNCTION("declarativeNetRequest.getMatchedRules",
@@ -196,7 +154,7 @@ class DeclarativeNetRequestGetMatchedRulesFunction
 };
 
 class DeclarativeNetRequestSetActionCountAsBadgeTextFunction
-    : public UIThreadExtensionFunction {
+    : public ExtensionFunction {
  public:
   DeclarativeNetRequestSetActionCountAsBadgeTextFunction();
   DECLARE_EXTENSION_FUNCTION("declarativeNetRequest.setActionCountAsBadgeText",

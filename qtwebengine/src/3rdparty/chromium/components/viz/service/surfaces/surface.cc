@@ -23,26 +23,33 @@
 #include "components/viz/service/surfaces/surface_manager.h"
 #include "components/viz/service/viz_service_export.h"
 #include "ui/gfx/presentation_feedback.h"
+#include "ui/gfx/swap_result.h"
 
 namespace viz {
 
-Surface::PresentationHelper::PresentationHelper(base::WeakPtr<Surface> surface,
-                                                uint32_t frame_token)
-    : surface_(std::move(surface)), frame_token_(frame_token) {}
+Surface::PresentationHelper::PresentationHelper(
+    base::WeakPtr<SurfaceClient> surface_client,
+    uint32_t frame_token)
+    : surface_client_(std::move(surface_client)), frame_token_(frame_token) {}
 
 Surface::PresentationHelper::~PresentationHelper() {
   // The class that called TakePresentationHelperForPresentNotification
   // should have called present on this helper. If not, give a Failure feedback
-  // to the appropriate surface.
-  DidPresent(gfx::PresentationFeedback::Failure());
+  // to the appropriate surface client.
+  DidPresent(base::TimeTicks(), gfx::SwapTimings(),
+             gfx::PresentationFeedback::Failure());
 }
 
 void Surface::PresentationHelper::DidPresent(
+    base::TimeTicks draw_start_timestamp,
+    const gfx::SwapTimings& swap_timings,
     const gfx::PresentationFeedback& feedback) {
-  if (surface_ && frame_token_)
-    surface_->DidPresentSurface(frame_token_, feedback);
+  if (surface_client_ && frame_token_) {
+    surface_client_->OnSurfacePresented(frame_token_, draw_start_timestamp,
+                                        swap_timings, feedback);
+  }
 
-  surface_ = nullptr;
+  surface_client_ = nullptr;
 }
 
 Surface::Surface(const SurfaceInfo& surface_info,
@@ -492,12 +499,14 @@ void Surface::UpdateActivationDependencies(
   if (current_frame.metadata.deadline.IsZero())
     return;
 
-  std::vector<SurfaceAllocationGroup*> new_blocking_allocation_groups;
+  base::flat_set<SurfaceAllocationGroup*> new_blocking_allocation_groups;
   std::vector<SurfaceId> new_activation_dependencies;
   for (const SurfaceId& surface_id :
        current_frame.metadata.activation_dependencies) {
     SurfaceAllocationGroup* group =
         surface_manager_->GetOrCreateAllocationGroupForSurfaceId(surface_id);
+    if (base::Contains(new_blocking_allocation_groups, group))
+      continue;
     if (group)
       group->UpdateLastPendingReferenceAndMaybeActivate(surface_id);
     Surface* dependency = surface_manager_->GetSurfaceForId(surface_id);
@@ -510,7 +519,7 @@ void Surface::UpdateActivationDependencies(
     }
     if (group) {
       group->RegisterBlockedEmbedder(this, surface_id);
-      new_blocking_allocation_groups.push_back(group);
+      new_blocking_allocation_groups.insert(group);
     }
     TRACE_EVENT_WITH_FLOW2(
         TRACE_DISABLED_BY_DEFAULT("viz.surface_id_flow"),
@@ -589,15 +598,9 @@ Surface::TakePresentationHelperForPresentNotification() {
       !active_frame_data_->will_be_notified_of_presentation) {
     active_frame_data_->will_be_notified_of_presentation = true;
     return std::make_unique<PresentationHelper>(
-        GetWeakPtr(), active_frame_data_->frame.metadata.frame_token);
+        client(), active_frame_data_->frame.metadata.frame_token);
   }
   return nullptr;
-}
-
-void Surface::DidPresentSurface(uint32_t presentation_token,
-                                const gfx::PresentationFeedback& feedback) {
-  if (surface_client_)
-    surface_client_->OnSurfacePresented(presentation_token, feedback);
 }
 
 void Surface::SendAckToClient() {
@@ -613,7 +616,7 @@ void Surface::MarkAsDrawn() {
     return;
   active_frame_data_->frame_drawn = true;
   if (surface_client_)
-    surface_client_->OnSurfaceDrawn(this);
+    surface_client_->OnSurfaceWillDraw(this);
 }
 
 void Surface::NotifyAggregatedDamage(const gfx::Rect& damage_rect,
@@ -642,9 +645,10 @@ void Surface::UnrefFrameResourcesAndRunCallbacks(
 
   // If we won't be getting a presented notification, we'll notify the client
   // when the frame is unref'd.
-  if (!frame_data->will_be_notified_of_presentation)
-    DidPresentSurface(frame_data->frame.metadata.frame_token,
-                      gfx::PresentationFeedback::Failure());
+  if (!frame_data->will_be_notified_of_presentation && surface_client_)
+    surface_client_->OnSurfacePresented(frame_data->frame.metadata.frame_token,
+                                        base::TimeTicks(), gfx::SwapTimings(),
+                                        gfx::PresentationFeedback::Failure());
 }
 
 void Surface::ClearCopyRequests() {

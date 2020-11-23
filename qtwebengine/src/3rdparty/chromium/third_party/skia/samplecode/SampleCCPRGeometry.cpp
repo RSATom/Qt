@@ -28,7 +28,7 @@
 #include "src/gpu/ccpr/GrVSCoverageProcessor.h"
 #include "src/gpu/geometry/GrPathUtils.h"
 #include "src/gpu/gl/GrGLGpu.h"
-#include "src/gpu/glsl/GrGLSLFragmentProcessor.h"
+#include "src/gpu/glsl/GrGLSLFragmentShaderBuilder.h"
 #include "src/gpu/ops/GrDrawOp.h"
 
 using TriPointInstance = GrCCCoverageProcessor::TriPointInstance;
@@ -47,7 +47,7 @@ class CCPRGeometryView : public Sample {
     void onOnceBeforeDraw() override { this->updateGpuData(); }
     void onDrawContent(SkCanvas*) override;
 
-    Sample::Click* onFindClickHandler(SkScalar x, SkScalar y, ModifierKey) override;
+    Sample::Click* onFindClickHandler(SkScalar x, SkScalar y, skui::ModifierKey) override;
     bool onClick(Sample::Click*) override;
     bool onChar(SkUnichar) override;
     SkString name() override { return SkString("CCPRGeometry"); }
@@ -82,7 +82,7 @@ class CCPRGeometryView::DrawCoverageCountOp : public GrDrawOp {
 public:
     DrawCoverageCountOp(CCPRGeometryView* view) : INHERITED(ClassID()), fView(view) {
         this->setBounds(SkRect::MakeIWH(fView->width(), fView->height()), GrOp::HasAABloat::kNo,
-                        GrOp::IsZeroArea::kNo);
+                        GrOp::IsHairline::kNo);
     }
 
     const char* name() const override {
@@ -184,9 +184,9 @@ void CCPRGeometryView::onDrawContent(SkCanvas* canvas) {
 
         GrOpMemoryPool* pool = ctx->priv().opMemoryPool();
 
-        sk_sp<GrRenderTargetContext> ccbuff = ctx->priv().makeDeferredRenderTargetContext(
-                SkBackingFit::kApprox, this->width(), this->height(), GrColorType::kAlpha_F16,
-                nullptr);
+        auto ccbuff = ctx->priv().makeDeferredRenderTargetContext(SkBackingFit::kApprox,
+                                                                  this->width(), this->height(),
+                                                                  GrColorType::kAlpha_F16, nullptr);
         SkASSERT(ccbuff);
         ccbuff->clear(nullptr, SK_PMColor4fTRANSPARENT,
                       GrRenderTargetContext::CanClearFullscreen::kYes);
@@ -195,7 +195,8 @@ void CCPRGeometryView::onDrawContent(SkCanvas* canvas) {
         // Visualize coverage count in main canvas.
         GrPaint paint;
         paint.addColorFragmentProcessor(
-                GrSimpleTextureEffect::Make(sk_ref_sp(ccbuff->asTextureProxy()), SkMatrix::I()));
+                GrSimpleTextureEffect::Make(sk_ref_sp(ccbuff->asTextureProxy()),
+                                            ccbuff->colorInfo().alphaType(), SkMatrix::I()));
         paint.addColorFragmentProcessor(
                 skstd::make_unique<VisualizeCoverageCountFP>());
         paint.setPorterDuffXPFactory(SkBlendMode::kSrcOver);
@@ -335,7 +336,7 @@ void CCPRGeometryView::DrawCoverageCountOp::onExecute(GrOpFlushState* state,
     }
 
     GrPipeline pipeline(GrScissorTest::kDisabled, SkBlendMode::kPlus,
-                        state->drawOpArgs().fOutputSwizzle);
+                        state->drawOpArgs().outputSwizzle());
 
     std::unique_ptr<GrCCCoverageProcessor> proc;
     if (state->caps().shaderCaps()->geometryShaderSupport()) {
@@ -417,7 +418,7 @@ private:
     int fPtIdx;
 };
 
-Sample::Click* CCPRGeometryView::onFindClickHandler(SkScalar x, SkScalar y, ModifierKey) {
+Sample::Click* CCPRGeometryView::onFindClickHandler(SkScalar x, SkScalar y, skui::ModifierKey) {
     for (int i = 0; i < 4; ++i) {
         if (PrimitiveType::kCubics != fPrimitiveType && 2 == i) {
             continue;

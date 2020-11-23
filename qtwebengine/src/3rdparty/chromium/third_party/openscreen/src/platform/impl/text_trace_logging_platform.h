@@ -5,8 +5,7 @@
 #ifndef PLATFORM_IMPL_TEXT_TRACE_LOGGING_PLATFORM_H_
 #define PLATFORM_IMPL_TEXT_TRACE_LOGGING_PLATFORM_H_
 
-#include "platform/api/trace_logging.h"
-#include "platform/api/trace_logging_types.h"
+#include "platform/api/trace_logging_platform.h"
 
 namespace openscreen {
 namespace platform {
@@ -14,25 +13,23 @@ namespace platform {
 class TextTraceLoggingPlatform : public TraceLoggingPlatform {
  public:
   TextTraceLoggingPlatform();
-  ~TextTraceLoggingPlatform();
+  ~TextTraceLoggingPlatform() override;
+
+  bool IsTraceLoggingEnabled(TraceCategory::Value category) override;
 
   void LogTrace(const char* name,
                 const uint32_t line,
                 const char* file,
                 Clock::time_point start_time,
                 Clock::time_point end_time,
-                TraceId trace_id,
-                TraceId parent_id,
-                TraceId root_id,
+                TraceIdHierarchy ids,
                 Error::Code error) override;
 
   void LogAsyncStart(const char* name,
                      const uint32_t line,
                      const char* file,
                      Clock::time_point timestamp,
-                     TraceId trace_id,
-                     TraceId parent_id,
-                     TraceId root_id) override;
+                     TraceIdHierarchy ids) override;
 
   void LogAsyncEnd(const uint32_t line,
                    const char* file,

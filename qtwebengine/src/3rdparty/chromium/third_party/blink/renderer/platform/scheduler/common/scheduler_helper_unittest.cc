@@ -7,12 +7,12 @@
 #include "base/bind.h"
 #include "base/callback.h"
 #include "base/macros.h"
-#include "base/message_loop/message_loop.h"
 #include "base/single_thread_task_runner.h"
 #include "base/task/sequence_manager/lazy_now.h"
 #include "base/task/sequence_manager/task_queue.h"
 #include "base/task/sequence_manager/test/sequence_manager_for_test.h"
-#include "base/test/scoped_task_environment.h"
+#include "base/task/task_observer.h"
+#include "base/test/task_environment.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "third_party/blink/renderer/platform/scheduler/worker/non_main_thread_scheduler_helper.h"
@@ -52,9 +52,8 @@ class SchedulerHelperTest : public testing::Test {
  public:
   SchedulerHelperTest()
       : task_environment_(
-            base::test::ScopedTaskEnvironment::TimeSource::MOCK_TIME,
-            base::test::ScopedTaskEnvironment::ThreadPoolExecutionMode::
-                QUEUED) {
+            base::test::TaskEnvironment::TimeSource::MOCK_TIME,
+            base::test::TaskEnvironment::ThreadPoolExecutionMode::QUEUED) {
     sequence_manager_ = base::sequence_manager::SequenceManagerForTest::Create(
         nullptr, task_environment_.GetMainThreadTaskRunner(),
         task_environment_.GetMockTickClock());
@@ -82,7 +81,7 @@ class SchedulerHelperTest : public testing::Test {
   }
 
  protected:
-  base::test::ScopedTaskEnvironment task_environment_;
+  base::test::TaskEnvironment task_environment_;
   std::unique_ptr<base::sequence_manager::SequenceManagerForTest>
       sequence_manager_;
   std::unique_ptr<NonMainThreadSchedulerHelper> scheduler_helper_;
@@ -139,10 +138,12 @@ TEST_F(SchedulerHelperTest, GetNumberOfPendingTasks) {
 }
 
 namespace {
-class MockTaskObserver : public base::MessageLoop::TaskObserver {
+class MockTaskObserver : public base::TaskObserver {
  public:
   MOCK_METHOD1(DidProcessTask, void(const base::PendingTask& task));
-  MOCK_METHOD1(WillProcessTask, void(const base::PendingTask& task));
+  MOCK_METHOD2(WillProcessTask,
+               void(const base::PendingTask& task,
+                    bool was_blocked_or_low_priority));
 };
 
 void NopTask() {}
@@ -155,7 +156,7 @@ TEST_F(SchedulerHelperTest, ObserversNotifiedFor_DefaultTaskRunner) {
   scheduler_helper_->DefaultTaskRunner()->PostTask(FROM_HERE,
                                                    base::BindOnce(&NopTask));
 
-  EXPECT_CALL(observer, WillProcessTask(_)).Times(1);
+  EXPECT_CALL(observer, WillProcessTask(_, _)).Times(1);
   EXPECT_CALL(observer, DidProcessTask(_)).Times(1);
   task_environment_.RunUntilIdle();
 }
@@ -167,7 +168,7 @@ TEST_F(SchedulerHelperTest, ObserversNotNotifiedFor_ControlTaskQueue) {
   scheduler_helper_->ControlNonMainThreadTaskQueue()->task_runner()->PostTask(
       FROM_HERE, base::BindOnce(&NopTask));
 
-  EXPECT_CALL(observer, WillProcessTask(_)).Times(0);
+  EXPECT_CALL(observer, WillProcessTask(_, _)).Times(0);
   EXPECT_CALL(observer, DidProcessTask(_)).Times(0);
   task_environment_.RunUntilIdle();
 }

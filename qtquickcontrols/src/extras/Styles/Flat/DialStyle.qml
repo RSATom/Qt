@@ -74,8 +74,8 @@ Base.DialStyle {
 
             Connections {
                 target: control
-                onEnabledChanged: progressBar.updateColor()
-                onActiveFocusChanged: progressBar.updateColor()
+                function onEnabledChanged() { progressBar.updateColor() }
+                function onActiveFocusChanged() { progressBar.updateColor() }
             }
         }
 

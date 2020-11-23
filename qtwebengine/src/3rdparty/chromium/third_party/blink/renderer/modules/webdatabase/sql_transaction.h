@@ -36,6 +36,7 @@
 #include "third_party/blink/renderer/bindings/modules/v8/v8_binding_for_modules.h"
 #include "third_party/blink/renderer/bindings/modules/v8/v8_sql_transaction_callback.h"
 #include "third_party/blink/renderer/bindings/modules/v8/v8_sql_transaction_error_callback.h"
+#include "third_party/blink/renderer/core/probe/async_task_id.h"
 #include "third_party/blink/renderer/modules/webdatabase/sql_statement.h"
 #include "third_party/blink/renderer/modules/webdatabase/sql_transaction_state_machine.h"
 #include "third_party/blink/renderer/platform/bindings/script_wrappable.h"
@@ -55,8 +56,7 @@ class SQLTransaction final : public ScriptWrappable,
   DEFINE_WRAPPERTYPEINFO();
 
  public:
-  class OnProcessCallback
-      : public GarbageCollectedFinalized<OnProcessCallback> {
+  class OnProcessCallback : public GarbageCollected<OnProcessCallback> {
    public:
     virtual ~OnProcessCallback() = default;
     virtual void Trace(blink::Visitor*) {}
@@ -83,8 +83,7 @@ class SQLTransaction final : public ScriptWrappable,
     Member<V8SQLTransactionCallback> callback_;
   };
 
-  class OnSuccessCallback
-      : public GarbageCollectedFinalized<OnSuccessCallback> {
+  class OnSuccessCallback : public GarbageCollected<OnSuccessCallback> {
    public:
     virtual ~OnSuccessCallback() = default;
     virtual void Trace(blink::Visitor*) {}
@@ -110,7 +109,7 @@ class SQLTransaction final : public ScriptWrappable,
     Member<V8VoidCallback> callback_;
   };
 
-  class OnErrorCallback : public GarbageCollectedFinalized<OnErrorCallback> {
+  class OnErrorCallback : public GarbageCollected<OnErrorCallback> {
    public:
     virtual ~OnErrorCallback() = default;
     virtual void Trace(blink::Visitor*) {}
@@ -160,7 +159,7 @@ class SQLTransaction final : public ScriptWrappable,
   void executeSql(ScriptState*, const String& sql_statement, ExceptionState&);
   void executeSql(ScriptState*,
                   const String& sql_statement,
-                  const base::Optional<Vector<ScriptValue>>& arguments,
+                  const base::Optional<HeapVector<ScriptValue>>& arguments,
                   V8SQLStatementCallback*,
                   V8SQLStatementErrorCallback*,
                   ExceptionState&);
@@ -203,6 +202,7 @@ class SQLTransaction final : public ScriptWrappable,
 
   bool execute_sql_allowed_;
   std::unique_ptr<SQLErrorData> transaction_error_;
+  probe::AsyncTaskId async_task_id_;
 
   bool read_only_;
 };

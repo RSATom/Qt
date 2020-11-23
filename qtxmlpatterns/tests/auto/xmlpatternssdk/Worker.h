@@ -33,6 +33,7 @@
 #include <QList>
 #include <QObject>
 #include <QStringList>
+#include <QTextStream>
 
 #include "ResultThreader.h"
 

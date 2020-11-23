@@ -58,6 +58,7 @@
 #include "third_party/blink/renderer/modules/indexeddb/idb_open_db_request.h"
 #include "third_party/blink/renderer/modules/indexeddb/idb_request.h"
 #include "third_party/blink/renderer/modules/indexeddb/idb_transaction.h"
+#include "third_party/blink/renderer/modules/indexeddb/idb_transaction_options.h"
 #include "third_party/blink/renderer/modules/indexeddb/web_idb_cursor.h"
 #include "third_party/blink/renderer/platform/bindings/exception_state.h"
 #include "third_party/blink/renderer/platform/bindings/script_state.h"
@@ -324,8 +325,10 @@ IDBTransaction* TransactionForDatabase(
   DummyExceptionStateForTesting exception_state;
   StringOrStringSequence scope;
   scope.SetString(object_store_name);
-  IDBTransaction* idb_transaction =
-      idb_database->transaction(script_state, scope, mode, exception_state);
+  IDBTransactionOptions options;
+  options.setDurability("relaxed");
+  IDBTransaction* idb_transaction = idb_database->transaction(
+      script_state, scope, mode, &options, exception_state);
   if (exception_state.HadException())
     return nullptr;
   return idb_transaction;
@@ -893,7 +896,8 @@ class GetMetadata final : public ExecutableWithDatabase<GetMetadataCallback> {
     ScriptState::Scope scope(script_state);
     DummyExceptionStateForTesting exception_state;
     IDBRequest* idb_request_get_entries_count = idb_object_store->count(
-        script_state, ScriptValue::CreateNull(script_state), exception_state);
+        script_state, ScriptValue::CreateNull(script_state->GetIsolate()),
+        exception_state);
     DCHECK(!exception_state.HadException());
     if (exception_state.HadException()) {
       ExceptionCode ec = exception_state.Code();

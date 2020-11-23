@@ -35,7 +35,7 @@
     To import the QML types into your application, use the following import
     statement in your .qml file:
 
-    \code
+    \qml
     import QtQuick.Timeline 1.0
-    \endcode
+    \endqml
 */

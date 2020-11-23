@@ -36,6 +36,7 @@
 #include <QSignalSpy>
 #include <QTimer>
 #include <qwebenginepage.h>
+#include <qwebengineview.h>
 
 #if !defined(TESTS_SOURCE_DIR)
 #define TESTS_SOURCE_DIR ""
@@ -83,10 +84,13 @@ public:
         QObject::connect(&timeoutTimer, SIGNAL(timeout()), &eventLoop, SLOT(quit()));
     }
 
-    T waitForResult() {
-        if (!called) {
-            timeoutTimer.start(20000);
+    T waitForResult(int timeout = 20000) {
+        const int step = 1000;
+        int elapsed = 0;
+        while (elapsed < timeout && !called) {
+            timeoutTimer.start(step);
             eventLoop.exec();
+            elapsed += step;
         }
         return result;
     }
@@ -132,7 +136,7 @@ static inline QString toHtmlSync(QWebEnginePage *page)
 static inline bool findTextSync(QWebEnginePage *page, const QString &subString)
 {
     CallbackSpy<bool> spy;
-    page->findText(subString, 0, spy.ref());
+    page->findText(subString, {}, spy.ref());
     return spy.waitForResult();
 }
 
@@ -155,6 +159,18 @@ static inline QUrl baseUrlSync(QWebEnginePage *page)
     CallbackSpy<QVariant> spy;
     page->runJavaScript("document.baseURI", spy.ref());
     return spy.waitForResult().toUrl();
+}
+
+static inline bool loadSync(QWebEnginePage *page, const QUrl &url, bool ok = true)
+{
+    QSignalSpy spy(page, &QWebEnginePage::loadFinished);
+    page->load(url);
+    return (!spy.empty() || spy.wait(20000)) && (spy.front().value(0).toBool() == ok);
+}
+
+static inline bool loadSync(QWebEngineView *view, const QUrl &url, bool ok = true)
+{
+    return loadSync(view->page(), url, ok);
 }
 
 #define W_QSKIP(a, b) QSKIP(a)

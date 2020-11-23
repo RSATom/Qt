@@ -52,6 +52,8 @@
 #include <QtLocation/private/qgeocameradata_p.h>
 #include <QtPositioning/private/qdoublematrix4x4_p.h>
 #include <QtPositioning/QGeoShape>
+#include <QMatrix4x4>
+#include <QTransform>
 
 QT_BEGIN_NAMESPACE
 
@@ -107,6 +109,17 @@ public:
 
     virtual QGeoShape visibleRegion() const;
     virtual bool setBearing(qreal bearing, const QGeoCoordinate &coordinate);
+    virtual QMatrix4x4 projectionTransformation() const = 0; // This brings a mercator coord into the correct viewport coordinate.
+    virtual QMatrix4x4 projectionTransformation_centered() const = 0; // Same as projectionTransformation, but the center of the camera is around 0,0.
+                                                                      // Requires subsequent shifting of the geometry to fit such camera.
+    virtual const QMatrix4x4 &qsgTransform() const = 0;
+    virtual QDoubleVector3D centerMercator() const = 0;
+
+    void setItemToWindowTransform(const QTransform &itemToWindowTransform);
+    virtual QTransform itemToWindowTransform() const;
+
+    QTransform       m_itemToWindowTransform;
+    mutable bool     m_qsgTransformDirty = true;
 };
 
 class Q_LOCATION_PRIVATE_EXPORT QGeoProjectionWebMercator : public QGeoProjection
@@ -117,6 +130,11 @@ public:
 
     // From QGeoProjection
     double minimumZoom() const override;
+    QMatrix4x4 projectionTransformation() const override;
+    QMatrix4x4 projectionTransformation_centered() const override;
+    const QMatrix4x4 &qsgTransform() const override;
+    QDoubleVector3D centerMercator() const override;
+
     double maximumCenterLatitudeAtZoom(const QGeoCameraData &cameraData) const override;
     double minimumCenterLatitudeAtZoom(const QGeoCameraData &cameraData) const override;
 
@@ -144,6 +162,7 @@ public:
     QDoubleVector2D geoToMapProjection(const QGeoCoordinate &coordinate) const;
     QGeoCoordinate mapProjectionToGeo(const QDoubleVector2D &projection) const;
 
+    int projectionWrapFactor(const QDoubleVector2D &projection) const;
     QDoubleVector2D wrapMapProjection(const QDoubleVector2D &projection) const;
     QDoubleVector2D unwrapMapProjection(const QDoubleVector2D &wrappedProjection) const;
 
@@ -213,7 +232,10 @@ protected:
     double m_1_viewportWidth;
     double m_1_viewportHeight;
 
+    QDoubleMatrix4x4 m_cameraMatrix;
+    QDoubleMatrix4x4 m_cameraMatrix0;
     QDoubleMatrix4x4 m_transformation;
+    QDoubleMatrix4x4 m_transformation0;
     QDoubleMatrix4x4 m_quickItemTransformation;
     QDoubleVector3D  m_eye;
     QDoubleVector3D  m_up;
@@ -234,6 +256,7 @@ protected:
     // For the clipping region
     QDoubleVector3D  m_centerMercator;
     QDoubleVector3D  m_eyeMercator;
+    QDoubleVector3D  m_eyeMercator0;
     QDoubleVector3D  m_viewMercator;
     QDoubleVector3D  m_upMercator;
     QDoubleVector3D  m_sideMercator;
@@ -245,6 +268,8 @@ protected:
     QList<QDoubleVector2D> m_visibleRegionExpanded;
     QList<QDoubleVector2D> m_projectableRegion;
     bool             m_visibleRegionDirty;
+
+    mutable QMatrix4x4 m_qsgTransform;
     QRectF           m_visibleArea;
 
     Q_DISABLE_COPY(QGeoProjectionWebMercator)

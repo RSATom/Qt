@@ -15,6 +15,8 @@
 #include "base/optional.h"
 #include "content/common/content_export.h"
 #include "content/renderer/accessibility/render_accessibility_impl.h"
+#include "mojo/public/cpp/bindings/pending_remote.h"
+#include "mojo/public/cpp/bindings/remote.h"
 #include "services/image_annotation/public/cpp/image_processor.h"
 #include "services/image_annotation/public/mojom/image_annotation.mojom.h"
 #include "third_party/skia/include/core/SkBitmap.h"
@@ -36,9 +38,10 @@ class ContentClient;
 // owns it to update the relevant image annotations.
 class CONTENT_EXPORT AXImageAnnotator : public base::CheckedObserver {
  public:
-  AXImageAnnotator(RenderAccessibilityImpl* const render_accessibility,
-                   const std::string& preferred_language,
-                   image_annotation::mojom::AnnotatorPtr annotator_ptr);
+  AXImageAnnotator(
+      RenderAccessibilityImpl* const render_accessibility,
+      const std::string& preferred_language,
+      mojo::PendingRemote<image_annotation::mojom::Annotator> annotator);
   ~AXImageAnnotator() override;
 
   void Destroy();
@@ -61,12 +64,14 @@ class CONTENT_EXPORT AXImageAnnotator : public base::CheckedObserver {
   // Keeps track of the image data and the automatic annotation for each image.
   class ImageInfo final {
    public:
+    ImageInfo() = default;
     ImageInfo(const blink::WebAXObject& image);
     virtual ~ImageInfo();
     ImageInfo(ImageInfo&&) = default;
     ImageInfo& operator=(ImageInfo&&) = default;
 
-    image_annotation::mojom::ImageProcessorPtr GetImageProcessor();
+    mojo::PendingRemote<image_annotation::mojom::ImageProcessor>
+    GetImageProcessor();
     bool HasAnnotation() const;
 
     ax::mojom::ImageAnnotationStatus status() const { return status_; }
@@ -124,7 +129,7 @@ class CONTENT_EXPORT AXImageAnnotator : public base::CheckedObserver {
   std::string preferred_language_;
 
   // A pointer to the automatic image annotation service.
-  image_annotation::mojom::AnnotatorPtr annotator_ptr_;
+  mojo::Remote<image_annotation::mojom::Annotator> annotator_;
 
   // Keeps track of the image data and the automatic annotations for each image.
   //

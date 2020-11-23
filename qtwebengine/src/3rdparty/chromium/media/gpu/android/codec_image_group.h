@@ -44,19 +44,17 @@ class MEDIA_GPU_EXPORT CodecImageGroup
   CodecImageGroup(scoped_refptr<base::SequencedTaskRunner> task_runner,
                   scoped_refptr<CodecSurfaceBundle> bundle);
 
-  // Notify us that |image| uses |surface_bundle_|.
+  // Notify us that |image| uses |surface_bundle_|.  We will remove |image| from
+  // the group automatically when it's no longer using |surface_bundle_|.
   void AddCodecImage(CodecImage* image);
-
-  // Notify us that |image| no longer depends on |surface_bundle_|.
-  void RemoveCodecImage(CodecImage* image);
 
  protected:
   virtual ~CodecImageGroup();
   friend class base::RefCountedThreadSafe<CodecImageGroup>;
   friend class base::DeleteHelper<CodecImageGroup>;
 
-  // Notify us that |image| has been destroyed.
-  void OnCodecImageDestroyed(CodecImage* image);
+  // Notify us that |image| is no longer in use.
+  void OnCodecImageUnused(CodecImage* image);
 
   // Notify us that our overlay surface has been destroyed.
   void OnSurfaceDestroyed(AndroidOverlay*);
@@ -68,7 +66,10 @@ class MEDIA_GPU_EXPORT CodecImageGroup
   // All the images that use |surface_bundle_|.
   std::unordered_set<CodecImage*> images_;
 
-  base::WeakPtrFactory<CodecImageGroup> weak_this_factory_;
+  // Task runner for everything.
+  scoped_refptr<base::SequencedTaskRunner> task_runner_;
+
+  base::WeakPtrFactory<CodecImageGroup> weak_this_factory_{this};
 };
 
 }  // namespace media

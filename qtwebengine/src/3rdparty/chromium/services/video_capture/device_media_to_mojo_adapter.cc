@@ -5,8 +5,10 @@
 #include "services/video_capture/device_media_to_mojo_adapter.h"
 
 #include "base/bind.h"
+#include "base/command_line.h"
 #include "base/logging.h"
 #include "media/base/bind_to_current_loop.h"
+#include "media/base/media_switches.h"
 #include "media/capture/video/video_capture_buffer_pool_impl.h"
 #include "media/capture/video/video_capture_buffer_tracker_factory_impl.h"
 #include "media/capture/video/video_frame_receiver_on_task_runner.h"
@@ -40,24 +42,17 @@ namespace video_capture {
 
 #if defined(OS_CHROMEOS)
 DeviceMediaToMojoAdapter::DeviceMediaToMojoAdapter(
-    std::unique_ptr<service_manager::ServiceContextRef> service_ref,
     std::unique_ptr<media::VideoCaptureDevice> device,
     media::MojoMjpegDecodeAcceleratorFactoryCB jpeg_decoder_factory_callback,
     scoped_refptr<base::SequencedTaskRunner> jpeg_decoder_task_runner)
-    : service_ref_(std::move(service_ref)),
-      device_(std::move(device)),
+    : device_(std::move(device)),
       jpeg_decoder_factory_callback_(std::move(jpeg_decoder_factory_callback)),
       jpeg_decoder_task_runner_(std::move(jpeg_decoder_task_runner)),
-      device_started_(false),
-      weak_factory_(this) {}
+      device_started_(false) {}
 #else
 DeviceMediaToMojoAdapter::DeviceMediaToMojoAdapter(
-    std::unique_ptr<service_manager::ServiceContextRef> service_ref,
     std::unique_ptr<media::VideoCaptureDevice> device)
-    : service_ref_(std::move(service_ref)),
-      device_(std::move(device)),
-      device_started_(false),
-      weak_factory_(this) {}
+    : device_(std::move(device)), device_started_(false) {}
 #endif  // defined(OS_CHROMEOS)
 
 DeviceMediaToMojoAdapter::~DeviceMediaToMojoAdapter() {
@@ -68,18 +63,24 @@ DeviceMediaToMojoAdapter::~DeviceMediaToMojoAdapter() {
 
 void DeviceMediaToMojoAdapter::Start(
     const media::VideoCaptureParams& requested_settings,
-    mojom::ReceiverPtr receiver) {
+    mojo::PendingRemote<mojom::VideoFrameHandler>
+        video_frame_handler_pending_remote) {
   DCHECK(thread_checker_.CalledOnValidThread());
-  receiver.set_connection_error_handler(
-      base::Bind(&DeviceMediaToMojoAdapter::OnClientConnectionErrorOrClose,
-                 weak_factory_.GetWeakPtr()));
+  mojo::Remote<mojom::VideoFrameHandler> handler_remote(
+      std::move(video_frame_handler_pending_remote));
+  handler_remote.set_disconnect_handler(
+      base::BindOnce(&DeviceMediaToMojoAdapter::OnClientConnectionErrorOrClose,
+                     weak_factory_.GetWeakPtr()));
 
-  receiver_ = std::make_unique<ReceiverMojoToMediaAdapter>(std::move(receiver));
+  receiver_ =
+      std::make_unique<ReceiverMojoToMediaAdapter>(std::move(handler_remote));
   auto media_receiver = std::make_unique<media::VideoFrameReceiverOnTaskRunner>(
       receiver_->GetWeakPtr(), base::ThreadTaskRunnerHandle::Get());
 
   if (requested_settings.buffer_type !=
           media::VideoCaptureBufferType::kSharedMemory &&
+      requested_settings.buffer_type !=
+          media::VideoCaptureBufferType::kGpuMemoryBuffer &&
       requested_settings.buffer_type !=
           media::VideoCaptureBufferType::kSharedMemoryViaRawFileDescriptor) {
     // Buffer types other than shared memory are not supported.
@@ -94,6 +95,7 @@ void DeviceMediaToMojoAdapter::Start(
       std::make_unique<media::VideoCaptureBufferTrackerFactoryImpl>();
   scoped_refptr<media::VideoCaptureBufferPool> buffer_pool(
       new media::VideoCaptureBufferPoolImpl(std::move(buffer_tracker_factory),
+                                            requested_settings.buffer_type,
                                             max_buffer_pool_buffer_count()));
 #if defined(OS_CHROMEOS)
   auto device_client = std::make_unique<media::VideoCaptureDeviceClient>(
@@ -159,8 +161,8 @@ void DeviceMediaToMojoAdapter::Stop() {
   device_->StopAndDeAllocate();
   // We need to post the deletion of receiver to the end of the message queue,
   // because |device_->StopAndDeAllocate()| may post messages (e.g.
-  // OnBufferRetired()) to a WeakPtr to |receiver_| to this queue, and we need
-  // those messages to be sent before we invalidate the WeakPtr.
+  // OnBufferRetired()) to a WeakPtr to |receiver_| to this queue,
+  // and we need those messages to be sent before we invalidate the WeakPtr.
   base::ThreadTaskRunnerHandle::Get()->DeleteSoon(FROM_HERE,
                                                   std::move(receiver_));
 }
@@ -175,7 +177,18 @@ int DeviceMediaToMojoAdapter::max_buffer_pool_buffer_count() {
   // The maximum number of video frame buffers in-flight at any one time.
   // If all buffers are still in use by consumers when new frames are produced
   // those frames get dropped.
-  static const int kMaxBufferCount = 3;
+  static int kMaxBufferCount = 3;
+
+#if defined(OS_CHROMEOS)
+  // On Chrome OS with MIPI cameras running on HAL v3, there can be three
+  // concurrent streams of camera pipeline depth ~6. We allow at most 24 buffers
+  // here to take into account the delay caused by the consumer (e.g. display or
+  // video encoder).
+  if (base::CommandLine::ForCurrentProcess()->HasSwitch(
+          switches::kVideoCaptureUseGpuMemoryBuffer)) {
+    kMaxBufferCount = 24;
+  }
+#endif
 
   return kMaxBufferCount;
 }

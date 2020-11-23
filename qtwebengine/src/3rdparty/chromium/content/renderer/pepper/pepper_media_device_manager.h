@@ -15,14 +15,18 @@
 #include "content/public/renderer/render_frame_observer.h"
 #include "content/public/renderer/render_frame_observer_tracker.h"
 #include "content/renderer/pepper/pepper_device_enumeration_host_helper.h"
-#include "mojo/public/cpp/bindings/binding_set.h"
+#include "mojo/public/cpp/bindings/receiver_set.h"
+#include "mojo/public/cpp/bindings/remote.h"
 #include "ppapi/c/pp_instance.h"
 #include "third_party/blink/public/common/mediastream/media_devices.h"
 #include "third_party/blink/public/mojom/mediastream/media_devices.mojom.h"
 #include "third_party/blink/public/mojom/mediastream/media_stream.mojom.h"
 
+namespace blink {
+class WebMediaStreamDeviceObserver;
+}  // namespace blink
+
 namespace content {
-class MediaStreamDeviceObserver;
 
 class PepperMediaDeviceManager
     : public PepperDeviceEnumerationHostHelper::Delegate,
@@ -98,11 +102,9 @@ class PepperMediaDeviceManager
       std::vector<blink::mojom::AudioInputDeviceCapabilitiesPtr>
           audio_input_capabilities);
 
-  const blink::mojom::MediaStreamDispatcherHostPtr&
-  GetMediaStreamDispatcherHost();
-  MediaStreamDeviceObserver* GetMediaStreamDeviceObserver() const;
-  const blink::mojom::MediaDevicesDispatcherHostPtr&
-  GetMediaDevicesDispatcher();
+  blink::mojom::MediaStreamDispatcherHost* GetMediaStreamDispatcherHost();
+  blink::WebMediaStreamDeviceObserver* GetMediaStreamDeviceObserver() const;
+  blink::mojom::MediaDevicesDispatcherHost* GetMediaDevicesDispatcher();
 
   int next_id_ = 1;
   using OpenCallbackMap = std::map<int, OpenDeviceCallback>;
@@ -112,10 +114,11 @@ class PepperMediaDeviceManager
   using SubscriptionList = std::vector<Subscription>;
   SubscriptionList device_change_subscriptions_[blink::NUM_MEDIA_DEVICE_TYPES];
 
-  blink::mojom::MediaStreamDispatcherHostPtr dispatcher_host_;
-  blink::mojom::MediaDevicesDispatcherHostPtr media_devices_dispatcher_;
+  mojo::Remote<blink::mojom::MediaStreamDispatcherHost> dispatcher_host_;
+  mojo::Remote<blink::mojom::MediaDevicesDispatcherHost>
+      media_devices_dispatcher_;
 
-  mojo::BindingSet<blink::mojom::MediaDevicesListener> bindings_;
+  mojo::ReceiverSet<blink::mojom::MediaDevicesListener> receivers_;
 
   DISALLOW_COPY_AND_ASSIGN(PepperMediaDeviceManager);
 };

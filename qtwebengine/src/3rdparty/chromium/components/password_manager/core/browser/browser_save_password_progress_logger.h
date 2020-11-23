@@ -32,10 +32,6 @@ class BrowserSavePasswordProgressLogger
 
   // Browser-specific addition to the base class' Log* methods. The input is
   // sanitized and passed to SendLog for display.
-  void LogFormSignatures(StringID label, const autofill::PasswordForm& form);
-
-  // Browser-specific addition to the base class' Log* methods. The input is
-  // sanitized and passed to SendLog for display.
   void LogFormStructure(StringID label, const autofill::FormStructure& form);
 
   // Browser-specific addition to the base class' Log* methods. The input is
@@ -65,9 +61,21 @@ class BrowserSavePasswordProgressLogger
   // outlive this logger.
   const autofill::LogManager* const log_manager_;
 
-  // Return string representation for FormStructure.
+  // Returns string representation for |FormStructure|.
   std::string FormStructureToFieldsLogString(
       const autofill::FormStructure& form);
+
+  // Returns string representation of password attributes for |FormStructure|.
+  std::string FormStructurePasswordAttributesLogString(
+      const autofill::FormStructure& form);
+
+  // Returns the string representation of a password attribute.
+  std::string PasswordAttributeLogString(StringID string_id,
+                                         const std::string& attribute_value);
+
+  // Returns the string representation of a binary password attribute.
+  std::string BinaryPasswordAttributeLogString(StringID string_id,
+                                               bool attribute_value);
 
   DISALLOW_COPY_AND_ASSIGN(BrowserSavePasswordProgressLogger);
 };

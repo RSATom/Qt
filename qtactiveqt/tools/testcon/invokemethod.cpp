@@ -75,7 +75,7 @@ void InvokeMethod::setControl(QAxBase *ax)
         }
         comboMethods->model()->sort(0);
 
-        on_comboMethods_activated(comboMethods->currentText());
+        on_comboMethods_textActivated(comboMethods->currentText());
     }
 }
 
@@ -86,7 +86,7 @@ void InvokeMethod::on_buttonInvoke_clicked()
 
     on_buttonSet_clicked();
     QString method = comboMethods->currentText();
-    QList<QVariant> vars;
+    QVariantList vars;
 
     int itemCount = listParameters->topLevelItemCount();
     for (int i = 0; i < itemCount; ++i) {
@@ -105,7 +105,7 @@ void InvokeMethod::on_buttonInvoke_clicked()
                         + QLatin1Char(' ') + result.toString());
 }
 
-void InvokeMethod::on_comboMethods_activated(const QString &method)
+void InvokeMethod::on_comboMethods_textActivated(const QString &method)
 {
     if (!activex)
         return;
@@ -117,8 +117,8 @@ void InvokeMethod::on_comboMethods_activated(const QString &method)
     signature.remove(0, signature.indexOf(QLatin1Char('(')) + 1);
     signature.truncate(signature.length()-1);
 
-    QList<QByteArray> pnames = slot.parameterNames();
-    QList<QByteArray> ptypes = slot.parameterTypes();
+    const auto pnames = slot.parameterNames();
+    const auto ptypes = slot.parameterTypes();
 
     for (int p = 0; p < ptypes.count(); ++p) {
         QString ptype(QString::fromLatin1(ptypes.at(p)));

@@ -73,13 +73,13 @@ void QQuickViewTestUtil::moveMouseAway(QQuickView *window)
 void QQuickViewTestUtil::moveAndRelease(QQuickView *window, const QPoint &position)
 {
     QTest::mouseMove(window, position);
-    QTest::mouseRelease(window, Qt::LeftButton, 0, position);
+    QTest::mouseRelease(window, Qt::LeftButton, {}, position);
 }
 
 void QQuickViewTestUtil::moveAndPress(QQuickView *window, const QPoint &position)
 {
     QTest::mouseMove(window, position);
-    QTest::mousePress(window, Qt::LeftButton, 0, position);
+    QTest::mousePress(window, Qt::LeftButton, {}, position);
 }
 
 void QQuickViewTestUtil::flick(QQuickView *window, const QPoint &from, const QPoint &to, int duration)
@@ -282,14 +282,28 @@ void QQuickViewTestUtil::QaimModel::resetItems(const QList<QPair<QString, QStrin
     endResetModel();
 }
 
+class ScopedPrintable
+{
+    Q_DISABLE_COPY_MOVE(ScopedPrintable)
+
+public:
+    ScopedPrintable(const QString &string) : data(QTest::toString(string)) {}
+    ~ScopedPrintable() { delete[] data; }
+
+    operator const char*() const { return data; }
+
+private:
+    const char *data;
+};
+
 void QQuickViewTestUtil::QaimModel::matchAgainst(const QList<QPair<QString, QString> > &other, const QString &error1, const QString &error2) {
     for (int i=0; i<other.count(); i++) {
         QVERIFY2(list.contains(other[i]),
-                 QTest::toString(other[i].first + QLatin1Char(' ') + other[i].second + QLatin1Char(' ') + error1));
+                 ScopedPrintable(other[i].first + QLatin1Char(' ') + other[i].second + QLatin1Char(' ') + error1));
     }
     for (int i=0; i<list.count(); i++) {
         QVERIFY2(other.contains(list[i]),
-                 QTest::toString(list[i].first + QLatin1Char(' ') + list[i].second + QLatin1Char(' ') + error2));
+                 ScopedPrintable(list[i].first + QLatin1Char(' ') + list[i].second + QLatin1Char(' ') + error2));
     }
 }
 

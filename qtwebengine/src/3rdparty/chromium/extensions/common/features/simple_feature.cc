@@ -207,9 +207,7 @@ SimpleFeature::ScopedThreadUnsafeAllowlistForTest::
 SimpleFeature::SimpleFeature()
     : component_extensions_auto_granted_(true),
       is_internal_(false),
-      // TODO(crbug.com/979790): This will default to false once the transition
-      // to blocklisting unsupported APIs is complete.
-      disallow_for_service_workers_(true) {}
+      disallow_for_service_workers_(false) {}
 
 SimpleFeature::~SimpleFeature() {}
 
@@ -458,6 +456,8 @@ bool SimpleFeature::MatchesManifestLocation(
     case SimpleFeature::POLICY_LOCATION:
       return manifest_location == Manifest::EXTERNAL_POLICY ||
              manifest_location == Manifest::EXTERNAL_POLICY_DOWNLOAD;
+    case SimpleFeature::UNPACKED_LOCATION:
+      return Manifest::IsUnpackedLocation(manifest_location);
   }
   NOTREACHED();
   return false;

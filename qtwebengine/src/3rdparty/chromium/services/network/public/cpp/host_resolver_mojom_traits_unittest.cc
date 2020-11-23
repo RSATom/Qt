@@ -6,6 +6,7 @@
 
 #include "mojo/public/cpp/base/time_mojom_traits.h"
 #include "mojo/public/cpp/test_support/test_utils.h"
+#include "net/base/net_errors.h"
 #include "services/network/public/cpp/ip_address_mojom_traits.h"
 #include "services/network/public/cpp/ip_endpoint_mojom_traits.h"
 #include "testing/gtest/include/gtest/gtest.h"
@@ -43,6 +44,8 @@ TEST(HostResolverMojomTraitsTest, DnsConfigOverridesRoundtrip_FullySpecified) {
   original.dns_over_https_servers.emplace(
       {net::DnsConfig::DnsOverHttpsServerConfig("example.com", false)});
   original.secure_dns_mode = net::DnsConfig::SecureDnsMode::SECURE;
+  original.allow_dns_over_https_upgrade = true;
+  original.disabled_upgrade_providers.emplace({std::string("provider_name")});
 
   net::DnsConfigOverrides deserialized;
   EXPECT_TRUE(mojo::test::SerializeAndDeserialize<mojom::DnsConfigOverrides>(
@@ -84,6 +87,17 @@ TEST(HostResolverMojomTraitsTest, DnsConfigOverrides_NonUniqueHostKeys) {
   net::DnsConfigOverrides deserialized;
   EXPECT_FALSE(
       mojom::DnsConfigOverrides::Deserialize(serialized, &deserialized));
+}
+
+TEST(HostResolverMojomTraitsTest, ResolveErrorInfo) {
+  net::ResolveErrorInfo original;
+  original.error = net::ERR_NAME_NOT_RESOLVED;
+
+  net::ResolveErrorInfo deserialized;
+  EXPECT_TRUE(mojo::test::SerializeAndDeserialize<mojom::ResolveErrorInfo>(
+      &original, &deserialized));
+
+  EXPECT_EQ(original, deserialized);
 }
 
 }  // namespace

@@ -15,19 +15,17 @@
  */
 
 #include "src/profiling/memory/unwinding.h"
-#include "perfetto/ext/base/scoped_file.h"
-#include "src/profiling/memory/client.h"
-#include "src/profiling/memory/wire_protocol.h"
-
-#include <gmock/gmock.h>
-#include <gtest/gtest.h>
 
 #include <cxxabi.h>
 #include <fcntl.h>
 #include <sys/stat.h>
 #include <sys/types.h>
-
 #include <unwindstack/RegsGetLocal.h>
+
+#include "perfetto/ext/base/scoped_file.h"
+#include "src/profiling/memory/client.h"
+#include "src/profiling/memory/wire_protocol.h"
+#include "test/gtest_and_gmock.h"
 
 namespace perfetto {
 namespace profiling {
@@ -41,7 +39,7 @@ TEST(UnwindingTest, StackOverlayMemoryOverlay) {
       std::make_shared<FDMemory>(std::move(proc_mem)));
   StackOverlayMemory memory(mem, 0u, fake_stack, 1);
   uint8_t buf[1] = {};
-  ASSERT_EQ(memory.Read(0u, buf, 1), 1);
+  ASSERT_EQ(memory.Read(0u, buf, 1), 1u);
   ASSERT_EQ(buf[0], 120);
 }
 
@@ -55,7 +53,7 @@ TEST(UnwindingTest, StackOverlayMemoryNonOverlay) {
       std::make_shared<FDMemory>(std::move(proc_mem)));
   StackOverlayMemory memory(mem, 0u, fake_stack, 1);
   uint8_t buf[1] = {1};
-  ASSERT_EQ(memory.Read(reinterpret_cast<uint64_t>(&value), buf, 1), 1);
+  ASSERT_EQ(memory.Read(reinterpret_cast<uint64_t>(&value), buf, 1), 1u);
   ASSERT_EQ(buf[0], value);
 }
 
@@ -70,11 +68,27 @@ TEST(UnwindingTest, FileDescriptorMapsParse) {
   ASSERT_EQ(map_info->name, "[stack]");
 }
 
+void __attribute__((noinline)) AssertFunctionOffset() {
+  constexpr auto kMaxFunctionSize = 1000u;
+  // Need to zero-initialize to make MSAN happy. MSAN does not see the writes
+  // from AsmGetRegs (as it is in assembly) and complains otherwise.
+  char reg_data[kMaxRegisterDataSize] = {};
+  unwindstack::AsmGetRegs(reg_data);
+  auto regs = CreateRegsFromRawData(unwindstack::Regs::CurrentArch(), reg_data);
+  ASSERT_GT(regs->pc(), reinterpret_cast<uint64_t>(&AssertFunctionOffset));
+  ASSERT_LT(regs->pc() - reinterpret_cast<uint64_t>(&AssertFunctionOffset),
+            kMaxFunctionSize);
+}
+
+TEST(UnwindingTest, TestFunctionOffset) {
+  AssertFunctionOffset();
+}
+
 // This is needed because ASAN thinks copying the whole stack is a buffer
 // underrun.
 void __attribute__((noinline))
 UnsafeMemcpy(void* dst, const void* src, size_t n)
-    __attribute__((no_sanitize("address", "hwaddress"))) {
+    __attribute__((no_sanitize("address", "hwaddress", "memory"))) {
   const uint8_t* from = reinterpret_cast<const uint8_t*>(src);
   uint8_t* to = reinterpret_cast<uint8_t*>(dst);
   for (size_t i = 0; i < n; ++i)
@@ -92,13 +106,16 @@ RecordMemory __attribute__((noinline)) GetRecord(WireMessage* msg) {
 
   const char* stackbase = GetThreadStackBase();
   const char* stacktop = reinterpret_cast<char*>(__builtin_frame_address(0));
+  // Need to zero-initialize to make MSAN happy. MSAN does not see the writes
+  // from AsmGetRegs (as it is in assembly) and complains otherwise.
+  memset(metadata->register_data, 0, sizeof(metadata->register_data));
   unwindstack::AsmGetRegs(metadata->register_data);
 
   if (stackbase < stacktop) {
     PERFETTO_FATAL("Stacktop >= stackbase.");
     return {nullptr, nullptr};
   }
-  uint64_t stack_size = static_cast<uint64_t>(stackbase - stacktop);
+  size_t stack_size = static_cast<size_t>(stackbase - stacktop);
 
   metadata->alloc_size = 10;
   metadata->alloc_address = 0x10;
@@ -117,14 +134,7 @@ RecordMemory __attribute__((noinline)) GetRecord(WireMessage* msg) {
   return {std::move(payload), std::move(metadata)};
 }
 
-// TODO(rsavitski): Investigate TSAN unwinding.
-#if defined(THREAD_SANITIZER)
-#define MAYBE_DoUnwind DISABLED_DoUnwind
-#else
-#define MAYBE_DoUnwind DoUnwind
-#endif
-
-TEST(UnwindingTest, MAYBE_DoUnwind) {
+TEST(UnwindingTest, DoUnwind) {
   base::ScopedFile proc_maps(base::OpenFile("/proc/self/maps", O_RDONLY));
   base::ScopedFile proc_mem(base::OpenFile("/proc/self/mem", O_RDONLY));
   GlobalCallstackTrie callsites;
@@ -134,10 +144,35 @@ TEST(UnwindingTest, MAYBE_DoUnwind) {
   auto record = GetRecord(&msg);
   AllocRecord out;
   ASSERT_TRUE(DoUnwind(&msg, &metadata, &out));
+  ASSERT_GT(out.frames.size(), 0u);
   int st;
   std::unique_ptr<char, base::FreeDeleter> demangled(abi::__cxa_demangle(
       out.frames[0].frame.function_name.c_str(), nullptr, nullptr, &st));
-  ASSERT_EQ(st, 0);
+  ASSERT_EQ(st, 0) << "mangled: " << demangled.get()
+                   << ", frames: " << out.frames.size();
+  ASSERT_STREQ(demangled.get(),
+               "perfetto::profiling::(anonymous "
+               "namespace)::GetRecord(perfetto::profiling::WireMessage*)");
+}
+
+TEST(UnwindingTest, DoUnwindReparse) {
+  base::ScopedFile proc_maps(base::OpenFile("/proc/self/maps", O_RDONLY));
+  base::ScopedFile proc_mem(base::OpenFile("/proc/self/mem", O_RDONLY));
+  GlobalCallstackTrie callsites;
+  UnwindingMetadata metadata(getpid(), std::move(proc_maps),
+                             std::move(proc_mem));
+  // Force reparse in DoUnwind.
+  metadata.maps.Reset();
+  WireMessage msg;
+  auto record = GetRecord(&msg);
+  AllocRecord out;
+  ASSERT_TRUE(DoUnwind(&msg, &metadata, &out));
+  ASSERT_GT(out.frames.size(), 0u);
+  int st;
+  std::unique_ptr<char, base::FreeDeleter> demangled(abi::__cxa_demangle(
+      out.frames[0].frame.function_name.c_str(), nullptr, nullptr, &st));
+  ASSERT_EQ(st, 0) << "mangled: " << demangled.get()
+                   << ", frames: " << out.frames.size();
   ASSERT_STREQ(demangled.get(),
                "perfetto::profiling::(anonymous "
                "namespace)::GetRecord(perfetto::profiling::WireMessage*)");

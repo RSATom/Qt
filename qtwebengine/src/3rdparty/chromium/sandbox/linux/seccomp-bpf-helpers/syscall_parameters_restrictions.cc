@@ -372,11 +372,10 @@ ResultExpr RestrictClockID() {
   return
     If((clockid & kIsPidBit) == 0,
       Switch(clockid).CASES((
-#if defined(OS_ANDROID)
               CLOCK_BOOTTIME,
-#endif
               CLOCK_MONOTONIC,
               CLOCK_MONOTONIC_COARSE,
+              CLOCK_MONOTONIC_RAW,
               CLOCK_PROCESS_CPUTIME_ID,
               CLOCK_REALTIME,
               CLOCK_REALTIME_COARSE,
@@ -413,9 +412,11 @@ ResultExpr RestrictPtrace() {
 #if !defined(__aarch64__)
         PTRACE_GETREGS,
         PTRACE_GETFPREGS,
+#if defined(TRACE_GET_THREAD_AREA)
         PTRACE_GET_THREAD_AREA,
 #endif
-#if defined(__arm__)
+#endif
+#if defined(__arm__) && defined (PTRACE_GETVFPREGS)
         PTRACE_GETVFPREGS,
 #endif
         PTRACE_GETREGSET,

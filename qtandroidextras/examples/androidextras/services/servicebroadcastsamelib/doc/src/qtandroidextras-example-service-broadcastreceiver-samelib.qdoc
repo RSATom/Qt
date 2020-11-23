@@ -1,0 +1,153 @@
+/****************************************************************************
+**
+** Copyright (C) 2020 The Qt Company Ltd.
+** Contact: https://www.qt.io/licensing/
+**
+** This file is part of the QtAndroidExtras module of the Qt Toolkit.
+**
+** $QT_BEGIN_LICENSE:BSD$
+** Commercial License Usage
+** Licensees holding valid commercial Qt licenses may use this file in
+** accordance with the commercial license agreement provided with the
+** Software or, alternatively, in accordance with the terms contained in
+** a written agreement between you and The Qt Company. For licensing terms
+** and conditions see https://www.qt.io/terms-conditions. For further
+** information use the contact form at https://www.qt.io/contact-us.
+**
+** BSD License Usage
+** Alternatively, you may use this file under the terms of the BSD license
+** as follows:
+**
+** "Redistribution and use in source and binary forms, with or without
+** modification, are permitted provided that the following conditions are
+** met:
+**   * Redistributions of source code must retain the above copyright
+**     notice, this list of conditions and the following disclaimer.
+**   * Redistributions in binary form must reproduce the above copyright
+**     notice, this list of conditions and the following disclaimer in
+**     the documentation and/or other materials provided with the
+**     distribution.
+**   * Neither the name of The Qt Company Ltd nor the names of its
+**     contributors may be used to endorse or promote products derived
+**     from this software without specific prior written permission.
+**
+**
+** THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
+** "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
+** LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
+** A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT
+** OWNER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
+** SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT
+** LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
+** DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
+** THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+** (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+** OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE."
+**
+** $QT_END_LICENSE$
+**
+****************************************************************************/
+
+/*!
+    \title Android Service with BroadcastReceiver - Same Lib File
+    \ingroup examples-qtandroidextras
+    \example services/servicebroadcastsamelib
+    \brief Demonstrates how to run an Android service in a separate process,
+            and how to communicate with Qt using a BroadcastReceiver.
+
+    \image androidservices.png
+
+    This example demonstrates how to create and run an Android service in its
+    own process using the same main \c .so lib file, and then exchange data
+    between QML/C++ and the Java service using a
+    \l{Android: BroadcastReceiver}{BroadcastReceiver}.
+
+    When clicking the \uicontrol {Send to Service} button, the name entered in
+    the QML view, Qt, in this case, is sent to the Android service. Then, the
+    service replies back with a message \c {Hello Qt} which is printed in the
+    QML view.
+
+    \include examples-run.qdocinc
+
+    \section1 Create the Service
+
+    When running the app's process, you can extend either \c QtService or \c Service.
+    Extending \c QtService allows Qt to load all the necessary libraries to load
+    Qt components correctly and call native methods on Android. However, here
+    the service is running in the same process, and with the BroadcastReceiver you
+    don't need native calls to exchange messages with Qt, so extending either
+    class works.
+
+    Start by creating the Java service class. This is a normal Android \c Service
+    that receives a name from QML and replies back with \c {Hello <name>}:
+
+    \quotefromfile services/servicebroadcastsamelib/android/src/org/qtproject/example/qtandroidservice/QtAndroidService.java
+    \skipto package
+    \printuntil /^\}/
+
+    In the overwritten method
+    \l{Android: Service onStartCommand}{onStartCommand()},
+    the service receives a name from the calling intent, then sends a broadcast
+    to the BroadcastReceiver, which in turn will call the native method
+    \c {sendToQt(String message)}. For more information on managing native
+    calls in Qt, see \l{Calling QML/C++ Functions from Java Code}.
+
+    \section1 Manage the AndroidManifest.xml File
+
+    To use the service, it must be declared in the \c AndroidManifest.xml
+    file:
+
+    \quotefromfile services/servicebroadcastsamelib/android/AndroidManifest.xml
+    \skipto <service
+    \printuntil </service>
+
+    \section1 Start the Service
+
+    Since the service is run using the same \c .so lib file with different arguments
+    for the service, you must handle the arguments. For the main application use:
+
+    \quotefromfile services/servicebroadcastsamelib/main.cpp
+    \skipto (argc
+    \printline (argc
+
+    Then take the following steps:
+
+    \list 1
+        \li Register the native method
+
+        \li Create the BroadcastReceiver in a custom Java class:
+
+            \quotefromfile services/servicebroadcastsamelib/android/src/org/qtproject/example/qtandroidservice/ActivityUtils.java
+            \skipto package
+            \printuntil /^\}/
+
+        \li Register the BroadcastReceiver:
+
+            \quotefromfile services/common/qtandroidservice.cpp
+            \skipto :registerBroadcastReceiver
+            \printuntil /^\}/
+
+        \li Call the \l{Android: Service startService}{startService()}
+            method, as follows:
+
+            \quotefromfile services/common/qtandroidservice.cpp
+            \skipto sendToService
+            \printuntil /^\}/
+
+            This function is used to start the Service. If the service is already running,
+            it will only send the names without starting a new service instance.
+
+        \li Then, you have to add the necessary \l Connections, as described in
+            \l{Qt JNI Messenger}{Qt JNI Messenger Example}.
+
+    \endlist
+
+    Handle the service argument as follows:
+
+    \quotefromfile services/servicebroadcastsamelib/main.cpp
+    \skipto else if
+    \printuntil app.exec();
+
+    \sa {Android Service with BroadcastReceiver}, {Android Services},
+        {Qt for Android}, {Qt Android Extras}
+*/

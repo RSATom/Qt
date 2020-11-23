@@ -55,6 +55,7 @@
 #include "third_party/blink/renderer/core/editing/serializers/serialization.h"
 #include "third_party/blink/renderer/core/frame/frame.h"
 #include "third_party/blink/renderer/core/frame/local_frame.h"
+#include "third_party/blink/renderer/core/frame/remote_frame.h"
 #include "third_party/blink/renderer/core/html/forms/html_input_element.h"
 #include "third_party/blink/renderer/core/html/html_frame_owner_element.h"
 #include "third_party/blink/renderer/core/html/html_link_element.h"
@@ -64,6 +65,7 @@
 #include "third_party/blink/renderer/core/html/imports/html_import_loader.h"
 #include "third_party/blink/renderer/core/html/portal/document_portals.h"
 #include "third_party/blink/renderer/core/html/portal/html_portal_element.h"
+#include "third_party/blink/renderer/core/html/portal/portal_contents.h"
 #include "third_party/blink/renderer/core/input_type_names.h"
 #include "third_party/blink/renderer/core/inspector/dom_editor.h"
 #include "third_party/blink/renderer/core/inspector/dom_patch_support.h"
@@ -100,7 +102,7 @@ const UChar kEllipsisUChar[] = {0x2026, 0};
 }  // namespace
 
 class InspectorRevalidateDOMTask final
-    : public GarbageCollectedFinalized<InspectorRevalidateDOMTask> {
+    : public GarbageCollected<InspectorRevalidateDOMTask> {
  public:
   explicit InspectorRevalidateDOMTask(InspectorDOMAgent*);
   void ScheduleStyleAttrRevalidationFor(Element*);
@@ -241,7 +243,8 @@ InspectorDOMAgent::InspectorDOMAgent(
       document_node_to_id_map_(MakeGarbageCollected<NodeToIdMap>()),
       last_node_id_(1),
       suppress_attribute_modified_event_(false),
-      enabled_(&agent_state_, /*default_value=*/false) {}
+      enabled_(&agent_state_, /*default_value=*/false),
+      capture_node_stack_traces_(&agent_state_, /*default_value=*/false) {}
 
 InspectorDOMAgent::~InspectorDOMAgent() = default;
 
@@ -328,7 +331,7 @@ void InspectorDOMAgent::Unbind(Node* node, NodeToIdMap* nodes_map) {
     if (element->GetPseudoElement(kPseudoIdAfter))
       Unbind(element->GetPseudoElement(kPseudoIdAfter), nodes_map);
 
-    if (auto* link_element = ToHTMLLinkElementOrNull(*element)) {
+    if (auto* link_element = DynamicTo<HTMLLinkElement>(*element)) {
       if (link_element->IsImport() && link_element->import())
         Unbind(link_element->import(), nodes_map);
     }
@@ -1268,14 +1271,40 @@ Response InspectorDOMAgent::setFileInputFiles(
   Response response = AssertNode(node_id, backend_node_id, object_id, node);
   if (!response.isSuccess())
     return response;
-  if (!IsHTMLInputElement(*node) ||
-      ToHTMLInputElement(*node).type() != input_type_names::kFile)
+
+  auto* html_input_element = DynamicTo<HTMLInputElement>(node);
+  if (!html_input_element ||
+      html_input_element->type() != input_type_names::kFile)
     return Response::Error("Node is not a file input element");
 
   Vector<String> paths;
   for (const String& file : *files)
     paths.push_back(file);
-  ToHTMLInputElement(node)->SetFilesFromPaths(paths);
+  To<HTMLInputElement>(node)->SetFilesFromPaths(paths);
+  return Response::OK();
+}
+
+Response InspectorDOMAgent::setNodeStackTracesEnabled(bool enable) {
+  capture_node_stack_traces_.Set(enable);
+  return Response::OK();
+}
+
+Response InspectorDOMAgent::getNodeStackTraces(
+    int node_id,
+    protocol::Maybe<v8_inspector::protocol::Runtime::API::StackTrace>*
+        creation) {
+  Node* node = nullptr;
+  Response response = AssertNode(node_id, node);
+  if (!response.isSuccess())
+    return response;
+
+  InspectorSourceLocation* creation_inspector_source_location =
+      node_to_creation_source_location_map_.at(node);
+  if (creation_inspector_source_location) {
+    SourceLocation& source_location =
+        creation_inspector_source_location->GetSourceLocation();
+    *creation = source_location.BuildInspectorObject();
+  }
   return Response::OK();
 }
 
@@ -1314,7 +1343,9 @@ Response InspectorDOMAgent::getNodeForLocation(
     int x,
     int y,
     Maybe<bool> optional_include_user_agent_shadow_dom,
+    Maybe<bool> optional_ignore_pointer_events_none,
     int* backend_node_id,
+    String* frame_id,
     Maybe<int>* node_id) {
   bool include_user_agent_shadow_dom =
       optional_include_user_agent_shadow_dom.fromMaybe(false);
@@ -1322,8 +1353,12 @@ Response InspectorDOMAgent::getNodeForLocation(
   PhysicalOffset document_point(
       LayoutUnit(x * inspected_frames_->Root()->PageZoomFactor()),
       LayoutUnit(y * inspected_frames_->Root()->PageZoomFactor()));
-  HitTestRequest request(HitTestRequest::kMove | HitTestRequest::kReadOnly |
-                         HitTestRequest::kAllowChildFrameContent);
+  HitTestRequest::HitTestRequestType hit_type =
+      HitTestRequest::kMove | HitTestRequest::kReadOnly |
+      HitTestRequest::kAllowChildFrameContent;
+  if (optional_ignore_pointer_events_none.fromMaybe(false))
+    hit_type |= HitTestRequest::kIgnorePointerEventsNone;
+  HitTestRequest request(hit_type);
   HitTestLocation location(document->View()->DocumentToFrame(document_point));
   HitTestResult result(request, location);
   document->GetFrame()->ContentLayoutObject()->HitTest(location, result);
@@ -1335,6 +1370,8 @@ Response InspectorDOMAgent::getNodeForLocation(
   if (!node)
     return Response::Error("No node found at given location");
   *backend_node_id = IdentifiersFactory::IntIdForNode(node);
+  LocalFrame* frame = node->GetDocument().GetFrame();
+  *frame_id = IdentifiersFactory::FrameId(frame);
   if (enabled_.Get() && document_ &&
       document_node_to_id_map_->Contains(document_)) {
     *node_id = PushNodePathToFrontend(node);
@@ -1491,7 +1528,7 @@ std::unique_ptr<protocol::DOM::Node> InspectorDOMAgent::BuildObjectForNode(
       force_push_children = true;
     }
 
-    if (auto* link_element = ToHTMLLinkElementOrNull(*element)) {
+    if (auto* link_element = DynamicTo<HTMLLinkElement>(*element)) {
       if (link_element->IsImport() && link_element->import() &&
           InnerParentNode(link_element->import()) == link_element) {
         value->setImportedDocument(BuildObjectForNode(
@@ -1500,7 +1537,7 @@ std::unique_ptr<protocol::DOM::Node> InspectorDOMAgent::BuildObjectForNode(
       force_push_children = true;
     }
 
-    if (auto* template_element = ToHTMLTemplateElementOrNull(*element)) {
+    if (auto* template_element = DynamicTo<HTMLTemplateElement>(*element)) {
       value->setTemplateContent(BuildObjectForNode(
           template_element->content(), 0, pierce, nodes_map, flatten_result));
       force_push_children = true;
@@ -1527,7 +1564,7 @@ std::unique_ptr<protocol::DOM::Node> InspectorDOMAgent::BuildObjectForNode(
           BuildArrayForDistributedNodes(insertion_point));
       force_push_children = true;
     }
-    if (auto* slot = ToHTMLSlotElementOrNull(*element)) {
+    if (auto* slot = DynamicTo<HTMLSlotElement>(*element)) {
       if (node->IsInShadowTree()) {
         value->setDistributedNodes(BuildDistributedNodesForSlot(slot));
         force_push_children = true;
@@ -1771,7 +1808,7 @@ void InspectorDOMAgent::CollectNodes(
     if (pierce && root)
       CollectNodes(root, depth, pierce, filter, result);
 
-    if (auto* link_element = ToHTMLLinkElementOrNull(*element)) {
+    if (auto* link_element = DynamicTo<HTMLLinkElement>(*element)) {
       if (link_element->IsImport() && link_element->import() &&
           InnerParentNode(link_element->import()) == link_element) {
         CollectNodes(link_element->import(), depth, pierce, filter, result);
@@ -2080,6 +2117,24 @@ void InspectorDOMAgent::PseudoElementDestroyed(PseudoElement* pseudo_element) {
   GetFrontend()->pseudoElementRemoved(parent_id, pseudo_element_id);
 }
 
+void InspectorDOMAgent::NodeCreated(Node* node) {
+  if (!capture_node_stack_traces_.Get())
+    return;
+
+  std::unique_ptr<SourceLocation> creation_source_location =
+      SourceLocation::CaptureWithFullStackTrace();
+  if (creation_source_location) {
+    node_to_creation_source_location_map_.Set(
+        node, MakeGarbageCollected<InspectorSourceLocation>(
+                  std::move(creation_source_location)));
+  }
+}
+
+void InspectorDOMAgent::PortalRemoteFrameCreated(
+    HTMLPortalElement* portal_element) {
+  InvalidateFrameOwnerElement(portal_element);
+}
+
 static ShadowRoot* ShadowRootForNode(Node* node, const String& type) {
   auto* element = DynamicTo<Element>(node);
   if (!element)
@@ -2230,10 +2285,10 @@ protocol::Response InspectorDOMAgent::getFrameOwner(
       break;
   }
   if (!frame) {
-    for (HTMLPortalElement* portal :
+    for (PortalContents* portal :
          DocumentPortals::From(*inspected_frames_->Root()->GetDocument())
              .GetPortals()) {
-      frame = portal->ContentFrame();
+      frame = portal->GetFrame();
       if (IdentifiersFactory::FrameId(frame) == frame_id)
         break;
     }
@@ -2288,6 +2343,7 @@ void InspectorDOMAgent::Trace(blink::Visitor* visitor) {
   visitor->Trace(search_results_);
   visitor->Trace(history_);
   visitor->Trace(dom_editor_);
+  visitor->Trace(node_to_creation_source_location_map_);
   InspectorBaseAgent::Trace(visitor);
 }
 

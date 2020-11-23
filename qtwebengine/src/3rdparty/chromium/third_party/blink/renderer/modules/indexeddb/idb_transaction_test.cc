@@ -53,8 +53,8 @@
 #include "third_party/blink/renderer/modules/indexeddb/mock_web_idb_database.h"
 #include "third_party/blink/renderer/modules/indexeddb/mock_web_idb_transaction.h"
 #include "third_party/blink/renderer/platform/heap/heap.h"
-#include "third_party/blink/renderer/platform/shared_buffer.h"
 #include "third_party/blink/renderer/platform/testing/testing_platform_support.h"
+#include "third_party/blink/renderer/platform/wtf/shared_buffer.h"
 #include "v8/include/v8.h"
 
 namespace blink {
@@ -98,7 +98,8 @@ class IDBTransactionTest : public testing::Test {
     HashSet<String> transaction_scope = {"store"};
     transaction_ = IDBTransaction::CreateNonVersionChange(
         scope.GetScriptState(), std::move(transaction_backend), kTransactionId,
-        transaction_scope, mojom::IDBTransactionMode::ReadOnly, db_.Get());
+        transaction_scope, mojom::IDBTransactionMode::ReadOnly,
+        mojom::IDBTransactionDurability::Relaxed, db_.Get());
 
     IDBKeyPath store_key_path("primaryKey");
     scoped_refptr<IDBObjectStoreMetadata> store_metadata = base::AdoptRef(

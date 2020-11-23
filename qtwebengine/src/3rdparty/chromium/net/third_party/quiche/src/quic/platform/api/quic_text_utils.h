@@ -7,13 +7,14 @@
 
 #include <string>
 
+#include "net/third_party/quiche/src/quic/platform/api/quic_export.h"
 #include "net/third_party/quiche/src/quic/platform/api/quic_string_piece.h"
 #include "net/quic/platform/impl/quic_text_utils_impl.h"
 
 namespace quic {
 
 // Various utilities for manipulating text.
-class QuicTextUtils {
+class QUIC_EXPORT_PRIVATE QuicTextUtils {
  public:
   // Returns true if |data| starts with |prefix|, case sensitively.
   static bool StartsWith(QuicStringPiece data, QuicStringPiece prefix) {
@@ -107,6 +108,11 @@ class QuicTextUtils {
   // Returns true if |data| contains any uppercase characters.
   static bool ContainsUpperCase(QuicStringPiece data) {
     return QuicTextUtilsImpl::ContainsUpperCase(data);
+  }
+
+  // Returns true if |data| contains only decimal digits.
+  static bool IsAllDigits(QuicStringPiece data) {
+    return QuicTextUtilsImpl::IsAllDigits(data);
   }
 
   // Splits |data| into a vector of pieces delimited by |delim|.

@@ -218,7 +218,7 @@ Item::Iterator::Ptr TokenizeFN::evaluateSequence(const DynamicContext::Ptr &cont
         return CommonValues::emptyIterator;
 
     QRegExp regExp(pattern(context));
-    const QStringList result(input.split(regExp, QString::KeepEmptyParts));
+    const QStringList result(input.split(regExp, Qt::KeepEmptyParts));
 
     return makeItemMappingIterator<Item>(ConstPtr(this),
                                          makeListIterator(result),

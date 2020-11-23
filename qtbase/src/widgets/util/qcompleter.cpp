@@ -473,7 +473,7 @@ QMatchData QCompletionEngine::filterHistory()
     if (curParts.count() <= 1 || c->proxy->showAll || !source)
         return QMatchData();
 
-#if QT_CONFIG(dirmodel)
+#if QT_CONFIG(dirmodel) && QT_DEPRECATED_SINCE(5, 15)
     const bool isDirModel = (qobject_cast<QDirModel *>(source) != nullptr);
 #else
     const bool isDirModel = false;
@@ -597,7 +597,8 @@ QIndexMapper QSortedModelEngine::indexHint(QString part, const QModelIndex& pare
     const CacheItem::const_iterator it = map.lowerBound(part);
 
     // look backward for first valid hint
-    for(CacheItem::const_iterator it1 = it; it1-- != map.constBegin();) {
+    for (CacheItem::const_iterator it1 = it; it1 != map.constBegin();) {
+        --it1;
         const QMatchData& value = it1.value();
         if (value.isValid()) {
             if (order == Qt::AscendingOrder) {
@@ -757,7 +758,10 @@ int QUnsortedModelEngine::buildIndices(const QString& str, const QModelIndex& pa
         case Qt::MatchExactly:
         case Qt::MatchFixedString:
         case Qt::MatchCaseSensitive:
+QT_WARNING_PUSH
+QT_WARNING_DISABLE_DEPRECATED
         case Qt::MatchRegExp:
+QT_WARNING_POP
         case Qt::MatchWildcard:
         case Qt::MatchWrap:
         case Qt::MatchRecursive:
@@ -903,7 +907,7 @@ void QCompleterPrivate::_q_complete(QModelIndex index, bool highlighted)
         QModelIndex si = proxy->mapToSource(index);
         si = si.sibling(si.row(), column); // for clicked()
         completion = q->pathFromIndex(si);
-#if QT_CONFIG(dirmodel)
+#if QT_CONFIG(dirmodel) && QT_DEPRECATED_SINCE(5, 15)
         // add a trailing separator in inline
         if (mode == QCompleter::InlineCompletion) {
             if (qobject_cast<QDirModel *>(proxy->sourceModel()) && QFileInfo(completion).isDir())
@@ -1125,7 +1129,7 @@ void QCompleter::setModel(QAbstractItemModel *model)
         setPopup(d->popup); // set the model and make new connections
     if (oldModel && oldModel->QObject::parent() == this)
         delete oldModel;
-#if QT_CONFIG(dirmodel)
+#if QT_CONFIG(dirmodel) && QT_DEPRECATED_SINCE(5, 15)
     if (qobject_cast<QDirModel *>(model)) {
 #if defined(Q_OS_WIN)
         setCaseSensitivity(Qt::CaseInsensitive);
@@ -1262,7 +1266,7 @@ Qt::MatchFlags QCompleter::filterMode() const
 void QCompleter::setPopup(QAbstractItemView *popup)
 {
     Q_D(QCompleter);
-    Q_ASSERT(popup != 0);
+    Q_ASSERT(popup != nullptr);
     if (d->popup) {
         QObject::disconnect(d->popup->selectionModel(), nullptr, this, nullptr);
         QObject::disconnect(d->popup, nullptr, this, nullptr);
@@ -1846,7 +1850,7 @@ QString QCompleter::pathFromIndex(const QModelIndex& index) const
         return QString();
     bool isDirModel = false;
     bool isFsModel = false;
-#if QT_CONFIG(dirmodel)
+#if QT_CONFIG(dirmodel) && QT_DEPRECATED_SINCE(5, 15)
     isDirModel = qobject_cast<QDirModel *>(d->proxy->sourceModel()) != nullptr;
 #endif
 #if QT_CONFIG(filesystemmodel)
@@ -1895,7 +1899,7 @@ QStringList QCompleter::splitPath(const QString& path) const
 {
     bool isDirModel = false;
     bool isFsModel = false;
-#if QT_CONFIG(dirmodel)
+#if QT_CONFIG(dirmodel) && QT_DEPRECATED_SINCE(5, 15)
     Q_D(const QCompleter);
     isDirModel = qobject_cast<QDirModel *>(d->proxy->sourceModel()) != nullptr;
 #endif

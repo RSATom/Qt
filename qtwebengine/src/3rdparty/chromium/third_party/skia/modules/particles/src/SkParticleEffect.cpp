@@ -7,49 +7,287 @@
 
 #include "modules/particles/include/SkParticleEffect.h"
 
-#include "include/core/SkCanvas.h"
 #include "include/core/SkPaint.h"
-#include "include/core/SkRSXform.h"
-#include "include/private/SkColorData.h"
-#include "modules/particles/include/SkParticleAffector.h"
+#include "modules/particles/include/SkParticleBinding.h"
 #include "modules/particles/include/SkParticleDrawable.h"
 #include "modules/particles/include/SkReflected.h"
+#include "modules/skresources/include/SkResources.h"
+#include "src/core/SkMakeUnique.h"
+#include "src/sksl/SkSLByteCode.h"
+#include "src/sksl/SkSLCompiler.h"
+
+static inline float bits_to_float(uint32_t u) {
+    float f;
+    memcpy(&f, &u, sizeof(uint32_t));
+    return f;
+}
+
+static inline uint32_t float_to_bits(float f) {
+    uint32_t u;
+    memcpy(&u, &f, sizeof(uint32_t));
+    return u;
+}
+
+// Exposes a particle's random generator as an external, readable value. read returns a float [0, 1)
+class SkRandomExternalValue : public SkParticleExternalValue {
+public:
+    SkRandomExternalValue(const char* name, SkSL::Compiler& compiler)
+        : SkParticleExternalValue(name, compiler, *compiler.context().fFloat_Type) {}
+
+    bool canRead() const override { return true; }
+    void read(int index, float* target) override {
+        *target = fRandom[index].nextF();
+    }
+};
+
+static const char* kCommonHeader =
+R"(
+struct Effect {
+  float  age;
+  float  lifetime;
+  int    loop;
+  float  rate;
+  int    burst;
+
+  float2 pos;
+  float2 dir;
+  float  scale;
+  float2 vel;
+  float  spin;
+  float4 color;
+  float  frame;
+  uint   flags;
+};
+
+uniform float dt;
+)";
+
+static const char* kParticleHeader =
+R"(
+struct Particle {
+  float  age;
+  float  lifetime;
+  float2 pos;
+  float2 dir;
+  float  scale;
+  float2 vel;
+  float  spin;
+  float4 color;
+  float  frame;
+  uint   flags;
+};
+
+uniform Effect effect;
+)";
+
+static const char* kDefaultEffectCode =
+R"(void effectSpawn(inout Effect effect) {
+}
+
+void effectUpdate(inout Effect effect) {
+}
+)";
+
+static const char* kDefaultParticleCode =
+R"(void spawn(inout Particle p) {
+}
+
+void update(inout Particle p) {
+}
+)";
+
+SkParticleEffectParams::SkParticleEffectParams()
+        : fMaxCount(128)
+        , fDrawable(nullptr)
+        , fEffectCode(kDefaultEffectCode)
+        , fParticleCode(kDefaultParticleCode) {}
 
 void SkParticleEffectParams::visitFields(SkFieldVisitor* v) {
     v->visit("MaxCount", fMaxCount);
-    v->visit("Duration", fEffectDuration);
-    v->visit("Rate", fRate);
-    v->visit("Life", fLifetime);
-
     v->visit("Drawable", fDrawable);
+    v->visit("EffectCode", fEffectCode);
+    v->visit("Code", fParticleCode);
+    v->visit("Bindings", fBindings);
+}
 
-    v->visit("Spawn", fSpawnAffectors);
-    v->visit("Update", fUpdateAffectors);
+void SkParticleEffectParams::prepare(const skresources::ResourceProvider* resourceProvider) {
+    for (auto& binding : fBindings) {
+        if (binding) {
+            binding->prepare(resourceProvider);
+        }
+    }
+    if (fDrawable) {
+        fDrawable->prepare(resourceProvider);
+    }
+
+    auto buildProgram = [this](const SkSL::String& code, Program* p) {
+        SkSL::Compiler compiler;
+        SkSL::Program::Settings settings;
+
+        SkTArray<std::unique_ptr<SkParticleExternalValue>> externalValues;
+
+        auto rand = skstd::make_unique<SkRandomExternalValue>("rand", compiler);
+        compiler.registerExternalValue(rand.get());
+        externalValues.push_back(std::move(rand));
+
+        for (const auto& binding : fBindings) {
+            if (binding) {
+                auto value = binding->toValue(compiler);
+                compiler.registerExternalValue(value.get());
+                externalValues.push_back(std::move(value));
+            }
+        }
+
+        auto program = compiler.convertProgram(SkSL::Program::kGeneric_Kind, code, settings);
+        if (!program) {
+            SkDebugf("%s\n", compiler.errorText().c_str());
+            return;
+        }
+
+        auto byteCode = compiler.toByteCode(*program);
+        if (!byteCode) {
+            SkDebugf("%s\n", compiler.errorText().c_str());
+            return;
+        }
+
+        p->fByteCode = std::move(byteCode);
+        p->fExternalValues.swap(externalValues);
+    };
+
+    SkSL::String effectCode(kCommonHeader);
+    effectCode.append(fEffectCode.c_str());
+
+    SkSL::String particleCode(kCommonHeader);
+    particleCode.append(kParticleHeader);
+    particleCode.append(fParticleCode.c_str());
+
+    buildProgram(effectCode, &fEffectProgram);
+    buildProgram(particleCode, &fParticleProgram);
 }
 
 SkParticleEffect::SkParticleEffect(sk_sp<SkParticleEffectParams> params, const SkRandom& random)
         : fParams(std::move(params))
         , fRandom(random)
         , fLooping(false)
-        , fSpawnTime(-1.0)
         , fCount(0)
         , fLastTime(-1.0)
         , fSpawnRemainder(0.0f) {
+    fState.fAge = -1.0f;
     this->setCapacity(fParams->fMaxCount);
 }
 
-void SkParticleEffect::start(double now, bool looping) {
+void SkParticleEffect::start(double now, bool looping, SkPoint position, SkVector heading,
+                             float scale, SkVector velocity, float spin, SkColor4f color,
+                             float frame, uint32_t flags) {
     fCount = 0;
-    fLastTime = fSpawnTime = now;
+    fLastTime = now;
     fSpawnRemainder = 0.0f;
     fLooping = looping;
+
+    fState.fAge = 0.0f;
+
+    // A default lifetime makes sense - many effects are simple loops that don't really care.
+    // Every effect should define its own rate of emission, or only use bursts, so leave that as
+    // zero initially.
+    fState.fLifetime = 1.0f;
+    fState.fLoopCount = 0;
+    fState.fRate = 0.0f;
+    fState.fBurst = 0;
+
+    fState.fPosition = position;
+    fState.fHeading  = heading;
+    fState.fScale    = scale;
+    fState.fVelocity = velocity;
+    fState.fSpin     = spin;
+    fState.fColor    = color;
+    fState.fFrame    = frame;
+    fState.fFlags    = flags;
+
+    // Defer running effectSpawn until the first update (to reuse the code when looping)
 }
 
-void SkParticleEffect::update(double now) {
-    if (!this->isAlive() || !fParams->fDrawable) {
-        return;
-    }
+// Spawns new effects that were requested by any *effect* script (copies default values from
+// the current effect state).
+void SkParticleEffect::processEffectSpawnRequests(double now) {
+    for (const auto& spawnReq : fSpawnRequests) {
+        sk_sp<SkParticleEffect> newEffect(new SkParticleEffect(std::move(spawnReq.fParams),
+                                                               fRandom));
+        fRandom.nextU();
 
+        newEffect->start(now, spawnReq.fLoop, fState.fPosition, fState.fHeading, fState.fScale,
+                         fState.fVelocity, fState.fSpin, fState.fColor, fState.fFrame,
+                         fState.fFlags);
+        fSubEffects.push_back(std::move(newEffect));
+    }
+    fSpawnRequests.reset();
+}
+
+void SkParticleEffect::runEffectScript(double now, const char* entry) {
+    if (const auto& byteCode = fParams->fEffectProgram.fByteCode) {
+        if (auto fun = byteCode->getFunction(entry)) {
+            for (const auto& value : fParams->fEffectProgram.fExternalValues) {
+                value->setRandom(&fRandom);
+                value->setEffect(this);
+            }
+            SkAssertResult(byteCode->run(fun, &fState.fAge, sizeof(EffectState) / sizeof(float),
+                                         nullptr, 0,
+                                         fEffectUniforms.data(), fEffectUniforms.count()));
+            this->processEffectSpawnRequests(now);
+        }
+    }
+}
+
+void SkParticleEffect::processParticleSpawnRequests(double now, int start) {
+    const auto& data = fParticles.fData;
+    for (const auto& spawnReq : fSpawnRequests) {
+        int idx = start + spawnReq.fIndex;
+        sk_sp<SkParticleEffect> newEffect(new SkParticleEffect(std::move(spawnReq.fParams),
+                                                               fParticles.fRandom[idx]));
+        newEffect->start(now, spawnReq.fLoop,
+                         { data[SkParticles::kPositionX      ][idx],
+                           data[SkParticles::kPositionY      ][idx] },
+                         { data[SkParticles::kHeadingX       ][idx],
+                           data[SkParticles::kHeadingY       ][idx] },
+                           data[SkParticles::kScale          ][idx],
+                         { data[SkParticles::kVelocityX      ][idx],
+                           data[SkParticles::kVelocityY      ][idx] },
+                           data[SkParticles::kVelocityAngular][idx],
+                         { data[SkParticles::kColorR         ][idx],
+                           data[SkParticles::kColorG         ][idx],
+                           data[SkParticles::kColorB         ][idx],
+                           data[SkParticles::kColorA         ][idx] },
+                           data[SkParticles::kSpriteFrame    ][idx],
+             float_to_bits(data[SkParticles::kFlags          ][idx]));
+        fSubEffects.push_back(std::move(newEffect));
+    }
+    fSpawnRequests.reset();
+}
+
+void SkParticleEffect::runParticleScript(double now, const char* entry, int start, int count) {
+    if (const auto& byteCode = fParams->fParticleProgram.fByteCode) {
+        if (auto fun = byteCode->getFunction(entry)) {
+            float* args[SkParticles::kNumChannels];
+            for (int i = 0; i < SkParticles::kNumChannels; ++i) {
+                args[i] = fParticles.fData[i].get() + start;
+            }
+            SkRandom* randomBase = fParticles.fRandom.get() + start;
+            for (const auto& value : fParams->fParticleProgram.fExternalValues) {
+                value->setRandom(randomBase);
+                value->setEffect(this);
+            }
+            memcpy(&fParticleUniforms[1], &fState.fAge, sizeof(EffectState));
+            SkAssertResult(byteCode->runStriped(fun, count, args, SkParticles::kNumChannels,
+                                                nullptr, 0,
+                                                fParticleUniforms.data(),
+                                                fParticleUniforms.count()));
+            this->processParticleSpawnRequests(now, start);
+        }
+    }
+}
+
+void SkParticleEffect::advanceTime(double now) {
+    // TODO: Sub-frame spawning. Tricky with script driven position. Supply variable effect.age?
+    // Could be done if effect.age were an external value that offset by particle lane, perhaps.
     float deltaTime = static_cast<float>(now - fLastTime);
     if (deltaTime <= 0.0f) {
         return;
@@ -61,30 +299,85 @@ void SkParticleEffect::update(double now) {
         this->setCapacity(fParams->fMaxCount);
     }
 
-    float effectAge = static_cast<float>((now - fSpawnTime) / fParams->fEffectDuration);
-    effectAge = fLooping ? fmodf(effectAge, 1.0f) : SkTPin(effectAge, 0.0f, 1.0f);
+    // Ensure our storage block for uniforms are large enough
+    auto resizeWithZero = [](SkTArray<float, true>* uniforms, const SkSL::ByteCode* byteCode) {
+        if (byteCode) {
+            int newCount = byteCode->getUniformSlotCount();
+            if (newCount > uniforms->count()) {
+                uniforms->push_back_n(newCount - uniforms->count(), 0.0f);
+            } else {
+                uniforms->resize(newCount);
+            }
+        }
+    };
+    resizeWithZero(&fEffectUniforms, this->effectCode());
+    resizeWithZero(&fParticleUniforms, this->particleCode());
 
-    SkParticleUpdateParams updateParams;
-    updateParams.fDeltaTime = deltaTime;
-    updateParams.fEffectAge = effectAge;
+    // Copy known values into the uniform blocks
+    SkASSERT(!this->effectCode() || this->effectCode()->getUniformLocation("dt") == 0);
+    SkASSERT(!this->particleCode() || this->particleCode()->getUniformLocation("dt") == 0);
+    SkASSERT(!this->particleCode() || this->particleCode()->getUniformLocation("effect.age") == 1);
+    fEffectUniforms[0] = deltaTime;
+    fParticleUniforms[0] = deltaTime;
 
-    // During spawn, values that refer to kAge_Source get the *effect* age
-    updateParams.fAgeSource = SkParticleValue::kEffectAge_Source;
+    // Is this the first update after calling start()?
+    // Run 'effectSpawn' to set initial emitter properties.
+    if (fState.fAge == 0.0f && fState.fLoopCount == 0) {
+        this->runEffectScript(now, "effectSpawn");
+    }
 
-    // Advance age for existing particles, and remove any that have reached their end of life
-    for (int i = 0; i < fCount; ++i) {
-        fParticles[i].fAge += fParticles[i].fInvLifetime * deltaTime;
-        if (fParticles[i].fAge > 1.0f) {
-            // NOTE: This is fast, but doesn't preserve drawing order. Could be a problem...
-            fParticles[i]     = fParticles[fCount - 1];
-            fStableRandoms[i] = fStableRandoms[fCount - 1];
-            --i;
-            --fCount;
+    fState.fAge += deltaTime / fState.fLifetime;
+    if (fState.fAge > 1) {
+        // We always run effectDeath when age crosses 1, whether we're looping or actually dying
+        this->runEffectScript(now, "effectDeath");
+
+        if (fLooping) {
+            // If we looped, then run effectSpawn again (with the updated loop count)
+            fState.fLoopCount += sk_float_floor2int(fState.fAge);
+            fState.fAge = fmodf(fState.fAge, 1.0f);
+            this->runEffectScript(now, "effectSpawn");
+        } else {
+            // Effect is dead if we've reached the end (and are not looping)
+            return;
         }
     }
 
+    // Advance age for existing particles, shuffle all dying particles to the end of the arrays
+    int numDyingParticles = 0;
+    for (int i = 0; i < fCount; ++i) {
+        fParticles.fData[SkParticles::kAge][i] +=
+                fParticles.fData[SkParticles::kLifetime][i] * deltaTime;
+        if (fParticles.fData[SkParticles::kAge][i] > 1.0f) {
+            // NOTE: This is fast, but doesn't preserve drawing order. Could be a problem...
+            for (int j = 0; j < SkParticles::kNumChannels; ++j) {
+                std::swap(fParticles.fData[j][i], fParticles.fData[j][fCount - 1]);
+            }
+            std::swap(fStableRandoms[i], fStableRandoms[fCount - 1]);
+            --i;
+            --fCount;
+            ++numDyingParticles;
+        }
+    }
+
+    // Run the death script for all particles that just died
+    this->runParticleScript(now, "death", fCount, numDyingParticles);
+
+    // Run 'effectUpdate' to adjust emitter properties
+    this->runEffectScript(now, "effectUpdate");
+
+    // Do integration of effect position and orientation
+    {
+        fState.fPosition += fState.fVelocity * deltaTime;
+        float s = sk_float_sin(fState.fSpin * deltaTime),
+              c = sk_float_cos(fState.fSpin * deltaTime);
+        // Using setNormalize to prevent scale drift
+        fState.fHeading.setNormalize(fState.fHeading.fX * c - fState.fHeading.fY * s,
+                                     fState.fHeading.fX * s + fState.fHeading.fY * c);
+    }
+
     // Spawn new particles
-    float desired = fParams->fRate * deltaTime + fSpawnRemainder;
+    float desired = fState.fRate * deltaTime + fSpawnRemainder + fState.fBurst;
+    fState.fBurst = 0;
     int numToSpawn = sk_float_round2int(desired);
     fSpawnRemainder = desired - numToSpawn;
     numToSpawn = SkTPin(numToSpawn, 0, fParams->fMaxCount - fCount);
@@ -94,191 +387,104 @@ void SkParticleEffect::update(double now) {
         for (int i = 0; i < numToSpawn; ++i) {
             // Mutate our SkRandom so each particle definitely gets a different generator
             fRandom.nextU();
-            fParticles[fCount].fAge = 0.0f;
-            fParticles[fCount].fPose.fPosition = { 0.0f, 0.0f };
-            fParticles[fCount].fPose.fHeading = { 0.0f, -1.0f };
-            fParticles[fCount].fPose.fScale = 1.0f;
-            fParticles[fCount].fVelocity.fLinear = { 0.0f, 0.0f };
-            fParticles[fCount].fVelocity.fAngular = 0.0f;
-            fParticles[fCount].fColor = { 1.0f, 1.0f, 1.0f, 1.0f };
-            fParticles[fCount].fFrame = 0.0f;
-            fParticles[fCount].fRandom = fRandom;
+            fParticles.fData[SkParticles::kAge            ][fCount] = 0.0f;
+            fParticles.fData[SkParticles::kLifetime       ][fCount] = 0.0f;
+            fParticles.fData[SkParticles::kPositionX      ][fCount] = fState.fPosition.fX;
+            fParticles.fData[SkParticles::kPositionY      ][fCount] = fState.fPosition.fY;
+            fParticles.fData[SkParticles::kHeadingX       ][fCount] = fState.fHeading.fX;
+            fParticles.fData[SkParticles::kHeadingY       ][fCount] = fState.fHeading.fY;
+            fParticles.fData[SkParticles::kScale          ][fCount] = fState.fScale;
+            fParticles.fData[SkParticles::kVelocityX      ][fCount] = fState.fVelocity.fX;
+            fParticles.fData[SkParticles::kVelocityY      ][fCount] = fState.fVelocity.fY;
+            fParticles.fData[SkParticles::kVelocityAngular][fCount] = fState.fSpin;
+            fParticles.fData[SkParticles::kColorR         ][fCount] = fState.fColor.fR;
+            fParticles.fData[SkParticles::kColorG         ][fCount] = fState.fColor.fG;
+            fParticles.fData[SkParticles::kColorB         ][fCount] = fState.fColor.fB;
+            fParticles.fData[SkParticles::kColorA         ][fCount] = fState.fColor.fA;
+            fParticles.fData[SkParticles::kSpriteFrame    ][fCount] = fState.fFrame;
+            fParticles.fData[SkParticles::kFlags          ][fCount] = bits_to_float(fState.fFlags);
+            fParticles.fRandom[fCount] = fRandom;
             fCount++;
         }
 
-        // Apply spawn affectors
-        for (auto affector : fParams->fSpawnAffectors) {
-            if (affector) {
-                affector->apply(updateParams, fParticles + spawnBase, numToSpawn);
-            }
-        }
+        // Run the spawn script
+        this->runParticleScript(now, "spawn", spawnBase, numToSpawn);
 
-        // Now stash copies of the random generators and compute particle lifetimes
-        // (so the curve can refer to spawn-computed source values)
+        // Now stash copies of the random generators and compute inverse particle lifetimes
+        // (so that subsequent updates are faster)
         for (int i = spawnBase; i < fCount; ++i) {
-            fParticles[i].fInvLifetime =
-                sk_ieee_float_divide(1.0f, fParams->fLifetime.eval(updateParams, fParticles[i]));
-            fStableRandoms[i] = fParticles[i].fRandom;
+            fParticles.fData[SkParticles::kLifetime][i] =
+                    sk_ieee_float_divide(1.0f, fParticles.fData[SkParticles::kLifetime][i]);
+            fStableRandoms[i] = fParticles.fRandom[i];
         }
     }
 
     // Restore all stable random generators so update affectors get consistent behavior each frame
     for (int i = 0; i < fCount; ++i) {
-        fParticles[i].fRandom = fStableRandoms[i];
+        fParticles.fRandom[i] = fStableRandoms[i];
     }
 
-    // During update, values that refer to kAge_Source get the *particle* age
-    updateParams.fAgeSource = SkParticleValue::kParticleAge_Source;
-
-    // Apply update rules
-    for (auto affector : fParams->fUpdateAffectors) {
-        if (affector) {
-            affector->apply(updateParams, fParticles, fCount);
-        }
-    }
+    // Run the update script
+    this->runParticleScript(now, "update", 0, fCount);
 
     // Do fixed-function update work (integration of position and orientation)
     for (int i = 0; i < fCount; ++i) {
-        fParticles[i].fPose.fPosition += fParticles[i].fVelocity.fLinear * deltaTime;
+        fParticles.fData[SkParticles::kPositionX][i] +=
+                fParticles.fData[SkParticles::kVelocityX][i] * deltaTime;
+        fParticles.fData[SkParticles::kPositionY][i] +=
+                fParticles.fData[SkParticles::kVelocityY][i] * deltaTime;
 
-        SkScalar s = SkScalarSin(fParticles[i].fVelocity.fAngular * deltaTime),
-                 c = SkScalarCos(fParticles[i].fVelocity.fAngular * deltaTime);
-        SkVector oldHeading = fParticles[i].fPose.fHeading;
-        fParticles[i].fPose.fHeading = { oldHeading.fX * c - oldHeading.fY * s,
-                                         oldHeading.fX * s + oldHeading.fY * c };
+        float spin = fParticles.fData[SkParticles::kVelocityAngular][i];
+        float s = sk_float_sin(spin * deltaTime),
+              c = sk_float_cos(spin * deltaTime);
+        float oldHeadingX = fParticles.fData[SkParticles::kHeadingX][i],
+              oldHeadingY = fParticles.fData[SkParticles::kHeadingY][i];
+        fParticles.fData[SkParticles::kHeadingX][i] = oldHeadingX * c - oldHeadingY * s;
+        fParticles.fData[SkParticles::kHeadingY][i] = oldHeadingX * s + oldHeadingY * c;
+    }
+}
+
+void SkParticleEffect::update(double now) {
+    if (this->isAlive(false)) {
+        this->advanceTime(now);
     }
 
-    // Mark effect as dead if we've reached the end (and are not looping)
-    if (!fLooping && (now - fSpawnTime) > fParams->fEffectDuration) {
-        fSpawnTime = -1.0;
+    // Now update all of our sub-effects, removing any that have died
+    for (int i = 0; i < fSubEffects.count(); ++i) {
+        fSubEffects[i]->update(now);
+        if (!fSubEffects[i]->isAlive()) {
+            fSubEffects[i] = fSubEffects.back();
+            fSubEffects.pop_back();
+            --i;
+        }
     }
 }
 
 void SkParticleEffect::draw(SkCanvas* canvas) {
-    if (this->isAlive() && fParams->fDrawable) {
+    if (this->isAlive(false) && fParams->fDrawable) {
         SkPaint paint;
         paint.setFilterQuality(SkFilterQuality::kMedium_SkFilterQuality);
-        fParams->fDrawable->draw(canvas, fParticles.get(), fCount, &paint);
+        fParams->fDrawable->draw(canvas, fParticles, fCount, paint);
+    }
+
+    for (const auto& subEffect : fSubEffects) {
+        subEffect->draw(canvas);
     }
 }
 
 void SkParticleEffect::setCapacity(int capacity) {
-    fParticles.realloc(capacity);
+    for (int i = 0; i < SkParticles::kNumChannels; ++i) {
+        fParticles.fData[i].realloc(capacity);
+    }
+    fParticles.fRandom.realloc(capacity);
     fStableRandoms.realloc(capacity);
 
     fCapacity = capacity;
     fCount = SkTMin(fCount, fCapacity);
 }
 
-constexpr SkFieldVisitor::EnumStringMapping gValueSourceMapping[] = {
-    { SkParticleValue::kAge_Source,          "Age" },
-    { SkParticleValue::kRandom_Source,       "Random" },
-    { SkParticleValue::kParticleAge_Source,  "ParticleAge" },
-    { SkParticleValue::kEffectAge_Source,    "EffectAge" },
-    { SkParticleValue::kPositionX_Source,    "PositionX" },
-    { SkParticleValue::kPositionY_Source,    "PositionY" },
-    { SkParticleValue::kHeadingX_Source,     "HeadingX" },
-    { SkParticleValue::kHeadingY_Source,     "HeadingY" },
-    { SkParticleValue::kScale_Source,        "Scale" },
-    { SkParticleValue::kVelocityX_Source,    "VelocityX" },
-    { SkParticleValue::kVelocityY_Source,    "VelocityY" },
-    { SkParticleValue::kRotation_Source,     "Rotation" },
-    { SkParticleValue::kColorR_Source,       "ColorR" },
-    { SkParticleValue::kColorG_Source,       "ColorG" },
-    { SkParticleValue::kColorB_Source,       "ColorB" },
-    { SkParticleValue::kColorA_Source,       "ColorA" },
-    { SkParticleValue::kSpriteFrame_Source,  "SpriteFrame" },
-};
-
-constexpr SkFieldVisitor::EnumStringMapping gValueTileModeMapping[] = {
-    { SkParticleValue::kClamp_TileMode,  "Clamp" },
-    { SkParticleValue::kRepeat_TileMode, "Repeat" },
-    { SkParticleValue::kMirror_TileMode, "Mirror" },
-};
-
-static bool source_needs_frame(int source) {
-    switch (source) {
-        case SkParticleValue::kHeadingX_Source:
-        case SkParticleValue::kHeadingY_Source:
-        case SkParticleValue::kVelocityX_Source:
-        case SkParticleValue::kVelocityY_Source:
-            return true;
-        default:
-            return false;
-    }
-}
-
-void SkParticleValue::visitFields(SkFieldVisitor* v) {
-    v->visit("Source", fSource, gValueSourceMapping, SK_ARRAY_COUNT(gValueSourceMapping));
-    if (source_needs_frame(fSource)) {
-        v->visit("Frame", fFrame, gParticleFrameMapping, SK_ARRAY_COUNT(gParticleFrameMapping));
-    }
-    v->visit("TileMode", fTileMode, gValueTileModeMapping, SK_ARRAY_COUNT(gValueTileModeMapping));
-    v->visit("Left", fLeft);
-    v->visit("Right", fRight);
-
-    // Re-compute cached evaluation parameters
-    fScale = sk_float_isfinite(1.0f / (fRight - fLeft)) ? 1.0f / (fRight - fLeft) : 0;
-    fBias = -fLeft * fScale;
-}
-
-float SkParticleValue::getSourceValue(const SkParticleUpdateParams& params,
-                                      SkParticleState& ps) const {
-    switch ((kAge_Source == fSource) ? params.fAgeSource : fSource) {
-        // Do all the simple (non-frame-dependent) sources first:
-        case kRandom_Source:      return ps.fRandom.nextF();
-        case kParticleAge_Source: return ps.fAge;
-        case kEffectAge_Source:   return params.fEffectAge;
-
-        case kPositionX_Source:   return ps.fPose.fPosition.fX;
-        case kPositionY_Source:   return ps.fPose.fPosition.fY;
-        case kScale_Source:       return ps.fPose.fScale;
-        case kRotation_Source:    return ps.fVelocity.fAngular;
-
-        case kColorR_Source:      return ps.fColor.fR;
-        case kColorG_Source:      return ps.fColor.fG;
-        case kColorB_Source:      return ps.fColor.fB;
-        case kColorA_Source:      return ps.fColor.fA;
-        case kSpriteFrame_Source: return ps.fFrame;
-    }
-
-    SkASSERT(source_needs_frame(fSource));
-    SkVector frameUp = ps.getFrameHeading(static_cast<SkParticleFrame>(fFrame));
-    SkVector frameRight = { -frameUp.fY, frameUp.fX };
-
-    switch (fSource) {
-        case kHeadingX_Source:  return ps.fPose.fHeading.dot(frameRight);
-        case kHeadingY_Source:  return ps.fPose.fHeading.dot(frameUp);
-        case kVelocityX_Source: return ps.fVelocity.fLinear.dot(frameRight);
-        case kVelocityY_Source: return ps.fVelocity.fLinear.dot(frameUp);
-    }
-
-    SkDEBUGFAIL("Unreachable");
-    return 0.0f;
-}
-
-float SkParticleValue::eval(const SkParticleUpdateParams& params, SkParticleState& ps) const {
-    float v = this->getSourceValue(params, ps);
-    v = (v * fScale) + fBias;
-
-    switch (fTileMode) {
-        case kClamp_TileMode:
-            v = SkTPin(v, 0.0f, 1.0f);
-            break;
-        case kRepeat_TileMode:
-            v = sk_float_mod(v, 1.0f);
-            if (v < 0) {
-                v += 1.0f;
-            }
-            break;
-        case kMirror_TileMode:
-            v = sk_float_mod(v, 2.0f);
-            if (v < 0) {
-                v += 2.0f;
-            }
-            v = 1.0f - sk_float_abs(v - 1.0f);
-            break;
-    }
-
-    return v;
+void SkParticleEffect::RegisterParticleTypes() {
+    REGISTER_REFLECTED(SkReflected);
+    SkParticleBinding::RegisterBindingTypes();
+    SkParticleDrawable::RegisterDrawableTypes();
 }

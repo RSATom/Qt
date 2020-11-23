@@ -16,7 +16,6 @@
 #include "third_party/blink/renderer/core/paint/paint_timing_detector.h"
 #include "third_party/blink/renderer/platform/wtf/cross_thread_functional.h"
 #include "third_party/blink/renderer/platform/wtf/hash_set.h"
-#include "third_party/blink/renderer/platform/wtf/time.h"
 
 namespace blink {
 
@@ -121,10 +120,6 @@ class CORE_EXPORT ImageRecordsManager {
   void OnImageLoadedInternal(base::WeakPtr<ImageRecord>&,
                              unsigned current_frame_index);
 
-  inline bool NeedMeausuringPaintTime() const {
-    return !images_queued_for_paint_time_.IsEmpty();
-  }
-
   // Compare the last frame index in queue with the last frame index that has
   // registered for assigning paint time.
   inline bool HasUnregisteredRecordsInQueued(
@@ -205,7 +200,7 @@ class CORE_EXPORT ImageRecordsManager {
 // See also:
 // https://docs.google.com/document/d/1DRVd4a2VU8-yyWftgOparZF-sf16daf0vfbsHuz2rws/edit#heading=h.1k2rnrs6mdmt
 class CORE_EXPORT ImagePaintTimingDetector final
-    : public GarbageCollectedFinalized<ImagePaintTimingDetector> {
+    : public GarbageCollected<ImagePaintTimingDetector> {
   friend class ImagePaintTimingDetectorTest;
 
  public:
@@ -246,13 +241,10 @@ class CORE_EXPORT ImagePaintTimingDetector final
  private:
   friend class LargestContentfulPaintCalculatorTest;
 
-  ImageRecord* FindLargestPaintCandidate() const;
-
   void PopulateTraceValue(TracedValue&, const ImageRecord& first_image_paint);
   void RegisterNotifySwapTime();
   void ReportCandidateToTrace(ImageRecord&);
   void ReportNoCandidateToTrace();
-  void Deactivate();
 
   // Used to find the last candidate.
   unsigned count_candidates_ = 0;

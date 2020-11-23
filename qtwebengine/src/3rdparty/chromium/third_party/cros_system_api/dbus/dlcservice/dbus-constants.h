@@ -7,20 +7,23 @@
 
 namespace dlcservice {
 
-const char kDlcServiceInterface[] = "org.chromium.DlcServiceInterface";
-const char kDlcServiceServicePath[] = "/org/chromium/DlcService";
-const char kDlcServiceServiceName[] = "org.chromium.DlcService";
+constexpr char kDlcServiceInterface[] = "org.chromium.DlcServiceInterface";
+constexpr char kDlcServiceServicePath[] = "/org/chromium/DlcService";
+constexpr char kDlcServiceServiceName[] = "org.chromium.DlcService";
 
-const char kGetInstalledMethod[] = "GetInstalled";
-const char kInstallMethod[] = "Install";
-const char kUninstallMethod[] = "Uninstall";
+constexpr char kGetInstalledMethod[] = "GetInstalled";
+constexpr char kInstallMethod[] = "Install";
+constexpr char kUninstallMethod[] = "Uninstall";
+constexpr char kOnInstallStatusSignal[] = "OnInstallStatus";
 
-enum class OnInstalledSignalErrorCode {
-  kNone = 0,
-  kUnknown = 1,
-  kImageLoaderReturnsFalse = 2,
-  kMountFailure = 3,
-};
+// Error Codes from dlcservice.
+constexpr char kErrorNone[] = "org.chromium.DlcServiceInterface.NONE";
+constexpr char kErrorInternal[] = "org.chromium.DlcServiceInterface.INTERNAL";
+constexpr char kErrorBusy[] = "org.chromium.DlcServiceInterface.BUSY";
+constexpr char kErrorNeedReboot[] =
+    "org.chromium.DlcServiceInterface.NEED_REBOOT";
+constexpr char kErrorInvalidDlc[] =
+    "org.chromium.DlcServiceInterface.INVALID_DLC";
 
 }  // namespace dlcservice
 

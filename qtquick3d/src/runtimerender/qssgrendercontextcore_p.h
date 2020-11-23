@@ -46,16 +46,19 @@
 #include <QtQuick3DRuntimeRender/private/qssgrenderthreadpool_p.h>
 #include <QtQuick3DRuntimeRender/private/qssgrenderdynamicobjectsystem_p.h>
 #include <QtQuick3DRuntimeRender/private/qssgrendercustommaterialsystem_p.h>
+#include <QtQuick3DRuntimeRender/private/qssgrendereffectsystem_p.h>
 #include <QtQuick3DRuntimeRender/private/qssgrenderimagebatchloader_p.h>
 #include <QtQuick3DRuntimeRender/private/qtquick3druntimerenderglobal_p.h>
 #include <QtQuick3DRuntimeRender/private/qssgrenderinputstreamfactory_p.h>
 #include <QtQuick3DRuntimeRender/private/qssgperframeallocator_p.h>
-#include <QtQuick3DRuntimeRender/private/qssgrenderresourcemanager_p.h>
+#include <QtQuick3DRuntimeRender/private/qssgrendershadercache_p.h>
 
 #include <QtQuick3DUtils/private/qssgperftimer_p.h>
 
 #include <QtCore/QPair>
 #include <QtCore/QSize>
+
+#include <QtGui/qcolor.h>
 
 QT_BEGIN_NAMESPACE
 
@@ -69,7 +72,6 @@ enum class ScaleModes
 
 class QSSGMaterialSystem;
 class QSSGRendererInterface;
-class QSSGShaderCache;
 
 class Q_QUICK3DRUNTIMERENDER_EXPORT QSSGRenderContextInterface
 {
@@ -85,6 +87,7 @@ private:
     const QSSGRef<QSSGResourceManager> m_resourceManager;
     const QSSGRef<QSSGRendererInterface> m_renderer;
     const QSSGRef<QSSGDynamicObjectSystem> m_dynamicObjectSystem;
+    const QSSGRef<QSSGEffectSystem> m_effectSystem;
     const QSSGRef<QSSGShaderCache> m_shaderCache;
     const QSSGRef<QSSGAbstractThreadPool> m_threadPool;
     const QSSGRef<IImageBatchLoader> m_imageBatchLoader;
@@ -105,33 +108,19 @@ private:
 
     QSSGRenderContextInterface(const QSSGRef<QSSGRenderContext> &ctx, const QString &inApplicationDirectory);
 
-    static void releaseRenderContextInterface(quintptr wid);
-
 public:
-    // TODO: temp workaround for now
-    struct QSSGRenderContextInterfacePtr
-    {
-        QSSGRenderContextInterfacePtr() = default;
-        QSSGRenderContextInterfacePtr(QSSGRenderContextInterface *ptr, quintptr wid) : m_ptr(ptr), m_wid(wid) {}
-        QSSGRenderContextInterface * operator-> () const { return m_ptr.data(); }
-        ~QSSGRenderContextInterfacePtr() { if (!m_ptr.isNull() && m_ptr->ref == 0) QSSGRenderContextInterface::releaseRenderContextInterface(m_wid); }
-        bool isNull() const { return m_ptr.data() == nullptr; }
-    private:
-        friend QSSGRenderContextInterface;
-        QSSGRef<QSSGRenderContextInterface> m_ptr;
-        quintptr m_wid = 0;
-    };
-
-    static QSSGRenderContextInterface::QSSGRenderContextInterfacePtr getRenderContextInterface(const QSSGRef<QSSGRenderContext> &ctx, const QString &inApplicationDirectory, quintptr wid);
-    static QSSGRenderContextInterface::QSSGRenderContextInterfacePtr getRenderContextInterface(quintptr wid);
+    static QSSGRef<QSSGRenderContextInterface> getRenderContextInterface(const QSSGRef<QSSGRenderContext> &ctx,
+                                                                         const QString &inApplicationDirectory,
+                                                                         quintptr wid);
+    static QSSGRef<QSSGRenderContextInterface> getRenderContextInterface(quintptr wid);
 
     ~QSSGRenderContextInterface();
     const QSSGRef<QSSGRendererInterface> &renderer() const;
-    QSSGRef<QSSGRendererImpl> renderWidgetContext();
     const QSSGRef<QSSGBufferManager> &bufferManager() const;
     const QSSGRef<QSSGResourceManager> &resourceManager() const;
     const QSSGRef<QSSGRenderContext> &renderContext() const;
     const QSSGRef<QSSGInputStreamFactory> &inputStreamFactory() const;
+    const QSSGRef<QSSGEffectSystem> &effectSystem() const;
     const QSSGRef<QSSGShaderCache> &shaderCache() const;
     const QSSGRef<QSSGAbstractThreadPool> &threadPool() const;
     const QSSGRef<IImageBatchLoader> &imageBatchLoader() const;

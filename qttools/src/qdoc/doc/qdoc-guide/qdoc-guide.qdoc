@@ -37,7 +37,7 @@
     \l{writing-markup}{mark up} to enhance the layout and formatting of the
     final output.
 
-    There are three essential materials for generating documentation with qdoc:
+    There are three essential materials for generating documentation with QDoc:
     \list
         \li \c QDoc binary
         \li \c qdocconf configuration files
@@ -95,12 +95,12 @@
     can style the documentation in DITA at a later time. DITA XML is therefore
     more flexible in allowing different styles to apply to the same information.
 
-    To run qdoc, the project configuration file is supplied as an argument.
+    To run QDoc, the project configuration file is supplied as an argument.
     \code
     qdoc project.qdocconf
     \endcode
 
-    The project configuration contains information that qdoc uses to create the
+    The project configuration contains information that QDoc uses to create the
     documentation.
 
     \section2 Project Information
@@ -205,18 +205,17 @@
     The \l {Format-specific Configuration Variables} article outlines the usage
     of each variable.
 
-    \section2 Qt Index Reference
+    \section2 QDoc Index Files
 
-    Documentation projects can link to Qt APIs and other articles by specifying
-    the path to the \c qt.index file. When qdoc generates the Qt Reference
-    Documentation, it will also generate an index file, containing the URLs to
-    the articles. Other projects can use the links in the index file so that
-    they can link to other articles and API documentation within Qt.
+    Documentation projects can link to targets in other projects by specifying
+    a set of dependencies, or a set of direct paths to to index file(s) this
+    project depends on. When QDoc generates documentation for a project,
+    it will also generate an \c .index file containing URLs to each linkable
+    entity in the project. Other projects can then define a dependency to the
+    index file in order to link to the documentation within that project.
 
-    \badcode
-        indexes = $QT_INSTALL_DOCS/html/qt.index $OTHER_PROJECT/html/qt.index
-    \endcode
-    It is possible to specify multiple index files from several projects.
+    \b {See also}: \l {depends-variable}{depends} and
+                   \l {indexes-variable}{indexes}.
 
     \section1 Macros and Other Configurations
 
@@ -229,6 +228,8 @@
     The snippet code will replace any instances of \c{\\pi} with \c &Pi; in the
     HTML file, which will appear as the Greek \pi symbol when viewed in
     browsers.
+
+    \b {See also:} \l {macro-variable}{macro}.
 
     \section2 QML Additions
 
@@ -266,7 +267,7 @@
     comment; the comment itself and anything after it, until a newline,
     is omitted from the generated output.
 
-    QDoc will parse C++ and QML files to look for qdoc comments. To explicitly
+    QDoc will parse C++ and QML files to look for QDoc comments. To explicitly
     omit a certain file type, omit it from the
     \l{Input and Output Directories}{configuration} file.
 
@@ -279,7 +280,7 @@
 
     \target writing-topic-commands
     \section2 QDoc Topics
-    Each qdoc comment must have a \e topic type. A topic distinguishes it from
+    Each QDoc comment must have a \e topic type. A topic distinguishes it from
     other topics. To specify a topic type, use one of the several
     \l{Topic Commands}{topic commands}.
 
@@ -636,6 +637,10 @@
     To build QDoc on Debian-based Linux distributions, it is sufficient to
     install the \c libclang-dev package and its dependencies. For running QDoc,
     the \c libclang package is required.
+
+    \note On Windows, after installing the pre-built LLVM you must restart your
+    build shell to ensure that LLVM's binary directory is added to the PATH
+    variable. This is needed to be able to run qdoc.
 
     \section1 Set Clang location automatically
 

@@ -94,12 +94,12 @@ TestResult::~TestResult()
 
 void TestResult::toXML(XMLWriter &receiver) const
 {
-    QXmlAttributes atts;
-    atts.append(QLatin1String("name"), QString(), QLatin1String("name"), m_testName);
-    atts.append(QLatin1String("result"), QString(), QLatin1String("result"), displayName(m_status));
+    QXmlStreamAttributes atts;
+    atts.append(QLatin1String("name"), m_testName);
+    atts.append(QLatin1String("result"), displayName(m_status));
 
     if(!m_comment.isEmpty())
-        atts.append(QLatin1String("comment"), QString(), QLatin1String("comment"), m_comment);
+        atts.append(QLatin1String("comment"), m_comment);
 
     receiver.startElement(QLatin1String("test-case"), atts);
     receiver.endElement(QLatin1String("test-case"));

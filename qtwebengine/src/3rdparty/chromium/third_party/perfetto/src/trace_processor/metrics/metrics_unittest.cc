@@ -18,9 +18,8 @@
 
 #include <vector>
 
-#include <gtest/gtest.h>
-
-#include "perfetto/common/descriptor.pbzero.h"
+#include "protos/perfetto/common/descriptor.pbzero.h"
+#include "test/gtest_and_gmock.h"
 
 namespace perfetto {
 namespace trace_processor {
@@ -76,7 +75,7 @@ TEST_F(ProtoBuilderTest, AppendLong) {
   //   optional int64 int_value = 1;
   // }
   ProtoDescriptor descriptor(".perfetto.protos", ".perfetto.protos.TestProto",
-                             base::nullopt);
+                             ProtoDescriptor::Type::kMessage, base::nullopt);
   descriptor.AddField(FieldDescriptor(
       "int_value", 1, FieldDescriptorProto::TYPE_INT64, "", false));
 
@@ -97,7 +96,7 @@ TEST_F(ProtoBuilderTest, AppendDouble) {
   //   optional double double_value = 1;
   // }
   ProtoDescriptor descriptor(".perfetto.protos", ".perfetto.protos.TestProto",
-                             base::nullopt);
+                             ProtoDescriptor::Type::kMessage, base::nullopt);
   descriptor.AddField(FieldDescriptor(
       "double_value", 1, FieldDescriptorProto::TYPE_DOUBLE, "", false));
 
@@ -107,7 +106,7 @@ TEST_F(ProtoBuilderTest, AppendDouble) {
   auto result_ser = builder.SerializeToProtoBuilderResult();
   auto proto = DecodeSingleFieldProto<false>(result_ser);
   const protozero::Field& db_field = proto.Get(1);
-  ASSERT_EQ(db_field.as_double(), 1.2345);
+  ASSERT_DOUBLE_EQ(db_field.as_double(), 1.2345);
 }
 
 TEST_F(ProtoBuilderTest, AppendString) {
@@ -118,7 +117,7 @@ TEST_F(ProtoBuilderTest, AppendString) {
   //   optional string string_value = 1;
   // }
   ProtoDescriptor descriptor(".perfetto.protos", ".perfetto.protos.TestProto",
-                             base::nullopt);
+                             ProtoDescriptor::Type::kMessage, base::nullopt);
   descriptor.AddField(FieldDescriptor(
       "string_value", 1, FieldDescriptorProto::TYPE_STRING, "", false));
 
@@ -143,12 +142,12 @@ TEST_F(ProtoBuilderTest, AppendNested) {
   // }
   ProtoDescriptor nested(".perfetto.protos",
                          ".perfetto.protos.TestProto.NestedProto",
-                         base::nullopt);
+                         ProtoDescriptor::Type::kMessage, base::nullopt);
   nested.AddField(FieldDescriptor("nested_int_value", 1,
                                   FieldDescriptorProto::TYPE_INT64, "", false));
 
   ProtoDescriptor descriptor(".perfetto.protos", ".perfetto.protos.TestProto",
-                             base::nullopt);
+                             ProtoDescriptor::Type::kMessage, base::nullopt);
   auto field =
       FieldDescriptor("nested_value", 1, FieldDescriptorProto::TYPE_MESSAGE,
                       ".perfetto.protos.TestProto.NestedProto", false);
@@ -188,7 +187,7 @@ TEST_F(ProtoBuilderTest, AppendRepeatedPrimitive) {
   //   repeated int64 int_value = 1;
   // }
   ProtoDescriptor descriptor(".perfetto.protos", ".perfetto.protos.TestProto",
-                             base::nullopt);
+                             ProtoDescriptor::Type::kMessage, base::nullopt);
   descriptor.AddField(FieldDescriptor(
       "rep_int_value", 1, FieldDescriptorProto::TYPE_INT64, "", true));
 
@@ -205,9 +204,9 @@ TEST_F(ProtoBuilderTest, AppendRepeatedPrimitive) {
 
   auto result_ser = builder.SerializeToProtoBuilderResult();
   auto proto = DecodeSingleFieldProto<true>(result_ser);
-  auto it = proto.GetRepeated(1);
-  ASSERT_EQ(it->as_int64(), 1234);
-  ASSERT_EQ((++it)->as_int64(), 5678);
+  auto it = proto.GetRepeated<int64_t>(1);
+  ASSERT_EQ(*it, 1234);
+  ASSERT_EQ(*++it, 5678);
   ASSERT_FALSE(++it);
 }
 

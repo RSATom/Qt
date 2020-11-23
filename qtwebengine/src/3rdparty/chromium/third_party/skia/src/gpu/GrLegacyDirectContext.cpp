@@ -24,16 +24,16 @@
 #include "src/gpu/vk/GrVkGpu.h"
 #endif
 #ifdef SK_DAWN
-#include "dawn/GrDawnGpu.h"
+#include "src/gpu/dawn/GrDawnGpu.h"
 #endif
 
 #ifdef SK_DISABLE_REDUCE_OPLIST_SPLITTING
-static const bool kDefaultReduceOpListSplitting = false;
+static const bool kDefaultReduceOpsTaskSplitting = false;
 #else
-static const bool kDefaultReduceOpListSplitting = false;
+static const bool kDefaultReduceOpsTaskSplitting = false;
 #endif
 
-class SK_API GrLegacyDirectContext : public GrContext {
+class GrLegacyDirectContext : public GrContext {
 public:
     GrLegacyDirectContext(GrBackendApi backend, const GrContextOptions& options)
             : INHERITED(backend, options)
@@ -82,14 +82,14 @@ protected:
             return false;
         }
 
-        bool reduceOpListSplitting = kDefaultReduceOpListSplitting;
-        if (GrContextOptions::Enable::kNo == this->options().fReduceOpListSplitting) {
-            reduceOpListSplitting = false;
-        } else if (GrContextOptions::Enable::kYes == this->options().fReduceOpListSplitting) {
-            reduceOpListSplitting = true;
+        bool reduceOpsTaskSplitting = kDefaultReduceOpsTaskSplitting;
+        if (GrContextOptions::Enable::kNo == this->options().fReduceOpsTaskSplitting) {
+            reduceOpsTaskSplitting = false;
+        } else if (GrContextOptions::Enable::kYes == this->options().fReduceOpsTaskSplitting) {
+            reduceOpsTaskSplitting = true;
         }
 
-        this->setupDrawingManager(true, reduceOpListSplitting);
+        this->setupDrawingManager(true, reduceOpsTaskSplitting);
 
         SkASSERT(this->caps());
 
@@ -122,6 +122,7 @@ private:
     typedef GrContext INHERITED;
 };
 
+#ifdef SK_GL
 sk_sp<GrContext> GrContext::MakeGL(sk_sp<const GrGLInterface> interface) {
     GrContextOptions defaultOptions;
     return MakeGL(std::move(interface), defaultOptions);
@@ -150,6 +151,7 @@ sk_sp<GrContext> GrContext::MakeGL(sk_sp<const GrGLInterface> interface,
     }
     return context;
 }
+#endif
 
 sk_sp<GrContext> GrContext::MakeMock(const GrMockOptions* mockOptions) {
     GrContextOptions defaultOptions;
@@ -222,12 +224,12 @@ sk_sp<GrContext> GrContext::MakeMetal(void* device, void* queue, const GrContext
 #endif
 
 #ifdef SK_DAWN
-sk_sp<GrContext> GrContext::MakeDawn(const dawn::Device& device) {
+sk_sp<GrContext> GrContext::MakeDawn(const wgpu::Device& device) {
     GrContextOptions defaultOptions;
     return MakeDawn(device, defaultOptions);
 }
 
-sk_sp<GrContext> GrContext::MakeDawn(const dawn::Device& device, const GrContextOptions& options) {
+sk_sp<GrContext> GrContext::MakeDawn(const wgpu::Device& device, const GrContextOptions& options) {
     sk_sp<GrContext> context(new GrLegacyDirectContext(GrBackendApi::kDawn, options));
 
     context->fGpu = GrDawnGpu::Make(device, options, context.get());

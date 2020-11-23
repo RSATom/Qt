@@ -282,6 +282,7 @@ void QLowEnergyControllerPrivateWinRT::connectToDevice()
         qCDebug(QT_BT_WINRT) << "Could not find LE device";
         setError(QLowEnergyController::InvalidBluetoothAdapterError);
         setState(QLowEnergyController::UnconnectedState);
+        return;
     }
     BluetoothConnectionStatus status;
     hr = mDevice->get_ConnectionStatus(&status);

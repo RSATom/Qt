@@ -56,7 +56,8 @@ TEST_F(VaapiUtilsTest, ScopedVAImage) {
   std::vector<VASurfaceID> va_surfaces;
   const gfx::Size coded_size(64, 64);
   ASSERT_TRUE(vaapi_wrapper_->CreateContextAndSurfaces(
-      VA_RT_FORMAT_YUV420, coded_size, 1, &va_surfaces));
+      VA_RT_FORMAT_YUV420, coded_size, VaapiWrapper::SurfaceUsageHint::kGeneric,
+      1, &va_surfaces));
   ASSERT_EQ(va_surfaces.size(), 1u);
 
   std::unique_ptr<ScopedVAImage> scoped_image;
@@ -132,6 +133,21 @@ TEST_F(VaapiUtilsTest, ScopedVASurface) {
   EXPECT_EQ(VA_RT_FORMAT_YUV420,
             base::checked_cast<int>(scoped_va_surface->format()));
   EXPECT_EQ(coded_size, scoped_va_surface->size());
+}
+
+// This test exercises the creation of a ScopedVASurface where the requested
+// size and the visible size are different.
+TEST_F(VaapiUtilsTest, ScopedVASurfaceWithVisibleSize) {
+  const gfx::Size coded_size(64, 64);
+  const gfx::Size visible_size(60, 60);
+  auto scoped_va_surface = vaapi_wrapper_->CreateContextAndScopedVASurface(
+      VA_RT_FORMAT_YUV420, coded_size, visible_size);
+
+  ASSERT_TRUE(scoped_va_surface);
+  EXPECT_TRUE(scoped_va_surface->IsValid());
+  EXPECT_EQ(VA_RT_FORMAT_YUV420,
+            base::checked_cast<int>(scoped_va_surface->format()));
+  EXPECT_EQ(visible_size, scoped_va_surface->size());
 }
 
 // This test exercises the creation of a ScopedVASurface with an invalid

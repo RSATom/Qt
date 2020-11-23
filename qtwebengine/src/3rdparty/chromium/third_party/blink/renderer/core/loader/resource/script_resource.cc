@@ -47,8 +47,8 @@
 #include "third_party/blink/renderer/platform/loader/subresource_integrity.h"
 #include "third_party/blink/renderer/platform/network/mime/mime_type_registry.h"
 #include "third_party/blink/renderer/platform/runtime_enabled_features.h"
-#include "third_party/blink/renderer/platform/shared_buffer.h"
 #include "third_party/blink/renderer/platform/wtf/functional.h"
+#include "third_party/blink/renderer/platform/wtf/shared_buffer.h"
 
 namespace blink {
 
@@ -107,6 +107,18 @@ ScriptResource* ScriptResource::Fetch(FetchParameters& params,
   }
 
   return resource;
+}
+
+ScriptResource* ScriptResource::CreateForTest(
+    const KURL& url,
+    const WTF::TextEncoding& encoding) {
+  ResourceRequest request(url);
+  request.SetCredentialsMode(network::mojom::CredentialsMode::kOmit);
+  ResourceLoaderOptions options;
+  TextResourceDecoderOptions decoder_options(
+      TextResourceDecoderOptions::kPlainTextContent, encoding);
+  return MakeGarbageCollected<ScriptResource>(request, options,
+                                              decoder_options);
 }
 
 ScriptResource::ScriptResource(
@@ -202,13 +214,13 @@ CachedMetadataHandler* ScriptResource::CreateCachedMetadataHandler(
       Encoding(), std::move(send_callback));
 }
 
-void ScriptResource::SetSerializedCachedMetadata(const uint8_t* data,
-                                                 size_t size) {
-  Resource::SetSerializedCachedMetadata(data, size);
+void ScriptResource::SetSerializedCachedMetadata(mojo_base::BigBuffer data) {
+  // Resource ignores the cached metadata.
+  Resource::SetSerializedCachedMetadata(mojo_base::BigBuffer());
   ScriptCachedMetadataHandler* cache_handler =
       static_cast<ScriptCachedMetadataHandler*>(Resource::CacheHandler());
   if (cache_handler) {
-    cache_handler->SetSerializedCachedMetadata(data, size);
+    cache_handler->SetSerializedCachedMetadata(std::move(data));
   }
 }
 

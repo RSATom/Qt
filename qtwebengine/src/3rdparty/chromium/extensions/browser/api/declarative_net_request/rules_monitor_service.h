@@ -15,8 +15,10 @@
 #include "base/memory/weak_ptr.h"
 #include "base/optional.h"
 #include "base/scoped_observer.h"
+#include "extensions/browser/api/declarative_net_request/action_tracker.h"
 #include "extensions/browser/api/declarative_net_request/ruleset_manager.h"
 #include "extensions/browser/browser_context_keyed_api_factory.h"
+#include "extensions/browser/extension_registry.h"
 #include "extensions/browser/extension_registry_observer.h"
 #include "extensions/common/extension_id.h"
 
@@ -26,7 +28,6 @@ class BrowserContext;
 
 namespace extensions {
 class ExtensionPrefs;
-class ExtensionRegistry;
 class WarningService;
 
 namespace api {
@@ -61,16 +62,24 @@ class RulesMonitorService : public BrowserContextKeyedAPI,
   // the given |extension_id|.
   bool HasRegisteredRuleset(const ExtensionId& extension_id) const;
 
+  const std::set<ExtensionId>& extensions_with_rulesets() const {
+    return extensions_with_rulesets_;
+  }
+
   // Updates the dynamic rules for the |extension| and then invokes
   // |callback| with an optional error.
   using DynamicRuleUpdateUICallback =
       base::OnceCallback<void(base::Optional<std::string> error)>;
-  void UpdateDynamicRules(const Extension& extension,
-                          std::vector<api::declarative_net_request::Rule> rules,
-                          DynamicRuleUpdateAction action,
-                          DynamicRuleUpdateUICallback callback);
+  void UpdateDynamicRules(
+      const Extension& extension,
+      std::vector<int> rule_ids_to_remove,
+      std::vector<api::declarative_net_request::Rule> rules_to_add,
+      DynamicRuleUpdateUICallback callback);
 
   RulesetManager* ruleset_manager() { return &ruleset_manager_; }
+
+  const ActionTracker& action_tracker() const { return action_tracker_; }
+  ActionTracker& action_tracker() { return action_tracker_; }
 
  private:
   class FileSequenceBridge;
@@ -114,7 +123,7 @@ class RulesMonitorService : public BrowserContextKeyedAPI,
                      std::unique_ptr<RulesetMatcher> ruleset_matcher);
 
   ScopedObserver<ExtensionRegistry, ExtensionRegistryObserver>
-      registry_observer_;
+      registry_observer_{this};
 
   std::set<ExtensionId> extensions_with_rulesets_;
 
@@ -129,6 +138,8 @@ class RulesMonitorService : public BrowserContextKeyedAPI,
   content::BrowserContext* const context_;
 
   declarative_net_request::RulesetManager ruleset_manager_;
+
+  ActionTracker action_tracker_;
 
   // Must be the last member variable. See WeakPtrFactory documentation for
   // details.

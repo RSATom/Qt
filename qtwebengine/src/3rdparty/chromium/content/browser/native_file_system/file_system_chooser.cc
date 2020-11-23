@@ -7,20 +7,45 @@
 #include "base/bind.h"
 #include "base/files/file_path.h"
 #include "base/files/file_util.h"
+#include "base/metrics/histogram_functions.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/task/post_task.h"
 #include "build/build_config.h"
+#include "content/browser/native_file_system/native_file_system_error.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/child_process_security_policy.h"
 #include "content/public/browser/content_browser_client.h"
 #include "content/public/browser/web_contents.h"
 #include "content/public/common/content_client.h"
-#include "storage/browser/fileapi/isolated_context.h"
+#include "net/base/mime_util.h"
+#include "storage/browser/file_system/isolated_context.h"
 #include "ui/shell_dialogs/select_file_policy.h"
 
 namespace content {
 
 namespace {
+
+std::string TypeToString(blink::mojom::ChooseFileSystemEntryType type) {
+  switch (type) {
+    case blink::mojom::ChooseFileSystemEntryType::kOpenFile:
+      return "OpenFile";
+    case blink::mojom::ChooseFileSystemEntryType::kOpenMultipleFiles:
+      return "OpenMultipleFiles";
+    case blink::mojom::ChooseFileSystemEntryType::kSaveFile:
+      return "SaveFile";
+    case blink::mojom::ChooseFileSystemEntryType::kOpenDirectory:
+      return "OpenDirectory";
+  }
+  NOTREACHED();
+  return nullptr;
+}
+
+void RecordFileSelectionResult(blink::mojom::ChooseFileSystemEntryType type,
+                               int count) {
+  base::UmaHistogramCounts1000("NativeFileSystemAPI.FileChooserResult", count);
+  base::UmaHistogramCounts1000(
+      "NativeFileSystemAPI.FileChooserResult." + TypeToString(type), count);
+}
 
 bool GetFileTypesFromAcceptsOption(
     const blink::mojom::ChooseFileSystemEntryAcceptsOption& option,
@@ -94,10 +119,10 @@ void FileSystemChooser::CreateAndShow(
     WebContents* web_contents,
     const Options& options,
     ResultCallback callback,
-    scoped_refptr<base::TaskRunner> callback_runner) {
+    base::ScopedClosureRunner fullscreen_block) {
   DCHECK_CURRENTLY_ON(BrowserThread::UI);
   auto* listener = new FileSystemChooser(options.type(), std::move(callback),
-                                         std::move(callback_runner));
+                                         std::move(fullscreen_block));
   listener->dialog_ = ui::SelectFileDialog::Create(
       listener,
       GetContentClient()->browser()->CreateSelectFilePolicy(web_contents));
@@ -133,10 +158,10 @@ void FileSystemChooser::CreateAndShow(
 FileSystemChooser::FileSystemChooser(
     blink::mojom::ChooseFileSystemEntryType type,
     ResultCallback callback,
-    scoped_refptr<base::TaskRunner> callback_runner)
+    base::ScopedClosureRunner fullscreen_block)
     : callback_(std::move(callback)),
-      callback_runner_(std::move(callback_runner)),
-      type_(type) {}
+      type_(type),
+      fullscreen_block_(std::move(fullscreen_block)) {}
 
 FileSystemChooser::~FileSystemChooser() {
   if (dialog_)
@@ -155,65 +180,17 @@ void FileSystemChooser::MultiFilesSelected(
   auto* isolated_context = storage::IsolatedContext::GetInstance();
   DCHECK(isolated_context);
 
-  if (type_ == blink::mojom::ChooseFileSystemEntryType::kSaveFile) {
-    // Create files if they don't yet exist.
-    // TODO(mek): If we change FileSystemFileHandle to be able to represent a
-    // file that doesn't exist on disk, we should be able to get rid of this
-    // step and make the whole API slightly more robust.
-    base::PostTaskWithTraits(
-        FROM_HERE, {base::TaskPriority::USER_BLOCKING, base::MayBlock()},
-        base::BindOnce(
-            [](const std::vector<base::FilePath>& files,
-               scoped_refptr<base::TaskRunner> callback_runner,
-               ResultCallback callback) {
-              for (const auto& path : files) {
-                // Checking if a path exists, and then creating it if it doesn't
-                // is of course racy, but external applications could just as
-                // well be deleting the entire directory, or similar problematic
-                // cases, so no matter what we do there are always going to be
-                // race conditions and websites will just have to deal with any
-                // method being able to fail in unexpected ways.
-                if (base::PathExists(path))
-                  continue;
-                int creation_flags =
-                    base::File::FLAG_OPEN_ALWAYS | base::File::FLAG_READ;
-                base::File file(path, creation_flags);
-
-                if (!file.IsValid()) {
-                  callback_runner->PostTask(
-                      FROM_HERE,
-                      base::BindOnce(std::move(callback),
-                                     blink::mojom::NativeFileSystemError::New(
-                                         base::File::FILE_ERROR_FAILED),
-                                     std::vector<base::FilePath>()));
-                  return;
-                }
-              }
-              callback_runner->PostTask(
-                  FROM_HERE,
-                  base::BindOnce(std::move(callback),
-                                 blink::mojom::NativeFileSystemError::New(
-                                     base::File::FILE_OK),
-                                 std::move(files)));
-            },
-            files, callback_runner_, std::move(callback_)));
-    delete this;
-    return;
-  }
-  callback_runner_->PostTask(
-      FROM_HERE, base::BindOnce(std::move(callback_),
-                                blink::mojom::NativeFileSystemError::New(
-                                    base::File::FILE_OK),
-                                std::move(files)));
+  RecordFileSelectionResult(type_, files.size());
+  std::move(callback_).Run(native_file_system_error::Ok(), std::move(files));
   delete this;
 }
 
 void FileSystemChooser::FileSelectionCanceled(void* params) {
-  callback_runner_->PostTask(
-      FROM_HERE, base::BindOnce(std::move(callback_),
-                                blink::mojom::NativeFileSystemError::New(
-                                    base::File::FILE_ERROR_ABORT),
-                                std::vector<base::FilePath>()));
+  RecordFileSelectionResult(type_, 0);
+  std::move(callback_).Run(
+      native_file_system_error::FromStatus(
+          blink::mojom::NativeFileSystemStatus::kOperationAborted),
+      std::vector<base::FilePath>());
   delete this;
 }
 

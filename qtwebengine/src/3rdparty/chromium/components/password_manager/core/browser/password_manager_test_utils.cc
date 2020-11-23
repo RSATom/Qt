@@ -24,6 +24,7 @@ std::unique_ptr<PasswordForm> PasswordFormFromData(
   auto form = std::make_unique<PasswordForm>();
   form->scheme = form_data.scheme;
   form->preferred = form_data.preferred;
+  form->date_last_used = base::Time::FromDoubleT(form_data.last_usage_time);
   form->date_created = base::Time::FromDoubleT(form_data.creation_time);
   if (form_data.signon_realm)
     form->signon_realm = std::string(form_data.signon_realm);
@@ -59,23 +60,23 @@ std::unique_ptr<PasswordForm> FillPasswordFormWithData(
     form->federation_origin =
         url::Origin::Create(GURL("https://accounts.google.com/login"));
   }
+  form->in_store = PasswordForm::Store::kProfileStore;
   return form;
 }
 
-std::pair<std::pair<base::string16, const autofill::PasswordForm*>,
-          std::unique_ptr<const autofill::PasswordForm>>
-CreateEntry(const std::string& username,
-            const std::string& password,
-            const GURL& origin_url,
-            bool is_psl_match) {
+std::unique_ptr<autofill::PasswordForm> CreateEntry(
+    const std::string& username,
+    const std::string& password,
+    const GURL& origin_url,
+    bool is_psl_match,
+    bool is_affiliation_based_match) {
   auto form = std::make_unique<autofill::PasswordForm>();
   form->username_value = base::ASCIIToUTF16(username);
   form->password_value = base::ASCIIToUTF16(password);
   form->origin = origin_url;
   form->is_public_suffix_match = is_psl_match;
-  auto username_form_pair =
-      std::make_pair(base::ASCIIToUTF16(username), form.get());
-  return {std::move(username_form_pair), std::move(form)};
+  form->is_affiliation_based_match = is_affiliation_based_match;
+  return form;
 }
 
 bool ContainsEqualPasswordFormsUnordered(

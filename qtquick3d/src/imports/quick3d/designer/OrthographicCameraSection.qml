@@ -27,7 +27,7 @@
 **
 ****************************************************************************/
 
-import QtQuick 2.12
+import QtQuick 2.15
 import HelperWidgets 2.0
 import QtQuick.Layouts 1.12
 
@@ -60,6 +60,7 @@ Section {
                 minimumValue: -9999999
                 realDragRange: 5000
                 decimals: 0
+                stepSize: 100
                 backendValue: backendValues.clipFar
                 Layout.fillWidth: true
             }

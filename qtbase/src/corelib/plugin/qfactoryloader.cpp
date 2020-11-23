@@ -125,6 +125,8 @@ static QJsonDocument jsonFromCborMetaData(const char *raw, qsizetype size, QStri
     return QJsonDocument(o);
 }
 
+QT_WARNING_PUSH
+QT_WARNING_DISABLE_DEPRECATED
 QJsonDocument qJsonFromRawLibraryMetaData(const char *raw, qsizetype sectionSize, QString *errMsg)
 {
     raw += metaDataSignatureLength();
@@ -148,6 +150,7 @@ QJsonDocument qJsonFromRawLibraryMetaData(const char *raw, qsizetype sectionSize
 
     return jsonFromCborMetaData(raw, sectionSize, errMsg);
 }
+QT_WARNING_POP
 
 class QFactoryLoaderPrivate : public QObjectPrivate
 {
@@ -212,7 +215,7 @@ void QFactoryLoader::update()
                     QStringList(QLatin1String("libplugins_%1_*.so").arg(d->suffix)),
 #endif
                     QDir::Files);
-        QLibraryPrivate *library = 0;
+        QLibraryPrivate *library = nullptr;
 
         for (int j = 0; j < plugins.count(); ++j) {
             QString fileName = QDir::cleanPath(path + QLatin1Char('/') + plugins.at(j));
@@ -293,6 +296,7 @@ void QFactoryLoader::update()
             }
             if (keyUsageCount || keys.isEmpty()) {
                 library->setLoadHints(QLibrary::PreventUnloadHint); // once loaded, don't unload
+                QMutexLocker locker(&d->mutex);
                 d->libraryList += library;
             } else {
                 library->release();
@@ -383,7 +387,7 @@ QObject *QFactoryLoader::instance(int index) const
 {
     Q_D(const QFactoryLoader);
     if (index < 0)
-        return 0;
+        return nullptr;
 
 #if QT_CONFIG(library)
     QMutexLocker lock(&d->mutex);
@@ -411,7 +415,7 @@ QObject *QFactoryLoader::instance(int index) const
         --index;
     }
 
-    return 0;
+    return nullptr;
 }
 
 QMultiMap<int, QString> QFactoryLoader::keyMap() const

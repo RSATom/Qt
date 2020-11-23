@@ -84,6 +84,9 @@ installPackages+=(libudev-dev)
 installPackages+=(libegl1-mesa-dev)
 installPackages+=(libfontconfig1-dev)
 installPackages+=(libxss-dev)
+installPackages+=(nodejs)
+# NOTE! Can't install nodejs-dev because libssl1.0-dev conflicts with libssl1.0-dev which is depandency of nodejs-dev.
+
 # Common event loop handling
 installPackages+=(libglib2.0-dev)
 # MySQL support
@@ -169,6 +172,8 @@ installPackages+=(git-lfs)
 installPackages+=(chrpath)
 installPackages+=(gawk)
 installPackages+=(texinfo)
+# Needed for Poppler test in QtWebEngine
+installPackages+=(libpoppler-cpp-dev)
 # Needed for qtwebkit
 installPackages+=(ruby)
 installPackages+=(libxslt1-dev)

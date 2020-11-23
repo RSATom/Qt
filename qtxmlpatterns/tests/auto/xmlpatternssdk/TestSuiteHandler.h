@@ -31,10 +31,10 @@
 
 #include <QStack>
 #include <QUrl>
-#include <QXmlDefaultHandler>
 
 #include "ExternalSourceLoader.h"
 #include "TestSuite.h"
+#include "XmlParseHelper.h"
 #include "XQTSTestCase.h"
 
 QT_BEGIN_NAMESPACE
@@ -57,7 +57,7 @@ namespace QPatternistSDK
      * @ingroup PatternistSDK
      * @author Frans Englich <frans.englich@nokia.com>
      */
-    class TestSuiteHandler : public QXmlDefaultHandler
+    class TestSuiteHandler : public XmlParseHelper
     {
     public:
         /**
@@ -69,17 +69,14 @@ namespace QPatternistSDK
          */
         TestSuiteHandler(const QUrl &catalogFile,
                          const bool useExclusionList);
-        virtual bool characters(const QString &ch);
+        bool characters(const QStringRef &ch) override;
 
-        virtual bool endElement(const QString &namespaceURI,
-                                const QString &localName,
-                                const QString &qName);
-        virtual bool startElement(const QString &namespaceURI,
-                                  const QString &localName,
-                                  const QString &qName,
-                                  const QXmlAttributes &atts);
+        bool endElement(const QStringRef &namespaceURI, const QStringRef &localName,
+                        const QStringRef &qName) override;
+        bool startElement(const QStringRef &namespaceURI, const QStringRef &localName,
+                          const QStringRef &qName, const QXmlStreamAttributes &atts) override;
 
-        virtual TestSuite *testSuite() const;
+        TestSuite *testSuite() const;
 
     private:
         QStringList readExclusionList(const bool useExclusionList) const;

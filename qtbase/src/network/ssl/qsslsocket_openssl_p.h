@@ -130,9 +130,7 @@ public:
     BIO *writeBio;
     SSL_SESSION *session;
     QVector<QSslErrorEntry> errorList;
-#if OPENSSL_VERSION_NUMBER >= 0x10001000L
     static int s_indexForSSLExtraData; // index used in SSL_get_ex_data to get the matching QSslSocketBackendPrivate
-#endif
 
     bool inSetAndEmitError = false;
 
@@ -148,6 +146,7 @@ public:
     void continueHandshake() override;
     bool checkSslErrors();
     void storePeerCertificates();
+    int handleNewSessionTicket(SSL *context);
     unsigned int tlsPskClientCallback(const char *hint, char *identity, unsigned int max_identity_len, unsigned char *psk, unsigned int max_psk_len);
     unsigned int tlsPskServerCallback(const char *identity, unsigned char *psk, unsigned int max_psk_len);
 #ifdef Q_OS_WIN
@@ -169,12 +168,14 @@ public:
     static QSslCipher QSslCipher_from_SSL_CIPHER(const SSL_CIPHER *cipher);
     static QList<QSslCertificate> STACKOFX509_to_QSslCertificates(STACK_OF(X509) *x509);
     static QList<QSslError> verify(const QList<QSslCertificate> &certificateChain, const QString &hostName);
+    static QList<QSslError> verify(const QList<QSslCertificate> &cas, const QList<QSslCertificate> &certificateChain,
+                                   const QString &hostName);
     static QString getErrorsFromOpenSsl();
+    static void logAndClearErrorQueue();
     static bool importPkcs12(QIODevice *device,
                              QSslKey *key, QSslCertificate *cert,
                              QList<QSslCertificate> *caCertificates,
                              const QByteArray &passPhrase);
-
     static QString msgErrorsDuringHandshake();
 };
 

@@ -22,7 +22,6 @@
 #include "components/cast_channel/cast_socket_service.h"
 #include "components/cast_channel/cast_test_util.h"
 #include "components/cast_channel/logger.h"
-#include "components/cast_channel/proto/cast_channel.pb.h"
 #include "content/public/browser/browser_task_traits.h"
 #include "content/public/browser/browser_thread.h"
 #include "extensions/browser/api/cast_channel/cast_channel_api.h"
@@ -35,9 +34,9 @@
 #include "net/base/net_errors.h"
 #include "net/traffic_annotation/network_traffic_annotation_test_helper.h"
 #include "testing/gmock/include/gmock/gmock.h"
-#include "testing/gmock_mutant.h"
+#include "third_party/openscreen/src/cast/common/channel/proto/cast_channel.pb.h"
 
-using ::cast_channel::CastMessage;
+using ::cast::channel::CastMessage;
 using ::cast_channel::CastSocket;
 using ::cast_channel::CastTransport;
 using ::cast_channel::ChannelError;
@@ -204,11 +203,10 @@ class CastChannelAPITest : public extensions::ExtensionApiTest {
 
  protected:
   void CallOnMessage(const std::string& message) {
-    base::PostTaskWithTraits(
-        FROM_HERE, {content::BrowserThread::IO},
-        base::BindOnce(&CastChannelAPITest::DoCallOnMessage,
-                       base::Unretained(this), GetApi(), mock_cast_socket_,
-                       message));
+    base::PostTask(FROM_HERE, {content::BrowserThread::IO},
+                   base::BindOnce(&CastChannelAPITest::DoCallOnMessage,
+                                  base::Unretained(this), GetApi(),
+                                  mock_cast_socket_, message));
   }
 
   void DoCallOnMessage(extensions::CastChannelAPI* api,
@@ -221,10 +219,9 @@ class CastChannelAPITest : public extensions::ExtensionApiTest {
 
   // Fires a timer on the IO thread.
   void FireTimeout() {
-    base::PostTaskWithTraits(
-        FROM_HERE, {content::BrowserThread::IO},
-        base::BindOnce(&CastChannelAPITest::DoFireTimeout,
-                       base::Unretained(this), mock_cast_socket_));
+    base::PostTask(FROM_HERE, {content::BrowserThread::IO},
+                   base::BindOnce(&CastChannelAPITest::DoFireTimeout,
+                                  base::Unretained(this), mock_cast_socket_));
   }
 
   void DoFireTimeout(MockCastSocket* cast_socket) {
@@ -257,11 +254,10 @@ class CastChannelAPITest : public extensions::ExtensionApiTest {
 };
 
 ACTION_P2(InvokeObserverOnError, api_test, cast_socket_service) {
-  base::PostTaskWithTraits(
-      FROM_HERE, {content::BrowserThread::IO},
-      base::BindOnce(&CastChannelAPITest::DoCallOnError,
-                     base::Unretained(api_test),
-                     base::Unretained(cast_socket_service)));
+  base::PostTask(FROM_HERE, {content::BrowserThread::IO},
+                 base::BindOnce(&CastChannelAPITest::DoCallOnError,
+                                base::Unretained(api_test),
+                                base::Unretained(cast_socket_service)));
 }
 
 // TODO(kmarshall): Win Dbg has a workaround that makes RunExtensionSubtest

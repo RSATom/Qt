@@ -105,7 +105,7 @@ static sk_sp<SkImage> make_text_image(GrContext* context, const char* text, SkCo
 
     sk_sp<SkImage> image = surf->makeImageSnapshot();
 
-    return image->makeTextureImage(context, nullptr);
+    return image->makeTextureImage(context);
 }
 
 // Create an image with each corner marked w/ "LL", "LR", etc., with the origin either bottom-left
@@ -130,9 +130,8 @@ static sk_sp<SkImage> make_reference_image(GrContext* context,
 
     auto origin = bottomLeftOrigin ? kBottomLeft_GrSurfaceOrigin : kTopLeft_GrSurfaceOrigin;
 
-    auto proxy = sk_gpu_test::MakeTextureProxyFromData(context, GrRenderable::kNo, kImageSize,
-                                                       kImageSize, bm.colorType(), bm.alphaType(),
-                                                       origin, bm.getPixels(), bm.rowBytes());
+    auto proxy = sk_gpu_test::MakeTextureProxyFromData(context, GrRenderable::kNo, origin,
+                                                       bm.info(), bm.getPixels(), bm.rowBytes());
     if (!proxy) {
         return nullptr;
     }
@@ -167,8 +166,7 @@ public:
         this->setBGColor(0xFFCCCCCC);
     }
 
-protected:
-
+private:
     SkString onShortName() override {
         return SkString("flippity");
     }
@@ -231,6 +229,10 @@ protected:
     }
 
     void makeLabels(GrContext* context) {
+        if (fLabels.count()) {
+            return;
+        }
+
         static const char* kLabelText[kNumLabels] = { "LL", "LR", "UL", "UR" };
 
         static const SkColor kLabelColors[kNumLabels] = {
@@ -240,7 +242,6 @@ protected:
             SK_ColorCYAN
         };
 
-        SkASSERT(!fLabels.count());
         for (int i = 0; i < kNumLabels; ++i) {
             fLabels.push_back(make_text_image(context, kLabelText[i], kLabelColors[i]));
         }

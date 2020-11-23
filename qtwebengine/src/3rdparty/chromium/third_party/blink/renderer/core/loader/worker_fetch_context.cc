@@ -16,7 +16,6 @@
 #include "third_party/blink/renderer/core/probe/core_probes.h"
 #include "third_party/blink/renderer/core/timing/worker_global_scope_performance.h"
 #include "third_party/blink/renderer/core/workers/worker_clients.h"
-#include "third_party/blink/renderer/core/workers/worker_content_settings_client.h"
 #include "third_party/blink/renderer/core/workers/worker_global_scope.h"
 #include "third_party/blink/renderer/platform/exported/wrapped_resource_request.h"
 #include "third_party/blink/renderer/platform/instrumentation/use_counter.h"
@@ -81,11 +80,13 @@ WorkerFetchContext::GetPreviewsResourceLoadingHints() const {
 }
 
 bool WorkerFetchContext::AllowScriptFromSource(const KURL& url) const {
-  WorkerContentSettingsClient* settings_client =
-      WorkerContentSettingsClient::From(*global_scope_);
+  if (!global_scope_->ContentSettingsClient()) {
+    return true;
+  }
   // If we're on a worker, script should be enabled, so no need to plumb
   // Settings::GetScriptEnabled() here.
-  return !settings_client || settings_client->AllowScriptFromSource(true, url);
+  return global_scope_->ContentSettingsClient()->AllowScriptFromSource(true,
+                                                                       url);
 }
 
 bool WorkerFetchContext::ShouldBlockRequestByInspector(const KURL& url) const {
@@ -227,7 +228,11 @@ void WorkerFetchContext::AddResourceTiming(const ResourceTimingInfo& info) {
                                               .GetSecurityOrigin();
   WebResourceTimingInfo web_info = Performance::GenerateResourceTiming(
       *security_origin, info, *global_scope_);
-  resource_timing_notifier_->AddResourceTiming(web_info, info.InitiatorType());
+  // |info| is taken const-ref but this can make destructive changes to
+  // WorkerTimingContainer on |info| when a page is controlled by a service
+  // worker.
+  resource_timing_notifier_->AddResourceTiming(web_info, info.InitiatorType(),
+                                               info.TakeWorkerTimingReceiver());
 }
 
 void WorkerFetchContext::PopulateResourceRequest(
@@ -238,10 +243,19 @@ void WorkerFetchContext::PopulateResourceRequest(
   MixedContentChecker::UpgradeInsecureRequest(
       out_request,
       &GetResourceFetcherProperties().GetFetchClientSettingsObject(),
-      global_scope_, network::mojom::RequestContextFrameType::kNone);
+      global_scope_, network::mojom::RequestContextFrameType::kNone,
+      global_scope_->ContentSettingsClient());
   SetFirstPartyCookie(out_request);
   if (!out_request.TopFrameOrigin())
     out_request.SetTopFrameOrigin(GetTopFrameOrigin());
+}
+
+mojo::PendingReceiver<mojom::blink::WorkerTimingContainer>
+WorkerFetchContext::TakePendingWorkerTimingReceiver(int request_id) {
+  mojo::ScopedMessagePipeHandle pipe =
+      GetWebWorkerFetchContext()->TakePendingWorkerTimingReceiver(request_id);
+  return mojo::PendingReceiver<mojom::blink::WorkerTimingContainer>(
+      std::move(pipe));
 }
 
 void WorkerFetchContext::SetFirstPartyCookie(ResourceRequest& out_request) {
@@ -254,9 +268,13 @@ WorkerSettings* WorkerFetchContext::GetWorkerSettings() const {
   return scope ? scope->GetWorkerSettings() : nullptr;
 }
 
-WorkerContentSettingsClient*
-WorkerFetchContext::GetWorkerContentSettingsClient() const {
-  return WorkerContentSettingsClient::From(*global_scope_);
+bool WorkerFetchContext::AllowRunningInsecureContent(
+    bool enabled_per_settings,
+    const KURL& url) const {
+  if (!global_scope_->ContentSettingsClient())
+    return enabled_per_settings;
+  return global_scope_->ContentSettingsClient()->AllowRunningInsecureContent(
+      enabled_per_settings, url);
 }
 
 void WorkerFetchContext::Trace(blink::Visitor* visitor) {

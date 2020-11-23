@@ -131,8 +131,10 @@ private slots:
     void mouseSelectionMode_accessors();
     void selectByMouse();
     void selectByKeyboard();
+#if QT_CONFIG(shortcut)
     void keyboardSelection_data();
     void keyboardSelection();
+#endif
     void renderType();
     void inputMethodHints();
 
@@ -190,16 +192,19 @@ private slots:
     void insert();
     void remove_data();
     void remove();
-
+#if QT_CONFIG(shortcut)
     void keySequence_data();
     void keySequence();
+#endif
 
     void undo_data();
     void undo();
     void redo_data();
     void redo();
+#if QT_CONFIG(shortcut)
     void undo_keypressevents_data();
     void undo_keypressevents();
+#endif
     void clear();
 
     void baseUrl();
@@ -215,11 +220,14 @@ private slots:
     void QTBUG_51115_readOnlyResetsSelection();
     void keys_shortcutoverride();
 
+    void transparentSelectionColor();
 private:
     void simulateKeys(QWindow *window, const QList<Key> &keys);
+#if QT_CONFIG(shortcut)
     void simulateKeys(QWindow *window, const QKeySequence &sequence);
+#endif
 
-    void simulateKey(QWindow *, int key, Qt::KeyboardModifiers modifiers = nullptr);
+    void simulateKey(QWindow *, int key, Qt::KeyboardModifiers modifiers = {});
 
     QStringList standard;
     QStringList richText;
@@ -260,6 +268,8 @@ void tst_qquicktextedit::simulateKeys(QWindow *window, const QList<Key> &keys)
     }
 }
 
+#if QT_CONFIG(shortcut)
+
 void tst_qquicktextedit::simulateKeys(QWindow *window, const QKeySequence &sequence)
 {
     for (int i = 0; i < sequence.count(); ++i) {
@@ -276,6 +286,8 @@ QList<Key> &operator <<(QList<Key> &keys, const QKeySequence &sequence)
         keys << Key(sequence[i], QChar());
     return keys;
 }
+
+#endif // QT_CONFIG(shortcut)
 
 template <int N> QList<Key> &operator <<(QList<Key> &keys, const char (&characters)[N])
 {
@@ -916,7 +928,7 @@ void tst_qquicktextedit::hAlignVisual()
     {
         if ((QGuiApplication::platformName() == QLatin1String("offscreen"))
             || (QGuiApplication::platformName() == QLatin1String("minimal")))
-            QEXPECT_FAIL("", "Failure due to grabWindow not functional on offscreen/minimimal platforms", Abort);
+            QEXPECT_FAIL("", "Failure due to grabWindow not functional on offscreen/minimal platforms", Abort);
 
         // Left Align
         QImage image = view.grabWindow();
@@ -1378,7 +1390,7 @@ void tst_qquicktextedit::focusOnPress()
     QCOMPARE(textEditObject->hasActiveFocus(), false);
 
     QPoint centerPoint(window.width()/2, window.height()/2);
-    Qt::KeyboardModifiers noModifiers = nullptr;
+    Qt::KeyboardModifiers noModifiers;
     QTest::mousePress(&window, Qt::LeftButton, noModifiers, centerPoint);
     QGuiApplication::processEvents();
     QCOMPARE(textEditObject->hasFocus(), true);
@@ -2307,6 +2319,8 @@ void tst_qquicktextedit::selectByKeyboard()
     QCOMPARE(spy.at(2).at(0).toBool(), false);
 }
 
+#if QT_CONFIG(shortcut)
+
 Q_DECLARE_METATYPE(QKeySequence::StandardKey)
 
 void tst_qquicktextedit::keyboardSelection_data()
@@ -2390,6 +2404,8 @@ void tst_qquicktextedit::keyboardSelection()
 
     QCOMPARE(edit->selectedText(), selectedText);
 }
+
+#endif // QT_CONFIG(shortcut)
 
 void tst_qquicktextedit::renderType()
 {
@@ -4820,6 +4836,7 @@ void tst_qquicktextedit::remove()
         QVERIFY(cursorPositionSpy.count() > 0);
 }
 
+#if QT_CONFIG(shortcut)
 
 void tst_qquicktextedit::keySequence_data()
 {
@@ -4983,6 +5000,8 @@ void tst_qquicktextedit::keySequence()
     QCOMPARE(textEdit->text(), expectedText);
     QCOMPARE(textEdit->selectedText(), selectedText);
 }
+
+#endif // QT_CONFIG(shortcut)
 
 #define NORMAL 0
 #define REPLACE_UNTIL_END 1
@@ -5257,6 +5276,8 @@ void tst_qquicktextedit::redo()
     QCOMPARE(spy.count(), 2);
 }
 
+#if QT_CONFIG(shortcut)
+
 void tst_qquicktextedit::undo_keypressevents_data()
 {
     QTest::addColumn<KeyList>("keys");
@@ -5449,6 +5470,8 @@ void tst_qquicktextedit::undo_keypressevents()
     }
     QVERIFY(textEdit->text().isEmpty());
 }
+
+#endif // QT_CONFIG(shortcut)
 
 void tst_qquicktextedit::clear()
 {
@@ -5786,6 +5809,32 @@ void tst_qquicktextedit::keys_shortcutoverride()
     textEdit->setFocus(true);
     QTest::keyPress(&view, Qt::Key_Escape);
     QCOMPARE(root->property("who").value<QString>(), QLatin1String("TextEdit"));
+}
+
+void tst_qquicktextedit::transparentSelectionColor()
+{
+    if ((QGuiApplication::platformName() == QLatin1String("offscreen"))
+        || (QGuiApplication::platformName() == QLatin1String("minimal")))
+        QSKIP("Skipping due to grabToImage not functional on offscreen/minimal platforms");
+
+    QQuickView view;
+    view.setSource(testFileUrl("transparentSelectionColor.qml"));
+    view.show();
+    QVERIFY(QTest::qWaitForWindowExposed(&view));
+    QObject *root = view.rootObject();
+    QVERIFY(root);
+
+    QQuickTextEdit *textEdit = root->findChild<QQuickTextEdit *>();
+    QVERIFY(textEdit);
+    textEdit->selectAll();
+
+    QImage img = view.grabWindow();
+    QCOMPARE(img.isNull(), false);
+
+    QColor color = img.pixelColor(int(textEdit->width() / 2), int(textEdit->height()) / 2);
+    QVERIFY(color.red() > 250);
+    QVERIFY(color.blue() < 10);
+    QVERIFY(color.green() < 10);
 }
 
 QTEST_MAIN(tst_qquicktextedit)

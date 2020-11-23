@@ -1,7 +1,7 @@
 /****************************************************************************
 **
 ** Copyright (C) 2016 The Qt Company Ltd.
-** Copyright (C) 2018 Intel Corporation.
+** Copyright (C) 2019 Intel Corporation.
 ** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the QtCore module of the Qt Toolkit.
@@ -37,6 +37,9 @@
 ** $QT_END_LICENSE$
 **
 ****************************************************************************/
+
+// we need ICC to define the prototype for _rdseed64_step
+#define __INTEL_COMPILER_USE_INTRINSIC_PROTOTYPES
 
 #include "qsimd_p.h"
 #include "qalgorithms.h"
@@ -187,6 +190,8 @@ static inline quint64 detectProcessorFeatures()
 #else
 # define PICreg "%%rbx"
 #endif
+
+static bool checkRdrndWorks() noexcept;
 
 static int maxBasicCpuidSupported()
 {
@@ -376,37 +381,8 @@ static quint64 detectProcessorFeatures()
         features &= ~AllAVX512;
     }
 
-#if defined(Q_PROCESSOR_X86) && QT_COMPILER_SUPPORTS_HERE(RDRND)
-    /**
-     * Some AMD CPUs (e.g. AMD A4-6250J and AMD Ryzen 3000-series) have a
-     * failing random generation instruction, which always returns
-     * 0xffffffff, even when generation was "successful".
-     *
-     * This code checks if hardware random generator generates four consecutive
-     * equal numbers. If it does, then we probably have a failing one and
-     * should disable it completely.
-     *
-     * https://bugreports.qt.io/browse/QTBUG-69423
-     */
-    if (features & CpuFeatureRDRND) {
-        const qsizetype testBufferSize = 4;
-        unsigned testBuffer[4] = {};
-
-        const qsizetype generated = qRandomCpu(testBuffer, testBufferSize);
-
-        if (Q_UNLIKELY(generated == testBufferSize &&
-            testBuffer[0] == testBuffer[1] &&
-            testBuffer[1] == testBuffer[2] &&
-            testBuffer[2] == testBuffer[3])) {
-
-            fprintf(stderr, "WARNING: CPU random generator seem to be failing, disable hardware random number generation\n");
-            fprintf(stderr, "WARNING: RDRND generated: 0x%x 0x%x 0x%x 0x%x\n",
-                    testBuffer[0], testBuffer[1], testBuffer[2], testBuffer[3]);
-
-            features &= ~CpuFeatureRDRND;
-        }
-    }
-#endif
+    if (features & CpuFeatureRDRND && !checkRdrndWorks())
+        features &= ~(CpuFeatureRDRND | CpuFeatureRDSEED);
 
     return features;
 }
@@ -626,24 +602,62 @@ void qDumpCPUFeatures()
 
 #  ifdef Q_PROCESSOR_X86_64
 #    define _rdrandXX_step _rdrand64_step
+#    define _rdseedXX_step _rdseed64_step
 #  else
 #    define _rdrandXX_step _rdrand32_step
+#    define _rdseedXX_step _rdseed32_step
 #  endif
 
-QT_FUNCTION_TARGET(RDRND) qsizetype qRandomCpu(void *buffer, qsizetype count) noexcept
-{
-    unsigned *ptr = reinterpret_cast<unsigned *>(buffer);
-    unsigned *end = ptr + count;
-    int retries = 10;
+// The parameter to _rdrand64_step & _rdseed64_step is unsigned long long for
+// Clang and GCC but unsigned __int64 for MSVC and ICC, which is unsigned long
+// long on Windows, but unsigned long on Linux.
+namespace {
+template <typename F> struct ExtractParameter;
+template <typename T> struct ExtractParameter<int (T *)> { using Type = T; };
+using randuint = ExtractParameter<decltype(_rdrandXX_step)>::Type;
+}
 
-    while (ptr + sizeof(qregisteruint)/sizeof(*ptr) <= end) {
-        if (_rdrandXX_step(reinterpret_cast<qregisteruint *>(ptr)))
-            ptr += sizeof(qregisteruint)/sizeof(*ptr);
+#  if QT_COMPILER_SUPPORTS_HERE(RDSEED)
+static QT_FUNCTION_TARGET(RDSEED) unsigned *qt_random_rdseed(unsigned *ptr, unsigned *end) noexcept
+{
+    // Unlike for the RDRAND code below, the Intel whitepaper describing the
+    // use of the RDSEED instruction indicates we should not retry in a loop.
+    // If the independent bit generator used by RDSEED is out of entropy, it
+    // may take time to replenish.
+    // https://software.intel.com/en-us/articles/intel-digital-random-number-generator-drng-software-implementation-guide
+    while (ptr + sizeof(randuint)/sizeof(*ptr) <= end) {
+        if (_rdseedXX_step(reinterpret_cast<randuint *>(ptr)) == 0)
+            goto out;
+        ptr += sizeof(randuint)/sizeof(*ptr);
+    }
+
+    if (sizeof(*ptr) != sizeof(randuint) && ptr != end) {
+        if (_rdseed32_step(ptr) == 0)
+            goto out;
+        ++ptr;
+    }
+
+out:
+    return ptr;
+}
+#  else
+static unsigned *qt_random_rdseed(unsigned *ptr, unsigned *)
+{
+    return ptr;
+}
+#  endif
+
+static QT_FUNCTION_TARGET(RDRND) unsigned *qt_random_rdrnd(unsigned *ptr, unsigned *end) noexcept
+{
+    int retries = 10;
+    while (ptr + sizeof(randuint)/sizeof(*ptr) <= end) {
+        if (_rdrandXX_step(reinterpret_cast<randuint *>(ptr)))
+            ptr += sizeof(randuint)/sizeof(*ptr);
         else if (--retries == 0)
             goto out;
     }
 
-    while (sizeof(*ptr) != sizeof(qregisteruint) && ptr != end) {
+    while (sizeof(*ptr) != sizeof(randuint) && ptr != end) {
         bool ok = _rdrand32_step(ptr);
         if (!ok && --retries)
             continue;
@@ -653,9 +667,64 @@ QT_FUNCTION_TARGET(RDRND) qsizetype qRandomCpu(void *buffer, qsizetype count) no
     }
 
 out:
+    return ptr;
+}
+
+static QT_FUNCTION_TARGET(RDRND) Q_DECL_COLD_FUNCTION bool checkRdrndWorks() noexcept
+{
+    /*
+     * Some AMD CPUs (e.g. AMD A4-6250J and AMD Ryzen 3000-series) have a
+     * failing random generation instruction, which always returns
+     * 0xffffffff, even when generation was "successful".
+     *
+     * This code checks if hardware random generator generates four consecutive
+     * equal numbers. If it does, then we probably have a failing one and
+     * should disable it completely.
+     *
+     * https://bugreports.qt.io/browse/QTBUG-69423
+     */
+    constexpr qsizetype TestBufferSize = 4;
+    unsigned testBuffer[TestBufferSize] = {};
+
+    unsigned *end = qt_random_rdrnd(testBuffer, testBuffer + TestBufferSize);
+    if (end < testBuffer + 3) {
+        // Random generation didn't produce enough data for us to make a
+        // determination whether it's working or not. Assume it isn't, but
+        // don't print a warning.
+        return false;
+    }
+
+    // Check the results for equality
+    if (testBuffer[0] == testBuffer[1]
+        && testBuffer[0] == testBuffer[2]
+        && (end < testBuffer + TestBufferSize || testBuffer[0] == testBuffer[3])) {
+        fprintf(stderr, "WARNING: CPU random generator seem to be failing, "
+                        "disabling hardware random number generation\n"
+                        "WARNING: RDRND generated:");
+        for (unsigned *ptr = testBuffer; ptr < end; ++ptr)
+            fprintf(stderr, " 0x%x", *ptr);
+        fprintf(stderr, "\n");
+        return false;
+    }
+
+    // We're good
+    return true;
+}
+
+QT_FUNCTION_TARGET(RDRND) qsizetype qRandomCpu(void *buffer, qsizetype count) noexcept
+{
+    unsigned *ptr = reinterpret_cast<unsigned *>(buffer);
+    unsigned *end = ptr + count;
+
+    if (qCpuHasFeature(RDSEED))
+        ptr = qt_random_rdseed(ptr, end);
+
+    // fill the buffer with RDRND if RDSEED didn't
+    ptr = qt_random_rdrnd(ptr, end);
     return ptr - reinterpret_cast<unsigned *>(buffer);
 }
-#endif
-
+#elif defined(Q_PROCESSOR_X86) && !defined(Q_OS_NACL) && !defined(Q_PROCESSOR_ARM)
+static bool checkRdrndWorks() noexcept { return false; }
+#endif // Q_PROCESSOR_X86 && RDRND
 
 QT_END_NAMESPACE

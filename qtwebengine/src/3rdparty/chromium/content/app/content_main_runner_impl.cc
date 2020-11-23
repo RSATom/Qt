@@ -29,7 +29,6 @@
 #include "base/logging.h"
 #include "base/macros.h"
 #include "base/metrics/field_trial.h"
-#include "base/metrics/field_trial_params.h"
 #include "base/metrics/histogram_base.h"
 #include "base/path_service.h"
 #include "base/power_monitor/power_monitor.h"
@@ -40,10 +39,10 @@
 #include "base/process/process_handle.h"
 #include "base/single_thread_task_runner.h"
 #include "base/strings/string_number_conversions.h"
-#include "base/strings/string_split.h"
 #include "base/strings/string_util.h"
 #include "base/strings/stringprintf.h"
 #include "base/task/post_task.h"
+#include "base/task/thread_pool/thread_pool_instance.h"
 #include "base/trace_event/trace_event.h"
 #include "components/discardable_memory/service/discardable_shared_memory_manager.h"
 #include "components/download/public/common/download_task_runner.h"
@@ -54,9 +53,11 @@
 #include "content/browser/scheduler/browser_task_executor.h"
 #include "content/browser/startup_data_impl.h"
 #include "content/browser/startup_helper.h"
+#include "content/browser/tracing/memory_instrumentation_util.h"
 #include "content/common/content_constants_internal.h"
 #include "content/common/url_schemes.h"
 #include "content/public/app/content_main_delegate.h"
+#include "content/public/browser/system_connector.h"
 #include "content/public/common/content_constants.h"
 #include "content/public/common/content_descriptor_keys.h"
 #include "content/public/common/content_features.h"
@@ -89,7 +90,6 @@
 #include "ui/base/l10n/l10n_util_win.h"
 #include "ui/display/win/dpi.h"
 #elif defined(OS_MACOSX)
-#include "base/power_monitor/power_monitor_device_source.h"
 #include "sandbox/mac/seatbelt.h"
 #include "sandbox/mac/seatbelt_exec.h"
 #endif  // OS_WIN
@@ -167,7 +167,6 @@
 #endif
 
 #if defined(OS_ANDROID)
-#include "base/android/build_info.h"
 #include "content/browser/android/browser_startup_controller.h"
 #endif
 
@@ -184,12 +183,6 @@ extern int UtilityMain(const MainFunctionParams&);
 namespace content {
 
 namespace {
-
-#if defined(OS_ANDROID)
-// Finch parameter key value for devices to always run in process.
-const base::FeatureParam<std::string> kDevicesForceInProcessParam{
-    &network::features::kNetworkService, "devices_force_in_process", ""};
-#endif
 
 #if defined(V8_USE_EXTERNAL_STARTUP_DATA) && defined(OS_ANDROID)
 #if defined __LP64__
@@ -221,7 +214,7 @@ void LoadV8SnapshotFile() {
   base::ScopedFD fd =
       file_descriptor_store.MaybeTakeFD(snapshot_data_descriptor, &region);
   if (fd.is_valid()) {
-    base::File file(fd.release());
+    base::File file(std::move(fd));
     gin::V8Initializer::LoadV8SnapshotFromFile(std::move(file), &region,
                                                kSnapshotType);
     return;
@@ -230,24 +223,6 @@ void LoadV8SnapshotFile() {
 
 #if !defined(CHROME_MULTIPLE_DLL_BROWSER)
   gin::V8Initializer::LoadV8Snapshot(kSnapshotType);
-#endif  // !CHROME_MULTIPLE_DLL_BROWSER
-}
-
-void LoadV8NativesFile() {
-#if defined(OS_POSIX) && !defined(OS_MACOSX)
-  base::FileDescriptorStore& file_descriptor_store =
-      base::FileDescriptorStore::GetInstance();
-  base::MemoryMappedFile::Region region;
-  base::ScopedFD fd =
-      file_descriptor_store.MaybeTakeFD(kV8NativesDataDescriptor, &region);
-  if (fd.is_valid()) {
-    base::File file(fd.release());
-    gin::V8Initializer::LoadV8NativesFromFile(std::move(file), &region);
-    return;
-  }
-#endif  // OS_POSIX && !OS_MACOSX
-#if !defined(CHROME_MULTIPLE_DLL_BROWSER)
-  gin::V8Initializer::LoadV8Natives();
 #endif  // !CHROME_MULTIPLE_DLL_BROWSER
 }
 #endif  // V8_USE_EXTERNAL_STARTUP_DATA
@@ -259,7 +234,6 @@ void InitializeV8IfNeeded(const base::CommandLine& command_line,
 
 #if defined(V8_USE_EXTERNAL_STARTUP_DATA)
   LoadV8SnapshotFile();
-  LoadV8NativesFile();
 #endif  // V8_USE_EXTERNAL_STARTUP_DATA
 }
 
@@ -762,15 +736,41 @@ int ContentMainRunnerImpl::Initialize(const ContentMainParams& params) {
     RegisterContentSchemes(delegate_->ShouldLockSchemeRegistry());
 
 #if defined(OS_ANDROID) && (ICU_UTIL_DATA_IMPL == ICU_UTIL_DATA_FILE)
-    int icudata_fd = g_fds->MaybeGet(kAndroidICUDataDescriptor);
-    if (icudata_fd != -1) {
-      auto icudata_region = g_fds->GetRegion(kAndroidICUDataDescriptor);
-      if (!base::i18n::InitializeICUWithFileDescriptor(icudata_fd,
-                                                       icudata_region))
+    // On Android, we have two ICU data files. A main one with most languages
+    // that is expected to always be available and an extra one that is
+    // installed separately via a dynamic feature module. If the extra ICU data
+    // file is available we have to apply it _before_ the main ICU data file.
+    // Otherwise, the languages of the extra ICU file will be overridden.
+    if (process_type.empty()) {
+      // In browser process load ICU data files from disk.
+      if (GetContentClient()->browser()->ShouldLoadExtraIcuDataFile()) {
+        if (!base::i18n::InitializeExtraICU()) {
+          return TerminateForFatalInitializationError();
+        }
+      }
+      if (!base::i18n::InitializeICU()) {
         return TerminateForFatalInitializationError();
+      }
     } else {
-      if (!base::i18n::InitializeICU())
+      // In child process map ICU data files loaded by browser process.
+      int icu_extra_data_fd = g_fds->MaybeGet(kAndroidICUExtraDataDescriptor);
+      if (icu_extra_data_fd != -1) {
+        auto icu_extra_data_region =
+            g_fds->GetRegion(kAndroidICUExtraDataDescriptor);
+        if (!base::i18n::InitializeExtraICUWithFileDescriptor(
+                icu_extra_data_fd, icu_extra_data_region)) {
+          return TerminateForFatalInitializationError();
+        }
+      }
+      int icu_data_fd = g_fds->MaybeGet(kAndroidICUDataDescriptor);
+      if (icu_data_fd == -1) {
         return TerminateForFatalInitializationError();
+      }
+      auto icu_data_region = g_fds->GetRegion(kAndroidICUDataDescriptor);
+      if (!base::i18n::InitializeICUWithFileDescriptor(icu_data_fd,
+                                                       icu_data_region)) {
+        return TerminateForFatalInitializationError();
+      }
     }
 #else
     if (!base::i18n::InitializeICU())
@@ -927,37 +927,12 @@ int ContentMainRunnerImpl::RunServiceManager(MainFunctionParams& main_params,
       StartBrowserThreadPool();
     }
 
-    tracing::InitTracingPostThreadPoolStart();
-
     BrowserTaskExecutor::PostFeatureListSetup();
 
-    delegate_->PostTaskSchedulerStart();
+    tracing::InitTracingPostThreadPoolStartAndFeatureList();
 
-    if (base::FeatureList::IsEnabled(network::features::kNetworkService)) {
-      bool force_in_process = false;
-      if (should_start_service_manager_only) {
-        force_in_process = true;
-      } else {
-#if defined(OS_ANDROID)
-        auto finch_value = kDevicesForceInProcessParam.Get();
-        auto devices = base::SplitString(
-            finch_value, ";", base::TRIM_WHITESPACE, base::SPLIT_WANT_NONEMPTY);
-        auto current_device =
-            std::string(base::android::BuildInfo::GetInstance()->model());
-        for (auto device : devices) {
-          if (device == current_device) {
-            force_in_process = true;
-            break;
-          }
-        }
-#endif
-      }
-
-      if (force_in_process) {
-        // This must be called before creating the ServiceManagerContext.
-        ForceInProcessNetworkService(true);
-      }
-    }
+    if (should_start_service_manager_only)
+      ForceInProcessNetworkService(true);
 
     discardable_shared_memory_manager_ =
         std::make_unique<discardable_memory::DiscardableSharedMemoryManager>();
@@ -971,6 +946,9 @@ int ContentMainRunnerImpl::RunServiceManager(MainFunctionParams& main_params,
         BrowserTaskExecutor::CreateIOThread());
     download::SetIOTaskRunner(
         service_manager_environment_->ipc_thread()->task_runner());
+
+    InitializeBrowserMemoryInstrumentationClient();
+
 #if defined(OS_ANDROID)
     if (start_service_manager_only) {
       base::ThreadTaskRunnerHandle::Get()->PostTask(

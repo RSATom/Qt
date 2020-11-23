@@ -84,6 +84,8 @@ class OutOfProcessInstance : public pp::Instance,
   bool CanRedo();
   void Undo();
   void Redo();
+  void HandleAccessibilityAction(
+      const PP_PdfAccessibilityActionData& action_data);
   int32_t PdfPrintBegin(const PP_PrintSettings_Dev* print_settings,
                         const PP_PdfPrintSettings_Dev* pdf_print_settings);
 
@@ -95,7 +97,7 @@ class OutOfProcessInstance : public pp::Instance,
   void OnPrint(int32_t);
 
   // PDFEngine::Client implementation.
-  void DocumentSizeUpdated(const pp::Size& size) override;
+  void ProposeDocumentLayout(const DocumentLayout& layout) override;
   void Invalidate(const pp::Rect& rect) override;
   void DidScroll(const pp::Point& point) override;
   void ScrollToX(int x_in_screen_coords) override;
@@ -104,6 +106,10 @@ class OutOfProcessInstance : public pp::Instance,
   void ScrollToPage(int page) override;
   void NavigateTo(const std::string& url,
                   WindowOpenDisposition disposition) override;
+  void NavigateToDestination(int page,
+                             const float* x,
+                             const float* y,
+                             const float* zoom) override;
   void UpdateCursor(PP_CursorType_Dev cursor) override;
   void UpdateTickMarks(const std::vector<pp::Rect>& tickmarks) override;
   void NotifyNumberOfFindResultsChanged(int total, bool final_result) override;

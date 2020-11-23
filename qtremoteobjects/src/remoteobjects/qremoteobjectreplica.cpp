@@ -177,6 +177,14 @@ void QRemoteObjectReplicaImplementation::setState(QRemoteObjectReplica::State st
     QMetaObject::activate(this, metaObject(), stateChangedIndex, args);
 }
 
+void QRemoteObjectReplicaImplementation::emitNotified()
+{
+    const static int notifiedIndex = QRemoteObjectReplica::staticMetaObject.indexOfMethod("notified()");
+    Q_ASSERT(notifiedIndex != -1);
+    void *args[] = {nullptr};
+    QMetaObject::activate(this, metaObject(), notifiedIndex, args);
+}
+
 bool QConnectedReplicaImplementation::sendCommand()
 {
     if (connectionToSource.isNull() || !connectionToSource->isOpen()) {
@@ -227,6 +235,7 @@ void QConnectedReplicaImplementation::initialize(QVariantList &values)
         args[1] = m_propertyStorage[i].data();
         QMetaObject::activate(this, metaObject(), notifyIndex, args);
     }
+    emitNotified();
 
     qCDebug(QT_REMOTEOBJECT) << "isSet = true for" << m_objectName;
     if (node()->heartbeatInterval())
@@ -307,6 +316,7 @@ void QConnectedReplicaImplementation::setDynamicProperties(const QVariantList &v
             QMetaObject::activate(this, metaObject(), mp.notifySignalIndex(), args);
         }
     }
+    emitNotified();
 
     qCDebug(QT_REMOTEOBJECT) << "isSet = true for" << m_objectName;
 }
@@ -616,9 +626,25 @@ void QConnectedReplicaImplementation::configurePrivate(QRemoteObjectReplica *rep
 /*!
     \fn void QRemoteObjectReplica::initialized()
 
-    This signal is emitted once the replica is initialized.
+    This signal is emitted once the replica is initialized. An intialized replica
+    has all property values set, but has not yet emitted any property change
+    notifications.
 
     \sa isInitialized(), stateChanged()
+*/
+
+/*!
+    \fn void QRemoteObjectReplica::notified()
+
+    This signal is emitted once the replica is initialized and all property change
+    notifications have been emitted.
+
+    It is sometimes useful to respond to property changes as events.
+    For example, you might want to display a user notification when a certain
+    property change occurs. However, this user notification would then also be
+    triggered when a replica first became \c QRemoteObjectReplica::Valid, as
+    all property change signals are emitted at that time. This isn't always desirable,
+    and \c notified allows the developer to distinguish between these two cases.
 */
 
 /*!

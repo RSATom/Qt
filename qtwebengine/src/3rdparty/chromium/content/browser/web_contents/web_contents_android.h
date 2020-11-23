@@ -154,8 +154,8 @@ class CONTENT_EXPORT WebContentsAndroid {
   jint GetThemeColor(JNIEnv* env,
                      const base::android::JavaParamRef<jobject>& obj);
 
-  jint GetLoadProgress(JNIEnv* env,
-                       const base::android::JavaParamRef<jobject>& obj);
+  jfloat GetLoadProgress(JNIEnv* env,
+                         const base::android::JavaParamRef<jobject>& obj);
 
   void RequestSmartClipExtract(
       JNIEnv* env,
@@ -184,9 +184,6 @@ class CONTENT_EXPORT WebContentsAndroid {
       JNIEnv* env,
       const base::android::JavaParamRef<jobject>& obj,
       bool disabled);
-
-  void ReloadLoFiImages(JNIEnv* env,
-                        const base::android::JavaParamRef<jobject>& obj);
 
   int DownloadImage(JNIEnv* env,
                     const base::android::JavaParamRef<jobject>& obj,
@@ -280,7 +277,7 @@ class CONTENT_EXPORT WebContentsAndroid {
 
   base::ObserverList<DestructionObserver> destruction_observers_;
 
-  base::WeakPtrFactory<WebContentsAndroid> weak_factory_;
+  base::WeakPtrFactory<WebContentsAndroid> weak_factory_{this};
 
   DISALLOW_COPY_AND_ASSIGN(WebContentsAndroid);
 };

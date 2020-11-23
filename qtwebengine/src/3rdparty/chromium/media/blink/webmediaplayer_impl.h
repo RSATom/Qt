@@ -27,19 +27,23 @@
 #include "cc/layers/surface_layer.h"
 #include "components/viz/common/gpu/context_provider.h"
 #include "media/base/cdm_config.h"
+#include "media/base/encryption_scheme.h"
 #include "media/base/media_observer.h"
 #include "media/base/media_tracks.h"
 #include "media/base/overlay_info.h"
 #include "media/base/pipeline_impl.h"
 #include "media/base/renderer_factory_selector.h"
+#include "media/base/simple_watch_timer.h"
 #include "media/base/text_track.h"
 #include "media/blink/buffered_data_source_host_impl.h"
+#include "media/blink/learning_experiment_helper.h"
 #include "media/blink/media_blink_export.h"
 #include "media/blink/multibuffer_data_source.h"
 #include "media/blink/video_frame_compositor.h"
 #include "media/blink/webmediaplayer_params.h"
 #include "media/filters/pipeline_controller.h"
 #include "media/renderers/paint_canvas_video_renderer.h"
+#include "mojo/public/cpp/bindings/remote.h"
 #include "services/media_session/public/cpp/media_position.h"
 #include "third_party/blink/public/platform/media/webmediaplayer_delegate.h"
 #include "third_party/blink/public/platform/web_audio_source_provider.h"
@@ -74,7 +78,6 @@ class GLES2Interface;
 namespace media {
 class CdmContextRef;
 class ChunkDemuxer;
-class EncryptionScheme;
 class VideoDecodeStatsReporter;
 class MediaLog;
 class UrlIndex;
@@ -120,6 +123,7 @@ class MEDIA_BLINK_EXPORT WebMediaPlayerImpl
   void Seek(double seconds) override;
   void SetRate(double rate) override;
   void SetVolume(double volume) override;
+  void SetLatencyHint(double seconds) override;
   void OnRequestPictureInPicture() override;
   void SetSinkId(
       const blink::WebString& sink_id,
@@ -216,14 +220,13 @@ class MEDIA_BLINK_EXPORT WebMediaPlayerImpl
       blink::WebContentDecryptionModule* cdm,
       blink::WebContentDecryptionModuleResult result) override;
 
-  bool SupportsOverlayFullscreenVideo() override;
   void EnteredFullscreen() override;
   void ExitedFullscreen() override;
-  void BecameDominantVisibleContent(bool isDominant) override;
+  void BecameDominantVisibleContent(bool is_dominant) override;
   void SetIsEffectivelyFullscreen(
       blink::WebFullscreenVideoStatus fullscreen_video_status) override;
   void OnHasNativeControlsChanged(bool) override;
-  void OnDisplayTypeChanged(WebMediaPlayer::DisplayType) override;
+  void OnDisplayTypeChanged(WebMediaPlayer::DisplayType display_type) override;
 
   // blink::WebMediaPlayerDelegate::Observer implementation.
   void OnFrameHidden() override;
@@ -237,11 +240,6 @@ class MEDIA_BLINK_EXPORT WebMediaPlayerImpl
   void OnSeekBackward(double seconds) override;
   void OnVolumeMultiplierUpdate(double multiplier) override;
   void OnBecamePersistentVideo(bool value) override;
-
-  // Callback for when bytes are received by |chunk_demuxer_| or the UrlData
-  // being loaded.
-  void OnBytesReceived(uint64_t data_length);
-
   void RequestRemotePlaybackDisabled(bool disabled) override;
 
 #if defined(OS_ANDROID)
@@ -283,6 +281,7 @@ class MEDIA_BLINK_EXPORT WebMediaPlayerImpl
   int GetDelegateId() override;
   base::Optional<viz::SurfaceId> GetSurfaceId() override;
   GURL GetSrcAfterRedirects() override;
+  void RequestAnimationFrame() override;
 
   base::WeakPtr<blink::WebMediaPlayer> AsWeakPtr() override;
 
@@ -352,6 +351,9 @@ class MEDIA_BLINK_EXPORT WebMediaPlayerImpl
   void OnAudioDecoderChange(const PipelineDecoderInfo& info) override;
   void OnVideoDecoderChange(const PipelineDecoderInfo& info) override;
 
+  // Simplified watch time reporting.
+  void OnSimpleWatchTimerTick();
+
   // Actually seek. Avoids causing |should_notify_time_changed_| to be set when
   // |time_updated| is false.
   void DoSeek(base::TimeDelta time, bool time_updated);
@@ -375,8 +377,11 @@ class MEDIA_BLINK_EXPORT WebMediaPlayerImpl
       bool decoder_requires_restart_for_overlay,
       const ProvideOverlayInfoCB& provide_overlay_info_cb);
 
-  // Creates a Renderer via the |renderer_factory_selector_|.
-  std::unique_ptr<Renderer> CreateRenderer();
+  // Creates a Renderer via the |renderer_factory_selector_|. If the
+  // |factory_type| is base::nullopt, create the base Renderer. Otherwise, set
+  // the base type to be |factory_type| and create a Renderer of that type.
+  std::unique_ptr<Renderer> CreateRenderer(
+      base::Optional<RendererFactoryType> factory_type);
 
   // Finishes starting the pipeline due to a call to load().
   void StartPipeline();
@@ -593,7 +598,7 @@ class MEDIA_BLINK_EXPORT WebMediaPlayerImpl
   // Records the encryption scheme used by the stream |stream_name|. This is
   // only recorded when metadata is available.
   void RecordEncryptionScheme(const std::string& stream_name,
-                              const EncryptionScheme& encryption_scheme);
+                              EncryptionScheme encryption_scheme);
 
   // Returns whether the player is currently displayed in Picture-in-Picture.
   // It will return true even if the player is in AutoPIP mode.
@@ -606,12 +611,20 @@ class MEDIA_BLINK_EXPORT WebMediaPlayerImpl
   // Switch to SurfaceLayer, either initially or from VideoLayer.
   void ActivateSurfaceLayerForVideo();
 
-  void SendBytesReceivedUpdate();
+  // Called by |compositor_| upon presenting a frame, after
+  // RequestAnimationFrame() is called.
+  void OnNewFramePresentedCallback(scoped_refptr<VideoFrame> presented_frame,
+                                   base::TimeTicks presentation_time,
+                                   base::TimeTicks expected_presentation_time,
+                                   uint32_t presentation_counter);
 
   // Notifies |mb_data_source_| of playback and rate changes which may increase
   // the amount of data the DataSource buffers. Does nothing prior to reaching
   // kReadyStateHaveEnoughData for the first time.
   void MaybeUpdateBufferSizesForPlayback();
+
+  void SetCurrentFrameOverrideForTesting(
+      scoped_refptr<VideoFrame> current_frame_override);
 
   blink::WebLocalFrame* const frame_;
 
@@ -803,9 +816,6 @@ class MEDIA_BLINK_EXPORT WebMediaPlayerImpl
 
   std::unique_ptr<RendererFactorySelector> renderer_factory_selector_;
 
-  // For canceling ongoing surface creation requests when exiting fullscreen.
-  base::CancelableCallback<void(int)> surface_created_cb_;
-
   // For canceling AndroidOverlay routing token requests.
   base::CancelableCallback<void(const base::UnguessableToken&)>
       token_available_cb_;
@@ -851,16 +861,6 @@ class MEDIA_BLINK_EXPORT WebMediaPlayerImpl
   // This flag is distinct from |using_media_player_renderer_|, because on older
   // devices we might use MediaPlayerRenderer for non HLS playback.
   bool demuxer_found_hls_ = false;
-
-  // Bytes received since the last update was sent to |media_metrics_provider_|.
-  uint64_t bytes_received_since_last_update_ = 0;
-
-  // The time that a bytes received update should be sent.
-  base::TimeTicks earliest_time_next_bytes_received_update_;
-
-  // Ensures that all bytes received will eventually be reported, even if
-  // updates stop being received.
-  base::OneShotTimer report_bytes_received_timer_;
 
   // Called sometime after the media is suspended in a playing state in
   // OnFrameHidden(), causing the state to change to paused.
@@ -952,9 +952,6 @@ class MEDIA_BLINK_EXPORT WebMediaPlayerImpl
     // All overlays are turned off.
     kNoOverlays,
 
-    // Use ContentVideoView for overlays.
-    kUseContentVideoView,
-
     // Use AndroidOverlay for overlays.
     kUseAndroidOverlay,
   };
@@ -976,7 +973,7 @@ class MEDIA_BLINK_EXPORT WebMediaPlayerImpl
 
   base::CancelableClosure update_background_status_cb_;
 
-  mojom::MediaMetricsProviderPtr media_metrics_provider_;
+  mojo::Remote<mojom::MediaMetricsProvider> media_metrics_provider_;
 
   base::Optional<ReadyState> stale_state_override_for_testing_;
 
@@ -1005,7 +1002,17 @@ class MEDIA_BLINK_EXPORT WebMediaPlayerImpl
   // Whether background video optimization is supported on current platform.
   bool is_background_video_track_optimization_supported_ = true;
 
+  // Valid while an active OnNewFramePresentedCallback() is in progress.
+  // Overrides the VideoFrame returned by GetCurrentFrameFromCompositor().
+  scoped_refptr<VideoFrame> current_frame_override_;
+
   base::CancelableOnceClosure have_enough_after_lazy_load_cb_;
+
+  // State for simplified watch time reporting.
+  RendererFactoryType reported_renderer_type_;
+  SimpleWatchTimer simple_watch_timer_;
+
+  LearningExperimentHelper will_play_helper_;
 
   base::WeakPtr<WebMediaPlayerImpl> weak_this_;
   base::WeakPtrFactory<WebMediaPlayerImpl> weak_factory_{this};

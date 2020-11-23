@@ -283,12 +283,6 @@ const LocalizedErrorMap net_error_options[] = {
    SUGGEST_DISABLE_EXTENSION,
    SHOW_BUTTON_RELOAD,
   },
-  {net::ERR_BLOCKED_BY_XSS_AUDITOR,
-   IDS_ERRORPAGES_HEADING_PAGE_NOT_WORKING,
-   IDS_ERRORPAGES_SUMMARY_BLOCKED_BY_XSS_AUDITOR,
-   SUGGEST_NAVIGATE_TO_ORIGIN,
-   SHOW_NO_BUTTONS,
-  },
   {net::ERR_NETWORK_CHANGED,
    IDS_ERRORPAGES_HEADING_CONNECTION_INTERRUPTED,
    IDS_ERRORPAGES_SUMMARY_NETWORK_CHANGED,
@@ -1042,7 +1036,7 @@ LocalizedError::PageState LocalizedError::GetPageState(
   if (!is_post && !result.reload_button_shown && !is_incognito &&
       failed_url.is_valid() && failed_url.SchemeIsHTTPOrHTTPS() &&
       IsOfflineError(error_domain, error_code)) {
-    if (!auto_fetch_feature_enabled && offline_pages::IsOfflinePagesEnabled()) {
+    if (!auto_fetch_feature_enabled) {
       result.download_button_shown = true;
       result.strings.SetPath({"downloadButton", "msg"},
                              base::Value(l10n_util::GetStringUTF16(

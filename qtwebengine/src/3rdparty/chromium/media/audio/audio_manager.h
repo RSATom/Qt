@@ -62,7 +62,7 @@ class MEDIA_EXPORT AudioManager {
 
 #if defined(OS_LINUX)
   // Sets the name of the audio source as seen by external apps. Only actually
-  // used with PulseAudio as of this writing.
+  // used with PulseAudio and MPRIS as of this writing.
   static void SetGlobalAppName(const std::string& app_name);
 
   // Returns the app name or an empty string if it is not set.

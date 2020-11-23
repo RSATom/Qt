@@ -8,8 +8,8 @@
 #include <string>
 
 #include "content/common/content_export.h"
-class GURL;
 
+class GURL;
 namespace content {
 
 class DevToolsAgentHost;

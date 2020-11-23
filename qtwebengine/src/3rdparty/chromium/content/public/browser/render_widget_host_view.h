@@ -165,10 +165,13 @@ class CONTENT_EXPORT RenderWidgetHostView {
   virtual base::Optional<SkColor> GetBackgroundColor() = 0;
 
   // Return value indicates whether the mouse is locked successfully or not.
-  virtual bool LockMouse() = 0;
+  virtual bool LockMouse(bool request_unadjusted_movement) = 0;
   virtual void UnlockMouse() = 0;
   // Returns true if the mouse pointer is currently locked.
   virtual bool IsMouseLocked() = 0;
+  // Get the pointer lock unadjusted movement setting for testing.
+  // Returns true if mouse is locked and is in unadjusted movement mode.
+  virtual bool GetIsMouseLockedUnadjustedMovementForTesting() = 0;
 
   // Start/Stop intercepting future system keyboard events.
   virtual bool LockKeyboard(
@@ -230,11 +233,6 @@ class CONTENT_EXPORT RenderWidgetHostView {
   // Start(). See viz.mojom.FrameSinkVideoCapturer for documentation.
   virtual std::unique_ptr<viz::ClientFrameSinkVideoCapturer>
   CreateVideoCapturer() = 0;
-
-  // Notification that a node was touched.
-  // The |editable| parameter indicates if the node is editable, for e.g.
-  // an input field, etc.
-  virtual void FocusedNodeTouched(bool editable) = 0;
 
   // Informs the view that its associated render widget has frames to draw and
   // wants to have BeginFrame messages sent to it.  This should only be called

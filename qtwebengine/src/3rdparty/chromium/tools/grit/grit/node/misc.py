@@ -11,11 +11,12 @@ import os.path
 import re
 import sys
 
+import six
+
 from grit import constants
 from grit import exception
 from grit import util
 from grit.extern import FP
-import grit.format.rc_header
 from grit.node import base
 from grit.node import message
 from grit.node import node_io
@@ -96,7 +97,7 @@ def _ComputeIds(root, predetermined_tids):
   Args:
     predetermined_tids: Dict of textual id -> numeric id to use in return dict.
   """
-  from grit.node import empty, include, message, misc, structure
+  from grit.node import empty, include, misc, structure
 
   ids = {}  # Maps numeric id to textual id
   tids = {}  # Maps textual id to numeric id
@@ -145,21 +146,21 @@ def _ComputeIds(root, predetermined_tids):
 
       elif ('offset' in item.attrs and group and
             group.attrs.get('first_id', '') != ''):
-         offset_text = item.attrs['offset']
-         parent_text = group.attrs['first_id']
+        offset_text = item.attrs['offset']
+        parent_text = group.attrs['first_id']
 
-         try:
-           offset_id = long(offset_text)
-         except ValueError:
-           offset_id = tids[offset_text]
+        try:
+          offset_id = long(offset_text)
+        except ValueError:
+          offset_id = tids[offset_text]
 
-         try:
-           parent_id = long(parent_text)
-         except ValueError:
-           parent_id = tids[parent_text]
+        try:
+          parent_id = long(parent_text)
+        except ValueError:
+          parent_id = tids[parent_text]
 
-         id = parent_id + offset_id
-         reason = 'first_id %d + offset %d' % (parent_id, offset_id)
+        id = parent_id + offset_id
+        reason = 'first_id %d + offset %d' % (parent_id, offset_id)
 
       # We try to allocate IDs sequentially for blocks of items that might
       # be related, for instance strings in a stringtable (as their IDs might be
@@ -513,7 +514,8 @@ class GritNode(base.Node):
     """Returns the distinct (language, context, fallback_to_default_layout)
     triples from the output nodes.
     """
-    return set((n.GetLanguage(), n.GetContext(), n.GetFallbackToDefaultLayout()) for n in self.GetOutputFiles())
+    return set((n.GetLanguage(), n.GetContext(), n.GetFallbackToDefaultLayout())
+               for n in self.GetOutputFiles())
 
   def GetSubstitutionMessages(self):
     """Returns the list of <message sub_variable="true"> nodes."""
@@ -579,7 +581,7 @@ class GritNode(base.Node):
     assert self._id_map is None, 'AssignFirstIds() after InitializeIds()'
     # If the input is a stream, then we're probably in a unit test and
     # should skip this step.
-    if type(filename_or_stream) not in (str, unicode):
+    if not isinstance(filename_or_stream, six.string_types):
       return
 
     # Nothing to do if the first_ids_filename attribute isn't set.

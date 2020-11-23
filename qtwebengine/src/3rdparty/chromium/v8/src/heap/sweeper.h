@@ -70,12 +70,8 @@ class Sweeper {
   };
 
   enum FreeListRebuildingMode { REBUILD_FREE_LIST, IGNORE_FREE_LIST };
-  enum ClearOldToNewSlotsMode {
-    DO_NOT_CLEAR,
-    CLEAR_REGULAR_SLOTS,
-    CLEAR_TYPED_SLOTS
-  };
   enum AddPageMode { REGULAR, READD_TEMPORARY_REMOVED_PAGE };
+  enum class FreeSpaceMayContainInvalidatedSlots { kYes, kNo };
 
   Sweeper(Heap* heap, MajorNonAtomicMarkingState* marking_state);
 
@@ -83,15 +79,22 @@ class Sweeper {
 
   void AddPage(AllocationSpace space, Page* page, AddPageMode mode);
 
-  int ParallelSweepSpace(AllocationSpace identity, int required_freed_bytes,
-                         int max_pages = 0);
-  int ParallelSweepPage(Page* page, AllocationSpace identity);
+  int ParallelSweepSpace(
+      AllocationSpace identity, int required_freed_bytes, int max_pages = 0,
+      FreeSpaceMayContainInvalidatedSlots invalidated_slots_in_free_space =
+          FreeSpaceMayContainInvalidatedSlots::kNo);
+  int ParallelSweepPage(
+      Page* page, AllocationSpace identity,
+      FreeSpaceMayContainInvalidatedSlots invalidated_slots_in_free_space =
+          FreeSpaceMayContainInvalidatedSlots::kNo);
 
   void ScheduleIncrementalSweepingTask();
 
-  int RawSweep(Page* p, FreeListRebuildingMode free_list_mode,
-               FreeSpaceTreatmentMode free_space_mode,
-               const base::MutexGuard& page_guard);
+  int RawSweep(
+      Page* p, FreeListRebuildingMode free_list_mode,
+      FreeSpaceTreatmentMode free_space_mode,
+      FreeSpaceMayContainInvalidatedSlots invalidated_slots_in_free_space,
+      const base::MutexGuard& page_guard);
 
   // After calling this function sweeping is considered to be in progress
   // and the main thread can sweep lazily, but the background sweeper tasks
@@ -103,11 +106,10 @@ class Sweeper {
 
   Page* GetSweptPageSafe(PagedSpace* space);
 
-  void EnsurePageIsIterable(Page* page);
-
   void AddPageForIterability(Page* page);
   void StartIterabilityTasks();
   void EnsureIterabilityCompleted();
+  void MergeOldToNewRememberedSetsForSweptPages();
 
  private:
   class IncrementalSweeperTask;
@@ -145,8 +147,6 @@ class Sweeper {
   Page* GetSweepingPageSafe(AllocationSpace space);
 
   void PrepareToBeSweptPage(AllocationSpace space, Page* page);
-
-  void SweepOrWaitUntilSweepingCompleted(Page* page);
 
   void MakeIterable(Page* page);
 

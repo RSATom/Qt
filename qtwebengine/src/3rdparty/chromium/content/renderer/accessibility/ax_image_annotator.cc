@@ -12,10 +12,10 @@
 #include "base/stl_util.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/utf_string_conversions.h"
-#include "content/app/strings/grit/content_strings.h"
 #include "content/public/common/content_client.h"
 #include "content/renderer/render_frame_impl.h"
 #include "crypto/sha2.h"
+#include "third_party/blink/public/strings/grit/blink_strings.h"
 #include "third_party/blink/public/web/web_ax_object.h"
 #include "third_party/blink/public/web/web_document.h"
 #include "third_party/blink/public/web/web_element.h"
@@ -29,10 +29,10 @@ namespace content {
 AXImageAnnotator::AXImageAnnotator(
     RenderAccessibilityImpl* const render_accessibility,
     const std::string& preferred_language,
-    image_annotation::mojom::AnnotatorPtr annotator_ptr)
+    mojo::PendingRemote<image_annotation::mojom::Annotator> annotator)
     : render_accessibility_(render_accessibility),
       preferred_language_(preferred_language),
-      annotator_ptr_(std::move(annotator_ptr)) {
+      annotator_(std::move(annotator)) {
   DCHECK(render_accessibility_);
 }
 
@@ -80,13 +80,13 @@ void AXImageAnnotator::OnImageAdded(blink::WebAXObject& image) {
   if (image_id.empty())
     return;
 
-  image_annotations_.emplace(image.AxID(), image);
+  image_annotations_[image.AxID()] = ImageInfo(image);
   ImageInfo& image_info = image_annotations_.at(image.AxID());
   // Fetch image annotation.
-  annotator_ptr_->AnnotateImage(
-      image_id, preferred_language_, image_info.GetImageProcessor(),
-      base::BindOnce(&AXImageAnnotator::OnImageAnnotated,
-                     weak_factory_.GetWeakPtr(), image));
+  annotator_->AnnotateImage(image_id, preferred_language_,
+                            image_info.GetImageProcessor(),
+                            base::BindOnce(&AXImageAnnotator::OnImageAnnotated,
+                                           weak_factory_.GetWeakPtr(), image));
   VLOG(1) << "Requesting annotation for " << image_id << " with language '"
           << preferred_language_ << "' from page " << GetDocumentUrl();
 }
@@ -100,10 +100,10 @@ void AXImageAnnotator::OnImageUpdated(blink::WebAXObject& image) {
 
   ImageInfo& image_info = image_annotations_.at(image.AxID());
   // Update annotation.
-  annotator_ptr_->AnnotateImage(
-      image_id, preferred_language_, image_info.GetImageProcessor(),
-      base::BindOnce(&AXImageAnnotator::OnImageAnnotated,
-                     weak_factory_.GetWeakPtr(), image));
+  annotator_->AnnotateImage(image_id, preferred_language_,
+                            image_info.GetImageProcessor(),
+                            base::BindOnce(&AXImageAnnotator::OnImageAnnotated,
+                                           weak_factory_.GetWeakPtr(), image));
 }
 
 void AXImageAnnotator::OnImageRemoved(blink::WebAXObject& image) {
@@ -198,9 +198,9 @@ AXImageAnnotator::ImageInfo::ImageInfo(const blink::WebAXObject& image)
 
 AXImageAnnotator::ImageInfo::~ImageInfo() = default;
 
-image_annotation::mojom::ImageProcessorPtr
+mojo::PendingRemote<image_annotation::mojom::ImageProcessor>
 AXImageAnnotator::ImageInfo::GetImageProcessor() {
-  return image_processor_.GetPtr();
+  return image_processor_.GetPendingRemote();
 }
 
 bool AXImageAnnotator::ImageInfo::HasAnnotation() const {

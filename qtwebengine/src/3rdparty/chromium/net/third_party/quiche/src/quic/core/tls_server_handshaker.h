@@ -34,10 +34,6 @@ class QUIC_EXPORT_PRIVATE TlsServerHandshaker
 
   ~TlsServerHandshaker() override;
 
-  // Creates and configures an SSL_CTX to be used with a TlsServerHandshaker.
-  // The caller is responsible for ownership of the newly created struct.
-  static bssl::UniquePtr<SSL_CTX> CreateSslCtx();
-
   // From QuicCryptoServerStream::HandshakerDelegate
   void CancelOutstandingCallbacks() override;
   bool GetBase64SHA256ClientChannelID(std::string* output) const override;
@@ -50,6 +46,7 @@ class QUIC_EXPORT_PRIVATE TlsServerHandshaker
   bool ZeroRttAttempted() const override;
   void SetPreviousCachedNetworkParams(
       CachedNetworkParameters cached_network_params) override;
+  void OnPacketDecrypted(EncryptionLevel level) override;
   bool ShouldSendExpectCTHeader() const override;
 
   // From QuicCryptoServerStream::HandshakerDelegate and TlsHandshaker
@@ -58,9 +55,12 @@ class QUIC_EXPORT_PRIVATE TlsServerHandshaker
   const QuicCryptoNegotiatedParameters& crypto_negotiated_params()
       const override;
   CryptoMessageParser* crypto_message_parser() override;
+  size_t BufferSizeLimitForLevel(EncryptionLevel level) const override;
 
  protected:
-  TlsConnection* tls_connection() override { return &tls_connection_; }
+  const TlsConnection* tls_connection() const override {
+    return &tls_connection_;
+  }
 
   // Called when a new message is received on the crypto stream and is available
   // for the TLS stack to read.
@@ -85,7 +85,8 @@ class QUIC_EXPORT_PRIVATE TlsServerHandshaker
   TlsConnection::Delegate* ConnectionDelegate() override { return this; }
 
  private:
-  class SignatureCallback : public ProofSource::SignatureCallback {
+  class QUIC_EXPORT_PRIVATE SignatureCallback
+      : public ProofSource::SignatureCallback {
    public:
     explicit SignatureCallback(TlsServerHandshaker* handshaker);
     void Run(bool ok, std::string signature) override;
@@ -101,6 +102,7 @@ class QUIC_EXPORT_PRIVATE TlsServerHandshaker
     STATE_LISTENING,
     STATE_SIGNATURE_PENDING,
     STATE_SIGNATURE_COMPLETE,
+    STATE_ENCRYPTION_HANDSHAKE_DATA_PROCESSED,
     STATE_HANDSHAKE_COMPLETE,
     STATE_CONNECTION_CLOSED,
   };
@@ -123,6 +125,7 @@ class QUIC_EXPORT_PRIVATE TlsServerHandshaker
 
   bool encryption_established_ = false;
   bool handshake_confirmed_ = false;
+  bool valid_alpn_received_ = false;
   QuicReferenceCountedPointer<QuicCryptoNegotiatedParameters>
       crypto_negotiated_params_;
   TlsServerConnection tls_connection_;

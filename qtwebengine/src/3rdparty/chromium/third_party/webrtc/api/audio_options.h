@@ -16,6 +16,7 @@
 #include <string>
 
 #include "absl/types/optional.h"
+#include "rtc_base/system/rtc_export.h"
 
 namespace cricket {
 
@@ -23,7 +24,7 @@ namespace cricket {
 // Used to be flags, but that makes it hard to selectively apply options.
 // We are moving all of the setting of options to structs like this,
 // but some things currently still use flags.
-struct AudioOptions {
+struct RTC_EXPORT AudioOptions {
   AudioOptions();
   ~AudioOptions();
   void SetAll(const AudioOptions& change);
@@ -62,8 +63,6 @@ struct AudioOptions {
   // Audio processing to detect typing.
   absl::optional<bool> typing_detection;
   absl::optional<bool> experimental_agc;
-  absl::optional<bool> extended_filter_aec;
-  absl::optional<bool> delay_agnostic_aec;
   absl::optional<bool> experimental_ns;
   // Note that tx_agc_* only applies to non-experimental AGC.
   absl::optional<bool> residual_echo_detector;

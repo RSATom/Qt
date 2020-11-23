@@ -546,7 +546,7 @@ void QPainterPath::setElementPositionAt(int i, qreal x, qreal y)
     Constructs an empty QPainterPath object.
 */
 QPainterPath::QPainterPath() noexcept
-    : d_ptr(0)
+    : d_ptr(nullptr)
 {
 }
 
@@ -602,7 +602,7 @@ void QPainterPath::ensureData_helper()
     QPainterPath::Element e = { 0, 0, QPainterPath::MoveToElement };
     data->elements << e;
     d_ptr.reset(data);
-    Q_ASSERT(d_ptr != 0);
+    Q_ASSERT(d_ptr != nullptr);
 }
 
 /*!
@@ -1036,7 +1036,7 @@ void QPainterPath::arcMoveTo(const QRectF &rect, qreal angle)
         return;
 
     QPointF pt;
-    qt_find_ellipse_coords(rect, angle, 0, &pt, 0);
+    qt_find_ellipse_coords(rect, angle, 0, &pt, nullptr);
     moveTo(pt);
 }
 
@@ -1253,7 +1253,7 @@ void QPainterPath::addText(const QPointF &point, const QFont &f, const QString &
             fe->addOutlineToPath(x, y, glyphs, this,
                                  si.analysis.bidiLevel % 2
                                  ? QTextItem::RenderFlags(QTextItem::RightToLeft)
-                                 : QTextItem::RenderFlags(0));
+                                 : QTextItem::RenderFlags{});
 
             const qreal lw = fe->lineThickness().toReal();
             if (f.d->underline) {
@@ -1660,13 +1660,18 @@ QList<QPolygonF> QPainterPath::toSubpathPolygons(const QTransform &matrix) const
     return flatCurves;
 }
 
+#if QT_DEPRECATED_SINCE(5, 15)
 /*!
   \overload
+  \obsolete
+
+  Use toSubpathPolygons(const QTransform &matrix) instead.
  */
 QList<QPolygonF> QPainterPath::toSubpathPolygons(const QMatrix &matrix) const
 {
     return toSubpathPolygons(QTransform(matrix));
 }
+#endif // QT_DEPRECATED_SINCE(5, 15)
 
 /*!
     Converts the path into a list of polygons using the
@@ -1787,13 +1792,18 @@ QList<QPolygonF> QPainterPath::toFillPolygons(const QTransform &matrix) const
     return polys;
 }
 
+#if QT_DEPRECATED_SINCE(5, 15)
 /*!
   \overload
+  \obsolete
+
+  Use toFillPolygons(const QTransform &matrix) instead.
  */
 QList<QPolygonF> QPainterPath::toFillPolygons(const QMatrix &matrix) const
 {
     return toFillPolygons(QTransform(matrix));
 }
+#endif // QT_DEPRECATED_SINCE(5, 15)
 
 //same as qt_polygon_isect_line in qpolygon.cpp
 static void qt_painterpath_isect_line(const QPointF &p1,
@@ -2904,14 +2914,18 @@ QPolygonF QPainterPath::toFillPolygon(const QTransform &matrix) const
     return polygon;
 }
 
+#if QT_DEPRECATED_SINCE(5, 15)
 /*!
   \overload
+  \obsolete
+
+  Use toFillPolygon(const QTransform &matrix) instead.
 */
 QPolygonF QPainterPath::toFillPolygon(const QMatrix &matrix) const
 {
     return toFillPolygon(QTransform(matrix));
 }
-
+#endif // QT_DEPRECATED_SINCE(5, 15)
 
 //derivative of the equation
 static inline qreal slopeAt(qreal t, qreal a, qreal b, qreal c, qreal d)

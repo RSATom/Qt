@@ -17,6 +17,7 @@
 #include "platform/base/macros.h"
 
 namespace openscreen {
+namespace osp {
 
 // Embedder's view of the network service that initiates OSP connections to OSP
 // receivers.
@@ -76,8 +77,6 @@ class ProtocolConnectionClient {
   // Returns true if state() != (kStopped|kStopping).
   virtual bool Stop() = 0;
 
-  virtual void RunTasks() = 0;
-
   // Open a new connection to |endpoint|.  This may succeed synchronously if
   // there are already connections open to |endpoint|, otherwise it will be
   // asynchronous.
@@ -119,6 +118,7 @@ class ProtocolConnectionClient {
 std::ostream& operator<<(std::ostream& os,
                          ProtocolConnectionClient::State state);
 
+}  // namespace osp
 }  // namespace openscreen
 
 #endif  // OSP_PUBLIC_PROTOCOL_CONNECTION_CLIENT_H_

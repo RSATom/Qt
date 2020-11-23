@@ -125,7 +125,7 @@ int main(int argc, char *argv[])
     host.setHostUrl(server.serverAddress().toString(), QRemoteObjectHost::AllowExternalRegistration);
 
     QObject::connect(&server, &SslServer::encryptedSocketReady, &server, [&host](QSslSocket *socket) {
-        QObject::connect(socket, QOverload<QAbstractSocket::SocketError>::of(&QSslSocket::error),
+        QObject::connect(socket, &QSslSocket::errorOccurred,
                 socket, [](QAbstractSocket::SocketError error){
             qDebug() << "QSslSocket::error" << error;
         }) ;

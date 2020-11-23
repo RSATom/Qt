@@ -21,7 +21,6 @@ class ClientNativePixmapFuchsia : public gfx::ClientNativePixmap {
  public:
   explicit ClientNativePixmapFuchsia(gfx::NativePixmapHandle handle)
       : handle_(std::move(handle)) {
-    DCHECK(!handle_.planes.empty());
   }
 
   ~ClientNativePixmapFuchsia() override {
@@ -33,10 +32,8 @@ class ClientNativePixmapFuchsia : public gfx::ClientNativePixmap {
     if (mapping_)
       return true;
 
-    if (!handle_.planes[0].vmo) {
-      NOTREACHED();
+    if (handle_.planes.empty() || !handle_.planes[0].vmo)
       return false;
-    }
 
     uintptr_t addr;
 
@@ -66,6 +63,15 @@ class ClientNativePixmapFuchsia : public gfx::ClientNativePixmap {
 
   void Unmap() override {
     DCHECK(mapping_);
+
+    // Flush the CPu cache in case the GPU reads the data directly from RAM.
+    if (handle_.ram_coherency) {
+      zx_status_t status =
+          zx_cache_flush(mapping_, mapping_size_,
+                         ZX_CACHE_FLUSH_DATA | ZX_CACHE_FLUSH_INVALIDATE);
+      ZX_DCHECK(status == ZX_OK, status) << "zx_cache_flush";
+    }
+
     zx_status_t status = zx::vmar::root_self()->unmap(
         reinterpret_cast<uintptr_t>(mapping_), mapping_size_);
     ZX_DCHECK(status == ZX_OK, status) << "zx_vmar_unmap";
@@ -143,6 +149,7 @@ class ScenicClientNativePixmapFactory : public gfx::ClientNativePixmapFactory {
       if (!end_pos.IsValid() || end_pos.ValueOrDie() > vmo_size)
         return nullptr;
     }
+
     return std::make_unique<ClientNativePixmapFuchsia>(std::move(handle));
   }
 

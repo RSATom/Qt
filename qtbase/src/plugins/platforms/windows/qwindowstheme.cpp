@@ -51,6 +51,7 @@
 #if QT_CONFIG(systemtrayicon)
 #  include "qwindowssystemtrayicon.h"
 #endif
+#include "qwindowsscreen.h"
 #include "qt_windows.h"
 #include <commctrl.h>
 #include <objbase.h>
@@ -63,6 +64,7 @@
 #include <QtCore/qcoreapplication.h>
 #include <QtCore/qdebug.h>
 #include <QtCore/qtextstream.h>
+#include <QtCore/qoperatingsystemversion.h>
 #include <QtCore/qsysinfo.h>
 #include <QtCore/qcache.h>
 #include <QtCore/qthread.h>
@@ -78,6 +80,7 @@
 #include <QtFontDatabaseSupport/private/qwindowsfontdatabase_p.h>
 #include <private/qhighdpiscaling_p.h>
 #include <private/qsystemlibrary_p.h>
+#include <private/qwinregistry_p.h>
 
 #include <algorithm>
 
@@ -96,7 +99,7 @@ static inline QTextStream& operator<<(QTextStream &str, const QColor &c)
 {
     str.setIntegerBase(16);
     str.setFieldWidth(2);
-    str.setPadChar(QLatin1Char('0'));
+    str.setPadChar(u'0');
     str << " rgb: #" << c.red()  << c.green() << c.blue();
     str.setIntegerBase(10);
     str.setFieldWidth(0);
@@ -164,7 +167,7 @@ public:
         QMutexLocker readyLocker(&m_readyMutex);
         while (!m_cancelled.loadRelaxed()) {
             if (!m_params && !m_cancelled.loadRelaxed()
-                && !m_readyCondition.wait(&m_readyMutex, 1000))
+                && !m_readyCondition.wait(&m_readyMutex, QDeadlineTimer(1000ll)))
                 continue;
 
             if (m_params) {
@@ -189,7 +192,7 @@ public:
             CoUninitialize();
     }
 
-    bool runWithParams(QShGetFileInfoParams *params, unsigned long timeOutMSecs)
+    bool runWithParams(QShGetFileInfoParams *params, qint64 timeOutMSecs)
     {
         QMutexLocker doneLocker(&m_doneMutex);
 
@@ -198,7 +201,7 @@ public:
         m_readyCondition.wakeAll();
         m_readyMutex.unlock();
 
-        return m_doneCondition.wait(&m_doneMutex, timeOutMSecs);
+        return m_doneCondition.wait(&m_doneMutex, QDeadlineTimer(timeOutMSecs));
     }
 
     void cancel()
@@ -220,7 +223,7 @@ private:
 
 static bool shGetFileInfoBackground(const QString &fileName, DWORD attributes,
                                     SHFILEINFO *info, UINT flags,
-                                    unsigned long  timeOutMSecs = 5000)
+                                    qint64 timeOutMSecs = 5000)
 {
     static QShGetFileInfoThread *getFileInfoThread = nullptr;
     if (!getFileInfoThread) {
@@ -241,6 +244,14 @@ static bool shGetFileInfoBackground(const QString &fileName, DWORD attributes,
     return result;
 }
 
+// Dark Mode constants
+enum DarkModeColors : QRgb  {
+    darkModeBtnHighlightRgb = 0xc0c0c0,
+    darkModeBtnShadowRgb = 0x808080,
+    darkModeHighlightRgb = 0x0055ff, // deviating from 0x800080
+    darkModeMenuHighlightRgb = darkModeHighlightRgb
+};
+
 // from QStyle::standardPalette
 static inline QPalette standardPalette()
 {
@@ -258,23 +269,55 @@ static inline QPalette standardPalette()
     return palette;
 }
 
-static inline QPalette systemPalette()
+static void populateLightSystemBasePalette(QPalette &result)
 {
-    QPalette result = standardPalette();
     result.setColor(QPalette::WindowText, getSysColor(COLOR_WINDOWTEXT));
-    result.setColor(QPalette::Button, getSysColor(COLOR_BTNFACE));
-    result.setColor(QPalette::Light, getSysColor(COLOR_BTNHIGHLIGHT));
+    const QColor btnFace = getSysColor(COLOR_BTNFACE);
+    result.setColor(QPalette::Button, btnFace);
+    const QColor btnHighlight = getSysColor(COLOR_BTNHIGHLIGHT);
+    result.setColor(QPalette::Light, btnHighlight);
     result.setColor(QPalette::Dark, getSysColor(COLOR_BTNSHADOW));
     result.setColor(QPalette::Mid, result.button().color().darker(150));
     result.setColor(QPalette::Text, getSysColor(COLOR_WINDOWTEXT));
-    result.setColor(QPalette::BrightText, getSysColor(COLOR_BTNHIGHLIGHT));
+    result.setColor(QPalette::BrightText, btnHighlight);
     result.setColor(QPalette::Base, getSysColor(COLOR_WINDOW));
-    result.setColor(QPalette::Window, getSysColor(COLOR_BTNFACE));
+    result.setColor(QPalette::Window, btnFace);
     result.setColor(QPalette::ButtonText, getSysColor(COLOR_BTNTEXT));
     result.setColor(QPalette::Midlight, getSysColor(COLOR_3DLIGHT));
     result.setColor(QPalette::Shadow, getSysColor(COLOR_3DDKSHADOW));
     result.setColor(QPalette::Highlight, getSysColor(COLOR_HIGHLIGHT));
     result.setColor(QPalette::HighlightedText, getSysColor(COLOR_HIGHLIGHTTEXT));
+}
+
+static void populateDarkSystemBasePalette(QPalette &result)
+{
+    const QColor darkModeWindowText = Qt::white;
+    result.setColor(QPalette::WindowText, darkModeWindowText);
+    const QColor darkModebtnFace = Qt::black;
+    result.setColor(QPalette::Button, darkModebtnFace);
+    const QColor btnHighlight = QColor(darkModeBtnHighlightRgb);
+    result.setColor(QPalette::Light, btnHighlight);
+    result.setColor(QPalette::Dark, QColor(darkModeBtnShadowRgb));
+    result.setColor(QPalette::Mid, result.button().color().darker(150));
+    result.setColor(QPalette::Text, darkModeWindowText);
+    result.setColor(QPalette::BrightText, btnHighlight);
+    result.setColor(QPalette::Base, darkModebtnFace);
+    result.setColor(QPalette::Window, darkModebtnFace);
+    result.setColor(QPalette::ButtonText, darkModeWindowText);
+    result.setColor(QPalette::Midlight, darkModeWindowText);
+    result.setColor(QPalette::Shadow, darkModeWindowText);
+    result.setColor(QPalette::Highlight, QColor(darkModeHighlightRgb));
+    result.setColor(QPalette::HighlightedText, darkModeWindowText);
+}
+
+static QPalette systemPalette(bool light)
+{
+    QPalette result = standardPalette();
+    if (light)
+        populateLightSystemBasePalette(result);
+    else
+        populateDarkSystemBasePalette(result);
+
     result.setColor(QPalette::Link, Qt::blue);
     result.setColor(QPalette::LinkVisited, Qt::magenta);
     result.setColor(QPalette::Inactive, QPalette::Button, result.button().color());
@@ -300,19 +343,19 @@ static inline QPalette systemPalette()
     result.setColor(QPalette::Disabled, QPalette::Text, disabled);
     result.setColor(QPalette::Disabled, QPalette::ButtonText, disabled);
     result.setColor(QPalette::Disabled, QPalette::Highlight,
-                    getSysColor(COLOR_HIGHLIGHT));
+                    light ? getSysColor(COLOR_HIGHLIGHT) : QColor(darkModeHighlightRgb));
     result.setColor(QPalette::Disabled, QPalette::HighlightedText,
-                    getSysColor(COLOR_HIGHLIGHTTEXT));
+                    light ? getSysColor(COLOR_HIGHLIGHTTEXT) : QColor(Qt::white));
     result.setColor(QPalette::Disabled, QPalette::Base,
                     result.window().color());
     return result;
 }
 
-static inline QPalette toolTipPalette(const QPalette &systemPalette)
+static inline QPalette toolTipPalette(const QPalette &systemPalette, bool light)
 {
     QPalette result(systemPalette);
-    const QColor tipBgColor(getSysColor(COLOR_INFOBK));
-    const QColor tipTextColor(getSysColor(COLOR_INFOTEXT));
+    const QColor tipBgColor = light ? getSysColor(COLOR_INFOBK) : QColor(Qt::black);
+    const QColor tipTextColor = light ? getSysColor(COLOR_INFOTEXT) : QColor(Qt::white);
 
     result.setColor(QPalette::All, QPalette::Button, tipBgColor);
     result.setColor(QPalette::All, QPalette::Window, tipBgColor);
@@ -337,12 +380,13 @@ static inline QPalette toolTipPalette(const QPalette &systemPalette)
     return result;
 }
 
-static inline QPalette menuPalette(const QPalette &systemPalette)
+static inline QPalette menuPalette(const QPalette &systemPalette, bool light)
 {
     QPalette result(systemPalette);
-    const QColor menuColor(getSysColor(COLOR_MENU));
-    const QColor menuTextColor(getSysColor(COLOR_MENUTEXT));
-    const QColor disabled(getSysColor(COLOR_GRAYTEXT));
+    const QColor menuColor = light ? getSysColor(COLOR_MENU) : QColor(Qt::black);
+    const QColor menuTextColor = light ? getSysColor(COLOR_MENUTEXT) : QColor(Qt::white);
+    const QColor disabled = light
+        ? getSysColor(COLOR_GRAYTEXT) : QColor(darkModeBtnHighlightRgb);
     // we might need a special color group for the result.
     result.setColor(QPalette::Active, QPalette::Button, menuColor);
     result.setColor(QPalette::Active, QPalette::Text, menuTextColor);
@@ -351,8 +395,10 @@ static inline QPalette menuPalette(const QPalette &systemPalette)
     result.setColor(QPalette::Disabled, QPalette::WindowText, disabled);
     result.setColor(QPalette::Disabled, QPalette::Text, disabled);
     const bool isFlat = booleanSystemParametersInfo(SPI_GETFLATMENU, false);
-    result.setColor(QPalette::Disabled, QPalette::Highlight,
-                    getSysColor(isFlat ? COLOR_MENUHILIGHT : COLOR_HIGHLIGHT));
+    const QColor highlightColor = light
+        ? (getSysColor(isFlat ? COLOR_MENUHILIGHT : COLOR_HIGHLIGHT))
+        : QColor(darkModeMenuHighlightRgb);
+    result.setColor(QPalette::Disabled, QPalette::Highlight, highlightColor);
     result.setColor(QPalette::Disabled, QPalette::HighlightedText, disabled);
     result.setColor(QPalette::Disabled, QPalette::Button,
                     result.color(QPalette::Active, QPalette::Button));
@@ -373,12 +419,12 @@ static inline QPalette menuPalette(const QPalette &systemPalette)
     return result;
 }
 
-static inline QPalette *menuBarPalette(const QPalette &menuPalette)
+static inline QPalette *menuBarPalette(const QPalette &menuPalette, bool light)
 {
     QPalette *result = nullptr;
     if (booleanSystemParametersInfo(SPI_GETFLATMENU, false)) {
         result = new QPalette(menuPalette);
-        const QColor menubar(getSysColor(COLOR_MENUBAR));
+        const QColor menubar(light ? getSysColor(COLOR_MENUBAR) : QColor(Qt::black));
         result->setColor(QPalette::Active, QPalette::Button, menubar);
         result->setColor(QPalette::Disabled, QPalette::Button, menubar);
         result->setColor(QPalette::Inactive, QPalette::Button, menubar);
@@ -485,10 +531,26 @@ void QWindowsTheme::refreshPalettes()
 
     if (!QGuiApplication::desktopSettingsAware())
         return;
-    m_palettes[SystemPalette] = new QPalette(systemPalette());
-    m_palettes[ToolTipPalette] = new QPalette(toolTipPalette(*m_palettes[SystemPalette]));
-    m_palettes[MenuPalette] = new QPalette(menuPalette(*m_palettes[SystemPalette]));
-    m_palettes[MenuBarPalette] = menuBarPalette(*m_palettes[MenuPalette]);
+    const bool light =
+        !QWindowsContext::isDarkMode()
+        || (QWindowsIntegration::instance()->options() & QWindowsIntegration::DarkModeStyle) == 0;
+    m_palettes[SystemPalette] = new QPalette(systemPalette(light));
+    m_palettes[ToolTipPalette] = new QPalette(toolTipPalette(*m_palettes[SystemPalette], light));
+    m_palettes[MenuPalette] = new QPalette(menuPalette(*m_palettes[SystemPalette], light));
+    m_palettes[MenuBarPalette] = menuBarPalette(*m_palettes[MenuPalette], light);
+    if (!light) {
+        m_palettes[ButtonPalette] = new QPalette(*m_palettes[SystemPalette]);
+        m_palettes[ButtonPalette]->setColor(QPalette::Button, QColor(0x666666u));
+        const QColor checkBoxBlue(0x0078d7u);
+        const QColor white(Qt::white);
+        m_palettes[CheckBoxPalette] = new QPalette(*m_palettes[SystemPalette]);
+        m_palettes[CheckBoxPalette]->setColor(QPalette::Window, checkBoxBlue);
+        m_palettes[CheckBoxPalette]->setColor(QPalette::Base, checkBoxBlue);
+        m_palettes[CheckBoxPalette]->setColor(QPalette::Button, checkBoxBlue);
+        m_palettes[CheckBoxPalette]->setColor(QPalette::ButtonText, white);
+        m_palettes[RadioButtonPalette] = new QPalette(*m_palettes[CheckBoxPalette]);
+
+    }
 }
 
 void QWindowsTheme::clearFonts()
@@ -497,13 +559,38 @@ void QWindowsTheme::clearFonts()
     std::fill(m_fonts, m_fonts + NFonts, nullptr);
 }
 
+void QWindowsTheme::refresh()
+{
+    refreshPalettes();
+    refreshFonts();
+}
+
+#ifndef QT_NO_DEBUG_STREAM
+QDebug operator<<(QDebug d, const LOGFONT &lf); // in platformsupport
+
+QDebug operator<<(QDebug d, const NONCLIENTMETRICS &m)
+{
+    QDebugStateSaver saver(d);
+    d.nospace();
+    d.noquote();
+    d << "NONCLIENTMETRICS(iMenu=" << m.iMenuWidth  << 'x' << m.iMenuHeight
+      << ", lfCaptionFont=" << m.lfCaptionFont << ", lfSmCaptionFont="
+      << m.lfSmCaptionFont << ", lfMenuFont=" << m.lfMenuFont
+      <<  ", lfMessageFont=" << m.lfMessageFont << ", lfStatusFont="
+      << m.lfStatusFont << ')';
+    return d;
+}
+#endif // QT_NO_DEBUG_STREAM
+
 void QWindowsTheme::refreshFonts()
 {
     clearFonts();
     if (!QGuiApplication::desktopSettingsAware())
         return;
     NONCLIENTMETRICS ncm;
-    QWindowsContext::nonClientMetrics(&ncm);
+    auto screenManager = QWindowsContext::instance()->screenManager();
+    QWindowsContext::nonClientMetricsForScreen(&ncm, screenManager.screens().value(0));
+    qCDebug(lcQpaWindows) << __FUNCTION__ << ncm;
     const QFont menuFont = QWindowsFontDatabase::LOGFONT_to_QFont(ncm.lfMenuFont);
     const QFont messageBoxFont = QWindowsFontDatabase::LOGFONT_to_QFont(ncm.lfMessageFont);
     const QFont statusFont = QWindowsFontDatabase::LOGFONT_to_QFont(ncm.lfStatusFont);
@@ -731,13 +818,13 @@ static QString dirIconPixmapCacheKey(int iIcon, int iconSize, int imageListSize)
 {
     QString key = QLatin1String("qt_dir_") + QString::number(iIcon);
     if (iconSize == SHGFI_LARGEICON)
-        key += QLatin1Char('l');
+        key += u'l';
     switch (imageListSize) {
     case sHIL_EXTRALARGE:
-        key += QLatin1Char('e');
+        key += u'e';
         break;
     case sHIL_JUMBO:
-        key += QLatin1Char('j');
+        key += u'j';
         break;
     }
     return key;
@@ -815,9 +902,9 @@ QString QWindowsFileIconEngine::cacheKey() const
     // It is faster to just look at the file extensions;
     // avoiding slow QFileInfo::isExecutable() (QTBUG-13182)
     QString suffix = fileInfo().suffix();
-    if (!suffix.compare(QLatin1String("exe"), Qt::CaseInsensitive)
-        || !suffix.compare(QLatin1String("lnk"), Qt::CaseInsensitive)
-        || !suffix.compare(QLatin1String("ico"), Qt::CaseInsensitive)) {
+    if (!suffix.compare(u"exe", Qt::CaseInsensitive)
+        || !suffix.compare(u"lnk", Qt::CaseInsensitive)
+        || !suffix.compare(u"ico", Qt::CaseInsensitive)) {
         return QString();
     }
     return QLatin1String("qt_.")
@@ -944,6 +1031,23 @@ bool QWindowsTheme::useNativeMenus()
 {
     static const bool result = doUseNativeMenus();
     return result;
+}
+
+bool QWindowsTheme::queryDarkMode()
+{
+    if (QOperatingSystemVersion::current()
+        < QOperatingSystemVersion(QOperatingSystemVersion::Windows, 10, 0, 17763)
+        || queryHighContrast()) {
+        return false;
+    }
+    const auto setting = QWinRegistryKey(HKEY_CURRENT_USER, LR"(Software\Microsoft\Windows\CurrentVersion\Themes\Personalize)")
+                         .dwordValue(L"AppsUseLightTheme");
+    return setting.second && setting.first == 0;
+}
+
+bool QWindowsTheme::queryHighContrast()
+{
+    return booleanSystemParametersInfo(SPI_GETHIGHCONTRAST, false);
 }
 
 QPlatformMenuItem *QWindowsTheme::createPlatformMenuItem() const

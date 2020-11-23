@@ -4,6 +4,7 @@ class SimpleClock
 {
     PROP(int hour=6);
     PROP(int minute=30);
+    SIGNAL(timeUpdated(int hour, int minute, int second=0, int millisecond=0));
 };
 
 class TypeWithModel

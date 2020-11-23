@@ -228,16 +228,16 @@ void CodeSerializer::SerializeGeneric(HeapObject heap_object) {
 void CreateInterpreterDataForDeserializedCode(Isolate* isolate,
                                               Handle<SharedFunctionInfo> sfi,
                                               bool log_code_creation) {
-  Script script = Script::cast(sfi->script());
-  Handle<Script> script_handle(script, isolate);
+  Handle<Script> script(Script::cast(sfi->script()), isolate);
   String name = ReadOnlyRoots(isolate).empty_string();
-  if (script.name().IsString()) name = String::cast(script.name());
+  if (script->name().IsString()) name = String::cast(script->name());
   Handle<String> name_handle(name, isolate);
 
-  SharedFunctionInfo::ScriptIterator iter(isolate, script);
-  for (SharedFunctionInfo info = iter.Next(); !info.is_null();
-       info = iter.Next()) {
-    if (!info.HasBytecodeArray()) continue;
+  SharedFunctionInfo::ScriptIterator iter(isolate, *script);
+  for (SharedFunctionInfo shared_info = iter.Next(); !shared_info.is_null();
+       shared_info = iter.Next()) {
+    if (!shared_info.HasBytecodeArray()) continue;
+    Handle<SharedFunctionInfo> info = handle(shared_info, isolate);
     Handle<Code> code = isolate->factory()->CopyCode(Handle<Code>::cast(
         isolate->factory()->interpreter_entry_trampoline_for_profiling()));
 
@@ -245,18 +245,18 @@ void CreateInterpreterDataForDeserializedCode(Isolate* isolate,
         Handle<InterpreterData>::cast(isolate->factory()->NewStruct(
             INTERPRETER_DATA_TYPE, AllocationType::kOld));
 
-    interpreter_data->set_bytecode_array(info.GetBytecodeArray());
+    interpreter_data->set_bytecode_array(info->GetBytecodeArray());
     interpreter_data->set_interpreter_trampoline(*code);
 
-    info.set_interpreter_data(*interpreter_data);
+    info->set_interpreter_data(*interpreter_data);
 
     if (!log_code_creation) continue;
     Handle<AbstractCode> abstract_code = Handle<AbstractCode>::cast(code);
-    int line_num = script.GetLineNumber(info.StartPosition()) + 1;
-    int column_num = script.GetColumnNumber(info.StartPosition()) + 1;
+    int line_num = script->GetLineNumber(info->StartPosition()) + 1;
+    int column_num = script->GetColumnNumber(info->StartPosition()) + 1;
     PROFILE(isolate,
             CodeCreateEvent(CodeEventListener::INTERPRETED_FUNCTION_TAG,
-                            *abstract_code, info, *name_handle, line_num,
+                            *abstract_code, *info, *name_handle, line_num,
                             column_num));
   }
 }
@@ -312,6 +312,8 @@ MaybeHandle<SharedFunctionInfo> CodeSerializer::Deserialize(
                                              log_code_creation);
 #endif  // V8_TARGET_ARCH_ARM
 
+  bool needs_source_positions = isolate->NeedsSourcePositionsForProfiling();
+
   if (log_code_creation || FLAG_log_function_events) {
     Handle<Script> script(Script::cast(result->script()), isolate);
     Handle<String> name(script->name().IsString()
@@ -328,22 +330,29 @@ MaybeHandle<SharedFunctionInfo> CodeSerializer::Deserialize(
     if (log_code_creation) {
       Script::InitLineEnds(script);
 
-      DisallowHeapAllocation no_gc;
       SharedFunctionInfo::ScriptIterator iter(isolate, *script);
-      for (i::SharedFunctionInfo info = iter.Next(); !info.is_null();
+      for (SharedFunctionInfo info = iter.Next(); !info.is_null();
            info = iter.Next()) {
         if (info.is_compiled()) {
-          int line_num = script->GetLineNumber(info.StartPosition()) + 1;
-          int column_num = script->GetColumnNumber(info.StartPosition()) + 1;
+          Handle<SharedFunctionInfo> shared_info(info, isolate);
+          if (needs_source_positions) {
+            SharedFunctionInfo::EnsureSourcePositionsAvailable(isolate,
+                                                               shared_info);
+          }
+          DisallowHeapAllocation no_gc;
+          int line_num =
+              script->GetLineNumber(shared_info->StartPosition()) + 1;
+          int column_num =
+              script->GetColumnNumber(shared_info->StartPosition()) + 1;
           PROFILE(isolate, CodeCreateEvent(CodeEventListener::SCRIPT_TAG,
-                                           info.abstract_code(), info, *name,
-                                           line_num, column_num));
+                                           shared_info->abstract_code(), *shared_info,
+                                           *name, line_num, column_num));
         }
       }
     }
   }
 
-  if (isolate->NeedsSourcePositionsForProfiling()) {
+  if (needs_source_positions) {
     Handle<Script> script(Script::cast(result->script()), isolate);
     Script::InitLineEnds(script);
   }
@@ -394,9 +403,7 @@ SerializedCodeData::SerializedCodeData(const std::vector<byte>* payload,
   CopyBytes(data_ + padded_payload_offset, payload->data(),
             static_cast<size_t>(payload->size()));
 
-  Checksum checksum(ChecksummedContent());
-  SetHeaderValue(kChecksumPartAOffset, checksum.a());
-  SetHeaderValue(kChecksumPartBOffset, checksum.b());
+  SetHeaderValue(kChecksumOffset, Checksum(ChecksummedContent()));
 }
 
 SerializedCodeData::SanityCheckResult SerializedCodeData::SanityCheck(
@@ -408,8 +415,7 @@ SerializedCodeData::SanityCheckResult SerializedCodeData::SanityCheck(
   uint32_t source_hash = GetHeaderValue(kSourceHashOffset);
   uint32_t flags_hash = GetHeaderValue(kFlagHashOffset);
   uint32_t payload_length = GetHeaderValue(kPayloadLengthOffset);
-  uint32_t c1 = GetHeaderValue(kChecksumPartAOffset);
-  uint32_t c2 = GetHeaderValue(kChecksumPartBOffset);
+  uint32_t c = GetHeaderValue(kChecksumOffset);
   if (version_hash != Version::Hash()) return VERSION_MISMATCH;
   if (source_hash != expected_source_hash) return SOURCE_MISMATCH;
   if (flags_hash != FlagList::Hash()) return FLAGS_MISMATCH;
@@ -418,7 +424,7 @@ SerializedCodeData::SanityCheckResult SerializedCodeData::SanityCheck(
       POINTER_SIZE_ALIGN(kHeaderSize +
                          GetHeaderValue(kNumReservationsOffset) * kInt32Size);
   if (payload_length > max_payload_length) return LENGTH_MISMATCH;
-  if (!Checksum(ChecksummedContent()).Check(c1, c2)) return CHECKSUM_MISMATCH;
+  if (Checksum(ChecksummedContent()) != c) return CHECKSUM_MISMATCH;
   return CHECK_SUCCESS;
 }
 

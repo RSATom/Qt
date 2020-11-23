@@ -50,6 +50,7 @@ private slots:
     void heavyDutyMultiThreadedAccessRelease();
     void collectResources();
     void activeHandles();
+    void checkCleanup();
 };
 
 class tst_ArrayResource
@@ -398,7 +399,7 @@ void tst_QResourceManager::activeHandles()
         const tHandle newHandle = manager.getOrAcquireHandle(883U);
         // THEN
         QCOMPARE(manager.activeHandles().size(), 1);
-        QCOMPARE(manager.activeHandles().first(), newHandle);
+        QCOMPARE(manager.activeHandles()[0], newHandle);
     }
 
     {
@@ -413,13 +414,33 @@ void tst_QResourceManager::activeHandles()
         const tHandle newHandle = manager.acquire();
         // THEN
         QCOMPARE(manager.activeHandles().size(), 1);
-        QCOMPARE(manager.activeHandles().first(), newHandle);
+        QCOMPARE(manager.activeHandles()[0], newHandle);
 
         // WHEN
         manager.release(newHandle);
         // THEN
         QVERIFY(manager.activeHandles().empty());
     }
+}
+
+void tst_QResourceManager::checkCleanup()
+{
+    // GIVEN
+    Qt3DCore::QResourceManager<tst_ArrayResource, uint> manager;
+
+    // WHEN
+    tHandle newHandle = manager.getOrAcquireHandle(883U);
+    tst_ArrayResource *data = manager.data(newHandle);
+
+    data->m_value.ref();
+    // THEN
+    QCOMPARE(data->m_value.load(), 1);
+
+    // WHEN
+    manager.release(newHandle);
+
+    // THEN
+    QCOMPARE(data->m_value.load(), 0);
 }
 
 

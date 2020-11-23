@@ -58,9 +58,16 @@ class CONTENT_EXPORT InputEventPrediction {
   // Reset predictor for each pointer in WebInputEvent by  ResetSinglePredictor.
   void ResetPredictor(const WebInputEvent& event);
 
-  // Add predicted event to WebCoalescedInputEvent if prediction is available.
-  bool AddPredictedEvent(base::TimeTicks predict_time,
-                         blink::WebCoalescedInputEvent& coalesced_event);
+  // Add predicted events to WebCoalescedInputEvent if prediction is available.
+  void AddPredictedEvents(blink::WebCoalescedInputEvent& coalesced_event);
+
+  // Get time interval of a pointer. Default to mouse predictor if there is no
+  // predictor for pointer.
+  base::TimeDelta GetPredictionTimeInterval(
+      const WebPointerProperties& event) const;
+
+  // Returns a pointer to the predictor for given WebPointerProperties.
+  ui::InputPredictor* GetPredictor(const WebPointerProperties& event) const;
 
   // Get single predictor based on event id and type, and update the predictor
   // with new events coords.
@@ -77,11 +84,6 @@ class CONTENT_EXPORT InputEventPrediction {
   // predictor, for other pointer type, remove it from mapping.
   void ResetSinglePredictor(const WebPointerProperties& event);
 
-  // Reports UMA histograms for prediction accuracy. Use the previous prediction
-  // states to calculate position in current event time and compute the
-  // distance between real event and predicted event.
-  void ComputeAccuracy(const WebInputEvent& event) const;
-
   std::unordered_map<ui::PointerId, std::unique_ptr<ui::InputPredictor>>
       pointer_id_predictor_map_;
   std::unique_ptr<ui::InputPredictor> mouse_predictor_;
@@ -92,8 +94,7 @@ class CONTENT_EXPORT InputEventPrediction {
 
   bool enable_resampling_ = false;
 
-  // Records the timestamp for last event added to predictor. Use for reporting
-  // the accuracy metrics.
+  // Records the timestamp for last event added to predictor.
   base::TimeTicks last_event_timestamp_;
 
   DISALLOW_COPY_AND_ASSIGN(InputEventPrediction);

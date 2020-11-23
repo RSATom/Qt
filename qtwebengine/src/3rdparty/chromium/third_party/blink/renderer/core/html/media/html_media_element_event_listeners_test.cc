@@ -11,7 +11,6 @@
 #include "testing/gtest/include/gtest/gtest.h"
 #include "third_party/blink/public/platform/web_fullscreen_video_status.h"
 #include "third_party/blink/renderer/core/dom/events/native_event_listener.h"
-#include "third_party/blink/renderer/core/dom/user_gesture_indicator.h"
 #include "third_party/blink/renderer/core/event_type_names.h"
 #include "third_party/blink/renderer/core/fullscreen/fullscreen.h"
 #include "third_party/blink/renderer/core/html/media/html_video_element.h"
@@ -23,7 +22,6 @@
 #include "third_party/blink/renderer/platform/testing/runtime_enabled_features_test_helpers.h"
 #include "third_party/blink/renderer/platform/testing/testing_platform_support.h"
 #include "third_party/blink/renderer/platform/testing/unit_test_helpers.h"
-#include "third_party/blink/renderer/platform/wtf/time.h"
 
 namespace blink {
 
@@ -82,8 +80,7 @@ class MediaStubLocalFrameClient : public EmptyLocalFrameClient {
   std::unique_ptr<WebMediaPlayer> CreateWebMediaPlayer(
       HTMLMediaElement&,
       const WebMediaPlayerSource&,
-      WebMediaPlayerClient* client,
-      WebLayerTreeView*) override {
+      WebMediaPlayerClient* client) override {
     return std::make_unique<FakeWebMediaPlayer>(client);
   }
 };
@@ -103,7 +100,7 @@ class HTMLMediaElementEventListenersTest : public PageTestBase {
 
   void DestroyDocument() { PageTestBase::TearDown(); }
   HTMLVideoElement* Video() {
-    return ToHTMLVideoElement(GetDocument().QuerySelector("video"));
+    return To<HTMLVideoElement>(GetDocument().QuerySelector("video"));
   }
   FakeWebMediaPlayer* WebMediaPlayer() {
     return static_cast<FakeWebMediaPlayer*>(Video()->GetWebMediaPlayer());
@@ -200,10 +197,10 @@ TEST_F(HTMLMediaElementEventListenersTest,
   // Set ReadyState as HaveMetadata and go fullscreen, so the timer is fired.
   EXPECT_NE(Video(), nullptr);
   SimulateReadyState(HTMLMediaElement::kHaveMetadata);
-  std::unique_ptr<UserGestureIndicator> gesture_indicator =
-      LocalFrame::NotifyUserActivation(GetDocument().GetFrame());
+  LocalFrame::NotifyUserActivation(GetDocument().GetFrame());
   Fullscreen::RequestFullscreen(*Video());
-  Fullscreen::DidEnterFullscreen(GetDocument());
+  Fullscreen::DidResolveEnterFullscreenRequest(GetDocument(),
+                                               true /* granted */);
 
   test::RunPendingTasks();
 

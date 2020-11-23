@@ -47,7 +47,7 @@
     We define a custom Java class called \c NotificationClient in the
     NotificationClient.java file:
 
-    \quotefromfile notification/android-sources/src/org/qtproject/example/notification/NotificationClient.java
+    \quotefromfile notification/android/src/org/qtproject/example/notification/NotificationClient.java
     \skipto org.qtproject.example.notification
     \printuntil /^\}/
 
@@ -71,11 +71,18 @@
     \printuntil notificationClient);
 
     In the NotificationClient C++ class source file, notificationclient.cpp, we
-    import the QtAndroidJniObject class to be able to use its functions:
+    import the QtAndroid class:
 
     \quotefromfile notification/notificationclient.cpp
-    \skipto QAndroidJniObject
+    \skipto <QtAndroid
     \printuntil >
+
+    This will allow us to use \c QAndroidJniObject for JNI calls, and also allow
+    us to pass our application's context to the Java methods as in:
+
+    \code
+        QtAndroid::androidContext().object()
+    \endcode
 
     We connect the \c notificationChanged() signal to the
     \c updateAndroidNotification() slot to update the notification text when the

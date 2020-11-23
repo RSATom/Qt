@@ -19,7 +19,7 @@
 #include "base/strings/string_number_conversions.h"
 #include "base/test/bind_test_util.h"
 #include "base/test/scoped_feature_list.h"
-#include "base/test/scoped_task_environment.h"
+#include "base/test/task_environment.h"
 #include "services/tracing/perfetto/perfetto_service.h"
 #include "services/tracing/perfetto/producer_host.h"
 #include "services/tracing/perfetto/system_test_utils.h"
@@ -49,18 +49,38 @@ std::string RandomASCII(size_t length) {
   return tmp;
 }
 
+class SaveSystemProducerAndScopedRestore {
+ public:
+  SaveSystemProducerAndScopedRestore()
+      : saved_producer_(
+            PerfettoTracedProcess::Get()->SetSystemProducerForTesting(
+                std::make_unique<DummyProducer>(
+                    PerfettoTracedProcess::GetTaskRunner()))) {}
+
+  ~SaveSystemProducerAndScopedRestore() {
+    base::RunLoop destroy;
+    PerfettoTracedProcess::GetTaskRunner()
+        ->GetOrCreateTaskRunner()
+        ->PostTaskAndReply(
+            FROM_HERE, base::BindLambdaForTesting([this]() {
+              PerfettoTracedProcess::Get()
+                  ->SetSystemProducerForTesting(std::move(saved_producer_))
+                  .reset();
+            }),
+            destroy.QuitClosure());
+    destroy.Run();
+  }
+
+ private:
+  std::unique_ptr<SystemProducer> saved_producer_;
+};
+
 class SystemPerfettoTest : public testing::Test {
  public:
   SystemPerfettoTest()
-      : scoped_task_environment_(
-            base::test::ScopedTaskEnvironment::MainThreadType::IO) {
-    // Ensure system tracing is enabled for all tests.
-    base::test::ScopedFeatureList feature_list;
-    feature_list.InitAndEnableFeature(features::kEnablePerfettoSystemTracing);
+      : task_environment_(base::test::TaskEnvironment::MainThreadType::IO) {
     PerfettoTracedProcess::ResetTaskRunnerForTesting();
-    // To ensure we have a fully clean PerfettoTracedProcess reconstruct it at
-    // the beginning of each test.
-    PerfettoTracedProcess::ReconstructForTesting(perfetto::GetProducerSocket());
+    PerfettoTracedProcess::Get()->ClearDataSourcesForTesting();
 
     EXPECT_TRUE(tmp_dir_.CreateUniqueTempDir());
     // We need to set TMPDIR environment variable because when a new producer
@@ -135,18 +155,12 @@ class SystemPerfettoTest : public testing::Test {
   }
 
   ~SystemPerfettoTest() override {
-    // The real "AndroidSystemProducer" must be destroyed on the correct
-    // sequence however that sequence is tied to the |scoped_task_environment_|
-    // which is being deleted now. Therefore to prevent it crashing a future
-    // test we destroy it now.
-    PerfettoTracedProcess::GetTaskRunner()->GetOrCreateTaskRunner()->PostTask(
-        FROM_HERE, base::BindOnce([]() {
-          PerfettoTracedProcess::Get()
-              ->SetSystemProducerForTesting(std::make_unique<DummyProducer>(
-                  PerfettoTracedProcess::GetTaskRunner()))
-              .reset();
-        }));
     RunUntilIdle();
+    // The producer client will be destroyed in the next iteration of the test,
+    // but the sequence it was used on disappears with the
+    // |task_environment_|. So we reset the sequence so it can be freely
+    // destroyed.
+    PerfettoTracedProcess::Get()->producer_client()->ResetSequenceForTesting();
     if (old_tmp_dir_) {
       // Restore the old value back to its initial value.
       setenv("TMPDIR", old_tmp_dir_, true);
@@ -157,7 +171,7 @@ class SystemPerfettoTest : public testing::Test {
   }
 
   PerfettoService* local_service() const { return perfetto_service_.get(); }
-  void RunUntilIdle() { scoped_task_environment_.RunUntilIdle(); }
+  void RunUntilIdle() { task_environment_.RunUntilIdle(); }
 
   // Fork() + executes the perfetto cmdline client with the given args and
   // returns true if we exited with a success otherwise |stderr_| is populated
@@ -210,7 +224,7 @@ class SystemPerfettoTest : public testing::Test {
   std::string consumer_socket_;
   std::unique_ptr<PerfettoService> perfetto_service_;
   std::vector<std::unique_ptr<TestDataSource>> data_sources_;
-  base::test::ScopedTaskEnvironment scoped_task_environment_;
+  base::test::TaskEnvironment task_environment_;
   std::string stderr_;
   const char* old_tmp_dir_ = nullptr;
 };
@@ -236,6 +250,7 @@ TEST_F(SystemPerfettoTest, SystemTraceEndToEnd) {
         }
       });
   system_data_source_enabled_runloop.Run();
+  system_consumer.WaitForAllDataSourcesStarted();
 
   // Post a task to ensure we stop the trace after the data is written.
   base::RunLoop stop_tracing;
@@ -248,8 +263,9 @@ TEST_F(SystemPerfettoTest, SystemTraceEndToEnd) {
 
   system_data_source_disabled_runloop.Run();
   system_no_more_packets_runloop.Run();
+  system_consumer.WaitForAllDataSourcesStopped();
 
-  EXPECT_EQ(1u, system_consumer.received_packets());
+  EXPECT_EQ(1u, system_consumer.received_test_packets());
   PerfettoProducer::DeleteSoonForTesting(std::move(system_producer));
 }
 
@@ -320,6 +336,7 @@ TEST_F(SystemPerfettoTest, OneSystemSourceWithMultipleLocalSources) {
       &system_data_source_disabled_runloop);
 
   system_data_source_enabled_runloop.Run();
+  system_consumer.WaitForAllDataSourcesStarted();
 
   // Now start the local trace and wait for the system trace to stop first.
   base::RunLoop local_data_source_enabled_runloop;
@@ -343,7 +360,9 @@ TEST_F(SystemPerfettoTest, OneSystemSourceWithMultipleLocalSources) {
       kPerfettoProducerName, kPerfettoTestDataSourceName,
       local_service()->GetService(), local_producer_client.get());
 
+  system_consumer.WaitForAllDataSourcesStopped();
   system_data_source_disabled_runloop.Run();
+  local_consumer.WaitForAllDataSourcesStarted();
   local_data_source_enabled_runloop.Run();
 
   // Ensures that the Trace data gets written and committed.
@@ -358,14 +377,19 @@ TEST_F(SystemPerfettoTest, OneSystemSourceWithMultipleLocalSources) {
       system_data_source_reenabled_runloop.QuitClosure());
   system_producer->SetDataSourceDisabledCallback(
       system_data_source_redisabled_runloop.QuitClosure());
+  base::RunLoop system_data_source_wrote_data_runloop;
+  data_sources_[0]->set_start_tracing_callback(
+      system_data_source_wrote_data_runloop.QuitClosure());
 
   local_consumer.StopTracing();
   local_data_source_disabled_runloop.Run();
+  local_consumer.WaitForAllDataSourcesStopped();
   local_no_more_packets_runloop.Run();
 
   // Wait for system tracing to return before stopping the trace on the correct
   // sequence to ensure everything is committed.
   system_data_source_reenabled_runloop.Run();
+  system_consumer.WaitForAllDataSourcesStarted();
   base::RunLoop stop_tracing;
   PerfettoTracedProcess::GetTaskRunner()->PostTask(
       [&system_consumer, &stop_tracing]() {
@@ -375,13 +399,14 @@ TEST_F(SystemPerfettoTest, OneSystemSourceWithMultipleLocalSources) {
   stop_tracing.Run();
 
   system_data_source_redisabled_runloop.Run();
+  system_consumer.WaitForAllDataSourcesStopped();
   system_no_more_packets_runloop.Run();
 
   // |local_consumer| should have seen one |send_packet_count_| from each data
   // source, whereas |system_consumer| should see 2 packets from the first data
   // source having been started twice.
-  EXPECT_EQ(1u + 3u + 7u, local_consumer.received_packets());
-  EXPECT_EQ(2u, system_consumer.received_packets());
+  EXPECT_EQ(1u + 3u + 7u, local_consumer.received_test_packets());
+  EXPECT_EQ(2u, system_consumer.received_test_packets());
 
   PerfettoProducer::DeleteSoonForTesting(std::move(local_producer_client));
   PerfettoProducer::DeleteSoonForTesting(std::move(system_producer));
@@ -411,14 +436,26 @@ TEST_F(SystemPerfettoTest, MultipleSystemSourceWithOneLocalSourcesLocalFirst) {
       local_service()->GetService(), local_producer_client.get());
 
   local_data_source_enabled_runloop.Run();
+  local_consumer->WaitForAllDataSourcesStarted();
 
   // Ensures that the Trace data gets written and committed.
   RunUntilIdle();
 
   local_consumer->StopTracing();
   local_data_source_disabled_runloop.Run();
+  local_consumer->WaitForAllDataSourcesStopped();
   local_no_more_packets_runloop.Run();
-  EXPECT_EQ(7u, local_consumer->received_packets());
+  EXPECT_EQ(7u, local_consumer->received_test_packets());
+
+  // Because we can't just use |system_data_source_enabled| because they might
+  // attempt to enable but be queued until the local trace has fully finished.
+  // We therefore need to set callbacks explicitly after the data has been
+  // written.
+  std::vector<base::RunLoop> data_sources_wrote_data{data_sources_.size()};
+  for (size_t i = 0; i < data_sources_.size(); ++i) {
+    data_sources_[i]->set_start_tracing_callback(
+        data_sources_wrote_data[i].QuitClosure());
+  }
 
   // Start a trace using the system Perfetto service.
   base::RunLoop system_no_more_packets_runloop;
@@ -441,6 +478,10 @@ TEST_F(SystemPerfettoTest, MultipleSystemSourceWithOneLocalSourcesLocalFirst) {
       &system_data_source_disabled_runloop);
 
   system_data_source_enabled_runloop.Run();
+  for (auto& loop : data_sources_wrote_data) {
+    loop.Run();
+  }
+  system_consumer.WaitForAllDataSourcesStarted();
 
   // Wait for system tracing to return before stopping the trace on the correct
   // sequence to ensure everything is committed.
@@ -453,6 +494,7 @@ TEST_F(SystemPerfettoTest, MultipleSystemSourceWithOneLocalSourcesLocalFirst) {
   stop_tracing.Run();
 
   system_data_source_disabled_runloop.Run();
+  system_consumer.WaitForAllDataSourcesStopped();
   system_no_more_packets_runloop.Run();
 
   // Once we StopTracing() on the system trace the we want to make sure a new
@@ -469,14 +511,16 @@ TEST_F(SystemPerfettoTest, MultipleSystemSourceWithOneLocalSourcesLocalFirst) {
   local_consumer->StartTracing();
 
   local_data_source_reenabled_runloop.Run();
+  local_consumer->WaitForAllDataSourcesStarted();
   local_consumer->StopTracing();
+  local_consumer->WaitForAllDataSourcesStopped();
   local_data_source_redisabled_runloop.Run();
 
   // |local_consumer| should have seen one |send_packet_count_| from each data
   // source, whereas |system_consumer| should see 2 packets from the first data
   // source having been started twice.
-  EXPECT_EQ(14u, local_consumer->received_packets());
-  EXPECT_EQ(1u + 3u + 7u, system_consumer.received_packets());
+  EXPECT_EQ(14u, local_consumer->received_test_packets());
+  EXPECT_EQ(1u + 3u + 7u, system_consumer.received_test_packets());
 
   PerfettoProducer::DeleteSoonForTesting(std::move(local_producer_client));
   PerfettoProducer::DeleteSoonForTesting(std::move(system_producer));
@@ -506,6 +550,7 @@ TEST_F(SystemPerfettoTest, MultipleSystemAndLocalSources) {
       &system_data_source_disabled_runloop);
 
   system_data_source_enabled_runloop.Run();
+  system_consumer.WaitForAllDataSourcesStarted();
 
   // Now start the local trace and wait for the system trace to stop first.
   base::RunLoop local_data_source_enabled_runloop;
@@ -530,7 +575,9 @@ TEST_F(SystemPerfettoTest, MultipleSystemAndLocalSources) {
       });
 
   system_data_source_disabled_runloop.Run();
+  system_consumer.WaitForAllDataSourcesStopped();
   local_data_source_enabled_runloop.Run();
+  local_consumer.WaitForAllDataSourcesStarted();
 
   // Ensures that the Trace data gets written and committed.
   RunUntilIdle();
@@ -547,10 +594,12 @@ TEST_F(SystemPerfettoTest, MultipleSystemAndLocalSources) {
 
   local_consumer.StopTracing();
   local_data_source_disabled_runloop.Run();
+  local_consumer.WaitForAllDataSourcesStopped();
   local_no_more_packets_runloop.Run();
 
   // Wait for system tracing to return before stopping.
   system_data_source_reenabled_runloop.Run();
+  system_consumer.WaitForAllDataSourcesStarted();
 
   base::RunLoop stop_tracing;
   PerfettoTracedProcess::GetTaskRunner()->PostTask(
@@ -566,8 +615,8 @@ TEST_F(SystemPerfettoTest, MultipleSystemAndLocalSources) {
   // |local_consumer| should have seen one |send_packet_count_| from each data
   // source, whereas |system_consumer| should see 2 packets from each since it
   // got started twice.
-  EXPECT_EQ(1u + 3u + 7u, local_consumer.received_packets());
-  EXPECT_EQ((1u + 3u + 7u) * 2, system_consumer.received_packets());
+  EXPECT_EQ(1u + 3u + 7u, local_consumer.received_test_packets());
+  EXPECT_EQ((1u + 3u + 7u) * 2, system_consumer.received_test_packets());
 
   PerfettoProducer::DeleteSoonForTesting(std::move(local_producer_client));
   PerfettoProducer::DeleteSoonForTesting(std::move(system_producer));
@@ -608,9 +657,20 @@ TEST_F(SystemPerfettoTest, MultipleSystemAndLocalSourcesLocalFirst) {
       });
 
   local_data_source_enabled_runloop.Run();
+  local_consumer.WaitForAllDataSourcesStarted();
 
   // Ensures that the Trace data gets written and committed.
   RunUntilIdle();
+
+  // Because we can't just use |system_data_source_enabled| because they might
+  // attempt to enable but be queued until the local trace has fully finished.
+  // We therefore need to set callbacks explicitly after the data has been
+  // written.
+  std::vector<base::RunLoop> data_sources_wrote_data{data_sources_.size()};
+  for (size_t i = 0; i < data_sources_.size(); ++i) {
+    data_sources_[i]->set_start_tracing_callback(
+        data_sources_wrote_data[i].QuitClosure());
+  }
 
   // Start a trace using the system Perfetto service.
   base::RunLoop system_no_more_packets_runloop;
@@ -635,9 +695,15 @@ TEST_F(SystemPerfettoTest, MultipleSystemAndLocalSourcesLocalFirst) {
   local_stop_tracing.Run();
 
   local_data_source_disabled_runloop.Run();
+  local_consumer.WaitForAllDataSourcesStopped();
   local_no_more_packets_runloop.Run();
+
   // Now the system trace will start.
   system_data_source_enabled_runloop.Run();
+  for (auto& loop : data_sources_wrote_data) {
+    loop.Run();
+  }
+  system_consumer.WaitForAllDataSourcesStarted();
 
   // Wait for system tracing to return before stopping.
   base::RunLoop system_stop_tracing;
@@ -649,12 +715,13 @@ TEST_F(SystemPerfettoTest, MultipleSystemAndLocalSourcesLocalFirst) {
   system_stop_tracing.Run();
 
   system_data_source_disabled_runloop.Run();
+  system_consumer.WaitForAllDataSourcesStopped();
   system_no_more_packets_runloop.Run();
 
   // |local_consumer| & |system_consumer| should have seen one
   // |send_packet_count_| from each data source.
-  EXPECT_EQ(1u + 3u + 7u, local_consumer.received_packets());
-  EXPECT_EQ(1u + 3u + 7u, system_consumer.received_packets());
+  EXPECT_EQ(1u + 3u + 7u, local_consumer.received_test_packets());
+  EXPECT_EQ(1u + 3u + 7u, system_consumer.received_test_packets());
 
   PerfettoProducer::DeleteSoonForTesting(std::move(local_producer_client));
   PerfettoProducer::DeleteSoonForTesting(std::move(system_producer));
@@ -671,14 +738,23 @@ TEST_F(SystemPerfettoTest, SystemToLowAPILevel) {
     return;
   }
 
-  // Used for both function calls.
-  auto system_service = CreateMockSystemService();
-  auto* system_ptr = system_service.get();
+  auto run_test = [this](bool check_sdk_level) {
+    PerfettoTracedProcess::Get()->ClearDataSourcesForTesting();
 
-  auto run_test = [system_ptr, this](bool check_sdk_level) {
+    std::string data_source_name = "temp_name";
+    data_source_name += check_sdk_level ? "true" : "false";
+
+    base::RunLoop data_source_started_runloop;
+    std::unique_ptr<TestDataSource> data_source =
+        TestDataSource::CreateAndRegisterDataSource(data_source_name, 1);
+    data_source->set_start_tracing_callback(
+        data_source_started_runloop.QuitClosure());
+
+    auto system_service = CreateMockSystemService();
+
     base::RunLoop system_no_more_packets_runloop;
     MockConsumer system_consumer(
-        {kPerfettoTestDataSourceName}, system_ptr->GetService(),
+        {data_source_name}, system_service->GetService(),
         [&system_no_more_packets_runloop](bool has_more) {
           if (!has_more) {
             system_no_more_packets_runloop.Quit();
@@ -688,12 +764,14 @@ TEST_F(SystemPerfettoTest, SystemToLowAPILevel) {
     base::RunLoop system_data_source_enabled_runloop;
     base::RunLoop system_data_source_disabled_runloop;
     auto system_producer = CreateMockAndroidSystemProducer(
-        system_ptr,
+        system_service.get(),
         /* num_data_sources = */ 1, &system_data_source_enabled_runloop,
         &system_data_source_disabled_runloop, check_sdk_level);
 
     if (!check_sdk_level) {
       system_data_source_enabled_runloop.Run();
+      data_source_started_runloop.Run();
+      system_consumer.WaitForAllDataSourcesStarted();
     }
 
     // Post the task to ensure that the data will have been written and
@@ -708,11 +786,12 @@ TEST_F(SystemPerfettoTest, SystemToLowAPILevel) {
 
     if (!check_sdk_level) {
       system_data_source_disabled_runloop.Run();
+      system_consumer.WaitForAllDataSourcesStopped();
     }
     system_no_more_packets_runloop.Run();
 
     PerfettoProducer::DeleteSoonForTesting(std::move(system_producer));
-    return system_consumer.received_packets();
+    return system_consumer.received_test_packets();
   };
 
   // If |check_sdk_level| == true, the |system_producer| will not even attempt
@@ -721,7 +800,33 @@ TEST_F(SystemPerfettoTest, SystemToLowAPILevel) {
   EXPECT_EQ(0u, run_test(/* check_sdk_level = */ true));
 }
 
+TEST_F(SystemPerfettoTest, EnabledOnDebugBuilds) {
+  base::test::ScopedFeatureList feature_list;
+  feature_list.InitAndDisableFeature(features::kEnablePerfettoSystemTracing);
+  // We have to prevent destroying the system producer because we might have
+  // created it on a different task environment (wrong sequence).
+  SaveSystemProducerAndScopedRestore saved_system_producer;
+  PerfettoTracedProcess::ReconstructForTesting(producer_socket_.c_str());
+  if (base::android::BuildInfo::GetInstance()->is_debug_android()) {
+    EXPECT_FALSE(PerfettoTracedProcess::Get()
+                     ->SystemProducerForTesting()
+                     ->IsDummySystemProducerForTesting());
+  } else {
+    EXPECT_TRUE(PerfettoTracedProcess::Get()
+                    ->SystemProducerForTesting()
+                    ->IsDummySystemProducerForTesting());
+  }
+}
+
 TEST_F(SystemPerfettoTest, RespectsFeatureList) {
+  if (base::android::BuildInfo::GetInstance()->is_debug_android()) {
+    // The feature list is ignored on debug android builds so we should have a
+    // real system producer so just bail out of this test.
+    EXPECT_FALSE(PerfettoTracedProcess::Get()
+                     ->SystemProducerForTesting()
+                     ->IsDummySystemProducerForTesting());
+    return;
+  }
   {
     base::test::ScopedFeatureList feature_list;
     feature_list.InitAndEnableFeature(features::kEnablePerfettoSystemTracing);

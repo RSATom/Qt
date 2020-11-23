@@ -6,10 +6,11 @@
 #define COMPONENTS_AUTOFILL_ASSISTANT_BROWSER_CLIENT_SETTINGS_H_
 
 #include "base/macros.h"
+#include "base/optional.h"
 #include "base/time/time.h"
+#include "components/autofill_assistant/browser/service.pb.h"
 
 namespace autofill_assistant {
-class ClientSettingsProto;
 
 // Global settings for the Autofill Assistant client.
 //
@@ -20,6 +21,7 @@ class ClientSettingsProto;
 // pointer to the single ClientSettings instance instead of making a copy.
 struct ClientSettings {
   ClientSettings();
+  ~ClientSettings();
 
   // Time between two periodic script precondition checks.
   base::TimeDelta periodic_script_check_interval =
@@ -60,6 +62,24 @@ struct ClientSettings {
   // Maximum number of checks to run while waiting for the document to become
   // ready.
   int document_ready_check_count = 50;
+
+  // How much time to give users to tap undo when they tap a cancel button.
+  base::TimeDelta cancel_delay = base::TimeDelta::FromSeconds(5);
+
+  // If the user taps the overlay that many time within |tap_duration| turn the
+  // UI off and give them |tap_shutdown_delay| to undo. If 0, unexpected taps
+  // are ignored.
+  int tap_count = 3;
+
+  // Reset the unexpected tap counter after that time.
+  base::TimeDelta tap_tracking_duration = base::TimeDelta::FromSeconds(5);
+
+  // How much time to give users to tap undo when after |tap_count| unexpected
+  // taps where
+  base::TimeDelta tap_shutdown_delay = base::TimeDelta::FromSeconds(5);
+
+  // Optional image drawn on top of overlays.
+  base::Optional<OverlayImageProto> overlay_image;
 
   void UpdateFromProto(const ClientSettingsProto& proto);
 

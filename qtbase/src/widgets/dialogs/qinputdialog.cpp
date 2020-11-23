@@ -138,7 +138,7 @@ class QInputDialogDoubleSpinBox : public QDoubleSpinBox
     Q_OBJECT
 
 public:
-    QInputDialogDoubleSpinBox(QWidget *parent = 0)
+    QInputDialogDoubleSpinBox(QWidget *parent = nullptr)
         : QDoubleSpinBox(parent) {
         connect(lineEdit(), SIGNAL(textChanged(QString)), this, SLOT(notifyTextChanged()));
         connect(this, SIGNAL(editingFinished()), this, SLOT(notifyTextChanged()));
@@ -171,7 +171,7 @@ private:
 class QInputDialogListView : public QListView
 {
 public:
-    QInputDialogListView(QWidget *parent = 0) : QListView(parent) {}
+    QInputDialogListView(QWidget *parent = nullptr) : QListView(parent) {}
     QVariant inputMethodQuery(Qt::InputMethodQuery query) const override
     {
         if (query == Qt::ImEnabled)
@@ -223,8 +223,8 @@ public:
 };
 
 QInputDialogPrivate::QInputDialogPrivate()
-    : label(0), buttonBox(0), lineEdit(0), plainTextEdit(0), intSpinBox(0), doubleSpinBox(0),
-      comboBox(0), listView(0), inputWidget(0), mainLayout(0)
+    : label(nullptr), buttonBox(nullptr), lineEdit(nullptr), plainTextEdit(nullptr), intSpinBox(nullptr), doubleSpinBox(nullptr),
+      comboBox(nullptr), listView(nullptr), inputWidget(nullptr), mainLayout(nullptr)
 {
 }
 
@@ -1174,7 +1174,7 @@ void QInputDialog::done(int result)
     if (d->receiverToDisconnectOnClose) {
         disconnect(this, signalForMember(d->memberToDisconnectOnClose),
                    d->receiverToDisconnectOnClose, d->memberToDisconnectOnClose);
-        d->receiverToDisconnectOnClose = 0;
+        d->receiverToDisconnectOnClose = nullptr;
     }
     d->memberToDisconnectOnClose.clear();
 }
@@ -1349,40 +1349,15 @@ int QInputDialog::getInt(QWidget *parent, const QString &title, const QString &l
     \sa getText(), getDouble(), getItem(), getMultiLineText()
 */
 
-/*!
-    Static convenience function to get a floating point number from the user.
-
-    \a title is the text which is displayed in the title bar of the dialog.
-    \a label is the text which is shown to the user (it should say what should
-    be entered).
-    \a value is the default floating point number that the line edit will be
-    set to.
-    \a min and \a max are the minimum and maximum values the user may choose.
-    \a decimals is the maximum number of decimal places the number may have.
-
-    If \a ok is nonnull, *\a ok will be set to true if the user pressed \uicontrol OK
-    and to false if the user pressed \uicontrol Cancel. The dialog's parent is
-    \a parent. The dialog will be modal and uses the widget \a flags.
-
-    This function returns the floating point number which has been entered by
-    the user.
-
-    Use this static function like this:
-
-    \snippet dialogs/standarddialogs/dialog.cpp 1
-
-    \sa getText(), getInt(), getItem(), getMultiLineText()
-*/
-
+#if QT_VERSION < QT_VERSION_CHECK(6, 0, 0) && !defined(Q_QDOC)
 double QInputDialog::getDouble(QWidget *parent, const QString &title, const QString &label,
                                double value, double min, double max, int decimals, bool *ok,
                                Qt::WindowFlags flags)
 {
     return QInputDialog::getDouble(parent, title, label, value, min, max, decimals, ok, flags, 1.0);
 }
-
+#endif
 /*!
-    \overload
     Static convenience function to get a floating point number from the user.
 
     \a title is the text which is displayed in the title bar of the dialog.

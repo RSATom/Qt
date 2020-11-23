@@ -40,14 +40,167 @@
 #include "qframegraphnode.h"
 #include "qframegraphnode_p.h"
 #include <Qt3DRender/qframegraphnodecreatedchange.h>
+#include <Qt3DRender/qfilterkey.h>
+#include <Qt3DRender/qtechniquefilter.h>
+#include <Qt3DRender/qrenderpassfilter.h>
 
 #include <Qt3DCore/QNode>
-
+#include <QVector>
 #include <QQueue>
 
 using namespace Qt3DCore;
 
 QT_BEGIN_NAMESPACE
+
+namespace {
+
+QString dumpNode(const Qt3DRender::QFrameGraphNode *n) {
+    QString res = QLatin1String(n->metaObject()->className());
+    if (!n->objectName().isEmpty())
+        res += QString(QLatin1String(" (%1)")).arg(n->objectName());
+    if (!n->isEnabled())
+        res += QLatin1String(" [D]");
+    return res;
+}
+
+QString dumpNodeFilters(const Qt3DRender::QFrameGraphNode *n, const QVector<Qt3DRender::QFilterKey*> &filters) {
+    QString res = QLatin1String(n->metaObject()->className());
+    if (!n->objectName().isEmpty())
+        res += QString(QLatin1String(" (%1)")).arg(n->objectName());
+
+    QStringList kv;
+    for (auto filter: filters)
+        kv.push_back(QString(QLatin1String("%1: %2")).arg(filter->name(), filter->value().toString()));
+    if (kv.size())
+        res += QString(QLatin1String(" <%1>")).arg(kv.join(QLatin1String(", ")));
+
+    return res;
+}
+
+QStringList dumpFG(const Qt3DCore::QNode *n, int level = 0)
+{
+    QStringList reply;
+
+    const Qt3DRender::QFrameGraphNode *fgNode = qobject_cast<const Qt3DRender::QFrameGraphNode *>(n);
+    if (fgNode) {
+        QString res = dumpNode(fgNode);
+        reply += res.rightJustified(res.length() + level * 2, ' ');
+    }
+
+    const auto children = n->childNodes();
+    const int inc = fgNode ? 1 : 0;
+    for (auto *child: children) {
+        auto *childFGNode = qobject_cast<Qt3DCore::QNode *>(child);
+        if (childFGNode != nullptr)
+            reply += dumpFG(childFGNode, level + inc);
+    }
+
+    return reply;
+}
+
+struct HierarchyFGNode
+{
+    const Qt3DRender::QFrameGraphNode *root;
+    QVector<QSharedPointer<HierarchyFGNode>> children;
+};
+using HierarchyFGNodePtr = QSharedPointer<HierarchyFGNode>;
+
+HierarchyFGNodePtr buildFGHierarchy(const Qt3DCore::QNode *n, HierarchyFGNodePtr lastFGParent = HierarchyFGNodePtr())
+{
+    const Qt3DRender::QFrameGraphNode *fgNode = qobject_cast<const Qt3DRender::QFrameGraphNode *>(n);
+
+    // Only happens for the root case
+    if (!lastFGParent) {
+        lastFGParent = HierarchyFGNodePtr::create();
+        lastFGParent->root = fgNode;
+    } else {
+        if (fgNode != nullptr) {
+            HierarchyFGNodePtr hN = HierarchyFGNodePtr::create();
+            hN->root = fgNode;
+            if (lastFGParent)
+                lastFGParent->children.push_back(hN);
+            lastFGParent = hN;
+        }
+    }
+
+    const auto children = n->childNodes();
+    for (auto *child: children)
+        buildFGHierarchy(child, lastFGParent);
+
+    return lastFGParent;
+}
+
+void findFGLeaves(const HierarchyFGNodePtr root, QVector<const Qt3DRender::QFrameGraphNode *> &fgLeaves)
+{
+    const auto children = root->children;
+    for (const auto &child : children)
+        findFGLeaves(child, fgLeaves);
+
+    if (children.empty())
+        fgLeaves.push_back(root->root);
+}
+
+void dumpFGPaths(const Qt3DRender::QFrameGraphNode *n, QStringList &result)
+{
+    // Build FG node hierarchy
+    const HierarchyFGNodePtr rootHFg = buildFGHierarchy(n);
+
+    // Gather FG leaves
+    QVector<const Qt3DRender::QFrameGraphNode *> fgLeaves;
+    findFGLeaves(rootHFg, fgLeaves);
+
+    // Traverse back to root
+    int rv = 1;
+    for (const Qt3DRender::QFrameGraphNode *fgNode : fgLeaves) {
+        QStringList parents;
+        while (fgNode != nullptr) {
+            parents.prepend(dumpNode(fgNode));
+            fgNode = fgNode->parentFrameGraphNode();
+        }
+        if (parents.size()) {
+            result << QString(QLatin1String("%1 [ %2 ]")).arg(QString::number(rv), parents.join(QLatin1String(", ")));
+            ++rv;
+        }
+    }
+}
+
+void dumpFGFilterState(const Qt3DRender::QFrameGraphNode *n, QStringList &result)
+{
+    // Build FG node hierarchy
+    const HierarchyFGNodePtr rootHFg = buildFGHierarchy(n);
+
+    // Gather FG leaves
+    QVector<const Qt3DRender::QFrameGraphNode *> fgLeaves;
+    findFGLeaves(rootHFg, fgLeaves);
+
+    // Traverse back to root
+    int rv = 1;
+    for (const Qt3DRender::QFrameGraphNode *fgNode : fgLeaves) {
+        int parents = 0;
+        QStringList filters;
+        while (fgNode != nullptr) {
+            ++parents;
+            if (fgNode->isEnabled()) {
+                auto techniqueFilter = qobject_cast<const Qt3DRender::QTechniqueFilter *>(fgNode);
+                if (techniqueFilter && techniqueFilter->matchAll().size())
+                    filters.prepend(dumpNodeFilters(techniqueFilter, techniqueFilter->matchAll()));
+                auto renderPassFilter = qobject_cast<const Qt3DRender::QRenderPassFilter *>(fgNode);
+                if (renderPassFilter)
+                    filters.prepend(dumpNodeFilters(renderPassFilter, renderPassFilter->matchAny()));
+            }
+            fgNode = fgNode->parentFrameGraphNode();
+        }
+        if (parents) {
+            if (filters.size())
+                result << QString(QLatin1String("%1 [ %2 ]")).arg(QString::number(rv), filters.join(QLatin1String(", ")));
+            else
+                result << QString(QObject::tr("%1 [ No Filters ]")).arg(rv);
+            ++rv;
+        }
+    }
+}
+
+}
 
 namespace Qt3DRender {
 
@@ -237,6 +390,28 @@ QVector<QFrameGraphNode *> QFrameGraphNodePrivate::childFrameGraphNodes() const
         else
             queue.append(child->childNodes().toList());
     }
+    return result;
+}
+
+QString QFrameGraphNodePrivate::dumpFrameGraph() const
+{
+    Q_Q(const QFrameGraphNode);
+    return dumpFG(q).join('\n');
+}
+
+QStringList QFrameGraphNodePrivate::dumpFrameGraphPaths() const
+{
+    Q_Q(const QFrameGraphNode);
+    QStringList result;
+    dumpFGPaths(q, result);
+    return result;
+}
+
+QStringList QFrameGraphNodePrivate::dumpFrameGraphFilterState() const
+{
+    Q_Q(const QFrameGraphNode);
+    QStringList result;
+    dumpFGFilterState(q, result);
     return result;
 }
 

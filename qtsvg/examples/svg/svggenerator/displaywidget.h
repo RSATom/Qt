@@ -53,6 +53,7 @@
 
 #include <QColor>
 #include <QHash>
+#include <QPainterPath>
 #include <QWidget>
 
 //! [DisplayWidget class definition]

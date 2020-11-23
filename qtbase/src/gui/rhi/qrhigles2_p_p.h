@@ -64,6 +64,7 @@ struct QGles2Buffer : public QRhiBuffer
     ~QGles2Buffer();
     void release() override;
     bool build() override;
+    QRhiBuffer::NativeBuffer nativeBuffer() override;
 
     GLuint buffer = 0;
     GLenum targetForDataOps;
@@ -132,8 +133,8 @@ struct QGles2Texture : public QRhiTexture
     ~QGles2Texture();
     void release() override;
     bool build() override;
-    bool buildFrom(const QRhiNativeHandles *src) override;
-    const QRhiNativeHandles *nativeHandles() override;
+    bool buildFrom(NativeTexture src) override;
+    NativeTexture nativeTexture() override;
 
     bool prepareBuild(QSize *adjustedSize = nullptr);
 
@@ -147,7 +148,7 @@ struct QGles2Texture : public QRhiTexture
     QGles2SamplerData samplerState;
     bool specified = false;
     int mipLevelCount = 0;
-    QRhiGles2TextureNativeHandles nativeHandlesStruct;
+
     enum Access {
         AccessNone,
         AccessSample,
@@ -170,7 +171,7 @@ struct QGles2Texture : public QRhiTexture
 struct QGles2Sampler : public QRhiSampler
 {
     QGles2Sampler(QRhiImplementation *rhi, Filter magFilter, Filter minFilter, Filter mipmapMode,
-                  AddressMode u, AddressMode v);
+                  AddressMode u, AddressMode v, AddressMode w);
     ~QGles2Sampler();
     void release() override;
     bool build() override;
@@ -185,6 +186,7 @@ struct QGles2RenderPassDescriptor : public QRhiRenderPassDescriptor
     QGles2RenderPassDescriptor(QRhiImplementation *rhi);
     ~QGles2RenderPassDescriptor();
     void release() override;
+    bool isCompatible(const QRhiRenderPassDescriptor *other) const override;
 };
 
 struct QGles2RenderTargetData
@@ -249,6 +251,7 @@ struct QGles2UniformDescription
     int binding;
     uint offset;
     int size;
+    int arrayDim;
 };
 
 Q_DECLARE_TYPEINFO(QGles2UniformDescription, Q_MOVABLE_TYPE);
@@ -519,6 +522,56 @@ struct QGles2CommandBuffer : public QRhiCommandBuffer
     QRhiShaderResourceBindings *currentComputeSrb;
     uint currentSrbGeneration;
 
+    struct GraphicsPassState {
+        bool valid = false;
+        bool scissor;
+        bool cullFace;
+        GLenum cullMode;
+        GLenum frontFace;
+        bool blendEnabled;
+        struct ColorMask { bool r, g, b, a; } colorMask;
+        struct Blend {
+            GLenum srcColor;
+            GLenum dstColor;
+            GLenum srcAlpha;
+            GLenum dstAlpha;
+            GLenum opColor;
+            GLenum opAlpha;
+        } blend;
+        bool depthTest;
+        bool depthWrite;
+        GLenum depthFunc;
+        bool stencilTest;
+        GLuint stencilReadMask;
+        GLuint stencilWriteMask;
+        struct StencilFace {
+            GLenum func;
+            GLenum failOp;
+            GLenum zfailOp;
+            GLenum zpassOp;
+        } stencil[2]; // front, back
+        bool polyOffsetFill;
+        float polyOffsetFactor;
+        float polyOffsetUnits;
+        float lineWidth;
+        void reset() { valid = false; }
+        struct {
+            // not part of QRhiGraphicsPipeline but used by setGraphicsPipeline()
+            GLint stencilRef = 0;
+        } dynamic;
+    } graphicsPassState;
+
+    struct ComputePassState {
+        enum Access {
+            Read = 0x01,
+            Write = 0x02
+        };
+        QHash<QRhiResource *, QPair<int, bool> > writtenResources;
+        void reset() {
+            writtenResources.clear();
+        }
+    } computePassState;
+
     QVector<QByteArray> dataRetainPool;
     QVector<QImage> imageRetainPool;
 
@@ -552,10 +605,56 @@ struct QGles2CommandBuffer : public QRhiCommandBuffer
         currentGraphicsSrb = nullptr;
         currentComputeSrb = nullptr;
         currentSrbGeneration = 0;
+        graphicsPassState.reset();
+        computePassState.reset();
     }
 };
 
 Q_DECLARE_TYPEINFO(QGles2CommandBuffer::Command, Q_MOVABLE_TYPE);
+
+inline bool operator==(const QGles2CommandBuffer::GraphicsPassState::StencilFace &a,
+                       const QGles2CommandBuffer::GraphicsPassState::StencilFace &b)
+{
+    return a.func == b.func
+            && a.failOp == b.failOp
+            && a.zfailOp == b.zfailOp
+            && a.zpassOp == b.zpassOp;
+}
+
+inline bool operator!=(const QGles2CommandBuffer::GraphicsPassState::StencilFace &a,
+                       const QGles2CommandBuffer::GraphicsPassState::StencilFace &b)
+{
+    return !(a == b);
+}
+
+inline bool operator==(const QGles2CommandBuffer::GraphicsPassState::ColorMask &a,
+                       const QGles2CommandBuffer::GraphicsPassState::ColorMask &b)
+{
+    return a.r == b.r && a.g == b.g && a.b == b.b && a.a == b.a;
+}
+
+inline bool operator!=(const QGles2CommandBuffer::GraphicsPassState::ColorMask &a,
+                       const QGles2CommandBuffer::GraphicsPassState::ColorMask &b)
+{
+    return !(a == b);
+}
+
+inline bool operator==(const QGles2CommandBuffer::GraphicsPassState::Blend &a,
+                       const QGles2CommandBuffer::GraphicsPassState::Blend &b)
+{
+    return a.srcColor == b.srcColor
+            && a.dstColor == b.dstColor
+            && a.srcAlpha == b.srcAlpha
+            && a.dstAlpha == b.dstAlpha
+            && a.opColor == b.opColor
+            && a.opAlpha == b.opAlpha;
+}
+
+inline bool operator!=(const QGles2CommandBuffer::GraphicsPassState::Blend &a,
+                       const QGles2CommandBuffer::GraphicsPassState::Blend &b)
+{
+    return !(a == b);
+}
 
 struct QGles2SwapChain : public QRhiSwapChain
 {
@@ -600,9 +699,12 @@ public:
                                const QSize &pixelSize,
                                int sampleCount,
                                QRhiTexture::Flags flags) override;
-    QRhiSampler *createSampler(QRhiSampler::Filter magFilter, QRhiSampler::Filter minFilter,
+    QRhiSampler *createSampler(QRhiSampler::Filter magFilter,
+                               QRhiSampler::Filter minFilter,
                                QRhiSampler::Filter mipmapMode,
-                               QRhiSampler:: AddressMode u, QRhiSampler::AddressMode v) override;
+                               QRhiSampler:: AddressMode u,
+                               QRhiSampler::AddressMode v,
+                               QRhiSampler::AddressMode w) override;
 
     QRhiTextureRenderTarget *createTextureRenderTarget(const QRhiTextureRenderTargetDescription &desc,
                                                        QRhiTextureRenderTarget::Flags flags) override;
@@ -692,7 +794,7 @@ public:
                                 QRhiPassResourceTracker::TextureAccess access,
                                 QRhiPassResourceTracker::TextureStage stage);
     void executeCommandBuffer(QRhiCommandBuffer *cb);
-    void executeBindGraphicsPipeline(QRhiGraphicsPipeline *ps);
+    void executeBindGraphicsPipeline(QGles2CommandBuffer *cbD, QGles2GraphicsPipeline *psD);
     void bindShaderResources(QRhiGraphicsPipeline *maybeGraphicsPs, QRhiComputePipeline *maybeComputePs,
                              QRhiShaderResourceBindings *srb,
                              const uint *dynOfsPairs, int dynOfsCount);
@@ -703,7 +805,14 @@ public:
     QByteArray shaderSource(const QRhiShaderStage &shaderStage, int *glslVersion);
     bool compileShader(GLuint program, const QRhiShaderStage &shaderStage, int *glslVersion);
     bool linkProgram(GLuint program);
-    void gatherUniforms(GLuint program, const QShaderDescription::UniformBlock &ub,
+    void registerUniformIfActive(const QShaderDescription::BlockVariable &var,
+                                 const QByteArray &namePrefix,
+                                 int binding,
+                                 int baseOffset,
+                                 GLuint program,
+                                 QVector<QGles2UniformDescription> *dst);
+    void gatherUniforms(GLuint program,
+                        const QShaderDescription::UniformBlock &ub,
                         QVector<QGles2UniformDescription> *dst);
     void gatherSamplers(GLuint program, const QShaderDescription::InOutVariable &v,
                         QVector<QGles2SamplerDescription> *dst);
@@ -755,7 +864,8 @@ public:
               compute(false),
               textureCompareMode(false),
               properMapBuffer(false),
-              nonBaseLevelFramebufferTexture(false)
+              nonBaseLevelFramebufferTexture(false),
+              texelFetch(false)
         { }
         int ctxMajor;
         int ctxMinor;
@@ -788,6 +898,7 @@ public:
         uint textureCompareMode : 1;
         uint properMapBuffer : 1;
         uint nonBaseLevelFramebufferTexture : 1;
+        uint texelFetch : 1;
     } caps;
     QGles2SwapChain *currentSwapChain = nullptr;
     QVector<GLint> supportedCompressedFormats;

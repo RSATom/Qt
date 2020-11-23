@@ -15,7 +15,7 @@
 #include "content/public/browser/render_process_host.h"
 #include "content/public/browser/site_instance.h"
 #include "content/public/browser/storage_partition.h"
-#include "mojo/public/cpp/bindings/strong_binding.h"
+#include "mojo/public/cpp/bindings/self_owned_receiver.h"
 #include "net/reporting/reporting_report.h"
 #include "net/reporting/reporting_service.h"
 #include "net/url_request/url_request_context.h"
@@ -55,15 +55,16 @@ class ReportingServiceProxyImpl : public blink::mojom::ReportingServiceProxy {
 
   void QueueDeprecationReport(const GURL& url,
                               const std::string& id,
-                              base::Optional<base::Time> anticipatedRemoval,
+                              base::Optional<base::Time> anticipated_removal,
                               const std::string& message,
                               const base::Optional<std::string>& source_file,
                               int line_number,
                               int column_number) override {
     auto body = std::make_unique<base::DictionaryValue>();
     body->SetString("id", id);
-    if (anticipatedRemoval)
-      body->SetDouble("anticipatedRemoval", anticipatedRemoval->ToDoubleT());
+    if (anticipated_removal)
+      body->SetDouble("anticipatedRemoval",
+                      anticipated_removal->ToJsTimeIgnoringNull());
     body->SetString("message", message);
     if (source_file)
       body->SetString("sourceFile", *source_file);
@@ -152,12 +153,12 @@ class ReportingServiceProxyImpl : public blink::mojom::ReportingServiceProxy {
 // static
 void CreateReportingServiceProxy(
     int render_process_id,
-    blink::mojom::ReportingServiceProxyRequest request) {
+    mojo::PendingReceiver<blink::mojom::ReportingServiceProxy> receiver) {
   DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
 
-  mojo::MakeStrongBinding(
+  mojo::MakeSelfOwnedReceiver(
       std::make_unique<ReportingServiceProxyImpl>(render_process_id),
-      std::move(request));
+      std::move(receiver));
 }
 
 }  // namespace content

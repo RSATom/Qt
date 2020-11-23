@@ -80,10 +80,20 @@ void RasterImplementationGLES::EndQueryEXT(GLenum target) {
   gl_->EndQueryEXT(target);
 }
 
+void RasterImplementationGLES::QueryCounterEXT(GLuint id, GLenum target) {
+  gl_->QueryCounterEXT(id, target);
+}
+
 void RasterImplementationGLES::GetQueryObjectuivEXT(GLuint id,
                                                     GLenum pname,
                                                     GLuint* params) {
   gl_->GetQueryObjectuivEXT(id, pname, params);
+}
+
+void RasterImplementationGLES::GetQueryObjectui64vEXT(GLuint id,
+                                                      GLenum pname,
+                                                      GLuint64* params) {
+  gl_->GetQueryObjectui64vEXT(id, pname, params);
 }
 
 void RasterImplementationGLES::CopySubTexture(
@@ -150,12 +160,13 @@ SyncToken RasterImplementationGLES::ScheduleImageDecode(
 }
 
 GLuint RasterImplementationGLES::CreateAndConsumeForGpuRaster(
-    const GLbyte* mailbox) {
-  return gl_->CreateAndConsumeTextureCHROMIUM(mailbox);
+    const gpu::Mailbox& mailbox) {
+  DCHECK(mailbox.IsSharedImage());
+  return gl_->CreateAndTexStorage2DSharedImageCHROMIUM(mailbox.name);
 }
 
 void RasterImplementationGLES::DeleteGpuRasterTexture(GLuint texture) {
-  gl_->DeleteTextures(1, &texture);
+  gl_->DeleteTextures(1u, &texture);
 }
 
 void RasterImplementationGLES::BeginGpuRaster() {
@@ -174,6 +185,17 @@ void RasterImplementationGLES::EndGpuRaster() {
 
   // Reset cached raster state.
   gl_->ActiveTexture(GL_TEXTURE0);
+}
+
+void RasterImplementationGLES::BeginSharedImageAccessDirectCHROMIUM(
+    GLuint texture,
+    GLenum mode) {
+  gl_->BeginSharedImageAccessDirectCHROMIUM(texture, mode);
+}
+
+void RasterImplementationGLES::EndSharedImageAccessDirectCHROMIUM(
+    GLuint texture) {
+  gl_->EndSharedImageAccessDirectCHROMIUM(texture);
 }
 
 void RasterImplementationGLES::TraceBeginCHROMIUM(const char* category_name,

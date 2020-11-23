@@ -111,7 +111,7 @@ QGeoTiledMappingManagerEngineMapbox::QGeoTiledMappingManagerEngineMapbox(const Q
     // New way to specify multiple customized map_ids via additional_map_ids
     if (parameters.contains(QStringLiteral("mapbox.mapping.additional_map_ids"))) {
         const QString ids = parameters.value(QStringLiteral("mapbox.mapping.additional_map_ids")).toString();
-        const QStringList idList = ids.split(',', QString::SkipEmptyParts);
+        const QStringList idList = ids.split(',', Qt::SkipEmptyParts);
 
         for (const QString &name: idList) {
             if (!name.isEmpty())

@@ -1,10 +1,11 @@
-QT += quick quick3d-private
-
-target.path = $$[QT_INSTALL_EXAMPLES]/quick3d/stereoscopic
-INSTALLS += target
+QT += quick quick3d
 
 SOURCES += \
-        main.cpp
+    main.cpp
 
-RESOURCES += qml.qrc
+RESOURCES += \
+    qml.qrc
 
+OTHER_FILES += \
+    main.qml \
+    SceneNode.qml

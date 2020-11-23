@@ -6,6 +6,7 @@
 
 #include <utility>
 
+#include "net/third_party/quiche/src/quic/core/http/quic_spdy_session.h"
 #include "net/third_party/quiche/src/quic/core/quic_connection.h"
 #include "net/third_party/quiche/src/quic/core/quic_utils.h"
 #include "net/third_party/quiche/src/quic/platform/api/quic_flags.h"
@@ -32,11 +33,7 @@ QuicSimpleServerSession::QuicSimpleServerSession(
                             crypto_config,
                             compressed_certs_cache),
       highest_promised_stream_id_(
-          VersionHasStreamType(connection->transport_version())
-              ? QuicUtils::GetFirstUnidirectionalStreamId(
-                    connection->transport_version(),
-                    Perspective::IS_SERVER)
-              : QuicUtils::GetInvalidStreamId(connection->transport_version())),
+          QuicUtils::GetInvalidStreamId(connection->transport_version())),
       quic_simple_server_backend_(quic_simple_server_backend) {
   DCHECK(quic_simple_server_backend_);
 }
@@ -68,6 +65,7 @@ void QuicSimpleServerSession::PromisePushResources(
     const std::string& request_url,
     const std::list<QuicBackendResponse::ServerPushInfo>& resources,
     QuicStreamId original_stream_id,
+    const spdy::SpdyStreamPrecedence& original_precedence,
     const spdy::SpdyHeaderBlock& original_request_headers) {
   if (!server_push_enabled()) {
     return;
@@ -77,11 +75,18 @@ void QuicSimpleServerSession::PromisePushResources(
     spdy::SpdyHeaderBlock headers = SynthesizePushRequestHeaders(
         request_url, resource, original_request_headers);
     highest_promised_stream_id_ +=
-        QuicUtils::StreamIdDelta(connection()->transport_version());
+        QuicUtils::StreamIdDelta(transport_version());
+    if (VersionUsesHttp3(transport_version()) &&
+        highest_promised_stream_id_ > max_allowed_push_id()) {
+      return;
+    }
     SendPushPromise(original_stream_id, highest_promised_stream_id_,
                     headers.Clone());
     promised_streams_.push_back(PromisedStreamInfo(
-        std::move(headers), highest_promised_stream_id_, resource.priority));
+        std::move(headers), highest_promised_stream_id_,
+        use_http2_priority_write_scheduler()
+            ? original_precedence
+            : spdy::SpdyStreamPrecedence(resource.priority)));
   }
 
   // Procese promised push request as many as possible.
@@ -133,7 +138,7 @@ void QuicSimpleServerSession::HandleFrameOnNonexistentOutgoingStream(
   // connection shouldn't be closed.
   // Otherwise behave in the same way as base class.
   if (highest_promised_stream_id_ ==
-          QuicUtils::GetInvalidStreamId(connection()->transport_version()) ||
+          QuicUtils::GetInvalidStreamId(transport_version()) ||
       stream_id > highest_promised_stream_id_) {
     QuicSession::HandleFrameOnNonexistentOutgoingStream(stream_id);
   }
@@ -149,12 +154,12 @@ void QuicSimpleServerSession::HandleRstOnValidNonexistentStream(
     // Since PromisedStreamInfo are queued in sequence, the corresponding
     // index for it in promised_streams_ can be calculated.
     QuicStreamId next_stream_id = next_outgoing_unidirectional_stream_id();
-    if (VersionHasIetfQuicFrames(connection()->transport_version())) {
+    if (VersionHasIetfQuicFrames(transport_version())) {
       DCHECK(!QuicUtils::IsBidirectionalStreamId(frame.stream_id));
     }
     DCHECK_GE(frame.stream_id, next_stream_id);
     size_t index = (frame.stream_id - next_stream_id) /
-                   QuicUtils::StreamIdDelta(connection()->transport_version());
+                   QuicUtils::StreamIdDelta(transport_version());
     DCHECK_LE(index, promised_streams_.size());
     promised_streams_[index].is_cancelled = true;
     control_frame_manager().WriteOrBufferRstStream(frame.stream_id,
@@ -216,7 +221,7 @@ void QuicSimpleServerSession::HandlePromisedPushRequests() {
     DCHECK_EQ(promised_info.stream_id, promised_stream->id());
     QUIC_DLOG(INFO) << "created server push stream " << promised_stream->id();
 
-    promised_stream->SetPriority(promised_info.priority);
+    promised_stream->SetPriority(promised_info.precedence);
 
     spdy::SpdyHeaderBlock request_headers(
         std::move(promised_info.request_headers));
@@ -228,8 +233,19 @@ void QuicSimpleServerSession::HandlePromisedPushRequests() {
 
 void QuicSimpleServerSession::OnCanCreateNewOutgoingStream(
     bool unidirectional) {
+  QuicSpdySession::OnCanCreateNewOutgoingStream(unidirectional);
   if (unidirectional) {
     HandlePromisedPushRequests();
   }
+}
+
+void QuicSimpleServerSession::MaybeInitializeHttp3UnidirectionalStreams() {
+  size_t previous_static_stream_count = num_outgoing_static_streams();
+  QuicSpdySession::MaybeInitializeHttp3UnidirectionalStreams();
+  size_t current_static_stream_count = num_outgoing_static_streams();
+  DCHECK_GE(current_static_stream_count, previous_static_stream_count);
+  highest_promised_stream_id_ +=
+      QuicUtils::StreamIdDelta(transport_version()) *
+      (current_static_stream_count - previous_static_stream_count);
 }
 }  // namespace quic

@@ -4,8 +4,15 @@
 
 #include "extensions/browser/api/declarative_net_request/constants.h"
 
+#include "extensions/common/constants.h"
+#include "url/url_constants.h"
+
 namespace extensions {
 namespace declarative_net_request {
+
+const char* const kAllowedTransformSchemes[4] = {
+    url::kHttpScheme, url::kHttpsScheme, url::kFtpScheme,
+    extensions::kExtensionScheme};
 
 const char kErrorResourceTypeDuplicated[] =
     "Rule with id * includes and excludes the same resource.";
@@ -22,7 +29,7 @@ const char kErrorNoApplicableResourceTypes[] =
     "Rule with id * is not applicable to any resource type.";
 const char kErrorEmptyList[] =
     "Rule with id * cannot have an empty list as the value for * key.";
-const char kErrorEmptyUrlFilter[] =
+const char kErrorEmptyKey[] =
     "Rule with id * cannot have an empty value for * key.";
 const char kErrorInvalidRedirectUrl[] =
     "Rule with id * does not provide a valid URL for * key.";
@@ -32,11 +39,25 @@ const char kErrorDuplicateIDs[] = "Rule with id * does not have a unique ID.";
 const char kErrorPersisting[] = "Internal error while parsing rules.";
 const char kErrorNonAscii[] =
     "Rule with id * cannot have non-ascii characters as part of \"*\" key.";
-const char kErrorInvalidUrlFilter[] =
-    "Rule with id * has an invalid value for \"*\" key.";
 const char kErrorEmptyRemoveHeadersList[] =
     "Rule with id * does not specify the value for \"*\" key. This is required "
     "for \"removeHeaders\" rules.";
+const char kErrorInvalidKey[] =
+    "Rule with id * specifies an incorrect value for the \"*\" key.";
+const char kErrorInvalidTransformScheme[] =
+    "Rule with id * specifies an incorrect value for the \"*\" key. Allowed "
+    "values are: [*].";
+const char kErrorQueryAndTransformBothSpecified[] =
+    "Rule with id * cannot specify both \"*\" and \"*\" keys.";
+const char kErrorJavascriptRedirect[] =
+    "Rule with id * specifies an incorrect value for the \"*\" key. Redirects "
+    "to javascript urls are not supported.";
+const char kErrorMultipleFilters[] =
+    "Rule with id * can only specify one of \"*\" or \"*\" keys.";
+const char kErrorRegexSubstitutionWithoutFilter[] =
+    "Rule with id * can't specify the \"*\" key without specifying the \"*\" "
+    "key.";
+
 const char kErrorListNotPassed[] = "Rules file must contain a list.";
 
 const char kRuleCountExceeded[] =
@@ -60,6 +81,9 @@ const char kUpdateDynamicRulesStatusHistogram[] =
     "Extensions.DeclarativeNetRequest.UpdateDynamicRulesStatus";
 const char kReadDynamicRulesJSONStatusHistogram[] =
     "Extensions.DeclarativeNetRequest.ReadDynamicRulesJSONStatus";
+
+const char kActionCountPlaceholderBadgeText[] =
+    "<<declarativeNetRequestActionCount>>";
 
 }  // namespace declarative_net_request
 }  // namespace extensions

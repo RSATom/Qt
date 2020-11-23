@@ -54,6 +54,7 @@ class QGeoCoordinatePrivate;
 class Q_POSITIONING_EXPORT QGeoCoordinate
 {
     Q_GADGET
+    Q_ENUMS(CoordinateFormat)
 
     Q_PROPERTY(double latitude READ latitude WRITE setLatitude)
     Q_PROPERTY(double longitude READ longitude WRITE setLongitude)

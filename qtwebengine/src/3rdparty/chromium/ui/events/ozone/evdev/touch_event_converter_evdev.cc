@@ -19,6 +19,7 @@
 #include "base/callback.h"
 #include "base/command_line.h"
 #include "base/logging.h"
+#include "base/metrics/histogram_macros.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_split.h"
 #include "base/strings/string_util.h"
@@ -33,39 +34,17 @@
 #include "ui/events/ozone/evdev/device_event_dispatcher_evdev.h"
 #include "ui/events/ozone/evdev/touch_evdev_types.h"
 #include "ui/events/ozone/evdev/touch_filter/false_touch_finder.h"
+#include "ui/events/ozone/evdev/touch_filter/palm_detection_filter.h"
+#include "ui/events/ozone/evdev/touch_filter/palm_detection_filter_factory.h"
 #include "ui/ozone/public/input_controller.h"
 
 namespace {
 
 const int kMaxTrackingId = 0xffff;  // TRKID_MAX in kernel.
 
-struct TouchCalibration {
-  int bezel_left = 0;
-  int bezel_right = 0;
-  int bezel_top = 0;
-  int bezel_bottom = 0;
-};
-
 // Convert tilt from [min, min + num_values) to [-90deg, +90deg)
 float ScaleTilt(int value, int min_value, int num_values) {
   return 180.f * (value - min_value) / num_values - 90.f;
-}
-
-void GetTouchCalibration(TouchCalibration* cal) {
-  std::vector<std::string> parts = base::SplitString(
-      base::CommandLine::ForCurrentProcess()->GetSwitchValueASCII(
-          switches::kTouchCalibration),
-      ",", base::KEEP_WHITESPACE, base::SPLIT_WANT_NONEMPTY);
-  if (parts.size() >= 4) {
-    if (!base::StringToInt(parts[0], &cal->bezel_left))
-      LOG(ERROR) << "Incorrect left border calibration value passed.";
-    if (!base::StringToInt(parts[1], &cal->bezel_right))
-      LOG(ERROR) << "Incorrect right border calibration value passed.";
-    if (!base::StringToInt(parts[2], &cal->bezel_top))
-      LOG(ERROR) << "Incorrect top border calibration value passed.";
-    if (!base::StringToInt(parts[3], &cal->bezel_bottom))
-      LOG(ERROR) << "Incorrect bottom border calibration value passed.";
-  }
 }
 
 int32_t AbsCodeToMtCode(int32_t code) {
@@ -114,11 +93,15 @@ const int kTrackingIdForUnusedSlot = -1;
 
 namespace ui {
 
+const base::Feature kEnableSingleCancelTouch{"EnableSingleTouchCancel",
+                                             base::FEATURE_DISABLED_BY_DEFAULT};
+
 TouchEventConverterEvdev::TouchEventConverterEvdev(
     base::ScopedFD fd,
     base::FilePath path,
     int id,
     const EventDeviceInfo& devinfo,
+    SharedPalmDetectionFilterState* shared_palm_state,
     DeviceEventDispatcherEvdev* dispatcher)
     : EventConverterEvdev(fd.get(),
                           path,
@@ -130,7 +113,9 @@ TouchEventConverterEvdev::TouchEventConverterEvdev(
                           devinfo.product_id(),
                           devinfo.version()),
       input_device_fd_(std::move(fd)),
-      dispatcher_(dispatcher) {
+      dispatcher_(dispatcher),
+      palm_detection_filter_(
+          CreatePalmDetectionFilter(devinfo, shared_palm_state)) {
   touch_evdev_debug_buffer_.Initialize(devinfo);
 }
 
@@ -186,21 +171,6 @@ void TouchEventConverterEvdev::Initialize(const EventDeviceInfo& info) {
   quirk_left_mouse_button_ =
       !has_mt_ && !info.HasKeyEvent(BTN_TOUCH) && info.HasKeyEvent(BTN_LEFT);
 
-  // Apply --touch-calibration.
-  if (type() == INPUT_DEVICE_INTERNAL) {
-    TouchCalibration cal;
-    GetTouchCalibration(&cal);
-    x_min_tuxels_ += cal.bezel_left;
-    x_num_tuxels_ -= cal.bezel_left + cal.bezel_right;
-    y_min_tuxels_ += cal.bezel_top;
-    y_num_tuxels_ -= cal.bezel_top + cal.bezel_bottom;
-
-    VLOG(1) << "applying touch calibration: "
-            << base::StringPrintf("[%d, %d, %d, %d]", cal.bezel_left,
-                                  cal.bezel_right, cal.bezel_top,
-                                  cal.bezel_bottom);
-  }
-
   // TODO(denniskempin): Use EVIOCGKEY to synchronize key state.
 
   events_.resize(touch_points_);
@@ -221,16 +191,17 @@ void TouchEventConverterEvdev::Initialize(const EventDeviceInfo& info) {
       // Optional bits.
       int touch_major =
           info.GetAbsMtSlotValueWithDefault(ABS_MT_TOUCH_MAJOR, i, 0);
+      int touch_minor =
+          info.GetAbsMtSlotValueWithDefault(ABS_MT_TOUCH_MINOR, i, 0);
       events_[i].radius_x = touch_major * touch_major_scale_ / 2.0f;
-      events_[i].radius_y =
-          info.GetAbsMtSlotValueWithDefault(ABS_MT_TOUCH_MINOR, i, 0) *
-          touch_minor_scale_ / 2.0f;
+      events_[i].radius_y = touch_minor * touch_minor_scale_ / 2.0f;
       events_[i].pressure = ScalePressure(
           info.GetAbsMtSlotValueWithDefault(ABS_MT_PRESSURE, i, 0));
       int tool_type = info.GetAbsMtSlotValueWithDefault(ABS_MT_TOOL_TYPE, i,
                                                         MT_TOOL_FINGER);
       events_[i].tool_type = tool_type;
       events_[i].major = touch_major;
+      events_[i].minor = touch_minor;
       events_[i].stylus_button = false;
       if (events_[i].cancelled)
         cancelled_state = true;
@@ -415,6 +386,7 @@ void TouchEventConverterEvdev::ProcessAbs(const input_event& input) {
       break;
     case ABS_MT_TOUCH_MINOR:
       events_[current_slot_].radius_y = input.value * touch_minor_scale_ / 2.0f;
+      events_[current_slot_].minor = input.value;
       break;
     case ABS_MT_POSITION_X:
       events_[current_slot_].x = input.value;
@@ -520,7 +492,8 @@ bool TouchEventConverterEvdev::MaybeCancelAllTouches() {
   // TODO(denniskempin): Remove once upper layers properly handle single
   // cancelled touches.
   if (base::CommandLine::ForCurrentProcess()->HasSwitch(
-          switches::kDisableCancelAllTouches)) {
+          switches::kDisableCancelAllTouches) ||
+      base::FeatureList::IsEnabled(kEnableSingleCancelTouch)) {
     return false;
   }
   for (size_t i = 0; i < events_.size(); i++) {
@@ -546,15 +519,19 @@ void TouchEventConverterEvdev::ReportEvents(base::TimeTicks timestamp) {
 
   if (false_touch_finder_)
     false_touch_finder_->HandleTouches(events_, timestamp);
-
+  std::bitset<kNumTouchEvdevSlots> hold, suppress;
+  {
+    SCOPED_UMA_HISTOGRAM_TIMER(kPalmFilterTimerEventName);
+    palm_detection_filter_->Filter(events_, timestamp, &hold, &suppress);
+  }
   for (size_t i = 0; i < events_.size(); i++) {
     InProgressTouchEvdev* event = &events_[i];
     if (IsPalm(*event)) {
       event->cancelled = true;
     }
-    if (event->altered && (event->cancelled ||
-                           (false_touch_finder_ &&
-                            false_touch_finder_->SlotHasNoise(event->slot)))) {
+    event->held |= hold.test(i);
+    event->cancelled |= suppress.test(i);
+    if (event->altered && event->cancelled) {
       if (MaybeCancelAllTouches()) {
         // If all touches were cancelled, break out of this loop.
         break;
@@ -594,14 +571,19 @@ void TouchEventConverterEvdev::ReportEvents(base::TimeTicks timestamp) {
       auto empty_q =
           std::queue<std::pair<InProgressTouchEvdev, base::TimeTicks>>();
       held_events_[i].swap(empty_q);
+      UMA_HISTOGRAM_COUNTS_100(kHoldCountAtCancelEventName, empty_q.size());
     }
 
-    while (!held_events_[i].empty()) {
-      auto held_event = held_events_[i].front();
-      held_events_[i].pop();
-      held_event.first.held = false;
-      held_event.first.was_held = true;
-      ProcessTouchEvent(&held_event.first, held_event.second);
+    if (!held_events_[i].empty()) {
+      UMA_HISTOGRAM_COUNTS_100(kHoldCountAtReleaseEventName,
+                               held_events_[i].size());
+      while (!held_events_[i].empty()) {
+        auto held_event = held_events_[i].front();
+        held_events_[i].pop();
+        held_event.first.held = false;
+        held_event.first.was_held = true;
+        ProcessTouchEvent(&held_event.first, held_event.second);
+      }
     }
     ProcessTouchEvent(event, timestamp);
     event->was_cancelled = event->cancelled;
@@ -664,5 +646,12 @@ float TouchEventConverterEvdev::ScalePressure(int32_t value) const {
 int TouchEventConverterEvdev::NextTrackingId() {
   return next_tracking_id_++ & kMaxTrackingId;
 }
+
+const char TouchEventConverterEvdev::kHoldCountAtReleaseEventName[] =
+    "Ozone.TouchEventConverterEvdev.HoldCountAtRelease";
+const char TouchEventConverterEvdev::kHoldCountAtCancelEventName[] =
+    "Ozone.TouchEventConverterEvdev.HoldCountAtCancel";
+const char TouchEventConverterEvdev::kPalmFilterTimerEventName[] =
+    "Ozone.TouchEventConverterEvdev.PalmDetectionFilterTime";
 
 }  // namespace ui

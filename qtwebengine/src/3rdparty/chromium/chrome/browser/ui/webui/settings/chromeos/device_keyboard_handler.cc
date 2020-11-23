@@ -5,18 +5,17 @@
 #include "chrome/browser/ui/webui/settings/chromeos/device_keyboard_handler.h"
 
 #include "ash/public/cpp/keyboard_shortcut_viewer.h"
-#include "ash/public/interfaces/constants.mojom.h"
+#include "ash/public/cpp/tablet_mode.h"
+#include "ash/public/mojom/constants.mojom.h"
 #include "base/bind.h"
 #include "base/command_line.h"
 #include "base/values.h"
-#include "chrome/browser/ui/ash/tablet_mode_client.h"
 #include "chromeos/constants/chromeos_switches.h"
 #include "content/public/browser/web_ui.h"
 #include "content/public/common/service_manager_connection.h"
 #include "services/service_manager/public/cpp/connector.h"
 #include "ui/chromeos/events/event_rewriter_chromeos.h"
 #include "ui/chromeos/events/keyboard_layout_util.h"
-#include "ui/events/devices/device_data_manager.h"
 
 namespace {
 
@@ -59,8 +58,7 @@ void KeyboardHandler::TestAPI::Initialize() {
   handler_->HandleInitialize(&args);
 }
 
-KeyboardHandler::KeyboardHandler() : observer_(this) {}
-
+KeyboardHandler::KeyboardHandler() = default;
 KeyboardHandler::~KeyboardHandler() = default;
 
 void KeyboardHandler::RegisterMessages() {
@@ -114,8 +112,7 @@ void KeyboardHandler::HandleKeyboardChange(const base::ListValue* args) {
 void KeyboardHandler::UpdateKeyboards() {
   bool physical_keyboard = false;
   // In tablet mode, physical keybards are disabled / ignored.
-  if (!TabletModeClient::Get() ||
-      !TabletModeClient::Get()->tablet_mode_enabled()) {
+  if (!ash::TabletMode::Get() || !ash::TabletMode::Get()->InTabletMode()) {
     physical_keyboard = true;
   }
   if (!physical_keyboard) {

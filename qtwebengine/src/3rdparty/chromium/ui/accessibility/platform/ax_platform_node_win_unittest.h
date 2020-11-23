@@ -39,8 +39,10 @@ class TestFragmentRootDelegate : public AXFragmentRootDelegateWin {
   virtual ~TestFragmentRootDelegate();
   gfx::NativeViewAccessible GetChildOfAXFragmentRoot() override;
   gfx::NativeViewAccessible GetParentOfAXFragmentRoot() override;
+  bool IsAXFragmentRootAControlElement() override;
   gfx::NativeViewAccessible child_ = nullptr;
   gfx::NativeViewAccessible parent_ = nullptr;
+  bool is_control_element_ = true;
 };
 
 class AXPlatformNodeWinTest : public ui::AXPlatformNodeTest {
@@ -64,6 +66,8 @@ class AXPlatformNodeWinTest : public ui::AXPlatformNodeTest {
   GetIRawElementProviderSimpleFromChildIndex(int child_index);
   Microsoft::WRL::ComPtr<IRawElementProviderFragment>
   GetRootIRawElementProviderFragment();
+  Microsoft::WRL::ComPtr<IRawElementProviderFragment>
+  IRawElementProviderFragmentFromNode(AXNode* node);
   Microsoft::WRL::ComPtr<IAccessible> IAccessibleFromNode(AXNode* node);
   Microsoft::WRL::ComPtr<IAccessible> GetRootIAccessible();
   Microsoft::WRL::ComPtr<IAccessible2> ToIAccessible2(
@@ -79,6 +83,8 @@ class AXPlatformNodeWinTest : public ui::AXPlatformNodeTest {
   Microsoft::WRL::ComPtr<IAccessibleTableCell> GetCellInTable();
 
   void InitFragmentRoot();
+  AXFragmentRootWin* InitNodeAsFragmentRoot(AXNode* node,
+                                            TestFragmentRootDelegate* delegate);
   Microsoft::WRL::ComPtr<IRawElementProviderFragmentRoot> GetFragmentRoot();
 
   using PatternSet = std::unordered_set<LONG>;

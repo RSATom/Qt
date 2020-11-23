@@ -450,7 +450,7 @@ void XsdSchemaParser::parseSchema(ParserType parserType)
 
     if (hasAttribute(QString::fromLatin1("blockDefault"))) {
         const QString blockDefault = readAttribute(QString::fromLatin1("blockDefault"));
-        const QStringList blockDefaultList = blockDefault.split(QLatin1Char(' '), QString::SkipEmptyParts);
+        const QStringList blockDefaultList = blockDefault.split(QLatin1Char(' '), Qt::SkipEmptyParts);
         for (int i = 0; i < blockDefaultList.count(); ++i) {
             const QString value = blockDefaultList.at(i);
             if (value != QString::fromLatin1("#all") &&
@@ -467,7 +467,7 @@ void XsdSchemaParser::parseSchema(ParserType parserType)
 
     if (hasAttribute(QString::fromLatin1("finalDefault"))) {
         const QString finalDefault = readAttribute(QString::fromLatin1("finalDefault"));
-        const QStringList finalDefaultList = finalDefault.split(QLatin1Char(' '), QString::SkipEmptyParts);
+        const QStringList finalDefaultList = finalDefault.split(QLatin1Char(' '), Qt::SkipEmptyParts);
         for (int i = 0; i < finalDefaultList.count(); ++i) {
             const QString value = finalDefaultList.at(i);
             if (value != QString::fromLatin1("#all") &&
@@ -1733,7 +1733,7 @@ void XsdSchemaParser::parseUnion(const XsdSimpleType::Ptr &ptr)
     bool hasMemberTypesSpecified = false;
 
     if (hasAttribute(QString::fromLatin1("memberTypes"))) {
-        const QStringList memberTypes = readAttribute(QString::fromLatin1("memberTypes")).split(QLatin1Char(' '), QString::SkipEmptyParts);
+        const QStringList memberTypes = readAttribute(QString::fromLatin1("memberTypes")).split(QLatin1Char(' '), Qt::SkipEmptyParts);
         QList<QXmlName> typeNames;
 
         for (int i = 0; i < memberTypes.count(); ++i) {
@@ -4550,7 +4550,7 @@ XsdElement::Ptr XsdSchemaParser::parseGlobalElement()
         QList<QXmlName> elementNames;
 
         const QString value = readAttribute(QString::fromLatin1("substitutionGroup"));
-        const QStringList substitutionGroups = value.split(QLatin1Char(' '), QString::SkipEmptyParts);
+        const QStringList substitutionGroups = value.split(QLatin1Char(' '), Qt::SkipEmptyParts);
         if (substitutionGroups.isEmpty()) {
             attributeContentError("substitutionGroup", "element", value, BuiltinTypes::xsQName);
             return element;
@@ -5420,7 +5420,7 @@ XsdWildcard::Ptr XsdSchemaParser::parseAny(const XsdParticle::Ptr &particle)
     }
 
     if (hasAttribute(QString::fromLatin1("namespace"))) {
-        const auto valueList = readAttribute(QString::fromLatin1("namespace")).split(QLatin1Char(' '), QString::SkipEmptyParts);
+        const auto valueList = readAttribute(QString::fromLatin1("namespace")).split(QLatin1Char(' '), Qt::SkipEmptyParts);
         const QSet<QString> values(valueList.cbegin(), valueList.cend());
         if ((values.contains(QString::fromLatin1("##any")) || values.contains(QString::fromLatin1("##other"))) && values.count() != 1) {
             error(QtXmlPatterns::tr("%1 attribute of %2 element must contain %3, %4 or a list of URIs.")
@@ -5533,7 +5533,7 @@ XsdWildcard::Ptr XsdSchemaParser::parseAnyAttribute()
 
     // parse attributes
     if (hasAttribute(QString::fromLatin1("namespace"))) {
-        const auto valueList = readAttribute(QString::fromLatin1("namespace")).split(QLatin1Char(' '), QString::SkipEmptyParts);
+        const auto valueList = readAttribute(QString::fromLatin1("namespace")).split(QLatin1Char(' '), Qt::SkipEmptyParts);
         const QSet<QString> values(valueList.cbegin(), valueList.cend());
         if ((values.contains(QString::fromLatin1("##any")) || values.contains(QString::fromLatin1("##other"))) && values.count() != 1) {
             error(QtXmlPatterns::tr("%1 attribute of %2 element must contain %3, %4 or a list of URIs.")
@@ -5796,7 +5796,7 @@ SchemaType::DerivationConstraints XsdSchemaParser::readDerivationConstraintAttri
         content = readAttribute(QString::fromLatin1("final"));
 
         // split string into list to validate the content of the attribute
-        const QStringList values = content.split(QLatin1Char(' '), QString::SkipEmptyParts);
+        const QStringList values = content.split(QLatin1Char(' '), Qt::SkipEmptyParts);
         for (int i = 0; i < values.count(); i++) {
             const QString value = values.at(i);
             if (!allowedContent.contains(value) && (value != QString::fromLatin1("#all"))) {
@@ -5817,7 +5817,7 @@ SchemaType::DerivationConstraints XsdSchemaParser::readDerivationConstraintAttri
         content = m_finalDefault;
     }
 
-    const auto &contentList = content.split(QLatin1Char(' '), QString::SkipEmptyParts);
+    const auto &contentList = content.split(QLatin1Char(' '), Qt::SkipEmptyParts);
     QSet<QString> contentSet(contentList.cbegin(), contentList.cend());
 
     // if the '#all' tag is defined, we return all allowed values
@@ -5858,7 +5858,7 @@ NamedSchemaComponent::BlockingConstraints XsdSchemaParser::readBlockingConstrain
         content = readAttribute(QString::fromLatin1("block"));
 
         // split string into list to validate the content of the attribute
-        const QStringList values = content.split(QLatin1Char(' '), QString::SkipEmptyParts);
+        const QStringList values = content.split(QLatin1Char(' '), Qt::SkipEmptyParts);
         for (int i = 0; i < values.count(); i++) {
             const QString value = values.at(i);
             if (!allowedContent.contains(value) && (value != QString::fromLatin1("#all"))) {
@@ -5879,7 +5879,7 @@ NamedSchemaComponent::BlockingConstraints XsdSchemaParser::readBlockingConstrain
         content = m_blockDefault;
     }
 
-    const auto &contentList = content.split(QLatin1Char(' '), QString::SkipEmptyParts);
+    const auto &contentList = content.split(QLatin1Char(' '), Qt::SkipEmptyParts);
     QSet<QString> contentSet(contentList.cbegin(), contentList.cend());
 
     // if the '#all' tag is defined, we return all allowed values

@@ -25,6 +25,7 @@
 #include "chrome/browser/browsing_data/browsing_data_local_storage_helper.h"
 #include "chrome/browser/browsing_data/browsing_data_service_worker_helper.h"
 #include "chrome/browser/chromeos/arc/arc_util.h"
+#include "chrome/browser/chromeos/crostini/crostini_features.h"
 #include "chrome/browser/chromeos/crostini/crostini_manager.h"
 #include "chrome/browser/chromeos/crostini/crostini_util.h"
 #include "chrome/browser/chromeos/drive/file_system_util.h"
@@ -35,19 +36,22 @@
 #include "chromeos/cryptohome/cryptohome_util.h"
 #include "chromeos/dbus/cryptohome/cryptohome_client.h"
 #include "chromeos/dbus/dbus_thread_manager.h"
+#include "chromeos/disks/disk.h"
 #include "components/arc/arc_features.h"
 #include "components/arc/arc_prefs.h"
 #include "components/arc/arc_service_manager.h"
 #include "components/arc/arc_util.h"
 #include "components/arc/session/arc_bridge_service.h"
 #include "components/browsing_data/content/conditional_cache_counting_helper.h"
-#include "components/drive/chromeos/file_system_interface.h"
 #include "components/user_manager/user_manager.h"
 #include "content/public/browser/browser_context.h"
 #include "content/public/browser/storage_partition.h"
 #include "content/public/browser/web_ui_data_source.h"
 #include "ui/base/l10n/l10n_util.h"
 #include "ui/base/text/bytes_formatting.h"
+
+using chromeos::disks::Disk;
+using chromeos::disks::DiskMountManager;
 
 namespace chromeos {
 namespace settings {
@@ -81,7 +85,6 @@ StorageHandler::StorageHandler(Profile* profile,
       browser_site_data_size_(-1),
       has_browser_site_data_size_(false),
       updating_downloads_size_(false),
-      updating_drive_cache_size_(false),
       updating_browsing_data_size_(false),
       updating_android_size_(false),
       updating_crostini_size_(false),
@@ -90,7 +93,7 @@ StorageHandler::StorageHandler(Profile* profile,
       profile_(profile),
       source_name_(html_source->GetSource()),
       arc_observer_(this),
-      weak_ptr_factory_(this) {
+      special_volume_path_pattern_("[a-z]+://.*") {
   html_source->AddBoolean(
       kAndroidEnabled,
       base::FeatureList::IsEnabled(arc::kUsbStorageUIFeature) &&
@@ -98,6 +101,7 @@ StorageHandler::StorageHandler(Profile* profile,
 }
 
 StorageHandler::~StorageHandler() {
+  DiskMountManager::GetInstance()->RemoveObserver(this);
   arc::ArcServiceManager::Get()
       ->arc_bridge_service()
       ->storage_manager()
@@ -123,8 +127,8 @@ void StorageHandler::RegisterMessages() {
       base::BindRepeating(&StorageHandler::HandleOpenArcStorage,
                           base::Unretained(this)));
   web_ui()->RegisterMessageCallback(
-      "clearDriveCache",
-      base::BindRepeating(&StorageHandler::HandleClearDriveCache,
+      "updateExternalStorages",
+      base::BindRepeating(&StorageHandler::HandleUpdateExternalStorages,
                           base::Unretained(this)));
 }
 
@@ -139,11 +143,17 @@ void StorageHandler::OnJavascriptAllowed() {
       ->arc_bridge_service()
       ->storage_manager()
       ->AddObserver(this);
+
+  // Start observing mount/unmount events to update the connected device list.
+  DiskMountManager::GetInstance()->AddObserver(this);
 }
 
 void StorageHandler::OnJavascriptDisallowed() {
   // Ensure that pending callbacks do not complete and cause JS to be evaluated.
   weak_ptr_factory_.InvalidateWeakPtrs();
+
+  // Stop observing mount/unmount events to update the connected device list.
+  DiskMountManager::GetInstance()->RemoveObserver(this);
 
   // Stop observing the mojo connection so that OnConnectionReady() and
   // OnConnectionClosed() that use FireWebUIListener() won't be called while JS
@@ -168,7 +178,6 @@ void StorageHandler::HandleUpdateStorageInfo(const base::ListValue* args) {
 
   UpdateSizeStat();
   UpdateDownloadsSize();
-  UpdateDriveCacheSize();
   UpdateBrowsingDataSize();
   UpdateAndroidRunning();
   UpdateAndroidSize();
@@ -192,18 +201,9 @@ void StorageHandler::HandleOpenArcStorage(
     arc_storage_manager->OpenPrivateVolumeSettings();
 }
 
-void StorageHandler::HandleClearDriveCache(
+void StorageHandler::HandleUpdateExternalStorages(
     const base::ListValue* unused_args) {
-  drive::FileSystemInterface* const file_system =
-      drive::util::GetFileSystemByProfile(profile_);
-  file_system->FreeDiskSpaceIfNeededFor(
-      std::numeric_limits<int64_t>::max(),  // Removes as much as possible.
-      base::Bind(&StorageHandler::OnClearDriveCacheDone,
-                 weak_ptr_factory_.GetWeakPtr()));
-}
-
-void StorageHandler::OnClearDriveCacheDone(bool /*success*/) {
-  UpdateDriveCacheSize();
+  UpdateExternalStorages();
 }
 
 void StorageHandler::UpdateSizeStat() {
@@ -212,8 +212,9 @@ void StorageHandler::UpdateSizeStat() {
 
   int64_t* total_size = new int64_t(0);
   int64_t* available_size = new int64_t(0);
-  base::PostTaskWithTraitsAndReply(
-      FROM_HERE, {base::MayBlock(), base::TaskPriority::USER_VISIBLE},
+  base::PostTaskAndReply(
+      FROM_HERE,
+      {base::ThreadPool(), base::MayBlock(), base::TaskPriority::USER_VISIBLE},
       base::Bind(&GetSizeStatBlocking, downloads_path, total_size,
                  available_size),
       base::Bind(&StorageHandler::OnGetSizeStat, weak_ptr_factory_.GetWeakPtr(),
@@ -247,8 +248,9 @@ void StorageHandler::UpdateDownloadsSize() {
   const base::FilePath downloads_path =
       file_manager::util::GetDownloadsFolderForProfile(profile_);
 
-  base::PostTaskWithTraitsAndReplyWithResult(
-      FROM_HERE, {base::MayBlock(), base::TaskPriority::BEST_EFFORT},
+  base::PostTaskAndReplyWithResult(
+      FROM_HERE,
+      {base::ThreadPool(), base::MayBlock(), base::TaskPriority::BEST_EFFORT},
       base::Bind(&base::ComputeDirectorySize, downloads_path),
       base::Bind(&StorageHandler::OnGetDownloadsSize,
                  weak_ptr_factory_.GetWeakPtr()));
@@ -258,28 +260,6 @@ void StorageHandler::OnGetDownloadsSize(int64_t size) {
   updating_downloads_size_ = false;
   FireWebUIListener("storage-downloads-size-changed",
                     base::Value(ui::FormatBytes(size)));
-}
-
-void StorageHandler::UpdateDriveCacheSize() {
-  drive::FileSystemInterface* const file_system =
-      drive::util::GetFileSystemByProfile(profile_);
-  if (!file_system)
-    return;
-
-  if (updating_drive_cache_size_)
-    return;
-  updating_drive_cache_size_ = true;
-
-  // Shows the item "Offline cache" and starts calculating size.
-  FireWebUIListener("storage-drive-enabled-changed", base::Value(true));
-  file_system->CalculateCacheSize(base::Bind(
-      &StorageHandler::OnGetDriveCacheSize, weak_ptr_factory_.GetWeakPtr()));
-}
-
-void StorageHandler::OnGetDriveCacheSize(int64_t size) {
-  updating_drive_cache_size_ = false;
-  FireWebUIListener("storage-drive-cache-size-changed",
-                    base::Value(ui::FormatBytes(size)), base::Value(size > 0));
 }
 
 void StorageHandler::UpdateBrowsingDataSize() {
@@ -300,7 +280,7 @@ void StorageHandler::UpdateBrowsingDataSize() {
   if (!site_data_size_collector_.get()) {
     content::StoragePartition* storage_partition =
         content::BrowserContext::GetDefaultStoragePartition(profile_);
-    site_data_size_collector_.reset(new SiteDataSizeCollector(
+    site_data_size_collector_ = std::make_unique<SiteDataSizeCollector>(
         storage_partition->GetPath(),
         new BrowsingDataCookieHelper(storage_partition),
         new BrowsingDataDatabaseHelper(profile_),
@@ -314,7 +294,7 @@ void StorageHandler::UpdateBrowsingDataSize() {
             storage_partition->GetServiceWorkerContext()),
         new BrowsingDataCacheStorageHelper(
             storage_partition->GetCacheStorageContext()),
-        BrowsingDataFlashLSOHelper::Create(profile_)));
+        BrowsingDataFlashLSOHelper::Create(profile_));
   }
   site_data_size_collector_->Fetch(
       base::Bind(&StorageHandler::OnGetBrowsingDataSize,
@@ -388,7 +368,7 @@ void StorageHandler::OnGetAndroidSize(bool succeeded,
 }
 
 void StorageHandler::UpdateCrostiniSize() {
-  if (!crostini::IsCrostiniEnabled(profile_)) {
+  if (!crostini::CrostiniFeatures::Get()->IsEnabled(profile_)) {
     return;
   }
 
@@ -453,6 +433,36 @@ void StorageHandler::OnGetOtherUserSize(
   }
 }
 
+void StorageHandler::UpdateExternalStorages() {
+  base::Value devices(base::Value::Type::LIST);
+  for (const auto& itr : DiskMountManager::GetInstance()->mount_points()) {
+    const DiskMountManager::MountPointInfo& mount_info = itr.second;
+    if (!IsEligibleForAndroidStorage(mount_info.source_path))
+      continue;
+
+    const chromeos::disks::Disk* disk =
+        DiskMountManager::GetInstance()->FindDiskBySourcePath(
+            mount_info.source_path);
+    if (!disk)
+      continue;
+
+    std::string label = disk->device_label();
+    if (label.empty()) {
+      // To make volume labels consistent with Files app, we follow how Files
+      // generates a volume label when the volume doesn't have specific label.
+      // That is, we use the base name of mount path instead in such cases.
+      // TODO(fukino): Share the implementation to compute the volume name with
+      // Files app. crbug.com/1002535.
+      label = base::FilePath(mount_info.mount_path).BaseName().AsUTF8Unsafe();
+    }
+    base::Value device(base::Value::Type::DICTIONARY);
+    device.SetKey("uuid", base::Value(disk->fs_uuid()));
+    device.SetKey("label", base::Value(label));
+    devices.Append(std::move(device));
+  }
+  FireWebUIListener("onExternalStoragesUpdated", devices);
+}
+
 void StorageHandler::OnConnectionReady() {
   is_android_running_ = true;
   UpdateAndroidRunning();
@@ -469,6 +479,26 @@ void StorageHandler::OnArcPlayStoreEnabledChanged(bool enabled) {
   auto update = std::make_unique<base::DictionaryValue>();
   update->SetKey(kAndroidEnabled, base::Value(enabled));
   content::WebUIDataSource::Update(profile_, source_name_, std::move(update));
+}
+
+void StorageHandler::OnMountEvent(
+    DiskMountManager::MountEvent event,
+    chromeos::MountError error_code,
+    const DiskMountManager::MountPointInfo& mount_info) {
+  if (error_code != chromeos::MountError::MOUNT_ERROR_NONE)
+    return;
+
+  if (!IsEligibleForAndroidStorage(mount_info.source_path))
+    return;
+
+  UpdateExternalStorages();
+}
+
+bool StorageHandler::IsEligibleForAndroidStorage(std::string source_path) {
+  // Android's StorageManager volume concept relies on assumption that it is
+  // local filesystem. Hence, special volumes like DriveFS should not be
+  // listed on the Settings.
+  return !RE2::FullMatch(source_path, special_volume_path_pattern_);
 }
 
 }  // namespace settings

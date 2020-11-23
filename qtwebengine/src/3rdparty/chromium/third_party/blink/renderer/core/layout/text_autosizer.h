@@ -47,8 +47,8 @@ class Document;
 class Frame;
 class IntSize;
 class LayoutBlock;
+class LayoutNGTableInterface;
 class LayoutObject;
-class LayoutTable;
 class LayoutText;
 class LocalFrame;
 class NGBlockNode;
@@ -58,8 +58,7 @@ class SubtreeLayoutScope;
 // Single-pass text autosizer. Documentation at:
 // http://tinyurl.com/TextAutosizer
 
-class CORE_EXPORT TextAutosizer final
-    : public GarbageCollectedFinalized<TextAutosizer> {
+class CORE_EXPORT TextAutosizer final : public GarbageCollected<TextAutosizer> {
  public:
   explicit TextAutosizer(const Document*);
   ~TextAutosizer();
@@ -99,7 +98,7 @@ class CORE_EXPORT TextAutosizer final
     STACK_ALLOCATED();
 
    public:
-    explicit TableLayoutScope(LayoutTable*);
+    explicit TableLayoutScope(LayoutNGTableInterface*);
   };
 
   class NGLayoutScope {
@@ -292,7 +291,7 @@ class CORE_EXPORT TextAutosizer final
 
   void BeginLayout(LayoutBlock*, SubtreeLayoutScope*);
   void EndLayout(LayoutBlock*);
-  void InflateAutoTable(LayoutTable*);
+  void InflateAutoTable(LayoutNGTableInterface*);
   float Inflate(LayoutObject*,
                 SubtreeLayoutScope*,
                 InflateBehavior = kThisBlockOnly,

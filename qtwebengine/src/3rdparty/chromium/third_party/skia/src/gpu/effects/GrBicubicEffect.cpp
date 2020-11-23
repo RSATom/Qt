@@ -5,6 +5,7 @@
  * found in the LICENSE file.
  */
 
+#include "src/core/SkMatrixPriv.h"
 #include "src/gpu/effects/GrBicubicEffect.h"
 
 #include "include/gpu/GrTexture.h"
@@ -45,7 +46,7 @@ void GrGLBicubicEffect::emitCode(EmitArgs& args) {
     const char* dims = uniformHandler->getUniformCStr(fDimensions);
 
     GrGLSLFPFragmentBuilder* fragBuilder = args.fFragBuilder;
-    SkString coords2D = fragBuilder->ensureCoords2D(args.fTransformedCoords[0]);
+    SkString coords2D = fragBuilder->ensureCoords2D(args.fTransformedCoords[0].fVaryingPoint);
 
     /*
      * Filter weights come from Don Mitchell & Arun Netravali's 'Reconstruction Filters in Computer
@@ -144,31 +145,30 @@ void GrGLBicubicEffect::emitCode(EmitArgs& args) {
 void GrGLBicubicEffect::onSetData(const GrGLSLProgramDataManager& pdman,
                                   const GrFragmentProcessor& processor) {
     const GrBicubicEffect& bicubicEffect = processor.cast<GrBicubicEffect>();
-    GrTextureProxy* proxy = processor.textureSampler(0).proxy();
-    GrTexture* texture = proxy->peekTexture();
+    GrSurfaceProxy* proxy = processor.textureSampler(0).proxy();
+    SkISize textureDims = proxy->backingStoreDimensions();
 
     float dims[4] = {0, 0, 0, 0};
     if (bicubicEffect.direction() != GrBicubicEffect::Direction::kY) {
-        dims[0] = 1.0f / texture->width();
-        dims[2] = texture->width();
+        dims[0] = 1.0f / textureDims.width();
+        dims[2] = textureDims.width();
     }
     if (bicubicEffect.direction() != GrBicubicEffect::Direction::kX) {
-        dims[1] = 1.0f / texture->height();
-        dims[3] = texture->height();
+        dims[1] = 1.0f / textureDims.height();
+        dims[3] = textureDims.height();
     }
     pdman.set4fv(fDimensions, 1, dims);
     fDomain.setData(pdman, bicubicEffect.domain(), proxy,
                     processor.textureSampler(0).samplerState());
 }
 
-GrBicubicEffect::GrBicubicEffect(sk_sp<GrTextureProxy> proxy, const SkMatrix& matrix,
+GrBicubicEffect::GrBicubicEffect(sk_sp<GrSurfaceProxy> proxy, const SkMatrix& matrix,
                                  const SkRect& domain, const GrSamplerState::WrapMode wrapModes[2],
                                  GrTextureDomain::Mode modeX, GrTextureDomain::Mode modeY,
                                  Direction direction, SkAlphaType alphaType)
         : INHERITED{kGrBicubicEffect_ClassID,
                     ModulateForSamplerOptFlags(
-                            proxy->config(),
-                            GrTextureDomain::IsDecalSampled(wrapModes, modeX, modeY))}
+                            alphaType, GrTextureDomain::IsDecalSampled(wrapModes, modeX, modeY))}
         , fCoordTransform(matrix, proxy.get())
         , fDomain(proxy.get(), domain, modeX, modeY)
         , fTextureSampler(std::move(proxy),
@@ -233,31 +233,21 @@ std::unique_ptr<GrFragmentProcessor> GrBicubicEffect::TestCreate(GrProcessorTest
 //////////////////////////////////////////////////////////////////////////////
 
 bool GrBicubicEffect::ShouldUseBicubic(const SkMatrix& matrix, GrSamplerState::Filter* filterMode) {
-    if (matrix.isIdentity()) {
-        *filterMode = GrSamplerState::Filter::kNearest;
-        return false;
-    }
-
-    SkScalar scales[2];
-    if (!matrix.getMinMaxScales(scales) || scales[0] < SK_Scalar1) {
-        // Bicubic doesn't handle arbitrary minimization well, as src texels can be skipped
-        // entirely,
-        *filterMode = GrSamplerState::Filter::kMipMap;
-        return false;
-    }
-    // At this point if scales[1] == SK_Scalar1 then the matrix doesn't do any scaling.
-    if (scales[1] == SK_Scalar1) {
-        if (matrix.rectStaysRect() && SkScalarIsInt(matrix.getTranslateX()) &&
-            SkScalarIsInt(matrix.getTranslateY())) {
+    switch (SkMatrixPriv::AdjustHighQualityFilterLevel(matrix)) {
+        case kNone_SkFilterQuality:
             *filterMode = GrSamplerState::Filter::kNearest;
-        } else {
-            // Use bilerp to handle rotation or fractional translation.
+            break;
+        case kLow_SkFilterQuality:
             *filterMode = GrSamplerState::Filter::kBilerp;
-        }
-        return false;
+            break;
+        case kMedium_SkFilterQuality:
+            *filterMode = GrSamplerState::Filter::kMipMap;
+            break;
+        case kHigh_SkFilterQuality:
+            // When we use the bicubic filtering effect each sample is read from the texture using
+            // nearest neighbor sampling.
+            *filterMode = GrSamplerState::Filter::kNearest;
+            return true;
     }
-    // When we use the bicubic filtering effect each sample is read from the texture using
-    // nearest neighbor sampling.
-    *filterMode = GrSamplerState::Filter::kNearest;
-    return true;
+    return false;
 }

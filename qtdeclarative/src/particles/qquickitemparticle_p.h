@@ -63,6 +63,8 @@ class QQuickItemParticle : public QQuickParticlePainter
     Q_OBJECT
     Q_PROPERTY(bool fade READ fade WRITE setFade NOTIFY fadeChanged)
     Q_PROPERTY(QQmlComponent* delegate READ delegate WRITE setDelegate NOTIFY delegateChanged)
+    QML_NAMED_ELEMENT(ItemParticle)
+    QML_ATTACHED(QQuickItemParticleAttached)
 public:
     explicit QQuickItemParticle(QQuickItem *parent = 0);
     ~QQuickItemParticle();
@@ -127,13 +129,14 @@ class QQuickItemParticleAttached : public QObject
     Q_PROPERTY(QQuickItemParticle* particle READ particle CONSTANT);
 public:
     QQuickItemParticleAttached(QObject* parent)
-        : QObject(parent), m_mp(0)
+        : QObject(parent), m_mp(0), m_parentItem(nullptr)
     {;}
     QQuickItemParticle* particle() const { return m_mp; }
     void detach(){Q_EMIT detached();}
     void attach(){Q_EMIT attached();}
 private:
     QQuickItemParticle* m_mp;
+    QPointer<QQuickItem> m_parentItem;
     friend class QQuickItemParticle;
 Q_SIGNALS:
     void detached();
@@ -141,7 +144,5 @@ Q_SIGNALS:
 };
 
 QT_END_NAMESPACE
-
-QML_DECLARE_TYPEINFO(QQuickItemParticle, QML_HAS_ATTACHED_PROPERTIES)
 
 #endif // ITEMPARTICLE_H

@@ -61,7 +61,7 @@ public:
         this->attemptToSimplifyRRect();
     }
 
-    GrShape(const SkRRect& rrect, SkPath::Direction dir, unsigned start, bool inverted,
+    GrShape(const SkRRect& rrect, SkPathDirection dir, unsigned start, bool inverted,
             const GrStyle& style)
         : fStyle(style) {
         this->initType(Type::kRRect);
@@ -160,7 +160,7 @@ public:
     }
 
     /** Returns the unstyled geometry as a rrect if possible. */
-    bool asRRect(SkRRect* rrect, SkPath::Direction* dir, unsigned* start, bool* inverted) const {
+    bool asRRect(SkRRect* rrect, SkPathDirection* dir, unsigned* start, bool* inverted) const {
         if (Type::kRRect != fType) {
             return false;
         }
@@ -255,12 +255,12 @@ public:
             return false;
         }
 
-        SkPath::Direction dirs[2];
-        if (!this->path().isNestedFillRects(rects, dirs)) {
+        SkPathDirection dirs[2];
+        if (!SkPathPriv::IsNestedFillRects(this->path(), rects, dirs)) {
             return false;
         }
 
-        if (SkPath::kWinding_FillType == this->path().getFillType() && dirs[0] == dirs[1]) {
+        if (SkPathFillType::kWinding == this->path().getNewFillType() && dirs[0] == dirs[1]) {
             // The two rects need to be wound opposite to each other
             return false;
         }
@@ -332,6 +332,32 @@ public:
                 // contour hence isLastContourClosed() is a sufficient for a convex path.
                 return (this->style().isSimpleFill() || this->path().isLastContourClosed()) &&
                         this->path().isConvex();
+        }
+        return false;
+    }
+
+    /**
+     * Does the shape have a known winding direction. Some degenerate convex shapes may not have
+     * a computable direction, but this is not always a requirement for path renderers so it is
+     * kept separate from knownToBeConvex().
+     */
+    bool knownDirection() const {
+        switch (fType) {
+            case Type::kEmpty:
+                return true;
+            case Type::kInvertedEmpty:
+                return true;
+            case Type::kRRect:
+                return true;
+            case Type::kArc:
+                return true;
+            case Type::kLine:
+                return true;
+            case Type::kPath:
+                // Assuming this is called after knownToBeConvex(), this should just be relying on
+                // cached convexity and direction and will be cheap.
+                return !SkPathPriv::CheapIsFirstDirection(this->path(),
+                                                          SkPathPriv::kUnknown_FirstDirection);
         }
         return false;
     }
@@ -524,15 +550,14 @@ private:
     const SkPath* originalPathForListeners() const;
 
     // Defaults to use when there is no distinction between even/odd and winding fills.
-    static constexpr SkPath::FillType kDefaultPathFillType = SkPath::kEvenOdd_FillType;
-    static constexpr SkPath::FillType kDefaultPathInverseFillType =
-            SkPath::kInverseEvenOdd_FillType;
+    static constexpr SkPathFillType kDefaultPathFillType = SkPathFillType::kEvenOdd;
+    static constexpr SkPathFillType kDefaultPathInverseFillType = SkPathFillType::kInverseEvenOdd;
 
-    static constexpr SkPath::Direction kDefaultRRectDir = SkPath::kCW_Direction;
+    static constexpr SkPathDirection kDefaultRRectDir = SkPathDirection::kCW;
     static constexpr unsigned kDefaultRRectStart = 0;
 
     static unsigned DefaultRectDirAndStartIndex(const SkRect& rect, bool hasPathEffect,
-                                                SkPath::Direction* dir) {
+                                                SkPathDirection* dir) {
         *dir = kDefaultRRectDir;
         // This comes from SkPath's interface. The default for adding a SkRect is counter clockwise
         // beginning at index 0 (which happens to correspond to rrect index 0 or 7).
@@ -549,11 +574,11 @@ private:
             // 0 becomes start index 2 and times 2 to convert from rect the rrect indices.
             return 2 * 2;
         } else if (swapX) {
-            *dir = SkPath::kCCW_Direction;
+            *dir = SkPathDirection::kCCW;
             // 0 becomes start index 1 and times 2 to convert from rect the rrect indices.
             return 2 * 1;
         } else if (swapY) {
-            *dir = SkPath::kCCW_Direction;
+            *dir = SkPathDirection::kCCW;
             // 0 becomes start index 3 and times 2 to convert from rect the rrect indices.
             return 2 * 3;
         }
@@ -561,7 +586,7 @@ private:
     }
 
     static unsigned DefaultRRectDirAndStartIndex(const SkRRect& rrect, bool hasPathEffect,
-                                                 SkPath::Direction* dir) {
+                                                 SkPathDirection* dir) {
         // This comes from SkPath's interface. The default for adding a SkRRect to a path is
         // clockwise beginning at starting index 6.
         static constexpr unsigned kPathRRectStartIdx = 6;
@@ -576,7 +601,7 @@ private:
     union {
         struct {
             SkRRect fRRect;
-            SkPath::Direction fDir;
+            SkPathDirection fDir;
             unsigned fStart;
             bool fInverted;
         } fRRectData;

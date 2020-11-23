@@ -10,6 +10,7 @@
 #include "base/message_loop/message_loop.h"
 #include "base/message_loop/message_pump_for_io.h"
 #include "base/message_loop/message_pump_for_ui.h"
+#include "base/message_loop/message_pump_type.h"
 #include "base/run_loop.h"
 #include "base/task/single_thread_task_executor.h"
 #include "base/test/bind_test_util.h"
@@ -32,23 +33,14 @@ namespace base {
 
 namespace {
 
-bool PumpTypeUsesDoSomeWork(MessageLoop::Type type) {
+bool PumpTypeUsesDoSomeWork(MessagePumpType type) {
   switch (type) {
-    case MessagePump::Type::DEFAULT:
-#if defined(OS_IOS)
-      // iOS uses a MessagePumpCFRunLoop instead of MessagePumpDefault for
-      // TYPE_DEFAULT. TODO(gab): migrate MessagePumpCFRunLoop too.
-      return false;
-#else
+    case MessagePumpType::DEFAULT:
       return true;
-#endif
 
-    case MessagePump::Type::UI:
-#if defined(OS_IOS)
-      // iOS uses a MessagePumpDefault for UI in unit tests, ref.
-      // test_support_ios.mm::CreateMessagePumpForUIForTests().
-      return true;
-#elif defined(OS_WIN) || defined(OS_ANDROID) || defined(USE_GLIB)
+    case MessagePumpType::UI:
+#if defined(OS_WIN) || defined(OS_ANDROID) || defined(USE_GLIB) || \
+    defined(OS_MACOSX)
       return true;
 #elif defined(OS_POSIX) && !defined(OS_NACL_SFI)
       // MessagePumpLibevent was migrated (ref. message_pump_for_ui.h and
@@ -60,8 +52,8 @@ bool PumpTypeUsesDoSomeWork(MessageLoop::Type type) {
       return false;
 #endif
 
-    case MessagePump::Type::IO:
-#if defined(OS_WIN) || (defined(OS_MACOSX) && !defined(OS_IOS))
+    case MessagePumpType::IO:
+#if defined(OS_WIN) || defined(OS_MACOSX)
       return true;
 #elif defined(OS_POSIX) && !defined(OS_NACL_SFI)
       // MessagePumpLibevent was migrated (ref. message_pump_for_io.h and
@@ -73,15 +65,15 @@ bool PumpTypeUsesDoSomeWork(MessageLoop::Type type) {
       return false;
 #endif
 
-    case MessagePump::Type::CUSTOM:
+    case MessagePumpType::CUSTOM:
 #if defined(OS_ANDROID)
-    case MessagePump::Type::JAVA:
+    case MessagePumpType::JAVA:
 #endif  // defined(OS_ANDROID)
 #if defined(OS_MACOSX)
-    case MessagePump::Type::NS_RUNLOOP:
+    case MessagePumpType::NS_RUNLOOP:
 #endif  // defined(OS_MACOSX)
 #if defined(OS_WIN)
-    case MessagePump::Type::UI_WITH_WM_QUIT_SUPPORT:
+    case MessagePumpType::UI_WITH_WM_QUIT_SUPPORT:
 #endif  // defined(OS_WIN)
       // Not tested in this file.
       NOTREACHED();
@@ -106,7 +98,7 @@ class MockMessagePumpDelegate : public MessagePump::Delegate {
   DISALLOW_COPY_AND_ASSIGN(MockMessagePumpDelegate);
 };
 
-class MessagePumpTest : public ::testing::TestWithParam<MessageLoop::Type> {
+class MessagePumpTest : public ::testing::TestWithParam<MessagePumpType> {
  public:
   MessagePumpTest() : message_pump_(MessagePump::Create(GetParam())) {}
 
@@ -355,17 +347,17 @@ TEST_P(MessagePumpTest, NestedRunWithoutScheduleWorkInvokesDoWork) {
   message_pump_->Run(&delegate);
 }
 
-INSTANTIATE_TEST_SUITE_P(,
+INSTANTIATE_TEST_SUITE_P(All,
                          MessagePumpTest,
-                         ::testing::Values(MessageLoop::TYPE_DEFAULT,
-                                           MessageLoop::TYPE_UI,
-                                           MessageLoop::TYPE_IO));
+                         ::testing::Values(MessagePumpType::DEFAULT,
+                                           MessagePumpType::UI,
+                                           MessagePumpType::IO));
 
 #if defined(OS_WIN)
 
 TEST(MessagePumpTestWin, WmQuitIsNotIgnoredWithEnableWmQuit) {
   SingleThreadTaskExecutor task_executor(
-      MessagePump::Type::UI_WITH_WM_QUIT_SUPPORT);
+      MessagePumpType::UI_WITH_WM_QUIT_SUPPORT);
 
   // Post a WM_QUIT message to the current thread.
   ::PostQuitMessage(0);

@@ -97,7 +97,7 @@ const char* BackgroundStateToString(bool is_backgrounded) {
   if (is_backgrounded) {
     return "renderer_backgrounded";
   } else {
-    return "renderer_visible";
+    return "renderer_foregrounded";
   }
 }
 
@@ -182,6 +182,8 @@ bool IsBlockingEvent(const blink::WebInputEvent& web_input_event) {
   return mouse_event.dispatch_type == blink::WebInputEvent::kBlocking;
 }
 
+MainThreadSchedulerImpl* g_main_thread_scheduler = nullptr;
+
 }  // namespace
 
 MainThreadSchedulerImpl::MainThreadSchedulerImpl(
@@ -241,13 +243,11 @@ MainThreadSchedulerImpl::MainThreadSchedulerImpl(
       policy_may_need_update_(&any_thread_lock_) {
   // Compositor task queue and default task queue should be managed by
   // WebThreadScheduler. Control task queue should not.
-  task_runners_.insert(
-      std::make_pair(helper_.DefaultMainThreadTaskQueue(), nullptr));
-  task_runners_.insert(
-      std::make_pair(compositor_task_queue_,
-                     compositor_task_queue_->CreateQueueEnabledVoter()));
-  task_runners_.insert(std::make_pair(
-      input_task_queue_, input_task_queue_->CreateQueueEnabledVoter()));
+  task_runners_.emplace(helper_.DefaultMainThreadTaskQueue(), nullptr);
+  task_runners_.emplace(compositor_task_queue_,
+                        compositor_task_queue_->CreateQueueEnabledVoter());
+  task_runners_.emplace(input_task_queue_,
+                        input_task_queue_->CreateQueueEnabledVoter());
 
   v8_task_queue_ = NewTaskQueue(MainThreadTaskQueue::QueueCreationParams(
       MainThreadTaskQueue::QueueType::kV8));
@@ -306,6 +306,8 @@ MainThreadSchedulerImpl::MainThreadSchedulerImpl(
 
   main_thread_only()
       .compositor_priority_experiments.OnMainThreadSchedulerInitialized();
+
+  g_main_thread_scheduler = this;
 }
 
 MainThreadSchedulerImpl::~MainThreadSchedulerImpl() {
@@ -330,6 +332,13 @@ MainThreadSchedulerImpl::~MainThreadSchedulerImpl() {
   // we could end up having stale pointers to the Blink heap which has been
   // terminated by this point.
   DCHECK(was_shutdown_);
+
+  g_main_thread_scheduler = nullptr;
+}
+
+// static
+WebThreadScheduler* WebThreadScheduler::MainThreadScheduler() {
+  return g_main_thread_scheduler;
 }
 
 MainThreadSchedulerImpl::MainThreadOnly::MainThreadOnly(
@@ -362,12 +371,12 @@ MainThreadSchedulerImpl::MainThreadOnly::MainThreadOnly(
                             &main_thread_scheduler_impl->tracing_controller_,
                             RAILModeToString),
       renderer_hidden(false,
-                      "Scheduler.Hidden",
+                      "RendererVisibility",
                       main_thread_scheduler_impl,
                       &main_thread_scheduler_impl->tracing_controller_,
                       HiddenStateToString),
       renderer_backgrounded(kLaunchingProcessIsBackgrounded,
-                            "RendererVisibility",
+                            "RendererPriority",
                             main_thread_scheduler_impl,
                             &main_thread_scheduler_impl->tracing_controller_,
                             BackgroundStateToString),
@@ -476,7 +485,8 @@ MainThreadSchedulerImpl::MainThreadOnly::MainThreadOnly(
       nested_runloop(false),
       compositing_experiment(main_thread_scheduler_impl),
       should_prioritize_compositing(false),
-      compositor_priority_experiments(main_thread_scheduler_impl) {}
+      compositor_priority_experiments(main_thread_scheduler_impl),
+      main_thread_compositing_is_fast(false) {}
 
 MainThreadSchedulerImpl::MainThreadOnly::~MainThreadOnly() = default;
 
@@ -517,8 +527,14 @@ MainThreadSchedulerImpl::AnyThread::AnyThread(
           main_thread_scheduler_impl,
           &main_thread_scheduler_impl->tracing_controller_,
           YesNoStateToString),
+      waiting_for_contentful_paint(
+          true,
+          "Scheduler.WaitingForContentfulPaint",
+          main_thread_scheduler_impl,
+          &main_thread_scheduler_impl->tracing_controller_,
+          YesNoStateToString),
       waiting_for_meaningful_paint(
-          false,
+          true,
           "Scheduler.WaitingForMeaningfulPaint",
           main_thread_scheduler_impl,
           &main_thread_scheduler_impl->tracing_controller_,
@@ -528,7 +544,12 @@ MainThreadSchedulerImpl::AnyThread::AnyThread(
           "Scheduler.HaveSeenInputSinceNavigation",
           main_thread_scheduler_impl,
           &main_thread_scheduler_impl->tracing_controller_,
-          YesNoStateToString) {}
+          YesNoStateToString),
+      begin_main_frame_scheduled_count(
+          0,
+          "Scheduler.BeginMainFrameScheduledCount",
+          main_thread_scheduler_impl,
+          &main_thread_scheduler_impl->tracing_controller_) {}
 
 MainThreadSchedulerImpl::SchedulingSettings::SchedulingSettings() {
   high_priority_input =
@@ -564,6 +585,10 @@ MainThreadSchedulerImpl::SchedulingSettings::SchedulingSettings() {
       base::FeatureList::IsEnabled(kUseResourceFetchPriority);
   use_resource_priorities_only_during_loading =
       base::FeatureList::IsEnabled(kUseResourceFetchPriorityOnlyWhenLoading);
+
+  prioritize_compositing_and_loading_during_early_loading =
+      base::FeatureList::IsEnabled(
+          kPrioritizeCompositingAndLoadingDuringEarlyLoading);
 
   if (use_resource_fetch_priority ||
       use_resource_priorities_only_during_loading) {
@@ -621,6 +646,8 @@ void MainThreadSchedulerImpl::Shutdown() {
 
   base::TimeTicks now = tick_clock()->NowTicks();
   main_thread_only().metrics_helper.OnRendererShutdown(now);
+  main_thread_only()
+      .compositor_priority_experiments.OnMainThreadSchedulerShutdown();
 
   ShutdownAllQueues();
   task_queue_throttler_.reset();
@@ -717,8 +744,7 @@ scoped_refptr<MainThreadTaskQueue> MainThreadSchedulerImpl::NewTaskQueue(
     voter = task_queue->CreateQueueEnabledVoter();
   }
 
-  auto insert_result =
-      task_runners_.insert(std::make_pair(task_queue, std::move(voter)));
+  auto insert_result = task_runners_.emplace(task_queue, std::move(voter));
   auto queue_class = task_queue->queue_class();
 
   ApplyTaskQueuePolicy(
@@ -735,13 +761,14 @@ scoped_refptr<MainThreadTaskQueue> MainThreadSchedulerImpl::NewTaskQueue(
   // they're not supposed to.
   if (main_thread_only().virtual_time_stopped &&
       main_thread_only().use_virtual_time &&
-      task_queue->ShouldUseVirtualTime()) {
+      !task_queue->CanRunWhenVirtualTimePaused()) {
     task_queue->InsertFence(TaskQueue::InsertFencePosition::kNow);
   }
 
   return task_queue;
 }
 
+// TODO(sreejakshetty): Cleanup NewLoadingTaskQueue and NewTimerTaskQueue.
 scoped_refptr<MainThreadTaskQueue> MainThreadSchedulerImpl::NewLoadingTaskQueue(
     MainThreadTaskQueue::QueueType queue_type,
     FrameSchedulerImpl* frame_scheduler) {
@@ -765,7 +792,7 @@ scoped_refptr<MainThreadTaskQueue> MainThreadSchedulerImpl::NewTimerTaskQueue(
                           .SetCanBeDeferred(true)
                           .SetCanBeThrottled(true)
                           .SetFrameScheduler(frame_scheduler)
-                          .SetShouldUseVirtualTime(true));
+                          .SetCanRunWhenVirtualTimePaused(false));
 }
 
 std::unique_ptr<WebRenderWidgetSchedulingState>
@@ -789,12 +816,12 @@ bool MainThreadSchedulerImpl::CanExceedIdleDeadlineIfRequired() const {
 }
 
 void MainThreadSchedulerImpl::AddTaskObserver(
-    base::MessageLoop::TaskObserver* task_observer) {
+    base::TaskObserver* task_observer) {
   helper_.AddTaskObserver(task_observer);
 }
 
 void MainThreadSchedulerImpl::RemoveTaskObserver(
-    base::MessageLoop::TaskObserver* task_observer) {
+    base::TaskObserver* task_observer) {
   helper_.RemoveTaskObserver(task_observer);
 }
 
@@ -817,6 +844,7 @@ void MainThreadSchedulerImpl::WillBeginFrame(const viz::BeginFrameArgs& args) {
     any_thread().begin_main_frame_on_critical_path = args.on_critical_path;
   }
   main_thread_only().compositing_experiment.OnWillBeginMainFrame();
+  main_thread_only().compositor_priority_experiments.OnWillBeginMainFrame();
 }
 
 void MainThreadSchedulerImpl::DidCommitFrameToCompositor() {
@@ -1111,6 +1139,16 @@ void MainThreadSchedulerImpl::DidAnimateForInputOnCompositorThread() {
       base::TimeDelta::FromMilliseconds(kFlingEscalationLimitMillis);
 }
 
+void MainThreadSchedulerImpl::DidScheduleBeginMainFrame() {
+  base::AutoLock lock(any_thread_lock_);
+  any_thread().begin_main_frame_scheduled_count += 1;
+}
+
+void MainThreadSchedulerImpl::DidRunBeginMainFrame() {
+  base::AutoLock lock(any_thread_lock_);
+  any_thread().begin_main_frame_scheduled_count -= 1;
+}
+
 void MainThreadSchedulerImpl::UpdateForInputEventOnCompositorThread(
     const blink::WebInputEvent& web_input_event,
     InputEventState input_event_state) {
@@ -1308,6 +1346,7 @@ bool MainThreadSchedulerImpl::ShouldYieldForHighPriorityWork() {
     case UseCase::kTouchstart:
       return true;
 
+    case UseCase::kEarlyLoading:
     case UseCase::kLoading:
       return false;
 
@@ -1409,7 +1448,7 @@ void MainThreadSchedulerImpl::UpdatePolicyLocked(UpdateType update_type) {
 
   // Avoid prioritizing main thread compositing (e.g., rAF) if it is extremely
   // slow, because that can cause starvation in other task sources.
-  bool main_thread_compositing_is_fast =
+  main_thread_only().main_thread_compositing_is_fast =
       main_thread_only().idle_time_estimator.GetExpectedIdleDuration(
           main_thread_only().compositor_frame_interval) >
       main_thread_only().compositor_frame_interval *
@@ -1421,53 +1460,24 @@ void MainThreadSchedulerImpl::UpdatePolicyLocked(UpdateType update_type) {
 
   switch (new_policy.use_case()) {
     case UseCase::kCompositorGesture:
-      if (main_thread_only().blocking_input_expected_soon) {
+      if (main_thread_only().blocking_input_expected_soon)
         new_policy.rail_mode() = RAILMode::kResponse;
-        new_policy.compositor_priority() =
-            TaskQueue::QueuePriority::kHighestPriority;
-      } else {
-        // What we really want to do is priorize loading tasks, but that doesn't
-        // seem to be safe. Instead we do that by proxy by deprioritizing
-        // compositor tasks. This should be safe since we've already gone to the
-        // pain of fixing ordering issues with them.
-        new_policy.compositor_priority() =
-            TaskQueue::QueuePriority::kLowPriority;
-      }
       break;
 
     case UseCase::kSynchronizedGesture:
-      new_policy.compositor_priority() = main_thread_compositing_is_fast
-                                             ? TaskQueue::kHighestPriority
-                                             : TaskQueue::kNormalPriority;
       if (main_thread_only().blocking_input_expected_soon)
         new_policy.rail_mode() = RAILMode::kResponse;
       break;
 
     case UseCase::kMainThreadCustomInputHandling:
-      // In main thread input handling scenarios we don't have perfect knowledge
-      // about which things we should be prioritizing, so we don't attempt to
-      // block expensive tasks because we don't know whether they were integral
-      // to the page's functionality or not.
-      new_policy.compositor_priority() =
-          main_thread_compositing_is_fast
-              ? TaskQueue::QueuePriority::kHighestPriority
-              : TaskQueue::QueuePriority::kNormalPriority;
       break;
 
     case UseCase::kMainThreadGesture:
-      // A main thread gesture is for example a scroll gesture which is handled
-      // by the main thread. Since we know the established gesture type, we can
-      // be a little more aggressive about prioritizing compositing and input
-      // handling over other tasks.
-      new_policy.compositor_priority() =
-          TaskQueue::QueuePriority::kHighestPriority;
       if (main_thread_only().blocking_input_expected_soon)
         new_policy.rail_mode() = RAILMode::kResponse;
       break;
 
     case UseCase::kTouchstart:
-      new_policy.compositor_priority() =
-          TaskQueue::QueuePriority::kHighestPriority;
       new_policy.rail_mode() = RAILMode::kResponse;
       new_policy.loading_queue_policy().is_deferred = true;
       new_policy.timer_queue_policy().is_deferred = true;
@@ -1482,25 +1492,40 @@ void MainThreadSchedulerImpl::UpdatePolicyLocked(UpdateType update_type) {
       }
       break;
 
+    case UseCase::kEarlyLoading:
+      new_policy.rail_mode() = RAILMode::kLoad;
+      break;
+
     case UseCase::kLoading:
       new_policy.rail_mode() = RAILMode::kLoad;
-      // TODO(skyostil): Experiment with increasing loading and default queue
-      // priorities and throttling rendering frame rate.
+      // TODO(skyostil): Experiment with throttling rendering frame rate.
       break;
 
     default:
       NOTREACHED();
   }
 
-  // Do not reset compositor priority if set to highest or higher.
-  if (new_policy.compositor_priority() >
-          TaskQueue::QueuePriority::kHighestPriority &&
-      main_thread_only().compositor_priority_experiments.IsExperimentActive()) {
-    main_thread_only().compositor_priority_experiments.SetCompositingIsFast(
-        main_thread_compositing_is_fast);
+  if (main_thread_only().should_prioritize_compositing) {
     new_policy.compositor_priority() =
         main_thread_only()
-            .compositor_priority_experiments.GetCompositorPriority();
+            .compositing_experiment.GetIncreasedCompositingPriority();
+  } else if (scheduling_settings_
+                 .prioritize_compositing_and_loading_during_early_loading &&
+             current_use_case() == UseCase::kEarlyLoading) {
+    new_policy.compositor_priority() =
+        base::sequence_manager::TaskQueue::QueuePriority::kHighPriority;
+    new_policy.should_prioritize_loading_with_compositing() = true;
+  } else {
+    base::Optional<TaskQueue::QueuePriority> computed_compositor_priority =
+        ComputeCompositorPriorityFromUseCase();
+    if (computed_compositor_priority) {
+      new_policy.compositor_priority() = computed_compositor_priority.value();
+    } else if (main_thread_only()
+                   .compositor_priority_experiments.IsExperimentActive()) {
+      new_policy.compositor_priority() =
+          main_thread_only()
+              .compositor_priority_experiments.GetCompositorPriority();
+    }
   }
 
   // TODO(skyostil): Add an idle state for foreground tabs too.
@@ -1523,12 +1548,6 @@ void MainThreadSchedulerImpl::UpdatePolicyLocked(UpdateType update_type) {
   }
 
   new_policy.should_disable_throttling() = main_thread_only().use_virtual_time;
-
-  if (main_thread_only().should_prioritize_compositing) {
-    new_policy.compositor_priority() =
-        main_thread_only()
-            .compositing_experiment.GetIncreasedCompositingPriority();
-  }
 
   // Tracing is done before the early out check, because it's quite possible we
   // will otherwise miss this information in traces.
@@ -1661,9 +1680,12 @@ UseCase MainThreadSchedulerImpl::ComputeCurrentUseCase(
   // Occasionally the meaningful paint fails to be detected, so as a fallback we
   // treat the presence of input as an indirect signal that there is meaningful
   // content on the page.
-  if (any_thread().waiting_for_meaningful_paint &&
-      !any_thread().have_seen_input_since_navigation) {
-    return UseCase::kLoading;
+  if (!any_thread().have_seen_input_since_navigation) {
+    if (any_thread().waiting_for_contentful_paint)
+      return UseCase::kEarlyLoading;
+
+    if (any_thread().waiting_for_meaningful_paint)
+      return UseCase::kLoading;
   }
   return UseCase::kNone;
 }
@@ -1673,6 +1695,7 @@ base::TimeDelta MainThreadSchedulerImpl::EstimateLongestJankFreeTaskDuration()
   switch (main_thread_only().current_use_case) {
     case UseCase::kTouchstart:
     case UseCase::kCompositorGesture:
+    case UseCase::kEarlyLoading:
     case UseCase::kLoading:
     case UseCase::kNone:
       return base::TimeDelta::FromMilliseconds(kRailsResponseTimeMillis);
@@ -1811,7 +1834,7 @@ void MainThreadSchedulerImpl::SetVirtualTimeStopped(bool virtual_time_stopped) {
 
 void MainThreadSchedulerImpl::VirtualTimePaused() {
   for (const auto& pair : task_runners_) {
-    if (!pair.first->ShouldUseVirtualTime())
+    if (pair.first->CanRunWhenVirtualTimePaused())
       continue;
     DCHECK(!task_queue_throttler_->IsThrottled(pair.first.get()));
     pair.first->InsertFence(TaskQueue::InsertFencePosition::kNow);
@@ -1820,7 +1843,7 @@ void MainThreadSchedulerImpl::VirtualTimePaused() {
 
 void MainThreadSchedulerImpl::VirtualTimeResumed() {
   for (const auto& pair : task_runners_) {
-    if (!pair.first->ShouldUseVirtualTime())
+    if (pair.first->CanRunWhenVirtualTimePaused())
       continue;
     DCHECK(!task_queue_throttler_->IsThrottled(pair.first.get()));
     DCHECK(pair.first->HasActiveFence());
@@ -1956,6 +1979,8 @@ MainThreadSchedulerImpl::AsValueLocked(base::TimeTicks optional_now) const {
   state->SetBoolean("renderer_hidden", main_thread_only().renderer_hidden);
   state->SetBoolean("have_seen_a_begin_main_frame",
                     main_thread_only().have_seen_a_begin_main_frame);
+  state->SetBoolean("waiting_for_contentful_paint",
+                    any_thread().waiting_for_contentful_paint);
   state->SetBoolean("waiting_for_meaningful_paint",
                     any_thread().waiting_for_meaningful_paint);
   state->SetBoolean("have_seen_input_since_navigation",
@@ -2062,6 +2087,7 @@ MainThreadSchedulerImpl::Policy::Policy()
     : rail_mode_(RAILMode::kAnimation),
       should_disable_throttling_(false),
       frozen_when_backgrounded_(false),
+      should_prioritize_loading_with_compositing_(false),
       compositor_priority_(
           base::sequence_manager::TaskQueue::QueuePriority::kNormalPriority),
       use_case_(UseCase::kNone) {}
@@ -2179,6 +2205,14 @@ void MainThreadSchedulerImpl::DidCommitProvisionalLoad(
   }
 }
 
+void MainThreadSchedulerImpl::OnFirstContentfulPaint() {
+  TRACE_EVENT0(TRACE_DISABLED_BY_DEFAULT("renderer.scheduler"),
+               "MainThreadSchedulerImpl::OnFirstContentfulPaint");
+  base::AutoLock lock(any_thread_lock_);
+  any_thread().waiting_for_contentful_paint = false;
+  UpdatePolicyLocked(UpdateType::kMayEarlyOutIfPolicyUnchanged);
+}
+
 void MainThreadSchedulerImpl::OnFirstMeaningfulPaint() {
   TRACE_EVENT0(TRACE_DISABLED_BY_DEFAULT("renderer.scheduler"),
                "MainThreadSchedulerImpl::OnFirstMeaningfulPaint");
@@ -2194,6 +2228,7 @@ void MainThreadSchedulerImpl::ResetForNavigationLocked() {
   any_thread_lock_.AssertAcquired();
   any_thread().user_model.Reset(helper_.NowTicks());
   any_thread().have_seen_a_blocking_gesture = false;
+  any_thread().waiting_for_contentful_paint = true;
   any_thread().waiting_for_meaningful_paint = true;
   any_thread().have_seen_input_since_navigation = false;
   main_thread_only().idle_time_estimator.Clear();
@@ -2252,17 +2287,14 @@ void MainThreadSchedulerImpl::SetRendererProcessType(
   main_thread_only().process_type = type;
 }
 
-WebScopedVirtualTimePauser
-MainThreadSchedulerImpl::CreateWebScopedVirtualTimePauser(
-    const char* name,
-    WebScopedVirtualTimePauser::VirtualTaskDuration duration) {
-  return WebScopedVirtualTimePauser(this, duration,
-                                    WebString(WTF::String(name)));
-}
-
 PendingUserInputInfo MainThreadSchedulerImpl::GetPendingUserInputInfo() const {
   base::AutoLock lock(any_thread_lock_);
   return any_thread().pending_input_monitor.Info();
+}
+
+bool MainThreadSchedulerImpl::IsBeginMainFrameScheduled() const {
+  base::AutoLock lock(any_thread_lock_);
+  return any_thread().begin_main_frame_scheduled_count.value() > 0;
 }
 
 void MainThreadSchedulerImpl::RunIdleTask(Thread::IdleTask task,
@@ -2377,7 +2409,7 @@ void MainThreadSchedulerImpl::OnTaskReady(
     const void* frame_scheduler,
     const base::sequence_manager::Task& task,
     base::sequence_manager::LazyNow* lazy_now) {
-  frame_interference_recorder_.OnTaskReady(frame_scheduler,
+  agent_interference_recorder_.OnTaskReady(frame_scheduler,
                                            task.enqueue_order(), lazy_now);
 }
 
@@ -2387,7 +2419,7 @@ void MainThreadSchedulerImpl::OnTaskStarted(
     const TaskQueue::TaskTiming& task_timing) {
   main_thread_only().running_queues.push(queue);
   queueing_time_estimator_.OnExecutionStarted(task_timing.start_time());
-  frame_interference_recorder_.OnTaskStarted(queue, task.enqueue_order(),
+  agent_interference_recorder_.OnTaskStarted(queue, task.enqueue_order(),
                                              task_timing.start_time());
   if (main_thread_only().nested_runloop)
     return;
@@ -2423,7 +2455,7 @@ void MainThreadSchedulerImpl::OnTaskCompleted(
     queue->GetFrameScheduler()->AddTaskTime(task_timing->wall_duration());
   main_thread_only().running_queues.pop();
   queueing_time_estimator_.OnExecutionStopped(task_timing->end_time());
-  frame_interference_recorder_.OnTaskCompleted(queue.get(),
+  agent_interference_recorder_.OnTaskCompleted(queue.get(),
                                                task_timing->end_time());
   if (main_thread_only().nested_runloop)
     return;
@@ -2448,7 +2480,8 @@ void MainThreadSchedulerImpl::OnTaskCompleted(
   RecordTaskUkm(queue.get(), task, *task_timing);
 
   main_thread_only().compositor_priority_experiments.OnTaskCompleted(
-      queue.get(), main_thread_only().current_policy.compositor_priority());
+      queue.get(), main_thread_only().current_policy.compositor_priority(),
+      task_timing);
 }
 
 void MainThreadSchedulerImpl::RecordTaskUkm(
@@ -2573,7 +2606,7 @@ void MainThreadSchedulerImpl::OnBeginNestedRunLoop() {
   // When a nested loop is entered, simulate completing the current task. It
   // will be resumed when the run loop is exited.
   queueing_time_estimator_.OnExecutionStopped(now);
-  frame_interference_recorder_.OnTaskCompleted(
+  agent_interference_recorder_.OnTaskCompleted(
       main_thread_only().running_queues.top().get(), now);
   main_thread_only().nested_runloop = true;
   ApplyVirtualTimePolicy();
@@ -2585,7 +2618,7 @@ void MainThreadSchedulerImpl::OnExitNestedRunLoop() {
   queueing_time_estimator_.OnExecutionStarted(now);
   // When a nested loop is exited, resume the task that was running when the
   // nested loop was entered.
-  frame_interference_recorder_.OnTaskStarted(
+  agent_interference_recorder_.OnTaskStarted(
       main_thread_only().running_queues.top().get(),
       base::sequence_manager::EnqueueOrder::none(), now);
   main_thread_only().nested_runloop = false;
@@ -2727,7 +2760,49 @@ void MainThreadSchedulerImpl::SetShouldPrioritizeCompositing(
 
 void MainThreadSchedulerImpl::
     OnCompositorPriorityExperimentUpdateCompositorPriority() {
-  UpdatePolicy();
+  if (!ComputeCompositorPriorityFromUseCase())
+    UpdatePolicy();
+}
+
+base::Optional<TaskQueue::QueuePriority>
+MainThreadSchedulerImpl::ComputeCompositorPriorityFromUseCase() const {
+  switch (current_use_case()) {
+    case UseCase::kCompositorGesture:
+      if (main_thread_only().blocking_input_expected_soon)
+        return TaskQueue::QueuePriority::kHighestPriority;
+      // What we really want to do is priorize loading tasks, but that doesn't
+      // seem to be safe. Instead we do that by proxy by deprioritizing
+      // compositor tasks. This should be safe since we've already gone to the
+      // pain of fixing ordering issues with them.
+      return TaskQueue::QueuePriority::kLowPriority;
+
+    case UseCase::kSynchronizedGesture:
+    case UseCase::kMainThreadCustomInputHandling:
+      // In main thread input handling use case we don't have perfect knowledge
+      // about which things we should be prioritizing, so we don't attempt to
+      // block expensive tasks because we don't know whether they were integral
+      // to the page's functionality or not.
+      if (main_thread_only().main_thread_compositing_is_fast)
+        return TaskQueue::QueuePriority::kHighestPriority;
+      return base::nullopt;
+
+    case UseCase::kMainThreadGesture:
+    case UseCase::kTouchstart:
+      // A main thread gesture is for example a scroll gesture which is handled
+      // by the main thread. Since we know the established gesture type, we can
+      // be a little more aggressive about prioritizing compositing and input
+      // handling over other tasks.
+      return TaskQueue::QueuePriority::kHighestPriority;
+
+    case UseCase::kNone:
+    case UseCase::kEarlyLoading:
+    case UseCase::kLoading:
+      return base::nullopt;
+
+    default:
+      NOTREACHED();
+      return base::nullopt;
+  }
 }
 
 void MainThreadSchedulerImpl::OnSafepointEntered() {
@@ -2750,7 +2825,7 @@ void MainThreadSchedulerImpl::ExecuteAfterCurrentTask(
 
 void MainThreadSchedulerImpl::OnFrameSchedulerDestroyed(
     FrameSchedulerImpl* frame_scheduler) {
-  frame_interference_recorder_.OnFrameSchedulerDestroyed(frame_scheduler);
+  agent_interference_recorder_.OnFrameSchedulerDestroyed(frame_scheduler);
 }
 
 void MainThreadSchedulerImpl::DispatchOnTaskCompletionCallbacks() {
@@ -2773,6 +2848,8 @@ const char* MainThreadSchedulerImpl::UseCaseToString(UseCase use_case) {
       return "synchronized_gesture";
     case UseCase::kTouchstart:
       return "touchstart";
+    case UseCase::kEarlyLoading:
+      return "early_loading";
     case UseCase::kLoading:
       return "loading";
     case UseCase::kMainThreadGesture:

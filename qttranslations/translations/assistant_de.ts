@@ -414,17 +414,6 @@ Grund:
     </message>
 </context>
 <context>
-    <name>FilterNameDialogClass</name>
-    <message>
-        <source>Filter Name:</source>
-        <translation>Filtername:</translation>
-    </message>
-    <message>
-        <source>Add Filter</source>
-        <translation>Filter hinzufügen</translation>
-    </message>
-</context>
-<context>
     <name>FindWidget</name>
     <message>
         <source>Previous</source>
@@ -507,6 +496,40 @@ Grund:
     <message>
         <source>&amp;Find</source>
         <translation>&amp;Suchen</translation>
+    </message>
+</context>
+<context>
+    <name>HelpDocSettingsWidget</name>
+    <message>
+        <source>Form</source>
+        <translation>Form</translation>
+    </message>
+    <message>
+        <source>Registered Documentation</source>
+        <translation>Registrierte Dokumentationen</translation>
+    </message>
+    <message>
+        <source>&lt;Filter&gt;</source>
+        <translation>&lt;Filter&gt;</translation>
+    </message>
+    <message>
+        <source>Add...</source>
+        <translation>Hinzufügen...</translation>
+    </message>
+    <message>
+        <source>Remove</source>
+        <translation>Entfernen</translation>
+    </message>
+</context>
+<context>
+    <name>HelpDocSettingsWidgetPrivate</name>
+    <message>
+        <source>Add Documentation</source>
+        <translation>Dokumentation hinzufügen</translation>
+    </message>
+    <message>
+        <source>Qt Compressed Help Files (*.qch)</source>
+        <translation>Komprimierte Qt-Hilfedateien (*.qch)</translation>
     </message>
 </context>
 <context>
@@ -806,70 +829,7 @@ Grund:
     </message>
 </context>
 <context>
-    <name>OptionsWidget</name>
-    <message>
-        <source>No Option</source>
-        <translation>Keine Option</translation>
-    </message>
-    <message>
-        <source>Invalid Option</source>
-        <translation>Ungültige Option</translation>
-    </message>
-</context>
-<context>
     <name>PreferencesDialog</name>
-    <message>
-        <source>No Component</source>
-        <translation>Keine Komponente</translation>
-    </message>
-    <message>
-        <source>Invalid Component</source>
-        <translation>Ungültige Komponente</translation>
-    </message>
-    <message>
-        <source>No Version</source>
-        <translation>Keine Version</translation>
-    </message>
-    <message>
-        <source>Invalid Version</source>
-        <translation>Ungültige Version</translation>
-    </message>
-    <message>
-        <source>Filter Exists</source>
-        <translation>Filter existiert bereits</translation>
-    </message>
-    <message>
-        <source>The filter &quot;%1&quot; already exists.</source>
-        <translation>Der Filter &quot;%1&quot; existiert bereits.</translation>
-    </message>
-    <message>
-        <source>Add Filter</source>
-        <translation>Filter hinzufügen</translation>
-    </message>
-    <message>
-        <source>New Filter</source>
-        <translation>Neuer Filter</translation>
-    </message>
-    <message>
-        <source>Rename Filter</source>
-        <translation>Filter umbenennen</translation>
-    </message>
-    <message>
-        <source>Remove Filter</source>
-        <translation>Filter löschen</translation>
-    </message>
-    <message>
-        <source>Are you sure you want to remove the &quot;%1&quot; filter?</source>
-        <translation>Möchten Sie den Filter &quot;%1&quot; wirklich löschen?</translation>
-    </message>
-    <message>
-        <source>Add Documentation</source>
-        <translation>Dokumentation hinzufügen</translation>
-    </message>
-    <message>
-        <source>Qt Compressed Help Files (*.qch)</source>
-        <translation>Komprimierte Hilfedateien (*.qch)</translation>
-    </message>
     <message>
         <source>Use custom settings</source>
         <translation>Benutzerdefinierte Einstellungen verwenden</translation>
@@ -902,24 +862,8 @@ Grund:
         <translation>Filter</translation>
     </message>
     <message>
-        <source>Filter:</source>
-        <translation>Filter:</translation>
-    </message>
-    <message>
-        <source>Remove</source>
-        <translation>Entfernen</translation>
-    </message>
-    <message>
         <source>Documentation</source>
         <translation>Dokumentation</translation>
-    </message>
-    <message>
-        <source>Registered Documentation:</source>
-        <translation>Registrierte Dokumentation:</translation>
-    </message>
-    <message>
-        <source>Add...</source>
-        <translation>Hinzufügen ...</translation>
     </message>
     <message>
         <source>Options</source>
@@ -964,22 +908,6 @@ Grund:
     <message>
         <source>Show tabs for each individual page</source>
         <translation>Reiter für jede einzelne Seite anzeigen</translation>
-    </message>
-    <message>
-        <source>&lt;Filter&gt;</source>
-        <translation>&lt;Filter&gt;</translation>
-    </message>
-    <message>
-        <source>Components:</source>
-        <translation>Komponenten:</translation>
-    </message>
-    <message>
-        <source>Rename...</source>
-        <translation>Umbenennen...</translation>
-    </message>
-    <message>
-        <source>Versions:</source>
-        <translation>Versionen:</translation>
     </message>
 </context>
 <context>

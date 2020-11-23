@@ -1822,6 +1822,10 @@
         <translation>Das Feld %1 hat keinen einfachen Typ.</translation>
     </message>
     <message>
+        <source>Field %1 is missing its simple type.</source>
+        <translation>Im Feld %1 fehlt der einfache Typ.</translation>
+    </message>
+    <message>
         <source>ID value &apos;%1&apos; is not unique.</source>
         <translation>Der ID-Wert &apos;%1&apos; ist nicht eindeutig.</translation>
     </message>

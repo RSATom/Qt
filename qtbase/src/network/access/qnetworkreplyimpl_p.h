@@ -62,7 +62,7 @@
 #include "private/qringbuffer_p.h"
 #include "private/qbytedata_p.h"
 #include <QSharedPointer>
-#include <QtNetwork/QNetworkSession>
+#include <QtNetwork/QNetworkSession> // ### Qt6: Remove include
 
 QT_BEGIN_NAMESPACE
 
@@ -92,7 +92,7 @@ public:
     Q_PRIVATE_SLOT(d_func(), void _q_copyReadChannelFinished())
     Q_PRIVATE_SLOT(d_func(), void _q_bufferOutgoingData())
     Q_PRIVATE_SLOT(d_func(), void _q_bufferOutgoingDataFinished())
-#ifndef QT_NO_BEARERMANAGEMENT
+#ifndef QT_NO_BEARERMANAGEMENT // ### Qt6: Remove section
     Q_PRIVATE_SLOT(d_func(), void _q_networkSessionConnected())
     Q_PRIVATE_SLOT(d_func(), void _q_networkSessionFailed())
     Q_PRIVATE_SLOT(d_func(), void _q_networkSessionStateChanged(QNetworkSession::State))
@@ -124,7 +124,7 @@ public:
     void _q_copyReadChannelFinished();
     void _q_bufferOutgoingData();
     void _q_bufferOutgoingDataFinished();
-#ifndef QT_NO_BEARERMANAGEMENT
+#ifndef QT_NO_BEARERMANAGEMENT // ### Qt6: Remove section
     void _q_networkSessionConnected();
     void _q_networkSessionFailed();
     void _q_networkSessionStateChanged(QNetworkSession::State);
@@ -206,20 +206,6 @@ public:
     Q_DECLARE_PUBLIC(QNetworkReplyImpl)
 };
 Q_DECLARE_TYPEINFO(QNetworkReplyImplPrivate::InternalNotifications, Q_PRIMITIVE_TYPE);
-
-class QDisabledNetworkReply : public QNetworkReply
-{
-    Q_OBJECT
-
-public:
-    QDisabledNetworkReply(QObject *parent, const QNetworkRequest &req,
-                          QNetworkAccessManager::Operation op);
-    ~QDisabledNetworkReply();
-
-    void abort() override { }
-protected:
-    qint64 readData(char *, qint64) override { return -1; }
-};
 
 QT_END_NAMESPACE
 

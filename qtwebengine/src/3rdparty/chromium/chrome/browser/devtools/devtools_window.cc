@@ -5,6 +5,7 @@
 #include "chrome/browser/devtools/devtools_window.h"
 
 #include <algorithm>
+#include <set>
 #include <utility>
 
 #include "base/base64.h"
@@ -21,7 +22,6 @@
 #include "chrome/browser/devtools/devtools_eye_dropper.h"
 #include "chrome/browser/file_select_helper.h"
 #include "chrome/browser/infobars/infobar_service.h"
-#include "chrome/browser/performance_manager/performance_manager_tab_helper.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/sessions/session_tab_helper.h"
 #include "chrome/browser/task_manager/web_contents_tags.h"
@@ -38,6 +38,7 @@
 #include "chrome/common/pref_names.h"
 #include "chrome/common/url_constants.h"
 #include "components/app_modal/javascript_dialog_manager.h"
+#include "components/performance_manager/performance_manager_tab_helper.h"
 #include "components/pref_registry/pref_registry_syncable.h"
 #include "components/prefs/scoped_user_pref_update.h"
 #include "components/sync_preferences/pref_service_syncable.h"
@@ -170,8 +171,8 @@ content::WebContents* DevToolsToolboxDelegate::OpenURLFromTab(
   DCHECK(source == web_contents());
   if (!params.url.SchemeIs(content::kChromeDevToolsScheme))
     return NULL;
-  content::NavigationController::LoadURLParams load_url_params(params.url);
-  source->GetController().LoadURLWithParams(load_url_params);
+  source->GetController().LoadURLWithParams(
+      content::NavigationController::LoadURLParams(params));
   return source;
 }
 
@@ -218,7 +219,7 @@ GURL DecorateFrontendURL(const GURL& base_url) {
   std::string url_string(
       frontend_url +
       ((frontend_url.find("?") == std::string::npos) ? "?" : "&") +
-      "dockSide=undocked"); // TODO(dgozman): remove this support in M38.
+      "dockSide=undocked");  // TODO(dgozman): remove this support in M38.
   base::CommandLine* command_line = base::CommandLine::ForCurrentProcess();
   if (command_line->HasSwitch(switches::kEnableDevToolsExperiments))
     url_string += "&experiments=true";
@@ -420,9 +421,14 @@ DevToolsWindow::~DevToolsWindow() {
   DCHECK(it != instances->end());
   instances->erase(it);
 
-  if (!close_callback_.is_null()) {
-    close_callback_.Run();
-    close_callback_ = base::Closure();
+  if (!close_callback_.is_null())
+    std::move(close_callback_).Run();
+  // Defer deletion of the main web contents, since we could get here
+  // via RenderFrameHostImpl method that expects WebContents to live
+  // for some time. See http://crbug.com/997299 for details.
+  if (owned_main_web_contents_) {
+    base::SequencedTaskRunnerHandle::Get()->DeleteSoon(
+        FROM_HERE, std::move(owned_main_web_contents_));
   }
 }
 
@@ -600,7 +606,7 @@ void DevToolsWindow::ToggleDevToolsWindow(
     Browser* browser,
     const DevToolsToggleAction& action) {
   if (action.type() == DevToolsToggleAction::kToggle &&
-      browser->is_devtools()) {
+      browser->is_type_devtools()) {
     browser->tab_strip_model()->CloseAllTabs();
     return;
   }
@@ -763,6 +769,16 @@ DevToolsWindow::MaybeCreateNavigationThrottle(
   return std::make_unique<Throttle>(handle, window);
 }
 
+void DevToolsWindow::UpdateInspectedWebContents(
+    content::WebContents* new_web_contents) {
+  inspected_contents_observer_ =
+      std::make_unique<ObserverWithAccessor>(new_web_contents);
+  bindings_->AttachTo(
+      content::DevToolsAgentHost::GetOrCreateFor(new_web_contents));
+  bindings_->CallClientFunction("DevToolsAPI.reattachMainTarget", nullptr,
+                                nullptr, nullptr);
+}
+
 void DevToolsWindow::ScheduleShow(const DevToolsToggleAction& action) {
   if (life_stage_ == kLoadCompleted) {
     Show(action);
@@ -793,7 +809,7 @@ void DevToolsWindow::Show(const DevToolsToggleAction& action) {
                                     &inspected_browser,
                                     &inspected_tab_index);
     DCHECK(inspected_browser);
-    DCHECK(inspected_tab_index != -1);
+    DCHECK_NE(-1, inspected_tab_index);
 
     RegisterModalDialogManager(inspected_browser);
 
@@ -814,7 +830,7 @@ void DevToolsWindow::Show(const DevToolsToggleAction& action) {
     main_web_contents_->SetInitialFocus();
 
     PrefsTabHelper::CreateForWebContents(main_web_contents_);
-    main_web_contents_->GetRenderViewHost()->SyncRendererPrefs();
+    main_web_contents_->SyncRendererPrefs();
 
     DoAction(action);
     return;
@@ -888,7 +904,7 @@ bool DevToolsWindow::NeedsToInterceptBeforeUnload(
 // static
 bool DevToolsWindow::HasFiredBeforeUnloadEventForDevToolsBrowser(
     Browser* browser) {
-  DCHECK(browser->is_devtools());
+  DCHECK(browser->is_type_devtools());
   // When FastUnloadController is used, devtools frontend will be detached
   // from the browser window at this point which means we've already fired
   // beforeunload.
@@ -1006,9 +1022,9 @@ DevToolsWindow* DevToolsWindow::Create(
     // Check for a place to dock.
     Browser* browser = nullptr;
     int tab;
-    if (!FindInspectedBrowserAndTabIndex(inspected_web_contents,
-                                         &browser, &tab) ||
-        browser->is_type_popup()) {
+    if (!FindInspectedBrowserAndTabIndex(inspected_web_contents, &browser,
+                                         &tab) ||
+        !browser->is_type_normal()) {
       can_dock = false;
     }
   }
@@ -1042,13 +1058,8 @@ GURL DevToolsWindow::GetDevToolsURL(Profile* profile,
                                     bool has_other_clients) {
   std::string url;
 
-// Modules are always bundled in CrOS.
-#if defined(OS_CHROMEOS)
-  std::string remote_base = "?";
-#else
   std::string remote_base =
       "?remoteBase=" + DevToolsUI::GetRemoteBaseURL().spec();
-#endif
 
   const std::string valid_frontend =
       frontend_url.empty() ? chrome::kChromeUIDevToolsURL : frontend_url;
@@ -1197,7 +1208,8 @@ void DevToolsWindow::WebContentsCreated(WebContents* source_contents,
     // is resized when the frame is rendered. Force rendering of the toolbox at
     // all times, to make sure that a frame can be rendered even when the
     // inspected WebContents fully covers the toolbox. https://crbug.com/828307
-    toolbox_web_contents_->IncrementCapturerCount(gfx::Size());
+    toolbox_web_contents_->IncrementCapturerCount(gfx::Size(),
+                                                  /* stay_hidden */ false);
   }
 }
 
@@ -1502,10 +1514,8 @@ void DevToolsWindow::OnLoadCompleted() {
 
 void DevToolsWindow::ReadyForTest() {
   ready_for_test_ = true;
-  if (!ready_for_test_callback_.is_null()) {
-    ready_for_test_callback_.Run();
-    ready_for_test_callback_ = base::Closure();
-  }
+  if (!ready_for_test_callback_.is_null())
+    std::move(ready_for_test_callback_).Run();
 }
 
 void DevToolsWindow::ConnectionReady() {
@@ -1538,7 +1548,7 @@ void DevToolsWindow::CreateDevToolsBrowser() {
   browser_->tab_strip_model()->AddWebContents(
       std::move(owned_main_web_contents_), -1,
       ui::PAGE_TRANSITION_AUTO_TOPLEVEL, TabStripModel::ADD_ACTIVE);
-  main_web_contents_->GetRenderViewHost()->SyncRendererPrefs();
+  main_web_contents_->SyncRendererPrefs();
 }
 
 BrowserWindow* DevToolsWindow::GetInspectedBrowserWindow() {

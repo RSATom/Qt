@@ -48,7 +48,6 @@
 **
 ****************************************************************************/
 
-#define QT_NO_CAST_TO_ASCII
 #define NOMINMAX
 
 #include <qabstracteventdispatcher.h>
@@ -77,6 +76,7 @@
 #include <qabstractnativeeventfilter.h>
 
 #include <qcoreapplication.h>
+#include <qvector.h>
 #include <private/qthread_p.h>
 
 #include "qaxfactory.h"
@@ -424,7 +424,7 @@ private:
 
     IUnknown *m_outerUnknown = nullptr;
     IAdviseSink *m_spAdviseSink = nullptr;
-    QList<STATDATA> adviseSinks;
+    QVector<STATDATA> adviseSinks;
     IOleClientSite *m_spClientSite = nullptr;
     IOleInPlaceSite *m_spInPlaceSite = nullptr;
     IOleInPlaceSiteWindowless *m_spInPlaceSiteWindowless = nullptr;
@@ -641,7 +641,7 @@ public:
     QAxConnection(QAxConnection &&) = delete;
     QAxConnection &operator=(QAxConnection &&) = delete;
 
-    using Connections = QList<CONNECTDATA>;
+    using Connections = QVector<CONNECTDATA>;
 
     QAxConnection(QAxServerBase *parent, const QUuid &uuid)
         : that(parent), iid(uuid)
@@ -962,7 +962,7 @@ HRESULT QClassFactory::CreateInstanceHelper(IUnknown *pUnkOuter, REFIID iid, voi
         if (FAILED(res))
             delete activeqt;
         else
-            activeqt->registerActiveObject((IUnknown*)(IDispatch*)activeqt);
+            activeqt->registerActiveObject(static_cast<IUnknown*>(static_cast<IDispatch*>(activeqt)));
     }
     return res;
 }
@@ -1581,6 +1581,7 @@ LRESULT QT_WIN_CALLBACK QAxServerBase::ActiveXProc(HWND hWnd, UINT uMsg, WPARAM 
 
     case WM_DISPLAYCHANGE:
         qaxClearCachedSystemLogicalDpi();
+        break;
 
     default:
         break;
@@ -1669,10 +1670,8 @@ HMENU QAxServerBase::createPopup(QMenu *popup, HMENU oldMenu)
         DeleteMenu(oldMenu, 0, MF_BYPOSITION);
     }
 
-    const QList<QAction*> actions = popup->actions();
-    for (int i = 0; i < actions.count(); ++i) {
-        QAction *action = actions.at(i);
-
+    const auto actions = popup->actions();
+    for (QAction *action : actions) {
         uint flags = action->isEnabled() ? MF_ENABLED : MF_GRAYED;
         if (action->isSeparator())
             flags |= MF_SEPARATOR;
@@ -1711,10 +1710,8 @@ void QAxServerBase::createMenu(QMenuBar *menuBar)
     int object = 0;
     int help = 0;
 
-    const QList<QAction*> actions = menuBar->actions();
-    for (int i = 0; i < actions.count(); ++i) {
-        QAction *action = actions.at(i);
-
+    const auto actions = menuBar->actions();
+    for (QAction *action : actions) {
         uint flags = action->isEnabled() ? MF_ENABLED : MF_GRAYED;
         if (action->isSeparator())
             flags |= MF_SEPARATOR;
@@ -1966,7 +1963,7 @@ int QAxServerBase::qt_metacall(QMetaObject::Call call, int index, void **argv)
     DISPID eventId = index;
     int pcount = 0;
     QByteArray type;
-    QList<QByteArray> ptypes;
+    QByteArrayList ptypes;
 
     switch(index) {
     case DISPID_KEYDOWN:
@@ -2386,8 +2383,10 @@ HRESULT WINAPI QAxServerBase::Invoke(DISPID dispidMember, REFIID riid,
                 nameLength = name.length();
                 name += '(';
                 // no parameter - shortcut
-                if (!pDispParams->cArgs)
-                    index = mo->indexOfSlot((name + ')'));
+                if (!pDispParams->cArgs) {
+                    const QByteArray slotName = name + ')';
+                    index = mo->indexOfSlot(slotName.constData());
+                }
                 // search
                 if (index == -1) {
                     for (int i = 0; i < mo->methodCount(); ++i) {
@@ -2433,7 +2432,7 @@ HRESULT WINAPI QAxServerBase::Invoke(DISPID dispidMember, REFIID riid,
             nameLength = name.indexOf('(');
             QByteArray prototype = name.mid(nameLength + 1);
             prototype.truncate(prototype.length() - 1);
-            QList<QByteArray> ptypes;
+            QByteArrayList ptypes;
             if (!prototype.isEmpty())
                 ptypes = prototype.split(',');
             UINT pcount = UINT(ptypes.count());
@@ -3839,9 +3838,8 @@ HRESULT QAxServerBase::internalActivate()
         // Gone active by now, take care of UIACTIVATE
         canTakeFocus = qt.widget->focusPolicy() != Qt::NoFocus && !inDesignMode;
         if (!canTakeFocus && !inDesignMode) {
-            QList<QWidget*> widgets = qt.widget->findChildren<QWidget*>();
-            for (int w = 0; w < widgets.count(); ++w) {
-                QWidget *widget = widgets[w];
+            const auto widgets = qt.widget->findChildren<QWidget*>();
+            for (const QWidget *widget : widgets) {
                 canTakeFocus = widget->focusPolicy() != Qt::NoFocus;
                 if (canTakeFocus)
                     break;
@@ -3865,13 +3863,13 @@ HRESULT QAxServerBase::internalActivate()
             if (m_spInPlaceFrame) {
                 hr = m_spInPlaceFrame->SetActiveObject(this, reinterpret_cast<const wchar_t *>(class_name.utf16()));
                 if (!FAILED(hr)) {
-                    menuBar = (qt.widget && !qax_disable_inplaceframe) ? qt.widget->findChild<QMenuBar*>() : 0;
+                    menuBar = (qt.widget && !qax_disable_inplaceframe) ? qt.widget->findChild<QMenuBar*>() : nullptr;
                     if (menuBar && !menuBar->isVisible()) {
                         createMenu(menuBar);
                         menuBar->hide();
                         menuBar->installEventFilter(this);
                     }
-                    statusBar = qt.widget ? qt.widget->findChild<QStatusBar*>() : 0;
+                    statusBar = qt.widget ? qt.widget->findChild<QStatusBar*>() : nullptr;
                     if (statusBar && !statusBar->isVisible()) {
                         const int index = statusBar->metaObject()->indexOfSignal("messageChanged(QString)");
                         QMetaObject::connect(statusBar, index, this, STATUSBAR_MESSAGE_CHANGED_SLOT_INDEX);
@@ -4426,7 +4424,7 @@ bool QAxServerBase::eventFilter(QObject *o, QEvent *e)
     case QEvent::EnabledChange:
         if (m_hWnd && o == qt.widget)
             EnableWindow(m_hWnd, qt.widget->isEnabled());
-        // Fall Through
+        Q_FALLTHROUGH();
     case QEvent::FontChange:
     case QEvent::ActivationChange:
     case QEvent::StyleChange:

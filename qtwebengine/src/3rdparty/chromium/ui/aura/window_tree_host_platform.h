@@ -14,11 +14,11 @@
 #include "ui/aura/window.h"
 #include "ui/aura/window_tree_host.h"
 #include "ui/gfx/native_widget_types.h"
-#include "ui/platform_window/platform_window.h"
 #include "ui/platform_window/platform_window_delegate.h"
 
 namespace ui {
 enum class DomCode;
+class PlatformWindow;
 class KeyboardHook;
 struct PlatformWindowInitProperties;
 }  // namespace ui
@@ -31,9 +31,11 @@ class AURA_EXPORT WindowTreeHostPlatform : public WindowTreeHost,
                                            public ui::PlatformWindowDelegate {
  public:
   // See Compositor() for details on |trace_environment_name|.
-  explicit WindowTreeHostPlatform(ui::PlatformWindowInitProperties properties,
-                                  std::unique_ptr<Window> = nullptr,
-                                  const char* trace_environment_name = nullptr);
+  explicit WindowTreeHostPlatform(
+      ui::PlatformWindowInitProperties properties,
+      std::unique_ptr<Window> = nullptr,
+      const char* trace_environment_name = nullptr,
+      bool use_external_begin_frame_control = false);
   ~WindowTreeHostPlatform() override;
 
   // WindowTreeHost:
@@ -77,6 +79,7 @@ class AURA_EXPORT WindowTreeHostPlatform : public WindowTreeHost,
   void OnAcceleratedWidgetAvailable(gfx::AcceleratedWidget widget) override;
   void OnAcceleratedWidgetDestroyed() override;
   void OnActivationChanged(bool active) override;
+  void OnMouseEnter() override;
 
   // Overridden from aura::WindowTreeHost:
   bool CaptureSystemKeyEventsImpl(
@@ -84,9 +87,6 @@ class AURA_EXPORT WindowTreeHostPlatform : public WindowTreeHost,
   void ReleaseSystemKeyEventCapture() override;
   bool IsKeyLocked(ui::DomCode dom_code) override;
   base::flat_map<std::string, std::string> GetKeyboardLayoutMap() override;
-
-  // This function is only for test purpose.
-  gfx::NativeCursor* GetCursorNative() { return &current_cursor_; }
 
  private:
   gfx::AcceleratedWidget widget_;

@@ -90,9 +90,7 @@ QString GeoMapSource::toFormat(const QString &url)
 
 QGeoMapType::MapStyle GeoMapSource::mapStyle(const QString &styleString)
 {
-    for (unsigned int i = 0; i < sizeof(mapStyles)/sizeof(MapStyle); i++) {
-        const MapStyleData &mapStyle = mapStyles[i];
-
+    for (const MapStyleData &mapStyle : mapStyles) {
         if (styleString.compare(mapStyle.name, Qt::CaseInsensitive) == 0)
             return mapStyle.style;
     }

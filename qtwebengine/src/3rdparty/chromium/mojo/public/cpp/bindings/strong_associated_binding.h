@@ -96,9 +96,8 @@ class StrongAssociatedBinding {
                           AssociatedInterfaceRequest<Interface> request,
                           scoped_refptr<base::SequencedTaskRunner> task_runner)
       : impl_(std::move(impl)),
-        binding_(impl_.get(), std::move(request), std::move(task_runner)),
-        weak_factory_(this) {
-    binding_.set_connection_error_with_reason_handler(base::Bind(
+        binding_(impl_.get(), std::move(request), std::move(task_runner)) {
+    binding_.set_connection_error_with_reason_handler(base::BindOnce(
         &StrongAssociatedBinding::OnConnectionError, base::Unretained(this)));
   }
 
@@ -119,7 +118,7 @@ class StrongAssociatedBinding {
   base::OnceClosure connection_error_handler_;
   ConnectionErrorWithReasonCallback connection_error_with_reason_handler_;
   AssociatedBinding<Interface> binding_;
-  base::WeakPtrFactory<StrongAssociatedBinding> weak_factory_;
+  base::WeakPtrFactory<StrongAssociatedBinding> weak_factory_{this};
 
   DISALLOW_COPY_AND_ASSIGN(StrongAssociatedBinding);
 };

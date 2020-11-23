@@ -95,7 +95,7 @@ QScriptDebugOutputWidgetPrivate::~QScriptDebugOutputWidgetPrivate()
 }
 
 QScriptDebugOutputWidget::QScriptDebugOutputWidget(QWidget *parent)
-    : QScriptDebugOutputWidgetInterface(*new QScriptDebugOutputWidgetPrivate, parent, 0)
+    : QScriptDebugOutputWidgetInterface(*new QScriptDebugOutputWidgetPrivate, parent, {})
 {
     Q_D(QScriptDebugOutputWidget);
     d->outputEdit = new QScriptDebugOutputWidgetOutputEdit();

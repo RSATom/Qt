@@ -9,7 +9,6 @@
 #include <utility>
 #include <vector>
 
-#include "core/fpdfapi/cpdf_modulemgr.h"
 #include "core/fpdfapi/font/cpdf_font.h"
 #include "core/fpdfapi/font/cpdf_type1font.h"
 #include "core/fpdfapi/page/cpdf_docpagedata.h"
@@ -74,7 +73,7 @@ CPDF_Dictionary* LoadFontDesc(CPDF_Document* pDoc,
   if (FXFT_Is_Face_Italic(pFont->GetFaceRec()))
     flags |= FXFONT_ITALIC;
   if (FXFT_Is_Face_Bold(pFont->GetFaceRec()))
-    flags |= FXFONT_BOLD;
+    flags |= FXFONT_FORCE_BOLD;
 
   // TODO(npm): How do I know if a  font is symbolic, script, allcap, smallcap
   flags |= FXFONT_NONSYMBOLIC;
@@ -261,10 +260,10 @@ CPDF_Stream* LoadUnicode(CPDF_Document* pDoc,
   return stream;
 }
 
-CPDF_Font* LoadSimpleFont(CPDF_Document* pDoc,
-                          std::unique_ptr<CFX_Font> pFont,
-                          pdfium::span<const uint8_t> span,
-                          int font_type) {
+RetainPtr<CPDF_Font> LoadSimpleFont(CPDF_Document* pDoc,
+                                    std::unique_ptr<CFX_Font> pFont,
+                                    pdfium::span<const uint8_t> span,
+                                    int font_type) {
   CPDF_Dictionary* pFontDict = pDoc->NewIndirect<CPDF_Dictionary>();
   pFontDict->SetNewFor<CPDF_Name>("Type", "Font");
   pFontDict->SetNewFor<CPDF_Name>(
@@ -309,10 +308,10 @@ CPDF_Font* LoadSimpleFont(CPDF_Document* pDoc,
   return CPDF_DocPageData::FromDocument(pDoc)->GetFont(pFontDict);
 }
 
-CPDF_Font* LoadCompositeFont(CPDF_Document* pDoc,
-                             std::unique_ptr<CFX_Font> pFont,
-                             pdfium::span<const uint8_t> span,
-                             int font_type) {
+RetainPtr<CPDF_Font> LoadCompositeFont(CPDF_Document* pDoc,
+                                       std::unique_ptr<CFX_Font> pFont,
+                                       pdfium::span<const uint8_t> span,
+                                       int font_type) {
   CPDF_Dictionary* pFontDict = pDoc->NewIndirect<CPDF_Dictionary>();
   pFontDict->SetNewFor<CPDF_Name>("Type", "Font");
   pFontDict->SetNewFor<CPDF_Name>("Subtype", "Type0");
@@ -444,7 +443,8 @@ FPDFPageObj_NewTextObj(FPDF_DOCUMENT document,
   if (!pDoc)
     return nullptr;
 
-  CPDF_Font* pFont = CPDF_Font::GetStockFont(pDoc, ByteStringView(font));
+  RetainPtr<CPDF_Font> pFont =
+      CPDF_Font::GetStockFont(pDoc, ByteStringView(font));
   if (!pFont)
     return nullptr;
 
@@ -490,12 +490,13 @@ FPDF_EXPORT FPDF_FONT FPDF_CALLCONV FPDFText_LoadFont(FPDF_DOCUMENT document,
   // TODO(npm): Maybe use FT_Get_X11_Font_Format to check format? Otherwise, we
   // are allowing giving any font that can be loaded on freetype and setting it
   // as any font type.
-  if (!pFont->LoadEmbedded(span))
+  if (!pFont->LoadEmbedded(span, false))
     return nullptr;
 
+  // Caller takes ownership.
   return FPDFFontFromCPDFFont(
-      cid ? LoadCompositeFont(pDoc, std::move(pFont), span, font_type)
-          : LoadSimpleFont(pDoc, std::move(pFont), span, font_type));
+      cid ? LoadCompositeFont(pDoc, std::move(pFont), span, font_type).Leak()
+          : LoadSimpleFont(pDoc, std::move(pFont), span, font_type).Leak());
 }
 
 FPDF_EXPORT FPDF_FONT FPDF_CALLCONV
@@ -504,17 +505,18 @@ FPDFText_LoadStandardFont(FPDF_DOCUMENT document, FPDF_BYTESTRING font) {
   if (!pDoc)
     return nullptr;
 
+  // Caller takes ownership.
   return FPDFFontFromCPDFFont(
-      CPDF_Font::GetStockFont(pDoc, ByteStringView(font)));
+      CPDF_Font::GetStockFont(pDoc, ByteStringView(font)).Leak());
 }
 
-FPDF_EXPORT FPDF_BOOL FPDF_CALLCONV FPDFText_GetMatrix(FPDF_PAGEOBJECT text,
-                                                       double* a,
-                                                       double* b,
-                                                       double* c,
-                                                       double* d,
-                                                       double* e,
-                                                       double* f) {
+FPDF_EXPORT FPDF_BOOL FPDF_CALLCONV FPDFTextObj_GetMatrix(FPDF_PAGEOBJECT text,
+                                                          double* a,
+                                                          double* b,
+                                                          double* c,
+                                                          double* d,
+                                                          double* e,
+                                                          double* f) {
   if (!a || !b || !c || !d || !e || !f)
     return false;
 
@@ -539,17 +541,13 @@ FPDFTextObj_GetFontName(FPDF_PAGEOBJECT text,
   if (!pTextObj)
     return 0;
 
-  CPDF_Font* pPdfFont = pTextObj->GetFont();
-  if (!pPdfFont)
-    return 0;
-
+  RetainPtr<CPDF_Font> pPdfFont = pTextObj->GetFont();
   CFX_Font* pFont = pPdfFont->GetFont();
-  ASSERT(pFont);
-
   ByteString name = pFont->GetFamilyName();
   unsigned long dwStringLen = name.GetLength() + 1;
   if (buffer && length >= dwStringLen)
     memcpy(buffer, name.c_str(), dwStringLen);
+
   return dwStringLen;
 }
 
@@ -571,17 +569,8 @@ FPDFTextObj_GetText(FPDF_PAGEOBJECT text_object,
 }
 
 FPDF_EXPORT void FPDF_CALLCONV FPDFFont_Close(FPDF_FONT font) {
-  CPDF_Font* pFont = CPDFFontFromFPDFFont(font);
-  if (!pFont)
-    return;
-
-  CPDF_Document* pDoc = pFont->GetDocument();
-  if (!pDoc)
-    return;
-
-  auto* pPageData = CPDF_DocPageData::FromDocument(pDoc);
-  if (!pPageData->IsForceClear())
-    pPageData->ReleaseFont(pFont->GetFontDict());
+  // Take back ownership from caller and release.
+  RetainPtr<CPDF_Font>().Unleak(CPDFFontFromFPDFFont(font));
 }
 
 FPDF_EXPORT FPDF_PAGEOBJECT FPDF_CALLCONV
@@ -601,7 +590,10 @@ FPDFPageObj_CreateTextObj(FPDF_DOCUMENT document,
   return FPDFPageObjectFromCPDFPageObject(pTextObj.release());
 }
 
-FPDF_EXPORT int FPDF_CALLCONV FPDFText_GetTextRenderMode(FPDF_PAGEOBJECT text) {
+FPDF_EXPORT FPDF_TEXT_RENDERMODE FPDF_CALLCONV
+FPDFTextObj_GetTextRenderMode(FPDF_PAGEOBJECT text) {
   CPDF_TextObject* pTextObj = CPDFTextObjectFromFPDFPageObject(text);
-  return pTextObj ? static_cast<int>(pTextObj->m_TextState.GetTextMode()) : -1;
+  if (!pTextObj)
+    return -1;
+  return static_cast<FPDF_TEXT_RENDERMODE>(pTextObj->m_TextState.GetTextMode());
 }

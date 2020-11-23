@@ -140,6 +140,7 @@ public:
         qmlRegisterType<QRemoteObjectNode>(uri, 5, 12, "Node");
         qmlRegisterType<QRemoteObjectSettingsStore>(uri, 5, 12, "SettingsStore");
         qmlRegisterSingletonType<QtQmlRemoteObjects>(uri, 5, 14, "QtRemoteObjects", [](QQmlEngine *, QJSEngine*){return new QtQmlRemoteObjects();});
+        qmlRegisterType<QRemoteObjectHost>(uri, 5, 15, "Host");
         qmlProtectModule(uri, 5);
     }
 };

@@ -16,16 +16,17 @@
 
 #include "src/perfetto_cmd/config.h"
 
-#include <gmock/gmock.h>
-#include <gtest/gtest.h>
+#include "test/gtest_and_gmock.h"
 
-#include "perfetto/config/trace_config.pb.h"
+#include "perfetto/tracing/core/data_source_config.h"
+#include "perfetto/tracing/core/trace_config.h"
+
+#include "protos/perfetto/config/ftrace/ftrace_config.gen.h"
 
 namespace perfetto {
 namespace {
 
 using testing::Contains;
-using protos::TraceConfig;
 
 class CreateConfigFromOptionsTest : public ::testing::Test {
  public:
@@ -41,43 +42,43 @@ TEST_F(CreateConfigFromOptionsTest, Default) {
 TEST_F(CreateConfigFromOptionsTest, MilliSeconds) {
   options.time = "2ms";
   ASSERT_TRUE(CreateConfigFromOptions(options, &config));
-  EXPECT_EQ(config.duration_ms(), 2);
+  EXPECT_EQ(config.duration_ms(), 2u);
 }
 
 TEST_F(CreateConfigFromOptionsTest, Seconds) {
   options.time = "100s";
   ASSERT_TRUE(CreateConfigFromOptions(options, &config));
-  EXPECT_EQ(config.duration_ms(), 100 * 1000);
+  EXPECT_EQ(config.duration_ms(), 100 * 1000u);
 }
 
 TEST_F(CreateConfigFromOptionsTest, Minutes) {
   options.time = "2m";
   ASSERT_TRUE(CreateConfigFromOptions(options, &config));
-  EXPECT_EQ(config.duration_ms(), 2 * 60 * 1000);
+  EXPECT_EQ(config.duration_ms(), 2 * 60 * 1000u);
 }
 
 TEST_F(CreateConfigFromOptionsTest, Hours) {
   options.time = "2h";
   ASSERT_TRUE(CreateConfigFromOptions(options, &config));
-  EXPECT_EQ(config.duration_ms(), 2 * 60 * 60 * 1000);
+  EXPECT_EQ(config.duration_ms(), 2 * 60 * 60 * 1000u);
 }
 
 TEST_F(CreateConfigFromOptionsTest, Kilobyte) {
   options.buffer_size = "2kb";
   ASSERT_TRUE(CreateConfigFromOptions(options, &config));
-  EXPECT_EQ(config.buffers().Get(0).size_kb(), 2);
+  EXPECT_EQ(config.buffers()[0].size_kb(), 2u);
 }
 
 TEST_F(CreateConfigFromOptionsTest, Megabyte) {
   options.buffer_size = "2mb";
   ASSERT_TRUE(CreateConfigFromOptions(options, &config));
-  EXPECT_EQ(config.buffers().Get(0).size_kb(), 2 * 1024);
+  EXPECT_EQ(config.buffers()[0].size_kb(), 2 * 1024u);
 }
 
 TEST_F(CreateConfigFromOptionsTest, Gigabyte) {
   options.buffer_size = "2gb";
   ASSERT_TRUE(CreateConfigFromOptions(options, &config));
-  EXPECT_EQ(config.buffers().Get(0).size_kb(), 2 * 1024 * 1024);
+  EXPECT_EQ(config.buffers()[0].size_kb(), 2 * 1024 * 1024u);
 }
 
 TEST_F(CreateConfigFromOptionsTest, BadTrailingSpace) {
@@ -123,13 +124,16 @@ TEST_F(CreateConfigFromOptionsTest, FullConfig) {
   options.categories.push_back("sched/sched_switch");
   options.atrace_apps.push_back("com.android.chrome");
   ASSERT_TRUE(CreateConfigFromOptions(options, &config));
-  EXPECT_EQ(config.duration_ms(), 60 * 60 * 1000);
-  EXPECT_EQ(config.flush_period_ms(), 30 * 1000);
-  EXPECT_EQ(config.max_file_size_bytes(), 1 * 1024 * 1024 * 1024);
-  EXPECT_EQ(config.buffers().Get(0).size_kb(), 100 * 1024);
-  EXPECT_EQ(config.data_sources().Get(0).config().name(), "linux.ftrace");
-  EXPECT_EQ(config.data_sources().Get(0).config().target_buffer(), 0);
-  auto ftrace = config.data_sources().Get(0).config().ftrace_config();
+  EXPECT_EQ(config.duration_ms(), 60 * 60 * 1000u);
+  EXPECT_EQ(config.flush_period_ms(), 30 * 1000u);
+  EXPECT_EQ(config.max_file_size_bytes(), 1 * 1024 * 1024 * 1024u);
+  EXPECT_EQ(config.buffers()[0].size_kb(), 100 * 1024u);
+  EXPECT_EQ(config.data_sources()[0].config().name(), "linux.ftrace");
+  EXPECT_EQ(config.data_sources()[0].config().target_buffer(), 0u);
+
+  protos::gen::FtraceConfig ftrace;
+  ASSERT_TRUE(ftrace.ParseFromString(
+      config.data_sources()[0].config().ftrace_config_raw()));
   EXPECT_THAT(ftrace.ftrace_events(), Contains("sched/sched_switch"));
   EXPECT_THAT(ftrace.atrace_categories(), Contains("sw"));
   EXPECT_THAT(ftrace.atrace_apps(), Contains("com.android.chrome"));

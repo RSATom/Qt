@@ -55,6 +55,7 @@ struct TransportControllerConfig {
 
 struct CallClientConfig {
   TransportControllerConfig transport;
+  const WebRtcKeyValueConfig* field_trials = nullptr;
 };
 
 struct PacketStreamConfig {
@@ -103,7 +104,7 @@ struct VideoStreamConfig {
     } slides;
     struct Generator {
       using PixelFormat = FrameGenerator::OutputType;
-      PixelFormat pixel_format = PixelFormat::I420;
+      PixelFormat pixel_format = PixelFormat::kI420;
       int width = 320;
       int height = 180;
     } generator;
@@ -223,6 +224,7 @@ struct NetworkSimulationConfig {
   TimeDelta delay_std_dev = TimeDelta::Zero();
   double loss_rate = 0;
   bool codel_active_queue_management = false;
+  absl::optional<int> packet_queue_length_limit;
   DataSize packet_overhead = DataSize::Zero();
 };
 }  // namespace test

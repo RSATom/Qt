@@ -45,11 +45,7 @@ ResultThreader::ResultThreader(QFile *file,
 
 void ResultThreader::run()
 {
-    QXmlSimpleReader reader;
-    reader.setContentHandler(this);
-
-    QXmlInputSource source(m_file);
-    reader.parse(source);
+    parse(m_file);
     m_file->close();
 }
 

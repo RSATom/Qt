@@ -20,29 +20,12 @@ kPercentEscape = r'α';  # Unicode alpha
 def preprocess(input):
   input = re.sub(r'(if\s+)constexpr(\s*\()', r'\1/*COxp*/\2', input)
   input = re.sub(r'(\s+)operator\s*(\'[^\']+\')', r'\1/*_OPE \2*/', input)
-
-  # Mangle typeswitches to look like switch statements with the extra type
-  # information and syntax encoded in comments.
-  input = re.sub(r'(\s+)typeswitch\s*\(', r'\1/*_TYPE*/switch (', input)
-  input = re.sub(r'(\s+)case\s*\(\s*([^\:]+)\s*\)(\s*)\:\s*deferred',
-      r'\1case \2: /*_TSXDEFERRED_*/', input)
-  input = re.sub(r'(\s+)case\s*\(\s*([^\:]+)\s*\)(\s*)\:',
-      r'\1case \2: /*_TSX*/', input)
-  input = re.sub(r'(\s+)case\s*\(\s*([^\s]+)\s*\:\s*([^\:]+)\s*\)(\s*)\:\s*deferred',
-      r'\1case \3: /*_TSVDEFERRED_\2:*/', input)
-  input = re.sub(r'(\s+)case\s*\(\s*([^\s]+)\s*\:\s*([^\:]+)\s*\)(\s*)\:',
-      r'\1case \3: /*_TSV\2:*/', input)
-
-  # Add extra space around | operators to fix union types later.
-  while True:
-    old = input
-    input = re.sub(r'(\w+\s*)\|(\s*\w+)',
-        r'\1|/**/\2', input)
-    if old == input:
-      break;
+  input = re.sub(r'\btypeswitch\s*(\([^{]*\))\s{', r' if /*tPsW*/ \1 {', input)
+  input = re.sub(r'\bcase\s*(\([^{]*\))\s*:\s*deferred\s*{', r' if /*cAsEdEfF*/ \1 {', input)
+  input = re.sub(r'\bcase\s*(\([^{]*\))\s*:\s*{', r' if /*cA*/ \1 {', input)
 
   input = re.sub(r'\bgenerates\s+\'([^\']+)\'\s*',
-      r' _GeNeRaTeS00_/*\1@*/', input)
+      r'_GeNeRaTeS00_/*\1@*/', input)
   input = re.sub(r'\bconstexpr\s+\'([^\']+)\'\s*',
       r' _CoNsExP_/*\1@*/', input)
   input = re.sub(r'\notherwise',
@@ -65,15 +48,9 @@ def postprocess(output):
   output = re.sub(r'(\S+)\s*: type([,>])', r'\1: type\2', output)
   output = re.sub(r'(\n\s*)labels( [A-Z])', r'\1    labels\2', output)
   output = re.sub(r'\/\*_OPE \'([^\']+)\'\*\/', r"operator '\1'", output)
-  output = re.sub(r'\/\*_TYPE\*\/(\s*)switch', r'typeswitch', output)
-  output = re.sub(r'case (\w+)\:\s*\/\*_TSXDEFERRED_\*\/',
-      r'case (\1): deferred', output)
-  output = re.sub(r'case (\w+)\:\s*\/\*_TSX\*\/',
-      r'case (\1):', output)
-  output = re.sub(r'case (\w+)\:\s*\/\*_TSVDEFERRED_([^\:]+)\:\*\/',
-      r'case (\2: \1): deferred', output)
-  output = re.sub(r'case (\w+)\:\s*\/\*_TSV([^\:]+)\:\*\/',
-      r'case (\2: \1):', output)
+  output = re.sub(r'\bif\s*\/\*tPsW\*\/', r'typeswitch', output)
+  output = re.sub(r'\bif\s*\/\*cA\*\/\s*(\([^{]*\))\s*{', r'case \1: {', output)
+  output = re.sub(r'\bif\s*\/\*cAsEdEfF\*\/\s*(\([^{]*\))\s*{', r'case \1: deferred {', output)
   output = re.sub(r'\n_GeNeRaTeS00_\s*\/\*([^@]+)@\*\/',
       r"\n    generates '\1'", output)
   output = re.sub(r'_GeNeRaTeS00_\s*\/\*([^@]+)@\*\/',
@@ -91,13 +68,6 @@ def postprocess(output):
       r"@export", output)
   output = re.sub(r'jS_iMpLiCiT_',
       r"js-implicit ", output)
-
-  while True:
-    old = output
-    output = re.sub(r'(\w+)\s{0,1}\|\s{0,1}/\*\*/(\s*\w+)',
-        r'\1 |\2', output)
-    if old == output:
-      break;
 
   output = re.sub(kPercentEscape, r'%', output)
 

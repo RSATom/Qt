@@ -283,7 +283,7 @@ void tst_QSocks5SocketEngine::errorTest()
     socket.setProxy(QNetworkProxy(QNetworkProxy::Socks5Proxy, hostname, port, username, username));
     socket.connectToHost("0.1.2.3", 12345);
 
-    connect(&socket, SIGNAL(error(QAbstractSocket::SocketError)),
+    connect(&socket, SIGNAL(errorOccurred(QAbstractSocket::SocketError)),
             &QTestEventLoop::instance(), SLOT(exitLoop()));
     QTestEventLoop::instance().enterLoop(10);
     QVERIFY(!QTestEventLoop::instance().timeout());
@@ -309,7 +309,7 @@ void tst_QSocks5SocketEngine::simpleConnectToIMAP()
     QCOMPARE(socketDevice.peerAddress(), QtNetworkSettings::imapServerIp());
 
     // Wait for the greeting
-    QVERIFY(socketDevice.waitForRead());
+    QVERIFY2(socketDevice.waitForRead(), qPrintable("Socket error:" + socketDevice.errorString()));
 
     // Read the greeting
     qint64 available = socketDevice.bytesAvailable();
@@ -753,7 +753,7 @@ void tst_QSocks5SocketEngine::downloadBigFile()
                     QTestEventLoop::instance().exitLoop();
             });
 
-    connect(&socket, QOverload<QAbstractSocket::SocketError>::of(&QAbstractSocket::error),
+    connect(&socket, &QAbstractSocket::errorOccurred,
             [&socket, &stopWatch] (QAbstractSocket::SocketError errorCode)
             {
                 qWarning().noquote().nospace() << QTest::currentTestFunction()
@@ -1006,7 +1006,7 @@ void tst_QSocks5SocketEngine::incomplete()
 
     connect(&socket, SIGNAL(connected()),
             &QTestEventLoop::instance(), SLOT(exitLoop()));
-    connect(&socket, SIGNAL(error(QAbstractSocket::SocketError)),
+    connect(&socket, SIGNAL(errorOccurred(QAbstractSocket::SocketError)),
             &QTestEventLoop::instance(), SLOT(exitLoop()));
     QTestEventLoop::instance().enterLoop(70);
     QVERIFY(!QTestEventLoop::instance().timeout());

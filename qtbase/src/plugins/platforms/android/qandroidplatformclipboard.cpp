@@ -48,17 +48,28 @@ QAndroidPlatformClipboard::QAndroidPlatformClipboard()
     QtAndroidClipboard::setClipboardManager(this);
 }
 
+QAndroidPlatformClipboard::~QAndroidPlatformClipboard()
+{
+    if (data)
+        delete data;
+}
+
 QMimeData *QAndroidPlatformClipboard::mimeData(QClipboard::Mode mode)
 {
     Q_UNUSED(mode);
     Q_ASSERT(supportsMode(mode));
-    QMimeData *data = QtAndroidClipboard::getClipboardMimeData();
-    data->setParent(this);
+    if (data)
+        data->deleteLater();
+    data = QtAndroidClipboard::getClipboardMimeData();
     return data;
 }
 
 void QAndroidPlatformClipboard::setMimeData(QMimeData *data, QClipboard::Mode mode)
 {
+    if (!data) {
+        QtAndroidClipboard::clearClipboardData();
+        return;
+    }
     if (data && supportsMode(mode))
         QtAndroidClipboard::setClipboardMimeData(data);
     if (data != 0)

@@ -126,8 +126,7 @@ Client::Client(QWidget *parent)
     connect(sctpSocket, &QSctpSocket::connected, this, &Client::connected);
     connect(sctpSocket, &QSctpSocket::disconnected, this, &Client::disconnected);
     connect(sctpSocket, &QSctpSocket::channelReadyRead, this, &Client::readDatagram);
-    connect(sctpSocket, SIGNAL(error(QAbstractSocket::SocketError)),
-            this, SLOT(displayError(QAbstractSocket::SocketError)));
+    connect(sctpSocket, &QSctpSocket::errorOccurred, this, &Client::displayError);
     connect(consumers[SctpChannels::Time], &Consumer::writeDatagram, this, &Client::writeDatagram);
     connect(consumers[SctpChannels::Chat], &Consumer::writeDatagram, this, &Client::writeDatagram);
 

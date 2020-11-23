@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright (c) 2019 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -32,6 +32,7 @@ const GpuControlList::More kMoreForEntry1_572251052 = {
      nullptr},                  // gpu_count
     GpuControlList::kDontCare,  // hardware_overlay
     0,                          // test_group
+    GpuControlList::kDontCare,  // subpixel_font_rendering
 };
 
 const int kFeatureListForGpuManagerTestingEntry2[1] = {
@@ -59,6 +60,7 @@ const GpuControlList::More kMoreForEntry2_572251052 = {
      nullptr},                  // gpu_count
     GpuControlList::kDontCare,  // hardware_overlay
     0,                          // test_group
+    GpuControlList::kDontCare,  // subpixel_font_rendering
 };
 
 const int kFeatureListForGpuManagerTestingEntry3[1] = {
@@ -79,6 +81,7 @@ const GpuControlList::More kMoreForEntry3_572251052 = {
      nullptr},                  // gpu_count
     GpuControlList::kDontCare,  // hardware_overlay
     0,                          // test_group
+    GpuControlList::kDontCare,  // subpixel_font_rendering
 };
 
 const int kFeatureListForGpuManagerTestingEntry4[2] = {
@@ -107,6 +110,7 @@ const GpuControlList::More kMoreForEntry4_572251052 = {
      nullptr},                  // gpu_count
     GpuControlList::kDontCare,  // hardware_overlay
     0,                          // test_group
+    GpuControlList::kDontCare,  // subpixel_font_rendering
 };
 
 const int kFeatureListForGpuManagerTestingEntry5[1] = {
@@ -127,6 +131,7 @@ const GpuControlList::More kMoreForEntry5_572251052 = {
      nullptr},                  // gpu_count
     GpuControlList::kDontCare,  // hardware_overlay
     0,                          // test_group
+    GpuControlList::kDontCare,  // subpixel_font_rendering
 };
 
 const GpuControlList::GLStrings kGLStringsForGpuManagerTestingEntry5Exception0 =
@@ -151,20 +156,23 @@ const GpuControlList::More kMoreForEntry5_572251052Exception0 = {
      nullptr},                  // gpu_count
     GpuControlList::kDontCare,  // hardware_overlay
     0,                          // test_group
+    GpuControlList::kDontCare,  // subpixel_font_rendering
 };
 
-const int kFeatureListForGpuManagerTestingEntry6[12] = {
+const int kFeatureListForGpuManagerTestingEntry6[14] = {
     GPU_FEATURE_TYPE_FLASH_STAGE3D,
-    GPU_FEATURE_TYPE_GPU_COMPOSITING,
+    GPU_FEATURE_TYPE_ANDROID_SURFACE_CONTROL,
+    GPU_FEATURE_TYPE_ACCELERATED_GL,
     GPU_FEATURE_TYPE_GPU_RASTERIZATION,
     GPU_FEATURE_TYPE_FLASH3D,
+    GPU_FEATURE_TYPE_METAL,
     GPU_FEATURE_TYPE_ACCELERATED_WEBGL2,
     GPU_FEATURE_TYPE_ACCELERATED_2D_CANVAS,
     GPU_FEATURE_TYPE_PROTECTED_VIDEO_DECODE,
     GPU_FEATURE_TYPE_OOP_RASTERIZATION,
     GPU_FEATURE_TYPE_ACCELERATED_VIDEO_DECODE,
-    GPU_FEATURE_TYPE_ANDROID_SURFACE_CONTROL,
     GPU_FEATURE_TYPE_ACCELERATED_WEBGL,
+    GPU_FEATURE_TYPE_VULKAN,
     GPU_FEATURE_TYPE_FLASH_STAGE3D_BASELINE,
 };
 
@@ -182,6 +190,7 @@ const GpuControlList::More kMoreForEntry6_572251052 = {
      nullptr},                  // gpu_count
     GpuControlList::kDontCare,  // hardware_overlay
     0,                          // test_group
+    GpuControlList::kDontCare,  // subpixel_font_rendering
 };
 
 const int kFeatureListForGpuManagerTestingEntry7[1] = {
@@ -202,6 +211,7 @@ const GpuControlList::More kMoreForEntry7_572251052 = {
      nullptr},                  // gpu_count
     GpuControlList::kDontCare,  // hardware_overlay
     0,                          // test_group
+    GpuControlList::kDontCare,  // subpixel_font_rendering
 };
 
 }  // namespace gpu

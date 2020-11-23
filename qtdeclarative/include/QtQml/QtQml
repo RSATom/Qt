@@ -22,6 +22,7 @@
 #include "qqmlincubator.h"
 #include "qqmlinfo.h"
 #include "qqmllist.h"
+#include "qqmlmoduleregistration.h"
 #include "qqmlnetworkaccessmanagerfactory.h"
 #include "qqmlparserstatus.h"
 #include "qqmlprivate.h"

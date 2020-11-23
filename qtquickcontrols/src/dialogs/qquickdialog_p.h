@@ -78,11 +78,11 @@ public:
     Q_INVOKABLE QJSValue __standardButtonsLeftModel();
     Q_INVOKABLE QJSValue __standardButtonsRightModel();
 
-    QString title() const { return m_title; }
-    virtual void setVisible(bool v);
+    QString title() const override { return m_title; }
+    void setVisible(bool v) override;
 
 public Q_SLOTS:
-    virtual void setTitle(const QString &arg);
+    void setTitle(const QString &arg) override;
     void setStandardButtons(StandardButtons buttons);
     void click(QQuickAbstractDialog::StandardButton button);
 
@@ -98,12 +98,12 @@ Q_SIGNALS:
     void reset();
 
 protected:
-    virtual QPlatformDialogHelper *helper() { return 0; }
+    QPlatformDialogHelper *helper() override { return 0; }
     void click(QPlatformDialogHelper::StandardButton button, QPlatformDialogHelper::ButtonRole);
 
 protected Q_SLOTS:
-    virtual void accept();
-    virtual void reject();
+    void accept() override;
+    void reject() override;
 
 private:
     void updateStandardButtons();

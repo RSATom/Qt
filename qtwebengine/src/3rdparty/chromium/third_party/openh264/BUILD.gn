@@ -5,9 +5,9 @@
 import("//build/config/linux/pkg_config.gni")
 import("//build/config/sanitizers/sanitizers.gni")
 import("//build/shim_headers.gni")
+import("//third_party/nasm/nasm_assemble.gni")
 import("//third_party/openh264/openh264_args.gni")
 import("//third_party/openh264/openh264_sources.gni")
-import("//third_party/yasm/yasm_assemble.gni")
 
 # Config shared by all openh264 targets.
 config("config") {
@@ -42,7 +42,7 @@ config("config") {
   }
 }
 
-# YASM assembly is only checked to be working on Windows and Linux.
+# NASM assembly is only checked to be working on Windows and Linux.
 # Mac is known to fail certain tests when building, but actual assembly
 # is believed to work.
 # MSAN builds are flaky with assembler. crbug.com/685168
@@ -53,21 +53,21 @@ use_assembler = (is_win || is_linux) &&
 # This IF statement will make the targets visible only on specific builds,
 # which will lead to failures on other platforms if accidentally invoked.
 if (use_assembler) {
-  yasm_defines = []
+  asm_defines = []
   if (!is_component_build) {
     if (is_mac || is_ios) {
-      yasm_defines += [ "WELS_PRIVATE_EXTERN=:private_extern" ]
+      asm_defines += [ "WELS_PRIVATE_EXTERN=private_extern" ]
     } else if (is_linux || is_android || is_fuchsia) {
-      yasm_defines += [ "WELS_PRIVATE_EXTERN=:hidden" ]
+      asm_defines += [ "WELS_PRIVATE_EXTERN=hidden" ]
     }
   }
 
-  yasm_assemble("openh264_common_yasm") {
+  nasm_assemble("openh264_common_asm") {
     include_dirs = openh264_common_include_dirs
     sources = openh264_common_sources_asm_x86
-    defines = yasm_defines
+    defines = asm_defines
     if (target_cpu == "x86") {
-      defines += [ "X86_32" ]
+      defines += [ "X86_32", "X86_32_PICASM" ]
     } else {  # x64
       if (is_mac) {
         defines += [
@@ -82,13 +82,13 @@ if (use_assembler) {
     }
   }
 
-  yasm_assemble("openh264_processing_yasm") {
+  nasm_assemble("openh264_processing_asm") {
     include_dirs = openh264_processing_include_dirs
     include_dirs += [ "./src/codec/common/x86" ]
     sources = openh264_processing_sources_asm_x86
-    defines = yasm_defines
+    defines = asm_defines
     if (target_cpu == "x86") {
-      defines += [ "X86_32" ]
+      defines += [ "X86_32", "X86_32_PICASM" ]
     } else {  # x64
       if (is_mac) {
         defines += [
@@ -103,13 +103,13 @@ if (use_assembler) {
     }
   }
 
-  yasm_assemble("openh264_encoder_yasm") {
+  nasm_assemble("openh264_encoder_asm") {
     include_dirs = openh264_encoder_include_dirs
     include_dirs += [ "./src/codec/common/x86" ]
     sources = openh264_encoder_sources_asm_x86
-    defines = yasm_defines
+    defines = asm_defines
     if (target_cpu == "x86") {
-      defines += [ "X86_32" ]
+      defines += [ "X86_32", "X86_32_PICASM" ]
     } else {  # x64
       if (is_mac) {
         defines += [
@@ -138,7 +138,7 @@ source_set("bundled_common") {
   deps = []
   if (use_assembler) {
     defines = [ "X86_ASM" ]
-    deps += [ ":openh264_common_yasm" ]
+    deps += [ ":openh264_common_asm" ]
   }
   if (is_android) {
     deps += [
@@ -146,7 +146,7 @@ source_set("bundled_common") {
       # files replaces these using macros for "wels_..." versions of the same
       # functions. We do not have access to these and use the <cpu-features.h>
       # ones instead.
-      "//third_party/android_sdk:cpu_features",
+      "//third_party/android_ndk:cpu_features",
     ]
   }
 }
@@ -166,7 +166,7 @@ source_set("bundled_processing") {
   ]
   if (use_assembler) {
     defines = [ "X86_ASM" ]
-    deps += [ ":openh264_processing_yasm" ]
+    deps += [ ":openh264_processing_asm" ]
   }
 }
 
@@ -192,7 +192,7 @@ source_set("bundled_encoder") {
   ]
   if (use_assembler) {
     defines = [ "X86_ASM" ]
-    deps += [ ":openh264_encoder_yasm" ]
+    deps += [ ":openh264_encoder_asm" ]
   }
 }
 

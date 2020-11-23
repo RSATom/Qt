@@ -848,5 +848,30 @@ Item {
             mouseClick(tree, semiIndent + 50, 20 + 50, Qt.LeftButton)
             verify(selectionModel.isSelected(parentItem))
         }
+
+        function test_QTBUG_53097_currentIndex_on_model_reset()
+        {
+            var component = Qt.createComponent("treeview/treeview_1.qml")
+            compare(component.status, Component.Ready)
+            var tree = component.createObject(container);
+            verify(tree !== null, "tree created is null")
+            tree.headerVisible = false
+            var model = tree.model
+            waitForRendering(tree)
+
+            /* Select the first row */
+            verify(!tree.currentIndex.valid)
+            mouseClick(tree, semiIndent + 50, 20, Qt.LeftButton)
+            compare(tree.currentIndex.row, 0)
+
+            spy.clear()
+            spy.target = tree
+            spy.signalName = "currentIndexChanged"
+            compare(spy.count, 0)
+
+            /* delete the row: the currentIndex must be updated */
+            model.removeRows(0, 1)
+            compare(spy.count, 1)
+        }
     }
 }

@@ -8,7 +8,7 @@
 #include "base/run_loop.h"
 #include "base/strings/sys_string_conversions.h"
 #include "base/strings/utf_string_conversions.h"
-#include "base/test/scoped_task_environment.h"
+#include "base/test/task_environment.h"
 #import "testing/gtest_mac.h"
 #include "third_party/skia/include/core/SkBitmap.h"
 #import "ui/base/cocoa/menu_controller.h"
@@ -281,7 +281,6 @@ TEST_F(MenuControllerTest, BasicCreation) {
   NSString* title = [itemTwo title];
   EXPECT_EQ(ASCIIToUTF16("three"), base::SysNSStringToUTF16(title));
   EXPECT_EQ(2, [itemTwo tag]);
-  EXPECT_EQ([[itemTwo representedObject] pointerValue], &model);
 
   EXPECT_TRUE([[[menu menu] itemAtIndex:3] isSeparatorItem]);
 }
@@ -315,7 +314,6 @@ TEST_F(MenuControllerTest, Submenus) {
   NSString* title = [submenuItem title];
   EXPECT_EQ(ASCIIToUTF16("sub-two"), base::SysNSStringToUTF16(title));
   EXPECT_EQ(1, [submenuItem tag]);
-  EXPECT_EQ([[submenuItem representedObject] pointerValue], &submodel);
 
   // Make sure the item after the submenu is correct and its represented
   // object is back to the top model.
@@ -323,7 +321,6 @@ TEST_F(MenuControllerTest, Submenus) {
   title = [item title];
   EXPECT_EQ(ASCIIToUTF16("three"), base::SysNSStringToUTF16(title));
   EXPECT_EQ(2, [item tag]);
-  EXPECT_EQ([[item representedObject] pointerValue], &model);
 }
 
 TEST_F(MenuControllerTest, EmptySubmenu) {
@@ -377,8 +374,8 @@ TEST_F(MenuControllerTest, EmptySubmenuWhenAllChildItemsAreHidden) {
 // hidden, then the submenu should hide.
 TEST_F(MenuControllerTest, HiddenSubmenu) {
   // SimpleMenuModel posts a task that calls Delegate::MenuClosed.
-  base::test::ScopedTaskEnvironment scoped_task_environment(
-      base::test::ScopedTaskEnvironment::MainThreadType::UI);
+  base::test::SingleThreadTaskEnvironment task_environment(
+      base::test::SingleThreadTaskEnvironment::MainThreadType::UI);
 
   // Create the model.
   Delegate delegate;
@@ -424,8 +421,8 @@ TEST_F(MenuControllerTest, HiddenSubmenu) {
 
 TEST_F(MenuControllerTest, DisabledSubmenu) {
   // SimpleMenuModel posts a task that calls Delegate::MenuClosed.
-  base::test::ScopedTaskEnvironment scoped_task_environment(
-      base::test::ScopedTaskEnvironment::MainThreadType::UI);
+  base::test::SingleThreadTaskEnvironment task_environment(
+      base::test::SingleThreadTaskEnvironment::MainThreadType::UI);
 
   // Create the model.
   Delegate delegate;
@@ -619,8 +616,8 @@ TEST_F(MenuControllerTest, Dynamic) {
 
 TEST_F(MenuControllerTest, OpenClose) {
   // SimpleMenuModel posts a task that calls Delegate::MenuClosed.
-  base::test::ScopedTaskEnvironment scoped_task_environment(
-      base::test::ScopedTaskEnvironment::MainThreadType::UI);
+  base::test::SingleThreadTaskEnvironment task_environment(
+      base::test::SingleThreadTaskEnvironment::MainThreadType::UI);
 
   // Create the model.
   Delegate delegate;
@@ -689,8 +686,8 @@ TEST_F(MenuControllerTest, EmulateItemSelectedEarly) {
   if (![NSMenuItem instancesRespondToSelector:@selector(_sendItemSelectedNote)])
     return;
 
-  base::test::ScopedTaskEnvironment scoped_task_environment(
-      base::test::ScopedTaskEnvironment::MainThreadType::UI);
+  base::test::SingleThreadTaskEnvironment task_environment(
+      base::test::SingleThreadTaskEnvironment::MainThreadType::UI);
 
   Delegate delegate;
   delegate.auto_close_ = false;
@@ -795,8 +792,8 @@ TEST_F(MenuControllerTest, EmulateItemSelectedEarly) {
 // MenuControllerCocoa and destroys itself. Note this usually needs asan to
 // actually crash (before it was fixed).
 TEST_F(MenuControllerTest, OwningDelegate) {
-  base::test::ScopedTaskEnvironment scoped_task_environment(
-      base::test::ScopedTaskEnvironment::MainThreadType::UI);
+  base::test::SingleThreadTaskEnvironment task_environment(
+      base::test::SingleThreadTaskEnvironment::MainThreadType::UI);
   bool did_delete = false;
   BOOL did_dealloc = NO;
   OwningDelegate* delegate;
@@ -822,7 +819,15 @@ TEST_F(MenuControllerTest, OwningDelegate) {
   }
   EXPECT_FALSE(did_dealloc);
   EXPECT_FALSE(did_delete);
-  [[item target] performSelector:[item action] withObject:item];
+
+  // On 10.15+, [NSMenuItem target] indirectly causes an extra
+  // retain+autorelease of the target. That avoids bugs caused by the
+  // NSMenuItem's action causing destruction of the target, but also causes the
+  // NSMenuItem to get cleaned up later than this test expects. Deal with that
+  // by creating an explicit autorelease pool here.
+  @autoreleasepool {
+    [[item target] performSelector:[item action] withObject:item];
+  }
   EXPECT_TRUE(did_dealloc);
   EXPECT_TRUE(did_delete);
 }

@@ -14,6 +14,9 @@
 #include "include/core/SkRect.h"
 #include "include/core/SkRefCnt.h"
 
+class SkReadBuffer;
+class SkWriteBuffer;
+
 /**
  * An immutable set of vertex data that can be used with SkCanvas::drawVertices.
  */
@@ -238,13 +241,13 @@ public:
      *  Recreate a vertices from a buffer previously created by calling encode().
      *  Returns null if the data is corrupt or the length is incorrect for the contents.
      */
-    static sk_sp<SkVertices> Decode(const void* buffer, size_t length);
+    static sk_sp<SkVertices> Decode(SkReadBuffer&);
 
     /**
      *  Pack the vertices object into a byte buffer. This can be used to recreate the vertices
      *  by calling Decode() with the buffer.
      */
-    sk_sp<SkData> encode() const;
+    void encode(SkWriteBuffer&) const;
 
 private:
     SkVertices() {}

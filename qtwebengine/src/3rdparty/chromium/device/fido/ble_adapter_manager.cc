@@ -15,7 +15,7 @@
 namespace device {
 
 BleAdapterManager::BleAdapterManager(FidoRequestHandlerBase* request_handler)
-    : request_handler_(request_handler), weak_factory_(this) {
+    : request_handler_(request_handler) {
   BluetoothAdapterFactory::Get().GetAdapter(
       base::BindOnce(&BleAdapterManager::Start, weak_factory_.GetWeakPtr()));
 }
@@ -63,7 +63,7 @@ void BleAdapterManager::InitiatePairing(std::string authenticator_id,
   pairing_delegate_.StoreBlePinCodeForDevice(std::move(authenticator_id),
                                              std::move(pin));
 
-  auto failure_callback = base::BindOnce(
+  BluetoothDevice::ConnectErrorCallback failure_callback = base::BindOnce(
       [](base::OnceClosure callback,
          BluetoothDevice::ConnectErrorCode error_code) {
         std::move(callback).Run();
@@ -71,9 +71,8 @@ void BleAdapterManager::InitiatePairing(std::string authenticator_id,
       std::move(error_callback));
 
   (*device_it)
-      ->Pair(&pairing_delegate_,
-             base::AdaptCallbackForRepeating(std::move(success_callback)),
-             base::AdaptCallbackForRepeating(std::move(failure_callback)));
+      ->Pair(&pairing_delegate_, std::move(success_callback),
+             std::move(failure_callback));
 }
 
 void BleAdapterManager::AdapterPoweredChanged(BluetoothAdapter* adapter,

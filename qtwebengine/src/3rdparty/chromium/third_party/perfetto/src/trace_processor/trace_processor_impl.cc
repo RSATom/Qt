@@ -18,87 +18,63 @@
 
 #include <inttypes.h>
 #include <algorithm>
-#include <fstream>
-#include <functional>
 
 #include "perfetto/base/logging.h"
+#include "perfetto/base/time.h"
 #include "perfetto/ext/base/string_splitter.h"
 #include "perfetto/ext/base/string_utils.h"
-#include "perfetto/ext/base/time.h"
-#include "perfetto/protozero/scattered_heap_buffer.h"
 #include "src/trace_processor/android_logs_table.h"
 #include "src/trace_processor/args_table.h"
-#include "src/trace_processor/args_tracker.h"
-#include "src/trace_processor/clock_tracker.h"
-#include "src/trace_processor/counter_definitions_table.h"
 #include "src/trace_processor/counter_values_table.h"
-#include "src/trace_processor/event_tracker.h"
-#include "src/trace_processor/fuchsia_trace_parser.h"
-#include "src/trace_processor/fuchsia_trace_tokenizer.h"
-#include "src/trace_processor/gzip_trace_parser.h"
+#include "src/trace_processor/cpu_profile_stack_sample_table.h"
 #include "src/trace_processor/heap_profile_allocation_table.h"
-#include "src/trace_processor/heap_profile_callsite_table.h"
-#include "src/trace_processor/heap_profile_frame_table.h"
-#include "src/trace_processor/heap_profile_mapping_table.h"
-#include "src/trace_processor/heap_profile_tracker.h"
 #include "src/trace_processor/instants_table.h"
 #include "src/trace_processor/metadata_table.h"
-#include "src/trace_processor/metrics/descriptors.h"
-#include "src/trace_processor/metrics/metrics.descriptor.h"
-#include "src/trace_processor/metrics/metrics.h"
-#include "src/trace_processor/metrics/sql_metrics.h"
 #include "src/trace_processor/process_table.h"
-#include "src/trace_processor/process_tracker.h"
-#include "src/trace_processor/proto_trace_parser.h"
-#include "src/trace_processor/proto_trace_tokenizer.h"
 #include "src/trace_processor/raw_table.h"
 #include "src/trace_processor/sched_slice_table.h"
 #include "src/trace_processor/slice_table.h"
-#include "src/trace_processor/slice_tracker.h"
 #include "src/trace_processor/span_join_operator_table.h"
 #include "src/trace_processor/sql_stats_table.h"
-#include "src/trace_processor/sqlite3_str_split.h"
+#include "src/trace_processor/sqlite/db_sqlite_table.h"
+#include "src/trace_processor/sqlite/sqlite3_str_split.h"
+#include "src/trace_processor/sqlite/sqlite_table.h"
+#include "src/trace_processor/stack_profile_frame_table.h"
+#include "src/trace_processor/stack_profile_mapping_table.h"
 #include "src/trace_processor/stats_table.h"
-#include "src/trace_processor/syscall_tracker.h"
-#include "src/trace_processor/systrace_parser.h"
-#include "src/trace_processor/systrace_trace_parser.h"
-#include "src/trace_processor/table.h"
 #include "src/trace_processor/thread_table.h"
-#include "src/trace_processor/trace_blob_view.h"
-#include "src/trace_processor/trace_sorter.h"
-#include "src/trace_processor/virtual_track_tracker.h"
 #include "src/trace_processor/window_operator_table.h"
 
-#include "perfetto/metrics/android/mem_metric.pbzero.h"
-#include "perfetto/metrics/metrics.pbzero.h"
+#if PERFETTO_BUILDFLAG(PERFETTO_TP_METRICS)
+#include "src/trace_processor/metrics/metrics.descriptor.h"
+#include "src/trace_processor/metrics/metrics.h"
+#include "src/trace_processor/metrics/sql_metrics.h"
+#endif  // PERFETTO_BUILDFLAG(PERFETTO_TP_METRICS)
 
-// JSON parsing and exporting is only supported in the standalone and
-// Chromium builds.
-#if PERFETTO_BUILDFLAG(PERFETTO_STANDALONE_BUILD) || \
-    PERFETTO_BUILD_WITH_CHROMIUM
+#if PERFETTO_BUILDFLAG(PERFETTO_TP_JSON)
 #include "src/trace_processor/export_json.h"
-#include "src/trace_processor/json_trace_parser.h"
-#include "src/trace_processor/json_trace_tokenizer.h"
+#endif
+
+#if !PERFETTO_BUILDFLAG(PERFETTO_OS_WIN)
+#include <cxxabi.h>
 #endif
 
 // In Android and Chromium tree builds, we don't have the percentile module.
 // Just don't include it.
-#if PERFETTO_BUILDFLAG(PERFETTO_STANDALONE_BUILD)
+#if PERFETTO_BUILDFLAG(PERFETTO_TP_PERCENTILE)
 // defined in sqlite_src/ext/misc/percentile.c
 extern "C" int sqlite3_percentile_init(sqlite3* db,
                                        char** error,
                                        const sqlite3_api_routines* api);
-#endif
+#endif  // PERFETTO_BUILDFLAG(PERFETTO_TP_PERCENTILE)
 
 namespace perfetto {
 namespace trace_processor {
 namespace {
 
-std::string RemoveWhitespace(const std::string& input) {
-  std::string str(input);
-  str.erase(std::remove_if(str.begin(), str.end(), ::isspace), str.end());
-  return str;
-}
+const char kAllTablesQuery[] =
+    "SELECT tbl_name, type FROM (SELECT * FROM sqlite_master UNION ALL SELECT "
+    "* FROM sqlite_temp_master)";
 
 void InitializeSqlite(sqlite3* db) {
   char* error = nullptr;
@@ -109,7 +85,7 @@ void InitializeSqlite(sqlite3* db) {
   sqlite3_str_split_init(db);
 // In Android tree builds, we don't have the percentile module.
 // Just don't include it.
-#if PERFETTO_BUILDFLAG(PERFETTO_STANDALONE_BUILD)
+#if PERFETTO_BUILDFLAG(PERFETTO_TP_PERCENTILE)
   sqlite3_percentile_init(db, &error, nullptr);
   if (error) {
     PERFETTO_ELOG("Error initializing: %s", error);
@@ -162,9 +138,36 @@ void CreateBuiltinTables(sqlite3* db) {
 void CreateBuiltinViews(sqlite3* db) {
   char* error = nullptr;
   sqlite3_exec(db,
+               "CREATE VIEW counter_definitions AS "
+               "SELECT "
+               "  *, "
+               "  id AS counter_id "
+               "FROM counter_track",
+               0, 0, &error);
+  if (error) {
+    PERFETTO_ELOG("Error initializing: %s", error);
+    sqlite3_free(error);
+  }
+
+  sqlite3_exec(db,
+               "CREATE VIEW counter_values AS "
+               "SELECT "
+               "  *, "
+               "  track_id as counter_id "
+               "FROM counter",
+               0, 0, &error);
+  if (error) {
+    PERFETTO_ELOG("Error initializing: %s", error);
+    sqlite3_free(error);
+  }
+
+  sqlite3_exec(db,
                "CREATE VIEW counters AS "
-               "SELECT * FROM counter_values "
-               "INNER JOIN counter_definitions USING(counter_id);",
+               "SELECT * "
+               "FROM counter_values v "
+               "INNER JOIN counter_track t "
+               "ON v.track_id = t.id "
+               "ORDER BY ts;",
                0, 0, &error);
   if (error) {
     PERFETTO_ELOG("Error initializing: %s", error);
@@ -175,12 +178,23 @@ void CreateBuiltinViews(sqlite3* db) {
                "CREATE VIEW slice AS "
                "SELECT "
                "  *, "
-               "  category as cat, "
+               "  category AS cat, "
                "  CASE ref_type "
                "    WHEN 'utid' THEN ref "
                "    ELSE NULL "
                "  END AS utid "
                "FROM internal_slice;",
+               0, 0, &error);
+  if (error) {
+    PERFETTO_ELOG("Error initializing: %s", error);
+    sqlite3_free(error);
+  }
+
+  sqlite3_exec(db,
+               "CREATE VIEW gpu_slice AS "
+               "SELECT "
+               "* "
+               "FROM internal_gpu_slice join internal_slice using(slice_id);",
                0, 0, &error);
   if (error) {
     PERFETTO_ELOG("Error initializing: %s", error);
@@ -199,28 +213,31 @@ void CreateBuiltinViews(sqlite3* db) {
   }
 }
 
-// Exporting traces in legacy JSON format is only supported
-// in the standalone and Chromium builds so far.
-#if PERFETTO_BUILDFLAG(PERFETTO_STANDALONE_BUILD) || \
-    PERFETTO_BUILD_WITH_CHROMIUM
+#if PERFETTO_BUILDFLAG(PERFETTO_TP_JSON)
 void ExportJson(sqlite3_context* ctx, int /*argc*/, sqlite3_value** argv) {
   TraceStorage* storage = static_cast<TraceStorage*>(sqlite3_user_data(ctx));
-  const char* filename =
-      reinterpret_cast<const char*>(sqlite3_value_text(argv[0]));
-  FILE* output = fopen(filename, "w");
-  if (!output) {
-    sqlite3_result_error(ctx, "Couldn't open output file", -1);
-    return;
+  FILE* output;
+  if (sqlite3_value_type(argv[0]) == SQLITE_INTEGER) {
+    // Assume input is an FD.
+    output = fdopen(sqlite3_value_int(argv[0]), "w");
+    if (!output) {
+      sqlite3_result_error(ctx, "Couldn't open output file from given FD", -1);
+      return;
+    }
+  } else {
+    const char* filename =
+        reinterpret_cast<const char*>(sqlite3_value_text(argv[0]));
+    output = fopen(filename, "w");
+    if (!output) {
+      sqlite3_result_error(ctx, "Couldn't open output file", -1);
+      return;
+    }
   }
 
-  json::ResultCode result = json::ExportJson(storage, output);
-  switch (result) {
-    case json::kResultOk:
-      return;
-    case json::kResultWrongRefType:
-      sqlite3_result_error(ctx, "Encountered a slice with unsupported ref type",
-                           -1);
-      return;
+  util::Status result = json::ExportJson(storage, output);
+  if (!result.ok()) {
+    sqlite3_result_error(ctx, result.message().c_str(), -1);
+    return;
   }
 }
 
@@ -234,6 +251,73 @@ void CreateJsonExportFunction(TraceStorage* ts, sqlite3* db) {
 }
 #endif
 
+void Hash(sqlite3_context* ctx, int argc, sqlite3_value** argv) {
+  base::Hash hash;
+  for (int i = 0; i < argc; ++i) {
+    sqlite3_value* value = argv[i];
+    switch (sqlite3_value_type(value)) {
+      case SQLITE_INTEGER:
+        hash.Update(sqlite3_value_int64(value));
+        break;
+      case SQLITE_TEXT: {
+        const char* ptr =
+            reinterpret_cast<const char*>(sqlite3_value_text(value));
+        hash.Update(ptr, strlen(ptr));
+        break;
+      }
+      default:
+        sqlite3_result_error(ctx, "Unsupported type of arg passed to HASH", -1);
+        return;
+    }
+  }
+  sqlite3_result_int64(ctx, static_cast<int64_t>(hash.digest()));
+}
+
+void Demangle(sqlite3_context* ctx, int argc, sqlite3_value** argv) {
+  if (argc != 1) {
+    sqlite3_result_error(ctx, "Unsupported number of arg passed to DEMANGLE",
+                         -1);
+    return;
+  }
+  sqlite3_value* value = argv[0];
+  if (sqlite3_value_type(value) != SQLITE_TEXT) {
+    sqlite3_result_error(ctx, "Unsupported type of arg passed to DEMANGLE", -1);
+    return;
+  }
+  const char* ptr = reinterpret_cast<const char*>(sqlite3_value_text(value));
+#if !PERFETTO_BUILDFLAG(PERFETTO_OS_WIN)
+  int ignored = 0;
+  // This memory was allocated by malloc and will be passed to SQLite to free.
+  char* demangled_name = abi::__cxa_demangle(ptr, nullptr, nullptr, &ignored);
+  if (!demangled_name) {
+    sqlite3_result_null(ctx);
+    return;
+  }
+  sqlite3_result_text(ctx, demangled_name, -1, free);
+#else
+  sqlite3_result_text(ctx, ptr, -1, sqlite_utils::kSqliteTransient);
+#endif
+}
+
+void CreateHashFunction(sqlite3* db) {
+  auto ret = sqlite3_create_function_v2(
+      db, "HASH", -1, SQLITE_UTF8 | SQLITE_DETERMINISTIC, nullptr, &Hash,
+      nullptr, nullptr, nullptr);
+  if (ret) {
+    PERFETTO_ELOG("Error initializing HASH");
+  }
+}
+
+void CreateDemangledNameFunction(sqlite3* db) {
+  auto ret = sqlite3_create_function_v2(
+      db, "DEMANGLE", 1, SQLITE_UTF8 | SQLITE_DETERMINISTIC, nullptr, &Demangle,
+      nullptr, nullptr, nullptr);
+  if (ret != SQLITE_OK) {
+    PERFETTO_ELOG("Error initializing DEMANGLE: %s", sqlite3_errmsg(db));
+  }
+}
+
+#if PERFETTO_BUILDFLAG(PERFETTO_TP_METRICS)
 void SetupMetrics(TraceProcessor* tp,
                   sqlite3* db,
                   std::vector<metrics::SqlMetricFile>* sql_metrics) {
@@ -264,50 +348,12 @@ void SetupMetrics(TraceProcessor* tp,
       PERFETTO_ELOG("Error initializing RepeatedField");
   }
 }
-
-// Fuchsia traces have a magic number as documented here:
-// https://fuchsia.googlesource.com/fuchsia/+/HEAD/docs/development/tracing/trace-format/README.md#magic-number-record-trace-info-type-0
-constexpr uint64_t kFuchsiaMagicNumber = 0x0016547846040010;
+#endif  // PERFETTO_BUILDFLAG(PERFETTO_TP_METRICS)
 
 }  // namespace
 
-TraceType GuessTraceType(const uint8_t* data, size_t size) {
-  if (size == 0)
-    return kUnknownTraceType;
-  std::string start(reinterpret_cast<const char*>(data),
-                    std::min<size_t>(size, 20));
-  std::string start_minus_white_space = RemoveWhitespace(start);
-  if (base::StartsWith(start_minus_white_space, "{\"traceEvents\":["))
-    return kJsonTraceType;
-  if (base::StartsWith(start_minus_white_space, "[{"))
-    return kJsonTraceType;
-  if (size >= 8) {
-    uint64_t first_word = *reinterpret_cast<const uint64_t*>(data);
-    if (first_word == kFuchsiaMagicNumber)
-      return kFuchsiaTraceType;
-  }
-
-  // Systrace with header but no leading HTML.
-  if (base::StartsWith(start, "# tracer"))
-    return kSystraceTraceType;
-
-  // Systrace with leading HTML.
-  if (base::StartsWith(start, "<!DOCTYPE html>") ||
-      base::StartsWith(start, "<html>"))
-    return kSystraceTraceType;
-
-  // Systrace with no header or leading HTML.
-  if (base::StartsWith(start, " "))
-    return kSystraceTraceType;
-
-  // Ctrace is GZIPed systrace with no headers.
-  if (base::StartsWith(start, "TRACE:"))
-    return kCtraceTraceType;
-
-  return kProtoTraceType;
-}
-
-TraceProcessorImpl::TraceProcessorImpl(const Config& cfg) {
+TraceProcessorImpl::TraceProcessorImpl(const Config& cfg)
+    : TraceProcessorStorageImpl(cfg) {
   sqlite3* db = nullptr;
   PERFETTO_CHECK(sqlite3_initialize() == SQLITE_OK);
   PERFETTO_CHECK(sqlite3_open(":memory:", &db) == SQLITE_OK);
@@ -316,32 +362,24 @@ TraceProcessorImpl::TraceProcessorImpl(const Config& cfg) {
   CreateBuiltinViews(db);
   db_.reset(std::move(db));
 
-  context_.config = cfg;
-  context_.storage.reset(new TraceStorage());
-  context_.virtual_track_tracker.reset(new VirtualTrackTracker(&context_));
-  context_.args_tracker.reset(new ArgsTracker(&context_));
-  context_.slice_tracker.reset(new SliceTracker(&context_));
-  context_.event_tracker.reset(new EventTracker(&context_));
-  context_.process_tracker.reset(new ProcessTracker(&context_));
-  context_.syscall_tracker.reset(new SyscallTracker(&context_));
-  context_.clock_tracker.reset(new ClockTracker(&context_));
-  context_.heap_profile_tracker.reset(new HeapProfileTracker(&context_));
-  context_.systrace_parser.reset(new SystraceParser(&context_));
-
-#if PERFETTO_BUILDFLAG(PERFETTO_STANDALONE_BUILD) || \
-    PERFETTO_BUILD_WITH_CHROMIUM
+#if PERFETTO_BUILDFLAG(PERFETTO_TP_JSON)
   CreateJsonExportFunction(this->context_.storage.get(), db);
 #endif
+  CreateHashFunction(db);
+  CreateDemangledNameFunction(db);
 
+#if PERFETTO_BUILDFLAG(PERFETTO_TP_METRICS)
   SetupMetrics(this, *db_, &sql_metrics_);
+#endif  // PERFETTO_BUILDFLAG(PERFETTO_TP_METRICS)
 
   ArgsTable::RegisterTable(*db_, context_.storage.get());
   ProcessTable::RegisterTable(*db_, context_.storage.get());
+#if PERFETTO_BUILDFLAG(PERFETTO_TP_FTRACE)
   SchedSliceTable::RegisterTable(*db_, context_.storage.get());
+#endif  // PERFETTO_BUILDFLAG(PERFETTO_TP_FTRACE)
   SliceTable::RegisterTable(*db_, context_.storage.get());
   SqlStatsTable::RegisterTable(*db_, context_.storage.get());
   ThreadTable::RegisterTable(*db_, context_.storage.get());
-  CounterDefinitionsTable::RegisterTable(*db_, context_.storage.get());
   CounterValuesTable::RegisterTable(*db_, context_.storage.get());
   SpanJoinOperatorTable::RegisterTable(*db_, context_.storage.get());
   WindowOperatorTable::RegisterTable(*db_, context_.storage.get());
@@ -350,10 +388,58 @@ TraceProcessorImpl::TraceProcessorImpl(const Config& cfg) {
   AndroidLogsTable::RegisterTable(*db_, context_.storage.get());
   RawTable::RegisterTable(*db_, context_.storage.get());
   HeapProfileAllocationTable::RegisterTable(*db_, context_.storage.get());
-  HeapProfileCallsiteTable::RegisterTable(*db_, context_.storage.get());
-  HeapProfileFrameTable::RegisterTable(*db_, context_.storage.get());
-  HeapProfileMappingTable::RegisterTable(*db_, context_.storage.get());
+  CpuProfileStackSampleTable::RegisterTable(*db_, context_.storage.get());
+  StackProfileFrameTable::RegisterTable(*db_, context_.storage.get());
+  StackProfileMappingTable::RegisterTable(*db_, context_.storage.get());
   MetadataTable::RegisterTable(*db_, context_.storage.get());
+
+  // New style db-backed tables.
+  const TraceStorage* storage = context_.storage.get();
+
+  DbSqliteTable::RegisterTable(*db_, &storage->track_table(),
+                               storage->track_table().table_name());
+  DbSqliteTable::RegisterTable(*db_, &storage->thread_track_table(),
+                               storage->thread_track_table().table_name());
+  DbSqliteTable::RegisterTable(*db_, &storage->process_track_table(),
+                               storage->process_track_table().table_name());
+  DbSqliteTable::RegisterTable(*db_, &storage->gpu_slice_table(),
+                               storage->gpu_slice_table().table_name());
+  DbSqliteTable::RegisterTable(*db_, &storage->gpu_track_table(),
+                               storage->gpu_track_table().table_name());
+
+  DbSqliteTable::RegisterTable(*db_, &storage->counter_track_table(),
+                               storage->counter_track_table().table_name());
+  DbSqliteTable::RegisterTable(
+      *db_, &storage->process_counter_track_table(),
+      storage->process_counter_track_table().table_name());
+  DbSqliteTable::RegisterTable(
+      *db_, &storage->thread_counter_track_table(),
+      storage->thread_counter_track_table().table_name());
+  DbSqliteTable::RegisterTable(*db_, &storage->cpu_counter_track_table(),
+                               storage->cpu_counter_track_table().table_name());
+  DbSqliteTable::RegisterTable(*db_, &storage->irq_counter_track_table(),
+                               storage->irq_counter_track_table().table_name());
+  DbSqliteTable::RegisterTable(
+      *db_, &storage->softirq_counter_track_table(),
+      storage->softirq_counter_track_table().table_name());
+  DbSqliteTable::RegisterTable(*db_, &storage->gpu_counter_track_table(),
+                               storage->gpu_counter_track_table().table_name());
+
+  DbSqliteTable::RegisterTable(*db_, &storage->heap_graph_object_table(),
+                               storage->heap_graph_object_table().table_name());
+  DbSqliteTable::RegisterTable(
+      *db_, &storage->heap_graph_reference_table(),
+      storage->heap_graph_reference_table().table_name());
+
+  DbSqliteTable::RegisterTable(*db_, &storage->symbol_table(),
+                               storage->symbol_table().table_name());
+  DbSqliteTable::RegisterTable(
+      *db_, &storage->stack_profile_callsite_table(),
+      storage->stack_profile_callsite_table().table_name());
+
+  DbSqliteTable::RegisterTable(
+      *db_, &storage->vulkan_memory_allocations_table(),
+      storage->vulkan_memory_allocations_table().table_name());
 }
 
 TraceProcessorImpl::~TraceProcessorImpl() {
@@ -363,80 +449,63 @@ TraceProcessorImpl::~TraceProcessorImpl() {
 
 util::Status TraceProcessorImpl::Parse(std::unique_ptr<uint8_t[]> data,
                                        size_t size) {
-  if (size == 0)
-    return util::OkStatus();
-  if (unrecoverable_parse_error_)
-    return util::ErrStatus(
-        "Failed unrecoverably while parsing in a previous Parse call");
+  bytes_parsed_ += size;
+  return TraceProcessorStorageImpl::Parse(std::move(data), size);
+}
 
-  // If this is the first Parse() call, guess the trace type and create the
-  // appropriate parser.
-  if (!context_.chunk_reader) {
-    TraceType trace_type;
-    {
-      auto scoped_trace = context_.storage->TraceExecutionTimeIntoStats(
-          stats::guess_trace_type_duration_ns);
-      trace_type = GuessTraceType(data.get(), size);
-    }
-    switch (trace_type) {
-      case kJsonTraceType: {
-        PERFETTO_DLOG("Legacy JSON trace detected");
-#if PERFETTO_BUILDFLAG(PERFETTO_STANDALONE_BUILD) || \
-    PERFETTO_BUILD_WITH_CHROMIUM
-        context_.chunk_reader.reset(new JsonTraceTokenizer(&context_));
-        // JSON traces have no guarantees about the order of events in them.
-        int64_t window_size_ns = std::numeric_limits<int64_t>::max();
-        context_.sorter.reset(new TraceSorter(&context_, window_size_ns));
-        context_.parser.reset(new JsonTraceParser(&context_));
-#else
-        PERFETTO_FATAL("JSON traces not supported.");
-#endif
-        break;
-      }
-      case kProtoTraceType: {
-        // This will be reduced once we read the trace config and we see flush
-        // period being set.
-        int64_t window_size_ns = std::numeric_limits<int64_t>::max();
-        context_.chunk_reader.reset(new ProtoTraceTokenizer(&context_));
-        context_.sorter.reset(new TraceSorter(&context_, window_size_ns));
-        context_.parser.reset(new ProtoTraceParser(&context_));
-        break;
-      }
-      case kFuchsiaTraceType: {
-        // Fuschia traces can have massively out of order events.
-        int64_t window_size_ns = std::numeric_limits<int64_t>::max();
-        context_.chunk_reader.reset(new FuchsiaTraceTokenizer(&context_));
-        context_.sorter.reset(new TraceSorter(&context_, window_size_ns));
-        context_.parser.reset(new FuchsiaTraceParser(&context_));
-        break;
-      }
-      case kSystraceTraceType:
-        context_.chunk_reader.reset(new SystraceTraceParser(&context_));
-        break;
-      case kCtraceTraceType:
-        context_.chunk_reader.reset(new GzipTraceParser(&context_));
-        break;
-      case kUnknownTraceType:
-        return util::ErrStatus("Unknown trace type provided");
-    }
-  }
+std::string TraceProcessorImpl::GetCurrentTraceName() {
+  if (current_trace_name_.empty())
+    return "";
+  auto size = " (" + std::to_string(bytes_parsed_ / 1024 / 1024) + " MB)";
+  return current_trace_name_ + size;
+}
 
-  auto scoped_trace = context_.storage->TraceExecutionTimeIntoStats(
-      stats::parse_trace_duration_ns);
-  util::Status status = context_.chunk_reader->Parse(std::move(data), size);
-  unrecoverable_parse_error_ |= !status.ok();
-  return status;
+void TraceProcessorImpl::SetCurrentTraceName(const std::string& name) {
+  current_trace_name_ = name;
 }
 
 void TraceProcessorImpl::NotifyEndOfFile() {
-  if (unrecoverable_parse_error_ || !context_.chunk_reader)
-    return;
+  if (current_trace_name_.empty())
+    current_trace_name_ = "Unnamed trace";
 
-  if (context_.sorter)
-    context_.sorter->ExtractEventsForced();
-  context_.event_tracker->FlushPendingEvents();
-  context_.slice_tracker->FlushPendingSlices();
+  TraceProcessorStorageImpl::NotifyEndOfFile();
+
   BuildBoundsTable(*db_, context_.storage->GetTraceTimestampBoundsNs());
+
+  // Create a snapshot of all tables and views created so far. This is so later
+  // we can drop all extra tables created by the UI and reset to the original
+  // state (see RestoreInitialTables).
+  initial_tables_.clear();
+  auto it = ExecuteQuery(kAllTablesQuery);
+  while (it.Next()) {
+    auto value = it.Get(0);
+    PERFETTO_CHECK(value.type == SqlValue::Type::kString);
+    initial_tables_.push_back(value.string_value);
+  }
+}
+
+size_t TraceProcessorImpl::RestoreInitialTables() {
+  std::vector<std::pair<std::string, std::string>> deletion_list;
+  std::string msg = "Resetting DB to initial state, deleting table/views:";
+  for (auto it = ExecuteQuery(kAllTablesQuery); it.Next();) {
+    std::string name(it.Get(0).string_value);
+    std::string type(it.Get(1).string_value);
+    if (std::find(initial_tables_.begin(), initial_tables_.end(), name) ==
+        initial_tables_.end()) {
+      msg += " " + name;
+      deletion_list.push_back(std::make_pair(type, name));
+    }
+  }
+
+  PERFETTO_LOG("%s", msg.c_str());
+  for (const auto& tn : deletion_list) {
+    std::string query = "DROP " + tn.first + " " + tn.second;
+    auto it = ExecuteQuery(query);
+    while (it.Next()) {
+    }
+    PERFETTO_CHECK(it.Status().ok());
+  }
+  return deletion_list.size();
 }
 
 TraceProcessor::Iterator TraceProcessorImpl::ExecuteQuery(
@@ -471,6 +540,7 @@ void TraceProcessorImpl::InterruptQuery() {
   sqlite3_interrupt(db_.get());
 }
 
+#if PERFETTO_BUILDFLAG(PERFETTO_TP_METRICS)
 util::Status TraceProcessorImpl::RegisterMetric(const std::string& path,
                                                 const std::string& sql) {
   std::string stripped_sql;
@@ -550,6 +620,7 @@ util::Status TraceProcessorImpl::ComputeMetric(
   return metrics::ComputeMetrics(this, metric_names, sql_metrics_,
                                  root_descriptor, metrics_proto);
 }
+#endif  // PERFETTO_BUILDFLAG(PERFETTO_TP_METRICS)
 
 TraceProcessor::IteratorImpl::IteratorImpl(TraceProcessorImpl* trace_processor,
                                            sqlite3* db,

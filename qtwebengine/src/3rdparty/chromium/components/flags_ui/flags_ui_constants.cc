@@ -8,6 +8,7 @@ namespace flags_ui {
 
 // Resource paths.
 const char kFlagsJS[] = "flags.js";
+const char kFlagsCSS[] = "flags.css";
 
 // Message handlers.
 const char kEnableExperimentalFeature[] = "enableExperimentalFeature";
@@ -20,7 +21,6 @@ const char kRestartBrowser[] = "restartBrowser";
 const char kFlagsRestartButton[] = "flagsRestartButton";
 const char kFlagsRestartNotice[] = "flagsRestartNotice";
 const char kNeedsRestart[] = "needsRestart";
-const char kOwnerEmail[] = "ownerEmail";
 const char kReturnExperimentalFeatures[] = "returnExperimentalFeatures";
 const char kShowBetaChannelPromotion[] = "showBetaChannelPromotion";
 const char kShowDevChannelPromotion[] = "showDevChannelPromotion";

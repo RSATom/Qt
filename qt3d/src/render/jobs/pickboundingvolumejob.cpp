@@ -46,7 +46,6 @@
 #include <Qt3DRender/qviewport.h>
 #include <Qt3DRender/qgeometryrenderer.h>
 #include <Qt3DRender/private/qobjectpicker_p.h>
-#include <Qt3DRender/private/renderer_p.h>
 #include <Qt3DRender/private/nodemanagers_p.h>
 #include <Qt3DRender/private/entity_p.h>
 #include <Qt3DRender/private/objectpicker_p.h>
@@ -72,9 +71,10 @@ namespace Render {
 class PickBoundingVolumeJobPrivate : public Qt3DCore::QAspectJobPrivate
 {
 public:
-    PickBoundingVolumeJobPrivate() = default;
+    PickBoundingVolumeJobPrivate(PickBoundingVolumeJob *q) : q_ptr(q) { }
     ~PickBoundingVolumeJobPrivate() override = default;
 
+    bool isRequired() const override;
     void postFrame(Qt3DCore::QAspectManager *manager) override;
 
     enum CustomEventType {
@@ -89,8 +89,16 @@ public:
     };
 
     QVector<EventDetails> dispatches;
+    PickBoundingVolumeJob *q_ptr;
+    Q_DECLARE_PUBLIC(PickBoundingVolumeJob)
 };
 
+
+bool PickBoundingVolumeJobPrivate::isRequired() const
+{
+    Q_Q(const PickBoundingVolumeJob);
+    return !q->m_pendingMouseEvents.isEmpty() || q->m_pickersDirty || q->m_oneEnabledAtLeast;
+}
 
 void PickBoundingVolumeJobPrivate::postFrame(Qt3DCore::QAspectManager *manager)
 {
@@ -189,7 +197,7 @@ void setEventButtonAndModifiers(const QMouseEvent &event, QPickEvent::Buttons &e
 } // anonymous
 
 PickBoundingVolumeJob::PickBoundingVolumeJob()
-    : AbstractPickingJob(*new PickBoundingVolumeJobPrivate)
+    : AbstractPickingJob(*new PickBoundingVolumeJobPrivate(this))
     , m_pickersDirty(true)
 {
     SET_JOB_RUN_STAT_TYPE(this, JobTypes::PickBoundingVolume, 0)
@@ -380,7 +388,7 @@ void PickBoundingVolumeJob::dispatchPickEvents(const QMouseEvent &event,
                                                bool allHitsRequested,
                                                Qt3DCore::QNodeId viewportNodeId)
 {
-    Q_DJOB(PickBoundingVolumeJob);
+    Q_D(PickBoundingVolumeJob);
 
     ObjectPicker *lastCurrentPicker = m_manager->objectPickerManager()->data(m_currentPicker);
     // If we have hits
@@ -541,7 +549,7 @@ void PickBoundingVolumeJob::dispatchPickEvents(const QMouseEvent &event,
 
 void PickBoundingVolumeJob::clearPreviouslyHoveredPickers()
 {
-    Q_DJOB(PickBoundingVolumeJob);
+    Q_D(PickBoundingVolumeJob);
 
     for (const HObjectPicker &pickHandle : qAsConst(m_hoveredPickersToClear)) {
         ObjectPicker *pick = m_manager->objectPickerManager()->data(pickHandle);

@@ -23,9 +23,9 @@
 #include "base/values.h"
 #include "build/build_config.h"
 #include "components/data_reduction_proxy/core/browser/data_reduction_proxy_config.h"
-#include "components/data_reduction_proxy/core/browser/data_reduction_proxy_io_data.h"
 #include "components/data_reduction_proxy/core/browser/data_reduction_proxy_mutable_config_values.h"
 #include "components/data_reduction_proxy/core/browser/data_reduction_proxy_request_options.h"
+#include "components/data_reduction_proxy/core/browser/data_reduction_proxy_service.h"
 #include "components/data_reduction_proxy/core/browser/data_reduction_proxy_util.h"
 #include "components/data_reduction_proxy/core/common/data_reduction_proxy_features.h"
 #include "components/data_reduction_proxy/core/common/data_reduction_proxy_params.h"
@@ -33,6 +33,7 @@
 #include "components/data_reduction_proxy/core/common/data_reduction_proxy_switches.h"
 #include "components/data_reduction_proxy/proto/client_config.pb.h"
 #include "components/data_use_measurement/core/data_use_user_data.h"
+#include "components/previews/core/previews_experiments.h"
 #include "components/variations/net/variations_http_headers.h"
 #include "net/base/host_port_pair.h"
 #include "net/base/load_flags.h"
@@ -152,13 +153,13 @@ DataReductionProxyConfigServiceClient::DataReductionProxyConfigServiceClient(
     DataReductionProxyRequestOptions* request_options,
     DataReductionProxyMutableConfigValues* config_values,
     DataReductionProxyConfig* config,
-    DataReductionProxyIOData* io_data,
+    DataReductionProxyService* service,
     network::NetworkConnectionTracker* network_connection_tracker,
     ConfigStorer config_storer)
     : request_options_(request_options),
       config_values_(config_values),
       config_(config),
-      io_data_(io_data),
+      service_(service),
       network_connection_tracker_(network_connection_tracker),
       config_storer_(config_storer),
       backoff_policy_(backoff_policy),
@@ -176,9 +177,11 @@ DataReductionProxyConfigServiceClient::DataReductionProxyConfigServiceClient(
   DCHECK(request_options);
   DCHECK(config_values);
   DCHECK(config);
-  DCHECK(io_data);
+  DCHECK(service);
   DCHECK(config_service_url_.is_valid());
-  DCHECK(!params::IsIncludedInHoldbackFieldTrial());
+  DCHECK(!params::IsIncludedInHoldbackFieldTrial() ||
+         previews::params::IsLitePageServerPreviewsEnabled() ||
+         params::ForceEnableClientConfigServiceForAllDataSaverUsers());
 
   const base::CommandLine& command_line =
       *base::CommandLine::ForCurrentProcess();
@@ -223,7 +226,7 @@ DataReductionProxyConfigServiceClient::CalculateNextConfigRefreshTime(
   return backoff_delay;
 }
 
-void DataReductionProxyConfigServiceClient::InitializeOnIOThread(
+void DataReductionProxyConfigServiceClient::Initialize(
     scoped_refptr<network::SharedURLLoaderFactory> url_loader_factory) {
   DCHECK(url_loader_factory);
 #if defined(OS_ANDROID)
@@ -241,6 +244,22 @@ void DataReductionProxyConfigServiceClient::InitializeOnIOThread(
 void DataReductionProxyConfigServiceClient::SetEnabled(bool enabled) {
   DCHECK(thread_checker_.CalledOnValidThread());
   enabled_ = enabled;
+}
+
+void DataReductionProxyConfigServiceClient::InvalidateAndRetrieveNewConfig() {
+  DCHECK(thread_checker_.CalledOnValidThread());
+
+  InvalidateConfig();
+  DCHECK(config_->GetProxiesForHttp().empty());
+
+  if (fetch_in_progress_) {
+    // If a client config fetch is already in progress, then do not start
+    // another fetch since starting a new fetch will cause extra data
+    // usage, and also cancel the ongoing fetch.
+    return;
+  }
+
+  RetrieveConfig();
 }
 
 void DataReductionProxyConfigServiceClient::RetrieveConfig() {
@@ -415,7 +434,9 @@ void DataReductionProxyConfigServiceClient::OnURLLoadComplete(
 
 void DataReductionProxyConfigServiceClient::RetrieveRemoteConfig() {
   DCHECK(thread_checker_.CalledOnValidThread());
-  DCHECK(!params::IsIncludedInHoldbackFieldTrial());
+  DCHECK(!params::IsIncludedInHoldbackFieldTrial() ||
+         previews::params::IsLitePageServerPreviewsEnabled() ||
+         params::ForceEnableClientConfigServiceForAllDataSaverUsers());
 
   CreateClientConfigRequest request;
   std::string serialized_request;
@@ -440,10 +461,10 @@ void DataReductionProxyConfigServiceClient::RetrieveRemoteConfig() {
   uint32_t build;
   uint32_t patch;
   util::GetChromiumBuildAndPatchAsInts(util::ChromiumVersion(), &build, &patch);
-  version_info->set_client(util::GetStringForClient(io_data_->client()));
+  version_info->set_client(util::GetStringForClient(service_->client()));
   version_info->set_build(build);
   version_info->set_patch(patch);
-  version_info->set_channel(io_data_->channel());
+  version_info->set_channel(service_->channel());
   request.SerializeToString(&serialized_request);
 
   net::NetworkTrafficAnnotationTag traffic_annotation =
@@ -474,7 +495,7 @@ void DataReductionProxyConfigServiceClient::RetrieveRemoteConfig() {
   resource_request->url = config_service_url_;
   resource_request->method = "POST";
   resource_request->load_flags = net::LOAD_BYPASS_PROXY;
-  resource_request->allow_credentials = false;
+  resource_request->credentials_mode = network::mojom::CredentialsMode::kOmit;
   // Attach variations headers.
   url_loader_ = variations::CreateSimpleURLLoaderWithVariationsHeader(
       std::move(resource_request), variations::InIncognito::kNo,
@@ -501,7 +522,6 @@ void DataReductionProxyConfigServiceClient::InvalidateConfig() {
   config_storer_.Run(std::string());
   request_options_->Invalidate();
   config_values_->Invalidate();
-  io_data_->SetPingbackReportingFraction(0.0f);
   config_->OnNewClientConfigFetched();
 }
 
@@ -544,7 +564,7 @@ void DataReductionProxyConfigServiceClient::HandleResponse(
     config_storer_.Run(encoded_config);
 
     // Record timing metrics on successful requests only.
-    const network::ResourceResponseHead* info = url_loader_->ResponseInfo();
+    const network::mojom::URLResponseHead* info = url_loader_->ResponseInfo();
     base::TimeDelta http_request_rtt =
         info->response_start - info->request_start;
     UMA_HISTOGRAM_TIMES("DataReductionProxy.ConfigService.HttpRequestRTT",
@@ -573,19 +593,10 @@ void DataReductionProxyConfigServiceClient::HandleResponse(
 bool DataReductionProxyConfigServiceClient::ParseAndApplyProxyConfig(
     const ClientConfig& config) {
   DCHECK(thread_checker_.CalledOnValidThread());
-  float reporting_fraction = 0.0f;
-  if (config.has_pageload_metrics_config() &&
-      config.pageload_metrics_config().has_reporting_fraction()) {
-    reporting_fraction = config.pageload_metrics_config().reporting_fraction();
-  }
-  DCHECK_LE(0.0f, reporting_fraction);
-  DCHECK_GE(1.0f, reporting_fraction);
-  io_data_->SetPingbackReportingFraction(reporting_fraction);
-
   if (!config.has_proxy_config())
     return false;
 
-  io_data_->SetIgnoreLongTermBlackListRules(
+  service_->SetIgnoreLongTermBlackListRules(
       config.ignore_long_term_black_list_rules());
 
   // An empty proxy config is OK, and allows the server to effectively turn off

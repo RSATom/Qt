@@ -9,12 +9,13 @@
 #include "base/bind.h"
 #include "base/callback.h"
 #include "components/autofill_assistant/browser/actions/action_delegate.h"
+#include "components/autofill_assistant/browser/client_status.h"
 
 namespace autofill_assistant {
 
 SetAttributeAction::SetAttributeAction(ActionDelegate* delegate,
                                        const ActionProto& proto)
-    : Action(delegate, proto), weak_ptr_factory_(this) {
+    : Action(delegate, proto) {
   DCHECK_GT(proto_.set_attribute().element().selectors_size(), 0);
   DCHECK_GT(proto_.set_attribute().attribute_size(), 0);
 }
@@ -37,9 +38,9 @@ void SetAttributeAction::InternalProcessAction(ProcessActionCallback callback) {
 
 void SetAttributeAction::OnWaitForElement(ProcessActionCallback callback,
                                           const Selector& selector,
-                                          bool element_found) {
-  if (!element_found) {
-    UpdateProcessedAction(ELEMENT_RESOLUTION_FAILED);
+                                          const ClientStatus& element_status) {
+  if (!element_status.ok()) {
+    UpdateProcessedAction(element_status.proto_status());
     std::move(callback).Run(std::move(processed_action_proto_));
     return;
   }

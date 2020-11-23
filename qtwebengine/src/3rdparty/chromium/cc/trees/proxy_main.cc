@@ -39,7 +39,7 @@ ProxyMain::ProxyMain(LayerTreeHost* layer_tree_host,
       commit_waits_for_activation_(false),
       started_(false),
       defer_main_frame_update_(false),
-      defer_commits_(true) {
+      defer_commits_(false) {
   TRACE_EVENT0("cc", "ProxyMain::ProxyMain");
   DCHECK(task_runner_provider_);
   DCHECK(IsMainThread());
@@ -132,6 +132,10 @@ void ProxyMain::BeginMainFrame(
       benchmark_instrumentation::kDoBeginFrame,
       begin_main_frame_state->begin_frame_id);
 
+  // This needs to run unconditionally, so do it before any early-returns.
+  if (layer_tree_host_->scheduling_client())
+    layer_tree_host_->scheduling_client()->DidRunBeginMainFrame();
+
   // If the commit finishes, LayerTreeHost will transfer its swap promises to
   // LayerTreeImpl. The destructor of ScopedSwapPromiseChecker aborts the
   // remaining swap promises.
@@ -201,11 +205,10 @@ void ProxyMain::BeginMainFrame(
   current_pipeline_stage_ = ANIMATE_PIPELINE_STAGE;
 
   // Check now if we should stop deferring commits due to a timeout. We
-  // may also stop deferring in BeginMainFrame, but maintain the status
-  // from this point to keep scroll in sync.
-  if (defer_commits_ && base::TimeTicks::Now() > commits_restart_time_) {
+  // may also stop deferring in layer_tree_host_->BeginMainFrame, but update
+  // the status at this point to keep scroll in sync.
+  if (defer_commits_ && base::TimeTicks::Now() > commits_restart_time_)
     StopDeferringCommits(PaintHoldingCommitTrigger::kTimeout);
-  }
   skip_commit |= defer_commits_;
 
   if (!skip_commit) {
@@ -218,6 +221,13 @@ void ProxyMain::BeginMainFrame(
   }
 
   layer_tree_host_->WillBeginMainFrame();
+
+  // This call winds through to the LocalFrameView to mark the beginning
+  // of a main frame for metrics purposes. Some metrics are only gathered
+  // between calls to RecordStartOfFrameMetrics and RecordEndOfFrameMetrics.
+  // This is not wrapped into layer_tree_host_->WillBeginMainFrame because
+  // it should only be called from the multi-threaded proxy (we do not want
+  // metrics gathering in tests).
   layer_tree_host_->RecordStartOfFrameMetrics();
 
   // See LayerTreeHostClient::BeginMainFrame for more documentation on
@@ -237,7 +247,7 @@ void ProxyMain::BeginMainFrame(
 
   // See LayerTreeHostClient::MainFrameUpdate for more documentation on
   // what this does.
-  layer_tree_host_->RequestMainFrameUpdate();
+  layer_tree_host_->RequestMainFrameUpdate(true /* report_cc_metrics */);
 
   // At this point the main frame may have deferred main frame updates to
   // avoid committing right now, or we may be deferring commits but not
@@ -313,16 +323,6 @@ void ProxyMain::BeginMainFrame(
     layer_tree_host_->RecordEndOfFrameMetrics(begin_main_frame_start_time);
     return;
   }
-
-  // Queue the LATENCY_BEGIN_FRAME_RENDERER_MAIN_COMPONENT swap promise only
-  // once we know we will commit since QueueSwapPromise itself requests a
-  // commit.
-  ui::LatencyInfo new_latency_info(ui::SourceEventType::FRAME);
-  new_latency_info.AddLatencyNumberWithTimestamp(
-      ui::LATENCY_BEGIN_FRAME_RENDERER_MAIN_COMPONENT,
-      begin_main_frame_state->begin_frame_args.frame_time);
-  layer_tree_host_->QueueSwapPromise(
-      std::make_unique<LatencyInfoSwapPromise>(new_latency_info));
 
   current_pipeline_stage_ = NO_PIPELINE_STAGE;
 
@@ -448,10 +448,14 @@ void ProxyMain::SetDeferMainFrameUpdate(bool defer_main_frame_update) {
     return;
 
   defer_main_frame_update_ = defer_main_frame_update;
-  if (defer_main_frame_update_)
+  if (defer_main_frame_update_) {
     TRACE_EVENT_ASYNC_BEGIN0("cc", "ProxyMain::SetDeferMainFrameUpdate", this);
-  else
+  } else {
     TRACE_EVENT_ASYNC_END0("cc", "ProxyMain::SetDeferMainFrameUpdate", this);
+  }
+
+  // Notify dependent systems that the deferral status has changed.
+  layer_tree_host_->OnDeferMainFrameUpdatesChanged(defer_main_frame_update_);
 
   // The impl thread needs to know that it should not issue BeginMainFrame.
   ImplThreadTaskRunner()->PostTask(
@@ -472,15 +476,21 @@ void ProxyMain::StartDeferringCommits(base::TimeDelta timeout) {
 
   defer_commits_ = true;
   commits_restart_time_ = base::TimeTicks::Now() + timeout;
+
+  // Notify dependent systems that the deferral status has changed.
+  layer_tree_host_->OnDeferCommitsChanged(defer_commits_);
 }
 
 void ProxyMain::StopDeferringCommits(PaintHoldingCommitTrigger trigger) {
   if (!defer_commits_)
     return;
   defer_commits_ = false;
-  UMA_HISTOGRAM_ENUMERATION("PaintHolding.CommitTrigger", trigger);
+  UMA_HISTOGRAM_ENUMERATION("PaintHolding.CommitTrigger2", trigger);
   commits_restart_time_ = base::TimeTicks();
   TRACE_EVENT_ASYNC_END0("cc", "ProxyMain::SetDeferCommits", this);
+
+  // Notify depended systems that the deferral status has changed.
+  layer_tree_host_->OnDeferCommitsChanged(defer_commits_);
 }
 
 bool ProxyMain::CommitRequested() const {

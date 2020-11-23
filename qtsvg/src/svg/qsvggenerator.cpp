@@ -53,6 +53,7 @@
 #include "qbuffer.h"
 #include "qmath.h"
 #include "qbitmap.h"
+#include "qtransform.h"
 
 #include "qdebug.h"
 
@@ -117,7 +118,7 @@ public:
 
     QBrush brush;
     QPen pen;
-    QMatrix matrix;
+    QTransform matrix;
     QFont font;
 
     QString generateGradientName() {
@@ -227,10 +228,10 @@ public:
             QString rct(QStringLiteral("<rect x=\"%1\" y=\"%2\" width=\"%3\" height=\"%4\" />"));
             QTextStream str(&d_func()->defs, QIODevice::Append);
             str << "<mask id=\"" << maskId << "\" x=\"0\" y=\"0\" width=\"8\" height=\"8\" "
-                << "stroke=\"none\" fill=\"#ffffff\" patternUnits=\"userSpaceOnUse\" >" << endl;
+                << "stroke=\"none\" fill=\"#ffffff\" patternUnits=\"userSpaceOnUse\" >" << Qt::endl;
             for (QRect r : reg)
-                str << rct.arg(r.x()).arg(r.y()).arg(r.width()).arg(r.height()) << endl;
-            str << QStringLiteral("</mask>") << endl << endl;
+                str << rct.arg(r.x()).arg(r.y()).arg(r.width()).arg(r.height()) << Qt::endl;
+            str << QStringLiteral("</mask>") << Qt::endl << Qt::endl;
             d_func()->savedPatternMasks.append(maskId);
         }
         return maskId;
@@ -243,9 +244,9 @@ public:
             QString maskId = savePatternMask(brush.style());
             QString geo(QStringLiteral("x=\"0\" y=\"0\" width=\"8\" height=\"8\""));
             QTextStream str(&d_func()->defs, QIODevice::Append);
-            str << QString(QStringLiteral("<pattern id=\"%1\" %2 patternUnits=\"userSpaceOnUse\" >")).arg(patternId, geo) << endl;
-            str << QString(QStringLiteral("<rect %1 stroke=\"none\" fill=\"%2\" mask=\"url(#%3);\" />")).arg(geo, color, maskId) << endl;
-            str << QStringLiteral("</pattern>") << endl << endl;
+            str << QString(QStringLiteral("<pattern id=\"%1\" %2 patternUnits=\"userSpaceOnUse\" >")).arg(patternId, geo) << Qt::endl;
+            str << QString(QStringLiteral("<rect %1 stroke=\"none\" fill=\"%2\" mask=\"url(#%3)\" />")).arg(geo, color, maskId) << Qt::endl;
+            str << QStringLiteral("</pattern>") << Qt::endl << Qt::endl;
             d_func()->savedPatternBrushes.append(patternId);
         }
         return patternId;
@@ -266,7 +267,7 @@ public:
 
         str << QLatin1String("id=\"") << d_func()->generateGradientName() << QLatin1String("\">\n");
         saveGradientStops(str, g);
-        str << QLatin1String("</linearGradient>") <<endl;
+        str << QLatin1String("</linearGradient>") <<Qt::endl;
     }
     void saveRadialGradientBrush(const QGradient *g)
     {
@@ -283,7 +284,7 @@ public:
         }
         str << QLatin1String("id=\"") <<d_func()->generateGradientName()<< QLatin1String("\">\n");
         saveGradientStops(str, g);
-        str << QLatin1String("</radialGradient>") << endl;
+        str << QLatin1String("</radialGradient>") << Qt::endl;
     }
     void saveConicalGradientBrush(const QGradient *)
     {
@@ -544,7 +545,7 @@ public:
                       "font-size=\"" << d->attributes.font_size << "\" "
                       "font-weight=\"" << d->attributes.font_weight << "\" "
                       "font-style=\"" << d->attributes.font_style << "\" "
-                   << endl;
+                   << Qt::endl;
     }
 };
 
@@ -892,29 +893,29 @@ bool QSvgPaintEngine::begin(QPaintDevice *)
     d->stream = new QTextStream(&d->header);
 
     // stream out the header...
-    *d->stream << "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"no\"?>" << endl << "<svg";
+    *d->stream << "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"no\"?>" << Qt::endl << "<svg";
 
     if (d->size.isValid()) {
         qreal wmm = d->size.width() * 25.4 / d->resolution;
         qreal hmm = d->size.height() * 25.4 / d->resolution;
-        *d->stream << " width=\"" << wmm << "mm\" height=\"" << hmm << "mm\"" << endl;
+        *d->stream << " width=\"" << wmm << "mm\" height=\"" << hmm << "mm\"" << Qt::endl;
     }
 
     if (d->viewBox.isValid()) {
         *d->stream << " viewBox=\"" << d->viewBox.left() << ' ' << d->viewBox.top();
-        *d->stream << ' ' << d->viewBox.width() << ' ' << d->viewBox.height() << '\"' << endl;
+        *d->stream << ' ' << d->viewBox.width() << ' ' << d->viewBox.height() << '\"' << Qt::endl;
     }
 
     *d->stream << " xmlns=\"http://www.w3.org/2000/svg\""
                   " xmlns:xlink=\"http://www.w3.org/1999/xlink\" "
-                  " version=\"1.2\" baseProfile=\"tiny\">" << endl;
+                  " version=\"1.2\" baseProfile=\"tiny\">" << Qt::endl;
 
     if (!d->attributes.document_title.isEmpty()) {
-        *d->stream << "<title>" << d->attributes.document_title << "</title>" << endl;
+        *d->stream << "<title>" << d->attributes.document_title << "</title>" << Qt::endl;
     }
 
     if (!d->attributes.document_description.isEmpty()) {
-        *d->stream << "<desc>" << d->attributes.document_description << "</desc>" << endl;
+        *d->stream << "<desc>" << d->attributes.document_description << "</desc>" << Qt::endl;
     }
 
     d->stream->setString(&d->defs);
@@ -924,7 +925,7 @@ bool QSvgPaintEngine::begin(QPaintDevice *)
     // Start the initial graphics state...
     *d->stream << "<g ";
     generateQtDefaults();
-    *d->stream << endl;
+    *d->stream << Qt::endl;
 
     return true;
 }
@@ -945,10 +946,10 @@ bool QSvgPaintEngine::end()
     *d->stream << d->defs;
     *d->stream << d->body;
     if (d->afterFirstUpdate)
-        *d->stream << "</g>" << endl; // close the updateState
+        *d->stream << "</g>" << Qt::endl; // close the updateState
 
-    *d->stream << "</g>" << endl // close the Qt defaults
-               << "</svg>" << endl;
+    *d->stream << "</g>" << Qt::endl // close the Qt defaults
+               << "</svg>" << Qt::endl;
 
     delete d->stream;
 
@@ -1009,13 +1010,13 @@ void QSvgPaintEngine::updateState(const QPaintEngineState &state)
     }
 
     if (flags & QPaintEngine::DirtyTransform) {
-        d->matrix = state.transform().toAffine();
+        d->matrix = state.transform();
         *d->stream << "transform=\"matrix(" << d->matrix.m11() << ','
                    << d->matrix.m12() << ','
                    << d->matrix.m21() << ',' << d->matrix.m22() << ','
                    << d->matrix.dx() << ',' << d->matrix.dy()
                    << ")\""
-                   << endl;
+                   << Qt::endl;
     }
 
     if (flags & QPaintEngine::DirtyFont) {
@@ -1027,7 +1028,7 @@ void QSvgPaintEngine::updateState(const QPaintEngineState &state)
             stream() << "opacity=\""<<state.opacity()<<"\" ";
     }
 
-    *d->stream << '>' << endl;
+    *d->stream << '>' << Qt::endl;
 
     d->afterFirstUpdate = true;
 }
@@ -1046,7 +1047,7 @@ void QSvgPaintEngine::drawEllipse(const QRectF &r)
         *d->stream << "\" r=\"" << r.width() / qreal(2.0);
     else
         *d->stream << "\" rx=\"" << r.width() / qreal(2.0) << "\" ry=\"" << r.height() / qreal(2.0);
-    *d->stream << "\"/>" << endl;
+    *d->stream << "\"/>" << Qt::endl;
 }
 
 void QSvgPaintEngine::drawPath(const QPainterPath &p)
@@ -1090,7 +1091,7 @@ void QSvgPaintEngine::drawPath(const QPainterPath &p)
         }
     }
 
-    *d->stream << "\"/>" << endl;
+    *d->stream << "\"/>" << Qt::endl;
 }
 
 void QSvgPaintEngine::drawPolygon(const QPointF *points, int pointCount,
@@ -1112,7 +1113,7 @@ void QSvgPaintEngine::drawPolygon(const QPointF *points, int pointCount,
             const QPointF &pt = points[i];
             stream() << pt.x() << ',' << pt.y() << ' ';
         }
-        stream() << "\" />" <<endl;
+        stream() << "\" />" <<Qt::endl;
     } else {
         path.closeSubpath();
         drawPath(path);
@@ -1130,7 +1131,7 @@ void QSvgPaintEngine::drawRects(const QRectF *rects, int rectCount)
             *d->stream << " vector-effect=\"non-scaling-stroke\"";
         *d->stream << " x=\"" << rect.x() << "\" y=\"" << rect.y()
                    << "\" width=\"" << rect.width() << "\" height=\"" << rect.height()
-                   << "\"/>" << endl;
+                   << "\"/>" << Qt::endl;
     }
 }
 
@@ -1155,7 +1156,7 @@ void QSvgPaintEngine::drawTextItem(const QPointF &pt, const QTextItem &textItem)
     *d->stream << " >"
                << s.toHtmlEscaped()
                << "</text>"
-               << endl;
+               << Qt::endl;
 }
 
 QT_END_NAMESPACE

@@ -12,6 +12,7 @@
 #include "base/metrics/histogram_macros.h"
 #include "base/rand_util.h"
 #include "base/timer/timer.h"
+#include "components/safe_browsing/buildflags.h"
 #include "components/safe_browsing/db/safebrowsing.pb.h"
 #include "net/base/load_flags.h"
 #include "net/http/http_response_headers.h"
@@ -19,10 +20,6 @@
 #include "net/traffic_annotation/network_traffic_annotation.h"
 #include "services/network/public/cpp/shared_url_loader_factory.h"
 #include "services/network/public/cpp/simple_url_loader.h"
-
-#if !defined(FULL_SAFE_BROWSING)
-#include "base/system/sys_info.h"
-#endif
 
 using base::Time;
 using base::TimeDelta;
@@ -64,10 +61,6 @@ void RecordUpdateResult(safe_browsing::V4OperationResult result) {
       safe_browsing::V4OperationResult::OPERATION_RESULT_MAX);
 }
 
-void RecordTimedOut(bool timed_out) {
-  UMA_HISTOGRAM_BOOLEAN("SafeBrowsing.V4Update.TimedOut", timed_out);
-}
-
 }  // namespace
 
 namespace safe_browsing {
@@ -80,15 +73,6 @@ static const int kV4TimerStartIntervalSecMax = 300;
 
 // Maximum time, in seconds, to wait for a response to an update request.
 static const int kV4TimerUpdateWaitSecMax = 15 * 60;  // 15 minutes
-
-// The default number of entries, per threat type, in the safe browsing
-// database on low end (low RAM) devices. This value is also used as the default
-// for GMS Safe Browsing on low end devices.
-static const int kLowEndDefaultDBEntryCount = 1 << 10;
-
-// Malware threat DB coverage drops off too much below 4096 entries, so we use
-// this values instead of the default above.
-static const int kLowEndMalwareDBEntryCount = 1 << 12;
 
 ChromeClientInfo::SafeBrowsingReportingPopulation GetReportingLevelProtoValue(
     ExtendedReportingLevel reporting_level) {
@@ -255,13 +239,6 @@ std::string V4UpdateProtocolManager::GetBase64SerializedUpdateRequestProto() {
     list_update_request->mutable_constraints()->add_supported_compressions(RAW);
     list_update_request->mutable_constraints()->add_supported_compressions(
         RICE);
-
-#if !defined(FULL_SAFE_BROWSING)
-    if (base::SysInfo::IsLowEndDevice()) {
-      list_update_request->mutable_constraints()->set_max_database_entries(
-          GetLowEndDBEntryCount(list_update_request->threat_type()));
-    }
-#endif
   }
 
   if (!extended_reporting_level_callback_.is_null()) {
@@ -278,15 +255,6 @@ std::string V4UpdateProtocolManager::GetBase64SerializedUpdateRequestProto() {
   base::Base64UrlEncode(req_data, base::Base64UrlEncodePolicy::INCLUDE_PADDING,
                         &req_base64);
   return req_base64;
-}
-
-int V4UpdateProtocolManager::GetLowEndDBEntryCount(ThreatType threat_type) {
-  switch (threat_type) {
-    case ThreatType::MALWARE_THREAT:
-      return kLowEndMalwareDBEntryCount;
-    default:
-      return kLowEndDefaultDBEntryCount;
-  }
 }
 
 bool V4UpdateProtocolManager::ParseUpdateResponse(
@@ -390,7 +358,6 @@ void V4UpdateProtocolManager::IssueUpdateRequest() {
 }
 
 void V4UpdateProtocolManager::HandleTimeout() {
-  RecordTimedOut(true);
   request_.reset();
   ScheduleNextUpdateWithBackoff(true);
 }
@@ -419,7 +386,6 @@ void V4UpdateProtocolManager::OnURLLoaderCompleteInternal(
   last_response_code_ = response_code;
   V4ProtocolManagerUtil::RecordHttpResponseOrErrorCode(
       "SafeBrowsing.V4Update.Network.Result", net_error, last_response_code_);
-  RecordTimedOut(false);
 
   last_response_time_ = Time::Now();
 

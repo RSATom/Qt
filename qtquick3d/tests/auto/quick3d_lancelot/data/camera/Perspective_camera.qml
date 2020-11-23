@@ -48,8 +48,8 @@
 **
 ****************************************************************************/
 
-import QtQuick3D 1.14
-import QtQuick 2.14
+import QtQuick3D 1.15
+import QtQuick 2.15
 
 Rectangle {
     id: perspective_camera
@@ -73,21 +73,18 @@ Rectangle {
 
         PerspectiveCamera {
             id: camera
-            position: Qt.vector3d(0, 0, -600)
-            rotationOrder: Node.YZX
+            position: Qt.vector3d(0, 0, 600)
             clipFar: 5000
         }
 
         DirectionalLight {
             id: light
-            rotationOrder: Node.YZX
             shadowFactor: 10
         }
 
         Model {
             id: cylinder
             position: Qt.vector3d(-165.988, -128.46, 0)
-            rotationOrder: Node.YZX
             source: "#Cylinder"
             
             
@@ -107,8 +104,7 @@ Rectangle {
 
         Model {
             id: cylinder2
-            position: Qt.vector3d(55.7838, 116.872, -200)
-            rotationOrder: Node.YZX
+            position: Qt.vector3d(55.7838, 116.872, 200)
             source: "#Cylinder"
             
             

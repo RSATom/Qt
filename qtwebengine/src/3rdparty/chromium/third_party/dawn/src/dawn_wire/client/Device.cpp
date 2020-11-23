@@ -14,6 +14,10 @@
 
 #include "dawn_wire/client/Device.h"
 
+#include "common/Assert.h"
+#include "dawn_wire/WireCmd_autogen.h"
+#include "dawn_wire/client/Client.h"
+
 namespace dawn_wire { namespace client {
 
     Device::Device(Client* client, uint32_t refcount, uint32_t id)
@@ -21,19 +25,86 @@ namespace dawn_wire { namespace client {
         this->device = this;
     }
 
+    Device::~Device() {
+        auto errorScopes = std::move(mErrorScopes);
+        for (const auto& it : errorScopes) {
+            it.second.callback(WGPUErrorType_Unknown, "Device destroyed", it.second.userdata);
+        }
+    }
+
     Client* Device::GetClient() {
         return mClient;
     }
 
-    void Device::HandleError(const char* message) {
+    void Device::HandleError(WGPUErrorType errorType, const char* message) {
         if (mErrorCallback) {
-            mErrorCallback(message, mErrorUserdata);
+            mErrorCallback(errorType, message, mErrorUserdata);
         }
     }
 
-    void Device::SetErrorCallback(DawnDeviceErrorCallback errorCallback, void* errorUserdata) {
+    void Device::SetUncapturedErrorCallback(WGPUErrorCallback errorCallback, void* errorUserdata) {
         mErrorCallback = errorCallback;
         mErrorUserdata = errorUserdata;
+    }
+
+    void Device::PushErrorScope(WGPUErrorFilter filter) {
+        mErrorScopeStackSize++;
+
+        DevicePushErrorScopeCmd cmd;
+        cmd.self = reinterpret_cast<WGPUDevice>(this);
+        cmd.filter = filter;
+
+        Client* wireClient = GetClient();
+        size_t requiredSize = cmd.GetRequiredSize();
+        char* allocatedBuffer = static_cast<char*>(wireClient->GetCmdSpace(requiredSize));
+        cmd.Serialize(allocatedBuffer, *wireClient);
+    }
+
+    bool Device::RequestPopErrorScope(WGPUErrorCallback callback, void* userdata) {
+        if (mErrorScopeStackSize == 0) {
+            return false;
+        }
+        mErrorScopeStackSize--;
+
+        uint64_t serial = mErrorScopeRequestSerial++;
+        ASSERT(mErrorScopes.find(serial) == mErrorScopes.end());
+
+        mErrorScopes[serial] = {callback, userdata};
+
+        DevicePopErrorScopeCmd cmd;
+        cmd.device = reinterpret_cast<WGPUDevice>(this);
+        cmd.requestSerial = serial;
+
+        Client* wireClient = GetClient();
+        size_t requiredSize = cmd.GetRequiredSize();
+        char* allocatedBuffer = static_cast<char*>(wireClient->GetCmdSpace(requiredSize));
+        cmd.Serialize(allocatedBuffer, *wireClient);
+
+        return true;
+    }
+
+    bool Device::PopErrorScope(uint64_t requestSerial, WGPUErrorType type, const char* message) {
+        switch (type) {
+            case WGPUErrorType_NoError:
+            case WGPUErrorType_Validation:
+            case WGPUErrorType_OutOfMemory:
+            case WGPUErrorType_Unknown:
+            case WGPUErrorType_DeviceLost:
+                break;
+            default:
+                return false;
+        }
+
+        auto requestIt = mErrorScopes.find(requestSerial);
+        if (requestIt == mErrorScopes.end()) {
+            return false;
+        }
+
+        ErrorScopeData request = std::move(requestIt->second);
+
+        mErrorScopes.erase(requestIt);
+        request.callback(type, message, request.userdata);
+        return true;
     }
 
 }}  // namespace dawn_wire::client

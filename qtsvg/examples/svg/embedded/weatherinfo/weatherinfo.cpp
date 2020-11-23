@@ -200,7 +200,7 @@ private:
         connect(&m_timeLine, SIGNAL(frameChanged(int)), SLOT(animate(int)));
         m_timeLine.setDuration(1100);
         m_timeLine.setFrameRange(0, 100);
-        m_timeLine.setCurveShape(QTimeLine::EaseInCurve);
+        m_timeLine.setEasingCurve(QEasingCurve::InCurve);
     }
 
     void request(const QString &location) {

@@ -124,7 +124,7 @@ QNetworkReply *AccelTreeResourceLoader::load(const QUrl &uri,
         request.setAttribute(QNetworkRequest::SynchronousRequestAttribute, true);
     QNetworkReply *const reply = networkManager->get(request);
     if (ftpSchemeUsed) {
-        ftpNetworkLoop.connect(reply, SIGNAL(error(QNetworkReply::NetworkError)), SLOT(quit()));
+        ftpNetworkLoop.connect(reply, SIGNAL(errorOccurred(QNetworkReply::NetworkError)), SLOT(quit()));
         ftpNetworkLoop.connect(reply, SIGNAL(finished()), SLOT(quit()));
         ftpNetworkLoop.exec(QEventLoop::ExcludeUserInputEvents);
     }

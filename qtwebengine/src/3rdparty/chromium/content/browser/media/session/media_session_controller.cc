@@ -84,7 +84,7 @@ bool MediaSessionController::Initialize(
 void MediaSessionController::OnSuspend(int player_id) {
   DCHECK_EQ(player_id_, player_id);
   // TODO(crbug.com/953645): Set triggered_by_user to true ONLY if that action
-  // was actually triggered by user as this will create a WebUserGestureToken.
+  // was actually triggered by user as this will activate the frame.
   id_.render_frame_host->Send(new MediaPlayerDelegateMsg_Pause(
       id_.render_frame_host->GetRoutingID(), id_.delegate_id,
       true /* triggered_by_user */));
@@ -122,6 +122,12 @@ RenderFrameHost* MediaSessionController::render_frame_host() const {
   return id_.render_frame_host;
 }
 
+base::Optional<media_session::MediaPosition>
+MediaSessionController::GetPosition(int player_id) const {
+  DCHECK_EQ(player_id_, player_id);
+  return position_;
+}
+
 void MediaSessionController::OnPlaybackPaused() {
   // We check for suspension here since the renderer may issue its own pause
   // in response to or while a pause from the browser is in flight.
@@ -147,9 +153,7 @@ void MediaSessionController::WebContentsMutedStateChanged(bool muted) {
 void MediaSessionController::OnMediaPositionStateChanged(
     const media_session::MediaPosition& position) {
   position_ = position;
-
-  // TODO(https://crbug.com/985394): Notify MediaSessionImpl that the
-  // position state has changed.
+  media_session_->RebuildAndNotifyMediaPositionChanged();
 }
 
 }  // namespace content

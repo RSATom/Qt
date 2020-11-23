@@ -10,6 +10,9 @@
 #include "base/optional.h"
 #include "third_party/blink/renderer/platform/graphics/dark_mode_color_classifier.h"
 #include "third_party/blink/renderer/platform/graphics/dark_mode_color_filter.h"
+#include "third_party/blink/renderer/platform/graphics/dark_mode_generic_classifier.h"
+#include "third_party/blink/renderer/platform/graphics/dark_mode_icon_classifier.h"
+#include "third_party/blink/renderer/platform/graphics/dark_mode_image_classifier.h"
 #include "third_party/blink/renderer/platform/graphics/graphics_types.h"
 #include "third_party/skia/include/core/SkColorFilter.h"
 #include "third_party/skia/include/effects/SkColorMatrix.h"
@@ -28,7 +31,7 @@ bool AreFloatsEqual(float a, float b) {
 
 void VerifySettingsAreUnchanged(const DarkModeSettings& a,
                                 const DarkModeSettings& b) {
-  if (a.mode == DarkMode::kOff)
+  if (a.mode == DarkModeInversionAlgorithm::kOff)
     return;
 
   DCHECK_EQ(a.image_policy, b.image_policy);
@@ -42,14 +45,27 @@ void VerifySettingsAreUnchanged(const DarkModeSettings& a,
 
 bool ShouldApplyToImage(const DarkModeSettings& settings,
                         const FloatRect& src_rect,
+                        const FloatRect& dest_rect,
                         Image* image) {
   switch (settings.image_policy) {
-    case DarkModeImagePolicy::kFilterSmart:
-      return image->ShouldApplyDarkModeFilter(src_rect);
+    case DarkModeImagePolicy::kFilterSmart: {
+      DarkModeClassification result = DarkModeClassification::kNotClassified;
+      switch (settings.classifier_type) {
+        case DarkModeClassifierType::kIcon: {
+          result = DarkModeIconClassifier().Classify(image, src_rect, dest_rect);
+          break;
+        }
+        case DarkModeClassifierType::kGeneric: {
+          result = DarkModeGenericClassifier().Classify(image, src_rect, dest_rect);
+          break;
+        }
+      }
+      return result == DarkModeClassification::kApplyFilter;
+    }
+    case DarkModeImagePolicy::kFilterNone:
+      return false;
     case DarkModeImagePolicy::kFilterAll:
       return true;
-    default:
-      return false;
   }
 }
 
@@ -71,7 +87,7 @@ DarkModeFilter::DarkModeFilter()
       color_filter_(nullptr),
       image_filter_(nullptr) {
   DarkModeSettings default_settings;
-  default_settings.mode = DarkMode::kOff;
+  default_settings.mode = DarkModeInversionAlgorithm::kOff;
   UpdateSettings(default_settings);
 }
 
@@ -114,13 +130,12 @@ Color DarkModeFilter::InvertColorIfNeeded(const Color& color,
   return color;
 }
 
-// TODO(gilmanmh): Investigate making |image| a const reference. This code
-// relies on Image::ShouldApplyDarkModeFilter(), which is not const. If it
-// could be made const, then |image| could also be const.
 void DarkModeFilter::ApplyToImageFlagsIfNeeded(const FloatRect& src_rect,
+                                               const FloatRect& dest_rect,
                                                Image* image,
                                                cc::PaintFlags* flags) {
-  if (!image_filter_ || !ShouldApplyToImage(settings(), src_rect, image))
+  if (!image_filter_ ||
+      !ShouldApplyToImage(settings(), src_rect, dest_rect, image))
     return;
   flags->setColorFilter(image_filter_);
 }
@@ -153,22 +168,27 @@ bool DarkModeFilter::IsDarkModeActive() const {
 // perform some other logic in between confirming dark mode is active and
 // checking the color classifiers.
 bool DarkModeFilter::ShouldApplyToColor(const Color& color, ElementRole role) {
-  if (role == ElementRole::kBackground) {
-    // Calling get() is necessary below because operator<< in std::unique_ptr is
-    // a C++20 feature.
-    // TODO(https://crbug.com/980914): Drop .get() once we move to C++20.
-    DCHECK_NE(background_classifier_.get(), nullptr);
-    return background_classifier_->ShouldInvertColor(color) ==
-           DarkModeClassification::kApplyFilter;
-  }
+  switch (role) {
+    case ElementRole::kText:
+      DCHECK(text_classifier_);
+      return text_classifier_->ShouldInvertColor(color) ==
+             DarkModeClassification::kApplyFilter;
+    case ElementRole::kBackground:
+      DCHECK(background_classifier_);
+      return background_classifier_->ShouldInvertColor(color) ==
+             DarkModeClassification::kApplyFilter;
+    case ElementRole::kSVG:
+      // 1) Inline SVG images are considered as individual shapes and do not
+      // have an Image object associated with them. So they do not go through
+      // the regular image classification pipeline. Do not apply any filter to
+      // the SVG shapes until there is a way to get the classification for the
+      // entire image to which these shapes belong.
 
-  DCHECK_EQ(role, ElementRole::kText);
-  // Calling get() is necessary below because operator<< in std::unique_ptr is
-  // a C++20 feature.
-  // TODO(https://crbug.com/980914): Drop .get() once we move to C++20.
-  DCHECK_NE(text_classifier_.get(), nullptr);
-  return text_classifier_->ShouldInvertColor(color) ==
-         DarkModeClassification::kApplyFilter;
+      // 2) Non-inline SVG images are already classified at this point and have
+      // a filter applied if necessary.
+      return false;
+  }
+  NOTREACHED();
 }
 
 }  // namespace blink

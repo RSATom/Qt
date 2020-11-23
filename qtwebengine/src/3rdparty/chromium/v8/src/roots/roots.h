@@ -54,12 +54,12 @@ class Symbol;
   V(Map, scope_info_map, ScopeInfoMap)                                         \
   V(Map, shared_function_info_map, SharedFunctionInfoMap)                      \
   V(Map, code_map, CodeMap)                                                    \
-  V(Map, function_context_map, FunctionContextMap)                             \
   V(Map, cell_map, CellMap)                                                    \
   V(Map, global_property_cell_map, GlobalPropertyCellMap)                      \
   V(Map, foreign_map, ForeignMap)                                              \
   V(Map, heap_number_map, HeapNumberMap)                                       \
   V(Map, transition_array_map, TransitionArrayMap)                             \
+  V(Map, thin_one_byte_string_map, ThinOneByteStringMap)                       \
   /* TODO(mythria): Once lazy feedback lands, check if feedback vector map */  \
   /* is still a popular map */                                                 \
   V(Map, feedback_vector_map, FeedbackVectorMap)                               \
@@ -73,18 +73,8 @@ class Symbol;
   V(Oddball, termination_exception, TerminationException)                      \
   V(Oddball, optimized_out, OptimizedOut)                                      \
   V(Oddball, stale_register, StaleRegister)                                    \
-  /* Context maps */                                                           \
-  V(Map, native_context_map, NativeContextMap)                                 \
-  V(Map, module_context_map, ModuleContextMap)                                 \
-  V(Map, eval_context_map, EvalContextMap)                                     \
-  V(Map, script_context_map, ScriptContextMap)                                 \
-  V(Map, await_context_map, AwaitContextMap)                                   \
-  V(Map, block_context_map, BlockContextMap)                                   \
-  V(Map, catch_context_map, CatchContextMap)                                   \
-  V(Map, with_context_map, WithContextMap)                                     \
-  V(Map, debug_evaluate_context_map, DebugEvaluateContextMap)                  \
-  V(Map, script_context_table_map, ScriptContextTableMap)                      \
   /* Maps */                                                                   \
+  V(Map, script_context_table_map, ScriptContextTableMap)                      \
   V(Map, closure_feedback_cell_array_map, ClosureFeedbackCellArrayMap)         \
   V(Map, feedback_metadata_map, FeedbackMetadataArrayMap)                      \
   V(Map, array_list_map, ArrayListMap)                                         \
@@ -97,7 +87,6 @@ class Symbol;
   V(Map, global_dictionary_map, GlobalDictionaryMap)                           \
   V(Map, many_closures_cell_map, ManyClosuresCellMap)                          \
   V(Map, module_info_map, ModuleInfoMap)                                       \
-  V(Map, mutable_heap_number_map, MutableHeapNumberMap)                        \
   V(Map, name_dictionary_map, NameDictionaryMap)                               \
   V(Map, no_closures_cell_map, NoClosuresCellMap)                              \
   V(Map, number_dictionary_map, NumberDictionaryMap)                           \
@@ -130,11 +119,9 @@ class Symbol;
   V(Map, embedder_data_array_map, EmbedderDataArrayMap)                        \
   V(Map, weak_cell_map, WeakCellMap)                                           \
   /* String maps */                                                            \
-  V(Map, native_source_string_map, NativeSourceStringMap)                      \
   V(Map, string_map, StringMap)                                                \
   V(Map, cons_one_byte_string_map, ConsOneByteStringMap)                       \
   V(Map, cons_string_map, ConsStringMap)                                       \
-  V(Map, thin_one_byte_string_map, ThinOneByteStringMap)                       \
   V(Map, thin_string_map, ThinStringMap)                                       \
   V(Map, sliced_string_map, SlicedStringMap)                                   \
   V(Map, sliced_one_byte_string_map, SlicedOneByteStringMap)                   \
@@ -199,42 +186,47 @@ class Symbol;
     TrampolineTrivialCodeDataContainer)                                        \
   V(CodeDataContainer, trampoline_promise_rejection_code_data_container,       \
     TrampolinePromiseRejectionCodeDataContainer)                               \
+  /* Canonical scope infos */                                                  \
+  V(ScopeInfo, global_this_binding_scope_info, GlobalThisBindingScopeInfo)     \
+  V(ScopeInfo, empty_function_scope_info, EmptyFunctionScopeInfo)              \
+  V(ScopeInfo, native_scope_info, NativeScopeInfo)                             \
   /* Hash seed */                                                              \
   V(ByteArray, hash_seed, HashSeed)
 
 // Mutable roots that are known to be immortal immovable, for which we can
 // safely skip write barriers.
-#define STRONG_MUTABLE_IMMOVABLE_ROOT_LIST(V)                                \
-  ACCESSOR_INFO_ROOT_LIST(V)                                                 \
-  /* Maps */                                                                 \
-  V(Map, external_map, ExternalMap)                                          \
-  V(Map, message_object_map, JSMessageObjectMap)                             \
-  /* Canonical empty values */                                               \
-  V(Script, empty_script, EmptyScript)                                       \
-  V(FeedbackCell, many_closures_cell, ManyClosuresCell)                      \
-  V(Cell, invalid_prototype_validity_cell, InvalidPrototypeValidityCell)     \
-  /* Protectors */                                                           \
-  V(Cell, array_constructor_protector, ArrayConstructorProtector)            \
-  V(PropertyCell, no_elements_protector, NoElementsProtector)                \
-  V(Cell, is_concat_spreadable_protector, IsConcatSpreadableProtector)       \
-  V(PropertyCell, array_species_protector, ArraySpeciesProtector)            \
-  V(PropertyCell, typed_array_species_protector, TypedArraySpeciesProtector) \
-  V(PropertyCell, promise_species_protector, PromiseSpeciesProtector)        \
-  V(Cell, string_length_protector, StringLengthProtector)                    \
-  V(PropertyCell, array_iterator_protector, ArrayIteratorProtector)          \
-  V(PropertyCell, array_buffer_detaching_protector,                          \
-    ArrayBufferDetachingProtector)                                           \
-  V(PropertyCell, promise_hook_protector, PromiseHookProtector)              \
-  V(Cell, promise_resolve_protector, PromiseResolveProtector)                \
-  V(PropertyCell, map_iterator_protector, MapIteratorProtector)              \
-  V(PropertyCell, promise_then_protector, PromiseThenProtector)              \
-  V(PropertyCell, set_iterator_protector, SetIteratorProtector)              \
-  V(PropertyCell, string_iterator_protector, StringIteratorProtector)        \
-  /* Caches */                                                               \
-  V(FixedArray, single_character_string_cache, SingleCharacterStringCache)   \
-  V(FixedArray, string_split_cache, StringSplitCache)                        \
-  V(FixedArray, regexp_multiple_cache, RegExpMultipleCache)                  \
-  /* Indirection lists for isolate-independent builtins */                   \
+#define STRONG_MUTABLE_IMMOVABLE_ROOT_LIST(V)                                  \
+  ACCESSOR_INFO_ROOT_LIST(V)                                                   \
+  /* Maps */                                                                   \
+  V(Map, external_map, ExternalMap)                                            \
+  V(Map, message_object_map, JSMessageObjectMap)                               \
+  /* Canonical empty values */                                                 \
+  V(Script, empty_script, EmptyScript)                                         \
+  V(FeedbackCell, many_closures_cell, ManyClosuresCell)                        \
+  V(Cell, invalid_prototype_validity_cell, InvalidPrototypeValidityCell)       \
+  /* Protectors */                                                             \
+  V(PropertyCell, array_constructor_protector, ArrayConstructorProtector)      \
+  V(PropertyCell, no_elements_protector, NoElementsProtector)                  \
+  V(PropertyCell, is_concat_spreadable_protector, IsConcatSpreadableProtector) \
+  V(PropertyCell, array_species_protector, ArraySpeciesProtector)              \
+  V(PropertyCell, typed_array_species_protector, TypedArraySpeciesProtector)   \
+  V(PropertyCell, promise_species_protector, PromiseSpeciesProtector)          \
+  V(PropertyCell, regexp_species_protector, RegExpSpeciesProtector)            \
+  V(PropertyCell, string_length_protector, StringLengthProtector)              \
+  V(PropertyCell, array_iterator_protector, ArrayIteratorProtector)            \
+  V(PropertyCell, array_buffer_detaching_protector,                            \
+    ArrayBufferDetachingProtector)                                             \
+  V(PropertyCell, promise_hook_protector, PromiseHookProtector)                \
+  V(PropertyCell, promise_resolve_protector, PromiseResolveProtector)          \
+  V(PropertyCell, map_iterator_protector, MapIteratorProtector)                \
+  V(PropertyCell, promise_then_protector, PromiseThenProtector)                \
+  V(PropertyCell, set_iterator_protector, SetIteratorProtector)                \
+  V(PropertyCell, string_iterator_protector, StringIteratorProtector)          \
+  /* Caches */                                                                 \
+  V(FixedArray, single_character_string_cache, SingleCharacterStringCache)     \
+  V(FixedArray, string_split_cache, StringSplitCache)                          \
+  V(FixedArray, regexp_multiple_cache, RegExpMultipleCache)                    \
+  /* Indirection lists for isolate-independent builtins */                     \
   V(FixedArray, builtins_constants_table, BuiltinsConstantsTable)
 
 // These root references can be updated by the mutator.
@@ -253,8 +245,6 @@ class Symbol;
   /* Feedback vectors that we need for code coverage or type profile */    \
   V(Object, feedback_vectors_for_profiling_tools,                          \
     FeedbackVectorsForProfilingTools)                                      \
-  V(WeakArrayList, noscript_shared_function_infos,                         \
-    NoScriptSharedFunctionInfos)                                           \
   V(FixedArray, serialized_objects, SerializedObjects)                     \
   V(FixedArray, serialized_global_proxy_sizes, SerializedGlobalProxySizes) \
   V(TemplateList, message_listeners, MessageListeners)                     \
@@ -266,12 +256,12 @@ class Symbol;
   V(HeapObject, weak_refs_keep_during_job, WeakRefsKeepDuringJob)          \
   V(HeapObject, interpreter_entry_trampoline_for_profiling,                \
     InterpreterEntryTrampolineForProfiling)                                \
-  V(Object, pending_optimize_for_test_bytecode, PendingOptimizeForTestBytecode)
+  V(Object, pending_optimize_for_test_bytecode,                            \
+    PendingOptimizeForTestBytecode)                                        \
+  V(WeakArrayList, shared_wasm_memories, SharedWasmMemories)
 
 // Entries in this list are limited to Smis and are not visited during GC.
 #define SMI_ROOT_LIST(V)                                                       \
-  V(Smi, stack_limit, StackLimit)                                              \
-  V(Smi, real_stack_limit, RealStackLimit)                                     \
   V(Smi, last_script_id, LastScriptId)                                         \
   V(Smi, last_debugging_id, LastDebuggingId)                                   \
   /* To distinguish the function templates, so that we can find them in the */ \

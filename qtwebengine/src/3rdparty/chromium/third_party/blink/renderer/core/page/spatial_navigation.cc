@@ -56,14 +56,12 @@ constexpr double kMinDistance = std::numeric_limits<int>::lowest();
 
 constexpr int kFudgeFactor = 2;
 
-static void DeflateIfOverlapped(PhysicalRect&, PhysicalRect&);
-
 FocusCandidate::FocusCandidate(Node* node, SpatialNavigationDirection direction)
     : visible_node(nullptr), focusable_node(nullptr), is_offscreen(true) {
   DCHECK(node);
   DCHECK(node->IsElementNode());
 
-  if (auto* area = ToHTMLAreaElementOrNull(*node)) {
+  if (auto* area = DynamicTo<HTMLAreaElement>(*node)) {
     HTMLImageElement* image = area->ImageElement();
     if (!image || !image->GetLayoutObject())
       return;
@@ -135,6 +133,23 @@ static bool IsRectInDirection(SpatialNavigationDirection direction,
       NOTREACHED();
       return false;
   }
+}
+
+bool IsFragmentedInline(Node& node) {
+  const LayoutObject* layout_object = node.GetLayoutObject();
+  if (!layout_object->IsInline() || layout_object->IsAtomicInlineLevel())
+    return false;
+
+  // If it has empty quads, it's most likely not a fragmented text.
+  // <a><div></div></a> has for example one empty rect.
+  Vector<FloatQuad> quads;
+  layout_object->AbsoluteQuads(quads);
+  for (const FloatQuad& quad : quads) {
+    if (quad.IsEmpty())
+      return false;
+  }
+
+  return quads.size() > 1;
 }
 
 FloatRect RectInViewport(const Node& node) {
@@ -254,8 +269,8 @@ bool ScrollInDirection(Node* container, SpatialNavigationDirection direction) {
 
   int dx = 0;
   int dy = 0;
-  int pixels_per_line_step = ScrollableArea::PixelsPerLineStep(
-      container->GetDocument().GetFrame()->View()->GetChromeClient());
+  int pixels_per_line_step =
+      ScrollableArea::PixelsPerLineStep(container->GetDocument().GetFrame());
   switch (direction) {
     case SpatialNavigationDirection::kLeft:
       dx = -pixels_per_line_step;
@@ -263,7 +278,7 @@ bool ScrollInDirection(Node* container, SpatialNavigationDirection direction) {
     case SpatialNavigationDirection::kRight:
       // TODO(bokan, https://crbug.com/952326): Fix this DCHECK.
       //  DCHECK_GT(container->GetLayoutBox()->ScrollWidth(),
-      //            container->GetLayoutBox()->ScrollLeft() +
+      //            container->GetScrollableArea()->ScrollPosition().X() +
       //                container->GetLayoutBox()->ClientWidth());
       dx = pixels_per_line_step;
       break;
@@ -273,7 +288,7 @@ bool ScrollInDirection(Node* container, SpatialNavigationDirection direction) {
     case SpatialNavigationDirection::kDown:
       // TODO(bokan, https://crbug.com/952326): Fix this DCHECK.
       //  DCHECK_GT(container->GetLayoutBox()->ScrollHeight(),
-      //            container->GetLayoutBox()->ScrollTop() +
+      //            container->GetScrollableArea()->ScrollPosition().Y() +
       //                container->GetLayoutBox()->ClientHeight());
       dy = pixels_per_line_step;
       break;
@@ -294,22 +309,6 @@ bool ScrollInDirection(Node* container, SpatialNavigationDirection direction) {
 
   scroller->ScrollBy(ScrollOffset(dx, dy), kUserScroll);
   return true;
-}
-
-static void DeflateIfOverlapped(PhysicalRect& a, PhysicalRect& b) {
-  if (!a.Intersects(b) || a.Contains(b) || b.Contains(a))
-    return;
-
-  LayoutUnit deflate_factor = LayoutUnit(-kFudgeFactor);
-
-  // Avoid negative width or height values.
-  if ((a.Width() + 2 * deflate_factor > 0) &&
-      (a.Height() + 2 * deflate_factor > 0))
-    a.Inflate(deflate_factor);
-
-  if ((b.Width() + 2 * deflate_factor > 0) &&
-      (b.Height() + 2 * deflate_factor > 0))
-    b.Inflate(deflate_factor);
 }
 
 bool IsScrollableNode(const Node* node) {
@@ -358,26 +357,33 @@ bool CanScrollInDirection(const Node* container,
   if (!IsScrollableNode(container))
     return false;
 
+  const Element* container_element = DynamicTo<Element>(container);
+  if (!container_element)
+    return false;
+  auto* scrollable_area = container_element->GetScrollableArea();
+  if (!scrollable_area)
+    return false;
+
   DCHECK(container->GetLayoutObject());
   switch (direction) {
     case SpatialNavigationDirection::kLeft:
       return (container->GetLayoutObject()->Style()->OverflowX() !=
                   EOverflow::kHidden &&
-              container->GetLayoutBox()->ScrollLeft() > 0);
+              scrollable_area->ScrollPosition().X() > 0);
     case SpatialNavigationDirection::kUp:
       return (container->GetLayoutObject()->Style()->OverflowY() !=
                   EOverflow::kHidden &&
-              container->GetLayoutBox()->ScrollTop() > 0);
+              scrollable_area->ScrollPosition().Y() > 0);
     case SpatialNavigationDirection::kRight:
       return (container->GetLayoutObject()->Style()->OverflowX() !=
                   EOverflow::kHidden &&
-              container->GetLayoutBox()->ScrollLeft() +
+              LayoutUnit(scrollable_area->ScrollPosition().X()) +
                       container->GetLayoutBox()->ClientWidth() <
                   container->GetLayoutBox()->ScrollWidth());
     case SpatialNavigationDirection::kDown:
       return (container->GetLayoutObject()->Style()->OverflowY() !=
                   EOverflow::kHidden &&
-              container->GetLayoutBox()->ScrollTop() +
+              LayoutUnit(scrollable_area->ScrollPosition().Y()) +
                       container->GetLayoutBox()->ClientHeight() <
                   container->GetLayoutBox()->ScrollHeight());
     default:
@@ -398,11 +404,11 @@ bool CanScrollInDirection(const LocalFrame* frame,
   layoutView->CalculateScrollbarModes(horizontal_mode, vertical_mode);
   if ((direction == SpatialNavigationDirection::kLeft ||
        direction == SpatialNavigationDirection::kRight) &&
-      kScrollbarAlwaysOff == horizontal_mode)
+      ScrollbarMode::kAlwaysOff == horizontal_mode)
     return false;
   if ((direction == SpatialNavigationDirection::kUp ||
        direction == SpatialNavigationDirection::kDown) &&
-      kScrollbarAlwaysOff == vertical_mode)
+      ScrollbarMode::kAlwaysOff == vertical_mode)
     return false;
   ScrollableArea* scrollable_area = frame->View()->GetScrollableArea();
   LayoutSize size(scrollable_area->ContentsSize());
@@ -606,7 +612,6 @@ double ComputeDistanceDataForNode(SpatialNavigationDirection direction,
   } else if (!IsRectInDirection(direction, current_rect, node_rect)) {
     return kMaxDistance;
   } else {
-    DeflateIfOverlapped(current_rect, node_rect);
     PhysicalRect intersection_rect = Intersection(current_rect, node_rect);
     overlap =
         (intersection_rect.Width() * intersection_rect.Height()).ToDouble();
@@ -722,6 +727,48 @@ PhysicalRect RootViewport(const LocalFrame* current_frame) {
       current_frame->GetPage()->GetVisualViewport().VisibleRect());
 }
 
+// Ignores fragments that are completely offscreen.
+// Returns the first one that is not offscreen, in the given iterator range.
+template <class Iterator>
+PhysicalRect FirstVisibleFragment(const PhysicalRect& visibility,
+                                  Iterator fragment,
+                                  Iterator end) {
+  while (fragment != end) {
+    PhysicalRect physical_fragment(EnclosedIntRect(fragment->BoundingBox()));
+    physical_fragment.Intersect(visibility);
+    if (!physical_fragment.IsEmpty())
+      return physical_fragment;
+    ++fragment;
+  }
+  return visibility;
+}
+
+PhysicalRect SearchOriginFragment(const PhysicalRect& visible_part,
+                                  const LayoutObject& fragmented,
+                                  const SpatialNavigationDirection direction) {
+  // For accuracy, use the first visible fragment (not the fragmented element's
+  // entire bounding rect which is a union of all fragments) as search origin.
+  Vector<FloatQuad> fragments;
+  fragmented.AbsoluteQuads(
+      fragments, kTraverseDocumentBoundaries | kApplyRemoteRootFrameOffset);
+  switch (direction) {
+    case SpatialNavigationDirection::kLeft:
+    case SpatialNavigationDirection::kDown:
+      // Search from the topmost fragment.
+      return FirstVisibleFragment(visible_part, fragments.begin(),
+                                  fragments.end());
+    case SpatialNavigationDirection::kRight:
+    case SpatialNavigationDirection::kUp:
+      // Search from the bottommost fragment.
+      return FirstVisibleFragment(visible_part, fragments.rbegin(),
+                                  fragments.rend());
+    case SpatialNavigationDirection::kNone:
+      break;
+      // Nothing to do.
+  }
+  return visible_part;
+}
+
 // Spatnav uses this rectangle to measure distances to focus candidates.
 // The search origin is either activeElement F itself, if it's being at least
 // partially visible, or else, its first [partially] visible scroller. If both
@@ -739,7 +786,7 @@ PhysicalRect SearchOrigin(const PhysicalRect& viewport_rect_of_root_frame,
     return OppositeEdge(direction, viewport_rect_of_root_frame);
   }
 
-  auto* area_element = ToHTMLAreaElementOrNull(focus_node);
+  auto* area_element = DynamicTo<HTMLAreaElement>(focus_node);
   if (area_element)
     focus_node = area_element->ImageElement();
 
@@ -748,7 +795,14 @@ PhysicalRect SearchOrigin(const PhysicalRect& viewport_rect_of_root_frame,
       return StartEdgeForAreaElement(*area_element, direction);
 
     PhysicalRect box_in_root_frame = NodeRectInRootFrame(focus_node);
-    return Intersection(box_in_root_frame, viewport_rect_of_root_frame);
+    PhysicalRect visible_part =
+        Intersection(box_in_root_frame, viewport_rect_of_root_frame);
+
+    if (IsFragmentedInline(*focus_node)) {
+      return SearchOriginFragment(visible_part, *focus_node->GetLayoutObject(),
+                                  direction);
+    }
+    return visible_part;
   }
 
   Node* container = ScrollableAreaOrDocumentOf(focus_node);
@@ -759,10 +813,8 @@ PhysicalRect SearchOrigin(const PhysicalRect& viewport_rect_of_root_frame,
       return OppositeEdge(direction, Intersection(box_in_root_frame,
                                                   viewport_rect_of_root_frame));
     }
-
     container = ScrollableAreaOrDocumentOf(container);
   }
-
   return OppositeEdge(direction, viewport_rect_of_root_frame);
 }
 

@@ -4,7 +4,6 @@
 
 #include "cc/layers/mirror_layer_impl.h"
 
-#include "cc/layers/append_quads_data.h"
 #include "cc/trees/effect_node.h"
 #include "cc/trees/layer_tree_impl.h"
 #include "cc/trees/occlusion.h"
@@ -38,8 +37,6 @@ void MirrorLayerImpl::AppendQuads(viz::RenderPass* render_pass,
   if (unoccluded_content_rect.IsEmpty())
     return;
 
-  append_quads_data->mirror_rect = drawable_content_rect();
-
   const bool contents_opaque = false;
   viz::SharedQuadState* shared_quad_state =
       render_pass->CreateAndAppendSharedQuadState();
@@ -58,8 +55,7 @@ void MirrorLayerImpl::AppendQuads(viz::RenderPass* render_pass,
   auto* quad = render_pass->CreateAndAppendDrawQuad<viz::RenderPassDrawQuad>();
   quad->SetNew(shared_quad_state, content_rect, unoccluded_content_rect,
                mirrored_layer_id_, mask_resource_id, mask_uv_rect,
-               mask_texture_size, /*mask_applies_to_backdrop=*/false,
-               mirrored_effect_node->surface_contents_scale,
+               mask_texture_size, mirrored_effect_node->surface_contents_scale,
                mirrored_effect_node->filters_origin,
                gfx::RectF(gfx::Rect(content_rect.size())),
                !layer_tree_impl()->settings().enable_edge_anti_aliasing, 0.f);

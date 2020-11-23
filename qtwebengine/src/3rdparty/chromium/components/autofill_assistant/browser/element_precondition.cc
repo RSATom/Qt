@@ -17,8 +17,7 @@ ElementPrecondition::ElementPrecondition(
         element_exists,
     const google::protobuf::RepeatedPtrField<FormValueMatchProto>&
         form_value_match)
-    : form_value_match_(form_value_match.begin(), form_value_match.end()),
-      weak_ptr_factory_(this) {
+    : form_value_match_(form_value_match.begin(), form_value_match.end()) {
   for (const auto& element : element_exists) {
     // TODO(crbug.com/806868): Check if we shouldn't skip the script when this
     // happens.
@@ -43,7 +42,7 @@ void ElementPrecondition::Check(BatchElementChecker* batch_checks,
 
   callback_ = std::move(callback);
   for (const auto& selector : elements_exist_) {
-    base::OnceCallback<void(bool)> callback =
+    base::OnceCallback<void(const ClientStatus&)> callback =
         base::BindOnce(&ElementPrecondition::OnCheckElementExists,
                        weak_ptr_factory_.GetWeakPtr());
     batch_checks->AddElementCheck(selector, std::move(callback));
@@ -58,14 +57,15 @@ void ElementPrecondition::Check(BatchElementChecker* batch_checks,
   }
 }
 
-void ElementPrecondition::OnCheckElementExists(bool exists) {
-  ReportCheckResult(exists);
+void ElementPrecondition::OnCheckElementExists(
+    const ClientStatus& element_status) {
+  ReportCheckResult(element_status.ok());
 }
 
 void ElementPrecondition::OnGetFieldValue(int index,
-                                          bool exists,
+                                          const ClientStatus& element_status,
                                           const std::string& value) {
-  if (!exists) {
+  if (!element_status.ok()) {
     ReportCheckResult(false);
     return;
   }

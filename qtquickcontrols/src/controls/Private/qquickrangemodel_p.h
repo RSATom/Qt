@@ -92,8 +92,8 @@ public:
     Q_INVOKABLE qreal valueForPosition(qreal position) const;
     Q_INVOKABLE qreal positionForValue(qreal value) const;
 
-    void classBegin();
-    void componentComplete();
+    void classBegin() override;
+    void componentComplete() override;
 
 public Q_SLOTS:
     void toMinimum();

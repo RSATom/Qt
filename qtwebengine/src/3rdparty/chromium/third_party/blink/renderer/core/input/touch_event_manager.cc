@@ -20,9 +20,9 @@
 #include "third_party/blink/renderer/core/layout/hit_test_canvas_result.h"
 #include "third_party/blink/renderer/core/page/chrome_client.h"
 #include "third_party/blink/renderer/core/page/page.h"
+#include "third_party/blink/renderer/platform/heap/heap.h"
 #include "third_party/blink/renderer/platform/instrumentation/histogram.h"
 #include "third_party/blink/renderer/platform/runtime_enabled_features.h"
-#include "third_party/blink/renderer/platform/wtf/time.h"
 
 namespace blink {
 
@@ -245,6 +245,10 @@ WebCoalescedInputEvent TouchEventManager::GenerateWebCoalescedInputEvent() {
     event.touches[event.touches_length++] =
         CreateWebTouchPointFromWebPointerEvent(touch_pointer_event,
                                                touch_point_attribute->stale_);
+    if (!touch_point_attribute->stale_) {
+      event.SetTimeStamp(std::max(event.TimeStamp(),
+                                  touch_point_attribute->event_.TimeStamp()));
+    }
 
     // Only change the touch event type from move. So if we have two pointers
     // in up and down state we just set the touch event type to the first one
@@ -391,7 +395,7 @@ TouchEventManager::DispatchTouchEventFromAccumulatdTouchPoints() {
   }
 
   // Holds the complete set of touches on the screen.
-  TouchList* touches = TouchList::Create();
+  auto* touches = MakeGarbageCollected<TouchList>();
 
   // A different view on the 'touches' list above, filtered and grouped by
   // event target. Used for the |targetTouches| list in the JS event.
@@ -419,7 +423,7 @@ TouchEventManager::DispatchTouchEventFromAccumulatdTouchPoints() {
     TargetTouchesHeapMap::iterator target_touches_iterator =
         touches_by_target.find(touch_target);
     if (target_touches_iterator == touches_by_target.end()) {
-      touches_by_target.Set(touch_target, TouchList::Create());
+      touches_by_target.Set(touch_target, MakeGarbageCollected<TouchList>());
       target_touches_iterator = touches_by_target.find(touch_target);
     }
 
@@ -440,8 +444,10 @@ TouchEventManager::DispatchTouchEventFromAccumulatdTouchPoints() {
     // for further discussion about the TouchStationary state.
     if (!touch_point_attribute->stale_ && known_target) {
       size_t event_type_idx = event_type - WebInputEvent::kPointerTypeFirst;
-      if (!changed_touches[event_type_idx].touches_)
-        changed_touches[event_type_idx].touches_ = TouchList::Create();
+      if (!changed_touches[event_type_idx].touches_) {
+        changed_touches[event_type_idx].touches_ =
+            MakeGarbageCollected<TouchList>();
+      }
       changed_touches[event_type_idx].touches_->Append(touch);
       changed_touches[event_type_idx].targets_.insert(touch_target);
     }
@@ -536,7 +542,7 @@ void TouchEventManager::UpdateTouchAttributeMapsForPointerDown(
       Node* node = result.InnerNode();
       if (!node)
         return;
-      if (auto* canvas = ToHTMLCanvasElementOrNull(node)) {
+      if (auto* canvas = DynamicTo<HTMLCanvasElement>(node)) {
         HitTestCanvasResult* hit_test_canvas_result =
             canvas->GetControlAndIdIfHitRegionExists(
                 result.PointInInnerNodeFrame());

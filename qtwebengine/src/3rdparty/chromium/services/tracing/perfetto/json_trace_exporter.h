@@ -166,6 +166,7 @@ class JSONTraceExporter {
     void AddDuration(int64_t duration);
     void AddThreadDuration(int64_t thread_duration);
     void AddThreadTimestamp(int64_t thread_timestamp);
+    void AddThreadInstructionCount(int64_t thread_instruction_count);
     void AddThreadInstructionDelta(int64_t thread_instruction_delta);
     void AddBindId(uint64_t bind_id);
     // A set of bit flags for this trace event, along with a |scope|. |scope| is
@@ -254,6 +255,9 @@ class JSONTraceExporter {
                                              int32_t pid,
                                              int32_t tid);
 
+  void AddMetadata(const std::string& entry_name,
+                   std::unique_ptr<base::Value> value);
+
  private:
   // Used by the implementation to ensure the proper separators exist between
   // trace events in the array.
@@ -262,7 +266,7 @@ class JSONTraceExporter {
   StringBuffer out_;
   bool has_output_first_event_ = false;
   bool has_output_json_preamble_ = false;
-  std::string legacy_system_trace_events_;
+  std::string legacy_json_trace_events_;
   std::string label_filter_;
   std::string legacy_system_ftrace_output_;
   std::unique_ptr<base::DictionaryValue> metadata_;

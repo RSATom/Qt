@@ -62,6 +62,26 @@ GLenum GetSizedFormatInternal(GLenum format, GLenum type)
             }
             break;
 
+        case GL_COMPRESSED_RGBA_PVRTC_2BPPV1_IMG:
+            switch (type)
+            {
+                case GL_UNSIGNED_BYTE:
+                    return GL_COMPRESSED_RGBA_PVRTC_2BPPV1_IMG;
+                default:
+                    break;
+            }
+            break;
+
+        case GL_COMPRESSED_RGBA_PVRTC_4BPPV1_IMG:
+            switch (type)
+            {
+                case GL_UNSIGNED_BYTE:
+                    return GL_COMPRESSED_RGBA_PVRTC_4BPPV1_IMG;
+                default:
+                    break;
+            }
+            break;
+
         case GL_COMPRESSED_RGBA_S3TC_DXT1_EXT:
             switch (type)
             {
@@ -112,6 +132,26 @@ GLenum GetSizedFormatInternal(GLenum format, GLenum type)
             }
             break;
 
+        case GL_COMPRESSED_RGB_PVRTC_2BPPV1_IMG:
+            switch (type)
+            {
+                case GL_UNSIGNED_BYTE:
+                    return GL_COMPRESSED_RGB_PVRTC_2BPPV1_IMG;
+                default:
+                    break;
+            }
+            break;
+
+        case GL_COMPRESSED_RGB_PVRTC_4BPPV1_IMG:
+            switch (type)
+            {
+                case GL_UNSIGNED_BYTE:
+                    return GL_COMPRESSED_RGB_PVRTC_4BPPV1_IMG;
+                default:
+                    break;
+            }
+            break;
+
         case GL_COMPRESSED_RGB_S3TC_DXT1_EXT:
             switch (type)
             {
@@ -127,6 +167,26 @@ GLenum GetSizedFormatInternal(GLenum format, GLenum type)
             {
                 case GL_UNSIGNED_BYTE:
                     return GL_COMPRESSED_SRGB_ALPHA_BPTC_UNORM_EXT;
+                default:
+                    break;
+            }
+            break;
+
+        case GL_COMPRESSED_SRGB_ALPHA_PVRTC_2BPPV1_EXT:
+            switch (type)
+            {
+                case GL_UNSIGNED_BYTE:
+                    return GL_COMPRESSED_SRGB_ALPHA_PVRTC_2BPPV1_EXT;
+                default:
+                    break;
+            }
+            break;
+
+        case GL_COMPRESSED_SRGB_ALPHA_PVRTC_4BPPV1_EXT:
+            switch (type)
+            {
+                case GL_UNSIGNED_BYTE:
+                    return GL_COMPRESSED_SRGB_ALPHA_PVRTC_4BPPV1_EXT;
                 default:
                     break;
             }
@@ -157,6 +217,26 @@ GLenum GetSizedFormatInternal(GLenum format, GLenum type)
             {
                 case GL_UNSIGNED_BYTE:
                     return GL_COMPRESSED_SRGB_ALPHA_S3TC_DXT5_EXT;
+                default:
+                    break;
+            }
+            break;
+
+        case GL_COMPRESSED_SRGB_PVRTC_2BPPV1_EXT:
+            switch (type)
+            {
+                case GL_UNSIGNED_BYTE:
+                    return GL_COMPRESSED_SRGB_PVRTC_2BPPV1_EXT;
+                default:
+                    break;
+            }
+            break;
+
+        case GL_COMPRESSED_SRGB_PVRTC_4BPPV1_EXT:
+            switch (type)
+            {
+                case GL_UNSIGNED_BYTE:
+                    return GL_COMPRESSED_SRGB_PVRTC_4BPPV1_EXT;
                 default:
                     break;
             }
@@ -311,6 +391,8 @@ GLenum GetSizedFormatInternal(GLenum format, GLenum type)
                     return GL_RGB8;
                 case GL_UNSIGNED_INT_10F_11F_11F_REV:
                     return GL_R11F_G11F_B10F;
+                case GL_UNSIGNED_INT_2_10_10_10_REV:
+                    return GL_RGB10_UNORM_ANGLEX;
                 case GL_UNSIGNED_INT_5_9_9_9_REV:
                     return GL_RGB9_E5;
                 case GL_UNSIGNED_SHORT:
@@ -699,6 +781,17 @@ bool ValidES3FormatCombination(GLenum format, GLenum type, GLenum internalFormat
                     }
                     break;
                 }
+                case GL_UNSIGNED_INT_2_10_10_10_REV:
+                {
+                    switch (internalFormat)
+                    {
+                        case GL_RGB:
+                            return true;
+                        default:
+                            break;
+                    }
+                    break;
+                }
                 case GL_SHORT:
                 {
                     switch (internalFormat)
@@ -935,6 +1028,7 @@ bool ValidES3FormatCombination(GLenum format, GLenum type, GLenum internalFormat
                 {
                     switch (internalFormat)
                     {
+                        case GL_RGBA:
                         case GL_RGB10_A2:
                         case GL_RGB5_A1:
                             return true;

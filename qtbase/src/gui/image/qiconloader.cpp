@@ -79,6 +79,9 @@ QIconLoader::QIconLoader() :
 
 static inline QString systemThemeName()
 {
+    const auto override = qgetenv("QT_QPA_SYSTEM_ICON_THEME");
+    if (!override.isEmpty())
+        return QString::fromLocal8Bit(override);
     if (const QPlatformTheme *theme = QGuiApplicationPrivate::platformTheme()) {
         const QVariant themeHint = theme->themeHint(QPlatformTheme::SystemIconThemeName);
         if (themeHint.isValid())
@@ -112,10 +115,9 @@ extern QFactoryLoader *qt_iconEngineFactoryLoader(); // qicon.cpp
 void QIconLoader::ensureInitialized()
 {
     if (!m_initialized) {
+        if (!QGuiApplicationPrivate::platformTheme())
+            return; // it's too early: try again later (QTBUG-74252)
         m_initialized = true;
-
-        Q_ASSERT(qApp);
-
         m_systemTheme = systemThemeName();
 
         if (m_systemTheme.isEmpty())
@@ -125,6 +127,16 @@ void QIconLoader::ensureInitialized()
     }
 }
 
+/*!
+    \internal
+    Gets an instance.
+
+    \l QIcon::setFallbackThemeName() should be called before QGuiApplication is
+    created, to avoid a race condition (QTBUG-74252). When this function is
+    called from there, ensureInitialized() does not succeed because there
+    is no QPlatformTheme yet, so systemThemeName() is empty, and we don't want
+    m_systemTheme to get intialized to the fallback theme instead of the normal one.
+*/
 QIconLoader *QIconLoader::instance()
 {
    iconLoaderInstance()->ensureInitialized();
@@ -714,7 +726,7 @@ QIconLoaderEngineEntry *QIconLoaderEngine::entryForSize(const QThemeIconInfo &in
 
     // Find the minimum distance icon
     int minimalSize = INT_MAX;
-    QIconLoaderEngineEntry *closestMatch = 0;
+    QIconLoaderEngineEntry *closestMatch = nullptr;
     for (int i = 0; i < numEntries; ++i) {
         QIconLoaderEngineEntry *entry = info.entries.at(i);
         int distance = directorySizeDistance(entry->dir, iconsize, scale);
@@ -797,8 +809,12 @@ QPixmap ScalableEntry::pixmap(const QSize &size, QIcon::Mode mode, QIcon::State 
     if (svgIcon.isNull())
         svgIcon = QIcon(filename);
 
-    // Simply reuse svg icon engine
-    return svgIcon.pixmap(size, mode, state);
+    // Bypass QIcon API, as that will scale by device pixel ratio of the
+    // highest DPR screen since we're not passing on any QWindow.
+    if (QIconEngine *engine = svgIcon.data_ptr() ? svgIcon.data_ptr()->engine : nullptr)
+        return engine->pixmap(size, mode, state);
+
+    return QPixmap();
 }
 
 QPixmap QIconLoaderEngine::pixmap(const QSize &size, QIcon::Mode mode,

@@ -23,6 +23,25 @@ sk_sp<SkColorFilter> SkColorFilterFromSettings(
   return SkHighContrastFilter::Make(config);
 }
 
+// Further darken dark grays to match the primary surface color recommended by
+// the material design guidelines:
+//   https://material.io/design/color/dark-theme.html#properties
+//
+// TODO(gilmanmh): Consider adding a more general way to adjust colors after
+// applying the main filter.
+void AdjustGray(Color* color) {
+  DCHECK(color);
+  static const int kBrightnessThreshold = 32;
+  static const int kAdjustedBrightness = 18;
+
+  if (color->Red() == color->Blue() && color->Red() == color->Green() &&
+      color->Red() < kBrightnessThreshold &&
+      color->Red() > kAdjustedBrightness) {
+    color->SetRGB(kAdjustedBrightness, kAdjustedBrightness,
+                  kAdjustedBrightness);
+  }
+}
+
 class SkColorFilterWrapper : public DarkModeColorFilter {
  public:
   SkColorFilterWrapper(sk_sp<SkColorFilter> filter) : filter_(filter) {}
@@ -55,9 +74,12 @@ class LabColorFilter : public DarkModeColorFilter {
     lab.SetX(invertedL);
     rgb = transformer_.LabToSRGB(lab);
 
-    return Color(static_cast<unsigned int>(rgb.X() * 255 + 0.5),
-                 static_cast<unsigned int>(rgb.Y() * 255 + 0.5),
-                 static_cast<unsigned int>(rgb.Z() * 255 + 0.5), color.Alpha());
+    Color inverted_color(Color(static_cast<unsigned int>(rgb.X() * 255 + 0.5),
+                               static_cast<unsigned int>(rgb.Y() * 255 + 0.5),
+                               static_cast<unsigned int>(rgb.Z() * 255 + 0.5),
+                               color.Alpha()));
+    AdjustGray(&inverted_color);
+    return inverted_color;
   }
 
   sk_sp<SkColorFilter> ToSkColorFilter() const override { return filter_; }
@@ -72,10 +94,10 @@ class LabColorFilter : public DarkModeColorFilter {
 std::unique_ptr<DarkModeColorFilter> DarkModeColorFilter::FromSettings(
     const DarkModeSettings& settings) {
   switch (settings.mode) {
-    case DarkMode::kOff:
+    case DarkModeInversionAlgorithm::kOff:
       return nullptr;
 
-    case DarkMode::kSimpleInvertForTesting:
+    case DarkModeInversionAlgorithm::kSimpleInvertForTesting:
       uint8_t identity[256], invert[256];
       for (int i = 0; i < 256; ++i) {
         identity[i] = i;
@@ -84,15 +106,15 @@ std::unique_ptr<DarkModeColorFilter> DarkModeColorFilter::FromSettings(
       return std::make_unique<SkColorFilterWrapper>(
           SkTableColorFilter::MakeARGB(identity, invert, invert, invert));
 
-    case DarkMode::kInvertBrightness:
+    case DarkModeInversionAlgorithm::kInvertBrightness:
       return std::make_unique<SkColorFilterWrapper>(SkColorFilterFromSettings(
           SkHighContrastConfig::InvertStyle::kInvertBrightness, settings));
 
-    case DarkMode::kInvertLightness:
+    case DarkModeInversionAlgorithm::kInvertLightness:
       return std::make_unique<SkColorFilterWrapper>(SkColorFilterFromSettings(
           SkHighContrastConfig::InvertStyle::kInvertLightness, settings));
 
-    case DarkMode::kInvertLightnessLAB:
+    case DarkModeInversionAlgorithm::kInvertLightnessLAB:
       return std::make_unique<LabColorFilter>();
   }
   NOTREACHED();

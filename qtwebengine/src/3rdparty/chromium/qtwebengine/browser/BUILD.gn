@@ -1,11 +1,15 @@
 import("//chrome/common/features.gni")
-import("//components/spellcheck/spellcheck_build_features.gni")
 import("//tools/grit/grit_rule.gni")
 import ("//mojo/public/tools/bindings/mojom.gni")
 
 mojom("interfaces") {
   sources = [
+    "plugin.mojom",
     "qtwebchannel.mojom",
+  ]
+
+  deps = [
+    "//mojo/public/mojom/base",
   ]
 }
 
@@ -54,45 +58,10 @@ source_set("qtwebengine_content_renderer_overlay_manifest") {
   }
 }
 
-source_set("qtwebengine_packaged_service_manifests") {
-  sources = [
-    "qtwebengine_packaged_service_manifest.cc",
-    "qtwebengine_packaged_service_manifest.h",
-  ]
-
-  deps = [
-    "//base",
-    "//components/spellcheck:buildflags",
-    "//services/service_manager/public/cpp",
-  ]
-  if (enable_spellcheck) {
-    deps += [ "//components/spellcheck/common:interfaces" ]
-  }
-}
-
-source_set("qtwebengine_renderer_manifest") {
-  sources = [
-    "qtwebengine_renderer_manifest.cc",
-    "qtwebengine_renderer_manifest.h",
-  ]
-
-  deps = [
-    "//base",
-    "//components/spellcheck:buildflags",
-    "//services/service_manager/public/cpp",
-  ]
-  if (enable_spellcheck) {
-    deps += [ "//components/spellcheck/common:interfaces" ]
-  }
-}
-
-
 source_set("service_manifests") {
   public_deps = [
     ":qtwebengine_content_browser_overlay_manifest",
     ":qtwebengine_content_renderer_overlay_manifest",
-    ":qtwebengine_packaged_service_manifests",
-    ":qtwebengine_renderer_manifest",
   ]
 }
 

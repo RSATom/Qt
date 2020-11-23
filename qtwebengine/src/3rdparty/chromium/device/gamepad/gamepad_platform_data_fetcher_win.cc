@@ -87,7 +87,12 @@ const base::FilePath::CharType* XInputDllFileName() {
 GamepadPlatformDataFetcherWin::GamepadPlatformDataFetcherWin()
     : xinput_available_(false) {}
 
-GamepadPlatformDataFetcherWin::~GamepadPlatformDataFetcherWin() = default;
+GamepadPlatformDataFetcherWin::~GamepadPlatformDataFetcherWin() {
+  for (auto& haptic_gamepad : haptics_) {
+    if (haptic_gamepad)
+      haptic_gamepad->Shutdown();
+  }
+}
 
 GamepadSource GamepadPlatformDataFetcherWin::source() {
   return Factory::static_source();
@@ -166,7 +171,7 @@ void GamepadPlatformDataFetcherWin::GetGamepadData(bool devices_changed_hint) {
 }
 
 void GamepadPlatformDataFetcherWin::GetXInputPadData(int i) {
-  PadState* pad_state = provider()->GetPadState(GAMEPAD_SOURCE_WIN_XINPUT, i);
+  PadState* pad_state = GetPadState(i);
   if (!pad_state)
     return;
 

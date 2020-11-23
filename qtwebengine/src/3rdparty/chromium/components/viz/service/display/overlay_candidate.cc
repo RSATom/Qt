@@ -87,7 +87,6 @@ OverlayCandidate::OverlayCandidate()
       uv_rect(0.f, 0.f, 1.f, 1.f),
       is_clipped(false),
       is_opaque(false),
-      use_output_surface_for_resource(false),
       no_occluding_damage(false),
       resource_id(0),
 #if defined(OS_ANDROID)
@@ -117,6 +116,9 @@ bool OverlayCandidate::FromDrawQuad(DisplayResourceProvider* resource_provider,
 
   // We don't support an opacity value different than one for an overlay plane.
   if (quad->shared_quad_state->opacity != 1.f)
+    return false;
+  // We can't support overlays with rounded corner clipping.
+  if (!quad->shared_quad_state->rounded_corner_bounds.IsEmpty())
     return false;
   // We support only kSrc (no blending) and kSrcOver (blending with premul).
   if (!(quad->shared_quad_state->blend_mode == SkBlendMode::kSrc ||
@@ -329,36 +331,4 @@ bool OverlayCandidate::FromStreamVideoQuad(
 #endif
   return true;
 }
-
-OverlayCandidateList::OverlayCandidateList() = default;
-
-OverlayCandidateList::OverlayCandidateList(const OverlayCandidateList& other) =
-    default;
-
-OverlayCandidateList::OverlayCandidateList(OverlayCandidateList&& other) =
-    default;
-
-OverlayCandidateList::~OverlayCandidateList() = default;
-
-OverlayCandidateList& OverlayCandidateList::operator=(
-    const OverlayCandidateList& other) = default;
-
-OverlayCandidateList& OverlayCandidateList::operator=(
-    OverlayCandidateList&& other) = default;
-
-void OverlayCandidateList::AddPromotionHint(const OverlayCandidate& candidate) {
-  promotion_hint_info_map_[candidate.resource_id] = candidate.display_rect;
-}
-
-void OverlayCandidateList::AddToPromotionHintRequestorSetIfNeeded(
-    const DisplayResourceProvider* resource_provider,
-    const DrawQuad* quad) {
-  if (quad->material != DrawQuad::Material::kStreamVideoContent)
-    return;
-  ResourceId id = StreamVideoDrawQuad::MaterialCast(quad)->resource_id();
-  if (!resource_provider->DoesResourceWantPromotionHint(id))
-    return;
-  promotion_hint_requestor_set_.insert(id);
-}
-
 }  // namespace viz

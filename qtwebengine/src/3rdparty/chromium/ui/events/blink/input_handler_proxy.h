@@ -108,18 +108,18 @@ class InputHandlerProxy : public cc::InputHandlerClient,
   void DeliverInputForHighLatencyMode() override;
 
   // SynchronousInputHandlerProxy implementation.
-  void SetOnlySynchronouslyAnimateRootFlings(
+  void SetSynchronousInputHandler(
       SynchronousInputHandler* synchronous_input_handler) override;
-  void SynchronouslyAnimate(base::TimeTicks time) override;
   void SynchronouslySetRootScrollOffset(
       const gfx::ScrollOffset& root_offset) override;
   void SynchronouslyZoomBy(float magnify_delta,
                            const gfx::Point& anchor) override;
 
   // SnapFlingClient implementation.
-  bool GetSnapFlingInfo(const gfx::Vector2dF& natural_displacement,
-                        gfx::Vector2dF* initial_offset,
-                        gfx::Vector2dF* target_offset) const override;
+  bool GetSnapFlingInfoAndSetSnapTarget(
+      const gfx::Vector2dF& natural_displacement,
+      gfx::Vector2dF* initial_offset,
+      gfx::Vector2dF* target_offset) const override;
   gfx::Vector2dF ScrollByForSnapFling(const gfx::Vector2dF& delta) override;
   void ScrollEndForSnapFling() override;
   void RequestAnimationForSnapFling() override;
@@ -167,7 +167,8 @@ class InputHandlerProxy : public cc::InputHandlerClient,
                         const cc::InputHandlerScrollResult& scroll_result);
 
   // Whether to use a smooth scroll animation for this event.
-  bool ShouldAnimate(bool has_precise_scroll_deltas) const;
+  bool ShouldAnimate(blink::WebGestureDevice device,
+                     bool has_precise_scroll_deltas) const;
 
   // Update the elastic overscroll controller with |gesture_event|.
   void HandleScrollElasticityOverscroll(
@@ -188,21 +189,10 @@ class InputHandlerProxy : public cc::InputHandlerClient,
       bool* is_touching_scrolling_layer,
       cc::TouchAction* white_listed_touch_action);
 
-  // Scroll updates injected from within the renderer process will not have a
-  // scroll update component, since those are added to the latency info
-  // in the browser process before being dispatched to the renderer.
-  void EnsureScrollUpdateLatencyComponent(LatencyInfo* monitored_latency_info,
-                                          base::TimeTicks original_timestamp);
-
   InputHandlerProxyClient* client_;
   cc::InputHandler* input_handler_;
 
-  // When present, Animates are not requested to the InputHandler, but to this
-  // SynchronousInputHandler instead. And all Animate() calls are expected to
-  // happen via the SynchronouslyAnimate() call instead of coming directly from
-  // the InputHandler.
   SynchronousInputHandler* synchronous_input_handler_;
-  bool allow_root_animate_;
 
 #if DCHECK_IS_ON()
   bool expect_scroll_update_end_;
@@ -234,7 +224,19 @@ class InputHandlerProxy : public cc::InputHandlerClient,
 
   std::unique_ptr<CompositorThreadEventQueue> compositor_event_queue_;
   bool has_ongoing_compositor_scroll_or_pinch_;
-  bool is_first_gesture_scroll_update_;
+
+  // Tracks whether the first scroll update gesture event has been seen after a
+  // scroll begin. This is set/reset when scroll gestures are processed in
+  // HandleInputEventWithLatencyInfo and shouldn't be used outside the scope
+  // of that method.
+  bool has_seen_first_gesture_scroll_update_after_begin_;
+
+  // Whether the last injected scroll gesture was a GestureScrollBegin. Used to
+  // determine which GestureScrollUpdate is the first in a gesture sequence for
+  // latency classification. This is separate from
+  // |is_first_gesture_scroll_update_| and is used to determine which type of
+  // latency component should be added for injected GestureScrollUpdates.
+  bool last_injected_gesture_was_begin_;
 
   const base::TickClock* tick_clock_;
 

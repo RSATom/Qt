@@ -145,6 +145,8 @@ class VIEWS_EXPORT DesktopWindowTreeHostWin
   void OnCursorVisibilityChangedNative(bool show) override;
   void MoveCursorToScreenLocationInPixels(
       const gfx::Point& location_in_pixels) override;
+  std::unique_ptr<aura::ScopedEnableUnadjustedMouseEvents>
+  RequestUnadjustedMovement() override;
 
   // Overridden from aura::client::AnimationHost
   void SetHostTransitionOffsets(
@@ -232,8 +234,6 @@ class VIEWS_EXPORT DesktopWindowTreeHostWin
 
  private:
   friend class ::views::test::DesktopWindowTreeHostWinTestApi;
-
-  void SetWindowTransparency();
 
   // Returns true if a modal window is active in the current root window chain.
   bool IsModalWindowActive() const;

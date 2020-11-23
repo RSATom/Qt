@@ -528,7 +528,7 @@ void tst_QDir::removeRecursivelyFailure()
 
 #ifdef Q_OS_UNIX
     QFile dirAsFile(path); // yay, I have to use QFile to change a dir's permissions...
-    QVERIFY(dirAsFile.setPermissions(QFile::Permissions(0))); // no permissions
+    QVERIFY(dirAsFile.setPermissions({})); // no permissions
 
     QVERIFY(!QDir().rmdir(path));
     QDir dir(path);
@@ -1786,9 +1786,9 @@ void tst_QDir::searchPaths()
 {
     QFETCH(QString, filename);
     QFETCH(QString, searchPathPrefixes);
-    QStringList searchPathPrefixList = searchPathPrefixes.split(";", QString::SkipEmptyParts);
+    QStringList searchPathPrefixList = searchPathPrefixes.split(";", Qt::SkipEmptyParts);
     QFETCH(QString, searchPaths);
-    QStringList searchPathsList = searchPaths.split(";", QString::SkipEmptyParts);
+    QStringList searchPathsList = searchPaths.split(";", Qt::SkipEmptyParts);
     QFETCH(QString, expectedAbsolutePath);
     bool exists = !expectedAbsolutePath.isEmpty();
 

@@ -14,6 +14,7 @@
 #include "base/callback.h"
 #include "base/lazy_instance.h"
 #include "base/memory/ptr_util.h"
+#include "base/stl_util.h"
 #include "base/unguessable_token.h"
 #include "content/browser/frame_host/frame_tree_node.h"
 #include "content/browser/frame_host/navigation_controller_impl.h"
@@ -77,6 +78,9 @@ FrameTree::NodeIterator::NodeIterator(FrameTreeNode* starting_node,
       root_of_subtree_to_skip_(root_of_subtree_to_skip) {}
 
 FrameTree::NodeIterator FrameTree::NodeRange::begin() {
+  // We shouldn't be attempting a frame tree traversal while the tree is
+  // being constructed.
+  DCHECK(root_->current_frame_host());
   return NodeIterator(root_, root_of_subtree_to_skip_);
 }
 
@@ -173,11 +177,10 @@ FrameTreeNode* FrameTree::AddFrame(
     FrameTreeNode* parent,
     int process_id,
     int new_routing_id,
-    service_manager::mojom::InterfaceProviderRequest interface_provider_request,
-    blink::mojom::DocumentInterfaceBrokerRequest
-        document_interface_broker_content_request,
-    blink::mojom::DocumentInterfaceBrokerRequest
-        document_interface_broker_blink_request,
+    mojo::PendingReceiver<service_manager::mojom::InterfaceProvider>
+        interface_provider_receiver,
+    mojo::PendingReceiver<blink::mojom::BrowserInterfaceBroker>
+        browser_interface_broker_receiver,
     blink::WebTreeScopeType scope,
     const std::string& frame_name,
     const std::string& frame_unique_name,
@@ -216,15 +219,13 @@ FrameTreeNode* FrameTree::AddFrame(
   FrameTreeNode* added_node = parent->current_frame_host()->AddChild(
       std::move(new_node), process_id, new_routing_id);
 
-  DCHECK(interface_provider_request.is_pending());
-  added_node->current_frame_host()->BindInterfaceProviderRequest(
-      std::move(interface_provider_request));
+  DCHECK(interface_provider_receiver.is_valid());
+  added_node->current_frame_host()->BindInterfaceProviderReceiver(
+      std::move(interface_provider_receiver));
 
-  DCHECK(document_interface_broker_content_request.is_pending());
-  DCHECK(document_interface_broker_blink_request.is_pending());
-  added_node->current_frame_host()->BindDocumentInterfaceBrokerRequest(
-      std::move(document_interface_broker_content_request),
-      std::move(document_interface_broker_blink_request));
+  DCHECK(browser_interface_broker_receiver.is_valid());
+  added_node->current_frame_host()->BindBrowserInterfaceBrokerReceiver(
+      std::move(browser_interface_broker_receiver));
 
   // The last committed NavigationEntry may have a FrameNavigationEntry with the
   // same |frame_unique_name|, since we don't remove FrameNavigationEntries if
@@ -258,9 +259,8 @@ void FrameTree::RemoveFrame(FrameTreeNode* child) {
   parent->current_frame_host()->RemoveChild(child);
 }
 
-void FrameTree::CreateProxiesForSiteInstance(
-    FrameTreeNode* source,
-    SiteInstance* site_instance) {
+void FrameTree::CreateProxiesForSiteInstance(FrameTreeNode* source,
+                                             SiteInstance* site_instance) {
   // Create the RenderFrameProxyHost for the new SiteInstance.
   if (!source || !source->IsMainFrame()) {
     RenderViewHostImpl* render_view_host =
@@ -271,6 +271,17 @@ void FrameTree::CreateProxiesForSiteInstance(
     } else {
       root()->render_manager()->CreateRenderFrameProxy(site_instance);
     }
+  }
+
+  // Check whether we're in an inner delegate and |site_instance| corresponds
+  // to the outer delegate.  Subframe proxies aren't needed if this is the
+  // case.
+  bool is_site_instance_for_outer_delegate = false;
+  RenderFrameProxyHost* outer_delegate_proxy =
+      root()->render_manager()->GetProxyToOuterDelegate();
+  if (outer_delegate_proxy) {
+    is_site_instance_for_outer_delegate =
+        (site_instance == outer_delegate_proxy->GetSiteInstance());
   }
 
   // Proxies are created in the FrameTree in response to a node navigating to a
@@ -300,6 +311,14 @@ void FrameTree::CreateProxiesForSiteInstance(
         // race described above not possible.
         continue;
       }
+
+      // Do not create proxies for subframes in the outer delegate's
+      // SiteInstance, since there is no need to expose these subframes to the
+      // outer delegate.  See also comments in CreateProxiesForChildFrame() and
+      // https://crbug.com/1013553.
+      if (!node->IsMainFrame() && is_site_instance_for_outer_delegate)
+        continue;
+
       node->render_manager()->CreateRenderFrameProxy(site_instance);
     }
   }
@@ -356,8 +375,8 @@ void FrameTree::SetFocusedFrame(FrameTreeNode* node, SiteInstance* source) {
 }
 
 void FrameTree::SetFrameRemoveListener(
-    const base::Callback<void(RenderFrameHost*)>& on_frame_removed) {
-  on_frame_removed_ = on_frame_removed;
+    base::RepeatingCallback<void(RenderFrameHost*)> on_frame_removed) {
+  on_frame_removed_ = std::move(on_frame_removed);
 }
 
 scoped_refptr<RenderViewHostImpl> FrameTree::CreateRenderViewHost(
@@ -365,8 +384,7 @@ scoped_refptr<RenderViewHostImpl> FrameTree::CreateRenderViewHost(
     int32_t routing_id,
     int32_t main_frame_routing_id,
     int32_t widget_routing_id,
-    bool swapped_out,
-    bool hidden) {
+    bool swapped_out) {
   scoped_refptr<RenderViewHostImpl> existing_rvh =
       GetRenderViewHost(site_instance);
   if (existing_rvh)
@@ -375,9 +393,8 @@ scoped_refptr<RenderViewHostImpl> FrameTree::CreateRenderViewHost(
   RenderViewHostImpl* rvh =
       static_cast<RenderViewHostImpl*>(RenderViewHostFactory::Create(
           site_instance, render_view_delegate_, render_widget_delegate_,
-          routing_id, main_frame_routing_id, widget_routing_id, swapped_out,
-          hidden));
-  render_view_host_map_[site_instance->GetId()] = rvh;
+          routing_id, main_frame_routing_id, widget_routing_id, swapped_out));
+  RegisterRenderViewHost(rvh);
   return base::WrapRefCounted(rvh);
 }
 
@@ -390,7 +407,13 @@ scoped_refptr<RenderViewHostImpl> FrameTree::GetRenderViewHost(
   return base::WrapRefCounted(it->second);
 }
 
-void FrameTree::RenderViewHostDeleted(RenderViewHost* rvh) {
+void FrameTree::RegisterRenderViewHost(RenderViewHostImpl* rvh) {
+  CHECK(
+      !base::Contains(render_view_host_map_, rvh->GetSiteInstance()->GetId()));
+  render_view_host_map_[rvh->GetSiteInstance()->GetId()] = rvh;
+}
+
+void FrameTree::UnregisterRenderViewHost(RenderViewHostImpl* rvh) {
   auto it = render_view_host_map_.find(rvh->GetSiteInstance()->GetId());
   CHECK(it != render_view_host_map_.end());
   CHECK_EQ(it->second, rvh);

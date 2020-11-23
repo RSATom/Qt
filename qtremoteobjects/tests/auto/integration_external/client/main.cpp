@@ -49,7 +49,7 @@ private Q_SLOTS:
                     [socket, this]() {
                 this->m_repNode.addClientSideConnection(socket);
             });
-            connect(socket, QOverload<QAbstractSocket::SocketError>::of(&QTcpSocket::error),
+            connect(socket, &QTcpSocket::errorOccurred,
                     [socket](QAbstractSocket::SocketError error) {
                 qDebug() << "SocketError" << error;
                 delete socket;

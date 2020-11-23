@@ -11,6 +11,8 @@
 #define LIBANGLE_RENDERER_VULKAN_SAMPLERVK_H_
 
 #include "libANGLE/renderer/SamplerImpl.h"
+#include "libANGLE/renderer/vulkan/ContextVk.h"
+#include "libANGLE/renderer/vulkan/vk_helpers.h"
 
 namespace rx
 {
@@ -20,6 +22,27 @@ class SamplerVk : public SamplerImpl
   public:
     SamplerVk(const gl::SamplerState &state);
     ~SamplerVk() override;
+
+    void onDestroy(const gl::Context *context) override;
+    angle::Result syncState(const gl::Context *context, const bool dirty) override;
+
+    const vk::Sampler &getSampler() const
+    {
+        ASSERT(mSampler.valid());
+        return mSampler.get();
+    }
+
+    Serial getSerial() const { return mSerial; }
+
+    void onSamplerGraphAccess(vk::CommandGraph *commandGraph)
+    {
+        mSampler.onGraphAccess(commandGraph);
+    }
+
+  private:
+    vk::SamplerHelper mSampler;
+    // The serial is used for cache indexing.
+    Serial mSerial;
 };
 
 }  // namespace rx

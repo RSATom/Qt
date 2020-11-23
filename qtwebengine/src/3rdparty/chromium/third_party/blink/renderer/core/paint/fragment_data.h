@@ -16,8 +16,6 @@ namespace blink {
 class PaintLayer;
 
 // Represents the data for a particular fragment of a LayoutObject.
-// Only LayoutObjects with a self-painting PaintLayer may have more than one
-// FragmentData, and even then only when they are inside of multicol.
 // See README.md.
 class CORE_EXPORT FragmentData {
   USING_FAST_MALLOC(FragmentData);
@@ -39,8 +37,6 @@ class CORE_EXPORT FragmentData {
   }
 
   // The visual rect computed by the latest paint invalidation.
-  // This rect does *not* account for composited scrolling. See LayoutObject::
-  // AdjustVisualRectForCompositedScrolling().
   // It's location may be different from PaintOffset when there is visual (ink)
   // overflow to the top and/or the left.
   IntRect VisualRect() const { return visual_rect_; }
@@ -48,7 +44,8 @@ class CORE_EXPORT FragmentData {
 
   // An id for this object that is unique for the lifetime of the WebView.
   UniqueObjectId UniqueId() const {
-    return rare_data_ ? rare_data_->unique_id : 0;
+    DCHECK(rare_data_);
+    return rare_data_->unique_id;
   }
 
   // The PaintLayer associated with this LayoutBoxModelObject. This can be null
@@ -154,7 +151,7 @@ class CORE_EXPORT FragmentData {
     if (rare_data_)
       rare_data_->paint_properties = nullptr;
   }
-  void EnsureIdForTesting() { EnsureRareData(); }
+  void EnsureId() { EnsureRareData(); }
 
   // This is a complete set of property nodes that should be used as a
   // starting point to paint a LayoutObject. This data is cached because some

@@ -1,0 +1,182 @@
+/****************************************************************************
+**
+** Copyright (C) 2020 The Qt Company Ltd.
+** Contact: https://www.qt.io/licensing/
+**
+** This file is part of the QtAndroidExtras module of the Qt Toolkit.
+**
+** $QT_BEGIN_LICENSE:BSD$
+** Commercial License Usage
+** Licensees holding valid commercial Qt licenses may use this file in
+** accordance with the commercial license agreement provided with the
+** Software or, alternatively, in accordance with the terms contained in
+** a written agreement between you and The Qt Company. For licensing terms
+** and conditions see https://www.qt.io/terms-conditions. For further
+** information use the contact form at https://www.qt.io/contact-us.
+**
+** BSD License Usage
+** Alternatively, you may use this file under the terms of the BSD license
+** as follows:
+**
+** "Redistribution and use in source and binary forms, with or without
+** modification, are permitted provided that the following conditions are
+** met:
+**   * Redistributions of source code must retain the above copyright
+**     notice, this list of conditions and the following disclaimer.
+**   * Redistributions in binary form must reproduce the above copyright
+**     notice, this list of conditions and the following disclaimer in
+**     the documentation and/or other materials provided with the
+**     distribution.
+**   * Neither the name of The Qt Company Ltd nor the names of its
+**     contributors may be used to endorse or promote products derived
+**     from this software without specific prior written permission.
+**
+**
+** THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
+** "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
+** LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
+** A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT
+** OWNER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
+** SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT
+** LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
+** DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
+** THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+** (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+** OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE."
+**
+** $QT_END_LICENSE$
+**
+****************************************************************************/
+
+/*!
+    \title Android Service with QAndroidBinder
+    \ingroup examples-qtandroidextras
+    \example services/servicebinder
+    \brief Demonstrates how to run an Android service in a separate process,
+           and how to communicate between the service process and the main process
+           using QAndroidBinder.
+
+    \image androidservices.png
+
+    This example demonstrates how to create and run an Android service in
+    a separate process and using a separate \c .so lib file, and then exchange
+    data between the two processes using \l{QAndroidBinder}.
+
+    When clicking the \uicontrol {Send to Service} button, the name entered in the QML
+    view, Qt, in this case, is sent to the Android service. Then, the service
+    replies back with the message \c {Hello Qt} which is printed in the QML view.
+
+    \include examples-run.qdocinc
+
+    \section1 Create the Service
+
+    To start a service in its own process, extend the \c QtService class for
+    your service. Extending \c QtService allows the service to load the necessary
+    Qt libraries used for Qt.
+
+    Start by creating the Java service class. The following class extends \c QtService
+    and acts as your service entry point:
+
+    \quotefromfile services/servicebinder/android/src/org/qtproject/example/qtandroidservice/QtAndroidService.java
+    \skipto package
+    \printuntil /^\}/
+
+    This class can have any logic you want using Java code. However, you don't need
+    any logic to communicate with Qt as that will be done using \l{QAndroidBinder}.
+
+    \section1 Manage the AndroidManifest.xml File
+
+    To use the service, it must be declared in the \c AndroidManifest.xml
+    file as follows:
+
+    \quotefromfile services/servicebinder/android/AndroidManifest.xml
+    \skipto <service
+    \printuntil </service>
+
+    The important part of this service declaration is the \c lib_name part.
+    It will ensure that the service is run by the service's own lib file:
+
+    \quotefromfile services/servicebinder/android/AndroidManifest.xml
+    \skipto android:value="service"
+    \printuntil android:value="service"
+
+    \section1 Handle the Service Start
+
+    Create a sub-project for the service, as follows:
+
+    \quotefromfile services/servicebinder/service.pro
+    \printuntil androidbinder.cpp
+
+    In \c androidbinder.cpp, implement a class that inherits \l{QAndroidBinder}.
+    This is the binder that the main application will use to connect to the service
+    by binding to it. \l{QAndroidBinder::onTransact()} uses a \c code integer to
+    differentiate between actions. Use a \c switch case or \c if conditions to
+    handle all expected actions that the binder could expect:
+
+    \quotefromfile services/servicebinder/androidbinder.cpp
+    \skipto onTransact
+    \printuntil /^\}/
+
+    In the service's \c main(), start the \l{QAndroidBinder} along with
+    \l{QAndroidService}:
+
+    \quotefromfile services/servicebinder/service_main.cpp
+    \skipto main
+    \printuntil /^\}/
+
+
+    \section1 Handle the Application Start
+
+    In the main application side, a \l{QAndroidServiceConnection} implementation
+    is required to bind to the service and exchange data with it. Implement
+    the functions \l{QAndroidServiceConnection::onServiceConnected()} and
+    \l{QAndroidServiceConnection::onServiceDisconnected()}:
+
+    \quotefromfile services/servicebinder/qtandroidservice.cpp
+    \skipto onServiceConnected
+    \printuntil }
+    \printuntil }
+
+    Then, create a function to explicitly send messages to the service:
+
+    \quotefromfile services/servicebinder/qtandroidservice.cpp
+    \skipto sendToService
+    \printuntil }
+
+    Once you have all that ready, it's time to start the service and bind to it
+    as follows:
+
+    \quotefromfile services/servicebinder/qtandroidservice.cpp
+    \skipto :QtAndroidService
+    \printuntil }
+
+    The \l{QtAndroid::bindService()} is called using \l{QtAndroid::AutoCreate}
+    which starts the service if it's not already running.
+
+    \note To receive data explicitly sent from the service (i.e. not just a reply),
+        implement \l{QAndroidBinder} in the main application the same way
+        it's done on the service. Once you have that, the service could initially
+        send a message.
+
+    Then, create an instance for the custom \l{QAndroidServiceConnection} class
+    and connect it to QML. Add the following in \c main.cpp:
+
+    \quotefromfile services/servicebinder/main.cpp
+    \skipto QtAndroidService
+    \printuntil setContextProperty
+
+    Then, add a \l Connections element to watch for the incoming messages from
+    the service in \c main.qml:
+
+    \quotefromfile services/common/main.qml
+    \skipto Connections
+    \printuntil /^\ {4}\}/
+
+    And set the \c onClicked for the sending button to:
+
+    \quotefromfile services/common/main.qml
+    \skipto onClicked
+    \printline onClicked
+
+    \sa {Android Services}, {Qt for Android}, {Qt Android Extras}
+*/

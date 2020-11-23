@@ -11,6 +11,7 @@
 
 #include "build/build_config.h"
 #include "core/fxcrt/fx_codepage.h"
+#include "core/fxcrt/fx_memory_wrappers.h"
 #include "core/fxcrt/fx_safe_types.h"
 #include "core/fxcrt/fx_stream.h"
 #include "core/fxge/cfx_fontmapper.h"
@@ -110,7 +111,7 @@ int32_t GetSimilarValue(int weight,
                         int pitch_family,
                         uint32_t style) {
   int32_t iSimilarValue = 0;
-  if (FontStyleIsBold(style) == (weight > 400))
+  if (FontStyleIsForceBold(style) == (weight > 400))
     iSimilarValue += 16;
   if (FontStyleIsItalic(style) == bItalic)
     iSimilarValue += 16;
@@ -270,7 +271,7 @@ void CFX_FolderFontInfo::ReportFace(const ByteString& path,
   pInfo->m_Charsets |= CHARSET_FLAG_ANSI;
   pInfo->m_Styles = 0;
   if (style.Contains("Bold"))
-    pInfo->m_Styles |= FXFONT_BOLD;
+    pInfo->m_Styles |= FXFONT_FORCE_BOLD;
   if (style.Contains("Italic") || style.Contains("Oblique"))
     pInfo->m_Styles |= FXFONT_ITALIC;
   if (facename.Contains("Serif"))
@@ -326,15 +327,6 @@ void* CFX_FolderFontInfo::MapFont(int weight,
                                   const char* family) {
   return nullptr;
 }
-
-#ifdef PDF_ENABLE_XFA
-void* CFX_FolderFontInfo::MapFontByUnicode(uint32_t dwUnicode,
-                                           int weight,
-                                           bool bItalic,
-                                           int pitch_family) {
-  return nullptr;
-}
-#endif  // PDF_ENABLE_XFA
 
 void* CFX_FolderFontInfo::GetFont(const char* face) {
   auto it = m_FontList.find(face);

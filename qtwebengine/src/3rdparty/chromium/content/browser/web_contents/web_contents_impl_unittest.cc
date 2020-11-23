@@ -4,6 +4,7 @@
 
 #include <stdint.h>
 
+#include <tuple>
 #include <utility>
 
 #include "base/bind.h"
@@ -28,6 +29,7 @@
 #include "content/browser/webui/web_ui_controller_factory_registry.h"
 #include "content/common/frame_messages.h"
 #include "content/common/input/synthetic_web_input_event_builders.h"
+#include "content/common/page_messages.h"
 #include "content/common/view_messages.h"
 #include "content/public/browser/child_process_security_policy.h"
 #include "content/public/browser/content_browser_client.h"
@@ -48,6 +50,7 @@
 #include "content/public/common/content_features.h"
 #include "content/public/common/navigation_policy.h"
 #include "content/public/common/url_constants.h"
+#include "content/public/test/fake_local_frame.h"
 #include "content/public/test/mock_render_process_host.h"
 #include "content/public/test/navigation_simulator.h"
 #include "content/public/test/test_browser_context.h"
@@ -63,6 +66,7 @@
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "third_party/blink/public/common/frame/sandbox_flags.h"
+#include "third_party/blink/public/mojom/frame/fullscreen.mojom.h"
 #include "third_party/skia/include/core/SkColor.h"
 #include "url/url_constants.h"
 
@@ -236,23 +240,27 @@ class TestInterstitialPageStateGuard : public TestInterstitialPage::Delegate {
 class WebContentsImplTestBrowserClient : public TestContentBrowserClient {
  public:
   WebContentsImplTestBrowserClient()
-      : assign_site_for_url_(false),
-        original_browser_client_(SetBrowserClientForTesting(this)) {}
+      : original_browser_client_(SetBrowserClientForTesting(this)) {}
 
   ~WebContentsImplTestBrowserClient() override {
     SetBrowserClientForTesting(original_browser_client_);
   }
 
   bool ShouldAssignSiteForURL(const GURL& url) override {
-    return assign_site_for_url_;
+    if (site_assignment_for_url_.find(url) != site_assignment_for_url_.end()) {
+      return site_assignment_for_url_[url];
+    }
+
+    return true;
   }
 
-  void set_assign_site_for_url(bool assign) {
-    assign_site_for_url_ = assign;
+  void set_assign_site_for_url(bool assign, const GURL& url) {
+    DCHECK(url.is_valid());
+    site_assignment_for_url_[url] = assign;
   }
 
  private:
-  bool assign_site_for_url_;
+  std::map<GURL, bool> site_assignment_for_url_;
   ContentBrowserClient* original_browser_client_;
 };
 
@@ -320,8 +328,17 @@ class TestWebContentsObserver : public WebContentsObserver {
     last_theme_color_ = theme_color;
   }
 
+  void DidChangeVerticalScrollDirection(
+      viz::VerticalScrollDirection scroll_direction) override {
+    last_vertical_scroll_direction_ = scroll_direction;
+  }
+
   const GURL& last_url() const { return last_url_; }
   base::Optional<SkColor> last_theme_color() const { return last_theme_color_; }
+  base::Optional<viz::VerticalScrollDirection> last_vertical_scroll_direction()
+      const {
+    return last_vertical_scroll_direction_;
+  }
   bool observed_did_first_visually_non_empty_paint() const {
     return observed_did_first_visually_non_empty_paint_;
   }
@@ -329,6 +346,7 @@ class TestWebContentsObserver : public WebContentsObserver {
  private:
   GURL last_url_;
   base::Optional<SkColor> last_theme_color_;
+  base::Optional<viz::VerticalScrollDirection> last_vertical_scroll_direction_;
   bool observed_did_first_visually_non_empty_paint_ = false;
 
   DISALLOW_COPY_AND_ASSIGN(TestWebContentsObserver);
@@ -344,7 +362,7 @@ class FakeFullscreenDelegate : public WebContentsDelegate {
   void EnterFullscreenModeForTab(
       WebContents* web_contents,
       const GURL& origin,
-      const blink::WebFullscreenOptions& options) override {
+      const blink::mojom::FullscreenOptions& options) override {
     fullscreened_contents_ = web_contents;
   }
 
@@ -443,19 +461,43 @@ TEST_F(WebContentsImplTest, UseTitleFromPendingEntryIfSet) {
   EXPECT_EQ(title, contents()->GetTitle());
 }
 
+// Stub out local frame mojo binding. Intercepts calls to EnableViewSourceMode
+// and marks the message as received. This class attaches to the first
+// RenderFrameHostImpl created.
+class EnableViewSourceLocalFrame : public content::FakeLocalFrame,
+                                   public WebContentsObserver {
+ public:
+  explicit EnableViewSourceLocalFrame(WebContents* web_contents)
+      : WebContentsObserver(web_contents) {}
+
+  void RenderFrameCreated(RenderFrameHost* render_frame_host) override {
+    if (!initialized_) {
+      initialized_ = true;
+      Init(render_frame_host->GetRemoteAssociatedInterfaces());
+    }
+  }
+
+  void EnableViewSourceMode() final { enabled_view_source_ = true; }
+
+  bool IsViewSourceModeEnabled() const { return enabled_view_source_; }
+
+ private:
+  bool enabled_view_source_ = false;
+  bool initialized_ = false;
+};
+
 // Browser initiated navigations to view-source URLs of WebUI pages should work.
 TEST_F(WebContentsImplTest, DirectNavigationToViewSourceWebUI) {
   const GURL kGURL("view-source:" + GetWebUIURLString("blah/"));
   // NavigationControllerImpl rewrites view-source URLs, simulating that here.
   const GURL kRewrittenURL(GetWebUIURL("blah"));
 
-  process()->sink().ClearMessages();
-
+  EnableViewSourceLocalFrame local_frame(contents());
   NavigationSimulator::NavigateAndCommitFromBrowser(contents(), kGURL);
 
   // Did we get the expected message?
-  EXPECT_TRUE(process()->sink().GetFirstMessageMatching(
-      FrameMsg_EnableViewSourceMode::ID));
+  base::RunLoop().RunUntilIdle();
+  EXPECT_TRUE(local_frame.IsViewSourceModeEnabled());
 
   // This is the virtual URL.
   EXPECT_EQ(
@@ -527,6 +569,12 @@ TEST_F(WebContentsImplTest, NavigateToInvalidURL) {
 // Test that navigating across a site boundary creates a new RenderViewHost
 // with a new SiteInstance.  Going back should do the same.
 TEST_F(WebContentsImplTest, CrossSiteBoundaries) {
+  // This test assumes no interaction with the back forward cache.
+  // Similar coverage when BFCache is on can be found in
+  // BackForwardCacheBrowserTest.NavigateBackForwardRepeatedly.
+  contents()->GetController().GetBackForwardCache().DisableForTesting(
+      BackForwardCache::TEST_ASSUMES_NO_CACHING);
+
   TestRenderFrameHost* orig_rfh = main_test_rfh();
   int orig_rvh_delete_count = 0;
   orig_rfh->GetRenderViewHost()->set_delete_counter(&orig_rvh_delete_count);
@@ -710,9 +758,9 @@ TEST_F(WebContentsImplTest, NavigateFromSitelessUrl) {
   orig_rfh->GetRenderViewHost()->set_delete_counter(&orig_rvh_delete_count);
   SiteInstanceImpl* orig_instance = contents()->GetSiteInstance();
 
-  browser_client.set_assign_site_for_url(false);
   // Navigate to an URL that will not assign a new SiteInstance.
   const GURL native_url("non-site-url://stuffandthings");
+  browser_client.set_assign_site_for_url(false, native_url);
   NavigationSimulator::NavigateAndCommitFromBrowser(contents(), native_url);
 
   EXPECT_FALSE(contents()->CrossProcessNavigationPending());
@@ -723,9 +771,9 @@ TEST_F(WebContentsImplTest, NavigateFromSitelessUrl) {
   EXPECT_EQ(GURL(), contents()->GetSiteInstance()->GetSiteURL());
   EXPECT_FALSE(orig_instance->HasSite());
 
-  browser_client.set_assign_site_for_url(true);
   // Navigate to new site (should keep same site instance).
   const GURL url("http://www.google.com");
+  browser_client.set_assign_site_for_url(true, url);
   auto navigation1 =
       NavigationSimulator::CreateBrowserInitiated(url, contents());
   navigation1->ReadyToCommit();
@@ -735,11 +783,28 @@ TEST_F(WebContentsImplTest, NavigateFromSitelessUrl) {
   EXPECT_FALSE(contents()->GetPendingMainFrame());
   navigation1->Commit();
 
+  // The first entry's SiteInstance should be reset to a new, related one. This
+  // prevents wrongly detecting a SiteInstance mismatch when returning to it
+  // later.
+  SiteInstanceImpl* prev_entry_instance = contents()
+                                              ->GetController()
+                                              .GetEntryAtIndex(0)
+                                              ->root_node()
+                                              ->frame_entry->site_instance();
+  EXPECT_NE(prev_entry_instance, orig_instance);
+  EXPECT_TRUE(orig_instance->IsRelatedSiteInstance(prev_entry_instance));
+  EXPECT_FALSE(prev_entry_instance->HasSite());
+
+  SiteInstanceImpl* curr_entry_instance = contents()
+                                              ->GetController()
+                                              .GetEntryAtIndex(1)
+                                              ->root_node()
+                                              ->frame_entry->site_instance();
+  EXPECT_EQ(curr_entry_instance, orig_instance);
   // Keep the number of active frames in orig_rfh's SiteInstance
   // non-zero so that orig_rfh doesn't get deleted when it gets
   // swapped out.
   orig_rfh->GetSiteInstance()->IncrementActiveFrameCount();
-  SiteInstanceImpl* orig_site_instance = orig_rfh->GetSiteInstance();
 
   EXPECT_EQ(orig_instance, contents()->GetSiteInstance());
   if (AreDefaultSiteInstancesEnabled()) {
@@ -775,10 +840,6 @@ TEST_F(WebContentsImplTest, NavigateFromSitelessUrl) {
   EXPECT_EQ(url2, contents()->GetVisibleURL());
   EXPECT_NE(new_instance, orig_instance);
   EXPECT_FALSE(contents()->GetPendingMainFrame());
-
-  // We keep a proxy for the original RFH's SiteInstance.
-  EXPECT_TRUE(contents()->GetRenderManagerForTesting()->GetRenderFrameProxyHost(
-      orig_site_instance));
   EXPECT_EQ(orig_rvh_delete_count, 0);
 
   // Close contents and ensure RVHs are deleted.
@@ -798,8 +859,8 @@ TEST_F(WebContentsImplTest, NavigateFromRestoredSitelessUrl) {
 
   // Restore a navigation entry for URL that should not assign site to the
   // SiteInstance.
-  browser_client.set_assign_site_for_url(false);
   const GURL native_url("non-site-url://stuffandthings");
+  browser_client.set_assign_site_for_url(false, native_url);
   std::vector<std::unique_ptr<NavigationEntry>> entries;
   std::unique_ptr<NavigationEntry> new_entry =
       NavigationController::CreateNavigationEntry(
@@ -822,8 +883,8 @@ TEST_F(WebContentsImplTest, NavigateFromRestoredSitelessUrl) {
   EXPECT_FALSE(orig_instance->HasSite());
 
   // Navigate to a regular site and verify that the SiteInstance was kept.
-  browser_client.set_assign_site_for_url(true);
   const GURL url("http://www.google.com");
+  browser_client.set_assign_site_for_url(true, url);
   NavigationSimulator::NavigateAndCommitFromBrowser(contents(), url);
   EXPECT_EQ(orig_instance, contents()->GetSiteInstance());
 
@@ -841,8 +902,8 @@ TEST_F(WebContentsImplTest, NavigateFromRestoredRegularUrl) {
 
   // Restore a navigation entry for a regular URL ensuring that the embedder
   // ShouldAssignSiteForUrl override is disabled (i.e. returns true).
-  browser_client.set_assign_site_for_url(true);
   const GURL regular_url("http://www.yahoo.com");
+  browser_client.set_assign_site_for_url(true, regular_url);
   std::vector<std::unique_ptr<NavigationEntry>> entries;
   std::unique_ptr<NavigationEntry> new_entry =
       NavigationController::CreateNavigationEntry(
@@ -930,8 +991,11 @@ TEST_F(WebContentsImplTest, FindOpenerRVHWhenPending) {
 // to determine whether a navigation is cross-site.
 TEST_F(WebContentsImplTest, CrossSiteComparesAgainstCurrentPage) {
   // The assumptions this test makes aren't valid with --site-per-process.  For
-  // example, a cross-site URL won't ever commit in the old RFH.
-  if (AreAllSitesIsolatedForTesting() ||
+  // example, a cross-site URL won't ever commit in the old RFH.  The test also
+  // assumes that default SiteInstances are enabled, and that aggressive
+  // BrowsingInstance swapping (even on renderer-initiated navigations) is
+  // disabled.
+  if (AreAllSitesIsolatedForTesting() || !AreDefaultSiteInstancesEnabled() ||
       IsProactivelySwapBrowsingInstanceEnabled()) {
     return;
   }
@@ -940,14 +1004,6 @@ TEST_F(WebContentsImplTest, CrossSiteComparesAgainstCurrentPage) {
   SiteInstanceImpl* instance1 = contents()->GetSiteInstance();
 
   const GURL url("http://www.google.com");
-
-  if (AreDefaultSiteInstancesEnabled()) {
-    // Explicitly set the site for this instance so that it cannot be
-    // converted into a default SiteInstance. This ensures that the navigation
-    // to |url2|, which does not require a dedicated process, will not be
-    // mapped to this instance.
-    instance1->SetSite(url);
-  }
 
   // Navigate to URL.
   NavigationSimulator::NavigateAndCommitFromBrowser(contents(), url);
@@ -965,18 +1021,21 @@ TEST_F(WebContentsImplTest, CrossSiteComparesAgainstCurrentPage) {
   EXPECT_FALSE(contents2->CrossProcessNavigationPending());
   navigation->Commit();
   SiteInstance* instance2 = contents2->GetSiteInstance();
-  EXPECT_NE(instance1, instance2);
+  // With default SiteInstances, navigations in both tabs should
+  // share the same default SiteInstance, since neither requires a dedicated
+  // process.
+  EXPECT_EQ(instance1, instance2);
+  EXPECT_TRUE(instance1->IsDefaultSiteInstance());
   EXPECT_FALSE(contents2->CrossProcessNavigationPending());
 
-  // Simulate a link click in first contents to second site.  Doesn't switch
-  // SiteInstances, because we don't intercept Blink navigations.
+  // Simulate a link click in first contents to second site.  This doesn't
+  // switch SiteInstances and stays in the default SiteInstance.
   NavigationSimulator::NavigateAndCommitFromDocument(url2, orig_rfh);
   SiteInstance* instance3 = contents()->GetSiteInstance();
   EXPECT_EQ(instance1, instance3);
   EXPECT_FALSE(contents()->CrossProcessNavigationPending());
 
-  // Navigate to the new site.  Doesn't switch SiteInstancees, because we
-  // compare against the current URL, not the SiteInstance's site.
+  // Navigate same-site.  This also stays in the default SiteInstance.
   const GURL url3("http://mail.yahoo.com");
   NavigationSimulator::NavigateAndCommitFromBrowser(contents(), url3);
   SiteInstance* instance4 = contents()->GetSiteInstance();
@@ -1207,8 +1266,8 @@ TEST_F(WebContentsImplTest, CrossSiteNavigationBackOldNavigationIgnored) {
 
   // DidNavigate from the second back.
   // Note that the process in instance1 is gone at this point, but we will still
-  // use instance1 and entry1 because HasWrongProcessForURL will return false
-  // when there is no process and the site URL matches.
+  // use instance1 and entry1 because IsSuitableForURL will return true when
+  // there is no process and the site URL matches.
   back_navigation2->Commit();
 
   // That should have landed us on the first entry.
@@ -1370,6 +1429,18 @@ TEST_F(WebContentsImplTest, NavigationEntryContentStateNewWindow) {
   EXPECT_TRUE(entry_impl2->site_instance()->HasSite());
 }
 
+namespace {
+
+void ExpectTrue(bool value) {
+  DCHECK(value);
+}
+
+void ExpectFalse(bool value) {
+  DCHECK(!value);
+}
+
+}  // namespace
+
 // Tests that fullscreen is exited throughout the object hierarchy when
 // navigating to a new page.
 TEST_F(WebContentsImplTest, NavigationExitsFullscreen) {
@@ -1385,8 +1456,8 @@ TEST_F(WebContentsImplTest, NavigationExitsFullscreen) {
   // Toggle fullscreen mode on (as if initiated via IPC from renderer).
   EXPECT_FALSE(contents()->IsFullscreenForCurrentTab());
   EXPECT_FALSE(fake_delegate.IsFullscreenForTabOrPending(contents()));
-  orig_rfh->OnMessageReceived(FrameHostMsg_EnterFullscreen(
-      orig_rfh->GetRoutingID(), blink::WebFullscreenOptions()));
+  orig_rfh->EnterFullscreen(blink::mojom::FullscreenOptions::New(),
+                            base::BindOnce(&ExpectTrue));
   EXPECT_TRUE(contents()->IsFullscreenForCurrentTab());
   EXPECT_TRUE(fake_delegate.IsFullscreenForTabOrPending(contents()));
 
@@ -1424,8 +1495,8 @@ TEST_F(WebContentsImplTest, HistoryNavigationExitsFullscreen) {
 
   for (int i = 0; i < 2; ++i) {
     // Toggle fullscreen mode on (as if initiated via IPC from renderer).
-    orig_rfh->OnMessageReceived(FrameHostMsg_EnterFullscreen(
-        orig_rfh->GetRoutingID(), blink::WebFullscreenOptions()));
+    orig_rfh->EnterFullscreen(blink::mojom::FullscreenOptions::New(),
+                              base::BindOnce(&ExpectTrue));
     EXPECT_TRUE(contents()->IsFullscreenForCurrentTab());
     EXPECT_TRUE(fake_delegate.IsFullscreenForTabOrPending(contents()));
 
@@ -1456,8 +1527,8 @@ TEST_F(WebContentsImplTest, CrashExitsFullscreen) {
   // Toggle fullscreen mode on (as if initiated via IPC from renderer).
   EXPECT_FALSE(contents()->IsFullscreenForCurrentTab());
   EXPECT_FALSE(fake_delegate.IsFullscreenForTabOrPending(contents()));
-  main_test_rfh()->OnMessageReceived(FrameHostMsg_EnterFullscreen(
-      main_test_rfh()->GetRoutingID(), blink::WebFullscreenOptions()));
+  main_test_rfh()->EnterFullscreen(blink::mojom::FullscreenOptions::New(),
+                                   base::BindOnce(&ExpectTrue));
   EXPECT_TRUE(contents()->IsFullscreenForCurrentTab());
   EXPECT_TRUE(fake_delegate.IsFullscreenForTabOrPending(contents()));
 
@@ -2568,34 +2639,35 @@ TEST_F(WebContentsImplTest, CapturerOverridesPreferredSize) {
 
   // Increment capturer count, but without specifying a capture size.  Expect
   // a "not set" preferred size.
-  contents()->IncrementCapturerCount(gfx::Size());
+  contents()->IncrementCapturerCount(gfx::Size(), /* stay_hidden */ false);
   EXPECT_TRUE(contents()->IsBeingCaptured());
   EXPECT_EQ(gfx::Size(), contents()->GetPreferredSize());
 
   // Increment capturer count again, but with an overriding capture size.
   // Expect preferred size to now be overridden to the capture size.
   const gfx::Size capture_size(1280, 720);
-  contents()->IncrementCapturerCount(capture_size);
+  contents()->IncrementCapturerCount(capture_size, /* stay_hidden */ false);
   EXPECT_TRUE(contents()->IsBeingCaptured());
   EXPECT_EQ(capture_size, contents()->GetPreferredSize());
 
   // Increment capturer count a third time, but the expect that the preferred
   // size is still the first capture size.
   const gfx::Size another_capture_size(720, 480);
-  contents()->IncrementCapturerCount(another_capture_size);
+  contents()->IncrementCapturerCount(another_capture_size,
+                                     /* stay_hidden */ false);
   EXPECT_TRUE(contents()->IsBeingCaptured());
   EXPECT_EQ(capture_size, contents()->GetPreferredSize());
 
   // Decrement capturer count twice, but expect the preferred size to still be
   // overridden.
-  contents()->DecrementCapturerCount();
-  contents()->DecrementCapturerCount();
+  contents()->DecrementCapturerCount(/* stay_hidden */ false);
+  contents()->DecrementCapturerCount(/* stay_hidden */ false);
   EXPECT_TRUE(contents()->IsBeingCaptured());
   EXPECT_EQ(capture_size, contents()->GetPreferredSize());
 
   // Decrement capturer count, and since the count has dropped to zero, the
   // original preferred size should be restored.
-  contents()->DecrementCapturerCount();
+  contents()->DecrementCapturerCount(/* stay_hidden */ false);
   EXPECT_FALSE(contents()->IsBeingCaptured());
   EXPECT_EQ(original_preferred_size, contents()->GetPreferredSize());
 }
@@ -2670,7 +2742,7 @@ void HideOrOccludeWithCapturerTest(WebContentsImpl* contents,
 
   // Add a capturer when the contents is visible and then hide the contents.
   // |view| should remain visible.
-  contents->IncrementCapturerCount(gfx::Size());
+  contents->IncrementCapturerCount(gfx::Size(), /* stay_hidden */ false);
   contents->UpdateWebContentsVisibility(hidden_or_occluded);
   EXPECT_TRUE(view->is_showing());
   EXPECT_FALSE(view->is_occluded());
@@ -2678,7 +2750,7 @@ void HideOrOccludeWithCapturerTest(WebContentsImpl* contents,
 
   // Remove the capturer when the contents is hidden/occluded. |view| should be
   // hidden/occluded.
-  contents->DecrementCapturerCount();
+  contents->DecrementCapturerCount(/* stay_hidden */ false);
   if (hidden_or_occluded == Visibility::HIDDEN) {
     EXPECT_FALSE(view->is_showing());
   } else {
@@ -2687,7 +2759,7 @@ void HideOrOccludeWithCapturerTest(WebContentsImpl* contents,
   }
 
   // Add a capturer when the contents is hidden. |view| should be unoccluded.
-  contents->IncrementCapturerCount(gfx::Size());
+  contents->IncrementCapturerCount(gfx::Size(), /* stay_hidden */ false);
   EXPECT_FALSE(view->is_occluded());
 
   // Show the contents. The view should be visible.
@@ -2698,7 +2770,7 @@ void HideOrOccludeWithCapturerTest(WebContentsImpl* contents,
 
   // Remove the capturer when the contents is visible. The view should remain
   // visible.
-  contents->DecrementCapturerCount();
+  contents->DecrementCapturerCount(/* stay_hidden */ false);
   EXPECT_TRUE(view->is_showing());
   EXPECT_FALSE(view->is_occluded());
 }
@@ -2713,6 +2785,60 @@ TEST_F(WebContentsImplTest, OccludeWithCapturer) {
   base::test::ScopedFeatureList scoped_feature_list;
   scoped_feature_list.InitAndEnableFeature(features::kWebContentsOcclusion);
   HideOrOccludeWithCapturerTest(contents(), Visibility::OCCLUDED);
+}
+
+namespace {
+
+void CheckVisibilityMessage(const IPC::Message* message,
+                            PageVisibilityState expected_state) {
+  ASSERT_TRUE(message);
+  std::tuple<content::PageVisibilityState> params;
+  ASSERT_TRUE(PageMsg_VisibilityChanged::Read(message, &params));
+  EXPECT_EQ(expected_state, std::get<0>(params));
+}
+
+}  // namespace
+
+TEST_F(WebContentsImplTest, HiddenCapture) {
+  TestRenderViewHost* const rvh =
+      static_cast<TestRenderViewHost*>(contents()->GetRenderViewHost());
+  TestRenderWidgetHostView* rwhv = static_cast<TestRenderWidgetHostView*>(
+      contents()->GetRenderWidgetHostView());
+  MockRenderProcessHost* const rph = rvh->GetProcess();
+  IPC::TestSink* const sink = &rph->sink();
+
+  contents()->UpdateWebContentsVisibility(Visibility::VISIBLE);
+  contents()->UpdateWebContentsVisibility(Visibility::HIDDEN);
+  EXPECT_EQ(Visibility::HIDDEN, contents()->GetVisibility());
+
+  sink->ClearMessages();
+  contents()->IncrementCapturerCount(gfx::Size(), /* stay_hidden */ true);
+  const IPC::Message* visibility_message =
+      sink->GetUniqueMessageMatching(PageMsg_VisibilityChanged::ID);
+  CheckVisibilityMessage(visibility_message,
+                         PageVisibilityState::kHiddenButPainting);
+  EXPECT_TRUE(rwhv->is_showing());
+
+  sink->ClearMessages();
+  contents()->IncrementCapturerCount(gfx::Size(), /* stay_hidden */ false);
+  visibility_message =
+      sink->GetUniqueMessageMatching(PageMsg_VisibilityChanged::ID);
+  CheckVisibilityMessage(visibility_message, PageVisibilityState::kVisible);
+  EXPECT_TRUE(rwhv->is_showing());
+
+  sink->ClearMessages();
+  contents()->DecrementCapturerCount(/* stay_hidden */ true);
+  visibility_message =
+      sink->GetUniqueMessageMatching(PageMsg_VisibilityChanged::ID);
+  CheckVisibilityMessage(visibility_message, PageVisibilityState::kVisible);
+  EXPECT_TRUE(rwhv->is_showing());
+
+  sink->ClearMessages();
+  contents()->DecrementCapturerCount(/* stay_hidden */ false);
+  visibility_message =
+      sink->GetUniqueMessageMatching(PageMsg_VisibilityChanged::ID);
+  CheckVisibilityMessage(visibility_message, PageVisibilityState::kHidden);
+  EXPECT_FALSE(rwhv->is_showing());
 }
 
 // Tests that GetLastActiveTime starts with a real, non-zero time and updates
@@ -2770,8 +2896,9 @@ TEST_F(WebContentsImplTest, HandleWheelEvent) {
 
   int modifiers = 0;
   // Verify that normal mouse wheel events do nothing to change the zoom level.
-  blink::WebMouseWheelEvent event =
-      SyntheticWebMouseWheelEventBuilder::Build(0, 0, 0, 1, modifiers, false);
+  blink::WebMouseWheelEvent event = SyntheticWebMouseWheelEventBuilder::Build(
+      0, 0, 0, 1, modifiers,
+      ui::input_types::ScrollGranularity::kScrollByPixel);
   EXPECT_FALSE(contents()->HandleWheelEvent(event));
   EXPECT_EQ(0, delegate->GetAndResetContentsZoomChangedCallCount());
 
@@ -2779,8 +2906,9 @@ TEST_F(WebContentsImplTest, HandleWheelEvent) {
   // decreased. Except on MacOS where we never want to adjust zoom
   // with mousewheel.
   modifiers = WebInputEvent::kControlKey;
-  event =
-      SyntheticWebMouseWheelEventBuilder::Build(0, 0, 0, 1, modifiers, false);
+  event = SyntheticWebMouseWheelEventBuilder::Build(
+      0, 0, 0, 1, modifiers,
+      ui::input_types::ScrollGranularity::kScrollByPixel);
   bool handled = contents()->HandleWheelEvent(event);
 #if defined(USE_AURA)
   EXPECT_TRUE(handled);
@@ -2793,8 +2921,9 @@ TEST_F(WebContentsImplTest, HandleWheelEvent) {
 
   modifiers = WebInputEvent::kControlKey | WebInputEvent::kShiftKey |
               WebInputEvent::kAltKey;
-  event =
-      SyntheticWebMouseWheelEventBuilder::Build(0, 0, 2, -5, modifiers, false);
+  event = SyntheticWebMouseWheelEventBuilder::Build(
+      0, 0, 2, -5, modifiers,
+      ui::input_types::ScrollGranularity::kScrollByPixel);
   handled = contents()->HandleWheelEvent(event);
 #if defined(USE_AURA)
   EXPECT_TRUE(handled);
@@ -2806,8 +2935,9 @@ TEST_F(WebContentsImplTest, HandleWheelEvent) {
 #endif
 
   // Unless there is no vertical movement.
-  event =
-      SyntheticWebMouseWheelEventBuilder::Build(0, 0, 2, 0, modifiers, false);
+  event = SyntheticWebMouseWheelEventBuilder::Build(
+      0, 0, 2, 0, modifiers,
+      ui::input_types::ScrollGranularity::kScrollByPixel);
   EXPECT_FALSE(contents()->HandleWheelEvent(event));
   EXPECT_EQ(0, delegate->GetAndResetContentsZoomChangedCallCount());
 
@@ -2815,8 +2945,9 @@ TEST_F(WebContentsImplTest, HandleWheelEvent) {
   // zoom being adjusted, to avoid accidental adjustments caused by
   // two-finger-scrolling on a touchpad.
   modifiers = WebInputEvent::kControlKey;
-  event =
-      SyntheticWebMouseWheelEventBuilder::Build(0, 0, 0, 5, modifiers, true);
+  event = SyntheticWebMouseWheelEventBuilder::Build(
+      0, 0, 0, 5, modifiers,
+      ui::input_types::ScrollGranularity::kScrollByPrecisePixel);
   EXPECT_FALSE(contents()->HandleWheelEvent(event));
   EXPECT_EQ(0, delegate->GetAndResetContentsZoomChangedCallCount());
 
@@ -3029,7 +3160,10 @@ TEST_F(WebContentsImplTestWithSiteIsolation, StartStopEventsBalance) {
 
   // Navigate the main RenderFrame and commit. The frame should still be
   // loading.
-  NavigationSimulator::NavigateAndCommitFromBrowser(contents(), main_url);
+  auto main_frame_navigation =
+      NavigationSimulatorImpl::CreateBrowserInitiated(main_url, contents());
+  main_frame_navigation->SetKeepLoading(true);
+  main_frame_navigation->Commit();
   EXPECT_FALSE(contents()->CrossProcessNavigationPending());
   EXPECT_EQ(orig_rfh, main_test_rfh());
   EXPECT_TRUE(contents()->IsLoading());
@@ -3044,18 +3178,11 @@ TEST_F(WebContentsImplTestWithSiteIsolation, StartStopEventsBalance) {
 
   // Navigate the child frame to about:blank, which will send DidStopLoading
   // message.
-  {
-    NavigationSimulator::NavigateAndCommitFromDocument(initial_url, subframe);
-    subframe->OnMessageReceived(
-        FrameHostMsg_DidStopLoading(subframe->GetRoutingID()));
-  }
+  NavigationSimulator::NavigateAndCommitFromDocument(initial_url, subframe);
 
   // Navigate the frame to another URL, which will send again
   // DidStartLoading and DidStopLoading messages.
-  subframe = static_cast<TestRenderFrameHost*>(
-      NavigationSimulator::NavigateAndCommitFromDocument(foo_url, subframe));
-  subframe->OnMessageReceived(
-      FrameHostMsg_DidStopLoading(subframe->GetRoutingID()));
+  NavigationSimulator::NavigateAndCommitFromDocument(foo_url, subframe);
 
   // Since the main frame hasn't sent any DidStopLoading messages, it is
   // expected that the WebContents is still in loading state.
@@ -3085,9 +3212,6 @@ TEST_F(WebContentsImplTestWithSiteIsolation, StartStopEventsBalance) {
     navigation->Commit();
     subframe = static_cast<TestRenderFrameHost*>(
         navigation->GetFinalRenderFrameHost());
-
-    subframe->OnMessageReceived(
-        FrameHostMsg_DidStopLoading(subframe->GetRoutingID()));
   }
 
   // At this point the status should still be loading, since the main frame
@@ -3098,8 +3222,7 @@ TEST_F(WebContentsImplTestWithSiteIsolation, StartStopEventsBalance) {
 
   // Send the DidStopLoading for the main frame and ensure it isn't loading
   // anymore.
-  orig_rfh->OnMessageReceived(
-      FrameHostMsg_DidStopLoading(orig_rfh->GetRoutingID()));
+  main_frame_navigation->StopLoading();
   EXPECT_FALSE(contents()->IsLoading());
   EXPECT_FALSE(observer.is_loading());
   EXPECT_FALSE(observer.did_receive_response());
@@ -3114,7 +3237,10 @@ TEST_F(WebContentsImplTestWithSiteIsolation, IsLoadingToDifferentDocument) {
 
   // Navigate the main RenderFrame and commit. The frame should still be
   // loading.
-  NavigationSimulator::NavigateAndCommitFromBrowser(contents(), main_url);
+  auto navigation =
+      NavigationSimulatorImpl::CreateBrowserInitiated(main_url, contents());
+  navigation->SetKeepLoading(true);
+  navigation->Commit();
   EXPECT_FALSE(contents()->CrossProcessNavigationPending());
   EXPECT_EQ(orig_rfh, main_test_rfh());
   EXPECT_TRUE(contents()->IsLoading());
@@ -3122,8 +3248,7 @@ TEST_F(WebContentsImplTestWithSiteIsolation, IsLoadingToDifferentDocument) {
 
   // Send the DidStopLoading for the main frame and ensure it isn't loading
   // anymore.
-  orig_rfh->OnMessageReceived(
-      FrameHostMsg_DidStopLoading(orig_rfh->GetRoutingID()));
+  navigation->StopLoading();
   EXPECT_FALSE(contents()->IsLoading());
   EXPECT_FALSE(contents()->IsLoadingToDifferentDocument());
 
@@ -3214,13 +3339,13 @@ TEST_F(WebContentsImplTest, MediaWakeLock) {
   // Send a fake audio stream monitor notification.  The audio wake lock
   // should be created.
   monitor->set_was_recently_audible_for_testing(true);
-  contents()->NotifyNavigationStateChanged(INVALIDATE_TYPE_TAB);
+  contents()->NotifyNavigationStateChanged(INVALIDATE_TYPE_AUDIO);
   EXPECT_TRUE(has_audio_wake_lock());
 
   // Send another fake notification, this time when WasRecentlyAudible() will
   // be false.  The wake lock should be released.
   monitor->set_was_recently_audible_for_testing(false);
-  contents()->NotifyNavigationStateChanged(INVALIDATE_TYPE_TAB);
+  contents()->NotifyNavigationStateChanged(INVALIDATE_TYPE_AUDIO);
   EXPECT_FALSE(has_audio_wake_lock());
 
   main_test_rfh()->GetProcess()->SimulateCrash();
@@ -3239,8 +3364,7 @@ TEST_F(WebContentsImplTest, ThemeColorChangeDependingOnFirstVisiblePaint) {
 
   // Theme color changes should not propagate past the WebContentsImpl before
   // the first visually non-empty paint has occurred.
-  rfh->OnMessageReceived(
-      FrameHostMsg_DidChangeThemeColor(rfh->GetRoutingID(), SK_ColorRED));
+  rfh->DidChangeThemeColor(SK_ColorRED);
 
   EXPECT_EQ(SK_ColorRED, contents()->GetThemeColor());
   EXPECT_EQ(base::nullopt, observer.last_theme_color());
@@ -3253,8 +3377,7 @@ TEST_F(WebContentsImplTest, ThemeColorChangeDependingOnFirstVisiblePaint) {
   EXPECT_EQ(SK_ColorRED, observer.last_theme_color());
 
   // Additional changes made by the web contents should propagate as well.
-  rfh->OnMessageReceived(
-      FrameHostMsg_DidChangeThemeColor(rfh->GetRoutingID(), SK_ColorGREEN));
+  rfh->DidChangeThemeColor(SK_ColorGREEN);
 
   EXPECT_EQ(SK_ColorGREEN, contents()->GetThemeColor());
   EXPECT_EQ(SK_ColorGREEN, observer.last_theme_color());
@@ -3384,12 +3507,26 @@ TEST_F(WebContentsImplTest, DidFirstVisuallyNonEmptyPaint) {
   EXPECT_TRUE(observer.observed_did_first_visually_non_empty_paint());
 }
 
+TEST_F(WebContentsImplTest, DidChangeVerticalScrollDirection) {
+  TestWebContentsObserver observer(contents());
+
+  EXPECT_FALSE(observer.last_vertical_scroll_direction().has_value());
+
+  contents()->OnVerticalScrollDirectionChanged(
+      viz::VerticalScrollDirection::kUp);
+
+  EXPECT_EQ(viz::VerticalScrollDirection::kUp,
+            observer.last_vertical_scroll_direction().value());
+}
+
 namespace {
 
 class MockWebContentsDelegate : public WebContentsDelegate {
  public:
   MOCK_METHOD2(HandleContextMenu,
                bool(RenderFrameHost*, const ContextMenuParams&));
+  MOCK_METHOD4(RegisterProtocolHandler,
+               void(WebContents*, const std::string&, const GURL&, bool));
 };
 
 }  // namespace
@@ -3404,6 +3541,60 @@ TEST_F(WebContentsImplTest, HandleContextMenuDelegate) {
 
   ContextMenuParams params;
   contents()->ShowContextMenu(rfh, params);
+
+  contents()->SetDelegate(nullptr);
+}
+
+TEST_F(WebContentsImplTest, RegisterProtocolHandlerDifferentOrigin) {
+  MockWebContentsDelegate delegate;
+  contents()->SetDelegate(&delegate);
+
+  GURL url("https://www.google.com");
+  GURL handler_url1("https://www.google.com/handler/%s");
+  GURL handler_url2("https://www.example.com/handler/%s");
+
+  contents()->NavigateAndCommit(url);
+
+  // Only the first call to RegisterProtocolHandler should register because the
+  // other call has a handler from a different origin.
+  EXPECT_CALL(delegate,
+              RegisterProtocolHandler(contents(), "mailto", handler_url1, true))
+      .Times(1);
+
+  {
+    contents()->RegisterProtocolHandler(main_test_rfh(), "mailto", handler_url1,
+                                        base::string16(),
+                                        /*user_gesture=*/true);
+  }
+
+  {
+    contents()->RegisterProtocolHandler(main_test_rfh(), "mailto", handler_url2,
+                                        base::string16(),
+                                        /*user_gesture=*/true);
+  }
+
+  contents()->SetDelegate(nullptr);
+}
+
+TEST_F(WebContentsImplTest, RegisterProtocolHandlerDataURL) {
+  MockWebContentsDelegate delegate;
+  contents()->SetDelegate(&delegate);
+
+  GURL data("data:text/html,<html><body><b>hello world</b></body></html>");
+  GURL data_handler(data.spec() + "%s");
+
+  contents()->NavigateAndCommit(data);
+
+  // Data URLs should fail.
+  EXPECT_CALL(delegate,
+              RegisterProtocolHandler(contents(), "mailto", data_handler, true))
+      .Times(0);
+
+  {
+    contents()->RegisterProtocolHandler(main_test_rfh(), "mailto", data_handler,
+                                        base::string16(),
+                                        /*user_gesture=*/true);
+  }
 
   contents()->SetDelegate(nullptr);
 }

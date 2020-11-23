@@ -6,7 +6,6 @@
 
 #include <string>
 
-#include "content/public/browser/resource_request_info.h"
 #include "extensions/browser/extension_navigation_ui_data.h"
 #include "extensions/browser/extensions_browser_client.h"
 #include "extensions/browser/guest_view/web_view/web_view_renderer_state.h"
@@ -16,7 +15,6 @@
 #include "extensions/common/manifest_handlers/icons_handler.h"
 #include "extensions/common/manifest_handlers/web_accessible_resources_info.h"
 #include "extensions/common/manifest_handlers/webview_info.h"
-#include "net/url_request/url_request.h"
 
 namespace extensions {
 namespace url_request_util {

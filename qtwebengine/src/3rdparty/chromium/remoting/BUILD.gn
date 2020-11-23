@@ -2,7 +2,6 @@
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
-import("//components/nacl/features.gni")
 import("//media/media_options.gni")
 import("//remoting/build/config/remoting_build.gni")
 
@@ -11,14 +10,7 @@ group("remoting_all") {
 
   deps = [
     ":remoting_unittests",
-    "//remoting/test:chromoting_test_driver",
-    "//remoting/webapp:browser_test_resources",
-    "//remoting/webapp:unit_tests",
   ]
-
-  if ((is_linux && !is_chromeos) || is_win || is_mac) {
-    deps += [ "//remoting/webapp" ]
-  }
 
   if (is_win) {
     deps += [
@@ -80,10 +72,6 @@ group("remoting_all") {
     if (is_chrome_branded) {
       deps += [ "//remoting/host:remoting_me2me_host_archive" ]
     }
-  }
-
-  if (enable_nacl) {
-    deps += [ "//remoting/tools/javascript_key_tester" ]
   }
 }
 
@@ -159,10 +147,10 @@ test("remoting_unittests") {
     "//remoting/client:unit_tests",
     "//remoting/client/audio:unit_tests",
     "//remoting/client/input:unit_tests",
+    "//remoting/client/notification:unit_tests",
     "//remoting/client/ui:unit_tests",
     "//remoting/protocol:unit_tests",
     "//remoting/signaling:unit_tests",
-    "//remoting/test:unit_tests",
     "//testing/gmock",
     "//testing/gtest",
   ]
@@ -176,7 +164,7 @@ test("remoting_unittests") {
   }
 
   if (enable_webrtc) {
-    deps += [ "//third_party/webrtc_overrides:init_webrtc" ]
+    deps += [ "//third_party/webrtc_overrides:webrtc_component" ]
   }
 
   if (is_android) {
@@ -224,9 +212,7 @@ if (enable_remoting_host) {
 
     if (enable_webrtc) {
       deps += [
-        "//third_party/webrtc/modules/desktop_capture",
-        "//third_party/webrtc_overrides",
-        "//third_party/webrtc_overrides:init_webrtc"
+        "//third_party/webrtc_overrides:webrtc_component",
       ]
     }
 

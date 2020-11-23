@@ -37,6 +37,7 @@ class QUIC_EXPORT_PRIVATE QuicCryptoClientHandshaker
   // From QuicCryptoClientStream::HandshakerDelegate
   bool CryptoConnect() override;
   int num_sent_client_hellos() const override;
+  bool IsResumption() const override;
   int num_scup_messages_received() const override;
   std::string chlo_hash() const override;
   bool encryption_established() const override;
@@ -44,6 +45,7 @@ class QUIC_EXPORT_PRIVATE QuicCryptoClientHandshaker
   const QuicCryptoNegotiatedParameters& crypto_negotiated_params()
       const override;
   CryptoMessageParser* crypto_message_parser() override;
+  size_t BufferSizeLimitForLevel(EncryptionLevel level) const override;
 
   // From QuicCryptoHandshaker
   void OnHandshakeMessage(const CryptoHandshakeMessage& message) override;
@@ -59,7 +61,8 @@ class QUIC_EXPORT_PRIVATE QuicCryptoClientHandshaker
   // ProofVerifierCallbackImpl is passed as the callback method to VerifyProof.
   // The ProofVerifier calls this class with the result of proof verification
   // when verification is performed asynchronously.
-  class ProofVerifierCallbackImpl : public ProofVerifierCallback {
+  class QUIC_EXPORT_PRIVATE ProofVerifierCallbackImpl
+      : public ProofVerifierCallback {
    public:
     explicit ProofVerifierCallbackImpl(QuicCryptoClientHandshaker* parent);
     ~ProofVerifierCallbackImpl() override;
@@ -129,6 +132,7 @@ class QUIC_EXPORT_PRIVATE QuicCryptoClientHandshaker
   QuicCryptoClientStream* stream_;
 
   QuicSession* session_;
+  HandshakerDelegateInterface* delegate_;
 
   State next_state_;
   // num_client_hellos_ contains the number of client hello messages that this

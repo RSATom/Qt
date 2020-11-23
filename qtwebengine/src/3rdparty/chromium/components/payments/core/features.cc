@@ -42,7 +42,19 @@ const base::Feature kWebPaymentsPerMethodCanMakePaymentQuota{
     base::FEATURE_DISABLED_BY_DEFAULT};
 
 const base::Feature kWebPaymentsRedactShippingAddress{
-    "WebPaymentsRedactShippingAddress", base::FEATURE_DISABLED_BY_DEFAULT};
+    "WebPaymentsRedactShippingAddress", base::FEATURE_ENABLED_BY_DEFAULT};
+
+const base::Feature kStrictHasEnrolledAutofillInstrument{
+    "StrictHasEnrolledAutofillInstrument", base::FEATURE_DISABLED_BY_DEFAULT};
+
+const base::Feature kPaymentRequestSkipToGPay{
+    "PaymentRequestSkipToGPay", base::FEATURE_DISABLED_BY_DEFAULT};
+
+const base::Feature kPaymentRequestSkipToGPayIfNoCard{
+    "PaymentRequestSkipToGPayIfNoCard", base::FEATURE_DISABLED_BY_DEFAULT};
+
+const base::Feature kWebPaymentMicrotransaction{
+    "WebPaymentMicrotransaction", base::FEATURE_DISABLED_BY_DEFAULT};
 
 }  // namespace features
 }  // namespace payments

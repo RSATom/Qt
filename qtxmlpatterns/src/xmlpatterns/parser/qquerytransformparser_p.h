@@ -47,11 +47,12 @@
 //
 // We mean it.
 
-/* A Bison parser, made by GNU Bison 3.0.2.  */
+/* A Bison parser, made by GNU Bison 3.3.2.  */
 
 /* Bison interface for Yacc-like parsers in C
 
-   Copyright (C) 1984, 1989-1990, 2000-2013 Free Software Foundation, Inc.
+   Copyright (C) 1984, 1989-1990, 2000-2015, 2018-2019 Free Software Foundation,
+   Inc.
 
    This program is free software: you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
@@ -79,20 +80,31 @@
    This special exception was added by the Free Software Foundation in
    version 2.2 of Bison.  */
 
+/* Undocumented macros, especially those whose name start with YY_,
+   are private implementation details.  Do not rely on them.  */
+
 #ifndef YY_XPATH_QQUERYTRANSFORMPARSER_P_H_INCLUDED
 # define YY_XPATH_QQUERYTRANSFORMPARSER_P_H_INCLUDED
 /* Debug traces.  */
-#ifndef YYDEBUG
-# define YYDEBUG 0
-#endif
+#ifndef XPATHDEBUG
+# if defined YYDEBUG
 #if YYDEBUG
+#   define XPATHDEBUG 1
+#  else
+#   define XPATHDEBUG 0
+#  endif
+# else /* ! defined YYDEBUG */
+#  define XPATHDEBUG 0
+# endif /* ! defined YYDEBUG */
+#endif  /* ! defined XPATHDEBUG */
+#if XPATHDEBUG
 extern int XPathdebug;
 #endif
 
 /* Token type.  */
-#ifndef YYTOKENTYPE
-# define YYTOKENTYPE
-  enum yytokentype
+#ifndef XPATHTOKENTYPE
+# define XPATHTOKENTYPE
+  enum XPathtokentype
   {
     T_END_OF_FILE = 0,
     T_STRING_LITERAL = 258,
@@ -267,17 +279,17 @@ extern int XPathdebug;
 /* Value type.  */
 
 /* Location type.  */
-#if ! defined YYLTYPE && ! defined YYLTYPE_IS_DECLARED
-typedef struct YYLTYPE YYLTYPE;
-struct YYLTYPE
+#if ! defined XPATHLTYPE && ! defined XPATHLTYPE_IS_DECLARED
+typedef struct XPATHLTYPE XPATHLTYPE;
+struct XPATHLTYPE
 {
   int first_line;
   int first_column;
   int last_line;
   int last_column;
 };
-# define YYLTYPE_IS_DECLARED 1
-# define YYLTYPE_IS_TRIVIAL 1
+# define XPATHLTYPE_IS_DECLARED 1
+# define XPATHLTYPE_IS_TRIVIAL 1
 #endif
 
 

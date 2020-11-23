@@ -14,7 +14,8 @@
 #include <cstddef>
 #include <string>
 
-#include "api/datagram_transport_interface.h"
+#include "api/transport/datagram_transport_interface.h"
+#include "api/transport/media/media_transport_interface.h"
 
 namespace webrtc {
 
@@ -61,6 +62,24 @@ class FakeDatagramTransport : public DatagramTransportInterface {
     }
     return transport_parameters_;
   }
+
+  RTCError OpenChannel(int channel_id) override {
+    return RTCError(RTCErrorType::UNSUPPORTED_OPERATION);
+  }
+
+  RTCError SendData(int channel_id,
+                    const SendDataParams& params,
+                    const rtc::CopyOnWriteBuffer& buffer) override {
+    return RTCError(RTCErrorType::UNSUPPORTED_OPERATION);
+  }
+
+  RTCError CloseChannel(int channel_id) override {
+    return RTCError(RTCErrorType::UNSUPPORTED_OPERATION);
+  }
+
+  void SetDataSink(DataChannelSink* /*sink*/) override {}
+
+  bool IsReadyToSend() const override { return false; }
 
   rtc::PacketTransportInternal* packet_transport() { return packet_transport_; }
 

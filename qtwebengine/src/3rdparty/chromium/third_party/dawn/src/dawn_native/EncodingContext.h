@@ -18,13 +18,15 @@
 #include "dawn_native/CommandAllocator.h"
 #include "dawn_native/Error.h"
 #include "dawn_native/ErrorData.h"
+#include "dawn_native/PassResourceUsageTracker.h"
+#include "dawn_native/dawn_platform.h"
 
 #include <string>
 
 namespace dawn_native {
 
-    class ObjectBase;
     class DeviceBase;
+    class ObjectBase;
 
     // Base class for allocating/iterating commands.
     // It performs error tracking as well as encoding state for render/compute passes.
@@ -37,10 +39,10 @@ namespace dawn_native {
         CommandIterator* GetIterator();
 
         // Functions to handle encoder errors
-        void HandleError(const char* message);
+        void HandleError(wgpu::ErrorType type, const char* message);
 
         inline void ConsumeError(ErrorData* error) {
-            HandleError(error->GetMessage().c_str());
+            HandleError(error->GetType(), error->GetMessage().c_str());
             delete error;
         }
 
@@ -53,13 +55,15 @@ namespace dawn_native {
         }
 
         template <typename EncodeFunction>
-        inline bool TryEncode(const void* encoder, EncodeFunction&& encodeFunction) {
+        inline bool TryEncode(const ObjectBase* encoder, EncodeFunction&& encodeFunction) {
             if (DAWN_UNLIKELY(encoder != mCurrentEncoder)) {
                 if (mCurrentEncoder != mTopLevelEncoder) {
                     // The top level encoder was used when a pass encoder was current.
-                    HandleError("Command cannot be recorded inside a pass");
+                    HandleError(wgpu::ErrorType::Validation,
+                                "Command cannot be recorded inside a pass");
                 } else {
-                    HandleError("Recording in an error or already ended pass encoder");
+                    HandleError(wgpu::ErrorType::Validation,
+                                "Recording in an error or already ended pass encoder");
                 }
                 return false;
             }
@@ -69,11 +73,15 @@ namespace dawn_native {
 
         // Functions to set current encoder state
         void EnterPass(const ObjectBase* passEncoder);
-        void ExitPass(const ObjectBase* passEncoder);
+        void ExitPass(const ObjectBase* passEncoder, PassResourceUsage passUsages);
         MaybeError Finish();
+
+        const PerPassUsages& GetPassUsages() const;
+        PerPassUsages AcquirePassUsages();
 
       private:
         bool IsFinished() const;
+        void MoveToIterator();
 
         DeviceBase* mDevice;
 
@@ -86,6 +94,9 @@ namespace dawn_native {
         // The current encoder changes with Enter/ExitPass which should be called by
         // CommandEncoder::Begin/EndPass.
         const ObjectBase* mCurrentEncoder;
+
+        PerPassUsages mPassUsages;
+        bool mWerePassUsagesAcquired = false;
 
         CommandAllocator mAllocator;
         CommandIterator mIterator;

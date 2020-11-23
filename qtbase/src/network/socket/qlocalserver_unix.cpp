@@ -185,7 +185,7 @@ bool QLocalServerPrivate::listen(const QString &requestedServerName)
     Q_ASSERT(!socketNotifier);
     socketNotifier = new QSocketNotifier(listenSocket,
                                          QSocketNotifier::Read, q);
-    q->connect(socketNotifier, SIGNAL(activated(int)),
+    q->connect(socketNotifier, SIGNAL(activated(QSocketDescriptor)),
                q, SLOT(_q_onNewConnection()));
     socketNotifier->setEnabled(maxPendingConnections > 0);
     return true;
@@ -227,7 +227,7 @@ bool QLocalServerPrivate::listen(qintptr socketDescriptor)
     Q_ASSERT(!socketNotifier);
     socketNotifier = new QSocketNotifier(listenSocket,
                                          QSocketNotifier::Read, q);
-    q->connect(socketNotifier, SIGNAL(activated(int)),
+    q->connect(socketNotifier, SIGNAL(activated(QSocketDescriptor)),
                q, SLOT(_q_onNewConnection()));
     socketNotifier->setEnabled(maxPendingConnections > 0);
     return true;
@@ -243,7 +243,7 @@ void QLocalServerPrivate::closeServer()
     if (socketNotifier) {
         socketNotifier->setEnabled(false); // Otherwise, closed socket is checked before deleter runs
         socketNotifier->deleteLater();
-        socketNotifier = 0;
+        socketNotifier = nullptr;
     }
 
     if (-1 != listenSocket)

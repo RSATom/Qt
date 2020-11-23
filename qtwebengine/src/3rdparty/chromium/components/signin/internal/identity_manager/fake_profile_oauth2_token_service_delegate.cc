@@ -154,9 +154,9 @@ void FakeProfileOAuth2TokenServiceDelegate::UpdateAuthError(
     const CoreAccountId& account_id,
     const GoogleServiceAuthError& error) {
   backoff_entry_.InformOfRequest(!error.IsTransientError());
-  // Drop transient errors to match OAuth2TokenService's stated contract for
-  // GetAuthError() and to allow clients to test proper behavior in the case of
-  // transient errors.
+  // Drop transient errors to match ProfileOAuth2TokenService's stated contract
+  // for GetAuthError() and to allow clients to test proper behavior in the case
+  // of transient errors.
   if (error.IsTransientError())
     return;
 
@@ -168,3 +168,10 @@ void FakeProfileOAuth2TokenServiceDelegate::UpdateAuthError(
   it->second->error = error;
   FireAuthErrorChanged(account_id, error);
 }
+
+#if defined(OS_ANDROID)
+base::android::ScopedJavaLocalRef<jobject>
+FakeProfileOAuth2TokenServiceDelegate::GetJavaObject() {
+  return base::android::ScopedJavaLocalRef<jobject>();
+}
+#endif

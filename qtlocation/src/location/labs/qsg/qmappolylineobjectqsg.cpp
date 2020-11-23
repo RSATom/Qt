@@ -53,9 +53,9 @@ QMapPolylineObjectPrivateQSG::QMapPolylineObjectPrivateQSG(QGeoMapObject *q)
 QMapPolylineObjectPrivateQSG::QMapPolylineObjectPrivateQSG(const QMapPolylineObjectPrivate &other)
     : QMapPolylineObjectPrivateDefault(other)
 {
-    m_geoPath.setPath(m_path);
     // rest of the data already cloned by the *Default copy constructor, but necessary
     // update operations triggered only by setters overrides
+    markSourceDirty();
     updateGeometry();
     if (m_map)
         emit m_map->sgNodeChanged();
@@ -75,28 +75,43 @@ QList<QDoubleVector2D> QMapPolylineObjectPrivateQSG::projectPath()
 
     const QGeoProjectionWebMercator &p =
             static_cast<const QGeoProjectionWebMercator&>(m_map->geoProjection());
-    geopathProjected_.reserve(m_geoPath.path().size());
-    for (const QGeoCoordinate &c : m_geoPath.path())
+    geopathProjected_.reserve(m_path.path().size());
+    for (const QGeoCoordinate &c : m_path.path())
         geopathProjected_ << p.geoToMapProjection(c);
     return geopathProjected_;
 }
 
 void QMapPolylineObjectPrivateQSG::updateGeometry()
 {
-    if (!m_map || m_geoPath.path().length() == 0
-            || m_map->geoProjection().projectionType() != QGeoProjection::ProjectionWebMercator)
+    if (!m_map || m_map->geoProjection().projectionType() != QGeoProjection::ProjectionWebMercator)
         return;
 
-    QScopedValueRollback<bool> rollback(m_updatingGeometry);
-    m_updatingGeometry = true;
-    m_geometry.markSourceDirty();
-    const QList<QDoubleVector2D> &geopathProjected = projectPath();
-    m_geometry.setPreserveGeometry(true, m_geoPath.boundingGeoRectangle().topLeft());
-    m_geometry.updateSourcePoints(*m_map.data(), geopathProjected, m_geoPath.boundingGeoRectangle().topLeft());
-    m_geometry.updateScreenPoints(*m_map.data(), width(), false);
+    if (m_path.path().length() == 0) { // Possibly cleared
+        m_borderGeometry.clear();
+        return;
+    }
 
-    QPointF origin = m_map->geoProjection().coordinateToItemPosition(m_geometry.origin(), false).toPointF();
-    m_geometry.translate(origin - m_geometry.firstPointOffset());
+    const QGeoProjectionWebMercator &p = static_cast<const QGeoProjectionWebMercator&>(m_map->geoProjection());
+    if (m_borderGeometry.isSourceDirty()) {
+        m_borderGeometry.setPreserveGeometry(true, m_path.boundingGeoRectangle().topLeft());
+        m_borderGeometry.m_dataChanged = true;
+        m_borderGeometry.updateSourcePoints(*m_map, m_path);
+        m_leftBoundMercator = p.geoToMapProjection(m_borderGeometry.origin());
+    }
+    m_borderGeometry.markScreenDirty();
+    m_borderGeometry.m_wrapOffset = p.projectionWrapFactor(m_leftBoundMercator) + 1;
+}
+
+/*!
+  \internal
+*/
+unsigned int QMapPolylineObjectPrivateQSG::zoomForLOD(int zoom) const
+{
+    // LOD Threshold currently fixed to 12 for MapPolylineObject(QSG).
+    // ToDo: Consider allowing to change this via DynamicParameter.
+    if (zoom >= 12)
+        return 30;
+    return uint(zoom);
 }
 
 QSGNode *QMapPolylineObjectPrivateQSG::updateMapObjectNode(QSGNode *oldNode,
@@ -104,40 +119,53 @@ QSGNode *QMapPolylineObjectPrivateQSG::updateMapObjectNode(QSGNode *oldNode,
                                                            QSGNode *root,
                                                            QQuickWindow * /*window*/)
 {
-    Q_UNUSED(visibleNode);
-    MapPolylineNode *node = static_cast<MapPolylineNode *>(oldNode);
-
-    bool created = false;
-    if (!node) {
-        if (!m_geometry.size()) // condition to block the subtree
-            return nullptr;
-        node = new MapPolylineNode();
-        *visibleNode = static_cast<VisibleNode *>(node);
-        created = true;
+    if (!m_polylinenode || !oldNode) {
+        m_polylinenode = new MapPolylineNodeOpenGLExtruded();
+        *visibleNode = static_cast<VisibleNode *>(m_polylinenode);
+        if (oldNode)
+            delete oldNode;
+    } else {
+        m_polylinenode = static_cast<MapPolylineNodeOpenGLExtruded *>(oldNode);
     }
 
-    //TODO: update only material
-    if (m_geometry.isScreenDirty() || !oldNode || created) {
-        node->update(color(), &m_geometry);
-        m_geometry.setPreserveGeometry(false);
-        m_geometry.markClean();
+    const QMatrix4x4 &combinedMatrix = m_map->geoProjection().qsgTransform();
+    const QDoubleVector3D &cameraCenter = m_map->geoProjection().centerMercator();
+
+    if (m_borderGeometry.isScreenDirty()) {
+        /* Do the border update first */
+        m_polylinenode->update(color(),
+                               float(width()),
+                               &m_borderGeometry,
+                               combinedMatrix,
+                               cameraCenter,
+                               Qt::SquareCap,
+                               true,
+                               zoomForLOD(int(m_map->cameraData().zoomLevel())));
+        m_borderGeometry.setPreserveGeometry(false);
+        m_borderGeometry.markClean();
     }
 
-    if (created)
-        root->appendChildNode(node);
-
-    return node;
+    if (!m_polylinenode->isSubtreeBlocked() ) {
+        m_polylinenode->setSubtreeBlocked(false);
+        root->appendChildNode(m_polylinenode);
+        return m_polylinenode;
+    } else {
+        delete m_polylinenode;
+        m_polylinenode = nullptr;
+        *visibleNode = nullptr;
+        return nullptr;
+    }
 }
 
 QList<QGeoCoordinate> QMapPolylineObjectPrivateQSG::path() const
 {
-    return m_geoPath.path();
+    return m_path.path();
 }
 
 void QMapPolylineObjectPrivateQSG::setPath(const QList<QGeoCoordinate> &path)
 {
-    m_path = path;
-    m_geoPath.setPath(path);
+    m_path.setPath(path);
+    markSourceDirty();
     updateGeometry();
     if (m_map)
         emit m_map->sgNodeChanged();
@@ -146,7 +174,6 @@ void QMapPolylineObjectPrivateQSG::setPath(const QList<QGeoCoordinate> &path)
 void QMapPolylineObjectPrivateQSG::setColor(const QColor &color)
 {
     QMapPolylineObjectPrivateDefault::setColor(color);
-    updateGeometry();
 
     if (m_map)
         emit m_map->sgNodeChanged();
@@ -155,7 +182,6 @@ void QMapPolylineObjectPrivateQSG::setColor(const QColor &color)
 void QMapPolylineObjectPrivateQSG::setWidth(qreal width)
 {
     QMapPolylineObjectPrivateDefault::setWidth(width);
-    updateGeometry();
 
     if (m_map)
         emit m_map->sgNodeChanged();
@@ -168,7 +194,12 @@ QGeoMapObjectPrivate *QMapPolylineObjectPrivateQSG::clone()
 
 QGeoShape QMapPolylineObjectPrivateQSG::geoShape() const
 {
-    return m_geoPath;
+    return m_path;
+}
+
+void QMapPolylineObjectPrivateQSG::markSourceDirty()
+{
+    m_borderGeometry.markSourceDirty();
 }
 
 QT_END_NAMESPACE

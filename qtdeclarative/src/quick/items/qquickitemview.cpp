@@ -197,6 +197,10 @@ void QQuickItemView::setModel(const QVariant &m)
         disconnect(d->model, SIGNAL(initItem(int,QObject*)), this, SLOT(initItem(int,QObject*)));
         disconnect(d->model, SIGNAL(createdItem(int,QObject*)), this, SLOT(createdItem(int,QObject*)));
         disconnect(d->model, SIGNAL(destroyingItem(QObject*)), this, SLOT(destroyingItem(QObject*)));
+        if (QQmlDelegateModel *delegateModel = qobject_cast<QQmlDelegateModel*>(d->model)) {
+            disconnect(delegateModel, SIGNAL(itemPooled(int, QObject *)), this, SLOT(onItemPooled(int, QObject *)));
+            disconnect(delegateModel, SIGNAL(itemReused(int, QObject *)), this, SLOT(onItemReused(int, QObject *)));
+        }
     }
 
     QQmlInstanceModel *oldModel = d->model;
@@ -232,6 +236,10 @@ void QQuickItemView::setModel(const QVariant &m)
         connect(d->model, SIGNAL(createdItem(int,QObject*)), this, SLOT(createdItem(int,QObject*)));
         connect(d->model, SIGNAL(initItem(int,QObject*)), this, SLOT(initItem(int,QObject*)));
         connect(d->model, SIGNAL(destroyingItem(QObject*)), this, SLOT(destroyingItem(QObject*)));
+        if (QQmlDelegateModel *delegateModel = qobject_cast<QQmlDelegateModel*>(d->model)) {
+            connect(delegateModel, SIGNAL(itemPooled(int, QObject *)), this, SLOT(onItemPooled(int, QObject *)));
+            connect(delegateModel, SIGNAL(itemReused(int, QObject *)), this, SLOT(onItemReused(int, QObject *)));
+        }
         if (isComponentComplete()) {
             d->updateSectionCriteria();
             d->refill();
@@ -694,6 +702,28 @@ void QQuickItemView::setHighlightMoveDuration(int duration)
     }
 }
 
+bool QQuickItemView::reuseItems() const
+{
+    return bool(d_func()->reusableFlag == QQmlDelegateModel::Reusable);
+}
+
+void QQuickItemView::setReuseItems(bool reuse)
+{
+    Q_D(QQuickItemView);
+    if (reuseItems() == reuse)
+        return;
+
+    d->reusableFlag = reuse ? QQmlDelegateModel::Reusable : QQmlDelegateModel::NotReusable;
+
+    if (!reuse && d->model) {
+        // When we're told to not reuse items, we
+        // immediately, as documented, drain the pool.
+        d->model->drainReusableItemsPool(0);
+    }
+
+    emit reuseItemsChanged();
+}
+
 QQuickTransition *QQuickItemView::populateTransition() const
 {
     Q_D(const QQuickItemView);
@@ -848,7 +878,7 @@ void QQuickItemViewPrivate::positionViewAtIndex(int index, int mode)
         setPosition(qMin(itemPos, maxExtent));
         // now release the reference to all the old visible items.
         for (FxViewItem *item : oldVisible)
-            releaseItem(item);
+            releaseItem(item, reusableFlag);
         item = visibleItem(idx);
     }
     if (item) {
@@ -1091,8 +1121,8 @@ qreal QQuickItemViewPrivate::calculatedMaxExtent() const
 
 void QQuickItemViewPrivate::applyDelegateChange()
 {
-    releaseVisibleItems();
-    releaseItem(currentItem);
+    releaseVisibleItems(QQmlDelegateModel::NotReusable);
+    releaseItem(currentItem, QQmlDelegateModel::NotReusable);
     currentItem = nullptr;
     updateSectionCriteria();
     refill();
@@ -1194,7 +1224,7 @@ void QQuickItemView::destroyRemoved()
             } else {
                 if (hasRemoveTransition)
                     d->runDelayedRemoveTransition = true;
-                d->releaseItem(item);
+                d->releaseItem(item, d->reusableFlag);
                 it = d->visibleItems.erase(it);
             }
         } else {
@@ -1638,7 +1668,7 @@ void QQuickItemViewPrivate::updateCurrent(int modelIndex)
         if (currentItem) {
             if (currentItem->attached)
                 currentItem->attached->setIsCurrentItem(false);
-            releaseItem(currentItem);
+            releaseItem(currentItem, reusableFlag);
             currentItem = nullptr;
             currentIndex = modelIndex;
             emit q->currentIndexChanged();
@@ -1675,7 +1705,7 @@ void QQuickItemViewPrivate::updateCurrent(int modelIndex)
     if (oldCurrentItem != currentItem
             && (!oldCurrentItem || !currentItem || oldCurrentItem->item != currentItem->item))
         emit q->currentItemChanged();
-    releaseItem(oldCurrentItem);
+    releaseItem(oldCurrentItem, reusableFlag);
 }
 
 void QQuickItemViewPrivate::clear(bool onDestruction)
@@ -1689,17 +1719,17 @@ void QQuickItemViewPrivate::clear(bool onDestruction)
     bufferedChanges.reset();
     timeline.clear();
 
-    releaseVisibleItems();
+    releaseVisibleItems(QQmlInstanceModel::NotReusable);
     visibleIndex = 0;
 
     for (FxViewItem *item : qAsConst(releasePendingTransition)) {
         item->releaseAfterTransition = false;
-        releaseItem(item);
+        releaseItem(item, QQmlInstanceModel::NotReusable);
     }
     releasePendingTransition.clear();
 
     auto oldCurrentItem = currentItem;
-    releaseItem(currentItem);
+    releaseItem(currentItem, QQmlDelegateModel::NotReusable);
     currentItem = nullptr;
     if (oldCurrentItem)
         emit q->currentItemChanged();
@@ -1758,7 +1788,7 @@ void QQuickItemViewPrivate::refill(qreal from, qreal to)
         if (currentChanges.hasPendingChanges() || bufferedChanges.hasPendingChanges()) {
             currentChanges.reset();
             bufferedChanges.reset();
-            releaseVisibleItems();
+            releaseVisibleItems(reusableFlag);
         }
 
         int prevCount = itemCount;
@@ -1925,7 +1955,7 @@ void QQuickItemViewPrivate::layout()
                 continue;
 
             if (!success) {
-                releaseItem(releasePendingTransition[i]);
+                releaseItem(releasePendingTransition[i], reusableFlag);
                 releasePendingTransition.remove(i);
                 --count;
             } else {
@@ -2071,9 +2101,9 @@ bool QQuickItemViewPrivate::applyModelChanges(ChangeResult *totalInsertionResult
 
     // Whatever removed/moved items remain are no longer visible items.
     prepareRemoveTransitions(&currentChanges.removedItems);
-    for (QHash<QQmlChangeSet::MoveKey, FxViewItem *>::Iterator it = currentChanges.removedItems.begin();
+    for (auto it = currentChanges.removedItems.begin();
          it != currentChanges.removedItems.end(); ++it) {
-        releaseItem(it.value());
+        releaseItem(it.value(), reusableFlag);
     }
     currentChanges.removedItems.clear();
 
@@ -2082,7 +2112,7 @@ bool QQuickItemViewPrivate::applyModelChanges(ChangeResult *totalInsertionResult
             if (currentItem->item && currentItem->attached)
                 currentItem->attached->setIsCurrentItem(false);
             auto oldCurrentItem = currentItem;
-            releaseItem(currentItem);
+            releaseItem(currentItem, reusableFlag);
             currentItem = nullptr;
             if (oldCurrentItem)
                 emit q->currentItemChanged();
@@ -2163,11 +2193,11 @@ void QQuickItemViewPrivate::removeItem(FxViewItem *item, const QQmlChangeSet::Ch
             removeResult->sizeChangesAfterVisiblePos += item->size();
     }
     if (removal.isMove()) {
-        currentChanges.removedItems.insert(removal.moveKey(item->index), item);
+        currentChanges.removedItems.replace(removal.moveKey(item->index), item);
         item->transitionNextReposition(transitioner, QQuickItemViewTransitioner::MoveTransition, true);
     } else {
         // track item so it is released later
-        currentChanges.removedItems.insertMulti(QQmlChangeSet::MoveKey(), item);
+        currentChanges.removedItems.insert(QQmlChangeSet::MoveKey(), item);
     }
     if (!removeResult->changedFirstItem && item == *visibleItems.constBegin())
         removeResult->changedFirstItem = true;
@@ -2238,15 +2268,14 @@ void QQuickItemViewPrivate::prepareVisibleItemTransitions()
         visibleItems[i]->prepareTransition(transitioner, viewBounds);
 }
 
-void QQuickItemViewPrivate::prepareRemoveTransitions(QHash<QQmlChangeSet::MoveKey, FxViewItem *> *removedItems)
+void QQuickItemViewPrivate::prepareRemoveTransitions(QMultiHash<QQmlChangeSet::MoveKey, FxViewItem *> *removedItems)
 {
     if (!transitioner)
         return;
 
     if (transitioner->canTransition(QQuickItemViewTransitioner::RemoveTransition, true)
             || transitioner->canTransition(QQuickItemViewTransitioner::RemoveTransition, false)) {
-        for (QHash<QQmlChangeSet::MoveKey, FxViewItem *>::Iterator it = removedItems->begin();
-             it != removedItems->end(); ) {
+        for (auto it = removedItems->begin(); it != removedItems->end(); ) {
             bool isRemove = it.key().moveId < 0;
             if (isRemove) {
                 FxViewItem *item = *it;
@@ -2289,7 +2318,7 @@ void QQuickItemViewPrivate::viewItemTransitionFinished(QQuickItemViewTransitiona
 {
     for (int i=0; i<releasePendingTransition.count(); i++) {
         if (releasePendingTransition.at(i)->transitionableItem == item) {
-            releaseItem(releasePendingTransition.takeAt(i));
+            releaseItem(releasePendingTransition.takeAt(i), reusableFlag);
             return;
         }
     }
@@ -2395,7 +2424,23 @@ void QQuickItemView::destroyingItem(QObject *object)
     }
 }
 
-bool QQuickItemViewPrivate::releaseItem(FxViewItem *item)
+void QQuickItemView::onItemPooled(int modelIndex, QObject *object)
+{
+    Q_UNUSED(modelIndex);
+
+    if (auto *attached = d_func()->getAttachedObject(object))
+        emit attached->pooled();
+}
+
+void QQuickItemView::onItemReused(int modelIndex, QObject *object)
+{
+    Q_UNUSED(modelIndex);
+
+    if (auto *attached = d_func()->getAttachedObject(object))
+        emit attached->reused();
+}
+
+bool QQuickItemViewPrivate::releaseItem(FxViewItem *item, QQmlInstanceModel::ReusableFlag reusableFlag)
 {
     Q_Q(QQuickItemView);
     if (!item)
@@ -2406,17 +2451,20 @@ bool QQuickItemViewPrivate::releaseItem(FxViewItem *item)
 
     QQmlInstanceModel::ReleaseFlags flags = {};
     if (model && item->item) {
-        flags = model->release(item->item);
-        if (!flags && !isClearing) {
+        flags = model->release(item->item, reusableFlag);
+        if (!flags) {
             // item was not destroyed, and we no longer reference it.
             if (item->item->parentItem() == contentItem) {
                 // Only cull the item if its parent item is still our contentItem.
                 // One case where this can happen is moving an item out of one ObjectModel and into another.
                 QQuickItemPrivate::get(item->item)->setCulled(true);
             }
-            unrequestedItems.insert(item->item, model->indexOf(item->item, q));
+            if (!isClearing)
+                unrequestedItems.insert(item->item, model->indexOf(item->item, q));
         } else if (flags & QQmlInstanceModel::Destroyed) {
             item->item->setParentItem(nullptr);
+        } else if (flags & QQmlInstanceModel::Pooled) {
+            item->setVisible(false);
         }
     }
     delete item;

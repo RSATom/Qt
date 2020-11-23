@@ -57,6 +57,7 @@ struct Q_GUI_EXPORT QRhiVulkanInitParams : public QRhiInitParams
 {
     QVulkanInstance *inst = nullptr;
     QWindow *window = nullptr;
+    QByteArrayList deviceExtensions;
 };
 
 struct Q_GUI_EXPORT QRhiVulkanNativeHandles : public QRhiNativeHandles
@@ -67,12 +68,6 @@ struct Q_GUI_EXPORT QRhiVulkanNativeHandles : public QRhiNativeHandles
     VkQueue gfxQueue = VK_NULL_HANDLE;
     VkCommandPool cmdPool = VK_NULL_HANDLE;
     void *vmemAllocator = nullptr;
-};
-
-struct Q_GUI_EXPORT QRhiVulkanTextureNativeHandles : public QRhiNativeHandles
-{
-    VkImage image = VK_NULL_HANDLE;
-    VkImageLayout layout = VK_IMAGE_LAYOUT_GENERAL;
 };
 
 struct Q_GUI_EXPORT QRhiVulkanCommandBufferNativeHandles : public QRhiNativeHandles

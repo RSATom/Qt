@@ -32,6 +32,8 @@ public:
 	Format(VkFormat format) : format(format) {}
 	inline operator VkFormat() const { return format; }
 
+	bool isUnsignedNormalized() const;
+	bool isSignedNormalized() const;
 	bool isSignedNonNormalizedInteger() const;
 	bool isUnsignedNonNormalizedInteger() const;
 	bool isNonNormalizedInteger() const;
@@ -40,8 +42,6 @@ public:
 	Format getAspectFormat(VkImageAspectFlags aspect) const;
 	bool isStencil() const;
 	bool isDepth() const;
-	bool hasQuadLayout() const;
-	VkFormat getNonQuadLayoutFormat() const;
 	bool isSRGBformat() const;
 	bool isFloatFormat() const;
 	bool isYcbcrFormat() const;
@@ -60,7 +60,7 @@ public:
 	int pitchB(int width, int border, bool target) const;
 	int sliceB(int width, int height, int border, bool target) const;
 
-	bool getScale(sw::float4 &scale) const;
+	sw::float4 getScale() const;
 
 	// Texture sampling utilities
 	bool has16bitTextureFormat() const;

@@ -86,12 +86,6 @@ void CSSImageGeneratorValue::AddClient(const ImageResourceObserver* client) {
   size_count.count++;
 }
 
-CSSImageGeneratorValue* CSSImageGeneratorValue::ValueWithURLsMadeAbsolute() {
-  if (auto* crossface_value = DynamicTo<CSSCrossfadeValue>(this))
-    return crossface_value->ValueWithURLsMadeAbsolute();
-  return this;
-}
-
 void CSSImageGeneratorValue::RemoveClient(const ImageResourceObserver* client) {
   DCHECK(client);
   ClientSizeCountMap::iterator it = clients_.find(client);
@@ -163,6 +157,16 @@ scoped_refptr<Image> CSSImageGeneratorValue::GetImage(
       NOTREACHED();
   }
   return nullptr;
+}
+
+bool CSSImageGeneratorValue::IsUsingCustomProperty(
+    const AtomicString& custom_property_name,
+    const Document& document) const {
+  if (GetClassType() == kPaintClass) {
+    return To<CSSPaintValue>(this)->IsUsingCustomProperty(custom_property_name,
+                                                          document);
+  }
+  return false;
 }
 
 bool CSSImageGeneratorValue::IsFixedSize() const {
@@ -261,6 +265,31 @@ void CSSImageGeneratorValue::LoadSubimages(const Document& document) {
     default:
       NOTREACHED();
   }
+}
+
+CSSImageGeneratorValue* CSSImageGeneratorValue::ComputedCSSValue(
+    const ComputedStyle& style,
+    bool allow_visited_style) {
+  switch (GetClassType()) {
+    case kCrossfadeClass:
+      return To<CSSCrossfadeValue>(this)->ComputedCSSValue(style,
+                                                           allow_visited_style);
+    case kLinearGradientClass:
+      return To<CSSLinearGradientValue>(this)->ComputedCSSValue(
+          style, allow_visited_style);
+    case kPaintClass:
+      return To<CSSPaintValue>(this)->ComputedCSSValue(style,
+                                                       allow_visited_style);
+    case kRadialGradientClass:
+      return To<CSSRadialGradientValue>(this)->ComputedCSSValue(
+          style, allow_visited_style);
+    case kConicGradientClass:
+      return To<CSSConicGradientValue>(this)->ComputedCSSValue(
+          style, allow_visited_style);
+    default:
+      NOTREACHED();
+  }
+  return nullptr;
 }
 
 }  // namespace blink

@@ -60,7 +60,7 @@ namespace Render {
 UpdateMeshTriangleListJob::UpdateMeshTriangleListJob()
     : m_manager(nullptr)
 {
-    SET_JOB_RUN_STAT_TYPE(this, JobTypes::UpdateMeshTriangleList, 0);
+    SET_JOB_RUN_STAT_TYPE(this, JobTypes::UpdateMeshTriangleList, 0)
 }
 
 UpdateMeshTriangleListJob::~UpdateMeshTriangleListJob()
@@ -79,7 +79,7 @@ void UpdateMeshTriangleListJob::run()
     BufferManager *bufferManager = m_manager->bufferManager();
     AttributeManager *attributeManager = m_manager->attributeManager();
 
-    const QVector<HGeometryRenderer> handles = geomRenderermanager->activeHandles();
+    const std::vector<HGeometryRenderer> &handles = geomRenderermanager->activeHandles();
 
     for (const HGeometryRenderer &handle : handles) {
         // Look if for the GeometryRender/Geometry the attributes and or buffers are dirty

@@ -12,6 +12,7 @@
 #include "base/callback.h"
 #include "base/macros.h"
 #include "base/memory/ptr_util.h"
+#include "base/stl_util.h"
 #include "mojo/public/cpp/bindings/binding.h"
 #include "mojo/public/cpp/bindings/connection_error_callback.h"
 #include "mojo/public/cpp/bindings/interface_ptr.h"
@@ -121,6 +122,11 @@ class BindingSetBase {
     return true;
   }
 
+  // Predicate to test if a binding exists in the set.
+  //
+  // Returns |true| if the binding is in the set and |false| if not.
+  bool HasBinding(BindingId id) const { return base::Contains(bindings_, id); }
+
   // Swaps the interface implementation with a different one, to allow tests
   // to modify behavior.
   //
@@ -220,7 +226,7 @@ class BindingSetBase {
           binding_set_(binding_set),
           binding_id_(binding_id),
           context_(std::move(context)) {
-      binding_.AddFilter(std::make_unique<DispatchFilter>(this));
+      binding_.SetFilter(std::make_unique<DispatchFilter>(this));
       binding_.set_connection_error_with_reason_handler(
           base::BindOnce(&Entry::OnConnectionError, base::Unretained(this)));
     }
@@ -232,17 +238,19 @@ class BindingSetBase {
     }
 
    private:
-    class DispatchFilter : public MessageReceiver {
+    class DispatchFilter : public MessageFilter {
      public:
       explicit DispatchFilter(Entry* entry) : entry_(entry) {}
       ~DispatchFilter() override {}
 
      private:
-      // MessageReceiver:
-      bool Accept(Message* message) override {
+      // MessageFilter:
+      bool WillDispatch(Message* message) override {
         entry_->WillDispatch();
         return true;
       }
+
+      void DidDispatchOrReject(Message* message, bool accepted) override {}
 
       Entry* entry_;
 

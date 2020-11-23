@@ -61,7 +61,7 @@ namespace Render {
 UpdateShaderDataTransformJob::UpdateShaderDataTransformJob()
     : m_manager(nullptr)
 {
-    SET_JOB_RUN_STAT_TYPE(this, JobTypes::UpdateShaderDataTransform, 0);
+    SET_JOB_RUN_STAT_TYPE(this, JobTypes::UpdateShaderDataTransform, 0)
 }
 
 UpdateShaderDataTransformJob::~UpdateShaderDataTransformJob()
@@ -81,7 +81,7 @@ NodeManagers *UpdateShaderDataTransformJob::managers() const
 void UpdateShaderDataTransformJob::run()
 {
     EntityManager *manager = m_manager->renderNodesManager();
-    const QVector<HEntity> handles = manager->activeHandles();
+    const std::vector<HEntity> &handles = manager->activeHandles();
 
     for (const HEntity &handle : handles) {
         Entity *node = manager->data(handle);

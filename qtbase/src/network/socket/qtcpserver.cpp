@@ -121,7 +121,7 @@ QTcpServerPrivate::QTcpServerPrivate()
  : port(0)
  , socketType(QAbstractSocket::UnknownSocketType)
  , state(QAbstractSocket::UnconnectedState)
- , socketEngine(0)
+ , socketEngine(nullptr)
  , serverSocketError(QAbstractSocket::UnknownSocketError)
  , maxConnections(30)
 {
@@ -314,7 +314,7 @@ bool QTcpServer::listen(const QHostAddress &address, quint16 port)
         d->serverSocketErrorString = tr("Operation on socket is not supported");
         return false;
     }
-#ifndef QT_NO_BEARERMANAGEMENT
+#ifndef QT_NO_BEARERMANAGEMENT // ### Qt6: Remove section
     //copy network session down to the socket engine (if it has been set)
     d->socketEngine->setProperty("_q_networksession", property("_q_networksession"));
 #endif
@@ -389,7 +389,7 @@ void QTcpServer::close()
             // in out of memory situations, the socketEngine
             // will be deleted in ~QTcpServer (it's a child-object of this)
         }
-        d->socketEngine = 0;
+        d->socketEngine = nullptr;
     }
 
     d->state = QAbstractSocket::UnconnectedState;
@@ -436,7 +436,7 @@ bool QTcpServer::setSocketDescriptor(qintptr socketDescriptor)
         d->serverSocketErrorString = tr("Operation on socket is not supported");
         return false;
     }
-#ifndef QT_NO_BEARERMANAGEMENT
+#ifndef QT_NO_BEARERMANAGEMENT // ### Qt6: Remove section
     //copy network session down to the socket engine (if it has been set)
     d->socketEngine->setProperty("_q_networksession", property("_q_networksession"));
 #endif
@@ -561,7 +561,7 @@ QTcpSocket *QTcpServer::nextPendingConnection()
 {
     Q_D(QTcpServer);
     if (d->pendingConnections.isEmpty())
-        return 0;
+        return nullptr;
 
     if (!d->socketEngine) {
         qWarning("QTcpServer::nextPendingConnection() called while not listening");

@@ -11,7 +11,7 @@
 #include "base/command_line.h"
 #include "base/run_loop.h"
 #include "base/stl_util.h"
-#include "base/test/scoped_task_environment.h"
+#include "base/test/task_environment.h"
 #include "chromeos/constants/chromeos_switches.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "ui/display/fake/fake_display_snapshot.h"
@@ -152,16 +152,13 @@ class TestMirroringController
 class ConfigurationWaiter {
  public:
   explicit ConfigurationWaiter(DisplayConfigurator::TestApi* test_api)
-      : on_configured_callback_(base::Bind(&ConfigurationWaiter::OnConfigured,
-                                           base::Unretained(this))),
-        test_api_(test_api),
-        callback_result_(CALLBACK_NOT_CALLED) {}
+      : test_api_(test_api), callback_result_(CALLBACK_NOT_CALLED) {}
 
   ~ConfigurationWaiter() = default;
 
-  const DisplayConfigurator::ConfigurationCallback& on_configuration_callback()
-      const {
-    return on_configured_callback_;
+  DisplayConfigurator::ConfigurationCallback on_configuration_callback() {
+    return base::BindOnce(&ConfigurationWaiter::OnConfigured,
+                          base::Unretained(this));
   }
 
   CallbackResult callback_result() const { return callback_result_; }
@@ -190,9 +187,6 @@ class ConfigurationWaiter {
     callback_result_ = status ? CALLBACK_SUCCESS : CALLBACK_FAILURE;
   }
 
-  // Passed with configuration requests to run OnConfigured().
-  const DisplayConfigurator::ConfigurationCallback on_configured_callback_;
-
   DisplayConfigurator::TestApi* test_api_;  // Not owned.
 
   // The status of the display configuration.
@@ -207,7 +201,7 @@ class DisplayConfiguratorTest : public testing::Test {
   ~DisplayConfiguratorTest() override = default;
 
   void SetUp() override {
-    log_.reset(new ActionLogger());
+    log_ = std::make_unique<ActionLogger>();
 
     // Force system compositor mode to simulate on-device configurator behavior.
     base::CommandLine::ForCurrentProcess()->AppendSwitch(
@@ -312,7 +306,7 @@ class DisplayConfiguratorTest : public testing::Test {
     return result;
   }
 
-  base::test::ScopedTaskEnvironment scoped_task_environment_;
+  base::test::SingleThreadTaskEnvironment task_environment_;
   TestStateController state_controller_;
   TestMirroringController mirroring_controller_;
   DisplayConfigurator configurator_;

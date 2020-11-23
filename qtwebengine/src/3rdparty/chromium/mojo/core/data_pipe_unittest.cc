@@ -12,7 +12,7 @@
 #include "base/logging.h"
 #include "base/run_loop.h"
 #include "base/stl_util.h"
-#include "base/test/scoped_task_environment.h"
+#include "base/test/task_environment.h"
 #include "build/build_config.h"
 #include "mojo/core/embedder/embedder.h"
 #include "mojo/core/test/mojo_test_base.h"
@@ -1758,8 +1758,8 @@ TEST_F(DataPipeTest, Multiprocess) {
     // Send some data before serialising and sending the data pipe over.
     // This is the first write so we don't need to use WriteAllData.
     uint32_t num_bytes = kTestDataSize;
-    ASSERT_EQ(MOJO_RESULT_OK, WriteData(kMultiprocessTestData, &num_bytes,
-                                        MOJO_WRITE_DATA_FLAG_ALL_OR_NONE));
+    ASSERT_EQ(MOJO_RESULT_OK,
+              WriteData(kMultiprocessTestData, &num_bytes, true));
     ASSERT_EQ(kTestDataSize, num_bytes);
 
     // Send child process the data pipe.
@@ -1986,13 +1986,13 @@ DEFINE_TEST_CLIENT_TEST_WITH_PIPE(DataPipeStatusChangeInTransitClient,
   EXPECT_EQ(MOJO_RESULT_OK,
             WaitForSignals(consumers[0], MOJO_HANDLE_SIGNAL_PEER_CLOSED));
 
-  base::test::ScopedTaskEnvironment scoped_task_environment;
+  base::test::SingleThreadTaskEnvironment task_environment;
 
   // Wait on producer 1 and consumer 1 using SimpleWatchers.
   {
     base::RunLoop run_loop;
     int count = 0;
-    auto callback = base::Bind(
+    auto callback = base::BindRepeating(
         [](base::RunLoop* loop, int* count, MojoResult result) {
           EXPECT_EQ(MOJO_RESULT_OK, result);
           if (++*count == 2)

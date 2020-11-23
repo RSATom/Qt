@@ -18,10 +18,12 @@
 #include "chrome/browser/ui/tabs/tab_strip_model.h"
 #include "chrome/browser/web_applications/components/app_registrar.h"
 #include "chrome/browser/web_applications/components/web_app_provider_base.h"
+#include "chrome/browser/web_applications/test/test_web_app_ui_manager.h"
 #include "chrome/common/chrome_switches.h"
 #include "chrome/common/extensions/extension_constants.h"
 #include "extensions/browser/api/management/management_api.h"
 #include "extensions/browser/extension_dialog_auto_confirm.h"
+#include "extensions/browser/extension_registry.h"
 #include "extensions/browser/extension_system.h"
 #include "extensions/browser/test_management_policy.h"
 #include "extensions/common/manifest.h"
@@ -188,6 +190,43 @@ class InstallReplacementWebAppApiTest : public ExtensionManagementApiTest {
     ASSERT_TRUE(catcher.GetNextResult()) << catcher.message();
   }
 
+  void RunInstallableWebAppTest(const char* manifest,
+                                const char* web_app_url,
+                                const char* web_app_start_url) {
+    static constexpr char kInstallReplacementWebApp[] =
+        R"(chrome.test.runWithUserGesture(function() {
+             chrome.management.installReplacementWebApp(function() {
+               chrome.test.assertNoLastError();
+               chrome.test.notifyPass();
+             });
+           });)";
+
+    chrome::SetAutoAcceptPWAInstallConfirmationForTesting(true);
+    const GURL start_url = https_test_server_.GetURL(web_app_start_url);
+    web_app::AppId web_app_id = web_app::GenerateAppIdFromURL(start_url);
+
+    auto* provider =
+        web_app::WebAppProviderBase::GetProviderBase(browser()->profile());
+    EXPECT_FALSE(provider->registrar().IsLocallyInstalled(start_url));
+    EXPECT_EQ(0, static_cast<int>(
+                     provider->ui_manager().GetNumWindowsForApp(web_app_id)));
+
+    RunTest(manifest, web_app_url, kInstallReplacementWebApp,
+            true /* from_webstore */);
+    EXPECT_TRUE(provider->registrar().IsLocallyInstalled(start_url));
+    EXPECT_EQ(1, static_cast<int>(
+                     provider->ui_manager().GetNumWindowsForApp(web_app_id)));
+
+    // Call API again. It should launch the app.
+    RunTest(manifest, web_app_url, kInstallReplacementWebApp,
+            true /* from_webstore */);
+    EXPECT_TRUE(provider->registrar().IsLocallyInstalled(start_url));
+    EXPECT_EQ(2, static_cast<int>(
+                     provider->ui_manager().GetNumWindowsForApp(web_app_id)));
+
+    chrome::SetAutoAcceptPWAInstallConfirmationForTesting(false);
+  }
+
   net::EmbeddedTestServer https_test_server_;
 };
 
@@ -253,76 +292,32 @@ IN_PROC_BROWSER_TEST_F(InstallReplacementWebAppApiTest, NotInstallableWebApp) {
 }
 
 IN_PROC_BROWSER_TEST_F(InstallReplacementWebAppApiTest, InstallableWebApp) {
-  static constexpr char kBackground[] =
-      R"(chrome.test.runTests([
-           function runInstall() {
-             chrome.test.runWithUserGesture(function() {
-               chrome.management.installReplacementWebApp(function() {
-                 chrome.test.assertNoLastError();
-                 chrome.test.succeed();
-               });
-             });
-           },
-           function runInstallWhenAlreadyInstalled() {
-             chrome.test.runWithUserGesture(function() {
-               chrome.management.installReplacementWebApp(function() {
-                 chrome.test.assertLastError(
-                     'Web app is already installed.');
-                 chrome.test.succeed();
-               });
-             });
-           }
-         ]);)";
   static constexpr char kGoodWebAppURL[] =
       "/management/install_replacement_web_app/good_web_app/index.html";
 
-  chrome::SetAutoAcceptPWAInstallConfirmationForTesting(true);
-  const GURL good_web_app_url = https_test_server_.GetURL(kGoodWebAppURL);
+  RunInstallableWebAppTest(kManifest, kGoodWebAppURL, kGoodWebAppURL);
+}
 
-  auto* provider =
-      web_app::WebAppProviderBase::GetProviderBase(browser()->profile());
-  EXPECT_FALSE(provider->registrar().IsInstalled(good_web_app_url));
+// Check that web app still installs and launches correctly when start_url does
+// not match replacement_web_app_url.
+IN_PROC_BROWSER_TEST_F(InstallReplacementWebAppApiTest,
+                       InstallableWebAppWithStartUrl) {
+  static constexpr char kGoodWebAppUrl[] =
+      "/management/install_replacement_web_app/good_web_app_with_start_url/"
+      "index.html";
+  static constexpr char kGoodWebAppStartUrl[] =
+      "/management/install_replacement_web_app/good_web_app_with_start_url/"
+      "pwa_start_url.html";
 
-  RunTest(kManifest, kGoodWebAppURL, kBackground, true /* from_webstore */);
-  EXPECT_TRUE(provider->registrar().IsInstalled(good_web_app_url));
-  chrome::SetAutoAcceptPWAInstallConfirmationForTesting(false);
+  RunInstallableWebAppTest(kManifest, kGoodWebAppUrl, kGoodWebAppStartUrl);
 }
 
 IN_PROC_BROWSER_TEST_F(InstallReplacementWebAppApiTest,
                        InstallableWebAppInPlatformApp) {
-  static constexpr char kBackground[] =
-      R"(chrome.test.runTests([
-           function runInstall() {
-             chrome.test.runWithUserGesture(function() {
-               chrome.management.installReplacementWebApp(function() {
-                 chrome.test.assertNoLastError();
-                 chrome.test.succeed();
-               });
-             });
-           },
-           function runInstallWhenAlreadyInstalled() {
-             chrome.test.runWithUserGesture(function() {
-               chrome.management.installReplacementWebApp(function() {
-                 chrome.test.assertLastError(
-                     'Web app is already installed.');
-                 chrome.test.succeed();
-               });
-             });
-           }
-         ]);)";
   static constexpr char kGoodWebAppURL[] =
       "/management/install_replacement_web_app/good_web_app/index.html";
 
-  chrome::SetAutoAcceptPWAInstallConfirmationForTesting(true);
-  const GURL good_web_app_url = https_test_server_.GetURL(kGoodWebAppURL);
-
-  auto* provider =
-      web_app::WebAppProviderBase::GetProviderBase(browser()->profile());
-  EXPECT_FALSE(provider->registrar().IsInstalled(good_web_app_url));
-
-  RunTest(kAppManifest, kGoodWebAppURL, kBackground, true /* from_webstore */);
-  EXPECT_TRUE(provider->registrar().IsInstalled(good_web_app_url));
-  chrome::SetAutoAcceptPWAInstallConfirmationForTesting(false);
+  RunInstallableWebAppTest(kAppManifest, kGoodWebAppURL, kGoodWebAppURL);
 }
 
 // Fails often on Windows dbg bots. http://crbug.com/177163
@@ -337,11 +332,10 @@ IN_PROC_BROWSER_TEST_F(ExtensionManagementApiTest,
   LoadExtensions();
   extensions::ScopedTestDialogAutoConfirm auto_confirm(
       extensions::ScopedTestDialogAutoConfirm::ACCEPT);
-  extensions::ExtensionService* service =
-      extensions::ExtensionSystem::Get(browser()->profile())
-          ->extension_service();
-  EXPECT_TRUE(service->GetExtensionById(extension_ids_["enabled_extension"],
-                                        false));
+  extensions::ExtensionRegistry* registry =
+      extensions::ExtensionRegistry::Get(browser()->profile());
+  EXPECT_TRUE(registry->enabled_extensions().GetByID(
+      extension_ids_["enabled_extension"]));
 
   // Ensure that all actions are allowed.
   extensions::ExtensionSystem::Get(
@@ -350,8 +344,9 @@ IN_PROC_BROWSER_TEST_F(ExtensionManagementApiTest,
   ASSERT_TRUE(RunExtensionSubtest("management/management_policy",
                                   "allowed.html"));
   // The last thing the test does is uninstall the "enabled_extension".
-  EXPECT_FALSE(service->GetExtensionById(extension_ids_["enabled_extension"],
-                                         true));
+  EXPECT_FALSE(
+      registry->GetExtensionById(extension_ids_["enabled_extension"],
+                                 extensions::ExtensionRegistry::EVERYTHING));
 }
 
 // Fails often on Windows dbg bots. http://crbug.com/177163
@@ -364,28 +359,25 @@ IN_PROC_BROWSER_TEST_F(ExtensionManagementApiTest,
 IN_PROC_BROWSER_TEST_F(ExtensionManagementApiTest,
                        MAYBE_ManagementPolicyProhibited) {
   LoadExtensions();
-  extensions::ExtensionService* service =
-      extensions::ExtensionSystem::Get(browser()->profile())
-          ->extension_service();
-  EXPECT_TRUE(service->GetExtensionById(extension_ids_["enabled_extension"],
-                                        false));
+  extensions::ExtensionRegistry* registry =
+      extensions::ExtensionRegistry::Get(browser()->profile());
+  EXPECT_TRUE(registry->enabled_extensions().GetByID(
+      extension_ids_["enabled_extension"]));
 
   // Prohibit status changes.
   extensions::ManagementPolicy* policy = extensions::ExtensionSystem::Get(
       browser()->profile())->management_policy();
   policy->UnregisterAllProviders();
   extensions::TestManagementPolicyProvider provider(
-    extensions::TestManagementPolicyProvider::PROHIBIT_MODIFY_STATUS);
+      extensions::TestManagementPolicyProvider::PROHIBIT_MODIFY_STATUS |
+      extensions::TestManagementPolicyProvider::MUST_REMAIN_ENABLED |
+      extensions::TestManagementPolicyProvider::MUST_REMAIN_INSTALLED);
   policy->RegisterProvider(&provider);
   ASSERT_TRUE(RunExtensionSubtest("management/management_policy",
                                   "prohibited.html"));
 }
 
 IN_PROC_BROWSER_TEST_F(ExtensionManagementApiTest, LaunchPanelApp) {
-  extensions::ExtensionService* service =
-      extensions::ExtensionSystem::Get(browser()->profile())
-          ->extension_service();
-
   // Load an extension that calls launchApp() on any app that gets
   // installed.
   ExtensionTestMessageListener launcher_loaded("launcher loaded", false);
@@ -401,16 +393,18 @@ IN_PROC_BROWSER_TEST_F(ExtensionManagementApiTest, LaunchPanelApp) {
   // Find the app's browser.  Check that it is a popup.
   ASSERT_EQ(2u, chrome::GetBrowserCount(browser()->profile()));
   Browser* app_browser = FindOtherBrowser(browser());
-  ASSERT_TRUE(app_browser->is_type_popup());
-  ASSERT_TRUE(app_browser->is_app());
+  ASSERT_TRUE(app_browser->is_type_app());
 
   // Close the app panel.
   CloseBrowserSynchronously(app_browser);
 
+  extensions::ExtensionRegistry* registry =
+      extensions::ExtensionRegistry::Get(browser()->profile());
   // Unload the extension.
   UninstallExtension(app_id);
   ASSERT_EQ(1u, chrome::GetBrowserCount(browser()->profile()));
-  ASSERT_FALSE(service->GetExtensionById(app_id, true));
+  ASSERT_FALSE(registry->GetExtensionById(
+      app_id, extensions::ExtensionRegistry::EVERYTHING));
 
   // Set a pref indicating that the user wants to launch in a regular tab.
   // This should be ignored, because panel apps always load in a popup.
@@ -429,8 +423,7 @@ IN_PROC_BROWSER_TEST_F(ExtensionManagementApiTest, LaunchPanelApp) {
   // prefs, so we should still see the launch in a popup.
   ASSERT_EQ(2u, chrome::GetBrowserCount(browser()->profile()));
   app_browser = FindOtherBrowser(browser());
-  ASSERT_TRUE(app_browser->is_type_popup());
-  ASSERT_TRUE(app_browser->is_app());
+  ASSERT_TRUE(app_browser->is_type_app());
 }
 
 // Disabled: crbug.com/230165, crbug.com/915339, crbug.com/979399
@@ -442,10 +435,6 @@ IN_PROC_BROWSER_TEST_F(ExtensionManagementApiTest, LaunchPanelApp) {
 #endif
 
 IN_PROC_BROWSER_TEST_F(ExtensionManagementApiTest, MAYBE_LaunchTabApp) {
-  extensions::ExtensionService* service =
-      extensions::ExtensionSystem::Get(browser()->profile())
-          ->extension_service();
-
   // Load an extension that calls launchApp() on any app that gets
   // installed.
   ExtensionTestMessageListener launcher_loaded("launcher loaded", false);
@@ -467,10 +456,13 @@ IN_PROC_BROWSER_TEST_F(ExtensionManagementApiTest, MAYBE_LaunchTabApp) {
   ASSERT_EQ(1u, chrome::GetBrowserCount(browser()->profile()));
   ASSERT_EQ(2, browser()->tab_strip_model()->count());
 
+  extensions::ExtensionRegistry* registry =
+      extensions::ExtensionRegistry::Get(browser()->profile());
   // Unload the extension.
   UninstallExtension(app_id);
   ASSERT_EQ(1u, chrome::GetBrowserCount(browser()->profile()));
-  ASSERT_FALSE(service->GetExtensionById(app_id, true));
+  ASSERT_FALSE(registry->GetExtensionById(
+      app_id, extensions::ExtensionRegistry::EVERYTHING));
 
   // Set a pref indicating that the user wants to launch in a window.
   extensions::SetLaunchType(browser()->profile(), app_id,
@@ -487,7 +479,7 @@ IN_PROC_BROWSER_TEST_F(ExtensionManagementApiTest, MAYBE_LaunchTabApp) {
   // a new browser.
   ASSERT_EQ(2u, chrome::GetBrowserCount(browser()->profile()));
   Browser* app_browser = FindOtherBrowser(browser());
-  ASSERT_TRUE(app_browser->is_app());
+  ASSERT_TRUE(app_browser->is_type_app());
 }
 
 // Flaky on MacOS: crbug.com/915339

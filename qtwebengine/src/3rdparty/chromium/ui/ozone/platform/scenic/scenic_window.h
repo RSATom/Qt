@@ -9,6 +9,7 @@
 #include <fuchsia/ui/input/cpp/fidl.h>
 #include <lib/ui/scenic/cpp/resources.h>
 #include <lib/ui/scenic/cpp/session.h>
+#include <lib/ui/scenic/cpp/view_ref_pair.h>
 #include <string>
 #include <vector>
 
@@ -21,11 +22,11 @@
 #include "ui/gfx/geometry/size_f.h"
 #include "ui/gfx/native_widget_types.h"
 #include "ui/platform_window/platform_window.h"
+#include "ui/platform_window/platform_window_delegate.h"
 
 namespace ui {
 
 class ScenicWindowManager;
-class PlatformWindowDelegate;
 
 class COMPONENT_EXPORT(OZONE) ScenicWindow
     : public PlatformWindow,
@@ -33,22 +34,28 @@ class COMPONENT_EXPORT(OZONE) ScenicWindow
  public:
   // Both |window_manager| and |delegate| must outlive the ScenicWindow.
   // |view_token| is passed to Scenic to attach the view to the view tree.
+  // |view_ref_pair| will be associated with this window's View, and used to
+  // identify it when calling out to other services (e.g. the SemanticsManager).
   ScenicWindow(ScenicWindowManager* window_manager,
                PlatformWindowDelegate* delegate,
-               fuchsia::ui::views::ViewToken view_token);
+               fuchsia::ui::views::ViewToken view_token,
+               scenic::ViewRefPair view_ref_pair);
   ~ScenicWindow() override;
 
   scenic::Session* scenic_session() { return &scenic_session_; }
 
-  void AttachSurface(fuchsia::ui::gfx::ExportToken surface_export_token);
+  // Embeds the View identified by |token| into the render node,
+  // causing its contents to be displayed in this window.
+  void AttachSurfaceView(fuchsia::ui::views::ViewHolderToken token);
 
   // PlatformWindow implementation.
   gfx::Rect GetBounds() override;
   void SetBounds(const gfx::Rect& bounds) override;
   void SetTitle(const base::string16& title) override;
-  void Show() override;
+  void Show(bool inactive) override;
   void Hide() override;
   void Close() override;
+  bool IsVisible() const override;
   void PrepareForShutdown() override;
   void SetCapture() override;
   void ReleaseCapture() override;
@@ -60,11 +67,16 @@ class COMPONENT_EXPORT(OZONE) ScenicWindow
   PlatformWindowState GetPlatformWindowState() const override;
   void Activate() override;
   void Deactivate() override;
+  void SetUseNativeFrame(bool use_native_frame) override;
+  bool ShouldUseNativeFrame() const override;
   void SetCursor(PlatformCursor cursor) override;
   void MoveCursorTo(const gfx::Point& location) override;
   void ConfineCursorToBounds(const gfx::Rect& bounds) override;
   void SetRestoredBoundsInPixels(const gfx::Rect& bounds) override;
   gfx::Rect GetRestoredBoundsInPixels() const override;
+  void SetWindowIcons(const gfx::ImageSkia& window_icon,
+                      const gfx::ImageSkia& app_icon) override;
+  void SizeConstraintsChanged() override;
 
  private:
   // Callbacks for |scenic_session_|.
@@ -99,8 +111,12 @@ class COMPONENT_EXPORT(OZONE) ScenicWindow
   // Entity node for the |view_|.
   scenic::EntityNode node_;
 
+  // Node in |scenic_session_| for receiving input that hits within our View.
+  scenic::ShapeNode input_node_;
+
   // Node in |scenic_session_| for rendering (hit testing disabled).
   scenic::EntityNode render_node_;
+  std::unique_ptr<scenic::ViewHolder> surface_view_holder_;
 
   // The ratio used for translating device-independent coordinates to absolute
   // pixel coordinates.

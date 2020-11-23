@@ -92,21 +92,33 @@ class AXPlatformNodeTextRangeProviderWinBrowserTest
     observer.Wait();
   }
 
+  BrowserAccessibilityManager* GetManager() const {
+    WebContentsImpl* web_contents =
+        static_cast<WebContentsImpl*>(shell()->web_contents());
+    return web_contents->GetRootBrowserAccessibilityManager();
+  }
+
   void GetTextRangeProviderFromTextNode(
-      ComPtr<ITextRangeProvider>& text_range_provider,
-      BrowserAccessibility* target_browser_accessibility) {
-    auto* provider_simple =
-        ToBrowserAccessibilityWin(target_browser_accessibility)->GetCOM();
-    ASSERT_NE(nullptr, provider_simple);
+      const BrowserAccessibility& target_node,
+      ITextRangeProvider** text_range_provider) {
+    BrowserAccessibilityComWin* target_node_com =
+        ToBrowserAccessibilityWin(&target_node)->GetCOM();
+    ASSERT_NE(nullptr, target_node_com);
 
     ComPtr<ITextProvider> text_provider;
-    EXPECT_HRESULT_SUCCEEDED(
-        provider_simple->GetPatternProvider(UIA_TextPatternId, &text_provider));
+    ASSERT_HRESULT_SUCCEEDED(
+        target_node_com->GetPatternProvider(UIA_TextPatternId, &text_provider));
     ASSERT_NE(nullptr, text_provider.Get());
 
-    EXPECT_HRESULT_SUCCEEDED(
-        text_provider->get_DocumentRange(&text_range_provider));
-    ASSERT_NE(nullptr, text_range_provider.Get());
+    ASSERT_HRESULT_SUCCEEDED(
+        text_provider->get_DocumentRange(text_range_provider));
+  }
+
+  void GetDocumentRangeForMarkup(const std::string& html_markup,
+                                 ITextRangeProvider** text_range_provider) {
+    LoadInitialAccessibilityTreeFromHtml(html_markup);
+    GetTextRangeProviderFromTextNode(*GetManager()->GetRoot(),
+                                     text_range_provider);
   }
 
   // Run through ITextRangeProvider::ScrollIntoView top tests. It's assumed that
@@ -248,7 +260,7 @@ class AXPlatformNodeTextRangeProviderWinBrowserTest
         ToBrowserAccessibilityWin(browser_accessibility_start)->GetCOM();
     ASSERT_NE(nullptr, start_browser_accessibility_com_win);
 
-    CComPtr<ITextRangeProvider> text_range_provider =
+    ComPtr<ITextRangeProvider> text_range_provider =
         ui::AXPlatformNodeTextRangeProviderWin::CreateTextRangeProvider(
             start_browser_accessibility_com_win, std::move(start),
             std::move(end));
@@ -338,7 +350,81 @@ class AXPlatformNodeTextRangeProviderWinBrowserTest
     ScrollIntoViewBrowserTestTemplate(expected_role_start, fstart, fstart_arg,
                                       expected_role_end, fend, fend_arg, false);
   }
+
+  void AssertMoveByUnitForMarkup(
+      const TextUnit& unit,
+      const std::string& html_markup,
+      const std::vector<const wchar_t*>& expected_text) {
+    ComPtr<ITextRangeProvider> text_range;
+
+    GetDocumentRangeForMarkup(html_markup, &text_range);
+    ASSERT_NE(nullptr, text_range.Get());
+    text_range->ExpandToEnclosingUnit(unit);
+
+    size_t index = 0;
+    int count_moved = 1;
+    while (count_moved == 1 && index < expected_text.size()) {
+      EXPECT_UIA_TEXTRANGE_EQ(text_range, expected_text[index++]);
+      ASSERT_HRESULT_SUCCEEDED(text_range->Move(unit, 1, &count_moved));
+    }
+    EXPECT_EQ(expected_text.size(), index);
+    EXPECT_EQ(0, count_moved);
+
+    count_moved = -1;
+    index = expected_text.size();
+    while (count_moved == -1 && index > 0) {
+      EXPECT_UIA_TEXTRANGE_EQ(text_range, expected_text[--index]);
+      ASSERT_HRESULT_SUCCEEDED(text_range->Move(unit, -1, &count_moved));
+    }
+    EXPECT_EQ(0, count_moved);
+    EXPECT_EQ(0u, index);
+  }
 };
+
+IN_PROC_BROWSER_TEST_F(AXPlatformNodeTextRangeProviderWinBrowserTest,
+                       GetAttributeValue) {
+  LoadInitialAccessibilityTreeFromHtml(std::string(R"HTML(
+      <!DOCTYPE html>
+      <html>
+        <body>
+          <div style="font-size: 16px">
+            <span style="font-size: 12px">Text1</span>
+            Text2
+          </div>
+        </body>
+      </html>
+  )HTML"));
+
+  ComPtr<IUnknown> mix_attribute_value;
+  EXPECT_HRESULT_SUCCEEDED(
+      UiaGetReservedMixedAttributeValue(&mix_attribute_value));
+
+  auto* node = FindNode(ax::mojom::Role::kStaticText, "Text1");
+  ASSERT_NE(nullptr, node);
+  EXPECT_TRUE(node->PlatformIsLeaf());
+  EXPECT_EQ(0u, node->PlatformChildCount());
+
+  ComPtr<ITextRangeProvider> text_range_provider;
+  GetTextRangeProviderFromTextNode(*node, &text_range_provider);
+  ASSERT_NE(nullptr, text_range_provider.Get());
+  EXPECT_UIA_TEXTRANGE_EQ(text_range_provider, L"Text1");
+
+  base::win::ScopedVariant value;
+  EXPECT_HRESULT_SUCCEEDED(text_range_provider->GetAttributeValue(
+      UIA_FontSizeAttributeId, value.Receive()));
+  EXPECT_EQ(value.type(), VT_R8);
+  EXPECT_EQ(V_R8(value.ptr()), 12.0);
+
+  EXPECT_HRESULT_SUCCEEDED(
+      text_range_provider->ExpandToEnclosingUnit(TextUnit_Paragraph));
+  EXPECT_UIA_TEXTRANGE_EQ(text_range_provider, L"Text1 Text2");
+
+  EXPECT_HRESULT_SUCCEEDED(text_range_provider->GetAttributeValue(
+      UIA_FontSizeAttributeId, value.Receive()));
+  EXPECT_EQ(value.type(), VT_UNKNOWN);
+  EXPECT_EQ(V_UNKNOWN(value.ptr()), mix_attribute_value.Get())
+      << "expected 'mixed attribute value' interface pointer";
+}
 
 IN_PROC_BROWSER_TEST_F(AXPlatformNodeTextRangeProviderWinBrowserTest,
                        GetBoundingRectangles) {
@@ -365,7 +451,7 @@ IN_PROC_BROWSER_TEST_F(AXPlatformNodeTextRangeProviderWinBrowserTest,
   EXPECT_EQ(0u, node->PlatformChildCount());
 
   ComPtr<ITextRangeProvider> text_range_provider;
-  GetTextRangeProviderFromTextNode(text_range_provider, node);
+  GetTextRangeProviderFromTextNode(*node, &text_range_provider);
   ASSERT_NE(nullptr, text_range_provider.Get());
   EXPECT_UIA_TEXTRANGE_EQ(text_range_provider, L"AsdfAsdfAsdf");
 
@@ -557,8 +643,11 @@ IN_PROC_BROWSER_TEST_F(AXPlatformNodeTextRangeProviderWinBrowserTest,
       <html>
       <body>
         <div>plain 1</div><div>plain 2</div>
-        <div style="font-style: italic">italic 1</div>
+        <div role="heading">plain heading</div>
+        <div role="article" style="font-style: italic">italic 1</div>
         <div style="font-style: italic">italic 2</div>
+        <h1>heading</h1>
+        <h1>heading</h1>
         <div style="font-weight: bold">bold 1</div>
         <div style="font-weight: bold">bold 2</div>
       </body>
@@ -569,7 +658,7 @@ IN_PROC_BROWSER_TEST_F(AXPlatformNodeTextRangeProviderWinBrowserTest,
   EXPECT_EQ(0u, node->PlatformChildCount());
 
   ComPtr<ITextRangeProvider> text_range_provider;
-  GetTextRangeProviderFromTextNode(text_range_provider, node);
+  GetTextRangeProviderFromTextNode(*node, &text_range_provider);
   ASSERT_NE(nullptr, text_range_provider.Get());
   EXPECT_UIA_TEXTRANGE_EQ(text_range_provider, L"plain 1");
 
@@ -582,30 +671,49 @@ IN_PROC_BROWSER_TEST_F(AXPlatformNodeTextRangeProviderWinBrowserTest,
       text_range_provider, TextPatternRangeEndpoint_End, TextUnit_Format,
       /*count*/ 1,
       /*expected_text*/
-      L"plain 1\nplain 2\nitalic 1\nitalic 2",
+      L"plain 1\nplain 2\nplain heading",
+      /*expected_count*/ 1);
+  EXPECT_UIA_MOVE_ENDPOINT_BY_UNIT(
+      text_range_provider, TextPatternRangeEndpoint_End, TextUnit_Format,
+      /*count*/ 1,
+      /*expected_text*/
+      L"plain 1\nplain 2\nplain heading\nitalic 1\nitalic 2",
       /*expected_count*/ 1);
   EXPECT_UIA_MOVE_ENDPOINT_BY_UNIT(
       text_range_provider, TextPatternRangeEndpoint_End, TextUnit_Format,
       /*count*/ -1,
-      /*expected_text*/ L"plain 1\nplain 2\n",
+      /*expected_text*/ L"plain 1\nplain 2\nplain heading\n",
       /*expected_count*/ -1);
   EXPECT_UIA_MOVE_ENDPOINT_BY_UNIT(
       text_range_provider, TextPatternRangeEndpoint_End, TextUnit_Format,
       /*count*/ 1,
       /*expected_text*/
-      L"plain 1\nplain 2\nitalic 1\nitalic 2",
+      L"plain 1\nplain 2\nplain heading\nitalic 1\nitalic 2",
+      /*expected_count*/ 1);
+  EXPECT_UIA_MOVE_ENDPOINT_BY_UNIT(
+      text_range_provider, TextPatternRangeEndpoint_End, TextUnit_Format,
+      /*count*/ 1,
+      /*expected_text*/
+      L"plain 1\nplain 2\nplain heading\nitalic 1\nitalic 2\nheading",
+      /*expected_count*/ 1);
+  EXPECT_UIA_MOVE_ENDPOINT_BY_UNIT(
+      text_range_provider, TextPatternRangeEndpoint_End, TextUnit_Format,
+      /*count*/ 1,
+      /*expected_text*/
+      L"plain 1\nplain 2\nplain heading\nitalic 1\nitalic 2\nheading\nheading",
       /*expected_count*/ 1);
   EXPECT_UIA_MOVE_ENDPOINT_BY_UNIT(
       text_range_provider, TextPatternRangeEndpoint_End, TextUnit_Format,
       /*count*/ 5,
       /*expected_text*/
-      L"plain 1\nplain 2\nitalic 1\nitalic 2\nbold 1\nbold 2",
+      L"plain 1\nplain 2\nplain heading\nitalic 1\nitalic 2"
+      L"\nheading\nheading\nbold 1\nbold 2",
       /*expected_count*/ 1);
   EXPECT_UIA_MOVE_ENDPOINT_BY_UNIT(
       text_range_provider, TextPatternRangeEndpoint_End, TextUnit_Format,
-      /*count*/ -4,
+      /*count*/ -8,
       /*expected_text*/ L"",
-      /*expected_count*/ -3);
+      /*expected_count*/ -6);
   EXPECT_UIA_MOVE_ENDPOINT_BY_UNIT(
       text_range_provider, TextPatternRangeEndpoint_End, TextUnit_Format,
       /*count*/ 1,
@@ -642,7 +750,7 @@ IN_PROC_BROWSER_TEST_F(AXPlatformNodeTextRangeProviderWinBrowserTest,
   EXPECT_EQ(0u, node->PlatformChildCount());
 
   ComPtr<ITextRangeProvider> text_range_provider;
-  GetTextRangeProviderFromTextNode(text_range_provider, node);
+  GetTextRangeProviderFromTextNode(*node, &text_range_provider);
   ASSERT_NE(nullptr, text_range_provider.Get());
   EXPECT_UIA_TEXTRANGE_EQ(text_range_provider, L"plain 1");
 
@@ -795,8 +903,6 @@ IN_PROC_BROWSER_TEST_F(AXPlatformNodeTextRangeProviderWinBrowserTest,
       FindNode(ax::mojom::Role::kStaticText, "end");
   ASSERT_NE(nullptr, end_node);
 
-  ComPtr<ITextRangeProvider> text_range_provider;
-
   std::vector<base::string16> paragraphs = {
       L"start",
       L"text with [:before] and [:after]content, then a",
@@ -806,7 +912,8 @@ IN_PROC_BROWSER_TEST_F(AXPlatformNodeTextRangeProviderWinBrowserTest,
   };
 
   // FORWARD NAVIGATION
-  GetTextRangeProviderFromTextNode(text_range_provider, start_node);
+  ComPtr<ITextRangeProvider> text_range_provider;
+  GetTextRangeProviderFromTextNode(*start_node, &text_range_provider);
   ASSERT_NE(nullptr, text_range_provider.Get());
   EXPECT_UIA_TEXTRANGE_EQ(text_range_provider, L"start");
 
@@ -838,7 +945,7 @@ IN_PROC_BROWSER_TEST_F(AXPlatformNodeTextRangeProviderWinBrowserTest,
   EXPECT_UIA_MOVE_ENDPOINT_BY_UNIT(
       text_range_provider, TextPatternRangeEndpoint_End, TextUnit_Paragraph,
       /*count*/ 1,
-      /*expected_text*/ (paragraphs[1] + paragraphs[2]).c_str(),
+      /*expected_text*/ (paragraphs[1] + L"\n" + paragraphs[2]).c_str(),
       /*expected_count*/ 1);
   EXPECT_UIA_MOVE_ENDPOINT_BY_UNIT(
       text_range_provider, TextPatternRangeEndpoint_Start, TextUnit_Paragraph,
@@ -848,7 +955,7 @@ IN_PROC_BROWSER_TEST_F(AXPlatformNodeTextRangeProviderWinBrowserTest,
   EXPECT_UIA_MOVE_ENDPOINT_BY_UNIT(
       text_range_provider, TextPatternRangeEndpoint_End, TextUnit_Paragraph,
       /*count*/ 1,
-      /*expected_text*/ (paragraphs[2] + paragraphs[3]).c_str(),
+      /*expected_text*/ (paragraphs[2] + L"\n" + paragraphs[3]).c_str(),
       /*expected_count*/ 1);
   EXPECT_UIA_MOVE_ENDPOINT_BY_UNIT(
       text_range_provider, TextPatternRangeEndpoint_Start, TextUnit_Paragraph,
@@ -877,7 +984,7 @@ IN_PROC_BROWSER_TEST_F(AXPlatformNodeTextRangeProviderWinBrowserTest,
       /*expected_count*/ 1);
 
   // REVERSE NAVIGATION
-  GetTextRangeProviderFromTextNode(text_range_provider, end_node);
+  GetTextRangeProviderFromTextNode(*end_node, &text_range_provider);
   ASSERT_NE(nullptr, text_range_provider.Get());
   EXPECT_UIA_TEXTRANGE_EQ(text_range_provider, L"end");
 
@@ -909,7 +1016,7 @@ IN_PROC_BROWSER_TEST_F(AXPlatformNodeTextRangeProviderWinBrowserTest,
   EXPECT_UIA_MOVE_ENDPOINT_BY_UNIT(
       text_range_provider, TextPatternRangeEndpoint_Start, TextUnit_Paragraph,
       /*count*/ -1,
-      /*expected_text*/ (paragraphs[2] + paragraphs[3]).c_str(),
+      /*expected_text*/ (paragraphs[2] + L"\n" + paragraphs[3]).c_str(),
       /*expected_count*/ -1);
   EXPECT_UIA_MOVE_ENDPOINT_BY_UNIT(
       text_range_provider, TextPatternRangeEndpoint_End, TextUnit_Paragraph,
@@ -919,7 +1026,7 @@ IN_PROC_BROWSER_TEST_F(AXPlatformNodeTextRangeProviderWinBrowserTest,
   EXPECT_UIA_MOVE_ENDPOINT_BY_UNIT(
       text_range_provider, TextPatternRangeEndpoint_Start, TextUnit_Paragraph,
       /*count*/ -1,
-      /*expected_text*/ (paragraphs[1] + paragraphs[2]).c_str(),
+      /*expected_text*/ (paragraphs[1] + L"\n" + paragraphs[2]).c_str(),
       /*expected_count*/ -1);
   EXPECT_UIA_MOVE_ENDPOINT_BY_UNIT(
       text_range_provider, TextPatternRangeEndpoint_End, TextUnit_Paragraph,
@@ -973,8 +1080,6 @@ IN_PROC_BROWSER_TEST_F(
       FindNode(ax::mojom::Role::kStaticText, "end");
   ASSERT_NE(nullptr, end_node);
 
-  ComPtr<ITextRangeProvider> text_range_provider;
-
   std::vector<base::string16> paragraphs = {
       L"start",
       L"some text\n\n\n",
@@ -983,7 +1088,8 @@ IN_PROC_BROWSER_TEST_F(
   };
 
   // FORWARD NAVIGATION
-  GetTextRangeProviderFromTextNode(text_range_provider, start_node);
+  ComPtr<ITextRangeProvider> text_range_provider;
+  GetTextRangeProviderFromTextNode(*start_node, &text_range_provider);
   ASSERT_NE(nullptr, text_range_provider.Get());
   EXPECT_UIA_TEXTRANGE_EQ(text_range_provider, L"start");
 
@@ -1019,7 +1125,7 @@ IN_PROC_BROWSER_TEST_F(
       /*expected_count*/ 1);
 
   // REVERSE NAVIGATION
-  GetTextRangeProviderFromTextNode(text_range_provider, end_node);
+  GetTextRangeProviderFromTextNode(*end_node, &text_range_provider);
   ASSERT_NE(nullptr, text_range_provider.Get());
   EXPECT_UIA_TEXTRANGE_EQ(text_range_provider, L"end");
 
@@ -1055,6 +1161,391 @@ IN_PROC_BROWSER_TEST_F(
       /*expected_count*/ -1);
 }
 
+IN_PROC_BROWSER_TEST_F(
+    AXPlatformNodeTextRangeProviderWinBrowserTest,
+    MoveEndpointByUnitParagraphCollapseConsecutiveParentChildLineBreakingObjects) {
+  LoadInitialAccessibilityTreeFromHtml(
+      R"HTML(<!DOCTYPE html>
+      <html>
+      <head>
+        <style>
+          div {
+            width: 100px;
+          }
+
+          code::before {
+            content: "[";
+          }
+
+          code::after {
+            content: "]";
+          }
+
+          /* This will create an empty anonymous layout block before the <b>
+             element. */
+          b::before {
+            content: "";
+            display: block;
+          }
+        </style>
+      </head>
+
+      <body>
+        <div>start</div>
+        <div>
+          text with <code>:before</code>
+          and <code>:after</code> content,
+          then a
+          <div>
+            <b>bold</b> element
+          </div>
+        </div>
+      </body>
+      </html>)HTML");
+  BrowserAccessibility* start_node =
+      FindNode(ax::mojom::Role::kStaticText, "start");
+  ASSERT_NE(nullptr, start_node);
+
+  std::vector<base::string16> paragraphs = {
+      L"start",
+      L"text with [:before] and [:after]content, then a",
+      L"bold element",
+  };
+
+  // Forward navigation.
+  ComPtr<ITextRangeProvider> text_range_provider;
+  GetTextRangeProviderFromTextNode(*start_node, &text_range_provider);
+  ASSERT_NE(nullptr, text_range_provider.Get());
+  EXPECT_UIA_TEXTRANGE_EQ(text_range_provider, L"start");
+
+  EXPECT_UIA_MOVE_ENDPOINT_BY_UNIT(
+      text_range_provider, TextPatternRangeEndpoint_End, TextUnit_Paragraph,
+      /*count*/ 1,
+      /*expected_text*/ (paragraphs[0] + L"\n" + paragraphs[1]).c_str(),
+      /*expected_count*/ 1);
+  EXPECT_UIA_MOVE_ENDPOINT_BY_UNIT(
+      text_range_provider, TextPatternRangeEndpoint_End, TextUnit_Paragraph,
+      /*count*/ 1,
+      /*expected_text*/
+      (paragraphs[0] + L"\n" + paragraphs[1] + L"\n" + paragraphs[2]).c_str(),
+      /*expected_count*/ 1);
+
+  // Reverse navigation.
+  EXPECT_UIA_MOVE_ENDPOINT_BY_UNIT(
+      text_range_provider, TextPatternRangeEndpoint_End, TextUnit_Paragraph,
+      /*count*/ -1,
+      /*expected_text*/ (paragraphs[0] + L"\n" + paragraphs[1]).c_str(),
+      /*expected_count*/ -1);
+
+  EXPECT_UIA_MOVE_ENDPOINT_BY_UNIT(
+      text_range_provider, TextPatternRangeEndpoint_End, TextUnit_Paragraph,
+      /*count*/ -1,
+      /*expected_text*/ paragraphs[0].c_str(),
+      /*expected_count*/ -1);
+}
+
+IN_PROC_BROWSER_TEST_F(AXPlatformNodeTextRangeProviderWinBrowserTest,
+                       MoveEndpointByUnitParagraphPreservedWhiteSpace) {
+  LoadInitialAccessibilityTreeFromHtml(
+      R"HTML(<!DOCTYPE html>
+      <html>
+      <body>
+        <div>start</div>
+        <span style='white-space: pre'>
+          First Paragraph
+          Second Paragraph
+        </span>
+        <!--
+          Intentional nesting to test that ancestor positions can
+          resolve to the newline at the start of preserved whitespace.
+        -->
+        <div>
+          <div style='white-space: pre-line'>
+            Third Paragraph
+            Fourth Paragraph
+          </div>
+        </div>
+        <div style='white-space: pre-wrap; width: 10em;'>
+          Fifth               Paragraph
+          Sixth               Paragraph
+        </div>
+        <div style='white-space: break-spaces; width: 10em;'>
+          Seventh             Paragraph
+          Eighth              Paragraph
+        </div>
+        <div>end</div>
+      </body>
+      </html>)HTML");
+  BrowserAccessibility* start_node =
+      FindNode(ax::mojom::Role::kStaticText, "start");
+  ASSERT_NE(nullptr, start_node);
+  BrowserAccessibility* end_node =
+      FindNode(ax::mojom::Role::kStaticText, "end");
+  ASSERT_NE(nullptr, end_node);
+
+  ComPtr<ITextRangeProvider> text_range_provider;
+
+  std::vector<base::string16> paragraphs = {
+      L"start\n",
+      L"          First Paragraph\n",
+      L"          Second Paragraph\n        \n",
+      L"Third Paragraph\n",
+      L"Fourth Paragraph\n\n          ",
+      L"Fifth               Paragraph\n          ",
+      L"Sixth               Paragraph\n        \n          ",
+      L"Seventh             Paragraph\n          ",
+      L"Eighth              Paragraph\n        ",
+      L"end",
+  };
+
+  // FORWARD NAVIGATION
+  GetTextRangeProviderFromTextNode(*start_node, &text_range_provider);
+  ASSERT_NE(nullptr, text_range_provider.Get());
+  EXPECT_UIA_TEXTRANGE_EQ(text_range_provider, L"start");
+
+  // The first paragraph extends beyond the end of the "start" node, because
+  // the preserved whitespace node begins with a line break, so
+  // move once to capture that.
+  EXPECT_UIA_MOVE_ENDPOINT_BY_UNIT(
+      text_range_provider, TextPatternRangeEndpoint_End, TextUnit_Paragraph,
+      /*count*/ 1,
+      /*expected_text*/ paragraphs[0].c_str(),
+      /*expected_count*/ 1);
+  EXPECT_UIA_MOVE_ENDPOINT_BY_UNIT(
+      text_range_provider, TextPatternRangeEndpoint_End, TextUnit_Paragraph,
+      /*count*/ 1,
+      /*expected_text*/ (paragraphs[0] + paragraphs[1]).c_str(),
+      /*expected_count*/ 1);
+  EXPECT_UIA_MOVE_ENDPOINT_BY_UNIT(
+      text_range_provider, TextPatternRangeEndpoint_Start, TextUnit_Paragraph,
+      /*count*/ 1,
+      /*expected_text*/ paragraphs[1].c_str(),
+      /*expected_count*/ 1);
+  EXPECT_UIA_MOVE_ENDPOINT_BY_UNIT(
+      text_range_provider, TextPatternRangeEndpoint_End, TextUnit_Paragraph,
+      /*count*/ 1,
+      /*expected_text*/ (paragraphs[1] + paragraphs[2]).c_str(),
+      /*expected_count*/ 1);
+  EXPECT_UIA_MOVE_ENDPOINT_BY_UNIT(
+      text_range_provider, TextPatternRangeEndpoint_Start, TextUnit_Paragraph,
+      /*count*/ 1,
+      /*expected_text*/ paragraphs[2].c_str(),
+      /*expected_count*/ 1);
+  EXPECT_UIA_MOVE_ENDPOINT_BY_UNIT(
+      text_range_provider, TextPatternRangeEndpoint_End, TextUnit_Paragraph,
+      /*count*/ 1,
+      /*expected_text*/ (paragraphs[2] + paragraphs[3]).c_str(),
+      /*expected_count*/ 1);
+  EXPECT_UIA_MOVE_ENDPOINT_BY_UNIT(
+      text_range_provider, TextPatternRangeEndpoint_Start, TextUnit_Paragraph,
+      /*count*/ 1,
+      /*expected_text*/ paragraphs[3].c_str(),
+      /*expected_count*/ 1);
+  EXPECT_UIA_MOVE_ENDPOINT_BY_UNIT(
+      text_range_provider, TextPatternRangeEndpoint_End, TextUnit_Paragraph,
+      /*count*/ 1,
+      /*expected_text*/ (paragraphs[3] + paragraphs[4]).c_str(),
+      /*expected_count*/ 1);
+  EXPECT_UIA_MOVE_ENDPOINT_BY_UNIT(
+      text_range_provider, TextPatternRangeEndpoint_Start, TextUnit_Paragraph,
+      /*count*/ 1,
+      /*expected_text*/ paragraphs[4].c_str(),
+      /*expected_count*/ 1);
+  EXPECT_UIA_MOVE_ENDPOINT_BY_UNIT(
+      text_range_provider, TextPatternRangeEndpoint_End, TextUnit_Paragraph,
+      /*count*/ 1,
+      /*expected_text*/ (paragraphs[4] + paragraphs[5]).c_str(),
+      /*expected_count*/ 1);
+  EXPECT_UIA_MOVE_ENDPOINT_BY_UNIT(
+      text_range_provider, TextPatternRangeEndpoint_Start, TextUnit_Paragraph,
+      /*count*/ 1,
+      /*expected_text*/ paragraphs[5].c_str(),
+      /*expected_count*/ 1);
+  EXPECT_UIA_MOVE_ENDPOINT_BY_UNIT(
+      text_range_provider, TextPatternRangeEndpoint_End, TextUnit_Paragraph,
+      /*count*/ 1,
+      /*expected_text*/ (paragraphs[5] + paragraphs[6]).c_str(),
+      /*expected_count*/ 1);
+  EXPECT_UIA_MOVE_ENDPOINT_BY_UNIT(
+      text_range_provider, TextPatternRangeEndpoint_Start, TextUnit_Paragraph,
+      /*count*/ 1,
+      /*expected_text*/ paragraphs[6].c_str(),
+      /*expected_count*/ 1);
+  EXPECT_UIA_MOVE_ENDPOINT_BY_UNIT(
+      text_range_provider, TextPatternRangeEndpoint_End, TextUnit_Paragraph,
+      /*count*/ 1,
+      /*expected_text*/ (paragraphs[6] + paragraphs[7]).c_str(),
+      /*expected_count*/ 1);
+  EXPECT_UIA_MOVE_ENDPOINT_BY_UNIT(
+      text_range_provider, TextPatternRangeEndpoint_Start, TextUnit_Paragraph,
+      /*count*/ 1,
+      /*expected_text*/ paragraphs[7].c_str(),
+      /*expected_count*/ 1);
+  EXPECT_UIA_MOVE_ENDPOINT_BY_UNIT(
+      text_range_provider, TextPatternRangeEndpoint_End, TextUnit_Paragraph,
+      /*count*/ 1,
+      /*expected_text*/ (paragraphs[7] + paragraphs[8]).c_str(),
+      /*expected_count*/ 1);
+  EXPECT_UIA_MOVE_ENDPOINT_BY_UNIT(
+      text_range_provider, TextPatternRangeEndpoint_Start, TextUnit_Paragraph,
+      /*count*/ 1,
+      /*expected_text*/ paragraphs[8].c_str(),
+      /*expected_count*/ 1);
+  EXPECT_UIA_MOVE_ENDPOINT_BY_UNIT(
+      text_range_provider, TextPatternRangeEndpoint_End, TextUnit_Paragraph,
+      /*count*/ 1,
+      /*expected_text*/ (paragraphs[8] + paragraphs[9]).c_str(),
+      /*expected_count*/ 1);
+  EXPECT_UIA_MOVE_ENDPOINT_BY_UNIT(
+      text_range_provider, TextPatternRangeEndpoint_Start, TextUnit_Paragraph,
+      /*count*/ 1,
+      /*expected_text*/ paragraphs[9].c_str(),
+      /*expected_count*/ 1);
+
+  // REVERSE NAVIGATION
+  GetTextRangeProviderFromTextNode(*end_node, &text_range_provider);
+  ASSERT_NE(nullptr, text_range_provider.Get());
+  EXPECT_UIA_TEXTRANGE_EQ(text_range_provider, L"end");
+
+  EXPECT_UIA_MOVE_ENDPOINT_BY_UNIT(
+      text_range_provider, TextPatternRangeEndpoint_Start, TextUnit_Paragraph,
+      /*count*/ -1,
+      /*expected_text*/ (paragraphs[8] + paragraphs[9]).c_str(),
+      /*expected_count*/ -1);
+  EXPECT_UIA_MOVE_ENDPOINT_BY_UNIT(
+      text_range_provider, TextPatternRangeEndpoint_End, TextUnit_Paragraph,
+      /*count*/ -1,
+      /*expected_text*/ paragraphs[8].c_str(),
+      /*expected_count*/ -1);
+  EXPECT_UIA_MOVE_ENDPOINT_BY_UNIT(
+      text_range_provider, TextPatternRangeEndpoint_Start, TextUnit_Paragraph,
+      /*count*/ -1,
+      /*expected_text*/ (paragraphs[7] + paragraphs[8]).c_str(),
+      /*expected_count*/ -1);
+  EXPECT_UIA_MOVE_ENDPOINT_BY_UNIT(
+      text_range_provider, TextPatternRangeEndpoint_End, TextUnit_Paragraph,
+      /*count*/ -1,
+      /*expected_text*/ paragraphs[7].c_str(),
+      /*expected_count*/ -1);
+  EXPECT_UIA_MOVE_ENDPOINT_BY_UNIT(
+      text_range_provider, TextPatternRangeEndpoint_Start, TextUnit_Paragraph,
+      /*count*/ -1,
+      /*expected_text*/ (paragraphs[6] + paragraphs[7]).c_str(),
+      /*expected_count*/ -1);
+  EXPECT_UIA_MOVE_ENDPOINT_BY_UNIT(
+      text_range_provider, TextPatternRangeEndpoint_End, TextUnit_Paragraph,
+      /*count*/ -1,
+      /*expected_text*/ paragraphs[6].c_str(),
+      /*expected_count*/ -1);
+  EXPECT_UIA_MOVE_ENDPOINT_BY_UNIT(
+      text_range_provider, TextPatternRangeEndpoint_Start, TextUnit_Paragraph,
+      /*count*/ -1,
+      /*expected_text*/ (paragraphs[5] + paragraphs[6]).c_str(),
+      /*expected_count*/ -1);
+  EXPECT_UIA_MOVE_ENDPOINT_BY_UNIT(
+      text_range_provider, TextPatternRangeEndpoint_End, TextUnit_Paragraph,
+      /*count*/ -1,
+      /*expected_text*/ paragraphs[5].c_str(),
+      /*expected_count*/ -1);
+  EXPECT_UIA_MOVE_ENDPOINT_BY_UNIT(
+      text_range_provider, TextPatternRangeEndpoint_Start, TextUnit_Paragraph,
+      /*count*/ -1,
+      /*expected_text*/ (paragraphs[4] + paragraphs[5]).c_str(),
+      /*expected_count*/ -1);
+  EXPECT_UIA_MOVE_ENDPOINT_BY_UNIT(
+      text_range_provider, TextPatternRangeEndpoint_End, TextUnit_Paragraph,
+      /*count*/ -1,
+      /*expected_text*/ paragraphs[4].c_str(),
+      /*expected_count*/ -1);
+  EXPECT_UIA_MOVE_ENDPOINT_BY_UNIT(
+      text_range_provider, TextPatternRangeEndpoint_Start, TextUnit_Paragraph,
+      /*count*/ -1,
+      /*expected_text*/ (paragraphs[3] + paragraphs[4]).c_str(),
+      /*expected_count*/ -1);
+  EXPECT_UIA_MOVE_ENDPOINT_BY_UNIT(
+      text_range_provider, TextPatternRangeEndpoint_End, TextUnit_Paragraph,
+      /*count*/ -1,
+      /*expected_text*/ paragraphs[3].c_str(),
+      /*expected_count*/ -1);
+  EXPECT_UIA_MOVE_ENDPOINT_BY_UNIT(
+      text_range_provider, TextPatternRangeEndpoint_Start, TextUnit_Paragraph,
+      /*count*/ -1,
+      /*expected_text*/ (paragraphs[2] + paragraphs[3]).c_str(),
+      /*expected_count*/ -1);
+  EXPECT_UIA_MOVE_ENDPOINT_BY_UNIT(
+      text_range_provider, TextPatternRangeEndpoint_End, TextUnit_Paragraph,
+      /*count*/ -1,
+      /*expected_text*/ paragraphs[2].c_str(),
+      /*expected_count*/ -1);
+  EXPECT_UIA_MOVE_ENDPOINT_BY_UNIT(
+      text_range_provider, TextPatternRangeEndpoint_Start, TextUnit_Paragraph,
+      /*count*/ -1,
+      /*expected_text*/ (paragraphs[1] + paragraphs[2]).c_str(),
+      /*expected_count*/ -1);
+  EXPECT_UIA_MOVE_ENDPOINT_BY_UNIT(
+      text_range_provider, TextPatternRangeEndpoint_End, TextUnit_Paragraph,
+      /*count*/ -1,
+      /*expected_text*/ paragraphs[1].c_str(),
+      /*expected_count*/ -1);
+  EXPECT_UIA_MOVE_ENDPOINT_BY_UNIT(
+      text_range_provider, TextPatternRangeEndpoint_Start, TextUnit_Paragraph,
+      /*count*/ -1,
+      /*expected_text*/ (paragraphs[0] + paragraphs[1]).c_str(),
+      /*expected_count*/ -1);
+  EXPECT_UIA_MOVE_ENDPOINT_BY_UNIT(
+      text_range_provider, TextPatternRangeEndpoint_End, TextUnit_Paragraph,
+      /*count*/ -1,
+      /*expected_text*/ paragraphs[0].c_str(),
+      /*expected_count*/ -1);
+}
+
+IN_PROC_BROWSER_TEST_F(AXPlatformNodeTextRangeProviderWinBrowserTest,
+                       MoveByUnitParagraphWithAriaHiddenNodes) {
+  const std::string html_markup = R"HTML(<!DOCTYPE html>
+  <html>
+    <body>
+      <div>start</div>
+      <div>
+        1. Paragraph with hidden <span aria-hidden="true">
+          [IGNORED]
+        </span> inline in between
+      </div>
+      <div>
+        <span>2. Paragraph parts wrapped by</span> <span aria-hidden="true">
+          [IGNORED]
+        </span> <span>span with hidden inline in between</span>
+      </div>
+      <div>
+        <span>3. Paragraph before hidden block</span><div aria-hidden="true">
+          [IGNORED]
+        </div><span>4. Paragraph after hidden block</span>
+      </div>
+      <div>
+        <span aria-hidden="true">[IGNORED]</span><span>5. Paragraph with leading
+        and trailing hidden span</span><span aria-hidden="true">[IGNORED]</span>
+      </div>
+      <div>
+        <div aria-hidden="true">[IGNORED]</div><span>6. Paragraph with leading
+        and trailing hidden block</span><div aria-hidden="true">[IGNORED]</div>
+      </div>
+      <div>end</div>
+    </body>
+  </html>)HTML";
+
+  const std::vector<const wchar_t*> paragraphs = {
+      L"start",
+      L"1. Paragraph with hidden inline in between",
+      L"2. Paragraph parts wrapped by span with hidden inline in between",
+      L"3. Paragraph before hidden block",
+      L"4. Paragraph after hidden block",
+      L"5. Paragraph with leading and trailing hidden span",
+      L"6. Paragraph with leading and trailing hidden block",
+      L"end",
+  };
+
+  AssertMoveByUnitForMarkup(TextUnit_Paragraph, html_markup, paragraphs);
+}
+
 IN_PROC_BROWSER_TEST_F(AXPlatformNodeTextRangeProviderWinBrowserTest,
                        IFrameTraversal) {
   LoadInitialAccessibilityTreeFromUrl(embedded_test_server()->GetURL(
@@ -1069,7 +1560,7 @@ IN_PROC_BROWSER_TEST_F(AXPlatformNodeTextRangeProviderWinBrowserTest,
   EXPECT_EQ(0u, node->PlatformChildCount());
 
   ComPtr<ITextRangeProvider> text_range_provider;
-  GetTextRangeProviderFromTextNode(text_range_provider, node);
+  GetTextRangeProviderFromTextNode(*node, &text_range_provider);
   ASSERT_NE(nullptr, text_range_provider.Get());
   EXPECT_UIA_TEXTRANGE_EQ(text_range_provider, L"After frame");
 
@@ -1086,12 +1577,12 @@ IN_PROC_BROWSER_TEST_F(AXPlatformNodeTextRangeProviderWinBrowserTest,
   EXPECT_UIA_MOVE_ENDPOINT_BY_UNIT(text_range_provider,
                                    TextPatternRangeEndpoint_End, TextUnit_Word,
                                    /*count*/ -3,
-                                   /*expected_text*/ L"Text in",
+                                   /*expected_text*/ L"Text in ",
                                    /*expected_count*/ -3);
   EXPECT_UIA_MOVE_ENDPOINT_BY_UNIT(text_range_provider,
                                    TextPatternRangeEndpoint_End, TextUnit_Word,
                                    /*count*/ 2,
-                                   /*expected_text*/ L"Text in iframe\nAfter",
+                                   /*expected_text*/ L"Text in iframe\nAfter ",
                                    /*expected_count*/ 2);
   EXPECT_UIA_MOVE_ENDPOINT_BY_UNIT(
       text_range_provider, TextPatternRangeEndpoint_End, TextUnit_Line,
@@ -1115,7 +1606,7 @@ IN_PROC_BROWSER_TEST_F(AXPlatformNodeTextRangeProviderWinBrowserTest,
                                    /*expected_count*/ -1);
 
   text_range_provider->ExpandToEnclosingUnit(TextUnit_Line);
-  EXPECT_UIA_TEXTRANGE_EQ(text_range_provider, L"Text in iframe\n");
+  EXPECT_UIA_TEXTRANGE_EQ(text_range_provider, L"Text in iframe");
 
   text_range_provider->ExpandToEnclosingUnit(TextUnit_Document);
   EXPECT_UIA_TEXTRANGE_EQ(text_range_provider,
@@ -1123,7 +1614,7 @@ IN_PROC_BROWSER_TEST_F(AXPlatformNodeTextRangeProviderWinBrowserTest,
 
   EXPECT_UIA_MOVE(text_range_provider, TextUnit_Word,
                   /*count*/ 2,
-                  /*expected_text*/ L"Text",
+                  /*expected_text*/ L"Text ",
                   /*expected_count*/ 2);
   EXPECT_UIA_MOVE(text_range_provider, TextUnit_Word,
                   /*count*/ -1,
@@ -1189,7 +1680,7 @@ IN_PROC_BROWSER_TEST_F(AXPlatformNodeTextRangeProviderWinBrowserTest,
   WaitForAccessibilityTreeToContainNodeWithName(shell()->web_contents(),
                                                 "Text in iframe");
 
-  WaitForHitTestDataOrChildSurfaceReady(iframe_node->current_frame_host());
+  WaitForHitTestData(iframe_node->current_frame_host());
   FrameTreeVisualizer visualizer;
   ASSERT_EQ(
       " Site A ------------ proxies for B\n"
@@ -1204,7 +1695,7 @@ IN_PROC_BROWSER_TEST_F(AXPlatformNodeTextRangeProviderWinBrowserTest,
   EXPECT_EQ(0u, node->PlatformChildCount());
 
   ComPtr<ITextRangeProvider> text_range_provider;
-  GetTextRangeProviderFromTextNode(text_range_provider, node);
+  GetTextRangeProviderFromTextNode(*node, &text_range_provider);
   ASSERT_NE(nullptr, text_range_provider.Get());
   EXPECT_UIA_TEXTRANGE_EQ(text_range_provider, L"After frame");
 
@@ -1221,12 +1712,12 @@ IN_PROC_BROWSER_TEST_F(AXPlatformNodeTextRangeProviderWinBrowserTest,
   EXPECT_UIA_MOVE_ENDPOINT_BY_UNIT(text_range_provider,
                                    TextPatternRangeEndpoint_End, TextUnit_Word,
                                    /*count*/ -3,
-                                   /*expected_text*/ L"Text in",
+                                   /*expected_text*/ L"Text in ",
                                    /*expected_count*/ -3);
   EXPECT_UIA_MOVE_ENDPOINT_BY_UNIT(text_range_provider,
                                    TextPatternRangeEndpoint_End, TextUnit_Word,
                                    /*count*/ 2,
-                                   /*expected_text*/ L"Text in iframe\nAfter",
+                                   /*expected_text*/ L"Text in iframe\nAfter ",
                                    /*expected_count*/ 2);
   EXPECT_UIA_MOVE_ENDPOINT_BY_UNIT(
       text_range_provider, TextPatternRangeEndpoint_End, TextUnit_Line,
@@ -1269,7 +1760,7 @@ IN_PROC_BROWSER_TEST_F(AXPlatformNodeTextRangeProviderWinBrowserTest,
   EXPECT_EQ(0u, node->PlatformChildCount());
 
   ComPtr<ITextRangeProvider> text_range_provider;
-  GetTextRangeProviderFromTextNode(text_range_provider, node);
+  GetTextRangeProviderFromTextNode(*node, &text_range_provider);
   ASSERT_NE(nullptr, text_range_provider.Get());
   EXPECT_UIA_TEXTRANGE_EQ(text_range_provider, L"plain");
 
@@ -1281,7 +1772,7 @@ IN_PROC_BROWSER_TEST_F(AXPlatformNodeTextRangeProviderWinBrowserTest,
 
   ASSERT_HRESULT_SUCCEEDED(
       text_range_provider->ExpandToEnclosingUnit(TextUnit_Format));
-  EXPECT_UIA_TEXTRANGE_EQ(text_range_provider, L"plain\ntext\n");
+  EXPECT_UIA_TEXTRANGE_EQ(text_range_provider, L"plain\ntext");
 
   EXPECT_UIA_MOVE_ENDPOINT_BY_UNIT(
       text_range_provider, TextPatternRangeEndpoint_End, TextUnit_Character,
@@ -1299,4 +1790,200 @@ IN_PROC_BROWSER_TEST_F(AXPlatformNodeTextRangeProviderWinBrowserTest,
       text_range_provider->ExpandToEnclosingUnit(TextUnit_Format));
   EXPECT_UIA_TEXTRANGE_EQ(text_range_provider, L"italic\ntext");
 }
+
+IN_PROC_BROWSER_TEST_F(AXPlatformNodeTextRangeProviderWinBrowserTest,
+                       EntireMarkupSuccessiveMoveByCharacter) {
+  AssertMoveByUnitForMarkup(
+      TextUnit_Character, "Test ing.",
+      {L"T", L"e", L"s", L"t", L" ", L"i", L"n", L"g", L"."});
+
+  // The text consists of an e acute, and two emoticons.
+  const std::string html = R"HTML(<!DOCTYPE html>
+      <html>
+        <body>
+          <input type="text" value="">
+          <script>
+            document.querySelector('input').value = 'e\u0301' +
+                '\uD83D\uDC69\u200D\u2764\uFE0F\u200D\uD83D\uDC69' +
+                '\uD83D\uDC36';
+          </script>
+        </body>
+      </html>)HTML";
+  AssertMoveByUnitForMarkup(
+      TextUnit_Character, html,
+      {L"e\x0301", L"\xD83D\xDC69\x200D\x2764\xFE0F\x200D\xD83D\xDC69",
+       L"\xD83D\xDC36"});
+}
+
+IN_PROC_BROWSER_TEST_F(AXPlatformNodeTextRangeProviderWinBrowserTest,
+                       EntireMarkupSuccessiveMoveByWord) {
+  AssertMoveByUnitForMarkup(TextUnit_Word, "this is a test.",
+                            {L"this ", L"is ", L"a ", L"test."});
+
+  AssertMoveByUnitForMarkup(TextUnit_Word,
+                            "    this    is      a      test.    ",
+                            {L"this ", L"is ", L"a ", L"test."});
+
+  AssertMoveByUnitForMarkup(
+      TextUnit_Word, "It said: to be continued...",
+      {L"It ", L"said: ", L"to ", L"be ", L"continued..."});
+
+  AssertMoveByUnitForMarkup(TextUnit_Word,
+                            "a <a>link with multiple words</a> and text after.",
+                            {L"a ", L"link ", L"with ", L"multiple ", L"words",
+                             L"and ", L"text ", L"after."});
+
+  AssertMoveByUnitForMarkup(TextUnit_Word,
+                            "a <span aria-hidden='true'>span with ignored "
+                            "text</span> and text after.",
+                            {L"a ", L"and ", L"text ", L"after."});
+
+  AssertMoveByUnitForMarkup(
+      TextUnit_Word, "<ol><li>item one</li><li>item two</li></ol>",
+      {L"1. ", L"item ", L"one", L"2. ", L"item ", L"two"});
+
+  // The following test should be enabled when crbug.com/1015100 is fixed.
+  // AssertMoveByUnitForMarkup(
+  //     TextUnit_Word, "<ul><li>item one</li><li>item two</li></ul>",
+  //     {L"• ", L"item ", L"one", L"• ", L"item ", L"two"});
+}
+
+IN_PROC_BROWSER_TEST_F(AXPlatformNodeTextRangeProviderWinBrowserTest,
+                       EntireMarkupSuccessiveMoveByFormat) {
+  AssertMoveByUnitForMarkup(
+      TextUnit_Format,
+      "plain text <b>bold text <i>bold and italic text</i></b><i><b> more bold "
+      "and italic text</b> italic text</i> plain text",
+      {L"plain text ", L"bold text ",
+       L"bold and italic text more bold and italic text", L" italic text",
+       L" plain text"});
+
+  AssertMoveByUnitForMarkup(TextUnit_Format, "before <img src='test'> after",
+                            {L"before ", L" after"});
+
+  AssertMoveByUnitForMarkup(TextUnit_Format,
+                            "before <a href='test'>link</a> after",
+                            {L"before ", L"link", L" after"});
+
+  AssertMoveByUnitForMarkup(TextUnit_Format,
+                            "before <a href='test'><b>link </b></a>    after",
+                            {L"before ", L"link ", L"after"});
+
+  AssertMoveByUnitForMarkup(TextUnit_Format,
+                            "before <b><a href='test'>link </a></b>    after",
+                            {L"before ", L"link ", L"after"});
+
+  AssertMoveByUnitForMarkup(
+      TextUnit_Format, "before <a href='test'>link </a>    after <b>bold</b>",
+      {L"before ", L"link ", L"after ", L"bold"});
+
+  AssertMoveByUnitForMarkup(
+      TextUnit_Format,
+      "before <a style='font-weight:bold' href='test'>link </a>    after",
+      {L"before ", L"link ", L"after"});
+
+  AssertMoveByUnitForMarkup(
+      TextUnit_Format,
+      "before <a style='font-weight:bold' href='test'>link 1</a><a "
+      "style='font-weight:bold' href='test'>link 2</a> after",
+      {L"before ", L"link 1link 2", L" after"});
+
+  AssertMoveByUnitForMarkup(
+      TextUnit_Format,
+      "before <span style='font-weight:bold'>text </span>    after",
+      {L"before ", L"text ", L"after"});
+
+  AssertMoveByUnitForMarkup(
+      TextUnit_Format,
+      "before <span style='font-weight:bold'>text 1</span><span "
+      "style='font-weight:bold'>text 2</span> after",
+      {L"before ", L"text 1text 2", L" after"});
+
+  AssertMoveByUnitForMarkup(
+      TextUnit_Format,
+      "before <span style='font-weight:bold'>bold text</span><span "
+      "style='font-style: italic'>italic text</span> after",
+      {L"before ", L"bold text", L"italic text", L" after"});
+}
+
+IN_PROC_BROWSER_TEST_F(AXPlatformNodeTextRangeProviderWinBrowserTest,
+                       EntireMarkupSuccessiveMoveByLine) {
+  AssertMoveByUnitForMarkup(TextUnit_Line, "<div style='width:0'>one two</div>",
+                            {L"one ", L"two"});
+
+  AssertMoveByUnitForMarkup(TextUnit_Line, "line one<br>line two",
+                            {L"line one", L"line two"});
+
+  AssertMoveByUnitForMarkup(TextUnit_Line,
+                            "<div>line one</div><div><div>line two</div></div>",
+                            {L"line one", L"line two"});
+
+  AssertMoveByUnitForMarkup(
+      TextUnit_Line, "<div style='display:inline-block'>a</div>", {L"a"});
+
+  // This tests a weird edge-case; TextUnit_Line breaks at the beginning of an
+  // inline-block, but not at the end.
+  AssertMoveByUnitForMarkup(TextUnit_Line,
+                            "a<div style='display:inline-block'>b</div>c",
+                            {L"a", L"b\nc"});
+
+  // The following test should be enabled when crbug.com/1015100 is fixed.
+  // AssertMoveByUnitForMarkup(
+  //     TextUnit_Line,
+  //     "<h1>line one</h1><ul><li>line two</li><li>line three</li></ul>",
+  //     {L"line one\n", L"* line two\n", L"* line three"});
+}
+
+IN_PROC_BROWSER_TEST_F(AXPlatformNodeTextRangeProviderWinBrowserTest,
+                       BoundingRectangleOfWordBeforeListItemMarker) {
+  LoadInitialAccessibilityTreeFromHtml(
+      R"HTML(<!DOCTYPE html>
+      <html>
+        <body>
+          <p>Text before list</p>
+          <ul>
+            <li>First list item</li>
+            <li>Second list item</li>
+          </ul>
+        </body>
+      </html>)HTML");
+
+  BrowserAccessibility* text_before_list =
+      FindNode(ax::mojom::Role::kStaticText, "Text before list");
+  ASSERT_NE(nullptr, text_before_list);
+
+  ComPtr<ITextRangeProvider> text_range_provider;
+  GetTextRangeProviderFromTextNode(*text_before_list, &text_range_provider);
+  ASSERT_NE(nullptr, text_range_provider.Get());
+
+  EXPECT_UIA_MOVE(text_range_provider, TextUnit_Character,
+                  /*count*/ 12,
+                  /*expected_text*/ L"l",
+                  /*expected_count*/ 12);
+  text_range_provider->ExpandToEnclosingUnit(TextUnit_Word);
+  EXPECT_UIA_TEXTRANGE_EQ(text_range_provider, L"list");
+
+  base::win::ScopedSafearray rectangles;
+  ASSERT_HRESULT_SUCCEEDED(
+      text_range_provider->GetBoundingRectangles(rectangles.Receive()));
+
+  gfx::Vector2d view_offset =
+      text_before_list->manager()->GetViewBounds().OffsetFromOrigin();
+  std::vector<double> expected_values = {85 + view_offset.x(),
+                                         16 + view_offset.y(), 20, 17};
+  EXPECT_UIA_DOUBLE_SAFEARRAY_EQ(rectangles.Get(), expected_values);
+
+  EXPECT_UIA_MOVE(text_range_provider, TextUnit_Character,
+                  /*count*/ 19,
+                  /*expected_text*/ L"e",
+                  /*expected_count*/ 19);
+  text_range_provider->ExpandToEnclosingUnit(TextUnit_Word);
+  EXPECT_UIA_TEXTRANGE_EQ(text_range_provider, L"item");
+
+  ASSERT_HRESULT_SUCCEEDED(
+      text_range_provider->GetBoundingRectangles(rectangles.Receive()));
+  expected_values = {105 + view_offset.x(), 50 + view_offset.y(), 28, 17};
+  EXPECT_UIA_DOUBLE_SAFEARRAY_EQ(rectangles.Get(), expected_values);
+}
+
 }  // namespace content

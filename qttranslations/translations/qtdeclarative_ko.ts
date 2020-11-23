@@ -1,19 +1,11 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!DOCTYPE TS>
-<TS version="2.0" language="ko">
+<TS version="2.1" language="ko">
 <context>
     <name>Object</name>
     <message>
-        <source>Duplicate method name</source>
-        <translation>중복된 메서드 이름</translation>
-    </message>
-    <message>
-        <source>Method names cannot begin with an upper case letter</source>
-        <translation>메서드 이름은 대문자로 시작할 수 없음</translation>
-    </message>
-    <message>
-        <source>Illegal method name</source>
-        <translation>잘못된 메서드 이름</translation>
+        <source>Duplicate scoped enum name</source>
+        <translation>잘못된 범위 한정 열거형 이름</translation>
     </message>
     <message>
         <source>Duplicate signal name</source>
@@ -45,13 +37,6 @@
     </message>
 </context>
 <context>
-    <name>QInputMethod</name>
-    <message>
-        <source>InputMethod is an abstract class</source>
-        <translation>InputMethod는 추상 클래스임</translation>
-    </message>
-</context>
-<context>
     <name>QQmlAnonymousComponentResolver</name>
     <message>
         <source>Component objects cannot declare new functions.</source>
@@ -71,7 +56,7 @@
     </message>
     <message>
         <source>Component elements may not contain properties other than id</source>
-        <translation>Component 원소는 id 이외의 다른 속성을 포함할 수 없음</translation>
+        <translation>컴포넌트 원소는 id 이외의 다른 속성을 포함할 수 없음</translation>
     </message>
     <message>
         <source>Invalid component body specification</source>
@@ -92,10 +77,6 @@
     <message>
         <source>Invalid alias target location: %1</source>
         <translation>잘못된 별명 대상 위치: %1</translation>
-    </message>
-    <message>
-        <source>Invalid alias location</source>
-        <translation>잘못된 별명 위치</translation>
     </message>
 </context>
 <context>
@@ -131,6 +112,34 @@
     <message>
         <source>Illegal property name</source>
         <translation>잘못된 속성 이름</translation>
+    </message>
+    <message>
+        <source>Duplicate method name</source>
+        <translation>중복된 메서드 이름</translation>
+    </message>
+    <message>
+        <source>Method names cannot begin with an upper case letter</source>
+        <translation>메서드 이름은 대문자로 시작할 수 없음</translation>
+    </message>
+    <message>
+        <source>Illegal method name</source>
+        <translation>잘못된 메서드 이름</translation>
+    </message>
+    <message>
+        <source>Scoped enum names must begin with an upper case letter</source>
+        <translation>범위 한정 열거형 이름은 대문자로 시작해야 함</translation>
+    </message>
+    <message>
+        <source>Enum names must begin with an upper case letter</source>
+        <translation>열거형 이름은 대문자로 시작해야 함</translation>
+    </message>
+    <message>
+        <source>Enum value must be an integer</source>
+        <translation>열거형 값은 정수여야 함</translation>
+    </message>
+    <message>
+        <source>Enum value out of range</source>
+        <translation>열거형 값이 범위를 벗어남</translation>
     </message>
     <message>
         <source>Invalid component id specification</source>
@@ -172,8 +181,8 @@
         <translation>createObject: 값이 객체가 아님</translation>
     </message>
     <message>
-        <source>Object destroyed during incubation</source>
-        <translation>객체를 만드는 중 파괴됨</translation>
+        <source>Object or context destroyed during incubation</source>
+        <translation>객체나 콘텍스트를 만드는 중 파괴됨</translation>
     </message>
 </context>
 <context>
@@ -193,6 +202,14 @@
     <message>
         <source>Connections: script expected</source>
         <translation>연결: 스크립트가 필요함</translation>
+    </message>
+    <message>
+        <source>Implicitly defined onFoo properties in Connections are deprecated. Use this syntax instead: function onFoo(&lt;arguments&gt;) { ... }</source>
+        <translation>Connections 객체에 암시적으로 선언된 onFoo 속성은 오래되었습니다. 다음 문법을 대신 사용하십시오: function onFoo(&lt;arguments&gt;) { ... }</translation>
+    </message>
+    <message>
+        <source>Detected function &quot;%1&quot; in Connections element. This is probably intended to be a signal handler but no signal of the target matches the name.</source>
+        <translation>Connections 원소에서 &quot;%1&quot; 함수를 감지했습니다. 시그널 처리기인 것 같지만 대상의 시그널 중에 그러한 이름을 가진 것이 없습니다.</translation>
     </message>
 </context>
 <context>
@@ -260,6 +277,14 @@
 		  표시할 수 있도록 이 서비스를 사용합니다.</translation>
     </message>
     <message>
+        <source>helps to see if a translated text
+		  will result in an elided text
+		  in QML elements.</source>
+        <translation>번역된 문자열이 QML 원소에서
+		  생략되어서 표시될지를
+		  미리 볼 수 있습니다.</translation>
+    </message>
+    <message>
         <source>Other services offered by qmltooling plugins that implement QQmlDebugServiceFactory and which can be found in the standard plugin paths will also be available and can be specified. If no &quot;services&quot; argument is given, all services found this way, including the default ones, are loaded.</source>
         <translation>표준 플러그인 경로에서 찾을 수 있는 QQmlDebugServiceFactory를 구현하는 qmltooling 플러그인도 사용할 수 있으며 여기에 지정할 수 있습니다. &quot;services&quot; 인자를 지정하지 않으면 기본 서비스를 포함하여 여기에 해당하는 모든 서비스를 불러옵니다.</translation>
     </message>
@@ -277,6 +302,10 @@
     <message>
         <source>The group of a DelegateModel cannot be changed within onChanged</source>
         <translation>onChanged 내에서 DelegateModel의 그룹을 변경할 수 없습니다</translation>
+    </message>
+    <message>
+        <source>The delegates of a DelegateModel cannot be changed within onUpdated.</source>
+        <translation>onUpdated 내에서 DelegateModel의 대리자를 변경할 수 없습니다.</translation>
     </message>
 </context>
 <context>
@@ -381,7 +410,7 @@
 <context>
     <name>QQmlEngine</name>
     <message>
-        <source>Locale cannot be instantiated.  Use Qt.locale()</source>
+        <source>Locale cannot be instantiated. Use Qt.locale()</source>
         <translation>로캘의 인스턴스를 생성할 수 없습니다.  Qt.locale()을 사용하십시오</translation>
     </message>
     <message>
@@ -413,6 +442,10 @@
         <translation>SQL: 데이터베이스를 만들 수 없음, 오프라인 저장소가 비활성화되었습니다.</translation>
     </message>
     <message>
+        <source>LocalStorage: can&apos;t create path %1</source>
+        <translation>LocalStorage: 경로 %1을(를) 만들 수 없음</translation>
+    </message>
+    <message>
         <source>SQL: database version mismatch</source>
         <translation>SQL: 데이터베이스 버전 불일치</translation>
     </message>
@@ -435,8 +468,16 @@
         <translation>&quot;%1&quot;이(가) 모호합니다. %2, %3에서 찾았습니다</translation>
     </message>
     <message>
+        <source>- %1 is neither a type nor a namespace</source>
+        <translation>- %1이(가) 형식이나 네임스페이스가 아님</translation>
+    </message>
+    <message>
         <source>- %1 is not a namespace</source>
         <translation>- %1이(가) 네임스페이스가 아님</translation>
+    </message>
+    <message>
+        <source>- %1 is not a type</source>
+        <translation>- %1이(가) 형식이 아님</translation>
     </message>
     <message>
         <source>- nested namespaces not allowed</source>
@@ -448,19 +489,19 @@
     </message>
     <message>
         <source>is ambiguous. Found in %1 and in %2</source>
-        <translation>이(가) 모호합니다. %1와(과) %2에서 찾았습니다</translation>
+        <translation>이(가) 모호합니다. %1와(과) %2에서 찾았음</translation>
     </message>
     <message>
         <source>is ambiguous. Found in %1 in version %2.%3 and %4.%5</source>
-        <translation>이(가) 모호합니다. %1에서 버전 %2.%3, %4.%5을(를) 찾았습니다</translation>
+        <translation>이(가) 모호합니다. %1에서 버전 %2.%3, %4.%5을(를) 찾았음</translation>
     </message>
     <message>
         <source>is instantiated recursively</source>
-        <translation>이(가) 재귀적으로 인스턴스화되었습니다</translation>
+        <translation>이(가) 재귀적으로 인스턴스화됨</translation>
     </message>
     <message>
         <source>is not a type</source>
-        <translation>이(가) 형식이 아닙니다</translation>
+        <translation>이(가) 형식이 아님</translation>
     </message>
     <message>
         <source>static plugin for module &quot;%1&quot; with name &quot;%2&quot; has no metadata URI</source>
@@ -487,10 +528,6 @@
         <translation>모듈 &quot;%1&quot;의 플러그인 &quot;%2&quot;을(를) 찾을 수 없음</translation>
     </message>
     <message>
-        <source>library loading is disabled</source>
-        <translation>라이브러리 불러오기가 비활성화됨</translation>
-    </message>
-    <message>
         <source>&quot;%1&quot; version %2.%3 is defined more than once in module &quot;%4&quot;</source>
         <translation>&quot;%1&quot; 버전 %2.%3이(가) 모듈 &quot;%4&quot;에 한 번 이상 정의되었음</translation>
     </message>
@@ -511,22 +548,6 @@
         <translation>import &quot;%1&quot;에 qmldir과 네임스페이스가 없음</translation>
     </message>
     <message>
-        <source>Module loaded for URI &apos;%1&apos; does not implement QQmlTypesExtensionInterface</source>
-        <translation>URI &apos;%1&apos;에서 불러온 모듈이 QQmlTypesExtensionInterface를 구현하지 않음</translation>
-    </message>
-    <message>
-        <source>Module namespace &apos;%1&apos; does not match import URI &apos;%2&apos;</source>
-        <translation>모듈 네임스페이스 &apos;%1&apos;이(가) 가져오기 URI &apos;%2&apos;와(과) 일치 않음</translation>
-    </message>
-    <message>
-        <source>Namespace &apos;%1&apos; has already been used for type registration</source>
-        <translation>네임스페이스 &apos;%1&apos;이(가) 형식 등록에 이미 사용됨</translation>
-    </message>
-    <message>
-        <source>Module &apos;%1&apos; does not contain a module identifier directive - it cannot be protected from external registrations.</source>
-        <translation>모듈 &apos;%1&apos;이(가) 모듈 식별자 선언을 포함하지 않음 - 외부 등록에서 보호받을 수 없습니다.</translation>
-    </message>
-    <message>
         <source>File name case mismatch for &quot;%1&quot;</source>
         <translation>파일 이름의 대소문자가 &quot;%1&quot;와(과) 일치하지 않음</translation>
     </message>
@@ -534,12 +555,12 @@
 <context>
     <name>QQmlListModel</name>
     <message>
-        <source>unable to enable dynamic roles as this model is not empty!</source>
-        <translation>모델이 비어 있지 않아서 동적 역할을 사용할 수 없습니다!</translation>
+        <source>unable to enable dynamic roles as this model is not empty</source>
+        <translation>모델이 비어 있지 않아서 동적 역할을 사용할 수 없음</translation>
     </message>
     <message>
-        <source>unable to enable static roles as this model is not empty!</source>
-        <translation>모델이 비어 있지 않아서 정적 역할을 사용할 수 없습니다!</translation>
+        <source>unable to enable static roles as this model is not empty</source>
+        <translation>모델이 비어 있지 않아서 정적 역할을 사용할 수 없음</translation>
     </message>
     <message>
         <source>dynamic role setting must be made from the main thread, before any worker scripts are created</source>
@@ -626,7 +647,7 @@
     </message>
     <message>
         <source>Cannot assign primitives to lists</source>
-        <translation>원시 타입을 목록에 할당할 수 없음</translation>
+        <translation>원시 형식을 목록에 할당할 수 없음</translation>
     </message>
     <message>
         <source>Unable to create object of type %1</source>
@@ -659,8 +680,16 @@
         <translation>가져온 파일이 스크립트여야 함</translation>
     </message>
     <message>
+        <source>Module import requires a minor version (missing dot)</source>
+        <translation>모듈을 가져오려면 부 버전이 필요함(점이 없음)</translation>
+    </message>
+    <message>
+        <source>Module import requires a minor version (missing number)</source>
+        <translation>모듈을 가져오려면 부 버전이 필요함(숫자가 없음)</translation>
+    </message>
+    <message>
         <source>File import requires a qualifier</source>
-        <translation>파일을 가져오려면 지정가가 필요함</translation>
+        <translation>파일을 가져오려면 지정자가 필요함</translation>
     </message>
     <message>
         <source>Invalid import qualifier</source>
@@ -688,7 +717,7 @@
     </message>
     <message>
         <source>Reserved name &quot;Qt&quot; cannot be used as an qualifier</source>
-        <translation>예약됨 이름 &quot;Qt&quot;는 지정자 이름으로 사용할 수 없음</translation>
+        <translation>예약된 이름 &quot;Qt&quot;는 지정자 이름으로 사용할 수 없음</translation>
     </message>
     <message>
         <source>Script import qualifiers must be unique.</source>
@@ -743,6 +772,14 @@
         <translation>잘못된 유니코드 탈출 시퀀스</translation>
     </message>
     <message>
+        <source>Unexpected token &apos;.&apos;</source>
+        <translation>예상하지 못한 토큰 &apos;.&apos;</translation>
+    </message>
+    <message>
+        <source>End of file reached at escape sequence</source>
+        <translation>탈출 시퀀스에서 파일의 끝에 도달함</translation>
+    </message>
+    <message>
         <source>Illegal hexadecimal escape sequence</source>
         <translation>잘못된 16진 탈출 시퀀스</translation>
     </message>
@@ -753,6 +790,14 @@
     <message>
         <source>Unclosed string at end of line</source>
         <translation>줄 끝에서 닫히지 않은 문자열</translation>
+    </message>
+    <message>
+        <source>At least one octal digit is required after &apos;0%1&apos;</source>
+        <translation>&apos;0%1&apos; 다음에 최소 1개의 8진 숫자가 필요함</translation>
+    </message>
+    <message>
+        <source>At least one binary digit is required after &apos;0%1&apos;</source>
+        <translation>&apos;0%1&apos; 다음에 최소 1개의 2진 숫자가 필요함</translation>
     </message>
     <message>
         <source>Decimal numbers can&apos;t start with &apos;0&apos;</source>
@@ -782,14 +827,6 @@
         <source>Syntax error</source>
         <translation>구문 오류</translation>
     </message>
-    <message>
-        <source>Unexpected token `%1&apos;</source>
-        <translation>예상하지 못한 토큰 &apos;%1&apos;</translation>
-    </message>
-    <message>
-        <source>Expected token `%1&apos;</source>
-        <translation>토큰 &apos;%1&apos;이(가) 필요함</translation>
-    </message>
 </context>
 <context>
     <name>QQmlPartsModel</name>
@@ -800,45 +837,6 @@
     <message>
         <source>Delegate component must be Package type.</source>
         <translation>Delegate 컴포넌트는 Package 형식이어야 합니다.</translation>
-    </message>
-</context>
-<context>
-    <name>QQmlPropertyCacheCreator</name>
-    <message>
-        <source>Fully dynamic types cannot declare new properties.</source>
-        <translation>완전 동적 형식에서는 새로운 속성을 선언할 수 없습니다.</translation>
-    </message>
-    <message>
-        <source>Fully dynamic types cannot declare new signals.</source>
-        <translation>완전 동적 형식에서는 새로운 시그널을 선언할 수 없습니다.</translation>
-    </message>
-    <message>
-        <source>Fully Dynamic types cannot declare new functions.</source>
-        <translation>완전 동적 형식에서는 새로운 함수를 선언할 수 없습니다.</translation>
-    </message>
-    <message>
-        <source>Non-existent attached object</source>
-        <translation>존재하지 않는 첨부된 개체</translation>
-    </message>
-    <message>
-        <source>Cannot override FINAL property</source>
-        <translation>FINAL 속성을 재정의할 수 없음</translation>
-    </message>
-    <message>
-        <source>Invalid signal parameter type: %1</source>
-        <translation>잘못된 시그널 인자 종류: %1</translation>
-    </message>
-    <message>
-        <source>Duplicate signal name: invalid override of property change signal or superclass signal</source>
-        <translation>중복된 시그널 이름: 속성 변경 시그널이나 상위 클래스의 시그널을 잘못 재정의함</translation>
-    </message>
-    <message>
-        <source>Duplicate method name: invalid override of property change signal or superclass signal</source>
-        <translation>중복된 메서드 이름: 속성 변경 시그널이나 상위 클래스의 시그널을 잘못 재정의함</translation>
-    </message>
-    <message>
-        <source>Invalid property type</source>
-        <translation>잘못된 속성 형식</translation>
     </message>
 </context>
 <context>
@@ -879,6 +877,14 @@
         <source>Invalid property type</source>
         <translation>잘못된 속성 형식</translation>
     </message>
+    <message>
+        <source>Cyclic alias</source>
+        <translation>별명의 순환 참조</translation>
+    </message>
+    <message>
+        <source>Invalid alias target</source>
+        <translation>잘못된 별명 대상</translation>
+    </message>
 </context>
 <context>
     <name>QQmlPropertyValidator</name>
@@ -916,7 +922,7 @@
     </message>
     <message>
         <source>Cannot assign multiple values to a script property</source>
-        <translation>스크립트 속성에 다중 값을 할당할 수 없음</translation>
+        <translation>스크립트 속성에 여러 값을 할당할 수 없음</translation>
     </message>
     <message>
         <source>Cannot assign multiple values to a singular property</source>
@@ -931,6 +937,14 @@
         <translation>잘못된 그룹 속성 접근</translation>
     </message>
     <message>
+        <source>Invalid grouped property access: Property &quot;%1&quot; with primitive type &quot;%2&quot;.</source>
+        <translation>잘못된 그룹 속성 접근: 속성 &quot;%1&quot;의 원시 형식 &quot;%2&quot;.</translation>
+    </message>
+    <message>
+        <source>Invalid grouped property access: Property &quot;%1&quot; with type &quot;%2&quot;, which is not a value type</source>
+        <translation>잘못된 그룹 속성 접근: 속성 &quot;%1&quot;(형식 &quot;%2&quot;)은(는) 값 형식이 아님</translation>
+    </message>
+    <message>
         <source>Cannot assign to non-existent default property</source>
         <translation>존재하지 않는 기본 속성에 할당할 수 없음</translation>
     </message>
@@ -939,12 +953,20 @@
         <translation>존재하지 않는 속성 &quot;%1&quot;에 할당할 수 없음</translation>
     </message>
     <message>
+        <source>Invalid use of id property with a value type</source>
+        <translation>id 속성의 값 형식을 잘못 사용함</translation>
+    </message>
+    <message>
         <source>Cannot assign primitives to lists</source>
-        <translation>원시 타입을 목록에 할당할 수 없음</translation>
+        <translation>원시 형식을 목록에 할당할 수 없음</translation>
     </message>
     <message>
         <source>Invalid property assignment: unknown enumeration</source>
         <translation>잘못된 속성 대입: 알 수 없는 열거형</translation>
+    </message>
+    <message>
+        <source> - Assigning null to incompatible properties in QML is deprecated. This will become a compile error in future versions of Qt.</source>
+        <translation> - QML에서 호환되지 않는 속성에 null을 할당하는 것은 오래되었습니다. Qt의 이후 버전에서는 컴파일 오류가 발생할 것입니다.</translation>
     </message>
     <message>
         <source>Invalid property assignment: string expected</source>
@@ -1059,20 +1081,24 @@
         <translation>객체를 목록 속성 &quot;%1&quot;에 할당할 수 없음</translation>
     </message>
     <message>
-        <source>Cannot assign object to list</source>
-        <translation>개체를 목록에 할당할 수 없음</translation>
+        <source>Cannot assign value of type &quot;%1&quot; to property &quot;%2&quot;, expecting &quot;%3&quot;</source>
+        <translation>형식이 &quot;%1&quot;인 값을 &quot;%2&quot; 속성에 할당할 수 없음, &quot;%3&quot;을(를) 예상함</translation>
     </message>
     <message>
-        <source>Unexpected object assignment</source>
-        <translation>예상하지 못한 객체 할당</translation>
+        <source>Cannot assign value of type &quot;%1&quot; to property &quot;%2&quot;, expecting an object</source>
+        <translation>형식이 &quot;%1&quot;인 값을 &quot;%2&quot; 속성에 할당할 수 없음, 객체를 예상함</translation>
+    </message>
+    <message>
+        <source>Cannot assign object of type &quot;%1&quot; to property of type &quot;%2&quot; as the former is neither the same as the latter nor a sub-class of it.</source>
+        <translation>형식이 동일하지 않거나 하위 클래스가 아니기 때문에 형식이 &quot;%1&quot;인 객체를 형식이 &quot;%2&quot;인 속성에 할당할 수 없습니다.</translation>
+    </message>
+    <message>
+        <source>Cannot assign to property of unknown type &quot;%1&quot;.</source>
+        <translation>알 수 없는 형식 &quot;%1&quot;인 속성에 할당할 수 없습니다.</translation>
     </message>
     <message>
         <source>Invalid property assignment: script expected</source>
         <translation>잘못된 속성 대입: script가 필요함</translation>
-    </message>
-    <message>
-        <source>Cannot assign object to property</source>
-        <translation>객체를 속성에 할당할 수 없음</translation>
     </message>
 </context>
 <context>
@@ -1084,17 +1110,6 @@
     <message>
         <source>Signal parameter &quot;%1&quot; hides global variable.</source>
         <translation>시그널 인자 &quot;%1&quot;이(가) 전역 변수를 숨깁니다.</translation>
-    </message>
-</context>
-<context>
-    <name>QQmlTypeCompiler</name>
-    <message>
-        <source>Composite Singleton Type %1 is not creatable.</source>
-        <translation>복합 싱글톤 형식 %1을(를) 만들 수 없습니다.</translation>
-    </message>
-    <message>
-        <source>Element is not creatable.</source>
-        <translation>원소를 만들 수 없습니다.</translation>
     </message>
 </context>
 <context>
@@ -1123,8 +1138,20 @@
         <translation>비 복합 싱글톤 형식 %1에서 pragma Singleton이 사용됨</translation>
     </message>
     <message>
+        <source>File was compiled ahead of time with an incompatible version of Qt and the original file cannot be found. Please recompile</source>
+        <translation>이전에 파일이 호환되지 않는 Qt로 컴파일되었고 원본 파일을 찾을 수 없습니다. 다시 컴파일하십시오</translation>
+    </message>
+    <message>
+        <source>No such file or directory</source>
+        <translation>그러한 파일이나 디렉터리가 없음</translation>
+    </message>
+    <message>
         <source>Script %1 unavailable</source>
         <translation>스크립트 %1을(를) 사용할 수 없음</translation>
+    </message>
+    <message>
+        <source>Type %1 has no inline component type called %2</source>
+        <translation>형식 %1에 인라인 구성 요소 형식 %2이(가) 없음</translation>
     </message>
     <message>
         <source>Type %1 unavailable</source>
@@ -1133,6 +1160,10 @@
     <message>
         <source>qmldir defines type as singleton, but no pragma Singleton found in type %1.</source>
         <translation>qmldir 내에서 싱글톤으로 선언하지만 형식 %1에서 pragma Singleton을 찾을 수 없습니다.</translation>
+    </message>
+    <message>
+        <source>File is empty</source>
+        <translation>파일이 비어 있음</translation>
     </message>
     <message>
         <source>module &quot;%1&quot; is not installed</source>
@@ -1161,21 +1192,6 @@
         <source>Cannot animate read-only property &quot;%1&quot;</source>
         <translation>읽기 전용 속성 &quot;%1&quot;에 애니메이션을 설정할 수 없음</translation>
     </message>
-    <message>
-        <source>Animation is an abstract class</source>
-        <translation>Animation이 추상 클래스임</translation>
-    </message>
-    <message>
-        <source>Animator is an abstract class</source>
-        <translation>Animator는 추상 클래스임</translation>
-    </message>
-</context>
-<context>
-    <name>QQuickAccessibleAttached</name>
-    <message>
-        <source>Accessible is only available via attached properties</source>
-        <translation>Accessible은 첨부된 속성을 통해서만 사용할 수 있음</translation>
-    </message>
 </context>
 <context>
     <name>QQuickAnchorAnimation</name>
@@ -1188,23 +1204,23 @@
     <name>QQuickAnchors</name>
     <message>
         <source>Possible anchor loop detected on fill.</source>
-        <translation>fill에서 앵커 반복 감지됨.</translation>
+        <translation>fill에서 앵커 반복이 감지되었습니다.</translation>
     </message>
     <message>
         <source>Possible anchor loop detected on centerIn.</source>
-        <translation>centerIn에서 앵커 반복 감지됨.</translation>
+        <translation>centerIn에서 앵커 반복이 감지되었습니다.</translation>
     </message>
     <message>
         <source>Cannot anchor to an item that isn&apos;t a parent or sibling.</source>
-        <translation>부모나 자식이 아닌 항목에 앵커를 설정할 수 없음.</translation>
+        <translation>부모나 자식이 아닌 항목에 앵커를 설정할 수 없습니다.</translation>
     </message>
     <message>
         <source>Possible anchor loop detected on vertical anchor.</source>
-        <translation>수직 앵커에서 앵커 반복 감지됨.</translation>
+        <translation>수직 앵커에서 앵커 반복이 감지되었습니다.</translation>
     </message>
     <message>
         <source>Possible anchor loop detected on horizontal anchor.</source>
-        <translation>수평 앵커에서 앵커 반복 감지됨.</translation>
+        <translation>수평 앵커에서 앵커 반복이 감지되었습니다.</translation>
     </message>
     <message>
         <source>Cannot specify left, right, and horizontalCenter anchors at the same time.</source>
@@ -1212,15 +1228,15 @@
     </message>
     <message>
         <source>Cannot anchor to a null item.</source>
-        <translation>빈 항목에 앵커를 설정할 수 없음.</translation>
+        <translation>빈 항목에 앵커를 설정할 수 없습니다.</translation>
     </message>
     <message>
         <source>Cannot anchor a horizontal edge to a vertical edge.</source>
-        <translation>수평선을 수직선에 앵커로 설정할 수 없음.</translation>
+        <translation>수평선을 수직선에 앵커로 설정할 수 없습니다.</translation>
     </message>
     <message>
         <source>Cannot anchor item to self.</source>
-        <translation>자기 자신에 앵커를 설정할 수 없음.</translation>
+        <translation>자기 자신에 앵커를 설정할 수 없습니다.</translation>
     </message>
     <message>
         <source>Cannot specify top, bottom, and verticalCenter anchors at the same time.</source>
@@ -1232,35 +1248,14 @@
     </message>
     <message>
         <source>Cannot anchor a vertical edge to a horizontal edge.</source>
-        <translation>수직선을 수평선에 앵커로 설정할 수 없음.</translation>
-    </message>
-</context>
-<context>
-    <name>QQuickAnimatedImage</name>
-    <message>
-        <source>Qt was built without support for QMovie</source>
-        <translation>Qt 빌드에 QMovie 지원이 빠졌음</translation>
-    </message>
-</context>
-<context>
-    <name>QQuickApplication</name>
-    <message>
-        <source>Application is an abstract class</source>
-        <translation>Application은 추상 클래스임</translation>
+        <translation>수직선을 수평선에 앵커로 설정할 수 없습니다.</translation>
     </message>
 </context>
 <context>
     <name>QQuickBehavior</name>
     <message>
         <source>Cannot change the animation assigned to a Behavior.</source>
-        <translation>Behavior에 할당된 애니메이션을 변경할 수 없음.</translation>
-    </message>
-</context>
-<context>
-    <name>QQuickDragAttached</name>
-    <message>
-        <source>Drag is only available via attached properties</source>
-        <translation>Drag는 첨부된 속성을 통해서만 사용할 수 있음</translation>
+        <translation>Behavior에 할당된 애니메이션을 변경할 수 없습니다.</translation>
     </message>
 </context>
 <context>
@@ -1268,10 +1263,6 @@
     <message>
         <source>EnterKey attached property only works with Items</source>
         <translation>EnterKey 첨부된 속성은 Item에서만 동작함</translation>
-    </message>
-    <message>
-        <source>EnterKey is only available via attached properties</source>
-        <translation>EnterKeys는 첨부된 속성을 통해서만 사용할 수 있음</translation>
     </message>
 </context>
 <context>
@@ -1286,47 +1277,14 @@
     </message>
 </context>
 <context>
-    <name>QQuickGraphicsInfo</name>
-    <message>
-        <source>GraphicsInfo is only available via attached properties</source>
-        <translation>GraphicsInfo는 첨부된 속성을 통해서만 사용할 수 있음</translation>
-    </message>
-</context>
-<context>
     <name>QQuickItemView</name>
-    <message>
-        <source>ItemView is an abstract base class</source>
-        <translation>ItemView는 추상 기반 클래스임</translation>
-    </message>
     <message>
         <source>Delegate must be of Item type</source>
         <translation>Delegate는 Item 형식이어야 함</translation>
     </message>
 </context>
 <context>
-    <name>QQuickKeyNavigationAttached</name>
-    <message>
-        <source>KeyNavigation is only available via attached properties</source>
-        <translation>KeyNavigation은 첨부된 속성을 통해서만 사용할 수 있음</translation>
-    </message>
-</context>
-<context>
-    <name>QQuickKeysAttached</name>
-    <message>
-        <source>Keys is only available via attached properties</source>
-        <translation>Keys는 첨부된 속성을 통해서만 사용할 수 있음</translation>
-    </message>
-</context>
-<context>
     <name>QQuickLayoutMirroringAttached</name>
-    <message>
-        <source>LayoutDirection attached property only works with Items</source>
-        <translation>연결된 속성 LayoutDirection은 Item에서만 동작함</translation>
-    </message>
-    <message>
-        <source>LayoutMirroring is only available via attached properties</source>
-        <translation>LayoutMirroring은 첨부된 속성을 통해서만 사용할 수 있음</translation>
-    </message>
     <message>
         <source>LayoutDirection attached property only works with Items and Windows</source>
         <translation>첨부된 속성 LayoutDirection은 Item이나 Window에서만 동작함</translation>
@@ -1337,27 +1295,6 @@
     <message>
         <source>setSource: value is not an object</source>
         <translation>setSource: 값이 객체가 아님</translation>
-    </message>
-</context>
-<context>
-    <name>QQuickMouseEvent</name>
-    <message>
-        <source>MouseEvent is only available within handlers in MouseArea</source>
-        <translation>MouseEvent는 MouseArea의 핸들러에서만 사용할 수 있음</translation>
-    </message>
-</context>
-<context>
-    <name>QQuickOpenGLInfo</name>
-    <message>
-        <source>OpenGLInfo is only available via attached properties</source>
-        <translation>OpenGLInfo는 첨부된 속성을 통해서만 사용할 수 있음</translation>
-    </message>
-</context>
-<context>
-    <name>QQuickPaintedItem</name>
-    <message>
-        <source>Cannot create instance of abstract class PaintedItem</source>
-        <translation>추상 클래스 PaintedItem의 인스턴스를 만들 수 없음</translation>
     </message>
 </context>
 <context>
@@ -1430,12 +1367,12 @@
         <translation>공급자에서 텍스처를 가져올 수 없음: %1</translation>
     </message>
     <message>
-        <source>Cannot open: %1</source>
-        <translation>다음을 열 수 없음: %1</translation>
+        <source>Error decoding: %1</source>
+        <translation>디코딩 오류: %1</translation>
     </message>
     <message>
-        <source>Invalid image data: %1</source>
-        <translation>잘못된 그림 데이터: %1</translation>
+        <source>Cannot open: %1</source>
+        <translation>다음을 열 수 없음: %1</translation>
     </message>
 </context>
 <context>
@@ -1468,13 +1405,6 @@
     </message>
 </context>
 <context>
-    <name>QQuickShaderEffectMesh</name>
-    <message>
-        <source>Cannot create instance of abstract class ShaderEffectMesh.</source>
-        <translation>추상 클래스 ShaderEffectMesh의 인스턴스를 만들 수 없습니다.</translation>
-    </message>
-</context>
-<context>
     <name>QQuickTextUtil</name>
     <message>
         <source>%1 does not support loading non-visual cursor delegates.</source>
@@ -1486,13 +1416,6 @@
     </message>
 </context>
 <context>
-    <name>QQuickViewTransitionAttached</name>
-    <message>
-        <source>ViewTransition is only available via attached properties</source>
-        <translation>ViewTransition은 첨부된 속성을 통해서만 사용할 수 있음</translation>
-    </message>
-</context>
-<context>
     <name>QQuickWindow</name>
     <message>
         <source>Failed to create %1 context for format %2.
@@ -1500,7 +1423,7 @@ This is most likely caused by not having the necessary graphics drivers installe
 
 Install a driver providing OpenGL 2.0 or higher, or, if this is not possible, make sure the ANGLE Open GL ES 2.0 emulation libraries (%3, %4 and d3dcompiler_*.dll) are available in the application executable&apos;s directory or in a location listed in PATH.</source>
         <extracomment>%1 Context type (Open GL, EGL), %2 format, ANGLE %3, %4 library names</extracomment>
-        <translation>형식 %2에 대한 %1 컨텍스트를 생성할 수 없습니다.
+        <translation>형식 %2에 대한 %1 콘텍스트를 생성할 수 없습니다.
 필요한 그래픽 드라이버가 설치되어 있지 않을 수도 있습니다.
 
 OpenGL 2.0 이상을 지원하는 드라이버를 설치하시거나, 해당 드라이버를 사용할 수 없다면 실행 파일이 있는 디렉터리나 PATH에 있는 디렉터리에 ANGLE OpenGL ES 2.0 에뮬레이션 라이브러리(%3, %4, d3dcompiler_*.dll)를 설치하십시오.</translation>
@@ -1508,7 +1431,11 @@ OpenGL 2.0 이상을 지원하는 드라이버를 설치하시거나, 해당 드
     <message>
         <source>Failed to create %1 context for format %2</source>
         <extracomment>%1 Context type (Open GL, EGL), %2 format specification</extracomment>
-        <translation>형식 %2에 대한 %1 컨텍스트를 생성할 수 없음</translation>
+        <translation>형식 %2에 대한 %1 콘텍스트를 생성할 수 없음</translation>
+    </message>
+    <message>
+        <source>Failed to initialize graphics backend for %1.</source>
+        <translation>%1의 그래픽 백엔드를 초기화할 수 없습니다.</translation>
     </message>
 </context>
 <context>
@@ -1520,31 +1447,6 @@ OpenGL 2.0 이상을 지원하는 드라이버를 설치하시거나, 해당 드
     <message>
         <source>Conflicting properties &apos;visible&apos; and &apos;visibility&apos;</source>
         <translation>&apos;visible&apos;과 &apos;visibility&apos; 속성이 충돌함</translation>
-    </message>
-</context>
-<context>
-    <name>QQuickXmlListModel</name>
-    <message>
-        <source>&quot;%1&quot; duplicates a previous role name and will be disabled.</source>
-        <translation>&quot;%1&quot;이(가) 이전 역할 이름과 중복되므로 비활성화될 것입니다.</translation>
-    </message>
-    <message>
-        <source>invalid query: &quot;%1&quot;</source>
-        <translation>잘못된 쿼리: &quot;%1&quot;</translation>
-    </message>
-</context>
-<context>
-    <name>QQuickXmlListModelRole</name>
-    <message>
-        <source>An XmlRole query must not start with &apos;/&apos;</source>
-        <translation>XmlRole 쿼리는 &apos;/&apos;로 시작하면 안 됨</translation>
-    </message>
-</context>
-<context>
-    <name>QQuickXmlRoleList</name>
-    <message>
-        <source>An XmlListModel query must start with &apos;/&apos; or &quot;//&quot;</source>
-        <translation>XmlListModel 쿼리는 &apos;/&apos;나 &apos;//&apos;로 시작해야 함</translation>
     </message>
 </context>
 <context>
@@ -1571,7 +1473,7 @@ OpenGL 2.0 이상을 지원하는 드라이버를 설치하시거나, 해당 드
     </message>
     <message>
         <source>Cannot assign a value to a signal (expecting a script to be run)</source>
-        <translation>값을 시그널에 지정할 수 없음 (스크립트가 실행될 것을 예상함)</translation>
+        <translation>값을 시그널에 지정할 수 없음(스크립트가 실행될 것을 예상함)</translation>
     </message>
     <message>
         <source>Incorrectly specified signal assignment</source>
@@ -1596,16 +1498,12 @@ OpenGL 2.0 이상을 지원하는 드라이버를 설치하시거나, 해당 드
 <context>
     <name>qmlRegisterType</name>
     <message>
+        <source>Invalid QML %1 name &quot;%2&quot;; type names must begin with an uppercase letter</source>
+        <translation>잘못된 QML %1 이름 &quot;%2&quot;. 형식 이름은 대문자로 시작해야 함</translation>
+    </message>
+    <message>
         <source>Invalid QML %1 name &quot;%2&quot;</source>
         <translation>잘못된 QML %1 이름 &quot;%2&quot;</translation>
-    </message>
-    <message>
-        <source>Cannot install %1 &apos;%2&apos; into unregistered namespace &apos;%3&apos;</source>
-        <translation>등록되지 않은 네임스페이스 &apos;%3&apos;에 %1 &apos;%2&apos;을(를) 설치할 수 없음</translation>
-    </message>
-    <message>
-        <source>Cannot install %1 &apos;%2&apos; into protected namespace &apos;%3&apos;</source>
-        <translation>보호된 네임스페이스 &apos;%3&apos;에 %1 &apos;%2&apos;을(를) 설치할 수 없음</translation>
     </message>
     <message>
         <source>Cannot install %1 &apos;%2&apos; into protected module &apos;%3&apos; version &apos;%4&apos;</source>

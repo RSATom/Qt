@@ -6,7 +6,8 @@
 #define CONTENT_RENDERER_NAVIGATION_CLIENT_H_
 
 #include "content/common/navigation_client.mojom.h"
-#include "mojo/public/cpp/bindings/associated_binding.h"
+#include "mojo/public/cpp/bindings/associated_receiver.h"
+#include "mojo/public/cpp/bindings/pending_associated_receiver.h"
 
 namespace content {
 
@@ -19,12 +20,12 @@ class NavigationClient : mojom::NavigationClient {
 
   // mojom::NavigationClient implementation:
   void CommitNavigation(
-      const CommonNavigationParams& common_params,
-      const CommitNavigationParams& commit_params,
-      const network::ResourceResponseHead& response_head,
+      mojom::CommonNavigationParamsPtr common_params,
+      mojom::CommitNavigationParamsPtr commit_params,
+      network::mojom::URLResponseHeadPtr response_head,
       mojo::ScopedDataPipeConsumerHandle response_body,
       network::mojom::URLLoaderClientEndpointsPtr url_loader_client_endpoints,
-      std::unique_ptr<blink::URLLoaderFactoryBundleInfo> subresource_loaders,
+      std::unique_ptr<blink::PendingURLLoaderFactoryBundle> subresource_loaders,
       base::Optional<std::vector<::content::mojom::TransferrableURLLoaderPtr>>
           subresource_overrides,
       blink::mojom::ControllerServiceWorkerInfoPtr
@@ -35,15 +36,15 @@ class NavigationClient : mojom::NavigationClient {
       const base::UnguessableToken& devtools_navigation_token,
       CommitNavigationCallback callback) override;
   void CommitFailedNavigation(
-      const CommonNavigationParams& common_params,
-      const CommitNavigationParams& commit_params,
+      mojom::CommonNavigationParamsPtr common_params,
+      mojom::CommitNavigationParamsPtr commit_params,
       bool has_stale_copy_in_cache,
       int error_code,
       const base::Optional<std::string>& error_page_content,
-      std::unique_ptr<blink::URLLoaderFactoryBundleInfo> subresource_loaders,
+      std::unique_ptr<blink::PendingURLLoaderFactoryBundle> subresource_loaders,
       CommitFailedNavigationCallback callback) override;
 
-  void Bind(mojom::NavigationClientAssociatedRequest request);
+  void Bind(mojo::PendingAssociatedReceiver<mojom::NavigationClient> receiver);
 
   // See NavigationState::was_initiated_in_this_frame for details.
   void MarkWasInitiatedInThisFrame();
@@ -59,7 +60,8 @@ class NavigationClient : mojom::NavigationClient {
   void SetDisconnectionHandler();
   void ResetDisconnectionHandler();
 
-  mojo::AssociatedBinding<mojom::NavigationClient> navigation_client_binding_;
+  mojo::AssociatedReceiver<mojom::NavigationClient> navigation_client_receiver_{
+      this};
   RenderFrameImpl* render_frame_;
   bool was_initiated_in_this_frame_ = false;
 };

@@ -29,11 +29,11 @@ class HighlightElementAction : public Action {
 
   void OnWaitForElement(ProcessActionCallback callback,
                         const Selector& selector,
-                        bool element_found);
+                        const ClientStatus& element_status);
   void OnHighlightElement(ProcessActionCallback callback,
                           const ClientStatus& status);
 
-  base::WeakPtrFactory<HighlightElementAction> weak_ptr_factory_;
+  base::WeakPtrFactory<HighlightElementAction> weak_ptr_factory_{this};
 
   DISALLOW_COPY_AND_ASSIGN(HighlightElementAction);
 };

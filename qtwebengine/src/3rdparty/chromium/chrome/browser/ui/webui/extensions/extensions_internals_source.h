@@ -21,9 +21,9 @@ class ExtensionsInternalsSource : public content::URLDataSource {
   std::string GetSource() override;
   std::string GetMimeType(const std::string& path) override;
   void StartDataRequest(
-      const std::string& path,
-      const content::ResourceRequestInfo::WebContentsGetter& wc_getter,
-      const content::URLDataSource::GotDataCallback& callback) override;
+      const GURL& url,
+      const content::WebContents::Getter& wc_getter,
+      content::URLDataSource::GotDataCallback callback) override;
 
   // Simpler interface to generate string output, without needing to
   // call StartDataRequest.

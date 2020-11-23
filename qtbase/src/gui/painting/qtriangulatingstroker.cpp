@@ -84,6 +84,7 @@ void QTriangulatingStroker::process(const QVectorPath &path, const QPen &pen, co
     const qreal *pts = path.points();
     const QPainterPath::ElementType *types = path.elements();
     int count = path.elementCount();
+    m_vertices.reset();
     if (count < 2)
         return;
 
@@ -100,7 +101,6 @@ void QTriangulatingStroker::process(const QVectorPath &path, const QPen &pen, co
 
     m_join_style = qpen_joinStyle(pen);
     m_cap_style = qpen_capStyle(pen);
-    m_vertices.reset();
     m_miter_limit = pen.miterLimit() * qpen_widthf(pen);
 
     // The curvyness is based on the notion that I originally wanted
@@ -150,7 +150,7 @@ void QTriangulatingStroker::process(const QVectorPath &path, const QPen &pen, co
     m_cos_theta = qFastCos(Q_PI / m_roundness);
 
     const qreal *endPts = pts + (count<<1);
-    const qreal *startPts = 0;
+    const qreal *startPts = nullptr;
 
     Qt::PenCapStyle cap = m_cap_style;
 
@@ -188,6 +188,31 @@ void QTriangulatingStroker::process(const QVectorPath &path, const QPen &pen, co
         while (pts < endPts) {
             switch (*types) {
             case QPainterPath::MoveToElement: {
+                int end = (endPts - pts) / 2;
+                int nextMoveElement = 1;
+                bool hasValidLineSegments = false;
+                while (nextMoveElement < end && types[nextMoveElement] != QPainterPath::MoveToElement) {
+                    if (!hasValidLineSegments) {
+                        hasValidLineSegments =
+                            float(pts[0]) != float(pts[nextMoveElement * 2]) ||
+                            float(pts[1]) != float(pts[nextMoveElement * 2 + 1]);
+                    }
+                    ++nextMoveElement;
+                }
+
+                /**
+                 * 'LineToElement' may be skipped if it doesn't move the center point
+                 * of the line. We should make sure that we don't end up with a lost
+                 * 'MoveToElement' in the vertex buffer, not connected to anything. Since
+                 * the buffer uses degenerate triangles trick to split the primitives,
+                 * this spurious MoveToElement will create artifacts when rendering.
+                 */
+                if (!hasValidLineSegments) {
+                    pts += 2 * nextMoveElement;
+                    types += nextMoveElement;
+                    continue;
+                }
+
                 if (previousType != QPainterPath::MoveToElement)
                     endCapOrJoinClosed(startPts, previousPts, path.hasImplicitClose(), endsAtStart);
 
@@ -196,13 +221,8 @@ void QTriangulatingStroker::process(const QVectorPath &path, const QPen &pen, co
                 if (startPts + 2 >= endPts)
                     return; // Nothing to see here...
 
-                int end = (endPts - pts) / 2;
-                int i = 2; // Start looking to ahead since we never have two moveto's in a row
-                while (i<end && types[i] != QPainterPath::MoveToElement) {
-                    ++i;
-                }
-                endsAtStart = float(startPts[0]) == float(pts[i*2 - 2])
-                        && float(startPts[1]) == float(pts[i*2 - 1]);
+                endsAtStart = float(startPts[0]) == float(pts[nextMoveElement * 2 - 2])
+                        && float(startPts[1]) == float(pts[nextMoveElement * 2 - 1]);
                 if (endsAtStart || path.hasImplicitClose())
                     m_cap_style = Qt::FlatCap;
 
@@ -510,7 +530,7 @@ static void qdashprocessor_cubicTo(qreal, qreal, qreal, qreal, qreal, qreal, voi
 
 QDashedStrokeProcessor::QDashedStrokeProcessor()
     : m_points(0), m_types(0),
-      m_dash_stroker(0), m_inv_scale(1)
+      m_dash_stroker(nullptr), m_inv_scale(1)
 {
     m_dash_stroker.setMoveToHook(qdashprocessor_moveTo);
     m_dash_stroker.setLineToHook(qdashprocessor_lineTo);
@@ -619,4 +639,3 @@ void QDashedStrokeProcessor::process(const QVectorPath &path, const QPen &pen, c
 }
 
 QT_END_NAMESPACE
-

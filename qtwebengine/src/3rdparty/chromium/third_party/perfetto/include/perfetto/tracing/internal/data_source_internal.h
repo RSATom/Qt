@@ -27,6 +27,7 @@
 #include <mutex>
 
 // No perfetto headers (other than tracing/api and protozero) should be here.
+#include "perfetto/tracing/buffer_exhausted_policy.h"
 #include "perfetto/tracing/internal/basic_types.h"
 #include "perfetto/tracing/trace_writer_base.h"
 
@@ -74,12 +75,17 @@ struct DataSourceState {
   // Only the tuple (backend_id, data_source_instance_id) is globally unique.
   uint64_t data_source_instance_id = 0;
 
+  // A hash of the trace config used by this instance. This is used to
+  // de-duplicate instances for data sources with identical names (e.g., track
+  // event).
+  uint64_t config_hash = 0;
+
   // This lock is not held to implement Trace() and it's used only if the trace
   // code wants to access its own data source state.
   // This is to prevent that accessing the data source on an arbitrary embedder
   // thread races with the internal IPC thread destroying the data source
   // because of a end-of-tracing notification from the service.
-  std::mutex lock;
+  std::recursive_mutex lock;
   std::unique_ptr<DataSourceBase> data_source;
 };
 
@@ -92,7 +98,8 @@ struct DataSourceStateStorage {
 
 // Per-DataSource-type global state.
 struct DataSourceStaticState {
-  uint32_t index = 0;  // Unique ID, assigned at registration time.
+  // Unique index of the data source, assigned at registration time.
+  uint32_t index = kMaxDataSources;
 
   // A bitmap that tells about the validity of each |instances| entry. When the
   // i-th bit of the bitmap it's set, instances[i] is valid.
@@ -118,13 +125,17 @@ struct DataSourceStaticState {
 
 // Per-DataSource-instance thread-local state.
 struct DataSourceInstanceThreadLocalState {
+  using IncrementalStatePointer = std::unique_ptr<void, void (*)(void*)>;
+
   void Reset() {
     trace_writer.reset();
+    incremental_state.reset();
     backend_id = 0;
     buffer_id = 0;
   }
 
   std::unique_ptr<TraceWriterBase> trace_writer;
+  IncrementalStatePointer incremental_state = {nullptr, [](void*) {}};
   TracingBackendId backend_id;
   BufferId buffer_id;
 };

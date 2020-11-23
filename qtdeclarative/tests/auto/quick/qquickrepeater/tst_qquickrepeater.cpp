@@ -55,6 +55,7 @@ public:
 
 private slots:
     void numberModel();
+    void objectList_data();
     void objectList();
     void stringList();
     void dataModel_adding();
@@ -79,6 +80,8 @@ private slots:
     void QTBUG54859_asynchronousMove();
     void package();
     void ownership();
+    void requiredProperties();
+    void contextProperties();
 };
 
 class TestObject : public QObject
@@ -143,6 +146,14 @@ void tst_QQuickRepeater::numberModel()
     delete window;
 }
 
+void tst_QQuickRepeater::objectList_data()
+{
+    QTest::addColumn<QUrl>("filename");
+
+    QTest::newRow("normal") << testFileUrl("objlist.qml");
+    QTest::newRow("required") << testFileUrl("objlist_required.qml");
+}
+
 class MyObject : public QObject
 {
     Q_OBJECT
@@ -157,6 +168,7 @@ public:
 
 void tst_QQuickRepeater::objectList()
 {
+    QFETCH(QUrl, filename);
     QQuickView *window = createView();
     QObjectList data;
     for (int i=0; i<100; i++)
@@ -165,7 +177,7 @@ void tst_QQuickRepeater::objectList()
     QQmlContext *ctxt = window->rootContext();
     ctxt->setContextProperty("testData", QVariant::fromValue(data));
 
-    window->setSource(testFileUrl("objlist.qml"));
+    window->setSource(filename);
     qApp->processEvents();
 
     QQuickRepeater *repeater = findItem<QQuickRepeater>(window->rootObject(), "repeater");
@@ -1044,6 +1056,16 @@ void tst_QQuickRepeater::package()
         QCOMPARE(repeater2->count(), 1);
         QCOMPARE(repeater2->itemAt(0)->objectName(), "secondItem");
     }
+
+    {
+        QQmlComponent component(&engine, testFileUrl("package2.qml"));
+        QScopedPointer<QObject> root(component.create());
+        QVERIFY(root != nullptr);
+        bool returnedValue = false;
+        // calling setup should not crash
+        QMetaObject::invokeMethod(root.get(), "setup", Q_RETURN_ARG(bool, returnedValue));
+        QVERIFY(returnedValue);
+    }
 }
 
 void tst_QQuickRepeater::ownership()
@@ -1106,6 +1128,41 @@ void tst_QQuickRepeater::ownership()
 
     QVERIFY(!delegateGuard);
     QVERIFY(!modelGuard);
+}
+
+void tst_QQuickRepeater::requiredProperties()
+{
+    QTest::ignoreMessage(QtMsgType::QtInfoMsg, "apples0");
+    QTest::ignoreMessage(QtMsgType::QtInfoMsg, "oranges1");
+    QTest::ignoreMessage(QtMsgType::QtInfoMsg, "pears2");
+    QQmlEngine engine;
+
+    QQmlComponent component(&engine, testFileUrl("requiredProperty.qml"));
+    QScopedPointer<QObject> o {component.create()};
+    QVERIFY(o);
+}
+
+void tst_QQuickRepeater::contextProperties()
+{
+    QQmlEngine engine;
+
+    QQmlComponent component(&engine, testFileUrl("contextProperty.qml"));
+    QScopedPointer<QObject> o {component.create()};
+    QVERIFY(o);
+
+    auto *root = qobject_cast<QQuickItem *>(o.get());
+    QVERIFY(root);
+
+    QQueue<QQuickItem *> items;
+    items.append(root);
+
+    while (!items.isEmpty()) {
+        QQuickItem *item = items.dequeue();
+        QQmlContextData *data = QQmlContextData::get(qmlContext(item));
+        QVERIFY(!data->hasExtraObject);
+        for (QQuickItem *child : item->childItems())
+            items.enqueue(child);
+    }
 }
 
 QTEST_MAIN(tst_QQuickRepeater)

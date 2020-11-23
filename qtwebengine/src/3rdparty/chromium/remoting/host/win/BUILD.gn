@@ -146,7 +146,7 @@ source_set("win") {
   }
 
   if (enable_webrtc) {
-    deps += [ "//third_party/webrtc/modules/desktop_capture" ]
+    deps += [ "//third_party/webrtc_overrides:webrtc_component" ]
   }
 }
 
@@ -255,7 +255,7 @@ remoting_localize("messages_localizing") {
     "host_messages.mc.jinja2",
   ]
   locales = remoting_locales
-  locale_dir = webapp_locale_dir
+  locale_dir = resources_locale_dir
   encoding = "utf-16"
 
   # This target is funny. It only produces one file and the output doesn't
@@ -423,7 +423,7 @@ shared_library("remoting_core") {
     "//remoting/protocol",
     "//sandbox/win:sandbox",  # Should always use Windows version
     "//services/network/public/mojom",
-    "//third_party/webrtc/modules/desktop_capture",
+    "//third_party/webrtc_overrides:webrtc_component",
   ]
 
   ldflags = [
@@ -516,10 +516,9 @@ remoting_localize("remoting_windows_resources") {
 
   output = "$root_gen_dir/remoting/{{source_name_part}}"
 
-  locale_dir = webapp_locale_dir
+  locale_dir = resources_locale_dir
 
   encoding = "utf-16"
 
   locales = remoting_locales
 }
-# TODO(GYP) More Windows remoting targets from remoting_host_win.gypi

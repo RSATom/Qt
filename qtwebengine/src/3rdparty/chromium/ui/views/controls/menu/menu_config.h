@@ -6,8 +6,10 @@
 #define UI_VIEWS_CONTROLS_MENU_MENU_CONFIG_H_
 
 #include "third_party/skia/include/core/SkColor.h"
+#include "ui/gfx/color_palette.h"
 #include "ui/gfx/font_list.h"
 #include "ui/views/controls/menu/menu_image_util.h"
+#include "ui/views/layout/layout_provider.h"
 #include "ui/views/round_rect_painter.h"
 #include "ui/views/views_export.h"
 
@@ -82,12 +84,6 @@ struct VIEWS_EXPORT MenuConfig {
 
   // Padding between the arrow and the edge.
   int arrow_to_edge_padding = 5;
-
-  // The icon size used for icons in touchable menu items.
-  int touchable_icon_size = 20;
-
-  // The color used for icons in touchable menu items.
-  SkColor touchable_icon_color = SkColorSetRGB(0x5F, 0x63, 0x60);
 
   // The space reserved for the check. The actual size of the image may be
   // different.
@@ -169,14 +165,17 @@ struct VIEWS_EXPORT MenuConfig {
   int show_delay = 400;
 
   // Radius of the rounded corners of the menu border. Must be >= 0.
-  int corner_radius = 0;
+  int corner_radius =
+      LayoutProvider::Get()->GetCornerRadiusMetric(EMPHASIS_NONE);
 
   // Radius of "auxiliary" rounded corners - comboboxes and context menus.
   // Must be >= 0.
-  int auxiliary_corner_radius = 0;
+  int auxiliary_corner_radius =
+      LayoutProvider::Get()->GetCornerRadiusMetric(EMPHASIS_NONE);
 
   // Radius of the rounded corners of the touchable menu border
-  int touchable_corner_radius = 8;
+  int touchable_corner_radius =
+      LayoutProvider::Get()->GetCornerRadiusMetric(EMPHASIS_HIGH);
 
   // Anchor offset for touchable menus created by a touch event.
   int touchable_anchor_offset = 8;

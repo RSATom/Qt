@@ -13,13 +13,15 @@
 #include "src/pathops/SkPathOpsCubic.h"
 #include "src/pathops/SkPathOpsQuad.h"
 
+constexpr SkIPoint SkPackedGlyphID::kXYFieldMask;
+
 SkMask SkGlyph::mask() const {
     // getMetrics had to be called.
     SkASSERT(fMaskFormat != MASK_FORMAT_UNKNOWN);
 
     SkMask mask;
     mask.fImage = (uint8_t*)fImage;
-    mask.fBounds.set(fLeft, fTop, fLeft + fWidth, fTop + fHeight);
+    mask.fBounds.setXYWH(fLeft, fTop, fWidth, fHeight);
     mask.fRowBytes = this->rowBytes();
     mask.fFormat = static_cast<SkMask::Format>(fMaskFormat);
     return mask;
@@ -123,7 +125,9 @@ bool SkGlyph::setMetricsAndImage(SkArenaAlloc* alloc, const SkGlyph& from) {
         fLeft = from.fLeft;
         fForceBW = from.fForceBW;
         fMaskFormat = from.fMaskFormat;
-        return this->setImage(alloc, from.image());
+
+        // From glyph may not have an image because the glyph is too large.
+        return from.fImage != nullptr && this->setImage(alloc, from.image());
     }
     return false;
 }

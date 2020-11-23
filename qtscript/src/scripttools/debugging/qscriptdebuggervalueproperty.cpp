@@ -160,7 +160,7 @@ QScriptValue::PropertyFlags QScriptDebuggerValueProperty::flags() const
 {
     Q_D(const QScriptDebuggerValueProperty);
     if (!d)
-        return 0;
+        return {};
     return d->flags;
 }
 

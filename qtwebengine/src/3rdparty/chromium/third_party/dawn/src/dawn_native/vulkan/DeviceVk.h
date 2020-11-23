@@ -20,9 +20,13 @@
 #include "common/Serial.h"
 #include "common/SerialQueue.h"
 #include "dawn_native/Device.h"
+#include "dawn_native/vulkan/CommandRecordingContext.h"
 #include "dawn_native/vulkan/Forward.h"
 #include "dawn_native/vulkan/VulkanFunctions.h"
 #include "dawn_native/vulkan/VulkanInfo.h"
+
+#include "dawn_native/vulkan/external_memory/MemoryService.h"
+#include "dawn_native/vulkan/external_semaphore/SemaphoreService.h"
 
 #include <memory>
 #include <queue>
@@ -31,10 +35,12 @@ namespace dawn_native { namespace vulkan {
 
     class Adapter;
     class BufferUploader;
+    class DescriptorSetService;
+    struct ExternalImageDescriptor;
     class FencedDeleter;
     class MapRequestTracker;
-    class MemoryAllocator;
     class RenderPassCache;
+    class ResourceMemoryAllocator;
 
     class Device : public DeviceBase {
       public:
@@ -53,23 +59,30 @@ namespace dawn_native { namespace vulkan {
         VkQueue GetQueue() const;
 
         BufferUploader* GetBufferUploader() const;
+        DescriptorSetService* GetDescriptorSetService() const;
         FencedDeleter* GetFencedDeleter() const;
         MapRequestTracker* GetMapRequestTracker() const;
-        MemoryAllocator* GetMemoryAllocator() const;
         RenderPassCache* GetRenderPassCache() const;
 
-        VkCommandBuffer GetPendingCommandBuffer();
+        CommandRecordingContext* GetPendingRecordingContext();
         Serial GetPendingCommandSerial() const override;
-        void SubmitPendingCommands();
-        void AddWaitSemaphore(VkSemaphore semaphore);
+        MaybeError SubmitPendingCommands();
+
+        TextureBase* CreateTextureWrappingVulkanImage(
+            const ExternalImageDescriptor* descriptor,
+            ExternalMemoryHandle memoryHandle,
+            const std::vector<ExternalSemaphoreHandle>& waitHandles);
+
+        MaybeError SignalAndExportExternalTexture(Texture* texture,
+                                                  ExternalSemaphoreHandle* outHandle);
 
         // Dawn API
-        CommandBufferBase* CreateCommandBuffer(CommandEncoderBase* encoder,
+        CommandBufferBase* CreateCommandBuffer(CommandEncoder* encoder,
                                                const CommandBufferDescriptor* descriptor) override;
 
         Serial GetCompletedCommandSerial() const final override;
         Serial GetLastSubmittedCommandSerial() const final override;
-        void TickImpl() override;
+        MaybeError TickImpl() override;
 
         ResultOrError<std::unique_ptr<StagingBufferBase>> CreateStagingBuffer(size_t size) override;
         MaybeError CopyFromStagingToBuffer(StagingBufferBase* source,
@@ -77,6 +90,14 @@ namespace dawn_native { namespace vulkan {
                                            BufferBase* destination,
                                            uint64_t destinationOffset,
                                            uint64_t size) override;
+
+        ResultOrError<ResourceMemoryAllocation> AllocateMemory(VkMemoryRequirements requirements,
+                                                               bool mappable);
+        void DeallocateMemory(ResourceMemoryAllocation* allocation);
+
+        int FindBestMemoryTypeIndex(VkMemoryRequirements requirements, bool mappable);
+
+        ResourceMemoryAllocator* GetResourceMemoryAllocatorForTesting() const;
 
       private:
         ResultOrError<BindGroupBase*> CreateBindGroupImpl(
@@ -104,6 +125,8 @@ namespace dawn_native { namespace vulkan {
         ResultOrError<VulkanDeviceKnobs> CreateDevice(VkPhysicalDevice physicalDevice);
         void GatherQueueFromDevice();
 
+        void InitTogglesFromDriver();
+
         // To make it easier to use fn it is a public const member. However
         // the Device is allowed to mutate them through these private methods.
         VulkanFunctions* GetMutableFunctions();
@@ -113,12 +136,16 @@ namespace dawn_native { namespace vulkan {
         uint32_t mQueueFamily = 0;
         VkQueue mQueue = VK_NULL_HANDLE;
 
+        std::unique_ptr<DescriptorSetService> mDescriptorSetService;
         std::unique_ptr<FencedDeleter> mDeleter;
         std::unique_ptr<MapRequestTracker> mMapRequestTracker;
-        std::unique_ptr<MemoryAllocator> mMemoryAllocator;
+        std::unique_ptr<ResourceMemoryAllocator> mResourceMemoryAllocator;
         std::unique_ptr<RenderPassCache> mRenderPassCache;
 
-        VkFence GetUnusedFence();
+        std::unique_ptr<external_memory::Service> mExternalMemoryService;
+        std::unique_ptr<external_semaphore::Service> mExternalSemaphoreService;
+
+        ResultOrError<VkFence> GetUnusedFence();
         void CheckPassedFences();
 
         // We track which operations are in flight on the GPU with an increasing serial.
@@ -126,23 +153,31 @@ namespace dawn_native { namespace vulkan {
         // to a serial and a fence, such that when the fence is "ready" we know the operations
         // have finished.
         std::queue<std::pair<VkFence, Serial>> mFencesInFlight;
+        // Fences in the unused list aren't reset yet.
         std::vector<VkFence> mUnusedFences;
         Serial mCompletedSerial = 0;
         Serial mLastSubmittedSerial = 0;
+
+        MaybeError PrepareRecordingContext();
+        void RecycleCompletedCommands();
 
         struct CommandPoolAndBuffer {
             VkCommandPool pool = VK_NULL_HANDLE;
             VkCommandBuffer commandBuffer = VK_NULL_HANDLE;
         };
-
-        CommandPoolAndBuffer GetUnusedCommands();
-        void RecycleCompletedCommands();
-        void FreeCommands(CommandPoolAndBuffer* commands);
-
         SerialQueue<CommandPoolAndBuffer> mCommandsInFlight;
+        // Command pools in the unused list haven't been reset yet.
         std::vector<CommandPoolAndBuffer> mUnusedCommands;
-        CommandPoolAndBuffer mPendingCommands;
-        std::vector<VkSemaphore> mWaitSemaphores;
+        // There is always a valid recording context stored in mRecordingContext
+        CommandRecordingContext mRecordingContext;
+
+        MaybeError ImportExternalImage(const ExternalImageDescriptor* descriptor,
+                                       ExternalMemoryHandle memoryHandle,
+                                       VkImage image,
+                                       const std::vector<ExternalSemaphoreHandle>& waitHandles,
+                                       VkSemaphore* outSignalSemaphore,
+                                       VkDeviceMemory* outAllocation,
+                                       std::vector<VkSemaphore>* outWaitSemaphores);
     };
 
 }}  // namespace dawn_native::vulkan

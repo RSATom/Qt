@@ -27,9 +27,10 @@
 **
 ****************************************************************************/
 
-import QtQuick 2.12
+import QtQuick 2.15
 import HelperWidgets 2.0
 import QtQuick.Layouts 1.12
+import StudioTheme 1.0 as StudioTheme
 
 Column {
     width: parent.width
@@ -50,6 +51,7 @@ Column {
                 minimumValue: 0
                 maximumValue: 1
                 decimals: 2
+                stepSize: 0.1
                 backendValue: backendValues.opacity
                 Layout.fillWidth: true
                 sliderIndicatorVisible: true
@@ -65,32 +67,6 @@ Column {
                     text: qsTr("Is Visible")
                     backendValue: backendValues.visible
                     Layout.fillWidth: true
-                }
-            }
-
-            Label {
-                text: qsTr("Orientation")
-                tooltip: qsTr("Defines whether the node is using a right-handed or left-handed coordinate system.")
-            }
-            SecondColumnLayout {
-                ComboBox {
-                    scope: "Node"
-                    model: ["LeftHanded", "RightHanded"]
-                    backendValue: backendValues.orientation
-                    Layout.fillWidth: true
-                }
-            }
-
-            Label {
-                text: qsTr("Rotation Order")
-                tooltip: qsTr("Defines the order in which rotation properties components are applied.")
-            }
-            SecondColumnLayout {
-                ComboBox {
-                    Layout.fillWidth: true
-                    scope: "Node"
-                    model: ["XYZ", "YZX", "ZXY", "XZY", "YXZ", "ZYX", "XYZr", "YZXr", "ZXYr", "XZYr", "YXZr", "ZYXr"]
-                    backendValue: backendValues.rotationOrder
                 }
             }
         }
@@ -126,6 +102,7 @@ Column {
                     Label {
                         text: qsTr("X")
                         width: transformSection.labelWidth
+                        color: StudioTheme.Values.theme3DAxisXColor
                     }
                     SpinBox {
                         maximumValue: 9999999
@@ -143,6 +120,7 @@ Column {
                     Label {
                         text: qsTr("Y")
                         width: transformSection.labelWidth
+                        color: StudioTheme.Values.theme3DAxisYColor
                     }
                     SpinBox {
                         maximumValue: 9999999
@@ -160,6 +138,7 @@ Column {
                     Label {
                         text: qsTr("Z")
                         width: transformSection.labelWidth
+                        color: StudioTheme.Values.theme3DAxisZColor
                     }
                     SpinBox {
                         maximumValue: 9999999
@@ -187,13 +166,14 @@ Column {
                     Label {
                         text: qsTr("X")
                         width: transformSection.labelWidth
+                        color: StudioTheme.Values.theme3DAxisXColor
                     }
                     SpinBox {
                         maximumValue: 9999999
                         minimumValue: -9999999
                         realDragRange: 5000
                         decimals: 2
-                        backendValue: backendValues.rotation_x
+                        backendValue: backendValues.eulerRotation_x
                         Layout.fillWidth: true
                         Layout.minimumWidth: transformSection.spinBoxMinimumWidth
                     }
@@ -204,13 +184,14 @@ Column {
                     Label {
                         text: qsTr("Y")
                         width: transformSection.labelWidth
+                        color: StudioTheme.Values.theme3DAxisYColor
                     }
                     SpinBox {
                         maximumValue: 9999999
                         minimumValue: -9999999
                         realDragRange: 5000
                         decimals: 2
-                        backendValue: backendValues.rotation_y
+                        backendValue: backendValues.eulerRotation_y
                         Layout.fillWidth: true
                         Layout.minimumWidth: transformSection.spinBoxMinimumWidth
                     }
@@ -221,13 +202,14 @@ Column {
                     Label {
                         text: qsTr("Z")
                         width: transformSection.labelWidth
+                        color: StudioTheme.Values.theme3DAxisZColor
                     }
                     SpinBox {
                         maximumValue: 9999999
                         minimumValue: -9999999
                         realDragRange: 5000
                         decimals: 2
-                        backendValue: backendValues.rotation_z
+                        backendValue: backendValues.eulerRotation_z
                         Layout.fillWidth: true
                         Layout.minimumWidth: transformSection.spinBoxMinimumWidth
                     }
@@ -247,12 +229,14 @@ Column {
                     Label {
                         text: qsTr("X")
                         width: transformSection.labelWidth
+                        color: StudioTheme.Values.theme3DAxisXColor
                     }
                     SpinBox {
                         maximumValue: 9999999
                         minimumValue: -9999999
-                        realDragRange: 5000
+                        realDragRange: 50
                         decimals: 2
+                        stepSize: 0.1
                         backendValue: backendValues.scale_x
                         Layout.fillWidth: true
                         Layout.minimumWidth: transformSection.spinBoxMinimumWidth
@@ -264,12 +248,14 @@ Column {
                     Label {
                         text: qsTr("Y")
                         width: transformSection.labelWidth
+                        color: StudioTheme.Values.theme3DAxisYColor
                     }
                     SpinBox {
                         maximumValue: 9999999
                         minimumValue: -9999999
-                        realDragRange: 5000
+                        realDragRange: 50
                         decimals: 2
+                        stepSize: 0.1
                         backendValue: backendValues.scale_y
                         Layout.fillWidth: true
                         Layout.minimumWidth: transformSection.spinBoxMinimumWidth
@@ -281,12 +267,14 @@ Column {
                     Label {
                         text: qsTr("Z")
                         width: transformSection.labelWidth
+                        color: StudioTheme.Values.theme3DAxisZColor
                     }
                     SpinBox {
                         maximumValue: 9999999
                         minimumValue: -9999999
-                        realDragRange: 5000
+                        realDragRange: 50
                         decimals: 2
+                        stepSize: 0.1
                         backendValue: backendValues.scale_z
                         Layout.fillWidth: true
                         Layout.minimumWidth: transformSection.spinBoxMinimumWidth
@@ -307,6 +295,7 @@ Column {
                     Label {
                         text: qsTr("X")
                         width: transformSection.labelWidth
+                        color: StudioTheme.Values.theme3DAxisXColor
                     }
                     SpinBox {
                         maximumValue: 9999999
@@ -324,6 +313,7 @@ Column {
                     Label {
                         text: qsTr("Y")
                         width: transformSection.labelWidth
+                        color: StudioTheme.Values.theme3DAxisYColor
                     }
                     SpinBox {
                         maximumValue: 9999999
@@ -341,6 +331,7 @@ Column {
                     Label {
                         text: qsTr("Z")
                         width: transformSection.labelWidth
+                        color: StudioTheme.Values.theme3DAxisZColor
                     }
                     SpinBox {
                         maximumValue: 9999999

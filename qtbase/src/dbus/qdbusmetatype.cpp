@@ -67,7 +67,7 @@ QT_BEGIN_NAMESPACE
 class QDBusCustomTypeInfo
 {
 public:
-    QDBusCustomTypeInfo() : signature(), marshall(0), demarshall(0)
+    QDBusCustomTypeInfo() : signature(), marshall(nullptr), demarshall(nullptr)
     { }
 
     // Suggestion:
@@ -78,7 +78,7 @@ public:
 };
 
 template<typename T>
-inline static void registerHelper(T * = 0)
+inline static void registerHelper(T * = nullptr)
 {
     void (*mf)(QDBusArgument &, const T *) = qDBusMarshallHelper<T>;
     void (*df)(const QDBusArgument &, T *) = qDBusDemarshallHelper<T>;
@@ -259,7 +259,7 @@ bool QDBusMetaType::marshall(QDBusArgument &arg, int id, const void *data)
 
         const QDBusCustomTypeInfo &info = (*ct).at(id);
         if (!info.marshall) {
-            mf = 0;             // make gcc happy
+            mf = nullptr;       // make gcc happy
             return false;
         } else
             mf = info.marshall;
@@ -288,7 +288,7 @@ bool QDBusMetaType::demarshall(const QDBusArgument &arg, int id, void *data)
 
         const QDBusCustomTypeInfo &info = (*ct).at(id);
         if (!info.demarshall) {
-            df = 0;             // make gcc happy
+            df = nullptr;       // make gcc happy
             return false;
         } else
             df = info.demarshall;
@@ -325,7 +325,7 @@ int QDBusMetaType::signatureToType(const char *signature)
     switch (signature[0])
     {
     case DBUS_TYPE_BOOLEAN:
-        return QVariant::Bool;
+        return QMetaType::Bool;
 
     case DBUS_TYPE_BYTE:
         return QMetaType::UChar;
@@ -337,22 +337,22 @@ int QDBusMetaType::signatureToType(const char *signature)
         return QMetaType::UShort;
 
     case DBUS_TYPE_INT32:
-        return QVariant::Int;
+        return QMetaType::Int;
 
     case DBUS_TYPE_UINT32:
-        return QVariant::UInt;
+        return QMetaType::UInt;
 
     case DBUS_TYPE_INT64:
-        return QVariant::LongLong;
+        return QMetaType::LongLong;
 
     case DBUS_TYPE_UINT64:
-        return QVariant::ULongLong;
+        return QMetaType::ULongLong;
 
     case DBUS_TYPE_DOUBLE:
-        return QVariant::Double;
+        return QMetaType::Double;
 
     case DBUS_TYPE_STRING:
-        return QVariant::String;
+        return QMetaType::QString;
 
     case DBUS_TYPE_OBJECT_PATH:
         return QDBusMetaTypeId::objectpath();
@@ -369,13 +369,13 @@ int QDBusMetaType::signatureToType(const char *signature)
     case DBUS_TYPE_ARRAY:       // special case
         switch (signature[1]) {
         case DBUS_TYPE_BYTE:
-            return QVariant::ByteArray;
+            return QMetaType::QByteArray;
 
         case DBUS_TYPE_STRING:
-            return QVariant::StringList;
+            return QMetaType::QStringList;
 
         case DBUS_TYPE_VARIANT:
-            return QVariant::List;
+            return QMetaType::QVariantList;
 
         case DBUS_TYPE_OBJECT_PATH:
             return qMetaTypeId<QList<QDBusObjectPath> >();
@@ -409,7 +409,7 @@ const char *QDBusMetaType::typeToSignature(int type)
     case QMetaType::UChar:
         return DBUS_TYPE_BYTE_AS_STRING;
 
-    case QVariant::Bool:
+    case QMetaType::Bool:
         return DBUS_TYPE_BOOLEAN_AS_STRING;
 
     case QMetaType::Short:
@@ -418,29 +418,29 @@ const char *QDBusMetaType::typeToSignature(int type)
     case QMetaType::UShort:
         return DBUS_TYPE_UINT16_AS_STRING;
 
-    case QVariant::Int:
+    case QMetaType::Int:
         return DBUS_TYPE_INT32_AS_STRING;
 
-    case QVariant::UInt:
+    case QMetaType::UInt:
         return DBUS_TYPE_UINT32_AS_STRING;
 
-    case QVariant::LongLong:
+    case QMetaType::LongLong:
         return DBUS_TYPE_INT64_AS_STRING;
 
-    case QVariant::ULongLong:
+    case QMetaType::ULongLong:
         return DBUS_TYPE_UINT64_AS_STRING;
 
-    case QVariant::Double:
+    case QMetaType::Double:
         return DBUS_TYPE_DOUBLE_AS_STRING;
 
-    case QVariant::String:
+    case QMetaType::QString:
         return DBUS_TYPE_STRING_AS_STRING;
 
-    case QVariant::StringList:
+    case QMetaType::QStringList:
         return DBUS_TYPE_ARRAY_AS_STRING
             DBUS_TYPE_STRING_AS_STRING; // as
 
-    case QVariant::ByteArray:
+    case QMetaType::QByteArray:
         return DBUS_TYPE_ARRAY_AS_STRING
             DBUS_TYPE_BYTE_AS_STRING; // ay
     }
@@ -460,7 +460,7 @@ const char *QDBusMetaType::typeToSignature(int type)
     {
         QReadLocker locker(customTypesLock());
         if (type >= ct->size())
-            return 0;           // type not registered with us
+            return nullptr;           // type not registered with us
 
         const QDBusCustomTypeInfo &info = (*ct).at(type);
 
@@ -468,7 +468,7 @@ const char *QDBusMetaType::typeToSignature(int type)
             return info.signature;
 
         if (!info.marshall)
-            return 0;           // type not registered with us
+            return nullptr;           // type not registered with us
     }
 
     // call to user code to construct the signature type

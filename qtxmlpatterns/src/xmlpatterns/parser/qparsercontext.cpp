@@ -96,7 +96,7 @@ void ParserContext::finalizePushedVariable(const int amount,
 
 void ParserContext::handleStackOverflow(const char *, short **yyss, size_t,
                                         TokenValue **yyvs, size_t,
-                                        YYLTYPE **yyls, size_t,
+                                        XPATHLTYPE **yyls, size_t,
                                         size_t *yystacksize)
 {
     bool isFirstTime = parserStack_yyvs.isEmpty();

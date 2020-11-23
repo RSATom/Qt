@@ -31,13 +31,34 @@ std::ostream& operator<<(std::ostream& os, BaseTaggedness base_taggedness) {
   UNREACHABLE();
 }
 
+std::ostream& operator<<(std::ostream& os,
+                         ConstFieldInfo const& const_field_info) {
+  if (const_field_info.IsConst()) {
+    return os << "const (field owner: " << const_field_info.owner_map.address()
+              << ")";
+  } else {
+    return os << "mutable";
+  }
+  UNREACHABLE();
+}
+
+bool operator==(ConstFieldInfo const& lhs, ConstFieldInfo const& rhs) {
+  return lhs.owner_map.address() == rhs.owner_map.address();
+}
+
+size_t hash_value(ConstFieldInfo const& const_field_info) {
+  return (size_t)const_field_info.owner_map.address();
+}
+
 bool operator==(FieldAccess const& lhs, FieldAccess const& rhs) {
   // On purpose we don't include the write barrier kind here, as this method is
   // really only relevant for eliminating loads and they don't care about the
   // write barrier mode.
   return lhs.base_is_tagged == rhs.base_is_tagged && lhs.offset == rhs.offset &&
          lhs.map.address() == rhs.map.address() &&
-         lhs.machine_type == rhs.machine_type;
+         lhs.machine_type == rhs.machine_type &&
+         lhs.const_field_info == rhs.const_field_info &&
+         lhs.is_store_in_literal == rhs.is_store_in_literal;
 }
 
 size_t hash_value(FieldAccess const& access) {
@@ -45,7 +66,8 @@ size_t hash_value(FieldAccess const& access) {
   // really only relevant for eliminating loads and they don't care about the
   // write barrier mode.
   return base::hash_combine(access.base_is_tagged, access.offset,
-                            access.machine_type);
+                            access.machine_type, access.const_field_info,
+                            access.is_store_in_literal);
 }
 
 size_t hash_value(LoadSensitivity load_sensitivity) {
@@ -78,7 +100,10 @@ std::ostream& operator<<(std::ostream& os, FieldAccess const& access) {
   }
 #endif
   os << access.type << ", " << access.machine_type << ", "
-     << access.write_barrier_kind << ", " << access.constness;
+     << access.write_barrier_kind << ", " << access.const_field_info;
+  if (access.is_store_in_literal) {
+    os << " (store in literal)";
+  }
   if (FLAG_untrusted_code_mitigations) {
     os << ", " << access.load_sensitivity;
   }
@@ -193,13 +218,12 @@ CheckFloat64HoleParameters const& CheckFloat64HoleParametersOf(
 
 std::ostream& operator<<(std::ostream& os,
                          CheckFloat64HoleParameters const& params) {
-  os << params.mode();
-  if (params.feedback().IsValid()) os << "; " << params.feedback();
-  return os;
+  return os << params.mode() << ", " << params.feedback();
 }
 
 size_t hash_value(const CheckFloat64HoleParameters& params) {
-  return base::hash_combine(params.mode(), params.feedback());
+  FeedbackSource::Hash feedback_hash;
+  return base::hash_combine(params.mode(), feedback_hash(params.feedback()));
 }
 
 bool operator==(CheckFloat64HoleParameters const& lhs,
@@ -233,13 +257,11 @@ std::ostream& operator<<(std::ostream& os, CheckForMinusZeroMode mode) {
 }
 
 std::ostream& operator<<(std::ostream& os, CheckMapsFlags flags) {
-  bool empty = true;
   if (flags & CheckMapsFlag::kTryMigrateInstance) {
-    os << "TryMigrateInstance";
-    empty = false;
+    return os << "TryMigrateInstance";
+  } else {
+    return os << "None";
   }
-  if (empty) os << "None";
-  return os;
 }
 
 bool operator==(CheckMapsParameters const& lhs,
@@ -249,15 +271,12 @@ bool operator==(CheckMapsParameters const& lhs,
 }
 
 size_t hash_value(CheckMapsParameters const& p) {
-  return base::hash_combine(p.flags(), p.maps(), p.feedback());
+  FeedbackSource::Hash feedback_hash;
+  return base::hash_combine(p.flags(), p.maps(), feedback_hash(p.feedback()));
 }
 
 std::ostream& operator<<(std::ostream& os, CheckMapsParameters const& p) {
-  os << p.flags() << p.maps();
-  if (p.feedback().IsValid()) {
-    os << "; " << p.feedback();
-  }
-  return os;
+  return os << p.flags() << ", " << p.maps() << ", " << p.feedback();
 }
 
 CheckMapsParameters const& CheckMapsParametersOf(Operator const* op) {
@@ -305,16 +324,13 @@ bool operator==(const GrowFastElementsParameters& lhs,
 }
 
 inline size_t hash_value(const GrowFastElementsParameters& params) {
-  return base::hash_combine(params.mode(), params.feedback());
+  FeedbackSource::Hash feedback_hash;
+  return base::hash_combine(params.mode(), feedback_hash(params.feedback()));
 }
 
 std::ostream& operator<<(std::ostream& os,
                          const GrowFastElementsParameters& params) {
-  os << params.mode();
-  if (params.feedback().IsValid()) {
-    os << params.feedback();
-  }
-  return os;
+  return os << params.mode() << ", " << params.feedback();
 }
 
 const GrowFastElementsParameters& GrowFastElementsParametersOf(
@@ -550,11 +566,12 @@ bool operator==(NumberOperationParameters const& lhs,
 }
 
 size_t hash_value(NumberOperationParameters const& p) {
-  return base::hash_combine(p.hint(), p.feedback());
+  FeedbackSource::Hash feedback_hash;
+  return base::hash_combine(p.hint(), feedback_hash(p.feedback()));
 }
 
 std::ostream& operator<<(std::ostream& os, NumberOperationParameters const& p) {
-  return os << p.hint() << " " << p.feedback();
+  return os << p.hint() << ", " << p.feedback();
 }
 
 NumberOperationParameters const& NumberOperationParametersOf(
@@ -611,15 +628,12 @@ const CheckTaggedInputParameters& CheckTaggedInputParametersOf(
 
 std::ostream& operator<<(std::ostream& os,
                          const CheckTaggedInputParameters& params) {
-  os << params.mode();
-  if (params.feedback().IsValid()) {
-    os << "; " << params.feedback();
-  }
-  return os;
+  return os << params.mode() << ", " << params.feedback();
 }
 
 size_t hash_value(const CheckTaggedInputParameters& params) {
-  return base::hash_combine(params.mode(), params.feedback());
+  FeedbackSource::Hash feedback_hash;
+  return base::hash_combine(params.mode(), feedback_hash(params.feedback()));
 }
 
 bool operator==(CheckTaggedInputParameters const& lhs,
@@ -637,15 +651,12 @@ const CheckMinusZeroParameters& CheckMinusZeroParametersOf(const Operator* op) {
 
 std::ostream& operator<<(std::ostream& os,
                          const CheckMinusZeroParameters& params) {
-  os << params.mode();
-  if (params.feedback().IsValid()) {
-    os << "; " << params.feedback();
-  }
-  return os;
+  return os << params.mode() << ", " << params.feedback();
 }
 
 size_t hash_value(const CheckMinusZeroParameters& params) {
-  return base::hash_combine(params.mode(), params.feedback());
+  FeedbackSource::Hash feedback_hash;
+  return base::hash_combine(params.mode(), feedback_hash(params.feedback()));
 }
 
 bool operator==(CheckMinusZeroParameters const& lhs,
@@ -721,7 +732,6 @@ bool operator==(CheckMinusZeroParameters const& lhs,
   V(PlainPrimitiveToNumber, Operator::kNoProperties, 1, 0)         \
   V(PlainPrimitiveToWord32, Operator::kNoProperties, 1, 0)         \
   V(PlainPrimitiveToFloat64, Operator::kNoProperties, 1, 0)        \
-  V(ChangeCompressedSignedToInt32, Operator::kNoProperties, 1, 0)  \
   V(ChangeTaggedSignedToInt32, Operator::kNoProperties, 1, 0)      \
   V(ChangeTaggedSignedToInt64, Operator::kNoProperties, 1, 0)      \
   V(ChangeTaggedToInt32, Operator::kNoProperties, 1, 0)            \
@@ -729,10 +739,7 @@ bool operator==(CheckMinusZeroParameters const& lhs,
   V(ChangeTaggedToUint32, Operator::kNoProperties, 1, 0)           \
   V(ChangeTaggedToFloat64, Operator::kNoProperties, 1, 0)          \
   V(ChangeTaggedToTaggedSigned, Operator::kNoProperties, 1, 0)     \
-  V(ChangeCompressedToTaggedSigned, Operator::kNoProperties, 1, 0) \
-  V(ChangeTaggedToCompressedSigned, Operator::kNoProperties, 1, 0) \
   V(ChangeFloat64ToTaggedPointer, Operator::kNoProperties, 1, 0)   \
-  V(ChangeInt31ToCompressedSigned, Operator::kNoProperties, 1, 0)  \
   V(ChangeInt31ToTaggedSigned, Operator::kNoProperties, 1, 0)      \
   V(ChangeInt32ToTagged, Operator::kNoProperties, 1, 0)            \
   V(ChangeInt64ToTagged, Operator::kNoProperties, 1, 0)            \
@@ -783,6 +790,7 @@ bool operator==(CheckMinusZeroParameters const& lhs,
 
 #define EFFECT_DEPENDENT_OP_LIST(V)                       \
   V(BigIntAdd, Operator::kNoProperties, 2, 1)             \
+  V(BigIntSubtract, Operator::kNoProperties, 2, 1)        \
   V(StringCharCodeAt, Operator::kNoProperties, 2, 1)      \
   V(StringCodePointAt, Operator::kNoProperties, 2, 1)     \
   V(StringFromCodePointAt, Operator::kNoProperties, 2, 1) \
@@ -817,17 +825,13 @@ bool operator==(CheckMinusZeroParameters const& lhs,
   V(CheckSmi, 1, 1)                         \
   V(CheckString, 1, 1)                      \
   V(CheckBigInt, 1, 1)                      \
-  V(CheckedInt32ToCompressedSigned, 1, 1)   \
   V(CheckedInt32ToTaggedSigned, 1, 1)       \
   V(CheckedInt64ToInt32, 1, 1)              \
   V(CheckedInt64ToTaggedSigned, 1, 1)       \
+  V(CheckedTaggedToArrayIndex, 1, 1)        \
   V(CheckedTaggedSignedToInt32, 1, 1)       \
   V(CheckedTaggedToTaggedPointer, 1, 1)     \
   V(CheckedTaggedToTaggedSigned, 1, 1)      \
-  V(CheckedCompressedToTaggedPointer, 1, 1) \
-  V(CheckedCompressedToTaggedSigned, 1, 1)  \
-  V(CheckedTaggedToCompressedPointer, 1, 1) \
-  V(CheckedTaggedToCompressedSigned, 1, 1)  \
   V(CheckedUint32ToInt32, 1, 1)             \
   V(CheckedUint32ToTaggedSigned, 1, 1)      \
   V(CheckedUint64Bounds, 2, 1)              \
@@ -878,7 +882,7 @@ struct SimplifiedOperatorGlobalCache final {
         : Operator1<CheckParameters>(                                      \
               IrOpcode::k##Name, Operator::kFoldable | Operator::kNoThrow, \
               #Name, value_input_count, 1, 1, value_output_count, 1, 0,    \
-              CheckParameters(VectorSlotPair())) {}                        \
+              CheckParameters(FeedbackSource())) {}                        \
   };                                                                       \
   Name##Operator k##Name;
   CHECKED_WITH_FEEDBACK_OP_LIST(CHECKED_WITH_FEEDBACK)
@@ -886,16 +890,16 @@ struct SimplifiedOperatorGlobalCache final {
 
 #define CHECKED_BOUNDS(Name)                                                  \
   struct Name##Operator final : public Operator1<CheckBoundsParameters> {     \
-    Name##Operator(VectorSlotPair feedback, CheckBoundsParameters::Mode mode) \
+    Name##Operator(FeedbackSource feedback, CheckBoundsParameters::Mode mode) \
         : Operator1<CheckBoundsParameters>(                                   \
               IrOpcode::k##Name, Operator::kFoldable | Operator::kNoThrow,    \
               #Name, 2, 1, 1, 1, 1, 0,                                        \
               CheckBoundsParameters(feedback, mode)) {}                       \
   };                                                                          \
   Name##Operator k##Name##Deopting = {                                        \
-      VectorSlotPair(), CheckBoundsParameters::kDeoptOnOutOfBounds};          \
+      FeedbackSource(), CheckBoundsParameters::kDeoptOnOutOfBounds};          \
   Name##Operator k##Name##Aborting = {                                        \
-      VectorSlotPair(), CheckBoundsParameters::kAbortOnOutOfBounds};
+      FeedbackSource(), CheckBoundsParameters::kAbortOnOutOfBounds};
   CHECKED_BOUNDS_OP_LIST(CHECKED_BOUNDS)
 #undef CHECKED_BOUNDS
 
@@ -905,7 +909,7 @@ struct SimplifiedOperatorGlobalCache final {
         : Operator1<CheckIfParameters>(
               IrOpcode::kCheckIf, Operator::kFoldable | Operator::kNoThrow,
               "CheckIf", 1, 1, 1, 0, 1, 0,
-              CheckIfParameters(kDeoptimizeReason, VectorSlotPair())) {}
+              CheckIfParameters(kDeoptimizeReason, FeedbackSource())) {}
   };
 #define CHECK_IF(Name, message) \
   CheckIfOperator<DeoptimizeReason::k##Name> kCheckIf##Name;
@@ -970,7 +974,7 @@ struct SimplifiedOperatorGlobalCache final {
               IrOpcode::kCheckedFloat64ToInt32,
               Operator::kFoldable | Operator::kNoThrow, "CheckedFloat64ToInt32",
               1, 1, 1, 1, 1, 0,
-              CheckMinusZeroParameters(kMode, VectorSlotPair())) {}
+              CheckMinusZeroParameters(kMode, FeedbackSource())) {}
   };
   CheckedFloat64ToInt32Operator<CheckForMinusZeroMode::kCheckForMinusZero>
       kCheckedFloat64ToInt32CheckForMinusZeroOperator;
@@ -985,7 +989,7 @@ struct SimplifiedOperatorGlobalCache final {
               IrOpcode::kCheckedFloat64ToInt64,
               Operator::kFoldable | Operator::kNoThrow, "CheckedFloat64ToInt64",
               1, 1, 1, 1, 1, 0,
-              CheckMinusZeroParameters(kMode, VectorSlotPair())) {}
+              CheckMinusZeroParameters(kMode, FeedbackSource())) {}
   };
   CheckedFloat64ToInt64Operator<CheckForMinusZeroMode::kCheckForMinusZero>
       kCheckedFloat64ToInt64CheckForMinusZeroOperator;
@@ -1000,7 +1004,7 @@ struct SimplifiedOperatorGlobalCache final {
               IrOpcode::kCheckedTaggedToInt32,
               Operator::kFoldable | Operator::kNoThrow, "CheckedTaggedToInt32",
               1, 1, 1, 1, 1, 0,
-              CheckMinusZeroParameters(kMode, VectorSlotPair())) {}
+              CheckMinusZeroParameters(kMode, FeedbackSource())) {}
   };
   CheckedTaggedToInt32Operator<CheckForMinusZeroMode::kCheckForMinusZero>
       kCheckedTaggedToInt32CheckForMinusZeroOperator;
@@ -1015,7 +1019,7 @@ struct SimplifiedOperatorGlobalCache final {
               IrOpcode::kCheckedTaggedToInt64,
               Operator::kFoldable | Operator::kNoThrow, "CheckedTaggedToInt64",
               1, 1, 1, 1, 1, 0,
-              CheckMinusZeroParameters(kMode, VectorSlotPair())) {}
+              CheckMinusZeroParameters(kMode, FeedbackSource())) {}
   };
   CheckedTaggedToInt64Operator<CheckForMinusZeroMode::kCheckForMinusZero>
       kCheckedTaggedToInt64CheckForMinusZeroOperator;
@@ -1030,7 +1034,7 @@ struct SimplifiedOperatorGlobalCache final {
               IrOpcode::kCheckedTaggedToFloat64,
               Operator::kFoldable | Operator::kNoThrow,
               "CheckedTaggedToFloat64", 1, 1, 1, 1, 1, 0,
-              CheckTaggedInputParameters(kMode, VectorSlotPair())) {}
+              CheckTaggedInputParameters(kMode, FeedbackSource())) {}
   };
   CheckedTaggedToFloat64Operator<CheckTaggedInputMode::kNumber>
       kCheckedTaggedToFloat64NumberOperator;
@@ -1045,7 +1049,7 @@ struct SimplifiedOperatorGlobalCache final {
               IrOpcode::kCheckedTruncateTaggedToWord32,
               Operator::kFoldable | Operator::kNoThrow,
               "CheckedTruncateTaggedToWord32", 1, 1, 1, 1, 1, 0,
-              CheckTaggedInputParameters(kMode, VectorSlotPair())) {}
+              CheckTaggedInputParameters(kMode, FeedbackSource())) {}
   };
   CheckedTruncateTaggedToWord32Operator<CheckTaggedInputMode::kNumber>
       kCheckedTruncateTaggedToWord32NumberOperator;
@@ -1077,7 +1081,7 @@ struct SimplifiedOperatorGlobalCache final {
               IrOpcode::kCheckFloat64Hole,
               Operator::kFoldable | Operator::kNoThrow, "CheckFloat64Hole", 1,
               1, 1, 1, 1, 0,
-              CheckFloat64HoleParameters(kMode, VectorSlotPair())) {}
+              CheckFloat64HoleParameters(kMode, FeedbackSource())) {}
   };
   CheckFloat64HoleNaNOperator<CheckFloat64HoleMode::kAllowReturnHole>
       kCheckFloat64HoleAllowReturnHoleOperator;
@@ -1100,7 +1104,7 @@ struct SimplifiedOperatorGlobalCache final {
     GrowFastElementsOperator()
         : Operator1(IrOpcode::kMaybeGrowFastElements, Operator::kNoThrow,
                     "MaybeGrowFastElements", 4, 1, 1, 1, 1, 0,
-                    GrowFastElementsParameters(kMode, VectorSlotPair())) {}
+                    GrowFastElementsParameters(kMode, FeedbackSource())) {}
   };
 
   GrowFastElementsOperator<GrowFastElementsMode::kDoubleElements>
@@ -1117,6 +1121,17 @@ struct SimplifiedOperatorGlobalCache final {
               2, 1, 1, 1, 1, 0) {}          // counts;
   };
   LoadFieldByIndexOperator kLoadFieldByIndex;
+
+  struct LoadStackArgumentOperator final : public Operator {
+    LoadStackArgumentOperator()
+        : Operator(                          // --
+              IrOpcode::kLoadStackArgument,  // opcode
+              Operator::kNoDeopt | Operator::kNoThrow |
+                  Operator::kNoWrite,  // flags
+              "LoadStackArgument",     // name
+              2, 1, 1, 1, 1, 0) {}     // counts
+  };
+  LoadStackArgumentOperator kLoadStackArgument;
 
 #define SPECULATIVE_NUMBER_BINOP(Name)                                      \
   template <NumberOperationHint kHint>                                      \
@@ -1145,7 +1160,7 @@ struct SimplifiedOperatorGlobalCache final {
               IrOpcode::kSpeculativeToNumber,
               Operator::kFoldable | Operator::kNoThrow, "SpeculativeToNumber",
               1, 1, 1, 1, 1, 0,
-              NumberOperationParameters(kHint, VectorSlotPair())) {}
+              NumberOperationParameters(kHint, FeedbackSource())) {}
   };
   SpeculativeToNumberOperator<NumberOperationHint::kSignedSmall>
       kSpeculativeToNumberSignedSmallOperator;
@@ -1179,7 +1194,7 @@ GET_FROM_CACHE(LoadFieldByIndex)
 #define GET_FROM_CACHE_WITH_FEEDBACK(Name, value_input_count,               \
                                      value_output_count)                    \
   const Operator* SimplifiedOperatorBuilder::Name(                          \
-      const VectorSlotPair& feedback) {                                     \
+      const FeedbackSource& feedback) {                                     \
     if (!feedback.IsValid()) {                                              \
       return &cache_.k##Name;                                               \
     }                                                                       \
@@ -1193,7 +1208,7 @@ CHECKED_WITH_FEEDBACK_OP_LIST(GET_FROM_CACHE_WITH_FEEDBACK)
 
 #define GET_FROM_CACHE_WITH_FEEDBACK(Name)                                \
   const Operator* SimplifiedOperatorBuilder::Name(                        \
-      const VectorSlotPair& feedback, CheckBoundsParameters::Mode mode) { \
+      const FeedbackSource& feedback, CheckBoundsParameters::Mode mode) { \
     if (!feedback.IsValid()) {                                            \
       switch (mode) {                                                     \
         case CheckBoundsParameters::kDeoptOnOutOfBounds:                  \
@@ -1242,7 +1257,7 @@ const Operator* SimplifiedOperatorBuilder::AssertType(Type type) {
 }
 
 const Operator* SimplifiedOperatorBuilder::CheckIf(
-    DeoptimizeReason reason, const VectorSlotPair& feedback) {
+    DeoptimizeReason reason, const FeedbackSource& feedback) {
   if (!feedback.IsValid()) {
     switch (reason) {
 #define CHECK_IF(Name, message)   \
@@ -1280,7 +1295,7 @@ const Operator* SimplifiedOperatorBuilder::CheckedInt32Mul(
 }
 
 const Operator* SimplifiedOperatorBuilder::CheckedFloat64ToInt32(
-    CheckForMinusZeroMode mode, const VectorSlotPair& feedback) {
+    CheckForMinusZeroMode mode, const FeedbackSource& feedback) {
   if (!feedback.IsValid()) {
     switch (mode) {
       case CheckForMinusZeroMode::kCheckForMinusZero:
@@ -1296,7 +1311,7 @@ const Operator* SimplifiedOperatorBuilder::CheckedFloat64ToInt32(
 }
 
 const Operator* SimplifiedOperatorBuilder::CheckedFloat64ToInt64(
-    CheckForMinusZeroMode mode, const VectorSlotPair& feedback) {
+    CheckForMinusZeroMode mode, const FeedbackSource& feedback) {
   if (!feedback.IsValid()) {
     switch (mode) {
       case CheckForMinusZeroMode::kCheckForMinusZero:
@@ -1312,7 +1327,7 @@ const Operator* SimplifiedOperatorBuilder::CheckedFloat64ToInt64(
 }
 
 const Operator* SimplifiedOperatorBuilder::CheckedTaggedToInt32(
-    CheckForMinusZeroMode mode, const VectorSlotPair& feedback) {
+    CheckForMinusZeroMode mode, const FeedbackSource& feedback) {
   if (!feedback.IsValid()) {
     switch (mode) {
       case CheckForMinusZeroMode::kCheckForMinusZero:
@@ -1328,7 +1343,7 @@ const Operator* SimplifiedOperatorBuilder::CheckedTaggedToInt32(
 }
 
 const Operator* SimplifiedOperatorBuilder::CheckedTaggedToInt64(
-    CheckForMinusZeroMode mode, const VectorSlotPair& feedback) {
+    CheckForMinusZeroMode mode, const FeedbackSource& feedback) {
   if (!feedback.IsValid()) {
     switch (mode) {
       case CheckForMinusZeroMode::kCheckForMinusZero:
@@ -1344,7 +1359,7 @@ const Operator* SimplifiedOperatorBuilder::CheckedTaggedToInt64(
 }
 
 const Operator* SimplifiedOperatorBuilder::CheckedTaggedToFloat64(
-    CheckTaggedInputMode mode, const VectorSlotPair& feedback) {
+    CheckTaggedInputMode mode, const FeedbackSource& feedback) {
   if (!feedback.IsValid()) {
     switch (mode) {
       case CheckTaggedInputMode::kNumber:
@@ -1360,7 +1375,7 @@ const Operator* SimplifiedOperatorBuilder::CheckedTaggedToFloat64(
 }
 
 const Operator* SimplifiedOperatorBuilder::CheckedTruncateTaggedToWord32(
-    CheckTaggedInputMode mode, const VectorSlotPair& feedback) {
+    CheckTaggedInputMode mode, const FeedbackSource& feedback) {
   if (!feedback.IsValid()) {
     switch (mode) {
       case CheckTaggedInputMode::kNumber:
@@ -1377,7 +1392,7 @@ const Operator* SimplifiedOperatorBuilder::CheckedTruncateTaggedToWord32(
 
 const Operator* SimplifiedOperatorBuilder::CheckMaps(
     CheckMapsFlags flags, ZoneHandleSet<Map> maps,
-    const VectorSlotPair& feedback) {
+    const FeedbackSource& feedback) {
   CheckMapsParameters const parameters(flags, maps, feedback);
   return new (zone()) Operator1<CheckMapsParameters>(  // --
       IrOpcode::kCheckMaps,                            // opcode
@@ -1422,7 +1437,7 @@ const Operator* SimplifiedOperatorBuilder::ConvertReceiver(
 }
 
 const Operator* SimplifiedOperatorBuilder::CheckFloat64Hole(
-    CheckFloat64HoleMode mode, VectorSlotPair const& feedback) {
+    CheckFloat64HoleMode mode, FeedbackSource const& feedback) {
   if (!feedback.IsValid()) {
     switch (mode) {
       case CheckFloat64HoleMode::kAllowReturnHole:
@@ -1445,6 +1460,14 @@ const Operator* SimplifiedOperatorBuilder::SpeculativeBigIntAdd(
       "SpeculativeBigIntAdd", 2, 1, 1, 1, 1, 0, hint);
 }
 
+const Operator* SimplifiedOperatorBuilder::SpeculativeBigIntSubtract(
+    BigIntOperationHint hint) {
+  return new (zone()) Operator1<BigIntOperationHint>(
+      IrOpcode::kSpeculativeBigIntSubtract,
+      Operator::kFoldable | Operator::kNoThrow, "SpeculativeBigIntSubtract", 2,
+      1, 1, 1, 1, 0, hint);
+}
+
 const Operator* SimplifiedOperatorBuilder::SpeculativeBigIntNegate(
     BigIntOperationHint hint) {
   return new (zone()) Operator1<BigIntOperationHint>(
@@ -1454,7 +1477,7 @@ const Operator* SimplifiedOperatorBuilder::SpeculativeBigIntNegate(
 }
 
 const Operator* SimplifiedOperatorBuilder::SpeculativeToNumber(
-    NumberOperationHint hint, const VectorSlotPair& feedback) {
+    NumberOperationHint hint, const FeedbackSource& feedback) {
   if (!feedback.IsValid()) {
     switch (hint) {
       case NumberOperationHint::kSignedSmall:
@@ -1480,7 +1503,7 @@ const Operator* SimplifiedOperatorBuilder::EnsureWritableFastElements() {
 }
 
 const Operator* SimplifiedOperatorBuilder::MaybeGrowFastElements(
-    GrowFastElementsMode mode, const VectorSlotPair& feedback) {
+    GrowFastElementsMode mode, const FeedbackSource& feedback) {
   if (!feedback.IsValid()) {
     switch (mode) {
       case GrowFastElementsMode::kDoubleElements:
@@ -1556,7 +1579,10 @@ bool operator==(CheckParameters const& lhs, CheckParameters const& rhs) {
   return lhs.feedback() == rhs.feedback();
 }
 
-size_t hash_value(CheckParameters const& p) { return hash_value(p.feedback()); }
+size_t hash_value(CheckParameters const& p) {
+  FeedbackSource::Hash feedback_hash;
+  return feedback_hash(p.feedback());
+}
 
 std::ostream& operator<<(std::ostream& os, CheckParameters const& p) {
   return os << p.feedback();
@@ -1583,7 +1609,7 @@ size_t hash_value(CheckBoundsParameters const& p) {
 }
 
 std::ostream& operator<<(std::ostream& os, CheckBoundsParameters const& p) {
-  os << p.check_parameters() << ",";
+  os << p.check_parameters() << ", ";
   switch (p.mode()) {
     case CheckBoundsParameters::kDeoptOnOutOfBounds:
       os << "deopt";
@@ -1605,11 +1631,12 @@ bool operator==(CheckIfParameters const& lhs, CheckIfParameters const& rhs) {
 }
 
 size_t hash_value(CheckIfParameters const& p) {
-  return base::hash_combine(p.reason(), p.feedback());
+  FeedbackSource::Hash feedback_hash;
+  return base::hash_combine(p.reason(), feedback_hash(p.feedback()));
 }
 
 std::ostream& operator<<(std::ostream& os, CheckIfParameters const& p) {
-  return os << p.reason() << p.feedback();
+  return os << p.reason() << ", " << p.feedback();
 }
 
 CheckIfParameters const& CheckIfParametersOf(Operator const* op) {
@@ -1718,6 +1745,24 @@ SPECULATIVE_NUMBER_BINOP_LIST(SPECULATIVE_NUMBER_BINOP)
   }
 ACCESS_OP_LIST(ACCESS)
 #undef ACCESS
+
+const Operator* SimplifiedOperatorBuilder::LoadMessage() {
+  return new (zone())
+      Operator(IrOpcode::kLoadMessage,
+               Operator::kNoDeopt | Operator::kNoThrow | Operator::kNoWrite,
+               "LoadMessage", 1, 1, 1, 1, 1, 0);
+}
+
+const Operator* SimplifiedOperatorBuilder::StoreMessage() {
+  return new (zone())
+      Operator(IrOpcode::kStoreMessage,
+               Operator::kNoDeopt | Operator::kNoThrow | Operator::kNoRead,
+               "StoreMessage", 2, 1, 1, 0, 1, 0);
+}
+
+const Operator* SimplifiedOperatorBuilder::LoadStackArgument() {
+  return &cache_.kLoadStackArgument;
+}
 
 const Operator* SimplifiedOperatorBuilder::TransitionAndStoreElement(
     Handle<Map> double_map, Handle<Map> fast_map) {

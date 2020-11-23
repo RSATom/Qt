@@ -18,12 +18,12 @@
 #include "net/base/completion_repeating_callback.h"
 #include "net/base/host_port_pair.h"
 #include "net/base/net_errors.h"
+#include "net/base/network_isolation_key.h"
 #include "net/base/request_priority.h"
 #include "net/log/net_log_capture_mode.h"
 #include "net/log/net_log_event_type.h"
 #include "net/log/net_log_source_type.h"
 #include "net/proxy_resolution/dhcp_pac_file_fetcher.h"
-#include "net/proxy_resolution/dhcp_pac_file_fetcher_factory.h"
 #include "net/proxy_resolution/pac_file_fetcher.h"
 #include "net/url_request/url_request_context.h"
 
@@ -277,8 +277,12 @@ int PacFileDecider::DoQuickCheck() {
 
   HostResolver* host_resolver =
       pac_file_fetcher_->GetRequestContext()->host_resolver();
-  resolve_request_ = host_resolver->CreateRequest(HostPortPair(host, 80),
-                                                  net_log_, parameters);
+  // It's safe to use an empty NetworkIsolationKey() here, since this is only
+  // for fetching the PAC script, so can't usefully leak data to web-initiated
+  // requests (Which can't use an empty NIK for resolving IPs other than that of
+  // the proxy).
+  resolve_request_ = host_resolver->CreateRequest(
+      HostPortPair(host, 80), NetworkIsolationKey(), net_log_, parameters);
 
   CompletionRepeatingCallback callback = base::BindRepeating(
       &PacFileDecider::OnIOCompletion, base::Unretained(this));
@@ -286,7 +290,7 @@ int PacFileDecider::DoQuickCheck() {
   next_state_ = STATE_QUICK_CHECK_COMPLETE;
   quick_check_timer_.Start(
       FROM_HERE, base::TimeDelta::FromMilliseconds(kQuickCheckDelayMs),
-      base::BindRepeating(callback, ERR_NAME_NOT_RESOLVED));
+      base::BindOnce(callback, ERR_NAME_NOT_RESOLVED));
 
   return resolve_request_->Start(callback);
 }
@@ -323,7 +327,7 @@ int PacFileDecider::DoFetchPacScript() {
 
     return dhcp_pac_file_fetcher_->Fetch(
         &pac_script_,
-        base::Bind(&PacFileDecider::OnIOCompletion, base::Unretained(this)),
+        base::BindOnce(&PacFileDecider::OnIOCompletion, base::Unretained(this)),
         net_log_, NetworkTrafficAnnotationTag(traffic_annotation_));
   }
 
@@ -334,7 +338,7 @@ int PacFileDecider::DoFetchPacScript() {
 
   return pac_file_fetcher_->Fetch(
       effective_pac_url, &pac_script_,
-      base::Bind(&PacFileDecider::OnIOCompletion, base::Unretained(this)),
+      base::BindOnce(&PacFileDecider::OnIOCompletion, base::Unretained(this)),
       NetworkTrafficAnnotationTag(traffic_annotation_));
 }
 

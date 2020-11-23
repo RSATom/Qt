@@ -20,6 +20,9 @@
 #include <stdarg.h>
 #include <string>
 
+#include "perfetto/base/compiler.h"
+#include "perfetto/base/export.h"
+
 namespace perfetto {
 namespace trace_processor {
 
@@ -31,7 +34,7 @@ namespace util {
 // This can used as the return type of functions which would usually return an
 // bool for success or int for errno but also wants to add some string context
 // (ususally for logging).
-class Status {
+class PERFETTO_EXPORT Status {
  public:
   Status() : ok_(true) {}
   explicit Status(std::string error) : ok_(false), message_(std::move(error)) {}
@@ -66,7 +69,7 @@ inline Status OkStatus() {
 
 // Returns a status object which represents an error with the given message
 // formatted using printf.
-__attribute__((__format__(__printf__, 1, 2))) inline Status ErrStatus(
+PERFETTO_PRINTF_FORMAT(1, 2) inline Status ErrStatus(
     const char* format,
     ...) {
   va_list ap;

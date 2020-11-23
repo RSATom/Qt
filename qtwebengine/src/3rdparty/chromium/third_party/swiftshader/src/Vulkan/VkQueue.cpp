@@ -19,6 +19,11 @@
 #include "WSI/VkSwapchainKHR.hpp"
 #include "Device/Renderer.hpp"
 
+#include "marl/defer.h"
+#include "marl/scheduler.h"
+#include "marl/thread.h"
+#include "marl/trace.h"
+
 #include <cstring>
 
 namespace
@@ -74,9 +79,9 @@ VkSubmitInfo* DeepCopySubmitInfo(uint32_t submitCount, const VkSubmitInfo* pSubm
 namespace vk
 {
 
-Queue::Queue() : renderer()
+Queue::Queue(Device* device, marl::Scheduler *scheduler) : device(device)
 {
-	queueThread = std::thread(TaskLoop, this);
+	queueThread = std::thread(&Queue::taskLoop, this, scheduler);
 }
 
 Queue::~Queue()
@@ -110,13 +115,13 @@ VkResult Queue::submit(uint32_t submitCount, const VkSubmitInfo* pSubmits, Fence
 	return VK_SUCCESS;
 }
 
-void Queue::TaskLoop(vk::Queue* queue)
-{
-	queue->taskLoop();
-}
-
 void Queue::submitQueue(const Task& task)
 {
+	if (renderer == nullptr)
+	{
+		renderer.reset(new sw::Renderer(device));
+	}
+
 	for(uint32_t i = 0; i < task.submitCount; i++)
 	{
 		auto& submitInfo = task.pSubmits[i];
@@ -127,7 +132,7 @@ void Queue::submitQueue(const Task& task)
 
 		{
 			CommandBuffer::ExecutionState executionState;
-			executionState.renderer = &renderer;
+			executionState.renderer = renderer.get();
 			executionState.events = task.events;
 			for(uint32_t j = 0; j < submitInfo.commandBufferCount; j++)
 			{
@@ -150,13 +155,17 @@ void Queue::submitQueue(const Task& task)
 	{
 		// TODO: fix renderer signaling so that work submitted separately from (but before) a fence
 		// is guaranteed complete by the time the fence signals.
-		renderer.synchronize();
+		renderer->synchronize();
 		task.events->finish();
 	}
 }
 
-void Queue::taskLoop()
+void Queue::taskLoop(marl::Scheduler* scheduler)
 {
+	marl::Thread::setName("Queue<%p>", this);
+	scheduler->bind();
+	defer(scheduler->unbind());
+
 	while(true)
 	{
 		Task task = pending.take();
@@ -204,13 +213,13 @@ void Queue::garbageCollect()
 }
 
 #ifndef __ANDROID__
-void Queue::present(const VkPresentInfoKHR* presentInfo)
+VkResult Queue::present(const VkPresentInfoKHR* presentInfo)
 {
 	// This is a hack to deal with screen tearing for now.
 	// Need to correctly implement threading using VkSemaphore
 	// to get rid of it. b/132458423
 	waitIdle();
-
+	VkResult result = VK_SUCCESS;
 	for(uint32_t i = 0; i < presentInfo->waitSemaphoreCount; i++)
 	{
 		vk::Cast(presentInfo->pWaitSemaphores[i])->wait();
@@ -218,8 +227,16 @@ void Queue::present(const VkPresentInfoKHR* presentInfo)
 
 	for(uint32_t i = 0; i < presentInfo->swapchainCount; i++)
 	{
-		vk::Cast(presentInfo->pSwapchains[i])->present(presentInfo->pImageIndices[i]);
+		VkResult res = vk::Cast(presentInfo->pSwapchains[i])->present(presentInfo->pImageIndices[i]);
+		if (presentInfo->pResults != nullptr)
+		{
+			presentInfo->pResults[i] = res;
+		}
+		if (res != VK_SUCCESS)
+			result = res;
 	}
+
+	return result;
 }
 #endif
 

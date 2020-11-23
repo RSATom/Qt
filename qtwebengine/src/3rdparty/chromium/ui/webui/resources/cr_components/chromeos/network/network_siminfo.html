@@ -1,13 +1,11 @@
 <link rel="import" href="chrome://resources/html/polymer.html">
 
-<link rel="import" href="chrome://resources/cr_elements/chromeos/network/cr_network_listener_behavior.html">
-<link rel="import" href="chrome://resources/cr_elements/chromeos/network/cr_onc_types.html">
+<link rel="import" href="chrome://resources/cr_components/chromeos/network/onc_mojo.html">
 <link rel="import" href="chrome://resources/cr_elements/cr_button/cr_button.html">
 <link rel="import" href="chrome://resources/cr_elements/cr_dialog/cr_dialog.html">
 <link rel="import" href="chrome://resources/cr_elements/cr_toggle/cr_toggle.html">
 <link rel="import" href="chrome://resources/cr_elements/icons.html">
 <link rel="import" href="chrome://resources/html/assert.html">
-<link rel="import" href="chrome://resources/html/chromeos/onc_mojo.html">
 <link rel="import" href="chrome://resources/html/cr/ui/focus_without_ink.html">
 <link rel="import" href="chrome://resources/html/i18n_behavior.html">
 <link rel="import" href="chrome://resources/polymer/v1_0/iron-flex-layout/iron-flex-layout-classes.html">
@@ -53,7 +51,7 @@
 
     <!-- SIM missing UI -->
     <div class="property-box two-line"
-        hidden$="[[hasSim_(deviceStateProperties_)]]">
+        hidden$="[[!showSimMissing_(deviceState)]]">
       <div class="start layout horizontal center">
         <iron-icon icon="cr:sim-card-alert"></iron-icon>
         <div class="error">[[i18n('networkSimCardMissing')]]</div>
@@ -62,7 +60,7 @@
 
     <!-- SIM locked -->
     <div class="property-box two-line"
-        hidden$="[[!showSimLocked_(deviceStateProperties_)]]">
+        hidden$="[[!showSimLocked_(deviceState)]]">
       <div class="start layout horizontal center">
         <iron-icon icon="cr:sim-lock"></iron-icon>
         <div class="error">[[i18n('networkSimCardLocked')]]</div>
@@ -75,12 +73,12 @@
 
     <!-- SIM unlocked -->
     <div class="property-box two-line"
-        hidden$="[[!showSimUnlocked_(deviceStateProperties_)]]">
+        hidden$="[[!showSimUnlocked_(deviceState)]]">
       <div id="simLockToggleLabel" class="start">
         [[i18n('networkSimLockEnable')]]
       </div>
       <cr-button id="changePinButton" on-click="onChangePinTap_"
-          hidden$="[[!deviceStateProperties_.simLockStatus.lockEnabled]]">
+          hidden$="[[!deviceState.simLockStatus.lockEnabled]]">
         [[i18n('networkSimChangePin')]]
       </cr-button>
       <cr-toggle id="simLockButton"
@@ -100,7 +98,7 @@
             disabled="[[inProgress_]]">
         </network-password-input>
         <div class="dialog-error">
-          [[getErrorMsg_(error_, deviceStateProperties_)]]
+          [[getErrorMsg_(error_, deviceState)]]
         </div>
       </div>
       <div slot="button-container">
@@ -132,7 +130,7 @@
             on-enter="sendChangePin_" disabled="[[inProgress_]]">
         </network-password-input>
         <div class="dialog-error">
-          [[getErrorMsg_(error_, deviceStateProperties_)]]
+          [[getErrorMsg_(error_, deviceState)]]
         </div>
       </div>
       <div slot="button-container">
@@ -156,7 +154,7 @@
             disabled="[[inProgress_]]">
         </network-password-input>
         <div class="dialog-error">
-          [[getErrorMsg_(error_, deviceStateProperties_)]]
+          [[getErrorMsg_(error_, deviceState)]]
         </div>
       </div>
       <div slot="button-container">
@@ -194,7 +192,7 @@
           [[i18n('networkSimLockedWarning')]]
         </div>
         <div class="dialog-error">
-          [[getErrorMsg_(error_, deviceStateProperties_)]]
+          [[getErrorMsg_(error_, deviceState)]]
         </div>
       </div>
       <div slot="button-container">

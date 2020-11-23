@@ -14,7 +14,6 @@
 #include "testing/gtest/include/gtest/gtest.h"
 #include "third_party/blink/public/platform/web_size.h"
 #include "third_party/blink/renderer/core/dom/document.h"
-#include "third_party/blink/renderer/core/dom/user_gesture_indicator.h"
 #include "third_party/blink/renderer/core/frame/frame_view.h"
 #include "third_party/blink/renderer/core/frame/local_frame.h"
 #include "third_party/blink/renderer/core/frame/screen_orientation_controller.h"
@@ -93,7 +92,7 @@ class MockScreenOrientation final
 
 void DidEnterFullscreen(Document* document) {
   DCHECK(document);
-  Fullscreen::DidEnterFullscreen(*document);
+  Fullscreen::DidResolveEnterFullscreenRequest(*document, true /* granted */);
   document->ServiceScriptedAnimations(base::TimeTicks::Now());
 }
 
@@ -120,7 +119,9 @@ class MockChromeClientForOrientationLockDelegate final
   }
   // The real ChromeClient::EnterFullscreen/ExitFullscreen implementation is
   // async due to IPC, emulate that by posting tasks:
-  void EnterFullscreen(LocalFrame& frame, const FullscreenOptions*) override {
+  void EnterFullscreen(LocalFrame& frame,
+                       const FullscreenOptions*,
+                       bool for_cross_process_descendant) override {
     Thread::Current()->GetTaskRunner()->PostTask(
         FROM_HERE,
         WTF::Bind(DidEnterFullscreen, WrapPersistent(frame.GetDocument())));
@@ -131,7 +132,7 @@ class MockChromeClientForOrientationLockDelegate final
         WTF::Bind(DidExitFullscreen, WrapPersistent(frame.GetDocument())));
   }
 
-  MOCK_CONST_METHOD0(GetScreenInfo, WebScreenInfo());
+  MOCK_CONST_METHOD1(GetScreenInfo, WebScreenInfo(LocalFrame&));
 
   MockScreenOrientation& ScreenOrientationClient() {
     return mock_screen_orientation_;
@@ -147,8 +148,7 @@ class StubLocalFrameClientForOrientationLockDelegate final
   std::unique_ptr<WebMediaPlayer> CreateWebMediaPlayer(
       HTMLMediaElement&,
       const WebMediaPlayerSource&,
-      WebMediaPlayerClient*,
-      WebLayerTreeView*) override {
+      WebMediaPlayerClient*) override {
     return std::make_unique<MockWebMediaPlayerForOrientationLockDelegate>();
   }
 };
@@ -191,7 +191,7 @@ class MediaControlsOrientationLockDelegateTest
         RuntimeEnabledFeatures::OrientationEventEnabled();
 
     GetDocument().write("<body><video></body>");
-    video_ = ToHTMLVideoElement(*GetDocument().QuerySelector("video"));
+    video_ = To<HTMLVideoElement>(*GetDocument().QuerySelector("video"));
   }
 
   void TearDown() override {
@@ -205,8 +205,7 @@ class MediaControlsOrientationLockDelegateTest
   }
 
   void SimulateEnterFullscreen() {
-    std::unique_ptr<UserGestureIndicator> gesture =
-        LocalFrame::NotifyUserActivation(GetDocument().GetFrame());
+    LocalFrame::NotifyUserActivation(GetDocument().GetFrame());
     Fullscreen::RequestFullscreen(Video());
     test::RunPendingTasks();
   }
@@ -374,7 +373,7 @@ class MediaControlsOrientationLockAndRotateToFullscreenDelegateTest
                     screen_info.rect, screen_info.orientation_angle));
 
     testing::Mock::VerifyAndClearExpectations(&ChromeClient());
-    EXPECT_CALL(ChromeClient(), GetScreenInfo())
+    EXPECT_CALL(ChromeClient(), GetScreenInfo(_))
         .Times(AtLeast(1))
         .WillRepeatedly(Return(screen_info));
 
@@ -407,11 +406,8 @@ class MediaControlsOrientationLockAndRotateToFullscreenDelegateTest
   }
 
   void PlayVideo() {
-    {
-      std::unique_ptr<UserGestureIndicator> gesture =
-          LocalFrame::NotifyUserActivation(GetDocument().GetFrame());
-      Video().Play();
-    }
+    LocalFrame::NotifyUserActivation(GetDocument().GetFrame());
+    Video().Play();
     test::RunPendingTasks();
   }
 
@@ -590,31 +586,31 @@ TEST_F(MediaControlsOrientationLockDelegateTest, ComputeOrientationLock) {
   // 100x100 has more subtilities, it depends on the current screen orientation.
   WebScreenInfo screen_info;
   screen_info.orientation_type = kWebScreenOrientationUndefined;
-  EXPECT_CALL(ChromeClient(), GetScreenInfo())
+  EXPECT_CALL(ChromeClient(), GetScreenInfo(_))
       .Times(1)
       .WillOnce(Return(screen_info));
   EXPECT_EQ(kWebScreenOrientationLockLandscape, ComputeOrientationLock());
 
   screen_info.orientation_type = kWebScreenOrientationPortraitPrimary;
-  EXPECT_CALL(ChromeClient(), GetScreenInfo())
+  EXPECT_CALL(ChromeClient(), GetScreenInfo(_))
       .Times(1)
       .WillOnce(Return(screen_info));
   EXPECT_EQ(kWebScreenOrientationLockPortrait, ComputeOrientationLock());
 
   screen_info.orientation_type = kWebScreenOrientationPortraitPrimary;
-  EXPECT_CALL(ChromeClient(), GetScreenInfo())
+  EXPECT_CALL(ChromeClient(), GetScreenInfo(_))
       .Times(1)
       .WillOnce(Return(screen_info));
   EXPECT_EQ(kWebScreenOrientationLockPortrait, ComputeOrientationLock());
 
   screen_info.orientation_type = kWebScreenOrientationLandscapePrimary;
-  EXPECT_CALL(ChromeClient(), GetScreenInfo())
+  EXPECT_CALL(ChromeClient(), GetScreenInfo(_))
       .Times(1)
       .WillOnce(Return(screen_info));
   EXPECT_EQ(kWebScreenOrientationLockLandscape, ComputeOrientationLock());
 
   screen_info.orientation_type = kWebScreenOrientationLandscapeSecondary;
-  EXPECT_CALL(ChromeClient(), GetScreenInfo())
+  EXPECT_CALL(ChromeClient(), GetScreenInfo(_))
       .Times(1)
       .WillOnce(Return(screen_info));
   EXPECT_EQ(kWebScreenOrientationLockLandscape, ComputeOrientationLock());

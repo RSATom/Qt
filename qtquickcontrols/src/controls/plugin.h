@@ -56,8 +56,8 @@ class QtQuickControls1Plugin: public QQmlExtensionPlugin
     Q_PLUGIN_METADATA(IID QQmlExtensionInterface_iid)
 public:
     QtQuickControls1Plugin(QObject *parent = 0);
-    void registerTypes(const char *uri);
-    void initializeEngine(QQmlEngine *engine, const char *uri);
+    void registerTypes(const char *uri) override;
+    void initializeEngine(QQmlEngine *engine, const char *uri) override;
 private:
     QString fileLocation() const;
     bool isLoadedFromResource() const;

@@ -258,6 +258,13 @@ public:
         return wrapLong(centerLongitude - leftOffset);
     }
 
+    inline static void split_double(double input, float *hipart, float *lopart)
+    {
+        *hipart = (float) input;
+        double delta = input - ((double) *hipart);
+        *lopart = (float) delta;
+    }
+
     static qreal metersPerPixel(qreal zoomLevel, const QGeoCoordinate &coordinate)
     {
         const qreal metersPerTile = earthMeanCircumference() * std::cos(radians(coordinate.latitude())) / std::pow(2, zoomLevel);

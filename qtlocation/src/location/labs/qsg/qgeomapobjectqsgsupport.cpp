@@ -152,12 +152,20 @@ void QGeoMapObjectQSGSupport::removeMapObject(QGeoMapObject *obj)
     }
 }
 
+// called in the render thread
 void QGeoMapObjectQSGSupport::updateMapObjects(QSGNode *root, QQuickWindow *window)
 {
+    if (!root)
+        return;
+    if (!m_mapObjectsRootNode) {
+        m_mapObjectsRootNode = new QDeclarativePolygonMapItemPrivateOpenGL::RootNode();
+        root->appendChildNode(m_mapObjectsRootNode);
+    }
+
+    m_mapObjectsRootNode->removeAllChildNodes();
     for (int i = 0; i < m_removedMapObjects.size(); ++i) {
         MapObject mo = m_removedMapObjects[i];
         if (mo.qsgNode)  {
-            root->removeChildNode(mo.qsgNode);
             delete mo.qsgNode;
             mo.qsgNode = nullptr;
             // mo.sgObject is now invalid as it is destroyed right after appending
@@ -176,7 +184,7 @@ void QGeoMapObjectQSGSupport::updateMapObjects(QSGNode *root, QQuickWindow *wind
         MapObject &mo = m_mapObjects[i];
         QQSGMapObject *sgo = mo.sgObject;
         QSGNode *oldNode = mo.qsgNode;
-        mo.qsgNode = sgo->updateMapObjectNode(oldNode, &mo.visibleNode, root, window);
+        mo.qsgNode = sgo->updateMapObjectNode(oldNode, &mo.visibleNode, m_mapObjectsRootNode, window);
         if (Q_UNLIKELY(!mo.qsgNode)) {
             qWarning() << "updateMapObjectNode for "<<mo.object->type() << " returned NULL";
         } else if (mo.visibleNode && (mo.visibleNode->visible() != mo.object->visible())) {
@@ -192,7 +200,7 @@ void QGeoMapObjectQSGSupport::updateMapObjects(QSGNode *root, QQuickWindow *wind
         QQSGMapObject *sgo = mo.sgObject;
         QSGNode *oldNode = mo.qsgNode;
         sgo->updateGeometry(); // or subtree will be blocked
-        mo.qsgNode = sgo->updateMapObjectNode(oldNode, &mo.visibleNode, root, window);
+        mo.qsgNode = sgo->updateMapObjectNode(oldNode, &mo.visibleNode, m_mapObjectsRootNode, window);
         if (mo.qsgNode) {
             if (mo.visibleNode && (mo.visibleNode->visible() != mo.object->visible())) {
                 mo.visibleNode->setVisible(mo.object->visible());
@@ -208,8 +216,10 @@ void QGeoMapObjectQSGSupport::updateMapObjects(QSGNode *root, QQuickWindow *wind
 
     for (int i: qAsConst(toRemove))
         m_pendingMapObjects.removeAt(i);
+    m_mapObjectsRootNode->setSubtreeBlocked(false);
 }
 
+// called in GUI thread
 void QGeoMapObjectQSGSupport::updateObjectsGeometry()
 {
     for (int i = 0; i < m_mapObjects.size(); ++i) {

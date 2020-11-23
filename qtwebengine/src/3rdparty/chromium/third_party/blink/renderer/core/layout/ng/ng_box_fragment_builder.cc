@@ -79,15 +79,21 @@ void GatherInlineContainerFragmentsFromLinebox(
 
 }  // namespace
 
-void NGBoxFragmentBuilder::RemoveChildren() {
-  child_break_tokens_.resize(0);
-  inline_break_tokens_.resize(0);
-  children_.resize(0);
-}
+void NGBoxFragmentBuilder::AddBreakBeforeChild(
+    NGLayoutInputNode child,
+    base::Optional<NGBreakAppeal> appeal,
+    bool is_forced_break) {
+  if (appeal)
+    break_appeal_ = *appeal;
+  if (is_forced_break) {
+    SetHasForcedBreak();
+    // A forced break is considered to always have perfect appeal; they should
+    // never be weighed against other potential breakpoints.
+    DCHECK(!appeal || *appeal == kBreakAppealPerfect);
+  }
 
-NGBoxFragmentBuilder& NGBoxFragmentBuilder::AddBreakBeforeChild(
-    NGLayoutInputNode child) {
   DCHECK(has_block_fragmentation_);
+  SetDidBreak();
   if (auto* child_inline_node = DynamicTo<NGInlineNode>(child)) {
     if (inline_break_tokens_.IsEmpty()) {
       // In some cases we may want to break before the first line, as a last
@@ -99,55 +105,35 @@ NGBoxFragmentBuilder& NGBoxFragmentBuilder::AddBreakBeforeChild(
           *child_inline_node, /* style */ nullptr, /* item_index */ 0,
           /* text_offset */ 0, NGInlineBreakToken::kDefault));
     }
-    return *this;
+    return;
   }
-  auto token = NGBlockBreakToken::CreateBreakBefore(child);
+  auto token = NGBlockBreakToken::CreateBreakBefore(child, is_forced_break);
   child_break_tokens_.push_back(token);
-  return *this;
 }
 
-NGBoxFragmentBuilder& NGBoxFragmentBuilder::AddBreakBeforeLine(
-    int line_number) {
-  DCHECK(has_block_fragmentation_);
-  DCHECK_GT(line_number, 0);
-  DCHECK_LE(unsigned(line_number), inline_break_tokens_.size());
-  int lines_to_remove = inline_break_tokens_.size() - line_number;
-  if (lines_to_remove > 0) {
-    // Remove widows that should be pushed to the next fragment. We'll also
-    // remove all other child fragments than line boxes (typically floats) that
-    // come after the first line that's moved, as those also have to be re-laid
-    // out in the next fragment.
-    inline_break_tokens_.resize(line_number);
-    DCHECK_GT(children_.size(), 0UL);
-    for (int i = children_.size() - 1; i >= 0; i--) {
-      DCHECK_NE(i, 0);
-      if (!children_[i].fragment->IsLineBox())
-        continue;
-      if (!--lines_to_remove) {
-        // This is the first line that is going to the next fragment. Remove it,
-        // and everything after it.
-        children_.resize(i);
-        break;
-      }
+void NGBoxFragmentBuilder::AddResult(const NGLayoutResult& child_layout_result,
+                                     const LogicalOffset offset,
+                                     const LayoutInline* inline_container) {
+  const auto& fragment = child_layout_result.PhysicalFragment();
+  if (items_builder_) {
+    if (const NGPhysicalLineBoxFragment* line =
+            DynamicTo<NGPhysicalLineBoxFragment>(&fragment)) {
+      items_builder_->AddLine(*line, offset);
+      // TODO(kojii): We probably don't need to AddChild this line, but there
+      // maybe OOF objects. Investigate how to handle them.
+    } else {
+      DCHECK(fragment.IsFloating());
     }
   }
-
-  // We need to resume at the right inline location in the next fragment, but
-  // broken floats, which are resumed and positioned by the parent block layout
-  // algorithm, need to be ignored by the inline layout algorithm.
-  To<NGInlineBreakToken>(inline_break_tokens_.back().get())->SetIgnoreFloats();
-  return *this;
-}
-
-NGBoxFragmentBuilder& NGBoxFragmentBuilder::AddResult(
-    const NGLayoutResult& child_layout_result,
-    const LogicalOffset offset,
-    const LayoutInline* inline_container) {
-  const auto& fragment = child_layout_result.PhysicalFragment();
   AddChild(fragment, offset, inline_container);
   if (fragment.IsBox())
     PropagateBreak(child_layout_result);
-  return *this;
+}
+
+void NGBoxFragmentBuilder::AddBreakToken(
+    scoped_refptr<const NGBreakToken> token) {
+  DCHECK(token.get());
+  child_break_tokens_.push_back(std::move(token));
 }
 
 void NGBoxFragmentBuilder::AddOutOfFlowLegacyCandidate(
@@ -199,23 +185,38 @@ EBreakBetween NGBoxFragmentBuilder::JoinedBreakBetweenValue(
   return JoinFragmentainerBreakValues(previous_break_after_, break_before);
 }
 
-NGBoxFragmentBuilder& NGBoxFragmentBuilder::PropagateBreak(
+void NGBoxFragmentBuilder::PropagateBreak(
     const NGLayoutResult& child_layout_result) {
   if (LIKELY(!has_block_fragmentation_))
-    return *this;
+    return;
   if (!did_break_) {
     const auto* token = child_layout_result.PhysicalFragment().BreakToken();
     did_break_ = token && !token->IsFinished();
   }
-  if (child_layout_result.HasForcedBreak())
+  if (child_layout_result.HasForcedBreak()) {
     SetHasForcedBreak();
-  else
+  } else if (IsInitialColumnBalancingPass()) {
+    PropagateTallestUnbreakableBlockSize(
+        child_layout_result.TallestUnbreakableBlockSize());
+  } else {
     PropagateSpaceShortage(child_layout_result.MinimalSpaceShortage());
-  return *this;
+  }
 }
 
 scoped_refptr<const NGLayoutResult> NGBoxFragmentBuilder::ToBoxFragment(
     WritingMode block_or_line_writing_mode) {
+#if DCHECK_IS_ON()
+  if (ItemsBuilder()) {
+    for (const ChildWithOffset& child : Children()) {
+      DCHECK(child.fragment);
+      const NGPhysicalFragment& fragment = *child.fragment;
+      DCHECK(fragment.IsLineBox() ||
+             // TODO(kojii): How to place floats and OOF is TBD.
+             fragment.IsFloatingOrOutOfFlowPositioned());
+    }
+  }
+#endif
+
   if (UNLIKELY(node_ && has_block_fragmentation_)) {
     if (!inline_break_tokens_.IsEmpty()) {
       if (auto token = inline_break_tokens_.back()) {
@@ -225,11 +226,14 @@ scoped_refptr<const NGLayoutResult> NGBoxFragmentBuilder::ToBoxFragment(
     }
     if (did_break_) {
       break_token_ = NGBlockBreakToken::Create(
-          node_, used_block_size_, child_break_tokens_, has_last_resort_break_);
-    } else {
-      break_token_ = NGBlockBreakToken::Create(node_, used_block_size_,
-                                               has_last_resort_break_);
+          node_, consumed_block_size_, child_break_tokens_, break_appeal_,
+          has_seen_all_children_);
     }
+  }
+
+  if (!has_floating_descendants_for_paint_ && items_builder_) {
+    has_floating_descendants_for_paint_ =
+        items_builder_->HasFloatingDescendantsForPaint();
   }
 
   scoped_refptr<const NGPhysicalBoxFragment> fragment =
@@ -240,7 +244,7 @@ scoped_refptr<const NGLayoutResult> NGBoxFragmentBuilder::ToBoxFragment(
 }
 
 scoped_refptr<const NGLayoutResult> NGBoxFragmentBuilder::Abort(
-    NGLayoutResult::NGLayoutResultStatus status) {
+    NGLayoutResult::EStatus status) {
   return base::AdoptRef(new NGLayoutResult(status, this));
 }
 
@@ -308,7 +312,7 @@ void NGBoxFragmentBuilder::ComputeInlineContainerFragments(
 void NGBoxFragmentBuilder::CheckNoBlockFragmentation() const {
   DCHECK(!did_break_);
   DCHECK(!has_forced_break_);
-  DCHECK_EQ(used_block_size_, LayoutUnit());
+  DCHECK_EQ(consumed_block_size_, LayoutUnit());
   DCHECK_EQ(minimal_space_shortage_, LayoutUnit::Max());
   DCHECK_EQ(initial_break_before_, EBreakBetween::kAuto);
   DCHECK_EQ(previous_break_after_, EBreakBetween::kAuto);

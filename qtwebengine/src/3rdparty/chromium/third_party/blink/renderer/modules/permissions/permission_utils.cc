@@ -6,7 +6,7 @@
 
 #include <utility>
 
-#include "services/service_manager/public/cpp/interface_provider.h"
+#include "third_party/blink/public/common/browser_interface_broker_proxy.h"
 #include "third_party/blink/renderer/core/dom/document.h"
 #include "third_party/blink/renderer/core/execution_context/execution_context.h"
 #include "third_party/blink/renderer/core/frame/local_frame.h"
@@ -24,9 +24,9 @@ using mojom::blink::PermissionName;
 
 void ConnectToPermissionService(
     ExecutionContext* execution_context,
-    mojom::blink::PermissionServiceRequest request) {
-  if (auto* interface_provider = execution_context->GetInterfaceProvider())
-    interface_provider->GetInterface(std::move(request));
+    mojo::PendingReceiver<mojom::blink::PermissionService> receiver) {
+  execution_context->GetBrowserInterfaceBroker().GetInterface(
+      std::move(receiver));
 }
 
 String PermissionStatusToString(mojom::blink::PermissionStatus status) {

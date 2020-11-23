@@ -64,7 +64,7 @@ public:
     virtual ~QQuickPlatformFontDialog1();
 
 protected:
-    QPlatformFontDialogHelper *helper();
+    QPlatformFontDialogHelper *helper() override;
 
     Q_DISABLE_COPY(QQuickPlatformFontDialog1)
 };

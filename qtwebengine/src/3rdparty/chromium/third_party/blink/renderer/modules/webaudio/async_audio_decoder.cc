@@ -47,8 +47,6 @@ void AsyncAudioDecoder::DecodeAsync(DOMArrayBuffer* audio_data,
                                     BaseAudioContext* context) {
   DCHECK(IsMainThread());
   DCHECK(audio_data);
-  if (!audio_data)
-    return;
 
   scoped_refptr<base::SingleThreadTaskRunner> task_runner =
       context->GetExecutionContext()->GetTaskRunner(
@@ -75,7 +73,7 @@ void AsyncAudioDecoder::DecodeOnBackgroundThread(
     scoped_refptr<base::SingleThreadTaskRunner> task_runner) {
   DCHECK(!IsMainThread());
   scoped_refptr<AudioBus> bus = CreateBusFromInMemoryAudioFile(
-      audio_data->Data(), audio_data->ByteLength(), false, sample_rate);
+      audio_data->Data(), audio_data->ByteLengthAsSizeT(), false, sample_rate);
 
   // Decoding is finished, but we need to do the callbacks on the main thread.
   // A reference to |*bus| is retained by base::OnceCallback and will be removed

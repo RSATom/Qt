@@ -76,31 +76,26 @@ void TestSuiteResult::toXML(XMLWriter &receiver) const
     /* <test-suite-result> */
     receiver.startPrefixMapping(QString(), Global::xqtsResultNS);
     receiver.startElement(QLatin1String("test-suite-result"));
-    receiver.endPrefixMapping(QString());
 
     /* <implementation> */
-    QXmlAttributes implementationAtts;
-    implementationAtts.append(QLatin1String("name"), QString(),
-                              QLatin1String("name"), implementationName);
-    implementationAtts.append(QLatin1String("version"), QString(),
-                              QLatin1String("version"), implementationVersion);
+    QXmlStreamAttributes implementationAtts;
+    implementationAtts.append(QLatin1String("name"), implementationName);
+    implementationAtts.append(QLatin1String("version"), implementationVersion);
     receiver.startElement(QLatin1String("implementation"), implementationAtts);
 
     /* <organization> */
-    QXmlAttributes organizationAtts;
-    organizationAtts.append(QLatin1String("name"), QString(),
-                            QLatin1String("name"), organizationName);
-    organizationAtts.append(QLatin1String("website"), QString(),
-                            QLatin1String("website"), organizationWebsite);
+    QXmlStreamAttributes organizationAtts;
+    organizationAtts.append(QLatin1String("name"), organizationName);
+    organizationAtts.append(QLatin1String("website"), organizationWebsite);
     receiver.startElement(QLatin1String("organization"), organizationAtts);
 
     /* </organization> */
     receiver.endElement(QLatin1String("organization"));
 
     /* <submittor> */
-    QXmlAttributes submittorAtts;
-    submittorAtts.append(QLatin1String("name"), QString(), QLatin1String("name"), submittorName);
-    submittorAtts.append(QLatin1String("email"), QString(), QLatin1String("email"), submittorEmail);
+    QXmlStreamAttributes submittorAtts;
+    submittorAtts.append(QLatin1String("name"), submittorName);
+    submittorAtts.append(QLatin1String("email"), submittorEmail);
     receiver.startElement(QLatin1String("submittor"), submittorAtts);
 
     /* </submittor> */
@@ -129,13 +124,13 @@ void TestSuiteResult::toXML(XMLWriter &receiver) const
     receiver.endElement(QLatin1String("syntax"));
 
     /* <test-run> */
-    QXmlAttributes test_runAtts;
-    test_runAtts.append(QLatin1String("dateRun"), QString(), QLatin1String("dateRun"), m_runDate.toString(QLatin1String("yyyy-MM-dd")));
+    QXmlStreamAttributes test_runAtts;
+    test_runAtts.append(QLatin1String("dateRun"), m_runDate.toString(Qt::ISODate));
     receiver.startElement(QLatin1String("test-run"), test_runAtts);
 
     /* <test-suite> */
-    QXmlAttributes test_suiteAtts;
-    test_suiteAtts.append(QLatin1String("version"), QString(), QLatin1String("version"), m_testSuiteVersion);
+    QXmlStreamAttributes test_suiteAtts;
+    test_suiteAtts.append(QLatin1String("version"), m_testSuiteVersion);
     receiver.startElement(QLatin1String("test-suite"), test_suiteAtts);
 
     /* </test-suite> */

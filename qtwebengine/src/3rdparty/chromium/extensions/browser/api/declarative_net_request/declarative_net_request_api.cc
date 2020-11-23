@@ -13,11 +13,13 @@
 #include "base/task_runner_util.h"
 #include "content/public/browser/browser_task_traits.h"
 #include "content/public/browser/browser_thread.h"
+#include "extensions/browser/api/declarative_net_request/action_tracker.h"
 #include "extensions/browser/api/declarative_net_request/constants.h"
 #include "extensions/browser/api/declarative_net_request/rules_monitor_service.h"
 #include "extensions/browser/api/declarative_net_request/ruleset_manager.h"
 #include "extensions/browser/api/declarative_net_request/ruleset_source.h"
 #include "extensions/browser/api/declarative_net_request/utils.h"
+#include "extensions/browser/api/extensions_api_client.h"
 #include "extensions/browser/extension_file_task_runner.h"
 #include "extensions/browser/extension_prefs.h"
 #include "extensions/common/api/declarative_net_request.h"
@@ -106,7 +108,7 @@ DeclarativeNetRequestUpdateAllowedPagesFunction::UpdateAllowedPages(
 
 bool DeclarativeNetRequestUpdateAllowedPagesFunction::PreRunValidation(
     std::string* error) {
-  return UIThreadExtensionFunction::PreRunValidation(error) &&
+  return ExtensionFunction::PreRunValidation(error) &&
          HasRegisteredRuleset(browser_context(), extension_id(), error);
 }
 
@@ -155,7 +157,7 @@ DeclarativeNetRequestGetAllowedPagesFunction::
 
 bool DeclarativeNetRequestGetAllowedPagesFunction::PreRunValidation(
     std::string* error) {
-  return UIThreadExtensionFunction::PreRunValidation(error) &&
+  return ExtensionFunction::PreRunValidation(error) &&
          HasRegisteredRuleset(browser_context(), extension_id(), error);
 }
 
@@ -174,9 +176,14 @@ DeclarativeNetRequestUpdateDynamicRulesFunction::
     ~DeclarativeNetRequestUpdateDynamicRulesFunction() = default;
 
 ExtensionFunction::ResponseAction
-DeclarativeNetRequestUpdateDynamicRulesFunction::UpdateDynamicRules(
-    std::vector<api::declarative_net_request::Rule> rules,
-    declarative_net_request::DynamicRuleUpdateAction action) {
+DeclarativeNetRequestUpdateDynamicRulesFunction::Run() {
+  using Params = dnr_api::UpdateDynamicRules::Params;
+
+  base::string16 error;
+  std::unique_ptr<Params> params(Params::Create(*args_, &error));
+  EXTENSION_FUNCTION_VALIDATE(params);
+  EXTENSION_FUNCTION_VALIDATE(error.empty());
+
   auto* rules_monitor_service =
       declarative_net_request::RulesMonitorService::Get(browser_context());
   DCHECK(rules_monitor_service);
@@ -186,14 +193,15 @@ DeclarativeNetRequestUpdateDynamicRulesFunction::UpdateDynamicRules(
       &DeclarativeNetRequestUpdateDynamicRulesFunction::OnDynamicRulesUpdated,
       this);
 
-  rules_monitor_service->UpdateDynamicRules(*extension(), std::move(rules),
-                                            action, std::move(callback));
+  rules_monitor_service->UpdateDynamicRules(
+      *extension(), std::move(params->rule_ids_to_remove),
+      std::move(params->rules_to_add), std::move(callback));
   return RespondLater();
 }
 
 bool DeclarativeNetRequestUpdateDynamicRulesFunction::PreRunValidation(
     std::string* error) {
-  return UIThreadExtensionFunction::PreRunValidation(error) &&
+  return ExtensionFunction::PreRunValidation(error) &&
          HasRegisteredRuleset(browser_context(), extension_id(), error);
 }
 
@@ -207,52 +215,6 @@ void DeclarativeNetRequestUpdateDynamicRulesFunction::OnDynamicRulesUpdated(
     Respond(NoArguments());
 }
 
-DeclarativeNetRequestAddDynamicRulesFunction::
-    DeclarativeNetRequestAddDynamicRulesFunction() = default;
-DeclarativeNetRequestAddDynamicRulesFunction::
-    ~DeclarativeNetRequestAddDynamicRulesFunction() = default;
-
-ExtensionFunction::ResponseAction
-DeclarativeNetRequestAddDynamicRulesFunction::Run() {
-  // Note: If need be, we should throttle calls to these extension functions.
-  using Params = dnr_api::AddDynamicRules::Params;
-
-  base::string16 error;
-  std::unique_ptr<Params> params(Params::Create(*args_, &error));
-  EXTENSION_FUNCTION_VALIDATE(params);
-  EXTENSION_FUNCTION_VALIDATE(error.empty());
-
-  return UpdateDynamicRules(
-      std::move(params->rules),
-      declarative_net_request::DynamicRuleUpdateAction::kAdd);
-}
-
-DeclarativeNetRequestRemoveDynamicRulesFunction::
-    DeclarativeNetRequestRemoveDynamicRulesFunction() = default;
-DeclarativeNetRequestRemoveDynamicRulesFunction::
-    ~DeclarativeNetRequestRemoveDynamicRulesFunction() = default;
-
-ExtensionFunction::ResponseAction
-DeclarativeNetRequestRemoveDynamicRulesFunction::Run() {
-  using Params = dnr_api::RemoveDynamicRules::Params;
-
-  base::string16 error;
-  std::unique_ptr<Params> params(Params::Create(*args_, &error));
-  EXTENSION_FUNCTION_VALIDATE(params);
-  EXTENSION_FUNCTION_VALIDATE(error.empty());
-
-  std::vector<dnr_api::Rule> rules;
-  for (int id : params->rule_ids) {
-    dnr_api::Rule rule;
-    rule.id = id;
-    rules.push_back(std::move(rule));
-  }
-
-  return UpdateDynamicRules(
-      std::move(rules),
-      declarative_net_request::DynamicRuleUpdateAction::kRemove);
-}
-
 DeclarativeNetRequestGetDynamicRulesFunction::
     DeclarativeNetRequestGetDynamicRulesFunction() = default;
 DeclarativeNetRequestGetDynamicRulesFunction::
@@ -260,7 +222,7 @@ DeclarativeNetRequestGetDynamicRulesFunction::
 
 bool DeclarativeNetRequestGetDynamicRulesFunction::PreRunValidation(
     std::string* error) {
-  return UIThreadExtensionFunction::PreRunValidation(error) &&
+  return ExtensionFunction::PreRunValidation(error) &&
          HasRegisteredRuleset(browser_context(), extension_id(), error);
 }
 
@@ -329,7 +291,29 @@ DeclarativeNetRequestSetActionCountAsBadgeTextFunction::Run() {
   EXTENSION_FUNCTION_VALIDATE(error.empty());
 
   ExtensionPrefs* prefs = ExtensionPrefs::Get(browser_context());
+  if (params->enable == prefs->GetDNRUseActionCountAsBadgeText(extension_id()))
+    return RespondNow(NoArguments());
+
   prefs->SetDNRUseActionCountAsBadgeText(extension_id(), params->enable);
+
+  // If the preference is switched on, update the extension's badge text with
+  // the number of actions matched for this extension. Otherwise, clear the
+  // action count for the extension's icon and show the default badge text if
+  // set.
+  if (params->enable) {
+    declarative_net_request::RulesMonitorService* rules_monitor_service =
+        declarative_net_request::RulesMonitorService::Get(browser_context());
+    DCHECK(rules_monitor_service);
+
+    const declarative_net_request::ActionTracker& action_tracker =
+        rules_monitor_service->action_tracker();
+    action_tracker.OnPreferenceEnabled(extension_id());
+  } else {
+    DCHECK(ExtensionsAPIClient::Get());
+    ExtensionsAPIClient::Get()->ClearActionCount(browser_context(),
+                                                 *extension());
+  }
+
   return RespondNow(NoArguments());
 }
 

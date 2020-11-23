@@ -37,7 +37,6 @@
 #include "third_party/blink/renderer/platform/wtf/allocator/allocator.h"
 #include "third_party/blink/renderer/platform/wtf/sanitizers.h"
 #include "third_party/blink/renderer/platform/wtf/threading.h"
-#include "third_party/blink/renderer/platform/wtf/time.h"
 
 namespace blink {
 
@@ -85,8 +84,6 @@ class PLATFORM_EXPORT TimerBase {
 
  private:
   virtual void Fired() = 0;
-
-  virtual scoped_refptr<base::SingleThreadTaskRunner> TimerTaskRunner() const;
 
   NO_SANITIZE_ADDRESS
   virtual bool CanFire() const { return true; }

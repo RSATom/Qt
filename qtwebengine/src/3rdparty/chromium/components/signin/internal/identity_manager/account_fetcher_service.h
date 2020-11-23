@@ -15,7 +15,7 @@
 #include "base/sequence_checker.h"
 #include "base/timer/timer.h"
 #include "build/build_config.h"
-#include "google_apis/gaia/oauth2_token_service_observer.h"
+#include "components/signin/internal/identity_manager/profile_oauth2_token_service_observer.h"
 
 class AccountInfoFetcher;
 class AccountTrackerService;
@@ -41,14 +41,11 @@ class ImageDecoder;
 class ImageFetcherImpl;
 }  // namespace image_fetcher
 
-class AccountFetcherService : public OAuth2TokenServiceObserver {
+class AccountFetcherService : public ProfileOAuth2TokenServiceObserver {
  public:
   // Name of the preference that tracks the int64_t representation of the last
   // time the AccountTrackerService was updated.
   static const char kLastUpdatePref[];
-
-  // Size used for downloading account pictures. Exposed for tests.
-  static const int kAccountImageDownloadSize;
 
   AccountFetcherService();
   ~AccountFetcherService() override;
@@ -94,7 +91,7 @@ class AccountFetcherService : public OAuth2TokenServiceObserver {
                          bool is_child_account);
 #endif
 
-  // OAuth2TokenServiceObserver implementation.
+  // ProfileOAuth2TokenServiceObserver implementation.
   void OnRefreshTokenAvailable(const CoreAccountId& account_id) override;
   void OnRefreshTokenRevoked(const CoreAccountId& account_id) override;
   void OnRefreshTokensLoaded() override;

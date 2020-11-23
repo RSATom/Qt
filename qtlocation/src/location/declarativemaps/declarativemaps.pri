@@ -29,12 +29,19 @@ PRIVATE_HEADERS += \
         declarativemaps/qgeomapobject_p.h \
         declarativemaps/qgeomapobject_p_p.h \
         declarativemaps/qparameterizableobject_p.h \
+        declarativemaps/qdeclarativegeomapitemutils_p.h \
+        declarativemaps/qdeclarativepolylinemapitem_p_p.h \
+        declarativemaps/qdeclarativepolygonmapitem_p_p.h \
+        declarativemaps/qdeclarativerectanglemapitem_p_p.h \
+        declarativemaps/qdeclarativecirclemapitem_p_p.h \
+        declarativemaps/qgeosimplify_p.h \
         declarativemaps/qquickgeomapgesturearea_p.h
 
 SOURCES += \
         declarativemaps/error_messages.cpp \
         declarativemaps/locationvaluetypehelper.cpp \
-        declarativemaps/qdeclarativecirclemapitem.cpp \
+        declarativemaps/qdeclarativepolylinemapitem.cpp \
+        declarativemaps/qdeclarativepolygonmapitem.cpp \
         declarativemaps/qdeclarativegeocodemodel.cpp \
         declarativemaps/qdeclarativegeomaneuver.cpp \
         declarativemaps/qdeclarativegeomapcopyrightsnotice.cpp \
@@ -50,14 +57,16 @@ SOURCES += \
         declarativemaps/qdeclarativegeoroutemodel.cpp \
         declarativemaps/qdeclarativegeoroutesegment.cpp \
         declarativemaps/qdeclarativegeoserviceprovider.cpp \
-        declarativemaps/qdeclarativepolygonmapitem.cpp \
-        declarativemaps/qdeclarativepolylinemapitem.cpp \
+        declarativemaps/qdeclarativecirclemapitem.cpp \
         declarativemaps/qdeclarativerectanglemapitem.cpp \
         declarativemaps/qdeclarativeroutemapitem.cpp \
         declarativemaps/qgeomapitemgeometry.cpp \
         declarativemaps/qgeomapobject.cpp \
+        declarativemaps/qdeclarativegeomapitemutils.cpp \
         declarativemaps/qparameterizableobject.cpp \
+        declarativemaps/qgeosimplify.cpp \
         declarativemaps/qquickgeomapgesturearea.cpp
 
 load(qt_build_paths)
 LIBS_PRIVATE += -L$$MODULE_BASE_OUTDIR/lib -lpoly2tri$$qtPlatformTargetSuffix() -lclip2tri$$qtPlatformTargetSuffix()
+

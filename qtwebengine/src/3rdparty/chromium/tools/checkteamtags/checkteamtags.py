@@ -5,21 +5,66 @@
 
 """Makes sure OWNERS files have consistent TEAM and COMPONENT tags."""
 
+from __future__ import print_function
 
 import json
 import logging
 import optparse
 import os
+import posixpath
+import re
 import sys
 import urllib2
 
 from collections import defaultdict
 
-from owners_file_tags import parse
+from owners_file_tags import parse, uniform_path_format
 
 
 DEFAULT_MAPPING_URL = \
     'https://storage.googleapis.com/chromium-owners/component_map.json'
+
+# Represent tags that may be found in OWNERS files.
+_COMPONENT = 'COMPONENT'
+_TEAM = 'TEAM'
+
+# Represents the pattern of a line that contains a TEAM or COMPONENT tag. Note
+# that matching lines may not have valid formatting. For example, if {} is
+# replaced with TEAM, the line ' #TEAMS :some-team@chromium.org' matches the
+# pattern; however, the correct formatting is '# TEAM: some-team@chromium.org'.
+LINE_PATTERN = '.*#\s*{}.*:.*'
+
+def _get_entries(lines, tag):
+  """Returns a line for the given tag, e.g. '# TEAM: some-team@google.com'.
+
+  Also, validates the tag's prefix format.
+
+  Args:
+    lines: A list of lines from which to extract information, e.g.
+      ['liz@google.com', '# COMPONENT: UI', '# TEAM: ui-team@chromium.org'].
+    tag: The string tag denoting the entry for which to extract information,
+      e.g. 'COMPONENT'.
+
+  Raises:
+    ValueError: Raised if (A) a line matches the specified line pattern, but
+    does not match the  the prefix pattern. This can happen, e.g., if a line is
+    '#TEAM: some-team@google.com', which is missing a space between # and TEAM.
+    Also, raised if (B) there are multiple lines matching the line pattern.
+    This can happen if there are, e.g. two team lines.
+  """
+  line_pattern = re.compile(LINE_PATTERN.format(tag))
+  entries = [line for line in lines if line_pattern.match(line)]
+
+  if not entries:
+    return None
+
+  if len(entries) == 1:
+    if re.match('^# {}: .*$'.format(tag), entries[0]):
+      return entries[0]
+    raise ValueError(
+        '{} has an invalid prefix. Use \'# {}: \''.format(entries[0], tag))
+
+  raise ValueError('Contains more than one {} per directory'.format(tag))
 
 
 def rel_and_full_paths(root, owners_path):
@@ -61,7 +106,9 @@ def validate_mappings(options, args):
       deleted.append(os.path.dirname(rel))
 
   # Update component mapping with current changes.
-  for rel_path, tags in affected.iteritems():
+  for rel_path_native, tags in affected.iteritems():
+    # Make the path use forward slashes always.
+    rel_path = uniform_path_format(rel_path_native)
     component = tags.get('component')
     team = tags.get('team')
     os_tag = tags.get('os')
@@ -103,8 +150,8 @@ def validate_mappings(options, args):
   warnings = ''
   for component, teams in affected_component_to_teams.iteritems():
     if len(teams) > 1:
-      warnings += '\nComponent %s will map to %s' % (
-          component, ', '.join(teams))
+      warnings += ('\nThe set of all OWNERS files with COMPONENT: %s list '
+                   "multiple TEAM's: %s") % (component, ', '.join(teams))
   if warnings:
     warnings = ('Are you sure these are correct? After landing this patch:%s'
                 % warnings)
@@ -127,20 +174,14 @@ def check_owners(rel_path, full_path):
   with open(full_path) as f:
     owners_file_lines = f.readlines()
 
-  component_entries = [l for l in owners_file_lines if l.split()[:2] ==
-                       ['#', 'COMPONENT:']]
-  team_entries = [l for l in owners_file_lines if l.split()[:2] ==
-                  ['#', 'TEAM:']]
-  if len(component_entries) > 1:
-    return result_dict('Contains more than one component per directory')
-  if len(team_entries) > 1:
-    return result_dict('Contains more than one team per directory')
+  try:
+    component_line = _get_entries(owners_file_lines, _COMPONENT)
+    team_line = _get_entries(owners_file_lines, _TEAM)
+  except ValueError as error:
+    return result_dict(str(error))
 
-  if not component_entries and not team_entries:
-    return
-
-  if component_entries:
-    component = component_entries[0].split(':')[1]
+  if component_line:
+    component = component_line.split(':')[1]
     if not component:
       return result_dict('Has COMPONENT line but no component name')
     # Check for either of the following formats:
@@ -155,8 +196,8 @@ def check_owners(rel_path, full_path):
     # TODO(robertocn): Check against a static list of valid components,
     # perhaps obtained from monorail at the beginning of presubmit.
 
-  if team_entries:
-    team_entry_parts = team_entries[0].split('@')
+  if team_line:
+    team_entry_parts = team_line.split('@')
     if len(team_entry_parts) != 2:
       return result_dict('Has TEAM line, but not exactly 1 team email')
   # TODO(robertocn): Raise a warning if only one of (COMPONENT, TEAM) is
@@ -206,14 +247,14 @@ Examples:
 
   if errors:
     if options.bare:
-      print '\n'.join(e['full_path'] for e in errors)
+      print('\n'.join(e['full_path'] for e in errors))
     else:
-      print '\nFAILED\n'
-      print '\n'.join('%s: %s' % (e['full_path'], e['error']) for e in errors)
+      print('\nFAILED\n')
+      print('\n'.join('%s: %s' % (e['full_path'], e['error']) for e in errors))
     return 1
   if not options.bare:
     if warnings:
-      print warnings
+      print(warnings)
   return 0
 
 

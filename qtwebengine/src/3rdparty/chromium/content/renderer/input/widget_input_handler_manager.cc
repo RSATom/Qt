@@ -162,7 +162,7 @@ void WidgetInputHandlerManager::InitInputHandler() {
   uses_input_handler_ = true;
   base::OnceClosure init_closure = base::BindOnce(
       &WidgetInputHandlerManager::InitOnInputHandlingThread, this,
-      render_widget_->layer_tree_view()->GetInputHandler(),
+      render_widget_->layer_tree_host()->GetInputHandler(),
       render_widget_->compositor_deps()->IsScrollAnimatorEnabled(),
       sync_compositing);
   InputThreadTaskRunner()->PostTask(FROM_HERE, std::move(init_closure));
@@ -315,6 +315,23 @@ void WidgetInputHandlerManager::ObserveGestureEventOnMainThread(
                                     std::move(observe_gesture_event_closure));
 }
 
+void WidgetInputHandlerManager::LogInputTimingUMA() {
+  if (!have_emitted_uma_) {
+    InitialInputTiming lifecycle_state = InitialInputTiming::kBeforeLifecycle;
+    if (!(renderer_deferral_state_ &
+          (unsigned)RenderingDeferralBits::kDeferMainFrameUpdates)) {
+      if (renderer_deferral_state_ &
+          (unsigned)RenderingDeferralBits::kDeferCommits) {
+        lifecycle_state = InitialInputTiming::kBeforeCommit;
+      } else {
+        lifecycle_state = InitialInputTiming::kAfterCommit;
+      }
+    }
+    UMA_HISTOGRAM_ENUMERATION("PaintHolding.InputTiming2", lifecycle_state);
+    have_emitted_uma_ = true;
+  }
+}
+
 void WidgetInputHandlerManager::DispatchEvent(
     std::unique_ptr<content::InputEvent> event,
     mojom::WidgetInputHandler::DispatchEventCallback callback) {
@@ -329,12 +346,28 @@ void WidgetInputHandlerManager::DispatchEvent(
     return;
   }
 
-  if (!(have_emitted_uma_ ||
-        event->web_event->GetType() == WebInputEvent::Type::kMouseMove ||
-        event->web_event->GetType() == WebInputEvent::Type::kPointerMove)) {
-    UMA_HISTOGRAM_ENUMERATION("PaintHolding.InputTiming",
-                              current_lifecycle_state_);
-    have_emitted_uma_ = true;
+  bool event_is_move =
+      event->web_event->GetType() == WebInputEvent::Type::kMouseMove ||
+      event->web_event->GetType() == WebInputEvent::Type::kPointerMove;
+  if (!event_is_move)
+    LogInputTimingUMA();
+
+  // Drop input if we are deferring a rendring pipeline phase, unless it's a
+  // move event.
+  // We don't want users interacting with stuff they can't see, so we drop it.
+  // We allow moves because we need to keep the current pointer location up
+  // to date. Tests and other code can allow pre-commit input through the
+  // "allow-pre-commit-input" command line flag.
+  // TODO(schenney): Also allow scrolls? This would make some tests not flaky,
+  // it seems, because they sometimes crash on seeing a scroll update/end
+  // without a begin. Scrolling, pinch-zoom etc. don't seem dangerous.
+  if (renderer_deferral_state_ && !allow_pre_commit_input_ && !event_is_move) {
+    if (callback) {
+      std::move(callback).Run(
+          InputEventAckSource::MAIN_THREAD, ui::LatencyInfo(),
+          INPUT_EVENT_ACK_STATE_NOT_CONSUMED, base::nullopt, base::nullopt);
+    }
+    return;
   }
 
   // If TimeTicks is not consistent across processes we cannot use the event's
@@ -453,14 +486,29 @@ void WidgetInputHandlerManager::FallbackCursorModeSetCursorVisibility(
 #endif
 }
 
-void WidgetInputHandlerManager::MarkBeginMainFrame() {
-  if (current_lifecycle_state_ == InitialInputTiming::kBeforeLifecycle)
-    current_lifecycle_state_ = InitialInputTiming::kBeforeCommit;
+void WidgetInputHandlerManager::DidNavigate() {
+  renderer_deferral_state_ = 0;
+  have_emitted_uma_ = false;
 }
 
-void WidgetInputHandlerManager::MarkCompositorCommit() {
-  if (current_lifecycle_state_ == InitialInputTiming::kBeforeCommit)
-    current_lifecycle_state_ = InitialInputTiming::kAfterCommit;
+void WidgetInputHandlerManager::OnDeferMainFrameUpdatesChanged(bool status) {
+  if (status) {
+    renderer_deferral_state_ |=
+        static_cast<uint16_t>(RenderingDeferralBits::kDeferMainFrameUpdates);
+  } else {
+    renderer_deferral_state_ &=
+        ~static_cast<uint16_t>(RenderingDeferralBits::kDeferMainFrameUpdates);
+  }
+}
+
+void WidgetInputHandlerManager::OnDeferCommitsChanged(bool status) {
+  if (status) {
+    renderer_deferral_state_ |=
+        static_cast<uint16_t>(RenderingDeferralBits::kDeferCommits);
+  } else {
+    renderer_deferral_state_ &=
+        ~static_cast<uint16_t>(RenderingDeferralBits::kDeferCommits);
+  }
 }
 
 void WidgetInputHandlerManager::InitOnInputHandlingThread(
@@ -468,6 +516,11 @@ void WidgetInputHandlerManager::InitOnInputHandlingThread(
     bool smooth_scroll_enabled,
     bool sync_compositing) {
   DCHECK(InputThreadTaskRunner()->BelongsToCurrentThread());
+
+  // It is possible that the input_handle has already been destroyed before this
+  // Init() call was invoked. If so, early out.
+  if (!input_handler)
+    return;
 
   // If there's no compositor thread (i.e. we're in a LayoutTest), force input
   // to go through the main thread.
@@ -487,35 +540,34 @@ void WidgetInputHandlerManager::InitOnInputHandlingThread(
 }
 
 void WidgetInputHandlerManager::BindAssociatedChannel(
-    mojo::PendingAssociatedReceiver<mojom::WidgetInputHandler> request) {
-  if (!request.is_valid())
+    mojo::PendingAssociatedReceiver<mojom::WidgetInputHandler> receiver) {
+  if (!receiver.is_valid())
     return;
   // Don't pass the |input_event_queue_| on if we don't have a
   // |compositor_task_runner_| as events might get out of order.
   WidgetInputHandlerImpl* handler = new WidgetInputHandlerImpl(
       this, main_thread_task_runner_,
       compositor_task_runner_ ? input_event_queue_ : nullptr, render_widget_);
-  handler->SetAssociatedBinding(std::move(request));
+  handler->SetAssociatedReceiver(std::move(receiver));
 }
 
 void WidgetInputHandlerManager::BindChannel(
-    mojo::PendingReceiver<mojom::WidgetInputHandler> request) {
-  if (!request.is_valid())
+    mojo::PendingReceiver<mojom::WidgetInputHandler> receiver) {
+  if (!receiver.is_valid())
     return;
   // Don't pass the |input_event_queue_| on if we don't have a
   // |compositor_task_runner_| as events might get out of order.
   WidgetInputHandlerImpl* handler = new WidgetInputHandlerImpl(
       this, main_thread_task_runner_,
       compositor_task_runner_ ? input_event_queue_ : nullptr, render_widget_);
-  handler->SetBinding(std::move(request));
+  handler->SetReceiver(std::move(receiver));
 }
 
 void WidgetInputHandlerManager::HandleInputEvent(
     const ui::WebScopedInputEvent& event,
     const ui::LatencyInfo& latency,
     mojom::WidgetInputHandler::DispatchEventCallback callback) {
-  if (!render_widget_ || render_widget_->is_frozen() ||
-      render_widget_->is_closing()) {
+  if (!render_widget_ || render_widget_->IsUndeadOrProvisional()) {
     if (callback) {
       std::move(callback).Run(InputEventAckSource::MAIN_THREAD, latency,
                               INPUT_EVENT_ACK_STATE_NOT_CONSUMED, base::nullopt,
@@ -537,6 +589,10 @@ void WidgetInputHandlerManager::DidHandleInputEventAndOverscroll(
     ui::WebScopedInputEvent input_event,
     const ui::LatencyInfo& latency_info,
     std::unique_ptr<ui::DidOverscrollParams> overscroll_params) {
+  TRACE_EVENT1("input",
+               "WidgetInputHandlerManager::DidHandleInputEventAndOverscroll",
+               "Disposition", event_disposition);
+
   InputEventAckState ack_state = InputEventDispositionToAck(event_disposition);
   if (ack_state == INPUT_EVENT_ACK_STATE_CONSUMED) {
     main_thread_scheduler_->DidHandleInputEventOnCompositorThread(
@@ -583,6 +639,9 @@ void WidgetInputHandlerManager::HandledInputEvent(
   if (!callback)
     return;
 
+  TRACE_EVENT1("input", "WidgetInputHandlerManager::HandledInputEvent",
+               "ack_state", ack_state);
+
   if (!touch_action.has_value()) {
     touch_action = white_listed_touch_action_;
     white_listed_touch_action_.reset();
@@ -594,6 +653,8 @@ void WidgetInputHandlerManager::HandledInputEvent(
   // If there is a compositor task runner and the current thread isn't the
   // compositor thread proxy it over to the compositor thread.
   if (compositor_task_runner_ && !is_compositor_thread) {
+    TRACE_EVENT_INSTANT0("input", "PostingToCompositor",
+                         TRACE_EVENT_SCOPE_THREAD);
     compositor_task_runner_->PostTask(
         FROM_HERE, base::BindOnce(CallCallback, std::move(callback), ack_state,
                                   latency_info, std::move(overscroll_params),

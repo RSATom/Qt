@@ -200,9 +200,14 @@ void QSGDefaultRenderContext::invalidate()
     emit invalidated();
 }
 
-void QSGDefaultRenderContext::prepareSync(qreal devicePixelRatio)
+void QSGDefaultRenderContext::prepareSync(qreal devicePixelRatio, QRhiCommandBuffer *cb)
 {
     m_currentDevicePixelRatio = devicePixelRatio;
+
+    // we store the command buffer already here, in case there is something in
+    // an updatePaintNode() implementation that leads to needing it (for
+    // example, an updateTexture() call on a QSGRhiLayer)
+    m_currentFrameCommandBuffer = cb;
 }
 
 static QBasicMutex qsg_framerender_mutex;
@@ -237,14 +242,12 @@ void QSGDefaultRenderContext::beginNextRhiFrame(QSGRenderer *renderer, QRhiRende
                                                 RenderPassCallback mainPassRecordingEnd,
                                                 void *callbackUserData)
 {
-    Q_ASSERT(!m_currentFrameCommandBuffer);
-
     renderer->setRenderTarget(rt);
     renderer->setRenderPassDescriptor(rp);
     renderer->setCommandBuffer(cb);
     renderer->setRenderPassRecordingCallbacks(mainPassRecordingStart, mainPassRecordingEnd, callbackUserData);
 
-    m_currentFrameCommandBuffer = cb;
+    m_currentFrameCommandBuffer = cb; // usually the same as what was passed to prepareSync() but cannot count on that having been called
     m_currentFrameRenderPass = rp;
 }
 
@@ -364,7 +367,7 @@ void QSGDefaultRenderContext::compileShader(QSGMaterialShader *shader, QSGMateri
         p->addCacheableShaderFromSourceCode(QOpenGLShader::Fragment, fragmentCode ? fragmentCode : shader->fragmentShader());
         p->link();
         if (!p->isLinked())
-            qWarning() << "shader compilation failed:" << endl << p->log();
+            qWarning() << "shader compilation failed:" << Qt::endl << p->log();
     } else {
         shader->compile();
     }
@@ -374,7 +377,7 @@ QString QSGDefaultRenderContext::fontKey(const QRawFont &font)
 {
     QFontEngine *fe = QRawFontPrivate::get(font)->fontEngine;
     if (!fe->faceId().filename.isEmpty()) {
-        QByteArray keyName = fe->faceId().filename;
+        QByteArray keyName = fe->faceId().filename + ' ' + QByteArray::number(fe->faceId().index);
         if (font.style() != QFont::StyleNormal)
             keyName += QByteArray(" I");
         if (font.weight() != QFont::Normal)
@@ -425,6 +428,14 @@ bool QSGDefaultRenderContext::separateIndexBuffer() const
     static const bool isWebGL = (qGuiApp->platformName().compare(QLatin1String("webgl")) == 0
                                   || qGuiApp->platformName().compare(QLatin1String("wasm")) == 0);
     return isWebGL;
+}
+
+void QSGDefaultRenderContext::preprocess()
+{
+    for (auto it = m_glyphCaches.begin(); it != m_glyphCaches.end(); ++it) {
+        it.value()->processPendingGlyphs();
+        it.value()->update();
+    }
 }
 
 QSGDistanceFieldGlyphCache *QSGDefaultRenderContext::distanceFieldGlyphCache(const QRawFont &font)

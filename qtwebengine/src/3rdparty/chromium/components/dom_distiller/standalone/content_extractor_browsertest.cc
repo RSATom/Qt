@@ -28,12 +28,9 @@
 #include "components/dom_distiller/core/distilled_page_prefs.h"
 #include "components/dom_distiller/core/distiller.h"
 #include "components/dom_distiller/core/dom_distiller_service.h"
-#include "components/dom_distiller/core/dom_distiller_store.h"
 #include "components/dom_distiller/core/proto/distilled_article.pb.h"
 #include "components/dom_distiller/core/proto/distilled_page.pb.h"
 #include "components/dom_distiller/core/task_tracker.h"
-#include "components/keyed_service/core/simple_key_map.h"
-#include "components/leveldb_proto/content/proto_database_provider_factory.h"
 #include "components/leveldb_proto/public/proto_database.h"
 #include "components/leveldb_proto/public/proto_database_provider.h"
 #include "components/sync_preferences/testing_pref_service_syncable.h"
@@ -129,26 +126,9 @@ const int kMaxExtractorTasks = 8;
 std::unique_ptr<DomDistillerService> CreateDomDistillerService(
     content::BrowserContext* context,
     sync_preferences::TestingPrefServiceSyncable* pref_service,
-    const base::FilePath& db_path,
     const FileToUrlMap& file_to_url_map) {
-  scoped_refptr<base::SequencedTaskRunner> background_task_runner =
-      base::CreateSequencedTaskRunnerWithTraits({base::MayBlock()});
-
   // Setting up PrefService for DistilledPagePrefs.
   DistilledPagePrefs::RegisterProfilePrefs(pref_service->registry());
-
-  SimpleFactoryKey* key =
-      SimpleKeyMap::GetInstance()->GetForBrowserContext(context);
-  auto* db_provider =
-      leveldb_proto::ProtoDatabaseProviderFactory::GetForKey(key);
-
-  // TODO(cjhopman): use an in-memory database instead of an on-disk one with
-  // temporary directory.
-  auto db = db_provider->GetDB<ArticleEntry>(
-      leveldb_proto::ProtoDbType::DOM_DISTILLER_STORE, db_path,
-      background_task_runner);
-
-  auto dom_distiller_store = std::make_unique<DomDistillerStore>(std::move(db));
 
   auto distiller_page_factory =
       std::make_unique<DistillerPageWebContentsFactory>(context);
@@ -183,9 +163,9 @@ std::unique_ptr<DomDistillerService> CreateDomDistillerService(
       std::move(distiller_url_fetcher_factory), options, file_to_url_map);
 
   return std::make_unique<DomDistillerService>(
-      std::move(dom_distiller_store), std::move(distiller_factory),
-      std::move(distiller_page_factory),
-      std::make_unique<DistilledPagePrefs>(pref_service));
+      std::move(distiller_factory), std::move(distiller_page_factory),
+      std::make_unique<DistilledPagePrefs>(pref_service),
+      /* distiller_ui_handle */ nullptr);
 }
 
 void AddComponentsTestResources() {
@@ -341,7 +321,6 @@ class ContentExtractor : public ContentBrowserTest {
     if (!base::CommandLine::ForCurrentProcess()->HasSwitch(kDisableDnsSwitch)) {
       EnableDNSLookupForThisTest();
     }
-    CHECK(db_dir_.CreateUniqueTempDir());
     AddComponentsTestResources();
   }
 
@@ -362,7 +341,7 @@ class ContentExtractor : public ContentBrowserTest {
         std::make_unique<sync_preferences::TestingPrefServiceSyncable>();
 
     service_ = CreateDomDistillerService(context, pref_service_.get(),
-                                         db_dir_.GetPath(), file_to_url_map);
+                                         file_to_url_map);
     PumpQueue();
   }
 
@@ -438,7 +417,6 @@ class ContentExtractor : public ContentBrowserTest {
   size_t max_tasks_;
   size_t next_request_;
 
-  base::ScopedTempDir db_dir_;
   std::unique_ptr<net::ScopedDefaultHostResolverProc>
       mock_host_resolver_override_;
   std::unique_ptr<sync_preferences::TestingPrefServiceSyncable> pref_service_;

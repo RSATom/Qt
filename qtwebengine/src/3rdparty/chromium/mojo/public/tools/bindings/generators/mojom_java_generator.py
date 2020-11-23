@@ -99,33 +99,15 @@ _java_reserved_types = [
   'R'
 ]
 
-def NameToComponent(name):
-  """ Returns a list of lowercase words corresponding to a given name. """
-  # Add underscores after uppercase letters when appropriate. An uppercase
-  # letter is considered the end of a word if it is followed by an upper and a
-  # lower. E.g. URLLoaderFactory -> URL_LoaderFactory
-  name = re.sub('([A-Z][0-9]*)(?=[A-Z][0-9]*[a-z])', r'\1_', name)
-  # Add underscores after lowercase letters when appropriate. A lowercase letter
-  # is considered the end of a word if it is followed by an upper.
-  # E.g. URLLoaderFactory -> URLLoader_Factory
-  name = re.sub('([a-z][0-9]*)(?=[A-Z])', r'\1_', name)
-  return [x.lower() for x in name.split('_')]
-
 def UpperCamelCase(name):
-  return ''.join([x.capitalize() for x in NameToComponent(name)])
+  return ''.join([x.capitalize() for x in generator.SplitCamelCase(name)])
 
 def CamelCase(name):
   uccc = UpperCamelCase(name)
   return uccc[0].lower() + uccc[1:]
 
 def ConstantStyle(name):
-  components = NameToComponent(name)
-  if components[0] == 'k' and len(components) > 1:
-    components = components[1:]
-  # variable cannot starts with a digit.
-  if components[0][0].isdigit():
-    components[0] = '_' + components[0]
-  return '_'.join([x.upper() for x in components])
+  return generator.ToConstantCase(name)
 
 def GetNameForElement(element):
   if (mojom.IsEnumKind(element) or mojom.IsInterfaceKind(element) or
@@ -521,26 +503,26 @@ class Generator(generator.Generator):
     fileutil.EnsureDirectoryExists(self.output_dir)
 
     for struct in self.module.structs:
-      self.Write(self._GenerateStructSource(struct),
-                 '%s.java' % GetNameForElement(struct))
+      self.WriteWithComment(self._GenerateStructSource(struct),
+                            '%s.java' % GetNameForElement(struct))
 
     for union in self.module.unions:
-      self.Write(self._GenerateUnionSource(union),
-                 '%s.java' % GetNameForElement(union))
+      self.WriteWithComment(self._GenerateUnionSource(union),
+                            '%s.java' % GetNameForElement(union))
 
     for enum in self.module.enums:
-      self.Write(self._GenerateEnumSource(enum),
-                 '%s.java' % GetNameForElement(enum))
+      self.WriteWithComment(self._GenerateEnumSource(enum),
+                            '%s.java' % GetNameForElement(enum))
 
     for interface in self.module.interfaces:
-      self.Write(self._GenerateInterfaceSource(interface),
-                 '%s.java' % GetNameForElement(interface))
-      self.Write(self._GenerateInterfaceInternalSource(interface),
-                 '%s_Internal.java' % GetNameForElement(interface))
+      self.WriteWithComment(self._GenerateInterfaceSource(interface),
+                            '%s.java' % GetNameForElement(interface))
+      self.WriteWithComment(self._GenerateInterfaceInternalSource(interface),
+                            '%s_Internal.java' % GetNameForElement(interface))
 
     if self.module.constants:
-      self.Write(self._GenerateConstantsSource(self.module),
-                 '%s.java' % GetConstantsMainEntityName(self.module))
+      self.WriteWithComment(self._GenerateConstantsSource(self.module),
+                            '%s.java' % GetConstantsMainEntityName(self.module))
 
   def GenerateFiles(self, unparsed_args):
     # TODO(rockot): Support variant output for Java.

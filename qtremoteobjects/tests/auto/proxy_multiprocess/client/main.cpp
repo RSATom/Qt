@@ -61,7 +61,7 @@ private Q_SLOTS:
             QVERIFY(m_rep->tracks() != nullptr);
             QVERIFY(tracksSpy.count() || tracksSpy.wait());
             QCOMPARE(m_rep->myEnum(), ParentClassReplica::bar);
-            QCOMPARE(m_rep->date(), Qt::SystemLocaleShortDate);
+            QCOMPARE(m_rep->date(), Qt::RFC2822Date);
             QCOMPARE(m_rep->nsEnum(), NS::Bravo);
             QCOMPARE(m_rep->ns2Enum(), NS2::NamespaceEnum::Bravo);
             QCOMPARE(m_rep->variant(), QVariant::fromValue(42.0f));
@@ -100,7 +100,7 @@ private Q_SLOTS:
         QCOMPARE(m_rep->subClass()->i(), updatedI);
         QVERIFY(m_rep->tracks() != nullptr);
         QCOMPARE(m_rep->myEnum(), ParentClassReplica::foobar);
-        QCOMPARE(m_rep->date(), Qt::SystemLocaleLongDate);
+        QCOMPARE(m_rep->date(), Qt::ISODateWithMs);
         QCOMPARE(m_rep->nsEnum(), NS::Charlie);
         QCOMPARE(m_rep->ns2Enum(), NS2::NamespaceEnum::Charlie);
         QCOMPARE(m_rep->variant(), QVariant::fromValue(podValue));

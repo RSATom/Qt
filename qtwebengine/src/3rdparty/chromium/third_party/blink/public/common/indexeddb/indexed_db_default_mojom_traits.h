@@ -8,7 +8,7 @@
 #include "base/containers/span.h"
 #include "third_party/blink/public/common/common_export.h"
 #include "third_party/blink/public/common/indexeddb/indexeddb_key.h"
-#include "third_party/blink/public/mojom/indexeddb/indexeddb.mojom.h"
+#include "third_party/blink/public/mojom/indexeddb/indexeddb.mojom-forward.h"
 
 namespace mojo {
 
@@ -103,8 +103,8 @@ struct BLINK_COMMON_EXPORT
   static bool other_invalid(const blink::IndexedDBKey& key) {
     return key.type() == blink::mojom::IDBKeyType::Invalid;
   }
-  static bool other_null(const blink::IndexedDBKey& key) {
-    return key.type() == blink::mojom::IDBKeyType::Null;
+  static bool other_none(const blink::IndexedDBKey& key) {
+    return key.type() == blink::mojom::IDBKeyType::None;
   }
 };
 

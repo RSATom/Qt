@@ -51,6 +51,8 @@
 // We mean it.
 //
 
+#include <private/qtquickglobal_p.h>
+#include <QtGui/qevent.h>
 #include <qqml.h>
 
 QT_BEGIN_NAMESPACE
@@ -60,6 +62,26 @@ class QQuickItemsModule
 public:
     static void defineModule();
 };
+
+struct QPointingDeviceUniqueIdForeign
+{
+    Q_GADGET
+    QML_FOREIGN(QPointingDeviceUniqueId)
+    QML_NAMED_ELEMENT(PointingDeviceUniqueId)
+    QML_ADDED_IN_MINOR_VERSION(9)
+    QML_UNCREATABLE("PointingDeviceUniqueId is only available via read-only properties.")
+};
+
+#if !QT_CONFIG(quick_animatedimage)
+struct QQuickAnimatedImageNotAvailable
+{
+    Q_GADGET
+    QML_UNAVAILABLE
+    QML_NAMED_ELEMENT(AnimatedImage)
+    QML_ADDED_IN_MINOR_VERSION(0)
+    QML_UNCREATABLE("Qt was built without support for QMovie.")
+};
+#endif
 
 QT_END_NAMESPACE
 

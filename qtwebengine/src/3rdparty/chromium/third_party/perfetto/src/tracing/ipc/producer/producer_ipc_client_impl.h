@@ -29,7 +29,7 @@
 #include "perfetto/ext/tracing/core/tracing_service.h"
 #include "perfetto/ext/tracing/ipc/producer_ipc_client.h"
 
-#include "perfetto/ipc/producer_port.ipc.h"
+#include "protos/perfetto/ipc/producer_port.ipc.h"
 
 namespace perfetto {
 
@@ -74,7 +74,8 @@ class ProducerIPCClientImpl : public TracingService::ProducerEndpoint,
   void ActivateTriggers(const std::vector<std::string>&) override;
 
   std::unique_ptr<TraceWriter> CreateTraceWriter(
-      BufferID target_buffer) override;
+      BufferID target_buffer,
+      BufferExhaustedPolicy) override;
   SharedMemoryArbiter* GetInProcessShmemArbiter() override;
   void NotifyFlushComplete(FlushRequestID) override;
   SharedMemory* shared_memory() const override;
@@ -92,7 +93,7 @@ class ProducerIPCClientImpl : public TracingService::ProducerEndpoint,
 
   // Invoked when the remote Service sends an IPC to tell us to do something
   // (e.g. start/stop a data source).
-  void OnServiceRequest(const protos::GetAsyncCommandResponse&);
+  void OnServiceRequest(const protos::gen::GetAsyncCommandResponse&);
 
   // TODO think to destruction order, do we rely on any specific dtor sequence?
   Producer* const producer_;
@@ -103,7 +104,7 @@ class ProducerIPCClientImpl : public TracingService::ProducerEndpoint,
 
   // The proxy interface for the producer port of the service. It is bound
   // to |ipc_channel_| and (de)serializes method invocations over the wire.
-  protos::ProducerPortProxy producer_port_;
+  protos::gen::ProducerPortProxy producer_port_;
 
   std::unique_ptr<PosixSharedMemory> shared_memory_;
   std::unique_ptr<SharedMemoryArbiter> shared_memory_arbiter_;

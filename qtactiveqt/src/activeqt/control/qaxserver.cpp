@@ -267,18 +267,21 @@ static void UpdateRegistryKeys(bool bRegister, const QString keyPath, QScopedPoi
                 const QString versionLessProgId = module + dot + className;
                 const QString progId = versionLessProgId + dot + classMajorVersion;
                 QString key = slash + progId;
-                settings->setValue(key + QLatin1String("/."), className + QLatin1String(" Class"));
+                settings->setValue(key + QLatin1String("/."),
+                                   QString(className + QLatin1String(" Class")));
                 settings->setValue(key + QLatin1String("/CLSID/."), classId);
                 if (insertable)
                     settings->setValue(key + QLatin1String("/Insertable/."), QVariant(QLatin1String("")));
 
                 key = slash + module + dot + className;
-                settings->setValue(key + QLatin1String("/."), className + QLatin1String(" Class"));
+                settings->setValue(key + QLatin1String("/."),
+                                   QString(className + QLatin1String(" Class")));
                 settings->setValue(key + QLatin1String("/CLSID/."), classId);
                 settings->setValue(key + QLatin1String("/CurVer/."), progId);
 
                 key = QLatin1String("/CLSID/") + classId;
-                settings->setValue(key + QLatin1String("/."), className + QLatin1String(" Class"));
+                settings->setValue(key + QLatin1String("/."),
+                                   QString(className + QLatin1String(" Class")));
                 settings->setValue(key + QLatin1String("/AppID"), appId);
                 if (control)
                     settings->setValue(key + QLatin1String("/Control/."), QVariant(QLatin1String("")));
@@ -288,12 +291,12 @@ static void UpdateRegistryKeys(bool bRegister, const QString keyPath, QScopedPoi
                     settings->setValue(key + QLatin1String("/InProcServer32/."), file);
                 else
                     settings->setValue(key + QLatin1String("/LocalServer32/."),
-                                      QLatin1Char('\"') + file + QLatin1String("\" -activex"));
+                                       QString(QLatin1Char('\"') + file + QLatin1String("\" -activex")));
                 settings->setValue(key + QLatin1String("/MiscStatus/."), control ? QLatin1String("1") : QLatin1String("0"));
                 settings->setValue(key + QLatin1String("/MiscStatus/1/."), QString::number(olemisc));
                 settings->setValue(key + QLatin1String("/Programmable/."), QVariant(QLatin1String("")));
-                settings->setValue(key + QLatin1String("/ToolboxBitmap32/."), QLatin1Char('\"') +
-                                  file + QLatin1String("\", 101"));
+                settings->setValue(key + QLatin1String("/ToolboxBitmap32/."),
+                                   QString(QLatin1Char('\"') + file + QLatin1String("\", 101")));
                 settings->setValue(key + QLatin1String("/TypeLib/."), libId);
                 settings->setValue(key + QLatin1String("/Version/."), classVersion);
                 settings->setValue(key + QLatin1String("/VersionIndependentProgID/."), versionLessProgId);
@@ -318,7 +321,8 @@ static void UpdateRegistryKeys(bool bRegister, const QString keyPath, QScopedPoi
 
                         if (!extension.isEmpty()) {
                             key = slash + extension;
-                            settings->setValue(key + QLatin1String("/."), module + dot + className);
+                            settings->setValue(key + QLatin1String("/."),
+                                               QString(module + dot + className));
                             settings->setValue(key + QLatin1String("/Content Type"), mime);
 
                             mime.replace(slash, QLatin1Char('\\'));
@@ -333,7 +337,7 @@ static void UpdateRegistryKeys(bool bRegister, const QString keyPath, QScopedPoi
                 qCDebug(lcAxRegistration).nospace().noquote() << "Registered \"" << progId
                     << "\"/" << classId << ", \"" << file << "\" at \"" << keyPath
                     << "\", insertable=" << insertable << ", control=" << control
-                    << ", olemisc=" << hex << showbase << olemisc
+                    << ", olemisc=" << Qt::hex << Qt::showbase << olemisc
                     << ", mime=" << mime;
             }
 
@@ -499,9 +503,9 @@ HRESULT UpdateRegistry(bool bRegister, bool perUser)
 // IDL generator
 /////////////////////////////////////////////////////////////////////////////
 
-static QList<QByteArray> enums;
-static QList<QByteArray> enumValues;
-static QList<QByteArray> subtypes;
+static QByteArrayList enums;
+static QByteArrayList enumValues;
+static QByteArrayList subtypes;
 
 static const char* const type_map[][2] =
 {
@@ -754,7 +758,7 @@ static QString stripCurlyBraces(const QUuid &uuid)
     return result;
 }
 
-static QByteArray prototype(const QList<QByteArray> &parameterTypes, const QList<QByteArray> &parameterNames, bool *ok)
+static QByteArray prototype(const QByteArrayList &parameterTypes, const QByteArrayList &parameterNames, bool *ok)
 {
     QByteArray prototype;
 
@@ -872,7 +876,7 @@ static HRESULT classIDL(QObject *o, const QMetaObject *mo, const QString &classN
 
         enums.append(enumerator.name());
 
-        out << "\tenum " << enumerator.name() << " {" << endl;
+        out << "\tenum " << enumerator.name() << " {" << Qt::endl;
 
         for (int j = 0; j < enumerator.keyCount(); ++j) {
             QByteArray key(enumerator.key(j));
@@ -889,54 +893,54 @@ static HRESULT classIDL(QObject *o, const QMetaObject *mo, const QString &classN
                 out << value;
             if (j < enumerator.keyCount()-1)
                 out << ", ";
-            out << endl;
+            out << Qt::endl;
         }
-        out << "\t};" << endl << endl;
+        out << "\t};" << Qt::endl << Qt::endl;
     }
 
     // mouse cursor enum for QCursor support
     if (!enums.contains("MousePointer")) {
         enums.append("MousePointer");
-        out << "\tenum MousePointer {" << endl;
-        out << "\t\tArrowCursor             = " << Qt::ArrowCursor << ',' << endl;
-        out << "\t\tUpArrowCursor           = " << Qt::UpArrowCursor << ',' << endl;
-        out << "\t\tCrossCursor             = " << Qt::CrossCursor << ',' << endl;
-        out << "\t\tWaitCursor              = " << Qt::WaitCursor << ',' << endl;
-        out << "\t\tIBeamCursor             = " << Qt::IBeamCursor << ',' << endl;
-        out << "\t\tSizeVerCursor           = " << Qt::SizeVerCursor << ',' << endl;
-        out << "\t\tSizeHorCursor           = " << Qt::SizeHorCursor << ',' << endl;
-        out << "\t\tSizeBDiagCursor         = " << Qt::SizeBDiagCursor << ',' << endl;
-        out << "\t\tSizeFDiagCursor         = " << Qt::SizeFDiagCursor << ',' << endl;
-        out << "\t\tSizeAllCursor           = " << Qt::SizeAllCursor << ',' << endl;
-        out << "\t\tBlankCursor             = " << Qt::BlankCursor << ',' << endl;
-        out << "\t\tSplitVCursor            = " << Qt::SplitVCursor << ',' << endl;
-        out << "\t\tSplitHCursor            = " << Qt::SplitHCursor << ',' << endl;
-        out << "\t\tPointingHandCursor      = " << Qt::PointingHandCursor << ',' << endl;
-        out << "\t\tForbiddenCursor         = " << Qt::ForbiddenCursor << ',' << endl;
-        out << "\t\tWhatsThisCursor         = " << Qt::WhatsThisCursor << ',' << endl;
-        out << "\t\tBusyCursor\t= " << Qt::BusyCursor << endl;
-        out << "\t};" << endl << endl;
+        out << "\tenum MousePointer {" << Qt::endl;
+        out << "\t\tArrowCursor             = " << Qt::ArrowCursor << ',' << Qt::endl;
+        out << "\t\tUpArrowCursor           = " << Qt::UpArrowCursor << ',' << Qt::endl;
+        out << "\t\tCrossCursor             = " << Qt::CrossCursor << ',' << Qt::endl;
+        out << "\t\tWaitCursor              = " << Qt::WaitCursor << ',' << Qt::endl;
+        out << "\t\tIBeamCursor             = " << Qt::IBeamCursor << ',' << Qt::endl;
+        out << "\t\tSizeVerCursor           = " << Qt::SizeVerCursor << ',' << Qt::endl;
+        out << "\t\tSizeHorCursor           = " << Qt::SizeHorCursor << ',' << Qt::endl;
+        out << "\t\tSizeBDiagCursor         = " << Qt::SizeBDiagCursor << ',' << Qt::endl;
+        out << "\t\tSizeFDiagCursor         = " << Qt::SizeFDiagCursor << ',' << Qt::endl;
+        out << "\t\tSizeAllCursor           = " << Qt::SizeAllCursor << ',' << Qt::endl;
+        out << "\t\tBlankCursor             = " << Qt::BlankCursor << ',' << Qt::endl;
+        out << "\t\tSplitVCursor            = " << Qt::SplitVCursor << ',' << Qt::endl;
+        out << "\t\tSplitHCursor            = " << Qt::SplitHCursor << ',' << Qt::endl;
+        out << "\t\tPointingHandCursor      = " << Qt::PointingHandCursor << ',' << Qt::endl;
+        out << "\t\tForbiddenCursor         = " << Qt::ForbiddenCursor << ',' << Qt::endl;
+        out << "\t\tWhatsThisCursor         = " << Qt::WhatsThisCursor << ',' << Qt::endl;
+        out << "\t\tBusyCursor\t= " << Qt::BusyCursor << Qt::endl;
+        out << "\t};" << Qt::endl << Qt::endl;
     }
     if (!enums.contains("FocusPolicy")) {
         enums.append("FocusPolicy");
-        out << "\tenum FocusPolicy {" << endl;
-        out << "\t\tNoFocus             = " << Qt::NoFocus << ',' << endl;
-        out << "\t\tTabFocus            = " << Qt::TabFocus << ',' << endl;
-        out << "\t\tClickFocus          = " << Qt::ClickFocus << ',' << endl;
-        out << "\t\tStrongFocus         = " << Qt::StrongFocus << ',' << endl;
-        out << "\t\tWheelFocus          = " << Qt::WheelFocus << endl;
-        out << "\t};" << endl << endl;
+        out << "\tenum FocusPolicy {" << Qt::endl;
+        out << "\t\tNoFocus             = " << Qt::NoFocus << ',' << Qt::endl;
+        out << "\t\tTabFocus            = " << Qt::TabFocus << ',' << Qt::endl;
+        out << "\t\tClickFocus          = " << Qt::ClickFocus << ',' << Qt::endl;
+        out << "\t\tStrongFocus         = " << Qt::StrongFocus << ',' << Qt::endl;
+        out << "\t\tWheelFocus          = " << Qt::WheelFocus << Qt::endl;
+        out << "\t};" << Qt::endl << Qt::endl;
     }
 
-    out << endl;
-    out << "\t[" << endl;
-    out << "\t\tuuid(" << interfaceID << ")," << endl;
-    out << "\t\thelpstring(\"" << cleanClassName << " Interface\")" << endl;
-    out << "\t]" << endl;
-    out << "\tdispinterface I" << cleanClassName  << endl;
-    out << "\t{" << endl;
+    out << Qt::endl;
+    out << "\t[" << Qt::endl;
+    out << "\t\tuuid(" << interfaceID << ")," << Qt::endl;
+    out << "\t\thelpstring(\"" << cleanClassName << " Interface\")" << Qt::endl;
+    out << "\t]" << Qt::endl;
+    out << "\tdispinterface I" << cleanClassName  << Qt::endl;
+    out << "\t{" << Qt::endl;
 
-    out << "\tproperties:" << endl;
+    out << "\tproperties:" << Qt::endl;
     for (i = propoff; i < mo->propertyCount(); ++i) {
         const QMetaProperty property = mo->property(i);
         /* if (property.testFlags(QMetaProperty::Override))
@@ -951,7 +955,7 @@ static HRESULT classIDL(QObject *o, const QMetaObject *mo, const QString &classN
         QByteArray name(replaceKeyword(property.name()));
 
         if (!ok)
-            out << "\t/****** Property is of unsupported datatype" << endl;
+            out << "\t/****** Property is of unsupported datatype" << Qt::endl;
 
         out << "\t\t[id(" << id << ')';
         if (!property.isWritable())
@@ -964,14 +968,14 @@ static HRESULT classIDL(QObject *o, const QMetaObject *mo, const QString &classN
             out << ", requestedit";
         if (defProp == QLatin1String(name))
             out << ", uidefault";
-        out << "] " << type << ' ' << name << ';' << endl;
+        out << "] " << type << ' ' << name << ';' << Qt::endl;
 
         if (!ok)
-            out << "\t******/" << endl;
+            out << "\t******/" << Qt::endl;
         ++id;
     }
-    out << endl;
-    out << "\tmethods:" << endl;
+    out << Qt::endl;
+    out << "\tmethods:" << Qt::endl;
     int numDefArgs = 0;
     QByteArray outBuffer;
     for (i = methodoff; i < mo->methodCount(); ++i) {
@@ -1001,8 +1005,8 @@ static HRESULT classIDL(QObject *o, const QMetaObject *mo, const QString &classN
         if (ignoreSlots(name))
             continue;
 
-        QList<QByteArray> parameterTypes(slot.parameterTypes());
-        QList<QByteArray> parameterNames(slot.parameterNames());
+        const auto parameterTypes = slot.parameterTypes();
+        const auto parameterNames = slot.parameterNames();
 
         bool ok = true;
         QByteArray type = slot.typeName();
@@ -1028,31 +1032,31 @@ static HRESULT classIDL(QObject *o, const QMetaObject *mo, const QString &classN
         out << outBuffer;
         outBuffer = QByteArray();
     }
-    out << "\t};" << endl << endl;
+    out << "\t};" << Qt::endl << Qt::endl;
 
     mapping.clear();
     id = 1;
 
     if (hasEvents) {
-        out << "\t[" << endl;
-        out << "\t\tuuid(" << eventsID << ")," << endl;
-        out << "\t\thelpstring(\"" << cleanClassName << " Events Interface\")" << endl;
-        out << "\t]" << endl;
-        out << "\tdispinterface I" << cleanClassName << "Events" << endl;
-        out << "\t{" << endl;
-        out << "\tproperties:" << endl;
-        out << "\tmethods:" << endl;
+        out << "\t[" << Qt::endl;
+        out << "\t\tuuid(" << eventsID << ")," << Qt::endl;
+        out << "\t\thelpstring(\"" << cleanClassName << " Events Interface\")" << Qt::endl;
+        out << "\t]" << Qt::endl;
+        out << "\tdispinterface I" << cleanClassName << "Events" << Qt::endl;
+        out << "\t{" << Qt::endl;
+        out << "\tproperties:" << Qt::endl;
+        out << "\tmethods:" << Qt::endl;
 
         if (hasStockEvents) {
-            out << "\t/****** Stock events ******/" << endl;
-            out << "\t\t[id(DISPID_CLICK)] void Click();" << endl;
-            out << "\t\t[id(DISPID_DBLCLICK)] void DblClick();" << endl;
-            out << "\t\t[id(DISPID_KEYDOWN)] void KeyDown(short* KeyCode, short Shift);" << endl;
-            out << "\t\t[id(DISPID_KEYPRESS)] void KeyPress(short* KeyAscii);" << endl;
-            out << "\t\t[id(DISPID_KEYUP)] void KeyUp(short* KeyCode, short Shift);" << endl;
-            out << "\t\t[id(DISPID_MOUSEDOWN)] void MouseDown(short Button, short Shift, OLE_XPOS_PIXELS x, OLE_YPOS_PIXELS y);" << endl;
-            out << "\t\t[id(DISPID_MOUSEMOVE)] void MouseMove(short Button, short Shift, OLE_XPOS_PIXELS x, OLE_YPOS_PIXELS y);" << endl;
-            out << "\t\t[id(DISPID_MOUSEUP)] void MouseUp(short Button, short Shift, OLE_XPOS_PIXELS x, OLE_YPOS_PIXELS y);" << endl << endl;
+            out << "\t/****** Stock events ******/" << Qt::endl;
+            out << "\t\t[id(DISPID_CLICK)] void Click();" << Qt::endl;
+            out << "\t\t[id(DISPID_DBLCLICK)] void DblClick();" << Qt::endl;
+            out << "\t\t[id(DISPID_KEYDOWN)] void KeyDown(short* KeyCode, short Shift);" << Qt::endl;
+            out << "\t\t[id(DISPID_KEYPRESS)] void KeyPress(short* KeyAscii);" << Qt::endl;
+            out << "\t\t[id(DISPID_KEYUP)] void KeyUp(short* KeyCode, short Shift);" << Qt::endl;
+            out << "\t\t[id(DISPID_MOUSEDOWN)] void MouseDown(short Button, short Shift, OLE_XPOS_PIXELS x, OLE_YPOS_PIXELS y);" << Qt::endl;
+            out << "\t\t[id(DISPID_MOUSEMOVE)] void MouseMove(short Button, short Shift, OLE_XPOS_PIXELS x, OLE_YPOS_PIXELS y);" << Qt::endl;
+            out << "\t\t[id(DISPID_MOUSEUP)] void MouseUp(short Button, short Shift, OLE_XPOS_PIXELS x, OLE_YPOS_PIXELS y);" << Qt::endl << Qt::endl;
         }
 
         for (i = methodoff; i < mo->methodCount(); ++i) {
@@ -1065,8 +1069,8 @@ static HRESULT classIDL(QObject *o, const QMetaObject *mo, const QString &classN
             signature.remove(0, name.length() + 1);
             signature.truncate(signature.length() - 1);
 
-            QList<QByteArray> parameterTypes(signal.parameterTypes());
-            QList<QByteArray> parameterNames(signal.parameterNames());
+            const auto parameterTypes = signal.parameterTypes();
+            const auto parameterNames = signal.parameterNames();
 
             bool isDefault = defSignal == QLatin1String(name);
             name = renameOverloads(replaceKeyword(name));
@@ -1078,52 +1082,52 @@ static HRESULT classIDL(QObject *o, const QMetaObject *mo, const QString &classN
 
             QByteArray ptype(prototype(parameterTypes, parameterNames, &ok));
             if (!ok)
-                out << "\t/****** Signal parameter uses unsupported datatype" << endl;
+                out << "\t/****** Signal parameter uses unsupported datatype" << Qt::endl;
 
             out << "\t\t[id(" << id << ')';
             if (isDefault)
                 out << ", uidefault";
-            out << "] void " << name << '(' << ptype << ");" << endl;
+            out << "] void " << name << '(' << ptype << ");" << Qt::endl;
 
             if (!ok)
-                out << "\t******/" << endl;
+                out << "\t******/" << Qt::endl;
             ++id;
         }
-        out << "\t};" << endl << endl;
+        out << "\t};" << Qt::endl << Qt::endl;
     }
 
-    out << "\t[" << endl;
+    out << "\t[" << Qt::endl;
 
     if (qstricmp(mo->classInfo(mo->indexOfClassInfo("Aggregatable")).value(), "no"))
-        out << "\t\taggregatable," << endl;
+        out << "\t\taggregatable," << Qt::endl;
     if (!qstricmp(mo->classInfo(mo->indexOfClassInfo("RegisterObject")).value(), "yes"))
-        out << "\t\tappobject," << endl;
+        out << "\t\tappobject," << Qt::endl;
     if (mo->classInfo(mo->indexOfClassInfo("LicenseKey")).value())
-        out << "\t\tlicensed," << endl;
+        out << "\t\tlicensed," << Qt::endl;
     const char *helpString = mo->classInfo(mo->indexOfClassInfo("Description")).value();
     if (helpString)
-        out << "\t\thelpstring(\"" << helpString << "\")," << endl;
+        out << "\t\thelpstring(\"" << helpString << "\")," << Qt::endl;
     else
-        out << "\t\thelpstring(\"" << cleanClassName << " Class\")," << endl;
+        out << "\t\thelpstring(\"" << cleanClassName << " Class\")," << Qt::endl;
     const char *classVersion = mo->classInfo(mo->indexOfClassInfo("Version")).value();
     if (classVersion)
-        out << "\t\tversion(" << classVersion << ")," << endl;
+        out << "\t\tversion(" << classVersion << ")," << Qt::endl;
     out << "\t\tuuid(" << classID << ')';
     if (control) {
-        out << ", " << endl;
+        out << ", " << Qt::endl;
         out << "\t\tcontrol";
     } else if (!o) {
-        out << ", " << endl;
+        out << ", " << Qt::endl;
         out << "\t\tnoncreatable";
     }
-    out << endl;
-    out << "\t]" << endl;
-    out << "\tcoclass " << cleanClassName << endl;
-    out << "\t{" << endl;
-    out << "\t\t[default] dispinterface I" << cleanClassName << ';' << endl;
+    out << Qt::endl;
+    out << "\t]" << Qt::endl;
+    out << "\tcoclass " << cleanClassName << Qt::endl;
+    out << "\t{" << Qt::endl;
+    out << "\t\t[default] dispinterface I" << cleanClassName << ';' << Qt::endl;
     if (hasEvents)
-        out << "\t\t[default, source] dispinterface I" << cleanClassName << "Events;" << endl;
-    out << "\t};" << endl;
+        out << "\t\t[default, source] dispinterface I" << cleanClassName << "Events;" << Qt::endl;
+    out << "\t};" << Qt::endl;
 
     return S_OK;
 }
@@ -1157,9 +1161,10 @@ extern "C" HRESULT __stdcall DumpIDL(const QString &outfile, const QString &ver)
     out.setDevice(&file);
 
     QString version(ver.unicode(), ver.length());
+    // truncate "major.minor.patch.build" version string to "major.minor"
     while (version.count(QLatin1Char('.')) > 1) {
         int lastdot = version.lastIndexOf(QLatin1Char('.'));
-        version.remove(lastdot, 1);
+        version.truncate(lastdot);
     }
     if (version.isEmpty())
         version = QLatin1String("1.0");
@@ -1168,18 +1173,18 @@ extern "C" HRESULT __stdcall DumpIDL(const QString &outfile, const QString &ver)
     const QString idQSize = stripCurlyBraces(QUuid(CLSID_QSize));
     const QString idQPoint = stripCurlyBraces(QUuid(CLSID_QPoint));
 
-    out << "/****************************************************************************" << endl;
-    out << "** Interface definition generated for ActiveQt project" << endl;
-    out << "**" << endl;
-    out << "**     '" << QString::fromWCharArray(qAxModuleFilename) << '\'' << endl;
-    out << "**" << endl;
-    out << "** Created:  " << QDateTime::currentDateTime().toString() << endl;
-    out << "**" << endl;
-    out << "** WARNING! All changes made in this file will be lost!" << endl;
-    out << "****************************************************************************/" << endl << endl;
+    out << "/****************************************************************************" << Qt::endl;
+    out << "** Interface definition generated for ActiveQt project" << Qt::endl;
+    out << "**" << Qt::endl;
+    out << "**     '" << QString::fromWCharArray(qAxModuleFilename) << '\'' << Qt::endl;
+    out << "**" << Qt::endl;
+    out << "** Created:  " << QDateTime::currentDateTime().toString() << Qt::endl;
+    out << "**" << Qt::endl;
+    out << "** WARNING! All changes made in this file will be lost!" << Qt::endl;
+    out << "****************************************************************************/" << Qt::endl << Qt::endl;
 
-    out << "import \"ocidl.idl\";" << endl;
-    out << "#include <olectl.h>" << endl << endl;
+    out << "import \"ocidl.idl\";" << Qt::endl;
+    out << "#include <olectl.h>" << Qt::endl << Qt::endl;
 
     // dummy application to create widgets
     bool delete_qApp = false;
@@ -1189,59 +1194,59 @@ extern "C" HRESULT __stdcall DumpIDL(const QString &outfile, const QString &ver)
         delete_qApp = true;
     }
 
-    out << '[' << endl;
-    out << "\tuuid(" << typeLibID << ")," << endl;
-    out << "\tversion(" << version << ")," << endl;
-    out << "\thelpstring(\"" << typelib << ' ' << version << " Type Library\")" << endl;
-    out << ']' << endl;
-    out << "library " << typelib << "Lib" << endl;
-    out << '{' << endl;
-    out << "\timportlib(\"stdole32.tlb\");" << endl;
-    out << "\timportlib(\"stdole2.tlb\");" << endl << endl;
+    out << '[' << Qt::endl;
+    out << "\tuuid(" << typeLibID << ")," << Qt::endl;
+    out << "\tversion(" << version << ")," << Qt::endl;
+    out << "\thelpstring(\"" << typelib << ' ' << version << " Type Library\")" << Qt::endl;
+    out << ']' << Qt::endl;
+    out << "library " << typelib << "Lib" << Qt::endl;
+    out << '{' << Qt::endl;
+    out << "\timportlib(\"stdole32.tlb\");" << Qt::endl;
+    out << "\timportlib(\"stdole2.tlb\");" << Qt::endl << Qt::endl;
 
     const QStringList keys = qAxFactory()->featureList();
 
-    out << "\t/************************************************************************" << endl;
-    out << "\t** If this causes a compile error in MIDL you need to upgrade the" << endl;
-    out << "\t** Platform SDK you are using. Download the SDK from msdn.microsoft.com" << endl;
-    out << "\t** and make sure that both the system and the Visual Studio environment" << endl;
-    out << "\t** use the correct files." << endl;
-    out << "\t**" << endl;
+    out << "\t/************************************************************************" << Qt::endl;
+    out << "\t** If this causes a compile error in MIDL you need to upgrade the" << Qt::endl;
+    out << "\t** Platform SDK you are using. Download the SDK from msdn.microsoft.com" << Qt::endl;
+    out << "\t** and make sure that both the system and the Visual Studio environment" << Qt::endl;
+    out << "\t** use the correct files." << Qt::endl;
+    out << "\t**" << Qt::endl;
 
 #if __REQUIRED_RPCNDR_H_VERSION__ < Q_REQUIRED_RPCNDR_H_VERSION
-    out << "\t** Required version of MIDL could not be verified. QRect, QSize and QPoint" << endl;
-    out << "\t** support needs an updated Platform SDK to be installed." << endl;
-    out << "\t*************************************************************************" << endl;
+    out << "\t** Required version of MIDL could not be verified. QRect, QSize and QPoint" << Qt::endl;
+    out << "\t** support needs an updated Platform SDK to be installed." << Qt::endl;
+    out << "\t*************************************************************************" << Qt::endl;
 #else
-    out << "\t************************************************************************/" << endl;
+    out << "\t************************************************************************/" << Qt::endl;
 #endif
 
-    out << endl;
-    out << "\t[uuid(" << idQRect << ")]" << endl;
-    out << "\tstruct QRect {" << endl;
-    out << "\t\tint left;" << endl;
-    out << "\t\tint top;" << endl;
-    out << "\t\tint right;" << endl;
-    out << "\t\tint bottom;" << endl;
-    out << "\t};" << endl << endl;
+    out << Qt::endl;
+    out << "\t[uuid(" << idQRect << ")]" << Qt::endl;
+    out << "\tstruct QRect {" << Qt::endl;
+    out << "\t\tint left;" << Qt::endl;
+    out << "\t\tint top;" << Qt::endl;
+    out << "\t\tint right;" << Qt::endl;
+    out << "\t\tint bottom;" << Qt::endl;
+    out << "\t};" << Qt::endl << Qt::endl;
 
-    out << "\t[uuid(" << idQSize << ")]" << endl;
-    out << "\tstruct QSize {" << endl;
-    out << "\t\tint width;" << endl;
-    out << "\t\tint height;" << endl;
-    out << "\t};" << endl << endl;
+    out << "\t[uuid(" << idQSize << ")]" << Qt::endl;
+    out << "\tstruct QSize {" << Qt::endl;
+    out << "\t\tint width;" << Qt::endl;
+    out << "\t\tint height;" << Qt::endl;
+    out << "\t};" << Qt::endl << Qt::endl;
 
-    out << "\t[uuid(" << idQPoint << ")]" << endl;
-    out << "\tstruct QPoint {" << endl;
-    out << "\t\tint x;" << endl;
-    out << "\t\tint y;" << endl;
-    out << "\t};" << endl;
+    out << "\t[uuid(" << idQPoint << ")]" << Qt::endl;
+    out << "\tstruct QPoint {" << Qt::endl;
+    out << "\t\tint x;" << Qt::endl;
+    out << "\t\tint y;" << Qt::endl;
+    out << "\t};" << Qt::endl;
 #if __REQUIRED_RPCNDR_H_VERSION__ < Q_REQUIRED_RPCNDR_H_VERSION
-    out << "\t*/" << endl;
+    out << "\t*/" << Qt::endl;
 #endif
-    out << endl;
+    out << Qt::endl;
 
-    out << "\t/* Forward declaration of classes that might be used as parameters */" << endl << endl;
+    out << "\t/* Forward declaration of classes that might be used as parameters */" << Qt::endl << Qt::endl;
 
     int res = S_OK;
     for (const QString &className : keys) {
@@ -1249,7 +1254,7 @@ extern "C" HRESULT __stdcall DumpIDL(const QString &outfile, const QString &ver)
         // We have meta object information for this type. Forward declare it.
         if (mo) {
             QByteArray cleanType = qax_clean_type(className, mo).toLatin1();
-            out << "\tcoclass " << cleanType << ';' << endl;
+            out << "\tcoclass " << cleanType << ';' << Qt::endl;
             subtypes.append(cleanType);
             if (!QMetaType::type(cleanType))
                 qRegisterMetaType<void *>(cleanType);
@@ -1259,7 +1264,7 @@ extern "C" HRESULT __stdcall DumpIDL(const QString &outfile, const QString &ver)
                 qRegisterMetaType<void *>(cleanType);
         }
     }
-    out << endl;
+    out << Qt::endl;
 
     for (const QString &className : keys) {
         const QMetaObject *mo = qAxFactory()->metaObject(className);
@@ -1273,7 +1278,7 @@ extern "C" HRESULT __stdcall DumpIDL(const QString &outfile, const QString &ver)
         }
     }
 
-    out << endl;
+    out << Qt::endl;
     if (res != S_OK)
         goto ErrorInClass;
 
@@ -1294,7 +1299,7 @@ extern "C" HRESULT __stdcall DumpIDL(const QString &outfile, const QString &ver)
             break;
     }
 
-    out << "};" << endl;
+    out << "};" << Qt::endl;
     out.flush();
 
 ErrorInClass:

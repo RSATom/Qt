@@ -252,7 +252,7 @@ Object DeclareEvalHelper(Isolate* isolate, Handle<String> name,
                          value, NONE, is_var, is_function,
                          RedeclarationType::kTypeError);
   }
-  if (context->extension().IsJSGlobalObject()) {
+  if (context->has_extension() && context->extension().IsJSGlobalObject()) {
     Handle<JSGlobalObject> global(JSGlobalObject::cast(context->extension()),
                                   isolate);
     return DeclareGlobal(isolate, global, name, value, NONE, is_var,
@@ -439,7 +439,7 @@ Handle<JSObject> NewSloppyArguments(Isolate* isolate, Handle<JSFunction> callee,
         int parameter = scope_info->ContextLocalParameterNumber(i);
         if (parameter >= mapped_count) continue;
         arguments->set_the_hole(parameter);
-        Smi slot = Smi::FromInt(Context::MIN_CONTEXT_SLOTS + i);
+        Smi slot = Smi::FromInt(scope_info->ContextHeaderLength() + i);
         parameter_map->set(parameter + 2, slot);
       }
     } else {
@@ -633,11 +633,18 @@ static Object FindNameClash(Isolate* isolate, Handle<ScopeInfo> scope_info,
     ScriptContextTable::LookupResult lookup;
     if (ScriptContextTable::Lookup(isolate, *script_context, *name, &lookup)) {
       if (IsLexicalVariableMode(mode) || IsLexicalVariableMode(lookup.mode)) {
-        // ES#sec-globaldeclarationinstantiation 5.b:
-        // If envRec.HasLexicalDeclaration(name) is true, throw a SyntaxError
-        // exception.
-        return ThrowRedeclarationError(isolate, name,
-                                       RedeclarationType::kSyntaxError);
+        Handle<Context> context = ScriptContextTable::GetContext(
+            isolate, script_context, lookup.context_index);
+        // If we are trying to re-declare a REPL-mode let as a let, allow it.
+        if (!(mode == VariableMode::kLet && lookup.mode == VariableMode::kLet &&
+              scope_info->IsReplModeScope() &&
+              context->scope_info().IsReplModeScope())) {
+          // ES#sec-globaldeclarationinstantiation 5.b:
+          // If envRec.HasLexicalDeclaration(name) is true, throw a SyntaxError
+          // exception.
+          return ThrowRedeclarationError(isolate, name,
+                                         RedeclarationType::kSyntaxError);
+        }
       }
     }
 
@@ -677,9 +684,6 @@ RUNTIME_FUNCTION(Runtime_NewScriptContext) {
   Object name_clash_result =
       FindNameClash(isolate, scope_info, global_object, script_context_table);
   if (isolate->has_pending_exception()) return name_clash_result;
-
-  // We do not need script contexts here during bootstrap.
-  DCHECK(!isolate->bootstrapper()->IsActive());
 
   Handle<Context> result =
       isolate->factory()->NewScriptContext(native_context, scope_info);
@@ -992,6 +996,27 @@ RUNTIME_FUNCTION(Runtime_StoreLookupSlot_SloppyHoisting) {
   RETURN_RESULT_OR_FAILURE(
       isolate, StoreLookupSlot(isolate, declaration_context, name, value,
                                LanguageMode::kSloppy, lookup_flags));
+}
+
+RUNTIME_FUNCTION(Runtime_StoreGlobalNoHoleCheckForReplLet) {
+  HandleScope scope(isolate);
+  DCHECK_EQ(2, args.length());
+  CONVERT_ARG_HANDLE_CHECKED(String, name, 0);
+  CONVERT_ARG_HANDLE_CHECKED(Object, value, 1);
+
+  Handle<Context> native_context = isolate->native_context();
+  Handle<ScriptContextTable> script_contexts(
+      native_context->script_context_table(), isolate);
+
+  ScriptContextTable::LookupResult lookup_result;
+  bool found = ScriptContextTable::Lookup(isolate, *script_contexts, *name,
+                                          &lookup_result);
+  CHECK(found);
+  Handle<Context> script_context = ScriptContextTable::GetContext(
+      isolate, script_contexts, lookup_result.context_index);
+
+  script_context->set(lookup_result.slot_index, *value);
+  return *value;
 }
 
 }  // namespace internal

@@ -22,8 +22,7 @@ const char BluetoothGattManagerClient::kNoResponseError[] =
 // The BluetoothGattManagerClient implementation used in production.
 class BluetoothGattManagerClientImpl : public BluetoothGattManagerClient {
  public:
-  BluetoothGattManagerClientImpl()
-      : object_manager_(nullptr), weak_ptr_factory_(this) {}
+  BluetoothGattManagerClientImpl() : object_manager_(nullptr) {}
 
   ~BluetoothGattManagerClientImpl() override = default;
 
@@ -32,7 +31,7 @@ class BluetoothGattManagerClientImpl : public BluetoothGattManagerClient {
                            const dbus::ObjectPath& application_path,
                            const Options& options,
                            const base::Closure& callback,
-                           const ErrorCallback& error_callback) override {
+                           ErrorCallback error_callback) override {
     dbus::MethodCall method_call(
         bluetooth_gatt_manager::kBluetoothGattManagerInterface,
         bluetooth_gatt_manager::kRegisterApplication);
@@ -56,14 +55,15 @@ class BluetoothGattManagerClientImpl : public BluetoothGattManagerClient {
         base::BindOnce(&BluetoothGattManagerClientImpl::OnSuccess,
                        weak_ptr_factory_.GetWeakPtr(), callback),
         base::BindOnce(&BluetoothGattManagerClientImpl::OnError,
-                       weak_ptr_factory_.GetWeakPtr(), error_callback));
+                       weak_ptr_factory_.GetWeakPtr(),
+                       std::move(error_callback)));
   }
 
   // BluetoothGattManagerClient override.
   void UnregisterApplication(const dbus::ObjectPath& adapter_object_path,
                              const dbus::ObjectPath& application_path,
                              const base::Closure& callback,
-                             const ErrorCallback& error_callback) override {
+                             ErrorCallback error_callback) override {
     dbus::MethodCall method_call(
         bluetooth_gatt_manager::kBluetoothGattManagerInterface,
         bluetooth_gatt_manager::kUnregisterApplication);
@@ -80,7 +80,8 @@ class BluetoothGattManagerClientImpl : public BluetoothGattManagerClient {
         base::BindOnce(&BluetoothGattManagerClientImpl::OnSuccess,
                        weak_ptr_factory_.GetWeakPtr(), callback),
         base::BindOnce(&BluetoothGattManagerClientImpl::OnError,
-                       weak_ptr_factory_.GetWeakPtr(), error_callback));
+                       weak_ptr_factory_.GetWeakPtr(),
+                       std::move(error_callback)));
   }
 
  protected:
@@ -103,8 +104,7 @@ class BluetoothGattManagerClientImpl : public BluetoothGattManagerClient {
   }
 
   // Called when a response for a failed method call is received.
-  void OnError(const ErrorCallback& error_callback,
-               dbus::ErrorResponse* response) {
+  void OnError(ErrorCallback error_callback, dbus::ErrorResponse* response) {
     // Error response has optional error message argument.
     std::string error_name;
     std::string error_message;
@@ -115,7 +115,7 @@ class BluetoothGattManagerClientImpl : public BluetoothGattManagerClient {
     } else {
       error_name = kNoResponseError;
     }
-    error_callback.Run(error_name, error_message);
+    std::move(error_callback).Run(error_name, error_message);
   }
 
   // The proxy to the bluez object manager.
@@ -125,7 +125,7 @@ class BluetoothGattManagerClientImpl : public BluetoothGattManagerClient {
   // than we do.
   // Note: This should remain the last member so it'll be destroyed and
   // invalidate its weak pointers before any other members are destroyed.
-  base::WeakPtrFactory<BluetoothGattManagerClientImpl> weak_ptr_factory_;
+  base::WeakPtrFactory<BluetoothGattManagerClientImpl> weak_ptr_factory_{this};
 
   DISALLOW_COPY_AND_ASSIGN(BluetoothGattManagerClientImpl);
 };

@@ -14,9 +14,10 @@ namespace content {
 
 // static
 void VideoCaptureDependencies::CreateJpegDecodeAccelerator(
-    chromeos_camera::mojom::MjpegDecodeAcceleratorRequest accelerator) {
+    mojo::PendingReceiver<chromeos_camera::mojom::MjpegDecodeAccelerator>
+        accelerator) {
   if (!BrowserThread::CurrentlyOn(BrowserThread::IO)) {
-    base::PostTaskWithTraits(
+    base::PostTask(
         FROM_HERE, {BrowserThread::IO},
         base::BindOnce(&VideoCaptureDependencies::CreateJpegDecodeAccelerator,
                        std::move(accelerator)));
@@ -35,9 +36,10 @@ void VideoCaptureDependencies::CreateJpegDecodeAccelerator(
 #if defined(OS_CHROMEOS)
 // static
 void VideoCaptureDependencies::CreateJpegEncodeAccelerator(
-    chromeos_camera::mojom::JpegEncodeAcceleratorRequest accelerator) {
+    mojo::PendingReceiver<chromeos_camera::mojom::JpegEncodeAccelerator>
+        accelerator) {
   if (!BrowserThread::CurrentlyOn(BrowserThread::IO)) {
-    base::PostTaskWithTraits(
+    base::PostTask(
         FROM_HERE, {BrowserThread::IO},
         base::BindOnce(&VideoCaptureDependencies::CreateJpegEncodeAccelerator,
                        std::move(accelerator)));

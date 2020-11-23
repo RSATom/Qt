@@ -69,22 +69,31 @@ class Q_QMLMODELS_PRIVATE_EXPORT QQmlInstanceModel : public QObject
     Q_OBJECT
 
     Q_PROPERTY(int count READ count NOTIFY countChanged)
+    QML_ANONYMOUS
 
 public:
+    enum ReusableFlag {
+        NotReusable,
+        Reusable
+    };
+
     virtual ~QQmlInstanceModel() {}
 
-    enum ReleaseFlag { Referenced = 0x01, Destroyed = 0x02 };
+    enum ReleaseFlag { Referenced = 0x01, Destroyed = 0x02, Pooled = 0x04 };
     Q_DECLARE_FLAGS(ReleaseFlags, ReleaseFlag)
 
     virtual int count() const = 0;
     virtual bool isValid() const = 0;
     virtual QObject *object(int index, QQmlIncubator::IncubationMode incubationMode = QQmlIncubator::AsynchronousIfNested) = 0;
-    virtual ReleaseFlags release(QObject *object) = 0;
+    virtual ReleaseFlags release(QObject *object, ReusableFlag reusableFlag = NotReusable) = 0;
     virtual void cancel(int) {}
     QString stringValue(int index, const QString &role) { return variantValue(index, role).toString(); }
     virtual QVariant variantValue(int, const QString &) = 0;
     virtual void setWatchedRoles(const QList<QByteArray> &roles) = 0;
     virtual QQmlIncubator::Status incubationStatus(int index) = 0;
+
+    virtual void drainReusableItemsPool(int maxPoolTime) { Q_UNUSED(maxPoolTime) }
+    virtual int poolSize() { return 0; }
 
     virtual int indexOf(QObject *object, QObject *objectContext) const = 0;
     virtual const QAbstractItemModel *abstractItemModel() const { return nullptr; }
@@ -95,6 +104,8 @@ Q_SIGNALS:
     void createdItem(int index, QObject *object);
     void initItem(int index, QObject *object);
     void destroyingItem(QObject *object);
+    Q_REVISION(15) void itemPooled(int index, QObject *object);
+    Q_REVISION(15) void itemReused(int index, QObject *object);
 
 protected:
     QQmlInstanceModel(QObjectPrivate &dd, QObject *parent = nullptr)
@@ -113,6 +124,9 @@ class Q_QMLMODELS_PRIVATE_EXPORT QQmlObjectModel : public QQmlInstanceModel
 
     Q_PROPERTY(QQmlListProperty<QObject> children READ children NOTIFY childrenChanged DESIGNABLE false)
     Q_CLASSINFO("DefaultProperty", "children")
+    QML_NAMED_ELEMENT(ObjectModel)
+    QML_ADDED_IN_MINOR_VERSION(1)
+    QML_ATTACHED(QQmlObjectModelAttached)
 
 public:
     QQmlObjectModel(QObject *parent=nullptr);
@@ -121,7 +135,7 @@ public:
     int count() const override;
     bool isValid() const override;
     QObject *object(int index, QQmlIncubator::IncubationMode incubationMode = QQmlIncubator::AsynchronousIfNested) override;
-    ReleaseFlags release(QObject *object) override;
+    ReleaseFlags release(QObject *object, ReusableFlag reusable = NotReusable) override;
     QVariant variantValue(int index, const QString &role) override;
     void setWatchedRoles(const QList<QByteArray> &) override {}
     QQmlIncubator::Status incubationStatus(int index) override;
@@ -191,6 +205,5 @@ QT_END_NAMESPACE
 
 QML_DECLARE_TYPE(QQmlInstanceModel)
 QML_DECLARE_TYPE(QQmlObjectModel)
-QML_DECLARE_TYPEINFO(QQmlObjectModel, QML_HAS_ATTACHED_PROPERTIES)
 
 #endif // QQMLINSTANCEMODEL_P_H

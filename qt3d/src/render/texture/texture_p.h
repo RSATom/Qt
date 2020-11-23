@@ -128,7 +128,7 @@ struct TextureParameters
  *   Will query the TextureImplManager for an instance of TextureImpl that matches it's
  *   properties.
  */
-class Q_AUTOTEST_EXPORT Texture : public BackendNode
+class Q_3DRENDERSHARED_PRIVATE_EXPORT Texture : public BackendNode
 {
 public:
     Texture();
@@ -204,7 +204,7 @@ private:
 inline QDebug operator<<(QDebug dbg, const Texture &texture)
 {
     QDebugStateSaver saver(dbg);
-    dbg << "QNodeId =" << texture.peerId() << "imageCount =" << texture.textureImageIds().size() << endl;
+    dbg << "QNodeId =" << texture.peerId() << "imageCount =" << texture.textureImageIds().size() << Qt::endl;
     return dbg;
 }
 #endif

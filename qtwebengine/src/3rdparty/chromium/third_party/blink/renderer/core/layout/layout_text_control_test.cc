@@ -15,7 +15,7 @@ namespace {
 class LayoutTextControlTest : public RenderingTest {
  protected:
   HTMLInputElement* GetHTMLInputElementById(const char* id) {
-    return ToHTMLInputElement(GetDocument().getElementById(id));
+    return To<HTMLInputElement>(GetDocument().getElementById(id));
   }
   // Return the LayoutText from inside an HTMLInputElement's user agent shadow
   // tree.
@@ -99,6 +99,21 @@ TEST_F(LayoutTextControlTest,
 
   UpdateAllLifecyclePhasesForTest();
   EXPECT_FALSE(selectedText->ShouldInvalidateSelection());
+}
+
+TEST_F(LayoutTextControlTest, HitTestSearchInput) {
+  SetBodyInnerHTML(R"HTML(
+    <input id="input" type="search"
+           style="border-width: 20px; font-size: 30px; padding: 0">
+  )HTML");
+
+  auto* input = GetHTMLInputElementById("input");
+  HitTestResult result;
+  HitTestLocation location(PhysicalOffset(40, 30));
+  EXPECT_TRUE(input->GetLayoutObject()->HitTestAllPhases(result, location,
+                                                         PhysicalOffset()));
+  EXPECT_EQ(PhysicalOffset(20, 10), result.LocalPoint());
+  EXPECT_EQ(input->InnerEditorElement(), result.InnerElement());
 }
 
 }  // anonymous namespace

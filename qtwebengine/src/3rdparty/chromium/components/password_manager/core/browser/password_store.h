@@ -11,6 +11,7 @@
 #include <vector>
 
 #include "base/callback.h"
+#include "base/callback_list.h"
 #include "base/gtest_prod_util.h"
 #include "base/macros.h"
 #include "base/observer_list_threadsafe.h"
@@ -22,7 +23,6 @@
 #include "components/password_manager/core/browser/password_store_sync.h"
 #include "components/sync/model/syncable_service.h"
 
-// TODO(crbug.com/706392): Fix password reuse detection for Android.
 #if defined(SYNC_PASSWORD_REUSE_DETECTION_ENABLED)
 #include "components/password_manager/core/browser/hash_password_manager.h"
 #include "components/password_manager/core/browser/password_manager_metrics_util.h"
@@ -43,14 +43,25 @@ class ProxyModelTypeControllerDelegate;
 class SyncableService;
 }
 
+using StateSubscription =
+    base::CallbackList<void(const std::string& username)>::Subscription;
+
 namespace password_manager {
 
+#if defined(SYNC_PASSWORD_REUSE_DETECTION_ENABLED)
+using metrics_util::GaiaPasswordHashChange;
+#endif
+
 class AffiliatedMatchHelper;
+class CompromisedCredentialsObserver;
 class PasswordStoreConsumer;
+class PasswordLeakHistoryConsumer;
 class PasswordStoreSigninNotifier;
 class PasswordSyncableService;
 class PasswordSyncBridge;
+struct FieldInfo;
 struct InteractionsStats;
+struct CompromisedCredentials;
 
 #if defined(SYNC_PASSWORD_REUSE_DETECTION_ENABLED)
 using PasswordHashDataList = base::Optional<std::vector<PasswordHashData>>;
@@ -103,10 +114,11 @@ class PasswordStore : protected PasswordStoreSync,
 
   PasswordStore();
 
-  // Reimplement this to add custom initialization. Always call this too on the
-  // UI thread.
-  virtual bool Init(const syncer::SyncableService::StartSyncFlare& flare,
-                    PrefService* prefs);
+  // Always call this too on the UI thread.
+  bool Init(
+      const syncer::SyncableService::StartSyncFlare& flare,
+      PrefService* prefs,
+      base::RepeatingClosure sync_enabled_or_disabled_cb = base::DoNothing());
 
   // RefcountedKeyedService:
   void ShutdownOnUIThread() override;
@@ -175,10 +187,23 @@ class PasswordStore : protected PasswordStoreSync,
       const base::Callback<bool(const GURL&)>& origin_filter,
       const base::Closure& completion);
 
+  // Unblacklists the login with |form_digest| by deleting all the corresponding
+  // blacklisted entries. If |completion| is not null, it will be posted to the
+  // |main_task_runner_| after deletions have been completed. Should be called
+  // on the UI thread.
+  void Unblacklist(const PasswordStore::FormDigest& form_digest,
+                   base::OnceClosure completion);
+
   // Searches for a matching PasswordForm, and notifies |consumer| on
   // completion. The request will be cancelled if the consumer is destroyed.
   virtual void GetLogins(const FormDigest& form,
                          PasswordStoreConsumer* consumer);
+
+  // Searches for credentials with the specified |plain_text_password|, and
+  // notifies |consumer| on completion. The request will be cancelled if the
+  // consumer is destroyed.
+  virtual void GetLoginsByPassword(const base::string16& plain_text_password,
+                                   PasswordStoreConsumer* consumer);
 
   // Gets the complete list of PasswordForms that are not blacklist entries--and
   // are thus auto-fillable. |consumer| will be notified on completion.
@@ -214,13 +239,50 @@ class PasswordStore : protected PasswordStoreSync,
   // Removes the statistics for |origin_domain|.
   void RemoveSiteStats(const GURL& origin_domain);
 
-  // Retrieves the statistics for all sites and notifies |consumer| on
-  // completion. The request will be cancelled if the consumer is destroyed.
-  void GetAllSiteStats(PasswordStoreConsumer* consumer);
-
   // Retrieves the statistics for |origin_domain| and notifies |consumer| on
   // completion. The request will be cancelled if the consumer is destroyed.
   void GetSiteStats(const GURL& origin_domain, PasswordStoreConsumer* consumer);
+
+  // Adds information about credentials compromised on
+  // |compromised_credentials.url| for |compromised_credentials.username|. The
+  // first |compromised_credentials.create_time| is kept, so if the record for
+  // given url and username already exists, the new one will be ignored.
+  void AddCompromisedCredentials(
+      const CompromisedCredentials& compromised_credentials);
+
+  // Removes information about credentials compromised on |url| for |username|.
+  void RemoveCompromisedCredentials(const GURL& url,
+                                    const base::string16& username);
+
+  // Retrieves all compromised credentials and notifies |consumer| on
+  // completion. The request will be cancelled if the consumer is destroyed.
+  void GetAllCompromisedCredentials(PasswordLeakHistoryConsumer* consumer);
+
+  // Removes all compromised credentials in the given date range. If
+  // |url_filter| is not null, only compromised credentials for matching urls
+  // are removed. If |completion| is not null, it will be posted to the
+  // |main_task_runner_| after deletions have been completed. Should be called
+  // on the UI thread.
+  void RemoveCompromisedCredentialsByUrlAndTime(
+      base::RepeatingCallback<bool(const GURL&)> url_filter,
+      base::Time remove_begin,
+      base::Time remove_end,
+      base::OnceClosure completion);
+
+  // Adds information about field. If the record for given form_signature and
+  // field_signature already exists, the new one will be ignored.
+  void AddFieldInfo(const FieldInfo& field_info);
+
+  // Retrieves all field info and notifies |consumer| on completion. The request
+  // will be cancelled if the consumer is destroyed.
+  void GetAllFieldInfo(PasswordStoreConsumer* consumer);
+
+  // Removes all leaked credentials in the given date range. If |completion| is
+  // not null, it will be posted to the |main_task_runner_| after deletions have
+  // been completed. Should be called on the UI thread.
+  void RemoveFieldInfoByTime(base::Time remove_begin,
+                             base::Time remove_end,
+                             base::OnceClosure completion);
 
   // Adds an observer to be notified when the password store data changes.
   void AddObserver(Observer* observer);
@@ -230,8 +292,6 @@ class PasswordStore : protected PasswordStoreSync,
 
   // Schedules the given |task| to be run on the PasswordStore's TaskRunner.
   bool ScheduleTask(base::OnceClosure task);
-
-  scoped_refptr<base::SequencedTaskRunner> GetBackgroundTaskRunner();
 
   // Returns true iff initialization was successful.
   virtual bool IsAbleToSavePasswords() const;
@@ -243,7 +303,6 @@ class PasswordStore : protected PasswordStoreSync,
   std::unique_ptr<syncer::ProxyModelTypeControllerDelegate>
   CreateSyncControllerDelegate();
 
-// TODO(crbug.com/706392): Fix password reuse detection for Android.
 #if defined(SYNC_PASSWORD_REUSE_DETECTION_ENABLED)
   // Immediately called after |Init()| to retrieve password hash data for
   // reuse detection.
@@ -258,12 +317,15 @@ class PasswordStore : protected PasswordStoreSync,
                           const std::string& domain,
                           PasswordReuseDetectorConsumer* consumer);
 
-  // Saves |username| and a hash of |password| for Gaia password reuse checking.
+  // Saves |username| and a hash of |password| for GAIA password reuse checking.
   // |event| is used for metric logging and for distinguishing sync password
-  // hash change event and other non-sync Gaia password change event.
+  // hash change event and other non-sync GAIA password change event.
+  // |is_primary_account| is whether account belong to the password is a
+  // primary account.
   virtual void SaveGaiaPasswordHash(const std::string& username,
                                     const base::string16& password,
-                                    metrics_util::SyncPasswordHashChange event);
+                                    bool is_primary_account,
+                                    GaiaPasswordHashChange event);
 
   // Saves |username| and a hash of |password| for enterprise password reuse
   // checking.
@@ -273,23 +335,34 @@ class PasswordStore : protected PasswordStoreSync,
   // Saves |sync_password_data| for sync password reuse checking.
   // |event| is used for metric logging.
   virtual void SaveSyncPasswordHash(const PasswordHashData& sync_password_data,
-                                    metrics_util::SyncPasswordHashChange event);
+                                    GaiaPasswordHashChange event);
 
-  // Clears the saved Gaia password hash for |username|.
+  // Clears the saved GAIA password hash for |username|.
   virtual void ClearGaiaPasswordHash(const std::string& username);
 
-  // Clears all the Gaia password hash.
+  // Clears all the GAIA password hash.
   virtual void ClearAllGaiaPasswordHash();
 
-  // Clears all (non-Gaia) enterprise password hash.
+  // Clears all (non-GAIA) enterprise password hash.
   virtual void ClearAllEnterprisePasswordHash();
+
+  // Clear all GAIA password hash that is not associated with a Gmail account.
+  virtual void ClearAllNonGmailPasswordHash();
+
+  // Adds a listener on |hash_password_manager_| for when |kHashPasswordData|
+  // list might have changed. Should only be called on the UI thread.
+  virtual std::unique_ptr<StateSubscription>
+  RegisterStateCallbackOnHashPasswordManager(
+      const base::Callback<void(const std::string& username)>& callback);
 
   // Shouldn't be called more than once, |notifier| must be not nullptr.
   void SetPasswordStoreSigninNotifier(
       std::unique_ptr<PasswordStoreSigninNotifier> notifier);
 
   // Schedules the update of password hashes used by reuse detector.
-  void SchedulePasswordHashUpdate(bool should_log_metrics);
+  // |does_primary_account_exists| is only used if |should_log_metrics| is true.
+  void SchedulePasswordHashUpdate(bool should_log_metrics,
+                                  bool does_primary_account_exists);
 
   // Schedules the update of enterprise login and change password URLs.
   // These URLs are used in enterprise password reuse detection.
@@ -300,7 +373,6 @@ class PasswordStore : protected PasswordStoreSync,
  protected:
   friend class base::RefCountedThreadSafe<PasswordStore>;
 
-// TODO(crbug.com/706392): Fix password reuse detection for Android.
 #if defined(SYNC_PASSWORD_REUSE_DETECTION_ENABLED)
   // Represents a single CheckReuse() request. Implements functionality to
   // listen to reuse events and propagate them to |consumer| on the sequence on
@@ -398,12 +470,39 @@ class PasswordStore : protected PasswordStoreSync,
   virtual std::vector<std::unique_ptr<autofill::PasswordForm>>
   FillMatchingLogins(const FormDigest& form) = 0;
 
+  // Finds and returns all not-blacklisted PasswordForms with the specified
+  // |plain_text_password| stored in the credential database.
+  virtual std::vector<std::unique_ptr<autofill::PasswordForm>>
+  FillMatchingLoginsByPassword(const base::string16& plain_text_password) = 0;
+
   // Synchronous implementation for manipulating with statistics.
   virtual void AddSiteStatsImpl(const InteractionsStats& stats) = 0;
   virtual void RemoveSiteStatsImpl(const GURL& origin_domain) = 0;
   virtual std::vector<InteractionsStats> GetAllSiteStatsImpl() = 0;
   virtual std::vector<InteractionsStats> GetSiteStatsImpl(
       const GURL& origin_domain) = 0;
+
+  // Synchronous implementation for manipulating with information about
+  // compromised credentials.
+  virtual void AddCompromisedCredentialsImpl(
+      const CompromisedCredentials& compromised_credentials) = 0;
+  // TODO(bdea): Add CompromiseType as a filter.
+  virtual void RemoveCompromisedCredentialsImpl(
+      const GURL& url,
+      const base::string16& username) = 0;
+  virtual std::vector<CompromisedCredentials>
+  GetAllCompromisedCredentialsImpl() = 0;
+  virtual void RemoveCompromisedCredentialsByUrlAndTimeImpl(
+      const base::RepeatingCallback<bool(const GURL&)>& url_filter,
+      base::Time remove_begin,
+      base::Time remove_end) = 0;
+
+  // Synchronous implementation for manipulating with information about field
+  // info.
+  virtual void AddFieldInfoImpl(const FieldInfo& field_info) = 0;
+  virtual std::vector<FieldInfo> GetAllFieldInfoImpl() = 0;
+  virtual void RemoveFieldInfoByTimeImpl(base::Time remove_begin,
+                                         base::Time remove_end) = 0;
 
   // PasswordStoreSync:
   PasswordStoreChangeList AddLoginSync(const autofill::PasswordForm& form,
@@ -418,15 +517,16 @@ class PasswordStore : protected PasswordStoreSync,
   // been changed.
   void NotifyLoginsChanged(const PasswordStoreChangeList& changes) override;
 
-// TODO(crbug.com/706392): Fix password reuse detection for Android.
 #if defined(SYNC_PASSWORD_REUSE_DETECTION_ENABLED)
   // Saves |username| and a hash of |password| for password reuse checking.
   // |is_gaia_password| indicates if it is a Gaia account. |event| is used for
-  // metric logging.
+  // metric logging. |is_primary_account| is whether account belong to the
+  // password is a primary account.
   void SaveProtectedPasswordHash(const std::string& username,
                                  const base::string16& password,
+                                 bool is_primary_account,
                                  bool is_gaia_password,
-                                 metrics_util::SyncPasswordHashChange event);
+                                 GaiaPasswordHashChange event);
 
   // Synchronous implementation of CheckReuse().
   void CheckReuseImpl(std::unique_ptr<CheckReuseRequest> request,
@@ -435,10 +535,12 @@ class PasswordStore : protected PasswordStoreSync,
 
   // Synchronous implementation of SaveProtectedPasswordHash().
   // |should_log_metrics| indicates whether to log the counts of captured
-  // password hashes.
+  // password hashes. |does_primary_account_exists| is used to differentiate
+  // between the metrics.
   void SaveProtectedPasswordHashImpl(
       PasswordHashDataList protected_password_data_list,
-      bool should_log_metrics);
+      bool should_log_metrics,
+      bool does_primary_account_exists);
 
   // Propagates enterprise login urls and change password url to
   // |reuse_detector_|.
@@ -449,11 +551,14 @@ class PasswordStore : protected PasswordStoreSync,
   // Synchronous implementation of ClearGaiaPasswordHash(...).
   void ClearGaiaPasswordHashImpl(const std::string& username);
 
-  // Synchronous implementation of ClearAllGaiaPasswordHashImpl().
+  // Synchronous implementation of ClearAllGaiaPasswordHash().
   void ClearAllGaiaPasswordHashImpl();
 
-  // Synchronous implementation of ClearAllEnterprisePasswordHashImpl().
+  // Synchronous implementation of ClearAllEnterprisePasswordHash().
   void ClearAllEnterprisePasswordHashImpl();
+
+  // Synchronous implementation of ClearAllNonGmailPasswordHash().
+  void ClearAllNonGmailPasswordHashImpl();
 #endif
 
   scoped_refptr<base::SequencedTaskRunner> main_task_runner() const {
@@ -476,6 +581,10 @@ class PasswordStore : protected PasswordStoreSync,
 
   using StatsResult = std::vector<InteractionsStats>;
   using StatsTask = base::OnceCallback<StatsResult()>;
+
+  using CompromisedCredentialsResult = std::vector<CompromisedCredentials>;
+  using CompromisedCredentialsTask =
+      base::OnceCallback<CompromisedCredentialsResult()>;
 
   // Called on the main thread after initialization is completed.
   // |success| is true if initialization was successful. Sets the
@@ -504,6 +613,13 @@ class PasswordStore : protected PasswordStoreSync,
       PasswordStoreConsumer* consumer,
       StatsTask task);
 
+  // Schedules the given |task| to be run on the PasswordStore's TaskRunner.
+  // Invokes |consumer|->OnGetCompromisedCredentials() on the caller's thread
+  // with the result.
+  void PostCompromisedCredentialsTaskAndReplyToConsumerWithResult(
+      PasswordLeakHistoryConsumer* consumer,
+      CompromisedCredentialsTask task);
+
   // The following methods notify observers that the password store may have
   // been modified via NotifyLoginsChanged(). Note that there is no guarantee
   // that the called method will actually modify the password store data.
@@ -529,6 +645,17 @@ class PasswordStore : protected PasswordStoreSync,
   void DisableAutoSignInForOriginsInternal(
       const base::Callback<bool(const GURL&)>& origin_filter,
       const base::Closure& completion);
+  void UnblacklistInternal(const PasswordStore::FormDigest& form_digest,
+                           base::OnceClosure completion);
+  void RemoveCompromisedCredentialsByUrlAndTimeInternal(
+      const base::RepeatingCallback<bool(const GURL&)>& url_filter,
+      base::Time remove_begin,
+      base::Time remove_end,
+      base::OnceClosure completion);
+
+  void RemoveFieldInfoByTimeInternal(base::Time remove_begin,
+                                     base::Time remove_end,
+                                     base::OnceClosure completion);
 
   // Finds all PasswordForms with a signon_realm that is equal to, or is a
   // PSL-match to that of |form|, and takes care of notifying the consumer with
@@ -536,6 +663,11 @@ class PasswordStore : protected PasswordStoreSync,
   // Note: subclasses should implement FillMatchingLogins() instead.
   std::vector<std::unique_ptr<autofill::PasswordForm>> GetLoginsImpl(
       const FormDigest& form);
+
+  // Finds all credentials with the specified |plain_text_password|.
+  // Note: subclasses should implement FillMatchingLoginsByPassword() instead.
+  std::vector<std::unique_ptr<autofill::PasswordForm>> GetLoginsByPasswordImpl(
+      const base::string16& plain_text_password);
 
   // Finds all non-blacklist PasswordForms and returns the result.
   std::vector<std::unique_ptr<autofill::PasswordForm>>
@@ -629,8 +761,13 @@ class PasswordStore : protected PasswordStoreSync,
   std::unique_ptr<PasswordSyncableService> syncable_service_;
   std::unique_ptr<PasswordSyncBridge> sync_bridge_;
 
+  base::RepeatingClosure sync_enabled_or_disabled_cb_;
+
   std::unique_ptr<AffiliatedMatchHelper> affiliated_match_helper_;
-// TODO(crbug.com/706392): Fix password reuse detection for Android.
+
+  std::unique_ptr<CompromisedCredentialsObserver>
+      compromised_credentials_observer_;
+
 #if defined(SYNC_PASSWORD_REUSE_DETECTION_ENABLED)
   PrefService* prefs_ = nullptr;
   // PasswordReuseDetector can be only destroyed on the background sequence. It

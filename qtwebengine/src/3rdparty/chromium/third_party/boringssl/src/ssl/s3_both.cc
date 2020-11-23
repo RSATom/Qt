@@ -317,7 +317,7 @@ int ssl3_flush_flight(SSL *ssl) {
   if (!ssl->s3->write_buffer.empty()) {
     int ret = ssl_write_buffer_flush(ssl);
     if (ret <= 0) {
-      ssl->s3->rwstate = SSL_WRITING;
+      ssl->s3->rwstate = SSL_ERROR_WANT_WRITE;
       return ret;
     }
   }
@@ -329,7 +329,7 @@ int ssl3_flush_flight(SSL *ssl) {
         ssl->s3->pending_flight->data + ssl->s3->pending_flight_offset,
         ssl->s3->pending_flight->length - ssl->s3->pending_flight_offset);
     if (ret <= 0) {
-      ssl->s3->rwstate = SSL_WRITING;
+      ssl->s3->rwstate = SSL_ERROR_WANT_WRITE;
       return ret;
     }
 
@@ -337,7 +337,7 @@ int ssl3_flush_flight(SSL *ssl) {
   }
 
   if (BIO_flush(ssl->wbio.get()) <= 0) {
-    ssl->s3->rwstate = SSL_WRITING;
+    ssl->s3->rwstate = SSL_ERROR_WANT_WRITE;
     return -1;
   }
 
@@ -660,8 +660,7 @@ class CipherScorer {
  public:
   CipherScorer(uint16_t group_id)
       : aes_is_fine_(EVP_has_aes_hardware()),
-        security_128_is_fine_(group_id != SSL_CURVE_CECPQ2 &&
-                              group_id != SSL_CURVE_CECPQ2b) {}
+        security_128_is_fine_(group_id != SSL_CURVE_CECPQ2) {}
 
   typedef std::tuple<bool, bool, bool> Score;
 

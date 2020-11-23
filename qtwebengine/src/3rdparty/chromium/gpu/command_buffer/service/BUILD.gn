@@ -5,6 +5,7 @@
 import("//build/config/jumbo.gni")
 import("//build/config/ui.gni")
 import("//gpu/vulkan/features.gni")
+import("//skia/features.gni")
 import("//third_party/protobuf/proto_library.gni")
 import("//ui/gl/features.gni")
 
@@ -136,8 +137,6 @@ target(link_target_type, "gles2_sources") {
     "gl_state_restorer_impl.h",
     "gl_utils.cc",
     "gl_utils.h",
-    "gles2_cmd_apply_framebuffer_attachment_cmaa_intel.cc",
-    "gles2_cmd_apply_framebuffer_attachment_cmaa_intel.h",
     "gles2_cmd_clear_framebuffer.cc",
     "gles2_cmd_clear_framebuffer.h",
     "gles2_cmd_copy_tex_image.cc",
@@ -252,6 +251,7 @@ target(link_target_type, "gles2_sources") {
     "transform_feedback_manager.h",
     "validating_abstract_texture_impl.cc",
     "validating_abstract_texture_impl.h",
+    "value_validator.h",
     "vertex_array_manager.cc",
     "vertex_array_manager.h",
     "vertex_attrib_manager.cc",
@@ -268,6 +268,10 @@ target(link_target_type, "gles2_sources") {
 
   if (use_dawn) {
     sources += [
+      "dawn_platform.cc",
+      "dawn_platform.h",
+      "dawn_service_memory_transfer_service.cc",
+      "dawn_service_memory_transfer_service.h",
       "webgpu_decoder_impl.cc",
       "webgpu_decoder_impl.h",
     ]
@@ -304,8 +308,9 @@ target(link_target_type, "gles2_sources") {
     "//gpu/command_buffer/client",
     "//gpu/command_buffer/common:gles2_utils",
     "//gpu/config",
-    "//gpu/ipc/common:surface_handle_type",
+    "//gpu/ipc/common",
     "//gpu/vulkan:buildflags",
+    "//skia:buildflags",
     "//third_party/angle:angle_image_util",
     "//third_party/angle:commit_id",
     "//third_party/angle:translator",
@@ -321,8 +326,10 @@ target(link_target_type, "gles2_sources") {
     "//ui/gl/init",
   ]
 
-  if (use_dawn) {
-    deps += [ "//third_party/dawn:libdawn_native" ]
+  if (use_ozone) {
+    deps += [
+      "//ui/ozone",
+    ]
   }
 
   if (enable_vulkan) {
@@ -341,6 +348,20 @@ target(link_target_type, "gles2_sources") {
         "external_vk_image_gl_representation.h",
         "external_vk_image_skia_representation.cc",
         "external_vk_image_skia_representation.h",
+      ]
+    }
+
+    if (use_ozone) {
+      sources += [
+        "shared_image_backing_ozone.cc",
+        "shared_image_backing_ozone.h",
+      ]
+    }
+
+    if (is_linux && use_dawn) {
+      sources += [
+        "external_vk_image_dawn_representation.cc",
+        "external_vk_image_dawn_representation.h",
       ]
     }
   }
@@ -365,6 +386,13 @@ target(link_target_type, "gles2_sources") {
     ]
   }
 
+  if (skia_use_dawn) {
+    deps += [
+      "//components/viz/common:dawn_context_provider",
+      "//third_party/dawn/src/dawn:libdawn",
+    ]
+  }
+
   if (is_android) {
     if (!is_debug) {
       # On Android optimize more since this component can be a bottleneck.
@@ -374,8 +402,17 @@ target(link_target_type, "gles2_sources") {
     sources += [
       "ahardwarebuffer_utils.cc",
       "ahardwarebuffer_utils.h",
+      "image_reader_gl_owner.cc",
+      "image_reader_gl_owner.h",
       "shared_image_backing_factory_ahardwarebuffer.cc",
       "shared_image_backing_factory_ahardwarebuffer.h",
+      "shared_image_video.cc",
+      "shared_image_video.h",
+      "stream_texture_shared_image_interface.h",
+      "surface_texture_gl_owner.cc",
+      "surface_texture_gl_owner.h",
+      "texture_owner.cc",
+      "texture_owner.h",
     ]
 
     # TODO(cblume): http://crbug.com/911313
@@ -394,8 +431,8 @@ target(link_target_type, "gles2_sources") {
 
   if (is_win) {
     sources += [
-      "swap_chain_factory_dxgi.cc",
-      "swap_chain_factory_dxgi.h",
+      "shared_image_backing_factory_d3d.cc",
+      "shared_image_backing_factory_d3d.h",
     ]
   }
 }
@@ -404,4 +441,47 @@ proto_library("disk_cache_proto") {
   sources = [
     "disk_cache_proto.proto",
   ]
+}
+
+if (is_android) {
+  jumbo_static_library("android_texture_owner_test_support") {
+    testonly = true
+    sources = [
+      "mock_abstract_texture.cc",
+      "mock_abstract_texture.h",
+      "mock_texture_owner.cc",
+      "mock_texture_owner.h",
+    ]
+    deps = [
+      ":gles2",
+      "//base/test:test_support",
+      "//gpu:test_support",
+      "//testing/gmock",
+      "//testing/gtest",
+      "//ui/gl",
+      "//ui/gl/init",
+    ]
+  }
+}
+
+if (is_android) {
+  source_set("android_texture_owner_unittests") {
+    testonly = true
+    sources = [
+      "image_reader_gl_owner_unittest.cc",
+      "surface_texture_gl_owner_unittest.cc",
+    ]
+
+    deps = [
+      ":android_texture_owner_test_support",
+      ":gles2",
+      "//base/test:test_support",
+      "//gpu:test_support",
+      "//media/base:base",
+      "//testing/gmock",
+      "//testing/gtest",
+      "//ui/gl",
+      "//ui/gl/init",
+    ]
+  }
 }

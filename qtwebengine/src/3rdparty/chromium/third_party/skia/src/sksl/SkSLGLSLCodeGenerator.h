@@ -83,6 +83,11 @@ public:
     bool generateCode() override;
 
 protected:
+    enum class SwizzleOrder {
+        MASK_FIRST,
+        CONSTANTS_FIRST
+    };
+
     void write(const char* s);
 
     void writeLine();
@@ -153,6 +158,15 @@ protected:
 
     virtual void writeFieldAccess(const FieldAccess& f);
 
+    void writeConstantSwizzle(const Swizzle& swizzle, const String& constants);
+
+    void writeSwizzleMask(const Swizzle& swizzle, const String& mask);
+
+    void writeSwizzleConstructor(const Swizzle& swizzle, const String& constants,
+                                 const String& mask, SwizzleOrder order);
+
+    void writeSwizzleConstructor(const Swizzle& swizzle, const String& constants,
+                                 const String& mask, const String& reswizzle);
     virtual void writeSwizzle(const Swizzle& swizzle);
 
     static Precedence GetBinaryPrecedence(Token::Kind op);
@@ -215,10 +229,13 @@ protected:
     // true if we have run into usages of dFdx / dFdy
     bool fFoundDerivatives = false;
     bool fFoundExternalSamplerDecl = false;
+    bool fFoundRectSamplerDecl = false;
     bool fFoundGSInvocations = false;
     bool fSetupFragPositionGlobal = false;
     bool fSetupFragPositionLocal = false;
     bool fSetupFragCoordWorkaround = false;
+    // if non-empty, replace all texture / texture2D / textureProj / etc. calls with this name
+    String fTextureFunctionOverride;
 
     // We map function names to function class so we can quickly deal with function calls that need
     // extra processing

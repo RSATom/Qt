@@ -19,7 +19,6 @@
 #include "mojo/public/cpp/bindings/lib/binding_state.h"
 #include "mojo/public/cpp/bindings/pending_remote.h"
 #include "mojo/public/cpp/bindings/raw_ptr_impl_ref_traits.h"
-#include "mojo/public/cpp/bindings/receiver.h"
 #include "mojo/public/cpp/system/message_pipe.h"
 
 namespace mojo {
@@ -183,12 +182,13 @@ class Receiver {
         internal_state_.Unbind().PassMessagePipe());
   }
 
-  // Adds a message filter to be notified of each incoming message before
+  // Sets the message filter to be notified of each incoming message before
   // dispatch. If a filter returns |false| from Accept(), the message is not
-  // dispatched and the pipe is closed. Filters cannot be removed once added.
-  void AddFilter(std::unique_ptr<MessageReceiver> filter) {
+  // dispatched and the pipe is closed. Filters cannot be removed once added
+  // and only one can be set.
+  void SetFilter(std::unique_ptr<MessageFilter> filter) {
     DCHECK(is_bound());
-    internal_state_.AddFilter(std::move(filter));
+    internal_state_.SetFilter(std::move(filter));
   }
 
   // Pause and resume message dispatch.
@@ -208,6 +208,14 @@ class Receiver {
   // Flushes any replies previously sent by the Receiver, only unblocking once
   // acknowledgement from the Remote is received.
   void FlushForTesting() { internal_state_.FlushForTesting(); }
+
+  // Exposed for testing, should not generally be used.
+  void EnableTestingMode() { internal_state_.EnableTestingMode(); }
+
+  // Allows test code to swap the interface implementation.
+  ImplPointerType SwapImplForTesting(ImplPointerType new_impl) {
+    return internal_state_.SwapImplForTesting(new_impl);
+  }
 
   // Reports the currently dispatching message as bad and resets this receiver.
   // Note that this is only legal to call from within the stack frame of a

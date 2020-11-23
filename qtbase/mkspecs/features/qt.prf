@@ -131,7 +131,10 @@ import_plugins:qtConfig(static) {
             else: \
                 warning("Plugin class name could not be determined for plugin '$$plug'.")
         }
-        IMPORT_CPP = $$OUT_PWD/$$lower($$basename(TARGET))_plugin_import.cpp
+        TARGET_BASENAME = $$lower($$basename(TARGET))
+        TARGET_BASENAME ~= s/\s/_/g
+
+        IMPORT_CPP = $$OUT_PWD/$${TARGET_BASENAME}_plugin_import.cpp
         write_file($$IMPORT_CPP, IMPORT_FILE_CONT)|error()
         GENERATED_SOURCES += $$IMPORT_CPP
         QMAKE_DISTCLEAN += $$IMPORT_CPP
@@ -279,7 +282,26 @@ contains(all_qt_module_deps, qml): \
     for (QMLPATH, QMLPATHS): \
         IMPORTPATHS += -importPath $$system_quote($$QMLPATH)
 
-    #message(run $$QMLIMPORTSCANNER $$_PRO_FILE_PWD_  $$IMPORTPATHS)
+    # add resources to qmlimportscanner
+    for (RESOURCE, RESOURCES) {
+        defined($${RESOURCE}.files, var) {
+            # in case of a "struct", add the struct's files
+            base = $$RESOURCE.base
+            for (f, $$RESOURCE.files): SCANNERRESOURCES += "$$base/$$f"
+        } else {
+            # if the resource is a file, just add it
+            SCANNERRESOURCES += $$RESOURCE
+        }
+    }
+
+    !isEmpty(SCANNERRESOURCES) {
+        IMPORTPATHS += -qrcFiles
+        for (RESOURCE, SCANNERRESOURCES): \
+            IMPORTPATHS += $$absolute_path($$system_quote($$RESOURCE), $$_PRO_FILE_PWD_)
+    }
+
+
+    # message(run $$QMLIMPORTSCANNER $$_PRO_FILE_PWD_  $$IMPORTPATHS)
     JSON = $$system($$QMLIMPORTSCANNER $$system_quote($$_PRO_FILE_PWD_) $$IMPORTPATHS)
 
     parseJson(JSON, IMPORTS)| error("Failed to parse qmlimportscanner output.")
@@ -312,7 +334,10 @@ contains(all_qt_module_deps, qml): \
                 }
             }
         }
-        QML_IMPORT_CPP = $$OUT_PWD/$$lower($$basename(TARGET))_qml_plugin_import.cpp
+        TARGET_BASENAME = $$lower($$basename(TARGET))
+        TARGET_BASENAME ~= s/\s/_/g
+
+        QML_IMPORT_CPP = $$OUT_PWD/$${TARGET_BASENAME}_qml_plugin_import.cpp
         write_file($$QML_IMPORT_CPP, IMPORT_FILE_CONT)|error()
         GENERATED_SOURCES += $$QML_IMPORT_CPP
         QMAKE_DISTCLEAN += $$QML_IMPORT_CPP

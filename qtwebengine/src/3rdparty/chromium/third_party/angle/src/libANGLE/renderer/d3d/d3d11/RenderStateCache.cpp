@@ -1,5 +1,5 @@
 //
-// Copyright (c) 2012-2014 The ANGLE Project Authors. All rights reserved.
+// Copyright 2012 The ANGLE Project Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 //
@@ -195,7 +195,7 @@ angle::Result RenderStateCache::getDepthStencilState(const gl::Context *context,
 
     TrimCache(kMaxStates, kGCLimit, "depth stencil state", &mDepthStencilStateCache);
 
-    D3D11_DEPTH_STENCIL_DESC dsDesc     = {0};
+    D3D11_DEPTH_STENCIL_DESC dsDesc     = {};
     dsDesc.DepthEnable                  = glState.depthTest ? TRUE : FALSE;
     dsDesc.DepthWriteMask               = ConvertDepthMask(glState.depthMask);
     dsDesc.DepthFunc                    = ConvertComparison(glState.depthFunc);

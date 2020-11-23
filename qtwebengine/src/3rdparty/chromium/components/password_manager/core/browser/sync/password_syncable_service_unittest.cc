@@ -16,7 +16,8 @@
 #include "base/memory/ref_counted.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/test/scoped_feature_list.h"
-#include "base/test/scoped_task_environment.h"
+#include "base/test/task_environment.h"
+#include "build/build_config.h"
 #include "components/password_manager/core/browser/mock_password_store.h"
 #include "components/password_manager/core/common/password_manager_features.h"
 #include "components/sync/model/sync_change_processor.h"
@@ -93,6 +94,7 @@ MATCHER_P(PasswordIs, form, "") {
       expected_password.username_value() == actual_password.username_value() &&
       expected_password.password_value() == actual_password.password_value() &&
       expected_password.preferred() == actual_password.preferred() &&
+      expected_password.date_last_used() == actual_password.date_last_used() &&
       expected_password.date_created() == actual_password.date_created() &&
       expected_password.blacklisted() == actual_password.blacklisted() &&
       expected_password.type() == actual_password.type() &&
@@ -230,7 +232,7 @@ class PasswordSyncableServiceTest : public testing::Test {
 
  private:
   // Used by the password store.
-  base::test::ScopedTaskEnvironment scoped_task_environment_;
+  base::test::TaskEnvironment task_environment_;
   PasswordSyncableServiceWrapper wrapper_;
 };
 
@@ -328,11 +330,13 @@ TEST_F(PasswordSyncableServiceTest, Merge) {
   form1.action = GURL("http://pie.com");
   form1.date_created = base::Time::Now();
   form1.preferred = true;
+  form1.date_last_used = form1.date_created;
   form1.username_value = base::ASCIIToUTF16(kUsername);
   form1.password_value = base::ASCIIToUTF16(kPassword);
 
   autofill::PasswordForm form2(form1);
   form2.preferred = false;
+  form2.date_created = form1.date_created + base::TimeDelta::FromDays(1);
   EXPECT_CALL(*password_store(), FillAutofillableLogins(_))
       .WillOnce(AppendForm(form1));
   EXPECT_CALL(*password_store(), FillBlacklistLogins(_)).WillOnce(Return(true));
@@ -514,10 +518,8 @@ TEST_F(PasswordSyncableServiceTest, FailedReadFromPasswordStore) {
                           syncer::PASSWORDS);
   EXPECT_CALL(*password_store(), FillAutofillableLogins(_))
       .WillOnce(Return(false));
-  if (base::FeatureList::IsEnabled(features::kRecoverPasswordsForSyncUsers)) {
-    EXPECT_CALL(*password_store(), DeleteUndecryptableLogins())
-        .WillOnce(Return(DatabaseCleanupResult::kDatabaseUnavailable));
-  }
+  EXPECT_CALL(*password_store(), DeleteUndecryptableLogins())
+      .WillOnce(Return(DatabaseCleanupResult::kDatabaseUnavailable));
   EXPECT_CALL(*error_factory, CreateAndUploadError(_, _))
       .WillOnce(Return(error));
   // ActOnPasswordStoreChanges() below shouldn't generate any changes for Sync.
@@ -534,39 +536,23 @@ TEST_F(PasswordSyncableServiceTest, FailedReadFromPasswordStore) {
   list.push_back(PasswordStoreChange(PasswordStoreChange::ADD, form));
   service()->ActOnPasswordStoreChanges(list);
 }
+class PasswordSyncableServiceTestWithoutDeleteCorruptedPasswords
+    : public PasswordSyncableServiceTest {
+ public:
+  PasswordSyncableServiceTestWithoutDeleteCorruptedPasswords() {
+    scoped_feature_list_.InitAndDisableFeature(
+        features::kDeleteCorruptedPasswords);
+  }
 
-// Disable feature for deleting undecryptable logins.
-TEST_F(PasswordSyncableServiceTest, RecoverPasswordsForSyncUsersDisabled) {
-  base::test::ScopedFeatureList scoped_feature_list;
-  scoped_feature_list.InitAndDisableFeature(
-      features::kRecoverPasswordsForSyncUsers);
-  auto error_factory = std::make_unique<syncer::SyncErrorFactoryMock>();
-  syncer::SyncError error(FROM_HERE, syncer::SyncError::DATATYPE_ERROR,
-                          "Failed to get passwords from store.",
-                          syncer::PASSWORDS);
-  EXPECT_CALL(*error_factory, CreateAndUploadError(_, _))
-      .WillOnce(Return(error));
+ private:
+  base::test::ScopedFeatureList scoped_feature_list_;
+};
 
-  EXPECT_CALL(*password_store(), FillAutofillableLogins(_))
-      .WillOnce(Return(false));
-  EXPECT_CALL(*password_store(), DeleteUndecryptableLogins()).Times(0);
-
-  syncer::SyncMergeResult result = service()->MergeDataAndStartSyncing(
-      syncer::PASSWORDS, SyncDataList(), std::move(processor_),
-      std::move(error_factory));
-  EXPECT_TRUE(result.error().IsSet());
-}
-
-// Test that passwords are recovered for Sync users using the older feature
-// (kRecoverPasswordsForSyncUsers) when feature for recovering passwords for
-// Sync users is enabled, while feature for deleting corrupted passwords for
-// all users is disabled.
-TEST_F(PasswordSyncableServiceTest, RecoverPasswordsForSyncUsersEnabled) {
-  base::test::ScopedFeatureList scoped_feature_list;
-  scoped_feature_list.InitWithFeatures(
-      {features::kRecoverPasswordsForSyncUsers},
-      {features::kDeleteCorruptedPasswords});
-
+// Test that passwords are recovered for Sync users using the older logic (i.e.
+// recover passwords only for Sync users) when the feature for deleting
+// corrupted passwords for all users is disabled.
+TEST_F(PasswordSyncableServiceTestWithoutDeleteCorruptedPasswords,
+       RecoverPasswordsOnlyForSyncUsers) {
   EXPECT_CALL(*processor_, ProcessSyncChanges(_, IsEmpty()));
   EXPECT_CALL(*password_store(), FillAutofillableLogins(_))
       .Times(2)
@@ -581,16 +567,22 @@ TEST_F(PasswordSyncableServiceTest, RecoverPasswordsForSyncUsersEnabled) {
   EXPECT_FALSE(result.error().IsSet());
 }
 
-// Test that passwords are not recovered using the older feature
-// (kRecoverPasswordForSyncUsers) when merging data if both features for
-// recovering passwords for Sync users and deleting passwords for all users
-// are enabled.
-TEST_F(PasswordSyncableServiceTest, PasswordRecoveryForAllUsersEnabled) {
-  base::test::ScopedFeatureList scoped_feature_list;
-  scoped_feature_list.InitWithFeatures({features::kRecoverPasswordsForSyncUsers,
-                                        features::kDeleteCorruptedPasswords},
-                                       {});
+class PasswordSyncableServiceTestWithDeleteCorruptedPasswords
+    : public PasswordSyncableServiceTest {
+ public:
+  PasswordSyncableServiceTestWithDeleteCorruptedPasswords() {
+    scoped_feature_list_.InitAndEnableFeature(
+        features::kDeleteCorruptedPasswords);
+  }
 
+ private:
+  base::test::ScopedFeatureList scoped_feature_list_;
+};
+
+// Test that passwords are not recovered when merging data if the feature for
+// deleting passwords for all users is enabled.
+TEST_F(PasswordSyncableServiceTestWithDeleteCorruptedPasswords,
+       PasswordRecoveryForAllUsersEnabled) {
   auto error_factory = std::make_unique<syncer::SyncErrorFactoryMock>();
   syncer::SyncError error(FROM_HERE, syncer::SyncError::DATATYPE_ERROR,
                           "Failed to get passwords from store.",
@@ -609,11 +601,8 @@ TEST_F(PasswordSyncableServiceTest, PasswordRecoveryForAllUsersEnabled) {
 }
 
 // Database cleanup fails because encryption is unavailable.
-TEST_F(PasswordSyncableServiceTest, FailedDeleteUndecryptableLogins) {
-  base::test::ScopedFeatureList scoped_feature_list;
-  scoped_feature_list.InitWithFeatures(
-      {features::kRecoverPasswordsForSyncUsers},
-      {features::kDeleteCorruptedPasswords});
+TEST_F(PasswordSyncableServiceTestWithoutDeleteCorruptedPasswords,
+       FailedDeleteUndecryptableLogins) {
   auto error_factory = std::make_unique<syncer::SyncErrorFactoryMock>();
   syncer::SyncError error(
       FROM_HERE, syncer::SyncError::DATATYPE_ERROR,
@@ -711,6 +700,8 @@ TEST_F(PasswordSyncableServiceTest, SerializeEmptyPasswordForm) {
   EXPECT_EQ("", specifics.password_value());
   EXPECT_TRUE(specifics.has_preferred());
   EXPECT_FALSE(specifics.preferred());
+  EXPECT_TRUE(specifics.has_date_last_used());
+  EXPECT_EQ(0, specifics.date_last_used());
   EXPECT_TRUE(specifics.has_date_created());
   EXPECT_EQ(0, specifics.date_created());
   EXPECT_TRUE(specifics.has_blacklisted());
@@ -740,6 +731,8 @@ TEST_F(PasswordSyncableServiceTest, SerializeNonEmptyPasswordForm) {
   form.password_element = base::ASCIIToUTF16("password_element");
   form.password_value = base::ASCIIToUTF16("!@#$%^&*()");
   form.preferred = true;
+  form.date_last_used = base::Time::FromDeltaSinceWindowsEpoch(
+      base::TimeDelta::FromMicroseconds(100));
   form.date_created = base::Time::FromInternalValue(100);
   form.blacklisted_by_user = true;
   form.type = autofill::PasswordForm::Type::kMaxValue;
@@ -769,6 +762,8 @@ TEST_F(PasswordSyncableServiceTest, SerializeNonEmptyPasswordForm) {
   EXPECT_EQ("!@#$%^&*()", specifics.password_value());
   EXPECT_TRUE(specifics.has_preferred());
   EXPECT_TRUE(specifics.preferred());
+  EXPECT_TRUE(specifics.has_date_last_used());
+  EXPECT_EQ(100, specifics.date_last_used());
   EXPECT_TRUE(specifics.has_date_created());
   EXPECT_EQ(100, specifics.date_created());
   EXPECT_TRUE(specifics.has_blacklisted());

@@ -84,7 +84,7 @@
     HostLookupState. If the host is found, QAbstractSocket enters
     ConnectingState and emits the hostFound() signal. When the
     connection has been established, it enters ConnectedState and
-    emits connected(). If an error occurs at any stage, error() is
+    emits connected(). If an error occurs at any stage, errorOccurred() is
     emitted. Whenever the state changes, stateChanged() is emitted.
     For convenience, isValid() returns \c true if the socket is ready for
     reading and writing, but note that the socket's state must be
@@ -113,7 +113,7 @@
     QAbstractSocket::UnconnectedState, and emits disconnected(). If you want
     to abort a connection immediately, discarding all pending data, call
     abort() instead. If the remote host closes the connection,
-    QAbstractSocket will emit error(QAbstractSocket::RemoteHostClosedError),
+    QAbstractSocket will emit errorOccurred(QAbstractSocket::RemoteHostClosedError),
     during which the socket state will still be ConnectedState, and then the
     disconnected() signal will be emitted.
 
@@ -203,6 +203,14 @@
 
 /*!
     \fn void QAbstractSocket::error(QAbstractSocket::SocketError socketError)
+    \obsolete
+
+    Use errorOccurred() instead.
+*/
+
+/*!
+    \fn void QAbstractSocket::errorOccurred(QAbstractSocket::SocketError socketError)
+    \since 5.15
 
     This signal is emitted after an error occurred. The \a socketError
     parameter describes the type of error that occurred.
@@ -330,6 +338,7 @@
 
     \value UnknownSocketError An unidentified error occurred.
     \sa QAbstractSocket::error()
+    \sa QAbstractSocket::errorOccurred()
 */
 
 /*!
@@ -460,11 +469,16 @@
     SSL error notification. I.E. QSslSocket::sslErrors().
 */
 
+#include <QtNetwork/private/qtnetworkglobal_p.h>
+
 #include "qabstractsocket.h"
 #include "qabstractsocket_p.h"
 
 #include "private/qhostinfo_p.h"
+#if QT_CONFIG(bearermanagement) // ### Qt6: Remove section
 #include "private/qnetworksession_p.h"
+#endif
+#include "private/qnetworkconfiguration_p.h" // ### Qt6: Remove include
 
 #include <qabstracteventdispatcher.h>
 #include <qhostaddress.h>
@@ -564,12 +578,12 @@ QAbstractSocketPrivate::QAbstractSocketPrivate()
       port(0),
       localPort(0),
       peerPort(0),
-      socketEngine(0),
+      socketEngine(nullptr),
       cachedSocketDescriptor(-1),
       readBufferMaxSize(0),
       isBuffered(false),
       hasPendingData(false),
-      connectTimer(0),
+      connectTimer(nullptr),
       hostLookupId(-1),
       socketType(QAbstractSocket::UnknownSocketType),
       state(QAbstractSocket::UnconnectedState),
@@ -603,7 +617,7 @@ void QAbstractSocketPrivate::resetSocketLayer()
         socketEngine->close();
         socketEngine->disconnect();
         delete socketEngine;
-        socketEngine = 0;
+        socketEngine = nullptr;
         cachedSocketDescriptor = -1;
     }
     if (connectTimer)
@@ -643,7 +657,7 @@ bool QAbstractSocketPrivate::initSocketLayer(QAbstractSocket::NetworkLayerProtoc
                  QAbstractSocket::tr("Operation on socket is not supported"));
         return false;
     }
-#ifndef QT_NO_BEARERMANAGEMENT
+#ifndef QT_NO_BEARERMANAGEMENT // ### Qt6: Remove section
     //copy network session down to the socket engine (if it has been set)
     socketEngine->setProperty("_q_networksession", q->property("_q_networksession"));
 #endif
@@ -659,7 +673,7 @@ bool QAbstractSocketPrivate::initSocketLayer(QAbstractSocket::NetworkLayerProtoc
 
     configureCreatedSocket();
 
-    if (threadData->hasEventDispatcher())
+    if (threadData.loadRelaxed()->hasEventDispatcher())
         socketEngine->setReceiver(this);
 
 #if defined (QABSTRACTSOCKET_DEBUG)
@@ -985,7 +999,7 @@ void QAbstractSocketPrivate::startConnectingByName(const QString &host)
     }
 
     state = QAbstractSocket::UnconnectedState;
-    emit q->error(socketError);
+    emit q->errorOccurred(socketError);
     emit q->stateChanged(state);
 }
 
@@ -1044,7 +1058,7 @@ void QAbstractSocketPrivate::_q_startConnecting(const QHostInfo &hostInfo)
         state = QAbstractSocket::UnconnectedState;
         setError(QAbstractSocket::HostNotFoundError, QAbstractSocket::tr("Host not found"));
         emit q->stateChanged(state);
-        emit q->error(QAbstractSocket::HostNotFoundError);
+        emit q->errorOccurred(QAbstractSocket::HostNotFoundError);
         return;
     }
 
@@ -1067,8 +1081,8 @@ void QAbstractSocketPrivate::_q_startConnecting(const QHostInfo &hostInfo)
     _q_testConnection(), this function takes the first address of the
     pending addresses list and tries to connect to it. If the
     connection succeeds, QAbstractSocket will emit
-    connected(). Otherwise, error(ConnectionRefusedError) or
-    error(SocketTimeoutError) is emitted.
+    connected(). Otherwise, errorOccurred(ConnectionRefusedError) or
+    errorOccurred(SocketTimeoutError) is emitted.
 */
 void QAbstractSocketPrivate::_q_connectToNextAddress()
 {
@@ -1098,7 +1112,7 @@ void QAbstractSocketPrivate::_q_connectToNextAddress()
 //                q->setErrorString(QAbstractSocket::tr("Connection refused"));
             }
             emit q->stateChanged(state);
-            emit q->error(socketError);
+            emit q->errorOccurred(socketError);
             return;
         }
 
@@ -1138,15 +1152,17 @@ void QAbstractSocketPrivate::_q_connectToNextAddress()
         }
 
         // Start the connect timer.
-        if (threadData->hasEventDispatcher()) {
+        if (threadData.loadRelaxed()->hasEventDispatcher()) {
             if (!connectTimer) {
                 connectTimer = new QTimer(q);
                 QObject::connect(connectTimer, SIGNAL(timeout()),
                                  q, SLOT(_q_abortConnectionAttempt()),
                                  Qt::DirectConnection);
             }
+#ifdef QT_NO_BEARERMANAGEMENT
+            int connectTimeout = 30000;
+#else
             int connectTimeout = QNetworkConfigurationPrivate::DefaultTimeout;
-#ifndef QT_NO_BEARERMANAGEMENT
             QSharedPointer<QNetworkSession> networkSession = qvariant_cast< QSharedPointer<QNetworkSession> >(q->property("_q_networksession"));
             if (networkSession) {
                 QNetworkConfiguration networkConfiguration = networkSession->configuration();
@@ -1220,7 +1236,7 @@ void QAbstractSocketPrivate::_q_abortConnectionAttempt()
         setError(QAbstractSocket::SocketTimeoutError,
                  QAbstractSocket::tr("Connection timed out"));
         emit q->stateChanged(state);
-        emit q->error(socketError);
+        emit q->errorOccurred(socketError);
     } else {
         _q_connectToNextAddress();
     }
@@ -1427,14 +1443,14 @@ void QAbstractSocketPrivate::setError(QAbstractSocket::SocketError errorCode,
     \internal
 
     Sets the socket error state to \c errorCode and \a errorString,
-    and emits the QAbstractSocket::error() signal.
+    and emits the QAbstractSocket::errorOccurred() signal.
 */
 void QAbstractSocketPrivate::setErrorAndEmit(QAbstractSocket::SocketError errorCode,
                                              const QString &errorString)
 {
     Q_Q(QAbstractSocket);
     setError(errorCode, errorString);
-    emit q->error(errorCode);
+    emit q->errorOccurred(errorCode);
 }
 
 /*! \internal
@@ -1453,6 +1469,9 @@ QAbstractSocket::QAbstractSocket(SocketType socketType,
            : socketType == SctpSocket ? "Sctp" : "Unknown", &dd, parent);
 #endif
     d->socketType = socketType;
+
+    // Support the deprecated error() signal:
+    connect(this, &QAbstractSocket::errorOccurred, this, QOverload<QAbstractSocket::SocketError>::of(&QAbstractSocket::error));
 }
 
 /*!
@@ -1462,13 +1481,8 @@ QAbstractSocket::QAbstractSocket(SocketType socketType,
     \sa socketType(), QTcpSocket, QUdpSocket
 */
 QAbstractSocket::QAbstractSocket(SocketType socketType, QObject *parent)
-    : QIODevice(*new QAbstractSocketPrivate, parent)
+    : QAbstractSocket(socketType, *new QAbstractSocketPrivate, parent)
 {
-    Q_D(QAbstractSocket);
-#if defined(QABSTRACTSOCKET_DEBUG)
-    qDebug("QAbstractSocket::QAbstractSocket(%p)", parent);
-#endif
-    d->socketType = socketType;
 }
 
 /*!
@@ -1656,7 +1670,7 @@ bool QAbstractSocket::isValid() const
     established, QAbstractSocket enters ConnectedState and
     emits connected().
 
-    At any point, the socket can emit error() to signal that an error
+    At any point, the socket can emit errorOccurred() to signal that an error
     occurred.
 
     \a hostName may be an IP address in string form (e.g.,
@@ -1740,7 +1754,7 @@ void QAbstractSocket::connectToHost(const QString &hostName, quint16 port,
         return;
 #endif
     } else {
-        if (d->threadData->hasEventDispatcher()) {
+        if (d->threadData.loadRelaxed()->hasEventDispatcher()) {
             // this internal API for QHostInfo either immediately gives us the desired
             // QHostInfo from cache or later calls the _q_startConnecting slot.
             bool immediateResultValid = false;
@@ -1941,7 +1955,7 @@ bool QAbstractSocket::setSocketDescriptor(qintptr socketDescriptor, SocketState 
         d->setError(UnsupportedSocketOperationError, tr("Operation on socket is not supported"));
         return false;
     }
-#ifndef QT_NO_BEARERMANAGEMENT
+#ifndef QT_NO_BEARERMANAGEMENT // ### Qt6: Remove section
     //copy network session down to the socket engine (if it has been set)
     d->socketEngine->setProperty("_q_networksession", property("_q_networksession"));
 #endif
@@ -1953,7 +1967,7 @@ bool QAbstractSocket::setSocketDescriptor(qintptr socketDescriptor, SocketState 
 
     // Sync up with error string, which open() shall clear.
     d->socketError = UnknownSocketError;
-    if (d->threadData->hasEventDispatcher())
+    if (d->threadData.loadRelaxed()->hasEventDispatcher())
         d->socketEngine->setReceiver(d);
 
     QIODevice::open(openMode);
@@ -2134,7 +2148,7 @@ bool QAbstractSocket::waitForConnected(int msecs)
     QElapsedTimer stopWatch;
     stopWatch.start();
 
-#ifndef QT_NO_BEARERMANAGEMENT
+#ifndef QT_NO_BEARERMANAGEMENT // ### Qt6: Remove section
     QSharedPointer<QNetworkSession> networkSession = qvariant_cast< QSharedPointer<QNetworkSession> >(property("_q_networksession"));
 #endif
 
@@ -2144,27 +2158,22 @@ bool QAbstractSocket::waitForConnected(int msecs)
 #endif
         QHostInfo::abortHostLookup(d->hostLookupId);
         d->hostLookupId = -1;
-#ifndef QT_NO_BEARERMANAGEMENT
-        if (networkSession) {
-            d->_q_startConnecting(QHostInfoPrivate::fromName(d->hostName, networkSession));
-        } else
-#endif
-        {
-            QHostAddress temp;
-            if (temp.setAddress(d->hostName)) {
-                QHostInfo info;
-                info.setAddresses(QList<QHostAddress>() << temp);
-                d->_q_startConnecting(info);
-            } else {
-                d->_q_startConnecting(QHostInfo::fromName(d->hostName));
-            }
+        QHostAddress temp;
+        if (temp.setAddress(d->hostName)) {
+            QHostInfo info;
+            info.setAddresses(QList<QHostAddress>() << temp);
+            d->_q_startConnecting(info);
+        } else {
+            d->_q_startConnecting(QHostInfo::fromName(d->hostName));
         }
     }
     if (state() == UnconnectedState)
         return false; // connect not im progress anymore!
 
+#ifdef QT_NO_BEARERMANAGEMENT
+    int connectTimeout = 30000;
+#else
     int connectTimeout = QNetworkConfigurationPrivate::DefaultTimeout;
-#ifndef QT_NO_BEARERMANAGEMENT
     if (networkSession) {
         QNetworkConfiguration networkConfiguration = networkSession->configuration();
         connectTimeout = networkConfiguration.connectTimeout();

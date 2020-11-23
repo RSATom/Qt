@@ -25,12 +25,14 @@ namespace content {
 namespace {
 
 void RunDeliverCallback(
-    const PushMessagingRouter::DeliverMessageCallback& deliver_message_callback,
+    PushMessagingRouter::DeliverMessageCallback deliver_message_callback,
     blink::mojom::PushDeliveryStatus delivery_status) {
-  DCHECK_CURRENTLY_ON(BrowserThread::IO);
-  base::PostTaskWithTraits(
+  DCHECK_CURRENTLY_ON(ServiceWorkerContext::GetCoreThreadId());
+  // Use PostTask() instead of RunOrPostTaskOnThread() to ensure the callback
+  // is called asynchronously.
+  base::PostTask(
       FROM_HERE, {BrowserThread::UI},
-      base::BindOnce(deliver_message_callback, delivery_status));
+      base::BindOnce(std::move(deliver_message_callback), delivery_status));
 }
 
 }  // namespace
@@ -42,7 +44,7 @@ void PushMessagingRouter::DeliverMessage(
     int64_t service_worker_registration_id,
     const std::string& message_id,
     base::Optional<std::string> payload,
-    const DeliverMessageCallback& deliver_message_callback) {
+    DeliverMessageCallback deliver_message_callback) {
   DCHECK_CURRENTLY_ON(BrowserThread::UI);
   StoragePartition* partition =
       BrowserContext::GetStoragePartitionForSite(browser_context, origin);
@@ -53,13 +55,13 @@ void PushMessagingRouter::DeliverMessage(
       base::WrapRefCounted<DevToolsBackgroundServicesContextImpl>(
           service_worker_context->storage_partition()
               ->GetDevToolsBackgroundServicesContext());
-  base::PostTaskWithTraits(
-      FROM_HERE, {BrowserThread::IO},
+  RunOrPostTaskOnThread(
+      FROM_HERE, ServiceWorkerContext::GetCoreThreadId(),
       base::BindOnce(&PushMessagingRouter::FindServiceWorkerRegistration,
                      std::move(service_worker_context),
                      std::move(devtools_context), origin,
                      service_worker_registration_id, message_id,
-                     std::move(payload), deliver_message_callback));
+                     std::move(payload), std::move(deliver_message_callback)));
 }
 
 // static
@@ -70,8 +72,8 @@ void PushMessagingRouter::FindServiceWorkerRegistration(
     int64_t service_worker_registration_id,
     const std::string& message_id,
     base::Optional<std::string> payload,
-    const DeliverMessageCallback& deliver_message_callback) {
-  DCHECK_CURRENTLY_ON(BrowserThread::IO);
+    DeliverMessageCallback deliver_message_callback) {
+  DCHECK_CURRENTLY_ON(ServiceWorkerContext::GetCoreThreadId());
   // Try to acquire the registration from storage. If it's already live we'll
   // receive it right away. If not, it will be revived from storage.
   service_worker_context->FindReadyRegistrationForId(
@@ -79,7 +81,7 @@ void PushMessagingRouter::FindServiceWorkerRegistration(
       base::BindOnce(
           &PushMessagingRouter::FindServiceWorkerRegistrationCallback,
           std::move(devtools_context), message_id, std::move(payload),
-          deliver_message_callback));
+          std::move(deliver_message_callback)));
 }
 
 // static
@@ -87,19 +89,19 @@ void PushMessagingRouter::FindServiceWorkerRegistrationCallback(
     scoped_refptr<DevToolsBackgroundServicesContextImpl> devtools_context,
     const std::string& message_id,
     base::Optional<std::string> payload,
-    const DeliverMessageCallback& deliver_message_callback,
+    DeliverMessageCallback deliver_message_callback,
     blink::ServiceWorkerStatusCode service_worker_status,
     scoped_refptr<ServiceWorkerRegistration> service_worker_registration) {
-  DCHECK_CURRENTLY_ON(BrowserThread::IO);
+  DCHECK_CURRENTLY_ON(ServiceWorkerContext::GetCoreThreadId());
   UMA_HISTOGRAM_ENUMERATION("PushMessaging.DeliveryStatus.FindServiceWorker",
                             service_worker_status);
   if (service_worker_status == blink::ServiceWorkerStatusCode::kErrorNotFound) {
-    RunDeliverCallback(deliver_message_callback,
+    RunDeliverCallback(std::move(deliver_message_callback),
                        blink::mojom::PushDeliveryStatus::NO_SERVICE_WORKER);
     return;
   }
   if (service_worker_status != blink::ServiceWorkerStatusCode::kOk) {
-    RunDeliverCallback(deliver_message_callback,
+    RunDeliverCallback(std::move(deliver_message_callback),
                        blink::mojom::PushDeliveryStatus::SERVICE_WORKER_ERROR);
     return;
   }
@@ -117,7 +119,7 @@ void PushMessagingRouter::FindServiceWorkerRegistrationCallback(
                      base::WrapRefCounted(version),
                      std::move(service_worker_registration),
                      std::move(devtools_context), message_id,
-                     std::move(payload), deliver_message_callback));
+                     std::move(payload), std::move(deliver_message_callback)));
 }
 
 // static
@@ -127,14 +129,14 @@ void PushMessagingRouter::DeliverMessageToWorker(
     scoped_refptr<DevToolsBackgroundServicesContextImpl> devtools_context,
     const std::string& message_id,
     base::Optional<std::string> payload,
-    const DeliverMessageCallback& deliver_message_callback,
+    DeliverMessageCallback deliver_message_callback,
     blink::ServiceWorkerStatusCode start_worker_status) {
-  DCHECK_CURRENTLY_ON(BrowserThread::IO);
+  DCHECK_CURRENTLY_ON(ServiceWorkerContext::GetCoreThreadId());
   if (start_worker_status != blink::ServiceWorkerStatusCode::kOk) {
     DeliverMessageEnd(std::move(service_worker),
                       std::move(service_worker_registration),
                       std::move(devtools_context), message_id,
-                      deliver_message_callback, start_worker_status);
+                      std::move(deliver_message_callback), start_worker_status);
     return;
   }
 
@@ -142,7 +144,7 @@ void PushMessagingRouter::DeliverMessageToWorker(
       ServiceWorkerMetrics::EventType::PUSH,
       base::BindOnce(&PushMessagingRouter::DeliverMessageEnd, service_worker,
                      std::move(service_worker_registration), devtools_context,
-                     message_id, deliver_message_callback),
+                     message_id, std::move(deliver_message_callback)),
       base::TimeDelta::FromSeconds(blink::mojom::kPushEventTimeoutSeconds),
       ServiceWorkerVersion::KILL_ON_TIMEOUT);
 
@@ -154,7 +156,7 @@ void PushMessagingRouter::DeliverMessageToWorker(
     std::map<std::string, std::string> event_metadata;
     if (payload)
       event_metadata["Payload"] = *payload;
-    devtools_context->LogBackgroundServiceEventOnIO(
+    devtools_context->LogBackgroundServiceEventOnCoreThread(
         service_worker->registration_id(), service_worker->script_origin(),
         DevToolsBackgroundService::kPushMessaging, "Push event dispatched",
         message_id, event_metadata);
@@ -167,9 +169,9 @@ void PushMessagingRouter::DeliverMessageEnd(
     scoped_refptr<ServiceWorkerRegistration> service_worker_registration,
     scoped_refptr<DevToolsBackgroundServicesContextImpl> devtools_context,
     const std::string& message_id,
-    const DeliverMessageCallback& deliver_message_callback,
+    DeliverMessageCallback deliver_message_callback,
     blink::ServiceWorkerStatusCode service_worker_status) {
-  DCHECK_CURRENTLY_ON(BrowserThread::IO);
+  DCHECK_CURRENTLY_ON(ServiceWorkerContext::GetCoreThreadId());
   UMA_HISTOGRAM_ENUMERATION("PushMessaging.DeliveryStatus.ServiceWorkerEvent",
                             service_worker_status);
   blink::mojom::PushDeliveryStatus delivery_status =
@@ -214,13 +216,13 @@ void PushMessagingRouter::DeliverMessageEnd(
       delivery_status = blink::mojom::PushDeliveryStatus::SERVICE_WORKER_ERROR;
       break;
   }
-  RunDeliverCallback(deliver_message_callback, delivery_status);
+  RunDeliverCallback(std::move(deliver_message_callback), delivery_status);
 
   if (devtools_context->IsRecording(
           DevToolsBackgroundService::kPushMessaging) &&
       delivery_status !=
           blink::mojom::PushDeliveryStatus::SERVICE_WORKER_ERROR) {
-    devtools_context->LogBackgroundServiceEventOnIO(
+    devtools_context->LogBackgroundServiceEventOnCoreThread(
         service_worker->registration_id(), service_worker->script_origin(),
         DevToolsBackgroundService::kPushMessaging, "Push event completed",
         message_id, {{"Status", status_description}});

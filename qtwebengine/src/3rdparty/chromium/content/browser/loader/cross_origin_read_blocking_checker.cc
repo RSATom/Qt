@@ -6,13 +6,12 @@
 
 #include "base/callback.h"
 #include "base/task/post_task.h"
-#include "content/browser/loader/navigation_url_loader_impl.h"
 #include "content/public/browser/browser_task_traits.h"
 #include "net/base/io_buffer.h"
 #include "net/base/mime_sniffer.h"
 #include "services/network/cross_origin_read_blocking.h"
 #include "services/network/public/cpp/resource_request.h"
-#include "services/network/public/cpp/resource_response.h"
+#include "services/network/public/mojom/url_response_head.mojom.h"
 #include "storage/browser/blob/blob_data_handle.h"
 #include "storage/browser/blob/blob_reader.h"
 #include "url/origin.h"
@@ -72,14 +71,14 @@ class CrossOriginReadBlockingChecker::BlobIOState {
   }
 
   void OnNetError() {
-    NavigationURLLoaderImpl::RunOrPostTaskOnLoaderThread(
-        FROM_HERE, base::BindOnce(&CrossOriginReadBlockingChecker::OnNetError,
+    base::PostTask(FROM_HERE, {BrowserThread::UI},
+                   base::BindOnce(&CrossOriginReadBlockingChecker::OnNetError,
                                   checker_, blob_reader_->net_error()));
   }
 
   void OnReadComplete(int bytes_read) {
-    NavigationURLLoaderImpl::RunOrPostTaskOnLoaderThread(
-        FROM_HERE,
+    base::PostTask(
+        FROM_HERE, {BrowserThread::UI},
         base::BindOnce(&CrossOriginReadBlockingChecker::OnReadComplete,
                        checker_, bytes_read, buffer_,
                        blob_reader_->net_error()));
@@ -96,7 +95,7 @@ class CrossOriginReadBlockingChecker::BlobIOState {
 
 CrossOriginReadBlockingChecker::CrossOriginReadBlockingChecker(
     const network::ResourceRequest& request,
-    const network::ResourceResponseHead& response,
+    const network::mojom::URLResponseHead& response,
     const url::Origin& request_initiator_site_lock,
     const storage::BlobDataHandle& blob_data_handle,
     base::OnceCallback<void(Result)> callback)
@@ -116,16 +115,11 @@ CrossOriginReadBlockingChecker::CrossOriginReadBlockingChecker(
     blob_io_state_ = std::make_unique<BlobIOState>(
         weak_factory_.GetWeakPtr(),
         std::make_unique<storage::BlobDataHandle>(blob_data_handle));
-    if (NavigationURLLoaderImpl::IsNavigationLoaderOnUIEnabled()) {
-      // base::Unretained is safe because |blob_io_state_| will be deleted on
-      // the IO thread.
-      base::PostTaskWithTraits(
-          FROM_HERE, {BrowserThread::IO},
-          base::BindOnce(&BlobIOState::StartSniffing,
-                         base::Unretained(blob_io_state_.get())));
-    } else {
-      blob_io_state_->StartSniffing();
-    }
+    // base::Unretained is safe because |blob_io_state_| will be deleted on
+    // the IO thread.
+    base::PostTask(FROM_HERE, {BrowserThread::IO},
+                   base::BindOnce(&BlobIOState::StartSniffing,
+                                  base::Unretained(blob_io_state_.get())));
     return;
   }
   DCHECK(corb_analyzer_->ShouldAllow());
@@ -133,10 +127,7 @@ CrossOriginReadBlockingChecker::CrossOriginReadBlockingChecker(
 }
 
 CrossOriginReadBlockingChecker::~CrossOriginReadBlockingChecker() {
-  if (NavigationURLLoaderImpl::IsNavigationLoaderOnUIEnabled()) {
-    BrowserThread::DeleteSoon(BrowserThread::IO, FROM_HERE,
-                              std::move(blob_io_state_));
-  }
+  base::DeleteSoon(FROM_HERE, {BrowserThread::IO}, std::move(blob_io_state_));
 }
 
 int CrossOriginReadBlockingChecker::GetNetError() {

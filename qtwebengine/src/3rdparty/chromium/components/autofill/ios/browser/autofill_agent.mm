@@ -52,8 +52,8 @@
 #include "ios/web/public/js_messaging/web_frame_util.h"
 #import "ios/web/public/js_messaging/web_frames_manager.h"
 #import "ios/web/public/navigation/navigation_context.h"
-#import "ios/web/public/web_state/web_state.h"
-#import "ios/web/public/web_state/web_state_observer_bridge.h"
+#import "ios/web/public/web_state.h"
+#import "ios/web/public/web_state_observer_bridge.h"
 #include "ui/gfx/geometry/rect.h"
 #include "url/gurl.h"
 
@@ -422,6 +422,15 @@ autofillManagerFromWebState:(web::WebState*)webState
                                  inFrame:frame
                        completionHandler:suggestionHandledCompletion_];
     suggestionHandledCompletion_ = nil;
+  } else if (suggestion.identifier ==
+             autofill::POPUP_ITEM_ID_SHOW_ACCOUNT_CARDS) {
+    web::WebFrame* frame =
+        GetWebFrameWithId(webState_, base::SysNSStringToUTF8(frameID));
+    autofill::AutofillManager* autofillManager =
+        [self autofillManagerFromWebState:webState_ webFrame:frame];
+    if (autofillManager) {
+      autofillManager->OnUserAcceptedCardsFromAccountOption();
+    }
   } else {
     NOTREACHED() << "unknown identifier " << suggestion.identifier;
   }
@@ -463,6 +472,11 @@ autofillManagerFromWebState:(web::WebState*)webState
     autofillManager->OnDidFillAutofillFormData(form, base::TimeTicks::Now());
 }
 
+- (void)handleParsedForms:(const std::vector<autofill::FormStructure*>&)forms
+                  inFrame:(web::WebFrame*)frame {
+  // No op.
+}
+
 - (void)fillFormDataPredictions:
             (const std::vector<autofill::FormDataPredictions>&)forms
                         inFrame:(web::WebFrame*)frame {
@@ -494,7 +508,6 @@ autofillManagerFromWebState:(web::WebState*)webState
             popupDelegate:
                 (const base::WeakPtr<autofill::AutofillPopupDelegate>&)
                     delegate {
-  bool has_gpay_branding = false;
   // Convert the suggestions into an NSArray for the keyboard.
   NSMutableArray<FormSuggestion*>* suggestions = [[NSMutableArray alloc] init];
   for (auto popup_suggestion : popup_suggestions) {
@@ -505,8 +518,7 @@ autofillManagerFromWebState:(web::WebState*)webState
     // fortunately almost all the entries we are interested in (profile or
     // autofill entries) are zero or positive. Negative entries we are
     // interested in is autofill::POPUP_ITEM_ID_CLEAR_FORM, used to show the
-    // "clear form" button and autofill::POPUP_ITEM_ID_GOOGLE_PAY_BRANDING, used
-    // to show the "Google Pay" branding.
+    // "clear form" button.
     NSString* value = nil;
     NSString* displayDescription = nil;
     if (popup_suggestion.frontend_id >= 0) {
@@ -526,10 +538,9 @@ autofillManagerFromWebState:(web::WebState*)webState
       // Show the "clear form" button.
       value = base::SysUTF16ToNSString(popup_suggestion.value);
     } else if (popup_suggestion.frontend_id ==
-               autofill::POPUP_ITEM_ID_GOOGLE_PAY_BRANDING) {
-      // Show "GPay branding" icon
+               autofill::POPUP_ITEM_ID_SHOW_ACCOUNT_CARDS) {
+      // Show opt-in for showing cards from account.
       value = base::SysUTF16ToNSString(popup_suggestion.value);
-      has_gpay_branding = true;
     }
 
     if (!value)
@@ -541,10 +552,9 @@ autofillManagerFromWebState:(web::WebState*)webState
                        icon:base::SysUTF8ToNSString(popup_suggestion.icon)
                  identifier:popup_suggestion.frontend_id];
 
-    // Put "clear form" entry at the front of the suggestions. If
-    // "GPay branding" icon is present, it remains as the first suggestion.
+    // Put "clear form" entry at the front of the suggestions.
     if (popup_suggestion.frontend_id == autofill::POPUP_ITEM_ID_CLEAR_FORM) {
-      [suggestions insertObject:suggestion atIndex:has_gpay_branding ? 1 : 0];
+      [suggestions insertObject:suggestion atIndex:0];
     } else {
       [suggestions addObject:suggestion];
     }
@@ -807,8 +817,10 @@ autofillManagerFromWebState:(web::WebState*)webState
 // Returns whether Autofill is enabled by checking if Autofill is turned on and
 // if the current URL has a web scheme and the page content is HTML.
 - (BOOL)isAutofillEnabled {
-  if (!autofill::prefs::IsAutofillEnabled(prefService_))
+  if (!autofill::prefs::IsAutofillProfileEnabled(prefService_) &&
+      !autofill::prefs::IsAutofillCreditCardEnabled(prefService_)) {
     return NO;
+  }
 
   // Only web URLs are supported by Autofill.
   return web::UrlHasWebScheme(webState_->GetLastCommittedURL()) &&

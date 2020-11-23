@@ -56,30 +56,6 @@
 #include <sys/ioctl.h>
 #include <sys/time.h>
 
-#ifndef CANFD_MTU
-// CAN FD support was added by Linux kernel 3.6
-// For prior kernels we redefine the missing defines here
-// they are taken from linux/can/raw.h & linux/can.h
-
-enum {
-    CAN_RAW_FD_FRAMES = 5
-};
-
-#define CAN_MAX_DLEN 8
-#define CANFD_MAX_DLEN 64
-struct canfd_frame {
-    canid_t can_id;  /* 32 bit CAN_ID + EFF/RTR/ERR flags */
-    __u8    len;     /* frame payload length in byte */
-    __u8    flags;   /* additional flags for CAN FD */
-    __u8    __res0;  /* reserved / padding */
-    __u8    __res1;  /* reserved / padding */
-    __u8    data[CANFD_MAX_DLEN] __attribute__((aligned(8)));
-};
-#define CAN_MTU     (sizeof(struct can_frame))
-#define CANFD_MTU   (sizeof(struct canfd_frame))
-
-#endif
-
 #ifndef CANFD_BRS
 #   define CANFD_BRS 0x01 /* bit rate switch (second bitrate for payload data) */
 #endif
@@ -516,8 +492,7 @@ bool SocketCanBackend::writeFrame(const QCanBusFrame &newData)
 
     qint64 bytesWritten = 0;
     if (newData.hasFlexibleDataRateFormat()) {
-        canfd_frame frame;
-        ::memset(&frame, 0, sizeof(frame));
+        canfd_frame frame = {};
         frame.len = newData.payload().size();
         frame.can_id = canId;
         frame.flags = newData.hasBitrateSwitch() ? CANFD_BRS : 0;
@@ -526,8 +501,7 @@ bool SocketCanBackend::writeFrame(const QCanBusFrame &newData)
 
         bytesWritten = ::write(canSocket, &frame, sizeof(frame));
     } else {
-        can_frame frame;
-        ::memset(&frame, 0, sizeof(frame));
+        can_frame frame = {};
         frame.can_dlc = newData.payload().size();
         frame.can_id = canId;
         ::memcpy(frame.data, newData.payload().constData(), frame.can_dlc);
@@ -714,7 +688,7 @@ void SocketCanBackend::readSocket()
     QVector<QCanBusFrame> newFrames;
 
     for (;;) {
-        ::memset(&m_frame, 0, sizeof(m_frame));
+        m_frame = {};
         m_iov.iov_len = sizeof(m_frame);
         m_msg.msg_namelen = sizeof(m_addr);
         m_msg.msg_controllen = sizeof(m_ctrlmsg);
@@ -734,11 +708,11 @@ void SocketCanBackend::readSocket()
             continue;
         }
 
-        struct timeval timeStamp;
+        struct timeval timeStamp = {};
         if (Q_UNLIKELY(ioctl(canSocket, SIOCGSTAMP, &timeStamp) < 0)) {
             setError(qt_error_string(errno),
                      QCanBusDevice::CanBusError::ReadError);
-            ::memset(&timeStamp, 0, sizeof(timeStamp));
+            timeStamp = {};
         }
 
         const QCanBusFrame::TimeStamp stamp(timeStamp.tv_sec, timeStamp.tv_usec);
@@ -778,6 +752,9 @@ void SocketCanBackend::resetController()
 
 bool SocketCanBackend::hasBusStatus() const
 {
+    if (isVirtual(canSocketName.toLatin1()))
+        return false;
+
     return libSocketCan->hasBusStatus();
 }
 

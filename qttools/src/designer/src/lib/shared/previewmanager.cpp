@@ -54,11 +54,12 @@
 #include <QtWidgets/qaction.h>
 #include <QtWidgets/qactiongroup.h>
 #include <QtGui/qcursor.h>
-#include <QtGui/qmatrix.h>
+#include <QtGui/qtransform.h>
 
 #include <QtCore/qmap.h>
 #include <QtCore/qdebug.h>
 #include <QtCore/qshareddata.h>
+#include <QtCore/qvector.h>
 
 QT_BEGIN_NAMESPACE
 
@@ -168,7 +169,7 @@ protected:
     virtual void fitWidget(const QSize &size);
     //  Calculate the complete transformation for the skin
     // (base class implementation provides rotation).
-    virtual QMatrix skinTransform() const;
+    virtual QTransform skinTransform() const;
 
 private:
     const QSize m_screenSize;
@@ -207,7 +208,7 @@ void PreviewDeviceSkin::setPreview(QWidget *formWidget)
 void PreviewDeviceSkin::slotSkinKeyPressEvent(int code, const QString& text, bool autorep)
 {
     if (QWidget *focusWidget =  QApplication::focusWidget()) {
-        QKeyEvent e(QEvent::KeyPress, code, nullptr, text, autorep);
+        QKeyEvent e(QEvent::KeyPress, code, {}, text, autorep);
         QApplication::sendEvent(focusWidget, &e);
     }
 }
@@ -215,7 +216,7 @@ void PreviewDeviceSkin::slotSkinKeyPressEvent(int code, const QString& text, boo
 void PreviewDeviceSkin::slotSkinKeyReleaseEvent(int code, const QString& text, bool autorep)
 {
     if (QWidget *focusWidget =  QApplication::focusWidget()) {
-        QKeyEvent e(QEvent::KeyRelease, code, nullptr, text, autorep);
+        QKeyEvent e(QEvent::KeyRelease, code, {}, text, autorep);
         QApplication::sendEvent(focusWidget, &e);
     }
 }
@@ -285,9 +286,9 @@ void PreviewDeviceSkin::fitWidget(const QSize &size)
     view()->setFixedSize(size);
 }
 
-QMatrix PreviewDeviceSkin::skinTransform() const
+QTransform PreviewDeviceSkin::skinTransform() const
 {
-    QMatrix newTransform;
+    QTransform newTransform;
     switch (m_direction)  {
         case DirectionUp:
             break;
@@ -341,7 +342,7 @@ signals:
 
 protected:
     void populateContextMenu(QMenu *m) override;
-    QMatrix skinTransform() const override;
+    QTransform skinTransform() const override;
     void fitWidget(const QSize &size) override;
 
 private:
@@ -414,10 +415,10 @@ void ZoomablePreviewDeviceSkin::populateContextMenu(QMenu *menu)
     menu->addSeparator();
 }
 
-QMatrix ZoomablePreviewDeviceSkin::skinTransform() const
+QTransform ZoomablePreviewDeviceSkin::skinTransform() const
 {
     // Complete transformation consisting of base class rotation and zoom.
-    QMatrix rc = PreviewDeviceSkin::skinTransform();
+    QTransform rc = PreviewDeviceSkin::skinTransform();
     const int zp = zoomPercent();
     if (zp != 100) {
         const qreal factor = zoomFactor(zp);
@@ -555,7 +556,7 @@ public:
 
     QPointer<QWidget> m_activePreview;
 
-    using PreviewDataList = QList<PreviewData>;
+    using PreviewDataList = QVector<PreviewData>;
 
     PreviewDataList m_previews;
 
@@ -772,11 +773,11 @@ QWidget *PreviewManager::showPreview(const QDesignerFormWindowInterface *fw,
     // If its the first one, position relative to form.
     // 2nd, attempt to tile right (for comparing styles) or cascade
     const QSize size = widget->size();
-    const bool firstPreview = d->m_previews.empty();
+    const bool firstPreview = d->m_previews.isEmpty();
     if (firstPreview) {
         widget->move(fw->mapToGlobal(QPoint(Spacing, Spacing)));
     } else {
-        if (QWidget *lastPreview = d->m_previews.back().m_widget) {
+        if (QWidget *lastPreview = d->m_previews.constLast().m_widget) {
             QDesktopWidget *desktop = qApp->desktop();
             const QRect lastPreviewGeometry = lastPreview->frameGeometry();
             const QRect availGeometry = desktop->availableGeometry(lastPreview);
@@ -798,7 +799,7 @@ QWidget *PreviewManager::showPreview(const QDesignerFormWindowInterface *fw,
 QWidget *PreviewManager::raise(const QDesignerFormWindowInterface *fw, const PreviewConfiguration &pc)
 {
     using PreviewDataList = PreviewManagerPrivate::PreviewDataList;
-    if (d->m_previews.empty())
+    if (d->m_previews.isEmpty())
         return nullptr;
 
     // find matching window
@@ -816,7 +817,7 @@ QWidget *PreviewManager::raise(const QDesignerFormWindowInterface *fw, const Pre
 
 void PreviewManager::closeAllPreviews()
 {
-    if (!d->m_previews.empty()) {
+    if (!d->m_previews.isEmpty()) {
         d->m_updateBlocked = true;
         d->m_activePreview = nullptr;
         for (auto it = d->m_previews.constBegin(), cend = d->m_previews.constEnd(); it != cend ;++it) {
@@ -843,7 +844,7 @@ void PreviewManager::updatePreviewClosed(QWidget *w)
             ++it;
         }
     }
-    if (d->m_previews.empty())
+    if (d->m_previews.isEmpty())
         emit lastPreviewClosed();
 }
 

@@ -43,7 +43,7 @@
 
     \quotefromfile hellocube/main.qml
     \skipto import QtQuick3D
-    \printuntil QtQuick3D 1.14
+    \printuntil QtQuick3D
 
     We define simple QtQuick Items with an Image and a Text on a Rectangle.
     \snippet hellocube/main.qml 2d
@@ -61,8 +61,5 @@
     This property makes the 2D item as a offscreen surface.
     \snippet hellocube/main.qml offscreenSurface
 
-    Normally the texture is shown upside down due to the difference of coordinates
-    between the 2D image and the 3D texture. So, we use the Texture.flipV property
-    to flip it.
     \snippet hellocube/main.qml 3dcube
 */

@@ -19,6 +19,7 @@
 class CFX_RenderDevice;
 class CPDF_AnnotList;
 class CPDF_RenderOptions;
+class CPDFSDK_FormFillEnvironment;
 
 class CPDFSDK_PageView final : public CPDF_Page::View {
  public:
@@ -44,7 +45,7 @@ class CPDFSDK_PageView final : public CPDF_Page::View {
   bool DeleteAnnot(CPDFSDK_Annot* pAnnot);
   CPDFSDK_Annot* AddAnnot(CXFA_FFWidget* pPDFAnnot);
   CPDFSDK_Annot* GetAnnotByXFAWidget(CXFA_FFWidget* hWidget);
-  CPDFXFA_Page* GetPDFXFAPage() { return ToXFAPage(m_page); }
+  IPDF_Page* GetXFAPage();
 #endif  // PDF_ENABLE_XFA
 
   CPDF_Page* GetPDFPage() const;
@@ -66,16 +67,11 @@ class CPDFSDK_PageView final : public CPDF_Page::View {
   bool OnLButtonDown(const CFX_PointF& point, uint32_t nFlag);
   bool OnLButtonUp(const CFX_PointF& point, uint32_t nFlag);
   bool OnLButtonDblClk(const CFX_PointF& point, uint32_t nFlag);
-
-#ifdef PDF_ENABLE_XFA
   bool OnRButtonDown(const CFX_PointF& point, uint32_t nFlag);
   bool OnRButtonUp(const CFX_PointF& point, uint32_t nFlag);
-#endif  // PDF_ENABLE_XFA
-
   bool OnChar(int nChar, uint32_t nFlag);
   bool OnKeyDown(int nKeyCode, int nFlag);
   bool OnKeyUp(int nKeyCode, int nFlag);
-
   bool OnMouseMove(const CFX_PointF& point, int nFlag);
   bool OnMouseWheel(double deltaX,
                     double deltaY,

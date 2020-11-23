@@ -74,7 +74,7 @@ namespace QPatternist
 
         virtual ~TokenRevealer();
 
-        virtual Token nextToken(YYLTYPE *const sourceLocator);
+        virtual Token nextToken(XPATHLTYPE *const sourceLocator);
         virtual int commenceScanOnly();
         virtual void resumeTokenizationFrom(const int position);
         virtual void setParserContext(const ParserContext::Ptr &parseInfo);

@@ -78,13 +78,23 @@ public:
 
 Q_SIGNALS:
     void buttonClicked(QAbstractButton *);
-    void buttonClicked(int);
     void buttonPressed(QAbstractButton *);
-    void buttonPressed(int);
     void buttonReleased(QAbstractButton *);
-    void buttonReleased(int);
     void buttonToggled(QAbstractButton *, bool);
+    void idClicked(int);
+    void idPressed(int);
+    void idReleased(int);
+    void idToggled(int, bool);
+#if QT_DEPRECATED_SINCE(5, 15)
+    QT_DEPRECATED_VERSION_X_5_15("Use QButtonGroup::idClicked(int) instead")
+    void buttonClicked(int);
+    QT_DEPRECATED_VERSION_X_5_15("Use QButtonGroup::idPressed(int) instead")
+    void buttonPressed(int);
+    QT_DEPRECATED_VERSION_X_5_15("Use QButtonGroup::idReleased(int) instead")
+    void buttonReleased(int);
+    QT_DEPRECATED_VERSION_X_5_15("Use QButtonGroup::idToggled(int, bool) instead")
     void buttonToggled(int, bool);
+#endif
 
 private:
     Q_DISABLE_COPY(QButtonGroup)

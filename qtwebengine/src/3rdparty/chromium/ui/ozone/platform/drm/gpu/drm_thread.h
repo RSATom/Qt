@@ -13,14 +13,18 @@
 #include "base/macros.h"
 #include "base/memory/weak_ptr.h"
 #include "base/threading/thread.h"
-#include "mojo/public/cpp/bindings/associated_binding_set.h"
+#include "mojo/public/cpp/bindings/associated_receiver_set.h"
+#include "mojo/public/cpp/bindings/pending_associated_receiver.h"
+#include "mojo/public/cpp/bindings/pending_receiver.h"
+#include "mojo/public/cpp/bindings/receiver_set.h"
 #include "ui/gfx/native_pixmap_handle.h"
 #include "ui/gfx/native_widget_types.h"
 #include "ui/gfx/vsync_provider.h"
 #include "ui/ozone/common/gpu/ozone_gpu_message_params.h"
 #include "ui/ozone/platform/drm/common/display_types.h"
-#include "ui/ozone/public/interfaces/device_cursor.mojom.h"
-#include "ui/ozone/public/interfaces/drm_device.mojom.h"
+#include "ui/ozone/platform/drm/gpu/drm_device_generator.h"
+#include "ui/ozone/public/mojom/device_cursor.mojom.h"
+#include "ui/ozone/public/mojom/drm_device.mojom.h"
 #include "ui/ozone/public/swap_completion_callback.h"
 
 namespace base {
@@ -61,7 +65,14 @@ class DrmThread : public base::Thread,
   DrmThread();
   ~DrmThread() override;
 
-  void Start(base::OnceClosure binding_completer);
+  void Start(base::OnceClosure receiver_completer,
+             std::unique_ptr<DrmDeviceGenerator> device_generator);
+
+  // Runs |task| once a DrmDevice is registered and |window| was created via
+  // CreateWindow(). |done| will be signaled if it's not null.
+  void RunTaskAfterWindowReady(gfx::AcceleratedWidget window,
+                               base::OnceClosure task,
+                               base::WaitableEvent* done);
 
   // Must be called on the DRM thread. All methods for use from the GPU thread.
   // DrmThreadProxy (on GPU)thread) is the client for these methods.
@@ -88,7 +99,8 @@ class DrmThread : public base::Thread,
                               std::unique_ptr<GbmBuffer>* buffer,
                               scoped_refptr<DrmFramebuffer>* framebuffer);
   void SetClearOverlayCacheCallback(base::RepeatingClosure callback);
-  void AddBindingDrmDevice(ozone::mojom::DrmDeviceRequest request);
+  void AddDrmDeviceReceiver(
+      mojo::PendingReceiver<ozone::mojom::DrmDevice> receiver);
 
   // DrmWindowProxy (on GPU thread) is the client for these methods.
   void SchedulePageFlip(gfx::AcceleratedWidget widget,
@@ -99,7 +111,8 @@ class DrmThread : public base::Thread,
   void IsDeviceAtomic(gfx::AcceleratedWidget widget, bool* is_atomic);
 
   // ozone::mojom::DrmDevice
-  void CreateWindow(gfx::AcceleratedWidget widget) override;
+  void CreateWindow(gfx::AcceleratedWidget widget,
+                    const gfx::Rect& initial_bounds) override;
   void DestroyWindow(gfx::AcceleratedWidget widget) override;
   void SetWindowBounds(gfx::AcceleratedWidget widget,
                        const gfx::Rect& bounds) override;
@@ -137,7 +150,8 @@ class DrmThread : public base::Thread,
                               const OverlaySurfaceCandidateList&,
                               const OverlayStatusList&)> callback) override;
   void GetDeviceCursor(
-      ozone::mojom::DeviceCursorAssociatedRequest cursor) override;
+      mojo::PendingAssociatedReceiver<ozone::mojom::DeviceCursor> receiver)
+      override;
 
   // ozone::mojom::DeviceCursor
   void SetCursor(gfx::AcceleratedWidget widget,
@@ -151,27 +165,51 @@ class DrmThread : public base::Thread,
   void Init() override;
 
  private:
+  struct TaskInfo {
+    base::OnceClosure task;
+    base::WaitableEvent* done;
+
+    TaskInfo(base::OnceClosure task, base::WaitableEvent* done);
+    TaskInfo(TaskInfo&& other);
+    ~TaskInfo();
+  };
+
   void OnPlanesReadyForPageFlip(gfx::AcceleratedWidget widget,
                                 SwapCompletionOnceCallback submission_callback,
                                 PresentationOnceCallback presentation_callback,
                                 std::vector<DrmOverlayPlane> planes);
 
+  // Called when a DrmDevice or DrmWindow is created. Runs tasks that are now
+  // unblocked.
+  void ProcessPendingTasks();
+
   std::unique_ptr<DrmDeviceManager> device_manager_;
   std::unique_ptr<ScreenManager> screen_manager_;
   std::unique_ptr<DrmGpuDisplayManager> display_manager_;
 
-  base::OnceClosure complete_early_binding_requests_;
+  base::OnceClosure complete_early_receiver_requests_;
 
-  // The mojo implementation requires an AssociatedBindingSet because the
+  // The mojo implementation requires an AssociatedReceiverSet because the
   // DrmThread serves requests from two different client threads.
-  mojo::AssociatedBindingSet<ozone::mojom::DeviceCursor> cursor_bindings_;
+  mojo::AssociatedReceiverSet<ozone::mojom::DeviceCursor> cursor_receivers_;
 
-  // This is a BindingSet because the regular Binding causes the sequence
+  // This is a ReceiverSet because the regular Receiver causes the sequence
   // checker in InterfaceEndpointClient to fail during teardown.
   // TODO(samans): Figure out why.
-  mojo::BindingSet<ozone::mojom::DrmDevice> drm_bindings_;
+  mojo::ReceiverSet<ozone::mojom::DrmDevice> drm_receivers_;
 
-  base::WeakPtrFactory<DrmThread> weak_ptr_factory_;
+  // The AcceleratedWidget from the last call to CreateWindow.
+  gfx::AcceleratedWidget last_created_window_ = gfx::kNullAcceleratedWidget;
+
+  // The tasks that are blocked on a DrmDevice and a certain AcceleratedWidget
+  // becoming available.
+  base::flat_map<gfx::AcceleratedWidget, std::vector<TaskInfo>> pending_tasks_;
+
+  // Holds the DrmDeviceGenerator that DrmDeviceManager will use. Will be passed
+  // on to DrmDeviceManager after the thread starts.
+  std::unique_ptr<DrmDeviceGenerator> device_generator_;
+
+  base::WeakPtrFactory<DrmThread> weak_ptr_factory_{this};
 
   DISALLOW_COPY_AND_ASSIGN(DrmThread);
 };

@@ -9,6 +9,13 @@ is: Pick no more than 2 of
   * unsafe implementation language; and
   * high privilege.
 
+![alt text](rule-of-2-drawing.png "Venn diagram showing you should always use
+a safe language, a sandbox, or not be processing untrustworthy inputs in the first
+place.")
+
+(drawing source
+[here](https://docs.google.com/drawings/d/12WoPI7-E5NAINHUZqEPGn38aZBYBxq20BgVBjZIvgCQ/edit?usp=sharing))
+
 ## Why?
 
 When code that handles untrustworthy inputs at high privilege has bugs, the
@@ -94,7 +101,7 @@ Low-privilege processes include sandboxed utility processes and renderer
 processes with [Site
 Isolation](https://www.chromium.org/Home/chromium-security/site-isolation) (very
 good) or [origin
-isolation](https://www.chromium.org/administrators/policy-list-3#IsolateOrigins)
+isolation](https://cloud.google.com/docs/chrome-enterprise/policies/?policy=IsolateOrigins)
 (even better).
 
 ## Solutions To This Puzzle

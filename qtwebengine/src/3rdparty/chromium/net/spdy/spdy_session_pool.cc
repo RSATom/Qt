@@ -78,36 +78,39 @@ void SpdySessionPool::SpdySessionRequest::OnRemovedFromPool() {
 
 SpdySessionPool::SpdySessionPool(
     HostResolver* resolver,
-    SSLConfigService* ssl_config_service,
+    SSLClientContext* ssl_client_context,
     HttpServerProperties* http_server_properties,
     TransportSecurityState* transport_security_state,
     const quic::ParsedQuicVersionVector& quic_supported_versions,
     bool enable_ping_based_connection_checking,
-    bool support_ietf_format_quic_altsvc,
+    bool is_http2_enabled,
+    bool is_quic_enabled,
     size_t session_max_recv_window_size,
+    int session_max_queued_capped_frames,
     const spdy::SettingsMap& initial_settings,
     const base::Optional<GreasedHttp2Frame>& greased_http2_frame,
     SpdySessionPool::TimeFunc time_func,
     NetworkQualityEstimator* network_quality_estimator)
     : http_server_properties_(http_server_properties),
       transport_security_state_(transport_security_state),
-      ssl_config_service_(ssl_config_service),
+      ssl_client_context_(ssl_client_context),
       resolver_(resolver),
       quic_supported_versions_(quic_supported_versions),
       enable_sending_initial_data_(true),
       enable_ping_based_connection_checking_(
           enable_ping_based_connection_checking),
-      support_ietf_format_quic_altsvc_(support_ietf_format_quic_altsvc),
+      is_http2_enabled_(is_http2_enabled),
+      is_quic_enabled_(is_quic_enabled),
       session_max_recv_window_size_(session_max_recv_window_size),
+      session_max_queued_capped_frames_(session_max_queued_capped_frames),
       initial_settings_(initial_settings),
       greased_http2_frame_(greased_http2_frame),
       time_func_(time_func),
       push_delegate_(nullptr),
       network_quality_estimator_(network_quality_estimator) {
   NetworkChangeNotifier::AddIPAddressObserver(this);
-  if (ssl_config_service_)
-    ssl_config_service_->AddObserver(this);
-  CertDatabase::GetInstance()->AddObserver(this);
+  if (ssl_client_context_)
+    ssl_client_context_->AddObserver(this);
 }
 
 SpdySessionPool::~SpdySessionPool() {
@@ -130,10 +133,9 @@ SpdySessionPool::~SpdySessionPool() {
     RemoveUnavailableSession((*sessions_.begin())->GetWeakPtr());
   }
 
-  if (ssl_config_service_)
-    ssl_config_service_->RemoveObserver(this);
+  if (ssl_client_context_)
+    ssl_client_context_->RemoveObserver(this);
   NetworkChangeNotifier::RemoveIPAddressObserver(this);
-  CertDatabase::GetInstance()->RemoveObserver(this);
 }
 
 base::WeakPtr<SpdySession>
@@ -277,7 +279,8 @@ OnHostResolutionCallbackResult SpdySessionPool::OnHostResolutionComplete(
       if (!(alias_key.proxy_server() == key.proxy_server()) ||
           !(alias_key.privacy_mode() == key.privacy_mode()) ||
           !(alias_key.is_proxy_session() == key.is_proxy_session()) ||
-          !(alias_key.network_isolation_key() == key.network_isolation_key())) {
+          !(alias_key.network_isolation_key() == key.network_isolation_key()) ||
+          !(alias_key.disable_secure_dns() == key.disable_secure_dns())) {
         continue;
       }
 
@@ -306,7 +309,8 @@ OnHostResolutionCallbackResult SpdySessionPool::OnHostResolutionComplete(
         SpdySessionKey new_key(old_key.host_port_pair(), old_key.proxy_server(),
                                old_key.privacy_mode(),
                                old_key.is_proxy_session(), key.socket_tag(),
-                               old_key.network_isolation_key());
+                               old_key.network_isolation_key(),
+                               old_key.disable_secure_dns());
 
         // If there is already a session with |new_key|, skip this one.
         // It will be found in |aliases_| in a future iteration.
@@ -342,10 +346,10 @@ OnHostResolutionCallbackResult SpdySessionPool::OnHostResolutionComplete(
           }
 
           UnmapKey(*it);
-          SpdySessionKey new_pool_alias_key =
-              SpdySessionKey(it->host_port_pair(), it->proxy_server(),
-                             it->privacy_mode(), it->is_proxy_session(),
-                             key.socket_tag(), it->network_isolation_key());
+          SpdySessionKey new_pool_alias_key = SpdySessionKey(
+              it->host_port_pair(), it->proxy_server(), it->privacy_mode(),
+              it->is_proxy_session(), key.socket_tag(),
+              it->network_isolation_key(), it->disable_secure_dns());
           MapKeyToAvailableSession(new_pool_alias_key, available_session);
           auto old_it = it;
           ++it;
@@ -442,7 +446,7 @@ std::unique_ptr<base::Value> SpdySessionPool::SpdySessionPoolInfoToValue()
     const SpdySessionKey& key = it->first;
     const SpdySessionKey& session_key = it->second->spdy_session_key();
     if (key == session_key)
-      list->GetList().push_back(it->second->GetInfoAsValue());
+      list->Append(it->second->GetInfoAsValue());
   }
   return std::move(list);
 }
@@ -471,12 +475,27 @@ void SpdySessionPool::OnIPAddressChanged() {
   }
 }
 
-void SpdySessionPool::OnSSLConfigChanged() {
-  CloseCurrentSessions(ERR_NETWORK_CHANGED);
+void SpdySessionPool::OnSSLConfigChanged(bool is_cert_database_change) {
+  CloseCurrentSessions(is_cert_database_change ? ERR_CERT_DATABASE_CHANGED
+                                               : ERR_NETWORK_CHANGED);
 }
 
-void SpdySessionPool::OnCertDBChanged() {
-  CloseCurrentSessions(ERR_CERT_DATABASE_CHANGED);
+void SpdySessionPool::OnSSLConfigForServerChanged(const HostPortPair& server) {
+  WeakSessionList current_sessions = GetCurrentSessions();
+  for (base::WeakPtr<SpdySession>& session : current_sessions) {
+    if (!session)
+      continue;
+
+    const ProxyServer& proxy_server =
+        session->spdy_session_key().proxy_server();
+    if (session->host_port_pair() == server ||
+        (proxy_server.is_http_like() && !proxy_server.is_http() &&
+         proxy_server.host_port_pair() == server)) {
+      session->MakeUnavailable();
+      session->MaybeFinishGoingAway();
+      DCHECK(!IsSessionAvailable(session));
+    }
+  }
 }
 
 void SpdySessionPool::RemoveRequestForSpdySession(SpdySessionRequest* request) {
@@ -646,11 +665,13 @@ std::unique_ptr<SpdySession> SpdySessionPool::CreateSession(
 
   return std::make_unique<SpdySession>(
       key, http_server_properties_, transport_security_state_,
-      ssl_config_service_, quic_supported_versions_,
-      enable_sending_initial_data_, enable_ping_based_connection_checking_,
-      support_ietf_format_quic_altsvc_, is_trusted_proxy,
-      session_max_recv_window_size_, initial_settings_, greased_http2_frame_,
-      time_func_, push_delegate_, network_quality_estimator_, net_log);
+      ssl_client_context_ ? ssl_client_context_->ssl_config_service() : nullptr,
+      quic_supported_versions_, enable_sending_initial_data_,
+      enable_ping_based_connection_checking_, is_http2_enabled_,
+      is_quic_enabled_, is_trusted_proxy, session_max_recv_window_size_,
+      session_max_queued_capped_frames_, initial_settings_,
+      greased_http2_frame_, time_func_, push_delegate_,
+      network_quality_estimator_, net_log);
 }
 
 base::WeakPtr<SpdySession> SpdySessionPool::InsertSession(

@@ -188,6 +188,9 @@ public:
     QUtcTimeZonePrivate(const QUtcTimeZonePrivate &other);
     virtual ~QUtcTimeZonePrivate();
 
+    // Fall-back for UTC[+-]\d+(:\d+){,2} IDs.
+    static qint64 offsetFromUtcString(const QByteArray &id);
+
     QUtcTimeZonePrivate *clone() const override;
 
     Data data(qint64 forMSecsSinceEpoch) const override;
@@ -287,6 +290,16 @@ Q_DECL_CONSTEXPR inline bool operator==(const QTzTransitionRule &lhs, const QTzT
 Q_DECL_CONSTEXPR inline bool operator!=(const QTzTransitionRule &lhs, const QTzTransitionRule &rhs) noexcept
 { return !operator==(lhs, rhs); }
 
+// These are stored separately from QTzTimeZonePrivate so that they can be
+// cached, avoiding the need to re-parse them from disk constantly.
+struct QTzTimeZoneCacheEntry
+{
+    QVector<QTzTransitionTime> m_tranTimes;
+    QVector<QTzTransitionRule> m_tranRules;
+    QList<QByteArray> m_abbreviations;
+    QByteArray m_posixRule;
+};
+
 class Q_AUTOTEST_EXPORT QTzTimeZonePrivate final : public QTimeZonePrivate
 {
     QTzTimeZonePrivate(const QTzTimeZonePrivate &) = default;
@@ -334,13 +347,11 @@ private:
     QVector<QTimeZonePrivate::Data> getPosixTransitions(qint64 msNear) const;
 
     Data dataForTzTransition(QTzTransitionTime tran) const;
-    QVector<QTzTransitionTime> m_tranTimes;
-    QVector<QTzTransitionRule> m_tranRules;
-    QList<QByteArray> m_abbreviations;
 #if QT_CONFIG(icu)
     mutable QSharedDataPointer<QTimeZonePrivate> m_icu;
 #endif
-    QByteArray m_posixRule;
+    QTzTimeZoneCacheEntry cached_data;
+    QVector<QTzTransitionTime> tranCache() const { return cached_data.m_tranTimes; }
 };
 #endif // Q_OS_UNIX
 

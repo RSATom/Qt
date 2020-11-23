@@ -96,7 +96,7 @@ public:
         return true;
     }
 
-    bool sampleVariablesSupport() const {
+    bool sampleMaskSupport() const {
         return true;
     }
 
@@ -117,6 +117,10 @@ public:
     }
 
     bool canUseAnyFunctionInShader() const {
+        return false;
+    }
+
+    bool noDefaultPrecisionForExternalSamplers() const {
         return false;
     }
 
@@ -371,6 +375,12 @@ public:
         sk_sp<GrShaderCaps> result = sk_make_sp<GrShaderCaps>(GrContextOptions());
         result->fVersionDeclString = "#version 400";
         result->fRemovePowWithConstantExponent = true;
+        return result;
+    }
+
+    static sk_sp<GrShaderCaps> SampleMaskSupport() {
+        sk_sp<GrShaderCaps> result = Default();
+        result->fSampleMaskSupport = true;
         return result;
     }
 };

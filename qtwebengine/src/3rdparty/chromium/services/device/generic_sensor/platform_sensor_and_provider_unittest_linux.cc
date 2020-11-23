@@ -8,11 +8,12 @@
 #include "base/files/file_util.h"
 #include "base/files/scoped_temp_dir.h"
 #include "base/memory/ptr_util.h"
+#include "base/numerics/math_constants.h"
 #include "base/run_loop.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_util.h"
 #include "base/test/bind_test_util.h"
-#include "base/test/scoped_task_environment.h"
+#include "base/test/task_environment.h"
 #include "base/threading/thread_restrictions.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "services/device/generic_sensor/generic_sensor_consts.h"
@@ -282,7 +283,7 @@ class PlatformSensorAndProviderLinuxTest : public ::testing::Test {
     ASSERT_TRUE(success);
     // Make sure all tasks have been delivered (including SensorDeviceManager
     // notifying PlatformSensorProviderLinux of a device addition).
-    scoped_task_environment_.RunUntilIdle();
+    task_environment_.RunUntilIdle();
   }
 
   // Generates a "remove device" event by removed sensors' directory and
@@ -298,10 +299,10 @@ class PlatformSensorAndProviderLinuxTest : public ::testing::Test {
     ASSERT_TRUE(success);
     // Make sure all tasks have been delivered (including SensorDeviceManager
     // notifying PlatformSensorProviderLinux of a device removal).
-    scoped_task_environment_.RunUntilIdle();
+    task_environment_.RunUntilIdle();
   }
 
-  base::test::ScopedTaskEnvironment scoped_task_environment_;
+  base::test::TaskEnvironment task_environment_;
 
   MockSensorDeviceManager* manager_;
   std::unique_ptr<PlatformSensorProviderLinux> provider_;
@@ -340,7 +341,7 @@ TEST_F(PlatformSensorAndProviderLinuxTest, SensorIsSupported) {
   SetServiceStart();
 
   auto sensor = CreateSensor(SensorType::AMBIENT_LIGHT);
-  EXPECT_TRUE(sensor);
+  ASSERT_TRUE(sensor);
   EXPECT_EQ(SensorType::AMBIENT_LIGHT, sensor->GetType());
 }
 
@@ -354,7 +355,7 @@ TEST_F(PlatformSensorAndProviderLinuxTest, StartFails) {
   SetServiceStart();
 
   auto sensor = CreateSensor(SensorType::AMBIENT_LIGHT);
-  EXPECT_TRUE(sensor);
+  ASSERT_TRUE(sensor);
 
   auto client =
       std::make_unique<NiceMock<LinuxMockPlatformSensorClient>>(sensor);
@@ -372,7 +373,7 @@ TEST_F(PlatformSensorAndProviderLinuxTest, SensorStarted) {
   SetServiceStart();
 
   auto sensor = CreateSensor(SensorType::AMBIENT_LIGHT);
-  EXPECT_TRUE(sensor);
+  ASSERT_TRUE(sensor);
 
   auto client =
       std::make_unique<NiceMock<LinuxMockPlatformSensorClient>>(sensor);
@@ -391,7 +392,7 @@ TEST_F(PlatformSensorAndProviderLinuxTest, SensorRemoved) {
   SetServiceStart();
 
   auto sensor = CreateSensor(SensorType::AMBIENT_LIGHT);
-  EXPECT_TRUE(sensor);
+  ASSERT_TRUE(sensor);
 
   auto client =
       std::make_unique<NiceMock<LinuxMockPlatformSensorClient>>(sensor);
@@ -476,7 +477,7 @@ TEST_F(PlatformSensorAndProviderLinuxTest, GetMaximumSupportedFrequency) {
   SetServiceStart();
 
   auto sensor = CreateSensor(SensorType::ACCELEROMETER);
-  EXPECT_TRUE(sensor);
+  ASSERT_TRUE(sensor);
   EXPECT_THAT(sensor->GetMaximumSupportedFrequency(),
               kAccelerometerFrequencyValue);
 }
@@ -492,7 +493,7 @@ TEST_F(PlatformSensorAndProviderLinuxTest,
   SetServiceStart();
 
   auto sensor = CreateSensor(SensorType::AMBIENT_LIGHT);
-  EXPECT_TRUE(sensor);
+  ASSERT_TRUE(sensor);
   EXPECT_EQ(SensorType::AMBIENT_LIGHT, sensor->GetType());
   EXPECT_THAT(sensor->GetMaximumSupportedFrequency(),
               SensorTraits<SensorType::AMBIENT_LIGHT>::kDefaultFrequency);
@@ -513,7 +514,7 @@ TEST_F(PlatformSensorAndProviderLinuxTest, CheckAmbientLightReadings) {
   SetServiceStart();
 
   auto sensor = CreateSensor(SensorType::AMBIENT_LIGHT);
-  EXPECT_TRUE(sensor);
+  ASSERT_TRUE(sensor);
   EXPECT_EQ(sensor->GetReportingMode(), mojom::ReportingMode::ON_CHANGE);
 
   auto client =
@@ -555,7 +556,7 @@ TEST_F(PlatformSensorAndProviderLinuxTest,
   SetServiceStart();
 
   auto sensor = CreateSensor(SensorType::ACCELEROMETER);
-  EXPECT_TRUE(sensor);
+  ASSERT_TRUE(sensor);
   // The reporting mode is ON_CHANGE only for this test.
   EXPECT_EQ(sensor->GetReportingMode(), mojom::ReportingMode::ON_CHANGE);
 
@@ -568,7 +569,7 @@ TEST_F(PlatformSensorAndProviderLinuxTest,
   SensorReadingSharedBuffer* buffer =
       static_cast<SensorReadingSharedBuffer*>(mapping.get());
 #if defined(OS_CHROMEOS)
-  double scaling = kMeanGravity / kAccelerometerScalingValue;
+  double scaling = base::kMeanGravityDouble / kAccelerometerScalingValue;
   EXPECT_THAT(buffer->reading.accel.x, scaling * sensor_values[0]);
   EXPECT_THAT(buffer->reading.accel.y, scaling * sensor_values[1]);
   EXPECT_THAT(buffer->reading.accel.z, scaling * sensor_values[2]);
@@ -606,7 +607,7 @@ TEST_F(PlatformSensorAndProviderLinuxTest, CheckLinearAcceleration) {
   // CrOS has a different axes plane and scale, see crbug.com/501184.
   double sensor_values[3] = {0, 0, 1};
 #else
-  double sensor_values[3] = {0, 0, -kMeanGravity};
+  double sensor_values[3] = {0, 0, -base::kMeanGravityDouble};
 #endif
   InitializeSupportedSensor(SensorType::ACCELEROMETER,
                             kAccelerometerFrequencyValue, kZero, kZero,
@@ -616,7 +617,7 @@ TEST_F(PlatformSensorAndProviderLinuxTest, CheckLinearAcceleration) {
   SetServiceStart();
 
   auto sensor = CreateSensor(SensorType::LINEAR_ACCELERATION);
-  EXPECT_TRUE(sensor);
+  ASSERT_TRUE(sensor);
   EXPECT_EQ(sensor->GetReportingMode(), mojom::ReportingMode::CONTINUOUS);
 
   auto client =
@@ -662,7 +663,7 @@ TEST_F(PlatformSensorAndProviderLinuxTest, CheckGyroscopeReadingConversion) {
   SetServiceStart();
 
   auto sensor = CreateSensor(SensorType::GYROSCOPE);
-  EXPECT_TRUE(sensor);
+  ASSERT_TRUE(sensor);
   // The reporting mode is ON_CHANGE only for this test.
   EXPECT_EQ(sensor->GetReportingMode(), mojom::ReportingMode::ON_CHANGE);
 
@@ -675,7 +676,8 @@ TEST_F(PlatformSensorAndProviderLinuxTest, CheckGyroscopeReadingConversion) {
   SensorReadingSharedBuffer* buffer =
       static_cast<SensorReadingSharedBuffer*>(mapping.get());
 #if defined(OS_CHROMEOS)
-  double scaling = gfx::DegToRad(kMeanGravity) / kGyroscopeScalingValue;
+  double scaling =
+      gfx::DegToRad(base::kMeanGravityDouble) / kGyroscopeScalingValue;
   EXPECT_THAT(buffer->reading.gyro.x, -scaling * sensor_values[0]);
   EXPECT_THAT(buffer->reading.gyro.y, -scaling * sensor_values[1]);
   EXPECT_THAT(buffer->reading.gyro.z, -scaling * sensor_values[2]);
@@ -716,7 +718,7 @@ TEST_F(PlatformSensorAndProviderLinuxTest, CheckMagnetometerReadingConversion) {
   SetServiceStart();
 
   auto sensor = CreateSensor(SensorType::MAGNETOMETER);
-  EXPECT_TRUE(sensor);
+  ASSERT_TRUE(sensor);
   // The reporting mode is ON_CHANGE only for this test.
   EXPECT_EQ(sensor->GetReportingMode(), mojom::ReportingMode::ON_CHANGE);
 
@@ -760,7 +762,7 @@ TEST_F(PlatformSensorAndProviderLinuxTest,
   SetServiceStart();
 
   auto sensor = CreateSensor(SensorType::AMBIENT_LIGHT);
-  EXPECT_TRUE(sensor);
+  ASSERT_TRUE(sensor);
   EXPECT_EQ(mojom::ReportingMode::CONTINUOUS, sensor->GetReportingMode());
 
   auto client =

@@ -8,7 +8,7 @@
 #include "src/gpu/mock/GrMockBuffer.h"
 #include "src/gpu/mock/GrMockCaps.h"
 #include "src/gpu/mock/GrMockGpu.h"
-#include "src/gpu/mock/GrMockGpuCommandBuffer.h"
+#include "src/gpu/mock/GrMockOpsRenderPass.h"
 #include "src/gpu/mock/GrMockStencilAttachment.h"
 #include "src/gpu/mock/GrMockTexture.h"
 #include <atomic>
@@ -52,30 +52,19 @@ sk_sp<GrGpu> GrMockGpu::Make(const GrMockOptions* mockOptions,
     return sk_sp<GrGpu>(new GrMockGpu(context, *mockOptions, contextOptions));
 }
 
-GrGpuRTCommandBuffer* GrMockGpu::getCommandBuffer(
-                                GrRenderTarget* rt, GrSurfaceOrigin origin, const SkRect& bounds,
-                                const GrGpuRTCommandBuffer::LoadAndStoreInfo&,
-                                const GrGpuRTCommandBuffer::StencilLoadAndStoreInfo&) {
-    return new GrMockGpuRTCommandBuffer(this, rt, origin);
+GrOpsRenderPass* GrMockGpu::getOpsRenderPass(
+                                GrRenderTarget* rt, GrSurfaceOrigin origin, const SkIRect& bounds,
+                                const GrOpsRenderPass::LoadAndStoreInfo& colorInfo,
+                                const GrOpsRenderPass::StencilLoadAndStoreInfo&,
+                                const SkTArray<GrSurfaceProxy*, true>& sampledProxies) {
+    return new GrMockOpsRenderPass(this, rt, origin, colorInfo);
 }
 
-GrGpuTextureCommandBuffer* GrMockGpu::getCommandBuffer(GrTexture* texture, GrSurfaceOrigin origin) {
-    return new GrMockGpuTextureCommandBuffer(texture, origin);
-}
-
-void GrMockGpu::submit(GrGpuCommandBuffer* buffer) {
-    if (buffer->asRTCommandBuffer()) {
-        this->submitCommandBuffer(
-                        static_cast<GrMockGpuRTCommandBuffer*>(buffer->asRTCommandBuffer()));
-    }
-
-    delete buffer;
-}
-
-void GrMockGpu::submitCommandBuffer(const GrMockGpuRTCommandBuffer* cmdBuffer) {
-    for (int i = 0; i < cmdBuffer->numDraws(); ++i) {
+void GrMockGpu::submit(GrOpsRenderPass* renderPass) {
+    for (int i = 0; i < static_cast<GrMockOpsRenderPass*>(renderPass)->numDraws(); ++i) {
         fStats.incNumDraws();
     }
+    delete renderPass;
 }
 
 GrMockGpu::GrMockGpu(GrContext* context, const GrMockOptions& options,
@@ -142,21 +131,23 @@ void GrMockGpu::querySampleLocations(GrRenderTarget* rt, SkTArray<SkPoint>* samp
     }
 }
 
-sk_sp<GrTexture> GrMockGpu::onCreateTexture(const GrSurfaceDesc& desc, GrRenderable renderable,
-                                            int renderTargetSampleCnt, SkBudgeted budgeted,
-                                            GrProtected isProtected, const GrMipLevel texels[],
-                                            int mipLevelCount) {
+sk_sp<GrTexture> GrMockGpu::onCreateTexture(const GrSurfaceDesc& desc,
+                                            const GrBackendFormat& format,
+                                            GrRenderable renderable,
+                                            int renderTargetSampleCnt,
+                                            SkBudgeted budgeted,
+                                            GrProtected isProtected,
+                                            int mipLevelCount,
+                                            uint32_t levelClearMask) {
     if (fMockOptions.fFailTextureAllocations) {
         return nullptr;
     }
 
-    GrColorType ct = GrPixelConfigToColorType(desc.fConfig);
-    if (GrColorType::kUnknown == ct) {
-        return nullptr;
-    }
+    GrColorType ct = format.asMockColorType();
+    SkASSERT(ct != GrColorType::kUnknown);
 
-    GrMipMapsStatus mipMapsStatus = mipLevelCount > 1 ? GrMipMapsStatus::kValid
-                                                      : GrMipMapsStatus::kNotAllocated;
+    GrMipMapsStatus mipMapsStatus =
+            mipLevelCount > 1 ? GrMipMapsStatus::kDirty : GrMipMapsStatus::kNotAllocated;
     GrMockTextureInfo texInfo(ct, NextInternalTextureID());
     if (renderable == GrRenderable::kYes) {
         GrMockRenderTargetInfo rtInfo(ct, NextInternalRenderTargetID());
@@ -168,7 +159,7 @@ sk_sp<GrTexture> GrMockGpu::onCreateTexture(const GrSurfaceDesc& desc, GrRendera
             new GrMockTexture(this, budgeted, desc, isProtected, mipMapsStatus, texInfo));
 }
 
-sk_sp<GrTexture> GrMockGpu::onCreateCompressedTexture(int width, int height,
+sk_sp<GrTexture> GrMockGpu::onCreateCompressedTexture(int width, int height, const GrBackendFormat&,
                                                       SkImage::CompressionType compressionType,
                                                       SkBudgeted budgeted, const void* data) {
     return nullptr;
@@ -267,27 +258,22 @@ GrStencilAttachment* GrMockGpu::createStencilAttachmentForRenderTarget(
     return new GrMockStencilAttachment(this, width, height, kBits, rt->numSamples());
 }
 
-GrBackendTexture GrMockGpu::createBackendTexture(int w, int h,
-                                                 const GrBackendFormat& format,
-                                                 GrMipMapped mipMapped,
-                                                 GrRenderable /* renderable */,
-                                                 const void* /* pixels */,
-                                                 size_t /* rowBytes */,
-                                                 const SkColor4f* /* color */,
-                                                 GrProtected /* isProtected */) {
-
-    if (!format.getMockColorType()) {
-        return GrBackendTexture();  // invalid;
-    }
-
-    if (!this->caps()->isFormatTexturable(*format.getMockColorType(), format)) {
+GrBackendTexture GrMockGpu::onCreateBackendTexture(SkISize dimensions,
+                                                   const GrBackendFormat& format,
+                                                   GrRenderable,
+                                                   const BackendTextureData*,
+                                                   int numMipLevels,
+                                                   GrProtected) {
+    auto colorType = format.asMockColorType();
+    if (!this->caps()->isFormatTexturable(format)) {
         return GrBackendTexture();  // invalid
     }
 
-    GrMockTextureInfo info(*format.getMockColorType(), NextExternalTextureID());
+    GrMockTextureInfo info(colorType, NextExternalTextureID());
 
     fOutstandingTestingOnlyTextureIDs.add(info.fID);
-    return GrBackendTexture(w, h, mipMapped, info);
+    auto mipMapped = numMipLevels > 1 ? GrMipMapped::kYes : GrMipMapped::kNo;
+    return GrBackendTexture(dimensions.width(), dimensions.height(), mipMapped, info);
 }
 
 void GrMockGpu::deleteBackendTexture(const GrBackendTexture& tex) {

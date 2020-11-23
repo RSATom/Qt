@@ -29,8 +29,7 @@ namespace media_message_center {
 class COMPONENT_EXPORT(MEDIA_MESSAGE_CENTER) MediaNotificationBackground
     : public views::Background {
  public:
-  MediaNotificationBackground(views::View* owner,
-                              int top_radius,
+  MediaNotificationBackground(int top_radius,
                               int bottom_radius,
                               double artwork_max_width_pct);
   ~MediaNotificationBackground() override;
@@ -38,33 +37,37 @@ class COMPONENT_EXPORT(MEDIA_MESSAGE_CENTER) MediaNotificationBackground
   // views::Background
   void Paint(gfx::Canvas* canvas, views::View* view) const override;
 
-  void UpdateCornerRadius(int top_radius, int bottom_radius);
   void UpdateArtwork(const gfx::ImageSkia& image);
-  void UpdateArtworkMaxWidthPct(double max_width_pct);
+  bool UpdateCornerRadius(int top_radius, int bottom_radius);
+  bool UpdateArtworkMaxWidthPct(double max_width_pct);
+  void UpdateFavicon(const gfx::ImageSkia& icon);
 
-  SkColor GetBackgroundColor() const;
-  SkColor GetForegroundColor() const;
+  SkColor GetBackgroundColor(const views::View& owner) const;
+  SkColor GetForegroundColor(const views::View& owner) const;
 
  private:
   friend class MediaNotificationBackgroundTest;
-  friend class MediaNotificationViewTest;
+  friend class MediaNotificationViewImplTest;
   FRIEND_TEST_ALL_PREFIXES(MediaNotificationBackgroundRTLTest,
                            BoundsSanityCheck);
 
+  // Shade factor used on favicon dominant color before set as background color.
+  static constexpr double kBackgroundFaviconColorShadeFactor = 0.55;
+
   int GetArtworkWidth(const gfx::Size& view_size) const;
   int GetArtworkVisibleWidth(const gfx::Size& view_size) const;
-  gfx::Rect GetArtworkBounds(const gfx::Rect& view_bounds) const;
-  gfx::Rect GetFilledBackgroundBounds(const gfx::Rect& view_bounds) const;
-  gfx::Rect GetGradientBounds(const gfx::Rect& view_bounds) const;
+  gfx::Rect GetArtworkBounds(const views::View& owner) const;
+  gfx::Rect GetFilledBackgroundBounds(const views::View& owner) const;
+  gfx::Rect GetGradientBounds(const views::View& owner) const;
   SkPoint GetGradientStartPoint(const gfx::Rect& draw_bounds) const;
   SkPoint GetGradientEndPoint(const gfx::Rect& draw_bounds) const;
-
-  // Reference to the owning view that this is a background for.
-  views::View* owner_;
+  SkColor GetDefaultBackgroundColor(const views::View& owner) const;
+  void UpdateColorsInternal();
 
   int top_radius_;
   int bottom_radius_;
 
+  gfx::ImageSkia favicon_;
   gfx::ImageSkia artwork_;
   double artwork_max_width_pct_;
 

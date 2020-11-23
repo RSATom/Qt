@@ -13,7 +13,7 @@
 using std::vector;
 
 struct Contour {
-    enum class Direction {  // SkPath::Direction doesn't have 'none' state
+    enum class Direction {  // SkPathDirection doesn't have 'none' state
         kCCW = -1,
         kNone,
         kCW,
@@ -45,7 +45,7 @@ static Contour::Direction to_direction(SkScalar dy) {
 
 static int contains_edge(SkPoint pts[4], SkPath::Verb verb, SkScalar weight, const SkPoint& edge) {
     SkRect bounds;
-    bounds.set(pts, kPtCount[verb] + 1);
+    bounds.setBounds(pts, kPtCount[verb] + 1);
     if (bounds.fTop > edge.fY) {
         return 0;
     }
@@ -367,23 +367,23 @@ private:
     const SkPath& fPath;
 };
 
-static bool set_result_path(SkPath* result, const SkPath& path, SkPath::FillType fillType) {
+static bool set_result_path(SkPath* result, const SkPath& path, SkPathFillType fillType) {
     *result = path;
     result->setFillType(fillType);
     return true;
 }
 
-bool SK_API AsWinding(const SkPath& path, SkPath* result) {
+bool AsWinding(const SkPath& path, SkPath* result) {
     if (!path.isFinite()) {
         return false;
     }
-    SkPath::FillType fillType = path.getFillType();
-    if (fillType == SkPath::kWinding_FillType
-            || fillType == SkPath::kInverseWinding_FillType ) {
+    SkPathFillType fillType = path.getNewFillType();
+    if (fillType == SkPathFillType::kWinding
+            || fillType == SkPathFillType::kInverseWinding ) {
         return set_result_path(result, path, fillType);
     }
-    fillType = path.isInverseFillType() ? SkPath::kInverseWinding_FillType :
-            SkPath::kWinding_FillType;
+    fillType = path.isInverseFillType() ? SkPathFillType::kInverseWinding :
+            SkPathFillType::kWinding;
     if (path.isEmpty() || path.isConvex()) {
         return set_result_path(result, path, fillType);
     }

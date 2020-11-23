@@ -1117,12 +1117,12 @@
         <translation>Læsefejl</translation>
     </message>
     <message>
-        <source>A temporary form file could not be created in %1.</source>
-        <translation>En midlertidig udformningsfil kunne ikke oprettes i %1.</translation>
+        <source>A temporary form file could not be created in %1: %2</source>
+        <translation>En midlertidig udformningsfil kunne ikke oprettes i %1: %2</translation>
     </message>
     <message>
-        <source>The temporary form file %1 could not be written.</source>
-        <translation>Den midlertidige udformningsfil %1 kunne ikke skrives.</translation>
+        <source>The temporary form file %1 could not be written: %2</source>
+        <translation>Den midlertidige udformningsfil %1 kunne ikke skrives: %2</translation>
     </message>
 </context>
 <context>
@@ -1371,11 +1371,11 @@ Vil du erstatte den?</translation>
     </message>
     <message>
         <source>Save &amp;As...</source>
-        <translation>Gem &amp;som...</translation>
+        <translation>G&amp;em som...</translation>
     </message>
     <message>
         <source>Save A&amp;ll</source>
-        <translation>Gem &amp;alle</translation>
+        <translation>Ge&amp;m alle</translation>
     </message>
     <message>
         <source>Save As &amp;Template...</source>
@@ -1459,7 +1459,7 @@ Vil du erstatte den?</translation>
     </message>
     <message>
         <source>&amp;Recent Forms</source>
-        <translation>&amp;Nylige udformninger</translation>
+        <translation>N&amp;ylige udformninger</translation>
     </message>
     <message>
         <source>Open Form</source>
@@ -1849,7 +1849,7 @@ Beholder-sider bør kun tilføjes ved at angive dem i XML returnerede af domXml(
     </message>
     <message>
         <source>&amp;Window</source>
-        <translation>&amp;Vindue</translation>
+        <translation>Vi&amp;ndue</translation>
     </message>
     <message>
         <source>&amp;Help</source>
@@ -4002,7 +4002,7 @@ Vil du overskrive skabelonen?</translation>
     </message>
     <message>
         <source>&amp;Copy</source>
-        <translation>&amp;Kopiér</translation>
+        <translation>K&amp;opiér</translation>
     </message>
     <message>
         <source>Copies the selected widgets to the clipboard</source>
@@ -4010,7 +4010,7 @@ Vil du overskrive skabelonen?</translation>
     </message>
     <message>
         <source>&amp;Paste</source>
-        <translation>&amp;Sæt ind</translation>
+        <translation>Sæt &amp;ind</translation>
     </message>
     <message>
         <source>Pastes the clipboard&apos;s contents</source>

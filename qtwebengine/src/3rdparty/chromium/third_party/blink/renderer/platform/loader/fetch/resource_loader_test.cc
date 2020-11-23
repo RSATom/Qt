@@ -10,7 +10,7 @@
 #include "mojo/public/c/system/data_pipe.h"
 #include "services/network/public/mojom/fetch_api.mojom-blink.h"
 #include "testing/gtest/include/gtest/gtest.h"
-#include "third_party/blink/public/platform/web_runtime_features.h"
+#include "third_party/blink/public/mojom/fetch/fetch_api_request.mojom-blink.h"
 #include "third_party/blink/public/platform/web_url_loader.h"
 #include "third_party/blink/public/platform/web_url_loader_factory.h"
 #include "third_party/blink/renderer/platform/exported/wrapped_resource_response.h"
@@ -117,9 +117,6 @@ std::ostream& operator<<(std::ostream& o, const ResourceLoaderTest::From& f) {
 }
 
 TEST_F(ResourceLoaderTest, ResponseType) {
-  // This test will be trivial if EnableOutOfBlinkCors is enabled.
-  WebRuntimeFeatures::EnableOutOfBlinkCors(false);
-
   const scoped_refptr<const SecurityOrigin> origin =
       SecurityOrigin::Create(foo_url_);
   const scoped_refptr<const SecurityOrigin> no_origin = nullptr;
@@ -239,7 +236,7 @@ TEST_F(ResourceLoaderTest, LoadResponseBody) {
 
   loader->DidReceiveResponse(WrappedResourceResponse(response));
   loader->DidStartLoadingResponseBody(std::move(consumer));
-  loader->DidFinishLoading(base::TimeTicks(), 0, 0, 0, false, {});
+  loader->DidFinishLoading(base::TimeTicks(), 0, 0, 0, false);
 
   uint32_t num_bytes = 2;
   result = producer->WriteData("he", &num_bytes, MOJO_WRITE_DATA_FLAG_NONE);
@@ -302,7 +299,7 @@ TEST_F(ResourceLoaderTest, LoadDataURL_AsyncAndNonStream) {
 // Helper class which stores a BytesConsumer passed by RawResource and reads the
 // bytes when ReadThroughBytesConsumer is called.
 class TestRawResourceClient final
-    : public GarbageCollectedFinalized<TestRawResourceClient>,
+    : public GarbageCollected<TestRawResourceClient>,
       public RawResourceClient {
   USING_GARBAGE_COLLECTED_MIXIN(TestRawResourceClient);
 

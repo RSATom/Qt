@@ -8,7 +8,7 @@
 
 #include "base/macros.h"
 #include "base/memory/ref_counted.h"
-#include "base/test/scoped_task_environment.h"
+#include "base/test/task_environment.h"
 #include "net/base/address_family.h"
 #include "net/base/address_list.h"
 #include "net/base/ip_address.h"
@@ -22,7 +22,7 @@
 #include "net/socket/stream_socket.h"
 #include "net/socket/transport_client_socket_pool_test_util.h"
 #include "net/test/gtest_util.h"
-#include "net/test/test_with_scoped_task_environment.h"
+#include "net/test/test_with_task_environment.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
 namespace net {
@@ -30,12 +30,11 @@ namespace {
 
 const char kHostName[] = "unresolvable.host.name";
 
-class TransportConnectJobTest : public WithScopedTaskEnvironment,
+class TransportConnectJobTest : public WithTaskEnvironment,
                                 public testing::Test {
  public:
   TransportConnectJobTest()
-      : WithScopedTaskEnvironment(
-            base::test::ScopedTaskEnvironment::TimeSource::MOCK_TIME_AND_NOW),
+      : WithTaskEnvironment(base::test::TaskEnvironment::TimeSource::MOCK_TIME),
         client_socket_factory_(&net_log_),
         common_connect_job_params_(
             &client_socket_factory_,
@@ -57,11 +56,12 @@ class TransportConnectJobTest : public WithScopedTaskEnvironment,
 
   static scoped_refptr<TransportSocketParams> DefaultParams() {
     return base::MakeRefCounted<TransportSocketParams>(
-        HostPortPair(kHostName, 80), OnHostResolutionCallback());
+        HostPortPair(kHostName, 80), NetworkIsolationKey(),
+        false /* disable_secure_dns */, OnHostResolutionCallback());
   }
 
  protected:
-  TestNetLog net_log_;
+  RecordingTestNetLog net_log_;
   MockHostResolver host_resolver_;
   MockTransportClientSocketFactory client_socket_factory_;
   const CommonConnectJobParams common_connect_job_params_;
@@ -253,6 +253,26 @@ TEST_F(TransportConnectJobTest, ConnectionSuccess) {
       test_delegate.StartJobExpectingResult(
           &transport_connect_job, OK,
           host_resolution_synchronous && connection_synchronous);
+    }
+  }
+}
+
+TEST_F(TransportConnectJobTest, DisableSecureDns) {
+  for (bool disable_secure_dns : {false, true}) {
+    TestConnectJobDelegate test_delegate;
+    TransportConnectJob transport_connect_job(
+        DEFAULT_PRIORITY, SocketTag(), &common_connect_job_params_,
+        base::MakeRefCounted<TransportSocketParams>(
+            HostPortPair(kHostName, 80), NetworkIsolationKey(),
+            disable_secure_dns, OnHostResolutionCallback()),
+        &test_delegate, nullptr /* net_log */);
+    test_delegate.StartJobExpectingResult(&transport_connect_job, OK,
+                                          false /* expect_sync_result */);
+    EXPECT_EQ(disable_secure_dns,
+              host_resolver_.last_secure_dns_mode_override().has_value());
+    if (disable_secure_dns) {
+      EXPECT_EQ(net::DnsConfig::SecureDnsMode::OFF,
+                host_resolver_.last_secure_dns_mode_override().value());
     }
   }
 }

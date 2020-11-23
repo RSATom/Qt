@@ -32,6 +32,7 @@
 #include "third_party/blink/renderer/core/editing/visible_selection.h"
 #include "third_party/blink/renderer/core/events/mouse_event.h"
 #include "third_party/blink/renderer/core/frame/local_frame.h"
+#include "third_party/blink/renderer/core/frame/web_feature.h"
 #include "third_party/blink/renderer/core/html/custom/element_internals.h"
 #include "third_party/blink/renderer/core/html/forms/html_form_control_element.h"
 #include "third_party/blink/renderer/core/html/forms/listed_element.h"
@@ -42,14 +43,12 @@
 
 namespace blink {
 
-using namespace html_names;
-
 HTMLLabelElement::HTMLLabelElement(Document& document)
-    : HTMLElement(kLabelTag, document), processing_click_(false) {}
+    : HTMLElement(html_names::kLabelTag, document), processing_click_(false) {}
 
 HTMLElement* HTMLLabelElement::control() const {
   // https://html.spec.whatwg.org/C/#labeled-control
-  const AtomicString& control_id = getAttribute(kForAttr);
+  const AtomicString& control_id = FastGetAttribute(html_names::kForAttr);
   if (control_id.IsNull()) {
     // "If the for attribute is not specified, but the label element has a
     // labelable element descendant, then the first such descendant in tree

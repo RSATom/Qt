@@ -135,7 +135,7 @@ target_cpu = "arm64"  # See "Figuring out target_cpu" below
   configuration](https://www.chromium.org/developers/gn-build-configuration).
   The default will be a debug component build.
 * For more info on GN, run `gn help` on the command line or read the
-  [quick start guide](../tools/gn/docs/quick_start.md).
+  [quick start guide](https://gn.googlesource.com/gn/+/master/docs/quick_start.md).
 
 Also be aware that some scripts (e.g. `tombstones.py`, `adb_gdb.py`)
 require you to set `CHROMIUM_OUTPUT_DIR=out/Default`.
@@ -177,11 +177,11 @@ out/Default` from the command line. To compile one, pass the GN label to Ninja
 with no preceding "//" (so, for `//chrome/test:unit_tests` use `autoninja -C
 out/Default chrome/test:unit_tests`).
 
-### Multiple Chrome APK Targets
+### Multiple Chrome Targets
 
-The Google Play Store allows apps to send customized `.apk` files depending on
-the version of Android running on a device. Chrome uses this feature to target
-4 different versions using 4 different ninja targets:
+The Google Play Store allows apps to send customized `.apk` or `.aab` files
+depending on the version of Android running on a device. Chrome uses this
+feature to target 4 different versions using 4 different ninja targets:
 
 1. `chrome_public_apk` (ChromePublic.apk)
    * `minSdkVersion=19` (KitKat).
@@ -201,7 +201,7 @@ the version of Android running on a device. Chrome uses this feature to target
    * Stores libmonochrome.so uncompressed within the APK.
    * Does not use Crazy Linker (WebView requires system linker).
      * But system linker supports crazy linker features now anyways.
-4. `trichrome_chrome_apk` and `trichrome_library_apk` (TrichromeChrome.apk and TrichromeLibrary.apk)
+4. `trichrome_chrome_bundle` and `trichrome_library_apk` (TrichromeChrome.aab and TrichromeLibrary.apk)
    * `minSdkVersion=Q` (Q).
    * TrichromeChrome contains only the Chrome code that is not shared with WebView.
    * TrichromeLibrary contains the shared code and is a "static shared library APK", which must be installed prior to TrichromeChrome.
@@ -363,48 +363,21 @@ Args that affect build speed:
    * What it does: Disables ProGuard (slow build step)
 
 #### Incremental Install
-"Incremental install" uses reflection and side-loading to speed up the edit
-& deploy cycle (normally < 10 seconds). The initial launch of the apk will be
-a little slower since updated dex files are installed manually.
+[Incremental Install](/build/android/incremental_install/README.md) uses
+reflection and sideloading to speed up the edit & deploy cycle (normally < 10
+seconds). The initial launch of the apk will be a lot slower on older Android
+versions (pre-N) where the OS needs to pre-optimize the side-loaded files, but
+then be only marginally slower after the first launch.
 
-*   All apk targets have \*`_incremental` targets defined (e.g.
-    `chrome_public_apk_incremental`) except for Webview and Monochrome
-
-Here's an example:
-
-```shell
-autoninja -C out/Default chrome_public_apk_incremental
-out/Default/bin/chrome_public_apk install --incremental --verbose
-```
-
-For gunit tests (note that run_*_incremental automatically add
-`--fast-local-dev` when calling `test_runner.py`):
-
-```shell
-autoninja -C out/Default base_unittests_incremental
-out/Default/bin/run_base_unittests_incremental
-```
-
-For instrumentation tests:
-
-```shell
-autoninja -C out/Default chrome_public_test_apk_incremental
-out/Default/bin/run_chrome_public_test_apk_incremental
-```
-
-To uninstall:
-
-```shell
-out/Default/bin/chrome_public_apk uninstall
-```
-
-To avoid typing `_incremental` when building targets, you can use the GN arg:
+To enable Incremental Install, add the gn args:
 
 ```gn
-incremental_apk_by_default = true
+incremental_install = true
 ```
 
-This will make `chrome_public_apk` build in incremental mode.
+Some APKs (e.g. WebView) do not work with incremental install, and are
+blacklisted from being built as such (via `never_incremental = true`), so are
+build as normal APKs even when `incremental_install = true`.
 
 ## Installing and Running Chromium on an Emulator
 

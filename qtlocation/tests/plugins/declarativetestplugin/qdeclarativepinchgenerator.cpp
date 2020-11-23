@@ -46,7 +46,7 @@ QDeclarativePinchGenerator::QDeclarativePinchGenerator():
     replaySpeedFactor_(1.0),
     enabled_(true)
 {
-    setAcceptedMouseButtons(Qt::LeftButton | Qt::MidButton | Qt::RightButton);
+    setAcceptedMouseButtons(Qt::LeftButton | Qt::MiddleButton | Qt::RightButton);
     swipeTimer_.invalidate();
     device_ = new QTouchDevice;
     device_->setType(QTouchDevice::TouchScreen);

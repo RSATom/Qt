@@ -58,17 +58,19 @@ bool TestWaylandServerThread::Start(uint32_t shell_version) {
     return false;
   if (!compositor_.Initialize(display_.get()))
     return false;
+  if (!sub_compositor_.Initialize(display_.get()))
+    return false;
   if (!output_.Initialize(display_.get()))
     return false;
   if (!data_device_manager_.Initialize(display_.get()))
     return false;
   if (!seat_.Initialize(display_.get()))
     return false;
-  if (shell_version == 5) {
-    if (!xdg_shell_.Initialize(display_.get()))
-      return false;
-  } else if (shell_version == 6) {
+  if (shell_version == 6) {
     if (!zxdg_shell_v6_.Initialize(display_.get()))
+      return false;
+  } else if (shell_version == 7) {
+    if (!xdg_shell_.Initialize(display_.get()))
       return false;
   } else {
     NOTREACHED() << "Unsupported shell version: " << shell_version;
@@ -105,6 +107,12 @@ void TestWaylandServerThread::Resume() {
   if (display_)
     wl_display_flush_clients(display_.get());
   resume_event_.Signal();
+}
+
+MockWpPresentation* TestWaylandServerThread::EnsureWpPresentation() {
+  if (wp_presentation_.Initialize(display_.get()))
+    return &wp_presentation_;
+  return nullptr;
 }
 
 void TestWaylandServerThread::DoPause() {

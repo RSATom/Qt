@@ -4,8 +4,8 @@
 
 module blink.mojom;
 
-import "skia/public/interfaces/bitmap.mojom";
-import "ui/gfx/geometry/mojo/geometry.mojom";
+import "skia/public/mojom/bitmap.mojom";
+import "ui/gfx/geometry/mojom/geometry.mojom";
 import "url/mojom/url.mojom";
 
 interface ImageDownloader {
@@ -13,8 +13,11 @@ interface ImageDownloader {
   // Returns the decoded images, or http_status_code to indicate error.
   // "data:" URLs have a http_status_code of 0.
   // Each call is independent, overlapping calls are possible.
+  // For documentation on the other arguments, please refer to the
+  // documentation for WebContents::DownloadImage.
   DownloadImage(url.mojom.Url url,
                 bool is_favicon,
+                uint32 preferred_size,
                 uint32 max_bitmap_size,
                 bool bypass_cache)
       => (int32 http_status_code,

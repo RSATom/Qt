@@ -31,10 +31,11 @@
 #include "media/base/unaligned_shared_memory.h"
 #include "media/base/video_frame_layout.h"
 #include "media/base/video_types.h"
-#include "media/gpu/image_processor_factory.h"
+#include "media/gpu/chromeos/fourcc.h"
 #include "media/gpu/macros.h"
 #include "media/gpu/v4l2/v4l2_image_processor.h"
 #include "media/gpu/v4l2/v4l2_stateful_workaround.h"
+#include "media/gpu/v4l2/v4l2_vda_helpers.h"
 #include "media/video/h264_parser.h"
 #include "ui/gfx/geometry/rect.h"
 #include "ui/gl/gl_context.h"
@@ -290,7 +291,8 @@ bool V4L2VideoDecodeAccelerator::CheckConfig(const Config& config) {
   input_format_fourcc_ =
       V4L2Device::VideoCodecProfileToV4L2PixFmt(video_profile_, false);
 
-  if (!device_->Open(V4L2Device::Type::kDecoder, input_format_fourcc_)) {
+  if (!input_format_fourcc_ ||
+      !device_->Open(V4L2Device::Type::kDecoder, input_format_fourcc_)) {
     VLOGF(1) << "Failed to open device for profile: " << config.profile
              << " fourcc: " << FourccToString(input_format_fourcc_);
     return false;
@@ -443,7 +445,7 @@ void V4L2VideoDecodeAccelerator::AssignPictureBuffersTask(
         return;
       }
       int plane_horiz_bits_per_pixel = VideoFrame::PlaneHorizontalBitsPerPixel(
-          V4L2Device::V4L2PixFmtToVideoPixelFormat(egl_image_format_fourcc_),
+          Fourcc::FromV4L2PixFmt(egl_image_format_fourcc_).ToVideoPixelFormat(),
           0);
       ImportBufferForPictureTask(
           output_record.picture_id, std::move(dmabuf_fds),
@@ -572,7 +574,7 @@ void V4L2VideoDecodeAccelerator::ImportBufferForPictureForImportTask(
   // the final output format from the image processor (if exists).
   // Use |egl_image_format_fourcc_|, it will be the final output format.
   if (pixel_format !=
-      V4L2Device::V4L2PixFmtToVideoPixelFormat(egl_image_format_fourcc_)) {
+      Fourcc::FromV4L2PixFmt(egl_image_format_fourcc_).ToVideoPixelFormat()) {
     VLOGF(1) << "Unsupported import format: " << pixel_format;
     NOTIFY_ERROR(INVALID_ARGUMENT);
     return;
@@ -643,7 +645,7 @@ void V4L2VideoDecodeAccelerator::ImportBufferForPictureTask(
   // However the size of PictureBuffer might not be adjusted by ARC++. So we
   // keep this until ARC++ side is fixed.
   int plane_horiz_bits_per_pixel = VideoFrame::PlaneHorizontalBitsPerPixel(
-      V4L2Device::V4L2PixFmtToVideoPixelFormat(egl_image_format_fourcc_), 0);
+      Fourcc::FromV4L2PixFmt(egl_image_format_fourcc_).ToVideoPixelFormat(), 0);
   if (plane_horiz_bits_per_pixel == 0 ||
       (stride * 8) % plane_horiz_bits_per_pixel != 0) {
     VLOGF(1) << "Invalid format " << egl_image_format_fourcc_ << " or stride "
@@ -651,7 +653,16 @@ void V4L2VideoDecodeAccelerator::ImportBufferForPictureTask(
     NOTIFY_ERROR(INVALID_ARGUMENT);
     return;
   }
+
   int adjusted_coded_width = stride * 8 / plane_horiz_bits_per_pixel;
+  // If this is the first picture, then adjust the EGL width.
+  // Otherwise just check that it remains the same.
+  if (decoder_state_ == kAwaitingPictureBuffers) {
+    DCHECK_GE(adjusted_coded_width, egl_image_size_.width());
+    egl_image_size_.set_width(adjusted_coded_width);
+  }
+  DCHECK_EQ(egl_image_size_.width(), adjusted_coded_width);
+
   if (image_processor_device_ && !image_processor_) {
     DCHECK_EQ(kAwaitingPictureBuffers, decoder_state_);
     // This is the first buffer import. Create the image processor and change
@@ -660,12 +671,9 @@ void V4L2VideoDecodeAccelerator::ImportBufferForPictureTask(
     // width to create the image processor.
     DVLOGF(3) << "Original egl_image_size=" << egl_image_size_.ToString()
               << ", adjusted coded width=" << adjusted_coded_width;
-    DCHECK_GE(adjusted_coded_width, egl_image_size_.width());
-    egl_image_size_.set_width(adjusted_coded_width);
     if (!CreateImageProcessor())
       return;
   }
-  DCHECK_EQ(egl_image_size_.width(), adjusted_coded_width);
 
   if (reset_pending_) {
     FinishReset();
@@ -681,8 +689,8 @@ void V4L2VideoDecodeAccelerator::ImportBufferForPictureTask(
     DCHECK(!iter->output_frame);
 
     auto layout = VideoFrameLayout::Create(
-        V4L2Device::V4L2PixFmtToVideoPixelFormat(output_format_fourcc_),
-        coded_size_);
+        Fourcc::FromV4L2PixFmt(egl_image_format_fourcc_).ToVideoPixelFormat(),
+        egl_image_size_);
     if (!layout) {
       VLOGF(1) << "Cannot create layout!";
       NOTIFY_ERROR(INVALID_ARGUMENT);
@@ -1922,6 +1930,11 @@ void V4L2VideoDecodeAccelerator::DestroyTask() {
   // First liberate all the frames held by the client.
   buffers_at_client_.clear();
 
+  egl_image_device_ = nullptr;
+
+  // The image processor's thread was the user of the image processor device,
+  // so let it keep the last reference and destroy it in its own thread.
+  image_processor_device_ = nullptr;
   image_processor_ = nullptr;
   while (!buffers_at_ip_.empty())
     buffers_at_ip_.pop();
@@ -1934,6 +1947,10 @@ void V4L2VideoDecodeAccelerator::DestroyTask() {
 
   decoder_h264_parser_ = nullptr;
   workarounds_.clear();
+
+  // Clear the V4L2 devices in the decoder thread so the V4L2Device's
+  // destructor is called from the thread that used it.
+  device_ = nullptr;
 
   base::trace_event::MemoryDumpManager::GetInstance()->UnregisterDumpProvider(
       this);
@@ -2184,8 +2201,8 @@ bool V4L2VideoDecodeAccelerator::CreateBuffersForFormat(
     egl_image_size_ = visible_size_;
     egl_image_planes_count_ = 0;
     if (!V4L2ImageProcessor::TryOutputFormat(
-            output_format_fourcc_, egl_image_format_fourcc_, &egl_image_size_,
-            &egl_image_planes_count_)) {
+            output_format_fourcc_, egl_image_format_fourcc_, coded_size_,
+            &egl_image_size_, &egl_image_planes_count_)) {
       VLOGF(1) << "Fail to get output size and plane count of processor";
       return false;
     }
@@ -2328,12 +2345,14 @@ bool V4L2VideoDecodeAccelerator::SetupFormats() {
       VLOGF(1) << "Image processor not available";
       return false;
     }
-    output_format_fourcc_ = FindImageProcessorInputFormat();
+    output_format_fourcc_ =
+        v4l2_vda_helpers::FindImageProcessorInputFormat(device_.get());
     if (output_format_fourcc_ == 0) {
       VLOGF(1) << "Can't find a usable input format from image processor";
       return false;
     }
-    egl_image_format_fourcc_ = FindImageProcessorOutputFormat();
+    egl_image_format_fourcc_ =
+        v4l2_vda_helpers::FindImageProcessorOutputFormat(device_.get());
     if (egl_image_format_fourcc_ == 0) {
       VLOGF(1) << "Can't find a usable output format from image processor";
       return false;
@@ -2361,56 +2380,6 @@ bool V4L2VideoDecodeAccelerator::SetupFormats() {
   return true;
 }
 
-uint32_t V4L2VideoDecodeAccelerator::FindImageProcessorInputFormat() {
-  std::vector<uint32_t> processor_input_formats =
-      V4L2ImageProcessor::GetSupportedInputFormats();
-
-  struct v4l2_fmtdesc fmtdesc;
-  memset(&fmtdesc, 0, sizeof(fmtdesc));
-  fmtdesc.type = V4L2_BUF_TYPE_VIDEO_CAPTURE_MPLANE;
-  while (device_->Ioctl(VIDIOC_ENUM_FMT, &fmtdesc) == 0) {
-    if (std::find(processor_input_formats.begin(),
-                  processor_input_formats.end(),
-                  fmtdesc.pixelformat) != processor_input_formats.end()) {
-      DVLOGF(3) << "Image processor input format=" << fmtdesc.description;
-      return fmtdesc.pixelformat;
-    }
-    ++fmtdesc.index;
-  }
-  return 0;
-}
-
-uint32_t V4L2VideoDecodeAccelerator::FindImageProcessorOutputFormat() {
-  // Prefer YVU420 and NV12 because ArcGpuVideoDecodeAccelerator only supports
-  // single physical plane. Prefer YVU420 over NV12 because chrome rendering
-  // supports YV12 only.
-  static const uint32_t kPreferredFormats[] = {V4L2_PIX_FMT_YVU420,
-                                               V4L2_PIX_FMT_NV12};
-  auto preferred_formats_first = [](uint32_t a, uint32_t b) -> bool {
-    auto* iter_a = std::find(std::begin(kPreferredFormats),
-                             std::end(kPreferredFormats), a);
-    auto* iter_b = std::find(std::begin(kPreferredFormats),
-                             std::end(kPreferredFormats), b);
-    return iter_a < iter_b;
-  };
-
-  std::vector<uint32_t> processor_output_formats =
-      V4L2ImageProcessor::GetSupportedOutputFormats();
-
-  // Move the preferred formats to the front.
-  std::sort(processor_output_formats.begin(), processor_output_formats.end(),
-            preferred_formats_first);
-
-  for (uint32_t processor_output_format : processor_output_formats) {
-    if (device_->CanCreateEGLImageFrom(processor_output_format)) {
-      DVLOGF(3) << "Image processor output format=" << processor_output_format;
-      return processor_output_format;
-    }
-  }
-
-  return 0;
-}
-
 bool V4L2VideoDecodeAccelerator::ResetImageProcessor() {
   VLOGF(2);
   DCHECK(decoder_thread_.task_runner()->BelongsToCurrentThread());
@@ -2432,68 +2401,24 @@ bool V4L2VideoDecodeAccelerator::CreateImageProcessor() {
       (output_mode_ == Config::OutputMode::ALLOCATE
            ? ImageProcessor::OutputMode::ALLOCATE
            : ImageProcessor::OutputMode::IMPORT);
-  size_t num_planes =
-      V4L2Device::GetNumPlanesOfV4L2PixFmt(output_format_fourcc_);
-  base::Optional<VideoFrameLayout> input_layout;
-  if (num_planes == 1) {
-    input_layout = VideoFrameLayout::Create(
-        V4L2Device::V4L2PixFmtToVideoPixelFormat(output_format_fourcc_),
-        coded_size_);
-  } else {
-    input_layout = VideoFrameLayout::CreateMultiPlanar(
-        V4L2Device::V4L2PixFmtToVideoPixelFormat(output_format_fourcc_),
-        coded_size_, std::vector<VideoFrameLayout::Plane>(num_planes));
-  }
-  if (!input_layout) {
-    VLOGF(1) << "Invalid input layout";
-    return false;
-  }
 
-  base::Optional<VideoFrameLayout> output_layout;
-  num_planes = V4L2Device::GetNumPlanesOfV4L2PixFmt(egl_image_format_fourcc_);
-  if (num_planes == 1) {
-    output_layout = VideoFrameLayout::Create(
-        V4L2Device::V4L2PixFmtToVideoPixelFormat(egl_image_format_fourcc_),
-        egl_image_size_);
-  } else {
-    output_layout = VideoFrameLayout::CreateMultiPlanar(
-        V4L2Device::V4L2PixFmtToVideoPixelFormat(egl_image_format_fourcc_),
-        egl_image_size_, std::vector<VideoFrameLayout::Plane>(num_planes));
-  }
-  if (!output_layout) {
-    VLOGF(1) << "Invalid output layout";
-    return false;
-  }
-
-  // Unretained(this) is safe for ErrorCB because |decoder_thread_| is owned by
-  // this V4L2VideoDecodeAccelerator and |this| must be valid when ErrorCB is
-  // executed.
-  // TODO(crbug.com/917798): Use ImageProcessorFactory::Create() once we remove
-  //     |image_processor_device_| from V4L2VideoDecodeAccelerator.
-  image_processor_ = V4L2ImageProcessor::Create(
-      image_processor_device_,
-      ImageProcessor::PortConfig(*input_layout, visible_size_,
-                                 {VideoFrame::STORAGE_DMABUFS}),
-      ImageProcessor::PortConfig(*output_layout, visible_size_,
-                                 {VideoFrame::STORAGE_DMABUFS}),
-      image_processor_output_mode, output_buffer_map_.size(),
+  image_processor_ = v4l2_vda_helpers::CreateImageProcessor(
+      output_format_fourcc_, egl_image_format_fourcc_, coded_size_,
+      egl_image_size_, visible_size_, output_buffer_map_.size(),
+      image_processor_device_, image_processor_output_mode,
+      decoder_thread_.task_runner(),
+      // Unretained(this) is safe for ErrorCB because |decoder_thread_| is owned
+      // by this V4L2VideoDecodeAccelerator and |this| must be valid when
+      // ErrorCB is executed.
       base::BindRepeating(&V4L2VideoDecodeAccelerator::ImageProcessorError,
                           base::Unretained(this)));
 
   if (!image_processor_) {
-    VLOGF(1) << "Initialize image processor failed";
+    VLOGF(1) << "Error creating image processor";
     NOTIFY_ERROR(PLATFORM_FAILURE);
     return false;
   }
-  DCHECK(image_processor_->output_layout().coded_size() == egl_image_size_);
-  if (image_processor_->input_layout().coded_size() != coded_size_) {
-    VLOGF(1) << "Image processor should be able to take the output coded "
-             << "size of decoder " << coded_size_.ToString()
-             << " without adjusting to "
-             << image_processor_->input_layout().coded_size().ToString();
-    NOTIFY_ERROR(PLATFORM_FAILURE);
-    return false;
-  }
+
   return true;
 }
 
@@ -2559,7 +2484,8 @@ bool V4L2VideoDecodeAccelerator::CreateOutputBuffers() {
   // know the precise format.
   VideoPixelFormat pixel_format =
       (output_mode_ == Config::OutputMode::IMPORT)
-          ? V4L2Device::V4L2PixFmtToVideoPixelFormat(egl_image_format_fourcc_)
+          ? Fourcc::FromV4L2PixFmt(egl_image_format_fourcc_)
+                .ToVideoPixelFormat()
           : PIXEL_FORMAT_UNKNOWN;
 
   child_task_runner_->PostTask(

@@ -4,6 +4,7 @@
 
 #include "third_party/blink/renderer/core/loader/modulescript/worker_module_script_fetcher.h"
 
+#include "services/network/public/mojom/ip_address_space.mojom-blink.h"
 #include "services/network/public/mojom/referrer_policy.mojom-blink.h"
 #include "third_party/blink/renderer/core/inspector/console_message.h"
 #include "third_party/blink/renderer/core/origin_trials/origin_trial_context.h"
@@ -58,7 +59,9 @@ void WorkerModuleScriptFetcher::NotifyFinished(Resource* resource) {
 
   ScriptResource* script_resource = ToScriptResource(resource);
   HeapVector<Member<ConsoleMessage>> error_messages;
-  if (!WasModuleLoadSuccessful(script_resource, &error_messages)) {
+  ModuleScriptCreationParams::ModuleType module_type;
+  if (!WasModuleLoadSuccessful(script_resource, &error_messages,
+                               &module_type)) {
     client_->NotifyFetchFinished(base::nullopt, error_messages);
     return;
   }
@@ -75,7 +78,7 @@ void WorkerModuleScriptFetcher::NotifyFinished(Resource* resource) {
     const KURL request_url = resource->Url();
     const KURL response_url = resource->GetResponse().CurrentRequestUrl();
     if (request_url != response_url &&
-        !global_scope_->GetSecurityOrigin()->IsSameSchemeHostPort(
+        !global_scope_->GetSecurityOrigin()->IsSameOriginWith(
             SecurityOrigin::Create(response_url).get())) {
       error_messages.push_back(ConsoleMessage::Create(
           mojom::ConsoleMessageSource::kSecurity,
@@ -103,13 +106,13 @@ void WorkerModuleScriptFetcher::NotifyFinished(Resource* resource) {
     // TODO(https://crbug.com/955213): Make this consistent with the spec.
     // TODO(https://crbug.com/955213): Move this function to a more appropriate
     // place so that this is shareable out of worker code.
-    auto response_address_space = mojom::IPAddressSpace::kPublic;
+    auto response_address_space = network::mojom::IPAddressSpace::kPublic;
     if (network_utils::IsReservedIPAddress(
             resource->GetResponse().RemoteIPAddress())) {
-      response_address_space = mojom::IPAddressSpace::kPrivate;
+      response_address_space = network::mojom::IPAddressSpace::kPrivate;
     }
     if (SecurityOrigin::Create(response_url)->IsLocalhost())
-      response_address_space = mojom::IPAddressSpace::kLocal;
+      response_address_space = network::mojom::IPAddressSpace::kLocal;
 
     auto* response_content_security_policy =
         MakeGarbageCollected<ContentSecurityPolicy>();
@@ -124,11 +127,12 @@ void WorkerModuleScriptFetcher::NotifyFinished(Resource* resource) {
     global_scope_->Initialize(response_url, response_referrer_policy,
                               response_address_space,
                               response_content_security_policy->Headers(),
-                              response_origin_trial_tokens.get());
+                              response_origin_trial_tokens.get(),
+                              resource->GetResponse().AppCacheID());
   }
 
   ModuleScriptCreationParams params(
-      script_resource->GetResponse().CurrentRequestUrl(),
+      script_resource->GetResponse().CurrentRequestUrl(), module_type,
       script_resource->SourceText(), script_resource->CacheHandler(),
       script_resource->GetResourceRequest().GetCredentialsMode());
 

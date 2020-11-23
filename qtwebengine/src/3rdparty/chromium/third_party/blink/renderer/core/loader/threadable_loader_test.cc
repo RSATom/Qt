@@ -10,7 +10,6 @@
 #include "base/memory/scoped_refptr.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
-#include "third_party/blink/public/platform/platform.h"
 #include "third_party/blink/public/platform/task_type.h"
 #include "third_party/blink/public/platform/web_url_load_timing.h"
 #include "third_party/blink/public/platform/web_url_loader_mock_factory.h"
@@ -53,7 +52,7 @@ using Checkpoint = testing::StrictMock<testing::MockFunction<void(int)>>;
 constexpr char kFileName[] = "fox-null-terminated.html";
 
 class MockThreadableLoaderClient final
-    : public GarbageCollectedFinalized<MockThreadableLoaderClient>,
+    : public GarbageCollected<MockThreadableLoaderClient>,
       public ThreadableLoaderClient {
   USING_GARBAGE_COLLECTED_MIXIN(MockThreadableLoaderClient);
 
@@ -66,7 +65,6 @@ class MockThreadableLoaderClient final
   MOCK_METHOD1(DidFinishLoading, void(uint64_t));
   MOCK_METHOD1(DidFail, void(const ResourceError&));
   MOCK_METHOD0(DidFailRedirectCheck, void());
-  MOCK_METHOD1(DidReceiveResourceTiming, void(const ResourceTimingInfo&));
   MOCK_METHOD1(DidDownloadData, void(uint64_t));
 };
 
@@ -91,22 +89,16 @@ KURL RedirectLoopURL() {
   return KURL("http://example.com/loop").Copy();
 }
 
-void ServeAsynchronousRequests() {
-  Platform::Current()->GetURLLoaderMockFactory()->ServeAsynchronousRequests();
-}
-
-void UnregisterAllURLsAndClearMemoryCache() {
-  Platform::Current()
-      ->GetURLLoaderMockFactory()
-      ->UnregisterAllURLsAndClearMemoryCache();
-}
-
 void SetUpSuccessURL() {
+  // TODO(crbug.com/751425): We should use the mock functionality
+  // via |dummy_page_holder_|.
   url_test_helpers::RegisterMockedURLLoad(
       SuccessURL(), test::CoreTestDataPath(kFileName), "text/html");
 }
 
 void SetUpErrorURL() {
+  // TODO(crbug.com/751425): We should use the mock functionality
+  // via |dummy_page_holder_|.
   url_test_helpers::RegisterMockedErrorURLLoad(ErrorURL());
 }
 
@@ -123,6 +115,8 @@ void SetUpRedirectURL() {
   response.AddHttpHeaderField("Location", SuccessURL().GetString());
   response.AddHttpHeaderField("Access-Control-Allow-Origin", "http://fake.url");
 
+  // TODO(crbug.com/751425): We should use the mock functionality
+  // via |dummy_page_holder_|.
   url_test_helpers::RegisterMockedURLLoadWithCustomResponse(
       url, test::CoreTestDataPath(kFileName), response);
 }
@@ -140,6 +134,8 @@ void SetUpRedirectLoopURL() {
   response.AddHttpHeaderField("Location", RedirectLoopURL().GetString());
   response.AddHttpHeaderField("Access-Control-Allow-Origin", "http://fake.url");
 
+  // TODO(crbug.com/751425): We should use the mock functionality
+  // via |dummy_page_holder_|.
   url_test_helpers::RegisterMockedURLLoadWithCustomResponse(
       url, test::CoreTestDataPath(kFileName), response);
 }
@@ -186,14 +182,14 @@ class ThreadableLoaderTestHelper final {
 
   void OnSetUp() { SetUpMockURLs(); }
 
-  void OnServeRequests() { ServeAsynchronousRequests(); }
+  void OnServeRequests() { url_test_helpers::ServeAsynchronousRequests(); }
 
   void OnTearDown() {
     if (loader_) {
       loader_->Cancel();
       loader_ = nullptr;
     }
-    UnregisterAllURLsAndClearMemoryCache();
+    url_test_helpers::UnregisterAllURLsAndClearMemoryCache();
   }
 
  private:
@@ -225,9 +221,7 @@ class ThreadableLoaderTest : public testing::Test {
   Checkpoint& GetCheckpoint() { return helper_->GetCheckpoint(); }
   void CallCheckpoint(int n) { helper_->CallCheckpoint(n); }
 
-  void ServeRequests() {
-    helper_->OnServeRequests();
-  }
+  void ServeRequests() { helper_->OnServeRequests(); }
 
   void CreateLoader() { helper_->CreateLoader(Client()); }
 
@@ -363,8 +357,6 @@ TEST_F(ThreadableLoaderTest, DidFinishLoading) {
   EXPECT_CALL(GetCheckpoint(), Call(2));
   EXPECT_CALL(*Client(), DidReceiveResponse(_, _));
   EXPECT_CALL(*Client(), DidReceiveData(StrEq("fox"), 4));
-  // We expect didReceiveResourceTiming() calls in ThreadableLoader.
-  EXPECT_CALL(*Client(), DidReceiveResourceTiming(_));
   EXPECT_CALL(*Client(), DidFinishLoading(_));
 
   StartLoader(SuccessURL());
@@ -381,7 +373,6 @@ TEST_F(ThreadableLoaderTest, CancelInDidFinishLoading) {
   EXPECT_CALL(GetCheckpoint(), Call(2));
   EXPECT_CALL(*Client(), DidReceiveResponse(_, _));
   EXPECT_CALL(*Client(), DidReceiveData(_, _));
-  EXPECT_CALL(*Client(), DidReceiveResourceTiming(_));
   EXPECT_CALL(*Client(), DidFinishLoading(_))
       .WillOnce(InvokeWithoutArgs(this, &ThreadableLoaderTest::CancelLoader));
 
@@ -399,7 +390,6 @@ TEST_F(ThreadableLoaderTest, ClearInDidFinishLoading) {
   EXPECT_CALL(GetCheckpoint(), Call(2));
   EXPECT_CALL(*Client(), DidReceiveResponse(_, _));
   EXPECT_CALL(*Client(), DidReceiveData(_, _));
-  EXPECT_CALL(*Client(), DidReceiveResourceTiming(_));
   EXPECT_CALL(*Client(), DidFinishLoading(_))
       .WillOnce(InvokeWithoutArgs(this, &ThreadableLoaderTest::ClearLoader));
 
@@ -527,7 +517,6 @@ TEST_F(ThreadableLoaderTest, RedirectDidFinishLoading) {
   EXPECT_CALL(GetCheckpoint(), Call(2));
   EXPECT_CALL(*Client(), DidReceiveResponse(_, _));
   EXPECT_CALL(*Client(), DidReceiveData(StrEq("fox"), 4));
-  EXPECT_CALL(*Client(), DidReceiveResourceTiming(_));
   EXPECT_CALL(*Client(), DidFinishLoading(_));
 
   StartLoader(RedirectURL());
@@ -544,7 +533,6 @@ TEST_F(ThreadableLoaderTest, CancelInRedirectDidFinishLoading) {
   EXPECT_CALL(GetCheckpoint(), Call(2));
   EXPECT_CALL(*Client(), DidReceiveResponse(_, _));
   EXPECT_CALL(*Client(), DidReceiveData(StrEq("fox"), 4));
-  EXPECT_CALL(*Client(), DidReceiveResourceTiming(_));
   EXPECT_CALL(*Client(), DidFinishLoading(_))
       .WillOnce(InvokeWithoutArgs(this, &ThreadableLoaderTest::CancelLoader));
 
@@ -562,7 +550,6 @@ TEST_F(ThreadableLoaderTest, ClearInRedirectDidFinishLoading) {
   EXPECT_CALL(GetCheckpoint(), Call(2));
   EXPECT_CALL(*Client(), DidReceiveResponse(_, _));
   EXPECT_CALL(*Client(), DidReceiveData(StrEq("fox"), 4));
-  EXPECT_CALL(*Client(), DidReceiveResourceTiming(_));
   EXPECT_CALL(*Client(), DidFinishLoading(_))
       .WillOnce(InvokeWithoutArgs(this, &ThreadableLoaderTest::ClearLoader));
 

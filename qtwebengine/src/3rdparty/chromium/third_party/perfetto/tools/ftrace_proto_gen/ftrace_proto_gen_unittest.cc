@@ -15,7 +15,7 @@
  */
 
 #include "tools/ftrace_proto_gen/ftrace_proto_gen.h"
-#include <gtest/gtest.h>
+#include "test/gtest_and_gmock.h"
 
 namespace perfetto {
 namespace {
@@ -62,7 +62,7 @@ TEST(FtraceEventParserTest, GenerateProtoName) {
   Proto output;
   input.name = "the_snake_case_name";
 
-  GenerateProto(input, &output);
+  GenerateProto("group", input, &output);
 
   EXPECT_EQ(output.name, "TheSnakeCaseNameFtraceEvent");
 }

@@ -684,6 +684,16 @@ void tst_QQuickLoader::initialPropertyValues_data()
             << (QStringList() << "initialValue")
             << (QVariantList() << 6);
 
+    QTest::newRow("ensure required properties are set correctly") << testFileUrl("initialPropertyValues.9.qml")
+            << QStringList()
+            << (QStringList() << "i" << "s")
+            << (QVariantList() << 42 << QLatin1String("hello world"));
+
+    QTest::newRow("required properties only partially set =") << testFileUrl("initialPropertyValues.10.qml")
+            << (QStringList() << QString(testFileUrl("RequiredPropertyValuesComponent.qml").toString() +  QLatin1String(":6:5: Required property s was not initialized")))
+            << (QStringList() << "i" << "s")
+            << (QVariantList() << 0 << QLatin1String(""));
+
     QTest::newRow("source url changed, previously initial properties are discared") << testFileUrl("initialPropertyValues.11.qml")
                                                                                     << QStringList()
                                                                                     << (QStringList() << "oldi" << "i")

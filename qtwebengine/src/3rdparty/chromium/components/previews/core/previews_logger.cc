@@ -61,10 +61,10 @@ std::string GetReasonDescription(PreviewsEligibilityReason reason,
       return want_inverse_description
                  ? "Page reloads allowed"
                  : "Page reloads do not show previews for this preview type";
-    case PreviewsEligibilityReason::HOST_BLACKLISTED_BY_SERVER:
+    case PreviewsEligibilityReason::DEPRECATED_HOST_BLACKLISTED_BY_SERVER:
       return want_inverse_description ? "Host not blacklisted by server rules"
                                       : "Host blacklisted by server rules";
-    case PreviewsEligibilityReason::HOST_NOT_WHITELISTED_BY_SERVER:
+    case PreviewsEligibilityReason::DEPRECATED_HOST_NOT_WHITELISTED_BY_SERVER:
       return want_inverse_description ? "Host whitelisted by server rules"
                                       : "Host not whitelisted by server rules";
     case PreviewsEligibilityReason::ALLOWED_WITHOUT_OPTIMIZATION_HINTS:
@@ -77,7 +77,7 @@ std::string GetReasonDescription(PreviewsEligibilityReason reason,
       return want_inverse_description
                  ? "Cache-control no-transform not received"
                  : "Cache-control no-transform received";
-    case PreviewsEligibilityReason::NETWORK_NOT_SLOW_FOR_SESSION:
+    case PreviewsEligibilityReason::DEPRECATED_NETWORK_NOT_SLOW_FOR_SESSION:
       return want_inverse_description
                  ? "Network is slow enough for the session"
                  : "Network not slow enough for the session";
@@ -95,6 +95,21 @@ std::string GetReasonDescription(PreviewsEligibilityReason reason,
       return want_inverse_description
                  ? "URL suffix is not an excluded media suffix previews"
                  : "URL suffix is an excluded media suffix";
+    case PreviewsEligibilityReason::NOT_ALLOWED_BY_OPTIMIZATION_GUIDE:
+      return want_inverse_description ? "Allowed by server rules"
+                                      : "Not allowed by server rules";
+    case PreviewsEligibilityReason::COINFLIP_HOLDBACK:
+      DCHECK(!want_inverse_description);
+      return "Coin flip holdback encountered";
+    case PreviewsEligibilityReason::REDIRECT_LOOP_DETECTED:
+      DCHECK(!want_inverse_description);
+      return "Redirect loop detected";
+    case PreviewsEligibilityReason::DENY_LIST_MATCHED:
+      DCHECK(!want_inverse_description);
+      return "URL matched deny list";
+    case PreviewsEligibilityReason::PAGE_LOAD_PREDICTION_NOT_PAINFUL:
+      return want_inverse_description ? "Page load predicted to be painful"
+                                      : "Page load not predicted to be painful";
     case PreviewsEligibilityReason::LAST:
       break;
   }

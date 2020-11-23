@@ -62,7 +62,7 @@ TEST_F(ViewAXPlatformNodeDelegateWinTest, TextfieldAccessibility) {
   Widget widget;
   Widget::InitParams init_params = CreateParams(Widget::InitParams::TYPE_POPUP);
   init_params.ownership = Widget::InitParams::WIDGET_OWNS_NATIVE_WIDGET;
-  widget.Init(init_params);
+  widget.Init(std::move(init_params));
 
   View* content = new View;
   widget.SetContentsView(content);
@@ -97,14 +97,14 @@ TEST_F(ViewAXPlatformNodeDelegateWinTest, TextfieldAccessibility) {
 
   ScopedBstr new_value(L"New value");
   ASSERT_EQ(S_OK, textfield_accessible->put_accValue(childid_self, new_value));
-  EXPECT_STREQ(L"New value", textfield->text().c_str());
+  EXPECT_STREQ(L"New value", textfield->GetText().c_str());
 }
 
 TEST_F(ViewAXPlatformNodeDelegateWinTest, TextfieldAssociatedLabel) {
   Widget widget;
   Widget::InitParams init_params = CreateParams(Widget::InitParams::TYPE_POPUP);
   init_params.ownership = Widget::InitParams::WIDGET_OWNS_NATIVE_WIDGET;
-  widget.Init(init_params);
+  widget.Init(std::move(init_params));
 
   View* content = new View;
   widget.SetContentsView(content);
@@ -157,13 +157,14 @@ class ViewAXPlatformNodeDelegateWinTestWithBoolChildFlag
       public testing::WithParamInterface<bool> {
  public:
   ViewAXPlatformNodeDelegateWinTestWithBoolChildFlag() = default;
+  ViewAXPlatformNodeDelegateWinTestWithBoolChildFlag(
+      const ViewAXPlatformNodeDelegateWinTestWithBoolChildFlag&) = delete;
+  ViewAXPlatformNodeDelegateWinTestWithBoolChildFlag& operator=(
+      const ViewAXPlatformNodeDelegateWinTestWithBoolChildFlag&) = delete;
   ~ViewAXPlatformNodeDelegateWinTestWithBoolChildFlag() override = default;
-
- private:
-  DISALLOW_COPY_AND_ASSIGN(ViewAXPlatformNodeDelegateWinTestWithBoolChildFlag);
 };
 
-INSTANTIATE_TEST_SUITE_P(,
+INSTANTIATE_TEST_SUITE_P(All,
                          ViewAXPlatformNodeDelegateWinTestWithBoolChildFlag,
                          testing::Bool());
 
@@ -174,7 +175,7 @@ TEST_P(ViewAXPlatformNodeDelegateWinTestWithBoolChildFlag, AuraChildWidgets) {
       CreateParams(Widget::InitParams::TYPE_WINDOW);
   init_params.ownership = Widget::InitParams::WIDGET_OWNS_NATIVE_WIDGET;
   init_params.bounds = gfx::Rect(0, 0, 400, 200);
-  widget.Init(init_params);
+  widget.Init(std::move(init_params));
   widget.Show();
 
   // Initially it has 1 child.
@@ -198,7 +199,7 @@ TEST_P(ViewAXPlatformNodeDelegateWinTestWithBoolChildFlag, AuraChildWidgets) {
   // we test with child = true, making it a child widget.
   child_init_params.child = GetParam();
 
-  child_widget.Init(child_init_params);
+  child_widget.Init(std::move(child_init_params));
   child_widget.Show();
 
   // Now the IAccessible for the parent widget should have 2 children.
@@ -250,7 +251,7 @@ TEST_F(ViewAXPlatformNodeDelegateWinTest, DISABLED_RetrieveAllAlerts) {
   Widget widget;
   Widget::InitParams init_params = CreateParams(Widget::InitParams::TYPE_POPUP);
   init_params.ownership = Widget::InitParams::WIDGET_OWNS_NATIVE_WIDGET;
-  widget.Init(init_params);
+  widget.Init(std::move(init_params));
 
   View* content = new View;
   widget.SetContentsView(content);
@@ -315,7 +316,7 @@ TEST_F(ViewAXPlatformNodeDelegateWinTest, GetAllOwnedWidgetsCrash) {
   Widget::InitParams init_params =
       CreateParams(Widget::InitParams::TYPE_WINDOW);
   init_params.ownership = Widget::InitParams::WIDGET_OWNS_NATIVE_WIDGET;
-  widget.Init(init_params);
+  widget.Init(std::move(init_params));
   widget.CloseNow();
 
   LONG child_count = 0;
@@ -332,7 +333,7 @@ TEST_F(ViewAXPlatformNodeDelegateWinTest, WindowHasRoleApplication) {
   Widget::InitParams init_params =
       CreateParams(Widget::InitParams::TYPE_WINDOW);
   init_params.ownership = Widget::InitParams::WIDGET_OWNS_NATIVE_WIDGET;
-  widget.Init(init_params);
+  widget.Init(std::move(init_params));
 
   ComPtr<IAccessible> accessible(
       widget.GetRootView()->GetNativeViewAccessible());
@@ -349,7 +350,7 @@ TEST_F(ViewAXPlatformNodeDelegateWinTest, Overrides) {
   Widget widget;
   Widget::InitParams init_params = CreateParams(Widget::InitParams::TYPE_POPUP);
   init_params.ownership = Widget::InitParams::WIDGET_OWNS_NATIVE_WIDGET;
-  widget.Init(init_params);
+  widget.Init(std::move(init_params));
 
   View* contents_view = new View;
   widget.SetContentsView(contents_view);

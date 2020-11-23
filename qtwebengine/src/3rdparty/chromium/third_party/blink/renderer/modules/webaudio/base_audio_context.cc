@@ -47,6 +47,7 @@
 #include "third_party/blink/renderer/modules/webaudio/audio_worklet.h"
 #include "third_party/blink/renderer/modules/webaudio/audio_worklet_global_scope.h"
 #include "third_party/blink/renderer/modules/webaudio/audio_worklet_messaging_proxy.h"
+#include "third_party/blink/renderer/modules/webaudio/audio_graph_tracer.h"
 #include "third_party/blink/renderer/modules/webaudio/biquad_filter_node.h"
 #include "third_party/blink/renderer/modules/webaudio/channel_merger_node.h"
 #include "third_party/blink/renderer/modules/webaudio/channel_splitter_node.h"
@@ -82,21 +83,15 @@
 
 namespace blink {
 
-BaseAudioContext* BaseAudioContext::Create(
-    Document& document,
-    const AudioContextOptions* context_options,
-    ExceptionState& exception_state) {
-  return AudioContext::Create(document, context_options, exception_state);
-}
-
 // Constructor for rendering to the audio hardware.
 BaseAudioContext::BaseAudioContext(Document* document,
                                    enum ContextType context_type)
     : ContextLifecycleStateObserver(document),
+      InspectorHelperMixin(*AudioGraphTracer::FromDocument(*document),
+                           String()),
       destination_node_(nullptr),
       is_resolving_resume_promises_(false),
       task_runner_(document->GetTaskRunner(TaskType::kInternalMedia)),
-      uuid_(WTF::CreateCanonicalUUIDString()),
       is_cleared_(false),
       has_posted_cleanup_task_(false),
       deferred_task_handler_(DeferredTaskHandler::Create(
@@ -138,10 +133,10 @@ void BaseAudioContext::Initialize() {
     // only create the listener if the destination node exists.
     listener_ = MakeGarbageCollected<AudioListener>(*this);
 
-    if (GraphTracer())
-      GraphTracer()->DidCreateBaseAudioContext(this);
-
     FFTFrame::Initialize(sampleRate());
+
+    // Report the context construction to the inspector.
+    ReportDidCreate();
   }
 }
 
@@ -161,11 +156,8 @@ void BaseAudioContext::Uninitialize() {
   if (!IsDestinationInitialized())
     return;
 
-  // BaseAudioContextTracker needs a valid AudioDestinationNode because it
-  // may use destination-related data (e.g. sample rate and channel count)
-  // to populate the devtool protocol object.
-  if (GraphTracer())
-    GraphTracer()->DidDestroyBaseAudioContext(this);
+  // Report the inspector that the context will be destroyed.
+  ReportWillBeDestroyed();
 
   // This stops the audio thread and all audio rendering.
   if (destination_node_)
@@ -187,6 +179,12 @@ void BaseAudioContext::Uninitialize() {
 
   DCHECK(!is_resolving_resume_promises_);
   DCHECK_EQ(resume_resolvers_.size(), 0u);
+}
+
+void BaseAudioContext::Dispose() {
+  // BaseAudioContext is going away, so remove the context from the orphan
+  // handlers.
+  GetDeferredTaskHandler().ClearContextFromOrphanHandlers();
 }
 
 void BaseAudioContext::ContextLifecycleStateChanged(
@@ -330,10 +328,10 @@ ScriptPromise BaseAudioContext::decodeAudioData(
   ScriptPromise promise = resolver->Promise();
 
   v8::Isolate* isolate = script_state->GetIsolate();
-  WTF::ArrayBufferContents buffer_contents;
+  ArrayBufferContents buffer_contents;
   // Detach the audio array buffer from the main thread and start
   // async decoding of the data.
-  if (audio_data->IsNeuterable(isolate) &&
+  if (audio_data->IsDetachable(isolate) &&
       audio_data->Transfer(isolate, buffer_contents)) {
     DOMArrayBuffer* audio = DOMArrayBuffer::Create(buffer_contents);
 
@@ -657,8 +655,7 @@ void BaseAudioContext::SetContextState(AudioContextState new_state) {
         ->PostTask(FROM_HERE, WTF::Bind(&BaseAudioContext::NotifyStateChange,
                                         WrapPersistent(this)));
 
-    if (GraphTracer())
-      GraphTracer()->DidChangeBaseAudioContext(this);
+    GraphTracer().DidChangeBaseAudioContext(this);
   }
 }
 
@@ -727,6 +724,11 @@ void BaseAudioContext::HandleStoppableSourceNodes() {
 
 void BaseAudioContext::PerformCleanupOnMainThread() {
   DCHECK(IsMainThread());
+
+  // When a posted task is performed, the execution context might be gone.
+  if (!GetExecutionContext())
+    return;
+
   GraphAutoLocker locker(this);
 
   if (is_resolving_resume_promises_) {
@@ -748,6 +750,8 @@ void BaseAudioContext::PerformCleanupOnMainThread() {
 }
 
 void BaseAudioContext::ScheduleMainThreadCleanup() {
+  DCHECK(IsAudioThread());
+
   if (has_posted_cleanup_task_)
     return;
   PostCrossThreadTask(
@@ -813,6 +817,7 @@ void BaseAudioContext::Trace(blink::Visitor* visitor) {
   visitor->Trace(periodic_wave_sawtooth_);
   visitor->Trace(periodic_wave_triangle_);
   visitor->Trace(audio_worklet_);
+  InspectorHelperMixin::Trace(visitor);
   EventTargetWithInlineData::Trace(visitor);
   ContextLifecycleStateObserver::Trace(visitor);
 }
@@ -893,8 +898,16 @@ int32_t BaseAudioContext::CallbackBufferSize() {
   return destination_handler.GetCallbackBufferSize();
 }
 
-AudioGraphTracer* BaseAudioContext::GraphTracer() {
-  return AudioGraphTracer::FromDocument(*GetDocument());
+void BaseAudioContext::ReportDidCreate() {
+  GraphTracer().DidCreateBaseAudioContext(this);
+  destination_node_->ReportDidCreate();
+  listener_->ReportDidCreate();
+}
+
+void BaseAudioContext::ReportWillBeDestroyed() {
+  listener_->ReportWillBeDestroyed();
+  destination_node_->ReportWillBeDestroyed();
+  GraphTracer().WillDestroyBaseAudioContext(this);
 }
 
 }  // namespace blink

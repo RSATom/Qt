@@ -52,7 +52,6 @@ struct WebCursorInfo;
 // Handles window-level notifications from core on behalf of a WebView.
 class CORE_EXPORT ChromeClientImpl final : public ChromeClient {
  public:
-  static ChromeClientImpl* Create(WebViewImpl*);
   explicit ChromeClientImpl(WebViewImpl*);
   ~ChromeClientImpl() override;
   void Trace(Visitor* visitor) override;
@@ -120,11 +119,12 @@ class CORE_EXPORT ChromeClientImpl final : public ChromeClient {
                                     String& result) override;
   bool TabsToLinks() override;
   void InvalidateRect(const IntRect&) override;
-  void ScheduleAnimation(const LocalFrameView*) override;
+  void ScheduleAnimation(const LocalFrameView*,
+                         base::TimeDelta = base::TimeDelta()) override;
   IntRect ViewportToScreen(const IntRect&,
                            const LocalFrameView*) const override;
-  float WindowToViewportScalar(const float) const override;
-  WebScreenInfo GetScreenInfo() const override;
+  float WindowToViewportScalar(LocalFrame*, const float) const override;
+  WebScreenInfo GetScreenInfo(LocalFrame&) const override;
   void OverrideVisibleRectForMainFrame(LocalFrame& frame,
                                        IntRect* paint_rect) const override;
   float InputEventsScaleForEmulation() const override;
@@ -166,8 +166,6 @@ class CORE_EXPORT ChromeClientImpl final : public ChromeClient {
   void RequestUnbufferedInputEvents(LocalFrame*) override;
   void SetTouchAction(LocalFrame*, TouchAction) override;
 
-  void AttachRootGraphicsLayer(GraphicsLayer*, LocalFrame* local_root) override;
-
   void AttachRootLayer(scoped_refptr<cc::Layer>,
                        LocalFrame* local_root) override;
 
@@ -176,7 +174,9 @@ class CORE_EXPORT ChromeClientImpl final : public ChromeClient {
   void DetachCompositorAnimationTimeline(CompositorAnimationTimeline*,
                                          LocalFrame*) override;
 
-  void EnterFullscreen(LocalFrame&, const FullscreenOptions*) override;
+  void EnterFullscreen(LocalFrame&,
+                       const FullscreenOptions*,
+                       bool for_cross_process_descendant) override;
   void ExitFullscreen(LocalFrame&) override;
   void FullscreenElementChanged(Element* old_element,
                                 Element* new_element) override;
@@ -208,7 +208,8 @@ class CORE_EXPORT ChromeClientImpl final : public ChromeClient {
   void SetBrowserControlsState(float top_height,
                                float bottom_height,
                                bool shrinks_layout) override;
-  void SetBrowserControlsShownRatio(float) override;
+  void SetBrowserControlsShownRatio(float top_ratio,
+                                    float bottom_ratio) override;
 
   bool ShouldOpenUIElementDuringPageDismissal(
       LocalFrame&,
@@ -216,7 +217,7 @@ class CORE_EXPORT ChromeClientImpl final : public ChromeClient {
       const String& dialog_message,
       Document::PageDismissalType) const override;
 
-  bool RequestPointerLock(LocalFrame*) override;
+  bool RequestPointerLock(LocalFrame*, bool) override;
   void RequestPointerUnlock(LocalFrame*) override;
 
   // AutofillClient pass throughs:
@@ -233,8 +234,6 @@ class CORE_EXPORT ChromeClientImpl final : public ChromeClient {
 
   void ShowVirtualKeyboardOnElementFocus(LocalFrame&) override;
 
-  void RegisterViewportLayers() const override;
-
   TransformationMatrix GetDeviceEmulationTransform() const override;
 
   void OnMouseDown(Node&) override;
@@ -246,7 +245,7 @@ class CORE_EXPORT ChromeClientImpl final : public ChromeClient {
   void UnregisterPopupOpeningObserver(PopupOpeningObserver*) override;
   void NotifyPopupOpeningObservers() const override;
 
-  WebLayerTreeView* GetWebLayerTreeView(LocalFrame*) override;
+  viz::FrameSinkId GetFrameSinkId(LocalFrame*) override;
 
   void RequestDecode(LocalFrame*,
                      const PaintImage&,
@@ -263,7 +262,14 @@ class CORE_EXPORT ChromeClientImpl final : public ChromeClient {
   void FallbackCursorModeSetCursorVisibility(LocalFrame* frame,
                                              bool visible) override;
 
+  void RequestBeginMainFrameNotExpected(LocalFrame& frame,
+                                        bool request) override;
+
+  int GetLayerTreeId(LocalFrame& frame) override;
+
   void DidUpdateTextAutosizerPageInfo(const WebTextAutosizerPageInfo&) override;
+
+  void DocumentDetached(Document&) override;
 
  private:
   bool IsChromeClientImpl() const override { return true; }

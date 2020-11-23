@@ -57,8 +57,10 @@
 #include <QtCore/qrect.h>
 #include <QtGui/qbrush.h>
 #include <QtGui/qcolor.h>
+#include <QtGui/qpainterpath.h>
 #include <QtCore/qsharedpointer.h>
 #include <QtGui/qglyphrun.h>
+#include <QtGui/qpainterpath.h>
 #include <QtCore/qurl.h>
 #include <private/qfontengine_p.h>
 #include <QtGui/private/qdatabuffer_p.h>
@@ -372,6 +374,7 @@ class Q_QUICK_PRIVATE_EXPORT QSGGlyphNode : public QSGVisitableNode
 public:
     enum AntialiasingMode
     {
+        DefaultAntialiasing = -1,
         GrayAntialiasing,
         LowQualitySubPixelAntialiasing,
         HighQualitySubPixelAntialiasing

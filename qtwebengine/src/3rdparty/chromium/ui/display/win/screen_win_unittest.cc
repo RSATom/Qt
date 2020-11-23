@@ -157,20 +157,20 @@ class TestScreenWinManager final : public TestScreenWinInitializer {
         win::test::CreateMonitorInfo(pixel_bounds, pixel_work, device_name);
     monitor_infos_.push_back(monitor_info);
     display_infos_.push_back(DisplayInfo(monitor_info, device_scale_factor,
-                                         1.0f, Display::ROTATE_0, 60));
+                                         1.0f, Display::ROTATE_0, 60,
+                                         gfx::Vector2dF()));
   }
 
   HWND CreateFakeHwnd(const gfx::Rect& bounds) override {
     EXPECT_EQ(screen_win_, nullptr);
-    hwnd_map_.insert(std::pair<HWND, gfx::Rect>(++hwndLast_, bounds));
+    hwnd_map_.emplace(++hwndLast_, bounds);
     return hwndLast_;
   }
 
   void InitializeScreenWin() {
     ASSERT_EQ(screen_win_, nullptr);
-    screen_win_.reset(new TestScreenWin(display_infos_,
-                                        monitor_infos_,
-                                        hwnd_map_));
+    screen_win_ = std::make_unique<TestScreenWin>(display_infos_,
+                                                  monitor_infos_, hwnd_map_);
     Screen::SetScreenInstance(screen_win_.get());
   }
 
@@ -194,7 +194,7 @@ class ScreenWinTest : public testing::Test {
 
   void SetUp() override {
     testing::Test::SetUp();
-    screen_win_initializer_.reset(new TestScreenWinManager());
+    screen_win_initializer_ = std::make_unique<TestScreenWinManager>();
     SetUpScreen(screen_win_initializer_.get());
     screen_win_initializer_->InitializeScreenWin();
   }
@@ -1344,6 +1344,15 @@ TEST_F(ScreenWinTestTwoDisplays2x, GetDisplayMatching) {
 TEST_F(ScreenWinTestTwoDisplays2x, GetPrimaryDisplay) {
   Screen* screen = GetScreen();
   EXPECT_EQ(gfx::Point(0, 0), screen->GetPrimaryDisplay().bounds().origin());
+}
+
+TEST_F(ScreenWinTestTwoDisplays2x, CheckIdStability) {
+  // Callers may use the display ID as a way to persist data like window
+  // coordinates across runs. As a result, the IDs must remain stable.
+  Screen* screen = GetScreen();
+  ASSERT_EQ(2, screen->GetNumDisplays());
+  EXPECT_EQ(711638480, screen->GetAllDisplays()[0].id());
+  EXPECT_EQ(1158792510, screen->GetAllDisplays()[1].id());
 }
 
 namespace {

@@ -31,13 +31,16 @@ jumbo_static_library("url_formatter") {
   deps = [
     "//base",
     "//base:i18n",
-    "//components/url_formatter/top_domains:common",
-    "//components/url_formatter/top_domains:generate_top_domains_trie",
+    "//components/url_formatter/spoof_checks/top_domains:common",
+    "//components/url_formatter/spoof_checks/top_domains:generate_top_domains_trie",
     "//net",
     "//net:preload_decoder",
-    "//third_party/icu",
     "//ui/gfx",
     "//url",
+  ]
+
+  public_deps = [
+    "//third_party/icu",
   ]
 
   if (is_android) {
@@ -58,7 +61,7 @@ jumbo_source_set("unit_tests") {
     ":url_formatter",
     "//base",
     "//base/test:test_support",
-    "//components/url_formatter/top_domains:generate_top_domains_test_trie",
+    "//components/url_formatter/spoof_checks/top_domains:generate_top_domains_test_trie",
     "//net",
     "//net:preload_decoder",
     "//testing/gtest",

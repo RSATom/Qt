@@ -55,7 +55,6 @@
 #include <qnmeapositioninfosource.h>
 #include <qgeopositioninfo.h>
 #include <qnetworkconfigmanager.h>
-#include <qnetworksession.h>
 
 #include <QJsonDocument>
 #include <QJsonObject>
@@ -150,7 +149,6 @@ public:
     QString longitude, latitude;
     QString city;
     QNetworkAccessManager *nam;
-    QNetworkSession *ns;
     WeatherData now;
     QList<WeatherData*> forecast;
     QQmlListProperty<WeatherData> *fcProp;
@@ -166,7 +164,6 @@ public:
     AppModelPrivate() :
             src(NULL),
             nam(NULL),
-            ns(NULL),
             fcProp(NULL),
             ready(false),
             useGps(true),
@@ -225,31 +222,7 @@ AppModel::AppModel(QObject *parent) :
 
 
 //! [1]
-    // make sure we have an active network session
     d->nam = new QNetworkAccessManager(this);
-
-    QNetworkConfigurationManager ncm;
-    d->ns = new QNetworkSession(ncm.defaultConfiguration(), this);
-    connect(d->ns, SIGNAL(opened()), this, SLOT(networkSessionOpened()));
-    // the session may be already open. if it is, run the slot directly
-    if (d->ns->isOpen())
-        this->networkSessionOpened();
-    // tell the system we want network
-    d->ns->open();
-}
-//! [1]
-
-AppModel::~AppModel()
-{
-    d->ns->close();
-    if (d->src)
-        d->src->stopUpdates();
-    delete d;
-}
-
-//! [2]
-void AppModel::networkSessionOpened()
-{
     d->src = QGeoPositionInfoSource::createDefaultSource(this);
 
     if (d->src) {
@@ -266,9 +239,16 @@ void AppModel::networkSessionOpened()
         this->refreshWeather();
     }
 }
-//! [2]
+//! [1]
 
-//! [3]
+AppModel::~AppModel()
+{
+    if (d->src)
+        d->src->stopUpdates();
+    delete d;
+}
+
+//! [2]
 void AppModel::positionUpdated(QGeoPositionInfo gpsPos)
 {
     d->coord = gpsPos.coordinate();
@@ -278,7 +258,7 @@ void AppModel::positionUpdated(QGeoPositionInfo gpsPos)
 
     queryCity();
 }
-//! [3]
+//! [2]
 
 void AppModel::queryCity()
 {

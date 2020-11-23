@@ -30,6 +30,7 @@
 #include "preprocessor.h"
 #include "moc.h"
 #include "outputrevision.h"
+#include "collectjson.h"
 
 #include <qfile.h>
 #include <qfileinfo.h>
@@ -37,10 +38,12 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <ctype.h>
+#include <errno.h>
 
 #include <qcoreapplication.h>
 #include <qcommandlineoption.h>
 #include <qcommandlineparser.h>
+#include <qscopedpointer.h>
 
 QT_BEGIN_NAMESPACE
 
@@ -77,6 +80,10 @@ void error(const char *msg = "Invalid argument")
         fprintf(stderr, "moc: %s\n", msg);
 }
 
+struct ScopedPointerFileCloser
+{
+    static inline void cleanup(FILE *handle) { if (handle) fclose(handle); }
+};
 
 static inline bool hasNext(const Symbols &symbols, int i)
 { return (i < symbols.size()); }
@@ -168,6 +175,49 @@ static QStringList argumentsFromCommandLineAndFile(const QStringList &arguments)
     return allArguments;
 }
 
+// Escape characters in given path. Dependency paths are Make-style, not NMake/Jom style.
+// The paths can also be consumed by Ninja.
+// "$" replaced by "$$"
+// "#" replaced by "\#"
+// " " replaced by "\ "
+// "\#" replaced by "\\#"
+// "\ " replaced by "\\\ "
+//
+// The escape rules are according to what clang / llvm escapes when generating a Make-style
+// dependency file.
+// Is a template function, because input param can be either a QString or a QByteArray.
+template <typename T> struct CharType;
+template <> struct CharType<QString> { using type = QLatin1Char; };
+template <> struct CharType<QByteArray> { using type = char; };
+template <typename StringType>
+StringType escapeDependencyPath(const StringType &path)
+{
+    using CT = typename CharType<StringType>::type;
+    StringType escapedPath;
+    int size = path.size();
+    escapedPath.reserve(size);
+    for (int i = 0; i < size; ++i) {
+        if (path[i] == CT('$')) {
+            escapedPath.append(CT('$'));
+        } else if (path[i] == CT('#')) {
+            escapedPath.append(CT('\\'));
+        } else if (path[i] == CT(' ')) {
+            escapedPath.append(CT('\\'));
+            int backwards_it = i - 1;
+            while (backwards_it > 0 && path[backwards_it] == CT('\\')) {
+                escapedPath.append(CT('\\'));
+                --backwards_it;
+            }
+        }
+        escapedPath.append(path[i]);
+    }
+    return escapedPath;
+}
+
+QByteArray escapeAndEncodeDependencyPath(const QString &path)
+{
+    return QFile::encodeName(escapeDependencyPath(path));
+}
 
 int runMoc(int argc, char **argv)
 {
@@ -293,10 +343,36 @@ int runMoc(int argc, char **argv)
     ignoreConflictsOption.setDescription(QStringLiteral("Ignore all options that conflict with compilers, like -pthread conflicting with moc's -p option."));
     parser.addOption(ignoreConflictsOption);
 
+    QCommandLineOption jsonOption(QStringLiteral("output-json"));
+    jsonOption.setDescription(QStringLiteral("In addition to generating C++ code, create a machine-readable JSON file in a file that matches the output file and an extra .json extension."));
+    parser.addOption(jsonOption);
+
+    QCommandLineOption collectOption(QStringLiteral("collect-json"));
+    collectOption.setDescription(QStringLiteral("Instead of processing C++ code, collect previously generated JSON output into a single file."));
+    parser.addOption(collectOption);
+
+    QCommandLineOption depFileOption(QStringLiteral("output-dep-file"));
+    depFileOption.setDescription(
+                QStringLiteral("Output a Make-style dep file for build system consumption."));
+    parser.addOption(depFileOption);
+
+    QCommandLineOption depFilePathOption(QStringLiteral("dep-file-path"));
+    depFilePathOption.setDescription(QStringLiteral("Path where to write the dep file."));
+    depFilePathOption.setValueName(QStringLiteral("file"));
+    parser.addOption(depFilePathOption);
+
+    QCommandLineOption depFileRuleNameOption(QStringLiteral("dep-file-rule-name"));
+    depFileRuleNameOption.setDescription(
+                QStringLiteral("The rule name (first line) of the dep file."));
+    depFileRuleNameOption.setValueName(QStringLiteral("rule name"));
+    parser.addOption(depFileRuleNameOption);
+
     parser.addPositionalArgument(QStringLiteral("[header-file]"),
             QStringLiteral("Header file to read from, otherwise stdin."));
     parser.addPositionalArgument(QStringLiteral("[@option-file]"),
             QStringLiteral("Read additional options from option-file."));
+    parser.addPositionalArgument(QStringLiteral("[MOC generated json file]"),
+                                 QStringLiteral("MOC generated json output"));
 
     const QStringList arguments = argumentsFromCommandLineAndFile(app.arguments());
     if (arguments.isEmpty())
@@ -305,6 +381,10 @@ int runMoc(int argc, char **argv)
     parser.process(arguments);
 
     const QStringList files = parser.positionalArguments();
+    output = parser.value(outputOption);
+    if (parser.isSet(collectOption))
+        return collectJson(files, output);
+
     if (files.count() > 1) {
         error(qPrintable(QLatin1String("Too many input files specified: '") + files.join(QLatin1String("' '")) + QLatin1Char('\'')));
         parser.showHelp(1);
@@ -313,7 +393,6 @@ int runMoc(int argc, char **argv)
     }
 
     const bool ignoreConflictingOptions = parser.isSet(ignoreConflictsOption);
-    output = parser.value(outputOption);
     pp.preprocessOnly = parser.isSet(preprocessOption);
     if (parser.isSet(noIncludeOption)) {
         moc.noInclude = true;
@@ -456,6 +535,7 @@ int runMoc(int argc, char **argv)
 
     // 1. preprocess
     const auto includeFiles = parser.values(includeOption);
+    QStringList validIncludesFiles;
     for (const QString &includeName : includeFiles) {
         QByteArray rawName = pp.resolveInclude(QFile::encodeName(includeName), moc.filename);
         if (rawName.isEmpty()) {
@@ -468,6 +548,7 @@ int runMoc(int argc, char **argv)
                 moc.symbols += Symbol(0, MOC_INCLUDE_BEGIN, rawName);
                 moc.symbols += pp.preprocessed(rawName, &f);
                 moc.symbols += Symbol(0, MOC_INCLUDE_END, rawName);
+                validIncludesFiles.append(includeName);
             } else {
                 fprintf(stderr, "Warning: Cannot open %s included by moc file %s: %s\n",
                         rawName.constData(),
@@ -485,6 +566,9 @@ int runMoc(int argc, char **argv)
 
     // 3. and output meta object code
 
+    QScopedPointer<FILE, ScopedPointerFileCloser> jsonOutput;
+
+    bool outputToFile = true;
     if (output.size()) { // output file specified
 #if defined(_MSC_VER)
         if (_wfopen_s(&out, reinterpret_cast<const wchar_t *>(output.utf16()), L"w") != 0)
@@ -496,8 +580,24 @@ int runMoc(int argc, char **argv)
             fprintf(stderr, "moc: Cannot create %s\n", QFile::encodeName(output).constData());
             return 1;
         }
+
+        if (parser.isSet(jsonOption)) {
+            const QString jsonOutputFileName = output + QLatin1String(".json");
+            FILE *f;
+#if defined(_MSC_VER)
+            if (_wfopen_s(&f, reinterpret_cast<const wchar_t *>(jsonOutputFileName.utf16()), L"w") != 0)
+#else
+            f = fopen(QFile::encodeName(jsonOutputFileName).constData(), "w");
+            if (!f)
+#endif
+                fprintf(stderr, "moc: Cannot create JSON output file %s. %s\n",
+                        QFile::encodeName(jsonOutputFileName).constData(),
+                        strerror(errno));
+            jsonOutput.reset(f);
+        }
     } else { // use stdout
         out = stdout;
+        outputToFile = false;
     }
 
     if (pp.preprocessOnly) {
@@ -506,11 +606,79 @@ int runMoc(int argc, char **argv)
         if (moc.classList.isEmpty())
             moc.note("No relevant classes found. No output generated.");
         else
-            moc.generate(out);
+            moc.generate(out, jsonOutput.data());
     }
 
     if (output.size())
         fclose(out);
+
+    if (parser.isSet(depFileOption)) {
+        // 4. write a Make-style dependency file (can also be consumed by Ninja).
+        QString depOutputFileName;
+        QString depRuleName = output;
+
+        if (parser.isSet(depFileRuleNameOption))
+            depRuleName = parser.value(depFileRuleNameOption);
+
+        if (parser.isSet(depFilePathOption)) {
+            depOutputFileName = parser.value(depFilePathOption);
+        } else if (outputToFile) {
+            depOutputFileName = output + QLatin1String(".d");
+        } else {
+            fprintf(stderr, "moc: Writing to stdout, but no depfile path specified.\n");
+        }
+
+        QScopedPointer<FILE, ScopedPointerFileCloser> depFileHandle;
+        FILE *depFileHandleRaw;
+#if defined(_MSC_VER)
+        if (_wfopen_s(&depFileHandleRaw,
+                      reinterpret_cast<const wchar_t *>(depOutputFileName.utf16()), L"w") != 0)
+#else
+        depFileHandleRaw = fopen(QFile::encodeName(depOutputFileName).constData(), "w");
+        if (!depFileHandleRaw)
+#endif
+            fprintf(stderr, "moc: Cannot create dep output file '%s'. %s\n",
+                    QFile::encodeName(depOutputFileName).constData(),
+                    strerror(errno));
+        depFileHandle.reset(depFileHandleRaw);
+
+        if (!depFileHandle.isNull()) {
+            // First line is the path to the generated file.
+            fprintf(depFileHandle.data(), "%s: ",
+                    escapeAndEncodeDependencyPath(depRuleName).constData());
+
+            QByteArrayList dependencies;
+
+            // If there's an input file, it's the first dependency.
+            if (!filename.isEmpty()) {
+                dependencies.append(escapeAndEncodeDependencyPath(filename).constData());
+            }
+
+            // Additional passed-in includes are dependencies (like moc_predefs.h).
+            for (const QString &includeName : validIncludesFiles) {
+                dependencies.append(escapeAndEncodeDependencyPath(includeName).constData());
+            }
+
+            // Plugin metadata json files discovered via Q_PLUGIN_METADATA macros are also
+            // dependencies.
+            for (const QString &pluginMetadataFile : moc.parsedPluginMetadataFiles) {
+                dependencies.append(escapeAndEncodeDependencyPath(pluginMetadataFile).constData());
+            }
+
+            // All pre-processed includes are dependnecies.
+            // Sort the entries for easier human consumption.
+            auto includeList = pp.preprocessedIncludes.values();
+            std::sort(includeList.begin(), includeList.end());
+
+            for (QByteArray &includeName : includeList) {
+                dependencies.append(escapeDependencyPath(includeName));
+            }
+
+            // Join dependencies, output them, and output a final new line.
+            const auto dependenciesJoined = dependencies.join(QByteArrayLiteral(" \\\n  "));
+            fprintf(depFileHandle.data(), "%s\n", dependenciesJoined.constData());
+        }
+    }
 
     return 0;
 }

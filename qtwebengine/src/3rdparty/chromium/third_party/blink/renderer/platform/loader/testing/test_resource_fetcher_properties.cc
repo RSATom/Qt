@@ -4,6 +4,7 @@
 
 #include "third_party/blink/renderer/platform/loader/testing/test_resource_fetcher_properties.h"
 
+#include "services/network/public/mojom/ip_address_space.mojom-blink.h"
 #include "services/network/public/mojom/referrer_policy.mojom-blink.h"
 #include "third_party/blink/renderer/platform/loader/allowed_by_nosniff.h"
 #include "third_party/blink/renderer/platform/loader/fetch/fetch_client_settings_object_snapshot.h"
@@ -27,10 +28,9 @@ TestResourceFetcherProperties::TestResourceFetcherProperties(
               String(),
               HttpsState::kNone,
               AllowedByNosniff::MimeTypeCheck::kStrict,
-              mojom::IPAddressSpace::kPublic,
+              network::mojom::IPAddressSpace::kPublic,
               kLeaveInsecureRequestsAlone,
-              FetchClientSettingsObject::InsecureNavigationsSet(),
-              false /* mixed_autoupgrade_opt_out */)) {}
+              FetchClientSettingsObject::InsecureNavigationsSet())) {}
 
 TestResourceFetcherProperties::TestResourceFetcherProperties(
     const FetchClientSettingsObject& fetch_client_settings_object)
@@ -39,6 +39,10 @@ TestResourceFetcherProperties::TestResourceFetcherProperties(
 void TestResourceFetcherProperties::Trace(Visitor* visitor) {
   visitor->Trace(fetch_client_settings_object_);
   ResourceFetcherProperties::Trace(visitor);
+}
+
+const KURL& TestResourceFetcherProperties::WebBundlePhysicalUrl() const {
+  return NullURL();
 }
 
 }  // namespace blink

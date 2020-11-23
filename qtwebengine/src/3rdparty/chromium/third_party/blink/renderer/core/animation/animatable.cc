@@ -4,6 +4,7 @@
 
 #include "third_party/blink/renderer/core/animation/animatable.h"
 
+#include "third_party/blink/renderer/bindings/core/v8/unrestricted_double_or_keyframe_animation_options.h"
 #include "third_party/blink/renderer/core/animation/animation.h"
 #include "third_party/blink/renderer/core/animation/document_timeline.h"
 #include "third_party/blink/renderer/core/animation/effect_input.h"
@@ -44,7 +45,7 @@ void ReportFeaturePolicyViolationsIfNecessary(
 Animation* Animatable::animate(
     ScriptState* script_state,
     const ScriptValue& keyframes,
-    UnrestrictedDoubleOrKeyframeAnimationOptions options,
+    const UnrestrictedDoubleOrKeyframeAnimationOptions& options,
     ExceptionState& exception_state) {
   EffectModel::CompositeOperation composite = EffectModel::kCompositeReplace;
   if (options.IsKeyframeAnimationOptions()) {
@@ -82,20 +83,30 @@ Animation* Animatable::animate(ScriptState* script_state,
   return animateInternal(*element, effect, Timing());
 }
 
-HeapVector<Member<Animation>> Animatable::getAnimations() {
+HeapVector<Member<Animation>> Animatable::getAnimations(
+    GetAnimationsOptions* options) {
+  bool use_subtree = options && options->subtree();
   Element* element = GetAnimationTarget();
-  element->GetDocument().UpdateStyleAndLayoutTreeForNode(element);
+  if (use_subtree)
+    element->GetDocument().UpdateStyleAndLayoutTreeForSubtree(element);
+  else
+    element->GetDocument().UpdateStyleAndLayoutTreeForNode(element);
 
   HeapVector<Member<Animation>> animations;
-  if (!element->HasAnimations())
+  if (!use_subtree && !element->HasAnimations())
     return animations;
 
   for (const auto& animation :
        element->GetDocument().Timeline().getAnimations()) {
     DCHECK(animation->effect());
-    if (ToKeyframeEffect(animation->effect())->target() == element &&
-        (animation->effect()->IsCurrent() || animation->effect()->IsInEffect()))
+    Element* target = ToKeyframeEffect(animation->effect())->target();
+    if (element == target || (use_subtree && element->contains(target))) {
+      // DocumentTimeline::getAnimations should only give us animations that are
+      // either current or in effect.
+      DCHECK(animation->effect()->IsCurrent() ||
+             animation->effect()->IsInEffect());
       animations.push_back(animation);
+    }
   }
   return animations;
 }

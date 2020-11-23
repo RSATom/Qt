@@ -28,8 +28,8 @@
 #include "include/core/SkTextBlob.h"
 #include "include/core/SkTypeface.h"
 #include "include/docs/SkPDFDocument.h"
-#include "include/effects/SkBlurImageFilter.h"
 #include "include/effects/SkGradientShader.h"
+#include "include/effects/SkImageFilters.h"
 #include "include/private/SkTo.h"
 #include "modules/skshaper/include/SkShaper.h"
 #include "src/core/SkMakeUnique.h"
@@ -412,10 +412,10 @@ static SkColor lua2color(lua_State* L, int index) {
 }
 
 static SkRect* lua2rect(lua_State* L, int index, SkRect* rect) {
-    rect->set(getfield_scalar_default(L, index, "left", 0),
-              getfield_scalar_default(L, index, "top", 0),
-              getfield_scalar(L, index, "right"),
-              getfield_scalar(L, index, "bottom"));
+    rect->setLTRB(getfield_scalar_default(L, index, "left", 0),
+                  getfield_scalar_default(L, index, "top", 0),
+                  getfield_scalar(L, index, "right"),
+                  getfield_scalar(L, index, "bottom"));
     return rect;
 }
 
@@ -814,9 +814,6 @@ static int lpaint_getEffects(lua_State* L) {
     const SkPaint* paint = get_obj<SkPaint>(L, 1);
 
     lua_newtable(L);
-#ifdef SK_SUPPORT_LEGACY_DRAWLOOPER
-    setfield_bool_if(L, "looper",      !!paint->getLooper());
-#endif
     setfield_bool_if(L, "pathEffect",  !!paint->getPathEffect());
     setfield_bool_if(L, "maskFilter",  !!paint->getMaskFilter());
     setfield_bool_if(L, "shader",      !!paint->getShader());
@@ -1251,22 +1248,22 @@ static int lpath_getBounds(lua_State* L) {
     return 1;
 }
 
-static const char* fill_type_to_str(SkPath::FillType fill) {
+static const char* fill_type_to_str(SkPathFillType fill) {
     switch (fill) {
-        case SkPath::kEvenOdd_FillType:
+        case SkPathFillType::kEvenOdd:
             return "even-odd";
-        case SkPath::kWinding_FillType:
+        case SkPathFillType::kWinding:
             return "winding";
-        case SkPath::kInverseEvenOdd_FillType:
+        case SkPathFillType::kInverseEvenOdd:
             return "inverse-even-odd";
-        case SkPath::kInverseWinding_FillType:
+        case SkPathFillType::kInverseWinding:
             return "inverse-winding";
     }
     return "unknown";
 }
 
 static int lpath_getFillType(lua_State* L) {
-    SkPath::FillType fill = get_obj<SkPath>(L, 1)->getFillType();
+    SkPathFillType fill = get_obj<SkPath>(L, 1)->getNewFillType();
     SkLua(L).pushString(fill_type_to_str(fill));
     return 1;
 }
@@ -1313,7 +1310,7 @@ static int lpath_getSegmentTypes(lua_State* L) {
 }
 
 static int lpath_isConvex(lua_State* L) {
-    bool isConvex = SkPath::kConvex_Convexity == get_obj<SkPath>(L, 1)->getConvexity();
+    bool isConvex = get_obj<SkPath>(L, 1)->isConvex();
     SkLua(L).pushBool(isConvex);
     return 1;
 }
@@ -1335,31 +1332,6 @@ static int lpath_isRect(lua_State* L) {
     return ret_count;
 }
 
-static const char* dir2string(SkPath::Direction dir) {
-    static const char* gStr[] = {
-        "unknown", "cw", "ccw"
-    };
-    SkASSERT((unsigned)dir < SK_ARRAY_COUNT(gStr));
-    return gStr[dir];
-}
-
-static int lpath_isNestedFillRects(lua_State* L) {
-    SkRect rects[2];
-    SkPath::Direction dirs[2];
-    bool pred = get_obj<SkPath>(L, 1)->isNestedFillRects(rects, dirs);
-    int ret_count = 1;
-    lua_pushboolean(L, pred);
-    if (pred) {
-        SkLua lua(L);
-        lua.pushRect(rects[0]);
-        lua.pushRect(rects[1]);
-        lua_pushstring(L, dir2string(dirs[0]));
-        lua_pushstring(L, dir2string(dirs[0]));
-        ret_count += 4;
-    }
-    return ret_count;
-}
-
 static int lpath_countPoints(lua_State* L) {
     lua_pushinteger(L, get_obj<SkPath>(L, 1)->countPoints());
     return 1;
@@ -1375,7 +1347,7 @@ static int lpath_getVerbs(lua_State* L) {
     bool done = false;
     int i = 0;
     do {
-        switch (iter.next(pts, true)) {
+        switch (iter.next(pts)) {
             case SkPath::kMove_Verb:
                 setarray_string(L, ++i, "move");
                 break;
@@ -1450,7 +1422,6 @@ static const struct luaL_Reg gSkPath_Methods[] = {
     { "isConvex", lpath_isConvex },
     { "isEmpty", lpath_isEmpty },
     { "isRect", lpath_isRect },
-    { "isNestedFillRects", lpath_isNestedFillRects },
     { "countPoints", lpath_countPoints },
     { "reset", lpath_reset },
     { "moveTo", lpath_moveTo },
@@ -1815,7 +1786,7 @@ static int lsk_newDocumentPDF(lua_State* L) {
 static int lsk_newBlurImageFilter(lua_State* L) {
     SkScalar sigmaX = lua2scalar_def(L, 1, 0);
     SkScalar sigmaY = lua2scalar_def(L, 2, 0);
-    sk_sp<SkImageFilter> imf(SkBlurImageFilter::Make(sigmaX, sigmaY, nullptr));
+    sk_sp<SkImageFilter> imf(SkImageFilters::Blur(sigmaX, sigmaY, nullptr));
     if (!imf) {
         lua_pushnil(L);
     } else {

@@ -126,8 +126,12 @@ hb_unicode_decompose_compatibility_nil (hb_unicode_funcs_t *ufuncs     HB_UNUSED
 }
 #endif
 
-extern "C" hb_unicode_funcs_t *hb_glib_get_unicode_funcs ();
-extern "C" hb_unicode_funcs_t *hb_icu_get_unicode_funcs ();
+#if !defined(HB_NO_UNICODE_FUNCS) && defined(HAVE_GLIB)
+#include "hb-glib.h"
+#endif
+#if !defined(HB_NO_UNICODE_FUNCS) && defined(HAVE_ICU) && defined(HAVE_ICU_BUILTIN)
+#include "hb-icu.h"
+#endif
 
 hb_unicode_funcs_t *
 hb_unicode_funcs_get_default ()
@@ -266,9 +270,9 @@ hb_unicode_funcs_destroy (hb_unicode_funcs_t *ufuncs)
  **/
 hb_bool_t
 hb_unicode_funcs_set_user_data (hb_unicode_funcs_t *ufuncs,
-			        hb_user_data_key_t *key,
-			        void *              data,
-			        hb_destroy_func_t   destroy,
+				hb_user_data_key_t *key,
+				void *              data,
+				hb_destroy_func_t   destroy,
 				hb_bool_t           replace)
 {
   return hb_object_set_user_data (ufuncs, key, data, destroy, replace);
@@ -287,7 +291,7 @@ hb_unicode_funcs_set_user_data (hb_unicode_funcs_t *ufuncs,
  **/
 void *
 hb_unicode_funcs_get_user_data (hb_unicode_funcs_t *ufuncs,
-			        hb_user_data_key_t *key)
+				hb_user_data_key_t *key)
 {
   return hb_object_get_user_data (ufuncs, key);
 }

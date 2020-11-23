@@ -47,7 +47,8 @@
 //                 trait_helpers::AreValidTraits<ValidTraits,
 //                                               ArgTypes...>::value>>
 //   constexpr void DoSomethingAwesome(ArgTypes... args)
-//      : enable_feature_x(trait_helpers::HasTrait<EnableFeatureX>(args...)),
+//      : enable_feature_x(
+//            trait_helpers::HasTrait<EnableFeatureX, ArgTypes...>()),
 //        color(trait_helpers::GetEnum<Color, EnumTraitA::BLUE>(args...)) {}
 
 namespace base {
@@ -223,18 +224,6 @@ struct IsValidTrait<EmptyTrait, T>
 //   ...
 // };
 
-template <class... Ts >
-struct if_all;
-
-template <>
-struct if_all<>
-    : std::integral_constant<bool, true> {};
-
-template <class T, class... Ts >
-struct if_all<T, Ts...>
-    : std::conditional<T::value, if_all<Ts...>, std::integral_constant<bool, false>>::type {};
-
-
 template <class ValidTraits, class... ArgTypes>
 struct AreValidTraits
     : std::integral_constant<bool,
@@ -261,7 +250,7 @@ static constexpr Optional<Enum> GetOptionalEnum(Args... args) {
 
 // Helper to make checking for the presence of a trait more readable.
 template <typename Trait, typename... Args>
-static constexpr bool HasTrait(Args... args) {
+static constexpr bool HasTrait() {
 #if 0
   static_assert(
       count({std::is_constructible<Trait, Args>::value...}, true) <= 1,

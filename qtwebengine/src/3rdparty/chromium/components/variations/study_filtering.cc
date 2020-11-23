@@ -119,6 +119,12 @@ bool CheckStudyLowEndDevice(const Study::Filter& filter,
          filter.is_low_end_device() == is_low_end_device;
 }
 
+bool CheckStudyEnterprise(const Study::Filter& filter,
+                          const ClientFilterableState& client_state) {
+  return !filter.has_is_enterprise() ||
+         filter.is_enterprise() == client_state.IsEnterprise();
+}
+
 bool CheckStudyStartDate(const Study::Filter& filter,
                          const base::Time& date_time) {
   if (filter.has_start_date()) {
@@ -271,6 +277,12 @@ bool ShouldAddStudy(const Study& study,
                                 client_state.is_low_end_device)) {
       DVLOG(1) << "Filtered out study " << study.name()
                << " due to is_low_end_device.";
+      return false;
+    }
+
+    if (!CheckStudyEnterprise(study.filter(), client_state)) {
+      DVLOG(1) << "Filtered out study " << study.name()
+               << " due to enterprise state.";
       return false;
     }
 

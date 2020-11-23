@@ -58,6 +58,7 @@
 #include <QtGui/QIcon>
 #include <QtCore/QVariant>
 #include <QtCore/QLoggingCategory>
+#include <QtCore/QElapsedTimer>
 
 #include <qpa/qplatformwindow.h>
 
@@ -89,10 +90,11 @@ class Q_WAYLAND_CLIENT_EXPORT QWaylandWindow : public QObject, public QPlatformW
 public:
     enum WindowType {
         Shm,
-        Egl
+        Egl,
+        Vulkan
     };
 
-    QWaylandWindow(QWindow *window);
+    QWaylandWindow(QWindow *window, QWaylandDisplay *display);
     ~QWaylandWindow() override;
 
     virtual WindowType windowType() const = 0;
@@ -128,6 +130,7 @@ public:
     QMargins frameMargins() const override;
     QSize surfaceSize() const;
     QRect windowContentGeometry() const;
+    QPointF mapFromWlSurface(const QPointF &surfacePosition) const;
 
     QWaylandSurface *waylandSurface() const { return mSurface.data(); }
     ::wl_surface *wlSurface();
@@ -194,7 +197,8 @@ public:
     void propagateSizeHints() override;
     void addAttachOffset(const QPoint point);
 
-    bool startSystemMove(const QPoint &pos) override;
+    bool startSystemResize(Qt::Edges edges) override;
+    bool startSystemMove() override;
 
     void timerEvent(QTimerEvent *event) override;
     void requestUpdate() override;
@@ -222,7 +226,8 @@ protected:
     WId mWindowId;
     bool mWaitingForFrameCallback = false;
     bool mFrameCallbackTimedOut = false; // Whether the frame callback has timed out
-    QAtomicInt mFrameCallbackTimerId = -1; // Started on commit, reset on frame callback
+    int mFrameCallbackCheckIntervalTimerId = -1;
+    QElapsedTimer mFrameCallbackElapsedTimer;
     struct ::wl_callback *mFrameCallback = nullptr;
     struct ::wl_event_queue *mFrameQueue = nullptr;
     QWaitCondition mFrameSyncWait;
@@ -235,12 +240,13 @@ protected:
     bool mCanResize = true;
     bool mResizeDirty = false;
     bool mResizeAfterSwap;
+    int mFrameCallbackTimeout = 100;
     QVariantMap m_properties;
 
     bool mSentInitialResize = false;
     QPoint mOffset;
     int mScale = 1;
-    QWaylandScreen *mLastReportedScreen = nullptr;
+    QPlatformScreen *mLastReportedScreen = nullptr;
 
     QIcon mWindowIcon;
 
@@ -258,15 +264,16 @@ private:
     void initializeWlSurface();
     bool shouldCreateShellSurface() const;
     bool shouldCreateSubSurface() const;
-    void reset(bool sendDestroyEvent = true);
+    void reset();
     void sendExposeEvent(const QRect &rect);
     static void closePopups(QWaylandWindow *parent);
-    QWaylandScreen *calculateScreenFromSurfaceEvents() const;
+    QPlatformScreen *calculateScreenFromSurfaceEvents() const;
 
     void handleMouseEventWithDecoration(QWaylandInputDevice *inputDevice, const QWaylandPointerEvent &e);
     void handleScreensChanged();
 
     bool mInResizeFromApplyConfigure = false;
+    bool lastVisible = false;
     QRect mLastExposeGeometry;
 
     static const wl_callback_listener callbackListener;

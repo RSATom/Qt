@@ -1,5 +1,5 @@
 //
-// Copyright (c) 2015 The ANGLE Project Authors. All rights reserved.
+// Copyright 2015 The ANGLE Project Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 //
@@ -93,7 +93,7 @@ static void INTERNAL_GL_APIENTRY DummyGetShaderiv(GLuint program, GLenum pname, 
 }
 #endif  // defined(ANGLE_ENABLE_OPENGL_NULL)
 
-#define ASSIGN(NAME, FP) *reinterpret_cast<void **>(&FP) = loadProcAddress(NAME)
+#define ASSIGN(NAME, FP) FP = reinterpret_cast<decltype(FP)>(loadProcAddress(NAME))
 
 FunctionsGL::FunctionsGL() : version(), standard(), extensions() {}
 

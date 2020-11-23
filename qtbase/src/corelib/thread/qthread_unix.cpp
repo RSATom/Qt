@@ -109,25 +109,18 @@ Q_STATIC_ASSERT(sizeof(pthread_t) <= sizeof(Qt::HANDLE));
 enum { ThreadPriorityResetFlag = 0x80000000 };
 
 
-static thread_local QThreadData *currentThreadData = 0;
+static thread_local QThreadData *currentThreadData = nullptr;
 
 static pthread_once_t current_thread_data_once = PTHREAD_ONCE_INIT;
 static pthread_key_t current_thread_data_key;
 
 static void destroy_current_thread_data(void *p)
 {
-#if defined(Q_OS_VXWORKS)
-    // Calling setspecific(..., 0) sets the value to 0 for ALL threads.
-    // The 'set to 1' workaround adds a bit of an overhead though,
-    // since this function is called twice now.
-    if (p == (void *)1)
-        return;
-#endif
-    // POSIX says the value in our key is set to zero before calling
-    // this destructor function, so we need to set it back to the
-    // right value...
-    pthread_setspecific(current_thread_data_key, p);
     QThreadData *data = static_cast<QThreadData *>(p);
+    // thread_local variables are set to zero before calling this destructor function,
+    // if they are internally using pthread-specific data management,
+    // so we need to set it back to the right value...
+    currentThreadData = data;
     if (data->isAdopted) {
         QThread *thread = data->thread.loadAcquire();
         Q_ASSERT(thread);
@@ -138,14 +131,8 @@ static void destroy_current_thread_data(void *p)
     data->deref();
 
     // ... but we must reset it to zero before returning so we aren't
-    // called again (POSIX allows implementations to call destructor
-    // functions repeatedly until all values are zero)
-    pthread_setspecific(current_thread_data_key,
-#if defined(Q_OS_VXWORKS)
-                                                 (void *)1);
-#else
-                                                 0);
-#endif
+    // leaving a dangling pointer.
+    currentThreadData = nullptr;
 }
 
 static void create_current_thread_data_key()
@@ -182,8 +169,8 @@ static void set_thread_data(QThreadData *data)
 
 static void clear_thread_data()
 {
-    currentThreadData = 0;
-    pthread_setspecific(current_thread_data_key, 0);
+    currentThreadData = nullptr;
+    pthread_setspecific(current_thread_data_key, nullptr);
 }
 
 template <typename T>
@@ -226,7 +213,7 @@ QThreadData *QThreadData::current(bool createIfNecessary)
         } QT_CATCH(...) {
             clear_thread_data();
             data->deref();
-            data = 0;
+            data = nullptr;
             QT_RETHROW;
         }
         data->deref();
@@ -294,7 +281,7 @@ static void setCurrentThreadName(const char *name)
 void *QThreadPrivate::start(void *arg)
 {
 #if !defined(Q_OS_ANDROID)
-    pthread_setcancelstate(PTHREAD_CANCEL_DISABLE, NULL);
+    pthread_setcancelstate(PTHREAD_CANCEL_DISABLE, nullptr);
 #endif
     pthread_cleanup_push(QThreadPrivate::finish, arg);
 
@@ -336,7 +323,7 @@ void *QThreadPrivate::start(void *arg)
 
         emit thr->started(QThread::QPrivateSignal());
 #if !defined(Q_OS_ANDROID)
-        pthread_setcancelstate(PTHREAD_CANCEL_ENABLE, NULL);
+        pthread_setcancelstate(PTHREAD_CANCEL_ENABLE, nullptr);
         pthread_testcancel();
 #endif
         thr->run();
@@ -360,7 +347,7 @@ void *QThreadPrivate::start(void *arg)
     // thrown.
     pthread_cleanup_pop(1);
 
-    return 0;
+    return nullptr;
 }
 
 void QThreadPrivate::finish(void *arg)
@@ -379,13 +366,13 @@ void QThreadPrivate::finish(void *arg)
         void *data = &d->data->tls;
         locker.unlock();
         emit thr->finished(QThread::QPrivateSignal());
-        QCoreApplication::sendPostedEvents(0, QEvent::DeferredDelete);
+        QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
         QThreadStorageData::finish((void **)data);
         locker.relock();
 
         QAbstractEventDispatcher *eventDispatcher = d->data->eventDispatcher.loadRelaxed();
         if (eventDispatcher) {
-            d->data->eventDispatcher = 0;
+            d->data->eventDispatcher = nullptr;
             locker.unlock();
             eventDispatcher->closingDown();
             delete eventDispatcher;
@@ -751,7 +738,7 @@ void QThread::terminate()
 #endif
 }
 
-bool QThread::wait(unsigned long time)
+bool QThread::wait(QDeadlineTimer deadline)
 {
     Q_D(QThread);
     QMutexLocker locker(&d->mutex);
@@ -765,7 +752,7 @@ bool QThread::wait(unsigned long time)
         return true;
 
     while (d->running) {
-        if (!d->thread_done.wait(locker.mutex(), time))
+        if (!d->thread_done.wait(locker.mutex(), deadline))
             return false;
     }
     return true;
@@ -774,14 +761,14 @@ bool QThread::wait(unsigned long time)
 void QThread::setTerminationEnabled(bool enabled)
 {
     QThread *thr = currentThread();
-    Q_ASSERT_X(thr != 0, "QThread::setTerminationEnabled()",
+    Q_ASSERT_X(thr != nullptr, "QThread::setTerminationEnabled()",
                "Current thread was not started with QThread.");
 
     Q_UNUSED(thr)
 #if defined(Q_OS_ANDROID)
     Q_UNUSED(enabled);
 #else
-    pthread_setcancelstate(enabled ? PTHREAD_CANCEL_ENABLE : PTHREAD_CANCEL_DISABLE, NULL);
+    pthread_setcancelstate(enabled ? PTHREAD_CANCEL_ENABLE : PTHREAD_CANCEL_DISABLE, nullptr);
     if (enabled)
         pthread_testcancel();
 #endif

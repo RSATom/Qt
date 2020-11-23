@@ -7,7 +7,6 @@
 #include "base/bind.h"
 #include "content/browser/appcache/appcache_request_handler.h"
 #include "content/browser/appcache/appcache_update_url_fetcher.h"
-#include "content/browser/loader/navigation_url_loader_impl.h"
 #include "content/browser/storage_partition_impl.h"
 #include "net/base/ip_endpoint.h"
 #include "net/http/http_response_info.h"
@@ -16,6 +15,7 @@
 namespace content {
 
 namespace {
+
 constexpr net::NetworkTrafficAnnotationTag kAppCacheTrafficAnnotation =
     net::DefineNetworkTrafficAnnotation("appcache_update_job", R"(
       semantics {
@@ -45,6 +45,8 @@ constexpr net::NetworkTrafficAnnotationTag kAppCacheTrafficAnnotation =
             }
           }
       })");
+
+const char kAppCacheAllowed[] = "X-AppCache-Allowed";
 }
 
 AppCacheUpdateJob::UpdateURLLoaderRequest::~UpdateURLLoaderRequest() {}
@@ -54,24 +56,15 @@ void AppCacheUpdateJob::UpdateURLLoaderRequest::Start() {
   if (AppCacheRequestHandler::IsRunningInTests())
     return;
 
-  network::mojom::URLLoaderClientPtr client;
-  client_binding_.Bind(mojo::MakeRequest(&client));
-
-  scoped_refptr<network::SharedURLLoaderFactory> loader;
-  if (NavigationURLLoaderImpl::IsNavigationLoaderOnUIEnabled()) {
-    // The partition has shutdown, return without making the request.
-    if (!partition_)
-      return;
-    loader = partition_->GetURLLoaderFactoryForBrowserProcessWithCORBEnabled();
-  } else {
-    loader = loader_factory_getter_->GetNetworkFactoryWithCORBEnabled();
-  }
-
-  loader->CreateLoaderAndStart(
-      mojo::MakeRequest(&url_loader_), -1, -1,
-      network::mojom::kURLLoadOptionSendSSLInfoWithResponse, request_,
-      std::move(client),
-      net::MutableNetworkTrafficAnnotationTag(kAppCacheTrafficAnnotation));
+  // The partition has shutdown, return without making the request.
+  if (!partition_)
+    return;
+  partition_->GetURLLoaderFactoryForBrowserProcessWithCORBEnabled()
+      ->CreateLoaderAndStart(
+          url_loader_.BindNewPipeAndPassReceiver(), -1, -1,
+          network::mojom::kURLLoadOptionSendSSLInfoWithResponse, request_,
+          client_receiver_.BindNewPipeAndPassRemote(),
+          net::MutableNetworkTrafficAnnotationTag(kAppCacheTrafficAnnotation));
 }
 
 void AppCacheUpdateJob::UpdateURLLoaderRequest::SetExtraRequestHeaders(
@@ -92,7 +85,7 @@ int AppCacheUpdateJob::UpdateURLLoaderRequest::GetLoadFlags() const {
 }
 
 std::string AppCacheUpdateJob::UpdateURLLoaderRequest::GetMimeType() const {
-  return response_.mime_type;
+  return response_->mime_type;
 }
 
 void AppCacheUpdateJob::UpdateURLLoaderRequest::SetSiteForCookies(
@@ -107,13 +100,23 @@ void AppCacheUpdateJob::UpdateURLLoaderRequest::SetInitiator(
 
 net::HttpResponseHeaders*
 AppCacheUpdateJob::UpdateURLLoaderRequest::GetResponseHeaders() const {
-  return response_.headers.get();
+  return response_->headers.get();
 }
 
 int AppCacheUpdateJob::UpdateURLLoaderRequest::GetResponseCode() const {
-  if (response_.headers)
-    return response_.headers->response_code();
+  if (response_->headers)
+    return response_->headers->response_code();
   return 0;
+}
+
+std::string
+AppCacheUpdateJob::UpdateURLLoaderRequest::GetAppCacheAllowedHeader() const {
+  std::string string_value;
+  if (!response_->headers || !response_->headers->EnumerateHeader(
+                                 nullptr, kAppCacheAllowed, &string_value)) {
+    return "";
+  }
+  return string_value;
 }
 
 const net::HttpResponseInfo&
@@ -130,44 +133,43 @@ void AppCacheUpdateJob::UpdateURLLoaderRequest::Read() {
 }
 
 int AppCacheUpdateJob::UpdateURLLoaderRequest::Cancel() {
-  client_binding_.Close();
-  url_loader_ = nullptr;
+  client_receiver_.reset();
+  url_loader_.reset();
   handle_watcher_.Cancel();
   handle_.reset();
-  response_ = network::ResourceResponseHead();
+  response_ = nullptr;
   http_response_info_.reset(nullptr);
   read_requested_ = false;
   return 0;
 }
 
 void AppCacheUpdateJob::UpdateURLLoaderRequest::OnReceiveResponse(
-    const network::ResourceResponseHead& response_head) {
-  response_ = response_head;
+    network::mojom::URLResponseHeadPtr response_head) {
+  response_ = std::move(response_head);
 
   // TODO(ananta/michaeln)
   // Populate other fields in the HttpResponseInfo class. It would be good to
   // have a helper function which populates the HttpResponseInfo structure from
-  // the ResourceResponseHead structure.
+  // the URLResponseHead structure.
   http_response_info_ = std::make_unique<net::HttpResponseInfo>();
-  if (response_head.ssl_info.has_value())
-    http_response_info_->ssl_info = *response_head.ssl_info;
-  http_response_info_->headers = response_head.headers;
-  http_response_info_->was_fetched_via_spdy =
-      response_head.was_fetched_via_spdy;
-  http_response_info_->was_alpn_negotiated = response_head.was_alpn_negotiated;
+  if (response_->ssl_info.has_value())
+    http_response_info_->ssl_info = *response_->ssl_info;
+  http_response_info_->headers = response_->headers;
+  http_response_info_->was_fetched_via_spdy = response_->was_fetched_via_spdy;
+  http_response_info_->was_alpn_negotiated = response_->was_alpn_negotiated;
   http_response_info_->alpn_negotiated_protocol =
-      response_head.alpn_negotiated_protocol;
-  http_response_info_->connection_info = response_head.connection_info;
-  http_response_info_->remote_endpoint = response_head.remote_endpoint;
-  http_response_info_->request_time = response_head.request_time;
-  http_response_info_->response_time = response_head.response_time;
+      response_->alpn_negotiated_protocol;
+  http_response_info_->connection_info = response_->connection_info;
+  http_response_info_->remote_endpoint = response_->remote_endpoint;
+  http_response_info_->request_time = response_->request_time;
+  http_response_info_->response_time = response_->response_time;
   fetcher_->OnResponseStarted(net::OK);
 }
 
 void AppCacheUpdateJob::UpdateURLLoaderRequest::OnReceiveRedirect(
     const net::RedirectInfo& redirect_info,
-    const network::ResourceResponseHead& response_head) {
-  response_ = response_head;
+    network::mojom::URLResponseHeadPtr response_head) {
+  response_ = std::move(response_head);
   fetcher_->OnReceivedRedirect(redirect_info);
 }
 
@@ -209,15 +211,12 @@ void AppCacheUpdateJob::UpdateURLLoaderRequest::OnComplete(
 }
 
 AppCacheUpdateJob::UpdateURLLoaderRequest::UpdateURLLoaderRequest(
-    URLLoaderFactoryGetter* loader_factory_getter,
     base::WeakPtr<StoragePartitionImpl> partition,
     const GURL& url,
     int buffer_size,
     URLFetcher* fetcher)
     : fetcher_(fetcher),
-      loader_factory_getter_(loader_factory_getter),
       partition_(std::move(partition)),
-      client_binding_(this),
       buffer_size_(buffer_size),
       handle_watcher_(FROM_HERE,
                       mojo::SimpleWatcher::ArmingPolicy::MANUAL,

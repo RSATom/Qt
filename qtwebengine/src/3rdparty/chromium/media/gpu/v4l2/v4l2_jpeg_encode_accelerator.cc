@@ -15,6 +15,7 @@
 #include "base/bind_helpers.h"
 #include "base/numerics/ranges.h"
 #include "base/threading/thread_task_runner_handle.h"
+#include "media/gpu/chromeos/fourcc.h"
 #include "media/gpu/linux/platform_video_frame_utils.h"
 #include "media/gpu/macros.h"
 #include "media/gpu/v4l2/v4l2_device.h"
@@ -71,7 +72,7 @@ V4L2JpegEncodeAccelerator::JobRecord::JobRecord(
       output_frame(output_frame),
       quality(quality),
       task_id(task_id),
-      output_shm(base::SharedMemoryHandle(), 0, true),  // dummy
+      output_shm(base::subtle::PlatformSharedMemoryRegion(), 0, true),  // dummy
       exif_shm(nullptr) {
   if (exif_buffer) {
     exif_shm.reset(new UnalignedSharedMemory(exif_buffer->TakeRegion(),
@@ -399,7 +400,7 @@ bool V4L2JpegEncodeAccelerator::EncodedInstance::SetInputBufferFormat(
   struct v4l2_format format;
   input_buffer_pixelformat_ = 0;
   for (const auto input_pix_fmt : input_pix_fmt_candidates) {
-    DCHECK_EQ(V4L2Device::V4L2PixFmtToVideoPixelFormat(input_pix_fmt),
+    DCHECK_EQ(Fourcc::FromV4L2PixFmt(input_pix_fmt).ToVideoPixelFormat(),
               PIXEL_FORMAT_I420);
     memset(&format, 0, sizeof(format));
     format.type = V4L2_BUF_TYPE_VIDEO_OUTPUT_MPLANE;
@@ -1232,7 +1233,7 @@ bool V4L2JpegEncodeAccelerator::EncodedInstanceDmaBuf::SetInputBufferFormat(
   struct v4l2_format format;
   input_buffer_pixelformat_ = 0;
   for (const auto input_pix_fmt : input_pix_fmt_candidates) {
-    DCHECK_EQ(V4L2Device::V4L2PixFmtToVideoPixelFormat(input_pix_fmt),
+    DCHECK_EQ(Fourcc::FromV4L2PixFmt(input_pix_fmt).ToVideoPixelFormat(),
               PIXEL_FORMAT_NV12);
     memset(&format, 0, sizeof(format));
     format.type = V4L2_BUF_TYPE_VIDEO_OUTPUT_MPLANE;
@@ -1457,8 +1458,7 @@ bool V4L2JpegEncodeAccelerator::EncodedInstanceDmaBuf::EnqueueInputRecord() {
     qbuf.m.planes[i].m.fd = (i < fds.size()) ? fds[i].get() : fds.back().get();
     qbuf.m.planes[i].data_offset = planes[i].offset;
     qbuf.m.planes[i].bytesused += qbuf.m.planes[i].data_offset;
-    qbuf.m.planes[i].length =
-        planes[i].size + qbuf.m.planes[i].data_offset;
+    qbuf.m.planes[i].length = planes[i].size + qbuf.m.planes[i].data_offset;
   }
 
   IOCTL_OR_ERROR_RETURN_FALSE(VIDIOC_QBUF, &qbuf);
@@ -1501,9 +1501,17 @@ size_t V4L2JpegEncodeAccelerator::EncodedInstanceDmaBuf::FinalizeJpegImage(
 
   auto output_gmb_handle = CreateGpuMemoryBufferHandle(output_frame.get());
   DCHECK(!output_gmb_handle.is_null());
+
+  // In this case, we use the R_8 buffer with height == 1 to represent a data
+  // container. As a result, we use plane.stride as size of the data here since
+  // plane.size might be larger due to height alignment.
+  const gfx::Size output_gmb_buffer_size(
+      base::checked_cast<int32_t>(output_frame->layout().planes()[0].stride),
+      1);
+
   auto output_gmb_buffer =
       gpu_memory_buffer_support_->CreateGpuMemoryBufferImplFromHandle(
-          std::move(output_gmb_handle), output_frame->coded_size(),
+          std::move(output_gmb_handle), output_gmb_buffer_size,
           gfx::BufferFormat::R_8, gfx::BufferUsage::SCANOUT_CAMERA_READ_WRITE,
           base::DoNothing());
 

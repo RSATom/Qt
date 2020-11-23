@@ -1,0 +1,13 @@
+{
+    "Id": "geosimplify-js",
+    "Name": "geosimplify-js polyline simplification library",
+    "QDocModule": "qtlocation",
+    "QtUsage": "Used in the QML plugin of Qt Location.",
+
+    "Description": "Based on https://github.com/mourner/simplify-js, geosimplify-js fixes the problem that the simple pythagorean measure used in simplify-js changes size if you simply give it longitude/latitude sequences to simplify.",
+    "Homepage": "https://github.com/mapbox/geosimplify-js",
+    "LicenseId": "geosimplify-js",
+    "License": "geosimplify-js License",
+    "LicenseFile": "LICENSE",
+    "Copyright": "Copyright (c) 2017 Daniel Patterson"
+}

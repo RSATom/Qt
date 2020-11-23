@@ -52,7 +52,6 @@
 //
 
 #include <Qt3DRender/private/backendnode_p.h>
-#include <Qt3DRender/private/shadervariables_p.h>
 #include <Qt3DRender/qshaderdata.h>
 #include <QMutex>
 #include <Qt3DCore/private/matrix4x4_p.h>
@@ -67,7 +66,7 @@ class GraphicsContext;
 class GLBuffer;
 class NodeManagers;
 
-class Q_AUTOTEST_EXPORT ShaderData : public BackendNode
+class Q_3DRENDERSHARED_PRIVATE_EXPORT ShaderData : public BackendNode
 {
 public:
     enum TransformType {
@@ -90,17 +89,19 @@ public:
     // Called by FramePreparationJob
     void updateWorldTransform(const Matrix4x4 &worldMatrix);
 
-    QVariant getTransformedProperty(const QString &name, const Matrix4x4 &viewMatrix);
+    QVariant getTransformedProperty(const QString &name, const Matrix4x4 &viewMatrix) const noexcept;
 
     // Unit tests purposes only
     TransformType propertyTransformType(const QString &name) const;
 
-    // Called by FrameCleanupJob
-    static void cleanup(NodeManagers *managers);
-
     void setManagers(NodeManagers *managers);
 
     void syncFromFrontEnd(const Qt3DCore::QNode *frontEnd, bool firstTime) override;
+
+#ifdef Q_OS_WIN
+    // To get MSVC to compile even though we don't need any cleanup
+    void cleanup() {}
+#endif
 
 protected:
     PropertyReaderInterfacePtr m_propertyReader;

@@ -96,17 +96,18 @@ bool SocketsUdpCreateFunction::Prepare() {
   params_ = sockets_udp::Create::Params::Create(*args_);
   EXTENSION_FUNCTION_VALIDATE(params_.get());
 
-  network::mojom::UDPSocketReceiverPtr receiver_ptr;
-  socket_receiver_request_ = mojo::MakeRequest(&receiver_ptr);
+  mojo::PendingRemote<network::mojom::UDPSocketListener> listener_remote;
+  socket_listener_receiver_ = listener_remote.InitWithNewPipeAndPassReceiver();
   content::BrowserContext::GetDefaultStoragePartition(browser_context())
       ->GetNetworkContext()
-      ->CreateUDPSocket(mojo::MakeRequest(&socket_), std::move(receiver_ptr));
+      ->CreateUDPSocket(socket_.InitWithNewPipeAndPassReceiver(),
+                        std::move(listener_remote));
   return true;
 }
 
 void SocketsUdpCreateFunction::Work() {
   ResumableUDPSocket* socket = new ResumableUDPSocket(
-      std::move(socket_), std::move(socket_receiver_request_),
+      std::move(socket_), std::move(socket_listener_receiver_),
       extension_->id());
 
   sockets_udp::SocketProperties* properties = params_->properties.get();

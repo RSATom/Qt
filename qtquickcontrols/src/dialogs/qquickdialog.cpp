@@ -56,6 +56,8 @@ QT_BEGIN_NAMESPACE
     The purpose of Dialog is to wrap arbitrary content into a \e {dialog window}
     including a row of platform-tailored buttons.
 
+    \note On Android, it is recommended to use \l {QQuickDialog}{Qt Quick Controls 2 Dialog}.
+
     The \l contentItem is the default property (the only allowed child
     element), and items declared inside the Dialog will actually be children of
     another Item inside the \c contentItem. The row of \l standardButtons will

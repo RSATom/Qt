@@ -64,6 +64,8 @@
 
 #include <qpa/qplatformmenu.h>
 
+#include <functional>
+
 QT_REQUIRE_CONFIG(menu);
 
 QT_BEGIN_NAMESPACE
@@ -302,6 +304,8 @@ class QMenuPrivate : public QWidgetPrivate
 {
     Q_DECLARE_PUBLIC(QMenu)
 public:
+    using PositionFunction = std::function<QPoint(const QSize &)>;
+
     QMenuPrivate() :
         itemsDirty(false),
         hasCheckableItems(false),
@@ -331,7 +335,7 @@ public:
     void copyActionToPlatformItem(const QAction *action, QPlatformMenuItem *item);
     QPlatformMenuItem *insertActionInPlatformMenu(const QAction *action, QPlatformMenuItem *beforeItem);
 
-#ifdef Q_OS_OSX
+#ifdef Q_OS_MACOS
     void moveWidgetToPlatformItem(QWidget *w, QPlatformMenuItem* item);
 #endif
 
@@ -351,6 +355,8 @@ public:
     QRect popupGeometry(int screen) const;
     bool useFullScreenForPopup() const;
     int getLastVisibleAction() const;
+    void popup(const QPoint &p, QAction *atAction, PositionFunction positionFunction = {});
+    QAction *exec(const QPoint &p, QAction *action, PositionFunction positionFunction = {});
 
     //selection
     static QMenu *mouseDown;

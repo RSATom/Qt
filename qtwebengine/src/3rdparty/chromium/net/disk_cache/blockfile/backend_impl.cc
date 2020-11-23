@@ -15,7 +15,7 @@
 #include "base/hash/hash.h"
 #include "base/lazy_instance.h"
 #include "base/location.h"
-#include "base/message_loop/message_loop.h"
+#include "base/message_loop/message_pump_type.h"
 #include "base/metrics/field_trial.h"
 #include "base/metrics/histogram.h"
 #include "base/rand_util.h"
@@ -39,7 +39,6 @@
 #include "net/disk_cache/blockfile/experiments.h"
 #include "net/disk_cache/blockfile/file.h"
 #include "net/disk_cache/blockfile/histogram_macros.h"
-#include "net/disk_cache/blockfile/webfonts_histogram.h"
 #include "net/disk_cache/cache_util.h"
 
 // Provide a BackendImpl object to macros from histogram_macros.h.
@@ -118,7 +117,7 @@ class CacheThread : public base::Thread {
  public:
   CacheThread() : base::Thread("CacheThread_BlockFile") {
     CHECK(
-        StartWithOptions(base::Thread::Options(base::MessageLoop::TYPE_IO, 0)));
+        StartWithOptions(base::Thread::Options(base::MessagePumpType::IO, 0)));
   }
 
   ~CacheThread() override {
@@ -499,7 +498,7 @@ void BackendImpl::SyncOnExternalCacheHit(const std::string& key) {
   if (disabled_)
     return;
 
-  uint32_t hash = base::Hash(key);
+  uint32_t hash = base::PersistentHash(key);
   bool error;
   scoped_refptr<EntryImpl> cache_entry =
       MatchEntry(key, hash, false, Addr(), &error);
@@ -512,7 +511,7 @@ scoped_refptr<EntryImpl> BackendImpl::OpenEntryImpl(const std::string& key) {
     return nullptr;
 
   TimeTicks start = TimeTicks::Now();
-  uint32_t hash = base::Hash(key);
+  uint32_t hash = base::PersistentHash(key);
   Trace("Open hash 0x%x", hash);
 
   bool error;
@@ -521,9 +520,6 @@ scoped_refptr<EntryImpl> BackendImpl::OpenEntryImpl(const std::string& key) {
   if (cache_entry && ENTRY_NORMAL != cache_entry->entry()->Data()->state) {
     // The entry was already evicted.
     cache_entry = nullptr;
-    web_fonts_histogram::RecordEvictedEntry(key);
-  } else if (!cache_entry) {
-    web_fonts_histogram::RecordCacheMiss(key);
   }
 
   int current_size = data_->header.num_bytes / (1024 * 1024);
@@ -548,7 +544,6 @@ scoped_refptr<EntryImpl> BackendImpl::OpenEntryImpl(const std::string& key) {
   CACHE_UMA(HOURS, "AllOpenByUseHours.Hit", 0,
             static_cast<base::HistogramBase::Sample>(use_hours));
   stats_.OnEvent(Stats::OPEN_HIT);
-  web_fonts_histogram::RecordCacheHit(cache_entry.get());
   return cache_entry;
 }
 
@@ -557,7 +552,7 @@ scoped_refptr<EntryImpl> BackendImpl::CreateEntryImpl(const std::string& key) {
     return nullptr;
 
   TimeTicks start = TimeTicks::Now();
-  uint32_t hash = base::Hash(key);
+  uint32_t hash = base::PersistentHash(key);
   Trace("Create hash 0x%x", hash);
 
   scoped_refptr<EntryImpl> parent;
@@ -1244,31 +1239,29 @@ int32_t BackendImpl::GetEntryCount() const {
   return not_deleted;
 }
 
-net::Error BackendImpl::OpenOrCreateEntry(const std::string& key,
-                                          net::RequestPriority request_priority,
-                                          EntryWithOpened* entry_struct,
-                                          CompletionOnceCallback callback) {
+EntryResult BackendImpl::OpenOrCreateEntry(
+    const std::string& key,
+    net::RequestPriority request_priority,
+    EntryResultCallback callback) {
   DCHECK(!callback.is_null());
-  background_queue_.OpenOrCreateEntry(key, entry_struct, std::move(callback));
-  return net::ERR_IO_PENDING;
+  background_queue_.OpenOrCreateEntry(key, std::move(callback));
+  return EntryResult::MakeError(net::ERR_IO_PENDING);
 }
 
-net::Error BackendImpl::OpenEntry(const std::string& key,
-                                  net::RequestPriority request_priority,
-                                  Entry** entry,
-                                  CompletionOnceCallback callback) {
+EntryResult BackendImpl::OpenEntry(const std::string& key,
+                                   net::RequestPriority request_priority,
+                                   EntryResultCallback callback) {
   DCHECK(!callback.is_null());
-  background_queue_.OpenEntry(key, entry, std::move(callback));
-  return net::ERR_IO_PENDING;
+  background_queue_.OpenEntry(key, std::move(callback));
+  return EntryResult::MakeError(net::ERR_IO_PENDING);
 }
 
-net::Error BackendImpl::CreateEntry(const std::string& key,
-                                    net::RequestPriority request_priority,
-                                    Entry** entry,
-                                    CompletionOnceCallback callback) {
+EntryResult BackendImpl::CreateEntry(const std::string& key,
+                                     net::RequestPriority request_priority,
+                                     EntryResultCallback callback) {
   DCHECK(!callback.is_null());
-  background_queue_.CreateEntry(key, entry, std::move(callback));
-  return net::ERR_IO_PENDING;
+  background_queue_.CreateEntry(key, std::move(callback));
+  return EntryResult::MakeError(net::ERR_IO_PENDING);
 }
 
 net::Error BackendImpl::DoomEntry(const std::string& key,
@@ -1324,13 +1317,11 @@ class BackendImpl::IteratorImpl : public Backend::Iterator {
       background_queue_->EndEnumeration(std::move(iterator_));
   }
 
-  net::Error OpenNextEntry(Entry** next_entry,
-                           net::CompletionOnceCallback callback) override {
+  EntryResult OpenNextEntry(EntryResultCallback callback) override {
     if (!background_queue_)
-      return net::ERR_FAILED;
-    background_queue_->OpenNextEntry(iterator_.get(), next_entry,
-                                     std::move(callback));
-    return net::ERR_IO_PENDING;
+      return EntryResult::MakeError(net::ERR_FAILED);
+    background_queue_->OpenNextEntry(iterator_.get(), std::move(callback));
+    return EntryResult::MakeError(net::ERR_IO_PENDING);
   }
 
  private:
@@ -1465,7 +1456,7 @@ void BackendImpl::AdjustMaxCacheSize(int table_len) {
   if (table_len)
     available += data_->header.num_bytes;
 
-  max_size_ = PreferredCacheSize(available);
+  max_size_ = PreferredCacheSize(available, GetCacheType());
 
   if (!table_len)
     return;

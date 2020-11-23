@@ -102,12 +102,7 @@ PermissionDescriptorPtr ParsePermission(ScriptState* script_state,
     return CreatePermissionDescriptor(PermissionName::BACKGROUND_SYNC);
   if (name == "ambient-light-sensor" || name == "accelerometer" ||
       name == "gyroscope" || name == "magnetometer") {
-    if (!RuntimeEnabledFeatures::SensorEnabled()) {
-      exception_state.ThrowTypeError("GenericSensor flag is not enabled.");
-      return nullptr;
-    }
-
-    // Magnetometer and ALS require an extra flag.
+    // ALS requires an extra flag.
     if (name == "ambient-light-sensor") {
       if (!RuntimeEnabledFeatures::SensorExtraClassesEnabled()) {
         exception_state.ThrowTypeError(
@@ -144,17 +139,11 @@ PermissionDescriptorPtr ParsePermission(ScriptState* script_state,
     return CreatePermissionDescriptor(PermissionName::BACKGROUND_FETCH);
   if (name == "idle-detection")
     return CreatePermissionDescriptor(PermissionName::IDLE_DETECTION);
-  if (name == "periodic-background-sync") {
-    if (!RuntimeEnabledFeatures::PeriodicBackgroundSyncEnabled(
-            ExecutionContext::From(script_state))) {
-      exception_state.ThrowTypeError(
-          "Periodic Background Sync is not enabled.");
-      return nullptr;
-    }
+  if (name == "periodic-background-sync")
     return CreatePermissionDescriptor(PermissionName::PERIODIC_BACKGROUND_SYNC);
-  }
   if (name == "wake-lock") {
-    if (!RuntimeEnabledFeatures::WakeLockEnabled()) {
+    if (!RuntimeEnabledFeatures::WakeLockEnabled(
+            ExecutionContext::From(script_state))) {
       exception_state.ThrowTypeError("Wake Lock is not enabled.");
       return nullptr;
     }
@@ -162,6 +151,8 @@ PermissionDescriptorPtr ParsePermission(ScriptState* script_state,
         NativeValueTraits<WakeLockPermissionDescriptor>::NativeValue(
             script_state->GetIsolate(), raw_permission.V8Value(),
             exception_state);
+    if (exception_state.HadException())
+      return nullptr;
     const String& type = wake_lock_permission->type();
     if (type == "screen") {
       return CreateWakeLockPermissionDescriptor(
@@ -173,7 +164,14 @@ PermissionDescriptorPtr ParsePermission(ScriptState* script_state,
       NOTREACHED();
     }
   }
-
+  if (name == "nfc") {
+    if (!RuntimeEnabledFeatures::WebNFCEnabled(
+            ExecutionContext::From(script_state))) {
+      exception_state.ThrowTypeError("Web NFC is not enabled.");
+      return nullptr;
+    }
+    return CreatePermissionDescriptor(PermissionName::NFC);
+  }
   return nullptr;
 }
 
@@ -196,10 +194,10 @@ ScriptPromise Permissions::query(ScriptState* script_state,
   // likely be "prompt".
   PermissionDescriptorPtr descriptor_copy = descriptor->Clone();
   GetService(ExecutionContext::From(script_state))
-      .HasPermission(std::move(descriptor),
-                     WTF::Bind(&Permissions::TaskComplete, WrapPersistent(this),
-                               WrapPersistent(resolver),
-                               WTF::Passed(std::move(descriptor_copy))));
+      ->HasPermission(std::move(descriptor),
+                      WTF::Bind(&Permissions::TaskComplete,
+                                WrapPersistent(this), WrapPersistent(resolver),
+                                WTF::Passed(std::move(descriptor_copy))));
   return promise;
 }
 
@@ -220,10 +218,8 @@ ScriptPromise Permissions::request(ScriptState* script_state,
   Document* doc = DynamicTo<Document>(context);
   LocalFrame* frame = doc ? doc->GetFrame() : nullptr;
   GetService(ExecutionContext::From(script_state))
-      .RequestPermission(
-          std::move(descriptor),
-          LocalFrame::HasTransientUserActivation(
-              frame, true /* check_if_main_thread */),
+      ->RequestPermission(
+          std::move(descriptor), LocalFrame::HasTransientUserActivation(frame),
           WTF::Bind(&Permissions::TaskComplete, WrapPersistent(this),
                     WrapPersistent(resolver),
                     WTF::Passed(std::move(descriptor_copy))));
@@ -243,7 +239,7 @@ ScriptPromise Permissions::revoke(ScriptState* script_state,
 
   PermissionDescriptorPtr descriptor_copy = descriptor->Clone();
   GetService(ExecutionContext::From(script_state))
-      .RevokePermission(
+      ->RevokePermission(
           std::move(descriptor),
           WTF::Bind(&Permissions::TaskComplete, WrapPersistent(this),
                     WrapPersistent(resolver),
@@ -253,7 +249,7 @@ ScriptPromise Permissions::revoke(ScriptState* script_state,
 
 ScriptPromise Permissions::requestAll(
     ScriptState* script_state,
-    const Vector<ScriptValue>& raw_permissions,
+    const HeapVector<ScriptValue>& raw_permissions,
     ExceptionState& exception_state) {
   Vector<PermissionDescriptorPtr> internal_permissions;
   Vector<int> caller_index_to_internal_index;
@@ -295,10 +291,9 @@ ScriptPromise Permissions::requestAll(
   Document* doc = DynamicTo<Document>(context);
   LocalFrame* frame = doc ? doc->GetFrame() : nullptr;
   GetService(ExecutionContext::From(script_state))
-      .RequestPermissions(
+      ->RequestPermissions(
           std::move(internal_permissions),
-          LocalFrame::HasTransientUserActivation(
-              frame, true /* check_if_main_thread */),
+          LocalFrame::HasTransientUserActivation(frame),
           WTF::Bind(&Permissions::BatchTaskComplete, WrapPersistent(this),
                     WrapPersistent(resolver),
                     WTF::Passed(std::move(internal_permissions_copy)),
@@ -306,17 +301,17 @@ ScriptPromise Permissions::requestAll(
   return promise;
 }
 
-PermissionService& Permissions::GetService(
+PermissionService* Permissions::GetService(
     ExecutionContext* execution_context) {
   if (!service_) {
     ConnectToPermissionService(
         execution_context,
-        mojo::MakeRequest(&service_, execution_context->GetTaskRunner(
-                                         TaskType::kPermission)));
-    service_.set_connection_error_handler(WTF::Bind(
+        service_.BindNewPipeAndPassReceiver(
+            execution_context->GetTaskRunner(TaskType::kPermission)));
+    service_.set_disconnect_handler(WTF::Bind(
         &Permissions::ServiceConnectionError, WrapWeakPersistent(this)));
   }
-  return *service_;
+  return service_.get();
 }
 
 void Permissions::ServiceConnectionError() {

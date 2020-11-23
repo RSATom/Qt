@@ -29,7 +29,6 @@
 #include "third_party/blink/renderer/bindings/core/v8/script_controller.h"
 #include "third_party/blink/renderer/core/dom/document.h"
 #include "third_party/blink/renderer/core/dom/document_parser_timing.h"
-#include "third_party/blink/renderer/core/frame/csp/content_security_policy.h"
 #include "third_party/blink/renderer/core/frame/local_frame.h"
 #include "third_party/blink/renderer/core/script/ignore_destructive_write_count_incrementer.h"
 #include "third_party/blink/renderer/core/script/script_element_base.h"
@@ -60,6 +59,7 @@ PendingScript::PendingScript(ScriptElementBase* element,
       starting_position_(starting_position),
       virtual_time_pauser_(CreateWebScopedVirtualTimePauser(element)),
       client_(nullptr),
+      original_element_document_(&element->GetDocument()),
       original_context_document_(element->GetDocument().ContextDocument()),
       created_during_document_write_(
           element->GetDocument().IsInDocumentWrite()) {}
@@ -141,33 +141,25 @@ void PendingScript::ExecuteScriptBlock(const KURL& document_url) {
   }
 
   if (OriginalContextDocument() != context_document) {
-    if (GetScriptType() == mojom::ScriptType::kModule) {
-      // Do not execute module scripts if they are moved between documents.
-      Dispose();
-      return;
-    }
+    // Do not execute scripts if they are moved between context documents.
+    Dispose();
+    return;
+  }
 
-    // TODO(hiroshige): Also do not execute classic scripts.
-    // https://crbug.com/721914
+  if (original_element_document_ != &element_->GetDocument()) {
+    // Do not execute scripts if they are moved between element documents (under
+    // the same context Document).
+
+    // We continue counting for a while to confirm that such cases are really
+    // rare on stable channel. https://crbug.com/721914
     UseCounter::Count(context_document,
-                      WebFeature::kEvaluateScriptMovedBetweenDocuments);
+                      WebFeature::kEvaluateScriptMovedBetweenElementDocuments);
+
+    Dispose();
+    return;
   }
 
   Script* script = GetSource(document_url);
-
-  if (script && !IsExternal()) {
-    AtomicString nonce = element_->GetNonceForElement();
-    if (!element_->AllowInlineScriptForCSP(nonce, StartingPosition().line_,
-                                           script->InlineSourceTextForCSP())) {
-      // Consider as if:
-      //
-      // <spec step="2">If the script's script is null, ...</spec>
-      //
-      // retrospectively, if the CSP check fails, which is considered as load
-      // failure.
-      script = nullptr;
-    }
-  }
 
   const bool was_canceled = WasCanceled();
   const bool is_external = IsExternal();
@@ -306,6 +298,7 @@ void PendingScript::Trace(Visitor* visitor) {
   visitor->Trace(element_);
   visitor->Trace(client_);
   visitor->Trace(original_context_document_);
+  visitor->Trace(original_element_document_);
 }
 
 bool PendingScript::IsControlledByScriptRunner() const {

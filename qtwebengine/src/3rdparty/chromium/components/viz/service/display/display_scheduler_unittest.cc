@@ -796,8 +796,6 @@ TEST_F(DisplaySchedulerTest, SetNeedsOneBeginFrame) {
 }
 
 TEST_F(DisplaySchedulerTest, GpuBusyNotifications) {
-  fake_begin_frame_source_.AllowOneBeginFrameAfterGpuBusy();
-
   SurfaceId root_surface_id(
       kArbitraryFrameSinkId,
       LocalSurfaceId(1, base::UnguessableToken::Create()));
@@ -825,6 +823,23 @@ TEST_F(DisplaySchedulerTest, GpuBusyNotifications) {
   // Ack the pending swap buffers, we should no longer be marked gpu busy.
   scheduler_.DidReceiveSwapBuffersAck();
   EXPECT_FALSE(fake_begin_frame_source_.RequestCallbackOnGpuAvailable());
+}
+
+TEST_F(DisplaySchedulerTest, OnBeginFrameDeadlineNoClient) {
+  SurfaceId root_surface_id(
+      kArbitraryFrameSinkId,
+      LocalSurfaceId(1, base::UnguessableToken::Create()));
+
+  scheduler_.SetVisible(true);
+  scheduler_.SetNewRootSurface(root_surface_id);
+
+  AdvanceTimeAndBeginFrameForTest({root_surface_id});
+  SurfaceDamaged(root_surface_id);
+
+  // During teardown, we may get a BeginFrameDeadline while |client_| is null.
+  // This should not crash.
+  scheduler_.SetClient(nullptr);
+  scheduler_.BeginFrameDeadlineForTest();
 }
 
 }  // namespace

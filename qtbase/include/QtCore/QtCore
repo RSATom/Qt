@@ -39,6 +39,12 @@
 #include "qcborcommon.h"
 #include "qcbormap.h"
 #include "qcborstream.h"
+#if QT_CONFIG(cborstreamreader)
+#include "qcborstreamreader.h"
+#endif
+#if QT_CONFIG(cborstreamwriter)
+#include "qcborstreamwriter.h"
+#endif
 #include "qcborvalue.h"
 #include "qchar.h"
 #include "qcollator.h"

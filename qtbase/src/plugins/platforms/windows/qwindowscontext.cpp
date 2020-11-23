@@ -42,6 +42,7 @@
 #include "qwindowsintegration.h"
 #include "qwindowswindow.h"
 #include "qwindowskeymapper.h"
+#include "qwindowsnativeinterface.h"
 #include "qwindowsmousehandler.h"
 #include "qwindowspointerhandler.h"
 #include "qtwindowsglobal.h"
@@ -72,6 +73,7 @@
 
 #include <QtCore/qset.h>
 #include <QtCore/qhash.h>
+#include <QtCore/qlibraryinfo.h>
 #include <QtCore/qstringlist.h>
 #include <QtCore/qdebug.h>
 #include <QtCore/qoperatingsystemversion.h>
@@ -183,7 +185,6 @@ static bool enableNonClientDpiScaling(HWND hwnd)
     \sa QWindowsShell32DLL
 
     \internal
-    \ingroup qt-lighthouse-win
 */
 
 void QWindowsUser32DLL::init()
@@ -249,7 +250,6 @@ QWindowsContext *QWindowsContext::m_instance = nullptr;
     Holds state information formerly stored in \c qapplication_win.cpp.
 
     \internal
-    \ingroup qt-lighthouse-win
 */
 
 typedef QHash<HWND, QWindowsWindow *> HandleBaseWindowHash;
@@ -276,7 +276,10 @@ struct QWindowsContextPrivate {
     bool m_asyncExpose = false;
     HPOWERNOTIFY m_powerNotification = nullptr;
     HWND m_powerDummyWindow = nullptr;
+    static bool m_darkMode;
 };
+
+bool QWindowsContextPrivate::m_darkMode = false;
 
 QWindowsContextPrivate::QWindowsContextPrivate()
     : m_oleInitializeResult(OleInitialize(nullptr))
@@ -292,6 +295,7 @@ QWindowsContextPrivate::QWindowsContextPrivate()
         m_systemInfo |= QWindowsContext::SI_RTL_Extensions;
         m_keyMapper.setUseRTLExtensions(true);
     }
+    m_darkMode = QWindowsTheme::queryDarkMode();
     if (FAILED(m_oleInitializeResult)) {
        qWarning() << "QWindowsContext: OleInitialize() failed: "
            << QWindowsContext::comErrorString(m_oleInitializeResult);
@@ -426,7 +430,7 @@ bool QWindowsContext::initPowerNotificationHandler()
     if (d->m_powerNotification)
         return false;
 
-    d->m_powerDummyWindow = createDummyWindow(QStringLiteral("QtPowerDummyWindow"), L"QtPowerDummyWindow", qWindowsPowerWindowProc);
+    d->m_powerDummyWindow = createDummyWindow(QStringLiteral("PowerDummyWindow"), L"QtPowerDummyWindow", qWindowsPowerWindowProc);
     if (!d->m_powerDummyWindow)
         return false;
 
@@ -484,6 +488,11 @@ void QWindowsContext::setProcessDpiAwareness(QtWindows::ProcessDpiAwareness dpiA
     }
 }
 
+bool QWindowsContext::isDarkMode()
+{
+    return QWindowsContextPrivate::m_darkMode;
+}
+
 QWindowsContext *QWindowsContext::instance()
 {
     return m_instance;
@@ -536,6 +545,23 @@ void QWindowsContext::setKeyGrabber(QWindow *w)
     d->m_keyMapper.setKeyGrabber(w);
 }
 
+QString QWindowsContext::classNamePrefix()
+{
+    static QString result;
+    if (result.isEmpty()) {
+        QTextStream str(&result);
+        str << "Qt" << QT_VERSION_MAJOR << QT_VERSION_MINOR << QT_VERSION_PATCH;
+        if (QLibraryInfo::isDebugBuild())
+            str << 'd';
+#ifdef QT_NAMESPACE
+#  define xstr(s) str(s)
+#  define str(s) #s
+        str << xstr(QT_NAMESPACE);
+#endif
+    }
+    return result;
+}
+
 // Window class registering code (from qapplication_win.cpp)
 
 QString QWindowsContext::registerWindowClass(const QWindow *w)
@@ -567,8 +593,8 @@ QString QWindowsContext::registerWindowClass(const QWindow *w)
         break;
     }
     // Create a unique name for the flag combination
-    QString cname;
-    cname += QLatin1String("Qt5QWindow");
+    QString cname = classNamePrefix();
+    cname += QLatin1String("QWindow");
     switch (type) {
     case Qt::Tool:
         cname += QLatin1String("Tool");
@@ -606,9 +632,10 @@ QString QWindowsContext::registerWindowClass(QString cname,
     // has already been registered by another instance of Qt then
     // add a UUID. The check needs to be performed for each name
     // in case new message windows are added (QTBUG-81347).
+    // Note: GetClassInfo() returns != 0 when a class exists.
     const auto appInstance = static_cast<HINSTANCE>(GetModuleHandle(nullptr));
     WNDCLASS wcinfo;
-    const bool classExists = GetClassInfo(appInstance, reinterpret_cast<LPCWSTR>(cname.utf16()), &wcinfo) == TRUE
+    const bool classExists = GetClassInfo(appInstance, reinterpret_cast<LPCWSTR>(cname.utf16()), &wcinfo) != FALSE
         && wcinfo.lpfnWndProc != proc;
 
     if (classExists)
@@ -878,7 +905,7 @@ HWND QWindowsContext::createDummyWindow(const QString &classNameIn,
 {
     if (!wndProc)
         wndProc = DefWindowProc;
-    QString className = registerWindowClass(classNameIn, wndProc);
+    QString className = registerWindowClass(classNamePrefix() + classNameIn, wndProc);
     return CreateWindowEx(0, reinterpret_cast<LPCWSTR>(className.utf16()),
                           windowName, style,
                           CW_USEDEFAULT, CW_USEDEFAULT,
@@ -976,6 +1003,13 @@ QByteArray QWindowsContext::comErrorString(HRESULT hr)
     result += errorMessageFromComError(error);
     result += ')';
     return result;
+}
+
+void QWindowsContext::forceNcCalcSize(HWND hwnd)
+{
+    // Force WM_NCCALCSIZE to adjust margin
+    SetWindowPos(hwnd, nullptr, 0, 0, 0, 0,
+                 SWP_FRAMECHANGED | SWP_NOACTIVATE | SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOOWNERZORDER);
 }
 
 bool QWindowsContext::systemParametersInfo(unsigned action, unsigned param, void *out,
@@ -1185,9 +1219,27 @@ bool QWindowsContext::windowsProc(HWND hwnd, UINT message,
             t->displayChanged();
         QWindowsWindow::displayChanged();
         return d->m_screenManager.handleDisplayChange(wParam, lParam);
-    case QtWindows::SettingChangedEvent:
+    case QtWindows::SettingChangedEvent: {
         QWindowsWindow::settingsChanged();
+        const bool darkMode = QWindowsTheme::queryDarkMode();
+        if (darkMode != QWindowsContextPrivate::m_darkMode) {
+            QWindowsContextPrivate::m_darkMode = darkMode;
+            auto nativeInterface =
+                static_cast<QWindowsNativeInterface *>(QWindowsIntegration::instance()->nativeInterface());
+            emit nativeInterface->darkModeChanged(darkMode);
+            const auto options = QWindowsIntegration::instance()->options();
+            if ((options & QWindowsIntegration::DarkModeWindowFrames) != 0) {
+                for (QWindowsWindow *w : d->m_windows)
+                    w->setDarkBorder(QWindowsContextPrivate::m_darkMode);
+            }
+            if ((options & QWindowsIntegration::DarkModeStyle) != 0) {
+                QWindowsTheme::instance()->refresh();
+                for (QWindowsWindow *w : d->m_windows)
+                    QWindowSystemInterface::handleThemeChange(w->window());
+            }
+        }
         return d->m_screenManager.handleScreenChanges();
+    }
     default:
         break;
     }
@@ -1620,7 +1672,6 @@ static inline bool isTopLevel(HWND hwnd)
     There is another one for timers, sockets, etc in
     QEventDispatcherWin32.
 
-    \ingroup qt-lighthouse-win
 */
 
 extern "C" LRESULT QT_WIN_CALLBACK qWindowsWndProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam)

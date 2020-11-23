@@ -3,12 +3,11 @@
 // found in the LICENSE file.
 
 // https://wicg.github.io/layout-instability/#sec-layout-shift
-[Exposed=Window, RuntimeEnabled=LayoutInstabilityAPI]
+[Exposed=Window]
 interface LayoutShift : PerformanceEntry {
     readonly attribute double value;
     readonly attribute boolean hadRecentInput;
     readonly attribute DOMHighResTimeStamp lastInputTime;
 
-    // TODO(peria): toJSON is not in spec. https://crbug.com/736332
     [CallWith=ScriptState, ImplementedAs=toJSONForBinding] object toJSON();
 };

@@ -20,7 +20,7 @@ struct SkRect;
 namespace SkGpuBlurUtils {
   /**
     * Applies a 2D Gaussian blur to a given texture. The blurred result is returned
-    * as a renderTargetContext in case the caller wishes to future draw into the result.
+    * as a renderTargetContext in case the caller wishes to draw into the result.
     *
     * The 'proxyOffset' is kept separate form 'srcBounds' because they exist in different
     * coordinate spaces. 'srcBounds' exists in the content space of the special image, and
@@ -28,9 +28,11 @@ namespace SkGpuBlurUtils {
     *
     * Note: one of sigmaX and sigmaY should be non-zero!
     * @param context         The GPU context
-    * @param src             The source to be blurred.
-    * @param proxyOffset     The offset from the top-left corner to valid texels in 'src', which
-    *                        should come from the subset of the owning SkSpecialImage.
+    * @param srcProxy        The source to be blurred.
+    * @param srcColorType    The colorType of srcProxy
+    * @param srcAlphaType    The alphaType of srcProxy
+    * @param proxyOffset     The offset from the top-left corner to valid texels in 'srcProxy',
+                             which should come from the subset of the owning SkSpecialImage.
     * @param colorSpace      Color space of the source (used for the renderTargetContext result,
     *                        too).
     * @param dstBounds       The destination bounds, relative to the source texture.
@@ -42,18 +44,18 @@ namespace SkGpuBlurUtils {
     * @param fit             backing fit for the returned render target context
     * @return                The renderTargetContext containing the blurred result.
     */
-    sk_sp<GrRenderTargetContext> GaussianBlur(
-            GrRecordingContext* context,
-            sk_sp<GrTextureProxy> src,
-            const SkIPoint& proxyOffset,
-            sk_sp<SkColorSpace> colorSpace,
-            const SkIRect& dstBounds,
-            const SkIRect& srcBounds,
-            float sigmaX,
-            float sigmaY,
-            GrTextureDomain::Mode mode,
-            SkAlphaType at,
-            SkBackingFit fit = SkBackingFit::kApprox);
+std::unique_ptr<GrRenderTargetContext> GaussianBlur(GrRecordingContext* context,
+                                                    sk_sp<GrTextureProxy> srcProxy,
+                                                    GrColorType srcColorType,
+                                                    SkAlphaType srcAlphaType,
+                                                    const SkIPoint& proxyOffset,
+                                                    sk_sp<SkColorSpace> colorSpace,
+                                                    const SkIRect& dstBounds,
+                                                    const SkIRect& srcBounds,
+                                                    float sigmaX,
+                                                    float sigmaY,
+                                                    GrTextureDomain::Mode mode,
+                                                    SkBackingFit fit = SkBackingFit::kApprox);
 };
 
 #endif

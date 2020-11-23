@@ -16,14 +16,13 @@
 #include "content/browser/tracing/background_tracing_manager_impl.h"
 #include "content/browser/tracing/background_tracing_rule.h"
 #include "content/browser/tracing/tracing_controller_impl.h"
-#include "content/public/browser/system_connector.h"
-#include "mojo/public/cpp/bindings/binding.h"
+#include "content/public/browser/tracing_service.h"
+#include "mojo/public/cpp/bindings/receiver.h"
+#include "mojo/public/cpp/bindings/remote.h"
 #include "mojo/public/cpp/system/data_pipe_drainer.h"
-#include "services/service_manager/public/cpp/connector.h"
 #include "services/tracing/public/cpp/perfetto/perfetto_config.h"
 #include "services/tracing/public/cpp/perfetto/trace_event_data_source.h"
 #include "services/tracing/public/cpp/tracing_features.h"
-#include "services/tracing/public/mojom/constants.mojom.h"
 
 using base::trace_event::TraceConfig;
 using Metrics = content::BackgroundTracingManagerImpl::Metrics;
@@ -34,7 +33,10 @@ class BackgroundTracingActiveScenario::TracingTimer {
  public:
   TracingTimer(BackgroundTracingActiveScenario* scenario,
                BackgroundTracingManager::StartedFinalizingCallback callback)
-      : scenario_(scenario), callback_(callback) {}
+      : scenario_(scenario), callback_(std::move(callback)) {
+    DCHECK_NE(scenario->GetConfig()->tracing_mode(),
+              BackgroundTracingConfigImpl::SYSTEM);
+  }
   ~TracingTimer() = default;
 
   void StartTimer(int seconds) {
@@ -49,7 +51,7 @@ class BackgroundTracingActiveScenario::TracingTimer {
   }
 
  private:
-  void TracingTimerFired() { scenario_->BeginFinalizing(callback_); }
+  void TracingTimerFired() { scenario_->BeginFinalizing(std::move(callback_)); }
 
   BackgroundTracingActiveScenario* scenario_;
   base::OneShotTimer tracing_timer_;
@@ -59,8 +61,8 @@ class BackgroundTracingActiveScenario::TracingTimer {
 class BackgroundTracingActiveScenario::TracingSession {
  public:
   virtual ~TracingSession() = default;
-  virtual void BeginFinalizing(const base::RepeatingClosure& on_success,
-                               const base::RepeatingClosure& on_failure) = 0;
+  virtual void BeginFinalizing(base::OnceClosure on_success,
+                               base::OnceClosure on_failure) = 0;
   virtual void AbortScenario(
       const base::RepeatingClosure& on_abort_callback) = 0;
 };
@@ -78,49 +80,45 @@ class PerfettoTracingSession
 #if !defined(OS_ANDROID)
     // TODO(crbug.com/941318): Re-enable startup tracing for Android once all
     // Perfetto-related deadlocks are resolved.
-    if (!TracingControllerImpl::GetInstance()->IsTracing() &&
-        tracing::TracingUsesPerfettoBackend()) {
+    if (!TracingControllerImpl::GetInstance()->IsTracing()) {
       tracing::TraceEventDataSource::GetInstance()->SetupStartupTracing(
           /*privacy_filtering_enabled=*/true);
     }
 #endif
 
-    GetSystemConnector()->BindInterface(tracing::mojom::kServiceName,
-                                        &consumer_host_);
+    GetTracingService().BindConsumerHost(
+        consumer_host_.BindNewPipeAndPassReceiver());
 
     perfetto::TraceConfig perfetto_config = tracing::GetDefaultPerfettoConfig(
         chrome_config, /*privacy_filtering_enabled=*/true);
     perfetto_config.mutable_incremental_state_config()->set_clear_period_ms(
         interning_reset_interval_ms);
 
-    tracing::mojom::TracingSessionClientPtr tracing_session_client;
-    binding_.Bind(mojo::MakeRequest(&tracing_session_client));
-    binding_.set_connection_error_handler(
+    consumer_host_->EnableTracing(
+        tracing_session_host_.BindNewPipeAndPassReceiver(),
+        receiver_.BindNewPipeAndPassRemote(), std::move(perfetto_config),
+        tracing::mojom::TracingClientPriority::kBackground);
+    receiver_.set_disconnect_handler(
         base::BindOnce(&PerfettoTracingSession::OnTracingSessionEnded,
                        base::Unretained(this)));
-
-    consumer_host_->EnableTracing(
-        mojo::MakeRequest(&tracing_session_host_),
-        std::move(tracing_session_client), std::move(perfetto_config),
-        tracing::mojom::TracingClientPriority::kBackground);
-    tracing_session_host_.set_connection_error_handler(
+    tracing_session_host_.set_disconnect_handler(
         base::BindOnce(&PerfettoTracingSession::OnTracingSessionEnded,
                        base::Unretained(this)));
   }
 
   // BackgroundTracingActiveScenario::TracingSession implementation.
-  void BeginFinalizing(const base::RepeatingClosure& on_success,
-                       const base::RepeatingClosure& on_failure) override {
+  void BeginFinalizing(base::OnceClosure on_success,
+                       base::OnceClosure on_failure) override {
     bool is_allowed_finalization =
         BackgroundTracingManagerImpl::GetInstance()->IsAllowedFinalization();
 
     if (!is_allowed_finalization) {
-      on_failure.Run();
+      std::move(on_failure).Run();
       return;
     }
 
     tracing_session_host_->DisableTracing();
-    on_success.Run();
+    std::move(on_success).Run();
   }
 
   void AbortScenario(const base::RepeatingClosure& on_abort_callback) override {
@@ -175,10 +173,10 @@ class PerfettoTracingSession
   void OnTracingSessionEnded() { parent_scenario_->AbortScenario(); }
 
   BackgroundTracingActiveScenario* const parent_scenario_;
-  mojo::Binding<tracing::mojom::TracingSessionClient> binding_{this};
-  tracing::mojom::TracingSessionHostPtr tracing_session_host_;
+  mojo::Receiver<tracing::mojom::TracingSessionClient> receiver_{this};
+  mojo::Remote<tracing::mojom::TracingSessionHost> tracing_session_host_;
   std::unique_ptr<mojo::DataPipeDrainer> drainer_;
-  tracing::mojom::ConsumerHostPtr consumer_host_;
+  mojo::Remote<tracing::mojom::ConsumerHost> consumer_host_;
   std::unique_ptr<std::string> raw_data_;
   bool has_finished_read_buffers_ = false;
   bool has_finished_receiving_data_ = false;
@@ -193,8 +191,7 @@ class LegacyTracingSession
 #if !defined(OS_ANDROID)
     // TODO(crbug.com/941318): Re-enable startup tracing for Android once all
     // Perfetto-related deadlocks are resolved.
-    if (!TracingControllerImpl::GetInstance()->IsTracing() &&
-        tracing::TracingUsesPerfettoBackend()) {
+    if (!TracingControllerImpl::GetInstance()->IsTracing()) {
       tracing::TraceEventDataSource::GetInstance()->SetupStartupTracing(
           /*privacy_filtering_enabled=*/false);
     }
@@ -217,35 +214,35 @@ class LegacyTracingSession
   }
 
   // BackgroundTracingActiveScenario::TracingSession implementation.
-  void BeginFinalizing(const base::RepeatingClosure& on_success,
-                       const base::RepeatingClosure& on_failure) override {
+  void BeginFinalizing(base::OnceClosure on_success,
+                       base::OnceClosure on_failure) override {
     if (!BackgroundTracingManagerImpl::GetInstance()->IsAllowedFinalization()) {
       TracingControllerImpl::GetInstance()->StopTracing(
-          TracingControllerImpl::CreateCallbackEndpoint(base::BindRepeating(
-              [](const base::RepeatingClosure& on_failure,
-                 std::unique_ptr<const base::DictionaryValue>,
-                 base::RefCountedString*) { on_failure.Run(); },
+          TracingControllerImpl::CreateCallbackEndpoint(base::BindOnce(
+              [](base::OnceClosure on_failure, std::unique_ptr<std::string>) {
+                std::move(on_failure).Run();
+              },
               std::move(on_failure))));
       return;
     }
 
     auto trace_data_endpoint =
         TracingControllerImpl::CreateCompressedStringEndpoint(
-            TracingControllerImpl::CreateCallbackEndpoint(base::BindRepeating(
+            TracingControllerImpl::CreateCallbackEndpoint(base::BindOnce(
                 [](base::WeakPtr<BackgroundTracingActiveScenario> weak_this,
-                   const base::RepeatingClosure& on_success,
-                   std::unique_ptr<const base::DictionaryValue> metadata,
-                   base::RefCountedString* file_contents) {
-                  on_success.Run();
+                   base::OnceClosure on_success,
+                   std::unique_ptr<std::string> file_contents) {
+                  std::move(on_success).Run();
                   if (weak_this) {
-                    weak_this->OnJSONDataComplete(std::move(metadata),
-                                                  file_contents);
+                    weak_this->OnJSONDataComplete(std::move(file_contents));
                   }
                 },
                 parent_scenario_->GetWeakPtr(), std::move(on_success))),
             true /* compress_with_background_priority */);
 
-    TracingControllerImpl::GetInstance()->StopTracing(trace_data_endpoint);
+    TracingControllerImpl::GetInstance()->StopTracing(
+        trace_data_endpoint, "",
+        parent_scenario_->GetConfig()->requires_anonymized_data());
   }
 
   void AbortScenario(const base::RepeatingClosure& on_abort_callback) override {
@@ -253,8 +250,7 @@ class LegacyTracingSession
       TracingControllerImpl::GetInstance()->StopTracing(
           TracingControllerImpl::CreateCallbackEndpoint(base::BindRepeating(
               [](const base::RepeatingClosure& on_abort_callback,
-                 std::unique_ptr<const base::DictionaryValue>,
-                 base::RefCountedString*) { on_abort_callback.Run(); },
+                 std::unique_ptr<std::string>) { on_abort_callback.Run(); },
               std::move(on_abort_callback))));
     } else {
       on_abort_callback.Run();
@@ -299,11 +295,13 @@ void BackgroundTracingActiveScenario::SetState(State new_state) {
     // which means that we're left in a state where the Mojo interface doesn't
     // think we're tracing but TraceLog is still enabled. If that's the case,
     // we abort tracing here.
+    DCHECK_NE(config_->tracing_mode(), BackgroundTracingConfigImpl::SYSTEM);
     base::trace_event::TraceLog::GetInstance()->SetDisabled(
         base::trace_event::TraceLog::GetInstance()->enabled_modes());
   }
 
   if (scenario_state_ == State::kAborted) {
+    DCHECK_NE(config_->tracing_mode(), BackgroundTracingConfigImpl::SYSTEM);
     tracing_session_.reset();
     std::move(on_aborted_callback_).Run();
   }
@@ -334,6 +332,7 @@ void BackgroundTracingActiveScenario::StartTracingIfConfigNeedsIt() {
 }
 
 bool BackgroundTracingActiveScenario::StartTracing() {
+  DCHECK_NE(config_->tracing_mode(), BackgroundTracingConfigImpl::SYSTEM);
   TraceConfig chrome_config = config_->GetTraceConfig();
 
   // If the tracing controller is tracing, i.e. DevTools or about://tracing,
@@ -350,7 +349,20 @@ bool BackgroundTracingActiveScenario::StartTracing() {
   uint8_t modes = base::trace_event::TraceLog::RECORDING_MODE;
   if (!chrome_config.event_filters().empty())
     modes |= base::trace_event::TraceLog::FILTERING_MODE;
-  base::trace_event::TraceLog::GetInstance()->SetEnabled(chrome_config, modes);
+
+// TODO(crbug.com/941318): Re-enable startup tracing for Perfetto backend on
+// Android once all Perfetto-related deadlocks are resolved.
+#if !defined(OS_ANDROID)
+  TraceConfig chrome_config_for_trace_log(chrome_config);
+  // Perfetto backend configures buffer sizes when tracing is started in the
+  // service (see perfetto_config.cc). Zero them out here for TraceLog to avoid
+  // DCHECKs in TraceConfig::Merge.
+  chrome_config_for_trace_log.SetTraceBufferSizeInKb(0);
+  chrome_config_for_trace_log.SetTraceBufferSizeInEvents(0);
+
+  base::trace_event::TraceLog::GetInstance()->SetEnabled(
+      chrome_config_for_trace_log, modes);
+#endif  // !defined(OS_ANDROID)
 
   DCHECK(!tracing_session_);
   if (base::FeatureList::IsEnabled(features::kBackgroundTracingProtoOutput)) {
@@ -368,10 +380,16 @@ bool BackgroundTracingActiveScenario::StartTracing() {
 
 void BackgroundTracingActiveScenario::BeginFinalizing(
     BackgroundTracingManager::StartedFinalizingCallback callback) {
+  DCHECK_NE(config_->tracing_mode(), BackgroundTracingConfigImpl::SYSTEM);
   triggered_named_event_handle_ = -1;
   tracing_timer_.reset();
 
-  auto on_begin_finalization_success = base::BindRepeating(
+  // |callback| is only run once, but we need 2 callbacks pointing to it.
+  auto run_callback = callback
+                          ? base::AdaptCallbackForRepeating(std::move(callback))
+                          : base::NullCallback();
+
+  base::OnceClosure on_begin_finalization_success = base::BindOnce(
       [](base::WeakPtr<BackgroundTracingActiveScenario> weak_this,
          BackgroundTracingManager::StartedFinalizingCallback callback) {
         if (!weak_this) {
@@ -383,13 +401,13 @@ void BackgroundTracingActiveScenario::BeginFinalizing(
             Metrics::FINALIZATION_ALLOWED);
         DCHECK(!weak_this->started_finalizing_closure_);
         if (!callback.is_null()) {
-          weak_this->started_finalizing_closure_ =
-              base::BindOnce(callback, /*is_allowed_finalization=*/true);
+          weak_this->started_finalizing_closure_ = base::BindOnce(
+              std::move(callback), /*is_allowed_finalization=*/true);
         }
       },
-      weak_ptr_factory_.GetWeakPtr(), callback);
+      weak_ptr_factory_.GetWeakPtr(), run_callback);
 
-  auto on_begin_finalization_failure = base::BindRepeating(
+  base::OnceClosure on_begin_finalization_failure = base::BindOnce(
       [](base::WeakPtr<BackgroundTracingActiveScenario> weak_this,
          BackgroundTracingManager::StartedFinalizingCallback callback) {
         if (!weak_this) {
@@ -401,18 +419,17 @@ void BackgroundTracingActiveScenario::BeginFinalizing(
         weak_this->SetState(State::kAborted);
 
         if (!callback.is_null()) {
-          callback.Run(false);
+          std::move(callback).Run(false);
         }
       },
-      weak_ptr_factory_.GetWeakPtr(), callback);
+      weak_ptr_factory_.GetWeakPtr(), run_callback);
 
   tracing_session_->BeginFinalizing(std::move(on_begin_finalization_success),
                                     std::move(on_begin_finalization_failure));
 }
 
 void BackgroundTracingActiveScenario::OnJSONDataComplete(
-    std::unique_ptr<const base::DictionaryValue> metadata,
-    base::RefCountedString* file_contents) {
+    std::unique_ptr<std::string> file_contents) {
   BackgroundTracingManagerImpl::RecordMetric(Metrics::FINALIZATION_STARTED);
   UMA_HISTOGRAM_MEMORY_KB("Tracing.Background.FinalizingTraceSizeInKB",
                           file_contents->size() / 1024);
@@ -421,7 +438,7 @@ void BackgroundTracingActiveScenario::OnJSONDataComplete(
   // callback.
   if (!receive_callback_.is_null()) {
     receive_callback_.Run(
-        file_contents, std::move(metadata),
+        std::move(file_contents),
         base::BindOnce(&BackgroundTracingActiveScenario::OnFinalizeComplete,
                        weak_ptr_factory_.GetWeakPtr()));
   }
@@ -468,6 +485,12 @@ void BackgroundTracingActiveScenario::AbortScenario() {
           }
         },
         weak_ptr_factory_.GetWeakPtr()));
+  } else if (config_->tracing_mode() == BackgroundTracingConfig::SYSTEM) {
+    // We can't 'abort' system tracing since we aren't the consumer. Instead we
+    // send a trigger into the system tracing so that we can tell the time the
+    // scenario stopped.
+    tracing::PerfettoTracedProcess::Get()->ActivateSystemTriggers(
+        {"org.chromium.background_tracing.scenario_aborted"});
   } else {
     // Setting the kAborted state will cause |this| to be destroyed.
     SetState(State::kAborted);
@@ -528,41 +551,55 @@ void BackgroundTracingActiveScenario::OnRuleTriggered(
 
   int trace_delay = triggered_rule->GetTraceDelay();
 
-  if (config_->tracing_mode() == BackgroundTracingConfigImpl::REACTIVE) {
-    // In reactive mode, a trigger starts tracing, or finalizes tracing
-    // immediately if it's already running.
-    BackgroundTracingManagerImpl::RecordMetric(Metrics::REACTIVE_TRIGGERED);
+  switch (config_->tracing_mode()) {
+    case BackgroundTracingConfigImpl::REACTIVE:
+      // In reactive mode, a trigger starts tracing, or finalizes tracing
+      // immediately if it's already running.
+      BackgroundTracingManagerImpl::RecordMetric(Metrics::REACTIVE_TRIGGERED);
 
-    if (state() != State::kTracing) {
-      // It was not already tracing, start a new trace.
-      if (!StartTracing()) {
-        return;
-      }
-    } else {
-      // Some reactive configs that trigger again while tracing should just
-      // end right away (to not capture multiple navigations, for example).
-      // For others we just want to ignore the repeated trigger.
-      if (triggered_rule->stop_tracing_on_repeated_reactive()) {
-        trace_delay = -1;
+      if (state() != State::kTracing) {
+        // It was not already tracing, start a new trace.
+        if (!StartTracing()) {
+          return;
+        }
       } else {
+        // Some reactive configs that trigger again while tracing should just
+        // end right away (to not capture multiple navigations, for example).
+        // For others we just want to ignore the repeated trigger.
+        if (triggered_rule->stop_tracing_on_repeated_reactive()) {
+          trace_delay = -1;
+        } else {
+          if (!callback.is_null()) {
+            std::move(callback).Run(false);
+          }
+          return;
+        }
+      }
+      break;
+    case BackgroundTracingConfigImpl::SYSTEM:
+      BackgroundTracingManagerImpl::RecordMetric(Metrics::SYSTEM_TRIGGERED);
+      tracing::PerfettoTracedProcess::Get()->ActivateSystemTriggers(
+          {triggered_rule->rule_id()});
+      if (!rule_triggered_callback_for_testing_.is_null()) {
+        rule_triggered_callback_for_testing_.Run();
+      }
+      // We drop |callback| on the floor because we won't know when the system
+      // service starts finalizing the trace and the callback isn't relevant to
+      // this scenario.
+      return;
+    case BackgroundTracingConfigImpl::PREEMPTIVE:
+      // In preemptive mode, a trigger starts finalizing a trace if one is
+      // running and we haven't got a finalization timer running,
+      // otherwise we do nothing.
+      if ((state() != State::kTracing) || tracing_timer_) {
         if (!callback.is_null()) {
           std::move(callback).Run(false);
         }
         return;
       }
-    }
-  } else {
-    // In preemptive mode, a trigger starts finalizing a trace if one is
-    // running and we haven't got a finalization timer running,
-    // otherwise we do nothing.
-    if ((state() != State::kTracing) || tracing_timer_) {
-      if (!callback.is_null()) {
-        std::move(callback).Run(false);
-      }
-      return;
-    }
 
-    BackgroundTracingManagerImpl::RecordMetric(Metrics::PREEMPTIVE_TRIGGERED);
+      BackgroundTracingManagerImpl::RecordMetric(Metrics::PREEMPTIVE_TRIGGERED);
+      break;
   }
 
   if (trace_delay < 0) {

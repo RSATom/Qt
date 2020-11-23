@@ -20,13 +20,12 @@
 #include "content/public/browser/browser_context.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/storage_partition.h"
+#include "content/public/test/browser_task_environment.h"
 #include "content/public/test/test_browser_context.h"
-#include "content/public/test/test_browser_thread_bundle.h"
 #include "net/disk_cache/disk_cache.h"
 #include "storage/browser/blob/blob_data_builder.h"
 #include "storage/browser/blob/blob_impl.h"
 #include "storage/browser/blob/blob_storage_context.h"
-#include "storage/browser/blob/blob_url_request_job_factory.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
 namespace content {
@@ -63,7 +62,7 @@ class TestCacheStorageBlobToDiskCache : public CacheStorageBlobToDiskCache {
 class CacheStorageBlobToDiskCacheTest : public testing::Test {
  protected:
   CacheStorageBlobToDiskCacheTest()
-      : browser_thread_bundle_(TestBrowserThreadBundle::IO_MAINLOOP),
+      : task_environment_(BrowserTaskEnvironment::IO_MAINLOOP),
         browser_context_(new TestBrowserContext()),
         cache_storage_blob_to_disk_cache_(
             new TestCacheStorageBlobToDiskCache()),
@@ -96,18 +95,16 @@ class CacheStorageBlobToDiskCacheTest : public testing::Test {
     int rv = CreateCacheBackend(
         net::MEMORY_CACHE, net::CACHE_BACKEND_DEFAULT, base::FilePath(),
         (CacheStorageBlobToDiskCache::kBufferSize * 100) /* max bytes */,
-        false /* force */, nullptr /* net log */, &cache_backend_,
-        base::DoNothing());
+        disk_cache::ResetHandling::kNeverReset, nullptr /* net log */,
+        &cache_backend_, base::DoNothing());
     // The memory cache runs synchronously.
     EXPECT_EQ(net::OK, rv);
     EXPECT_TRUE(cache_backend_);
 
-    std::unique_ptr<disk_cache::Entry*> entry(new disk_cache::Entry*());
-    disk_cache::Entry** entry_ptr = entry.get();
-    rv = cache_backend_->CreateEntry(kEntryKey, net::HIGHEST, entry_ptr,
-                                     base::DoNothing());
-    EXPECT_EQ(net::OK, rv);
-    disk_cache_entry_.reset(*entry);
+    disk_cache::EntryResult result =
+        cache_backend_->CreateEntry(kEntryKey, net::HIGHEST, base::DoNothing());
+    EXPECT_EQ(net::OK, result.net_error());
+    disk_cache_entry_.reset(result.ReleaseEntry());
   }
 
   std::string ReadCacheContent() {
@@ -123,13 +120,13 @@ class CacheStorageBlobToDiskCacheTest : public testing::Test {
   }
 
   bool Stream() {
-    blink::mojom::BlobPtr blob_ptr;
+    mojo::PendingRemote<blink::mojom::Blob> blob_remote;
     storage::BlobImpl::Create(
         std::make_unique<storage::BlobDataHandle>(*blob_handle_),
-        MakeRequest(&blob_ptr));
+        blob_remote.InitWithNewPipeAndPassReceiver());
 
     cache_storage_blob_to_disk_cache_->StreamBlobToCache(
-        std::move(disk_cache_entry_), kCacheEntryIndex, std::move(blob_ptr),
+        std::move(disk_cache_entry_), kCacheEntryIndex, std::move(blob_remote),
         blob_handle_->size(),
         base::BindOnce(&CacheStorageBlobToDiskCacheTest::StreamCallback,
                        base::Unretained(this)));
@@ -145,7 +142,7 @@ class CacheStorageBlobToDiskCacheTest : public testing::Test {
     callback_called_ = true;
   }
 
-  TestBrowserThreadBundle browser_thread_bundle_;
+  BrowserTaskEnvironment task_environment_;
   std::unique_ptr<TestBrowserContext> browser_context_;
   storage::BlobStorageContext* blob_storage_context_;
   std::unique_ptr<storage::BlobDataHandle> blob_handle_;

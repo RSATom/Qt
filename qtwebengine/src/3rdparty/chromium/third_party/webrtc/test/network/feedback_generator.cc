@@ -32,13 +32,14 @@ Timestamp FeedbackGeneratorImpl::Now() {
 }
 
 void FeedbackGeneratorImpl::Sleep(TimeDelta duration) {
-  time_controller_.Sleep(duration);
+  time_controller_.AdvanceTime(duration);
 }
 
 void FeedbackGeneratorImpl::SendPacket(size_t size) {
   SentPacket sent;
   sent.send_time = Now();
   sent.size = DataSize::bytes(size);
+  sent.sequence_number = sequence_number_++;
   route_.SendRequest(size, sent);
 }
 

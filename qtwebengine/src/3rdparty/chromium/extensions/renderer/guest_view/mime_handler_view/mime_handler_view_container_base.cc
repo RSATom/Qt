@@ -11,13 +11,16 @@
 #include "base/metrics/histogram_functions.h"
 #include "base/stl_util.h"
 #include "components/guest_view/common/guest_view_constants.h"
-#include "content/public/common/url_loader_throttle.h"
 #include "content/public/common/webplugininfo.h"
 #include "content/public/renderer/render_frame.h"
 #include "content/public/renderer/render_thread.h"
 #include "extensions/common/guest_view/extensions_guest_view_messages.h"
 #include "extensions/renderer/extension_frame_helper.h"
 #include "ipc/ipc_sync_channel.h"
+#include "mojo/public/cpp/bindings/pending_receiver.h"
+#include "mojo/public/cpp/bindings/pending_remote.h"
+#include "services/network/public/mojom/url_response_head.mojom.h"
+#include "third_party/blink/public/common/loader/url_loader_throttle.h"
 #include "third_party/blink/public/platform/web_url.h"
 #include "third_party/blink/public/platform/web_url_request.h"
 #include "third_party/blink/public/web/web_associated_url_loader.h"
@@ -54,7 +57,7 @@ base::LazyInstance<
 // Stores a raw pointer to MimeHandlerViewContainerBase since this throttle's
 // lifetime is shorter (it matches |container|'s loader_).
 class MimeHandlerViewContainerBase::PluginResourceThrottle
-    : public content::URLLoaderThrottle {
+    : public blink::URLLoaderThrottle {
  public:
   explicit PluginResourceThrottle(
       base::WeakPtr<MimeHandlerViewContainerBase> container)
@@ -62,9 +65,9 @@ class MimeHandlerViewContainerBase::PluginResourceThrottle
   ~PluginResourceThrottle() override {}
 
  private:
-  // content::URLLoaderThrottle overrides;
+  // blink::URLLoaderThrottle overrides;
   void WillProcessResponse(const GURL& response_url,
-                           network::ResourceResponseHead* response_head,
+                           network::mojom::URLResponseHead* response_head,
                            bool* defer) override {
     if (!container_) {
       // In the embedder case if the plugin element is removed right after an
@@ -74,27 +77,28 @@ class MimeHandlerViewContainerBase::PluginResourceThrottle
       // called (see https://crbug.com/878359).
       return;
     }
-    network::mojom::URLLoaderPtr dummy_new_loader;
-    mojo::MakeRequest(&dummy_new_loader);
-    network::mojom::URLLoaderClientPtr new_client;
-    network::mojom::URLLoaderClientRequest new_client_request =
-        mojo::MakeRequest(&new_client);
+    mojo::PendingRemote<network::mojom::URLLoader> dummy_new_loader;
+    ignore_result(dummy_new_loader.InitWithNewPipeAndPassReceiver());
+    mojo::PendingRemote<network::mojom::URLLoaderClient> new_client;
 
-    network::mojom::URLLoaderPtr original_loader;
-    network::mojom::URLLoaderClientRequest original_client;
+    mojo::PendingRemote<network::mojom::URLLoader> original_loader;
+    mojo::PendingReceiver<network::mojom::URLLoaderClient> original_client;
     delegate_->InterceptResponse(std::move(dummy_new_loader),
-                                 std::move(new_client_request),
+                                 new_client.InitWithNewPipeAndPassReceiver(),
                                  &original_loader, &original_client);
 
     auto transferrable_loader = content::mojom::TransferrableURLLoader::New();
-    transferrable_loader->url_loader = original_loader.PassInterface();
+    transferrable_loader->url_loader = std::move(original_loader);
     transferrable_loader->url_loader_client = std::move(original_client);
 
-    // Make a deep copy of ResourceResponseHead before passing it cross-thread.
-    auto resource_response = base::MakeRefCounted<network::ResourceResponse>();
-    resource_response->head = *response_head;
-    auto deep_copied_response = resource_response->DeepCopy();
-    transferrable_loader->head = std::move(deep_copied_response->head);
+    // Make a deep copy of URLResponseHead before passing it cross-thread.
+    auto deep_copied_response = response_head->Clone();
+    if (response_head->headers) {
+      deep_copied_response->headers =
+          base::MakeRefCounted<net::HttpResponseHeaders>(
+              response_head->headers->raw_headers());
+    }
+    transferrable_loader->head = std::move(deep_copied_response);
     container_->SetEmbeddedLoader(std::move(transferrable_loader));
   }
 
@@ -111,8 +115,7 @@ MimeHandlerViewContainerBase::MimeHandlerViewContainerBase(
     : original_url_(original_url),
       plugin_path_(info.path.MaybeAsASCII()),
       mime_type_(mime_type),
-      embedder_render_frame_routing_id_(embedder_render_frame->GetRoutingID()),
-      before_unload_control_binding_(this) {
+      embedder_render_frame_routing_id_(embedder_render_frame->GetRoutingID()) {
   DCHECK(!mime_type_.empty());
   g_mime_handler_view_container_base_map.Get()[embedder_render_frame].insert(
       this);
@@ -160,7 +163,7 @@ MimeHandlerViewContainerBase::FromRenderFrame(
                                                     it->second.end());
 }
 
-std::unique_ptr<content::URLLoaderThrottle>
+std::unique_ptr<blink::URLLoaderThrottle>
 MimeHandlerViewContainerBase::MaybeCreatePluginThrottle(const GURL& url) {
   if (!waiting_to_create_throttle_ || url != original_url_)
     return nullptr;
@@ -231,24 +234,16 @@ void MimeHandlerViewContainerBase::CreateMimeHandlerViewGuestIfNecessary() {
 
   DCHECK_NE(GetInstanceId(), guest_view::kInstanceIDNone);
 
-  mime_handler::BeforeUnloadControlPtr before_unload_control;
+  mojo::PendingRemote<mime_handler::BeforeUnloadControl> before_unload_control;
   if (!is_embedded_) {
-    before_unload_control_binding_.Bind(
-        mojo::MakeRequest(&before_unload_control));
+    before_unload_control =
+        before_unload_control_receiver_.BindNewPipeAndPassRemote();
   }
   guest_view->CreateMimeHandlerViewGuest(
       embedder_render_frame->GetRoutingID(), view_id_, GetInstanceId(),
       GetElementSize(), std::move(before_unload_control));
 
   guest_created_ = true;
-}
-
-void MimeHandlerViewContainerBase::DidLoadInternal() {
-  RecordInteraction(UMAType::kDidLoadExtension);
-  if (!GetEmbedderRenderFrame())
-    return;
-  guest_loaded_ = true;
-  post_message_support()->SetActive();
 }
 
 void MimeHandlerViewContainerBase::SendResourceRequest() {

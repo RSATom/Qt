@@ -71,16 +71,14 @@ bool GrPixelConfigToMTLFormat(GrPixelConfig config, MTLPixelFormat* format) {
             *format = MTLPixelFormatR8Unorm;
             return true;
         case kAlpha_8_as_Alpha_GrPixelConfig:
-            return false;
+            *format = MTLPixelFormatA8Unorm;
+            return true;
         case kGray_8_GrPixelConfig: // fall through
         case kGray_8_as_Red_GrPixelConfig:
             *format = MTLPixelFormatR8Unorm;
             return true;
         case kGray_8_as_Lum_GrPixelConfig:
             return false;
-        case kRGBA_float_GrPixelConfig:
-            *format = MTLPixelFormatRGBA32Float;
-            return true;
         case kRGBA_half_GrPixelConfig:
             *format = MTLPixelFormatRGBA16Float;
             return true;
@@ -100,14 +98,12 @@ bool GrPixelConfigToMTLFormat(GrPixelConfig config, MTLPixelFormat* format) {
 #else
             return false;
 #endif
-        case kR_16_GrPixelConfig:
+        case kAlpha_16_GrPixelConfig:
             *format = MTLPixelFormatR16Unorm;
             return true;
         case kRG_1616_GrPixelConfig:
             *format = MTLPixelFormatRG16Unorm;
             return true;
-
-        // Experimental (for Y416 and mutant P016/P010)
         case kRGBA_16161616_GrPixelConfig:
             *format = MTLPixelFormatRGBA16Unorm;
             return true;
@@ -116,7 +112,6 @@ bool GrPixelConfigToMTLFormat(GrPixelConfig config, MTLPixelFormat* format) {
             return true;
     }
     SK_ABORT("Unexpected config");
-    return false;
 }
 
 MTLTextureDescriptor* GrGetMTLTextureDescriptor(id<MTLTexture> mtlTexture) {
@@ -129,7 +124,9 @@ MTLTextureDescriptor* GrGetMTLTextureDescriptor(id<MTLTexture> mtlTexture) {
     texDesc.mipmapLevelCount = mtlTexture.mipmapLevelCount;
     texDesc.arrayLength = mtlTexture.arrayLength;
     texDesc.sampleCount = mtlTexture.sampleCount;
-    texDesc.usage = mtlTexture.usage;
+    if (@available(macOS 10.11, iOS 9.0, *)) {
+        texDesc.usage = mtlTexture.usage;
+    }
     return texDesc;
 }
 
@@ -190,7 +187,8 @@ id<MTLLibrary> GrCompileMtlShaderLibrary(const GrMtlGpu* gpu,
                                                                  options: defaultOptions
                                                                    error: &error];
     if (error) {
-        SkDebugf("Error compiling MSL shader: %s\n",
+        SkDebugf("Error compiling MSL shader: %s\n%s\n",
+                 code.c_str(),
                  [[error localizedDescription] cStringUsingEncoding: NSASCIIStringEncoding]);
         return nil;
     }
@@ -209,7 +207,8 @@ id<MTLLibrary> GrMtlNewLibraryWithSource(id<MTLDevice> device, NSString* mslCode
                completionHandler:
         ^(id<MTLLibrary> library, NSError* error) {
             if (error) {
-                SkDebugf("Error compiling MSL shader: %s\n",
+                SkDebugf("Error compiling MSL shader: %s\n%s\n",
+                    mslCode,
                     [[error localizedDescription] cStringUsingEncoding: NSASCIIStringEncoding]);
             }
             compiledLibrary = library;
@@ -286,3 +285,67 @@ GrMTLPixelFormat GrGetMTLPixelFormatFromMtlTextureInfo(const GrMtlTextureInfo& i
     id<MTLTexture> mtlTexture = GrGetMTLTexture(info.fTexture.get());
     return static_cast<GrMTLPixelFormat>(mtlTexture.pixelFormat);
 }
+
+bool GrMtlFormatIsCompressed(MTLPixelFormat mtlFormat) {
+    switch (mtlFormat) {
+#ifdef SK_BUILD_FOR_IOS
+        case MTLPixelFormatETC2_RGB8:
+            return true;
+#endif
+        default:
+            return false;
+    }
+}
+
+bool GrMtlFormatToCompressionType(MTLPixelFormat mtlFormat,
+                                  SkImage::CompressionType* compressionType) {
+    switch (mtlFormat) {
+#ifdef SK_BUILD_FOR_IOS
+        case MTLPixelFormatETC2_RGB8:
+            *compressionType = SkImage::kETC1_CompressionType;
+            return true;
+#endif
+        default:
+            return false;
+    }
+}
+
+#if GR_TEST_UTILS
+bool GrMtlFormatIsBGRA(GrMTLPixelFormat mtlFormat) {
+    return mtlFormat == MTLPixelFormatBGRA8Unorm;
+}
+
+const char* GrMtlFormatToStr(GrMTLPixelFormat mtlFormat) {
+    switch (mtlFormat) {
+        case MTLPixelFormatInvalid:         return "Invalid";
+        case MTLPixelFormatRGBA8Unorm:      return "RGBA8Unorm";
+        case MTLPixelFormatR8Unorm:         return "R8Unorm";
+        case MTLPixelFormatA8Unorm:         return "A8Unorm";
+        case MTLPixelFormatBGRA8Unorm:      return "BGRA8Unorm";
+#ifdef SK_BUILD_FOR_IOS
+        case MTLPixelFormatB5G6R5Unorm:     return "B5G6R5Unorm";
+#endif
+        case MTLPixelFormatRGBA16Float:     return "RGBA16Float";
+        case MTLPixelFormatR16Float:        return "R16Float";
+        case MTLPixelFormatRG8Unorm:        return "RG8Unorm";
+        case MTLPixelFormatRGB10A2Unorm:    return "RGB10A2Unorm";
+#ifdef SK_BUILD_FOR_IOS
+        case MTLPixelFormatABGR4Unorm:      return "ABGR4Unorm";
+#endif
+        case MTLPixelFormatRGBA8Unorm_sRGB: return "RGBA8Unorm_sRGB";
+        case MTLPixelFormatR16Unorm:        return "R16Unorm";
+        case MTLPixelFormatRG16Unorm:       return "RG16Unorm";
+#ifdef SK_BUILD_FOR_IOS
+        case MTLPixelFormatETC2_RGB8:      return "ETC2_RGB8";
+#endif
+        case MTLPixelFormatRGBA16Unorm:    return "RGBA16Unorm";
+        case MTLPixelFormatRG16Float:      return "RG16Float";
+
+        default:                           return "Unknown";
+    }
+}
+
+#endif
+
+
+

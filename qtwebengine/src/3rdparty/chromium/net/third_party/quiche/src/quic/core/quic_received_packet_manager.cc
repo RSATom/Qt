@@ -25,14 +25,6 @@ namespace {
 // against an ack loss
 const size_t kMaxPacketsAfterNewMissing = 4;
 
-// Maximum number of retransmittable packets received before sending an ack.
-const QuicPacketCount kDefaultRetransmittablePacketsBeforeAck = 2;
-// Minimum number of packets received before ack decimation is enabled.
-// This intends to avoid the beginning of slow start, when CWNDs may be
-// rapidly increasing.
-const QuicPacketCount kMinReceivedBeforeAckDecimation = 100;
-// Wait for up to 10 retransmittable packets before sending an ack.
-const QuicPacketCount kMaxRetransmittablePacketsBeforeAck = 10;
 // One quarter RTT delay when doing ack decimation.
 const float kAckDecimationDelay = 0.25;
 // One eighth RTT delay when doing ack decimation.
@@ -58,6 +50,8 @@ QuicReceivedPacketManager::QuicReceivedPacketManager(QuicConnectionStats* stats)
       ack_decimation_delay_(kAckDecimationDelay),
       unlimited_ack_decimation_(false),
       fast_ack_after_quiescence_(false),
+      local_max_ack_delay_(
+          QuicTime::Delta::FromMilliseconds(kDefaultDelayedAckTimeMs)),
       ack_timeout_(QuicTime::Zero()),
       time_of_previous_received_packet_(QuicTime::Zero()),
       was_last_packet_missing_(false) {
@@ -218,8 +212,7 @@ void QuicReceivedPacketManager::MaybeUpdateAckTimeout(
     QuicPacketNumber last_received_packet_number,
     QuicTime time_of_last_received_packet,
     QuicTime now,
-    const RttStats* rtt_stats,
-    QuicTime::Delta local_max_ack_delay) {
+    const RttStats* rtt_stats) {
   if (!ack_frame_updated_) {
     // ACK frame has not been updated, nothing to do.
     return;
@@ -251,7 +244,7 @@ void QuicReceivedPacketManager::MaybeUpdateAckTimeout(
     // Wait for the minimum of the ack decimation delay or the delayed ack time
     // before sending an ack.
     QuicTime::Delta ack_delay = std::min(
-        local_max_ack_delay, rtt_stats->min_rtt() * ack_decimation_delay_);
+        local_max_ack_delay_, rtt_stats->min_rtt() * ack_decimation_delay_);
     if (fast_ack_after_quiescence_ && now - time_of_previous_received_packet_ >
                                           rtt_stats->SmoothedOrInitialRtt()) {
       // Ack the first packet out of queiscence faster, because QUIC does
@@ -273,7 +266,7 @@ void QuicReceivedPacketManager::MaybeUpdateAckTimeout(
       // or TLP packets, which we'd like to acknowledge quickly.
       MaybeUpdateAckTimeoutTo(now + QuicTime::Delta::FromMilliseconds(1));
     } else {
-      MaybeUpdateAckTimeoutTo(now + local_max_ack_delay);
+      MaybeUpdateAckTimeoutTo(now + local_max_ack_delay_);
     }
   }
 

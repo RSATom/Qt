@@ -475,6 +475,9 @@ bool QGeoPathPrivate::lineContains(const QGeoCoordinate &coordinate) const
     //   If the mercator x value of a coordinate of the line, or the coordinate parameter, is less
     // than mercator(m_bbox).x, add that to the conversion.
 
+    if (m_bboxDirty)
+        const_cast<QGeoPathPrivate &>(*this).computeBoundingBox();
+
     double lineRadius = qMax(width() * 0.5, 0.2); // minimum radius: 20cm
 
     if (!m_path.size())
@@ -482,23 +485,21 @@ bool QGeoPathPrivate::lineContains(const QGeoCoordinate &coordinate) const
     else if (m_path.size() == 1)
         return (m_path[0].distanceTo(coordinate) <= lineRadius);
 
-    double leftBoundMercator = QWebMercator::coordToMercator(m_bbox.topLeft()).x();
-
     QDoubleVector2D p = QWebMercator::coordToMercator(coordinate);
-    if (p.x() < leftBoundMercator)
-        p.setX(p.x() + leftBoundMercator);  // unwrap X
+    if (p.x() < m_leftBoundWrapped)
+        p.setX(p.x() + m_leftBoundWrapped);  // unwrap X
 
     QDoubleVector2D a;
     QDoubleVector2D b;
     if (m_path.size()) {
         a = QWebMercator::coordToMercator(m_path[0]);
-        if (a.x() < leftBoundMercator)
-            a.setX(a.x() + leftBoundMercator);  // unwrap X
+        if (a.x() < m_leftBoundWrapped)
+            a.setX(a.x() + m_leftBoundWrapped);  // unwrap X
     }
     for (int i = 1; i < m_path.size(); i++) {
         b = QWebMercator::coordToMercator(m_path[i]);
-        if (b.x() < leftBoundMercator)
-            b.setX(b.x() + leftBoundMercator);  // unwrap X
+        if (b.x() < m_leftBoundWrapped)
+            b.setX(b.x() + m_leftBoundWrapped);  // unwrap X
         if (b == a)
             continue;
 
@@ -513,7 +514,7 @@ bool QGeoPathPrivate::lineContains(const QGeoCoordinate &coordinate) const
 
 
         if (candidate.x() > 1.0)
-            candidate.setX(candidate.x() - leftBoundMercator); // wrap X
+            candidate.setX(candidate.x() - m_leftBoundWrapped); // wrap X
 
         QGeoCoordinate closest = QWebMercator::mercatorToCoord(candidate);
 
@@ -600,6 +601,7 @@ void QGeoPathPrivate::translate(double degreesLatitude, double degreesLongitude)
         p.setLongitude(QLocationUtils::wrapLong(p.longitude() + degreesLongitude));
     }
     m_bbox.translate(degreesLatitude, degreesLongitude);
+    m_leftBoundWrapped = QWebMercator::coordToMercator(m_bbox.topLeft()).x();
 }
 
 QGeoRectangle QGeoPathPrivate::boundingGeoRectangle() const
@@ -673,6 +675,7 @@ void QGeoPathPrivate::computeBoundingBox()
     double m_minX, m_maxX, m_minLati, m_maxLati;
     m_bboxDirty = false;
     computeBBox(m_path, m_deltaXs, m_minX, m_maxX, m_minLati, m_maxLati, m_bbox);
+    m_leftBoundWrapped = QWebMercator::coordToMercator(m_bbox.topLeft()).x();
 }
 
 QGeoPathPrivateEager::QGeoPathPrivateEager()
@@ -715,6 +718,7 @@ void QGeoPathPrivateEager::translate(double degreesLatitude, double degreesLongi
     m_bbox.translate(degreesLatitude, degreesLongitude);
     m_minLati += degreesLatitude;
     m_maxLati += degreesLatitude;
+    m_leftBoundWrapped = QWebMercator::coordToMercator(m_bbox.topLeft()).x();
 }
 
 void QGeoPathPrivateEager::addCoordinate(const QGeoCoordinate &coordinate)
@@ -729,11 +733,13 @@ void QGeoPathPrivateEager::addCoordinate(const QGeoCoordinate &coordinate)
 void QGeoPathPrivateEager::QGeoPathPrivateEager::computeBoundingBox()
 {
     computeBBox(m_path, m_deltaXs, m_minX, m_maxX, m_minLati, m_maxLati, m_bbox);
+    m_leftBoundWrapped = QWebMercator::coordToMercator(m_bbox.topLeft()).x();
 }
 
 void QGeoPathPrivateEager::QGeoPathPrivateEager::updateBoundingBox()
 {
     updateBBox(m_path, m_deltaXs, m_minX, m_maxX, m_minLati, m_maxLati, m_bbox);
+    m_leftBoundWrapped = QWebMercator::coordToMercator(m_bbox.topLeft()).x();
 }
 
 QGeoPathEager::QGeoPathEager() : QGeoPath()

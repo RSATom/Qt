@@ -1,5 +1,5 @@
 //
-// Copyright (c) 2015 The ANGLE Project Authors. All rights reserved.
+// Copyright 2015 The ANGLE Project Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 //
@@ -54,6 +54,8 @@ class WindowSurfaceGLX : public SurfaceGLX
 
     egl::Error checkForResize() override;
     glx::Drawable getDrawable() const override;
+
+    egl::Error getSyncValues(EGLuint64KHR *ust, EGLuint64KHR *msc, EGLuint64KHR *sbc) override;
 
   private:
     bool getWindowDimensions(Window window, unsigned int *width, unsigned int *height) const;

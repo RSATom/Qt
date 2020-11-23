@@ -22,8 +22,12 @@ static_library("particles") {
     include_dirs = [ "../../tools/timer" ]
     deps = [
       "../..:skia",
+      "../skresources",
     ]
     sources = skia_particle_sources
     configs += [ "../../:skia_private" ]
+    if (skia_enable_tools) {
+      configs += [ "../../:our_vulkan_headers" ]
+    }
   }
 }

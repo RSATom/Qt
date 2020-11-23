@@ -87,11 +87,11 @@ public:
     QString suffix() const;
     void setSuffix(const QString &suffix);
 
-    void fixup(QString &input) const;
-    State validate(QString &input, int &pos) const;
+    void fixup(QString &input) const override;
+    State validate(QString &input, int &pos) const override;
 
-    void classBegin() { }
-    void componentComplete();
+    void classBegin() override { }
+    void componentComplete() override;
 
 public Q_SLOTS:
     void increment();

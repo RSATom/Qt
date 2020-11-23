@@ -8,8 +8,8 @@
 
 #include "base/bind.h"
 #include "base/debug/stack_trace.h"
-#include "base/task/thread_pool/thread_pool.h"
 #include "base/task/thread_pool/thread_pool_impl.h"
+#include "base/task/thread_pool/thread_pool_instance.h"
 #include "base/test/metrics/histogram_tester.h"
 #include "base/threading/platform_thread.h"
 #include "base/time/time.h"
@@ -65,15 +65,9 @@ TEST(ThreadPoolServiceThreadIntegrationTest, HeartbeatLatencyReport) {
       "ThreadPool.HeartbeatLatencyMicroseconds.Test."
       "UserBlockingTaskPriority",
       "ThreadPool.HeartbeatLatencyMicroseconds.Test."
-      "UserBlockingTaskPriority_MayBlock",
-      "ThreadPool.HeartbeatLatencyMicroseconds.Test."
       "UserVisibleTaskPriority",
       "ThreadPool.HeartbeatLatencyMicroseconds.Test."
-      "UserVisibleTaskPriority_MayBlock",
-      "ThreadPool.HeartbeatLatencyMicroseconds.Test."
-      "BackgroundTaskPriority",
-      "ThreadPool.HeartbeatLatencyMicroseconds.Test."
-      "BackgroundTaskPriority_MayBlock"};
+      "BackgroundTaskPriority"};
 
   // Each report hits a single histogram above (randomly selected). But 1000
   // reports should touch all histograms at least once the vast majority of the

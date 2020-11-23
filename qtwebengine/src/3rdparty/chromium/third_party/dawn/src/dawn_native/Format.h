@@ -27,9 +27,9 @@ namespace dawn_native {
 
     // The number of formats Dawn knows about. Asserts in BuildFormatTable ensure that this is the
     // exact number of known format.
-    static constexpr size_t kKnownFormatCount = 58;
+    static constexpr size_t kKnownFormatCount = 52;
 
-    // A dawn::TextureFormat along with all the information about it necessary for validation.
+    // A wgpu::TextureFormat along with all the information about it necessary for validation.
     struct Format {
         enum Aspect {
             Color,
@@ -38,21 +38,33 @@ namespace dawn_native {
             DepthStencil,
         };
 
-        dawn::TextureFormat format;
+        enum Type {
+            Float,
+            Sint,
+            Uint,
+            Other,
+        };
+
+        wgpu::TextureFormat format;
         bool isRenderable;
         bool isCompressed;
         // A format can be known but not supported because it is part of a disabled extension.
         bool isSupported;
         Aspect aspect;
+        Type type;
 
         uint32_t blockByteSize;
         uint32_t blockWidth;
         uint32_t blockHeight;
 
+        static Type TextureComponentTypeToFormatType(wgpu::TextureComponentType componentType);
+        static wgpu::TextureComponentType FormatTypeToTextureComponentType(Type type);
+
         bool IsColor() const;
         bool HasDepth() const;
         bool HasStencil() const;
         bool HasDepthOrStencil() const;
+        bool HasComponentType(wgpu::TextureComponentType componentType) const;
 
         // The index of the format in the list of all known formats: a unique number for each format
         // in [0, kKnownFormatCount)
@@ -64,7 +76,7 @@ namespace dawn_native {
     using FormatTable = std::array<Format, kKnownFormatCount>;
 
     // Returns the index of a format in the FormatTable.
-    size_t ComputeFormatIndex(dawn::TextureFormat format);
+    size_t ComputeFormatIndex(wgpu::TextureFormat format);
     // Builds the format table with the extensions enabled on the device.
     FormatTable BuildFormatTable(const DeviceBase* device);
 

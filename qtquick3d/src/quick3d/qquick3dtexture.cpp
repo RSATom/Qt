@@ -32,8 +32,9 @@
 #include <QtQml/QQmlFile>
 #include <QtQuick/QQuickItem>
 #include <QtQuick/private/qquickitem_p.h>
+#include <QtCore/qmath.h>
 
-#include "qquick3dobject_p_p.h"
+#include "qquick3dobject_p.h"
 #include "qquick3dscenemanager_p.h"
 #include "qquick3dutils_p.h"
 
@@ -51,11 +52,20 @@ QT_BEGIN_NAMESPACE
     \l source property, or a Qt Quick item using the sourceItem property.
 */
 
-QQuick3DTexture::QQuick3DTexture() {}
+QQuick3DTexture::QQuick3DTexture(QQuick3DObject *parent)
+    : QQuick3DObject(*(new QQuick3DObjectPrivate(QQuick3DObjectPrivate::Type::Image)), parent) {}
 
 QQuick3DTexture::~QQuick3DTexture()
 {
-    delete m_layer;
+    if (m_layer && m_sceneManagerForLayer) {
+        m_sceneManagerForLayer->qsgDynamicTextures.removeAll(m_layer);
+        m_layer->deleteLater();
+    }
+
+    if (m_sourceItem) {
+        QQuickItemPrivate *sourcePrivate = QQuickItemPrivate::get(m_sourceItem);
+        sourcePrivate->removeItemChangeListener(this, QQuickItemPrivate::Geometry);
+    }
 }
 
 /*!
@@ -243,9 +253,51 @@ bool QQuick3DTexture::flipV() const
     return m_flipV;
 }
 
-QQuick3DObject::Type QQuick3DTexture::type() const
+/*!
+    \qmlproperty enumeration QtQuick3D::Texture::format
+
+    This property controls the color format of the texture assigned in \l source property.
+
+    By default, it is automatically determined.
+    However, it can be manually set if the automatic format is not what is wanted.
+
+    \value Texture.Automatic The color format will be automatically determined (default).
+    \value Texture.R8 The color format is considered as 8-bit integer in R channel.
+    \value Texture.R16 The color format is considered as 16-bit integer in R channel.
+    \value Texture.R16F The color format is considered as 16-bit float in R channel.
+    \value Texture.R32I The color format is considered as 32-bit integer in R channel.
+    \value Texture.R32UI The color format is considered as 32-bit unsigned integer in R channel.
+    \value Texture.R32F The color format is considered as 32-bit float R channel.
+    \value Texture.RG8 The color format is considered as 8-bit integer in R and G channels.
+    \value Texture.RGBA8 The color format is considered as 8-bit integer in R, G, B and alpha channels.
+    \value Texture.RGB8 The color format is considered as 8-bit integer in R, G and B channels.
+    \value Texture.SRGB8 The color format is considered as 8-bit integer in R, G and B channels in standard RGB color space.
+    \value Texture.SRGB8A8 The color format is considered as 8-bit integer in R, G, B and alpha channels in standard RGB color space.
+    \value Texture.RGB565 The color format is considered as 5-bit integer in R and B channels and 6-bit integer in G channel.
+    \value Texture.RGBA5551 The color format is considered as 5-bit integer in R, G, B channels and boolean alpha channel.
+    \value Texture.Alpha8 The color format is considered as 8-bit alpha map.
+    \value Texture.Luminance8 The color format is considered as 8-bit luminance map.
+    \value Texture.Luminance16 The color format is considered as 16-bit luminance map.
+    \value Texture.LuminanceAlpha8 The color format is considered as 8-bit luminance and alpha map.
+    \value Texture.RGBA16F The color format is considered as 16-bit float in R,G,B and alpha channels.
+    \value Texture.RG16F The color format is considered as 16-bit float in R and G channels.
+    \value Texture.RG32F The color format is considered as 32-bit float in R and G channels.
+    \value Texture.RGB32F The color format is considered as 32-bit float in R, G and B channels.
+    \value Texture.RGBA32F The color format is considered as 32-bit float in R, G, B and alpha channels.
+    \value Texture.R11G11B10 The color format is considered as 11-bit integer in R and G channels and 10-bit integer in B channel.
+    \value Texture.RGB9E5 The color format is considered as 9-bit mantissa in R, G and B channels and 5-bit shared exponent.
+    \value Texture.RGBA_DXT1 The color format is considered as DXT1 compressed format with R, G, B and alpha channels.
+    \value Texture.RGB_DXT1 The color format is considered as DXT1 compressed format with R, G and B channels.
+    \value Texture.RGBA_DXT3 The color format is considered as DXT3 compressed format with R, G, B and alpha channels.
+    \value Texture.RGBA_DXT5 The color format is considered as DXT5 compressed format with R, G, B and alpha channels.
+    \value Texture.Depth16 The color format is considered as 16-bit depth map.
+    \value Texture.Depth24 The color format is considered as 24-bit depth map.
+    \value Texture.Depth32 The color format is considered as 32-bit depth map.
+    \value Texture.Depth24Stencil8 The color format is considered as 24-bit depth and 8-bit stencil map.
+*/
+QQuick3DTexture::Format QQuick3DTexture::format() const
 {
-    return QQuick3DObject::Image;
+    return m_format;
 }
 
 void QQuick3DTexture::setSource(const QUrl &source)
@@ -267,7 +319,7 @@ void QQuick3DTexture::trySetSourceParent()
     auto *sourcePrivate = QQuickItemPrivate::get(m_sourceItem);
 
     if (!m_sourceItem->parentItem()) {
-        if (auto *manager = QQuick3DObjectPrivate::get(this)->sceneManager) {
+        if (const auto &manager = QQuick3DObjectPrivate::get(this)->sceneManager) {
             if (auto *window = manager->window()) {
                 if (m_sourceItemRefed) {
                     // Item was already refed but probably with hide set to false...
@@ -464,9 +516,14 @@ QSSGRenderGraphObject *QQuick3DTexture::updateSpatialNode(QSSGRenderGraphObject 
 
     auto imageNode = static_cast<QSSGRenderImage *>(node);
 
+    // When texture is QQuickItem, flip it automatically
+    bool flipTexture = m_flipV;
+    if (m_sourceItem)
+        flipTexture = !flipTexture;
+
     if (m_dirtyFlags.testFlag(DirtyFlag::TransformDirty)) {
         m_dirtyFlags.setFlag(DirtyFlag::TransformDirty, false);
-        imageNode->m_flipV = m_flipV;
+        imageNode->m_flipV = flipTexture;
         imageNode->m_scale = QVector2D(m_scaleU, m_scaleV);
         imageNode->m_pivot = QVector2D(m_pivotU, m_pivotV);
         imageNode->m_rotation = m_rotationUV;
@@ -495,8 +552,8 @@ QSSGRenderGraphObject *QQuick3DTexture::updateSpatialNode(QSSGRenderGraphObject 
         QQuickWindow *window = m_sourceItem->window();
         if (!window) {
             // Do a hack to set the window
-            auto *manager = QQuick3DObjectPrivate::get(this)->sceneManager;
-            auto *window = manager->window();
+            const auto &manager = QQuick3DObjectPrivate::get(this)->sceneManager;
+            window = manager->window();
             if (!window) {
                 qWarning() << "Unable to get window, this will probably not work";
             } else {
@@ -504,6 +561,9 @@ QSSGRenderGraphObject *QQuick3DTexture::updateSpatialNode(QSSGRenderGraphObject 
                 sourcePrivate->refWindow(window); // TODO: deref window as well
             }
         }
+
+        // Quick Items are considered to always have transparency
+        imageNode->m_textureData.m_textureFlags.setHasTransparency(true);
 
         if (QSGTextureProvider *provider = m_sourceItem->textureProvider()) {
             imageNode->m_qsgTexture = provider->texture();
@@ -521,7 +581,17 @@ QSSGRenderGraphObject *QQuick3DTexture::updateSpatialNode(QSSGRenderGraphObject 
             // TODO: handle dynamic textures
             // TODO: handle textureProvider property changed
         } else {
-            ensureTexture();
+            if (!m_initialized) {
+                m_initialized = true;
+                // When scene has been rendered for the first time, create layer texture.
+                connect(window, &QQuickWindow::afterRendering, this, [this, window]() {
+                    disconnect(window, &QQuickWindow::afterRendering, this, nullptr);
+                    createLayerTexture();
+                });
+            }
+
+            if (!m_layer)
+                return node;
 
             m_layer->setItem(QQuickItemPrivate::get(m_sourceItem)->itemNode());
             QRectF sourceRect = QRectF(0, 0, m_sourceItem->width(), m_sourceItem->height());
@@ -554,8 +624,11 @@ QSSGRenderGraphObject *QQuick3DTexture::updateSpatialNode(QSSGRenderGraphObject 
         // TODO: Move inside block above?
         nodeChanged = true; // @todo: make more granular
     } else {
-        if (m_layer)
+        if (m_layer) {
             m_layer->setItem(nullptr);
+            delete m_layer;
+            m_layer = nullptr;
+        }
         nodeChanged |= qUpdateIfNeeded(imageNode->m_qsgTexture, static_cast<QSGTexture *>(nullptr));
     }
 
@@ -574,8 +647,8 @@ void QQuick3DTexture::itemChange(QQuick3DObject::ItemChange change, const QQuick
             m_sceneManagerForLayer = nullptr;
         }
         trySetSourceParent();
-        QQuick3DSceneManager *sceneManager = value.sceneManager;
-        Q_ASSERT(this->sceneManager() == sceneManager);
+        const auto &sceneManager = value.sceneManager;
+        Q_ASSERT(QQuick3DObjectPrivate::get(this)->sceneManager == sceneManager);
         if (m_layer) {
             if (sceneManager)
                 sceneManager->qsgDynamicTextures << m_layer;
@@ -589,8 +662,12 @@ void QQuick3DTexture::itemGeometryChanged(QQuickItem *item, QQuickGeometryChange
     Q_ASSERT(item == m_sourceItem);
     Q_UNUSED(item)
     Q_UNUSED(geometry)
-    if (change.sizeChange())
+    if (change.sizeChange()) {
+        auto renderImage = getRenderImage();
+        if (renderImage)
+            renderImage->m_flags.setFlag(QSSGRenderImage::Flag::ItemSizeDirty);
         update();
+    }
 }
 
 void QQuick3DTexture::sourceItemDestroyed(QObject *item)
@@ -602,11 +679,9 @@ void QQuick3DTexture::sourceItemDestroyed(QObject *item)
     update();
 }
 
-void QQuick3DTexture::ensureTexture()
+// Create layer and update once valid layer texture exists
+void QQuick3DTexture::createLayerTexture()
 {
-    if (m_layer)
-        return;
-
     auto *sourcePrivate = QQuickItemPrivate::get(m_sourceItem);
 //    Q_ASSERT_X(sourcePrivate->window && sourcePrivate->sceneGraphRenderContext()
 //               && QThread::currentThread() == sourcePrivate->sceneGraphRenderContext()->thread(),
@@ -615,29 +690,41 @@ void QQuick3DTexture::ensureTexture()
     QSGRenderContext *rc = sourcePrivate->sceneGraphRenderContext();
     auto *layer = rc->sceneGraphContext()->createLayer(rc);
     connect(sourcePrivate->window, SIGNAL(sceneGraphInvalidated()), layer, SLOT(invalidated()), Qt::DirectConnection);
-    connect(layer, SIGNAL(updateRequested()), this, SLOT(update()));
-    //connect(layer, SIGNAL(scheduledUpdateCompleted()), this, SIGNAL(scheduledUpdateCompleted()));
 
-    auto *manager = sceneManager();
+    const auto &manager = QQuick3DObjectPrivate::get(this)->sceneManager;
     manager->qsgDynamicTextures << layer;
     m_sceneManagerForLayer = manager;
-    connect(layer, &QObject::destroyed, manager, [this, manager, layer]() {
+    connect(layer, &QObject::destroyed, manager.data(), [this, manager, layer]() {
         manager->qsgDynamicTextures.removeAll(layer);
         m_sceneManagerForLayer = nullptr;
+        m_initialized = false;
     }, Qt::DirectConnection);
 
-    m_layer = layer;
+    // When layer has been updated, take it into use.
+    connect(layer, &QSGLayer::scheduledUpdateCompleted, this, [this, layer]() {
+        m_layer = layer;
+        update();
+    });
+
+    // With every frame (even when QQuickWindow isn't dirty so doesn't render),
+    // try to update the texture. If updateTexture() returns false, content hasn't changed.
+    connect(sourcePrivate->window, &QQuickWindow::beforeSynchronizing, [this]() {
+        if (m_layer) {
+            bool textureUpdated = m_layer->updateTexture();
+            if (textureUpdated)
+                update();
+        }
+    });
+
+    layer->markDirtyTexture();
+    layer->scheduleUpdate();
+    update();
 }
 
 QSSGRenderImage *QQuick3DTexture::getRenderImage()
 {
     QQuick3DObjectPrivate *p = QQuick3DObjectPrivate::get(this);
     return static_cast<QSSGRenderImage *>(p->spatialNode);
-}
-
-QQuick3DTexture::Format QQuick3DTexture::format() const
-{
-    return m_format;
 }
 
 void QQuick3DTexture::markAllDirty()

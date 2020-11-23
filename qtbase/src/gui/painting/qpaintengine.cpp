@@ -158,7 +158,7 @@ QFont QTextItem::font() const
   X11 and \macos, it is the backend for painting on QImage and it is
   used as a fallback for paint engines that do not support a certain
   capability. In addition we provide QPaintEngine implementations for
-  OpenGL (accessible through QGLWidget) and printing (which allows using
+  OpenGL (accessible through QOpenGLWidget) and printing (which allows using
   QPainter to draw on a QPrinter object).
 
   If one wants to use QPainter to draw to a different backend,
@@ -305,7 +305,7 @@ void QPaintEngine::syncState()
         static_cast<QPaintEngineEx *>(this)->sync();
 }
 
-static QPaintEngine *qt_polygon_recursion = 0;
+static QPaintEngine *qt_polygon_recursion = nullptr;
 struct QT_Point {
     int x;
     int y;
@@ -334,7 +334,7 @@ void QPaintEngine::drawPolygon(const QPointF *points, int pointCount, PolygonDra
         p[i].y = qRound(points[i].y());
     }
     drawPolygon((QPoint *)p.data(), pointCount, mode);
-    qt_polygon_recursion = 0;
+    qt_polygon_recursion = nullptr;
 }
 
 struct QT_PointF {
@@ -363,7 +363,7 @@ void QPaintEngine::drawPolygon(const QPoint *points, int pointCount, PolygonDraw
         p[i].y = points[i].y();
     }
     drawPolygon((QPointF *)p.data(), pointCount, mode);
-    qt_polygon_recursion = 0;
+    qt_polygon_recursion = nullptr;
 }
 
 /*!
@@ -508,7 +508,7 @@ void QPaintEngine::drawEllipse(const QRectF &rect)
     if (hasFeature(PainterPaths)) {
         drawPath(path);
     } else {
-        QPolygonF polygon = path.toFillPolygon();
+        QPolygonF polygon = path.toFillPolygon(QTransform());
         drawPolygon(polygon.data(), polygon.size(), ConvexMode);
     }
 }
@@ -691,7 +691,7 @@ void QPaintEngine::drawImage(const QRectF &r, const QImage &image, const QRectF 
 */
 
 QPaintEngine::QPaintEngine(PaintEngineFeatures caps)
-    : state(0),
+    : state(nullptr),
       gccaps(caps),
       active(0),
       selfDestruct(false),
@@ -706,7 +706,7 @@ QPaintEngine::QPaintEngine(PaintEngineFeatures caps)
 */
 
 QPaintEngine::QPaintEngine(QPaintEnginePrivate &dptr, PaintEngineFeatures caps)
-    : state(0),
+    : state(nullptr),
       gccaps(caps),
       active(0),
       selfDestruct(false),
@@ -728,7 +728,7 @@ QPaintEngine::~QPaintEngine()
 */
 QPainter *QPaintEngine::painter() const
 {
-    return state ? state->painter() : 0;
+    return state ? state->painter() : nullptr;
 }
 
 /*!

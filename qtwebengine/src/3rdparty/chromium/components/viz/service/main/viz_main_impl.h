@@ -11,21 +11,16 @@
 #include "base/threading/thread.h"
 #include "build/build_config.h"
 #include "components/discardable_memory/client/client_discardable_shared_memory_manager.h"
-#include "components/viz/service/main/viz_compositor_thread_runner.h"
+#include "components/viz/service/main/viz_compositor_thread_runner_impl.h"
 #include "gpu/ipc/in_process_command_buffer.h"
 #include "mojo/public/cpp/bindings/associated_receiver_set.h"
 #include "mojo/public/cpp/bindings/pending_associated_receiver.h"
 #include "mojo/public/cpp/bindings/pending_receiver.h"
 #include "mojo/public/cpp/bindings/pending_remote.h"
 #include "mojo/public/cpp/bindings/receiver.h"
-#include "services/viz/privileged/interfaces/gl/gpu_service.mojom.h"
-#include "services/viz/privileged/interfaces/viz_main.mojom.h"
+#include "services/viz/privileged/mojom/gl/gpu_service.mojom.h"
+#include "services/viz/privileged/mojom/viz_main.mojom.h"
 #include "ui/gfx/font_render_params.h"
-
-#if defined(USE_OZONE)
-#include "mojo/public/cpp/system/message_pipe.h"
-#include "services/service_manager/public/cpp/binder_registry.h"
-#endif
 
 namespace gpu {
 class GpuInit;
@@ -33,22 +28,12 @@ class SyncPointManager;
 class SharedImageManager;
 }  // namespace gpu
 
-namespace service_manager {
-class Connector;
-}
-
 namespace ukm {
 class MojoUkmRecorder;
 }
 
 namespace viz {
 class GpuServiceImpl;
-
-#if defined(OS_ANDROID)
-using CompositorThreadType = base::android::JavaHandlerThread;
-#else
-using CompositorThreadType = base::Thread;
-#endif
 
 class VizMainImpl : public mojom::VizMain {
  public:
@@ -83,7 +68,8 @@ class VizMainImpl : public mojom::VizMain {
     gpu::SharedImageManager* shared_image_manager = nullptr;
     base::WaitableEvent* shutdown_event = nullptr;
     scoped_refptr<base::SingleThreadTaskRunner> io_thread_task_runner;
-    service_manager::Connector* connector = nullptr;
+    std::unique_ptr<ukm::MojoUkmRecorder> ukm_recorder;
+    VizCompositorThreadRunner* viz_compositor_thread_runner = nullptr;
 
    private:
     DISALLOW_COPY_AND_ASSIGN(ExternalDependencies);
@@ -100,17 +86,12 @@ class VizMainImpl : public mojom::VizMain {
   void BindAssociated(
       mojo::PendingAssociatedReceiver<mojom::VizMain> pending_receiver);
 
-#if defined(USE_OZONE)
-  bool CanBindInterface(const std::string& interface_name) const;
-  void BindInterface(const std::string& interface_name,
-                     mojo::ScopedMessagePipeHandle interface_pipe);
-#endif
-
   // mojom::VizMain implementation:
   void CreateGpuService(
       mojo::PendingReceiver<mojom::GpuService> pending_receiver,
       mojo::PendingRemote<mojom::GpuHost> pending_gpu_host,
-      discardable_memory::mojom::DiscardableSharedMemoryManagerPtr
+      mojo::PendingRemote<
+          discardable_memory::mojom::DiscardableSharedMemoryManager>
           discardable_memory_manager,
       mojo::ScopedSharedBufferHandle activity_flags,
       gfx::FontRenderParams::SubpixelRendering subpixel_rendering) override;
@@ -128,16 +109,13 @@ class VizMainImpl : public mojom::VizMain {
   }
 
   // Cleanly exits the process.
-  void ExitProcess();
+  void ExitProcess(bool immediately);
 
   VizCompositorThreadRunner* viz_compositor_thread_runner() {
-    return viz_compositor_thread_runner_.get();
+    return viz_compositor_thread_runner_;
   }
 
  private:
-  // Initializes GPU's UkmRecorder if GPU is running in it's own process.
-  void CreateUkmRecorderIfNeeded(service_manager::Connector* connector);
-
   void CreateFrameSinkManagerInternal(mojom::FrameSinkManagerParamsPtr params);
 
   scoped_refptr<base::SingleThreadTaskRunner> io_task_runner() const {
@@ -169,7 +147,13 @@ class VizMainImpl : public mojom::VizMain {
   mojom::FrameSinkManagerParamsPtr pending_frame_sink_manager_params_;
 
   // Runs the VizCompositorThread for the display compositor with OOP-D.
-  std::unique_ptr<VizCompositorThreadRunner> viz_compositor_thread_runner_;
+  std::unique_ptr<VizCompositorThreadRunnerImpl>
+      viz_compositor_thread_runner_impl_;
+  // Note under Android WebView where VizCompositorThreadRunner is not created
+  // and owned by this, Viz does not interact with other objects in this class,
+  // such as GpuServiceImpl or CommandBufferTaskExecutor. Code should take care
+  // to avoid introducing such assumptions.
+  VizCompositorThreadRunner* viz_compositor_thread_runner_ = nullptr;
 
   const scoped_refptr<base::SingleThreadTaskRunner> gpu_thread_task_runner_;
 
@@ -178,11 +162,6 @@ class VizMainImpl : public mojom::VizMain {
 
   std::unique_ptr<discardable_memory::ClientDiscardableSharedMemoryManager>
       discardable_shared_memory_manager_;
-
-#if defined(USE_OZONE)
-  // Registry for gpu-related interfaces needed by ozone.
-  service_manager::BinderRegistry registry_;
-#endif
 
   DISALLOW_COPY_AND_ASSIGN(VizMainImpl);
 };

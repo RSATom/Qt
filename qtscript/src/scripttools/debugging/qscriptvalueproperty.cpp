@@ -141,7 +141,7 @@ QScriptValue::PropertyFlags QScriptValueProperty::flags() const
 {
     Q_D(const QScriptValueProperty);
     if (!d)
-        return 0;
+        return {};
     return d->flags;
 }
 

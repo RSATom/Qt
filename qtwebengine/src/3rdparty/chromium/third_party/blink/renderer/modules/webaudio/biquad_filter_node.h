@@ -39,7 +39,7 @@ class BaseAudioContext;
 class AudioParam;
 class BiquadFilterOptions;
 
-class BiquadFilterHandler : public AudioBasicProcessorHandler ,
+class BiquadFilterHandler : public AudioBasicProcessorHandler,
                             public base::SupportsWeakPtr<BiquadFilterHandler> {
  public:
   static scoped_refptr<BiquadFilterHandler> Create(AudioNode&,
@@ -109,6 +109,10 @@ class BiquadFilterNode final : public AudioNode {
                             NotShared<DOMFloat32Array> mag_response,
                             NotShared<DOMFloat32Array> phase_response,
                             ExceptionState&);
+
+  // InspectorHelperMixin
+  void ReportDidCreate() final;
+  void ReportWillBeDestroyed() final;
 
  private:
   BiquadProcessor* GetBiquadProcessor() const;

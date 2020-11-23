@@ -78,10 +78,15 @@ class CONTENT_EXPORT DWriteFontLookupTableBuilder {
   void SetSlowDownIndexingForTestingWithTimeout(SlowDownMode slowdown_mode,
                                                 base::TimeDelta new_timeout);
 
-  // Needed to trigger rebuilding the lookup table, when testing using
-  // slowed-down indexing. Otherwise, the test methods would use the already
-  // cached lookup table.
+  // Reset timeout overrides and empty table. Needed to trigger rebuilding the
+  // lookup table, when testing using slowed-down indexing. Otherwise, the test
+  // methods would use the already cached lookup table.
   void ResetLookupTableForTesting();
+
+  // Resets other overrides such as the DWrite version check override and cache
+  // directory back to its default values.
+  void ResetStateForTesting();
+
   // Signals hang_event_for_testing_ which is used in testing hanging one of the
   // font name retrieval tasks.
   void ResumeFromHangForTesting();
@@ -102,8 +107,9 @@ class CONTENT_EXPORT DWriteFontLookupTableBuilder {
   // repeated rebuilding of the font table lookup structure.
   void SetCachingEnabledForTesting(bool caching_enabled);
 
-  // Disables DCHECKs that ensure DWriteFontLookupTableBuilder is only run pre
-  // Windows 10, used for testing only to allow running the tests on Windows 10.
+  // Disable DCHECKs that ensure DWriteFontLookupTableBuilder is only
+  // run pre Windows 10, used for testing only to allow running the tests on
+  // Windows 10.
   void OverrideDWriteVersionChecksForTesting();
 
  private:
@@ -122,7 +128,15 @@ class CONTENT_EXPORT DWriteFontLookupTableBuilder {
     std::vector<std::string> extracted_names;
   };
 
-  using FamilyResult = std::vector<FontFileWithUniqueNames>;
+  struct FamilyResult {
+    FamilyResult();
+    FamilyResult(FamilyResult&& other);
+    ~FamilyResult();
+    std::vector<FontFileWithUniqueNames> font_files_with_names;
+    HRESULT exit_hresult{S_OK};
+
+    DISALLOW_COPY_AND_ASSIGN(FamilyResult);
+  };
 
   // Try to find a serialized lookup table from the cache directory specified at
   // construction and load it into memory.
@@ -131,6 +145,11 @@ class CONTENT_EXPORT DWriteFontLookupTableBuilder {
   // Serialize the current lookup table into a file in the cache directory
   // specified at construction time.
   bool PersistToFile();
+
+  // Initialize the cache directory from the user profile directory if
+  // DWriteFontLookupTableBuilder is executed in an environment where the
+  // profile is accessible.
+  void InitializeCacheDirectoryFromProfile();
 
   // Load from cache or construct the font unique name lookup table. If the
   // cache is up to date, do not schedule a run to scan all Windows-enumerated
@@ -156,6 +175,21 @@ class CONTENT_EXPORT DWriteFontLookupTableBuilder {
   // that font unique name lookup table construction is complete. Serializes the
   // constructed protobuf to disk.
   void FinalizeFontTable();
+
+  // Internal implementation of adding a callback request to the list in order
+  // to sequentialise access to pending_callbacks_.
+  void QueueShareMemoryRegionWhenReadyImpl(
+      scoped_refptr<base::SequencedTaskRunner> task_runner,
+      blink::mojom::DWriteFontProxy::GetUniqueNameLookupTableCallback callback);
+
+  // Internal implementation of posting the callbacks, running on the sequence
+  // that sequentialises access to pending_callbacks_.
+  void PostCallbacksImpl();
+
+  // Resets the internal task runner guarding access to pending_callbacks_, used
+  // in unit tests, as the TaskEnvironment used in tests tears down and resets
+  // the ThreadPool between tests, and the TaskRunner depends on it.
+  void ResetCallbacksAccessTaskRunner();
 
   void OnTimeout();
 
@@ -190,10 +224,11 @@ class CONTENT_EXPORT DWriteFontLookupTableBuilder {
   Microsoft::WRL::ComPtr<IDWriteFactory3> factory3_;
   SlowDownMode slow_down_mode_for_testing_ = SlowDownMode::kNoSlowdown;
   uint32_t outstanding_family_results_ = 0;
+  uint32_t family_results_non_empty_ = 0;
+  uint32_t family_results_empty_ = 0;
   base::TimeTicks start_time_table_ready_;
   base::TimeTicks start_time_table_build_;
   base::FilePath cache_directory_;
-  std::string persistence_hash_;
 
   bool caching_enabled_ = true;
   base::Optional<base::WaitableEvent> hang_event_for_testing_;
@@ -211,6 +246,9 @@ class CONTENT_EXPORT DWriteFontLookupTableBuilder {
   };
 
   std::vector<CallbackOnTaskRunner> pending_callbacks_;
+  std::map<HRESULT, unsigned> scanning_error_reasons_;
+  scoped_refptr<base::SequencedTaskRunner> callbacks_access_task_runner_;
+  SEQUENCE_CHECKER(callbacks_access_sequence_checker_);
 
   DISALLOW_COPY_AND_ASSIGN(DWriteFontLookupTableBuilder);
 };

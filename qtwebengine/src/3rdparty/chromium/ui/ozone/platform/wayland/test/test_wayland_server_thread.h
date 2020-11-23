@@ -13,12 +13,14 @@
 #include "base/synchronization/waitable_event.h"
 #include "base/threading/thread.h"
 #include "ui/ozone/platform/wayland/test/global_object.h"
+#include "ui/ozone/platform/wayland/test/mock_wp_presentation.h"
 #include "ui/ozone/platform/wayland/test/mock_xdg_shell.h"
 #include "ui/ozone/platform/wayland/test/mock_zwp_linux_dmabuf.h"
 #include "ui/ozone/platform/wayland/test/test_compositor.h"
 #include "ui/ozone/platform/wayland/test/test_data_device_manager.h"
 #include "ui/ozone/platform/wayland/test/test_output.h"
 #include "ui/ozone/platform/wayland/test/test_seat.h"
+#include "ui/ozone/platform/wayland/test/test_subcompositor.h"
 #include "ui/ozone/platform/wayland/test/test_zwp_text_input_manager.h"
 
 struct wl_client;
@@ -43,8 +45,8 @@ class TestWaylandServerThread : public base::Thread,
   // descriptor that a client can connect to. The caller is responsible for
   // ensuring that this file descriptor gets closed (for example, by calling
   // wl_display_connect).
-  // Instantiates an xdg_shell of version |shell_version|; versions 5 and 6 are
-  // supported.
+  // Instantiates an xdg_shell of version |shell_version|; versions 6 and 7
+  // (stable) are supported.
   bool Start(uint32_t shell_version);
 
   // Pauses the server thread when it becomes idle.
@@ -52,6 +54,9 @@ class TestWaylandServerThread : public base::Thread,
 
   // Resumes the server thread after flushing client connections.
   void Resume();
+
+  // Initializes and returns WpPresentation.
+  MockWpPresentation* EnsureWpPresentation();
 
   template <typename T>
   T* GetObject(uint32_t id) {
@@ -97,6 +102,7 @@ class TestWaylandServerThread : public base::Thread,
 
   // Represent Wayland global objects
   TestCompositor compositor_;
+  TestSubCompositor sub_compositor_;
   TestDataDeviceManager data_device_manager_;
   TestOutput output_;
   TestSeat seat_;
@@ -104,6 +110,7 @@ class TestWaylandServerThread : public base::Thread,
   MockZxdgShellV6 zxdg_shell_v6_;
   TestZwpTextInputManagerV1 zwp_text_input_manager_v1_;
   MockZwpLinuxDmabufV1 zwp_linux_dmabuf_v1_;
+  MockWpPresentation wp_presentation_;
 
   std::vector<std::unique_ptr<GlobalObject>> globals_;
 

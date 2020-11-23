@@ -468,11 +468,11 @@ TEST_P(FeatureInfoTest, InitializeEXT_texture_compression_s3tc_srgbGL) {
       GL_COMPRESSED_SRGB_ALPHA_S3TC_DXT5_EXT));
 }
 
-TEST_P(FeatureInfoTest, InitializeCHROMIUM_compressed_texture_etc) {
+TEST_P(FeatureInfoTest, InitializeANGLE_compressed_texture_etc) {
   SetupInitExpectationsWithGLVersion("", "",
                                      "OpenGL ES 3.0");
   EXPECT_TRUE(gfx::HasExtension(info_->extensions(),
-                                "GL_CHROMIUM_compressed_texture_etc"));
+                                "GL_ANGLE_compressed_texture_etc"));
   EXPECT_TRUE(info_->validators()->compressed_texture_format.IsValid(
       GL_COMPRESSED_R11_EAC));
   EXPECT_TRUE(info_->validators()->compressed_texture_format.IsValid(
@@ -1713,11 +1713,6 @@ TEST_P(FeatureInfoTest, InitializeEXT_texture_norm16) {
   EXPECT_TRUE(info_->validators()->texture_internal_format.IsValid(GL_RED_EXT));
   EXPECT_TRUE(
       info_->validators()->texture_internal_format_storage.IsValid(GL_R16_EXT));
-}
-
-TEST_P(FeatureInfoTest, InitializeCHROMIUM_ycbcr_422_imageTrue) {
-  SetupInitExpectations("GL_APPLE_ycbcr_422");
-  EXPECT_TRUE(info_->feature_flags().chromium_image_ycbcr_422);
 }
 
 TEST_P(FeatureInfoTest, InitializeCHROMIUM_unpremultiply_and_dither_copy) {

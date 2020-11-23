@@ -40,26 +40,9 @@
 #include "qthreadpooler_p.h"
 #include <QtCore/QDebug>
 
-#if QT_CONFIG(qt3d_profile_jobs)
-
-#ifdef Q_OS_ANDROID
-#include <QtCore/QStandardPaths>
-#endif
-
-#include <QtCore/QCoreApplication>
-#include <QtCore/QFile>
-#include <QtCore/QThreadStorage>
-#include <QtCore/QDateTime>
-#include <QtCore/QCoreApplication>
-#endif
-
 QT_BEGIN_NAMESPACE
 
 namespace Qt3DCore {
-
-#if QT_CONFIG(qt3d_profile_jobs)
-QElapsedTimer QThreadPooler::m_jobsStatTimer;
-#endif
 
 QThreadPooler::QThreadPooler(QObject *parent)
     : QObject(parent)
@@ -67,21 +50,11 @@ QThreadPooler::QThreadPooler(QObject *parent)
     , m_mutex()
     , m_taskCount(0)
     , m_threadPool(QThreadPool::globalInstance())
+    , m_totalRunJobs(0)
 {
-    const QByteArray maxThreadCount = qgetenv("QT3D_MAX_THREAD_COUNT");
-    if (!maxThreadCount.isEmpty()) {
-        bool conversionOK = false;
-        const int maxThreadCountValue = maxThreadCount.toInt(&conversionOK);
-        if (conversionOK)
-            m_threadPool->setMaxThreadCount(maxThreadCountValue);
-    }
-
-
+    m_threadPool->setMaxThreadCount(QThreadPooler::maxThreadCount());
     // Ensures that threads will never be recycled
     m_threadPool->setExpiryTimeout(-1);
-#if QT_CONFIG(qt3d_profile_jobs)
-    QThreadPooler::m_jobsStatTimer.start();
-#endif
 }
 
 QThreadPooler::~QThreadPooler()
@@ -96,6 +69,7 @@ void QThreadPooler::enqueueTasks(const QVector<RunnableInterface *> &tasks)
     // The caller have to set the mutex
     const QVector<RunnableInterface *>::const_iterator end = tasks.cend();
 
+    m_totalRunJobs = 0;
     for (QVector<RunnableInterface *>::const_iterator it = tasks.cbegin();
          it != end; ++it) {
 
@@ -107,8 +81,51 @@ void QThreadPooler::enqueueTasks(const QVector<RunnableInterface *> &tasks)
 
         if (!hasDependencies(*it) && !(*it)->reserved()) {
             (*it)->setReserved(true);
-            (*it)->setPooler(this);
-            m_threadPool->start((*it));
+            if ((*it)->isRequired()) {
+                (*it)->setPooler(this);
+                m_threadPool->start((*it));
+            } else {
+                skipTask(*it);
+            }
+        }
+    }
+}
+
+void QThreadPooler::skipTask(RunnableInterface *task)
+{
+    enqueueDepencies(task);
+
+    if (currentCount() == 0) {
+        if (m_futureInterface) {
+            m_futureInterface->reportFinished();
+            delete m_futureInterface;
+        }
+        m_futureInterface = nullptr;
+    }
+
+    delete task; // normally gets deleted by threadpool
+}
+
+void QThreadPooler::enqueueDepencies(RunnableInterface *task)
+{
+    release();
+
+    if (task->type() == RunnableInterface::RunnableType::AspectTask) {
+        AspectTaskRunnable *aspectTask = static_cast<AspectTaskRunnable *>(task);
+        const auto &dependers = aspectTask->m_dependers;
+        for (auto it = dependers.begin(); it != dependers.end(); ++it) {
+            AspectTaskRunnable *dependerTask = static_cast<AspectTaskRunnable *>(*it);
+            if (--dependerTask->m_dependerCount == 0) {
+                if (!dependerTask->reserved()) {
+                    dependerTask->setReserved(true);
+                    if ((*it)->isRequired()) {
+                        dependerTask->setPooler(this);
+                        m_threadPool->start(dependerTask);
+                    } else {
+                        skipTask(*it);
+                    }
+                }
+            }
         }
     }
 }
@@ -117,22 +134,9 @@ void QThreadPooler::taskFinished(RunnableInterface *task)
 {
     const QMutexLocker locker(&m_mutex);
 
-    release();
+    m_totalRunJobs++;
 
-    if (task->type() == RunnableInterface::RunnableType::AspectTask) {
-        AspectTaskRunnable *aspectTask = static_cast<AspectTaskRunnable *>(task);
-        const auto &dependers = aspectTask->m_dependers;
-        for (auto it = dependers.begin(); it != dependers.end(); ++it) {
-            aspectTask = static_cast<AspectTaskRunnable *>(*it);
-            if (--aspectTask->m_dependerCount == 0) {
-                if (!aspectTask->reserved()) {
-                    aspectTask->setReserved(true);
-                    aspectTask->setPooler(this);
-                    m_threadPool->start(aspectTask);
-                }
-            }
-        }
-    }
+    enqueueDepencies(task);
 
     if (currentCount() == 0) {
         if (m_futureInterface) {
@@ -156,6 +160,12 @@ QFuture<void> QThreadPooler::mapDependables(QVector<RunnableInterface *> &taskQu
     enqueueTasks(taskQueue);
 
     return QFuture<void>(m_futureInterface);
+}
+
+int QThreadPooler::waitForAllJobs()
+{
+    future().waitForFinished();
+    return m_totalRunJobs;
 }
 
 QFuture<void> QThreadPooler::future()
@@ -189,106 +199,23 @@ int QThreadPooler::currentCount() const
     return m_taskCount.loadRelaxed();
 }
 
-int QThreadPooler::maxThreadCount() const
+int QThreadPooler::maxThreadCount()
 {
-    return m_threadPool->maxThreadCount();
-}
+    static int threadCount = 0;
 
-#if QT_CONFIG(qt3d_profile_jobs)
-
-QThreadStorage<QVector<JobRunStats> *> jobStatsCached;
-
-QVector<QVector<JobRunStats> *> localStorages;
-QVector<JobRunStats> *submissionStorage = nullptr;
-
-QMutex localStoragesMutex;
-
-// Called by the jobs
-void QThreadPooler::addJobLogStatsEntry(JobRunStats &stats)
-{
-    if (!jobStatsCached.hasLocalData()) {
-        auto jobVector = new QVector<JobRunStats>;
-        jobStatsCached.setLocalData(jobVector);
-        QMutexLocker lock(&localStoragesMutex);
-        localStorages.push_back(jobVector);
-    }
-    jobStatsCached.localData()->push_back(stats);
-}
-
-// Called after jobs have been executed (MainThread QAspectJobManager::enqueueJobs)
-void QThreadPooler::writeFrameJobLogStats()
-{
-    static QScopedPointer<QFile> traceFile;
-    static quint32 frameId = 0;
-    if (!traceFile) {
-        const QString fileName = QStringLiteral("trace_") + QCoreApplication::applicationName() + QDateTime::currentDateTime().toString(QStringLiteral("_ddd_dd_MM_yy-hh_mm_ss_"))+ QSysInfo::productType() + QStringLiteral("_") + QSysInfo::buildAbi() + QStringLiteral(".qt3d");
-#ifdef Q_OS_ANDROID
-        traceFile.reset(new QFile(QStandardPaths::writableLocation(QStandardPaths::DownloadLocation) + QStringLiteral("/") + fileName));
-#else
-        traceFile.reset(new QFile(fileName));
-#endif
-        if (!traceFile->open(QFile::WriteOnly|QFile::Truncate))
-            qCritical("Failed to open trace file");
-    }
-
-    // Write Aspect + Job threads
-    {
-        FrameHeader header;
-        header.frameId = frameId;
-        header.jobCount = 0;
-
-        for (const QVector<JobRunStats> *storage : qAsConst(localStorages))
-            header.jobCount += storage->size();
-
-        traceFile->write(reinterpret_cast<char *>(&header), sizeof(FrameHeader));
-
-        for (QVector<JobRunStats> *storage : qAsConst(localStorages)) {
-            for (const JobRunStats &stat : *storage)
-                traceFile->write(reinterpret_cast<const char *>(&stat), sizeof(JobRunStats));
-            storage->clear();
+    if (threadCount == 0) {
+        threadCount = QThread::idealThreadCount();
+        const QByteArray maxThreadCount = qgetenv("QT3D_MAX_THREAD_COUNT");
+        if (!maxThreadCount.isEmpty()) {
+            bool conversionOK = false;
+            const int maxThreadCountValue = maxThreadCount.toInt(&conversionOK);
+            if (conversionOK)
+                threadCount = std::min(threadCount, maxThreadCountValue);
         }
     }
 
-    // Write submission thread
-    {
-        QMutexLocker lock(&localStoragesMutex);
-        const int submissionJobSize = submissionStorage != nullptr ? submissionStorage->size() : 0;
-        if (submissionJobSize > 0) {
-            FrameHeader header;
-            header.frameId = frameId;
-            header.jobCount = submissionJobSize;
-            header.frameType = FrameHeader::Submission;
-
-            traceFile->write(reinterpret_cast<char *>(&header), sizeof(FrameHeader));
-
-            for (const JobRunStats &stat : *submissionStorage)
-                traceFile->write(reinterpret_cast<const char *>(&stat), sizeof(JobRunStats));
-            submissionStorage->clear();
-        }
-    }
-
-    traceFile->flush();
-    ++frameId;
+    return threadCount;
 }
-
-// Called from Submission thread (which can be main thread in Manual drive mode)
-void QThreadPooler::addSubmissionLogStatsEntry(JobRunStats &stats)
-{
-    QMutexLocker lock(&localStoragesMutex);
-    if (!jobStatsCached.hasLocalData()) {
-        submissionStorage = new QVector<JobRunStats>;
-        jobStatsCached.setLocalData(submissionStorage);
-    }
-
-    // Handle the case where submission thread is also the main thread (Scene/Manual drive modes with no RenderThread)
-    if (submissionStorage == nullptr && jobStatsCached.hasLocalData())
-        submissionStorage = new QVector<JobRunStats>;
-
-    // When having no submission thread this can be null
-    submissionStorage->push_back(stats);
-}
-
-#endif
 
 } // namespace Qt3DCore
 

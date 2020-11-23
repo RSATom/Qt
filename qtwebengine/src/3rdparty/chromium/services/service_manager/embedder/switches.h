@@ -43,6 +43,13 @@ extern const char kZygoteCmdPrefix[];
 COMPONENT_EXPORT(SERVICE_MANAGER_EMBEDDER_SWITCHES)
 extern const char kZygoteProcess[];
 
+#if defined(TOOLKIT_QT)
+COMPONENT_EXPORT(SERVICE_MANAGER_EMBEDDER_SWITCHES)
+extern const char kCdmWidevinePath[];
+COMPONENT_EXPORT(SERVICE_MANAGER_EMBEDDER_SWITCHES)
+extern const char kApplicationName[];
+#endif
+
 }  // namespace switches
 }  // namespace service_manager
 

@@ -15,15 +15,14 @@
  */
 
 #include "src/profiling/memory/wire_protocol.h"
-#include "perfetto/base/logging.h"
-#include "perfetto/ext/base/scoped_file.h"
-#include "perfetto/ext/base/unix_socket.h"
 
 #include <sys/socket.h>
 #include <sys/types.h>
 
-#include <gmock/gmock.h>
-#include <gtest/gtest.h>
+#include "perfetto/base/logging.h"
+#include "perfetto/ext/base/scoped_file.h"
+#include "perfetto/ext/base/unix_socket.h"
+#include "test/gtest_and_gmock.h"
 
 namespace perfetto {
 namespace profiling {
@@ -57,8 +56,10 @@ base::ScopedFile CopyFD(int fd) {
   int sv[2];
   PERFETTO_CHECK(socketpair(AF_UNIX, SOCK_STREAM, 0, sv) == 0);
   base::UnixSocketRaw send_sock(base::ScopedFile(sv[0]),
+                                base::SockFamily::kUnix,
                                 base::SockType::kStream);
   base::UnixSocketRaw recv_sock(base::ScopedFile(sv[1]),
+                                base::SockFamily::kUnix,
                                 base::SockType::kStream);
   char msg[] = "a";
   PERFETTO_CHECK(send_sock.Send(msg, sizeof(msg), &fd, 1));

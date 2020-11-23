@@ -33,8 +33,6 @@
 
 namespace blink {
 
-using namespace html_names;
-
 // Since the collections are to be "live", we have to do the
 // calculation every time if anything has changed.
 
@@ -43,7 +41,7 @@ HTMLFormControlsCollection::HTMLFormControlsCollection(
     : HTMLCollection(owner_node, kFormControls, kOverridesItemAfter),
       cached_element_(nullptr),
       cached_element_offset_in_array_(0) {
-  DCHECK(IsHTMLFormElement(owner_node));
+  DCHECK(IsA<HTMLFormElement>(owner_node));
 }
 
 HTMLFormControlsCollection::HTMLFormControlsCollection(
@@ -56,12 +54,12 @@ HTMLFormControlsCollection::HTMLFormControlsCollection(
 HTMLFormControlsCollection::~HTMLFormControlsCollection() = default;
 
 const ListedElement::List& HTMLFormControlsCollection::ListedElements() const {
-  return ToHTMLFormElement(ownerNode()).ListedElements();
+  return To<HTMLFormElement>(ownerNode()).ListedElements();
 }
 
 const HeapVector<Member<HTMLImageElement>>&
 HTMLFormControlsCollection::FormImageElements() const {
-  return ToHTMLFormElement(ownerNode()).ImageElements();
+  return To<HTMLFormElement>(ownerNode()).ImageElements();
 }
 
 static unsigned FindListedElement(const ListedElement::List& listed_elements,
@@ -107,7 +105,8 @@ void HTMLFormControlsCollection::InvalidateCache(Document* old_document) const {
 static HTMLElement* FirstNamedItem(const ListedElement::List& elements_array,
                                    const QualifiedName& attr_name,
                                    const String& name) {
-  DCHECK(attr_name == kIdAttr || attr_name == kNameAttr);
+  DCHECK(attr_name == html_names::kIdAttr ||
+         attr_name == html_names::kNameAttr);
 
   for (const auto& listed_element : elements_array) {
     HTMLElement& element = listed_element->ToHTMLElement();
@@ -125,9 +124,10 @@ HTMLElement* HTMLFormControlsCollection::namedItem(
   // attribute. If a match is not found, the method then searches for an
   // object with a matching name attribute, but only on those elements
   // that are allowed a name attribute.
-  if (HTMLElement* item = FirstNamedItem(ListedElements(), kIdAttr, name))
+  if (HTMLElement* item =
+          FirstNamedItem(ListedElements(), html_names::kIdAttr, name))
     return item;
-  return FirstNamedItem(ListedElements(), kNameAttr, name);
+  return FirstNamedItem(ListedElements(), html_names::kNameAttr, name);
 }
 
 void HTMLFormControlsCollection::UpdateIdNameCache() const {
@@ -182,7 +182,7 @@ void HTMLFormControlsCollection::namedGetter(
     return;
 
   if (named_items.size() == 1) {
-    if (!IsHTMLImageElement(*named_items[0]))
+    if (!IsA<HTMLImageElement>(*named_items[0]))
       return_value.SetElement(named_items.at(0));
     return;
   }

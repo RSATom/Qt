@@ -197,12 +197,12 @@ public:
     QQuickMenuItem1(QObject *parent = 0);
     ~QQuickMenuItem1();
 
-    void setEnabled(bool enabled);
+    void setEnabled(bool enabled) override;
 
-    QString text() const;
+    QString text() const override;
 
-    QUrl iconSource() const;
-    QString iconName() const;
+    QUrl iconSource() const override;
+    QString iconName() const override;
 
     QQuickAction1 *boundAction() { return m_boundAction; }
     void setBoundAction(QQuickAction1 *a);
@@ -219,7 +219,7 @@ public:
     QQuickExclusiveGroup1 *exclusiveGroup() const;
     void setExclusiveGroup(QQuickExclusiveGroup1 *);
 
-    void setParentMenu(QQuickMenu1 *parentMenu);
+    void setParentMenu(QQuickMenu1 *parentMenu) override;
 
 protected Q_SLOTS:
     void updateShortcut();
@@ -229,8 +229,8 @@ protected Q_SLOTS:
     void unbindFromAction(QObject *action);
 
 protected:
-    QIcon icon() const;
-    QQuickAction1 *action() const;
+    QIcon icon() const override;
+    QQuickAction1 *action() const override;
 
 private:
     QQuickAction1 *m_boundAction;

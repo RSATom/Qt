@@ -4,6 +4,8 @@
 
 #include "third_party/blink/renderer/core/editing/inline_box_traversal.h"
 
+#include <unicode/ubidi.h>
+
 #include "third_party/blink/renderer/core/editing/inline_box_position.h"
 #include "third_party/blink/renderer/core/editing/ng_flat_tree_shorthands.h"
 #include "third_party/blink/renderer/core/editing/selection_template.h"
@@ -12,10 +14,6 @@
 #include "third_party/blink/renderer/core/layout/line/inline_box.h"
 #include "third_party/blink/renderer/core/layout/line/root_inline_box.h"
 #include "third_party/blink/renderer/core/layout/ng/inline/ng_caret_position.h"
-#include "third_party/blink/renderer/core/layout/ng/inline/ng_physical_line_box_fragment.h"
-#include "third_party/blink/renderer/core/layout/ng/inline/ng_physical_text_fragment.h"
-#include "third_party/blink/renderer/core/paint/ng/ng_paint_fragment.h"
-#include "third_party/blink/renderer/core/paint/ng/ng_paint_fragment_traversal.h"
 #include "third_party/blink/renderer/platform/text/text_direction.h"
 
 // TODO(xiaochengh): Rename this file to |bidi_adjustment.cc|
@@ -35,8 +33,9 @@ class AbstractInlineBox {
 
   explicit AbstractInlineBox(const InlineBox& box)
       : type_(InstanceType::kOldLayout), inline_box_(&box) {}
-  explicit AbstractInlineBox(const NGPaintFragment& fragment)
-      : AbstractInlineBox(NGPaintFragmentTraversalContext::Create(&fragment)) {}
+  explicit AbstractInlineBox(const NGInlineCursor& cursor)
+      : type_(InstanceType::kNG),
+        line_cursor_(CreateLineRootedCursor(cursor)) {}
 
   bool IsNotNull() const { return type_ != InstanceType::kNull; }
   bool IsNull() const { return !IsNotNull(); }
@@ -52,10 +51,18 @@ class AbstractInlineBox {
       case InstanceType::kOldLayout:
         return inline_box_ == other.inline_box_;
       case InstanceType::kNG:
-        return paint_fragment_ == other.paint_fragment_;
+        return line_cursor_ == other.line_cursor_;
     }
     NOTREACHED();
     return false;
+  }
+
+  // Returns containing block rooted cursor instead of line rooted cursor for
+  // ease of handling, e.g. equiality check, move to next/previous line, etc.
+  NGInlineCursor GetCursor() const {
+    NGInlineCursor cursor;
+    cursor.MoveTo(line_cursor_);
+    return cursor;
   }
 
   const InlineBox& GetInlineBox() const {
@@ -64,23 +71,16 @@ class AbstractInlineBox {
     return *inline_box_;
   }
 
-  const NGPaintFragment& GetNGPaintFragment() const {
-    DCHECK(IsNG());
-    DCHECK(!paint_fragment_.IsNull());
-    return *paint_fragment_.GetFragment();
-  }
-
   UBiDiLevel BidiLevel() const {
     DCHECK(IsNotNull());
     return IsOldLayout() ? GetInlineBox().BidiLevel()
-                         : GetNGPaintFragment().PhysicalFragment().BidiLevel();
+                         : line_cursor_.CurrentBidiLevel();
   }
 
   TextDirection Direction() const {
     DCHECK(IsNotNull());
-    return IsOldLayout()
-               ? GetInlineBox().Direction()
-               : GetNGPaintFragment().PhysicalFragment().ResolvedDirection();
+    return IsOldLayout() ? GetInlineBox().Direction()
+                         : line_cursor_.CurrentResolvedDirection();
   }
 
   AbstractInlineBox PrevLeafChild() const {
@@ -89,9 +89,9 @@ class AbstractInlineBox {
       const InlineBox* result = GetInlineBox().PrevLeafChild();
       return result ? AbstractInlineBox(*result) : AbstractInlineBox();
     }
-    const NGPaintFragmentTraversalContext result =
-        NGPaintFragmentTraversal::PreviousInlineLeafOf(paint_fragment_);
-    return result.IsNull() ? AbstractInlineBox() : AbstractInlineBox(result);
+    NGInlineCursor cursor(line_cursor_);
+    cursor.MoveToPreviousInlineLeaf();
+    return cursor ? AbstractInlineBox(cursor) : AbstractInlineBox();
   }
 
   AbstractInlineBox PrevLeafChildIgnoringLineBreak() const {
@@ -100,10 +100,9 @@ class AbstractInlineBox {
       const InlineBox* result = GetInlineBox().PrevLeafChildIgnoringLineBreak();
       return result ? AbstractInlineBox(*result) : AbstractInlineBox();
     }
-    const NGPaintFragmentTraversalContext result =
-        NGPaintFragmentTraversal::PreviousInlineLeafOfIgnoringLineBreak(
-            paint_fragment_);
-    return result.IsNull() ? AbstractInlineBox() : AbstractInlineBox(result);
+    NGInlineCursor cursor(line_cursor_);
+    cursor.MoveToPreviousInlineLeafIgnoringLineBreak();
+    return cursor ? AbstractInlineBox(cursor) : AbstractInlineBox();
   }
 
   AbstractInlineBox NextLeafChild() const {
@@ -112,9 +111,9 @@ class AbstractInlineBox {
       const InlineBox* result = GetInlineBox().NextLeafChild();
       return result ? AbstractInlineBox(*result) : AbstractInlineBox();
     }
-    const NGPaintFragmentTraversalContext result =
-        NGPaintFragmentTraversal::NextInlineLeafOf(paint_fragment_);
-    return result.IsNull() ? AbstractInlineBox() : AbstractInlineBox(result);
+    NGInlineCursor cursor(line_cursor_);
+    cursor.MoveToNextInlineLeaf();
+    return cursor ? AbstractInlineBox(cursor) : AbstractInlineBox();
   }
 
   AbstractInlineBox NextLeafChildIgnoringLineBreak() const {
@@ -123,30 +122,45 @@ class AbstractInlineBox {
       const InlineBox* result = GetInlineBox().NextLeafChildIgnoringLineBreak();
       return result ? AbstractInlineBox(*result) : AbstractInlineBox();
     }
-    const NGPaintFragmentTraversalContext result =
-        NGPaintFragmentTraversal::NextInlineLeafOfIgnoringLineBreak(
-            paint_fragment_);
-    return result.IsNull() ? AbstractInlineBox() : AbstractInlineBox(result);
+    NGInlineCursor cursor(line_cursor_);
+    cursor.MoveToNextInlineLeafIgnoringLineBreak();
+    return cursor ? AbstractInlineBox(cursor) : AbstractInlineBox();
   }
 
   TextDirection ParagraphDirection() const {
     DCHECK(IsNotNull());
     if (IsOldLayout())
       return ParagraphDirectionOf(GetInlineBox());
-    return ParagraphDirectionOf(GetNGPaintFragment());
+    return GetLineBox(line_cursor_).CurrentBaseDirection();
   }
 
  private:
-  explicit AbstractInlineBox(const NGPaintFragmentTraversalContext& fragment)
-      : type_(InstanceType::kNG), paint_fragment_(fragment) {}
+  static NGInlineCursor CreateLineRootedCursor(const NGInlineCursor& cursor) {
+    NGInlineCursor line_cursor = GetLineBox(cursor).CursorForDescendants();
+    line_cursor.MoveTo(cursor);
+    return line_cursor;
+  }
+
+  // Returns containing line box of |cursor| even if |cursor| is scoped inside
+  // line.
+  static NGInlineCursor GetLineBox(const NGInlineCursor& cursor) {
+    NGInlineCursor line_box;
+    line_box.MoveTo(cursor);
+    line_box.MoveToContainingLine();
+    return line_box;
+  }
 
   enum class InstanceType { kNull, kOldLayout, kNG };
   InstanceType type_;
 
-  // Only one of |inline_box_| or |paint_fragment_| is used, but we cannot make
+  // Only one of |inline_box_| or |line_cursor_| is used, but we cannot make
   // them union because of non-trivial destructor.
   const InlineBox* inline_box_;
-  NGPaintFragmentTraversalContext paint_fragment_;
+
+  // Because of |MoveToContainingLine()| isn't cheap and we avoid to call each
+  // |MoveTo{Next,Previous}InlineLeaf()|, we hold containing line rooted cursor
+  // instead of containing block rooted cursor.
+  NGInlineCursor line_cursor_;
 };
 
 // |SideAffinity| represents the left or right side of a leaf inline
@@ -173,10 +187,9 @@ bool IsAtFragmentStart(const NGCaretPosition& caret_position) {
     case NGCaretPositionType::kAfterBox:
       return false;
     case NGCaretPositionType::kAtTextOffset:
-      const auto& text_fragment = To<NGPhysicalTextFragment>(
-          caret_position.fragment->PhysicalFragment());
       DCHECK(caret_position.text_offset.has_value());
-      return *caret_position.text_offset == text_fragment.StartOffset();
+      return *caret_position.text_offset ==
+             caret_position.cursor.CurrentTextStartOffset();
   }
   NOTREACHED();
   return false;
@@ -190,10 +203,9 @@ bool IsAtFragmentEnd(const NGCaretPosition& caret_position) {
     case NGCaretPositionType::kAfterBox:
       return true;
     case NGCaretPositionType::kAtTextOffset:
-      const auto& text_fragment = To<NGPhysicalTextFragment>(
-          caret_position.fragment->PhysicalFragment());
       DCHECK(caret_position.text_offset.has_value());
-      return *caret_position.text_offset == text_fragment.EndOffset();
+      return *caret_position.text_offset ==
+             caret_position.cursor.CurrentTextEndOffset();
   }
   NOTREACHED();
   return false;
@@ -201,12 +213,11 @@ bool IsAtFragmentEnd(const NGCaretPosition& caret_position) {
 
 // Returns whether |caret_position| is at the left or right side of fragment.
 SideAffinity GetSideAffinity(const NGCaretPosition& caret_position) {
-  DCHECK(caret_position.fragment);
+  DCHECK(!caret_position.IsNull());
   DCHECK(IsAtFragmentStart(caret_position) || IsAtFragmentEnd(caret_position));
   const bool is_at_start = IsAtFragmentStart(caret_position);
   const bool is_at_left_side =
-      is_at_start ==
-      IsLtr(caret_position.fragment->PhysicalFragment().ResolvedDirection());
+      is_at_start == IsLtr(caret_position.cursor.CurrentResolvedDirection());
   return is_at_left_side ? SideAffinity::kLeft : SideAffinity::kRight;
 }
 
@@ -231,8 +242,8 @@ class AbstractInlineBoxAndSideAffinity {
 
   explicit AbstractInlineBoxAndSideAffinity(
       const NGCaretPosition& caret_position)
-      : box_(*caret_position.fragment), side_(GetSideAffinity(caret_position)) {
-    DCHECK(caret_position.fragment);
+      : box_(caret_position.cursor), side_(GetSideAffinity(caret_position)) {
+    DCHECK(!caret_position.IsNull());
   }
 
   InlineBoxPosition ToInlineBoxPosition() const {
@@ -247,21 +258,18 @@ class AbstractInlineBoxAndSideAffinity {
   NGCaretPosition ToNGCaretPosition() const {
     DCHECK(box_.IsNG());
     const bool is_at_start = IsLtr(box_.Direction()) == AtLeftSide();
-    const NGPaintFragment& fragment = box_.GetNGPaintFragment();
-    const NGPhysicalFragment& physical_fragment = fragment.PhysicalFragment();
-    DCHECK(physical_fragment.IsInline());
+    NGInlineCursor cursor(box_.GetCursor());
 
-    if (physical_fragment.IsBox()) {
-      return {&fragment,
+    if (!cursor.IsText()) {
+      return {cursor,
               is_at_start ? NGCaretPositionType::kBeforeBox
                           : NGCaretPositionType::kAfterBox,
               base::nullopt};
     }
 
-    const auto& text_fragment = To<NGPhysicalTextFragment>(physical_fragment);
-    return {
-        &fragment, NGCaretPositionType::kAtTextOffset,
-        is_at_start ? text_fragment.StartOffset() : text_fragment.EndOffset()};
+    return {cursor, NGCaretPositionType::kAtTextOffset,
+            is_at_start ? cursor.CurrentTextStartOffset()
+                        : cursor.CurrentTextEndOffset()};
   }
 
   PositionInFlatTree GetPosition() const {
@@ -726,7 +734,7 @@ class RangeSelectionAdjuster {
         const NGCaretPosition caret_position = ComputeNGCaretPosition(adjusted);
         if (caret_position.IsNull())
           return RenderedPosition();
-        return RenderedPosition(AbstractInlineBox(*caret_position.fragment),
+        return RenderedPosition(AbstractInlineBox(caret_position.cursor),
                                 GetPotentialBidiBoundaryType(caret_position));
       }
 
@@ -863,13 +871,6 @@ TextDirection ParagraphDirectionOf(const InlineBox& box) {
     min_level = std::min(min_level, runner->BidiLevel());
   }
   return DirectionFromLevel(min_level);
-}
-
-// TODO(xiaochengh): Move this function to a better place
-TextDirection ParagraphDirectionOf(const NGPaintFragment& fragment) {
-  const auto& line_box = To<NGPhysicalLineBoxFragment>(
-      fragment.ContainerLineBox()->PhysicalFragment());
-  return line_box.BaseDirection();
 }
 
 }  // namespace blink

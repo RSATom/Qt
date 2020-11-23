@@ -6,6 +6,7 @@
 
 #include <stdint.h>
 
+#include <utility>
 #include <vector>
 
 #include "base/bind.h"
@@ -72,8 +73,6 @@ IndexedDBQuotaClient::IndexedDBQuotaClient(
 IndexedDBQuotaClient::~IndexedDBQuotaClient() {}
 
 QuotaClient::ID IndexedDBQuotaClient::id() const { return kIndexedDatabase; }
-
-void IndexedDBQuotaClient::OnQuotaManagerDestroyed() { delete this; }
 
 void IndexedDBQuotaClient::GetOriginUsage(const url::Origin& origin,
                                           StorageType type,

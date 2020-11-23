@@ -4,8 +4,10 @@
 
 #include "net/third_party/quiche/src/quic/core/quic_control_frame_manager.h"
 
+#include <utility>
+
+#include "net/third_party/quiche/src/quic/platform/api/quic_expect_bug.h"
 #include "net/third_party/quiche/src/quic/platform/api/quic_flags.h"
-#include "net/third_party/quiche/src/quic/platform/api/quic_ptr_util.h"
 #include "net/third_party/quiche/src/quic/platform/api/quic_test.h"
 #include "net/third_party/quiche/src/quic/test_tools/quic_test_utils.h"
 
@@ -49,8 +51,8 @@ class QuicControlFrameManagerTest : public QuicTest {
   void Initialize() {
     connection_ = new MockQuicConnection(&helper_, &alarm_factory_,
                                          Perspective::IS_SERVER);
-    session_ = QuicMakeUnique<StrictMock<MockQuicSession>>(connection_);
-    manager_ = QuicMakeUnique<QuicControlFrameManager>(session_.get());
+    session_ = std::make_unique<StrictMock<MockQuicSession>>(connection_);
+    manager_ = std::make_unique<QuicControlFrameManager>(session_.get());
     EXPECT_EQ(0u, QuicControlFrameManagerPeer::QueueSize(manager_.get()));
     EXPECT_FALSE(manager_->HasPendingRetransmission());
     EXPECT_FALSE(manager_->WillingToWrite());
@@ -286,6 +288,26 @@ TEST_F(QuicControlFrameManagerTest, RetransmitWindowUpdateOfDifferentStreams) {
   manager_->OnCanWrite();
   EXPECT_FALSE(manager_->HasPendingRetransmission());
   EXPECT_FALSE(manager_->WillingToWrite());
+}
+
+TEST_F(QuicControlFrameManagerTest, TooManyBufferedControlFrames) {
+  Initialize();
+  EXPECT_CALL(*connection_, SendControlFrame(_))
+      .Times(5)
+      .WillRepeatedly(Invoke(&ClearControlFrame));
+  // Flush buffered frames.
+  manager_->OnCanWrite();
+  // Write 995 control frames.
+  EXPECT_CALL(*connection_, SendControlFrame(_)).WillOnce(Return(false));
+  for (size_t i = 0; i < 995; ++i) {
+    manager_->WriteOrBufferRstStream(kTestStreamId, QUIC_STREAM_CANCELLED, 0);
+  }
+  // Verify write one more control frame causes connection close.
+  EXPECT_CALL(
+      *connection_,
+      CloseConnection(QUIC_TOO_MANY_BUFFERED_CONTROL_FRAMES, _,
+                      ConnectionCloseBehavior::SEND_CONNECTION_CLOSE_PACKET));
+  manager_->WriteOrBufferRstStream(kTestStreamId, QUIC_STREAM_CANCELLED, 0);
 }
 
 }  // namespace

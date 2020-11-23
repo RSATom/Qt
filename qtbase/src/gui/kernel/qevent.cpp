@@ -946,11 +946,12 @@ QWheelEvent::~QWheelEvent()
     \li or scrolling has ended and the distance did not change anymore (Qt::ScrollEnd).
     \endlist
 
-    \see pixelDelta()
+    \sa pixelDelta()
 */
 
 /*!
     \fn QPoint QWheelEvent::position() const
+    \since 5.14
 
     Returns the position of the mouse cursor relative to the widget
     that received the event.
@@ -2225,14 +2226,14 @@ QVariant QInputMethodQueryEvent::value(Qt::InputMethodQuery query) const
     (pressing the stylus tip against the tablet surface is equivalent to a left
     mouse button). But tablet events also pass through some extra information
     that the tablet device driver provides; for example, you might want to do
-    subpixel rendering with higher resolution coordinates (\l hiResGlobalX()
-    and \l hiResGlobalY()), adjust color brightness based on the \l pressure()
-    of the tool against the tablet surface, use different brushes depending on
-    the type of tool in use (\l device()), modulate the brush shape in some way
-    according to the X-axis and Y-axis tilt of the tool with respect to the
-    tablet surface (\l xTilt() and \l yTilt()), and use a virtual eraser
-    instead of a brush if the user switches to the other end of a double-ended
-    stylus (\l pointerType()).
+    subpixel rendering with higher resolution coordinates (\l globalPosF()),
+    adjust color brightness based on the \l pressure() of the tool against the
+    tablet surface, use different brushes depending on the type of tool in use
+    (\l deviceType()), modulate the brush shape in some way according to the
+    X-axis and Y-axis tilt of the tool with respect to the tablet surface
+    (\l xTilt() and \l yTilt()), and use a virtual eraser instead of a brush if
+    the user switches to the other end of a double-ended stylus
+    (\l pointerType()).
 
     Every event contains an accept flag that indicates whether the receiver
     wants the event. You should call QTabletEvent::accept() if you handle the
@@ -2369,6 +2370,7 @@ QTabletEvent::QTabletEvent(Type type, const QPointF &pos, const QPointF &globalP
 {
 }
 
+#if QT_DEPRECATED_SINCE(5, 15)
 /*!
   Construct a tablet event of the given \a type.
 
@@ -2412,6 +2414,7 @@ QTabletEvent::QTabletEvent(Type type, const QPointF &pos, const QPointF &globalP
                    tangentialPressure, rotation, z, keyState, uniqueID, Qt::NoButton, Qt::NoButton)
 {
 }
+#endif
 
 /*!
     \internal
@@ -2451,6 +2454,12 @@ Qt::MouseButtons QTabletEvent::buttons() const
 
 /*!
     \fn TabletDevices QTabletEvent::device() const
+
+    \deprecated Use deviceType().
+*/
+
+/*!
+    \fn TabletDevices QTabletEvent::deviceType() const
 
     Returns the type of device that generated the event.
 
@@ -2616,12 +2625,16 @@ Qt::MouseButtons QTabletEvent::buttons() const
     \fn qreal &QTabletEvent::hiResGlobalX() const
 
     The high precision x position of the tablet device.
+
+    \obsolete use globalPosF()
 */
 
 /*!
     \fn qreal &QTabletEvent::hiResGlobalY() const
 
     The high precision y position of the tablet device.
+
+    \obsolete use globalPosF()
 */
 
 /*!
@@ -2960,7 +2973,7 @@ QObject* QDropEvent::source() const
 {
     if (const QDragManager *manager = QDragManager::self())
         return manager->source();
-    return 0;
+    return nullptr;
 }
 
 
@@ -3366,7 +3379,7 @@ QWhatsThisClickedEvent::~QWhatsThisClickedEvent()
 
     \a action is the action that is changed, added, or removed. If \a
     type is ActionAdded, the action is to be inserted before the
-    action \a before. If \a before is 0, the action is appended.
+    action \a before. If \a before is \nullptr, the action is appended.
 */
 QActionEvent::QActionEvent(int type, QAction *action, QAction *before)
     : QEvent(static_cast<QEvent::Type>(type)), act(action), bef(before)
@@ -3852,8 +3865,8 @@ static void formatTabletEvent(QDebug d, const QTabletEvent *e)
 
     d << eventClassName(type)  << '(';
     QtDebugUtils::formatQEnum(d, type);
-    d << ", device=";
-    QtDebugUtils::formatQEnum(d, e->device());
+    d << ", deviceType=";
+    QtDebugUtils::formatQEnum(d, e->deviceType());
     d << ", pointerType=";
     QtDebugUtils::formatQEnum(d, e->pointerType());
     d << ", uniqueId=" << e->uniqueId()
@@ -3865,9 +3878,9 @@ static void formatTabletEvent(QDebug d, const QTabletEvent *e)
     QtDebugUtils::formatQFlags(d, e->buttons());
     if (type == QEvent::TabletPress || type == QEvent::TabletMove)
         d << ", pressure=" << e->pressure();
-    if (e->device() == QTabletEvent::RotationStylus || e->device() == QTabletEvent::FourDMouse)
+    if (e->deviceType() == QTabletEvent::RotationStylus || e->deviceType() == QTabletEvent::FourDMouse)
         d << ", rotation=" << e->rotation();
-    if (e->device() == QTabletEvent::Airbrush)
+    if (e->deviceType() == QTabletEvent::Airbrush)
         d << ", tangentialPressure=" << e->tangentialPressure();
 }
 
@@ -4325,8 +4338,8 @@ QTouchEvent::QTouchEvent(QEvent::Type eventType,
                          Qt::TouchPointStates touchPointStates,
                          const QList<QTouchEvent::TouchPoint> &touchPoints)
     : QInputEvent(eventType, modifiers),
-      _window(0),
-      _target(0),
+      _window(nullptr),
+      _target(nullptr),
       _device(device),
       _touchPointStates(touchPointStates),
       _touchPoints(touchPoints)
@@ -4641,19 +4654,12 @@ QPointF QTouchEvent::TouchPoint::lastNormalizedPos() const
     return d->lastNormalizedPos;
 }
 
+#if QT_DEPRECATED_SINCE(5, 15)
 /*!
-    Returns the rect for this touch point, relative to the widget
-    or QGraphicsItem that received the event. The rect is centered
-    around the point returned by pos().
-
-    \note This function returns an empty rect if the device does not report touch point sizes.
-
-    \obsolete This function is deprecated in 5.9 because it returns the outer bounds
+    \deprecated This function is deprecated since 5.9 because it returns the outer bounds
     of the touchpoint regardless of rotation, whereas a touchpoint is more correctly
     modeled as an ellipse at position pos() with ellipseDiameters()
     which are independent of rotation().
-
-    \sa scenePos(), ellipseDiameters()
 */
 QRectF QTouchEvent::TouchPoint::rect() const
 {
@@ -4663,16 +4669,10 @@ QRectF QTouchEvent::TouchPoint::rect() const
 }
 
 /*!
-    Returns the rect for this touch point in scene coordinates.
-
-    \note This function returns an empty rect if the device does not report touch point sizes.
-
-    \obsolete This function is deprecated in 5.9 because it returns the outer bounds
+    \deprecated This function is deprecated since 5.9 because it returns the outer bounds
     of the touchpoint regardless of rotation, whereas a touchpoint is more correctly
     modeled as an ellipse at position scenePos() with ellipseDiameters()
     which are independent of rotation().
-
-    \sa scenePos(), ellipseDiameters()
 */
 QRectF QTouchEvent::TouchPoint::sceneRect() const
 {
@@ -4682,16 +4682,10 @@ QRectF QTouchEvent::TouchPoint::sceneRect() const
 }
 
 /*!
-    Returns the rect for this touch point in screen coordinates.
-
-    \note This function returns an empty rect if the device does not report touch point sizes.
-
-    \obsolete This function is deprecated because it returns the outer bounds of the
+    \deprecated This function is deprecated since 5.9 because it returns the outer bounds of the
     touchpoint regardless of rotation, whereas a touchpoint is more correctly
     modeled as an ellipse at position screenPos() with ellipseDiameters()
     which are independent of rotation().
-
-    \sa screenPos(), ellipseDiameters()
 */
 QRectF QTouchEvent::TouchPoint::screenRect() const
 {
@@ -4699,6 +4693,7 @@ QRectF QTouchEvent::TouchPoint::screenRect() const
     ret.moveCenter(d->screenPos);
     return ret;
 }
+#endif
 
 /*!
     Returns the pressure of this touch point. The return value is in
@@ -4897,6 +4892,7 @@ void QTouchEvent::TouchPoint::setLastNormalizedPos(const QPointF &lastNormalized
     d->lastNormalizedPos = lastNormalizedPos;
 }
 
+#if QT_DEPRECATED_SINCE(5, 15)
 // ### remove the following 3 setRect functions and their usages soon
 /*! \internal
     \obsolete
@@ -4930,6 +4926,7 @@ void QTouchEvent::TouchPoint::setScreenRect(const QRectF &screenRect)
     d->screenPos = screenRect.center();
     d->ellipseDiameters = screenRect.size();
 }
+#endif
 
 /*! \internal */
 void QTouchEvent::TouchPoint::setPressure(qreal pressure)
@@ -5018,7 +5015,7 @@ void QTouchEvent::TouchPoint::setFlags(InfoFlags flags)
     The \a startPos is the position of a touch or mouse event that started the scrolling.
 */
 QScrollPrepareEvent::QScrollPrepareEvent(const QPointF &startPos)
-    : QEvent(QEvent::ScrollPrepare), m_target(0), m_startPos(startPos)
+    : QEvent(QEvent::ScrollPrepare), m_target(nullptr), m_startPos(startPos)
 {
     Q_UNUSED(m_target);
 }

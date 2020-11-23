@@ -146,8 +146,8 @@ void CheckPdfPluginForRenderFrame(content::RenderFrameHost* frame) {
 
   ChromePluginServiceFilter* filter = ChromePluginServiceFilter::GetInstance();
   EXPECT_TRUE(filter->IsPluginAvailable(
-      frame->GetProcess()->GetID(), frame->GetRoutingID(), nullptr,
-      GURL(kDummyPrintUrl), url::Origin(), &pdf_plugin_info));
+      frame->GetProcess()->GetID(), frame->GetRoutingID(), GURL(kDummyPrintUrl),
+      url::Origin(), &pdf_plugin_info));
 }
 
 }  // namespace
@@ -221,10 +221,16 @@ class PrintPreviewDialogControllerBrowserTest : public InProcessBrowserTest {
   DISALLOW_COPY_AND_ASSIGN(PrintPreviewDialogControllerBrowserTest);
 };
 
+// Flaky on Linux: crbug.com/1021545
+#if defined(OS_LINUX)
+#define MAYBE_NavigateFromInitiatorTab DISABLED_NavigateFromInitiatorTab
+#else
+#define MAYBE_NavigateFromInitiatorTab NavigateFromInitiatorTab
+#endif
 // Test to verify that when a initiator navigates, we can create a new preview
 // dialog for the new tab contents.
 IN_PROC_BROWSER_TEST_F(PrintPreviewDialogControllerBrowserTest,
-                       NavigateFromInitiatorTab) {
+                       MAYBE_NavigateFromInitiatorTab) {
   // Print for the first time.
   PrintPreview();
 
@@ -251,10 +257,16 @@ IN_PROC_BROWSER_TEST_F(PrintPreviewDialogControllerBrowserTest,
   EXPECT_TRUE(new_preview_dialog);
 }
 
+// Flaky on Linux: crbug.com/1021545
+#if defined(OS_LINUX)
+#define MAYBE_ReloadInitiatorTab DISABLED_ReloadInitiatorTab
+#else
+#define MAYBE_ReloadInitiatorTab ReloadInitiatorTab
+#endif
 // Test to verify that after reloading the initiator, it creates a new print
 // preview dialog.
 IN_PROC_BROWSER_TEST_F(PrintPreviewDialogControllerBrowserTest,
-                       ReloadInitiatorTab) {
+                       MAYBE_ReloadInitiatorTab) {
   // Print for the first time.
   PrintPreview();
 
@@ -285,10 +297,16 @@ IN_PROC_BROWSER_TEST_F(PrintPreviewDialogControllerBrowserTest,
   EXPECT_TRUE(new_preview_dialog);
 }
 
+// Flaky on Linux: crbug.com/1021545
+#if defined(OS_LINUX)
+#define MAYBE_PdfPluginDisabled DISABLED_PdfPluginDisabled
+#else
+#define MAYBE_PdfPluginDisabled PdfPluginDisabled
+#endif
 // Test to verify that after print preview works even when the PDF plugin is
 // disabled for webpages.
 IN_PROC_BROWSER_TEST_F(PrintPreviewDialogControllerBrowserTest,
-                       PdfPluginDisabled) {
+                       MAYBE_PdfPluginDisabled) {
   // Make sure plugins are loaded.
   {
     base::RunLoop run_loop;
@@ -308,8 +326,7 @@ IN_PROC_BROWSER_TEST_F(PrintPreviewDialogControllerBrowserTest,
   content::WebPluginInfo dummy_pdf_plugin_info = pdf_plugin_info;
   EXPECT_FALSE(filter->IsPluginAvailable(
       initiator()->GetMainFrame()->GetProcess()->GetID(),
-      initiator()->GetMainFrame()->GetRoutingID(),
-      browser()->profile()->GetResourceContext(), GURL(),
+      initiator()->GetMainFrame()->GetRoutingID(), GURL(),
       url::Origin::Create(GURL("http://google.com")), &dummy_pdf_plugin_info));
 
   PrintPreview();
@@ -353,8 +370,14 @@ const std::vector<task_manager::WebContentsTag*>& GetTrackedTags() {
 
 }  // namespace
 
+// Flaky on Linux: crbug.com/1021545
+#if defined(OS_LINUX)
+#define MAYBE_TaskManagementTest DISABLED_TaskManagementTest
+#else
+#define MAYBE_TaskManagementTest TaskManagementTest
+#endif
 IN_PROC_BROWSER_TEST_F(PrintPreviewDialogControllerBrowserTest,
-                       TaskManagementTest) {
+                       MAYBE_TaskManagementTest) {
   // This test starts with two tabs open.
   EXPECT_EQ(2U, GetTrackedTags().size());
 
@@ -395,8 +418,14 @@ IN_PROC_BROWSER_TEST_F(PrintPreviewDialogControllerBrowserTest,
                                base::CompareCase::INSENSITIVE_ASCII));
 }
 
+// Flaky on Linux: crbug.com/1021545
+#if defined(OS_LINUX)
+#define MAYBE_PrintPreviewPdfAccessibility DISABLED_PrintPreviewPdfAccessibility
+#else
+#define MAYBE_PrintPreviewPdfAccessibility PrintPreviewPdfAccessibility
+#endif
 IN_PROC_BROWSER_TEST_F(PrintPreviewDialogControllerBrowserTest,
-                       PrintPreviewPdfAccessibility) {
+                       MAYBE_PrintPreviewPdfAccessibility) {
   content::BrowserAccessibilityState::GetInstance()->EnableAccessibility();
   ui_test_utils::NavigateToURL(browser(), GURL("data:text/html,HelloWorld"));
   PrintPreview();

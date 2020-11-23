@@ -29,14 +29,26 @@ namespace test {
 class QuicClientPeer;
 }  // namespace test
 
+namespace tools {
+
+QuicSocketAddress LookupAddress(std::string host, std::string port);
+
+}  // namespace tools
+
 class QuicClient : public QuicSpdyClientBase {
  public:
-  // This will create its own QuicClientEpollNetworkHelper.
+  // These will create their own QuicClientEpollNetworkHelper.
   QuicClient(QuicSocketAddress server_address,
              const QuicServerId& server_id,
              const ParsedQuicVersionVector& supported_versions,
              QuicEpollServer* epoll_server,
              std::unique_ptr<ProofVerifier> proof_verifier);
+  QuicClient(QuicSocketAddress server_address,
+             const QuicServerId& server_id,
+             const ParsedQuicVersionVector& supported_versions,
+             QuicEpollServer* epoll_server,
+             std::unique_ptr<ProofVerifier> proof_verifier,
+             std::unique_ptr<SessionCache> session_cache);
   // This will take ownership of a passed in network primitive.
   QuicClient(QuicSocketAddress server_address,
              const QuicServerId& server_id,
@@ -51,6 +63,14 @@ class QuicClient : public QuicSpdyClientBase {
              QuicEpollServer* epoll_server,
              std::unique_ptr<QuicClientEpollNetworkHelper> network_helper,
              std::unique_ptr<ProofVerifier> proof_verifier);
+  QuicClient(QuicSocketAddress server_address,
+             const QuicServerId& server_id,
+             const ParsedQuicVersionVector& supported_versions,
+             const QuicConfig& config,
+             QuicEpollServer* epoll_server,
+             std::unique_ptr<QuicClientEpollNetworkHelper> network_helper,
+             std::unique_ptr<ProofVerifier> proof_verifier,
+             std::unique_ptr<SessionCache> session_cache);
   QuicClient(const QuicClient&) = delete;
   QuicClient& operator=(const QuicClient&) = delete;
 

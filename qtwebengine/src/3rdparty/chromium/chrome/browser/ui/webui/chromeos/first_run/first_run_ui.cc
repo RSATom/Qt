@@ -69,14 +69,14 @@ void SetLocalizedStrings(Profile* profile,
       display::Screen::GetScreen()->GetPrimaryDisplay().id());
   std::string shelf_alignment;
   switch (alignment) {
-    case ash::SHELF_ALIGNMENT_BOTTOM:
-    case ash::SHELF_ALIGNMENT_BOTTOM_LOCKED:
+    case ash::ShelfAlignment::kBottom:
+    case ash::ShelfAlignment::kBottomLocked:
       shelf_alignment = kShelfAlignmentBottom;
       break;
-    case ash::SHELF_ALIGNMENT_LEFT:
+    case ash::ShelfAlignment::kLeft:
       shelf_alignment = kShelfAlignmentLeft;
       break;
-    case ash::SHELF_ALIGNMENT_RIGHT:
+    case ash::ShelfAlignment::kRight:
       shelf_alignment = kShelfAlignmentRight;
       break;
   }
@@ -86,7 +86,7 @@ void SetLocalizedStrings(Profile* profile,
 content::WebUIDataSource* CreateDataSource(Profile* profile) {
   content::WebUIDataSource* source =
       content::WebUIDataSource::Create(chrome::kChromeUIFirstRunHost);
-  source->SetJsonPath("strings.js");
+  source->UseStringsJs();
   source->SetDefaultResource(IDR_FIRST_RUN_HTML);
   source->AddResourcePath(kFirstRunJSPath, IDR_FIRST_RUN_JS);
   base::DictionaryValue localized_strings;

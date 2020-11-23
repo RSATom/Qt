@@ -8,20 +8,26 @@
 
 import("../../../webrtc.gni")
 
-rtc_static_library("aec3") {
+rtc_library("aec3") {
   visibility = [ "*" ]
   configs += [ "..:apm_debug_dump" ]
   sources = [
     "adaptive_fir_filter.cc",
     "adaptive_fir_filter.h",
+    "adaptive_fir_filter_erl.cc",
+    "adaptive_fir_filter_erl.h",
     "aec3_common.cc",
     "aec3_common.h",
     "aec3_fft.cc",
     "aec3_fft.h",
     "aec_state.cc",
     "aec_state.h",
+    "alignment_mixer.cc",
+    "alignment_mixer.h",
     "api_call_jitter_metrics.cc",
     "api_call_jitter_metrics.h",
+    "block_buffer.cc",
+    "block_buffer.h",
     "block_delay_buffer.cc",
     "block_delay_buffer.h",
     "block_framer.cc",
@@ -30,8 +36,6 @@ rtc_static_library("aec3") {
     "block_processor.h",
     "block_processor_metrics.cc",
     "block_processor_metrics.h",
-    "cascaded_biquad_filter.cc",
-    "cascaded_biquad_filter.h",
     "clockdrift_detector.cc",
     "clockdrift_detector.h",
     "comfort_noise_generator.cc",
@@ -39,6 +43,8 @@ rtc_static_library("aec3") {
     "decimator.cc",
     "decimator.h",
     "delay_estimate.h",
+    "dominant_nearend_detector.cc",
+    "dominant_nearend_detector.h",
     "downsampled_render_buffer.cc",
     "downsampled_render_buffer.h",
     "echo_audibility.cc",
@@ -72,10 +78,9 @@ rtc_static_library("aec3") {
     "matched_filter.h",
     "matched_filter_lag_aggregator.cc",
     "matched_filter_lag_aggregator.h",
-    "matrix_buffer.cc",
-    "matrix_buffer.h",
     "moving_average.cc",
     "moving_average.h",
+    "nearend_detector.h",
     "render_buffer.cc",
     "render_buffer.h",
     "render_delay_buffer.cc",
@@ -84,8 +89,6 @@ rtc_static_library("aec3") {
     "render_delay_controller.h",
     "render_delay_controller_metrics.cc",
     "render_delay_controller_metrics.h",
-    "render_reverb_model.cc",
-    "render_reverb_model.h",
     "render_signal_analyzer.cc",
     "render_signal_analyzer.h",
     "residual_echo_estimator.cc",
@@ -98,16 +101,18 @@ rtc_static_library("aec3") {
     "reverb_model.h",
     "reverb_model_estimator.cc",
     "reverb_model_estimator.h",
-    "reverb_model_fallback.cc",
-    "reverb_model_fallback.h",
     "shadow_filter_update_gain.cc",
     "shadow_filter_update_gain.h",
     "signal_dependent_erle_estimator.cc",
     "signal_dependent_erle_estimator.h",
+    "spectrum_buffer.cc",
+    "spectrum_buffer.h",
     "stationarity_estimator.cc",
     "stationarity_estimator.h",
     "subband_erle_estimator.cc",
     "subband_erle_estimator.h",
+    "subband_nearend_detector.cc",
+    "subband_nearend_detector.h",
     "subtractor.cc",
     "subtractor.h",
     "subtractor_output.cc",
@@ -118,8 +123,6 @@ rtc_static_library("aec3") {
     "suppression_filter.h",
     "suppression_gain.cc",
     "suppression_gain.h",
-    "vector_buffer.cc",
-    "vector_buffer.h",
     "vector_math.h",
   ]
 
@@ -132,6 +135,7 @@ rtc_static_library("aec3") {
   deps = [
     "..:apm_logging",
     "..:audio_buffer",
+    "..:high_pass_filter",
     "../../../api:array_view",
     "../../../api/audio:aec3_config",
     "../../../api/audio:echo_control",
@@ -143,13 +147,14 @@ rtc_static_library("aec3") {
     "../../../system_wrappers:cpu_features_api",
     "../../../system_wrappers:field_trial",
     "../../../system_wrappers:metrics",
+    "../utility:cascaded_biquad_filter",
     "../utility:ooura_fft",
     "//third_party/abseil-cpp/absl/types:optional",
   ]
 }
 
 if (rtc_include_tests) {
-  rtc_source_set("aec3_unittests") {
+  rtc_library("aec3_unittests") {
     testonly = true
 
     configs += [ "..:apm_debug_dump" ]
@@ -170,6 +175,7 @@ if (rtc_include_tests) {
       "..:audio_buffer",
       "..:audio_processing",
       "..:audio_processing_unittests",
+      "..:high_pass_filter",
       "../../../api:array_view",
       "../../../api/audio:aec3_config",
       "../../../rtc_base:checks",
@@ -178,6 +184,7 @@ if (rtc_include_tests) {
       "../../../rtc_base/system:arch",
       "../../../system_wrappers:cpu_features_api",
       "../../../test:test_support",
+      "../utility:cascaded_biquad_filter",
       "//third_party/abseil-cpp/absl/types:optional",
     ]
 
@@ -185,15 +192,16 @@ if (rtc_include_tests) {
 
     if (rtc_enable_protobuf) {
       sources += [
+        "adaptive_fir_filter_erl_unittest.cc",
         "adaptive_fir_filter_unittest.cc",
         "aec3_fft_unittest.cc",
         "aec_state_unittest.cc",
+        "alignment_mixer_unittest.cc",
         "api_call_jitter_metrics_unittest.cc",
         "block_delay_buffer_unittest.cc",
         "block_framer_unittest.cc",
         "block_processor_metrics_unittest.cc",
         "block_processor_unittest.cc",
-        "cascaded_biquad_filter_unittest.cc",
         "clockdrift_detector_unittest.cc",
         "comfort_noise_generator_unittest.cc",
         "decimator_unittest.cc",

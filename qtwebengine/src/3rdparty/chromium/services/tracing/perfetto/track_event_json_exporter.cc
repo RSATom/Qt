@@ -10,6 +10,8 @@
 #include "base/json/string_escape.h"
 #include "base/strings/string_util.h"
 #include "base/trace_event/common/trace_event_common.h"
+#include "third_party/perfetto/include/perfetto/ext/tracing/core/basic_types.h"
+#include "third_party/perfetto/include/perfetto/ext/tracing/core/sliced_protobuf_input_stream.h"
 #include "third_party/perfetto/protos/perfetto/trace/chrome/chrome_trace_packet.pb.h"
 
 namespace tracing {
@@ -85,25 +87,35 @@ void TrackEventJSONExporter::ProcessPackets(
     // reduces binary bloat and only has the fields we are interested in. So
     // Decode the serialized proto as a ChromeTracePacket.
     perfetto::protos::ChromeTracePacket packet;
-    bool decoded = encoded_packet.Decode(&packet);
+    ::perfetto::SlicedProtobufInputStream stream(&encoded_packet.slices());
+    bool decoded = packet.ParseFromZeroCopyStream(&stream);
     DCHECK(decoded);
 
     // If this is a different packet_sequence_id we have to reset all our state
-    // and wait for the first state_clear before emitting anything.
+    // and wait for the first state_clear before emitting anything. However, we
+    // shouldn't do this for packets emitted by the service since they may
+    // appear anywhere in the stream.
     if (packet.trusted_packet_sequence_id() !=
-        current_state_->trusted_packet_sequence_id) {
-      StartNewState(packet.trusted_packet_sequence_id(),
-                    packet.incremental_state_cleared());
-    } else if (packet.incremental_state_cleared()) {
-      ResetIncrementalState();
-    } else if (packet.previous_packet_dropped()) {
-      // If we've lost packets we can no longer trust any timestamp data and
-      // other state which might have been dropped. We will keep skipping events
-      // until we start a new sequence.
-      LOG_IF(ERROR, current_state_->incomplete)
-          << "Previous packet was dropped. Skipping TraceEvents until reset or "
-          << "new sequence.";
-      current_state_->incomplete = true;
+        perfetto::kServicePacketSequenceID) {
+      if (packet.trusted_packet_sequence_id() !=
+          current_state_->trusted_packet_sequence_id) {
+        stats_.sequences_seen++;
+        StartNewState(packet.trusted_packet_sequence_id(),
+                      packet.incremental_state_cleared());
+      } else if (packet.incremental_state_cleared()) {
+        stats_.incremental_state_resets++;
+        ResetIncrementalState();
+      } else if (packet.previous_packet_dropped()) {
+        // If we've lost packets we can no longer trust any timestamp data and
+        // other state which might have been dropped. We will keep skipping
+        // events until we start a new sequence.
+        stats_.packets_with_previous_packet_dropped++;
+        current_state_->incomplete = true;
+      }
+    } else {
+      // We assume the service doesn't use incremental state or lose packets.
+      DCHECK(!packet.incremental_state_cleared());
+      DCHECK(!packet.previous_packet_dropped());
     }
 
     // Now we process the data from the packet. First by getting the interned
@@ -134,6 +146,7 @@ void TrackEventJSONExporter::ProcessPackets(
   }
   if (!has_more) {
     EmitThreadDescriptorIfNeeded();
+    EmitStats();
   }
 }
 
@@ -204,12 +217,28 @@ base::Optional<int64_t> TrackEventJSONExporter::ComputeThreadTimeUs(
   }
 }
 
+base::Optional<int64_t> TrackEventJSONExporter::ComputeThreadInstructionCount(
+    const TrackEvent& event) {
+  switch (event.thread_instruction_count_case()) {
+    case TrackEvent::kThreadInstructionCountAbsolute:
+      return event.thread_instruction_count_absolute();
+    case TrackEvent::kThreadInstructionCountDelta:
+      DCHECK_NE(current_state_->thread_instruction_count, -1);
+      current_state_->thread_instruction_count +=
+          event.thread_instruction_count_delta();
+      return current_state_->thread_instruction_count;
+    case TrackEvent::THREAD_INSTRUCTION_COUNT_NOT_SET:
+      return base::nullopt;
+  }
+}
+
 void TrackEventJSONExporter::HandleInternedData(
     const ChromeTracePacket& packet) {
   DCHECK(packet.has_interned_data());
 
   // InternedData is only emitted on sequences with incremental state.
   if (current_state_->incomplete) {
+    stats_.packets_dropped_invalid_incremental_state++;
     return;
   }
 
@@ -221,8 +250,8 @@ void TrackEventJSONExporter::HandleInternedData(
         std::make_pair(event_cat.iid(), event_cat.name()));
     DCHECK(iter.second || iter.first->second == event_cat.name());
   }
-  for (const auto& event_name : data.legacy_event_names()) {
-    auto iter = current_state_->interned_legacy_event_names_.insert(
+  for (const auto& event_name : data.event_names()) {
+    auto iter = current_state_->interned_event_names_.insert(
         std::make_pair(event_name.iid(), event_name.name()));
     DCHECK(iter.second || iter.first->second == event_name.name());
   }
@@ -296,6 +325,7 @@ void TrackEventJSONExporter::HandleProcessDescriptor(
 
   // ProcessDescriptor is only emitted on sequences with incremental state.
   if (current_state_->incomplete) {
+    stats_.packets_dropped_invalid_incremental_state++;
     return;
   }
 
@@ -373,6 +403,7 @@ void TrackEventJSONExporter::HandleThreadDescriptor(
 
   // ThreadDescriptor is only emitted on sequences with incremental state.
   if (current_state_->incomplete) {
+    stats_.packets_dropped_invalid_incremental_state++;
     return;
   }
 
@@ -382,6 +413,8 @@ void TrackEventJSONExporter::HandleThreadDescriptor(
   current_state_->tid = thread.tid();
   current_state_->time_us = thread.reference_timestamp_us();
   current_state_->thread_time_us = thread.reference_thread_time_us();
+  current_state_->thread_instruction_count =
+      thread.reference_thread_instruction_count();
 
   // If we aren't outputting traceEvents then we don't need to look at the
   // metadata that might need to be emitted.
@@ -455,6 +488,7 @@ void TrackEventJSONExporter::HandleTrackEvent(const ChromeTracePacket& packet) {
 
   // TrackEvents need incremental state.
   if (current_state_->incomplete) {
+    stats_.packets_dropped_invalid_incremental_state++;
     return;
   }
 
@@ -470,6 +504,8 @@ void TrackEventJSONExporter::HandleTrackEvent(const ChromeTracePacket& packet) {
   int64_t timestamp_us = ComputeTimeUs(track);
   DCHECK_NE(timestamp_us, -1);
   base::Optional<int64_t> thread_time_us = ComputeThreadTimeUs(track);
+  base::Optional<int64_t> thread_instruction_count =
+      ComputeThreadInstructionCount(track);
 
   std::vector<base::StringPiece> all_categories;
   all_categories.reserve(track.category_iids().size());
@@ -481,15 +517,15 @@ void TrackEventJSONExporter::HandleTrackEvent(const ChromeTracePacket& packet) {
   const std::string joined_categories = base::JoinString(all_categories, ",");
 
   DCHECK(track.has_legacy_event()) << "required field legacy_event missing";
-  auto maybe_builder =
+  auto builder =
       HandleLegacyEvent(track.legacy_event(), joined_categories, timestamp_us);
-  if (!maybe_builder) {
-    return;
-  }
-  auto& builder = *maybe_builder;
 
   if (thread_time_us) {
     builder.AddThreadTimestamp(*thread_time_us);
+  }
+
+  if (thread_instruction_count) {
+    builder.AddThreadInstructionCount(*thread_instruction_count);
   }
 
   // Now we add args from both |task_execution| and |debug_annotations|. Recall
@@ -509,7 +545,12 @@ void TrackEventJSONExporter::HandleTrackEvent(const ChromeTracePacket& packet) {
 
 void TrackEventJSONExporter::HandleStreamingProfilePacket(
     const perfetto::protos::StreamingProfilePacket& profile_packet) {
-  if (current_state_->incomplete || !ShouldOutputTraceEvents()) {
+  if (current_state_->incomplete) {
+    stats_.packets_dropped_invalid_incremental_state++;
+    return;
+  }
+
+  if (!ShouldOutputTraceEvents()) {
     return;
   }
 
@@ -591,12 +632,14 @@ void TrackEventJSONExporter::HandleStreamingProfilePacket(
 
   auto event_builder = AddTraceEvent(
       "StackCpuSampling", TRACE_DISABLED_BY_DEFAULT("cpu_profiler"),
-      TRACE_EVENT_PHASE_INSTANT, current_state_->time_us, current_state_->pid,
-      current_state_->tid);
+      TRACE_EVENT_PHASE_NESTABLE_ASYNC_INSTANT, current_state_->time_us,
+      current_state_->pid, current_state_->tid);
   // Add a dummy thread timestamp to this event to match the format of instant
   // events. Useful in the UI to view args of a selected group of samples.
   event_builder.AddThreadTimestamp(1);
-  event_builder.AddFlags(TRACE_EVENT_SCOPE_THREAD, base::nullopt, "");
+  static int g_id_counter = 0;
+  event_builder.AddFlags(TRACE_EVENT_SCOPE_THREAD | TRACE_EVENT_FLAG_HAS_ID,
+                         ++g_id_counter, "");
   auto args_builder = event_builder.BuildArgs();
   auto* add_arg = args_builder->MaybeAddArg("frames");
   if (add_arg) {
@@ -618,15 +661,22 @@ void TrackEventJSONExporter::HandleStreamingProfilePacket(
 
 void TrackEventJSONExporter::HandleProfiledFrameSymbols(
     const perfetto::protos::ProfiledFrameSymbols& frame_symbols) {
-  auto iter =
-      unordered_state_data_[current_state_->trusted_packet_sequence_id]
-          .interned_profiled_frame_.insert(std::make_pair(
-              frame_symbols.frame_iid(), frame_symbols.function_name_id()));
+  int64_t function_name_id = 0;
+  // Chrome never has more than one function for an address, so we can just
+  // take the first one.
+  if (!frame_symbols.function_name_id().empty()) {
+    DCHECK(frame_symbols.function_name_id().size() == 1);
+    function_name_id = frame_symbols.function_name_id()[0];
+  }
+
+  auto iter = unordered_state_data_[current_state_->trusted_packet_sequence_id]
+                  .interned_profiled_frame_.insert(std::make_pair(
+                      frame_symbols.frame_iid(), function_name_id));
   auto& frame_names =
       unordered_state_data_[current_state_->trusted_packet_sequence_id]
           .interned_frame_names_;
-  DCHECK(iter.second || frame_names[iter.first->second] ==
-                            frame_names[frame_symbols.function_name_id()]);
+  DCHECK(iter.second ||
+         frame_names[iter.first->second] == frame_names[function_name_id]);
 }
 
 void TrackEventJSONExporter::HandleDebugAnnotation(
@@ -671,7 +721,7 @@ void TrackEventJSONExporter::HandleTaskExecution(
   }
 }
 
-base::Optional<JSONTraceExporter::ScopedJSONTraceEventAppender>
+JSONTraceExporter::ScopedJSONTraceEventAppender
 TrackEventJSONExporter::HandleLegacyEvent(const TrackEvent::LegacyEvent& event,
                                           const std::string& categories,
                                           int64_t timestamp_us) {
@@ -684,8 +734,8 @@ TrackEventJSONExporter::HandleLegacyEvent(const TrackEvent::LegacyEvent& event,
   int32_t tid =
       event.tid_override() == 0 ? current_state_->tid : event.tid_override();
 
-  const std::string& name = GetInternedName(
-      event.name_iid(), current_state_->interned_legacy_event_names_);
+  const std::string& name =
+      GetInternedName(event.name_iid(), current_state_->interned_event_names_);
 
   // Build the actual json output, if we are missing the interned name we just
   // use the interned ID.
@@ -761,4 +811,17 @@ TrackEventJSONExporter::HandleLegacyEvent(const TrackEvent::LegacyEvent& event,
   builder.AddFlags(flags, id, event.id_scope());
   return std::move(builder);
 }
+
+void TrackEventJSONExporter::EmitStats() {
+  auto value = std::make_unique<base::DictionaryValue>();
+  value->SetInteger("sequences_seen", stats_.sequences_seen);
+  value->SetInteger("incremental_state_resets",
+                    stats_.incremental_state_resets);
+  value->SetInteger("packets_dropped_invalid_incremental_state",
+                    stats_.packets_dropped_invalid_incremental_state);
+  value->SetInteger("packets_with_previous_packet_dropped",
+                    stats_.packets_with_previous_packet_dropped);
+  AddMetadata("json_exporter_stats", std::move(value));
+}
+
 }  // namespace tracing

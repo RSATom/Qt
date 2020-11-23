@@ -31,6 +31,7 @@
 #include "src/tasks/cancelable-task.h"
 #include "src/utils/allocation.h"
 #include "src/utils/utils.h"
+#include "testing/gtest/include/gtest/gtest_prod.h"  // nogncheck
 
 namespace v8 {
 namespace internal {
@@ -45,8 +46,10 @@ class CompactionSpace;
 class CompactionSpaceCollection;
 class FreeList;
 class Isolate;
+class LargeObjectSpace;
 class LinearAllocationArea;
 class LocalArrayBufferTracker;
+class LocalSpace;
 class MemoryAllocator;
 class MemoryChunk;
 class MemoryChunkLayout;
@@ -120,7 +123,7 @@ class Space;
 #define DCHECK_CODEOBJECT_SIZE(size, code_space) \
   DCHECK((0 < size) && (size <= code_space->AreaSize()))
 
-using FreeListCategoryType = int;
+using FreeListCategoryType = int32_t;
 
 static const FreeListCategoryType kFirstCategory = 0;
 static const FreeListCategoryType kInvalidCategory = -1;
@@ -129,41 +132,26 @@ enum FreeMode { kLinkCategory, kDoNotLinkCategory };
 
 enum class SpaceAccountingMode { kSpaceAccounted, kSpaceUnaccounted };
 
-enum RememberedSetType {
-  OLD_TO_NEW,
-  OLD_TO_OLD,
-  NUMBER_OF_REMEMBERED_SET_TYPES = OLD_TO_OLD + 1
-};
-
 // A free list category maintains a linked list of free memory blocks.
 class FreeListCategory {
  public:
-  FreeListCategory(FreeList* free_list, Page* page)
-      : free_list_(free_list),
-        page_(page),
-        type_(kInvalidCategory),
-        available_(0),
-        length_(0),
-        prev_(nullptr),
-        next_(nullptr) {}
-
   void Initialize(FreeListCategoryType type) {
     type_ = type;
     available_ = 0;
-    length_ = 0;
     prev_ = nullptr;
     next_ = nullptr;
   }
 
-  void Reset();
+  void Reset(FreeList* owner);
 
   void RepairFreeList(Heap* heap);
 
   // Relinks the category into the currently owning free list. Requires that the
   // category is currently unlinked.
-  void Relink();
+  void Relink(FreeList* owner);
 
-  void Free(Address address, size_t size_in_bytes, FreeMode mode);
+  void Free(Address address, size_t size_in_bytes, FreeMode mode,
+            FreeList* owner);
 
   // Performs a single try to pick a node of at least |minimum_size| from the
   // category. Stores the actual size in |node_size|. Returns nullptr if no
@@ -174,21 +162,21 @@ class FreeListCategory {
   // actual size in |node_size|. Returns nullptr if no node is found.
   FreeSpace SearchForNodeInList(size_t minimum_size, size_t* node_size);
 
-  inline FreeList* owner();
-  inline Page* page() const { return page_; }
-  inline bool is_linked();
+  inline bool is_linked(FreeList* owner) const;
   bool is_empty() { return top().is_null(); }
-  size_t available() const { return available_; }
-
-  void set_free_list(FreeList* free_list) { free_list_ = free_list; }
+  uint32_t available() const { return available_; }
 
   size_t SumFreeList();
-  int FreeListLength() { return length_; }
+  int FreeListLength();
 
  private:
   // For debug builds we accurately compute free lists lengths up until
   // {kVeryLongFreeList} by manually walking the list.
   static const int kVeryLongFreeList = 500;
+
+  // Updates |available_|, |length_| and free_list_->Available() after an
+  // allocation of size |allocation_size|.
+  inline void UpdateCountersAfterAllocation(size_t allocation_size);
 
   FreeSpace top() { return top_; }
   void set_top(FreeSpace top) { top_ = top; }
@@ -197,32 +185,23 @@ class FreeListCategory {
   FreeListCategory* next() { return next_; }
   void set_next(FreeListCategory* next) { next_ = next; }
 
-  // This FreeListCategory is owned by the given free_list_.
-  FreeList* free_list_;
-
-  // This FreeListCategory holds free list entries of the given page_.
-  Page* const page_;
-
   // |type_|: The type of this free list category.
-  FreeListCategoryType type_;
+  FreeListCategoryType type_ = kInvalidCategory;
 
   // |available_|: Total available bytes in all blocks of this free list
   // category.
-  size_t available_;
-
-  // |length_|: Total blocks in this free list category.
-  int length_;
+  uint32_t available_ = 0;
 
   // |top_|: Points to the top FreeSpace in the free list category.
   FreeSpace top_;
 
-  FreeListCategory* prev_;
-  FreeListCategory* next_;
+  FreeListCategory* prev_ = nullptr;
+  FreeListCategory* next_ = nullptr;
 
   friend class FreeList;
+  friend class FreeListManyCached;
   friend class PagedSpace;
-
-  DISALLOW_IMPLICIT_CONSTRUCTORS(FreeListCategory);
+  friend class MapSpace;
 };
 
 // A free list maintains free blocks of memory. The free list is organized in
@@ -256,21 +235,23 @@ class FreeList {
   // size_in_bytes. This method returns null if the allocation request cannot be
   // handled by the free list.
   virtual V8_WARN_UNUSED_RESULT FreeSpace Allocate(size_t size_in_bytes,
-                                                   size_t* node_size) = 0;
+                                                   size_t* node_size,
+                                                   AllocationOrigin origin) = 0;
 
   // Returns a page containing an entry for a given type, or nullptr otherwise.
   V8_EXPORT_PRIVATE virtual Page* GetPageForSize(size_t size_in_bytes) = 0;
 
-  void Reset();
+  virtual void Reset();
 
   // Return the number of bytes available on the free list.
   size_t Available() {
-    size_t available = 0;
-    ForAllFreeListCategories([&available](FreeListCategory* category) {
-      available += category->available();
-    });
-    return available;
+    DCHECK(available_ == SumFreeLists());
+    return available_;
   }
+
+  // Update number of available  bytes on the Freelists.
+  void IncreaseAvailableBytes(size_t bytes) { available_ += bytes; }
+  void DecreaseAvailableBytes(size_t bytes) { available_ -= bytes; }
 
   bool IsEmpty() {
     bool empty = true;
@@ -284,7 +265,6 @@ class FreeList {
   void RepairLists(Heap* heap);
 
   V8_EXPORT_PRIVATE size_t EvictFreeListItems(Page* page);
-  bool ContainsPageFreeListItems(Page* page);
 
   int number_of_categories() { return number_of_categories_; }
   FreeListCategoryType last_category() { return last_category_; }
@@ -308,14 +288,9 @@ class FreeList {
     }
   }
 
-  bool AddCategory(FreeListCategory* category);
-  V8_EXPORT_PRIVATE void RemoveCategory(FreeListCategory* category);
+  virtual bool AddCategory(FreeListCategory* category);
+  virtual V8_EXPORT_PRIVATE void RemoveCategory(FreeListCategory* category);
   void PrintCategories(FreeListCategoryType type);
-
-#ifdef DEBUG
-  size_t SumFreeLists();
-  bool IsVeryLong();
-#endif
 
  protected:
   class FreeListCategoryIterator final {
@@ -336,6 +311,11 @@ class FreeList {
     FreeListCategory* current_;
   };
 
+#ifdef DEBUG
+  V8_EXPORT_PRIVATE size_t SumFreeLists();
+  bool IsVeryLong();
+#endif
+
   // Tries to retrieve a node from the first category in a given |type|.
   // Returns nullptr if the category is empty or the top entry is smaller
   // than minimum_size.
@@ -355,9 +335,7 @@ class FreeList {
     return categories_[type];
   }
 
-  Page* GetPageForCategoryType(FreeListCategoryType type) {
-    return top(type) ? top(type)->page() : nullptr;
-  }
+  inline Page* GetPageForCategoryType(FreeListCategoryType type);
 
   int number_of_categories_ = 0;
   FreeListCategoryType last_category_ = 0;
@@ -366,10 +344,14 @@ class FreeList {
   std::atomic<size_t> wasted_bytes_{0};
   FreeListCategory** categories_ = nullptr;
 
+  // |available_|: The number of bytes in this freelist.
+  size_t available_ = 0;
+
   friend class FreeListCategory;
   friend class Page;
   friend class MemoryChunk;
   friend class ReadOnlyPage;
+  friend class MapSpace;
 };
 
 // FreeList used for spaces that don't have freelists
@@ -383,7 +365,8 @@ class NoFreeList final : public FreeList {
     FATAL("NoFreeList can't be used as a standard FreeList.");
   }
   V8_WARN_UNUSED_RESULT FreeSpace Allocate(size_t size_in_bytes,
-                                           size_t* node_size) final {
+                                           size_t* node_size,
+                                           AllocationOrigin origin) final {
     FATAL("NoFreeList can't be used as a standard FreeList.");
   }
   Page* GetPageForSize(size_t size_in_bytes) final {
@@ -455,7 +438,7 @@ class V8_EXPORT_PRIVATE Space : public Malloced {
   virtual size_t Size() = 0;
 
   // Returns size of objects. Can differ from the allocated size
-  // (e.g. see LargeObjectSpace).
+  // (e.g. see OldLargeObjectSpace).
   virtual size_t SizeOfObjects() { return Size(); }
 
   // Approximate amount of physical memory committed for this space.
@@ -472,7 +455,7 @@ class V8_EXPORT_PRIVATE Space : public Malloced {
     }
   }
 
-  virtual std::unique_ptr<ObjectIterator> GetObjectIterator() = 0;
+  virtual std::unique_ptr<ObjectIterator> GetObjectIterator(Heap* heap) = 0;
 
   void AccountCommitted(size_t bytes) {
     DCHECK_GE(committed_ + bytes, committed_);
@@ -602,15 +585,15 @@ class MemoryChunk : public BasicMemoryChunk {
   static const Flags kSkipEvacuationSlotsRecordingMask =
       kEvacuationCandidateMask | kIsInYoungGenerationMask;
 
-  // |kSweepingDone|: The page state when sweeping is complete or sweeping must
-  //   not be performed on that page. Sweeper threads that are done with their
-  //   work will set this value and not touch the page anymore.
-  // |kSweepingPending|: This page is ready for parallel sweeping.
-  // |kSweepingInProgress|: This page is currently swept by a sweeper thread.
-  enum ConcurrentSweepingState {
-    kSweepingDone,
-    kSweepingPending,
-    kSweepingInProgress,
+  // |kDone|: The page state when sweeping is complete or sweeping must not be
+  //   performed on that page. Sweeper threads that are done with their work
+  //   will set this value and not touch the page anymore.
+  // |kPending|: This page is ready for parallel sweeping.
+  // |kInProgress|: This page is currently swept by a sweeper thread.
+  enum class ConcurrentSweepingState : intptr_t {
+    kDone,
+    kPending,
+    kInProgress,
   };
 
   static const size_t kHeaderSize =
@@ -619,10 +602,11 @@ class MemoryChunk : public BasicMemoryChunk {
       + kSystemPointerSize           // Address owner_
       + kSizetSize                   // size_t progress_bar_
       + kIntptrSize                  // intptr_t live_byte_count_
-      + kSystemPointerSize * NUMBER_OF_REMEMBERED_SET_TYPES  // SlotSet* array
+      + kSystemPointerSize           // SlotSet* sweeping_slot_set_
       + kSystemPointerSize *
             NUMBER_OF_REMEMBERED_SET_TYPES  // TypedSlotSet* array
-      + kSystemPointerSize  // InvalidatedSlots* invalidated_slots_
+      + kSystemPointerSize *
+            NUMBER_OF_REMEMBERED_SET_TYPES  // InvalidatedSlots* array
       + kSystemPointerSize  // std::atomic<intptr_t> high_water_mark_
       + kSystemPointerSize  // base::Mutex* mutex_
       + kSystemPointerSize  // std::atomic<ConcurrentSweepingState>
@@ -658,8 +642,6 @@ class MemoryChunk : public BasicMemoryChunk {
   void SetOldGenerationPageFlags(bool is_marking);
   void SetYoungGenerationPageFlags(bool is_marking);
 
-  static inline MemoryChunk* FromAnyPointerAddress(Address addr);
-
   static inline void UpdateHighWaterMark(Address mark) {
     if (mark == kNullAddress) return;
     // Need to subtract one from the mark because when a chunk is full the
@@ -691,7 +673,9 @@ class MemoryChunk : public BasicMemoryChunk {
     return static_cast<ConcurrentSweepingState>(concurrent_sweeping_.load());
   }
 
-  bool SweepingDone() { return concurrent_sweeping_ == kSweepingDone; }
+  bool SweepingDone() {
+    return concurrent_sweeping_ == ConcurrentSweepingState::kDone;
+  }
 
   inline Heap* heap() const {
     DCHECK_NOT_NULL(heap_);
@@ -708,7 +692,7 @@ class MemoryChunk : public BasicMemoryChunk {
   template <RememberedSetType type>
   bool ContainsSlots() {
     return slot_set<type>() != nullptr || typed_slot_set<type>() != nullptr ||
-           invalidated_slots() != nullptr;
+           invalidated_slots<type>() != nullptr;
   }
 
   template <RememberedSetType type, AccessMode access_mode = AccessMode::ATOMIC>
@@ -716,6 +700,13 @@ class MemoryChunk : public BasicMemoryChunk {
     if (access_mode == AccessMode::ATOMIC)
       return base::AsAtomicPointer::Acquire_Load(&slot_set_[type]);
     return slot_set_[type];
+  }
+
+  template <AccessMode access_mode = AccessMode::ATOMIC>
+  SlotSet* sweeping_slot_set() {
+    if (access_mode == AccessMode::ATOMIC)
+      return base::AsAtomicPointer::Acquire_Load(&sweeping_slot_set_);
+    return sweeping_slot_set_;
   }
 
   template <RememberedSetType type, AccessMode access_mode = AccessMode::ATOMIC>
@@ -727,24 +718,33 @@ class MemoryChunk : public BasicMemoryChunk {
 
   template <RememberedSetType type>
   V8_EXPORT_PRIVATE SlotSet* AllocateSlotSet();
+  SlotSet* AllocateSweepingSlotSet();
+  SlotSet* AllocateSlotSet(SlotSet** slot_set);
+
   // Not safe to be called concurrently.
   template <RememberedSetType type>
   void ReleaseSlotSet();
+  void ReleaseSlotSet(SlotSet** slot_set);
+  void ReleaseSweepingSlotSet();
   template <RememberedSetType type>
   TypedSlotSet* AllocateTypedSlotSet();
   // Not safe to be called concurrently.
   template <RememberedSetType type>
   void ReleaseTypedSlotSet();
 
+  template <RememberedSetType type>
   InvalidatedSlots* AllocateInvalidatedSlots();
+  template <RememberedSetType type>
   void ReleaseInvalidatedSlots();
-  V8_EXPORT_PRIVATE void RegisterObjectWithInvalidatedSlots(HeapObject object,
-                                                            int size);
-  // Updates invalidated_slots after array left-trimming.
-  void MoveObjectWithInvalidatedSlots(HeapObject old_start,
-                                      HeapObject new_start);
+  template <RememberedSetType type>
+  V8_EXPORT_PRIVATE void RegisterObjectWithInvalidatedSlots(HeapObject object);
+  void InvalidateRecordedSlots(HeapObject object);
+  template <RememberedSetType type>
   bool RegisteredObjectWithInvalidatedSlots(HeapObject object);
-  InvalidatedSlots* invalidated_slots() { return invalidated_slots_; }
+  template <RememberedSetType type>
+  InvalidatedSlots* invalidated_slots() {
+    return invalidated_slots_[type];
+  }
 
   void ReleaseLocalTracker();
 
@@ -794,7 +794,6 @@ class MemoryChunk : public BasicMemoryChunk {
   inline Address MarkbitIndexToAddress(uint32_t index) const {
     return this->address() + (index << kTaggedSizeLog2);
   }
-
 
   bool NeverEvacuate() { return IsFlagSet(NEVER_EVACUATE); }
 
@@ -918,9 +917,9 @@ class MemoryChunk : public BasicMemoryChunk {
   // A single slot set for small pages (of size kPageSize) or an array of slot
   // set for large pages. In the latter case the number of entries in the array
   // is ceil(size() / kPageSize).
-  SlotSet* slot_set_[NUMBER_OF_REMEMBERED_SET_TYPES];
+  SlotSet* sweeping_slot_set_;
   TypedSlotSet* typed_slot_set_[NUMBER_OF_REMEMBERED_SET_TYPES];
-  InvalidatedSlots* invalidated_slots_;
+  InvalidatedSlots* invalidated_slots_[NUMBER_OF_REMEMBERED_SET_TYPES];
 
   // Assuming the initial allocation on a page is sequential,
   // count highest number of bytes ever allocated on the page.
@@ -928,7 +927,7 @@ class MemoryChunk : public BasicMemoryChunk {
 
   base::Mutex* mutex_;
 
-  std::atomic<intptr_t> concurrent_sweeping_;
+  std::atomic<ConcurrentSweepingState> concurrent_sweeping_;
 
   base::Mutex* page_protection_change_mutex_;
 
@@ -971,7 +970,7 @@ class MemoryChunk : public BasicMemoryChunk {
   void InitializeReservedMemory() { reservation_.Reset(); }
 
   friend class ConcurrentMarkingState;
-  friend class IncrementalMarkingState;
+  friend class MajorMarkingState;
   friend class MajorAtomicMarkingState;
   friend class MajorNonAtomicMarkingState;
   friend class MemoryAllocator;
@@ -1053,15 +1052,6 @@ class Page : public MemoryChunk {
     return address_in_page;
   }
 
-  // WaitUntilSweepingCompleted only works when concurrent sweeping is in
-  // progress. In particular, when we know that right before this call a
-  // sweeper thread was sweeping this page.
-  void WaitUntilSweepingCompleted() {
-    mutex_->Lock();
-    mutex_->Unlock();
-    DCHECK(SweepingDone());
-  }
-
   void AllocateLocalTracker();
   inline LocalArrayBufferTracker* local_tracker() { return local_tracker_; }
   bool contains_array_buffers();
@@ -1101,9 +1091,8 @@ class Page : public MemoryChunk {
   void AllocateFreeListCategories();
   void ReleaseFreeListCategories();
 
-#ifdef DEBUG
-  void Print();
-#endif  // DEBUG
+  void MoveOldToNewRememberedSetForSweeping();
+  void MergeOldToNewRememberedSets();
 
  private:
   friend class MemoryAllocator;
@@ -1619,8 +1608,8 @@ class PageRange {
 class V8_EXPORT_PRIVATE PagedSpaceObjectIterator : public ObjectIterator {
  public:
   // Creates a new object iterator in a given space.
-  explicit PagedSpaceObjectIterator(PagedSpace* space);
-  explicit PagedSpaceObjectIterator(Page* page);
+  PagedSpaceObjectIterator(Heap* heap, PagedSpace* space);
+  PagedSpaceObjectIterator(Heap* heap, PagedSpace* space, Page* page);
 
   // Advance to the next object, skipping free spaces and other fillers and
   // skipping the special garbage section of which there is one per space.
@@ -1637,6 +1626,7 @@ class V8_EXPORT_PRIVATE PagedSpaceObjectIterator : public ObjectIterator {
 
   Address cur_addr_;  // Current iteration point.
   Address cur_end_;   // End iteration point.
+  Heap* heap_;
   PagedSpace* space_;
   PageRange page_range_;
   PageRange::iterator current_page_;
@@ -1690,7 +1680,6 @@ class LinearAllocationArea {
   // Current allocation limit.
   Address limit_;
 };
-
 
 // An abstraction of the accounting statistics of a page-structured space.
 //
@@ -1773,7 +1762,6 @@ class AllocationStats {
 #endif
 };
 
-
 // The free list is organized in categories as follows:
 // kMinBlockSize-10 words (tiniest): The tiniest blocks are only used for
 //   allocation, when categories >= small do not have entries anymore.
@@ -1806,28 +1794,14 @@ class V8_EXPORT_PRIVATE FreeListLegacy : public FreeList {
     return maximum_freed;
   }
 
-  Page* GetPageForSize(size_t size_in_bytes) override {
-    const int minimum_category =
-        static_cast<int>(SelectFreeListCategoryType(size_in_bytes));
-    Page* page = GetPageForCategoryType(kHuge);
-    if (!page && static_cast<int>(kLarge) >= minimum_category)
-      page = GetPageForCategoryType(kLarge);
-    if (!page && static_cast<int>(kMedium) >= minimum_category)
-      page = GetPageForCategoryType(kMedium);
-    if (!page && static_cast<int>(kSmall) >= minimum_category)
-      page = GetPageForCategoryType(kSmall);
-    if (!page && static_cast<int>(kTiny) >= minimum_category)
-      page = GetPageForCategoryType(kTiny);
-    if (!page && static_cast<int>(kTiniest) >= minimum_category)
-      page = GetPageForCategoryType(kTiniest);
-    return page;
-  }
+  inline Page* GetPageForSize(size_t size_in_bytes) override;
 
   FreeListLegacy();
   ~FreeListLegacy();
 
   V8_WARN_UNUSED_RESULT FreeSpace Allocate(size_t size_in_bytes,
-                                           size_t* node_size) override;
+                                           size_t* node_size,
+                                           AllocationOrigin origin) override;
 
  private:
   enum { kTiniest, kTiny, kSmall, kMedium, kLarge, kHuge };
@@ -1904,22 +1878,14 @@ class V8_EXPORT_PRIVATE FreeListFastAlloc : public FreeList {
     return kHugeAllocationMax;
   }
 
-  Page* GetPageForSize(size_t size_in_bytes) override {
-    const int minimum_category =
-        static_cast<int>(SelectFreeListCategoryType(size_in_bytes));
-    Page* page = GetPageForCategoryType(kHuge);
-    if (!page && static_cast<int>(kLarge) >= minimum_category)
-      page = GetPageForCategoryType(kLarge);
-    if (!page && static_cast<int>(kMedium) >= minimum_category)
-      page = GetPageForCategoryType(kMedium);
-    return page;
-  }
+  inline Page* GetPageForSize(size_t size_in_bytes) override;
 
   FreeListFastAlloc();
   ~FreeListFastAlloc();
 
   V8_WARN_UNUSED_RESULT FreeSpace Allocate(size_t size_in_bytes,
-                                           size_t* node_size) override;
+                                           size_t* node_size,
+                                           AllocationOrigin origin) override;
 
  private:
   enum { kMedium, kLarge, kHuge };
@@ -1946,14 +1912,10 @@ class V8_EXPORT_PRIVATE FreeListFastAlloc : public FreeList {
     }
     return kHuge;
   }
-
-  Page* GetPageForCategoryType(FreeListCategoryType type) {
-    return top(type) ? top(type)->page() : nullptr;
-  }
 };
 
-// Use 49 Freelists: on per size between 24 and 256, and then a few ones for
-// larger sizes. See the variable |categories_max| for the size of each
+// Use 24 Freelists: on per 16 bytes between 24 and 256, and then a few ones for
+// larger sizes. See the variable |categories_min| for the size of each
 // Freelist.  Allocation is done using a best-fit strategy (considering only the
 // first element of each category though).
 // Performances are expected to be worst than FreeListLegacy, but memory
@@ -1968,40 +1930,213 @@ class V8_EXPORT_PRIVATE FreeListMany : public FreeList {
   ~FreeListMany();
 
   V8_WARN_UNUSED_RESULT FreeSpace Allocate(size_t size_in_bytes,
-                                           size_t* node_size) override;
+                                           size_t* node_size,
+                                           AllocationOrigin origin) override;
 
- private:
+ protected:
   static const size_t kMinBlockSize = 3 * kTaggedSize;
 
   // This is a conservative upper bound. The actual maximum block size takes
   // padding and alignment of data and code pages into account.
   static const size_t kMaxBlockSize = Page::kPageSize;
+  // Largest size for which categories are still precise, and for which we can
+  // therefore compute the category in constant time.
+  static const size_t kPreciseCategoryMaxSize = 256;
 
   // Categories boundaries generated with:
   // perl -E '
-  //   @cat = map {$_*8} 3..32, 48, 64;
-  //   while ($cat[-1] <= 32768) {
-  //     push @cat, $cat[-1]+$cat[-3], $cat[-1]*2
-  //   }
-  //   push @cat, 4080, 4088;
-  //   @cat = sort { $a <=> $b } @cat;
-  //   push @cat, "Page::kPageSize";
-  //   say join ", ", @cat;
-  //   say "\n", scalar @cat'
-  // Note the special case for 4080 and 4088 bytes: experiments have shown that
-  // this category classes are more used than others of similar sizes
-  static const int kNumberOfCategories = 49;
-  static const size_t categories_max[kNumberOfCategories];
+  //      @cat = (24, map {$_*16} 2..16, 48, 64);
+  //      while ($cat[-1] <= 32768) {
+  //        push @cat, $cat[-1]*2
+  //      }
+  //      say join ", ", @cat;
+  //      say "\n", scalar @cat'
+  static const int kNumberOfCategories = 24;
+  static constexpr unsigned int categories_min[kNumberOfCategories] = {
+      24,  32,  48,  64,  80,  96,   112,  128,  144,  160,   176,   192,
+      208, 224, 240, 256, 512, 1024, 2048, 4096, 8192, 16384, 32768, 65536};
 
   // Return the smallest category that could hold |size_in_bytes| bytes.
   FreeListCategoryType SelectFreeListCategoryType(
       size_t size_in_bytes) override {
-    for (int cat = kFirstCategory; cat < last_category_; cat++) {
-      if (size_in_bytes <= categories_max[cat]) {
+    if (size_in_bytes <= kPreciseCategoryMaxSize) {
+      if (size_in_bytes < categories_min[1]) return 0;
+      return static_cast<FreeListCategoryType>(size_in_bytes >> 4) - 1;
+    }
+    for (int cat = (kPreciseCategoryMaxSize >> 4) - 1; cat < last_category_;
+         cat++) {
+      if (size_in_bytes < categories_min[cat + 1]) {
         return cat;
       }
     }
     return last_category_;
+  }
+
+  FRIEND_TEST(SpacesTest, FreeListManySelectFreeListCategoryType);
+  FRIEND_TEST(SpacesTest, FreeListManyGuaranteedAllocatable);
+};
+
+// Same as FreeListMany but uses a cache to know which categories are empty.
+// The cache (|next_nonempty_category|) is maintained in a way such that for
+// each category c, next_nonempty_category[c] contains the first non-empty
+// category greater or equal to c, that may hold an object of size c.
+// Allocation is done using the same strategy as FreeListMany (ie, best fit).
+class V8_EXPORT_PRIVATE FreeListManyCached : public FreeListMany {
+ public:
+  FreeListManyCached();
+
+  V8_WARN_UNUSED_RESULT FreeSpace Allocate(size_t size_in_bytes,
+                                           size_t* node_size,
+                                           AllocationOrigin origin) override;
+
+  size_t Free(Address start, size_t size_in_bytes, FreeMode mode) override;
+
+  void Reset() override;
+
+  bool AddCategory(FreeListCategory* category) override;
+  void RemoveCategory(FreeListCategory* category) override;
+
+ protected:
+  // Updates the cache after adding something in the category |cat|.
+  void UpdateCacheAfterAddition(FreeListCategoryType cat) {
+    for (int i = cat; i >= kFirstCategory && next_nonempty_category[i] > cat;
+         i--) {
+      next_nonempty_category[i] = cat;
+    }
+  }
+
+  // Updates the cache after emptying category |cat|.
+  void UpdateCacheAfterRemoval(FreeListCategoryType cat) {
+    for (int i = cat; i >= kFirstCategory && next_nonempty_category[i] == cat;
+         i--) {
+      next_nonempty_category[i] = next_nonempty_category[cat + 1];
+    }
+  }
+
+#ifdef DEBUG
+  void CheckCacheIntegrity() {
+    for (int i = 0; i <= last_category_; i++) {
+      DCHECK(next_nonempty_category[i] == last_category_ + 1 ||
+             categories_[next_nonempty_category[i]] != nullptr);
+      for (int j = i; j < next_nonempty_category[i]; j++) {
+        DCHECK(categories_[j] == nullptr);
+      }
+    }
+  }
+#endif
+
+  // The cache is overallocated by one so that the last element is always
+  // defined, and when updating the cache, we can always use cache[i+1] as long
+  // as i is < kNumberOfCategories.
+  int next_nonempty_category[kNumberOfCategories + 1];
+
+ private:
+  void ResetCache() {
+    for (int i = 0; i < kNumberOfCategories; i++) {
+      next_nonempty_category[i] = kNumberOfCategories;
+    }
+    // Setting the after-last element as well, as explained in the cache's
+    // declaration.
+    next_nonempty_category[kNumberOfCategories] = kNumberOfCategories;
+  }
+};
+
+// Same as FreeListManyCached but uses a fast path.
+// The fast path overallocates by at least 1.85k bytes. The idea of this 1.85k
+// is: we want the fast path to always overallocate, even for larger
+// categories. Therefore, we have two choices: either overallocate by
+// "size_in_bytes * something" or overallocate by "size_in_bytes +
+// something". We choose the later, as the former will tend to overallocate too
+// much for larger objects. The 1.85k (= 2048 - 128) has been chosen such that
+// for tiny objects (size <= 128 bytes), the first category considered is the
+// 36th (which holds objects of 2k to 3k), while for larger objects, the first
+// category considered will be one that guarantees a 1.85k+ bytes
+// overallocation. Using 2k rather than 1.85k would have resulted in either a
+// more complex logic for SelectFastAllocationFreeListCategoryType, or the 36th
+// category (2k to 3k) not being used; both of which are undesirable.
+// A secondary fast path is used for tiny objects (size <= 128), in order to
+// consider categories from 256 to 2048 bytes for them.
+// Note that this class uses a precise GetPageForSize (inherited from
+// FreeListMany), which makes its fast path less fast in the Scavenger. This is
+// done on purpose, since this class's only purpose is to be used by
+// FreeListManyCachedOrigin, which is precise for the scavenger.
+class V8_EXPORT_PRIVATE FreeListManyCachedFastPath : public FreeListManyCached {
+ public:
+  V8_WARN_UNUSED_RESULT FreeSpace Allocate(size_t size_in_bytes,
+                                           size_t* node_size,
+                                           AllocationOrigin origin) override;
+
+ protected:
+  // Objects in the 18th category are at least 2048 bytes
+  static const FreeListCategoryType kFastPathFirstCategory = 18;
+  static const size_t kFastPathStart = 2048;
+  static const size_t kTinyObjectMaxSize = 128;
+  static const size_t kFastPathOffset = kFastPathStart - kTinyObjectMaxSize;
+  // Objects in the 15th category are at least 256 bytes
+  static const FreeListCategoryType kFastPathFallBackTiny = 15;
+
+  STATIC_ASSERT(categories_min[kFastPathFirstCategory] == kFastPathStart);
+  STATIC_ASSERT(categories_min[kFastPathFallBackTiny] ==
+                kTinyObjectMaxSize * 2);
+
+  FreeListCategoryType SelectFastAllocationFreeListCategoryType(
+      size_t size_in_bytes) {
+    DCHECK(size_in_bytes < kMaxBlockSize);
+
+    if (size_in_bytes >= categories_min[last_category_]) return last_category_;
+
+    size_in_bytes += kFastPathOffset;
+    for (int cat = kFastPathFirstCategory; cat < last_category_; cat++) {
+      if (size_in_bytes <= categories_min[cat]) {
+        return cat;
+      }
+    }
+    return last_category_;
+  }
+
+  FRIEND_TEST(
+      SpacesTest,
+      FreeListManyCachedFastPathSelectFastAllocationFreeListCategoryType);
+};
+
+// Uses FreeListManyCached if in the GC; FreeListManyCachedFastPath otherwise.
+// The reasonning behind this FreeList is the following: the GC runs in
+// parallel, and therefore, more expensive allocations there are less
+// noticeable. On the other hand, the generated code and runtime need to be very
+// fast. Therefore, the strategy for the former is one that is not very
+// efficient, but reduces fragmentation (FreeListManyCached), while the strategy
+// for the later is one that is very efficient, but introduces some
+// fragmentation (FreeListManyCachedFastPath).
+class V8_EXPORT_PRIVATE FreeListManyCachedOrigin
+    : public FreeListManyCachedFastPath {
+ public:
+  V8_WARN_UNUSED_RESULT FreeSpace Allocate(size_t size_in_bytes,
+                                           size_t* node_size,
+                                           AllocationOrigin origin) override;
+};
+
+// FreeList for maps: since maps are all the same size, uses a single freelist.
+class V8_EXPORT_PRIVATE FreeListMap : public FreeList {
+ public:
+  size_t GuaranteedAllocatable(size_t maximum_freed) override;
+
+  Page* GetPageForSize(size_t size_in_bytes) override;
+
+  FreeListMap();
+  ~FreeListMap();
+
+  V8_WARN_UNUSED_RESULT FreeSpace Allocate(size_t size_in_bytes,
+                                           size_t* node_size,
+                                           AllocationOrigin origin) override;
+
+ private:
+  static const size_t kMinBlockSize = Map::kSize;
+  static const size_t kMaxBlockSize = Page::kPageSize;
+  static const FreeListCategoryType kOnlyCategory = 0;
+
+  FreeListCategoryType SelectFreeListCategoryType(
+      size_t size_in_bytes) override {
+    return kOnlyCategory;
   }
 };
 
@@ -2103,6 +2238,10 @@ class SpaceWithLinearArea : public Space {
   V8_EXPORT_PRIVATE virtual void UpdateInlineAllocationLimit(
       size_t min_size) = 0;
 
+  V8_EXPORT_PRIVATE void UpdateAllocationOrigins(AllocationOrigin origin);
+
+  void PrintAllocationsOrigins();
+
  protected:
   // If we are doing inline allocation in steps, this method performs the 'step'
   // operation. top is the memory address of the bump pointer at the last
@@ -2120,6 +2259,9 @@ class SpaceWithLinearArea : public Space {
   // TODO(ofrobots): make these private after refactoring is complete.
   LinearAllocationArea allocation_info_;
   Address top_on_previous_step_;
+
+  size_t allocations_origins_[static_cast<int>(
+      AllocationOrigin::kNumberOfAllocationOrigins)] = {0};
 };
 
 class V8_EXPORT_PRIVATE PagedSpace
@@ -2131,7 +2273,8 @@ class V8_EXPORT_PRIVATE PagedSpace
 
   // Creates a space with an id.
   PagedSpace(Heap* heap, AllocationSpace id, Executability executable,
-             FreeList* free_list);
+             FreeList* free_list,
+             LocalSpaceKind local_space_kind = LocalSpaceKind::kNone);
 
   ~PagedSpace() override { TearDown(); }
 
@@ -2185,17 +2328,19 @@ class V8_EXPORT_PRIVATE PagedSpace
   // Allocate the requested number of bytes in the space if possible, return a
   // failure object if not.
   V8_WARN_UNUSED_RESULT inline AllocationResult AllocateRawUnaligned(
-      int size_in_bytes);
+      int size_in_bytes, AllocationOrigin origin = AllocationOrigin::kRuntime);
 
   // Allocate the requested number of bytes in the space double aligned if
   // possible, return a failure object if not.
   V8_WARN_UNUSED_RESULT inline AllocationResult AllocateRawAligned(
-      int size_in_bytes, AllocationAlignment alignment);
+      int size_in_bytes, AllocationAlignment alignment,
+      AllocationOrigin origin = AllocationOrigin::kRuntime);
 
   // Allocate the requested number of bytes in the space and consider allocation
   // alignment if needed.
   V8_WARN_UNUSED_RESULT inline AllocationResult AllocateRaw(
-      int size_in_bytes, AllocationAlignment alignment);
+      int size_in_bytes, AllocationAlignment alignment,
+      AllocationOrigin origin = AllocationOrigin::kRuntime);
 
   size_t Free(Address start, size_t size_in_bytes, SpaceAccountingMode mode) {
     if (size_in_bytes == 0) return 0;
@@ -2287,7 +2432,7 @@ class V8_EXPORT_PRIVATE PagedSpace
 #endif
 
 #ifdef DEBUG
-  void VerifyCountersAfterSweeping();
+  void VerifyCountersAfterSweeping(Heap* heap);
   void VerifyCountersBeforeConcurrentSweeping();
   // Print meta info and objects in this space.
   void Print() override;
@@ -2305,11 +2450,19 @@ class V8_EXPORT_PRIVATE PagedSpace
   // Return size of allocatable area on a page in this space.
   inline int AreaSize() { return static_cast<int>(area_size_); }
 
-  virtual bool is_local() { return false; }
+  bool is_local_space() { return local_space_kind_ != LocalSpaceKind::kNone; }
+
+  bool is_compaction_space() {
+    return base::IsInRange(local_space_kind_,
+                           LocalSpaceKind::kFirstCompactionSpace,
+                           LocalSpaceKind::kLastCompactionSpace);
+  }
+
+  LocalSpaceKind local_space_kind() { return local_space_kind_; }
 
   // Merges {other} into the current space. Note that this modifies {other},
   // e.g., removes its bump pointer area and resets statistics.
-  void MergeCompactionSpace(CompactionSpace* other);
+  void MergeLocalSpace(LocalSpace* other);
 
   // Refills the free list from the corresponding free list filled by the
   // sweeper.
@@ -2331,7 +2484,7 @@ class V8_EXPORT_PRIVATE PagedSpace
 
   size_t ShrinkPageToHighWaterMark(Page* page);
 
-  std::unique_ptr<ObjectIterator> GetObjectIterator() override;
+  std::unique_ptr<ObjectIterator> GetObjectIterator(Heap* heap) override;
 
   void SetLinearAllocationArea(Address top, Address limit);
 
@@ -2346,7 +2499,7 @@ class V8_EXPORT_PRIVATE PagedSpace
   void DecreaseLimit(Address new_limit);
   void UpdateInlineAllocationLimit(size_t min_size) override;
   bool SupportsInlineAllocation() override {
-    return identity() == OLD_SPACE && !is_local();
+    return identity() == OLD_SPACE && !is_local_space();
   }
 
  protected:
@@ -2368,7 +2521,8 @@ class V8_EXPORT_PRIVATE PagedSpace
   // Sets up a linear allocation area that fits the given number of bytes.
   // Returns false if there is not enough space and the caller has to retry
   // after collecting garbage.
-  inline bool EnsureLinearAllocationArea(int size_in_bytes);
+  inline bool EnsureLinearAllocationArea(int size_in_bytes,
+                                         AllocationOrigin origin);
   // Allocates an object from the linear allocation area. Assumes that the
   // linear allocation area is large enought to fit the object.
   inline HeapObject AllocateLinearly(int size_in_bytes);
@@ -2380,26 +2534,34 @@ class V8_EXPORT_PRIVATE PagedSpace
                                                AllocationAlignment alignment);
 
   V8_WARN_UNUSED_RESULT bool RefillLinearAllocationAreaFromFreeList(
-      size_t size_in_bytes);
+      size_t size_in_bytes, AllocationOrigin origin);
 
   // If sweeping is still in progress try to sweep unswept pages. If that is
   // not successful, wait for the sweeper threads and retry free-list
   // allocation. Returns false if there is not enough space and the caller
   // has to retry after collecting garbage.
-  V8_WARN_UNUSED_RESULT virtual bool SweepAndRetryAllocation(int size_in_bytes);
+  V8_WARN_UNUSED_RESULT bool EnsureSweptAndRetryAllocation(
+      int size_in_bytes, AllocationOrigin origin);
+
+  V8_WARN_UNUSED_RESULT bool SweepAndRetryAllocation(int required_freed_bytes,
+                                                     int max_pages,
+                                                     int size_in_bytes,
+                                                     AllocationOrigin origin);
 
   // Slow path of AllocateRaw. This function is space-dependent. Returns false
   // if there is not enough space and the caller has to retry after
   // collecting garbage.
   V8_WARN_UNUSED_RESULT virtual bool SlowRefillLinearAllocationArea(
-      int size_in_bytes);
+      int size_in_bytes, AllocationOrigin origin);
 
   // Implementation of SlowAllocateRaw. Returns false if there is not enough
   // space and the caller has to retry after collecting garbage.
   V8_WARN_UNUSED_RESULT bool RawSlowRefillLinearAllocationArea(
-      int size_in_bytes);
+      int size_in_bytes, AllocationOrigin origin);
 
   Executability executable_;
+
+  LocalSpaceKind local_space_kind_;
 
   size_t area_size_;
 
@@ -2523,15 +2685,11 @@ class SemiSpace : public Space {
   // If we don't have these here then SemiSpace will be abstract.  However
   // they should never be called:
 
-  size_t Size() override {
-    UNREACHABLE();
-  }
+  size_t Size() override { UNREACHABLE(); }
 
   size_t SizeOfObjects() override { return Size(); }
 
-  size_t Available() override {
-    UNREACHABLE();
-  }
+  size_t Available() override { UNREACHABLE(); }
 
   Page* first_page() { return reinterpret_cast<Page*>(Space::first_page()); }
   Page* last_page() { return reinterpret_cast<Page*>(Space::last_page()); }
@@ -2539,7 +2697,7 @@ class SemiSpace : public Space {
   iterator begin() { return iterator(first_page()); }
   iterator end() { return iterator(nullptr); }
 
-  std::unique_ptr<ObjectIterator> GetObjectIterator() override;
+  std::unique_ptr<ObjectIterator> GetObjectIterator(Heap* heap) override;
 
 #ifdef DEBUG
   V8_EXPORT_PRIVATE void Print() override;
@@ -2768,16 +2926,19 @@ class V8_EXPORT_PRIVATE NewSpace
   void set_age_mark(Address mark) { to_space_.set_age_mark(mark); }
 
   V8_WARN_UNUSED_RESULT V8_INLINE AllocationResult
-  AllocateRawAligned(int size_in_bytes, AllocationAlignment alignment);
+  AllocateRawAligned(int size_in_bytes, AllocationAlignment alignment,
+                     AllocationOrigin origin = AllocationOrigin::kRuntime);
+
+  V8_WARN_UNUSED_RESULT V8_INLINE AllocationResult AllocateRawUnaligned(
+      int size_in_bytes, AllocationOrigin origin = AllocationOrigin::kRuntime);
 
   V8_WARN_UNUSED_RESULT V8_INLINE AllocationResult
-  AllocateRawUnaligned(int size_in_bytes);
-
-  V8_WARN_UNUSED_RESULT V8_INLINE AllocationResult
-  AllocateRaw(int size_in_bytes, AllocationAlignment alignment);
+  AllocateRaw(int size_in_bytes, AllocationAlignment alignment,
+              AllocationOrigin origin = AllocationOrigin::kRuntime);
 
   V8_WARN_UNUSED_RESULT inline AllocationResult AllocateRawSynchronized(
-      int size_in_bytes, AllocationAlignment alignment);
+      int size_in_bytes, AllocationAlignment alignment,
+      AllocationOrigin origin = AllocationOrigin::kRuntime);
 
   // Reset the allocation pointer to the beginning of the active semispace.
   void ResetLinearAllocationArea();
@@ -2831,7 +2992,7 @@ class V8_EXPORT_PRIVATE NewSpace
   iterator begin() { return to_space_.begin(); }
   iterator end() { return to_space_.end(); }
 
-  std::unique_ptr<ObjectIterator> GetObjectIterator() override;
+  std::unique_ptr<ObjectIterator> GetObjectIterator(Heap* heap) override;
 
   SemiSpace& from_space() { return from_space_; }
   SemiSpace& to_space() { return to_space_; }
@@ -2869,32 +3030,47 @@ class V8_EXPORT_PRIVATE PauseAllocationObserversScope {
 };
 
 // -----------------------------------------------------------------------------
-// Compaction space that is used temporarily during compaction.
+// Base class for compaction space and off-thread space.
 
-class V8_EXPORT_PRIVATE CompactionSpace : public PagedSpace {
+class V8_EXPORT_PRIVATE LocalSpace : public PagedSpace {
  public:
-  CompactionSpace(Heap* heap, AllocationSpace id, Executability executable)
-      : PagedSpace(heap, id, executable, FreeList::CreateFreeList()) {}
-
-  bool is_local() override { return true; }
+  LocalSpace(Heap* heap, AllocationSpace id, Executability executable,
+             LocalSpaceKind local_space_kind)
+      : PagedSpace(heap, id, executable, FreeList::CreateFreeList(),
+                   local_space_kind) {
+    DCHECK_NE(local_space_kind, LocalSpaceKind::kNone);
+  }
 
  protected:
   // The space is temporary and not included in any snapshots.
   bool snapshotable() override { return false; }
+};
 
-  V8_WARN_UNUSED_RESULT bool SweepAndRetryAllocation(
-      int size_in_bytes) override;
+// -----------------------------------------------------------------------------
+// Compaction space that is used temporarily during compaction.
 
+class V8_EXPORT_PRIVATE CompactionSpace : public LocalSpace {
+ public:
+  CompactionSpace(Heap* heap, AllocationSpace id, Executability executable,
+                  LocalSpaceKind local_space_kind)
+      : LocalSpace(heap, id, executable, local_space_kind) {
+    DCHECK(is_compaction_space());
+  }
+
+ protected:
   V8_WARN_UNUSED_RESULT bool SlowRefillLinearAllocationArea(
-      int size_in_bytes) override;
+      int size_in_bytes, AllocationOrigin origin) override;
 };
 
 // A collection of |CompactionSpace|s used by a single compaction task.
 class CompactionSpaceCollection : public Malloced {
  public:
-  explicit CompactionSpaceCollection(Heap* heap)
-      : old_space_(heap, OLD_SPACE, Executability::NOT_EXECUTABLE),
-        code_space_(heap, CODE_SPACE, Executability::EXECUTABLE) {}
+  explicit CompactionSpaceCollection(Heap* heap,
+                                     LocalSpaceKind local_space_kind)
+      : old_space_(heap, OLD_SPACE, Executability::NOT_EXECUTABLE,
+                   local_space_kind),
+        code_space_(heap, CODE_SPACE, Executability::EXECUTABLE,
+                    local_space_kind) {}
 
   CompactionSpace* Get(AllocationSpace space) {
     switch (space) {
@@ -2948,7 +3124,6 @@ class CodeSpace : public PagedSpace {
               (info).top() <= (space).page_high() &&  \
               (info).limit() <= (space).page_high())
 
-
 // -----------------------------------------------------------------------------
 // Old space for all map objects
 
@@ -2956,8 +3131,7 @@ class MapSpace : public PagedSpace {
  public:
   // Creates a map space object.
   explicit MapSpace(Heap* heap)
-      : PagedSpace(heap, MAP_SPACE, NOT_EXECUTABLE,
-                   FreeList::CreateFreeList()) {}
+      : PagedSpace(heap, MAP_SPACE, NOT_EXECUTABLE, new FreeListMap()) {}
 
   int RoundSizeDownToObjectAlignment(int size) override {
     if (base::bits::IsPowerOfTwo(Map::kSize)) {
@@ -2967,9 +3141,27 @@ class MapSpace : public PagedSpace {
     }
   }
 
+  void SortFreeList();
+
 #ifdef VERIFY_HEAP
   void VerifyObject(HeapObject obj) override;
 #endif
+};
+
+// -----------------------------------------------------------------------------
+// Off-thread space that is used for folded allocation on a different thread.
+
+class V8_EXPORT_PRIVATE OffThreadSpace : public LocalSpace {
+ public:
+  explicit OffThreadSpace(Heap* heap)
+      : LocalSpace(heap, OLD_SPACE, NOT_EXECUTABLE,
+                   LocalSpaceKind::kOffThreadSpace) {}
+
+ protected:
+  V8_WARN_UNUSED_RESULT bool SlowRefillLinearAllocationArea(
+      int size_in_bytes, AllocationOrigin origin) override;
+
+  void RefillFreeList() override;
 };
 
 // -----------------------------------------------------------------------------
@@ -3001,6 +3193,8 @@ class ReadOnlySpace : public PagedSpace {
   // to write it into the free list nodes that were already created.
   void RepairFreeListsAfterDeserialization();
 
+  size_t Available() override { return 0; }
+
  private:
   // Unseal the space after is has been sealed, by making it writable.
   // TODO(v8:7464): Only possible if the space hasn't been detached.
@@ -3026,16 +3220,10 @@ class LargeObjectSpace : public Space {
  public:
   using iterator = LargePageIterator;
 
-  explicit LargeObjectSpace(Heap* heap);
-  LargeObjectSpace(Heap* heap, AllocationSpace id);
-
   ~LargeObjectSpace() override { TearDown(); }
 
   // Releases internal resources, frees objects in this space.
   void TearDown();
-
-  V8_EXPORT_PRIVATE V8_WARN_UNUSED_RESULT AllocationResult
-  AllocateRaw(int object_size);
 
   // Available bytes for objects in this space.
   size_t Available() override;
@@ -3048,13 +3236,8 @@ class LargeObjectSpace : public Space {
 
   int PageCount() { return page_count_; }
 
-  // Clears the marking state of live objects.
-  void ClearMarkingStateOfLiveObjects();
-
   // Frees unmarked objects.
-  void FreeUnmarkedObjects();
-
-  void PromoteNewLargeObject(LargePage* page);
+  virtual void FreeUnmarkedObjects();
 
   // Checks whether a heap object is in this space; O(1).
   V8_EXPORT_PRIVATE bool Contains(HeapObject obj);
@@ -3072,13 +3255,10 @@ class LargeObjectSpace : public Space {
     return reinterpret_cast<LargePage*>(Space::first_page());
   }
 
-  // Collect code statistics.
-  void CollectCodeStatistics();
-
   iterator begin() { return iterator(first_page()); }
   iterator end() { return iterator(nullptr); }
 
-  std::unique_ptr<ObjectIterator> GetObjectIterator() override;
+  std::unique_ptr<ObjectIterator> GetObjectIterator(Heap* heap) override;
 
 #ifdef VERIFY_HEAP
   virtual void Verify(Isolate* isolate);
@@ -3089,9 +3269,9 @@ class LargeObjectSpace : public Space {
 #endif
 
  protected:
+  LargeObjectSpace(Heap* heap, AllocationSpace id);
+
   LargePage* AllocateLargePage(int object_size, Executability executable);
-  V8_WARN_UNUSED_RESULT AllocationResult AllocateRaw(int object_size,
-                                                     Executability executable);
 
   size_t size_;          // allocated bytes
   int page_count_;       // number of chunks
@@ -3099,6 +3279,28 @@ class LargeObjectSpace : public Space {
 
  private:
   friend class LargeObjectSpaceObjectIterator;
+};
+
+class OffThreadLargeObjectSpace;
+
+class OldLargeObjectSpace : public LargeObjectSpace {
+ public:
+  explicit OldLargeObjectSpace(Heap* heap);
+
+  V8_EXPORT_PRIVATE V8_WARN_UNUSED_RESULT AllocationResult
+  AllocateRaw(int object_size);
+
+  // Clears the marking state of live objects.
+  void ClearMarkingStateOfLiveObjects();
+
+  void PromoteNewLargeObject(LargePage* page);
+
+  V8_EXPORT_PRIVATE void MergeOffThreadSpace(OffThreadLargeObjectSpace* other);
+
+ protected:
+  explicit OldLargeObjectSpace(Heap* heap, AllocationSpace id);
+  V8_WARN_UNUSED_RESULT AllocationResult AllocateRaw(int object_size,
+                                                     Executability executable);
 };
 
 class NewLargeObjectSpace : public LargeObjectSpace {
@@ -3130,7 +3332,7 @@ class NewLargeObjectSpace : public LargeObjectSpace {
   size_t capacity_;
 };
 
-class CodeLargeObjectSpace : public LargeObjectSpace {
+class CodeLargeObjectSpace : public OldLargeObjectSpace {
  public:
   explicit CodeLargeObjectSpace(Heap* heap);
 
@@ -3152,6 +3354,22 @@ class CodeLargeObjectSpace : public LargeObjectSpace {
 
   // Page-aligned addresses to their corresponding LargePage.
   std::unordered_map<Address, LargePage*> chunk_map_;
+};
+
+class V8_EXPORT_PRIVATE OffThreadLargeObjectSpace : public LargeObjectSpace {
+ public:
+  explicit OffThreadLargeObjectSpace(Heap* heap);
+
+  V8_WARN_UNUSED_RESULT AllocationResult AllocateRaw(int object_size);
+
+  void FreeUnmarkedObjects() override;
+
+ protected:
+  // OldLargeObjectSpace can mess with OffThreadLargeObjectSpace during merging.
+  friend class OldLargeObjectSpace;
+
+  V8_WARN_UNUSED_RESULT AllocationResult AllocateRaw(int object_size,
+                                                     Executability executable);
 };
 
 class LargeObjectSpaceObjectIterator : public ObjectIterator {

@@ -1,6 +1,6 @@
 /****************************************************************************
 **
-** Copyright (C) 2016 The Qt Company Ltd.
+** Copyright (C) 2019 The Qt Company Ltd.
 ** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the utils of the Qt Toolkit.
@@ -38,8 +38,8 @@
 #include <private/qunicodetables_p.h>
 #endif
 
-#define DATA_VERSION_S "10.0"
-#define DATA_VERSION_STR "QChar::Unicode_10_0"
+#define DATA_VERSION_S "13.0"
+#define DATA_VERSION_STR "QChar::Unicode_13_0"
 
 
 static QHash<QByteArray, QChar::UnicodeVersion> age_map;
@@ -69,6 +69,10 @@ static void initAgeMap()
         { QChar::Unicode_8_0,   "8.0" },
         { QChar::Unicode_9_0,   "9.0" },
         { QChar::Unicode_10_0,   "10.0" },
+        { QChar::Unicode_11_0,   "11.0" },
+        { QChar::Unicode_12_0,   "12.0" },
+        { QChar::Unicode_12_1,   "12.1" }, // UCD Revision 24
+        { QChar::Unicode_13_0,   "13.0" }, // UCD Revision 26
         { QChar::Unicode_Unassigned, 0 }
     };
     AgeMap *d = ageMap;
@@ -190,9 +194,9 @@ enum Direction {
     DirLRI = QChar::DirLRI,
     DirRLI = QChar::DirRLI,
     DirFSI = QChar::DirFSI,
-    DirPDI = QChar::DirPDI
+    DirPDI = QChar::DirPDI,
 
-    , Dir_Unassigned
+    Dir_Unassigned
 };
 
 static QHash<QByteArray, Direction> directionMap;
@@ -242,9 +246,9 @@ enum JoiningType {
     Joining_Dual,
     Joining_Right,
     Joining_Left,
-    Joining_Transparent
+    Joining_Transparent,
 
-    , Joining_Unassigned
+    Joining_Unassigned
 };
 
 static QHash<QByteArray, JoiningType> joining_map;
@@ -291,7 +295,8 @@ static const char *grapheme_break_class_string =
     "    Graphemebreak_E_Modifier,\n"
     "    Graphemebreak_Glue_After_Zwj,\n"
     "    Graphemebreak_E_Base_GAZ,\n"
-    "    NumGraphemeBreakClasses,\n"
+    "\n"
+    "    NumGraphemeBreakClasses\n"
     "};\n\n";
 
 enum GraphemeBreakClass {
@@ -377,7 +382,9 @@ static const char *word_break_class_string =
     "    WordBreak_E_Modifier,\n"
     "    WordBreak_Glue_After_Zwj,\n"
     "    WordBreak_E_Base_GAZ,\n"
-    "    NumWordBreakClasses,\n"
+    "    WordBreak_WSegSpace,\n"
+    "\n"
+    "    NumWordBreakClasses\n"
     "};\n\n";
 
 enum WordBreakClass {
@@ -403,6 +410,7 @@ enum WordBreakClass {
     WordBreak_E_Modifier,
     WordBreak_Glue_After_Zwj,
     WordBreak_E_Base_GAZ,
+    WordBreak_WSegSpace,
 
     WordBreak_Unassigned
 };
@@ -437,6 +445,7 @@ static void initWordBreak()
         { WordBreak_E_Modifier, "E_Modifier" },
         { WordBreak_Glue_After_Zwj, "Glue_After_Zwj" },
         { WordBreak_E_Base_GAZ, "E_Base_GAZ" },
+        { WordBreak_WSegSpace, "WSegSpace" },
         { WordBreak_Unassigned, 0 }
     };
     WordBreakList *d = breaks;
@@ -463,6 +472,7 @@ static const char *sentence_break_class_string =
     "    SentenceBreak_SContinue,\n"
     "    SentenceBreak_STerm,\n"
     "    SentenceBreak_Close,\n"
+    "\n"
     "    NumSentenceBreakClasses\n"
     "};\n\n";
 
@@ -480,9 +490,9 @@ enum SentenceBreakClass {
     SentenceBreak_ATerm,
     SentenceBreak_SContinue,
     SentenceBreak_STerm,
-    SentenceBreak_Close
+    SentenceBreak_Close,
 
-    , SentenceBreak_Unassigned
+    SentenceBreak_Unassigned
 };
 
 static QHash<QByteArray, SentenceBreakClass> sentence_break_map;
@@ -531,6 +541,7 @@ static const char *line_break_class_string =
     "    LineBreak_EB, LineBreak_EM, LineBreak_ZWJ,\n"
     "    LineBreak_SA, LineBreak_SG, LineBreak_SP,\n"
     "    LineBreak_CR, LineBreak_LF, LineBreak_BK,\n"
+    "\n"
     "    NumLineBreakClasses\n"
     "};\n\n";
 
@@ -776,6 +787,23 @@ static void initScriptMap()
         { QChar::Script_Nushu,                  "Nushu" },
         { QChar::Script_Soyombo,                "Soyombo" },
         { QChar::Script_ZanabazarSquare,        "ZanabazarSquare" },
+        // 12.1
+        { QChar::Script_Dogra,                  "Dogra" },
+        { QChar::Script_GunjalaGondi,           "GunjalaGondi" },
+        { QChar::Script_HanifiRohingya,         "HanifiRohingya" },
+        { QChar::Script_Makasar,                "Makasar" },
+        { QChar::Script_Medefaidrin,            "Medefaidrin" },
+        { QChar::Script_OldSogdian,             "OldSogdian" },
+        { QChar::Script_Sogdian,                "Sogdian" },
+        { QChar::Script_Elymaic,                "Elymaic" },
+        { QChar::Script_Nandinagari,            "Nandinagari" },
+        { QChar::Script_NyiakengPuachueHmong,   "NyiakengPuachueHmong" },
+        { QChar::Script_Wancho,                 "Wancho" },
+        // 13.0
+        { QChar::Script_Chorasmian,             "Chorasmian" },
+        { QChar::Script_DivesAkuru,             "DivesAkuru" },
+        { QChar::Script_KhitanSmallScript,      "KhitanSmallScript" },
+        { QChar::Script_Yezidi,                 "Yezidi" },
 
         // unhandled
         { QChar::Script_Unknown,                0 }
@@ -1375,12 +1403,18 @@ static void readArabicShaping()
             qFatal("%x: unassigned or unhandled joining type: %s", codepoint, l[2].constData());
             break;
         case Joining_Transparent:
-            if (d.p.category != QChar::Mark_NonSpacing && d.p.category != QChar::Mark_Enclosing && d.p.category != QChar::Other_Format) {
-                qFatal("%x: joining type '%s' was met; the current implementation needs to be revised!",
-                       codepoint, l[2].constData());
+            switch (d.p.category) {
+            case QChar::Mark_Enclosing:
+            case QChar::Mark_NonSpacing:
+            case QChar::Letter_Modifier:
+            case QChar::Other_Format:
+                break;
+            default:
+                qFatal("%x: joining type '%s' was met (category: %d); "
+                       "the current implementation needs to be revised!",
+                       codepoint, l[2].constData(), d.p.category);
             }
-            // fall through
-
+            Q_FALLTHROUGH();
         default:
             d.p.joining = QChar::JoiningType(joining);
             break;
@@ -3017,7 +3051,7 @@ int main(int, char **)
     QByteArray header =
         "/****************************************************************************\n"
         "**\n"
-        "** Copyright (C) 2016 The Qt Company Ltd.\n"
+        "** Copyright (C) 2020 The Qt Company Ltd.\n"
         "** Contact: https://www.qt.io/licensing/\n"
         "**\n"
         "** This file is part of the QtCore module of the Qt Toolkit.\n"

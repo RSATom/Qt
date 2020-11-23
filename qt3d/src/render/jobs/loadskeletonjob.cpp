@@ -47,6 +47,9 @@
 #include <Qt3DRender/private/job_common_p.h>
 #include <Qt3DRender/private/qurlhelper_p.h>
 #include <Qt3DRender/private/gltfskeletonloader_p.h>
+#include <Qt3DRender/private/renderlogging_p.h>
+#include <QtCore/QCoreApplication>
+#include <QtCore/QFileInfo>
 
 QT_BEGIN_NAMESPACE
 
@@ -75,7 +78,7 @@ LoadSkeletonJob::LoadSkeletonJob(const HSkeleton &handle)
 
 void LoadSkeletonJob::run()
 {
-    Q_DJOB(LoadSkeletonJob);
+    Q_D(LoadSkeletonJob);
     d->m_backendSkeleton = nullptr;
 
     Skeleton *skeleton = m_nodeManagers->skeletonManager()->data(m_handle);
@@ -120,7 +123,7 @@ void LoadSkeletonJob::loadSkeleton(Skeleton *skeleton)
 
 void LoadSkeletonJob::loadSkeletonFromUrl(Skeleton *skeleton)
 {
-    Q_DJOB(LoadSkeletonJob);
+    Q_D(LoadSkeletonJob);
 
     using namespace Qt3DCore;
 

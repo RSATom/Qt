@@ -44,6 +44,7 @@ std::string VideoReceiveStream::Stats::ToString(int64_t time_ms) const {
   ss << "height: " << height << ", ";
   ss << "key: " << frame_counts.key_frames << ", ";
   ss << "delta: " << frame_counts.delta_frames << ", ";
+  ss << "frames_dropped: " << frames_dropped << ", ";
   ss << "network_fps: " << network_frame_rate << ", ";
   ss << "decode_fps: " << decode_frame_rate << ", ";
   ss << "render_fps: " << render_frame_rate << ", ";
@@ -58,8 +59,7 @@ std::string VideoReceiveStream::Stats::ToString(int64_t time_ms) const {
   ss << "jb_emitted_count: " << jitter_buffer_emitted_count << ", ";
   ss << "min_playout_delay_ms: " << min_playout_delay_ms << ", ";
   ss << "sync_offset_ms: " << sync_offset_ms << ", ";
-  ss << "cum_loss: " << rtcp_stats.packets_lost << ", ";
-  ss << "max_ext_seq: " << rtcp_stats.extended_highest_sequence_number << ", ";
+  ss << "cum_loss: " << rtp_stats.packets_lost << ", ";
   ss << "nack: " << rtcp_packet_type_counts.nack_packets << ", ";
   ss << "fir: " << rtcp_packet_type_counts.fir_packets << ", ";
   ss << "pli: " << rtcp_packet_type_counts.pli_packets;
@@ -69,12 +69,8 @@ std::string VideoReceiveStream::Stats::ToString(int64_t time_ms) const {
 
 VideoReceiveStream::Config::Config(const Config&) = default;
 VideoReceiveStream::Config::Config(Config&&) = default;
-VideoReceiveStream::Config::Config(Transport* rtcp_send_transport,
-                                   MediaTransportConfig media_transport_config)
-    : rtcp_send_transport(rtcp_send_transport),
-      media_transport_config(media_transport_config) {}
 VideoReceiveStream::Config::Config(Transport* rtcp_send_transport)
-    : Config(rtcp_send_transport, MediaTransportConfig()) {}
+    : rtcp_send_transport(rtcp_send_transport) {}
 
 VideoReceiveStream::Config& VideoReceiveStream::Config::operator=(Config&&) =
     default;
@@ -117,7 +113,6 @@ std::string VideoReceiveStream::Config::Rtp::ToString() const {
   ss << "{receiver_reference_time_report: "
      << (rtcp_xr.receiver_reference_time_report ? "on" : "off");
   ss << '}';
-  ss << ", remb: " << (remb ? "on" : "off");
   ss << ", transport_cc: " << (transport_cc ? "on" : "off");
   ss << ", lntf: {enabled: " << (lntf.enabled ? "true" : "false") << '}';
   ss << ", nack: {rtp_history_ms: " << nack.rtp_history_ms << '}';

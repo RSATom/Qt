@@ -43,6 +43,8 @@ class StubInputController : public InputController {
   void SetMouseSensitivity(int value) override {}
   void SetPrimaryButtonRight(bool right) override {}
   void SetMouseReverseScroll(bool enabled) override {}
+  void SetMouseAcceleration(bool enabled) override {}
+  void SetTouchpadAcceleration(bool enabled) override {}
   void SetTapToClickPaused(bool state) override {}
   void GetTouchDeviceStatus(GetTouchDeviceStatusReply reply) override {
     std::move(reply).Run(std::string());
@@ -57,7 +59,8 @@ class StubInputController : public InputController {
   void SetInternalKeyboardFilter(bool enable_filter,
                                  std::vector<DomCode> allowed_keys) override {}
   void GetGesturePropertiesService(
-      ui::ozone::mojom::GesturePropertiesServiceRequest request) override {}
+      mojo::PendingReceiver<ui::ozone::mojom::GesturePropertiesService>
+          receiver) override {}
 
  private:
   DISALLOW_COPY_AND_ASSIGN(StubInputController);

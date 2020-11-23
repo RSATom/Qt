@@ -51,6 +51,8 @@
 #include <QtCore/QVector>
 #include <QtCore/QVersionNumber>
 
+#include <QtHelp/QHelpLink>
+
 #include <QtSql/QSqlError>
 #include <QtSql/QSqlDriver>
 
@@ -379,6 +381,7 @@ bool QHelpCollectionHandler::copyCollectionFile(const QString &fileName)
 
     if (!createTables(copyQuery) || !recreateIndexAndNamespaceFilterTables(copyQuery)) {
         emit error(tr("Cannot copy collection file: %1").arg(colFile));
+        delete copyQuery;
         return false;
     }
 
@@ -588,13 +591,13 @@ QStringList QHelpCollectionHandler::availableComponents() const
     return list;
 }
 
-QStringList QHelpCollectionHandler::availableVersions() const
+QList<QVersionNumber> QHelpCollectionHandler::availableVersions() const
 {
-    QStringList list;
+    QList<QVersionNumber> list;
     if (m_query) {
         m_query->exec(QLatin1String("SELECT DISTINCT Version FROM VersionTable ORDER BY Version"));
         while (m_query->next())
-            list.append(m_query->value(0).toString());
+            list.append(QVersionNumber::fromString(m_query->value(0).toString()));
     }
     return list;
 }
@@ -2354,7 +2357,8 @@ QMap<QString, QUrl> QHelpCollectionHandler::linksForField(const QString &fieldNa
         if (title.isEmpty()) // generate a title + corresponding path
             title = fieldValue + QLatin1String(" : ") + m_query->value(3).toString();
 
-        linkMap.insertMulti(title, buildQUrl(m_query->value(1).toString(),
+        static_cast<QMultiMap<QString, QUrl> &>(linkMap).insert(title, buildQUrl(
+                                             m_query->value(1).toString(),
                                              m_query->value(2).toString(),
                                              m_query->value(3).toString(),
                                              m_query->value(4).toString()));
@@ -2374,14 +2378,38 @@ QMap<QString, QUrl> QHelpCollectionHandler::linksForKeyword(const QString &keywo
     return linksForField(QLatin1String("Name"), keyword, filterName);
 }
 
+QList<QHelpLink> QHelpCollectionHandler::documentsForIdentifier(const QString &id,
+                         const QString &filterName) const
+{
+    return documentsForField(QLatin1String("Identifier"), id, filterName);
+}
+
+QList<QHelpLink> QHelpCollectionHandler::documentsForKeyword(const QString &keyword,
+                         const QString &filterName) const
+{
+    return documentsForField(QLatin1String("Name"), keyword, filterName);
+}
+
 QMap<QString, QUrl> QHelpCollectionHandler::linksForField(const QString &fieldName,
                     const QString &fieldValue,
                     const QString &filterName) const
 {
     QMap<QString, QUrl> linkMap;
+    const auto documents = documentsForField(fieldName, fieldValue, filterName);
+    for (const auto &document : documents)
+        static_cast<QMultiMap<QString, QUrl> &>(linkMap).insert(document.title, document.url);
+
+    return linkMap;
+}
+
+QList<QHelpLink> QHelpCollectionHandler::documentsForField(const QString &fieldName,
+                                           const QString &fieldValue,
+                                           const QString &filterName) const
+{
+    QList<QHelpLink> docList;
 
     if (!isDBOpened())
-        return linkMap;
+        return docList;
 
     const QString filterlessQuery = QString::fromLatin1(
                 "SELECT "
@@ -2401,7 +2429,8 @@ QMap<QString, QUrl> QHelpCollectionHandler::linksForField(const QString &fieldNa
                 "AND IndexTable.%1 = ?").arg(fieldName);
 
     const QString filterQuery = filterlessQuery
-            + prepareFilterQuery(filterName);
+            + prepareFilterQuery(filterName)
+            + QLatin1String(" ORDER BY LOWER(FileNameTable.Title), FileNameTable.Title");
 
     m_query->prepare(filterQuery);
     m_query->bindValue(0, fieldValue);
@@ -2414,12 +2443,13 @@ QMap<QString, QUrl> QHelpCollectionHandler::linksForField(const QString &fieldNa
         if (title.isEmpty()) // generate a title + corresponding path
             title = fieldValue + QLatin1String(" : ") + m_query->value(3).toString();
 
-        linkMap.insertMulti(title, buildQUrl(m_query->value(1).toString(),
-                                             m_query->value(2).toString(),
-                                             m_query->value(3).toString(),
-                                             m_query->value(4).toString()));
+        const QUrl url = buildQUrl(m_query->value(1).toString(),
+                                   m_query->value(2).toString(),
+                                   m_query->value(3).toString(),
+                                   m_query->value(4).toString());
+        docList.append(QHelpLink {url, title});
     }
-    return linkMap;
+    return docList;
 }
 
 QStringList QHelpCollectionHandler::namespacesForFilter(const QString &filterName) const

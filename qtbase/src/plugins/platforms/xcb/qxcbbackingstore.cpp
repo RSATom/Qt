@@ -229,7 +229,7 @@ void QXcbBackingStoreImage::resize(const QSize &size)
                                    m_xcb_format->bits_per_pixel,
                                    0, byteOrder,
                                    XCB_IMAGE_ORDER_MSB_FIRST,
-                                   0, ~0, 0);
+                                   nullptr, ~0, nullptr);
 
     const size_t segmentSize = imageDataSize(m_xcb_image);
 
@@ -412,13 +412,13 @@ bool QXcbBackingStoreImage::createSystemVShmSegment(xcb_connection_t *c, size_t 
         return false;
     }
 
-    void *addr = shmat(id, 0, 0);
+    void *addr = shmat(id, nullptr, 0);
     if (addr == (void *)-1) {
         qCWarning(lcQpaXcb, "shmat() failed (%d: %s) for id %d", errno, strerror(errno), id);
         return false;
     }
 
-    if (shmctl(id, IPC_RMID, 0) == -1)
+    if (shmctl(id, IPC_RMID, nullptr) == -1)
         qCWarning(lcQpaXcb, "Error while marking the shared memory segment to be destroyed");
 
     const auto seg = xcb_generate_id(c);
@@ -710,9 +710,10 @@ void QXcbBackingStoreImage::put(xcb_drawable_t dst, const QRegion &region, const
     Q_ASSERT(!m_clientSideScroll);
 
     ensureGC(dst);
-    setClip(region);
 
     if (hasShm()) {
+        setClip(region); // Clip in window local coordinates
+
         // Copy scrolled area on server-side from pixmap to window
         const QRegion scrolledRegion = m_scrolledRegion.translated(-offset);
         for (const QRect &rect : scrolledRegion) {
@@ -733,7 +734,15 @@ void QXcbBackingStoreImage::put(xcb_drawable_t dst, const QRegion &region, const
         const QRect bounds = region.boundingRect();
         const QPoint target = bounds.topLeft();
         const QRect source = bounds.translated(offset);
-        flushPixmap(region);
+
+        // First clip in backingstore-local coordinates, and upload
+        // the changed parts of the backingstore to the server.
+        setClip(source);
+        flushPixmap(source);
+
+        // Then clip in window local coordinates, and copy the updated
+        // parts of the backingstore image server-side to the window.
+        setClip(region);
         xcb_copy_area(xcb_connection(),
                       m_xcb_pixmap,
                       dst,
@@ -780,7 +789,7 @@ QXcbBackingStore::~QXcbBackingStore()
 QPaintDevice *QXcbBackingStore::paintDevice()
 {
     if (!m_image)
-        return 0;
+        return nullptr;
     return m_rgbImage.isNull() ? m_image->image() : &m_rgbImage;
 }
 
@@ -1036,7 +1045,7 @@ void QXcbSystemTrayBackingStore::recreateImage(QXcbWindow *win, const QSize &siz
     xcb_create_pixmap(xcb_connection(), 32, m_xrenderPixmap, screen->root(), size.width(), size.height());
 
     m_xrenderPicture = xcb_generate_id(xcb_connection());
-    xcb_render_create_picture(xcb_connection(), m_xrenderPicture, m_xrenderPixmap, m_xrenderPictFormat, 0, 0);
+    xcb_render_create_picture(xcb_connection(), m_xrenderPicture, m_xrenderPixmap, m_xrenderPictFormat, 0, nullptr);
 
     // XRender expects premultiplied alpha
     if (m_image)
@@ -1077,7 +1086,7 @@ void QXcbSystemTrayBackingStore::initXRenderMode()
 
     m_windowPicture = xcb_generate_id(conn);
     xcb_void_cookie_t cookie =
-            xcb_render_create_picture_checked(conn, m_windowPicture, platformWindow->xcb_window(), vfmt->format, 0, 0);
+            xcb_render_create_picture_checked(conn, m_windowPicture, platformWindow->xcb_window(), vfmt->format, 0, nullptr);
     xcb_generic_error_t *error = xcb_request_check(conn, cookie);
     if (error) {
         qWarning("QXcbSystemTrayBackingStore: Failed to create Picture with format %x for window %x, error code %d",

@@ -114,4 +114,31 @@ QRunnable::~QRunnable()
     \sa autoDelete(), QThreadPool
 */
 
+class FunctionRunnable : public QRunnable
+{
+    std::function<void()> m_functionToRun;
+public:
+    FunctionRunnable(std::function<void()> functionToRun) : m_functionToRun(std::move(functionToRun))
+    {
+    }
+    void run() override
+    {
+        m_functionToRun();
+    }
+};
+
+/*!
+    \since 5.15
+
+    Creates a QRunnable that calls \a functionToRun in run().
+
+    Auto-deletion is enabled by default.
+
+    \sa run(), autoDelete()
+*/
+QRunnable *QRunnable::create(std::function<void()> functionToRun)
+{
+    return new FunctionRunnable(std::move(functionToRun));
+}
+
 QT_END_NAMESPACE

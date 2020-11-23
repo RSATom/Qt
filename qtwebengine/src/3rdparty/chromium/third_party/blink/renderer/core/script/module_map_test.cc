@@ -65,16 +65,16 @@ class TestModuleRecordResolver final : public ModuleRecordResolver {
   }
 
   const ModuleScript* GetModuleScriptFromModuleRecord(
-      const ModuleRecord&) const override {
+      v8::Local<v8::Module>) const override {
     NOTREACHED();
     return nullptr;
   }
 
-  ModuleRecord Resolve(const String& specifier,
-                       const ModuleRecord& referrer,
-                       ExceptionState&) override {
+  v8::Local<v8::Module> Resolve(const String& specifier,
+                                v8::Local<v8::Module> referrer,
+                                ExceptionState&) override {
     NOTREACHED();
-    return ModuleRecord();
+    return v8::Local<v8::Module>();
   }
 
  private:
@@ -103,7 +103,7 @@ class ModuleMapTestModulator final : public DummyModulator {
   ScriptState* GetScriptState() override { return script_state_; }
 
   class TestModuleScriptFetcher final
-      : public GarbageCollectedFinalized<TestModuleScriptFetcher>,
+      : public GarbageCollected<TestModuleScriptFetcher>,
         public ModuleScriptFetcher {
     USING_GARBAGE_COLLECTED_MIXIN(TestModuleScriptFetcher);
 
@@ -117,7 +117,9 @@ class ModuleMapTestModulator final : public DummyModulator {
                ModuleScriptFetcher::Client* client) override {
       TestRequest* test_request = MakeGarbageCollected<TestRequest>(
           ModuleScriptCreationParams(
-              request.Url(), ParkableString(String("").ReleaseImpl()), nullptr,
+              request.Url(),
+              ModuleScriptCreationParams::ModuleType::kJavaScriptModule,
+              ParkableString(String("").ReleaseImpl()), nullptr,
               request.GetResourceRequest().GetCredentialsMode()),
           client);
       modulator_->test_requests_.push_back(test_request);
@@ -137,7 +139,8 @@ class ModuleMapTestModulator final : public DummyModulator {
     return MakeGarbageCollected<TestModuleScriptFetcher>(this);
   }
 
-  Vector<ModuleRequest> ModuleRequestsFromModuleRecord(ModuleRecord) override {
+  Vector<ModuleRequest> ModuleRequestsFromModuleRecord(
+      v8::Local<v8::Module>) override {
     return Vector<ModuleRequest>();
   }
 
@@ -145,7 +148,7 @@ class ModuleMapTestModulator final : public DummyModulator {
     return Thread::Current()->GetTaskRunner().get();
   }
 
-  struct TestRequest final : public GarbageCollectedFinalized<TestRequest> {
+  struct TestRequest final : public GarbageCollected<TestRequest> {
     TestRequest(const ModuleScriptCreationParams& params,
                 ModuleScriptFetcher::Client* client)
         : params_(params), client_(client) {}

@@ -11,7 +11,7 @@
 #include "base/test/bind_test_util.h"
 #include "base/test/gmock_callback_support.h"
 #include "base/test/mock_callback.h"
-#include "base/test/scoped_task_environment.h"
+#include "base/test/task_environment.h"
 #include "components/autofill_assistant/browser/actions/mock_action_delegate.h"
 #include "components/autofill_assistant/browser/client_status.h"
 #include "testing/gmock/include/gmock/gmock.h"
@@ -33,7 +33,7 @@ using ::testing::SizeIs;
 class WaitForDocumentActionTest : public testing::Test {
  public:
   WaitForDocumentActionTest()
-      : task_env_(base::test::ScopedTaskEnvironment::TimeSource::MOCK_TIME) {}
+      : task_env_(base::test::TaskEnvironment::TimeSource::MOCK_TIME) {}
 
   void SetUp() override {
     ON_CALL(mock_action_delegate_, OnWaitForDocumentReadyState(_, _, _))
@@ -61,7 +61,7 @@ class WaitForDocumentActionTest : public testing::Test {
  protected:
   // task_env_ must be first to guarantee other field
   // creation run in that environment.
-  base::test::ScopedTaskEnvironment task_env_;
+  base::test::TaskEnvironment task_env_;
 
   MockActionDelegate mock_action_delegate_;
   WaitForDocumentProto proto_;
@@ -185,7 +185,7 @@ TEST_F(WaitForDocumentActionTest, WaitForDocumentInteractiveTimesOut) {
 TEST_F(WaitForDocumentActionTest, CheckDocumentInFrame) {
   EXPECT_CALL(mock_action_delegate_,
               OnShortWaitForElement(Selector({"#frame"}), _))
-      .WillRepeatedly(RunOnceCallback<1>(true));
+      .WillRepeatedly(RunOnceCallback<1>(OkClientStatus()));
 
   EXPECT_CALL(mock_action_delegate_,
               OnGetDocumentReadyState(Selector({"#frame"}), _))
@@ -199,7 +199,8 @@ TEST_F(WaitForDocumentActionTest, CheckDocumentInFrame) {
 
 TEST_F(WaitForDocumentActionTest, CheckFrameElementNotFound) {
   EXPECT_CALL(mock_action_delegate_, OnShortWaitForElement(_, _))
-      .WillRepeatedly(RunOnceCallback<1>(false));
+      .WillRepeatedly(
+          RunOnceCallback<1>(ClientStatus(ELEMENT_RESOLUTION_FAILED)));
 
   proto_.set_timeout_ms(0);
   proto_.mutable_frame()->add_selectors("#frame");

@@ -51,14 +51,15 @@
 
 import QtQuick 2.12
 import QtPositioning 5.12
-import QtLocation 5.12
+import QtLocation 5.15
 import Qt.labs.qmlmodels 1.0
 
 DelegateChooser {
     id: dc
     role: "type"
     property color defaultColor: "grey"
-    property real defaultOpacity: 0.7
+    property real defaultOpacity: 0.6
+    property bool openGLBackends: false
 
     DelegateChoice {
         roleValue: "Point"
@@ -82,8 +83,9 @@ DelegateChooser {
         delegate: MapPolyline {
             property string geojsonType: "LineString"
             property var props: modelData.properties
+            backend: (dc.openGLBackends) ? MapPolyline.OpenGLExtruded : MapPolyline.Software
             geoShape: modelData.data
-            line.width: 3
+            line.width: 4
             opacity: dc.defaultOpacity
             line.color: (props && props.color) || (parent && parent.props && parent.props.color) || dc.defaultColor
         }
@@ -97,7 +99,20 @@ DelegateChooser {
             geoShape: modelData.data
             opacity: dc.defaultOpacity
             color: (props && props.color) || (parent && parent.props && parent.props.color) || dc.defaultColor
-            border.width: 0
+            border.width: 4
+            border.color: 'black'
+            backend: (dc.openGLBackends) ? MapPolygon.OpenGL : MapPolygon.Software
+            MouseArea {
+                anchors.fill: parent
+                onClicked: {
+                    if (props !== undefined)
+                        console.log(props.name)
+                    else if (parent.parent.geojsonType == "MultiPolygon")
+                        console.log(parent.parent.props.name)
+                    else
+                        console.log("NO NAME!", props)
+                }
+            }
         }
     }
 

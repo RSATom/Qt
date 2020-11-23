@@ -2,13 +2,12 @@
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
-import("//build/config/jumbo.gni")
 import("../../pdfium.gni")
 import("../../testing/test.gni")
 
 assert(pdf_enable_xfa)
 
-jumbo_source_set("fwl") {
+source_set("fwl") {
   sources = [
     "cfwl_app.cpp",
     "cfwl_app.h",
@@ -74,10 +73,6 @@ jumbo_source_set("fwl") {
     "cfwl_themepart.cpp",
     "cfwl_themepart.h",
     "cfwl_themetext.h",
-    "cfwl_timer.cpp",
-    "cfwl_timer.h",
-    "cfwl_timerinfo.cpp",
-    "cfwl_timerinfo.h",
     "cfwl_widget.cpp",
     "cfwl_widget.h",
     "cfwl_widgetmgr.cpp",
@@ -88,7 +83,6 @@ jumbo_source_set("fwl") {
     "cfx_barcode.h",
     "fwl_widgetdef.h",
     "fwl_widgethit.h",
-    "ifwl_adaptertimermgr.h",
     "ifwl_themeprovider.h",
     "ifwl_widgetdelegate.h",
     "theme/cfwl_barcodetp.cpp",

@@ -4,11 +4,13 @@
 
 #include "net/third_party/quiche/src/quic/quartc/quartc_factory.h"
 
+#include <utility>
+
 #include "net/third_party/quiche/src/quic/core/crypto/quic_random.h"
 #include "net/third_party/quiche/src/quic/core/quic_utils.h"
 #include "net/third_party/quiche/src/quic/core/tls_client_handshaker.h"
 #include "net/third_party/quiche/src/quic/core/tls_server_handshaker.h"
-#include "net/third_party/quiche/src/quic/platform/api/quic_ptr_util.h"
+#include "net/third_party/quiche/src/quic/core/uber_received_packet_manager.h"
 #include "net/third_party/quiche/src/quic/platform/api/quic_socket_address.h"
 #include "net/third_party/quiche/src/quic/quartc/quartc_connection_helper.h"
 #include "net/third_party/quiche/src/quic/quartc/quartc_crypto_helpers.h"
@@ -27,7 +29,7 @@ std::unique_ptr<QuartcSession> CreateQuartcClientSession(
   DCHECK(packet_transport);
 
   // QuartcSession will eventually own both |writer| and |quic_connection|.
-  auto writer = QuicMakeUnique<QuartcPacketWriter>(
+  auto writer = std::make_unique<QuartcPacketWriter>(
       packet_transport, quartc_session_config.max_packet_size);
 
   // While the QuicConfig is not directly used by the connection, creating it
@@ -43,7 +45,14 @@ std::unique_ptr<QuartcSession> CreateQuartcClientSession(
       dummy_id, dummy_address, connection_helper, alarm_factory, writer.get(),
       Perspective::IS_CLIENT, supported_versions);
 
-  return QuicMakeUnique<QuartcClientSession>(
+  // Quartc sets its own ack delay; get that ack delay and copy it over
+  // to the QuicConfig so that it can be properly advertised to the peer
+  // via transport parameter negotiation.
+  quic_config.SetMaxAckDelayToSendMs(quic_connection->received_packet_manager()
+                                         .max_ack_delay()
+                                         .ToMilliseconds());
+
+  return std::make_unique<QuartcClientSession>(
       std::move(quic_connection), quic_config, supported_versions, clock,
       std::move(writer),
       CreateCryptoClientConfig(quartc_session_config.pre_shared_key),
@@ -54,8 +63,8 @@ void ConfigureGlobalQuicSettings() {
   // Fixes behavior of StopReading() with level-triggered stream sequencers.
   SetQuicReloadableFlag(quic_stop_reading_when_level_triggered, true);
 
-  // Enable version 47 to enable variable-length connection ids.
-  SetQuicReloadableFlag(quic_enable_version_47, true);
+  // Enable version 50 to be compatible with the latest version of Chrome.
+  SetQuicReloadableFlag(quic_enable_version_50, true);
 
   // Ensure that we don't drop data because QUIC streams refuse to buffer it.
   // TODO(b/120099046):  Replace this with correct handling of WriteMemSlices().
@@ -71,12 +80,9 @@ void ConfigureGlobalQuicSettings() {
 
   // Note: flag settings have no effect for Exoblaze builds since
   // SetQuicReloadableFlag() gets stubbed out.
-  SetQuicReloadableFlag(quic_bbr_less_probe_rtt, true);   // Enable BBR6,7,8.
-  SetQuicReloadableFlag(quic_unified_iw_options, true);   // Enable IWXX opts.
+  SetQuicReloadableFlag(quic_bbr_less_probe_rtt, true);  // Enable BBR6,7,8.
+  SetQuicReloadableFlag(quic_unified_iw_options, true);  // Enable IWXX opts.
   SetQuicReloadableFlag(quic_bbr_flexible_app_limited, true);  // Enable BBR9.
-
-  // Fix GetPacketHeaderSize
-  SetQuicReloadableFlag(quic_fix_get_packet_header_size, true);
 }
 
 QuicConfig CreateQuicConfig(const QuartcSessionConfig& quartc_session_config) {
@@ -89,7 +95,7 @@ QuicConfig CreateQuicConfig(const QuartcSessionConfig& quartc_session_config) {
 
   // In exoblaze this may return false. DCHECK to avoid problems caused by
   // incorrect flags configuration.
-  DCHECK(GetQuicReloadableFlag(quic_enable_version_47))
+  DCHECK(GetQuicReloadableFlag(quic_enable_version_50))
       << "Your build does not support quic reloadable flags and shouldn't "
          "place Quartc calls";
 
@@ -186,7 +192,7 @@ std::unique_ptr<QuicConnection> CreateQuicConnection(
     QuicPacketWriter* packet_writer,
     Perspective perspective,
     ParsedQuicVersionVector supported_versions) {
-  auto quic_connection = QuicMakeUnique<QuicConnection>(
+  auto quic_connection = std::make_unique<QuicConnection>(
       connection_id, peer_address, connection_helper, alarm_factory,
       packet_writer,
       /*owns_writer=*/false, perspective, supported_versions);
@@ -195,6 +201,8 @@ std::unique_ptr<QuicConnection> CreateQuicConnection(
 
   QuicSentPacketManager& sent_packet_manager =
       quic_connection->sent_packet_manager();
+  UberReceivedPacketManager& received_packet_manager =
+      quic_connection->received_packet_manager();
 
   // Default delayed ack time is 25ms.
   // If data packets are sent less often (e.g. because p-time was modified),
@@ -206,7 +214,7 @@ std::unique_ptr<QuicConnection> CreateQuicConnection(
   // The p-time can go up to as high as 120ms, and when it does, it's
   // when the low overhead is the most important thing. Ideally it should be
   // above 120ms, but it cannot be higher than 0.5*RTO, which equals to 100ms.
-  sent_packet_manager.set_local_max_ack_delay(
+  received_packet_manager.set_max_ack_delay(
       QuicTime::Delta::FromMilliseconds(100));
   sent_packet_manager.set_peer_max_ack_delay(
       QuicTime::Delta::FromMilliseconds(100));

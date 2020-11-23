@@ -55,7 +55,7 @@ class QQuickTableRowImageProvider1 : public QQuickImageProvider
 public:
     QQuickTableRowImageProvider1()
         : QQuickImageProvider(QQuickImageProvider::Pixmap) {}
-    QPixmap requestPixmap(const QString &id, QSize *size, const QSize &requestedSize);
+    QPixmap requestPixmap(const QString &id, QSize *size, const QSize &requestedSize) override;
 };
 
 class QQuickStyleItem1: public QQuickItem
@@ -245,9 +245,10 @@ Q_SIGNALS:
     void textureHeightChanged(int h);
 
 protected:
-    virtual bool event(QEvent *);
-    virtual QSGNode *updatePaintNode(QSGNode *, UpdatePaintNodeData *);
-    virtual void updatePolish();
+    bool event(QEvent *)
+ override;
+    QSGNode *updatePaintNode(QSGNode *, UpdatePaintNodeData *) override;
+    void updatePolish() override;
 
 private:
     QSize sizeFromContents(int width, int height);

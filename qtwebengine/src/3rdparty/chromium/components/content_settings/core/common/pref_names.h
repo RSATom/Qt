@@ -16,7 +16,7 @@ namespace prefs {
 // TODO(crbug.com/967668): Remove direct access to these preferences and
 // replace with CookieSettings::ShouldBlockThirdPartyCookies().
 extern const char kBlockThirdPartyCookies[];
-extern const char kCookieControlsEnabled[];
+extern const char kCookieControlsMode[];
 
 extern const char kContentSettingsVersion[];
 extern const char kContentSettingsWindowLastTabIndex[];
@@ -24,6 +24,7 @@ extern const char kContentSettingsWindowLastTabIndex[];
 extern const char kManagedDefaultAdsSetting[];
 extern const char kManagedDefaultCookiesSetting[];
 extern const char kManagedDefaultImagesSetting[];
+extern const char kManagedDefaultInsecureContentSetting[];
 extern const char kManagedDefaultJavaScriptSetting[];
 extern const char kManagedDefaultPluginsSetting[];
 extern const char kManagedDefaultPopupsSetting[];
@@ -39,6 +40,8 @@ extern const char kManagedCookiesBlockedForUrls[];
 extern const char kManagedCookiesSessionOnlyForUrls[];
 extern const char kManagedImagesAllowedForUrls[];
 extern const char kManagedImagesBlockedForUrls[];
+extern const char kManagedInsecureContentAllowedForUrls[];
+extern const char kManagedInsecureContentBlockedForUrls[];
 extern const char kManagedJavaScriptAllowedForUrls[];
 extern const char kManagedJavaScriptBlockedForUrls[];
 extern const char kManagedPluginsAllowedForUrls[];

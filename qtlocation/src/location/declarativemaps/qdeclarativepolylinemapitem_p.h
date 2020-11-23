@@ -59,8 +59,6 @@
 
 QT_BEGIN_NAMESPACE
 
-class MapPolylineNode;
-
 class Q_LOCATION_PRIVATE_EXPORT QDeclarativeMapLineProperties : public QObject
 {
     Q_OBJECT
@@ -86,53 +84,23 @@ private:
     QColor color_;
 };
 
-class Q_LOCATION_PRIVATE_EXPORT QGeoMapPolylineGeometry : public QGeoMapItemGeometry
-{
-public:
-    QGeoMapPolylineGeometry();
-
-    void updateSourcePoints(const QGeoMap &map,
-                            const QList<QDoubleVector2D> &path,
-                            const QGeoCoordinate geoLeftBound);
-
-    void updateScreenPoints(const QGeoMap &map,
-                            qreal strokeWidth,
-                            bool adjustTranslation = true);
-
-    void clearSource();
-
-    bool contains(const QPointF &point) const override;
-
-    QList<QList<QDoubleVector2D> > clipPath(const QGeoMap &map,
-                    const QList<QDoubleVector2D> &path,
-                    QDoubleVector2D &leftBoundWrapped);
-
-    void pathToScreen(const QGeoMap &map,
-                      const QList<QList<QDoubleVector2D> > &clippedPaths,
-                      const QDoubleVector2D &leftBoundWrapped);
-
-public:
-    QVector<qreal> srcPoints_;
-    QVector<QPainterPath::ElementType> srcPointTypes_;
-
-#ifdef QT_LOCATION_DEBUG
-    QList<QDoubleVector2D> m_wrappedPath;
-    QList<QList<QDoubleVector2D>> m_clippedPaths;
-#endif
-
-    friend class QDeclarativeCircleMapItem;
-    friend class QDeclarativePolygonMapItem;
-    friend class QDeclarativeRectangleMapItem;
-};
-
+class QDeclarativePolylineMapItemPrivate;
 class Q_LOCATION_PRIVATE_EXPORT QDeclarativePolylineMapItem : public QDeclarativeGeoMapItemBase
 {
     Q_OBJECT
+    Q_ENUMS(Backend)
 
     Q_PROPERTY(QJSValue path READ path WRITE setPath NOTIFY pathChanged)
     Q_PROPERTY(QDeclarativeMapLineProperties *line READ line CONSTANT)
+    Q_PROPERTY(Backend backend READ backend WRITE setBackend NOTIFY backendChanged REVISION 15)
 
 public:
+    enum Backend {
+        Software = 0,
+        OpenGLLineStrip = 1,
+        OpenGLExtruded = 2,
+    };
+
     explicit QDeclarativePolylineMapItem(QQuickItem *parent = 0);
     ~QDeclarativePolylineMapItem();
 
@@ -159,70 +127,42 @@ public:
 
     QDeclarativeMapLineProperties *line();
 
+    Backend backend() const;
+    void setBackend(Backend b);
+
 Q_SIGNALS:
     void pathChanged();
-
-protected:
-    void geometryChanged(const QRectF &newGeometry, const QRectF &oldGeometry) override;
-    void setPathFromGeoList(const QList<QGeoCoordinate> &path);
-    void updatePolish() override;
+    void backendChanged();
 
 protected Q_SLOTS:
     void markSourceDirtyAndUpdate();
     void updateAfterLinePropertiesChanged();
     virtual void afterViewportChanged(const QGeoMapViewportChangeEvent &event) override;
 
-private:
-    void regenerateCache();
-    void updateCache();
+protected:
+    void geometryChanged(const QRectF &newGeometry, const QRectF &oldGeometry) override;
+    void setPathFromGeoList(const QList<QGeoCoordinate> &path);
+    void updatePolish() override;
+    void componentComplete() override;
+    void updateLineStyleParameter(QGeoMapParameter *p, const char *propertyName);
+    void updateLineStyleParameter(QGeoMapParameter *p, const char *propertyName, bool update);
 
 #ifdef QT_LOCATION_DEBUG
 public:
 #endif
-    QGeoPath geopath_;
-    QList<QDoubleVector2D> geopathProjected_;
-    QDeclarativeMapLineProperties line_;
-    QColor color_;
-    bool dirtyMaterial_;
-    QGeoMapPolylineGeometry geometry_;
-    bool updatingGeometry_;
-};
+    QGeoPath m_geopath;
+    QDeclarativeMapLineProperties m_line;
 
-//////////////////////////////////////////////////////////////////////
+    Backend m_backend = Software;
+    bool m_dirtyMaterial;
+    bool m_updatingGeometry;
 
-class Q_LOCATION_PRIVATE_EXPORT VisibleNode
-{
-public:
-    VisibleNode();
-    virtual ~VisibleNode();
+    QScopedPointer<QDeclarativePolylineMapItemPrivate> m_d;
 
-    bool subtreeBlocked() const;
-    void setSubtreeBlocked(bool blocked);
-    bool visible() const;
-    void setVisible(bool visible);
-
-    bool m_blocked : 1;
-    bool m_visible : 1;
-};
-
-class Q_LOCATION_PRIVATE_EXPORT MapItemGeometryNode : public QSGGeometryNode, public VisibleNode
-{
-public:
-    ~MapItemGeometryNode() override;
-    bool isSubtreeBlocked() const override;
-};
-
-class Q_LOCATION_PRIVATE_EXPORT MapPolylineNode : public MapItemGeometryNode
-{
-public:
-    MapPolylineNode();
-    ~MapPolylineNode() override;
-
-    void update(const QColor &fillColor, const QGeoMapItemGeometry *shape);
-
-private:
-    QSGFlatColorMaterial fill_material_;
-    QSGGeometry geometry_;
+    friend class QDeclarativePolylineMapItemPrivate;
+    friend class QDeclarativePolylineMapItemPrivateCPU;
+    friend class QDeclarativePolylineMapItemPrivateOpenGLLineStrip;
+    friend class QDeclarativePolylineMapItemPrivateOpenGLExtruded;
 };
 
 QT_END_NAMESPACE

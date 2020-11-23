@@ -8,7 +8,7 @@
 #include "base/time/time.h"
 #include "base/values.h"
 #include "build/build_config.h"
-#include "content/browser/frame_host/navigation_handle_impl.h"
+#include "content/browser/frame_host/navigation_request.h"
 #include "content/browser/frame_host/render_frame_host_impl.h"
 #include "content/browser/renderer_host/render_view_host_impl.h"
 #include "content/browser/web_contents/web_contents_impl.h"
@@ -67,7 +67,7 @@ IN_PROC_BROWSER_TEST_F(RenderViewHostTest, FrameNavigateSocketAddress) {
   RenderViewHostTestWebContentsObserver observer(shell()->web_contents());
 
   GURL test_url = embedded_test_server()->GetURL("/simple_page.html");
-  NavigateToURL(shell(), test_url);
+  EXPECT_TRUE(NavigateToURL(shell(), test_url));
 
   EXPECT_EQ(
       net::HostPortPair::FromURL(embedded_test_server()->base_url()),
@@ -81,7 +81,7 @@ IN_PROC_BROWSER_TEST_F(RenderViewHostTest, BasicRenderFrameHost) {
   ASSERT_TRUE(embedded_test_server()->Start());
 
   GURL test_url = embedded_test_server()->GetURL("/simple_page.html");
-  NavigateToURL(shell(), test_url);
+  EXPECT_TRUE(NavigateToURL(shell(), test_url));
 
   FrameTreeNode* old_root = static_cast<WebContentsImpl*>(
       shell()->web_contents())->GetFrameTree()->root();
@@ -102,7 +102,7 @@ IN_PROC_BROWSER_TEST_F(RenderViewHostTest, IsFocusedElementEditable) {
   ASSERT_TRUE(embedded_test_server()->Start());
 
   GURL test_url = embedded_test_server()->GetURL("/touch_selection.html");
-  NavigateToURL(shell(), test_url);
+  EXPECT_TRUE(NavigateToURL(shell(), test_url));
 
   WebContents* contents = shell()->web_contents();
   EXPECT_FALSE(contents->IsFocusedElementEditable());
@@ -120,7 +120,7 @@ IN_PROC_BROWSER_TEST_F(RenderViewHostTest, MAYBE_ReleaseSessionOnCloseACK) {
   ASSERT_TRUE(embedded_test_server()->Start());
   GURL test_url = embedded_test_server()->GetURL(
       "/access-session-storage.html");
-  NavigateToURL(shell(), test_url);
+  EXPECT_TRUE(NavigateToURL(shell(), test_url));
 
   // Make a new Shell, a seperate tab with it's own session namespace and
   // have it start loading a url but still be in progress.
@@ -142,7 +142,7 @@ IN_PROC_BROWSER_TEST_F(RenderViewHostTest, MAYBE_ReleaseSessionOnCloseACK) {
 
   // Do something that causes ipc queues to flush and tasks in
   // flight to complete such that we should have received the ACK.
-  NavigateToURL(shell(), test_url);
+  EXPECT_TRUE(NavigateToURL(shell(), test_url));
 
   // Verify we have the only remaining reference to the namespace.
   EXPECT_TRUE(session_namespace->HasOneRef());

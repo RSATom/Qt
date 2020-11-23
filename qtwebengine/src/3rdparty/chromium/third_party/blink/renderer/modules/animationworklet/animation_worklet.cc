@@ -59,7 +59,7 @@ WorkletGlobalScopeProxy* AnimationWorklet::CreateGlobalScope() {
 WorkletAnimationId AnimationWorklet::NextWorkletAnimationId() {
   // Id starts from 1. This way it safe to use it as key in hashmap with default
   // key traits.
-  return WorkletAnimationId{worklet_id_, ++last_animation_id_};
+  return WorkletAnimationId(worklet_id_, ++last_animation_id_);
 }
 
 void AnimationWorklet::Trace(blink::Visitor* visitor) {

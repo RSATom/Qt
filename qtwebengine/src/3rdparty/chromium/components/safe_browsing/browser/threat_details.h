@@ -25,6 +25,7 @@
 #include "components/security_interstitials/content/unsafe_resource.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/web_contents_observer.h"
+#include "mojo/public/cpp/bindings/remote.h"
 
 namespace history {
 class HistoryService;
@@ -166,7 +167,7 @@ class ThreatDetails : public content::WebContentsObserver {
   void RequestThreatDOMDetails(content::RenderFrameHost* frame);
 
   void OnReceivedThreatDOMDetails(
-      mojom::ThreatReporterPtr threat_reporter,
+      mojo::Remote<mojom::ThreatReporter> threat_reporter,
       content::RenderFrameHost* sender,
       std::vector<mojom::ThreatDOMDetailsNodePtr> params);
 
@@ -232,11 +233,6 @@ class ThreatDetails : public content::WebContentsObserver {
 
   // How many times this user has visited this page before.
   int num_visits_;
-
-  // Keeps track of whether we have an ambiguous DOM in this report. This can
-  // happen when the HTML Elements returned by a renderer can't be
-  // associated with a parent Element in the parent frame.
-  bool ambiguous_dom_;
 
   // Whether this report should be trimmed down to only ad tags, not the entire
   // page contents. Used for sampling ads.

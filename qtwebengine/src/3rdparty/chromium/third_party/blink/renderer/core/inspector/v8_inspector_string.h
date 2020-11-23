@@ -9,11 +9,11 @@
 
 #include "third_party/blink/public/platform/web_vector.h"
 #include "third_party/blink/renderer/core/core_export.h"
-#include "third_party/blink/renderer/platform/shared_buffer.h"
 #include "third_party/blink/renderer/platform/wtf/allocator/allocator.h"
 #include "third_party/blink/renderer/platform/wtf/assertions.h"
 #include "third_party/blink/renderer/platform/wtf/decimal.h"
 #include "third_party/blink/renderer/platform/wtf/ref_counted.h"
+#include "third_party/blink/renderer/platform/wtf/shared_buffer.h"
 #include "third_party/blink/renderer/platform/wtf/text/string_builder.h"
 #include "third_party/blink/renderer/platform/wtf/text/string_hash.h"
 #include "third_party/blink/renderer/platform/wtf/text/string_to_number.h"
@@ -38,11 +38,7 @@ class Value;
 
 using String = WTF::String;
 using StringBuilder = WTF::StringBuilder;
-
-struct ProtocolMessage {
-  String json;
-  WebVector<uint8_t> binary;
-};
+using ProtocolMessage = WebVector<uint8_t>;
 
 class CORE_EXPORT StringUtil {
   STATIC_ONLY(StringUtil);
@@ -83,8 +79,6 @@ class CORE_EXPORT StringUtil {
     return builder.ToString();
   }
   static std::unique_ptr<protocol::Value> parseJSON(const String&);
-  static ProtocolMessage jsonToMessage(const String& message);
-  static ProtocolMessage binaryToMessage(WebVector<uint8_t> message);
 
   static String fromUTF8(const uint8_t* data, size_t length) {
     return String::FromUTF8(reinterpret_cast<const char*>(data), length);
@@ -119,8 +113,8 @@ class CORE_EXPORT Binary {
 
   Binary() = default;
 
-  const uint8_t* data() const { return impl_->data(); }
-  size_t size() const { return impl_->size(); }
+  const uint8_t* data() const { return impl_ ? impl_->data() : nullptr; }
+  size_t size() const { return impl_ ? impl_->size() : 0; }
 
   String toBase64() const;
   static Binary fromBase64(const String& base64, bool* success);

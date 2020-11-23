@@ -7,6 +7,9 @@ qtConfig(qml-network): \
 TRACEPOINT_PROVIDER = $$PWD/qtqml.tracepoints
 CONFIG += qt_tracepoints
 
+!qtConfig(qml-python): \
+    error(Python is required to build QtQml.)
+
 DEFINES   += QT_NO_URL_CAST_FROM_STRING QT_NO_INTEGER_EVENT_COORDINATES
 
 msvc:equals(QT_ARCH, i386): QMAKE_LFLAGS += /BASE:0x66000000
@@ -39,6 +42,7 @@ greaterThan(QT_CLANG_MAJOR_VERSION, 3)|greaterThan(QT_CLANG_MINOR_VERSION, 3)| \
     WERROR += -Wno-error=unused-const-variable
 
 HEADERS += qtqmlglobal.h \
+           inlinecomponentutils_p.h \
            qtqmlglobal_p.h \
            qtqmlcompilerglobal.h \
            qtqmlcompilerglobal_p.h
@@ -62,8 +66,16 @@ qtConfig(qml-animation) {
 }
 include(types/types.pri)
 include(../3rdparty/masm/masm-defs.pri)
-include(../3rdparty/masm/masm.pri)
 
 MODULE_PLUGIN_TYPES = \
     qmltooling
+
+QMLTYPES_FILENAME = plugins.qmltypes
+QMLTYPES_INSTALL_DIR = $$[QT_INSTALL_QML]/QtQml
+QML_IMPORT_NAME = QtQml
+IMPORT_VERSION = 2.$$QT_MINOR_VERSION
+CONFIG += qmltypes install_qmltypes install_metatypes
+
 load(qt_module)
+
+include(../3rdparty/masm/masm.pri)

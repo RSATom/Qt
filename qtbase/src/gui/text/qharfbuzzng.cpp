@@ -1,6 +1,6 @@
 /****************************************************************************
 **
-** Copyright (C) 2016 The Qt Company Ltd.
+** Copyright (C) 2019 The Qt Company Ltd.
 ** Copyright (C) 2013 Konstantin Ritt
 ** Contact: https://www.qt.io/licensing/
 **
@@ -216,7 +216,26 @@ static const hb_script_t _qtscript_to_hbscript[] = {
     HB_SCRIPT_MASARAM_GONDI,
     HB_SCRIPT_NUSHU,
     HB_SCRIPT_SOYOMBO,
-    HB_SCRIPT_ZANABAZAR_SQUARE
+    HB_SCRIPT_ZANABAZAR_SQUARE,
+
+    // Unicode 12.1 additions (not present in harfbuzz-ng 1.7.4)
+    hb_script_t(HB_TAG('D', 'o', 'g', 'r')), // Script_Dogra
+    hb_script_t(HB_TAG('G', 'o', 'n', 'g')), // Script_GunjalaGondi
+    hb_script_t(HB_TAG('R', 'o', 'h', 'g')), // Script_HanifiRohingya
+    hb_script_t(HB_TAG('M', 'a', 'k', 'a')), // Script_Makasar
+    hb_script_t(HB_TAG('M', 'e', 'd', 'f')), // Script_Medefaidrin
+    hb_script_t(HB_TAG('S', 'o', 'g', 'o')), // Script_OldSogdian
+    hb_script_t(HB_TAG('S', 'o', 'g', 'd')), // Script_Sogdian
+    hb_script_t(HB_TAG('E', 'l', 'y', 'm')), // Script_Elymaic
+    hb_script_t(HB_TAG('N', 'a', 'n', 'd')), // Script_Nandinagari
+    hb_script_t(HB_TAG('H', 'm', 'n', 'p')), // Script_NyiakengPuachueHmong
+    hb_script_t(HB_TAG('W', 'c', 'h', 'o')), // Script_Wancho
+
+    // Unicode 13.0 additions (as above)
+    hb_script_t(HB_TAG('C', 'h', 'o', 'r')), // Script_Chorasmian
+    hb_script_t(HB_TAG('D', 'i', 'v', 'e')), // Script_DivesAkuru
+    hb_script_t(HB_TAG('K', 'h', 'i', 't')), // Script_KhitanSmallScript
+    hb_script_t(HB_TAG('Y', 'e', 'z', 'i')), // Script_Yezidi
 };
 Q_STATIC_ASSERT(QChar::ScriptCount == sizeof(_qtscript_to_hbscript) / sizeof(_qtscript_to_hbscript[0]));
 
@@ -682,12 +701,12 @@ _hb_qt_font_create(QFontEngine *fe)
         return NULL;
     }
 
-    const int y_ppem = fe->fontDef.pixelSize;
-    const int x_ppem = (fe->fontDef.pixelSize * fe->fontDef.stretch) / 100;
+    const qreal y_ppem = fe->fontDef.pixelSize;
+    const qreal x_ppem = (fe->fontDef.pixelSize * fe->fontDef.stretch) / 100.0;
 
     hb_font_set_funcs(font, hb_qt_get_font_funcs(), (void *)fe, NULL);
-    hb_font_set_scale(font, QFixed(x_ppem).value(), -QFixed(y_ppem).value());
-    hb_font_set_ppem(font, x_ppem, y_ppem);
+    hb_font_set_scale(font, QFixed::fromReal(x_ppem).value(), -QFixed::fromReal(y_ppem).value());
+    hb_font_set_ppem(font, int(x_ppem), int(y_ppem));
 
     hb_font_set_ptem(font, fe->fontDef.pointSize);
 

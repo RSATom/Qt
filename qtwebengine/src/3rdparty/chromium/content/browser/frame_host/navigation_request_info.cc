@@ -7,12 +7,9 @@
 namespace content {
 
 NavigationRequestInfo::NavigationRequestInfo(
-    const CommonNavigationParams& common_params,
+    mojom::CommonNavigationParamsPtr common_params,
     mojom::BeginNavigationParamsPtr begin_params,
     const GURL& site_for_cookies,
-#if defined(TOOLKIT_QT)
-    const GURL& first_party_url,
-#endif
     const net::NetworkIsolationKey& network_isolation_key,
     bool is_main_frame,
     bool parent_is_main_frame,
@@ -22,16 +19,14 @@ NavigationRequestInfo::NavigationRequestInfo(
     bool report_raw_headers,
     bool is_prerendering,
     bool upgrade_if_insecure,
-    std::unique_ptr<network::SharedURLLoaderFactoryInfo>
+    std::unique_ptr<network::PendingSharedURLLoaderFactory>
         blob_url_loader_factory,
     const base::UnguessableToken& devtools_navigation_token,
-    const base::UnguessableToken& devtools_frame_token)
-    : common_params(common_params),
+    const base::UnguessableToken& devtools_frame_token,
+    bool obey_origin_policy)
+    : common_params(std::move(common_params)),
       begin_params(std::move(begin_params)),
       site_for_cookies(site_for_cookies),
-#if defined(TOOLKIT_QT)
-      first_party_url(first_party_url),
-#endif
       network_isolation_key(network_isolation_key),
       is_main_frame(is_main_frame),
       parent_is_main_frame(parent_is_main_frame),
@@ -43,7 +38,8 @@ NavigationRequestInfo::NavigationRequestInfo(
       upgrade_if_insecure(upgrade_if_insecure),
       blob_url_loader_factory(std::move(blob_url_loader_factory)),
       devtools_navigation_token(devtools_navigation_token),
-      devtools_frame_token(devtools_frame_token) {}
+      devtools_frame_token(devtools_frame_token),
+      obey_origin_policy(obey_origin_policy) {}
 
 NavigationRequestInfo::~NavigationRequestInfo() {}
 

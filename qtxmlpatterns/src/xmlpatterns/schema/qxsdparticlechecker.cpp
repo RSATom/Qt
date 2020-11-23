@@ -464,7 +464,7 @@ bool XsdParticleChecker::subsumes(const XsdParticle::Ptr &particle, const XsdPar
     }
 
     QHash<XsdTerm::Ptr, XsdParticle::Ptr> particlesHash = XsdStateMachineBuilder::particleLookupMap(particle);
-    particlesHash.unite(XsdStateMachineBuilder::particleLookupMap(derivedParticle));
+    particlesHash.insert(XsdStateMachineBuilder::particleLookupMap(derivedParticle));
 
 /*
     static int counter = 0;

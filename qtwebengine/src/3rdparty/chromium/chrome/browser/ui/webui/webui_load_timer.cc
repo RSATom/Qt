@@ -5,6 +5,7 @@
 #include "chrome/browser/ui/webui/webui_load_timer.h"
 
 #include "base/metrics/histogram.h"
+#include "base/timer/elapsed_timer.h"
 #include "content/public/browser/navigation_handle.h"
 #include "content/public/browser/web_contents.h"
 
@@ -46,7 +47,7 @@ void WebuiLoadTimer::DidStartNavigation(
   timer_ = std::make_unique<base::ElapsedTimer>();
 }
 
-void WebuiLoadTimer::DocumentLoadedInFrame(
+void WebuiLoadTimer::DOMContentLoaded(
     content::RenderFrameHost* render_frame_host) {
   // See comment in DocumentOnLoadCompletedInMainFrame.
   if (!timer_ || render_frame_host != web_contents()->GetMainFrame())

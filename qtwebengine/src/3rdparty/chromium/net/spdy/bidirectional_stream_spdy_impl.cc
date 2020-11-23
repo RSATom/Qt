@@ -79,8 +79,8 @@ void BidirectionalStreamSpdyImpl::Start(
       SPDY_BIDIRECTIONAL_STREAM, spdy_session_, request_info_->url,
       false /* no early data */, request_info_->priority,
       request_info_->socket_tag, net_log,
-      base::Bind(&BidirectionalStreamSpdyImpl::OnStreamInitialized,
-                 weak_factory_.GetWeakPtr()),
+      base::BindOnce(&BidirectionalStreamSpdyImpl::OnStreamInitialized,
+                     weak_factory_.GetWeakPtr()),
       traffic_annotation);
   if (rv != ERR_IO_PENDING)
     OnStreamInitialized(rv);
@@ -282,6 +282,10 @@ void BidirectionalStreamSpdyImpl::OnClose(int status) {
     OnDataSent();
 }
 
+bool BidirectionalStreamSpdyImpl::CanGreaseFrameType() const {
+  return false;
+}
+
 NetLogSource BidirectionalStreamSpdyImpl::source_dependency() const {
   return source_dependency_;
 }
@@ -354,8 +358,8 @@ void BidirectionalStreamSpdyImpl::ScheduleBufferedRead() {
 
   more_read_data_pending_ = false;
   timer_->Start(FROM_HERE, base::TimeDelta::FromMilliseconds(kBufferTimeMs),
-                base::Bind(&BidirectionalStreamSpdyImpl::DoBufferedRead,
-                           weak_factory_.GetWeakPtr()));
+                base::BindOnce(&BidirectionalStreamSpdyImpl::DoBufferedRead,
+                               weak_factory_.GetWeakPtr()));
 }
 
 void BidirectionalStreamSpdyImpl::DoBufferedRead() {

@@ -17,7 +17,6 @@
 #include "base/stl_util.h"
 #include "build/branding_buildflags.h"
 #include "build/build_config.h"
-#include "chrome/browser/policy/profile_policy_connector.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/signin/identity_manager_factory.h"
 #include "chrome/browser/ui/passwords/manage_passwords_view_utils.h"
@@ -48,14 +47,18 @@
 #include "chrome/browser/ui/webui/settings/settings_security_key_handler.h"
 #include "chrome/browser/ui/webui/settings/settings_startup_pages_handler.h"
 #include "chrome/browser/ui/webui/settings/site_settings_handler.h"
+#include "chrome/browser/web_applications/components/app_registrar.h"
+#include "chrome/browser/web_applications/web_app_provider.h"
+#include "chrome/browser/web_applications/web_app_registrar.h"
+#include "chrome/common/chrome_features.h"
 #include "chrome/common/pref_names.h"
 #include "chrome/common/url_constants.h"
+#include "chrome/grit/generated_resources.h"
 #include "chrome/grit/settings_resources.h"
 #include "chrome/grit/settings_resources_map.h"
 #include "components/favicon_base/favicon_url_parser.h"
 #include "components/password_manager/core/common/password_manager_features.h"
 #include "components/pref_registry/pref_registry_syncable.h"
-#include "components/unified_consent/feature.h"
 #include "content/public/browser/url_data_source.h"
 #include "content/public/browser/web_contents.h"
 #include "content/public/browser/web_ui.h"
@@ -79,20 +82,22 @@
 #endif  // defined(OS_WIN) || defined(OS_CHROMEOS)
 
 #if defined(OS_CHROMEOS)
+#include "ash/public/cpp/network_config_service.h"
 #include "ash/public/cpp/resources/grit/ash_public_unscaled_resources.h"
 #include "ash/public/cpp/stylus_utils.h"
 #include "chrome/browser/browser_process.h"
+#include "chrome/browser/browser_process_platform_part.h"
 #include "chrome/browser/chromeos/account_manager/account_manager_util.h"
 #include "chrome/browser/chromeos/android_sms/android_sms_app_manager.h"
 #include "chrome/browser/chromeos/android_sms/android_sms_service_factory.h"
 #include "chrome/browser/chromeos/arc/arc_util.h"
-#include "chrome/browser/chromeos/crostini/crostini_util.h"
+#include "chrome/browser/chromeos/crostini/crostini_features.h"
 #include "chrome/browser/chromeos/login/demo_mode/demo_session.h"
 #include "chrome/browser/chromeos/login/quick_unlock/quick_unlock_utils.h"
 #include "chrome/browser/chromeos/multidevice_setup/multidevice_setup_client_factory.h"
 #include "chrome/browser/chromeos/plugin_vm/plugin_vm_util.h"
 #include "chrome/browser/chromeos/profiles/profile_helper.h"
-#include "chrome/browser/profiles/profile_manager.h"
+#include "chrome/browser/ui/web_applications/system_web_app_ui_utils.h"
 #include "chrome/browser/ui/webui/chromeos/smb_shares/smb_handler.h"
 #include "chrome/browser/ui/webui/settings/chromeos/accessibility_handler.h"
 #include "chrome/browser/ui/webui/settings/chromeos/account_manager_handler.h"
@@ -113,24 +118,24 @@
 #include "chrome/browser/ui/webui/settings/chromeos/multidevice_handler.h"
 #include "chrome/browser/ui/webui/settings/chromeos/parental_controls_handler.h"
 #include "chrome/browser/ui/webui/settings/chromeos/plugin_vm_handler.h"
+#include "chrome/browser/ui/webui/settings/chromeos/wallpaper_handler.h"
 #include "chrome/browser/web_applications/system_web_app_manager.h"
-#include "chrome/common/chrome_features.h"
 #include "chrome/common/chrome_switches.h"
 #include "chrome/grit/browser_resources.h"
 #include "chromeos/components/account_manager/account_manager.h"
 #include "chromeos/components/account_manager/account_manager_factory.h"
 #include "chromeos/constants/chromeos_features.h"
 #include "chromeos/constants/chromeos_pref_names.h"
-#include "chromeos/constants/chromeos_switches.h"
 #include "chromeos/login/auth/password_visibility_utils.h"
 #include "chromeos/services/multidevice_setup/public/cpp/prefs.h"
 #include "chromeos/services/network_config/public/mojom/constants.mojom.h"  // nogncheck
+#include "chromeos/services/network_config/public/mojom/cros_network_config.mojom.h"  // nogncheck
 #include "components/arc/arc_util.h"
 #include "components/prefs/pref_service.h"
 #include "components/user_manager/user.h"
-#include "services/service_manager/public/cpp/connector.h"
 #include "ui/base/ui_base_features.h"
 #include "ui/chromeos/resources/grit/ui_chromeos_resources.h"
+#include "ui/resources/grit/webui_resources.h"
 #else  // !defined(OS_CHROMEOS)
 #include "chrome/browser/signin/account_consistency_mode_manager.h"
 #include "chrome/browser/ui/webui/settings/settings_default_browser_handler.h"
@@ -148,32 +153,7 @@
 #include "chrome/browser/ui/webui/settings/printing_handler.h"
 #endif
 
-#if defined(FULL_SAFE_BROWSING)
-#include "chrome/browser/safe_browsing/chrome_password_protection_service.h"
-#include "chrome/browser/ui/webui/settings/change_password_handler.h"
-#endif
-
 namespace settings {
-
-namespace {
-
-#if defined(OS_CHROMEOS)
-bool ShouldShowParentalControls(Profile* profile) {
-  // Show Parental controls for regular and child accounts that are the
-  // primary profile.  Do not show it to any secondary profiles, managed
-  // accounts that aren't child accounts (i.e. enterprise and EDU accounts),
-  // OTR accounts, or legacy supervised user accounts.
-  return chromeos::switches::IsParentalControlsSettingsEnabled() &&
-         profile == ProfileManager::GetPrimaryUserProfile() &&
-         !profile->IsLegacySupervised() && !profile->IsGuestSession() &&
-         (profile->IsChild() ||
-          !profile->GetProfilePolicyConnector()->IsManaged());
-}
-
-#endif  // defined(OS_CHROMEOS)
-
-}  // namespace
-
 // static
 void SettingsUI::RegisterProfilePrefs(
     user_prefs::PrefRegistrySyncable* registry) {
@@ -182,6 +162,10 @@ void SettingsUI::RegisterProfilePrefs(
   registry->RegisterBooleanPref(prefs::kImportDialogHistory, true);
   registry->RegisterBooleanPref(prefs::kImportDialogSavedPasswords, true);
   registry->RegisterBooleanPref(prefs::kImportDialogSearchEngine, true);
+}
+
+web_app::AppRegistrar& GetRegistrarForProfile(Profile* profile) {
+  return web_app::WebAppProvider::Get(profile)->registrar();
 }
 
 SettingsUI::SettingsUI(content::WebUI* web_ui)
@@ -229,11 +213,14 @@ SettingsUI::SettingsUI(content::WebUI* web_ui)
   AddSettingsPageUIHandler(std::make_unique<ProfileInfoHandler>(profile));
   AddSettingsPageUIHandler(std::make_unique<ProtocolHandlersHandler>());
   AddSettingsPageUIHandler(std::make_unique<SearchEnginesHandler>(profile));
-  AddSettingsPageUIHandler(std::make_unique<SiteSettingsHandler>(profile));
+  AddSettingsPageUIHandler(std::make_unique<SiteSettingsHandler>(
+      profile, GetRegistrarForProfile(profile)));
   AddSettingsPageUIHandler(std::make_unique<StartupPagesHandler>(web_ui));
   AddSettingsPageUIHandler(std::make_unique<SecurityKeysPINHandler>());
   AddSettingsPageUIHandler(std::make_unique<SecurityKeysResetHandler>());
   AddSettingsPageUIHandler(std::make_unique<SecurityKeysCredentialHandler>());
+  AddSettingsPageUIHandler(
+      std::make_unique<SecurityKeysBioEnrollmentHandler>());
 
 #if defined(OS_WIN) || defined(OS_MACOSX)
   AddSettingsPageUIHandler(std::make_unique<CaptionsHandler>());
@@ -269,28 +256,15 @@ SettingsUI::SettingsUI(content::WebUI* web_ui)
         std::make_unique<IncompatibleApplicationsHandler>());
 #endif  // OS_WIN && BUILDFLAG(GOOGLE_CHROME_BRANDING)
 
-  bool password_protection_available = false;
-#if defined(FULL_SAFE_BROWSING)
-  safe_browsing::ChromePasswordProtectionService* password_protection =
-      safe_browsing::ChromePasswordProtectionService::
-          GetPasswordProtectionService(profile);
-  password_protection_available = !!password_protection;
-  if (password_protection) {
-    AddSettingsPageUIHandler(
-        std::make_unique<ChangePasswordHandler>(profile, password_protection));
-  }
-#endif
-  html_source->AddBoolean("passwordProtectionAvailable",
-                          password_protection_available);
-
 #if !defined(OS_CHROMEOS)
   html_source->AddBoolean(
       "diceEnabled",
       AccountConsistencyModeManager::IsDiceEnabledForProfile(profile));
 #endif  // !defined(OS_CHROMEOS)
 
-  html_source->AddBoolean("unifiedConsentEnabled",
-                          unified_consent::IsUnifiedConsentFeatureEnabled());
+  html_source->AddBoolean(
+      "privacySettingsRedesignEnabled",
+      base::FeatureList::IsEnabled(features::kPrivacySettingsRedesign));
 
   html_source->AddBoolean(
       "navigateToGooglePasswordManager",
@@ -301,8 +275,9 @@ SettingsUI::SettingsUI(content::WebUI* web_ui)
                               password_manager::features::kPasswordImport));
 
 #if defined(OS_CHROMEOS)
-  html_source->AddBoolean("showParentalControls",
-                          ShouldShowParentalControls(profile));
+  html_source->AddBoolean(
+      "showParentalControls",
+      chromeos::settings::ShouldShowParentalControls(profile));
 #endif
 
 #if defined(OS_CHROMEOS)
@@ -330,6 +305,8 @@ SettingsUI::SettingsUI(content::WebUI* web_ui)
   if (web_app::SystemWebAppManager::IsEnabled()) {
     html_source->AddResourcePath("icon-192.png", IDR_SETTINGS_LOGO_192);
     html_source->AddResourcePath("pwa.html", IDR_PWA_HTML);
+    web_app::SetManifestRequestFilter(html_source, IDR_SETTINGS_MANIFEST,
+                                      IDS_SETTINGS_SETTINGS);
   }
 #endif  // defined (OS_CHROMEOS)
 
@@ -340,9 +317,6 @@ SettingsUI::SettingsUI(content::WebUI* web_ui)
   html_source->AddResourcePath("lazy_load.html",
                                IDR_SETTINGS_LAZY_LOAD_VULCANIZED_HTML);
   html_source->SetDefaultResource(IDR_SETTINGS_VULCANIZED_HTML);
-#if defined(OS_CHROMEOS)
-  html_source->AddResourcePath("manifest.json", IDR_SETTINGS_MANIFEST);
-#endif  // defined (OS_CHROMEOS)
 #else
   // Add all settings resources.
   for (size_t i = 0; i < kSettingsResourcesSize; ++i) {
@@ -352,7 +326,7 @@ SettingsUI::SettingsUI(content::WebUI* web_ui)
   html_source->SetDefaultResource(IDR_SETTINGS_SETTINGS_HTML);
 #endif
 
-  AddLocalizedStrings(html_source, profile);
+  AddLocalizedStrings(html_source, profile, web_ui->GetWebContents());
 
   ManagedUIHandler::Initialize(web_ui, html_source);
 
@@ -401,8 +375,8 @@ void SettingsUI::InitOSWebUIHandlers(Profile* profile,
       std::make_unique<chromeos::settings::AccessibilityHandler>(web_ui));
   web_ui->AddMessageHandler(
       std::make_unique<chromeos::settings::AndroidAppsHandler>(profile));
-  if (crostini::IsCrostiniUIAllowedForProfile(profile,
-                                              false /* check_policy */)) {
+  if (crostini::CrostiniFeatures::Get()->IsUIAllowed(profile,
+                                                     /*check_policy=*/false)) {
     web_ui->AddMessageHandler(
         std::make_unique<chromeos::settings::CrostiniHandler>(profile));
   }
@@ -412,17 +386,26 @@ void SettingsUI::InitOSWebUIHandlers(Profile* profile,
       chromeos::settings::DateTimeHandler::Create(html_source)));
   web_ui->AddMessageHandler(
       std::make_unique<chromeos::settings::FingerprintHandler>(profile));
-  if (chromeos::switches::IsAssistantEnabled()) {
-    web_ui->AddMessageHandler(
-        std::make_unique<chromeos::settings::GoogleAssistantHandler>(profile));
+  web_ui->AddMessageHandler(
+      std::make_unique<chromeos::settings::GoogleAssistantHandler>(profile));
+
+  std::unique_ptr<chromeos::settings::KerberosAccountsHandler>
+      kerberos_accounts_handler =
+          chromeos::settings::KerberosAccountsHandler::CreateIfKerberosEnabled(
+              profile);
+  if (kerberos_accounts_handler) {
+    // Note that the UI is enabled only if Kerberos is enabled.
+    web_ui->AddMessageHandler(std::move(kerberos_accounts_handler));
   }
-  if (g_browser_process->local_state()->GetBoolean(prefs::kKerberosEnabled)) {
-    // Note that UI is also dependent on this pref.
-    web_ui->AddMessageHandler(
-        std::make_unique<chromeos::settings::KerberosAccountsHandler>());
-  }
+
   web_ui->AddMessageHandler(
       std::make_unique<chromeos::settings::KeyboardHandler>());
+
+  // TODO(crbug/950007): Remove adding WallpaperHandler when
+  // SplitSettings complete.
+  web_ui->AddMessageHandler(
+      std::make_unique<chromeos::settings::WallpaperHandler>(web_ui));
+
   if (plugin_vm::IsPluginVmEnabled(profile)) {
     web_ui->AddMessageHandler(
         std::make_unique<chromeos::settings::PluginVmHandler>(profile));
@@ -454,12 +437,16 @@ void SettingsUI::InitOSWebUIHandlers(Profile* profile,
                 : nullptr,
             android_sms_service ? android_sms_service->android_sms_app_manager()
                                 : nullptr));
-    if (ShouldShowParentalControls(profile)) {
+    if (chromeos::settings::ShouldShowParentalControls(profile)) {
       web_ui->AddMessageHandler(
           std::make_unique<chromeos::settings::ParentalControlsHandler>(
               profile));
     }
   }
+
+  html_source->AddBoolean(
+      "privacySettingsRedesignEnabled",
+      base::FeatureList::IsEnabled(::features::kPrivacySettingsRedesign));
 
   html_source->AddBoolean(
       "multideviceAllowedByPolicy",
@@ -485,35 +472,39 @@ void SettingsUI::InitOSWebUIHandlers(Profile* profile,
     html_source->AddInteger(
         "fingerprintReaderLocation",
         static_cast<int32_t>(chromeos::quick_unlock::GetFingerprintLocation()));
+
+    // To use lottie, the worker-src CSP needs to be updated for the web ui that
+    // is using it. Since as of now there are only a couple of webuis using
+    // lottie animations, this update has to be performed manually. As the usage
+    // increases, set this as the default so manual override is no longer
+    // required.
+    html_source->OverrideContentSecurityPolicyWorkerSrc(
+        "worker-src blob: 'self';");
+    html_source->AddResourcePath("finger_print.json",
+                                 IDR_LOGIN_FINGER_PRINT_TABLET_ANIMATION);
   }
   html_source->AddBoolean("lockScreenNotificationsEnabled",
                           ash::features::IsLockScreenNotificationsEnabled());
   html_source->AddBoolean(
       "lockScreenHideSensitiveNotificationsSupported",
       ash::features::IsLockScreenHideSensitiveNotificationsSupported());
-  html_source->AddBoolean(
-      "lockScreenMediaKeysEnabled",
-      base::FeatureList::IsEnabled(ash::features::kLockScreenMediaKeys));
   html_source->AddBoolean("showTechnologyBadge",
                           !ash::features::IsSeparateNetworkIconsEnabled());
   html_source->AddBoolean("hasInternalStylus",
                           ash::stylus_utils::HasInternalStylus());
 
   html_source->AddBoolean("showCrostini",
-                          crostini::IsCrostiniUIAllowedForProfile(
-                              profile, false /* check_policy */));
+                          crostini::CrostiniFeatures::Get()->IsUIAllowed(
+                              profile, /*check_policy=*/false));
 
-  html_source->AddBoolean("allowCrostini",
-                          crostini::IsCrostiniUIAllowedForProfile(profile));
+  html_source->AddBoolean(
+      "allowCrostini", crostini::CrostiniFeatures::Get()->IsUIAllowed(profile));
 
   html_source->AddBoolean("showPluginVm",
                           plugin_vm::IsPluginVmEnabled(profile));
 
   html_source->AddBoolean("isDemoSession",
                           chromeos::DemoSession::IsDeviceInDemoMode());
-
-  html_source->AddBoolean("assistantEnabled",
-                          chromeos::switches::IsAssistantEnabled());
 
   // We have 2 variants of Android apps settings. Default case, when the Play
   // Store app exists we show expandable section that allows as to
@@ -531,10 +522,8 @@ void SettingsUI::InitOSWebUIHandlers(Profile* profile,
       std::make_unique<chromeos::settings::PowerHandler>(profile->GetPrefs()));
 
   html_source->AddBoolean(
-      "showApps", base::FeatureList::IsEnabled(features::kAppManagement));
-
-  html_source->AddBoolean("showParentalControlsSettings",
-                          ShouldShowParentalControls(profile));
+      "showParentalControlsSettings",
+      chromeos::settings::ShouldShowParentalControls(profile));
 }
 #endif  // defined(OS_CHROMEOS)
 
@@ -546,11 +535,9 @@ void SettingsUI::AddSettingsPageUIHandler(
 
 #if defined(OS_CHROMEOS)
 void SettingsUI::BindCrosNetworkConfig(
-    chromeos::network_config::mojom::CrosNetworkConfigRequest request) {
-  content::BrowserContext::GetConnectorFor(
-      web_ui()->GetWebContents()->GetBrowserContext())
-      ->BindInterface(chromeos::network_config::mojom::kServiceName,
-                      std::move(request));
+    mojo::PendingReceiver<chromeos::network_config::mojom::CrosNetworkConfig>
+        receiver) {
+  ash::GetNetworkConfigService(std::move(receiver));
 }
 #endif  // defined(OS_CHROMEOS)
 

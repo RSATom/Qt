@@ -49,7 +49,6 @@
 #include <qcameraimagecapture.h>
 #include <qvideorenderercontrol.h>
 #include <private/qmediaserviceprovider_p.h>
-#include <private/qvideoframe_p.h>
 
 QT_USE_NAMESPACE
 
@@ -215,7 +214,7 @@ void tst_QCameraBackend::testCameraStates()
     QCamera camera;
     QCameraImageCapture imageCapture(&camera);
 
-    QSignalSpy errorSignal(&camera, SIGNAL(error(QCamera::Error)));
+    QSignalSpy errorSignal(&camera, SIGNAL(errorOccurred(QCamera::Error)));
     QSignalSpy stateChangedSignal(&camera, SIGNAL(stateChanged(QCamera::State)));
     QSignalSpy statusChangedSignal(&camera, SIGNAL(statusChanged(QCamera::Status)));
 
@@ -263,8 +262,8 @@ void tst_QCameraBackend::testCameraStartError()
 {
     QCamera camera1(QCameraInfo::defaultCamera());
     QCamera camera2(QCameraInfo::defaultCamera());
-    QSignalSpy errorSpy1(&camera1, QOverload<QCamera::Error>::of(&QCamera::error));
-    QSignalSpy errorSpy2(&camera2, QOverload<QCamera::Error>::of(&QCamera::error));
+    QSignalSpy errorSpy1(&camera1, &QCamera::errorOccurred);
+    QSignalSpy errorSpy2(&camera2, &QCamera::errorOccurred);
 
     camera1.start();
     camera2.start();
@@ -284,7 +283,7 @@ void tst_QCameraBackend::testCaptureMode()
 {
     QCamera camera;
 
-    QSignalSpy errorSignal(&camera, SIGNAL(error(QCamera::Error)));
+    QSignalSpy errorSignal(&camera, SIGNAL(errorOccurred(QCamera::Error)));
     QSignalSpy stateChangedSignal(&camera, SIGNAL(stateChanged(QCamera::State)));
     QSignalSpy captureModeSignal(&camera, SIGNAL(captureModeChanged(QCamera::CaptureModes)));
 
@@ -451,7 +450,7 @@ void tst_QCameraBackend::testCaptureToBuffer()
     QCOMPARE(imageAvailableSignal.first().first().toInt(), id);
 
     QVideoFrame frame = imageAvailableSignal.first().last().value<QVideoFrame>();
-    QVERIFY(!qt_imageFromVideoFrame(frame).isNull());
+    QVERIFY(!frame.image().isNull());
 
     frame = QVideoFrame();
     capturedSignal.clear();
@@ -509,7 +508,7 @@ void tst_QCameraBackend::testCaptureToBuffer()
         QCOMPARE(imageAvailableSignal.first().first().toInt(), id);
 
         frame = imageAvailableSignal.first().last().value<QVideoFrame>();
-        QVERIFY(!qt_imageFromVideoFrame(frame).isNull());
+        QVERIFY(!frame.image().isNull());
 
         QString fileName = savedSignal.first().last().toString();
         QVERIFY(QFileInfo(fileName).exists());
@@ -632,7 +631,7 @@ void tst_QCameraBackend::testVideoRecording()
 
     QMediaRecorder recorder(camera.data());
 
-    QSignalSpy errorSignal(camera.data(), SIGNAL(error(QCamera::Error)));
+    QSignalSpy errorSignal(camera.data(), SIGNAL(errorOccurred(QCamera::Error)));
     QSignalSpy recorderErrorSignal(&recorder, SIGNAL(error(QMediaRecorder::Error)));
     QSignalSpy recorderStatusSignal(&recorder, SIGNAL(statusChanged(QMediaRecorder::Status)));
 

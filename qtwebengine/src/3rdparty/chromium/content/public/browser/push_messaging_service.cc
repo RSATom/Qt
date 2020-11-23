@@ -19,7 +19,7 @@ namespace content {
 namespace {
 
 void CallStringCallbackFromIO(
-    const PushMessagingService::StringCallback& callback,
+    PushMessagingService::StringCallback callback,
     const std::vector<std::string>& data,
     blink::ServiceWorkerStatusCode service_worker_status) {
   DCHECK_CURRENTLY_ON(BrowserThread::IO);
@@ -31,26 +31,26 @@ void CallStringCallbackFromIO(
     DCHECK_EQ(1u, data.size());
     result = data[0];
   }
-  base::PostTaskWithTraits(
+  base::PostTask(
       FROM_HERE, {BrowserThread::UI},
-      base::BindOnce(callback, result, success, not_found));
+      base::BindOnce(std::move(callback), result, success, not_found));
 }
 
 void CallClosureFromIO(base::OnceClosure callback,
                        blink::ServiceWorkerStatusCode status) {
   DCHECK_CURRENTLY_ON(BrowserThread::IO);
-  base::PostTaskWithTraits(FROM_HERE, {BrowserThread::UI}, std::move(callback));
+  base::PostTask(FROM_HERE, {BrowserThread::UI}, std::move(callback));
 }
 
 void GetUserDataOnIO(
     scoped_refptr<ServiceWorkerContextWrapper> service_worker_context_wrapper,
     int64_t service_worker_registration_id,
     const std::string& key,
-    const PushMessagingService::StringCallback& callback) {
+    PushMessagingService::StringCallback callback) {
   DCHECK_CURRENTLY_ON(BrowserThread::IO);
   service_worker_context_wrapper->GetRegistrationUserData(
       service_worker_registration_id, {key},
-      base::BindOnce(&CallStringCallbackFromIO, callback));
+      base::BindOnce(&CallStringCallbackFromIO, std::move(callback)));
 }
 
 void ClearPushSubscriptionIdOnIO(
@@ -94,14 +94,14 @@ scoped_refptr<ServiceWorkerContextWrapper> GetServiceWorkerContext(
 void PushMessagingService::GetSenderId(BrowserContext* browser_context,
                                        const GURL& origin,
                                        int64_t service_worker_registration_id,
-                                       const StringCallback& callback) {
+                                       StringCallback callback) {
   DCHECK_CURRENTLY_ON(BrowserThread::UI);
-  base::PostTaskWithTraits(
+  base::PostTask(
       FROM_HERE, {BrowserThread::IO},
       base::BindOnce(&GetUserDataOnIO,
                      GetServiceWorkerContext(browser_context, origin),
                      service_worker_registration_id,
-                     kPushSenderIdServiceWorkerKey, callback));
+                     kPushSenderIdServiceWorkerKey, std::move(callback)));
 }
 
 // static
@@ -111,7 +111,7 @@ void PushMessagingService::ClearPushSubscriptionId(
     int64_t service_worker_registration_id,
     base::OnceClosure callback) {
   DCHECK_CURRENTLY_ON(BrowserThread::UI);
-  base::PostTaskWithTraits(
+  base::PostTask(
       FROM_HERE, {BrowserThread::IO},
       base::BindOnce(&ClearPushSubscriptionIdOnIO,
                      GetServiceWorkerContext(browser_context, origin),
@@ -127,7 +127,7 @@ void PushMessagingService::StorePushSubscriptionForTesting(
     const std::string& sender_id,
     const base::Closure& callback) {
   DCHECK_CURRENTLY_ON(BrowserThread::UI);
-  base::PostTaskWithTraits(
+  base::PostTask(
       FROM_HERE, {BrowserThread::IO},
       base::BindOnce(&StorePushSubscriptionOnIOForTesting,
                      GetServiceWorkerContext(browser_context, origin),

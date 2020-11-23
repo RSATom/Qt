@@ -6,6 +6,7 @@
 #include "build/build_config.h"
 #include "content/browser/web_contents/web_contents_impl.h"
 #include "content/common/widget_messages.h"
+#include "content/public/common/content_switches.h"
 #include "content/public/test/browser_test_utils.h"
 #include "content/public/test/content_browser_test.h"
 #include "content/public/test/content_browser_test_utils.h"
@@ -92,7 +93,7 @@ class AutoscrollBrowserTest : public ContentBrowserTest {
   ~AutoscrollBrowserTest() override {}
 
   void SetUpCommandLine(base::CommandLine* command_line) override {
-    command_line->AppendSwitchASCII("--enable-blink-features",
+    command_line->AppendSwitchASCII(switches::kEnableBlinkFeatures,
                                     "MiddleClickAutoscroll");
   }
 
@@ -104,7 +105,7 @@ class AutoscrollBrowserTest : public ContentBrowserTest {
 
   void LoadURL(const std::string& page_data) {
     const GURL data_url("data:text/html," + page_data);
-    NavigateToURL(shell(), data_url);
+    EXPECT_TRUE(NavigateToURL(shell(), data_url));
 
     RenderWidgetHostImpl* host = GetWidgetHost();
     host->GetView()->SetSize(gfx::Size(400, 400));
@@ -269,7 +270,9 @@ IN_PROC_BROWSER_TEST_F(AutoscrollBrowserTest,
   RenderFrameSubmissionObserver observer(
       GetWidgetHost()->render_frame_metadata_provider());
   blink::WebMouseWheelEvent wheel_event =
-      SyntheticWebMouseWheelEventBuilder::Build(10, 10, 0, -53, 0, true);
+      SyntheticWebMouseWheelEventBuilder::Build(
+          10, 10, 0, -53, 0,
+          ui::input_types::ScrollGranularity::kScrollByPrecisePixel);
   wheel_event.phase = blink::WebMouseWheelEvent::kPhaseBegan;
   GetWidgetHost()->ForwardWheelEvent(wheel_event);
   WaitForScroll(observer);
@@ -288,7 +291,9 @@ IN_PROC_BROWSER_TEST_F(AutoscrollBrowserTest,
   RenderFrameSubmissionObserver observer(
       GetWidgetHost()->render_frame_metadata_provider());
   blink::WebMouseWheelEvent wheel_event =
-      SyntheticWebMouseWheelEventBuilder::Build(10, 10, 0, -53, 0, true);
+      SyntheticWebMouseWheelEventBuilder::Build(
+          10, 10, 0, -53, 0,
+          ui::input_types::ScrollGranularity::kScrollByPrecisePixel);
   wheel_event.phase = blink::WebMouseWheelEvent::kPhaseBegan;
   GetWidgetHost()->ForwardWheelEvent(wheel_event);
 

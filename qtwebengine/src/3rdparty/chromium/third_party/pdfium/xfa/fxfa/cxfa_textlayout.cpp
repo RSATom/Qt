@@ -571,7 +571,7 @@ bool CXFA_TextLayout::DrawString(CFX_RenderDevice* pFxDevice,
     return false;
 
   pFxDevice->SaveState();
-  pFxDevice->SetClip_Rect(rtClip);
+  pFxDevice->SetClip_Rect(rtClip.GetOuterRect());
 
   if (m_pieceLines.empty()) {
     size_t szBlockCount = CountBlocks();
@@ -753,12 +753,9 @@ bool CXFA_TextLayout::LoadRichText(
         }
 
         if (wsName.EqualsASCII("a")) {
-          ASSERT(pElement);
           WideString wsLinkContent = pElement->GetAttribute(L"href");
-          if (!wsLinkContent.IsEmpty()) {
-            pLinkData =
-                pdfium::MakeRetain<CFX_LinkUserData>(wsLinkContent.c_str());
-          }
+          if (!wsLinkContent.IsEmpty())
+            pLinkData = pdfium::MakeRetain<CFX_LinkUserData>(wsLinkContent);
         }
 
         int32_t iTabCount = m_textParser.CountTabs(

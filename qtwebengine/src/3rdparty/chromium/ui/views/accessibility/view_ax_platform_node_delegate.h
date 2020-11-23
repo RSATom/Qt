@@ -7,10 +7,9 @@
 
 #include <stdint.h>
 
-#include "base/macros.h"
 #include "base/strings/string16.h"
 #include "build/build_config.h"
-#include "ui/accessibility/ax_enums.mojom.h"
+#include "ui/accessibility/ax_enums.mojom-forward.h"
 #include "ui/accessibility/ax_node_data.h"
 #include "ui/accessibility/platform/ax_platform_node_delegate_base.h"
 #include "ui/gfx/geometry/rect.h"
@@ -36,13 +35,16 @@ class View;
 class ViewAXPlatformNodeDelegate : public ViewAccessibility,
                                    public ui::AXPlatformNodeDelegateBase {
  public:
+  ViewAXPlatformNodeDelegate(const ViewAXPlatformNodeDelegate&) = delete;
+  ViewAXPlatformNodeDelegate& operator=(const ViewAXPlatformNodeDelegate&) =
+      delete;
   ~ViewAXPlatformNodeDelegate() override;
 
   // ViewAccessibility:
   gfx::NativeViewAccessible GetNativeObject() override;
   void NotifyAccessibilityEvent(ax::mojom::Event event_type) override;
 #if defined(OS_MACOSX)
-  void AnnounceText(base::string16& text) override;
+  void AnnounceText(const base::string16& text) override;
 #endif
 
   // ui::AXPlatformNodeDelegate
@@ -50,6 +52,7 @@ class ViewAXPlatformNodeDelegate : public ViewAccessibility,
   int GetChildCount() override;
   gfx::NativeViewAccessible ChildAtIndex(int index) override;
   gfx::NativeViewAccessible GetNSWindow() override;
+  gfx::NativeViewAccessible GetNativeViewAccessible() override;
   gfx::NativeViewAccessible GetParent() override;
   gfx::Rect GetBoundsRect(
       const ui::AXCoordinateSystem coordinate_system,
@@ -58,6 +61,8 @@ class ViewAXPlatformNodeDelegate : public ViewAccessibility,
   gfx::NativeViewAccessible HitTestSync(int x, int y) override;
   gfx::NativeViewAccessible GetFocus() override;
   ui::AXPlatformNode* GetFromNodeID(int32_t id) override;
+  ui::AXPlatformNode* GetFromTreeIDAndNodeID(const ui::AXTreeID& ax_tree_id,
+                                             int32_t id) override;
   bool AccessibilityPerformAction(const ui::AXActionData& data) override;
   bool ShouldIgnoreHoveredStateForTesting() override;
   bool IsOffscreen() const override;
@@ -74,6 +79,8 @@ class ViewAXPlatformNodeDelegate : public ViewAccessibility,
 
  protected:
   explicit ViewAXPlatformNodeDelegate(View* view);
+
+  ui::AXPlatformNode* ax_platform_node() { return ax_platform_node_; }
 
  private:
   // Uses Views::GetViewsInGroup to find nearby Views in the same group.
@@ -96,8 +103,6 @@ class ViewAXPlatformNodeDelegate : public ViewAccessibility,
 
   // Levels of menu are currently open, e.g. 0: none, 1: top, 2: submenu ...
   static int32_t menu_depth_;
-
-  DISALLOW_COPY_AND_ASSIGN(ViewAXPlatformNodeDelegate);
 };
 
 }  // namespace views

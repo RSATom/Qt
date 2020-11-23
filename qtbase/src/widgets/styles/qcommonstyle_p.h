@@ -112,7 +112,8 @@ public:
                && option.features == cachedOption->features
                && option.icon.isNull() == cachedOption->icon.isNull()
                && option.font == cachedOption->font
-               && option.viewItemPosition == cachedOption->viewItemPosition);
+               && option.viewItemPosition == cachedOption->viewItemPosition
+               && option.showDecorationSelected == cachedOption->showDecorationSelected);
     }
 #endif
 #if QT_CONFIG(toolbutton)
@@ -122,7 +123,7 @@ public:
 
     mutable QIcon tabBarcloseButtonIcon;
 #if QT_CONFIG(tabbar)
-    void tabLayout(const QStyleOptionTab *opt, const QWidget *widget, QRect *textRect, QRect *pixmapRect) const;
+    virtual void tabLayout(const QStyleOptionTab *opt, const QWidget *widget, QRect *textRect, QRect *pixmapRect) const;
 #endif
 
     int animationFps;

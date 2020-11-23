@@ -15,7 +15,6 @@
 #include <memory>
 
 #include "absl/algorithm/container.h"
-#include "absl/memory/memory.h"
 #include "absl/types/optional.h"
 #include "api/audio_codecs/audio_encoder.h"
 #include "api/candidate.h"
@@ -325,7 +324,9 @@ void VerifyVoiceReceiverInfoReport(const StatsReport* report,
   EXPECT_EQ(rtc::ToString(info.audio_level), value_in_report);
   EXPECT_TRUE(GetValue(report, StatsReport::kStatsValueNameBytesReceived,
                        &value_in_report));
-  EXPECT_EQ(rtc::ToString(info.bytes_rcvd), value_in_report);
+  EXPECT_EQ(rtc::ToString(info.payload_bytes_rcvd +
+                          info.header_and_padding_bytes_rcvd),
+            value_in_report);
   EXPECT_TRUE(GetValue(report, StatsReport::kStatsValueNameJitterReceived,
                        &value_in_report));
   EXPECT_EQ(rtc::ToString(info.jitter_ms), value_in_report);
@@ -374,6 +375,9 @@ void VerifyVoiceReceiverInfoReport(const StatsReport* report,
   EXPECT_TRUE(GetValue(report, StatsReport::kStatsValueNameDecodingPLC,
                        &value_in_report));
   EXPECT_EQ(rtc::ToString(info.decoding_plc), value_in_report);
+  EXPECT_TRUE(GetValue(report, StatsReport::kStatsValueNameDecodingCodecPLC,
+                       &value_in_report));
+  EXPECT_EQ(rtc::ToString(info.decoding_codec_plc), value_in_report);
   EXPECT_TRUE(GetValue(report, StatsReport::kStatsValueNameDecodingCNG,
                        &value_in_report));
   EXPECT_EQ(rtc::ToString(info.decoding_cng), value_in_report);
@@ -395,7 +399,9 @@ void VerifyVoiceSenderInfoReport(const StatsReport* report,
   EXPECT_EQ(sinfo.codec_name, value_in_report);
   EXPECT_TRUE(GetValue(report, StatsReport::kStatsValueNameBytesSent,
                        &value_in_report));
-  EXPECT_EQ(rtc::ToString(sinfo.bytes_sent), value_in_report);
+  EXPECT_EQ(rtc::ToString(sinfo.payload_bytes_sent +
+                          sinfo.header_and_padding_bytes_sent),
+            value_in_report);
   EXPECT_TRUE(GetValue(report, StatsReport::kStatsValueNamePacketsSent,
                        &value_in_report));
   EXPECT_EQ(rtc::ToString(sinfo.packets_sent), value_in_report);
@@ -526,13 +532,13 @@ void InitVoiceSenderInfo(cricket::VoiceSenderInfo* voice_sender_info,
                          uint32_t ssrc = kSsrcOfTrack) {
   voice_sender_info->add_ssrc(ssrc);
   voice_sender_info->codec_name = "fake_codec";
-  voice_sender_info->bytes_sent = 100;
+  voice_sender_info->payload_bytes_sent = 88;
+  voice_sender_info->header_and_padding_bytes_sent = 12;
   voice_sender_info->packets_sent = 101;
   voice_sender_info->rtt_ms = 102;
   voice_sender_info->fraction_lost = 103;
   voice_sender_info->jitter_ms = 104;
   voice_sender_info->packets_lost = 105;
-  voice_sender_info->ext_seqnum = 106;
   voice_sender_info->audio_level = 107;
   voice_sender_info->apm_statistics.echo_return_loss = 108;
   voice_sender_info->apm_statistics.echo_return_loss_enhancement = 109;
@@ -562,10 +568,10 @@ void UpdateVoiceSenderInfoFromAudioTrack(
 
 void InitVoiceReceiverInfo(cricket::VoiceReceiverInfo* voice_receiver_info) {
   voice_receiver_info->add_ssrc(kSsrcOfTrack);
-  voice_receiver_info->bytes_rcvd = 110;
+  voice_receiver_info->payload_bytes_rcvd = 98;
+  voice_receiver_info->header_and_padding_bytes_rcvd = 12;
   voice_receiver_info->packets_rcvd = 111;
   voice_receiver_info->packets_lost = 114;
-  voice_receiver_info->ext_seqnum = 115;
   voice_receiver_info->jitter_ms = 116;
   voice_receiver_info->jitter_buffer_ms = 117;
   voice_receiver_info->jitter_buffer_preferred_ms = 118;
@@ -577,6 +583,7 @@ void InitVoiceReceiverInfo(cricket::VoiceReceiverInfo* voice_receiver_info) {
   voice_receiver_info->accelerate_rate = 124;
   voice_receiver_info->preemptive_expand_rate = 125;
   voice_receiver_info->secondary_discarded_rate = 126;
+  voice_receiver_info->decoding_codec_plc = 127;
 }
 
 class StatsCollectorForTest : public StatsCollector {
@@ -598,7 +605,7 @@ class StatsCollectorTest : public ::testing::Test {
 
   std::unique_ptr<StatsCollectorForTest> CreateStatsCollector(
       PeerConnectionInternal* pc) {
-    return absl::make_unique<StatsCollectorForTest>(pc);
+    return std::make_unique<StatsCollectorForTest>(pc);
   }
 
   void VerifyAudioTrackStats(FakeAudioTrack* audio_track,
@@ -903,7 +910,8 @@ TEST_P(StatsCollectorTrackTest, BytesCounterHandles64Bits) {
 
   VideoSenderInfo video_sender_info;
   video_sender_info.add_ssrc(1234);
-  video_sender_info.bytes_sent = kBytesSent;
+  video_sender_info.payload_bytes_sent = kBytesSent;
+  video_sender_info.header_and_padding_bytes_sent = 0;
   VideoMediaInfo video_info;
   video_info.senders.push_back(video_sender_info);
 
@@ -935,7 +943,8 @@ TEST_P(StatsCollectorTrackTest, AudioBandwidthEstimationInfoIsReported) {
 
   VoiceSenderInfo voice_sender_info;
   voice_sender_info.add_ssrc(1234);
-  voice_sender_info.bytes_sent = kBytesSent;
+  voice_sender_info.payload_bytes_sent = kBytesSent - 12;
+  voice_sender_info.header_and_padding_bytes_sent = 12;
   VoiceMediaInfo voice_info;
   voice_info.senders.push_back(voice_sender_info);
 
@@ -983,7 +992,9 @@ TEST_P(StatsCollectorTrackTest, VideoBandwidthEstimationInfoIsReported) {
 
   VideoSenderInfo video_sender_info;
   video_sender_info.add_ssrc(1234);
-  video_sender_info.bytes_sent = kBytesSent;
+  video_sender_info.payload_bytes_sent = kBytesSent - 12;
+  video_sender_info.header_and_padding_bytes_sent = 12;
+
   VideoMediaInfo video_info;
   video_info.senders.push_back(video_sender_info);
 
@@ -1080,7 +1091,8 @@ TEST_P(StatsCollectorTrackTest, TrackAndSsrcObjectExistAfterUpdateSsrcStats) {
 
   VideoSenderInfo video_sender_info;
   video_sender_info.add_ssrc(1234);
-  video_sender_info.bytes_sent = kBytesSent;
+  video_sender_info.payload_bytes_sent = kBytesSent - 12;
+  video_sender_info.header_and_padding_bytes_sent = 12;
   VideoMediaInfo video_info;
   video_info.senders.push_back(video_sender_info);
 
@@ -1134,7 +1146,8 @@ TEST_P(StatsCollectorTrackTest, TransportObjectLinkedFromSsrcObject) {
 
   VideoSenderInfo video_sender_info;
   video_sender_info.add_ssrc(1234);
-  video_sender_info.bytes_sent = kBytesSent;
+  video_sender_info.payload_bytes_sent = kBytesSent - 12;
+  video_sender_info.header_and_padding_bytes_sent = 12;
   VideoMediaInfo video_info;
   video_info.senders.push_back(video_sender_info);
 
@@ -1294,7 +1307,7 @@ TEST_F(StatsCollectorTest, IceCandidateReport) {
   connection_info.local_candidate = local;
   connection_info.remote_candidate = remote;
   TransportChannelStats channel_stats;
-  channel_stats.connection_infos.push_back(connection_info);
+  channel_stats.ice_transport_stats.connection_infos.push_back(connection_info);
 
   pc->AddVoiceChannel("audio", kTransportName);
   pc->SetTransportStats(kTransportName, channel_stats);

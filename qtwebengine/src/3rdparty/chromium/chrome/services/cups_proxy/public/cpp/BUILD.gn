@@ -6,9 +6,14 @@ import("//build/config/features.gni")
 import("//printing/buildflags/buildflags.gni")
 
 assert(is_chromeos, "Non-Chrome-OS builds must not depend on this")
+assert(use_cups, "Non-CUPS builds must not depend on this")
 
 source_set("cpp") {
   sources = [
+    "cups_util.cc",
+    "cups_util.h",
+    "ipp_messages.cc",
+    "ipp_messages.h",
     "type_conversions.cc",
     "type_conversions.h",
   ]
@@ -17,24 +22,16 @@ source_set("cpp") {
     "//base",
   ]
 
-  if (use_cups) {
-    configs += [ "//printing:cups" ]
-    sources += [
-      "cups_util.cc",
-      "cups_util.h",
-      "ipp_messages.cc",
-      "ipp_messages.h",
-    ]
-    public_deps = [
-      "//chrome/services/cups_ipp_parser/public/cpp",
-      "//printing",
-    ]
-  }
+  public_deps = [
+    "//chrome/services/ipp_parser/public/cpp",
+    "//printing",
+  ]
+
+  configs += [ "//printing:cups" ]
 }
 
 source_set("unit_tests") {
   testonly = true
-
   sources = [
     "cups_util_unittest.cc",
   ]
@@ -43,18 +40,5 @@ source_set("unit_tests") {
     "//base",
     "//testing/gmock",
     "//testing/gtest",
-  ]
-}
-
-source_set("manifest") {
-  sources = [
-    "manifest.cc",
-    "manifest.h",
-  ]
-
-  deps = [
-    "//base",
-    "//chrome/services/cups_proxy/public/mojom",
-    "//services/service_manager/public/cpp",
   ]
 }

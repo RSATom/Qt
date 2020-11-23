@@ -26,15 +26,16 @@ ServiceWorkerNavigationHandle::ServiceWorkerNavigationHandle(
 
 ServiceWorkerNavigationHandle::~ServiceWorkerNavigationHandle() {
   DCHECK_CURRENTLY_ON(BrowserThread::UI);
-  // Delete the ServiceWorkerNavigationHandleCore on the IO thread.
-  BrowserThread::DeleteSoon(BrowserThread::IO, FROM_HERE, core_);
+  // Delete the ServiceWorkerNavigationHandleCore on the core thread.
+  BrowserThread::DeleteSoon(ServiceWorkerContext::GetCoreThreadId(), FROM_HERE,
+                            core_);
 }
 
 void ServiceWorkerNavigationHandle::OnCreatedProviderHost(
     blink::mojom::ServiceWorkerProviderInfoForClientPtr provider_info) {
   DCHECK_CURRENTLY_ON(BrowserThread::UI);
-  DCHECK(provider_info->host_ptr_info.is_valid() &&
-         provider_info->client_request.is_pending());
+  DCHECK(provider_info->host_remote.is_valid() &&
+         provider_info->client_receiver.is_valid());
 
   provider_info_ = std::move(provider_info);
 }
@@ -42,25 +43,28 @@ void ServiceWorkerNavigationHandle::OnCreatedProviderHost(
 void ServiceWorkerNavigationHandle::OnBeginNavigationCommit(
     int render_process_id,
     int render_frame_id,
+    network::mojom::CrossOriginEmbedderPolicy cross_origin_embedder_policy,
     blink::mojom::ServiceWorkerProviderInfoForClientPtr* out_provider_info) {
   DCHECK_CURRENTLY_ON(BrowserThread::UI);
   // We may have failed to pre-create the provider host.
   if (!provider_info_)
     return;
-  base::PostTaskWithTraits(
-      FROM_HERE, {BrowserThread::IO},
+  ServiceWorkerContextWrapper::RunOrPostTaskOnCoreThread(
+      FROM_HERE,
       base::BindOnce(
           &ServiceWorkerNavigationHandleCore::OnBeginNavigationCommit,
-          base::Unretained(core_), render_process_id, render_frame_id));
+          base::Unretained(core_), render_process_id, render_frame_id,
+          cross_origin_embedder_policy));
   *out_provider_info = std::move(provider_info_);
 }
 
-void ServiceWorkerNavigationHandle::OnBeginWorkerCommit() {
+void ServiceWorkerNavigationHandle::OnBeginWorkerCommit(
+    network::mojom::CrossOriginEmbedderPolicy cross_origin_embedder_policy) {
   DCHECK_CURRENTLY_ON(BrowserThread::UI);
-  base::PostTaskWithTraits(
-      FROM_HERE, {BrowserThread::IO},
+  ServiceWorkerContextWrapper::RunOrPostTaskOnCoreThread(
+      FROM_HERE,
       base::BindOnce(&ServiceWorkerNavigationHandleCore::OnBeginWorkerCommit,
-                     base::Unretained(core_)));
+                     base::Unretained(core_), cross_origin_embedder_policy));
 }
 
 }  // namespace content

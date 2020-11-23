@@ -37,7 +37,11 @@ void NotificationsInternalsUIMessageHandler::HandleScheduleNotification(
     const base::ListValue* args) {
   CHECK_EQ(args->GetList().size(), 4u);
   notifications::ScheduleParams schedule_params;
+  schedule_params.deliver_time_start = base::Time::Now();
+  schedule_params.deliver_time_end =
+      base::Time::Now() + base::TimeDelta::FromMinutes(5);
   notifications::NotificationData data;
+  // TOOD(hesen): Enable adding icons from notifications-internals HTML.
   data.custom_data.emplace("url", args->GetList()[1].GetString());
   data.title = base::UTF8ToUTF16(args->GetList()[2].GetString());
   data.message = base::UTF8ToUTF16(args->GetList()[3].GetString());

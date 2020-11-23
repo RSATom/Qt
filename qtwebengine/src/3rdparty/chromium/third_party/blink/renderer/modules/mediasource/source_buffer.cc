@@ -37,6 +37,7 @@
 #include "media/base/logging_override_if_enabled.h"
 #include "third_party/blink/public/platform/task_type.h"
 #include "third_party/blink/public/platform/web_source_buffer.h"
+#include "third_party/blink/renderer/core/dom/document.h"
 #include "third_party/blink/renderer/core/dom/events/event.h"
 #include "third_party/blink/renderer/core/dom/events/event_queue.h"
 #include "third_party/blink/renderer/core/execution_context/execution_context.h"
@@ -369,24 +370,24 @@ void SourceBuffer::appendBuffer(DOMArrayBuffer* data,
                                 ExceptionState& exception_state) {
   double media_time = GetMediaTime();
   DVLOG(2) << __func__ << " this=" << this << " media_time=" << media_time
-           << " size=" << data->ByteLength();
+           << " size=" << data->DeprecatedByteLengthAsUnsigned();
   // Section 3.2 appendBuffer()
   // https://dvcs.w3.org/hg/html-media/raw-file/default/media-source/media-source.html#widl-SourceBuffer-appendBuffer-void-ArrayBufferView-data
   AppendBufferInternal(media_time,
                        static_cast<const unsigned char*>(data->Data()),
-                       data->ByteLength(), exception_state);
+                       data->DeprecatedByteLengthAsUnsigned(), exception_state);
 }
 
 void SourceBuffer::appendBuffer(NotShared<DOMArrayBufferView> data,
                                 ExceptionState& exception_state) {
   double media_time = GetMediaTime();
   DVLOG(3) << __func__ << " this=" << this << " media_time=" << media_time
-           << " size=" << data.View()->byteLength();
+           << " size=" << data.View()->deprecatedByteLengthAsUnsigned();
   // Section 3.2 appendBuffer()
   // https://dvcs.w3.org/hg/html-media/raw-file/default/media-source/media-source.html#widl-SourceBuffer-appendBuffer-void-ArrayBufferView-data
   AppendBufferInternal(
       media_time, static_cast<const unsigned char*>(data.View()->BaseAddress()),
-      data.View()->byteLength(), exception_state);
+      data.View()->deprecatedByteLengthAsUnsigned(), exception_state);
 }
 
 void SourceBuffer::abort(ExceptionState& exception_state) {
@@ -1147,6 +1148,16 @@ void SourceBuffer::NotifyParseWarning(const ParseWarning warning) {
       // https://crbug.com/737757.
       UseCounter::Count(source_->MediaElement()->GetDocument(),
                         WebFeature::kMediaSourceMuxedSequenceMode);
+      break;
+    case WebSourceBufferClient::kGroupEndTimestampDecreaseWithinMediaSegment:
+      // Report this problematic Media Segment structure usage to help inform
+      // follow-up work.
+      // TODO(wolenetz): Use the data to scope additional work. See
+      // https://crbug.com/920853 and
+      // https://github.com/w3c/media-source/issues/203.
+      UseCounter::Count(
+          source_->MediaElement()->GetDocument(),
+          WebFeature::kMediaSourceGroupEndTimestampDecreaseWithinMediaSegment);
       break;
   }
 }

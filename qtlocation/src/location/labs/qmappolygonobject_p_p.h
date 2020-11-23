@@ -103,7 +103,7 @@ public:
 
 public:
     QGeoPolygon m_path; // small overhead compared to plain QList<QGeoCoordinate>
-    QColor m_borderColor;
+    QColor m_borderColor = Qt::transparent;
     QColor m_fillColor = Qt::transparent;
     qreal m_borderWidth = 0;
 

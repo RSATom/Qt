@@ -24,6 +24,7 @@
 #include "services/network/public/cpp/shared_url_loader_factory.h"
 #include "services/network/public/cpp/simple_url_loader.h"
 #include "services/network/public/mojom/network_service.mojom.h"
+#include "services/network/public/mojom/url_response_head.mojom.h"
 
 namespace data_reduction_proxy {
 
@@ -31,13 +32,14 @@ namespace {
 
 const int kInvalidResponseCode = -1;
 
-void BindNetworkContextOnUI(network::mojom::CustomProxyConfigPtr config,
-                            network::mojom::NetworkContextRequest request,
-                            const std::string& user_agent) {
+void BindNetworkContext(
+    network::mojom::CustomProxyConfigPtr config,
+    mojo::PendingReceiver<network::mojom::NetworkContext> receiver,
+    const std::string& user_agent) {
   auto params = network::mojom::NetworkContextParams::New();
   params->user_agent = user_agent;
   params->initial_custom_proxy_config = std::move(config);
-  content::GetNetworkService()->CreateNetworkContext(std::move(request),
+  content::GetNetworkService()->CreateNetworkContext(std::move(receiver),
                                                      std::move(params));
 }
 }
@@ -46,15 +48,13 @@ WarmupURLFetcher::WarmupURLFetcher(
     CreateCustomProxyConfigCallback create_custom_proxy_config_callback,
     WarmupURLFetcherCallback callback,
     GetHttpRttCallback get_http_rtt_callback,
-    scoped_refptr<base::SingleThreadTaskRunner> ui_task_runner,
     const std::string& user_agent)
     : is_fetch_in_flight_(false),
       previous_attempt_counts_(0),
       create_custom_proxy_config_callback_(create_custom_proxy_config_callback),
       callback_(callback),
       get_http_rtt_callback_(get_http_rtt_callback),
-      user_agent_(user_agent),
-      ui_task_runner_(ui_task_runner) {
+      user_agent_(user_agent) {
   DCHECK(create_custom_proxy_config_callback);
   DCHECK(!params::IsIncludedInHoldbackFieldTrial());
 }
@@ -170,18 +170,17 @@ void WarmupURLFetcher::FetchWarmupURLNow(
 network::mojom::URLLoaderFactory*
 WarmupURLFetcher::GetNetworkServiceURLLoaderFactory(
     const DataReductionProxyServer& proxy_server) {
-  network::mojom::NetworkContextPtr context;
-  ui_task_runner_->PostTask(
-      FROM_HERE,
-      base::BindOnce(&BindNetworkContextOnUI,
-                     create_custom_proxy_config_callback_.Run({proxy_server}),
-                     mojo::MakeRequest(&context_), user_agent_));
+  context_.reset();
+  BindNetworkContext(create_custom_proxy_config_callback_.Run({proxy_server}),
+                     context_.BindNewPipeAndPassReceiver(), user_agent_);
 
   auto factory_params = network::mojom::URLLoaderFactoryParams::New();
   factory_params->process_id = network::mojom::kBrowserProcessId;
   factory_params->is_corb_enabled = false;
-  context_->CreateURLLoaderFactory(mojo::MakeRequest(&url_loader_factory_),
-                                   std::move(factory_params));
+  url_loader_factory_.reset();
+  context_->CreateURLLoaderFactory(
+      url_loader_factory_.BindNewPipeAndPassReceiver(),
+      std::move(factory_params));
   return url_loader_factory_.get();
 }
 
@@ -204,14 +203,14 @@ void WarmupURLFetcher::GetWarmupURLWithQueryParam(
 
 void WarmupURLFetcher::OnURLLoadResponseStarted(
     const GURL& final_url,
-    const network::ResourceResponseHead& response_head) {
+    const network::mojom::URLResponseHead& response_head) {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   proxy_server_ = response_head.proxy_server;
 }
 
 void WarmupURLFetcher::OnURLLoaderRedirect(
     const net::RedirectInfo& redirect_info,
-    const network::ResourceResponseHead& response_head,
+    const network::mojom::URLResponseHead& response_head,
     std::vector<std::string>* to_be_removed_headers) {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   proxy_server_ = response_head.proxy_server;

@@ -57,10 +57,10 @@
 #include <QtLocation/private/qmaprouteobjectqsg_p_p.h>
 #include <QtLocation/private/qmapiconobjectqsg_p_p.h>
 #include <QtLocation/private/qdeclarativepolylinemapitem_p.h>
+#include <QtLocation/private/qdeclarativepolygonmapitem_p_p.h>
 #include <QtCore/qpointer.h>
 
 QT_BEGIN_NAMESPACE
-
 struct Q_LOCATION_PRIVATE_EXPORT MapObject {
     MapObject(QPointer<QGeoMapObject> &o, QQSGMapObject *sgo)
         : object(o), sgObject(sgo) {}
@@ -85,6 +85,7 @@ public:
     QList<MapObject> m_pendingMapObjects;
     QList<MapObject> m_removedMapObjects;
     QGeoMap *m_map = nullptr;
+    QDeclarativePolygonMapItemPrivateOpenGL::RootNode *m_mapObjectsRootNode = nullptr;
 };
 
 QT_END_NAMESPACE

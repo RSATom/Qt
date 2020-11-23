@@ -9,6 +9,7 @@
     #include "include/gpu/GrContext.h"
     #include "src/gpu/GrClip.h"
     #include "src/gpu/GrContextPriv.h"
+    #include "src/gpu/GrImageInfo.h"
     #include "src/gpu/GrProxyProvider.h"
     #include "src/gpu/GrRenderTargetContext.h"
 }
@@ -40,14 +41,14 @@
         const SkImageInfo ii = SkImageInfo::Make(kSize, kSize,
                                                  kRGBA_8888_SkColorType, kPremul_SkAlphaType);
 
-        sk_sp<GrRenderTargetContext> readRTC(
+        auto readRTC =
                 context->priv().makeDeferredRenderTargetContext(SkBackingFit::kExact,
                                                                 kSize, kSize,
-                                                                kColorType, nullptr));
-        sk_sp<GrRenderTargetContext> tempRTC(
+                                                                kColorType, nullptr);
+        auto tempRTC =
                 context->priv().makeDeferredRenderTargetContext(SkBackingFit::kExact,
                                                                 kSize, kSize,
-                                                                kColorType, nullptr));
+                                                                kColorType, nullptr);
         if (!readRTC || !readRTC->asTextureProxy() || !tempRTC) {
             return false;
         }
@@ -63,9 +64,7 @@
         // calling read pixels here. Thus the pixel data will be uploaded immediately and we don't
         // need to keep the pixel data alive in the proxy. Therefore the ReleaseProc is nullptr.
         sk_sp<SkImage> image = SkImage::MakeFromRaster(pixmap, nullptr, nullptr);
-
         sk_sp<GrTextureProxy> dataProxy = proxyProvider->createTextureProxy(std::move(image),
-                                                                            GrRenderable::kNo,
                                                                             1,
                                                                             SkBudgeted::kYes,
                                                                             SkBackingFit::kExact);
@@ -87,7 +86,7 @@
         std::unique_ptr<GrFragmentProcessor> upmToPM(
                 new GrConfigConversionEffect(PMConversion::kToPremul));
 
-        paint1.addColorTextureProcessor(dataProxy, SkMatrix::I());
+        paint1.addColorTextureProcessor(dataProxy, kPremul_SkAlphaType, SkMatrix::I());
         paint1.addColorFragmentProcessor(pmToUPM->clone());
         paint1.setPorterDuffXPFactory(SkBlendMode::kSrc);
 
@@ -101,14 +100,16 @@
         // draw
         tempRTC->discard();
 
-        paint2.addColorTextureProcessor(readRTC->asTextureProxyRef(), SkMatrix::I());
+        paint2.addColorTextureProcessor(readRTC->asTextureProxyRef(), kUnpremul_SkAlphaType,
+                                        SkMatrix::I());
         paint2.addColorFragmentProcessor(std::move(upmToPM));
         paint2.setPorterDuffXPFactory(SkBlendMode::kSrc);
 
         tempRTC->fillRectToRect(GrNoClip(), std::move(paint2), GrAA::kNo, SkMatrix::I(), kRect,
                                 kRect);
 
-        paint3.addColorTextureProcessor(tempRTC->asTextureProxyRef(), SkMatrix::I());
+        paint3.addColorTextureProcessor(tempRTC->asTextureProxyRef(), kPremul_SkAlphaType,
+                                        SkMatrix::I());
         paint3.addColorFragmentProcessor(std::move(pmToUPM));
         paint3.setPorterDuffXPFactory(SkBlendMode::kSrc);
 

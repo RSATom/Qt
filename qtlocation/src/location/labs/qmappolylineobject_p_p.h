@@ -51,6 +51,7 @@
 #include <QtLocation/private/qlocationglobal_p.h>
 #include <QtLocation/private/qgeomapobject_p_p.h>
 #include <QGeoCoordinate>
+#include <QGeoPath>
 #include <QColor>
 
 QT_BEGIN_NAMESPACE
@@ -95,7 +96,7 @@ public:
     QGeoMapObjectPrivate *clone() override;
 
 public:
-    QList<QGeoCoordinate> m_path;
+    QGeoPath m_path; // small overhead compared to plain QList<QGeoCoordinate>
     QColor m_color;
     qreal m_width = 0;
 

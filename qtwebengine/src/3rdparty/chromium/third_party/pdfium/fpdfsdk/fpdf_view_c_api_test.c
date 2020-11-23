@@ -19,6 +19,7 @@
 #include "public/fpdf_flatten.h"
 #include "public/fpdf_formfill.h"
 #include "public/fpdf_fwlevent.h"
+#include "public/fpdf_javascript.h"
 #include "public/fpdf_ppo.h"
 #include "public/fpdf_progressive.h"
 #include "public/fpdf_save.h"
@@ -207,9 +208,9 @@ int CheckPDFiumCApi() {
     CHK(FPDFPath_SetMatrix);
     CHK(FPDFTextObj_GetFontName);
     CHK(FPDFTextObj_GetFontSize);
+    CHK(FPDFTextObj_GetMatrix);
     CHK(FPDFTextObj_GetText);
-    CHK(FPDFText_GetMatrix);
-    CHK(FPDFText_GetTextRenderMode);
+    CHK(FPDFTextObj_GetTextRenderMode);
     CHK(FPDFText_LoadFont);
     CHK(FPDFText_LoadStandardFont);
     CHK(FPDFText_SetText);
@@ -247,10 +248,8 @@ int CheckPDFiumCApi() {
     CHK(FORM_OnLButtonDown);
     CHK(FORM_OnLButtonUp);
     CHK(FORM_OnMouseMove);
-#ifdef PDF_ENABLE_XFA
     CHK(FORM_OnRButtonDown);
     CHK(FORM_OnRButtonUp);
-#endif
     CHK(FORM_Redo);
     CHK(FORM_ReplaceSelection);
     CHK(FORM_SetIndexSelected);
@@ -264,12 +263,17 @@ int CheckPDFiumCApi() {
     CHK(FPDF_FFLRecord);
 #endif
     CHK(FPDF_GetFormType);
-#ifdef PDF_ENABLE_XFA
     CHK(FPDF_LoadXFA);
-#endif
     CHK(FPDF_RemoveFormFieldHighlight);
     CHK(FPDF_SetFormFieldHighlightAlpha);
     CHK(FPDF_SetFormFieldHighlightColor);
+
+    // fpdf_javascript.h
+    CHK(FPDFDoc_CloseJavaScriptAction);
+    CHK(FPDFDoc_GetJavaScriptAction);
+    CHK(FPDFDoc_GetJavaScriptActionCount);
+    CHK(FPDFJavaScriptAction_GetName);
+    CHK(FPDFJavaScriptAction_GetScript);
 
     // fpdf_ppo.h
     CHK(FPDF_CopyViewerPreferences);
@@ -324,15 +328,21 @@ int CheckPDFiumCApi() {
     CHK(FPDFText_FindPrev);
     CHK(FPDFText_FindStart);
     CHK(FPDFText_GetBoundedText);
+    CHK(FPDFText_GetCharAngle);
     CHK(FPDFText_GetCharBox);
     CHK(FPDFText_GetCharIndexAtPos);
     CHK(FPDFText_GetCharOrigin);
+    CHK(FPDFText_GetFillColor);
     CHK(FPDFText_GetFontInfo);
     CHK(FPDFText_GetFontSize);
+    CHK(FPDFText_GetFontWeight);
+    CHK(FPDFText_GetLooseCharBox);
     CHK(FPDFText_GetRect);
     CHK(FPDFText_GetSchCount);
     CHK(FPDFText_GetSchResultIndex);
+    CHK(FPDFText_GetStrokeColor);
     CHK(FPDFText_GetText);
+    CHK(FPDFText_GetTextRenderMode);
     CHK(FPDFText_GetUnicode);
     CHK(FPDFText_LoadPage);
 
@@ -342,6 +352,10 @@ int CheckPDFiumCApi() {
     CHK(FPDFPage_GetThumbnailAsBitmap);
 
     // fpdf_transformpage.h
+    CHK(FPDFClipPath_CountPathSegments);
+    CHK(FPDFClipPath_CountPaths);
+    CHK(FPDFClipPath_GetPathSegment);
+    CHK(FPDFPageObj_GetClipPath);
     CHK(FPDFPageObj_TransformClipPath);
     CHK(FPDFPage_GetArtBox);
     CHK(FPDFPage_GetBleedBox);

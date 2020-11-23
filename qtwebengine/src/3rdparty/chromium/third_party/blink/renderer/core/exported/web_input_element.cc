@@ -61,6 +61,10 @@ bool WebInputElement::IsPasswordField() const {
   return ConstUnwrap<HTMLInputElement>()->type() == input_type_names::kPassword;
 }
 
+void WebInputElement::SetHasBeenPasswordField() {
+  Unwrap<HTMLInputElement>()->SetHasBeenPasswordField();
+}
+
 bool WebInputElement::IsPasswordFieldForAutofill() const {
   if (ConstUnwrap<HTMLInputElement>()->IsTextField() &&
       ConstUnwrap<HTMLInputElement>()->HasBeenPasswordField()) {
@@ -144,7 +148,7 @@ WebInputElement::WebInputElement(HTMLInputElement* elem)
     : WebFormControlElement(elem) {}
 
 DEFINE_WEB_NODE_TYPE_CASTS(WebInputElement,
-                           IsHTMLInputElement(ConstUnwrap<Node>()))
+                           IsA<HTMLInputElement>(ConstUnwrap<Node>()))
 
 WebInputElement& WebInputElement::operator=(HTMLInputElement* elem) {
   private_ = elem;
@@ -152,11 +156,11 @@ WebInputElement& WebInputElement::operator=(HTMLInputElement* elem) {
 }
 
 WebInputElement::operator HTMLInputElement*() const {
-  return ToHTMLInputElement(private_.Get());
+  return blink::To<HTMLInputElement>(private_.Get());
 }
 
 WebInputElement* ToWebInputElement(WebElement* web_element) {
-  if (!IsHTMLInputElement(*web_element->Unwrap<Element>()))
+  if (!IsA<HTMLInputElement>(*web_element->Unwrap<Element>()))
     return nullptr;
 
   return static_cast<WebInputElement*>(web_element);

@@ -85,7 +85,7 @@ public:
 
     struct Plugin
     {
-        Plugin() {}
+        Plugin() = default;
 
         Plugin(const QString &name, const QString &path)
             : name(name), path(path)
@@ -99,7 +99,7 @@ public:
 
     struct Component
     {
-        Component() {}
+        Component() = default;
 
         Component(const QString &typeName, const QString &fileName, int majorVersion, int minorVersion)
             : typeName(typeName), fileName(fileName), majorVersion(majorVersion), minorVersion(minorVersion),
@@ -118,7 +118,7 @@ public:
 
     struct Script
     {
-        Script() {}
+        Script() = default;
 
         Script(const QString &nameSpace, const QString &fileName, int majorVersion, int minorVersion)
             : nameSpace(nameSpace), fileName(fileName), majorVersion(majorVersion), minorVersion(minorVersion)
@@ -132,7 +132,7 @@ public:
         int minorVersion = 0;
     };
 
-    QHash<QString,Component> components() const;
+    QMultiHash<QString,Component> components() const;
     QHash<QString,Component> dependencies() const;
     QStringList imports() const;
     QList<Script> scripts() const;
@@ -141,7 +141,7 @@ public:
 
     struct TypeInfo
     {
-        TypeInfo() {}
+        TypeInfo() = default;
         TypeInfo(const QString &fileName)
             : fileName(fileName) {}
 
@@ -159,7 +159,7 @@ private:
 private:
     QList<QQmlJS::DiagnosticMessage> _errors;
     QString _typeNamespace;
-    QHash<QString,Component> _components; // multi hash
+    QMultiHash<QString,Component> _components;
     QHash<QString,Component> _dependencies;
     QStringList _imports;
     QList<Script> _scripts;
@@ -169,9 +169,9 @@ private:
     QString _className;
 };
 
-typedef QHash<QString,QQmlDirParser::Component> QQmlDirComponents;
-typedef QList<QQmlDirParser::Script> QQmlDirScripts;
-typedef QList<QQmlDirParser::Plugin> QQmlDirPlugins;
+using QQmlDirComponents = QMultiHash<QString,QQmlDirParser::Component>;
+using QQmlDirScripts = QList<QQmlDirParser::Script>;
+using QQmlDirPlugins = QList<QQmlDirParser::Plugin>;
 
 QDebug &operator<< (QDebug &, const QQmlDirParser::Component &);
 QDebug &operator<< (QDebug &, const QQmlDirParser::Script &);

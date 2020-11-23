@@ -26,14 +26,18 @@
 **
 ****************************************************************************/
 
-#include <QApplication>
+#include <QGuiApplication>
 #include <QImage>
 #include <QPainter>
 #include <QSvgRenderer>
 
 extern "C" int LLVMFuzzerTestOneInput(const char *Data, size_t Size) {
-    static int c = 0;
-    static QApplication a(c, nullptr);
+    static int argc = 3;
+    static char arg1[] = "fuzzer";
+    static char arg2[] = "-platform";
+    static char arg3[] = "minimal";
+    static char *argv[] = {arg1, arg2, arg3, nullptr};
+    static QGuiApplication qga(argc, argv);
     static QImage image(377, 233, QImage::Format_RGB32);
     static QPainter painter(&image);
     QSvgRenderer renderer(QByteArray::fromRawData(Data, Size));

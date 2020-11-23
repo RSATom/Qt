@@ -1256,7 +1256,11 @@ void DrawImageRectOp::RasterWithFlags(const DrawImageRectOp* op,
   // TODO(crbug.com/931704): make sure to support the case where paint worklet
   // generated images are used in other raster work such as canvas2d.
   if (op->image.IsPaintWorklet()) {
-    DCHECK(params.image_provider);
+    // When rasterizing on the main thread (e.g. paint invalidation checking,
+    // see https://crbug.com/990382), an image provider may not be available, so
+    // we should draw nothing.
+    if (!params.image_provider)
+      return;
     ImageProvider::ScopedResult result =
         params.image_provider->GetRasterContent(DrawImage(op->image));
 
@@ -1266,8 +1270,13 @@ void DrawImageRectOp::RasterWithFlags(const DrawImageRectOp* op,
         SkMatrix::MakeRectToRect(op->src, op->dst, SkMatrix::kFill_ScaleToFit));
     canvas->clipRect(op->src);
     canvas->saveLayer(&op->src, &paint);
-    DCHECK(result && result.paint_record());
-    result.paint_record()->Playback(canvas, params);
+    // Compositor thread animations can cause PaintWorklet jobs to be dispatched
+    // to the worklet thread even after main has torn down the worklet (e.g.
+    // because a navigation is happening). In that case the PaintWorklet jobs
+    // will fail and there will be no result to raster here. This state is
+    // transient as the next main frame commit will remove the PaintWorklets.
+    if (result && result.paint_record())
+      result.paint_record()->Playback(canvas, params);
     return;
   }
 
@@ -1928,9 +1937,9 @@ size_t PaintOp::Serialize(void* memory,
     return 0u;
 
   // Update skip and type now that the size is known.
-  uint32_t skip = static_cast<uint32_t>(aligned_written);
-  static_cast<uint32_t*>(memory)[0] = type | skip << 8;
-  return skip;
+  uint32_t bytes_to_skip = static_cast<uint32_t>(aligned_written);
+  static_cast<uint32_t*>(memory)[0] = type | bytes_to_skip << 8;
+  return bytes_to_skip;
 }
 
 PaintOp* PaintOp::Deserialize(const volatile void* input,
@@ -1986,7 +1995,7 @@ bool PaintOp::GetBounds(const PaintOp* op, SkRect* rect) {
     }
     case PaintOpType::DrawLine: {
       auto* line_op = static_cast<const DrawLineOp*>(op);
-      rect->set(line_op->x0, line_op->y0, line_op->x1, line_op->y1);
+      rect->setLTRB(line_op->x0, line_op->y0, line_op->x1, line_op->y1);
       rect->sort();
       return true;
     }
@@ -2085,9 +2094,9 @@ bool PaintOpWithFlags::HasDiscardableImagesFromFlags() const {
 }
 
 void PaintOpWithFlags::RasterWithFlags(SkCanvas* canvas,
-                                       const PaintFlags* flags,
+                                       const PaintFlags* raster_flags,
                                        const PlaybackParams& params) const {
-  g_raster_with_flags_functions[type](this, flags, canvas, params);
+  g_raster_with_flags_functions[type](this, raster_flags, canvas, params);
 }
 
 int ClipPathOp::CountSlowPaths() const {
@@ -2368,7 +2377,11 @@ void PaintOpBuffer::PlaybackFoldingIterator::FindNextOp() {
       third = NextUnfoldedOp();
       if (third && third->GetType() == PaintOpType::Restore) {
         auto* save_op = static_cast<const SaveLayerAlphaOp*>(current_op_);
-        if (draw_op->IsPaintOpWithFlags()) {
+        if (draw_op->IsPaintOpWithFlags() &&
+            // SkPaint::drawTextBlob() applies alpha on each glyph so we don't
+            // fold SaveLayerAlpha into DrwaTextBlob to ensure correct alpha
+            // even if some glyphs overlap.
+            draw_op->GetType() != PaintOpType::DrawTextBlob) {
           auto* flags_op = static_cast<const PaintOpWithFlags*>(draw_op);
           if (flags_op->flags.SupportsFoldingAlpha()) {
             current_alpha_ = save_op->alpha;
@@ -2467,14 +2480,10 @@ void PaintOpBuffer::Playback(SkCanvas* canvas,
   }
 }
 
-sk_sp<PaintOpBuffer> PaintOpBuffer::MakeFromMemory(
-    const volatile void* input,
-    size_t input_size,
-    const PaintOp::DeserializeOptions& options) {
-  auto buffer = sk_make_sp<PaintOpBuffer>();
-  if (input_size == 0)
-    return buffer;
-
+bool PaintOpBuffer::Deserialize(const volatile void* input,
+                                size_t input_size,
+                                const PaintOp::DeserializeOptions& options) {
+  Reset();
   size_t total_bytes_read = 0u;
   while (total_bytes_read < input_size) {
     const volatile void* next_op =
@@ -2484,26 +2493,39 @@ sk_sp<PaintOpBuffer> PaintOpBuffer::MakeFromMemory(
     uint32_t skip;
     if (!PaintOpReader::ReadAndValidateOpHeader(
             next_op, input_size - total_bytes_read, &type, &skip)) {
-      return nullptr;
+      return false;
     }
 
     size_t op_skip = ComputeOpSkip(g_type_to_size[type]);
     const auto* op = g_deserialize_functions[type](
-        next_op, skip, buffer->AllocatePaintOp(op_skip), op_skip, options);
+        next_op, skip, AllocatePaintOp(op_skip), op_skip, options);
     if (!op) {
       // The last allocated op has already been destroyed if it failed to
       // deserialize. Update the buffer's op tracking to exclude it to avoid
       // access during cleanup at destruction.
-      buffer->used_ -= op_skip;
-      buffer->op_count_--;
-      return nullptr;
+      used_ -= op_skip;
+      op_count_--;
+      return false;
     }
 
-    g_analyze_op_functions[type](buffer.get(), op);
+    g_analyze_op_functions[type](this, op);
     total_bytes_read += skip;
   }
 
-  DCHECK_GT(buffer->size(), 0u);
+  DCHECK_GT(size(), 0u);
+  return true;
+}
+
+// static
+sk_sp<PaintOpBuffer> PaintOpBuffer::MakeFromMemory(
+    const volatile void* input,
+    size_t input_size,
+    const PaintOp::DeserializeOptions& options) {
+  auto buffer = sk_make_sp<PaintOpBuffer>();
+  if (input_size == 0)
+    return buffer;
+  if (!buffer->Deserialize(input, input_size, options))
+    return nullptr;
   return buffer;
 }
 

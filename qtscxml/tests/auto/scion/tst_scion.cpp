@@ -329,18 +329,33 @@ static bool playEvent(QScxmlStateMachine *stateMachine, const QJsonObject &event
     e->setOrigin(origin);
     e->setOriginType(origintype);
     e->setInvokeId(invokeid);
-    if (eventDescription.contains(QLatin1String("after")))
-        QTest::qWait(eventDescription.value(QLatin1String("after")).toInt());
+    int delay = 0;
+    if (eventDescription.contains(QLatin1String("after"))) {
+        delay = eventDescription.value(QLatin1String("after")).toInt();
+        Q_ASSERT(delay > 0);
+        e->setDelay(delay);
+    }
+
+    QTimer trigger;
+    trigger.setSingleShot(true);
+    stateMachine->connectToEvent(eventName, &trigger, [&stateMachine, &trigger](const QScxmlEvent &) {
+        QObject::connect(stateMachine, &QScxmlStateMachine::reachedStableState,
+                         &trigger, QOverload<>::of(&QTimer::start));
+    });
+    MySignalSpy triggerSpy(&trigger, SIGNAL(timeout()));
 
     stateMachine->submitEvent(e);
 
-    if (!MySignalSpy(stateMachine, SIGNAL(reachedStableState())).fastWait()) {
-        qWarning() << "State machine did not reach a stable state!";
+    if (!triggerSpy.fastWait()) {
+        qWarning() << "State machine did not reach a stable state.";
     } else if (verifyStates(stateMachine, eventDescription, QLatin1String("nextConfiguration"), counter)) {
         return true;
     }
 
-    qWarning() << "... after sending event" << event;
+    if (delay > 0)
+        qWarning("... after sending delayed event %s with a delay of %dms.", qPrintable(eventName), delay);
+    else
+        qWarning("... after sending event %s.", qPrintable(eventName));
     return false;
 }
 

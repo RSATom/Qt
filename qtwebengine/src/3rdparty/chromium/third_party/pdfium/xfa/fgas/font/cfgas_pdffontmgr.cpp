@@ -51,6 +51,7 @@ RetainPtr<CFGAS_GEFont> CFGAS_PDFFontMgr::FindFont(const ByteString& strPsName,
   ByteString name = strPsName;
   name.Remove(' ');
 
+  auto* pData = CPDF_DocPageData::FromDocument(m_pDoc.Get());
   CPDF_DictionaryLocker locker(pFontSetDict);
   for (const auto& it : locker) {
     const ByteString& key = it.first;
@@ -63,12 +64,8 @@ RetainPtr<CFGAS_GEFont> CFGAS_PDFFontMgr::FindFont(const ByteString& strPsName,
     if (!pFontDict || pFontDict->GetStringFor("Type") != "Font")
       return nullptr;
 
-    auto* pData = CPDF_DocPageData::FromDocument(m_pDoc.Get());
-    CPDF_Font* pPDFFont = pData->GetFont(pFontDict);
-    if (!pPDFFont)
-      return nullptr;
-
-    if (!pPDFFont->IsEmbedded())
+    RetainPtr<CPDF_Font> pPDFFont = pData->GetFont(pFontDict);
+    if (!pPDFFont || !pPDFFont->IsEmbedded())
       return nullptr;
 
     return CFGAS_GEFont::LoadFont(pPDFFont, m_pFontMgr.Get());
@@ -86,7 +83,7 @@ RetainPtr<CFGAS_GEFont> CFGAS_PDFFontMgr::GetFont(WideStringView wsFontFamily,
     return it->second;
 
   ByteString bsPsName = WideString(wsFontFamily).ToDefANSI();
-  bool bBold = FontStyleIsBold(dwFontStyles);
+  bool bBold = FontStyleIsForceBold(dwFontStyles);
   bool bItalic = FontStyleIsItalic(dwFontStyles);
   ByteString strFontName = PsNameToFontName(bsPsName, bBold, bItalic);
   RetainPtr<CFGAS_GEFont> pFont =

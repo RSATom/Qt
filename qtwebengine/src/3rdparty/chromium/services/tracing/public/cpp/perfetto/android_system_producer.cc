@@ -10,17 +10,35 @@
 #include "base/bind.h"
 #include "base/strings/strcat.h"
 #include "base/strings/string_number_conversions.h"
+#include "base/trace_event/trace_log.h"
 #include "services/tracing/public/cpp/perfetto/shared_memory.h"
+#include "services/tracing/public/cpp/traced_process_impl.h"
 #include "third_party/perfetto/include/perfetto/ext/tracing/core/commit_data_request.h"
 #include "third_party/perfetto/include/perfetto/ext/tracing/core/shared_memory_arbiter.h"
 #include "third_party/perfetto/include/perfetto/ext/tracing/core/startup_trace_writer_registry.h"
 #include "third_party/perfetto/include/perfetto/ext/tracing/core/trace_writer.h"
 #include "third_party/perfetto/include/perfetto/ext/tracing/ipc/producer_ipc_client.h"
+#include "third_party/perfetto/include/perfetto/protozero/scattered_heap_buffer.h"
+#include "third_party/perfetto/include/perfetto/protozero/scattered_stream_writer.h"
+#include "third_party/perfetto/protos/perfetto/common/track_event_descriptor.pbzero.h"
 
 namespace tracing {
 namespace {
 constexpr uint32_t kInitialConnectionBackoffMs = 100;
 constexpr uint32_t kMaxConnectionBackoffMs = 30 * 1000;
+
+perfetto::DataSourceConfig EnsureGuardRailsAreFollowed(
+    const perfetto::DataSourceConfig& data_source_config) {
+  if (!data_source_config.enable_extra_guardrails() ||
+      data_source_config.chrome_config().privacy_filtering_enabled()) {
+    return data_source_config;
+  }
+  // If extra_guardrails is enabled then we have to ensure we have privacy
+  // filtering enabled.
+  perfetto::DataSourceConfig config = data_source_config;
+  config.mutable_chrome_config()->set_privacy_filtering_enabled(true);
+  return config;
+}
 
 uint32_t IncreaseBackoff(uint32_t current, uint32_t max) {
   return std::min(current * 2, max);
@@ -31,8 +49,7 @@ AndroidSystemProducer::AndroidSystemProducer(const char* socket,
                                              PerfettoTaskRunner* task_runner)
     : SystemProducer(task_runner),
       socket_name_(socket),
-      connection_backoff_ms_(kInitialConnectionBackoffMs),
-      weak_ptr_factory_(this) {
+      connection_backoff_ms_(kInitialConnectionBackoffMs) {
   Connect();
 }
 
@@ -42,14 +59,45 @@ AndroidSystemProducer::~AndroidSystemProducer() {
 
 void AndroidSystemProducer::SetDisallowPreAndroidPieForTesting(bool disallow) {
   disallow_pre_android_pie = disallow;
+  if (!disallow && state_ == State::kUninitialized) {
+    // If previously we would not have connected, we now attempt to connect
+    // since we are now skipping a check.
+    Connect();
+  }
+}
+
+void AndroidSystemProducer::SetNewSocketForTesting(const char* socket) {
+  socket_name_ = socket;
+  if (state_ == State::kConnected) {
+    // If we are fully connected we need to reset the service before we
+    // reconnect.
+    DisconnectWithReply(base::BindOnce(&AndroidSystemProducer::OnDisconnect,
+                                       base::Unretained(this)));
+  } else {
+    // In any other case we just need to do a normal disconnect and
+    // DisconnectWithReply will ensure we set up the retries on the new
+    // |socket|.
+    DisconnectWithReply(base::OnceClosure());
+  }
+}
+
+void AndroidSystemProducer::ResetSequenceForTesting() {
+  // DETACH the sequence and then immediately attach it. This is needed in tests
+  // because we might be executing in a TaskEnvironment, but the global
+  // PerfettoTracedProcess (which contains a pointer to AndroidSystemProducer)
+  // will leak between tests, but the sequence will no longer be valid.
+  DETACH_FROM_SEQUENCE(sequence_checker_);
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
 }
 
 bool AndroidSystemProducer::IsTracingActive() {
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   return data_sources_tracing_ > 0;
 }
 
 void AndroidSystemProducer::NewDataSourceAdded(
     const PerfettoTracedProcess::DataSourceBase* const data_source) {
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   if (state_ != State::kConnected) {
     return;
   }
@@ -57,58 +105,59 @@ void AndroidSystemProducer::NewDataSourceAdded(
   new_registration.set_name(data_source->name());
   new_registration.set_will_notify_on_start(true);
   new_registration.set_will_notify_on_stop(true);
+  new_registration.set_handles_incremental_state_clear(true);
+
+  // Add categories to the DataSourceDescriptor.
+  protozero::ScatteredHeapBuffer buffer;
+  protozero::ScatteredStreamWriter stream(&buffer);
+  perfetto::protos::pbzero::TrackEventDescriptor proto;
+  proto.Reset(&stream);
+  buffer.set_writer(&stream);
+
+  std::set<std::string> category_set;
+  tracing::TracedProcessImpl::GetInstance()->GetCategories(&category_set);
+  for (const std::string& s : category_set) {
+    proto.add_available_categories(s.c_str());
+  }
+
+  auto raw_proto = buffer.StitchSlices();
+  std::string track_event_descriptor_raw(raw_proto.begin(), raw_proto.end());
+  new_registration.set_track_event_descriptor_raw(track_event_descriptor_raw);
+
   service_->RegisterDataSource(new_registration);
 }
 
 void AndroidSystemProducer::DisconnectWithReply(
     base::OnceClosure on_disconnect_complete) {
-  task_runner()->GetOrCreateTaskRunner()->PostTask(
-      FROM_HERE,
-      base::BindOnce(
-          [](base::WeakPtr<AndroidSystemProducer> weak_ptr,
-             base::OnceClosure callback) {
-            DCHECK(!callback.is_null());
-            if (!weak_ptr) {
-              // If we aren't around anymore then we're fully disconnected and
-              // the callback is safe to run.
-              std::move(callback).Run();
-              return;
-            }
-            // If we are tracing we need to wait until we're fully disconnected
-            // to run the callback, otherwise we run it immediately (we will
-            // still unregister the data sources but that can happen async in
-            // the background).
-            if (weak_ptr->IsTracingActive() ||
-                !weak_ptr->on_disconnect_callbacks_.empty()) {
-              weak_ptr->on_disconnect_callbacks_.push_back(std::move(callback));
-            } else {
-              std::move(callback).Run();
-            }
-
-            if (weak_ptr->state_ == State::kConnected) {
-              // We are connected and need to unregister the DataSources to
-              // inform the service these data sources are going away. If we
-              // are currently tracing the service will ask for them to shut
-              // down asynchronously.
-              //
-              // Note that the system service may have concurrently posted a
-              // task to request one of these data sources to start. However we
-              // will ignore such requests by verifying that we're allowed to
-              // trace in StartDataSource().
-              for (const auto* const data_source :
-                   PerfettoTracedProcess::Get()->data_sources()) {
-                DCHECK(weak_ptr->service_.get());
-                weak_ptr->service_->UnregisterDataSource(data_source->name());
-              }
-            }
-            weak_ptr->DelayedReconnect();
-          },
-          weak_ptr_factory_.GetWeakPtr(),
-          // This ensures no matter what is passed in the PostTask above can
-          // call the callback which simplifies the branches inside the task.
-          on_disconnect_complete.is_null()
-              ? base::DoNothing().Once()
-              : std::move(on_disconnect_complete)));
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
+  if (state_ == State::kConnected) {
+    // We are connected and need to unregister the DataSources to
+    // inform the service these data sources are going away. If we
+    // are currently tracing the service will ask for them to shut
+    // down asynchronously.
+    //
+    // Note that the system service may have concurrently posted a
+    // task to request one of these data sources to start. However we
+    // will ignore such requests by verifying that we're allowed to
+    // trace in StartDataSource().
+    for (const auto* const data_source :
+         PerfettoTracedProcess::Get()->data_sources()) {
+      DCHECK(service_.get());
+      service_->UnregisterDataSource(data_source->name());
+    }
+  }
+  // If we are tracing we need to wait until we're fully disconnected
+  // to run the callback, otherwise we run it immediately (we will
+  // still unregister the data sources but that can happen async in
+  // the background).
+  if (!on_disconnect_complete.is_null()) {
+    if (IsTracingActive() || !on_disconnect_callbacks_.empty()) {
+      on_disconnect_callbacks_.push_back(std::move(on_disconnect_complete));
+    } else {
+      std::move(on_disconnect_complete).Run();
+    }
+  }
+  DelayedReconnect();
 }
 
 void AndroidSystemProducer::OnConnect() {
@@ -177,7 +226,7 @@ void AndroidSystemProducer::StartDataSource(
 
   for (auto* const data_source : PerfettoTracedProcess::Get()->data_sources()) {
     if (data_source->name() == config.name()) {
-      PerfettoTracedProcess::Get()->CanStartTracing(
+      auto can_trace = PerfettoTracedProcess::Get()->CanStartTracing(
           this,
           base::BindOnce(
               [](base::WeakPtr<AndroidSystemProducer> weak_ptr,
@@ -189,11 +238,16 @@ void AndroidSystemProducer::StartDataSource(
                 }
                 DCHECK_CALLED_ON_VALID_SEQUENCE(weak_ptr->sequence_checker_);
                 ++weak_ptr->data_sources_tracing_;
-                data_source->StartTracingWithID(id, weak_ptr.get(),
-                                                data_source_config);
+                data_source->StartTracingWithID(
+                    id, weak_ptr.get(),
+                    EnsureGuardRailsAreFollowed(data_source_config));
                 weak_ptr->service_->NotifyDataSourceStarted(id);
               },
               weak_ptr_factory_.GetWeakPtr(), data_source, id, config));
+      if (!can_trace) {
+        DisconnectWithReply(base::OnceClosure());
+      }
+      return;
     }
   }
 }
@@ -265,6 +319,7 @@ void AndroidSystemProducer::ClearIncrementalState(
 void AndroidSystemProducer::CommitData(
     const perfetto::CommitDataRequest& commit,
     CommitDataCallback callback) {
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   DCHECK(service_);
   service_->CommitData(commit, std::move(callback));
 }
@@ -339,20 +394,24 @@ AndroidSystemProducer::GetInProcessShmemArbiter() {
   return GetSharedMemoryArbiter();
 }
 
-void AndroidSystemProducer::ActivateTriggers(const std::vector<std::string>&) {
-  // Never called by SharedMemoryArbiter/TraceWriter.
-  NOTREACHED();
+void AndroidSystemProducer::ActivateTriggers(
+    const std::vector<std::string>& triggers) {
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
+  if (state_ == State::kConnected) {
+    service_->ActivateTriggers(triggers);
+  }
 }
 
 void AndroidSystemProducer::ConnectSocket() {
   state_ = State::kConnecting;
   service_ = perfetto::ProducerIPCClient::Connect(
-      socket_name_, this,
+      socket_name_.c_str(), this,
       base::StrCat(
           {mojom::kPerfettoProducerNamePrefix,
            base::NumberToString(
                base::trace_event::TraceLog::GetInstance()->process_id())}),
-      task_runner());
+      task_runner(),
+      perfetto::TracingService::ProducerSMBScrapingMode::kEnabled);
 }
 
 bool AndroidSystemProducer::SkipIfPreAndroidPie() const {

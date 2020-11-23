@@ -215,9 +215,10 @@ namespace QPatternist
 
         QVector<qint16> parserStack_yyss;
         QVector<TokenValue> parserStack_yyvs;
-        QVector<YYLTYPE> parserStack_yyls;
+        QVector<XPATHLTYPE> parserStack_yyls;
 
-        void handleStackOverflow(const char*, short **yyss, size_t, TokenValue **yyvs, size_t, YYLTYPE **yyls, size_t, size_t *yystacksize);
+        void handleStackOverflow(const char*, short **yyss, size_t, TokenValue **yyvs, size_t,
+                                 XPATHLTYPE **yyls, size_t, size_t *yystacksize);
 
         inline VariableSlotID currentPositionSlot() const
         {

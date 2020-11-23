@@ -22,8 +22,8 @@
 #include "components/viz/test/fake_external_begin_frame_source.h"
 #include "components/viz/test/fake_surface_observer.h"
 #include "components/viz/test/mock_compositor_frame_sink_client.h"
-#include "services/viz/privileged/interfaces/compositing/frame_sink_manager.mojom.h"
-#include "services/viz/public/interfaces/compositing/compositor_frame_sink.mojom.h"
+#include "services/viz/privileged/mojom/compositing/frame_sink_manager.mojom.h"
+#include "services/viz/public/mojom/compositing/compositor_frame_sink.mojom.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "third_party/khronos/GLES2/gl2.h"
@@ -225,8 +225,13 @@ class CompositorFrameSinkSupportTest : public testing::Test {
 
   void SendPresentationFeedback(CompositorFrameSinkSupport* support,
                                 uint32_t frame_token) {
+    base::TimeTicks draw_time = base::TimeTicks::Now();
+
+    base::TimeTicks swap_time = base::TimeTicks::Now();
+    gfx::SwapTimings timings = {swap_time, swap_time};
+
     support->DidPresentCompositorFrame(
-        frame_token,
+        frame_token, draw_time, timings,
         gfx::PresentationFeedback(base::TimeTicks::Now(),
                                   base::TimeDelta::FromMilliseconds(16),
                                   /*flags=*/0));
@@ -1239,6 +1244,173 @@ TEST_F(CompositorFrameSinkSupportTest, EvictThenReparent) {
   // embed token.
   EXPECT_TRUE(
       GetSurfaceForId(SurfaceId(support_->frame_sink_id(), local_surface_id2)));
+}
+
+// Verifies that invalid hit test region does not get submitted.
+TEST_F(CompositorFrameSinkSupportTest, HitTestRegionValidation) {
+  constexpr FrameSinkId frame_sink_id(1234, 5678);
+  manager_.RegisterFrameSinkId(frame_sink_id, true /* report_activation */);
+  auto support = std::make_unique<CompositorFrameSinkSupport>(
+      &fake_support_client_, &manager_, frame_sink_id, kIsRoot,
+      kNeedsSyncPoints);
+  LocalSurfaceId local_surface_id(6, 1, base::UnguessableToken::Create());
+
+  HitTestRegionList hit_test_region_list;
+
+  // kHitTestAsk not set, async_hit_test_reasons not set.
+  HitTestRegion hit_test_region_1;
+  hit_test_region_1.frame_sink_id = frame_sink_id;
+  hit_test_region_1.flags = HitTestRegionFlags::kHitTestMine;
+  hit_test_region_1.rect.SetRect(100, 100, 200, 400);
+
+  hit_test_region_list.regions.push_back(std::move(hit_test_region_1));
+
+  EXPECT_EQ(manager_.hit_test_manager()->submit_hit_test_region_list_index(),
+            0u);
+  support->MaybeSubmitCompositorFrame(
+      local_surface_id, MakeDefaultCompositorFrame(), hit_test_region_list, 0,
+      mojom::CompositorFrameSink::SubmitCompositorFrameSyncCallback());
+  // hit_test_region_1 is valid. Submitted region count increases.
+  EXPECT_EQ(manager_.hit_test_manager()->submit_hit_test_region_list_index(),
+            1u);
+  hit_test_region_list.regions.clear();
+
+  // kHitTestAsk set, async_hit_test_reasons not set.
+  HitTestRegion hit_test_region_2;
+  hit_test_region_2.frame_sink_id = frame_sink_id;
+  hit_test_region_2.flags = HitTestRegionFlags::kHitTestAsk;
+  hit_test_region_2.rect.SetRect(400, 100, 300, 400);
+
+  hit_test_region_list.regions.push_back(std::move(hit_test_region_2));
+  EXPECT_EQ(manager_.hit_test_manager()->submit_hit_test_region_list_index(),
+            1u);
+  support->MaybeSubmitCompositorFrame(
+      local_surface_id, MakeDefaultCompositorFrame(), hit_test_region_list, 0,
+      mojom::CompositorFrameSink::SubmitCompositorFrameSyncCallback());
+  // hit_test_region_2 is invalid. Submitted region count does not change.
+  EXPECT_EQ(manager_.hit_test_manager()->submit_hit_test_region_list_index(),
+            1u);
+
+  // kHitTestAsk not set, async_hit_test_reasons set.
+  HitTestRegion hit_test_region_3;
+  hit_test_region_3.frame_sink_id = frame_sink_id;
+  hit_test_region_3.async_hit_test_reasons =
+      AsyncHitTestReasons::kOverlappedRegion;
+  hit_test_region_3.rect.SetRect(400, 100, 300, 400);
+
+  hit_test_region_list.regions.clear();
+  hit_test_region_list.regions.push_back(std::move(hit_test_region_3));
+  EXPECT_EQ(manager_.hit_test_manager()->submit_hit_test_region_list_index(),
+            1u);
+  support->MaybeSubmitCompositorFrame(
+      local_surface_id, MakeDefaultCompositorFrame(), hit_test_region_list, 0,
+      mojom::CompositorFrameSink::SubmitCompositorFrameSyncCallback());
+  // hit_test_region_3 is invalid. Submitted region count does not change.
+  EXPECT_EQ(manager_.hit_test_manager()->submit_hit_test_region_list_index(),
+            1u);
+
+  // kHitTestAsk set, async_hit_test_reasons set.
+  HitTestRegion hit_test_region_4;
+  hit_test_region_4.frame_sink_id = frame_sink_id;
+  hit_test_region_4.flags = HitTestRegionFlags::kHitTestAsk;
+  hit_test_region_4.async_hit_test_reasons =
+      AsyncHitTestReasons::kOverlappedRegion;
+  hit_test_region_4.rect.SetRect(400, 100, 300, 400);
+
+  hit_test_region_list.regions.clear();
+  hit_test_region_list.regions.push_back(std::move(hit_test_region_4));
+  EXPECT_EQ(manager_.hit_test_manager()->submit_hit_test_region_list_index(),
+            1u);
+  support->MaybeSubmitCompositorFrame(
+      local_surface_id, MakeDefaultCompositorFrame(), hit_test_region_list, 0,
+      mojom::CompositorFrameSink::SubmitCompositorFrameSyncCallback());
+  // hit_test_region_4 is valid. Submitted region count increases.
+  EXPECT_EQ(manager_.hit_test_manager()->submit_hit_test_region_list_index(),
+            2u);
+}
+
+// Verifies that an unresponsive client has OnBeginFrame() messages throttled
+// and then stopped until it becomes responsive again.
+TEST_F(CompositorFrameSinkSupportTest, ThrottleUnresponsiveClient) {
+  FakeExternalBeginFrameSource begin_frame_source(0.f, false);
+
+  MockCompositorFrameSinkClient mock_client;
+  auto support = std::make_unique<CompositorFrameSinkSupport>(
+      &mock_client, &manager_, kAnotherArbitraryFrameSinkId, /*is_root=*/true,
+      kNeedsSyncPoints);
+  support->SetBeginFrameSource(&begin_frame_source);
+  support->SetNeedsBeginFrame(true);
+
+  constexpr base::TimeDelta interval = BeginFrameArgs::DefaultInterval();
+  base::TimeTicks frametime;
+  uint64_t sequence_number = 1;
+  int sent_frames = 0;
+  BeginFrameArgs args;
+
+  // Issue ten OnBeginFrame() messages with no response. They should all be
+  // received by the client.
+  for (; sent_frames < BeginFrameTracker::kLimitThrottle; ++sent_frames) {
+    frametime += interval;
+
+    args = CreateBeginFrameArgsForTesting(BEGINFRAME_FROM_HERE, 0,
+                                          sequence_number++, frametime);
+    EXPECT_CALL(mock_client, OnBeginFrame(args, _));
+    begin_frame_source.TestOnBeginFrame(args);
+    testing::Mock::VerifyAndClearExpectations(&mock_client);
+  }
+
+  for (; sent_frames < BeginFrameTracker::kLimitStop; ++sent_frames) {
+    base::TimeTicks unthrottle_time =
+        frametime + base::TimeDelta::FromSeconds(1);
+
+    // The client should now be throttled for the next second and won't receive
+    // OnBeginFrames().
+    frametime += interval;
+    args = CreateBeginFrameArgsForTesting(BEGINFRAME_FROM_HERE, 0,
+                                          sequence_number++, frametime);
+    EXPECT_CALL(mock_client, OnBeginFrame(args, _)).Times(0);
+    begin_frame_source.TestOnBeginFrame(args);
+    testing::Mock::VerifyAndClearExpectations(&mock_client);
+
+    frametime = unthrottle_time - base::TimeDelta::FromMicroseconds(1);
+    args = CreateBeginFrameArgsForTesting(BEGINFRAME_FROM_HERE, 0,
+                                          sequence_number++, frametime);
+    EXPECT_CALL(mock_client, OnBeginFrame(args, _)).Times(0);
+    begin_frame_source.TestOnBeginFrame(args);
+    testing::Mock::VerifyAndClearExpectations(&mock_client);
+
+    // After one second OnBeginFrame() the client should receive OnBeginFrame().
+    frametime = unthrottle_time;
+    args = CreateBeginFrameArgsForTesting(BEGINFRAME_FROM_HERE, 0,
+                                          sequence_number++, frametime);
+    EXPECT_CALL(mock_client, OnBeginFrame(args, _));
+    begin_frame_source.TestOnBeginFrame(args);
+    testing::Mock::VerifyAndClearExpectations(&mock_client);
+  }
+
+  BeginFrameArgs last_sent_args = args;
+
+  // The client should no longer receive OnBeginFrame() until it becomes
+  // responsive again.
+  frametime += base::TimeDelta::FromMinutes(1);
+  args = CreateBeginFrameArgsForTesting(BEGINFRAME_FROM_HERE, 0,
+                                        sequence_number++, frametime);
+  EXPECT_CALL(mock_client, OnBeginFrame(args, _)).Times(0);
+  begin_frame_source.TestOnBeginFrame(args);
+  testing::Mock::VerifyAndClearExpectations(&mock_client);
+
+  // The client becomes responsive again. The next OnBeginFrame() message should
+  // be delivered.
+  support->DidNotProduceFrame(BeginFrameAck(last_sent_args, false));
+
+  frametime += interval;
+  args = CreateBeginFrameArgsForTesting(BEGINFRAME_FROM_HERE, 0,
+                                        sequence_number++, frametime);
+  EXPECT_CALL(mock_client, OnBeginFrame(args, _));
+  begin_frame_source.TestOnBeginFrame(args);
+  testing::Mock::VerifyAndClearExpectations(&mock_client);
+
+  support->SetNeedsBeginFrame(false);
 }
 
 }  // namespace viz

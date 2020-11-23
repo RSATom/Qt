@@ -16,7 +16,7 @@
 #include "base/memory/ref_counted_memory.h"
 #include "base/run_loop.h"
 #include "base/strings/stringprintf.h"
-#include "base/test/scoped_task_environment.h"
+#include "base/test/task_environment.h"
 #include "base/trace_event/trace_buffer.h"
 #include "base/trace_event/trace_event.h"
 #include "base/trace_event/trace_event_impl.h"
@@ -25,7 +25,7 @@
 #include "net/log/net_log_source_type.h"
 #include "net/log/net_log_with_source.h"
 #include "net/log/test_net_log.h"
-#include "net/test/test_with_scoped_task_environment.h"
+#include "net/test/test_with_task_environment.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
 using base::trace_event::TraceLog;
@@ -81,7 +81,7 @@ void EnableTraceLogWithoutNetLog() {
   EnableTraceLog(disabled_netlog_category);
 }
 
-class TraceNetLogObserverTest : public TestWithScopedTaskEnvironment {
+class TraceNetLogObserverTest : public TestWithTaskEnvironment {
  public:
   TraceNetLogObserverTest() {
     TraceLog* tracelog = TraceLog::GetInstance();
@@ -157,7 +157,7 @@ class TraceNetLogObserverTest : public TestWithScopedTaskEnvironment {
 
   base::ListValue* trace_events() const { return trace_events_.get(); }
 
-  TestNetLog* net_log() { return &net_log_; }
+  RecordingTestNetLog* net_log() { return &net_log_; }
 
   TraceNetLogObserver* trace_net_log_observer() const {
     return trace_net_log_observer_.get();
@@ -167,7 +167,7 @@ class TraceNetLogObserverTest : public TestWithScopedTaskEnvironment {
   std::unique_ptr<base::ListValue> trace_events_;
   base::trace_event::TraceResultBuffer trace_buffer_;
   base::trace_event::TraceResultBuffer::SimpleOutput json_output_;
-  TestNetLog net_log_;
+  RecordingTestNetLog net_log_;
   std::unique_ptr<TraceNetLogObserver> trace_net_log_observer_;
 };
 
@@ -427,9 +427,9 @@ TEST_F(TraceNetLogObserverTest, EventsWithAndWithoutParameters) {
 }
 
 TEST(TraceNetLogObserverCategoryTest, DisabledCategory) {
-  base::test::ScopedTaskEnvironment scoped_task_environment;
+  base::test::TaskEnvironment task_environment;
   TraceNetLogObserver observer;
-  NetLog net_log;
+  TestNetLog net_log;
   observer.WatchForTraceStart(&net_log);
 
   EXPECT_FALSE(net_log.IsCapturing());
@@ -444,9 +444,9 @@ TEST(TraceNetLogObserverCategoryTest, DisabledCategory) {
 }
 
 TEST(TraceNetLogObserverCategoryTest, EnabledCategory) {
-  base::test::ScopedTaskEnvironment scoped_task_environment;
+  base::test::TaskEnvironment task_environment;
   TraceNetLogObserver observer;
-  NetLog net_log;
+  TestNetLog net_log;
   observer.WatchForTraceStart(&net_log);
 
   EXPECT_FALSE(net_log.IsCapturing());

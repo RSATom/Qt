@@ -1,5 +1,5 @@
 //
-// Copyright (c) 2015 The ANGLE Project Authors. All rights reserved.
+// Copyright 2015 The ANGLE Project Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 //
@@ -117,6 +117,7 @@ egl::Error WindowSurfaceGLX::initialize(const egl::Display *display)
     mGLXWindow = mGLX.createWindow(mFBConfig, mWindow, nullptr);
 
     XMapWindow(mDisplay, mWindow);
+    XSelectInput(mDisplay, mWindow, ExposureMask);  // For XExposeEvent forwarding from child window
     XFlush(mDisplay);
 
     XFree(visualInfo);
@@ -242,6 +243,16 @@ bool WindowSurfaceGLX::getWindowDimensions(Window window,
     int x, y;
     unsigned int border, depth;
     return XGetGeometry(mDisplay, window, &root, &x, &y, width, height, &border, &depth) != 0;
+}
+
+egl::Error WindowSurfaceGLX::getSyncValues(EGLuint64KHR *ust, EGLuint64KHR *msc, EGLuint64KHR *sbc)
+{
+    if (!mGLX.getSyncValuesOML(mGLXWindow, reinterpret_cast<int64_t *>(ust),
+                               reinterpret_cast<int64_t *>(msc), reinterpret_cast<int64_t *>(sbc)))
+    {
+        return egl::EglBadSurface() << "glXGetSyncValuesOML failed.";
+    }
+    return egl::NoError();
 }
 
 }  // namespace rx

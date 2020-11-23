@@ -76,6 +76,9 @@ QWaylandEglClientBufferIntegration::~QWaylandEglClientBufferIntegration()
 
 void QWaylandEglClientBufferIntegration::initialize(QWaylandDisplay *display)
 {
+#if QT_CONFIG(egl_extension_platform_wayland)
+    m_eglDisplay = eglGetPlatformDisplay(EGL_PLATFORM_WAYLAND_EXT, display->wl_display(), nullptr);
+#else
     if (q_hasEglExtension(EGL_NO_DISPLAY, "EGL_EXT_platform_base")) {
         if (q_hasEglExtension(EGL_NO_DISPLAY, "EGL_KHR_platform_wayland") ||
             q_hasEglExtension(EGL_NO_DISPLAY, "EGL_EXT_platform_wayland") ||
@@ -98,6 +101,7 @@ void QWaylandEglClientBufferIntegration::initialize(QWaylandDisplay *display)
 
         m_eglDisplay = eglGetDisplay((EGLNativeDisplayType) display->wl_display());
     }
+#endif
 
     m_display = display;
 
@@ -108,7 +112,7 @@ void QWaylandEglClientBufferIntegration::initialize(QWaylandDisplay *display)
 
     EGLint major,minor;
     if (!eglInitialize(m_eglDisplay, &major, &minor)) {
-        qCWarning(lcQpaWayland) <<  "Failed to initialize EGL display" << hex << eglGetError();
+        qCWarning(lcQpaWayland) <<  "Failed to initialize EGL display" << Qt::hex << eglGetError();
         m_eglDisplay = EGL_NO_DISPLAY;
         return;
     }
@@ -143,7 +147,7 @@ bool QWaylandEglClientBufferIntegration::supportsWindowDecoration() const
 
 QWaylandWindow *QWaylandEglClientBufferIntegration::createEglWindow(QWindow *window)
 {
-    return new QWaylandEglWindow(window);
+    return new QWaylandEglWindow(window, m_display);
 }
 
 QPlatformOpenGLContext *QWaylandEglClientBufferIntegration::createPlatformOpenGLContext(const QSurfaceFormat &glFormat, QPlatformOpenGLContext *share) const

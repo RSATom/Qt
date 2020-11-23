@@ -42,6 +42,16 @@
 
 #include <private/qqmlmodelsmodule_p.h>
 
+#if QT_CONFIG(qml_table_model)
+#include "qqmltablemodel_p.h"
+#include "qqmltablemodelcolumn_p.h"
+#endif
+#if QT_CONFIG(qml_delegate_model)
+#include "qqmldelegatecomponent_p.h"
+#endif
+
+extern void qml_register_types_Qt_labs_qmlmodels();
+
 QT_BEGIN_NAMESPACE
 
 /*!
@@ -61,18 +71,15 @@ QT_BEGIN_NAMESPACE
 */
 
 //![class decl]
-class QtQmlLabsModelsPlugin : public QQmlExtensionPlugin
+class QtQmlLabsModelsPlugin : public QQmlEngineExtensionPlugin
 {
     Q_OBJECT
-    Q_PLUGIN_METADATA(IID QQmlExtensionInterface_iid)
+    Q_PLUGIN_METADATA(IID QQmlEngineExtensionInterface_iid)
 public:
-    QtQmlLabsModelsPlugin(QObject *parent = nullptr) : QQmlExtensionPlugin(parent) { }
-    void registerTypes(const char *uri) override
+    QtQmlLabsModelsPlugin(QObject *parent = nullptr) : QQmlEngineExtensionPlugin(parent)
     {
-        Q_ASSERT(QLatin1String(uri) == QLatin1String("Qt.labs.qmlmodels"));
-        QQmlModelsModule::defineLabsModule();
-
-        qmlRegisterModule(uri, 1, 0);
+        volatile auto registration = &qml_register_types_Qt_labs_qmlmodels;
+        Q_UNUSED(registration);
     }
 };
 //![class decl]

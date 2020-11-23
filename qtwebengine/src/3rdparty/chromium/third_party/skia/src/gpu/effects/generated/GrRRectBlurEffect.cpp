@@ -27,20 +27,20 @@ std::unique_ptr<GrFragmentProcessor> GrRRectBlurEffect::Make(GrRecordingContext*
     // sufficiently small relative to both the size of the corner radius and the
     // width (and height) of the rrect.
     SkRRect rrectToDraw;
-    SkISize size;
+    SkISize dimensions;
     SkScalar ignored[kSkBlurRRectMaxDivisions];
     int ignoredSize;
     uint32_t ignored32;
 
     bool ninePatchable = SkComputeBlurredRRectParams(
-            srcRRect, devRRect, SkRect::MakeEmpty(), sigma, xformedSigma, &rrectToDraw, &size,
+            srcRRect, devRRect, SkRect::MakeEmpty(), sigma, xformedSigma, &rrectToDraw, &dimensions,
             ignored, ignored, ignored, ignored, &ignoredSize, &ignoredSize, &ignored32);
     if (!ninePatchable) {
         return nullptr;
     }
 
     sk_sp<GrTextureProxy> mask(
-            find_or_create_rrect_blur_mask(context, rrectToDraw, size, xformedSigma));
+            find_or_create_rrect_blur_mask(context, rrectToDraw, dimensions, xformedSigma));
     if (!mask) {
         return nullptr;
     }
@@ -91,10 +91,13 @@ public:
                 "\n} else if (translatedFragPos.y >= middle.y + threshold) {\n    "
                 "translatedFragPos.y -= middle.y - 1.0;\n}\nhalf2 proxyDims = half2(2.0 * "
                 "threshold + 1.0);\nhalf2 texCoord = translatedFragPos / proxyDims;\n%s = %s * "
-                "texture(%s, float2(texCoord)).%s;\n",
+                "sample(%s, float2(texCoord)).%s;\n",
                 args.fOutputColor, args.fInputColor,
                 fragBuilder->getProgramBuilder()->samplerVariable(args.fTexSamplers[0]),
-                fragBuilder->getProgramBuilder()->samplerSwizzle(args.fTexSamplers[0]).c_str());
+                fragBuilder->getProgramBuilder()
+                        ->samplerSwizzle(args.fTexSamplers[0])
+                        .asString()
+                        .c_str());
     }
 
 private:

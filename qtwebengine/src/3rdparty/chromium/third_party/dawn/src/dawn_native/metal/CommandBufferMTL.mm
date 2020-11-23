@@ -15,8 +15,10 @@
 #include "dawn_native/metal/CommandBufferMTL.h"
 
 #include "dawn_native/BindGroup.h"
+#include "dawn_native/BindGroupTracker.h"
 #include "dawn_native/CommandEncoder.h"
 #include "dawn_native/Commands.h"
+#include "dawn_native/RenderBundle.h"
 #include "dawn_native/metal/BufferMTL.h"
 #include "dawn_native/metal/ComputePipelineMTL.h"
 #include "dawn_native/metal/DeviceMTL.h"
@@ -50,10 +52,11 @@ namespace dawn_native { namespace metal {
         MTLRenderPassDescriptor* CreateMTLRenderPassDescriptor(BeginRenderPassCmd* renderPass) {
             MTLRenderPassDescriptor* descriptor = [MTLRenderPassDescriptor renderPassDescriptor];
 
-            for (uint32_t i : IterateBitSet(renderPass->colorAttachmentsSet)) {
+            for (uint32_t i :
+                 IterateBitSet(renderPass->attachmentState->GetColorAttachmentsMask())) {
                 auto& attachmentInfo = renderPass->colorAttachments[i];
 
-                if (attachmentInfo.loadOp == dawn::LoadOp::Clear) {
+                if (attachmentInfo.loadOp == wgpu::LoadOp::Clear) {
                     descriptor.colorAttachments[i].loadAction = MTLLoadActionClear;
                     descriptor.colorAttachments[i].clearColor =
                         MTLClearColorMake(attachmentInfo.clearColor.r, attachmentInfo.clearColor.g,
@@ -67,7 +70,7 @@ namespace dawn_native { namespace metal {
                 descriptor.colorAttachments[i].level = attachmentInfo.view->GetBaseMipLevel();
                 descriptor.colorAttachments[i].slice = attachmentInfo.view->GetBaseArrayLayer();
 
-                if (attachmentInfo.storeOp == dawn::StoreOp::Store) {
+                if (attachmentInfo.storeOp == wgpu::StoreOp::Store) {
                     if (attachmentInfo.resolveTarget.Get() != nullptr) {
                         descriptor.colorAttachments[i].resolveTexture =
                             ToBackend(attachmentInfo.resolveTarget->GetTexture())->GetMTLTexture();
@@ -83,7 +86,7 @@ namespace dawn_native { namespace metal {
                 }
             }
 
-            if (renderPass->hasDepthStencilAttachment) {
+            if (renderPass->attachmentState->HasDepthStencilAttachment()) {
                 auto& attachmentInfo = renderPass->depthStencilAttachment;
 
                 // TODO(jiawei.shao@intel.com): support rendering into a layer of a texture.
@@ -95,7 +98,7 @@ namespace dawn_native { namespace metal {
                     descriptor.depthAttachment.texture = texture;
                     descriptor.depthAttachment.storeAction = MTLStoreActionStore;
 
-                    if (attachmentInfo.depthLoadOp == dawn::LoadOp::Clear) {
+                    if (attachmentInfo.depthLoadOp == wgpu::LoadOp::Clear) {
                         descriptor.depthAttachment.loadAction = MTLLoadActionClear;
                         descriptor.depthAttachment.clearDepth = attachmentInfo.clearDepth;
                     } else {
@@ -107,7 +110,7 @@ namespace dawn_native { namespace metal {
                     descriptor.stencilAttachment.texture = texture;
                     descriptor.stencilAttachment.storeAction = MTLStoreActionStore;
 
-                    if (attachmentInfo.stencilLoadOp == dawn::LoadOp::Clear) {
+                    if (attachmentInfo.stencilLoadOp == wgpu::LoadOp::Clear) {
                         descriptor.stencilAttachment.loadAction = MTLLoadActionClear;
                         descriptor.stencilAttachment.clearStencil = attachmentInfo.clearStencil;
                     } else {
@@ -190,116 +193,66 @@ namespace dawn_native { namespace metal {
                           destinationOrigin:MTLOriginMake(0, 0, 0)];
         }
 
-        // Handles a call to SetBindGroup, directing the commands to the correct encoder.
-        // There is a single function that takes both encoders to factor code. Other approaches like
-        // templates wouldn't work because the name of methods are different between the two encoder
-        // types.
-        void ApplyBindGroup(uint32_t index,
-                            BindGroup* group,
-                            uint32_t dynamicOffsetCount,
-                            uint64_t* dynamicOffsets,
-                            PipelineLayout* pipelineLayout,
-                            id<MTLRenderCommandEncoder> render,
-                            id<MTLComputeCommandEncoder> compute) {
-            const auto& layout = group->GetLayout()->GetBindingInfo();
-            uint32_t currentDynamicBufferIndex = 0;
+        // Metal uses a physical addressing mode which means buffers in the shading language are
+        // just pointers to the virtual address of their start. This means there is no way to know
+        // the length of a buffer to compute the length() of unsized arrays at the end of storage
+        // buffers. SPIRV-Cross implements the length() of unsized arrays by requiring an extra
+        // buffer that contains the length of other buffers. This structure that keeps track of the
+        // length of storage buffers and can apply them to the reserved "buffer length buffer" when
+        // needed for a draw or a dispatch.
+        struct StorageBufferLengthTracker {
+            wgpu::ShaderStage dirtyStages = wgpu::ShaderStage::None;
 
-            // TODO(kainino@chromium.org): Maintain buffers and offsets arrays in BindGroup
-            // so that we only have to do one setVertexBuffers and one setFragmentBuffers
-            // call here.
-            for (uint32_t bindingIndex : IterateBitSet(layout.mask)) {
-                auto stage = layout.visibilities[bindingIndex];
-                bool hasVertStage = stage & dawn::ShaderStageBit::Vertex && render != nil;
-                bool hasFragStage = stage & dawn::ShaderStageBit::Fragment && render != nil;
-                bool hasComputeStage = stage & dawn::ShaderStageBit::Compute && compute != nil;
+            // The lengths of buffers are stored as 32bit integers because that is the width the
+            // MSL code generated by SPIRV-Cross expects.
+            PerStage<std::array<uint32_t, kGenericMetalBufferSlots>> data;
 
-                uint32_t vertIndex = 0;
-                uint32_t fragIndex = 0;
-                uint32_t computeIndex = 0;
+            void Apply(id<MTLRenderCommandEncoder> render, RenderPipeline* pipeline) {
+                wgpu::ShaderStage stagesToApply =
+                    dirtyStages & pipeline->GetStagesRequiringStorageBufferLength();
 
-                if (hasVertStage) {
-                    vertIndex = pipelineLayout->GetBindingIndexInfo(
-                        ShaderStage::Vertex)[index][bindingIndex];
-                }
-                if (hasFragStage) {
-                    fragIndex = pipelineLayout->GetBindingIndexInfo(
-                        ShaderStage::Fragment)[index][bindingIndex];
-                }
-                if (hasComputeStage) {
-                    computeIndex = pipelineLayout->GetBindingIndexInfo(
-                        ShaderStage::Compute)[index][bindingIndex];
+                if (stagesToApply == wgpu::ShaderStage::None) {
+                    return;
                 }
 
-                switch (layout.types[bindingIndex]) {
-                    case dawn::BindingType::UniformBuffer:
-                    case dawn::BindingType::StorageBuffer: {
-                        BufferBinding binding = group->GetBindingAsBufferBinding(bindingIndex);
-                        const id<MTLBuffer> buffer = ToBackend(binding.buffer)->GetMTLBuffer();
-                        NSUInteger offset = binding.offset;
-
-                        // TODO(shaobo.yan@intel.com): Record bound buffer status to use
-                        // setBufferOffset to achieve better performance.
-                        if (layout.dynamic[bindingIndex]) {
-                            offset += dynamicOffsets[currentDynamicBufferIndex];
-                            currentDynamicBufferIndex++;
-                        }
-
-                        if (hasVertStage) {
-                            [render setVertexBuffers:&buffer
-                                             offsets:&offset
-                                           withRange:NSMakeRange(vertIndex, 1)];
-                        }
-                        if (hasFragStage) {
-                            [render setFragmentBuffers:&buffer
-                                               offsets:&offset
-                                             withRange:NSMakeRange(fragIndex, 1)];
-                        }
-                        if (hasComputeStage) {
-                            [compute setBuffers:&buffer
-                                        offsets:&offset
-                                      withRange:NSMakeRange(computeIndex, 1)];
-                        }
-
-                    } break;
-
-                    case dawn::BindingType::Sampler: {
-                        auto sampler = ToBackend(group->GetBindingAsSampler(bindingIndex));
-                        if (hasVertStage) {
-                            [render setVertexSamplerState:sampler->GetMTLSamplerState()
-                                                  atIndex:vertIndex];
-                        }
-                        if (hasFragStage) {
-                            [render setFragmentSamplerState:sampler->GetMTLSamplerState()
-                                                    atIndex:fragIndex];
-                        }
-                        if (hasComputeStage) {
-                            [compute setSamplerState:sampler->GetMTLSamplerState()
-                                             atIndex:computeIndex];
-                        }
-                    } break;
-
-                    case dawn::BindingType::SampledTexture: {
-                        auto textureView = ToBackend(group->GetBindingAsTextureView(bindingIndex));
-                        if (hasVertStage) {
-                            [render setVertexTexture:textureView->GetMTLTexture()
-                                             atIndex:vertIndex];
-                        }
-                        if (hasFragStage) {
-                            [render setFragmentTexture:textureView->GetMTLTexture()
-                                               atIndex:fragIndex];
-                        }
-                        if (hasComputeStage) {
-                            [compute setTexture:textureView->GetMTLTexture() atIndex:computeIndex];
-                        }
-                    } break;
-
-                    case dawn::BindingType::StorageTexture:
-                    case dawn::BindingType::ReadonlyStorageBuffer:
-                        UNREACHABLE();
-                        break;
+                if (stagesToApply & wgpu::ShaderStage::Vertex) {
+                    uint32_t bufferCount = ToBackend(pipeline->GetLayout())
+                                               ->GetBufferBindingCount(SingleShaderStage::Vertex);
+                    [render setVertexBytes:data[SingleShaderStage::Vertex].data()
+                                    length:sizeof(uint32_t) * bufferCount
+                                   atIndex:kBufferLengthBufferSlot];
                 }
+
+                if (stagesToApply & wgpu::ShaderStage::Fragment) {
+                    uint32_t bufferCount = ToBackend(pipeline->GetLayout())
+                                               ->GetBufferBindingCount(SingleShaderStage::Fragment);
+                    [render setFragmentBytes:data[SingleShaderStage::Fragment].data()
+                                      length:sizeof(uint32_t) * bufferCount
+                                     atIndex:kBufferLengthBufferSlot];
+                }
+
+                // Only mark clean stages that were actually applied.
+                dirtyStages ^= stagesToApply;
             }
-        }
+
+            void Apply(id<MTLComputeCommandEncoder> compute, ComputePipeline* pipeline) {
+                if (!(dirtyStages & wgpu::ShaderStage::Compute)) {
+                    return;
+                }
+
+                if (!pipeline->RequiresStorageBufferLength()) {
+                    return;
+                }
+
+                uint32_t bufferCount = ToBackend(pipeline->GetLayout())
+                                           ->GetBufferBindingCount(SingleShaderStage::Compute);
+                [compute setBytes:data[SingleShaderStage::Compute].data()
+                           length:sizeof(uint32_t) * bufferCount
+                          atIndex:kBufferLengthBufferSlot];
+
+                dirtyStages ^= wgpu::ShaderStage::Compute;
+            }
+        };
 
         struct TextureBufferCopySplit {
             static constexpr uint32_t kMaxTextureBufferCopyRegions = 3;
@@ -436,10 +389,209 @@ namespace dawn_native { namespace metal {
 
             return copy;
         }
+
+        // Keeps track of the dirty bind groups so they can be lazily applied when we know the
+        // pipeline state.
+        // Bind groups may be inherited because bind groups are packed in the buffer /
+        // texture tables in contiguous order.
+        class BindGroupTracker : public BindGroupTrackerBase<true, uint64_t> {
+          public:
+            explicit BindGroupTracker(StorageBufferLengthTracker* lengthTracker)
+                : BindGroupTrackerBase(), mLengthTracker(lengthTracker) {
+            }
+
+            template <typename Encoder>
+            void Apply(Encoder encoder) {
+                for (uint32_t index : IterateBitSet(mDirtyBindGroupsObjectChangedOrIsDynamic)) {
+                    ApplyBindGroup(encoder, index, ToBackend(mBindGroups[index]),
+                                   mDynamicOffsetCounts[index], mDynamicOffsets[index].data(),
+                                   ToBackend(mPipelineLayout));
+                }
+                DidApply();
+            }
+
+          private:
+            // Handles a call to SetBindGroup, directing the commands to the correct encoder.
+            // There is a single function that takes both encoders to factor code. Other approaches
+            // like templates wouldn't work because the name of methods are different between the
+            // two encoder types.
+            void ApplyBindGroupImpl(id<MTLRenderCommandEncoder> render,
+                                    id<MTLComputeCommandEncoder> compute,
+                                    uint32_t index,
+                                    BindGroup* group,
+                                    uint32_t dynamicOffsetCount,
+                                    uint64_t* dynamicOffsets,
+                                    PipelineLayout* pipelineLayout) {
+                const auto& layout = group->GetLayout()->GetBindingInfo();
+                uint32_t currentDynamicBufferIndex = 0;
+
+                // TODO(kainino@chromium.org): Maintain buffers and offsets arrays in BindGroup
+                // so that we only have to do one setVertexBuffers and one setFragmentBuffers
+                // call here.
+                for (uint32_t bindingIndex : IterateBitSet(layout.mask)) {
+                    auto stage = layout.visibilities[bindingIndex];
+                    bool hasVertStage = stage & wgpu::ShaderStage::Vertex && render != nil;
+                    bool hasFragStage = stage & wgpu::ShaderStage::Fragment && render != nil;
+                    bool hasComputeStage = stage & wgpu::ShaderStage::Compute && compute != nil;
+
+                    uint32_t vertIndex = 0;
+                    uint32_t fragIndex = 0;
+                    uint32_t computeIndex = 0;
+
+                    if (hasVertStage) {
+                        vertIndex = pipelineLayout->GetBindingIndexInfo(
+                            SingleShaderStage::Vertex)[index][bindingIndex];
+                    }
+                    if (hasFragStage) {
+                        fragIndex = pipelineLayout->GetBindingIndexInfo(
+                            SingleShaderStage::Fragment)[index][bindingIndex];
+                    }
+                    if (hasComputeStage) {
+                        computeIndex = pipelineLayout->GetBindingIndexInfo(
+                            SingleShaderStage::Compute)[index][bindingIndex];
+                    }
+
+                    switch (layout.types[bindingIndex]) {
+                        case wgpu::BindingType::UniformBuffer:
+                        case wgpu::BindingType::StorageBuffer: {
+                            const BufferBinding& binding =
+                                group->GetBindingAsBufferBinding(bindingIndex);
+                            const id<MTLBuffer> buffer = ToBackend(binding.buffer)->GetMTLBuffer();
+                            NSUInteger offset = binding.offset;
+
+                            // TODO(shaobo.yan@intel.com): Record bound buffer status to use
+                            // setBufferOffset to achieve better performance.
+                            if (layout.hasDynamicOffset[bindingIndex]) {
+                                offset += dynamicOffsets[currentDynamicBufferIndex];
+                                currentDynamicBufferIndex++;
+                            }
+
+                            if (hasVertStage) {
+                                mLengthTracker->data[SingleShaderStage::Vertex][vertIndex] =
+                                    binding.size;
+                                mLengthTracker->dirtyStages |= wgpu::ShaderStage::Vertex;
+                                [render setVertexBuffers:&buffer
+                                                 offsets:&offset
+                                               withRange:NSMakeRange(vertIndex, 1)];
+                            }
+                            if (hasFragStage) {
+                                mLengthTracker->data[SingleShaderStage::Fragment][fragIndex] =
+                                    binding.size;
+                                mLengthTracker->dirtyStages |= wgpu::ShaderStage::Fragment;
+                                [render setFragmentBuffers:&buffer
+                                                   offsets:&offset
+                                                 withRange:NSMakeRange(fragIndex, 1)];
+                            }
+                            if (hasComputeStage) {
+                                mLengthTracker->data[SingleShaderStage::Compute][computeIndex] =
+                                    binding.size;
+                                mLengthTracker->dirtyStages |= wgpu::ShaderStage::Compute;
+                                [compute setBuffers:&buffer
+                                            offsets:&offset
+                                          withRange:NSMakeRange(computeIndex, 1)];
+                            }
+
+                        } break;
+
+                        case wgpu::BindingType::Sampler: {
+                            auto sampler = ToBackend(group->GetBindingAsSampler(bindingIndex));
+                            if (hasVertStage) {
+                                [render setVertexSamplerState:sampler->GetMTLSamplerState()
+                                                      atIndex:vertIndex];
+                            }
+                            if (hasFragStage) {
+                                [render setFragmentSamplerState:sampler->GetMTLSamplerState()
+                                                        atIndex:fragIndex];
+                            }
+                            if (hasComputeStage) {
+                                [compute setSamplerState:sampler->GetMTLSamplerState()
+                                                 atIndex:computeIndex];
+                            }
+                        } break;
+
+                        case wgpu::BindingType::SampledTexture: {
+                            auto textureView =
+                                ToBackend(group->GetBindingAsTextureView(bindingIndex));
+                            if (hasVertStage) {
+                                [render setVertexTexture:textureView->GetMTLTexture()
+                                                 atIndex:vertIndex];
+                            }
+                            if (hasFragStage) {
+                                [render setFragmentTexture:textureView->GetMTLTexture()
+                                                   atIndex:fragIndex];
+                            }
+                            if (hasComputeStage) {
+                                [compute setTexture:textureView->GetMTLTexture()
+                                            atIndex:computeIndex];
+                            }
+                        } break;
+
+                        case wgpu::BindingType::StorageTexture:
+                        case wgpu::BindingType::ReadonlyStorageBuffer:
+                            UNREACHABLE();
+                            break;
+                    }
+                }
+            }
+
+            template <typename... Args>
+            void ApplyBindGroup(id<MTLRenderCommandEncoder> encoder, Args&&... args) {
+                ApplyBindGroupImpl(encoder, nil, std::forward<Args&&>(args)...);
+            }
+
+            template <typename... Args>
+            void ApplyBindGroup(id<MTLComputeCommandEncoder> encoder, Args&&... args) {
+                ApplyBindGroupImpl(nil, encoder, std::forward<Args&&>(args)...);
+            }
+
+            StorageBufferLengthTracker* mLengthTracker;
+        };
+
+        // Keeps track of the dirty vertex buffer values so they can be lazily applied when we know
+        // all the relevant state.
+        class VertexBufferTracker {
+          public:
+            void OnSetVertexBuffer(uint32_t slot, Buffer* buffer, uint64_t offset) {
+                mVertexBuffers[slot] = buffer->GetMTLBuffer();
+                mVertexBufferOffsets[slot] = offset;
+
+                // Use 64 bit masks and make sure there are no shift UB
+                static_assert(kMaxVertexBuffers <= 8 * sizeof(unsigned long long) - 1, "");
+                mDirtyVertexBuffers |= 1ull << slot;
+            }
+
+            void OnSetPipeline(RenderPipeline* lastPipeline, RenderPipeline* pipeline) {
+                // When a new pipeline is bound we must set all the vertex buffers again because
+                // they might have been offset by the pipeline layout, and they might be packed
+                // differently from the previous pipeline.
+                mDirtyVertexBuffers |= pipeline->GetVertexBufferSlotsUsed();
+            }
+
+            void Apply(id<MTLRenderCommandEncoder> encoder, RenderPipeline* pipeline) {
+                std::bitset<kMaxVertexBuffers> vertexBuffersToApply =
+                    mDirtyVertexBuffers & pipeline->GetVertexBufferSlotsUsed();
+
+                for (uint32_t dawnIndex : IterateBitSet(vertexBuffersToApply)) {
+                    uint32_t metalIndex = pipeline->GetMtlVertexBufferIndex(dawnIndex);
+
+                    [encoder setVertexBuffers:&mVertexBuffers[dawnIndex]
+                                      offsets:&mVertexBufferOffsets[dawnIndex]
+                                    withRange:NSMakeRange(metalIndex, 1)];
+                }
+
+                mDirtyVertexBuffers.reset();
+            }
+
+          private:
+            // All the indices in these arrays are Dawn vertex buffer indices
+            std::bitset<kMaxVertexBuffers> mDirtyVertexBuffers;
+            std::array<id<MTLBuffer>, kMaxVertexBuffers> mVertexBuffers;
+            std::array<NSUInteger, kMaxVertexBuffers> mVertexBufferOffsets;
+        };
+
     }  // anonymous namespace
 
-    CommandBuffer::CommandBuffer(CommandEncoderBase* encoder,
-                                 const CommandBufferDescriptor* descriptor)
+    CommandBuffer::CommandBuffer(CommandEncoder* encoder, const CommandBufferDescriptor* descriptor)
         : CommandBufferBase(encoder, descriptor), mCommands(encoder->AcquireCommands()) {
     }
 
@@ -561,6 +713,8 @@ namespace dawn_native { namespace metal {
 
     void CommandBuffer::EncodeComputePass(id<MTLCommandBuffer> commandBuffer) {
         ComputePipeline* lastPipeline = nullptr;
+        StorageBufferLengthTracker storageBufferLengths = {};
+        BindGroupTracker bindGroups(&storageBufferLengths);
 
         // Will be autoreleased
         id<MTLComputeCommandEncoder> encoder = [commandBuffer computeCommandEncoder];
@@ -576,12 +730,19 @@ namespace dawn_native { namespace metal {
 
                 case Command::Dispatch: {
                     DispatchCmd* dispatch = mCommands.NextCommand<DispatchCmd>();
+
+                    bindGroups.Apply(encoder);
+                    storageBufferLengths.Apply(encoder, lastPipeline);
+
                     [encoder dispatchThreadgroups:MTLSizeMake(dispatch->x, dispatch->y, dispatch->z)
                             threadsPerThreadgroup:lastPipeline->GetLocalWorkGroupSize()];
                 } break;
 
                 case Command::DispatchIndirect: {
                     DispatchIndirectCmd* dispatch = mCommands.NextCommand<DispatchIndirectCmd>();
+
+                    bindGroups.Apply(encoder);
+                    storageBufferLengths.Apply(encoder, lastPipeline);
 
                     Buffer* buffer = ToBackend(dispatch->indirectBuffer.Get());
                     id<MTLBuffer> indirectBuffer = buffer->GetMTLBuffer();
@@ -595,19 +756,44 @@ namespace dawn_native { namespace metal {
                     SetComputePipelineCmd* cmd = mCommands.NextCommand<SetComputePipelineCmd>();
                     lastPipeline = ToBackend(cmd->pipeline).Get();
 
+                    bindGroups.OnSetPipeline(lastPipeline);
+
                     lastPipeline->Encode(encoder);
                 } break;
 
                 case Command::SetBindGroup: {
                     SetBindGroupCmd* cmd = mCommands.NextCommand<SetBindGroupCmd>();
-                    uint64_t* dynamicOffsets = nullptr;
+                    uint32_t* dynamicOffsets = nullptr;
                     if (cmd->dynamicOffsetCount > 0) {
-                        dynamicOffsets = mCommands.NextData<uint64_t>(cmd->dynamicOffsetCount);
+                        dynamicOffsets = mCommands.NextData<uint32_t>(cmd->dynamicOffsetCount);
                     }
 
-                    ApplyBindGroup(cmd->index, ToBackend(cmd->group.Get()), cmd->dynamicOffsetCount,
-                                   dynamicOffsets, ToBackend(lastPipeline->GetLayout()), nil,
-                                   encoder);
+                    bindGroups.OnSetBindGroup(cmd->index, ToBackend(cmd->group.Get()),
+                                              cmd->dynamicOffsetCount, dynamicOffsets);
+                } break;
+
+                case Command::InsertDebugMarker: {
+                    InsertDebugMarkerCmd* cmd = mCommands.NextCommand<InsertDebugMarkerCmd>();
+                    char* label = mCommands.NextData<char>(cmd->length + 1);
+                    NSString* mtlLabel = [[NSString alloc] initWithUTF8String:label];
+
+                    [encoder insertDebugSignpost:mtlLabel];
+                    [mtlLabel release];
+                } break;
+
+                case Command::PopDebugGroup: {
+                    mCommands.NextCommand<PopDebugGroupCmd>();
+
+                    [encoder popDebugGroup];
+                } break;
+
+                case Command::PushDebugGroup: {
+                    PushDebugGroupCmd* cmd = mCommands.NextCommand<PushDebugGroupCmd>();
+                    char* label = mCommands.NextData<char>(cmd->length + 1);
+                    NSString* mtlLabel = [[NSString alloc] initWithUTF8String:label];
+
+                    [encoder pushDebugGroup:mtlLabel];
+                    [mtlLabel release];
                 } break;
 
                 default: { UNREACHABLE(); } break;
@@ -717,22 +903,22 @@ namespace dawn_native { namespace metal {
         RenderPipeline* lastPipeline = nullptr;
         id<MTLBuffer> indexBuffer = nil;
         uint32_t indexBufferBaseOffset = 0;
+        VertexBufferTracker vertexBuffers;
+        StorageBufferLengthTracker storageBufferLengths = {};
+        BindGroupTracker bindGroups(&storageBufferLengths);
 
         // This will be autoreleased
         id<MTLRenderCommandEncoder> encoder =
             [commandBuffer renderCommandEncoderWithDescriptor:mtlRenderPass];
 
-        Command type;
-        while (mCommands.NextCommandId(&type)) {
+        auto EncodeRenderBundleCommand = [&](CommandIterator* iter, Command type) {
             switch (type) {
-                case Command::EndRenderPass: {
-                    mCommands.NextCommand<EndRenderPassCmd>();
-                    [encoder endEncoding];
-                    return;
-                } break;
-
                 case Command::Draw: {
-                    DrawCmd* draw = mCommands.NextCommand<DrawCmd>();
+                    DrawCmd* draw = iter->NextCommand<DrawCmd>();
+
+                    vertexBuffers.Apply(encoder, lastPipeline);
+                    bindGroups.Apply(encoder);
+                    storageBufferLengths.Apply(encoder, lastPipeline);
 
                     // The instance count must be non-zero, otherwise no-op
                     if (draw->instanceCount != 0) {
@@ -745,9 +931,13 @@ namespace dawn_native { namespace metal {
                 } break;
 
                 case Command::DrawIndexed: {
-                    DrawIndexedCmd* draw = mCommands.NextCommand<DrawIndexedCmd>();
+                    DrawIndexedCmd* draw = iter->NextCommand<DrawIndexedCmd>();
                     size_t formatSize =
-                        IndexFormatSize(lastPipeline->GetVertexInputDescriptor()->indexFormat);
+                        IndexFormatSize(lastPipeline->GetVertexStateDescriptor()->indexFormat);
+
+                    vertexBuffers.Apply(encoder, lastPipeline);
+                    bindGroups.Apply(encoder);
+                    storageBufferLengths.Apply(encoder, lastPipeline);
 
                     // The index and instance count must be non-zero, otherwise no-op
                     if (draw->indexCount != 0 && draw->instanceCount != 0) {
@@ -764,7 +954,11 @@ namespace dawn_native { namespace metal {
                 } break;
 
                 case Command::DrawIndirect: {
-                    DrawIndirectCmd* draw = mCommands.NextCommand<DrawIndirectCmd>();
+                    DrawIndirectCmd* draw = iter->NextCommand<DrawIndirectCmd>();
+
+                    vertexBuffers.Apply(encoder, lastPipeline);
+                    bindGroups.Apply(encoder);
+                    storageBufferLengths.Apply(encoder, lastPipeline);
 
                     Buffer* buffer = ToBackend(draw->indirectBuffer.Get());
                     id<MTLBuffer> indirectBuffer = buffer->GetMTLBuffer();
@@ -774,7 +968,11 @@ namespace dawn_native { namespace metal {
                 } break;
 
                 case Command::DrawIndexedIndirect: {
-                    DrawIndirectCmd* draw = mCommands.NextCommand<DrawIndirectCmd>();
+                    DrawIndirectCmd* draw = iter->NextCommand<DrawIndirectCmd>();
+
+                    vertexBuffers.Apply(encoder, lastPipeline);
+                    bindGroups.Apply(encoder);
+                    storageBufferLengths.Apply(encoder, lastPipeline);
 
                     Buffer* buffer = ToBackend(draw->indirectBuffer.Get());
                     id<MTLBuffer> indirectBuffer = buffer->GetMTLBuffer();
@@ -787,8 +985,8 @@ namespace dawn_native { namespace metal {
                 } break;
 
                 case Command::InsertDebugMarker: {
-                    InsertDebugMarkerCmd* cmd = mCommands.NextCommand<InsertDebugMarkerCmd>();
-                    auto label = mCommands.NextData<char>(cmd->length + 1);
+                    InsertDebugMarkerCmd* cmd = iter->NextCommand<InsertDebugMarkerCmd>();
+                    char* label = iter->NextData<char>(cmd->length + 1);
                     NSString* mtlLabel = [[NSString alloc] initWithUTF8String:label];
 
                     [encoder insertDebugSignpost:mtlLabel];
@@ -796,14 +994,14 @@ namespace dawn_native { namespace metal {
                 } break;
 
                 case Command::PopDebugGroup: {
-                    mCommands.NextCommand<PopDebugGroupCmd>();
+                    iter->NextCommand<PopDebugGroupCmd>();
 
                     [encoder popDebugGroup];
                 } break;
 
                 case Command::PushDebugGroup: {
-                    PushDebugGroupCmd* cmd = mCommands.NextCommand<PushDebugGroupCmd>();
-                    auto label = mCommands.NextData<char>(cmd->length + 1);
+                    PushDebugGroupCmd* cmd = iter->NextCommand<PushDebugGroupCmd>();
+                    char* label = iter->NextData<char>(cmd->length + 1);
                     NSString* mtlLabel = [[NSString alloc] initWithUTF8String:label];
 
                     [encoder pushDebugGroup:mtlLabel];
@@ -811,13 +1009,58 @@ namespace dawn_native { namespace metal {
                 } break;
 
                 case Command::SetRenderPipeline: {
-                    SetRenderPipelineCmd* cmd = mCommands.NextCommand<SetRenderPipelineCmd>();
-                    lastPipeline = ToBackend(cmd->pipeline).Get();
+                    SetRenderPipelineCmd* cmd = iter->NextCommand<SetRenderPipelineCmd>();
+                    RenderPipeline* newPipeline = ToBackend(cmd->pipeline).Get();
 
-                    [encoder setDepthStencilState:lastPipeline->GetMTLDepthStencilState()];
-                    [encoder setFrontFacingWinding:lastPipeline->GetMTLFrontFace()];
-                    [encoder setCullMode:lastPipeline->GetMTLCullMode()];
-                    lastPipeline->Encode(encoder);
+                    vertexBuffers.OnSetPipeline(lastPipeline, newPipeline);
+                    bindGroups.OnSetPipeline(newPipeline);
+
+                    [encoder setDepthStencilState:newPipeline->GetMTLDepthStencilState()];
+                    [encoder setFrontFacingWinding:newPipeline->GetMTLFrontFace()];
+                    [encoder setCullMode:newPipeline->GetMTLCullMode()];
+                    newPipeline->Encode(encoder);
+
+                    lastPipeline = newPipeline;
+                } break;
+
+                case Command::SetBindGroup: {
+                    SetBindGroupCmd* cmd = iter->NextCommand<SetBindGroupCmd>();
+                    uint32_t* dynamicOffsets = nullptr;
+                    if (cmd->dynamicOffsetCount > 0) {
+                        dynamicOffsets = iter->NextData<uint32_t>(cmd->dynamicOffsetCount);
+                    }
+
+                    bindGroups.OnSetBindGroup(cmd->index, ToBackend(cmd->group.Get()),
+                                              cmd->dynamicOffsetCount, dynamicOffsets);
+                } break;
+
+                case Command::SetIndexBuffer: {
+                    SetIndexBufferCmd* cmd = iter->NextCommand<SetIndexBufferCmd>();
+                    auto b = ToBackend(cmd->buffer.Get());
+                    indexBuffer = b->GetMTLBuffer();
+                    indexBufferBaseOffset = cmd->offset;
+                } break;
+
+                case Command::SetVertexBuffer: {
+                    SetVertexBufferCmd* cmd = iter->NextCommand<SetVertexBufferCmd>();
+
+                    vertexBuffers.OnSetVertexBuffer(cmd->slot, ToBackend(cmd->buffer.Get()),
+                                                    cmd->offset);
+                } break;
+
+                default:
+                    UNREACHABLE();
+                    break;
+            }
+        };
+
+        Command type;
+        while (mCommands.NextCommandId(&type)) {
+            switch (type) {
+                case Command::EndRenderPass: {
+                    mCommands.NextCommand<EndRenderPassCmd>();
+                    [encoder endEncoding];
+                    return;
                 } break;
 
                 case Command::SetStencilReference: {
@@ -866,48 +1109,20 @@ namespace dawn_native { namespace metal {
                                         alpha:cmd->color.a];
                 } break;
 
-                case Command::SetBindGroup: {
-                    SetBindGroupCmd* cmd = mCommands.NextCommand<SetBindGroupCmd>();
-                    uint64_t* dynamicOffsets = nullptr;
-                    if (cmd->dynamicOffsetCount > 0) {
-                        dynamicOffsets = mCommands.NextData<uint64_t>(cmd->dynamicOffsetCount);
-                    }
+                case Command::ExecuteBundles: {
+                    ExecuteBundlesCmd* cmd = mCommands.NextCommand<ExecuteBundlesCmd>();
+                    auto bundles = mCommands.NextData<Ref<RenderBundleBase>>(cmd->count);
 
-                    ApplyBindGroup(cmd->index, ToBackend(cmd->group.Get()), cmd->dynamicOffsetCount,
-                                   dynamicOffsets, ToBackend(lastPipeline->GetLayout()), encoder,
-                                   nil);
-                } break;
-
-                case Command::SetIndexBuffer: {
-                    SetIndexBufferCmd* cmd = mCommands.NextCommand<SetIndexBufferCmd>();
-                    auto b = ToBackend(cmd->buffer.Get());
-                    indexBuffer = b->GetMTLBuffer();
-                    indexBufferBaseOffset = cmd->offset;
-                } break;
-
-                case Command::SetVertexBuffers: {
-                    SetVertexBuffersCmd* cmd = mCommands.NextCommand<SetVertexBuffersCmd>();
-                    auto buffers = mCommands.NextData<Ref<BufferBase>>(cmd->count);
-                    auto offsets = mCommands.NextData<uint64_t>(cmd->count);
-
-                    std::array<id<MTLBuffer>, kMaxVertexBuffers> mtlBuffers;
-                    std::array<NSUInteger, kMaxVertexBuffers> mtlOffsets;
-
-                    // Perhaps an "array of vertex buffers(+offsets?)" should be
-                    // a Dawn API primitive to avoid reconstructing this array?
                     for (uint32_t i = 0; i < cmd->count; ++i) {
-                        Buffer* buffer = ToBackend(buffers[i].Get());
-                        mtlBuffers[i] = buffer->GetMTLBuffer();
-                        mtlOffsets[i] = offsets[i];
+                        CommandIterator* iter = bundles[i]->GetCommands();
+                        iter->Reset();
+                        while (iter->NextCommandId(&type)) {
+                            EncodeRenderBundleCommand(iter, type);
+                        }
                     }
-
-                    [encoder setVertexBuffers:mtlBuffers.data()
-                                      offsets:mtlOffsets.data()
-                                    withRange:NSMakeRange(kMaxBindingsPerGroup + cmd->startSlot,
-                                                          cmd->count)];
                 } break;
 
-                default: { UNREACHABLE(); } break;
+                default: { EncodeRenderBundleCommand(&mCommands, type); } break;
             }
         }
 

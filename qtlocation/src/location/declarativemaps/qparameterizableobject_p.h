@@ -58,6 +58,7 @@ class QGeoMapParameter;
 class Q_LOCATION_PRIVATE_EXPORT QParameterizableObject : public QObject
 {
     Q_OBJECT
+    Q_PROPERTY(QObject *parent READ parent NOTIFY parentChanged DESIGNABLE false FINAL)
     Q_PROPERTY(QQmlListProperty<QObject> quickChildren READ declarativeChildren DESIGNABLE false)
     Q_CLASSINFO("DefaultProperty", "quickChildren")
 
@@ -75,6 +76,9 @@ public:
         }
         return res;
     }
+
+Q_SIGNALS:
+    void parentChanged();
 
 protected:
     virtual void appendChild(QObject *v);

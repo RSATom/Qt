@@ -166,7 +166,7 @@ void QXcbConnection::xi2SetupDevice(void *info, bool removeExisting)
         }
         case XCB_INPUT_DEVICE_CLASS_TYPE_BUTTON: {
             auto *bci = reinterpret_cast<xcb_input_button_class_t *>(classinfo);
-            xcb_atom_t *labels = 0;
+            xcb_atom_t *labels = nullptr;
             if (bci->num_buttons >= 5) {
                 labels = xcb_input_button_class_labels(bci);
                 xcb_atom_t label4 = labels[3];
@@ -424,7 +424,7 @@ QXcbConnection::TouchDeviceData *QXcbConnection::touchDeviceForId(int id)
 QXcbConnection::TouchDeviceData *QXcbConnection::populateTouchDevices(void *info)
 {
     auto *deviceinfo = reinterpret_cast<xcb_input_xi_device_info_t *>(info);
-    QTouchDevice::Capabilities caps = 0;
+    QTouchDevice::Capabilities caps;
     int type = -1;
     int maxTouchPoints = 1;
     bool isTouchDevice = false;
@@ -514,12 +514,10 @@ QXcbConnection::TouchDeviceData *QXcbConnection::populateTouchDevices(void *info
     return isTouchDevice ? &m_touchDevices[deviceinfo->deviceid] : nullptr;
 }
 
-#if QT_CONFIG(tabletevent)
 static inline qreal fixed1616ToReal(xcb_input_fp1616_t val)
 {
     return qreal(val) / 0x10000;
 }
-#endif // QT_CONFIG(tabletevent)
 
 void QXcbConnection::xi2HandleEvent(xcb_ge_event_t *event)
 {
@@ -527,7 +525,7 @@ void QXcbConnection::xi2HandleEvent(xcb_ge_event_t *event)
     int sourceDeviceId = xiEvent->deviceid; // may be the master id
     qt_xcb_input_device_event_t *xiDeviceEvent = nullptr;
     xcb_input_enter_event_t *xiEnterEvent = nullptr;
-    QXcbWindowEventListener *eventListener = 0;
+    QXcbWindowEventListener *eventListener = nullptr;
 
     switch (xiEvent->event_type) {
     case XCB_INPUT_BUTTON_PRESS:
@@ -753,7 +751,7 @@ void QXcbConnection::xi2ProcessTouch(void *xiDevEvent, QXcbWindow *platformWindo
                 xcb_input_xi_allow_events(xcb_connection(), XCB_CURRENT_TIME, xiDeviceEvent->deviceid,
                                           XCB_INPUT_EVENT_MODE_REJECT_TOUCH,
                                           xiDeviceEvent->detail, xiDeviceEvent->event);
-                window->doStartSystemMoveResize(QPoint(x, y), m_startSystemMoveResizeInfo.corner);
+                window->doStartSystemMoveResize(QPoint(x, y), m_startSystemMoveResizeInfo.edges);
                 m_startSystemMoveResizeInfo.window = XCB_NONE;
             }
         }
@@ -787,19 +785,20 @@ void QXcbConnection::xi2ProcessTouch(void *xiDevEvent, QXcbWindow *platformWindo
         touchPoint.state = Qt::TouchPointStationary;
 }
 
-bool QXcbConnection::startSystemMoveResizeForTouchBegin(xcb_window_t window, const QPoint &point, int corner)
+bool QXcbConnection::startSystemMoveResizeForTouch(xcb_window_t window, int edges)
 {
     QHash<int, TouchDeviceData>::const_iterator devIt = m_touchDevices.constBegin();
     for (; devIt != m_touchDevices.constEnd(); ++devIt) {
         TouchDeviceData deviceData = devIt.value();
         if (deviceData.qtTouchDevice->type() == QTouchDevice::TouchScreen) {
-            QHash<int, QPointF>::const_iterator pointIt = deviceData.pointPressedPosition.constBegin();
-            for (; pointIt != deviceData.pointPressedPosition.constEnd(); ++pointIt) {
-                if (pointIt.value().toPoint() == point) {
+            auto pointIt = deviceData.touchPoints.constBegin();
+            for (; pointIt != deviceData.touchPoints.constEnd(); ++pointIt) {
+                Qt::TouchPointState state = pointIt.value().state;
+                if (state == Qt::TouchPointMoved || state == Qt::TouchPointPressed || state == Qt::TouchPointStationary) {
                     m_startSystemMoveResizeInfo.window = window;
                     m_startSystemMoveResizeInfo.deviceid = devIt.key();
                     m_startSystemMoveResizeInfo.pointid = pointIt.key();
-                    m_startSystemMoveResizeInfo.corner = corner;
+                    m_startSystemMoveResizeInfo.edges = edges;
                     return true;
                 }
             }

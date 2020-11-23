@@ -61,8 +61,7 @@
 #include <private/qabstractfileengine_p.h>
 
 #include <emscripten.h>
-#include <emscripten/html5.h>
-#include <emscripten/val.h>
+#include <emscripten/fetch.h>
 
 QT_BEGIN_NAMESPACE
 
@@ -111,7 +110,9 @@ public:
     void emitReplyError(QNetworkReply::NetworkError errorCode, const QString &);
     void emitDataReadProgress(qint64 done, qint64 total);
     void dataReceived(const QByteArray &buffer, int bufferSize);
-    void headersReceived(const QString &bufferString);
+    void headersReceived(const QByteArray &buffer);
+
+    void setStatusCode(int status, const QByteArray &statusText);
 
     void setup(QNetworkAccessManager::Operation op, const QNetworkRequest &request,
                QIODevice *outgoingData);
@@ -134,11 +135,19 @@ public:
 
     QIODevice *outgoingData;
     QSharedPointer<QRingBuffer> outgoingDataBuffer;
+    QByteArray requestData;
 
-     emscripten::val m_xhr = emscripten::val::null();
-     void doAbort() const;
+    void doAbort() const;
+
+    static void downloadProgress(emscripten_fetch_t *fetch);
+    static void downloadFailed(emscripten_fetch_t *fetch);
+    static void downloadSucceeded(emscripten_fetch_t *fetch);
+    static void stateChange(emscripten_fetch_t *fetch);
 
     static QNetworkReply::NetworkError statusCodeFromHttp(int httpStatusCode, const QUrl &url);
+
+    emscripten_fetch_t *m_fetch;
+
     Q_DECLARE_PUBLIC(QNetworkReplyWasmImpl)
 };
 

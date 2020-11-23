@@ -49,7 +49,7 @@
 #include <QtCore/qpointer.h>
 
 #if QT_CONFIG(opengl)
-#include <QtOpenGL/qgl.h>
+#include <QOpenGLContext>
 #endif
 
 QT_BEGIN_NAMESPACE
@@ -232,6 +232,22 @@ QMediaObject *QGraphicsVideoItem::mediaObject() const
 }
 
 /*!
+    \since 5.15
+    \property QGraphicsVideoItem::videoSurface
+    \brief Returns the underlying video surface that can render video frames
+    to the current item.
+    This property is never \c nullptr.
+    Example of how to render video frames to QGraphicsVideoItem:
+    \snippet multimedia-snippets/video.cpp GraphicsVideoItem Surface
+    \sa QMediaPlayer::setVideoOutput
+*/
+
+QAbstractVideoSurface *QGraphicsVideoItem::videoSurface() const
+{
+    return d_func()->surface;
+}
+
+/*!
   \internal
 */
 bool QGraphicsVideoItem::setMediaObject(QMediaObject *object)
@@ -379,7 +395,7 @@ void QGraphicsVideoItem::paint(
         if (painter->paintEngine()->type() == QPaintEngine::OpenGL
             || painter->paintEngine()->type() == QPaintEngine::OpenGL2)
         {
-            d->surface->setGLContext(const_cast<QGLContext *>(QGLContext::currentContext()));
+            d->surface->updateGLContext();
             if (d->surface->supportedShaderTypes() & QPainterVideoSurface::GlslShader) {
                 d->surface->setShaderType(QPainterVideoSurface::GlslShader);
             } else {

@@ -28,7 +28,10 @@ HEADERS += \
     $$PWD/qrenderplugin_p.h \
     $$PWD/qrenderpluginfactory_p.h \
     $$PWD/qrenderpluginfactoryif_p.h \
-    $$PWD/qlevelofdetailboundingsphere.h
+    $$PWD/qlevelofdetailboundingsphere.h \
+    $$PWD/qrenderapi.h \
+    $$PWD/qrendercapabilities.h \
+    $$PWD/qrendercapabilities_p.h
 
 SOURCES += \
     $$PWD/qabstractfunctor.cpp \
@@ -46,5 +49,6 @@ SOURCES += \
     $$PWD/qcomputecommand.cpp \
     $$PWD/qrenderpluginfactory.cpp \
     $$PWD/qrenderpluginfactoryif.cpp \
-    $$PWD/qlevelofdetailboundingsphere.cpp
+    $$PWD/qlevelofdetailboundingsphere.cpp \
+    $$PWD/qrendercapabilities.cpp
 

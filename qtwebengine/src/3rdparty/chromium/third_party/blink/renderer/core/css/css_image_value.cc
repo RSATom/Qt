@@ -67,11 +67,8 @@ StyleImage* CSSImageValue::CacheImage(
       ReResolveURL(document);
     ResourceRequest resource_request(absolute_url_);
     resource_request.SetReferrerPolicy(
-        ReferrerPolicyResolveDefault(referrer_.referrer_policy),
-        ResourceRequest::SetReferrerPolicyLocation::kCSSImageValueCacheImage);
-    resource_request.SetReferrerString(
-        referrer_.referrer,
-        ResourceRequest::SetReferrerStringLocation::kCSSImageValueCacheImage);
+        ReferrerPolicyResolveDefault(referrer_.referrer_policy));
+    resource_request.SetReferrerString(referrer_.referrer);
     ResourceLoaderOptions options;
     options.initiator_info.name = initiator_name_.IsEmpty()
                                       ? fetch_initiator_type_names::kCSS
@@ -83,11 +80,6 @@ StyleImage* CSSImageValue::CacheImage(
                                          cross_origin);
     }
 
-    if (document.GetFrame() &&
-        image_request_optimization == FetchParameters::kAllowPlaceholder &&
-        document.GetFrame()->IsClientLoFiAllowed(params.GetResourceRequest())) {
-      params.SetClientLoFiPlaceholder();
-    }
     bool is_lazily_loaded =
         image_request_optimization == FetchParameters::kDeferImageLoad &&
         // Only http/https images are eligible to be lazily loaded.

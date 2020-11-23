@@ -860,10 +860,6 @@
         <translation>Виды типов элементов %1 должны быть атомарными или объединениями.</translation>
     </message>
     <message>
-        <source>Variety of member types of %1 must be atomic.</source>
-        <translation>Виды внутренних типов %1 должны быть атомарными.</translation>
-    </message>
-    <message>
         <source>Variety of member types of %1 must be atomic or union.</source>
         <translation>Виды внутренних типов %1 должны быть атомарными или объединениями.</translation>
     </message>
@@ -1826,6 +1822,10 @@
     <message>
         <source>Field %1 has no simple type.</source>
         <translation>Поле %1 не имеет простого типа.</translation>
+    </message>
+    <message>
+        <source>Field %1 is missing its simple type.</source>
+        <translation>Для поля %1 отсутствует простой тип.</translation>
     </message>
     <message>
         <source>ID value &apos;%1&apos; is not unique.</source>

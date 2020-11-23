@@ -62,9 +62,9 @@ EncodePINCommand(
     Subcommand subcommand,
     std::function<void(cbor::Value::MapValue*)> add_additional = nullptr) {
   cbor::Value::MapValue map;
-  map.emplace(static_cast<int>(RequestKey::kProtocol), kProtocolVersion);
+  map.emplace(static_cast<int>(RequestKey::kProtocol), cbor::Value(kProtocolVersion));
   map.emplace(static_cast<int>(RequestKey::kSubcommand),
-              static_cast<int>(subcommand));
+              cbor::Value(static_cast<int>(subcommand)));
 
   if (add_additional) {
     add_additional(&map);
@@ -474,7 +474,7 @@ AsCTAPRequestValuePair(const TokenRequest& request) {
       Subcommand::kGetPINToken,
       [&request, &encrypted_pin](cbor::Value::MapValue* map) {
         map->emplace(static_cast<int>(RequestKey::kKeyAgreement),
-                     std::move(request.cose_key_));
+                     cbor::Value(std::move(request.cose_key_)));
         map->emplace(
             static_cast<int>(RequestKey::kPINHashEnc),
             base::span<const uint8_t>(encrypted_pin, sizeof(encrypted_pin)));

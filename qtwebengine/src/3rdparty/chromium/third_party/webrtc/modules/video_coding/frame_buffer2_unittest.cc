@@ -13,9 +13,9 @@
 #include <algorithm>
 #include <cstring>
 #include <limits>
+#include <memory>
 #include <vector>
 
-#include "absl/memory/memory.h"
 #include "modules/video_coding/frame_object.h"
 #include "modules/video_coding/jitter_estimator.h"
 #include "modules/video_coding/timing.h"
@@ -111,6 +111,7 @@ class VCMReceiveStatisticsCallbackMock : public VCMReceiveStatisticsCallback {
                void(bool is_keyframe,
                     size_t size_bytes,
                     VideoContentType content_type));
+  MOCK_METHOD1(OnDroppedFrames, void(uint32_t frames_dropped));
   MOCK_METHOD1(OnDiscardedPacketsUpdated, void(int discarded_packets));
   MOCK_METHOD1(OnFrameCountsUpdated, void(const FrameCounts& frame_counts));
   MOCK_METHOD6(OnFrameBufferTimingsUpdated,
@@ -161,7 +162,7 @@ class TestFrameBuffer2 : public ::testing::Test {
     std::array<uint16_t, sizeof...(refs)> references = {
         {rtc::checked_cast<uint16_t>(refs)...}};
 
-    auto frame = absl::make_unique<FrameObjectFake>();
+    auto frame = std::make_unique<FrameObjectFake>();
     frame->id.picture_id = picture_id;
     frame->id.spatial_layer = spatial_layer;
     frame->SetSpatialIndex(spatial_layer);
@@ -170,8 +171,7 @@ class TestFrameBuffer2 : public ::testing::Test {
     frame->inter_layer_predicted = inter_layer_predicted;
     frame->is_last_spatial_layer = last_spatial_layer;
     // Add some data to buffer.
-    frame->VerifyAndAllocate(frame_size_bytes);
-    frame->set_size(frame_size_bytes);
+    frame->SetEncodedData(EncodedImageBuffer::Create(frame_size_bytes));
     for (size_t r = 0; r < references.size(); ++r)
       frame->references[r] = references[r];
     return frame;
@@ -406,6 +406,8 @@ TEST_F(TestFrameBuffer2, DropTemporalLayerSlowDecoder) {
                 pid + i, pid + i - 1);
   }
 
+  EXPECT_CALL(stats_callback_, OnDroppedFrames(1)).Times(3);
+
   for (int i = 0; i < 10; ++i) {
     ExtractFrame();
     clock_.AdvanceTimeMilliseconds(70);
@@ -421,6 +423,41 @@ TEST_F(TestFrameBuffer2, DropTemporalLayerSlowDecoder) {
   CheckNoFrame(7);
   CheckNoFrame(8);
   CheckNoFrame(9);
+}
+
+TEST_F(TestFrameBuffer2, DropFramesIfSystemIsStalled) {
+  uint16_t pid = Rand();
+  uint32_t ts = Rand();
+
+  InsertFrame(pid, 0, ts, false, true, kFrameSize);
+  InsertFrame(pid + 1, 0, ts + 1 * kFps10, false, true, kFrameSize, pid);
+  InsertFrame(pid + 2, 0, ts + 2 * kFps10, false, true, kFrameSize, pid + 1);
+  InsertFrame(pid + 3, 0, ts + 3 * kFps10, false, true, kFrameSize);
+
+  ExtractFrame();
+  // Jump forward in time, simulating the system being stalled for some reason.
+  clock_.AdvanceTimeMilliseconds(3 * kFps10);
+  // Extract one more frame, expect second and third frame to be dropped.
+  EXPECT_CALL(stats_callback_, OnDroppedFrames(2)).Times(1);
+  ExtractFrame();
+
+  CheckFrame(0, pid + 0, 0);
+  CheckFrame(1, pid + 3, 0);
+}
+
+TEST_F(TestFrameBuffer2, DroppedFramesCountedOnClear) {
+  uint16_t pid = Rand();
+  uint32_t ts = Rand();
+
+  InsertFrame(pid, 0, ts, false, true, kFrameSize);
+  for (int i = 1; i < 5; ++i) {
+    InsertFrame(pid + i, 0, ts + i * kFps10, false, true, kFrameSize,
+                pid + i - 1);
+  }
+
+  // All frames should be dropped when Clear is called.
+  EXPECT_CALL(stats_callback_, OnDroppedFrames(5)).Times(1);
+  buffer_->Clear();
 }
 
 TEST_F(TestFrameBuffer2, InsertLateFrame) {
@@ -547,8 +584,7 @@ TEST_F(TestFrameBuffer2, StatsCallback) {
 
   {
     std::unique_ptr<FrameObjectFake> frame(new FrameObjectFake());
-    frame->VerifyAndAllocate(kFrameSize);
-    frame->set_size(kFrameSize);
+    frame->SetEncodedData(EncodedImageBuffer::Create(kFrameSize));
     frame->id.picture_id = pid;
     frame->id.spatial_layer = 0;
     frame->SetTimestamp(ts);

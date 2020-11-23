@@ -73,23 +73,25 @@
 
 #include "qcocoaeventdispatcher.h"
 #include "qcocoawindow.h"
-
 #include "qcocoahelpers.h"
-#include "qguiapplication.h"
-#include "qevent.h"
-#include "qmutex.h"
-#include "qsocketnotifier.h"
+
+#include <QtGui/qevent.h>
+#include <QtGui/qguiapplication.h>
+#include <QtGui/private/qguiapplication_p.h>
+
+#include <QtCore/qmutex.h>
+#include <QtCore/qscopeguard.h>
+#include <QtCore/qsocketnotifier.h>
+#include <QtCore/private/qthread_p.h>
+
 #include <qpa/qplatformwindow.h>
 #include <qpa/qplatformnativeinterface.h>
-#include "private/qthread_p.h"
-#include "private/qguiapplication_p.h"
-#include <qdebug.h>
+
+#include <QtCore/qdebug.h>
 
 #include <AppKit/AppKit.h>
 
 QT_BEGIN_NAMESPACE
-
-QT_USE_NAMESPACE
 
 static inline CFRunLoopRef mainRunLoop()
 {
@@ -293,46 +295,42 @@ bool QCocoaEventDispatcher::hasPendingEvents()
     return qGlobalPostedEventsCount() || (qt_is_gui_used && !CFRunLoopIsWaiting(CFRunLoopGetMain()));
 }
 
-static bool IsMouseOrKeyEvent( NSEvent* event )
+static bool isUserInputEvent(NSEvent* event)
 {
-    bool    result    = false;
-
-    switch( [event type] )
-    {
-        case NSEventTypeLeftMouseDown:
-        case NSEventTypeLeftMouseUp:
-        case NSEventTypeRightMouseDown:
-        case NSEventTypeRightMouseUp:
-        case NSEventTypeMouseMoved:                // ??
-        case NSEventTypeLeftMouseDragged:
-        case NSEventTypeRightMouseDragged:
-        case NSEventTypeMouseEntered:
-        case NSEventTypeMouseExited:
-        case NSEventTypeKeyDown:
-        case NSEventTypeKeyUp:
-        case NSEventTypeFlagsChanged:            // key modifiers changed?
-        case NSEventTypeCursorUpdate:            // ??
-        case NSEventTypeScrollWheel:
-        case NSEventTypeTabletPoint:
-        case NSEventTypeTabletProximity:
-        case NSEventTypeOtherMouseDown:
-        case NSEventTypeOtherMouseUp:
-        case NSEventTypeOtherMouseDragged:
+    switch ([event type]) {
+    case NSEventTypeLeftMouseDown:
+    case NSEventTypeLeftMouseUp:
+    case NSEventTypeRightMouseDown:
+    case NSEventTypeRightMouseUp:
+    case NSEventTypeMouseMoved:                // ??
+    case NSEventTypeLeftMouseDragged:
+    case NSEventTypeRightMouseDragged:
+    case NSEventTypeMouseEntered:
+    case NSEventTypeMouseExited:
+    case NSEventTypeKeyDown:
+    case NSEventTypeKeyUp:
+    case NSEventTypeFlagsChanged:            // key modifiers changed?
+    case NSEventTypeCursorUpdate:            // ??
+    case NSEventTypeScrollWheel:
+    case NSEventTypeTabletPoint:
+    case NSEventTypeTabletProximity:
+    case NSEventTypeOtherMouseDown:
+    case NSEventTypeOtherMouseUp:
+    case NSEventTypeOtherMouseDragged:
 #ifndef QT_NO_GESTURES
-        case NSEventTypeGesture: // touch events
-        case NSEventTypeMagnify:
-        case NSEventTypeSwipe:
-        case NSEventTypeRotate:
-        case NSEventTypeBeginGesture:
-        case NSEventTypeEndGesture:
+    case NSEventTypeGesture: // touch events
+    case NSEventTypeMagnify:
+    case NSEventTypeSwipe:
+    case NSEventTypeRotate:
+    case NSEventTypeBeginGesture:
+    case NSEventTypeEndGesture:
 #endif // QT_NO_GESTURES
-            result    = true;
+        return true;
         break;
-
-        default:
+    default:
         break;
     }
-    return result;
+    return false;
 }
 
 static inline void qt_mac_waitForMoreEvents(NSString *runLoopMode = NSDefaultRunLoopMode)
@@ -352,6 +350,16 @@ static inline void qt_mac_waitForMoreEvents(NSString *runLoopMode = NSDefaultRun
 bool QCocoaEventDispatcher::processEvents(QEventLoop::ProcessEventsFlags flags)
 {
     Q_D(QCocoaEventDispatcher);
+
+    // In rare rather corner cases a user's application messes with
+    // QEventLoop::exec()/exit() and QCoreApplication::processEvents(),
+    // we have to undo what bool blocker normally does.
+    d->propagateInterrupt = false;
+    const auto boolBlockerUndo = qScopeGuard([d](){
+        if (d->propagateInterrupt)
+            d->interrupt = true;
+        d->propagateInterrupt = false;
+    });
     QBoolBlocker interruptBlocker(d->interrupt, false);
 
     bool interruptLater = false;
@@ -465,7 +473,7 @@ bool QCocoaEventDispatcher::processEvents(QEventLoop::ProcessEventsFlags flags)
                     dequeue: YES];
 
                     if (event) {
-                        if (IsMouseOrKeyEvent(event)) {
+                        if (isUserInputEvent(event)) {
                             [event retain];
                             d->queuedUserInputEvents.append(event);
                             continue;
@@ -485,7 +493,7 @@ bool QCocoaEventDispatcher::processEvents(QEventLoop::ProcessEventsFlags flags)
 
                 if (event) {
                     if (flags & QEventLoop::ExcludeUserInputEvents) {
-                        if (IsMouseOrKeyEvent(event)) {
+                        if (isUserInputEvent(event)) {
                             [event retain];
                             d->queuedUserInputEvents.append(event);
                             continue;
@@ -500,7 +508,16 @@ bool QCocoaEventDispatcher::processEvents(QEventLoop::ProcessEventsFlags flags)
 
             if ((d->processEventsFlags & QEventLoop::EventLoopExec) == 0) {
                 // When called "manually", always process posted events and timers
+                bool oldInterrupt = d->interrupt;
                 d->processPostedEvents();
+                if (!oldInterrupt && d->interrupt && !d->currentModalSession()) {
+                    // We had direct processEvent call, coming not from QEventLoop::exec().
+                    // One of the posted events triggered an application to interrupt the loop.
+                    // But bool blocker will reset d->interrupt to false, so the real event
+                    // loop will never notice it was interrupted. Now we'll have to fix it by
+                    // enforcing the value of d->interrupt.
+                    d->propagateInterrupt = true;
+                }
                 retVal = d->processTimers() || retVal;
             }
 
@@ -515,7 +532,7 @@ bool QCocoaEventDispatcher::processEvents(QEventLoop::ProcessEventsFlags flags)
             if (hadModalSession && !d->currentModalSessionCached)
                 interruptLater = true;
         }
-        bool canWait = (d->threadData->canWait
+        bool canWait = (d->threadData.loadRelaxed()->canWait
                 && !retVal
                 && !d->interrupt
                 && (d->processEventsFlags & QEventLoop::WaitForMoreEvents));
@@ -882,7 +899,7 @@ void QCocoaEventDispatcherPrivate::processPostedEvents()
     }
 
     int serial = serialNumber.loadRelaxed();
-    if (!threadData->canWait || (serial != lastSerial)) {
+    if (!threadData.loadRelaxed()->canWait || (serial != lastSerial)) {
         lastSerial = serial;
         QCoreApplication::sendPostedEvents();
         QWindowSystemInterface::sendWindowSystemEvents(QEventLoop::AllEvents);

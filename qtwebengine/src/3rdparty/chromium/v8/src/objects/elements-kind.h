@@ -5,10 +5,10 @@
 #ifndef V8_OBJECTS_ELEMENTS_KIND_H_
 #define V8_OBJECTS_ELEMENTS_KIND_H_
 
+#include "src/base/bounds.h"
 #include "src/base/macros.h"
 #include "src/common/checks.h"
 #include "src/flags/flags.h"
-#include "src/utils/utils.h"
 
 namespace v8 {
 namespace internal {
@@ -42,6 +42,10 @@ enum ElementsKind : uint8_t {
   // The "fast" kind for unwrapped, non-tagged double values.
   PACKED_DOUBLE_ELEMENTS,
   HOLEY_DOUBLE_ELEMENTS,
+
+  // The nonextensible kind for elements.
+  PACKED_NONEXTENSIBLE_ELEMENTS,
+  HOLEY_NONEXTENSIBLE_ELEMENTS,
 
   // The sealed kind for elements.
   PACKED_SEALED_ELEMENTS,
@@ -79,7 +83,8 @@ enum ElementsKind : uint8_t {
   FIRST_FIXED_TYPED_ARRAY_ELEMENTS_KIND = UINT8_ELEMENTS,
   LAST_FIXED_TYPED_ARRAY_ELEMENTS_KIND = BIGINT64_ELEMENTS,
   TERMINAL_FAST_ELEMENTS_KIND = HOLEY_ELEMENTS,
-  LAST_FROZEN_ELEMENTS_KIND = HOLEY_FROZEN_ELEMENTS,
+  FIRST_ANY_NONEXTENSIBLE_ELEMENTS_KIND = PACKED_NONEXTENSIBLE_ELEMENTS,
+  LAST_ANY_NONEXTENSIBLE_ELEMENTS_KIND = HOLEY_FROZEN_ELEMENTS,
 
 // Alias for kSystemPointerSize-sized elements
 #ifdef V8_COMPRESS_POINTERS
@@ -114,18 +119,18 @@ inline bool IsDictionaryElementsKind(ElementsKind kind) {
 }
 
 inline bool IsSloppyArgumentsElementsKind(ElementsKind kind) {
-  return IsInRange(kind, FAST_SLOPPY_ARGUMENTS_ELEMENTS,
-                   SLOW_SLOPPY_ARGUMENTS_ELEMENTS);
+  return base::IsInRange(kind, FAST_SLOPPY_ARGUMENTS_ELEMENTS,
+                         SLOW_SLOPPY_ARGUMENTS_ELEMENTS);
 }
 
 inline bool IsStringWrapperElementsKind(ElementsKind kind) {
-  return IsInRange(kind, FAST_STRING_WRAPPER_ELEMENTS,
-                   SLOW_STRING_WRAPPER_ELEMENTS);
+  return base::IsInRange(kind, FAST_STRING_WRAPPER_ELEMENTS,
+                         SLOW_STRING_WRAPPER_ELEMENTS);
 }
 
 inline bool IsTypedArrayElementsKind(ElementsKind kind) {
-  return IsInRange(kind, FIRST_FIXED_TYPED_ARRAY_ELEMENTS_KIND,
-                   LAST_FIXED_TYPED_ARRAY_ELEMENTS_KIND);
+  return base::IsInRange(kind, FIRST_FIXED_TYPED_ARRAY_ELEMENTS_KIND,
+                         LAST_FIXED_TYPED_ARRAY_ELEMENTS_KIND);
 }
 
 inline bool IsTerminalElementsKind(ElementsKind kind) {
@@ -144,7 +149,7 @@ inline bool IsTransitionElementsKind(ElementsKind kind) {
 }
 
 inline bool IsDoubleElementsKind(ElementsKind kind) {
-  return IsInRange(kind, PACKED_DOUBLE_ELEMENTS, HOLEY_DOUBLE_ELEMENTS);
+  return base::IsInRange(kind, PACKED_DOUBLE_ELEMENTS, HOLEY_DOUBLE_ELEMENTS);
 }
 
 inline bool IsFixedFloatElementsKind(ElementsKind kind) {
@@ -156,34 +161,45 @@ inline bool IsDoubleOrFloatElementsKind(ElementsKind kind) {
 }
 
 // This predicate is used for disabling respective functionality in builtins.
-inline bool IsFrozenOrSealedElementsKindUnchecked(ElementsKind kind) {
-  return IsInRange(kind, PACKED_SEALED_ELEMENTS, HOLEY_FROZEN_ELEMENTS);
+inline bool IsAnyNonextensibleElementsKindUnchecked(ElementsKind kind) {
+  return base::IsInRange(kind, FIRST_ANY_NONEXTENSIBLE_ELEMENTS_KIND,
+                         LAST_ANY_NONEXTENSIBLE_ELEMENTS_KIND);
 }
 
-inline bool IsFrozenOrSealedElementsKind(ElementsKind kind) {
-  DCHECK_IMPLIES(IsFrozenOrSealedElementsKindUnchecked(kind),
+inline bool IsAnyNonextensibleElementsKind(ElementsKind kind) {
+  DCHECK_IMPLIES(IsAnyNonextensibleElementsKindUnchecked(kind),
                  FLAG_enable_sealed_frozen_elements_kind);
-  return IsFrozenOrSealedElementsKindUnchecked(kind);
+  return IsAnyNonextensibleElementsKindUnchecked(kind);
+}
+
+inline bool IsNonextensibleElementsKind(ElementsKind kind) {
+  DCHECK_IMPLIES(base::IsInRange(kind, PACKED_NONEXTENSIBLE_ELEMENTS,
+                                 HOLEY_NONEXTENSIBLE_ELEMENTS),
+                 FLAG_enable_sealed_frozen_elements_kind);
+  return base::IsInRange(kind, PACKED_NONEXTENSIBLE_ELEMENTS,
+                         HOLEY_NONEXTENSIBLE_ELEMENTS);
 }
 
 inline bool IsSealedElementsKind(ElementsKind kind) {
-  DCHECK_IMPLIES(IsInRange(kind, PACKED_SEALED_ELEMENTS, HOLEY_SEALED_ELEMENTS),
-                 FLAG_enable_sealed_frozen_elements_kind);
-  return IsInRange(kind, PACKED_SEALED_ELEMENTS, HOLEY_SEALED_ELEMENTS);
+  DCHECK_IMPLIES(
+      base::IsInRange(kind, PACKED_SEALED_ELEMENTS, HOLEY_SEALED_ELEMENTS),
+      FLAG_enable_sealed_frozen_elements_kind);
+  return base::IsInRange(kind, PACKED_SEALED_ELEMENTS, HOLEY_SEALED_ELEMENTS);
 }
 
 inline bool IsFrozenElementsKind(ElementsKind kind) {
-  DCHECK_IMPLIES(IsInRange(kind, PACKED_FROZEN_ELEMENTS, HOLEY_FROZEN_ELEMENTS),
-                 FLAG_enable_sealed_frozen_elements_kind);
-  return IsInRange(kind, PACKED_FROZEN_ELEMENTS, HOLEY_FROZEN_ELEMENTS);
+  DCHECK_IMPLIES(
+      base::IsInRange(kind, PACKED_FROZEN_ELEMENTS, HOLEY_FROZEN_ELEMENTS),
+      FLAG_enable_sealed_frozen_elements_kind);
+  return base::IsInRange(kind, PACKED_FROZEN_ELEMENTS, HOLEY_FROZEN_ELEMENTS);
 }
 
 inline bool IsSmiOrObjectElementsKind(ElementsKind kind) {
-  return IsInRange(kind, PACKED_SMI_ELEMENTS, HOLEY_ELEMENTS);
+  return base::IsInRange(kind, PACKED_SMI_ELEMENTS, HOLEY_ELEMENTS);
 }
 
 inline bool IsSmiElementsKind(ElementsKind kind) {
-  return IsInRange(kind, PACKED_SMI_ELEMENTS, HOLEY_SMI_ELEMENTS);
+  return base::IsInRange(kind, PACKED_SMI_ELEMENTS, HOLEY_SMI_ELEMENTS);
 }
 
 inline bool IsFastNumberElementsKind(ElementsKind kind) {
@@ -191,13 +207,16 @@ inline bool IsFastNumberElementsKind(ElementsKind kind) {
 }
 
 inline bool IsObjectElementsKind(ElementsKind kind) {
-  return IsInRange(kind, PACKED_ELEMENTS, HOLEY_ELEMENTS);
+  return base::IsInRange(kind, PACKED_ELEMENTS, HOLEY_ELEMENTS);
 }
 
-inline bool IsHoleyFrozenOrSealedElementsKind(ElementsKind kind) {
-  DCHECK_IMPLIES(kind == HOLEY_SEALED_ELEMENTS || kind == HOLEY_FROZEN_ELEMENTS,
+inline bool IsAnyHoleyNonextensibleElementsKind(ElementsKind kind) {
+  DCHECK_IMPLIES(kind == HOLEY_NONEXTENSIBLE_ELEMENTS ||
+                     kind == HOLEY_SEALED_ELEMENTS ||
+                     kind == HOLEY_FROZEN_ELEMENTS,
                  FLAG_enable_sealed_frozen_elements_kind);
-  return kind == HOLEY_SEALED_ELEMENTS || kind == HOLEY_FROZEN_ELEMENTS;
+  return kind == HOLEY_NONEXTENSIBLE_ELEMENTS ||
+         kind == HOLEY_SEALED_ELEMENTS || kind == HOLEY_FROZEN_ELEMENTS;
 }
 
 inline bool IsHoleyElementsKind(ElementsKind kind) {
@@ -238,6 +257,9 @@ inline ElementsKind GetHoleyElementsKind(ElementsKind packed_kind) {
   }
   if (packed_kind == PACKED_ELEMENTS) {
     return HOLEY_ELEMENTS;
+  }
+  if (packed_kind == PACKED_NONEXTENSIBLE_ELEMENTS) {
+    return HOLEY_NONEXTENSIBLE_ELEMENTS;
   }
   return packed_kind;
 }

@@ -196,6 +196,7 @@ bool QWindowsOpengl32DLL::init(bool softwareRendering)
     wglShareLists = reinterpret_cast<BOOL (WINAPI *)(HGLRC, HGLRC)>(resolve("wglShareLists"));
     wglSwapBuffers = reinterpret_cast<BOOL (WINAPI *)(HDC)>(resolve("wglSwapBuffers"));
     wglSetPixelFormat = reinterpret_cast<BOOL (WINAPI *)(HDC, int, const PIXELFORMATDESCRIPTOR *)>(resolve("wglSetPixelFormat"));
+    wglDescribePixelFormat = reinterpret_cast<int (WINAPI *)(HDC, int, UINT, PIXELFORMATDESCRIPTOR *)>(resolve("wglDescribePixelFormat"));
 
     glGetError = reinterpret_cast<GLenum (APIENTRY *)()>(resolve("glGetError"));
     glGetIntegerv = reinterpret_cast<void (APIENTRY *)(GLenum , GLint *)>(resolve("glGetIntegerv"));
@@ -212,6 +213,11 @@ BOOL QWindowsOpengl32DLL::swapBuffers(HDC dc)
 BOOL QWindowsOpengl32DLL::setPixelFormat(HDC dc, int pf, const PIXELFORMATDESCRIPTOR *pfd)
 {
     return moduleIsNotOpengl32() ? wglSetPixelFormat(dc, pf, pfd) : SetPixelFormat(dc, pf, pfd);
+}
+
+int QWindowsOpengl32DLL::describePixelFormat(HDC dc, int pf, UINT size, PIXELFORMATDESCRIPTOR *pfd)
+{
+    return moduleIsNotOpengl32() ? wglDescribePixelFormat(dc, pf, size, pfd) : DescribePixelFormat(dc, pf, size, pfd);
 }
 
 QWindowsOpenGLContext *QOpenGLStaticContext::createContext(QOpenGLContext *context)
@@ -322,11 +328,11 @@ static inline bool
 
 static void describeFormats(HDC hdc)
 {
-    const int pfiMax = DescribePixelFormat(hdc, 0, 0, nullptr);
+    const int pfiMax = QOpenGLStaticContext::opengl32.describePixelFormat(hdc, 0, 0, nullptr);
     for (int i = 0; i < pfiMax; i++) {
         PIXELFORMATDESCRIPTOR pfd;
         initPixelFormatDescriptor(&pfd);
-        DescribePixelFormat(hdc, i, sizeof(PIXELFORMATDESCRIPTOR), &pfd);
+        QOpenGLStaticContext::opengl32.describePixelFormat(hdc, i, sizeof(PIXELFORMATDESCRIPTOR), &pfd);
         qCDebug(lcQpaGl) << '#' << i << '/' << pfiMax << ':' << pfd;
     }
 }
@@ -617,7 +623,7 @@ static int choosePixelFormat(HDC hdc,
     // Verify if format is acceptable. Note that the returned
     // formats have been observed to not contain PFD_SUPPORT_OPENGL, ignore.
     initPixelFormatDescriptor(obtainedPfd);
-    DescribePixelFormat(hdc, pixelFormat, sizeof(PIXELFORMATDESCRIPTOR), obtainedPfd);
+    QOpenGLStaticContext::opengl32.describePixelFormat(hdc, pixelFormat, sizeof(PIXELFORMATDESCRIPTOR), obtainedPfd);
     if (!isAcceptableFormat(additional, *obtainedPfd, true)) {
         qCDebug(lcQpaGl) << __FUNCTION__ << " obtained px #" << pixelFormat
             << " not acceptable=" << *obtainedPfd;
@@ -796,7 +802,7 @@ static HGLRC createContext(const QOpenGLStaticContext &staticContext,
 static inline HWND createDummyGLWindow()
 {
     return QWindowsContext::instance()->
-        createDummyWindow(QStringLiteral("QtOpenGLDummyWindow"),
+        createDummyWindow(QStringLiteral("OpenGLDummyWindow"),
                           L"OpenGLDummyWindow", nullptr, WS_OVERLAPPED | WS_CLIPCHILDREN | WS_CLIPSIBLINGS);
 }
 
@@ -852,7 +858,6 @@ static inline QOpenGLContextData createDummyWindowOpenGLContextData()
     context and to apply to a QSurfaceFormat.
 
     \internal
-    \ingroup qt-lighthouse-win
 */
 
 QWindowsOpenGLContextFormat QWindowsOpenGLContextFormat::current()
@@ -907,7 +912,6 @@ void QWindowsOpenGLContextFormat::apply(QSurfaceFormat *format) const
     is a current GL context.
 
     \internal
-    \ingroup qt-lighthouse-win
 */
 
 class QOpenGLTemporaryContext
@@ -940,7 +944,6 @@ QOpenGLTemporaryContext::~QOpenGLTemporaryContext()
 /*!
     \class QWindowsOpenGLAdditionalFormat
     \brief Additional format information that is not in QSurfaceFormat
-    \ingroup qt-lighthouse-win
 */
 
 /*!
@@ -958,7 +961,6 @@ QOpenGLTemporaryContext::~QOpenGLTemporaryContext()
 
     \sa QWindowsGLContext
     \internal
-    \ingroup qt-lighthouse-win
 */
 
 #define SAMPLE_BUFFER_EXTENSION "GL_ARB_multisample"
@@ -1045,7 +1047,6 @@ QOpenGLStaticContext *QOpenGLStaticContext::create(bool softwareRendering)
     QOpenGLContextData and are released in doneCurrent().
 
     \internal
-    \ingroup qt-lighthouse-win
 */
 
 QWindowsGLContext::QWindowsGLContext(QOpenGLStaticContext *staticContext,

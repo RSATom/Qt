@@ -24,7 +24,7 @@ class V8_EXPORT_PRIVATE RegExpMacroAssemblerARM64
   virtual void AdvanceRegister(int reg, int by);
   virtual void Backtrack();
   virtual void Bind(Label* label);
-  virtual void CheckAtStart(Label* on_at_start);
+  virtual void CheckAtStart(int cp_offset, Label* on_at_start);
   virtual void CheckCharacter(unsigned c, Label* on_equal);
   virtual void CheckCharacterAfterAnd(unsigned c,
                                       unsigned mask,
@@ -72,10 +72,9 @@ class V8_EXPORT_PRIVATE RegExpMacroAssemblerARM64
   virtual void IfRegisterLT(int reg, int comparand, Label* if_lt);
   virtual void IfRegisterEqPos(int reg, Label* if_eq);
   virtual IrregexpImplementation Implementation();
-  virtual void LoadCurrentCharacter(int cp_offset,
-                                    Label* on_end_of_input,
-                                    bool check_bounds = true,
-                                    int characters = 1);
+  virtual void LoadCurrentCharacterImpl(int cp_offset, Label* on_end_of_input,
+                                        bool check_bounds, int characters,
+                                        int eats_at_least);
   virtual void PopCurrentPosition();
   virtual void PopRegister(int register_index);
   virtual void PushBacktrack(Label* label);
@@ -120,11 +119,12 @@ class V8_EXPORT_PRIVATE RegExpMacroAssemblerARM64
   // When adding local variables remember to push space for them in
   // the frame in GetCode.
   static const int kSuccessCounter = kInput - kSystemPointerSize;
+  static const int kBacktrackCount = kSuccessCounter - kSystemPointerSize;
   // First position register address on the stack. Following positions are
   // below it. A position is a 32 bit value.
-  static const int kFirstRegisterOnStack = kSuccessCounter - kWRegSize;
+  static const int kFirstRegisterOnStack = kBacktrackCount - kWRegSize;
   // A capture is a 64 bit value holding two position.
-  static const int kFirstCaptureOnStack = kSuccessCounter - kXRegSize;
+  static const int kFirstCaptureOnStack = kBacktrackCount - kXRegSize;
 
   // Initial size of code buffer.
   static const int kRegExpCodeSize = 1024;

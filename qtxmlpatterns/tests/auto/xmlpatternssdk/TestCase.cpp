@@ -336,12 +336,11 @@ TestCase::Scenario TestCase::scenarioFromString(const QString &string)
 void TestCase::toXML(XMLWriter &receiver) const
 {
     /* <test-case> */
-    QXmlAttributes test_caseAtts;
-    test_caseAtts.append(QLatin1String("is-XPath2"), QString(),
-                         QLatin1String("is-XPath2"), isXPath() ? QLatin1String("true")
+    QXmlStreamAttributes test_caseAtts;
+    test_caseAtts.append(QLatin1String("is-XPath2"), isXPath() ? QLatin1String("true")
                                                                : QLatin1String("false"));
-    test_caseAtts.append(QLatin1String("name"), QString(), QLatin1String("name"), name());
-    test_caseAtts.append(QLatin1String("creator"), QString(), QLatin1String("creator"), creator());
+    test_caseAtts.append(QLatin1String("name"), name());
+    test_caseAtts.append(QLatin1String("creator"), creator());
     QString scen;
     switch(scenario())
     {
@@ -368,9 +367,8 @@ void TestCase::toXML(XMLWriter &receiver) const
         default: /* includes 'AnyError' */
             Q_ASSERT(false);
     }
-    test_caseAtts.append(QLatin1String("scenario"), QString(), QLatin1String("scenario"), scen);
-    test_caseAtts.append(QLatin1String(QLatin1String("FilePath")), QString(),
-                         QLatin1String("FilePath"), QString());
+    test_caseAtts.append(QLatin1String("scenario"), scen);
+    test_caseAtts.append(QLatin1String("FilePath"), QString());
     receiver.startElement(QLatin1String("test-case"), test_caseAtts);
 
     /* <description> */
@@ -381,10 +379,10 @@ void TestCase::toXML(XMLWriter &receiver) const
     receiver.endElement(QLatin1String("description"));
 
     /* <query> */
-    QXmlAttributes queryAtts;
-    queryAtts.append(QLatin1String("date"), QString(), QLatin1String("date"), /* This date is a dummy. */
+    QXmlStreamAttributes queryAtts;
+    queryAtts.append(QLatin1String("date"), /* This date is a dummy. */
                      QDate::currentDate().toString(Qt::ISODate));
-    queryAtts.append(QLatin1String("name"), QString(), QLatin1String("name"), testCasePath().toString());
+    queryAtts.append(QLatin1String("name"), testCasePath().toString());
     receiver.startElement(QLatin1String("query"), queryAtts);
 
     /* </query> */

@@ -58,9 +58,6 @@ class CORE_EXPORT HTMLImageElement final
  public:
   class ViewportChangeListener;
 
-  // Returns attributes that should be checked against Trusted Types
-  const AttrNameToTrustedType& GetCheckedAttributeTypes() const override;
-
   static HTMLImageElement* CreateForJSConstructor(Document&);
   static HTMLImageElement* CreateForJSConstructor(Document&, unsigned width);
   static HTMLImageElement* CreateForJSConstructor(Document&,
@@ -251,7 +248,6 @@ class CORE_EXPORT HTMLImageElement final
   unsigned form_was_set_by_parser_ : 1;
   unsigned element_created_by_parser_ : 1;
   unsigned is_fallback_image_ : 1;
-  bool sizes_set_width_;
   bool is_default_overridden_intrinsic_size_;
   // This flag indicates if the image violates one or more optimized image
   // policies. When any policy is violated, the image should be rendered as a

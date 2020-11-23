@@ -9,10 +9,11 @@ import android.app.job.JobParameters;
 import android.app.job.JobService;
 import android.os.Build;
 
+import androidx.annotation.VisibleForTesting;
+
 import org.chromium.base.ContextUtils;
 import org.chromium.base.Log;
 import org.chromium.base.ThreadUtils;
-import org.chromium.base.VisibleForTesting;
 
 import java.util.HashMap;
 import java.util.Map;
@@ -75,15 +76,18 @@ public class BackgroundTaskJobService extends JobService {
     public boolean onStartJob(JobParameters params) {
         ThreadUtils.assertOnUiThread();
         BackgroundTask backgroundTask =
-                BackgroundTaskSchedulerJobService.getBackgroundTaskFromJobParameters(params);
+                BackgroundTaskSchedulerFactory.getBackgroundTaskFromTaskId(params.getJobId());
         if (backgroundTask == null) {
-            Log.w(TAG, "Failed to start task. Could not instantiate class.");
+            Log.w(TAG, "Failed to start task. Could not instantiate BackgroundTask class.");
+            // Cancel task if the BackgroundTask class is not found anymore. We assume this means
+            // that the task has been deprecated.
+            BackgroundTaskSchedulerFactory.getScheduler().cancel(
+                    ContextUtils.getApplicationContext(), params.getJobId());
             return false;
         }
 
-        Long deadlineTime =
-                BackgroundTaskSchedulerJobService.getDeadlineTimeFromJobParameters(params);
-        if (deadlineTime != null && mClock.currentTimeMillis() >= deadlineTime) {
+        if (BackgroundTaskSchedulerJobService.didTaskExpire(params, mClock.currentTimeMillis())) {
+            BackgroundTaskSchedulerUma.getInstance().reportTaskExpired(params.getJobId());
             return false;
         }
 

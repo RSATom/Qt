@@ -73,6 +73,47 @@ class SharedImageBackingFactoryAHBTest : public testing::Test {
 
   GrContext* gr_context() { return context_state_->gr_context(); }
 
+  std::vector<uint8_t> ReadPixels(Mailbox mailbox, gfx::Size size) {
+    auto skia_representation =
+        shared_image_representation_factory_->ProduceSkia(mailbox,
+                                                          context_state_.get());
+    EXPECT_TRUE(skia_representation);
+    std::vector<GrBackendSemaphore> begin_semaphores;
+    std::vector<GrBackendSemaphore> end_semaphores;
+    base::Optional<SharedImageRepresentationSkia::ScopedReadAccess>
+        scoped_read_access;
+    scoped_read_access.emplace(skia_representation.get(), &begin_semaphores,
+                               &end_semaphores);
+    auto* promise_texture = scoped_read_access->promise_image_texture();
+    EXPECT_EQ(0u, begin_semaphores.size());
+    EXPECT_EQ(0u, end_semaphores.size());
+    EXPECT_TRUE(promise_texture);
+    GrBackendTexture backend_texture = promise_texture->backendTexture();
+    EXPECT_TRUE(backend_texture.isValid());
+    EXPECT_EQ(size.width(), backend_texture.width());
+    EXPECT_EQ(size.height(), backend_texture.height());
+
+    // Create an Sk Image from GrBackendTexture.
+    auto sk_image = SkImage::MakeFromTexture(
+        gr_context(), promise_texture->backendTexture(),
+        kTopLeft_GrSurfaceOrigin, kRGBA_8888_SkColorType, kOpaque_SkAlphaType,
+        nullptr);
+
+    SkImageInfo dst_info =
+        SkImageInfo::Make(size.width(), size.height(), kRGBA_8888_SkColorType,
+                          kOpaque_SkAlphaType, nullptr);
+
+    const int num_pixels = size.width() * size.height();
+    std::vector<uint8_t> dst_pixels(num_pixels * 4);
+
+    // Read back pixels from Sk Image.
+    EXPECT_TRUE(sk_image->readPixels(dst_info, dst_pixels.data(),
+                                     dst_info.minRowBytes(), 0, 0));
+    scoped_read_access.reset();
+
+    return dst_pixels;
+  }
+
  protected:
   scoped_refptr<gl::GLSurface> surface_;
   scoped_refptr<gl::GLContext> context_;
@@ -123,28 +164,32 @@ TEST_F(SharedImageBackingFactoryAHBTest, Basic) {
   EXPECT_TRUE(skia_representation);
   std::vector<GrBackendSemaphore> begin_semaphores;
   std::vector<GrBackendSemaphore> end_semaphores;
-  auto surface = skia_representation->BeginWriteAccess(
-      0, SkSurfaceProps(0, kUnknown_SkPixelGeometry), &begin_semaphores,
-      &end_semaphores);
+  base::Optional<SharedImageRepresentationSkia::ScopedWriteAccess>
+      scoped_write_access;
+  scoped_write_access.emplace(skia_representation.get(), &begin_semaphores,
+                              &end_semaphores);
+  EXPECT_TRUE(scoped_write_access->success());
+  auto* surface = scoped_write_access->surface();
   EXPECT_TRUE(surface);
   EXPECT_EQ(gl_legacy_shared_image.size().width(), surface->width());
   EXPECT_EQ(gl_legacy_shared_image.size().height(), surface->height());
   EXPECT_EQ(0u, begin_semaphores.size());
   EXPECT_EQ(0u, end_semaphores.size());
+  scoped_write_access.reset();
 
-  skia_representation->EndWriteAccess(std::move(surface));
-  auto promise_texture =
-      skia_representation->BeginReadAccess(&begin_semaphores, &end_semaphores);
+  base::Optional<SharedImageRepresentationSkia::ScopedReadAccess>
+      scoped_read_access;
+  scoped_read_access.emplace(skia_representation.get(), &begin_semaphores,
+                             &end_semaphores);
+  auto* promise_texture = scoped_read_access->promise_image_texture();
   EXPECT_EQ(0u, begin_semaphores.size());
   EXPECT_EQ(0u, end_semaphores.size());
   EXPECT_TRUE(promise_texture);
-  if (promise_texture) {
-    GrBackendTexture backend_texture = promise_texture->backendTexture();
-    EXPECT_TRUE(backend_texture.isValid());
-    EXPECT_EQ(gl_legacy_shared_image.size().width(), backend_texture.width());
-    EXPECT_EQ(gl_legacy_shared_image.size().height(), backend_texture.height());
-  }
-  skia_representation->EndReadAccess();
+  GrBackendTexture backend_texture = promise_texture->backendTexture();
+  EXPECT_TRUE(backend_texture.isValid());
+  EXPECT_EQ(gl_legacy_shared_image.size().width(), backend_texture.width());
+  EXPECT_EQ(gl_legacy_shared_image.size().height(), backend_texture.height());
+  scoped_read_access.reset();
   skia_representation.reset();
 }
 
@@ -193,40 +238,7 @@ TEST_F(SharedImageBackingFactoryAHBTest, GLSkiaGL) {
   api->glClearFn(GL_COLOR_BUFFER_BIT);
   gl_representation.reset();
 
-  // Next create a SharedImageRepresentationSkia to read back the texture data.
-  auto skia_representation = shared_image_representation_factory_->ProduceSkia(
-      mailbox, context_state_.get());
-  EXPECT_TRUE(skia_representation);
-  std::vector<GrBackendSemaphore> begin_semaphores;
-  std::vector<GrBackendSemaphore> end_semaphores;
-  auto promise_texture =
-      skia_representation->BeginReadAccess(&begin_semaphores, &end_semaphores);
-  EXPECT_EQ(0u, begin_semaphores.size());
-  EXPECT_EQ(0u, end_semaphores.size());
-  EXPECT_TRUE(promise_texture);
-  if (promise_texture) {
-    GrBackendTexture backend_texture = promise_texture->backendTexture();
-    EXPECT_TRUE(backend_texture.isValid());
-    EXPECT_EQ(size.width(), backend_texture.width());
-    EXPECT_EQ(size.height(), backend_texture.height());
-  }
-
-  // Create an Sk Image from GrBackendTexture.
-  auto sk_image = SkImage::MakeFromTexture(
-      gr_context(), promise_texture->backendTexture(), kTopLeft_GrSurfaceOrigin,
-      kRGBA_8888_SkColorType, kOpaque_SkAlphaType, nullptr);
-
-  SkImageInfo dst_info =
-      SkImageInfo::Make(size.width(), size.height(), kRGBA_8888_SkColorType,
-                        kOpaque_SkAlphaType, nullptr);
-
-  const int num_pixels = size.width() * size.height();
-  std::unique_ptr<uint8_t[]> dst_pixels(new uint8_t[num_pixels * 4]());
-
-  // Read back pixels from Sk Image.
-  EXPECT_TRUE(sk_image->readPixels(dst_info, dst_pixels.get(),
-                                   dst_info.minRowBytes(), 0, 0));
-  skia_representation->EndReadAccess();
+  auto dst_pixels = ReadPixels(mailbox, size);
 
   // Compare the pixel values.
   EXPECT_EQ(dst_pixels[0], 0);
@@ -234,7 +246,40 @@ TEST_F(SharedImageBackingFactoryAHBTest, GLSkiaGL) {
   EXPECT_EQ(dst_pixels[2], 0);
   EXPECT_EQ(dst_pixels[3], 255);
 
-  skia_representation.reset();
+  factory_ref.reset();
+  EXPECT_FALSE(mailbox_manager_.ConsumeTexture(mailbox));
+}
+
+TEST_F(SharedImageBackingFactoryAHBTest, InitialData) {
+  if (!base::AndroidHardwareBufferCompat::IsSupportAvailable())
+    return;
+
+  auto mailbox = Mailbox::GenerateForSharedImage();
+  auto format = viz::ResourceFormat::RGBA_8888;
+  gfx::Size size(4, 4);
+
+  std::vector<uint8_t> initial_data(size.width() * size.height() * 4);
+
+  for (size_t i = 0; i < initial_data.size(); i++) {
+    initial_data[i] = static_cast<uint8_t>(i);
+  }
+
+  auto color_space = gfx::ColorSpace::CreateSRGB();
+  uint32_t usage = SHARED_IMAGE_USAGE_GLES2 | SHARED_IMAGE_USAGE_DISPLAY;
+  auto backing = backing_factory_->CreateSharedImage(
+      mailbox, format, size, color_space, usage, initial_data);
+  EXPECT_TRUE(backing);
+
+  std::unique_ptr<SharedImageRepresentationFactoryRef> factory_ref =
+      shared_image_manager_.Register(std::move(backing),
+                                     memory_type_tracker_.get());
+
+  auto dst_pixels = ReadPixels(mailbox, size);
+
+  // Compare the pixel values.
+  DCHECK(dst_pixels.size() == initial_data.size());
+
+  EXPECT_EQ(dst_pixels, initial_data);
   factory_ref.reset();
   EXPECT_FALSE(mailbox_manager_.ConsumeTexture(mailbox));
 }
@@ -245,7 +290,7 @@ TEST_F(SharedImageBackingFactoryAHBTest, InvalidFormat) {
     return;
 
   auto mailbox = Mailbox::GenerateForSharedImage();
-  auto format = viz::ResourceFormat::UYVY_422;
+  auto format = viz::ResourceFormat::YUV_420_BIPLANAR;
   gfx::Size size(256, 256);
   auto color_space = gfx::ColorSpace::CreateSRGB();
   uint32_t usage = SHARED_IMAGE_USAGE_GLES2;
@@ -298,8 +343,9 @@ TEST_F(SharedImageBackingFactoryAHBTest, EstimatedSize) {
   shared_image.reset();
 }
 
+// TODO(crbug/994720): Failing on Android builders.
 // Test to check that only one context can write at a time
-TEST_F(SharedImageBackingFactoryAHBTest, OnlyOneWriter) {
+TEST_F(SharedImageBackingFactoryAHBTest, DISABLED_OnlyOneWriter) {
   if (!base::AndroidHardwareBufferCompat::IsSupportAvailable())
     return;
 
@@ -313,9 +359,11 @@ TEST_F(SharedImageBackingFactoryAHBTest, OnlyOneWriter) {
 
   std::vector<GrBackendSemaphore> begin_semaphores;
   std::vector<GrBackendSemaphore> end_semaphores;
-  auto surface = skia_representation->BeginWriteAccess(
-      0, SkSurfaceProps(0, kUnknown_SkPixelGeometry), &begin_semaphores,
-      &end_semaphores);
+  base::Optional<SharedImageRepresentationSkia::ScopedWriteAccess>
+      scoped_write_access;
+  scoped_write_access.emplace(skia_representation.get(), &begin_semaphores,
+                              &end_semaphores);
+  EXPECT_TRUE(scoped_write_access->success());
   EXPECT_EQ(0u, begin_semaphores.size());
   EXPECT_EQ(0u, end_semaphores.size());
 
@@ -323,15 +371,16 @@ TEST_F(SharedImageBackingFactoryAHBTest, OnlyOneWriter) {
       gl_legacy_shared_image.mailbox(), context_state_.get());
   std::vector<GrBackendSemaphore> begin_semaphores2;
   std::vector<GrBackendSemaphore> end_semaphores2;
-
-  EXPECT_FALSE(skia_representation2->BeginWriteAccess(
-      0, SkSurfaceProps(0, kUnknown_SkPixelGeometry), &begin_semaphores2,
-      &end_semaphores2));
+  base::Optional<SharedImageRepresentationSkia::ScopedWriteAccess>
+      scoped_write_access2;
+  scoped_write_access2.emplace(skia_representation2.get(), &begin_semaphores2,
+                               &end_semaphores2);
+  EXPECT_FALSE(scoped_write_access->success());
   EXPECT_EQ(0u, begin_semaphores2.size());
   EXPECT_EQ(0u, end_semaphores2.size());
   skia_representation2.reset();
 
-  skia_representation->EndWriteAccess(std::move(surface));
+  scoped_write_access.reset();
   skia_representation.reset();
 }
 
@@ -352,19 +401,25 @@ TEST_F(SharedImageBackingFactoryAHBTest, CanHaveMultipleReaders) {
 
   std::vector<GrBackendSemaphore> begin_semaphores;
   std::vector<GrBackendSemaphore> end_semaphores;
-  EXPECT_TRUE(
-      skia_representation->BeginReadAccess(&begin_semaphores, &end_semaphores));
+  base::Optional<SharedImageRepresentationSkia::ScopedReadAccess>
+      scoped_read_access;
+  scoped_read_access.emplace(skia_representation.get(), &begin_semaphores,
+                             &end_semaphores);
+  EXPECT_TRUE(scoped_read_access->success());
   EXPECT_EQ(0u, begin_semaphores.size());
   EXPECT_EQ(0u, end_semaphores.size());
 
-  EXPECT_TRUE(skia_representation2->BeginReadAccess(&begin_semaphores,
-                                                    &end_semaphores));
+  base::Optional<SharedImageRepresentationSkia::ScopedReadAccess>
+      scoped_read_access2;
+  scoped_read_access2.emplace(skia_representation2.get(), &begin_semaphores,
+                              &end_semaphores);
+  EXPECT_TRUE(scoped_read_access2->success());
   EXPECT_EQ(0u, begin_semaphores.size());
   EXPECT_EQ(0u, end_semaphores.size());
 
-  skia_representation2->EndReadAccess();
+  scoped_read_access2.reset();
   skia_representation2.reset();
-  skia_representation->EndReadAccess();
+  scoped_read_access.reset();
   skia_representation.reset();
 }
 
@@ -383,8 +438,12 @@ TEST_F(SharedImageBackingFactoryAHBTest, CannotWriteWhileReading) {
 
   std::vector<GrBackendSemaphore> begin_semaphores;
   std::vector<GrBackendSemaphore> end_semaphores;
-  EXPECT_TRUE(
-      skia_representation->BeginReadAccess(&begin_semaphores, &end_semaphores));
+
+  base::Optional<SharedImageRepresentationSkia::ScopedReadAccess>
+      scoped_read_access;
+  scoped_read_access.emplace(skia_representation.get(), &begin_semaphores,
+                             &end_semaphores);
+  EXPECT_TRUE(scoped_read_access->success());
   EXPECT_EQ(0u, begin_semaphores.size());
   EXPECT_EQ(0u, end_semaphores.size());
 
@@ -393,14 +452,17 @@ TEST_F(SharedImageBackingFactoryAHBTest, CannotWriteWhileReading) {
 
   std::vector<GrBackendSemaphore> begin_semaphores2;
   std::vector<GrBackendSemaphore> end_semaphores2;
-  EXPECT_FALSE(skia_representation2->BeginWriteAccess(
-      0, SkSurfaceProps(0, kUnknown_SkPixelGeometry), &begin_semaphores2,
-      &end_semaphores2));
+
+  base::Optional<SharedImageRepresentationSkia::ScopedWriteAccess>
+      scoped_write_access;
+  scoped_write_access.emplace(skia_representation2.get(), &begin_semaphores2,
+                              &end_semaphores2);
+  EXPECT_FALSE(scoped_write_access->success());
   EXPECT_EQ(0u, begin_semaphores2.size());
   EXPECT_EQ(0u, end_semaphores2.size());
   skia_representation2.reset();
 
-  skia_representation->EndReadAccess();
+  scoped_read_access.reset();
   skia_representation.reset();
 }
 
@@ -418,9 +480,11 @@ TEST_F(SharedImageBackingFactoryAHBTest, CannotReadWhileWriting) {
       gl_legacy_shared_image.mailbox(), context_state_.get());
   std::vector<GrBackendSemaphore> begin_semaphores;
   std::vector<GrBackendSemaphore> end_semaphores;
-  auto surface = skia_representation->BeginWriteAccess(
-      0, SkSurfaceProps(0, kUnknown_SkPixelGeometry), &begin_semaphores,
-      &end_semaphores);
+  base::Optional<SharedImageRepresentationSkia::ScopedWriteAccess>
+      scoped_write_access;
+  scoped_write_access.emplace(skia_representation.get(), &begin_semaphores,
+                              &end_semaphores);
+  EXPECT_TRUE(scoped_write_access->success());
   EXPECT_EQ(0u, begin_semaphores.size());
   EXPECT_EQ(0u, end_semaphores.size());
 
@@ -428,14 +492,16 @@ TEST_F(SharedImageBackingFactoryAHBTest, CannotReadWhileWriting) {
       gl_legacy_shared_image.mailbox(), context_state_.get());
   std::vector<GrBackendSemaphore> begin_semaphores2;
   std::vector<GrBackendSemaphore> end_semaphores2;
-
-  EXPECT_FALSE(skia_representation2->BeginReadAccess(&begin_semaphores2,
-                                                     &end_semaphores2));
+  base::Optional<SharedImageRepresentationSkia::ScopedReadAccess>
+      scoped_read_access;
+  scoped_read_access.emplace(skia_representation2.get(), &begin_semaphores2,
+                             &end_semaphores2);
+  EXPECT_FALSE(scoped_read_access->success());
   EXPECT_EQ(0u, begin_semaphores2.size());
   EXPECT_EQ(0u, end_semaphores2.size());
   skia_representation2.reset();
 
-  skia_representation->EndWriteAccess(std::move(surface));
+  scoped_write_access.reset();
   skia_representation.reset();
 }
 

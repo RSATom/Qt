@@ -35,11 +35,9 @@ void SharedImageBacking::OnContextLost() {
   have_context_ = false;
 }
 
-#if defined(OS_WIN)
 bool SharedImageBacking::PresentSwapChain() {
   return false;
 }
-#endif  // OS_WIN
 
 std::unique_ptr<SharedImageRepresentationGLTexture>
 SharedImageBacking::ProduceGLTexture(SharedImageManager* manager,
@@ -69,7 +67,13 @@ std::unique_ptr<SharedImageRepresentationSkia> SharedImageBacking::ProduceSkia(
 std::unique_ptr<SharedImageRepresentationDawn> SharedImageBacking::ProduceDawn(
     SharedImageManager* manager,
     MemoryTypeTracker* tracker,
-    DawnDevice device) {
+    WGPUDevice device) {
+  return nullptr;
+}
+
+std::unique_ptr<SharedImageRepresentationOverlay>
+SharedImageBacking::ProduceOverlay(SharedImageManager* manager,
+                                   MemoryTypeTracker* tracker) {
   return nullptr;
 }
 
@@ -114,6 +118,17 @@ bool SharedImageBacking::HasAnyRefs() const {
   AutoLock auto_lock(this);
 
   return !refs_.empty();
+}
+
+void SharedImageBacking::OnReadSucceeded() {
+  if (scoped_write_uma_) {
+    scoped_write_uma_->SetConsumed();
+    scoped_write_uma_.reset();
+  }
+}
+
+void SharedImageBacking::OnWriteSucceeded() {
+  scoped_write_uma_.emplace();
 }
 
 size_t SharedImageBacking::EstimatedSizeForMemTracking() const {

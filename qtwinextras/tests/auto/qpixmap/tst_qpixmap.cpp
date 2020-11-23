@@ -192,8 +192,8 @@ static bool compareImages(const QImage &actual, const QImage &expected,
 
 static inline QString pngFileName(const QString &image, int width, int height)
 {
-    return image + QLatin1Char('_') + QString::number(width)
-        + QLatin1Char('x') + QString::number(height) + QStringLiteral(".png");
+    return image + u'_' + QString::number(width)
+        + u'x' + QString::number(height) + QStringLiteral(".png");
 }
 
 void tst_QPixmap::toHICON_data()

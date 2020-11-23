@@ -117,7 +117,7 @@ public:
 };
 
 QTextEditPrivate::QTextEditPrivate()
-    : control(0),
+    : control(nullptr),
       autoFormatting(QTextEdit::AutoNone), tabChangesFocus(false),
       lineWrap(QTextEdit::WidgetWidth), lineWrapColumnOrWidth(0),
       wordWrap(QTextOption::WrapAtWordBoundaryOrAnywhere), clickCausedFocus(0),
@@ -1503,7 +1503,7 @@ void QTextEdit::resizeEvent(QResizeEvent *e)
         QVariant alignmentProperty = doc->documentLayout()->property("contentHasAlignment");
 
         if (!doc->pageSize().isNull()
-            && alignmentProperty.type() == QVariant::Bool
+            && alignmentProperty.userType() == QMetaType::Bool
             && !alignmentProperty.toBool()) {
 
             d->_q_adjustScrollbars();
@@ -1548,7 +1548,7 @@ void QTextEditPrivate::relayoutDocument()
         width = lineWrapColumnOrWidth;
     else if (lineWrap == QTextEdit::NoWrap) {
         QVariant alignmentProperty = doc->documentLayout()->property("contentHasAlignment");
-        if (alignmentProperty.type() == QVariant::Bool && !alignmentProperty.toBool()) {
+        if (alignmentProperty.userType() == QMetaType::Bool && !alignmentProperty.toBool()) {
 
             width = 0;
         }
@@ -1836,17 +1836,17 @@ QVariant QTextEdit::inputMethodQuery(Qt::InputMethodQuery query, QVariant argume
     }
 
     const QPointF offset(-d->horizontalOffset(), -d->verticalOffset());
-    switch (argument.type()) {
-    case QVariant::RectF:
+    switch (argument.userType()) {
+    case QMetaType::QRectF:
         argument = argument.toRectF().translated(-offset);
         break;
-    case QVariant::PointF:
+    case QMetaType::QPointF:
         argument = argument.toPointF() - offset;
         break;
-    case QVariant::Rect:
+    case QMetaType::QRect:
         argument = argument.toRect().translated(-offset.toPoint());
         break;
-    case QVariant::Point:
+    case QMetaType::QPoint:
         argument = argument.toPoint() - offset;
         break;
     default:
@@ -1854,14 +1854,14 @@ QVariant QTextEdit::inputMethodQuery(Qt::InputMethodQuery query, QVariant argume
     }
 
     const QVariant v = d->control->inputMethodQuery(query, argument);
-    switch (v.type()) {
-    case QVariant::RectF:
+    switch (v.userType()) {
+    case QMetaType::QRectF:
         return v.toRectF().translated(offset);
-    case QVariant::PointF:
+    case QMetaType::QPointF:
         return v.toPointF() + offset;
-    case QVariant::Rect:
+    case QMetaType::QRect:
         return v.toRect().translated(offset.toPoint());
-    case QVariant::Point:
+    case QMetaType::QPoint:
         return v.toPoint() + offset.toPoint();
     default:
         break;

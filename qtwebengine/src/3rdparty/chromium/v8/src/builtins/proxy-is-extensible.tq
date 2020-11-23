@@ -9,7 +9,7 @@ namespace proxy {
   // ES #sec-proxy-object-internal-methods-and-internal-slots-isextensible
   // https://tc39.github.io/ecma262/#sec-proxy-object-internal-methods-and-internal-slots-isextensible
   transitioning builtin ProxyIsExtensible(implicit context:
-                                              Context)(proxy: JSProxy): Object {
+                                              Context)(proxy: JSProxy): JSAny {
     PerformStackCheck();
     const kTrapName: constexpr string = 'isExtensible';
     try {
@@ -33,7 +33,8 @@ namespace proxy {
       const trapResult = ToBoolean(Call(context, trap, handler, target));
 
       // 8. Let targetResult be ? IsExtensible(target).
-      const targetResult: bool = ToBoolean(object::ObjectIsExtensible(target));
+      const targetResult: bool =
+          ToBoolean(object::ObjectIsExtensibleImpl(target));
 
       // 9. If SameValue(booleanTrapResult, targetResult) is false, throw a
       // TypeError exception.
@@ -45,9 +46,9 @@ namespace proxy {
       // 10. Return booleanTrapResult.
       return SelectBooleanConstant(trapResult);
     }
-    label TrapUndefined(target: Object) {
+    label TrapUndefined(target: JSAny) {
       // 6.a. Return ? IsExtensible(target).
-      return object::ObjectIsExtensible(target);
+      return object::ObjectIsExtensibleImpl(target);
     }
     label ThrowProxyHandlerRevoked deferred {
       ThrowTypeError(kProxyRevoked, kTrapName);

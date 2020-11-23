@@ -90,7 +90,7 @@ bool IsValidInput(const base::StringPiece& scheme,
 
     // Otherwise, allow non-standard schemes only if the Android WebView
     // workaround is enabled.
-    return AllowNonStandardSchemesForAndroidWebView();
+    return !base::Contains(url::GetNoAccessSchemes(), scheme) && AllowNonStandardSchemesForAndroidWebView();
   }
 
   switch (scheme_type) {

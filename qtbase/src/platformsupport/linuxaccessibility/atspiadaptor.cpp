@@ -2050,10 +2050,10 @@ QVariantList AtSpiAdaptor::getAttributes(QAccessibleInterface *interface, int of
     int endOffset;
 
     QString joined = interface->textInterface()->attributes(offset, &startOffset, &endOffset);
-    const QStringList attributes = joined.split (QLatin1Char(';'), QString::SkipEmptyParts, Qt::CaseSensitive);
+    const QStringList attributes = joined.split (QLatin1Char(';'), Qt::SkipEmptyParts, Qt::CaseSensitive);
     for (const QString &attr : attributes) {
         QStringList items;
-        items = attr.split(QLatin1Char(':'), QString::SkipEmptyParts, Qt::CaseSensitive);
+        items = attr.split(QLatin1Char(':'), Qt::SkipEmptyParts, Qt::CaseSensitive);
         AtSpiAttribute attribute = atspiTextAttribute(items[0], items[1]);
         if (!attribute.isNull())
             set[attribute.name] = attribute.value;
@@ -2074,10 +2074,10 @@ QVariantList AtSpiAdaptor::getAttributeValue(QAccessibleInterface *interface, in
     int endOffset;
 
     joined = interface->textInterface()->attributes(offset, &startOffset, &endOffset);
-    const QStringList attributes = joined.split (QLatin1Char(';'), QString::SkipEmptyParts, Qt::CaseSensitive);
+    const QStringList attributes = joined.split (QLatin1Char(';'), Qt::SkipEmptyParts, Qt::CaseSensitive);
     for (const QString& attr : attributes) {
         QStringList items;
-        items = attr.split(QLatin1Char(':'), QString::SkipEmptyParts, Qt::CaseSensitive);
+        items = attr.split(QLatin1Char(':'), Qt::SkipEmptyParts, Qt::CaseSensitive);
         AtSpiAttribute attribute = atspiTextAttribute(items[0], items[1]);
         if (!attribute.isNull())
             map[attribute.name] = attribute.value;
@@ -2230,7 +2230,7 @@ bool AtSpiAdaptor::valueInterface(QAccessibleInterface *interface, const QString
         return false;
 
     if (function == QLatin1String("SetCurrentValue")) {
-        QDBusVariant v = message.arguments().at(2).value<QDBusVariant>();
+        QDBusVariant v = qvariant_cast<QDBusVariant>(message.arguments().at(2));
         double value = v.variant().toDouble();
         //Temporary fix
         //See https://bugzilla.gnome.org/show_bug.cgi?id=652596
@@ -2250,7 +2250,7 @@ bool AtSpiAdaptor::valueInterface(QAccessibleInterface *interface, const QString
             qCDebug(lcAccessibilityAtspi) << "WARNING: AtSpiAdaptor::valueInterface does not implement " << function << message.path();
             return false;
         }
-        if (!value.canConvert(QVariant::Double)) {
+        if (!value.canConvert(QMetaType::Double)) {
             qCDebug(lcAccessibilityAtspi) << "AtSpiAdaptor::valueInterface: Could not convert to double: " << function;
         }
 

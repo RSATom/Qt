@@ -1,0 +1,7 @@
+#ifndef QT_QTPDFWIDGETS_MODULE_H
+#define QT_QTPDFWIDGETS_MODULE_H
+#include <QtPdfWidgets/QtPdfWidgetsDepends>
+#include "qtpdfwidgetsglobal.h"
+#include "qpdfview.h"
+#include "qtpdfwidgetsversion.h"
+#endif

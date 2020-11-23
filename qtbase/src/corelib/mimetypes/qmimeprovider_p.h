@@ -132,6 +132,13 @@ private:
 class QMimeXMLProvider : public QMimeProviderBase
 {
 public:
+    enum InternalDatabaseEnum { InternalDatabase };
+#if QT_CONFIG(mimetype_database)
+    enum : bool { InternalDatabaseAvailable = true };
+#else
+    enum : bool { InternalDatabaseAvailable = false };
+#endif
+    QMimeXMLProvider(QMimeDatabasePrivate *db, InternalDatabaseEnum);
     QMimeXMLProvider(QMimeDatabasePrivate *db, const QString &directory);
     ~QMimeXMLProvider();
 
@@ -156,6 +163,7 @@ public:
 
 private:
     void load(const QString &fileName);
+    void load(const char *data, qsizetype len);
 
     typedef QHash<QString, QMimeType> NameMimeTypeMap;
     NameMimeTypeMap m_nameMimeTypeMap;

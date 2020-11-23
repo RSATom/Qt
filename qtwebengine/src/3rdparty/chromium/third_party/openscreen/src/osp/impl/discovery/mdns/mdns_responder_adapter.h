@@ -13,13 +13,13 @@
 #include "osp/impl/discovery/mdns/domain_name.h"
 #include "osp/impl/discovery/mdns/mdns_responder_platform.h"
 #include "platform/api/network_interface.h"
+#include "platform/api/time.h"
 #include "platform/api/udp_socket.h"
 #include "platform/base/error.h"
 #include "platform/base/ip_address.h"
-#include "platform/impl/event_loop.h"
 
 namespace openscreen {
-namespace mdns {
+namespace osp {
 
 struct QueryEventHeader {
   enum class Type {
@@ -30,9 +30,9 @@ struct QueryEventHeader {
 
   QueryEventHeader();
   QueryEventHeader(Type response_type, platform::UdpSocket* socket);
-  QueryEventHeader(const QueryEventHeader&);
+  QueryEventHeader(QueryEventHeader&&) noexcept;
   ~QueryEventHeader();
-  QueryEventHeader& operator=(const QueryEventHeader&);
+  QueryEventHeader& operator=(QueryEventHeader&&) noexcept;
 
   Type response_type;
   platform::UdpSocket* socket;
@@ -40,10 +40,10 @@ struct QueryEventHeader {
 
 struct PtrEvent {
   PtrEvent();
-  PtrEvent(const QueryEventHeader& header, DomainName service_instance);
-  PtrEvent(PtrEvent&&);
+  PtrEvent(QueryEventHeader header, DomainName service_instance);
+  PtrEvent(PtrEvent&&) noexcept;
   ~PtrEvent();
-  PtrEvent& operator=(PtrEvent&&);
+  PtrEvent& operator=(PtrEvent&&) noexcept;
 
   QueryEventHeader header;
   DomainName service_instance;
@@ -51,13 +51,13 @@ struct PtrEvent {
 
 struct SrvEvent {
   SrvEvent();
-  SrvEvent(const QueryEventHeader& header,
+  SrvEvent(QueryEventHeader header,
            DomainName service_instance,
            DomainName domain_name,
            uint16_t port);
-  SrvEvent(SrvEvent&&);
+  SrvEvent(SrvEvent&&) noexcept;
   ~SrvEvent();
-  SrvEvent& operator=(SrvEvent&&);
+  SrvEvent& operator=(SrvEvent&&) noexcept;
 
   QueryEventHeader header;
   DomainName service_instance;
@@ -67,12 +67,12 @@ struct SrvEvent {
 
 struct TxtEvent {
   TxtEvent();
-  TxtEvent(const QueryEventHeader& header,
+  TxtEvent(QueryEventHeader header,
            DomainName service_instance,
            std::vector<std::string> txt_info);
-  TxtEvent(TxtEvent&&);
+  TxtEvent(TxtEvent&&) noexcept;
   ~TxtEvent();
-  TxtEvent& operator=(TxtEvent&&);
+  TxtEvent& operator=(TxtEvent&&) noexcept;
 
   QueryEventHeader header;
   DomainName service_instance;
@@ -84,12 +84,10 @@ struct TxtEvent {
 
 struct AEvent {
   AEvent();
-  AEvent(const QueryEventHeader& header,
-         DomainName domain_name,
-         const IPAddress& address);
-  AEvent(AEvent&&);
+  AEvent(QueryEventHeader header, DomainName domain_name, IPAddress address);
+  AEvent(AEvent&&) noexcept;
   ~AEvent();
-  AEvent& operator=(AEvent&&);
+  AEvent& operator=(AEvent&&) noexcept;
 
   QueryEventHeader header;
   DomainName domain_name;
@@ -98,12 +96,10 @@ struct AEvent {
 
 struct AaaaEvent {
   AaaaEvent();
-  AaaaEvent(const QueryEventHeader& header,
-            DomainName domain_name,
-            const IPAddress& address);
-  AaaaEvent(AaaaEvent&&);
+  AaaaEvent(QueryEventHeader header, DomainName domain_name, IPAddress address);
+  AaaaEvent(AaaaEvent&&) noexcept;
   ~AaaaEvent();
-  AaaaEvent& operator=(AaaaEvent&&);
+  AaaaEvent& operator=(AaaaEvent&&) noexcept;
 
   QueryEventHeader header;
   DomainName domain_name;
@@ -164,7 +160,7 @@ enum class MdnsResponderErrorCode {
 // called after any sequence of calls to mDNSResponder.  It also returns a
 // timeout value, after which it must be called again (e.g. for maintaining its
 // cache).
-class MdnsResponderAdapter {
+class MdnsResponderAdapter : public platform::UdpSocket::Client {
  public:
   MdnsResponderAdapter();
   virtual ~MdnsResponderAdapter() = 0;
@@ -193,14 +189,9 @@ class MdnsResponderAdapter {
                                   platform::UdpSocket* socket) = 0;
   virtual Error DeregisterInterface(platform::UdpSocket* socket) = 0;
 
-  virtual void OnDataReceived(const IPEndpoint& source,
-                              const IPEndpoint& original_destination,
-                              const uint8_t* data,
-                              size_t length,
-                              platform::UdpSocket* receiving_socket) = 0;
-
-  // Returns the number of seconds after which this method must be called again.
-  virtual int RunTasks() = 0;
+  // Returns the time period after which this method must be called again, if
+  // any.
+  virtual platform::Clock::duration RunTasks() = 0;
 
   virtual std::vector<PtrEvent> TakePtrResponses() = 0;
   virtual std::vector<SrvEvent> TakeSrvResponses() = 0;
@@ -261,7 +252,7 @@ class MdnsResponderAdapter {
       const std::map<std::string, std::string>& txt_data) = 0;
 };
 
-}  // namespace mdns
+}  // namespace osp
 }  // namespace openscreen
 
 #endif  // OSP_IMPL_DISCOVERY_MDNS_MDNS_RESPONDER_ADAPTER_H_

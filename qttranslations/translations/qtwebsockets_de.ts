@@ -226,8 +226,16 @@
         <translation>Server geschlossen.</translation>
     </message>
     <message>
+        <source>Header is too large.</source>
+        <translation>Der Header ist zu groß.</translation>
+    </message>
+    <message>
         <source>Too many pending connections.</source>
         <translation>Zu viele anstehende Verbindungen.</translation>
+    </message>
+    <message>
+        <source>Read handshake request header failed.</source>
+        <translation>Das Lesen des Headers der Handshake-Anforderung schlug fehl.</translation>
     </message>
     <message>
         <source>Upgrade to WebSocket failed.</source>

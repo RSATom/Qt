@@ -42,7 +42,6 @@ QT_BEGIN_NAMESPACE
 typedef QMultiMap<QString, Node *> NodeMultiMap;
 typedef QMap<Node *, NodeMultiMap> ParentMaps;
 
-class Config;
 class CodeMarker;
 class Location;
 class Node;
@@ -53,8 +52,8 @@ class Generator
     Q_DECLARE_TR_FUNCTIONS(QDoc::Generator)
 
 public:
-    enum QDocPass { Neither, Prepare, Generate };
     enum ListType { Generic, Obsolete };
+    enum Addendum { Invokable, PrivateSignal, QmlSignalHandler, AssociatedProperties, TypeAlias };
 
     Generator();
     virtual ~Generator();
@@ -62,18 +61,18 @@ public:
     virtual bool canHandleFormat(const QString &format) { return format == this->format(); }
     virtual QString format() = 0;
     virtual void generateDocs();
-    virtual void initializeGenerator(const Config &config);
-    virtual void initializeFormat(const Config &config);
+    virtual void initializeGenerator();
+    virtual void initializeFormat();
     virtual void terminateGenerator();
+    virtual QString typeString(const Node *node);
 
     QString fullDocumentLocation(const Node *node, bool useSubdir = false);
-    const Config *config() { return config_; }
     QString linkForExampleFile(const QString &path, const Node *parent,
                                const QString &fileExt = QString());
     static QString exampleFileTitle(const ExampleNode *relative, const QString &fileName);
     static Generator *currentGenerator() { return currentGenerator_; }
     static Generator *generatorForFormat(const QString &format);
-    static void initialize(const Config &config);
+    static void initialize();
     static const QString &outputDir() { return outDir_; }
     static const QString &outputSubdir() { return outSubdir_; }
     static void terminate();
@@ -82,15 +81,6 @@ public:
     static void augmentImageDirs(QSet<QString> &moreImageDirs);
     static bool noLinkErrors() { return noLinkErrors_; }
     static bool autolinkErrors() { return autolinkErrors_; }
-    static void setQDocPass(QDocPass t) { qdocPass_ = t; }
-    static void setUseTimestamps() { useTimestamps_ = true; }
-    static bool preparing() { return (qdocPass_ == Prepare); }
-    static bool generating() { return (qdocPass_ == Generate); }
-    static bool singleExec() { return qdocSingleExec_; }
-    static bool dualExec() { return !qdocSingleExec_; }
-    static bool writeQaPages() { return qdocWriteQaPages_; }
-    static void setSingleExec() { qdocSingleExec_ = true; }
-    static void setWriteQaPages() { qdocWriteQaPages_ = true; }
     static QString defaultModuleName() { return project_; }
     static void resetUseOutputSubdirs() { useOutputSubdirs_ = false; }
     static bool useOutputSubdirs() { return useOutputSubdirs_; }
@@ -98,7 +88,6 @@ public:
     static QmlTypeNode *qmlTypeContext() { return qmlTypeContext_; }
     static QString cleanRef(const QString &ref);
     static QString plainCode(const QString &markedCode);
-    static bool useTimestamps() { return useTimestamps_; }
 
 protected:
     static QFile *openSubPageFile(const Node *node, const QString &fileName);
@@ -131,7 +120,6 @@ protected:
     virtual bool generateText(const Text &text, const Node *relative, CodeMarker *marker);
     virtual QString imageFileName(const Node *relative, const QString &fileBase);
     virtual int skipAtoms(const Atom *atom, Atom::AtomType type) const;
-    virtual QString typeString(const Node *node);
 
     static bool matchAhead(const Atom *atom, Atom::AtomType expectedAtomType);
     static QString outputPrefix(const Node *node);
@@ -153,8 +141,8 @@ protected:
     static QString formatSince(const Node *node);
     void generateSince(const Node *node, CodeMarker *marker);
     void generateStatus(const Node *node, CodeMarker *marker);
-    void generatePrivateSignalNote(const Node *node, CodeMarker *marker);
-    void generateInvokableNote(const Node *node, CodeMarker *marker);
+    virtual void generateAddendum(const Node *node, Addendum type, CodeMarker *marker,
+                                  bool generateNote = true);
     void generateThreadSafeness(const Node *node, CodeMarker *marker);
     QString getMetadataElement(const Aggregate *inner, const QString &t);
     QStringList getMetadataElements(const Aggregate *inner, const QString &t);
@@ -172,8 +160,6 @@ protected:
     static bool hasExceptions(const Node *node, NodeList &reentrant, NodeList &threadsafe,
                               NodeList &nonreentrant);
 
-    QMap<QString, QStringList> editionGroupMap;
-    QMap<QString, QStringList> editionModuleMap;
     QString naturalLanguage;
 #ifndef QT_NO_TEXTCODEC
     QTextCodec *outputCodec;
@@ -193,6 +179,8 @@ protected:
     void signatureList(const NodeList &nodes, const Node *relative, CodeMarker *marker);
 
     void addImageToCopy(const ExampleNode *en, const QString &file);
+    static bool compareNodes(const Node *a, const Node *b) { return (a->name() < b->name()); }
+    static bool comparePaths(const QString &a, const QString &b) { return (a < b); }
 
 private:
     static Generator *currentGenerator_;
@@ -218,21 +206,14 @@ private:
     static bool noLinkErrors_;
     static bool autolinkErrors_;
     static bool redirectDocumentationToDevNull_;
-    static QDocPass qdocPass_;
     static bool qdocSingleExec_;
-    static bool qdocWriteQaPages_;
     static bool useOutputSubdirs_;
-    static bool useTimestamps_;
     static QmlTypeNode *qmlTypeContext_;
 
     void generateReimplementsClause(const FunctionNode *fn, CodeMarker *marker);
-    static bool compareNodes(Node *a, Node *b) { return (a->name() < b->name()); }
-    static bool comparePaths(QString a, QString b) { return (a < b); }
-    static void copyTemplateFiles(const Config &config, const QString &configVar,
-                                  const QString &subDir);
+    static void copyTemplateFiles(const QString &configVar, const QString &subDir);
 
 protected:
-    const Config *config_;
     QDocDatabase *qdb_;
     bool inLink_;
     bool inContents_;

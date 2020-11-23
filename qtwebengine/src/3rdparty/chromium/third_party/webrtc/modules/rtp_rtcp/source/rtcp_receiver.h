@@ -59,7 +59,6 @@ class RTCPReceiver {
 
   int64_t LastReceivedReportBlockMs() const;
 
-  void SetSsrcs(uint32_t main_ssrc, const std::set<uint32_t>& registered_ssrcs);
   void SetRemoteSSRC(uint32_t ssrc);
   uint32_t RemoteSSRC() const;
 
@@ -111,6 +110,7 @@ class RTCPReceiver {
   void NotifyTmmbrUpdated();
 
   void RegisterRtcpStatisticsCallback(RtcpStatisticsCallback* callback);
+  void RegisterRtcpCnameCallback(RtcpCnameCallback* callback);
   RtcpStatisticsCallback* GetRtcpStatisticsCallback();
   void SetReportBlockDataObserver(ReportBlockDataObserver* observer);
 
@@ -214,6 +214,8 @@ class RTCPReceiver {
   Clock* const clock_;
   const bool receiver_only_;
   ModuleRtpRtcp* const rtp_rtcp_;
+  const uint32_t main_ssrc_;
+  const std::set<uint32_t> registered_ssrcs_;
 
   rtc::CriticalSection feedbacks_lock_;
   RtcpBandwidthObserver* const rtcp_bandwidth_observer_;
@@ -225,9 +227,7 @@ class RTCPReceiver {
   const int report_interval_ms_;
 
   rtc::CriticalSection rtcp_receiver_lock_;
-  uint32_t main_ssrc_ RTC_GUARDED_BY(rtcp_receiver_lock_);
   uint32_t remote_ssrc_ RTC_GUARDED_BY(rtcp_receiver_lock_);
-  std::set<uint32_t> registered_ssrcs_ RTC_GUARDED_BY(rtcp_receiver_lock_);
 
   // Received sender report.
   NtpTime remote_sender_ntp_time_ RTC_GUARDED_BY(rtcp_receiver_lock_);
@@ -265,6 +265,7 @@ class RTCPReceiver {
   int64_t last_increased_sequence_number_ms_;
 
   RtcpStatisticsCallback* stats_callback_ RTC_GUARDED_BY(feedbacks_lock_);
+  RtcpCnameCallback* cname_callback_ RTC_GUARDED_BY(feedbacks_lock_);
   // TODO(hbos): Remove RtcpStatisticsCallback in favor of
   // ReportBlockDataObserver; the ReportBlockData contains a superset of the
   // RtcpStatistics data.

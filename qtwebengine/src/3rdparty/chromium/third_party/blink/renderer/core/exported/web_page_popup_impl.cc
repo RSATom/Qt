@@ -38,6 +38,7 @@
 #include "third_party/blink/public/web/web_view_client.h"
 #include "third_party/blink/renderer/core/accessibility/ax_object_cache_base.h"
 #include "third_party/blink/renderer/core/dom/context_features.h"
+#include "third_party/blink/renderer/core/dom/document.h"
 #include "third_party/blink/renderer/core/dom/events/event_dispatch_forbidden_scope.h"
 #include "third_party/blink/renderer/core/events/message_event.h"
 #include "third_party/blink/renderer/core/events/web_input_event_conversion.h"
@@ -66,6 +67,7 @@
 #include "third_party/blink/renderer/platform/heap/handle.h"
 #include "third_party/blink/renderer/platform/heap/heap.h"
 #include "third_party/blink/renderer/platform/instrumentation/tracing/trace_event.h"
+#include "third_party/blink/renderer/platform/keyboard_codes.h"
 #include "third_party/blink/renderer/platform/web_test_support.h"
 
 namespace blink {
@@ -103,7 +105,8 @@ class PagePopupChromeClient final : public EmptyChromeClient {
     return rect_in_screen;
   }
 
-  float WindowToViewportScalar(const float scalar_value) const override {
+  float WindowToViewportScalar(LocalFrame*,
+                               const float scalar_value) const override {
     WebFloatRect viewport_rect(0, 0, scalar_value, 0);
     popup_->WidgetClient()->ConvertWindowToViewport(&viewport_rect);
     return viewport_rect.width;
@@ -122,13 +125,16 @@ class PagePopupChromeClient final : public EmptyChromeClient {
 #endif
   }
 
-  void ScheduleAnimation(const LocalFrameView*) override {
+  void ScheduleAnimation(const LocalFrameView*,
+                         base::TimeDelta = base::TimeDelta()) override {
     if (WebTestSupport::IsRunningWebTest()) {
       // In single threaded web tests, the main frame's WebWidgetClient
       // (provided by WebViewTestProxy or WebWidgetTestProxy) runs the composite
       // step for the current popup. We don't run popup tests with a compositor
       // thread.
-      popup_->web_view_->WidgetClient()->ScheduleAnimation();
+      WebWidgetClient* widget_client =
+          popup_->web_view_->MainFrameImpl()->FrameWidgetImpl()->Client();
+      widget_client->ScheduleAnimation();
       return;
     }
     popup_->WidgetClient()->ScheduleAnimation();
@@ -146,8 +152,9 @@ class PagePopupChromeClient final : public EmptyChromeClient {
         timeline->GetAnimationTimeline());
   }
 
-  WebScreenInfo GetScreenInfo() const override {
-    return popup_->web_view_->Client()->GetScreenInfo();
+  WebScreenInfo GetScreenInfo(LocalFrame&) const override {
+    // LocalFrame is ignored since there is only 1 frame in a popup.
+    return popup_->WidgetClient()->GetScreenInfo();
   }
 
   WebViewImpl* GetWebView() const override { return popup_->web_view_; }
@@ -191,11 +198,6 @@ class PagePopupChromeClient final : public EmptyChromeClient {
       return;
     if (WebWidgetClient* client = To<WebFrameWidgetBase>(widget)->Client())
       client->SetTouchAction(static_cast<WebTouchAction>(touch_action));
-  }
-
-  void AttachRootGraphicsLayer(GraphicsLayer* graphics_layer,
-                               LocalFrame* local_root) override {
-    popup_->SetRootLayer(graphics_layer ? graphics_layer->CcLayer() : nullptr);
   }
 
   void AttachRootLayer(scoped_refptr<cc::Layer> layer,
@@ -300,7 +302,7 @@ void WebPagePopupImpl::Initialize(WebViewImpl* web_view,
     cache->ChildrenChanged(&popup_client_->OwnerElement());
   }
 
-  page_->LayerTreeViewInitialized(*layer_tree_view_, *animation_host_, nullptr);
+  page_->AnimationHostInitialized(*animation_host_, nullptr);
 
   scoped_refptr<SharedBuffer> data = SharedBuffer::Create();
   popup_client_->WriteDocument(data.get());
@@ -311,12 +313,10 @@ void WebPagePopupImpl::Initialize(WebViewImpl* web_view,
   SetFocus(true);
 }
 
-void WebPagePopupImpl::SetLayerTreeView(WebLayerTreeView* layer_tree_view,
-                                        cc::AnimationHost* animation_host) {
+void WebPagePopupImpl::SetAnimationHost(cc::AnimationHost* animation_host) {
   // The WebWidgetClient is given |this| as its WebWidget but it is set up
-  // before Initialize() is called on |this|. So we store the |layer_tree_view|
+  // before Initialize() is called on |this|. So we store the |animation_host_|
   // here, but finish setting it up in Initialize().
-  layer_tree_view_ = layer_tree_view;
   animation_host_ = animation_host;
 }
 
@@ -328,7 +328,7 @@ void WebPagePopupImpl::PostMessageToPopup(const String& message) {
 }
 
 void WebPagePopupImpl::DestroyPage() {
-  page_->WillCloseLayerTreeView(*layer_tree_view_, nullptr);
+  page_->WillCloseAnimationHost(nullptr);
   page_->WillBeDestroyed();
   page_.Clear();
 }
@@ -405,11 +405,25 @@ WebInputEventResult WebPagePopupImpl::HandleKeyEvent(
     const WebKeyboardEvent& event) {
   if (closing_)
     return WebInputEventResult::kNotHandled;
+
+  if (WebInputEvent::kRawKeyDown == event.GetType()) {
+    Element* focused_element = FocusedElement();
+    if (event.windows_key_code == VKEY_TAB && focused_element &&
+        focused_element->IsKeyboardFocusable()) {
+      // If the tab key is pressed while a keyboard focusable element is
+      // focused, we should not send a corresponding keypress event.
+      suppress_next_keypress_event_ = true;
+    }
+  }
   return MainFrame().GetEventHandler().KeyEvent(event);
 }
 
 WebInputEventResult WebPagePopupImpl::HandleCharEvent(
     const WebKeyboardEvent& event) {
+  if (suppress_next_keypress_event_) {
+    suppress_next_keypress_event_ = false;
+    return WebInputEventResult::kHandledSuppressed;
+  }
   return HandleKeyEvent(event);
 }
 
@@ -454,6 +468,21 @@ LocalFrame& WebPagePopupImpl::MainFrame() const {
   return *To<LocalFrame>(page_->MainFrame());
 }
 
+Element* WebPagePopupImpl::FocusedElement() const {
+  if (!page_)
+    return nullptr;
+
+  LocalFrame* frame = page_->GetFocusController().FocusedFrame();
+  if (!frame)
+    return nullptr;
+
+  Document* document = frame->GetDocument();
+  if (!document)
+    return nullptr;
+
+  return document->FocusedElement();
+}
+
 bool WebPagePopupImpl::IsViewportPointInWindow(int x, int y) {
   WebRect point_in_window(x, y, 0, 0);
   WidgetClient()->ConvertViewportToWindow(&point_in_window);
@@ -485,6 +514,8 @@ void WebPagePopupImpl::SetFocus(bool enable) {
 }
 
 WebURL WebPagePopupImpl::GetURLForDebugTrace() {
+  if (!page_)
+    return {};
   WebFrame* main_frame = web_view_->MainFrame();
   if (main_frame->IsWebLocalFrame())
     return main_frame->ToWebLocalFrame()->GetDocument().Url();
@@ -505,7 +536,6 @@ void WebPagePopupImpl::Close() {
   }
 
   is_accelerated_compositing_active_ = false;
-  layer_tree_view_ = nullptr;
   animation_host_ = nullptr;
   web_page_popup_client_ = nullptr;
 

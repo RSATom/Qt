@@ -42,6 +42,8 @@ class tst_Mouse : public QObject
     Q_OBJECT
 
 private slots:
+    void timestampBetweenTestFunction_data();
+    void timestampBetweenTestFunction();
     void stateHandlingPart1_data();
     void stateHandlingPart1();
     void stateHandlingPart2();
@@ -55,19 +57,82 @@ public:
     Qt::MouseButtons stateInMouseMove = Qt::NoButton;
     int moveCount = 0;
     int pressCount = 0;
+    int doubleClickCount = 0;
+    ulong lastTimeStamp = 0;
 
 protected:
-    void mousePressEvent(QMouseEvent *)
+    void mousePressEvent(QMouseEvent *e)
     {
         pressCount++;
+        processEvent(e);
     }
 
     void mouseMoveEvent(QMouseEvent *e)
     {
         moveCount++;
         stateInMouseMove = e->buttons();
+        processEvent(e);
     }
+
+    void mouseReleaseEvent(QMouseEvent *e)
+    {
+        processEvent(e);
+    }
+
+    void mouseDoubleClickEvent(QMouseEvent *e)
+    {
+        doubleClickCount++;
+        processEvent(e);
+    }
+
+    void processEvent(QMouseEvent *e)
+    {
+        lastTimeStamp = e->timestamp();
+    }
+
 };
+
+static ulong lastTimeStampInPreviousTestFunction = 0;
+
+void tst_Mouse::timestampBetweenTestFunction_data()
+{
+    QTest::addColumn<bool>("hoverLast");
+    QTest::addColumn<bool>("pressAndRelease");
+    QTest::newRow("press, release") << true << false;
+    QTest::newRow("press, release, hover") << true << true;
+    QTest::newRow("hover") << false << true;
+    QTest::newRow("hover #2") << false << true;
+    QTest::newRow("press, release #2") << true << false;
+    QTest::newRow("press, release, hover #2") << true << true;
+}
+
+void tst_Mouse::timestampBetweenTestFunction()
+{
+    QFETCH(bool, hoverLast);
+    QFETCH(bool, pressAndRelease);
+
+    MouseWindow w;
+    w.show();
+    w.setGeometry(100, 100, 200, 200);
+    QVERIFY(QTest::qWaitForWindowActive(&w));
+
+    QPoint point(10, 10);
+    QCOMPARE(w.pressCount, 0);
+    if (pressAndRelease) {
+        QTest::mousePress(&w, Qt::LeftButton, { }, point);
+        QVERIFY(w.lastTimeStamp - lastTimeStampInPreviousTestFunction > 500);   // Should be at least 500 ms timestamp between each test case
+        QCOMPARE(w.pressCount, 1);
+        QTest::mouseRelease(&w, Qt::LeftButton, { }, point);
+    }
+    QCOMPARE(w.doubleClickCount, 0);
+    if (hoverLast) {
+        static int xMove = 0;
+        xMove += 5;     // Just make sure we generate different hover coordinates
+        point.rx() += xMove;
+        QTest::mouseMove(&w, point);     // a hover move. This doesn't generate a timestamp delay of 500 ms
+    }
+    lastTimeStampInPreviousTestFunction = w.lastTimeStamp;
+}
 
 void tst_Mouse::stateHandlingPart1_data()
 {
@@ -93,31 +158,31 @@ void tst_Mouse::stateHandlingPart1()
     // verify that we have a clean state after the previous data set
     QCOMPARE(QTestPrivate::qtestMouseButtons, Qt::NoButton);
 
-    QTest::mousePress(&w, Qt::LeftButton, 0, point);
+    QTest::mousePress(&w, Qt::LeftButton, { }, point);
     QCOMPARE(QTestPrivate::qtestMouseButtons, Qt::LeftButton);
-    QTest::mousePress(&w, Qt::RightButton, 0, point);
+    QTest::mousePress(&w, Qt::RightButton, { }, point);
     QCOMPARE(QTestPrivate::qtestMouseButtons, Qt::LeftButton | Qt::RightButton);
     QTest::mouseMove(&w, point += step);
     QCOMPARE(QTestPrivate::qtestMouseButtons, Qt::LeftButton | Qt::RightButton);
-    QTest::mouseRelease(&w, Qt::LeftButton, 0, point);
+    QTest::mouseRelease(&w, Qt::LeftButton, { }, point);
     QCOMPARE(QTestPrivate::qtestMouseButtons, Qt::RightButton);
     QTest::mouseMove(&w, point += step);
     QCOMPARE(QTestPrivate::qtestMouseButtons, Qt::RightButton);
     // test invalid input - left button was already released
-    QTest::mouseRelease(&w, Qt::LeftButton, 0, point += point);
+    QTest::mouseRelease(&w, Qt::LeftButton, { }, point += point);
     QCOMPARE(QTestPrivate::qtestMouseButtons, Qt::RightButton);
     // test invalid input - right button is already pressed
-    QTest::mousePress(&w, Qt::RightButton, 0, point);
+    QTest::mousePress(&w, Qt::RightButton, { }, point);
     QCOMPARE(QTestPrivate::qtestMouseButtons, Qt::RightButton);
     // now continue with valid input
-    QTest::mouseRelease(&w, Qt::RightButton, 0, point += point);
+    QTest::mouseRelease(&w, Qt::RightButton, { }, point += point);
     QCOMPARE(QTestPrivate::qtestMouseButtons, Qt::NoButton);
     QTest::mouseMove(&w, point += step);
     QCOMPARE(QTestPrivate::qtestMouseButtons, Qt::NoButton);
 
     // exit this test function with some button in a pressed state
-    QTest::mousePress(&w, Qt::LeftButton, 0, point);
-    QTest::mousePress(&w, Qt::RightButton, 0, point);
+    QTest::mousePress(&w, Qt::LeftButton, { }, point);
+    QTest::mousePress(&w, Qt::RightButton, { }, point);
     QCOMPARE(QTestPrivate::qtestMouseButtons, Qt::LeftButton | Qt::RightButton);
 }
 
@@ -144,8 +209,8 @@ void tst_Mouse::stateHandlingPart2()
     QSKIP("Not implemented beyond this point!");
 
     QPoint point(40, 40);
-    QTest::mousePress(&w, Qt::LeftButton, 0, point);
-    QTest::mousePress(&w, Qt::RightButton, 0, point);
+    QTest::mousePress(&w, Qt::LeftButton, { }, point);
+    QTest::mousePress(&w, Qt::RightButton, { }, point);
     QCOMPARE(QTestPrivate::qtestMouseButtons, Qt::LeftButton | Qt::RightButton);
     w.moveCount = 0;
     // The windowing system will send mouse events with no buttons set
@@ -201,11 +266,11 @@ void tst_Mouse::deterministicEvents()
     QCOMPARE(w.moveCount, 0);
     static QPoint m_cachedLastCursorPosition;
     if (firstRun) {
-        QTest::mousePress(&w, Qt::LeftButton, 0, QPoint(40, 40));
+        QTest::mousePress(&w, Qt::LeftButton, { }, QPoint(40, 40));
         m_cachedLastCursorPosition = QGuiApplicationPrivate::lastCursorPosition.toPoint();
     } else {
         QPoint point = w.mapFromGlobal(m_cachedLastCursorPosition);
-        QTest::mousePress(&w, Qt::LeftButton, 0, point);
+        QTest::mousePress(&w, Qt::LeftButton, { }, point);
     }
     QCOMPARE(w.pressCount, 1);
     QCOMPARE(w.moveCount, 1);

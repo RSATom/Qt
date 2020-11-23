@@ -65,6 +65,7 @@ struct QMetalBuffer : public QRhiBuffer
     ~QMetalBuffer();
     void release() override;
     bool build() override;
+    QRhiBuffer::NativeBuffer nativeBuffer() override;
 
     QMetalBufferData *d;
     uint generation = 0;
@@ -100,13 +101,12 @@ struct QMetalTexture : public QRhiTexture
     ~QMetalTexture();
     void release() override;
     bool build() override;
-    bool buildFrom(const QRhiNativeHandles *src) override;
-    const QRhiNativeHandles *nativeHandles() override;
+    bool buildFrom(NativeTexture src) override;
+    NativeTexture nativeTexture() override;
 
     bool prepareBuild(QSize *adjustedSize = nullptr);
 
     QMetalTextureData *d;
-    QRhiMetalTextureNativeHandles nativeHandlesStruct;
     int mipLevelCount = 0;
     int samples = 1;
     uint generation = 0;
@@ -121,7 +121,7 @@ struct QMetalSamplerData;
 struct QMetalSampler : public QRhiSampler
 {
     QMetalSampler(QRhiImplementation *rhi, Filter magFilter, Filter minFilter, Filter mipmapMode,
-                  AddressMode u, AddressMode v);
+                  AddressMode u, AddressMode v, AddressMode w);
     ~QMetalSampler();
     void release() override;
     bool build() override;
@@ -138,6 +138,7 @@ struct QMetalRenderPassDescriptor : public QRhiRenderPassDescriptor
     QMetalRenderPassDescriptor(QRhiImplementation *rhi);
     ~QMetalRenderPassDescriptor();
     void release() override;
+    bool isCompatible(const QRhiRenderPassDescriptor *other) const override;
 
     // there is no MTLRenderPassDescriptor here as one will be created for each pass in beginPass()
 
@@ -196,10 +197,13 @@ struct QMetalShaderResourceBindings : public QRhiShaderResourceBindings
         uint generation;
     };
     struct BoundSampledTextureData {
-        quint64 texId;
-        uint texGeneration;
-        quint64 samplerId;
-        uint samplerGeneration;
+        int count;
+        struct {
+            quint64 texId;
+            uint texGeneration;
+            quint64 samplerId;
+            uint samplerGeneration;
+        } d[QRhiShaderResourceBinding::Data::MAX_TEX_SAMPLER_ARRAY_SIZE];
     };
     struct BoundStorageImageData {
         quint64 id;
@@ -288,6 +292,7 @@ struct QMetalCommandBuffer : public QRhiCommandBuffer
     QRhiCommandBuffer::IndexFormat currentIndexFormat;
     int currentCullMode;
     int currentFrontFaceWinding;
+    QPair<float, float> currentDepthBiasValues;
 
     const QRhiNativeHandles *nativeHandles();
     void resetState();
@@ -349,9 +354,12 @@ public:
                                const QSize &pixelSize,
                                int sampleCount,
                                QRhiTexture::Flags flags) override;
-    QRhiSampler *createSampler(QRhiSampler::Filter magFilter, QRhiSampler::Filter minFilter,
+    QRhiSampler *createSampler(QRhiSampler::Filter magFilter,
+                               QRhiSampler::Filter minFilter,
                                QRhiSampler::Filter mipmapMode,
-                               QRhiSampler:: AddressMode u, QRhiSampler::AddressMode v) override;
+                               QRhiSampler:: AddressMode u,
+                               QRhiSampler::AddressMode v,
+                               QRhiSampler::AddressMode w) override;
 
     QRhiTextureRenderTarget *createTextureRenderTarget(const QRhiTextureRenderTargetDescription &desc,
                                                        QRhiTextureRenderTarget::Flags flags) override;
@@ -432,6 +440,7 @@ public:
                              int layer, int level, const QRhiTextureSubresourceUploadDescription &subresDesc,
                              qsizetype *curOfs);
     void enqueueResourceUpdates(QRhiCommandBuffer *cb, QRhiResourceUpdateBatch *resourceUpdates);
+    void executeBufferHostWritesForSlot(QMetalBuffer *bufD, int slot);
     void executeBufferHostWritesForCurrentFrame(QMetalBuffer *bufD);
     static const int SUPPORTED_STAGES = 3;
     void enqueueShaderResourceBindings(QMetalShaderResourceBindings *srbD,

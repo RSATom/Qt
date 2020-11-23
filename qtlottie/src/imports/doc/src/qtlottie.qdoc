@@ -35,9 +35,6 @@
     animations that are exported in JSON format by the \l Bodymovin plugin
     for Adobe After Effects.
 
-    \note This module is still in development and is provided as a technology
-          preview.
-
     \section1 Getting Started
 
 //! [usage]

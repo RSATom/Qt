@@ -39,6 +39,7 @@
 #include "third_party/blink/renderer/core/css/property_registry.h"
 #include "third_party/blink/renderer/core/css/resolver/style_resolver.h"
 #include "third_party/blink/renderer/core/dom/document.h"
+#include "third_party/blink/renderer/core/frame/web_feature.h"
 #include "third_party/blink/renderer/core/style/computed_style.h"
 #include "third_party/blink/renderer/platform/animation/animation_utilities.h"
 #include "third_party/blink/renderer/platform/geometry/float_box.h"
@@ -61,17 +62,19 @@ template <class K>
 void KeyframeEffectModelBase::SetFrames(HeapVector<K>& keyframes) {
   // TODO(samli): Should also notify/invalidate the animation
   keyframes_.clear();
-  keyframe_groups_ = nullptr;
-  interpolation_effect_->Clear();
-  last_fraction_ = std::numeric_limits<double>::quiet_NaN();
   keyframes_.AppendVector(keyframes);
-  needs_compositor_keyframes_snapshot_ = true;
+  ClearCachedData();
 }
 
 template CORE_EXPORT void KeyframeEffectModelBase::SetFrames(
     HeapVector<Member<Keyframe>>& keyframes);
 template CORE_EXPORT void KeyframeEffectModelBase::SetFrames(
     HeapVector<Member<StringKeyframe>>& keyframes);
+
+void KeyframeEffectModelBase::SetComposite(CompositeOperation composite) {
+  composite_ = composite;
+  ClearCachedData();
+}
 
 bool KeyframeEffectModelBase::Sample(
     int iteration,
@@ -388,6 +391,13 @@ void KeyframeEffectModelBase::EnsureInterpolationEffectPopulated() const {
   }
 
   interpolation_effect_->SetPopulated();
+}
+
+void KeyframeEffectModelBase::ClearCachedData() {
+  keyframe_groups_ = nullptr;
+  interpolation_effect_->Clear();
+  last_fraction_ = std::numeric_limits<double>::quiet_NaN();
+  needs_compositor_keyframes_snapshot_ = true;
 }
 
 bool KeyframeEffectModelBase::IsReplaceOnly() const {

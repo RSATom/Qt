@@ -56,7 +56,7 @@
 #include "qgeopositioninfosourcefactory.h"
 #include <QJsonObject>
 #include <QString>
-#include <QHash>
+#include <QMultiHash>
 #include <QList>
 
 QT_BEGIN_NAMESPACE
@@ -79,8 +79,8 @@ public:
     virtual bool setBackendProperty(const QString &name, const QVariant &value);
     virtual QVariant backendProperty(const QString &name) const;
 
-    static QHash<QString, QJsonObject> plugins(bool reload = false);
-    static void loadPluginMetadata(QHash<QString, QJsonObject> &list);
+    static QMultiHash<QString, QJsonObject> plugins(bool reload = false);
+    static void loadPluginMetadata(QMultiHash<QString, QJsonObject> &list);
     static QList<QJsonObject> pluginsSorted();
 };
 

@@ -47,6 +47,8 @@
 #include "qlocale.h"
 #include "qdebug.h"
 
+#include <qscopedvaluerollback.h>
+
 QT_BEGIN_NAMESPACE
 
 QSvgG::QSvgG(QSvgNode *parent)
@@ -356,8 +358,11 @@ void QSvgSwitch::init()
 QRectF QSvgStructureNode::bounds(QPainter *p, QSvgExtraStates &states) const
 {
     QRectF bounds;
-    for (QSvgNode *node : qAsConst(m_renderers))
-        bounds |= node->transformedBounds(p, states);
+    if (!m_recursing) {
+        QScopedValueRollback<bool> guard(m_recursing, true);
+        for (QSvgNode *node : qAsConst(m_renderers))
+            bounds |= node->transformedBounds(p, states);
+    }
     return bounds;
 }
 

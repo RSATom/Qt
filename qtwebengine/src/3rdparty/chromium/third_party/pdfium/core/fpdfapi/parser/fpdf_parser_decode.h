@@ -11,7 +11,7 @@
 #include <utility>
 #include <vector>
 
-#include "core/fxcrt/fx_memory.h"
+#include "core/fxcrt/fx_memory_wrappers.h"
 #include "core/fxcrt/fx_string.h"
 #include "core/fxcrt/unowned_ptr.h"
 #include "third_party/base/optional.h"
@@ -86,6 +86,6 @@ bool PDF_DataDecode(
     std::unique_ptr<uint8_t, FxFreeDeleter>* dest_buf,
     uint32_t* dest_size,
     ByteString* ImageEncoding,
-    UnownedPtr<const CPDF_Dictionary>* pImageParams);
+    RetainPtr<const CPDF_Dictionary>* pImageParams);
 
 #endif  // CORE_FPDFAPI_PARSER_FPDF_PARSER_DECODE_H_

@@ -2,7 +2,6 @@ TEMPLATE = app
 TARGET = weatherinfo
 
 QT += core network positioning qml quick
-requires(qtConfig(bearermanagement))
 
 SOURCES += main.cpp \
     appmodel.cpp

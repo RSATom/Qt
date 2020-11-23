@@ -25,6 +25,7 @@ namespace gpu {
 class GpuChannelHost;
 struct Mailbox;
 struct SyncToken;
+struct VulkanYCbCrInfo;
 }
 
 namespace content {
@@ -42,6 +43,8 @@ class CONTENT_EXPORT StreamTextureHost : public IPC::Listener {
   class Listener {
    public:
     virtual void OnFrameAvailable() = 0;
+    virtual void OnFrameWithYcbcrInfoAvailable(
+        base::Optional<gpu::VulkanYCbCrInfo> ycbcr_info) = 0;
     virtual ~Listener() {}
   };
 
@@ -59,13 +62,15 @@ class CONTENT_EXPORT StreamTextureHost : public IPC::Listener {
  private:
   // Message handlers:
   void OnFrameAvailable();
+  void OnFrameWithYcbcrInfoAvailable(
+      base::Optional<gpu::VulkanYCbCrInfo> ycbcr_info);
 
   int32_t route_id_;
   Listener* listener_;
   scoped_refptr<gpu::GpuChannelHost> channel_;
   uint32_t release_id_ = 0;
 
-  base::WeakPtrFactory<StreamTextureHost> weak_ptr_factory_;
+  base::WeakPtrFactory<StreamTextureHost> weak_ptr_factory_{this};
 
   DISALLOW_IMPLICIT_CONSTRUCTORS(StreamTextureHost);
 };

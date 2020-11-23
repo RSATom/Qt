@@ -4,6 +4,7 @@
 
 #include "third_party/blink/renderer/core/css/cssom/style_value_factory.h"
 
+#include "third_party/blink/renderer/core/css/css_color_value.h"
 #include "third_party/blink/renderer/core/css/css_custom_ident_value.h"
 #include "third_party/blink/renderer/core/css/css_custom_property_declaration.h"
 #include "third_party/blink/renderer/core/css/css_identifier_value.h"
@@ -19,6 +20,7 @@
 #include "third_party/blink/renderer/core/css/cssom/css_style_variable_reference_value.h"
 #include "third_party/blink/renderer/core/css/cssom/css_transform_value.h"
 #include "third_party/blink/renderer/core/css/cssom/css_unparsed_value.h"
+#include "third_party/blink/renderer/core/css/cssom/css_unsupported_color_value.h"
 #include "third_party/blink/renderer/core/css/cssom/css_unsupported_style_value.h"
 #include "third_party/blink/renderer/core/css/cssom/css_url_image_value.h"
 #include "third_party/blink/renderer/core/css/cssom/cssom_types.h"
@@ -53,6 +55,8 @@ CSSStyleValue* CreateStyleValue(const CSSValue& value) {
     return CSSKeywordValue::FromCSSValue(value);
   if (auto* primitive_value = DynamicTo<CSSPrimitiveValue>(value))
     return CSSNumericValue::FromCSSValue(*primitive_value);
+  if (auto* color_value = DynamicTo<cssvalue::CSSColorValue>(value))
+    return CSSUnsupportedColorValue::FromCSSValue(*color_value);
   if (auto* image_value = DynamicTo<CSSImageValue>(value))
     return MakeGarbageCollected<CSSURLImageValue>(*image_value->Clone());
   return nullptr;
@@ -127,10 +131,11 @@ CSSStyleValue* CreateStyleValueWithPropertyInternal(CSSPropertyID property_id,
       return CreateStyleValue(value);
     }
     case CSSPropertyID::kGridAutoFlow: {
-      const auto& value_list = To<CSSValueList>(value);
-      // Only single keywords are supported in level 1.
-      if (value_list.length() == 1U)
-        return CreateStyleValue(value_list.Item(0));
+      if (const auto* value_list = DynamicTo<CSSValueList>(value)) {
+        // Only single keywords are supported in level 1.
+        if (value_list->length() == 1U)
+          return CreateStyleValue(value_list->Item(0));
+      }
       return nullptr;
     }
     case CSSPropertyID::kTransform:
@@ -146,10 +151,11 @@ CSSStyleValue* CreateStyleValueWithPropertyInternal(CSSPropertyID property_id,
     case CSSPropertyID::kTransformOrigin:
       return CSSPositionValue::FromCSSValue(value);
     case CSSPropertyID::kOffsetRotate: {
-      const auto& value_list = To<CSSValueList>(value);
-      // Only single keywords are supported in level 1.
-      if (value_list.length() == 1U)
-        return CreateStyleValue(value_list.Item(0));
+      if (const auto* value_list = DynamicTo<CSSValueList>(&value)) {
+        // Only single keywords are supported in level 1.
+        if (value_list->length() == 1U)
+          return CreateStyleValue(value_list->Item(0));
+      }
       return nullptr;
     }
     case CSSPropertyID::kAlignItems: {
@@ -167,10 +173,11 @@ CSSStyleValue* CreateStyleValueWithPropertyInternal(CSSPropertyID property_id,
       if (value.IsIdentifierValue())
         return CreateStyleValue(value);
 
-      const auto& value_list = To<CSSValueList>(value);
-      // Only single keywords are supported in level 1.
-      if (value_list.length() == 1U)
-        return CreateStyleValue(value_list.Item(0));
+      if (const auto* value_list = DynamicTo<CSSValueList>(&value)) {
+        // Only single keywords are supported in level 1.
+        if (value_list->length() == 1U)
+          return CreateStyleValue(value_list->Item(0));
+      }
       return nullptr;
     }
     case CSSPropertyID::kTextIndent: {
@@ -185,10 +192,11 @@ CSSStyleValue* CreateStyleValueWithPropertyInternal(CSSPropertyID property_id,
     }
     case CSSPropertyID::kTransitionProperty:
     case CSSPropertyID::kTouchAction: {
-      const auto& value_list = To<CSSValueList>(value);
-      // Only single values are supported in level 1.
-      if (value_list.length() == 1U)
-        return CreateStyleValue(value_list.Item(0));
+      if (const auto* value_list = DynamicTo<CSSValueList>(value)) {
+        // Only single values are supported in level 1.
+        if (value_list->length() == 1U)
+          return CreateStyleValue(value_list->Item(0));
+      }
       return nullptr;
     }
     case CSSPropertyID::kWillChange: {

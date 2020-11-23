@@ -233,22 +233,36 @@ void QQuickViewController::geometryChanged(const QRectF &newGeometry, const QRec
 void QQuickViewController::onWindowChanged(QQuickWindow* window)
 {
     QQuickWindow *oldParent = qobject_cast<QQuickWindow *>(m_view->parentView());
-    if (oldParent != 0)
+    if (oldParent)
         oldParent->disconnect(this);
 
-    if (window != 0) {
-        connect(window, &QQuickWindow::widthChanged, this, &QQuickViewController::scheduleUpdatePolish);
-        connect(window, &QQuickWindow::heightChanged, this, &QQuickViewController::scheduleUpdatePolish);
-        connect(window, &QQuickWindow::xChanged, this, &QQuickViewController::scheduleUpdatePolish);
-        connect(window, &QQuickWindow::yChanged, this, &QQuickViewController::scheduleUpdatePolish);
-        connect(window, &QQuickWindow::sceneGraphInitialized, this, &QQuickViewController::scheduleUpdatePolish);
-        connect(window, &QQuickWindow::sceneGraphInvalidated, this, &QQuickViewController::onSceneGraphInvalidated);
-        connect(window, &QQuickWindow::visibleChanged, this, [this](bool visible) { m_view->setVisible(visible); });
+    if (!window) {
+        m_view->setParentView(nullptr);
+        return;
     }
 
-    // Check if there's an actual window available.
+    // Check if there's an actual native window available.
     QWindow *rw = QQuickRenderControl::renderWindowFor(window);
-    m_view->setParentView(rw ? rw : window);
+
+    if (rw) {
+        connect(rw, &QWindow::widthChanged, this, &QQuickViewController::scheduleUpdatePolish);
+        connect(rw, &QWindow::heightChanged, this, &QQuickViewController::scheduleUpdatePolish);
+        connect(rw, &QWindow::xChanged, this, &QQuickViewController::scheduleUpdatePolish);
+        connect(rw, &QWindow::yChanged, this, &QQuickViewController::scheduleUpdatePolish);
+        connect(rw, &QWindow::visibleChanged, this, [this](bool visible) { m_view->setVisible(visible); });
+        connect(window, &QQuickWindow::sceneGraphInitialized, this, &QQuickViewController::scheduleUpdatePolish);
+        connect(window, &QQuickWindow::sceneGraphInvalidated, this, &QQuickViewController::onSceneGraphInvalidated);
+        m_view->setParentView(rw);
+    } else {
+        connect(window, &QWindow::widthChanged, this, &QQuickViewController::scheduleUpdatePolish);
+        connect(window, &QWindow::heightChanged, this, &QQuickViewController::scheduleUpdatePolish);
+        connect(window, &QWindow::xChanged, this, &QQuickViewController::scheduleUpdatePolish);
+        connect(window, &QWindow::yChanged, this, &QQuickViewController::scheduleUpdatePolish);
+        connect(window, &QQuickWindow::sceneGraphInitialized, this, &QQuickViewController::scheduleUpdatePolish);
+        connect(window, &QQuickWindow::sceneGraphInvalidated, this, &QQuickViewController::onSceneGraphInvalidated);
+        connect(window, &QWindow::visibleChanged, this, [this](bool visible) { m_view->setVisible(visible); });
+        m_view->setParentView(window);
+    }
 }
 
 void QQuickViewController::onVisibleChanged()

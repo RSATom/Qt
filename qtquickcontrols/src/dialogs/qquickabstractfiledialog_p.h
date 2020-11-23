@@ -82,7 +82,7 @@ public:
     QQuickAbstractFileDialog(QObject *parent = 0);
     virtual ~QQuickAbstractFileDialog();
 
-    virtual QString title() const;
+    QString title() const override;
     bool selectExisting() const { return m_selectExisting; }
     bool selectMultiple() const { return m_selectMultiple; }
     bool selectFolder() const { return m_selectFolder; }
@@ -99,8 +99,8 @@ public:
     QString defaultSuffix() const { return m_options->defaultSuffix(); }
 
 public Q_SLOTS:
-    void setVisible(bool v);
-    void setTitle(const QString &t);
+    void setVisible(bool v) override;
+    void setTitle(const QString &t) override;
     void setSelectExisting(bool s);
     void setSelectMultiple(bool s);
     void setSelectFolder(bool s);

@@ -25,6 +25,7 @@
 #include "extensions/browser/renderer_startup_helper.h"
 #include "extensions/browser/runtime_data.h"
 #include "extensions/browser/service_worker_task_queue.h"
+#include "extensions/browser/task_queue_util.h"
 #include "extensions/common/manifest_handlers/background_info.h"
 
 using content::DevToolsAgentHost;
@@ -250,7 +251,8 @@ void ExtensionRegistrar::DisableExtension(const ExtensionId& extension_id,
         extensions::disable_reason::DISABLE_RELOAD |
         extensions::disable_reason::DISABLE_CORRUPTED |
         extensions::disable_reason::DISABLE_UPDATE_REQUIRED_BY_POLICY |
-        extensions::disable_reason::DISABLE_BLOCKED_BY_POLICY;
+        extensions::disable_reason::DISABLE_BLOCKED_BY_POLICY |
+        extensions::disable_reason::DISABLE_CUSTODIAN_APPROVAL_REQUIRED;
     disable_reasons &= internal_disable_reason_mask;
 
     if (disable_reasons == disable_reason::DISABLE_NONE)
@@ -432,15 +434,16 @@ void ExtensionRegistrar::ActivateExtension(const Extension* extension,
       base::Bind(&ExtensionRegistrar::OnExtensionRegisteredWithRequestContexts,
                  weak_factory_.GetWeakPtr(), WrapRefCounted(extension)));
 
-  renderer_helper_->OnExtensionLoaded(*extension);
-
+  // Activate the extension before calling
+  // RendererStartupHelper::OnExtensionLoaded() below, so that we have
+  // activation information ready while we send ExtensionMsg_Load IPC.
+  //
   // TODO(lazyboy): We should move all logic that is required to start up an
   // extension to a separate class, instead of calling adhoc methods like
   // service worker ones below.
-  if (BackgroundInfo::IsServiceWorkerBased(extension)) {
-    DCHECK(extension->is_extension());
-    ServiceWorkerTaskQueue::Get(browser_context_)->ActivateExtension(extension);
-  }
+  ActivateTaskQueueForExtension(browser_context_, extension);
+
+  renderer_helper_->OnExtensionLoaded(*extension);
 
   // Tell subsystems that use the ExtensionRegistryObserver::OnExtensionLoaded
   // about the new extension.
@@ -465,10 +468,8 @@ void ExtensionRegistrar::DeactivateExtension(const Extension* extension,
   renderer_helper_->OnExtensionUnloaded(*extension);
   extension_system_->UnregisterExtensionWithRequestContexts(extension->id(),
                                                             reason);
-  if (BackgroundInfo::IsServiceWorkerBased(extension)) {
-    ServiceWorkerTaskQueue::Get(browser_context_)
-        ->DeactivateExtension(extension);
-  }
+  DeactivateTaskQueueForExtension(browser_context_, extension);
+
   delegate_->PostDeactivateExtension(extension);
 }
 

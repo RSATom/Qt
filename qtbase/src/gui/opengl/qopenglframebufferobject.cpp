@@ -50,6 +50,8 @@
 #include <qimage.h>
 #include <QtCore/qbytearray.h>
 
+#include <qtgui_tracepoints_p.h>
+
 QT_BEGIN_NAMESPACE
 
 #ifndef QT_NO_DEBUG
@@ -467,11 +469,14 @@ namespace
     }
 }
 
-void QOpenGLFramebufferObjectPrivate::init(QOpenGLFramebufferObject *, const QSize &size,
+void QOpenGLFramebufferObjectPrivate::init(QOpenGLFramebufferObject *qfbo, const QSize &size,
                                            QOpenGLFramebufferObject::Attachment attachment,
                                            GLenum texture_target, GLenum internal_format,
                                            GLint samples, bool mipmap)
 {
+    Q_TRACE_SCOPE(QOpenGLFramebufferObjectPrivate_init, qfbo, size, attachment, texture_target, internal_format, samples, mipmap);
+    Q_UNUSED(qfbo);
+
     QOpenGLContext *ctx = QOpenGLContext::currentContext();
 
     funcs.initializeOpenGLFunctions();
@@ -551,7 +556,7 @@ void QOpenGLFramebufferObjectPrivate::initTexture(int idx)
         pixelType = GL_UNSIGNED_SHORT;
 
     funcs.glTexImage2D(target, 0, color.internalFormat, color.size.width(), color.size.height(), 0,
-                       GL_RGBA, pixelType, NULL);
+                       GL_RGBA, pixelType, nullptr);
     if (format.mipmap()) {
         int width = color.size.width();
         int height = color.size.height();
@@ -561,7 +566,7 @@ void QOpenGLFramebufferObjectPrivate::initTexture(int idx)
             height = qMax(1, height >> 1);
             ++level;
             funcs.glTexImage2D(target, level, color.internalFormat, width, height, 0,
-                               GL_RGBA, pixelType, NULL);
+                               GL_RGBA, pixelType, nullptr);
         }
     }
     funcs.glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0 + idx,
@@ -640,8 +645,8 @@ void QOpenGLFramebufferObjectPrivate::initDepthStencilAttachments(QOpenGLContext
             stencil_buffer_guard->free();
     }
 
-    depth_buffer_guard = 0;
-    stencil_buffer_guard = 0;
+    depth_buffer_guard = nullptr;
+    stencil_buffer_guard = nullptr;
 
     GLuint depth_buffer = 0;
     GLuint stencil_buffer = 0;
@@ -1284,7 +1289,7 @@ GLuint QOpenGLFramebufferObject::takeTexture(int colorAttachmentIndex)
         id = guard ? guard->id() : 0;
         // Do not call free() on texture_guard, just null it out.
         // This way the texture will not be deleted when the guard is destroyed.
-        guard = 0;
+        guard = nullptr;
     }
     return id;
 }
@@ -1564,7 +1569,7 @@ bool QOpenGLFramebufferObject::bindDefault()
         qWarning("QOpenGLFramebufferObject::bindDefault() called without current context.");
 #endif
 
-    return ctx != 0;
+    return ctx != nullptr;
 }
 
 /*!

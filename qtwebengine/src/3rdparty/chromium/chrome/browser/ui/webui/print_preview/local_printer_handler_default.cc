@@ -14,6 +14,7 @@
 #include "base/task/post_task.h"
 #include "base/threading/scoped_blocking_call.h"
 #include "build/build_config.h"
+#include "chrome/browser/browser_process.h"
 #include "chrome/browser/ui/webui/print_preview/print_preview_utils.h"
 #include "components/printing/browser/printer_capabilities.h"
 #include "content/public/browser/browser_thread.h"
@@ -31,22 +32,25 @@ namespace {
 scoped_refptr<base::TaskRunner> CreatePrinterHandlerTaskRunner() {
   // USER_VISIBLE because the result is displayed in the print preview dialog.
   static constexpr base::TaskTraits kTraits = {
-      base::MayBlock(), base::TaskPriority::USER_VISIBLE};
+      base::ThreadPool(), base::MayBlock(), base::TaskPriority::USER_VISIBLE};
 
-#if defined(OS_WIN)
-  // Windows drivers are likely not thread-safe.
-  return base::CreateSingleThreadTaskRunnerWithTraits(kTraits);
-#elif defined(USE_CUPS)
+#if defined(USE_CUPS)
   // CUPS is thread safe.
-  return base::CreateTaskRunnerWithTraits(kTraits);
+  return base::CreateTaskRunner(kTraits);
+#elif defined(OS_WIN)
+  // Windows drivers are likely not thread-safe.
+  return base::CreateSingleThreadTaskRunner(kTraits);
+#else
+  // Be conservative on unsupported platforms.
+  return base::CreateSingleThreadTaskRunner(kTraits);
 #endif
 }
 
 PrinterList EnumeratePrintersAsync() {
   base::ScopedBlockingCall scoped_blocking_call(FROM_HERE,
                                                 base::BlockingType::MAY_BLOCK);
-  scoped_refptr<PrintBackend> print_backend(
-      PrintBackend::CreateInstance(nullptr));
+  scoped_refptr<PrintBackend> print_backend(PrintBackend::CreateInstance(
+      nullptr, g_browser_process->GetApplicationLocale()));
 
   PrinterList printer_list;
   print_backend->EnumeratePrinters(&printer_list);
@@ -62,30 +66,27 @@ base::Value FetchCapabilitiesAsync(const std::string& device_name) {
 
   base::ScopedBlockingCall scoped_blocking_call(FROM_HERE,
                                                 base::BlockingType::MAY_BLOCK);
-  scoped_refptr<PrintBackend> print_backend(
-      PrintBackend::CreateInstance(nullptr));
+  scoped_refptr<PrintBackend> print_backend(PrintBackend::CreateInstance(
+      nullptr, g_browser_process->GetApplicationLocale()));
 
   VLOG(1) << "Get printer capabilities start for " << device_name;
 
-  if (!print_backend->IsValidPrinter(device_name)) {
+  PrinterBasicInfo basic_info;
+  if (!print_backend->GetPrinterBasicInfo(device_name, &basic_info)) {
     LOG(WARNING) << "Invalid printer " << device_name;
     return base::Value();
   }
 
-  PrinterBasicInfo basic_info;
-  if (!print_backend->GetPrinterBasicInfo(device_name, &basic_info))
-    return base::Value();
-
-  return GetSettingsOnBlockingPool(device_name, basic_info, additional_papers,
-                                   /* has_secure_protocol */ false,
-                                   print_backend);
+  return GetSettingsOnBlockingTaskRunner(
+      device_name, basic_info, additional_papers,
+      /* has_secure_protocol */ false, print_backend);
 }
 
 std::string GetDefaultPrinterAsync() {
   base::ScopedBlockingCall scoped_blocking_call(FROM_HERE,
                                                 base::BlockingType::MAY_BLOCK);
-  scoped_refptr<PrintBackend> print_backend(
-      PrintBackend::CreateInstance(nullptr));
+  scoped_refptr<PrintBackend> print_backend(PrintBackend::CreateInstance(
+      nullptr, g_browser_process->GetApplicationLocale()));
 
   std::string default_printer = print_backend->GetDefaultPrinterName();
   VLOG(1) << "Default Printer: " << default_printer;

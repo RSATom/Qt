@@ -152,7 +152,7 @@ int MapCertChainErrorStatusToCertStatus(DWORD error_status) {
     if (error_status & CERT_TRUST_HAS_WEAK_SIGNATURE) {
       cert_status |= CERT_STATUS_WEAK_KEY;
     } else {
-      cert_status |= CERT_STATUS_INVALID;
+      cert_status |= CERT_STATUS_AUTHORITY_INVALID;
     }
   }
 
@@ -272,8 +272,10 @@ bool CertSubjectCommonNameHasNull(PCCERT_CONTEXT cert) {
 // calling this function.
 void GetCertChainInfo(PCCERT_CHAIN_CONTEXT chain_context,
                       CertVerifyResult* verify_result) {
-  if (chain_context->cChain == 0)
+  if (chain_context->cChain == 0 || chain_context->rgpChain[0]->cElement == 0) {
+    verify_result->cert_status |= CERT_STATUS_INVALID;
     return;
+  }
 
   PCERT_SIMPLE_CHAIN first_chain = chain_context->rgpChain[0];
   DWORD num_elements = first_chain->cElement;
@@ -281,6 +283,26 @@ void GetCertChainInfo(PCCERT_CHAIN_CONTEXT chain_context,
 
   PCCERT_CONTEXT verified_cert = nullptr;
   std::vector<PCCERT_CONTEXT> verified_chain;
+
+  // Recheck signatures in the event junk data was provided.
+  for (DWORD i = 0; i < num_elements - 1; ++i) {
+    PCCERT_CONTEXT issuer = element[i + 1]->pCertContext;
+
+    // If Issuer isn't ECC, skip this certificate.
+    if (strcmp(issuer->pCertInfo->SubjectPublicKeyInfo.Algorithm.pszObjId,
+               szOID_ECC_PUBLIC_KEY)) {
+      continue;
+    }
+
+    PCCERT_CONTEXT cert = element[i]->pCertContext;
+    if (!CryptVerifyCertificateSignatureEx(
+            NULL, X509_ASN_ENCODING, CRYPT_VERIFY_CERT_SIGN_SUBJECT_CERT,
+            const_cast<PCERT_CONTEXT>(cert), CRYPT_VERIFY_CERT_SIGN_ISSUER_CERT,
+            const_cast<PCERT_CONTEXT>(issuer), 0, NULL)) {
+      verify_result->cert_status |= CERT_STATUS_INVALID;
+      break;
+    }
+  }
 
   bool has_root_ca = num_elements > 1 &&
       !(chain_context->TrustStatus.dwErrorStatus &
@@ -1042,6 +1064,8 @@ int CertVerifyProcWin::VerifyInternal(
 
   if (chain_context->TrustStatus.dwErrorStatus &
       CERT_TRUST_IS_NOT_VALID_FOR_USAGE) {
+    // Could not verify the cert with the EV policy. Remove the EV policy and
+    // try again.
     ev_policy_oid = nullptr;
     chain_para.RequestedIssuancePolicy.Usage.cUsageIdentifier = 0;
     chain_para.RequestedIssuancePolicy.Usage.rgpszUsageIdentifier = nullptr;
@@ -1078,11 +1102,6 @@ int CertVerifyProcWin::VerifyInternal(
       return MapSecurityError(GetLastError());
     }
     GetCertChainInfo(chain_context, verify_result);
-
-    if (chain_context->TrustStatus.dwErrorStatus &
-        CERT_TRUST_IS_OFFLINE_REVOCATION) {
-      verify_result->cert_status |= CERT_STATUS_REVOKED;
-    }
   }
 
   ScopedPCCERT_CHAIN_CONTEXT scoped_chain_context(chain_context);
@@ -1129,16 +1148,14 @@ int CertVerifyProcWin::VerifyInternal(
         MapSecurityError(policy_status.dwError));
   }
 
-  // TODO(wtc): Suppress CERT_STATUS_NO_REVOCATION_MECHANISM for now to be
-  // compatible with WinHTTP, which doesn't report this error (bug 3004).
-  verify_result->cert_status &= ~CERT_STATUS_NO_REVOCATION_MECHANISM;
-
-  if (!rev_checking_enabled) {
-    // If we didn't do online revocation checking then Windows will report
-    // CERT_UNABLE_TO_CHECK_REVOCATION unless it had cached OCSP or CRL
-    // information for every certificate. We only want to put up revoked
-    // statuses from the offline checks so we squash this error.
-    verify_result->cert_status &= ~CERT_STATUS_UNABLE_TO_CHECK_REVOCATION;
+  // Mask off revocation checking failures unless hard-fail revocation checking
+  // for local anchors is enabled and the chain is issued by a local root.
+  // (CheckEV will still check chain_context->TrustStatus.dwErrorStatus directly
+  // so as to not mark as EV if revocation information was not available.)
+  if (!(!verify_result->is_issued_by_known_root &&
+        (flags & VERIFY_REV_CHECKING_REQUIRED_LOCAL_ANCHORS))) {
+    verify_result->cert_status &= ~(CERT_STATUS_NO_REVOCATION_MECHANISM |
+                                    CERT_STATUS_UNABLE_TO_CHECK_REVOCATION);
   }
 
   AppendPublicKeyHashesAndUpdateKnownRoot(

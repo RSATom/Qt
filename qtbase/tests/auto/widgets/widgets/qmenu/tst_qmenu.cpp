@@ -40,6 +40,7 @@
 #include <QWidgetAction>
 #include <QDesktopWidget>
 #include <QScreen>
+#include <QSpinBox>
 #include <qdialog.h>
 
 #include <qmenu.h>
@@ -114,6 +115,8 @@ private slots:
     void QTBUG30595_rtl_submenu();
     void QTBUG20403_nested_popup_on_shortcut_trigger();
     void QTBUG47515_widgetActionEnterLeave();
+    void QTBUG8122_widgetActionCrashOnClose();
+    void widgetActionTriggerClosesMenu();
 
     void QTBUG_10735_crashWithDialog();
 #ifdef Q_OS_MAC
@@ -319,12 +322,12 @@ void tst_QMenu::mouseActivation()
     menu.addAction("Menu Action");
     menu.move(topLevel.geometry().topRight() + QPoint(50, 0));
     menu.show();
-    QTest::mouseClick(&menu, Qt::LeftButton, 0, menu.rect().center(), 300);
+    QTest::mouseClick(&menu, Qt::LeftButton, {}, menu.rect().center(), 300);
     QVERIFY(!menu.isVisible());
 
     //context menus can always be accessed with right click except on windows
     menu.show();
-    QTest::mouseClick(&menu, Qt::RightButton, 0, menu.rect().center(), 300);
+    QTest::mouseClick(&menu, Qt::RightButton, {}, menu.rect().center(), 300);
     QVERIFY(!menu.isVisible());
 
 #ifdef Q_OS_WIN
@@ -643,7 +646,7 @@ void tst_QMenu::tearOff()
     MenuMetrics mm(menu.data());
     const int tearOffOffset = mm.fw + mm.vmargin + mm.tearOffHeight / 2;
 
-    QTest::mouseClick(menu.data(), Qt::LeftButton, 0, QPoint(10, tearOffOffset), 10);
+    QTest::mouseClick(menu.data(), Qt::LeftButton, {}, QPoint(10, tearOffOffset), 10);
     QTRY_VERIFY(menu->isTearOffMenuVisible());
     QPointer<QMenu> torn = getTornOffMenu();
     QVERIFY(torn);
@@ -723,7 +726,7 @@ void tst_QMenu::submenuTearOffDontClose()
     const QPoint submenuPos(submenuRect.topLeft() + QPoint(3, 3));
     // Move then click to avoid the submenu moves from causing it to close
     QTest::mouseMove(menu, submenuPos, 100);
-    QTest::mouseClick(menu, Qt::LeftButton, 0, submenuPos, 100);
+    QTest::mouseClick(menu, Qt::LeftButton, {}, submenuPos, 100);
     QVERIFY(QTest::qWaitFor([&]() { return submenu->window()->windowHandle(); }));
     QVERIFY(QTest::qWaitForWindowActive(submenu));
     // Make sure we enter the submenu frame directly on the tear-off area
@@ -888,7 +891,7 @@ void tst_QMenu::task176201_clear()
     QAction *action = menu.addAction("test");
     menu.connect(action, SIGNAL(triggered()), SLOT(clear()));
     menu.popup(QPoint());
-    QTest::mouseClick(&menu, Qt::LeftButton, 0, menu.rect().center());
+    QTest::mouseClick(&menu, Qt::LeftButton, {}, menu.rect().center());
 }
 
 void tst_QMenu::task250673_activeMultiColumnSubMenuPosition()
@@ -1216,13 +1219,13 @@ void tst_QMenu::click_while_dismissing_submenu()
     QVERIFY(sub.isVisible());
     QVERIFY(QTest::qWaitForWindowExposed(&sub));
     //press over the submenu entry
-    QTest::mousePress(menuWindow, Qt::LeftButton, 0, menu.rect().center() + QPoint(0,2), 300);
+    QTest::mousePress(menuWindow, Qt::LeftButton, {}, menu.rect().center() + QPoint(0, 2), 300);
     //move over the main action
     QTest::mouseMove(menuWindow, menu.rect().center() - QPoint(0,2));
     QVERIFY(menuHiddenSpy.wait());
     //the submenu must have been hidden for the bug to be triggered
     QVERIFY(!sub.isVisible());
-    QTest::mouseRelease(menuWindow, Qt::LeftButton, 0, menu.rect().center() - QPoint(0,2), 300);
+    QTest::mouseRelease(menuWindow, Qt::LeftButton, {}, menu.rect().center() - QPoint(0, 2), 300);
     QCOMPARE(spy.count(), 1);
 }
 #endif
@@ -1264,7 +1267,7 @@ void tst_QMenu::QTBUG47515_widgetActionEnterLeave()
     if (!QGuiApplicationPrivate::platformIntegration()->hasCapability(QPlatformIntegration::WindowActivation))
         QSKIP("Window activation is not supported");
     if (QGuiApplication::platformName() == QLatin1String("cocoa"))
-        QSKIP("See QTBUG-63031");
+        QSKIP("This test is meaningless on macOS, for additional info see QTBUG-63031");
 
     const QRect availableGeometry = QGuiApplication::primaryScreen()->availableGeometry();
     QRect geometry(QPoint(), availableGeometry.size() / 3);
@@ -1350,6 +1353,138 @@ void tst_QMenu::QTBUG47515_widgetActionEnterLeave()
         QTRY_COMPARE(w2->leave, 1);
         QTRY_COMPARE(w2->enter, 1);
     }
+}
+
+void tst_QMenu::QTBUG8122_widgetActionCrashOnClose()
+{
+    if (!QGuiApplicationPrivate::platformIntegration()->hasCapability(QPlatformIntegration::WindowActivation))
+        QSKIP("Window activation is not supported");
+    if (QGuiApplication::platformName() == QLatin1String("cocoa"))
+        QSKIP("See QTBUG-63031");
+#ifdef Q_OS_WINRT
+    QSKIP("WinRT does not support QTest::mouseMove");
+#endif
+
+    const QRect availableGeometry = QGuiApplication::primaryScreen()->availableGeometry();
+    QRect geometry(QPoint(), availableGeometry.size() / 3);
+    geometry.moveCenter(availableGeometry.center());
+    QPoint pointOutsideMenu = geometry.bottomRight() - QPoint(5, 5);
+
+    QMainWindow topLevel;
+    topLevel.setGeometry(geometry);
+
+    auto menuBar = topLevel.menuBar();
+    auto menu = menuBar->addMenu("Menu");
+    auto wAct = new QWidgetAction(menu);
+    auto spinBox1 = new QSpinBox(menu);
+    wAct->setDefaultWidget(spinBox1);
+    menu->addAction(wAct);
+    auto subMenu = menu->addMenu("Submenu");
+    auto nextMenuAct = menu->addMenu(subMenu);
+    auto wAct2 = new QWidgetAction(menu);
+    auto spinBox2 = new QSpinBox(menu);
+    wAct2->setDefaultWidget(spinBox2);
+    subMenu->addAction(wAct2);
+    QObject::connect(spinBox2, &QSpinBox::editingFinished, menu, &QMenu::hide);
+
+    topLevel.show();
+    topLevel.setWindowTitle(QTest::currentTestFunction());
+    QVERIFY(QTest::qWaitForWindowActive(&topLevel));
+    QWindow *topLevelWindow = topLevel.windowHandle();
+    QVERIFY(topLevelWindow);
+
+    const QPoint menuActionPos = menuBar->mapTo(&topLevel, menuBar->actionGeometry(menu->menuAction()).center());
+    QTest::mouseClick(topLevelWindow, Qt::LeftButton, Qt::KeyboardModifiers(), menuActionPos);
+    QVERIFY(QTest::qWaitForWindowExposed(menu));
+
+    QPoint w1Center = topLevel.mapFromGlobal(spinBox1->mapToGlobal(spinBox1->rect().center()));
+    QTest::mouseClick(topLevelWindow, Qt::LeftButton, Qt::KeyboardModifiers(), w1Center);
+    menu->setActiveAction(nextMenuAct);
+    QVERIFY(QTest::qWaitForWindowExposed(subMenu));
+
+    QPoint w2Center = topLevel.mapFromGlobal(spinBox2->mapToGlobal(spinBox2->rect().center()));
+    QTest::mouseClick(topLevelWindow, Qt::LeftButton, Qt::KeyboardModifiers(), w2Center);
+    QTest::mouseMove(topLevelWindow, topLevel.mapFromGlobal(pointOutsideMenu));
+    QTRY_VERIFY(menu->isHidden());
+}
+
+/*!
+    Test that a QWidgetAction that fires closes the menus that it is in.
+*/
+void tst_QMenu::widgetActionTriggerClosesMenu()
+{
+    class ButtonAction : public QWidgetAction
+    {
+    public:
+        ButtonAction()
+        : QWidgetAction(nullptr)
+        {}
+
+        void click()
+        {
+            if (pushButton)
+                pushButton->click();
+        }
+
+    protected:
+        QWidget *createWidget(QWidget *parent)
+        {
+            QPushButton *button = new QPushButton(QLatin1String("Button"), parent);
+            connect(button, &QPushButton::clicked, this, &QAction::trigger);
+
+            if (!pushButton)
+                pushButton = button;
+            return button;
+        }
+
+    private:
+        QPointer<QPushButton> pushButton;
+    };
+
+    QMenu menu;
+    QMenu submenu;
+
+    int menuTriggeredCount = 0;
+    int menuAboutToHideCount = 0;
+    QAction *actionTriggered = nullptr;
+
+    connect(&menu, &QMenu::triggered, this, [&](QAction *action){
+        ++menuTriggeredCount;
+        actionTriggered = action;
+    });
+    connect (&menu, &QMenu::aboutToHide, this, [&](){
+        ++menuAboutToHideCount;
+    });
+
+    QAction regularAction(QLatin1String("Action"));
+    ButtonAction widgetAction;
+
+    submenu.addAction(&regularAction);
+    submenu.addAction(&widgetAction);
+
+    menu.addMenu(&submenu);
+    menu.addAction(&regularAction);
+    menu.addAction(&widgetAction);
+
+    menu.popup(QPoint(200,200));
+    submenu.popup(QPoint(250,250));
+    if (!QTest::qWaitForWindowExposed(&menu) || !QTest::qWaitForWindowExposed(&submenu))
+        QSKIP("Failed to show menus, aborting test");
+
+    regularAction.trigger();
+    QVERIFY(menu.isVisible());
+    QVERIFY(submenu.isVisible());
+    QCOMPARE(menuTriggeredCount, 1);
+    QCOMPARE(actionTriggered, &regularAction);
+    menuTriggeredCount = 0;
+    actionTriggered = nullptr;
+
+    widgetAction.click();
+    QVERIFY(!menu.isVisible());
+    QVERIFY(!submenu.isVisible());
+    QCOMPARE(menuTriggeredCount, 1);
+    QCOMPARE(menuAboutToHideCount, 1);
+    QCOMPARE(actionTriggered, &widgetAction);
 }
 
 class MyMenu : public QMenu
@@ -1480,7 +1615,7 @@ void tst_QMenu::QTBUG_56917_wideSubmenuScreenNumber()
         menu.popup(screen->geometry().center());
         QVERIFY(QTest::qWaitForWindowExposed(&menu));
         QVERIFY(menu.isVisible());
-        QTest::mouseClick(&menu, Qt::LeftButton, 0, menu.actionGeometry(action).center());
+        QTest::mouseClick(&menu, Qt::LeftButton, {}, menu.actionGeometry(action).center());
         QTest::qWait(100);
         QVERIFY(QTest::qWaitForWindowExposed(&submenu));
         QVERIFY(submenu.isVisible());
@@ -1692,7 +1827,7 @@ void tst_QMenu::tearOffMenuNotDisplayed()
     MenuMetrics mm(menu.data());
     const int tearOffOffset = mm.fw + mm.vmargin + mm.tearOffHeight / 2;
 
-    QTest::mouseClick(menu.data(), Qt::LeftButton, 0, QPoint(10, tearOffOffset), 10);
+    QTest::mouseClick(menu.data(), Qt::LeftButton, {}, QPoint(10, tearOffOffset), 10);
     QTRY_VERIFY(menu->isTearOffMenuVisible());
     QPointer<QMenu> torn = getTornOffMenu();
     QVERIFY(torn);

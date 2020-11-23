@@ -34,7 +34,6 @@ namespace sw
 	{
 		constants = *Pointer<Pointer<Byte>>(data + OFFSET(DrawData,constants));
 		occlusion = 0;
-		int clusterCount = Renderer::getClusterCount();
 
 		Do
 		{
@@ -71,6 +70,8 @@ namespace sw
 		Pointer<Byte> cBuffer[RENDERTARGETS];
 		Pointer<Byte> zBuffer;
 		Pointer<Byte> sBuffer;
+
+		Int clusterCountLog2 = 31 - Ctlz(UInt(clusterCount), false);
 
 		for(int index = 0; index < RENDERTARGETS; index++)
 		{
@@ -156,6 +157,18 @@ namespace sw
 									yyyy * *Pointer<Float4>(primitive + OFFSET(Primitive, V[interpolant].B), 16);
 						}
 					}
+
+					for (unsigned int i = 0; i < state.numClipDistances; i++)
+					{
+						DclipDistance[i] = *Pointer<Float4>(primitive + OFFSET(Primitive, clipDistance[i].C), 16) +
+									yyyy * *Pointer<Float4>(primitive + OFFSET(Primitive, clipDistance[i].B), 16);
+					}
+
+					for (unsigned int i = 0; i < state.numCullDistances; i++)
+					{
+						DcullDistance[i] = *Pointer<Float4>(primitive + OFFSET(Primitive, cullDistance[i].C), 16) +
+									yyyy * *Pointer<Float4>(primitive + OFFSET(Primitive, cullDistance[i].B), 16);
+					}
 				}
 
 				Short4 xLeft[4];
@@ -179,7 +192,8 @@ namespace sw
 					{
 						if (state.multiSampleMask & (1<<q))
 						{
-							Short4 mask = CmpGT(xxxx, xLeft[q]) & CmpGT(xRight[q], xxxx);
+							unsigned int i = state.multiSampledBresenham ? 0 : q;
+							Short4 mask = CmpGT(xxxx, xLeft[i]) & CmpGT(xRight[i], xxxx);
 							cMask[q] = SignMask(PackSigned(mask, mask)) & 0x0000000F;
 						}
 						else
@@ -192,24 +206,22 @@ namespace sw
 				}
 			}
 
-			int clusterCount = Renderer::getClusterCount();
-
 			for(int index = 0; index < RENDERTARGETS; index++)
 			{
 				if(state.colorWriteActive(index))
 				{
-					cBuffer[index] += *Pointer<Int>(data + OFFSET(DrawData,colorPitchB[index])) << (1 + sw::log2(clusterCount));   // FIXME: Precompute
+					cBuffer[index] += *Pointer<Int>(data + OFFSET(DrawData,colorPitchB[index])) << (1 + clusterCountLog2);   // FIXME: Precompute
 				}
 			}
 
 			if(state.depthTestActive)
 			{
-				zBuffer += *Pointer<Int>(data + OFFSET(DrawData,depthPitchB)) << (1 + sw::log2(clusterCount));   // FIXME: Precompute
+				zBuffer += *Pointer<Int>(data + OFFSET(DrawData,depthPitchB)) << (1 + clusterCountLog2);   // FIXME: Precompute
 			}
 
 			if(state.stencilActive)
 			{
-				sBuffer += *Pointer<Int>(data + OFFSET(DrawData,stencilPitchB)) << (1 + sw::log2(clusterCount));   // FIXME: Precompute
+				sBuffer += *Pointer<Int>(data + OFFSET(DrawData,stencilPitchB)) << (1 + clusterCountLog2);   // FIXME: Precompute
 			}
 
 			y += 2 * clusterCount;

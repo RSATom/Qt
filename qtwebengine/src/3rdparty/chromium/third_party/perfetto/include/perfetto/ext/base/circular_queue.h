@@ -74,7 +74,19 @@ class CircularQueue {
       return queue_->Get(pos_);
     }
 
+    const T* operator->() const {
+#if PERFETTO_DCHECK_IS_ON()
+      PERFETTO_DCHECK(generation_ == queue_->generation());
+#endif
+      return queue_->Get(pos_);
+    }
+
     T& operator*() { return *(operator->()); }
+    const T& operator*() const { return *(operator->()); }
+
+    value_type& operator[](difference_type i) {
+      return *(*this + i);
+    }
 
     const value_type& operator[](difference_type i) const {
       return *(*this + i);

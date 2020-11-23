@@ -7,7 +7,7 @@
 
 #include <bitset>
 #include "base/single_thread_task_runner.h"
-#include "services/network/public/mojom/fetch_api.mojom-blink.h"
+#include "services/network/public/mojom/fetch_api.mojom-blink-forward.h"
 #include "third_party/blink/public/platform/web_url_request.h"
 #include "third_party/blink/renderer/bindings/core/v8/v8_cache_options.h"
 #include "third_party/blink/renderer/core/core_export.h"
@@ -53,6 +53,7 @@ class CORE_EXPORT WorkerOrWorkletGlobalScope : public EventTargetWithInlineData,
       const base::UnguessableToken& parent_devtools_token,
       V8CacheOptions,
       WorkerClients*,
+      std::unique_ptr<WebContentSettingsClient>,
       scoped_refptr<WebWorkerFetchContext>,
       WorkerReportingProxy&);
   ~WorkerOrWorkletGlobalScope() override;
@@ -102,6 +103,8 @@ class CORE_EXPORT WorkerOrWorkletGlobalScope : public EventTargetWithInlineData,
   // Returns nullptr if this global scope is a WorkletGlobalScope
   virtual WorkerNavigator* navigator() const { return nullptr; }
 
+  // Returns the resource fetcher for subresources (a.k.a. inside settings
+  // resource fetcher). See core/workers/README.md for details.
   ResourceFetcher* Fetcher() const override;
   ResourceFetcher* EnsureFetcher();
 
@@ -125,6 +128,11 @@ class CORE_EXPORT WorkerOrWorkletGlobalScope : public EventTargetWithInlineData,
 
   WorkerClients* Clients() const { return worker_clients_.Get(); }
 
+  // May return nullptr.
+  WebContentSettingsClient* ContentSettingsClient() const {
+    return content_settings_client_.get();
+  }
+
   WorkerOrWorkletScriptController* ScriptController() {
     return script_controller_.Get();
   }
@@ -143,6 +151,8 @@ class CORE_EXPORT WorkerOrWorkletGlobalScope : public EventTargetWithInlineData,
 
   void ApplySandboxFlags(SandboxFlags mask);
 
+  void SetDefersLoadingForResourceFetchers(bool defers);
+
  protected:
   // Sets outside's CSP used for off-main-thread top-level worker script
   // fetch.
@@ -159,9 +169,6 @@ class CORE_EXPORT WorkerOrWorkletGlobalScope : public EventTargetWithInlineData,
                          network::mojom::CredentialsMode,
                          ModuleScriptCustomFetchType,
                          ModuleTreeClient*);
-
-  void TasksWerePaused() override;
-  void TasksWereUnpaused() override;
 
   const Vector<CSPHeaderAndType>& OutsideContentSecurityPolicyHeaders() const {
     return outside_content_security_policy_headers_;
@@ -180,6 +187,7 @@ class CORE_EXPORT WorkerOrWorkletGlobalScope : public EventTargetWithInlineData,
   const base::UnguessableToken parent_devtools_token_;
 
   CrossThreadPersistent<WorkerClients> worker_clients_;
+  std::unique_ptr<WebContentSettingsClient> content_settings_client_;
 
   Member<ResourceFetcher> inside_settings_resource_fetcher_;
 

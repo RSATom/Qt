@@ -36,9 +36,8 @@ class Element;
 class RuleSet;
 class StyleSheetContents;
 
-class CSSDefaultStyleSheets
-    : public GarbageCollectedFinalized<CSSDefaultStyleSheets> {
-
+class CSSDefaultStyleSheets final
+    : public GarbageCollected<CSSDefaultStyleSheets> {
  public:
   CORE_EXPORT static CSSDefaultStyleSheets& Instance();
 
@@ -107,6 +106,7 @@ class CSSDefaultStyleSheets
   Member<StyleSheetContents> svg_style_sheet_;
   Member<StyleSheetContents> mathml_style_sheet_;
   Member<StyleSheetContents> media_controls_style_sheet_;
+  Member<StyleSheetContents> text_track_style_sheet_;
   Member<StyleSheetContents> fullscreen_style_sheet_;
 
   std::unique_ptr<UAStyleSheetLoader> media_controls_style_sheet_loader_;

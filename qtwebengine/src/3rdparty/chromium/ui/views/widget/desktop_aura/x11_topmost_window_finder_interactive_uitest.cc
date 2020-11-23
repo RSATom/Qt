@@ -15,9 +15,9 @@
 #include "ui/aura/window.h"
 #include "ui/aura/window_tree_host.h"
 #include "ui/events/platform/x11/x11_event_source.h"
-#include "ui/gfx/path_x11.h"
 #include "ui/gfx/x/x11.h"
 #include "ui/gfx/x/x11_atom_cache.h"
+#include "ui/gfx/x/x11_path.h"
 #include "ui/views/test/views_interactive_ui_test_base.h"
 #include "ui/views/test/x11_property_change_waiter.h"
 #include "ui/views/widget/desktop_aura/desktop_native_widget_aura.h"
@@ -103,7 +103,7 @@ class X11TopmostWindowFinderTest : public ViewsInteractiveUITestBase {
     params.native_widget = new DesktopNativeWidgetAura(toplevel.get());
     params.bounds = bounds;
     params.remove_standard_frame = true;
-    toplevel->Init(params);
+    toplevel->Init(std::move(params));
     toplevel->Show();
     return toplevel;
   }

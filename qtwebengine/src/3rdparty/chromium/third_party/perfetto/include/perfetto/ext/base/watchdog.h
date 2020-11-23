@@ -21,9 +21,9 @@
 
 #include "perfetto/base/build_config.h"
 
-#if (PERFETTO_BUILDFLAG(PERFETTO_OS_LINUX) ||    \
-     PERFETTO_BUILDFLAG(PERFETTO_OS_ANDROID)) && \
-    !PERFETTO_BUILDFLAG(PERFETTO_EMBEDDER_BUILD)
+// The POSIX watchdog is only supported on Linux and Android in non-embedder
+// builds.
+#if PERFETTO_BUILDFLAG(PERFETTO_WATCHDOG)
 #include "perfetto/ext/base/watchdog_posix.h"
 #else
 #include "perfetto/ext/base/watchdog_noop.h"
@@ -31,6 +31,22 @@
 
 namespace perfetto {
 namespace base {
+
+// Make the limits more relaxed on desktop, where multi-GB traces are likely.
+// Multi-GB traces can take bursts of cpu time to write into disk at the end of
+// the trace.
+#if PERFETTO_BUILDFLAG(PERFETTO_OS_ANDROID)
+constexpr uint32_t kWatchdogDefaultCpuLimit = 75;
+constexpr uint32_t kWatchdogDefaultCpuWindow = 5 * 60 * 1000;  // 5 minutes.
+#else
+constexpr uint32_t kWatchdogDefaultCpuLimit = 90;
+constexpr uint32_t kWatchdogDefaultCpuWindow = 10 * 60 * 1000;  // 10 minutes.
+#endif
+
+// The default memory margin we give to our processes. This is used as as a
+// constant to put on top of the trace buffers.
+constexpr uint64_t kWatchdogDefaultMemorySlack = 32 * 1024 * 1024;  // 32 MiB.
+constexpr uint32_t kWatchdogDefaultMemoryWindow = 30 * 1000;  // 30 seconds.
 
 inline void RunTaskWithWatchdogGuard(const std::function<void()>& task) {
   // Maximum time a single task can take in a TaskRunner before the

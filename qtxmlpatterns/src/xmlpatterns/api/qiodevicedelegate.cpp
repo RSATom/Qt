@@ -80,7 +80,7 @@ QIODeviceDelegate::QIODeviceDelegate(QIODevice *const source) : m_source(source)
 void QIODeviceDelegate::networkTimeout()
 {
     setErrorString(QtXmlPatterns::tr("Network timeout."));
-    error(QNetworkReply::TimeoutError);
+    errorOccurred(QNetworkReply::TimeoutError);
 }
 
 void QIODeviceDelegate::abort()

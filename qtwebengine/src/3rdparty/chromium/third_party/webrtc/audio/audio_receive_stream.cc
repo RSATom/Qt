@@ -56,7 +56,6 @@ std::string AudioReceiveStream::Config::ToString() const {
   ss << "{rtp: " << rtp.ToString();
   ss << ", rtcp_send_transport: "
      << (rtcp_send_transport ? "(Transport)" : "null");
-  ss << ", media_transport_config: " << media_transport_config.DebugString();
   if (!sync_group.empty()) {
     ss << ", sync_group: " << sync_group;
   }
@@ -70,16 +69,18 @@ std::unique_ptr<voe::ChannelReceiveInterface> CreateChannelReceive(
     Clock* clock,
     webrtc::AudioState* audio_state,
     ProcessThread* module_process_thread,
+    NetEqFactory* neteq_factory,
     const webrtc::AudioReceiveStream::Config& config,
     RtcEventLog* event_log) {
   RTC_DCHECK(audio_state);
   internal::AudioState* internal_audio_state =
       static_cast<internal::AudioState*>(audio_state);
   return voe::CreateChannelReceive(
-      clock, module_process_thread, internal_audio_state->audio_device_module(),
-      config.media_transport_config, config.rtcp_send_transport, event_log,
-      config.rtp.remote_ssrc, config.jitter_buffer_max_packets,
-      config.jitter_buffer_fast_accelerate, config.jitter_buffer_min_delay_ms,
+      clock, module_process_thread, neteq_factory,
+      internal_audio_state->audio_device_module(), config.rtcp_send_transport,
+      event_log, config.rtp.local_ssrc, config.rtp.remote_ssrc,
+      config.jitter_buffer_max_packets, config.jitter_buffer_fast_accelerate,
+      config.jitter_buffer_min_delay_ms,
       config.jitter_buffer_enable_rtx_handling, config.decoder_factory,
       config.codec_pair_id, config.frame_decryptor, config.crypto_options);
 }
@@ -90,6 +91,7 @@ AudioReceiveStream::AudioReceiveStream(
     RtpStreamReceiverControllerInterface* receiver_controller,
     PacketRouter* packet_router,
     ProcessThread* module_process_thread,
+    NetEqFactory* neteq_factory,
     const webrtc::AudioReceiveStream::Config& config,
     const rtc::scoped_refptr<webrtc::AudioState>& audio_state,
     webrtc::RtcEventLog* event_log)
@@ -102,6 +104,7 @@ AudioReceiveStream::AudioReceiveStream(
                          CreateChannelReceive(clock,
                                               audio_state.get(),
                                               module_process_thread,
+                                              neteq_factory,
                                               config,
                                               event_log)) {}
 
@@ -113,7 +116,9 @@ AudioReceiveStream::AudioReceiveStream(
     const rtc::scoped_refptr<webrtc::AudioState>& audio_state,
     webrtc::RtcEventLog* event_log,
     std::unique_ptr<voe::ChannelReceiveInterface> channel_receive)
-    : audio_state_(audio_state), channel_receive_(std::move(channel_receive)) {
+    : audio_state_(audio_state),
+      channel_receive_(std::move(channel_receive)),
+      source_tracker_(clock) {
   RTC_LOG(LS_INFO) << "AudioReceiveStream: " << config.rtp.remote_ssrc;
   RTC_DCHECK(config.decoder_factory);
   RTC_DCHECK(config.rtcp_send_transport);
@@ -122,16 +127,14 @@ AudioReceiveStream::AudioReceiveStream(
 
   module_process_thread_checker_.Detach();
 
-  if (!config.media_transport_config.media_transport) {
-    RTC_DCHECK(receiver_controller);
-    RTC_DCHECK(packet_router);
-    // Configure bandwidth estimation.
-    channel_receive_->RegisterReceiverCongestionControlObjects(packet_router);
+  RTC_DCHECK(receiver_controller);
+  RTC_DCHECK(packet_router);
+  // Configure bandwidth estimation.
+  channel_receive_->RegisterReceiverCongestionControlObjects(packet_router);
 
-    // Register with transport.
-    rtp_stream_receiver_ = receiver_controller->CreateReceiver(
-        config.rtp.remote_ssrc, channel_receive_.get());
-  }
+  // Register with transport.
+  rtp_stream_receiver_ = receiver_controller->CreateReceiver(
+      config.rtp.remote_ssrc, channel_receive_.get());
   ConfigureStream(this, config, true);
 }
 
@@ -140,9 +143,7 @@ AudioReceiveStream::~AudioReceiveStream() {
   RTC_LOG(LS_INFO) << "~AudioReceiveStream: " << config_.rtp.remote_ssrc;
   Stop();
   channel_receive_->SetAssociatedSendChannel(nullptr);
-  if (!config_.media_transport_config.media_transport) {
-    channel_receive_->ResetReceiverCongestionControlObjects();
-  }
+  channel_receive_->ResetReceiverCongestionControlObjects();
 }
 
 void AudioReceiveStream::Reconfigure(
@@ -185,7 +186,9 @@ webrtc::AudioReceiveStream::Stats AudioReceiveStream::GetStats() const {
     return stats;
   }
 
-  stats.bytes_rcvd = call_stats.bytesReceived;
+  stats.payload_bytes_rcvd = call_stats.payload_bytes_rcvd;
+  stats.header_and_padding_bytes_rcvd =
+      call_stats.header_and_padding_bytes_rcvd;
   stats.packets_rcvd = call_stats.packetsReceived;
   stats.packets_lost = call_stats.cumulativeLost;
   stats.capture_start_ntp_time_ms = call_stats.capture_start_ntp_time_ms_;
@@ -193,7 +196,6 @@ webrtc::AudioReceiveStream::Stats AudioReceiveStream::GetStats() const {
       call_stats.last_packet_received_timestamp_ms;
   stats.codec_name = receive_codec->second.name;
   stats.codec_payload_type = receive_codec->first;
-  stats.ext_seqnum = call_stats.extendedMax;
   int clockrate_khz = receive_codec->second.clockrate_hz / 1000;
   if (clockrate_khz > 0) {
     stats.jitter_ms = call_stats.jitterSamples / clockrate_khz;
@@ -202,6 +204,9 @@ webrtc::AudioReceiveStream::Stats AudioReceiveStream::GetStats() const {
   stats.audio_level = channel_receive_->GetSpeechOutputLevelFullRange();
   stats.total_output_energy = channel_receive_->GetTotalOutputEnergy();
   stats.total_output_duration = channel_receive_->GetTotalOutputDuration();
+  stats.estimated_playout_ntp_timestamp_ms =
+      channel_receive_->GetCurrentEstimatedPlayoutNtpTimestampMs(
+          rtc::TimeMillis());
 
   // Get jitter buffer and total delay (alg + jitter + playout) stats.
   auto ns = channel_receive_->GetNetworkStatistics();
@@ -237,7 +242,8 @@ webrtc::AudioReceiveStream::Stats AudioReceiveStream::GetStats() const {
   stats.decoding_calls_to_silence_generator = ds.calls_to_silence_generator;
   stats.decoding_calls_to_neteq = ds.calls_to_neteq;
   stats.decoding_normal = ds.decoded_normal;
-  stats.decoding_plc = ds.decoded_plc;
+  stats.decoding_plc = ds.decoded_neteq_plc;
+  stats.decoding_codec_plc = ds.decoded_codec_plc;
   stats.decoding_cng = ds.decoded_cng;
   stats.decoding_plc_cng = ds.decoded_plc_cng;
   stats.decoding_muted_output = ds.decoded_muted_output;
@@ -267,13 +273,18 @@ int AudioReceiveStream::GetBaseMinimumPlayoutDelayMs() const {
 
 std::vector<RtpSource> AudioReceiveStream::GetSources() const {
   RTC_DCHECK_RUN_ON(&worker_thread_checker_);
-  return channel_receive_->GetSources();
+  return source_tracker_.GetSources();
 }
 
 AudioMixer::Source::AudioFrameInfo AudioReceiveStream::GetAudioFrameWithInfo(
     int sample_rate_hz,
     AudioFrame* audio_frame) {
-  return channel_receive_->GetAudioFrameWithInfo(sample_rate_hz, audio_frame);
+  AudioMixer::Source::AudioFrameInfo audio_frame_info =
+      channel_receive_->GetAudioFrameWithInfo(sample_rate_hz, audio_frame);
+  if (audio_frame_info != AudioMixer::Source::AudioFrameInfo::kError) {
+    source_tracker_.OnFrameDelivered(audio_frame->packet_infos_);
+  }
+  return audio_frame_info;
 }
 
 int AudioReceiveStream::Ssrc() const {
@@ -300,9 +311,18 @@ absl::optional<Syncable::Info> AudioReceiveStream::GetInfo() const {
   return info;
 }
 
-uint32_t AudioReceiveStream::GetPlayoutTimestamp() const {
+bool AudioReceiveStream::GetPlayoutRtpTimestamp(uint32_t* rtp_timestamp,
+                                                int64_t* time_ms) const {
   // Called on video capture thread.
-  return channel_receive_->GetPlayoutTimestamp();
+  return channel_receive_->GetPlayoutRtpTimestamp(rtp_timestamp, time_ms);
+}
+
+void AudioReceiveStream::SetEstimatedPlayoutNtpTimestampMs(
+    int64_t ntp_timestamp_ms,
+    int64_t time_ms) {
+  // Called on video capture thread.
+  channel_receive_->SetEstimatedPlayoutNtpTimestampMs(ntp_timestamp_ms,
+                                                      time_ms);
 }
 
 void AudioReceiveStream::SetMinimumPlayoutDelay(int delay_ms) {
@@ -315,10 +335,6 @@ void AudioReceiveStream::AssociateSendStream(AudioSendStream* send_stream) {
   channel_receive_->SetAssociatedSendChannel(
       send_stream ? send_stream->GetChannel() : nullptr);
   associated_send_stream_ = send_stream;
-}
-
-void AudioReceiveStream::SignalNetworkState(NetworkState state) {
-  RTC_DCHECK_RUN_ON(&worker_thread_checker_);
 }
 
 void AudioReceiveStream::DeliverRtcp(const uint8_t* packet, size_t length) {
@@ -373,12 +389,9 @@ void AudioReceiveStream::ConfigureStream(AudioReceiveStream* stream,
   RTC_DCHECK(first_time ||
              old_config.decoder_factory == new_config.decoder_factory);
 
-  if (first_time || old_config.rtp.local_ssrc != new_config.rtp.local_ssrc) {
-    channel_receive->SetLocalSSRC(new_config.rtp.local_ssrc);
-  }
-
   if (!first_time) {
-    // Remote ssrc can't be changed mid-stream.
+    // SSRC can't be changed mid-stream.
+    RTC_DCHECK_EQ(old_config.rtp.local_ssrc, new_config.rtp.local_ssrc);
     RTC_DCHECK_EQ(old_config.rtp.remote_ssrc, new_config.rtp.remote_ssrc);
   }
 

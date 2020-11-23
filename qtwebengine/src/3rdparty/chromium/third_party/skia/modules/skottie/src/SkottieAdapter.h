@@ -12,6 +12,7 @@
 #include "include/core/SkRefCnt.h"
 #include "include/core/SkSize.h"
 #include "modules/skottie/src/SkottieValue.h"
+#include "modules/sksg/include/SkSGScene.h"
 
 namespace sksg {
 
@@ -41,6 +42,27 @@ namespace skjson {
 }
 
 namespace skottie {
+namespace internal {
+
+class DiscardableAdaptorBase : public sksg::Animator {
+protected:
+    DiscardableAdaptorBase();
+
+    void onTick(float t) final;
+
+    virtual void onSync() = 0;
+
+private:
+    friend class AnimationBuilder;
+    void setAnimators(sksg::AnimatorList&&);
+
+    sksg::AnimatorList fAnimators;
+
+    using INHERITED = sksg::Animator;
+};
+
+
+} // namespace internal
 
 #define ADAPTER_PROPERTY(p_name, p_type, p_default) \
     const p_type& get##p_name() const {             \
@@ -150,7 +172,14 @@ private:
 
 class CameraAdapter final : public TransformAdapter3D {
 public:
-    explicit CameraAdapter(const SkSize& viewport_size);
+    enum class Type {
+        kOneNode, // implicitly facing forward (decreasing z), does not auto-orient
+        kTwoNode, // explicitly facing a POI (the anchor point), auto-orients
+    };
+
+    static sk_sp<CameraAdapter> MakeDefault(const SkSize& viewport_size);
+
+    CameraAdapter(const SkSize& viewport_size, Type);
     ~CameraAdapter() override;
 
     ADAPTER_PROPERTY(Zoom, SkScalar, 0)
@@ -158,7 +187,10 @@ public:
 private:
     SkMatrix44 totalMatrix() const override;
 
+    SkPoint3 poi() const;
+
     const SkSize fViewportSize;
+    const Type   fType;
 
     using INHERITED = TransformAdapter3D;
 };
@@ -197,16 +229,16 @@ class GradientAdapter : public SkRefCnt {
 public:
     ADAPTER_PROPERTY(StartPoint, SkPoint        , SkPoint::Make(0, 0)   )
     ADAPTER_PROPERTY(EndPoint  , SkPoint        , SkPoint::Make(0, 0)   )
-    ADAPTER_PROPERTY(ColorStops, VectorValue    , VectorValue()         )
+    ADAPTER_PROPERTY(Stops     , VectorValue    , VectorValue()         )
 
 protected:
-    GradientAdapter(sk_sp<sksg::Gradient>, size_t stopCount);
+    GradientAdapter(sk_sp<sksg::Gradient>, size_t colorStopCount);
 
     const SkPoint& startPoint() const { return fStartPoint; }
     const SkPoint& endPoint()   const { return fEndPoint;   }
 
     sk_sp<sksg::Gradient> fGradient;
-    size_t                fStopCount;
+    size_t                fColorStopCount;
 
     virtual void onApply() = 0;
 

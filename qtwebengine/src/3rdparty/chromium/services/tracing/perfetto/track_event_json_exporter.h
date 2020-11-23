@@ -58,6 +58,7 @@ class TrackEventJSONExporter : public JSONTraceExporter {
     int32_t tid = -1;
     int64_t time_us = -1;
     int64_t thread_time_us = -1;
+    int64_t thread_instruction_count = -1;
 
     // We only want to add metadata events about the process or threads once.
     // This is to prevent duplicate events in the json since the packets
@@ -76,7 +77,7 @@ class TrackEventJSONExporter : public JSONTraceExporter {
     std::unordered_map<uint32_t, std::string> interned_event_categories_;
     std::unordered_map<uint32_t, std::pair<std::string, std::string>>
         interned_source_locations_;
-    std::unordered_map<uint32_t, std::string> interned_legacy_event_names_;
+    std::unordered_map<uint32_t, std::string> interned_event_names_;
     std::unordered_map<uint32_t, std::string> interned_debug_annotation_names_;
 
     struct Frame {
@@ -125,6 +126,8 @@ class TrackEventJSONExporter : public JSONTraceExporter {
   int64_t ComputeTimeUs(const perfetto::protos::TrackEvent& event);
   base::Optional<int64_t> ComputeThreadTimeUs(
       const perfetto::protos::TrackEvent& event);
+  base::Optional<int64_t> ComputeThreadInstructionCount(
+      const perfetto::protos::TrackEvent& event);
 
   // Gather all the interned strings of different types.
   void HandleInternedData(const perfetto::protos::ChromeTracePacket& packet);
@@ -151,16 +154,26 @@ class TrackEventJSONExporter : public JSONTraceExporter {
                            ArgumentBuilder* args_builder);
 
   // Used to handle the LegacyEvent message found inside the TrackEvent proto.
-  base::Optional<ScopedJSONTraceEventAppender> HandleLegacyEvent(
+  ScopedJSONTraceEventAppender HandleLegacyEvent(
       const perfetto::protos::TrackEvent_LegacyEvent& event,
       const std::string& categories,
       int64_t timestamp_us);
+
+  void EmitStats();
 
   // Tracks all the interned state in the current sequence.
   std::unique_ptr<ProducerWriterState> current_state_;
 
   // Tracks out-of-order seqeuence data.
   std::map<uint32_t, UnorderedProducerWriterState> unordered_state_data_;
+
+  struct Stats {
+    int sequences_seen = 0;
+    int incremental_state_resets = 0;
+    int packets_dropped_invalid_incremental_state = 0;
+    int packets_with_previous_packet_dropped = 0;
+  };
+  Stats stats_;
 
   DISALLOW_COPY_AND_ASSIGN(TrackEventJSONExporter);
 };

@@ -32,6 +32,8 @@ source_set("dns") {
 
   if (!is_nacl) {
     sources += [
+      "address_info.cc",
+      "address_info.h",
       "address_sorter.h",
       "address_sorter_win.cc",
       "context_host_resolver.cc",
@@ -56,8 +58,11 @@ source_set("dns") {
       "dns_socket_pool.cc",
       "dns_socket_pool.h",
       "dns_transaction.cc",
+      "esni_content.cc",
       "host_cache.cc",
       "host_resolver.cc",
+      "host_resolver_histograms.cc",
+      "host_resolver_histograms.h",
       "host_resolver_manager.cc",
       "host_resolver_mdns_listener_impl.cc",
       "host_resolver_mdns_listener_impl.h",
@@ -65,7 +70,6 @@ source_set("dns") {
       "host_resolver_mdns_task.h",
       "host_resolver_proc.cc",
       "host_resolver_proc.h",
-      "host_resolver_source.h",
       "mapped_host_resolver.cc",
       "notify_watcher_mac.cc",
       "notify_watcher_mac.h",
@@ -152,7 +156,7 @@ source_set("host_resolver") {
     "//net",
   ]
 
-  # Whitelist-only access so we can keep track of all usage external to the
+  # Restricted access so we can keep track of all usage external to the
   # network stack and network service.
   friend = [
     # chromecast/browser/url_request_context_factory.cc
@@ -192,8 +196,10 @@ source_set("host_resolver") {
     sources += [
       "dns_config.h",
       "dns_config_overrides.h",
+      "esni_content.h",
       "host_cache.h",
       "host_resolver.h",
+      "host_resolver_source.h",
       "mapped_host_resolver.h",
     ]
   }
@@ -223,7 +229,7 @@ source_set("host_resolver_manager") {
     "//net",
   ]
 
-  # Whitelist-only access so we can keep track of all usage external to the
+  # Restricted access so we can keep track of all usage external to the
   # network stack and network service.
   friend = [
     # chromecast/browser/url_request_context_factory.cc
@@ -268,7 +274,7 @@ source_set("dns_client") {
     "//net",
   ]
 
-  # Whitelist-only access so we can keep track of all usage external to the
+  # Restricted access so we can keep track of all usage external to the
   # network stack.
   friend = [
     # chrome/browser/local_discovery/service_discovery_client_impl.cc
@@ -324,7 +330,7 @@ source_set("mdns_client") {
     "//net",
   ]
 
-  # Whitelist-only access so we can keep track of all usage external to the
+  # Restricted access so we can keep track of all usage external to the
   # network stack.
   friend = [
     # chrome/browser/local_discovery/service_discovery_client_mdns.h
@@ -372,6 +378,7 @@ source_set("mdns_client") {
 source_set("tests") {
   testonly = true
   sources = [
+    "address_info_unittest.cc",
     "context_host_resolver_unittest.cc",
     "dns_config_service_unittest.cc",
     "dns_config_service_win_unittest.cc",
@@ -382,6 +389,7 @@ source_set("tests") {
     "dns_socket_pool_unittest.cc",
     "dns_transaction_unittest.cc",
     "dns_util_unittest.cc",
+    "esni_content_unittest.cc",
     "host_cache_unittest.cc",
     "host_resolver_manager_unittest.cc",
     "mapped_host_resolver_unittest.cc",
@@ -396,7 +404,10 @@ source_set("tests") {
   }
 
   if (enable_built_in_dns) {
-    sources += [ "address_sorter_unittest.cc" ]
+    sources += [
+      "address_sorter_unittest.cc",
+      "dns_client_unittest.cc",
+    ]
     if (is_posix || is_fuchsia) {
       sources += [ "address_sorter_posix_unittest.cc" ]
     }
@@ -421,11 +432,13 @@ source_set("tests") {
 source_set("test_support") {
   testonly = true
   sources = [
+    "address_info_test_util.cc",
     "dns_test_util.cc",
     "mock_host_resolver.cc",
     "test_dns_config_service.cc",
   ]
   public = [
+    "address_info_test_util.h",
     "dns_test_util.h",
     "mock_host_resolver.h",
     "test_dns_config_service.h",
@@ -450,20 +463,21 @@ source_set("test_support") {
   ]
 }
 
-source_set("fuzzer_test_support") {
-  testonly = true
-  sources = [
-    "fuzzed_host_resolver_util.cc",
-    "fuzzed_host_resolver_util.h",
-  ]
-  deps = [
-    "//base",
-    "//base/test:test_support",
-    "//net",
-  ]
-  public_deps = [
-    "//third_party/libFuzzer:fuzzed_data_provider",
-  ]
+if (use_fuzzing_engine) {
+  # fuzzer_test targets are no-op when |use_fuzzing_engine| is false. Fuzzer
+  # support targets should be disabled too.
+  source_set("fuzzer_test_support") {
+    testonly = true
+    sources = [
+      "fuzzed_host_resolver_util.cc",
+      "fuzzed_host_resolver_util.h",
+    ]
+    deps = [
+      "//base",
+      "//base/test:test_support",
+      "//net",
+    ]
+  }
 }
 
 fuzzer_test("net_dns_hosts_parse_fuzzer") {
@@ -537,5 +551,7 @@ if (is_win) {
       "//net",
       "//net:net_fuzzer_test_support",
     ]
+    dict = "//net/data/fuzzer_dictionaries/net_dns_hosts_parse_fuzzer.dict"
+    seed_corpus = "//net/data/fuzzer_data/dns_parse_domain_ascii_win_fuzzer"
   }
 }

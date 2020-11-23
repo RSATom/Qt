@@ -52,9 +52,8 @@ void ThreatDetailsCacheCollector::StartCacheCollection(
 
   // Post a task in the message loop, so the callers don't need to
   // check if we call their callback immediately.
-  base::PostTaskWithTraits(
-      FROM_HERE, {BrowserThread::UI},
-      base::BindOnce(&ThreatDetailsCacheCollector::OpenEntry, this));
+  base::PostTask(FROM_HERE, {BrowserThread::UI},
+                 base::BindOnce(&ThreatDetailsCacheCollector::OpenEntry, this));
 }
 
 bool ThreatDetailsCacheCollector::HasStarted() {
@@ -111,10 +110,10 @@ void ThreatDetailsCacheCollector::OpenEntry() {
 
   auto resource_request = std::make_unique<network::ResourceRequest>();
   resource_request->url = GURL(resources_it_->first);
-  // Only from cache, and don't save cookies.
-  resource_request->load_flags = net::LOAD_ONLY_FROM_CACHE |
-                                 net::LOAD_SKIP_CACHE_VALIDATION |
-                                 net::LOAD_DO_NOT_SAVE_COOKIES;
+  // Only from cache, and don't use cookies.
+  resource_request->load_flags =
+      net::LOAD_ONLY_FROM_CACHE | net::LOAD_SKIP_CACHE_VALIDATION;
+  resource_request->credentials_mode = network::mojom::CredentialsMode::kOmit;
   current_load_ = network::SimpleURLLoader::Create(std::move(resource_request),
                                                    traffic_annotation);
   current_load_->DownloadToStringOfUnboundedSizeUntilCrashAndDie(
@@ -228,16 +227,15 @@ void ThreatDetailsCacheCollector::AdvanceEntry() {
   current_load_.reset();
 
   // Create a task so we don't take over the UI thread for too long.
-  base::PostTaskWithTraits(
-      FROM_HERE, {BrowserThread::UI},
-      base::BindOnce(&ThreatDetailsCacheCollector::OpenEntry, this));
+  base::PostTask(FROM_HERE, {BrowserThread::UI},
+                 base::BindOnce(&ThreatDetailsCacheCollector::OpenEntry, this));
 }
 
 void ThreatDetailsCacheCollector::AllDone(bool success) {
   DVLOG(1) << "AllDone";
   DCHECK_CURRENTLY_ON(BrowserThread::UI);
   *result_ = success;
-  base::PostTaskWithTraits(FROM_HERE, {BrowserThread::UI}, callback_);
+  base::PostTask(FROM_HERE, {BrowserThread::UI}, callback_);
   callback_.Reset();
 }
 

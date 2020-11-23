@@ -46,6 +46,8 @@
 #include <private/qdatabuffer_p.h>
 #include <private/qdrawhelper_p.h>
 
+#include <QtGui/qpainterpath.h>
+
 #include <algorithm>
 
 QT_BEGIN_NAMESPACE
@@ -209,7 +211,7 @@ QScanConverter::QScanConverter()
    : m_lines(0)
    , m_alloc(0)
    , m_size(0)
-   , m_intersections(0)
+   , m_intersections(nullptr)
    , m_active(0)
 {
 }
@@ -442,7 +444,7 @@ void QScanConverter::end()
         free(m_intersections);
         m_alloc = 0;
         m_size = 0;
-        m_intersections = 0;
+        m_intersections = nullptr;
     }
 
     if (m_lines.size() > 1024)

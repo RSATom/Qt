@@ -26,42 +26,44 @@
 namespace dawn_native {
     MaybeError ValidateTextureDescriptor(const DeviceBase* device,
                                          const TextureDescriptor* descriptor);
-    MaybeError ValidateTextureViewDescriptor(const DeviceBase* device,
-                                             const TextureBase* texture,
+    MaybeError ValidateTextureViewDescriptor(const TextureBase* texture,
                                              const TextureViewDescriptor* descriptor);
+    TextureViewDescriptor GetTextureViewDescriptorWithDefaults(
+        const TextureBase* texture,
+        const TextureViewDescriptor* descriptor);
 
     bool IsValidSampleCount(uint32_t sampleCount);
 
-    static constexpr dawn::TextureUsageBit kReadOnlyTextureUsages = dawn::TextureUsageBit::CopySrc |
-                                                                    dawn::TextureUsageBit::Sampled |
-                                                                    dawn::TextureUsageBit::Present;
+    static constexpr wgpu::TextureUsage kReadOnlyTextureUsages =
+        wgpu::TextureUsage::CopySrc | wgpu::TextureUsage::Sampled | wgpu::TextureUsage::Present;
 
-    static constexpr dawn::TextureUsageBit kWritableTextureUsages =
-        dawn::TextureUsageBit::CopyDst | dawn::TextureUsageBit::Storage |
-        dawn::TextureUsageBit::OutputAttachment;
+    static constexpr wgpu::TextureUsage kWritableTextureUsages =
+        wgpu::TextureUsage::CopyDst | wgpu::TextureUsage::Storage |
+        wgpu::TextureUsage::OutputAttachment;
 
     class TextureBase : public ObjectBase {
       public:
         enum class TextureState { OwnedInternal, OwnedExternal, Destroyed };
-
+        enum class ClearValue { Zero, NonZero };
         TextureBase(DeviceBase* device, const TextureDescriptor* descriptor, TextureState state);
 
         static TextureBase* MakeError(DeviceBase* device);
 
-        dawn::TextureDimension GetDimension() const;
+        wgpu::TextureDimension GetDimension() const;
         const Format& GetFormat() const;
         const Extent3D& GetSize() const;
         uint32_t GetArrayLayers() const;
         uint32_t GetNumMipLevels() const;
         uint32_t GetSampleCount() const;
-        dawn::TextureUsageBit GetUsage() const;
+        wgpu::TextureUsage GetUsage() const;
         TextureState GetTextureState() const;
         uint32_t GetSubresourceIndex(uint32_t mipLevel, uint32_t arraySlice) const;
         bool IsSubresourceContentInitialized(uint32_t baseMipLevel,
                                              uint32_t levelCount,
                                              uint32_t baseArrayLayer,
                                              uint32_t layerCount) const;
-        void SetIsSubresourceContentInitialized(uint32_t baseMipLevel,
+        void SetIsSubresourceContentInitialized(bool isInitialized,
+                                                uint32_t baseMipLevel,
                                                 uint32_t levelCount,
                                                 uint32_t baseArrayLayer,
                                                 uint32_t layerCount);
@@ -79,7 +81,6 @@ namespace dawn_native {
         Extent3D GetMipLevelVirtualSize(uint32_t level) const;
 
         // Dawn API
-        TextureViewBase* CreateDefaultView();
         TextureViewBase* CreateView(const TextureViewDescriptor* descriptor);
         void Destroy();
 
@@ -91,14 +92,14 @@ namespace dawn_native {
         virtual void DestroyImpl();
 
         MaybeError ValidateDestroy() const;
-        dawn::TextureDimension mDimension;
+        wgpu::TextureDimension mDimension;
         // TODO(cwallez@chromium.org): This should be deduplicated in the Device
         const Format& mFormat;
         Extent3D mSize;
         uint32_t mArrayLayerCount;
         uint32_t mMipLevelCount;
         uint32_t mSampleCount;
-        dawn::TextureUsageBit mUsage = dawn::TextureUsageBit::None;
+        wgpu::TextureUsage mUsage = wgpu::TextureUsage::None;
         TextureState mState;
 
         // TODO(natlee@microsoft.com): Use a more optimized data structure to save space
@@ -115,6 +116,7 @@ namespace dawn_native {
         TextureBase* GetTexture();
 
         const Format& GetFormat() const;
+        wgpu::TextureViewDimension GetDimension() const;
         uint32_t GetBaseMipLevel() const;
         uint32_t GetLevelCount() const;
         uint32_t GetBaseArrayLayer() const;
@@ -127,6 +129,7 @@ namespace dawn_native {
 
         // TODO(cwallez@chromium.org): This should be deduplicated in the Device
         const Format& mFormat;
+        wgpu::TextureViewDimension mDimension;
         uint32_t mBaseMipLevel;
         uint32_t mMipLevelCount;
         uint32_t mBaseArrayLayer;

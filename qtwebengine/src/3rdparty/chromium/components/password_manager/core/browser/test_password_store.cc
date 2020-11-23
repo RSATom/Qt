@@ -133,6 +133,20 @@ TestPasswordStore::FillMatchingLogins(const FormDigest& form) {
   return matched_forms;
 }
 
+std::vector<std::unique_ptr<autofill::PasswordForm>>
+TestPasswordStore::FillMatchingLoginsByPassword(
+    const base::string16& plain_text_password) {
+  std::vector<std::unique_ptr<autofill::PasswordForm>> matched_forms;
+  for (const auto& elements : stored_passwords_) {
+    for (const auto& password_form : elements.second) {
+      if (password_form.password_value == plain_text_password)
+        matched_forms.push_back(
+            std::make_unique<autofill::PasswordForm>(password_form));
+    }
+  }
+  return matched_forms;
+}
+
 bool TestPasswordStore::FillAutofillableLogins(
     std::vector<std::unique_ptr<autofill::PasswordForm>>* forms) {
   for (const auto& forms_for_realm : stored_passwords_) {
@@ -211,6 +225,43 @@ std::vector<InteractionsStats> TestPasswordStore::GetAllSiteStatsImpl() {
   return std::vector<InteractionsStats>();
 }
 
+void TestPasswordStore::AddCompromisedCredentialsImpl(
+    const CompromisedCredentials& stats) {
+  NOTIMPLEMENTED();
+}
+
+void TestPasswordStore::RemoveCompromisedCredentialsImpl(
+    const GURL& url,
+    const base::string16& username) {
+  NOTIMPLEMENTED();
+}
+
+std::vector<CompromisedCredentials>
+TestPasswordStore::GetAllCompromisedCredentialsImpl() {
+  NOTIMPLEMENTED();
+  return std::vector<CompromisedCredentials>();
+}
+
+void TestPasswordStore::RemoveCompromisedCredentialsByUrlAndTimeImpl(
+    const base::RepeatingCallback<bool(const GURL&)>& url_filter,
+    base::Time remove_begin,
+    base::Time remove_end) {
+  NOTIMPLEMENTED();
+}
+
+void TestPasswordStore::AddFieldInfoImpl(const FieldInfo& field_info) {
+  NOTIMPLEMENTED();
+}
+std::vector<FieldInfo> TestPasswordStore::GetAllFieldInfoImpl() {
+  NOTIMPLEMENTED();
+  return std::vector<FieldInfo>();
+}
+
+void TestPasswordStore::RemoveFieldInfoByTimeImpl(base::Time remove_begin,
+                                                  base::Time remove_end) {
+  NOTIMPLEMENTED();
+}
+
 bool TestPasswordStore::BeginTransaction() {
   return true;
 }
@@ -236,6 +287,15 @@ PasswordStoreChangeList TestPasswordStore::RemoveLoginByPrimaryKeySync(
 PasswordStoreSync::MetadataStore* TestPasswordStore::GetMetadataStore() {
   NOTIMPLEMENTED();
   return nullptr;
+}
+
+bool TestPasswordStore::IsAccountStore() const {
+  return false;
+}
+
+bool TestPasswordStore::DeleteAndRecreateDatabaseFile() {
+  NOTIMPLEMENTED();
+  return false;
 }
 
 }  // namespace password_manager

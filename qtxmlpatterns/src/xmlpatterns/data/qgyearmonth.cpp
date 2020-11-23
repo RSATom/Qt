@@ -82,7 +82,8 @@ GYearMonth::Ptr GYearMonth::fromLexical(const QString &lexical)
 
 GYearMonth::Ptr GYearMonth::fromDateTime(const QDateTime &dt)
 {
-    QDateTime result(QDate(dt.date().year(), dt.date().month(), DefaultDay));
+    const QDate date(dt.date().year(), dt.date().month(), DefaultDay);
+    QDateTime result(date.startOfDay());
     copyTimeSpec(dt, result);
 
     return GYearMonth::Ptr(new GYearMonth(result));

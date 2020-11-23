@@ -991,23 +991,23 @@ QString GeneratedTableData::toString(const int *stateMachineTable)
 
     const StateTable *st = reinterpret_cast<const StateTable *>(stateMachineTable);
 
-    out << "{" << endl
-        << "\t0x" << hex << st->version << dec << ", // version" << endl
-        << "\t" << st->name << ", // name" << endl
-        << "\t" << st->dataModel << ", // data-model" << endl
-        << "\t" << st->childStates << ", // child states array offset" << endl
-        << "\t" << st->initialTransition << ", // transition to initial states" << endl
-        << "\t" << st->initialSetup << ", // initial setup" << endl
-        << "\t" << st->binding << ", // binding" << endl
-        << "\t" << st->maxServiceId << ", // maxServiceId" << endl
+    out << "{" << Qt::endl
+        << "\t0x" << Qt::hex << st->version << Qt::dec << ", // version" << Qt::endl
+        << "\t" << st->name << ", // name" << Qt::endl
+        << "\t" << st->dataModel << ", // data-model" << Qt::endl
+        << "\t" << st->childStates << ", // child states array offset" << Qt::endl
+        << "\t" << st->initialTransition << ", // transition to initial states" << Qt::endl
+        << "\t" << st->initialSetup << ", // initial setup" << Qt::endl
+        << "\t" << st->binding << ", // binding" << Qt::endl
+        << "\t" << st->maxServiceId << ", // maxServiceId" << Qt::endl
         << "\t" << st->stateOffset << ", " << st->stateCount
-                                           << ", // state offset and count" << endl
+                                           << ", // state offset and count" << Qt::endl
         << "\t" << st->transitionOffset << ", " << st->transitionCount
-                                                << ", // transition offset and count" << endl
-        << "\t" << st->arrayOffset << ", " << st->arraySize << ", // array offset and size" << endl
-        << endl;
+                                                << ", // transition offset and count" << Qt::endl
+        << "\t" << st->arrayOffset << ", " << st->arraySize << ", // array offset and size" << Qt::endl
+        << Qt::endl;
 
-    out << "\t// States:" << endl;
+    out << "\t// States:" << Qt::endl;
     for (int i = 0; i < st->stateCount; ++i) {
         const StateTable::State &s = st->state(i);
         out << "\t"
@@ -1022,11 +1022,11 @@ QString GeneratedTableData::toString(const int *stateMachineTable)
             << s.childStates << ", "
             << s.transitions << ", "
             << s.serviceFactoryIds << ","
-            << endl;
+            << Qt::endl;
     }
 
-    out << endl
-        << "\t// Transitions:" << endl;
+    out << Qt::endl
+        << "\t// Transitions:" << Qt::endl;
     for (int i = 0; i < st->transitionCount; ++i) {
         auto t = st->transition(i);
         out << "\t"
@@ -1036,11 +1036,11 @@ QString GeneratedTableData::toString(const int *stateMachineTable)
             << t.source << ", "
             << t.targets << ", "
             << t.transitionInstructions << ", "
-            << endl ;
+            << Qt::endl ;
     }
 
-    out << endl
-        << "\t// Arrays:" << endl;
+    out << Qt::endl
+        << "\t// Arrays:" << Qt::endl;
     int nextStart = 0;
     while (nextStart < st->arraySize) {
         const StateTable::Array a = st->array(nextStart);
@@ -1048,13 +1048,13 @@ QString GeneratedTableData::toString(const int *stateMachineTable)
         for (int j = 0; j < a.size(); ++j) {
             out << a[j] << ", ";
         }
-        out << endl;
+        out << Qt::endl;
         nextStart += a.size() + 1;
     }
 
-    out << hex;
-    out << endl
-        << "\t0x" << StateTable::terminator << " // terminator" << endl
+    out << Qt::hex;
+    out << Qt::endl
+        << "\t0x" << StateTable::terminator << " // terminator" << Qt::endl
         << "}";
 
     return result;

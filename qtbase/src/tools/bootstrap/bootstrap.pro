@@ -19,6 +19,10 @@ DEFINES += \
     QT_NO_FOREACH \
     QT_NO_CAST_FROM_ASCII
 
+INCLUDEPATH += \
+    $$PWD/.. \
+    $$PWD/../../3rdparty/tinycbor/src
+
 SOURCES += \
            ../../corelib/codecs/qlatincodec.cpp \
            ../../corelib/codecs/qtextcodec.cpp \
@@ -63,8 +67,11 @@ SOURCES += \
            ../../corelib/kernel/qsharedmemory.cpp \
            ../../corelib/kernel/qsystemsemaphore.cpp \
            ../../corelib/plugin/quuid.cpp \
+           ../../corelib/serialization/qcborcommon.cpp \
+           ../../corelib/serialization/qcborstreamwriter.cpp \
+           ../../corelib/serialization/qcborvalue.cpp \
            ../../corelib/serialization/qdatastream.cpp \
-           ../../corelib/serialization/qjson.cpp \
+           ../../corelib/serialization/qjsoncbor.cpp \
            ../../corelib/serialization/qjsondocument.cpp \
            ../../corelib/serialization/qjsonobject.cpp \
            ../../corelib/serialization/qjsonarray.cpp \
@@ -131,11 +138,8 @@ win32:SOURCES += ../../corelib/global/qoperatingsystemversion_win.cpp \
 mac {
     SOURCES += \
         ../../corelib/kernel/qcoreapplication_mac.cpp \
-        ../../corelib/kernel/qcore_mac.cpp
-
-    OBJECTIVE_SOURCES += \
+        ../../corelib/kernel/qcore_mac.mm \
         ../../corelib/global/qoperatingsystemversion_darwin.mm \
-        ../../corelib/kernel/qcore_mac_objc.mm \
         ../../corelib/kernel/qcore_foundation.mm
 
     LIBS += -framework Foundation

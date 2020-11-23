@@ -56,7 +56,7 @@ AccessibilityOrientation AXSlider::Orientation() const {
   if (!style)
     return kAccessibilityOrientationHorizontal;
 
-  ControlPart style_appearance = style->Appearance();
+  ControlPart style_appearance = style->EffectiveAppearance();
   switch (style_appearance) {
     case kSliderThumbHorizontalPart:
     case kSliderHorizontalPart:
@@ -113,11 +113,15 @@ bool AXSlider::OnNativeSetValueAction(const String& value) {
 
   // Fire change event manually, as LayoutSlider::setValueForPosition does.
   input->DispatchFormControlChangeEvent();
+
+  // Ensure the AX node is updated.
+  AXObjectCache().MarkAXObjectDirty(this, false);
+
   return true;
 }
 
 HTMLInputElement* AXSlider::GetInputElement() const {
-  return ToHTMLInputElement(layout_object_->GetNode());
+  return To<HTMLInputElement>(layout_object_->GetNode());
 }
 
 AXSliderThumb::AXSliderThumb(AXObjectCacheImpl& ax_object_cache)

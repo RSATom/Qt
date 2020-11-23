@@ -45,7 +45,7 @@ void VerifyProtoRecursive(const MessageInfo* root,
         error << " : " << a;
       }
       error << " : " << f.id();
-      LOG(DFATAL) << error.rdbuf();
+      DCHECK(false) << error.rdbuf();
       continue;
     }
     if (root->sub_messages && root->sub_messages[index] != nullptr) {
@@ -76,7 +76,7 @@ void PrivacyFilteringCheck::CheckProtoForUnexpectedFields(
       serialized_trace_proto.size());
 
   for (auto it = trace.packet(); !!it; ++it) {
-    TracePacket::Decoder packet(it->data(), it->size());
+    TracePacket::Decoder packet(*it);
     const MessageInfo* root = &kTracePacket;
     VerifyProto(root, &packet);
 
@@ -90,7 +90,7 @@ void PrivacyFilteringCheck::CheckProtoForUnexpectedFields(
     if (packet.has_interned_data()) {
       InternedData::Decoder interned_data(packet.interned_data().data,
                                           packet.interned_data().size);
-      stats_.has_interned_names |= interned_data.has_legacy_event_names();
+      stats_.has_interned_names |= interned_data.has_event_names();
       stats_.has_interned_categories |= interned_data.has_event_categories();
       stats_.has_interned_source_locations |=
           interned_data.has_source_locations();

@@ -5,9 +5,9 @@
 #include "third_party/blink/renderer/core/frame/csp/content_security_policy.h"
 
 #include "testing/gtest/include/gtest/gtest.h"
-#include "third_party/blink/public/mojom/net/ip_address_space.mojom-blink.h"
 #include "third_party/blink/public/platform/web_insecure_request_policy.h"
 #include "third_party/blink/renderer/core/dom/document.h"
+#include "third_party/blink/renderer/core/dom/document_init.h"
 #include "third_party/blink/renderer/core/frame/csp/csp_directive_list.h"
 #include "third_party/blink/renderer/core/html/html_script_element.h"
 #include "third_party/blink/renderer/core/testing/null_execution_context.h"
@@ -97,30 +97,6 @@ TEST_F(ContentSecurityPolicyTest, ParseInsecureRequestPolicy) {
     EXPECT_FALSE(execution_context->InsecureNavigationsToUpgrade().Contains(
         secure_origin->Host().Impl()->GetHash()));
   }
-}
-
-TEST_F(ContentSecurityPolicyTest, ParseEnforceTreatAsPublicAddressDisabled) {
-  ScopedCorsRFC1918ForTest cors_rfc1918(false);
-  execution_context->SetAddressSpace(mojom::IPAddressSpace::kPrivate);
-  EXPECT_EQ(mojom::IPAddressSpace::kPrivate, execution_context->AddressSpace());
-
-  csp->DidReceiveHeader("treat-as-public-address",
-                        kContentSecurityPolicyHeaderTypeEnforce,
-                        kContentSecurityPolicyHeaderSourceHTTP);
-  csp->BindToDelegate(execution_context->GetContentSecurityPolicyDelegate());
-  EXPECT_EQ(mojom::IPAddressSpace::kPrivate, execution_context->AddressSpace());
-}
-
-TEST_F(ContentSecurityPolicyTest, ParseEnforceTreatAsPublicAddressEnabled) {
-  ScopedCorsRFC1918ForTest cors_rfc1918(true);
-  execution_context->SetAddressSpace(mojom::IPAddressSpace::kPrivate);
-  EXPECT_EQ(mojom::IPAddressSpace::kPrivate, execution_context->AddressSpace());
-
-  csp->DidReceiveHeader("treat-as-public-address",
-                        kContentSecurityPolicyHeaderTypeEnforce,
-                        kContentSecurityPolicyHeaderSourceHTTP);
-  csp->BindToDelegate(execution_context->GetContentSecurityPolicyDelegate());
-  EXPECT_EQ(mojom::IPAddressSpace::kPublic, execution_context->AddressSpace());
 }
 
 TEST_F(ContentSecurityPolicyTest, CopyStateFrom) {
@@ -1006,8 +982,6 @@ TEST_F(ContentSecurityPolicyTest, DirectiveType) {
       {ContentSecurityPolicy::DirectiveType::kStyleSrc, "style-src"},
       {ContentSecurityPolicy::DirectiveType::kStyleSrcAttr, "style-src-attr"},
       {ContentSecurityPolicy::DirectiveType::kStyleSrcElem, "style-src-elem"},
-      {ContentSecurityPolicy::DirectiveType::kTreatAsPublicAddress,
-       "treat-as-public-address"},
       {ContentSecurityPolicy::DirectiveType::kUpgradeInsecureRequests,
        "upgrade-insecure-requests"},
       {ContentSecurityPolicy::DirectiveType::kWorkerSrc, "worker-src"},
@@ -1378,7 +1352,8 @@ TEST_F(ContentSecurityPolicyTest, TrustedTypesNoDirective) {
   csp->BindToDelegate(execution_context->GetContentSecurityPolicyDelegate());
   csp->DidReceiveHeader("", kContentSecurityPolicyHeaderTypeEnforce,
                         kContentSecurityPolicyHeaderSourceHTTP);
-  EXPECT_TRUE(csp->AllowTrustedTypePolicy("somepolicy"));
+  EXPECT_TRUE(csp->AllowTrustedTypePolicy("somepolicy", false));
+  EXPECT_TRUE(csp->AllowTrustedTypePolicy("somepolicy", true));
 }
 
 TEST_F(ContentSecurityPolicyTest, TrustedTypesSimpleDirective) {
@@ -1387,10 +1362,6 @@ TEST_F(ContentSecurityPolicyTest, TrustedTypesSimpleDirective) {
   csp->DidReceiveHeader("trusted-types one two three",
                         kContentSecurityPolicyHeaderTypeEnforce,
                         kContentSecurityPolicyHeaderSourceHTTP);
-  EXPECT_TRUE(csp->AllowTrustedTypePolicy("one"));
-  EXPECT_TRUE(csp->AllowTrustedTypePolicy("two"));
-  EXPECT_TRUE(csp->AllowTrustedTypePolicy("three"));
-  EXPECT_FALSE(csp->AllowTrustedTypePolicy("four"));
 }
 
 TEST_F(ContentSecurityPolicyTest, TrustedTypesWhitespace) {
@@ -1399,9 +1370,12 @@ TEST_F(ContentSecurityPolicyTest, TrustedTypesWhitespace) {
   csp->DidReceiveHeader("trusted-types one\ntwo\rthree",
                         kContentSecurityPolicyHeaderTypeEnforce,
                         kContentSecurityPolicyHeaderSourceHTTP);
-  EXPECT_TRUE(csp->AllowTrustedTypePolicy("one"));
-  EXPECT_TRUE(csp->AllowTrustedTypePolicy("two"));
-  EXPECT_TRUE(csp->AllowTrustedTypePolicy("three"));
+  EXPECT_TRUE(csp->AllowTrustedTypePolicy("one", false));
+  EXPECT_TRUE(csp->AllowTrustedTypePolicy("two", false));
+  EXPECT_TRUE(csp->AllowTrustedTypePolicy("three", false));
+  EXPECT_FALSE(csp->AllowTrustedTypePolicy("four", false));
+  EXPECT_FALSE(csp->AllowTrustedTypePolicy("one", true));
+  EXPECT_FALSE(csp->AllowTrustedTypePolicy("four", true));
 }
 
 TEST_F(ContentSecurityPolicyTest, TrustedTypesEmpty) {
@@ -1410,7 +1384,8 @@ TEST_F(ContentSecurityPolicyTest, TrustedTypesEmpty) {
   csp->DidReceiveHeader("trusted-types",
                         kContentSecurityPolicyHeaderTypeEnforce,
                         kContentSecurityPolicyHeaderSourceHTTP);
-  EXPECT_FALSE(csp->AllowTrustedTypePolicy("somepolicy"));
+  EXPECT_FALSE(csp->AllowTrustedTypePolicy("somepolicy", false));
+  EXPECT_FALSE(csp->AllowTrustedTypePolicy("somepolicy", true));
 }
 
 TEST_F(ContentSecurityPolicyTest, TrustedTypesStar) {
@@ -1419,7 +1394,8 @@ TEST_F(ContentSecurityPolicyTest, TrustedTypesStar) {
   csp->DidReceiveHeader("trusted-types *",
                         kContentSecurityPolicyHeaderTypeEnforce,
                         kContentSecurityPolicyHeaderSourceHTTP);
-  EXPECT_TRUE(csp->AllowTrustedTypePolicy("somepolicy"));
+  EXPECT_TRUE(csp->AllowTrustedTypePolicy("somepolicy", false));
+  EXPECT_TRUE(csp->AllowTrustedTypePolicy("somepolicy", true));
 }
 
 TEST_F(ContentSecurityPolicyTest, TrustedTypesReserved) {
@@ -1428,13 +1404,38 @@ TEST_F(ContentSecurityPolicyTest, TrustedTypesReserved) {
   csp->DidReceiveHeader("trusted-types one \"two\" 'three'",
                         kContentSecurityPolicyHeaderTypeEnforce,
                         kContentSecurityPolicyHeaderSourceHTTP);
-  EXPECT_TRUE(csp->AllowTrustedTypePolicy("one"));
+  EXPECT_TRUE(csp->AllowTrustedTypePolicy("one", false));
+  EXPECT_TRUE(csp->AllowTrustedTypePolicy("one", false));
 
   // Quoted strings are considered 'reserved':
-  EXPECT_FALSE(csp->AllowTrustedTypePolicy("two"));
-  EXPECT_FALSE(csp->AllowTrustedTypePolicy("\"two\""));
-  EXPECT_FALSE(csp->AllowTrustedTypePolicy("three"));
-  EXPECT_FALSE(csp->AllowTrustedTypePolicy("'three'"));
+  EXPECT_FALSE(csp->AllowTrustedTypePolicy("two", false));
+  EXPECT_FALSE(csp->AllowTrustedTypePolicy("\"two\"", false));
+  EXPECT_FALSE(csp->AllowTrustedTypePolicy("three", false));
+  EXPECT_FALSE(csp->AllowTrustedTypePolicy("'three'", false));
+  EXPECT_FALSE(csp->AllowTrustedTypePolicy("two", true));
+  EXPECT_FALSE(csp->AllowTrustedTypePolicy("\"two\"", true));
+  EXPECT_FALSE(csp->AllowTrustedTypePolicy("three", true));
+  EXPECT_FALSE(csp->AllowTrustedTypePolicy("'three'", true));
+}
+
+TEST_F(ContentSecurityPolicyTest, TrustedTypesReportingStar) {
+  execution_context->SetRequireTrustedTypesForTesting();
+  csp->BindToDelegate(execution_context->GetContentSecurityPolicyDelegate());
+  csp->DidReceiveHeader("trusted-types *",
+                        kContentSecurityPolicyHeaderTypeReport,
+                        kContentSecurityPolicyHeaderSourceHTTP);
+  EXPECT_TRUE(csp->AllowTrustedTypePolicy("somepolicy", false));
+  EXPECT_TRUE(csp->AllowTrustedTypePolicy("somepolicy", true));
+}
+
+TEST_F(ContentSecurityPolicyTest, TrustedTypeReportingSimple) {
+  execution_context->SetRequireTrustedTypesForTesting();
+  csp->BindToDelegate(execution_context->GetContentSecurityPolicyDelegate());
+  csp->DidReceiveHeader("trusted-types a b c",
+                        kContentSecurityPolicyHeaderTypeReport,
+                        kContentSecurityPolicyHeaderSourceHTTP);
+  EXPECT_TRUE(csp->AllowTrustedTypePolicy("a", false));
+  EXPECT_TRUE(csp->AllowTrustedTypePolicy("a", true));
 }
 
 TEST_F(ContentSecurityPolicyTest, TrustedTypeEnforce) {
@@ -1481,6 +1482,16 @@ TEST_F(ContentSecurityPolicyTest, TrustedTypeReportAndNonTTEnforce) {
                         kContentSecurityPolicyHeaderSourceHTTP);
   EXPECT_TRUE(csp->IsRequireTrustedTypes());
   EXPECT_TRUE(csp->AllowTrustedTypeAssignmentFailure("blabla"));
+}
+
+TEST_F(ContentSecurityPolicyTest, DefaultPolicy) {
+  execution_context->SetRequireTrustedTypesForTesting();
+  csp->BindToDelegate(execution_context->GetContentSecurityPolicyDelegate());
+  csp->DidReceiveHeader("trusted-types *",
+                        kContentSecurityPolicyHeaderTypeEnforce,
+                        kContentSecurityPolicyHeaderSourceHTTP);
+  EXPECT_TRUE(csp->AllowTrustedTypePolicy("default", false));
+  EXPECT_FALSE(csp->AllowTrustedTypePolicy("default", true));
 }
 
 TEST_F(ContentSecurityPolicyTest, DirectiveNameCaseInsensitive) {
@@ -1536,12 +1547,12 @@ TEST_F(ContentSecurityPolicyTest, EmptyCSPIsNoOp) {
   EXPECT_TRUE(csp->AllowInline(
       ContentSecurityPolicy::InlineType::kScriptAttribute, element, source,
       String() /* nonce */, context_url, ordinal_number));
-  EXPECT_TRUE(csp->AllowEval(nullptr, SecurityViolationReportingPolicy::kReport,
+  EXPECT_TRUE(csp->AllowEval(SecurityViolationReportingPolicy::kReport,
                              ContentSecurityPolicy::kWillNotThrowException,
                              g_empty_string));
-  EXPECT_TRUE(csp->AllowWasmEval(
-      nullptr, SecurityViolationReportingPolicy::kReport,
-      ContentSecurityPolicy::kWillNotThrowException, g_empty_string));
+  EXPECT_TRUE(csp->AllowWasmEval(SecurityViolationReportingPolicy::kReport,
+                                 ContentSecurityPolicy::kWillNotThrowException,
+                                 g_empty_string));
   EXPECT_TRUE(csp->AllowPluginType("application/x-type-1",
                                    "application/x-type-1", example_url));
   EXPECT_TRUE(csp->AllowPluginTypeForDocument(
@@ -1576,7 +1587,8 @@ TEST_F(ContentSecurityPolicyTest, EmptyCSPIsNoOp) {
   EXPECT_TRUE(csp->AllowScriptFromSource(
       example_url, nonce, IntegrityMetadataSet(), kParserInserted));
 
-  EXPECT_TRUE(csp->AllowTrustedTypePolicy("somepolicy"));
+  EXPECT_TRUE(csp->AllowTrustedTypePolicy("somepolicy", true));
+  EXPECT_TRUE(csp->AllowTrustedTypePolicy("somepolicy", false));
   EXPECT_TRUE(csp->AllowInline(ContentSecurityPolicy::InlineType::kScript,
                                element, source, nonce, context_url,
                                ordinal_number));

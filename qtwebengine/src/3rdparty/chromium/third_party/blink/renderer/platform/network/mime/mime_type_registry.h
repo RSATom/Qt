@@ -68,6 +68,9 @@ class PLATFORM_EXPORT MIMETypeRegistry {
   // resource.
   static bool IsSupportedJavaScriptMIMEType(const String& mime_type);
 
+  // https://mimesniff.spec.whatwg.org/#json-mime-type
+  static bool IsJSONMimeType(const String& mime_type);
+
   static bool IsLegacySupportedJavaScriptLanguage(const String& language);
 
   // Checks to see if a non-image mime type is suitable for being loaded as a
@@ -85,8 +88,14 @@ class PLATFORM_EXPORT MIMETypeRegistry {
 
   // Checks to see if the mime type and codecs are supported by the MediaSource
   // implementation.
-  static bool IsSupportedMediaSourceMIMEType(const String& mime_type,
-                                             const String& codecs);
+  // kIsNotSupported indicates definitive lack of support.
+  // kIsSupported indicates the mime type is supported, any non-empty codecs
+  // requirement is met for the mime type, and all of the passed codecs are
+  // supported for the mime type.
+  // kMayBeSupported indicates the mime type is supported, but the mime type
+  // requires a codecs parameter that is missing.
+  static SupportsType SupportsMediaSourceMIMEType(const String& mime_type,
+                                                  const String& codecs);
 
   // Checks to see if a mime type is a valid Java applet mime type
   static bool IsJavaAppletMIMEType(const String& mime_type);

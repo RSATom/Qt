@@ -62,11 +62,20 @@ const char kGLShaderIntermOutput[] = "gl-shader-interm-output";
 // round intermediate values in ANGLE.
 const char kEmulateShaderPrecision[] = "emulate-shader-precision";
 
+// Selects the type of the GrContext.
+const char kGrContextType[] = "gr-context-type";
+const char kGrContextTypeGL[] = "gl";
+const char kGrContextTypeVulkan[] = "vulkan";
+const char kGrContextTypeMetal[] = "metal";
+const char kGrContextTypeDawn[] = "dawn";
 // Enable Vulkan support and select Vulkan implementation, must also have
 // ENABLE_VULKAN defined.
 const char kUseVulkan[] = "use-vulkan";
 const char kVulkanImplementationNameNative[] = "native";
 const char kVulkanImplementationNameSwiftshader[] = "swiftshader";
+
+// Forces to use protected memory for vulkan compositing.
+const char kEnforceVulkanProtectedMemory[] = "enforce-vulkan-protected-memory";
 
 // Disables VK_KHR_surface extension. Instead of using swapchain, bitblt will be
 // used for present render result on screen.

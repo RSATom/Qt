@@ -48,6 +48,7 @@
 #include "content/public/browser/browser_main_runner.h"
 #include "content/public/common/content_paths.h"
 #include "content/public/common/content_switches.h"
+#include "media/gpu/buildflags.h"
 #include "ui/base/l10n/l10n_util.h"
 #include "ui/base/ui_base_paths.h"
 #include "ui/base/resource/resource_bundle.h"
@@ -68,10 +69,26 @@
 #endif
 
 #if defined(OS_LINUX)
+#include "media/audio/audio_manager.h"
 #include "ui/base/ui_base_switches.h"
 #endif
 
+// must be included before vaapi_wrapper.h
 #include <QtCore/qcoreapplication.h>
+
+#if defined(OS_WIN)
+#include "media/gpu/windows/dxva_video_decode_accelerator_win.h"
+#include "media/gpu/windows/media_foundation_video_encode_accelerator_win.h"
+#endif
+
+#if defined(OS_MACOSX)
+#include "content/public/common/content_features.h"
+#include "media/gpu/mac/vt_video_decode_accelerator_mac.h"
+#endif
+
+#if BUILDFLAG(USE_VAAPI)
+#include "media/gpu/vaapi/vaapi_wrapper.h"
+#endif
 
 namespace content {
 ContentClient *GetContentClient();
@@ -79,36 +96,52 @@ ContentClient *GetContentClient();
 
 namespace QtWebEngineCore {
 
+namespace {
+
 // The logic of this function is based on chrome/common/net/net_resource_provider.cc
 // Copyright (c) 2012 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE.Chromium file.
-static std::string constructDirHeaderHTML()
-{
-    base::DictionaryValue dict;
-    dict.SetString("header", l10n_util::GetStringUTF16(IDS_DIRECTORY_LISTING_HEADER));
-    dict.SetString("parentDirText", l10n_util::GetStringUTF16(IDS_DIRECTORY_LISTING_PARENT));
-    dict.SetString("headerName", l10n_util::GetStringUTF16(IDS_DIRECTORY_LISTING_NAME));
-    dict.SetString("headerSize", l10n_util::GetStringUTF16(IDS_DIRECTORY_LISTING_SIZE));
-    dict.SetString("headerDateModified",
-                    l10n_util::GetStringUTF16(IDS_DIRECTORY_LISTING_DATE_MODIFIED));
-    dict.SetString("language", l10n_util::GetLanguage(base::i18n::GetConfiguredLocale()));
-    dict.SetString("listingParsingErrorBoxText",
-                    l10n_util::GetStringFUTF16(IDS_DIRECTORY_LISTING_PARSING_ERROR_BOX_TEXT,
-                    toString16(QCoreApplication::applicationName())));
-    dict.SetString("textdirection", base::i18n::IsRTL() ? "rtl" : "ltr");
-    std::string html = webui::GetI18nTemplateHtml(
-                ui::ResourceBundle::GetSharedInstance().GetRawDataResource(IDR_DIR_HEADER_HTML),
-                &dict);
-    return html;
-}
 
-static base::StringPiece PlatformResourceProvider(int key) {
-    if (key == IDR_DIR_HEADER_HTML) {
-        static std::string html_data = constructDirHeaderHTML();
-        return base::StringPiece(html_data);
+// The net module doesn't have access to this HTML or the strings that need to
+// be localized.  The Chrome locale will never change while we're running, so
+// it's safe to have a static string that we always return a pointer into.
+struct LazyDirectoryListerCacher
+{
+    LazyDirectoryListerCacher()
+    {
+        base::DictionaryValue dict;
+        dict.SetString("header", l10n_util::GetStringUTF16(IDS_DIRECTORY_LISTING_HEADER));
+        dict.SetString("parentDirText", l10n_util::GetStringUTF16(IDS_DIRECTORY_LISTING_PARENT));
+        dict.SetString("headerName", l10n_util::GetStringUTF16(IDS_DIRECTORY_LISTING_NAME));
+        dict.SetString("headerSize", l10n_util::GetStringUTF16(IDS_DIRECTORY_LISTING_SIZE));
+        dict.SetString("headerDateModified",
+                       l10n_util::GetStringUTF16(IDS_DIRECTORY_LISTING_DATE_MODIFIED));
+        dict.SetString("language", l10n_util::GetLanguage(base::i18n::GetConfiguredLocale()));
+        dict.SetString("listingParsingErrorBoxText",
+                       l10n_util::GetStringFUTF16(IDS_DIRECTORY_LISTING_PARSING_ERROR_BOX_TEXT,
+                                                  toString16(QCoreApplication::applicationName())));
+        dict.SetString("textdirection", base::i18n::IsRTL() ? "rtl" : "ltr");
+        std::string html =
+                webui::GetI18nTemplateHtml(
+                    ui::ResourceBundle::GetSharedInstance().LoadDataResourceString(IDR_DIR_HEADER_HTML),
+                    &dict);
+        html_data = base::RefCountedString::TakeString(&html);
     }
-    return base::StringPiece();
+
+    scoped_refptr<base::RefCountedMemory> html_data;
+};
+
+}  // namespace
+
+static scoped_refptr<base::RefCountedMemory> PlatformResourceProvider(int key)
+{
+    static base::NoDestructor<LazyDirectoryListerCacher> lazy_dir_lister;
+
+    if (IDR_DIR_HEADER_HTML == key)
+        return lazy_dir_lister->html_data;
+
+    return ui::ResourceBundle::GetSharedInstance().LoadDataResourceBytes(key);
 }
 
 // Logging logic is based on chrome/common/logging_chrome.cc:
@@ -172,6 +205,30 @@ void ContentMainDelegateQt::PreSandboxStartup()
     if (parsedCommandLine->HasSwitch(switches::kSingleProcess))
         setlocale(LC_NUMERIC, "C");
 #endif
+
+    // from gpu_main.cc:
+#if BUILDFLAG(USE_VAAPI)
+    media::VaapiWrapper::PreSandboxInitialization();
+#endif
+#if defined(OS_WIN)
+    media::DXVAVideoDecodeAccelerator::PreSandboxInitialization();
+    media::MediaFoundationVideoEncodeAccelerator::PreSandboxInitialization();
+#endif
+
+#if defined(OS_MACOSX)
+    if (base::FeatureList::IsEnabled(features::kMacV2GPUSandbox)) {
+        TRACE_EVENT0("gpu", "Initialize VideoToolbox");
+        media::InitializeVideoToolbox();
+    }
+#endif
+
+    if (parsedCommandLine->HasSwitch(service_manager::switches::kApplicationName)) {
+        const std::string appName = parsedCommandLine->GetSwitchValueASCII(service_manager::switches::kApplicationName);
+        QCoreApplication::setApplicationName(QString::fromStdString(appName));
+#if defined(OS_LINUX)
+        media::AudioManager::SetGlobalAppName(appName);
+#endif
+    }
 }
 
 content::ContentBrowserClient *ContentMainDelegateQt::CreateContentBrowserClient()

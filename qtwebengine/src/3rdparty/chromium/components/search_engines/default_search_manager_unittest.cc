@@ -115,6 +115,7 @@ TEST_F(DefaultSearchManagerTest, ReadAndWritePref) {
   data.date_created = base::Time();
   data.last_modified = base::Time();
   data.last_modified = base::Time();
+  data.created_from_play_api = true;
 
   manager.SetUserSelectedDefaultSearchEngine(data);
   const TemplateURLData* read_data = manager.GetDefaultSearchEngine(nullptr);
@@ -264,4 +265,33 @@ TEST_F(DefaultSearchManagerTest, DefaultSearchSetByExtension) {
   RemoveExtensionDefaultSearchFromPrefs(pref_service());
   ExpectSimilar(data.get(), manager.GetDefaultSearchEngine(&source));
   EXPECT_EQ(DefaultSearchManager::FROM_USER, source);
+}
+
+// Verify that DefaultSearchManager preserves search engine parameters for
+// search engine created from Play API data.
+TEST_F(DefaultSearchManagerTest, DefaultSearchSetByPlayAPI) {
+  DefaultSearchManager manager(pref_service(),
+                               DefaultSearchManager::ObserverCallback());
+  const TemplateURLData* prepopulated_data =
+      manager.GetDefaultSearchEngine(nullptr);
+
+  // The test tries to set DSE to the one with prepopulate_id, matching existing
+  // prepopulated search engine.
+  std::unique_ptr<TemplateURLData> data = GenerateDummyTemplateURLData(
+      base::UTF16ToUTF8(prepopulated_data->keyword()));
+  data->prepopulate_id = prepopulated_data->prepopulate_id;
+  data->favicon_url = prepopulated_data->favicon_url;
+
+  // If the new search engine was not created form Play API data its parameters
+  // should be overwritten with prepopulated data.
+  manager.SetUserSelectedDefaultSearchEngine(*data);
+  const TemplateURLData* read_data = manager.GetDefaultSearchEngine(nullptr);
+  ExpectSimilar(prepopulated_data, read_data);
+
+  // If the new search engine was created form Play API data its parameters
+  // should be preserved.
+  data->created_from_play_api = true;
+  manager.SetUserSelectedDefaultSearchEngine(*data);
+  read_data = manager.GetDefaultSearchEngine(nullptr);
+  ExpectSimilar(data.get(), read_data);
 }

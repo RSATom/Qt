@@ -60,10 +60,6 @@
 #include <Qt3DCore/private/qaspectjob_p.h>
 #include <Qt3DCore/private/task_p.h>
 
-#if QT_CONFIG(qt3d_profile_jobs)
-#include <QtCore/QElapsedTimer>
-#endif
-
 QT_BEGIN_NAMESPACE
 
 namespace Qt3DCore {
@@ -73,28 +69,20 @@ class Q_3DCORE_PRIVATE_EXPORT QThreadPooler : public QObject
     Q_OBJECT
 
 public:
-    explicit QThreadPooler(QObject *parent = 0);
+    explicit QThreadPooler(QObject *parent = nullptr);
     ~QThreadPooler();
 
     QFuture<void> mapDependables(QVector<RunnableInterface *> &taskQueue);
+    int waitForAllJobs();
     void taskFinished(RunnableInterface *task);
     QFuture<void> future();
 
-    int maxThreadCount() const;
-#if QT_CONFIG(qt3d_profile_jobs)
-    static QElapsedTimer m_jobsStatTimer;
-
-    // Aspects + Job threads
-    static void addJobLogStatsEntry(JobRunStats &stats);
-    static void writeFrameJobLogStats();
-
-    // Submission thread
-    static void addSubmissionLogStatsEntry(JobRunStats &stats);
-
-#endif
+    static int maxThreadCount();
 
 private:
     void enqueueTasks(const QVector<RunnableInterface *> &tasks);
+    void skipTask(RunnableInterface *task);
+    void enqueueDepencies(RunnableInterface *task);
     void acquire(int add);
     void release();
     int currentCount() const;
@@ -104,6 +92,7 @@ private:
     QMutex m_mutex;
     QAtomicInt m_taskCount;
     QThreadPool *m_threadPool;
+    int m_totalRunJobs;
 };
 
 } // namespace Qt3DCore

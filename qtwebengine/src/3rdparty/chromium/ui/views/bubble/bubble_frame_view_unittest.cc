@@ -34,20 +34,19 @@ using BubbleFrameViewTest = ViewsTestBase;
 
 namespace {
 
-const BubbleBorder::Arrow kArrow = BubbleBorder::TOP_LEFT;
-const SkColor kColor = SK_ColorRED;
-const int kMargin = 6;
-const int kMinimumClientWidth = 100;
-const int kMinimumClientHeight = 200;
-const int kMaximumClientWidth = 300;
-const int kMaximumClientHeight = 300;
-const int kPreferredClientWidth = 150;
-const int kPreferredClientHeight = 250;
+constexpr BubbleBorder::Arrow kArrow = BubbleBorder::TOP_LEFT;
+constexpr SkColor kColor = SK_ColorRED;
+constexpr int kMargin = 6;
+constexpr gfx::Size kMinimumClientSize = gfx::Size(100, 200);
+constexpr gfx::Size kPreferredClientSize = gfx::Size(150, 250);
+constexpr gfx::Size kMaximumClientSize = gfx::Size(300, 300);
 
 // These account for non-client areas like the title bar, footnote etc. However
 // these do not take the bubble border into consideration.
-const int kExpectedAdditionalWidth = 12;
-const int kExpectedAdditionalHeight = 12;
+gfx::Size AddAdditionalSize(gfx::Size size) {
+  size.Enlarge(12, 12);
+  return size;
+}
 
 class TestBubbleFrameViewWidgetDelegate : public WidgetDelegate {
  public:
@@ -62,12 +61,10 @@ class TestBubbleFrameViewWidgetDelegate : public WidgetDelegate {
 
   View* GetContentsView() override {
     if (!contents_view_) {
-      StaticSizedView* contents_view = new StaticSizedView(
-          gfx::Size(kPreferredClientWidth, kPreferredClientHeight));
-      contents_view->set_minimum_size(
-          gfx::Size(kMinimumClientWidth, kMinimumClientHeight));
-      contents_view->set_maximum_size(
-          gfx::Size(kMaximumClientWidth, kMaximumClientHeight));
+      StaticSizedView* contents_view =
+          new StaticSizedView(kPreferredClientSize);
+      contents_view->set_minimum_size(kMinimumClientSize);
+      contents_view->set_maximum_size(kMaximumClientSize);
       contents_view_ = contents_view;
     }
     return contents_view_;
@@ -97,7 +94,7 @@ class TestBubbleFrameView : public BubbleFrameView {
         test_base->CreateParams(Widget::InitParams::TYPE_BUBBLE);
     params.delegate = widget_delegate_.get();
     params.ownership = Widget::InitParams::WIDGET_OWNS_NATIVE_WIDGET;
-    widget_->Init(params);
+    widget_->Init(std::move(params));
   }
   ~TestBubbleFrameView() override = default;
 
@@ -169,7 +166,7 @@ TEST_F(BubbleFrameViewTest, GetBoundsForClientViewWithClose) {
   const gfx::Insets content_margins = frame.content_margins();
   const gfx::Insets insets = frame.GetBorderInsets();
   const int close_margin =
-      frame.GetCloseButtonForTest()->height() +
+      frame.GetCloseButtonForTesting()->height() +
       LayoutProvider::Get()->GetDistanceMetric(DISTANCE_CLOSE_BUTTON_MARGIN);
   const gfx::Rect client_view_bounds = frame.GetBoundsForClientView();
   EXPECT_EQ(insets.left() + content_margins.left(), client_view_bounds.x());
@@ -795,8 +792,7 @@ TEST_F(BubbleFrameViewTest, GetPreferredSize) {
   // Expect that a border has been added to the preferred size.
   preferred_rect.Inset(frame.GetBorderInsets());
 
-  gfx::Size expected_size(kPreferredClientWidth + kExpectedAdditionalWidth,
-                          kPreferredClientHeight + kExpectedAdditionalHeight);
+  gfx::Size expected_size = AddAdditionalSize(kPreferredClientSize);
   EXPECT_EQ(expected_size, preferred_rect.size());
 }
 
@@ -831,8 +827,7 @@ TEST_F(BubbleFrameViewTest, GetMinimumSize) {
   // Expect that a border has been added to the minimum size.
   minimum_rect.Inset(frame.GetBorderInsets());
 
-  gfx::Size expected_size(kMinimumClientWidth + kExpectedAdditionalWidth,
-                          kMinimumClientHeight + kExpectedAdditionalHeight);
+  gfx::Size expected_size = AddAdditionalSize(kMinimumClientSize);
   EXPECT_EQ(expected_size, minimum_rect.size());
 }
 
@@ -847,10 +842,63 @@ TEST_F(BubbleFrameViewTest, GetMaximumSize) {
   maximum_rect.Inset(frame.GetBorderInsets());
 
   // Should ignore the contents view's maximum size and use the preferred size.
-  gfx::Size expected_size(kPreferredClientWidth + kExpectedAdditionalWidth,
-                          kPreferredClientHeight + kExpectedAdditionalHeight);
+  gfx::Size expected_size = AddAdditionalSize(kPreferredClientSize);
   EXPECT_EQ(expected_size, maximum_rect.size());
 #endif
+}
+
+TEST_F(BubbleFrameViewTest, LayoutWithHeader) {
+  // Test header view: adding a header should increase the preferred size, but
+  // only when the header is visible.
+  TestBubbleFrameView frame(this);
+
+  constexpr int kHeaderHeight = 20;
+  const gfx::Size no_header_size = frame.GetPreferredSize();
+  std::unique_ptr<View> header =
+      std::make_unique<StaticSizedView>(gfx::Size(10, kHeaderHeight));
+  header->SetVisible(false);
+  View* header_raw_pointer = header.get();
+  frame.SetHeaderView(std::move(header));
+  EXPECT_EQ(no_header_size, frame.GetPreferredSize());  // No change.
+
+  header_raw_pointer->SetVisible(true);
+  gfx::Size with_header_size = no_header_size;
+  with_header_size.Enlarge(0, kHeaderHeight);
+  EXPECT_EQ(with_header_size, frame.GetPreferredSize());
+
+  header_raw_pointer->SetVisible(false);
+  EXPECT_EQ(no_header_size, frame.GetPreferredSize());
+}
+
+TEST_F(BubbleFrameViewTest, LayoutWithHeaderAndCloseButton) {
+  // Test header view with close button: the client bounds should be positioned
+  // below the header and close button, whichever is further down.
+  TestBubbleFrameView frame(this);
+  frame.widget_delegate()->SetShouldShowCloseButton(true);
+
+  const int close_margin =
+      frame.GetCloseButtonForTesting()->height() +
+      LayoutProvider::Get()->GetDistanceMetric(DISTANCE_CLOSE_BUTTON_MARGIN);
+  const gfx::Insets content_margins = frame.content_margins();
+  const gfx::Insets insets = frame.GetBorderInsets();
+
+  // Header is smaller than close button + margin, expect bounds to be below the
+  // close button.
+  frame.SetHeaderView(
+      std::make_unique<StaticSizedView>(gfx::Size(10, close_margin - 1)));
+
+  gfx::Rect client_view_bounds = frame.GetBoundsForClientView();
+  EXPECT_EQ(insets.top() + content_margins.top() + close_margin,
+            client_view_bounds.y());
+
+  // Header is larger than close button + margin, expect bounds to be below the
+  // header view.
+  frame.SetHeaderView(
+      std::make_unique<StaticSizedView>(gfx::Size(10, close_margin + 1)));
+
+  client_view_bounds = frame.GetBoundsForClientView();
+  EXPECT_EQ(insets.top() + content_margins.top() + close_margin + 1,
+            client_view_bounds.y());
 }
 
 namespace {
@@ -882,6 +930,10 @@ class TestBubbleDialogDelegateView : public BubbleDialogDelegateView {
   bool ShouldShowWindowIcon() const override { return !icon_.isNull(); }
   base::string16 GetWindowTitle() const override { return title_; }
   bool ShouldShowWindowTitle() const override { return !title_.empty(); }
+  bool ShouldShowCloseButton() const override { return should_show_close_; }
+  void SetShouldShowCloseButton(bool should_show_close) {
+    should_show_close_ = should_show_close;
+  }
 
   void DeleteDelegate() override {
     // This delegate is owned by the test case itself, so it should not delete
@@ -903,6 +955,7 @@ class TestBubbleDialogDelegateView : public BubbleDialogDelegateView {
   gfx::ImageSkia icon_;
   base::string16 title_;
   bool destroyed_ = false;
+  bool should_show_close_ = false;
 
   DISALLOW_COPY_AND_ASSIGN(TestBubbleDialogDelegateView);
 };
@@ -911,7 +964,7 @@ class TestAnchor {
  public:
   explicit TestAnchor(Widget::InitParams params) {
     params.ownership = Widget::InitParams::WIDGET_OWNS_NATIVE_WIDGET;
-    widget_.Init(params);
+    widget_.Init(std::move(params));
     widget_.Show();
   }
 
@@ -937,7 +990,10 @@ class TestWidthSnapDelegate : public TestBubbleDialogDelegateView {
   ~TestWidthSnapDelegate() override { GetWidget()->CloseNow(); }
 
   // TestBubbleDialogDelegateView:
-  bool ShouldSnapFrameWidth() const override { return should_snap_; }
+  int GetDialogButtons() const override {
+    // Only dialogs with buttons get snapped by BubbleFrameView.
+    return should_snap_ ? ui::DIALOG_BUTTON_OK : ui::DIALOG_BUTTON_NONE;
+  }
 
  private:
   bool should_snap_;
@@ -1057,6 +1113,60 @@ TEST_F(BubbleFrameViewTest, LayoutEdgeCases) {
   // When |anchor| goes out of scope it should take |bubble| with it.
 }
 
+// Tests edge cases when the frame's title view starts to wrap text when a
+// header view is set. This is to ensure the title leaves enough space for the
+// close button when there is a header or not.
+TEST_F(BubbleFrameViewTest, LayoutEdgeCasesWithHeader) {
+  test::TestLayoutProvider provider;
+  TestBubbleDialogDelegateView delegate;
+  TestAnchor anchor(CreateParams(Widget::InitParams::TYPE_WINDOW));
+  delegate.SetAnchorView(anchor.widget().GetContentsView());
+  delegate.SetShouldShowCloseButton(true);
+  Widget* bubble = BubbleDialogDelegateView::CreateBubble(&delegate);
+  bubble->Show();
+
+  BubbleFrameView* frame = delegate.GetBubbleFrameView();
+  const int close_margin =
+      frame->GetCloseButtonForTesting()->height() +
+      LayoutProvider::Get()->GetDistanceMetric(DISTANCE_CLOSE_BUTTON_MARGIN);
+
+  // Set a header view that is 1 dip smaller smaller than the close button.
+  frame->SetHeaderView(
+      std::make_unique<StaticSizedView>(gfx::Size(10, close_margin - 1)));
+
+  // Starting with a short title.
+  base::string16 title(1, 'i');
+  delegate.ChangeTitle(title);
+  const int min_bubble_height = bubble->GetWindowBoundsInScreen().height();
+
+  // Grow the title incrementally until word wrap is required.
+  while (bubble->GetWindowBoundsInScreen().height() == min_bubble_height) {
+    title += ' ';
+    title += 'i';
+    delegate.ChangeTitle(title);
+  }
+
+  // Sanity check that something interesting happened. The bubble should have
+  // grown by "a line" for the wrapped title.
+  const int two_line_height = bubble->GetWindowBoundsInScreen().height();
+  EXPECT_LT(12, two_line_height - min_bubble_height);
+  EXPECT_GT(25, two_line_height - min_bubble_height);
+
+  // Now grow the header view to be the same size as the close button. This
+  // should allow the text to fit into a single line again as it is now allowed
+  // to grow below the close button.
+  frame->SetHeaderView(
+      std::make_unique<StaticSizedView>(gfx::Size(10, close_margin)));
+  delegate.SizeToContents();
+
+  // Height should go back to |min_bubble_height| + 1 since the window is wider:
+  // word wrapping should no longer happen, the 1 dip extra height is caused by
+  // growing the header view.
+  EXPECT_EQ(min_bubble_height + 1, bubble->GetWindowBoundsInScreen().height());
+
+  // When |anchor| goes out of scope it should take |bubble| with it.
+}
+
 TEST_F(BubbleFrameViewTest, LayoutWithIcon) {
   TestBubbleDialogDelegateView delegate;
   TestAnchor anchor(CreateParams(Widget::InitParams::TYPE_WINDOW));
@@ -1156,6 +1266,26 @@ TEST_F(BubbleFrameViewTest, IgnorePossiblyUnintendedClicks) {
                                                  GetDoubleClickInterval()),
                      ui::EF_NONE, ui::EF_NONE));
   EXPECT_TRUE(bubble->IsClosed());
+}
+
+// Ensures that layout is correct when the progress indicator is visible.
+TEST_F(BubbleFrameViewTest, LayoutWithProgressIndicator) {
+  TestBubbleDialogDelegateView delegate;
+  TestAnchor anchor(CreateParams(Widget::InitParams::TYPE_WINDOW));
+  delegate.SetAnchorView(anchor.widget().GetContentsView());
+  Widget* bubble = BubbleDialogDelegateView::CreateBubble(&delegate);
+  bubble->Show();
+
+  BubbleFrameView* frame = delegate.GetBubbleFrameView();
+  frame->SetProgress(/*infinite animation*/ -1);
+  View* progress_indicator = frame->progress_indicator_;
+
+  // Ensures the progress indicator is visible and takes full widget width.
+  EXPECT_TRUE(progress_indicator->GetVisible());
+  EXPECT_EQ(progress_indicator->x(), 0);
+  EXPECT_EQ(progress_indicator->y(), 0);
+  EXPECT_EQ(progress_indicator->width(),
+            bubble->GetWindowBoundsInScreen().width());
 }
 
 }  // namespace views

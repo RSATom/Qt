@@ -5,15 +5,13 @@
 #include <string>
 #include <tuple>
 
-#include "net/third_party/quiche/src/quic/core/qpack/qpack_decoder_test_utils.h"
-#include "net/third_party/quiche/src/quic/core/qpack/qpack_encoder_test_utils.h"
-#include "net/third_party/quiche/src/quic/core/qpack/qpack_test_utils.h"
-#include "net/third_party/quiche/src/quic/core/qpack/qpack_utils.h"
 #include "net/third_party/quiche/src/quic/platform/api/quic_string_piece.h"
 #include "net/third_party/quiche/src/quic/platform/api/quic_test.h"
+#include "net/third_party/quiche/src/quic/test_tools/qpack/qpack_decoder_test_utils.h"
+#include "net/third_party/quiche/src/quic/test_tools/qpack/qpack_encoder_test_utils.h"
+#include "net/third_party/quiche/src/quic/test_tools/qpack/qpack_test_utils.h"
 #include "net/third_party/quiche/src/spdy/core/spdy_header_block.h"
 
-using ::testing::Combine;
 using ::testing::Values;
 
 namespace quic {
@@ -29,17 +27,20 @@ class QpackRoundTripTest : public QuicTestWithParam<FragmentMode> {
       const spdy::SpdyHeaderBlock& header_list) {
     NoopDecoderStreamErrorDelegate decoder_stream_error_delegate;
     NoopQpackStreamSenderDelegate encoder_stream_sender_delegate;
-    QpackEncoder encoder(&decoder_stream_error_delegate,
-                         &encoder_stream_sender_delegate);
+    QpackEncoder encoder(&decoder_stream_error_delegate);
+    encoder.set_qpack_stream_sender_delegate(&encoder_stream_sender_delegate);
     std::string encoded_header_block =
-        encoder.EncodeHeaderList(/* stream_id = */ 1, &header_list);
+        encoder.EncodeHeaderList(/* stream_id = */ 1, header_list, nullptr);
 
     TestHeadersHandler handler;
     NoopEncoderStreamErrorDelegate encoder_stream_error_delegate;
     NoopQpackStreamSenderDelegate decoder_stream_sender_delegate;
-    QpackDecode(&encoder_stream_error_delegate, &decoder_stream_sender_delegate,
-                &handler, FragmentModeToFragmentSizeGenerator(GetParam()),
-                encoded_header_block);
+    // TODO(b/112770235): Test dynamic table and blocked streams.
+    QpackDecode(
+        /* maximum_dynamic_table_capacity = */ 0,
+        /* maximum_blocked_streams = */ 0, &encoder_stream_error_delegate,
+        &decoder_stream_sender_delegate, &handler,
+        FragmentModeToFragmentSizeGenerator(GetParam()), encoded_header_block);
 
     EXPECT_TRUE(handler.decoding_completed());
     EXPECT_FALSE(handler.decoding_error_detected());
@@ -48,7 +49,7 @@ class QpackRoundTripTest : public QuicTestWithParam<FragmentMode> {
   }
 };
 
-INSTANTIATE_TEST_SUITE_P(,
+INSTANTIATE_TEST_SUITE_P(All,
                          QpackRoundTripTest,
                          Values(FragmentMode::kSingleChunk,
                                 FragmentMode::kOctetByOctet));

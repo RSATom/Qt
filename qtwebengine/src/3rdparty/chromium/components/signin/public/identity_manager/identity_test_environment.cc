@@ -127,7 +127,12 @@ void IdentityTestEnvironment::Initialize() {
          "environment. "
          "If your test has an existing one, move it to be initialized before "
          "IdentityTestEnvironment. Otherwise, use "
-         "base::test::ScopedTaskEnvironment.";
+         "base::test::TaskEnvironment.";
+  DCHECK(identity_manager()
+             ->GetTokenService()
+             ->IsFakeProfileOAuth2TokenServiceForTesting())
+      << "IdentityTestEnvironment requires the ProfileOAuth2TokenService used "
+         "to subclass FakeProfileOAuth2TokenServiceForTesting.";
   test_identity_manager_observer_ =
       std::make_unique<TestIdentityManagerObserver>(this->identity_manager());
   this->identity_manager()->AddDiagnosticsObserver(this);
@@ -271,6 +276,15 @@ void IdentityTestEnvironment::ClearPrimaryAccount(
 AccountInfo IdentityTestEnvironment::MakeAccountAvailable(
     const std::string& email) {
   return signin::MakeAccountAvailable(identity_manager(), email);
+}
+
+AccountInfo IdentityTestEnvironment::MakeAccountAvailableWithCookies(
+    const std::string& email,
+    const std::string& gaia_id) {
+  return signin::MakeAccountAvailableWithCookies(
+      identity_manager(),
+      dependencies_owner_->signin_client()->GetTestURLLoaderFactory(), email,
+      gaia_id);
 }
 
 void IdentityTestEnvironment::SetRefreshTokenForAccount(
@@ -461,7 +475,7 @@ void IdentityTestEnvironment::ResetToAccountsNotYetLoadedFromDiskState() {
 }
 
 void IdentityTestEnvironment::ReloadAccountsFromDisk() {
-  fake_token_service()->LoadCredentials("");
+  fake_token_service()->LoadCredentials(CoreAccountId());
 }
 
 bool IdentityTestEnvironment::IsAccessTokenRequestPending() {

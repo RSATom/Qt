@@ -1,5 +1,5 @@
 //
-// Copyright (c) 2018 The ANGLE Project Authors. All rights reserved.
+// Copyright 2018 The ANGLE Project Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 //
@@ -16,14 +16,14 @@
 #include "libANGLE/queryutils.h"
 #include "libANGLE/validationES.h"
 
-#define ANGLE_VALIDATE_IS_GLES1(context)                                \
-    do                                                                  \
-    {                                                                   \
-        if (context->getClientMajorVersion() > 1)                       \
-        {                                                               \
-            context->validationError(GL_INVALID_OPERATION, kGLES1Only); \
-            return false;                                               \
-        }                                                               \
+#define ANGLE_VALIDATE_IS_GLES1(context)                                                        \
+    do                                                                                          \
+    {                                                                                           \
+        if (context->getClientType() != EGL_OPENGL_API && context->getClientMajorVersion() > 1) \
+        {                                                                                       \
+            context->validationError(GL_INVALID_OPERATION, kGLES1Only);                         \
+            return false;                                                                       \
+        }                                                                                       \
     } while (0)
 
 namespace gl
@@ -740,7 +740,7 @@ bool ValidateFogfv(Context *context, GLenum pname, const GLfloat *params)
 
 bool ValidateFogx(Context *context, GLenum pname, GLfixed param)
 {
-    GLfloat asFloat = FixedToFloat(param);
+    GLfloat asFloat = ConvertFixedToFloat(param);
     return ValidateFogCommon(context, pname, &asFloat);
 }
 
@@ -751,7 +751,7 @@ bool ValidateFogxv(Context *context, GLenum pname, const GLfixed *params)
 
     for (unsigned int i = 0; i < paramCount; i++)
     {
-        paramsf[i] = FixedToFloat(params[i]);
+        paramsf[i] = ConvertFixedToFloat(params[i]);
     }
 
     return ValidateFogCommon(context, pname, paramsf);
@@ -833,23 +833,6 @@ bool ValidateGetMaterialxv(Context *context, GLenum face, MaterialParameter pnam
     return ValidateMaterialQuery(context, face, pname);
 }
 
-bool ValidateGetPointerv(Context *context, GLenum pname, void **params)
-{
-    ANGLE_VALIDATE_IS_GLES1(context);
-    switch (pname)
-    {
-        case GL_VERTEX_ARRAY_POINTER:
-        case GL_NORMAL_ARRAY_POINTER:
-        case GL_COLOR_ARRAY_POINTER:
-        case GL_TEXTURE_COORD_ARRAY_POINTER:
-        case GL_POINT_SIZE_ARRAY_POINTER_OES:
-            return true;
-        default:
-            context->validationError(GL_INVALID_ENUM, kInvalidPointerQuery);
-            return false;
-    }
-}
-
 bool ValidateGetTexEnvfv(Context *context,
                          TextureEnvTarget target,
                          TextureEnvParameter pname,
@@ -918,7 +901,7 @@ bool ValidateLightfv(Context *context, GLenum light, LightParameter pname, const
 
 bool ValidateLightx(Context *context, GLenum light, LightParameter pname, GLfixed param)
 {
-    return ValidateLightSingleComponent(context, light, pname, FixedToFloat(param));
+    return ValidateLightSingleComponent(context, light, pname, ConvertFixedToFloat(param));
 }
 
 bool ValidateLightxv(Context *context, GLenum light, LightParameter pname, const GLfixed *params)
@@ -926,7 +909,7 @@ bool ValidateLightxv(Context *context, GLenum light, LightParameter pname, const
     GLfloat paramsf[4];
     for (unsigned int i = 0; i < GetLightParameterCount(pname); i++)
     {
-        paramsf[i] = FixedToFloat(params[i]);
+        paramsf[i] = ConvertFixedToFloat(params[i]);
     }
 
     return ValidateLightCommon(context, light, pname, paramsf);
@@ -999,7 +982,7 @@ bool ValidateMaterialfv(Context *context,
 
 bool ValidateMaterialx(Context *context, GLenum face, MaterialParameter pname, GLfixed param)
 {
-    return ValidateMaterialSingleComponent(context, face, pname, FixedToFloat(param));
+    return ValidateMaterialSingleComponent(context, face, pname, ConvertFixedToFloat(param));
 }
 
 bool ValidateMaterialxv(Context *context,
@@ -1011,7 +994,7 @@ bool ValidateMaterialxv(Context *context,
 
     for (unsigned int i = 0; i < GetMaterialParameterCount(pname); i++)
     {
-        paramsf[i] = FixedToFloat(params[i]);
+        paramsf[i] = ConvertFixedToFloat(params[i]);
     }
 
     return ValidateMaterialSetting(context, face, pname, paramsf);
@@ -1145,7 +1128,7 @@ bool ValidatePointParameterx(Context *context, PointParameter pname, GLfixed par
         return false;
     }
 
-    GLfloat paramf = FixedToFloat(param);
+    GLfloat paramf = ConvertFixedToFloat(param);
     return ValidatePointParameterCommon(context, pname, &paramf);
 }
 
@@ -1154,7 +1137,7 @@ bool ValidatePointParameterxv(Context *context, PointParameter pname, const GLfi
     GLfloat paramsf[4] = {};
     for (unsigned int i = 0; i < GetPointParameterCount(pname); i++)
     {
-        paramsf[i] = FixedToFloat(params[i]);
+        paramsf[i] = ConvertFixedToFloat(params[i]);
     }
     return ValidatePointParameterCommon(context, pname, paramsf);
 }
@@ -1166,7 +1149,7 @@ bool ValidatePointSize(Context *context, GLfloat size)
 
 bool ValidatePointSizex(Context *context, GLfixed size)
 {
-    return ValidatePointSizeCommon(context, FixedToFloat(size));
+    return ValidatePointSizeCommon(context, ConvertFixedToFloat(size));
 }
 
 bool ValidatePolygonOffsetx(Context *context, GLfixed factor, GLfixed units)
@@ -1316,7 +1299,7 @@ bool ValidateTexEnvxv(Context *context,
 bool ValidateTexParameterx(Context *context, TextureType target, GLenum pname, GLfixed param)
 {
     ANGLE_VALIDATE_IS_GLES1(context);
-    GLfloat paramf = FixedToFloat(param);
+    GLfloat paramf = ConvertFixedToFloat(param);
     return ValidateTexParameterBase(context, target, pname, -1, false, &paramf);
 }
 
@@ -1329,7 +1312,7 @@ bool ValidateTexParameterxv(Context *context,
     GLfloat paramsf[4] = {};
     for (unsigned int i = 0; i < GetTexParameterCount(pname); i++)
     {
-        paramsf[i] = FixedToFloat(params[i]);
+        paramsf[i] = ConvertFixedToFloat(params[i]);
     }
     return ValidateTexParameterBase(context, target, pname, -1, true, paramsf);
 }
@@ -1407,12 +1390,13 @@ bool ValidateDrawTexxOES(Context *context,
                          GLfixed width,
                          GLfixed height)
 {
-    return ValidateDrawTexCommon(context, FixedToFloat(width), FixedToFloat(height));
+    return ValidateDrawTexCommon(context, ConvertFixedToFloat(width), ConvertFixedToFloat(height));
 }
 
 bool ValidateDrawTexxvOES(Context *context, const GLfixed *coords)
 {
-    return ValidateDrawTexCommon(context, FixedToFloat(coords[3]), FixedToFloat(coords[4]));
+    return ValidateDrawTexCommon(context, ConvertFixedToFloat(coords[3]),
+                                 ConvertFixedToFloat(coords[4]));
 }
 
 bool ValidateCurrentPaletteMatrixOES(Context *context, GLuint matrixpaletteindex)
@@ -1462,37 +1446,39 @@ bool ValidateQueryMatrixxOES(Context *context, GLfixed *mantissa, GLint *exponen
     return true;
 }
 
-bool ValidateGenFramebuffersOES(Context *context, GLsizei n, GLuint *framebuffers)
+bool ValidateGenFramebuffersOES(Context *context, GLsizei n, FramebufferID *framebuffers)
 {
     UNIMPLEMENTED();
     return true;
 }
 
-bool ValidateDeleteFramebuffersOES(Context *context, GLsizei n, const GLuint *framebuffers)
+bool ValidateDeleteFramebuffersOES(Context *context, GLsizei n, const FramebufferID *framebuffers)
 {
     UNIMPLEMENTED();
     return true;
 }
 
-bool ValidateGenRenderbuffersOES(Context *context, GLsizei n, GLuint *renderbuffers)
+bool ValidateGenRenderbuffersOES(Context *context, GLsizei n, RenderbufferID *renderbuffers)
 {
     UNIMPLEMENTED();
     return true;
 }
 
-bool ValidateDeleteRenderbuffersOES(Context *context, GLsizei n, const GLuint *renderbuffers)
+bool ValidateDeleteRenderbuffersOES(Context *context,
+                                    GLsizei n,
+                                    const RenderbufferID *renderbuffers)
 {
     UNIMPLEMENTED();
     return true;
 }
 
-bool ValidateBindFramebufferOES(Context *context, GLenum target, GLuint framebuffer)
+bool ValidateBindFramebufferOES(Context *context, GLenum target, FramebufferID framebuffer)
 {
     UNIMPLEMENTED();
     return true;
 }
 
-bool ValidateBindRenderbufferOES(Context *context, GLenum target, GLuint renderbuffer)
+bool ValidateBindRenderbufferOES(Context *context, GLenum target, RenderbufferID renderbuffer)
 {
     UNIMPLEMENTED();
     return true;
@@ -1508,7 +1494,7 @@ bool ValidateFramebufferRenderbufferOES(Context *context,
                                         GLenum target,
                                         GLenum attachment,
                                         GLenum rbtarget,
-                                        GLuint renderbuffer)
+                                        RenderbufferID renderbuffer)
 {
     UNIMPLEMENTED();
     return true;
@@ -1518,7 +1504,7 @@ bool ValidateFramebufferTexture2DOES(Context *context,
                                      GLenum target,
                                      GLenum attachment,
                                      TextureTarget textarget,
-                                     GLuint texture,
+                                     TextureID texture,
                                      GLint level)
 {
     UNIMPLEMENTED();
@@ -1550,13 +1536,13 @@ bool ValidateGetRenderbufferParameterivOES(Context *context,
     return true;
 }
 
-bool ValidateIsFramebufferOES(Context *context, GLuint framebuffer)
+bool ValidateIsFramebufferOES(Context *context, FramebufferID framebuffer)
 {
     UNIMPLEMENTED();
     return true;
 }
 
-bool ValidateIsRenderbufferOES(Context *context, GLuint renderbuffer)
+bool ValidateIsRenderbufferOES(Context *context, RenderbufferID renderbuffer)
 {
     UNIMPLEMENTED();
     return true;

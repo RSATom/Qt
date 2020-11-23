@@ -49,11 +49,11 @@ class WebServiceWorkerContextProxy {
   virtual ~WebServiceWorkerContextProxy() = default;
 
   virtual void BindServiceWorker(
-      // A handle for mojom::ServiceWorkerRequest.
-      mojo::ScopedMessagePipeHandle request) = 0;
+      // A handle for mojo::PendingReceiver<mojom::ServiceWorker>.
+      mojo::ScopedMessagePipeHandle receiver_pipe) = 0;
   virtual void BindControllerServiceWorker(
       // A handle for mojo::PendingReceiver<mojom::ControllerServiceWorker>.
-      mojo::ScopedMessagePipeHandle request) = 0;
+      mojo::ScopedMessagePipeHandle receiver_pipe) = 0;
 
   virtual void OnNavigationPreloadResponse(
       int fetch_event_id,
@@ -69,6 +69,8 @@ class WebServiceWorkerContextProxy {
                                            int64_t decoded_body_length) = 0;
 
   virtual bool IsWindowInteractionAllowed() = 0;
+  virtual void PauseEvaluation() = 0;
+  virtual void ResumeEvaluation() = 0;
 };
 
 }  // namespace blink

@@ -74,23 +74,25 @@ IdleManager::~IdleManager() {
   }
 }
 
-void IdleManager::CreateService(blink::mojom::IdleManagerRequest request) {
+void IdleManager::CreateService(
+    mojo::PendingReceiver<blink::mojom::IdleManager> receiver) {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
 
-  bindings_.AddBinding(this, std::move(request));
+  receivers_.Add(this, std::move(receiver));
 }
 
-void IdleManager::AddMonitor(base::TimeDelta threshold,
-                             blink::mojom::IdleMonitorPtr monitor_ptr,
-                             AddMonitorCallback callback) {
+void IdleManager::AddMonitor(
+    base::TimeDelta threshold,
+    mojo::PendingRemote<blink::mojom::IdleMonitor> monitor_remote,
+    AddMonitorCallback callback) {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   if (threshold < kMinimumThreshold) {
-    bindings_.ReportBadMessage("Minimum threshold is 60 seconds.");
+    receivers_.ReportBadMessage("Minimum threshold is 60 seconds.");
     return;
   }
 
   auto monitor = std::make_unique<IdleMonitor>(
-      std::move(monitor_ptr), CheckIdleState(threshold), threshold);
+      std::move(monitor_remote), CheckIdleState(threshold), threshold);
 
   // This unretained reference is safe because IdleManager owns all IdleMonitor
   // instances.

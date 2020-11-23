@@ -180,6 +180,7 @@ public:
 
     int defaultDPI() const;
 
+    static QString classNamePrefix();
     QString registerWindowClass(const QWindow *w);
     QString registerWindowClass(QString cname, WNDPROC proc,
                                 unsigned style = 0, HBRUSH brush = nullptr,
@@ -225,6 +226,8 @@ public:
     void setProcessDpiAwareness(QtWindows::ProcessDpiAwareness dpiAwareness);
     static int processDpiAwareness();
 
+    static bool isDarkMode();
+
     void setDetectAltGrModifier(bool a);
 
     // Returns a combination of SystemInfoFlags
@@ -245,6 +248,8 @@ public:
     static QByteArray comErrorString(HRESULT hr);
     bool asyncExpose() const;
     void setAsyncExpose(bool value);
+
+    static void forceNcCalcSize(HWND hwnd);
 
     static bool systemParametersInfo(unsigned action, unsigned param, void *out, unsigned dpi = 0);
     static bool systemParametersInfoForScreen(unsigned action, unsigned param, void *out,

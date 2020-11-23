@@ -40,12 +40,12 @@ public:
 
     /**
      * Creates a new fragment processor from an SkSL source string and a struct of inputs to the
-     * program. The input struct's type is derived from the 'in' variables in the SkSL source, so
-     * e.g. the shader:
+     * program. The input struct's type is derived from the 'in' and 'uniform' variables in the SkSL
+     * source, so e.g. the shader:
      *
      *    in bool dither;
-     *    in float x;
-     *    in float y;
+     *    uniform float x;
+     *    uniform float y;
      *    ....
      *
      * would expect a pointer to a struct set up like:
@@ -55,6 +55,24 @@ public:
      *     float x;
      *     float y;
      * };
+     *
+     * While both 'in' and 'uniform' variables go into this struct, the difference between them is
+     * that 'in' variables are statically "baked in" to the generated code, becoming literals,
+     * whereas uniform variables may be changed from invocation to invocation without having to
+     * recompile the shader.
+     *
+     * As the decision of whether to create a new shader or just upload new uniforms all happens
+     * behind the scenes, the difference between the two from an end-user perspective is primarily
+     * in performance: on the one hand, changing the value of an 'in' variable is very expensive
+     * (requiring the compiler to regenerate the code, upload a new shader to the GPU, and so
+     * forth), but on the other hand the compiler can optimize around its value because it is known
+     * at compile time. 'in' variables are therefore suitable for things like flags, where there are
+     * only a few possible values and a known-in-advance value can cause entire chunks of code to
+     * become dead (think static @ifs), while 'uniform's are used for continuous values like colors
+     * and coordinates, where it would be silly to create a separate shader for each possible set of
+     * values. Other than the (significant) performance implications, the only difference between
+     * the two is that 'in' variables can be used in static @if / @switch tests. When in doubt, use
+     * 'uniform'.
      *
      * As turning SkSL into GLSL / SPIR-V / etc. is fairly expensive, and the output may differ
      * based on the inputs, internally the process is divided into two steps: we first parse and
@@ -74,7 +92,8 @@ public:
                    const char* sksl,
                    const void* inputs,
                    size_t inputSize,
-                   SkSL::Program::Kind kind = SkSL::Program::kPipelineStage_Kind);
+                   SkSL::Program::Kind kind = SkSL::Program::kPipelineStage_Kind,
+                   const SkMatrix* matrix = nullptr);
 
     static std::unique_ptr<GrSkSLFP> Make(
                    GrContext_Base* context,
@@ -83,7 +102,8 @@ public:
                    SkString sksl,
                    const void* inputs,
                    size_t inputSize,
-                   SkSL::Program::Kind kind = SkSL::Program::kPipelineStage_Kind);
+                   SkSL::Program::Kind kind = SkSL::Program::kPipelineStage_Kind,
+                   const SkMatrix* matrix = nullptr);
 
     const char* name() const override;
 
@@ -94,7 +114,7 @@ public:
 private:
     GrSkSLFP(sk_sp<GrSkSLFPFactoryCache> factoryCache, const GrShaderCaps* shaderCaps,
              SkSL::Program::Kind kind, int fIndex, const char* name, const char* sksl,
-             SkString skslString, const void* inputs, size_t inputSize);
+             SkString skslString, const void* inputs, size_t inputSize, const SkMatrix* matrix);
 
     GrSkSLFP(const GrSkSLFP& other);
 
@@ -131,6 +151,8 @@ private:
     const std::unique_ptr<int8_t[]> fInputs;
 
     size_t fInputSize;
+
+    GrCoordTransform fCoordTransform;
 
     mutable SkSL::String fKey;
 
@@ -170,9 +192,7 @@ public:
 
     std::shared_ptr<SkSL::Program> fBaseProgram;
 
-    std::vector<const SkSL::Variable*> fInputVars;
-
-    std::vector<const SkSL::Variable*> fKeyVars;
+    std::vector<const SkSL::Variable*> fInAndUniformVars;
 
     std::unordered_map<SkSL::String, std::unique_ptr<const SkSL::Program>> fSpecializations;
 

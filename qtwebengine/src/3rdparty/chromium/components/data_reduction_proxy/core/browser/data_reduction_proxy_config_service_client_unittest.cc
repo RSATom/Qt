@@ -19,7 +19,7 @@
 #include "base/test/metrics/histogram_tester.h"
 #include "base/test/mock_entropy_provider.h"
 #include "base/test/scoped_feature_list.h"
-#include "base/test/scoped_task_environment.h"
+#include "base/test/task_environment.h"
 #include "base/time/default_clock.h"
 #include "base/time/time.h"
 #include "components/data_reduction_proxy/core/browser/data_reduction_proxy_config_service_client_test_utils.h"
@@ -158,37 +158,6 @@ class DataReductionProxyConfigServiceClientTest : public testing::Test {
         ProxyServer_ProxyScheme_HTTP, "persisted.net", 80, 0.0f, false);
     loaded_config_ = EncodeConfig(persisted);
 
-    ClientConfig zero_reporting_fraction_config = CreateConfig(
-        kSuccessSessionKey, kConfigRefreshDurationSeconds, 0,
-        ProxyServer_ProxyScheme_HTTPS, "origin.net", 443,
-        ProxyServer_ProxyScheme_HTTP, "origin.net", 0, 0.0f, false);
-    zero_reporting_fraction_encoded_config_ =
-        EncodeConfig(zero_reporting_fraction_config);
-
-    ClientConfig one_reporting_fraction_config =
-        CreateConfig(kSuccessSessionKey, kConfigRefreshDurationSeconds, 0,
-                     ProxyServer_ProxyScheme_HTTPS, "", 443,
-                     ProxyServer_ProxyScheme_HTTP, "", 0, 1.0f, false);
-    one_reporting_fraction_encoded_config_ =
-        EncodeConfig(one_reporting_fraction_config);
-
-    // Passing in -1.0f as the reporting fraction causes the
-    // |empty_reporting_fraction_config| to have no pageload_metrics_config()
-    // set.
-    ClientConfig empty_reporting_fraction_config = CreateConfig(
-        kSuccessSessionKey, kConfigRefreshDurationSeconds, 0,
-        ProxyServer_ProxyScheme_HTTPS, "origin.net", 443,
-        ProxyServer_ProxyScheme_HTTP, "origin.net", 0, -1.0f, false);
-    empty_reporting_fraction_encoded_config_ =
-        EncodeConfig(empty_reporting_fraction_config);
-
-    ClientConfig half_reporting_fraction_config = CreateConfig(
-        kSuccessSessionKey, kConfigRefreshDurationSeconds, 0,
-        ProxyServer_ProxyScheme_HTTPS, "origin.net", 443,
-        ProxyServer_ProxyScheme_HTTP, "origin.net", 0, 0.5f, false);
-    half_reporting_fraction_encoded_config_ =
-        EncodeConfig(half_reporting_fraction_config);
-
     ClientConfig ignore_black_list_config =
         CreateConfig(kSuccessSessionKey, kConfigRefreshDurationSeconds, 0,
                      ProxyServer_ProxyScheme_HTTPS, "origin.net", 443,
@@ -231,7 +200,6 @@ class DataReductionProxyConfigServiceClientTest : public testing::Test {
     EXPECT_EQ(kSuccessSessionKey, request_options()->GetSecureSession());
     // The config should be persisted on the pref.
     EXPECT_EQ(encoded_config(), persisted_config());
-    EXPECT_EQ(0.5f, pingback_reporting_fraction());
 
     // Verify that the data reduction proxy servers are correctly set.
     // The first proxy must have type CORE. The second proxy must have type
@@ -334,17 +302,12 @@ class DataReductionProxyConfigServiceClientTest : public testing::Test {
     return test_context_->GetConfiguredProxiesForHttp();
   }
 
-  float pingback_reporting_fraction() const {
-    return test_context_->io_data()->pingback_reporting_fraction();
-  }
-
   bool ignore_blacklist() const {
-    return test_context_->io_data()->ignore_blacklist();
+    return test_context_->test_data_reduction_proxy_service()
+        ->ignore_blacklist();
   }
 
-  void RunUntilIdle() {
-    test_context_->RunUntilIdle();
-  }
+  void RunUntilIdle() { test_context_->RunUntilIdle(); }
 
   void AddMockSuccess() {
     mock_responses_.push_back({success_response(), net::HTTP_OK});
@@ -377,18 +340,6 @@ class DataReductionProxyConfigServiceClientTest : public testing::Test {
   const std::string& previous_success_response() const {
     return previous_config_;
   }
-  const std::string& empty_reporting_fraction_encoded_config() const {
-    return empty_reporting_fraction_encoded_config_;
-  }
-  const std::string& one_reporting_fraction_encoded_config() const {
-    return one_reporting_fraction_encoded_config_;
-  }
-  const std::string& zero_reporting_fraction_encoded_config() const {
-    return zero_reporting_fraction_encoded_config_;
-  }
-  const std::string& half_reporting_fraction_encoded_config() const {
-    return half_reporting_fraction_encoded_config_;
-  }
   const std::string& ignore_black_list_encoded_config() const {
     return ignore_black_list_encoded_config_;
   }
@@ -398,8 +349,7 @@ class DataReductionProxyConfigServiceClientTest : public testing::Test {
 
  private:
   base::test::ScopedFeatureList scoped_feature_list_;
-  base::test::ScopedTaskEnvironment task_environment_{
-      base::test::ScopedTaskEnvironment::MainThreadType::IO};
+  base::test::SingleThreadTaskEnvironment task_environment_;
 
   network::TestURLLoaderFactory test_url_loader_factory_;
   scoped_refptr<network::SharedURLLoaderFactory>
@@ -421,18 +371,6 @@ class DataReductionProxyConfigServiceClientTest : public testing::Test {
 
   // An encoded config that represents a previously saved configuration.
   std::string loaded_config_;
-
-  // A configuration where the pingback reporting fraction is not set.
-  std::string empty_reporting_fraction_encoded_config_;
-
-  // A configuration where the pingback reporting fraction is set to 1.0f.
-  std::string one_reporting_fraction_encoded_config_;
-
-  // A configuration where the pingback reporting fraction is set to 0.0f.
-  std::string zero_reporting_fraction_encoded_config_;
-
-  // A configuration where the pingback reporting fraction is set to 0.5f.
-  std::string half_reporting_fraction_encoded_config_;
 
   // A configuration where the black list rules are ignored.
   std::string ignore_black_list_encoded_config_;
@@ -552,8 +490,7 @@ TEST_F(DataReductionProxyConfigServiceClientTest,
   TestingPrefServiceSimple test_prefs;
   test_prefs.registry()->RegisterDictionaryPref(prefs::kNetworkProperties);
   NetworkPropertiesManager manager(base::DefaultClock::GetInstance(),
-                                   &test_prefs,
-                                   base::ThreadTaskRunnerHandle::Get());
+                                   &test_prefs);
   manager.SetIsSecureProxyDisallowedByCarrier(true);
   configurator()->Enable(manager, http_proxies);
   VerifyRemoteSuccess(false);
@@ -691,8 +628,7 @@ TEST_F(DataReductionProxyConfigServiceClientTest,
   TestingPrefServiceSimple test_prefs;
   test_prefs.registry()->RegisterDictionaryPref(prefs::kNetworkProperties);
   NetworkPropertiesManager manager(base::DefaultClock::GetInstance(),
-                                   &test_prefs,
-                                   base::ThreadTaskRunnerHandle::Get());
+                                   &test_prefs);
   manager.SetIsSecureProxyDisallowedByCarrier(true);
   configurator()->Enable(manager, http_proxies);
   VerifyRemoteSuccess(false);
@@ -824,20 +760,23 @@ TEST_F(DataReductionProxyConfigServiceClientTest,
     bool expect_valid_config;
   } tests[] = {
       {
-          base::nullopt, true,
+          base::nullopt,
+          true,
       },
       {
-          base::TimeDelta::FromHours(25), false,
+          base::TimeDelta::FromHours(25),
+          false,
       },
       {
-          base::TimeDelta::FromHours(1), true,
+          base::TimeDelta::FromHours(1),
+          true,
       },
   };
 
   for (const auto& test : tests) {
     base::HistogramTester histogram_tester;
     // Reset the state.
-    test_context_->io_data()->test_request_options()->Invalidate();
+    request_options()->Invalidate();
     test_context_->pref_service()->ClearPref(
         prefs::kDataReductionProxyLastConfigRetrievalTime);
     RunUntilIdle();
@@ -868,9 +807,8 @@ TEST_F(DataReductionProxyConfigServiceClientTest,
     // Simulate startup which should cause the empty persisted client config to
     // be read from the disk.
     config_client()->SetRemoteConfigApplied(false);
-    test_context_->io_data()->test_request_options()->Invalidate();
-    test_context_->data_reduction_proxy_service()->SetIOData(
-        test_context_->io_data()->GetWeakPtr());
+    request_options()->Invalidate();
+    test_context_->data_reduction_proxy_service()->ReadPersistedClientConfig();
     RunUntilIdle();
     EXPECT_NE(test.expect_valid_config,
               request_options()->GetSecureSession().empty());
@@ -976,9 +914,8 @@ TEST_F(DataReductionProxyConfigServiceClientTest, MultipleAuthFailures) {
       "DataReductionProxy.ConfigService.AuthExpired", true, 1);
 
   DCHECK(test_context_->data_reduction_proxy_service());
-  test_context_->io_data()->test_request_options()->Invalidate();
-  test_context_->data_reduction_proxy_service()->SetIOData(
-      test_context_->io_data()->GetWeakPtr());
+  request_options()->Invalidate();
+  test_context_->data_reduction_proxy_service()->ReadPersistedClientConfig();
   test_context_->RunUntilIdle();
 }
 
@@ -1232,51 +1169,6 @@ TEST_F(DataReductionProxyConfigServiceClientTest, ApplySerializedConfigLocal) {
   EXPECT_TRUE(persisted_config().empty());
   EXPECT_TRUE(persisted_config_retrieval_time().is_null());
   EXPECT_FALSE(request_options()->GetSecureSession().empty());
-}
-
-// Verifies that setting a client config sets the pingback reporting fraction
-// correctly to 0.0f.
-TEST_F(DataReductionProxyConfigServiceClientTest,
-       ApplySerializedConfigZeroReportingFraction) {
-  Init();
-  // ApplySerializedConfig should apply the encoded config.
-  config_client()->ApplySerializedConfig(
-      zero_reporting_fraction_encoded_config());
-  EXPECT_EQ(0.0f, pingback_reporting_fraction());
-}
-
-// Verifies that setting a client config sets the pingback reporting fraction
-// correctly to 0.0f when the pingback is not set in the protobuf.
-TEST_F(DataReductionProxyConfigServiceClientTest,
-       ApplySerializedConfigEmptyReportingFraction) {
-  Init();
-  // ApplySerializedConfig should apply the encoded config.
-  config_client()->ApplySerializedConfig(
-      empty_reporting_fraction_encoded_config());
-  EXPECT_EQ(0.0f, pingback_reporting_fraction());
-}
-
-// Verifies that setting a client config sets the pingback reporting fraction
-// correctly to 1.0f.
-TEST_F(DataReductionProxyConfigServiceClientTest,
-       ApplySerializedConfigOneReportingFraction) {
-  Init();
-  // ApplySerializedConfig should apply the encoded config.
-  config_client()->ApplySerializedConfig(
-      one_reporting_fraction_encoded_config());
-  EXPECT_EQ(1.0f, pingback_reporting_fraction());
-}
-
-// Verifies that setting a client config sets the pingback reporting fraction
-// correctly to 0.5f.
-TEST_F(DataReductionProxyConfigServiceClientTest,
-       ApplySerializedConfigHalfReportingFraction) {
-  Init();
-  // ApplySerializedConfig should apply the encoded config.
-  config_client()->ApplySerializedConfig(
-      half_reporting_fraction_encoded_config());
-  EXPECT_EQ(0.5f, pingback_reporting_fraction());
-  EXPECT_FALSE(ignore_blacklist());
 }
 
 TEST_F(DataReductionProxyConfigServiceClientTest,

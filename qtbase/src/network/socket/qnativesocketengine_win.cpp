@@ -53,6 +53,8 @@
 #include <qnetworkinterface.h>
 #include <qoperatingsystemversion.h>
 
+#include <algorithm>
+
 //#define QNATIVESOCKETENGINE_DEBUG
 #if defined(QNATIVESOCKETENGINE_DEBUG)
 #   include <qstring.h>
@@ -1142,13 +1144,14 @@ qint64 QNativeSocketEnginePrivate::nativePendingDatagramSize() const
     qint64 ret = -1;
     int recvResult = 0;
     DWORD flags;
-    // We start at 1500 bytes (the MTU for Ethernet V2), which should catch
-    // almost all uses (effective MTU for UDP under IPv4 is 1468), except
-    // for localhost datagrams and those reassembled by the IP layer.
-    char udpMessagePeekBuffer[1500];
-    std::vector<WSABUF> buf;
+    // We increase the amount we peek by 2048 * 5 on each iteration
+    // Grabs most cases fast and early.
+    char udpMessagePeekBuffer[2048];
+    const int increments = 5;
+    QVarLengthArray<WSABUF, 10> buf;
     for (;;) {
-        buf.resize(buf.size() + 5, {sizeof(udpMessagePeekBuffer), udpMessagePeekBuffer});
+        buf.reserve(buf.size() + increments);
+        std::fill_n(std::back_inserter(buf), increments, WSABUF{sizeof(udpMessagePeekBuffer), udpMessagePeekBuffer});
 
         flags = MSG_PEEK;
         DWORD bytesRead = 0;
@@ -1441,10 +1444,8 @@ qint64 QNativeSocketEnginePrivate::nativeWrite(const char *data, qint64 len)
 
         int err;
         if (socketRet != SOCKET_ERROR) {
-            if (ret == len)
+            if (ret == len || bytesToSend != qint64(bytesWritten))
                 break;
-            else
-                continue;
         } else if ((err = WSAGetLastError()) == WSAEWOULDBLOCK) {
             break;
         } else if (err == WSAENOBUFS) {

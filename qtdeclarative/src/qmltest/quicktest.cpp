@@ -37,7 +37,7 @@
 **
 ****************************************************************************/
 
-#include "quicktest.h"
+#include "quicktest_p.h"
 #include "quicktestresult_p.h"
 #include <QtTest/qtestsystem.h>
 #include "qtestoptions_p.h"
@@ -132,53 +132,6 @@ bool QQuickTest::qWaitForItemPolished(const QQuickItem *item, int timeout)
 {
     return QTest::qWaitFor([&]() { return !QQuickItemPrivate::get(item)->polishScheduled; }, timeout);
 }
-
-class QTestRootObject : public QObject
-{
-    Q_OBJECT
-    Q_PROPERTY(bool windowShown READ windowShown NOTIFY windowShownChanged)
-    Q_PROPERTY(bool hasTestCase READ hasTestCase WRITE setHasTestCase NOTIFY hasTestCaseChanged)
-    Q_PROPERTY(QObject *defined READ defined)
-public:
-    QTestRootObject(QObject *parent = nullptr)
-        : QObject(parent), hasQuit(false), m_windowShown(false), m_hasTestCase(false)  {
-        m_defined = new QQmlPropertyMap(this);
-#if defined(QT_OPENGL_ES_2_ANGLE)
-        m_defined->insert(QLatin1String("QT_OPENGL_ES_2_ANGLE"), QVariant(true));
-#endif
-    }
-
-    static QTestRootObject *instance() {
-        static QPointer<QTestRootObject> object = new QTestRootObject;
-        if (!object) {
-            // QTestRootObject was deleted when previous test ended, create a new one
-            object = new QTestRootObject;
-        }
-        return object;
-    }
-
-    bool hasQuit:1;
-    bool hasTestCase() const { return m_hasTestCase; }
-    void setHasTestCase(bool value) { m_hasTestCase = value; emit hasTestCaseChanged(); }
-
-    bool windowShown() const { return m_windowShown; }
-    void setWindowShown(bool value) { m_windowShown = value; emit windowShownChanged(); }
-    QQmlPropertyMap *defined() const { return m_defined; }
-
-    void init() { setWindowShown(false); setHasTestCase(false); hasQuit = false; }
-
-Q_SIGNALS:
-    void windowShownChanged();
-    void hasTestCaseChanged();
-
-private Q_SLOTS:
-    void quit() { hasQuit = true; }
-
-private:
-    bool m_windowShown : 1;
-    bool m_hasTestCase :1;
-    QQmlPropertyMap *m_defined;
-};
 
 static QObject *testRootObject(QQmlEngine *engine, QJSEngine *jsEngine)
 {
@@ -332,8 +285,9 @@ private:
         }
     };
 
-    TestCaseEnumerationResult enumerateTestCases(QV4::ExecutableCompilationUnit *compilationUnit,
-                                                 const Object *object = nullptr)
+    TestCaseEnumerationResult enumerateTestCases(
+            const QQmlRefPointer<QV4::ExecutableCompilationUnit> &compilationUnit,
+            const Object *object = nullptr)
     {
         QQmlType testCaseType;
         for (quint32 i = 0, count = compilationUnit->importCount(); i < count; ++i) {
@@ -356,9 +310,8 @@ private:
         if (!object) // Start at root of compilation unit if not enumerating a specific child
             object = compilationUnit->objectAt(0);
 
-        if (QV4::ExecutableCompilationUnit *superTypeUnit
-            = compilationUnit->resolvedTypes.value(object->inheritedTypeNameIndex)
-                      ->compilationUnit.data()) {
+        if (const auto superTypeUnit = compilationUnit->resolvedTypes.value(
+                    object->inheritedTypeNameIndex)->compilationUnit()) {
             // We have a non-C++ super type, which could indicate we're a subtype of a TestCase
             if (testCaseType.isValid() && superTypeUnit->url() == testCaseType.sourceUrl())
                 result.isTestCase = true;
@@ -556,7 +509,7 @@ int quick_test_main_with_setup(int argc, char **argv, const char *name, const ch
 
     qputenv("QT_QTESTLIB_RUNNING", "1");
 
-    // Register the test object
+    // Register the custom factory function
     qmlRegisterSingletonType<QTestRootObject>("Qt.test.qtestroot", 1, 0, "QTestRootObject", testRootObject);
 
     QSet<QString> commandLineTestFunctions(QTest::testFunctions.cbegin(), QTest::testFunctions.cend());
@@ -688,5 +641,3 @@ int quick_test_main_with_setup(int argc, char **argv, const char *name, const ch
 }
 
 QT_END_NAMESPACE
-
-#include "quicktest.moc"

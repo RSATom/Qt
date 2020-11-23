@@ -6,11 +6,13 @@
 
 namespace {
 
-openscreen::NetworkServiceManager* g_network_service_manager_instance = nullptr;
+openscreen::osp::NetworkServiceManager* g_network_service_manager_instance =
+    nullptr;
 
 }  //  namespace
 
 namespace openscreen {
+namespace osp {
 
 // static
 NetworkServiceManager* NetworkServiceManager::Create(
@@ -44,17 +46,6 @@ void NetworkServiceManager::Dispose() {
   g_network_service_manager_instance = nullptr;
 }
 
-void NetworkServiceManager::RunEventLoopOnce() {
-  if (mdns_listener_)
-    mdns_listener_->RunTasks();
-  if (mdns_publisher_)
-    mdns_publisher_->RunTasks();
-  if (connection_client_)
-    connection_client_->RunTasks();
-  if (connection_server_)
-    connection_server_->RunTasks();
-}
-
 ServiceListener* NetworkServiceManager::GetMdnsServiceListener() {
   return mdns_listener_.get();
 }
@@ -83,4 +74,5 @@ NetworkServiceManager::NetworkServiceManager(
 
 NetworkServiceManager::~NetworkServiceManager() = default;
 
+}  // namespace osp
 }  // namespace openscreen

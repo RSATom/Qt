@@ -18,6 +18,7 @@
 #include "components/download/public/common/download_interrupt_reasons.h"
 #include "components/download/public/common/download_save_info.h"
 #include "components/download/public/common/download_source.h"
+#include "net/base/network_isolation_key.h"
 #include "net/traffic_annotation/network_traffic_annotation.h"
 #include "net/url_request/url_request.h"
 #include "services/network/public/cpp/resource_request_body.h"
@@ -56,7 +57,7 @@ class COMPONENTS_DOWNLOAD_EXPORT DownloadUrlParameters {
   // are not created when a resource throttle or a resource handler blocks the
   // download request. I.e. the download triggered a warning of some sort and
   // the user chose to not to proceed with the download as a result.
-  typedef base::Callback<void(DownloadItem*, DownloadInterruptReason)>
+  typedef base::OnceCallback<void(DownloadItem*, DownloadInterruptReason)>
       OnStartedCallback;
 
   typedef std::pair<std::string, std::string> RequestHeadersNameValuePair;
@@ -79,7 +80,8 @@ class COMPONENTS_DOWNLOAD_EXPORT DownloadUrlParameters {
   // non-privileged frame.
   DownloadUrlParameters(
       const GURL& url,
-      const net::NetworkTrafficAnnotationTag& traffic_annotation);
+      const net::NetworkTrafficAnnotationTag& traffic_annotation,
+      const net::NetworkIsolationKey& network_isolation_key);
 
   // The RenderView routing ID must correspond to the RenderView of the
   // RenderFrame, both of which share the same RenderProcess. This may be a
@@ -89,7 +91,8 @@ class COMPONENTS_DOWNLOAD_EXPORT DownloadUrlParameters {
       int render_process_host_id,
       int render_view_host_routing_id,
       int render_frame_host_routing_id,
-      const net::NetworkTrafficAnnotationTag& traffic_annotation);
+      const net::NetworkTrafficAnnotationTag& traffic_annotation,
+      const net::NetworkIsolationKey& network_isolation_key);
 
   ~DownloadUrlParameters();
 
@@ -154,7 +157,9 @@ class COMPONENTS_DOWNLOAD_EXPORT DownloadUrlParameters {
   void set_post_id(int64_t post_id) { post_id_ = post_id; }
 
   // See OnStartedCallback above.
-  void set_callback(const OnStartedCallback& callback) { callback_ = callback; }
+  void set_callback(OnStartedCallback callback) {
+    callback_ = std::move(callback);
+  }
 
   // If not empty, specifies the full target path for the download. This value
   // overrides the filename suggested by a Content-Disposition headers. It
@@ -172,14 +177,7 @@ class COMPONENTS_DOWNLOAD_EXPORT DownloadUrlParameters {
 
   // If |offset| is non-zero, then a byte range request will be issued to fetch
   // the range of bytes starting at |offset|.
-  // Use |set_length| to specify the last byte position, or the range
-  // request will be "Range:bytes={offset}-" to retrieve the rest of the file.
   void set_offset(int64_t offset) { save_info_.offset = offset; }
-
-  // When |length| > 0, the range of bytes will be from
-  // |save_info_.offset| to |save_info_.offset| + |length| - 1.
-  // See |DownloadSaveInfo.length|.
-  void set_length(int64_t length) { save_info_.length = length; }
 
   // Sets the offset to start writing to the file. If set, The data received
   // before |file_offset| are discarded or are used for validation purpose.
@@ -260,12 +258,7 @@ class COMPONENTS_DOWNLOAD_EXPORT DownloadUrlParameters {
     require_safety_checks_ = require_safety_checks;
   }
 
-  // Sets whether to ignore content length mismatch errors.
-  void set_ignore_content_length_mismatch(bool ignore_content_length_mismatch) {
-    ignore_content_length_mismatch_ = ignore_content_length_mismatch;
-  }
-
-  const OnStartedCallback& callback() const { return callback_; }
+  OnStartedCallback& callback() { return callback_; }
   bool content_initiated() const { return content_initiated_; }
   const std::string& last_modified() const { return last_modified_; }
   const std::string& etag() const { return etag_; }
@@ -304,12 +297,12 @@ class COMPONENTS_DOWNLOAD_EXPORT DownloadUrlParameters {
     return save_info_.suggested_name;
   }
   int64_t offset() const { return save_info_.offset; }
-  int64_t length() const { return save_info_.length; }
   const std::string& hash_of_partial_file() const {
     return save_info_.hash_of_partial_file;
   }
   bool prompt() const { return save_info_.prompt_for_save_location; }
   const GURL& url() const { return url_; }
+  void set_url(GURL url) { url_ = std::move(url); }
   bool do_not_prompt_for_login() const { return do_not_prompt_for_login_; }
   network::mojom::RedirectMode cross_origin_redirects() const {
     return cross_origin_redirects_;
@@ -318,8 +311,8 @@ class COMPONENTS_DOWNLOAD_EXPORT DownloadUrlParameters {
   bool is_transient() const { return transient_; }
   std::string guid() const { return guid_; }
   bool require_safety_checks() const { return require_safety_checks_; }
-  bool ignore_content_length_mismatch() const {
-    return ignore_content_length_mismatch_;
+  const net::NetworkIsolationKey& network_isolation_key() const {
+    return network_isolation_key_;
   }
 
   // STATE CHANGING: All save_info_ sub-objects will be in an indeterminate
@@ -368,7 +361,7 @@ class COMPONENTS_DOWNLOAD_EXPORT DownloadUrlParameters {
   DownloadSource download_source_;
   UploadProgressCallback upload_callback_;
   bool require_safety_checks_;
-  bool ignore_content_length_mismatch_;
+  net::NetworkIsolationKey network_isolation_key_;
 
   DISALLOW_COPY_AND_ASSIGN(DownloadUrlParameters);
 };

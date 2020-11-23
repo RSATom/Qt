@@ -63,10 +63,16 @@ ListModel {
         var xhr = new XMLHttpRequest;
         xhr.onreadystatechange = function() {
             if (xhr.readyState === XMLHttpRequest.DONE) {
+
+                if (xhr.status !== 200) {
+                    console.log("Failed to get images from flickr. status code: " + xhr.status);
+                    return;
+                }
+
                 var jsonText = xhr.responseText;
                 var objArray = JSON.parse(jsonText.replace(/\'/g,"'"))
                 if (objArray.errors !== undefined)
-                    console.log(lCategory, "Error fetching tweets: " + imageItems.errors[0].message)
+                    console.log("Error fetching tweets: " + objArray.errors[0].message)
                 else {
                     for (var key in objArray.items) {
                         var rssItem = objArray.items[key];

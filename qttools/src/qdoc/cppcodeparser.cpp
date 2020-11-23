@@ -33,8 +33,9 @@
 #include "cppcodeparser.h"
 
 #include "config.h"
-#include "qdocdatabase.h"
 #include "generator.h"
+#include "loggingcategory.h"
+#include "qdocdatabase.h"
 
 #include <QtCore/qdebug.h>
 #include <QtCore/qfile.h>
@@ -47,8 +48,6 @@ QT_BEGIN_NAMESPACE
 
 /* qmake ignore Q_OBJECT */
 
-QStringList CppCodeParser::exampleFiles;
-QStringList CppCodeParser::exampleDirs;
 QSet<QString> CppCodeParser::excludeDirs;
 QSet<QString> CppCodeParser::excludeFiles;
 
@@ -90,9 +89,9 @@ CppCodeParser::CppCodeParser()
   for identifying important nodes. And it initializes
   some filters for identifying and excluding certain kinds of files.
  */
-void CppCodeParser::initializeParser(const Config &config)
+void CppCodeParser::initializeParser()
 {
-    CodeParser::initializeParser(config);
+    CodeParser::initializeParser();
 
     /*
       All these can appear in a C++ namespace. Don't add
@@ -103,7 +102,7 @@ void CppCodeParser::initializeParser(const Config &config)
     nodeTypeMap_.insert(COMMAND_STRUCT, Node::Struct);
     nodeTypeMap_.insert(COMMAND_UNION, Node::Union);
     nodeTypeMap_.insert(COMMAND_ENUM, Node::Enum);
-    nodeTypeMap_.insert(COMMAND_TYPEALIAS, Node::Typedef);
+    nodeTypeMap_.insert(COMMAND_TYPEALIAS, Node::TypeAlias);
     nodeTypeMap_.insert(COMMAND_TYPEDEF, Node::Typedef);
     nodeTypeMap_.insert(COMMAND_PROPERTY, Node::Property);
     nodeTypeMap_.insert(COMMAND_VARIABLE, Node::Variable);
@@ -113,13 +112,12 @@ void CppCodeParser::initializeParser(const Config &config)
     nodeTypeTestFuncMap_.insert(COMMAND_STRUCT, &Node::isStruct);
     nodeTypeTestFuncMap_.insert(COMMAND_UNION, &Node::isUnion);
     nodeTypeTestFuncMap_.insert(COMMAND_ENUM, &Node::isEnumType);
-    nodeTypeTestFuncMap_.insert(COMMAND_TYPEALIAS, &Node::isTypedef);
+    nodeTypeTestFuncMap_.insert(COMMAND_TYPEALIAS, &Node::isTypeAlias);
     nodeTypeTestFuncMap_.insert(COMMAND_TYPEDEF, &Node::isTypedef);
     nodeTypeTestFuncMap_.insert(COMMAND_PROPERTY, &Node::isProperty);
     nodeTypeTestFuncMap_.insert(COMMAND_VARIABLE, &Node::isVariable);
 
-    exampleFiles = config.getCanonicalPathList(CONFIG_EXAMPLES);
-    exampleDirs = config.getCanonicalPathList(CONFIG_EXAMPLEDIRS);
+    Config &config = Config::instance();
     QStringList exampleFilePatterns =
             config.getStringList(CONFIG_EXAMPLES + Config::dot + CONFIG_FILEEXTENSIONS);
 
@@ -533,7 +531,6 @@ void CppCodeParser::processMetaCommand(const Doc &doc, const QString &command,
                 doc.location().warning(tr("Invalid '\\%1' not allowed in '\\%2'")
                                                .arg(COMMAND_RELATES, node->nodeTypeString()));
             } else if (!node->isRelatedNonmember() &&
-                       //!node->parent()->name().isEmpty() &&
                        !node->parent()->isNamespace() && !node->parent()->isHeader()) {
                 if (!doc.isInternal()) {
                     doc.location().warning(tr("Invalid '\\%1' ('%2' must be global)")
@@ -558,6 +555,7 @@ void CppCodeParser::processMetaCommand(const Doc &doc, const QString &command,
             }
         }
     } else if (command == COMMAND_CONTENTSPAGE) {
+        qCWarning(lcQdoc, "(qdoc) The \\contentspage command is obsolete and should not be used.");
         setLink(node, Node::ContentsLink, arg);
     } else if (command == COMMAND_NEXTPAGE) {
         setLink(node, Node::NextLink, arg);
@@ -619,8 +617,6 @@ void CppCodeParser::processMetaCommand(const Doc &doc, const QString &command,
         node->setSince(arg);
     } else if (command == COMMAND_WRAPPER) {
         node->setWrapper();
-    } else if (command == COMMAND_PAGEKEYWORDS) {
-        node->addPageKeywords(arg);
     } else if (command == COMMAND_THREADSAFE) {
         node->setThreadSafeness(Node::ThreadSafe);
     } else if (command == COMMAND_TITLE) {
@@ -770,58 +766,29 @@ FunctionNode *CppCodeParser::parseMacroArg(const Location &location, const QStri
     return macro;
 }
 
-void CppCodeParser::setExampleFileLists(PageNode *pn)
+void CppCodeParser::setExampleFileLists(ExampleNode *en)
 {
-    QString examplePath = pn->name();
-    QString proFileName =
-            examplePath + QLatin1Char('/') + examplePath.split(QLatin1Char('/')).last() + ".pro";
-    QString fullPath =
-            Config::findFile(pn->doc().location(), exampleFiles, exampleDirs, proFileName);
-
+    Config &config = Config::instance();
+    QString fullPath = config.getExampleProjectFile(en->name());
     if (fullPath.isEmpty()) {
-        QString tmp = proFileName;
-        proFileName = examplePath + QLatin1Char('/') + "qbuild.pro";
-        fullPath = Config::findFile(pn->doc().location(), exampleFiles, exampleDirs, proFileName);
-        if (fullPath.isEmpty()) {
-            proFileName = examplePath + QLatin1Char('/')
-                    + examplePath.split(QLatin1Char('/')).last() + ".qmlproject";
-            fullPath =
-                    Config::findFile(pn->doc().location(), exampleFiles, exampleDirs, proFileName);
-            if (fullPath.isEmpty()) {
-                proFileName = examplePath + QLatin1Char('/')
-                        + examplePath.split(QLatin1Char('/')).last() + ".pyproject";
-                fullPath = Config::findFile(pn->doc().location(), exampleFiles, exampleDirs,
-                                            proFileName);
-                if (fullPath.isEmpty()) {
-                    QString details = QLatin1String("Example directories: ")
-                            + exampleDirs.join(QLatin1Char(' '));
-                    if (!exampleFiles.isEmpty())
-                        details += QLatin1String(", example files: ")
-                                + exampleFiles.join(QLatin1Char(' '));
-                    pn->location().warning(
-                            tr("Cannot find file '%1' or '%2'").arg(tmp).arg(proFileName), details);
-                    pn->location().warning(tr("  EXAMPLE PATH DOES NOT EXIST: %1").arg(examplePath),
-                                           details);
-                    return;
-                }
-            }
-        }
+        QString details = QLatin1String("Example directories: ")
+                + config.getCanonicalPathList(CONFIG_EXAMPLEDIRS).join(QLatin1Char(' '));
+        en->location().warning(
+                tr("Cannot find project file for example '%1'").arg(en->name()), details);
+        return;
     }
 
-    int sizeOfBoringPartOfName = fullPath.size() - proFileName.size();
-    if (fullPath.startsWith("./"))
-        sizeOfBoringPartOfName = sizeOfBoringPartOfName - 2;
-    fullPath.truncate(fullPath.lastIndexOf('/'));
+    QDir exampleDir(QFileInfo(fullPath).dir());
 
-    QStringList exampleFiles = Config::getFilesHere(fullPath, exampleNameFilter, Location(),
+    QStringList exampleFiles = Config::getFilesHere(exampleDir.path(), exampleNameFilter, Location(),
                                                     excludeDirs, excludeFiles);
     // Search for all image files under the example project, excluding doc/images directory.
     QSet<QString> excludeDocDirs(excludeDirs);
-    excludeDocDirs.insert(QDir(fullPath).canonicalPath() + "/doc/images");
-    QStringList imageFiles = Config::getFilesHere(fullPath, exampleImageFilter, Location(),
+    excludeDocDirs.insert(exampleDir.path() + QLatin1String("/doc/images"));
+    QStringList imageFiles = Config::getFilesHere(exampleDir.path(), exampleImageFilter, Location(),
                                                   excludeDocDirs, excludeFiles);
     if (!exampleFiles.isEmpty()) {
-        // move main.cpp and to the end, if it exists
+        // move main.cpp to the end, if it exists
         QString mainCpp;
 
         const auto isGeneratedOrMainCpp = [&mainCpp](const QString &fileName) {
@@ -841,16 +808,18 @@ void CppCodeParser::setExampleFileLists(PageNode *pn)
         if (!mainCpp.isEmpty())
             exampleFiles.append(mainCpp);
 
-        // add any qmake Qt resource files and qmake project files
-        exampleFiles += Config::getFilesHere(fullPath, "*.qrc *.pro *.qmlproject qmldir");
+        // Add any resource and project files
+        exampleFiles += Config::getFilesHere(exampleDir.path(),
+                QLatin1String("*.qrc *.pro *.qmlproject *.pyproject CMakeLists.txt qmldir"));
     }
 
+    const int pathLen = exampleDir.path().size() - en->name().size();
     for (auto &file : exampleFiles)
-        file = file.mid(sizeOfBoringPartOfName);
+        file = file.mid(pathLen);
     for (auto &file : imageFiles)
-        file = file.mid(sizeOfBoringPartOfName);
-    ExampleNode *en = static_cast<ExampleNode *>(pn);
-    en->setFiles(exampleFiles);
+        file = file.mid(pathLen);
+
+    en->setFiles(exampleFiles, fullPath.mid(pathLen));
     en->setImages(imageFiles);
 }
 

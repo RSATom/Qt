@@ -77,8 +77,7 @@ static void UpdateCcTransformLocalMatrix(
     // local matrix. We should not set the local matrix on cc node if it is a
     // sticky node because the sticky offset would be applied twice otherwise.
     DCHECK(compositor_node.local.IsIdentity());
-    DCHECK(compositor_node.pre_local.IsIdentity());
-    DCHECK(compositor_node.post_local.IsIdentity());
+    DCHECK_EQ(gfx::Point3F(), compositor_node.origin);
   } else if (transform_node.IsIdentityOr2DTranslation()) {
     auto translation = transform_node.Translation2D();
     if (transform_node.ScrollNode()) {
@@ -87,55 +86,35 @@ static void UpdateCcTransformLocalMatrix(
       compositor_node.scroll_offset =
           gfx::ScrollOffset(-translation.Width(), -translation.Height());
       DCHECK(compositor_node.local.IsIdentity());
-      DCHECK(compositor_node.pre_local.IsIdentity());
-      DCHECK(compositor_node.post_local.IsIdentity());
+      DCHECK_EQ(gfx::Point3F(), compositor_node.origin);
     } else {
       compositor_node.local.matrix().setTranslate(translation.Width(),
                                                   translation.Height(), 0);
       DCHECK_EQ(FloatPoint3D(), transform_node.Origin());
-      compositor_node.pre_local.matrix().setIdentity();
-      compositor_node.post_local.matrix().setIdentity();
+      compositor_node.origin = gfx::Point3F();
     }
   } else {
     DCHECK(!transform_node.ScrollNode());
     FloatPoint3D origin = transform_node.Origin();
-    compositor_node.pre_local.matrix().setTranslate(-origin.X(), -origin.Y(),
-                                                    -origin.Z());
     compositor_node.local.matrix() =
         TransformationMatrix::ToSkMatrix44(transform_node.Matrix());
-    compositor_node.post_local.matrix().setTranslate(origin.X(), origin.Y(),
-                                                     origin.Z());
+    compositor_node.origin = origin;
   }
   compositor_node.needs_local_transform_update = true;
-}
-
-static void AdjustPageScaleToUsePostLocal(cc::TransformNode& page_scale) {
-  // The page scale node is special because its transform matrix is assumed to
-  // be in the post_local matrix by the compositor. There should be no
-  // translation from the origin so we clear the other matrices.
-  DCHECK(page_scale.local.IsScale2d());
-  DCHECK(page_scale.pre_local.IsIdentity());
-  page_scale.post_local.matrix() = page_scale.local.matrix();
-  page_scale.pre_local.matrix().setIdentity();
-  page_scale.local.matrix().setIdentity();
 }
 
 static void SetTransformTreePageScaleFactor(
     cc::TransformTree* transform_tree,
     cc::TransformNode* page_scale_node) {
-  // |AdjustPageScaleToUsePostLocal| should have been called already so that the
-  // scale component is in the post_local transform.
-  DCHECK(page_scale_node->local.IsIdentity());
-  DCHECK(page_scale_node->pre_local.IsIdentity());
-
-  DCHECK(page_scale_node->post_local.IsScale2d());
-  auto page_scale = page_scale_node->post_local.Scale2d();
+  DCHECK(page_scale_node->local.IsScale2d());
+  auto page_scale = page_scale_node->local.Scale2d();
   DCHECK_EQ(page_scale.x(), page_scale.y());
   transform_tree->set_page_scale_factor(page_scale.x());
 }
 
 bool PropertyTreeManager::DirectlyUpdateCompositedOpacityValue(
     cc::PropertyTrees* property_trees,
+    cc::LayerTreeHost& host,
     const EffectPaintPropertyNode& effect) {
   auto* cc_effect = property_trees->effect_tree.Node(
       effect.CcNodeId(property_trees->sequence_number));
@@ -150,11 +129,13 @@ bool PropertyTreeManager::DirectlyUpdateCompositedOpacityValue(
   cc_effect->opacity = effect.Opacity();
   cc_effect->effect_changed = true;
   property_trees->effect_tree.set_needs_update(true);
+  host.SetNeedsCommit();
   return true;
 }
 
 bool PropertyTreeManager::DirectlyUpdateScrollOffsetTransform(
     cc::PropertyTrees* property_trees,
+    cc::LayerTreeHost& host,
     const TransformPaintPropertyNode& transform) {
   auto* scroll_node = transform.ScrollNode();
   // Only handle scroll adjustments.
@@ -180,11 +161,13 @@ bool PropertyTreeManager::DirectlyUpdateScrollOffsetTransform(
   cc_transform->transform_changed = true;
   property_trees->transform_tree.set_needs_update(true);
   property_trees->scroll_tree.set_needs_update(true);
+  host.SetNeedsCommit();
   return true;
 }
 
 bool PropertyTreeManager::DirectlyUpdateTransform(
     cc::PropertyTrees* property_trees,
+    cc::LayerTreeHost& host,
     const TransformPaintPropertyNode& transform) {
   // If we have a ScrollNode, we should be using
   // DirectlyUpdateScrollOffsetTransform().
@@ -204,11 +187,13 @@ bool PropertyTreeManager::DirectlyUpdateTransform(
 
   cc_transform->transform_changed = true;
   property_trees->transform_tree.set_needs_update(true);
+  host.SetNeedsCommit();
   return true;
 }
 
 bool PropertyTreeManager::DirectlyUpdatePageScaleTransform(
     cc::PropertyTrees* property_trees,
+    cc::LayerTreeHost& host,
     const TransformPaintPropertyNode& transform) {
   DCHECK(!transform.ScrollNode());
 
@@ -218,12 +203,11 @@ bool PropertyTreeManager::DirectlyUpdatePageScaleTransform(
     return false;
 
   UpdateCcTransformLocalMatrix(*cc_transform, transform);
-  AdjustPageScaleToUsePostLocal(*cc_transform);
-
   SetTransformTreePageScaleFactor(&property_trees->transform_tree,
                                   cc_transform);
   cc_transform->transform_changed = true;
   property_trees->transform_tree.set_needs_update(true);
+  host.SetNeedsCommit();
   return true;
 }
 
@@ -252,7 +236,6 @@ void PropertyTreeManager::SetupRootTransformNode() {
   cc::TransformNode& transform_node = *transform_tree.Node(
       transform_tree.Insert(cc::TransformNode(), kRealRootNodeId));
   DCHECK_EQ(transform_node.id, kSecondaryRootNodeId);
-  transform_node.source_node_id = transform_node.parent_id;
 
   // TODO(jaydasika): We shouldn't set ToScreen and FromScreen of root
   // transform node here. They should be set while updating transform tree in
@@ -287,8 +270,8 @@ void PropertyTreeManager::SetupRootClipNode() {
   // correctly account for the URL bar. In fact, the visual viewport property
   // tree builder should probably be the one to create the property tree state
   // and have this created in the same way as other layers.
-  clip_node.clip = gfx::RectF(
-      gfx::SizeF(root_layer_.layer_tree_host()->device_viewport_size()));
+  clip_node.clip =
+      gfx::RectF(root_layer_.layer_tree_host()->device_viewport_rect());
   clip_node.transform_id = kRealRootNodeId;
 
   ClipPaintPropertyNode::Root().SetCcNodeId(new_sequence_number_, clip_node.id);
@@ -307,7 +290,7 @@ void PropertyTreeManager::SetupRootEffectNode() {
   static UniqueObjectId unique_id = NewUniqueObjectId();
 
   effect_node.stable_id =
-      CompositorElementIdFromUniqueObjectId(unique_id).GetInternalValue();
+      CompositorElementIdFromUniqueObjectId(unique_id).GetStableId();
   effect_node.transform_id = kRealRootNodeId;
   effect_node.clip_id = kSecondaryRootNodeId;
   effect_node.render_surface_reason = cc::RenderSurfaceReason::kRoot;
@@ -416,8 +399,6 @@ int PropertyTreeManager::EnsureCompositorTransformNode(
   id = GetTransformTree().Insert(cc::TransformNode(), parent_id);
 
   cc::TransformNode& compositor_node = *GetTransformTree().Node(id);
-  compositor_node.source_node_id = parent_id;
-
   UpdateCcTransformLocalMatrix(compositor_node, transform_node);
   compositor_node.transform_changed = transform_node.NodeChangeAffectsRaster();
   compositor_node.flattens_inherited_transform =
@@ -433,28 +414,26 @@ int PropertyTreeManager::EnsureCompositorTransformNode(
       transform_node.IsInSubtreeOfPageScale();
 
   if (const auto* sticky_constraint = transform_node.GetStickyConstraint()) {
-    DCHECK(sticky_constraint->is_sticky);
-    cc::StickyPositionNodeData* sticky_data =
-        GetTransformTree().StickyPositionData(id);
-    sticky_data->constraints = *sticky_constraint;
+    cc::StickyPositionNodeData& sticky_data =
+        GetTransformTree().EnsureStickyPositionData(id);
+    sticky_data.constraints = *sticky_constraint;
     // TODO(pdr): This could be a performance issue because it crawls up the
     // transform tree for each pending layer. If this is on profiles, we should
     // cache a lookup of transform node to scroll translation transform node.
     const auto& scroll_ancestor = transform_node.NearestScrollTranslationNode();
-    sticky_data->scroll_ancestor = EnsureCompositorScrollNode(scroll_ancestor);
+    sticky_data.scroll_ancestor = EnsureCompositorScrollNode(scroll_ancestor);
     if (scroll_ancestor.ScrollNode()->ScrollsOuterViewport())
       GetTransformTree().AddNodeAffectedByOuterViewportBoundsDelta(id);
     if (auto shifting_sticky_box_element_id =
-            sticky_data->constraints.nearest_element_shifting_sticky_box) {
-      sticky_data->nearest_node_shifting_sticky_box =
+            sticky_data.constraints.nearest_element_shifting_sticky_box) {
+      sticky_data.nearest_node_shifting_sticky_box =
           GetTransformTree()
               .FindNodeFromElementId(shifting_sticky_box_element_id)
               ->id;
     }
     if (auto shifting_containing_block_element_id =
-            sticky_data->constraints
-                .nearest_element_shifting_containing_block) {
-      sticky_data->nearest_node_shifting_containing_block =
+            sticky_data.constraints.nearest_element_shifting_containing_block) {
+      sticky_data.nearest_node_shifting_containing_block =
           GetTransformTree()
               .FindNodeFromElementId(shifting_containing_block_element_id)
               ->id;
@@ -503,8 +482,6 @@ int PropertyTreeManager::EnsureCompositorPageScaleTransformNode(
   int id = EnsureCompositorTransformNode(node);
   DCHECK(GetTransformTree().Node(id));
   cc::TransformNode& compositor_node = *GetTransformTree().Node(id);
-  AdjustPageScaleToUsePostLocal(compositor_node);
-
   SetTransformTreePageScaleFactor(&GetTransformTree(), &compositor_node);
   GetTransformTree().set_needs_update(true);
   return id;
@@ -559,6 +536,13 @@ void PropertyTreeManager::CreateCompositorScrollNode(
       scroll_node.UserScrollableVertical();
   compositor_node.scrolls_inner_viewport = scroll_node.ScrollsInnerViewport();
   compositor_node.scrolls_outer_viewport = scroll_node.ScrollsOuterViewport();
+  compositor_node.prevent_viewport_scrolling_from_inner =
+      scroll_node.PreventViewportScrollingFromInner();
+
+  // |scrolls_using_viewport| should only ever be set on the inner scroll node.
+  DCHECK(!compositor_node.prevent_viewport_scrolling_from_inner ||
+         compositor_node.scrolls_inner_viewport);
+
   compositor_node.max_scroll_offset_affected_by_page_scale =
       scroll_node.MaxScrollOffsetAffectedByPageScale();
   compositor_node.main_thread_scrolling_reasons =
@@ -614,14 +598,14 @@ void PropertyTreeManager::EmitClipMaskLayer() {
   DCHECK_EQ(static_cast<uint64_t>(cc::EffectNode::INVALID_STABLE_ID),
             mask_isolation.stable_id);
 
-  mask_isolation.stable_id = mask_isolation_id.GetInternalValue();
+  mask_isolation.stable_id = mask_isolation_id.GetStableId();
 
   if (!needs_layer)
     return;
 
   cc::EffectNode& mask_effect = *GetEffectTree().Node(
       GetEffectTree().Insert(cc::EffectNode(), current_.effect_id));
-  mask_effect.stable_id = mask_effect_id.GetInternalValue();
+  mask_effect.stable_id = mask_effect_id.GetStableId();
   mask_effect.clip_id = clip_id;
   mask_effect.blend_mode = SkBlendMode::kDstIn;
 
@@ -922,7 +906,7 @@ SkBlendMode PropertyTreeManager::SynthesizeCcEffectsForClipsIfNeeded(
     } else {
       synthetic_effect.stable_id =
           CompositorElementIdFromUniqueObjectId(NewUniqueObjectId())
-              .GetInternalValue();
+              .GetStableId();
       // The clip of the synthetic effect is the parent of the clip, so that
       // the clip itself will be applied in the render surface.
       DCHECK(pending_clip.clip->Parent());
@@ -1064,7 +1048,7 @@ void PropertyTreeManager::PopulateCcEffectNode(
     const EffectPaintPropertyNode& effect,
     int output_clip_id,
     SkBlendMode blend_mode) {
-  effect_node.stable_id = effect.GetCompositorElementId().GetInternalValue();
+  effect_node.stable_id = effect.GetCompositorElementId().GetStableId();
   effect_node.clip_id = output_clip_id;
 
   // An effect with filters or backdrop filters needs a render surface.

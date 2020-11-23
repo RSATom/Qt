@@ -33,7 +33,6 @@
 #include "third_party/blink/renderer/platform/weborigin/security_origin.h"
 #include "third_party/blink/renderer/platform/wtf/assertions.h"
 #include "third_party/blink/renderer/platform/wtf/math_extras.h"
-#include "third_party/blink/renderer/platform/wtf/time.h"
 
 namespace blink {
 
@@ -68,13 +67,12 @@ MemoryCache* ReplaceMemoryCacheForTesting(MemoryCache* cache) {
 }
 
 void MemoryCacheEntry::Trace(blink::Visitor* visitor) {
-  visitor->template RegisterWeakMembers<MemoryCacheEntry,
-                                        &MemoryCacheEntry::ClearResourceWeak>(
-      this);
+  visitor->template RegisterWeakCallbackMethod<
+      MemoryCacheEntry, &MemoryCacheEntry::ClearResourceWeak>(this);
 }
 
-void MemoryCacheEntry::ClearResourceWeak(Visitor* visitor) {
-  if (!resource_ || ThreadHeap::IsHeapObjectAlive(resource_))
+void MemoryCacheEntry::ClearResourceWeak(const WeakCallbackInfo& info) {
+  if (!resource_ || info.IsHeapObjectAlive(resource_))
     return;
   GetMemoryCache()->Remove(resource_.Get());
   resource_.Clear();

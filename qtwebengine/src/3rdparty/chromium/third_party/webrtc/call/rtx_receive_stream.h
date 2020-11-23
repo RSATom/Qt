@@ -12,6 +12,7 @@
 #define CALL_RTX_RECEIVE_STREAM_H_
 
 #include <map>
+#include <stdint.h>
 
 #include "call/rtp_packet_sink_interface.h"
 

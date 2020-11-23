@@ -15,6 +15,10 @@
 #include "printing/printing_export.h"
 #include "ui/gfx/geometry/size.h"
 
+#if defined(OS_CHROMEOS)
+#include "base/values.h"
+#endif  // defined(OS_CHROMEOS)
+
 namespace base {
 class DictionaryValue;
 }
@@ -41,6 +45,45 @@ struct PRINTING_EXPORT PrinterBasicInfo {
 };
 
 using PrinterList = std::vector<PrinterBasicInfo>;
+
+#if defined(OS_CHROMEOS)
+
+struct PRINTING_EXPORT AdvancedCapabilityValue {
+  AdvancedCapabilityValue();
+  AdvancedCapabilityValue(const AdvancedCapabilityValue& other);
+  ~AdvancedCapabilityValue();
+
+  // IPP identifier of the value.
+  std::string name;
+
+  // Localized name for the value.
+  std::string display_name;
+};
+
+struct PRINTING_EXPORT AdvancedCapability {
+  AdvancedCapability();
+  AdvancedCapability(const AdvancedCapability& other);
+  ~AdvancedCapability();
+
+  // IPP identifier of the attribute.
+  std::string name;
+
+  // Localized name for the attribute.
+  std::string display_name;
+
+  // Attribute type.
+  base::Value::Type type;
+
+  // Default value.
+  std::string default_value;
+
+  // Values for enumerated attributes.
+  std::vector<AdvancedCapabilityValue> values;
+};
+
+using AdvancedCapabilities = std::vector<AdvancedCapability>;
+
+#endif  // defined(OS_CHROMEOS)
 
 struct PRINTING_EXPORT PrinterSemanticCapsAndDefaults {
   PrinterSemanticCapsAndDefaults();
@@ -74,6 +117,7 @@ struct PRINTING_EXPORT PrinterSemanticCapsAndDefaults {
 
 #if defined(OS_CHROMEOS)
   bool pin_supported = false;
+  AdvancedCapabilities advanced_capabilities;
 #endif  // defined(OS_CHROMEOS)
 };
 
@@ -104,12 +148,15 @@ class PRINTING_EXPORT PrintBackend
   // Gets the default printer name. Empty string if no default printer.
   virtual std::string GetDefaultPrinterName() = 0;
 
-  // Gets the basic printer info for a specific printer.
+  // Gets the basic printer info for a specific printer. Implementations must
+  // check |printer_name| validity in the same way as IsValidPrinter().
   virtual bool GetPrinterBasicInfo(const std::string& printer_name,
                                    PrinterBasicInfo* printer_info) = 0;
 
   // Gets the semantic capabilities and defaults for a specific printer.
   // This is usually a lighter implementation than GetPrinterCapsAndDefaults().
+  // Implementations must check |printer_name| validity in the same way as
+  // IsValidPrinter().
   // NOTE: on some old platforms (WinXP without XPS pack)
   // GetPrinterCapsAndDefaults() will fail, while this function will succeed.
   virtual bool GetPrinterSemanticCapsAndDefaults(
@@ -132,7 +179,8 @@ class PRINTING_EXPORT PrintBackend
   // Allocates a print backend. If |print_backend_settings| is nullptr, default
   // settings will be used.
   static scoped_refptr<PrintBackend> CreateInstance(
-      const base::DictionaryValue* print_backend_settings);
+      const base::DictionaryValue* print_backend_settings,
+      const std::string& locale);
 
   // Test method to override the print backend for testing.  Caller should
   // retain ownership.
@@ -140,11 +188,18 @@ class PRINTING_EXPORT PrintBackend
 
  protected:
   friend class base::RefCountedThreadSafe<PrintBackend>;
+  explicit PrintBackend(const std::string& locale);
   virtual ~PrintBackend();
 
   // Provide the actual backend for CreateInstance().
   static scoped_refptr<PrintBackend> CreateInstanceImpl(
-      const base::DictionaryValue* print_backend_settings);
+      const base::DictionaryValue* print_backend_settings,
+      const std::string& locale);
+
+  const std::string& locale() const { return locale_; }
+
+ private:
+  const std::string locale_;
 };
 
 }  // namespace printing

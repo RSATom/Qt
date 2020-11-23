@@ -56,12 +56,17 @@ defineTest(usingMSVC32BitCrossCompiler) {
     }
     CL_DIR = $$system_path($$CL_DIR)
     CL_DIR = $$split(CL_DIR, \\)
-    CL_PLATFORM = $$last(CL_DIR)
+    CL_PLATFORM = $$take_last(CL_DIR)
     equals(CL_PLATFORM, amd64_x86): return(true)
+    equals(CL_PLATFORM, x86)|equals(CL_PLATFORM, x64) {
+        CL_PLATFORM = $$take_last(CL_DIR)
+        equals(CL_PLATFORM, HostX64): return(true)
+    }
     return(false)
 }
 
 msvc:contains(QT_ARCH, "i386"):!usingMSVC32BitCrossCompiler() {
+    warning(Full debug info is disabled for chromium due to 32bit compiler)
     # The 32 bit MSVC linker runs out of memory if we do not remove all debug information.
     force_debug_info: gn_args -= symbol_level=1
     gn_args *= symbol_level=0
@@ -73,7 +78,7 @@ msvc {
     } else: equals(MSVC_VER, 16.0) {
         MSVS_VERSION = 2019
     } else {
-        error("Visual Studio compiler version \"$$MSVC_VER\" is not supported by Qt WebEngine")
+        error("Visual Studio compiler version \"$$MSVC_VER\" is not supported by gn.")
     }
 
     gn_args += visual_studio_version=$$MSVS_VERSION
@@ -86,12 +91,5 @@ msvc {
     GN_TARGET_CPU = $$gnArch($$QT_ARCH)
     gn_args += target_cpu=\"$$GN_TARGET_CPU\"
 } else {
-    error("Qt WebEngine for Windows can only be built with a Microsoft Visual Studio C++ compatible compiler")
-}
-
-qtConfig(webengine-spellchecker) {
-    qtConfig(webengine-native-spellchecker): gn_args += use_browser_spellchecker=true
-    else: gn_args += use_browser_spellchecker=false
-} else {
-    gn_args += use_browser_spellchecker=false
+    error("Microsoft Visual Studio C++ compatible compiler is required by gn.")
 }

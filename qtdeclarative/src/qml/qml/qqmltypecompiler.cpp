@@ -58,10 +58,10 @@ QQmlTypeCompiler::QQmlTypeCompiler(QQmlEnginePrivate *engine, QQmlTypeData *type
                                    QV4::ResolvedTypeReferenceMap *resolvedTypeCache, const QV4::CompiledData::DependentTypesHasher &dependencyHasher)
     : resolvedTypes(resolvedTypeCache)
     , engine(engine)
-    , typeData(typeData)
     , dependencyHasher(dependencyHasher)
-    , typeNameCache(typeNameCache)
     , document(parsedQML)
+    , typeNameCache(typeNameCache)
+    , typeData(typeData)
 {
 }
 
@@ -81,8 +81,8 @@ QQmlRefPointer<QV4::ExecutableCompilationUnit> QQmlTypeCompiler::compile()
 
     {
         QQmlPropertyCacheCreator<QQmlTypeCompiler> propertyCacheBuilder(&m_propertyCaches, &pendingGroupPropertyBindings,
-                                                                        engine, this, imports());
-        QQmlJS::DiagnosticMessage error = propertyCacheBuilder.buildMetaObjects();
+                                                                        engine, this, imports(), typeData->typeClassName());
+        QQmlError error = propertyCacheBuilder.buildMetaObjects();
         if (error.isValid()) {
             recordError(error);
             return nullptr;
@@ -174,8 +174,8 @@ QQmlRefPointer<QV4::ExecutableCompilationUnit> QQmlTypeCompiler::compile()
 void QQmlTypeCompiler::recordError(const QV4::CompiledData::Location &location, const QString &description)
 {
     QQmlError error;
-    error.setLine(location.line);
-    error.setColumn(location.column);
+    error.setLine(qmlConvertSourceCoordinate<quint32, int>(location.line));
+    error.setColumn(qmlConvertSourceCoordinate<quint32, int>(location.column));
     error.setDescription(description);
     error.setUrl(url());
     errors << error;
@@ -185,8 +185,15 @@ void QQmlTypeCompiler::recordError(const QQmlJS::DiagnosticMessage &message)
 {
     QQmlError error;
     error.setDescription(message.message);
-    error.setLine(message.line);
-    error.setColumn(message.column);
+    error.setLine(qmlConvertSourceCoordinate<quint32, int>(message.loc.startLine));
+    error.setColumn(qmlConvertSourceCoordinate<quint32, int>(message.loc.startColumn));
+    error.setUrl(url());
+    errors << error;
+}
+
+void QQmlTypeCompiler::recordError(const QQmlError &e)
+{
+    QQmlError error = e;
     error.setUrl(url());
     errors << error;
 }
@@ -277,6 +284,11 @@ void QQmlTypeCompiler::addImport(const QString &module, const QString &qualifier
     import->uriIndex = moduleIdx;
     import->qualifierIndex = qualifierIdx;
     document->imports.append(import);
+}
+
+CompositeMetaTypeIds QQmlTypeCompiler::typeIdsForComponent(int objectId) const
+{
+    return typeData->typeIds(objectId);
 }
 
 QQmlCompilePass::QQmlCompilePass(QQmlTypeCompiler *typeCompiler)
@@ -801,8 +813,8 @@ void QQmlComponentAndAliasResolver::findAndRegisterImplicitComponents(const QmlI
         const QMetaObject *firstMetaObject = nullptr;
         if (tr->type.isValid())
             firstMetaObject = tr->type.metaObject();
-        else if (tr->compilationUnit)
-            firstMetaObject = tr->compilationUnit->rootPropertyCache()->firstCppMetaObject();
+        else if (const auto compilationUnit = tr->compilationUnit())
+            firstMetaObject = compilationUnit->rootPropertyCache()->firstCppMetaObject();
         if (isUsableComponent(firstMetaObject))
             continue;
         // if here, not a QQmlComponent, so needs wrapping
@@ -876,6 +888,10 @@ bool QQmlComponentAndAliasResolver::resolve()
     const int objCountWithoutSynthesizedComponents = qmlObjects->count();
     for (int i = 0; i < objCountWithoutSynthesizedComponents; ++i) {
         QmlIR::Object *obj = qmlObjects->at(i);
+        if (obj->isInlineComponent) {
+            componentRoots.append(i);
+            continue;
+        }
         QQmlPropertyCache *cache = propertyCaches.at(i);
         if (obj->inheritedTypeNameIndex == 0 && !cache)
             continue;
@@ -931,7 +947,7 @@ bool QQmlComponentAndAliasResolver::resolve()
 
         _objectsWithAliases.clear();
 
-        if (!collectIdsAndAliases(rootBinding->value.objectIndex))
+        if (!collectIdsAndAliases(component->isInlineComponent ? componentRoots.at(i) : rootBinding->value.objectIndex))
             return false;
 
         component->namedObjectsInComponent.allocate(pool, _idToObjectIndex);
@@ -1007,7 +1023,7 @@ bool QQmlComponentAndAliasResolver::resolveAliases(int componentIndex)
 
         for (int objectIndex: qAsConst(_objectsWithAliases)) {
 
-            QQmlJS::DiagnosticMessage error;
+            QQmlError error;
             const auto result = resolveAliasesInObject(objectIndex, &error);
 
             if (error.isValid()) {
@@ -1016,7 +1032,7 @@ bool QQmlComponentAndAliasResolver::resolveAliases(int componentIndex)
             }
 
             if (result == AllAliasesResolved) {
-                QQmlJS::DiagnosticMessage error = aliasCacheCreator.appendAliasesToPropertyCache(*qmlObjects->at(componentIndex), objectIndex, enginePrivate);
+                QQmlError error = aliasCacheCreator.appendAliasesToPropertyCache(*qmlObjects->at(componentIndex), objectIndex, enginePrivate);
                 if (error.isValid()) {
                     recordError(error);
                     return false;
@@ -1047,7 +1063,7 @@ bool QQmlComponentAndAliasResolver::resolveAliases(int componentIndex)
 
 QQmlComponentAndAliasResolver::AliasResolutionResult
 QQmlComponentAndAliasResolver::resolveAliasesInObject(int objectIndex,
-                                                      QQmlJS::DiagnosticMessage *error)
+                                                      QQmlError *error)
 {
     const QmlIR::Object * const obj = qmlObjects->at(objectIndex);
     if (!obj->aliasCount())
@@ -1216,7 +1232,7 @@ bool QQmlDeferredAndCustomParserBindingScanner::scanObject(int objectIndex)
     if (obj->idNameIndex != 0)
         _seenObjectWithId = true;
 
-    if (obj->flags & QV4::CompiledData::Object::IsComponent) {
+    if (obj->flags & QV4::CompiledData::Object::IsComponent && !obj->isInlineComponent) {
         Q_ASSERT(obj->bindingCount() == 1);
         const QV4::CompiledData::Binding *componentBinding = obj->firstBinding();
         Q_ASSERT(componentBinding->type == QV4::CompiledData::Binding::Type_Object);

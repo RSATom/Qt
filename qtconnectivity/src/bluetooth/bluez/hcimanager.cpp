@@ -88,7 +88,7 @@ HciManager::HciManager(const QBluetoothAddress& deviceAdapter, QObject *parent) 
     }
 
     notifier = new QSocketNotifier(hciSocket, QSocketNotifier::Read, this);
-    connect(notifier, SIGNAL(activated(int)), this, SLOT(_q_readNotify()));
+    connect(notifier, SIGNAL(activated(QSocketDescriptor)), this, SLOT(_q_readNotify()));
 
 }
 

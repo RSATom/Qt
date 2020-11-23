@@ -8,9 +8,7 @@
 #include "content/common/content_export.h"
 
 namespace blink {
-class WebMouseEvent;
 class WebWidget;
-class WebWidgetClient;
 struct WebDeviceEmulationParams;
 }  // namespace blink
 
@@ -26,15 +24,6 @@ class CONTENT_EXPORT RenderWidgetDelegate {
  public:
   virtual ~RenderWidgetDelegate() = default;
 
-  // Returns the WebWidget if the delegate has one. Otherwise it returns null,
-  // and RenderWidget will fall back to its own WebWidget.
-  virtual blink::WebWidget* GetWebWidgetForWidget() const = 0;
-
-  // As in RenderWidgetInputHandlerDelegate. Return true if the event was
-  // handled.
-  virtual bool RenderWidgetWillHandleMouseEventForWidget(
-      const blink::WebMouseEvent& event) = 0;
-
   // See comment in RenderWidgetHost::SetActive().
   virtual void SetActiveForWidget(bool active) = 0;
 
@@ -42,21 +31,9 @@ class CONTENT_EXPORT RenderWidgetDelegate {
   // Show() may be called more than once.
   virtual bool SupportsMultipleWindowsForWidget() = 0;
 
-  // Called after RenderWidget services WebWidgetClient::DidHandleGestureEvent()
-  // if the event was not cancelled.
-  virtual void DidHandleGestureEventForWidget(
-      const blink::WebGestureEvent& event) = 0;
-
   // TODO(bokan): Temporary to unblock synthetic gesture events running under
   // VR. https://crbug.com/940063
   virtual bool ShouldAckSyntheticInputImmediately() = 0;
-
-  // ==================================
-  // These methods called during closing of a RenderWidget.
-  //
-  // Called after closing the RenderWidget and destroying the WebView.
-  virtual void DidCloseWidget() = 0;
-  // ==================================
 
   // ==================================
   // These methods called during handling of a SynchronizeVisualProperties
@@ -69,7 +46,7 @@ class CONTENT_EXPORT RenderWidgetDelegate {
   // display mode that will be applied to the RenderWidget. The display mode in
   // the RenderWidget is already changed when this method is called.
   virtual void ApplyNewDisplayModeForWidget(
-      const blink::WebDisplayMode& new_display_mode) = 0;
+      blink::mojom::DisplayMode new_display_mode) = 0;
   // Called during handling a SynchronizeVisualProperties message, if auto
   // resize is enabled, with the new auto size limits.
   virtual void ApplyAutoResizeLimitsForWidget(const gfx::Size& min_size,
@@ -85,9 +62,6 @@ class CONTENT_EXPORT RenderWidgetDelegate {
   // Called when RenderWidget receives a SetFocus event.
   virtual void DidReceiveSetFocusEventForWidget() = 0;
 
-  // Called after RenderWidget changes focus.
-  virtual void DidChangeFocusForWidget() = 0;
-
   // Called when the RenderWidget handles
   // LayerTreeViewDelegate::DidCommitCompositorFrame().
   virtual void DidCommitCompositorFrameForWidget() = 0;
@@ -100,9 +74,7 @@ class CONTENT_EXPORT RenderWidgetDelegate {
   // happens.
   virtual void ResizeWebWidgetForWidget(
       const gfx::Size& size,
-      float top_controls_height,
-      float bottom_controls_height,
-      bool browser_controls_shrink_blink_size) = 0;
+      cc::BrowserControlsParams browser_controls_params) = 0;
 
   // Called when RenderWidget services RenderWidgetScreenMetricsEmulatorDelegate
   // SetScreenMetricsEmulationParameters().

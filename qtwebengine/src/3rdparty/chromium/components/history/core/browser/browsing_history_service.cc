@@ -20,11 +20,8 @@
 #include "base/time/time.h"
 #include "base/values.h"
 #include "components/history/core/browser/browsing_history_driver.h"
-#include "components/history/core/browser/history_service.h"
 #include "components/history/core/browser/history_types.h"
 #include "components/keyed_service/core/service_access_type.h"
-#include "components/sync/driver/sync_service.h"
-#include "components/sync/driver/sync_service_observer.h"
 #include "components/sync/protocol/history_delete_directive_specifics.pb.h"
 
 namespace history {
@@ -122,16 +119,18 @@ BrowsingHistoryService::HistoryEntry::HistoryEntry(
     const std::string& client_id,
     bool is_search_result,
     const base::string16& snippet,
-    bool blocked_visit) {
-  this->entry_type = entry_type;
-  this->url = url;
-  this->title = title;
-  this->time = time;
-  this->client_id = client_id;
+    bool blocked_visit,
+    const GURL& remote_icon_url_for_uma)
+    : entry_type(entry_type),
+      url(url),
+      title(title),
+      time(time),
+      client_id(client_id),
+      is_search_result(is_search_result),
+      snippet(snippet),
+      blocked_visit(blocked_visit),
+      remote_icon_url_for_uma(remote_icon_url_for_uma) {
   all_timestamps.insert(time.ToInternalValue());
-  this->is_search_result = is_search_result;
-  this->snippet = snippet;
-  this->blocked_visit = blocked_visit;
 }
 
 BrowsingHistoryService::HistoryEntry::HistoryEntry()
@@ -165,9 +164,6 @@ BrowsingHistoryService::BrowsingHistoryService(
     syncer::SyncService* sync_service,
     std::unique_ptr<base::OneShotTimer> web_history_timer)
     : web_history_timer_(std::move(web_history_timer)),
-      history_service_observer_(this),
-      web_history_service_observer_(this),
-      sync_service_observer_(this),
       driver_(driver),
       local_history_(local_history),
       sync_service_(sync_service),
@@ -486,6 +482,12 @@ void BrowsingHistoryService::MergeDuplicateResults(
       if (matching_entry->entry_type != entry.entry_type) {
         matching_entry->entry_type = HistoryEntry::COMBINED_ENTRY;
       }
+
+      // Get first non-empty remote icon url.
+      if (matching_entry->remote_icon_url_for_uma.is_empty() &&
+          !entry.remote_icon_url_for_uma.is_empty()) {
+        matching_entry->remote_icon_url_for_uma = entry.remote_icon_url_for_uma;
+      }
     }
   }
 
@@ -545,7 +547,7 @@ void BrowsingHistoryService::QueryComplete(
     output.emplace_back(HistoryEntry(
         HistoryEntry::LOCAL_ENTRY, page.url(), page.title(), page.visit_time(),
         std::string(), !state->search_text.empty(), page.snippet().text(),
-        page.blocked_visit()));
+        page.blocked_visit(), GURL()));
   }
 
   state->local_status =
@@ -643,6 +645,7 @@ void BrowsingHistoryService::WebHistoryQueryComplete(
         const base::ListValue* ids = nullptr;
         base::string16 url;
         base::string16 title;
+        base::string16 favicon_url;
 
         if (!(events->GetDictionary(i, &event) &&
               event->GetList("result", &results) &&
@@ -659,6 +662,8 @@ void BrowsingHistoryService::WebHistoryQueryComplete(
 
         // Title is optional, so the return value is ignored here.
         result->GetString("title", &title);
+
+        result->GetString("favicon_url", &favicon_url);
 
         // Extract the timestamps of all the visits to this URL.
         // They are referred to as "IDs" by the server.
@@ -684,7 +689,7 @@ void BrowsingHistoryService::WebHistoryQueryComplete(
           state->remote_results.emplace_back(HistoryEntry(
               HistoryEntry::REMOTE_ENTRY, gurl, title, time, client_id,
               !state->search_text.empty(), base::string16(),
-              /* blocked_visit */ false));
+              /* blocked_visit */ false, GURL(favicon_url)));
         }
       }
     }

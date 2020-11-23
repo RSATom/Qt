@@ -1,5 +1,5 @@
 //
-// Copyright (c) 2012-2014 The ANGLE Project Authors. All rights reserved.
+// Copyright 2012 The ANGLE Project Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 //
@@ -75,12 +75,11 @@ void GenerateCaps(ID3D11Device *device,
                   ID3D11DeviceContext *deviceContext,
                   const Renderer11DeviceCaps &renderer11DeviceCaps,
                   const angle::FeaturesD3D &features,
+                  const char *description,
                   gl::Caps *caps,
                   gl::TextureCapsMap *textureCapsMap,
                   gl::Extensions *extensions,
                   gl::Limitations *limitations);
-
-void GetSamplePosition(GLsizei sampleCount, size_t index, GLfloat *xy);
 
 D3D_FEATURE_LEVEL GetMinimumFeatureLevelForES31();
 
@@ -186,6 +185,21 @@ outType *DynamicCastComObject(IUnknown *object)
     else
     {
         SafeRelease(outObject);
+        return nullptr;
+    }
+}
+
+template <typename outType>
+angle::ComPtr<outType> DynamicCastComObjectToComPtr(IUnknown *object)
+{
+    angle::ComPtr<outType> outObject;
+    const HRESULT hr = object->QueryInterface(IID_PPV_ARGS(&outObject));
+    if (SUCCEEDED(hr))
+    {
+        return outObject;
+    }
+    else
+    {
         return nullptr;
     }
 }

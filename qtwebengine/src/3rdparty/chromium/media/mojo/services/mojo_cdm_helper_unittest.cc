@@ -7,10 +7,12 @@
 #include "base/bind.h"
 #include "base/macros.h"
 #include "base/run_loop.h"
-#include "base/test/scoped_task_environment.h"
+#include "base/test/task_environment.h"
 #include "media/cdm/api/content_decryption_module.h"
-#include "media/mojo/interfaces/cdm_storage.mojom.h"
-#include "mojo/public/cpp/bindings/strong_binding.h"
+#include "media/mojo/mojom/cdm_storage.mojom.h"
+#include "mojo/public/cpp/bindings/associated_receiver.h"
+#include "mojo/public/cpp/bindings/pending_receiver.h"
+#include "mojo/public/cpp/bindings/self_owned_receiver.h"
 #include "services/service_manager/public/cpp/binder_registry.h"
 #include "services/service_manager/public/mojom/interface_provider.mojom.h"
 #include "testing/gmock/include/gmock/gmock.h"
@@ -51,24 +53,22 @@ class TestCdmFile : public mojom::CdmFile {
 
 class MockCdmStorage : public mojom::CdmStorage {
  public:
-  MockCdmStorage() : client_binding_(&cdm_file_) {}
+  MockCdmStorage() = default;
   ~MockCdmStorage() override = default;
 
   void Open(const std::string& file_name, OpenCallback callback) override {
-    mojom::CdmFileAssociatedPtrInfo client_ptr_info;
-    client_binding_.Bind(mojo::MakeRequest(&client_ptr_info));
     std::move(callback).Run(mojom::CdmStorage::Status::kSuccess,
-                            std::move(client_ptr_info));
+                            client_receiver_.BindNewEndpointAndPassRemote());
   }
 
  private:
   TestCdmFile cdm_file_;
-  mojo::AssociatedBinding<mojom::CdmFile> client_binding_;
+  mojo::AssociatedReceiver<mojom::CdmFile> client_receiver_{&cdm_file_};
 };
 
-void CreateCdmStorage(mojom::CdmStorageRequest request) {
-  mojo::MakeStrongBinding(std::make_unique<MockCdmStorage>(),
-                          std::move(request));
+void CreateCdmStorage(mojo::PendingReceiver<mojom::CdmStorage> receiver) {
+  mojo::MakeSelfOwnedReceiver(std::make_unique<MockCdmStorage>(),
+                              std::move(receiver));
 }
 
 class TestInterfaceProvider : public service_manager::mojom::InterfaceProvider {
@@ -94,7 +94,7 @@ class MojoCdmHelperTest : public testing::Test {
   MojoCdmHelperTest() : helper_(&test_interface_provider_) {}
   ~MojoCdmHelperTest() override = default;
 
-  base::test::ScopedTaskEnvironment scoped_task_environment_;
+  base::test::TaskEnvironment task_environment_;
   TestInterfaceProvider test_interface_provider_;
   MockFileIOClient file_io_client_;
   MojoCdmHelper helper_;

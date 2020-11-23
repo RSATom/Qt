@@ -61,8 +61,7 @@ QPlaceSearchSuggestionReplyMapbox::QPlaceSearchSuggestionReplyMapbox(QNetworkRep
     }
 
     connect(reply, &QNetworkReply::finished, this, &QPlaceSearchSuggestionReplyMapbox::onReplyFinished);
-    connect(reply, QOverload<QNetworkReply::NetworkError>::of(&QNetworkReply::error),
-            this, &QPlaceSearchSuggestionReplyMapbox::onNetworkError);
+    connect(reply, &QNetworkReply::errorOccurred, this, &QPlaceSearchSuggestionReplyMapbox::onNetworkError);
 
     connect(this, &QPlaceReply::aborted, reply, &QNetworkReply::abort);
     connect(this, &QObject::destroyed, reply, &QObject::deleteLater);

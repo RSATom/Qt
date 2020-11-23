@@ -8,9 +8,10 @@
 #include "base/command_line.h"
 #include "base/memory/platform_shared_memory_region.h"
 #include "base/run_loop.h"
-#include "base/test/scoped_task_environment.h"
+#include "base/test/task_environment.h"
 #include "base/threading/thread.h"
 #include "media/base/media_switches.h"
+#include "mojo/public/cpp/bindings/remote.h"
 #include "mojo/public/cpp/system/platform_handle.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
@@ -46,12 +47,13 @@ class MojoMjpegDecodeAcceleratorServiceTest : public ::testing::Test {
  private:
   // This is required to allow base::ThreadTaskRunnerHandle::Get() from the
   // test execution thread.
-  base::test::ScopedTaskEnvironment scoped_task_environment_;
+  base::test::TaskEnvironment task_environment_;
 };
 
 TEST_F(MojoMjpegDecodeAcceleratorServiceTest, InitializeAndDecode) {
-  chromeos_camera::mojom::MjpegDecodeAcceleratorPtr jpeg_decoder;
-  MojoMjpegDecodeAcceleratorService::Create(mojo::MakeRequest(&jpeg_decoder));
+  mojo::Remote<chromeos_camera::mojom::MjpegDecodeAccelerator> jpeg_decoder;
+  MojoMjpegDecodeAcceleratorService::Create(
+      jpeg_decoder.BindNewPipeAndPassReceiver());
 
   base::RunLoop run_loop;
   jpeg_decoder->Initialize(
@@ -73,8 +75,12 @@ TEST_F(MojoMjpegDecodeAcceleratorServiceTest, InitializeAndDecode) {
       base::subtle::PlatformSharedMemoryRegion::CreateUnsafe(
           kInputBufferSizeInBytes);
 
+  // mojo::SharedBufferHandle::Create will make a writable region, but an unsafe
+  // one is needed.
   mojo::ScopedSharedBufferHandle output_frame_handle =
-      mojo::SharedBufferHandle::Create(kOutputFrameSizeInBytes);
+      mojo::WrapPlatformSharedMemoryRegion(
+          base::subtle::PlatformSharedMemoryRegion::CreateUnsafe(
+              kOutputFrameSizeInBytes));
 
   media::BitstreamBuffer bitstream_buffer(kArbitraryBitstreamBufferId,
                                           std::move(shm_region),

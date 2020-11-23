@@ -14,7 +14,6 @@
 #include <string>
 #include <utility>
 
-#include "absl/memory/memory.h"
 #include "media/sctp/sctp_transport_internal.h"
 #include "pc/sctp_utils.h"
 #include "rtc_base/checks.h"
@@ -27,6 +26,16 @@ namespace webrtc {
 
 static size_t kMaxQueuedReceivedDataBytes = 16 * 1024 * 1024;
 static size_t kMaxQueuedSendDataBytes = 16 * 1024 * 1024;
+
+namespace {
+
+static std::atomic<int> g_unique_id{0};
+
+int GenerateUniqueId() {
+  return ++g_unique_id;
+}
+
+}  // namespace
 
 InternalDataChannelInit::InternalDataChannelInit(const DataChannelInit& base)
     : DataChannelInit(base), open_handshake_role(kOpener) {
@@ -138,13 +147,16 @@ rtc::scoped_refptr<DataChannel> DataChannel::Create(
 }
 
 bool DataChannel::IsSctpLike(cricket::DataChannelType type) {
-  return type == cricket::DCT_SCTP || type == cricket::DCT_MEDIA_TRANSPORT;
+  return type == cricket::DCT_SCTP || type == cricket::DCT_MEDIA_TRANSPORT ||
+         type == cricket::DCT_DATA_CHANNEL_TRANSPORT ||
+         type == cricket::DCT_DATA_CHANNEL_TRANSPORT_SCTP;
 }
 
 DataChannel::DataChannel(DataChannelProviderInterface* provider,
                          cricket::DataChannelType dct,
                          const std::string& label)
-    : label_(label),
+    : internal_id_(GenerateUniqueId()),
+      label_(label),
       observer_(nullptr),
       state_(kConnecting),
       messages_sent_(0),
@@ -347,9 +359,10 @@ void DataChannel::OnTransportChannelCreated() {
   }
 }
 
-void DataChannel::OnTransportChannelDestroyed() {
-  // The SctpTransport is going away (for example, because the SCTP m= section
-  // was rejected), so we need to close abruptly.
+void DataChannel::OnTransportChannelClosed() {
+  // The SctpTransport is unusable (for example, because the SCTP m= section
+  // was rejected, or because the DTLS transport closed), so we need to close
+  // abruptly.
   CloseAbruptly();
 }
 
@@ -413,7 +426,7 @@ void DataChannel::OnDataReceived(const cricket::ReceiveDataParams& params,
   }
 
   bool binary = (params.type == cricket::DMT_BINARY);
-  auto buffer = absl::make_unique<DataBuffer>(payload, binary);
+  auto buffer = std::make_unique<DataBuffer>(payload, binary);
   if (state_ == kOpen && observer_) {
     ++messages_received_;
     bytes_received_ += buffer->size();
@@ -650,7 +663,7 @@ bool DataChannel::QueueSendDataMessage(const DataBuffer& buffer) {
     RTC_LOG(LS_ERROR) << "Can't buffer any more data for the data channel.";
     return false;
   }
-  queued_send_data_.PushBack(absl::make_unique<DataBuffer>(buffer));
+  queued_send_data_.PushBack(std::make_unique<DataBuffer>(buffer));
   return true;
 }
 
@@ -665,7 +678,7 @@ void DataChannel::SendQueuedControlMessages() {
 }
 
 void DataChannel::QueueControlMessage(const rtc::CopyOnWriteBuffer& buffer) {
-  queued_control_data_.PushBack(absl::make_unique<DataBuffer>(buffer, true));
+  queued_control_data_.PushBack(std::make_unique<DataBuffer>(buffer, true));
 }
 
 bool DataChannel::SendControlMessage(const rtc::CopyOnWriteBuffer& buffer) {
@@ -703,6 +716,11 @@ bool DataChannel::SendControlMessage(const rtc::CopyOnWriteBuffer& buffer) {
     CloseAbruptly();
   }
   return retval;
+}
+
+// static
+void DataChannel::ResetInternalIdAllocatorForTesting(int new_value) {
+  g_unique_id = new_value;
 }
 
 }  // namespace webrtc

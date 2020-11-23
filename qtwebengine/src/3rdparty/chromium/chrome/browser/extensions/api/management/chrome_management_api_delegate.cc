@@ -9,8 +9,11 @@
 
 #include "base/bind.h"
 #include "base/macros.h"
+#include "base/strings/strcat.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/task/post_task.h"
+#include "chrome/browser/apps/app_service/app_launch_params.h"
+#include "chrome/browser/apps/launch_service/launch_service.h"
 #include "chrome/browser/extensions/chrome_extension_function_details.h"
 #include "chrome/browser/extensions/extension_service.h"
 #include "chrome/browser/extensions/launch_util.h"
@@ -24,14 +27,15 @@
 #include "chrome/browser/ui/browser_finder.h"
 #include "chrome/browser/ui/browser_tabstrip.h"
 #include "chrome/browser/ui/browser_window.h"
-#include "chrome/browser/ui/extensions/app_launch_params.h"
-#include "chrome/browser/ui/extensions/application_launch.h"
 #include "chrome/browser/ui/scoped_tabbed_browser_displayer.h"
+#include "chrome/browser/ui/tab_helpers.h"
 #include "chrome/browser/ui/web_applications/web_app_dialog_utils.h"
 #include "chrome/browser/ui/webui/extensions/extension_icon_source.h"
 #include "chrome/browser/web_applications/components/app_registrar.h"
 #include "chrome/browser/web_applications/components/install_manager.h"
 #include "chrome/browser/web_applications/components/web_app_constants.h"
+#include "chrome/browser/web_applications/components/web_app_helpers.h"
+#include "chrome/browser/web_applications/components/web_app_install_utils.h"
 #include "chrome/browser/web_applications/components/web_app_provider_base.h"
 #include "chrome/browser/web_applications/components/web_app_utils.h"
 #include "chrome/common/extensions/extension_metrics.h"
@@ -39,7 +43,6 @@
 #include "chrome/common/web_application_info.h"
 #include "components/favicon/core/favicon_service.h"
 #include "content/public/browser/browser_context.h"
-#include "content/public/browser/system_connector.h"
 #include "content/public/browser/web_contents.h"
 #include "extensions/browser/api/management/management_api.h"
 #include "extensions/browser/api/management/management_api_constants.h"
@@ -48,18 +51,63 @@
 #include "extensions/browser/extension_registry.h"
 #include "extensions/browser/extension_system.h"
 #include "extensions/common/extension.h"
-#include "services/data_decoder/public/cpp/safe_json_parser.h"
+#include "services/data_decoder/public/cpp/data_decoder.h"
+#include "third_party/blink/public/mojom/manifest/display_mode.mojom.h"
 
 #if defined(OS_CHROMEOS)
+#include "chrome/browser/chromeos/arc/arc_util.h"
 #include "chrome/browser/chromeos/login/demo_mode/demo_session.h"
-#endif
+#include "chrome/browser/ui/app_list/arc/arc_app_utils.h"
+#include "components/arc/arc_service_manager.h"
+#include "components/arc/arc_util.h"
+#include "components/arc/mojom/intent_helper.mojom.h"
+#include "components/arc/session/arc_bridge_service.h"
+#endif  // OS_CHROMEOS
 
 namespace {
 
-using InstallWebAppCallback =
-    extensions::ManagementAPIDelegate::InstallWebAppCallback;
-using InstallWebAppResult =
-    extensions::ManagementAPIDelegate::InstallWebAppResult;
+#if defined(OS_CHROMEOS)
+const char kPlayIntentPrefix[] =
+    "https://play.google.com/store/apps/details?id=";
+const char kChromeWebStoreReferrer[] = "&referrer=chrome_web_store";
+#endif  // OS_CHROMEOS
+
+using InstallAndroidAppCallback =
+    extensions::ManagementAPIDelegate::InstallAndroidAppCallback;
+using AndroidAppInstallStatusCallback =
+    extensions::ManagementAPIDelegate::AndroidAppInstallStatusCallback;
+using InstallOrLaunchWebAppCallback =
+    extensions::ManagementAPIDelegate::InstallOrLaunchWebAppCallback;
+using InstallOrLaunchWebAppResult =
+    extensions::ManagementAPIDelegate::InstallOrLaunchWebAppResult;
+using InstallableCheckResult = web_app::InstallManager::InstallableCheckResult;
+
+#if defined(OS_CHROMEOS)
+void OnDidCheckForIntentToPlayStore(const std::string& intent,
+                                    InstallAndroidAppCallback callback,
+                                    bool installable) {
+  if (!installable) {
+    std::move(callback).Run(false);
+    return;
+  }
+
+  auto* arc_service_manager = arc::ArcServiceManager::Get();
+  if (!arc_service_manager) {
+    std::move(callback).Run(false);
+    return;
+  }
+
+  auto* instance = ARC_GET_INSTANCE_FOR_METHOD(
+      arc_service_manager->arc_bridge_service()->intent_helper(), HandleUrl);
+  if (!instance) {
+    std::move(callback).Run(false);
+    return;
+  }
+
+  instance->HandleUrl(intent, arc::kPlayStorePackage);
+  std::move(callback).Run(true);
+}
+#endif  // OS_CHROMEOS
 
 class ManagementSetEnabledFunctionInstallPromptDelegate
     : public extensions::InstallPromptDelegate {
@@ -160,7 +208,8 @@ void OnGenerateAppForLinkCompleted(
     extensions::ManagementGenerateAppForLinkFunction* function,
     const web_app::AppId& app_id,
     web_app::InstallResultCode code) {
-  const bool install_success = code == web_app::InstallResultCode::kSuccess;
+  const bool install_success =
+      code == web_app::InstallResultCode::kSuccessNewInstall;
   function->FinishCreateWebApp(app_id, install_success);
 }
 
@@ -178,13 +227,12 @@ class ChromeAppForLinkDelegate : public extensions::AppForLinkDelegate {
     auto web_app_info = std::make_unique<WebApplicationInfo>();
     web_app_info->title = base::UTF8ToUTF16(title);
     web_app_info->app_url = launch_url;
+    web_app_info->display_mode = blink::mojom::DisplayMode::kBrowser;
+    web_app_info->open_as_window = false;
 
     if (!image_result.image.IsEmpty()) {
-      WebApplicationInfo::IconInfo icon;
-      icon.data = image_result.image.AsBitmap();
-      icon.width = icon.data.width();
-      icon.height = icon.data.height();
-      web_app_info->icons.push_back(icon);
+      web_app_info->icon_bitmaps[image_result.image.Width()] =
+          image_result.image.AsBitmap();
     }
 
     auto* provider = web_app::WebAppProviderBase::GetProviderBase(
@@ -192,7 +240,7 @@ class ChromeAppForLinkDelegate : public extensions::AppForLinkDelegate {
     DCHECK(provider);
 
     provider->install_manager().InstallWebAppFromInfo(
-        std::move(web_app_info), /*no_network_install=*/false,
+        std::move(web_app_info), web_app::ForInstallableSite::kNo,
         WebappInstallSource::MANAGEMENT_API,
         base::BindOnce(OnGenerateAppForLinkCompleted,
                        base::RetainedRef(function)));
@@ -205,40 +253,60 @@ class ChromeAppForLinkDelegate : public extensions::AppForLinkDelegate {
   DISALLOW_COPY_AND_ASSIGN(ChromeAppForLinkDelegate);
 };
 
-void OnWebAppInstallCompleted(InstallWebAppCallback callback,
+void LaunchWebApp(const web_app::AppId& app_id, Profile* profile) {
+  // Look at prefs to find the right launch container. If the user has not set a
+  // preference, the default launch value will be returned.
+  // TODO(crbug.com/1003602): Make AppLaunchParams launch container Optional or
+  // add a "default" launch container enum value.
+  auto* provider = web_app::WebAppProviderBase::GetProviderBase(profile);
+  DCHECK(provider);
+  blink::mojom::DisplayMode display_mode =
+      provider->registrar().GetAppUserDisplayMode(app_id);
+  auto launch_container = apps::mojom::LaunchContainer::kLaunchContainerWindow;
+  if (display_mode == blink::mojom::DisplayMode::kBrowser)
+    launch_container = apps::mojom::LaunchContainer::kLaunchContainerTab;
+
+  apps::LaunchService::Get(profile)->OpenApplication(apps::AppLaunchParams(
+      app_id, launch_container, WindowOpenDisposition::NEW_FOREGROUND_TAB,
+      apps::mojom::AppLaunchSource::kSourceManagementApi));
+}
+
+void OnWebAppInstallCompleted(InstallOrLaunchWebAppCallback callback,
                               const web_app::AppId& app_id,
                               web_app::InstallResultCode code) {
-  InstallWebAppResult result;
-  // TODO(loyso): Update this when more of the web_app::InstallResultCodes are
-  // actually set.
-  switch (code) {
-    case web_app::InstallResultCode::kSuccess:
-      result = InstallWebAppResult::kSuccess;
-      break;
-    default:
-      result = InstallWebAppResult::kUnknownError;
-  }
+  InstallOrLaunchWebAppResult result =
+      IsSuccess(code) ? InstallOrLaunchWebAppResult::kSuccess
+                      : InstallOrLaunchWebAppResult::kUnknownError;
   std::move(callback).Run(result);
 }
 
-void OnDidInstallWebAppInstallableCheck(
+void OnWebAppInstallabilityChecked(
     Profile* profile,
-    InstallWebAppCallback callback,
+    InstallOrLaunchWebAppCallback callback,
     std::unique_ptr<content::WebContents> web_contents,
-    bool is_installable) {
-  if (!is_installable) {
-    std::move(callback).Run(InstallWebAppResult::kInvalidWebApp);
-    return;
+    InstallableCheckResult result,
+    base::Optional<web_app::AppId> app_id) {
+  switch (result) {
+    case InstallableCheckResult::kAlreadyInstalled:
+      DCHECK(app_id);
+      LaunchWebApp(*app_id, profile);
+      std::move(callback).Run(InstallOrLaunchWebAppResult::kSuccess);
+      return;
+    case InstallableCheckResult::kNotInstallable:
+      std::move(callback).Run(InstallOrLaunchWebAppResult::kInvalidWebApp);
+      return;
+    case InstallableCheckResult::kInstallable:
+      content::WebContents* containing_contents = web_contents.get();
+      chrome::ScopedTabbedBrowserDisplayer displayer(profile);
+      chrome::AddWebContents(
+          displayer.browser(), nullptr, std::move(web_contents),
+          WindowOpenDisposition::NEW_FOREGROUND_TAB, gfx::Rect());
+      web_app::CreateWebAppFromManifest(
+          containing_contents, WebappInstallSource::MANAGEMENT_API,
+          base::BindOnce(&OnWebAppInstallCompleted, std::move(callback)));
+      return;
   }
-
-  content::WebContents* containing_contents = web_contents.get();
-  chrome::ScopedTabbedBrowserDisplayer displayer(profile);
-  chrome::AddWebContents(displayer.browser(), nullptr, std::move(web_contents),
-                         WindowOpenDisposition::NEW_FOREGROUND_TAB,
-                         gfx::Rect());
-  web_app::CreateWebAppFromManifest(
-      containing_contents, WebappInstallSource::MANAGEMENT_API,
-      base::BindOnce(&OnWebAppInstallCompleted, std::move(callback)));
+  NOTREACHED();
 }
 
 }  // namespace
@@ -255,12 +323,15 @@ void ChromeManagementAPIDelegate::LaunchAppFunctionDelegate(
   // Look at prefs to find the right launch container.
   // If the user has not set a preference, the default launch value will be
   // returned.
+  // TODO(crbug.com/1003602): Make AppLaunchParams launch container Optional or
+  // add a "default" launch container enum value.
   extensions::LaunchContainer launch_container =
       GetLaunchContainer(extensions::ExtensionPrefs::Get(context), extension);
-  OpenApplication(AppLaunchParams(
-      Profile::FromBrowserContext(context), extension->id(), launch_container,
+  Profile* profile = Profile::FromBrowserContext(context);
+  apps::LaunchService::Get(profile)->OpenApplication(apps::AppLaunchParams(
+      extension->id(), launch_container,
       WindowOpenDisposition::NEW_FOREGROUND_TAB,
-      extensions::AppLaunchSource::kSourceManagementApi));
+      apps::mojom::AppLaunchSource::kSourceManagementApi));
 
 #if defined(OS_CHROMEOS)
   chromeos::DemoSession::RecordAppLaunchSourceIfInDemoMode(
@@ -286,15 +357,11 @@ void ChromeManagementAPIDelegate::
     GetPermissionWarningsByManifestFunctionDelegate(
         extensions::ManagementGetPermissionWarningsByManifestFunction* function,
         const std::string& manifest_str) const {
-  data_decoder::SafeJsonParser::Parse(
-      content::GetSystemConnector(), manifest_str,
+  data_decoder::DataDecoder::ParseJsonIsolated(
+      manifest_str,
       base::BindOnce(
           &extensions::ManagementGetPermissionWarningsByManifestFunction::
-              OnParseSuccess,
-          function),
-      base::BindOnce(
-          &extensions::ManagementGetPermissionWarningsByManifestFunction::
-              OnParseFailure,
+              OnParse,
           function));
 }
 
@@ -363,32 +430,92 @@ ChromeManagementAPIDelegate::GenerateAppForLinkFunctionDelegate(
   return std::unique_ptr<extensions::AppForLinkDelegate>(delegate);
 }
 
-bool ChromeManagementAPIDelegate::IsWebAppInstalled(
-    content::BrowserContext* context,
-    const GURL& web_app_url) const {
-  auto* provider = web_app::WebAppProviderBase::GetProviderBase(
-      Profile::FromBrowserContext(context));
-  DCHECK(provider);
-  return provider->registrar().IsInstalled(web_app_url);
-}
-
 bool ChromeManagementAPIDelegate::CanContextInstallWebApps(
     content::BrowserContext* context) const {
   return web_app::AreWebAppsUserInstallable(
       Profile::FromBrowserContext(context));
 }
 
-void ChromeManagementAPIDelegate::InstallReplacementWebApp(
+void ChromeManagementAPIDelegate::InstallOrLaunchReplacementWebApp(
     content::BrowserContext* context,
     const GURL& web_app_url,
-    InstallWebAppCallback callback) const {
+    InstallOrLaunchWebAppCallback callback) const {
   Profile* profile = Profile::FromBrowserContext(context);
   auto* provider = web_app::WebAppProviderBase::GetProviderBase(profile);
   DCHECK(provider);
 
+  // Launch the app if web_app_url happens to match start_url. If not, the app
+  // could still be installed with different start_url.
+  if (provider->registrar().IsLocallyInstalled(web_app_url)) {
+    LaunchWebApp(web_app::GenerateAppIdFromURL(web_app_url), profile);
+    std::move(callback).Run(InstallOrLaunchWebAppResult::kSuccess);
+    return;
+  }
+
   provider->install_manager().LoadWebAppAndCheckInstallability(
-      web_app_url, base::BindOnce(&OnDidInstallWebAppInstallableCheck, profile,
-                                  std::move(callback)));
+      web_app_url, WebappInstallSource::MANAGEMENT_API,
+      base::BindOnce(&OnWebAppInstallabilityChecked, profile,
+                     std::move(callback)));
+}
+
+bool ChromeManagementAPIDelegate::CanContextInstallAndroidApps(
+    content::BrowserContext* context) const {
+#if defined(OS_CHROMEOS)
+  return arc::IsArcAllowedForProfile(Profile::FromBrowserContext(context));
+#else
+  return false;
+#endif  // defined(OS_CHROMEOS)
+}
+
+void ChromeManagementAPIDelegate::CheckAndroidAppInstallStatus(
+    const std::string& package_name,
+    AndroidAppInstallStatusCallback callback) const {
+#if defined(OS_CHROMEOS)
+  auto* arc_service_manager = arc::ArcServiceManager::Get();
+  if (!arc_service_manager) {
+    std::move(callback).Run(false);
+    return;
+  }
+
+  auto* instance = ARC_GET_INSTANCE_FOR_METHOD(
+      arc_service_manager->arc_bridge_service()->app(), IsInstallable);
+  if (!instance) {
+    std::move(callback).Run(false);
+    return;
+  }
+
+  instance->IsInstallable(package_name, std::move(callback));
+#else
+  std::move(callback).Run(false);
+#endif  // OS_CHROMEOS
+}
+
+void ChromeManagementAPIDelegate::InstallReplacementAndroidApp(
+    const std::string& package_name,
+    InstallAndroidAppCallback callback) const {
+#if defined(OS_CHROMEOS)
+  std::string intent =
+      base::StrCat({kPlayIntentPrefix, package_name, kChromeWebStoreReferrer});
+
+  auto* arc_service_manager = arc::ArcServiceManager::Get();
+  if (!arc_service_manager) {
+    std::move(callback).Run(false);
+    return;
+  }
+
+  auto* instance = ARC_GET_INSTANCE_FOR_METHOD(
+      arc_service_manager->arc_bridge_service()->app(), IsInstallable);
+  if (!instance) {
+    std::move(callback).Run(false);
+    return;
+  }
+
+  instance->IsInstallable(
+      package_name, base::BindOnce(&OnDidCheckForIntentToPlayStore, intent,
+                                   std::move(callback)));
+#else
+  std::move(callback).Run(false);
+#endif  // defined(OS_CHROMEOS)
 }
 
 void ChromeManagementAPIDelegate::EnableExtension(

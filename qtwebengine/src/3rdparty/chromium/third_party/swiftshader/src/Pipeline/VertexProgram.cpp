@@ -32,65 +32,52 @@ namespace sw
 		: VertexRoutine(state, pipelineLayout, spirvShader),
 		  descriptorSets(descriptorSets)
 	{
-		auto it = spirvShader->inputBuiltins.find(spv::BuiltInInstanceIndex);
-		if (it != spirvShader->inputBuiltins.end())
+		routine.setImmutableInputBuiltins(spirvShader);
+
+		routine.setInputBuiltin(spirvShader, spv::BuiltInViewIndex, [&](const SpirvShader::BuiltinMapping& builtin, Array<SIMD::Float>& value)
+		{
+			assert(builtin.SizeInComponents == 1);
+			value[builtin.FirstComponent] = As<Float4>(Int4((*Pointer<Int>(data + OFFSET(DrawData, viewID)))));
+		});
+
+		routine.setInputBuiltin(spirvShader, spv::BuiltInInstanceIndex, [&](const SpirvShader::BuiltinMapping& builtin, Array<SIMD::Float>& value)
 		{
 			// TODO: we could do better here; we know InstanceIndex is uniform across all lanes
-			assert(it->second.SizeInComponents == 1);
-			routine.getVariable(it->second.Id)[it->second.FirstComponent] =
-					As<Float4>(Int4((*Pointer<Int>(data + OFFSET(DrawData, instanceID)))));
-		}
+			assert(builtin.SizeInComponents == 1);
+			value[builtin.FirstComponent] = As<Float4>(Int4((*Pointer<Int>(data + OFFSET(DrawData, instanceID)))));
+		});
+
+		routine.setInputBuiltin(spirvShader, spv::BuiltInSubgroupSize, [&](const SpirvShader::BuiltinMapping& builtin, Array<SIMD::Float>& value)
+		{
+			ASSERT(builtin.SizeInComponents == 1);
+			value[builtin.FirstComponent] = As<SIMD::Float>(SIMD::Int(SIMD::Width));
+		});
 
 		routine.descriptorSets = data + OFFSET(DrawData, descriptorSets);
 		routine.descriptorDynamicOffsets = data + OFFSET(DrawData, descriptorDynamicOffsets);
 		routine.pushConstants = data + OFFSET(DrawData, pushConstants);
 		routine.constants = *Pointer<Pointer<Byte>>(data + OFFSET(DrawData, constants));
-
-		it = spirvShader->inputBuiltins.find(spv::BuiltInSubgroupSize);
-		if (it != spirvShader->inputBuiltins.end())
-		{
-			ASSERT(it->second.SizeInComponents == 1);
-			routine.getVariable(it->second.Id)[it->second.FirstComponent] = As<SIMD::Float>(SIMD::Int(SIMD::Width));
-		}
-
-		it = spirvShader->inputBuiltins.find(spv::BuiltInSubgroupLocalInvocationId);
-		if (it != spirvShader->inputBuiltins.end())
-		{
-			ASSERT(it->second.SizeInComponents == 1);
-			routine.getVariable(it->second.Id)[it->second.FirstComponent] = As<SIMD::Float>(SIMD::Int(0, 1, 2, 3));
-		}
-
-		it = spirvShader->inputBuiltins.find(spv::BuiltInDeviceIndex);
-		if (it != spirvShader->inputBuiltins.end())
-		{
-			ASSERT(it->second.SizeInComponents == 1);
-			// Only a single physical device is supported.
-			routine.getVariable(it->second.Id)[it->second.FirstComponent] = As<SIMD::Float>(SIMD::Int(0, 0, 0, 0));
-		}
 	}
 
 	VertexProgram::~VertexProgram()
 	{
 	}
 
-	void VertexProgram::program(Pointer<UInt> &batch)
+	void VertexProgram::program(Pointer<UInt> &batch, UInt& vertexCount)
 	{
 		auto it = spirvShader->inputBuiltins.find(spv::BuiltInVertexIndex);
 		if (it != spirvShader->inputBuiltins.end())
 		{
 			assert(it->second.SizeInComponents == 1);
 
-			Int4 indices;
-			indices = Insert(indices, As<Int>(batch[0]), 0);
-			indices = Insert(indices, As<Int>(batch[1]), 1);
-			indices = Insert(indices, As<Int>(batch[2]), 2);
-			indices = Insert(indices, As<Int>(batch[3]), 3);
 			routine.getVariable(it->second.Id)[it->second.FirstComponent] =
-					As<Float4>(indices + Int4(*Pointer<Int>(data + OFFSET(DrawData, baseVertex))));
+					As<Float4>(*Pointer<Int4>(As<Pointer<Int4>>(batch)) +
+					           Int4(*Pointer<Int>(data + OFFSET(DrawData, baseVertex))));
 		}
 
 		auto activeLaneMask = SIMD::Int(0xFFFFFFFF);
-		spirvShader->emit(&routine, activeLaneMask, descriptorSets);
+		Int4 storesAndAtomicsMask = CmpGE(UInt4(vertexCount), UInt4(1, 2, 3, 4));
+		spirvShader->emit(&routine, activeLaneMask, storesAndAtomicsMask, descriptorSets);
 
 		spirvShader->emitEpilog(&routine);
 	}

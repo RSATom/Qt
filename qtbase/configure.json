@@ -322,7 +322,7 @@
                 "qmake": "CONFIG += c11"
             }
         },
-        "c++14": {
+        "cxx14": {
             "label": "C++14 support",
             "type": "compile",
             "test": {
@@ -336,13 +336,13 @@
                 "qmake": "CONFIG += c++11 c++14"
             }
         },
-        "c++1z": {
+        "cxx17": {
             "label": "C++17 support",
             "type": "compile",
             "test": {
                 "head": [
                     "#if __cplusplus > 201402L",
-                    "// Compiler claims to support experimental C++1z, trust it",
+                    "// Compiler claims to support C++17, trust it",
                     "#else",
                     "#  error __cplusplus must be > 201402L (the value for C++14)",
                     "#endif",
@@ -354,10 +354,10 @@
                     "int i = std::get<int>(v);",
                     "std::visit([](const auto &) { return 1; }, v);"
                 ],
-                "qmake": "CONFIG += c++11 c++14 c++1z"
+                "qmake": "CONFIG += c++11 c++14 c++17"
             }
         },
-        "c++2a": {
+        "cxx2a": {
             "label": "C++2a support",
             "type": "compile",
             "test": {
@@ -368,7 +368,7 @@
                     "#  error __cplusplus must be > 201703L (the value for C++17)",
                     "#endif"
                 ],
-                "qmake": "CONFIG += c++11 c++14 c++1z c++2a"
+                "qmake": "CONFIG += c++11 c++14 c++17 c++2a"
             }
         },
         "precompile_header": {
@@ -527,6 +527,10 @@
             "label": "RDRAND instruction",
             "type": "x86Simd"
         },
+        "rdseed": {
+            "label": "RDSEED instruction",
+            "type": "x86Simd"
+        },
         "shani": {
             "label": "SHA new instructions",
             "type": "x86Simd"
@@ -642,6 +646,17 @@
             "label": "ccache",
             "type": "files",
             "files": [ "ccache" ]
+        },
+        "intelcet": {
+            "label": "Support for Intel Control-flow Enforcement Technology",
+            "type": "compile",
+            "test": {
+                "main": [
+                    "#if !defined(__CET__)",
+                    "#  error Intel CET not available",
+                    "#endif"
+                ]
+            }
         }
     },
 
@@ -891,6 +906,12 @@
             "autoDetect": false,
             "output": [ "publicConfig" ]
         },
+        "sanitize_fuzzer_no_link": {
+            "label": "Fuzzer (instrumentation only)",
+            "autoDetect": false,
+            "output": [ "publicConfig" ],
+            "purpose": [ "Adds instrumentation for fuzzing to the binaries but links to the usual main function instead of a fuzzer's." ]
+        },
         "sanitize_undefined": {
             "label": "Undefined",
             "autoDetect": false,
@@ -898,7 +919,7 @@
         },
         "sanitizer": {
             "label": "Sanitizers",
-            "condition": "features.sanitize_address || features.sanitize_thread || features.sanitize_memory || features.sanitize_undefined",
+            "condition": "features.sanitize_address || features.sanitize_thread || features.sanitize_memory || features.sanitize_fuzzer_no_link || features.sanitize_undefined",
             "output": [ "sanitizer", "publicConfig" ]
         },
         "coverage_trace_pc_guard": {
@@ -906,9 +927,14 @@
             "autoDetect": false,
             "output": [ "publicConfig" ]
         },
+        "coverage_source_based": {
+            "label": "source-based",
+            "autoDetect": false,
+            "output": [ "publicConfig" ]
+        },
         "coverage": {
             "label": "Code Coverage Instrumentation",
-            "condition": "features.coverage_trace_pc_guard",
+            "condition": "features.coverage_trace_pc_guard || features.coverage_source_based",
             "output": [ "publicConfig" ]
         },
         "GNUmake": {
@@ -948,18 +974,23 @@
         },
         "c++14": {
             "label": "C++14",
-            "condition": "features.c++11 && tests.c++14",
+            "condition": "features.c++11 && tests.cxx14",
+            "output": [ "publicFeature", "publicQtConfig" ]
+        },
+        "c++17": {
+            "label": "C++17",
+            "condition": "features.c++14 && tests.cxx17",
             "output": [ "publicFeature", "publicQtConfig" ]
         },
         "c++1z": {
             "label": "C++17",
-            "condition": "features.c++14 && tests.c++1z",
+            "condition": "features.c++17",
             "output": [ "publicFeature", "publicQtConfig" ]
         },
         "c++2a": {
             "label": "C++2a",
             "autoDetect": false,
-            "condition": "features.c++1z && tests.c++2a",
+            "condition": "features.c++17 && tests.cxx2a",
             "output": [ "publicFeature", "publicQtConfig" ]
         },
         "c89": {
@@ -1176,6 +1207,14 @@
                 { "type": "define", "name": "QT_COMPILER_SUPPORTS_RDRND", "value": 1 }
             ]
         },
+        "rdseed": {
+            "label": "RDSEED",
+            "condition": "tests.rdseed",
+            "output": [
+                "privateConfig",
+                { "type": "define", "name": "QT_COMPILER_SUPPORTS_RDSEED", "value": 1 }
+            ]
+        },
         "shani": {
             "label": "SHA",
             "condition": "features.sse2 && tests.shani",
@@ -1384,6 +1423,11 @@
             "autoDetect": "features.shared",
             "condition": "features.dlopen || config.win32 || !features.shared",
             "output": [ "privateFeature" ]
+        },
+        "intelcet": {
+            "label": "Using Intel CET",
+            "condition": "tests.intelcet",
+            "output": [ "privateFeature" ]
         }
     },
 
@@ -1428,6 +1472,11 @@ Qt can be built in release mode with separate debug information, so
             "type": "error",
             "condition": "features.coverage && !config.clang",
             "message": "Command line option -coverage is only supported with clang compilers."
+        },
+        {
+            "type": "error",
+            "condition": "features.sanitize_fuzzer_no_link && !config.clang",
+            "message": "Command line option -sanitize fuzzer-no-link is only supported with clang compilers."
         }
     ],
 
@@ -1496,7 +1545,7 @@ Configure with '-qreal float' to create a build that is binary-compatible with 5
                 {
                     "message": "Using C++ standard",
                     "type": "firstAvailableFeature",
-                    "args": "c++2a c++1z c++14 c++11"
+                    "args": "c++2a c++17 c++14 c++11"
                 },
                 {
                     "type": "feature",
@@ -1574,12 +1623,18 @@ Configure with '-qreal float' to create a build that is binary-compatible with 5
                 {
                     "section": "Sanitizers",
                     "condition": "features.sanitizer",
-                    "entries": [ "sanitize_address", "sanitize_thread", "sanitize_memory", "sanitize_undefined" ]
+                    "entries": [
+                        "sanitize_address",
+                        "sanitize_thread",
+                        "sanitize_memory",
+                        "sanitize_fuzzer_no_link",
+                        "sanitize_undefined"
+                    ]
                 },
                 {
                     "message": "Code Coverage Instrumentation",
                     "type": "firstAvailableFeature",
-                    "args": "coverage_trace_pc_guard",
+                    "args": "coverage_trace_pc_guard coverage_source_based",
                     "condition": "features.coverage"
                 },
                 {

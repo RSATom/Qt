@@ -11,13 +11,13 @@
 #include <vector>
 
 #include "base/callback.h"
+#include "base/component_export.h"
 #include "base/files/file_path.h"
 #include "base/macros.h"
-#include "base/message_loop/message_pump_libevent.h"
+#include "base/message_loop/message_loop_current.h"
 #include "ui/events/devices/gamepad_device.h"
 #include "ui/events/devices/input_device.h"
 #include "ui/events/ozone/evdev/event_dispatch_callback.h"
-#include "ui/events/ozone/evdev/events_ozone_evdev_export.h"
 #include "ui/gfx/geometry/size.h"
 
 struct input_event;
@@ -25,8 +25,8 @@ struct input_event;
 namespace ui {
 enum class DomCode;
 
-class EVENTS_OZONE_EVDEV_EXPORT EventConverterEvdev
-    : public base::MessagePumpLibevent::FdWatcher {
+class COMPONENT_EXPORT(EVDEV) EventConverterEvdev
+    : public base::MessagePumpForUI::FdWatcher {
  public:
   EventConverterEvdev(int fd,
                       const base::FilePath& path,
@@ -123,14 +123,14 @@ class EVENTS_OZONE_EVDEV_EXPORT EventConverterEvdev
   static base::TimeTicks TimeTicksFromInputEvent(const input_event& event);
 
  protected:
-  // base::MessagePumpLibevent::FdWatcher:
+  // base::MessagePumpForUI::FdWatcher:
   void OnFileCanWriteWithoutBlocking(int fd) override;
 
   // File descriptor to read.
-  int fd_;
+  const int fd_;
 
   // Path to input device.
-  base::FilePath path_;
+  const base::FilePath path_;
 
   // Input device information, including id (which uniquely identifies an
   // event converter) and type.
@@ -140,7 +140,7 @@ class EVENTS_OZONE_EVDEV_EXPORT EventConverterEvdev
   bool watching_ = false;
 
   // Controller for watching the input fd.
-  base::MessagePumpLibevent::FdWatchController controller_;
+  base::MessagePumpForUI::FdWatchController controller_;
 
  private:
   DISALLOW_COPY_AND_ASSIGN(EventConverterEvdev);

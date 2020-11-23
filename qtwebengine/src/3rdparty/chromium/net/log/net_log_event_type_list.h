@@ -9,9 +9,12 @@
 // no-include-guard-because-multiply-included
 // NOLINT(build/header_guard)
 
-// In the event of a failure, a many end events will have a |net_error|
+// In the event of a failure, many end events will have a |net_error|
 // parameter with the integer error code associated with the failure.  Most
 // of these parameters are not individually documented.
+//
+// For best practices on how to add new NetLog events see:
+// https://chromium.googlesource.com/chromium/src/+/HEAD/net/docs/net-log.md
 
 // --------------------------------------------------------------------------
 // General pseudo-events
@@ -45,11 +48,13 @@ EVENT_TYPE(REQUEST_ALIVE)
 //
 //   {
 //     "host": <Hostname associated with the request>,
-//     "address_family": <The address family to restrict results to>,
+//     "dns_query_type": <The type of the DNS query>,
 //     "allow_cached_response": <Whether it is ok to return a result from
 //                               the host cache>,
 //     "is_speculative": <Whether this request was started by the DNS
 //                        prefetcher>
+//     "network_isolation_key": <NetworkIsolationKey associated with the
+//                               request>
 //   }
 //
 // If an error occurred, the END phase will contain these parameters:
@@ -819,6 +824,7 @@ EVENT_TYPE(SOCKET_POOL_CONNECTING_N_SOCKETS)
 //      "method": <The method ("POST" or "GET" or "HEAD" etc..)>,
 //      "load_flags": <Numeric value of the combined load flags>,
 //      "privacy_mode": <True if privacy mode is enabled for the request>
+//      "network_isolation_key": <NIK associated with the request>
 //      "priority": <Numeric priority of the request>,
 //      "traffic_annotation": <int32 for the request's TrafficAnnotationTag>,
 //      "upload_id" <String of upload body identifier, if present>,
@@ -841,7 +847,6 @@ EVENT_TYPE(URL_REQUEST_REDIRECTED)
 // Measures the time between when a net::URLRequest calls a delegate that can
 // block it, and when the delegate allows the request to resume. Each delegate
 // type has a corresponding event type.
-EVENT_TYPE(NETWORK_DELEGATE_AUTH_REQUIRED)
 EVENT_TYPE(NETWORK_DELEGATE_BEFORE_START_TRANSACTION)
 EVENT_TYPE(NETWORK_DELEGATE_BEFORE_URL_REQUEST)
 EVENT_TYPE(NETWORK_DELEGATE_HEADERS_RECEIVED)
@@ -1328,6 +1333,13 @@ EVENT_TYPE(BIDIRECTIONAL_STREAM_READY)
 //   }
 EVENT_TYPE(BIDIRECTIONAL_STREAM_FAILED)
 
+// Identifies the NetLogSource() for the QuicSession that handled the stream.
+// The event parameters are:
+//   {
+//      "source_dependency": <Source identifier for session that was used>,
+//   }
+EVENT_TYPE(BIDIRECTIONAL_STREAM_BOUND_TO_QUIC_SESSION)
+
 // ------------------------------------------------------------------------
 // SERVER_PUSH_LOOKUP_TRANSACTION
 // ------------------------------------------------------------------------
@@ -1759,12 +1771,14 @@ EVENT_TYPE(QUIC_SESSION_DUPLICATE_PACKET_RECEIVED)
 //   {
 //     "connection_id": <The 64-bit CONNECTION_ID for this connection, as a
 //                       base-10 string>,
-//     "reset_flag": <True if the reset flag is set for this packet>,
-//     "version_flag": <True if the version flag is set for this packet>,
-//     "packet_sequence_number": <The packet's full 64-bit sequence number,
-//                                as a base-10 string.>,
-//     "private_flags": <The private flags set for this packet>,
-//     "fec_group": <The FEC group of this packet>,
+//     "packet_number": <The packet's full 64-bit sequence number,
+//                       as a base-10 string.>,
+//     "header_format": <The format of the header in string>,
+//     If the header_format is long header:
+//      "long_header_type": <log the long header type>
+//     If Google QUIC is used:
+//      "reset_flag": <True if the reset flag is set for this packet>,
+//      "version_flag": <True if the version flag is set for this packet>
 //   }
 EVENT_TYPE(QUIC_SESSION_UNAUTHENTICATED_PACKET_HEADER_RECEIVED)
 
@@ -1998,6 +2012,160 @@ EVENT_TYPE(QUIC_SESSION_CLOSED)
 //  }
 EVENT_TYPE(QUIC_SESSION_CONNECTIVITY_PROBING_FINISHED)
 
+// Session sent a PATH_CHALLENGE frame.
+//  {
+//    "data": <The challenge data in base64 string>
+//  }
+EVENT_TYPE(QUIC_SESSION_PATH_CHALLENGE_FRAME_SENT)
+
+// Session received a PATH_CHALLENGE frame.
+//  {
+//    "data": <The challenge data in base64 string>
+//  }
+EVENT_TYPE(QUIC_SESSION_PATH_CHALLENGE_FRAME_RECEIVED)
+
+// Session sent a PATH_RESPONSE frame.
+//  {
+//    "data": <The response data in base64 string>
+//  }
+EVENT_TYPE(QUIC_SESSION_PATH_RESPONSE_FRAME_SENT)
+
+// Session received a PATH_RESPONSE frame.
+//  {
+//    "data": <The response data in base64 string>
+//  }
+EVENT_TYPE(QUIC_SESSION_PATH_RESPONSE_FRAME_RECEIVED)
+
+// Session sent a CRYPTO frame.
+//  {
+//    "encryption_level": <The quic::EncryptionLevel of the frame>,
+//    "data_length": <The length of the CRYPTO frame data>,
+//    "offset": <The offset of the CRYPTO frame>
+//  }
+EVENT_TYPE(QUIC_SESSION_CRYPTO_FRAME_SENT)
+
+// Session received a CRYPTO frame.
+//  {
+//    "encryption_level": <The quic::EncryptionLevel of the frame>,
+//    "data_length": <The length of the CRYPTO frame data>,
+//    "offset": <The offset of the CRYPTO frame>
+//  }
+EVENT_TYPE(QUIC_SESSION_CRYPTO_FRAME_RECEIVED)
+
+// Session sent a STOP_SENDING frame.
+//  {
+//    "stream_id": <The stream id>,
+//    "application_error_code": <The application error code>
+//  }
+EVENT_TYPE(QUIC_SESSION_STOP_SENDING_FRAME_SENT)
+
+// Session received a STOP_SENDING frame.
+//  {
+//    "stream_id": <The stream id>,
+//    "application_error_code": <The application error code>
+//  }
+EVENT_TYPE(QUIC_SESSION_STOP_SENDING_FRAME_RECEIVED)
+
+// Session sent a STREAMS_BLOCKED frame.
+//  {
+//    "stream_count": <The number of streams that the sender wishes to exceed>
+//    "unidirectional": <boolean to indicate if the frame is for unidirectional
+//    streams.>
+//  }
+EVENT_TYPE(QUIC_SESSION_STREAMS_BLOCKED_FRAME_SENT)
+
+// Session received a STREAMS_BLOCKED frame.
+//  {
+//    "stream_count": <The number of streams that the sender wishes to exceed>
+//    "unidirectional": <boolean to indicate if the frame is for unidirectional
+//    streams.>
+//  }
+EVENT_TYPE(QUIC_SESSION_STREAMS_BLOCKED_FRAME_RECEIVED)
+
+// Session sent a MAX_STREAMS frame.
+//  {
+//    "stream_count": <The number of streams that may be opened>
+//    "unidirectional": <boolean to indicate if the frame is for unidirectional
+//    streams.>
+//  }
+EVENT_TYPE(QUIC_SESSION_MAX_STREAMS_FRAME_SENT)
+
+// Session received a MAX_STREAMS frame.
+//  {
+//    "stream_count": <The number of streams that may be opened>
+//    "unidirectional": <boolean to indicate if the frame is for unidirectional
+//    streams.>
+//  }
+EVENT_TYPE(QUIC_SESSION_MAX_STREAMS_FRAME_RECEIVED)
+
+// Session sent a PADDING frame.
+//  {
+//    "num_padding_bytes": <The number of padding bytes>
+//  }
+EVENT_TYPE(QUIC_SESSION_PADDING_FRAME_SENT)
+
+// Session received a PADDING frame.
+//  {
+//    "num_padding_bytes": <The number of padding bytes>
+//  }
+EVENT_TYPE(QUIC_SESSION_PADDING_FRAME_RECEIVED)
+
+// Session sent a NEW_CONNECITON_ID frame.
+//  {
+//    "connection_id": <The new connection id>
+//    "sequencer_number": <Connection id sequence number that specifies the
+//    order that connection ids must be used in.>
+//    "retire_prior_to": <retire prior to>
+//  }
+EVENT_TYPE(QUIC_SESSION_NEW_CONNECTION_ID_FRAME_SENT)
+
+// Session received a NEW_CONNECITON_ID frame.
+//  {
+//    "connection_id": <The new connection id>
+//    "sequence_number": <Connection id sequence number that specifies the
+//    order that connection ids must be used in.>
+//    "retire_prior_to": <retire prior to>
+//  }
+EVENT_TYPE(QUIC_SESSION_NEW_CONNECTION_ID_FRAME_RECEIVED)
+
+// Session sent a NEW_TOKEN frame.
+//  {
+//    "token": <String representation of the token>
+//  }
+EVENT_TYPE(QUIC_SESSION_NEW_TOKEN_FRAME_SENT)
+
+// Session received a NEW_TOKEN frame.
+//  {
+//    "token": <String representation of the token>
+//  }
+EVENT_TYPE(QUIC_SESSION_NEW_TOKEN_FRAME_RECEIVED)
+
+// Session sent a RETIRE_CONNECTION_ID frame.
+//  {
+//    "sequence_number": <Connection id sequence number that specifies the
+//    order that connection ids must be used in.>
+//  }
+EVENT_TYPE(QUIC_SESSION_RETIRE_CONNECTION_ID_FRAME_SENT)
+
+// Session received a RETIRE_CONNECTION_ID frame.
+//  {
+//    "sequence_number": <Connection id sequence number that specifies the
+//    order that connection ids must be used in.>
+//  }
+EVENT_TYPE(QUIC_SESSION_RETIRE_CONNECTION_ID_FRAME_RECEIVED)
+
+// Session sent a MESSAGE frame.
+//  {
+//    "message_length": <the length of the message>
+//  }
+EVENT_TYPE(QUIC_SESSION_MESSAGE_FRAME_SENT)
+
+// Session received a MESSAGE frame.
+//  {
+//    "message_length": <the length of the message>
+//  }
+EVENT_TYPE(QUIC_SESSION_MESSAGE_FRAME_RECEIVED)
+
 // ------------------------------------------------------------------------
 // QuicHttpStream
 // ------------------------------------------------------------------------
@@ -2019,7 +2187,7 @@ EVENT_TYPE(QUIC_HTTP_STREAM_PUSH_PROMISE_RENDEZVOUS)
 //   }
 EVENT_TYPE(QUIC_HTTP_STREAM_ADOPTED_PUSH_STREAM)
 
-// Identifies the NetLogSource() for the QuicSesssion that handled the stream.
+// Identifies the NetLogSource() for the QuicSession that handled the stream.
 // The event parameters are:
 //   {
 //      "source_dependency": <Source identifier for session that was used>,
@@ -2056,22 +2224,23 @@ EVENT_TYPE(QUIC_CHROMIUM_CLIENT_STREAM_READ_RESPONSE_TRAILERS)
 //     "connection_migration_mode": <The connection migration mode>
 //  }
 EVENT_TYPE(QUIC_CONNECTION_MIGRATION_MODE)
+
 // Records that QUIC connection migration has been triggered.
 //  {
 //     "trigger": <The reason for the migration attempt>
 //  }
 EVENT_TYPE(QUIC_CONNECTION_MIGRATION_TRIGGERED)
 
-// Records that a QUIC connection migration attempt of the session
-// identified by connection_id failed.
+// Records a failed QUIC connection migration attempt of the session
+// identified by connection_id.
 //  {
 //     "connection_id": <Connection ID of the session>
-//     "reason": <Failure reason>
+//     "reason": <String of the failure reason>
 //  }
 EVENT_TYPE(QUIC_CONNECTION_MIGRATION_FAILURE)
 
-// Records that a QUIC connection migration attempt of the session
-// identified by connection_id succeeded.
+// Records a successful QUIC connection migration attempt of the session
+// identified by connection_id.
 //  {
 //     "connection_id": <Connection ID of the session>
 //  }
@@ -2142,6 +2311,28 @@ EVENT_TYPE(QUIC_CONNECTIVITY_PROBING_MANAGER_PROBE_SENT)
 //     "peer_address": <Peer address on the probed path>
 //  }
 EVENT_TYPE(QUIC_CONNECTIVITY_PROBING_MANAGER_PROBE_RECEIVED)
+
+// ------------------------------------------------------------------------
+// QuicPortMigration
+// ------------------------------------------------------------------------
+
+// Records that QUIC port migration has been triggered.
+EVENT_TYPE(QUIC_PORT_MIGRATION_TRIGGERED)
+
+// Records a failed QUIC port migration attempt of the session identified
+// by connection_id.
+//  {
+//     "connection_id": <Connection ID of the session>
+//     "reason": <String of the failure reason>
+//  }
+EVENT_TYPE(QUIC_PORT_MIGRATION_FAILURE)
+
+// Records a successful QUIC port migration attempt of the session
+// identified by connection_id.
+//  {
+//     "connection_id": <Connection ID of the session>
+//  }
+EVENT_TYPE(QUIC_PORT_MIGRATION_SUCCESS)
 
 // ------------------------------------------------------------------------
 // HttpStreamParser
@@ -2221,26 +2412,81 @@ EVENT_TYPE(SOCKS5_HANDSHAKE_READ)
 //               contains the error in the form of a GSSAPI Status.>
 //   }
 //
+// ** GSSAPI Context Flags
+//
+// Bitmask indicating properties of the negotiated security context. Values may
+// be only advisory if the "open" flag of the enclosing security context is
+// True. I.e. flags are not final until the security context is closed.
+//
+//   {
+//     "flags"     : <Flags. See RFC 2744 Section 5.19 for meanings. Flag
+//                    bitmasks can be found in RFC 2744 Appendix A.>
+//     "delegated" : <True if credentials were delegated to the target.>
+//     "mutual"    : <True if mutual authentication was successful.>
+//   }
+//
 // ** GSSAPI Context Description
 //
-// A serialization of the GSSAPI context. It takes the following form:
+// Properties of the GSSAPI security context being negotiated or that was
+// negotiated.
+//
 //   {
-//     "source"  : <GSS Display Name for the source of the authentication
-//                  attempt.  In practice this is always the user's identity.>
-//     "target"  : <GSS Display Name for the target of the authentication
-//                  attempt.  This the target server or proxy service
-//                  principal.>
-//     "open"    : <Boolean indicating whether the context is "open", which
-//                  means that the handshake is still in progress. In
-//                  particular, the flags, lifetime, and mechanism fields are
-//                  not considered final until "open" is false.
-//     "lifetime": <A decimal string indicating the lifetime in seconds of the
-//                  authentication context. The identity as established by this
-//                  handshake is only valid for this long since the time at
-//                  which it was established.>
-//     "mechanism":<OID indicating inner authentication mechanism.>
-//     "flags"    :<Flags. See RFC 2744 Section 5.19 for meanings. Flag
-//                  bitmasks can be found in RFC 2744 Appendix A.>
+//     "source"   : <GSS Display Name for the source of the authentication
+//                   attempt. In practice this is always the user's identity.>
+//     "target"   : <GSS Display Name for the target of the authentication
+//                   attempt. This the target server or proxy service
+//                   principal.>
+//     "open"     : <Boolean indicating whether the context is |open|, which
+//                   means that the handshake is still in progress. In
+//                   particular, the flags, lifetime, and mechanism fields are
+//                   not considered final until |open| is false.
+//     "lifetime" : <A decimal string indicating the lifetime in seconds of the
+//                   authentication context. The identity as established by this
+//                   handshake is only valid for this long since the time at
+//                   which it was established.>
+//     "mechanism": <OID indicating inner authentication mechanism.>
+//     "flags"    : <GSSAPI Context Flags.>
+//   }
+//
+// ** SSPI SECURITY_STATUS
+//
+// SSPI functions invoked during Negotiate authentication on Windows return
+// SECURITY_STATUS values. These values are documented alongside the functions
+// that return them. Of these //net uses AcquireCredentialsHandle, and
+// InitializeSecurityContext.
+//
+//   {
+//     "net_error" : <net::Error value corresponding to the |security_status|
+//                    value.>
+//     "security_status": <The |SECURITY_STATUS| value indicating the result of
+//                    the operation.>
+//   }
+//
+// ** SSPI Context Flags
+//
+// Bitmask indicating properties of the negotiated security context. Values may
+// be only advisory if the |open| flag of the enclosing security context is
+// True. I.e. flags are not final until the security context is closed.
+//
+//   {
+//     "flags"     : <Bitmask in hexadecimal. See documentation for
+//                    QueryContextAttributes for a description of the flags.>
+//     "delegated" : <True if credentials were delegated to the target.>
+//     "mutual"    : <True if mutual authentication was successful.>
+//   }
+//
+// ** SSPI Context Description
+//
+// Properties of the SSPI security context being negotiated or that was
+// negotiated.
+//
+//   {
+//     "source"    : <Source security principal. I.e. the user's identity.>
+//     "target"    : <Target server's security principal name.>
+//     "open"      : <True if the handshake is complete. Does not imply success
+//                    or failure.>
+//     "mechanism" : <SSPI security package name for the selected mechanism.>
+//     "flags"     : <SSPI Context Flags.>
 //   }
 
 // Lifetime event for HttpAuthController.
@@ -2318,15 +2564,35 @@ EVENT_TYPE(AUTH_LIBRARY_BIND_FAILED)
 //   }
 EVENT_TYPE(AUTH_LIBRARY_IMPORT_NAME)
 
+// Invocation of SSPI AcquireCredentialsHandle.
+//
+// The END phase has the following parameters:
+//   {
+//     "domain": <Domain of user>
+//     "user"  : <Username>
+//     "status": <SSPI SECURITY_STATUS value.>
+//   }
+//
+// Note that "domain" and "user" are only present if the authentication
+// handshake is using explicit credentials. In the case of ambient credentials
+// the user identity is not known until the handshake is complete.
+EVENT_TYPE(AUTH_LIBRARY_ACQUIRE_CREDS)
+
 // Initialize security context.
 //
 // This operation involves invoking an external library which may perform disk,
 // IPC, and network IO as a part of its work.
 //
-// The END phase has the following parameters.
+// On Posix platforms, the END phase has the following parameters.
 //   {
 //     "context": <GSSAPI Context Description>,
-//     "status":  <GSSAPI Status if the operation failed>
+//     "status" : <GSSAPI Status if the operation failed>
+//   }
+//
+// On Windows, the END phase has the following parameters.
+//   {
+//     "context": <SSPI Context Description>
+//     "status" : <SSPI SECURITY_STATUS>
 //   }
 EVENT_TYPE(AUTH_LIBRARY_INIT_SEC_CTX)
 
@@ -2544,7 +2810,11 @@ EVENT_TYPE(CERT_VERIFIER_REQUEST)
 //   "certificates": <A list of PEM encoded certificates, the first one
 //                    being the certificate to verify and the remaining
 //                    being intermediate certificates to assist path
-//                    building. Only present when byte logging is enabled.>
+//                    building.>
+//   "ocsp_response": <Optionally, a PEM encoded stapled OCSP response.>
+//   "sct_list": <Optionally, a PEM encoded SignedCertificateTimestampList.>
+//   "host": <The hostname verification is being performed for.>
+//   "verifier_flags": <The CertVerifier::VerifyFlags.>
 // }
 //
 // The END phase event parameters are:
@@ -3137,3 +3407,38 @@ EVENT_TYPE(COOKIE_GET_BLOCKED_BY_NETWORK_DELEGATE)
 //  {
 //  }
 EVENT_TYPE(COOKIE_SET_BLOCKED_BY_NETWORK_DELEGATE)
+
+// Event emitted when a cookie is received but not stored, or when a cookie is
+// not sent to an associated domain.
+//  {
+//    "exclusion_reason": <Exclusion flags>,
+//    "name": <Name of the cookie>,
+//    "operation": <Operation, either "send" or "store">
+//  }
+EVENT_TYPE(COOKIE_INCLUSION_STATUS)
+
+// -----------------------------------------------------------------------------
+// HTTP/3 events.
+// -----------------------------------------------------------------------------
+
+// Event emitted when peer created control stream type is received.
+// "stream_id": <The stream id of peer created control stream>
+EVENT_TYPE(HTTP3_PEER_CONTROL_STREAM_CREATED)
+
+// Event emitted when peer created QPACK encoder stream type is received.
+// "stream_id": <The stream id of the peer created QPACK encoder stream>
+EVENT_TYPE(HTTP3_PEER_QPACK_ENCODER_STREAM_CREATED)
+
+// Event emitted when peer created QPACK decoder stream type is received.
+// "stream_id": <The stream id of the peer created QPACK decoder stream>
+EVENT_TYPE(HTTP3_PEER_QPACK_DECODER_STREAM_CREATED)
+
+// Event emitted when SETTINGS frame is received.
+// A list of settings will be logged by
+// <setting identifier>: <setting value>
+EVENT_TYPE(HTTP3_SETTINGS_RECEIVED)
+
+// EVENT emitted when SETTINGS frame is sent.
+// A list of settings will be logged by
+// <setting identifier>: <setting value>
+EVENT_TYPE(HTTP3_SETTINGS_SENT)

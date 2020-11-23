@@ -13,10 +13,12 @@
 
 #include "base/macros.h"
 #include "build/build_config.h"
+#include "content/browser/media/media_power_experiment_manager.h"
 #include "content/browser/media/session/media_session_controllers_manager.h"
 #include "content/common/content_export.h"
 #include "content/public/browser/media_player_id.h"
 #include "content/public/browser/web_contents_observer.h"
+#include "mojo/public/cpp/bindings/remote.h"
 #include "services/device/public/mojom/wake_lock.mojom.h"
 
 #if defined(OS_ANDROID)
@@ -160,18 +162,39 @@ class CONTENT_EXPORT MediaWebContentsObserver : public WebContentsObserver {
   // Convenience method that casts web_contents() to a WebContentsImpl*.
   WebContentsImpl* web_contents_impl() const;
 
+  // Notify |id| about |is_starting|.  Note that |id| might no longer be in the
+  // active players list, which is fine.
+  void OnExperimentStateChanged(MediaPlayerId id, bool is_starting);
+
+  // Remove all players from |player_map|.
+  void RemoveAllPlayers(ActiveMediaPlayerMap* player_map);
+
+  // Remove all players.
+  void RemoveAllPlayers();
+
+  // Return a weak pointer to |this| that's local to |render_frame_host|, in the
+  // sense that we can cancel all of the ptrs to one frame without cancelling
+  // pointers for any of the others.
+  base::WeakPtr<MediaWebContentsObserver> GetWeakPtrForFrame(
+      RenderFrameHost* render_frame_host);
+
   // Helper class for recording audible metrics.
   AudibleMetrics* audible_metrics_;
 
   // Tracking variables and associated wake locks for media playback.
   ActiveMediaPlayerMap active_audio_players_;
   ActiveMediaPlayerMap active_video_players_;
-  device::mojom::WakeLockPtr audio_wake_lock_;
+  mojo::Remote<device::mojom::WakeLock> audio_wake_lock_;
   base::Optional<MediaPlayerId> fullscreen_player_;
   base::Optional<bool> picture_in_picture_allowed_in_fullscreen_;
   bool has_audio_wake_lock_for_testing_ = false;
 
   MediaSessionControllersManager session_controllers_manager_;
+  MediaPowerExperimentManager* power_experiment_manager_ = nullptr;
+
+  std::map<RenderFrameHost*,
+           std::unique_ptr<base::WeakPtrFactory<MediaWebContentsObserver>>>
+      per_frame_factory_;
 
   DISALLOW_COPY_AND_ASSIGN(MediaWebContentsObserver);
 };

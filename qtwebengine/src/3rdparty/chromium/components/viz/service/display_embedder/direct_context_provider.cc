@@ -22,6 +22,7 @@
 #include "gpu/command_buffer/service/command_buffer_direct.h"
 #include "gpu/command_buffer/service/gles2_cmd_decoder.h"
 #include "gpu/command_buffer/service/memory_tracking.h"
+#include "gpu/command_buffer/service/service_utils.h"
 #include "gpu/config/gpu_feature_info.h"
 #include "ui/gl/gl_context.h"
 #include "ui/gl/gl_surface.h"
@@ -43,9 +44,10 @@ DirectContextProvider::DirectContextProvider(
 
   auto limits = gpu::SharedMemoryLimits::ForMailboxContext();
   auto group = base::MakeRefCounted<gpu::gles2::ContextGroup>(
-      gpu_preferences, true, &mailbox_manager_, /*memory_tracker=*/nullptr,
-      &translator_cache_, &completeness_cache_, feature_info, true,
-      &image_manager_, /*image_factory=*/nullptr,
+      gpu_preferences, gpu::gles2::PassthroughCommandDecoderSupported(),
+      &mailbox_manager_, /*memory_tracker=*/nullptr, &translator_cache_,
+      &completeness_cache_, feature_info, true, &image_manager_,
+      /*image_factory=*/nullptr,
       /*progress_reporter=*/nullptr, gpu_feature_info_, &discardable_manager_,
       &passthrough_discardable_manager_, delegate_->GetSharedImageManager());
 
@@ -94,6 +96,7 @@ DirectContextProvider::DirectContextProvider(
   command_buffer_ = std::move(command_buffer);
   decoder_ = std::move(decoder);
   gl_context_ = std::move(gl_context);
+  gl_surface_ = std::move(gl_surface);
 
   gles2_implementation_ = std::make_unique<gpu::gles2::GLES2Implementation>(
       gles2_cmd_helper_.get(), nullptr, transfer_buffer_.get(),
@@ -121,7 +124,11 @@ DirectContextProvider::~DirectContextProvider() {
 
 void DirectContextProvider::Destroy() {
   DCHECK(decoder_);
-  bool have_context = !decoder_->WasContextLost();
+
+  bool have_context = !decoder_->WasContextLost() &&
+                      (gl_context_->IsCurrent(nullptr) ||
+                       gl_context_->MakeCurrent(gl_surface_.get()));
+
   if (have_context && framebuffer_id_ != 0) {
     gles2_implementation_->DeleteFramebuffers(1, &framebuffer_id_);
     framebuffer_id_ = 0;
@@ -147,11 +154,37 @@ void DirectContextProvider::SetGLRendererCopierRequiredState(
   // SkiaOutputSurfaceImplOnGpu::ScopedUseContextProvider).
   gles2_implementation_->BindFramebuffer(GL_FRAMEBUFFER, 0);
 
-  decoder_->RestoreActiveTexture();
-  decoder_->RestoreProgramBindings();
-  decoder_->RestoreAllAttributes();
-  decoder_->RestoreGlobalState();
-  decoder_->RestoreBufferBindings();
+  auto* group = decoder()->GetContextGroup();
+  if (group->use_passthrough_cmd_decoder()) {
+    // Matches state setting in
+    // SkiaOutputSurfaceImplOnGpu::ScopedUseContextProvider when passthrough
+    // is enabled so that client side and service side state match.
+    //
+    // TODO(backer): Use ANGLE API to force state reset once API is available.
+    gles2_implementation_->UseProgram(0);
+    gles2_implementation_->ActiveTexture(GL_TEXTURE0);
+    gles2_implementation_->BindBuffer(GL_ARRAY_BUFFER, 0);
+    gles2_implementation_->BindTexture(GL_TEXTURE_2D, 0);
+  } else {
+    decoder_->RestoreActiveTexture();
+    decoder_->RestoreProgramBindings();
+    decoder_->RestoreAllAttributes();
+    decoder_->RestoreGlobalState();
+    decoder_->RestoreBufferBindings();
+  }
+
+  // At this point |decoder_| cached state (if any, passthrough doesn't cache)
+  // is synced with GLContext state. But GLES2Implementation caches some state
+  // too and we need to make sure this are in sync with |decoder_| and context
+  constexpr static std::initializer_list<GLuint> caps = {
+      GL_SCISSOR_TEST, GL_STENCIL_TEST, GL_BLEND};
+
+  for (auto cap : caps) {
+    if (gles2_implementation_->IsEnabled(cap))
+      gles2_cmd_helper_->Enable(cap);
+    else
+      gles2_cmd_helper_->Disable(cap);
+  }
 
   if (texture_client_id) {
     if (!framebuffer_id_)
@@ -343,6 +376,11 @@ void DirectContextProvider::MarkContextLost() {
     command_buffer_->service()->SetParseError(gpu::error::kLostContext);
     OnContextLost();
   }
+}
+
+void DirectContextProvider::FinishQueries() {
+  if (decoder_->HasPendingQueries())
+    gles2_implementation_->Finish();
 }
 
 }  // namespace viz

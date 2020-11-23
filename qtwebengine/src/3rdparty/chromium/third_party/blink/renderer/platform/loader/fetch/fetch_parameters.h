@@ -73,6 +73,9 @@ class PLATFORM_EXPORT FetchParameters {
 
   explicit FetchParameters(const ResourceRequest&);
   FetchParameters(const ResourceRequest&, const ResourceLoaderOptions&);
+  FetchParameters(const FetchParameters&) = delete;
+  FetchParameters& operator=(const FetchParameters&) = delete;
+  FetchParameters(FetchParameters&&);
   ~FetchParameters();
 
   ResourceRequest& MutableResourceRequest() { return resource_request_; }
@@ -123,8 +126,7 @@ class PLATFORM_EXPORT FetchParameters {
   SpeculativePreloadType GetSpeculativePreloadType() const {
     return speculative_preload_type_;
   }
-  void SetSpeculativePreloadType(SpeculativePreloadType,
-                                 double discovery_time = 0);
+  void SetSpeculativePreloadType(SpeculativePreloadType);
 
   bool IsLinkPreload() const { return options_.initiator_info.is_link_preload; }
   void SetLinkPreload(bool is_link_preload) {
@@ -176,10 +178,6 @@ class PLATFORM_EXPORT FetchParameters {
   ImageRequestOptimization GetImageRequestOptimization() const {
     return image_request_optimization_;
   }
-
-  // Configures the request to load an image as a placeholder and sets the
-  // Client LoFi preview bit.
-  void SetClientLoFiPlaceholder();
 
   // Configures the request to load an image as a placeholder or defers the
   // image and sets the lazy image load bit.

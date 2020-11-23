@@ -294,8 +294,8 @@ void ArcTermsOfServiceScreenHandler::DoShow() {
   MaybeLoadPlayStoreToS(true);
   StartNetworkAndTimeZoneObserving();
 
-  pref_handler_.reset(new arc::ArcOptInPreferenceHandler(
-      this, profile->GetPrefs()));
+  pref_handler_ = std::make_unique<arc::ArcOptInPreferenceHandler>(
+      this, profile->GetPrefs());
   pref_handler_->Start();
 }
 
@@ -329,7 +329,7 @@ void ArcTermsOfServiceScreenHandler::RecordConsents(
       ConsentAuditorFactory::GetForProfile(profile);
   auto* identity_manager = IdentityManagerFactory::GetForProfile(profile);
   DCHECK(identity_manager->HasPrimaryAccount());
-  const std::string account_id = identity_manager->GetPrimaryAccountId();
+  const CoreAccountId account_id = identity_manager->GetPrimaryAccountId();
 
   ArcPlayTermsOfServiceConsent play_consent;
   play_consent.set_status(tos_accepted ? UserConsentTypes::GIVEN

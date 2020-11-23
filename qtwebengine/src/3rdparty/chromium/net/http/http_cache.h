@@ -50,6 +50,7 @@ class ApplicationStatusListener;
 namespace disk_cache {
 class Backend;
 class Entry;
+class EntryResult;
 }  // namespace disk_cache
 
 namespace net {
@@ -267,7 +268,7 @@ class NET_EXPORT HttpCache : public HttpTransactionFactory {
   static std::string GetResourceURLFromHttpCacheKey(const std::string& key);
 
   // Function to generate cache key for testing.
-  std::string GenerateCacheKeyForTest(const HttpRequestInfo* request);
+  static std::string GenerateCacheKeyForTest(const HttpRequestInfo* request);
 
  private:
   // Types --------------------------------------------------------------------
@@ -310,6 +311,11 @@ class NET_EXPORT HttpCache : public HttpTransactionFactory {
   // To help with testing.
   friend class MockHttpCache;
   friend class HttpCacheIOCallbackTest;
+
+  FRIEND_TEST_ALL_PREFIXES(HttpCacheTest, SplitCacheWithFrameOrigin);
+  FRIEND_TEST_ALL_PREFIXES(HttpCacheTest, NonSplitCache);
+  FRIEND_TEST_ALL_PREFIXES(HttpCacheTest, SplitCache);
+  FRIEND_TEST_ALL_PREFIXES(HttpCacheTest, SplitCacheWithRegistrableDomain);
 
   using TransactionList = std::list<Transaction*>;
   using TransactionSet = std::unordered_set<Transaction*>;
@@ -412,7 +418,7 @@ class NET_EXPORT HttpCache : public HttpTransactionFactory {
   int GetBackendForTransaction(Transaction* transaction);
 
   // Generates the cache key for this request.
-  std::string GenerateCacheKey(const HttpRequestInfo*);
+  static std::string GenerateCacheKey(const HttpRequestInfo*);
 
   // Dooms the entry selected by |key|, if it is currently in the list of active
   // entries.
@@ -617,6 +623,11 @@ class NET_EXPORT HttpCache : public HttpTransactionFactory {
   static void OnPendingOpComplete(const base::WeakPtr<HttpCache>& cache,
                                   PendingOp* pending_op,
                                   int result);
+
+  // Variant for Open/Create method family, which has a different signature.
+  static void OnPendingCreationOpComplete(const base::WeakPtr<HttpCache>& cache,
+                                          PendingOp* pending_op,
+                                          disk_cache::EntryResult result);
 
   // Processes the backend creation notification.
   void OnBackendCreated(int result, PendingOp* pending_op);

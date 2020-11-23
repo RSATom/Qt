@@ -156,7 +156,6 @@ public slots:
 //! [2]
 private slots:
     void queryCity();
-    void networkSessionOpened();
     void positionUpdated(QGeoPositionInfo gpsPos);
     void positionError(QGeoPositionInfoSource::Error e);
     void handleGeoNetworkData(QNetworkReply *networkReply);

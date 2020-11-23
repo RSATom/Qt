@@ -9,7 +9,10 @@
 
 #include "base/barrier_closure.h"
 #include "base/threading/thread_checker.h"
-#include "mojo/public/cpp/bindings/strong_binding.h"
+#include "mojo/public/cpp/bindings/pending_receiver.h"
+#include "mojo/public/cpp/bindings/pending_remote.h"
+#include "mojo/public/cpp/bindings/self_owned_receiver.h"
+#include "third_party/blink/public/web/web_embedded_worker.h"
 #include "third_party/blink/renderer/core/html/parser/text_resource_decoder.h"
 #include "third_party/blink/renderer/modules/service_worker/service_worker_thread.h"
 #include "third_party/blink/renderer/platform/instrumentation/tracing/traced_value.h"
@@ -161,15 +164,16 @@ class BundledReceivers {
 class Internal : public mojom::blink::ServiceWorkerInstalledScriptsManager {
  public:
   // Called on the IO thread.
-  // Creates and binds a new Internal instance to |request|.
+  // Creates and binds a new Internal instance to |receiver|.
   static void Create(
       scoped_refptr<ThreadSafeScriptContainer> script_container,
-      mojom::blink::ServiceWorkerInstalledScriptsManagerRequest request,
+      mojo::PendingReceiver<mojom::blink::ServiceWorkerInstalledScriptsManager>
+          receiver,
       scoped_refptr<base::SingleThreadTaskRunner> task_runner) {
-    mojo::MakeStrongBinding(
+    mojo::MakeSelfOwnedReceiver(
         std::make_unique<Internal>(std::move(script_container),
                                    std::move(task_runner)),
-        std::move(request));
+        std::move(receiver));
   }
 
   Internal(scoped_refptr<ThreadSafeScriptContainer> script_container,
@@ -244,24 +248,37 @@ std::unique_ptr<TracedValue> UrlToTracedValue(const KURL& url) {
 }  // namespace
 
 ServiceWorkerInstalledScriptsManager::ServiceWorkerInstalledScriptsManager(
-    const Vector<KURL>& installed_urls,
-    mojom::blink::ServiceWorkerInstalledScriptsManagerRequest manager_request,
-    mojom::blink::ServiceWorkerInstalledScriptsManagerHostPtrInfo
-        manager_host_ptr,
+    std::unique_ptr<WebServiceWorkerInstalledScriptsManagerParams>
+        installed_scripts_manager_params,
     scoped_refptr<base::SingleThreadTaskRunner> io_task_runner)
-    : script_container_(base::MakeRefCounted<ThreadSafeScriptContainer>()),
-      manager_host_(
-          mojom::blink::ThreadSafeServiceWorkerInstalledScriptsManagerHostPtr::
-              Create(mojom::blink::ServiceWorkerInstalledScriptsManagerHostPtr(
-                  std::move(manager_host_ptr)))) {
-  // We're on the main thread now, but |installed_urls_| will be accessed on the
-  // worker thread later, so make a deep copy of |url| as key.
-  for (const KURL& url : installed_urls)
-    installed_urls_.insert(url.Copy());
+    : script_container_(base::MakeRefCounted<ThreadSafeScriptContainer>()) {
+  DCHECK(installed_scripts_manager_params);
+
+  DCHECK(installed_scripts_manager_params->manager_receiver);
+  auto manager_receiver =
+      mojo::PendingReceiver<mojom::blink::ServiceWorkerInstalledScriptsManager>(
+          std::move(installed_scripts_manager_params->manager_receiver));
+
+  DCHECK(installed_scripts_manager_params->manager_host_remote);
+  manager_host_ = mojo::SharedRemote<
+      mojom::blink::ServiceWorkerInstalledScriptsManagerHost>(
+      mojo::PendingRemote<
+          mojom::blink::ServiceWorkerInstalledScriptsManagerHost>(
+          std::move(installed_scripts_manager_params->manager_host_remote),
+          mojom::blink::ServiceWorkerInstalledScriptsManagerHost::Version_));
+
+  // Don't touch |installed_urls_| after this point. We're on the initiator
+  // thread now, but |installed_urls_| will be accessed on the
+  // worker thread later, so they should keep isolated from the current thread.
+  for (const WebURL& url :
+       installed_scripts_manager_params->installed_scripts_urls) {
+    installed_urls_.insert(KURL(url).Copy());
+  }
+
   PostCrossThreadTask(
       *io_task_runner, FROM_HERE,
       CrossThreadBindOnce(&Internal::Create, script_container_,
-                          WTF::Passed(std::move(manager_request)),
+                          WTF::Passed(std::move(manager_receiver)),
                           io_task_runner));
 }
 
@@ -316,7 +333,7 @@ ServiceWorkerInstalledScriptsManager::GetRawScriptData(const KURL& script_url) {
   // script.
   if (status == ThreadSafeScriptContainer::ScriptStatus::kTaken) {
     script_container_->ResetOnWorkerThread(script_url);
-    (*manager_host_)->RequestInstalledScript(script_url);
+    manager_host_->RequestInstalledScript(script_url);
     status = script_container_->GetStatusOnWorkerThread(script_url);
   }
 

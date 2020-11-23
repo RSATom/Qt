@@ -47,8 +47,7 @@ MediaCodecLoop::MediaCodecLoop(
       media_codec_(std::move(media_codec)),
       pending_input_buf_index_(kInvalidBufferIndex),
       sdk_int_(sdk_int),
-      disable_timer_(disable_timer),
-      weak_factory_(this) {
+      disable_timer_(disable_timer) {
   if (timer_task_runner)
     io_timer_.SetTaskRunner(timer_task_runner);
   // TODO(liberato): should this DCHECK?
@@ -198,14 +197,15 @@ void MediaCodecLoop::EnqueueInputBuffer(const InputBuffer& input_buffer) {
 
   media::MediaCodecStatus status = MEDIA_CODEC_OK;
 
-  if (input_data.encryption_scheme.is_encrypted()) {
+  if (input_data.encryption_scheme != EncryptionScheme::kUnencrypted) {
     // Note that input_data might not have a valid memory ptr if this is a
     // re-send of a buffer that was sent before decryption keys arrived.
 
     status = media_codec_->QueueSecureInputBuffer(
         input_buffer.index, input_data.memory, input_data.length,
         input_data.key_id, input_data.iv, input_data.subsamples,
-        input_data.encryption_scheme, input_data.presentation_time);
+        input_data.encryption_scheme, input_data.encryption_pattern,
+        input_data.presentation_time);
 
   } else {
     status = media_codec_->QueueInputBuffer(

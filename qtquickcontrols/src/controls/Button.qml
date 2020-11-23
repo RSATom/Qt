@@ -110,11 +110,11 @@ BasicButton {
 
     Connections {
         target: __behavior
-        onEffectivePressedChanged: {
+        function onEffectivePressedChanged() {
             if (!Settings.hasTouchScreen && __behavior.effectivePressed && menu)
                 popupMenuTimer.start()
         }
-        onReleased: {
+        function onReleased() {
             if (Settings.hasTouchScreen && __behavior.containsMouse && menu)
                 popupMenuTimer.start()
         }

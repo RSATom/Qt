@@ -41,6 +41,7 @@
 
 namespace blink {
 
+class CalculationExpressionNode;
 class CSSNumericLiteralValue;
 
 // The order of this enum should not change since its elements are used as
@@ -62,12 +63,22 @@ enum CalculationCategory {
 class CORE_EXPORT CSSMathExpressionNode
     : public GarbageCollected<CSSMathExpressionNode> {
  public:
-  static CSSMathExpressionNode* CreateFromPixelsAndPercent(double pixels,
-                                                           double percent);
+  static CSSMathExpressionNode* Create(const CalculationValue& node);
+  static CSSMathExpressionNode* Create(PixelsAndPercent pixels_and_percent);
+  static CSSMathExpressionNode* Create(const CalculationExpressionNode& node);
+
   static CSSMathExpressionNode* ParseCalc(const CSSParserTokenRange& tokens);
+  static CSSMathExpressionNode* ParseMin(const CSSParserTokenRange& tokens);
+  static CSSMathExpressionNode* ParseMax(const CSSParserTokenRange& tokens);
+  static CSSMathExpressionNode* ParseClamp(const CSSParserTokenRange& tokens);
 
   virtual bool IsNumericLiteral() const { return false; }
   virtual bool IsBinaryOperation() const { return false; }
+  virtual bool IsVariadicOperation() const { return false; }
+
+  bool IsMathFunction() const {
+    return !IsNumericLiteral() && !IsBinaryOperation();
+  }
 
   virtual bool IsZero() const = 0;
 
@@ -76,11 +87,18 @@ class CORE_EXPORT CSSMathExpressionNode
   virtual double DoubleValue() const = 0;
 
   virtual double ComputeLengthPx(const CSSToLengthConversionData&) const = 0;
-  virtual void AccumulateLengthArray(CSSLengthArray&,
+  virtual bool AccumulateLengthArray(CSSLengthArray&,
                                      double multiplier) const = 0;
-  virtual void AccumulatePixelsAndPercent(const CSSToLengthConversionData&,
-                                          PixelsAndPercent&,
-                                          float multiplier = 1) const = 0;
+  virtual void AccumulateLengthUnitTypes(
+      CSSPrimitiveValue::LengthTypeFlags& types) const = 0;
+  virtual scoped_refptr<const CalculationExpressionNode>
+  ToCalculationExpression(const CSSToLengthConversionData&) const = 0;
+  virtual base::Optional<PixelsAndPercent> ToPixelsAndPercent(
+      const CSSToLengthConversionData&) const = 0;
+
+  scoped_refptr<CalculationValue> ToCalcValue(
+      const CSSToLengthConversionData& conversion_data,
+      ValueRange range) const;
 
   // Evaluates the expression with type conversion (e.g., cm -> px) handled, and
   // returns the result value in the canonical unit of the corresponding
@@ -102,6 +120,11 @@ class CORE_EXPORT CSSMathExpressionNode
   virtual bool IsComputationallyIndependent() const = 0;
 
   CalculationCategory Category() const { return category_; }
+  bool HasPercentage() const {
+    return category_ == kCalcPercent || category_ == kCalcPercentNumber ||
+           category_ == kCalcPercentLength ||
+           category_ == kCalcPercentLengthNumber;
+  }
 
   // Returns the unit type of the math expression *without doing any type
   // conversion* (e.g., 1px + 1em needs type conversion to resolve).
@@ -112,6 +135,14 @@ class CORE_EXPORT CSSMathExpressionNode
 
   bool IsNestedCalc() const { return is_nested_calc_; }
   void SetIsNestedCalc() { is_nested_calc_ = true; }
+
+#if DCHECK_IS_ON()
+  // There's a subtle issue in comparing two percentages, e.g., min(10%, 20%).
+  // It doesn't always resolve into 10%, because the reference value may be
+  // negative. We use this to prevent comparing two percentages without knowing
+  // the sign of the reference value.
+  virtual bool InvolvesPercentageComparisons() const = 0;
+#endif
 
   virtual void Trace(blink::Visitor* visitor) {}
 
@@ -129,35 +160,44 @@ class CORE_EXPORT CSSMathExpressionNode
 class CORE_EXPORT CSSMathExpressionNumericLiteral final
     : public CSSMathExpressionNode {
  public:
-  static CSSMathExpressionNumericLiteral* Create(CSSNumericLiteralValue* value,
-                                                 bool is_integer = false);
+  static CSSMathExpressionNumericLiteral* Create(
+      const CSSNumericLiteralValue* value,
+      bool is_integer = false);
   static CSSMathExpressionNumericLiteral*
   Create(double value, CSSPrimitiveValue::UnitType type, bool is_integer);
 
-  CSSMathExpressionNumericLiteral(CSSNumericLiteralValue* value,
+  CSSMathExpressionNumericLiteral(const CSSNumericLiteralValue* value,
                                   bool is_integer);
+
+  const CSSNumericLiteralValue& GetValue() const { return *value_; }
 
   bool IsNumericLiteral() const final { return true; }
 
   bool IsZero() const final;
   String CustomCSSText() const final;
-  void AccumulatePixelsAndPercent(
-      const CSSToLengthConversionData& conversion_data,
-      PixelsAndPercent& value,
-      float multiplier) const final;
+  scoped_refptr<const CalculationExpressionNode> ToCalculationExpression(
+      const CSSToLengthConversionData&) const final;
+  base::Optional<PixelsAndPercent> ToPixelsAndPercent(
+      const CSSToLengthConversionData&) const final;
   double DoubleValue() const final;
   base::Optional<double> ComputeValueInCanonicalUnit() const final;
   double ComputeLengthPx(
       const CSSToLengthConversionData& conversion_data) const final;
-  void AccumulateLengthArray(CSSLengthArray& length_array,
+  bool AccumulateLengthArray(CSSLengthArray& length_array,
                              double multiplier) const final;
+  void AccumulateLengthUnitTypes(
+      CSSPrimitiveValue::LengthTypeFlags& types) const final;
   bool IsComputationallyIndependent() const final;
   bool operator==(const CSSMathExpressionNode& other) const final;
   CSSPrimitiveValue::UnitType ResolvedUnitType() const final;
   void Trace(blink::Visitor* visitor) final;
 
+#if DCHECK_IS_ON()
+  bool InvolvesPercentageComparisons() const final;
+#endif
+
  private:
-  Member<CSSNumericLiteralValue> value_;
+  Member<const CSSNumericLiteralValue> value_;
 };
 
 template <>
@@ -170,16 +210,16 @@ struct DowncastTraits<CSSMathExpressionNumericLiteral> {
 class CORE_EXPORT CSSMathExpressionBinaryOperation final
     : public CSSMathExpressionNode {
  public:
-  static CSSMathExpressionNode* Create(CSSMathExpressionNode* left_side,
-                                       CSSMathExpressionNode* right_side,
+  static CSSMathExpressionNode* Create(const CSSMathExpressionNode* left_side,
+                                       const CSSMathExpressionNode* right_side,
                                        CSSMathOperator op);
   static CSSMathExpressionNode* CreateSimplified(
-      CSSMathExpressionNode* left_side,
-      CSSMathExpressionNode* right_side,
+      const CSSMathExpressionNode* left_side,
+      const CSSMathExpressionNode* right_side,
       CSSMathOperator op);
 
-  CSSMathExpressionBinaryOperation(CSSMathExpressionNode* left_side,
-                                   CSSMathExpressionNode* right_side,
+  CSSMathExpressionBinaryOperation(const CSSMathExpressionNode* left_side,
+                                   const CSSMathExpressionNode* right_side,
                                    CSSMathOperator op,
                                    CalculationCategory category);
 
@@ -192,30 +232,32 @@ class CORE_EXPORT CSSMathExpressionBinaryOperation final
   bool IsBinaryOperation() const final { return true; }
 
   bool IsZero() const final;
-  void AccumulatePixelsAndPercent(
-      const CSSToLengthConversionData& conversion_data,
-      PixelsAndPercent& value,
-      float multiplier) const final;
+  scoped_refptr<const CalculationExpressionNode> ToCalculationExpression(
+      const CSSToLengthConversionData&) const final;
+  base::Optional<PixelsAndPercent> ToPixelsAndPercent(
+      const CSSToLengthConversionData&) const final;
   double DoubleValue() const final;
   base::Optional<double> ComputeValueInCanonicalUnit() const final;
   double ComputeLengthPx(
       const CSSToLengthConversionData& conversion_data) const final;
-  void AccumulateLengthArray(CSSLengthArray& length_array,
+  bool AccumulateLengthArray(CSSLengthArray& length_array,
                              double multiplier) const final;
+  void AccumulateLengthUnitTypes(
+      CSSPrimitiveValue::LengthTypeFlags& types) const final;
   bool IsComputationallyIndependent() const final;
   String CustomCSSText() const final;
   bool operator==(const CSSMathExpressionNode& exp) const final;
   CSSPrimitiveValue::UnitType ResolvedUnitType() const final;
   void Trace(blink::Visitor* visitor) final;
 
- private:
-  static CSSMathExpressionNode* GetNumberSide(
-      CSSMathExpressionNode* left_side,
-      CSSMathExpressionNode* right_side);
+#if DCHECK_IS_ON()
+  bool InvolvesPercentageComparisons() const final;
+#endif
 
-  static String BuildCSSText(const String& left_expression,
-                             const String& right_expression,
-                             CSSMathOperator op);
+ private:
+  static const CSSMathExpressionNode* GetNumberSide(
+      const CSSMathExpressionNode* left_side,
+      const CSSMathExpressionNode* right_side);
 
   double Evaluate(double left_side, double right_side) const {
     return EvaluateOperator(left_side, right_side, operator_);
@@ -225,8 +267,8 @@ class CORE_EXPORT CSSMathExpressionBinaryOperation final
                                  double right_value,
                                  CSSMathOperator op);
 
-  const Member<CSSMathExpressionNode> left_side_;
-  const Member<CSSMathExpressionNode> right_side_;
+  const Member<const CSSMathExpressionNode> left_side_;
+  const Member<const CSSMathExpressionNode> right_side_;
   const CSSMathOperator operator_;
 };
 
@@ -234,6 +276,70 @@ template <>
 struct DowncastTraits<CSSMathExpressionBinaryOperation> {
   static bool AllowFrom(const CSSMathExpressionNode& node) {
     return node.IsBinaryOperation();
+  }
+};
+
+class CSSMathExpressionVariadicOperation final : public CSSMathExpressionNode {
+ public:
+  using Operands = HeapVector<Member<const CSSMathExpressionNode>>;
+
+  static CSSMathExpressionVariadicOperation* Create(Operands&& operands,
+                                                    CSSMathOperator op);
+
+  CSSMathExpressionVariadicOperation(CalculationCategory category,
+                                     bool is_integer_result,
+                                     Operands&& operands,
+                                     CSSMathOperator op);
+
+  const Operands& GetOperands() const { return operands_; }
+  CSSMathOperator OperatorType() const { return operator_; }
+
+  bool IsVariadicOperation() const final { return true; }
+
+  void SetIsClamp() { is_clamp_ = true; }
+  String CSSTextAsClamp() const;
+
+  bool IsZero() const final;
+  String CustomCSSText() const final;
+  scoped_refptr<const CalculationExpressionNode> ToCalculationExpression(
+      const CSSToLengthConversionData&) const final;
+  base::Optional<PixelsAndPercent> ToPixelsAndPercent(
+      const CSSToLengthConversionData&) const final;
+  double DoubleValue() const final;
+  double ComputeLengthPx(
+      const CSSToLengthConversionData& conversion_data) const final;
+  bool AccumulateLengthArray(CSSLengthArray& length_array,
+                             double multiplier) const final;
+  void AccumulateLengthUnitTypes(
+      CSSPrimitiveValue::LengthTypeFlags& types) const final;
+  base::Optional<double> ComputeValueInCanonicalUnit() const final;
+  bool IsComputationallyIndependent() const final;
+  bool operator==(const CSSMathExpressionNode& other) const final;
+  CSSPrimitiveValue::UnitType ResolvedUnitType() const final;
+  void Trace(blink::Visitor* visitor) final;
+
+#if DCHECK_IS_ON()
+  bool InvolvesPercentageComparisons() const final;
+#endif
+
+ private:
+  // Helper for iterating from the 2nd to the last operands
+  base::span<const Member<const CSSMathExpressionNode>> SecondToLastOperands()
+      const {
+    return base::make_span(std::next(operands_.begin()), operands_.end());
+  }
+
+  double EvaluateBinary(double lhs, double rhs) const;
+
+  Operands operands_;
+  const CSSMathOperator operator_;
+  bool is_clamp_ = false;
+};
+
+template <>
+struct DowncastTraits<CSSMathExpressionVariadicOperation> {
+  static bool AllowFrom(const CSSMathExpressionNode& node) {
+    return node.IsVariadicOperation();
   }
 };
 

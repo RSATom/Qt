@@ -41,11 +41,14 @@ public:
     TextStyle peekStyle() override;
 
     // Adds text to the builder. Forms the proper runs to use the upper-most style
-    // on the style_stack_;
+    // on the style_stack.
     void addText(const std::u16string& text) override;
 
-    // Converts to u16string before adding.
-    void addText(const char* text) override;
+    // Adds text to the builder, using the top-most style on on the style_stack.
+    void addText(const char* text) override; // Don't use this one - going away soon
+    void addText(const char* text, size_t len) override;
+
+    void addPlaceholder(const PlaceholderStyle& placeholderStyle) override;
 
     void setParagraphStyle(const ParagraphStyle& style) override;
 
@@ -54,10 +57,12 @@ public:
 
 private:
     void endRunIfNeeded();
+    void addPlaceholder(const PlaceholderStyle& placeholderStyle, bool lastOne);
 
     SkString fUtf8;
     std::stack<TextStyle> fTextStyles;
     SkTArray<Block, true> fStyledBlocks;
+    SkTArray<Placeholder, true> fPlaceholders;
     sk_sp<FontCollection> fFontCollection;
     ParagraphStyle fParagraphStyle;
 };

@@ -49,6 +49,9 @@
 ****************************************************************************/
 
 #include <QtGui>
+#include <QGraphicsScene>
+#include <QGraphicsEllipseItem>
+#include <QStyleOptionGraphicsItem>
 
 class CustomScene : public QGraphicsScene
 {
@@ -70,21 +73,9 @@ void CustomScene::drawItems(QPainter *painter, int numItems,
     for (int i = 0; i < numItems; ++i) {
          // Draw the item
          painter->save();
-         painter->setMatrix(items[i]->sceneMatrix(), true);
+         painter->setTransform(items[i]->sceneTransform(), true);
          items[i]->paint(painter, &options[i], widget);
          painter->restore();
      }
 }
 //! [0]
-
-int main(int argv, char **args)
-{
-    QApplication app(argv, args);
-
-    CustomScene scene;
-    QGraphicsView view(&scene);
-
-    view.show();
-
-    return app.exec();
-}

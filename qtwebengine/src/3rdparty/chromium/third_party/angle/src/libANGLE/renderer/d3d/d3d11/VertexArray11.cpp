@@ -249,8 +249,6 @@ angle::Result VertexArray11::updateDirtyAttribs(const gl::Context *context,
 
     for (size_t dirtyAttribIndex : activeDirtyAttribs)
     {
-        mAttribsToTranslate.reset(dirtyAttribIndex);
-
         auto *translatedAttrib   = &mTranslatedAttribs[dirtyAttribIndex];
         const auto &currentValue = glState.getVertexAttribCurrentValue(dirtyAttribIndex);
 
@@ -278,6 +276,9 @@ angle::Result VertexArray11::updateDirtyAttribs(const gl::Context *context,
                 UNREACHABLE();
                 break;
         }
+
+        // Make sure we reset the dirty bit after the switch because STATIC can early exit.
+        mAttribsToTranslate.reset(dirtyAttribIndex);
     }
 
     return angle::Result::Continue;

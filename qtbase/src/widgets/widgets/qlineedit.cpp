@@ -274,7 +274,7 @@ QLineEdit::QLineEdit(QWidget* parent)
     \sa text(), setMaxLength()
 */
 QLineEdit::QLineEdit(const QString& contents, QWidget* parent)
-    : QWidget(*new QLineEditPrivate, parent, 0)
+    : QWidget(*new QLineEditPrivate, parent, { })
 {
     Q_D(QLineEdit);
     d->init(contents);
@@ -446,7 +446,7 @@ void QLineEdit::addAction(QAction *action, ActionPosition position)
 {
     Q_D(QLineEdit);
     QWidget::addAction(action);
-    d->addAction(action, 0, position);
+    d->addAction(action, nullptr, position);
 }
 
 /*!
@@ -599,9 +599,17 @@ const QValidator * QLineEdit::validator() const
 }
 
 /*!
-    Sets this line edit to only accept input that the validator, \a v,
-    will accept. This allows you to place any arbitrary constraints on
-    the text which may be entered.
+    Sets the validator for values of line edit to \a v.
+
+    The line edit's returnPressed() and editingFinished() signals will only
+    be emitted if \a v validates the line edit's content as \l{QValidator::}{Acceptable}.
+    The user may change the content to any \l{QValidator::}{Intermediate}
+    value during editing, but will be prevented from editing the text to a
+    value that \a v validates as \l{QValidator::}{Invalid}.
+
+    This allows you to constrain the text that shall finally be entered when editing is
+    done, while leaving users with enough freedom to edit the text from one valid state
+    to another.
 
     If \a v == 0, setValidator() removes the current input validator.
     The initial setting is to have no input validator (i.e. any input
@@ -640,15 +648,15 @@ void QLineEdit::setCompleter(QCompleter *c)
     if (c == d->control->completer())
         return;
     if (d->control->completer()) {
-        disconnect(d->control->completer(), 0, this, 0);
-        d->control->completer()->setWidget(0);
+        disconnect(d->control->completer(), nullptr, this, nullptr);
+        d->control->completer()->setWidget(nullptr);
         if (d->control->completer()->parent() == this)
             delete d->control->completer();
     }
     d->control->setCompleter(c);
     if (!c)
         return;
-    if (c->widget() == 0)
+    if (c->widget() == nullptr)
         c->setWidget(this);
     if (hasFocus()) {
         QObject::connect(d->control->completer(), SIGNAL(activated(QString)),
@@ -683,7 +691,7 @@ QSize QLineEdit::sizeHint() const
     Q_D(const QLineEdit);
     ensurePolished();
     QFontMetrics fm(font());
-    const int iconSize = style()->pixelMetric(QStyle::PM_SmallIconSize, 0, this);
+    const int iconSize = style()->pixelMetric(QStyle::PM_SmallIconSize, nullptr, this);
     const QMargins tm = d->effectiveTextMargins();
     int h = qMax(fm.height(), qMax(14, iconSize - 2)) + 2 * QLineEditPrivate::verticalMargin
             + tm.top() + tm.bottom()
@@ -701,7 +709,7 @@ QSize QLineEdit::sizeHint() const
 /*!
     Returns a minimum size for the line edit.
 
-    The width returned is enough for at least one character.
+    The width returned is usually enough for at least one character.
 */
 
 QSize QLineEdit::minimumSizeHint() const
@@ -713,7 +721,7 @@ QSize QLineEdit::minimumSizeHint() const
     int h = fm.height() + qMax(2 * QLineEditPrivate::verticalMargin, fm.leading())
             + tm.top() + tm.bottom()
             + d->topmargin + d->bottommargin;
-    int w = fm.maxWidth()
+    int w = fm.maxWidth() + 2 * QLineEditPrivate::horizontalMargin
             + tm.left() + tm.right()
             + d->leftmargin + d->rightmargin;
     QStyleOptionFrame opt;
@@ -1439,7 +1447,7 @@ void QLineEdit::copy() const
     Inserts the clipboard's text at the cursor position, deleting any
     selected text, providing the line edit is not \l{QLineEdit::readOnly}{read-only}.
 
-    If the end result would not be acceptable to the current
+    If the end result would be invalid to the current
     \l{setValidator()}{validator}, nothing happens.
 
     \sa copy(), cut()
@@ -1955,7 +1963,7 @@ void QLineEdit::focusOutEvent(QFocusEvent *e)
 #endif
 #if QT_CONFIG(completer)
     if (d->control->completer()) {
-        QObject::disconnect(d->control->completer(), 0, this, 0);
+        QObject::disconnect(d->control->completer(), nullptr, this, nullptr);
     }
 #endif
     QWidget::focusOutEvent(e);
@@ -2048,6 +2056,7 @@ void QLineEdit::paintEvent(QPaintEvent *)
     }
 
     // the y offset is there to keep the baseline constant in case we have script changes in the text.
+    // Needs to be kept in sync with QLineEditPrivate::adjustedControlRect
     QPoint topLeft = lineRect.topLeft() - QPoint(d->hscroll, d->control->ascent() - fm.ascent());
 
     // draw text, selections and cursors
@@ -2194,7 +2203,7 @@ QMenu *QLineEdit::createStandardContextMenu()
     Q_D(QLineEdit);
     QMenu *popup = new QMenu(this);
     popup->setObjectName(QLatin1String("qt_edit_menu"));
-    QAction *action = 0;
+    QAction *action = nullptr;
 
     if (!isReadOnly()) {
         action = popup->addAction(QLineEdit::tr("&Undo") + ACCEL_KEY(QKeySequence::Undo));

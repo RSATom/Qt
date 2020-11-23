@@ -557,7 +557,7 @@ RetainPtr<CPDF_ColorSpace> CPDF_ColorSpace::Load(
     default:
       return nullptr;
   }
-  pCS->m_pArray = pArray;
+  pCS->m_pArray.Reset(pArray);
   pCS->m_nComponents = pCS->v_Load(pDoc, pArray, pVisited);
   if (pCS->m_nComponents == 0)
     return nullptr;
@@ -792,9 +792,9 @@ void CPDF_CalRGB::TranslateImageLine(uint8_t* pDestBuf,
       Cal[1] = static_cast<float>(pSrcBuf[1]) / 255;
       Cal[2] = static_cast<float>(pSrcBuf[0]) / 255;
       GetRGB(Cal, &R, &G, &B);
-      pDestBuf[0] = FXSYS_round(B * 255);
-      pDestBuf[1] = FXSYS_round(G * 255);
-      pDestBuf[2] = FXSYS_round(R * 255);
+      pDestBuf[0] = FXSYS_roundf(B * 255);
+      pDestBuf[1] = FXSYS_roundf(G * 255);
+      pDestBuf[2] = FXSYS_roundf(R * 255);
       pSrcBuf += 3;
       pDestBuf += 3;
     }
@@ -902,15 +902,7 @@ void CPDF_LabCS::TranslateImageLine(uint8_t* pDestBuf,
 CPDF_ICCBasedCS::CPDF_ICCBasedCS(CPDF_Document* pDoc)
     : CPDF_ColorSpace(pDoc, PDFCS_ICCBASED) {}
 
-CPDF_ICCBasedCS::~CPDF_ICCBasedCS() {
-  if (m_pProfile && m_pDocument) {
-    const CPDF_Stream* pStream = m_pProfile->GetStream();
-    m_pProfile.Reset();  // Give up our reference first.
-    auto* pPageData = CPDF_DocPageData::FromDocument(m_pDocument.Get());
-    if (pPageData)
-      pPageData->MaybePurgeIccProfile(pStream);
-  }
-}
+CPDF_ICCBasedCS::~CPDF_ICCBasedCS() = default;
 
 uint32_t CPDF_ICCBasedCS::v_Load(CPDF_Document* pDoc,
                                  const CPDF_Array* pArray,

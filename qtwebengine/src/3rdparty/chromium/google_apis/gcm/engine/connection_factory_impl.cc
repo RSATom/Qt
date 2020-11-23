@@ -15,6 +15,7 @@
 #include "google_apis/gcm/engine/connection_handler_impl.h"
 #include "google_apis/gcm/monitoring/gcm_stats_recorder.h"
 #include "google_apis/gcm/protocol/mcs.pb.h"
+#include "mojo/public/cpp/bindings/pending_remote.h"
 #include "net/base/net_errors.h"
 #include "net/http/http_request_headers.h"
 #include "net/http/proxy_fallback.h"
@@ -68,8 +69,7 @@ ConnectionFactoryImpl::ConnectionFactoryImpl(
       io_task_runner_(std::move(io_task_runner)),
       recorder_(recorder),
       network_connection_tracker_(network_connection_tracker),
-      listener_(nullptr),
-      weak_ptr_factory_(this) {
+      listener_(nullptr) {
   DCHECK_GE(mcs_endpoints_.size(), 1U);
   DCHECK(io_task_runner_);
 }
@@ -316,7 +316,9 @@ void ConnectionFactoryImpl::StartConnection() {
   GURL current_endpoint = GetCurrentEndpoint();
   recorder_->RecordConnectionInitiated(current_endpoint.host());
 
-  get_socket_factory_callback_.Run(mojo::MakeRequest(&socket_factory_));
+  socket_factory_.reset();
+  get_socket_factory_callback_.Run(
+      socket_factory_.BindNewPipeAndPassReceiver());
 
   net::NetworkTrafficAnnotationTag traffic_annotation =
       net::DefineNetworkTrafficAnnotation("gcm_connection_factory", R"(
@@ -360,7 +362,7 @@ void ConnectionFactoryImpl::StartConnection() {
   socket_factory_->CreateProxyResolvingSocket(
       current_endpoint, std::move(options),
       net::MutableNetworkTrafficAnnotationTag(traffic_annotation),
-      mojo::MakeRequest(&socket_), nullptr /* observer */,
+      socket_.BindNewPipeAndPassReceiver(), mojo::NullRemote() /* observer */,
       base::BindOnce(&ConnectionFactoryImpl::OnConnectDone,
                      base::Unretained(this)));
 }

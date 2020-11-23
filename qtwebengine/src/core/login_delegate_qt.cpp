@@ -48,9 +48,9 @@
 #include "content/public/browser/browser_task_traits.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/render_view_host.h"
-#include "content/public/browser/resource_dispatcher_host.h"
-#include "content/public/browser/resource_request_info.h"
 #include "extensions/buildflags/buildflags.h"
+#include "services/network/public/cpp/features.h"
+
 #if BUILDFLAG(ENABLE_EXTENSIONS)
 #include "extensions/browser/info_map.h"
 #include "extensions/common/extension.h"
@@ -82,14 +82,9 @@ LoginDelegateQt::LoginDelegateQt(const net::AuthChallengeInfo &authInfo,
     , m_auth_required_callback(std::move(auth_required_callback))
     , m_weakFactory(this)
 {
-    base::PostTaskWithTraits(
+    base::PostTask(
             FROM_HERE, { content::BrowserThread::UI },
             base::BindOnce(&LoginDelegateQt::triggerDialog, m_weakFactory.GetWeakPtr()));
-}
-
-LoginDelegateQt::~LoginDelegateQt()
-{
-    destroy();
 }
 
 QUrl LoginDelegateQt::url() const
@@ -152,14 +147,6 @@ void LoginDelegateQt::sendAuthToRequester(bool success, const QString &user, con
         else
             std::move(m_auth_required_callback).Run(base::nullopt);
     }
-
-    destroy();
-}
-
-void LoginDelegateQt::destroy()
-{
-    m_dialogController.reset();
-    m_auth_required_callback.Reset();
 }
 
 } // namespace QtWebEngineCore

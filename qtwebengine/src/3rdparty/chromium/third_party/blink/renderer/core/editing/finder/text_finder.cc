@@ -62,7 +62,6 @@
 #include "third_party/blink/renderer/core/page/page.h"
 #include "third_party/blink/renderer/platform/instrumentation/histogram.h"
 #include "third_party/blink/renderer/platform/timer.h"
-#include "third_party/blink/renderer/platform/wtf/time.h"
 
 namespace blink {
 
@@ -76,7 +75,8 @@ void TextFinder::FindMatch::Trace(Visitor* visitor) {
 static void ScrollToVisible(Range* match) {
   const Node& first_node = *match->FirstNode();
   if (RuntimeEnabledFeatures::InvisibleDOMEnabled() ||
-      RuntimeEnabledFeatures::DisplayLockingEnabled()) {
+      RuntimeEnabledFeatures::DisplayLockingEnabled(
+          first_node.GetExecutionContext())) {
     const EphemeralRangeInFlatTree range(match);
     if (InvisibleDOM::ActivateRangeIfNeeded(range) ||
         DisplayLockUtilities::ActivateFindInPageMatchRangeIfNeeded(range))
@@ -249,7 +249,7 @@ void TextFinder::SetFindEndstateFocusAndSelection() {
   Node* node = active_match->FirstNode();
   if (node && node->IsInShadowTree()) {
     if (Node* host = node->OwnerShadowHost()) {
-      if (IsHTMLInputElement(*host) || IsHTMLTextAreaElement(*host))
+      if (IsA<HTMLInputElement>(*host) || IsA<HTMLTextAreaElement>(*host))
         node = host;
     }
   }
@@ -322,6 +322,14 @@ void TextFinder::StopFindingAndClearSelection() {
 
   // Let the frame know that we don't want tickmarks anymore.
   InvalidatePaintForTickmarks();
+
+  ReportFindInPageTerminationToAccessibility();
+}
+
+void TextFinder::ReportFindInPageTerminationToAccessibility() {
+  if (OwnerFrame().Client()) {
+    OwnerFrame().Client()->HandleAccessibilityFindInPageTermination();
+  }
 }
 
 void TextFinder::ReportFindInPageResultToAccessibility(int identifier) {
@@ -465,7 +473,7 @@ void TextFinder::IncreaseMatchCount(int identifier, int count) {
 
   // Update the UI with the latest findings.
   OwnerFrame().GetFindInPage()->ReportFindInPageMatchCount(
-      identifier, total_match_count_, !frame_scoping_ || !total_match_count_);
+      identifier, total_match_count_, !frame_scoping_);
 }
 
 void TextFinder::ReportFindInPageSelection(const WebRect& selection_rect,

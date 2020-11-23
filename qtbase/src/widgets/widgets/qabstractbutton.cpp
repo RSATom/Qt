@@ -177,7 +177,7 @@ QAbstractButtonPrivate::QAbstractButtonPrivate(QSizePolicy::ControlType type)
     checkable(false), checked(false), autoRepeat(false), autoExclusive(false),
     down(false), blockRefresh(false), pressed(false),
 #if QT_CONFIG(buttongroup)
-    group(0),
+    group(nullptr),
 #endif
     autoRepeatDelay(AUTO_REPEAT_DELAY),
     autoRepeatInterval(AUTO_REPEAT_INTERVAL),
@@ -217,14 +217,14 @@ QAbstractButton *QAbstractButtonPrivate::queryCheckedButton() const
     Q_Q(const QAbstractButton);
     QList<QAbstractButton *> buttonList = queryButtonList();
     if (!autoExclusive || buttonList.count() == 1) // no group
-        return 0;
+        return nullptr;
 
     for (int i = 0; i < buttonList.count(); ++i) {
         QAbstractButton *b = buttonList.at(i);
         if (b->d_func()->checked && b != q)
             return b;
     }
-    return checked  ? const_cast<QAbstractButton *>(q) : 0;
+    return checked  ? const_cast<QAbstractButton *>(q) : nullptr;
 }
 
 void QAbstractButtonPrivate::notifyChecked()
@@ -246,7 +246,7 @@ void QAbstractButtonPrivate::notifyChecked()
 
 void QAbstractButtonPrivate::moveFocus(int key)
 {
-    QList<QAbstractButton *> buttonList = queryButtonList();;
+    QList<QAbstractButton *> buttonList = queryButtonList();
 #if QT_CONFIG(buttongroup)
     bool exclusive = group ? group->d_func()->exclusive : autoExclusive;
 #else
@@ -257,7 +257,7 @@ void QAbstractButtonPrivate::moveFocus(int key)
     if (!fb || !buttonList.contains(fb))
         return;
 
-    QAbstractButton *candidate = 0;
+    QAbstractButton *candidate = nullptr;
     int bestScore = -1;
     QRect target = f->rect().translated(f->mapToGlobal(QPoint(0,0)));
     QPoint goal = target.center();
@@ -266,7 +266,7 @@ void QAbstractButtonPrivate::moveFocus(int key)
     for (int i = 0; i < buttonList.count(); ++i) {
         QAbstractButton *button = buttonList.at(i);
         if (button != f && button->window() == f->window() && button->isEnabled() && !button->isHidden() &&
-            (autoExclusive || (button->focusPolicy() & focus_flag) == focus_flag)) {
+            (exclusive || (button->focusPolicy() & focus_flag) == focus_flag)) {
             QRect buttonRect = button->rect().translated(button->mapToGlobal(QPoint(0,0)));
             QPoint p = buttonRect.center();
 
@@ -415,7 +415,15 @@ void QAbstractButtonPrivate::emitClicked()
     emit q->clicked(checked);
 #if QT_CONFIG(buttongroup)
     if (guard && group) {
-        emit group->buttonClicked(group->id(q));
+        const int id = group->id(q);
+        emit group->idClicked(id);
+#if QT_DEPRECATED_SINCE(5, 15)
+QT_WARNING_PUSH
+QT_WARNING_DISABLE_DEPRECATED
+        if (guard && group)
+            emit group->buttonClicked(id);
+QT_WARNING_POP
+#endif
         if (guard && group)
             emit group->buttonClicked(q);
     }
@@ -429,7 +437,15 @@ void QAbstractButtonPrivate::emitPressed()
     emit q->pressed();
 #if QT_CONFIG(buttongroup)
     if (guard && group) {
-        emit group->buttonPressed(group->id(q));
+        const int id = group->id(q);
+        emit group->idPressed(id);
+#if QT_DEPRECATED_SINCE(5, 15)
+QT_WARNING_PUSH
+QT_WARNING_DISABLE_DEPRECATED
+        if (guard && group)
+            emit group->buttonPressed(id);
+QT_WARNING_POP
+#endif
         if (guard && group)
             emit group->buttonPressed(q);
     }
@@ -443,7 +459,15 @@ void QAbstractButtonPrivate::emitReleased()
     emit q->released();
 #if QT_CONFIG(buttongroup)
     if (guard && group) {
-        emit group->buttonReleased(group->id(q));
+        const int id = group->id(q);
+        emit group->idReleased(id);
+#if QT_DEPRECATED_SINCE(5, 15)
+QT_WARNING_PUSH
+QT_WARNING_DISABLE_DEPRECATED
+        if (guard && group)
+            emit group->buttonReleased(id);
+QT_WARNING_POP
+#endif
         if (guard && group)
             emit group->buttonReleased(q);
     }
@@ -457,7 +481,15 @@ void QAbstractButtonPrivate::emitToggled(bool checked)
     emit q->toggled(checked);
 #if QT_CONFIG(buttongroup)
     if (guard && group) {
-        emit group->buttonToggled(group->id(q), checked);
+        const int id = group->id(q);
+        emit group->idToggled(id, checked);
+#if QT_DEPRECATED_SINCE(5, 15)
+QT_WARNING_PUSH
+QT_WARNING_DISABLE_DEPRECATED
+        if (guard && group)
+            emit group->buttonToggled(id, checked);
+QT_WARNING_POP
+#endif
         if (guard && group)
             emit group->buttonToggled(q, checked);
     }
@@ -468,7 +500,7 @@ void QAbstractButtonPrivate::emitToggled(bool checked)
     Constructs an abstract button with a \a parent.
 */
 QAbstractButton::QAbstractButton(QWidget *parent)
-    : QWidget(*new QAbstractButtonPrivate, parent, 0)
+    : QWidget(*new QAbstractButtonPrivate, parent, { })
 {
     Q_D(QAbstractButton);
     d->init();
@@ -490,7 +522,7 @@ QAbstractButton::QAbstractButton(QWidget *parent)
 /*! \internal
  */
 QAbstractButton::QAbstractButton(QAbstractButtonPrivate &dd, QWidget *parent)
-    : QWidget(dd, parent, 0)
+    : QWidget(dd, parent, { })
 {
     Q_D(QAbstractButton);
     d->init();
@@ -1272,7 +1304,7 @@ QSize QAbstractButton::iconSize() const
     Q_D(const QAbstractButton);
     if (d->iconSize.isValid())
         return d->iconSize;
-    int e = style()->pixelMetric(QStyle::PM_ButtonIconSize, 0, this);
+    int e = style()->pixelMetric(QStyle::PM_ButtonIconSize, nullptr, this);
     return QSize(e, e);
 }
 

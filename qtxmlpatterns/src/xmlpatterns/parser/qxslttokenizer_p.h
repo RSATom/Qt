@@ -77,19 +77,20 @@ namespace QPatternist
     {
     public:
         inline SingleTokenContainer(const Tokenizer::Token &token,
-                                    const YYLTYPE &location);
+                                    const XPATHLTYPE &location);
 
-        virtual Tokenizer::Token nextToken(YYLTYPE *const sourceLocator);
+        virtual Tokenizer::Token nextToken(XPATHLTYPE *const sourceLocator);
     private:
         const Tokenizer::Token m_token;
-        const YYLTYPE          m_location;
+        const XPATHLTYPE       m_location;
         bool                   m_hasDelivered;
     };
 
     SingleTokenContainer::SingleTokenContainer(const Tokenizer::Token &token,
-                                               const YYLTYPE &location) : m_token(token)
-                                                                        , m_location(location)
-                                                                        , m_hasDelivered(false)
+                                               const XPATHLTYPE &location)
+        : m_token(token)
+        , m_location(location)
+        , m_hasDelivered(false)
     {
     }
 
@@ -117,7 +118,7 @@ namespace QPatternist
                       const ReportContext::Ptr &context,
                       const NamePool::Ptr &np);
 
-        virtual Token nextToken(YYLTYPE *const sourceLocator);
+        virtual Token nextToken(XPATHLTYPE *const sourceLocator);
 
         /**
          * For XSLT we don't need this mechanism, so we do nothing.
@@ -142,7 +143,7 @@ namespace QPatternist
     private:
         inline void validateElement() const;
 
-        YYLTYPE currentSourceLocator() const;
+        XPATHLTYPE currentSourceLocator() const;
 
         enum State
         {

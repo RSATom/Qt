@@ -10,6 +10,7 @@
 #include <vector>
 
 #include "base/macros.h"
+#include "base/observer_list.h"
 #include "base/optional.h"
 #include "components/sync_device_info/device_info_tracker.h"
 
@@ -41,10 +42,16 @@ class FakeDeviceInfoTracker : public DeviceInfoTracker {
   // actual number of devices in |devices_|.
   void OverrideActiveDeviceCount(int count);
 
+  // Marks an existing DeviceInfo entry as being on the local device.
+  void SetLocalCacheGuid(const std::string& cache_guid);
+
  private:
   // DeviceInfo stored here are not owned.
   std::vector<const DeviceInfo*> devices_;
+  std::string local_device_cache_guid_;
   base::Optional<int> active_device_count_;
+  // Registered observers, not owned.
+  base::ObserverList<Observer, true>::Unchecked observers_;
 
   DISALLOW_COPY_AND_ASSIGN(FakeDeviceInfoTracker);
 };

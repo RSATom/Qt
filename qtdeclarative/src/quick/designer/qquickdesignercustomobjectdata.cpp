@@ -192,7 +192,7 @@ void QQuickDesignerCustomObjectData::doResetProperty(QQmlContext *context, const
 
     QQmlAbstractBinding *binding = QQmlPropertyPrivate::binding(property);
     if (binding && !(hasValidResetBinding(propertyName) && getResetBinding(propertyName) == binding)) {
-        binding->setEnabled(false, nullptr);
+        binding->setEnabled(false, {});
     }
 
 
@@ -278,7 +278,7 @@ void QQuickDesignerCustomObjectData::setPropertyBinding(QQmlContext *context,
         //Refcounting is taking take care of deletion
         binding->update();
         if (binding->hasError()) {
-            if (property.property().userType() == QVariant::String)
+            if (property.property().userType() == QMetaType::QString)
                 property.write(QVariant(QLatin1Char('#') + expression + QLatin1Char('#')));
         }
 

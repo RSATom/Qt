@@ -14,6 +14,9 @@ namespace dbus {
 // Returns true if the specified string is a valid object path.
 CHROME_DBUS_EXPORT bool IsValidObjectPath(const std::string& value);
 
+// Returns true if the specified string is a valid element of a service name.
+CHROME_DBUS_EXPORT bool IsValidServiceNameElement(const std::string& value);
+
 }  // namespace dbus
 
 #endif  // DBUS_STRING_UTIL_H_

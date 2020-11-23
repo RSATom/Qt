@@ -55,6 +55,7 @@
 #include "qquickjumplistitem_p.h"
 
 #include <QObject>
+#include <QVector>
 #include <QQmlListProperty>
 #include <QWinJumpListCategory>
 #include <QWinJumpListItem>
@@ -97,7 +98,7 @@ private:
 
     bool m_visible = true;
     QString m_title;
-    QList<QQuickJumpListItem *> m_items;
+    QVector<QQuickJumpListItem *> m_items;
 };
 
 QT_END_NAMESPACE

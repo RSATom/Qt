@@ -42,16 +42,13 @@ class VirtualFidoDeviceFactory : public device::FidoDiscoveryFactory {
   std::unique_ptr<FidoDiscoveryBase> Create(
       FidoTransportProtocol transport,
       ::service_manager::Connector* connector) override;
-  // Instantiates a FidoDiscovery for caBLE.
-  std::unique_ptr<FidoDiscoveryBase> CreateCable(
-      std::vector<CableDiscoveryData> cable_data) override;
 
  private:
   ProtocolVersion supported_protocol_ = ProtocolVersion::kU2f;
   FidoTransportProtocol transport_ =
       FidoTransportProtocol::kUsbHumanInterfaceDevice;
   VirtualCtap2Device::Config ctap2_config_;
-  scoped_refptr<VirtualFidoDevice::State> state_;
+  scoped_refptr<VirtualFidoDevice::State> state_ = new VirtualFidoDevice::State;
   DISALLOW_COPY_AND_ASSIGN(VirtualFidoDeviceFactory);
 };
 

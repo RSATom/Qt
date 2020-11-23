@@ -278,10 +278,15 @@ public:
     Q_ENUM(TabletDevice)
     enum PointerType { UnknownPointer, Pen, Cursor, Eraser };
     Q_ENUM(PointerType)
+
+#if QT_DEPRECATED_SINCE(5, 15)
+    // Actually deprecated since 5.4, in docs
+    QT_DEPRECATED_VERSION_X_5_15("Use the other QTabletEvent constructor")
     QTabletEvent(Type t, const QPointF &pos, const QPointF &globalPos,
                  int device, int pointerType, qreal pressure, int xTilt, int yTilt,
                  qreal tangentialPressure, qreal rotation, int z,
                  Qt::KeyboardModifiers keyState, qint64 uniqueID); // ### remove in Qt 6
+#endif
     QTabletEvent(Type t, const QPointF &pos, const QPointF &globalPos,
                  int device, int pointerType, qreal pressure, int xTilt, int yTilt,
                  qreal tangentialPressure, qreal rotation, int z,
@@ -302,9 +307,15 @@ public:
     inline int y() const { return qRound(mPos.y()); }
     inline int globalX() const { return qRound(mGPos.x()); }
     inline int globalY() const { return qRound(mGPos.y()); }
+#if QT_DEPRECATED_SINCE(5, 15)
+    QT_DEPRECATED_VERSION_X_5_15("use globalPosF().x()")
     inline qreal hiResGlobalX() const { return mGPos.x(); }
+    QT_DEPRECATED_VERSION_X_5_15("use globalPosF().y()")
     inline qreal hiResGlobalY() const { return mGPos.y(); }
+    QT_DEPRECATED_VERSION_X_5_15("Use deviceType()")
     inline TabletDevice device() const { return TabletDevice(mDev); }
+#endif
+    inline TabletDevice deviceType() const { return TabletDevice(mDev); }
     inline PointerType pointerType() const { return PointerType(mPointerType); }
     inline qint64 uniqueId() const { return mUnique; }
     inline qreal pressure() const { return mPress; }
@@ -922,10 +933,23 @@ public:
         QPointF startNormalizedPos() const;
         QPointF lastNormalizedPos() const;
 
+#if QT_DEPRECATED_SINCE(5, 15)
+        // All these are actually deprecated since 5.9, in docs
+        QT_DEPRECATED_VERSION_X_5_15("Use pos() and ellipseDiameters()")
         QRectF rect() const;
+        QT_DEPRECATED_VERSION_X_5_15("Use scenePos() and ellipseDiameters()")
         QRectF sceneRect() const;
+        QT_DEPRECATED_VERSION_X_5_15("Use screenPos() and ellipseDiameters()")
         QRectF screenRect() const;
 
+        // internal
+        QT_DEPRECATED_VERSION_X_5_15("Use setPos() and setEllipseDiameters()")
+        void setRect(const QRectF &rect); // deprecated
+        QT_DEPRECATED_VERSION_X_5_15("Use setScenePos() and setEllipseDiameters()")
+        void setSceneRect(const QRectF &sceneRect); // deprecated
+        QT_DEPRECATED_VERSION_X_5_15("Use setScreenPos() and setEllipseDiameters()")
+        void setScreenRect(const QRectF &screenRect); // deprecated
+#endif
         qreal pressure() const;
         qreal rotation() const;
         QSizeF ellipseDiameters() const;
@@ -950,9 +974,6 @@ public:
         void setLastScenePos(const QPointF &lastScenePos);
         void setLastScreenPos(const QPointF &lastScreenPos);
         void setLastNormalizedPos(const QPointF &lastNormalizedPos);
-        void setRect(const QRectF &rect); // deprecated
-        void setSceneRect(const QRectF &sceneRect); // deprecated
-        void setScreenRect(const QRectF &screenRect); // deprecated
         void setPressure(qreal pressure);
         void setRotation(qreal angle);
         void setEllipseDiameters(const QSizeF &dia);

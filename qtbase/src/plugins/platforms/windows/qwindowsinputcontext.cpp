@@ -160,7 +160,6 @@ Q_CORE_EXPORT QLocale qt_localeFromLCID(LCID id); // from qlocale_win.cpp
     needs to be checked (mouse grab might interfere with candidate window).
 
     \internal
-    \ingroup qt-lighthouse-win
 */
 
 
@@ -285,7 +284,8 @@ void QWindowsInputContext::showInputPanel()
         // the Surface seems unnecessary there anyway. But leave it hidden for IME.
         // Only trigger the native OSK if the Qt OSK is not in use.
         static bool imModuleEmpty = qEnvironmentVariableIsEmpty("QT_IM_MODULE");
-        if (imModuleEmpty
+        bool nativeVKDisabled = QCoreApplication::testAttribute(Qt::AA_DisableNativeVirtualKeyboard);
+        if ((imModuleEmpty && !nativeVKDisabled)
                 && QOperatingSystemVersion::current()
                     >= QOperatingSystemVersion(QOperatingSystemVersion::Windows, 10, 0, 16299)) {
             ShowCaret(platformWindow->handle());

@@ -148,8 +148,7 @@ struct QByteArrayDataPtr
             Q_STATIC_BYTE_ARRAY_DATA_HEADER_INITIALIZER(Size), \
             str }; \
         QByteArrayDataPtr holder = { qbytearray_literal.data_ptr() }; \
-        const QByteArray ba(holder); \
-        return ba; \
+        return QByteArray(holder); \
     }()) \
     /**/
 
@@ -164,9 +163,19 @@ public:
         Base64UrlEncoding = 1,
 
         KeepTrailingEquals = 0,
-        OmitTrailingEquals = 2
+        OmitTrailingEquals = 2,
+
+        IgnoreBase64DecodingErrors = 0,
+        AbortOnBase64DecodingErrors = 4,
     };
     Q_DECLARE_FLAGS(Base64Options, Base64Option)
+
+    enum class Base64DecodingStatus {
+        Ok,
+        IllegalInputLength,
+        IllegalCharacter,
+        IllegalPadding,
+    };
 
     inline QByteArray() noexcept;
     QByteArray(const char *, int size = -1);
@@ -230,8 +239,8 @@ public:
     int count(const char *a) const;
     int count(const QByteArray &a) const;
 
-    inline int compare(const char *c, Qt::CaseSensitivity cs = Qt::CaseSensitive) const;
-    inline int compare(const QByteArray &a, Qt::CaseSensitivity cs = Qt::CaseSensitive) const;
+    inline int compare(const char *c, Qt::CaseSensitivity cs = Qt::CaseSensitive) const noexcept;
+    inline int compare(const QByteArray &a, Qt::CaseSensitivity cs = Qt::CaseSensitive) const noexcept;
 
     Q_REQUIRED_RESULT QByteArray left(int len) const;
     Q_REQUIRED_RESULT QByteArray right(int len) const;
@@ -325,24 +334,32 @@ public:
 
     Q_REQUIRED_RESULT QByteArray repeated(int times) const;
 
-#ifndef QT_NO_CAST_TO_ASCII
-    QT_ASCII_CAST_WARN QByteArray &append(const QString &s);
-    QT_ASCII_CAST_WARN QByteArray &insert(int i, const QString &s);
-    QT_ASCII_CAST_WARN QByteArray &replace(const QString &before, const char *after);
-    QT_ASCII_CAST_WARN QByteArray &replace(char c, const QString &after);
-    QT_ASCII_CAST_WARN QByteArray &replace(const QString &before, const QByteArray &after);
+#if !defined(QT_NO_CAST_TO_ASCII) && QT_DEPRECATED_SINCE(5, 15)
+    QT_DEPRECATED_VERSION_X_5_15("Use QString's toUtf8(), toLatin1() or toLocal8Bit()")
+    QByteArray &append(const QString &s);
+    QT_DEPRECATED_VERSION_X_5_15("Use QString's toUtf8(), toLatin1() or toLocal8Bit()")
+    QByteArray &insert(int i, const QString &s);
+    QT_DEPRECATED_VERSION_X_5_15("Use QString's toUtf8(), toLatin1() or toLocal8Bit()")
+    QByteArray &replace(const QString &before, const char *after);
+    QT_DEPRECATED_VERSION_X_5_15("Use QString's toUtf8(), toLatin1() or toLocal8Bit()")
+    QByteArray &replace(char c, const QString &after);
+    QT_DEPRECATED_VERSION_X_5_15("Use QString's toUtf8(), toLatin1() or toLocal8Bit()")
+    QByteArray &replace(const QString &before, const QByteArray &after);
 
-    QT_ASCII_CAST_WARN QByteArray &operator+=(const QString &s);
-    QT_ASCII_CAST_WARN int indexOf(const QString &s, int from = 0) const;
-    QT_ASCII_CAST_WARN int lastIndexOf(const QString &s, int from = -1) const;
+    QT_DEPRECATED_VERSION_X_5_15("Use QString's toUtf8(), toLatin1() or toLocal8Bit()")
+    QByteArray &operator+=(const QString &s);
+    QT_DEPRECATED_VERSION_X_5_15("Use QString's toUtf8(), toLatin1() or toLocal8Bit()")
+    int indexOf(const QString &s, int from = 0) const;
+    QT_DEPRECATED_VERSION_X_5_15("Use QString's toUtf8(), toLatin1() or toLocal8Bit()")
+    int lastIndexOf(const QString &s, int from = -1) const;
 #endif
 #if !defined(QT_NO_CAST_FROM_ASCII) && !defined(QT_RESTRICTED_CAST_FROM_ASCII)
-    inline QT_ASCII_CAST_WARN bool operator==(const QString &s2) const;
-    inline QT_ASCII_CAST_WARN bool operator!=(const QString &s2) const;
-    inline QT_ASCII_CAST_WARN bool operator<(const QString &s2) const;
-    inline QT_ASCII_CAST_WARN bool operator>(const QString &s2) const;
-    inline QT_ASCII_CAST_WARN bool operator<=(const QString &s2) const;
-    inline QT_ASCII_CAST_WARN bool operator>=(const QString &s2) const;
+    inline bool operator==(const QString &s2) const;
+    inline bool operator!=(const QString &s2) const;
+    inline bool operator<(const QString &s2) const;
+    inline bool operator>(const QString &s2) const;
+    inline bool operator<=(const QString &s2) const;
+    inline bool operator>=(const QString &s2) const;
 #endif
 
     short toShort(bool *ok = nullptr, int base = 10) const;
@@ -379,6 +396,10 @@ public:
     Q_REQUIRED_RESULT static QByteArray number(qulonglong, int base = 10);
     Q_REQUIRED_RESULT static QByteArray number(double, char f = 'g', int prec = 6);
     Q_REQUIRED_RESULT static QByteArray fromRawData(const char *, int size);
+
+    class FromBase64Result;
+    Q_REQUIRED_RESULT static FromBase64Result fromBase64Encoding(QByteArray &&base64, Base64Options options = Base64Encoding);
+    Q_REQUIRED_RESULT static FromBase64Result fromBase64Encoding(const QByteArray &base64, Base64Options options = Base64Encoding);
     Q_REQUIRED_RESULT static QByteArray fromBase64(const QByteArray &base64, Base64Options options);
     Q_REQUIRED_RESULT static QByteArray fromBase64(const QByteArray &base64); // ### Qt6 merge with previous
     Q_REQUIRED_RESULT static QByteArray fromHex(const QByteArray &hexEncoded);
@@ -555,6 +576,7 @@ QByteRef {  // ### Qt 7: remove
         : a(array),i(idx) {}
     friend class QByteArray;
 public:
+    QByteRef(const QByteRef &) = default;
     inline operator char() const
     {
         using namespace QtPrivate::DeprecatedRefClassBehavior;
@@ -649,12 +671,12 @@ inline bool QByteArray::contains(const QByteArray &a) const
 { return indexOf(a) != -1; }
 inline bool QByteArray::contains(char c) const
 { return indexOf(c) != -1; }
-inline int QByteArray::compare(const char *c, Qt::CaseSensitivity cs) const
+inline int QByteArray::compare(const char *c, Qt::CaseSensitivity cs) const noexcept
 {
     return cs == Qt::CaseSensitive ? qstrcmp(*this, c) :
                                      qstrnicmp(data(), size(), c, -1);
 }
-inline int QByteArray::compare(const QByteArray &a, Qt::CaseSensitivity cs) const
+inline int QByteArray::compare(const QByteArray &a, Qt::CaseSensitivity cs) const noexcept
 {
     return cs == Qt::CaseSensitive ? qstrcmp(*this, a) :
                                      qstrnicmp(data(), size(), a.data(), a.size());
@@ -748,6 +770,50 @@ inline QByteArray qUncompress(const QByteArray& data)
 #endif
 
 Q_DECLARE_SHARED(QByteArray)
+
+class QByteArray::FromBase64Result
+{
+public:
+    QByteArray decoded;
+    QByteArray::Base64DecodingStatus decodingStatus;
+
+    void swap(QByteArray::FromBase64Result &other) noexcept
+    {
+        qSwap(decoded, other.decoded);
+        qSwap(decodingStatus, other.decodingStatus);
+    }
+
+    explicit operator bool() const noexcept { return decodingStatus == QByteArray::Base64DecodingStatus::Ok; }
+
+#if defined(Q_COMPILER_REF_QUALIFIERS) && !defined(Q_QDOC)
+    QByteArray &operator*() & noexcept { return decoded; }
+    const QByteArray &operator*() const & noexcept { return decoded; }
+    QByteArray &&operator*() && noexcept { return std::move(decoded); }
+#else
+    QByteArray &operator*() noexcept { return decoded; }
+    const QByteArray &operator*() const noexcept { return decoded; }
+#endif
+};
+
+Q_DECLARE_SHARED(QByteArray::FromBase64Result)
+
+inline bool operator==(const QByteArray::FromBase64Result &lhs, const QByteArray::FromBase64Result &rhs) noexcept
+{
+    if (lhs.decodingStatus != rhs.decodingStatus)
+        return false;
+
+    if (lhs.decodingStatus == QByteArray::Base64DecodingStatus::Ok && lhs.decoded != rhs.decoded)
+        return false;
+
+    return true;
+}
+
+inline bool operator!=(const QByteArray::FromBase64Result &lhs, const QByteArray::FromBase64Result &rhs) noexcept
+{
+    return !operator==(lhs, rhs);
+}
+
+Q_CORE_EXPORT Q_DECL_PURE_FUNCTION uint qHash(const QByteArray::FromBase64Result &key, uint seed = 0) noexcept;
 
 QT_END_NAMESPACE
 

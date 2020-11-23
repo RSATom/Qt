@@ -20,15 +20,15 @@ import {
   LogEntriesKey,
   LogExistsKey
 } from '../common/logs';
-import {fromNs, TimeSpan} from '../common/time';
+import {fromNs, TimeSpan, toNsCeil, toNsFloor} from '../common/time';
 
 import {Controller} from './controller';
 import {App} from './globals';
 
 async function updateLogBounds(
     engine: Engine, span: TimeSpan): Promise<LogBounds> {
-  const vizStartNs = Math.floor(span.start * 1e9);
-  const vizEndNs = Math.ceil(span.end * 1e9);
+  const vizStartNs = toNsFloor(span.start);
+  const vizEndNs = toNsCeil(span.end);
 
   const countResult = await engine.queryOneRow(`
      select min(ts), max(ts), count(ts)
@@ -63,8 +63,8 @@ async function updateLogBounds(
 async function updateLogEntries(
     engine: Engine, span: TimeSpan, pagination: Pagination):
     Promise<LogEntries> {
-  const vizStartNs = Math.floor(span.start * 1e9);
-  const vizEndNs = Math.ceil(span.end * 1e9);
+  const vizStartNs = toNsFloor(span.start);
+  const vizEndNs = toNsCeil(span.end);
   const vizSqlBounds = `ts >= ${vizStartNs} and ts <= ${vizEndNs}`;
 
   const rowsResult =
@@ -147,6 +147,7 @@ export class LogsController extends Controller<'main'> {
   private engine: Engine;
   private span: TimeSpan;
   private pagination: Pagination;
+  private hasLogs = false;
 
   constructor(args: LogsControllerArgs) {
     super('main');
@@ -154,24 +155,28 @@ export class LogsController extends Controller<'main'> {
     this.engine = args.engine;
     this.span = new TimeSpan(0, 10);
     this.pagination = new Pagination(0, 0);
-    this.publishHasAnyLogs();
-  }
-
-  async publishHasAnyLogs() {
-    const result = await this.engine.queryOneRow(`
-      select count(*) from android_logs
-    `);
-    const exists = result[0] > 0;
-    this.app.publish('TrackData', {
-      id: LogExistsKey,
-      data: {
-        exists,
-      },
+    this.hasAnyLogs().then(exists => {
+      this.hasLogs = exists;
+      this.app.publish('TrackData', {
+        id: LogExistsKey,
+        data: {
+          exists,
+        },
+      });
     });
   }
 
+  async hasAnyLogs() {
+    const result = await this.engine.queryOneRow(`
+      select count(*) from android_logs
+    `);
+    return result[0] > 0;
+  }
+
   run() {
-    const traceTime = this.app.state.frontendLocalState.visibleTraceTime;
+    if (!this.hasLogs) return;
+
+    const traceTime = this.app.state.frontendLocalState.visibleState;
     const newSpan = new TimeSpan(traceTime.startSec, traceTime.endSec);
     const oldSpan = this.span;
 

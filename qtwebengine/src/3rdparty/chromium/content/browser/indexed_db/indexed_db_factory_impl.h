@@ -11,6 +11,7 @@
 #include <set>
 #include <tuple>
 #include <utility>
+#include <vector>
 
 #include "base/callback.h"
 #include "base/containers/flat_map.h"
@@ -18,14 +19,16 @@
 #include "base/macros.h"
 #include "base/memory/weak_ptr.h"
 #include "base/sequence_checker.h"
+#include "base/strings/string16.h"
 #include "base/time/clock.h"
 #include "base/time/time.h"
+#include "components/services/storage/indexed_db/scopes/leveldb_scopes_factory.h"
 #include "content/browser/indexed_db/indexed_db_backing_store.h"
 #include "content/browser/indexed_db/indexed_db_data_loss_info.h"
 #include "content/browser/indexed_db/indexed_db_database_error.h"
 #include "content/browser/indexed_db/indexed_db_factory.h"
 #include "content/browser/indexed_db/indexed_db_origin_state_handle.h"
-#include "content/browser/indexed_db/leveldb/leveldb_env.h"
+#include "content/browser/indexed_db/indexed_db_task_helper.h"
 #include "third_party/leveldatabase/src/include/leveldb/status.h"
 #include "url/origin.h"
 
@@ -38,6 +41,7 @@ class Origin;
 }
 
 namespace content {
+class TransactionalLevelDBFactory;
 class TransactionalLevelDBDatabase;
 class IndexedDBClassFactory;
 class IndexedDBContextImpl;
@@ -47,7 +51,6 @@ class IndexedDBOriginState;
 class CONTENT_EXPORT IndexedDBFactoryImpl : public IndexedDBFactory {
  public:
   IndexedDBFactoryImpl(IndexedDBContextImpl* context,
-                       indexed_db::LevelDBFactory* leveldb_factory,
                        IndexedDBClassFactory* indexed_db_class_factory,
                        base::Clock* clock);
   ~IndexedDBFactoryImpl() override;
@@ -128,16 +131,24 @@ class CONTENT_EXPORT IndexedDBFactoryImpl : public IndexedDBFactory {
              IndexedDBDataLossInfo,
              /*was_cold_open=*/bool>
   GetOrOpenOriginFactory(const url::Origin& origin,
-                         const base::FilePath& data_directory);
+                         const base::FilePath& data_directory,
+                         bool create_if_missing);
+
+  void OnDatabaseError(const url::Origin& origin,
+                       leveldb::Status s,
+                       const char* message);
 
  protected:
   // Used by unittests to allow subclassing of IndexedDBBackingStore.
   virtual std::unique_ptr<IndexedDBBackingStore> CreateBackingStore(
       IndexedDBBackingStore::Mode backing_store_mode,
-      indexed_db::LevelDBFactory* leveldb_factory,
+      TransactionalLevelDBFactory* leveldb_factory,
       const url::Origin& origin,
       const base::FilePath& blob_path,
       std::unique_ptr<TransactionalLevelDBDatabase> db,
+      IndexedDBBackingStore::BlobFilesCleanedCallback blob_files_cleaned,
+      IndexedDBBackingStore::ReportOutstandingBlobsCallback
+          report_outstanding_blobs,
       base::SequencedTaskRunner* task_runner);
 
   IndexedDBContextImpl* context() const { return context_; }
@@ -176,16 +187,18 @@ class CONTENT_EXPORT IndexedDBFactoryImpl : public IndexedDBFactory {
                                      base::FilePath data_directory,
                                      base::FilePath database_path,
                                      base::FilePath blob_path,
-                                     bool is_first_attempt);
+                                     LevelDBScopesOptions scopes_options,
+                                     LevelDBScopesFactory* scopes_factory,
+                                     bool is_first_attempt,
+                                     bool create_if_missing);
 
   void RemoveOriginState(const url::Origin& origin);
 
-  void OnDatabaseError(const url::Origin& origin,
-                       leveldb::Status s,
-                       const char* message);
-
   // Called when the database has been deleted on disk.
   void OnDatabaseDeleted(const url::Origin& origin);
+
+  void MaybeRunTasksForOrigin(const url::Origin& origin);
+  void RunTasksForOrigin(base::WeakPtr<IndexedDBOriginState> origin_state);
 
   // Testing helpers, so unit tests don't need to grovel through internal
   // state.
@@ -195,9 +208,9 @@ class CONTENT_EXPORT IndexedDBFactoryImpl : public IndexedDBFactory {
   bool IsBackingStorePendingClose(const url::Origin& origin) const;
 
   SEQUENCE_CHECKER(sequence_checker_);
+  // Raw pointer is safe because IndexedDBContextImpl owns this object.
   IndexedDBContextImpl* context_;
-  indexed_db::LevelDBFactory* const leveldb_factory_;
-  IndexedDBClassFactory* const indexed_db_class_factory_;
+  IndexedDBClassFactory* const class_factory_;
   base::Clock* const clock_;
   base::Time earliest_sweep_;
 

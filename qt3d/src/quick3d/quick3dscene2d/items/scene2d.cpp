@@ -45,12 +45,12 @@
 #include <QtCore/qthread.h>
 #include <QtCore/qatomic.h>
 #include <QtGui/qevent.h>
+#include <QtGui/QOpenGLFunctions>
 
 #include <private/qscene2d_p.h>
 #include <private/scene2d_p.h>
 #include <private/scene2dmanager_p.h>
 #include <private/scene2devent_p.h>
-#include <private/graphicscontext_p.h>
 #include <private/texture_p.h>
 #include <private/nodemanagers_p.h>
 #include <private/resourceaccessor_p.h>
@@ -193,7 +193,7 @@ void Scene2D::syncFromFrontEnd(const Qt3DCore::QNode *frontEnd, bool firstTime)
     if (id != m_outputId)
         setOutput(id);
 
-    auto ids = Qt3DCore::qIdsForNodes(const_cast<QScene2D *>(node)->entities());
+    auto ids = Qt3DCore::qIdsForNodes(node->entities());
     std::sort(std::begin(ids), std::end(ids));
     Qt3DCore::QNodeIdVector addedEntities;
     Qt3DCore::QNodeIdVector removedEntities;

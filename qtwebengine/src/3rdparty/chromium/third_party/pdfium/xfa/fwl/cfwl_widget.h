@@ -11,14 +11,22 @@
 
 #include "core/fxcrt/fx_coordinates.h"
 #include "core/fxcrt/fx_system.h"
+#include "core/fxcrt/observed_ptr.h"
 #include "core/fxcrt/unowned_ptr.h"
 #include "xfa/fde/cfde_data.h"
-#include "xfa/fwl/cfwl_event.h"
 #include "xfa/fwl/cfwl_themepart.h"
 #include "xfa/fwl/cfwl_widgetmgr.h"
 #include "xfa/fwl/cfwl_widgetproperties.h"
 #include "xfa/fwl/fwl_widgethit.h"
 #include "xfa/fwl/ifwl_widgetdelegate.h"
+
+class CFWL_App;
+class CFWL_AppImp;
+class CFWL_Event;
+class CFWL_MessageKey;
+class CFWL_Widget;
+class CFWL_WidgetMgr;
+class IFWL_ThemeProvider;
 
 enum class FWL_Type {
   Unknown = 0,
@@ -40,15 +48,8 @@ enum class FWL_Type {
   ToolTip
 };
 
-class CFWL_App;
-class CFWL_AppImp;
-class CFWL_MessageKey;
-class CFWL_Widget;
-class CFWL_WidgetMgr;
-class IFWL_ThemeProvider;
-
 // NOTE: CFWL_Widget serves as its own delegate until replaced at runtime.
-class CFWL_Widget : public IFWL_WidgetDelegate {
+class CFWL_Widget : public Observable, public IFWL_WidgetDelegate {
  public:
   class AdapterIface {
    public:
@@ -56,6 +57,15 @@ class CFWL_Widget : public IFWL_WidgetDelegate {
     virtual CFX_Matrix GetRotateMatrix() = 0;
     virtual void DisplayCaret(bool bVisible, const CFX_RectF* pRtAnchor) = 0;
     virtual void GetBorderColorAndThickness(FX_ARGB* cr, float* fWidth) = 0;
+  };
+
+  class ScopedUpdateLock {
+   public:
+    explicit ScopedUpdateLock(CFWL_Widget* widget);
+    ~ScopedUpdateLock();
+
+   private:
+    UnownedPtr<CFWL_Widget> const widget_;
   };
 
   ~CFWL_Widget() override;
@@ -98,12 +108,6 @@ class CFWL_Widget : public IFWL_WidgetDelegate {
   void ModifyStyles(uint32_t dwStylesAdded, uint32_t dwStylesRemoved);
   uint32_t GetStylesEx() const;
   uint32_t GetStates() const;
-
-  void LockUpdate() { m_iLock++; }
-  void UnlockUpdate() {
-    if (IsLocked())
-      m_iLock--;
-  }
 
   CFX_PointF TransformTo(CFWL_Widget* pWidget, const CFX_PointF& point);
   CFX_Matrix GetMatrix() const;
@@ -165,6 +169,12 @@ class CFWL_Widget : public IFWL_WidgetDelegate {
   int32_t m_iLock = 0;
 
  private:
+  void LockUpdate() { m_iLock++; }
+  void UnlockUpdate() {
+    if (IsLocked())
+      m_iLock--;
+  }
+
   CFWL_Widget* GetParent() const { return m_pWidgetMgr->GetParentWidget(this); }
   CFX_SizeF GetOffsetFromParent(CFWL_Widget* pParent);
   void DrawBackground(CXFA_Graphics* pGraphics,

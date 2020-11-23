@@ -186,9 +186,9 @@ class TaskRunnerWithCap : public base::TaskRunner {
   }
 
   const scoped_refptr<base::TaskRunner> task_runner_ =
-      base::CreateTaskRunnerWithTraits(
-          {base::MayBlock(), base::TaskShutdownBehavior::CONTINUE_ON_SHUTDOWN,
-           base::TaskPriority::USER_VISIBLE});
+      base::CreateTaskRunner({base::ThreadPool(), base::MayBlock(),
+                              base::TaskShutdownBehavior::CONTINUE_ON_SHUTDOWN,
+                              base::TaskPriority::USER_VISIBLE});
 
   // Synchronizes access to members below.
   base::Lock lock_;
@@ -223,7 +223,7 @@ base::Value NetLogGetAdaptersDoneParams(DhcpAdapterNamesLoggingInfo* info) {
     bool skipped = !IsDhcpCapableAdapter(adapter);
     adapter_value.SetKey("skipped", base::Value(skipped));
 
-    adapters_value.GetList().push_back(std::move(adapter_value));
+    adapters_value.Append(std::move(adapter_value));
   }
   result.SetKey("adapters", std::move(adapters_value));
 

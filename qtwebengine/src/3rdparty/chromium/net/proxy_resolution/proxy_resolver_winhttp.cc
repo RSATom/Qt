@@ -42,7 +42,7 @@ static Error WinHttpErrorToNetError(DWORD win_http_error) {
     case ERROR_WINHTTP_OPERATION_CANCELLED:
     case ERROR_WINHTTP_UNABLE_TO_DOWNLOAD_SCRIPT:
     case ERROR_WINHTTP_UNRECOGNIZED_SCHEME:
-      return ERR_PAC_STATUS_NOT_OK;
+      return ERR_HTTP_RESPONSE_CODE_FAILURE;
     case ERROR_NOT_ENOUGH_MEMORY:
       return ERR_INSUFFICIENT_RESOURCES;
     default:
@@ -57,6 +57,7 @@ class ProxyResolverWinHttp : public ProxyResolver {
 
   // ProxyResolver implementation:
   int GetProxyForURL(const GURL& url,
+                     const NetworkIsolationKey& network_isolation_key,
                      ProxyInfo* results,
                      CompletionOnceCallback /*callback*/,
                      std::unique_ptr<Request>* /*request*/,
@@ -85,11 +86,13 @@ ProxyResolverWinHttp::~ProxyResolverWinHttp() {
   CloseWinHttpSession();
 }
 
-int ProxyResolverWinHttp::GetProxyForURL(const GURL& query_url,
-                                         ProxyInfo* results,
-                                         CompletionOnceCallback /*callback*/,
-                                         std::unique_ptr<Request>* /*request*/,
-                                         const NetLogWithSource& /*net_log*/) {
+int ProxyResolverWinHttp::GetProxyForURL(
+    const GURL& query_url,
+    const NetworkIsolationKey& network_isolation_key,
+    ProxyInfo* results,
+    CompletionOnceCallback /*callback*/,
+    std::unique_ptr<Request>* /*request*/,
+    const NetLogWithSource& /*net_log*/) {
   // If we don't have a WinHTTP session, then create a new one.
   if (!session_handle_ && !OpenWinHttpSession())
     return ERR_FAILED;

@@ -36,42 +36,40 @@ namespace android {
 class PaymentHandlerHost : public payments::PaymentHandlerHost::Delegate {
  public:
   // The |delegate| must implement PaymentHandlerHostDelegate from
-  // PaymentHandlerHost.java.
-  explicit PaymentHandlerHost(
-      const base::android::JavaParamRef<jobject>& delegate);
+  // PaymentHandlerHost.java. The |web_contents| should be from the same browser
+  // context as the payment handler and are used for logging in developr tools.
+  PaymentHandlerHost(const base::android::JavaParamRef<jobject>& web_contents,
+                     const base::android::JavaParamRef<jobject>& delegate);
   ~PaymentHandlerHost() override;
 
-  // Checks whether the payment method change is currently in progress.
-  jboolean IsChangingPaymentMethod(
-      JNIEnv* env,
-      const base::android::JavaParamRef<jobject>& caller) const;
+  // Checks whether any payment method, shipping address or shipping option
+  // change is currently in progress.
+  jboolean IsWaitingForPaymentDetailsUpdate(JNIEnv* env) const;
 
   // Returns the pointer to the payments::PaymentHandlerHost for binding to its
   // IPC endpoint in service_worker_payment_app_bridge.cc.
-  jlong GetNativePaymentHandlerHost(
-      JNIEnv* env,
-      const base::android::JavaParamRef<jobject>& caller);
+  jlong GetNativePaymentHandlerHost(JNIEnv* env);
 
   // Destroys this object.
-  void Destroy(JNIEnv* env, const base::android::JavaParamRef<jobject>& caller);
+  void Destroy(JNIEnv* env);
 
   // Notifies the payment handler that the merchant has updated the payment
   // details. The |response_buffer| should be a serialization of a valid
-  // PaymentMethodChangeResponse.java object.
+  // PaymentRequestDetailsUpdate.java object.
   void UpdateWith(JNIEnv* env,
-                  const base::android::JavaParamRef<jobject>& caller,
                   const base::android::JavaParamRef<jobject>& response_buffer);
 
   // Notifies the payment handler that the merchant ignored the payment
   // method change event.
-  void NoUpdatedPaymentDetails(
-      JNIEnv* env,
-      const base::android::JavaParamRef<jobject>& caller);
+  void OnPaymentDetailsNotUpdated(JNIEnv* env);
 
  private:
   // PaymentHandlerHost::Delegate implementation:
   bool ChangePaymentMethod(const std::string& method_name,
                            const std::string& stringified_data) override;
+  bool ChangeShippingOption(const std::string& shipping_option_id) override;
+  bool ChangeShippingAddress(
+      mojom::PaymentAddressPtr shipping_address) override;
 
   base::android::ScopedJavaGlobalRef<jobject> delegate_;
   payments::PaymentHandlerHost payment_handler_host_;

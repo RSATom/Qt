@@ -25,7 +25,6 @@
 #include "components/cast_channel/cast_socket_service.h"
 #include "components/cast_channel/keep_alive_delegate.h"
 #include "components/cast_channel/logger.h"
-#include "components/cast_channel/proto/cast_channel.pb.h"
 #include "content/public/browser/browser_task_traits.h"
 #include "content/public/browser/browser_thread.h"
 #include "extensions/browser/api/cast_channel/cast_channel_enum_util.h"
@@ -36,6 +35,7 @@
 #include "net/base/ip_address.h"
 #include "net/base/ip_endpoint.h"
 #include "net/base/net_errors.h"
+#include "third_party/openscreen/src/cast/common/channel/proto/cast_channel.pb.h"
 
 // Default timeout interval for connection setup.
 // Used if not otherwise specified at ConnectInfo::timeout.
@@ -52,12 +52,12 @@ using api::cast_channel::ChannelInfo;
 using api::cast_channel::ConnectInfo;
 using api::cast_channel::ErrorInfo;
 using api::cast_channel::MessageInfo;
-using cast_channel::ChannelError;
+using cast::channel::CastMessage;
 using cast_channel::CastDeviceCapability;
-using cast_channel::CastMessage;
 using cast_channel::CastSocket;
 using cast_channel::CastSocketImpl;
 using cast_channel::CastTransport;
+using cast_channel::ChannelError;
 using cast_channel::KeepAliveDelegate;
 using cast_channel::LastError;
 using cast_channel::Logger;
@@ -515,8 +515,8 @@ void CastChannelAPI::CastMessageHandler::OnError(
       OnError::Create(channel_info, error_info);
   std::unique_ptr<Event> event(new Event(
       events::CAST_CHANNEL_ON_ERROR, OnError::kEventName, std::move(results)));
-  base::PostTaskWithTraits(FROM_HERE, {BrowserThread::UI},
-                           base::BindOnce(ui_dispatch_cb_, std::move(event)));
+  base::PostTask(FROM_HERE, {BrowserThread::UI},
+                 base::BindOnce(ui_dispatch_cb_, std::move(event)));
 }
 
 void CastChannelAPI::CastMessageHandler::OnMessage(
@@ -536,8 +536,8 @@ void CastChannelAPI::CastMessageHandler::OnMessage(
   std::unique_ptr<Event> event(new Event(events::CAST_CHANNEL_ON_MESSAGE,
                                          OnMessage::kEventName,
                                          std::move(results)));
-  base::PostTaskWithTraits(FROM_HERE, {BrowserThread::UI},
-                           base::BindOnce(ui_dispatch_cb_, std::move(event)));
+  base::PostTask(FROM_HERE, {BrowserThread::UI},
+                 base::BindOnce(ui_dispatch_cb_, std::move(event)));
 }
 
 }  // namespace extensions

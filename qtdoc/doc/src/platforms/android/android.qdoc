@@ -1,0 +1,229 @@
+/****************************************************************************
+**
+** Copyright (C) 2020 The Qt Company Ltd.
+** Contact: https://www.qt.io/licensing/
+**
+** This file is part of the documentation of the Qt Toolkit.
+**
+** $QT_BEGIN_LICENSE:FDL$
+** Commercial License Usage
+** Licensees holding valid commercial Qt licenses may use this file in
+** accordance with the commercial license agreement provided with the
+** Software or, alternatively, in accordance with the terms contained in
+** a written agreement between you and The Qt Company. For licensing terms
+** and conditions see https://www.qt.io/terms-conditions. For further
+** information use the contact form at https://www.qt.io/contact-us.
+**
+** GNU Free Documentation License Usage
+** Alternatively, this file may be used under the terms of the GNU Free
+** Documentation License version 1.3 as published by the Free Software
+** Foundation and appearing in the file included in the packaging of
+** this file. Please review the following information to ensure
+** the GNU Free Documentation License version 1.3 requirements
+** will be met: https://www.gnu.org/licenses/fdl-1.3.html.
+** $QT_END_LICENSE$
+**
+****************************************************************************/
+
+/*!
+\page android.html
+\title Qt for Android
+\brief Provides information about Android support in Qt.
+\ingroup supportedplatform
+
+Qt for Android enables you to run Qt 5 applications on Android devices.
+All Qt modules (essentials and add-ons) are supported except the following:
+
+\list
+    \li Qt WebEngine
+    \li Qt Serial Port
+    \li Qt Virtual Keyboard
+    \li Platform-specific extras: Qt Mac Extras, Qt Windows Extras, and
+        Qt X11 Extras
+\endlist
+
+The following configurations are supported:
+
+\include supported-platforms.qdocinc android
+
+The following list summarizes what you can do with Qt for Android:
+
+\list
+    \li Run \l{Qt Widgets}{Widget-based} and \l{QML Applications}{QML}
+        applications on a device or an emulator.
+    \li Support for the \l{Material Style}{Material Style} with
+        Qt Quick Controls.
+    \li Handle \l{Qt Multimedia}{Multimedia} content in your
+        Qt Quick 2 applications.
+    \li Get \l{Qt Sensors}{sensor} readings.
+    \li Retrieve positioning data using satellite or network information.
+    \li Connect and exchange data with \l{Qt Bluetooth}{Bluetooth}
+        and \l{Qt NFC}{NFC}-enabled devices.
+    \li Integrate Java code into your application using \l{Qt Android Extras}.
+    \li Develop secure applications using OpenSSL library.
+    \li Create \l{Android Services}.
+    \li Create and deploy Application Package (APK) and Android App Bundle (AAB)
+        packages using Qt Creator.
+\endlist
+
+The following topics provide more details about how to use Qt for Android:
+\list
+ \li \l{Getting Started with Qt for Android}{Getting Started}
+ \li \l{Porting to Android}{Porting a Qt Application}
+ \li \l{Qt for Android Examples}{Qt Examples on Android}
+ \li \l{Deploying an Application on Android}
+ \li \l{Qt Creator: Deploying Applications to Android Devices}
+ \li \l{Adding OpenSSL Support for Android}
+ \li \l{Android Services}{Creating Android Services}
+ \li \l{Third-party Android Libraries}
+     {Including third-party Android libraries in an application}
+ \li \l{Publishing to Google Play}
+ \li \l{Android Platform Notes}
+ \li \l{Qt for Android - Building from Source}
+ \li \l{Android GNU C++ run-time licensing}
+\endlist
+*/
+
+/*!
+\page android-getting-started.html
+\title Getting Started with Qt for Android
+\brief Provides instructions to install and configure your development environment.
+
+\section1 Installing the Prerequisites
+
+In order to use \l{Qt for Android}, you need the following:
+
+\list
+    \li \l {Java SE Development Kit} (JDK) or \l{ OpenJDK} (on Linux)
+        version 6 up to 8. Versions higher than 8 might cause issues for
+        \l {android-sdk}{the Android SDK command-line tools}.
+
+    \li \l{Gradle} for building application packages (APK) and app bundles
+        (AAB) for Android devices. Gradle is delivered with Qt 5.9, and later.
+        Because Gradle scripts are not delivered with  Android SDK tools since
+        version 26.0.0, they are delivered with Qt 5.9 and 5.6.3.
+
+        \note Using Ant to build APKs is no longer supported.
+
+    \target android-sdk
+    \li \l{Android: The Android SDK Tools}{The Android SDK Tools}
+        to install the following packages that are required to compile Qt
+        applications for Android:
+
+        \list
+            \li Platform tools
+            \li Build tools
+            \li At least one SDK platform
+            \li \l {android-ndk}{The Android NDK}, which contains toolchains
+                and debuggers for Android.
+        \endlist
+
+        \note Qt Creator 4.12 or later can set up the SDK Tools, NDK, and
+        essential packages automatically. For more information, see
+        \l {Qt Creator: Specifying Android Device Settings}.
+
+        \note If your Qt version is earlier than v5.9, use the SDK tools package
+        v25.2.5 or earlier.
+
+    \target android-ndk
+    \li \l{Android: The Android NDK}{The Android NDK}
+        can be installed using the \c sdkmanager tool. Alternatively, you can
+        download it and extract it manually to a path of your choosing.
+        Different Qt versions depend on different NDK versions, as listed below:
+
+        \list
+            \li Qt 5.14.0 or later, Qt 5.13.2 or later, and Qt 5.12.6 or later
+            \list
+                \li NDK r20b or r21
+                \li \e android-clang
+                \li \note Qt 5.14.0 and 5.14.1 with NDK r21 have a bug fixed at
+                    \l {QTBUG-81461}.
+            \endlist
+            \li Qt 5.12.0 to 5.12.5 and Qt 5.13.0 to 5.13.1
+            \list
+                \li NDK r19c
+                \li \e android-clang
+            \endlist
+            \li Qt 5.11 and below
+                \list
+                    \li NDK r10e
+                    \li GCC toolchain
+                \endlist
+        \endlist
+\endlist
+
+After installing the SDK tools, update the Android SDK, and then
+install the essential packages using \l {Android: Android Studio}
+{Android Studio}, the Qt Creator \l {Qt Creator: Managing Android SDK Packages}
+{SDK Manager UI}, or the \l {Android: sdkmanager}{sdkmanager} command
+line tool.
+
+\note Make sure to unpack the Android SDK and NDK to a writeable location that Qt Creator
+can access later. Otherwise, Qt Creator won't be able to use \c sdkmanager or find all
+components even if they were installed manually.
+
+\section2 Updating the Android SDK
+
+Use the \c sdkmanager command line tool to update the packages list and then
+install the essential packages:
+
+\badcode
+cd <ANDROID_SDK_ROOT>/tools/bin/
+./sdkmanager --update
+./sdkmanager --install "platform-tools" "platforms;android-29" "build-tools;29.0.2" "ndk-bundle"
+\endcode
+
+To use the \l {Android: Android Emulator}{Android Emulator}, install it by
+entering:
+
+\badcode
+./sdkmanager --install "emulator" "patcher;v4"
+\endcode
+
+\section1 Host Specific Configuration
+
+\section2 Windows
+
+The default USB driver on Windows does not allow debugging using
+Android Debug Bridge (ADB) tool. You must install the additional USB driver
+provided by the \e extras Android SDK package. To install it, run the following:
+
+\badcode
+sdkmanager.bat --install "extras;google;usb_driver"
+\endcode
+
+After the package installation is complete, install the driver from
+\c{<ANDROID_SDK_ROOT>/extras/google/usb_driver}. Try running a few basic
+\l{Android: adb}{adb} commands now and check whether your Android device
+responds to them.
+
+\section2 Linux 64-bit
+
+If you're developing on a 64-bit Linux machine, you must install the
+following dependencies in order to run 32-bit executables like \c adb, which
+allows Qt Creator to find devices to deploy to:
+
+\badcode
+sudo apt-get install libstdc++6:i386 libgcc1:i386 zlib1g:i386 libncurses5:i386
+\endcode
+
+\target emulator dependencies
+To run the Android emulator, the following dependencies are also necessary:
+
+\badcode
+sudo apt-get install libsdl1.2debian:i386
+\endcode
+
+\section2 Qt Creator IDE
+
+The Qt Creator IDE can be used to develop Qt applications for Android. For more
+information, see \l{Qt Creator: Connecting Android Devices}.
+
+\section1 Testing Your Setup
+
+Now you can test your development setup by running the examples shipped with the
+Qt installation. For more information, see \l {Qt for Android Examples}.
+
+To develop a simple application from scratch, see
+\l {Qt Creator: Creating a Mobile Application}.
+*/

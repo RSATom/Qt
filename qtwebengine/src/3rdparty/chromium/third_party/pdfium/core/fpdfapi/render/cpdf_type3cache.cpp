@@ -85,24 +85,16 @@ int DetectFirstLastScan(const RetainPtr<CFX_DIBitmap>& pBitmap, bool bFirst) {
 
 }  // namespace
 
-CPDF_Type3Cache::CPDF_Type3Cache(CPDF_Type3Font* pFont) : m_pFont(pFont) {
-  // Increments refcount in CPDF_DocPageData.
-  CPDF_Document* pDoc = m_pFont->GetDocument();
-  CPDF_DocPageData::FromDocument(pDoc)->GetFont(m_pFont->GetFontDict());
-}
+CPDF_Type3Cache::CPDF_Type3Cache(CPDF_Type3Font* pFont) : m_pFont(pFont) {}
 
-CPDF_Type3Cache::~CPDF_Type3Cache() {
-  // Decrements refcount in CPDF_DocPageData.
-  CPDF_Document* pDoc = m_pFont->GetDocument();
-  CPDF_DocPageData::FromDocument(pDoc)->ReleaseFont(m_pFont->GetFontDict());
-}
+CPDF_Type3Cache::~CPDF_Type3Cache() = default;
 
 const CFX_GlyphBitmap* CPDF_Type3Cache::LoadGlyph(uint32_t charcode,
                                                   const CFX_Matrix* pMatrix) {
   CPDF_UniqueKeyGen keygen;
   keygen.Generate(
-      4, FXSYS_round(pMatrix->a * 10000), FXSYS_round(pMatrix->b * 10000),
-      FXSYS_round(pMatrix->c * 10000), FXSYS_round(pMatrix->d * 10000));
+      4, FXSYS_roundf(pMatrix->a * 10000), FXSYS_roundf(pMatrix->b * 10000),
+      FXSYS_roundf(pMatrix->c * 10000), FXSYS_roundf(pMatrix->d * 10000));
   ByteString FaceGlyphsKey(keygen.m_Key, keygen.m_KeyLen);
   CPDF_Type3GlyphMap* pSizeCache;
   auto it = m_SizeMap.find(FaceGlyphsKey);
@@ -160,9 +152,9 @@ std::unique_ptr<CFX_GlyphBitmap> CPDF_Type3Cache::RenderGlyph(
                                       FXDIB_ResampleOptions(), nullptr);
       top = top_line;
       if (image_matrix.a < 0)
-        left = FXSYS_round(image_matrix.e + image_matrix.a);
+        left = FXSYS_roundf(image_matrix.e + image_matrix.a);
       else
-        left = FXSYS_round(image_matrix.e);
+        left = FXSYS_roundf(image_matrix.e);
     }
   }
   if (!pResBitmap)

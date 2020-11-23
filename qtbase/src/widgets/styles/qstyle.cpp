@@ -64,7 +64,7 @@ static int unpackControlTypes(QSizePolicy::ControlTypes controls, QSizePolicy::C
         return 0;
 
     // optimization: exactly one bit is set
-    if ((controls & (controls - 1)) == 0) {
+    if (qPopulationCount(uint(controls)) == 1) {
         array[0] = QSizePolicy::ControlType(uint(controls));
         return 1;
     }
@@ -1012,6 +1012,7 @@ void QStyle::drawItemPixmap(QPainter *painter, const QRect &rect, int alignment,
     \value SE_PushButtonFocusRect  Area for the focus rect (usually
         larger than the contents rect).
     \value SE_PushButtonLayoutItem  Area that counts for the parent layout.
+    \value SE_PushButtonBevel [since 5.15] Area used for the bevel of the button.
 
     \value SE_CheckBoxIndicator  Area for the state indicator (e.g., check mark).
     \value SE_CheckBoxContents  Area for the label (text or pixmap).
@@ -1074,7 +1075,7 @@ void QStyle::drawItemPixmap(QPainter *painter, const QRect &rect, int alignment,
 
     \value SE_TreeViewDisclosureItem Area for the actual disclosure item in a tree branch.
 
-    \value SE_DialogButtonBoxLayoutItem  Area that counts for the parent layout.
+    \omitvalue SE_DialogButtonBoxLayoutItem
 
     \value SE_GroupBoxLayoutItem  Area that counts for the parent layout.
 
@@ -1120,6 +1121,7 @@ void QStyle::drawItemPixmap(QPainter *painter, const QRect &rect, int alignment,
     \header \li Sub Element \li QStyleOption Subclass
     \row \li \l SE_PushButtonContents   \li \l QStyleOptionButton
     \row \li \l SE_PushButtonFocusRect  \li \l QStyleOptionButton
+    \row \li \l SE_PushButtonBevel      \li \l QStyleOptionButton
     \row \li \l SE_CheckBoxIndicator    \li \l QStyleOptionButton
     \row \li \l SE_CheckBoxContents     \li \l QStyleOptionButton
     \row \li \l SE_CheckBoxFocusRect    \li \l QStyleOptionButton
@@ -1835,7 +1837,7 @@ void QStyle::drawItemPixmap(QPainter *painter, const QRect &rect, int alignment,
     \value SH_LineEdit_PasswordMaskDelay  Determines the delay before visible character is masked
     with password character, in milliseconds. This enum value was added in Qt 5.4.
 
-    \value SH_Table_GridLineColor The RGB value of the grid for a table.
+    \value SH_Table_GridLineColor The RGBA value of the grid for a table.
 
     \value SH_UnderlineShortcut  Whether shortcuts are underlined.
 
@@ -2362,14 +2364,14 @@ QPalette QStyle::standardPalette() const
 
     \fn int QStyle::layoutSpacing(QSizePolicy::ControlType control1,
                                   QSizePolicy::ControlType control2, Qt::Orientation orientation,
-                                  const QStyleOption *option = 0, const QWidget *widget = 0) const
+                                  const QStyleOption *option = nullptr, const QWidget *widget = nullptr) const
 
     Returns the spacing that should be used between \a control1 and
     \a control2 in a layout. \a orientation specifies whether the
     controls are laid out side by side or stacked vertically. The \a
     option parameter can be used to pass extra information about the
     parent widget. The \a widget parameter is optional and can also
-    be used if \a option is 0.
+    be used if \a option is \nullptr.
 
     This function is called by the layout system. It is used only if
     PM_LayoutHorizontalSpacing or PM_LayoutVerticalSpacing returns a
@@ -2386,7 +2388,7 @@ QPalette QStyle::standardPalette() const
     controls are laid out side by side or stacked vertically. The \a
     option parameter can be used to pass extra information about the
     parent widget. The \a widget parameter is optional and can also
-    be used if \a option is 0.
+    be used if \a option is \nullptr.
 
     \a controls1 and \a controls2 are OR-combination of zero or more
     \l{QSizePolicy::ControlTypes}{control types}.

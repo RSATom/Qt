@@ -2,18 +2,17 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-// https://github.com/gpuweb/gpuweb/blob/master/design/sketch.webidl
+// https://gpuweb.github.io/gpuweb/
 
 dictionary GPURenderPipelineDescriptor : GPUPipelineDescriptorBase {
-    required GPUPipelineStageDescriptor vertexStage;
-    // TODO(crbug.com/dawn/136): Support vertex-only pipelines.
-    required GPUPipelineStageDescriptor fragmentStage;
+    required GPUProgrammableStageDescriptor vertexStage;
+    GPUProgrammableStageDescriptor fragmentStage;
 
     required GPUPrimitiveTopology primitiveTopology;
-    GPURasterizationStateDescriptor rasterizationState;
+    GPURasterizationStateDescriptor rasterizationState = {};
     required sequence<GPUColorStateDescriptor> colorStates;
-    GPUDepthStencilStateDescriptor depthStencilState = null;
-    required GPUVertexInputDescriptor vertexInput;
+    GPUDepthStencilStateDescriptor depthStencilState;
+    GPUVertexStateDescriptor vertexState = {};
 
     unsigned long sampleCount = 1;
 

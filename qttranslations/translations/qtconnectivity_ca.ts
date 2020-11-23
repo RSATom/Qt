@@ -40,6 +40,10 @@
         <translation>L&apos;adreça de l&apos;adaptador de Bluetooth no és vàlida</translation>
     </message>
     <message>
+        <source>One or more device discovery methods are not supported on this platform</source>
+        <translation>Un o més mètodes de descobriment de dispositius no està admès en aquesta plataforma</translation>
+    </message>
+    <message>
         <source>Device does not support Bluetooth</source>
         <translation>El dispositiu no admet Bluetooth</translation>
     </message>
@@ -48,12 +52,28 @@
         <translation>L&apos;adreça indicada no és un dispositiu local.</translation>
     </message>
     <message>
+        <source>Missing Location permission. Search is not possible.</source>
+        <translation>Manca el permís d&apos;ubicació. No es pot cercar.</translation>
+    </message>
+    <message>
+        <source>Location service turned off. Search is not possible.</source>
+        <translation>El servei d&apos;ubicació està apagat. No es pot cercar.</translation>
+    </message>
+    <message>
+        <source>Classic Discovery cannot be started</source>
+        <translation>No s&apos;ha pogut iniciar el descobriment clàssic</translation>
+    </message>
+    <message>
+        <source>Low Energy Discovery not supported</source>
+        <translation>No s&apos;admet el descobriment de baixa potència</translation>
+    </message>
+    <message>
         <source>Discovery cannot be started</source>
-        <translation>El descobriment de dispositius no s&apos;ha pogut iniciar</translation>
+        <translation type="vanished">El descobriment de dispositius no s&apos;ha pogut iniciar</translation>
     </message>
     <message>
         <source>Bluetooth adapter error</source>
-        <translation>Error en l&apos;adaptador de Bluetooth</translation>
+        <translation>Error a l&apos;adaptador de Bluetooth</translation>
     </message>
     <message>
         <source>Device discovery not supported on this platform</source>
@@ -476,8 +496,7 @@
     </message>
     <message>
         <source>Bond Management</source>
-        <extracomment>Connection management (Bluetooth)
-</extracomment>
+        <extracomment>Connection management (Bluetooth)</extracomment>
         <translation>Gestió dels enllaços</translation>
     </message>
     <message>
@@ -566,7 +585,7 @@
     </message>
     <message>
         <source>Common ISDN Access Protocol</source>
-        <translation>Protocol per a l&apos;accés RDSI comú</translation>
+        <translation>Protocol per a l&apos;accés XDSI comú</translation>
     </message>
     <message>
         <source>UdiCPlain</source>
@@ -586,26 +605,22 @@
     </message>
     <message>
         <source>GAP Device Name</source>
-        <extracomment>GAP: Generic Access Profile (Bluetooth)
-</extracomment>
+        <extracomment>GAP: Generic Access Profile (Bluetooth)</extracomment>
         <translation>Nom del dispositiu GAP</translation>
     </message>
     <message>
         <source>GAP Appearance</source>
-        <extracomment>GAP: Generic Access Profile (Bluetooth)
-</extracomment>
+        <extracomment>GAP: Generic Access Profile (Bluetooth)</extracomment>
         <translation>Aparença GAP</translation>
     </message>
     <message>
         <source>GAP Peripheral Privacy Flag</source>
-        <extracomment>GAP: Generic Access Profile (Bluetooth)
-</extracomment>
+        <extracomment>GAP: Generic Access Profile (Bluetooth)</extracomment>
         <translation>Indicador de la privadesa del perifèric GAP</translation>
     </message>
     <message>
         <source>GAP Reconnection Address</source>
-        <extracomment>GAP: Generic Access Profile (Bluetooth)
-</extracomment>
+        <extracomment>GAP: Generic Access Profile (Bluetooth)</extracomment>
         <translation>Adreça de reconnexió GAP</translation>
     </message>
     <message>
@@ -614,8 +629,7 @@
     </message>
     <message>
         <source>GATT Service Changed</source>
-        <extracomment>GATT: _G_eneric _Att_ribute Profile (Bluetooth)
-</extracomment>
+        <extracomment>GATT: _G_eneric _Att_ribute Profile (Bluetooth)</extracomment>
         <translation>El servei GATT ha canviat</translation>
     </message>
     <message>
@@ -652,7 +666,7 @@
     </message>
     <message>
         <source>Local Time Information</source>
-        <translation>Informació de la hora local</translation>
+        <translation>Informació de l&apos;hora local</translation>
     </message>
     <message>
         <source>Time With DST</source>
@@ -660,23 +674,23 @@
     </message>
     <message>
         <source>Time Accuracy</source>
-        <translation>Precisió de la hora</translation>
+        <translation>Precisió de l&apos;hora</translation>
     </message>
     <message>
         <source>Time Source</source>
-        <translation>Origen de la hora</translation>
+        <translation>Origen de l&apos;hora</translation>
     </message>
     <message>
         <source>Reference Time Information</source>
-        <translation>Informació de la hora de referència</translation>
+        <translation>Informació de l&apos;hora de referència</translation>
     </message>
     <message>
         <source>Time Update Control Point</source>
-        <translation>Punt de control per a l&apos;actualització de la hora</translation>
+        <translation>Punt de control per a actualitzar l&apos;hora</translation>
     </message>
     <message>
         <source>Time Update State</source>
-        <translation>Estat d&apos;actualització de la hora</translation>
+        <translation>Estat d&apos;actualització de l&apos;hora</translation>
     </message>
     <message>
         <source>Glucose Measurement</source>
@@ -824,8 +838,7 @@
     </message>
     <message>
         <source>HID Information</source>
-        <extracomment>HID: Human Interface Device Profile (Bluetooth)
-</extracomment>
+        <extracomment>HID: Human Interface Device Profile (Bluetooth)</extracomment>
         <translation>Informació HID</translation>
     </message>
     <message>
@@ -834,8 +847,7 @@
     </message>
     <message>
         <source>HID Control Point</source>
-        <extracomment>HID: Human Interface Device Profile (Bluetooth)
-</extracomment>
+        <extracomment>HID: Human Interface Device Profile (Bluetooth)</extracomment>
         <translation>Punt de control HID</translation>
     </message>
     <message>
@@ -860,20 +872,17 @@
     </message>
     <message>
         <source>Record Access Control Point</source>
-        <extracomment>Glucose Sensor patient record database.
-</extracomment>
+        <extracomment>Glucose Sensor patient record database.</extracomment>
         <translation>Punt de control per a l&apos;accés al registre</translation>
     </message>
     <message>
         <source>RSC Measurement</source>
-        <extracomment>RSC: Running Speed and Cadence
-</extracomment>
+        <extracomment>RSC: Running Speed and Cadence</extracomment>
         <translation>Mesura de la velocitat i cadència de la carrera</translation>
     </message>
     <message>
         <source>RSC Feature</source>
-        <extracomment>RSC: Running Speed and Cadence
-</extracomment>
+        <extracomment>RSC: Running Speed and Cadence</extracomment>
         <translation>Característica per a la velocitat i cadència de la carrera</translation>
     </message>
     <message>
@@ -882,14 +891,12 @@
     </message>
     <message>
         <source>CSC Measurement</source>
-        <extracomment>CSC: Cycling Speed and Cadence
-</extracomment>
+        <extracomment>CSC: Cycling Speed and Cadence</extracomment>
         <translation>Mesura de la velocitat i cadència fent ciclisme</translation>
     </message>
     <message>
         <source>CSC Feature</source>
-        <extracomment>CSC: Cycling Speed and Cadence
-</extracomment>
+        <extracomment>CSC: Cycling Speed and Cadence</extracomment>
         <translation>Característica per a la velocitat i cadència fent ciclisme</translation>
     </message>
     <message>
@@ -934,14 +941,12 @@
     </message>
     <message>
         <source>Magnetic Declination</source>
-        <extracomment>Angle between geographic and magnetic north
-</extracomment>
+        <extracomment>Angle between geographic and magnetic north</extracomment>
         <translation>Declinació magnètica</translation>
     </message>
     <message>
         <source>Elevation</source>
-        <extracomment>Above/below sea level
-</extracomment>
+        <extracomment>Above/below sea level</extracomment>
         <translation>Elevació</translation>
     </message>
     <message>
@@ -958,8 +963,7 @@
     </message>
     <message>
         <source>True Wind Speed</source>
-        <extracomment>Wind speed while standing
-</extracomment>
+        <extracomment>Wind speed while standing</extracomment>
         <translation>Velocitat real del vent</translation>
     </message>
     <message>
@@ -968,8 +972,7 @@
     </message>
     <message>
         <source>Apparent Wind Speed</source>
-        <extracomment>Wind speed while observer is moving
-</extracomment>
+        <extracomment>Wind speed while observer is moving</extracomment>
         <translation>Velocitat aparent del vent</translation>
     </message>
     <message>
@@ -978,8 +981,7 @@
     </message>
     <message>
         <source>Gust Factor</source>
-        <extracomment>Factor by which wind gust is stronger than average wind
-</extracomment>
+        <extracomment>Factor by which wind gust is stronger than average wind</extracomment>
         <translation>Factor de ràfegues</translation>
     </message>
     <message>
@@ -1012,8 +1014,7 @@
     </message>
     <message>
         <source>Descriptor Value Changed</source>
-        <extracomment>Environmental sensing related
-</extracomment>
+        <extracomment>Environmental sensing related</extracomment>
         <translation>El valor del descriptor ha canviat</translation>
     </message>
     <message>
@@ -1030,8 +1031,7 @@
     </message>
     <message>
         <source>Age</source>
-        <extracomment>Age of person
-</extracomment>
+        <extracomment>Age of person</extracomment>
         <translation>Edat</translation>
     </message>
     <message>
@@ -1084,8 +1084,7 @@
     </message>
     <message>
         <source>Height</source>
-        <extracomment>Height of a person
-</extracomment>
+        <extracomment>Height of a person</extracomment>
         <translation>Altura</translation>
     </message>
     <message>
@@ -1130,8 +1129,7 @@
     </message>
     <message>
         <source>Database Change Increment</source>
-        <extracomment>Environmental sensing related
-</extracomment>
+        <extracomment>Environmental sensing related</extracomment>
         <translation>Increment del canvi de la base de dades</translation>
     </message>
     <message>
@@ -1176,7 +1174,7 @@
     </message>
     <message>
         <source>Characteristic User Description</source>
-        <translation>Característica per a la descripció de l’usuari</translation>
+        <translation>Característica per a la descripció de l&apos;usuari</translation>
     </message>
     <message>
         <source>Client Characteristic Configuration</source>
@@ -1235,11 +1233,11 @@
     </message>
     <message>
         <source>Trying to connect while connection is in progress</source>
-        <translation>S&apos;ha intentat connectar quan ja hi ha en progés una connexió</translation>
+        <translation>S&apos;ha intentat connectar quan ja hi ha una connexió en curs</translation>
     </message>
     <message>
         <source>Service cannot be found</source>
-        <translation>El servei no es pot trobar</translation>
+        <translation>No s&apos;ha pogut trobar el servei</translation>
     </message>
     <message>
         <source>Invalid data/data size</source>
@@ -1255,11 +1253,20 @@
     </message>
     <message>
         <source>Unknown socket error</source>
-        <translation>Error de sòcol desconegut</translation>
+        <translation>Error desconegut de sòcol</translation>
+    </message>
+    <message>
+        <source>Network Error: %1</source>
+        <translation>Error de xarxa: %1</translation>
     </message>
     <message>
         <source>Connecting to port is not supported</source>
-        <translation>El connectar amb un port no está admès</translation>
+        <translation type="vanished">El connectar amb un port no está admès</translation>
+    </message>
+    <message>
+        <source>Cannot connect to %1</source>
+        <comment>%1 = uuid</comment>
+        <translation>No s&apos;ha pogut connectar a %1</translation>
     </message>
     <message>
         <source>Device does not support Bluetooth</source>
@@ -1285,7 +1292,7 @@
     </message>
     <message>
         <source>Input stream thread cannot be started</source>
-        <translation>No s&apos;ha pogut iniciar el fil del flux d’entrada</translation>
+        <translation>No s&apos;ha pogut iniciar el fil del flux d&apos;entrada</translation>
     </message>
     <message>
         <source>Connection to service failed</source>
@@ -1293,7 +1300,7 @@
     </message>
     <message>
         <source>Error during write on socket.</source>
-        <translation>Error mentre s&apos;escribia en el sòcol.</translation>
+        <translation>Error mentre s&apos;escrivia al sòcol.</translation>
     </message>
     <message>
         <source>Network error during read</source>
@@ -1301,7 +1308,81 @@
     </message>
     <message>
         <source>Cannot set connection security level</source>
-        <translation>No s&apos;ha pogut establir el nivel de seguretat</translation>
+        <translation>No s&apos;ha pogut establir el nivell de seguretat</translation>
+    </message>
+    <message>
+        <source>Cannot export profile on DBus</source>
+        <translation>No s&apos;ha pogut exportar el perfil al DBus</translation>
+    </message>
+    <message>
+        <source>Cannot register profile on DBus</source>
+        <translation>No s&apos;ha pogut registrar el perfil al DBus</translation>
+    </message>
+    <message>
+        <source>Cannot find remote device</source>
+        <translation>No s&apos;ha pogut trobar el dispositiu remot</translation>
+    </message>
+    <message>
+        <source>Cannot connect to remote profile</source>
+        <translation>No s&apos;ha pogut connectar al perfil remot</translation>
+    </message>
+    <message>
+        <source>Missing serviceUuid or Serial Port service class uuid</source>
+        <translation>Manca el «serviceUuid» o l&apos;UUID de la classe de servei «Serial Port»</translation>
+    </message>
+    <message>
+        <source>Invalid Bluetooth address passed to connectToService()</source>
+        <translation>Adreça Bluetooth no vàlida passada a «connectToService()»</translation>
+    </message>
+    <message>
+        <source>Unsupported protocol. Win32 only supports RFCOMM sockets</source>
+        <translation>Protocol no admès. El Win32 només admet sòcols RFCOMM</translation>
+    </message>
+    <message>
+        <source>Failed to create socket</source>
+        <translation>Ha fallat en crear el sòcol</translation>
+    </message>
+    <message>
+        <source>Socket type not handled: %1</source>
+        <translation>Tipus de sòcol no gestionat: %1</translation>
+    </message>
+    <message>
+        <source>Logic error: more bytes sent than passed to ::send</source>
+        <translation>Error lògic: s&apos;han enviat més bytes que els passats a «::send»</translation>
+    </message>
+    <message>
+        <source>Network error</source>
+        <translation>Error de xarxa</translation>
+    </message>
+    <message>
+        <source>Remote host closed connection</source>
+        <translation>L&apos;ordinador remot ha tancat la connexió</translation>
+    </message>
+    <message>
+        <source>Connection timed out</source>
+        <translation>La connexió ha caducat</translation>
+    </message>
+    <message>
+        <source>Host not reachable</source>
+        <translation>L&apos;ordinador és inaccessible</translation>
+    </message>
+    <message>
+        <source>Host refused connection</source>
+        <translation>L&apos;ordinador ha refusat la connexió</translation>
+    </message>
+</context>
+<context>
+    <name>QBluetoothSocketPrivateAndroid</name>
+    <message>
+        <source>Connecting to port is not supported</source>
+        <translation>No s&apos;admet connectar al port</translation>
+    </message>
+</context>
+<context>
+    <name>QBluetoothSocketPrivateBluezDBus</name>
+    <message>
+        <source>Connecting to port is not supported via Bluez DBus</source>
+        <translation>No s&apos;admet connectar al port via el DBus del Bluez</translation>
     </message>
 </context>
 <context>
@@ -1387,6 +1468,34 @@
     <message>
         <source>Error occurred trying to connect to remote device.</source>
         <translation>Ha succeït un error en intentar connectar amb el dispositiu remot.</translation>
+    </message>
+    <message>
+        <source>Remote device closed the connection</source>
+        <translation>El dispositiu remot ha tancat la connexió</translation>
+    </message>
+    <message>
+        <source>Failed to authorize on the remote device</source>
+        <translation>Ha fallat l&apos;autorització al dispositiu remot</translation>
+    </message>
+    <message>
+        <source>Advertisement data is larger than 31 bytes</source>
+        <translation>Les dades d&apos;anunci són més grans que 31 bytes</translation>
+    </message>
+    <message>
+        <source>Advertisement feature not supported on the platform</source>
+        <translation>La funcionalitat d&apos;anunci no està admesa a la plataforma</translation>
+    </message>
+    <message>
+        <source>Error occurred trying to start advertising</source>
+        <translation>Ha succeït un error en intentar iniciar l&apos;anunci</translation>
+    </message>
+    <message>
+        <source>Failed due to too many advertisers</source>
+        <translation>Ha fallat per massa anunciants</translation>
+    </message>
+    <message>
+        <source>Unknown advertisement error</source>
+        <translation>Error desconegut d&apos;anunci</translation>
     </message>
 </context>
 </TS>

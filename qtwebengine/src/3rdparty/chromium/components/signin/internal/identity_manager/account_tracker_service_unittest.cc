@@ -11,7 +11,7 @@
 #include "base/files/scoped_temp_dir.h"
 #include "base/strings/stringprintf.h"
 #include "base/test/metrics/histogram_tester.h"
-#include "base/test/scoped_task_environment.h"
+#include "base/test/task_environment.h"
 #include "build/build_config.h"
 #include "components/image_fetcher/core/fake_image_decoder.h"
 #include "components/image_fetcher/core/image_data_fetcher.h"
@@ -110,15 +110,14 @@ std::string AccountKeyToPictureURL(AccountKey account_key) {
 std::string AccountKeyToPictureURLWithSize(AccountKey account_key) {
   return signin::GetAvatarImageURLWithOptions(
              GURL(AccountKeyToPictureURL(account_key)),
-             AccountFetcherService::kAccountImageDownloadSize,
-             true /* no_silhouette */)
+             signin::kAccountInfoImageSize, true /* no_silhouette */)
       .spec();
 }
 
 class TrackingEvent {
  public:
   TrackingEvent(TrackingEventType type,
-                const std::string& account_id,
+                const CoreAccountId& account_id,
                 const std::string& gaia_id,
                 const std::string& email)
       : type_(type),
@@ -143,11 +142,11 @@ class TrackingEvent {
     }
     return base::StringPrintf(
         "{ type: %s, account_id: %s, gaia: %s, email: %s }", typestr,
-        account_id_.c_str(), gaia_id_.c_str(), email_.c_str());
+        account_id_.ToString().c_str(), gaia_id_.c_str(), email_.c_str());
   }
 
   TrackingEventType type_;
-  std::string account_id_;
+  CoreAccountId account_id_;
   std::string gaia_id_;
   std::string email_;
 };
@@ -186,7 +185,7 @@ class AccountTrackerServiceTest : public testing::Test {
   void SetUp() override {
     testing::Test::SetUp();
     CreateAccountTracker(base::FilePath(), /*network_enabled=*/true);
-    fake_oauth2_token_service_.LoadCredentials("");
+    fake_oauth2_token_service_.LoadCredentials(CoreAccountId());
   }
 
   void TearDown() override {
@@ -220,9 +219,9 @@ class AccountTrackerServiceTest : public testing::Test {
   }
 
   // Helpers to fake access token and user info fetching
-  std::string AccountKeyToAccountId(AccountKey account_key) {
+  CoreAccountId AccountKeyToAccountId(AccountKey account_key) {
     if (force_account_id_to_email_for_legacy_tests_)
-      return AccountKeyToEmail(account_key);
+      return CoreAccountId(AccountKeyToEmail(account_key));
 
     return AccountTrackerService::PickAccountIdForAccount(
         &pref_service_, AccountKeyToGaiaId(account_key),
@@ -319,7 +318,7 @@ class AccountTrackerServiceTest : public testing::Test {
   void ReturnFetchResults(net::HttpStatusCode response_code,
                           const std::string& response_string);
 
-  base::test::ScopedTaskEnvironment scoped_task_environment_;
+  base::test::TaskEnvironment task_environment_;
 
  private:
   void CreateAccountTracker(base::FilePath path, bool network_enabled) {
@@ -358,6 +357,8 @@ class AccountTrackerServiceTest : public testing::Test {
       account_tracker_->Shutdown();
       account_tracker_.reset();
     }
+    // Allow residual |account_tracker_| posted tasks to run.
+    task_environment_.RunUntilIdle();
   }
 
   TestingPrefServiceSimple pref_service_;
@@ -379,7 +380,7 @@ void AccountTrackerServiceTest::ReturnFetchResults(
   while (GetTestURLLoaderFactory()->IsPending(url.spec())) {
     GetTestURLLoaderFactory()->SimulateResponseForPendingRequest(
         url, network::URLLoaderCompletionStatus(net::OK),
-        network::CreateResourceResponseHead(response_code), response_string,
+        network::CreateURLResponseHead(response_code), response_string,
         network::TestURLLoaderFactory::kMostRecentMatch);
   }
 }
@@ -407,7 +408,7 @@ void AccountTrackerServiceTest::ReturnAccountImageFetchSuccess(
     AccountKey account_key) {
   GetTestURLLoaderFactory()->AddResponse(
       AccountKeyToPictureURLWithSize(account_key), "image data");
-  scoped_task_environment_.RunUntilIdle();
+  task_environment_.RunUntilIdle();
 }
 
 void AccountTrackerServiceTest::ReturnAccountImageFetchFailure(
@@ -415,7 +416,7 @@ void AccountTrackerServiceTest::ReturnAccountImageFetchFailure(
   GetTestURLLoaderFactory()->AddResponse(
       AccountKeyToPictureURLWithSize(account_key), std::string(),
       net::HTTP_BAD_REQUEST);
-  scoped_task_environment_.RunUntilIdle();
+  task_environment_.RunUntilIdle();
 }
 
 TEST_F(AccountTrackerServiceTest, Basic) {}
@@ -576,7 +577,7 @@ TEST_F(AccountTrackerServiceTest, GetAccounts) {
 TEST_F(AccountTrackerServiceTest, GetAccountInfo_Empty) {
   AccountInfo info = account_tracker()->GetAccountInfo(
       AccountKeyToAccountId(kAccountKeyAlpha));
-  EXPECT_EQ(std::string(), info.account_id);
+  EXPECT_EQ(CoreAccountId(), info.account_id);
 }
 
 TEST_F(AccountTrackerServiceTest, GetAccountInfo_TokenAvailable) {
@@ -628,7 +629,7 @@ TEST_F(AccountTrackerServiceTest, FindAccountInfoByGaiaId) {
 
   const std::string gaia_id_beta = AccountKeyToGaiaId(kAccountKeyBeta);
   info = account_tracker()->FindAccountInfoByGaiaId(gaia_id_beta);
-  EXPECT_EQ(std::string(), info.account_id);
+  EXPECT_TRUE(info.account_id.empty());
 }
 
 TEST_F(AccountTrackerServiceTest, FindAccountInfoByEmail) {
@@ -650,7 +651,7 @@ TEST_F(AccountTrackerServiceTest, FindAccountInfoByEmail) {
 
   const std::string email_beta = AccountKeyToEmail(kAccountKeyBeta);
   info = account_tracker()->FindAccountInfoByEmail(email_beta);
-  EXPECT_EQ(std::string(), info.account_id);
+  EXPECT_EQ(CoreAccountId(), info.account_id);
 }
 
 TEST_F(AccountTrackerServiceTest, Persistence) {
@@ -682,7 +683,7 @@ TEST_F(AccountTrackerServiceTest, Persistence) {
                     AccountKeyToEmail(kAccountKeyBeta)),
   }));
   // Wait until all account images are loaded.
-  scoped_task_environment_.RunUntilIdle();
+  task_environment_.RunUntilIdle();
   EXPECT_TRUE(CheckAccountTrackerEvents({
       TrackingEvent(UPDATED, AccountKeyToAccountId(kAccountKeyAlpha),
                     AccountKeyToGaiaId(kAccountKeyAlpha),
@@ -727,6 +728,11 @@ TEST_F(AccountTrackerServiceTest, Persistence) {
 #else
   EXPECT_FALSE(infos[0].is_under_advanced_protection);
 #endif
+
+  // Delete the account tracker before cleaning up |scoped_user_data_dir| so
+  // that all in-use files are closed.
+  ResetAccountTracker();
+  ASSERT_TRUE(scoped_user_data_dir.Delete());
 }
 
 TEST_F(AccountTrackerServiceTest, SeedAccountInfo) {
@@ -735,7 +741,7 @@ TEST_F(AccountTrackerServiceTest, SeedAccountInfo) {
   const std::string gaia_id = AccountKeyToGaiaId(kAccountKeyFooBar);
   const std::string email = AccountKeyToEmail(kAccountKeyFooBar);
   const std::string email_dotted = AccountKeyToEmail(kAccountKeyFooDotBar);
-  const std::string account_id =
+  const CoreAccountId account_id =
       account_tracker()->PickAccountIdForAccount(gaia_id, email);
 
   account_tracker()->SeedAccountInfo(gaia_id, email);
@@ -962,13 +968,15 @@ TEST_F(AccountTrackerServiceTest, MigrateAccountIdToGaiaId) {
   EXPECT_EQ(account_tracker()->GetMigrationState(),
             AccountTrackerService::MIGRATION_IN_PROGRESS);
 
-  AccountInfo account_info = account_tracker()->GetAccountInfo(gaia_alpha);
-  EXPECT_EQ(account_info.account_id, gaia_alpha);
+  CoreAccountId gaia_alpha_account_id(gaia_alpha);
+  AccountInfo account_info =
+      account_tracker()->GetAccountInfo(gaia_alpha_account_id);
+  EXPECT_EQ(account_info.account_id, gaia_alpha_account_id);
   EXPECT_EQ(account_info.gaia, gaia_alpha);
   EXPECT_EQ(account_info.email, email_alpha);
 
-  account_info = account_tracker()->GetAccountInfo(gaia_beta);
-  EXPECT_EQ(account_info.account_id, gaia_beta);
+  account_info = account_tracker()->GetAccountInfo(CoreAccountId(gaia_beta));
+  EXPECT_EQ(account_info.account_id, CoreAccountId(gaia_beta));
   EXPECT_EQ(account_info.gaia, gaia_beta);
   EXPECT_EQ(account_info.email, email_beta);
 
@@ -1006,13 +1014,16 @@ TEST_F(AccountTrackerServiceTest, CanNotMigrateAccountIdToGaiaId) {
   EXPECT_EQ(account_tracker()->GetMigrationState(),
             AccountTrackerService::MIGRATION_NOT_STARTED);
 
-  AccountInfo account_info = account_tracker()->GetAccountInfo(email_alpha);
-  EXPECT_EQ(account_info.account_id, email_alpha);
+  CoreAccountId email_alpha_account_id(email_alpha);
+  AccountInfo account_info =
+      account_tracker()->GetAccountInfo(email_alpha_account_id);
+  EXPECT_EQ(account_info.account_id, email_alpha_account_id);
   EXPECT_EQ(account_info.gaia, gaia_alpha);
   EXPECT_EQ(account_info.email, email_alpha);
 
-  account_info = account_tracker()->GetAccountInfo(email_beta);
-  EXPECT_EQ(account_info.account_id, email_beta);
+  CoreAccountId email_beta_account_id(email_beta);
+  account_info = account_tracker()->GetAccountInfo(email_beta_account_id);
+  EXPECT_EQ(account_info.account_id, email_beta_account_id);
   EXPECT_EQ(account_info.email, email_beta);
 
   std::vector<AccountInfo> accounts = account_tracker()->GetAccounts();
@@ -1057,13 +1068,16 @@ TEST_F(AccountTrackerServiceTest, GaiaIdMigrationCrashInTheMiddle) {
   EXPECT_EQ(account_tracker()->GetMigrationState(),
             AccountTrackerService::MIGRATION_IN_PROGRESS);
 
-  AccountInfo account_info = account_tracker()->GetAccountInfo(gaia_alpha);
-  EXPECT_EQ(account_info.account_id, gaia_alpha);
+  CoreAccountId gaia_alpha_account_id(gaia_alpha);
+  AccountInfo account_info =
+      account_tracker()->GetAccountInfo(gaia_alpha_account_id);
+  EXPECT_EQ(account_info.account_id, gaia_alpha_account_id);
   EXPECT_EQ(account_info.gaia, gaia_alpha);
   EXPECT_EQ(account_info.email, email_alpha);
 
-  account_info = account_tracker()->GetAccountInfo(gaia_beta);
-  EXPECT_EQ(account_info.account_id, gaia_beta);
+  CoreAccountId gaia_beta_account_id(gaia_beta);
+  account_info = account_tracker()->GetAccountInfo(gaia_beta_account_id);
+  EXPECT_EQ(account_info.account_id, gaia_beta_account_id);
   EXPECT_EQ(account_info.gaia, gaia_beta);
   EXPECT_EQ(account_info.email, email_beta);
 
@@ -1077,13 +1091,13 @@ TEST_F(AccountTrackerServiceTest, GaiaIdMigrationCrashInTheMiddle) {
   EXPECT_EQ(account_tracker()->GetMigrationState(),
             AccountTrackerService::MIGRATION_DONE);
 
-  account_info = account_tracker()->GetAccountInfo(gaia_alpha);
-  EXPECT_EQ(account_info.account_id, gaia_alpha);
+  account_info = account_tracker()->GetAccountInfo(gaia_alpha_account_id);
+  EXPECT_EQ(account_info.account_id, gaia_alpha_account_id);
   EXPECT_EQ(account_info.gaia, gaia_alpha);
   EXPECT_EQ(account_info.email, email_alpha);
 
-  account_info = account_tracker()->GetAccountInfo(gaia_beta);
-  EXPECT_EQ(account_info.account_id, gaia_beta);
+  account_info = account_tracker()->GetAccountInfo(gaia_beta_account_id);
+  EXPECT_EQ(account_info.account_id, gaia_beta_account_id);
   EXPECT_EQ(account_info.gaia, gaia_beta);
   EXPECT_EQ(account_info.email, email_beta);
 
@@ -1291,7 +1305,7 @@ TEST_F(AccountTrackerServiceTest, AdvancedProtectionAccountBasic) {
   SimulateTokenAvailable(kAccountKeyAdvancedProtection);
   IssueAccessToken(kAccountKeyAdvancedProtection);
 
-  const std::string account_id =
+  const CoreAccountId account_id =
       AccountKeyToAccountId(kAccountKeyAdvancedProtection);
   account_tracker()->SetIsAdvancedProtectionAccount(account_id, true);
   AccountInfo info = account_tracker()->GetAccountInfo(account_id);

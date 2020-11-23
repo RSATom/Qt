@@ -75,7 +75,7 @@ void QListModel::clear()
     for (int i = 0; i < items.count(); ++i) {
         if (items.at(i)) {
             items.at(i)->d->theid = -1;
-            items.at(i)->view = 0;
+            items.at(i)->view = nullptr;
             delete items.at(i);
         }
     }
@@ -96,7 +96,7 @@ void QListModel::remove(QListWidgetItem *item)
     Q_ASSERT(row != -1);
     beginRemoveRows(QModelIndex(), row, row);
     items.at(row)->d->theid = -1;
-    items.at(row)->view = 0;
+    items.at(row)->view = nullptr;
     items.removeAt(row);
     endRemoveRows();
 }
@@ -156,11 +156,11 @@ void QListModel::insert(int row, const QStringList &labels)
 QListWidgetItem *QListModel::take(int row)
 {
     if (row < 0 || row >= items.count())
-        return 0;
+        return nullptr;
 
     beginRemoveRows(QModelIndex(), row, row);
     items.at(row)->d->theid = -1;
-    items.at(row)->view = 0;
+    items.at(row)->view = nullptr;
     QListWidgetItem *item = items.takeAt(row);
     endRemoveRows();
     return item;
@@ -263,7 +263,7 @@ bool QListModel::insertRows(int row, int count, const QModelIndex &parent)
 
     beginInsertRows(QModelIndex(), row, row + count - 1);
     QListWidget *view = qobject_cast<QListWidget*>(QObject::parent());
-    QListWidgetItem *itm = 0;
+    QListWidgetItem *itm = nullptr;
 
     for (int r = row; r < row + count; ++r) {
         itm = new QListWidgetItem;
@@ -282,10 +282,10 @@ bool QListModel::removeRows(int row, int count, const QModelIndex &parent)
         return false;
 
     beginRemoveRows(QModelIndex(), row, row + count - 1);
-    QListWidgetItem *itm = 0;
+    QListWidgetItem *itm = nullptr;
     for (int r = row; r < row + count; ++r) {
         itm = items.takeAt(row);
-        itm->view = 0;
+        itm->view = nullptr;
         itm->d->theid = -1;
         delete itm;
     }
@@ -301,16 +301,23 @@ bool QListModel::moveRows(const QModelIndex &sourceParent, int sourceRow, int co
 {
     if (sourceRow < 0
         || sourceRow + count - 1 >= rowCount(sourceParent)
-        || destinationChild <= 0
+        || destinationChild < 0
         || destinationChild > rowCount(destinationParent)
+        || sourceRow == destinationChild
         || sourceRow == destinationChild - 1
-        || count <= 0) {
+        || count <= 0
+        || sourceParent.isValid()
+        || destinationParent.isValid()) {
         return false;
     }
     if (!beginMoveRows(QModelIndex(), sourceRow, sourceRow + count - 1, QModelIndex(), destinationChild))
         return false;
-    destinationChild--;
-    const int fromRow = destinationChild < sourceRow ? (sourceRow + count - 1) : sourceRow;
+
+    int fromRow = sourceRow;
+    if (destinationChild < sourceRow)
+        fromRow += count - 1;
+    else
+        destinationChild--;
     while (count--)
         items.move(fromRow, destinationChild);
     endMoveRows();
@@ -458,7 +465,9 @@ void QListModel::itemChanged(QListWidgetItem *item, const QVector<int> &roles)
 QStringList QListModel::mimeTypes() const
 {
     const QListWidget *view = qobject_cast<const QListWidget*>(QObject::parent());
-    return view->mimeTypes();
+    if (view)
+        return view->mimeTypes();
+    return {};
 }
 
 QMimeData *QListModel::internalMimeData()  const
@@ -987,8 +996,9 @@ QDataStream &operator>>(QDataStream &in, QListWidgetItem &item)
     \fn void QListWidgetItem::setSizeHint(const QSize &size)
     \since 4.1
 
-    Sets the size hint for the list item to be \a size. If no size hint is set,
-    the item delegate will compute the size hint based on the item data.
+    Sets the size hint for the list item to be \a size.
+    If no size hint is set or \a size is invalid, the item
+    delegate will compute the size hint based on the item data.
 */
 
 /*!
@@ -1119,6 +1129,8 @@ void QListWidgetItem::setFlags(Qt::ItemFlags aflags)
     \since 4.2
 
     Sets the background brush of the list item to the given \a brush.
+    Setting a default-constructed brush will let the view use the
+    default color from the style.
 
     \sa background(), setForeground()
 */
@@ -1137,6 +1149,8 @@ void QListWidgetItem::setFlags(Qt::ItemFlags aflags)
     \since 4.2
 
     Sets the foreground brush of the list item to the given \a brush.
+    Setting a default-constructed brush will let the view use the
+    default color from the style.
 
     \sa foreground(), setBackground()
 */
@@ -1215,7 +1229,7 @@ void QListWidgetPrivate::_q_emitCurrentItemChanged(const QModelIndex &current,
     //persistentCurrent is invalid if something changed the model in response
     //to the currentItemChanged signal emission and the item was removed
     if (!persistentCurrent.isValid()) {
-        currentItem = 0;
+        currentItem = nullptr;
     }
 
     emit q->currentTextChanged(currentItem ? currentItem->text() : QString());
@@ -1473,7 +1487,7 @@ QListWidgetItem *QListWidget::item(int row) const
 {
     Q_D(const QListWidget);
     if (row < 0 || row >= d->model->rowCount())
-        return 0;
+        return nullptr;
     return d->listModel()->at(row);
 }
 
@@ -1543,7 +1557,7 @@ QListWidgetItem *QListWidget::takeItem(int row)
 {
     Q_D(QListWidget);
     if (row < 0 || row >= d->model->rowCount())
-        return 0;
+        return nullptr;
     return d->listModel()->take(row);
 }
 
@@ -1959,45 +1973,8 @@ bool QListWidget::dropMimeData(int index, const QMimeData *data, Qt::DropAction 
 }
 
 /*! \reimp */
-void QListWidget::dropEvent(QDropEvent *event) {
-    Q_D(QListWidget);
-    if (event->source() == this && d->movement != Static) {
-        QListView::dropEvent(event);
-        return;
-    }
-
-    if (event->source() == this && (event->dropAction() == Qt::MoveAction ||
-                                    dragDropMode() == QAbstractItemView::InternalMove)) {
-        QModelIndex topIndex;
-        int col = -1;
-        int row = -1;
-        if (d->dropOn(event, &row, &col, &topIndex)) {
-            QList<QModelIndex> selIndexes = selectedIndexes();
-            QList<QPersistentModelIndex> persIndexes;
-            const int selIndexesCount = selIndexes.count();
-            persIndexes.reserve(selIndexesCount);
-            for (int i = 0; i < selIndexesCount; i++)
-                persIndexes.append(selIndexes.at(i));
-
-            if (persIndexes.contains(topIndex))
-                return;
-            std::sort(persIndexes.begin(), persIndexes.end()); // The dropped items will remain in the same visual order.
-
-            QPersistentModelIndex dropRow = model()->index(row, col, topIndex);
-
-            int r = row == -1 ? count() : (dropRow.row() >= 0 ? dropRow.row() : row);
-            for (int i = 0; i < persIndexes.count(); ++i) {
-                const QPersistentModelIndex &pIndex = persIndexes.at(i);
-                d->listModel()->move(pIndex.row(), r);
-                r = pIndex.row() + 1;   // Dropped items are inserted contiguously and in the right order.
-            }
-
-            event->accept();
-            // Don't want QAbstractItemView to delete it because it was "moved" we already did it
-            event->setDropAction(Qt::CopyAction);
-        }
-    }
-
+void QListWidget::dropEvent(QDropEvent *event)
+{
     QListView::dropEvent(event);
 }
 
@@ -2059,7 +2036,7 @@ QListWidgetItem *QListWidget::itemFromIndex(const QModelIndex &index) const
     Q_D(const QListWidget);
     if (d->isIndexValid(index))
         return d->listModel()->at(index.row());
-    return 0;
+    return nullptr;
 }
 
 /*!

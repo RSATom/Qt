@@ -19,7 +19,7 @@
 #include "chrome/common/chrome_paths.h"
 #include "chrome/common/extensions/extension_constants.h"
 #include "chrome/common/extensions/extension_test_util.h"
-#include "content/public/test/test_browser_thread_bundle.h"
+#include "content/public/test/browser_task_environment.h"
 #include "extensions/browser/api/declarative_webrequest/request_stage.h"
 #include "extensions/browser/api/declarative_webrequest/webrequest_condition.h"
 #include "extensions/browser/api/declarative_webrequest/webrequest_constants.h"
@@ -29,11 +29,7 @@
 #include "extensions/browser/extension_registry.h"
 #include "extensions/common/extension.h"
 #include "extensions/common/extensions_client.h"
-#include "net/base/request_priority.h"
 #include "net/http/http_response_headers.h"
-#include "net/traffic_annotation/network_traffic_annotation_test_helper.h"
-#include "net/url_request/url_request.h"
-#include "net/url_request/url_request_test_util.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
@@ -132,13 +128,12 @@ bool WebRequestActionWithThreadsTest::ActionWorksOnRequest(
     const WebRequestActionSet* action_set,
     RequestStage stage) {
   const int kRendererId = 2;
-  std::unique_ptr<net::URLRequest> regular_request(
-      context_.CreateRequest(GURL(url_string), net::DEFAULT_PRIORITY, NULL,
-                             TRAFFIC_ANNOTATION_FOR_TESTS));
   EventResponseDeltas deltas;
   scoped_refptr<net::HttpResponseHeaders> headers(
       new net::HttpResponseHeaders(""));
-  WebRequestInfoInitParams request_params(regular_request.get());
+  WebRequestInfoInitParams params;
+  params.url = GURL(url_string);
+  WebRequestInfoInitParams request_params(std::move(params));
   request_params.render_process_id = kRendererId;
   WebRequestInfo request_info(std::move(request_params));
   WebRequestData request_data(&request_info, stage, headers.get());

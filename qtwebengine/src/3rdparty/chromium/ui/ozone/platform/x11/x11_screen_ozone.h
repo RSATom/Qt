@@ -12,20 +12,20 @@
 #include "base/macros.h"
 #include "base/observer_list.h"
 #include "ui/base/x/x11_display_manager.h"
-#include "ui/events/platform/x11/x11_event_source_libevent.h"
+#include "ui/events/platform/x11/x11_event_source.h"
 #include "ui/gfx/geometry/point.h"
 #include "ui/ozone/public/platform_screen.h"
 
 namespace ui {
 
-class X11WindowManagerOzone;
+class X11WindowManager;
 
 // A PlatformScreen implementation for X11.
 class X11ScreenOzone : public PlatformScreen,
                        public XEventDispatcher,
                        public XDisplayManager::Delegate {
  public:
-  explicit X11ScreenOzone(X11WindowManagerOzone* window_manager);
+  X11ScreenOzone();
   ~X11ScreenOzone() override;
 
   // Fetch display list through Xlib/XRandR
@@ -58,7 +58,7 @@ class X11ScreenOzone : public PlatformScreen,
 
   gfx::Point GetCursorLocation() const;
 
-  X11WindowManagerOzone* const window_manager_;
+  X11WindowManager* const window_manager_;
   std::unique_ptr<ui::XDisplayManager> x11_display_manager_;
 
   DISALLOW_COPY_AND_ASSIGN(X11ScreenOzone);

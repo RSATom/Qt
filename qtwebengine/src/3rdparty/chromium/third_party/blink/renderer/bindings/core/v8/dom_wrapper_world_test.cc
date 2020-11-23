@@ -44,7 +44,7 @@ Vector<scoped_refptr<DOMWrapperWorld>> CreateWorlds(v8::Isolate* isolate) {
   EXPECT_TRUE(worlds[2]->IsWorkerWorld());
 
   // World ids should be unique.
-  HashSet<int> world_ids;
+  HashSet<int32_t> world_ids;
   EXPECT_TRUE(world_ids.insert(worlds[0]->GetWorldId()).is_new_entry);
   EXPECT_TRUE(world_ids.insert(worlds[1]->GetWorldId()).is_new_entry);
   EXPECT_TRUE(world_ids.insert(worlds[2]->GetWorldId()).is_new_entry);
@@ -114,7 +114,7 @@ TEST(DOMWrapperWorldTest, Basic) {
   // Start a worker thread and create worlds on that.
   std::unique_ptr<WorkerBackingThread> thread =
       std::make_unique<WorkerBackingThread>(
-          ThreadCreationParams(WebThreadType::kTestThread)
+          ThreadCreationParams(ThreadType::kTestThread)
               .SetThreadNameForTest("DOMWrapperWorld test thread"));
   scoped_refptr<base::SingleThreadTaskRunner> main_thread_task_runner =
       Thread::Current()->GetTaskRunner();

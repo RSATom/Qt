@@ -17,6 +17,7 @@
 
 #include "common/Constants.h"
 
+#include "dawn_native/AttachmentState.h"
 #include "dawn_native/Texture.h"
 
 #include "dawn_native/dawn_platform.h"
@@ -45,6 +46,7 @@ namespace dawn_native {
         DrawIndexedIndirect,
         EndComputePass,
         EndRenderPass,
+        ExecuteBundles,
         InsertDebugMarker,
         PopDebugGroup,
         PushDebugGroup,
@@ -56,7 +58,7 @@ namespace dawn_native {
         SetBlendColor,
         SetBindGroup,
         SetIndexBuffer,
-        SetVertexBuffers,
+        SetVertexBuffer,
     };
 
     struct BeginComputePassCmd {};
@@ -64,31 +66,29 @@ namespace dawn_native {
     struct RenderPassColorAttachmentInfo {
         Ref<TextureViewBase> view;
         Ref<TextureViewBase> resolveTarget;
-        dawn::LoadOp loadOp;
-        dawn::StoreOp storeOp;
+        wgpu::LoadOp loadOp;
+        wgpu::StoreOp storeOp;
         dawn_native::Color clearColor;
     };
 
     struct RenderPassDepthStencilAttachmentInfo {
         Ref<TextureViewBase> view;
-        dawn::LoadOp depthLoadOp;
-        dawn::StoreOp depthStoreOp;
-        dawn::LoadOp stencilLoadOp;
-        dawn::StoreOp stencilStoreOp;
+        wgpu::LoadOp depthLoadOp;
+        wgpu::StoreOp depthStoreOp;
+        wgpu::LoadOp stencilLoadOp;
+        wgpu::StoreOp stencilStoreOp;
         float clearDepth;
         uint32_t clearStencil;
     };
 
     struct BeginRenderPassCmd {
-        std::bitset<kMaxColorAttachments> colorAttachmentsSet;
+        Ref<AttachmentState> attachmentState;
         RenderPassColorAttachmentInfo colorAttachments[kMaxColorAttachments];
-        bool hasDepthStencilAttachment;
         RenderPassDepthStencilAttachmentInfo depthStencilAttachment;
 
-        // Cache the width, height and sample count of all attachments for convenience
+        // Cache the width and height of all attachments for convenience
         uint32_t width;
         uint32_t height;
-        uint32_t sampleCount;
     };
 
     struct BufferCopy {
@@ -171,6 +171,10 @@ namespace dawn_native {
 
     struct EndRenderPassCmd {};
 
+    struct ExecuteBundlesCmd {
+        uint32_t count;
+    };
+
     struct InsertDebugMarkerCmd {
         uint32_t length;
     };
@@ -216,9 +220,10 @@ namespace dawn_native {
         uint64_t offset;
     };
 
-    struct SetVertexBuffersCmd {
-        uint32_t startSlot;
-        uint32_t count;
+    struct SetVertexBufferCmd {
+        uint32_t slot;
+        Ref<BufferBase> buffer;
+        uint64_t offset;
     };
 
     // This needs to be called before the CommandIterator is freed so that the Ref<> present in

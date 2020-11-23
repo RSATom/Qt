@@ -8,8 +8,8 @@
 #include "third_party/blink/renderer/platform/fonts/font.h"
 #include "third_party/blink/renderer/platform/fonts/font_custom_platform_data.h"
 #include "third_party/blink/renderer/platform/fonts/font_selector.h"
-#include "third_party/blink/renderer/platform/shared_buffer.h"
 #include "third_party/blink/renderer/platform/testing/unit_test_helpers.h"
+#include "third_party/blink/renderer/platform/wtf/shared_buffer.h"
 
 namespace blink {
 namespace test {
@@ -43,7 +43,7 @@ class TestFontSelector : public FontSelector {
         font_description.IsSyntheticBold(),
         font_description.IsSyntheticItalic(),
         font_description.GetFontSelectionRequest(), normal_capabilities,
-        font_description.Orientation());
+        font_description.FontOpticalSizing(), font_description.Orientation());
     return SimpleFontData::Create(platform_data, CustomFontData::Create());
   }
 
@@ -57,6 +57,10 @@ class TestFontSelector : public FontSelector {
   unsigned Version() const override { return 0; }
   void FontCacheInvalidated() override {}
   void ReportNotDefGlyph() const override {}
+  void ReportSuccessfulFontFamilyMatch(
+      const AtomicString& font_family_name) override {}
+  void ReportFailedFontFamilyMatch(
+      const AtomicString& font_family_name) override {}
   ExecutionContext* GetExecutionContext() const override { return nullptr; }
   FontFaceCache* GetFontFaceCache() override { return nullptr; }
 

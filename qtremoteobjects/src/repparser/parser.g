@@ -512,12 +512,19 @@ bool RepParser::parseProperty(ASTClass &astClass, const QString &propertyDeclara
         propertyName = input.left(equalSignIndex).trimmed();
 
         input = input.mid(equalSignIndex + 1).trimmed();
+        const int lastQuoteIndex = input.lastIndexOf(QLatin1Char('"'));
+        if (lastQuoteIndex != -1) {
+            propertyDefaultValue = input.left(lastQuoteIndex + 1);
+            input = input.mid(lastQuoteIndex + 1);
+        }
         const int whitespaceIndex = input.indexOf(whitespace);
         if (whitespaceIndex == -1) { // no flag given
-            propertyDefaultValue = input;
+            if (propertyDefaultValue.isEmpty())
+                propertyDefaultValue = input;
             propertyModifier = ASTProperty::ReadPush;
         } else { // flag given
-            propertyDefaultValue = input.left(whitespaceIndex).trimmed();
+            if (propertyDefaultValue.isEmpty())
+                propertyDefaultValue = input.left(whitespaceIndex).trimmed();
 
             const QString flag = input.mid(whitespaceIndex + 1).trimmed();
             if (!parseModifierFlag(flag, propertyModifier, persisted))

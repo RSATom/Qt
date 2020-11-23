@@ -352,8 +352,7 @@ int runRcc(int argc, char *argv[])
         // Make sure QIODevice does not do LF->CRLF,
         // otherwise we'll end up in CRCRLF instead of
         // CRLF.
-        if (list)
-            mode &= ~QIODevice::Text;
+        mode &= ~QIODevice::Text;
 #endif // Q_OS_WIN
         // using this overload close() only flushes.
         out.open(stdout, mode);
@@ -435,11 +434,10 @@ int main(int argc, char *argv[])
 {
     // rcc uses a QHash to store files in the resource system.
     // we must force a certain hash order when testing or tst_rcc will fail, see QTBUG-25078
-    if (Q_UNLIKELY(!qEnvironmentVariableIsEmpty("QT_RCC_TEST"))) {
-        qSetGlobalQHashSeed(0);
-        if (qGlobalQHashSeed() != 0)
-            qFatal("Cannot force QHash seed for testing as requested");
-    }
+    // similar requirements exist for reproducibly builds.
+    qSetGlobalQHashSeed(0);
+    if (qGlobalQHashSeed() != 0)
+        qWarning("Cannot force QHash seed");
 
     return QT_PREPEND_NAMESPACE(runRcc)(argc, argv);
 }

@@ -984,7 +984,7 @@ Module {
         isComposite: true
         Property {
             name: "control"
-            type: "ApplicationWindow_QMLTYPE_12"
+            type: "ApplicationWindow_QMLTYPE_14"
             isReadonly: true
             isPointer: true
         }
@@ -1012,7 +1012,7 @@ Module {
         exportMetaObjectRevisions: [1]
         isComposite: true
         defaultProperty: "data"
-        Property { name: "control"; type: "BusyIndicator_QMLTYPE_19"; isReadonly: true; isPointer: true }
+        Property { name: "control"; type: "BusyIndicator_QMLTYPE_21"; isReadonly: true; isPointer: true }
         Property { name: "indicator"; type: "QQmlComponent"; isPointer: true }
         Property { name: "panel"; type: "QQmlComponent"; isPointer: true }
     }
@@ -1024,7 +1024,7 @@ Module {
         isComposite: true
         defaultProperty: "data"
         Property { name: "isDefault"; type: "bool" }
-        Property { name: "menu"; type: "Menu_QMLTYPE_51"; isPointer: true }
+        Property { name: "menu"; type: "Menu_QMLTYPE_55"; isPointer: true }
         Property { name: "checkable"; type: "bool" }
         Property { name: "checked"; type: "bool" }
         Property { name: "exclusiveGroup"; type: "QQuickExclusiveGroup1"; isPointer: true }
@@ -1057,7 +1057,7 @@ Module {
         exportMetaObjectRevisions: [0]
         isComposite: true
         defaultProperty: "data"
-        Property { name: "control"; type: "Button_QMLTYPE_53"; isReadonly: true; isPointer: true }
+        Property { name: "control"; type: "Button_QMLTYPE_60"; isReadonly: true; isPointer: true }
         Property { name: "background"; type: "QQmlComponent"; isPointer: true }
         Property { name: "label"; type: "QQmlComponent"; isPointer: true }
         Property { name: "panel"; type: "QQmlComponent"; isPointer: true }
@@ -1191,7 +1191,7 @@ Module {
         exportMetaObjectRevisions: [1]
         isComposite: true
         defaultProperty: "data"
-        Property { name: "control"; type: "Calendar_QMLTYPE_57"; isReadonly: true; isPointer: true }
+        Property { name: "control"; type: "Calendar_QMLTYPE_65"; isReadonly: true; isPointer: true }
         Property { name: "gridColor"; type: "QColor" }
         Property { name: "gridVisible"; type: "bool" }
         Property { name: "__gridLineWidth"; type: "double" }
@@ -1248,7 +1248,7 @@ Module {
         exportMetaObjectRevisions: [0]
         isComposite: true
         defaultProperty: "data"
-        Property { name: "control"; type: "CheckBox_QMLTYPE_77"; isReadonly: true; isPointer: true }
+        Property { name: "control"; type: "CheckBox_QMLTYPE_88"; isReadonly: true; isPointer: true }
         Property { name: "label"; type: "QQmlComponent"; isPointer: true }
         Property { name: "background"; type: "QQmlComponent"; isPointer: true }
         Property { name: "spacing"; type: "int" }
@@ -1264,11 +1264,11 @@ Module {
         defaultProperty: "data"
         Property {
             name: "__buttonHelper"
-            type: "CircularButtonStyleHelper_QMLTYPE_82"
+            type: "CircularButtonStyleHelper_QMLTYPE_93"
             isReadonly: true
             isPointer: true
         }
-        Property { name: "control"; type: "Button_QMLTYPE_53"; isReadonly: true; isPointer: true }
+        Property { name: "control"; type: "Button_QMLTYPE_60"; isReadonly: true; isPointer: true }
         Property { name: "background"; type: "QQmlComponent"; isPointer: true }
         Property { name: "label"; type: "QQmlComponent"; isPointer: true }
         Property { name: "panel"; type: "QQmlComponent"; isPointer: true }
@@ -1280,7 +1280,7 @@ Module {
         exportMetaObjectRevisions: [0]
         isComposite: true
         defaultProperty: "data"
-        Property { name: "control"; type: "CircularGauge_QMLTYPE_94"; isReadonly: true; isPointer: true }
+        Property { name: "control"; type: "CircularGauge_QMLTYPE_97"; isReadonly: true; isPointer: true }
         Property { name: "outerRadius"; type: "double"; isReadonly: true }
         Property { name: "minimumValueAngle"; type: "double" }
         Property { name: "maximumValueAngle"; type: "double" }
@@ -1383,7 +1383,7 @@ Module {
         Property { name: "textColor"; type: "QColor" }
         Property { name: "selectionColor"; type: "QColor" }
         Property { name: "selectedTextColor"; type: "QColor" }
-        Property { name: "control"; type: "ComboBox_QMLTYPE_106"; isReadonly: true; isPointer: true }
+        Property { name: "control"; type: "ComboBox_QMLTYPE_120"; isReadonly: true; isPointer: true }
         Property { name: "dropDownButtonWidth"; type: "int" }
         Property { name: "background"; type: "QQmlComponent"; isPointer: true }
         Property { name: "__editor"; type: "QQmlComponent"; isPointer: true }
@@ -1425,13 +1425,13 @@ Module {
         exportMetaObjectRevisions: [0]
         isComposite: true
         defaultProperty: "data"
-        Property { name: "control"; type: "DelayButton_QMLTYPE_138"; isReadonly: true; isPointer: true }
+        Property { name: "control"; type: "DelayButton_QMLTYPE_159"; isReadonly: true; isPointer: true }
         Property { name: "progressBarGradient"; type: "QQuickGradient"; isPointer: true }
         Property { name: "progressBarDropShadowColor"; type: "QColor" }
         Property { name: "foreground"; type: "QQmlComponent"; isPointer: true }
         Property {
             name: "__buttonHelper"
-            type: "CircularButtonStyleHelper_QMLTYPE_82"
+            type: "CircularButtonStyleHelper_QMLTYPE_93"
             isReadonly: true
             isPointer: true
         }
@@ -1446,7 +1446,7 @@ Module {
         exportMetaObjectRevisions: [1]
         isComposite: true
         defaultProperty: "data"
-        Property { name: "control"; type: "Dial_QMLTYPE_147"; isReadonly: true; isPointer: true }
+        Property { name: "control"; type: "Dial_QMLTYPE_165"; isReadonly: true; isPointer: true }
         Property { name: "outerRadius"; type: "double"; isReadonly: true }
         Property { name: "handleInset"; type: "double" }
         Property { name: "tickmarkStepSize"; type: "double" }
@@ -1479,7 +1479,7 @@ Module {
         exportMetaObjectRevisions: [0]
         isComposite: true
         defaultProperty: "data"
-        Property { name: "control"; type: "Gauge_QMLTYPE_155"; isReadonly: true; isPointer: true }
+        Property { name: "control"; type: "Gauge_QMLTYPE_173"; isReadonly: true; isPointer: true }
         Property { name: "valuePosition"; type: "double"; isReadonly: true }
         Property { name: "background"; type: "QQmlComponent"; isPointer: true }
         Property { name: "tickmark"; type: "QQmlComponent"; isPointer: true }
@@ -1503,7 +1503,7 @@ Module {
         Property { name: "checked"; type: "bool" }
         Property { name: "__content"; type: "QObject"; isList: true; isReadonly: true }
         Property { name: "contentItem"; type: "QQuickItem"; isReadonly: true; isPointer: true }
-        Property { name: "__checkbox"; type: "CheckBox_QMLTYPE_77"; isReadonly: true; isPointer: true }
+        Property { name: "__checkbox"; type: "CheckBox_QMLTYPE_88"; isReadonly: true; isPointer: true }
         Property { name: "__style"; type: "QObject"; isReadonly: true; isPointer: true }
     }
     Component {
@@ -1633,7 +1633,7 @@ Module {
         Property { name: "menuItemPanel"; type: "QQmlComponent"; isPointer: true }
         Property {
             name: "itemDelegate"
-            type: "MenuItemSubControls_QMLTYPE_124"
+            type: "MenuItemSubControls_QMLTYPE_125"
             isReadonly: true
             isPointer: true
         }
@@ -1652,7 +1652,7 @@ Module {
         exportMetaObjectRevisions: [3]
         isComposite: true
         defaultProperty: "data"
-        Property { name: "control"; type: "PieMenu_QMLTYPE_174"; isReadonly: true; isPointer: true }
+        Property { name: "control"; type: "PieMenu_QMLTYPE_192"; isReadonly: true; isPointer: true }
         Property { name: "backgroundColor"; type: "QColor" }
         Property { name: "selectionColor"; type: "QColor" }
         Property { name: "shadowColor"; type: "QColor" }
@@ -1719,7 +1719,7 @@ Module {
         exportMetaObjectRevisions: [0]
         isComposite: true
         defaultProperty: "data"
-        Property { name: "control"; type: "ProgressBar_QMLTYPE_187"; isReadonly: true; isPointer: true }
+        Property { name: "control"; type: "ProgressBar_QMLTYPE_207"; isReadonly: true; isPointer: true }
         Property { name: "currentProgress"; type: "double"; isReadonly: true }
         Property { name: "progress"; type: "QQmlComponent"; isPointer: true }
         Property { name: "background"; type: "QQmlComponent"; isPointer: true }
@@ -1754,7 +1754,7 @@ Module {
         exportMetaObjectRevisions: [0]
         isComposite: true
         defaultProperty: "data"
-        Property { name: "control"; type: "RadioButton_QMLTYPE_194"; isReadonly: true; isPointer: true }
+        Property { name: "control"; type: "RadioButton_QMLTYPE_214"; isReadonly: true; isPointer: true }
         Property { name: "label"; type: "QQmlComponent"; isPointer: true }
         Property { name: "background"; type: "QQmlComponent"; isPointer: true }
         Property { name: "spacing"; type: "int" }
@@ -1781,7 +1781,7 @@ Module {
         Property { name: "flickableItem"; type: "QQuickFlickable"; isReadonly: true; isPointer: true }
         Property {
             name: "__scroller"
-            type: "ScrollViewHelper_QMLTYPE_31"
+            type: "ScrollViewHelper_QMLTYPE_32"
             isReadonly: true
             isPointer: true
         }
@@ -1789,13 +1789,13 @@ Module {
         Property { name: "__wheelAreaScrollSpeed"; type: "double" }
         Property {
             name: "__horizontalScrollBar"
-            type: "ScrollBar_QMLTYPE_27"
+            type: "ScrollBar_QMLTYPE_28"
             isReadonly: true
             isPointer: true
         }
         Property {
             name: "__verticalScrollBar"
-            type: "ScrollBar_QMLTYPE_27"
+            type: "ScrollBar_QMLTYPE_28"
             isReadonly: true
             isPointer: true
         }
@@ -1807,7 +1807,7 @@ Module {
         exportMetaObjectRevisions: [0]
         isComposite: true
         defaultProperty: "data"
-        Property { name: "control"; type: "ScrollView_QMLTYPE_35"; isReadonly: true; isPointer: true }
+        Property { name: "control"; type: "ScrollView_QMLTYPE_37"; isReadonly: true; isPointer: true }
         Property { name: "corner"; type: "QQmlComponent"; isPointer: true }
         Property { name: "scrollToClickedPosition"; type: "bool" }
         Property { name: "transientScrollBars"; type: "bool" }
@@ -1888,7 +1888,7 @@ Module {
         exportMetaObjectRevisions: [0]
         isComposite: true
         defaultProperty: "data"
-        Property { name: "control"; type: "Slider_QMLTYPE_198"; isReadonly: true; isPointer: true }
+        Property { name: "control"; type: "Slider_QMLTYPE_218"; isReadonly: true; isPointer: true }
         Property { name: "handle"; type: "QQmlComponent"; isPointer: true }
         Property { name: "groove"; type: "QQmlComponent"; isPointer: true }
         Property { name: "tickmarks"; type: "QQmlComponent"; isPointer: true }
@@ -1934,7 +1934,7 @@ Module {
         exportMetaObjectRevisions: [1]
         isComposite: true
         defaultProperty: "data"
-        Property { name: "control"; type: "SpinBox_QMLTYPE_218"; isReadonly: true; isPointer: true }
+        Property { name: "control"; type: "SpinBox_QMLTYPE_238"; isReadonly: true; isPointer: true }
         Property { name: "horizontalAlignment"; type: "int" }
         Property { name: "textColor"; type: "QColor" }
         Property { name: "selectionColor"; type: "QColor" }
@@ -1982,7 +1982,7 @@ Module {
         defaultProperty: "data"
         Property { name: "initialItem"; type: "QVariant" }
         Property { name: "busy"; type: "bool"; isReadonly: true }
-        Property { name: "delegate"; type: "StackViewDelegate_QMLTYPE_232"; isPointer: true }
+        Property { name: "delegate"; type: "StackViewDelegate_QMLTYPE_252"; isPointer: true }
         Property { name: "__currentItem"; type: "QQuickItem"; isPointer: true }
         Property { name: "__depth"; type: "int" }
         Property { name: "__currentTransition"; type: "QVariant" }
@@ -2120,7 +2120,7 @@ Module {
         defaultProperty: "data"
         Property {
             name: "control"
-            type: "StatusIndicator_QMLTYPE_241"
+            type: "StatusIndicator_QMLTYPE_261"
             isReadonly: true
             isPointer: true
         }
@@ -2234,7 +2234,7 @@ Module {
         exportMetaObjectRevisions: [0]
         isComposite: true
         defaultProperty: "data"
-        Property { name: "control"; type: "TabView_QMLTYPE_257"; isReadonly: true; isPointer: true }
+        Property { name: "control"; type: "TabView_QMLTYPE_280"; isReadonly: true; isPointer: true }
         Property { name: "tabsMovable"; type: "bool" }
         Property { name: "tabsAlignment"; type: "int" }
         Property { name: "tabOverlap"; type: "int" }
@@ -2257,7 +2257,7 @@ Module {
         Property { name: "currentRow"; type: "int" }
         Property {
             name: "selection"
-            type: "TableViewSelection_QMLTYPE_285"
+            type: "TableViewSelection_QMLTYPE_308"
             isReadonly: true
             isPointer: true
         }
@@ -2354,7 +2354,7 @@ Module {
         Property { name: "flickableItem"; type: "QQuickFlickable"; isReadonly: true; isPointer: true }
         Property {
             name: "__scroller"
-            type: "ScrollViewHelper_QMLTYPE_31"
+            type: "ScrollViewHelper_QMLTYPE_32"
             isReadonly: true
             isPointer: true
         }
@@ -2362,13 +2362,13 @@ Module {
         Property { name: "__wheelAreaScrollSpeed"; type: "double" }
         Property {
             name: "__horizontalScrollBar"
-            type: "ScrollBar_QMLTYPE_27"
+            type: "ScrollBar_QMLTYPE_28"
             isReadonly: true
             isPointer: true
         }
         Property {
             name: "__verticalScrollBar"
-            type: "ScrollBar_QMLTYPE_27"
+            type: "ScrollBar_QMLTYPE_28"
             isReadonly: true
             isPointer: true
         }
@@ -2399,7 +2399,7 @@ Module {
         exportMetaObjectRevisions: [0]
         isComposite: true
         defaultProperty: "data"
-        Property { name: "control"; type: "TableView_QMLTYPE_289"; isReadonly: true; isPointer: true }
+        Property { name: "control"; type: "TableView_QMLTYPE_312"; isReadonly: true; isPointer: true }
         Property { name: "textColor"; type: "QColor" }
         Property { name: "backgroundColor"; type: "QColor" }
         Property { name: "alternateBackgroundColor"; type: "QColor" }
@@ -2556,7 +2556,7 @@ Module {
         Property { name: "flickableItem"; type: "QQuickFlickable"; isReadonly: true; isPointer: true }
         Property {
             name: "__scroller"
-            type: "ScrollViewHelper_QMLTYPE_31"
+            type: "ScrollViewHelper_QMLTYPE_32"
             isReadonly: true
             isPointer: true
         }
@@ -2564,13 +2564,13 @@ Module {
         Property { name: "__wheelAreaScrollSpeed"; type: "double" }
         Property {
             name: "__horizontalScrollBar"
-            type: "ScrollBar_QMLTYPE_27"
+            type: "ScrollBar_QMLTYPE_28"
             isReadonly: true
             isPointer: true
         }
         Property {
             name: "__verticalScrollBar"
-            type: "ScrollBar_QMLTYPE_27"
+            type: "ScrollBar_QMLTYPE_28"
             isReadonly: true
             isPointer: true
         }
@@ -2704,7 +2704,7 @@ Module {
         Property { name: "flickableItem"; type: "QQuickFlickable"; isReadonly: true; isPointer: true }
         Property {
             name: "__scroller"
-            type: "ScrollViewHelper_QMLTYPE_31"
+            type: "ScrollViewHelper_QMLTYPE_32"
             isReadonly: true
             isPointer: true
         }
@@ -2712,13 +2712,13 @@ Module {
         Property { name: "__wheelAreaScrollSpeed"; type: "double" }
         Property {
             name: "__horizontalScrollBar"
-            type: "ScrollBar_QMLTYPE_27"
+            type: "ScrollBar_QMLTYPE_28"
             isReadonly: true
             isPointer: true
         }
         Property {
             name: "__verticalScrollBar"
-            type: "ScrollBar_QMLTYPE_27"
+            type: "ScrollBar_QMLTYPE_28"
             isReadonly: true
             isPointer: true
         }
@@ -2852,7 +2852,7 @@ Module {
         Property { name: "flickableItem"; type: "QQuickFlickable"; isReadonly: true; isPointer: true }
         Property {
             name: "__scroller"
-            type: "ScrollViewHelper_QMLTYPE_31"
+            type: "ScrollViewHelper_QMLTYPE_32"
             isReadonly: true
             isPointer: true
         }
@@ -2860,13 +2860,13 @@ Module {
         Property { name: "__wheelAreaScrollSpeed"; type: "double" }
         Property {
             name: "__horizontalScrollBar"
-            type: "ScrollBar_QMLTYPE_27"
+            type: "ScrollBar_QMLTYPE_28"
             isReadonly: true
             isPointer: true
         }
         Property {
             name: "__verticalScrollBar"
-            type: "ScrollBar_QMLTYPE_27"
+            type: "ScrollBar_QMLTYPE_28"
             isReadonly: true
             isPointer: true
         }
@@ -2878,7 +2878,7 @@ Module {
         exportMetaObjectRevisions: [1]
         isComposite: true
         defaultProperty: "data"
-        Property { name: "control"; type: "TextArea_QMLTYPE_295"; isReadonly: true; isPointer: true }
+        Property { name: "control"; type: "TextArea_QMLTYPE_318"; isReadonly: true; isPointer: true }
         Property { name: "font"; type: "QFont" }
         Property { name: "textColor"; type: "QColor" }
         Property { name: "selectionColor"; type: "QColor" }
@@ -2999,7 +2999,7 @@ Module {
         exportMetaObjectRevisions: [0]
         isComposite: true
         defaultProperty: "data"
-        Property { name: "control"; type: "TextField_QMLTYPE_300"; isReadonly: true; isPointer: true }
+        Property { name: "control"; type: "TextField_QMLTYPE_324"; isReadonly: true; isPointer: true }
         Property { name: "font"; type: "QFont" }
         Property { name: "textColor"; type: "QColor" }
         Property { name: "selectionColor"; type: "QColor" }
@@ -3021,7 +3021,7 @@ Module {
         exportMetaObjectRevisions: [0]
         isComposite: true
         defaultProperty: "data"
-        Property { name: "control"; type: "ToggleButton_QMLTYPE_303"; isReadonly: true; isPointer: true }
+        Property { name: "control"; type: "ToggleButton_QMLTYPE_327"; isReadonly: true; isPointer: true }
         Property { name: "inactiveGradient"; type: "QQuickGradient"; isPointer: true }
         Property { name: "checkedGradient"; type: "QQuickGradient"; isPointer: true }
         Property { name: "uncheckedGradient"; type: "QQuickGradient"; isPointer: true }
@@ -3029,7 +3029,7 @@ Module {
         Property { name: "uncheckedDropShadowColor"; type: "QColor" }
         Property {
             name: "__buttonHelper"
-            type: "CircularButtonStyleHelper_QMLTYPE_82"
+            type: "CircularButtonStyleHelper_QMLTYPE_93"
             isReadonly: true
             isPointer: true
         }
@@ -3071,7 +3071,7 @@ Module {
         isComposite: true
         defaultProperty: "data"
         Property { name: "isDefault"; type: "bool" }
-        Property { name: "menu"; type: "Menu_QMLTYPE_51"; isPointer: true }
+        Property { name: "menu"; type: "Menu_QMLTYPE_55"; isPointer: true }
         Property { name: "checkable"; type: "bool" }
         Property { name: "checked"; type: "bool" }
         Property { name: "exclusiveGroup"; type: "QQuickExclusiveGroup1"; isPointer: true }
@@ -3218,7 +3218,7 @@ Module {
         Property { name: "flickableItem"; type: "QQuickFlickable"; isReadonly: true; isPointer: true }
         Property {
             name: "__scroller"
-            type: "ScrollViewHelper_QMLTYPE_31"
+            type: "ScrollViewHelper_QMLTYPE_32"
             isReadonly: true
             isPointer: true
         }
@@ -3226,13 +3226,13 @@ Module {
         Property { name: "__wheelAreaScrollSpeed"; type: "double" }
         Property {
             name: "__horizontalScrollBar"
-            type: "ScrollBar_QMLTYPE_27"
+            type: "ScrollBar_QMLTYPE_28"
             isReadonly: true
             isPointer: true
         }
         Property {
             name: "__verticalScrollBar"
-            type: "ScrollBar_QMLTYPE_27"
+            type: "ScrollBar_QMLTYPE_28"
             isReadonly: true
             isPointer: true
         }
@@ -3358,7 +3358,7 @@ Module {
         Property { name: "flickableItem"; type: "QQuickFlickable"; isReadonly: true; isPointer: true }
         Property {
             name: "__scroller"
-            type: "ScrollViewHelper_QMLTYPE_31"
+            type: "ScrollViewHelper_QMLTYPE_32"
             isReadonly: true
             isPointer: true
         }
@@ -3366,13 +3366,13 @@ Module {
         Property { name: "__wheelAreaScrollSpeed"; type: "double" }
         Property {
             name: "__horizontalScrollBar"
-            type: "ScrollBar_QMLTYPE_27"
+            type: "ScrollBar_QMLTYPE_28"
             isReadonly: true
             isPointer: true
         }
         Property {
             name: "__verticalScrollBar"
-            type: "ScrollBar_QMLTYPE_27"
+            type: "ScrollBar_QMLTYPE_28"
             isReadonly: true
             isPointer: true
         }
@@ -3384,7 +3384,7 @@ Module {
         exportMetaObjectRevisions: [4]
         isComposite: true
         defaultProperty: "data"
-        Property { name: "control"; type: "TreeView_QMLTYPE_321"; isReadonly: true; isPointer: true }
+        Property { name: "control"; type: "TreeView_QMLTYPE_350"; isReadonly: true; isPointer: true }
         Property { name: "indentation"; type: "int" }
         Property { name: "branchDelegate"; type: "QQmlComponent"; isPointer: true }
         Property { name: "textColor"; type: "QColor" }
@@ -3421,7 +3421,7 @@ Module {
         exportMetaObjectRevisions: [2]
         isComposite: true
         defaultProperty: "data"
-        Property { name: "control"; type: "Tumbler_QMLTYPE_324"; isReadonly: true; isPointer: true }
+        Property { name: "control"; type: "Tumbler_QMLTYPE_353"; isReadonly: true; isPointer: true }
         Property { name: "spacing"; type: "double" }
         Property { name: "visibleItemCount"; type: "int" }
         Property { name: "__padding"; type: "double"; isReadonly: true }

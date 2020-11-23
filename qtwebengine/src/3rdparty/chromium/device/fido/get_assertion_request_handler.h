@@ -13,9 +13,10 @@
 #include "base/macros.h"
 #include "base/memory/weak_ptr.h"
 #include "base/optional.h"
+#include "device/fido/authenticator_get_assertion_response.h"
 #include "device/fido/ctap_get_assertion_request.h"
 #include "device/fido/fido_constants.h"
-#include "device/fido/fido_request_handler.h"
+#include "device/fido/fido_request_handler_base.h"
 #include "device/fido/fido_transport_protocol.h"
 
 namespace service_manager {
@@ -26,17 +27,44 @@ namespace device {
 
 class FidoAuthenticator;
 class FidoDiscoveryFactory;
-class AuthenticatorGetAssertionResponse;
+
+namespace pin {
+struct KeyAgreementResponse;
+struct RetriesResponse;
+class TokenResponse;
+}  // namespace pin
+
+enum class GetAssertionStatus {
+  kSuccess,
+  kAuthenticatorResponseInvalid,
+  kUserConsentButCredentialNotRecognized,
+  kUserConsentDenied,
+  kAuthenticatorRemovedDuringPINEntry,
+  kSoftPINBlock,
+  kHardPINBlock,
+  kAuthenticatorMissingResidentKeys,
+  // TODO(agl): kAuthenticatorMissingUserVerification can
+  // also be returned when the authenticator supports UV, but
+  // there's no UI support for collecting a PIN. This could
+  // be clearer.
+  kAuthenticatorMissingUserVerification,
+  kWinNotAllowedError,
+};
 
 class COMPONENT_EXPORT(DEVICE_FIDO) GetAssertionRequestHandler
-    : public FidoRequestHandler<
-          std::vector<AuthenticatorGetAssertionResponse>> {
+    : public FidoRequestHandlerBase {
  public:
+  using CompletionCallback = base::OnceCallback<void(
+      GetAssertionStatus,
+      base::Optional<std::vector<AuthenticatorGetAssertionResponse>>,
+      const FidoAuthenticator*)>;
+
   GetAssertionRequestHandler(
       service_manager::Connector* connector,
       FidoDiscoveryFactory* fido_discovery_factory,
       const base::flat_set<FidoTransportProtocol>& supported_transports,
       CtapGetAssertionRequest request_parameter,
+      bool allow_skipping_pin_touch,
       CompletionCallback completion_callback);
   ~GetAssertionRequestHandler() override;
 
@@ -68,7 +96,7 @@ class COMPONENT_EXPORT(DEVICE_FIDO) GetAssertionRequestHandler
       CtapDeviceResponseCode response_code,
       base::Optional<AuthenticatorGetAssertionResponse> response);
   void HandleTouch(FidoAuthenticator* authenticator);
-  void HandleInapplicableAuthenticator(FidoAuthenticator* authenticator);
+  void HandleAuthenticatorMissingUV(FidoAuthenticator* authenticator);
   void OnRetriesResponse(CtapDeviceResponseCode status,
                          base::Optional<pin::RetriesResponse> response);
   void OnHavePIN(std::string pin);
@@ -78,8 +106,14 @@ class COMPONENT_EXPORT(DEVICE_FIDO) GetAssertionRequestHandler
   void OnHavePINToken(CtapDeviceResponseCode status,
                       base::Optional<pin::TokenResponse> response);
 
+  CompletionCallback completion_callback_;
   State state_ = State::kWaitingForTouch;
   CtapGetAssertionRequest request_;
+  // If true, and if at the time the request is dispatched to the first
+  // authenticator no other authenticators are available, the request handler
+  // will skip the initial touch that is usually required to select a PIN
+  // protected authenticator.
+  bool allow_skipping_pin_touch_;
   // authenticator_ points to the authenticator that will be used for this
   // operation. It's only set after the user touches an authenticator to select
   // it, after which point that authenticator will be used exclusively through
@@ -93,7 +127,7 @@ class COMPONENT_EXPORT(DEVICE_FIDO) GetAssertionRequestHandler
   // read when multiple responses are returned.
   size_t remaining_responses_ = 0;
   SEQUENCE_CHECKER(my_sequence_checker_);
-  base::WeakPtrFactory<GetAssertionRequestHandler> weak_factory_;
+  base::WeakPtrFactory<GetAssertionRequestHandler> weak_factory_{this};
 
   DISALLOW_COPY_AND_ASSIGN(GetAssertionRequestHandler);
 };

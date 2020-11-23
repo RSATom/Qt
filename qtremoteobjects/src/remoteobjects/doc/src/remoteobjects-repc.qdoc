@@ -84,7 +84,7 @@
     \code
         class MyType
         {
-            //PROP/SIGNAL/SLOT/ENUM declarations to define your API
+            //PROP/CLASS/MODEL/SIGNAL/SLOT/ENUM declarations to define your API
         };
     \endcode
 
@@ -223,6 +223,39 @@
     ability to change the pointer itself.
 
     \sa QRemoteObjectAbstractPersistedStore
+
+    \section3 CLASS
+
+    The CLASS keyword generates special Q_PROPERTY elements for objects derived from QObject.
+    These properties have the same semantics as SOURCEONLYSETTER. The syntax is the \c CLASS
+    keyword followed by the property name and then the type of subobject enclosed in parentheses.
+    \code
+        // In .rep file
+        class OtherClass
+        {
+            PROP(int value)
+        }
+
+        class MainClass
+        {
+            CLASS subObject(OtherClass)
+        }
+    \endcode
+
+    \section3 MODEL
+
+    The MODEL keyword generates special Q_PROPERTY elements for objects derived from QAbstractItemModel.
+    These properties have the same semantics as SOURCEONLYSETTER. The syntax is the \c MODEL
+    keyword followed by the property name and then parentheses enclosing the (comma-separated) roles
+    that should be exposed to the replica.
+    \code
+        // In .rep file
+        class CdClass
+        {
+            PROP(QString title READONLY)
+            MODEL tracks(title, artist, length)
+        }
+    \endcode
 
     \section3 SIGNAL
 

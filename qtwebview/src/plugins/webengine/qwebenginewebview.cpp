@@ -81,8 +81,11 @@ QString QWebEngineWebViewPrivate::httpUserAgent() const
 
 void QWebEngineWebViewPrivate::setHttpUserAgent(const QString &userAgent)
 {
-    m_profile->setHttpUserAgent(userAgent);
-    Q_EMIT httpUserAgentChanged(userAgent);
+    m_httpUserAgent = userAgent;
+    if (m_profile) {
+        m_profile->setHttpUserAgent(userAgent);
+        Q_EMIT httpUserAgentChanged(userAgent);
+    }
 }
 
 QUrl QWebEngineWebViewPrivate::url() const
@@ -255,7 +258,12 @@ void QWebEngineWebViewPrivate::QQuickWebEngineViewPtr::init() const
     Q_ASSERT(webEngineView);
     QQuickWebEngineProfile *profile = webEngineView->profile();
     m_parent->m_profile = profile;
-    m_parent->m_httpUserAgent = profile->httpUserAgent();
+    // When the httpUserAgent is set as a property then it will be set before
+    // init() is called
+    if (m_parent->m_httpUserAgent.isEmpty())
+        m_parent->m_httpUserAgent = profile->httpUserAgent();
+    else
+        profile->setHttpUserAgent(m_parent->m_httpUserAgent);
     QObject::connect(webEngineView, &QQuickWebEngineView::urlChanged, m_parent, &QWebEngineWebViewPrivate::q_urlChanged);
     QObject::connect(webEngineView, &QQuickWebEngineView::loadProgressChanged, m_parent, &QWebEngineWebViewPrivate::q_loadProgressChanged);
     QObject::connect(webEngineView, &QQuickWebEngineView::loadingChanged, m_parent, &QWebEngineWebViewPrivate::q_loadingChanged);

@@ -208,15 +208,15 @@
     </message>
     <message>
         <source>Personal Area Networking (PANU)</source>
-        <translation type="unfinished"></translation>
+        <translation>Netværk i personligt område (PANU)</translation>
     </message>
     <message>
         <source>Personal Area Networking (NAP)</source>
-        <translation type="unfinished"></translation>
+        <translation>Netværk i personligt område (NAP)</translation>
     </message>
     <message>
         <source>Personal Area Networking (GN)</source>
-        <translation type="unfinished"></translation>
+        <translation>Netværk i personligt område (GN)</translation>
     </message>
     <message>
         <source>Basic Direct Printing (BPP)</source>
@@ -228,19 +228,19 @@
     </message>
     <message>
         <source>Basic Imaging Profile</source>
-        <translation type="unfinished"></translation>
+        <translation>Grundlæggende billede-profil</translation>
     </message>
     <message>
         <source>Basic Imaging Responder</source>
-        <translation type="unfinished"></translation>
+        <translation>Grundlæggende billede-svarer</translation>
     </message>
     <message>
         <source>Basic Imaging Archive</source>
-        <translation type="unfinished"></translation>
+        <translation>Grundlæggende billede-arkiv</translation>
     </message>
     <message>
         <source>Basic Imaging Ref Objects</source>
-        <translation type="unfinished"></translation>
+        <translation>Grundlæggende billede reference objekter</translation>
     </message>
     <message>
         <source>Hands-Free</source>
@@ -252,11 +252,11 @@
     </message>
     <message>
         <source>Basic Printing RefObject Service</source>
-        <translation type="unfinished"></translation>
+        <translation>Grundlæggende udskrivning RefObject-tjeneste</translation>
     </message>
     <message>
         <source>Basic Printing Reflected UI</source>
-        <translation type="unfinished"></translation>
+        <translation>Grundlæggende udskrivning reflekteret brugerflade</translation>
     </message>
     <message>
         <source>Basic Printing</source>
@@ -272,15 +272,15 @@
     </message>
     <message>
         <source>Hardcopy Cable Replacement</source>
-        <translation type="unfinished"></translation>
+        <translation>Hardcopy kabel erstatning</translation>
     </message>
     <message>
         <source>Hardcopy Cable Replacement Print</source>
-        <translation type="unfinished"></translation>
+        <translation>Hardcopy kabel erstatning udskriv</translation>
     </message>
     <message>
         <source>Hardcopy Cable Replacement Scan</source>
-        <translation type="unfinished"></translation>
+        <translation>Hardcopy kabel erstatning skan</translation>
     </message>
     <message>
         <source>SIM Access Server</source>
@@ -304,23 +304,23 @@
     </message>
     <message>
         <source>Message Access Server</source>
-        <translation type="unfinished"></translation>
+        <translation>Meddelelsesadgang-server</translation>
     </message>
     <message>
         <source>Message Notification Server</source>
-        <translation type="unfinished"></translation>
+        <translation>Meddelelsesunderretning-server</translation>
     </message>
     <message>
         <source>Message Access</source>
-        <translation type="unfinished"></translation>
+        <translation>Meddelelsesadgang</translation>
     </message>
     <message>
         <source>Global Navigation Satellite System</source>
-        <translation type="unfinished"></translation>
+        <translation>Global navigation satellitsystem</translation>
     </message>
     <message>
         <source>Global Navigation Satellite System Server</source>
-        <translation type="unfinished"></translation>
+        <translation>Global navigation satellitsystem-server</translation>
     </message>
     <message>
         <source>3D Synchronization Display</source>
@@ -336,11 +336,11 @@
     </message>
     <message>
         <source>Multi-Profile Specification (Profile)</source>
-        <translation type="unfinished"></translation>
+        <translation>Multiprofil-specifikation (profil)</translation>
     </message>
     <message>
         <source>Multi-Profile Specification</source>
-        <translation type="unfinished"></translation>
+        <translation>Multiprofil-specifikation</translation>
     </message>
     <message>
         <source>Device Identification</source>
@@ -396,7 +396,7 @@
     </message>
     <message>
         <source>Immediate Alert</source>
-        <translation type="unfinished"></translation>
+        <translation>Omgående besked</translation>
     </message>
     <message>
         <source>Link Loss</source>
@@ -412,11 +412,11 @@
     </message>
     <message>
         <source>Reference Time Update Service</source>
-        <translation type="unfinished"></translation>
+        <translation>Referencetid opdatering-tjeneste</translation>
     </message>
     <message>
         <source>Next DST Change Service</source>
-        <translation type="unfinished"></translation>
+        <translation>Næste DST-skift-tjeneste</translation>
     </message>
     <message>
         <source>Glucose</source>
@@ -436,7 +436,7 @@
     </message>
     <message>
         <source>Phone Alert Status Service</source>
-        <translation type="unfinished"></translation>
+        <translation>Telefonbeskedstatus-tjeneste</translation>
     </message>
     <message>
         <source>Battery Service</source>
@@ -448,7 +448,7 @@
     </message>
     <message>
         <source>Alert Notification Service</source>
-        <translation type="unfinished"></translation>
+        <translation>Beskedunderretning-tjeneste</translation>
     </message>
     <message>
         <source>Scan Parameters</source>
@@ -489,7 +489,7 @@
     <message>
         <source>Bond Management</source>
         <extracomment>Connection management (Bluetooth)</extracomment>
-        <translation type="unfinished"></translation>
+        <translation>Bindingshåndtering</translation>
     </message>
     <message>
         <source>Continuous Glucose Monitoring</source>
@@ -497,11 +497,11 @@
     </message>
     <message>
         <source>Service Discovery Protocol</source>
-        <translation type="unfinished"></translation>
+        <translation>Opdagelse af tjeneste-protokol</translation>
     </message>
     <message>
         <source>User Datagram Protocol</source>
-        <translation type="unfinished"></translation>
+        <translation>Brugerdatagram-protokol</translation>
     </message>
     <message>
         <source>Radio Frequency Communication</source>
@@ -509,23 +509,23 @@
     </message>
     <message>
         <source>Transmission Control Protocol</source>
-        <translation type="unfinished"></translation>
+        <translation>Overførselsstyring-protokol</translation>
     </message>
     <message>
         <source>Telephony Control Specification - Binary</source>
-        <translation type="unfinished"></translation>
+        <translation>Telefonistyring-specifikation - binær</translation>
     </message>
     <message>
         <source>Telephony Control Specification - AT</source>
-        <translation type="unfinished"></translation>
+        <translation>Telefonistyring-specifikation - AT</translation>
     </message>
     <message>
         <source>Attribute Protocol</source>
-        <translation type="unfinished"></translation>
+        <translation>Attribut-protokol</translation>
     </message>
     <message>
         <source>Object Exchange Protocol</source>
-        <translation type="unfinished"></translation>
+        <translation>Objektudvæksling-protokol</translation>
     </message>
     <message>
         <source>Internet Protocol</source>
@@ -541,15 +541,15 @@
     </message>
     <message>
         <source>Wireless Short Packet Protocol</source>
-        <translation type="unfinished"></translation>
+        <translation>Trådløs kort pakke-protokol</translation>
     </message>
     <message>
         <source>Bluetooth Network Encapsulation Protocol</source>
-        <translation type="unfinished"></translation>
+        <translation>Bluetooth Network Encapsulation-protokol</translation>
     </message>
     <message>
         <source>Extended Service Discovery Protocol</source>
-        <translation type="unfinished"></translation>
+        <translation>Extended Service Discovery-protokol</translation>
     </message>
     <message>
         <source>Human Interface Device Protocol</source>
@@ -557,27 +557,27 @@
     </message>
     <message>
         <source>Hardcopy Control Channel</source>
-        <translation type="unfinished"></translation>
+        <translation>Hardcopy-styringskanal</translation>
     </message>
     <message>
         <source>Hardcopy Data Channel</source>
-        <translation type="unfinished"></translation>
+        <translation>Hardcopy-datakanal</translation>
     </message>
     <message>
         <source>Hardcopy Notification</source>
-        <translation type="unfinished"></translation>
+        <translation>Hardcopy underretning</translation>
     </message>
     <message>
         <source>Audio/Video Control Transport Protocol</source>
-        <translation type="unfinished"></translation>
+        <translation>Audio/Video Control Transport-protokol</translation>
     </message>
     <message>
         <source>Audio/Video Distribution Transport Protocol</source>
-        <translation type="unfinished"></translation>
+        <translation>Audio/Video Distribution Transport-protokol</translation>
     </message>
     <message>
         <source>Common ISDN Access Protocol</source>
-        <translation>Almen ISDN adgangsprotokol</translation>
+        <translation>Almen ISDN-adgang-protokol</translation>
     </message>
     <message>
         <source>UdiCPlain</source>
@@ -585,15 +585,15 @@
     </message>
     <message>
         <source>Multi-Channel Adaptation Protocol - Control</source>
-        <translation type="unfinished"></translation>
+        <translation>Multi-Channel Adaptation Protocol - Styring</translation>
     </message>
     <message>
         <source>Multi-Channel Adaptation Protocol - Data</source>
-        <translation type="unfinished"></translation>
+        <translation>Multi-Channel Adaptation Protocol - data</translation>
     </message>
     <message>
         <source>Layer 2 Control Protocol</source>
-        <translation type="unfinished"></translation>
+        <translation>Layer 2 Control-protokol</translation>
     </message>
     <message>
         <source>GAP Device Name</source>
@@ -608,25 +608,25 @@
     <message>
         <source>GAP Peripheral Privacy Flag</source>
         <extracomment>GAP: Generic Access Profile (Bluetooth)</extracomment>
-        <translation type="unfinished"></translation>
+        <translation>GAP eksterne enheder privatlivsflag</translation>
     </message>
     <message>
         <source>GAP Reconnection Address</source>
         <extracomment>GAP: Generic Access Profile (Bluetooth)</extracomment>
-        <translation type="unfinished"></translation>
+        <translation>GAP-genforbindelsesadresse</translation>
     </message>
     <message>
         <source>GAP Peripheral Preferred Connection Parameters</source>
-        <translation type="unfinished"></translation>
+        <translation>GAP eksterne enheder fortrukne forbindelsesparametre</translation>
     </message>
     <message>
         <source>GATT Service Changed</source>
         <extracomment>GATT: _G_eneric _Att_ribute Profile (Bluetooth)</extracomment>
-        <translation type="unfinished"></translation>
+        <translation>GATT-tjeneste blev ændret</translation>
     </message>
     <message>
         <source>Alert Level</source>
-        <translation type="unfinished"></translation>
+        <translation>Beskedniveau</translation>
     </message>
     <message>
         <source>TX Power</source>
@@ -646,7 +646,7 @@
     </message>
     <message>
         <source>Exact Time 256</source>
-        <translation type="unfinished"></translation>
+        <translation>Præcis tid 256</translation>
     </message>
     <message>
         <source>DST Offset</source>
@@ -678,11 +678,11 @@
     </message>
     <message>
         <source>Time Update Control Point</source>
-        <translation>Tidsopdatering kontrolpunkt</translation>
+        <translation>Tidsopdatering-kontrolpunkt</translation>
     </message>
     <message>
         <source>Time Update State</source>
-        <translation type="unfinished"></translation>
+        <translation>Tidsopdatering-tilstand</translation>
     </message>
     <message>
         <source>Glucose Measurement</source>
@@ -710,7 +710,7 @@
     </message>
     <message>
         <source>Boot Keyboard Input Report</source>
-        <translation type="unfinished"></translation>
+        <translation>Start tastaturinput-rapport</translation>
     </message>
     <message>
         <source>System ID</source>
@@ -742,7 +742,7 @@
     </message>
     <message>
         <source>IEEE 11073 20601 Regulatory Certification Data List</source>
-        <translation type="unfinished"></translation>
+        <translation>IEEE 11073 20601 Regulatory Certification-dataliste</translation>
     </message>
     <message>
         <source>Current Time</source>
@@ -750,19 +750,19 @@
     </message>
     <message>
         <source>Scan Refresh</source>
-        <translation type="unfinished"></translation>
+        <translation>Skanningsopdatering</translation>
     </message>
     <message>
         <source>Boot Keyboard Output Report</source>
-        <translation type="unfinished"></translation>
+        <translation>Start tastaturoutput-rapport</translation>
     </message>
     <message>
         <source>Boot Mouse Input Report</source>
-        <translation type="unfinished"></translation>
+        <translation>Start museinput-rapport</translation>
     </message>
     <message>
         <source>Glucose Measurement Context</source>
-        <translation type="unfinished"></translation>
+        <translation>Glukosemåling-kontekst</translation>
     </message>
     <message>
         <source>Blood Pressure Measurement</source>
@@ -770,7 +770,7 @@
     </message>
     <message>
         <source>Intermediate Cuff Pressure</source>
-        <translation type="unfinished"></translation>
+        <translation>Mellemliggende cuff-tryk</translation>
     </message>
     <message>
         <source>Heart Rate Measurement</source>
@@ -786,7 +786,7 @@
     </message>
     <message>
         <source>Alert Status</source>
-        <translation type="unfinished"></translation>
+        <translation>Beskedstatus</translation>
     </message>
     <message>
         <source>Ringer Control Point</source>
@@ -798,31 +798,31 @@
     </message>
     <message>
         <source>Alert Category ID Bit Mask</source>
-        <translation type="unfinished"></translation>
+        <translation>Beskedkategori-id bitmaske</translation>
     </message>
     <message>
         <source>Alert Category ID</source>
-        <translation type="unfinished"></translation>
+        <translation>Beskedkategori-id</translation>
     </message>
     <message>
         <source>Alert Notification Control Point</source>
-        <translation type="unfinished"></translation>
+        <translation>Beskedunderretning-styringspunkt</translation>
     </message>
     <message>
         <source>Unread Alert Status</source>
-        <translation type="unfinished"></translation>
+        <translation>Ulæst beskedstatus</translation>
     </message>
     <message>
         <source>New Alert</source>
-        <translation type="unfinished"></translation>
+        <translation>Ny besked</translation>
     </message>
     <message>
         <source>Supported New Alert Category</source>
-        <translation type="unfinished"></translation>
+        <translation>Understøttede ny beskedkategori</translation>
     </message>
     <message>
         <source>Supported Unread Alert Category</source>
-        <translation type="unfinished"></translation>
+        <translation>Understøttede ulæst beskedkategori</translation>
     </message>
     <message>
         <source>Blood Pressure Feature</source>
@@ -852,7 +852,7 @@
     </message>
     <message>
         <source>Scan Interval Window</source>
-        <translation type="unfinished"></translation>
+        <translation>Skan internt vindue</translation>
     </message>
     <message>
         <source>PnP ID</source>
@@ -865,7 +865,7 @@
     <message>
         <source>Record Access Control Point</source>
         <extracomment>Glucose Sensor patient record database.</extracomment>
-        <translation type="unfinished"></translation>
+        <translation>Optagelsesadgang-kontrolpunkt</translation>
     </message>
     <message>
         <source>RSC Measurement</source>
@@ -879,7 +879,7 @@
     </message>
     <message>
         <source>SC Control Point</source>
-        <translation type="unfinished"></translation>
+        <translation>SC-kontrolpunkt</translation>
     </message>
     <message>
         <source>CSC Measurement</source>
@@ -909,7 +909,7 @@
     </message>
     <message>
         <source>Cycling Power Control Point</source>
-        <translation>Cykling ydelse kontrolpunkt</translation>
+        <translation>Cykling ydelse-kontrolpunkt</translation>
     </message>
     <message>
         <source>Location And Speed</source>
@@ -934,7 +934,7 @@
     <message>
         <source>Magnetic Declination</source>
         <extracomment>Angle between geographic and magnetic north</extracomment>
-        <translation type="unfinished"></translation>
+        <translation>Magnetisk afvigelse</translation>
     </message>
     <message>
         <source>Elevation</source>
@@ -965,11 +965,11 @@
     <message>
         <source>Apparent Wind Speed</source>
         <extracomment>Wind speed while observer is moving</extracomment>
-        <translation type="unfinished"></translation>
+        <translation>Tilsyneladende vindhastighed</translation>
     </message>
     <message>
         <source>Apparent Wind Direction</source>
-        <translation type="unfinished"></translation>
+        <translation>Tilsyneladende vindretning</translation>
     </message>
     <message>
         <source>Gust Factor</source>
@@ -986,7 +986,7 @@
     </message>
     <message>
         <source>Irradiance</source>
-        <translation type="unfinished"></translation>
+        <translation>Stråling</translation>
     </message>
     <message>
         <source>Rainfall</source>
@@ -994,7 +994,7 @@
     </message>
     <message>
         <source>Wind Chill</source>
-        <translation type="unfinished"></translation>
+        <translation>Wind chill</translation>
     </message>
     <message>
         <source>Heat Index</source>
@@ -1007,19 +1007,19 @@
     <message>
         <source>Descriptor Value Changed</source>
         <extracomment>Environmental sensing related</extracomment>
-        <translation type="unfinished"></translation>
+        <translation>Beskriverværdi blev ændret</translation>
     </message>
     <message>
         <source>Aerobic Heart Rate Lower Limit</source>
-        <translation type="unfinished"></translation>
+        <translation>Aerobic-puls nedre grænse</translation>
     </message>
     <message>
         <source>Aerobic Heart Rate Upper Limit</source>
-        <translation type="unfinished"></translation>
+        <translation>Aerobic-puls øvre grænse</translation>
     </message>
     <message>
         <source>Aerobic Threshold</source>
-        <translation type="unfinished"></translation>
+        <translation>Aerobic tærskel</translation>
     </message>
     <message>
         <source>Age</source>
@@ -1028,15 +1028,15 @@
     </message>
     <message>
         <source>Anaerobic Heart Rate Lower Limit</source>
-        <translation type="unfinished"></translation>
+        <translation>Anaerob-puls nedre grænse</translation>
     </message>
     <message>
         <source>Anaerobic Heart Rate Upper Limit</source>
-        <translation type="unfinished"></translation>
+        <translation>Anaerob-puls øvre grænse</translation>
     </message>
     <message>
         <source>Anaerobic Threshold</source>
-        <translation type="unfinished"></translation>
+        <translation>Anaerob tærskel</translation>
     </message>
     <message>
         <source>Date Of Birth</source>
@@ -1044,7 +1044,7 @@
     </message>
     <message>
         <source>Date Of Threshold Assessment</source>
-        <translation type="unfinished"></translation>
+        <translation>Dato for tærskelvurdering</translation>
     </message>
     <message>
         <source>Email Address</source>
@@ -1052,11 +1052,11 @@
     </message>
     <message>
         <source>Fat Burn Heart Rate Lower Limit</source>
-        <translation type="unfinished"></translation>
+        <translation>Fedtforbrænding-puls nedre grænse</translation>
     </message>
     <message>
         <source>Fat Burn Heart Rate Upper Limit</source>
-        <translation type="unfinished"></translation>
+        <translation>Fedtforbrænding-puls øvre grænse</translation>
     </message>
     <message>
         <source>First Name</source>
@@ -1064,7 +1064,7 @@
     </message>
     <message>
         <source>5-Zone Heart Rate Limits</source>
-        <translation type="unfinished"></translation>
+        <translation>5-zone-puls grænser</translation>
     </message>
     <message>
         <source>Gender</source>
@@ -1097,15 +1097,15 @@
     </message>
     <message>
         <source>Sport Type For Aerobic/Anaerobic Thresholds</source>
-        <translation type="unfinished"></translation>
+        <translation>Sportstype for aerobic/anaerob tærskler</translation>
     </message>
     <message>
         <source>3-Zone Heart Rate Limits</source>
-        <translation type="unfinished"></translation>
+        <translation>3-zone-puls grænser</translation>
     </message>
     <message>
         <source>2-Zone Heart Rate Limits</source>
-        <translation type="unfinished"></translation>
+        <translation>2-zone-puls grænser</translation>
     </message>
     <message>
         <source>Oxygen Uptake</source>
@@ -1122,7 +1122,7 @@
     <message>
         <source>Database Change Increment</source>
         <extracomment>Environmental sensing related</extracomment>
-        <translation type="unfinished"></translation>
+        <translation>Database-skift forøgelse</translation>
     </message>
     <message>
         <source>User Index</source>
@@ -1158,31 +1158,31 @@
     </message>
     <message>
         <source>Barometric Pressure Trend</source>
-        <translation type="unfinished"></translation>
+        <translation>Barometrisk tryk tendens</translation>
     </message>
     <message>
         <source>Characteristic Extended Properties</source>
-        <translation type="unfinished"></translation>
+        <translation>Karakteristiske udvidede egenskaber</translation>
     </message>
     <message>
         <source>Characteristic User Description</source>
-        <translation type="unfinished"></translation>
+        <translation>Karakteristisk brugerbeskrivelse</translation>
     </message>
     <message>
         <source>Client Characteristic Configuration</source>
-        <translation type="unfinished"></translation>
+        <translation>Klient karakteristisk-konfiguration</translation>
     </message>
     <message>
         <source>Server Characteristic Configuration</source>
-        <translation type="unfinished"></translation>
+        <translation>Server karakteristisk-konfiguration</translation>
     </message>
     <message>
         <source>Characteristic Presentation Format</source>
-        <translation type="unfinished"></translation>
+        <translation>Karakteristisk præsentationsformat</translation>
     </message>
     <message>
         <source>Characteristic Aggregate Format</source>
-        <translation type="unfinished"></translation>
+        <translation>Karakteristisk aggregatformat</translation>
     </message>
     <message>
         <source>Valid Range</source>
@@ -1198,15 +1198,15 @@
     </message>
     <message>
         <source>Environmental Sensing Configuration</source>
-        <translation type="unfinished"></translation>
+        <translation>Miljøsensor-konfiguration</translation>
     </message>
     <message>
         <source>Environmental Sensing Measurement</source>
-        <translation type="unfinished"></translation>
+        <translation>Miljøsensor-måling</translation>
     </message>
     <message>
         <source>Environmental Sensing Trigger Setting</source>
-        <translation type="unfinished"></translation>
+        <translation>Miljøsensor-udløser-indstilling</translation>
     </message>
     <message>
         <source>Unknown Service</source>
@@ -1246,10 +1246,6 @@
     <message>
         <source>Unknown socket error</source>
         <translation>Ukendt socket-fejl</translation>
-    </message>
-    <message>
-        <source>Connecting to port is not supported</source>
-        <translation>Oprettelse af forbindelse til port understøttes ikke</translation>
     </message>
     <message>
         <source>Cannot connect to %1</source>
@@ -1321,6 +1317,44 @@
     <message>
         <source>Host refused connection</source>
         <translation>Vært nægtede forbindelse</translation>
+    </message>
+    <message>
+        <source>Cannot export profile on DBus</source>
+        <translation>Kan ikke eksportere profil på DBus</translation>
+    </message>
+    <message>
+        <source>Cannot register profile on DBus</source>
+        <translation>Kan ikke registrere profil på DBus</translation>
+    </message>
+    <message>
+        <source>Cannot find remote device</source>
+        <translation>Kan ikke finde fjern-enhed</translation>
+    </message>
+    <message>
+        <source>Cannot connect to remote profile</source>
+        <translation>Kan ikke oprette forbindelse til fjern-profil</translation>
+    </message>
+    <message>
+        <source>Missing serviceUuid or Serial Port service class uuid</source>
+        <translation>Manglende serviceUuid eller seriel port-tjeneste klasse uuid</translation>
+    </message>
+    <message>
+        <source>Invalid Bluetooth address passed to connectToService()</source>
+        <translation>Ugyldig Bluetooth-adresse videregivet til connectToService()</translation>
+    </message>
+</context>
+<context>
+    <name>QBluetoothSocketPrivateAndroid</name>
+    <message>
+        <source>Connecting to port is not supported</source>
+        <translation>Oprettelse af forbindelse til port understøttes ikke</translation>
+    </message>
+</context>
+<context>
+    <name>QBluetoothSocketPrivateBluezDBus</name>
+    <message>
+        <source>Connecting to port is not supported via Bluez DBus</source>
+        <translation>Oprettelse af forbindelse til port understøttes ikke via Bluez DBus</translation>
     </message>
 </context>
 <context>

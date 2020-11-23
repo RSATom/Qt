@@ -96,7 +96,7 @@ public:
     bool isInverted() const;
 
 #ifndef QT_NO_WHEELEVENT
-    void wheelEvent(QWheelEvent *event);
+    void wheelEvent(QWheelEvent *event) override;
 #endif
 
     bool isAtXEnd() const;

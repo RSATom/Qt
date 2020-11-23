@@ -29,11 +29,11 @@ class ClickAction : public Action {
 
   void OnWaitForElement(ProcessActionCallback callback,
                         const Selector& selector,
-                        bool element_found);
+                        const ClientStatus& element_status);
   void OnClick(ProcessActionCallback callback, const ClientStatus& status);
 
   ClickType click_type_;
-  base::WeakPtrFactory<ClickAction> weak_ptr_factory_;
+  base::WeakPtrFactory<ClickAction> weak_ptr_factory_{this};
 
   DISALLOW_COPY_AND_ASSIGN(ClickAction);
 };

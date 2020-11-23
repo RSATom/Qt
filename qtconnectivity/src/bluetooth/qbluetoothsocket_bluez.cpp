@@ -111,9 +111,9 @@ bool QBluetoothSocketPrivateBluez::ensureNativeSocket(QBluetoothServiceInfo::Pro
 
     Q_Q(QBluetoothSocket);
     readNotifier = new QSocketNotifier(socket, QSocketNotifier::Read);
-    QObject::connect(readNotifier, SIGNAL(activated(int)), this, SLOT(_q_readNotify()));
+    QObject::connect(readNotifier, SIGNAL(activated(QSocketDescriptor)), this, SLOT(_q_readNotify()));
     connectWriteNotifier = new QSocketNotifier(socket, QSocketNotifier::Write, q);
-    QObject::connect(connectWriteNotifier, SIGNAL(activated(int)), this, SLOT(_q_writeNotify()));
+    QObject::connect(connectWriteNotifier, SIGNAL(activated(QSocketDescriptor)), this, SLOT(_q_writeNotify()));
 
     connectWriteNotifier->setEnabled(false);
     readNotifier->setEnabled(false);
@@ -685,9 +685,9 @@ bool QBluetoothSocketPrivateBluez::setSocketDescriptor(int socketDescriptor, QBl
         fcntl(socket, F_SETFL, flags | O_NONBLOCK);
 
     readNotifier = new QSocketNotifier(socket, QSocketNotifier::Read);
-    QObject::connect(readNotifier, SIGNAL(activated(int)), this, SLOT(_q_readNotify()));
+    QObject::connect(readNotifier, SIGNAL(activated(QSocketDescriptor)), this, SLOT(_q_readNotify()));
     connectWriteNotifier = new QSocketNotifier(socket, QSocketNotifier::Write, q);
-    QObject::connect(connectWriteNotifier, SIGNAL(activated(int)), this, SLOT(_q_writeNotify()));
+    QObject::connect(connectWriteNotifier, SIGNAL(activated(QSocketDescriptor)), this, SLOT(_q_writeNotify()));
 
     q->setSocketState(socketState);
     q->setOpenMode(openMode);

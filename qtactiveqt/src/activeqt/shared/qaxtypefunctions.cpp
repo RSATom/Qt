@@ -128,7 +128,7 @@ bool QVariantToVoidStar(const QVariant &var, void *data, const QByteArray &typeN
         break;
 #endif
     case QVariant::List:
-        *reinterpret_cast<QList<QVariant> *>(data) = var.toList();
+        *reinterpret_cast<QVariantList *>(data) = var.toList();
         break;
     case QVariant::StringList:
         *reinterpret_cast<QStringList *>(data) = var.toStringList();

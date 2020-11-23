@@ -344,9 +344,6 @@ void Database::Close() {
 }
 
 void Database::Preload() {
-  base::Optional<base::ScopedBlockingCall> scoped_blocking_call;
-  InitScopedBlockingCall(&scoped_blocking_call);
-
   if (base::FeatureList::IsEnabled(features::kSqlSkipPreload))
     return;
 
@@ -355,34 +352,23 @@ void Database::Preload() {
     return;
   }
 
-  // The constructor and set_page_size() ensure that page_size_ is never zero.
-  const int page_size = page_size_;
-  DCHECK(page_size);
+  base::Optional<base::ScopedBlockingCall> scoped_blocking_call;
+  InitScopedBlockingCall(&scoped_blocking_call);
 
-  // Use local settings if provided, otherwise use documented defaults.  The
-  // actual results could be fetching via PRAGMA calls.
-  sqlite3_int64 preload_size = page_size * (cache_size_ ? cache_size_ : 2000);
-  if (preload_size < 1)
-    return;
-
-  sqlite3_file* file = nullptr;
-  sqlite3_int64 file_size = 0;
-  int rc = GetSqlite3FileAndSize(db_, &file, &file_size);
-  if (rc != SQLITE_OK)
-    return;
-
-  // Don't preload more than the file contains.
-  if (preload_size > file_size)
-    preload_size = file_size;
-
-  std::unique_ptr<char[]> buf(new char[page_size]);
-  for (sqlite3_int64 pos = 0; pos < preload_size; pos += page_size) {
-    rc = file->pMethods->xRead(file, buf.get(), page_size, pos);
-
-    // TODO(shess): Consider calling OnSqliteError().
-    if (rc != SQLITE_OK)
-      return;
-  }
+  // Maximum number of bytes that will be prefetched from the database.
+  //
+  // This limit is very aggressive. Here are the trade-offs involved.
+  // 1) Accessing bytes that weren't preread is very expensive on
+  //    performance-critical databases, so the limit must exceed the expected
+  //    sizes of feature databases.
+  // 2) On some platforms (Windows 7 and, currently, macOS), base::PreReadFile()
+  //    falls back to a synchronous read, and blocks until the entire file is
+  //    read into memory. So, there's a tangible cost to reading data that would
+  //    get evicted before base::PreReadFile() completes. This cost needs to be
+  //    balanced with the benefit reading the entire database at once, and
+  //    avoiding seeks on spinning disks.
+  constexpr int kPreReadSize = 128 * 1024 * 1024;  // 128 MB
+  base::PreReadFile(DbPath(), /*is_executable=*/false, kPreReadSize);
 }
 
 // SQLite keeps unused pages associated with a database in a cache.  It asks

@@ -48,9 +48,9 @@
 **
 ****************************************************************************/
 
-import QtQuick 2.14
+import QtQuick 2.15
 import QtQuick.Window 2.12
-import QtQuick3D 1.14
+import QtQuick3D 1.15
 
 Window {
     width: 1280
@@ -64,12 +64,13 @@ Window {
         environment: SceneEnvironment {
             clearColor: "#808080"
             backgroundMode: SceneEnvironment.Color
-            multisampleAAMode: SceneEnvironment.X4
+            antialiasingMode: SceneEnvironment.MSAA
+            antialiasingQuality: SceneEnvironment.High
         }
 
         PerspectiveCamera {
-            position: Qt.vector3d(0, 400, -600)
-            rotation: Qt.vector3d(30, 0, 0)
+            position: Qt.vector3d(0, 400, 600)
+            eulerRotation.x: -30
             clipFar: 2000
         }
 
@@ -79,20 +80,20 @@ Window {
             color: Qt.rgba(1.0, 0.1, 0.1, 1.0)
             ambientColor: Qt.rgba(0.1, 0.1, 0.1, 1.0)
             position: Qt.vector3d(0, 200, 0)
-            rotation: Qt.vector3d(135, 90, 0)
+            rotation: Quaternion.fromEulerAngles(-135, -90, 0)
             shadowMapQuality: Light.ShadowMapQualityHigh
             visible: checkBox1.checked
             castsShadow: checkBoxShadows.checked
             brightness: slider1.sliderValue
             SequentialAnimation on rotation {
                 loops: Animation.Infinite
-                PropertyAnimation {
-                    to: Qt.vector3d(45, 90, 0)
+                QuaternionAnimation {
+                    to: Quaternion.fromEulerAngles(-45, -90, 0)
                     duration: 2000
                     easing.type: Easing.InOutQuad
                 }
-                PropertyAnimation {
-                    to: Qt.vector3d(135, 90, 0)
+                QuaternionAnimation {
+                    to: Quaternion.fromEulerAngles(-135, -90, 0)
                     duration: 2000
                     easing.type: Easing.InOutQuad
                 }
@@ -132,8 +133,8 @@ Window {
             id: light3
             color: Qt.rgba(0.1, 0.1, 1.0, 1.0)
             ambientColor: Qt.rgba(0.1, 0.1, 0.1, 1.0)
-            position: Qt.vector3d(-50, 250, -150)
-            rotation: Qt.vector3d(90, 0, 0)
+            position: Qt.vector3d(-50, 250, 150)
+            eulerRotation.x: -90
             width: 1000
             height: 200
             shadowMapFar: 2000
@@ -144,12 +145,12 @@ Window {
             SequentialAnimation on z {
                 loops: Animation.Infinite
                 NumberAnimation {
-                    to: 150
+                    to: -150
                     duration: 2000
                     easing.type: Easing.InOutQuad
                 }
                 NumberAnimation {
-                    to: -150
+                    to: 150
                     duration: 2000
                     easing.type: Easing.InOutQuad
                 }
@@ -157,12 +158,35 @@ Window {
         }
         //! [area light]
 
+        //! [spot light]
+        SpotLight {
+            id: light4
+            color: Qt.rgba(1.0, 0.9, 0.7, 1.0)
+            ambientColor: Qt.rgba(0.0, 0.0, 0.0, 0.0)
+            position: Qt.vector3d(0, 250, 0)
+            eulerRotation.x: -45
+            shadowMapFar: 2000
+            shadowMapQuality: Light.ShadowMapQualityHigh
+            visible: checkBox4.checked
+            castsShadow: checkBoxShadows.checked
+            brightness: slider4.sliderValue
+            coneAngle: 50
+            innerConeAngle: 30
+            PropertyAnimation on eulerRotation.y {
+                loops: Animation.Infinite
+                from: 0
+                to: -360
+                duration: 10000
+            }
+        }
+        //! [spot light]
+
         //! [rectangle models]
         Model {
             source: "#Rectangle"
             y: -200
             scale: Qt.vector3d(15, 15, 15)
-            rotation: Qt.vector3d(90, 0, 0)
+            eulerRotation.x: -90
             materials: [
                 DefaultMaterial {
                     diffuseColor: Qt.rgba(0.8, 0.6, 0.4, 1.0)
@@ -171,7 +195,7 @@ Window {
         }
         Model {
             source: "#Rectangle"
-            z: 400
+            z: -400
             scale: Qt.vector3d(15, 15, 15)
             materials: [
                 DefaultMaterial {
@@ -192,11 +216,11 @@ Window {
                 }
             ]
 
-            NumberAnimation  on rotation.y {
+            NumberAnimation  on eulerRotation.y {
                 loops: Animation.Infinite
                 duration: 5000
                 from: 0
-                to: 360
+                to: -360
             }
         }
         //! [teapot model]
@@ -237,6 +261,19 @@ Window {
             materials: [
                 DefaultMaterial {
                     diffuseColor: light3.color
+                    opacity: 0.4
+                }
+            ]
+        }
+        Model {
+            source: "#Cube"
+            position: light4.position
+            rotation: light4.rotation
+            property real size: slider4.highlight ? 0.2 : 0.1
+            scale: Qt.vector3d(size, size, size)
+            materials: [
+                DefaultMaterial {
+                    diffuseColor: light4.color
                     opacity: 0.4
                 }
             ]
@@ -299,6 +336,18 @@ Window {
             sliderValue: 200
             fromValue: 0
             toValue: 500
+        }
+        Item { width: 1; height: 40 }
+        CustomCheckBox {
+            id: checkBox4
+            text: qsTr("Spot Light")
+            checked: true
+        }
+        CustomSlider {
+            id: slider4
+            sliderValue: 1000
+            fromValue: 0
+            toValue: 3000
         }
     }
 }

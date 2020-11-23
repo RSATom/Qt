@@ -49,6 +49,7 @@
 # for py2/py3 compatibility
 from __future__ import print_function
 
+import io
 import re
 import sys
 
@@ -85,6 +86,10 @@ consts_misc = [
     { 'name': 'SmiTagMask',             'value': 'kSmiTagMask' },
     { 'name': 'SmiValueShift',          'value': 'kSmiTagSize' },
     { 'name': 'SmiShiftSize',           'value': 'kSmiShiftSize' },
+    { 'name': 'SystemPointerSize',      'value': 'kSystemPointerSize' },
+    { 'name': 'SystemPointerSizeLog2',  'value': 'kSystemPointerSizeLog2' },
+    { 'name': 'TaggedSize',             'value': 'kTaggedSize' },
+    { 'name': 'TaggedSizeLog2',         'value': 'kTaggedSizeLog2' },
 
     { 'name': 'OddballFalse',           'value': 'Oddball::kFalse' },
     { 'name': 'OddballTrue',            'value': 'Oddball::kTrue' },
@@ -161,6 +166,8 @@ consts_misc = [
         'value': 'Map::NumberOfOwnDescriptorsBits::kMask' },
     { 'name': 'bit_field3_number_of_own_descriptors_shift',
         'value': 'Map::NumberOfOwnDescriptorsBits::kShift' },
+    { 'name': 'class_Map__instance_descriptors_offset',
+        'value': 'Map::kInstanceDescriptorsOffset' },
 
     { 'name': 'off_fp_context_or_frame_type',
         'value': 'CommonFrameConstants::kContextOrFrameTypeOffset'},
@@ -169,9 +176,9 @@ consts_misc = [
     { 'name': 'off_fp_constant_pool',
         'value': 'StandardFrameConstants::kConstantPoolOffset' },
     { 'name': 'off_fp_function',
-        'value': 'JavaScriptFrameConstants::kFunctionOffset' },
+        'value': 'StandardFrameConstants::kFunctionOffset' },
     { 'name': 'off_fp_args',
-        'value': 'JavaScriptFrameConstants::kLastParameterOffset' },
+        'value': 'StandardFrameConstants::kFixedFrameSizeAboveFp' },
 
     { 'name': 'scopeinfo_idx_nparams',
         'value': 'ScopeInfo::kParameterCount' },
@@ -187,12 +194,8 @@ consts_misc = [
 
     { 'name': 'context_idx_scope_info',
         'value': 'Context::SCOPE_INFO_INDEX' },
-    { 'name': 'context_idx_native',
-        'value': 'Context::NATIVE_CONTEXT_INDEX' },
     { 'name': 'context_idx_prev',
         'value': 'Context::PREVIOUS_INDEX' },
-    { 'name': 'context_idx_ext',
-        'value': 'Context::EXTENSION_INDEX' },
     { 'name': 'context_min_slots',
         'value': 'Context::MIN_CONTEXT_SLOTS' },
     { 'name': 'native_context_embedder_data_offset',
@@ -244,6 +247,9 @@ extras_accessors = [
     'JSArrayBuffer, byte_length, size_t, kByteLengthOffset',
     'JSArrayBufferView, byte_length, size_t, kByteLengthOffset',
     'JSArrayBufferView, byte_offset, size_t, kByteOffsetOffset',
+    'JSDate, value, Object, kValueOffset',
+    'JSRegExp, source, Object, kSourceOffset',
+    'JSTypedArray, external_pointer, uintptr_t, kExternalPointerOffset',
     'JSTypedArray, length, Object, kLengthOffset',
     'Map, instance_size_in_words, char, kInstanceSizeInWordsOffset',
     'Map, inobject_properties_start_or_constructor_function_index, char, kInObjectPropertiesStartOrConstructorFunctionIndexOffset',
@@ -267,6 +273,12 @@ extras_accessors = [
     'Code, instruction_start, uintptr_t, kHeaderSize',
     'Code, instruction_size, int, kInstructionSizeOffset',
     'String, length, int32_t, kLengthOffset',
+    'DescriptorArray, header_size, uintptr_t, kHeaderSize',
+    'ConsString, first, String, kFirstOffset',
+    'ConsString, second, String, kSecondOffset',
+    'SlicedString, offset, SMI, kOffsetOffset',
+    'ThinString, actual, String, kActualOffset',
+    'Symbol, name, Object, kDescriptionOffset',
 ];
 
 #
@@ -277,7 +289,8 @@ extras_accessors = [
 expected_classes = [
     'ConsString', 'FixedArray', 'HeapNumber', 'JSArray', 'JSFunction',
     'JSObject', 'JSRegExp', 'JSPrimitiveWrapper', 'Map', 'Oddball', 'Script',
-    'SeqOneByteString', 'SharedFunctionInfo', 'ScopeInfo', 'JSPromise'
+    'SeqOneByteString', 'SharedFunctionInfo', 'ScopeInfo', 'JSPromise',
+    'DescriptorArray'
 ];
 
 
@@ -364,10 +377,12 @@ def load_objects():
 
 
 def load_objects_from_file(objfilename, checktypes):
-        objfile = open(objfilename, 'r');
+        objfile = io.open(objfilename, 'r', encoding='utf-8');
         in_insttype = False;
+        in_torque_insttype = False
 
         typestr = '';
+        torque_typestr = ''
         uncommented_file = ''
 
         #
@@ -381,15 +396,27 @@ def load_objects_from_file(objfilename, checktypes):
                         in_insttype = True;
                         continue;
 
+                if (line.startswith('#define TORQUE_ASSIGNED_INSTANCE_TYPE_LIST')):
+                        in_torque_insttype = True
+                        continue
+
                 if (in_insttype and line.startswith('};')):
                         in_insttype = False;
                         continue;
+
+                if (in_torque_insttype and (not line or line.isspace())):
+                          in_torque_insttype = False
+                          continue
 
                 line = re.sub('//.*', '', line.strip());
 
                 if (in_insttype):
                         typestr += line;
                         continue;
+
+                if (in_torque_insttype):
+                        torque_typestr += line
+                        continue
 
                 uncommented_file += '\n' + line
 
@@ -418,6 +445,9 @@ def load_objects_from_file(objfilename, checktypes):
         entries = typestr.split(',');
         for entry in entries:
                 types[re.sub('\s*=.*', '', entry).lstrip()] = True;
+        entries = torque_typestr.split('\\')
+        for entry in entries:
+                types[re.sub(r' *V\(|\) *', '', entry)] = True
 
         #
         # Infer class names for each type based on a systematic transformation.
@@ -427,10 +457,7 @@ def load_objects_from_file(objfilename, checktypes):
         # way around.
         #
         for type in types:
-                #
-                # REGEXP behaves like REG_EXP, as in JS_REGEXP_TYPE => JSRegExp.
-                #
-                usetype = re.sub('_REGEXP_', '_REG_EXP_', type);
+                usetype = type
 
                 #
                 # Remove the "_TYPE" suffix and then convert to camel case,
@@ -559,7 +586,7 @@ def load_fields():
 
 
 def load_fields_from_file(filename):
-        inlfile = open(filename, 'r');
+        inlfile = io.open(filename, 'r', encoding='utf-8');
 
         #
         # Each class's fields and the corresponding offsets are described in the
@@ -637,9 +664,7 @@ def emit_config():
 
         out.write('/* class type information */\n');
         consts = [];
-        keys = typeclasses.keys();
-        keys.sort();
-        for typename in keys:
+        for typename in sorted(typeclasses):
                 klass = typeclasses[typename];
                 consts.append({
                     'name': 'type_%s__%s' % (klass, typename),
@@ -650,9 +675,7 @@ def emit_config():
 
         out.write('/* class hierarchy information */\n');
         consts = [];
-        keys = klasses.keys();
-        keys.sort();
-        for klassname in keys:
+        for klassname in sorted(klasses):
                 pklass = klasses[klassname]['parent'];
                 bklass = get_base_class(klassname);
                 if (bklass != 'Object'):

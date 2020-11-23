@@ -1120,21 +1120,6 @@ uint qHash(long double key, uint seed) noexcept
 
     \snippet code/src_corelib_tools_qhash.cpp 9
 
-    However, you can store multiple values per key by using
-    insertMulti() instead of insert() (or using the convenience
-    subclass QMultiHash). If you want to retrieve all
-    the values for a single key, you can use values(const Key &key),
-    which returns a QList<T>:
-
-    \snippet code/src_corelib_tools_qhash.cpp 10
-
-    The items that share the same key are available from most
-    recently to least recently inserted. A more efficient approach is
-    to call find() to get the iterator for the first item with a key
-    and iterate from there:
-
-    \snippet code/src_corelib_tools_qhash.cpp 11
-
     If you only need to extract the values from a hash (not the keys),
     you can also use \l{foreach}:
 
@@ -1435,9 +1420,8 @@ uint qHash(long double key, uint seed) noexcept
 /*! \fn template <class Key, class T> int QHash<Key, T>::remove(const Key &key)
 
     Removes all the items that have the \a key from the hash.
-    Returns the number of items removed which is usually 1 but will
-    be 0 if the key isn't in the hash, or greater than 1 if
-    insertMulti() has been used with the \a key.
+    Returns the number of items removed which is 1 if the key exists in the hash,
+    and 0 otherwise.
 
     \sa clear(), take(), QMultiHash::remove()
 */
@@ -1507,27 +1491,25 @@ uint qHash(long double key, uint seed) noexcept
 
 /*! \fn template <class Key, class T> QList<Key> QHash<Key, T>::uniqueKeys() const
     \since 4.2
+    \obsolete Use QMultiHash for storing multiple values with the same key.
 
     Returns a list containing all the keys in the map. Keys that occur multiple
     times in the map (because items were inserted with insertMulti(), or
     unite() was used) occur only once in the returned list.
 
-    \sa keys(), values()
+    \sa QMultiHash::uniqueKeys()
 */
 
 /*! \fn template <class Key, class T> QList<Key> QHash<Key, T>::keys() const
 
     Returns a list containing all the keys in the hash, in an
     arbitrary order. Keys that occur multiple times in the hash
-    (because items were inserted with insertMulti(), or unite() was
-    used) also occur multiple times in the list.
-
-    To obtain a list of unique keys, where each key from the map only
-    occurs once, use uniqueKeys().
+    (because the method is operating on a QMultiHash) also occur
+    multiple times in the list.
 
     The order is guaranteed to be the same as that used by values().
 
-    \sa uniqueKeys(), values(), key()
+    \sa QMultiMap::uniqueKeys(), values(), key()
 */
 
 /*! \fn template <class Key, class T> QList<Key> QHash<Key, T>::keys(const T &value) const
@@ -1555,8 +1537,8 @@ uint qHash(long double key, uint seed) noexcept
 */
 
 /*! \fn template <class Key, class T> QList<T> QHash<Key, T>::values(const Key &key) const
-
     \overload
+    \obsolete Use QMultiHash for storing multiple values with the same key.
 
     Returns a list of all the values associated with the \a key,
     from the most recently inserted to the least recently inserted.
@@ -1803,11 +1785,22 @@ uint qHash(long double key, uint seed) noexcept
 
     If there are multiple items with the \a key, the most
     recently inserted item's value is replaced with \a value.
+*/
 
-    \sa insertMulti()
+/*! \fn template <class Key, class T> void QHash<Key, T>::insert(const QHash &other)
+    \since 5.15
+
+    Inserts all the items in the \a other hash into this hash.
+
+    If a key is common to both hashes, its value will be replaced with the
+    value stored in \a other.
+
+    \note If \a other contains multiple entries with the same key then the
+    final value of the key is undefined.
 */
 
 /*! \fn template <class Key, class T> QHash<Key, T>::iterator QHash<Key, T>::insertMulti(const Key &key, const T &value)
+    \obsolete
 
     Inserts a new item with the \a key and a value of \a value.
 
@@ -1816,16 +1809,17 @@ uint qHash(long double key, uint seed) noexcept
     different from insert(), which overwrites the value of an
     existing item.)
 
+    This function is obsolete. Use QMultiHash or QMultiMap instead.
+
     \sa insert(), values()
 */
 
 /*! \fn template <class Key, class T> QHash &QHash<Key, T>::unite(const QHash &other)
+    \obsolete
 
     Inserts all the items in the \a other hash into this hash. If a
     key is common to both hashes, the resulting hash will contain the
     key multiple times.
-
-    \sa insertMulti()
 */
 
 /*! \fn template <class Key, class T> bool QHash<Key, T>::empty() const
@@ -1966,10 +1960,7 @@ uint qHash(long double key, uint seed) noexcept
     \snippet code/src_corelib_tools_qhash.cpp 17
 
     Unlike QMap, which orders its items by key, QHash stores its
-    items in an arbitrary order. The only guarantee is that items that
-    share the same key (because they were inserted using
-    QHash::insertMulti()) will appear consecutively, from the most
-    recently to the least recently inserted value.
+    items in an arbitrary order.
 
     Let's see a few examples of things we can do with a
     QHash::iterator that we cannot do with a QHash::const_iterator.
@@ -2036,7 +2027,7 @@ uint qHash(long double key, uint seed) noexcept
 
     There is no direct way of changing an item's key through an
     iterator, although it can be done by calling QHash::erase()
-    followed by QHash::insert() or QHash::insertMulti().
+    followed by QHash::insert().
 
     \sa value()
 */
@@ -2112,6 +2103,7 @@ uint qHash(long double key, uint seed) noexcept
 
 /*!
     \fn template <class Key, class T> QHash<Key, T>::iterator &QHash<Key, T>::iterator::operator--()
+    \obsolete This operator is deprecated in order to align with std::unordered_map functionality.
 
     The prefix -- operator (\c{--i}) makes the preceding item
     current and returns an iterator pointing to the new current item.
@@ -2124,6 +2116,7 @@ uint qHash(long double key, uint seed) noexcept
 
 /*!
     \fn template <class Key, class T> QHash<Key, T>::iterator QHash<Key, T>::iterator::operator--(int)
+    \obsolete This operator is deprecated in order to align with std::unordered_map functionality.
 
     \overload
 
@@ -2133,6 +2126,7 @@ uint qHash(long double key, uint seed) noexcept
 */
 
 /*! \fn template <class Key, class T> QHash<Key, T>::iterator QHash<Key, T>::iterator::operator+(int j) const
+    \obsolete This operator is deprecated in order to align with std::unordered_map functionality.
 
     Returns an iterator to the item at \a j positions forward from
     this iterator. (If \a j is negative, the iterator goes backward.)
@@ -2144,6 +2138,7 @@ uint qHash(long double key, uint seed) noexcept
 */
 
 /*! \fn template <class Key, class T> QHash<Key, T>::iterator QHash<Key, T>::iterator::operator-(int j) const
+    \obsolete This operator is deprecated in order to align with std::unordered_map functionality.
 
     Returns an iterator to the item at \a j positions backward from
     this iterator. (If \a j is negative, the iterator goes forward.)
@@ -2154,6 +2149,7 @@ uint qHash(long double key, uint seed) noexcept
 */
 
 /*! \fn template <class Key, class T> QHash<Key, T>::iterator &QHash<Key, T>::iterator::operator+=(int j)
+    \obsolete This operator is deprecated in order to align with std::unordered_map functionality.
 
     Advances the iterator by \a j items. (If \a j is negative, the
     iterator goes backward.)
@@ -2162,6 +2158,7 @@ uint qHash(long double key, uint seed) noexcept
 */
 
 /*! \fn template <class Key, class T> QHash<Key, T>::iterator &QHash<Key, T>::iterator::operator-=(int j)
+    \obsolete This operator is deprecated in order to align with std::unordered_map functionality.
 
     Makes the iterator go back by \a j items. (If \a j is negative,
     the iterator goes forward.)
@@ -2198,7 +2195,7 @@ uint qHash(long double key, uint seed) noexcept
     Unlike QMap, which orders its items by key, QHash stores its
     items in an arbitrary order. The only guarantee is that items that
     share the same key (because they were inserted using
-    QHash::insertMulti()) will appear consecutively, from the most
+    a QMultiHash) will appear consecutively, from the most
     recently to the least recently inserted value.
 
     Multiple iterators can be used on the same hash. However, be aware
@@ -2305,6 +2302,7 @@ uint qHash(long double key, uint seed) noexcept
 */
 
 /*! \fn template <class Key, class T> QHash<Key, T>::const_iterator &QHash<Key, T>::const_iterator::operator--()
+    \obsolete This operator is deprecated in order to align with std::unordered_map functionality.
 
     The prefix -- operator (\c{--i}) makes the preceding item
     current and returns an iterator pointing to the new current item.
@@ -2316,6 +2314,7 @@ uint qHash(long double key, uint seed) noexcept
 */
 
 /*! \fn template <class Key, class T> QHash<Key, T>::const_iterator QHash<Key, T>::const_iterator::operator--(int)
+    \obsolete This operator is deprecated in order to align with std::unordered_map functionality.
 
     \overload
 
@@ -2325,6 +2324,7 @@ uint qHash(long double key, uint seed) noexcept
 */
 
 /*! \fn template <class Key, class T> QHash<Key, T>::const_iterator QHash<Key, T>::const_iterator::operator+(int j) const
+    \obsolete This operator is deprecated in order to align with std::unordered_map functionality.
 
     Returns an iterator to the item at \a j positions forward from
     this iterator. (If \a j is negative, the iterator goes backward.)
@@ -2335,6 +2335,7 @@ uint qHash(long double key, uint seed) noexcept
 */
 
 /*! \fn template <class Key, class T> QHash<Key, T>::const_iterator QHash<Key, T>::const_iterator::operator-(int j) const
+    \obsolete This operator is deprecated in order to align with std::unordered_map functionality.
 
     Returns an iterator to the item at \a j positions backward from
     this iterator. (If \a j is negative, the iterator goes forward.)
@@ -2345,6 +2346,7 @@ uint qHash(long double key, uint seed) noexcept
 */
 
 /*! \fn template <class Key, class T> QHash<Key, T>::const_iterator &QHash<Key, T>::const_iterator::operator+=(int j)
+    \obsolete This operator is deprecated in order to align with std::unordered_map functionality.
 
     Advances the iterator by \a j items. (If \a j is negative, the
     iterator goes backward.)
@@ -2355,6 +2357,7 @@ uint qHash(long double key, uint seed) noexcept
 */
 
 /*! \fn template <class Key, class T> QHash<Key, T>::const_iterator &QHash<Key, T>::const_iterator::operator-=(int j)
+    \obsolete This operator is deprecated in order to align with std::unordered_map functionality.
 
     Makes the iterator go back by \a j items. (If \a j is negative,
     the iterator goes forward.)
@@ -2449,6 +2452,7 @@ uint qHash(long double key, uint seed) noexcept
 */
 
 /*! \fn template <class Key, class T> QHash<Key, T>::key_iterator &QHash<Key, T>::key_iterator::operator--()
+    \obsolete This operator is deprecated in order to align with std::unordered_map functionality.
 
     The prefix -- operator (\c{--i}) makes the preceding item
     current and returns an iterator pointing to the new current item.
@@ -2460,6 +2464,7 @@ uint qHash(long double key, uint seed) noexcept
 */
 
 /*! \fn template <class Key, class T> QHash<Key, T>::key_iterator QHash<Key, T>::key_iterator::operator--(int)
+    \obsolete This operator is deprecated in order to align with std::unordered_map functionality.
 
     \overload
 
@@ -2531,17 +2536,21 @@ uint qHash(long double key, uint seed) noexcept
     It inherits QHash and extends it with a few convenience functions
     that make it more suitable than QHash for storing multi-valued
     hashes. A multi-valued hash is a hash that allows multiple values
-    with the same key; QHash normally doesn't allow that, unless you
-    call QHash::insertMulti().
+    with the same key.
 
     Because QMultiHash inherits QHash, all of QHash's functionality also
     applies to QMultiHash. For example, you can use isEmpty() to test
     whether the hash is empty, and you can traverse a QMultiHash using
-    QHash's iterator classes (for example, QHashIterator). But in
-    addition, it provides an insert() function that corresponds to
-    QHash::insertMulti(), and a replace() function that corresponds to
+    QHash's iterator classes (for example, QHashIterator). But opposed to
+    QHash, it provides an insert() function will allow the insertion of
+    multiple items with the same key. The replace() function corresponds to
     QHash::insert(). It also provides convenient operator+() and
     operator+=().
+
+    Unlike QMultiMap, QMultiHash does not provide and ordering of the
+    inserted items. The only guarantee is that items that
+    share the same key will appear consecutively, from the most
+    recently to the least recently inserted value.
 
     Example:
     \snippet code/src_corelib_tools_qhash.cpp 24
@@ -2633,12 +2642,39 @@ uint qHash(long double key, uint seed) noexcept
     \sa replace()
 */
 
-/*! \fn template <class Key, class T> QMultiHash &QMultiHash<Key, T>::operator+=(const QMultiHash &other)
+/*! \fn template <class Key, class T> QMultiHash &QMultiHash<Key, T>::unite(const QMultiHash &other)
+    \since 5.13
 
     Inserts all the items in the \a other hash into this hash
     and returns a reference to this hash.
 
     \sa insert()
+*/
+
+/*! \fn template <class Key, class T> QList<Key> QMultiHash<Key, T>::uniqueKeys() const
+    \since 5.13
+
+    Returns a list containing all the keys in the map. Keys that occur multiple
+    times in the map occur only once in the returned list.
+
+    \sa keys(), values()
+*/
+
+/*! \fn template <class Key, class T> QList<T> QMultiHash<Key, T>::values(const Key &key) const
+    \overload
+
+    Returns a list of all the values associated with the \a key,
+    from the most recently inserted to the least recently inserted.
+
+    \sa count(), insert()
+*/
+
+/*! \fn template <class Key, class T> QMultiHash &QMultiHash<Key, T>::operator+=(const QMultiHash &other)
+
+    Inserts all the items in the \a other hash into this hash
+    and returns a reference to this hash.
+
+    \sa unite(), insert()
 */
 
 /*! \fn template <class Key, class T> QMultiHash QMultiHash<Key, T>::operator+(const QMultiHash &other) const

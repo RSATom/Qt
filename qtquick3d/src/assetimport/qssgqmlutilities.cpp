@@ -32,15 +32,11 @@
 #include <QVector2D>
 #include <QVector3D>
 #include <QVector4D>
+#include <QQuaternion>
 #include <QDebug>
 #include <QRegularExpression>
 
 QT_BEGIN_NAMESPACE
-
-#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
-// QTextStream functions are moved to a namespace in Qt6
-using Qt::endl;
-#endif
 
 namespace QSSGQmlUtilities {
 
@@ -101,6 +97,15 @@ QString variantToQml(const QVariant &variant) {
     if (valueType == QMetaType::QColor) {
         auto value = variant.value<QColor>();
         return colorToQml(value);
+    }
+
+    if (valueType == QMetaType::QQuaternion) {
+        auto value = variant.value<QQuaternion>();
+        return QString(QStringLiteral("Qt.quaternion(") + QString::number(double(value.scalar())) +
+                       QStringLiteral(", ") + QString::number(double(value.x())) +
+                       QStringLiteral(", ") + QString::number(double(value.y())) +
+                       QStringLiteral(", ") + QString::number(double(value.z())) +
+                       QStringLiteral(")"));
     }
 
     return variant.toString();
@@ -290,10 +295,10 @@ PropertyMap::PropertyMap()
     node->insert(QStringLiteral("position.x"), 0);
     node->insert(QStringLiteral("position.y"), 0);
     node->insert(QStringLiteral("position.z"), 0);
-    node->insert(QStringLiteral("rotation"), QVector3D(0, 0, 0));
-    node->insert(QStringLiteral("rotation.x"), 0);
-    node->insert(QStringLiteral("rotation.y"), 0);
-    node->insert(QStringLiteral("rotation.z"), 0);
+    node->insert(QStringLiteral("rotation"), QQuaternion(1, 0, 0, 0));
+    node->insert(QStringLiteral("eulerRotation.x"), 0);
+    node->insert(QStringLiteral("eulerRotation.y"), 0);
+    node->insert(QStringLiteral("eulerRotation.z"), 0);
     node->insert(QStringLiteral("scale"), QVector3D(1, 1, 1));
     node->insert(QStringLiteral("scale.x"), 1);
     node->insert(QStringLiteral("scale.y"), 1);
@@ -303,8 +308,6 @@ PropertyMap::PropertyMap()
     node->insert(QStringLiteral("pivot.y"), 0);
     node->insert(QStringLiteral("pivot.z"), 0);
     node->insert(QStringLiteral("opacity"), 1.0);
-    node->insert(QStringLiteral("rotationOrder"), QStringLiteral("Node.YXZ"));
-    node->insert(QStringLiteral("orientation"), QStringLiteral("Node.LeftHanded"));
     node->insert(QStringLiteral("visible"), true);
     m_properties.insert(Type::Node, node);
 
@@ -371,6 +374,25 @@ PropertyMap::PropertyMap()
     areaLight->insert(QStringLiteral("width"), 0.0f);
     areaLight->insert(QStringLiteral("height"), 0.0f);
     m_properties.insert(Type::AreaLight, areaLight);
+
+    // Spot Light
+    PropertiesMap *spotLight = new PropertiesMap;
+    spotLight->insert(QStringLiteral("color"), QColor(Qt::white));
+    spotLight->insert(QStringLiteral("ambientColor"), QColor(Qt::black));
+    spotLight->insert(QStringLiteral("brightness"), 100.0f);
+    spotLight->insert(QStringLiteral("castShadow"), false);
+    spotLight->insert(QStringLiteral("shadowBias"), 0.0f);
+    spotLight->insert(QStringLiteral("shadowFactor"), 5.0f);
+    spotLight->insert(QStringLiteral("shadowMapResolution"), 9);
+    spotLight->insert(QStringLiteral("shadowMapFar"), 5000.0f);
+    spotLight->insert(QStringLiteral("shadowMapFieldOfView"), 90.0f);
+    spotLight->insert(QStringLiteral("shadowFilter"), 35.0f);
+    spotLight->insert(QStringLiteral("constantFade"), 0.0f);
+    spotLight->insert(QStringLiteral("linearFade"), 0.0f);
+    spotLight->insert(QStringLiteral("quadraticFade"), 0.0f);
+    spotLight->insert(QStringLiteral("coneAngle"), 0.0f);
+    spotLight->insert(QStringLiteral("innerConeAngle"), 0.0f);
+    m_properties.insert(Type::SpotLight, spotLight);
 
 
     // DefaultMaterial
@@ -445,7 +467,7 @@ void writeQmlPropertyHelper(QTextStream &output, int tabLevel, PropertyMap::Type
 
     if ((defaultValue != value)) {
         QString valueString = QSSGQmlUtilities::variantToQml(value);
-        output << QSSGQmlUtilities::insertTabs(tabLevel) << propertyName << ": " << valueString << endl;
+        output << QSSGQmlUtilities::insertTabs(tabLevel) << propertyName << ": " << valueString << Qt::endl;
     }
 
 }

@@ -7,6 +7,7 @@
 #include <cerrno>
 #include <memory>
 #include <ostream>
+#include <utility>
 
 #include "net/third_party/quiche/src/quic/core/crypto/crypto_protocol.h"
 #include "net/third_party/quiche/src/quic/core/crypto/null_encrypter.h"
@@ -18,7 +19,6 @@
 #include "net/third_party/quiche/src/quic/core/quic_packets.h"
 #include "net/third_party/quiche/src/quic/core/quic_utils.h"
 #include "net/third_party/quiche/src/quic/platform/api/quic_flags.h"
-#include "net/third_party/quiche/src/quic/platform/api/quic_ptr_util.h"
 #include "net/third_party/quiche/src/quic/platform/api/quic_test.h"
 #include "net/third_party/quiche/src/quic/platform/api/quic_uint128.h"
 #include "net/third_party/quiche/src/quic/test_tools/mock_quic_session_visitor.h"
@@ -174,7 +174,7 @@ class QuicTimeWaitListManagerTest : public QuicTest {
   void ProcessPacket(QuicConnectionId connection_id) {
     time_wait_list_manager_.ProcessPacket(
         self_address_, peer_address_, connection_id, GOOGLE_QUIC_PACKET,
-        QuicMakeUnique<QuicPerPacketContext>());
+        std::make_unique<QuicPerPacketContext>());
   }
 
   QuicEncryptedPacket* ConstructEncryptedPacket(
@@ -251,50 +251,67 @@ TEST_F(QuicTimeWaitListManagerTest, CheckStatelessConnectionIdInTimeWait) {
 
 TEST_F(QuicTimeWaitListManagerTest, SendVersionNegotiationPacket) {
   std::unique_ptr<QuicEncryptedPacket> packet(
-      QuicFramer::BuildVersionNegotiationPacket(connection_id_,
-                                                EmptyQuicConnectionId(), false,
-                                                AllSupportedVersions()));
+      QuicFramer::BuildVersionNegotiationPacket(
+          connection_id_, EmptyQuicConnectionId(), /*ietf_quic=*/false,
+          /*use_length_prefix=*/false, AllSupportedVersions()));
   EXPECT_CALL(writer_, WritePacket(_, packet->length(), self_address_.host(),
                                    peer_address_, _))
       .WillOnce(Return(WriteResult(WRITE_STATUS_OK, 1)));
 
   time_wait_list_manager_.SendVersionNegotiationPacket(
-      connection_id_, EmptyQuicConnectionId(), false, AllSupportedVersions(),
-      self_address_, peer_address_, QuicMakeUnique<QuicPerPacketContext>());
+      connection_id_, EmptyQuicConnectionId(), /*ietf_quic=*/false,
+      /*use_length_prefix=*/false, AllSupportedVersions(), self_address_,
+      peer_address_, std::make_unique<QuicPerPacketContext>());
+  EXPECT_EQ(0u, time_wait_list_manager_.num_connections());
+}
+
+TEST_F(QuicTimeWaitListManagerTest,
+       SendIetfVersionNegotiationPacketWithoutLengthPrefix) {
+  std::unique_ptr<QuicEncryptedPacket> packet(
+      QuicFramer::BuildVersionNegotiationPacket(
+          connection_id_, EmptyQuicConnectionId(), /*ietf_quic=*/true,
+          /*use_length_prefix=*/false, AllSupportedVersions()));
+  EXPECT_CALL(writer_, WritePacket(_, packet->length(), self_address_.host(),
+                                   peer_address_, _))
+      .WillOnce(Return(WriteResult(WRITE_STATUS_OK, 1)));
+
+  time_wait_list_manager_.SendVersionNegotiationPacket(
+      connection_id_, EmptyQuicConnectionId(), /*ietf_quic=*/true,
+      /*use_length_prefix=*/false, AllSupportedVersions(), self_address_,
+      peer_address_, std::make_unique<QuicPerPacketContext>());
   EXPECT_EQ(0u, time_wait_list_manager_.num_connections());
 }
 
 TEST_F(QuicTimeWaitListManagerTest, SendIetfVersionNegotiationPacket) {
   std::unique_ptr<QuicEncryptedPacket> packet(
-      QuicFramer::BuildVersionNegotiationPacket(connection_id_,
-                                                EmptyQuicConnectionId(), true,
-                                                AllSupportedVersions()));
+      QuicFramer::BuildVersionNegotiationPacket(
+          connection_id_, EmptyQuicConnectionId(), /*ietf_quic=*/true,
+          /*use_length_prefix=*/true, AllSupportedVersions()));
   EXPECT_CALL(writer_, WritePacket(_, packet->length(), self_address_.host(),
                                    peer_address_, _))
       .WillOnce(Return(WriteResult(WRITE_STATUS_OK, 1)));
 
   time_wait_list_manager_.SendVersionNegotiationPacket(
-      connection_id_, EmptyQuicConnectionId(), true, AllSupportedVersions(),
-      self_address_, peer_address_, QuicMakeUnique<QuicPerPacketContext>());
+      connection_id_, EmptyQuicConnectionId(), /*ietf_quic=*/true,
+      /*use_length_prefix=*/true, AllSupportedVersions(), self_address_,
+      peer_address_, std::make_unique<QuicPerPacketContext>());
   EXPECT_EQ(0u, time_wait_list_manager_.num_connections());
 }
 
 TEST_F(QuicTimeWaitListManagerTest,
        SendIetfVersionNegotiationPacketWithClientConnectionId) {
-  // Client connection IDs cannot be used unless this flag is true.
-  SetQuicRestartFlag(quic_do_not_override_connection_id, true);
-
   std::unique_ptr<QuicEncryptedPacket> packet(
-      QuicFramer::BuildVersionNegotiationPacket(connection_id_,
-                                                TestConnectionId(0x33), true,
-                                                AllSupportedVersions()));
+      QuicFramer::BuildVersionNegotiationPacket(
+          connection_id_, TestConnectionId(0x33), /*ietf_quic=*/true,
+          /*use_length_prefix=*/true, AllSupportedVersions()));
   EXPECT_CALL(writer_, WritePacket(_, packet->length(), self_address_.host(),
                                    peer_address_, _))
       .WillOnce(Return(WriteResult(WRITE_STATUS_OK, 1)));
 
   time_wait_list_manager_.SendVersionNegotiationPacket(
-      connection_id_, TestConnectionId(0x33), true, AllSupportedVersions(),
-      self_address_, peer_address_, QuicMakeUnique<QuicPerPacketContext>());
+      connection_id_, TestConnectionId(0x33), /*ietf_quic=*/true,
+      /*use_length_prefix=*/true, AllSupportedVersions(), self_address_,
+      peer_address_, std::make_unique<QuicPerPacketContext>());
   EXPECT_EQ(0u, time_wait_list_manager_.num_connections());
 }
 
@@ -626,7 +643,7 @@ TEST_F(QuicTimeWaitListManagerTest,
   // Processes IETF short header packet.
   time_wait_list_manager_.ProcessPacket(
       self_address_, peer_address_, connection_id_,
-      IETF_QUIC_SHORT_HEADER_PACKET, QuicMakeUnique<QuicPerPacketContext>());
+      IETF_QUIC_SHORT_HEADER_PACKET, std::make_unique<QuicPerPacketContext>());
 }
 
 }  // namespace

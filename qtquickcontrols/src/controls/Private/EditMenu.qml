@@ -54,7 +54,7 @@ Loader {
 
     Connections {
         target: control
-        onMenuChanged: {
+        function onMenuChanged() {
             if (menuInstance !== null) {
                 menuInstance.destroy()
                 menuInstance = null

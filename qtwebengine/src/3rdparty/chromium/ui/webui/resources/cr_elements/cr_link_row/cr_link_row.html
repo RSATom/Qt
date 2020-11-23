@@ -36,10 +36,19 @@
       }
 
       #startIcon {
+        --iron-icon-fill-color: var(--cr-link-row-start-icon-color,
+            var(--google-grey-refresh-700));
         display: flex;
         flex-shrink: 0;
         padding-inline-end: var(--cr-icon-button-margin-start);
         width: var(--cr-link-row-icon-width, var(--cr-icon-size));
+      }
+
+      @media (prefers-color-scheme: dark) {
+        #startIcon {
+          --iron-icon-fill-color: var(--cr-link-row-start-icon-color,
+              var(--google-grey-refresh-500));
+        }
       }
 
       #labelWrapper {
@@ -74,8 +83,8 @@
     </div>
     <slot></slot>
     <cr-icon-button id="icon" iron-icon="[[getIcon_(external)]]" role="link"
-        aria-describedby="subLabel" aria-labelledby="label"
-        disabled="[[disabled]]"></cr-icon-button>
+        aria-roledescription$="[[roleDescription]]" aria-describedby="subLabel"
+        aria-labelledby="label" disabled="[[disabled]]"></cr-icon-button>
   </template>
   <script src="cr_link_row.js"></script>
 </dom-module>

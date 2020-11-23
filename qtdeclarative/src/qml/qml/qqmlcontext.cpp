@@ -51,6 +51,7 @@
 #include <qjsengine.h>
 #include <QtCore/qvarlengtharray.h>
 #include <private/qmetaobject_p.h>
+#include <QtQml/private/qqmlcontext_p.h>
 #include <QtCore/qdebug.h>
 
 QT_BEGIN_NAMESPACE
@@ -553,7 +554,7 @@ QQmlContextData::QQmlContextData()
 QQmlContextData::QQmlContextData(QQmlContext *ctxt)
     : engine(nullptr), isInternal(false), isJSContext(false),
       isPragmaLibraryContext(false), unresolvedNames(false), hasEmittedDestruction(false), isRootObjectInCreation(false),
-      stronglyReferencedByParent(false), publicContext(ctxt), incubator(nullptr), componentObjectIndex(-1),
+      stronglyReferencedByParent(false), hasExtraObject(false), publicContext(ctxt), incubator(nullptr), componentObjectIndex(-1),
       contextObject(nullptr), nextChild(nullptr), prevChild(nullptr),
       expressions(nullptr), contextObjects(nullptr), idValues(nullptr), idValueCount(0),
       componentAttached(nullptr)
@@ -579,8 +580,8 @@ void QQmlContextData::emitDestruction()
                 emit a->destruction();
             }
 
-            QQmlContextData * child = childContexts;
-            while (child) {
+            QQmlContextDataRef  child = childContexts;
+            while (!child.isNull()) {
                 child->emitDestruction();
                 child = child->nextChild;
             }
@@ -642,12 +643,12 @@ void QQmlContextData::clearContext()
 void QQmlContextData::destroy()
 {
     Q_ASSERT(refCount == 0);
-    linkedContext = nullptr;
 
     // avoid recursion
     ++refCount;
     if (engine)
         invalidate();
+    linkedContext = nullptr;
 
     Q_ASSERT(refCount == 1);
     clearContext();

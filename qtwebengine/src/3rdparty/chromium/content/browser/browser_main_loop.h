@@ -11,13 +11,13 @@
 #include "base/gtest_prod_util.h"
 #include "base/macros.h"
 #include "base/memory/ref_counted.h"
-#include "base/task/thread_pool/thread_pool.h"
+#include "base/task/thread_pool/thread_pool_instance.h"
 #include "build/build_config.h"
 #include "content/browser/browser_process_sub_thread.h"
 #include "content/public/browser/browser_main_runner.h"
 #include "media/media_buildflags.h"
 #include "mojo/public/cpp/bindings/binding_set.h"
-#include "services/viz/public/interfaces/compositing/compositing_mode_watcher.mojom.h"
+#include "services/viz/public/mojom/compositing/compositing_mode_watcher.mojom.h"
 #include "ui/base/buildflags.h"
 
 #if defined(OS_CHROMEOS)
@@ -37,6 +37,10 @@ class MemoryPressureMonitor;
 class SingleThreadTaskRunner;
 class SystemMonitor;
 }  // namespace base
+
+namespace data_decoder {
+class ServiceProvider;
+}
 
 namespace gpu {
 class GpuChannelEstablishFactory;
@@ -70,12 +74,6 @@ namespace net {
 class NetworkChangeNotifier;
 }  // namespace net
 
-#if defined(OS_MACOSX)
-namespace now_playing {
-class RemoteCommandCenterDelegate;
-}  // namespace now_playing
-#endif
-
 namespace viz {
 class CompositingModeReporterImpl;
 class FrameSinkManagerImpl;
@@ -87,10 +85,8 @@ namespace content {
 class BrowserMainParts;
 class BrowserOnlineStateObserver;
 class BrowserThreadImpl;
-class LoaderDelegateImpl;
 class MediaKeysListenerManagerImpl;
 class MediaStreamManager;
-class ResourceDispatcherHostImpl;
 class SaveFileManager;
 class ScreenlockMonitor;
 class SmsProvider;
@@ -219,9 +215,9 @@ class CONTENT_EXPORT BrowserMainLoop {
   viz::ServerSharedBitmapManager* GetServerSharedBitmapManager() const;
 #endif
 
-  // Fulfills a mojo pointer to the singleton CompositingModeReporter.
+  // Binds a receiver to the singleton CompositingModeReporter.
   void GetCompositingModeReporter(
-      viz::mojom::CompositingModeReporterRequest request);
+      mojo::PendingReceiver<viz::mojom::CompositingModeReporter> receiver);
 
 #if defined(OS_MACOSX) && !defined(OS_IOS)
   media::DeviceMonitorMac* device_monitor_mac() const {
@@ -357,13 +353,12 @@ class CONTENT_EXPORT BrowserMainLoop {
   // Members initialized in |BrowserThreadsStarted()| --------------------------
   std::unique_ptr<mojo::core::ScopedIPCSupport> mojo_ipc_support_;
   std::unique_ptr<MediaKeysListenerManagerImpl> media_keys_listener_manager_;
-#if defined(OS_MACOSX)
-  std::unique_ptr<now_playing::RemoteCommandCenterDelegate>
-      remote_command_center_delegate_;
-#endif
 
   // |user_input_monitor_| has to outlive |audio_manager_|, so declared first.
   std::unique_ptr<media::UserInputMonitor> user_input_monitor_;
+
+  // Support for out-of-process Data Decoder.
+  std::unique_ptr<data_decoder::ServiceProvider> data_decoder_service_provider_;
 
   // |audio_manager_| is not instantiated when the audio service runs out of
   // process.
@@ -392,8 +387,6 @@ class CONTENT_EXPORT BrowserMainLoop {
   std::unique_ptr<media::DeviceMonitorMac> device_monitor_mac_;
 #endif
 
-  std::unique_ptr<LoaderDelegateImpl> loader_delegate_;
-  std::unique_ptr<ResourceDispatcherHostImpl> resource_dispatcher_host_;
   std::unique_ptr<MediaStreamManager> media_stream_manager_;
   scoped_refptr<SaveFileManager> save_file_manager_;
   std::unique_ptr<content::TracingControllerImpl> tracing_controller_;

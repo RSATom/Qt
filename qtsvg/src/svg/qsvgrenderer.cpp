@@ -45,6 +45,7 @@
 
 #include "qbytearray.h"
 #include "qtimer.h"
+#include "qtransform.h"
 #include "qdebug.h"
 #include "private/qobject_p.h"
 
@@ -256,6 +257,41 @@ void QSvgRenderer::setFramesPerSecond(int num)
 }
 
 /*!
+    \property QSvgRenderer::aspectRatioMode
+
+    \brief how rendering adheres to the SVG view box aspect ratio
+
+    The accepted modes are:
+    \list
+    \li Qt::IgnoreAspectRatio (the default): the aspect ratio is ignored and the
+        rendering is stretched to the target bounds.
+    \li Qt::KeepAspectRatio: rendering is centered and scaled as large as possible
+        within the target bounds while preserving aspect ratio.
+    \endlist
+
+    \since 5.15
+*/
+
+Qt::AspectRatioMode QSvgRenderer::aspectRatioMode() const
+{
+    Q_D(const QSvgRenderer);
+    if (d->render && d->render->preserveAspectRatio())
+        return Qt::KeepAspectRatio;
+    return Qt::IgnoreAspectRatio;
+}
+
+void QSvgRenderer::setAspectRatioMode(Qt::AspectRatioMode mode)
+{
+    Q_D(QSvgRenderer);
+    if (d->render) {
+        if (mode == Qt::KeepAspectRatio)
+            d->render->setPreserveAspectRatio(true);
+        else if (mode == Qt::IgnoreAspectRatio)
+            d->render->setPreserveAspectRatio(false);
+    }
+}
+
+/*!
   \property QSvgRenderer::currentFrame
   \brief the current frame of the document's animation, or 0 if the document is not animated
   \internal
@@ -437,7 +473,7 @@ void QSvgRenderer::setViewBox(const QRectF &viewbox)
     The transformation matrix of parent elements is not affecting
     the bounds of the element.
 
-    \sa matrixForElement()
+    \sa transformForElement()
 */
 QRectF QSvgRenderer::boundsOnElement(const QString &id) const
 {
@@ -471,8 +507,15 @@ bool QSvgRenderer::elementExists(const QString &id) const
     return exists;
 }
 
+#if QT_DEPRECATED_SINCE(5, 15)
+QT_WARNING_PUSH
+QT_WARNING_DISABLE_DEPRECATED
 /*!
     \since 4.2
+    \deprecated
+
+    Use transformForElement() instead.
+
 
     Returns the transformation matrix for the element
     with the given \a id. The matrix is a product of
@@ -486,11 +529,31 @@ bool QSvgRenderer::elementExists(const QString &id) const
 */
 QMatrix QSvgRenderer::matrixForElement(const QString &id) const
 {
+    return transformForElement(id).toAffine();
+}
+QT_WARNING_POP
+#endif // QT_DEPRECATED_SINCE(5, 15)
+
+/*!
+    \since 5.15
+
+    Returns the transformation matrix for the element
+    with the given \a id. The matrix is a product of
+    the transformation of the element's parents. The transformation of
+    the element itself is not included.
+
+    To find the bounding rectangle of the element in logical coordinates,
+    you can apply the matrix on the rectangle returned from boundsOnElement().
+
+    \sa boundsOnElement()
+*/
+QTransform QSvgRenderer::transformForElement(const QString &id) const
+{
     Q_D(const QSvgRenderer);
-    QMatrix mat;
+    QTransform trans;
     if (d->render)
-        mat = d->render->matrixForElement(id);
-    return mat;
+        trans = d->render->transformForElement(id);
+    return trans;
 }
 
 QT_END_NAMESPACE

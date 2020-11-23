@@ -26,7 +26,6 @@
 #include "chromeos/network/onc/onc_translator.h"
 #include "chromeos/network/onc/onc_utils.h"
 #include "chromeos/network/portal_detector/network_portal_detector.h"
-#include "chromeos/network/proxy/ui_proxy_config_service.h"
 #include "components/onc/onc_constants.h"
 #include "components/proxy_config/proxy_prefs.h"
 #include "content/public/browser/browser_context.h"
@@ -122,6 +121,9 @@ void AppendDeviceState(
       state = private_api::DEVICE_STATE_TYPE_UNINITIALIZED;
       break;
     case NetworkStateHandler::TECHNOLOGY_AVAILABLE:
+      state = private_api::DEVICE_STATE_TYPE_DISABLED;
+      break;
+    case NetworkStateHandler::TECHNOLOGY_DISABLING:
       state = private_api::DEVICE_STATE_TYPE_DISABLED;
       break;
     case NetworkStateHandler::TECHNOLOGY_UNINITIALIZED:
@@ -242,7 +244,7 @@ namespace extensions {
 
 NetworkingPrivateChromeOS::NetworkingPrivateChromeOS(
     content::BrowserContext* browser_context)
-    : browser_context_(browser_context), weak_ptr_factory_(this) {}
+    : browser_context_(browser_context) {}
 
 NetworkingPrivateChromeOS::~NetworkingPrivateChromeOS() {}
 
@@ -654,8 +656,6 @@ NetworkingPrivateChromeOS::GetEnabledNetworkTypes() {
     network_list->AppendString(::onc::network_type::kEthernet);
   if (state_handler->IsTechnologyEnabled(NetworkTypePattern::WiFi()))
     network_list->AppendString(::onc::network_type::kWiFi);
-  if (state_handler->IsTechnologyEnabled(NetworkTypePattern::Wimax()))
-    network_list->AppendString(::onc::network_type::kWimax);
   if (state_handler->IsTechnologyEnabled(NetworkTypePattern::Cellular()))
     network_list->AppendString(::onc::network_type::kCellular);
 
@@ -678,9 +678,9 @@ NetworkingPrivateChromeOS::GetDeviceStateList() {
 
   // For any technologies that we do not have a DeviceState entry for, append
   // an entry if the technology is available.
-  const char* technology_types[] = {
-      ::onc::network_type::kEthernet, ::onc::network_type::kWiFi,
-      ::onc::network_type::kWimax, ::onc::network_type::kCellular};
+  const char* technology_types[] = {::onc::network_type::kEthernet,
+                                    ::onc::network_type::kWiFi,
+                                    ::onc::network_type::kCellular};
   for (const char* technology : technology_types) {
     if (base::Contains(technologies_found, technology))
       continue;
@@ -760,8 +760,6 @@ void NetworkingPrivateChromeOS::GetPropertiesCallback(
   std::unique_ptr<base::DictionaryValue> dictionary_copy =
       dictionary.CreateDeepCopy();
   AppendThirdPartyProviderName(dictionary_copy.get());
-  if (managed)
-    SetManagedActiveProxyValues(guid, dictionary_copy.get());
   callback.Run(std::move(dictionary_copy));
 }
 
@@ -785,25 +783,6 @@ void NetworkingPrivateChromeOS::AppendThirdPartyProviderName(
       break;
     }
   }
-}
-
-void NetworkingPrivateChromeOS::SetManagedActiveProxyValues(
-    const std::string& guid,
-    base::DictionaryValue* dictionary) {
-  const std::string proxy_settings_key = ::onc::network_config::kProxySettings;
-  base::Value* proxy_settings = dictionary->FindKeyOfType(
-      proxy_settings_key, base::Value::Type::DICTIONARY);
-
-  if (!proxy_settings) {
-    proxy_settings = dictionary->SetKey(
-        proxy_settings_key, base::Value(base::Value::Type::DICTIONARY));
-  }
-
-  NetworkHandler::Get()->ui_proxy_config_service()->MergeEnforcedProxyConfig(
-      guid, proxy_settings);
-
-  if (proxy_settings->DictEmpty())
-    dictionary->RemoveKey(proxy_settings_key);
 }
 
 }  // namespace extensions

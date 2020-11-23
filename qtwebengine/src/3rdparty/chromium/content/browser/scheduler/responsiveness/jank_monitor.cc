@@ -46,27 +46,36 @@ void JankMonitor::RemoveObserver(Observer* observer) {
 void JankMonitor::SetUp() {
   DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
 
+  // Dependencies in SetUp() and Destroy():
+  // * Target thread --(may schedule the timer on)--> Monitor thread.
+  // * Monitor thread --(read/write)--> ThreadExecutionState data members.
+  // * Target thread --(write)--> ThreadExecutionState data members.
+
+  // ThreadExecutionState data members are created first.
+  ui_thread_exec_state_ = std::make_unique<ThreadExecutionState>();
+  io_thread_exec_state_ = std::make_unique<ThreadExecutionState>();
+
+  // Then the monitor thread.
+  monitor_task_runner_ = base::CreateSequencedTaskRunner({base::ThreadPool()});
+
+  // Finally set up the MetricSource.
   metric_source_ = CreateMetricSource();
   metric_source_->SetUp();
-
-  monitor_task_runner_ = CreateMonitorTaskRunner();
-  ui_thread_exec_state_ = std::make_unique<ThreadExecutionState>();
 }
 
 void JankMonitor::Destroy() {
   DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
+
+  // Destroy() tears down the object in reverse order of SetUp(): destroy the
+  // MetricSource first to silence the WillRun/DidRun callbacks. Then the
+  // monitor timer is stopped. Finally |ui_thread_exec_state_| and
+  // |io_thread_exec_state_| can be safely destroyed.
 
   // This holds a reference to |this| until |metric_source_| finishes async
   // shutdown.
   base::ScopedClosureRunner finish_destroy_metric_source(base::BindOnce(
       &JankMonitor::FinishDestroyMetricSource, base::RetainedRef(this)));
   metric_source_->Destroy(std::move(finish_destroy_metric_source));
-
-  // This holds another reference to |this| until the monitor thread finishes
-  // shutdown.
-  monitor_task_runner_->PostTask(
-      FROM_HERE, base::BindOnce(&JankMonitor::DestroyOnMonitorThread,
-                                base::RetainedRef(this)));
 }
 
 void JankMonitor::FinishDestroyMetricSource() {
@@ -74,21 +83,29 @@ void JankMonitor::FinishDestroyMetricSource() {
   DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
 
   metric_source_ = nullptr;
+
+  // We won't receive any RullRun* or DidRun* callbacks. Now shut down the
+  // monitor thread.
+  monitor_task_runner_->PostTask(
+      FROM_HERE, base::BindOnce(&JankMonitor::DestroyOnMonitorThread,
+                                base::RetainedRef(this)));
 }
 
-void JankMonitor::SetUpOnIOThread() {
-  io_thread_exec_state_ = std::make_unique<ThreadExecutionState>();
-}
+void JankMonitor::SetUpOnIOThread() {}
 
 void JankMonitor::TearDownOnUIThread() {
-  ui_thread_exec_state_ = nullptr;
+  // Don't destroy |ui_thread_exec_state_| yet because it might be used if the
+  // monitor timer runs.
 }
 
 void JankMonitor::TearDownOnIOThread() {
-  io_thread_exec_state_ = nullptr;
+  // Don't destroy |io_thread_exec_state_| yet because it might be used if the
+  // monitor timer fires.
 }
 
-void JankMonitor::WillRunTaskOnUIThread(const base::PendingTask* task) {
+void JankMonitor::WillRunTaskOnUIThread(
+    const base::PendingTask* task,
+    bool /* was_blocked_or_low_priority */) {
   DCHECK(ui_thread_exec_state_);
   WillRunTaskOrEvent(ui_thread_exec_state_.get(), task);
 }
@@ -98,7 +115,9 @@ void JankMonitor::DidRunTaskOnUIThread(const base::PendingTask* task) {
   DidRunTaskOrEvent(ui_thread_exec_state_.get(), task);
 }
 
-void JankMonitor::WillRunTaskOnIOThread(const base::PendingTask* task) {
+void JankMonitor::WillRunTaskOnIOThread(
+    const base::PendingTask* task,
+    bool /* was_blocked_or_low_priority */) {
   DCHECK(io_thread_exec_state_);
   WillRunTaskOrEvent(io_thread_exec_state_.get(), task);
 }
@@ -170,11 +189,6 @@ void JankMonitor::StopTimerIfIdle() {
   timer_running_ = false;
 }
 
-scoped_refptr<base::SequencedTaskRunner>
-JankMonitor::CreateMonitorTaskRunner() {
-  return base::CreateSequencedTaskRunnerWithTraits({});
-}
-
 std::unique_ptr<MetricSource> JankMonitor::CreateMetricSource () {
   return std::make_unique<MetricSource>(this);
 }
@@ -184,6 +198,12 @@ void JankMonitor::DestroyOnMonitorThread() {
 
   timer_.AbandonAndStop();
   timer_running_ = false;
+
+  // This is the last step of shutdown: no tasks will be observed on either IO
+  // or IO thread, and the monitor timer is stopped. It's safe to destroy
+  // |ui_thread_exec_state_| and |io_thread_exec_state_| now.
+  ui_thread_exec_state_ = nullptr;
+  io_thread_exec_state_ = nullptr;
 }
 
 bool JankMonitor::timer_running() const {
@@ -252,6 +272,9 @@ void JankMonitor::NotifyJankStopIfNecessary(const void* opaque_identifier) {
 JankMonitor::ThreadExecutionState::TaskMetadata::~TaskMetadata() = default;
 
 JankMonitor::ThreadExecutionState::ThreadExecutionState() {
+  // Constructor is always on the UI thread. Detach |target_sequence_checker_|
+  // to make it work on IO thread.
+  DETACH_FROM_SEQUENCE(target_sequence_checker_);
   DETACH_FROM_SEQUENCE(monitor_sequence_checker_);
 }
 

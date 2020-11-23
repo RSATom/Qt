@@ -89,7 +89,7 @@ struct QWindowsOpenGLContextFormat
 
     QSurfaceFormat::OpenGLContextProfile profile = QSurfaceFormat::NoProfile;
     int version = 0; //! majorVersion<<8 + minorVersion
-    QSurfaceFormat::FormatOptions options = nullptr;
+    QSurfaceFormat::FormatOptions options;
 };
 
 #ifndef QT_NO_DEBUG_STREAM
@@ -107,6 +107,7 @@ struct QWindowsOpengl32DLL
     // Wrappers. Always use these instead of SwapBuffers/wglSwapBuffers/etc.
     BOOL swapBuffers(HDC dc);
     BOOL setPixelFormat(HDC dc, int pf, const PIXELFORMATDESCRIPTOR *pfd);
+    int describePixelFormat(HDC dc, int pf, UINT size, PIXELFORMATDESCRIPTOR *pfd);
 
     // WGL
     HGLRC (WINAPI * wglCreateContext)(HDC dc);
@@ -130,6 +131,7 @@ private:
     // For Mesa llvmpipe shipped with a name other than opengl32.dll
     BOOL (WINAPI * wglSwapBuffers)(HDC dc);
     BOOL (WINAPI * wglSetPixelFormat)(HDC dc, int pf, const PIXELFORMATDESCRIPTOR *pfd);
+    int (WINAPI * wglDescribePixelFormat)(HDC dc, int pf, UINT size, PIXELFORMATDESCRIPTOR *pfd);
 };
 
 class QOpenGLStaticContext : public QWindowsStaticOpenGLContext

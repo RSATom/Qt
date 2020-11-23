@@ -266,7 +266,7 @@ const QModelIndex &QQuickTreeModelAdaptor1::mapToModel(const QModelIndex &index)
     return m_items.at(index.row()).index;
 }
 
-QModelIndex QQuickTreeModelAdaptor1::mapRowToModelIndex(int row) const
+QPersistentModelIndex QQuickTreeModelAdaptor1::mapRowToModelIndex(int row) const
 {
     if (!m_model)
         return QModelIndex();

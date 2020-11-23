@@ -60,12 +60,12 @@ public:
         connect(&m_dialog, SIGNAL(rejected()), this, SIGNAL(reject()));
     }
 
-    virtual void setCurrentFont(const QFont &font) { m_dialog.setCurrentFont(font); }
-    virtual QFont currentFont() const { return m_dialog.currentFont(); }
+    void setCurrentFont(const QFont &font) override { m_dialog.setCurrentFont(font); }
+    QFont currentFont() const override { return m_dialog.currentFont(); }
 
-    virtual void exec() { m_dialog.exec(); }
+    void exec() override { m_dialog.exec(); }
 
-    virtual bool show(Qt::WindowFlags f, Qt::WindowModality m, QWindow *parent) {
+    bool show(Qt::WindowFlags f, Qt::WindowModality m, QWindow *parent) override {
         m_dialog.winId();
         QWindow *window = m_dialog.windowHandle();
         Q_ASSERT(window);
@@ -80,7 +80,7 @@ public:
         return m_dialog.isVisible();
     }
 
-    virtual void hide() { m_dialog.hide(); }
+    void hide() override { m_dialog.hide(); }
 
 private:
     QFontDialog m_dialog;

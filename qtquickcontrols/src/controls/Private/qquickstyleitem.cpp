@@ -212,7 +212,7 @@ QQuickStyleItem1::~QQuickStyleItem1()
 void QQuickStyleItem1::initStyleOption()
 {
     if (m_styleoption)
-        m_styleoption->state = 0;
+        m_styleoption->state = {};
 
     QString sizeHint = m_hints.value(QStringLiteral("size")).toString();
     QPlatformTheme::Font platformFont = (sizeHint == QLatin1String("mini")) ? QPlatformTheme::MiniFont :
@@ -267,7 +267,7 @@ void QQuickStyleItem1::initStyleOption()
             m_styleoption = new QStyleOptionViewItem();
 
         QStyleOptionViewItem *opt = qstyleoption_cast<QStyleOptionViewItem*>(m_styleoption);
-        opt->features = 0;
+        opt->features = {};
         if (activeControl() == QLatin1String("alternate"))
             opt->features |= QStyleOptionViewItem::Alternate;
     }
@@ -594,7 +594,7 @@ void QQuickStyleItem1::initStyleOption()
         else if (value() & (1<<1))
             opt->activeSubControls = QStyle::SC_SpinBoxDown;
         opt->subControls = QStyle::SC_All;
-        opt->stepEnabled = 0;
+        opt->stepEnabled = {};
         if (value() & (1<<2))
             opt->stepEnabled |= QAbstractSpinBox::StepUpEnabled;
         if (value() & (1<<3))
@@ -659,7 +659,7 @@ void QQuickStyleItem1::initStyleOption()
         opt->text = text();
         opt->lineWidth = 1;
         opt->subControls = QStyle::SC_GroupBoxLabel;
-        opt->features = 0;
+        opt->features = {};
         if (m_properties[QStringLiteral("sunken")].toBool()) { // Qt draws an ugly line here so I ignore it
             opt->subControls |= QStyle::SC_GroupBoxFrame;
         } else {
@@ -1827,7 +1827,7 @@ QPixmap QQuickTableRowImageProvider1::requestPixmap(const QString &id, QSize *si
     opt.state |= QStyle::State_Enabled;
     opt.rect = QRect(0, 0, width, height);
     QString style = qApp->style()->metaObject()->className();
-    opt.features = 0;
+    opt.features = {};
 
     if (id.contains(QLatin1String("selected")))
         opt.state |= QStyle::State_Selected;

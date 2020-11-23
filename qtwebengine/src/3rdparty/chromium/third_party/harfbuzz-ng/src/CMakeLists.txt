@@ -43,6 +43,7 @@ if (APPLE)
 endif ()
 if (WIN32)
   option(HB_HAVE_UNISCRIBE "Enable Uniscribe shaper backend on Windows" OFF)
+  option(HB_HAVE_GDI "Enable GDI integration helpers on Windows" OFF)
   option(HB_HAVE_DIRECTWRITE "Enable DirectWrite shaper backend on Windows" OFF)
 endif ()
 option(HB_BUILD_UTILS "Build harfbuzz utils, needs cairo, freetype, and glib properly be installed" OFF)
@@ -77,6 +78,7 @@ if (HB_CHECK)
   set (HB_HAVE_GRAPHITE2 ON)
   if (WIN32)
     set (HB_HAVE_UNISCRIBE ON)
+    set (HB_HAVE_GDI ON)
     set (HB_HAVE_DIRECTWRITE ON)
   elseif (APPLE)
     set (HB_HAVE_CORETEXT ON)
@@ -106,7 +108,7 @@ endmacro ()
 if (UNIX)
   list(APPEND CMAKE_REQUIRED_LIBRARIES m)
 endif ()
-check_funcs(atexit mprotect sysconf getpagesize mmap isatty newlocale strtod_l)
+check_funcs(atexit mprotect sysconf getpagesize mmap isatty newlocale strtod_l roundf)
 check_include_file(unistd.h HAVE_UNISTD_H)
 if (${HAVE_UNISTD_H})
   add_definitions(-DHAVE_UNISTD_H)
@@ -140,8 +142,8 @@ endif ()
 
 ## Extract variables from Makefile files
 function (extract_make_variable variable makefile_source)
-  string(REGEX MATCH "${variable} = ([^$]+)\\$" temp ${makefile_source})
-  string(REGEX MATCHALL "[^ \n\t\\]+" listVar ${CMAKE_MATCH_1})
+  string(REGEX MATCH "${variable} = ([^$]+)\\$" temp "${makefile_source}")
+  string(REGEX MATCHALL "[^ \n\t\\]+" listVar "${CMAKE_MATCH_1}")
   set (${variable} ${listVar} PARENT_SCOPE)
 endfunction ()
 
@@ -305,6 +307,12 @@ if (APPLE AND HB_HAVE_CORETEXT)
   endif ()
 endif ()
 
+if (WIN32 AND HB_HAVE_GDI)
+  add_definitions(-DHAVE_GDI)
+  list(APPEND project_headers ${PROJECT_SOURCE_DIR}/src/hb-gdi.h)
+  list(APPEND THIRD_PARTY_LIBS gdi32)
+endif ()
+
 if (WIN32 AND HB_HAVE_UNISCRIBE)
   add_definitions(-DHAVE_UNISCRIBE)
   list(APPEND project_headers ${PROJECT_SOURCE_DIR}/src/hb-uniscribe.h)
@@ -456,6 +464,19 @@ endif ()
 ## Define harfbuzz library
 add_library(harfbuzz ${project_sources} ${project_extra_sources} ${project_headers})
 target_link_libraries(harfbuzz ${THIRD_PARTY_LIBS})
+
+
+## Define harfbuzz-icu library
+if (HB_HAVE_ICU)
+  add_library(harfbuzz-icu ${PROJECT_SOURCE_DIR}/src/hb-icu.cc ${PROJECT_SOURCE_DIR}/src/hb-icu.h)
+  add_dependencies(harfbuzz-icu harfbuzz)
+  target_link_libraries(harfbuzz-icu harfbuzz ${THIRD_PARTY_LIBS})
+
+  if (BUILD_SHARED_LIBS)
+    set_target_properties(harfbuzz harfbuzz-icu PROPERTIES VISIBILITY_INLINES_HIDDEN TRUE)
+  endif ()
+endif ()
+
 
 ## Define harfbuzz-subset library
 if (HB_BUILD_SUBSET)
@@ -715,6 +736,14 @@ if (NOT SKIP_INSTALL_LIBRARIES AND NOT SKIP_INSTALL_ALL)
       NAMESPACE harfbuzz::
       DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/harfbuzz
   )
+  if (HB_HAVE_ICU)
+    install(TARGETS harfbuzz-icu
+      ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
+      LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
+      RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
+      FRAMEWORK DESTINATION Library/Frameworks
+    )
+  endif ()
   if (HB_BUILD_UTILS)
     if (WIN32 AND BUILD_SHARED_LIBS)
       install(TARGETS harfbuzz-subset

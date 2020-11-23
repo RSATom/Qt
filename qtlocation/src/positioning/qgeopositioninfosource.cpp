@@ -143,9 +143,9 @@ QVariant QGeoPositionInfoSourcePrivate::backendProperty(const QString &/*name*/)
     return QVariant();
 }
 
-QHash<QString, QJsonObject> QGeoPositionInfoSourcePrivate::plugins(bool reload)
+QMultiHash<QString, QJsonObject> QGeoPositionInfoSourcePrivate::plugins(bool reload)
 {
-    static QHash<QString, QJsonObject> plugins;
+    static QMultiHash<QString, QJsonObject> plugins;
     static bool alreadyDiscovered = false;
 
     if (reload == true)
@@ -179,7 +179,7 @@ QList<QJsonObject> QGeoPositionInfoSourcePrivate::pluginsSorted()
     return list;
 }
 
-void QGeoPositionInfoSourcePrivate::loadPluginMetadata(QHash<QString, QJsonObject> &plugins)
+void QGeoPositionInfoSourcePrivate::loadPluginMetadata(QMultiHash<QString, QJsonObject> &plugins)
 {
     QFactoryLoader *l = loader();
     QList<QJsonObject> meta = l->metaData();
@@ -192,7 +192,7 @@ void QGeoPositionInfoSourcePrivate::loadPluginMetadata(QHash<QString, QJsonObjec
                 continue;
         }
         obj.insert(QStringLiteral("index"), i);
-        plugins.insertMulti(obj.value(QStringLiteral("Provider")).toString(), obj);
+        plugins.insert(obj.value(QStringLiteral("Provider")).toString(), obj);
     }
 }
 
@@ -206,7 +206,7 @@ QGeoPositionInfoSource::QGeoPositionInfoSource(QObject *parent)
 {
     qRegisterMetaType<QGeoPositionInfo>();
     d->interval = 0;
-    d->methods = 0;
+    d->methods = {};
 }
 
 /*!

@@ -21,6 +21,10 @@ class WebGL2ComputeRenderingContextBase : public WebGL2RenderingContextBase {
   void dispatchCompute(GLuint numGroupsX, GLuint numGroupsY, GLuint numGroupsZ);
   void dispatchComputeIndirect(int64_t offset);
 
+  /* Draw indirect */
+  void drawArraysIndirect(GLenum mode, int64_t offset);
+  void drawElementsIndirect(GLenum mode, GLenum type, int64_t offset);
+
   /* Program interface query */
   ScriptValue getProgramInterfaceParameter(ScriptState*,
                                            WebGLProgram*,
@@ -32,7 +36,7 @@ class WebGL2ComputeRenderingContextBase : public WebGL2RenderingContextBase {
   String getProgramResourceName(WebGLProgram*,
                                 GLenum program_interface,
                                 GLuint index);
-  base::Optional<Vector<ScriptValue>> getProgramResource(
+  base::Optional<HeapVector<ScriptValue>> getProgramResource(
       ScriptState*,
       WebGLProgram*,
       GLenum program_interface,
@@ -114,6 +118,7 @@ class WebGL2ComputeRenderingContextBase : public WebGL2RenderingContextBase {
                                              WebGLBuffer*) override;
 
   Member<WebGLBuffer> bound_dispatch_indirect_buffer_;
+  Member<WebGLBuffer> bound_draw_indirect_buffer_;
   Member<WebGLBuffer> bound_atomic_counter_buffer_;
   Member<WebGLBuffer> bound_shader_storage_buffer_;
 

@@ -1187,7 +1187,7 @@ void tst_QStringRef::toNum()
     QVERIFY(ok);
     QString::number(d + 1e32, 'e', 17).leftRef(-1).toFloat(&ok);
     QVERIFY(!ok);
-    a = QString::number(-d, 'e', 17).leftRef(-1).toFloat(&ok);
+    QString::number(-d, 'e', 17).leftRef(-1).toFloat(&ok);
     QVERIFY(ok);
     QString::number(-d - 1e32, 'e', 17).leftRef(-1).toFloat(&ok);
     QVERIFY(!ok);
@@ -2161,18 +2161,18 @@ void tst_QStringRef::split()
         QVERIFY(list == result);
     }
 
-    list = ref.split(sep, QString::KeepEmptyParts);
+    list = ref.split(sep, Qt::KeepEmptyParts);
     QVERIFY(list == result);
     if (sep.size() == 1) {
-        list = ref.split(sep.at(0), QString::KeepEmptyParts);
+        list = ref.split(sep.at(0), Qt::KeepEmptyParts);
         QVERIFY(list == result);
     }
 
     result.removeAll("");
-    list = ref.split(sep, QString::SkipEmptyParts);
+    list = ref.split(sep, Qt::SkipEmptyParts);
     QVERIFY(list == result);
     if (sep.size() == 1) {
-        list = ref.split(sep.at(0), QString::SkipEmptyParts);
+        list = ref.split(sep.at(0), Qt::SkipEmptyParts);
         QVERIFY(list == result);
     }
 }

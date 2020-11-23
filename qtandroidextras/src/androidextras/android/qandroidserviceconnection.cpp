@@ -46,9 +46,11 @@ QT_BEGIN_NAMESPACE
 /*!
     \class QAndroidServiceConnection
     \inmodule QtAndroidExtras
+    \brief Wraps the most important methods of Android ServiceConnection class.
 
     The QAndroidServiceConnection is a convenience abstract class which wraps the
-    \l {https://developer.android.com/reference/android/content/ServiceConnection.html} {Android ServiceConnection} interface.
+    \l {https://developer.android.com/reference/android/content/ServiceConnection.html}{Android ServiceConnection}
+    interface.
 
     It is useful when you perform a QtAndroid::bindService operation.
 

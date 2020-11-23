@@ -1,0 +1,16 @@
+#ifndef QT_QTPDF_MODULE_H
+#define QT_QTPDF_MODULE_H
+#include <QtPdf/QtPdfDepends>
+#include "qtpdfglobal.h"
+#include "qpdfbookmarkmodel.h"
+#include "qpdfdestination.h"
+#include "qpdfdocument.h"
+#include "qpdfdocumentrenderoptions.h"
+#include "qpdfnamespace.h"
+#include "qpdfpagenavigation.h"
+#include "qpdfpagerenderer.h"
+#include "qpdfsearchmodel.h"
+#include "qpdfsearchresult.h"
+#include "qpdfselection.h"
+#include "qtpdfversion.h"
+#endif

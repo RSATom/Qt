@@ -220,8 +220,10 @@ bool ImageFrameGenerator::HasAlpha(size_t index) {
   return true;
 }
 
-bool ImageFrameGenerator::GetYUVComponentSizes(SegmentReader* data,
-                                               SkYUVASizeInfo* size_info) {
+bool ImageFrameGenerator::GetYUVComponentSizes(
+    SegmentReader* data,
+    SkYUVASizeInfo* size_info,
+    SkYUVColorSpace* yuv_color_space) {
   TRACE_EVENT2("blink", "ImageFrameGenerator::getYUVComponentSizes", "width",
                full_size_.width(), "height", full_size_.height());
 
@@ -234,13 +236,8 @@ bool ImageFrameGenerator::GetYUVComponentSizes(SegmentReader* data,
       ImageDecoder::kDefaultBitDepth, decoder_color_behavior_);
   DCHECK(decoder);
 
-  // Setting a dummy ImagePlanes object signals to the decoder that we want to
-  // do YUV decoding.
-  std::unique_ptr<ImagePlanes> dummy_image_planes =
-      std::make_unique<ImagePlanes>();
-  decoder->SetImagePlanes(std::move(dummy_image_planes));
-
   DCHECK(decoder->CanDecodeToYUV());
+  *yuv_color_space = decoder->GetYUVColorSpace();
 
   return UpdateYUVComponentSizes(decoder.get(), size_info->fSizes,
                                  size_info->fWidthBytes);

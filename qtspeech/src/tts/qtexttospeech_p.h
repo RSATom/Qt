@@ -53,6 +53,7 @@
 #include <qtexttospeech.h>
 #include <qtexttospeechplugin.h>
 #include <QMutex>
+#include <QtCore/qhash.h>
 #include <QtCore/private/qobject_p.h>
 
 QT_BEGIN_NAMESPACE
@@ -63,13 +64,13 @@ class QTextToSpeechPrivate : public QObjectPrivate
 public:
     QTextToSpeechPrivate(QTextToSpeech *speech, const QString &engine);
     ~QTextToSpeechPrivate();
-    static QHash<QString, QJsonObject> plugins(bool reload = false);
+    static QMultiHash<QString, QJsonObject> plugins(bool reload = false);
 
     QTextToSpeechEngine *m_engine;
 private:
     bool loadMeta();
     void loadPlugin();
-    static void loadPluginMetadata(QHash<QString, QJsonObject> &list);
+    static void loadPluginMetadata(QMultiHash<QString, QJsonObject> &list);
     QTextToSpeech *m_speech;
     QString m_providerName;
     QTextToSpeechPlugin *m_plugin;

@@ -38,7 +38,7 @@
 #include "net/test/cert_test_util.h"
 #include "net/test/gtest_util.h"
 #include "net/test/test_data_directory.h"
-#include "net/test/test_with_scoped_task_environment.h"
+#include "net/test/test_with_task_environment.h"
 #include "net/traffic_annotation/network_traffic_annotation.h"
 #include "net/websockets/websocket_basic_handshake_stream.h"
 #include "net/websockets/websocket_stream.h"
@@ -90,9 +90,10 @@ class MockClientSocketHandleFactory {
     socket_factory_maker_.SetExpectations(expect_written, return_to_read);
     auto socket_handle = std::make_unique<ClientSocketHandle>();
     socket_handle->Init(
-        ClientSocketPool::GroupId(HostPortPair("a", 80),
-                                  ClientSocketPool::SocketType::kHttp,
-                                  PrivacyMode::PRIVACY_MODE_DISABLED),
+        ClientSocketPool::GroupId(
+            HostPortPair("a", 80), ClientSocketPool::SocketType::kHttp,
+            PrivacyMode::PRIVACY_MODE_DISABLED, NetworkIsolationKey(),
+            false /* disable_secure_dns */),
         scoped_refptr<ClientSocketPool::SocketParams>(),
         base::nullopt /* proxy_annotation_tag */, MEDIUM, SocketTag(),
         ClientSocketPool::RespectLimits::ENABLED, CompletionOnceCallback(),
@@ -148,7 +149,7 @@ class MockWebSocketStreamRequestAPI : public WebSocketStreamRequestAPI {
 
 class WebSocketHandshakeStreamCreateHelperTest
     : public TestWithParam<HandshakeStreamType>,
-      public WithScopedTaskEnvironment {
+      public WithTaskEnvironment {
  protected:
   std::unique_ptr<WebSocketStream> CreateAndInitializeStream(
       const std::vector<std::string>& sub_protocols,
@@ -255,10 +256,10 @@ class WebSocketHandshakeStreamCreateHelperTest
 
         std::unique_ptr<HttpNetworkSession> http_network_session =
             SpdySessionDependencies::SpdyCreateSession(&session_deps);
-        const SpdySessionKey key(HostPortPair::FromURL(url),
-                                 ProxyServer::Direct(), PRIVACY_MODE_DISABLED,
-                                 SpdySessionKey::IsProxySession::kFalse,
-                                 SocketTag());
+        const SpdySessionKey key(
+            HostPortPair::FromURL(url), ProxyServer::Direct(),
+            PRIVACY_MODE_DISABLED, SpdySessionKey::IsProxySession::kFalse,
+            SocketTag(), NetworkIsolationKey(), false /* disable_secure_dns */);
         base::WeakPtr<SpdySession> spdy_session =
             CreateSpdySession(http_network_session.get(), key, net_log);
         std::unique_ptr<WebSocketHandshakeStreamBase> handshake =
@@ -299,7 +300,7 @@ class WebSocketHandshakeStreamCreateHelperTest
   WebSocketEndpointLockManager websocket_endpoint_lock_manager_;
 };
 
-INSTANTIATE_TEST_SUITE_P(,
+INSTANTIATE_TEST_SUITE_P(All,
                          WebSocketHandshakeStreamCreateHelperTest,
                          Values(BASIC_HANDSHAKE_STREAM,
                                 HTTP2_HANDSHAKE_STREAM));

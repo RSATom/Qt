@@ -139,9 +139,20 @@
     before the handshake phase with setLocalCertificate() and
     setPrivateKey().
     \li The CA certificate database can be extended and customized with
-    addCaCertificate(), addCaCertificates(), addDefaultCaCertificate(),
-    addDefaultCaCertificates(), and QSslConfiguration::defaultConfiguration().setCaCertificates().
+    QSslConfiguration::addCaCertificate(),
+    QSslConfiguration::addCaCertificates().
     \endlist
+
+    To extend the list of \e default CA certificates used by the SSL sockets
+    during the SSL handshake you must update the default configuration, as
+    in the snippet below:
+
+    \code
+        QList<QSslCertificate> certificates = getCertificates();
+        QSslConfiguration configuration = QSslConfiguration::defaultConfiguration();
+        configuration.addCaCertificates(certificates);
+        QSslConfiguration::setDefaultConfiguration(configuration);
+    \endcode
 
     \note If available, root certificates on Unix (excluding \macos) will be
     loaded on demand from the standard certificate directories. If you do not
@@ -278,7 +289,7 @@
     If you want to continue connecting despite the errors that have occurred,
     you must call QSslSocket::ignoreSslErrors() from inside a slot connected to
     this signal. If you need to access the error list at a later point, you
-    can call sslErrors() (without arguments).
+    can call sslHandshakeErrors().
 
     \a errors contains one or more errors that prevent QSslSocket from
     verifying the identity of the peer.
@@ -309,6 +320,22 @@
     deleted by the application.
 
     \sa QSslPreSharedKeyAuthenticator
+*/
+
+/*!
+    \fn void QSslSocket::newSessionTicketReceived()
+    \since 5.15
+
+    If TLS 1.3 protocol was negotiated during a handshake, QSslSocket
+    emits this signal after receiving NewSessionTicket message. Session
+    and session ticket's lifetime hint are updated in the socket's
+    configuration. The session can be used for session resumption (and
+    a shortened handshake) in future TLS connections.
+
+    \note This functionality enabled only with OpenSSL backend and requires
+    OpenSSL v 1.1.1 or above.
+
+    \sa QSslSocket::sslConfiguration(), QSslConfiguration::sessionTicket(), QSslConfiguration::sessionTicketLifeTimeHint()
 */
 
 #include "qssl_p.h"
@@ -970,8 +997,10 @@ void QSslSocket::setSslConfiguration(const QSslConfiguration &configuration)
     // if the CA certificates were set explicitly (either via
     // QSslConfiguration::setCaCertificates() or QSslSocket::setCaCertificates(),
     // we cannot load the certificates on demand
-    if (!configuration.d->allowRootCertOnDemandLoading)
+    if (!configuration.d->allowRootCertOnDemandLoading) {
         d->allowRootCertOnDemandLoading = false;
+        d->configuration.allowRootCertOnDemandLoading = false;
+    }
 }
 
 /*!
@@ -1315,7 +1344,7 @@ void QSslSocket::setCiphers(const QString &ciphers)
 {
     Q_D(QSslSocket);
     d->configuration.ciphers.clear();
-    const auto cipherNames = ciphers.split(QLatin1Char(':'), QString::SkipEmptyParts);
+    const auto cipherNames = ciphers.split(QLatin1Char(':'), Qt::SkipEmptyParts);
     for (const QString &cipherName : cipherNames) {
         QSslCipher cipher(cipherName);
         if (!cipher.isNull())
@@ -1384,6 +1413,10 @@ QList<QSslCipher> QSslSocket::supportedCiphers()
 #endif  // #if QT_DEPRECATED_SINCE(5, 5)
 
 /*!
+  \deprecated
+
+  Use QSslConfiguration::addCaCertificates() instead.
+
   Searches all files in the \a path for certificates encoded in the
   specified \a format and adds them to this socket's CA certificate
   database. \a path must be a file or a pattern matching one or more
@@ -1402,7 +1435,10 @@ bool QSslSocket::addCaCertificates(const QString &path, QSsl::EncodingFormat for
                                    QRegExp::PatternSyntax syntax)
 {
     Q_D(QSslSocket);
+QT_WARNING_PUSH
+QT_WARNING_DISABLE_DEPRECATED
     QList<QSslCertificate> certs = QSslCertificate::fromPath(path, format, syntax);
+QT_WARNING_POP
     if (certs.isEmpty())
         return false;
 
@@ -1411,6 +1447,10 @@ bool QSslSocket::addCaCertificates(const QString &path, QSsl::EncodingFormat for
 }
 
 /*!
+  \deprecated
+
+  Use QSslConfiguration::addCaCertificate() instead.
+
   Adds the \a certificate to this socket's CA certificate database.
   The CA certificate database is used by the socket during the
   handshake phase to validate the peer's certificate.
@@ -1427,6 +1467,10 @@ void QSslSocket::addCaCertificate(const QSslCertificate &certificate)
 }
 
 /*!
+  \deprecated
+
+  Use QSslConfiguration::addCaCertificates() instead.
+
   Adds the \a certificates to this socket's CA certificate database.
   The CA certificate database is used by the socket during the
   handshake phase to validate the peer's certificate.
@@ -1489,6 +1533,10 @@ QList<QSslCertificate> QSslSocket::caCertificates() const
 #endif  // #if QT_DEPRECATED_SINCE(5, 5)
 
 /*!
+    \deprecated
+
+    Use QSslConfiguration::addCaCertificates() on the default QSslConfiguration instead.
+
     Searches all files in the \a path for certificates with the
     specified \a encoding and adds them to the default CA certificate
     database. \a path can be an explicit file, or it can contain
@@ -1498,8 +1546,8 @@ QList<QSslCertificate> QSslSocket::caCertificates() const
     Each SSL socket's CA certificate database is initialized to the
     default CA certificate database.
 
-    \sa QSslConfiguration::caCertificates(), addCaCertificates(),
-        addDefaultCaCertificate()
+    \sa QSslConfiguration::caCertificates(), QSslConfiguration::addCaCertificates(),
+        QSslConfiguration::addCaCertificate()
 */
 bool QSslSocket::addDefaultCaCertificates(const QString &path, QSsl::EncodingFormat encoding,
                                           QRegExp::PatternSyntax syntax)
@@ -1508,11 +1556,15 @@ bool QSslSocket::addDefaultCaCertificates(const QString &path, QSsl::EncodingFor
 }
 
 /*!
+    \deprecated
+
+    Use QSslConfiguration::addCaCertificate() on the default QSslConfiguration instead.
+
     Adds \a certificate to the default CA certificate database.  Each
     SSL socket's CA certificate database is initialized to the default
     CA certificate database.
 
-    \sa addCaCertificates()
+    \sa QSslConfiguration::addCaCertificates()
 */
 void QSslSocket::addDefaultCaCertificate(const QSslCertificate &certificate)
 {
@@ -1520,11 +1572,15 @@ void QSslSocket::addDefaultCaCertificate(const QSslCertificate &certificate)
 }
 
 /*!
+    \deprecated
+
+    Use QSslConfiguration::addCaCertificates() on the default QSslConfiguration instead.
+
     Adds \a certificates to the default CA certificate database.  Each
     SSL socket's CA certificate database is initialized to the default
     CA certificate database.
 
-    \sa QSslConfiguration::caCertificates(), addCaCertificates()
+    \sa QSslConfiguration::caCertificates(), QSslConfiguration::addCaCertificates()
 */
 void QSslSocket::addDefaultCaCertificates(const QList<QSslCertificate> &certificates)
 {
@@ -1790,7 +1846,28 @@ bool QSslSocket::waitForDisconnected(int msecs)
     return retVal;
 }
 
+#if QT_DEPRECATED_SINCE(5, 15)
 /*!
+    \deprecated
+
+    Use sslHandshakeErrors() instead.
+
+    Returns a list of the last SSL errors that occurred. This is the
+    same list as QSslSocket passes via the sslErrors() signal. If the
+    connection has been encrypted with no errors, this function will
+    return an empty list.
+
+    \sa connectToHostEncrypted(), sslHandshakeErrors()
+*/
+QList<QSslError> QSslSocket::sslErrors() const
+{
+    return sslHandshakeErrors();
+}
+#endif // QT_DEPRECATED_SINCE(5, 15)
+
+/*!
+    \since 5.15
+
     Returns a list of the last SSL errors that occurred. This is the
     same list as QSslSocket passes via the sslErrors() signal. If the
     connection has been encrypted with no errors, this function will
@@ -1798,7 +1875,7 @@ bool QSslSocket::waitForDisconnected(int msecs)
 
     \sa connectToHostEncrypted()
 */
-QList<QSslError> QSslSocket::sslErrors() const
+QList<QSslError> QSslSocket::sslHandshakeErrors() const
 {
     Q_D(const QSslSocket);
     return d->sslErrors;
@@ -2000,7 +2077,7 @@ void QSslSocket::ignoreSslErrors()
     You can clear the list of errors you want to ignore by calling this
     function with an empty list.
 
-    \sa sslErrors()
+    \sa sslErrors(), sslHandshakeErrors()
 */
 void QSslSocket::ignoreSslErrors(const QList<QSslError> &errors)
 {
@@ -2166,7 +2243,7 @@ void QSslSocketPrivate::init()
     pendingClose = false;
     flushTriggered = false;
     ocspResponses.clear();
-
+    systemOrSslErrorDetected = false;
     // we don't want to clear the ignoreErrorsList, so
     // that it is possible setting it before connecting
 //    ignoreErrorsList.clear();
@@ -2175,6 +2252,7 @@ void QSslSocketPrivate::init()
     writeBuffer.clear();
     configuration.peerCertificate.clear();
     configuration.peerCertificateChain.clear();
+    fetchAuthorityInformation = false;
 }
 
 /*!
@@ -2305,7 +2383,10 @@ bool QSslSocketPrivate::addDefaultCaCertificates(const QString &path, QSsl::Enco
                                                  QRegExp::PatternSyntax syntax)
 {
     QSslSocketPrivate::ensureInitialized();
+QT_WARNING_PUSH
+QT_WARNING_DISABLE_DEPRECATED
     QList<QSslCertificate> certs = QSslCertificate::fromPath(path, format, syntax);
+QT_WARNING_POP
     if (certs.isEmpty())
         return false;
 
@@ -2324,6 +2405,8 @@ void QSslSocketPrivate::addDefaultCaCertificate(const QSslCertificate &cert)
 {
     QSslSocketPrivate::ensureInitialized();
     QMutexLocker locker(&globalData()->mutex);
+    if (globalData()->config->caCertificates.contains(cert))
+        return;
     globalData()->config.detach();
     globalData()->config->caCertificates += cert;
     globalData()->dtlsConfig.detach();
@@ -2441,7 +2524,7 @@ void QSslSocketPrivate::createPlainSocket(QIODevice::OpenMode openMode)
     q->setPeerName(QString());
 
     plainSocket = new QTcpSocket(q);
-#ifndef QT_NO_BEARERMANAGEMENT
+#ifndef QT_NO_BEARERMANAGEMENT // ### Qt6: Remove section
     //copy network session down to the plain socket (if it has been set)
     plainSocket->setProperty("_q_networksession", q->property("_q_networksession"));
 #endif
@@ -2457,7 +2540,7 @@ void QSslSocketPrivate::createPlainSocket(QIODevice::OpenMode openMode)
     q->connect(plainSocket, SIGNAL(stateChanged(QAbstractSocket::SocketState)),
                q, SLOT(_q_stateChangedSlot(QAbstractSocket::SocketState)),
                Qt::DirectConnection);
-    q->connect(plainSocket, SIGNAL(error(QAbstractSocket::SocketError)),
+    q->connect(plainSocket, SIGNAL(errorOccurred(QAbstractSocket::SocketError)),
                q, SLOT(_q_errorSlot(QAbstractSocket::SocketError)),
                Qt::DirectConnection);
     q->connect(plainSocket, SIGNAL(readyRead()),

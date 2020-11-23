@@ -2,35 +2,33 @@
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
-import exceptions
-
 from .attribute import Attribute
-from .common import WithCodeGeneratorInfo
-from .common import WithComponent
-from .common import WithDebugInfo
-from .common import WithExposure
-from .common import WithExtendedAttributes
+from .code_generator_info import CodeGeneratorInfo
+from .composition_parts import WithCodeGeneratorInfo
+from .composition_parts import WithComponent
+from .composition_parts import WithDebugInfo
+from .composition_parts import WithExposure
+from .composition_parts import WithExtendedAttributes
+from .composition_parts import WithOwner
 from .constant import Constant
-from .identifier_ir_map import IdentifierIRMap
-from .idl_member import IdlMember
+from .constructor import Constructor
+from .constructor import ConstructorGroup
+from .exposure import Exposure
 from .idl_type import IdlType
+from .ir_map import IRMap
+from .make_copy import make_copy
 from .operation import Operation
+from .operation import OperationGroup
 from .reference import RefById
 from .user_defined_type import UserDefinedType
 
 
-class Interface(UserDefinedType, WithExtendedAttributes, WithExposure,
-                WithCodeGeneratorInfo, WithComponent, WithDebugInfo):
-    """A summarized interface definition in IDL.
+class Interface(UserDefinedType, WithExtendedAttributes, WithCodeGeneratorInfo,
+                WithExposure, WithComponent, WithDebugInfo):
+    """https://heycam.github.io/webidl/#idl-interfaces"""
 
-    Interface provides information about an interface, partial interfaces,
-    interface mixins, and partial interface mixins, as if they were all
-    gathered in an interface.
-    https://heycam.github.io/webidl/#idl-interfaces
-    """
-
-    class IR(IdentifierIRMap.IR, WithExtendedAttributes, WithExposure,
-             WithCodeGeneratorInfo, WithComponent, WithDebugInfo):
+    class IR(IRMap.IR, WithExtendedAttributes, WithCodeGeneratorInfo,
+             WithExposure, WithComponent, WithDebugInfo):
         def __init__(self,
                      identifier,
                      is_partial,
@@ -38,28 +36,32 @@ class Interface(UserDefinedType, WithExtendedAttributes, WithExposure,
                      inherited=None,
                      attributes=None,
                      constants=None,
+                     constructors=None,
                      operations=None,
+                     stringifier=None,
                      iterable=None,
                      maplike=None,
                      setlike=None,
                      extended_attributes=None,
-                     exposures=None,
-                     code_generator_info=None,
                      component=None,
-                     components=None,
                      debug_info=None):
             assert isinstance(is_partial, bool)
             assert isinstance(is_mixin, bool)
             assert inherited is None or isinstance(inherited, RefById)
             assert attributes is None or isinstance(attributes, (list, tuple))
             assert constants is None or isinstance(constants, (list, tuple))
+            assert constructors is None or isinstance(constructors,
+                                                      (list, tuple))
             assert operations is None or isinstance(operations, (list, tuple))
+            assert stringifier is None or isinstance(stringifier,
+                                                     Stringifier.IR)
             assert iterable is None or isinstance(iterable, Iterable)
             assert maplike is None or isinstance(maplike, Maplike)
             assert setlike is None or isinstance(setlike, Setlike)
 
             attributes = attributes or []
             constants = constants or []
+            constructors = constructors or []
             operations = operations or []
             assert all(
                 isinstance(attribute, Attribute.IR)
@@ -67,26 +69,28 @@ class Interface(UserDefinedType, WithExtendedAttributes, WithExposure,
             assert all(
                 isinstance(constant, Constant.IR) for constant in constants)
             assert all(
+                isinstance(constructor, Constructor.IR)
+                for constructor in constructors)
+            assert all(
                 isinstance(operation, Operation.IR)
                 for operation in operations)
 
             kind = None
             if is_partial:
                 if is_mixin:
-                    kind = IdentifierIRMap.IR.Kind.PARTIAL_INTERFACE_MIXIN
+                    kind = IRMap.IR.Kind.PARTIAL_INTERFACE_MIXIN
                 else:
-                    kind = IdentifierIRMap.IR.Kind.PARTIAL_INTERFACE
+                    kind = IRMap.IR.Kind.PARTIAL_INTERFACE
             else:
                 if is_mixin:
-                    kind = IdentifierIRMap.IR.Kind.INTERFACE_MIXIN
+                    kind = IRMap.IR.Kind.INTERFACE_MIXIN
                 else:
-                    kind = IdentifierIRMap.IR.Kind.INTERFACE
-            IdentifierIRMap.IR.__init__(self, identifier=identifier, kind=kind)
+                    kind = IRMap.IR.Kind.INTERFACE
+            IRMap.IR.__init__(self, identifier=identifier, kind=kind)
             WithExtendedAttributes.__init__(self, extended_attributes)
-            WithExposure.__init__(self, exposures)
-            WithCodeGeneratorInfo.__init__(self, code_generator_info)
-            WithComponent.__init__(
-                self, component=component, components=components)
+            WithCodeGeneratorInfo.__init__(self)
+            WithExposure.__init__(self)
+            WithComponent.__init__(self, component)
             WithDebugInfo.__init__(self, debug_info)
 
             self.is_partial = is_partial
@@ -94,89 +98,173 @@ class Interface(UserDefinedType, WithExtendedAttributes, WithExposure,
             self.inherited = inherited
             self.attributes = list(attributes)
             self.constants = list(constants)
+            self.constructors = list(constructors)
+            self.constructor_groups = []
             self.operations = list(operations)
+            self.operation_groups = []
+            self.stringifier = stringifier
             self.iterable = iterable
             self.maplike = maplike
             self.setlike = setlike
 
-        def make_copy(self):
-            return Interface.IR(
-                identifier=self.identifier,
-                is_partial=self.is_partial,
-                is_mixin=self.is_mixin,
-                inherited=self.inherited,
-                attributes=map(Attribute.IR.make_copy, self.attributes),
-                constants=map(Constant.IR.make_copy, self.constants),
-                operations=map(Operation.IR.make_copy, self.operations),
-                iterable=self.iterable,
-                maplike=self.maplike,
-                setlike=self.setlike,
-                extended_attributes=self.extended_attributes.make_copy(),
-                code_generator_info=self.code_generator_info.make_copy(),
-                components=self.components,
-                debug_info=self.debug_info.make_copy())
+        def iter_all_members(self):
+            for attribute in self.attributes:
+                yield attribute
+            for constant in self.constants:
+                yield constant
+            for constructor in self.constructors:
+                yield constructor
+            for operation in self.operations:
+                yield operation
 
+    def __init__(self, ir):
+        assert isinstance(ir, Interface.IR)
+        assert not ir.is_partial
+
+        ir = make_copy(ir)
+        UserDefinedType.__init__(self, ir.identifier)
+        WithExtendedAttributes.__init__(self, ir)
+        WithCodeGeneratorInfo.__init__(self, ir, readonly=True)
+        WithExposure.__init__(self, ir, readonly=True)
+        WithComponent.__init__(self, ir, readonly=True)
+        WithDebugInfo.__init__(self, ir)
+
+        self._is_mixin = ir.is_mixin
+        self._inherited = ir.inherited
+        self._attributes = tuple([
+            Attribute(attribute_ir, owner=self)
+            for attribute_ir in ir.attributes
+        ])
+        self._constants = tuple([
+            Constant(constant_ir, owner=self) for constant_ir in ir.constants
+        ])
+        self._constructors = tuple([
+            Constructor(constructor_ir, owner=self)
+            for constructor_ir in ir.constructors
+        ])
+        self._constructor_groups = tuple([
+            ConstructorGroup(
+                constructor_group_ir,
+                filter(
+                    lambda x: x.identifier == constructor_group_ir.identifier,
+                    self._constructors),
+                owner=self) for constructor_group_ir in ir.constructor_groups
+        ])
+        assert len(self._constructor_groups) <= 1
+        self._operations = tuple([
+            Operation(operation_ir, owner=self)
+            for operation_ir in ir.operations
+        ])
+        self._operation_groups = tuple([
+            OperationGroup(
+                operation_group_ir,
+                filter(lambda x: x.identifier == operation_group_ir.identifier,
+                       self._operations),
+                owner=self) for operation_group_ir in ir.operation_groups
+        ])
+        self._stringifier = None
+        if ir.stringifier:
+            operations = filter(lambda x: x.is_stringifier, self._operations)
+            assert len(operations) == 1
+            attributes = [None]
+            if ir.stringifier.attribute:
+                attr_id = ir.stringifier.attribute.identifier
+                attributes = filter(lambda x: x.identifier == attr_id,
+                                    self._attributes)
+            assert len(attributes) == 1
+            self._stringifier = Stringifier(
+                ir.stringifier,
+                operation=operations[0],
+                attribute=attributes[0],
+                owner=self)
+        self._iterable = ir.iterable
+        self._maplike = ir.maplike
+        self._setlike = ir.setlike
 
     @property
-    def inherited_interface(self):
+    def is_mixin(self):
+        """Returns True if this is a mixin interface."""
+        return self._is_mixin
+
+    @property
+    def inherited(self):
+        """Returns the inherited interface or None."""
+        return self._inherited.target_object if self._inherited else None
+
+    @property
+    def inclusive_inherited_interfaces(self):
         """
-        Returns an Interface from which this interface inherits. If this
-        interface does not inherit, returns None.
-        @return Interface?
+        Returns the list of inclusive inherited interfaces.
+
+        https://heycam.github.io/webidl/#interface-inclusive-inherited-interfaces
         """
-        raise exceptions.NotImplementedError()
+        result = []
+        interface = self
+        while interface is not None:
+            result.append(interface)
+            interface = interface.inherited
+        return result
 
     @property
     def attributes(self):
         """
-        Returns a tuple of attributes including [Unforgeable] attributes in
-        ancestors.
-        @return tuple(Attribute)
+        Returns attributes, including [Unforgeable] attributes in ancestors.
         """
-        raise exceptions.NotImplementedError()
+        return self._attributes
+
+    @property
+    def constants(self):
+        """Returns constants."""
+        return self._constants
+
+    @property
+    def constructors(self):
+        """Returns constructors."""
+        return self._constructors
+
+    @property
+    def constructor_groups(self):
+        """
+        Returns groups of constructors.
+
+        Constructors are grouped as operations are. There is 0 or 1 group.
+        """
+        return self._constructor_groups
+
+    @property
+    def operations(self):
+        """
+        Returns all operations, including special operations without an
+        identifier, as well as [Unforgeable] operations in ancestors.
+        """
+        return self._operations
 
     @property
     def operation_groups(self):
         """
-        Returns a tuple of OperationGroup. Each OperationGroup has operation(s)
-        defined in this interface and [Unforgeable] operations in ancestors.
-        @return tuple(OperationGroup)
-        """
-        raise exceptions.NotImplementedError()
+        Returns groups of overloaded operations, including [Unforgeable]
+        operations in ancestors.
 
-    @property
-    def constants(self):
+        All operations that have an identifier are grouped by identifier, thus
+        it's possible that there is a single operation in a certain operation
+        group.  If an operation doesn't have an identifier, i.e. if it's a
+        merely special operation, then the operation doesn't appear in any
+        operation group.
         """
-        Returns a tuple of constants defined in this interface.
-        @return tuple(Constant)
-        """
-        raise exceptions.NotImplementedError()
-
-    @property
-    def constructors(self):
-        """
-        Returns ConstructorGroup instance for this interface.
-        @return tuple(ConstructorGroup)
-        """
-        raise exceptions.NotImplementedError()
+        return self._operation_groups
 
     @property
     def named_constructor(self):
-        """
-        Returns a named constructor, if this interface has it. Otherwise, returns
-        None.
-        @return NamedConstructor?
-        """
-        raise exceptions.NotImplementedError()
+        """Returns a named constructor or None."""
+        assert False, "Not implemented yet."
 
     @property
     def exposed_interfaces(self):
         """
-        Returns a tuple of Interfaces that are exposed to |self|. If |self| is
-        not a global interface, returns an empty tuple.
-        @return tuple(Interface)
+        Returns a tuple of interfaces that are exposed to this interface, if
+        this is a global interface.  Returns None otherwise.
         """
-        raise exceptions.NotImplementedError()
+        assert False, "Not implemented yet."
 
     # Special operations
     @property
@@ -187,7 +275,7 @@ class Interface(UserDefinedType, WithExtendedAttributes, WithExposure,
         @return IndexedPropertyHandler?
         """
         # TODO: Include anonymous handlers of ancestors. https://crbug.com/695972
-        raise exceptions.NotImplementedError()
+        assert False, "Not implemented yet."
 
     @property
     def named_property_handler(self):
@@ -197,39 +285,27 @@ class Interface(UserDefinedType, WithExtendedAttributes, WithExposure,
         @return NamedPropertyHandler?
         """
         # TODO: Include anonymous handlers of ancestors. https://crbug.com/695972
-        raise exceptions.NotImplementedError()
+        assert False, "Not implemented yet."
 
     @property
     def stringifier(self):
-        """
-        Returns stringifier if it is defined. Returns None otherwise.
-        @return TBD?
-        """
-        raise exceptions.NotImplementedError()
+        """Returns a Stringifier or None."""
+        return self._stringifier
 
     @property
     def iterable(self):
-        """
-        Returns iterable if it is defined. Returns None otherwise.
-        @return Iterable?
-        """
-        raise exceptions.NotImplementedError()
+        """Returns an Iterable or None."""
+        return self._iterable
 
     @property
     def maplike(self):
-        """
-        Returns maplike if it is defined. Returns None otherwise.
-        @return Maplike?
-        """
-        raise exceptions.NotImplementedError()
+        """Returns a Maplike or None."""
+        return self._maplike
 
     @property
     def setlike(self):
-        """
-        Returns setlike if it is defined. Returns None otherwise.
-        @return Setlike?
-        """
-        raise exceptions.NotImplementedError()
+        """Returns a Setlike or None."""
+        return self._setlike
 
     # UserDefinedType overrides
     @property
@@ -237,13 +313,45 @@ class Interface(UserDefinedType, WithExtendedAttributes, WithExposure,
         return True
 
 
-class Iterable(WithCodeGeneratorInfo, WithDebugInfo):
+class Stringifier(WithOwner, WithDebugInfo):
+    """https://heycam.github.io/webidl/#idl-stringifiers"""
+
+    class IR(WithDebugInfo):
+        def __init__(self, operation=None, attribute=None, debug_info=None):
+            assert isinstance(operation, Operation.IR)
+            assert attribute is None or isinstance(attribute, Attribute.IR)
+
+            WithDebugInfo.__init__(self, debug_info)
+
+            self.operation = operation
+            self.attribute = attribute
+
+    def __init__(self, ir, operation, attribute, owner):
+        assert isinstance(ir, Stringifier.IR)
+        assert isinstance(operation, Operation)
+        assert attribute is None or isinstance(attribute, Attribute)
+
+        WithOwner.__init__(self, owner)
+        WithDebugInfo.__init__(self, ir)
+
+        self._operation = operation
+        self._attribute = attribute
+
+    @property
+    def operation(self):
+        return self._operation
+
+    @property
+    def attribute(self):
+        return self._attribute
+
+
+class Iterable(WithDebugInfo):
     """https://heycam.github.io/webidl/#idl-iterable"""
 
     def __init__(self,
                  key_type=None,
                  value_type=None,
-                 code_generator_info=None,
                  debug_info=None):
         assert key_type is None or isinstance(key_type, IdlType)
         # iterable is declared in either form of
@@ -253,7 +361,6 @@ class Iterable(WithCodeGeneratorInfo, WithDebugInfo):
         # to be consistent with the format of IDL.
         assert isinstance(value_type, IdlType), "value_type must be specified"
 
-        WithCodeGeneratorInfo.__init__(self, code_generator_info)
         WithDebugInfo.__init__(self, debug_info)
 
         self._key_type = key_type
@@ -261,35 +368,27 @@ class Iterable(WithCodeGeneratorInfo, WithDebugInfo):
 
     @property
     def key_type(self):
-        """
-        Returns the key type or None.
-        @return IdlType?
-        """
+        """Returns the key type or None."""
         return self._key_type
 
     @property
     def value_type(self):
-        """
-        Returns the value type.
-        @return IdlType
-        """
+        """Returns the value type."""
         return self._value_type
 
 
-class Maplike(WithCodeGeneratorInfo, WithDebugInfo):
+class Maplike(WithDebugInfo):
     """https://heycam.github.io/webidl/#idl-maplike"""
 
     def __init__(self,
                  key_type,
                  value_type,
                  is_readonly=False,
-                 code_generator_info=None,
                  debug_info=None):
         assert isinstance(key_type, IdlType)
         assert isinstance(value_type, IdlType)
         assert isinstance(is_readonly, bool)
 
-        WithCodeGeneratorInfo.__init__(self, code_generator_info)
         WithDebugInfo.__init__(self, debug_info)
 
         self._key_type = key_type
@@ -321,18 +420,16 @@ class Maplike(WithCodeGeneratorInfo, WithDebugInfo):
         return self._is_readonly
 
 
-class Setlike(WithCodeGeneratorInfo, WithDebugInfo):
+class Setlike(WithDebugInfo):
     """https://heycam.github.io/webidl/#idl-setlike"""
 
     def __init__(self,
                  value_type,
                  is_readonly=False,
-                 code_generator_info=None,
                  debug_info=None):
         assert isinstance(value_type, IdlType)
         assert isinstance(is_readonly, bool)
 
-        WithCodeGeneratorInfo.__init__(self, code_generator_info)
         WithDebugInfo.__init__(self, debug_info)
 
         self._value_type = value_type
@@ -355,14 +452,14 @@ class Setlike(WithCodeGeneratorInfo, WithDebugInfo):
         return self._is_readonly
 
 
-class IndexedPropertyHandler(IdlMember):
+class IndexedPropertyHandler(object):
     @property
     def getter(self):
         """
         Returns an Operation for indexed property getter.
         @return Operation?
         """
-        raise exceptions.NotImplementedError()
+        assert False, "Not implemented yet."
 
     @property
     def setter(self):
@@ -370,7 +467,7 @@ class IndexedPropertyHandler(IdlMember):
         Returns an Operation for indexed property setter.
         @return Operation?
         """
-        raise exceptions.NotImplementedError()
+        assert False, "Not implemented yet."
 
     @property
     def deleter(self):
@@ -378,17 +475,17 @@ class IndexedPropertyHandler(IdlMember):
         Returns an Operation for indexed property deleter.
         @return Operation?
         """
-        raise exceptions.NotImplementedError()
+        assert False, "Not implemented yet."
 
 
-class NamedPropertyHandler(IdlMember):
+class NamedPropertyHandler(object):
     @property
     def getter(self):
         """
         Returns an Operation for named property getter.
         @return Operation?
         """
-        raise exceptions.NotImplementedError()
+        assert False, "Not implemented yet."
 
     @property
     def setter(self):
@@ -396,7 +493,7 @@ class NamedPropertyHandler(IdlMember):
         Returns an Operation for named property setter.
         @return Operation?
         """
-        raise exceptions.NotImplementedError()
+        assert False, "Not implemented yet."
 
     @property
     def deleter(self):
@@ -404,4 +501,4 @@ class NamedPropertyHandler(IdlMember):
         Returns an Operation for named property deleter.
         @return Operation?
         """
-        raise exceptions.NotImplementedError()
+        assert False, "Not implemented yet."

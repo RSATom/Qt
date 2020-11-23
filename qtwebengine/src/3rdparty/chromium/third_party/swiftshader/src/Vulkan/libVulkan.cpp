@@ -40,25 +40,40 @@
 #include "VkSampler.hpp"
 #include "VkSemaphore.hpp"
 #include "VkShaderModule.hpp"
+#include "VkStringify.hpp"
 #include "VkRenderPass.hpp"
 
-#ifdef VK_USE_PLATFORM_MACOS_MVK
-#include "WSI/MacOSSurfaceMVK.h"
+#if defined(VK_USE_PLATFORM_METAL_EXT) || defined(VK_USE_PLATFORM_MACOS_MVK)
+#include "WSI/MetalSurface.h"
+#endif
+
+#ifdef VK_USE_PLATFORM_XCB_KHR
+#include "WSI/XcbSurfaceKHR.hpp"
 #endif
 
 #ifdef VK_USE_PLATFORM_XLIB_KHR
 #include "WSI/XlibSurfaceKHR.hpp"
 #endif
 
+#ifdef VK_USE_PLATFORM_WIN32_KHR
+#include "WSI/Win32SurfaceKHR.hpp"
+#endif
+
 #ifdef __ANDROID__
-#include <vulkan/vk_android_native_buffer.h>
+#include <android/log.h>
 #include "System/GrallocAndroid.hpp"
 #include <sync/sync.h>
+#include "commit.h"
 #endif
 
 #include "WSI/VkSwapchainKHR.hpp"
 
 #include "Reactor/Nucleus.hpp"
+
+#include "marl/scheduler.h"
+#include "marl/thread.h"
+
+#include "System/CPUID.hpp"
 
 #include <algorithm>
 #include <cstring>
@@ -67,6 +82,16 @@
 
 namespace
 {
+
+// Enable commit_id.py and #include commit.h for other platforms.
+#if defined(__ANDROID__) && defined(ENABLE_BUILD_VERSION_OUTPUT)
+void logBuildVersionInformation()
+{
+	// TODO(b/144093703): Don't call __android_log_print() directly
+	__android_log_print(ANDROID_LOG_INFO, "SwiftShader", "SwiftShader Version: %s", SWIFTSHADER_VERSION_STRING);
+}
+#endif  // __ANDROID__ && ENABLE_BUILD_VERSION_OUTPUT
+
 
 bool HasExtensionProperty(const char* extensionName, const VkExtensionProperties* extensionProperties, uint32_t extensionPropertiesCount)
 {
@@ -98,12 +123,44 @@ void setReactorDefaultConfig()
 	rr::Nucleus::adjustDefaultConfig(cfg);
 }
 
+void setCPUDefaults()
+{
+	sw::CPUID::setEnableSSE4_1(true);
+	sw::CPUID::setEnableSSSE3(true);
+	sw::CPUID::setEnableSSE3(true);
+	sw::CPUID::setEnableSSE2(true);
+	sw::CPUID::setEnableSSE(true);
+}
+
+std::shared_ptr<marl::Scheduler> getOrCreateScheduler()
+{
+	static std::mutex mutex;
+	static std::weak_ptr<marl::Scheduler> schedulerWeak;
+	std::unique_lock<std::mutex> lock(mutex);
+	auto scheduler = schedulerWeak.lock();
+	if (!scheduler)
+	{
+		scheduler = std::make_shared<marl::Scheduler>();
+		scheduler->setThreadInitializer([] {
+			sw::CPUID::setFlushToZero(true);
+			sw::CPUID::setDenormalsAreZero(true);
+		});
+		scheduler->setWorkerThreadCount(std::min<size_t>(marl::Thread::numLogicalCPUs(), 16));
+		schedulerWeak = scheduler;
+	}
+	return scheduler;
+}
+
 // initializeLibrary() is called by vkCreateInstance() to perform one-off global
 // initialization of the swiftshader driver.
 void initializeLibrary()
 {
 	static bool doOnce = [] {
+#if defined(__ANDROID__) && defined(ENABLE_BUILD_VERSION_OUTPUT)
+		logBuildVersionInformation();
+#endif  // __ANDROID__ && ENABLE_BUILD_VERSION_OUTPUT
 		setReactorDefaultConfig();
+		setCPUDefaults();
 		return true;
 	}();
 	(void)doOnce;
@@ -113,14 +170,14 @@ void initializeLibrary()
 
 extern "C"
 {
-VKAPI_ATTR PFN_vkVoidFunction VKAPI_CALL vk_icdGetInstanceProcAddr(VkInstance instance, const char* pName)
+VK_EXPORT VKAPI_ATTR PFN_vkVoidFunction VKAPI_CALL vk_icdGetInstanceProcAddr(VkInstance instance, const char* pName)
 {
 	TRACE("(VkInstance instance = %p, const char* pName = %p)", instance, pName);
 
 	return vk::GetInstanceProcAddr(vk::Cast(instance), pName);
 }
 
-VKAPI_ATTR VkResult VKAPI_CALL vk_icdNegotiateLoaderICDInterfaceVersion(uint32_t* pSupportedVersion)
+VK_EXPORT VKAPI_ATTR VkResult VKAPI_CALL vk_icdNegotiateLoaderICDInterfaceVersion(uint32_t* pSupportedVersion)
 {
 	*pSupportedVersion = 3;
 	return VK_SUCCESS;
@@ -136,16 +193,27 @@ static const VkExtensionProperties instanceExtensionProperties[] =
 #ifndef __ANDROID__
 	{ VK_KHR_SURFACE_EXTENSION_NAME, VK_KHR_SURFACE_SPEC_VERSION },
 #endif
+#ifdef VK_USE_PLATFORM_XCB_KHR
+	{ VK_KHR_XCB_SURFACE_EXTENSION_NAME, VK_KHR_XCB_SURFACE_SPEC_VERSION },
+#endif
 #ifdef VK_USE_PLATFORM_XLIB_KHR
 	{ VK_KHR_XLIB_SURFACE_EXTENSION_NAME, VK_KHR_XLIB_SURFACE_SPEC_VERSION },
 #endif
 #ifdef VK_USE_PLATFORM_MACOS_MVK
     { VK_MVK_MACOS_SURFACE_EXTENSION_NAME, VK_MVK_MACOS_SURFACE_SPEC_VERSION },
 #endif
+#ifdef VK_USE_PLATFORM_METAL_EXT
+    { VK_EXT_METAL_SURFACE_EXTENSION_NAME, VK_EXT_METAL_SURFACE_SPEC_VERSION },
+#endif
+#ifdef VK_USE_PLATFORM_WIN32_KHR
+	{ VK_KHR_WIN32_SURFACE_EXTENSION_NAME, VK_KHR_WIN32_SURFACE_SPEC_VERSION },
+#endif
 };
 
 static const VkExtensionProperties deviceExtensionProperties[] =
 {
+	{ VK_KHR_DRIVER_PROPERTIES_EXTENSION_NAME, VK_KHR_DRIVER_PROPERTIES_SPEC_VERSION },
+	// Vulkan 1.1 promoted extensions
 	{ VK_KHR_16BIT_STORAGE_EXTENSION_NAME, VK_KHR_16BIT_STORAGE_SPEC_VERSION },
 	{ VK_KHR_BIND_MEMORY_2_EXTENSION_NAME, VK_KHR_BIND_MEMORY_2_SPEC_VERSION },
 	{ VK_KHR_DEDICATED_ALLOCATION_EXTENSION_NAME, VK_KHR_DEDICATED_ALLOCATION_SPEC_VERSION },
@@ -161,14 +229,35 @@ static const VkExtensionProperties deviceExtensionProperties[] =
 	{ VK_KHR_MULTIVIEW_EXTENSION_NAME, VK_KHR_MULTIVIEW_SPEC_VERSION },
 	{ VK_KHR_RELAXED_BLOCK_LAYOUT_EXTENSION_NAME, VK_KHR_RELAXED_BLOCK_LAYOUT_SPEC_VERSION },
 	{ VK_KHR_SAMPLER_YCBCR_CONVERSION_EXTENSION_NAME, VK_KHR_SAMPLER_YCBCR_CONVERSION_SPEC_VERSION },
-	{ VK_KHR_SHADER_DRAW_PARAMETERS_EXTENSION_NAME, VK_KHR_SHADER_DRAW_PARAMETERS_SPEC_VERSION },
+	// Only 1.1 core version of this is supported. The extension has additional requirements
+	//{ VK_KHR_SHADER_DRAW_PARAMETERS_EXTENSION_NAME, VK_KHR_SHADER_DRAW_PARAMETERS_SPEC_VERSION },
 	{ VK_KHR_STORAGE_BUFFER_STORAGE_CLASS_EXTENSION_NAME, VK_KHR_STORAGE_BUFFER_STORAGE_CLASS_SPEC_VERSION },
-	{ VK_KHR_VARIABLE_POINTERS_EXTENSION_NAME, VK_KHR_VARIABLE_POINTERS_SPEC_VERSION },
+	// Only 1.1 core version of this is supported. The extension has additional requirements
+	//{ VK_KHR_VARIABLE_POINTERS_EXTENSION_NAME, VK_KHR_VARIABLE_POINTERS_SPEC_VERSION },
+	{ VK_EXT_QUEUE_FAMILY_FOREIGN_EXTENSION_NAME, VK_EXT_QUEUE_FAMILY_FOREIGN_SPEC_VERSION },
+	// The following extension is only used to add support for Bresenham lines
+	{ VK_EXT_LINE_RASTERIZATION_EXTENSION_NAME, VK_EXT_LINE_RASTERIZATION_SPEC_VERSION },
 #ifndef __ANDROID__
+	// We fully support the KHR_swapchain v70 additions, so just track the spec version.
 	{ VK_KHR_SWAPCHAIN_EXTENSION_NAME, VK_KHR_SWAPCHAIN_SPEC_VERSION },
 #else
-	{ VK_ANDROID_NATIVE_BUFFER_EXTENSION_NAME, VK_ANDROID_NATIVE_BUFFER_SPEC_VERSION },
+	// We only support V7 of this extension. Missing functionality: in V8,
+	// it becomes possible to pass a VkNativeBufferANDROID structure to
+	// vkBindImageMemory2. Android's swapchain implementation does this in
+	// order to support passing VkBindImageMemorySwapchainInfoKHR
+	// (from KHR_swapchain v70) to vkBindImageMemory2.
+	{ VK_ANDROID_NATIVE_BUFFER_EXTENSION_NAME, 7 },
 #endif
+#if SWIFTSHADER_EXTERNAL_SEMAPHORE_OPAQUE_FD
+	{ VK_KHR_EXTERNAL_SEMAPHORE_FD_EXTENSION_NAME, VK_KHR_EXTERNAL_SEMAPHORE_FD_SPEC_VERSION },
+#endif
+#if SWIFTSHADER_EXTERNAL_MEMORY_OPAQUE_FD
+	{ VK_KHR_EXTERNAL_MEMORY_FD_EXTENSION_NAME, VK_KHR_EXTERNAL_MEMORY_FD_SPEC_VERSION },
+#endif
+#if VK_USE_PLATFORM_FUCHSIA
+	{ VK_FUCHSIA_EXTERNAL_SEMAPHORE_EXTENSION_NAME, VK_FUCHSIA_EXTERNAL_SEMAPHORE_SPEC_VERSION },
+#endif
+	{ VK_EXT_PROVOKING_VERTEX_EXTENSION_NAME, VK_EXT_PROVOKING_VERTEX_SPEC_VERSION },
 };
 
 VKAPI_ATTR VkResult VKAPI_CALL vkCreateInstance(const VkInstanceCreateInfo* pCreateInfo, const VkAllocationCallbacks* pAllocator, VkInstance* pInstance)
@@ -194,7 +283,8 @@ VKAPI_ATTR VkResult VKAPI_CALL vkCreateInstance(const VkInstanceCreateInfo* pCre
 
 	if(pCreateInfo->pNext)
 	{
-		switch(*reinterpret_cast<const VkStructureType*>(pCreateInfo->pNext))
+		const VkBaseInStructure* createInfo = reinterpret_cast<const VkBaseInStructure*>(pCreateInfo->pNext);
+		switch(createInfo->sType)
 		{
 		case VK_STRUCTURE_TYPE_LOADER_INSTANCE_CREATE_INFO:
 			// According to the Vulkan spec, section 2.7.2. Implicit Valid Usage:
@@ -204,7 +294,8 @@ VKAPI_ATTR VkResult VKAPI_CALL vkCreateInstance(const VkInstanceCreateInfo* pCre
 			//  Vulkan structures in this Specification."
 			break;
 		default:
-			UNIMPLEMENTED("pCreateInfo->pNext");
+			WARN("pCreateInfo->pNext sType = %s", vk::Stringify(createInfo->sType).c_str());
+			break;
 		}
 	}
 
@@ -436,7 +527,10 @@ VKAPI_ATTR VkResult VKAPI_CALL vkCreateDevice(VkPhysicalDevice physicalDevice, c
 
 	while(extensionCreateInfo)
 	{
-		switch(extensionCreateInfo->sType)
+		// Casting to a long since some structures, such as
+		// VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROVOKING_VERTEX_FEATURES_EXT
+		// are not enumerated in the official Vulkan header
+		switch((long)(extensionCreateInfo->sType))
 		{
 		case VK_STRUCTURE_TYPE_LOADER_DEVICE_CREATE_INFO:
 			// According to the Vulkan spec, section 2.7.2. Implicit Valid Usage:
@@ -500,9 +594,53 @@ VKAPI_ATTR VkResult VKAPI_CALL vkCreateDevice(VkPhysicalDevice physicalDevice, c
 				}
 			}
 			break;
+		case VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MULTIVIEW_FEATURES:
+			{
+				const VkPhysicalDeviceMultiviewFeatures* multiviewFeatures = reinterpret_cast<const VkPhysicalDeviceMultiviewFeatures*>(extensionCreateInfo);
+
+				if (multiviewFeatures->multiviewGeometryShader ||
+				    multiviewFeatures->multiviewTessellationShader)
+				{
+					return VK_ERROR_FEATURE_NOT_PRESENT;
+				}
+			}
+			break;
+		case VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_DRAW_PARAMETERS_FEATURES:
+			{
+				const VkPhysicalDeviceShaderDrawParametersFeatures* shaderDrawParametersFeatures = reinterpret_cast<const VkPhysicalDeviceShaderDrawParametersFeatures*>(extensionCreateInfo);
+
+				if (shaderDrawParametersFeatures->shaderDrawParameters)
+				{
+					return VK_ERROR_FEATURE_NOT_PRESENT;
+				}
+			}
+			break;
+		case VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_LINE_RASTERIZATION_FEATURES_EXT:
+			{
+				const VkPhysicalDeviceLineRasterizationFeaturesEXT* lineRasterizationFeatures = reinterpret_cast<const VkPhysicalDeviceLineRasterizationFeaturesEXT*>(extensionCreateInfo);
+				if((lineRasterizationFeatures->smoothLines == VK_TRUE) ||
+				   (lineRasterizationFeatures->stippledBresenhamLines == VK_TRUE) ||
+				   (lineRasterizationFeatures->stippledRectangularLines == VK_TRUE) ||
+				   (lineRasterizationFeatures->stippledSmoothLines == VK_TRUE))
+				{
+					return VK_ERROR_FEATURE_NOT_PRESENT;
+				}
+			}
+			break;
+		case VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROVOKING_VERTEX_FEATURES_EXT:
+			{
+				const VkPhysicalDeviceProvokingVertexFeaturesEXT* provokingVertexFeatures = reinterpret_cast<const VkPhysicalDeviceProvokingVertexFeaturesEXT*>(extensionCreateInfo);
+
+				// Provoking vertex is supported.
+				// provokingVertexFeatures->provokingVertexLast can be VK_TRUE or VK_FALSE.
+				// No action needs to be taken on our end in either case; it's the apps responsibility to check
+				// that the provokingVertexLast feature is enabled before using the provoking vertex convention.
+				(void)provokingVertexFeatures->provokingVertexLast;
+			}
+			break;
 		default:
 			// "the [driver] must skip over, without processing (other than reading the sType and pNext members) any structures in the chain with sType values not defined by [supported extenions]"
-			UNIMPLEMENTED("extensionCreateInfo->sType %d", int(extensionCreateInfo->sType));   // TODO(b/119321052): UNIMPLEMENTED() should be used only for features that must still be implemented. Use a more informational macro here.
+			WARN("pCreateInfo->pNext sType = %s", vk::Stringify(extensionCreateInfo->sType).c_str());
 			break;
 		}
 
@@ -524,16 +662,24 @@ VKAPI_ATTR VkResult VKAPI_CALL vkCreateDevice(VkPhysicalDevice physicalDevice, c
 	for(uint32_t i = 0; i < pCreateInfo->queueCreateInfoCount; i++)
 	{
 		const VkDeviceQueueCreateInfo& queueCreateInfo = pCreateInfo->pQueueCreateInfos[i];
-		if(queueCreateInfo.pNext || queueCreateInfo.flags)
+		if(queueCreateInfo.flags)
 		{
-			UNIMPLEMENTED("queueCreateInfo.pNext || queueCreateInfo.flags");
+			UNIMPLEMENTED("queueCreateInfo.flags");
+		}
+
+		auto extInfo = reinterpret_cast<VkBaseInStructure const*>(queueCreateInfo.pNext);
+		while(extInfo)
+		{
+			WARN("pCreateInfo->pQueueCreateInfos[%d].pNext sType = %s", i, vk::Stringify(extInfo->sType).c_str());
+			extInfo = extInfo->pNext;
 		}
 
 		ASSERT(queueCreateInfo.queueFamilyIndex < queueFamilyPropertyCount);
 		(void)queueFamilyPropertyCount; // Silence unused variable warning
 	}
 
-	return vk::DispatchableDevice::Create(pAllocator, pCreateInfo, pDevice, vk::Cast(physicalDevice), enabledFeatures);
+	auto scheduler = getOrCreateScheduler();
+	return vk::DispatchableDevice::Create(pAllocator, pCreateInfo, pDevice, vk::Cast(physicalDevice), enabledFeatures, scheduler);
 }
 
 VKAPI_ATTR void VKAPI_CALL vkDestroyDevice(VkDevice device, const VkAllocationCallbacks* pAllocator)
@@ -663,8 +809,30 @@ VKAPI_ATTR VkResult VKAPI_CALL vkAllocateMemory(VkDevice device, const VkMemoryA
 			// This extension controls on which physical devices the memory gets allocated.
 			// SwiftShader only has a single physical device, so this extension does nothing in this case.
 			break;
+#if SWIFTSHADER_EXTERNAL_MEMORY_OPAQUE_FD
+		case VK_STRUCTURE_TYPE_IMPORT_MEMORY_FD_INFO_KHR:
+		{
+			auto* importInfo = reinterpret_cast<const VkImportMemoryFdInfoKHR *>(allocationInfo);
+			if (importInfo->handleType != VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_FD_BIT)
+			{
+				UNSUPPORTED("importInfo->handleType %u", importInfo->handleType);
+				return VK_ERROR_INVALID_EXTERNAL_HANDLE;
+			}
+			break;
+		}
+		case VK_STRUCTURE_TYPE_EXPORT_MEMORY_ALLOCATE_INFO:
+		{
+			auto* exportInfo = reinterpret_cast<const VkExportMemoryAllocateInfo *>(allocationInfo);
+			if (exportInfo->handleTypes != VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_FD_BIT)
+			{
+				UNSUPPORTED("exportInfo->handleTypes %u", exportInfo->handleTypes);
+				return VK_ERROR_INVALID_EXTERNAL_HANDLE;
+			}
+			break;
+		}
+#endif  // SWIFTSHADER_EXTERNAL_MEMORY_OPAQUE_FD
 		default:
-			UNIMPLEMENTED("allocationInfo->sType");
+			WARN("pAllocateInfo->pNext sType = %s", vk::Stringify(allocationInfo->sType).c_str());
 			break;
 		}
 
@@ -695,6 +863,46 @@ VKAPI_ATTR void VKAPI_CALL vkFreeMemory(VkDevice device, VkDeviceMemory memory, 
 
 	vk::destroy(memory, pAllocator);
 }
+
+#if SWIFTSHADER_EXTERNAL_MEMORY_OPAQUE_FD
+VKAPI_ATTR VkResult VKAPI_CALL vkGetMemoryFdKHR(VkDevice device, const VkMemoryGetFdInfoKHR* getFdInfo, int* pFd)
+{
+	TRACE("(VkDevice device = %p, const VkMemoryGetFdInfoKHR* getFdInfo = %p, int* pFd = %p",
+		  device, getFdInfo, pFd);
+
+	if (getFdInfo->handleType != VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_FD_BIT)
+	{
+		UNSUPPORTED("pGetFdInfo->handleType %u", getFdInfo->handleType);
+		return VK_ERROR_INVALID_EXTERNAL_HANDLE;
+	}
+	return vk::Cast(getFdInfo->memory)->exportFd(pFd);
+}
+
+VKAPI_ATTR VkResult VKAPI_CALL vkGetMemoryFdPropertiesKHR(VkDevice device, VkExternalMemoryHandleTypeFlagBits handleType, int fd, VkMemoryFdPropertiesKHR* pMemoryFdProperties)
+{
+	TRACE("(VkDevice device = %p, VkExternalMemoryHandleTypeFlagBits handleType = %x, int fd = %d, VkMemoryFdPropertiesKHR* pMemoryFdProperties = %p)",
+		  device, handleType, fd, pMemoryFdProperties);
+
+	if (handleType != VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_FD_BIT)
+	{
+		UNSUPPORTED("handleType %u", handleType);
+		return VK_ERROR_INVALID_EXTERNAL_HANDLE;
+	}
+
+	if (fd < 0)
+	{
+		return VK_ERROR_INVALID_EXTERNAL_HANDLE;
+	}
+
+	const VkPhysicalDeviceMemoryProperties& memoryProperties =
+			vk::Cast(device)->getPhysicalDevice()->getMemoryProperties();
+
+	// All SwiftShader memory types support this!
+	pMemoryFdProperties->memoryTypeBits = (1U << memoryProperties.memoryTypeCount) - 1U;
+
+	return VK_SUCCESS;
+}
+#endif  // SWIFTSHADER_EXTERNAL_MEMORY_OPAQUE_FD
 
 VKAPI_ATTR VkResult VKAPI_CALL vkMapMemory(VkDevice device, VkDeviceMemory memory, VkDeviceSize offset, VkDeviceSize size, VkMemoryMapFlags flags, void** ppData)
 {
@@ -753,8 +961,12 @@ VKAPI_ATTR VkResult VKAPI_CALL vkBindBufferMemory(VkDevice device, VkBuffer buff
 	TRACE("(VkDevice device = %p, VkBuffer buffer = %p, VkDeviceMemory memory = %p, VkDeviceSize memoryOffset = %d)",
 		    device, static_cast<void*>(buffer), static_cast<void*>(memory), int(memoryOffset));
 
+	if (!vk::Cast(buffer)->canBindToMemory(vk::Cast(memory)))
+	{
+		UNSUPPORTED("vkBindBufferMemory with invalid external memory");
+		return VK_ERROR_INVALID_EXTERNAL_HANDLE;
+	}
 	vk::Cast(buffer)->bind(vk::Cast(memory), memoryOffset);
-
 	return VK_SUCCESS;
 }
 
@@ -763,8 +975,12 @@ VKAPI_ATTR VkResult VKAPI_CALL vkBindImageMemory(VkDevice device, VkImage image,
 	TRACE("(VkDevice device = %p, VkImage image = %p, VkDeviceMemory memory = %p, VkDeviceSize memoryOffset = %d)",
 		    device, static_cast<void*>(image), static_cast<void*>(memory), int(memoryOffset));
 
+	if (!vk::Cast(image)->canBindToMemory(vk::Cast(memory)))
+	{
+		UNSUPPORTED("vkBindImageMemory with invalid external memory");
+		return VK_ERROR_INVALID_EXTERNAL_HANDLE;
+	}
 	vk::Cast(image)->bind(vk::Cast(memory), memoryOffset);
-
 	return VK_SUCCESS;
 }
 
@@ -815,9 +1031,11 @@ VKAPI_ATTR VkResult VKAPI_CALL vkCreateFence(VkDevice device, const VkFenceCreat
 	TRACE("(VkDevice device = %p, const VkFenceCreateInfo* pCreateInfo = %p, const VkAllocationCallbacks* pAllocator = %p, VkFence* pFence = %p)",
 		    device, pCreateInfo, pAllocator, pFence);
 
-	if(pCreateInfo->pNext)
+	auto* nextInfo = reinterpret_cast<const VkBaseInStructure*>(pCreateInfo->pNext);
+	while(nextInfo)
 	{
-		UNIMPLEMENTED("pCreateInfo->pNext");
+		WARN("pCreateInfo->pNext sType = %s", vk::Stringify(nextInfo->sType).c_str());
+		nextInfo = nextInfo->pNext;
 	}
 
 	return vk::Fence::Create(pAllocator, pCreateInfo, pFence);
@@ -864,9 +1082,9 @@ VKAPI_ATTR VkResult VKAPI_CALL vkCreateSemaphore(VkDevice device, const VkSemaph
 	TRACE("(VkDevice device = %p, const VkSemaphoreCreateInfo* pCreateInfo = %p, const VkAllocationCallbacks* pAllocator = %p, VkSemaphore* pSemaphore = %p)",
 	      device, pCreateInfo, pAllocator, pSemaphore);
 
-	if(pCreateInfo->pNext || pCreateInfo->flags)
+	if(pCreateInfo->flags)
 	{
-		UNIMPLEMENTED("pCreateInfo->pNext || pCreateInfo->flags");
+		UNIMPLEMENTED("pCreateInfo->flags");
 	}
 
 	return vk::Semaphore::Create(pAllocator, pCreateInfo, pSemaphore);
@@ -880,14 +1098,86 @@ VKAPI_ATTR void VKAPI_CALL vkDestroySemaphore(VkDevice device, VkSemaphore semap
 	vk::destroy(semaphore, pAllocator);
 }
 
+#if SWIFTSHADER_EXTERNAL_SEMAPHORE_OPAQUE_FD
+VKAPI_ATTR VkResult VKAPI_CALL vkGetSemaphoreFdKHR(VkDevice device, const VkSemaphoreGetFdInfoKHR* pGetFdInfo, int* pFd)
+{
+	TRACE("(VkDevice device = %p, const VkSemaphoreGetFdInfoKHR* pGetFdInfo = %p, int* pFd = %p)",
+	      device, static_cast<const void*>(pGetFdInfo), static_cast<void*>(pFd));
+
+	if (pGetFdInfo->handleType != VK_EXTERNAL_SEMAPHORE_HANDLE_TYPE_OPAQUE_FD_BIT)
+	{
+		UNIMPLEMENTED("pGetFdInfo->handleType");
+	}
+
+	return vk::Cast(pGetFdInfo->semaphore)->exportFd(pFd);
+}
+
+VKAPI_ATTR VkResult VKAPI_CALL vkImportSemaphoreFdKHR(VkDevice device, const VkImportSemaphoreFdInfoKHR* pImportSemaphoreInfo)
+{
+	TRACE("(VkDevice device = %p, const VkImportSemaphoreFdInfoKHR* pImportSemaphoreInfo = %p",
+	      device, static_cast<const void*>(pImportSemaphoreInfo));
+
+	if (pImportSemaphoreInfo->handleType != VK_EXTERNAL_SEMAPHORE_HANDLE_TYPE_OPAQUE_FD_BIT)
+	{
+		UNIMPLEMENTED("pImportSemaphoreInfo->handleType");
+	}
+	bool temporaryImport = (pImportSemaphoreInfo->flags & VK_SEMAPHORE_IMPORT_TEMPORARY_BIT) != 0;
+
+	return vk::Cast(pImportSemaphoreInfo->semaphore)->importFd(pImportSemaphoreInfo->fd, temporaryImport);
+}
+#endif  // SWIFTSHADER_EXTERNAL_SEMAPHORE_OPAQUE_FD
+
+#if VK_USE_PLATFORM_FUCHSIA
+VKAPI_ATTR VkResult VKAPI_CALL vkImportSemaphoreZirconHandleFUCHSIA(
+	VkDevice                                        device,
+	const VkImportSemaphoreZirconHandleInfoFUCHSIA* pImportSemaphoreZirconHandleInfo)
+{
+	TRACE("(VkDevice device = %p, const VkImportSemaphoreZirconHandleInfoFUCHSIA* pImportSemaphoreZirconHandleInfo = %p)",
+	      device, pImportSemaphoreZirconHandleInfo);
+
+	if (pImportSemaphoreZirconHandleInfo->handleType != VK_EXTERNAL_SEMAPHORE_HANDLE_TYPE_TEMP_ZIRCON_EVENT_BIT_FUCHSIA)
+	{
+		UNIMPLEMENTED("pImportSemaphoreZirconHandleInfo->handleType");
+	}
+	bool temporaryImport = (pImportSemaphoreZirconHandleInfo->flags & VK_SEMAPHORE_IMPORT_TEMPORARY_BIT) != 0;
+
+	return vk::Cast(pImportSemaphoreZirconHandleInfo->semaphore)->importHandle(
+			pImportSemaphoreZirconHandleInfo->handle,
+			temporaryImport);
+}
+
+VKAPI_ATTR VkResult VKAPI_CALL vkGetSemaphoreZirconHandleFUCHSIA(
+	VkDevice                                     device,
+	const VkSemaphoreGetZirconHandleInfoFUCHSIA* pGetZirconHandleInfo,
+	zx_handle_t*                                 pZirconHandle)
+{
+	TRACE("(VkDevice device = %p, const VkSemaphoreGetZirconHandleInfoFUCHSIA* pGetZirconHandleInfo = %p, zx_handle_t* pZirconHandle = %p)",
+	      device, static_cast<const void*>(pGetZirconHandleInfo), static_cast<void*>(pZirconHandle));
+
+	if (pGetZirconHandleInfo->handleType != VK_EXTERNAL_SEMAPHORE_HANDLE_TYPE_TEMP_ZIRCON_EVENT_BIT_FUCHSIA)
+	{
+		UNIMPLEMENTED("pGetZirconHandleInfo->handleType");
+	}
+
+	return vk::Cast(pGetZirconHandleInfo->semaphore)->exportHandle(pZirconHandle);
+}
+#endif  // VK_USE_PLATFORM_FUCHSIA
+
 VKAPI_ATTR VkResult VKAPI_CALL vkCreateEvent(VkDevice device, const VkEventCreateInfo* pCreateInfo, const VkAllocationCallbacks* pAllocator, VkEvent* pEvent)
 {
 	TRACE("(VkDevice device = %p, const VkEventCreateInfo* pCreateInfo = %p, const VkAllocationCallbacks* pAllocator = %p, VkEvent* pEvent = %p)",
 	      device, pCreateInfo, pAllocator, pEvent);
 
-	if(pCreateInfo->pNext || pCreateInfo->flags)
+	if(pCreateInfo->flags)
 	{
-		UNIMPLEMENTED("pCreateInfo->pNext || pCreateInfo->flags");
+		UNIMPLEMENTED("pCreateInfo->flags");
+	}
+
+	auto extInfo = reinterpret_cast<VkBaseInStructure const*>(pCreateInfo->pNext);
+	while(extInfo)
+	{
+		WARN("pCreateInfo->pNext sType = %s", vk::Stringify(extInfo->sType).c_str());
+		extInfo = extInfo->pNext;
 	}
 
 	return vk::Event::Create(pAllocator, pCreateInfo, pEvent);
@@ -931,9 +1221,16 @@ VKAPI_ATTR VkResult VKAPI_CALL vkCreateQueryPool(VkDevice device, const VkQueryP
 	TRACE("(VkDevice device = %p, const VkQueryPoolCreateInfo* pCreateInfo = %p, const VkAllocationCallbacks* pAllocator = %p, VkQueryPool* pQueryPool = %p)",
 	      device, pCreateInfo, pAllocator, pQueryPool);
 
-	if(pCreateInfo->pNext || pCreateInfo->flags)
+	if(pCreateInfo->flags)
 	{
-		UNIMPLEMENTED("pCreateInfo->pNext || pCreateInfo->flags");
+		UNIMPLEMENTED("pCreateInfo->flags");
+	}
+
+	auto extInfo = reinterpret_cast<VkBaseInStructure const*>(pCreateInfo->pNext);
+	while(extInfo)
+	{
+		WARN("pCreateInfo->pNext sType = %s", vk::Stringify(extInfo->sType).c_str());
+		extInfo = extInfo->pNext;
 	}
 
 	return vk::QueryPool::Create(pAllocator, pCreateInfo, pQueryPool);
@@ -960,9 +1257,19 @@ VKAPI_ATTR VkResult VKAPI_CALL vkCreateBuffer(VkDevice device, const VkBufferCre
 	TRACE("(VkDevice device = %p, const VkBufferCreateInfo* pCreateInfo = %p, const VkAllocationCallbacks* pAllocator = %p, VkBuffer* pBuffer = %p)",
 		    device, pCreateInfo, pAllocator, pBuffer);
 
-	if(pCreateInfo->pNext)
+	auto* nextInfo = reinterpret_cast<const VkBaseInStructure*>(pCreateInfo->pNext);
+	while (nextInfo)
 	{
-		UNIMPLEMENTED("pCreateInfo->pNext");
+		switch (nextInfo->sType)
+		{
+		case VK_STRUCTURE_TYPE_EXTERNAL_MEMORY_BUFFER_CREATE_INFO:
+			// Do nothing. Should be handled by vk::Buffer::Create().
+			break;
+		default:
+			WARN("pCreateInfo->pNext sType = %s", vk::Stringify(nextInfo->sType).c_str());
+			break;
+		}
+		nextInfo = nextInfo->pNext;
 	}
 
 	return vk::Buffer::Create(pAllocator, pCreateInfo, pBuffer);
@@ -981,9 +1288,16 @@ VKAPI_ATTR VkResult VKAPI_CALL vkCreateBufferView(VkDevice device, const VkBuffe
 	TRACE("(VkDevice device = %p, const VkBufferViewCreateInfo* pCreateInfo = %p, const VkAllocationCallbacks* pAllocator = %p, VkBufferView* pView = %p)",
 	        device, pCreateInfo, pAllocator, pView);
 
-	if(pCreateInfo->pNext || pCreateInfo->flags)
+	if(pCreateInfo->flags)
 	{
-		UNIMPLEMENTED("pCreateInfo->pNext || pCreateInfo->flags");
+		UNIMPLEMENTED("pCreateInfo->flags");
+	}
+
+	auto extInfo = reinterpret_cast<VkBaseInStructure const*>(pCreateInfo->pNext);
+	while(extInfo)
+	{
+		WARN("pCreateInfo->pNext sType = %s", vk::Stringify(extInfo->sType).c_str());
+		extInfo = extInfo->pNext;
 	}
 
 	return vk::BufferView::Create(pAllocator, pCreateInfo, pView);
@@ -997,17 +1311,6 @@ VKAPI_ATTR void VKAPI_CALL vkDestroyBufferView(VkDevice device, VkBufferView buf
 	vk::destroy(bufferView, pAllocator);
 }
 
-#ifdef __ANDROID__
-struct BackingMemory {
-	buffer_handle_t nativeHandle;
-	int stride;
-	vk::DeviceMemory* imageMemory;
-	VkSwapchainImageUsageFlagsANDROID androidUsage;
-};
-
-static std::map<VkImage, BackingMemory> androidSwapchainMap;
-#endif
-
 VKAPI_ATTR VkResult VKAPI_CALL vkCreateImage(VkDevice device, const VkImageCreateInfo* pCreateInfo, const VkAllocationCallbacks* pAllocator, VkImage* pImage)
 {
 	TRACE("(VkDevice device = %p, const VkImageCreateInfo* pCreateInfo = %p, const VkAllocationCallbacks* pAllocator = %p, VkImage* pImage = %p)",
@@ -1016,7 +1319,7 @@ VKAPI_ATTR VkResult VKAPI_CALL vkCreateImage(VkDevice device, const VkImageCreat
 	const VkBaseInStructure* extensionCreateInfo = reinterpret_cast<const VkBaseInStructure*>(pCreateInfo->pNext);
 
 #ifdef __ANDROID__
-	BackingMemory backmem;
+	vk::BackingMemory backmem;
 	bool swapchainImage = false;
 #endif
 
@@ -1040,9 +1343,15 @@ VKAPI_ATTR VkResult VKAPI_CALL vkCreateImage(VkDevice device, const VkImageCreat
 		}
 		break;
 #endif
+		case VK_STRUCTURE_TYPE_EXTERNAL_MEMORY_IMAGE_CREATE_INFO:
+			// Do nothing. Should be handled by vk::Image::Create()
+			break;
+		case VK_STRUCTURE_TYPE_IMAGE_SWAPCHAIN_CREATE_INFO_KHR:
+			/* Do nothing. We don't actually need the swapchain handle yet; we'll do all the work in vkBindImageMemory2. */
+			break;
 		default:
 			// "the [driver] must skip over, without processing (other than reading the sType and pNext members) any structures in the chain with sType values not defined by [supported extenions]"
-			UNIMPLEMENTED("extensionCreateInfo->sType");   // TODO(b/119321052): UNIMPLEMENTED() should be used only for features that must still be implemented. Use a more informational macro here.
+			WARN("pCreateInfo->pNext sType = %s", vk::Stringify(extensionCreateInfo->sType).c_str());
 			break;
 		}
 
@@ -1059,7 +1368,8 @@ VKAPI_ATTR VkResult VKAPI_CALL vkCreateImage(VkDevice device, const VkImageCreat
 			return result;
 		}
 
-		VkMemoryRequirements memRequirements = vk::Cast(*pImage)->getMemoryRequirements();
+		vk::Image* image = vk::Cast(*pImage);
+		VkMemoryRequirements memRequirements = image->getMemoryRequirements();
 
 		VkMemoryAllocateInfo allocInfo = {};
 		allocInfo.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
@@ -1067,16 +1377,16 @@ VKAPI_ATTR VkResult VKAPI_CALL vkCreateImage(VkDevice device, const VkImageCreat
 		allocInfo.memoryTypeIndex = 0;
 
 		VkDeviceMemory devmem = { VK_NULL_HANDLE };
-		result = vkAllocateMemory(device, &allocInfo, nullptr, &devmem);
+		result = vkAllocateMemory(device, &allocInfo, pAllocator, &devmem);
 		if(result != VK_SUCCESS)
 		{
 			return result;
 		}
 
-		backmem.imageMemory = vk::Cast(devmem);
 		vkBindImageMemory(device, *pImage, devmem, 0);
+		backmem.externalMemory = true;
 
-		androidSwapchainMap[*pImage] = backmem;
+		image->setBackingMemory(backmem);
 	}
 #endif
 
@@ -1088,17 +1398,15 @@ VKAPI_ATTR void VKAPI_CALL vkDestroyImage(VkDevice device, VkImage image, const 
 	TRACE("(VkDevice device = %p, VkImage image = %p, const VkAllocationCallbacks* pAllocator = %p)",
 		    device, static_cast<void*>(image), pAllocator);
 
-	vk::destroy(image, pAllocator);
-
 #ifdef __ANDROID__
-	auto it = androidSwapchainMap.find(image);
-
-	if (it != androidSwapchainMap.end())
+	vk::Image* img = vk::Cast(image);
+	if(img && img->hasExternalMemory())
 	{
-		vk::destroy(static_cast<VkDeviceMemory>(*((it->second).imageMemory)), nullptr);
-		androidSwapchainMap.erase(it);
+		vk::destroy(img->getExternalMemory(), pAllocator);
 	}
 #endif
+
+	vk::destroy(image, pAllocator);
 }
 
 VKAPI_ATTR void VKAPI_CALL vkGetImageSubresourceLayout(VkDevice device, VkImage image, const VkImageSubresource* pSubresource, VkSubresourceLayout* pLayout)
@@ -1147,7 +1455,7 @@ VKAPI_ATTR VkResult VKAPI_CALL vkCreateImageView(VkDevice device, const VkImageV
 		}
 		break;
 		default:
-			UNIMPLEMENTED("extensionCreateInfo->sType %d", int(extensionCreateInfo->sType));
+			WARN("pCreateInfo->pNext sType = %s", vk::Stringify(extensionCreateInfo->sType).c_str());
 			break;
 		}
 
@@ -1170,9 +1478,16 @@ VKAPI_ATTR VkResult VKAPI_CALL vkCreateShaderModule(VkDevice device, const VkSha
 	TRACE("(VkDevice device = %p, const VkShaderModuleCreateInfo* pCreateInfo = %p, const VkAllocationCallbacks* pAllocator = %p, VkShaderModule* pShaderModule = %p)",
 		    device, pCreateInfo, pAllocator, pShaderModule);
 
-	if(pCreateInfo->pNext || pCreateInfo->flags)
+	if(pCreateInfo->flags)
 	{
-		UNIMPLEMENTED("pCreateInfo->pNext || pCreateInfo->flags");
+		UNIMPLEMENTED("pCreateInfo->flags");
+	}
+
+	auto* nextInfo = reinterpret_cast<const VkBaseInStructure*>(pCreateInfo->pNext);
+	while(nextInfo)
+	{
+		WARN("pCreateInfo->pNext sType = %s", vk::Stringify(nextInfo->sType).c_str());
+		nextInfo = nextInfo->pNext;
 	}
 
 	return vk::ShaderModule::Create(pAllocator, pCreateInfo, pShaderModule);
@@ -1191,9 +1506,16 @@ VKAPI_ATTR VkResult VKAPI_CALL vkCreatePipelineCache(VkDevice device, const VkPi
 	TRACE("(VkDevice device = %p, const VkPipelineCacheCreateInfo* pCreateInfo = %p, const VkAllocationCallbacks* pAllocator = %p, VkPipelineCache* pPipelineCache = %p)",
 	        device, pCreateInfo, pAllocator, pPipelineCache);
 
-	if(pCreateInfo->pNext || pCreateInfo->flags)
+	if(pCreateInfo->flags)
 	{
-		UNIMPLEMENTED("pCreateInfo->pNext || pCreateInfo->flags");
+		UNIMPLEMENTED("pCreateInfo->flags");
+	}
+
+	auto extInfo = reinterpret_cast<VkBaseInStructure const*>(pCreateInfo->pNext);
+	while(extInfo)
+	{
+		WARN("pCreateInfo->pNext sType = %s", vk::Stringify(extInfo->sType).c_str());
+		extInfo = extInfo->pNext;
 	}
 
 	return vk::PipelineCache::Create(pAllocator, pCreateInfo, pPipelineCache);
@@ -1300,9 +1622,16 @@ VKAPI_ATTR VkResult VKAPI_CALL vkCreatePipelineLayout(VkDevice device, const VkP
 	TRACE("(VkDevice device = %p, const VkPipelineLayoutCreateInfo* pCreateInfo = %p, const VkAllocationCallbacks* pAllocator = %p, VkPipelineLayout* pPipelineLayout = %p)",
 		    device, pCreateInfo, pAllocator, pPipelineLayout);
 
-	if(pCreateInfo->pNext || pCreateInfo->flags)
+	if(pCreateInfo->flags)
 	{
-		UNIMPLEMENTED("pCreateInfo->pNext || pCreateInfo->flags");
+		UNIMPLEMENTED("pCreateInfo->flags");
+	}
+
+	auto* nextInfo = reinterpret_cast<const VkBaseInStructure*>(pCreateInfo->pNext);
+	while(nextInfo)
+	{
+		WARN("pCreateInfo->pNext sType = %s", vk::Stringify(nextInfo->sType).c_str());
+		nextInfo = nextInfo->pNext;
 	}
 
 	return vk::PipelineLayout::Create(pAllocator, pCreateInfo, pPipelineLayout);
@@ -1323,7 +1652,7 @@ VKAPI_ATTR VkResult VKAPI_CALL vkCreateSampler(VkDevice device, const VkSamplerC
 
 	if(pCreateInfo->flags)
 	{
-		UNIMPLEMENTED("pCreateInfo->pNext || pCreateInfo->flags");
+		UNIMPLEMENTED("pCreateInfo->flags");
 	}
 
 	const VkBaseInStructure* extensionCreateInfo = reinterpret_cast<const VkBaseInStructure*>(pCreateInfo->pNext);
@@ -1340,7 +1669,7 @@ VKAPI_ATTR VkResult VKAPI_CALL vkCreateSampler(VkDevice device, const VkSamplerC
 			}
 			break;
 		default:
-			UNIMPLEMENTED("extensionCreateInfo->sType %d", int(extensionCreateInfo->sType));
+			WARN("pCreateInfo->pNext sType = %s", vk::Stringify(extensionCreateInfo->sType).c_str());
 			break;
 		}
 
@@ -1373,7 +1702,7 @@ VKAPI_ATTR VkResult VKAPI_CALL vkCreateDescriptorSetLayout(VkDevice device, cons
 			ASSERT(!vk::Cast(device)->hasExtension(VK_EXT_DESCRIPTOR_INDEXING_EXTENSION_NAME));
 			break;
 		default:
-			UNIMPLEMENTED("extensionCreateInfo->sType %d", int(extensionCreateInfo->sType));
+			WARN("pCreateInfo->pNext sType = %s", vk::Stringify(extensionCreateInfo->sType).c_str());
 			break;
 		}
 
@@ -1396,9 +1725,11 @@ VKAPI_ATTR VkResult VKAPI_CALL vkCreateDescriptorPool(VkDevice device, const VkD
 	TRACE("(VkDevice device = %p, const VkDescriptorPoolCreateInfo* pCreateInfo = %p, const VkAllocationCallbacks* pAllocator = %p, VkDescriptorPool* pDescriptorPool = %p)",
 	      device, pCreateInfo, pAllocator, pDescriptorPool);
 
-	if(pCreateInfo->pNext)
+	auto extInfo = reinterpret_cast<VkBaseInStructure const*>(pCreateInfo->pNext);
+	while(extInfo)
 	{
-		UNIMPLEMENTED("pCreateInfo->pNext");
+		WARN("pCreateInfo->pNext sType = %s", vk::Stringify(extInfo->sType).c_str());
+		extInfo = extInfo->pNext;
 	}
 
 	return vk::DescriptorPool::Create(pAllocator, pCreateInfo, pDescriptorPool);
@@ -1430,9 +1761,11 @@ VKAPI_ATTR VkResult VKAPI_CALL vkAllocateDescriptorSets(VkDevice device, const V
 	TRACE("(VkDevice device = %p, const VkDescriptorSetAllocateInfo* pAllocateInfo = %p, VkDescriptorSet* pDescriptorSets = %p)",
 		device, pAllocateInfo, pDescriptorSets);
 
-	if(pAllocateInfo->pNext)
+	auto extInfo = reinterpret_cast<VkBaseInStructure const*>(pAllocateInfo->pNext);
+	while(extInfo)
 	{
-		UNIMPLEMENTED("pAllocateInfo->pNext");
+		WARN("pAllocateInfo->pNext sType = %s", vk::Stringify(extInfo->sType).c_str());
+		extInfo = extInfo->pNext;
 	}
 
 	return vk::Cast(pAllocateInfo->descriptorPool)->allocateSets(
@@ -1462,9 +1795,16 @@ VKAPI_ATTR VkResult VKAPI_CALL vkCreateFramebuffer(VkDevice device, const VkFram
 	TRACE("(VkDevice device = %p, const VkFramebufferCreateInfo* pCreateInfo = %p, const VkAllocationCallbacks* pAllocator = %p, VkFramebuffer* pFramebuffer = %p)",
 		    device, pCreateInfo, pAllocator, pFramebuffer);
 
-	if(pCreateInfo->pNext || pCreateInfo->flags)
+	if(pCreateInfo->flags)
 	{
-		UNIMPLEMENTED("pCreateInfo->pNext || pCreateInfo->flags");
+		UNIMPLEMENTED("pCreateInfo->flags");
+	}
+
+	auto* nextInfo = reinterpret_cast<const VkBaseInStructure*>(pCreateInfo->pNext);
+	while(nextInfo)
+	{
+		WARN("pCreateInfo->pNext sType = %s", vk::Stringify(nextInfo->sType).c_str());
+		nextInfo = nextInfo->pNext;
 	}
 
 	return vk::Framebuffer::Create(pAllocator, pCreateInfo, pFramebuffer);
@@ -1563,7 +1903,7 @@ VKAPI_ATTR VkResult VKAPI_CALL vkCreateRenderPass(VkDevice device, const VkRende
 		}
 		break;
 		default:
-			UNIMPLEMENTED("extensionCreateInfo->sType %d", int(extensionCreateInfo->sType));
+			WARN("pCreateInfo->pNext sType = %s", vk::Stringify(extensionCreateInfo->sType).c_str());
 			break;
 		}
 
@@ -1594,9 +1934,11 @@ VKAPI_ATTR VkResult VKAPI_CALL vkCreateCommandPool(VkDevice device, const VkComm
 	TRACE("(VkDevice device = %p, const VkCommandPoolCreateInfo* pCreateInfo = %p, const VkAllocationCallbacks* pAllocator = %p, VkCommandPool* pCommandPool = %p)",
 		    device, pCreateInfo, pAllocator, pCommandPool);
 
-	if(pCreateInfo->pNext)
+	auto* nextInfo = reinterpret_cast<const VkBaseInStructure*>(pCreateInfo->pNext);
+	while(nextInfo)
 	{
-		UNIMPLEMENTED("pCreateInfo->pNext");
+		WARN("pCreateInfo->pNext sType = %s", vk::Stringify(nextInfo->sType).c_str());
+		nextInfo = nextInfo->pNext;
 	}
 
 	return vk::CommandPool::Create(pAllocator, pCreateInfo, pCommandPool);
@@ -1623,9 +1965,11 @@ VKAPI_ATTR VkResult VKAPI_CALL vkAllocateCommandBuffers(VkDevice device, const V
 	TRACE("(VkDevice device = %p, const VkCommandBufferAllocateInfo* pAllocateInfo = %p, VkCommandBuffer* pCommandBuffers = %p)",
 		    device, pAllocateInfo, pCommandBuffers);
 
-	if(pAllocateInfo->pNext)
+	auto* nextInfo = reinterpret_cast<const VkBaseInStructure*>(pAllocateInfo->pNext);
+	while(nextInfo)
 	{
-		UNIMPLEMENTED("pAllocateInfo->pNext");
+		WARN("pAllocateInfo->pNext sType = %s", vk::Stringify(nextInfo->sType).c_str());
+		nextInfo = nextInfo->pNext;
 	}
 
 	return vk::Cast(pAllocateInfo->commandPool)->allocateCommandBuffers(
@@ -1645,9 +1989,11 @@ VKAPI_ATTR VkResult VKAPI_CALL vkBeginCommandBuffer(VkCommandBuffer commandBuffe
 	TRACE("(VkCommandBuffer commandBuffer = %p, const VkCommandBufferBeginInfo* pBeginInfo = %p)",
 		    commandBuffer, pBeginInfo);
 
-	if(pBeginInfo->pNext)
+	auto* nextInfo = reinterpret_cast<const VkBaseInStructure*>(pBeginInfo->pNext);
+	while(nextInfo)
 	{
-		UNIMPLEMENTED("pBeginInfo->pNext");
+		WARN("pBeginInfo->pNext sType = %s", vk::Stringify(nextInfo->sType).c_str());
+		nextInfo = nextInfo->pNext;
 	}
 
 	return vk::Cast(commandBuffer)->begin(pBeginInfo->flags, pBeginInfo->pInheritanceInfo);
@@ -2006,7 +2352,7 @@ VKAPI_ATTR void VKAPI_CALL vkCmdBeginRenderPass(VkCommandBuffer commandBuffer, c
 			// SwiftShader only has a single physical device, so this extension does nothing in this case.
 			break;
 		default:
-			UNIMPLEMENTED("renderPassBeginInfo->sType");
+			WARN("pRenderPassBegin->pNext sType = %s", vk::Stringify(renderPassBeginInfo->sType).c_str());
 			break;
 		}
 
@@ -2055,11 +2401,22 @@ VKAPI_ATTR VkResult VKAPI_CALL vkBindBufferMemory2(VkDevice device, uint32_t bin
 
 	for(uint32_t i = 0; i < bindInfoCount; i++)
 	{
-		if(pBindInfos[i].pNext)
+		auto extInfo = reinterpret_cast<VkBaseInStructure const*>(pBindInfos[i].pNext);
+		while(extInfo)
 		{
-			UNIMPLEMENTED("pBindInfos[%d].pNext", i);
+			WARN("pBindInfos[%d].pNext sType = %s", i, vk::Stringify(extInfo->sType).c_str());
+			extInfo = extInfo->pNext;
 		}
 
+		if (!vk::Cast(pBindInfos[i].buffer)->canBindToMemory(vk::Cast(pBindInfos[i].memory)))
+		{
+			UNSUPPORTED("vkBindBufferMemory2 with invalid external memory");
+			return VK_ERROR_INVALID_EXTERNAL_HANDLE;
+		}
+	}
+
+	for (uint32_t i = 0; i < bindInfoCount; i++)
+	{
 		vk::Cast(pBindInfos[i].buffer)->bind(vk::Cast(pBindInfos[i].memory), pBindInfos[i].memoryOffset);
 	}
 
@@ -2073,12 +2430,45 @@ VKAPI_ATTR VkResult VKAPI_CALL vkBindImageMemory2(VkDevice device, uint32_t bind
 
 	for(uint32_t i = 0; i < bindInfoCount; i++)
 	{
-		if(pBindInfos[i].pNext)
+		if (!vk::Cast(pBindInfos[i].image)->canBindToMemory(vk::Cast(pBindInfos[i].memory)))
 		{
-			UNIMPLEMENTED("pBindInfos[%d].pNext", i);
+			UNSUPPORTED("vkBindImageMemory2 with invalid external memory");
+			return VK_ERROR_OUT_OF_DEVICE_MEMORY;
+		}
+	}
+
+	for(uint32_t i = 0; i < bindInfoCount; i++)
+	{
+		vk::DeviceMemory *memory = vk::Cast(pBindInfos[i].memory);
+		VkDeviceSize offset = pBindInfos[i].memoryOffset;
+
+		auto extInfo = reinterpret_cast<VkBaseInStructure const *>(pBindInfos[i].pNext);
+		while (extInfo)
+		{
+			switch (extInfo->sType)
+			{
+			case VK_STRUCTURE_TYPE_BIND_IMAGE_MEMORY_DEVICE_GROUP_INFO:
+				/* Do nothing */
+				break;
+
+#ifndef __ANDROID__
+			case VK_STRUCTURE_TYPE_BIND_IMAGE_MEMORY_SWAPCHAIN_INFO_KHR:
+				{
+					auto swapchainInfo = reinterpret_cast<VkBindImageMemorySwapchainInfoKHR const *>(extInfo);
+					memory = vk::Cast(swapchainInfo->swapchain)->getImage(swapchainInfo->imageIndex).getImageMemory();
+					offset = 0;
+				}
+				break;
+#endif
+
+			default:
+				WARN("pBindInfos[%d].pNext sType = %s", i, vk::Stringify(extInfo->sType).c_str());
+				break;
+			}
+			extInfo = extInfo->pNext;
 		}
 
-		vk::Cast(pBindInfos[i].image)->bind(vk::Cast(pBindInfos[i].memory), pBindInfos[i].memoryOffset);
+		vk::Cast(pBindInfos[i].image)->bind(memory, offset);
 	}
 
 	return VK_SUCCESS;
@@ -2121,9 +2511,11 @@ VKAPI_ATTR void VKAPI_CALL vkGetImageMemoryRequirements2(VkDevice device, const 
 	TRACE("(VkDevice device = %p, const VkImageMemoryRequirementsInfo2* pInfo = %p, VkMemoryRequirements2* pMemoryRequirements = %p)",
 	      device, pInfo, pMemoryRequirements);
 
-	if(pInfo->pNext)
+	auto extInfo = reinterpret_cast<VkBaseInStructure const*>(pInfo->pNext);
+	while(extInfo)
 	{
-		UNIMPLEMENTED("pInfo->pNext");
+		WARN("pInfo->pNext sType = %s", vk::Stringify(extInfo->sType).c_str());
+		extInfo = extInfo->pNext;
 	}
 
 	VkBaseOutStructure* extensionRequirements = reinterpret_cast<VkBaseOutStructure*>(pMemoryRequirements->pNext);
@@ -2133,13 +2525,12 @@ VKAPI_ATTR void VKAPI_CALL vkGetImageMemoryRequirements2(VkDevice device, const 
 		{
 		case VK_STRUCTURE_TYPE_MEMORY_DEDICATED_REQUIREMENTS:
 		{
-			auto& requirements = *reinterpret_cast<VkMemoryDedicatedRequirements*>(extensionRequirements);
-			requirements.prefersDedicatedAllocation = VK_FALSE;
-			requirements.requiresDedicatedAllocation = VK_FALSE;
+			auto requirements = reinterpret_cast<VkMemoryDedicatedRequirements*>(extensionRequirements);
+			vk::Cast(device)->getRequirements(requirements);
 		}
 		break;
 		default:
-			UNIMPLEMENTED("extensionRequirements->sType");
+			WARN("pMemoryRequirements->pNext sType = %s", vk::Stringify(extensionRequirements->sType).c_str());
 			break;
 		}
 
@@ -2154,9 +2545,11 @@ VKAPI_ATTR void VKAPI_CALL vkGetBufferMemoryRequirements2(VkDevice device, const
 	TRACE("(VkDevice device = %p, const VkBufferMemoryRequirementsInfo2* pInfo = %p, VkMemoryRequirements2* pMemoryRequirements = %p)",
 	      device, pInfo, pMemoryRequirements);
 
-	if(pInfo->pNext)
+	auto extInfo = reinterpret_cast<VkBaseInStructure const*>(pInfo->pNext);
+	while(extInfo)
 	{
-		UNIMPLEMENTED("pInfo->pNext");
+		WARN("pInfo->pNext sType = %s", vk::Stringify(extInfo->sType).c_str());
+		extInfo = extInfo->pNext;
 	}
 
 	VkBaseOutStructure* extensionRequirements = reinterpret_cast<VkBaseOutStructure*>(pMemoryRequirements->pNext);
@@ -2166,13 +2559,12 @@ VKAPI_ATTR void VKAPI_CALL vkGetBufferMemoryRequirements2(VkDevice device, const
 		{
 		case VK_STRUCTURE_TYPE_MEMORY_DEDICATED_REQUIREMENTS:
 			{
-				auto& requirements = *reinterpret_cast<VkMemoryDedicatedRequirements*>(extensionRequirements);
-				requirements.prefersDedicatedAllocation = VK_FALSE;
-				requirements.requiresDedicatedAllocation = VK_FALSE;
+				auto requirements = reinterpret_cast<VkMemoryDedicatedRequirements*>(extensionRequirements);
+				vk::Cast(device)->getRequirements(requirements);
 			}
 			break;
 		default:
-			UNIMPLEMENTED("extensionRequirements->sType");
+			WARN("pMemoryRequirements->pNext sType = %s", vk::Stringify(extensionRequirements->sType).c_str());
 			break;
 		}
 
@@ -2187,12 +2579,23 @@ VKAPI_ATTR void VKAPI_CALL vkGetImageSparseMemoryRequirements2(VkDevice device, 
 	TRACE("(VkDevice device = %p, const VkImageSparseMemoryRequirementsInfo2* pInfo = %p, uint32_t* pSparseMemoryRequirementCount = %p, VkSparseImageMemoryRequirements2* pSparseMemoryRequirements = %p)",
 	      device, pInfo, pSparseMemoryRequirementCount, pSparseMemoryRequirements);
 
-	if(pInfo->pNext || pSparseMemoryRequirements->pNext)
+	auto extInfo = reinterpret_cast<VkBaseInStructure const*>(pInfo->pNext);
+	while(extInfo)
 	{
-		UNIMPLEMENTED("pInfo->pNext || pSparseMemoryRequirements->pNext");
+		WARN("pInfo->pNext sType = %s", vk::Stringify(extInfo->sType).c_str());
+		extInfo = extInfo->pNext;
 	}
 
-	vkGetImageSparseMemoryRequirements(device, pInfo->image, pSparseMemoryRequirementCount, &(pSparseMemoryRequirements->memoryRequirements));
+	auto extensionRequirements = reinterpret_cast<VkBaseInStructure const*>(pSparseMemoryRequirements->pNext);
+	while(extensionRequirements)
+	{
+		WARN("pSparseMemoryRequirements->pNext sType = %s", vk::Stringify(extensionRequirements->sType).c_str());
+		extensionRequirements = extensionRequirements->pNext;
+	}
+
+	// The 'sparseBinding' feature is not supported, so images can not be created with the VK_IMAGE_CREATE_SPARSE_RESIDENCY_BIT flag.
+	// "If the image was not created with VK_IMAGE_CREATE_SPARSE_RESIDENCY_BIT then pSparseMemoryRequirementCount will be set to zero and pSparseMemoryRequirements will not be written to."
+	*pSparseMemoryRequirementCount = 0;
 }
 
 VKAPI_ATTR void VKAPI_CALL vkGetPhysicalDeviceFeatures2(VkPhysicalDevice physicalDevice, VkPhysicalDeviceFeatures2* pFeatures)
@@ -2202,48 +2605,60 @@ VKAPI_ATTR void VKAPI_CALL vkGetPhysicalDeviceFeatures2(VkPhysicalDevice physica
 	VkBaseOutStructure* extensionFeatures = reinterpret_cast<VkBaseOutStructure*>(pFeatures->pNext);
 	while(extensionFeatures)
 	{
-		switch(extensionFeatures->sType)
+		switch((long)(extensionFeatures->sType))
 		{
 		case VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SAMPLER_YCBCR_CONVERSION_FEATURES:
 			{
-				auto& features = *reinterpret_cast<VkPhysicalDeviceSamplerYcbcrConversionFeatures*>(extensionFeatures);
-				vk::Cast(physicalDevice)->getFeatures(&features);
+				auto features = reinterpret_cast<VkPhysicalDeviceSamplerYcbcrConversionFeatures*>(extensionFeatures);
+				vk::Cast(physicalDevice)->getFeatures(features);
 			}
 			break;
 		case VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_16BIT_STORAGE_FEATURES:
 			{
-				auto& features = *reinterpret_cast<VkPhysicalDevice16BitStorageFeatures*>(extensionFeatures);
-				vk::Cast(physicalDevice)->getFeatures(&features);
+				auto features = reinterpret_cast<VkPhysicalDevice16BitStorageFeatures*>(extensionFeatures);
+				vk::Cast(physicalDevice)->getFeatures(features);
 			}
 			break;
 		case VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VARIABLE_POINTER_FEATURES:
 			{
-				auto& features = *reinterpret_cast<VkPhysicalDeviceVariablePointerFeatures*>(extensionFeatures);
-				vk::Cast(physicalDevice)->getFeatures(&features);
+				auto features = reinterpret_cast<VkPhysicalDeviceVariablePointerFeatures*>(extensionFeatures);
+				vk::Cast(physicalDevice)->getFeatures(features);
 			}
 			break;
 		case VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_8BIT_STORAGE_FEATURES_KHR:
 			{
-				auto& features = *reinterpret_cast<VkPhysicalDevice8BitStorageFeaturesKHR*>(extensionFeatures);
-				vk::Cast(physicalDevice)->getFeatures(&features);
+				auto features = reinterpret_cast<VkPhysicalDevice8BitStorageFeaturesKHR*>(extensionFeatures);
+				vk::Cast(physicalDevice)->getFeatures(features);
 			}
 			break;
 		case VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MULTIVIEW_FEATURES:
 			{
-				auto& features = *reinterpret_cast<VkPhysicalDeviceMultiviewFeatures*>(extensionFeatures);
-				vk::Cast(physicalDevice)->getFeatures(&features);
+				auto features = reinterpret_cast<VkPhysicalDeviceMultiviewFeatures*>(extensionFeatures);
+				vk::Cast(physicalDevice)->getFeatures(features);
 			}
 			break;
 		case VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROTECTED_MEMORY_FEATURES:
 			{
-				auto& features = *reinterpret_cast<VkPhysicalDeviceProtectedMemoryFeatures*>(extensionFeatures);
-				vk::Cast(physicalDevice)->getFeatures(&features);
+				auto features = reinterpret_cast<VkPhysicalDeviceProtectedMemoryFeatures*>(extensionFeatures);
+				vk::Cast(physicalDevice)->getFeatures(features);
 			}
 			break;
 		case VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_DRAW_PARAMETER_FEATURES:
 			{
-				auto& features = *reinterpret_cast<VkPhysicalDeviceShaderDrawParameterFeatures*>(extensionFeatures);
-				vk::Cast(physicalDevice)->getFeatures(&features);
+				auto features = reinterpret_cast<VkPhysicalDeviceShaderDrawParameterFeatures*>(extensionFeatures);
+				vk::Cast(physicalDevice)->getFeatures(features);
+			}
+			break;
+		case VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_LINE_RASTERIZATION_FEATURES_EXT:
+			{
+				auto features = reinterpret_cast<VkPhysicalDeviceLineRasterizationFeaturesEXT*>(extensionFeatures);
+				vk::Cast(physicalDevice)->getFeatures(features);
+			}
+			break;
+		case VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROVOKING_VERTEX_FEATURES_EXT:
+			{
+				auto features = reinterpret_cast<VkPhysicalDeviceProvokingVertexFeaturesEXT*>(extensionFeatures);
+				vk::Cast(physicalDevice)->getFeatures(features);
 			}
 			break;
 		case VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_CONDITIONAL_RENDERING_FEATURES_EXT:
@@ -2254,9 +2669,16 @@ VKAPI_ATTR void VKAPI_CALL vkGetPhysicalDeviceFeatures2(VkPhysicalDevice physica
 			ASSERT(!HasExtensionProperty(VK_EXT_SCALAR_BLOCK_LAYOUT_EXTENSION_NAME, deviceExtensionProperties,
 										 sizeof(deviceExtensionProperties) / sizeof(deviceExtensionProperties[0])));
 			break;
+		case VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_TIMELINE_SEMAPHORE_FEATURES_KHR:
+			ASSERT(!HasExtensionProperty(VK_KHR_TIMELINE_SEMAPHORE_EXTENSION_NAME, deviceExtensionProperties,
+										 sizeof(deviceExtensionProperties) / sizeof(deviceExtensionProperties[0])));
+			break;
+		case VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PERFORMANCE_QUERY_FEATURES_KHR:
+			ASSERT(!HasExtensionProperty(VK_KHR_PERFORMANCE_QUERY_EXTENSION_NAME, deviceExtensionProperties,
+										 sizeof(deviceExtensionProperties) / sizeof(deviceExtensionProperties[0])));
+			break;
 		default:
-			// "the [driver] must skip over, without processing (other than reading the sType and pNext members) any structures in the chain with sType values not defined by [supported extenions]"
-			UNIMPLEMENTED("extensionFeatures->sType");   // TODO(b/119321052): UNIMPLEMENTED() should be used only for features that must still be implemented. Use a more informational macro here.
+			WARN("pFeatures->pNext sType = %s", vk::Stringify(extensionFeatures->sType).c_str());
 			break;
 		}
 
@@ -2273,44 +2695,46 @@ VKAPI_ATTR void VKAPI_CALL vkGetPhysicalDeviceProperties2(VkPhysicalDevice physi
 	VkBaseOutStructure* extensionProperties = reinterpret_cast<VkBaseOutStructure*>(pProperties->pNext);
 	while(extensionProperties)
 	{
-		// Casting to a long since some structures, such as VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PRESENTATION_PROPERTIES_ANDROID
+		// Casting to a long since some structures, such as
+		// VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PRESENTATION_PROPERTIES_ANDROID and
+		// VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROVOKING_VERTEX_PROPERTIES_EXT
 		// are not enumerated in the official Vulkan header
 		switch((long)(extensionProperties->sType))
 		{
 		case VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ID_PROPERTIES:
 			{
-				auto& properties = *reinterpret_cast<VkPhysicalDeviceIDProperties*>(extensionProperties);
-				vk::Cast(physicalDevice)->getProperties(&properties);
+				auto properties = reinterpret_cast<VkPhysicalDeviceIDProperties*>(extensionProperties);
+				vk::Cast(physicalDevice)->getProperties(properties);
 			}
 			break;
 		case VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MAINTENANCE_3_PROPERTIES:
 			{
-				auto& properties = *reinterpret_cast<VkPhysicalDeviceMaintenance3Properties*>(extensionProperties);
-				vk::Cast(physicalDevice)->getProperties(&properties);
+				auto properties = reinterpret_cast<VkPhysicalDeviceMaintenance3Properties*>(extensionProperties);
+				vk::Cast(physicalDevice)->getProperties(properties);
 			}
 			break;
 		case VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MULTIVIEW_PROPERTIES:
 			{
-				auto& properties = *reinterpret_cast<VkPhysicalDeviceMultiviewProperties*>(extensionProperties);
-				vk::Cast(physicalDevice)->getProperties(&properties);
+				auto properties = reinterpret_cast<VkPhysicalDeviceMultiviewProperties*>(extensionProperties);
+				vk::Cast(physicalDevice)->getProperties(properties);
 			}
 			break;
 		case VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_POINT_CLIPPING_PROPERTIES:
 			{
-				auto& properties = *reinterpret_cast<VkPhysicalDevicePointClippingProperties*>(extensionProperties);
-				vk::Cast(physicalDevice)->getProperties(&properties);
+				auto properties = reinterpret_cast<VkPhysicalDevicePointClippingProperties*>(extensionProperties);
+				vk::Cast(physicalDevice)->getProperties(properties);
 			}
 			break;
 		case VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROTECTED_MEMORY_PROPERTIES:
 			{
-				auto& properties = *reinterpret_cast<VkPhysicalDeviceProtectedMemoryProperties*>(extensionProperties);
-				vk::Cast(physicalDevice)->getProperties(&properties);
+				auto properties = reinterpret_cast<VkPhysicalDeviceProtectedMemoryProperties*>(extensionProperties);
+				vk::Cast(physicalDevice)->getProperties(properties);
 			}
 			break;
 		case VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SUBGROUP_PROPERTIES:
 			{
-				auto& properties = *reinterpret_cast<VkPhysicalDeviceSubgroupProperties*>(extensionProperties);
-				vk::Cast(physicalDevice)->getProperties(&properties);
+				auto properties = reinterpret_cast<VkPhysicalDeviceSubgroupProperties*>(extensionProperties);
+				vk::Cast(physicalDevice)->getProperties(properties);
 			}
 			break;
 		case VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SAMPLE_LOCATIONS_PROPERTIES_EXT:
@@ -2322,17 +2746,35 @@ VKAPI_ATTR void VKAPI_CALL vkGetPhysicalDeviceProperties2(VkPhysicalDevice physi
 			ASSERT(!HasExtensionProperty(VK_EXT_EXTERNAL_MEMORY_HOST_EXTENSION_NAME, deviceExtensionProperties,
 			                             sizeof(deviceExtensionProperties) / sizeof(deviceExtensionProperties[0])));
 			break;
+		case VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DRIVER_PROPERTIES_KHR:
+			{
+				auto properties = reinterpret_cast<VkPhysicalDeviceDriverPropertiesKHR*>(extensionProperties);
+				vk::Cast(physicalDevice)->getProperties(properties);
+			}
+			break;
 #ifdef __ANDROID__
 		case VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PRESENTATION_PROPERTIES_ANDROID:
 			{
-				auto& properties = *reinterpret_cast<VkPhysicalDevicePresentationPropertiesANDROID*>(extensionProperties);
-				vk::Cast(physicalDevice)->getProperties(&properties);
+				auto properties = reinterpret_cast<VkPhysicalDevicePresentationPropertiesANDROID*>(extensionProperties);
+				vk::Cast(physicalDevice)->getProperties(properties);
 			}
 			break;
 #endif
+		case VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_LINE_RASTERIZATION_PROPERTIES_EXT:
+			{
+				auto properties = reinterpret_cast<VkPhysicalDeviceLineRasterizationPropertiesEXT*>(extensionProperties);
+				vk::Cast(physicalDevice)->getProperties(properties);
+			}
+			break;
+		case VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROVOKING_VERTEX_PROPERTIES_EXT:
+			{
+				auto properties = reinterpret_cast<VkPhysicalDeviceProvokingVertexPropertiesEXT*>(extensionProperties);
+				vk::Cast(physicalDevice)->getProperties(properties);
+			}
+			break;
 		default:
 			// "the [driver] must skip over, without processing (other than reading the sType and pNext members) any structures in the chain with sType values not defined by [supported extenions]"
-			UNIMPLEMENTED("extensionProperties->sType");   // TODO(b/119321052): UNIMPLEMENTED() should be used only for features that must still be implemented. Use a more informational macro here.
+			WARN("pProperties->pNext sType = %s", vk::Stringify(extensionProperties->sType).c_str());
 			break;
 		}
 
@@ -2347,9 +2789,11 @@ VKAPI_ATTR void VKAPI_CALL vkGetPhysicalDeviceFormatProperties2(VkPhysicalDevice
 	TRACE("(VkPhysicalDevice physicalDevice = %p, VkFormat format = %d, VkFormatProperties2* pFormatProperties = %p)",
 		    physicalDevice, format, pFormatProperties);
 
-	if(pFormatProperties->pNext)
+	auto extInfo = reinterpret_cast<VkBaseInStructure const*>(pFormatProperties->pNext);
+	while(extInfo)
 	{
-		UNIMPLEMENTED("pFormatProperties->pNext");
+		WARN("pFormatProperties->pNext sType = %s", vk::Stringify(extInfo->sType).c_str());
+		extInfo = extInfo->pNext;
 	}
 
 	vkGetPhysicalDeviceFormatProperties(physicalDevice, format, &(pFormatProperties->formatProperties));
@@ -2395,7 +2839,7 @@ VKAPI_ATTR VkResult VKAPI_CALL vkGetPhysicalDeviceImageFormatProperties2(VkPhysi
 		}
 		break;
 		default:
-			UNIMPLEMENTED("extensionFormatInfo->sType");
+			WARN("pImageFormatInfo->pNext sType = %s", vk::Stringify(extensionFormatInfo->sType).c_str());
 			break;
 		}
 
@@ -2410,14 +2854,14 @@ VKAPI_ATTR VkResult VKAPI_CALL vkGetPhysicalDeviceImageFormatProperties2(VkPhysi
 		{
 		case VK_STRUCTURE_TYPE_EXTERNAL_IMAGE_FORMAT_PROPERTIES:
 		{
-			auto& properties = *reinterpret_cast<VkExternalImageFormatProperties*>(extensionProperties);
-			vk::Cast(physicalDevice)->getProperties(handleType, &properties);
+			auto properties = reinterpret_cast<VkExternalImageFormatProperties*>(extensionProperties);
+			vk::Cast(physicalDevice)->getProperties(handleType, properties);
 		}
 		break;
 		case VK_STRUCTURE_TYPE_SAMPLER_YCBCR_CONVERSION_IMAGE_FORMAT_PROPERTIES:
 		{
-			auto& properties = *reinterpret_cast<VkSamplerYcbcrConversionImageFormatProperties*>(extensionProperties);
-			vk::Cast(physicalDevice)->getProperties(&properties);
+			auto properties = reinterpret_cast<VkSamplerYcbcrConversionImageFormatProperties*>(extensionProperties);
+			vk::Cast(physicalDevice)->getProperties(properties);
 		}
 		break;
 		case VK_STRUCTURE_TYPE_TEXTURE_LOD_GATHER_FORMAT_PROPERTIES_AMD:
@@ -2428,7 +2872,7 @@ VKAPI_ATTR VkResult VKAPI_CALL vkGetPhysicalDeviceImageFormatProperties2(VkPhysi
 		}
 		break;
 		default:
-			UNIMPLEMENTED("extensionProperties->sType");
+			WARN("pImageFormatProperties->pNext sType = %s", vk::Stringify(extensionProperties->sType).c_str());
 			break;
 		}
 
@@ -2449,22 +2893,35 @@ VKAPI_ATTR void VKAPI_CALL vkGetPhysicalDeviceQueueFamilyProperties2(VkPhysicalD
 	TRACE("(VkPhysicalDevice physicalDevice = %p, uint32_t* pQueueFamilyPropertyCount = %p, VkQueueFamilyProperties2* pQueueFamilyProperties = %p)",
 		physicalDevice, pQueueFamilyPropertyCount, pQueueFamilyProperties);
 
-	if(pQueueFamilyProperties && pQueueFamilyProperties->pNext)
+	if(pQueueFamilyProperties)
 	{
-		UNIMPLEMENTED("pQueueFamilyProperties->pNext");
+		auto extInfo = reinterpret_cast<VkBaseInStructure const*>(pQueueFamilyProperties->pNext);
+		while(extInfo)
+		{
+			WARN("pQueueFamilyProperties->pNext sType = %s", vk::Stringify(extInfo->sType).c_str());
+			extInfo = extInfo->pNext;
+		}
 	}
 
-	vkGetPhysicalDeviceQueueFamilyProperties(physicalDevice, pQueueFamilyPropertyCount,
-		pQueueFamilyProperties ? &(pQueueFamilyProperties->queueFamilyProperties) : nullptr);
+	if(!pQueueFamilyProperties)
+	{
+		*pQueueFamilyPropertyCount = vk::Cast(physicalDevice)->getQueueFamilyPropertyCount();
+	}
+	else
+	{
+		vk::Cast(physicalDevice)->getQueueFamilyProperties(*pQueueFamilyPropertyCount, pQueueFamilyProperties);
+	}
 }
 
 VKAPI_ATTR void VKAPI_CALL vkGetPhysicalDeviceMemoryProperties2(VkPhysicalDevice physicalDevice, VkPhysicalDeviceMemoryProperties2* pMemoryProperties)
 {
 	TRACE("(VkPhysicalDevice physicalDevice = %p, VkPhysicalDeviceMemoryProperties2* pMemoryProperties = %p)", physicalDevice, pMemoryProperties);
 
-	if(pMemoryProperties->pNext)
+	auto extInfo = reinterpret_cast<VkBaseInStructure const*>(pMemoryProperties->pNext);
+	while(extInfo)
 	{
-		UNIMPLEMENTED("pMemoryProperties->pNext");
+		WARN("pMemoryProperties->pNext sType = %s", vk::Stringify(extInfo->sType).c_str());
+		extInfo = extInfo->pNext;
 	}
 
 	vkGetPhysicalDeviceMemoryProperties(physicalDevice, &(pMemoryProperties->memoryProperties));
@@ -2475,14 +2932,18 @@ VKAPI_ATTR void VKAPI_CALL vkGetPhysicalDeviceSparseImageFormatProperties2(VkPhy
 	TRACE("(VkPhysicalDevice physicalDevice = %p, const VkPhysicalDeviceSparseImageFormatInfo2* pFormatInfo = %p, uint32_t* pPropertyCount = %p, VkSparseImageFormatProperties2* pProperties = %p)",
 	     physicalDevice, pFormatInfo, pPropertyCount, pProperties);
 
-	if(pProperties && pProperties->pNext)
+	if(pProperties)
 	{
-		UNIMPLEMENTED("pProperties->pNext");
+		auto extInfo = reinterpret_cast<VkBaseInStructure const*>(pProperties->pNext);
+		while(extInfo)
+		{
+			WARN("pProperties->pNext sType = %s", vk::Stringify(extInfo->sType).c_str());
+			extInfo = extInfo->pNext;
+		}
 	}
 
-	vkGetPhysicalDeviceSparseImageFormatProperties(physicalDevice, pFormatInfo->format, pFormatInfo->type,
-	                                               pFormatInfo->samples, pFormatInfo->usage, pFormatInfo->tiling,
-	                                               pPropertyCount, pProperties ? &(pProperties->properties) : nullptr);
+	// We do not support sparse images.
+	*pPropertyCount = 0;
 }
 
 VKAPI_ATTR void VKAPI_CALL vkTrimCommandPool(VkDevice device, VkCommandPool commandPool, VkCommandPoolTrimFlags flags)
@@ -2498,9 +2959,11 @@ VKAPI_ATTR void VKAPI_CALL vkGetDeviceQueue2(VkDevice device, const VkDeviceQueu
 	TRACE("(VkDevice device = %p, const VkDeviceQueueInfo2* pQueueInfo = %p, VkQueue* pQueue = %p)",
 	      device, pQueueInfo, pQueue);
 
-	if(pQueueInfo->pNext)
+	auto extInfo = reinterpret_cast<VkBaseInStructure const*>(pQueueInfo->pNext);
+	while(extInfo)
 	{
-		UNIMPLEMENTED("pQueueInfo->pNext");
+		WARN("pQueueInfo->pNext sType = %s", vk::Stringify(extInfo->sType).c_str());
+		extInfo = extInfo->pNext;
 	}
 
 	// The only flag that can be set here is VK_DEVICE_QUEUE_CREATE_PROTECTED_BIT
@@ -2523,9 +2986,11 @@ VKAPI_ATTR VkResult VKAPI_CALL vkCreateSamplerYcbcrConversion(VkDevice device, c
 	TRACE("(VkDevice device = %p, const VkSamplerYcbcrConversionCreateInfo* pCreateInfo = %p, const VkAllocationCallbacks* pAllocator = %p, VkSamplerYcbcrConversion* pYcbcrConversion = %p)",
 		    device, pCreateInfo, pAllocator, pYcbcrConversion);
 
-	if(pCreateInfo->pNext)
+	auto extInfo = reinterpret_cast<VkBaseInStructure const*>(pCreateInfo->pNext);
+	while(extInfo)
 	{
-		UNIMPLEMENTED("pCreateInfo->pNext");
+		WARN("pCreateInfo->pNext sType = %s", vk::Stringify(extInfo->sType).c_str());
+		extInfo = extInfo->pNext;
 	}
 
 	return vk::SamplerYcbcrConversion::Create(pAllocator, pCreateInfo, pYcbcrConversion);
@@ -2544,9 +3009,16 @@ VKAPI_ATTR VkResult VKAPI_CALL vkCreateDescriptorUpdateTemplate(VkDevice device,
 	TRACE("(VkDevice device = %p, const VkDescriptorUpdateTemplateCreateInfo* pCreateInfo = %p, const VkAllocationCallbacks* pAllocator = %p, VkDescriptorUpdateTemplate* pDescriptorUpdateTemplate = %p)",
 	      device, pCreateInfo, pAllocator, pDescriptorUpdateTemplate);
 
-	if(pCreateInfo->pNext || pCreateInfo->flags || (pCreateInfo->templateType != VK_DESCRIPTOR_UPDATE_TEMPLATE_TYPE_DESCRIPTOR_SET))
+	if(pCreateInfo->flags || (pCreateInfo->templateType != VK_DESCRIPTOR_UPDATE_TEMPLATE_TYPE_DESCRIPTOR_SET))
 	{
-		UNIMPLEMENTED("pCreateInfo->pNext || pCreateInfo->flags || (pCreateInfo->templateType != VK_DESCRIPTOR_UPDATE_TEMPLATE_TYPE_DESCRIPTOR_SET)");
+		UNIMPLEMENTED("pCreateInfo->flags || (pCreateInfo->templateType != VK_DESCRIPTOR_UPDATE_TEMPLATE_TYPE_DESCRIPTOR_SET)");
+	}
+
+	auto extInfo = reinterpret_cast<VkBaseInStructure const*>(pCreateInfo->pNext);
+	while(extInfo)
+	{
+		WARN("pCreateInfo->pNext sType = %s", vk::Stringify(extInfo->sType).c_str());
+		extInfo = extInfo->pNext;
 	}
 
 	return vk::DescriptorUpdateTemplate::Create(pAllocator, pCreateInfo, pDescriptorUpdateTemplate);
@@ -2600,6 +3072,32 @@ VKAPI_ATTR void VKAPI_CALL vkGetDescriptorSetLayoutSupport(VkDevice device, cons
 	vk::Cast(device)->getDescriptorSetLayoutSupport(pCreateInfo, pSupport);
 }
 
+VKAPI_ATTR void VKAPI_CALL vkCmdSetLineStippleEXT(VkCommandBuffer commandBuffer, uint32_t lineStippleFactor, uint16_t lineStipplePattern)
+{
+	TRACE("(VkCommandBuffer commandBuffer = %p, uint32_t lineStippleFactor = %u, uint16_t lineStipplePattern = %u",
+			commandBuffer, lineStippleFactor, lineStipplePattern);
+
+	UNIMPLEMENTED("Line stipple not supported");
+}
+
+#ifdef VK_USE_PLATFORM_XCB_KHR
+VKAPI_ATTR VkResult VKAPI_CALL vkCreateXcbSurfaceKHR(VkInstance instance, const VkXcbSurfaceCreateInfoKHR* pCreateInfo, const VkAllocationCallbacks* pAllocator, VkSurfaceKHR* pSurface)
+{
+	TRACE("(VkInstance instance = %p, VkXcbSurfaceCreateInfoKHR* pCreateInfo = %p, VkAllocationCallbacks* pAllocator = %p, VkSurface* pSurface = %p)",
+			instance, pCreateInfo, pAllocator, pSurface);
+
+	return vk::XcbSurfaceKHR::Create(pAllocator, pCreateInfo, pSurface);
+}
+
+VKAPI_ATTR VkBool32 VKAPI_CALL vkGetPhysicalDeviceXcbPresentationSupportKHR(VkPhysicalDevice physicalDevice, uint32_t queueFamilyIndex, xcb_connection_t* connection, xcb_visualid_t visual_id)
+{
+	TRACE("(VkPhysicalDevice physicalDevice = %p, uint32_t queueFamilyIndex = %d, xcb_connection_t* connection = %p, xcb_visualid_t visual_id = %d)",
+		physicalDevice, int(queueFamilyIndex), connection, int(visual_id));
+
+	return VK_TRUE;
+}
+#endif
+
 #ifdef VK_USE_PLATFORM_XLIB_KHR
 VKAPI_ATTR VkResult VKAPI_CALL vkCreateXlibSurfaceKHR(VkInstance instance, const VkXlibSurfaceCreateInfoKHR* pCreateInfo, const VkAllocationCallbacks* pAllocator, VkSurfaceKHR* pSurface)
 {
@@ -2625,6 +3123,33 @@ VKAPI_ATTR VkResult VKAPI_CALL vkCreateMacOSSurfaceMVK(VkInstance instance, cons
           instance, pCreateInfo, pAllocator, pSurface);
 
     return vk::MacOSSurfaceMVK::Create(pAllocator, pCreateInfo, pSurface);
+}
+#endif
+
+#ifdef VK_USE_PLATFORM_METAL_EXT
+VKAPI_ATTR VkResult VKAPI_CALL vkCreateMetalSurfaceEXT(VkInstance instance, const VkMetalSurfaceCreateInfoEXT* pCreateInfo, const VkAllocationCallbacks* pAllocator, VkSurfaceKHR* pSurface)
+{
+    TRACE("(VkInstance instance = %p, VkMetalSurfaceCreateInfoEXT* pCreateInfo = %p, VkAllocationCallbacks* pAllocator = %p, VkSurface* pSurface = %p)",
+          instance, pCreateInfo, pAllocator, pSurface);
+
+    return vk::MetalSurfaceEXT::Create(pAllocator, pCreateInfo, pSurface);
+}
+#endif
+
+#ifdef VK_USE_PLATFORM_WIN32_KHR
+VKAPI_ATTR VkResult VKAPI_CALL vkCreateWin32SurfaceKHR(VkInstance instance, const VkWin32SurfaceCreateInfoKHR* pCreateInfo, const VkAllocationCallbacks* pAllocator, VkSurfaceKHR* pSurface)
+{
+	TRACE("(VkInstance instance = %p, VkWin32SurfaceCreateInfoKHR* pCreateInfo = %p, VkAllocationCallbacks* pAllocator = %p, VkSurface* pSurface = %p)",
+			instance, pCreateInfo, pAllocator, pSurface);
+
+	return vk::Win32SurfaceKHR::Create(pAllocator, pCreateInfo, pSurface);
+}
+
+VKAPI_ATTR VkBool32 VKAPI_CALL vkGetPhysicalDeviceWin32PresentationSupportKHR(VkPhysicalDevice physicalDevice, uint32_t queueFamilyIndex)
+{
+	TRACE("(VkPhysicalDevice physicalDevice = %p, uint32_t queueFamilyIndex = %d)",
+		physicalDevice, queueFamilyIndex);
+	return VK_TRUE;
 }
 #endif
 
@@ -2754,9 +3279,15 @@ VKAPI_ATTR VkResult VKAPI_CALL vkQueuePresentKHR(VkQueue queue, const VkPresentI
 	TRACE("(VkQueue queue = %p, const VkPresentInfoKHR* pPresentInfo = %p)",
 			queue, pPresentInfo);
 
-	vk::Cast(queue)->present(pPresentInfo);
+	return vk::Cast(queue)->present(pPresentInfo);
+}
 
-	return VK_SUCCESS;
+VKAPI_ATTR VkResult VKAPI_CALL vkAcquireNextImage2KHR(VkDevice device, const VkAcquireNextImageInfoKHR *pAcquireInfo, uint32_t *pImageIndex)
+{
+	TRACE("(VkDevice device = %p, const VkAcquireNextImageInfoKHR *pAcquireInfo = %p, uint32_t *pImageIndex = %p",
+			device, pAcquireInfo, pImageIndex);
+
+	return vk::Cast(pAcquireInfo->swapchain)->getNextImage(pAcquireInfo->timeout, vk::Cast(pAcquireInfo->semaphore), vk::Cast(pAcquireInfo->fence), pImageIndex);
 }
 
 VKAPI_ATTR VkResult VKAPI_CALL vkGetDeviceGroupPresentCapabilitiesKHR(VkDevice device, VkDeviceGroupPresentCapabilitiesKHR *pDeviceGroupPresentCapabilities)
@@ -2784,6 +3315,15 @@ VKAPI_ATTR VkResult VKAPI_CALL vkGetDeviceGroupSurfacePresentModesKHR(VkDevice d
 	*pModes = VK_DEVICE_GROUP_PRESENT_MODE_LOCAL_BIT_KHR;
 	return VK_SUCCESS;
 }
+
+VKAPI_ATTR VkResult VKAPI_CALL vkGetPhysicalDevicePresentRectanglesKHR(VkPhysicalDevice physicalDevice, VkSurfaceKHR surface, uint32_t* pRectCount, VkRect2D* pRects)
+{
+	TRACE("(VkPhysicalDevice physicalDevice = %p, VkSurfaceKHR surface = %p, uint32_t* pRectCount = %p, VkRect2D* pRects = %p)",
+			physicalDevice, static_cast<void*>(surface), pRectCount, pRects);
+
+	return vk::Cast(surface)->getPresentRectangles(pRectCount, pRects);
+}
+
 
 #endif    // ! __ANDROID__
 
@@ -2844,29 +3384,9 @@ VKAPI_ATTR VkResult VKAPI_CALL vkQueueSignalReleaseImageANDROID(VkQueue queue, u
 	// to get rid of it. b/132458423
 	vkQueueWaitIdle(queue);
 
-	GrallocModule* grallocMod = GrallocModule::getInstance();
-	void* nativeBuffer;
+	*pNativeFenceFd = -1;
 
-	auto it = androidSwapchainMap.find(image);
-
-	if (it == androidSwapchainMap.end())
-		ABORT("ANDROID: Swapchain image not found");
-
-	BackingMemory backmem = it->second;
-
-	VkExtent3D extent = vk::Cast(image)->getMipLevelExtent(VK_IMAGE_ASPECT_COLOR_BIT, 0);
-	grallocMod->lock(backmem.nativeHandle, GRALLOC_USAGE_SW_WRITE_OFTEN, 0, 0, extent.width, extent.height, &nativeBuffer);
-
-	char* buffer = static_cast<char*>(backmem.imageMemory->getOffsetPointer(0));
-	int imageRowBytes = vk::Cast(image)->rowPitchBytes(VK_IMAGE_ASPECT_COLOR_BIT, 0);
-	int colorBytes = vk::Cast(image)->getFormat().bytes();
-
-	for(int i = 0; i < extent.height; i++)
-	{
-		memcpy((void*)((char*)nativeBuffer + (i * backmem.stride * colorBytes)), buffer + (i * imageRowBytes), imageRowBytes);
-	}
-
-	return VK_SUCCESS;
+	return vk::Cast(image)->prepareForExternalUseANDROID();
 }
 #endif // __ANDROID__
 

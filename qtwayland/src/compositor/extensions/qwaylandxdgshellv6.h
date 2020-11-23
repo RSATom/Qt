@@ -49,6 +49,8 @@ struct wl_resource;
 
 QT_BEGIN_NAMESPACE
 
+#if QT_DEPRECATED_SINCE(5, 15)
+
 class QWaylandClient;
 class QWaylandOutput;
 class QWaylandSeat;
@@ -215,8 +217,8 @@ class Q_WAYLAND_COMPOSITOR_EXPORT QWaylandXdgPopupV6 : public QObject
 {
     Q_OBJECT
     Q_DECLARE_PRIVATE(QWaylandXdgPopupV6)
-    Q_PROPERTY(QWaylandXdgSurfaceV6 *xdgSurface READ xdgSurface)
-    Q_PROPERTY(QWaylandXdgSurfaceV6 *parentXdgSurface READ parentXdgSurface)
+    Q_PROPERTY(QWaylandXdgSurfaceV6 *xdgSurface READ xdgSurface CONSTANT)
+    Q_PROPERTY(QWaylandXdgSurfaceV6 *parentXdgSurface READ parentXdgSurface CONSTANT)
     Q_PROPERTY(QRect configuredGeometry READ configuredGeometry NOTIFY configuredGeometryChanged)
 
     // Positioner properties
@@ -258,6 +260,8 @@ private:
                        QWaylandXdgPositionerV6 *positioner, QWaylandResource &resource);
     friend class QWaylandXdgSurfaceV6Private;
 };
+
+#endif // QT_DEPRECATED_SINCE(5, 15)
 
 QT_END_NAMESPACE
 

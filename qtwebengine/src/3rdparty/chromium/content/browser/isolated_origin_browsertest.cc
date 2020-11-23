@@ -11,6 +11,7 @@
 #include "base/strings/string_util.h"
 #include "base/test/scoped_feature_list.h"
 #include "build/build_config.h"
+#include "components/network_session_configurator/common/network_switches.h"
 #include "content/browser/bad_message.h"
 #include "content/browser/child_process_security_policy_impl.h"
 #include "content/browser/renderer_host/render_process_host_impl.h"
@@ -31,7 +32,8 @@
 #include "content/public/test/test_utils.h"
 #include "content/shell/browser/shell.h"
 #include "content/test/content_browser_test_utils_internal.h"
-#include "mojo/public/cpp/bindings/strong_binding.h"
+#include "mojo/public/cpp/bindings/pending_receiver.h"
+#include "mojo/public/cpp/bindings/receiver_set.h"
 #include "net/dns/mock_host_resolver.h"
 #include "net/test/embedded_test_server/embedded_test_server.h"
 #include "services/network/public/cpp/features.h"
@@ -858,9 +860,9 @@ IN_PROC_BROWSER_TEST_F(IsolatedOriginTest,
   new_shell->web_contents()->GetController().LoadURL(
       isolated_url, Referrer(), ui::PAGE_TRANSITION_LINK, std::string());
 
-  // Wait for response from the isolated origin.  After this returns,
-  // PlzNavigate has made the final pick for the process to use for this
-  // navigation as part of NavigationRequest::OnResponseStarted.
+  // Wait for the response from the isolated origin. After this returns, we made
+  // the final pick for the process to use for this navigation as part of
+  // NavigationRequest::OnResponseStarted.
   EXPECT_TRUE(isolated_delayer.WaitForResponse());
 
   // Now, proceed with the response and commit the non-isolated URL.  This
@@ -996,10 +998,9 @@ IN_PROC_BROWSER_TEST_F(IsolatedOriginTest,
   shell()->web_contents()->GetController().LoadURL(
       slow_url, Referrer(), ui::PAGE_TRANSITION_LINK, std::string());
 
-  // Wait for response for foo.com.  After this returns,
-  // PlzNavigate should have made the final pick for the process to use for
-  // foo.com, so this should mark the process as "used" and ineligible for
-  // reuse by isolated.foo.com below.
+  // Wait for the response for foo.com.  After this returns, we should have made
+  // the final pick for the process to use for foo.com, so this should mark the
+  // process as "used" and ineligible for reuse by isolated.foo.com below.
   EXPECT_TRUE(foo_delayer.WaitForResponse());
 
   // Open a new, unrelated tab, navigate it to isolated.foo.com, and wait for
@@ -1125,7 +1126,7 @@ IN_PROC_BROWSER_TEST_F(
 
   // Cancel the hung request and commit a real navigation to an isolated
   // origin. This should now end up in the ServiceWorker's process.
-  web_contents()->GetFrameTree()->root()->ResetNavigationRequest(false, false);
+  web_contents()->GetFrameTree()->root()->ResetNavigationRequest(false);
   GURL isolated_url(
       embedded_test_server()->GetURL("isolated.foo.com", "/title1.html"));
   EXPECT_TRUE(NavigateToURL(shell(), isolated_url));
@@ -1174,21 +1175,21 @@ class StoragePartitonInterceptor
  public:
   StoragePartitonInterceptor(
       RenderProcessHostImpl* rph,
-      blink::mojom::StoragePartitionServiceRequest request,
+      mojo::PendingReceiver<blink::mojom::StoragePartitionService> receiver,
       const url::Origin& origin_to_inject)
       : origin_to_inject_(origin_to_inject) {
     StoragePartitionImpl* storage_partition =
         static_cast<StoragePartitionImpl*>(rph->GetStoragePartition());
 
     // Bind the real StoragePartitionService implementation.
-    mojo::BindingId binding_id =
-        storage_partition->Bind(rph->GetID(), std::move(request));
+    mojo::ReceiverId receiver_id =
+        storage_partition->Bind(rph->GetID(), std::move(receiver));
 
     // Now replace it with this object and keep a pointer to the real
     // implementation.
     storage_partition_service_ =
-        storage_partition->bindings_for_testing().SwapImplForTesting(binding_id,
-                                                                     this);
+        storage_partition->receivers_for_testing().SwapImplForTesting(
+            receiver_id, this);
 
     // Register the |this| as a RenderProcessHostObserver, so it can be
     // correctly cleaned up when the process exits.
@@ -1212,10 +1213,11 @@ class StoragePartitonInterceptor
   // Override this method to allow changing the origin. It simulates a
   // renderer process sending incorrect data to the browser process, so
   // security checks can be tested.
-  void OpenLocalStorage(const url::Origin& origin,
-                        blink::mojom::StorageAreaRequest request) override {
+  void OpenLocalStorage(
+      const url::Origin& origin,
+      mojo::PendingReceiver<blink::mojom::StorageArea> receiver) override {
     GetForwardingInterface()->OpenLocalStorage(origin_to_inject_,
-                                               std::move(request));
+                                               std::move(receiver));
   }
 
  private:
@@ -1231,16 +1233,14 @@ class StoragePartitonInterceptor
 void CreateTestStoragePartitionService(
     const url::Origin& origin_to_inject,
     RenderProcessHostImpl* rph,
-    blink::mojom::StoragePartitionServiceRequest request) {
+    mojo::PendingReceiver<blink::mojom::StoragePartitionService> receiver) {
   // This object will register as RenderProcessHostObserver, so it will
   // clean itself automatically on process exit.
-  new StoragePartitonInterceptor(rph, std::move(request), origin_to_inject);
+  new StoragePartitonInterceptor(rph, std::move(receiver), origin_to_inject);
 }
 
 // Verify that an isolated renderer process cannot read localStorage of an
 // origin outside of its isolated site.
-// TODO(nasko): Write a test to verify the opposite - any non-isolated renderer
-// process cannot access data of an isolated site.
 IN_PROC_BROWSER_TEST_F(
     IsolatedOriginTest,
     LocalStorageOriginEnforcement_IsolatedAccessingNonIsolated) {
@@ -1253,7 +1253,47 @@ IN_PROC_BROWSER_TEST_F(
   GURL isolated_url(
       embedded_test_server()->GetURL("isolated.foo.com", "/title1.html"));
   EXPECT_TRUE(IsIsolatedOrigin(url::Origin::Create(isolated_url)));
+
   EXPECT_TRUE(NavigateToURL(shell(), isolated_url));
+
+  content::RenderProcessHostKillWaiter kill_waiter(
+      shell()->web_contents()->GetMainFrame()->GetProcess());
+  // Use ignore_result here, since on Android the renderer process is
+  // terminated, but ExecuteScript still returns true. It properly returns
+  // false on all other platforms.
+  ignore_result(ExecuteScript(shell()->web_contents()->GetMainFrame(),
+                              "localStorage.length;"));
+  EXPECT_EQ(bad_message::RPH_MOJO_PROCESS_ERROR, kill_waiter.Wait());
+}
+
+#if defined(OS_ANDROID)
+#define MAYBE_LocalStorageOriginEnforcement_NonIsolatedAccessingIsolated \
+  LocalStorageOriginEnforcement_NonIsolatedAccessingIsolated
+#else
+// TODO(lukasza): https://crbug.com/566091: Once remote NTP is capable of
+// embedding OOPIFs, start enforcing citadel-style checks on desktop
+// platforms.
+#define MAYBE_LocalStorageOriginEnforcement_NonIsolatedAccessingIsolated \
+  DISABLED_LocalStorageOriginEnforcement_NonIsolatedAccessingIsolated
+#endif
+// Verify that a non-isolated renderer process cannot read localStorage of an
+// isolated origin.
+//
+// TODO(alexmos, lukasza): https://crbug.com/764958: Replicate this test for
+// the IO-thread case.
+IN_PROC_BROWSER_TEST_F(
+    IsolatedOriginTest,
+    MAYBE_LocalStorageOriginEnforcement_NonIsolatedAccessingIsolated) {
+  auto isolated_origin = url::Origin::Create(GURL("http://isolated.foo.com"));
+  EXPECT_TRUE(IsIsolatedOrigin(isolated_origin));
+
+  GURL nonisolated_url(
+      embedded_test_server()->GetURL("non-isolated.com", "/title1.html"));
+  EXPECT_FALSE(IsIsolatedOrigin(url::Origin::Create(nonisolated_url)));
+
+  RenderProcessHostImpl::SetStoragePartitionServiceRequestHandlerForTesting(
+      base::BindRepeating(&CreateTestStoragePartitionService, isolated_origin));
+  EXPECT_TRUE(NavigateToURL(shell(), nonisolated_url));
 
   content::RenderProcessHostKillWaiter kill_waiter(
       shell()->web_contents()->GetMainFrame()->GetProcess());
@@ -1575,17 +1615,7 @@ IN_PROC_BROWSER_TEST_F(IsolatedOriginTest, AIsolatedCA) {
   }
 }
 
-class IsolatedOriginTestWithMojoBlobURLs : public IsolatedOriginTest {
- public:
-  IsolatedOriginTestWithMojoBlobURLs() {
-    scoped_feature_list_.InitAndEnableFeature(blink::features::kMojoBlobURLs);
-  }
-
- private:
-  base::test::ScopedFeatureList scoped_feature_list_;
-};
-
-IN_PROC_BROWSER_TEST_F(IsolatedOriginTestWithMojoBlobURLs, NavigateToBlobURL) {
+IN_PROC_BROWSER_TEST_F(IsolatedOriginTest, NavigateToBlobURL) {
   GURL top_url(
       embedded_test_server()->GetURL("www.foo.com", "/page_with_iframe.html"));
   EXPECT_TRUE(NavigateToURL(shell(), top_url));
@@ -1761,12 +1791,15 @@ IN_PROC_BROWSER_TEST_F(IsolatedOriginNoFlagOverrideTest,
 // are configured at startup (isolated.foo.com and isolated.bar.com).
 class DynamicIsolatedOriginTest : public IsolatedOriginTest {
  public:
-  DynamicIsolatedOriginTest() {}
+  DynamicIsolatedOriginTest()
+      : https_server_(net::EmbeddedTestServer::TYPE_HTTPS) {}
   ~DynamicIsolatedOriginTest() override {}
 
   void SetUpCommandLine(base::CommandLine* command_line) override {
     IsolatedOriginTest::SetUpCommandLine(command_line);
     command_line->AppendSwitch(switches::kDisableSiteIsolation);
+    // This is necessary to use https with arbitrary hostnames.
+    command_line->AppendSwitch(switches::kIgnoreCertificateErrors);
 
     if (AreAllSitesIsolatedForTesting()) {
       LOG(WARNING) << "This test should be run without strict site isolation. "
@@ -1774,7 +1807,18 @@ class DynamicIsolatedOriginTest : public IsolatedOriginTest {
     }
   }
 
+  void SetUpOnMainThread() override {
+    https_server()->AddDefaultHandlers(GetTestDataFilePath());
+    ASSERT_TRUE(https_server()->Start());
+    IsolatedOriginTest::SetUpOnMainThread();
+  }
+
+  // Need an https server because third-party cookies are used, and
+  // SameSite=None cookies must be Secure.
+  net::EmbeddedTestServer* https_server() { return &https_server_; }
+
  private:
+  net::EmbeddedTestServer https_server_;
   DISALLOW_COPY_AND_ASSIGN(DynamicIsolatedOriginTest);
 };
 
@@ -2096,15 +2140,14 @@ IN_PROC_BROWSER_TEST_F(DynamicIsolatedOriginTest,
   RenderProcessHost::SetMaxRendererProcessCount(1);
 
   // Start on a non-isolated origin with same-site iframe.
-  GURL foo_url(
-      embedded_test_server()->GetURL("foo.com", "/page_with_iframe.html"));
+  GURL foo_url(https_server()->GetURL("foo.com", "/page_with_iframe.html"));
   EXPECT_TRUE(NavigateToURL(shell(), foo_url));
 
   FrameTreeNode* root = web_contents()->GetFrameTree()->root();
   FrameTreeNode* child = root->child_at(0);
 
   // Navigate iframe cross-site.
-  GURL bar_url(embedded_test_server()->GetURL("bar.com", "/title1.html"));
+  GURL bar_url(https_server()->GetURL("bar.com", "/title1.html"));
   NavigateIframeToURL(web_contents(), "test_iframe", bar_url);
   EXPECT_EQ(child->current_url(), bar_url);
 
@@ -2156,7 +2199,8 @@ IN_PROC_BROWSER_TEST_F(DynamicIsolatedOriginTest,
 
   // Make sure the bar.com iframe in the old foo.com process can still access
   // bar.com cookies.
-  EXPECT_TRUE(ExecuteScript(child, "document.cookie = 'foo=bar';"));
+  EXPECT_TRUE(ExecuteScript(
+      child, "document.cookie = 'foo=bar;SameSite=None;Secure';"));
   EXPECT_EQ("foo=bar", EvalJs(child, "document.cookie"));
 }
 
@@ -2464,23 +2508,23 @@ class BroadcastChannelProviderInterceptor
  public:
   BroadcastChannelProviderInterceptor(
       RenderProcessHostImpl* rph,
-      blink::mojom::BroadcastChannelProviderRequest request,
+      mojo::PendingReceiver<blink::mojom::BroadcastChannelProvider> receiver,
       const url::Origin& origin_to_inject)
       : origin_to_inject_(origin_to_inject) {
     StoragePartitionImpl* storage_partition =
         static_cast<StoragePartitionImpl*>(rph->GetStoragePartition());
 
     // Bind the real BroadcastChannelProvider implementation.
-    mojo::BindingId binding_id =
+    mojo::ReceiverId receiver_id =
         storage_partition->GetBroadcastChannelProvider()->Connect(
-            rph->GetID(), std::move(request));
+            rph->GetID(), std::move(receiver));
 
     // Now replace it with this object and keep a pointer to the real
     // implementation.
     original_broadcast_channel_provider_ =
         storage_partition->GetBroadcastChannelProvider()
-            ->bindings_for_testing()
-            .SwapImplForTesting(binding_id, this);
+            ->receivers_for_testing()
+            .SwapImplForTesting(receiver_id, this);
 
     // Register the |this| as a RenderProcessHostObserver, so it can be
     // correctly cleaned up when the process exits.
@@ -2507,9 +2551,10 @@ class BroadcastChannelProviderInterceptor
   void ConnectToChannel(
       const url::Origin& origin,
       const std::string& name,
-      blink::mojom::BroadcastChannelClientAssociatedPtrInfo client,
-      blink::mojom::BroadcastChannelClientAssociatedRequest connection)
-      override {
+      mojo::PendingAssociatedRemote<blink::mojom::BroadcastChannelClient>
+          client,
+      mojo::PendingAssociatedReceiver<blink::mojom::BroadcastChannelClient>
+          connection) override {
     GetForwardingInterface()->ConnectToChannel(
         origin_to_inject_, name, std::move(client), std::move(connection));
   }
@@ -2527,10 +2572,10 @@ class BroadcastChannelProviderInterceptor
 void CreateTestBroadcastChannelProvider(
     const url::Origin& origin_to_inject,
     RenderProcessHostImpl* rph,
-    blink::mojom::BroadcastChannelProviderRequest request) {
+    mojo::PendingReceiver<blink::mojom::BroadcastChannelProvider> receiver) {
   // This object will register as RenderProcessHostObserver, so it will
   // clean itself automatically on process exit.
-  new BroadcastChannelProviderInterceptor(rph, std::move(request),
+  new BroadcastChannelProviderInterceptor(rph, std::move(receiver),
                                           origin_to_inject);
 }
 
@@ -2539,7 +2584,7 @@ void CreateTestBroadcastChannelProvider(
 IN_PROC_BROWSER_TEST_F(IsolatedOriginTest, BroadcastChannelOriginEnforcement) {
   auto mismatched_origin = url::Origin::Create(GURL("http://abc.foo.com"));
   EXPECT_FALSE(IsIsolatedOrigin(mismatched_origin));
-  RenderProcessHostImpl::SetBroadcastChannelProviderRequestHandlerForTesting(
+  RenderProcessHostImpl::SetBroadcastChannelProviderReceiverHandlerForTesting(
       base::BindRepeating(&CreateTestBroadcastChannelProvider,
                           mismatched_origin));
 

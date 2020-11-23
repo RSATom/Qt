@@ -64,10 +64,6 @@ TEST_P(PaintPropertyTreeUpdateTest,
 
 TEST_P(PaintPropertyTreeUpdateTest,
        BackgroundAttachmentFixedMainThreadScrollReasonsWithNestedScrollers) {
-  // This test needs the |FastMobileScrolling| feature to be disabled
-  // although it is stable on Android.
-  ScopedFastMobileScrollingForTest fast_mobile_scrolling(false);
-
   SetBodyInnerHTML(R"HTML(
     <style>
       #overflowA {
@@ -151,10 +147,6 @@ TEST_P(PaintPropertyTreeUpdateTest,
 }
 
 TEST_P(PaintPropertyTreeUpdateTest, ParentFrameMainThreadScrollReasons) {
-  // This test needs the |FastMobileScrolling| feature to be disabled
-  // although it is stable on Android.
-  ScopedFastMobileScrollingForTest fast_mobile_scrolling(false);
-
   SetBodyInnerHTML(R"HTML(
     <style>
       body { margin: 0; }
@@ -191,10 +183,6 @@ TEST_P(PaintPropertyTreeUpdateTest, ParentFrameMainThreadScrollReasons) {
 }
 
 TEST_P(PaintPropertyTreeUpdateTest, ChildFrameMainThreadScrollReasons) {
-  // This test needs the |FastMobileScrolling| feature to be disabled
-  // although it is stable on Android.
-  ScopedFastMobileScrollingForTest fast_mobile_scrolling(false);
-
   SetBodyInnerHTML(R"HTML(
     <style>body { margin: 0; }</style>
     <iframe></iframe>
@@ -234,10 +222,6 @@ TEST_P(PaintPropertyTreeUpdateTest, ChildFrameMainThreadScrollReasons) {
 
 TEST_P(PaintPropertyTreeUpdateTest,
        BackgroundAttachmentFixedMainThreadScrollReasonsWithFixedScroller) {
-  // This test needs the |FastMobileScrolling| feature to be disabled
-  // although it is stable on Android.
-  ScopedFastMobileScrollingForTest fast_mobile_scrolling(false);
-
   SetBodyInnerHTML(R"HTML(
     <style>
       #overflowA {
@@ -413,7 +397,7 @@ TEST_P(PaintPropertyTreeUpdateTest, BuildingStopsAtThrottledFrames) {
   )HTML");
 
   // Move the child frame offscreen so it becomes available for throttling.
-  auto* iframe = ToHTMLIFrameElement(GetDocument().getElementById("iframe"));
+  auto* iframe = To<HTMLIFrameElement>(GetDocument().getElementById("iframe"));
   iframe->setAttribute(html_names::kStyleAttr, "transform: translateY(5555px)");
   UpdateAllLifecyclePhasesForTest();
   // Ensure intersection observer notifications get delivered.
@@ -848,8 +832,9 @@ TEST_P(PaintPropertyTreeUpdateTest, ViewportAddRemoveDeviceEmulationNode) {
   EXPECT_FALSE(visual_viewport.LayerForHorizontalScrollbar());
   EXPECT_FALSE(visual_viewport.LayerForVerticalScrollbar());
   ASSERT_TRUE(GetLayoutView().GetScrollableArea());
-  auto* scrollbar_layer =
-      GetLayoutView().GetScrollableArea()->LayerForHorizontalScrollbar();
+  auto* scrollbar_layer = GetLayoutView()
+                              .GetScrollableArea()
+                              ->GraphicsLayerForHorizontalScrollbar();
   if (!RuntimeEnabledFeatures::CompositeAfterPaintEnabled()) {
     ASSERT_TRUE(scrollbar_layer);
     EXPECT_EQ(&TransformPaintPropertyNode::Root(),
@@ -945,7 +930,7 @@ TEST_P(PaintPropertyTreeUpdateTest, MenuListControlClipChange) {
   EXPECT_NE(nullptr, select->FirstFragment().PaintProperties()->OverflowClip());
 
   // Should not assert in FindPropertiesNeedingUpdate.
-  ToHTMLSelectElement(select->GetNode())->setSelectedIndex(1);
+  To<HTMLSelectElement>(select->GetNode())->setSelectedIndex(1);
   UpdateAllLifecyclePhasesForTest();
   EXPECT_NE(nullptr, select->FirstFragment().PaintProperties()->OverflowClip());
 }
@@ -1358,9 +1343,11 @@ TEST_P(PaintPropertyTreeUpdateTest, EnsureSnapContainerData) {
   SetBodyInnerHTML(R"HTML(
     <!DOCTYPE html>
     <style>
+    html {
+      scroll-snap-type: both proximity;
+    }
     body {
       overflow: scroll;
-      scroll-snap-type: both proximity;
       height: 300px;
       width: 300px;
       margin: 0px;
@@ -1380,7 +1367,6 @@ TEST_P(PaintPropertyTreeUpdateTest, EnsureSnapContainerData) {
       height: 200px;
       scroll-snap-align: start;
     }
-
     </style>
 
     <div id="container">
@@ -1389,6 +1375,11 @@ TEST_P(PaintPropertyTreeUpdateTest, EnsureSnapContainerData) {
   )HTML");
 
   GetDocument().View()->Resize(300, 300);
+  // Manually set the visual viewport size because the testing client does not
+  // do this. The size needs to be updated because otherwise the
+  // RootFrameViewport's maximum scroll offset would be negative and trigger a
+  // DCHECK.
+  GetDocument().GetPage()->GetVisualViewport().SetSize(IntSize(300, 300));
   UpdateAllLifecyclePhasesForTest();
 
   auto doc_snap_container_data = DocScroll()->GetSnapContainerData();
@@ -1673,10 +1664,6 @@ TEST_P(PaintPropertyTreeUpdateTest, SubpixelAccumulationAcrossIsolation) {
 }
 
 TEST_P(PaintPropertyTreeUpdateTest, ChangeDuringAnimation) {
-  if (!RuntimeEnabledFeatures::CompositeAfterPaintEnabled() &&
-      !RuntimeEnabledFeatures::BlinkGenPropertyTreesEnabled())
-    return;
-
   SetBodyInnerHTML(R"HTML(
       <!DOCTYPE html>
       <style>
@@ -1713,7 +1700,7 @@ TEST_P(PaintPropertyTreeUpdateTest, ChangeDuringAnimation) {
   EXPECT_EQ(FloatPoint3D(50, 50, 0), transform_node->Origin());
   // Change of animation status should update PaintArtifactCompositor.
   auto* paint_artifact_compositor =
-      GetDocument().View()->GetPaintArtifactCompositorForTesting();
+      GetDocument().View()->GetPaintArtifactCompositor();
   EXPECT_TRUE(paint_artifact_compositor->NeedsUpdate());
   // PaintArtifactCompositor can't clear the NeedsUpdate flag by itself when
   // there is no cc::LayerTreeHost.

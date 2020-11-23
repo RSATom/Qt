@@ -9,6 +9,9 @@
 
 #include <stdint.h>
 
+#include <map>
+#include <memory>
+#include <set>
 #include <string>
 #include <vector>
 
@@ -38,6 +41,7 @@
 #include "extensions/common/view_type.h"
 #include "ipc/ipc_message_macros.h"
 #include "url/gurl.h"
+#include "url/origin.h"
 
 #define IPC_MESSAGE_START ExtensionMsgStart
 
@@ -171,10 +175,6 @@ IPC_STRUCT_BEGIN(ExtensionMsg_ExecuteCode_Params)
   // When to inject the code.
   IPC_STRUCT_MEMBER(extensions::UserScript::RunLocation, run_at)
 
-  // Whether to execute code in the main world (as opposed to an isolated
-  // world).
-  IPC_STRUCT_MEMBER(bool, in_main_world)
-
   // Whether the request is coming from a <webview>.
   IPC_STRUCT_MEMBER(bool, is_web_view)
 
@@ -183,8 +183,8 @@ IPC_STRUCT_BEGIN(ExtensionMsg_ExecuteCode_Params)
   // are examples of when this will be false.
   IPC_STRUCT_MEMBER(bool, wants_result)
 
-  // The URL of the file that was injected, if any.
-  IPC_STRUCT_MEMBER(GURL, file_url)
+  // The URL of the script that was injected, if any.
+  IPC_STRUCT_MEMBER(GURL, script_url)
 
   // Whether the code to be executed should be associated with a user gesture.
   IPC_STRUCT_MEMBER(bool, user_gesture)
@@ -234,6 +234,9 @@ IPC_STRUCT_BEGIN(ExtensionMsg_ExternalConnectionInfo)
 
   // The URL of the frame that initiated the request.
   IPC_STRUCT_MEMBER(GURL, source_url)
+
+  // The origin of the object that initiated the request.
+  IPC_STRUCT_MEMBER(base::Optional<url::Origin>, source_origin)
 
   // The process ID of the webview that initiated the request.
   IPC_STRUCT_MEMBER(int, guest_process_id)
@@ -353,7 +356,8 @@ struct ExtensionMsg_Loaded_Params {
   ExtensionMsg_Loaded_Params();
   ~ExtensionMsg_Loaded_Params();
   ExtensionMsg_Loaded_Params(const extensions::Extension* extension,
-                             bool include_tab_permissions);
+                             bool include_tab_permissions,
+                             base::Optional<int> worker_activation_sequence);
 
   ExtensionMsg_Loaded_Params(ExtensionMsg_Loaded_Params&& other);
   ExtensionMsg_Loaded_Params& operator=(ExtensionMsg_Loaded_Params&& other);
@@ -387,6 +391,10 @@ struct ExtensionMsg_Loaded_Params {
 
   // We keep this separate so that it can be used in logging.
   std::string id;
+
+  // If this extension is Service Worker based, then this contains the
+  // activation sequence of the extension.
+  base::Optional<int> worker_activation_sequence;
 
   // Send creation flags so extension is initialized identically.
   int creation_flags;
@@ -738,20 +746,6 @@ IPC_MESSAGE_ROUTED1(ExtensionMsg_SetSpatialNavigationEnabled,
 IPC_MESSAGE_ROUTED1(ExtensionHostMsg_Request,
                     ExtensionHostMsg_Request_Params)
 
-// A renderer sends this message when an extension process starts an API
-// request. The browser will always respond with a ExtensionMsg_Response.
-IPC_MESSAGE_CONTROL2(ExtensionHostMsg_RequestForIOThread,
-                     int /* routing_id */,
-                     ExtensionHostMsg_Request_Params)
-
-// A service worker thread sends this message when an extension service worker
-// starts an API request. The browser will always respond with a
-// ExtensionMsg_ResponseWorker. This message is for API requests that run on
-// the IO thread. It is defined here so it's handled by the same message
-// filter as ExtensionHostMsg_RequestForIOThread.
-IPC_MESSAGE_CONTROL1(ExtensionHostMsg_RequestWorkerForIOThread,
-                     ExtensionHostMsg_Request_Params)
-
 // Notify the browser that the given extension added a listener to an event.
 IPC_MESSAGE_CONTROL5(ExtensionHostMsg_AddListener,
                      std::string /* extension_id */,
@@ -928,11 +922,6 @@ IPC_MESSAGE_ROUTED0(ExtensionHostMsg_IncrementLazyKeepaliveCount)
 // alive.
 IPC_MESSAGE_ROUTED0(ExtensionHostMsg_DecrementLazyKeepaliveCount)
 
-// Fetches a globally unique ID (for the lifetime of the browser) from the
-// browser process.
-IPC_SYNC_MESSAGE_CONTROL0_1(ExtensionHostMsg_GenerateUniqueID,
-                            int /* unique_id */)
-
 // Notify the browser that an app window is ready and can resume resource
 // requests.
 IPC_MESSAGE_ROUTED0(ExtensionHostMsg_AppWindowReady)
@@ -1044,8 +1033,10 @@ IPC_MESSAGE_CONTROL2(ExtensionHostMsg_DecrementServiceWorkerActivity,
 
 // Tells the browser that an event with |event_id| was successfully dispatched
 // to the worker with version |service_worker_version_id|.
-IPC_MESSAGE_CONTROL2(ExtensionHostMsg_EventAckWorker,
+IPC_MESSAGE_CONTROL4(ExtensionHostMsg_EventAckWorker,
+                     std::string /* extension_id */,
                      int64_t /* service_worker_version_id */,
+                     int /* worker_thread_id */,
                      int /* event_id */)
 
 // Tells the browser that an extension service worker context was initialized,
@@ -1074,16 +1065,18 @@ IPC_MESSAGE_CONTROL3(ExtensionHostMsg_DidInitializeServiceWorkerContext,
 //     straightforward as it changes SW IPC ordering with respect of rest of
 //     Chrome.
 // See https://crbug.com/879015#c4 for details.
-IPC_MESSAGE_CONTROL4(ExtensionHostMsg_DidStartServiceWorkerContext,
+IPC_MESSAGE_CONTROL5(ExtensionHostMsg_DidStartServiceWorkerContext,
                      std::string /* extension_id */,
+                     int /* activation_sequence */,
                      GURL /* service_worker_scope */,
                      int64_t /* service_worker_version_id */,
                      int /* worker_thread_id */)
 
 // Tells the browser that an extension service worker context has been
 // destroyed.
-IPC_MESSAGE_CONTROL4(ExtensionHostMsg_DidStopServiceWorkerContext,
+IPC_MESSAGE_CONTROL5(ExtensionHostMsg_DidStopServiceWorkerContext,
                      std::string /* extension_id */,
+                     int /* activation_sequence */,
                      GURL /* service_worker_scope */,
                      int64_t /* service_worker_version_id */,
                      int /* worker_thread_id */)

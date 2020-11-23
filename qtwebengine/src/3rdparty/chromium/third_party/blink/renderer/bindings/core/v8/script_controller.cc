@@ -45,7 +45,6 @@
 #include "third_party/blink/renderer/bindings/core/v8/window_proxy.h"
 #include "third_party/blink/renderer/core/dom/document.h"
 #include "third_party/blink/renderer/core/dom/scriptable_document_parser.h"
-#include "third_party/blink/renderer/core/dom/user_gesture_indicator.h"
 #include "third_party/blink/renderer/core/execution_context/execution_context.h"
 #include "third_party/blink/renderer/core/exported/web_plugin_container_impl.h"
 #include "third_party/blink/renderer/core/frame/csp/content_security_policy.h"
@@ -69,7 +68,6 @@
 #include "third_party/blink/renderer/platform/wtf/std_lib_extras.h"
 #include "third_party/blink/renderer/platform/wtf/text/string_builder.h"
 #include "third_party/blink/renderer/platform/wtf/text/string_utf8_adaptor.h"
-#include "third_party/blink/renderer/platform/wtf/time.h"
 
 namespace blink {
 
@@ -164,7 +162,7 @@ void ScriptController::DisableEval(const String& error_message) {
 }
 
 void ScriptController::DisableEvalForIsolatedWorld(
-    int world_id,
+    int32_t world_id,
     const String& error_message) {
   DCHECK(DOMWrapperWorld::IsIsolatedWorldId(world_id));
   scoped_refptr<DOMWrapperWorld> world =
@@ -230,7 +228,6 @@ void ScriptController::ClearWindowProxy() {
 
 void ScriptController::UpdateDocument() {
   window_proxy_manager_->MainWorldProxyMaybeUninitialized()->UpdateDocument();
-  EnableEval();
 }
 
 void ScriptController::ExecuteJavaScriptURL(
@@ -245,18 +242,26 @@ void ScriptController::ExecuteJavaScriptURL(
   bool should_bypass_main_world_content_security_policy =
       check_main_world_csp == kDoNotCheckContentSecurityPolicy ||
       ContentSecurityPolicy::ShouldBypassMainWorld(GetFrame()->GetDocument());
-  if (!GetFrame()->GetPage() ||
-      (!should_bypass_main_world_content_security_policy &&
-       !GetFrame()->GetDocument()->GetContentSecurityPolicy()->AllowInline(
-           ContentSecurityPolicy::InlineType::kNavigation, nullptr,
-           script_source, String() /* nonce */,
-           GetFrame()->GetDocument()->Url(), EventHandlerPosition().line_))) {
+  if (!GetFrame()->GetPage())
+    return;
+
+  if (!should_bypass_main_world_content_security_policy &&
+      !GetFrame()->GetDocument()->GetContentSecurityPolicy()->AllowInline(
+          ContentSecurityPolicy::InlineType::kNavigation, nullptr,
+          script_source, String() /* nonce */, GetFrame()->GetDocument()->Url(),
+          EventHandlerPosition().line_)) {
     return;
   }
 
-  bool had_navigation_before = GetFrame()->Loader().HasProvisionalNavigation();
-
   script_source = script_source.Substring(kJavascriptSchemeLength);
+  if (!should_bypass_main_world_content_security_policy) {
+    script_source = TrustedTypesCheckForJavascriptURLinNavigation(
+        script_source, GetFrame()->GetDocument());
+    if (script_source.IsEmpty())
+      return;
+  }
+
+  bool had_navigation_before = GetFrame()->Loader().HasProvisionalNavigation();
 
   v8::HandleScope handle_scope(GetIsolate());
 
@@ -292,11 +297,14 @@ void ScriptController::ExecuteJavaScriptURL(
                     WebFeature::kReplaceDocumentViaJavaScriptURL);
   auto params = std::make_unique<WebNavigationParams>();
   params->url = GetFrame()->GetDocument()->Url();
+  if (auto* owner = GetFrame()->Owner())
+    params->frame_policy = owner->GetFramePolicy();
 
   String result = ToCoreString(v8::Local<v8::String>::Cast(v8_result));
   WebNavigationParams::FillStaticResponse(params.get(), "text/html", "UTF-8",
                                           StringUTF8Adaptor(result));
-  GetFrame()->Loader().CommitNavigation(std::move(params), nullptr, true);
+  GetFrame()->Loader().CommitNavigation(std::move(params), nullptr,
+                                        base::DoNothing::Once(), true);
 }
 
 void ScriptController::ExecuteScriptInMainWorld(
@@ -360,7 +368,7 @@ v8::Local<v8::Value> ScriptController::EvaluateScriptInMainWorld(
 }
 
 v8::Local<v8::Value> ScriptController::ExecuteScriptInIsolatedWorld(
-    int world_id,
+    int32_t world_id,
     const ScriptSourceCode& source,
     const KURL& base_url,
     SanitizeScriptErrors sanitize_script_errors) {

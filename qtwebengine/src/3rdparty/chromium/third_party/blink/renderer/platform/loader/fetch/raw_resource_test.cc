@@ -44,10 +44,10 @@
 #include "third_party/blink/renderer/platform/loader/testing/replaying_bytes_consumer.h"
 #include "third_party/blink/renderer/platform/scheduler/public/thread.h"
 #include "third_party/blink/renderer/platform/scheduler/public/thread_scheduler.h"
-#include "third_party/blink/renderer/platform/shared_buffer.h"
 #include "third_party/blink/renderer/platform/testing/testing_platform_support_with_mock_scheduler.h"
 #include "third_party/blink/renderer/platform/testing/unit_test_helpers.h"
 #include "third_party/blink/renderer/platform/weborigin/security_origin.h"
+#include "third_party/blink/renderer/platform/wtf/shared_buffer.h"
 #include "third_party/blink/renderer/platform/wtf/std_lib_extras.h"
 
 namespace blink {
@@ -59,7 +59,7 @@ class RawResourceTest : public testing::Test {
 
  protected:
   class NoopResponseBodyLoaderClient
-      : public GarbageCollectedFinalized<NoopResponseBodyLoaderClient>,
+      : public GarbageCollected<NoopResponseBodyLoaderClient>,
         public ResponseBodyLoaderClient {
     USING_GARBAGE_COLLECTED_MIXIN(NoopResponseBodyLoaderClient);
 
@@ -96,7 +96,7 @@ TEST_F(RawResourceTest, DontIgnoreAcceptForCacheReuse) {
             Resource::MatchStatus::kOk);
 }
 
-class DummyClient final : public GarbageCollectedFinalized<DummyClient>,
+class DummyClient final : public GarbageCollected<DummyClient>,
                           public RawResourceClient {
   USING_GARBAGE_COLLECTED_MIXIN(DummyClient);
 
@@ -135,7 +135,7 @@ class DummyClient final : public GarbageCollectedFinalized<DummyClient>,
 };
 
 // This client adds another client when notified.
-class AddingClient final : public GarbageCollectedFinalized<AddingClient>,
+class AddingClient final : public GarbageCollected<AddingClient>,
                            public RawResourceClient {
   USING_GARBAGE_COLLECTED_MIXIN(AddingClient);
 
@@ -192,7 +192,7 @@ TEST_F(RawResourceTest, AddClientDuringCallback) {
 }
 
 // This client removes another client when notified.
-class RemovingClient : public GarbageCollectedFinalized<RemovingClient>,
+class RemovingClient : public GarbageCollected<RemovingClient>,
                        public RawResourceClient {
   USING_GARBAGE_COLLECTED_MIXIN(RemovingClient);
 

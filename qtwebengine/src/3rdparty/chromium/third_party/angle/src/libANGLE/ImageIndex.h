@@ -40,6 +40,8 @@ class ImageIndex
     // map.
     TextureTarget getTarget() const;
 
+    TextureTarget getTargetOrFirstCubeFace() const;
+
     bool isLayered() const;
     bool isEntireLevelCubeMap() const;
 
@@ -121,6 +123,9 @@ class ImageIndexIterator
 
     ImageIndex mCurrentIndex;
 };
+
+TextureTarget TextureTypeToTarget(TextureType type, GLint layerIndex);
+
 }  // namespace gl
 
 #endif  // LIBANGLE_IMAGE_INDEX_H_

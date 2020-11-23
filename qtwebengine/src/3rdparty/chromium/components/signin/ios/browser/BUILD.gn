@@ -7,6 +7,8 @@ source_set("browser") {
   sources = [
     "account_consistency_service.h",
     "account_consistency_service.mm",
+    "features.cc",
+    "features.h",
     "manage_accounts_delegate.h",
     "wait_for_network_callback_helper.cc",
     "wait_for_network_callback_helper.h",
@@ -14,7 +16,7 @@ source_set("browser") {
 
   deps = [
     "//components/content_settings/core/browser",
-    "//components/google/core/browser",
+    "//components/google/core/common",
     "//components/prefs",
     "//components/signin/core/browser",
     "//components/signin/public/base",

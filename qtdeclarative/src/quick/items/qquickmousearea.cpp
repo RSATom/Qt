@@ -62,7 +62,7 @@ Q_DECLARE_LOGGING_CATEGORY(DBG_HOVER_TRACE)
 QQuickMouseAreaPrivate::QQuickMouseAreaPrivate()
 : enabled(true), scrollGestureEnabled(true), hovered(false), longPress(false),
   moved(false), stealMouse(false), doubleClick(false), preventStealing(false),
-  propagateComposedEvents(false), overThreshold(false), pressed(nullptr),
+  propagateComposedEvents(false), overThreshold(false),
   pressAndHoldInterval(-1)
 #if QT_CONFIG(quick_draganddrop)
   , drag(nullptr)
@@ -275,8 +275,6 @@ bool QQuickMouseAreaPrivate::propagateHelper(QQuickMouseEvent *ev, QQuickItem *i
     even when no mouse button is pressed.
 
     \sa hoverEnabled
-
-    The corresponding handler is \c onEntered.
 */
 
 /*!
@@ -315,8 +313,6 @@ bool QQuickMouseAreaPrivate::propagateHelper(QQuickMouseEvent *ev, QQuickItem *i
     both be considered to be simultaneously hovered.
 
     \sa hoverEnabled
-
-    The corresponding handler is \c onExited.
 */
 
 /*!
@@ -333,8 +329,6 @@ bool QQuickMouseAreaPrivate::propagateHelper(QQuickMouseEvent *ev, QQuickItem *i
 
     When handling this signal, changing the \l {MouseEvent::}{accepted} property of the \a mouse
     parameter has no effect.
-
-    The corresponding handler is \c onPositionChanged.
 */
 
 /*!
@@ -349,8 +343,6 @@ bool QQuickMouseAreaPrivate::propagateHelper(QQuickMouseEvent *ev, QQuickItem *i
 
     When handling this signal, changing the \l {MouseEvent::}{accepted} property of the \a mouse
     parameter has no effect, unless the \l propagateComposedEvents property is \c true.
-
-    The corresponding handler is \c onClicked.
 */
 
 /*!
@@ -365,8 +357,6 @@ bool QQuickMouseAreaPrivate::propagateHelper(QQuickMouseEvent *ev, QQuickItem *i
     release. The default is to accept the event and not allow other MouseAreas beneath this one to
     handle the event.  If \e accepted is set to false, no further events will be sent to this MouseArea
     until the button is next pressed.
-
-    The corresponding handler is \c onPressed.
 */
 
 /*!
@@ -378,8 +368,6 @@ bool QQuickMouseAreaPrivate::propagateHelper(QQuickMouseEvent *ev, QQuickItem *i
 
     When handling this signal, changing the \l {MouseEvent::}{accepted} property of the \a mouse
     parameter has no effect.
-
-    The corresponding handler is \c onReleased.
 
     \sa canceled
 */
@@ -393,8 +381,6 @@ bool QQuickMouseAreaPrivate::propagateHelper(QQuickMouseEvent *ev, QQuickItem *i
 
     When handling this signal, changing the \l {MouseEvent::}{accepted} property of the \a mouse
     parameter has no effect, unless the \l propagateComposedEvents property is \c true.
-
-    The corresponding handler is \c onPressAndHold.
 */
 
 /*!
@@ -407,8 +393,6 @@ bool QQuickMouseAreaPrivate::propagateHelper(QQuickMouseEvent *ev, QQuickItem *i
     When handling this signal, if the \l {MouseEvent::}{accepted} property of the \a mouse
     parameter is set to false, the pressed/released/clicked signals will be emitted for the second
     click; otherwise they are suppressed.  The \c accepted property defaults to true.
-
-    The corresponding handler is \c onDoubleClicked.
 */
 
 /*!
@@ -422,8 +406,6 @@ bool QQuickMouseAreaPrivate::propagateHelper(QQuickMouseEvent *ev, QQuickItem *i
     \l Flickable will steal the mouse handling from the MouseArea. In these cases, to reset
     the logic when the MouseArea has lost the mouse handling to the \l Flickable,
     \c canceled should be handled in addition to \l released.
-
-    The corresponding handler is \c onCanceled.
 */
 
 /*!
@@ -434,8 +416,6 @@ bool QQuickMouseAreaPrivate::propagateHelper(QQuickMouseEvent *ev, QQuickItem *i
     The \a wheel parameter provides information about the event, including the x and y
     position, any buttons currently pressed, and information about the wheel movement, including
     angleDelta and pixelDelta.
-
-    The corresponding handler is \c onWheel.
 */
 
 QQuickMouseArea::QQuickMouseArea(QQuickItem *parent)
@@ -708,11 +688,17 @@ void QQuickMouseArea::mouseMoveEvent(QMouseEvent *event)
         return;
     }
 
-    d->saveEvent(event);
-
     // ### we should skip this if these signals aren't used
     // ### can GV handle this for us?
-    setHovered(contains(d->lastPos));
+    setHovered(contains(event->localPos()));
+
+    if ((event->buttons() & acceptedMouseButtons()) == 0) {
+        QQuickItem::mouseMoveEvent(event);
+        return;
+    }
+
+    d->saveEvent(event);
+
 
 #if QT_CONFIG(quick_draganddrop)
     if (d->drag && d->drag->target()) {
@@ -763,7 +749,7 @@ void QQuickMouseArea::mouseMoveEvent(QMouseEvent *event)
 
         if (d->drag->active()) {
             d->drag->target()->setPosition(boundedDragPos);
-            d->lastPos = d->lastScenePos - mapToScene(position());
+            d->lastPos = mapFromScene(d->lastScenePos);
         }
 
         bool dragOverThresholdX = QQuickWindowPrivate::dragOverThreshold(dragPos.x() - startPos.x(),
@@ -1083,6 +1069,12 @@ void QQuickMouseArea::itemChange(ItemChange change, const ItemChangeData &value)
             }
             setHovered(!d->hovered);
         }
+        if (d->pressed && (!isVisible())) {
+            // This happens when the mouse area sets itself disabled or hidden
+            // inside the press handler. In that case we should not keep the internal
+            // state as pressed, since we never became the mouse grabber.
+            ungrabMouse();
+        }
         break;
     default:
         break;
@@ -1376,6 +1368,7 @@ void QQuickMouseArea::resetPressAndHoldInterval()
     \qmlproperty real QtQuick::MouseArea::drag.maximumY
     \qmlproperty bool QtQuick::MouseArea::drag.filterChildren
     \qmlproperty real QtQuick::MouseArea::drag.threshold
+    \qmlproperty bool QtQuick::MouseArea::drag.smoothed
 
     \c drag provides a convenient way to make an item draggable.
 

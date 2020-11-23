@@ -15,7 +15,9 @@
 #include "build/build_config.h"
 #include "content/common/content_export.h"
 #include "media/media_buildflags.h"
-#include "mojo/public/cpp/bindings/binding.h"
+#include "mojo/public/cpp/bindings/pending_receiver.h"
+#include "mojo/public/cpp/bindings/receiver.h"
+#include "mojo/public/cpp/bindings/remote.h"
 #include "net/cert/cert_database.h"
 #include "services/network/public/mojom/network_service.mojom.h"
 #include "url/gurl.h"
@@ -38,55 +40,17 @@ class CONTENT_EXPORT NetworkServiceClient
 #endif
       public net::CertDatabase::Observer {
  public:
-  explicit NetworkServiceClient(network::mojom::NetworkServiceClientRequest
-                                    network_service_client_request);
+  explicit NetworkServiceClient(
+      mojo::PendingReceiver<network::mojom::NetworkServiceClient>
+          network_service_client_receiver);
   ~NetworkServiceClient() override;
 
   // network::mojom::NetworkServiceClient implementation:
-  void OnAuthRequired(const base::Optional<base::UnguessableToken>& window_id,
-                      uint32_t process_id,
-                      uint32_t routing_id,
-                      uint32_t request_id,
-                      const GURL& url,
-                      bool first_auth_attempt,
-                      const net::AuthChallengeInfo& auth_info,
-                      const base::Optional<network::ResourceResponseHead>& head,
-                      network::mojom::AuthChallengeResponderPtr
-                          auth_challenge_responder) override;
-  void OnCertificateRequested(
-      const base::Optional<base::UnguessableToken>& window_id,
-      uint32_t process_id,
-      uint32_t routing_id,
-      uint32_t request_id,
-      const scoped_refptr<net::SSLCertRequestInfo>& cert_info,
-      network::mojom::ClientCertificateResponderPtr cert_responder) override;
-  void OnSSLCertificateError(uint32_t process_id,
-                             uint32_t routing_id,
-                             const GURL& url,
-                             int net_error,
-                             const net::SSLInfo& ssl_info,
-                             bool fatal,
-                             OnSSLCertificateErrorCallback response) override;
-#if defined(OS_CHROMEOS)
-  void OnTrustAnchorUsed(const std::string& username_hash) override;
-#endif
-  void OnFileUploadRequested(uint32_t process_id,
-                             bool async,
-                             const std::vector<base::FilePath>& file_paths,
-                             OnFileUploadRequestedCallback callback) override;
   void OnLoadingStateUpdate(std::vector<network::mojom::LoadInfoPtr> infos,
                             OnLoadingStateUpdateCallback callback) override;
   void OnDataUseUpdate(int32_t network_traffic_annotation_id_hash,
                        int64_t recv_bytes,
                        int64_t sent_bytes) override;
-#if defined(OS_ANDROID)
-  void OnGenerateHttpNegotiateAuthToken(
-      const std::string& server_auth_token,
-      bool can_delegate,
-      const std::string& auth_negotiate_android_account_type,
-      const std::string& spn,
-      OnGenerateHttpNegotiateAuthTokenCallback callback) override;
-#endif
   void OnRawRequest(
       int32_t process_id,
       int32_t routing_id,
@@ -127,11 +91,10 @@ class CONTENT_EXPORT NetworkServiceClient
 
   // net::NetworkChangeNotifier::DNSObserver implementation:
   void OnDNSChanged() override;
-  void OnInitialDNSConfigRead() override;
 #endif
 
  private:
-  mojo::Binding<network::mojom::NetworkServiceClient> binding_;
+  mojo::Receiver<network::mojom::NetworkServiceClient> receiver_;
 
   std::unique_ptr<base::MemoryPressureListener> memory_pressure_listener_;
 
@@ -142,7 +105,7 @@ class CONTENT_EXPORT NetworkServiceClient
 #if defined(OS_ANDROID)
   std::unique_ptr<base::android::ApplicationStatusListener>
       app_status_listener_;
-  network::mojom::NetworkChangeManagerPtr network_change_manager_;
+  mojo::Remote<network::mojom::NetworkChangeManager> network_change_manager_;
 #endif
 
   DISALLOW_COPY_AND_ASSIGN(NetworkServiceClient);

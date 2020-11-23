@@ -38,7 +38,7 @@ not the other.)
 ### Use Fixed Strings When Using Histogram Macros
 
 When using histogram macros (calls such as `UMA_HISTOGRAM_ENUMERATION`), you're
-not allow to construct your string dynamically so that it can vary at a
+not allowed to construct your string dynamically so that it can vary at a
 callsite.  At a given callsite (preferably you have only one), the string
 should be the same every time the macro is called.  If you need to use dynamic
 names, use the functions in histogram_functions.h instead of the macros.
@@ -240,9 +240,9 @@ for larger numbers.  The macros default to 50 buckets (or 100 buckets for
 histograms with wide ranges) which is appropriate for most purposes.  Because
 histograms pre-allocate all the buckets, the number of buckets selected
 directly dictate how much memory is used.  Do not exceed 100 buckets without
-good reason (and consider whether [sparse histograms](#When-To-Use-Sparse-
-Histograms) might work better for you in that case--they do not pre- allocate
-their buckets).
+good reason (and consider whether [sparse
+histograms](#When-To-Use-Sparse-Histograms) might work better for you in that
+case--they do not pre-allocate their buckets).
 
 ### Timing Histograms
 
@@ -345,20 +345,27 @@ encouraged and enforced by Chrome metrics team through reviews.
 
 #### How to choose expiry for histograms
 
-For new histograms if it is used for launching a project for which the timeline
-is known then pick an expiry based on your project timeline. Otherwise, we
-recommend choosing 3-6 months.
+If you are adding a histogram that will be used to evaluate a feature launch,
+set an expiry date consistent with the expected feature launch date. Otherwise,
+we recommend choosing 3-6 months.
 
-For already existing histograms here are different scenarios:
+Here are some guidelines for common scenarios:
 
-*   Owner moved to different project - find new owner
-*   Owner doesn’t use it, team doesn’t use it - remove
-*   Not in use now, but maybe useful in the far future - remove
-*   Not in use now, but maybe useful in the near future - pick 3 months or 2
-    milestone ahead
-*   Actively in use now, useful for short term - pick 3-6 month or appropriate
-    number of milestones ahead
-*   Actively in use, seems useful for indefinite time - pick 1 year or more
+*   If the listed owner moved to different project, find a new owner.
+*   If neither the owner nor the team uses the histogram, remove it.
+*   If the histogram is not in use now, but might be useful in the far future,
+    remove it.
+*   If the histogram is not in use now, but might be useful in the near
+    future, pick ~3 months or ~2 milestones ahead.
+*   If the histogram is actively in use now and useful for a short term, pick
+    3-6 month or 2-4 milestones ahead.
+*   If the histogram is actively in use and seems useful for an indefinite time,
+    pick 1 year.
+
+We also have a tool that automatically extends expiry dates. The 80% more
+frequently accessed histograms are pushed out every Tuesday, to 6 months from
+the date of the run. Googlers can view the [design
+doc](https://docs.google.com/document/d/1IEAeBF9UnYQMDfyh2gdvE7WlUKsfIXIZUw7qNoU89A4).
 
 ### Expired histogram notifier
 
@@ -451,27 +458,25 @@ Histogram descriptions should clearly state when the histogram is emitted
 
 ### Owners
 
-Histograms need to have owners, who are the current experts on the metric. The
-owners are the contact points for any questions or maintenance tasks. It's a
-best practice to list multiple owners, so that there's no single point of
-failure for such communication.
+Histograms need owners, who are the experts on the metric and the points of
+contact for any questions or maintenance tasks, such as extending a histogram's
+expiry or deprecating the metric.
 
-Being an owner means you are responsible for answering questions about the
-metric, handling the maintenance if there are functional changes, and
-deprecating the metric if it outlives its usefulness. If you are using a metric
-heavily and understand it intimately, feel free to add yourself as an owner.
-@chromium.org email addresses are preferred.
+Histograms must have a primary owner and may have secondary owners. A primary
+owner is an individual, e.g. <owner>lucy@chromium.org</owner>, who is
+ultimately responsible for maintaining the metric. Secondary owners may be
+other individuals, team mailing lists, e.g. <owner>my-team@google.com</owner>,
+or paths to OWNERS files, e.g. <owner>src/directory/OWNERS</owner>.
 
-If an appropriate mailing list is available, it's a good idea to include the
-mailing list as a secondary owner. However, it's always a best practice to list
-an individual as the primary owner. Listing an individual owner makes it clearer
-who is ultimately most responsible for maintaining the metric, which makes it
-less likely that such maintenance tasks will slip through the cracks.
+It's a best practice to list multiple owners, so that there's no single point
+of failure for histogram-related questions and maintenance tasks. If you are
+using a metric heavily and understand it intimately, feel free to add yourself
+as an owner. For individuals, @chromium.org email addresses are preferred.
 
-Notably, owners are asked to evaluate whether histograms have outlived their
-usefulness. When a histogram is nearing expiry, a robot will file a reminder bug
-in Monorail. It's important that somebody familiar with the histogram notices
-and triages such bugs!
+Notably, owners are asked to determine whether histograms have outlived their
+usefulness. When a histogram is nearing expiry, a robot will file a reminder
+bug in Monorail. It's important that somebody familiar with the histogram
+notices and triages such bugs!
 
 ### Cleaning Up Histogram Entries
 
@@ -546,3 +551,15 @@ Please talk with the metrics team if there are more than a thousand possible
 different values that you could emit.
 
 For more information, see [sparse_histograms.h](https://cs.chromium.org/chromium/src/base/metrics/sparse_histogram.h).
+
+# Team Documentation
+
+This section contains useful information for folks on Chrome Metrics.
+
+## Processing histograms.xml
+
+When working with histograms.xml, verify whether you require fully expanded
+OWNERS files. Many scripts in this directory process histograms.xml, and
+sometimes OWNERS file paths are expanded and other times they are not. OWNERS
+paths are expanded when scripts make use of merge_xml's function MergeFiles;
+otherwise, they are not.

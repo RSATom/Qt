@@ -95,6 +95,14 @@ void SecondaryCommandBuffer::executeCommands(VkCommandBuffer cmdBuffer)
                                    params->filter);
                     break;
                 }
+                case CommandID::BufferBarrier:
+                {
+                    const BufferBarrierParams *params =
+                        getParamPtr<BufferBarrierParams>(currentCommand);
+                    vkCmdPipelineBarrier(cmdBuffer, params->srcStageMask, params->dstStageMask, 0,
+                                         0, nullptr, 1, &params->bufferMemoryBarrier, 0, nullptr);
+                    break;
+                }
                 case CommandID::ClearAttachments:
                 {
                     const ClearAttachmentsParams *params =
@@ -180,11 +188,36 @@ void SecondaryCommandBuffer::executeCommands(VkCommandBuffer cmdBuffer)
                     vkCmdDrawIndexed(cmdBuffer, params->indexCount, 1, 0, 0, 0);
                     break;
                 }
+                case CommandID::DrawIndexedBaseVertex:
+                {
+                    const DrawIndexedBaseVertexParams *params =
+                        getParamPtr<DrawIndexedBaseVertexParams>(currentCommand);
+                    vkCmdDrawIndexed(cmdBuffer, params->indexCount, 1, 0, params->vertexOffset, 0);
+                    break;
+                }
                 case CommandID::DrawIndexedInstanced:
                 {
                     const DrawIndexedInstancedParams *params =
                         getParamPtr<DrawIndexedInstancedParams>(currentCommand);
                     vkCmdDrawIndexed(cmdBuffer, params->indexCount, params->instanceCount, 0, 0, 0);
+                    break;
+                }
+                case CommandID::DrawIndexedInstancedBaseVertex:
+                {
+                    const DrawIndexedInstancedBaseVertexParams *params =
+                        getParamPtr<DrawIndexedInstancedBaseVertexParams>(currentCommand);
+                    vkCmdDrawIndexed(cmdBuffer, params->indexCount, params->instanceCount, 0,
+                                     params->vertexOffset, 0);
+                    break;
+                }
+                case CommandID::DrawIndexedInstancedBaseVertexBaseInstance:
+                {
+                    const DrawIndexedInstancedBaseVertexBaseInstanceParams *params =
+                        getParamPtr<DrawIndexedInstancedBaseVertexBaseInstanceParams>(
+                            currentCommand);
+                    vkCmdDrawIndexed(cmdBuffer, params->indexCount, params->instanceCount,
+                                     params->firstIndex, params->vertexOffset,
+                                     params->firstInstance);
                     break;
                 }
                 case CommandID::DrawInstanced:
@@ -193,6 +226,28 @@ void SecondaryCommandBuffer::executeCommands(VkCommandBuffer cmdBuffer)
                         getParamPtr<DrawInstancedParams>(currentCommand);
                     vkCmdDraw(cmdBuffer, params->vertexCount, params->instanceCount,
                               params->firstVertex, 0);
+                    break;
+                }
+                case CommandID::DrawInstancedBaseInstance:
+                {
+                    const DrawInstancedBaseInstanceParams *params =
+                        getParamPtr<DrawInstancedBaseInstanceParams>(currentCommand);
+                    vkCmdDraw(cmdBuffer, params->vertexCount, params->instanceCount,
+                              params->firstVertex, params->firstInstance);
+                    break;
+                }
+                case CommandID::DrawIndirect:
+                {
+                    const DrawIndirectParams *params =
+                        getParamPtr<DrawIndirectParams>(currentCommand);
+                    vkCmdDrawIndirect(cmdBuffer, params->buffer, params->offset, 1, 0);
+                    break;
+                }
+                case CommandID::DrawIndexedIndirect:
+                {
+                    const DrawIndexedIndirectParams *params =
+                        getParamPtr<DrawIndexedIndirectParams>(currentCommand);
+                    vkCmdDrawIndexedIndirect(cmdBuffer, params->buffer, params->offset, 1, 0);
                     break;
                 }
                 case CommandID::EndQuery:
@@ -326,6 +381,27 @@ void SecondaryCommandBuffer::executeCommands(VkCommandBuffer cmdBuffer)
     }
 }
 
+void SecondaryCommandBuffer::getMemoryUsageStats(size_t *usedMemoryOut,
+                                                 size_t *allocatedMemoryOut) const
+{
+    *allocatedMemoryOut = kBlockSize * mCommands.size();
+
+    *usedMemoryOut = 0;
+    for (const CommandHeader *command : mCommands)
+    {
+        const CommandHeader *commandEnd = command;
+        while (commandEnd->id != CommandID::Invalid)
+        {
+            commandEnd = NextCommand(commandEnd);
+        }
+
+        *usedMemoryOut += reinterpret_cast<const uint8_t *>(commandEnd) -
+                          reinterpret_cast<const uint8_t *>(command) + sizeof(CommandHeader::id);
+    }
+
+    ASSERT(*usedMemoryOut <= *allocatedMemoryOut);
+}
+
 std::string SecondaryCommandBuffer::dumpCommands(const char *separator) const
 {
     std::string result;
@@ -358,6 +434,9 @@ std::string SecondaryCommandBuffer::dumpCommands(const char *separator) const
                 case CommandID::BlitImage:
                     result += "BlitImage";
                     break;
+                case CommandID::BufferBarrier:
+                    result += "BufferBarrier";
+                    break;
                 case CommandID::ClearAttachments:
                     result += "ClearAttachments";
                     break;
@@ -382,17 +461,29 @@ std::string SecondaryCommandBuffer::dumpCommands(const char *separator) const
                 case CommandID::Dispatch:
                     result += "Dispatch";
                     break;
+                case CommandID::DispatchIndirect:
+                    result += "DispatchIndirect";
+                    break;
                 case CommandID::Draw:
                     result += "Draw";
                     break;
                 case CommandID::DrawIndexed:
                     result += "DrawIndexed";
                     break;
+                case CommandID::DrawIndexedBaseVertex:
+                    result += "DrawIndexedBaseVertex";
+                    break;
                 case CommandID::DrawIndexedInstanced:
                     result += "DrawIndexedInstanced";
                     break;
+                case CommandID::DrawIndexedInstancedBaseVertex:
+                    result += "DrawIndexedInstancedBaseVertex";
+                    break;
                 case CommandID::DrawInstanced:
                     result += "DrawInstanced";
+                    break;
+                case CommandID::DrawIndexedIndirect:
+                    result += "DrawIndexedIndirect";
                     break;
                 case CommandID::EndQuery:
                     result += "EndQuery";
@@ -420,6 +511,9 @@ std::string SecondaryCommandBuffer::dumpCommands(const char *separator) const
                     break;
                 case CommandID::ResetQueryPool:
                     result += "ResetQueryPool";
+                    break;
+                case CommandID::ResolveImage:
+                    result += "ResolveImage";
                     break;
                 case CommandID::SetEvent:
                     result += "SetEvent";

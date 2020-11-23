@@ -77,6 +77,7 @@ class MEDIA_EXPORT VideoEncodeAccelerator {
                      uint32_t max_framerate_denominator = 1u);
     ~SupportedProfile();
     VideoCodecProfile profile;
+    gfx::Size min_resolution;
     gfx::Size max_resolution;
     uint32_t max_framerate_numerator;
     uint32_t max_framerate_denominator;
@@ -98,11 +99,8 @@ class MEDIA_EXPORT VideoEncodeAccelerator {
     kErrorMax = kPlatformFailureError
   };
 
-  // Unified default values for all VEA implementations.
-  enum {
-    kDefaultFramerate = 30,
-    kDefaultH264Level = H264SPS::kLevelIDC4p0,
-  };
+  // A default framerate for all VEA implementations.
+  enum { kDefaultFramerate = 30 };
 
   // Parameters required for VEA initialization.
   struct MEDIA_EXPORT Config {
@@ -154,11 +152,9 @@ class MEDIA_EXPORT VideoEncodeAccelerator {
     base::Optional<uint32_t> gop_length;
 
     // Codec level of encoded output stream for H264 only. This value should
-    // be aligned to the H264 standard definition of SPS.level_idc. The only
-    // exception is in Main and Baseline profile we still use
-    // |h264_output_level|=9 for Level 1b, which should set level_idc to 11 and
-    // constraint_set3_flag to 1 (Spec A.3.1 and A.3.2). This is optional and
-    // use |kDefaultH264Level| if not given.
+    // be aligned to the H264 standard definition of SPS.level_idc.
+    // If this is not given, VideoEncodeAccelerator selects one of proper H.264
+    // levels for |input_visible_size| and |initial_framerate|.
     base::Optional<uint8_t> h264_output_level;
 
     // The storage type of video frame provided on Encode().

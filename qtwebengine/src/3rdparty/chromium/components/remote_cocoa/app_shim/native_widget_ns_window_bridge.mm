@@ -28,7 +28,7 @@
 #import "components/remote_cocoa/app_shim/views_nswindow_delegate.h"
 #import "components/remote_cocoa/app_shim/window_move_loop.h"
 #include "components/remote_cocoa/common/native_widget_ns_window_host.mojom.h"
-#include "mojo/public/cpp/bindings/strong_binding.h"
+#include "mojo/public/cpp/bindings/self_owned_receiver.h"
 #include "ui/accelerated_widget_mac/window_resize_helper_mac.h"
 #include "ui/base/cocoa/cocoa_base_utils.h"
 #import "ui/base/cocoa/constrained_window/constrained_window_animation.h"
@@ -309,13 +309,14 @@ NativeWidgetNSWindowBridge::NativeWidgetNSWindowBridge(
     : id_(bridged_native_widget_id),
       host_(host),
       host_helper_(host_helper),
-      text_input_host_(text_input_host),
-      bridge_mojo_binding_(this) {
+      text_input_host_(text_input_host) {
   DCHECK(GetIdToWidgetImplMap().find(id_) == GetIdToWidgetImplMap().end());
   GetIdToWidgetImplMap().insert(std::make_pair(id_, this));
+  display::Screen::GetScreen()->AddObserver(this);
 }
 
 NativeWidgetNSWindowBridge::~NativeWidgetNSWindowBridge() {
+  display::Screen::GetScreen()->RemoveObserver(this);
   // The delegate should be cleared already. Note this enforces the precondition
   // that -[NSWindow close] is invoked on the hosted window before the
   // destructor is called.
@@ -324,12 +325,12 @@ NativeWidgetNSWindowBridge::~NativeWidgetNSWindowBridge() {
   DestroyContentView();
 }
 
-void NativeWidgetNSWindowBridge::BindRequest(
-    mojom::NativeWidgetNSWindowAssociatedRequest request,
+void NativeWidgetNSWindowBridge::BindReceiver(
+    mojo::PendingAssociatedReceiver<mojom::NativeWidgetNSWindow> receiver,
     base::OnceClosure connection_closed_callback) {
-  bridge_mojo_binding_.Bind(std::move(request),
-                            ui::WindowResizeHelperMac::Get()->task_runner());
-  bridge_mojo_binding_.set_connection_error_handler(
+  bridge_mojo_receiver_.Bind(std::move(receiver),
+                             ui::WindowResizeHelperMac::Get()->task_runner());
+  bridge_mojo_receiver_.set_disconnect_handler(
       std::move(connection_closed_callback));
 }
 
@@ -383,22 +384,15 @@ void NativeWidgetNSWindowBridge::SetParent(uint64_t new_parent_id) {
   [window_ setCollectionBehavior:[window_ collectionBehavior] |
                                  NSWindowCollectionBehaviorTransient];
 
-  // If |window_| was already visible then add it as a child window immediately.
-  // As in OnVisibilityChanged, do not set a parent for sheets.
-  if (window_visible_ && ![window_ isSheet]) {
-    // Attaching a window to be a child window resets the window level, so
-    // restore the window level afterwards.
-    NSInteger window_level = [window_ level];
-    [parent_->ns_window() addChildWindow:window_ ordered:NSWindowAbove];
-    [window_ setLevel:window_level];
-  }
+  if (wants_to_be_visible_)
+    parent_->OrderChildren();
 }
 
 void NativeWidgetNSWindowBridge::CreateSelectFileDialog(
-    mojom::SelectFileDialogRequest request) {
-  mojo::MakeStrongBinding(
+    mojo::PendingReceiver<mojom::SelectFileDialog> receiver) {
+  mojo::MakeSelfOwnedReceiver(
       std::make_unique<remote_cocoa::SelectFileDialogBridge>(window_),
-      std::move(request));
+      std::move(receiver));
 }
 
 void NativeWidgetNSWindowBridge::StackAbove(uint64_t sibling_id) {
@@ -429,6 +423,7 @@ void NativeWidgetNSWindowBridge::InitWindow(
   is_translucent_window_ = params->is_translucent;
   widget_is_top_level_ = params->widget_is_top_level;
   position_window_in_screen_coords_ = params->position_window_in_screen_coords;
+  pending_restoration_data_ = params->state_restoration_data;
 
   // Register for application hide notifications so that visibility can be
   // properly tracked. This is not done in the delegate so that the lifetime is
@@ -462,6 +457,9 @@ void NativeWidgetNSWindowBridge::InitWindow(
   }
 
   [window_ setHasShadow:params->has_window_server_shadow];
+  // Don't allow dragging sheets.
+  if (params->modal_type == ui::MODAL_TYPE_WINDOW)
+    [window_ setMovable:NO];
 }
 
 void NativeWidgetNSWindowBridge::SetInitialBounds(
@@ -590,7 +588,7 @@ void NativeWidgetNSWindowBridge::CloseWindow() {
   // it and properly increment the reference count bound to the posted task.
   NSWindow* window = ns_window();
 
-  if (IsWindowModalSheet()) {
+  if (IsWindowModalSheet() && [ns_window() isSheet]) {
     // Sheets can't be closed normally. This starts the sheet closing. Once the
     // sheet has finished animating, it will call sheetDidEnd: on the parent
     // window's delegate. Note it still needs to be asynchronous, since code
@@ -605,7 +603,8 @@ void NativeWidgetNSWindowBridge::CloseWindow() {
   }
 
   // For other modal types, animate the close.
-  if (ShouldRunCustomAnimationFor(VisibilityTransition::kHide)) {
+  if (ShouldRunCustomAnimationFor(VisibilityTransition::kHide) &&
+      [ns_window() isVisible]) {
     [ViewsNSWindowCloseAnimator closeWindowWithAnimation:window];
     return;
   }
@@ -613,6 +612,10 @@ void NativeWidgetNSWindowBridge::CloseWindow() {
   // Destroy the content view so that it won't call back into |host_| while
   // being torn down.
   DestroyContentView();
+
+  // If the window wants to be visible and has a parent, then the parent may
+  // order it back in (in the period between orderOut: and close).
+  wants_to_be_visible_ = false;
 
   // Widget::Close() ensures [Non]ClientView::CanClose() returns true, so there
   // is no need to call the NSWindow or its delegate's -windowShouldClose:
@@ -689,39 +692,39 @@ void NativeWidgetNSWindowBridge::SetVisibilityState(
       return;
   }
 
+  if (!pending_restoration_data_.empty()) {
+    NSData* restore_ns_data =
+        [NSData dataWithBytes:pending_restoration_data_.data()
+                       length:pending_restoration_data_.size()];
+    base::scoped_nsobject<NSKeyedUnarchiver> decoder(
+        [[NSKeyedUnarchiver alloc] initForReadingWithData:restore_ns_data]);
+    [window_ restoreStateWithCoder:decoder];
+    pending_restoration_data_.clear();
+
+    // When first showing a window with restoration data, don't activate it.
+    // This avoids switching spaces or un-miniaturizing it right away.
+    // Additional activations act normally.
+    if (new_state == WindowVisibilityState::kShowAndActivateWindow)
+      new_state = WindowVisibilityState::kShowInactive;
+  }
+
   if (IsWindowModalSheet()) {
     ShowAsModalSheet();
     return;
   }
 
+  if (parent_)
+    parent_->OrderChildren();
+
   if (new_state == WindowVisibilityState::kShowAndActivateWindow) {
     [window_ makeKeyAndOrderFront:nil];
     [NSApp activateIgnoringOtherApps:YES];
-  } else {
-    // ui::SHOW_STATE_INACTIVE is typically used to avoid stealing focus from a
-    // parent window. So, if there's a parent, order above that. Otherwise, this
-    // will order above all windows at the same level.
-    NSInteger parent_window_number = 0;
-    if (parent_) {
-      // When there's a parent, check if the window is already visible. If
-      // ShowInactive() is called on an already-visible window, there should be
-      // no effect: the macOS childWindow mechanism should have already raised
-      // the window to the right stacking order. More importantly, invoking
-      // -[NSWindow orderWindow:] could cause a Space switch, which defeats the
-      // point of ShowInactive(), so avoid it. See https://crbug.com/866760.
-
-      // Sanity check: if the window is visible, the prior Show should have
-      // hooked it up as a native child window already.
-      DCHECK_EQ(window_visible_, !![window_ parentWindow]);
-      if (window_visible_)
-        return;  // Avoid a Spaces transition.
-
-      parent_window_number = [parent_->ns_window() windowNumber];
-    }
-
-    [window_ orderWindow:NSWindowAbove relativeTo:parent_window_number];
+  } else if (!parent_ && ![window_ isMiniaturized]) {
+    // When showing a window without activation, avoid making it the front
+    // window (with e.g. orderFront:), which can cause a space switch.
+    [window_ orderWindow:NSWindowBelow
+              relativeTo:NSApp.mainWindow.windowNumber];
   }
-  DCHECK(window_visible_);
 
   // For non-sheet modal types, use the constrained window animations to make
   // the window appear.
@@ -872,6 +875,9 @@ void NativeWidgetNSWindowBridge::OnFullscreenTransitionComplete(
     bool actual_fullscreen_state) {
   in_fullscreen_transition_ = false;
 
+  // Add any children that were skipped during the fullscreen transition.
+  OrderChildren();
+
   if (has_deferred_window_close_) {
     [ns_window() close];
     return;
@@ -960,16 +966,8 @@ void NativeWidgetNSWindowBridge::OnVisibilityChanged() {
   // window - we might not need that.
   if (window_visible_) {
     wants_to_be_visible_ = true;
-
-    // Sheets don't need a parentWindow set, and setting one causes graphical
-    // glitches (http://crbug.com/605098).
-    if (parent_ && ![window_ isSheet]) {
-      // Attaching a window to be a child window resets the window level, so
-      // restore the window level afterwards.
-      NSInteger window_level = [window_ level];
-      [parent_->ns_window() addChildWindow:window_ ordered:NSWindowAbove];
-      [window_ setLevel:window_level];
-    }
+    if (parent_ && !window_visible_)
+      parent_->OrderChildren();
   } else {
     ReleaseCapture();  // Capture on hidden windows is not permitted.
 
@@ -1007,6 +1005,10 @@ void NativeWidgetNSWindowBridge::OnWindowKeyStatusChangedTo(bool is_key) {
   host_->OnWindowKeyStatusChanged(
       is_key, [window_ contentView] == [window_ firstResponder],
       [NSApp isFullKeyboardAccessEnabled]);
+  // If the window just became key, this is a good chance to add child windows
+  // from when the window wasn't on the current space.
+  if (is_key)
+    OrderChildren();
 }
 
 void NativeWidgetNSWindowBridge::SetSizeConstraints(const gfx::Size& min_size,
@@ -1059,11 +1061,17 @@ void NativeWidgetNSWindowBridge::InitCompositorView() {
   UpdateWindowGeometry();
 }
 
-void NativeWidgetNSWindowBridge::SortSubviews(RankMap rank) {
+void NativeWidgetNSWindowBridge::SortSubviews(
+    const std::vector<uint64_t>& attached_subview_ids) {
   // Ignore layer manipulation during a Close(). This can be reached during the
   // orderOut: in Close(), which notifies visibility changes to Views.
   if (!bridged_view_)
     return;
+  RankMap rank;
+  for (uint64_t subview_id : attached_subview_ids) {
+    if (NSView* subview = remote_cocoa::GetNSViewFromId(subview_id))
+      rank[subview] = rank.size() + 1;
+  }
   [bridged_view_ sortSubviewsUsingFunction:&SubviewSorter context:&rank];
 }
 
@@ -1116,7 +1124,17 @@ DragDropClient* NativeWidgetNSWindowBridge::drag_drop_client() {
 }
 
 ////////////////////////////////////////////////////////////////////////////////
-// NativeWidgetNSWindowBridge, ui::CATransactionObserver
+// NativeWidgetNSWindowBridge, display::DisplayObserver:
+
+void NativeWidgetNSWindowBridge::OnDisplayAdded(
+    const display::Display& display) {
+  UpdateWindowDisplay();
+}
+
+void NativeWidgetNSWindowBridge::OnDisplayRemoved(
+    const display::Display& display) {
+  UpdateWindowDisplay();
+}
 
 void NativeWidgetNSWindowBridge::OnDisplayMetricsChanged(
     const display::Display& display,
@@ -1200,6 +1218,17 @@ void NativeWidgetNSWindowBridge::SetOpacity(float opacity) {
   [window_ setAlphaValue:opacity];
 }
 
+void NativeWidgetNSWindowBridge::SetWindowLevel(int32_t level) {
+  [window_ setLevel:level];
+
+  // Windows that have a higher window level than NSNormalWindowLevel default to
+  // NSWindowCollectionBehaviorTransient. Set the value explicitly here to match
+  // normal windows.
+  NSWindowCollectionBehavior behavior =
+      [window_ collectionBehavior] | NSWindowCollectionBehaviorManaged;
+  [window_ setCollectionBehavior:behavior];
+}
+
 void NativeWidgetNSWindowBridge::SetContentAspectRatio(
     const gfx::SizeF& aspect_ratio) {
   [window_ setContentAspectRatio:NSMakeSize(aspect_ratio.width(),
@@ -1227,6 +1256,11 @@ void NativeWidgetNSWindowBridge::SetCALayerParams(
     invalidate_shadow_on_frame_swap_ = false;
     [window_ invalidateShadow];
   }
+}
+
+void NativeWidgetNSWindowBridge::SetIgnoresMouseEvents(
+    bool ignores_mouse_events) {
+  [window_ setIgnoresMouseEvents:ignores_mouse_events];
 }
 
 void NativeWidgetNSWindowBridge::MakeFirstResponder() {
@@ -1285,6 +1319,35 @@ void NativeWidgetNSWindowBridge::RemoveChildWindow(
 ////////////////////////////////////////////////////////////////////////////////
 // NativeWidgetNSWindowBridge, private:
 
+void NativeWidgetNSWindowBridge::OrderChildren() {
+  // Adding a child to a window that isn't visible on the active space will
+  // switch to that space (https://crbug.com/783521, https://crbug.com/798792).
+  // Bail here (and call OrderChildren() in a few places) to defer adding
+  // children until the window is visible.
+  NSWindow* window = window_.get();
+  if (!window.isVisible || !window.isOnActiveSpace)
+    return;
+  for (auto* child : child_windows_) {
+    if (!child->wants_to_be_visible())
+      continue;
+    NSWindow* child_window = child->window_.get();
+    if (child->IsWindowModalSheet()) {
+      if (!child->window_visible_)
+        child->ShowAsModalSheet();
+      // Sheets don't need a parentWindow set, and setting one causes graphical
+      // glitches (http://crbug.com/605098).
+    } else {
+      if (child_window.parentWindow == window)
+        continue;
+      // Attaching a window to be a child window resets the window level, so
+      // restore the window level afterwards.
+      NSInteger level = child_window.level;
+      [window addChildWindow:child_window ordered:NSWindowAbove];
+      child_window.level = level;
+    }
+  }
+}
+
 void NativeWidgetNSWindowBridge::RemoveOrDestroyChildren() {
   // TODO(tapted): Implement unowned child windows if required.
   while (!child_windows_.empty()) {
@@ -1320,38 +1383,7 @@ void NativeWidgetNSWindowBridge::NotifyVisibilityChangeDown() {
     return;
   }
 
-  NSUInteger visible_bridged_children = 0;  // For a DCHECK below.
-  NSInteger parent_window_number = [window_ windowNumber];
-  for (NativeWidgetNSWindowBridge* child : child_windows_) {
-    // Note: order the child windows on top, regardless of whether or not they
-    // are currently visible. They probably aren't, since the parent was hidden
-    // prior to this, but they could have been made visible in other ways.
-    if (child->wants_to_be_visible_) {
-      if ([child->ns_window() isSheet]) {
-        // Sheets should not be counted as children since their NSWindows are
-        // not children of this NSWindow, and they should not be directly
-        // ordered back in - that causes them to lose their sheet-ness.
-        child->ShowAsModalSheet();
-      } else {
-        ++visible_bridged_children;
-
-        // Here -[NSWindow orderWindow:relativeTo:] is used to put the window on
-        // screen. However, that by itself is insufficient to guarantee a
-        // correct z-order relationship. If this function is being called from a
-        // z-order change in the parent, orderWindow turns out to be unreliable
-        // (i.e. the ordering doesn't always take effect). What this actually
-        // relies on is the resulting call to OnVisibilityChanged() in the
-        // child, which will then insert itself into -[NSWindow childWindows] to
-        // let Cocoa do its internal layering magic.
-        [child->ns_window() orderWindow:NSWindowAbove
-                             relativeTo:parent_window_number];
-        DCHECK(child->window_visible_);
-      }
-    }
-    CHECK_EQ(child_count, child_windows_.size());
-  }
-  DCHECK_EQ(visible_bridged_children,
-            CountBridgedWindows([window_ childWindows]));
+  OrderChildren();
 }
 
 void NativeWidgetNSWindowBridge::UpdateWindowGeometry() {

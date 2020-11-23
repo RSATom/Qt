@@ -185,11 +185,12 @@ class CORE_EXPORT HTMLCanvasElement final
 
   void DoDeferredPaintInvalidation();
 
-  void FinalizeFrame() override;
+  void PreFinalizeFrame() override;
+  void PostFinalizeFrame() override;
 
   CanvasResourceDispatcher* GetOrCreateResourceDispatcher() override;
 
-  void PushFrame(scoped_refptr<CanvasResource> image,
+  bool PushFrame(scoped_refptr<CanvasResource> image,
                  const SkIRect& damage_rect) override;
 
   // ContextLifecycleObserver and PageVisibilityObserver implementation
@@ -220,7 +221,7 @@ class CORE_EXPORT HTMLCanvasElement final
   bool ShouldAccelerate2dContext() const override;
   unsigned GetMSAASampleCountFor2dContext() const override;
   SkFilterQuality FilterQuality() const override;
-  bool LowLatencyEnabled() const override { return !!frame_dispatcher_; }
+  bool LowLatencyEnabled() const override;
   CanvasResourceProvider* GetOrCreateCanvasResourceProvider(
       AccelerationHint hint) override;
   bool IsPrinting() const override;
@@ -236,10 +237,8 @@ class CORE_EXPORT HTMLCanvasElement final
                                   const ImageBitmapOptions*) override;
 
   // OffscreenCanvasPlaceholder implementation.
-  void SetPlaceholderFrame(scoped_refptr<CanvasResource>,
-                           base::WeakPtr<CanvasResourceDispatcher>,
-                           scoped_refptr<base::SingleThreadTaskRunner>,
-                           unsigned resource_id) override;
+  void SetOffscreenCanvasResource(scoped_refptr<CanvasResource>,
+                                  unsigned resource_id) override;
   void Trace(Visitor*) override;
 
   void SetResourceProviderForTesting(std::unique_ptr<CanvasResourceProvider>,
@@ -251,6 +250,7 @@ class CORE_EXPORT HTMLCanvasElement final
 
   void StyleDidChange(const ComputedStyle* old_style,
                       const ComputedStyle& new_style);
+  void LayoutObjectDestroyed();
 
   void NotifyListenersCanvasChanged();
 
@@ -286,16 +286,6 @@ class CORE_EXPORT HTMLCanvasElement final
   bool IsWebGLBlocked() const override;
   void SetContextCreationWasBlocked() override {
     context_creation_was_blocked_ = true;
-  }
-
-  // Memory Management
-  static intptr_t GetGlobalGPUMemoryUsage() { return global_gpu_memory_usage_; }
-  static unsigned GetGlobalAcceleratedContextCount() {
-    return global_accelerated_context_count_;
-  }
-  intptr_t GetGPUMemoryUsage() { return gpu_memory_usage_; }
-  void DidInvokeGPUReadbackInCurrentFrame() {
-    gpu_readback_invoked_in_current_frame_ = true;
   }
 
   bool NeedsUnbufferedInputEvents() const { return needs_unbuffered_input_; }
@@ -399,13 +389,8 @@ class CORE_EXPORT HTMLCanvasElement final
   bool did_notify_listeners_for_current_frame_ = false;
 
   // GPU Memory Management
-  static intptr_t global_gpu_memory_usage_;
-  static unsigned global_accelerated_context_count_;
-  mutable intptr_t gpu_memory_usage_;
   mutable intptr_t externally_allocated_memory_;
 
-  mutable bool gpu_readback_invoked_in_current_frame_;
-  int gpu_readback_successive_frames_;
   scoped_refptr<Image> transparent_image_ = nullptr;
 };
 

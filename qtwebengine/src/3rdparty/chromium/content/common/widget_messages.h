@@ -10,6 +10,7 @@
 #include "base/optional.h"
 #include "base/time/time.h"
 #include "cc/input/touch_action.h"
+#include "content/common/common_param_traits_macros.h"
 #include "content/common/content_param_traits.h"
 #include "content/common/cursors/webcursor.h"
 #include "content/common/tab_switch_time_recorder.h"
@@ -17,12 +18,11 @@
 #include "content/common/visual_properties.h"
 #include "content/public/common/common_param_traits.h"
 #include "ipc/ipc_message_macros.h"
-#include "third_party/blink/public/common/frame/occlusion_state.h"
 #include "third_party/blink/public/common/screen_orientation/web_screen_orientation_type.h"
+#include "third_party/blink/public/platform/viewport_intersection_state.h"
 #include "third_party/blink/public/platform/web_float_point.h"
 #include "third_party/blink/public/platform/web_float_rect.h"
 #include "third_party/blink/public/platform/web_intrinsic_sizing_info.h"
-#include "third_party/blink/public/web/web_device_emulation_params.h"
 #include "third_party/blink/public/web/web_text_direction.h"
 #include "ui/base/ime/text_input_action.h"
 #include "ui/base/ime/text_input_mode.h"
@@ -34,41 +34,6 @@
 #define IPC_MESSAGE_EXPORT CONTENT_EXPORT
 
 #define IPC_MESSAGE_START WidgetMsgStart
-
-// Traits for VisualProperties.
-IPC_ENUM_TRAITS_MAX_VALUE(blink::WebDeviceEmulationParams::ScreenPosition,
-                          blink::WebDeviceEmulationParams::kScreenPositionLast)
-
-IPC_ENUM_TRAITS_MAX_VALUE(content::ScreenOrientationValues,
-                          content::SCREEN_ORIENTATION_VALUES_LAST)
-
-IPC_ENUM_TRAITS_MIN_MAX_VALUE(blink::WebScreenOrientationType,
-                              blink::kWebScreenOrientationUndefined,
-                              blink::WebScreenOrientationTypeLast)
-
-IPC_ENUM_TRAITS_MAX_VALUE(blink::WebDisplayMode,
-                          blink::WebDisplayMode::kWebDisplayModeLast)
-
-IPC_STRUCT_TRAITS_BEGIN(content::VisualProperties)
-  IPC_STRUCT_TRAITS_MEMBER(screen_info)
-  IPC_STRUCT_TRAITS_MEMBER(auto_resize_enabled)
-  IPC_STRUCT_TRAITS_MEMBER(min_size_for_auto_resize)
-  IPC_STRUCT_TRAITS_MEMBER(max_size_for_auto_resize)
-  IPC_STRUCT_TRAITS_MEMBER(new_size)
-  IPC_STRUCT_TRAITS_MEMBER(compositor_viewport_pixel_size)
-  IPC_STRUCT_TRAITS_MEMBER(browser_controls_shrink_blink_size)
-  IPC_STRUCT_TRAITS_MEMBER(scroll_focused_node_into_view)
-  IPC_STRUCT_TRAITS_MEMBER(top_controls_height)
-  IPC_STRUCT_TRAITS_MEMBER(bottom_controls_height)
-  IPC_STRUCT_TRAITS_MEMBER(local_surface_id_allocation)
-  IPC_STRUCT_TRAITS_MEMBER(visible_viewport_size)
-  IPC_STRUCT_TRAITS_MEMBER(is_fullscreen_granted)
-  IPC_STRUCT_TRAITS_MEMBER(display_mode)
-  IPC_STRUCT_TRAITS_MEMBER(capture_sequence_number)
-  IPC_STRUCT_TRAITS_MEMBER(zoom_level)
-  IPC_STRUCT_TRAITS_MEMBER(page_scale_factor)
-  IPC_STRUCT_TRAITS_MEMBER(is_pinch_gesture_active)
-IPC_STRUCT_TRAITS_END()
 
 // Traits for WebDeviceEmulationParams.
 IPC_STRUCT_TRAITS_BEGIN(blink::WebFloatPoint)
@@ -128,6 +93,7 @@ IPC_STRUCT_TRAITS_BEGIN(content::TextInputState)
   IPC_STRUCT_TRAITS_MEMBER(composition_end)
   IPC_STRUCT_TRAITS_MEMBER(can_compose_inline)
   IPC_STRUCT_TRAITS_MEMBER(show_ime_if_needed)
+  IPC_STRUCT_TRAITS_MEMBER(always_hide_ime)
   IPC_STRUCT_TRAITS_MEMBER(reply_to_request)
 IPC_STRUCT_TRAITS_END()
 
@@ -144,12 +110,6 @@ IPC_MESSAGE_ROUTED2(WidgetMsg_ShowContextMenu,
 // Tells the render widget to close.
 // Expects a Close_ACK message when finished.
 IPC_MESSAGE_ROUTED0(WidgetMsg_Close)
-
-// Tells the renderer to update visual properties. The resulting
-// CompositorFrame will produce a RenderFrameMetadata containing a new
-// LocalSurfaceId. This acts as a form of ACK for this message.
-IPC_MESSAGE_ROUTED1(WidgetMsg_SynchronizeVisualProperties,
-                    content::VisualProperties /* params */)
 
 // Enables device emulation. See WebDeviceEmulationParams for description.
 IPC_MESSAGE_ROUTED1(WidgetMsg_EnableDeviceEmulation,
@@ -187,8 +147,14 @@ IPC_MESSAGE_ROUTED1(WidgetMsg_SetTextDirection,
 // are in progress.
 IPC_MESSAGE_ROUTED0(WidgetMsg_SetBounds_ACK)
 
+// Updates a RenderWidget's visual properties. This should include all
+// geometries and compositing inputs so that they are updated atomically.
+IPC_MESSAGE_ROUTED1(WidgetMsg_UpdateVisualProperties,
+                    content::VisualProperties /* visual_properties */)
+
 // Informs the RenderWidget of its position on the user's screen, as well as
 // the position of the native window holding the RenderWidget.
+// TODO(danakj): These should be part of UpdateVisualProperties.
 IPC_MESSAGE_ROUTED2(WidgetMsg_UpdateScreenRects,
                     gfx::Rect /* widget_screen_rect */,
                     gfx::Rect /* window_screen_rect */)
@@ -198,12 +164,11 @@ IPC_MESSAGE_ROUTED2(WidgetMsg_UpdateScreenRects,
 // etc.).
 IPC_MESSAGE_ROUTED1(WidgetMsg_ForceRedraw, int /* snapshot_id */)
 
-// Sets the viewport intersection and compositor raster area on the widget for
-// an out-of-process iframe. Also see FrameMsg_UpdateViewportIntersection.
-IPC_MESSAGE_ROUTED3(WidgetMsg_SetViewportIntersection,
-                    gfx::Rect /* viewport_intersection */,
-                    gfx::Rect /* compositor_visible_rect */,
-                    blink::FrameOcclusionState /* occlusion_state */)
+// Sent by a parent frame to notify its child about the state of the child's
+// intersection with the parent's viewport, primarily for use by the
+// IntersectionObserver API. Also see FrameHostMsg_UpdateViewportIntersection.
+IPC_MESSAGE_ROUTED1(WidgetMsg_SetViewportIntersection,
+                    blink::ViewportIntersectionState /* intersection_state */)
 
 // Sent to an OOPIF widget when the browser receives a FrameHostMsg_SetIsInert
 // from the target widget's embedding renderer changing its inertness. When a
@@ -293,19 +258,15 @@ IPC_MESSAGE_ROUTED1(WidgetHostMsg_RequestSetBounds, gfx::Rect /* bounds */)
 // |privileged| is used by Pepper Flash. If this flag is set to true, we won't
 // pop up a bubble to ask for user permission or take mouse lock content into
 // account.
-IPC_MESSAGE_ROUTED2(WidgetHostMsg_LockMouse,
+IPC_MESSAGE_ROUTED3(WidgetHostMsg_LockMouse,
                     bool /* user_gesture */,
-                    bool /* privileged */)
+                    bool /* privileged */,
+                    bool /* request_raw_movement */)
 
 // Requests to unlock the mouse. A WidgetMsg_MouseLockLost message will be sent
 // whenever the mouse is unlocked (which may or may not be caused by
 // WidgetHostMsg_UnlockMouse).
 IPC_MESSAGE_ROUTED0(WidgetHostMsg_UnlockMouse)
-
-// Message sent from renderer to the browser when the element that is focused
-// has been touched. A bool is passed in this message which indicates if the
-// node is editable.
-IPC_MESSAGE_ROUTED1(WidgetHostMsg_FocusedNodeTouched, bool /* editable */)
 
 // Sent by the renderer process in response to an earlier WidgetMsg_ForceRedraw
 // message. The reply includes the snapshot-id from the request.
@@ -330,9 +291,6 @@ IPC_MESSAGE_ROUTED0(WidgetHostMsg_WaitForNextFrameForTests_ACK)
 // Sent once a paint happens after the first non empty layout. In other words,
 // after the frame widget has painted something.
 IPC_MESSAGE_ROUTED0(WidgetHostMsg_DidFirstVisuallyNonEmptyPaint)
-
-// Sent once the RenderWidgetCompositor issues a draw command.
-IPC_MESSAGE_ROUTED0(WidgetHostMsg_DidCommitAndDrawCompositorFrame)
 
 // Notifies whether there are JavaScript touch event handlers or not.
 IPC_MESSAGE_ROUTED1(WidgetHostMsg_HasTouchEventHandlers,

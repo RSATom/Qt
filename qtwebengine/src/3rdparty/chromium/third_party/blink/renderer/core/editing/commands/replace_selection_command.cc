@@ -52,6 +52,7 @@
 #include "third_party/blink/renderer/core/editing/visible_units.h"
 #include "third_party/blink/renderer/core/events/before_text_inserted_event.h"
 #include "third_party/blink/renderer/core/frame/local_frame.h"
+#include "third_party/blink/renderer/core/frame/web_feature.h"
 #include "third_party/blink/renderer/core/html/forms/html_input_element.h"
 #include "third_party/blink/renderer/core/html/forms/html_select_element.h"
 #include "third_party/blink/renderer/core/html/html_br_element.h"
@@ -72,8 +73,6 @@
 #include "third_party/blink/renderer/platform/wtf/vector.h"
 
 namespace blink {
-
-using namespace html_names;
 
 // --- ReplacementFragment helper class
 
@@ -117,8 +116,9 @@ class ReplacementFragment final {
 static bool IsInterchangeHTMLBRElement(const Node* node) {
   DEFINE_STATIC_LOCAL(String, interchange_newline_class_string,
                       (AppleInterchangeNewline));
-  if (!IsHTMLBRElement(node) ||
-      ToHTMLBRElement(node)->getAttribute(kClassAttr) !=
+  auto* html_br_element = DynamicTo<HTMLBRElement>(node);
+  if (!html_br_element ||
+      html_br_element->getAttribute(html_names::kClassAttr) !=
           interchange_newline_class_string)
     return false;
   UseCounter::Count(node->GetDocument(),
@@ -483,7 +483,7 @@ bool ReplaceSelectionCommand::ShouldMergeStart(
   return !selection_start_was_start_of_paragraph &&
          !fragment_has_interchange_newline_at_start &&
          IsStartOfParagraph(start_of_inserted_content) &&
-         !IsHTMLBRElement(
+         !IsA<HTMLBRElement>(
              *start_of_inserted_content.DeepEquivalent().AnchorNode()) &&
          ShouldMerge(start_of_inserted_content, prev);
 }
@@ -498,7 +498,7 @@ bool ReplaceSelectionCommand::ShouldMergeEnd(
 
   return !selection_end_was_end_of_paragraph &&
          IsEndOfParagraph(end_of_inserted_content) &&
-         !IsHTMLBRElement(
+         !IsA<HTMLBRElement>(
              *end_of_inserted_content.DeepEquivalent().AnchorNode()) &&
          ShouldMerge(end_of_inserted_content, next);
 }
@@ -508,9 +508,12 @@ static bool IsHTMLHeaderElement(const Node* a) {
   if (!element)
     return false;
 
-  return element->HasTagName(kH1Tag) || element->HasTagName(kH2Tag) ||
-         element->HasTagName(kH3Tag) || element->HasTagName(kH4Tag) ||
-         element->HasTagName(kH5Tag) || element->HasTagName(kH6Tag);
+  return element->HasTagName(html_names::kH1Tag) ||
+         element->HasTagName(html_names::kH2Tag) ||
+         element->HasTagName(html_names::kH3Tag) ||
+         element->HasTagName(html_names::kH4Tag) ||
+         element->HasTagName(html_names::kH5Tag) ||
+         element->HasTagName(html_names::kH6Tag);
 }
 
 static bool HaveSameTagName(Element* a, Element* b) {
@@ -527,7 +530,7 @@ bool ReplaceSelectionCommand::ShouldMerge(const VisiblePosition& source,
   Element* source_block = EnclosingBlock(source_node);
   Element* destination_block = EnclosingBlock(destination_node);
   return source_block &&
-         (!source_block->HasTagName(kBlockquoteTag) ||
+         (!source_block->HasTagName(html_names::kBlockquoteTag) ||
           IsMailHTMLBlockquoteElement(source_block)) &&
          EnclosingListChild(source_block) ==
              EnclosingListChild(destination_node) &&
@@ -595,10 +598,10 @@ void ReplaceSelectionCommand::RemoveRedundantStylesAndKeepStyleSpanInline(
       // you're pasting into a quoted region, styles from blockquoteNode are
       // allowed to override those from the source document, see
       // <rdar://problem/4930986> and <rdar://problem/5089327>.
-      HTMLQuoteElement* blockquote_element =
+      auto* blockquote_element =
           !context
-              ? ToHTMLQuoteElement(context)
-              : ToHTMLQuoteElement(EnclosingNodeOfType(
+              ? To<HTMLQuoteElement>(context)
+              : To<HTMLQuoteElement>(EnclosingNodeOfType(
                     Position::FirstPositionInNode(*context),
                     IsMailHTMLBlockquoteElement, kCanCrossEditingBoundary));
 
@@ -625,10 +628,10 @@ void ReplaceSelectionCommand::RemoveRedundantStylesAndKeepStyleSpanInline(
           return;
         continue;
       }
-      RemoveElementAttribute(element, kStyleAttr);
+      RemoveElementAttribute(element, html_names::kStyleAttr);
     } else if (new_inline_style->Style()->PropertyCount() !=
                inline_style->PropertyCount()) {
-      SetNodeAttribute(element, kStyleAttr,
+      SetNodeAttribute(element, html_names::kStyleAttr,
                        AtomicString(new_inline_style->Style()->AsText()));
     }
 
@@ -653,7 +656,7 @@ void ReplaceSelectionCommand::RemoveRedundantStylesAndKeepStyleSpanInline(
     if (element->parentNode() &&
         HasRichlyEditableStyle(*element->parentNode()) &&
         HasRichlyEditableStyle(*element)) {
-      RemoveElementAttribute(element, kContenteditableAttr);
+      RemoveElementAttribute(element, html_names::kContenteditableAttr);
     }
   }
 }
@@ -663,31 +666,54 @@ static bool IsProhibitedParagraphChild(const AtomicString& name) {
   DEFINE_STATIC_LOCAL(
       HashSet<AtomicString>, elements,
       ({
-          kAddressTag.LocalName(),   kArticleTag.LocalName(),
-          kAsideTag.LocalName(),     kBlockquoteTag.LocalName(),
-          kCaptionTag.LocalName(),   kCenterTag.LocalName(),
-          kColTag.LocalName(),       kColgroupTag.LocalName(),
-          kDdTag.LocalName(),        kDetailsTag.LocalName(),
-          kDirTag.LocalName(),       kDivTag.LocalName(),
-          kDlTag.LocalName(),        kDtTag.LocalName(),
-          kFieldsetTag.LocalName(),  kFigcaptionTag.LocalName(),
-          kFigureTag.LocalName(),    kFooterTag.LocalName(),
-          kFormTag.LocalName(),      kH1Tag.LocalName(),
-          kH2Tag.LocalName(),        kH3Tag.LocalName(),
-          kH4Tag.LocalName(),        kH5Tag.LocalName(),
-          kH6Tag.LocalName(),        kHeaderTag.LocalName(),
-          kHgroupTag.LocalName(),    kHrTag.LocalName(),
-          kLiTag.LocalName(),        kListingTag.LocalName(),
-          kMainTag.LocalName(),  // Missing in the specification.
-          kMenuTag.LocalName(),      kNavTag.LocalName(),
-          kOlTag.LocalName(),        kPTag.LocalName(),
-          kPlaintextTag.LocalName(), kPreTag.LocalName(),
-          kSectionTag.LocalName(),   kSummaryTag.LocalName(),
-          kTableTag.LocalName(),     kTbodyTag.LocalName(),
-          kTdTag.LocalName(),        kTfootTag.LocalName(),
-          kThTag.LocalName(),        kTheadTag.LocalName(),
-          kTrTag.LocalName(),        kUlTag.LocalName(),
-          kXmpTag.LocalName(),
+          html_names::kAddressTag.LocalName(),
+          html_names::kArticleTag.LocalName(),
+          html_names::kAsideTag.LocalName(),
+          html_names::kBlockquoteTag.LocalName(),
+          html_names::kCaptionTag.LocalName(),
+          html_names::kCenterTag.LocalName(),
+          html_names::kColTag.LocalName(),
+          html_names::kColgroupTag.LocalName(),
+          html_names::kDdTag.LocalName(),
+          html_names::kDetailsTag.LocalName(),
+          html_names::kDirTag.LocalName(),
+          html_names::kDivTag.LocalName(),
+          html_names::kDlTag.LocalName(),
+          html_names::kDtTag.LocalName(),
+          html_names::kFieldsetTag.LocalName(),
+          html_names::kFigcaptionTag.LocalName(),
+          html_names::kFigureTag.LocalName(),
+          html_names::kFooterTag.LocalName(),
+          html_names::kFormTag.LocalName(),
+          html_names::kH1Tag.LocalName(),
+          html_names::kH2Tag.LocalName(),
+          html_names::kH3Tag.LocalName(),
+          html_names::kH4Tag.LocalName(),
+          html_names::kH5Tag.LocalName(),
+          html_names::kH6Tag.LocalName(),
+          html_names::kHeaderTag.LocalName(),
+          html_names::kHgroupTag.LocalName(),
+          html_names::kHrTag.LocalName(),
+          html_names::kLiTag.LocalName(),
+          html_names::kListingTag.LocalName(),
+          html_names::kMainTag.LocalName(),  // Missing in the specification.
+          html_names::kMenuTag.LocalName(),
+          html_names::kNavTag.LocalName(),
+          html_names::kOlTag.LocalName(),
+          html_names::kPTag.LocalName(),
+          html_names::kPlaintextTag.LocalName(),
+          html_names::kPreTag.LocalName(),
+          html_names::kSectionTag.LocalName(),
+          html_names::kSummaryTag.LocalName(),
+          html_names::kTableTag.LocalName(),
+          html_names::kTbodyTag.LocalName(),
+          html_names::kTdTag.LocalName(),
+          html_names::kTfootTag.LocalName(),
+          html_names::kThTag.LocalName(),
+          html_names::kTheadTag.LocalName(),
+          html_names::kTrTag.LocalName(),
+          html_names::kUlTag.LocalName(),
+          html_names::kXmpTag.LocalName(),
       }));
   return elements.Contains(name);
 }
@@ -713,7 +739,7 @@ void ReplaceSelectionCommand::
     if (IsProhibitedParagraphChild(element->localName())) {
       if (HTMLElement* paragraph_element =
               To<HTMLElement>(EnclosingElementWithTag(
-                  Position::InParentBeforeNode(*element), kPTag))) {
+                  Position::InParentBeforeNode(*element), html_names::kPTag))) {
         MoveElementOutOfAncestor(element, paragraph_element, editing_state);
         if (editing_state->IsAborted())
           return;
@@ -780,9 +806,9 @@ void ReplaceSelectionCommand::RemoveUnrenderedTextNodesAtEnds(
   auto* last_leaf_inserted = DynamicTo<Text>(inserted_nodes.LastLeafInserted());
   if (last_leaf_inserted && !NodeHasVisibleLayoutText(*last_leaf_inserted) &&
       !EnclosingElementWithTag(FirstPositionInOrBeforeNode(*last_leaf_inserted),
-                               kSelectTag) &&
+                               html_names::kSelectTag) &&
       !EnclosingElementWithTag(FirstPositionInOrBeforeNode(*last_leaf_inserted),
-                               kScriptTag)) {
+                               html_names::kScriptTag)) {
     inserted_nodes.WillRemoveNode(*last_leaf_inserted);
     // Removing a Text node won't dispatch synchronous events.
     RemoveNode(last_leaf_inserted, ASSERT_NO_EDITING_ABORT);
@@ -807,8 +833,8 @@ VisiblePosition ReplaceSelectionCommand::PositionAtEndOfInsertedContent()
   // TODO(yosin): We should set |end_of_inserted_content_| not in SELECT
   // element, since contents of SELECT elements, e.g. OPTION, OPTGROUP, are
   // not editable, or SELECT element is an atomic on editing.
-  HTMLSelectElement* enclosing_select = ToHTMLSelectElement(
-      EnclosingElementWithTag(end_of_inserted_content_, kSelectTag));
+  auto* enclosing_select = To<HTMLSelectElement>(EnclosingElementWithTag(
+      end_of_inserted_content_, html_names::kSelectTag));
   if (enclosing_select) {
     return CreateVisiblePosition(LastPositionInOrAfterNode(*enclosing_select));
   }
@@ -829,9 +855,9 @@ VisiblePosition ReplaceSelectionCommand::PositionAtStartOfInsertedContent()
 static void RemoveHeadContents(ReplacementFragment& fragment) {
   Node* next = nullptr;
   for (Node* node = fragment.FirstChild(); node; node = next) {
-    if (IsHTMLBaseElement(*node) || IsHTMLLinkElement(*node) ||
-        IsHTMLMetaElement(*node) || IsHTMLStyleElement(*node) ||
-        IsHTMLTitleElement(*node) || IsSVGStyleElement(*node)) {
+    if (IsA<HTMLBaseElement>(*node) || IsA<HTMLLinkElement>(*node) ||
+        IsA<HTMLMetaElement>(*node) || IsA<HTMLStyleElement>(*node) ||
+        IsA<HTMLTitleElement>(*node) || IsA<SVGStyleElement>(*node)) {
       next = NodeTraversal::NextSkippingChildren(*node);
       fragment.RemoveNode(node);
     } else {
@@ -850,15 +876,18 @@ static bool FollowBlockElementStyle(const Node* node) {
     return false;
   // A block with a placeholder BR appears the same as an empty block.
   if (node->firstChild() == node->lastChild() &&
-      IsHTMLBRElement(node->firstChild())) {
+      IsA<HTMLBRElement>(node->firstChild())) {
     return false;
   }
 
   return IsListItem(node) || IsTableCell(node) ||
-         element->HasTagName(kPreTag) || element->HasTagName(kH1Tag) ||
-         element->HasTagName(kH2Tag) || element->HasTagName(kH3Tag) ||
-         element->HasTagName(kH4Tag) || element->HasTagName(kH5Tag) ||
-         element->HasTagName(kH6Tag);
+         element->HasTagName(html_names::kPreTag) ||
+         element->HasTagName(html_names::kH1Tag) ||
+         element->HasTagName(html_names::kH2Tag) ||
+         element->HasTagName(html_names::kH3Tag) ||
+         element->HasTagName(html_names::kH4Tag) ||
+         element->HasTagName(html_names::kH5Tag) ||
+         element->HasTagName(html_names::kH6Tag);
 }
 
 // Remove style spans before insertion if they are unnecessary.  It's faster
@@ -866,7 +895,7 @@ static bool FollowBlockElementStyle(const Node* node) {
 static void HandleStyleSpansBeforeInsertion(ReplacementFragment& fragment,
                                             const Position& insertion_pos) {
   Node* top_node = fragment.FirstChild();
-  if (!IsHTMLSpanElement(top_node))
+  if (!IsA<HTMLSpanElement>(top_node))
     return;
 
   // Handling the case where we are doing Paste as Quotation or pasting into
@@ -880,7 +909,7 @@ static void HandleStyleSpansBeforeInsertion(ReplacementFragment& fragment,
   // Remove style spans to follow the styles of parent block element when
   // |fragment| becomes a part of it. See bugs http://crbug.com/226941 and
   // http://crbug.com/335955.
-  HTMLSpanElement* wrapping_style_span = ToHTMLSpanElement(top_node);
+  auto* wrapping_style_span = To<HTMLSpanElement>(top_node);
   const Node* node = insertion_pos.AnchorNode();
   // |node| can be an inline element like <br> under <li>
   // e.g.) editing/execCommand/switch-list-type.html
@@ -902,7 +931,7 @@ static void HandleStyleSpansBeforeInsertion(ReplacementFragment& fragment,
 
   // FIXME: This string comparison is a naive way of comparing two styles.
   // We should be taking the diff and check that the diff is empty.
-  if (style_text != wrapping_style_span->getAttribute(kStyleAttr))
+  if (style_text != wrapping_style_span->getAttribute(html_names::kStyleAttr))
     return;
 
   fragment.RemoveNodePreservingChildren(wrapping_style_span);
@@ -984,7 +1013,7 @@ void ReplaceSelectionCommand::MergeEndIfNeeded(EditingState* editing_state) {
 
 static Node* EnclosingInline(Node* node) {
   while (ContainerNode* parent = node->parentNode()) {
-    if (IsBlockFlowElement(*parent) || IsHTMLBodyElement(*parent))
+    if (IsBlockFlowElement(*parent) || IsA<HTMLBodyElement>(*parent))
       return node;
     // Stop if any previous sibling is a block.
     for (Node* sibling = node->previousSibling(); sibling;
@@ -1208,7 +1237,7 @@ void ReplaceSelectionCommand::DoApply(EditingState* editing_state) {
       return;
     // This will leave a br between the split.
     Node* br = EndingVisibleSelection().Start().AnchorNode();
-    DCHECK(IsHTMLBRElement(br)) << br;
+    DCHECK(IsA<HTMLBRElement>(br)) << br;
     // Insert content between the two blockquotes, but remove the br (since it
     // was just a placeholder).
     insertion_pos = Position::InParentBeforeNode(*br);
@@ -1232,7 +1261,7 @@ void ReplaceSelectionCommand::DoApply(EditingState* editing_state) {
   // position as p (since in the case where a br is at the end of a block and
   // collapsed away, there are positions after the br which map to the same
   // visible position as [br, 0]).
-  HTMLBRElement* end_br = ToHTMLBRElementOrNull(
+  auto* end_br = DynamicTo<HTMLBRElement>(
       *MostForwardCaretPosition(insertion_pos).AnchorNode());
   VisiblePosition original_vis_pos_before_end_br;
   if (end_br) {
@@ -1687,8 +1716,9 @@ bool ReplaceSelectionCommand::ShouldPerformSmartReplace() const {
 
   TextControlElement* text_control =
       EnclosingTextControl(PositionAtStartOfInsertedContent().DeepEquivalent());
-  if (IsHTMLInputElement(text_control) &&
-      ToHTMLInputElement(text_control)->type() == input_type_names::kPassword)
+  auto* html_input_element = DynamicTo<HTMLInputElement>(text_control);
+  if (html_input_element &&
+      html_input_element->type() == input_type_names::kPassword)
     return false;  // Disable smart replace for password fields.
 
   return true;
@@ -2046,9 +2076,9 @@ bool ReplaceSelectionCommand::PerformTrivialReplace(
   GetDocument().UpdateStyleAndLayout();
 
   if (node_after_insertion_pos && node_after_insertion_pos->parentNode() &&
-      IsHTMLBRElement(*node_after_insertion_pos) &&
+      IsA<HTMLBRElement>(*node_after_insertion_pos) &&
       ShouldRemoveEndBR(
-          ToHTMLBRElement(node_after_insertion_pos),
+          To<HTMLBRElement>(node_after_insertion_pos),
           VisiblePosition::BeforeNode(*node_after_insertion_pos))) {
     RemoveNodeAndPruneAncestors(node_after_insertion_pos, editing_state);
     if (editing_state->IsAborted())

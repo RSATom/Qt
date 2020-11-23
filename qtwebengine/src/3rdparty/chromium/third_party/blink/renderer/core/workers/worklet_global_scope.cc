@@ -5,6 +5,7 @@
 #include "third_party/blink/renderer/core/workers/worklet_global_scope.h"
 
 #include <memory>
+#include "third_party/blink/public/common/browser_interface_broker_proxy.h"
 #include "third_party/blink/public/platform/task_type.h"
 #include "third_party/blink/renderer/bindings/core/v8/script_source_code.h"
 #include "third_party/blink/renderer/bindings/core/v8/source_location.h"
@@ -75,6 +76,7 @@ WorkletGlobalScope::WorkletGlobalScope(
           creation_params->parent_devtools_token,
           creation_params->v8_cache_options,
           creation_params->worker_clients,
+          std::move(creation_params->content_settings_client),
           std::move(creation_params->web_worker_fetch_context),
           reporting_proxy),
       url_(creation_params->script_url),
@@ -114,6 +116,11 @@ WorkletGlobalScope::WorkletGlobalScope(
 }
 
 WorkletGlobalScope::~WorkletGlobalScope() = default;
+
+BrowserInterfaceBrokerProxy& WorkletGlobalScope::GetBrowserInterfaceBroker() {
+  NOTIMPLEMENTED();
+  return GetEmptyBrowserInterfaceBroker();
+}
 
 bool WorkletGlobalScope::IsMainThreadWorkletGlobalScope() const {
   return thread_type_ == ThreadType::kMainThread;
@@ -221,13 +228,11 @@ void WorkletGlobalScope::FetchAndInvokeScript(
   // moduleURLRecord, moduleResponsesMap, credentialOptions, outsideSettings,
   // and insideSettings when it asynchronously completes."
 
-  Modulator* modulator = Modulator::From(ScriptController()->GetScriptState());
-
   // Step 3 to 5 are implemented in
   // WorkletModuleTreeClient::NotifyModuleTreeLoadFinished.
-  WorkletModuleTreeClient* client =
-      MakeGarbageCollected<WorkletModuleTreeClient>(
-          modulator, std::move(outside_settings_task_runner), pending_tasks);
+  auto* client = MakeGarbageCollected<WorkletModuleTreeClient>(
+      ScriptController()->GetScriptState(),
+      std::move(outside_settings_task_runner), pending_tasks);
 
   // TODO(nhiroki): Pass an appropriate destination defined in each worklet
   // spec (e.g., "paint worklet", "audio worklet") (https://crbug.com/843980,

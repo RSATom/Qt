@@ -27,7 +27,7 @@
 **
 ****************************************************************************/
 
-import QtQuick 2.12
+import QtQuick 2.15
 import HelperWidgets 2.0
 import QtQuick.Layouts 1.12
 
@@ -38,26 +38,26 @@ Column {
         width: parent.width
         SectionLayout {
             Label {
-                text: qsTr("Progressive AA")
-                tooltip: qsTr("Sets the level of progressive antialiasing applied to the scene.")
+                text: qsTr("Antialiasing Mode")
+                tooltip: qsTr("Sets the antialiasing mode applied to the scene.")
             }
             SecondColumnLayout {
                 ComboBox {
                     scope: "SceneEnvironment"
-                    model: ["NoAA", "SSAA", "X2", "X4", "X8"]
-                    backendValue: backendValues.progressiveAAMode
+                    model: ["NoAA", "SSAA", "MSAA", "ProgressiveAA"]
+                    backendValue: backendValues.antialiasingMode
                     Layout.fillWidth: true
                 }
             }
             Label {
-                text: qsTr("Multisample AA")
-                tooltip: qsTr("Sets the level of multisample antialiasing applied to the scene.")
+                text: qsTr("Antialiasing Quality")
+                tooltip: qsTr("Sets the level of antialiasing applied to the scene.")
             }
             SecondColumnLayout {
                 ComboBox {
                     scope: "SceneEnvironment"
-                    model: ["NoAA", "SSAA", "X2", "X4", "X8"]
-                    backendValue: backendValues.multisampleAAMode
+                    model: ["Medium", "High", "VeryHigh"]
+                    backendValue: backendValues.antialiasingQuality
                     Layout.fillWidth: true
                 }
             }
@@ -69,6 +69,20 @@ Column {
                 CheckBox {
                     text: backendValues.temporalAAEnabled.valueToString
                     backendValue: backendValues.temporalAAEnabled
+                    Layout.fillWidth: true
+                }
+            }
+            Label {
+                text: qsTr("Temporal AA Strength")
+                tooltip: qsTr("Sets the amount of temporal antialiasing applied.")
+            }
+            SecondColumnLayout {
+                SpinBox {
+                    maximumValue: 2.0
+                    minimumValue: 0.01
+                    decimals: 2
+                    stepSize: 0.1
+                    backendValue: backendValues.temporalAAStrength
                     Layout.fillWidth: true
                 }
             }
@@ -106,6 +120,22 @@ Column {
                     text: backendValues.depthPrePassEnabled.valueToString
                     backendValue: backendValues.depthPrePassEnabled
                     Layout.fillWidth: true
+                }
+            }
+            Label {
+                text: qsTr("Effect")
+                tooltip: qsTr("A post-processing effect applied to this scene.")
+            }
+            SecondColumnLayout {
+                EditableListView {
+                    backendValue: backendValues.effects
+                    model: backendValues.effects.expressionAsList
+                    Layout.fillWidth: true
+                    typeFilter: "QtQuick3D.Effect"
+
+                    onAdd: function(value) { backendValues.effects.idListAdd(value) }
+                    onRemove: function(idx) { backendValues.effects.idListRemove(idx) }
+                    onReplace: function (idx, value) { backendValues.effects.idListReplace(idx, value) }
                 }
             }
         }
@@ -217,7 +247,17 @@ Column {
         caption: qsTr("Image Based Lighting")
         width: parent.width
         SectionLayout {
-            // ### lightProbe
+            Label {
+                text: qsTr("Light Probe")
+                tooltip: qsTr("Defines a texture for overriding or setting an image based lighting texture for use with the skybox of this scene.")
+            }
+            SecondColumnLayout {
+                IdComboBox {
+                    typeFilter: "QtQuick3D.Texture"
+                    Layout.fillWidth: true
+                    backendValue: backendValues.lightProbe
+                }
+            }
             Label {
                 text: qsTr("Probe Brightness")
                 tooltip: qsTr("Sets the amount of light emitted by the light probe.")
@@ -254,6 +294,7 @@ Column {
                     maximumValue: -0.001
                     minimumValue: -1
                     decimals: 3
+                    stepSize: 0.1
                     backendValue: backendValues.probeHorizon
                     Layout.fillWidth: true
                 }

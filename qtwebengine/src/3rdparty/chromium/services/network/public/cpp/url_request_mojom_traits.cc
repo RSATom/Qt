@@ -150,17 +150,28 @@ bool EnumTraits<network::mojom::URLRequestReferrerPolicy,
   return false;
 }
 
+bool StructTraits<network::mojom::TrustedUrlRequestParamsDataView,
+                  network::ResourceRequest::TrustedParams>::
+    Read(network::mojom::TrustedUrlRequestParamsDataView data,
+         network::ResourceRequest::TrustedParams* out) {
+  if (!data.ReadNetworkIsolationKey(&out->network_isolation_key))
+    return false;
+  out->update_network_isolation_key_on_redirect =
+      data.update_network_isolation_key_on_redirect();
+  out->disable_secure_dns = data.disable_secure_dns();
+  out->has_user_activation = data.has_user_activation();
+  return true;
+}
+
 bool StructTraits<
     network::mojom::URLRequestDataView,
     network::ResourceRequest>::Read(network::mojom::URLRequestDataView data,
                                     network::ResourceRequest* out) {
   if (!data.ReadMethod(&out->method) || !data.ReadUrl(&out->url) ||
       !data.ReadSiteForCookies(&out->site_for_cookies) ||
-      !data.ReadFirstPartyUrl(&out->first_party_url) ||
-      !data.ReadTopFrameOrigin(&out->top_frame_origin) ||
-      !data.ReadTrustedNetworkIsolationKey(
-          &out->trusted_network_isolation_key) ||
+      !data.ReadTrustedParams(&out->trusted_params) ||
       !data.ReadRequestInitiator(&out->request_initiator) ||
+      !data.ReadIsolatedWorldOrigin(&out->isolated_world_origin) ||
       !data.ReadReferrer(&out->referrer) ||
       !data.ReadReferrerPolicy(&out->referrer_policy) ||
       !data.ReadHeaders(&out->headers) ||
@@ -179,19 +190,14 @@ bool StructTraits<
           &out->custom_proxy_post_cache_headers) ||
       !data.ReadFetchWindowId(&out->fetch_window_id) ||
       !data.ReadDevtoolsRequestId(&out->devtools_request_id) ||
-      !data.ReadAppcacheHostId(&out->appcache_host_id)) {
+      !data.ReadRecursivePrefetchToken(&out->recursive_prefetch_token)) {
     return false;
   }
 
-  out->update_network_isolation_key_on_redirect =
-      data.update_network_isolation_key_on_redirect();
   out->attach_same_site_cookies = data.attach_same_site_cookies();
   out->update_first_party_url_on_redirect =
       data.update_first_party_url_on_redirect();
-  out->is_prerendering = data.is_prerendering();
   out->load_flags = data.load_flags();
-  out->allow_credentials = data.allow_credentials();
-  out->plugin_child_id = data.plugin_child_id();
   out->resource_type = data.resource_type();
   out->should_reset_appcache = data.should_reset_appcache();
   out->is_external_request = data.is_external_request();
@@ -208,16 +214,13 @@ bool StructTraits<
   out->render_frame_id = data.render_frame_id();
   out->is_main_frame = data.is_main_frame();
   out->transition_type = data.transition_type();
-  out->allow_download = data.allow_download();
   out->report_raw_headers = data.report_raw_headers();
   out->previews_state = data.previews_state();
-  out->initiated_in_secure_context = data.initiated_in_secure_context();
   out->upgrade_if_insecure = data.upgrade_if_insecure();
   out->is_revalidating = data.is_revalidating();
-  out->should_also_use_factory_bound_origin_for_cors =
-      data.should_also_use_factory_bound_origin_for_cors();
   out->is_signed_exchange_prefetch_cache_enabled =
       data.is_signed_exchange_prefetch_cache_enabled();
+  out->obey_origin_policy = data.obey_origin_policy();
   return true;
 }
 
@@ -246,13 +249,39 @@ bool StructTraits<network::mojom::DataElementDataView, network::DataElement>::
       return false;
   }
   out->type_ = data.type();
-  out->data_pipe_getter_ =
-      data.TakeDataPipeGetter<network::mojom::DataPipeGetterPtrInfo>();
+  out->data_pipe_getter_ = data.TakeDataPipeGetter<
+      mojo::PendingRemote<network::mojom::DataPipeGetter>>();
   out->chunked_data_pipe_getter_ = data.TakeChunkedDataPipeGetter<
-      network::mojom::ChunkedDataPipeGetterPtrInfo>();
+      mojo::PendingRemote<network::mojom::ChunkedDataPipeGetter>>();
   out->offset_ = data.offset();
   out->length_ = data.length();
   return true;
+}
+
+// static
+const GURL&
+StructTraits<network::mojom::URLRequestDataView, network::ResourceRequest>::
+    referrer(const network::ResourceRequest& request) {
+  // TODO(crbug.com/912680, crbug.com/1021908): Move this method back inline,
+  // and move the debugging logic back to NetworkServiceNetworkDelegate when the
+  // current cause of referrer mismatches is found.
+  if (request.referrer !=
+      net::URLRequestJob::ComputeReferrerForPolicy(
+          request.referrer_policy, request.referrer, request.url)) {
+    // Record information to help debug issues like http://crbug.com/422871.
+    if (request.url.SchemeIsHTTPOrHTTPS()) {
+      auto referrer_policy = request.referrer_policy;
+      base::debug::Alias(&referrer_policy);
+      DEBUG_ALIAS_FOR_GURL(target_buf, request.url);
+      DEBUG_ALIAS_FOR_GURL(referrer_buf, request.referrer);
+      DEBUG_ALIAS_FOR_GURL(
+          initiator_buf,
+          request.request_initiator.value_or(url::Origin()).GetURL())
+      base::debug::DumpWithoutCrashing();
+    }
+  }
+
+  return request.referrer;
 }
 
 }  // namespace mojo

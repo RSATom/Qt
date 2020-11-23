@@ -50,13 +50,16 @@
 
 #include "touchsettings.h"
 #include <QtGui/QGuiApplication>
-#include <QtGui/QOpenGLContext>
+#include <QOpenGLContext>
 #include <QtQuick/QQuickView>
 #include <QtQuick/QQuickItem>
 #include <QtQml/QQmlContext>
 
 int main(int argc, char* argv[])
 {
+#ifdef Q_OS_ANDROID
+    QGuiApplication::setAttribute(Qt::AA_EnableHighDpiScaling);
+#endif
     QGuiApplication app(argc, argv);
 
     QSurfaceFormat format;

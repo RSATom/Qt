@@ -40,7 +40,8 @@ class PromptAction : public Action {
   void UpdateUserActions();
   bool HasAutoSelect();
   void CheckAutoSelect();
-  void OnAutoSelectElementExists(int choice_index, bool exists);
+  void OnAutoSelectElementExists(int choice_index,
+                                 const ClientStatus& element_status);
   void OnAutoSelectDone();
   void OnSuggestionChosen(int choice_index);
 
@@ -69,7 +70,7 @@ class PromptAction : public Action {
 
   std::unique_ptr<base::RepeatingTimer> timer_;
 
-  base::WeakPtrFactory<PromptAction> weak_ptr_factory_;
+  base::WeakPtrFactory<PromptAction> weak_ptr_factory_{this};
 
   DISALLOW_COPY_AND_ASSIGN(PromptAction);
 };

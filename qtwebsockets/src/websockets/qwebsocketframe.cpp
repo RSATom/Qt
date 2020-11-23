@@ -64,123 +64,26 @@ QT_BEGIN_NAMESPACE
 /*!
     \internal
  */
-QWebSocketFrame::QWebSocketFrame() :
-    m_closeCode(QWebSocketProtocol::CloseCodeNormal),
-    m_closeReason(),
-    m_mask(0),
-    m_opCode(QWebSocketProtocol::OpCodeReservedC),
-    m_length(0),
-    m_payload(),
-    m_isFinalFrame(true),
-    m_rsv1(false),
-    m_rsv2(false),
-    m_rsv3(false),
-    m_isValid(false)
+void QWebSocketFrame::setMaxAllowedFrameSize(quint64 maxAllowedFrameSize)
 {
+    if (maxAllowedFrameSize <= maxFrameSize())
+        m_maxAllowedFrameSize = maxAllowedFrameSize;
 }
 
 /*!
     \internal
  */
-QWebSocketFrame::QWebSocketFrame(const QWebSocketFrame &other) :
-    m_closeCode(other.m_closeCode),
-    m_closeReason(other.m_closeReason),
-    m_mask(other.m_mask),
-    m_opCode(other.m_opCode),
-    m_length(other.m_length),
-    m_payload(other.m_payload),
-    m_isFinalFrame(other.m_isFinalFrame),
-    m_rsv1(other.m_rsv1),
-    m_rsv2(other.m_rsv2),
-    m_rsv3(other.m_rsv3),
-    m_isValid(other.m_isValid),
-    m_processingState(other.m_processingState)
+quint64 QWebSocketFrame::maxAllowedFrameSize() const
 {
+    return m_maxAllowedFrameSize;
 }
 
 /*!
     \internal
  */
-QWebSocketFrame &QWebSocketFrame::operator =(const QWebSocketFrame &other)
+quint64 QWebSocketFrame::maxFrameSize()
 {
-    m_closeCode = other.m_closeCode;
-    m_closeReason = other.m_closeReason;
-    m_isFinalFrame = other.m_isFinalFrame;
-    m_mask = other.m_mask;
-    m_rsv1 = other.m_rsv1;
-    m_rsv2 = other.m_rsv2;
-    m_rsv3 = other.m_rsv3;
-    m_opCode = other.m_opCode;
-    m_length = other.m_length;
-    m_payload = other.m_payload;
-    m_isValid = other.m_isValid;
-    m_processingState = other.m_processingState;
-
-    return *this;
-}
-
-#ifdef Q_COMPILER_RVALUE_REFS
-/*!
-    \internal
- */
-QWebSocketFrame::QWebSocketFrame(QWebSocketFrame &&other) :
-    m_closeCode(qMove(other.m_closeCode)),
-    m_closeReason(qMove(other.m_closeReason)),
-    m_mask(qMove(other.m_mask)),
-    m_opCode(qMove(other.m_opCode)),
-    m_length(qMove(other.m_length)),
-    m_payload(qMove(other.m_payload)),
-    m_isFinalFrame(qMove(other.m_isFinalFrame)),
-    m_rsv1(qMove(other.m_rsv1)),
-    m_rsv2(qMove(other.m_rsv2)),
-    m_rsv3(qMove(other.m_rsv3)),
-    m_isValid(qMove(other.m_isValid)),
-    m_processingState(qMove(other.m_processingState))
-{}
-
-
-/*!
-    \internal
- */
-QWebSocketFrame &QWebSocketFrame::operator =(QWebSocketFrame &&other)
-{
-    qSwap(m_closeCode, other.m_closeCode);
-    qSwap(m_closeReason, other.m_closeReason);
-    qSwap(m_isFinalFrame, other.m_isFinalFrame);
-    qSwap(m_mask, other.m_mask);
-    qSwap(m_rsv1, other.m_rsv1);
-    qSwap(m_rsv2, other.m_rsv2);
-    qSwap(m_rsv3, other.m_rsv3);
-    qSwap(m_opCode, other.m_opCode);
-    qSwap(m_length, other.m_length);
-    qSwap(m_payload, other.m_payload);
-    qSwap(m_isValid, other.m_isValid);
-    qSwap(m_processingState, other.m_processingState);
-
-    return *this;
-}
-
-#endif
-
-/*!
-    \internal
- */
-void QWebSocketFrame::swap(QWebSocketFrame &other)
-{
-    if (&other != this) {
-        qSwap(m_closeCode, other.m_closeCode);
-        qSwap(m_closeReason, other.m_closeReason);
-        qSwap(m_isFinalFrame, other.m_isFinalFrame);
-        qSwap(m_mask, other.m_mask);
-        qSwap(m_rsv1, other.m_rsv1);
-        qSwap(m_rsv2, other.m_rsv2);
-        qSwap(m_rsv3, other.m_rsv3);
-        qSwap(m_opCode, other.m_opCode);
-        qSwap(m_length, other.m_length);
-        qSwap(m_payload, other.m_payload);
-        qSwap(m_isValid, other.m_isValid);
-        qSwap(m_processingState, other.m_processingState);
-    }
+    return MAX_FRAME_SIZE_IN_BYTES;
 }
 
 /*!
@@ -476,7 +379,7 @@ QWebSocketFrame::ProcessingState QWebSocketFrame::readFramePayload(QIODevice *pI
     if (!m_length)
         return PS_DISPATCH_RESULT;
 
-    if (Q_UNLIKELY(m_length > MAX_FRAME_SIZE_IN_BYTES)) {
+    if (Q_UNLIKELY(m_length > maxAllowedFrameSize())) {
         setError(QWebSocketProtocol::CloseCodeTooMuchData, tr("Maximum framesize exceeded."));
         return PS_DISPATCH_RESULT;
     }

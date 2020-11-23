@@ -56,7 +56,6 @@ bool GestureEventQueue::DebounceOrForwardEvent(
 
 bool GestureEventQueue::PassToFlingController(
     const GestureEventWithLatencyInfo& gesture_event) {
-  TRACE_EVENT0("input", "GestureEventQueue::QueueEvent");
   return fling_controller_.ObserveAndMaybeConsumeGestureEvent(gesture_event);
 }
 
@@ -224,6 +223,13 @@ void GestureEventQueue::SendScrollEndingEventsNow() {
       ForwardGestureEvent(*it);
     }
   }
+}
+
+void GestureEventQueue::OnWheelEventAck(
+    const MouseWheelEventWithLatencyInfo& event,
+    InputEventAckSource ack_source,
+    InputEventAckState ack_result) {
+  fling_controller_.OnWheelEventAck(event, ack_source, ack_result);
 }
 
 }  // namespace content

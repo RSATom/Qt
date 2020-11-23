@@ -105,11 +105,12 @@ void tst_qtattributionsscanner::test()
         dir = QFileInfo(dir).absolutePath();
 
     QProcess proc;
-    QString command = m_cmd + " " + dir + " --output-format json";
+    const QStringList arguments{dir, "--output-format", "json"};
+    QString command = m_cmd + ' ' + arguments.join(' ');
     QProcessEnvironment env = QProcessEnvironment::systemEnvironment();
     env.insert("QT_ATTRIBUTIONSSCANNER_TEST", "1");
     proc.setProcessEnvironment(env);
-    proc.start(command, QIODevice::ReadWrite | QIODevice::Text);
+    proc.start(m_cmd, arguments, QIODevice::ReadWrite | QIODevice::Text);
 
     QVERIFY2(proc.waitForStarted(), qPrintable(command + QLatin1String(" :") + proc.errorString()));
     QVERIFY2(proc.waitForFinished(30000), qPrintable(command));
@@ -122,7 +123,7 @@ void tst_qtattributionsscanner::test()
 
     { // compare error output
         QByteArray stdErr = proc.readAllStandardError();
-        stdErr.replace(QDir::separator(), "/");
+        stdErr.replace(QDir::separator().toLatin1(), "/");
 
         QByteArray expectedErrorOutput;
         readExpectedFile(dir, stderr_file, &expectedErrorOutput);

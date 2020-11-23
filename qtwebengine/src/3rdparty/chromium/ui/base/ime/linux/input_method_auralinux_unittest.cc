@@ -215,7 +215,12 @@ class TextInputClientForTesting : public DummyTextInputClient {
 
   bool HasCompositionText() const override { return !composition_text.empty(); }
 
-  void ConfirmCompositionText() override {
+  void ConfirmCompositionText(bool keep_selection) override {
+    // TODO(b/134473433) Modify this function so that when keep_selection is
+    // true, the selection is not changed when text committed
+    if (keep_selection) {
+      NOTIMPLEMENTED_LOG_ONCE();
+    }
     TestResult::GetInstance()->RecordAction(
         base::ASCIIToUTF16("compositionend"));
     TestResult::GetInstance()->RecordAction(base::ASCIIToUTF16("textinput:") +
@@ -338,7 +343,8 @@ TEST_F(InputMethodAuraLinuxTest, BasicSyncModeTest) {
   test_result_->Verify();
 
   input_method_auralinux_->DetachTextInputClient(client.get());
-  client.reset(new TextInputClientForTesting(TEXT_INPUT_TYPE_PASSWORD));
+  client =
+      std::make_unique<TextInputClientForTesting>(TEXT_INPUT_TYPE_PASSWORD);
   context_simple_->SetSyncMode(true);
   context_simple_->SetEatKey(false);
 
@@ -371,7 +377,8 @@ TEST_F(InputMethodAuraLinuxTest, BasicAsyncModeTest) {
   test_result_->Verify();
 
   input_method_auralinux_->DetachTextInputClient(client.get());
-  client.reset(new TextInputClientForTesting(TEXT_INPUT_TYPE_PASSWORD));
+  client =
+      std::make_unique<TextInputClientForTesting>(TEXT_INPUT_TYPE_PASSWORD);
   context_simple_->SetSyncMode(false);
   context_simple_->SetEatKey(false);
 

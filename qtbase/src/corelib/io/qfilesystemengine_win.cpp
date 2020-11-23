@@ -1,6 +1,6 @@
 /****************************************************************************
 **
-** Copyright (C) 2016 The Qt Company Ltd.
+** Copyright (C) 2020 The Qt Company Ltd.
 ** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the QtCore module of the Qt Toolkit.
@@ -41,6 +41,7 @@
 #include "qoperatingsystemversion.h"
 #include "qplatformdefs.h"
 #include "qsysinfo.h"
+#include "qscopeguard.h"
 #include "private/qabstractfileengine_p.h"
 #include "private/qfsfileengine_p.h"
 #include <private/qsystemlibrary_p.h>
@@ -59,6 +60,8 @@
 #include <objbase.h>
 #ifndef Q_OS_WINRT
 #  include <shlobj.h>
+#  include <shobjidl.h>
+#  include <shellapi.h>
 #  include <lm.h>
 #  include <accctrl.h>
 #endif
@@ -391,7 +394,7 @@ static QString readLink(const QFileSystemEntry &link)
 static bool uncShareExists(const QString &server)
 {
     // This code assumes the UNC path is always like \\?\UNC\server...
-    const QVector<QStringRef> parts = server.splitRef(QLatin1Char('\\'), QString::SkipEmptyParts);
+    const QVector<QStringRef> parts = server.splitRef(QLatin1Char('\\'), Qt::SkipEmptyParts);
     if (parts.count() >= 3) {
         QStringList shares;
         if (QFileSystemEngine::uncListSharesOnServer(QLatin1String("\\\\") + parts.at(2), &shares))
@@ -421,6 +424,104 @@ static inline bool getFindData(QString path, WIN32_FIND_DATA &findData)
 
     return false;
 }
+
+#if defined(__IFileOperation_INTERFACE_DEFINED__)
+class FileOperationProgressSink : public IFileOperationProgressSink
+{
+public:
+    FileOperationProgressSink()
+    : ref(1)
+    {}
+    virtual ~FileOperationProgressSink() {}
+
+    ULONG STDMETHODCALLTYPE AddRef()
+    {
+        return ++ref;
+    }
+    ULONG STDMETHODCALLTYPE Release()
+    {
+        if (--ref == 0) {
+            delete this;
+            return 0;
+        }
+        return ref;
+    }
+    HRESULT STDMETHODCALLTYPE QueryInterface(REFIID iid, void **ppvObject)
+    {
+        if (!ppvObject)
+            return E_POINTER;
+
+        *ppvObject = nullptr;
+
+        if (iid == __uuidof(IUnknown)) {
+            *ppvObject = static_cast<IUnknown*>(this);
+        } else if (iid == __uuidof(IFileOperationProgressSink)) {
+            *ppvObject = static_cast<IFileOperationProgressSink*>(this);
+        }
+
+        if (*ppvObject) {
+            AddRef();
+            return S_OK;
+        }
+
+        return E_NOINTERFACE;
+    }
+
+    HRESULT STDMETHODCALLTYPE StartOperations()
+    { return S_OK; }
+    HRESULT STDMETHODCALLTYPE FinishOperations(HRESULT)
+    { return S_OK; }
+    HRESULT STDMETHODCALLTYPE PreRenameItem(DWORD, IShellItem *, LPCWSTR)
+    { return S_OK; }
+    HRESULT STDMETHODCALLTYPE PostRenameItem(DWORD, IShellItem *, LPCWSTR, HRESULT, IShellItem *)
+    { return S_OK; }
+    HRESULT STDMETHODCALLTYPE PreMoveItem(DWORD, IShellItem *, IShellItem *, LPCWSTR)
+    { return S_OK; }
+    HRESULT STDMETHODCALLTYPE PostMoveItem(DWORD, IShellItem *, IShellItem *, LPCWSTR, HRESULT,
+                                           IShellItem *)
+    { return S_OK; }
+    HRESULT STDMETHODCALLTYPE PreCopyItem(DWORD, IShellItem *, IShellItem *, LPCWSTR )
+    { return S_OK; }
+    HRESULT STDMETHODCALLTYPE PostCopyItem(DWORD, IShellItem *, IShellItem *, LPCWSTR, HRESULT,
+                                           IShellItem *)
+    { return S_OK; }
+    HRESULT STDMETHODCALLTYPE PreDeleteItem(DWORD dwFlags, IShellItem *)
+    {
+        // stop the operation if the file will be deleted rather than trashed
+        return (dwFlags & TSF_DELETE_RECYCLE_IF_POSSIBLE) ? S_OK : E_FAIL;
+    }
+    HRESULT STDMETHODCALLTYPE PostDeleteItem(DWORD /* dwFlags */, IShellItem * /* psiItem */,
+                                             HRESULT /* hrDelete */, IShellItem *psiNewlyCreated)
+    {
+        if (psiNewlyCreated) {
+            wchar_t *pszName = nullptr;
+            psiNewlyCreated->GetDisplayName(SIGDN_FILESYSPATH, &pszName);
+            if (pszName) {
+                targetPath = QString::fromWCharArray(pszName);
+                CoTaskMemFree(pszName);
+            }
+        }
+        return S_OK;
+    }
+    HRESULT STDMETHODCALLTYPE PreNewItem(DWORD, IShellItem *, LPCWSTR)
+    { return S_OK; }
+    HRESULT STDMETHODCALLTYPE PostNewItem(DWORD, IShellItem *, LPCWSTR, LPCWSTR, DWORD, HRESULT,
+                                          IShellItem *)
+    { return S_OK; }
+    HRESULT STDMETHODCALLTYPE UpdateProgress(UINT,UINT)
+    { return S_OK; }
+    HRESULT STDMETHODCALLTYPE ResetTimer()
+    { return S_OK; }
+    HRESULT STDMETHODCALLTYPE PauseTimer()
+    { return S_OK; }
+    HRESULT STDMETHODCALLTYPE ResumeTimer()
+    { return S_OK; }
+
+    QString targetPath;
+private:
+    ULONG ref;
+};
+#endif
 
 bool QFileSystemEngine::uncListSharesOnServer(const QString &server, QStringList *list)
 {
@@ -1045,13 +1146,15 @@ bool QFileSystemEngine::fillMetaData(const QFileSystemEntry &entry, QFileSystemM
         if (ok) {
             data.fillFromFindData(findData, false, fname.isDriveRoot());
         } else {
-            if (!tryFindFallback(fname, data))
-                if (!tryDriveUNCFallback(fname, data)) {
+            const DWORD lastError = GetLastError();
+            if (lastError == ERROR_LOGON_FAILURE || lastError == ERROR_BAD_NETPATH // disconnected drive
+                || (!tryFindFallback(fname, data) && !tryDriveUNCFallback(fname, data))) {
+                data.clearFlags();
 #ifndef Q_OS_WINRT
-                    SetErrorMode(oldmode);
+                SetErrorMode(oldmode);
 #endif
-                    return false;
-                }
+                return false;
+            }
         }
 #ifndef Q_OS_WINRT
         SetErrorMode(oldmode);
@@ -1123,67 +1226,62 @@ static bool isDirPath(const QString &dirPath, bool *existed)
     return fileAttrib & FILE_ATTRIBUTE_DIRECTORY;
 }
 
+// NOTE: if \a shouldMkdirFirst is false, we assume the caller did try to mkdir
+// before calling this function.
+static bool createDirectoryWithParents(const QString &nativeName, bool shouldMkdirFirst = true)
+{
+    const auto isUNCRoot = [](const QString &nativeName) {
+        return nativeName.startsWith(QLatin1String("\\\\")) && nativeName.count(QDir::separator()) <= 3;
+    };
+    const auto isDriveName = [](const QString &nativeName) {
+        return nativeName.size() == 2 && nativeName.at(1) == QLatin1Char(':');
+    };
+    const auto isDir = [](const QString &nativeName) {
+        bool exists = false;
+        return isDirPath(nativeName, &exists) && exists;
+    };
+    // Do not try to mkdir a UNC root path or a drive letter.
+    if (isUNCRoot(nativeName) || isDriveName(nativeName))
+        return false;
+
+    if (shouldMkdirFirst) {
+        if (mkDir(nativeName))
+            return true;
+    }
+
+    const int backSlash = nativeName.lastIndexOf(QDir::separator());
+    if (backSlash < 1)
+        return false;
+
+    const QString parentNativeName = nativeName.left(backSlash);
+    if (!createDirectoryWithParents(parentNativeName))
+        return false;
+
+    // try again
+    if (mkDir(nativeName))
+        return true;
+    return isDir(nativeName);
+}
+
 //static
 bool QFileSystemEngine::createDirectory(const QFileSystemEntry &entry, bool createParents)
 {
     QString dirName = entry.filePath();
     Q_CHECK_FILE_NAME(dirName, false);
 
-    if (createParents) {
-        dirName = QDir::toNativeSeparators(QDir::cleanPath(dirName));
-        // We spefically search for / so \ would break it..
-        int oldslash = -1;
-        if (dirName.startsWith(QLatin1String("\\\\"))) {
-            // Don't try to create the root path of a UNC path;
-            // CreateDirectory() will just return ERROR_INVALID_NAME.
-            for (int i = 0; i < dirName.size(); ++i) {
-                if (dirName.at(i) != QDir::separator()) {
-                    oldslash = i;
-                    break;
-                }
-            }
-            if (oldslash != -1)
-                oldslash = dirName.indexOf(QDir::separator(), oldslash);
-        } else if (dirName.size() > 2
-                && dirName.at(1) == QLatin1Char(':')) {
-            // Don't try to call mkdir with just a drive letter
-            oldslash = 2;
-        }
-        for (int slash=0; slash != -1; oldslash = slash) {
-            slash = dirName.indexOf(QDir::separator(), oldslash+1);
-            if (slash == -1) {
-                if (oldslash == dirName.length())
-                    break;
-                slash = dirName.length();
-            }
-            if (slash) {
-                DWORD lastError;
-                QString chunk = dirName.left(slash);
-                if (!mkDir(chunk, &lastError)) {
-                    if (lastError == ERROR_ALREADY_EXISTS || lastError == ERROR_ACCESS_DENIED) {
-                        bool existed = false;
-                        if (isDirPath(chunk, &existed) && existed)
-                            continue;
-#ifdef Q_OS_WINRT
-                        static QThreadStorage<QString> dataLocation;
-                        if (!dataLocation.hasLocalData())
-                            dataLocation.setLocalData(QDir::toNativeSeparators(QStandardPaths::writableLocation(QStandardPaths::DataLocation)));
-                        static QThreadStorage<QString> tempLocation;
-                        if (!tempLocation.hasLocalData())
-                            tempLocation.setLocalData(QDir::toNativeSeparators(QStandardPaths::writableLocation(QStandardPaths::TempLocation)));
-                        // We try to create something outside the sandbox, which is forbidden
-                        // However we could still try to pass into the sandbox
-                        if (dataLocation.localData().startsWith(chunk) || tempLocation.localData().startsWith(chunk))
-                            continue;
-#endif
-                    }
-                    return false;
-                }
-            }
-        }
+    dirName = QDir::toNativeSeparators(QDir::cleanPath(dirName));
+
+    // try to mkdir this directory
+    DWORD lastError;
+    if (mkDir(dirName, &lastError))
         return true;
-    }
-    return mkDir(entry.filePath());
+    // mkpath should return true, if the directory already exists, mkdir false.
+    if (!createParents)
+        return false;
+    if (lastError == ERROR_ALREADY_EXISTS)
+        return isDirPath(dirName, nullptr);
+
+    return createDirectoryWithParents(dirName, false);
 }
 
 //static
@@ -1434,6 +1532,103 @@ bool QFileSystemEngine::removeFile(const QFileSystemEntry &entry, QSystemError &
     if(!ret)
         error = QSystemError(::GetLastError(), QSystemError::NativeError);
     return ret;
+}
+
+/*
+    If possible, we use the IFileOperation implementation, which allows us to determine
+    the location of the object in the trash.
+    If not (likely on mingw), we fall back to the old API, which won't allow us to know
+    that.
+*/
+//static
+bool QFileSystemEngine::moveFileToTrash(const QFileSystemEntry &source,
+                                        QFileSystemEntry &newLocation, QSystemError &error)
+{
+#ifndef Q_OS_WINRT
+    // we need the "display name" of the file, so can't use nativeAbsoluteFilePath
+    const QString sourcePath = QDir::toNativeSeparators(absoluteName(source).filePath());
+
+    /*
+        Windows 7 insists on showing confirmation dialogs and ignores the respective
+        flags set on IFileOperation. Fall back to SHFileOperation, even if it doesn't
+        give us the new location of the file.
+    */
+    if (QOperatingSystemVersion::current() > QOperatingSystemVersion::Windows7) {
+#  if defined(__IFileOperation_INTERFACE_DEFINED__)
+        CoInitialize(NULL);
+        IFileOperation *pfo = nullptr;
+        IShellItem *deleteItem = nullptr;
+        FileOperationProgressSink *sink = nullptr;
+        HRESULT hres = E_FAIL;
+
+        auto coUninitialize = qScopeGuard([&](){
+            if (sink)
+                sink->Release();
+            if (deleteItem)
+                deleteItem->Release();
+            if (pfo)
+                pfo->Release();
+            CoUninitialize();
+            if (!SUCCEEDED(hres))
+                error = QSystemError(hres, QSystemError::NativeError);
+        });
+
+        hres = CoCreateInstance(CLSID_FileOperation, nullptr, CLSCTX_ALL, IID_PPV_ARGS(&pfo));
+        if (!pfo)
+            return false;
+        pfo->SetOperationFlags(FOF_ALLOWUNDO | FOFX_RECYCLEONDELETE | FOF_NOCONFIRMATION
+                            | FOF_SILENT | FOF_NOERRORUI);
+        hres = SHCreateItemFromParsingName(reinterpret_cast<const wchar_t*>(sourcePath.utf16()),
+                                        nullptr, IID_PPV_ARGS(&deleteItem));
+        if (!deleteItem)
+            return false;
+        sink = new FileOperationProgressSink;
+        hres = pfo->DeleteItem(deleteItem, static_cast<IFileOperationProgressSink*>(sink));
+        if (!SUCCEEDED(hres))
+            return false;
+        hres = pfo->PerformOperations();
+        if (!SUCCEEDED(hres))
+            return false;
+        newLocation = QFileSystemEntry(sink->targetPath);
+
+#  endif // no IFileOperation in SDK (mingw, likely) - fall back to SHFileOperation
+    } else {
+        // double null termination needed, so can't use QString::utf16
+        QVarLengthArray<wchar_t, MAX_PATH + 1> winFile(sourcePath.length() + 2);
+        sourcePath.toWCharArray(winFile.data());
+        winFile[sourcePath.length()] = wchar_t{};
+        winFile[sourcePath.length() + 1] = wchar_t{};
+
+        SHFILEOPSTRUCTW operation;
+        operation.hwnd = nullptr;
+        operation.wFunc = FO_DELETE;
+        operation.pFrom = winFile.constData();
+        operation.pTo = nullptr;
+        operation.fFlags = FOF_ALLOWUNDO | FOF_NO_UI;
+        operation.fAnyOperationsAborted = FALSE;
+        operation.hNameMappings = nullptr;
+        operation.lpszProgressTitle = nullptr;
+
+        int result = SHFileOperation(&operation);
+        if (result != 0) {
+            error = QSystemError(result, QSystemError::NativeError);
+            return false;
+        }
+        /*
+            This implementation doesn't let us know where the file ended up, even if
+            we would specify FOF_WANTMAPPINGHANDLE | FOF_RENAMEONCOLLISION, as
+            FOF_RENAMEONCOLLISION has no effect unless files are moved, copied, or renamed.
+        */
+        Q_UNUSED(newLocation);
+    }
+    return true;
+
+#else // Q_OS_WINRT
+    Q_UNUSED(source);
+    Q_UNUSED(newLocation);
+    Q_UNUSED(error);
+    return false;
+#endif
 }
 
 //static

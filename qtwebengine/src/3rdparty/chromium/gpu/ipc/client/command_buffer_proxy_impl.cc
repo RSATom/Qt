@@ -38,6 +38,7 @@
 #include "ui/gfx/geometry/size.h"
 #include "ui/gfx/gpu_fence.h"
 #include "ui/gl/gl_bindings.h"
+#include "ui/gl/gpu_preference.h"
 
 #if defined(TOOLKIT_QT)
 // Defined in //content/gpu/gpu_child_thread.cc.
@@ -160,6 +161,7 @@ bool CommandBufferProxyImpl::OnMessageReceived(const IPC::Message& message) {
   IPC_BEGIN_MESSAGE_MAP(CommandBufferProxyImpl, message)
     IPC_MESSAGE_HANDLER(GpuCommandBufferMsg_Destroyed, OnDestroyed);
     IPC_MESSAGE_HANDLER(GpuCommandBufferMsg_ConsoleMsg, OnConsoleMessage);
+    IPC_MESSAGE_HANDLER(GpuCommandBufferMsg_GpuSwitched, OnGpuSwitched);
     IPC_MESSAGE_HANDLER(GpuCommandBufferMsg_SignalAck, OnSignalAck);
     IPC_MESSAGE_HANDLER(GpuCommandBufferMsg_SwapBuffersCompleted,
                         OnSwapBuffersCompleted);
@@ -206,6 +208,12 @@ void CommandBufferProxyImpl::OnConsoleMessage(
   if (gpu_control_client_)
     gpu_control_client_->OnGpuControlErrorMessage(message.message.c_str(),
                                                   message.id);
+}
+
+void CommandBufferProxyImpl::OnGpuSwitched(
+    gl::GpuPreference active_gpu_heuristic) {
+  if (gpu_control_client_)
+    gpu_control_client_->OnGpuSwitched(active_gpu_heuristic);
 }
 
 void CommandBufferProxyImpl::AddDeletionObserver(DeletionObserver* observer) {

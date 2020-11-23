@@ -17,9 +17,9 @@
 #include "components/viz/common/surfaces/surface_range.h"
 #include "components/viz/common/viz_common_export.h"
 #include "third_party/skia/include/core/SkColor.h"
-#include "ui/gfx/geometry/rect.h"
 #include "ui/gfx/geometry/size_f.h"
 #include "ui/gfx/geometry/vector2d_f.h"
+#include "ui/gfx/overlay_transform.h"
 #include "ui/latency/latency_info.h"
 
 #if defined(OS_ANDROID)
@@ -135,10 +135,10 @@ class VIZ_COMMON_EXPORT CompositorFrameMetadata {
   float min_page_scale_factor = 0.f;
   gfx::SizeF root_layer_size;
 
-  // Used to position the location top bar and page content, whose precise
-  // position is computed by the renderer compositor.
-  float top_controls_height = 0.f;
-  float top_controls_shown_ratio = 0.f;
+  // The visible height of the top-controls. If the value is not set, then the
+  // visible height should be the same as in the latest submitted frame with a
+  // value set.
+  base::Optional<float> top_controls_visible_height;
 
   // The time at which the LocalSurfaceId used to submit this CompositorFrame
   // was allocated.
@@ -146,25 +146,9 @@ class VIZ_COMMON_EXPORT CompositorFrameMetadata {
 
   base::Optional<base::TimeDelta> preferred_frame_interval;
 
-  // Union of visible rects of MirrorLayers in the frame, used to force damage
-  // on the surface.
-  // TODO(crbug/987725): This is a workaround and should be removed when proper
-  // damage calculation is implemented in SurfaceAggregator.
-  gfx::Rect mirror_rect;
-
-#if defined(OS_ANDROID)
-  float max_page_scale_factor = 0.f;
-  bool root_overflow_y_hidden = false;
-
-  // Used to position Android bottom bar, whose position is computed by the
-  // renderer compositor.
-  float bottom_controls_height = 0.f;
-  float bottom_controls_shown_ratio = 0.f;
-
-  // Provides selection region updates relative to the current viewport. If the
-  // selection is empty or otherwise unused, the bound types will indicate such.
-  Selection<gfx::SelectionBound> selection;
-#endif  // defined(OS_ANDROID)
+  // Display transform hint when the frame is generated. Note this is only
+  // applicable to frames of the root surface.
+  gfx::OverlayTransform display_transform_hint = gfx::OVERLAY_TRANSFORM_NONE;
 
  private:
   CompositorFrameMetadata(const CompositorFrameMetadata& other);

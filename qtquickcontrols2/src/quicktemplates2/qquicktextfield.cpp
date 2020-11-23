@@ -503,7 +503,7 @@ void QQuickTextField::setBackground(QQuickItem *background)
     }
 
     QQuickControlPrivate::removeImplicitSizeListener(d->background, d, QQuickControlPrivate::ImplicitSizeChanges | QQuickItemPrivate::Geometry);
-    delete d->background;
+    QQuickControlPrivate::hideOldItem(d->background);
     d->background = background;
 
     if (background) {

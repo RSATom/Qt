@@ -28,6 +28,7 @@ class Widget;
 // This is a views-internal API and should not be used externally.
 // Widget exposes this object as a View*.
 namespace internal {
+class AnnounceTextView;
 class PreEventDispatchHandler;
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -92,6 +93,11 @@ class VIEWS_EXPORT RootView : public View,
   void DeviceScaleFactorChanged(float old_device_scale_factor,
                                 float new_device_scale_factor);
 
+  // Accessibility -------------------------------------------------------------
+
+  // Make an announcement through the screen reader, if present.
+  void AnnounceText(const base::string16& text);
+
   // Overridden from FocusTraversable:
   FocusSearch* GetFocusSearch() override;
   FocusTraversable* GetFocusTraversableParent() override;
@@ -107,7 +113,6 @@ class VIEWS_EXPORT RootView : public View,
   const Widget* GetWidget() const override;
   Widget* GetWidget() override;
   bool IsDrawn() const override;
-  void SchedulePaintInRect(const gfx::Rect& rect) override;
   bool OnMousePressed(const ui::MouseEvent& event) override;
   bool OnMouseDragged(const ui::MouseEvent& event) override;
   void OnMouseReleased(const ui::MouseEvent& event) override;
@@ -118,12 +123,14 @@ class VIEWS_EXPORT RootView : public View,
   void SetMouseHandler(View* new_mouse_handler) override;
   void GetAccessibleNodeData(ui::AXNodeData* node_data) override;
   void UpdateParentLayer() override;
+  void Layout() override;
 
  protected:
   // Overridden from View:
   void ViewHierarchyChanged(
       const ViewHierarchyChangedDetails& details) override;
   void VisibilityChanged(View* starting_from, bool is_visible) override;
+  void OnDidSchedulePaint(const gfx::Rect& rect) override;
   void OnPaint(gfx::Canvas* canvas) override;
   View::LayerOffsetData CalculateOffsetToAncestorWithLayer(
       ui::Layer** layer_parent) override;
@@ -232,6 +239,12 @@ class VIEWS_EXPORT RootView : public View,
 
   // Tracks drag state for a view.
   View::DragInfo drag_info_;
+
+  // Accessibility -------------------------------------------------------------
+
+  // Hidden view used to make announcements to the screen reader via an alert or
+  // live region update.
+  AnnounceTextView* announce_view_ = nullptr;
 
   DISALLOW_IMPLICIT_CONSTRUCTORS(RootView);
 };

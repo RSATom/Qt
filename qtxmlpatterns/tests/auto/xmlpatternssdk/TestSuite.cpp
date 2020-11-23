@@ -28,13 +28,12 @@
 
 #include <QFileInfo>
 #include <QVariant>
-#include <QXmlInputSource>
-#include <QXmlSimpleReader>
 #include <QtDebug>
 
 #include "Global.h"
 #include "TestSuiteHandler.h"
 #include "TestSuiteResult.h"
+#include "XmlParseHelper.h"
 #include "XMLWriter.h"
 #include "XSLTTestSuiteHandler.h"
 #include "XSDTestSuiteHandler.h"
@@ -125,8 +124,7 @@ TestSuite *TestSuite::openCatalog(QIODevice *input,
 {
     Q_ASSERT(input);
 
-    QXmlSimpleReader reader;
-    typedef QPatternist::AutoPtr<QXmlDefaultHandler> HandlerPtr;
+    typedef QPatternist::AutoPtr<XmlParseHelper> HandlerPtr;
 
     HandlerPtr loader;
 
@@ -137,12 +135,7 @@ TestSuite *TestSuite::openCatalog(QIODevice *input,
         default: Q_ASSERT(false); break;
     }
 
-    reader.setContentHandler(loader.data());
-
-    QXmlInputSource source(input);
-
-    if(!reader.parse(source))
-    {
+    if (!loader.data()->parse(input)) {
         errorMsg = QString::fromLatin1("Couldn't parse %1").arg(fileName.toString());
         return 0;
     }
@@ -171,32 +164,22 @@ void TestSuite::toXML(XMLWriter &receiver, TestCase *const tc) const
 
     receiver.startDocument();
     /* <test-suite> */
-    QXmlAttributes test_suiteAtts;
-    test_suiteAtts.append(QLatin1String("CatalogDesignDate"), QString(),
-                          QLatin1String("CatalogDesignDate"), m_designDate.toString(Qt::ISODate));
-    test_suiteAtts.append(QLatin1String("version"), QString(),
-                          QLatin1String("version"), m_version);
-    test_suiteAtts.append(QLatin1String("SourceOffsetPath"), QString(),
-                          QLatin1String("SourceOffsetPath"), QString());
-    test_suiteAtts.append(QLatin1String("ResultOffsetPath"), QString(),
-                          QLatin1String("ResultOffsetPath"), QString());
-    test_suiteAtts.append(QLatin1String("XQueryQueryOffsetPath"), QString(),
-                          QLatin1String("XQueryQueryOffsetPath"), QString());
-    test_suiteAtts.append(QLatin1String("QueryXQueryOffsetPath"), QString(),
-                          QLatin1String("QueryXQueryOffsetPath"), QString());
-    test_suiteAtts.append(QLatin1String("XQueryFileExtension"), QString(),
-                          QLatin1String("XQueryFileExtension"), QString());
-    test_suiteAtts.append(QLatin1String("XQueryXFileExtension"), QString(),
-                          QLatin1String("XQueryXFileExtension"), QString());
+    QXmlStreamAttributes test_suiteAtts;
+    test_suiteAtts.append(QLatin1String("CatalogDesignDate"), m_designDate.toString(Qt::ISODate));
+    test_suiteAtts.append(QLatin1String("version"), m_version);
+    test_suiteAtts.append(QLatin1String("SourceOffsetPath"), QString());
+    test_suiteAtts.append(QLatin1String("ResultOffsetPath"), QString());
+    test_suiteAtts.append(QLatin1String("XQueryQueryOffsetPath"), QString());
+    test_suiteAtts.append(QLatin1String("QueryXQueryOffsetPath"), QString());
+    test_suiteAtts.append(QLatin1String("XQueryFileExtension"), QString());
+    test_suiteAtts.append(QLatin1String("XQueryXFileExtension"), QString());
 
     receiver.startPrefixMapping(QString(), Global::xqtsCatalogNS);
     receiver.startElement(QLatin1String("test-suite"), test_suiteAtts);
-    receiver.endPrefixMapping(QString());
 
     /* <test-group> */
-    QXmlAttributes test_groupAtts;
-    test_groupAtts.append(QLatin1String("GeneratedGroupByPatternistSDKRunSuite"), QString(),
-                          QLatin1String("GeneratedGroupByPatternistSDKRunSuite"), QString());
+    QXmlStreamAttributes test_groupAtts;
+    test_groupAtts.append(QLatin1String("GeneratedGroupByPatternistSDKRunSuite"), QString());
     receiver.startElement(QLatin1String("test-group"), test_groupAtts);
 
     /* <GroupInfo> */

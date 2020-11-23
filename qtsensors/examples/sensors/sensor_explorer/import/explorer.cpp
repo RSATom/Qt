@@ -117,7 +117,7 @@ void QSensorExplorer::loadSensors()
 */
 QQmlListProperty<QSensorItem> QSensorExplorer::availableSensors()
 {
-    return QQmlListProperty<QSensorItem>(this,_availableSensors);
+    return QQmlListProperty<QSensorItem>(this, &_availableSensors);
 }
 
 /*

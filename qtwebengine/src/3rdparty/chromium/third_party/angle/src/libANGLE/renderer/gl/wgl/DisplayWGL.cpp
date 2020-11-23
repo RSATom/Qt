@@ -1,5 +1,5 @@
 //
-// Copyright (c) 2015 The ANGLE Project Authors. All rights reserved.
+// Copyright 2015 The ANGLE Project Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 //
@@ -147,7 +147,7 @@ egl::Error DisplayWGL::initializeImpl(egl::Display *display)
     stream << "ANGLE DisplayWGL " << gl::FmtHex(display) << " Intermediate Window Class";
     std::string className = stream.str();
 
-    WNDCLASSA intermediateClassDesc     = {0};
+    WNDCLASSA intermediateClassDesc     = {};
     intermediateClassDesc.style         = CS_OWNDC;
     intermediateClassDesc.lpfnWndProc   = DefWindowProcA;
     intermediateClassDesc.cbClsExtra    = 0;
@@ -706,7 +706,7 @@ egl::Error DisplayWGL::makeCurrent(egl::Surface *drawSurface,
         ContextWGL *contextWGL = GetImplAs<ContextWGL>(context);
         newContext             = contextWGL->getContext();
     }
-    else
+    else if (!mUseDXGISwapChains)
     {
         newContext = 0;
     }

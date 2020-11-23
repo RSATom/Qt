@@ -155,8 +155,6 @@ constexpr struct GamepadInfo {
     {0x0583, 0xb031, kXInputTypeNone},
     // Vetronix Corp.
     {0x05a0, 0x3232, kXInputTypeNone},
-    // Apple, Inc.
-    {0x05ac, 0x3232, kXInputTypeNone},
     // Genesys Logic, Inc.
     {0x05e3, 0x0596, kXInputTypeNone},
     // InterAct, Inc.
@@ -583,6 +581,7 @@ constexpr struct GamepadInfo {
     {0x2dc8, 0x3820, kXInputTypeNone},
     {0x2dc8, 0x9001, kXInputTypeNone},
     {0x2dfa, 0x0001, kXInputTypeNone},
+    {0x2e95, 0x7725, kXInputTypeNone},
     {0x3767, 0x0101, kXInputTypeXbox},
     {0x3820, 0x0009, kXInputTypeNone},
     {0x4c50, 0x5453, kXInputTypeNone},

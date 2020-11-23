@@ -13,8 +13,10 @@
 #include "base/single_thread_task_runner.h"
 #include "components/viz/common/gpu/context_provider.h"
 #include "gpu/ipc/client/gpu_channel_host.h"
+#include "mojo/public/cpp/bindings/pending_receiver.h"
+#include "mojo/public/cpp/bindings/pending_remote.h"
 #include "services/viz/public/cpp/gpu/client_gpu_memory_buffer_manager.h"
-#include "services/viz/public/interfaces/gpu.mojom.h"
+#include "services/viz/public/mojom/gpu.mojom.h"
 
 namespace service_manager {
 class Connector;
@@ -30,6 +32,9 @@ class Gpu : public gpu::GpuChannelEstablishFactory {
       service_manager::Connector* connector,
       const std::string& service_name,
       scoped_refptr<base::SingleThreadTaskRunner> io_task_runner);
+  static std::unique_ptr<Gpu> Create(
+      mojo::PendingRemote<mojom::Gpu> remote,
+      scoped_refptr<base::SingleThreadTaskRunner> io_task_runner);
 
   ~Gpu() override;
 
@@ -39,10 +44,12 @@ class Gpu : public gpu::GpuChannelEstablishFactory {
 
 #if defined(OS_CHROMEOS)
   void CreateJpegDecodeAccelerator(
-      chromeos_camera::mojom::MjpegDecodeAcceleratorRequest jda_request);
+      mojo::PendingReceiver<chromeos_camera::mojom::MjpegDecodeAccelerator>
+          jda_receiver);
 #endif  // defined(OS_CHROMEOS)
   void CreateVideoEncodeAcceleratorProvider(
-      media::mojom::VideoEncodeAcceleratorProviderRequest vea_provider_request);
+      mojo::PendingReceiver<media::mojom::VideoEncodeAcceleratorProvider>
+          vea_provider_receiver);
 
   // gpu::GpuChannelEstablishFactory:
   void EstablishGpuChannel(
@@ -59,7 +66,7 @@ class Gpu : public gpu::GpuChannelEstablishFactory {
   class GpuPtrIO;
   class EstablishRequest;
 
-  Gpu(mojom::GpuPtr gpu_ptr,
+  Gpu(mojo::PendingRemote<mojom::Gpu> gpu_remote,
       scoped_refptr<base::SingleThreadTaskRunner> task_runner);
 
   // Sends a request to establish a gpu channel. If a request is currently

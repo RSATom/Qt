@@ -24,11 +24,13 @@
 #include "content/public/browser/system_connector.h"
 #include "content/public/browser/web_contents.h"
 #include "content/public/browser/webrtc_event_logger.h"
+#include "content/public/common/content_client.h"
 #include "content/public/common/content_switches.h"
 #include "ipc/ipc_platform_file.h"
 #include "media/audio/audio_debug_recording_session.h"
 #include "media/audio/audio_manager.h"
 #include "media/media_buildflags.h"
+#include "mojo/public/cpp/bindings/pending_receiver.h"
 #include "services/audio/public/cpp/debug_recording_session_factory.h"
 #include "services/device/public/mojom/constants.mojom.h"
 #include "services/device/public/mojom/wake_lock_provider.mojom.h"
@@ -256,7 +258,7 @@ void WebRTCInternals::OnUpdatePeerConnection(
 
 void WebRTCInternals::OnAddStandardStats(base::ProcessId pid,
                                          int lid,
-                                         const base::ListValue& value) {
+                                         base::Value value) {
   if (!observers_.might_have_observers())
     return;
 
@@ -264,14 +266,14 @@ void WebRTCInternals::OnAddStandardStats(base::ProcessId pid,
   dict->SetInteger("pid", static_cast<int>(pid));
   dict->SetInteger("lid", lid);
 
-  dict->SetKey("reports", value.Clone());
+  dict->SetKey("reports", std::move(value));
 
   SendUpdate("addStandardStats", std::move(dict));
 }
 
 void WebRTCInternals::OnAddLegacyStats(base::ProcessId pid,
                                        int lid,
-                                       const base::ListValue& value) {
+                                       base::Value value) {
   if (!observers_.might_have_observers())
     return;
 
@@ -279,7 +281,7 @@ void WebRTCInternals::OnAddLegacyStats(base::ProcessId pid,
   dict->SetInteger("pid", static_cast<int>(pid));
   dict->SetInteger("lid", lid);
 
-  dict->SetKey("reports", value.Clone());
+  dict->SetKey("reports", std::move(value));
 
   SendUpdate("addLegacyStats", std::move(dict));
 }
@@ -467,7 +469,7 @@ void WebRTCInternals::SendUpdate(const char* command,
   pending_updates_.push(PendingUpdate(command, std::move(value)));
 
   if (queue_was_empty) {
-    base::PostDelayedTaskWithTraits(
+    base::PostDelayedTask(
         FROM_HERE, {BrowserThread::UI},
         base::BindOnce(&WebRTCInternals::ProcessPendingUpdates,
                        weak_factory_.GetWeakPtr()),
@@ -654,17 +656,18 @@ void WebRTCInternals::UpdateWakeLock() {
 device::mojom::WakeLock* WebRTCInternals::GetWakeLock() {
   // Here is a lazy binding, and will not reconnect after connection error.
   if (!wake_lock_) {
-    device::mojom::WakeLockRequest request = mojo::MakeRequest(&wake_lock_);
+    mojo::PendingReceiver<device::mojom::WakeLock> receiver =
+        wake_lock_.BindNewPipeAndPassReceiver();
     // In some testing environments, the system Connector isn't initialized.
     service_manager::Connector* connector = GetSystemConnector();
     if (connector) {
-      device::mojom::WakeLockProviderPtr wake_lock_provider;
-      connector->BindInterface(device::mojom::kServiceName,
-                               mojo::MakeRequest(&wake_lock_provider));
+      mojo::Remote<device::mojom::WakeLockProvider> wake_lock_provider;
+      connector->Connect(device::mojom::kServiceName,
+                         wake_lock_provider.BindNewPipeAndPassReceiver());
       wake_lock_provider->GetWakeLockWithoutContext(
           device::mojom::WakeLockType::kPreventAppSuspension,
           device::mojom::WakeLockReason::kOther,
-          "WebRTC has active PeerConnections", std::move(request));
+          "WebRTC has active PeerConnections", std::move(receiver));
     }
   }
   return wake_lock_.get();

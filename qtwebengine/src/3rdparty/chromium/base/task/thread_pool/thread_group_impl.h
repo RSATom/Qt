@@ -20,7 +20,6 @@
 #include "base/memory/ref_counted.h"
 #include "base/optional.h"
 #include "base/strings/string_piece.h"
-#include "base/synchronization/atomic_flag.h"
 #include "base/synchronization/condition_variable.h"
 #include "base/synchronization/waitable_event.h"
 #include "base/task/thread_pool/task.h"
@@ -98,10 +97,6 @@ class BASE_EXPORT ThreadGroupImpl : public ThreadGroup {
     return num_tasks_before_detach_histogram_;
   }
 
-  const HistogramBase* num_tasks_between_waits_histogram() const {
-    return num_tasks_between_waits_histogram_;
-  }
-
   const HistogramBase* num_workers_histogram() const {
     return num_workers_histogram_;
   }
@@ -146,8 +141,7 @@ class BASE_EXPORT ThreadGroupImpl : public ThreadGroup {
                            ThreadBlockUnblockPremature);
 
   // ThreadGroup:
-  void UpdateSortKey(
-      TransactionWithOwnedTaskSource transaction_with_task_source) override;
+  void UpdateSortKey(TaskSource::Transaction transaction) override;
   void PushTaskSourceAndWakeUpWorkers(
       TransactionWithRegisteredTaskSource transaction_with_task_source)
       override;
@@ -334,10 +328,8 @@ class BASE_EXPORT ThreadGroupImpl : public ThreadGroup {
   std::unique_ptr<ConditionVariable> num_workers_cleaned_up_for_testing_cv_
       GUARDED_BY(lock_);
 
-#if DCHECK_IS_ON()
   // Set at the start of JoinForTesting().
-  AtomicFlag join_for_testing_started_;
-#endif
+  bool join_for_testing_started_ GUARDED_BY(lock_) = false;
 
   // ThreadPool.DetachDuration.[thread group name] histogram. Intentionally
   // leaked.
@@ -346,10 +338,6 @@ class BASE_EXPORT ThreadGroupImpl : public ThreadGroup {
   // ThreadPool.NumTasksBeforeDetach.[thread group name] histogram.
   // Intentionally leaked.
   HistogramBase* const num_tasks_before_detach_histogram_;
-
-  // ThreadPool.NumTasksBetweenWaits.[thread group name] histogram.
-  // Intentionally leaked.
-  HistogramBase* const num_tasks_between_waits_histogram_;
 
   // ThreadPool.NumWorkers.[thread group name] histogram.
   // Intentionally leaked.

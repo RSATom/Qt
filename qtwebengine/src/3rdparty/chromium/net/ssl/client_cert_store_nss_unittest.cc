@@ -15,10 +15,10 @@
 #include "base/files/file_util.h"
 #include "base/memory/ref_counted.h"
 #include "base/run_loop.h"
-#include "base/test/scoped_task_environment.h"
+#include "base/test/task_environment.h"
 #include "crypto/nss_util.h"
 #include "crypto/scoped_test_nss_db.h"
-#include "net/cert/pem_tokenizer.h"
+#include "net/cert/pem.h"
 #include "net/cert/x509_certificate.h"
 #include "net/cert/x509_util_nss.h"
 #include "net/ssl/client_cert_identity_test_util.h"
@@ -76,7 +76,7 @@ INSTANTIATE_TYPED_TEST_SUITE_P(NSS,
 // Tests that ClientCertStoreNSS attempts to build a certificate chain by
 // querying NSS before return a certificate.
 TEST(ClientCertStoreNSSTest, BuildsCertificateChain) {
-  base::test::ScopedTaskEnvironment scoped_task_environment;
+  base::test::TaskEnvironment task_environment;
 
   // Set up a test DB and import client_1.pem and client_1_ca.pem.
   crypto::ScopedTestNSSDB test_db;
@@ -169,7 +169,7 @@ TEST(ClientCertStoreNSSTest, BuildsCertificateChain) {
 }
 
 TEST(ClientCertStoreNSSTest, SubjectPrintableStringContainingUTF8) {
-  base::test::ScopedTaskEnvironment scoped_task_environment;
+  base::test::TaskEnvironment task_environment;
 
   crypto::ScopedTestNSSDB test_db;
   base::FilePath certs_dir =

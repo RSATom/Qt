@@ -13,7 +13,7 @@
 #include "base/cancelable_callback.h"
 #include "base/run_loop.h"
 #include "base/test/mock_callback.h"
-#include "base/test/scoped_task_environment.h"
+#include "base/test/task_environment.h"
 #include "components/prefs/testing_pref_service.h"
 #include "components/sync/base/hash_util.h"
 #include "components/sync/model/model_type_store_test_util.h"
@@ -175,7 +175,7 @@ class SessionStoreOpenTest : public ::testing::Test {
 
   ~SessionStoreOpenTest() override {}
 
-  base::test::ScopedTaskEnvironment task_environment_;
+  base::test::SingleThreadTaskEnvironment task_environment_;
   TestingPrefServiceSimple pref_service_;
   SessionSyncPrefs session_sync_prefs_;
   std::unique_ptr<MockSyncSessionsClient> mock_sync_sessions_client_;
@@ -196,7 +196,7 @@ TEST_F(SessionStoreOpenTest, ShouldCreateStore) {
   completion.Wait();
   ASSERT_THAT(completion.GetResult(), NotNull());
   EXPECT_THAT(completion.GetResult()->local_session_info().client_name,
-              Eq(syncer::GetSessionNameBlocking()));
+              Eq(syncer::GetPersonalizableDeviceNameBlocking()));
   EXPECT_THAT(session_sync_prefs_.GetSyncSessionsGUID(),
               Eq(std::string("session_sync") + kCacheGuid));
 }

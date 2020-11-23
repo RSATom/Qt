@@ -68,7 +68,7 @@ writeHeaderToLog( SECTION + " "+ TITLE);
 
 // Georgian
 // Range: U+10A0 to U+10FF
-for ( var i = 0x10A0; i <= 0x10FF; i++ ) {
+for ( var i = 0x10A0; i <= 0x10CF; i++ ) { // 0x10FB and 0x10FC also work
   var U = new Unicode( i );
 /*
   new TestCase(   SECTION,

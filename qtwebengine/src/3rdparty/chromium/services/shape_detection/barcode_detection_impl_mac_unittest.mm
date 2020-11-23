@@ -17,7 +17,7 @@
 #include "base/mac/scoped_nsobject.h"
 #include "base/mac/sdk_forward_declarations.h"
 #include "base/run_loop.h"
-#include "base/test/scoped_task_environment.h"
+#include "base/test/task_environment.h"
 #include "services/shape_detection/barcode_detection_impl_mac_vision.h"
 #include "services/shape_detection/public/mojom/barcodedetection.mojom.h"
 #include "testing/gmock/include/gmock/gmock.h"
@@ -120,7 +120,7 @@ class BarcodeDetectionImplMacTest : public TestWithParam<struct TestParams> {
   MOCK_METHOD0(Detection, void(void));
 
   std::unique_ptr<mojom::BarcodeDetection> impl_;
-  base::test::ScopedTaskEnvironment scoped_task_environment_;
+  base::test::SingleThreadTaskEnvironment task_environment_;
   void* vision_framework_ = nullptr;
 };
 
@@ -178,9 +178,8 @@ TEST_P(BarcodeDetectionImplMacTest, ScanOneBarcode) {
   ASSERT_TRUE(SkCreateBitmapFromCGImage(&bitmap, cg_image));
 
   base::RunLoop run_loop;
-  base::Closure quit_closure = run_loop.QuitClosure();
   // Send the image Detect() and expect the response in callback.
-  EXPECT_CALL(*this, Detection()).WillOnce(RunClosure(quit_closure));
+  EXPECT_CALL(*this, Detection()).WillOnce(RunClosure(run_loop.QuitClosure()));
   // TODO(crbug.com/938663): expect detected symbology.
   impl_->Detect(bitmap,
                 base::BindOnce(&BarcodeDetectionImplMacTest::DetectCallback,

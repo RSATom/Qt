@@ -7,12 +7,11 @@
 
 #include <vector>
 
-#include "platform/api/event_waiter.h"
 #include "platform/api/network_interface.h"
 #include "platform/api/udp_socket.h"
-#include "platform/impl/event_loop.h"
 
 namespace openscreen {
+namespace osp {
 
 class MdnsPlatformService {
  public:
@@ -38,6 +37,7 @@ class MdnsPlatformService {
       const std::vector<BoundInterface>& registered_interfaces) = 0;
 };
 
+}  // namespace osp
 }  // namespace openscreen
 
 #endif  // OSP_IMPL_MDNS_PLATFORM_SERVICE_H_

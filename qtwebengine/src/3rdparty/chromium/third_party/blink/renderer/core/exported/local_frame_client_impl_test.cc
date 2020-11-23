@@ -30,6 +30,7 @@
 
 #include "third_party/blink/renderer/core/exported/local_frame_client_impl.h"
 
+#include "mojo/public/cpp/bindings/pending_remote.h"
 #include "mojo/public/cpp/bindings/remote.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
@@ -38,7 +39,6 @@
 #include "third_party/blink/public/web/web_view.h"
 #include "third_party/blink/renderer/core/frame/frame_test_helpers.h"
 #include "third_party/blink/renderer/core/frame/web_local_frame_impl.h"
-#include "third_party/blink/renderer/core/testing/document_interface_broker_test_helpers.h"
 #include "third_party/blink/renderer/platform/weborigin/kurl.h"
 #include "third_party/blink/renderer/platform/wtf/text/wtf_string.h"
 
@@ -108,25 +108,6 @@ TEST_F(LocalFrameClientImplTest, UserAgentOverride) {
   EXPECT_CALL(WebLocalFrameClient(), UserAgentOverride())
       .WillOnce(Return(WebString()));
   EXPECT_TRUE(default_user_agent.Equals(UserAgent()));
-}
-
-TEST_F(LocalFrameClientImplTest, TestDocumentInterfaceBrokerOverride) {
-  mojom::blink::DocumentInterfaceBrokerPtr doc;
-  FrameHostTestDocumentInterfaceBroker frame_interface_broker(
-      &MainFrame()->GetFrame()->GetDocumentInterfaceBroker(),
-      mojo::MakeRequest(&doc));
-  MainFrame()->GetFrame()->SetDocumentInterfaceBrokerForTesting(
-      doc.PassInterface().PassHandle());
-
-  mojo::Remote<mojom::blink::FrameHostTestInterface> frame_test;
-  MainFrame()
-      ->GetFrame()
-      ->GetDocumentInterfaceBroker()
-      .GetFrameHostTestInterface(frame_test.BindNewPipeAndPassReceiver());
-  frame_test->GetName(base::BindOnce([](const WTF::String& result) {
-    EXPECT_EQ(result, kGetNameTestResponse);
-  }));
-  frame_interface_broker.Flush();
 }
 
 }  // namespace

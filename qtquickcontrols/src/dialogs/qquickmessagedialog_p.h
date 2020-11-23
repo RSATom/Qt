@@ -66,11 +66,11 @@ public:
     ~QQuickMessageDialog();
 
 protected:
-    virtual QPlatformDialogHelper *helper() { return 0; }
+    QPlatformDialogHelper *helper() override { return 0; }
 
 protected Q_SLOTS:
-    virtual void accept();
-    virtual void reject();
+    void accept() override;
+    void reject() override;
 
 private:
     Q_DISABLE_COPY(QQuickMessageDialog)

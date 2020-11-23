@@ -14,7 +14,9 @@
 #include "base/threading/thread_checker.h"
 #include "net/base/completion_once_callback.h"
 #include "net/base/net_export.h"
+#include "net/base/network_isolation_key.h"
 #include "net/http/http_auth.h"
+#include "net/http/http_auth_preferences.h"
 #include "net/log/net_log_with_source.h"
 #include "url/gurl.h"
 
@@ -58,6 +60,10 @@ class NET_EXPORT_PRIVATE HttpAuthController
   //       If |target| is PROXY, then |auth_url| should have no hierarchical
   //       part since that is meaningless.
   //
+  // * |network_isolation_key| specifies the NetworkIsolationKey associated with
+  //       the resource load. Depending on settings, credentials may be scoped
+  //       to a single NetworkIsolationKey.
+  //
   // * |http_auth_cache| specifies the credentials cache to use. During
   //       authentication if explicit (user-provided) credentials are used and
   //       they can be cached to respond to authentication challenges in the
@@ -74,8 +80,12 @@ class NET_EXPORT_PRIVATE HttpAuthController
   // * |host_resolver| is used for determining the canonical hostname given a
   //       possibly non-canonical host name. Name canonicalization is used for
   //       NTLM and Negotiate HTTP authentication schemes.
+  //
+  // * |allow_default_credentials| is used for determining if the current
+  //       context allows ambient authentication using default credentials.
   HttpAuthController(HttpAuth::Target target,
                      const GURL& auth_url,
+                     const NetworkIsolationKey& network_isolation_key,
                      HttpAuthCache* http_auth_cache,
                      HttpAuthHandlerFactory* http_auth_handler_factory,
                      HostResolver* host_resolver);
@@ -190,6 +200,9 @@ class NET_EXPORT_PRIVATE HttpAuthController
   // The absolute path of the resource needing authentication.
   // For proxy authentication the path is empty.
   const std::string auth_path_;
+
+  // NetworkIsolationKey assocaied with the request.
+  const NetworkIsolationKey network_isolation_key_;
 
   // |handler_| encapsulates the logic for the particular auth-scheme.
   // This includes the challenge's parameters. If nullptr, then there is no

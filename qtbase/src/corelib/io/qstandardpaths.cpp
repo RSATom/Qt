@@ -343,7 +343,10 @@ QT_BEGIN_NAMESPACE
     OS configuration, locale, or they may change in future Qt versions.
 
     \note On Android, applications with open files on the external storage (<USER> locations),
-          will be killed if the external storage is unmounted.
+        will be killed if the external storage is unmounted.
+
+    \note On Android 6.0 (API 23) or higher, the "WRITE_EXTERNAL_STORAGE" permission must be
+        requested at runtime when using QStandardPaths::writableLocation or QStandardPaths::standardLocations.
 
     \note On iOS, if you do pass \c {QStandardPaths::standardLocations(QStandardPaths::PicturesLocation).last()}
         as argument to \l{QFileDialog::setDirectory()},
@@ -507,7 +510,8 @@ QString QStandardPaths::findExecutable(const QString &executableName, const QStr
         }
 
         // Remove trailing slashes, which occur on Windows.
-        const QStringList rawPaths = QString::fromLocal8Bit(pEnv.constData()).split(QDir::listSeparator(), QString::SkipEmptyParts);
+        const QStringList rawPaths = QString::fromLocal8Bit(pEnv.constData()).split(
+            QDir::listSeparator(), Qt::SkipEmptyParts);
         searchPaths.reserve(rawPaths.size());
         for (const QString &rawPath : rawPaths) {
             QString cleanPath = QDir::cleanPath(rawPath);

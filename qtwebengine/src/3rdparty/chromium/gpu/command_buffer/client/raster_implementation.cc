@@ -543,9 +543,20 @@ unsigned int RasterImplementation::GetTransferBufferFreeSize() const {
   return transfer_buffer_->GetFreeSize();
 }
 
+bool RasterImplementation::IsJpegDecodeAccelerationSupported() const {
+  return image_decode_accelerator_ &&
+         image_decode_accelerator_->IsJpegDecodeAccelerationSupported();
+}
+
+bool RasterImplementation::IsWebPDecodeAccelerationSupported() const {
+  return image_decode_accelerator_ &&
+         image_decode_accelerator_->IsWebPDecodeAccelerationSupported();
+}
+
 bool RasterImplementation::CanDecodeWithHardwareAcceleration(
-    base::span<const uint8_t> encoded_data) const {
-  return image_decode_accelerator_->IsImageSupported(encoded_data);
+    const cc::ImageHeaderMetadata* image_metadata) const {
+  return image_decode_accelerator_ &&
+         image_decode_accelerator_->IsImageSupported(image_metadata);
 }
 
 const std::string& RasterImplementation::GetLogPrefix() const {
@@ -577,7 +588,8 @@ void RasterImplementation::IssueQueryCounter(GLuint id,
                                              uint32_t sync_data_shm_id,
                                              uint32_t sync_data_shm_offset,
                                              GLuint submit_count) {
-  NOTIMPLEMENTED();
+  helper_->QueryCounterEXT(id, target, sync_data_shm_id, sync_data_shm_offset,
+                           submit_count);
 }
 
 void RasterImplementation::IssueSetDisjointValueSync(
@@ -896,12 +908,43 @@ void RasterImplementation::EndQueryEXT(GLenum target) {
     CheckGLError();
 }
 
+void RasterImplementation::QueryCounterEXT(GLuint id, GLenum target) {
+  GPU_CLIENT_SINGLE_THREAD_CHECK();
+  GPU_CLIENT_LOG("[" << GetLogPrefix() << "] QueryCounterEXT(" << id << ", "
+                     << GLES2Util::GetStringQueryTarget(target) << ")");
+
+  if (target != GL_COMMANDS_ISSUED_TIMESTAMP_CHROMIUM) {
+    SetGLError(GL_INVALID_ENUM, "glQueryCounterEXT", "unknown query target");
+    return;
+  }
+
+  if (id == 0) {
+    SetGLError(GL_INVALID_OPERATION, "glQueryCounterEXT", "id is 0");
+    return;
+  }
+
+  if (!GetIdAllocator(IdNamespaces::kQueries)->InUse(id)) {
+    SetGLError(GL_INVALID_OPERATION, "glQueryCounterEXT", "invalid id");
+    return;
+  }
+
+  if (query_tracker_->QueryCounter(id, target, this))
+    CheckGLError();
+}
 void RasterImplementation::GetQueryObjectuivEXT(GLuint id,
                                                 GLenum pname,
                                                 GLuint* params) {
   GLuint64 result = 0;
   if (GetQueryObjectValueHelper("glGetQueryObjectuivEXT", id, pname, &result))
     *params = base::saturated_cast<GLuint>(result);
+}
+
+void RasterImplementation::GetQueryObjectui64vEXT(GLuint id,
+                                                  GLenum pname,
+                                                  GLuint64* params) {
+  GLuint64 result = 0;
+  if (GetQueryObjectValueHelper("glGetQueryObjectui64vEXT", id, pname, &result))
+    *params = result;
 }
 
 void* RasterImplementation::MapRasterCHROMIUM(uint32_t size,
@@ -1162,7 +1205,7 @@ void RasterImplementation::IssueImageDecodeCacheEntryCreation(
 }
 
 GLuint RasterImplementation::CreateAndConsumeForGpuRaster(
-    const GLbyte* mailbox) {
+    const gpu::Mailbox& mailbox) {
   NOTREACHED();
   return 0;
 }
@@ -1175,6 +1218,15 @@ void RasterImplementation::BeginGpuRaster() {
   NOTREACHED();
 }
 void RasterImplementation::EndGpuRaster() {
+  NOTREACHED();
+}
+
+void RasterImplementation::BeginSharedImageAccessDirectCHROMIUM(GLuint texture,
+                                                                GLenum mode) {
+  NOTREACHED();
+}
+
+void RasterImplementation::EndSharedImageAccessDirectCHROMIUM(GLuint texture) {
   NOTREACHED();
 }
 

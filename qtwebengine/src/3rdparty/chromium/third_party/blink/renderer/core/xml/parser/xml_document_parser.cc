@@ -48,6 +48,7 @@
 #include "third_party/blink/renderer/core/dom/processing_instruction.h"
 #include "third_party/blink/renderer/core/dom/transform_source.h"
 #include "third_party/blink/renderer/core/frame/local_frame.h"
+#include "third_party/blink/renderer/core/frame/web_feature.h"
 #include "third_party/blink/renderer/core/html/html_html_element.h"
 #include "third_party/blink/renderer/core/html/html_template_element.h"
 #include "third_party/blink/renderer/core/html/parser/html_entity_parser.h"
@@ -73,15 +74,13 @@
 #include "third_party/blink/renderer/platform/loader/fetch/resource_request.h"
 #include "third_party/blink/renderer/platform/loader/fetch/resource_response.h"
 #include "third_party/blink/renderer/platform/runtime_enabled_features.h"
-#include "third_party/blink/renderer/platform/shared_buffer.h"
 #include "third_party/blink/renderer/platform/weborigin/security_origin.h"
+#include "third_party/blink/renderer/platform/wtf/shared_buffer.h"
 #include "third_party/blink/renderer/platform/wtf/text/utf8.h"
 #include "third_party/blink/renderer/platform/wtf/threading.h"
 #include "third_party/blink/renderer/platform/wtf/vector.h"
 
 namespace blink {
-
-using namespace html_names;
 
 // FIXME: HTMLConstructionSite has a limit of 512, should these match?
 static const unsigned kMaxXMLTreeDepth = 5000;
@@ -454,8 +453,8 @@ bool XMLDocumentParser::ParseDocumentFragment(
   // http://www.whatwg.org/specs/web-apps/current-work/multipage/the-xhtml-syntax.html#xml-fragment-parsing-algorithm
   // For now we have a hack for script/style innerHTML support:
   if (context_element &&
-      (context_element->HasLocalName(kScriptTag.LocalName()) ||
-       context_element->HasLocalName(kStyleTag.LocalName()))) {
+      (context_element->HasLocalName(html_names::kScriptTag.LocalName()) ||
+       context_element->HasLocalName(html_names::kStyleTag.LocalName()))) {
     fragment->ParserAppendChild(fragment->GetDocument().createTextNode(chunk));
     return true;
   }
@@ -980,7 +979,7 @@ void XMLDocumentParser::StartElementNs(const AtomicString& local_name,
                           prefix_to_namespace_map_, exception_state);
   AtomicString is;
   for (const auto& attr : prefixed_attributes) {
-    if (attr.GetName() == kIsAttr) {
+    if (attr.GetName() == html_names::kIsAttr) {
       is = attr.Value();
       break;
     }
@@ -1019,15 +1018,16 @@ void XMLDocumentParser::StartElementNs(const AtomicString& local_name,
     return;
   }
 
-  if (auto* template_element = ToHTMLTemplateElementOrNull(*new_element))
+  if (auto* template_element = DynamicTo<HTMLTemplateElement>(*new_element))
     PushCurrentNode(template_element->content());
   else
     PushCurrentNode(new_element);
 
   // Note: |insertedByParser| will perform dispatching if this is an
   // HTMLHtmlElement.
-  if (IsHTMLHtmlElement(*new_element) && is_first_element) {
-    ToHTMLHtmlElement(*new_element).InsertedByParser();
+  auto* html_html_element = DynamicTo<HTMLHtmlElement>(new_element);
+  if (html_html_element && is_first_element) {
+    html_html_element->InsertedByParser();
   } else if (!parsing_fragment_ && is_first_element &&
              GetDocument()->GetFrame()) {
     GetDocument()->GetFrame()->Loader().DispatchDocumentElementAvailable();
@@ -1263,9 +1263,10 @@ void XMLDocumentParser::InternalSubset(const String& name,
     return;
   }
 
-  if (GetDocument())
-    GetDocument()->ParserAppendChild(
-        DocumentType::Create(GetDocument(), name, external_id, system_id));
+  if (GetDocument()) {
+    GetDocument()->ParserAppendChild(MakeGarbageCollected<DocumentType>(
+        GetDocument(), name, external_id, system_id));
+  }
 }
 
 static inline XMLDocumentParser* GetParser(void* closure) {

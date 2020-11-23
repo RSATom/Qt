@@ -175,7 +175,7 @@ bool SkParsePath::FromSVGString(const char data[], SkPath* result) {
                         && (data = skip_sep(data))
                         && (data = find_points(data, &points[0], 1, relative, &c))) {
                     path.arcTo(radii, angle, (SkPath::ArcSize) SkToBool(largeArc),
-                            (SkPath::Direction) !SkToBool(sweep), points[0]);
+                            (SkPathDirection) !SkToBool(sweep), points[0]);
                     path.getLastPt(&c);
                 }
                 } break;
@@ -236,7 +236,7 @@ void SkParsePath::ToSVGString(const SkPath& path, SkString* str) {
     SkPoint         pts[4];
 
     for (;;) {
-        switch (iter.next(pts, false)) {
+        switch (iter.next(pts)) {
             case SkPath::kConic_Verb: {
                 const SkScalar tol = SK_Scalar1 / 1024; // how close to a quad
                 SkAutoConicToQuads quadder;

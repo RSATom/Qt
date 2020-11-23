@@ -72,10 +72,9 @@ QImageIOPlugin::Capabilities QSvgPlugin::capabilities(QIODevice *device, const Q
     if (format == "svg")
 #endif
         return Capabilities(CanRead);
-    if (!format.isEmpty())
-        return 0;
-
     Capabilities cap;
+    if (!format.isEmpty())
+        return cap;
     if (device->isReadable() && QSvgIOHandler::canRead(device))
         cap |= CanRead;
     return cap;

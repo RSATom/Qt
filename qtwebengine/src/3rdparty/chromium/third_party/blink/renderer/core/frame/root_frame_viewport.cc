@@ -11,7 +11,6 @@
 #include "third_party/blink/renderer/core/frame/visual_viewport.h"
 #include "third_party/blink/renderer/core/layout/layout_box.h"
 #include "third_party/blink/renderer/core/layout/scroll_anchor.h"
-#include "third_party/blink/renderer/core/page/scrolling/snap_coordinator.h"
 #include "third_party/blink/renderer/core/paint/paint_layer_scrollable_area.h"
 #include "third_party/blink/renderer/core/scroll/scroll_alignment.h"
 #include "third_party/blink/renderer/core/scroll/scroll_animator_base.h"
@@ -316,6 +315,10 @@ ScrollBehavior RootFrameViewport::ScrollBehaviorStyle() const {
   return LayoutViewport().ScrollBehaviorStyle();
 }
 
+WebColorScheme RootFrameViewport::UsedColorScheme() const {
+  return LayoutViewport().UsedColorScheme();
+}
+
 ScrollOffset RootFrameViewport::ClampToUserScrollableOffset(
     const ScrollOffset& offset) const {
   ScrollOffset scroll_offset = offset;
@@ -349,11 +352,7 @@ PhysicalRect RootFrameViewport::ScrollIntoView(
       cc::SnapSelectionStrategy::CreateForEndPosition(
           gfx::ScrollOffset(end_point), true, true);
   if (GetLayoutBox()) {
-    end_point = GetLayoutBox()
-                    ->GetDocument()
-                    .GetSnapCoordinator()
-                    ->GetSnapPosition(*GetLayoutBox(), *strategy)
-                    .value_or(end_point);
+    end_point = GetSnapPositionAndSetTarget(*strategy).value_or(end_point);
     new_scroll_offset = ScrollPositionToOffset(end_point);
   }
 
@@ -482,12 +481,12 @@ IntSize RootFrameViewport::ContentsSize() const {
   return LayoutViewport().ContentsSize();
 }
 
-bool RootFrameViewport::ScrollbarsCanBeActive() const {
-  return LayoutViewport().ScrollbarsCanBeActive();
+bool RootFrameViewport::ShouldScrollOnMainThread() const {
+  return LayoutViewport().ShouldScrollOnMainThread();
 }
 
-IntRect RootFrameViewport::ScrollableAreaBoundingBox() const {
-  return LayoutViewport().ScrollableAreaBoundingBox();
+bool RootFrameViewport::ScrollbarsCanBeActive() const {
+  return LayoutViewport().ScrollbarsCanBeActive();
 }
 
 bool RootFrameViewport::UserInputScrollable(
@@ -504,23 +503,19 @@ void RootFrameViewport::ScrollControlWasSetNeedsPaintInvalidation() {
   LayoutViewport().ScrollControlWasSetNeedsPaintInvalidation();
 }
 
-GraphicsLayer* RootFrameViewport::LayerForContainer() const {
-  return LayoutViewport().LayerForContainer();
-}
-
-GraphicsLayer* RootFrameViewport::LayerForScrolling() const {
+cc::Layer* RootFrameViewport::LayerForScrolling() const {
   return LayoutViewport().LayerForScrolling();
 }
 
-GraphicsLayer* RootFrameViewport::LayerForHorizontalScrollbar() const {
+cc::Layer* RootFrameViewport::LayerForHorizontalScrollbar() const {
   return LayoutViewport().LayerForHorizontalScrollbar();
 }
 
-GraphicsLayer* RootFrameViewport::LayerForVerticalScrollbar() const {
+cc::Layer* RootFrameViewport::LayerForVerticalScrollbar() const {
   return LayoutViewport().LayerForVerticalScrollbar();
 }
 
-GraphicsLayer* RootFrameViewport::LayerForScrollCorner() const {
+cc::Layer* RootFrameViewport::LayerForScrollCorner() const {
   return LayoutViewport().LayerForScrollCorner();
 }
 
@@ -610,8 +605,8 @@ bool RootFrameViewport::ScrollAnimatorEnabled() const {
   return LayoutViewport().ScrollAnimatorEnabled();
 }
 
-CompositorElementId RootFrameViewport::GetCompositorElementId() const {
-  return LayoutViewport().GetCompositorElementId();
+CompositorElementId RootFrameViewport::GetScrollElementId() const {
+  return LayoutViewport().GetScrollElementId();
 }
 
 CompositorElementId RootFrameViewport::GetScrollbarElementId(
@@ -655,6 +650,25 @@ void RootFrameViewport::ClearScrollableArea() {
 
 ScrollbarTheme& RootFrameViewport::GetPageScrollbarTheme() const {
   return LayoutViewport().GetPageScrollbarTheme();
+}
+
+const cc::SnapContainerData* RootFrameViewport::GetSnapContainerData() const {
+  return LayoutViewport().GetSnapContainerData();
+}
+
+void RootFrameViewport::SetSnapContainerData(
+    base::Optional<cc::SnapContainerData> data) {
+  LayoutViewport().SetSnapContainerData(data);
+}
+
+bool RootFrameViewport::SetTargetSnapAreaElementIds(
+    cc::TargetSnapAreaElementIds snap_target_ids) {
+  return LayoutViewport().SetTargetSnapAreaElementIds(snap_target_ids);
+}
+
+base::Optional<FloatPoint> RootFrameViewport::GetSnapPositionAndSetTarget(
+    const cc::SnapSelectionStrategy& strategy) {
+  return LayoutViewport().GetSnapPositionAndSetTarget(strategy);
 }
 
 void RootFrameViewport::Trace(blink::Visitor* visitor) {

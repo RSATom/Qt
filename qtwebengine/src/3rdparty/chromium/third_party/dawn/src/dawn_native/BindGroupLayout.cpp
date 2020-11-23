@@ -30,10 +30,17 @@ namespace dawn_native {
         }
 
         std::bitset<kMaxBindingsPerGroup> bindingsSet;
+        uint32_t dynamicUniformBufferCount = 0;
+        uint32_t dynamicStorageBufferCount = 0;
         for (uint32_t i = 0; i < descriptor->bindingCount; ++i) {
             const BindGroupLayoutBinding& binding = descriptor->bindings[i];
-            DAWN_TRY(ValidateShaderStageBit(binding.visibility));
+            DAWN_TRY(ValidateShaderStage(binding.visibility));
             DAWN_TRY(ValidateBindingType(binding.type));
+            DAWN_TRY(ValidateTextureComponentType(binding.textureComponentType));
+
+            if (binding.textureDimension != wgpu::TextureViewDimension::Undefined) {
+                DAWN_TRY(ValidateTextureViewDimension(binding.textureDimension));
+            }
 
             if (binding.binding >= kMaxBindingsPerGroup) {
                 return DAWN_VALIDATION_ERROR("some binding index exceeds the maximum value");
@@ -43,18 +50,24 @@ namespace dawn_native {
             }
 
             switch (binding.type) {
-                case dawn::BindingType::UniformBuffer:
-                case dawn::BindingType::StorageBuffer:
+                case wgpu::BindingType::UniformBuffer:
+                    if (binding.hasDynamicOffset) {
+                        ++dynamicUniformBufferCount;
+                    }
                     break;
-                case dawn::BindingType::SampledTexture:
-                case dawn::BindingType::Sampler:
-                    if (binding.dynamic) {
+                case wgpu::BindingType::StorageBuffer:
+                case wgpu::BindingType::ReadonlyStorageBuffer:
+                    if (binding.hasDynamicOffset) {
+                        ++dynamicStorageBufferCount;
+                    }
+                    break;
+                case wgpu::BindingType::SampledTexture:
+                case wgpu::BindingType::Sampler:
+                    if (binding.hasDynamicOffset) {
                         return DAWN_VALIDATION_ERROR("Samplers and textures cannot be dynamic");
                     }
                     break;
-                case dawn::BindingType::ReadonlyStorageBuffer:
-                    return DAWN_VALIDATION_ERROR("readonly storage buffers aren't supported (yet)");
-                case dawn::BindingType::StorageTexture:
+                case wgpu::BindingType::StorageTexture:
                     return DAWN_VALIDATION_ERROR("storage textures aren't supported (yet)");
             }
 
@@ -65,16 +78,28 @@ namespace dawn_native {
 
             bindingsSet.set(binding.binding);
         }
+
+        if (dynamicUniformBufferCount > kMaxDynamicUniformBufferCount) {
+            return DAWN_VALIDATION_ERROR(
+                "The number of dynamic uniform buffer exceeds the maximum value");
+        }
+
+        if (dynamicStorageBufferCount > kMaxDynamicStorageBufferCount) {
+            return DAWN_VALIDATION_ERROR(
+                "The number of dynamic storage buffer exceeds the maximum value");
+        }
+
         return {};
     }
 
     namespace {
         size_t HashBindingInfo(const BindGroupLayoutBase::LayoutBindingInfo& info) {
             size_t hash = Hash(info.mask);
-            HashCombine(&hash, info.dynamic, info.multisampled);
+            HashCombine(&hash, info.hasDynamicOffset, info.multisampled);
 
             for (uint32_t binding : IterateBitSet(info.mask)) {
-                HashCombine(&hash, info.visibilities[binding], info.types[binding]);
+                HashCombine(&hash, info.visibilities[binding], info.types[binding],
+                            info.textureComponentTypes[binding], info.textureDimensions[binding]);
             }
 
             return hash;
@@ -82,13 +107,16 @@ namespace dawn_native {
 
         bool operator==(const BindGroupLayoutBase::LayoutBindingInfo& a,
                         const BindGroupLayoutBase::LayoutBindingInfo& b) {
-            if (a.mask != b.mask || a.dynamic != b.dynamic || a.multisampled != b.multisampled) {
+            if (a.mask != b.mask || a.hasDynamicOffset != b.hasDynamicOffset ||
+                a.multisampled != b.multisampled) {
                 return false;
             }
 
             for (uint32_t binding : IterateBitSet(a.mask)) {
                 if ((a.visibilities[binding] != b.visibilities[binding]) ||
-                    (a.types[binding] != b.types[binding])) {
+                    (a.types[binding] != b.types[binding]) ||
+                    (a.textureComponentTypes[binding] != b.textureComponentTypes[binding]) ||
+                    (a.textureDimensions[binding] != b.textureDimensions[binding])) {
                     return false;
                 }
             }
@@ -100,19 +128,37 @@ namespace dawn_native {
     // BindGroupLayoutBase
 
     BindGroupLayoutBase::BindGroupLayoutBase(DeviceBase* device,
-                                             const BindGroupLayoutDescriptor* descriptor,
-                                             bool blueprint)
-        : ObjectBase(device), mIsBlueprint(blueprint) {
+                                             const BindGroupLayoutDescriptor* descriptor)
+        : CachedObject(device) {
         for (uint32_t i = 0; i < descriptor->bindingCount; ++i) {
             auto& binding = descriptor->bindings[i];
 
             uint32_t index = binding.binding;
             mBindingInfo.visibilities[index] = binding.visibility;
             mBindingInfo.types[index] = binding.type;
+            mBindingInfo.textureComponentTypes[index] = binding.textureComponentType;
 
-            if (binding.dynamic) {
-                mBindingInfo.dynamic.set(index);
-                mDynamicBufferCount++;
+            if (binding.textureDimension == wgpu::TextureViewDimension::Undefined) {
+                mBindingInfo.textureDimensions[index] = wgpu::TextureViewDimension::e2D;
+            } else {
+                mBindingInfo.textureDimensions[index] = binding.textureDimension;
+            }
+            if (binding.hasDynamicOffset) {
+                mBindingInfo.hasDynamicOffset.set(index);
+                switch (binding.type) {
+                    case wgpu::BindingType::UniformBuffer:
+                        ++mDynamicUniformBufferCount;
+                        break;
+                    case wgpu::BindingType::StorageBuffer:
+                    case wgpu::BindingType::ReadonlyStorageBuffer:
+                        ++mDynamicStorageBufferCount;
+                        break;
+                    case wgpu::BindingType::SampledTexture:
+                    case wgpu::BindingType::Sampler:
+                    case wgpu::BindingType::StorageTexture:
+                        UNREACHABLE();
+                        break;
+                }
             }
 
             mBindingInfo.multisampled.set(index, binding.multisampled);
@@ -123,12 +169,12 @@ namespace dawn_native {
     }
 
     BindGroupLayoutBase::BindGroupLayoutBase(DeviceBase* device, ObjectBase::ErrorTag tag)
-        : ObjectBase(device, tag), mIsBlueprint(true) {
+        : CachedObject(device, tag) {
     }
 
     BindGroupLayoutBase::~BindGroupLayoutBase() {
         // Do not uncache the actual cached object if we are a blueprint
-        if (!mIsBlueprint && !IsError()) {
+        if (IsCachedReference()) {
             GetDevice()->UncacheBindGroupLayout(this);
         }
     }
@@ -153,7 +199,15 @@ namespace dawn_native {
     }
 
     uint32_t BindGroupLayoutBase::GetDynamicBufferCount() const {
-        return mDynamicBufferCount;
+        return mDynamicStorageBufferCount + mDynamicUniformBufferCount;
+    }
+
+    uint32_t BindGroupLayoutBase::GetDynamicUniformBufferCount() const {
+        return mDynamicUniformBufferCount;
+    }
+
+    uint32_t BindGroupLayoutBase::GetDynamicStorageBufferCount() const {
+        return mDynamicStorageBufferCount;
     }
 
 }  // namespace dawn_native

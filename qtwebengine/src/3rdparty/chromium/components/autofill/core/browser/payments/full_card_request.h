@@ -18,6 +18,10 @@
 
 namespace autofill {
 
+class AutofillManagerTest;
+class AutofillMetricsTest;
+class CreditCardAccessManagerTest;
+class CreditCardCVCAuthenticatorTest;
 class CreditCard;
 class PersonalDataManager;
 
@@ -85,18 +89,30 @@ class FullCardRequest final : public CardUnmaskDelegate {
                           base::WeakPtr<ResultDelegate> result_delegate,
                           base::Value fido_assertion_info);
 
-  // Returns true if there's a pending request to get the full card.
-  bool IsGettingFullCard() const;
-
   // Called by the payments client when a card has been unmasked.
-  void OnDidGetRealPan(AutofillClient::PaymentsRpcResult result,
-                       const std::string& real_pan);
+  void OnDidGetRealPan(
+      AutofillClient::PaymentsRpcResult result,
+      payments::PaymentsClient::UnmaskResponseDetails& response_details);
+
+  // Called when verification is cancelled. This is used only by
+  // CreditCardFIDOAuthenticator to cancel the flow for opted-in users.
+  void OnFIDOVerificationCancelled();
+
+  payments::PaymentsClient::UnmaskResponseDetails unmask_response_details()
+      const {
+    return unmask_response_details_;
+  }
 
   base::TimeTicks form_parsed_timestamp() const {
     return form_parsed_timestamp_;
   }
 
  private:
+  friend class autofill::AutofillManagerTest;
+  friend class autofill::AutofillMetricsTest;
+  friend class autofill::CreditCardAccessManagerTest;
+  friend class autofill::CreditCardCVCAuthenticatorTest;
+
   // Retrieves the pan for |card| and invokes
   // Delegate::OnFullCardRequestSucceeded() or
   // Delegate::OnFullCardRequestFailed(). Only one request should be active at a
@@ -115,7 +131,8 @@ class FullCardRequest final : public CardUnmaskDelegate {
                    base::Value fido_assertion_info);
 
   // CardUnmaskDelegate:
-  void OnUnmaskResponse(const UnmaskResponse& response) override;
+  void OnUnmaskPromptAccepted(
+      const UserProvidedUnmaskDetails& user_response) override;
   void OnUnmaskPromptClosed() override;
 
   // Called by autofill client when the risk data has been loaded.
@@ -151,10 +168,13 @@ class FullCardRequest final : public CardUnmaskDelegate {
 
   // The timestamp when the full PAN was requested from a server. For
   // histograms.
-  base::Time real_pan_request_timestamp_;
+  base::TimeTicks real_pan_request_timestamp_;
 
   // The timestamp when the form is parsed. For histograms.
   base::TimeTicks form_parsed_timestamp_;
+
+  // Includes all details from GetRealPan response.
+  payments::PaymentsClient::UnmaskResponseDetails unmask_response_details_;
 
   // Enables destroying FullCardRequest while CVC prompt is showing or a server
   // communication is pending.

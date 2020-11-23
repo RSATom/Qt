@@ -82,7 +82,7 @@ QVariant TwitterTimelineModel::data(const QModelIndex &index, int role) const
     case 0:
         return QString::number(it->id);
     case 1:
-        return it->createdAt.toString(Qt::SystemLocaleShortDate);
+        return it->createdAt.toString(Qt::ISODateWithMs);
     case 2:
         return it->user;
     case 3:

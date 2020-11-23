@@ -221,7 +221,7 @@ bool SkEdgeClipper::clipQuad(const SkPoint srcPts[3], const SkRect& clip) {
     fCurrVerb = fVerbs;
 
     SkRect  bounds;
-    bounds.set(srcPts, 3);
+    bounds.setBounds(srcPts, 3);
 
     if (!quick_reject(bounds, clip)) {
         SkPoint monoY[5];
@@ -397,7 +397,7 @@ void SkEdgeClipper::clipMonoCubic(const SkPoint src[4], const SkRect& clip) {
 
 static SkRect compute_cubic_bounds(const SkPoint pts[4]) {
     SkRect r;
-    r.set(pts, 4);
+    r.setBounds(pts, 4);
     return r;
 }
 
@@ -555,3 +555,43 @@ void sk_assert_monotonic_x(const SkPoint pts[], int count) {
     }
 }
 #endif
+
+#include "src/core/SkPathPriv.h"
+
+void SkEdgeClipper::ClipPath(const SkPath& path, const SkRect& clip, bool canCullToTheRight,
+                             void (*consume)(SkEdgeClipper*, bool newCtr, void* ctx), void* ctx) {
+    SkAutoConicToQuads quadder;
+    const SkScalar conicTol = SK_Scalar1 / 4;
+
+    SkPathEdgeIter iter(path);
+    SkEdgeClipper clipper(canCullToTheRight);
+
+    while (auto e = iter.next()) {
+        switch (e.fEdge) {
+            case SkPathEdgeIter::Edge::kLine:
+                if (clipper.clipLine(e.fPts[0], e.fPts[1], clip)) {
+                    consume(&clipper, e.fIsNewContour, ctx);
+                }
+                break;
+            case SkPathEdgeIter::Edge::kQuad:
+                if (clipper.clipQuad(e.fPts, clip)) {
+                    consume(&clipper, e.fIsNewContour, ctx);
+                }
+                break;
+            case SkPathEdgeIter::Edge::kConic: {
+                const SkPoint* quadPts = quadder.computeQuads(e.fPts, iter.conicWeight(), conicTol);
+                for (int i = 0; i < quadder.countQuads(); ++i) {
+                    if (clipper.clipQuad(quadPts, clip)) {
+                        consume(&clipper, e.fIsNewContour, ctx);
+                    }
+                    quadPts += 2;
+                }
+            } break;
+            case SkPathEdgeIter::Edge::kCubic:
+                if (clipper.clipCubic(e.fPts, clip)) {
+                    consume(&clipper, e.fIsNewContour, ctx);
+                }
+                break;
+        }
+    }
+}

@@ -27,19 +27,19 @@ NFCHost::NFCHost(WebContents* web_contents)
 
   JNIEnv* env = base::android::AttachCurrentThread();
 
-  java_nfc_host_.Reset(
-      Java_NfcHost_create(env, web_contents_->GetJavaWebContents(), id_));
+  // The created instance's reference is kept inside a map in Java world.
+  Java_NfcHost_create(env, web_contents_->GetJavaWebContents(), id_);
 
   service_manager::Connector* connector = content::GetSystemConnector();
   if (connector) {
-    connector->BindInterface(device::mojom::kServiceName,
-                             mojo::MakeRequest(&nfc_provider_));
+    connector->Connect(device::mojom::kServiceName,
+                       nfc_provider_.BindNewPipeAndPassReceiver());
   }
 }
 
-void NFCHost::GetNFC(device::mojom::NFCRequest request) {
+void NFCHost::GetNFC(mojo::PendingReceiver<device::mojom::NFC> receiver) {
   // Connect to an NFC object, associating it with |id_|.
-  nfc_provider_->GetNFCForHost(id_, std::move(request));
+  nfc_provider_->GetNFCForHost(id_, std::move(receiver));
 }
 
 NFCHost::~NFCHost() {}

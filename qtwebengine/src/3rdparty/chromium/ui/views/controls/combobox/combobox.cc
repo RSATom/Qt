@@ -10,6 +10,7 @@
 #include "base/logging.h"
 #include "build/build_config.h"
 #include "ui/accessibility/ax_action_data.h"
+#include "ui/accessibility/ax_enums.mojom.h"
 #include "ui/accessibility/ax_node_data.h"
 #include "ui/base/ime/input_method.h"
 #include "ui/base/models/combobox_model.h"
@@ -24,6 +25,8 @@
 #include "ui/views/animation/flood_fill_ink_drop_ripple.h"
 #include "ui/views/animation/ink_drop_impl.h"
 #include "ui/views/background.h"
+#include "ui/views/controls/button/button.h"
+#include "ui/views/controls/button/button_controller.h"
 #include "ui/views/controls/combobox/combobox_listener.h"
 #include "ui/views/controls/combobox/combobox_util.h"
 #include "ui/views/controls/focus_ring.h"
@@ -58,7 +61,8 @@ class TransparentButton : public Button {
  public:
   explicit TransparentButton(ButtonListener* listener) : Button(listener) {
     SetFocusBehavior(FocusBehavior::NEVER);
-    set_notify_action(PlatformStyle::kMenuNotifyActivationAction);
+    button_controller()->set_notify_action(
+        ButtonController::NotifyAction::kOnPress);
 
     SetInkDropMode(InkDropMode::ON);
     set_has_ink_drop_action_on_click(true);
@@ -175,7 +179,7 @@ class Combobox::ComboboxMenuModel : public ui::MenuModel {
 
   int GetGroupIdAt(int index) const override { return -1; }
 
-  bool GetIconAt(int index, gfx::Image* icon) override { return false; }
+  bool GetIconAt(int index, gfx::Image* icon) const override { return false; }
 
   ui::ButtonMenuItemModel* GetButtonMenuItemAt(int index) const override {
     return nullptr;
@@ -303,11 +307,6 @@ void Combobox::SetInvalid(bool invalid) {
   OnPropertyChanged(&selected_index_, kPropertyEffectsPaint);
 }
 
-void Combobox::Layout() {
-  View::Layout();
-  arrow_button_->SetBounds(0, 0, width(), height());
-}
-
 void Combobox::OnThemeChanged() {
   SetBackground(
       CreateBackgroundFromPainter(Painter::CreateSolidRoundRectPainter(
@@ -353,6 +352,10 @@ gfx::Size Combobox::CalculatePreferredSize() const {
   int total_width = std::max(kMinComboboxWidth, content_size_.width()) +
                     insets.width() + kComboboxArrowContainerWidth;
   return gfx::Size(total_width, content_size_.height() + insets.height());
+}
+
+void Combobox::OnBoundsChanged(const gfx::Rect& previous_bounds) {
+  arrow_button_->SetBounds(0, 0, width(), height());
 }
 
 bool Combobox::SkipDefaultKeyEventProcessing(const ui::KeyEvent& e) {
@@ -502,7 +505,7 @@ void Combobox::ButtonPressed(Button* sender, const ui::Event& event) {
   // TODO(hajimehoshi): Fix the problem that the arrow button blinks when
   // cliking this while the dropdown menu is opened.
   const base::TimeDelta delta = base::TimeTicks::Now() - closed_time_;
-  if (delta.InMilliseconds() <= kMinimumMsBetweenButtonClicks)
+  if (delta <= kMinimumTimeBetweenButtonClicks)
     return;
 
   ui::MenuSourceType source_type = ui::MENU_SOURCE_MOUSE;

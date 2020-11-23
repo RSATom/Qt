@@ -32,6 +32,7 @@
 
 #include "third_party/blink/public/common/features.h"
 #include "third_party/blink/renderer/core/dom/document.h"
+#include "third_party/blink/renderer/core/frame/web_feature.h"
 #include "third_party/blink/renderer/core/html/imports/html_import_child.h"
 #include "third_party/blink/renderer/core/html/imports/html_import_child_client.h"
 #include "third_party/blink/renderer/core/html/imports/html_import_loader.h"
@@ -121,7 +122,8 @@ HTMLImportChild* HTMLImportsController::Load(const Document& parent_document,
   ResourceFetcher* fetcher = parent->GetDocument()->Fetcher();
 
   if (base::FeatureList::IsEnabled(
-          features::kHtmlImportsRequestInitiatorLock)) {
+          features::kHtmlImportsRequestInitiatorLock) &&
+      parent->GetDocument()->ImportsController()) {
     Document* context_document = parent->GetDocument()->ContextDocument();
     if (!context_document)
       return nullptr;

@@ -54,17 +54,15 @@ ObjectManager::ObjectManager(Bus* bus,
       service_name_(service_name),
       object_path_(object_path),
       setup_success_(false),
-      cleanup_called_(false),
-      weak_ptr_factory_(this) {
+      cleanup_called_(false) {
   LOG_IF(FATAL, !object_path_.IsValid()) << object_path_.value();
   DVLOG(1) << "Creating ObjectManager for " << service_name_
            << " " << object_path_.value();
   DCHECK(bus_);
   bus_->AssertOnOriginThread();
   object_proxy_ = bus_->GetObjectProxy(service_name_, object_path_);
-  object_proxy_->SetNameOwnerChangedCallback(
-      base::Bind(&ObjectManager::NameOwnerChanged,
-                 weak_ptr_factory_.GetWeakPtr()));
+  object_proxy_->SetNameOwnerChangedCallback(base::BindRepeating(
+      &ObjectManager::NameOwnerChanged, weak_ptr_factory_.GetWeakPtr()));
 }
 
 ObjectManager::~ObjectManager() {
@@ -149,11 +147,9 @@ void ObjectManager::GetManagedObjects() {
   MethodCall method_call(kObjectManagerInterface,
                          kObjectManagerGetManagedObjects);
 
-  object_proxy_->CallMethod(
-      &method_call,
-      ObjectProxy::TIMEOUT_USE_DEFAULT,
-      base::Bind(&ObjectManager::OnGetManagedObjects,
-                 weak_ptr_factory_.GetWeakPtr()));
+  object_proxy_->CallMethod(&method_call, ObjectProxy::TIMEOUT_USE_DEFAULT,
+                            base::BindOnce(&ObjectManager::OnGetManagedObjects,
+                                           weak_ptr_factory_.GetWeakPtr()));
 }
 
 void ObjectManager::CleanUp() {
@@ -187,8 +183,12 @@ bool ObjectManager::SetupMatchRuleAndFilter() {
   if (!bus_->Connect() || !bus_->SetUpAsyncOperations())
     return false;
 
-  service_name_owner_ =
-      bus_->GetServiceOwnerAndBlock(service_name_, Bus::SUPPRESS_ERRORS);
+  // Try to get |service_name_owner_| from dbus if we haven't received any
+  // NameOwnerChanged signals.
+  if (service_name_owner_.empty()) {
+    service_name_owner_ =
+        bus_->GetServiceOwnerAndBlock(service_name_, Bus::SUPPRESS_ERRORS);
+  }
 
   const std::string match_rule =
       base::StringPrintf(
@@ -224,6 +224,7 @@ void ObjectManager::OnSetupMatchRuleAndFilterComplete(bool success) {
   DCHECK(bus_);
   DCHECK(object_proxy_);
   DCHECK(setup_success_);
+  bus_->AssertOnOriginThread();
 
   // |object_proxy_| is no longer valid if the Bus was shut down before this
   // call. Don't initiate any other action from the origin thread.
@@ -231,20 +232,18 @@ void ObjectManager::OnSetupMatchRuleAndFilterComplete(bool success) {
     return;
 
   object_proxy_->ConnectToSignal(
-      kObjectManagerInterface,
-      kObjectManagerInterfacesAdded,
-      base::Bind(&ObjectManager::InterfacesAddedReceived,
-                 weak_ptr_factory_.GetWeakPtr()),
-      base::Bind(&ObjectManager::InterfacesAddedConnected,
-                 weak_ptr_factory_.GetWeakPtr()));
+      kObjectManagerInterface, kObjectManagerInterfacesAdded,
+      base::BindRepeating(&ObjectManager::InterfacesAddedReceived,
+                          weak_ptr_factory_.GetWeakPtr()),
+      base::BindOnce(&ObjectManager::InterfacesAddedConnected,
+                     weak_ptr_factory_.GetWeakPtr()));
 
   object_proxy_->ConnectToSignal(
-      kObjectManagerInterface,
-      kObjectManagerInterfacesRemoved,
-      base::Bind(&ObjectManager::InterfacesRemovedReceived,
-                 weak_ptr_factory_.GetWeakPtr()),
-      base::Bind(&ObjectManager::InterfacesRemovedConnected,
-                 weak_ptr_factory_.GetWeakPtr()));
+      kObjectManagerInterface, kObjectManagerInterfacesRemoved,
+      base::BindRepeating(&ObjectManager::InterfacesRemovedReceived,
+                          weak_ptr_factory_.GetWeakPtr()),
+      base::BindOnce(&ObjectManager::InterfacesRemovedConnected,
+                     weak_ptr_factory_.GetWeakPtr()));
 
   if (!service_name_owner_.empty())
     GetManagedObjects();
@@ -505,9 +504,18 @@ void ObjectManager::RemoveInterface(const ObjectPath& object_path,
   }
 }
 
+void ObjectManager::UpdateServiceNameOwner(const std::string& new_owner) {
+  bus_->AssertOnDBusThread();
+  service_name_owner_ = new_owner;
+}
+
 void ObjectManager::NameOwnerChanged(const std::string& old_owner,
                                      const std::string& new_owner) {
-  service_name_owner_ = new_owner;
+  bus_->AssertOnOriginThread();
+
+  bus_->GetDBusTaskRunner()->PostTask(
+      FROM_HERE,
+      base::BindOnce(&ObjectManager::UpdateServiceNameOwner, this, new_owner));
 
   if (!old_owner.empty()) {
     ObjectMap::iterator iter = object_map_.begin();

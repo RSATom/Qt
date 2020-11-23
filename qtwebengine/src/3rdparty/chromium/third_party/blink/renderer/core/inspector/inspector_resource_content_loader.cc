@@ -29,8 +29,7 @@ namespace blink {
 // resources. Stylesheets can only safely use a RawResourceClient because it has
 // no custom interface and simply uses the base ResourceClient.
 class InspectorResourceContentLoader::ResourceClient final
-    : public GarbageCollectedFinalized<
-          InspectorResourceContentLoader::ResourceClient>,
+    : public GarbageCollected<InspectorResourceContentLoader::ResourceClient>,
       private RawResourceClient {
   USING_GARBAGE_COLLECTED_MIXIN(ResourceClient);
 
@@ -96,7 +95,8 @@ void InspectorResourceContentLoader::Start() {
 
     ResourceFetcher* fetcher = document->Fetcher();
     if (base::FeatureList::IsEnabled(
-            features::kHtmlImportsRequestInitiatorLock)) {
+            features::kHtmlImportsRequestInitiatorLock) &&
+        document->ImportsController()) {
       // For @imports from HTML imported Documents, we use the
       // context document for getting origin and ResourceFetcher to use the
       // main Document's origin, while using the element document for

@@ -44,7 +44,7 @@ QT_BEGIN_NAMESPACE
 
 QHttpNetworkRequestPrivate::QHttpNetworkRequestPrivate(QHttpNetworkRequest::Operation op,
         QHttpNetworkRequest::Priority pri, const QUrl &newUrl)
-    : QHttpNetworkHeaderPrivate(newUrl), operation(op), priority(pri), uploadByteDevice(0),
+    : QHttpNetworkHeaderPrivate(newUrl), operation(op), priority(pri), uploadByteDevice(nullptr),
       autoDecompress(false), pipeliningAllowed(false), spdyAllowed(false), http2Allowed(false),
       http2Direct(false), withCredentials(true), preConnect(false), redirectCount(0),
       redirectPolicy(QNetworkRequest::ManualRedirectPolicy)
@@ -286,6 +286,11 @@ void QHttpNetworkRequest::setHeaderField(const QByteArray &name, const QByteArra
 void QHttpNetworkRequest::prependHeaderField(const QByteArray &name, const QByteArray &data)
 {
     d->prependHeaderField(name, data);
+}
+
+void QHttpNetworkRequest::clearHeaders()
+{
+    d->clearHeaders();
 }
 
 QHttpNetworkRequest &QHttpNetworkRequest::operator=(const QHttpNetworkRequest &other)

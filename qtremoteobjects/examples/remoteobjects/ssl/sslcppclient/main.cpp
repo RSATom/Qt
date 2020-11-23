@@ -66,7 +66,7 @@ public:
     {
         QRemoteObjectNode m_client;
         auto socket = setupConnection();
-        connect(socket, QOverload<QAbstractSocket::SocketError>::of(&QSslSocket::error),
+        connect(socket, &QSslSocket::errorOccurred,
                 socket, [](QAbstractSocket::SocketError error){
             qDebug() << "QSslSocket::error" << error;
         }) ;

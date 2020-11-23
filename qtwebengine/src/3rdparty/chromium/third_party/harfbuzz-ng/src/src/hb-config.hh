@@ -58,6 +58,7 @@
 #define HB_NO_BITMAP
 #define HB_NO_CFF
 #define HB_NO_COLOR
+#define HB_NO_ERRNO
 #define HB_NO_FACE_COLLECT_UNICODES
 #define HB_NO_GETENV
 #define HB_NO_HINTING
@@ -66,6 +67,8 @@
 #define HB_NO_LAYOUT_COLLECT_GLYPHS
 #define HB_NO_LAYOUT_UNUSED
 #define HB_NO_MATH
+#define HB_NO_META
+#define HB_NO_METRICS
 #define HB_NO_MMAP
 #define HB_NO_NAME
 #define HB_NO_OPEN

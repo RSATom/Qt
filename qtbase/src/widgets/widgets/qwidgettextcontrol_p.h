@@ -116,12 +116,12 @@ public:
     void setCurrentCharFormat(const QTextCharFormat &format);
     QTextCharFormat currentCharFormat() const;
 
-    bool find(const QString &exp, QTextDocument::FindFlags options = nullptr);
+    bool find(const QString &exp, QTextDocument::FindFlags options = { });
 #ifndef QT_NO_REGEXP
-    bool find(const QRegExp &exp, QTextDocument::FindFlags options = nullptr);
+    bool find(const QRegExp &exp, QTextDocument::FindFlags options = { });
 #endif
 #if QT_CONFIG(regularexpression)
-    bool find(const QRegularExpression &exp, QTextDocument::FindFlags options = nullptr);
+    bool find(const QRegularExpression &exp, QTextDocument::FindFlags options = { });
 #endif
 
     QString toPlainText() const;
@@ -252,7 +252,7 @@ public:
     QPalette palette() const;
     void setPalette(const QPalette &pal);
 
-    virtual void processEvent(QEvent *e, const QMatrix &matrix, QWidget *contextWidget = nullptr);
+    virtual void processEvent(QEvent *e, const QTransform &transform, QWidget *contextWidget = nullptr);
     void processEvent(QEvent *e, const QPointF &coordinateOffset = QPointF(), QWidget *contextWidget = nullptr);
 
     // control methods

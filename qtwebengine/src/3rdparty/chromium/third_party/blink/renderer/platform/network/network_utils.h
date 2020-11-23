@@ -14,7 +14,6 @@
 namespace blink {
 
 class KURL;
-class SharedBuffer;
 class ResourceResponse;
 
 namespace network_utils {
@@ -35,12 +34,14 @@ PLATFORM_EXPORT String GetDomainAndRegistry(const String& host,
 // was successful. The result is returned as net error code. It returns net::OK
 // if decoding succeeds, otherwise it failed.
 PLATFORM_EXPORT std::tuple<int, ResourceResponse, scoped_refptr<SharedBuffer>>
-ParseDataURL(const KURL&);
+ParseDataURL(const KURL&, const String& method);
 
 // Returns true if the URL is a data URL and its MIME type is in the list of
 // supported/recognized MIME types.
-PLATFORM_EXPORT bool IsDataURLMimeTypeSupported(const KURL&,
-                                                std::string* data = nullptr);
+PLATFORM_EXPORT bool IsDataURLMimeTypeSupported(
+    const KURL&,
+    std::string* data = nullptr,
+    std::string* mime_type = nullptr);
 
 PLATFORM_EXPORT bool IsRedirectResponseCode(int);
 

@@ -106,7 +106,7 @@ public:
     QGestureRecognizer::Result recognize(QGesture *state, QObject*, QEvent *event)
     {
         if (event->type() == CustomEvent::EventType) {
-            QGestureRecognizer::Result result = 0;
+            QGestureRecognizer::Result result;
             if (CustomGestureRecognizer::ConsumeEvents)
                 result |= QGestureRecognizer::ConsumeEventHint;
             CustomGesture *g = static_cast<CustomGesture*>(state);
@@ -1401,13 +1401,13 @@ void tst_Gestures::ungrabGesture() // a method on QWidget
 
         QSet<QGesture*> gestures;
     protected:
-        bool event(QEvent *event)
+        bool event(QEvent *event) override
         {
             if (event->type() == QEvent::Gesture) {
                 QGestureEvent *gestureEvent = static_cast<QGestureEvent*>(event);
-                if (gestureEvent)
-                    foreach (QGesture *g, gestureEvent->gestures())
-                        gestures.insert(g);
+                const auto eventGestures = gestureEvent->gestures();
+                for (QGesture *g : eventGestures)
+                    gestures.insert(g);
             }
             return GestureWidget::event(event);
         }
@@ -2200,41 +2200,41 @@ void tst_Gestures::testReuseCanceledGestures()
     targetPos = gv->viewport()->mapFromParent(targetPos);
 
     // "Tap" starts on child widget
-    QTest::mousePress(gv->viewport(), Qt::LeftButton, 0, targetPos);
+    QTest::mousePress(gv->viewport(), Qt::LeftButton, { }, targetPos);
     QCOMPARE(target->started(),  1);
     QCOMPARE(target->updated(),  0);
     QCOMPARE(target->finished(), 0);
     QCOMPARE(target->canceled(), 0);
 
     // Canceling gesture starts on parent
-    QTest::mousePress(gv->viewport(), Qt::RightButton, 0, targetPos);
+    QTest::mousePress(gv->viewport(), Qt::RightButton, { }, targetPos);
     QCOMPARE(target->started(),  1);
     QCOMPARE(target->updated(),  0);
     QCOMPARE(target->finished(), 0);
     QCOMPARE(target->canceled(), 1); // <- child canceled
 
     // Canceling gesture ends
-    QTest::mouseRelease(gv->viewport(), Qt::RightButton, 0, targetPos);
+    QTest::mouseRelease(gv->viewport(), Qt::RightButton, { }, targetPos);
     QCOMPARE(target->started(),  1);
     QCOMPARE(target->updated(),  0);
     QCOMPARE(target->finished(), 0);
     QCOMPARE(target->canceled(), 1);
 
     // Tap would end if not canceled
-    QTest::mouseRelease(gv->viewport(), Qt::LeftButton, 0, targetPos);
+    QTest::mouseRelease(gv->viewport(), Qt::LeftButton, { }, targetPos);
     QCOMPARE(target->started(),  1);
     QCOMPARE(target->updated(),  0);
     QCOMPARE(target->finished(), 0);
     QCOMPARE(target->canceled(), 1);
 
     // New "Tap" starts
-    QTest::mousePress(gv->viewport(), Qt::LeftButton, 0, targetPos);
+    QTest::mousePress(gv->viewport(), Qt::LeftButton, { }, targetPos);
     QCOMPARE(target->started(),  2);
     QCOMPARE(target->updated(),  0);
     QCOMPARE(target->finished(), 0);
     QCOMPARE(target->canceled(), 1);
 
-    QTest::mouseRelease(gv->viewport(), Qt::LeftButton, 0, targetPos);
+    QTest::mouseRelease(gv->viewport(), Qt::LeftButton, { }, targetPos);
     QCOMPARE(target->started(),  2);
     QCOMPARE(target->updated(),  0);
     QCOMPARE(target->finished(), 1);

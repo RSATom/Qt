@@ -116,9 +116,9 @@ void CFWL_CheckBox::SetCheckState(int32_t iCheck) {
 
 void CFWL_CheckBox::Layout() {
   m_pProperties->m_rtWidget.width =
-      FXSYS_round(m_pProperties->m_rtWidget.width);
+      FXSYS_roundf(m_pProperties->m_rtWidget.width);
   m_pProperties->m_rtWidget.height =
-      FXSYS_round(m_pProperties->m_rtWidget.height);
+      FXSYS_roundf(m_pProperties->m_rtWidget.height);
   m_rtClient = GetClientRect();
 
   float fTextLeft = m_rtClient.left + m_fBoxHeight;
@@ -127,9 +127,7 @@ void CFWL_CheckBox::Layout() {
                           m_rtClient.right() - fTextLeft, m_rtClient.height);
   m_rtCaption.Inflate(-kCaptionMargin, -kCaptionMargin);
 
-  CFX_RectF rtFocus(m_rtCaption.left, m_rtCaption.top, m_rtCaption.width,
-                    m_rtCaption.height);
-
+  CFX_RectF rtFocus = m_rtCaption;
   CalcTextRect(L"Check box", m_pProperties->m_pThemeProvider.Get(), m_TTOStyles,
                m_iTTOAlign, &rtFocus);
 
@@ -239,8 +237,9 @@ void CFWL_CheckBox::OnProcessMessage(CFWL_Message* pMessage) {
     default:
       break;
   }
-
-  CFWL_Widget::OnProcessMessage(pMessage);
+  // Dst target could be |this|, continue only if not destroyed by above.
+  if (pMessage->GetDstTarget())
+    CFWL_Widget::OnProcessMessage(pMessage);
 }
 
 void CFWL_CheckBox::OnDrawWidget(CXFA_Graphics* pGraphics,

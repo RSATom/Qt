@@ -284,9 +284,9 @@ ThreatDOMDetails* ThreatDOMDetails::Create(
   return new ThreatDOMDetails(render_frame, registry);
 }
 
-void ThreatDOMDetails::OnThreatReporterRequest(
-    mojom::ThreatReporterRequest request) {
-  threat_reporter_bindings_.AddBinding(this, std::move(request));
+void ThreatDOMDetails::OnThreatReporterReceiver(
+    mojo::PendingReceiver<mojom::ThreatReporter> receiver) {
+  threat_reporter_receivers_.Add(this, std::move(receiver));
 }
 
 ThreatDOMDetails::ThreatDOMDetails(content::RenderFrame* render_frame,
@@ -296,7 +296,7 @@ ThreatDOMDetails::ThreatDOMDetails(content::RenderFrame* render_frame,
   // Base::Unretained() is safe here because both the registry and the
   // ThreatDOMDetails are scoped to the same render frame.
   registry->AddInterface(base::BindRepeating(
-      &ThreatDOMDetails::OnThreatReporterRequest, base::Unretained(this)));
+      &ThreatDOMDetails::OnThreatReporterReceiver, base::Unretained(this)));
 }
 
 ThreatDOMDetails::~ThreatDOMDetails() {}
@@ -327,20 +327,16 @@ void ThreatDOMDetails::ExtractResources(
   ElementToNodeMap element_to_node_map;
   blink::WebElementCollection elements = document.All();
   blink::WebElement element = elements.FirstItem();
-  bool max_nodes_exceeded = false;
   for (; !element.IsNull(); element = elements.NextItem()) {
     if (ShouldHandleElement(element, tag_and_attributes_list_)) {
       HandleElement(element, tag_and_attributes_list_, details_node.get(),
                     resources, &element_to_node_map);
       if (resources->size() >= kMaxNodes) {
         // We have reached kMaxNodes, exit early.
-        max_nodes_exceeded = true;
         break;
       }
     }
   }
-  UMA_HISTOGRAM_BOOLEAN("SafeBrowsing.ThreatReport.MaxNodesExceededInFrame",
-                        max_nodes_exceeded);
   resources->push_back(std::move(details_node));
 }
 

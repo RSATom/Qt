@@ -4,7 +4,6 @@ QT = core qml nfc
 
 # Input
 HEADERS += \
-    #qdeclarativenearfieldsocket_p.h \
     qdeclarativenearfield_p.h \
     qdeclarativendeffilter_p.h \
     qdeclarativendeftextrecord_p.h \
@@ -12,7 +11,6 @@ HEADERS += \
     qdeclarativendefmimerecord_p.h
 
 SOURCES += plugin.cpp \
-    #qdeclarativenearfieldsocket.cpp \
     qdeclarativenearfield.cpp \
     qdeclarativendeffilter.cpp \
     qdeclarativendeftextrecord.cpp \

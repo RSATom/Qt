@@ -11,6 +11,7 @@
 
 #include "base/macros.h"
 #include "base/memory/ref_counted.h"
+#include "base/memory/scoped_refptr.h"
 #include "base/scoped_observer.h"
 #include "base/version.h"
 #include "content/public/browser/browser_thread.h"
@@ -18,7 +19,9 @@
 #include "extensions/browser/content_verifier_delegate.h"
 #include "extensions/browser/content_verifier_io_data.h"
 #include "extensions/browser/content_verify_job.h"
+#include "extensions/browser/extension_registry.h"
 #include "extensions/browser/extension_registry_observer.h"
+#include "mojo/public/cpp/bindings/pending_receiver.h"
 #include "services/network/public/cpp/shared_url_loader_factory.h"
 
 namespace base {
@@ -116,17 +119,18 @@ class ContentVerifier : public base::RefCountedThreadSafe<ContentVerifier>,
   class HashHelper;
 
   void OnFetchComplete(const scoped_refptr<const ContentHash>& content_hash);
-  ContentHash::FetchParams GetFetchParams(
-      const ExtensionId& extension_id,
-      const base::Version& extension_version);
+  ContentHash::FetchKey GetFetchKey(const ExtensionId& extension_id,
+                                    const base::FilePath& extension_root,
+                                    const base::Version& extension_version);
 
   void DidGetContentHash(const CacheKey& cache_key,
                          ContentHashCallback orig_callback,
                          scoped_refptr<const ContentHash> content_hash);
 
-  // Binds an URLLoaderFactoryRequest on the UI thread.
-  void BindURLLoaderFactoryRequestOnUIThread(
-      network::mojom::URLLoaderFactoryRequest url_loader_factory_request);
+  // Binds an URLLoaderFactoryReceiver on the UI thread.
+  void BindURLLoaderFactoryReceiverOnUIThread(
+      mojo::PendingReceiver<network::mojom::URLLoaderFactory>
+          url_loader_factory_receiver);
 
   // Performs IO thread operations after extension load.
   void OnExtensionLoadedOnIO(
@@ -179,7 +183,7 @@ class ContentVerifier : public base::RefCountedThreadSafe<ContentVerifier>,
   std::unique_ptr<ContentVerifierDelegate> delegate_;
 
   // For observing the ExtensionRegistry.
-  ScopedObserver<ExtensionRegistry, ExtensionRegistryObserver> observer_;
+  ScopedObserver<ExtensionRegistry, ExtensionRegistryObserver> observer_{this};
 
   // Data that should only be used on the IO thread.
   ContentVerifierIOData io_data_;

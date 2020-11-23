@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!DOCTYPE TS>
-<TS version="2.0" language="ko">
+<TS version="2.1" language="ko">
 <context>
     <name>QBluetoothDeviceDiscoveryAgent</name>
     <message>
@@ -20,8 +20,12 @@
         <translation>전달한 주소가 로컬 장치가 아닙니다.</translation>
     </message>
     <message>
-        <source>Missing Location permission. Search is not possible</source>
-        <translation>위치 권한이 없습니다. 검색할 수 없습니다</translation>
+        <source>Missing Location permission. Search is not possible.</source>
+        <translation>위치 권한이 없습니다. 검색할 수 없습니다.</translation>
+    </message>
+    <message>
+        <source>Location service turned off. Search is not possible.</source>
+        <translation>위치 서비스가 꺼져 있습니다. 검색할 수 없습니다.</translation>
     </message>
     <message>
         <source>Classic Discovery cannot be started</source>
@@ -52,10 +56,6 @@
         <translation>LE 장치 조회를 시작할 수 없음</translation>
     </message>
     <message>
-        <source>Discovery cannot be started</source>
-        <translation>발견을 시작할 수 없음</translation>
-    </message>
-    <message>
         <source>Discovery cannot be stopped</source>
         <translation>발견을 중지할 수 없음</translation>
     </message>
@@ -66,18 +66,6 @@
     <message>
         <source>Bluetooth adapter error</source>
         <translation>블루투스 어댑터 오류</translation>
-    </message>
-    <message>
-        <source>No Bluetooth device available</source>
-        <translation>블루투스 장치를 사용할 수 없음</translation>
-    </message>
-    <message>
-        <source>Cannot open remote device socket</source>
-        <translation>원격 장치 소켓을 열 수 없음</translation>
-    </message>
-    <message>
-        <source>Cannot connect to Bluetooth socket notifier</source>
-        <translation>블루투스 소켓 알림이에 연결할 수 없음</translation>
     </message>
     <message>
         <source>Cannot start device inquiry</source>
@@ -153,30 +141,6 @@
     <message>
         <source>Custom Service</source>
         <translation>사용자 정의 서비스</translation>
-    </message>
-    <message>
-        <source>Result received in callback is null</source>
-        <translation>콜백으로 수신한 결과가 null임</translation>
-    </message>
-    <message>
-        <source>Failed to initialize Bluetooth stack</source>
-        <translation>블루투스 스택을 초기화할 수 없음</translation>
-    </message>
-    <message>
-        <source>Could not retrieve remote device address</source>
-        <translation>원격 장치 주소를 가져올 수 없음</translation>
-    </message>
-    <message>
-        <source>Failed to open remote device file</source>
-        <translation>원격 장치 파일을 열 수 없음</translation>
-    </message>
-    <message>
-        <source>Operation canceled</source>
-        <translation>작업 취소됨</translation>
-    </message>
-    <message>
-        <source>Service query timed out</source>
-        <translation>서비스 질의 시간 초과됨</translation>
     </message>
     <message>
         <source>Service Discovery</source>
@@ -527,14 +491,6 @@
         <translation>환경 감지 트리거 설정</translation>
     </message>
     <message>
-        <source>Running Speed and Cadance</source>
-        <translation>달리는 속도와 박자</translation>
-    </message>
-    <message>
-        <source>Cycling Speed and Cadance</source>
-        <translation>사이클 속도와 박자</translation>
-    </message>
-    <message>
         <source>Cycling Power</source>
         <translation>사이클 힘</translation>
     </message>
@@ -654,10 +610,6 @@
     <message>
         <source>UdiCPlain</source>
         <translation>UdiCPlain</translation>
-    </message>
-    <message>
-        <source>Multi-Channel Adaptation Protocol -Conrol</source>
-        <translation>다채널 적응형 프로토콜 - Conrol</translation>
     </message>
     <message>
         <source>Multi-Channel Adaptation Protocol - Data</source>
@@ -834,7 +786,7 @@
     </message>
     <message>
         <source>Glucose Measurement Context</source>
-        <translation>혈당 측정 컨텍스트</translation>
+        <translation>혈당 측정 콘텍스트</translation>
     </message>
     <message>
         <source>Blood Pressure Measurement</source>
@@ -978,10 +930,6 @@
     <message>
         <source>Cycling Power Feature</source>
         <translation>사이클 힘 기능</translation>
-    </message>
-    <message>
-        <source>Cycling Power COntrol Point</source>
-        <translation>사이클 힘 제어 지점</translation>
     </message>
     <message>
         <source>Location And Speed</source>
@@ -1245,10 +1193,6 @@
         <translation>클라이언트 특징 설정</translation>
     </message>
     <message>
-        <source>Server Characteristic Configuratio</source>
-        <translation>서버 특징 설정</translation>
-    </message>
-    <message>
         <source>Characteristic Presentation Format</source>
         <translation>특징 표시 형식</translation>
     </message>
@@ -1288,10 +1232,6 @@
         <translation>알 수 없는 소켓 오류</translation>
     </message>
     <message>
-        <source>Connecting to port is not supported</source>
-        <translation>포트 연결이 지원되지 않음</translation>
-    </message>
-    <message>
         <source>Service cannot be found</source>
         <translation>서비스를 찾을 수 없음</translation>
     </message>
@@ -1326,6 +1266,11 @@
         <translation>서비스 스트림을 가져올 수 없음</translation>
     </message>
     <message>
+        <source>Cannot connect to %1</source>
+        <comment>%1 = uuid</comment>
+        <translation>%1에 연결할 수 없음</translation>
+    </message>
+    <message>
         <source>Input stream thread cannot be started</source>
         <translation>입력 스트림 스레드를 시작할 수 없음</translation>
     </message>
@@ -1335,7 +1280,7 @@
     </message>
     <message>
         <source>Error during write on socket.</source>
-        <translation>소켓에 쓰는 중 오류가 발생하였습니다.</translation>
+        <translation>소켓에 쓰는 중 오류가 발생했습니다.</translation>
     </message>
     <message>
         <source>Cannot read while not connected</source>
@@ -1357,16 +1302,86 @@
         <source>Network Error: %1</source>
         <translation>네트워크 오류: %1</translation>
     </message>
+    <message>
+        <source>Cannot export profile on DBus</source>
+        <translation>DBus로 프로필을 내보낼 수 없음</translation>
+    </message>
+    <message>
+        <source>Cannot register profile on DBus</source>
+        <translation>DBus에 프로필을 등록할 수 없음</translation>
+    </message>
+    <message>
+        <source>Cannot find remote device</source>
+        <translation>원격 장치를 찾을 수 없음</translation>
+    </message>
+    <message>
+        <source>Cannot connect to remote profile</source>
+        <translation>원격 프로필에 연결할 수 없음</translation>
+    </message>
+    <message>
+        <source>Missing serviceUuid or Serial Port service class uuid</source>
+        <translation>serviceUuid 또는 직렬 포트 서비스 클래스 uuid가 없음</translation>
+    </message>
+    <message>
+        <source>Invalid Bluetooth address passed to connectToService()</source>
+        <translation>connectToService()에 잘못된 블루투스 주소가 전달됨</translation>
+    </message>
+    <message>
+        <source>Unsupported protocol. Win32 only supports RFCOMM sockets</source>
+        <translation>지원하지 않는 프로토콜입니다. Win32에서는 RFCOMM 소켓만 지원합니다</translation>
+    </message>
+    <message>
+        <source>Failed to create socket</source>
+        <translation>소켓을 만들 수 없음</translation>
+    </message>
+    <message>
+        <source>Socket type not handled: %1</source>
+        <translation>소켓 형식을 처리할 수 없음: %1</translation>
+    </message>
+    <message>
+        <source>Logic error: more bytes sent than passed to ::send</source>
+        <translation>논리 오류: ::send에 전달한 것보다 더 많은 바이트를 전송함</translation>
+    </message>
+    <message>
+        <source>Network error</source>
+        <translation>네트워크 오류</translation>
+    </message>
+    <message>
+        <source>Remote host closed connection</source>
+        <translation>원격 호스트에서 연결을 닫았음</translation>
+    </message>
+    <message>
+        <source>Connection timed out</source>
+        <translation>연결 시간 초과됨</translation>
+    </message>
+    <message>
+        <source>Host not reachable</source>
+        <translation>호스트에 접근할 수 없음</translation>
+    </message>
+    <message>
+        <source>Host refused connection</source>
+        <translation>호스트에서 연결을 거부함</translation>
+    </message>
+</context>
+<context>
+    <name>QBluetoothSocketPrivateAndroid</name>
+    <message>
+        <source>Connecting to port is not supported</source>
+        <translation>포트 연결이 지원되지 않음</translation>
+    </message>
+</context>
+<context>
+    <name>QBluetoothSocketPrivateBluezDBus</name>
+    <message>
+        <source>Connecting to port is not supported via Bluez DBus</source>
+        <translation>Bluez DBus를 통한 포트 연결이 지원되지 않음</translation>
+    </message>
 </context>
 <context>
     <name>QBluetoothTransferReply</name>
     <message>
         <source>Invalid input device (null)</source>
         <translation>잘못된 입력 장치(null)</translation>
-    </message>
-    <message>
-        <source>QIODevice cannot be read.Make sure it is open for reading.</source>
-        <translation>QIODevice에서 읽을 수 없습니다. 읽을 수 였도록 열려 있는지 확인하십시오.</translation>
     </message>
     <message>
         <source>Source file does not exist</source>
@@ -1403,10 +1418,6 @@
     <message>
         <source>Push service not found</source>
         <translation>푸시 서비스를 찾을 수 없음</translation>
-    </message>
-    <message>
-        <source>Resurce busy.</source>
-        <translation>자원이 바쁩니다.</translation>
     </message>
 </context>
 <context>
@@ -1451,8 +1462,32 @@
         <translation>원격 장치에 연결을 시도하는 중 오류가 발생했습니다.</translation>
     </message>
     <message>
+        <source>Remote device closed the connection</source>
+        <translation>원격 장치에서 연결을 닫았음</translation>
+    </message>
+    <message>
+        <source>Failed to authorize on the remote device</source>
+        <translation>원격 장치에서 인증할 수 없음</translation>
+    </message>
+    <message>
+        <source>Advertisement data is larger than 31 bytes</source>
+        <translation>알림 데이터가 31바이트보다 큼</translation>
+    </message>
+    <message>
+        <source>Advertisement feature not supported on the platform</source>
+        <translation>이 플랫폼에서 알림 기능을 지원하지 않음</translation>
+    </message>
+    <message>
         <source>Error occurred trying to start advertising</source>
         <translation>알림을 시작하는 중 오류 발생</translation>
+    </message>
+    <message>
+        <source>Failed due to too many advertisers</source>
+        <translation>알림 시도 횟수가 너무 많아서 실패함</translation>
+    </message>
+    <message>
+        <source>Unknown advertisement error</source>
+        <translation>알 수 없는 알림 오류</translation>
     </message>
 </context>
 </TS>

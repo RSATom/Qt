@@ -12,7 +12,7 @@
 #include "base/task/sequence_manager/test/sequence_manager_for_test.h"
 #include "base/task/sequence_manager/test/test_task_queue.h"
 #include "base/task/sequence_manager/test/test_task_time_observer.h"
-#include "base/test/scoped_task_environment.h"
+#include "base/test/task_environment.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
@@ -37,8 +37,8 @@ class IdleTimeEstimatorTest : public testing::Test {
  public:
   IdleTimeEstimatorTest()
       : task_environment_(
-            base::test::ScopedTaskEnvironment::TimeSource::MOCK_TIME,
-            base::test::ScopedTaskEnvironment::ThreadPoolExecutionMode::QUEUED),
+            base::test::TaskEnvironment::TimeSource::MOCK_TIME,
+            base::test::TaskEnvironment::ThreadPoolExecutionMode::QUEUED),
         frame_length_(base::TimeDelta::FromMilliseconds(16)) {}
 
   ~IdleTimeEstimatorTest() override = default;
@@ -58,8 +58,8 @@ class IdleTimeEstimatorTest : public testing::Test {
   void SimulateFrameWithOneCompositorTask(int compositor_time) {
     base::TimeDelta non_idle_time =
         base::TimeDelta::FromMilliseconds(compositor_time);
-    base::PendingTask task(FROM_HERE, base::Closure());
-    estimator_->WillProcessTask(task);
+    base::PendingTask task(FROM_HERE, base::OnceClosure());
+    estimator_->WillProcessTask(task, /*was_blocked_or_low_priority=*/false);
     task_environment_.FastForwardBy(non_idle_time);
     estimator_->DidCommitFrameToCompositor();
     estimator_->DidProcessTask(task);
@@ -73,12 +73,12 @@ class IdleTimeEstimatorTest : public testing::Test {
         base::TimeDelta::FromMilliseconds(compositor_time1);
     base::TimeDelta non_idle_time2 =
         base::TimeDelta::FromMilliseconds(compositor_time2);
-    base::PendingTask task(FROM_HERE, base::Closure());
-    estimator_->WillProcessTask(task);
+    base::PendingTask task(FROM_HERE, base::OnceClosure());
+    estimator_->WillProcessTask(task, /*was_blocked_or_low_priority=*/false);
     task_environment_.FastForwardBy(non_idle_time1);
     estimator_->DidProcessTask(task);
 
-    estimator_->WillProcessTask(task);
+    estimator_->WillProcessTask(task, /*was_blocked_or_low_priority=*/false);
     task_environment_.FastForwardBy(non_idle_time2);
     estimator_->DidCommitFrameToCompositor();
     estimator_->DidProcessTask(task);
@@ -87,7 +87,7 @@ class IdleTimeEstimatorTest : public testing::Test {
     task_environment_.FastForwardBy(idle_time);
   }
 
-  base::test::ScopedTaskEnvironment task_environment_;
+  base::test::TaskEnvironment task_environment_;
   std::unique_ptr<base::sequence_manager::SequenceManager> manager_;
   scoped_refptr<base::sequence_manager::TaskQueue> compositor_task_queue_;
   std::unique_ptr<IdleTimeEstimatorForTest> estimator_;
@@ -151,8 +151,8 @@ TEST_F(IdleTimeEstimatorTest, IgnoresNestedTasks) {
   SimulateFrameWithOneCompositorTask(5);
   SimulateFrameWithOneCompositorTask(5);
 
-  base::PendingTask task(FROM_HERE, base::Closure());
-  estimator_->WillProcessTask(task);
+  base::PendingTask task(FROM_HERE, base::OnceClosure());
+  estimator_->WillProcessTask(task, /*was_blocked_or_low_priority=*/false);
   SimulateFrameWithTwoCompositorTasks(4, 4);
   SimulateFrameWithTwoCompositorTasks(4, 4);
   SimulateFrameWithTwoCompositorTasks(4, 4);

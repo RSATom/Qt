@@ -111,7 +111,7 @@ void RawResource::AppendData(const char* data, size_t length) {
 }
 
 class RawResource::PreloadBytesConsumerClient final
-    : public GarbageCollectedFinalized<PreloadBytesConsumerClient>,
+    : public GarbageCollected<PreloadBytesConsumerClient>,
       public BytesConsumer::Client {
   USING_GARBAGE_COLLECTED_MIXIN(PreloadBytesConsumerClient);
 
@@ -236,6 +236,10 @@ SingleCachedMetadataHandler* RawResource::ScriptCacheHandler() {
   return static_cast<SingleCachedMetadataHandler*>(Resource::CacheHandler());
 }
 
+scoped_refptr<BlobDataHandle> RawResource::DownloadedBlob() const {
+  return downloaded_blob_;
+}
+
 void RawResource::Trace(Visitor* visitor) {
   visitor->Trace(bytes_consumer_for_preload_);
   Resource::Trace(visitor);
@@ -305,21 +309,23 @@ CachedMetadataHandler* RawResource::CreateCachedMetadataHandler(
   return Resource::CreateCachedMetadataHandler(std::move(send_callback));
 }
 
-void RawResource::SetSerializedCachedMetadata(const uint8_t* data,
-                                              size_t size) {
-  Resource::SetSerializedCachedMetadata(data, size);
+void RawResource::SetSerializedCachedMetadata(mojo_base::BigBuffer data) {
+  // Resource ignores the cached metadata.
+  Resource::SetSerializedCachedMetadata(mojo_base::BigBuffer());
+
+  // Notify clients before potentially transferring ownership of the buffer.
+  ResourceClientWalker<RawResourceClient> w(Clients());
+  while (RawResourceClient* c = w.Next()) {
+    c->SetSerializedCachedMetadata(this, data.data(), data.size());
+  }
 
   if (GetType() == ResourceType::kRaw) {
     ScriptCachedMetadataHandler* cache_handler =
         static_cast<ScriptCachedMetadataHandler*>(Resource::CacheHandler());
     if (cache_handler) {
-      cache_handler->SetSerializedCachedMetadata(data, size);
+      cache_handler->SetSerializedCachedMetadata(std::move(data));
     }
   }
-
-  ResourceClientWalker<RawResourceClient> w(Clients());
-  while (RawResourceClient* c = w.Next())
-    c->SetSerializedCachedMetadata(this, data, size);
 }
 
 void RawResource::DidSendData(uint64_t bytes_sent,
@@ -340,13 +346,6 @@ void RawResource::DidDownloadToBlob(scoped_refptr<BlobDataHandle> blob) {
   ResourceClientWalker<RawResourceClient> w(Clients());
   while (RawResourceClient* c = w.Next())
     c->DidDownloadToBlob(this, blob);
-}
-
-void RawResource::ReportResourceTimingToClients(
-    const ResourceTimingInfo& info) {
-  ResourceClientWalker<RawResourceClient> w(Clients());
-  while (RawResourceClient* c = w.Next())
-    c->DidReceiveResourceTiming(this, info);
 }
 
 bool RawResource::MatchPreload(const FetchParameters& params,
@@ -400,6 +399,9 @@ Resource::MatchStatus RawResource::CanReuse(
 
   return Resource::CanReuse(new_fetch_parameters);
 }
+
+void RawResourceClient::DidDownloadToBlob(Resource*,
+                                          scoped_refptr<BlobDataHandle>) {}
 
 RawResourceClientStateChecker::RawResourceClientStateChecker()
     : state_(kNotAddedAsClient) {}

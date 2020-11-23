@@ -7,7 +7,7 @@
 
 #include "third_party/blink/renderer/platform/graphics/contiguous_container.h"
 #include "third_party/blink/renderer/platform/graphics/paint/display_item.h"
-#include "third_party/blink/renderer/platform/graphics/paint/hit_test_display_item.h"
+#include "third_party/blink/renderer/platform/graphics/paint/scrollbar_display_item.h"
 #include "third_party/blink/renderer/platform/wtf/assertions.h"
 
 namespace blink {
@@ -19,8 +19,8 @@ struct PaintChunk;
 // each derived display item; the ideal value is the least common multiple.
 // The validity of kDisplayItemAlignment and kMaximumDisplayItemSize are checked
 // in PaintController::CreateAndAppend().
-static const size_t kDisplayItemAlignment = alignof(HitTestDisplayItem);
-static const size_t kMaximumDisplayItemSize = sizeof(HitTestDisplayItem);
+static const size_t kDisplayItemAlignment = alignof(ScrollbarDisplayItem);
+static const size_t kMaximumDisplayItemSize = sizeof(ScrollbarDisplayItem);
 
 // A container for a list of display items.
 class PLATFORM_EXPORT DisplayItemList
@@ -42,7 +42,8 @@ class PLATFORM_EXPORT DisplayItemList
         ContiguousContainer::AppendByMoving(item, item.DerivedSize());
     // ContiguousContainer::AppendByMoving() calls an in-place constructor
     // on item which replaces it with a tombstone/"dead display item" that
-    // can be safely destructed but should never be used except for debugging.
+    // can be safely destructed but should never be used except for debugging
+    // and raster invalidation (see below).
     DCHECK(item.IsTombstone());
     // We need |visual_rect_| and |outset_for_raster_effects_| of the old
     // display item for raster invalidation. Also, the fields that make up the
@@ -56,6 +57,7 @@ class PLATFORM_EXPORT DisplayItemList
     DCHECK(item.GetId() == result.GetId());
     item.visual_rect_ = result.visual_rect_;
     item.outset_for_raster_effects_ = result.outset_for_raster_effects_;
+    result.SetCopiedFromCachedSubsequence(false);
     return result;
   }
 

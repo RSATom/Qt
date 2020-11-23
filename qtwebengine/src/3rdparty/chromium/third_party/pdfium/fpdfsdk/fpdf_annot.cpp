@@ -9,6 +9,7 @@
 
 #include "constants/annotation_common.h"
 #include "core/fpdfapi/edit/cpdf_pagecontentgenerator.h"
+#include "core/fpdfapi/page/cpdf_annotcontext.h"
 #include "core/fpdfapi/page/cpdf_form.h"
 #include "core/fpdfapi/page/cpdf_page.h"
 #include "core/fpdfapi/page/cpdf_pageobject.h"
@@ -17,6 +18,7 @@
 #include "core/fpdfapi/parser/cpdf_document.h"
 #include "core/fpdfapi/parser/cpdf_name.h"
 #include "core/fpdfapi/parser/cpdf_number.h"
+#include "core/fpdfapi/parser/cpdf_reference.h"
 #include "core/fpdfapi/parser/cpdf_stream.h"
 #include "core/fpdfapi/parser/cpdf_string.h"
 #include "core/fpdfdoc/cpdf_annot.h"
@@ -25,7 +27,6 @@
 #include "core/fpdfdoc/cpdf_interactiveform.h"
 #include "core/fpdfdoc/cpvt_generateap.h"
 #include "core/fxge/cfx_color.h"
-#include "fpdfsdk/cpdf_annotcontext.h"
 #include "fpdfsdk/cpdfsdk_helpers.h"
 #include "fpdfsdk/cpdfsdk_interactiveform.h"
 #include "third_party/base/ptr_util.h"
@@ -253,7 +254,7 @@ FPDFPage_CreateAnnot(FPDF_PAGE page, FPDF_ANNOTATION_SUBTYPE subtype) {
 
 FPDF_EXPORT int FPDF_CALLCONV FPDFPage_GetAnnotCount(FPDF_PAGE page) {
   CPDF_Page* pPage = CPDFPageFromFPDFPage(page);
-  if (!pPage || !pPage->GetDict())
+  if (!pPage)
     return 0;
 
   CPDF_Array* pAnnots = pPage->GetDict()->GetArrayFor("Annots");
@@ -263,7 +264,7 @@ FPDF_EXPORT int FPDF_CALLCONV FPDFPage_GetAnnotCount(FPDF_PAGE page) {
 FPDF_EXPORT FPDF_ANNOTATION FPDF_CALLCONV FPDFPage_GetAnnot(FPDF_PAGE page,
                                                             int index) {
   CPDF_Page* pPage = CPDFPageFromFPDFPage(page);
-  if (!pPage || !pPage->GetDict() || index < 0)
+  if (!pPage || index < 0)
     return nullptr;
 
   CPDF_Array* pAnnots = pPage->GetDict()->GetArrayFor("Annots");
@@ -283,7 +284,7 @@ FPDF_EXPORT FPDF_ANNOTATION FPDF_CALLCONV FPDFPage_GetAnnot(FPDF_PAGE page,
 FPDF_EXPORT int FPDF_CALLCONV FPDFPage_GetAnnotIndex(FPDF_PAGE page,
                                                      FPDF_ANNOTATION annot) {
   CPDF_Page* pPage = CPDFPageFromFPDFPage(page);
-  if (!pPage || !pPage->GetDict())
+  if (!pPage)
     return -1;
 
   CPDF_Dictionary* pAnnotDict = GetAnnotDictFromFPDFAnnotation(annot);
@@ -313,7 +314,7 @@ FPDF_EXPORT void FPDF_CALLCONV FPDFPage_CloseAnnot(FPDF_ANNOTATION annot) {
 FPDF_EXPORT FPDF_BOOL FPDF_CALLCONV FPDFPage_RemoveAnnot(FPDF_PAGE page,
                                                          int index) {
   CPDF_Page* pPage = CPDFPageFromFPDFPage(page);
-  if (!pPage || !pPage->GetDict() || index < 0)
+  if (!pPage || index < 0)
     return false;
 
   CPDF_Array* pAnnots = pPage->GetDict()->GetArrayFor("Annots");
@@ -681,8 +682,8 @@ FPDF_EXPORT FPDF_BOOL FPDF_CALLCONV FPDFAnnot_GetRect(FPDF_ANNOTATION annot,
   if (!pAnnotDict || !rect)
     return false;
 
-  FSRECTFFromCFXFloatRect(pAnnotDict->GetRectFor(pdfium::annotation::kRect),
-                          rect);
+  *rect = FSRECTFFromCFXFloatRect(
+      pAnnotDict->GetRectFor(pdfium::annotation::kRect));
   return true;
 }
 
@@ -769,12 +770,37 @@ FPDFAnnot_SetAP(FPDF_ANNOTATION annot,
   // If value is null, we're in remove mode. Otherwise, we're in add/update
   // mode.
   if (value) {
+    // Annotation object's non-empty bounding rect will be used as the /BBox
+    // for the associated /XObject object
+    CFX_FloatRect rect = pAnnotDict->GetRectFor(pdfium::annotation::kRect);
+    constexpr float kMinSize = 0.000001f;
+    if (rect.Width() < kMinSize || rect.Height() < kMinSize)
+      return false;
+
+    CPDF_AnnotContext* pAnnotContext =
+        CPDFAnnotContextFromFPDFAnnotation(annot);
+
+    CPDF_Document* pDoc = pAnnotContext->GetPage()->GetDocument();
+    if (!pDoc)
+      return false;
+
+    CPDF_Stream* pNewIndirectStream = pDoc->NewIndirect<CPDF_Stream>();
+
+    ByteString newAPStream =
+        PDF_EncodeText(WideStringFromFPDFWideString(value));
+    pNewIndirectStream->SetData(newAPStream.raw_span());
+
+    CPDF_Dictionary* pStreamDict = pNewIndirectStream->GetDict();
+    pStreamDict->SetNewFor<CPDF_Name>(pdfium::annotation::kType, "XObject");
+    pStreamDict->SetNewFor<CPDF_Name>(pdfium::annotation::kSubtype, "Form");
+    pStreamDict->SetRectFor("BBox", rect);
+
+    // Storing reference to indirect object in annotation's AP
     if (!pApDict)
       pApDict = pAnnotDict->SetNewFor<CPDF_Dictionary>(pdfium::annotation::kAP);
 
-    ByteString newValue = PDF_EncodeText(WideStringFromFPDFWideString(value));
-    auto* pNewApStream = pApDict->SetNewFor<CPDF_Stream>(modeKey);
-    pNewApStream->SetData(newValue.raw_span());
+    pApDict->SetNewFor<CPDF_Reference>(modeKey, pDoc,
+                                       pNewIndirectStream->GetObjNum());
   } else {
     if (pApDict) {
       if (appearanceMode == FPDF_ANNOT_APPEARANCEMODE_NORMAL)
@@ -841,15 +867,9 @@ FPDF_EXPORT FPDF_BOOL FPDF_CALLCONV FPDFAnnot_SetFlags(FPDF_ANNOTATION annot,
 }
 
 FPDF_EXPORT int FPDF_CALLCONV
-FPDFAnnot_GetFormFieldFlags(FPDF_FORMHANDLE hHandle,
-                            FPDF_PAGE page,
-                            FPDF_ANNOTATION annot) {
+FPDFAnnot_GetFormFieldFlags(FPDF_FORMHANDLE hHandle, FPDF_ANNOTATION annot) {
   CPDFSDK_InteractiveForm* pForm = FormHandleToInteractiveForm(hHandle);
   if (!pForm)
-    return FPDF_FORMFLAG_NONE;
-
-  CPDF_Page* pPage = CPDFPageFromFPDFPage(page);
-  if (!pPage)
     return FPDF_FORMFLAG_NONE;
 
   CPDF_Dictionary* pAnnotDict = GetAnnotDictFromFPDFAnnotation(annot);

@@ -24,9 +24,7 @@ constexpr StaticOobeScreenId KioskEnableScreenView::kScreenId;
 
 KioskEnableScreenHandler::KioskEnableScreenHandler(
     JSCallsContainer* js_calls_container)
-    : BaseScreenHandler(kScreenId, js_calls_container),
-      weak_ptr_factory_(this) {
-}
+    : BaseScreenHandler(kScreenId, js_calls_container) {}
 
 KioskEnableScreenHandler::~KioskEnableScreenHandler() {
   if (delegate_)
@@ -55,11 +53,6 @@ void KioskEnableScreenHandler::OnGetConsumerKioskAutoLaunchStatus(
   }
 
   ShowScreen(kScreenId);
-
-  content::NotificationService::current()->Notify(
-      chrome::NOTIFICATION_KIOSK_ENABLE_WARNING_VISIBLE,
-      content::NotificationService::AllSources(),
-      content::NotificationService::NoDetails());
 }
 
 void KioskEnableScreenHandler::SetDelegate(KioskEnableScreen* delegate) {
@@ -99,11 +92,6 @@ void KioskEnableScreenHandler::RegisterMessages() {
 void KioskEnableScreenHandler::HandleOnClose() {
   if (delegate_)
     delegate_->OnExit();
-
-  content::NotificationService::current()->Notify(
-      chrome::NOTIFICATION_KIOSK_ENABLE_WARNING_COMPLETED,
-      content::NotificationService::AllSources(),
-      content::NotificationService::NoDetails());
 }
 
 void KioskEnableScreenHandler::HandleOnEnable() {
@@ -111,11 +99,6 @@ void KioskEnableScreenHandler::HandleOnEnable() {
     NOTREACHED();
     if (delegate_)
       delegate_->OnExit();
-
-    content::NotificationService::current()->Notify(
-        chrome::NOTIFICATION_KIOSK_ENABLE_WARNING_COMPLETED,
-        content::NotificationService::AllSources(),
-        content::NotificationService::NoDetails());
     return;
   }
 

@@ -66,6 +66,8 @@
 #include "qpixmap_raster_p.h"
 #include "private/qhexstring_p.h"
 
+#include <qtgui_tracepoints_p.h>
+
 QT_BEGIN_NAMESPACE
 
 static bool qt_pixmap_thread_test()
@@ -78,7 +80,7 @@ static bool qt_pixmap_thread_test()
     if (qApp->thread() != QThread::currentThread()) {
         bool fail = false;
         if (!QGuiApplicationPrivate::platformIntegration()->hasCapability(QPlatformIntegration::ThreadedPixmaps)) {
-            printf("Lighthouse plugin does not support threaded pixmaps!\n");
+            printf("Platform plugin does not support threaded pixmaps!\n");
             fail = true;
         }
         if (fail) {
@@ -94,7 +96,7 @@ void QPixmap::doInit(int w, int h, int type)
     if ((w > 0 && h > 0) || type == QPlatformPixmap::BitmapType)
         data = QPlatformPixmap::create(w, h, (QPlatformPixmap::PixelType) type);
     else
-        data = 0;
+        data = nullptr;
 }
 
 /*!
@@ -402,7 +404,7 @@ QPixmap &QPixmap::operator=(const QPixmap &pixmap)
 */
 QPixmap::operator QVariant() const
 {
-    return QVariant(QVariant::Pixmap, this);
+    return QVariant(QMetaType::QPixmap, this);
 }
 
 /*!
@@ -438,7 +440,7 @@ QImage QPixmap::toImage() const
 }
 
 /*!
-    \fn QMatrix QPixmap::trueMatrix(const QTransform &matrix, int width, int height)
+    \fn QTransform QPixmap::trueMatrix(const QTransform &matrix, int width, int height)
 
     Returns the actual matrix used for transforming a pixmap with the
     given \a width, \a height and \a matrix.
@@ -458,8 +460,12 @@ QTransform QPixmap::trueMatrix(const QTransform &m, int w, int h)
     return QImage::trueMatrix(m, w, h);
 }
 
+#if QT_DEPRECATED_SINCE(5, 15)
 /*!
   \overload
+  \obsolete
+
+  Use trueMatrix(const QTransform &m, int w, int h) instead.
 
   This convenience function loads the matrix \a m into a
   QTransform and calls the overloaded function with the
@@ -469,6 +475,7 @@ QMatrix QPixmap::trueMatrix(const QMatrix &m, int w, int h)
 {
     return trueMatrix(QTransform(m), w, h).toAffine();
 }
+#endif // QT_DEPRECATED_SINCE(5, 15)
 
 
 /*!
@@ -780,7 +787,7 @@ bool QPixmap::load(const QString &fileName, const char *format, Qt::ImageConvers
 
 bool QPixmap::loadFromData(const uchar *buf, uint len, const char *format, Qt::ImageConversionFlags flags)
 {
-    if (len == 0 || buf == 0) {
+    if (len == 0 || buf == nullptr) {
         data.reset();
         return false;
     }
@@ -813,8 +820,8 @@ bool QPixmap::loadFromData(const uchar *buf, uint len, const char *format, Qt::I
     0 to obtain small compressed files, 100 for large uncompressed
     files, and -1 to use the default settings.
 
-    If \a format is 0, an image format will be chosen from \a fileName's
-    suffix.
+    If \a format is \nullptr, an image format will be chosen from
+    \a fileName's suffix.
 
     \sa {QPixmap#Reading and Writing Image Files}{Reading and Writing
     Image Files}
@@ -1144,6 +1151,8 @@ QPixmap QPixmap::scaled(const QSize& s, Qt::AspectRatioMode aspectMode, Qt::Tran
     if (newSize == size())
         return *this;
 
+    Q_TRACE_SCOPE(QPixmap_scaled, s, aspectMode, mode);
+
     QTransform wm = QTransform::fromScale((qreal)newSize.width() / width(),
                                           (qreal)newSize.height() / height());
     QPixmap pix = transformed(wm, mode);
@@ -1173,6 +1182,8 @@ QPixmap QPixmap::scaledToWidth(int w, Qt::TransformationMode mode) const
     if (w <= 0)
         return QPixmap();
 
+    Q_TRACE_SCOPE(QPixmap_scaledToWidth, w, mode);
+
     qreal factor = (qreal) w / width();
     QTransform wm = QTransform::fromScale(factor, factor);
     return transformed(wm, mode);
@@ -1200,6 +1211,8 @@ QPixmap QPixmap::scaledToHeight(int h, Qt::TransformationMode mode) const
     }
     if (h <= 0)
         return QPixmap();
+
+    Q_TRACE_SCOPE(QPixmap_scaledToHeight, h, mode);
 
     qreal factor = (qreal) h / height();
     QTransform wm = QTransform::fromScale(factor, factor);
@@ -1233,8 +1246,12 @@ QPixmap QPixmap::transformed(const QTransform &transform,
     return data->transformed(transform, mode);
 }
 
+#if QT_DEPRECATED_SINCE(5, 15)
 /*!
   \overload
+  \obsolete
+
+  Use transformed(const QTransform &transform, Qt::TransformationMode mode)() instead.
 
   This convenience function loads the \a matrix into a
   QTransform and calls the overloaded function.
@@ -1243,6 +1260,7 @@ QPixmap QPixmap::transformed(const QMatrix &matrix, Qt::TransformationMode mode)
 {
     return transformed(QTransform(matrix), mode);
 }
+#endif // QT_DEPRECATED_SINCE(5, 15)
 
 
 
@@ -1455,7 +1473,7 @@ int QPixmap::metric(PaintDeviceMetric metric) const
 */
 QPaintEngine *QPixmap::paintEngine() const
 {
-    return data ? data->paintEngine() : 0;
+    return data ? data->paintEngine() : nullptr;
 }
 
 /*!

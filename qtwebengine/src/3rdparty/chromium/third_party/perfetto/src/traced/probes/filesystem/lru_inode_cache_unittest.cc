@@ -16,11 +16,11 @@
 
 #include "src/traced/probes/filesystem/lru_inode_cache.h"
 
-#include <gmock/gmock.h>
-#include <gtest/gtest.h>
-
 #include <string>
 #include <tuple>
+
+#include "protos/perfetto/trace/filesystem/inode_file_map.pbzero.h"
+#include "test/gtest_and_gmock.h"
 
 namespace perfetto {
 

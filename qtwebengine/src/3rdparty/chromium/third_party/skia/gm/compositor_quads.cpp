@@ -34,7 +34,7 @@
 #include "include/core/SkTypes.h"
 #include "include/effects/SkColorMatrix.h"
 #include "include/effects/SkGradientShader.h"
-#include "include/effects/SkMorphologyImageFilter.h"
+#include "include/effects/SkImageFilters.h"
 #include "include/effects/SkShaderMaskFilter.h"
 #include "include/private/SkTArray.h"
 #include "src/core/SkLineClipper.h"
@@ -930,16 +930,16 @@ public:
         SkRect localRect = gridToImage.mapRect(rect);
 
         // drawTextureSet automatically derives appropriate local quad from localRect if clipPtr
-        // is not null.
+        // is not null. Also exercise per-entry alpha combined with YUVA images.
         fSetEntries.push_back(
-                {fImage, localRect, rect, -1, 1.f, this->maskToFlags(edgeAA), hasClip});
+                {fImage, localRect, rect, -1, .5f, this->maskToFlags(edgeAA), hasClip});
         return 0;
     }
 
     void drawBanner(SkCanvas* canvas) override {
         draw_text(canvas, "Texture");
         canvas->translate(0.f, 15.f);
-        draw_text(canvas, "YUV - GPU Only");
+        draw_text(canvas, "YUV + alpha - GPU Only");
     }
 
 private:
@@ -1031,7 +1031,7 @@ static SkTArray<sk_sp<ClipTileRenderer>> make_filtered_renderers() {
     SkColorMatrix cm;
     cm.setSaturation(10);
     sk_sp<SkColorFilter> colorFilter = SkColorFilters::Matrix(cm);
-    sk_sp<SkImageFilter> imageFilter = SkDilateImageFilter::Make(8, 8, nullptr);
+    sk_sp<SkImageFilter> imageFilter = SkImageFilters::Dilate(8, 8, nullptr);
 
     static constexpr SkColor kAlphas[] = { SK_ColorTRANSPARENT, SK_ColorBLACK };
     auto alphaGradient = SkGradientShader::MakeRadial(

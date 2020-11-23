@@ -261,7 +261,7 @@ void PlaceManagerEngineEsri::initializeGeocodeServer()
     {
         m_geocodeServerReply = m_networkManager->get(QNetworkRequest(kUrlGeocodeServer));
         connect(m_geocodeServerReply, SIGNAL(finished()), this, SLOT(geocodeServerReplyFinished()));
-        connect(m_geocodeServerReply, SIGNAL(error(QNetworkReply::NetworkError)), this, SLOT(geocodeServerReplyError()));
+        connect(m_geocodeServerReply, SIGNAL(errorOccurred(QNetworkReply::NetworkError)), this, SLOT(geocodeServerReplyError()));
     }
 }
 

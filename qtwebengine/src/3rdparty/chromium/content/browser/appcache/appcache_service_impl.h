@@ -17,6 +17,7 @@
 #include "base/sequenced_task_runner.h"
 #include "base/time/time.h"
 #include "base/timer/timer.h"
+#include "content/browser/appcache/appcache_quota_client.h"
 #include "content/browser/url_loader_factory_getter.h"
 #include "content/common/appcache_interfaces.h"
 #include "content/common/content_export.h"
@@ -32,19 +33,13 @@ namespace base {
 class FilePath;
 }  // namespace base
 
-namespace net {
-class URLRequestContext;
-}  // namespace net
-
 namespace storage {
 class SpecialStoragePolicy;
 }  // namespace storage
 
 namespace content {
 FORWARD_DECLARE_TEST(AppCacheServiceImplTest, ScheduleReinitialize);
-class AppCacheBackendImpl;
 class AppCacheHost;
-class AppCacheQuotaClient;
 class AppCachePolicy;
 class AppCacheServiceImplTest;
 class AppCacheStorageImplTest;
@@ -135,15 +130,6 @@ class CONTENT_EXPORT AppCacheServiceImpl : public AppCacheService {
                              int64_t cache_id,
                              int64_t response_id);
 
-  // Context for use during cache updates, should only be accessed
-  // on the IO thread. We do NOT add a reference to the request context,
-  // it is the callers responsibility to ensure that the pointer
-  // remains valid while set.
-  net::URLRequestContext* request_context() const { return request_context_; }
-  void set_request_context(net::URLRequestContext* context) {
-    request_context_ = context;
-  }
-
   // The appcache policy, may be null, in which case access is always allowed.
   // The service does NOT assume ownership of the policy, it is the callers
   // responsibility to ensure that the pointer remains valid while set.
@@ -161,19 +147,8 @@ class CONTENT_EXPORT AppCacheServiceImpl : public AppCacheService {
     return quota_manager_proxy_.get();
   }
 
-  // This WeakPtr should only be checked on the IO thread.
-  base::WeakPtr<AppCacheQuotaClient> quota_client() const {
-    return quota_client_;
-  }
-
-  // Each child process in chrome uses a distinct backend instance.
-  // See chrome/browser/AppCacheDispatcherHost.
-  void RegisterBackend(AppCacheBackendImpl* backend_impl);
-  virtual void UnregisterBackend(AppCacheBackendImpl* backend_impl);
-  AppCacheBackendImpl* GetBackend(int id) const {
-    auto it = backends_.find(id);
-    return (it != backends_.end()) ? it->second : nullptr;
-  }
+  // This QuotaClient should only be used on the IO thread.
+  AppCacheQuotaClient* quota_client() const { return quota_client_.get(); }
 
   AppCacheStorage* storage() const { return storage_.get(); }
 
@@ -185,24 +160,12 @@ class CONTENT_EXPORT AppCacheServiceImpl : public AppCacheService {
   void set_force_keep_session_state() { force_keep_session_state_ = true; }
   bool force_keep_session_state() const { return force_keep_session_state_; }
 
-  // The following two functions are invoked in the network service world to
-  // set/get a pointer to the URLLoaderFactoryGetter instance which is used to
-  // get to the network URL loader factory.
-  void set_url_loader_factory_getter(
-      URLLoaderFactoryGetter* loader_factory_getter) {
-    url_loader_factory_getter_ = loader_factory_getter;
-  }
-
-  URLLoaderFactoryGetter* url_loader_factory_getter() const {
-    return url_loader_factory_getter_.get();
-  }
-
   base::WeakPtr<StoragePartitionImpl> partition() { return partition_; }
 
   // Returns a pointer to a registered host. It retains ownership.
   AppCacheHost* GetHost(const base::UnguessableToken& host_id);
   bool EraseHost(const base::UnguessableToken& host_id);
-  void RegisterHostForFrame(
+  void RegisterHost(
       mojo::PendingReceiver<blink::mojom::AppCacheHost> host_receiver,
       mojo::PendingRemote<blink::mojom::AppCacheFrontend> frontend_remote,
       const base::UnguessableToken& host_id,
@@ -227,41 +190,21 @@ class CONTENT_EXPORT AppCacheServiceImpl : public AppCacheService {
   base::FilePath cache_directory_;
   scoped_refptr<base::SequencedTaskRunner> db_task_runner_;
   AppCachePolicy* appcache_policy_;
-  base::WeakPtr<AppCacheQuotaClient> quota_client_;
+  scoped_refptr<AppCacheQuotaClient> quota_client_;
   std::unique_ptr<AppCacheStorage> storage_;
   scoped_refptr<storage::SpecialStoragePolicy> special_storage_policy_;
   scoped_refptr<storage::QuotaManagerProxy> quota_manager_proxy_;
   std::map<AsyncHelper*, std::unique_ptr<AsyncHelper>> pending_helpers_;
-  // One 'backend' per child process.
-  std::map<int, AppCacheBackendImpl*> backends_;
-  // Context for use during cache updates.
-  net::URLRequestContext* request_context_;
   // If true, nothing (not even session-only data) should be deleted on exit.
   bool force_keep_session_state_;
   base::Time last_reinit_time_;
   base::TimeDelta next_reinit_delay_;
   base::OneShotTimer reinit_timer_;
   base::ObserverList<Observer>::Unchecked observers_;
-
-  // In the network service world contains the pointer to the
-  // URLLoaderFactoryGetter instance which is used to get to the network
-  // URL loader factory.
-  scoped_refptr<URLLoaderFactoryGetter> url_loader_factory_getter_;
-  // If NavigationLoaderOnUI is enabled, |partition_| will be used to get the
-  // network URL loader factory.
+  // |partition_| is used to get the network URL loader factory.
   base::WeakPtr<StoragePartitionImpl> partition_;
 
  private:
-  // TODO: Once we remove 'blink::mojom::AppCacheBackend', remove this together.
-  friend class content::AppCacheBackendImpl;
-
-  void RegisterHostInternal(
-      mojo::PendingReceiver<blink::mojom::AppCacheHost> host_receiver,
-      mojo::PendingRemote<blink::mojom::AppCacheFrontend> frontend_remote,
-      const base::UnguessableToken& host_id,
-      int32_t render_frame_id,
-      int process_id,
-      mojo::ReportBadMessageCallback bad_message_callback);
   // The (process id, host id) pair that identifies one AppCacheHost.
   using AppCacheHostProcessMap =
       std::map<base::UnguessableToken, std::unique_ptr<AppCacheHost>>;

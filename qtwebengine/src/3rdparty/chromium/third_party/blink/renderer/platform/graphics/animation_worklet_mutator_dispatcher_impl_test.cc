@@ -4,19 +4,20 @@
 
 #include "third_party/blink/renderer/platform/graphics/animation_worklet_mutator_dispatcher_impl.h"
 
+#include "base/run_loop.h"
 #include "base/single_thread_task_runner.h"
 #include "base/test/metrics/histogram_tester.h"
 #include "base/test/simple_test_tick_clock.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "third_party/blink/public/platform/platform.h"
-#include "third_party/blink/public/platform/web_thread_type.h"
 #include "third_party/blink/renderer/platform/graphics/animation_worklet_mutator.h"
 #include "third_party/blink/renderer/platform/graphics/compositor_mutator_client.h"
 #include "third_party/blink/renderer/platform/heap/handle.h"
 #include "third_party/blink/renderer/platform/heap/persistent.h"
 #include "third_party/blink/renderer/platform/scheduler/public/post_cross_thread_task.h"
 #include "third_party/blink/renderer/platform/scheduler/public/thread.h"
+#include "third_party/blink/renderer/platform/scheduler/public/thread_type.h"
 #include "third_party/blink/renderer/platform/testing/testing_platform_support.h"
 #include "third_party/blink/renderer/platform/wtf/cross_thread_functional.h"
 
@@ -38,12 +39,11 @@ namespace {
 
 std::unique_ptr<Thread> CreateThread(const char* name) {
   return Platform::Current()->CreateThread(
-      ThreadCreationParams(WebThreadType::kTestThread)
-          .SetThreadNameForTest(name));
+      ThreadCreationParams(ThreadType::kTestThread).SetThreadNameForTest(name));
 }
 
 class MockAnimationWorkletMutator
-    : public GarbageCollectedFinalized<MockAnimationWorkletMutator>,
+    : public GarbageCollected<MockAnimationWorkletMutator>,
       public AnimationWorkletMutator {
   USING_GARBAGE_COLLECTED_MIXIN(MockAnimationWorkletMutator);
 
@@ -142,8 +142,8 @@ TEST_F(AnimationWorkletMutatorDispatcherImplTest,
       MakeGarbageCollected<MockAnimationWorkletMutator>(
           first_thread->GetTaskRunner());
 
-  mutator_->RegisterAnimationWorkletMutator(first_mutator,
-                                            first_thread->GetTaskRunner());
+  mutator_->RegisterAnimationWorkletMutator(
+      WrapCrossThreadPersistent(first_mutator), first_thread->GetTaskRunner());
 
   EXPECT_CALL(*first_mutator, GetWorkletId())
       .Times(AtLeast(1))
@@ -162,8 +162,8 @@ TEST_F(AnimationWorkletMutatorDispatcherImplTest,
       MakeGarbageCollected<MockAnimationWorkletMutator>(
           first_thread->GetTaskRunner());
 
-  mutator_->RegisterAnimationWorkletMutator(first_mutator,
-                                            first_thread->GetTaskRunner());
+  mutator_->RegisterAnimationWorkletMutator(
+      WrapCrossThreadPersistent(first_mutator), first_thread->GetTaskRunner());
 
   EXPECT_CALL(*first_mutator, GetWorkletId())
       .Times(AtLeast(1))
@@ -196,8 +196,8 @@ TEST_F(AnimationWorkletMutatorDispatcherImplTest,
       MakeGarbageCollected<MockAnimationWorkletMutator>(
           first_thread->GetTaskRunner());
 
-  mutator_->RegisterAnimationWorkletMutator(first_mutator,
-                                            first_thread->GetTaskRunner());
+  mutator_->RegisterAnimationWorkletMutator(
+      WrapCrossThreadPersistent(first_mutator), first_thread->GetTaskRunner());
 
   EXPECT_CALL(*first_mutator, GetWorkletId())
       .Times(AtLeast(1))
@@ -215,8 +215,8 @@ TEST_F(AnimationWorkletMutatorDispatcherImplTest,
       MakeGarbageCollected<MockAnimationWorkletMutator>(
           first_thread->GetTaskRunner());
 
-  mutator_->RegisterAnimationWorkletMutator(first_mutator,
-                                            first_thread->GetTaskRunner());
+  mutator_->RegisterAnimationWorkletMutator(
+      WrapCrossThreadPersistent(first_mutator), first_thread->GetTaskRunner());
 
   EXPECT_CALL(*first_mutator, GetWorkletId())
       .Times(AtLeast(1))
@@ -234,7 +234,8 @@ TEST_F(AnimationWorkletMutatorDispatcherImplTest,
   // Ensure mutator is not invoked after unregistration.
   EXPECT_CALL(*first_mutator, MutateRef(_)).Times(0);
   EXPECT_CALL(*client_, SetMutationUpdateRef(_)).Times(0);
-  mutator_->UnregisterAnimationWorkletMutator(first_mutator);
+  mutator_->UnregisterAnimationWorkletMutator(
+      WrapCrossThreadPersistent(first_mutator));
 
   mutator_->MutateSynchronously(CreateTestMutatorInput());
   Mock::VerifyAndClearExpectations(client_.get());
@@ -250,10 +251,10 @@ TEST_F(AnimationWorkletMutatorDispatcherImplTest,
       MakeGarbageCollected<MockAnimationWorkletMutator>(
           first_thread->GetTaskRunner());
 
-  mutator_->RegisterAnimationWorkletMutator(first_mutator,
-                                            first_thread->GetTaskRunner());
-  mutator_->RegisterAnimationWorkletMutator(second_mutator,
-                                            first_thread->GetTaskRunner());
+  mutator_->RegisterAnimationWorkletMutator(
+      WrapCrossThreadPersistent(first_mutator), first_thread->GetTaskRunner());
+  mutator_->RegisterAnimationWorkletMutator(
+      WrapCrossThreadPersistent(second_mutator), first_thread->GetTaskRunner());
 
   EXPECT_CALL(*first_mutator, GetWorkletId())
       .Times(AtLeast(1))
@@ -284,10 +285,11 @@ TEST_F(
       MakeGarbageCollected<MockAnimationWorkletMutator>(
           second_thread->GetTaskRunner());
 
-  mutator_->RegisterAnimationWorkletMutator(first_mutator,
-                                            first_thread->GetTaskRunner());
-  mutator_->RegisterAnimationWorkletMutator(second_mutator,
-                                            second_thread->GetTaskRunner());
+  mutator_->RegisterAnimationWorkletMutator(
+      WrapCrossThreadPersistent(first_mutator), first_thread->GetTaskRunner());
+  mutator_->RegisterAnimationWorkletMutator(
+      WrapCrossThreadPersistent(second_mutator),
+      second_thread->GetTaskRunner());
 
   EXPECT_CALL(*first_mutator, GetWorkletId())
       .Times(AtLeast(1))
@@ -309,7 +311,8 @@ TEST_F(
   Mock::VerifyAndClearExpectations(client_.get());
 
   // Ensure first_mutator is not invoked after unregistration.
-  mutator_->UnregisterAnimationWorkletMutator(first_mutator);
+  mutator_->UnregisterAnimationWorkletMutator(
+      WrapCrossThreadPersistent(first_mutator));
 
   EXPECT_CALL(*first_mutator, GetWorkletId()).Times(0);
   EXPECT_CALL(*first_mutator, MutateRef(_)).Times(0);
@@ -333,8 +336,8 @@ TEST_F(AnimationWorkletMutatorDispatcherImplTest,
       MakeGarbageCollected<MockAnimationWorkletMutator>(
           first_thread->GetTaskRunner());
 
-  mutator_->RegisterAnimationWorkletMutator(first_mutator,
-                                            first_thread->GetTaskRunner());
+  mutator_->RegisterAnimationWorkletMutator(
+      WrapCrossThreadPersistent(first_mutator), first_thread->GetTaskRunner());
 
   EXPECT_CALL(*first_mutator, GetWorkletId()).WillRepeatedly(Return(11));
   EXPECT_CALL(*client_, SetMutationUpdateRef(_)).Times(0);
@@ -416,8 +419,8 @@ TEST_F(AnimationWorkletMutatorDispatcherImplAsyncTest,
       MakeGarbageCollected<MockAnimationWorkletMutator>(
           first_thread->GetTaskRunner());
 
-  mutator_->RegisterAnimationWorkletMutator(first_mutator,
-                                            first_thread->GetTaskRunner());
+  mutator_->RegisterAnimationWorkletMutator(
+      WrapCrossThreadPersistent(first_mutator), first_thread->GetTaskRunner());
 
   EXPECT_CALL(*first_mutator, GetWorkletId())
       .Times(AtLeast(1))
@@ -440,8 +443,8 @@ TEST_F(AnimationWorkletMutatorDispatcherImplAsyncTest,
       MakeGarbageCollected<MockAnimationWorkletMutator>(
           first_thread->GetTaskRunner());
 
-  mutator_->RegisterAnimationWorkletMutator(first_mutator,
-                                            first_thread->GetTaskRunner());
+  mutator_->RegisterAnimationWorkletMutator(
+      WrapCrossThreadPersistent(first_mutator), first_thread->GetTaskRunner());
 
   AnimationWorkletInput::AddAndUpdateState state{
       {22, 2}, "test2", 5000, nullptr, nullptr};
@@ -474,8 +477,8 @@ TEST_F(AnimationWorkletMutatorDispatcherImplAsyncTest,
       MakeGarbageCollected<MockAnimationWorkletMutator>(
           first_thread->GetTaskRunner());
 
-  mutator_->RegisterAnimationWorkletMutator(first_mutator,
-                                            first_thread->GetTaskRunner());
+  mutator_->RegisterAnimationWorkletMutator(
+      WrapCrossThreadPersistent(first_mutator), first_thread->GetTaskRunner());
 
   EXPECT_CALL(*first_mutator, GetWorkletId())
       .Times(AtLeast(1))
@@ -498,8 +501,8 @@ TEST_F(AnimationWorkletMutatorDispatcherImplAsyncTest,
       MakeGarbageCollected<MockAnimationWorkletMutator>(
           first_thread->GetTaskRunner());
 
-  mutator_->RegisterAnimationWorkletMutator(first_mutator,
-                                            first_thread->GetTaskRunner());
+  mutator_->RegisterAnimationWorkletMutator(
+      WrapCrossThreadPersistent(first_mutator), first_thread->GetTaskRunner());
 
   EXPECT_CALL(*first_mutator, GetWorkletId())
       .Times(AtLeast(1))
@@ -518,7 +521,8 @@ TEST_F(AnimationWorkletMutatorDispatcherImplAsyncTest,
   Mock::VerifyAndClearExpectations(client_.get());
 
   // Ensure mutator is not invoked after unregistration.
-  mutator_->UnregisterAnimationWorkletMutator(first_mutator);
+  mutator_->UnregisterAnimationWorkletMutator(
+      WrapCrossThreadPersistent(first_mutator));
   EXPECT_FALSE(mutator_->MutateAsynchronously(
       CreateTestMutatorInput(), kNormalPriority, CreateNotReachedCallback()));
 
@@ -535,10 +539,10 @@ TEST_F(AnimationWorkletMutatorDispatcherImplAsyncTest,
       MakeGarbageCollected<MockAnimationWorkletMutator>(
           first_thread->GetTaskRunner());
 
-  mutator_->RegisterAnimationWorkletMutator(first_mutator,
-                                            first_thread->GetTaskRunner());
-  mutator_->RegisterAnimationWorkletMutator(second_mutator,
-                                            first_thread->GetTaskRunner());
+  mutator_->RegisterAnimationWorkletMutator(
+      WrapCrossThreadPersistent(first_mutator), first_thread->GetTaskRunner());
+  mutator_->RegisterAnimationWorkletMutator(
+      WrapCrossThreadPersistent(second_mutator), first_thread->GetTaskRunner());
 
   EXPECT_CALL(*first_mutator, GetWorkletId())
       .Times(AtLeast(1))
@@ -573,10 +577,11 @@ TEST_F(
       MakeGarbageCollected<MockAnimationWorkletMutator>(
           second_thread->GetTaskRunner());
 
-  mutator_->RegisterAnimationWorkletMutator(first_mutator,
-                                            first_thread->GetTaskRunner());
-  mutator_->RegisterAnimationWorkletMutator(second_mutator,
-                                            second_thread->GetTaskRunner());
+  mutator_->RegisterAnimationWorkletMutator(
+      WrapCrossThreadPersistent(first_mutator), first_thread->GetTaskRunner());
+  mutator_->RegisterAnimationWorkletMutator(
+      WrapCrossThreadPersistent(second_mutator),
+      second_thread->GetTaskRunner());
 
   EXPECT_CALL(*first_mutator, GetWorkletId())
       .Times(AtLeast(1))
@@ -604,8 +609,8 @@ TEST_F(AnimationWorkletMutatorDispatcherImplAsyncTest,
   MockAnimationWorkletMutator* first_mutator =
       MakeGarbageCollected<MockAnimationWorkletMutator>(
           first_thread->GetTaskRunner());
-  mutator_->RegisterAnimationWorkletMutator(first_mutator,
-                                            first_thread->GetTaskRunner());
+  mutator_->RegisterAnimationWorkletMutator(
+      WrapCrossThreadPersistent(first_mutator), first_thread->GetTaskRunner());
 
   EXPECT_CALL(*first_mutator, GetWorkletId())
       .Times(AtLeast(1))
@@ -638,8 +643,8 @@ TEST_F(AnimationWorkletMutatorDispatcherImplAsyncTest,
   MockAnimationWorkletMutator* first_mutator =
       MakeGarbageCollected<MockAnimationWorkletMutator>(
           first_thread->GetTaskRunner());
-  mutator_->RegisterAnimationWorkletMutator(first_mutator,
-                                            first_thread->GetTaskRunner());
+  mutator_->RegisterAnimationWorkletMutator(
+      WrapCrossThreadPersistent(first_mutator), first_thread->GetTaskRunner());
 
   EXPECT_CALL(*first_mutator, GetWorkletId())
       .Times(AtLeast(2))
@@ -674,8 +679,8 @@ TEST_F(AnimationWorkletMutatorDispatcherImplAsyncTest,
   MockAnimationWorkletMutator* first_mutator =
       MakeGarbageCollected<MockAnimationWorkletMutator>(
           first_thread->GetTaskRunner());
-  mutator_->RegisterAnimationWorkletMutator(first_mutator,
-                                            first_thread->GetTaskRunner());
+  mutator_->RegisterAnimationWorkletMutator(
+      WrapCrossThreadPersistent(first_mutator), first_thread->GetTaskRunner());
 
   EXPECT_CALL(*first_mutator, GetWorkletId())
       .Times(AtLeast(2))
@@ -715,8 +720,8 @@ TEST_F(AnimationWorkletMutatorDispatcherImplAsyncTest,
   MockAnimationWorkletMutator* first_mutator =
       MakeGarbageCollected<MockAnimationWorkletMutator>(
           first_thread->GetTaskRunner());
-  mutator_->RegisterAnimationWorkletMutator(first_mutator,
-                                            first_thread->GetTaskRunner());
+  mutator_->RegisterAnimationWorkletMutator(
+      WrapCrossThreadPersistent(first_mutator), first_thread->GetTaskRunner());
 
   EXPECT_CALL(*first_mutator, GetWorkletId())
       .Times(AtLeast(3))
@@ -766,7 +771,8 @@ TEST_F(AnimationWorkletMutatorDispatcherImplAsyncTest, HistogramTester) {
   MockAnimationWorkletMutator* mutator =
       MakeGarbageCollected<MockAnimationWorkletMutator>(
           thread->GetTaskRunner());
-  mutator_->RegisterAnimationWorkletMutator(mutator, thread->GetTaskRunner());
+  mutator_->RegisterAnimationWorkletMutator(WrapCrossThreadPersistent(mutator),
+                                            thread->GetTaskRunner());
 
   EXPECT_CALL(*mutator, GetWorkletId())
       .Times(AtLeast(2))

@@ -27,7 +27,9 @@
 #include "third_party/blink/renderer/core/execution_context/security_context.h"
 
 #include "base/metrics/histogram_macros.h"
+#include "services/network/public/mojom/ip_address_space.mojom-blink.h"
 #include "third_party/blink/public/common/feature_policy/feature_policy.h"
+#include "third_party/blink/public/mojom/feature_policy/feature_policy.mojom-blink.h"
 #include "third_party/blink/public/platform/platform.h"
 #include "third_party/blink/renderer/core/frame/csp/content_security_policy.h"
 #include "third_party/blink/renderer/platform/runtime_enabled_features.h"
@@ -68,12 +70,12 @@ inline const char* GetImagePolicyHistogramName(
 }  // namespace
 
 // static
-WebVector<unsigned> SecurityContext::SerializeInsecureNavigationSet(
+WTF::Vector<unsigned> SecurityContext::SerializeInsecureNavigationSet(
     const InsecureNavigationsSet& set) {
   // The set is serialized as a sorted array. Sorting it makes it easy to know
   // if two serialized sets are equal.
-  WebVector<unsigned> serialized;
-  serialized.reserve(set.size());
+  WTF::Vector<unsigned> serialized;
+  serialized.ReserveCapacity(set.size());
   for (unsigned host : set)
     serialized.emplace_back(host);
   std::sort(serialized.begin(), serialized.end());
@@ -90,7 +92,7 @@ SecurityContext::SecurityContext(scoped_refptr<SecurityOrigin> origin,
     : sandbox_flags_(sandbox_flags),
       security_origin_(std::move(origin)),
       feature_policy_(std::move(feature_policy)),
-      address_space_(mojom::IPAddressSpace::kPublic),
+      address_space_(network::mojom::IPAddressSpace::kUnknown),
       insecure_request_policy_(kLeaveInsecureRequestsAlone),
       require_safe_types_(false) {}
 
@@ -112,54 +114,24 @@ void SecurityContext::SetContentSecurityPolicy(
 
 bool SecurityContext::IsSandboxed(WebSandboxFlags mask) const {
   if (RuntimeEnabledFeatures::FeaturePolicyForSandboxEnabled()) {
-    switch (mask) {
-      case WebSandboxFlags::kAll:
-        NOTREACHED();
-        break;
-      case WebSandboxFlags::kTopNavigation:
-        return !feature_policy_->IsFeatureEnabled(
-            mojom::FeaturePolicyFeature::kTopNavigation);
-      case WebSandboxFlags::kForms:
-        return !feature_policy_->IsFeatureEnabled(
-            mojom::FeaturePolicyFeature::kFormSubmission);
-      case WebSandboxFlags::kScripts:
-        return !feature_policy_->IsFeatureEnabled(
-            mojom::FeaturePolicyFeature::kScript);
-      case WebSandboxFlags::kPopups:
-        return !feature_policy_->IsFeatureEnabled(
-            mojom::FeaturePolicyFeature::kPopups);
-      case WebSandboxFlags::kPointerLock:
-        return !feature_policy_->IsFeatureEnabled(
-            mojom::FeaturePolicyFeature::kPointerLock);
-      case WebSandboxFlags::kOrientationLock:
-        return !feature_policy_->IsFeatureEnabled(
-            mojom::FeaturePolicyFeature::kOrientationLock);
-      case WebSandboxFlags::kModals:
-        return !feature_policy_->IsFeatureEnabled(
-            mojom::FeaturePolicyFeature::kModals);
-      case WebSandboxFlags::kPresentationController:
-        return !feature_policy_->IsFeatureEnabled(
-            mojom::FeaturePolicyFeature::kPresentation);
-      case WebSandboxFlags::kDownloads:
-        return !feature_policy_->IsFeatureEnabled(
-            mojom::FeaturePolicyFeature::kDownloadsWithoutUserActivation);
-      default:
-        // Any other flags fall through to the bitmask test below
-        break;
-    }
+    mojom::FeaturePolicyFeature feature =
+        FeaturePolicy::FeatureForSandboxFlag(mask);
+    if (feature != mojom::FeaturePolicyFeature::kNotFound)
+      return !feature_policy_->IsFeatureEnabled(feature);
   }
   return (sandbox_flags_ & mask) != WebSandboxFlags::kNone;
 }
 
 String SecurityContext::addressSpaceForBindings() const {
   switch (address_space_) {
-    case mojom::IPAddressSpace::kPublic:
+    case network::mojom::IPAddressSpace::kPublic:
+    case network::mojom::IPAddressSpace::kUnknown:
       return "public";
 
-    case mojom::IPAddressSpace::kPrivate:
+    case network::mojom::IPAddressSpace::kPrivate:
       return "private";
 
-    case mojom::IPAddressSpace::kLocal:
+    case network::mojom::IPAddressSpace::kLocal:
       return "local";
   }
   NOTREACHED();
@@ -197,20 +169,27 @@ void SecurityContext::AddReportOnlyFeaturePolicy(
   report_only_feature_policy_->SetHeaderPolicy(parsed_report_only_header);
 }
 
+void SecurityContext::SetDocumentPolicyForTesting(
+    std::unique_ptr<DocumentPolicy> document_policy) {
+  document_policy_ = std::move(document_policy);
+}
+
 bool SecurityContext::IsFeatureEnabled(mojom::FeaturePolicyFeature feature,
                                        ReportOptions report_on_failure,
-                                       const String& message) const {
+                                       const String& message,
+                                       const String& source_file) const {
   return IsFeatureEnabled(
       feature,
       PolicyValue::CreateMaxPolicyValue(
           feature_policy_->GetFeatureList().at(feature).second),
-      report_on_failure, message);
+      report_on_failure, message, source_file);
 }
 
 bool SecurityContext::IsFeatureEnabled(mojom::FeaturePolicyFeature feature,
                                        PolicyValue threshold_value,
                                        ReportOptions report_on_failure,
-                                       const String& message) const {
+                                       const String& message,
+                                       const String& source_file) const {
   if (report_on_failure == ReportOptions::kReportOnFailure) {
     // We are expecting a violation report in case the feature is disabled in
     // the context. Therefore, this qualifies as a potential violation (i.e.,
@@ -218,18 +197,23 @@ bool SecurityContext::IsFeatureEnabled(mojom::FeaturePolicyFeature feature,
     CountPotentialFeaturePolicyViolation(feature);
   }
 
+  bool document_policy_result =
+      !(RuntimeEnabledFeatures::DocumentPolicyEnabled() && document_policy_) ||
+      (document_policy_->IsFeatureSupported(feature) &&
+       document_policy_->IsFeatureEnabled(feature, threshold_value));
+
   FeatureEnabledState state = GetFeatureEnabledState(feature, threshold_value);
   if (state == FeatureEnabledState::kEnabled)
-    return true;
+    return document_policy_result;
   if (report_on_failure == ReportOptions::kReportOnFailure) {
     ReportFeaturePolicyViolation(
         feature,
         (state == FeatureEnabledState::kReportOnly
              ? mojom::FeaturePolicyDisposition::kReport
              : mojom::FeaturePolicyDisposition::kEnforce),
-        message);
+        message, source_file);
   }
-  return (state != FeatureEnabledState::kDisabled);
+  return (state != FeatureEnabledState::kDisabled) && document_policy_result;
 }
 
 FeatureEnabledState SecurityContext::GetFeatureEnabledState(

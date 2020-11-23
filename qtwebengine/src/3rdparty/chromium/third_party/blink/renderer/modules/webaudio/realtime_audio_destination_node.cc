@@ -219,6 +219,7 @@ void RealtimeAudioDestinationHandler::Render(
     } else {
       destination_bus->Zero();
     }
+
     // Processes "automatic" nodes that are not connected to anything. This can
     // be done after copying because it does not affect the rendered result.
     context->GetDeferredTaskHandler().ProcessAutomaticPullNodes(

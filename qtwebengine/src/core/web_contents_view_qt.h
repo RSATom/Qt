@@ -70,9 +70,9 @@ public:
     WebContentsAdapterClient *client() { return m_client; }
 
     // content::WebContentsView overrides:
-    content::RenderWidgetHostViewBase *CreateViewForWidget(content::RenderWidgetHost* render_widget_host, bool is_guest_view_hack) override;
+    content::RenderWidgetHostViewBase *CreateViewForWidget(content::RenderWidgetHost *render_widget_host) override;
 
-    void CreateView(const gfx::Size& initial_size, gfx::NativeView context) override;
+    void CreateView(gfx::NativeView context) override;
 
     content::RenderWidgetHostViewBase *CreateViewForChildWidget(content::RenderWidgetHost* render_widget_host) override;
 

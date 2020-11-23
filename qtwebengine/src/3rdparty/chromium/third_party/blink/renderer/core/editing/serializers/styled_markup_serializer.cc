@@ -43,6 +43,7 @@
 #include "third_party/blink/renderer/core/editing/visible_position.h"
 #include "third_party/blink/renderer/core/editing/visible_selection.h"
 #include "third_party/blink/renderer/core/editing/visible_units.h"
+#include "third_party/blink/renderer/core/html/forms/html_text_area_element.h"
 #include "third_party/blink/renderer/core/html/html_body_element.h"
 #include "third_party/blink/renderer/core/html/html_element.h"
 #include "third_party/blink/renderer/platform/wtf/text/string_builder.h"
@@ -78,8 +79,6 @@ bool HandleSelectionBoundary<EditingInFlatTreeStrategy>(const Node& node) {
 }
 
 }  // namespace
-
-using namespace html_names;
 
 template <typename Strategy>
 class StyledMarkupTraverser {
@@ -149,7 +148,8 @@ static bool NeedInterchangeNewlineAfter(
   // Add an interchange newline if a paragraph break is selected and a br won't
   // already be added to the markup to represent it.
   return IsEndOfParagraph(v) && IsStartOfParagraph(next) &&
-         !(IsHTMLBRElement(*upstream_node) && upstream_node == downstream_node);
+         !(IsA<HTMLBRElement>(*upstream_node) &&
+           upstream_node == downstream_node);
 }
 
 template <typename Strategy>
@@ -234,8 +234,8 @@ String StyledMarkupSerializer<Strategy>::CreateMarkup() {
     Node* common_ancestor = Strategy::CommonAncestor(
         *start_.ComputeContainerNode(), *end_.ComputeContainerNode());
     DCHECK(common_ancestor);
-    HTMLBodyElement* body = ToHTMLBodyElement(EnclosingElementWithTag(
-        Position::FirstPositionInNode(*common_ancestor), kBodyTag));
+    auto* body = To<HTMLBodyElement>(EnclosingElementWithTag(
+        Position::FirstPositionInNode(*common_ancestor), html_names::kBodyTag));
     HTMLBodyElement* fully_selected_root = nullptr;
     // FIXME: Do this for all fully selected blocks, not just the body.
     if (body && AreSameRanges(body, start_, end_))
@@ -257,10 +257,13 @@ String StyledMarkupSerializer<Strategy>::CreateMarkup() {
              !fully_selected_root_style->Style() ||
              !fully_selected_root_style->Style()->GetPropertyCSSValue(
                  CSSPropertyID::kBackgroundImage)) &&
-            fully_selected_root->hasAttribute(kBackgroundAttr)) {
+            fully_selected_root->FastHasAttribute(
+                html_names::kBackgroundAttr)) {
           fully_selected_root_style->Style()->SetProperty(
               CSSPropertyID::kBackgroundImage,
-              "url('" + fully_selected_root->getAttribute(kBackgroundAttr) +
+              "url('" +
+                  fully_selected_root->getAttribute(
+                      html_names::kBackgroundAttr) +
                   "')",
               /* important */ false,
               fully_selected_root->GetDocument().GetSecureContextMode());
@@ -308,7 +311,7 @@ String StyledMarkupSerializer<Strategy>::CreateMarkup() {
 
   // FIXME: The interchange newline should be placed in the block that it's in,
   // not after all of the content, unconditionally.
-  if (!(last_closed && IsHTMLBRElement(*last_closed)) && ShouldAnnotate() &&
+  if (!(last_closed && IsA<HTMLBRElement>(*last_closed)) && ShouldAnnotate() &&
       NeedInterchangeNewlineAt(visible_end))
     markup_accumulator.AppendInterchangeNewline();
 
@@ -500,7 +503,7 @@ void StyledMarkupTraverser<Strategy>::AppendStartMarkup(Node& node) {
   switch (node.getNodeType()) {
     case Node::kTextNode: {
       auto& text = To<Text>(node);
-      if (text.parentElement() && IsHTMLTextAreaElement(text.parentElement())) {
+      if (IsA<HTMLTextAreaElement>(text.parentElement())) {
         accumulator_->AppendText(text);
         break;
       }
@@ -590,7 +593,7 @@ bool StyledMarkupTraverser<Strategy>::ContainsOnlyBRElement(
   auto* const first_child = element.firstChild();
   if (!first_child)
     return false;
-  return IsHTMLBRElement(first_child) && first_child == element.lastChild();
+  return IsA<HTMLBRElement>(first_child) && first_child == element.lastChild();
 }
 
 template <typename Strategy>

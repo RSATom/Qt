@@ -53,6 +53,7 @@
 #include <QQuickWindow>
 #include <QSGRendererInterface>
 #include <QPainter>
+#include <QPainterPath>
 
 SoftwareRenderNode::~SoftwareRenderNode()
 {
@@ -95,7 +96,7 @@ void SoftwareRenderNode::render(const RenderState *renderState)
 
 QSGRenderNode::StateFlags SoftwareRenderNode::changedStates() const
 {
-    return nullptr;
+    return {};
 }
 
 QSGRenderNode::RenderingFlags SoftwareRenderNode::flags() const

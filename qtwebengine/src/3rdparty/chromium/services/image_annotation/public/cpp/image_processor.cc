@@ -79,15 +79,16 @@ constexpr int ImageProcessor::kJpgQuality;
 
 ImageProcessor::ImageProcessor(base::RepeatingCallback<SkBitmap()> get_pixels)
     : get_pixels_(std::move(get_pixels)),
-      background_task_runner_(base::CreateSequencedTaskRunnerWithTraits(
-          {base::MayBlock(), base::TaskPriority::BEST_EFFORT})) {}
+      background_task_runner_(
+          base::CreateSequencedTaskRunner({base::ThreadPool(), base::MayBlock(),
+                                           base::TaskPriority::BEST_EFFORT})) {}
 
 ImageProcessor::~ImageProcessor() = default;
 
-mojom::ImageProcessorPtr ImageProcessor::GetPtr() {
-  mojom::ImageProcessorPtr ptr;
-  bindings_.AddBinding(this, mojo::MakeRequest(&ptr));
-  return ptr;
+mojo::PendingRemote<mojom::ImageProcessor> ImageProcessor::GetPendingRemote() {
+  mojo::PendingRemote<mojom::ImageProcessor> remote;
+  receivers_.Add(this, remote.InitWithNewPipeAndPassReceiver());
+  return remote;
 }
 
 void ImageProcessor::GetJpgImageData(GetJpgImageDataCallback callback) {

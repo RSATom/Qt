@@ -26,6 +26,9 @@
 **
 ****************************************************************************/
 
+#include "metaobjectdump.h"
+#include "textdialog.h"
+
 #include <ActiveQt/QAxSelect>
 #include <ActiveQt/QAxWidget>
 
@@ -36,10 +39,16 @@
 #include <QtWidgets/QMenuBar>
 #include <QtWidgets/QStatusBar>
 #include <QtWidgets/QToolBar>
+#include <QtWidgets/QVBoxLayout>
+
+#include <QtGui/QFontDatabase>
+#include <QtGui/QScreen>
 
 #include <QtCore/QCommandLineOption>
 #include <QtCore/QCommandLineParser>
 #include <QtCore/QDebug>
+#include <QtCore/QMetaObject>
+#include <QtCore/QPair>
 #include <QtCore/QStringList>
 #include <QtCore/QSysInfo>
 
@@ -68,6 +77,9 @@ public:
     MainWindow();
     bool setControl(const QString &clsid);
 
+public slots:
+    void showMetaObject();
+
 private:
     QAxWidget *m_axWidget;
 };
@@ -91,7 +103,9 @@ MainWindow::MainWindow()
     toolbar->setObjectName(QLatin1String("ToolBar"));
     addToolBar(Qt::TopToolBarArea, toolbar);
 
-    QAction *action;
+    QAction *action = fileMenu->addAction("Dump MetaObject",
+                                          this, &MainWindow::showMetaObject);
+    toolbar->addAction(action);
 #ifdef QT_DIAG_LIB
     action = fileMenu->addAction("Dump Widgets",
                                  this, [] () { QtDiag::dumpAllWidgets(); });
@@ -115,6 +129,21 @@ bool MainWindow::setControl(const QString &clsid)
     if (result)
         statusBar()->showMessage(QLatin1String("Loaded ") + clsid);
     return result;
+}
+
+void MainWindow::showMetaObject()
+{
+    auto mo = m_axWidget->metaObject();
+    QString dump;
+    {
+        QTextStream str(&dump);
+        str << *mo;
+    }
+    auto dialog = new TextDialog(dump, this);
+    dialog->setWindowTitle(QLatin1String("MetaObject of ") + QLatin1String(mo->className()));
+    dialog->setAttribute(Qt::WA_DeleteOnClose);
+    dialog->resize(screen()->geometry().size() * 2 / 3);
+    dialog->show();
 }
 
 int main(int argc, char* argv[])

@@ -17,9 +17,13 @@
 #include "components/ui_devtools/Protocol.h"
 #include "components/ui_devtools/devtools_client.h"
 #include "components/ui_devtools/devtools_export.h"
+#include "mojo/public/cpp/bindings/pending_receiver.h"
+#include "mojo/public/cpp/bindings/pending_remote.h"
 #include "services/network/public/cpp/server/http_server.h"
 
 namespace ui_devtools {
+
+class TracingAgent;
 
 class UI_DEVTOOLS_EXPORT UiDevToolsServer
     : public network::server::HttpServer::Delegate {
@@ -39,12 +43,13 @@ class UI_DEVTOOLS_EXPORT UiDevToolsServer
   // Assumes that the devtools flag is enabled, and was checked when the socket
   // was created.
   static std::unique_ptr<UiDevToolsServer> CreateForViz(
-      network::mojom::TCPServerSocketPtr server_socket,
+      mojo::PendingRemote<network::mojom::TCPServerSocket> server_socket,
       int port);
 
   // Creates a TCPServerSocket to be used by a UiDevToolsServer.
   static void CreateTCPServerSocket(
-      network::mojom::TCPServerSocketRequest server_socket_request,
+      mojo::PendingReceiver<network::mojom::TCPServerSocket>
+          server_socket_receiver,
       network::mojom::NetworkContext* network_context,
       int port,
       net::NetworkTrafficAnnotationTag tag,
@@ -67,12 +72,16 @@ class UI_DEVTOOLS_EXPORT UiDevToolsServer
 
   int port() const { return port_; }
 
+  TracingAgent* tracing_agent() { return tracing_agent_; }
+  void set_tracing_agent(TracingAgent* agent) { tracing_agent_ = agent; }
+
  private:
   UiDevToolsServer(int port, const net::NetworkTrafficAnnotationTag tag);
 
-  void MakeServer(network::mojom::TCPServerSocketPtr server_socket,
-                  int result,
-                  const base::Optional<net::IPEndPoint>& local_addr);
+  void MakeServer(
+      mojo::PendingRemote<network::mojom::TCPServerSocket> server_socket,
+      int result,
+      const base::Optional<net::IPEndPoint>& local_addr);
 
   // HttpServer::Delegate
   void OnConnect(int connection_id) override;
@@ -96,6 +105,8 @@ class UI_DEVTOOLS_EXPORT UiDevToolsServer
   const int port_;
 
   const net::NetworkTrafficAnnotationTag tag_;
+
+  TracingAgent* tracing_agent_ = nullptr;
 
   // The server (owned by Chrome for now)
   static UiDevToolsServer* devtools_server_;

@@ -436,6 +436,7 @@ config("coverage_flags") {
 
 config("hwasan_flags") {
   if (is_hwasan) {
+    asmflags = [ "-fsanitize=hwaddress" ]
     cflags = [ "-fsanitize=hwaddress" ]
     if (hwasan_platform) {
       cflags += [ "-fsanitize-hwaddress-abi=platform" ]
@@ -486,9 +487,9 @@ config("ubsan_flags") {
           rebase_path("//tools/ubsan/blacklist.txt", root_build_dir)
     }
     cflags += [
-      # Yasm dies with an "Illegal instruction" error when bounds checking is
-      # enabled. See http://crbug.com/489901
-      # "-fsanitize=bounds",
+      "-fsanitize=bool",
+      "-fsanitize=bounds",
+      "-fsanitize=builtin",
       "-fsanitize=float-divide-by-zero",
       "-fsanitize=integer-divide-by-zero",
       "-fsanitize=null",

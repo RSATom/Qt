@@ -54,7 +54,7 @@ struct QSSGLoadingImage
     QSSGLoadingImage *tail = nullptr;
 
     // Called from main thread
-    QSSGLoadingImage(QString inSourcePath) : batch(nullptr), sourcePath(inSourcePath), taskId(0), tail(nullptr) {}
+    QSSGLoadingImage(const QString &inSourcePath) : batch(nullptr), sourcePath(inSourcePath), taskId(0), tail(nullptr) {}
 
     QSSGLoadingImage() = default;
 
@@ -68,13 +68,7 @@ struct QSSGLoadingImage
     static void taskCancelled(void *inImg);
 };
 
-struct QSSGLoadingImageTailOp
-{
-    QSSGLoadingImage *get(QSSGLoadingImage &inImg) { return inImg.tail; }
-    void set(QSSGLoadingImage &inImg, QSSGLoadingImage *inItem) { inImg.tail = inItem; }
-};
-
-typedef QSSGInvasiveSingleLinkedList<QSSGLoadingImage, QSSGLoadingImageTailOp> TLoadingImageList;
+using TLoadingImageList = QSSGInvasiveSingleLinkedList<QSSGLoadingImage, &QSSGLoadingImage::tail>;
 
 struct QSSGBatchLoader;
 
@@ -97,11 +91,11 @@ struct QSSGImageLoaderBatch
 
     // Called from main thread
     static QSSGImageLoaderBatch *createLoaderBatch(QSSGBatchLoader &inLoader,
-                                                     TImageBatchId inBatchId,
-                                                     QSSGDataView<QString> inSourcePaths,
-                                                     QString inImageTillLoaded,
-                                                     IImageLoadListener *inListener,
-                                                     QSSGRenderContextType contextType);
+                                                   TImageBatchId inBatchId,
+                                                   QSSGDataView<QString> inSourcePaths,
+                                                   const QString &inImageTillLoaded,
+                                                   IImageLoadListener *inListener,
+                                                   QSSGRenderContextType contextType);
 
     // Called from main thread
     QSSGImageLoaderBatch(QSSGBatchLoader &inLoader,
@@ -139,7 +133,7 @@ struct QSSGImageLoaderBatch
     }
     // Called from main thread
     void cancel();
-    void cancel(QString inSourcePath);
+    void cancel(const QString &inSourcePath);
 };
 
 struct QSSGBatchLoadedImage
@@ -150,7 +144,7 @@ struct QSSGBatchLoadedImage
     QSSGBatchLoadedImage() = default;
 
     // Called from loading thread
-    QSSGBatchLoadedImage(QString inSourcePath, QSSGLoadedTexture *inTexture, QSSGImageLoaderBatch &inBatch)
+    QSSGBatchLoadedImage(const QString &inSourcePath, QSSGLoadedTexture *inTexture, QSSGImageLoaderBatch &inBatch)
         : sourcePath(inSourcePath), texture(inTexture), batch(&inBatch)
     {
     }
@@ -188,10 +182,10 @@ struct QSSGBatchLoader : public IImageBatchLoader
     // main thread
     QVector<QSSGLoadingImage> loaderBuilderWorkspace;
 
-    QSSGBatchLoader(QSSGRef<QSSGInputStreamFactory> inFactory,
-                      QSSGRef<QSSGBufferManager> inBufferManager,
-                      QSSGRef<QSSGAbstractThreadPool> inThreadPool,
-                      QSSGPerfTimer *inTimer)
+    QSSGBatchLoader(const QSSGRef<QSSGInputStreamFactory> &inFactory,
+                    const QSSGRef<QSSGBufferManager> &inBufferManager,
+                    const QSSGRef<QSSGAbstractThreadPool> &inThreadPool,
+                    QSSGPerfTimer *inTimer)
         : inputStreamFactory(inFactory), bufferManager(inBufferManager), threadPool(inThreadPool), perfTimer(inTimer), nextBatchId(1)
     {
     }
@@ -367,11 +361,11 @@ bool QSSGBatchLoadedImage::finalize(const QSSGRef<QSSGBufferManager> &inMgr)
 }
 
 QSSGImageLoaderBatch *QSSGImageLoaderBatch::createLoaderBatch(QSSGBatchLoader &inLoader,
-                                                                  TImageBatchId inBatchId,
-                                                                  QSSGDataView<QString> inSourcePaths,
-                                                                  QString inImageTillLoaded,
-                                                                  IImageLoadListener *inListener,
-                                                                  QSSGRenderContextType contextType)
+                                                              TImageBatchId inBatchId,
+                                                              QSSGDataView<QString> inSourcePaths,
+                                                              const QString &inImageTillLoaded,
+                                                              IImageLoadListener *inListener,
+                                                              QSSGRenderContextType contextType)
 {
     TLoadingImageList theImages;
     quint32 theLoadingImageCount = 0;
@@ -451,7 +445,7 @@ void QSSGImageLoaderBatch::cancel()
         loader.threadPool->cancelTask(iter->taskId);
 }
 
-void QSSGImageLoaderBatch::cancel(QString inSourcePath)
+void QSSGImageLoaderBatch::cancel(const QString &inSourcePath)
 {
     for (TLoadingImageList::iterator iter = images.begin(), end = images.end(); iter != end; ++iter) {
         if (iter->sourcePath == inSourcePath) {
@@ -462,10 +456,10 @@ void QSSGImageLoaderBatch::cancel(QString inSourcePath)
 }
 }
 
-QSSGRef<IImageBatchLoader> IImageBatchLoader::createBatchLoader(QSSGRef<QSSGInputStreamFactory> inFactory,
-                                                                  QSSGRef<QSSGBufferManager> inBufferManager,
-                                                                  QSSGRef<QSSGAbstractThreadPool> inThreadPool,
-                                                                  QSSGPerfTimer *inTimer)
+QSSGRef<IImageBatchLoader> IImageBatchLoader::createBatchLoader(const QSSGRef<QSSGInputStreamFactory> &inFactory,
+                                                                const QSSGRef<QSSGBufferManager> &inBufferManager,
+                                                                const QSSGRef<QSSGAbstractThreadPool> &inThreadPool,
+                                                                QSSGPerfTimer *inTimer)
 {
     return QSSGRef<IImageBatchLoader>(new QSSGBatchLoader(inFactory, inBufferManager, inThreadPool, inTimer));
 }

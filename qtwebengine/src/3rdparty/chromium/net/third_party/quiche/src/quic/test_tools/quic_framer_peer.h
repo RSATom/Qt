@@ -28,6 +28,8 @@ class QuicFramerPeer {
   static void SetLastSerializedClientConnectionId(
       QuicFramer* framer,
       QuicConnectionId client_connection_id);
+  static void SetLastWrittenPacketNumberLength(QuicFramer* framer,
+                                               size_t packet_number_length);
   static void SetLargestPacketNumber(QuicFramer* framer,
                                      QuicPacketNumber packet_number);
   static void SetPerspective(QuicFramer* framer, Perspective perspective);
@@ -179,6 +181,16 @@ class QuicFramerPeer {
       uint8_t* destination_connection_id_length,
       uint8_t* source_connection_id_length,
       std::string* detailed_error);
+
+  static void set_current_received_frame_type(
+      QuicFramer* framer,
+      uint64_t current_received_frame_type) {
+    framer->current_received_frame_type_ = current_received_frame_type;
+  }
+
+  static bool infer_packet_header_type_from_version(QuicFramer* framer) {
+    return framer->infer_packet_header_type_from_version_;
+  }
 };
 
 }  // namespace test

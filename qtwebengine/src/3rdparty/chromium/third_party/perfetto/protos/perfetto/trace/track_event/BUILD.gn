@@ -12,30 +12,22 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import("../../../../gn/perfetto.gni")
 import("../../../../gn/proto_library.gni")
-import("../../../../gn/protozero_library.gni")
 
-event_proto_names = [
-  "debug_annotation.proto",
-  "process_descriptor.proto",
-  "source_location.proto",
-  "log_message.proto",
-  "task_execution.proto",
-  "thread_descriptor.proto",
-  "track_event.proto",
-]
-
-proto_library("lite") {
-  generate_python = false
-  sources = event_proto_names
-  proto_in_dir = "$perfetto_root_path/protos"
-  proto_out_dir = "$perfetto_root_path/protos"
-}
-
-protozero_library("zero") {
-  sources = event_proto_names
-  proto_in_dir = "$perfetto_root_path/protos"
-  proto_out_dir = "$perfetto_root_path/protos"
-  generator_plugin_options = "wrapper_namespace=pbzero"
+perfetto_proto_library("@TYPE@") {
+  sources = [
+    "chrome_compositor_scheduler_state.proto",
+    "chrome_histogram_sample.proto",
+    "chrome_keyed_service.proto",
+    "chrome_legacy_ipc.proto",
+    "chrome_user_event.proto",
+    "debug_annotation.proto",
+    "log_message.proto",
+    "process_descriptor.proto",
+    "source_location.proto",
+    "task_execution.proto",
+    "thread_descriptor.proto",
+    "track_descriptor.proto",
+    "track_event.proto",
+  ]
 }

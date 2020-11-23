@@ -11,7 +11,6 @@
 #include <utility>
 
 #include "base/logging.h"
-#include "base/memory/protected_memory_cfi.h"
 #include "base/strings/pattern.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_util.h"
@@ -34,7 +33,7 @@ class AccessibilityTreeFormatterAuraLinux
   ~AccessibilityTreeFormatterAuraLinux() override;
 
  private:
-  const base::FilePath::StringType GetExpectedFileSuffix() override;
+  base::FilePath::StringType GetExpectedFileSuffix() override;
   const std::string GetAllowEmptyString() override;
   const std::string GetAllowString() override;
   const std::string GetDenyString() override;
@@ -55,6 +54,7 @@ class AccessibilityTreeFormatterAuraLinux
   std::unique_ptr<base::DictionaryValue> BuildAccessibilityTreeWithNode(
       AtspiAccessible* node);
 
+  void AddTextProperties(AtkText* atk_text, base::DictionaryValue* dict);
   void AddValueProperties(AtkObject* atk_object, base::DictionaryValue* dict);
   void AddTableProperties(AtkObject* atk_object, base::DictionaryValue* dict);
   void AddTableCellProperties(const ui::AXPlatformNodeAuraLinux* node,
@@ -197,133 +197,50 @@ void AccessibilityTreeFormatterAuraLinux::RecursiveBuildAccessibilityTree(
   dict->Set(kChildrenDictAttr, std::move(children));
 }
 
-// TODO(aleventhal) Remove this and use atk_role_get_name() once the following
-// GNOME bug is fixed: https://bugzilla.gnome.org/show_bug.cgi?id=795983
-const char* const kRoleNames[] = {
-    "invalid",  // ATK_ROLE_INVALID.
-    "accelerator label",
-    "alert",
-    "animation",
-    "arrow",
-    "calendar",
-    "canvas",
-    "check box",
-    "check menu item",
-    "color chooser",
-    "column header",
-    "combo box",
-    "dateeditor",
-    "desktop icon",
-    "desktop frame",
-    "dial",
-    "dialog",
-    "directory pane",
-    "drawing area",
-    "file chooser",
-    "filler",
-    "fontchooser",
-    "frame",
-    "glass pane",
-    "html container",
-    "icon",
-    "image",
-    "internal frame",
-    "label",
-    "layered pane",
-    "list",
-    "list item",
-    "menu",
-    "menu bar",
-    "menu item",
-    "option pane",
-    "page tab",
-    "page tab list",
-    "panel",
-    "password text",
-    "popup menu",
-    "progress bar",
-    "push button",
-    "radio button",
-    "radio menu item",
-    "root pane",
-    "row header",
-    "scroll bar",
-    "scroll pane",
-    "separator",
-    "slider",
-    "split pane",
-    "spin button",
-    "statusbar",
-    "table",
-    "table cell",
-    "table column header",
-    "table row header",
-    "tear off menu item",
-    "terminal",
-    "text",
-    "toggle button",
-    "tool bar",
-    "tool tip",
-    "tree",
-    "tree table",
-    "unknown",
-    "viewport",
-    "window",
-    "header",
-    "footer",
-    "paragraph",
-    "ruler",
-    "application",
-    "autocomplete",
-    "edit bar",
-    "embedded component",
-    "entry",
-    "chart",
-    "caption",
-    "document frame",
-    "heading",
-    "page",
-    "section",
-    "redundant object",
-    "form",
-    "link",
-    "input method window",
-    "table row",
-    "tree item",
-    "document spreadsheet",
-    "document presentation",
-    "document text",
-    "document web",
-    "document email",
-    "comment",
-    "list box",
-    "grouping",
-    "image map",
-    "notification",
-    "info bar",
-    "level bar",
-    "title bar",
-    "block quote",
-    "audio",
-    "video",
-    "definition",
-    "article",
-    "landmark",
-    "log",
-    "marquee",
-    "math",
-    "rating",
-    "timer",
-    "description list",
-    "description term",
-    "description value",
-    "static",
-    "math fraction",
-    "math root",
-    "subscript",
-    "superscript",
-    "footnote",  // ATK_ROLE_FOOTNOTE = 122.
-};
+void AccessibilityTreeFormatterAuraLinux::AddTextProperties(
+    AtkText* atk_text,
+    base::DictionaryValue* dict) {
+  auto text_values = std::make_unique<base::ListValue>();
+  int character_count = atk_text_get_character_count(atk_text);
+  text_values->AppendString(
+      base::StringPrintf("character_count=%i", character_count));
+
+  int caret_offset = atk_text_get_caret_offset(atk_text);
+  if (caret_offset != -1)
+    text_values->AppendString(
+        base::StringPrintf("caret_offset=%i", caret_offset));
+
+  int selection_start, selection_end;
+  char* selection_text =
+      atk_text_get_selection(atk_text, 0, &selection_start, &selection_end);
+  if (selection_text) {
+    g_free(selection_text);
+    text_values->AppendString(
+        base::StringPrintf("selection_start=%i", selection_start));
+    text_values->AppendString(
+        base::StringPrintf("selection_end=%i", selection_end));
+  }
+
+  auto add_attribute_set_values = [](gpointer value, gpointer list) {
+    const AtkAttribute* attribute = static_cast<const AtkAttribute*>(value);
+    static_cast<base::ListValue*>(list)->AppendString(
+        base::StringPrintf("%s=%s", attribute->name, attribute->value));
+  };
+
+  int current_offset = 0, start_offset, end_offset;
+  while (current_offset < character_count) {
+    AtkAttributeSet* text_attributes = atk_text_get_run_attributes(
+        atk_text, current_offset, &start_offset, &end_offset);
+    text_values->AppendString(base::StringPrintf("offset=%i", start_offset));
+    g_slist_foreach(text_attributes, add_attribute_set_values,
+                    text_values.get());
+    atk_attribute_set_free(text_attributes);
+
+    current_offset = end_offset;
+  }
+
+  dict->Set("text", std::move(text_values));
+}
 
 void AccessibilityTreeFormatterAuraLinux::AddValueProperties(
     AtkObject* atk_object,
@@ -436,22 +353,19 @@ void AccessibilityTreeFormatterAuraLinux::AddTableCellProperties(
   // Properties obtained via AtkTableCell, if possible. If we do not have at
   // least ATK 2.12, use the same logic in our AtkTableCell implementation so
   // that tests can still be run.
-  auto cell_interface = ui::AtkTableCellInterface::Get();
-  if (cell_interface.has_value()) {
+  if (ui::AtkTableCellInterface::Exists()) {
     AtkTableCell* cell = G_TYPE_CHECK_INSTANCE_CAST(
-        (atk_object), base::UnsanitizedCfiCall(*cell_interface->GetType)(),
-        AtkTableCell);
+        (atk_object), ui::AtkTableCellInterface::GetType(), AtkTableCell);
 
-    base::UnsanitizedCfiCall (*cell_interface->GetRowColumnSpan)(
-        cell, &row, &col, &row_span, &col_span);
+    ui::AtkTableCellInterface::GetRowColumnSpan(cell, &row, &col, &row_span,
+                                                &col_span);
 
     GPtrArray* column_headers =
-        base::UnsanitizedCfiCall(*cell_interface->GetColumnHeaderCells)(cell);
+        ui::AtkTableCellInterface::GetColumnHeaderCells(cell);
     n_column_headers = column_headers->len;
     g_ptr_array_unref(column_headers);
 
-    GPtrArray* row_headers =
-        base::UnsanitizedCfiCall(*cell_interface->GetRowHeaderCells)(cell);
+    GPtrArray* row_headers = ui::AtkTableCellInterface::GetRowHeaderCells(cell);
     n_row_headers = row_headers->len;
     g_ptr_array_unref(row_headers);
   } else {
@@ -495,8 +409,7 @@ void AccessibilityTreeFormatterAuraLinux::AddProperties(
 
   AtkRole role = atk_object_get_role(atk_object);
   if (role != ATK_ROLE_UNKNOWN) {
-    int role_index = static_cast<int>(role);
-    dict->SetString("role", kRoleNames[role_index]);
+    dict->SetString("role", AtkRoleToString(role));
   }
 
   const gchar* name = atk_object_get_name(atk_object);
@@ -533,7 +446,8 @@ void AccessibilityTreeFormatterAuraLinux::AddProperties(
   }
   atk_attribute_set_free(attributes);
 
-  // Properties obtained via AtkValue.
+  if (ATK_IS_TEXT(atk_object))
+    AddTextProperties(ATK_TEXT(atk_object), dict);
   AddValueProperties(atk_object, dict);
   AddTableProperties(atk_object, dict);
   AddTableCellProperties(ax_platform_node, atk_object, dict);
@@ -604,8 +518,8 @@ const char* const ATK_OBJECT_ATTRIBUTES[] = {
     "container-live",
     "container-relevant",
     "current",
-    "dropeffect",
     "display",
+    "dropeffect",
     "explicit-name",
     "grabbed",
     "haspopup",
@@ -720,10 +634,19 @@ base::string16 AccessibilityTreeFormatterAuraLinux::ProcessTreeForOutput(
     }
   }
 
+  const base::ListValue* text_info;
+  if (node.GetList("text", &text_info)) {
+    for (auto it = text_info->begin(); it != text_info->end(); ++it) {
+      std::string cell_property;
+      if (it->GetAsString(&cell_property))
+        WriteAttribute(false, cell_property, &line);
+    }
+  }
+
   return line;
 }
 
-const base::FilePath::StringType
+base::FilePath::StringType
 AccessibilityTreeFormatterAuraLinux::GetExpectedFileSuffix() {
   return FILE_PATH_LITERAL("-expected-auralinux.txt");
 }

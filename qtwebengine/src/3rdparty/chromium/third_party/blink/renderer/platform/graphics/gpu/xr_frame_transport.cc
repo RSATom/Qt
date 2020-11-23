@@ -4,6 +4,7 @@
 
 #include "third_party/blink/renderer/platform/graphics/gpu/xr_frame_transport.h"
 
+#include "base/trace_event/trace_event.h"
 #include "build/build_config.h"
 #include "device/vr/public/mojom/vr_service.mojom-blink.h"
 #include "gpu/command_buffer/client/gles2_interface.h"
@@ -15,7 +16,7 @@
 
 namespace blink {
 
-XRFrameTransport::XRFrameTransport() : submit_frame_client_binding_(this) {}
+XRFrameTransport::XRFrameTransport() : submit_frame_client_receiver_(this) {}
 
 XRFrameTransport::~XRFrameTransport() {
   CallPreviousFrameCallback();
@@ -35,9 +36,10 @@ void XRFrameTransport::SetTransportOptions(
 }
 
 void XRFrameTransport::BindSubmitFrameClient(
-    device::mojom::blink::XRPresentationClientRequest request) {
-  submit_frame_client_binding_.Close();
-  submit_frame_client_binding_.Bind(std::move(request));
+    mojo::PendingReceiver<device::mojom::blink::XRPresentationClient>
+        receiver) {
+  submit_frame_client_receiver_.reset();
+  submit_frame_client_receiver_.Bind(std::move(receiver));
 }
 
 bool XRFrameTransport::DrawingIntoSharedBuffer() {
@@ -100,16 +102,13 @@ void XRFrameTransport::FrameSubmit(
     DrawingBuffer::Client* drawing_buffer_client,
     scoped_refptr<Image> image_ref,
     std::unique_ptr<viz::SingleReleaseCallback> release_callback,
-    int16_t vr_frame_id,
-    bool needs_copy) {
+    int16_t vr_frame_id) {
   DCHECK(transport_options_);
 
   if (transport_options_->transport_method ==
       device::mojom::blink::XRPresentationTransportMethod::
           SUBMIT_AS_TEXTURE_HANDLE) {
 #if defined(OS_WIN)
-    // Currently, we assume that this transport needs a copy.
-    DCHECK(needs_copy);
     TRACE_EVENT0("gpu", "XRFrameTransport::CopyImage");
     // Update last_transfer_succeeded_ value. This should usually complete
     // without waiting.
@@ -150,10 +149,6 @@ void XRFrameTransport::FrameSubmit(
   } else if (transport_options_->transport_method ==
              device::mojom::blink::XRPresentationTransportMethod::
                  SUBMIT_AS_MAILBOX_HOLDER) {
-    // Currently, this transport assumes we don't need to make a separate copy
-    // of the canvas content.
-    DCHECK(!needs_copy);
-
     // The AcceleratedStaticBitmapImage must be kept alive until the
     // mailbox is used via createAndConsumeTextureCHROMIUM, the mailbox
     // itself does not keep it alive. We must keep a reference to the
@@ -226,7 +221,7 @@ void XRFrameTransport::OnSubmitFrameTransferred(bool success) {
 void XRFrameTransport::WaitForPreviousTransfer() {
   TRACE_EVENT0("gpu", "waitForPreviousTransferToFinish");
   while (waiting_for_previous_frame_transfer_) {
-    if (!submit_frame_client_binding_.WaitForIncomingMethodCall()) {
+    if (!submit_frame_client_receiver_.WaitForIncomingCall()) {
       DLOG(ERROR) << __FUNCTION__ << ": Failed to receive response";
       break;
     }
@@ -242,7 +237,7 @@ base::TimeDelta XRFrameTransport::WaitForPreviousRenderToFinish() {
   TRACE_EVENT0("gpu", "waitForPreviousRenderToFinish");
   base::TimeTicks start = base::TimeTicks::Now();
   while (waiting_for_previous_frame_render_) {
-    if (!submit_frame_client_binding_.WaitForIncomingMethodCall()) {
+    if (!submit_frame_client_receiver_.WaitForIncomingCall()) {
       DLOG(ERROR) << __FUNCTION__ << ": Failed to receive response";
       break;
     }
@@ -261,7 +256,7 @@ base::TimeDelta XRFrameTransport::WaitForGpuFenceReceived() {
   TRACE_EVENT0("gpu", "WaitForGpuFenceReceived");
   base::TimeTicks start = base::TimeTicks::Now();
   while (waiting_for_previous_frame_fence_) {
-    if (!submit_frame_client_binding_.WaitForIncomingMethodCall()) {
+    if (!submit_frame_client_receiver_.WaitForIncomingCall()) {
       DLOG(ERROR) << __FUNCTION__ << ": Failed to receive response";
       break;
     }

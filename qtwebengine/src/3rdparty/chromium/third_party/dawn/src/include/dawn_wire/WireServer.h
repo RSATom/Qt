@@ -19,6 +19,8 @@
 
 #include "dawn_wire/Wire.h"
 
+struct DawnProcTable;
+
 namespace dawn_wire {
 
     namespace server {
@@ -27,7 +29,7 @@ namespace dawn_wire {
     }
 
     struct DAWN_WIRE_EXPORT WireServerDescriptor {
-        DawnDevice device;
+        WGPUDevice device;
         const DawnProcTable* procs;
         CommandSerializer* serializer;
         server::MemoryTransferService* memoryTransferService = nullptr;
@@ -38,9 +40,10 @@ namespace dawn_wire {
         WireServer(const WireServerDescriptor& descriptor);
         ~WireServer();
 
-        const char* HandleCommands(const char* commands, size_t size) override final;
+        const volatile char* HandleCommands(const volatile char* commands,
+                                            size_t size) override final;
 
-        bool InjectTexture(DawnTexture texture, uint32_t id, uint32_t generation);
+        bool InjectTexture(WGPUTexture texture, uint32_t id, uint32_t generation);
 
       private:
         std::unique_ptr<server::Server> mImpl;
@@ -65,12 +68,14 @@ namespace dawn_wire {
 
             class DAWN_WIRE_EXPORT ReadHandle {
               public:
+                // Get the required serialization size for SerializeInitialData
+                virtual size_t SerializeInitialDataSize(const void* data, size_t dataLength) = 0;
+
                 // Initialize the handle data.
                 // Serialize into |serializePointer| so the client can update handle data.
-                // If |serializePointer| is nullptr, this returns the required serialization space.
-                virtual size_t SerializeInitialData(const void* data,
-                                                    size_t dataLength,
-                                                    void* serializePointer = nullptr) = 0;
+                virtual void SerializeInitialData(const void* data,
+                                                  size_t dataLength,
+                                                  void* serializePointer) = 0;
                 virtual ~ReadHandle();
             };
 

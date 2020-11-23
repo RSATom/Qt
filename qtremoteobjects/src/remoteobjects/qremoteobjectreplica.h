@@ -79,6 +79,7 @@ public:
 
 Q_SIGNALS:
     void initialized();
+    void notified();
     void stateChanged(State state, State oldState);
 
 protected:

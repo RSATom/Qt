@@ -7,6 +7,7 @@ import("//build/config/jumbo.gni")
 import("//components/nacl/features.gni")
 import("//extensions/buildflags/buildflags.gni")
 import("//mojo/public/tools/bindings/mojom.gni")
+import("//testing/libfuzzer/fuzzer_test.gni")
 
 # TODO(crbug.com/731689): Assert that extensions are enabled.
 
@@ -23,6 +24,7 @@ source_set("common_constants") {
   deps = [
     "//base",
     "//components/services/app_service/public/mojom",
+    "//components/version_info:channel",
     "//ui/base",
   ]
 
@@ -52,7 +54,7 @@ if (enable_extensions) {
       "//content/public/common:interfaces",
       "//extensions/common/api:mojom",
       "//mojo/public/mojom/base",
-      "//ui/gfx/geometry/mojo",
+      "//ui/gfx/geometry/mojom",
       "//url/mojom:url_mojom_gurl",
     ]
 
@@ -311,6 +313,7 @@ if (enable_extensions) {
     public_deps = [
       ":common_constants",
       ":mojom",
+      "//components/services/app_service/public/cpp:app_file_handling",
       "//content/public/common",
       "//ipc",
       "//skia",
@@ -318,6 +321,7 @@ if (enable_extensions) {
 
     deps = [
       "//base",
+      "//build:branding_buildflags",
       "//components/crx_file",
       "//components/nacl/common:buildflags",
       "//components/url_formatter",
@@ -325,6 +329,7 @@ if (enable_extensions) {
       "//components/version_info",
       "//crypto",
       "//device/bluetooth",
+      "//device/bluetooth/public/cpp",
       "//extensions:extensions_resources",
       "//extensions/common/api",
       "//extensions/strings",
@@ -335,6 +340,7 @@ if (enable_extensions) {
       "//third_party/boringssl",
       "//third_party/icu",
       "//third_party/re2",
+      "//third_party/zlib/google:compression_utils",
       "//ui/base",
       "//ui/gfx/geometry",
       "//ui/gfx/ipc",
@@ -398,6 +404,8 @@ if (enable_extensions) {
       "api/declarative_net_request/test_utils.h",
       "file_test_util.cc",
       "file_test_util.h",
+      "scoped_worker_based_extensions_channel.cc",
+      "scoped_worker_based_extensions_channel.h",
     ]
 
     deps = [
@@ -444,6 +452,7 @@ if (enable_extensions) {
       "manifest_handlers/oauth2_manifest_unittest.cc",
       "manifest_handlers/replacement_apps_unittest.cc",
       "manifest_handlers/shared_module_manifest_unittest.cc",
+      "manifest_unittest.cc",
       "message_bundle_unittest.cc",
       "permissions/api_permission_set_unittest.cc",
       "permissions/api_permission_unittest.cc",
@@ -478,6 +487,7 @@ if (enable_extensions) {
       "//services/device/public/cpp:test_support",
       "//testing/gmock",
       "//testing/gtest",
+      "//third_party/zlib/google:compression_utils",
       "//ui/base",
       "//ui/gfx",
       "//url",
@@ -490,6 +500,16 @@ if (enable_extensions) {
     data = [
       "//extensions/common/permissions/api_permission.h",
       "//tools/metrics/histograms/enums.xml",
+    ]
+  }
+
+  fuzzer_test("extension_fuzzer") {
+    sources = [
+      "extension_fuzzer.cc",
+    ]
+    deps = [
+      ":common",
+      "//base",
     ]
   }
 }  # enable_extensions

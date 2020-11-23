@@ -70,7 +70,7 @@ public:
     QUrl url;
     QString clientSharedKey;
     QString tokenSecret;
-    QVariantMap parameters;
+    QMultiMap<QString, QVariant> parameters;
 
     static QOAuth1SignaturePrivate shared_null;
 };

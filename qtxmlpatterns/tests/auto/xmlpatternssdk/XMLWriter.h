@@ -31,8 +31,7 @@
 
 #include "Global.h"
 
-#include <QtXml/QXmlContentHandler>
-#include <QtXml/QXmlLexicalHandler>
+#include <QXmlStreamAttributes>
 
 QT_BEGIN_NAMESPACE
 
@@ -51,10 +50,6 @@ namespace QPatternistSDK
      * The content XMLWriter produces is sent to a QIODevice, which is either
      * specified in XMLWriter's constructor or via setDevice(). If writing to
      * the device fails, the content functions such as startElement() returns @c false.
-     *
-     * XMLWriter sub-classes QXmlContentHandler meaning it can serialize content
-     * from any code that produces SAX events. The class can also be used manually,
-     * by calling startElement(), endCDATA(), and so forth.
      *
      * XMLWriter cannot be used to serialize multiple documents. One instance per
      * document must be used.
@@ -95,8 +90,7 @@ namespace QPatternistSDK
      * @author Frans Englich <frans.englich@nokia.com>
      * @ingroup PatternistSDK
      */
-    class XMLWriter : public QXmlContentHandler
-                                           , public QXmlLexicalHandler
+    class XMLWriter
     {
     public:
         /**
@@ -132,35 +126,8 @@ namespace QPatternistSDK
          * To declare namespaces, don't put attributes with name <tt>xmlns:*</tt> in @p atts,
          * but use startPrefixMapping().
          */
-        virtual bool startElement(const QString &qName, const QXmlAttributes &atts = QXmlAttributes());
-
-        /**
-         *
-         * Behaves essentially as startElement(const QString &qName, const QXmlAttributes &atts). This
-         * function is used in conjunction with other SAX classes.
-         *
-         * The call:
-         *
-         * @code
-         * startElement(QString(), QString(), qName, atts);
-         * @endcode
-         *
-         * is equivalent to:
-         *
-         * @code
-         * startElement(qName, atts);
-         * @endcode
-         *
-         * @p namespaceURI and @p localName are not used. This function is
-         * used in conjunction with other SAX classes.
-         *
-         * @returns @c false if failure occurs in writing to the QIODevice, otherwise
-         * @c true
-         */
-        virtual bool startElement(const QString &namespaceURI,
-                                  const QString &localName,
-                                  const QString &qName,
-                                  const QXmlAttributes &atts);
+        virtual bool startElement(const QString &qName,
+                                  const QXmlStreamAttributes &atts = QXmlStreamAttributes());
 
         /**
          * Signals the end of an element with name @p qName. @p qName must
@@ -172,31 +139,6 @@ namespace QPatternistSDK
          * @c true
          */
         virtual bool endElement(const QString &qName);
-
-        /**
-         * Behaves essentially as endElement(const QString &qName). This function
-         * is used when XMLWriter is used in SAX code.
-         *
-         * @p namespaceURI and @p localName are not used.
-         *
-         * The call:
-         *
-         * @code
-         * endElement(QString(), QString(), qName);
-         * @endcode
-         *
-         * is equivalent to:
-         *
-         * @code
-         * endElement(qName);
-         * @endcode
-         *
-         * @returns @c false if failure occurs in writing to the QIODevice, otherwise
-         * @c true
-         */
-        virtual bool endElement(const QString &namespaceURI,
-                                const QString &localName,
-                                const QString &qName);
 
         /**
          * A description of an error if it occurred. This is typically
@@ -324,24 +266,6 @@ namespace QPatternistSDK
          * @c true
          */
         virtual bool ignorableWhitespace(const QString &ch);
-
-        /**
-         * This function is not used by XMLWriter, but is implemented
-         * in order to satisfy QXmlContentHandler's interface.
-         */
-        virtual bool endPrefixMapping(const QString &prefix);
-
-        /**
-         * This function is not used by XMLWriter, but is implemented
-         * in order to satisfy QXmlContentHandler's interface.
-         */
-        virtual bool skippedEntity(const QString &name);
-
-        /**
-         * This function is not used by XMLWriter, but is implemented
-         * in order to satisfy QXmlContentHandler's interface.
-         */
-        virtual void setDocumentLocator(QXmlLocator *);
 
         /**
          * @returns the device XMLWriter writes its output to.

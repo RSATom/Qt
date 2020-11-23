@@ -28,14 +28,14 @@
 #include "content/browser/renderer_host/media/video_capture_manager.h"
 #include "content/public/browser/media_device_id.h"
 #include "content/public/common/content_switches.h"
+#include "content/public/test/browser_task_environment.h"
 #include "content/public/test/test_browser_context.h"
-#include "content/public/test/test_browser_thread_bundle.h"
 #include "media/audio/audio_device_description.h"
 #include "media/audio/audio_system_impl.h"
 #include "media/audio/mock_audio_manager.h"
 #include "media/audio/test_audio_thread.h"
 #include "media/base/media_switches.h"
-#include "mojo/public/cpp/bindings/binding.h"
+#include "mojo/public/cpp/bindings/receiver.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "third_party/blink/public/mojom/mediastream/media_stream.mojom-shared.h"
@@ -85,8 +85,7 @@ class MockMediaStreamDispatcherHost
                                 int render_frame_id,
                                 MediaStreamManager* manager)
       : MediaStreamDispatcherHost(render_process_id, render_frame_id, manager),
-        task_runner_(base::ThreadTaskRunnerHandle::Get()),
-        binding_(this) {}
+        task_runner_(base::ThreadTaskRunnerHandle::Get()) {}
   ~MockMediaStreamDispatcherHost() override {}
 
   // A list of mock methods.
@@ -107,6 +106,9 @@ class MockMediaStreamDispatcherHost
     quit_closures_.push(quit_closure);
     MediaStreamDispatcherHost::GenerateStream(
         page_request_id, controls, false,
+        blink::mojom::StreamSelectionInfo::New(
+            blink::mojom::StreamSelectionStrategy::SEARCH_BY_DEVICE_ID,
+            base::nullopt),
         base::BindOnce(&MockMediaStreamDispatcherHost::OnStreamGenerated,
                        base::Unretained(this), page_request_id));
   }
@@ -142,10 +144,9 @@ class MockMediaStreamDispatcherHost
                        const blink::MediaStreamDevice& old_device,
                        const blink::MediaStreamDevice& new_device) override {}
 
-  blink::mojom::MediaStreamDeviceObserverPtr CreateInterfacePtrAndBind() {
-    blink::mojom::MediaStreamDeviceObserverPtr observer;
-    binding_.Bind(mojo::MakeRequest(&observer));
-    return observer;
+  mojo::PendingRemote<blink::mojom::MediaStreamDeviceObserver>
+  BindNewPipeAndPassRemote() {
+    return receiver_.BindNewPipeAndPassRemote();
   }
 
   std::string label_;
@@ -217,7 +218,7 @@ class MockMediaStreamDispatcherHost
 
   const scoped_refptr<base::SingleThreadTaskRunner> task_runner_;
   base::queue<base::Closure> quit_closures_;
-  mojo::Binding<blink::mojom::MediaStreamDeviceObserver> binding_;
+  mojo::Receiver<blink::mojom::MediaStreamDeviceObserver> receiver_{this};
 };
 
 class MockMediaStreamUIProxy : public FakeMediaStreamUIProxy {
@@ -238,7 +239,7 @@ class MockMediaStreamUIProxy : public FakeMediaStreamUIProxy {
 class MediaStreamDispatcherHostTest : public testing::Test {
  public:
   MediaStreamDispatcherHostTest()
-      : thread_bundle_(TestBrowserThreadBundle::IO_MAINLOOP),
+      : task_environment_(BrowserTaskEnvironment::IO_MAINLOOP),
         origin_(url::Origin::Create(GURL("https://test.com"))) {
     audio_manager_ = std::make_unique<media::MockAudioManager>(
         std::make_unique<media::TestAudioThread>());
@@ -262,7 +263,7 @@ class MediaStreamDispatcherHostTest : public testing::Test {
         base::BindRepeating(&MediaStreamDispatcherHostTest::GetSaltAndOrigin,
                             base::Unretained(this)));
     host_->SetMediaStreamDeviceObserverForTesting(
-        host_->CreateInterfacePtrAndBind());
+        host_->BindNewPipeAndPassRemote());
 
 #if defined(OS_CHROMEOS)
     chromeos::CrasAudioClient::InitializeFake();
@@ -432,7 +433,7 @@ class MediaStreamDispatcherHostTest : public testing::Test {
 
   std::unique_ptr<MockMediaStreamDispatcherHost> host_;
   std::unique_ptr<MediaStreamManager> media_stream_manager_;
-  TestBrowserThreadBundle thread_bundle_;
+  BrowserTaskEnvironment task_environment_;
   std::unique_ptr<media::AudioManager> audio_manager_;
   std::unique_ptr<media::AudioSystem> audio_system_;
   std::unique_ptr<TestBrowserContext> browser_context_;
@@ -587,7 +588,7 @@ TEST_F(MediaStreamDispatcherHostTest, GenerateStreamsDifferentRenderId) {
       base::BindRepeating(&MediaStreamDispatcherHostTest::GetSaltAndOrigin,
                           base::Unretained(this)));
   host_->SetMediaStreamDeviceObserverForTesting(
-      host_->CreateInterfacePtrAndBind());
+      host_->BindNewPipeAndPassRemote());
 
   GenerateStreamAndWaitForResult(kPageRequestId + 1, controls);
 

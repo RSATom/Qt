@@ -9,18 +9,19 @@
 #include "net/third_party/quiche/src/quic/platform/api/quic_bug_tracker.h"
 #include "net/third_party/quiche/src/quic/platform/api/quic_flags.h"
 #include "net/third_party/quiche/src/quic/platform/api/quic_str_cat.h"
+#include "net/third_party/quiche/src/common/platform/api/quiche_endian.h"
 
 namespace quic {
 
 QuicDataReader::QuicDataReader(QuicStringPiece data)
-    : QuicDataReader(data.data(), data.length(), NETWORK_BYTE_ORDER) {}
+    : QuicDataReader(data.data(), data.length(), quiche::NETWORK_BYTE_ORDER) {}
 
 QuicDataReader::QuicDataReader(const char* data, const size_t len)
-    : QuicDataReader(data, len, NETWORK_BYTE_ORDER) {}
+    : QuicDataReader(data, len, quiche::NETWORK_BYTE_ORDER) {}
 
 QuicDataReader::QuicDataReader(const char* data,
                                const size_t len,
-                               Endianness endianness)
+                               quiche::Endianness endianness)
     : data_(data), len_(len), pos_(0), endianness_(endianness) {}
 
 bool QuicDataReader::ReadUInt8(uint8_t* result) {
@@ -31,8 +32,8 @@ bool QuicDataReader::ReadUInt16(uint16_t* result) {
   if (!ReadBytes(result, sizeof(*result))) {
     return false;
   }
-  if (endianness_ == NETWORK_BYTE_ORDER) {
-    *result = QuicEndian::NetToHost16(*result);
+  if (endianness_ == quiche::NETWORK_BYTE_ORDER) {
+    *result = quiche::QuicheEndian::NetToHost16(*result);
   }
   return true;
 }
@@ -41,8 +42,8 @@ bool QuicDataReader::ReadUInt32(uint32_t* result) {
   if (!ReadBytes(result, sizeof(*result))) {
     return false;
   }
-  if (endianness_ == NETWORK_BYTE_ORDER) {
-    *result = QuicEndian::NetToHost32(*result);
+  if (endianness_ == quiche::NETWORK_BYTE_ORDER) {
+    *result = quiche::QuicheEndian::NetToHost32(*result);
   }
   return true;
 }
@@ -51,8 +52,8 @@ bool QuicDataReader::ReadUInt64(uint64_t* result) {
   if (!ReadBytes(result, sizeof(*result))) {
     return false;
   }
-  if (endianness_ == NETWORK_BYTE_ORDER) {
-    *result = QuicEndian::NetToHost64(*result);
+  if (endianness_ == quiche::NETWORK_BYTE_ORDER) {
+    *result = quiche::QuicheEndian::NetToHost64(*result);
   }
   return true;
 }
@@ -62,7 +63,7 @@ bool QuicDataReader::ReadBytesToUInt64(size_t num_bytes, uint64_t* result) {
   if (num_bytes > sizeof(*result)) {
     return false;
   }
-  if (endianness_ == HOST_BYTE_ORDER) {
+  if (endianness_ == quiche::HOST_BYTE_ORDER) {
     return ReadBytes(result, num_bytes);
   }
 
@@ -70,7 +71,7 @@ bool QuicDataReader::ReadBytesToUInt64(size_t num_bytes, uint64_t* result) {
                  num_bytes)) {
     return false;
   }
-  *result = QuicEndian::NetToHost64(*result);
+  *result = quiche::QuicheEndian::NetToHost64(*result);
   return true;
 }
 
@@ -136,7 +137,7 @@ bool QuicDataReader::ReadStringPiece(QuicStringPiece* result, size_t size) {
 
 bool QuicDataReader::ReadConnectionId(QuicConnectionId* connection_id,
                                       uint8_t length) {
-  if (length > kQuicMaxConnectionIdLength) {
+  if (length > kQuicMaxConnectionIdAllVersionsLength) {
     QUIC_BUG << "Attempted to read connection ID with length too high "
              << static_cast<int>(length);
     return false;
@@ -146,21 +147,13 @@ bool QuicDataReader::ReadConnectionId(QuicConnectionId* connection_id,
     return true;
   }
 
-  if (!GetQuicRestartFlag(quic_use_allocated_connection_ids)) {
-    const bool ok = ReadBytes(connection_id->mutable_data(), length);
-    if (ok) {
-      connection_id->set_length(length);
-    }
-    return ok;
-  }
-  QUIC_RESTART_FLAG_COUNT_N(quic_use_allocated_connection_ids, 6, 6);
-
   if (BytesRemaining() < length) {
     return false;
   }
 
   connection_id->set_length(length);
-  const bool ok = ReadBytes(connection_id->mutable_data(), length);
+  const bool ok =
+      ReadBytes(connection_id->mutable_data(), connection_id->length());
   DCHECK(ok);
   return ok;
 }
@@ -171,7 +164,7 @@ bool QuicDataReader::ReadLengthPrefixedConnectionId(
   if (!ReadUInt8(&connection_id_length)) {
     return false;
   }
-  if (connection_id_length > kQuicMaxConnectionIdLength) {
+  if (connection_id_length > kQuicMaxConnectionIdAllVersionsLength) {
     return false;
   }
   return ReadConnectionId(connection_id, connection_id_length);
@@ -189,6 +182,10 @@ QuicStringPiece QuicDataReader::ReadRemainingPayload() {
 
 QuicStringPiece QuicDataReader::PeekRemainingPayload() const {
   return QuicStringPiece(data_ + pos_, len_ - pos_);
+}
+
+QuicStringPiece QuicDataReader::FullPayload() const {
+  return QuicStringPiece(data_, len_);
 }
 
 bool QuicDataReader::ReadBytes(void* result, size_t size) {
@@ -221,7 +218,7 @@ bool QuicDataReader::IsDoneReading() const {
 }
 
 QuicVariableLengthIntegerLength QuicDataReader::PeekVarInt62Length() {
-  DCHECK_EQ(endianness_, NETWORK_BYTE_ORDER);
+  DCHECK_EQ(endianness_, quiche::NETWORK_BYTE_ORDER);
   const unsigned char* next =
       reinterpret_cast<const unsigned char*>(data_ + pos_);
   if (BytesRemaining() == 0) {
@@ -279,7 +276,7 @@ uint8_t QuicDataReader::PeekByte() const {
 // Low-level optimization is useful here because this function will be
 // called frequently, leading to outsize benefits.
 bool QuicDataReader::ReadVarInt62(uint64_t* result) {
-  DCHECK_EQ(endianness_, NETWORK_BYTE_ORDER);
+  DCHECK_EQ(endianness_, quiche::NETWORK_BYTE_ORDER);
 
   size_t remaining = BytesRemaining();
   const unsigned char* next =

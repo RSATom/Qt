@@ -128,8 +128,8 @@ LOGGER = logging.getLogger('generate_stats')
 SCOPES = ['https://www.googleapis.com/auth/spreadsheets']
 
 BOT_NAMES = [
-    'Win10 FYI dEQP Release (NVIDIA)',
-    'Win10 FYI dEQP Release (Intel HD 630)',
+    'Win10 FYI x64 dEQP Release (NVIDIA)',
+    'Win10 FYI x64 dEQP Release (Intel HD 630)',
     'Win7 FYI dEQP Release (AMD)',
     'Win7 FYI x64 dEQP Release (NVIDIA)',
     'Mac FYI dEQP Release Intel',
@@ -137,8 +137,6 @@ BOT_NAMES = [
     'Linux FYI dEQP Release (Intel HD 630)',
     'Linux FYI dEQP Release (NVIDIA)',
     'Android FYI dEQP Release (Nexus 5X)',
-    'Android FYI 32 dEQP Vk Release (Pixel XL)',
-    'Android FYI 64 dEQP Vk Release (Pixel XL)',
     'Android FYI 32 dEQP Vk Release (Pixel 2)',
     'Android FYI 64 dEQP Vk Release (Pixel 2)',
 ]
@@ -355,10 +353,7 @@ def get_step_info(build_name, step_name):
                         append_errors.append(key)
                         LOGGER.warning("Too many characters in column '" + key +
                                        "'. Output capped.")
-
-    if validate_step_info(step_info, build_name, step_name):
-        return step_info
-    return None
+    return step_info
 
 
 # Returns the info for each step run on a given bot_name.
@@ -367,7 +362,11 @@ def get_bot_info(bot_name):
     info['step_names'] = get_step_names(info['build_name'])
     for step_name in info['step_names']:
         LOGGER.info("Parsing step '" + step_name + "'...")
-        info[step_name] = get_step_info(info['build_name'], step_name)
+        step_info = get_step_info(info['build_name'], step_name)
+        if validate_step_info(step_info, info['build_name'], step_name):
+            info[step_name] = step_info
+        else:
+            info['step_names'].remove(step_name)
     return info
 
 

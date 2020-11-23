@@ -75,7 +75,7 @@ ButtonStyle {
 
             Connections {
                 target: control
-                onPressedChanged: backgroundCanvas.requestPaint()
+                function onPressedChanged() { backgroundCanvas.requestPaint() }
             }
 
             onPaint: {

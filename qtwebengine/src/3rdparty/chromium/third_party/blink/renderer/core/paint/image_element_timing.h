@@ -14,7 +14,7 @@
 #include "third_party/blink/renderer/platform/supplementable.h"
 #include "third_party/blink/renderer/platform/wtf/functional.h"
 #include "third_party/blink/renderer/platform/wtf/hash_set.h"
-#include "third_party/blink/renderer/platform/wtf/time.h"
+
 #include "third_party/blink/renderer/platform/wtf/vector.h"
 
 namespace blink {
@@ -26,7 +26,7 @@ class StyleFetchedImage;
 // ImageElementTiming is responsible for tracking the paint timings for <img>
 // elements for a given window.
 class CORE_EXPORT ImageElementTiming final
-    : public GarbageCollectedFinalized<ImageElementTiming>,
+    : public GarbageCollected<ImageElementTiming>,
       public Supplement<LocalDOMWindow> {
   USING_GARBAGE_COLLECTED_MIXIN(ImageElementTiming);
 
@@ -79,8 +79,7 @@ class CORE_EXPORT ImageElementTiming final
                                 base::TimeTicks timestamp);
 
   // Class containing information about image element timing.
-  class ElementTimingInfo
-      : public GarbageCollectedFinalized<ElementTimingInfo> {
+  class ElementTimingInfo final : public GarbageCollected<ElementTimingInfo> {
    public:
     ElementTimingInfo(const String& url,
                       const FloatRect& rect,

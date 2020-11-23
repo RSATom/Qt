@@ -12,7 +12,7 @@
 #include "base/memory/ptr_util.h"
 #include "base/run_loop.h"
 #include "base/strings/string_piece.h"
-#include "base/test/scoped_task_environment.h"
+#include "base/test/task_environment.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "build/build_config.h"
 #include "device/bluetooth/bluetooth_adapter_factory.h"
@@ -145,13 +145,12 @@ class FidoBleConnectionTest : public ::testing::Test {
   }
 
   void SetupConnectingFidoDevice(const std::string& device_address) {
-    ON_CALL(*fido_device_, CreateGattConnection)
-        .WillByDefault(
-            Invoke([this, &device_address](const auto& callback, auto&&) {
-              connection_ =
-                  new NiceMockBluetoothGattConnection(adapter_, device_address);
-              callback.Run(std::move(base::WrapUnique(connection_)));
-            }));
+    ON_CALL(*fido_device_, CreateGattConnection_)
+        .WillByDefault(Invoke([this, &device_address](auto& callback, auto&&) {
+          connection_ =
+              new NiceMockBluetoothGattConnection(adapter_, device_address);
+          std::move(callback).Run(std::move(base::WrapUnique(connection_)));
+        }));
 
     ON_CALL(*fido_device_, IsGattServicesDiscoveryComplete)
         .WillByDefault(Return(true));
@@ -191,11 +190,11 @@ class FidoBleConnectionTest : public ::testing::Test {
   }
 
   void SimulateGattConnectionError() {
-    EXPECT_CALL(*fido_device_, CreateGattConnection)
+    EXPECT_CALL(*fido_device_, CreateGattConnection_)
         .WillOnce(Invoke([](auto&&, auto&& error_callback) {
           base::ThreadTaskRunnerHandle::Get()->PostTask(
-              FROM_HERE,
-              base::BindOnce(error_callback, BluetoothDevice::ERROR_FAILED));
+              FROM_HERE, base::BindOnce(std::move(error_callback),
+                                        BluetoothDevice::ERROR_FAILED));
         }));
   }
 
@@ -391,7 +390,7 @@ class FidoBleConnectionTest : public ::testing::Test {
   }
 
  private:
-  base::test::ScopedTaskEnvironment scoped_task_environment_;
+  base::test::TaskEnvironment task_environment_;
 
   scoped_refptr<MockBluetoothAdapter> adapter_ =
       base::MakeRefCounted<NiceMockBluetoothAdapter>();

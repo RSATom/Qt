@@ -5,10 +5,12 @@
  * found in the LICENSE file.
  */
 
-#include "modules/skottie/src/SkottiePriv.h"
+#include "modules/skottie/src/Composition.h"
 
 #include "include/core/SkCanvas.h"
+#include "modules/skottie/src/SkottieAdapter.h"
 #include "modules/skottie/src/SkottieJson.h"
+#include "modules/skottie/src/SkottiePriv.h"
 #include "modules/sksg/include/SkSGGroup.h"
 #include "modules/sksg/include/SkSGTransform.h"
 
@@ -17,8 +19,7 @@
 namespace skottie {
 namespace internal {
 
-sk_sp<sksg::RenderNode> AnimationBuilder::attachNestedAnimation(const char* name,
-                                                                AnimatorScope* ascope) const {
+sk_sp<sksg::RenderNode> AnimationBuilder::attachNestedAnimation(const char* name) const {
     class SkottieSGAdapter final : public sksg::RenderNode {
     public:
         explicit SkottieSGAdapter(sk_sp<Animation> animation)
@@ -79,16 +80,15 @@ sk_sp<sksg::RenderNode> AnimationBuilder::attachNestedAnimation(const char* name
         return nullptr;
     }
 
-    ascope->push_back(sk_make_sp<SkottieAnimatorAdapter>(animation,
-                                                         animation->duration() / fDuration));
+    fCurrentAnimatorScope->push_back(
+            sk_make_sp<SkottieAnimatorAdapter>(animation, animation->duration() / fDuration));
 
     return sk_make_sp<SkottieSGAdapter>(std::move(animation));
 }
 
 sk_sp<sksg::RenderNode> AnimationBuilder::attachAssetRef(
-    const skjson::ObjectValue& jlayer, AnimatorScope* ascope,
-    const std::function<sk_sp<sksg::RenderNode>(const skjson::ObjectValue&,
-                                                AnimatorScope*)>& func) const {
+    const skjson::ObjectValue& jlayer,
+    const std::function<sk_sp<sksg::RenderNode>(const skjson::ObjectValue&)>& func) const {
 
     const auto refId = ParseDefault<SkString>(jlayer["refId"], SkString());
     if (refId.isEmpty()) {
@@ -97,7 +97,7 @@ sk_sp<sksg::RenderNode> AnimationBuilder::attachAssetRef(
     }
 
     if (refId.startsWith("$")) {
-        return this->attachNestedAnimation(refId.c_str() + 1, ascope);
+        return this->attachNestedAnimation(refId.c_str() + 1);
     }
 
     const auto* asset_info = fAssets.find(refId);
@@ -113,32 +113,94 @@ sk_sp<sksg::RenderNode> AnimationBuilder::attachAssetRef(
     }
 
     asset_info->fIsAttaching = true;
-    auto asset = func(*asset_info->fAsset, ascope);
+    auto asset = func(*asset_info->fAsset);
     asset_info->fIsAttaching = false;
 
     return asset;
 }
 
-sk_sp<sksg::RenderNode> AnimationBuilder::attachComposition(const skjson::ObjectValue& jcomp,
-                                                            AnimatorScope* scope) const {
-    const skjson::ArrayValue* jlayers = jcomp["layers"];
-    if (!jlayers) return nullptr;
-
-    std::vector<sk_sp<sksg::RenderNode>> layers;
-    AttachLayerContext                   layerCtx(*jlayers);
-
+CompositionBuilder::CompositionBuilder(const AnimationBuilder& abuilder,
+                                       const skjson::ObjectValue& jcomp) {
     // Optional motion blur params.
     if (const skjson::ObjectValue* jmb = jcomp["mb"]) {
         static constexpr size_t kMaxSamplesPerFrame = 64;
-        layerCtx.fMotionBlurSamples = std::min(ParseDefault<size_t>((*jmb)["spf"], 1ul),
-                                               kMaxSamplesPerFrame);
-        layerCtx.fMotionBlurAngle = SkTPin(ParseDefault((*jmb)["sa"], 0.0f),    0.0f, 720.0f);
-        layerCtx.fMotionBlurPhase = SkTPin(ParseDefault((*jmb)["sp"], 0.0f), -360.0f, 360.0f);
+        fMotionBlurSamples = std::min(ParseDefault<size_t>((*jmb)["spf"], 1ul),
+                                      kMaxSamplesPerFrame);
+        fMotionBlurAngle = SkTPin(ParseDefault((*jmb)["sa"], 0.0f),    0.0f, 720.0f);
+        fMotionBlurPhase = SkTPin(ParseDefault((*jmb)["sp"], 0.0f), -360.0f, 360.0f);
     }
 
-    layers.reserve(jlayers->size());
-    for (const auto& l : *jlayers) {
-        if (auto layer = this->attachLayer(l, scope, &layerCtx)) {
+    int camera_builder_index = -1;
+
+    // Prepare layer builders.
+    if (const skjson::ArrayValue* jlayers = jcomp["layers"]) {
+        fLayerBuilders.reserve(SkToInt(jlayers->size()));
+        for (const skjson::ObjectValue* jlayer : *jlayers) {
+            if (!jlayer) continue;
+
+            const auto  lbuilder_index = fLayerBuilders.size();
+            const auto& lbuilder       = fLayerBuilders.emplace_back(*jlayer);
+
+            fLayerIndexMap.set(lbuilder.index(), lbuilder_index);
+
+            // Keep track of the camera builder.
+            if (lbuilder.isCamera()) {
+                // We only support one (first) camera for now.
+                if (camera_builder_index < 0) {
+                    camera_builder_index = SkToInt(lbuilder_index);
+                } else {
+                    abuilder.log(Logger::Level::kWarning, jlayer,
+                                 "Ignoring duplicate camera layer.");
+                }
+            }
+        }
+    }
+
+    // Attach a camera transform upfront, if needed (required to build
+    // all other 3D transform chains).
+    if (camera_builder_index >= 0) {
+        // Explicit camera.
+        fCameraTransform = fLayerBuilders[camera_builder_index].buildTransform(abuilder, this);
+    } else if (ParseDefault<int>(jcomp["ddd"], 0)) {
+        // Default/implicit camera when 3D layers are present.
+        fCameraTransform = CameraAdapter::MakeDefault(abuilder.fSize)->refTransform();
+    }
+}
+
+CompositionBuilder::~CompositionBuilder() = default;
+
+void CompositionBuilder::pushMatte(sk_sp<sksg::RenderNode> matte) {
+    fCurrentMatte = std::move(matte);
+}
+
+sk_sp<sksg::RenderNode> CompositionBuilder::popMatte() {
+    return std::move(fCurrentMatte);
+}
+
+LayerBuilder* CompositionBuilder::layerBuilder(int layer_index) {
+    if (layer_index < 0) {
+        return nullptr;
+    }
+
+    if (const auto* idx = fLayerIndexMap.find(layer_index)) {
+        return &fLayerBuilders[SkToInt(*idx)];
+    }
+
+    return nullptr;
+}
+
+sk_sp<sksg::RenderNode> CompositionBuilder::build(const AnimationBuilder& abuilder) {
+    // First pass - transitively attach layer transform chains.
+    for (auto& lbuilder : fLayerBuilders) {
+        lbuilder.buildTransform(abuilder, this);
+    }
+
+    // Second pass - attach actual layer contents and finalize the layer render tree.
+    std::vector<sk_sp<sksg::RenderNode>> layers;
+    layers.reserve(fLayerBuilders.size());
+
+    for (auto& lbuilder : fLayerBuilders) {
+        if (auto layer = lbuilder.buildRenderTree(abuilder, this)) {
             layers.push_back(std::move(layer));
         }
     }
@@ -147,22 +209,15 @@ sk_sp<sksg::RenderNode> AnimationBuilder::attachComposition(const skjson::Object
         return nullptr;
     }
 
-    sk_sp<sksg::RenderNode> comp;
     if (layers.size() == 1) {
-        comp = std::move(layers[0]);
-    } else {
-        // Layers are painted in bottom->top order.
-        std::reverse(layers.begin(), layers.end());
-        layers.shrink_to_fit();
-        comp = sksg::Group::Make(std::move(layers));
+        return std::move(layers[0]);
     }
 
-    // Optional camera.
-    if (layerCtx.fCameraTransform) {
-        comp = sksg::TransformEffect::Make(std::move(comp), std::move(layerCtx.fCameraTransform));
-    }
+    // Layers are painted in bottom->top order.
+    std::reverse(layers.begin(), layers.end());
+    layers.shrink_to_fit();
 
-    return comp;
+    return sksg::Group::Make(std::move(layers));
 }
 
 } // namespace internal

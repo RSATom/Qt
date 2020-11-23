@@ -3,6 +3,7 @@ include_rules = [
   "+components/guest_view",
   "+components/keyed_service",
   "+components/pref_registry",
+  "+components/services/unzip/content",
   "+components/services/unzip/public",
   "+components/sessions",
   "+components/signin/public",
@@ -21,6 +22,7 @@ include_rules = [
   "+gpu/config",
   "+grit/extensions_strings.h",
   "+net",
+  "-net/url_request",
   # This directory contains build flags and does not pull all of PPAPI in.
   "+ppapi/buildflags",
   "+services/data_decoder/public",

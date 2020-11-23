@@ -12,7 +12,7 @@
 #include "net/test/cert_test_util.h"
 #include "net/test/gtest_util.h"
 #include "net/test/test_data_directory.h"
-#include "net/test/test_with_scoped_task_environment.h"
+#include "net/test/test_with_task_environment.h"
 #include "net/traffic_annotation/network_traffic_annotation_test_helper.h"
 #include "net/url_request/url_request.h"
 #include "net/url_request/url_request_test_util.h"
@@ -267,7 +267,7 @@ const MockTransaction kBrotliSlowTransaction = {
 
 }  // namespace
 
-using URLRequestJobTest = TestWithScopedTaskEnvironment;
+using URLRequestJobTest = TestWithTaskEnvironment;
 
 TEST_F(URLRequestJobTest, TransactionNoFilter) {
   MockNetworkLayer network_layer;
@@ -633,6 +633,30 @@ TEST_F(URLRequestJobTest, SlowBrotliRead) {
   EXPECT_EQ(-1, req->GetExpectedContentSize());
 
   RemoveMockTransaction(&kBrotliSlowTransaction);
+}
+
+TEST(URLRequestJobComputeReferrer, SetsSameOriginForMetricsOnSameOrigin) {
+  bool same_origin = false;
+  URLRequestJob::ComputeReferrerForPolicy(
+      URLRequest::ReferrerPolicy(),
+      /*original_referrer=*/GURL("http://google.com"),
+      /*destination=*/GURL("http://google.com"), &same_origin);
+  EXPECT_TRUE(same_origin);
+}
+
+TEST(URLRequestJobComputeReferrer, SetsSameOriginForMetricsOnCrossOrigin) {
+  bool same_origin = true;
+  URLRequestJob::ComputeReferrerForPolicy(
+      URLRequest::ReferrerPolicy(),
+      /*original_referrer=*/GURL("http://google.com"),
+      /*destination=*/GURL("http://boggle.com"), &same_origin);
+  EXPECT_FALSE(same_origin);
+}
+
+TEST(URLRequestJobComputeReferrer, AcceptsNullptrInput) {
+  // Shouldn't segfault.
+  URLRequestJob::ComputeReferrerForPolicy(URLRequest::ReferrerPolicy(), GURL(),
+                                          GURL(), nullptr);
 }
 
 }  // namespace net

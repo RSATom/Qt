@@ -415,7 +415,7 @@
 #include "qhash.h"
 #include "qdir.h"         // for QDir::fromNativeSeparators
 #include "qdatastream.h"
-#if QT_CONFIG(topleveldomain)
+#if QT_CONFIG(topleveldomain) // ### Qt6: Remove section
 #include "qtldurl_p.h"
 #endif
 #include "private/qipaddress_p.h"
@@ -823,7 +823,7 @@ recodeFromUser(const QString &input, const ushort *actions, int from, int to)
     QString output;
     const QChar *begin = input.constData() + from;
     const QChar *end = input.constData() + to;
-    if (qt_urlRecode(output, begin, end, nullptr, actions))
+    if (qt_urlRecode(output, begin, end, {}, actions))
         return output;
 
     return input.mid(from, to - from);
@@ -834,7 +834,8 @@ recodeFromUser(const QString &input, const ushort *actions, int from, int to)
 static inline void appendToUser(QString &appendTo, const QStringRef &value, QUrl::FormattingOptions options,
                                 const ushort *actions)
 {
-    if (options == QUrl::PrettyDecoded) {
+    // Test ComponentFormattingOptions, ignore FormattingOptions.
+    if ((options & 0xFFFF0000) == QUrl::PrettyDecoded) {
         appendTo += value;
         return;
     }
@@ -3149,9 +3150,12 @@ bool QUrl::hasFragment() const
     return d->hasFragment();
 }
 
+#if QT_DEPRECATED_SINCE(5, 15)
 #if QT_CONFIG(topleveldomain)
 /*!
     \since 4.8
+
+    \deprecated
 
     Returns the TLD (Top-Level Domain) of the URL, (e.g. .co.uk, .net).
     Note that the return value is prefixed with a '.' unless the
@@ -3185,7 +3189,7 @@ QString QUrl::topLevelDomain(ComponentFormattingOptions options) const
     return tld;
 }
 #endif
-
+#endif // QT_DEPRECATED_SINCE(5, 15)
 /*!
     Returns the result of the merge of this URL with \a relative. This
     URL is used as a base to convert \a relative to an absolute URL.
@@ -3318,9 +3322,10 @@ QString QUrl::toString(FormattingOptions options) const
         // also catches isEmpty()
         return url;
     }
-    if (options == QUrl::FullyDecoded) {
+    if ((options & QUrl::FullyDecoded) == QUrl::FullyDecoded) {
         qWarning("QUrl: QUrl::FullyDecoded is not permitted when reconstructing the full URL");
-        options = QUrl::PrettyDecoded;
+        options &= ~QUrl::FullyDecoded;
+        //options |= QUrl::PrettyDecoded; // no-op, value is 0
     }
 
     // return just the path if:
@@ -3333,7 +3338,7 @@ QString QUrl::toString(FormattingOptions options) const
             && (!d->hasQuery() || options.testFlag(QUrl::RemoveQuery))
             && (!d->hasFragment() || options.testFlag(QUrl::RemoveFragment))
             && isLocalFile()) {
-        url = d->toLocalFile(options);
+        url = d->toLocalFile(options | QUrl::FullyDecoded);
         return url;
     }
 

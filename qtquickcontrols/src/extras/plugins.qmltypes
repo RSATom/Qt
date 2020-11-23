@@ -76,11 +76,6 @@ Module {
         Method { name: "redraw" }
     }
     Component {
-        name: "QQuickControlsPrivate1Attached"
-        prototype: "QObject"
-        Property { name: "window"; type: "QQuickWindow"; isReadonly: true; isPointer: true }
-    }
-    Component {
         name: "QQuickFlatProgressBar"
         defaultProperty: "data"
         prototype: "QQuickPaintedItem"
@@ -216,7 +211,7 @@ Module {
         isComposite: true
         defaultProperty: "data"
         Property { name: "isDefault"; type: "bool" }
-        Property { name: "menu"; type: "Menu_QMLTYPE_33"; isPointer: true }
+        Property { name: "menu"; type: "Menu_QMLTYPE_38"; isPointer: true }
         Property { name: "checkable"; type: "bool" }
         Property { name: "checked"; type: "bool" }
         Property { name: "exclusiveGroup"; type: "QQuickExclusiveGroup1"; isPointer: true }
@@ -352,7 +347,7 @@ Module {
         Property { name: "progress"; type: "double"; isReadonly: true }
         Signal { name: "activated" }
         Property { name: "isDefault"; type: "bool" }
-        Property { name: "menu"; type: "Menu_QMLTYPE_33"; isPointer: true }
+        Property { name: "menu"; type: "Menu_QMLTYPE_38"; isPointer: true }
         Property { name: "checkable"; type: "bool" }
         Property { name: "checked"; type: "bool" }
         Property { name: "exclusiveGroup"; type: "QQuickExclusiveGroup1"; isPointer: true }
@@ -499,7 +494,7 @@ Module {
         exportMetaObjectRevisions: [0]
         isComposite: true
         defaultProperty: "data"
-        Property { name: "control"; type: "PieMenu_QMLTYPE_87"; isPointer: true }
+        Property { name: "control"; type: "PieMenu_QMLTYPE_98"; isPointer: true }
         Property { name: "styleData"; type: "QObject"; isPointer: true }
         Property { name: "iconSource"; type: "string"; isReadonly: true }
     }
@@ -553,7 +548,7 @@ Module {
         isComposite: true
         defaultProperty: "data"
         Property { name: "isDefault"; type: "bool" }
-        Property { name: "menu"; type: "Menu_QMLTYPE_33"; isPointer: true }
+        Property { name: "menu"; type: "Menu_QMLTYPE_38"; isPointer: true }
         Property { name: "checkable"; type: "bool" }
         Property { name: "checked"; type: "bool" }
         Property { name: "exclusiveGroup"; type: "QQuickExclusiveGroup1"; isPointer: true }

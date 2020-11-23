@@ -28,6 +28,10 @@ void BlockPainter::Paint(const PaintInfo& paint_info) {
   if (!ShouldPaint(paint_state))
     return;
 
+  DCHECK(!layout_block_.PaintBlockedByDisplayLock(
+             DisplayLockLifecycleTarget::kChildren) ||
+         paint_info.DescendantPaintingBlocked());
+
   auto paint_offset = paint_state.PaintOffset();
   auto& local_paint_info = paint_state.MutablePaintInfo();
   PaintPhase original_phase = local_paint_info.phase;
@@ -65,9 +69,10 @@ void BlockPainter::Paint(const PaintInfo& paint_info) {
     layout_block_.PaintObject(local_paint_info, paint_offset);
   } else if (original_phase != PaintPhase::kSelfBlockBackgroundOnly &&
              original_phase != PaintPhase::kSelfOutlineOnly &&
-             // For now all scrollers with overlay scrollbars are self-painting
-             // layers, so we don't need to traverse descendants here.
-             original_phase != PaintPhase::kOverlayScrollbars) {
+             // For now all scrollers with overlay overflow controls are
+             // self-painting layers, so we don't need to traverse descendants
+             // here.
+             original_phase != PaintPhase::kOverlayOverflowControls) {
     ScopedBoxContentsPaintState contents_paint_state(paint_state,
                                                      layout_block_);
     layout_block_.PaintObject(contents_paint_state.GetPaintInfo(),
@@ -111,7 +116,7 @@ void BlockPainter::Paint(const PaintInfo& paint_info) {
 }
 
 void BlockPainter::PaintChildren(const PaintInfo& paint_info) {
-  if (layout_block_.PaintBlockedByDisplayLock(DisplayLockContext::kChildren))
+  if (paint_info.DescendantPaintingBlocked())
     return;
 
   // We may use legacy paint to paint the anonymous fieldset child. The layout
@@ -157,7 +162,7 @@ void BlockPainter::PaintChild(const LayoutBox& child,
 
 void BlockPainter::PaintChildrenAtomically(const OrderIterator& order_iterator,
                                            const PaintInfo& paint_info) {
-  if (layout_block_.PaintBlockedByDisplayLock(DisplayLockContext::kChildren))
+  if (paint_info.DescendantPaintingBlocked())
     return;
   for (const LayoutBox* child = order_iterator.First(); child;
        child = order_iterator.Next()) {
@@ -167,7 +172,7 @@ void BlockPainter::PaintChildrenAtomically(const OrderIterator& order_iterator,
 
 void BlockPainter::PaintAllChildPhasesAtomically(const LayoutBox& child,
                                                  const PaintInfo& paint_info) {
-  if (layout_block_.PaintBlockedByDisplayLock(DisplayLockContext::kChildren))
+  if (paint_info.DescendantPaintingBlocked())
     return;
   if (!child.HasSelfPaintingLayer() && !child.IsFloating())
     ObjectPainter(child).PaintAllPhasesAtomically(paint_info);
@@ -176,6 +181,7 @@ void BlockPainter::PaintAllChildPhasesAtomically(const LayoutBox& child,
 void BlockPainter::PaintInlineBox(const InlineBox& inline_box,
                                   const PaintInfo& paint_info) {
   if (paint_info.phase != PaintPhase::kForeground &&
+      paint_info.phase != PaintPhase::kForcedColorsModeBackplate &&
       paint_info.phase != PaintPhase::kSelection)
     return;
 
@@ -206,19 +212,16 @@ void BlockPainter::PaintObject(const PaintInfo& paint_info,
 
   ScopedPaintTimingDetectorBlockPaintHook
       scoped_paint_timing_detector_block_paint_hook;
-  if (RuntimeEnabledFeatures::FirstContentfulPaintPlusPlusEnabled() ||
-      RuntimeEnabledFeatures::ElementTimingEnabled(
-          &layout_block_.GetDocument())) {
-    if (paint_info.phase == PaintPhase::kForeground) {
-      scoped_paint_timing_detector_block_paint_hook.EmplaceIfNeeded(
-          layout_block_, paint_info.context.GetPaintController()
-                             .CurrentPaintChunkProperties());
-    }
+  if (paint_info.phase == PaintPhase::kForeground) {
+    scoped_paint_timing_detector_block_paint_hook.EmplaceIfNeeded(
+        layout_block_,
+        paint_info.context.GetPaintController().CurrentPaintChunkProperties());
   }
-  // If we're *printing* the foreground, paint the URL.
-  if (paint_phase == PaintPhase::kForeground && paint_info.IsPrinting()) {
-    ObjectPainter(layout_block_)
-        .AddPDFURLRectIfNeeded(paint_info, paint_offset);
+  // If we're *printing or creating a paint preview of* the foreground, paint
+  // the URL.
+  if (paint_phase == PaintPhase::kForeground &&
+      paint_info.ShouldAddUrlMetadata()) {
+    ObjectPainter(layout_block_).AddURLRectIfNeeded(paint_info, paint_offset);
   }
 
   // If we're painting our background (either 1. kBlockBackground - background
@@ -228,12 +231,21 @@ void BlockPainter::PaintObject(const PaintInfo& paint_info,
   if (ShouldPaintSelfBlockBackground(paint_phase))
     layout_block_.PaintBoxDecorationBackground(paint_info, paint_offset);
 
+  // Draw a backplate behind all text if in forced colors mode.
+  if (paint_phase == PaintPhase::kForcedColorsModeBackplate &&
+      layout_block_.GetFrame()->GetDocument()->InForcedColorsMode() &&
+      layout_block_.ChildrenInline()) {
+    LineBoxListPainter(To<LayoutBlockFlow>(layout_block_).LineBoxes())
+        .PaintBackplate(layout_block_, paint_info, paint_offset);
+  }
+
   // If we're in any phase except *just* the self (outline or background) or a
   // mask, paint children now. This is step #5, 7, 8, and 9 of the CSS spec (see
   // above).
   if (paint_phase != PaintPhase::kSelfOutlineOnly &&
       paint_phase != PaintPhase::kSelfBlockBackgroundOnly &&
-      paint_phase != PaintPhase::kMask) {
+      paint_phase != PaintPhase::kMask &&
+      !paint_info.DescendantPaintingBlocked()) {
     // Actually paint the contents.
     if (layout_block_.IsLayoutBlockFlow()) {
       // All floating descendants will be LayoutBlockFlow objects, and will get
@@ -341,7 +353,8 @@ PhysicalRect BlockPainter::OverflowRectForCullRectTesting(
 
   if (include_layout_overflow) {
     overflow_rect.Unite(layout_block_.PhysicalLayoutOverflowRect());
-    overflow_rect.Move(-PhysicalOffset(layout_block_.ScrolledContentOffset()));
+    overflow_rect.Move(
+        -PhysicalOffset(layout_block_.PixelSnappedScrolledContentOffset()));
   }
   return overflow_rect;
 }

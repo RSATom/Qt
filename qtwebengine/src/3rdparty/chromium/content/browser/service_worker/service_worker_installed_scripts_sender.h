@@ -9,7 +9,8 @@
 #include "base/containers/queue.h"
 #include "content/browser/service_worker/service_worker_installed_script_reader.h"
 #include "content/common/content_export.h"
-#include "mojo/public/cpp/bindings/binding.h"
+#include "mojo/public/cpp/bindings/receiver.h"
+#include "mojo/public/cpp/bindings/remote.h"
 #include "mojo/public/cpp/system/data_pipe.h"
 #include "third_party/blink/public/mojom/service_worker/service_worker_installed_scripts_manager.mojom.h"
 
@@ -75,14 +76,9 @@ class CONTENT_EXPORT ServiceWorkerInstalledScriptsSender
       ServiceWorkerInstalledScriptReader::FinishedReason reason);
 
   // Implements ServiceWorkerInstalledScriptReader::Client.
-  void OnStarted(std::string encoding,
-                 base::flat_map<std::string, std::string> headers,
+  void OnStarted(scoped_refptr<HttpResponseInfoIOBuffer> http_info,
                  mojo::ScopedDataPipeConsumerHandle body_handle,
-                 uint64_t body_size,
-                 mojo::ScopedDataPipeConsumerHandle meta_data_handle,
-                 uint64_t meta_data_size) override;
-  void OnHttpInfoRead(
-      scoped_refptr<HttpResponseInfoIOBuffer> http_info) override;
+                 mojo::ScopedDataPipeConsumerHandle meta_data_handle) override;
   void OnFinished(
       ServiceWorkerInstalledScriptReader::FinishedReason reason) override;
 
@@ -96,9 +92,9 @@ class CONTENT_EXPORT ServiceWorkerInstalledScriptsSender
   const int64_t main_script_id_;
   bool sent_main_script_;
 
-  mojo::Binding<blink::mojom::ServiceWorkerInstalledScriptsManagerHost>
-      binding_;
-  blink::mojom::ServiceWorkerInstalledScriptsManagerPtr manager_;
+  mojo::Receiver<blink::mojom::ServiceWorkerInstalledScriptsManagerHost>
+      receiver_{this};
+  mojo::Remote<blink::mojom::ServiceWorkerInstalledScriptsManager> manager_;
   std::unique_ptr<ServiceWorkerInstalledScriptReader> reader_;
 
   State state_;

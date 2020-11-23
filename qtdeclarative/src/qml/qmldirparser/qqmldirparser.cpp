@@ -205,7 +205,7 @@ bool QQmlDirParser::parse(const QString &source)
             }
             Component entry(sections[1], sections[2], -1, -1);
             entry.internal = true;
-            _components.insertMulti(entry.typeName, entry);
+            _components.insert(entry.typeName, entry);
         } else if (sections[0] == QLatin1String("singleton")) {
             if (sectionCount < 3 || sectionCount > 4) {
                 reportError(lineNumber, 0,
@@ -216,7 +216,7 @@ bool QQmlDirParser::parse(const QString &source)
                 // singleton TestSingletonType TestSingletonType.qml
                 Component entry(sections[1], sections[2], -1, -1);
                 entry.singleton = true;
-                _components.insertMulti(entry.typeName, entry);
+                _components.insert(entry.typeName, entry);
             } else {
                 // handle qmldir module listing case where singleton is defined in the following pattern:
                 // singleton TestSingletonType 2.0 TestSingletonType20.qml
@@ -225,7 +225,7 @@ bool QQmlDirParser::parse(const QString &source)
                     const QString &fileName = sections[3];
                     Component entry(sections[1], fileName, major, minor);
                     entry.singleton = true;
-                    _components.insertMulti(entry.typeName, entry);
+                    _components.insert(entry.typeName, entry);
                 } else {
                     reportError(lineNumber, 0, QStringLiteral("invalid version %1, expected <major>.<minor>").arg(sections[2]));
                 }
@@ -271,7 +271,7 @@ bool QQmlDirParser::parse(const QString &source)
         } else if (sectionCount == 2) {
             // No version specified (should only be used for relative qmldir files)
             const Component entry(sections[0], sections[1], -1, -1);
-            _components.insertMulti(entry.typeName, entry);
+            _components.insert(entry.typeName, entry);
         } else if (sectionCount == 3) {
             int major, minor;
             if (parseVersion(sections[1], &major, &minor)) {
@@ -283,7 +283,7 @@ bool QQmlDirParser::parse(const QString &source)
                     _scripts.append(entry);
                 } else {
                     const Component entry(sections[0], fileName, major, minor);
-                    _components.insertMulti(entry.typeName, entry);
+                    _components.insert(entry.typeName, entry);
                 }
             } else {
                 reportError(lineNumber, 0, QStringLiteral("invalid version %1, expected <major>.<minor>").arg(sections[1]));
@@ -302,8 +302,8 @@ bool QQmlDirParser::parse(const QString &source)
 void QQmlDirParser::reportError(quint16 line, quint16 column, const QString &description)
 {
     QQmlJS::DiagnosticMessage error;
-    error.line = line;
-    error.column = column;
+    error.loc.startLine = line;
+    error.loc.startColumn = column;
     error.message = description;
     _errors.append(error);
 }
@@ -319,7 +319,7 @@ bool QQmlDirParser::hasError() const
 void QQmlDirParser::setError(const QQmlJS::DiagnosticMessage &e)
 {
     _errors.clear();
-    reportError(e.line, e.column, e.message);
+    reportError(e.loc.startLine, e.loc.startColumn, e.message);
 }
 
 QList<QQmlJS::DiagnosticMessage> QQmlDirParser::errors(const QString &uri) const
@@ -350,7 +350,7 @@ QList<QQmlDirParser::Plugin> QQmlDirParser::plugins() const
     return _plugins;
 }
 
-QHash<QString, QQmlDirParser::Component> QQmlDirParser::components() const
+QMultiHash<QString, QQmlDirParser::Component> QQmlDirParser::components() const
 {
     return _components;
 }

@@ -182,6 +182,7 @@ static const char *xcb_atomnames = {
     "XdndActionCopy\0"
     "XdndActionLink\0"
     "XdndActionMove\0"
+    "XdndActionAsk\0"
     "XdndActionPrivate\0"
 
     // Xkb
@@ -266,7 +267,7 @@ void QXcbAtom::initializeAllAtoms(xcb_connection_t *connection) {
         cookies[i] = xcb_intern_atom(connection, false, strlen(names[i]), names[i]);
 
     for (i = 0; i < QXcbAtom::NAtoms; ++i) {
-        xcb_intern_atom_reply_t *reply = xcb_intern_atom_reply(connection, cookies[i], 0);
+        xcb_intern_atom_reply_t *reply = xcb_intern_atom_reply(connection, cookies[i], nullptr);
         m_allAtoms[i] = reply->atom;
         free(reply);
     }

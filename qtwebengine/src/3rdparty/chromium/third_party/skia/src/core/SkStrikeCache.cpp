@@ -17,7 +17,7 @@
 #include "src/core/SkGlyphRunPainter.h"
 #include "src/core/SkStrike.h"
 
-class SkStrikeCache::Node final : public SkStrikeInterface {
+class SkStrikeCache::Node final : public SkStrikeForGPU {
 public:
     Node(SkStrikeCache* strikeCache,
          const SkDescriptor& desc,
@@ -28,23 +28,27 @@ public:
             , fStrike{desc, std::move(scaler), metrics}
             , fPinner{std::move(pinner)} {}
 
-    SkVector rounding() const override {
-        return fStrike.rounding();
-    }
-
-    SkIPoint subpixelMask() const override {
-        return fStrike.subpixelMask();
-    }
-
-    SkSpan<const SkGlyphPos>
-    prepareForDrawing(const SkPackedGlyphID packedGlyphIDs[], const SkPoint positions[], size_t n,
-                      int maxDimension, PreparationDetail detail, SkGlyphPos results[]) override {
-        return fStrike.prepareForDrawing(packedGlyphIDs, positions, n, maxDimension, detail,
-                                         results);
+    const SkGlyphPositionRoundingSpec& roundingSpec() const override {
+        return fStrike.roundingSpec();
     }
 
     const SkDescriptor& getDescriptor() const override {
         return fStrike.getDescriptor();
+    }
+
+    void prepareForMaskDrawing(
+            SkDrawableGlyphBuffer* drawbles, SkSourceGlyphBuffer* rejects) override {
+        fStrike.prepareForMaskDrawing(drawbles, rejects);
+    }
+
+    void prepareForSDFTDrawing(
+            SkDrawableGlyphBuffer* drawbles, SkSourceGlyphBuffer* rejects) override {
+        fStrike.prepareForSDFTDrawing(drawbles, rejects);
+    }
+
+    void prepareForPathDrawing(
+            SkDrawableGlyphBuffer* drawbles, SkSourceGlyphBuffer* rejects) override {
+        fStrike.prepareForPathDrawing(drawbles, rejects);
     }
 
     void onAboutToExitScope() override {
@@ -58,7 +62,15 @@ public:
     std::unique_ptr<SkStrikePinner> fPinner;
 };
 
+bool gSkUseThreadLocalStrikeCaches_IAcknowledgeThisIsIncrediblyExperimental = false;
+
 SkStrikeCache* SkStrikeCache::GlobalStrikeCache() {
+#if !defined(SK_BUILD_FOR_IOS)
+    if (gSkUseThreadLocalStrikeCaches_IAcknowledgeThisIsIncrediblyExperimental) {
+        static thread_local auto* cache = new SkStrikeCache;
+        return cache;
+    }
+#endif
     static auto* cache = new SkStrikeCache;
     return cache;
 }
@@ -162,10 +174,10 @@ auto SkStrikeCache::findOrCreateStrike(const SkDescriptor& desc,
     return node;
 }
 
-SkScopedStrike SkStrikeCache::findOrCreateScopedStrike(const SkDescriptor& desc,
-                                                       const SkScalerContextEffects& effects,
-                                                       const SkTypeface& typeface) {
-    return SkScopedStrike{this->findOrCreateStrike(desc, effects, typeface)};
+SkScopedStrikeForGPU SkStrikeCache::findOrCreateScopedStrike(const SkDescriptor& desc,
+                                                             const SkScalerContextEffects& effects,
+                                                             const SkTypeface& typeface) {
+    return SkScopedStrikeForGPU{this->findOrCreateStrike(desc, effects, typeface)};
 }
 
 void SkStrikeCache::PurgeAll() {

@@ -7,7 +7,7 @@
 #include "base/macros.h"
 #include "base/run_loop.h"
 #include "base/test/power_monitor_test_base.h"
-#include "base/test/scoped_task_environment.h"
+#include "base/test/task_environment.h"
 #include "base/threading/sequenced_task_runner_handle.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
@@ -23,7 +23,7 @@ class PowerMonitorBroadcastSourceTest : public testing::Test {
         base::SequencedTaskRunnerHandle::Get());
     power_monitor_source_ptr_ = power_monitor_source.get();
     base::PowerMonitor::Initialize(std::move(power_monitor_source));
-    power_monitor_source_ptr_->Init(nullptr);
+    power_monitor_source_ptr_->Init(mojo::NullRemote());
   }
 
   void TearDown() override {
@@ -35,7 +35,7 @@ class PowerMonitorBroadcastSourceTest : public testing::Test {
     return power_monitor_source_ptr_->client_for_testing();
   }
 
-  base::test::ScopedTaskEnvironment scoped_task_environment_;
+  base::test::SingleThreadTaskEnvironment task_environment_;
 
  private:
   PowerMonitorBroadcastSource* power_monitor_source_ptr_;

@@ -101,6 +101,13 @@ class QQmlProfiler;
 class QQmlPropertyCapture;
 class QQmlMetaObject;
 
+struct QObjectForeign {
+    Q_GADGET
+    QML_FOREIGN(QObject)
+    QML_NAMED_ELEMENT(QtObject)
+    Q_CLASSINFO("QML.Root", "QML")
+};
+
 // This needs to be declared here so that the pool for it can live in QQmlEnginePrivate.
 // The inline method definitions are in qqmljavascriptexpression_p.h
 class QQmlJavaScriptExpressionGuard : public QQmlNotifierEndpoint
@@ -224,6 +231,7 @@ public:
     QQmlPropertyCache *rawPropertyCacheForType(int, int minorVersion = -1);
     void registerInternalCompositeType(QV4::ExecutableCompilationUnit *compilationUnit);
     void unregisterInternalCompositeType(QV4::ExecutableCompilationUnit *compilationUnit);
+    QV4::ExecutableCompilationUnit *obtainExecutableCompilationUnit(int typeId);
 
     bool isTypeLoaded(const QUrl &url) const;
     bool isScriptLoaded(const QUrl &url) const;

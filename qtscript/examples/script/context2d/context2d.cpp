@@ -245,7 +245,7 @@ void Context2D::translate(qreal x, qreal y)
 void Context2D::transform(qreal m11, qreal m12, qreal m21, qreal m22,
                           qreal dx, qreal dy)
 {
-    QMatrix mat(m11, m12,
+    QTransform mat(m11, m12,
                 m21, m22,
                 dx, dy);
     m_state.matrix *= mat;
@@ -256,7 +256,7 @@ void Context2D::transform(qreal m11, qreal m12, qreal m21, qreal m22,
 void Context2D::setTransform(qreal m11, qreal m12, qreal m21, qreal m22,
                              qreal dx, qreal dy)
 {
-    QMatrix mat(m11, m12,
+    QTransform mat(m11, m12,
                 m21, m22,
                 dx, dy);
     m_state.matrix = mat;
@@ -730,7 +730,7 @@ void Context2D::clear()
 void Context2D::reset()
 {
     m_stateStack.clear();
-    m_state.matrix = QMatrix();
+    m_state.matrix = QTransform();
     m_state.clipPath = QPainterPath();
     m_state.globalAlpha = 1.0;
     m_state.globalCompositeOperation = QPainter::CompositionMode_SourceOver;

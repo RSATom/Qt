@@ -48,7 +48,7 @@ TcpClientIo::TcpClientIo(QObject *parent)
     , m_socket(new QTcpSocket(this))
 {
     connect(m_socket, &QTcpSocket::readyRead, this, &ClientIoDevice::readyRead);
-    connect(m_socket, static_cast<void (QTcpSocket::*)(QAbstractSocket::SocketError)>(&QAbstractSocket::error), this, &TcpClientIo::onError);
+    connect(m_socket, &QAbstractSocket::errorOccurred, this, &TcpClientIo::onError);
     connect(m_socket, &QTcpSocket::stateChanged, this, &TcpClientIo::onStateChanged);
 }
 

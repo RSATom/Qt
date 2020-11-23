@@ -8,13 +8,16 @@
 
 #include "ash/public/cpp/ash_features.h"
 #include "ash/public/cpp/event_rewriter_controller.h"
-#include "ash/public/interfaces/constants.mojom.h"
+#include "ash/public/cpp/shelf_config.h"
+#include "ash/public/cpp/tablet_mode.h"
+#include "ash/public/mojom/constants.mojom.h"
 #include "ash/shell.h"
 #include "base/bind.h"
 #include "base/command_line.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/values.h"
 #include "chrome/browser/browser_process.h"
+#include "chrome/browser/browser_process_platform_part.h"
 #include "chrome/browser/chromeos/accessibility/accessibility_manager.h"
 #include "chrome/browser/chromeos/accessibility/magnification_manager.h"
 #include "chrome/browser/chromeos/login/configuration_keys.h"
@@ -32,7 +35,6 @@
 #include "chrome/browser/lifetime/application_lifetime.h"
 #include "chrome/browser/ui/ash/ash_util.h"
 #include "chrome/browser/ui/ash/keyboard/chrome_keyboard_controller_client.h"
-#include "chrome/browser/ui/ash/tablet_mode_client.h"
 #include "chrome/browser/ui/webui/chromeos/login/demo_setup_screen_handler.h"
 #include "chrome/browser/ui/webui/chromeos/login/eula_screen_handler.h"
 #include "chrome/browser/ui/webui/chromeos/login/oobe_ui.h"
@@ -44,6 +46,7 @@
 #include "chrome/grit/chromium_strings.h"
 #include "chrome/grit/generated_resources.h"
 #include "chromeos/constants/chromeos_constants.h"
+#include "chromeos/constants/chromeos_features.h"
 #include "chromeos/constants/chromeos_switches.h"
 #include "components/login/base_screen_handler_utils.h"
 #include "components/login/localized_values_builder.h"
@@ -88,9 +91,7 @@ void LaunchResetScreen() {
 // Note that show_oobe_ui_ defaults to false because WizardController assumes
 // OOBE UI is not visible by default.
 CoreOobeHandler::CoreOobeHandler(JSCallsContainer* js_calls_container)
-    : BaseWebUIHandler(js_calls_container),
-      version_info_updater_(this),
-      weak_ptr_factory_(this) {
+    : BaseWebUIHandler(js_calls_container), version_info_updater_(this) {
   DCHECK(js_calls_container);
   AccessibilityManager* accessibility_manager = AccessibilityManager::Get();
   CHECK(accessibility_manager);
@@ -98,21 +99,23 @@ CoreOobeHandler::CoreOobeHandler(JSCallsContainer* js_calls_container)
       base::Bind(&CoreOobeHandler::OnAccessibilityStatusChanged,
                  base::Unretained(this)));
 
-  TabletModeClient* tablet_mode_client = TabletModeClient::Get();
-  tablet_mode_client->AddObserver(this);
+  ash::TabletMode::Get()->AddObserver(this);
 
   // |connector| may be null in tests.
   auto* connector = content::GetSystemConnector();
   if (connector) {
-    connector->BindInterface(ash::mojom::kServiceName,
-                             &cros_display_config_ptr_);
+    connector->Connect(ash::mojom::kServiceName,
+                       cros_display_config_.BindNewPipeAndPassReceiver());
   }
   OobeConfiguration::Get()->AddAndFireObserver(this);
 }
 
 CoreOobeHandler::~CoreOobeHandler() {
   OobeConfiguration::Get()->RemoveObserver(this);
-  TabletModeClient::Get()->RemoveObserver(this);
+
+  // Ash may be released before us.
+  if (ash::TabletMode::Get())
+    ash::TabletMode::Get()->RemoveObserver(this);
 }
 
 void CoreOobeHandler::DeclareLocalizedValues(
@@ -178,7 +181,7 @@ void CoreOobeHandler::Initialize() {
 
 void CoreOobeHandler::GetAdditionalParameters(base::DictionaryValue* dict) {
   dict->SetKey("isInTabletMode",
-               base::Value(TabletModeClient::Get()->tablet_mode_enabled()));
+               base::Value(ash::TabletMode::Get()->InTabletMode()));
   dict->SetKey("isDemoModeEnabled",
                base::Value(DemoSetupController::IsDemoModeAllowed()));
   dict->SetKey("showTechnologyBadge",
@@ -250,6 +253,19 @@ void CoreOobeHandler::ShowEnableDebuggingScreen() {
   }
 }
 
+void CoreOobeHandler::ShowEnableAdbSideloadingScreen() {
+  // Don't recreate WizardController if it already exists.
+  WizardController* wizard_controller = WizardController::default_controller();
+  if (wizard_controller && !wizard_controller->login_screen_started()) {
+    wizard_controller->AdvanceToScreen(
+        EnableAdbSideloadingScreenView::kScreenId);
+  } else {
+    DCHECK(LoginDisplayHost::default_host());
+    LoginDisplayHost::default_host()->StartWizard(
+        EnableAdbSideloadingScreenView::kScreenId);
+  }
+}
+
 void CoreOobeHandler::ShowActiveDirectoryPasswordChangeScreen(
     const std::string& username) {
   CallJS("cr.ui.Oobe.showActiveDirectoryPasswordChangeScreen", username);
@@ -303,6 +319,10 @@ void CoreOobeHandler::SetVirtualKeyboardShown(bool shown) {
 
 void CoreOobeHandler::SetClientAreaSize(int width, int height) {
   CallJS("cr.ui.Oobe.setClientAreaSize", width, height);
+}
+
+void CoreOobeHandler::SetShelfHeight(int height) {
+  CallJS("cr.ui.Oobe.setShelfHeight", height);
 }
 
 void CoreOobeHandler::HandleInitialized() {
@@ -534,14 +554,38 @@ void CoreOobeHandler::UpdateKeyboardState() {
   SetVirtualKeyboardShown(is_keyboard_shown);
 }
 
-void CoreOobeHandler::OnTabletModeToggled(bool enabled) {
-  CallJS("cr.ui.Oobe.setTabletModeState", enabled);
+void CoreOobeHandler::OnTabletModeStarted() {
+  CallJS("cr.ui.Oobe.setTabletModeState", true);
+}
+
+void CoreOobeHandler::OnTabletModeEnded() {
+  CallJS("cr.ui.Oobe.setTabletModeState", false);
 }
 
 void CoreOobeHandler::UpdateClientAreaSize() {
   const gfx::Size size =
       display::Screen::GetScreen()->GetPrimaryDisplay().size();
   SetClientAreaSize(size.width(), size.height());
+  SetShelfHeight(ash::ShelfConfig::Get()->shelf_size());
+}
+
+void CoreOobeHandler::SetDialogPaddingMode(
+    CoreOobeView::DialogPaddingMode mode) {
+  std::string padding;
+  switch (mode) {
+    case CoreOobeView::DialogPaddingMode::MODE_AUTO:
+      padding = "auto";
+      break;
+    case CoreOobeView::DialogPaddingMode::MODE_NARROW:
+      padding = "narrow";
+      break;
+    case CoreOobeView::DialogPaddingMode::MODE_WIDE:
+      padding = "wide";
+      break;
+    default:
+      NOTREACHED();
+  }
+  CallJS("cr.ui.Oobe.setDialogPaddingMode", padding);
 }
 
 void CoreOobeHandler::OnOobeConfigurationChanged() {
@@ -582,7 +626,7 @@ void CoreOobeHandler::HandleGetPrimaryDisplayNameForTesting(
   const base::Value* callback_id;
   CHECK(args->Get(0, &callback_id));
 
-  cros_display_config_ptr_->GetDisplayUnitInfoList(
+  cros_display_config_->GetDisplayUnitInfoList(
       false /* single_unified */,
       base::BindOnce(&CoreOobeHandler::GetPrimaryDisplayNameCallback,
                      weak_ptr_factory_.GetWeakPtr(), callback_id->Clone()));

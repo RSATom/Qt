@@ -167,8 +167,11 @@ bool QWebpHandler::read(QImage *image)
         // Read global meta-data chunks first
         WebPChunkIterator metaDataIter;
         if ((m_formatFlags & ICCP_FLAG) && WebPDemuxGetChunk(m_demuxer, "ICCP", 1, &metaDataIter)) {
-            const QByteArray iccProfile = QByteArray::fromRawData(reinterpret_cast<const char *>(metaDataIter.chunk.bytes),
-                                                                  metaDataIter.chunk.size);
+            QByteArray iccProfile = QByteArray::fromRawData(reinterpret_cast<const char *>(metaDataIter.chunk.bytes),
+                                                            metaDataIter.chunk.size);
+            // Ensure the profile is 4-byte aligned.
+            if (reinterpret_cast<qintptr>(iccProfile.constData()) & 0x3)
+                iccProfile.detach();
             m_colorSpace = QColorSpace::fromIccProfile(iccProfile);
             // ### consider parsing EXIF and/or XMP metadata too.
             WebPDemuxReleaseChunkIterator(&metaDataIter);
@@ -288,6 +291,7 @@ bool QWebpHandler::write(const QImage &image)
     if (!WebPEncode(&config, &picture)) {
         qWarning() << "failed to encode webp picture, error code: " << picture.error_code;
         WebPPictureFree(&picture);
+        WebPMemoryWriterClear(&writer);
         return false;
     }
 
@@ -336,6 +340,7 @@ bool QWebpHandler::write(const QImage &image)
                    static_cast<size_t>(device()->write(reinterpret_cast<const char *>(writer.mem), writer.size)));
     }
     WebPPictureFree(&picture);
+    WebPMemoryWriterClear(&writer);
 
     return res;
 }
@@ -378,13 +383,6 @@ bool QWebpHandler::supportsOption(ImageOption option) const
         || option == Animation
         || option == BackgroundColor;
 }
-
-#if QT_DEPRECATED_SINCE(5, 13)
-QByteArray QWebpHandler::name() const
-{
-    return QByteArrayLiteral("webp");
-}
-#endif
 
 int QWebpHandler::imageCount() const
 {

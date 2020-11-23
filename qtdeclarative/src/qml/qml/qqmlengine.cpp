@@ -57,6 +57,7 @@
 #include "qqmlnotifier_p.h"
 #include "qqmlincubator.h"
 #include "qqmlabstracturlinterceptor.h"
+#include "qqmlsourcecoordinate_p.h"
 #include <private/qqmldirparser_p.h>
 #include <private/qqmlboundsignal_p.h>
 #include <private/qqmljsdiagnosticmessage_p.h>
@@ -100,8 +101,6 @@
 #    define CSIDL_APPDATA           0x001a  // <username>\Application Data
 #  endif
 #endif // Q_OS_WIN
-
-Q_DECLARE_METATYPE(QQmlProperty)
 
 QT_BEGIN_NAMESPACE
 
@@ -197,37 +196,11 @@ int qmlRegisterUncreatableMetaObject(const QMetaObject &staticMetaObject,
 bool QQmlEnginePrivate::qml_debugging_enabled = false;
 bool QQmlEnginePrivate::s_designerMode = false;
 
-void QQmlEnginePrivate::defineModule()
-{
-    const char uri[] = "QtQml";
-
-    qmlRegisterType<QQmlComponent>(uri, 2, 0, "Component");
-    qmlRegisterType<QObject>(uri, 2, 0, "QtObject");
-    qmlRegisterType<QQmlBind>(uri, 2, 0, "Binding");
-    qmlRegisterType<QQmlBind, 8>(uri, 2, 8, "Binding"); // Only available in >= 2.8
-    qmlRegisterType<QQmlBind, 14>(uri, 2, 14, "Binding");
-
-    // TODO: We won't need Connections to be a custom type anymore once we can drop the
-    //       automatic signal handler inference from undeclared properties.
-    qmlRegisterCustomType<QQmlConnections>(uri, 2, 0, "Connections", new QQmlConnectionsParser);
-    qmlRegisterCustomType<QQmlConnections, 3>(uri, 2, 3, "Connections", new QQmlConnectionsParser); // Only available in QtQml >= 2.3
-
-#if QT_CONFIG(qml_animation)
-    qmlRegisterType<QQmlTimer>(uri, 2, 0, "Timer");
-#endif
-
-    qmlRegisterType<QQmlLoggingCategory>(uri, 2, 8, "LoggingCategory"); // Only available in >= 2.8
-    qmlRegisterType<QQmlLoggingCategory, 12>(uri, 2, 12, "LoggingCategory"); // Only available in >= 2.12
-
-#if QT_CONFIG(qml_locale)
-    qmlRegisterUncreatableType<QQmlLocale>(uri, 2, 2, "Locale", QQmlEngine::tr("Locale cannot be instantiated. Use Qt.locale()"));
-#endif
-}
-
 #if QT_VERSION < QT_VERSION_CHECK(6, 0, 0)
 void QQmlEnginePrivate::registerQuickTypes()
 {
     // Don't add anything here. These are only for backwards compatibility.
+    // Also, don't use qmlRegisterTypesAndRevisions as that will auto-add future revisions.
 
     const char uri[] = "QtQuick";
 
@@ -236,13 +209,17 @@ void QQmlEnginePrivate::registerQuickTypes()
     qmlRegisterType<QQmlBind>(uri, 2, 0, "Binding");
     qmlRegisterType<QQmlBind, 8>(uri, 2, 8, "Binding");
     qmlRegisterCustomType<QQmlConnections>(uri, 2, 0, "Connections", new QQmlConnectionsParser);
+
+    // Connections revision 3 was added in QtQml 2.3, but only in QtQuick 2.7.
     qmlRegisterCustomType<QQmlConnections, 3>(uri, 2, 7, "Connections", new QQmlConnectionsParser);
+
 #if QT_CONFIG(qml_animation)
     qmlRegisterType<QQmlTimer>(uri, 2, 0,"Timer");
 #endif
     qmlRegisterType<QQmlLoggingCategory>(uri, 2, 8, "LoggingCategory");
     qmlRegisterType<QQmlLoggingCategory, 12>(uri, 2, 12, "LoggingCategory");
 #if QT_CONFIG(qml_locale)
+    // Locale was added in QtQuick 2.0 and in QtQml 2.2
     qmlRegisterUncreatableType<QQmlLocale>(uri, 2, 0, "Locale", QQmlEngine::tr("Locale cannot be instantiated. Use Qt.locale()"));
 #endif
 }
@@ -445,6 +422,7 @@ The following functions are also on the Qt object.
         \li \c "unix" - Other Unix-based OS
         \li \c "windows" - Windows
         \li \c "winrt" - WinRT / UWP
+        \li \c "wasm" - WebAssembly
     \endlist
 
     \row
@@ -707,11 +685,7 @@ QQmlEnginePrivate::~QQmlEnginePrivate()
 
     for (auto iter = m_compositeTypes.cbegin(), end = m_compositeTypes.cend(); iter != end; ++iter) {
         iter.value()->isRegisteredWithEngine = false;
-
-        // since unregisterInternalCompositeType() will not be called in this
-        // case, we have to clean up the type registration manually
-        QMetaType::unregisterType(iter.value()->metaTypeId);
-        QMetaType::unregisterType(iter.value()->listMetaTypeId);
+        QQmlMetaType::unregisterInternalCompositeType({iter.value()->metaTypeId, iter.value()->listMetaTypeId});
     }
 #if QT_CONFIG(qml_debug)
     delete profiler;
@@ -815,10 +789,12 @@ void QQmlData::signalEmitted(QAbstractDeclarativeData *, QObject *object, int in
     // QQmlEngine to emit signals from a different thread.  These signals are then automatically
     // marshalled back onto the QObject's thread and handled by QML from there.  This is tested
     // by the qqmlecmascript::threadSignal() autotest.
-    if (ddata->notifyList &&
-        QThread::currentThreadId() != QObjectPrivate::get(object)->threadData->threadId.loadRelaxed()) {
+    if (!ddata->notifyList)
+        return;
 
-        if (!QObjectPrivate::get(object)->threadData->thread.loadAcquire())
+    auto objectThreadData = QObjectPrivate::get(object)->threadData.loadRelaxed();
+    if (QThread::currentThreadId() != objectThreadData->threadId.loadRelaxed()) {
+        if (!objectThreadData->thread.loadAcquire())
             return;
 
         QMetaMethod m = QMetaObjectPrivate::signal(object->metaObject(), index);
@@ -850,7 +826,7 @@ void QQmlData::signalEmitted(QAbstractDeclarativeData *, QObject *object, int in
 
         QQmlThreadNotifierProxyObject *mpo = new QQmlThreadNotifierProxyObject;
         mpo->target = object;
-        mpo->moveToThread(QObjectPrivate::get(object)->threadData->thread.loadAcquire());
+        mpo->moveToThread(objectThreadData->thread.loadAcquire());
         QCoreApplication::postEvent(mpo, ev.take());
 
     } else {
@@ -1043,7 +1019,7 @@ QQmlEngine::~QQmlEngine()
     // we do this here and not in the private dtor since otherwise a crash can
     // occur (if we are the QObject parent of the QObject singleton instance)
     // XXX TODO: performance -- store list of singleton types separately?
-    QList<QQmlType> singletonTypes = QQmlMetaType::qmlSingletonTypes();
+    const QList<QQmlType> singletonTypes = QQmlMetaType::qmlSingletonTypes();
     for (const QQmlType &currType : singletonTypes)
         d->destroySingletonInstance(currType);
 
@@ -1312,7 +1288,9 @@ QUrl QQmlEngine::baseUrl() const
 {
     Q_D(const QQmlEngine);
     if (d->baseUrl.isEmpty()) {
-        return QUrl::fromLocalFile(QDir::currentPath() + QDir::separator());
+        const QString currentPath = QDir::currentPath();
+        const QString rootPath = QDir::rootPath();
+        return QUrl::fromLocalFile((currentPath == rootPath) ? rootPath : (currentPath + QDir::separator()));
     } else {
         return d->baseUrl;
     }
@@ -1358,6 +1336,21 @@ void QQmlEngine::setOutputWarningsToStandardError(bool enabled)
 }
 
 /*!
+  \qmlproperty string Qt::uiLanguage
+  \since 5.15
+
+  The uiLanguage holds the name of the language to be used for user interface
+  string translations. It is exposed in C++ as QQmlEngine::uiLanguage property.
+
+  You can set the value freely and use it in bindings. It is recommended to set it
+  after installing translators in your application. By convention, an empty string
+  means no translation from the language used in the source code is intended to occur.
+
+  If you're using QQmlApplicationEngine and the value changes, QQmlEngine::retranslate()
+  will be called.
+*/
+
+/*!
   \fn template<typename T> T QQmlEngine::singletonInstance(int qmlTypeId)
 
   Returns the instance of a singleton type that was registered under \a qmlTypeId.
@@ -1371,12 +1364,16 @@ void QQmlEngine::setOutputWarningsToStandardError(bool enabled)
   \code
   class MySingleton : public QObject {
     Q_OBJECT
+
+    // Register as default constructed singleton.
+    QML_ELEMENT
+    QML_SINGLETON
+
     static int typeId;
     // ...
   };
 
-  // Register with QObject* callback
-  MySingleton::typeId = qmlRegisterSingletonType<MySingleton>(...);
+  MySingleton::typeId = qmlTypeId(...);
 
   // Retrieve as QObject*
   QQmlEngine engine;
@@ -1393,11 +1390,10 @@ void QQmlEngine::setOutputWarningsToStandardError(bool enabled)
   QJSValue instance = engine.singletonInstance<QJSValue>(typeId);
   \endcode
 
-  It is recommended to store the QML type id during registration, e.g. as a static member
-  in the singleton class. Otherwise, a costly lookup via qmlTypeId() has to be performed
-  at run-time.
+  It is recommended to store the QML type id, e.g. as a static member in the
+  singleton class. The lookup via qmlTypeId() is costly.
 
-  \sa qmlRegisterSingletonType(), qmlTypeId()
+  \sa QML_SINGLETON, qmlRegisterSingletonType(), qmlTypeId()
   \since 5.12
 */
 template<>
@@ -2022,9 +2018,7 @@ QQmlData *QQmlData::createQQmlData(QObjectPrivate *priv)
 QQmlPropertyCache *QQmlData::createPropertyCache(QJSEngine *engine, QObject *object)
 {
     QQmlData *ddata = QQmlData::get(object, /*create*/true);
-    ddata->propertyCache = QJSEnginePrivate::get(engine)->cache(object);
-    if (ddata->propertyCache)
-        ddata->propertyCache->addref();
+    ddata->propertyCache = QJSEnginePrivate::get(engine)->cache(object, -1, true);
     return ddata->propertyCache;
 }
 
@@ -2132,15 +2126,15 @@ QList<QQmlError> QQmlEnginePrivate::qmlErrorFromDiagnostics(
     QList<QQmlError> errors;
     for (const QQmlJS::DiagnosticMessage &m : diagnosticMessages) {
         if (m.isWarning()) {
-            qWarning("%s:%d : %s", qPrintable(fileName), m.line, qPrintable(m.message));
+            qWarning("%s:%d : %s", qPrintable(fileName), m.loc.startLine, qPrintable(m.message));
             continue;
         }
 
         QQmlError error;
         error.setUrl(QUrl(fileName));
         error.setDescription(m.message);
-        error.setLine(m.line);
-        error.setColumn(m.column);
+        error.setLine(qmlConvertSourceCoordinate<quint32, int>(m.loc.startLine));
+        error.setColumn(qmlConvertSourceCoordinate<quint32, int>(m.loc.startColumn));
         errors << error;
     }
     return errors;
@@ -2275,7 +2269,7 @@ void QQmlEngine::setPluginPathList(const QStringList &paths)
 
   On failure and if non-null, the \a errors list will have any errors which occurred prepended to it.
 
-  The plugin has to be a Qt plugin which implements the QQmlExtensionPlugin interface.
+  The plugin has to be a Qt plugin which implements the QQmlEngineExtensionPlugin interface.
 */
 bool QQmlEngine::importPlugin(const QString &filePath, const QString &uri, QList<QQmlError> *errors)
 {
@@ -2390,12 +2384,23 @@ int QQmlEnginePrivate::listType(int t) const
     return QQmlMetaType::listType(t);
 }
 
+
+static QQmlPropertyCache *propertyCacheForPotentialInlineComponentType(int t, const QHash<int, QV4::ExecutableCompilationUnit *>::const_iterator &iter) {
+    if (t != (*iter)->metaTypeId) {
+        // this is an inline component, and what we have in the iterator is currently the parent compilation unit
+        for (auto &&icDatum: (*iter)->inlineComponentData)
+            if (icDatum.typeIds.id == t)
+                return (*iter)->propertyCaches.at(icDatum.objectIndex);
+    }
+    return (*iter)->rootPropertyCache().data();
+}
+
 QQmlMetaObject QQmlEnginePrivate::rawMetaObjectForType(int t) const
 {
     Locker locker(this);
     auto iter = m_compositeTypes.constFind(t);
     if (iter != m_compositeTypes.cend()) {
-        return QQmlMetaObject((*iter)->rootPropertyCache().data());
+        return propertyCacheForPotentialInlineComponentType(t, iter);
     } else {
         QQmlType type = QQmlMetaType::qmlType(t);
         return QQmlMetaObject(type.baseMetaObject());
@@ -2407,7 +2412,7 @@ QQmlMetaObject QQmlEnginePrivate::metaObjectForType(int t) const
     Locker locker(this);
     auto iter = m_compositeTypes.constFind(t);
     if (iter != m_compositeTypes.cend()) {
-        return QQmlMetaObject((*iter)->rootPropertyCache().data());
+        return propertyCacheForPotentialInlineComponentType(t, iter);
     } else {
         QQmlType type = QQmlMetaType::qmlType(t);
         return QQmlMetaObject(type.metaObject());
@@ -2419,7 +2424,7 @@ QQmlPropertyCache *QQmlEnginePrivate::propertyCacheForType(int t)
     Locker locker(this);
     auto iter = m_compositeTypes.constFind(t);
     if (iter != m_compositeTypes.cend()) {
-        return (*iter)->rootPropertyCache().data();
+        return propertyCacheForPotentialInlineComponentType(t, iter);
     } else {
         QQmlType type = QQmlMetaType::qmlType(t);
         locker.unlock();
@@ -2432,7 +2437,7 @@ QQmlPropertyCache *QQmlEnginePrivate::rawPropertyCacheForType(int t, int minorVe
     Locker locker(this);
     auto iter = m_compositeTypes.constFind(t);
     if (iter != m_compositeTypes.cend()) {
-        return (*iter)->rootPropertyCache().data();
+        return propertyCacheForPotentialInlineComponentType(t, iter);
     } else {
         QQmlType type = QQmlMetaType::qmlType(t);
         locker.unlock();
@@ -2452,6 +2457,9 @@ void QQmlEnginePrivate::registerInternalCompositeType(QV4::ExecutableCompilation
     // The QQmlCompiledData is not referenced here, but it is removed from this
     // hash in the QQmlCompiledData destructor
     m_compositeTypes.insert(compilationUnit->metaTypeId, compilationUnit);
+    for (auto &&data: compilationUnit->inlineComponentData) {
+        m_compositeTypes.insert(data.typeIds.id, compilationUnit);
+    }
 }
 
 void QQmlEnginePrivate::unregisterInternalCompositeType(QV4::ExecutableCompilationUnit *compilationUnit)
@@ -2460,6 +2468,14 @@ void QQmlEnginePrivate::unregisterInternalCompositeType(QV4::ExecutableCompilati
 
     Locker locker(this);
     m_compositeTypes.remove(compilationUnit->metaTypeId);
+    for (auto&& icDatum: compilationUnit->inlineComponentData)
+        m_compositeTypes.remove(icDatum.typeIds.id);
+}
+
+QV4::ExecutableCompilationUnit *QQmlEnginePrivate::obtainExecutableCompilationUnit(int typeId)
+{
+    Locker locker(this);
+    return m_compositeTypes.value(typeId, nullptr);
 }
 
 template<>

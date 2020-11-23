@@ -62,6 +62,7 @@ private slots:
     void lineBreaking();
 #ifdef QT_BUILD_INTERNAL
     void simpleBoundingRect();
+    void threeLineBoundingRect_data();
     void threeLineBoundingRect();
     void boundingRectWithLongLineAndNoWrap();
     void forcedBreaks();
@@ -140,6 +141,8 @@ private slots:
     void showLineAndParagraphSeparatorsCrash();
     void koreanWordWrap();
     void tooManyDirectionalCharctersCrash_qtbug77819();
+    void softHyphens();
+    void min_maximumWidth();
 
 private:
     QFont testFont;
@@ -315,18 +318,49 @@ void tst_QTextLayout::simpleBoundingRect()
     QCOMPARE(layout.boundingRect(), QRectF(0, 0, width, QFontMetrics(testFont).height()));
 }
 
+void tst_QTextLayout::threeLineBoundingRect_data()
+{
+    QTest::addColumn<QChar>("wordBoundary1");
+    QTest::addColumn<QChar>("wordBoundary2");
+    QTest::newRow("2x' '") << QChar(' ') << QChar(' ');
+    QTest::newRow("2x'\\n'") << QChar('\n') << QChar('\n');
+    QTest::newRow("' ' + '\\n'") << QChar(' ') << QChar('\n');
+    QTest::newRow("'\\n' + ' '") << QChar('\n') << QChar(' ');
+    QTest::newRow("2x'\\t'") << QChar('\t') << QChar('\t');
+    QTest::newRow("2xsoft hyphen") << QChar(0xad) << QChar(0xad);
+    QTest::newRow("2x'-'") << QChar('-') << QChar('-');
+    QTest::newRow("2x'/'") << QChar('/') << QChar('/');
+    QTest::newRow("soft hyphen + ' '") << QChar(0xad) << QChar(' ');
+    QTest::newRow("soft hyphen + '\\n'") << QChar(0xad) << QChar('\n');
+    QTest::newRow("soft hyphen + '-'") << QChar(0xad) << QChar('-');
+    QTest::newRow("' ' + soft hyphen") << QChar(' ') << QChar(0xad);
+    QTest::newRow("'\\n' + soft hyphen") << QChar('\n') << QChar(0xad);
+    QTest::newRow("'-' + soft hyphen") << QChar('-') << QChar(0xad);
+}
+
 void tst_QTextLayout::threeLineBoundingRect()
 {
     /* stricter check. break text into three lines */
+    QFETCH(QChar, wordBoundary1);
+    QFETCH(QChar, wordBoundary2);
 
     QString firstWord("hello");
-    QString secondWord("world");
-    QString thirdWord("test");
-    QString text(firstWord + ' ' + secondWord + ' ' + thirdWord);
+    QString secondWord("test");
+    QString thirdWord("world");
+    QString text(firstWord + wordBoundary1 + secondWord + wordBoundary2 + thirdWord);
 
-    const int firstLineWidth = firstWord.length() * testFont.pixelSize();
-    const int secondLineWidth = secondWord.length() * testFont.pixelSize();
-    const int thirdLineWidth = thirdWord.length() * testFont.pixelSize();
+    int firstLineWidth = firstWord.length() * testFont.pixelSize();
+    int secondLineWidth = secondWord.length() * testFont.pixelSize();
+    int thirdLineWidth = thirdWord.length() * testFont.pixelSize();
+    // Trailing spaces do not count to line width:
+    if (!wordBoundary1.isSpace())
+        firstLineWidth += testFont.pixelSize();
+    if (!wordBoundary2.isSpace())
+        secondLineWidth += testFont.pixelSize();
+    // But trailing spaces do count to line length:
+    const int firstLineLength = firstWord.length() + 1;
+    const int secondLineLength = secondWord.length() + 1;
+    const int thirdLineLength = thirdWord.length();
 
     const int longestLine = qMax(firstLineWidth, qMax(secondLineWidth, thirdLineWidth));
 
@@ -339,8 +373,7 @@ void tst_QTextLayout::threeLineBoundingRect()
     line.setLineWidth(firstLineWidth);
     line.setPosition(QPoint(0, y));
     QCOMPARE(line.textStart(), pos);
-    // + 1 for trailing space
-    QCOMPARE(line.textLength(), firstWord.length() + 1);
+    QCOMPARE(line.textLength(), firstLineLength);
     QCOMPARE(qRound(line.naturalTextWidth()), firstLineWidth);
 
     pos += line.textLength();
@@ -349,9 +382,8 @@ void tst_QTextLayout::threeLineBoundingRect()
     line = layout.createLine();
     line.setLineWidth(secondLineWidth);
     line.setPosition(QPoint(0, y));
-    // + 1 for trailing space
     QCOMPARE(line.textStart(), pos);
-    QCOMPARE(line.textLength(), secondWord.length() + 1);
+    QCOMPARE(line.textLength(), secondLineLength);
     QCOMPARE(qRound(line.naturalTextWidth()), secondLineWidth);
 
     pos += line.textLength();
@@ -360,9 +392,8 @@ void tst_QTextLayout::threeLineBoundingRect()
     line = layout.createLine();
     line.setLineWidth(secondLineWidth);
     line.setPosition(QPoint(0, y));
-    // no trailing space here!
     QCOMPARE(line.textStart(), pos);
-    QCOMPARE(line.textLength(), thirdWord.length());
+    QCOMPARE(line.textLength(), thirdLineLength);
     QCOMPARE(qRound(line.naturalTextWidth()), thirdLineWidth);
     y += qRound(line.ascent() + line.descent());
 
@@ -1969,6 +2000,9 @@ void tst_QTextLayout::textWidthVsWIdth()
     layout.setCacheEnabled(true);
     QTextOption opt;
     opt.setWrapMode(QTextOption::WrapAnywhere);
+#if defined(Q_OS_WIN)
+    layout.setFont(QFont(QString::fromLatin1("Arial")));
+#endif
     layout.setTextOption(opt);
     layout.setText(QString::fromLatin1(
                        "g++ -c -m64 -pipe -g -fvisibility=hidden -fvisibility-inlines-hidden -Wall -W -D_REENTRANT -fPIC -DCORE_LIBRARY -DIDE_LIBRARY_BASENAME=\"lib\" -DWITH_TESTS "
@@ -1985,6 +2019,21 @@ void tst_QTextLayout::textWidthVsWIdth()
     // minimum right bearing reported by the font engine doesn't cover all the glyphs in the font.
     // The result is that this test may fail in some cases. We should fix this by running the test
     // with a font that we know have no suprising right bearings. See qtextlayout.cpp for details.
+    QFontMetricsF fontMetrics(layout.font());
+    QSet<char16_t> checked;
+    qreal minimumRightBearing = 0.0;
+    for (int i = 0; i < layout.text().size(); ++i) {
+        QChar c = layout.text().at(i);
+        if (!checked.contains(c.unicode())) {
+            qreal rightBearing = fontMetrics.rightBearing(c);
+            if (rightBearing < minimumRightBearing)
+                minimumRightBearing = rightBearing;
+            checked.insert(c.unicode());
+        }
+    }
+    if (minimumRightBearing < fontMetrics.minRightBearing())
+        QSKIP("Font reports invalid minimum right bearing, and can't be used for this test.");
+
     for (int width = 100; width < 1000; ++width) {
         layout.beginLayout();
         QTextLine line = layout.createLine();
@@ -2350,6 +2399,148 @@ void tst_QTextLayout::tooManyDirectionalCharctersCrash_qtbug77819()
     QTextLayout tl(data);
     tl.beginLayout();
     tl.endLayout();
+}
+
+void tst_QTextLayout::softHyphens()
+{
+    QString text = QStringLiteral("xxxx\u00ad") + QStringLiteral("xxxx\u00ad");
+
+    QFont font;
+    font.setPixelSize(14);
+    font.setHintingPreference(QFont::PreferNoHinting);
+    const float xAdvance = QFontMetricsF(font).horizontalAdvance(QChar('x'));
+    const float shyAdvance = QFontMetricsF(font).horizontalAdvance(QChar::SoftHyphen);
+    if (xAdvance < (shyAdvance + 1.0f))
+        QSKIP("Default font not suitable for this test.");
+    QTextLayout layout(text, font);
+    QTextOption option;
+    option.setWrapMode(QTextOption::WrapAtWordBoundaryOrAnywhere);
+    layout.setTextOption(option);
+
+    // Loose fit
+    // xxxx- |
+    // xxxx- |
+    {
+        int pos = 0;
+        int y = 0;
+        layout.beginLayout();
+        QTextLine line = layout.createLine();
+        line.setLineWidth(qCeil(5 * xAdvance) + 1);
+        line.setPosition(QPoint(0, y));
+        QCOMPARE(line.textStart(), pos);
+        QCOMPARE(line.textLength(), 5);
+        QVERIFY(qAbs(line.naturalTextWidth() - (4 * xAdvance + shyAdvance)) <= 1);
+
+        pos += line.textLength();
+        y += qRound(line.ascent() + line.descent());
+
+        line = layout.createLine();
+        line.setLineWidth(qCeil(5 * xAdvance) + 1);
+        line.setPosition(QPoint(0, y));
+        QCOMPARE(line.textStart(), pos);
+        QCOMPARE(line.textLength(), 5);
+        QVERIFY(qAbs(line.naturalTextWidth() - (4 * xAdvance + shyAdvance)) <= 1);
+        layout.endLayout();
+    }
+
+    // Tight fit
+    // xxxx-|
+    // xxxx-|
+    {
+        int pos = 0;
+        int y = 0;
+        layout.beginLayout();
+        QTextLine line = layout.createLine();
+        line.setLineWidth(qCeil(4 * xAdvance + shyAdvance) + 1);
+        line.setPosition(QPoint(0, y));
+        QCOMPARE(line.textStart(), pos);
+        QCOMPARE(line.textLength(), 5);
+        QVERIFY(qAbs(line.naturalTextWidth() - (4 * xAdvance + shyAdvance)) <= 1);
+
+        pos += line.textLength();
+        y += qRound(line.ascent() + line.descent());
+
+        line = layout.createLine();
+        line.setLineWidth(qCeil(4 * xAdvance + shyAdvance) + 1);
+        line.setPosition(QPoint(0, y));
+        QCOMPARE(line.textStart(), pos);
+        QCOMPARE(line.textLength(), 5);
+        QVERIFY(qAbs(line.naturalTextWidth() - (4 * xAdvance + shyAdvance)) <= 1);
+        layout.endLayout();
+    }
+
+    // Very tight fit
+    // xxxx|
+    // xxxx|
+    // -   |
+    {
+        int pos = 0;
+        int y = 0;
+        layout.beginLayout();
+        QTextLine line = layout.createLine();
+        line.setLineWidth(qCeil(4 * xAdvance) + 2);
+        line.setPosition(QPoint(0, y));
+        QCOMPARE(line.textStart(), pos);
+        QCOMPARE(line.textLength(), 4);
+        QVERIFY(qAbs(line.naturalTextWidth() - 4 * xAdvance) <= 1);
+
+        pos += line.textLength();
+        y += qRound(line.ascent() + line.descent());
+
+        line = layout.createLine();
+        line.setLineWidth(qCeil(4 * xAdvance) + 2);
+        line.setPosition(QPoint(0, y));
+        QCOMPARE(line.textStart(), pos);
+        QCOMPARE(line.textLength(), 5);
+        QVERIFY(qAbs(line.naturalTextWidth() - 4 * xAdvance) <= 1);
+
+        pos += line.textLength();
+        y += qRound(line.ascent() + line.descent());
+
+        line = layout.createLine();
+        line.setLineWidth(qCeil(4 * xAdvance) + 2);
+        line.setPosition(QPoint(0, y));
+        QCOMPARE(line.textStart(), pos);
+        QCOMPARE(line.textLength(), 1);
+        QVERIFY(qAbs(line.naturalTextWidth() - shyAdvance) <= 1);
+        layout.endLayout();
+    }
+}
+
+void tst_QTextLayout::min_maximumWidth()
+{
+    QString longString("lmong_long_crazy_87235982735_23857239682376923876923876-fuwhfhfw-names-AAAA-deeaois2019-03-03.and.more");
+    QTextLayout layout(longString, testFont);
+
+    for (int wrapMode = QTextOption::NoWrap; wrapMode <= QTextOption::WrapAtWordBoundaryOrAnywhere; ++wrapMode) {
+        QTextOption opt;
+        opt.setWrapMode((QTextOption::WrapMode)wrapMode);
+        layout.setTextOption(opt);
+        layout.beginLayout();
+        while (layout.createLine().isValid()) { }
+        layout.endLayout();
+        const qreal minWidth = layout.minimumWidth();
+        const qreal maxWidth = layout.maximumWidth();
+
+        // Try the layout from slightly wider than the widest (maxWidth)
+        // and narrow it down to slighly narrower than minWidth
+        // layout.maximumWidth() should return the same regardless
+        qreal width = qCeil(maxWidth/10)*10 + 10;    // begin a bit wider
+        const qreal stepSize = 20;
+        while (width >= minWidth - stepSize) {
+            layout.beginLayout();
+            for (;;) {
+                QTextLine line = layout.createLine();
+                if (!line.isValid())
+                    break;
+                line.setLineWidth(width);
+            }
+            layout.endLayout();
+            QCOMPARE(layout.minimumWidth(), minWidth);
+            QCOMPARE(layout.maximumWidth(), maxWidth);
+            width -= stepSize;
+        }
+    }
 }
 
 QTEST_MAIN(tst_QTextLayout)

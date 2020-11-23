@@ -6,6 +6,7 @@
 
 #include "base/optional.h"
 #include "third_party/blink/renderer/core/dom/document.h"
+#include "third_party/blink/renderer/core/dom/node_computed_style.h"
 #include "third_party/blink/renderer/core/frame/settings.h"
 #include "third_party/blink/renderer/core/inspector/inspector_trace_events.h"
 #include "third_party/blink/renderer/core/paint/background_image_geometry.h"
@@ -274,7 +275,8 @@ BoxPainterBase::FillLayerInfo::FillLayerInfo(
     const FillLayer& layer,
     BackgroundBleedAvoidance bleed_avoidance,
     bool include_left,
-    bool include_right)
+    bool include_right,
+    bool is_inline)
     : image(layer.GetImage()),
       color(bg_color),
       include_left_edge(include_left),
@@ -300,6 +302,13 @@ BoxPainterBase::FillLayerInfo::FillLayerInfo(
       image = nullptr;
     }
   }
+
+  // Background images are not allowed at the inline level in forced colors
+  // mode when forced-color-adjust is auto. This ensures that the inline images
+  // are not painted on top of the forced colors mode backplate.
+  if (doc.InForcedColorsMode() && is_inline &&
+      style.ForcedColorAdjust() != EForcedColorAdjust::kNone)
+    image = nullptr;
 
   const bool has_rounded_border =
       style.HasBorderRadius() && (include_left_edge || include_right_edge);
@@ -375,7 +384,8 @@ void DrawTiledBackground(GraphicsContext& context,
                          const FloatPoint& phase,
                          const FloatSize& tile_size,
                          SkBlendMode op,
-                         const FloatSize& repeat_spacing) {
+                         const FloatSize& repeat_spacing,
+                         bool has_filter_property) {
   DCHECK(!tile_size.IsEmpty());
 
   // Use the intrinsic size of the image if it has one, otherwise force the
@@ -410,7 +420,8 @@ void DrawTiledBackground(GraphicsContext& context,
     // calculations up the stack.
     visible_src_rect = FloatRect(RoundedIntRect(visible_src_rect));
     context.DrawImage(image, Image::kSyncDecode, snapped_paint_rect,
-                      &visible_src_rect, op, kDoNotRespectImageOrientation);
+                      &visible_src_rect, has_filter_property, op,
+                      kDoNotRespectImageOrientation);
     return;
   }
 
@@ -547,20 +558,17 @@ inline bool PaintFastBottomLayer(Node* node,
 
   // Since there is no way for the developer to specify decode behavior, use
   // kSync by default.
-  context.DrawImageRRect(image, Image::kSyncDecode, image_border, src_rect,
-                         composite_op);
+  context.DrawImageRRect(
+      image, Image::kSyncDecode, image_border, src_rect,
+      node && node->ComputedStyleRef().HasFilterInducingProperty(),
+      composite_op);
 
-  if (RuntimeEnabledFeatures::FirstContentfulPaintPlusPlusEnabled()) {
-    if (info.image && info.image->IsImageResource()) {
-      PaintTimingDetector::NotifyBackgroundImagePaint(
-          node, image, To<StyleFetchedImage>(info.image.Get()),
-          paint_info.context.GetPaintController()
-              .CurrentPaintChunkProperties());
-    }
+  if (info.image && info.image->IsImageResource()) {
+    PaintTimingDetector::NotifyBackgroundImagePaint(
+        node, image, To<StyleFetchedImage>(info.image.Get()),
+        paint_info.context.GetPaintController().CurrentPaintChunkProperties());
   }
-  if (node &&
-      RuntimeEnabledFeatures::ElementTimingEnabled(&node->GetDocument()) &&
-      info.image && info.image->IsImageResource()) {
+  if (node && info.image && info.image->IsImageResource()) {
     LocalDOMWindow* window = node->GetDocument().domWindow();
     DCHECK(window);
     ImageElementTiming::From(*window).NotifyBackgroundImagePainted(
@@ -678,21 +686,18 @@ void PaintFillLayerBackground(GraphicsContext& context,
                  inspector_paint_image_event::Data(
                      node, *info.image, FloatRect(image->Rect()),
                      FloatRect(scrolled_paint_rect)));
-    DrawTiledBackground(context, image,
-                        FloatSize(geometry.UnsnappedDestRect().size),
-                        FloatRect(geometry.SnappedDestRect()), geometry.Phase(),
-                        FloatSize(geometry.TileSize()), composite_op,
-                        FloatSize(geometry.SpaceSize()));
-    if (RuntimeEnabledFeatures::FirstContentfulPaintPlusPlusEnabled()) {
-      if (info.image && info.image->IsImageResource()) {
-        PaintTimingDetector::NotifyBackgroundImagePaint(
-            node, image, To<StyleFetchedImage>(info.image.Get()),
-            context.GetPaintController().CurrentPaintChunkProperties());
-      }
+    DrawTiledBackground(
+        context, image, FloatSize(geometry.UnsnappedDestRect().size),
+        FloatRect(geometry.SnappedDestRect()), geometry.Phase(),
+        FloatSize(geometry.TileSize()), composite_op,
+        FloatSize(geometry.SpaceSize()),
+        node && node->ComputedStyleRef().HasFilterInducingProperty());
+    if (info.image && info.image->IsImageResource()) {
+      PaintTimingDetector::NotifyBackgroundImagePaint(
+          node, image, To<StyleFetchedImage>(info.image.Get()),
+          context.GetPaintController().CurrentPaintChunkProperties());
     }
-    if (node &&
-        RuntimeEnabledFeatures::ElementTimingEnabled(&node->GetDocument()) &&
-        info.image && info.image->IsImageResource()) {
+    if (node && info.image && info.image->IsImageResource()) {
       LocalDOMWindow* window = node->GetDocument().domWindow();
       DCHECK(window);
       ImageElementTiming::From(*window).NotifyBackgroundImagePainted(

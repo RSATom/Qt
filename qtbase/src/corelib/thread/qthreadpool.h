@@ -45,6 +45,8 @@
 #include <QtCore/qthread.h>
 #include <QtCore/qrunnable.h>
 
+#include <functional>
+
 QT_REQUIRE_CONFIG(thread);
 
 QT_BEGIN_NAMESPACE
@@ -70,6 +72,9 @@ public:
     void start(QRunnable *runnable, int priority = 0);
     bool tryStart(QRunnable *runnable);
 
+    void start(std::function<void()> functionToRun, int priority = 0);
+    bool tryStart(std::function<void()> functionToRun);
+
     int expiryTimeout() const;
     void setExpiryTimeout(int expiryTimeout);
 
@@ -87,6 +92,8 @@ public:
     bool waitForDone(int msecs = -1);
 
     void clear();
+
+    bool contains(const QThread *thread) const;
 
 #if QT_DEPRECATED_SINCE(5, 9)
     QT_DEPRECATED_X("use tryTake(), but note the different deletion rules")

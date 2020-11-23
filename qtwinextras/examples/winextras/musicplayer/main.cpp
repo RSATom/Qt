@@ -93,7 +93,7 @@ static bool associateFileTypes()
     settings.setValue(QStringLiteral("FriendlyAppName"), displayName);
     settings.beginGroup(QStringLiteral("Command"));
     settings.setValue(QStringLiteral("."),
-                      QLatin1Char('"') + QDir::toNativeSeparators(filePath) + QStringLiteral("\" \"%1\""));
+                      u'"' + QDir::toNativeSeparators(filePath) + QStringLiteral("\" \"%1\""));
 
     return true;
 }

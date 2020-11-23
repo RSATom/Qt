@@ -272,7 +272,7 @@ private Q_SLOTS:
 };
 
 QScriptBreakpointsWidget::QScriptBreakpointsWidget(QWidget *parent)
-    : QScriptBreakpointsWidgetInterface(*new QScriptBreakpointsWidgetPrivate, parent, 0)
+    : QScriptBreakpointsWidgetInterface(*new QScriptBreakpointsWidgetPrivate, parent, {})
 {
     Q_D(QScriptBreakpointsWidget);
     d->view = new QTreeView();

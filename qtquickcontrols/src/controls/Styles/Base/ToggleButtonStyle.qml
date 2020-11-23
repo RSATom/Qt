@@ -139,11 +139,11 @@ CircularButtonStyle {
 
         Connections {
             target: control
-            onPressedChanged: {
+            function onPressedChanged() {
                 backgroundCanvas.requestPaint();
             }
 
-            onCheckedChanged: {
+            function onCheckedChanged() {
                 uncheckedCanvas.requestPaint();
                 checkedCanvas.requestPaint();
             }
@@ -152,11 +152,11 @@ CircularButtonStyle {
         Connections {
             target: circularButtonStyle
 
-            onCheckedGradientChanged: checkedCanvas.requestPaint()
-            onCheckedDropShadowColorChanged: checkedCanvas.requestPaint()
-            onUncheckedGradientChanged: uncheckedCanvas.requestPaint()
-            onUncheckedDropShadowColorChanged: uncheckedCanvas.requestPaint()
-            onInactiveGradientChanged: {
+            function onCheckedGradientChanged() { checkedCanvas.requestPaint() }
+            function onCheckedDropShadowColorChanged() { checkedCanvas.requestPaint() }
+            function onUncheckedGradientChanged() { uncheckedCanvas.requestPaint() }
+            function onUncheckedDropShadowColorChanged() { uncheckedCanvas.requestPaint() }
+            function onInactiveGradientChanged() {
                 checkedCanvas.requestPaint();
                 uncheckedCanvas.requestPaint();
             }
@@ -164,17 +164,17 @@ CircularButtonStyle {
 
         Connections {
             target: circularButtonStyle.checkedGradient
-            onUpdated: checkedCanvas.requestPaint()
+            function onUpdated() { checkedCanvas.requestPaint() }
         }
 
         Connections {
             target: circularButtonStyle.uncheckedGradient
-            onUpdated: uncheckedCanvas.requestPaint()
+            function onUpdated() { uncheckedCanvas.requestPaint() }
         }
 
         Connections {
             target: circularButtonStyle.inactiveGradient
-            onUpdated: {
+            function onUpdated() {
                 uncheckedCanvas.requestPaint();
                 checkedCanvas.requestPaint();
             }

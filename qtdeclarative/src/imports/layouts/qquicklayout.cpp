@@ -41,6 +41,7 @@
 #include <QEvent>
 #include <QtCore/qcoreapplication.h>
 #include <QtCore/private/qnumeric_p.h>
+#include <QtCore/qstack.h>
 #include <QtCore/qmath.h>
 #include <QtQml/qqmlinfo.h>
 #include <limits>
@@ -90,6 +91,8 @@
 
 QT_BEGIN_NAMESPACE
 
+Q_LOGGING_CATEGORY(lcQuickLayouts, "qt.quick.layouts")
+
 QQuickLayoutAttached::QQuickLayoutAttached(QObject *parent)
     : QObject(parent),
       m_minimumWidth(0),
@@ -117,8 +120,7 @@ QQuickLayoutAttached::QQuickLayoutAttached(QObject *parent)
       m_isLeftMarginSet(false),
       m_isTopMarginSet(false),
       m_isRightMarginSet(false),
-      m_isBottomMarginSet(false),
-      m_alignment(nullptr)
+      m_isBottomMarginSet(false)
 {
 
 }
@@ -379,7 +381,7 @@ void QQuickLayoutAttached::setRow(int row)
 {
     if (row >= 0 && row != m_row) {
         m_row = row;
-        repopulateLayout();
+        invalidateItem();
         emit rowChanged();
     }
 }
@@ -400,7 +402,7 @@ void QQuickLayoutAttached::setColumn(int column)
 {
     if (column >= 0 && column != m_column) {
         m_column = column;
-        repopulateLayout();
+        invalidateItem();
         emit columnChanged();
     }
 }
@@ -627,7 +629,7 @@ void QQuickLayoutAttached::setRowSpan(int span)
 {
     if (span != m_rowSpan) {
         m_rowSpan = span;
-        repopulateLayout();
+        invalidateItem();
         emit rowSpanChanged();
     }
 }
@@ -647,7 +649,7 @@ void QQuickLayoutAttached::setColumnSpan(int span)
 {
     if (span != m_columnSpan) {
         m_columnSpan = span;
-        repopulateLayout();
+        invalidateItem();
         emit columnSpanChanged();
     }
 }
@@ -668,18 +670,10 @@ qreal QQuickLayoutAttached::sizeHint(Qt::SizeHint which, Qt::Orientation orienta
 
 void QQuickLayoutAttached::invalidateItem()
 {
-    if (!m_changesNotificationEnabled)
-        return;
-    quickLayoutDebug() << "QQuickLayoutAttached::invalidateItem";
+    qCDebug(lcQuickLayouts) << "QQuickLayoutAttached::invalidateItem";
     if (QQuickLayout *layout = parentLayout()) {
         layout->invalidate(item());
     }
-}
-
-void QQuickLayoutAttached::repopulateLayout()
-{
-    if (QQuickLayout *layout = parentLayout())
-        layout->updateLayoutItems();
 }
 
 QQuickLayout *QQuickLayoutAttached::parentLayout() const
@@ -699,10 +693,41 @@ QQuickItem *QQuickLayoutAttached::item() const
     return qobject_cast<QQuickItem *>(parent());
 }
 
+qreal QQuickLayoutPrivate::getImplicitWidth() const
+{
+    Q_Q(const QQuickLayout);
+    if (q->invalidated()) {
+        QQuickLayoutPrivate *that = const_cast<QQuickLayoutPrivate*>(this);
+        that->implicitWidth = q->sizeHint(Qt::PreferredSize).width();
+    }
+    return implicitWidth;
+}
+
+qreal QQuickLayoutPrivate::getImplicitHeight() const
+{
+    Q_Q(const QQuickLayout);
+    if (q->invalidated()) {
+        QQuickLayoutPrivate *that = const_cast<QQuickLayoutPrivate*>(this);
+        that->implicitHeight = q->sizeHint(Qt::PreferredSize).height();
+    }
+    return implicitHeight;
+}
+
+void QQuickLayoutPrivate::applySizeHints() const {
+    Q_Q(const QQuickLayout);
+    QQuickLayout *that = const_cast<QQuickLayout*>(q);
+    QQuickLayoutAttached *info = attachedLayoutObject(that, true);
+
+    const QSizeF min = q->sizeHint(Qt::MinimumSize);
+    const QSizeF max = q->sizeHint(Qt::MaximumSize);
+    const QSizeF pref = q->sizeHint(Qt::PreferredSize);
+    info->setMinimumImplicitSize(min);
+    info->setMaximumImplicitSize(max);
+    that->setImplicitSize(pref.width(), pref.height());
+}
 
 QQuickLayout::QQuickLayout(QQuickLayoutPrivate &dd, QQuickItem *parent)
     : QQuickItem(dd, parent)
-    , m_dirty(false)
     , m_inUpdatePolish(false)
     , m_polishInsideUpdatePolish(0)
 {
@@ -731,9 +756,25 @@ QQuickLayoutAttached *QQuickLayout::qmlAttachedProperties(QObject *object)
 
 void QQuickLayout::updatePolish()
 {
+    qCDebug(lcQuickLayouts) << "updatePolish() ENTERING" << this;
     m_inUpdatePolish = true;
+
+    // Might have become "undirty" before we reach this updatePolish()
+    // (e.g. if somebody queried for implicitWidth it will immediately
+    // calculate size hints)
+    if (invalidated()) {
+        // Ensure that all invalidated layouts are synced and valid again. Since
+        // ensureLayoutItemsUpdated() will also call applySizeHints(), and sizeHint() will call its
+        // childrens sizeHint(), and sizeHint() will call ensureLayoutItemsUpdated(), this will be done
+        // recursive as we want.
+        // Note that we need to call ensureLayoutItemsUpdated() *before* we query width() and height(),
+        // because width()/height() might return their implicitWidth/implicitHeight (e.g. for a layout
+        // with no explicitly specified size, (nor anchors.fill: parent))
+        ensureLayoutItemsUpdated();
+    }
     rearrange(QSizeF(width(), height()));
     m_inUpdatePolish = false;
+    qCDebug(lcQuickLayouts) << "updatePolish() LEAVING" << this;
 }
 
 void QQuickLayout::componentComplete()
@@ -747,31 +788,34 @@ void QQuickLayout::componentComplete()
 
 void QQuickLayout::invalidate(QQuickItem * /*childItem*/)
 {
-    if (m_dirty)
+    Q_D(QQuickLayout);
+    if (invalidated())
         return;
 
-    m_dirty = true;
+    qCDebug(lcQuickLayouts) << "QQuickLayout::invalidate()" << this;
+    d->m_dirty = true;
+    d->m_dirtyArrangement = true;
 
     if (!qobject_cast<QQuickLayout *>(parentItem())) {
-        quickLayoutDebug() << "QQuickLayout::invalidate(), polish()";
 
         if (m_inUpdatePolish)
             ++m_polishInsideUpdatePolish;
         else
             m_polishInsideUpdatePolish = 0;
 
-        if (m_polishInsideUpdatePolish <= 2)
+        if (m_polishInsideUpdatePolish <= 2) {
             // allow at most two consecutive loops in order to respond to height-for-width
             // (e.g QQuickText changes implicitHeight when its width gets changed)
+            qCDebug(lcQuickLayouts) << "QQuickLayout::invalidate(), polish()";
             polish();
-        else
+        } else {
             qWarning() << "Qt Quick Layouts: Polish loop detected. Aborting after two iterations.";
+        }
     }
 }
 
 bool QQuickLayout::shouldIgnoreItem(QQuickItem *child, QQuickLayoutAttached *&info, QSizeF *sizeHints) const
 {
-    Q_D(const QQuickLayout);
     bool ignoreItem = true;
     QQuickItemPrivate *childPrivate = QQuickItemPrivate::get(child);
     if (childPrivate->explicitVisible) {
@@ -790,8 +834,6 @@ bool QQuickLayout::shouldIgnoreItem(QQuickItem *child, QQuickLayoutAttached *&in
     if (!ignoreItem && childPrivate->isTransparentForPositioner())
         ignoreItem = true;
 
-    if (ignoreItem)
-        d->m_ignoredItems << child;
     return ignoreItem;
 }
 
@@ -802,6 +844,17 @@ void QQuickLayout::checkAnchors(QQuickItem *item) const
         qmlWarning(item) << "Detected anchors on an item that is managed by a layout. This is undefined behavior; use Layout.alignment instead.";
 }
 
+void QQuickLayout::ensureLayoutItemsUpdated() const
+{
+    Q_D(const QQuickLayout);
+    if (!invalidated())
+        return;
+    const_cast<QQuickLayout*>(this)->updateLayoutItems();
+    d->m_dirty = false;
+    d->applySizeHints();
+}
+
+
 void QQuickLayout::itemChange(ItemChange change, const ItemChangeData &value)
 {
     if (change == ItemChildAddedChange) {
@@ -810,14 +863,16 @@ void QQuickLayout::itemChange(ItemChange change, const ItemChangeData &value)
         qmlobject_connect(item, QQuickItem, SIGNAL(baselineOffsetChanged(qreal)), this, QQuickLayout, SLOT(invalidateSenderItem()));
         QQuickItemPrivate::get(item)->addItemChangeListener(this, changeTypes);
         d->m_hasItemChangeListeners = true;
+        qCDebug(lcQuickLayouts) << "ChildAdded" << item;
         if (isReady())
-            updateLayoutItems();
+            invalidate();
     } else if (change == ItemChildRemovedChange) {
         QQuickItem *item = value.item;
         qmlobject_disconnect(item, QQuickItem, SIGNAL(baselineOffsetChanged(qreal)), this, QQuickLayout, SLOT(invalidateSenderItem()));
         QQuickItemPrivate::get(item)->removeItemChangeListener(this, changeTypes);
+        qCDebug(lcQuickLayouts) << "ChildRemoved" << item;
         if (isReady())
-            updateLayoutItems();
+            invalidate();
     }
     QQuickItem::itemChange(change, value);
 }
@@ -829,7 +884,7 @@ void QQuickLayout::geometryChanged(const QRectF &newGeometry, const QRectF &oldG
     if (d->m_disableRearrange || !isReady() || !newGeometry.isValid())
         return;
 
-    quickLayoutDebug() << "QQuickStackLayout::geometryChanged" << newGeometry << oldGeometry;
+    qCDebug(lcQuickLayouts) << "QQuickLayout::geometryChanged" << newGeometry << oldGeometry;
     rearrange(newGeometry.size());
 }
 
@@ -871,10 +926,20 @@ void QQuickLayout::deactivateRecur()
     }
 }
 
+bool QQuickLayout::invalidated() const
+{
+    return d_func()->m_dirty;
+}
+
+bool QQuickLayout::invalidatedArrangement() const
+{
+    return d_func()->m_dirtyArrangement;
+}
+
 void QQuickLayout::itemSiblingOrderChanged(QQuickItem *item)
 {
     Q_UNUSED(item);
-    updateLayoutItems();
+    invalidate();
 }
 
 void QQuickLayout::itemImplicitWidthChanged(QQuickItem *item)
@@ -903,7 +968,7 @@ void QQuickLayout::itemVisibilityChanged(QQuickItem *item)
 
 void QQuickLayout::rearrange(const QSizeF &/*size*/)
 {
-    m_dirty = false;
+    d_func()->m_dirtyArrangement = false;
 }
 
 
@@ -1157,6 +1222,82 @@ QLayoutPolicy::Policy QQuickLayout::effectiveSizePolicy_helper(QQuickItem *item,
 
 }
 
+void QQuickLayout::_q_dumpLayoutTree() const
+{
+    QString buf;
+    dumpLayoutTreeRecursive(0, buf);
+    qDebug("\n%s", qPrintable(buf));
+}
 
+void QQuickLayout::dumpLayoutTreeRecursive(int level, QString &buf) const
+{
+    auto formatLine = [&level](const char *fmt) {
+        QString ss(level *4, QLatin1Char(' '));
+        return QString::fromLatin1("%1%2\n").arg(ss).arg(fmt);
+    };
+
+    auto f2s = [](qreal f) {
+        return QString::number(f);
+    };
+    auto b2s = [](bool b) {
+        static const char *strBool[] = {"false", "true"};
+        return QLatin1String(strBool[int(b)]);
+    };
+
+    buf += formatLine("%1 {").arg(QQmlMetaType::prettyTypeName(this));
+    ++level;
+    buf += formatLine("// Effective calculated values:");
+    buf += formatLine("sizeHintDirty: %2").arg(invalidated());
+    QSizeF min = sizeHint(Qt::MinimumSize);
+    buf += formatLine("sizeHint.min : [%1, %2]").arg(f2s(min.width()), 5).arg(min.height(), 5);
+    QSizeF pref = sizeHint(Qt::PreferredSize);
+    buf += formatLine("sizeHint.pref: [%1, %2]").arg(pref.width(), 5).arg(pref.height(), 5);
+    QSizeF max = sizeHint(Qt::MaximumSize);
+    buf += formatLine("sizeHint.max : [%1, %2]").arg(f2s(max.width()), 5).arg(f2s(max.height()), 5);
+
+    for (QQuickItem *item : childItems()) {
+        buf += QLatin1Char('\n');
+        if (QQuickLayout *childLayout = qobject_cast<QQuickLayout*>(item)) {
+            childLayout->dumpLayoutTreeRecursive(level, buf);
+        } else {
+            buf += formatLine("%1 {").arg(QQmlMetaType::prettyTypeName(item));
+            ++level;
+            if (item->implicitWidth() > 0)
+                buf += formatLine("implicitWidth: %1").arg(f2s(item->implicitWidth()));
+            if (item->implicitHeight() > 0)
+                buf += formatLine("implicitHeight: %1").arg(f2s(item->implicitHeight()));
+            QSizeF min;
+            QSizeF pref;
+            QSizeF max;
+            QQuickLayoutAttached *info = attachedLayoutObject(item, false);
+            if (info) {
+                min = QSizeF(info->minimumWidth(), info->minimumHeight());
+                pref = QSizeF(info->preferredWidth(), info->preferredHeight());
+                max = QSizeF(info->maximumWidth(), info->maximumHeight());
+                if (info->isExtentExplicitlySet(Qt::Horizontal, Qt::MinimumSize))
+                    buf += formatLine("Layout.minimumWidth: %1").arg(f2s(min.width()));
+                if (info->isExtentExplicitlySet(Qt::Vertical, Qt::MinimumSize))
+                    buf += formatLine("Layout.minimumHeight: %1").arg(f2s(min.height()));
+                if (pref.width() >= 0)
+                    buf += formatLine("Layout.preferredWidth: %1").arg(f2s(pref.width()));
+                if (pref.height() >= 0)
+                    buf += formatLine("Layout.preferredHeight: %1").arg(f2s(pref.height()));
+                if (info->isExtentExplicitlySet(Qt::Horizontal, Qt::MaximumSize))
+                    buf += formatLine("Layout.maximumWidth: %1").arg(f2s(max.width()));
+                if (info->isExtentExplicitlySet(Qt::Vertical, Qt::MaximumSize))
+                    buf += formatLine("Layout.maximumHeight: %1").arg(f2s(max.height()));
+
+                if (info->isFillWidthSet())
+                    buf += formatLine("Layout.fillWidth: %1").arg(b2s(info->fillWidth()));
+                if (info->isFillHeightSet())
+                    buf += formatLine("Layout.fillHeight: %1").arg(b2s(info->fillHeight()));
+            }
+            --level;
+            buf += formatLine("}");
+        }
+    }
+    --level;
+    buf += formatLine("}");
+}
 
 QT_END_NAMESPACE

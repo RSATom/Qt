@@ -4,6 +4,8 @@
 
 component("media_message_center") {
   sources = [
+    "media_controls_progress_view.cc",
+    "media_controls_progress_view.h",
     "media_notification_background.cc",
     "media_notification_background.h",
     "media_notification_constants.cc",
@@ -14,8 +16,11 @@ component("media_message_center") {
     "media_notification_item.h",
     "media_notification_util.cc",
     "media_notification_util.h",
-    "media_notification_view.cc",
     "media_notification_view.h",
+    "media_notification_view_impl.cc",
+    "media_notification_view_impl.h",
+    "media_session_notification_item.cc",
+    "media_session_notification_item.h",
   ]
 
   defines = [ "IS_MEDIA_MESSAGE_CENTER_IMPL" ]
@@ -29,6 +34,7 @@ component("media_message_center") {
     "//skia",
     "//ui/accessibility",
     "//ui/message_center",
+    "//ui/native_theme",
     "//ui/views",
   ]
 }
@@ -37,8 +43,9 @@ source_set("unit_tests") {
   testonly = true
 
   sources = [
+    "media_controls_progress_view_unittest.cc",
     "media_notification_background_unittest.cc",
-    "media_notification_view_unittest.cc",
+    "media_notification_view_impl_unittest.cc",
   ]
 
   deps = [
@@ -52,6 +59,7 @@ source_set("unit_tests") {
     "//testing/gtest",
     "//ui/accessibility",
     "//ui/message_center",
+    "//ui/native_theme:test_support",
     "//ui/views",
     "//ui/views:test_support",
   ]

@@ -12,9 +12,13 @@
 #include "osp/impl/quic/quic_connection_factory.h"
 #include "osp/impl/quic/quic_service_common.h"
 #include "osp/public/protocol_connection_server.h"
+#include "platform/api/task_runner.h"
+#include "platform/api/time.h"
 #include "platform/base/ip_address.h"
+#include "util/alarm.h"
 
 namespace openscreen {
+namespace osp {
 
 // This class is the default implementation of ProtocolConnectionServer for the
 // library.  It manages connections to other endpoints as well as the lifetime
@@ -32,7 +36,9 @@ class QuicServer final : public ProtocolConnectionServer,
   QuicServer(const ServerConfig& config,
              MessageDemuxer* demuxer,
              std::unique_ptr<QuicConnectionFactory> connection_factory,
-             ProtocolConnectionServer::Observer* observer);
+             ProtocolConnectionServer::Observer* observer,
+             platform::ClockNowFunctionPtr now_function,
+             platform::TaskRunner* task_runner);
   ~QuicServer() override;
 
   // ProtocolConnectionServer overrides.
@@ -40,7 +46,6 @@ class QuicServer final : public ProtocolConnectionServer,
   bool Stop() override;
   bool Suspend() override;
   bool Resume() override;
-  void RunTasks() override;
   std::unique_ptr<ProtocolConnection> CreateProtocolConnection(
       uint64_t endpoint_id) override;
 
@@ -68,6 +73,10 @@ class QuicServer final : public ProtocolConnectionServer,
   void OnIncomingConnection(
       std::unique_ptr<QuicConnection> connection) override;
 
+  // Deletes dead QUIC connections then returns the time interval before this
+  // method should be run again.
+  void Cleanup();
+
   const std::vector<IPEndpoint> connection_endpoints_;
   std::unique_ptr<QuicConnectionFactory> connection_factory_;
 
@@ -89,11 +98,15 @@ class QuicServer final : public ProtocolConnectionServer,
   // completed the QUIC handshake.
   std::map<uint64_t, ServiceConnectionData> connections_;
 
-  // Connections that need to be destroyed, but have to wait for the next event
-  // loop due to the underlying QUIC implementation's way of referencing them.
-  std::vector<decltype(connections_)::iterator> delete_connections_;
+  // Connections (endpoint IDs) that need to be destroyed, but have to wait for
+  // the next event loop due to the underlying QUIC implementation's way of
+  // referencing them.
+  std::vector<uint64_t> delete_connections_;
+
+  Alarm cleanup_alarm_;
 };
 
+}  // namespace osp
 }  // namespace openscreen
 
 #endif  // OSP_IMPL_QUIC_QUIC_SERVER_H_

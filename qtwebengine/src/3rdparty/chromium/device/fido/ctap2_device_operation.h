@@ -69,8 +69,7 @@ class Ctap2DeviceOperation : public DeviceOperation<Request, Response> {
                                            std::move(request),
                                            std::move(callback)),
         device_response_parser_(std::move(device_response_parser)),
-        string_fixup_predicate_(string_fixup_predicate),
-        weak_factory_(this) {}
+        string_fixup_predicate_(string_fixup_predicate) {}
 
   ~Ctap2DeviceOperation() override = default;
 
@@ -110,6 +109,7 @@ class Ctap2DeviceOperation : public DeviceOperation<Request, Response> {
   // |kCtap2ErrKeepAliveCancel|.
   void Cancel() override {
     if (this->token_) {
+      FIDO_LOG(DEBUG) << "<- (cancel)";
       this->device()->Cancel(*this->token_);
       this->token_.reset();
     }
@@ -204,7 +204,7 @@ class Ctap2DeviceOperation : public DeviceOperation<Request, Response> {
  private:
   DeviceResponseParser device_response_parser_;
   const CBORPathPredicate string_fixup_predicate_;
-  base::WeakPtrFactory<Ctap2DeviceOperation> weak_factory_;
+  base::WeakPtrFactory<Ctap2DeviceOperation> weak_factory_{this};
 
   DISALLOW_COPY_AND_ASSIGN(Ctap2DeviceOperation);
 };

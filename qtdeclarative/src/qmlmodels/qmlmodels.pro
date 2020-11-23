@@ -28,14 +28,10 @@ qtConfig(qml-object-model) {
 
 qtConfig(qml-table-model) {
     SOURCES += \
-        $$PWD/qqmltableinstancemodel.cpp \
-        $$PWD/qqmltablemodel.cpp \
-        $$PWD/qqmltablemodelcolumn.cpp
+        $$PWD/qqmltableinstancemodel.cpp
 
     HEADERS += \
-        $$PWD/qqmltableinstancemodel_p.h \
-        $$PWD/qqmltablemodel_p.h \
-        $$PWD/qqmltablemodelcolumn_p.h
+        $$PWD/qqmltableinstancemodel_p.h
 }
 
 qtConfig(qml-list-model) {
@@ -51,21 +47,27 @@ qtConfig(qml-list-model) {
 
 qtConfig(qml-delegate-model) {
     SOURCES += \
+        $$PWD/qqmlabstractdelegatecomponent.cpp \
         $$PWD/qqmladaptormodel.cpp \
         $$PWD/qqmldelegatemodel.cpp \
-        $$PWD/qqmldelegatecomponent.cpp \
         $$PWD/qqmllistaccessor.cpp \
         $$PWD/qqmllistcompositor.cpp \
         $$PWD/qquickpackage.cpp
 
     HEADERS += \
+        $$PWD/qqmlabstractdelegatecomponent_p.h \
         $$PWD/qqmladaptormodel_p.h \
         $$PWD/qqmldelegatemodel_p.h \
         $$PWD/qqmldelegatemodel_p_p.h \
-        $$PWD/qqmldelegatecomponent_p.h \
         $$PWD/qqmllistaccessor_p.h \
         $$PWD/qqmllistcompositor_p.h \
         $$PWD/qquickpackage_p.h
 }
+
+QMLTYPES_FILENAME = plugins.qmltypes
+QMLTYPES_INSTALL_DIR = $$[QT_INSTALL_QML]/QtQml/Models.2
+QML_IMPORT_NAME = QtQml.Models
+IMPORT_VERSION = 2.$$QT_MINOR_VERSION
+CONFIG += qmltypes install_qmltypes install_metatypes
 
 load(qt_module)

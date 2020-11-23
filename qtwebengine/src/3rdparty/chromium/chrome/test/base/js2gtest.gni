@@ -5,6 +5,21 @@
 import("//v8/gni/snapshot_toolchain.gni")
 import("//v8/gni/v8.gni")
 
+# Libraries required to generate the custom test library built with js2gtest.
+# Changing the size or the order of files in this array also requires changing
+# src/tools/gypv8sh.py.
+js2gtest_js_input_libraries = [
+  "//chrome/third_party/mock4js/mock4js.js",
+  "//chrome/test/data/webui/test_api.js",
+  "//chrome/test/base/js2gtest.js",
+]
+
+# Additional libraries loaded at test runtime.
+js2gtest_runtime_js_libraries = [ "//third_party/chaijs/chai.js" ]
+
+js2gtest_js_libraries =
+    js2gtest_js_input_libraries + js2gtest_runtime_js_libraries
+
 # Variables:
 #   test_type: One of 'webui', 'unit' or 'extension' indicating what
 #       environment the test runs under.
@@ -15,6 +30,7 @@ import("//v8/gni/v8.gni")
 #       in the tests and therefore considered input to the C++ generation step.
 #   extra_js_files: List of javascript files needed by the test at runtime,
 #       typically listed in the extraLibraries member of the test fixture.
+#   data
 #   defines
 #   deps
 #   visibility
@@ -31,6 +47,11 @@ template("js2gtest") {
 
   gen_source_pattern = "{{source_gen_dir}}/{{source_name_part}}-gen.cc"
 
+  data = []
+  if (defined(invoker.data)) {
+    data += invoker.data
+  }
+
   action_foreach(action_name) {
     testonly = true
     visibility = [ ":$source_set_name" ]
@@ -44,12 +65,7 @@ template("js2gtest") {
       v8_shell_path += ".exe"
     }
 
-    input_js = [
-      "//chrome/third_party/mock4js/mock4js.js",
-      "//chrome/test/data/webui/test_api.js",
-      "//chrome/test/base/js2gtest.js",
-    ]
-    inputs = [ v8_shell_path ] + input_js
+    inputs = [ v8_shell_path ] + js2gtest_js_input_libraries
     if (defined(invoker.deps_js)) {
       inputs += [ invoker.deps_js ]
     }
@@ -64,7 +80,7 @@ template("js2gtest") {
       copied_source_pattern,
       gen_source_pattern,
     ]
-    data = process_file_template(sources, [ copied_source_pattern ])
+    data += process_file_template(sources, [ copied_source_pattern ])
 
     args = []
     if (defined(invoker.deps_js)) {
@@ -77,7 +93,8 @@ template("js2gtest") {
       # Need "./" for script to find binary (cur dir is not on path).
       "./" + rebase_path(v8_shell_path, root_build_dir),
     ]
-    args += rebase_path(input_js, root_build_dir) + [ invoker.test_type ]
+    args += rebase_path(js2gtest_js_input_libraries, root_build_dir) +
+            [ invoker.test_type ]
     if (v8_use_external_startup_data) {
       args += [ "--external=y" ]
     } else {
@@ -135,7 +152,7 @@ template("js2gtest") {
       deps += invoker.deps
     }
     if (defined(invoker.gen_include_files)) {
-      data = invoker.gen_include_files
+      data += invoker.gen_include_files
     }
     if (defined(invoker.extra_js_files)) {
       data_deps = [

@@ -65,7 +65,7 @@ void tst_Parser::error()
     QFile errorFile(errorFileName);
     errorFile.open(QIODevice::ReadOnly | QIODevice::Text);
     const QStringList expectedErrors =
-            QString::fromUtf8(errorFile.readAll()).split('\n', QString::SkipEmptyParts);
+            QString::fromUtf8(errorFile.readAll()).split('\n', Qt::SkipEmptyParts);
 
     if (!expectedErrors.isEmpty())
         QTest::ignoreMessage(QtWarningMsg, "SCXML document has errors");

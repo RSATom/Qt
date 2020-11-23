@@ -54,6 +54,20 @@
 #include <QtGui/qmatrix4x4.h>
 #include <QtCore/qset.h>
 
+#ifdef Q_CLANG_QDOC
+typedef void* VkQueue;
+typedef void* VkCommandPool;
+typedef void* VkRenderPass;
+typedef void* VkCommandBuffer;
+typedef void* VkFramebuffer;
+typedef int VkPhysicalDeviceProperties;
+typedef int VkFormat;
+typedef int VkQueueFamilyProperties;
+typedef int VkDeviceQueueCreateInfo;
+typedef int VkFormat;
+typedef int VkSampleCountFlagBits;
+#endif
+
 QT_BEGIN_NAMESPACE
 
 class QVulkanWindowPrivate;
@@ -103,6 +117,11 @@ public:
     QVector<int> supportedSampleCounts();
     void setSampleCount(int sampleCount);
 
+    typedef std::function<void(const VkQueueFamilyProperties *,
+                               uint32_t,
+                               QVector<VkDeviceQueueCreateInfo> &)> QueueCreateInfoModifier;
+    void setQueueCreateInfoModifier(const QueueCreateInfoModifier &modifier);
+
     bool isValid() const;
 
     virtual QVulkanWindowRenderer *createRenderer();
@@ -112,6 +131,7 @@ public:
     const VkPhysicalDeviceProperties *physicalDeviceProperties() const;
     VkDevice device() const;
     VkQueue graphicsQueue() const;
+    uint32_t graphicsQueueFamilyIndex() const;
     VkCommandPool graphicsCommandPool() const;
     uint32_t hostVisibleMemoryIndex() const;
     uint32_t deviceLocalMemoryIndex() const;

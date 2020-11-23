@@ -9,6 +9,7 @@
 #include "base/logging.h"
 #include "ui/base/models/menu_model.h"
 #include "ui/gfx/image/image.h"
+#include "ui/gfx/paint_vector_icon.h"
 #include "ui/views/controls/menu/menu_item_view.h"
 #include "ui/views/controls/menu/submenu_view.h"
 
@@ -69,6 +70,9 @@ MenuItemView* MenuModelAdapter::AddMenuItemFromModelAt(ui::MenuModel* model,
   base::Optional<MenuItemView::Type> type;
   ui::MenuModel::ItemType menu_type = model->GetTypeAt(model_index);
   switch (menu_type) {
+    case ui::MenuModel::TYPE_TITLE:
+      type = MenuItemView::TITLE;
+      break;
     case ui::MenuModel::TYPE_COMMAND:
     case ui::MenuModel::TYPE_BUTTON_ITEM:
       type = MenuItemView::NORMAL;
@@ -95,8 +99,8 @@ MenuItemView* MenuModelAdapter::AddMenuItemFromModelAt(ui::MenuModel* model,
 
   if (*type == MenuItemView::SEPARATOR) {
     return menu->AddMenuItemAt(menu_index, item_id, base::string16(),
-                               base::string16(), base::string16(), nullptr,
-                               gfx::ImageSkia(), *type,
+                               base::string16(), nullptr, gfx::ImageSkia(),
+                               nullptr, *type,
                                model->GetSeparatorTypeAt(model_index));
   }
 
@@ -104,9 +108,9 @@ MenuItemView* MenuModelAdapter::AddMenuItemFromModelAt(ui::MenuModel* model,
   model->GetIconAt(model_index, &icon);
   return menu->AddMenuItemAt(
       menu_index, item_id, model->GetLabelAt(model_index),
-      model->GetSublabelAt(model_index), model->GetMinorTextAt(model_index),
-      model->GetMinorIconAt(model_index),
-      icon.IsEmpty() ? gfx::ImageSkia() : *icon.ToImageSkia(), *type,
+      model->GetMinorTextAt(model_index), model->GetMinorIconAt(model_index),
+      icon.IsEmpty() ? gfx::ImageSkia() : *icon.ToImageSkia(),
+      icon.IsEmpty() ? model->GetVectorIconAt(model_index) : nullptr, *type,
       ui::NORMAL_SEPARATOR);
 }
 
@@ -274,7 +278,11 @@ void MenuModelAdapter::BuildMenuImpl(MenuItemView* menu, ui::MenuModel* model) {
   for (int i = 0; i < item_count; ++i) {
     MenuItemView* item = AppendMenuItem(menu, model, i);
     if (item) {
-      item->SetEnabled(model->IsEnabledAt(i));
+      // Enabled state should be ignored for titles as they are non-interactive.
+      if (model->GetTypeAt(i) == ui::MenuModel::TYPE_TITLE)
+        item->SetEnabled(false);
+      else
+        item->SetEnabled(model->IsEnabledAt(i));
       item->SetVisible(model->IsVisibleAt(i));
     }
 

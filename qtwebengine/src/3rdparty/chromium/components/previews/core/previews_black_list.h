@@ -52,12 +52,16 @@ enum class PreviewsEligibilityReason {
   NETWORK_NOT_SLOW = 7,
   // If the page was reloaded, the user should not be shown a stale preview.
   RELOAD_DISALLOWED = 8,
-  // The host is explicitly blacklisted by the server, so the user was not shown
+  // DEPRECATED: The host is explicitly blacklisted by the server, so the user
+  // was not shown
   // a preview.
-  HOST_BLACKLISTED_BY_SERVER = 9,
-  // The host is not whitelisted by the server for a preview decision that uses
+  // Replaced by NOT_ALLOWED_BY_OPTIMIZATION_GUIDE.
+  DEPRECATED_HOST_BLACKLISTED_BY_SERVER = 9,
+  // DEPRECATED: The host is not whitelisted by the server for a preview
+  // decision that uses
   // server optimization hints.
-  HOST_NOT_WHITELISTED_BY_SERVER = 10,
+  // Replaced by NOT_ALLOWED_BY_OPTIMIZATION_GUIDE.
+  DEPRECATED_HOST_NOT_WHITELISTED_BY_SERVER = 10,
   // The preview is allowed but without an expected check of server optimization
   // hints because they are not enabled (features::kOptimizationHints).
   ALLOWED_WITHOUT_OPTIMIZATION_HINTS = 11,
@@ -66,8 +70,8 @@ enum class PreviewsEligibilityReason {
   // Previews blocked by a Cache-Control:no-transform directive.
   CACHE_CONTROL_NO_TRANSFORM = 13,
   // The network is faster than the max slow page triggering threshold for the
-  // session.
-  NETWORK_NOT_SLOW_FOR_SESSION = 14,
+  // session. No longer used as of M80.
+  DEPRECATED_NETWORK_NOT_SLOW_FOR_SESSION = 14,
   // Device is offline.
   DEVICE_OFFLINE = 15,
   // URL contained Basic Authentication, i.e.: a username or password.
@@ -77,6 +81,17 @@ enum class PreviewsEligibilityReason {
   OPTIMIZATION_HINTS_NOT_AVAILABLE = 17,
   // The navigation URL has a media suffix which is excluded from previews.
   EXCLUDED_BY_MEDIA_SUFFIX = 18,
+  // The Optimization Guide was checked for this preview type and the
+  // optimization guide did not allow this preview type.
+  NOT_ALLOWED_BY_OPTIMIZATION_GUIDE = 19,
+  // The preview was not performed due to a coinflip experiment holdback.
+  COINFLIP_HOLDBACK = 20,
+  // A redirect loop was detected.
+  REDIRECT_LOOP_DETECTED = 21,
+  // URL matched the deny list.
+  DENY_LIST_MATCHED = 22,
+  // The page load was not predicted to be painful.
+  PAGE_LOAD_PREDICTION_NOT_PAINFUL = 23,
   LAST,
 };
 

@@ -13,18 +13,16 @@
 #include "content/browser/web_package/signed_exchange_signature_verifier.h"
 #include "content/common/content_export.h"
 #include "net/url_request/redirect_util.h"
-#include "services/network/public/cpp/resource_response.h"
+#include "services/network/public/mojom/url_response_head.mojom.h"
 #include "url/gurl.h"
 
 namespace network {
 struct ResourceRequest;
-struct ResourceResponseHead;
 }  // namespace network
 
 namespace content {
 
 class BrowserContext;
-class ResourceContext;
 class SignedExchangeDevToolsProxy;
 
 namespace signed_exchange_utils {
@@ -48,10 +46,7 @@ void ReportErrorAndTraceEvent(
         base::nullopt);
 
 // Returns true when SignedHTTPExchange feature is enabled. This must be called
-// on the IO thread.
-CONTENT_EXPORT bool IsSignedExchangeHandlingEnabledOnIO(
-    ResourceContext* context);
-// Same as above but called on UI thread.
+// on the UI thread.
 CONTENT_EXPORT bool IsSignedExchangeHandlingEnabled(BrowserContext* context);
 
 // Returns true when SignedExchangeReportingForDistributors feature is enabled.
@@ -62,7 +57,7 @@ bool IsSignedExchangeReportingForDistributorsEnabled();
 // check IsSignedExchangeHandlingEnabled() before really enabling the feature.
 bool ShouldHandleAsSignedHTTPExchange(
     const GURL& request_url,
-    const network::ResourceResponseHead& head);
+    const network::mojom::URLResponseHead& head);
 
 // Extracts the signed exchange version [1] from |content_type|, and converts it
 // to SignedExchanveVersion. Returns nullopt if the mime type is not a variant
@@ -84,14 +79,26 @@ SignedExchangeLoadResult GetLoadResultFromSignatureVerifierResult(
 net::RedirectInfo CreateRedirectInfo(
     const GURL& new_url,
     const network::ResourceRequest& outer_request,
-    const network::ResourceResponseHead& outer_response,
+    const network::mojom::URLResponseHead& outer_response,
     bool is_fallback_redirect);
 
-// Creates a ResourceResponseHead of synthesized redirect for signed exchange
+// Creates a URLResponseHead of synthesized redirect for signed exchange
 // loading.
-network::ResourceResponseHead CreateRedirectResponseHead(
-    const network::ResourceResponseHead& outer_response,
+network::mojom::URLResponseHeadPtr CreateRedirectResponseHead(
+    const network::mojom::URLResponseHead& outer_response,
     bool is_fallback_redirect);
+
+// Creates a new request ID for browser initiated requests. Can be called on
+// any thread.
+int MakeRequestID();
+
+// Returns the time to be used for verifying signed exchange. Can be overridden
+// using SetVerificationTimeForTesting().
+base::Time GetVerificationTime();
+
+// Override the time which is used for verifying signed exchange.
+CONTENT_EXPORT void SetVerificationTimeForTesting(
+    base::Optional<base::Time> verification_time_for_testing);
 
 }  // namespace signed_exchange_utils
 }  // namespace content

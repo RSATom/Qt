@@ -37,6 +37,8 @@
 #include "third_party/blink/renderer/core/animation/animation.h"
 #include "third_party/blink/renderer/core/animation/compositor_animations.h"
 #include "third_party/blink/renderer/core/animation/css/compositor_keyframe_value_factory.h"
+#include "third_party/blink/renderer/core/animation/css/css_animation.h"
+#include "third_party/blink/renderer/core/animation/css/css_transition.h"
 #include "third_party/blink/renderer/core/animation/css_interpolation_types_map.h"
 #include "third_party/blink/renderer/core/animation/document_timeline.h"
 #include "third_party/blink/renderer/core/animation/element_animations.h"
@@ -65,6 +67,7 @@
 #include "third_party/blink/renderer/core/dom/shadow_root.h"
 #include "third_party/blink/renderer/core/events/animation_event.h"
 #include "third_party/blink/renderer/core/events/transition_event.h"
+#include "third_party/blink/renderer/core/frame/web_feature.h"
 #include "third_party/blink/renderer/core/layout/layout_object.h"
 #include "third_party/blink/renderer/core/paint/paint_layer.h"
 #include "third_party/blink/renderer/core/style_property_shorthand.h"
@@ -141,8 +144,8 @@ StringKeyframeEffectModel* CreateKeyframeEffectModel(
 
   for (const CSSProperty* property : specified_properties_for_use_counter) {
     DCHECK(isValidCSSPropertyID(property->PropertyID()));
-    element_for_scoping->GetDocument().CountUse(
-        property->PropertyID(), UseCounterHelper::CSSPropertyType::kAnimation);
+    element_for_scoping->GetDocument().CountAnimatedProperty(
+        property->PropertyID());
   }
 
   // Merge duplicate keyframes.
@@ -215,31 +218,13 @@ std::unique_ptr<TypedInterpolationValue> SampleAnimation(
 
 // Returns the start time of an animation given the start delay. A negative
 // start delay results in the animation starting with non-zero progress.
-double StartTimeFromDelay(double start_delay) {
-  return start_delay < 0 ? -start_delay : 0;
+AnimationTimeDelta StartTimeFromDelay(double start_delay) {
+  return AnimationTimeDelta::FromSecondsD(start_delay < 0 ? -start_delay : 0);
 }
 
 }  // namespace
 
 CSSAnimations::CSSAnimations() = default;
-
-bool CSSAnimations::IsAnimationForInspector(const Animation& animation) {
-  for (const auto& running_animation : running_animations_) {
-    if (running_animation->animation->SequenceNumber() ==
-        animation.SequenceNumber())
-      return true;
-  }
-  return false;
-}
-
-bool CSSAnimations::IsTransitionAnimationForInspector(
-    const Animation& animation) const {
-  for (const auto& it : transitions_) {
-    if (it.value.animation->SequenceNumber() == animation.SequenceNumber())
-      return true;
-  }
-  return false;
-}
 
 namespace {
 
@@ -421,7 +406,7 @@ void CSSAnimations::CalculateAnimationUpdate(CSSAnimationUpdate& update,
                   CreateKeyframeEffectModel(resolver, animating_element,
                                             element, &style, parent_style, name,
                                             keyframe_timing_function.get(), i),
-                  timing, is_paused, animation->UnlimitedCurrentTimeInternal()),
+                  timing, is_paused, animation->UnlimitedCurrentTime()),
               specified_timing, keyframes_rule,
               animation_data->PlayStateList());
           if (is_paused != was_paused)
@@ -537,8 +522,11 @@ void CSSAnimations::MaybeApplyPendingUpdate(Element* element) {
     auto* effect = MakeGarbageCollected<KeyframeEffect>(
         element, inert_animation->Model(), inert_animation->SpecifiedTiming(),
         KeyframeEffect::kDefaultPriority, event_delegate);
-    Animation* animation = element->GetDocument().Timeline().Play(effect);
-    animation->setId(entry.name);
+
+    auto* animation = MakeGarbageCollected<CSSAnimation>(
+        element->GetDocument().ContextDocument(),
+        &(element->GetDocument().Timeline()), effect, entry.name);
+    animation->play();
     if (inert_animation->Paused())
       animation->pause();
     animation->Update(kTimingUpdateOnDemand);
@@ -602,15 +590,15 @@ void CSSAnimations::MaybeApplyPendingUpdate(Element* element) {
 
     KeyframeEffectModelBase* model = inert_animation->Model();
 
-    auto* transition = MakeGarbageCollected<KeyframeEffect>(
+    auto* transition_effect = MakeGarbageCollected<KeyframeEffect>(
         element, model, inert_animation->SpecifiedTiming(),
         KeyframeEffect::kTransitionPriority, event_delegate);
-    Animation* animation = element->GetDocument().Timeline().Play(transition);
-    if (property.IsCSSCustomProperty()) {
-      animation->setId(property.CustomPropertyName());
-    } else {
-      animation->setId(property.GetCSSProperty().GetPropertyName());
-    }
+    auto* animation = MakeGarbageCollected<CSSTransition>(
+        element->GetDocument().ContextDocument(),
+        &(element->GetDocument().Timeline()), transition_effect, property);
+
+    animation->play();
+
     // Set the current time as the start time for retargeted transitions
     if (retargeted_compositor_transitions.Contains(property)) {
       animation->setStartTime(element->GetDocument().Timeline().currentTime(),
@@ -620,9 +608,8 @@ void CSSAnimations::MaybeApplyPendingUpdate(Element* element) {
     running_transition.animation = animation;
     transitions_.Set(property, running_transition);
     DCHECK(isValidCSSPropertyID(property.GetCSSProperty().PropertyID()));
-    element->GetDocument().CountUse(
-        property.GetCSSProperty().PropertyID(),
-        UseCounterHelper::CSSPropertyType::kAnimation);
+    element->GetDocument().CountAnimatedProperty(
+        property.GetCSSProperty().PropertyID());
   }
   ClearPendingUpdate();
 }
@@ -714,7 +701,8 @@ void CSSAnimations::CalculateTransitionUpdateForProperty(
     double inherited_time = old_start_time.has_value()
                                 ? state.animating_element->GetDocument()
                                           .Timeline()
-                                          .CurrentTimeInternal() -
+                                          .CurrentTimeInternal()
+                                          ->InSecondsF() -
                                       old_start_time.value()
                                 : 0;
     std::unique_ptr<TypedInterpolationValue> retargeted_start = SampleAnimation(
@@ -775,8 +763,9 @@ void CSSAnimations::CalculateTransitionUpdateForProperty(
   const ComputedStyle* reversing_adjusted_start_value = &state.old_style;
   double reversing_shortening_factor = 1;
   if (interrupted_transition) {
+    AnimationEffect* effect = interrupted_transition->animation->effect();
     const base::Optional<double> interrupted_progress =
-        interrupted_transition->animation->effect()->Progress();
+        effect ? effect->Progress() : base::nullopt;
     if (interrupted_progress) {
       reversing_adjusted_start_value = interrupted_transition->to.get();
       reversing_shortening_factor =
@@ -793,14 +782,16 @@ void CSSAnimations::CalculateTransitionUpdateForProperty(
 
   TransitionKeyframeVector keyframes;
 
-  TransitionKeyframe* start_keyframe = TransitionKeyframe::Create(property);
+  TransitionKeyframe* start_keyframe =
+      MakeGarbageCollected<TransitionKeyframe>(property);
   start_keyframe->SetValue(std::make_unique<TypedInterpolationValue>(
       *transition_type, start.interpolable_value->Clone(),
       start.non_interpolable_value));
   start_keyframe->SetOffset(0);
   keyframes.push_back(start_keyframe);
 
-  TransitionKeyframe* end_keyframe = TransitionKeyframe::Create(property);
+  TransitionKeyframe* end_keyframe =
+      MakeGarbageCollected<TransitionKeyframe>(property);
   end_keyframe->SetValue(std::make_unique<TypedInterpolationValue>(
       *transition_type, end.interpolable_value->Clone(),
       end.non_interpolable_value));
@@ -1118,7 +1109,7 @@ EventTarget* CSSAnimations::AnimationEventDelegate::GetEventTarget() const {
 void CSSAnimations::AnimationEventDelegate::MaybeDispatch(
     Document::ListenerType listener_type,
     const AtomicString& event_name,
-    double elapsed_time) {
+    const AnimationTimeDelta& elapsed_time) {
   if (animation_target_->GetDocument().HasListenerType(listener_type)) {
     String pseudo_element_name = PseudoElement::PseudoElementNameForEvents(
         animation_target_->GetPseudoId());
@@ -1135,9 +1126,10 @@ bool CSSAnimations::AnimationEventDelegate::RequiresIterationEvents(
 }
 
 void CSSAnimations::AnimationEventDelegate::OnEventCondition(
-    const AnimationEffect& animation_node) {
-  const Timing::Phase current_phase = animation_node.GetPhase();
-  const double current_iteration = animation_node.CurrentIteration();
+    const AnimationEffect& animation_node,
+    Timing::Phase current_phase) {
+  const base::Optional<double> current_iteration =
+      animation_node.CurrentIteration();
 
   if (previous_phase_ != current_phase &&
       (current_phase == Timing::kPhaseActive ||
@@ -1145,7 +1137,8 @@ void CSSAnimations::AnimationEventDelegate::OnEventCondition(
       (previous_phase_ == Timing::kPhaseNone ||
        previous_phase_ == Timing::kPhaseBefore)) {
     const double start_delay = animation_node.SpecifiedTiming().start_delay;
-    const double elapsed_time = start_delay < 0 ? -start_delay : 0;
+    const auto& elapsed_time =
+        AnimationTimeDelta::FromSecondsD(start_delay < 0 ? -start_delay : 0);
     MaybeDispatch(Document::kAnimationStartListener,
                   event_type_names::kAnimationstart, elapsed_time);
   }
@@ -1157,19 +1150,20 @@ void CSSAnimations::AnimationEventDelegate::OnEventCondition(
     // between a single pair of samples. See http://crbug.com/275263. For
     // compatibility with the existing implementation, this event uses
     // the elapsedTime for the first iteration in question.
+    DCHECK(previous_iteration_);
     const AnimationTimeDelta elapsed_time =
         animation_node.SpecifiedTiming().iteration_duration.value() *
-        (previous_iteration_ + 1);
+        (previous_iteration_.value() + 1);
     MaybeDispatch(Document::kAnimationIterationListener,
-                  event_type_names::kAnimationiteration,
-                  elapsed_time.InSecondsF());
+                  event_type_names::kAnimationiteration, elapsed_time);
   }
 
   if (current_phase == Timing::kPhaseAfter &&
       previous_phase_ != Timing::kPhaseAfter) {
     MaybeDispatch(Document::kAnimationEndListener,
                   event_type_names::kAnimationend,
-                  animation_node.SpecifiedTiming().ActiveDuration());
+                  AnimationTimeDelta::FromSecondsD(
+                      animation_node.SpecifiedTiming().ActiveDuration()));
   }
 
   previous_phase_ = current_phase;
@@ -1186,8 +1180,8 @@ EventTarget* CSSAnimations::TransitionEventDelegate::GetEventTarget() const {
 }
 
 void CSSAnimations::TransitionEventDelegate::OnEventCondition(
-    const AnimationEffect& animation_node) {
-  const Timing::Phase current_phase = animation_node.GetPhase();
+    const AnimationEffect& animation_node,
+    Timing::Phase current_phase) {
   if (current_phase == previous_phase_)
     return;
 
@@ -1212,9 +1206,9 @@ void CSSAnimations::TransitionEventDelegate::OnEventCondition(
                previous_phase_ == Timing::kPhaseAfter) {
       // If the transition is progressing backwards it is considered to have
       // started at the end position.
-      EnqueueEvent(
-          event_type_names::kTransitionstart,
-          animation_node.SpecifiedTiming().iteration_duration->InSecondsF());
+      DCHECK(animation_node.SpecifiedTiming().iteration_duration.has_value());
+      EnqueueEvent(event_type_names::kTransitionstart,
+                   animation_node.SpecifiedTiming().iteration_duration.value());
     }
   }
 
@@ -1223,9 +1217,9 @@ void CSSAnimations::TransitionEventDelegate::OnEventCondition(
         (previous_phase_ == Timing::kPhaseActive ||
          previous_phase_ == Timing::kPhaseBefore ||
          previous_phase_ == Timing::kPhaseNone)) {
-      EnqueueEvent(
-          event_type_names::kTransitionend,
-          animation_node.SpecifiedTiming().iteration_duration->InSecondsF());
+      DCHECK(animation_node.SpecifiedTiming().iteration_duration.has_value());
+      EnqueueEvent(event_type_names::kTransitionend,
+                   animation_node.SpecifiedTiming().iteration_duration.value());
     } else if (current_phase == Timing::kPhaseBefore &&
                (previous_phase_ == Timing::kPhaseActive ||
                 previous_phase_ == Timing::kPhaseAfter)) {
@@ -1242,11 +1236,18 @@ void CSSAnimations::TransitionEventDelegate::OnEventCondition(
       // Per the css-transitions-2 spec, transitioncancel is fired with the
       // "active time of the animation at the moment it was cancelled,
       // calculated using a fill mode of both".
-      double cancel_active_time = CalculateActiveTime(
-          animation_node.SpecifiedTiming().ActiveDuration(),
-          Timing::FillMode::BOTH, animation_node.LocalTime(), previous_phase_,
-          animation_node.SpecifiedTiming());
-      EnqueueEvent(event_type_names::kTransitioncancel, cancel_active_time);
+      base::Optional<AnimationTimeDelta> cancel_active_time =
+          CalculateActiveTime(animation_node.SpecifiedTiming().ActiveDuration(),
+                              Timing::FillMode::BOTH,
+                              animation_node.LocalTime(), previous_phase_,
+                              animation_node.SpecifiedTiming());
+      // Being the FillMode::BOTH the only possibility to get a null
+      // cancel_active_time is that previous_phase_ is kPhaseNone. This cannot
+      // happen because we know that current_phase == kPhaseNone and
+      // current_phase != previous_phase_ (see early return at the beginning).
+      DCHECK(cancel_active_time);
+      EnqueueEvent(event_type_names::kTransitioncancel,
+                   cancel_active_time.value());
     }
   }
 
@@ -1255,7 +1256,7 @@ void CSSAnimations::TransitionEventDelegate::OnEventCondition(
 
 void CSSAnimations::TransitionEventDelegate::EnqueueEvent(
     const WTF::AtomicString& type,
-    double elapsed_time) {
+    const AnimationTimeDelta& elapsed_time) {
   String property_name =
       property_.IsCSSCustomProperty()
           ? property_.CustomPropertyName()

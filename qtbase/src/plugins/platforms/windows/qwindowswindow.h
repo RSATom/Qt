@@ -277,8 +277,8 @@ public:
     bool setMouseGrabEnabled(bool grab) override;
     inline bool hasMouseCapture() const { return GetCapture() == m_data.hwnd; }
 
-    bool startSystemResize(const QPoint &pos, Qt::Corner corner) override;
-    bool startSystemMove(const QPoint &pos) override;
+    bool startSystemResize(Qt::Edges edges) override;
+    bool startSystemMove() override;
 
     void setFrameStrutEventsEnabled(bool enabled) override;
     bool frameStrutEventsEnabled() const override { return testFlag(FrameStrutEventsEnabled); }
@@ -286,6 +286,9 @@ public:
     // QWindowsBaseWindow overrides
     HWND handle() const override { return m_data.hwnd; }
     bool isTopLevel() const override;
+
+    static bool setDarkBorderToWindow(HWND hwnd, bool d);
+    void setDarkBorder(bool d);
 
     QWindowsMenuBar *menuBar() const;
     void setMenuBar(QWindowsMenuBar *mb);
@@ -370,6 +373,8 @@ private:
     void handleWindowStateChange(Qt::WindowStates state);
     inline void destroyIcon();
     void fireExpose(const QRegion &region, bool force=false);
+    void fireFullExpose(bool force=false);
+    void calculateFullFrameMargins();
 
     mutable QWindowsWindowData m_data;
     QPointer<QWindowsMenuBar> m_menuBar;

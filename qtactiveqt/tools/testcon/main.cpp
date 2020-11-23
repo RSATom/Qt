@@ -29,11 +29,11 @@
 #include "mainwindow.h"
 
 #include <QApplication>
+#include <QScreen>
 #include <QAxFactory>
 #include <QCommandLineParser>
 #include <QCommandLineOption>
 #include <QDebug>
-#include <QDesktopWidget>
 
 QAXFACTORY_BEGIN(
     "{4a43e44d-9d1d-47e5-a1e5-58fe6f7be0a4}", // type library ID
@@ -104,7 +104,7 @@ int main( int argc, char **argv )
     if (parser.isSet(scriptOption))
         mw.loadScript(parser.value(scriptOption));
 
-    const QRect availableGeometry = QApplication::desktop()->availableGeometry(&mw);
+    const QRect availableGeometry = mw.screen()->availableGeometry();
     mw.resize(availableGeometry.size() * 2 / 3);
     mw.show();
 

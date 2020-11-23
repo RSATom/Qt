@@ -220,6 +220,12 @@ void QHttp2ProtocolHandler::handleConnectionClosure()
     goingAway = true;
 }
 
+void QHttp2ProtocolHandler::ensureClientPrefaceSent()
+{
+    if (!prefaceSent)
+        sendClientPreface();
+}
+
 void QHttp2ProtocolHandler::_q_uploadDataReadyRead()
 {
     if (!sender()) // QueuedConnection, firing after sender (byte device) was deleted.
@@ -1203,6 +1209,9 @@ void QHttp2ProtocolHandler::updateStream(Stream &stream, const Frame &frame,
             QByteDataBuffer inDataBuffer;
             inDataBuffer.append(wrapped);
             replyPrivate->uncompressBodyData(&inDataBuffer, &replyPrivate->responseData);
+            // Now, make sure replyPrivate's destructor will properly clean up
+            // buffers allocated (if any) by zlib.
+            replyPrivate->autoDecompress = true;
         } else {
             replyPrivate->responseData.append(wrapped);
         }

@@ -8,9 +8,11 @@
 #include "gpu/GLES2/gl2extchromium.h"
 #include "gpu/command_buffer/client/shared_image_interface.h"
 #include "gpu/command_buffer/common/shared_image_usage.h"
+#include "gpu/config/gpu_driver_bug_workaround_type.h"
 #include "third_party/blink/renderer/platform/graphics/accelerated_static_bitmap_image.h"
 #include "third_party/blink/renderer/platform/graphics/gpu/drawing_buffer.h"
 #include "third_party/blink/renderer/platform/graphics/gpu/extensions_3d_util.h"
+#include "third_party/blink/renderer/platform/graphics/unaccelerated_static_bitmap_image.h"
 #include "third_party/blink/renderer/platform/instrumentation/tracing/trace_event.h"
 #include "third_party/blink/renderer/platform/wtf/functional.h"
 #include "third_party/skia/include/core/SkSurface.h"
@@ -212,9 +214,6 @@ bool XRWebGLDrawingBuffer::Initialize(const IntSize& size,
     if (extensions_util->SupportsExtension(
             "GL_EXT_multisampled_render_to_texture")) {
       anti_aliasing_mode_ = kMSAAImplicitResolve;
-    } else if (extensions_util->SupportsExtension(
-                   "GL_CHROMIUM_screen_space_antialiasing")) {
-      anti_aliasing_mode_ = kScreenSpaceAntialiasing;
     }
   }
   DVLOG(2) << __FUNCTION__
@@ -250,7 +249,8 @@ void XRWebGLDrawingBuffer::SetMirrorClient(scoped_refptr<MirrorClient> client) {
     // it has content to show.
     sk_sp<SkSurface> surface = SkSurface::MakeRasterN32Premul(1, 1);
     mirror_client_->OnMirrorImageAvailable(
-        StaticBitmapImage::Create(surface->makeImageSnapshot()), nullptr);
+        UnacceleratedStaticBitmapImage::Create(surface->makeImageSnapshot()),
+        nullptr);
   }
 }
 
@@ -285,8 +285,13 @@ void XRWebGLDrawingBuffer::UseSharedBuffer(
 
   // Create a texture backed by the shared buffer image.
   DCHECK(!shared_buffer_texture_id_);
-  shared_buffer_texture_id_ =
-      gl->CreateAndConsumeTextureCHROMIUM(buffer_mailbox_holder.mailbox.name);
+  DCHECK(buffer_mailbox_holder.mailbox.IsSharedImage());
+  shared_buffer_texture_id_ = gl->CreateAndTexStorage2DSharedImageCHROMIUM(
+      buffer_mailbox_holder.mailbox.name);
+
+  gl->BeginSharedImageAccessDirectCHROMIUM(
+      shared_buffer_texture_id_,
+      GL_SHARED_IMAGE_ACCESS_MODE_READWRITE_CHROMIUM);
 
   if (WantExplicitResolve()) {
     // Bind the shared texture to the destination framebuffer of
@@ -349,8 +354,10 @@ void XRWebGLDrawingBuffer::DoneWithSharedBuffer() {
   // rendering now.
   gl->BindFramebuffer(GL_FRAMEBUFFER, 0);
 
-  // Done with the texture created by CreateAndConsumeTexture, delete it.
+  // Done with the texture created by CreateAndTexStorage2DSharedImageCHROMIUM
+  // finish accessing and delete it.
   DCHECK(shared_buffer_texture_id_);
+  gl->EndSharedImageAccessDirectCHROMIUM(shared_buffer_texture_id_);
   gl->DeleteTextures(1, &shared_buffer_texture_id_);
   shared_buffer_texture_id_ = 0;
 
@@ -564,12 +571,7 @@ void XRWebGLDrawingBuffer::BindAndResolveDestinationFramebuffer() {
     client->DrawingBufferClientRestoreScissorTest();
   } else {
     gl->BindFramebuffer(GL_FRAMEBUFFER, framebuffer_);
-    if (anti_aliasing_mode_ == kScreenSpaceAntialiasing) {
-      DVLOG(3) << __FUNCTION__ << ": screen space antialiasing";
-      gl->ApplyScreenSpaceAntialiasingCHROMIUM();
-    } else {
-      DVLOG(3) << __FUNCTION__ << ": nothing to do";
-    }
+    DVLOG(3) << __FUNCTION__ << ": nothing to do";
   }
 
   // On exit, leaves the destination framebuffer active. Caller is responsible
@@ -653,7 +655,7 @@ XRWebGLDrawingBuffer::TransferToStaticBitmapImage(
     // context gets lost.
     sk_sp<SkSurface> surface =
         SkSurface::MakeRasterN32Premul(size_.Width(), size_.Height());
-    return StaticBitmapImage::Create(surface->makeImageSnapshot());
+    return UnacceleratedStaticBitmapImage::Create(surface->makeImageSnapshot());
   }
 
   // This holds a ref on the XRWebGLDrawingBuffer that will keep it alive

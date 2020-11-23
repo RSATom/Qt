@@ -21,6 +21,9 @@
 #include "content/public/browser/browser_task_traits.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/common/content_switches.h"
+#include "mojo/public/cpp/bindings/associated_remote.h"
+#include "mojo/public/cpp/bindings/pending_associated_receiver.h"
+#include "mojo/public/cpp/bindings/remote.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "third_party/blink/public/mojom/service_worker/service_worker_provider.mojom.h"
 #include "third_party/blink/public/mojom/service_worker/service_worker_registration.mojom.h"
@@ -46,7 +49,7 @@ void ReceiveResult(BrowserThread::ID run_quit_thread,
                    Arg actual) {
   *out = actual;
   if (!quit.is_null())
-    base::PostTaskWithTraits(FROM_HERE, {run_quit_thread}, std::move(quit));
+    base::PostTask(FROM_HERE, {run_quit_thread}, std::move(quit));
 }
 
 template <typename Arg>
@@ -61,6 +64,11 @@ base::OnceCallback<void(blink::ServiceWorkerStatusCode)>
 ReceiveServiceWorkerStatus(base::Optional<blink::ServiceWorkerStatusCode>* out,
                            base::OnceClosure quit_closure);
 
+blink::ServiceWorkerStatusCode StartServiceWorker(
+    ServiceWorkerVersion* version);
+
+void StopServiceWorker(ServiceWorkerVersion* version);
+
 // Container for keeping the Mojo connection to the service worker provider on
 // the renderer alive.
 class ServiceWorkerRemoteProviderEndpoint {
@@ -74,28 +82,32 @@ class ServiceWorkerRemoteProviderEndpoint {
   void BindForServiceWorker(
       blink::mojom::ServiceWorkerProviderInfoForStartWorkerPtr info);
 
-  blink::mojom::ServiceWorkerContainerHostAssociatedPtr* host_ptr() {
-    return &host_ptr_;
+  mojo::AssociatedRemote<blink::mojom::ServiceWorkerContainerHost>*
+  host_remote() {
+    return &host_remote_;
   }
 
-  blink::mojom::ServiceWorkerContainerAssociatedRequest* client_request() {
-    return &client_request_;
+  mojo::PendingAssociatedReceiver<blink::mojom::ServiceWorkerContainer>*
+  client_receiver() {
+    return &client_receiver_;
   }
 
  private:
   // Connects to a fake navigation client and keeps alive the message pipe on
-  // which |host_ptr_info_| and |client_request_| are associated so that they
+  // which |host_remote_| and |client_receiver_| are associated so that they
   // are usable. This is only for navigations. For service workers we can also
   // do the same thing by establishing a
   // blink::mojom::EmbeddedWorkerInstanceClient connection if in the future we
-  // really need to make |host_ptr_info_| and |client_request_| usable for it.
-  mojom::NavigationClientPtr navigation_client_;
+  // really need to make |host_remote_| and |client_receiver_| usable for it.
+  mojo::Remote<mojom::NavigationClient> navigation_client_;
   // Bound with content::ServiceWorkerProviderHost. The provider host will be
-  // removed asynchronously when this pointer is closed.
-  blink::mojom::ServiceWorkerContainerHostAssociatedPtr host_ptr_;
-  // This is the other end of ServiceWorkerContainerAssociatedPtr owned by
+  // removed asynchronously when this remote is closed.
+  mojo::AssociatedRemote<blink::mojom::ServiceWorkerContainerHost> host_remote_;
+  // This is the other end of
+  // mojo::PendingAssociatedRemote<ServiceWorkerContainer> owned by
   // content::ServiceWorkerProviderHost.
-  blink::mojom::ServiceWorkerContainerAssociatedRequest client_request_;
+  mojo::PendingAssociatedReceiver<blink::mojom::ServiceWorkerContainer>
+      client_receiver_;
 
   DISALLOW_COPY_AND_ASSIGN(ServiceWorkerRemoteProviderEndpoint);
 };
@@ -350,22 +362,26 @@ class ServiceWorkerUpdateCheckTestUtils {
   // Creates a cache writer in the paused state (a difference was found between
   // the old and new script data). |bytes_compared| is the length compared
   // until the difference was found. |new_headers| is the new script's headers.
-  // |diff_data_block| is the first block of new script data that differs from
-  // the old data.
+  // |pending_network_buffer| is a buffer that has the first block of new script
+  // data that differs from the old data. |concumsed_size| is the number of
+  // bytes of the data consumed from the Mojo data pipe kept in
+  // |pending_network_buffer|.
   static std::unique_ptr<ServiceWorkerCacheWriter> CreatePausedCacheWriter(
       EmbeddedWorkerTestHelper* worker_test_helper,
       size_t bytes_compared,
       const std::string& new_headers,
-      const std::string& diff_data_block,
+      scoped_refptr<network::MojoToNetPendingBuffer> pending_network_buffer,
+      uint32_t consumed_size,
       int64_t old_resource_id,
       int64_t new_resource_id);
 
   static std::unique_ptr<ServiceWorkerSingleScriptUpdateChecker::PausedState>
   CreateUpdateCheckerPausedState(
       std::unique_ptr<ServiceWorkerCacheWriter> cache_writer,
-      ServiceWorkerNewScriptLoader::NetworkLoaderState network_loader_state,
-      ServiceWorkerNewScriptLoader::WriterState body_writer_state,
-      mojo::ScopedDataPipeConsumerHandle network_consumer);
+      ServiceWorkerUpdatedScriptLoader::LoaderState network_loader_state,
+      ServiceWorkerUpdatedScriptLoader::WriterState body_writer_state,
+      scoped_refptr<network::MojoToNetPendingBuffer> pending_network_buffer,
+      uint32_t consumed_size);
 
   static void SetComparedScriptInfoForVersion(
       const GURL& script_url,
@@ -385,11 +401,11 @@ class ServiceWorkerUpdateCheckTestUtils {
       int64_t old_resource_id,
       int64_t new_resource_id,
       EmbeddedWorkerTestHelper* worker_test_helper,
-      ServiceWorkerNewScriptLoader::NetworkLoaderState network_loader_state,
-      ServiceWorkerNewScriptLoader::WriterState body_writer_state,
-      mojo::ScopedDataPipeConsumerHandle network_consumer,
+      ServiceWorkerUpdatedScriptLoader::LoaderState network_loader_state,
+      ServiceWorkerUpdatedScriptLoader::WriterState body_writer_state,
       ServiceWorkerSingleScriptUpdateChecker::Result compare_result,
-      ServiceWorkerVersion* version);
+      ServiceWorkerVersion* version,
+      mojo::ScopedDataPipeProducerHandle* out_body_handle);
 
   // Returns false if the entry for |resource_id| doesn't exist in the storage.
   // Returns true when response status is "OK" and response body is same as

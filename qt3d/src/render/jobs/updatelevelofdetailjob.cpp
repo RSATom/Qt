@@ -210,15 +210,19 @@ namespace Render {
 class UpdateLevelOfDetailJobPrivate : public Qt3DCore::QAspectJobPrivate
 {
 public:
-    UpdateLevelOfDetailJobPrivate() { }
+    UpdateLevelOfDetailJobPrivate(UpdateLevelOfDetailJob *q) : q_ptr(q) { }
 
+    bool isRequired() const override;
     void postFrame(Qt3DCore::QAspectManager *manager) override;
 
     QVector<QPair<Qt3DCore::QNodeId, int>> m_updatedIndices;
+
+    UpdateLevelOfDetailJob *q_ptr;
+    Q_DECLARE_PUBLIC(UpdateLevelOfDetailJob)
 };
 
 UpdateLevelOfDetailJob::UpdateLevelOfDetailJob()
-    : Qt3DCore::QAspectJob(*new UpdateLevelOfDetailJobPrivate)
+    : Qt3DCore::QAspectJob(*new UpdateLevelOfDetailJobPrivate(this))
     , m_manager(nullptr)
     , m_frameGraphRoot(nullptr)
     , m_root(nullptr)
@@ -248,7 +252,7 @@ void UpdateLevelOfDetailJob::setFrameGraphRoot(FrameGraphNode *frameGraphRoot)
 
 void UpdateLevelOfDetailJob::run()
 {
-    Q_DJOB(UpdateLevelOfDetailJob);
+    Q_D(UpdateLevelOfDetailJob);
 
     Q_ASSERT(m_frameGraphRoot && m_root && m_manager);
 
@@ -260,6 +264,12 @@ void UpdateLevelOfDetailJob::run()
     visitor.apply(m_root);
     m_filterValue = visitor.filterValue();
     d->m_updatedIndices = visitor.updatedIndices();
+}
+
+bool UpdateLevelOfDetailJobPrivate::isRequired() const
+{
+    Q_Q(const UpdateLevelOfDetailJob);
+    return q->m_manager->levelOfDetailManager()->count() > 0;
 }
 
 void UpdateLevelOfDetailJobPrivate::postFrame(Qt3DCore::QAspectManager *manager)

@@ -66,18 +66,17 @@ namespace QtWebEngineCore {
 
 class WebContentsAdapter;
 
-class Q_WEBENGINECORE_PRIVATE_EXPORT UserResourceControllerHost {
+class Q_WEBENGINECORE_PRIVATE_EXPORT UserResourceControllerHost
+{
 
 public:
     UserResourceControllerHost();
     ~UserResourceControllerHost();
 
     void addUserScript(const UserScript &script, WebContentsAdapter *adapter);
-    bool containsUserScript(const UserScript &script, WebContentsAdapter *adapter);
     bool removeUserScript(const UserScript &script, WebContentsAdapter *adapter);
     void clearAllScripts(WebContentsAdapter *adapter);
     void reserve(WebContentsAdapter *adapter, int count);
-    const QList<UserScript> registeredScripts(WebContentsAdapter *adapter) const;
 
     void renderProcessStartedWithHost(content::RenderProcessHost *renderer);
 

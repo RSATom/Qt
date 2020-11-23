@@ -25,18 +25,33 @@ namespace {
 const char kModuleQuery[] = "module=";
 }  // namespace
 
+TestDataSource::TestDataSource(std::string root) {
+  base::FilePath test_data;
+  CHECK(base::PathService::Get(chrome::DIR_TEST_DATA, &test_data));
+  src_root_ = test_data.AppendASCII(root).NormalizePathSeparators();
+  DCHECK(test_data.IsParent(src_root_));
+
+  base::FilePath exe_dir;
+  base::PathService::Get(base::DIR_EXE, &exe_dir);
+  gen_root_ = exe_dir.AppendASCII("gen/chrome/test/data/" + root)
+                  .NormalizePathSeparators();
+  DCHECK(exe_dir.IsParent(gen_root_));
+}
+
 std::string TestDataSource::GetSource() {
   return "test";
 }
 
 void TestDataSource::StartDataRequest(
-    const std::string& path,
-    const content::ResourceRequestInfo::WebContentsGetter& wc_getter,
-    const content::URLDataSource::GotDataCallback& callback) {
-  base::PostTaskWithTraits(
-      FROM_HERE, {base::MayBlock(), base::TaskPriority::USER_BLOCKING},
+    const GURL& url,
+    const content::WebContents::Getter& wc_getter,
+    content::URLDataSource::GotDataCallback callback) {
+  const std::string path = content::URLDataSource::URLToRequestPath(url);
+  base::PostTask(
+      FROM_HERE,
+      {base::ThreadPool(), base::MayBlock(), base::TaskPriority::USER_BLOCKING},
       base::BindOnce(&TestDataSource::ReadFile, base::Unretained(this), path,
-                     callback));
+                     std::move(callback)));
 }
 
 std::string TestDataSource::GetMimeType(const std::string& path) {
@@ -47,7 +62,9 @@ std::string TestDataSource::GetMimeType(const std::string& path) {
     return "text/html";
   }
   // The test data source currently only serves HTML and JS.
-  CHECK(base::EndsWith(path, ".js", base::CompareCase::INSENSITIVE_ASCII));
+  CHECK(base::EndsWith(path, ".js", base::CompareCase::INSENSITIVE_ASCII))
+      << "Tried to read file with unexpected type from test data source: "
+      << path;
   return "application/javascript";
 }
 
@@ -70,12 +87,7 @@ GURL TestDataSource::GetURLForPath(const std::string& path) {
 
 void TestDataSource::ReadFile(
     const std::string& path,
-    const content::URLDataSource::GotDataCallback& callback) {
-  if (test_data_.empty()) {
-    CHECK(base::PathService::Get(chrome::DIR_TEST_DATA, &test_data_));
-    CHECK(base::PathService::Get(base::DIR_SOURCE_ROOT, &source_root_));
-  }
-  base::FilePath root = test_data_.Append(FILE_PATH_LITERAL("webui"));
+    content::URLDataSource::GotDataCallback callback) {
   std::string content;
 
   GURL url = GetURLForPath(path);
@@ -83,21 +95,35 @@ void TestDataSource::ReadFile(
   if (base::StartsWith(url.query(), kModuleQuery,
                        base::CompareCase::INSENSITIVE_ASCII)) {
     std::string js_path = url.query().substr(strlen(kModuleQuery));
+
     base::FilePath file_path =
-        root.Append(base::FilePath::FromUTF8Unsafe(js_path));
+        src_root_.Append(base::FilePath::FromUTF8Unsafe(js_path));
     // Do some basic validation of the JS file path provided in the query.
     CHECK_EQ(file_path.Extension(), FILE_PATH_LITERAL(".js"));
-    CHECK(base::PathExists(file_path))
+
+    base::FilePath file_path2 =
+        gen_root_.Append(base::FilePath::FromUTF8Unsafe(js_path));
+    CHECK(base::PathExists(file_path) || base::PathExists(file_path2))
         << url.spec() << "=" << file_path.value();
     content = "<script type=\"module\" src=\"" + js_path + "\"></script>";
   } else {
+    // Try the |src_root_| folder first.
     base::FilePath file_path =
-        root.Append(base::FilePath::FromUTF8Unsafe(path));
-    CHECK(base::ReadFileToString(file_path, &content))
-        << url.spec() << "=" << file_path.value();
+        src_root_.Append(base::FilePath::FromUTF8Unsafe(path));
+    if (base::PathExists(file_path)) {
+      CHECK(base::ReadFileToString(file_path, &content))
+          << url.spec() << "=" << file_path.value();
+    } else {
+      // Then try the |gen_root_| folder, covering cases where the test file is
+      // generated at build time.
+      base::FilePath file_path =
+          gen_root_.Append(base::FilePath::FromUTF8Unsafe(path));
+      CHECK(base::ReadFileToString(file_path, &content))
+          << url.spec() << "=" << file_path.value();
+    }
   }
 
   scoped_refptr<base::RefCountedString> response =
       base::RefCountedString::TakeString(&content);
-  callback.Run(response.get());
+  std::move(callback).Run(response.get());
 }

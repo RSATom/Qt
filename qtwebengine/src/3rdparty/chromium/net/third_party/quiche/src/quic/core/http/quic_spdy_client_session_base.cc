@@ -24,8 +24,7 @@ QuicSpdyClientSessionBase::QuicSpdyClientSessionBase(
     : QuicSpdySession(connection, nullptr, config, supported_versions),
       push_promise_index_(push_promise_index),
       largest_promised_stream_id_(
-          QuicUtils::GetInvalidStreamId(connection->transport_version())),
-      max_allowed_push_id_(0) {}
+          QuicUtils::GetInvalidStreamId(connection->transport_version())) {}
 
 QuicSpdyClientSessionBase::~QuicSpdyClientSessionBase() {
   //  all promised streams for this session
@@ -38,11 +37,6 @@ QuicSpdyClientSessionBase::~QuicSpdyClientSessionBase() {
 
 void QuicSpdyClientSessionBase::OnConfigNegotiated() {
   QuicSpdySession::OnConfigNegotiated();
-}
-
-void QuicSpdyClientSessionBase::OnCryptoHandshakeEvent(
-    CryptoHandshakeEvent event) {
-  QuicSpdySession::OnCryptoHandshakeEvent(event);
 }
 
 void QuicSpdyClientSessionBase::OnInitialHeadersComplete(
@@ -72,9 +66,9 @@ void QuicSpdyClientSessionBase::OnPromiseHeaderList(
     return;
   }
   if (promised_stream_id !=
-          QuicUtils::GetInvalidStreamId(connection()->transport_version()) &&
+          QuicUtils::GetInvalidStreamId(transport_version()) &&
       largest_promised_stream_id_ !=
-          QuicUtils::GetInvalidStreamId(connection()->transport_version()) &&
+          QuicUtils::GetInvalidStreamId(transport_version()) &&
       promised_stream_id <= largest_promised_stream_id_) {
     connection()->CloseConnection(
         QUIC_INVALID_STREAM_ID,
@@ -90,12 +84,13 @@ void QuicSpdyClientSessionBase::OnPromiseHeaderList(
     return;
   }
 
-  if (VersionHasIetfQuicFrames(connection()->transport_version()) &&
+  if (VersionUsesHttp3(transport_version()) &&
       promised_stream_id > max_allowed_push_id()) {
     connection()->CloseConnection(
         QUIC_INVALID_STREAM_ID,
         "Received push stream id higher than MAX_PUSH_ID.",
         ConnectionCloseBehavior::SEND_CONNECTION_CLOSE_PACKET);
+    return;
   }
   largest_promised_stream_id_ = promised_stream_id;
 
@@ -192,8 +187,12 @@ void QuicSpdyClientSessionBase::DeletePromised(
   push_promise_index_->promised_by_url()->erase(promised->url());
   // Since promised_by_id_ contains the unique_ptr, this will destroy
   // promised.
+  // ToDo: Consider implementing logic to send a new MAX_PUSH_ID frame to allow
+  // another stream to be promised.
   promised_by_id_.erase(promised->id());
-  headers_stream()->MaybeReleaseSequencerBuffer();
+  if (!VersionUsesHttp3(transport_version())) {
+    headers_stream()->MaybeReleaseSequencerBuffer();
+  }
 }
 
 void QuicSpdyClientSessionBase::OnPushStreamTimedOut(
@@ -202,6 +201,7 @@ void QuicSpdyClientSessionBase::OnPushStreamTimedOut(
 void QuicSpdyClientSessionBase::ResetPromised(
     QuicStreamId id,
     QuicRstStreamErrorCode error_code) {
+  DCHECK(QuicUtils::IsServerInitiatedStreamId(transport_version(), id));
   SendRstStream(id, error_code, 0);
   if (!IsOpenStream(id)) {
     MaybeIncreaseLargestPeerStreamId(id);
@@ -211,16 +211,13 @@ void QuicSpdyClientSessionBase::ResetPromised(
 void QuicSpdyClientSessionBase::CloseStreamInner(QuicStreamId stream_id,
                                                  bool locally_reset) {
   QuicSpdySession::CloseStreamInner(stream_id, locally_reset);
-  headers_stream()->MaybeReleaseSequencerBuffer();
+  if (!VersionUsesHttp3(transport_version())) {
+    headers_stream()->MaybeReleaseSequencerBuffer();
+  }
 }
 
 bool QuicSpdyClientSessionBase::ShouldReleaseHeadersStreamSequencerBuffer() {
   return !HasActiveRequestStreams() && promised_by_id_.empty();
-}
-
-void QuicSpdyClientSessionBase::set_max_allowed_push_id(
-    QuicStreamId max_allowed_push_id) {
-  max_allowed_push_id_ = max_allowed_push_id;
 }
 
 }  // namespace quic

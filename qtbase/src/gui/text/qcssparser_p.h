@@ -198,6 +198,9 @@ enum Property {
     QtLineHeightType,
     FontKerning,
     QtForegroundTextureCacheKey,
+    QtIcon,
+    LetterSpacing,
+    WordSpacing,
     NumProperties
 };
 
@@ -855,6 +858,7 @@ struct Q_GUI_EXPORT ValueExtractor
     bool extractPalette(QBrush *fg, QBrush *sfg, QBrush *sbg, QBrush *abg);
     int  extractStyleFeatures();
     bool extractImage(QIcon *icon, Qt::Alignment *a, QSize *size);
+    bool extractIcon(QIcon *icon, QSize *size);
 
     void lengthValues(const Declaration &decl, int *m);
 

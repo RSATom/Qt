@@ -53,6 +53,8 @@ defineTest(qtConfCommandline_sanitize) {
             qtConfCommandlineSetInput("sanitize_thread", "yes")
         } else: equals(val, "memory") {
             qtConfCommandlineSetInput("sanitize_memory", "yes")
+        } else: equals(val, "fuzzer-no-link") {
+            qtConfCommandlineSetInput("sanitize_fuzzer_no_link", "yes")
         } else: equals(val, "undefined") {
             qtConfCommandlineSetInput("sanitize_undefined", "yes")
         } else {
@@ -70,7 +72,9 @@ defineTest(qtConfCommandline_coverage) {
     !contains(val, "^-.*"):!isEmpty(val) {
         equals(val, "trace-pc-guard") {
             qtConfCommandlineSetInput("coverage_trace_pc_guard", "yes")
-        } else {
+        } else: equals(val, "source-based") {
+            qtConfCommandlineSetInput("coverage_source_based", "yes")
+        } else: {
             qtConfAddError("Invalid argument $$val to command line parameter $$arg")
         }
     } else {
@@ -81,6 +85,8 @@ defineTest(qtConfCommandline_coverage) {
 # callbacks
 
 defineReplace(qtConfFunc_crossCompile) {
+    !isEmpty(config.input.xplatform): return(true)
+    !isEmpty(config.input.device-option): return(true)
     !isEmpty(config.input.sysroot): return(true)
     spec = $$[QMAKE_SPEC]
     !equals(spec, $$[QMAKE_XSPEC]): return(true)

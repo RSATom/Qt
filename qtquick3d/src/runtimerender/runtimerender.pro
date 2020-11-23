@@ -1,7 +1,7 @@
 TARGET = QtQuick3DRuntimeRender
 MODULE = quick3druntimerender
 
-QT += quick3drender-private quick3dassetimport-private
+QT += quick3drender-private quick3dassetimport-private quick3dutils-private
 
 include(graphobjects/graphobjects.pri)
 include(rendererimpl/rendererimpl.pri)
@@ -21,6 +21,7 @@ HEADERS += \
     qssgrenderdynamicobjectsystem_p.h \
     qssgrenderdynamicobjectsystemcommands_p.h \
     qssgrenderdynamicobjectsystemutil_p.h \
+    qssgrendereffectsystem_p.h \
     qssgrenderer_p.h \
     qssgrendererutil_p.h \
     qssgrendergraphobjectpickquery_p.h \
@@ -47,6 +48,7 @@ SOURCES += \
     qssgrendercustommaterialsystem.cpp \
     qssgrenderdefaultmaterialshadergenerator.cpp \
     qssgrenderdynamicobjectsystem.cpp \
+    qssgrendereffectsystem.cpp \
     qssgrendererutil.cpp \
     qssgrendergpuprofiler.cpp \
     qssgrenderinputstreamfactory.cpp \

@@ -67,6 +67,7 @@ QT_BEGIN_NAMESPACE
 class QPainter;
 class QByteArray;
 class QSvgFont;
+class QTransform;
 
 class Q_SVG_PRIVATE_EXPORT QSvgTinyDocument : public QSvgStructureNode
 {
@@ -88,6 +89,7 @@ public:
     bool heightPercent() const;
 
     bool preserveAspectRatio() const;
+    void setPreserveAspectRatio(bool on);
 
     QRectF viewBox() const;
     void setViewBox(const QRectF &rect);
@@ -99,7 +101,7 @@ public:
     void draw(QPainter *p, const QString &id,
               const QRectF &bounds=QRectF());
 
-    QMatrix matrixForElement(const QString &id) const;
+    QTransform transformForElement(const QString &id) const;
     QRectF boundsOnElement(const QString &id) const;
     bool   elementExists(const QString &id) const;
 
@@ -127,6 +129,7 @@ private:
 
     mutable bool m_implicitViewBox = true;
     mutable QRectF m_viewBox;
+    bool m_preserveAspectRatio = false;
 
     QHash<QString, QSvgRefCounter<QSvgFont> > m_fonts;
     QHash<QString, QSvgNode *> m_namedNodes;
@@ -184,7 +187,7 @@ inline QRectF QSvgTinyDocument::viewBox() const
 
 inline bool QSvgTinyDocument::preserveAspectRatio() const
 {
-    return false;
+    return m_preserveAspectRatio;
 }
 
 inline int QSvgTinyDocument::currentElapsed() const

@@ -35,7 +35,9 @@
 #include "components/language/core/browser/pref_names.h"
 #include "components/language/core/common/language_util.h"
 #include "components/language/core/common/locale_util.h"
+#include "components/spellcheck/browser/spellcheck_platform.h"
 #include "components/spellcheck/common/spellcheck_common.h"
+#include "components/spellcheck/common/spellcheck_features.h"
 #include "components/translate/core/browser/translate_download_manager.h"
 #include "components/translate/core/browser/translate_prefs.h"
 #include "third_party/icu/source/i18n/unicode/coll.h"
@@ -89,10 +91,10 @@ std::unordered_set<std::string> GetIMEsFromPref(PrefService* prefs,
 // Returns the set of allowed UI locales.
 std::unordered_set<std::string> GetAllowedLanguages(PrefService* prefs) {
   std::unordered_set<std::string> allowed_languages;
-  const base::Value::ListStorage& pref_value =
-      prefs->GetList(prefs::kAllowedLanguages)->GetList();
-  for (const base::Value& locale_value : pref_value)
+  for (const base::Value& locale_value :
+       prefs->GetList(prefs::kAllowedLanguages)->GetList()) {
     allowed_languages.insert(locale_value.GetString());
+  }
 
   return allowed_languages;
 }
@@ -292,6 +294,7 @@ LanguageSettingsPrivateEnableLanguageFunction::Run() {
   }
 
   translate_prefs->AddToLanguageList(language_code, /*force_blocked=*/false);
+  translate_prefs->ResetRecentTargetLanguage();
 
   return RespondNow(NoArguments());
 }
@@ -325,6 +328,7 @@ LanguageSettingsPrivateDisableLanguageFunction::Run() {
   }
 
   translate_prefs->RemoveFromLanguageList(language_code);
+  translate_prefs->ResetRecentTargetLanguage();
 
   return RespondNow(NoArguments());
 }
@@ -354,6 +358,7 @@ LanguageSettingsPrivateSetEnableTranslationForLanguageFunction::Run() {
   } else {
     translate_prefs->BlockLanguage(language_code);
   }
+  translate_prefs->ResetRecentTargetLanguage();
 
   return RespondNow(NoArguments());
 }
@@ -406,6 +411,7 @@ LanguageSettingsPrivateMoveLanguageFunction::Run() {
   const int offset = 1;
   translate_prefs->RearrangeLanguage(language_code, where, offset,
                                      supported_language_codes);
+  translate_prefs->ResetRecentTargetLanguage();
 
   return RespondNow(NoArguments());
 }
@@ -495,6 +501,12 @@ LanguageSettingsPrivateAddSpellcheckWordFunction::Run() {
       SpellcheckServiceFactory::GetForContext(browser_context());
   bool success = service->GetCustomDictionary()->AddWord(params->word);
 
+#if BUILDFLAG(USE_BROWSER_SPELLCHECKER)
+  if (spellcheck::UseBrowserSpellChecker()) {
+    spellcheck_platform::AddWord(base::UTF8ToUTF16(params->word));
+  }
+#endif
+
   return RespondNow(OneArgument(std::make_unique<base::Value>(success)));
 }
 
@@ -513,6 +525,12 @@ LanguageSettingsPrivateRemoveSpellcheckWordFunction::Run() {
   SpellcheckService* service =
       SpellcheckServiceFactory::GetForContext(browser_context());
   bool success = service->GetCustomDictionary()->RemoveWord(params->word);
+
+#if BUILDFLAG(USE_BROWSER_SPELLCHECKER)
+  if (spellcheck::UseBrowserSpellChecker()) {
+    spellcheck_platform::RemoveWord(base::UTF8ToUTF16(params->word));
+  }
+#endif
 
   return RespondNow(OneArgument(std::make_unique<base::Value>(success)));
 }

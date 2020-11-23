@@ -44,12 +44,9 @@
 #include <QMetaObject>
 #include <Qt3DCore/qdynamicpropertyupdatedchange.h>
 #include <Qt3DCore/qpropertyupdatedchange.h>
-#include <private/graphicscontext_p.h>
 #include <private/qbackendnode_p.h>
-#include <private/glbuffer_p.h>
 #include <private/managers_p.h>
 #include <private/nodemanagers_p.h>
-#include <private/renderviewjobutils_p.h>
 
 QT_BEGIN_NAMESPACE
 
@@ -164,13 +161,8 @@ ShaderData *ShaderData::lookupResource(QNodeId id)
     return ShaderData::lookupResource(m_managers, id);
 }
 
-void ShaderData::cleanup(NodeManagers *managers)
-{
-    Q_UNUSED(managers)
-}
-
 // RenderCommand updater jobs
-QVariant ShaderData::getTransformedProperty(const QString &name, const Matrix4x4 &viewMatrix)
+QVariant ShaderData::getTransformedProperty(const QString &name, const Matrix4x4 &viewMatrix) const noexcept
 {
     // Note protecting m_worldMatrix at this point as we assume all world updates
     // have been performed when reaching this point

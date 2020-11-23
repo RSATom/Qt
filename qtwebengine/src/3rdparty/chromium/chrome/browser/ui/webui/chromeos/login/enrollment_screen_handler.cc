@@ -42,6 +42,7 @@
 #include "google_apis/gaia/gaia_auth_util.h"
 #include "google_apis/gaia/gaia_urls.h"
 #include "google_apis/gaia/google_service_auth_error.h"
+#include "services/network/public/mojom/cookie_manager.mojom.h"
 #include "ui/base/l10n/l10n_util.h"
 #include "ui/chromeos/devicetype_utils.h"
 
@@ -154,7 +155,7 @@ base::ListValue GetEncryptionTypesList() {
     enc_option.SetKey("value", base::Value(enc_types.id));
     enc_option.SetKey("selected",
                       base::Value(default_types == enc_types.encryption_types));
-    encryption_list.GetList().emplace_back(std::move(enc_option));
+    encryption_list.Append(std::move(enc_option));
   }
   return encryption_list;
 }
@@ -182,8 +183,7 @@ EnrollmentScreenHandler::EnrollmentScreenHandler(
     : BaseScreenHandler(kScreenId, js_calls_container),
       network_state_informer_(network_state_informer),
       error_screen_(error_screen),
-      histogram_helper_(new ErrorScreensHistogramHelper("Enrollment")),
-      weak_ptr_factory_(this) {
+      histogram_helper_(new ErrorScreensHistogramHelper("Enrollment")) {
   DCHECK(network_state_informer_.get());
   DCHECK(error_screen_);
   network_state_informer_->AddObserver(this);
@@ -562,9 +562,9 @@ void EnrollmentScreenHandler::DeclareLocalizedValues(
                IDS_ENTERPRISE_ENROLLMENT_EXPLAIN_ATTRIBUTE_LINK);
   builder->Add("oauthEnrollAttributeExplanation",
                IDS_ENTERPRISE_ENROLLMENT_ATTRIBUTE_EXPLANATION);
-  builder->Add("oauthEnrollAssetIdLabel",
+  builder->Add("enrollmentAssetIdLabel",
                IDS_ENTERPRISE_ENROLLMENT_ASSET_ID_LABEL);
-  builder->Add("oauthEnrollLocationLabel",
+  builder->Add("enrollmentLocationLabel",
                IDS_ENTERPRISE_ENROLLMENT_LOCATION_LABEL);
   builder->Add("oauthEnrollWorking", IDS_ENTERPRISE_ENROLLMENT_WORKING_MESSAGE);
   // Do not use AddF for this string as it will be rendered by the JS code.
@@ -650,7 +650,7 @@ void EnrollmentScreenHandler::OnAdConfigurationUnlocked(
   custom.SetKey(
       "name",
       base::Value(l10n_util::GetStringUTF8(IDS_AD_CONFIG_SELECTION_CUSTOM)));
-  options->GetList().push_back(std::move(custom));
+  options->Append(std::move(custom));
   active_directory_join_type_ =
       ActiveDirectoryDomainJoinType::USING_CONFIGURATION;
   CallJS("login.OAuthEnrollmentScreen.setAdJoinConfiguration", *options);
@@ -789,23 +789,22 @@ void EnrollmentScreenHandler::HandleCompleteLogin(const std::string& user) {
           Profile::FromWebUI(web_ui()));
   content::StoragePartition* partition =
       signin_partition_manager->GetCurrentStoragePartition();
-  net::CookieOptions cookie_options;
-  cookie_options.set_include_httponly();
 
   partition->GetCookieManagerForBrowserProcess()->GetCookieList(
-      GaiaUrls::GetInstance()->gaia_url(), cookie_options,
+      GaiaUrls::GetInstance()->gaia_url(),
+      net::CookieOptions::MakeAllInclusive(),
       base::BindOnce(&EnrollmentScreenHandler::OnGetCookiesForCompleteLogin,
                      weak_ptr_factory_.GetWeakPtr(), user));
 }
 
 void EnrollmentScreenHandler::OnGetCookiesForCompleteLogin(
     const std::string& user,
-    const std::vector<net::CanonicalCookie>& cookies,
+    const net::CookieStatusList& cookies,
     const net::CookieStatusList& excluded_cookies) {
   std::string auth_code;
-  for (const auto& cookie : cookies) {
-    if (cookie.Name() == "oauth_code") {
-      auth_code = cookie.Value();
+  for (const auto& cookie_with_status : cookies) {
+    if (cookie_with_status.cookie.Name() == "oauth_code") {
+      auth_code = cookie_with_status.cookie.Value();
       break;
     }
   }

@@ -74,8 +74,8 @@ TEST_F(ElementFragmentAnchorTest, FocusHandlerRunBeforeRaf) {
 
   // Click on the anchor element. This will cause a synchronous same-document
   // navigation.
-  HTMLAnchorElement* anchor =
-      ToHTMLAnchorElement(GetDocument().getElementById("anchorlink"));
+  auto* anchor =
+      To<HTMLAnchorElement>(GetDocument().getElementById("anchorlink"));
   anchor->click();
   ASSERT_EQ(GetDocument().body(), GetDocument().ActiveElement())
       << "Active element changed while rendering is blocked";
@@ -290,7 +290,7 @@ TEST_F(ElementFragmentAnchorTest, SVGDocumentDoesntCreateFragment) {
       </svg>
     )SVG");
 
-  auto* img = ToHTMLImageElement(GetDocument().getElementById("image"));
+  auto* img = To<HTMLImageElement>(GetDocument().getElementById("image"));
   SVGImage* svg = ToSVGImage(img->CachedImage()->GetImage());
   auto* view =
       DynamicTo<LocalFrameView>(svg->GetPageForTesting()->MainFrame()->View());

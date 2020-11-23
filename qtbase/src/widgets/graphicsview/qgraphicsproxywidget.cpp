@@ -183,7 +183,9 @@ QT_BEGIN_NAMESPACE
 
     \warning This class is provided for convenience when bridging
     QWidgets and QGraphicsItems, it should not be used for
-    high-performance scenarios.
+    high-performance scenarios. In particular, embedding widgets into a scene
+    that is then displayed through a QGraphicsView that uses an OpenGL viewport
+    will not work for all combinations.
 
     \sa QGraphicsScene::addWidget(), QGraphicsWidget
 */
@@ -235,7 +237,7 @@ void QGraphicsProxyWidgetPrivate::sendWidgetMouseEvent(QGraphicsSceneHoverEvent 
     mouseEvent.setPos(event->pos());
     mouseEvent.setScreenPos(event->screenPos());
     mouseEvent.setButton(Qt::NoButton);
-    mouseEvent.setButtons(0);
+    mouseEvent.setButtons({ });
     mouseEvent.setModifiers(event->modifiers());
     sendWidgetMouseEvent(&mouseEvent);
     event->setAccepted(mouseEvent.isAccepted());
@@ -291,7 +293,7 @@ void QGraphicsProxyWidgetPrivate::sendWidgetMouseEvent(QGraphicsSceneMouseEvent 
     }
 
     if (!lastWidgetUnderMouse) {
-        QApplicationPrivate::dispatchEnterLeave(embeddedMouseGrabber ? embeddedMouseGrabber : receiver, 0, event->screenPos());
+        QApplicationPrivate::dispatchEnterLeave(embeddedMouseGrabber ? embeddedMouseGrabber : receiver, nullptr, event->screenPos());
         lastWidgetUnderMouse = receiver;
     }
 
@@ -315,10 +317,10 @@ void QGraphicsProxyWidgetPrivate::sendWidgetMouseEvent(QGraphicsSceneMouseEvent 
         if (q->rect().contains(event->pos()) && q->acceptHoverEvents())
             lastWidgetUnderMouse = alienWidget ? alienWidget : widget;
         else // released on the frame our outside the item, or doesn't accept hover events.
-            lastWidgetUnderMouse = 0;
+            lastWidgetUnderMouse = nullptr;
 
         QApplicationPrivate::dispatchEnterLeave(lastWidgetUnderMouse, embeddedMouseGrabber, event->screenPos());
-        embeddedMouseGrabber = 0;
+        embeddedMouseGrabber = nullptr;
 
 #ifndef QT_NO_CURSOR
         // ### Restore the cursor, don't override it.
@@ -368,7 +370,7 @@ void QGraphicsProxyWidgetPrivate::removeSubFocusHelper(QWidget *widget, Qt::Focu
 QWidget *QGraphicsProxyWidgetPrivate::findFocusChild(QWidget *child, bool next) const
 {
     if (!widget)
-        return 0;
+        return nullptr;
 
     // Run around the focus chain until we find a widget that can take tab focus.
     if (!child) {
@@ -376,12 +378,12 @@ QWidget *QGraphicsProxyWidgetPrivate::findFocusChild(QWidget *child, bool next) 
     } else {
         child = next ? child->d_func()->focus_next : child->d_func()->focus_prev;
         if ((next && child == widget) || (!next && child == widget->d_func()->focus_prev)) {
-             return 0;
+             return nullptr;
         }
     }
 
     if (!child)
-        return 0;
+        return nullptr;
 
     QWidget *oldChild = child;
     uint focus_flag = qt_tab_all_widgets() ? Qt::TabFocus : Qt::StrongFocus;
@@ -394,7 +396,7 @@ QWidget *QGraphicsProxyWidgetPrivate::findFocusChild(QWidget *child, bool next) 
         }
         child = next ? child->d_func()->focus_next : child->d_func()->focus_prev;
     } while (child != oldChild && !(next && child == widget) && !(!next && child == widget->d_func()->focus_prev));
-    return 0;
+    return nullptr;
 }
 
 /*!
@@ -405,9 +407,9 @@ void QGraphicsProxyWidgetPrivate::_q_removeWidgetSlot()
     Q_Q(QGraphicsProxyWidget);
     if (!widget.isNull()) {
         if (const auto &extra = widget->d_func()->extra)
-            extra->proxyWidget = 0;
+            extra->proxyWidget = nullptr;
     }
-    widget = 0;
+    widget = nullptr;
     delete q;
 }
 
@@ -430,7 +432,7 @@ void QGraphicsProxyWidgetPrivate::updateProxyGeometryFromWidget()
     QRectF widgetGeometry = widget->geometry();
     QWidget *parentWidget = widget->parentWidget();
     if (widget->isWindow()) {
-        QGraphicsProxyWidget *proxyParent = 0;
+        QGraphicsProxyWidget *proxyParent = nullptr;
         if (parentWidget && (proxyParent = qobject_cast<QGraphicsProxyWidget *>(q->parentWidget()))) {
             // Nested window proxy (e.g., combobox popup), map widget to the
             // parent widget's global coordinates, and map that to the parent
@@ -497,7 +499,7 @@ void QGraphicsProxyWidgetPrivate::unembedSubWindow(QWidget *subWin)
         if (child->isWidget()) {
             if (QGraphicsProxyWidget *proxy = qobject_cast<QGraphicsProxyWidget *>(static_cast<QGraphicsWidget *>(child))) {
                 if (proxy->widget() == subWin) {
-                    proxy->setWidget(0);
+                    proxy->setWidget(nullptr);
                     scene->removeItem(proxy);
                     delete proxy;
                     return;
@@ -570,8 +572,8 @@ QGraphicsProxyWidget::~QGraphicsProxyWidget()
     After this function returns, QGraphicsProxyWidget will keep its state
     synchronized with that of \a widget whenever possible.
 
-    If a widget is already embedded by this proxy when this function is
-    called, that widget will first be automatically unembedded. Passing 0 for
+    If a widget is already embedded by this proxy when this function is called,
+    that widget will first be automatically unembedded. Passing \nullptr for
     the \a widget argument will only unembed the widget, and the ownership of
     the currently embedded widget will be passed on to the caller.
     Every child widget that are embedded will also be embedded and their proxy
@@ -579,7 +581,7 @@ QGraphicsProxyWidget::~QGraphicsProxyWidget()
 
     Note that widgets with the Qt::WA_PaintOnScreen widget attribute
     set and widgets that wrap an external application or controller
-    cannot be embedded. Examples are QGLWidget and QAxWidget.
+    cannot be embedded. Examples are QOpenGLWidget and QAxWidget.
 
     \sa widget()
 */
@@ -598,7 +600,7 @@ void QGraphicsProxyWidgetPrivate::setWidget_helper(QWidget *newWidget, bool auto
         QObject::disconnect(widget, SIGNAL(destroyed()), q, SLOT(_q_removeWidgetSlot()));
         widget->removeEventFilter(q);
         widget->setAttribute(Qt::WA_DontShowOnScreen, false);
-        widget->d_func()->extra->proxyWidget = 0;
+        widget->d_func()->extra->proxyWidget = nullptr;
         resolveFont(inheritedFontResolveMask);
         resolvePalette(inheritedPaletteResolveMask);
         widget->update();
@@ -1081,7 +1083,7 @@ void QGraphicsProxyWidget::dragLeaveEvent(QGraphicsSceneDragDropEvent *event)
         return;
     QDragLeaveEvent proxyDragLeave;
     QCoreApplication::sendEvent(d->dragDropWidget, &proxyDragLeave);
-    d->dragDropWidget = 0;
+    d->dragDropWidget = nullptr;
 #endif
 }
 
@@ -1143,7 +1145,7 @@ void QGraphicsProxyWidget::dragMoveEvent(QGraphicsSceneDragDropEvent *event)
             // Leave the last drag drop item
             QDragLeaveEvent dragLeave;
             QCoreApplication::sendEvent(d->dragDropWidget, &dragLeave);
-            d->dragDropWidget = 0;
+            d->dragDropWidget = nullptr;
         }
         // Propagate
         event->setDropAction(Qt::IgnoreAction);
@@ -1165,7 +1167,7 @@ void QGraphicsProxyWidget::dropEvent(QGraphicsSceneDragDropEvent *event)
         QDropEvent dropEvent(widgetPos, event->possibleActions(), event->mimeData(), event->buttons(), event->modifiers());
         QCoreApplication::sendEvent(d->dragDropWidget, &dropEvent);
         event->setAccepted(dropEvent.isAccepted());
-        d->dragDropWidget = 0;
+        d->dragDropWidget = nullptr;
     }
 #endif
 }
@@ -1188,8 +1190,8 @@ void QGraphicsProxyWidget::hoverLeaveEvent(QGraphicsSceneHoverEvent *event)
     Q_D(QGraphicsProxyWidget);
     // If hoverMove was compressed away, make sure we update properly here.
     if (d->lastWidgetUnderMouse) {
-        QApplicationPrivate::dispatchEnterLeave(0, d->lastWidgetUnderMouse, event->screenPos());
-        d->lastWidgetUnderMouse = 0;
+        QApplicationPrivate::dispatchEnterLeave(nullptr, d->lastWidgetUnderMouse, event->screenPos());
+        d->lastWidgetUnderMouse = nullptr;
     }
 }
 
@@ -1205,13 +1207,13 @@ void QGraphicsProxyWidget::hoverMoveEvent(QGraphicsSceneHoverEvent *event)
     // Ignore events on the window frame.
     if (!d->widget || !rect().contains(event->pos())) {
         if (d->lastWidgetUnderMouse) {
-            QApplicationPrivate::dispatchEnterLeave(0, d->lastWidgetUnderMouse, event->screenPos());
-            d->lastWidgetUnderMouse = 0;
+            QApplicationPrivate::dispatchEnterLeave(nullptr, d->lastWidgetUnderMouse, event->screenPos());
+            d->lastWidgetUnderMouse = nullptr;
         }
         return;
     }
 
-    d->embeddedMouseGrabber = 0;
+    d->embeddedMouseGrabber = nullptr;
     d->sendWidgetMouseEvent(event);
 }
 
@@ -1230,7 +1232,7 @@ void QGraphicsProxyWidget::ungrabMouseEvent(QEvent *event)
 {
     Q_D(QGraphicsProxyWidget);
     Q_UNUSED(event);
-    d->embeddedMouseGrabber = 0;
+    d->embeddedMouseGrabber = nullptr;
 }
 
 /*!
@@ -1372,12 +1374,12 @@ void QGraphicsProxyWidget::focusInEvent(QFocusEvent *event)
 
     switch (event->reason()) {
     case Qt::TabFocusReason: {
-        if (QWidget *focusChild = d->findFocusChild(0, true))
+        if (QWidget *focusChild = d->findFocusChild(nullptr, true))
             focusChild->setFocus(event->reason());
         break;
     }
     case Qt::BacktabFocusReason:
-        if (QWidget *focusChild = d->findFocusChild(0, false))
+        if (QWidget *focusChild = d->findFocusChild(nullptr, false))
             focusChild->setFocus(event->reason());
         break;
     default:
@@ -1441,17 +1443,17 @@ QVariant QGraphicsProxyWidget::inputMethodQuery(Qt::InputMethodQuery query) cons
         focusWidget = d->widget;
     QVariant v = focusWidget->inputMethodQuery(query);
     QPointF focusWidgetPos = subWidgetRect(focusWidget).topLeft();
-    switch (v.type()) {
-    case QVariant::RectF:
+    switch (v.userType()) {
+    case QMetaType::QRectF:
         v = v.toRectF().translated(focusWidgetPos);
         break;
-    case QVariant::PointF:
+    case QMetaType::QPointF:
         v = v.toPointF() + focusWidgetPos;
         break;
-    case QVariant::Rect:
+    case QMetaType::QRect:
         v = v.toRect().translated(focusWidgetPos.toPoint());
         break;
-    case QVariant::Point:
+    case QMetaType::QPoint:
         v = v.toPoint() + focusWidgetPos.toPoint();
         break;
     default:
@@ -1578,16 +1580,16 @@ QGraphicsProxyWidget *QGraphicsProxyWidget::createProxyForChildWidget(QWidget *c
         return proxy;
     if (!child->parentWidget()) {
         qWarning("QGraphicsProxyWidget::createProxyForChildWidget: top-level widget not in a QGraphicsScene");
-        return 0;
+        return nullptr;
     }
 
     QGraphicsProxyWidget *parentProxy = createProxyForChildWidget(child->parentWidget());
     if (!parentProxy)
-        return 0;
+        return nullptr;
 
     if (!QMetaObject::invokeMethod(parentProxy, "newProxyWidget",  Qt::DirectConnection,
          Q_RETURN_ARG(QGraphicsProxyWidget*, proxy), Q_ARG(const QWidget*, child)))
-        return 0;
+        return nullptr;
     proxy->setParent(parentProxy);
     proxy->setWidget(child);
     return proxy;

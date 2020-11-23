@@ -44,8 +44,8 @@ struct cff2_extents_param_t
     max_y.set_int (INT_MIN);
   }
 
-  void start_path ()         { path_open = true; }
-  void end_path ()           { path_open = false; }
+  void   start_path ()       { path_open = true; }
+  void     end_path ()       { path_open = false; }
   bool is_path_open () const { return path_open; }
 
   void update_bounds (const point_t &pt)
@@ -110,12 +110,10 @@ bool OT::cff2::accelerator_t::get_extents (hb_font_t *font,
 
   if (unlikely (!is_valid () || (glyph >= num_glyphs))) return false;
 
-  unsigned int num_coords;
-  const int *coords = hb_font_get_var_coords_normalized (font, &num_coords);
   unsigned int fd = fdSelect->get_fd (glyph);
   cff2_cs_interpreter_t<cff2_cs_opset_extents_t, cff2_extents_param_t> interp;
   const byte_str_t str = (*charStrings)[glyph];
-  interp.env.init (str, *this, fd, coords, num_coords);
+  interp.env.init (str, *this, fd, font->coords, font->num_coords);
   cff2_extents_param_t  param;
   param.init ();
   if (unlikely (!interp.interpret (param))) return false;
@@ -127,8 +125,8 @@ bool OT::cff2::accelerator_t::get_extents (hb_font_t *font,
   }
   else
   {
-    extents->x_bearing = (int32_t)param.min_x.floor ();
-    extents->width = (int32_t)param.max_x.ceil () - extents->x_bearing;
+    extents->x_bearing = font->em_scalef_x (param.min_x.to_real ());
+    extents->width = font->em_scalef_x (param.max_x.to_real () - param.min_x.to_real ());
   }
   if (param.min_y >= param.max_y)
   {
@@ -137,8 +135,8 @@ bool OT::cff2::accelerator_t::get_extents (hb_font_t *font,
   }
   else
   {
-    extents->y_bearing = (int32_t)param.max_y.ceil ();
-    extents->height = (int32_t)param.min_y.floor () - extents->y_bearing;
+    extents->y_bearing = font->em_scalef_y (param.max_y.to_real ());
+    extents->height = font->em_scalef_y (param.min_y.to_real () - param.max_y.to_real ());
   }
 
   return true;

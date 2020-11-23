@@ -259,7 +259,7 @@ QNearFieldTarget::RequestId NearFieldTarget::sendCommand(const QByteArray &comma
     QByteArray result = jbyteArrayToQByteArray(myNewVal.object<jbyteArray>());
     env->DeleteLocalRef(jba);
 
-    handleResponse(requestId, result);
+    setResponseForRequest(requestId, result, false);
 
     if (!m_keepConnection) {
         // Closing connection

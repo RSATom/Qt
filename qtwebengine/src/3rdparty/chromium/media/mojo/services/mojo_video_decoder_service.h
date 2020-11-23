@@ -12,12 +12,16 @@
 #include "base/memory/scoped_refptr.h"
 #include "base/memory/weak_ptr.h"
 #include "base/unguessable_token.h"
+#include "media/base/cdm_context.h"
 #include "media/base/decode_status.h"
 #include "media/base/overlay_info.h"
 #include "media/base/video_decoder.h"
-#include "media/mojo/interfaces/video_decoder.mojom.h"
+#include "media/mojo/mojom/video_decoder.mojom.h"
 #include "media/mojo/services/media_mojo_export.h"
 #include "media/mojo/services/mojo_media_client.h"
+#include "mojo/public/cpp/bindings/associated_remote.h"
+#include "mojo/public/cpp/bindings/pending_associated_remote.h"
+#include "mojo/public/cpp/bindings/self_owned_receiver.h"
 #include "mojo/public/cpp/bindings/strong_binding.h"
 
 namespace media {
@@ -43,9 +47,10 @@ class MEDIA_MOJO_EXPORT MojoVideoDecoderService final
   // mojom::VideoDecoder implementation
   void GetSupportedConfigs(GetSupportedConfigsCallback callback) final;
   void Construct(
-      mojom::VideoDecoderClientAssociatedPtrInfo client,
-      mojom::MediaLogAssociatedPtrInfo media_log,
-      mojom::VideoFrameHandleReleaserRequest video_frame_handle_releaser,
+      mojo::PendingAssociatedRemote<mojom::VideoDecoderClient> client,
+      mojo::PendingAssociatedRemote<mojom::MediaLog> media_log,
+      mojo::PendingReceiver<mojom::VideoFrameHandleReleaser>
+          video_frame_handle_receiver,
       mojo::ScopedDataPipeConsumerHandle decoder_buffer_pipe,
       mojom::CommandBufferIdPtr command_buffer_id,
       VideoDecoderImplementation implementation,
@@ -93,21 +98,22 @@ class MEDIA_MOJO_EXPORT MojoVideoDecoderService final
   MojoCdmServiceContext* const mojo_cdm_service_context_ = nullptr;
 
   // Channel for sending async messages to the client.
-  mojom::VideoDecoderClientAssociatedPtr client_;
+  mojo::AssociatedRemote<mojom::VideoDecoderClient> client_;
 
   // Proxy object for providing media log services.
   std::unique_ptr<MojoMediaLog> media_log_;
 
   // Holds VideoFrame references on behalf of the client, until the client
   // releases them or is disconnected.
-  mojo::StrongBindingPtr<mojom::VideoFrameHandleReleaser>
+  mojo::SelfOwnedReceiverRef<mojom::VideoFrameHandleReleaser>
       video_frame_handle_releaser_;
 
   // Helper for reading DecoderBuffer data from the DataPipe.
   std::unique_ptr<MojoDecoderBufferReader> mojo_decoder_buffer_reader_;
 
-  // Holds the CdmContextRef to keep the CdmContext alive for the lifetime of
-  // the |decoder_|.
+  // The CDM ID and the corresponding CdmContextRef, which must be held to keep
+  // the CdmContext alive for the lifetime of the |decoder_|.
+  int cdm_id_ = CdmContext::kInvalidCdmId;
   std::unique_ptr<CdmContextRef> cdm_context_ref_;
 
   std::unique_ptr<media::VideoDecoder> decoder_;

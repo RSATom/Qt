@@ -27,6 +27,7 @@
 #include "third_party/blink/public/platform/platform.h"
 #include "third_party/blink/public/platform/web_rect.h"
 #include "third_party/blink/public/platform/web_theme_engine.h"
+#include "third_party/blink/public/resources/grit/blink_image_resources.h"
 #include "third_party/blink/renderer/core/frame/local_frame_view.h"
 #include "third_party/blink/renderer/core/html/forms/html_input_element.h"
 #include "third_party/blink/renderer/core/html/shadow/shadow_element_names.h"
@@ -37,7 +38,6 @@
 #include "third_party/blink/renderer/platform/graphics/color.h"
 #include "third_party/blink/renderer/platform/graphics/graphics_context.h"
 #include "third_party/blink/renderer/platform/graphics/graphics_context_state_saver.h"
-#include "third_party/blink/renderer/platform/web_test_support.h"
 
 namespace blink {
 
@@ -45,19 +45,11 @@ namespace {
 
 const unsigned kDefaultButtonBackgroundColor = 0xffdddddd;
 
-bool UseMockTheme() {
-  return WebTestSupport::IsMockThemeEnabledForTest();
-}
-
 WebThemeEngine::State GetWebThemeState(const Node* node) {
   if (!LayoutTheme::IsEnabled(node))
     return WebThemeEngine::kStateDisabled;
-  if (UseMockTheme() && LayoutTheme::IsReadOnlyControl(node))
-    return WebThemeEngine::kStateReadonly;
   if (LayoutTheme::IsPressed(node))
     return WebThemeEngine::kStatePressed;
-  if (UseMockTheme() && LayoutTheme::IsFocused(node))
-    return WebThemeEngine::kStateFocused;
   if (LayoutTheme::IsHovered(node))
     return WebThemeEngine::kStateHover;
 
@@ -156,9 +148,11 @@ bool ThemePainterDefault::PaintCheckbox(const Node* node,
   extra_params.button.indeterminate = LayoutTheme::IsIndeterminate(node);
 
   float zoom_level = style.EffectiveZoom();
+  extra_params.button.zoom = zoom_level;
   GraphicsContextStateSaver state_saver(paint_info.context, false);
   IntRect unzoomed_rect = rect;
-  if (zoom_level != 1) {
+  if (zoom_level != 1 &&
+      !RuntimeEnabledFeatures::FormControlsRefreshEnabled()) {
     state_saver.Save();
     unzoomed_rect.SetWidth(unzoomed_rect.Width() / zoom_level);
     unzoomed_rect.SetHeight(unzoomed_rect.Height() / zoom_level);
@@ -169,13 +163,13 @@ bool ThemePainterDefault::PaintCheckbox(const Node* node,
 
   Platform::Current()->ThemeEngine()->Paint(
       canvas, WebThemeEngine::kPartCheckbox, GetWebThemeState(node),
-      WebRect(unzoomed_rect), &extra_params);
+      WebRect(unzoomed_rect), &extra_params, style.UsedColorScheme());
   return false;
 }
 
 bool ThemePainterDefault::PaintRadio(const Node* node,
                                      const Document&,
-                                     const ComputedStyle&,
+                                     const ComputedStyle& style,
                                      const PaintInfo& paint_info,
                                      const IntRect& rect) {
   WebThemeEngine::ExtraParams extra_params;
@@ -183,9 +177,9 @@ bool ThemePainterDefault::PaintRadio(const Node* node,
   extra_params.button = WebThemeEngine::ButtonExtraParams();
   extra_params.button.checked = LayoutTheme::IsChecked(node);
 
-  Platform::Current()->ThemeEngine()->Paint(canvas, WebThemeEngine::kPartRadio,
-                                            GetWebThemeState(node),
-                                            WebRect(rect), &extra_params);
+  Platform::Current()->ThemeEngine()->Paint(
+      canvas, WebThemeEngine::kPartRadio, GetWebThemeState(node), WebRect(rect),
+      &extra_params, style.UsedColorScheme());
   return false;
 }
 
@@ -198,15 +192,14 @@ bool ThemePainterDefault::PaintButton(const Node* node,
   cc::PaintCanvas* canvas = paint_info.context.Canvas();
   extra_params.button = WebThemeEngine::ButtonExtraParams();
   extra_params.button.has_border = true;
-  extra_params.button.background_color =
-      UseMockTheme() ? 0xffc0c0c0 : kDefaultButtonBackgroundColor;
+  extra_params.button.background_color = kDefaultButtonBackgroundColor;
   if (style.HasBackground()) {
     extra_params.button.background_color =
         style.VisitedDependentColor(GetCSSPropertyBackgroundColor()).Rgb();
   }
-  Platform::Current()->ThemeEngine()->Paint(canvas, WebThemeEngine::kPartButton,
-                                            GetWebThemeState(node),
-                                            WebRect(rect), &extra_params);
+  Platform::Current()->ThemeEngine()->Paint(
+      canvas, WebThemeEngine::kPartButton, GetWebThemeState(node),
+      WebRect(rect), &extra_params, style.UsedColorScheme());
   return false;
 }
 
@@ -225,10 +218,11 @@ bool ThemePainterDefault::PaintTextField(const Node* node,
   // incorrectly (e.g. https://crbug.com/937872).
   // TODO(gilmanmh): Implement a more permanent solution that allows use of
   // native dark themes.
-  if (paint_info.context.dark_mode_settings().mode != DarkMode::kOff)
+  if (paint_info.context.dark_mode_settings().mode !=
+      DarkModeInversionAlgorithm::kOff)
     return true;
 
-  ControlPart part = style.Appearance();
+  ControlPart part = style.EffectiveAppearance();
 
   WebThemeEngine::ExtraParams extra_params;
   extra_params.text_field.is_text_area = part == kTextAreaPart;
@@ -242,7 +236,7 @@ bool ThemePainterDefault::PaintTextField(const Node* node,
 
   Platform::Current()->ThemeEngine()->Paint(
       canvas, WebThemeEngine::kPartTextField, GetWebThemeState(node),
-      WebRect(rect), &extra_params);
+      WebRect(rect), &extra_params, style.UsedColorScheme());
   return false;
 }
 
@@ -276,7 +270,7 @@ bool ThemePainterDefault::PaintMenuList(const Node* node,
   cc::PaintCanvas* canvas = i.context.Canvas();
   Platform::Current()->ThemeEngine()->Paint(
       canvas, WebThemeEngine::kPartMenuList, GetWebThemeState(node),
-      WebRect(rect), &extra_params);
+      WebRect(rect), &extra_params, style.UsedColorScheme());
   return false;
 }
 
@@ -295,7 +289,7 @@ bool ThemePainterDefault::PaintMenuListButton(const Node* node,
   cc::PaintCanvas* canvas = paint_info.context.Canvas();
   Platform::Current()->ThemeEngine()->Paint(
       canvas, WebThemeEngine::kPartMenuList, GetWebThemeState(node),
-      WebRect(rect), &extra_params);
+      WebRect(rect), &extra_params, style.UsedColorScheme());
   return false;
 }
 
@@ -309,39 +303,20 @@ void ThemePainterDefault::SetupMenuListArrow(
   const int middle = rect.Y() + rect.Height() / 2;
 
   extra_params.menu_list.arrow_y = middle;
-  float arrow_box_width = theme_.ClampedMenuListArrowPaddingSize(
-      document.View()->GetChromeClient(), style);
+  float arrow_box_width =
+      theme_.ClampedMenuListArrowPaddingSize(document.GetFrame(), style);
   float arrow_scale_factor = arrow_box_width / theme_.MenuListArrowWidthInDIP();
-  if (UseMockTheme()) {
-    // The size and position of the drop-down button is different between
-    // the mock theme and the regular aura theme.
-
-    // Padding inside the arrowBox.
-    float extra_padding = 2 * arrow_scale_factor;
-    float arrow_size =
-        std::min(arrow_box_width,
-                 static_cast<float>(rect.Height() - style.BorderTopWidth() -
-                                    style.BorderBottomWidth())) -
-        2 * extra_padding;
-    // |arrowX| is the middle position for mock theme engine.
-    extra_params.menu_list.arrow_x =
-        (style.Direction() == TextDirection::kRtl)
-            ? rect.X() + extra_padding + (arrow_size / 2)
-            : right - (arrow_size / 2) - extra_padding;
-    extra_params.menu_list.arrow_size = arrow_size;
-  } else {
-    // TODO(tkent): This should be 7.0 to match scroll bar buttons.
-    float arrow_size =
-        (RuntimeEnabledFeatures::FormControlsRefreshEnabled() ? 12.0 : 6.0) *
-        arrow_scale_factor;
-    // Put the arrow at the center of paddingForArrow area.
-    // |arrowX| is the left position for Aura theme engine.
-    extra_params.menu_list.arrow_x =
-        (style.Direction() == TextDirection::kRtl)
-            ? left + (arrow_box_width - arrow_size) / 2
-            : right - (arrow_box_width + arrow_size) / 2;
-    extra_params.menu_list.arrow_size = arrow_size;
-  }
+  // TODO(tkent): This should be 7.0 to match scroll bar buttons.
+  float arrow_size =
+      (RuntimeEnabledFeatures::FormControlsRefreshEnabled() ? 8.0 : 6.0) *
+      arrow_scale_factor;
+  // Put the arrow at the center of paddingForArrow area.
+  // |arrowX| is the left position for Aura theme engine.
+  extra_params.menu_list.arrow_x =
+      (style.Direction() == TextDirection::kRtl)
+          ? left + (arrow_box_width - arrow_size) / 2
+          : right - (arrow_box_width + arrow_size) / 2;
+  extra_params.menu_list.arrow_size = arrow_size;
   extra_params.menu_list.arrow_color =
       style.VisitedDependentColor(GetCSSPropertyColor()).Rgb();
 }
@@ -352,16 +327,17 @@ bool ThemePainterDefault::PaintSliderTrack(const LayoutObject& o,
   WebThemeEngine::ExtraParams extra_params;
   cc::PaintCanvas* canvas = i.context.Canvas();
   extra_params.slider.vertical =
-      o.StyleRef().Appearance() == kSliderVerticalPart;
+      o.StyleRef().EffectiveAppearance() == kSliderVerticalPart;
   extra_params.slider.in_drag = false;
 
   PaintSliderTicks(o, i, rect);
 
-  // FIXME: Mock theme doesn't handle zoomed sliders.
-  float zoom_level = UseMockTheme() ? 1 : o.StyleRef().EffectiveZoom();
+  float zoom_level = o.StyleRef().EffectiveZoom();
+  extra_params.slider.zoom = zoom_level;
   GraphicsContextStateSaver state_saver(i.context, false);
   IntRect unzoomed_rect = rect;
-  if (zoom_level != 1) {
+  if (zoom_level != 1 &&
+      !RuntimeEnabledFeatures::FormControlsRefreshEnabled()) {
     state_saver.Save();
     unzoomed_rect.SetWidth(unzoomed_rect.Width() / zoom_level);
     unzoomed_rect.SetHeight(unzoomed_rect.Height() / zoom_level);
@@ -370,8 +346,7 @@ bool ThemePainterDefault::PaintSliderTrack(const LayoutObject& o,
     i.context.Translate(-unzoomed_rect.X(), -unzoomed_rect.Y());
   }
 
-  const Node* node = o.GetNode();
-  auto* input = ToHTMLInputElementOrNull(node);
+  auto* input = DynamicTo<HTMLInputElement>(o.GetNode());
   extra_params.slider.thumb_x = 0;
   extra_params.slider.thumb_y = 0;
   if (input) {
@@ -382,14 +357,19 @@ bool ThemePainterDefault::PaintSliderTrack(const LayoutObject& o,
     LayoutBox* thumb = thumb_element ? thumb_element->GetLayoutBox() : nullptr;
     if (thumb) {
       IntRect thumb_rect = PixelSnappedIntRect(thumb->FrameRect());
-      extra_params.slider.thumb_x = thumb_rect.X() / zoom_level;
-      extra_params.slider.thumb_y = thumb_rect.Y() / zoom_level;
+      if (RuntimeEnabledFeatures::FormControlsRefreshEnabled()) {
+        extra_params.slider.thumb_x = thumb_rect.X();
+        extra_params.slider.thumb_y = thumb_rect.Y();
+      } else {
+        extra_params.slider.thumb_x = thumb_rect.X() / zoom_level;
+        extra_params.slider.thumb_y = thumb_rect.Y() / zoom_level;
+      }
     }
   }
 
   Platform::Current()->ThemeEngine()->Paint(
       canvas, WebThemeEngine::kPartSliderTrack, GetWebThemeState(o.GetNode()),
-      WebRect(unzoomed_rect), &extra_params);
+      WebRect(unzoomed_rect), &extra_params, o.StyleRef().UsedColorScheme());
   return false;
 }
 
@@ -399,14 +379,16 @@ bool ThemePainterDefault::PaintSliderThumb(const Node* node,
                                            const IntRect& rect) {
   WebThemeEngine::ExtraParams extra_params;
   cc::PaintCanvas* canvas = paint_info.context.Canvas();
-  extra_params.slider.vertical = style.Appearance() == kSliderThumbVerticalPart;
+  extra_params.slider.vertical =
+      style.EffectiveAppearance() == kSliderThumbVerticalPart;
   extra_params.slider.in_drag = LayoutTheme::IsPressed(node);
 
-  // FIXME: Mock theme doesn't handle zoomed sliders.
-  float zoom_level = UseMockTheme() ? 1 : style.EffectiveZoom();
+  float zoom_level = style.EffectiveZoom();
+  extra_params.slider.zoom = zoom_level;
   GraphicsContextStateSaver state_saver(paint_info.context, false);
   IntRect unzoomed_rect = rect;
-  if (zoom_level != 1) {
+  if (zoom_level != 1 &&
+      !RuntimeEnabledFeatures::FormControlsRefreshEnabled()) {
     state_saver.Save();
     unzoomed_rect.SetWidth(unzoomed_rect.Width() / zoom_level);
     unzoomed_rect.SetHeight(unzoomed_rect.Height() / zoom_level);
@@ -417,7 +399,7 @@ bool ThemePainterDefault::PaintSliderThumb(const Node* node,
 
   Platform::Current()->ThemeEngine()->Paint(
       canvas, WebThemeEngine::kPartSliderThumb, GetWebThemeState(node),
-      WebRect(unzoomed_rect), &extra_params);
+      WebRect(unzoomed_rect), &extra_params, style.UsedColorScheme());
   return false;
 }
 
@@ -433,7 +415,7 @@ bool ThemePainterDefault::PaintInnerSpinButton(const Node* node,
 
   Platform::Current()->ThemeEngine()->Paint(
       canvas, WebThemeEngine::kPartInnerSpinButton, GetWebThemeState(node),
-      WebRect(rect), &extra_params);
+      WebRect(rect), &extra_params, style.UsedColorScheme());
   return false;
 }
 
@@ -457,7 +439,7 @@ bool ThemePainterDefault::PaintProgressBar(const LayoutObject& o,
   cc::PaintCanvas* canvas = i.context.Canvas();
   Platform::Current()->ThemeEngine()->Paint(
       canvas, WebThemeEngine::kPartProgressBar, GetWebThemeState(o.GetNode()),
-      WebRect(rect), &extra_params);
+      WebRect(rect), &extra_params, o.StyleRef().UsedColorScheme());
   return false;
 }
 
@@ -508,9 +490,9 @@ bool ThemePainterDefault::PaintSearchFieldCancelButton(
       input_layout_box, cancel_button_object, cancel_button_rect, r);
 
   DEFINE_STATIC_REF(Image, cancel_image,
-                    (Image::LoadPlatformResource("searchCancel")));
+                    (Image::LoadPlatformResource(IDR_SEARCH_CANCEL)));
   DEFINE_STATIC_REF(Image, cancel_pressed_image,
-                    (Image::LoadPlatformResource("searchCancelPressed")));
+                    (Image::LoadPlatformResource(IDR_SEARCH_CANCEL_PRESSED)));
   paint_info.context.DrawImage(
       LayoutTheme::IsPressed(cancel_button_object.GetNode())
           ? cancel_pressed_image

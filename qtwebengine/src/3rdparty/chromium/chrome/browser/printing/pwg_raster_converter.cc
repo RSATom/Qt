@@ -14,18 +14,17 @@
 #include "base/logging.h"
 #include "base/macros.h"
 #include "base/metrics/histogram_macros.h"
-#include "chrome/services/printing/public/mojom/constants.mojom.h"
+#include "chrome/browser/printing/printing_service.h"
 #include "chrome/services/printing/public/mojom/pdf_to_pwg_raster_converter.mojom.h"
 #include "components/cloud_devices/common/cloud_device_description.h"
 #include "components/cloud_devices/common/printer_description.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/child_process_data.h"
-#include "content/public/browser/system_connector.h"
+#include "mojo/public/cpp/bindings/remote.h"
 #include "mojo/public/cpp/system/platform_handle.h"
 #include "printing/pdf_render_settings.h"
 #include "printing/pwg_raster_settings.h"
 #include "printing/units.h"
-#include "services/service_manager/public/cpp/connector.h"
 #include "ui/gfx/geometry/rect.h"
 #include "ui/gfx/geometry/size.h"
 
@@ -55,8 +54,8 @@ class PwgRasterConverterHelper
 
   PdfRenderSettings settings_;
   PwgRasterSettings bitmap_settings_;
-  mojo::InterfacePtr<printing::mojom::PdfToPwgRasterConverter>
-      pdf_to_pwg_raster_converter_ptr_;
+  mojo::Remote<printing::mojom::PdfToPwgRasterConverter>
+      pdf_to_pwg_raster_converter_remote_;
   PwgRasterConverter::ResultCallback callback_;
 
   DISALLOW_COPY_AND_ASSIGN(PwgRasterConverterHelper);
@@ -80,11 +79,9 @@ void PwgRasterConverterHelper::Convert(
 
   callback_ = std::move(callback);
 
-  content::GetSystemConnector()->BindInterface(
-      printing::mojom::kChromePrintingServiceName,
-      &pdf_to_pwg_raster_converter_ptr_);
-
-  pdf_to_pwg_raster_converter_ptr_.set_connection_error_handler(
+  GetPrintingService()->BindPdfToPwgRasterConverter(
+      pdf_to_pwg_raster_converter_remote_.BindNewPipeAndPassReceiver());
+  pdf_to_pwg_raster_converter_remote_.set_disconnect_handler(
       base::BindOnce(&PwgRasterConverterHelper::RunCallback, this,
                      base::ReadOnlySharedMemoryRegion(), /*page_count=*/0));
 
@@ -98,7 +95,7 @@ void PwgRasterConverterHelper::Convert(
   // TODO(thestig): Write |data| into shared memory in the first place, to avoid
   // this memcpy().
   memcpy(memory.mapping.memory(), data->front(), data->size());
-  pdf_to_pwg_raster_converter_ptr_->Convert(
+  pdf_to_pwg_raster_converter_remote_->Convert(
       std::move(memory.region), settings_, bitmap_settings_,
       base::BindOnce(&PwgRasterConverterHelper::RunCallback, this));
 }
@@ -119,7 +116,7 @@ void PwgRasterConverterHelper::RunCallback(
       std::move(callback_).Run(base::ReadOnlySharedMemoryRegion());
     }
   }
-  pdf_to_pwg_raster_converter_ptr_.reset();
+  pdf_to_pwg_raster_converter_remote_.reset();
 }
 
 class PwgRasterConverterImpl : public PwgRasterConverter {

@@ -28,6 +28,7 @@
 #include "third_party/blink/renderer/core/workers/worker_global_scope.h"
 
 #include "base/memory/scoped_refptr.h"
+#include "mojo/public/cpp/bindings/pending_remote.h"
 #include "third_party/blink/public/platform/platform.h"
 #include "third_party/blink/public/platform/web_url_request.h"
 #include "third_party/blink/renderer/bindings/core/v8/script_source_code.h"
@@ -265,7 +266,9 @@ void WorkerGlobalScope::ImportScriptsInternal(const Vector<String>& urls,
         source_code.length(), handler ? handler->GetCodeCacheSize() : 0);
     ScriptController()->Evaluate(
         ScriptSourceCode(source_code, ScriptSourceLocationType::kUnknown,
-                         handler, response_url),
+                         handler,
+                         ScriptSourceCode::UsePostRedirectURL() ? response_url
+                                                                : complete_url),
         sanitize_script_errors, &error_event, GetV8CacheOptions());
     if (error_event) {
       ScriptController()->RethrowExceptionFromImportedScript(error_event,
@@ -282,27 +285,6 @@ bool WorkerGlobalScope::FetchClassicImportedScript(
     KURL* out_response_url,
     String* out_source_code,
     std::unique_ptr<Vector<uint8_t>>* out_cached_meta_data) {
-  // InstalledScriptsManager is now used only for starting installed service
-  // workers.
-  // TODO(nhiroki): Consider moving this into ServiceWorkerGlobalScope.
-  InstalledScriptsManager* installed_scripts_manager =
-      GetThread()->GetInstalledScriptsManager();
-  if (installed_scripts_manager &&
-      installed_scripts_manager->IsScriptInstalled(script_url)) {
-    DCHECK(IsServiceWorkerGlobalScope());
-    std::unique_ptr<InstalledScriptsManager::ScriptData> script_data =
-        installed_scripts_manager->GetScriptData(script_url);
-    if (!script_data)
-      return false;
-    *out_response_url = script_url;
-    *out_source_code = script_data->TakeSourceText();
-    *out_cached_meta_data = script_data->TakeMetaData();
-    // TODO(shimazu): Add appropriate probes for inspector.
-    return true;
-  }
-
-  // If the script wasn't provided by the InstalledScriptsManager, load from
-  // ResourceLoader.
   ExecutionContext* execution_context = GetExecutionContext();
   WorkerClassicScriptLoader* classic_script_loader =
       MakeGarbageCollected<WorkerClassicScriptLoader>();
@@ -356,8 +338,8 @@ bool WorkerGlobalScope::IsSecureContext(String& error_message) const {
   return false;
 }
 
-service_manager::InterfaceProvider* WorkerGlobalScope::GetInterfaceProvider() {
-  return &interface_provider_;
+BrowserInterfaceBrokerProxy& WorkerGlobalScope::GetBrowserInterfaceBroker() {
+  return browser_interface_broker_proxy_;
 }
 
 ExecutionContext* WorkerGlobalScope::GetExecutionContext() const {
@@ -466,27 +448,24 @@ WorkerGlobalScope::WorkerGlobalScope(
     : WorkerOrWorkletGlobalScope(
           thread->GetIsolate(),
           CreateSecurityOrigin(creation_params.get()),
-          Agent::CreateForWorkerOrWorklet(thread->GetIsolate()),
+          Agent::CreateForWorkerOrWorklet(
+              thread->GetIsolate(),
+              (creation_params->agent_cluster_id.is_empty()
+                   ? base::UnguessableToken::Create()
+                   : creation_params->agent_cluster_id)),
           creation_params->off_main_thread_fetch_option,
           creation_params->global_scope_name,
           creation_params->parent_devtools_token,
           creation_params->v8_cache_options,
           creation_params->worker_clients,
+          std::move(creation_params->content_settings_client),
           std::move(creation_params->web_worker_fetch_context),
           thread->GetWorkerReportingProxy()),
       script_type_(creation_params->script_type),
       user_agent_(creation_params->user_agent),
       thread_(thread),
-      timers_(GetTaskRunner(TaskType::kJavascriptTimer)),
       time_origin_(time_origin),
       font_selector_(MakeGarbageCollected<OffscreenFontSelector>(this)),
-      animation_frame_provider_(
-          MakeGarbageCollected<WorkerAnimationFrameProvider>(
-              this,
-              creation_params->begin_frame_provider_params)),
-      agent_cluster_id_(creation_params->agent_cluster_id.is_empty()
-                            ? base::UnguessableToken::Create()
-                            : creation_params->agent_cluster_id),
       script_eval_state_(ScriptEvalState::kPauseAfterFetch) {
   InstanceCounters::IncrementCounter(
       InstanceCounters::kWorkerGlobalScopeCounter);
@@ -501,13 +480,14 @@ WorkerGlobalScope::WorkerGlobalScope(
       creation_params->outside_content_security_policy_headers);
   SetWorkerSettings(std::move(creation_params->worker_settings));
 
-  // TODO(sammc): Require a valid |creation_params->interface_provider| once all
-  // worker types provide a valid |creation_params->interface_provider|.
-  if (creation_params->interface_provider.is_valid()) {
-    interface_provider_.Bind(
-        mojo::MakeProxy(service_manager::mojom::InterfaceProviderPtrInfo(
-            creation_params->interface_provider.PassHandle(),
-            service_manager::mojom::InterfaceProvider::Version_)));
+  // TODO(sammc): Require a valid |creation_params->browser_interface_broker|
+  // once all worker types provide a valid
+  // |creation_params->browser_interface_broker|.
+  if (creation_params->browser_interface_broker.is_valid()) {
+    auto pipe = creation_params->browser_interface_broker.PassPipe();
+    browser_interface_broker_proxy_.Bind(
+        mojo::PendingRemote<blink::mojom::BrowserInterfaceBroker>(
+            std::move(pipe), blink::mojom::BrowserInterfaceBroker::Version_));
   }
 
   // A FeaturePolicy is created by FeaturePolicy::CreateFromParentPolicy, even
@@ -524,10 +504,10 @@ void WorkerGlobalScope::ExceptionThrown(ErrorEvent* event) {
 }
 
 void WorkerGlobalScope::RemoveURLFromMemoryCache(const KURL& url) {
+  // MemoryCache can be accessed only from the main thread.
   PostCrossThreadTask(
-      *thread_->GetParentExecutionContextTaskRunners()->Get(
-          TaskType::kNetworking),
-      FROM_HERE, CrossThreadBindOnce(&RemoveURLFromMemoryCacheInternal, url));
+      *Thread::MainThread()->GetTaskRunner(), FROM_HERE,
+      CrossThreadBindOnce(&RemoveURLFromMemoryCacheInternal, url));
 }
 
 NOINLINE void WorkerGlobalScope::InitializeURL(const KURL& url) {
@@ -536,7 +516,7 @@ NOINLINE void WorkerGlobalScope::InitializeURL(const KURL& url) {
   if (GetSecurityOrigin()->IsOpaque()) {
     DCHECK(SecurityOrigin::Create(url)->IsOpaque());
   } else {
-    DCHECK(GetSecurityOrigin()->IsSameSchemeHostPort(
+    DCHECK(GetSecurityOrigin()->IsSameOriginWith(
         SecurityOrigin::Create(url).get()));
   }
   url_ = url;
@@ -546,28 +526,6 @@ void WorkerGlobalScope::queueMicrotask(V8VoidFunction* callback) {
   GetAgent()->event_loop()->EnqueueMicrotask(
       WTF::Bind(&V8VoidFunction::InvokeAndReportException,
                 WrapPersistent(callback), nullptr));
-}
-
-int WorkerGlobalScope::requestAnimationFrame(V8FrameRequestCallback* callback,
-                                             ExceptionState& exception_state) {
-  auto* frame_callback =
-      MakeGarbageCollected<FrameRequestCallbackCollection::V8FrameCallback>(
-          callback);
-  frame_callback->SetUseLegacyTimeBase(true);
-
-  int ret = animation_frame_provider_->RegisterCallback(frame_callback);
-
-  if (ret == WorkerAnimationFrameProvider::kInvalidCallbackId) {
-    exception_state.ThrowDOMException(
-        DOMExceptionCode::kNotSupportedError,
-        "requestAnimationFrame not supported in this Worker.");
-  }
-
-  return ret;
-}
-
-void WorkerGlobalScope::cancelAnimationFrame(int id) {
-  animation_frame_provider_->CancelCallback(id);
 }
 
 void WorkerGlobalScope::SetWorkerSettings(
@@ -589,10 +547,8 @@ TrustedTypePolicyFactory* WorkerGlobalScope::GetTrustedTypes() const {
 void WorkerGlobalScope::Trace(blink::Visitor* visitor) {
   visitor->Trace(location_);
   visitor->Trace(navigator_);
-  visitor->Trace(timers_);
   visitor->Trace(pending_error_events_);
   visitor->Trace(font_selector_);
-  visitor->Trace(animation_frame_provider_);
   visitor->Trace(trusted_types_);
   visitor->Trace(worker_script_);
   WorkerOrWorkletGlobalScope::Trace(visitor);

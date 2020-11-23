@@ -103,6 +103,10 @@ public:
         this->onRestore();
         this->setGlobalCTM(ctm);
     }
+    void restoreLocal(const SkMatrix& localToDevice) {
+        this->onRestore();
+        this->setLocalToDevice(localToDevice);
+    }
     void clipRect(const SkRect& rect, SkClipOp op, bool aa) {
         this->onClipRect(rect, op, aa);
     }
@@ -120,9 +124,9 @@ public:
     }
     bool clipIsWideOpen() const;
 
-    const SkMatrix& ctm() const { return fCTM; }
-    void setCTM(const SkMatrix& ctm) {
-        fCTM = ctm;
+    const SkMatrix& localToDevice() const { return fLocalToDevice; }
+    void setLocalToDevice(const SkMatrix& localToDevice) {
+        fLocalToDevice = localToDevice;
     }
     void setGlobalCTM(const SkMatrix& ctm);
     virtual void validateDevBounds(const SkIRect&) {}
@@ -146,10 +150,10 @@ protected:
     virtual void onSetDeviceClipRestriction(SkIRect* mutableClipRestriction) {}
     virtual bool onClipIsAA() const = 0;
     virtual void onAsRgnClip(SkRegion*) const = 0;
-    enum ClipType {
-        kEmpty_ClipType,
-        kRect_ClipType,
-        kComplex_ClipType
+    enum class ClipType {
+        kEmpty,
+        kRect,
+        kComplex
     };
     virtual ClipType onGetClipType() const = 0;
 
@@ -227,7 +231,8 @@ protected:
     // only when all edge flags are set. If there's a clip region, it draws that using drawPath,
     // or uses clipPath().
     virtual void drawEdgeAAQuad(const SkRect& rect, const SkPoint clip[4],
-                                SkCanvas::QuadAAFlags aaFlags, SkColor color, SkBlendMode mode);
+                                SkCanvas::QuadAAFlags aaFlags, const SkColor4f& color,
+                                SkBlendMode mode);
     // Default impl uses drawImageRect per entry, being anti-aliased only when an entry's edge flags
     // are all set. If there's a clip region, it will be applied using clipPath().
     virtual void drawEdgeAAImageSet(const SkCanvas::ImageSetEntry[], int count,
@@ -248,12 +253,17 @@ protected:
                              SkImage* clipImage, const SkMatrix& clipMatrix);
     virtual sk_sp<SkSpecialImage> makeSpecial(const SkBitmap&);
     virtual sk_sp<SkSpecialImage> makeSpecial(const SkImage*);
-    virtual sk_sp<SkSpecialImage> snapSpecial();
+    // Get a view of the entire device's current contents as an image.
+    sk_sp<SkSpecialImage> snapSpecial();
+    // Snap the 'subset' contents from this device, possibly as a read-only view. If 'forceCopy'
+    // is true then the returned image's pixels must not be affected by subsequent draws into the
+    // device. When 'forceCopy' is false, the image can be a view into the device's pixels
+    // (avoiding a copy for performance, at the expense of safety). Default returns null.
+    virtual sk_sp<SkSpecialImage> snapSpecial(const SkIRect& subset, bool forceCopy = false);
+
     virtual void setImmutable() {}
 
     bool readPixels(const SkPixmap&, int x, int y);
-
-    virtual sk_sp<SkSpecialImage> snapBackImage(const SkIRect&);    // default returns null
 
     ///////////////////////////////////////////////////////////////////////////
 
@@ -281,27 +291,17 @@ protected:
     virtual bool onAccessPixels(SkPixmap*) { return false; }
 
     struct CreateInfo {
-        static SkPixelGeometry AdjustGeometry(const SkImageInfo&, TileUsage, SkPixelGeometry,
-                                              bool preserveLCDText);
+        static SkPixelGeometry AdjustGeometry(TileUsage, SkPixelGeometry);
 
         // The constructor may change the pixel geometry based on other parameters.
         CreateInfo(const SkImageInfo& info,
                    TileUsage tileUsage,
-                   SkPixelGeometry geo)
-            : fInfo(info)
-            , fTileUsage(tileUsage)
-            , fPixelGeometry(AdjustGeometry(info, tileUsage, geo, false))
-        {}
-
-        CreateInfo(const SkImageInfo& info,
-                   TileUsage tileUsage,
                    SkPixelGeometry geo,
-                   bool preserveLCDText,
                    bool trackCoverage,
                    SkRasterHandleAllocator* allocator)
             : fInfo(info)
             , fTileUsage(tileUsage)
-            , fPixelGeometry(AdjustGeometry(info, tileUsage, geo, preserveLCDText))
+            , fPixelGeometry(AdjustGeometry(tileUsage, geo))
             , fTrackCoverage(trackCoverage)
             , fAllocator(allocator)
         {}
@@ -376,7 +376,7 @@ private:
     SkIPoint             fOrigin;
     const SkImageInfo    fInfo;
     const SkSurfaceProps fSurfaceProps;
-    SkMatrix             fCTM;
+    SkMatrix             fLocalToDevice;
 
     typedef SkRefCnt INHERITED;
 };
@@ -385,16 +385,19 @@ class SkNoPixelsDevice : public SkBaseDevice {
 public:
     SkNoPixelsDevice(const SkIRect& bounds, const SkSurfaceProps& props,
                      sk_sp<SkColorSpace> colorSpace = nullptr)
-    : SkBaseDevice(SkImageInfo::Make(bounds.width(), bounds.height(), kUnknown_SkColorType,
-                                     kUnknown_SkAlphaType, std::move(colorSpace)), props)
-    {
+            : SkBaseDevice(SkImageInfo::Make(bounds.size(), kUnknown_SkColorType,
+                                             kUnknown_SkAlphaType, std::move(colorSpace)),
+                           props) {
         // this fails if we enable this assert: DiscardableImageMapTest.GetDiscardableImagesInRectMaxImage
         //SkASSERT(bounds.width() >= 0 && bounds.height() >= 0);
+
+        this->setOrigin(SkMatrix::I(), bounds.left(), bounds.top());
     }
 
     void resetForNextPicture(const SkIRect& bounds) {
         //SkASSERT(bounds.width() >= 0 && bounds.height() >= 0);
         this->privateResize(bounds.width(), bounds.height());
+        this->setOrigin(SkMatrix::I(), bounds.left(), bounds.top());
     }
 
 protected:
@@ -412,7 +415,7 @@ protected:
         rgn->setRect(SkIRect::MakeWH(this->width(), this->height()));
     }
     ClipType onGetClipType() const override {
-        return kRect_ClipType;
+        return ClipType::kRect;
     }
 
     void drawPaint(const SkPaint& paint) override {}
@@ -433,21 +436,21 @@ private:
     typedef SkBaseDevice INHERITED;
 };
 
-class SkAutoDeviceCTMRestore : SkNoncopyable {
+class SkAutoDeviceTransformRestore : SkNoncopyable {
 public:
-    SkAutoDeviceCTMRestore(SkBaseDevice* device, const SkMatrix& ctm)
+    SkAutoDeviceTransformRestore(SkBaseDevice* device, const SkMatrix& localToDevice)
         : fDevice(device)
-        , fPrevCTM(device->ctm())
+        , fPrevLocalToDevice(device->localToDevice())
     {
-        fDevice->setCTM(ctm);
+        fDevice->setLocalToDevice(localToDevice);
     }
-    ~SkAutoDeviceCTMRestore() {
-        fDevice->setCTM(fPrevCTM);
+    ~SkAutoDeviceTransformRestore() {
+        fDevice->setLocalToDevice(fPrevLocalToDevice);
     }
 
 private:
     SkBaseDevice*   fDevice;
-    const SkMatrix  fPrevCTM;
+    const SkMatrix  fPrevLocalToDevice;
 };
 
 #endif

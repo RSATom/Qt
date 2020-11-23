@@ -15,12 +15,12 @@ class CBC_QRCoderErrorCorrectionLevel;
 class CBC_QRCoderMode;
 class CBC_CommonByteMatrix;
 
-class CBC_QRCoder {
+class CBC_QRCoder final {
  public:
   static constexpr int32_t kNumMaskPatterns = 8;
 
   CBC_QRCoder();
-  virtual ~CBC_QRCoder();
+  ~CBC_QRCoder();
 
   static bool IsValidMaskPattern(int32_t maskPattern);
 
@@ -30,7 +30,6 @@ class CBC_QRCoder {
   int32_t GetMaskPattern() const;
   int32_t GetNumTotalBytes() const;
   int32_t GetNumDataBytes() const;
-  int32_t GetNumECBytes() const;
   int32_t GetNumRSBlocks() const;
   const CBC_CommonByteMatrix* GetMatrix() const;
 

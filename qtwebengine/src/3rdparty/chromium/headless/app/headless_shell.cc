@@ -14,6 +14,7 @@
 #include "base/environment.h"
 #include "base/files/file_path.h"
 #include "base/files/file_util.h"
+#include "base/i18n/rtl.h"
 #include "base/json/json_writer.h"
 #include "base/location.h"
 #include "base/memory/weak_ptr.h"
@@ -23,6 +24,7 @@
 #include "base/strings/utf_string_conversions.h"
 #include "base/task/post_task.h"
 #include "base/task_runner_util.h"
+#include "build/branding_buildflags.h"
 #include "build/build_config.h"
 #include "cc/base/switches.h"
 #include "components/os_crypt/os_crypt_switches.h"
@@ -43,7 +45,6 @@
 #include "net/socket/ssl_client_socket.h"
 #include "net/ssl/ssl_key_logger_impl.h"
 #include "services/network/public/cpp/network_switches.h"
-#include "ui/base/ui_base_switches.h"
 #include "ui/gfx/geometry/size.h"
 
 #if defined(OS_WIN)
@@ -219,7 +220,7 @@ bool ValidateCommandLine(const base::CommandLine& command_line) {
 
 }  // namespace
 
-HeadlessShell::HeadlessShell() : weak_factory_(this) {}
+HeadlessShell::HeadlessShell() = default;
 
 HeadlessShell::~HeadlessShell() = default;
 
@@ -227,8 +228,8 @@ HeadlessShell::~HeadlessShell() = default;
 void HeadlessShell::OnStart(HeadlessBrowser* browser) {
   browser_ = browser;
   devtools_client_ = HeadlessDevToolsClient::Create();
-  file_task_runner_ = base::CreateSequencedTaskRunnerWithTraits(
-      {base::MayBlock(), base::TaskPriority::BEST_EFFORT});
+  file_task_runner_ = base::CreateSequencedTaskRunner(
+      {base::ThreadPool(), base::MayBlock(), base::TaskPriority::BEST_EFFORT});
 
   HeadlessBrowserContext::Builder context_builder =
       browser_->CreateBrowserContextBuilder();
@@ -241,11 +242,10 @@ void HeadlessShell::OnStart(HeadlessBrowser* browser) {
         std::make_unique<net::SSLKeyLoggerImpl>(ssl_keylog_file));
   }
 
-  if (base::CommandLine::ForCurrentProcess()->HasSwitch(::switches::kLang)) {
-    context_builder.SetAcceptLanguage(
-        base::CommandLine::ForCurrentProcess()->GetSwitchValueASCII(
-            ::switches::kLang));
-  }
+  // Retrieve the locale set by InitApplicationLocale() in
+  // headless_content_main_delegate.cc in a way that is free of side-effects.
+  context_builder.SetAcceptLanguage(base::i18n::GetConfiguredLocale());
+
   browser_context_ = context_builder.Build();
   browser_->SetDefaultBrowserContext(browser_context_);
 
@@ -672,7 +672,7 @@ int HeadlessShellMain(int argc, const char** argv) {
     return EXIT_FAILURE;
 
 // Crash reporting in headless mode is enabled by default in official builds.
-#if defined(GOOGLE_CHROME_BUILD)
+#if BUILDFLAG(GOOGLE_CHROME_BRANDING)
   builder.SetCrashReporterEnabled(true);
   base::FilePath dumps_path;
   base::PathService::Get(base::DIR_TEMP, &dumps_path);
@@ -775,7 +775,7 @@ int HeadlessShellMain(int argc, const char** argv) {
 
   if (command_line.HasSwitch(switches::kHideScrollbars)) {
     builder.SetOverrideWebPreferencesCallback(
-        base::Bind([](WebPreferences* preferences) {
+        base::BindRepeating([](WebPreferences* preferences) {
           preferences->hide_scrollbars = true;
         }));
   }

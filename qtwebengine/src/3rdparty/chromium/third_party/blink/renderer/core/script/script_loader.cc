@@ -26,6 +26,7 @@
 
 #include "third_party/blink/public/common/feature_policy/feature_policy.h"
 #include "third_party/blink/public/common/features.h"
+#include "third_party/blink/public/mojom/feature_policy/feature_policy_feature.mojom-blink.h"
 #include "third_party/blink/renderer/bindings/core/v8/sanitize_script_errors.h"
 #include "third_party/blink/renderer/bindings/core/v8/v8_binding_for_core.h"
 #include "third_party/blink/renderer/core/dom/document.h"
@@ -47,6 +48,7 @@
 #include "third_party/blink/renderer/core/script/js_module_script.h"
 #include "third_party/blink/renderer/core/script/modulator.h"
 #include "third_party/blink/renderer/core/script/module_pending_script.h"
+#include "third_party/blink/renderer/core/script/pending_import_map.h"
 #include "third_party/blink/renderer/core/script/script.h"
 #include "third_party/blink/renderer/core/script/script_element_base.h"
 #include "third_party/blink/renderer/core/script/script_runner.h"
@@ -172,57 +174,6 @@ enum class ShouldFireErrorEvent {
   kDoNotFire,
   kShouldFire,
 };
-
-ShouldFireErrorEvent ParseAndRegisterImportMap(ScriptElementBase& element,
-                                               const TextPosition& position) {
-  Document& element_document = element.GetDocument();
-  Document* context_document = element_document.ContextDocument();
-  DCHECK(context_document);
-  Modulator* modulator =
-      Modulator::From(ToScriptStateForMainWorld(context_document->GetFrame()));
-  DCHECK(modulator);
-
-  // If import maps are not enabled, we do nothing and return here, and also
-  // do not fire error events.
-  if (!modulator->BuiltInModuleInfraEnabled())
-    return ShouldFireErrorEvent::kDoNotFire;
-
-  if (!modulator->IsAcquiringImportMaps()) {
-    element_document.AddConsoleMessage(ConsoleMessage::Create(
-        mojom::ConsoleMessageSource::kJavaScript,
-        mojom::ConsoleMessageLevel::kError,
-        "An import map is added after module script load was triggered."));
-    return ShouldFireErrorEvent::kShouldFire;
-  }
-
-  // TODO(crbug.com/922212): Implemenet external import maps.
-  if (element.HasSourceAttribute()) {
-    element_document.AddConsoleMessage(
-        ConsoleMessage::Create(mojom::ConsoleMessageSource::kJavaScript,
-                               mojom::ConsoleMessageLevel::kError,
-                               "External import maps are not yet supported."));
-    return ShouldFireErrorEvent::kShouldFire;
-  }
-
-  UseCounter::Count(*context_document, WebFeature::kImportMap);
-
-  KURL base_url = element_document.BaseURL();
-  const String import_map_text = element.TextFromChildren();
-  ImportMap* import_map = ImportMap::Create(*modulator, import_map_text,
-                                            base_url, element_document);
-
-  if (!import_map)
-    return ShouldFireErrorEvent::kShouldFire;
-
-  // https://github.com/WICG/import-maps/issues/105
-  if (!element.AllowInlineScriptForCSP(element.GetNonceForElement(),
-                                       position.line_, import_map_text)) {
-    return ShouldFireErrorEvent::kShouldFire;
-  }
-
-  modulator->RegisterImportMap(import_map);
-  return ShouldFireErrorEvent::kDoNotFire;
-}
 
 }  // namespace
 
@@ -397,6 +348,18 @@ bool ScriptLoader::PrepareScript(const TextPosition& script_start_position,
   if (!context_document->CanExecuteScripts(kAboutToExecuteScript))
     return false;
 
+  // Accept import maps only if ImportMapsEnabled().
+  if (is_import_map) {
+    Modulator* modulator = Modulator::From(
+        ToScriptStateForMainWorld(context_document->GetFrame()));
+    if (!modulator->ImportMapsEnabled()) {
+      // Import maps should have been rejected in spec Step 7 above.
+      // TODO(hiroshige): Returning here (i.e. after spec Step 11) is not spec
+      // conformant. Fix this.
+      return false;
+    }
+  }
+
   // <spec step="12">If the script element has a nomodule content attribute and
   // the script's type is "classic", then return. The script is not
   // executed.</spec>
@@ -416,21 +379,21 @@ bool ScriptLoader::PrepareScript(const TextPosition& script_start_position,
   TextPosition position =
       is_in_document_write ? TextPosition() : script_start_position;
 
-  // 13.
-  if (!IsScriptForEventSupported())
-    return false;
-
-  // Process the import map.
-  if (is_import_map) {
-    if (ParseAndRegisterImportMap(*element_, position) ==
-        ShouldFireErrorEvent::kShouldFire) {
-      element_document.GetTaskRunner(TaskType::kDOMManipulation)
-          ->PostTask(FROM_HERE,
-                     WTF::Bind(&ScriptElementBase::DispatchErrorEvent,
-                               WrapPersistent(element_.Get())));
-    }
+  // <spec step="13">If the script element does not have a src content
+  // attribute, and the Should element's inline behavior be blocked by Content
+  // Security Policy? algorithm returns "Blocked" when executed upon the script
+  // element, "script", and source text, then return. The script is not
+  // executed. [CSP]</spec>
+  if (!element_->HasSourceAttribute() &&
+      !element_->AllowInlineScriptForCSP(element_->GetNonceForElement(),
+                                         position.line_,
+                                         element_->TextFromChildren())) {
     return false;
   }
+
+  // 14.
+  if (!IsScriptForEventSupported())
+    return false;
 
   // This FeaturePolicy is still in the process of being added to the spec.
   if (ShouldBlockSyncScriptForFeaturePolicy(element_.Get(), GetScriptType(),
@@ -519,6 +482,26 @@ bool ScriptLoader::PrepareScript(const TextPosition& script_start_position,
   // TODO(hiroshige): Use a consistent Document everywhere.
   auto* fetch_client_settings_object_fetcher = context_document->Fetcher();
 
+  // https://wicg.github.io/import-maps/#integration-prepare-a-script
+  // If the script’s type is "importmap" and the element’s node document’s
+  // acquiring import maps is false, then queue a task to fire an event named
+  // error at the element, and return. [spec text]
+  if (is_import_map) {
+    Modulator* modulator = Modulator::From(
+        ToScriptStateForMainWorld(context_document->GetFrame()));
+    if (!modulator->IsAcquiringImportMaps()) {
+      element_document.AddConsoleMessage(ConsoleMessage::Create(
+          mojom::ConsoleMessageSource::kJavaScript,
+          mojom::ConsoleMessageLevel::kError,
+          "An import map is added after module script load was triggered."));
+      element_document.GetTaskRunner(TaskType::kDOMManipulation)
+          ->PostTask(FROM_HERE,
+                     WTF::Bind(&ScriptElementBase::DispatchErrorEvent,
+                               WrapPersistent(element_.Get())));
+      return false;
+    }
+  }
+
   // <spec step="24">If the element has a src content attribute, then:</spec>
   if (element_->HasSourceAttribute()) {
     // <spec step="24.1">Let src be the value of the element's src
@@ -555,6 +538,19 @@ bool ScriptLoader::PrepareScript(const TextPosition& script_start_position,
     }
 
     // <spec step="24.6">Switch on the script's type:</spec>
+    if (is_import_map) {
+      // TODO(crbug.com/922212): Implement external import maps.
+      element_document.AddConsoleMessage(ConsoleMessage::Create(
+          mojom::ConsoleMessageSource::kJavaScript,
+          mojom::ConsoleMessageLevel::kError,
+          "External import maps are not yet supported."));
+      element_document.GetTaskRunner(TaskType::kDOMManipulation)
+          ->PostTask(FROM_HERE,
+                     WTF::Bind(&ScriptElementBase::DispatchErrorEvent,
+                               WrapPersistent(element_.Get())));
+      return false;
+    }
+
     if (GetScriptType() == mojom::ScriptType::kClassic) {
       // - "classic":
 
@@ -577,7 +573,8 @@ bool ScriptLoader::PrepareScript(const TextPosition& script_start_position,
       // script CORS setting, and encoding.</spec>
       Document* document_for_origin = &element_document;
       if (base::FeatureList::IsEnabled(
-              features::kHtmlImportsRequestInitiatorLock)) {
+              features::kHtmlImportsRequestInitiatorLock) &&
+          element_document.ImportsController()) {
         document_for_origin = context_document;
       }
       FetchClassicScript(url, *document_for_origin, options, cross_origin,
@@ -629,6 +626,25 @@ bool ScriptLoader::PrepareScript(const TextPosition& script_start_position,
     KURL base_url = element_document.BaseURL();
 
     // <spec step="25.2">Switch on the script's type:</spec>
+
+    if (is_import_map) {
+      UseCounter::Count(*context_document, WebFeature::kImportMap);
+
+      // https://wicg.github.io/import-maps/#integration-prepare-a-script
+      // 1. Let import map parse result be the result of create an import map
+      // parse result, given source text, base URL and settings object. [spec
+      // text]
+      PendingImportMap* pending_import_map = PendingImportMap::CreateInline(
+          *element_, element_->TextFromChildren(), base_url);
+
+      // Because we currently support inline import maps only, the pending
+      // import map is ready immediately and thus we call `register an import
+      // map` synchronously here.
+      pending_import_map->RegisterImportMap();
+
+      return false;
+    }
+
     switch (GetScriptType()) {
         // <spec step="25.2.A">"classic"</spec>
       case mojom::ScriptType::kClassic: {
@@ -647,7 +663,8 @@ bool ScriptLoader::PrepareScript(const TextPosition& script_start_position,
         }
 
         prepared_pending_script_ = ClassicPendingScript::CreateInline(
-            element_, position, script_location_type, options);
+            element_, position, base_url, element_->TextFromChildren(),
+            script_location_type, options);
 
         // <spec step="25.2.A.2">Set the script's script to script.</spec>
         //

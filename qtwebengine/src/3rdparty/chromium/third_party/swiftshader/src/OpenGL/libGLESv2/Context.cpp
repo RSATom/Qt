@@ -1567,15 +1567,34 @@ Buffer *Context::getGenericUniformBuffer() const
 	return mState.genericUniformBuffer;
 }
 
-GLsizei Context::getRequiredBufferSize(GLsizei width, GLsizei height, GLsizei depth, GLenum format, GLenum type) const
+// The "required buffer size" is the number of bytes from the start of the
+// buffer to the last byte referenced within the buffer. If the caller of this
+// function has to worry about offsets within the buffer, it only needs to add
+// that byte offset to this function's return value to get its required buffer
+// size.
+size_t Context::getRequiredBufferSize(GLsizei width, GLsizei height, GLsizei depth, GLenum format, GLenum type) const
 {
-	GLsizei inputWidth = (mState.unpackParameters.rowLength == 0) ? width : mState.unpackParameters.rowLength;
-	GLsizei inputPitch = gl::ComputePitch(inputWidth, format, type, mState.unpackParameters.alignment);
-	GLsizei inputHeight = (mState.unpackParameters.imageHeight == 0) ? height : mState.unpackParameters.imageHeight;
-	return inputPitch * inputHeight * depth;
+	// 0-dimensional images have no bytes in them.
+	if (width == 0 || height == 0 || depth == 0)
+	{
+		return 0;
+	}
+
+	GLint pixelsPerRow = (mState.unpackParameters.rowLength) > 0 ? mState.unpackParameters.rowLength : width;
+	GLint rowsPerImage = (mState.unpackParameters.imageHeight) > 0 ? mState.unpackParameters.imageHeight : height;
+
+	GLint bytesPerPixel = gl::ComputePixelSize(format, type);
+	GLint bytesPerRow = gl::ComputePitch(pixelsPerRow, format, type, mState.unpackParameters.alignment);
+	GLint bytesPerImage = rowsPerImage * bytesPerRow;
+
+	// Depth and height are subtracted by 1, while width is not, because we're not
+	// reading the full last row or image, but we are reading the full last pixel.
+	return (mState.unpackParameters.skipImages + (depth - 1))  * bytesPerImage
+		 + (mState.unpackParameters.skipRows   + (height - 1)) * bytesPerRow
+		 + (mState.unpackParameters.skipPixels + (width))      * bytesPerPixel;
 }
 
-GLenum Context::getPixels(const GLvoid **pixels, GLenum type, GLsizei imageSize) const
+GLenum Context::getPixels(const GLvoid **pixels, GLenum type, size_t imageSize) const
 {
 	if(mState.pixelUnpackBuffer)
 	{
@@ -1598,7 +1617,7 @@ GLenum Context::getPixels(const GLvoid **pixels, GLenum type, GLsizei imageSize)
 			return GL_INVALID_OPERATION;
 		}
 
-		if(mState.pixelUnpackBuffer->size() - offset < static_cast<size_t>(imageSize))
+		if(mState.pixelUnpackBuffer->size() - offset < imageSize)
 		{
 			return GL_INVALID_OPERATION;
 		}
@@ -4146,7 +4165,11 @@ void Context::blitFramebuffer(GLint srcX0, GLint srcY0, GLint srcX1, GLint srcY1
 	if(mState.scissorTestEnabled)   // Only write to parts of the destination framebuffer which pass the scissor test
 	{
 		sw::Rect scissorRect(mState.scissorX, mState.scissorY, mState.scissorX + mState.scissorWidth, mState.scissorY + mState.scissorHeight);
-		Device::ClipDstRect(sourceScissoredRect, destScissoredRect, scissorRect, flipX, flipY);
+		if (!Device::ClipDstRect(sourceScissoredRect, destScissoredRect, scissorRect, flipX, flipY))
+		{
+			// Failed to clip, blitting can't happen.
+			return error(GL_INVALID_OPERATION);
+		}
 	}
 
 	sw::SliceRectF sourceTrimmedRect = sourceScissoredRect;
@@ -4155,10 +4178,18 @@ void Context::blitFramebuffer(GLint srcX0, GLint srcY0, GLint srcX1, GLint srcY1
 	// The source & destination rectangles also may need to be trimmed if
 	// they fall out of the bounds of the actual draw and read surfaces.
 	sw::Rect sourceTrimRect(0, 0, readBufferWidth, readBufferHeight);
-	Device::ClipSrcRect(sourceTrimmedRect, destTrimmedRect, sourceTrimRect, flipX, flipY);
+	if (!Device::ClipSrcRect(sourceTrimmedRect, destTrimmedRect, sourceTrimRect, flipX, flipY))
+	{
+		// Failed to clip, blitting can't happen.
+		return error(GL_INVALID_OPERATION);
+	}
 
 	sw::Rect destTrimRect(0, 0, drawBufferWidth, drawBufferHeight);
-	Device::ClipDstRect(sourceTrimmedRect, destTrimmedRect, destTrimRect, flipX, flipY);
+	if (!Device::ClipDstRect(sourceTrimmedRect, destTrimmedRect, destTrimRect, flipX, flipY))
+	{
+		// Failed to clip, blitting can't happen.
+		return error(GL_INVALID_OPERATION);
+	}
 
 	bool partialBufferCopy = false;
 
@@ -4397,17 +4428,13 @@ EGLenum Context::validateSharedImage(EGLenum target, GLuint name, GLuint texture
 
 	switch(target)
 	{
-	case EGL_GL_TEXTURE_2D_KHR:
-		textureTarget = GL_TEXTURE_2D;
-		break;
-	case EGL_GL_TEXTURE_CUBE_MAP_POSITIVE_X_KHR:
-	case EGL_GL_TEXTURE_CUBE_MAP_NEGATIVE_X_KHR:
-	case EGL_GL_TEXTURE_CUBE_MAP_POSITIVE_Y_KHR:
-	case EGL_GL_TEXTURE_CUBE_MAP_NEGATIVE_Y_KHR:
-	case EGL_GL_TEXTURE_CUBE_MAP_POSITIVE_Z_KHR:
-	case EGL_GL_TEXTURE_CUBE_MAP_NEGATIVE_Z_KHR:
-		textureTarget = GL_TEXTURE_CUBE_MAP;
-		break;
+	case EGL_GL_TEXTURE_2D_KHR:                  textureTarget = GL_TEXTURE_2D;                  break;
+	case EGL_GL_TEXTURE_CUBE_MAP_POSITIVE_X_KHR: textureTarget = GL_TEXTURE_CUBE_MAP_POSITIVE_X; break;
+	case EGL_GL_TEXTURE_CUBE_MAP_NEGATIVE_X_KHR: textureTarget = GL_TEXTURE_CUBE_MAP_NEGATIVE_X; break;
+	case EGL_GL_TEXTURE_CUBE_MAP_POSITIVE_Y_KHR: textureTarget = GL_TEXTURE_CUBE_MAP_POSITIVE_Y; break;
+	case EGL_GL_TEXTURE_CUBE_MAP_NEGATIVE_Y_KHR: textureTarget = GL_TEXTURE_CUBE_MAP_NEGATIVE_Y; break;
+	case EGL_GL_TEXTURE_CUBE_MAP_POSITIVE_Z_KHR: textureTarget = GL_TEXTURE_CUBE_MAP_POSITIVE_Z; break;
+	case EGL_GL_TEXTURE_CUBE_MAP_NEGATIVE_Z_KHR: textureTarget = GL_TEXTURE_CUBE_MAP_NEGATIVE_Z; break;
 	case EGL_GL_RENDERBUFFER_KHR:
 		break;
 	default:
@@ -4423,7 +4450,17 @@ EGLenum Context::validateSharedImage(EGLenum target, GLuint name, GLuint texture
 	{
 		es2::Texture *texture = getTexture(name);
 
-		if(!texture || texture->getTarget() != textureTarget)
+		if(!texture)
+		{
+			return EGL_BAD_PARAMETER;
+		}
+
+		if (texture->getTarget() != GL_TEXTURE_CUBE_MAP && texture->getTarget() != textureTarget)
+		{
+			return EGL_BAD_PARAMETER;
+		}
+
+		if (texture->getTarget() == GL_TEXTURE_CUBE_MAP && !IsCubemapTextureTarget(textureTarget))
 		{
 			return EGL_BAD_PARAMETER;
 		}
@@ -4438,7 +4475,7 @@ EGLenum Context::validateSharedImage(EGLenum target, GLuint name, GLuint texture
 			return EGL_BAD_PARAMETER;
 		}
 
-		if(textureLevel == 0 && !(texture->isSamplerComplete(nullptr) && texture->getTopLevel() == 0))
+		if(textureLevel == 0 && !texture->isSamplerComplete(nullptr) && texture->hasNonBaseLevels())
 		{
 			return EGL_BAD_PARAMETER;
 		}

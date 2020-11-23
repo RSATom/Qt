@@ -323,7 +323,7 @@ static bool IsSVGText(Text* text) {
   Node* parent_or_shadow_host_node = text->ParentOrShadowHostNode();
   DCHECK(parent_or_shadow_host_node);
   return parent_or_shadow_host_node->IsSVGElement() &&
-         !IsSVGForeignObjectElement(*parent_or_shadow_host_node);
+         !IsA<SVGForeignObjectElement>(*parent_or_shadow_host_node);
 }
 
 LayoutText* Text::CreateTextLayoutObject(const ComputedStyle& style,
@@ -400,7 +400,7 @@ void Text::RecalcTextStyle(const StyleRecalcChange change) {
     } else {
       layout_text->SetStyle(std::move(new_style));
       if (NeedsStyleRecalc())
-        layout_text->SetText(DataImpl());
+        layout_text->SetTextIfNeeded(DataImpl());
     }
   } else if (new_style && (NeedsStyleRecalc() || change.ReattachLayoutTree() ||
                            GetForceReattachLayoutTree() ||

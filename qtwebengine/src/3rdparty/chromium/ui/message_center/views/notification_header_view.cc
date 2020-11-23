@@ -10,6 +10,7 @@
 #include "base/strings/utf_string_conversions.h"
 #include "base/time/time.h"
 #include "build/build_config.h"
+#include "ui/accessibility/ax_enums.mojom.h"
 #include "ui/accessibility/ax_node_data.h"
 #include "ui/base/l10n/l10n_util.h"
 #include "ui/gfx/color_palette.h"
@@ -384,6 +385,10 @@ void NotificationHeaderView::SetSubpixelRenderingEnabled(bool enabled) {
   timestamp_view_->SetSubpixelRenderingEnabled(enabled);
 }
 
+void NotificationHeaderView::HideAppIcon() {
+  app_icon_view_->SetVisible(false);
+}
+
 const base::string16& NotificationHeaderView::app_name_for_testing() const {
   return app_name_view_->GetText();
 }
@@ -404,6 +409,9 @@ void NotificationHeaderView::UpdateSummaryTextVisibility() {
   const bool timestamp_visible = !has_progress_ && timestamp_;
   timestamp_divider_->SetVisible(timestamp_visible);
   timestamp_view_->SetVisible(timestamp_visible);
+
+  // TODO(crbug.com/991492): this should not be necessary.
+  detail_views_->InvalidateLayout();
 }
 
 }  // namespace message_center

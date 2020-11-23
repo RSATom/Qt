@@ -62,7 +62,7 @@ class QQuickAction1 : public QObject
     Q_PROPERTY(QString tooltip READ tooltip WRITE setTooltip NOTIFY tooltipChanged RESET resetTooltip)
     Q_PROPERTY(bool enabled READ isEnabled WRITE setEnabled NOTIFY enabledChanged)
     Q_PROPERTY(bool checkable READ isCheckable WRITE setCheckable NOTIFY checkableChanged)
-    Q_PROPERTY(bool checked READ isChecked WRITE setChecked DESIGNABLE isCheckable NOTIFY toggled)
+    Q_PROPERTY(bool checked READ isChecked WRITE setChecked NOTIFY toggled)
 
     Q_PROPERTY(QQuickExclusiveGroup1 *exclusiveGroup READ exclusiveGroup WRITE setExclusiveGroup NOTIFY exclusiveGroupChanged)
 #ifndef QT_NO_SHORTCUT
@@ -109,7 +109,7 @@ public:
     QVariant iconVariant() const { return QVariant(m_icon); }
     void setIcon(const QIcon &icon) { m_icon = icon; emit iconChanged(); }
 
-    bool event(QEvent *e);
+    bool event(QEvent *e) override;
 
 public Q_SLOTS:
     void trigger(QObject *source = 0);

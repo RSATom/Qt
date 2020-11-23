@@ -12,7 +12,9 @@
 
 #include "base/atomic_sequence_num.h"
 #include "base/containers/span.h"
+#include "base/optional.h"
 #include "cc/paint/transfer_cache_entry.h"
+#include "third_party/skia/include/core/SkImageInfo.h"
 #include "third_party/skia/include/core/SkRefCnt.h"
 #include "third_party/skia/include/core/SkYUVASizeInfo.h"
 
@@ -106,13 +108,15 @@ class CC_PAINT_EXPORT ServiceImageTransferCacheEntry
   //
   // - The backing textures don't have mipmaps. We will generate the mipmaps if
   //   |needs_mips| is true.
-  // - The conversion from YUV to RGB will be performed assuming a JPEG image.
+  // - The conversion from YUV to RGB will be performed according to
+  //   |yuv_color_space|.
   // - The colorspace of the resulting RGB image is sRGB.
   //
   // Returns true if the entry can be built, false otherwise.
   bool BuildFromHardwareDecodedImage(GrContext* context,
                                      std::vector<sk_sp<SkImage>> plane_images,
                                      YUVDecodeFormat plane_images_format,
+                                     SkYUVColorSpace yuv_color_space,
                                      size_t buffer_byte_size,
                                      bool needs_mips);
 
@@ -128,6 +132,7 @@ class CC_PAINT_EXPORT ServiceImageTransferCacheEntry
 
   // Ensures the cached image has mips.
   void EnsureMips();
+  bool has_mips() const { return has_mips_; }
 
   // Used in tests and for registering each texture for memory dumps.
   const sk_sp<SkImage>& GetPlaneImage(size_t index) const;
@@ -148,7 +153,7 @@ class CC_PAINT_EXPORT ServiceImageTransferCacheEntry
   YUVDecodeFormat plane_images_format_ = YUVDecodeFormat::kUnknown;
   std::vector<size_t> plane_sizes_;
   sk_sp<SkImage> image_;
-  SkYUVColorSpace yuv_color_space_;
+  base::Optional<SkYUVColorSpace> yuv_color_space_;
   bool has_mips_ = false;
   size_t size_ = 0;
   bool fits_on_gpu_ = false;

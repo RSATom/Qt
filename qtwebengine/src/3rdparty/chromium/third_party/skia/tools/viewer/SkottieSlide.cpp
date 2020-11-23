@@ -12,7 +12,7 @@
 #include "include/core/SkCanvas.h"
 #include "include/core/SkFont.h"
 #include "modules/skottie/include/Skottie.h"
-#include "modules/skottie/utils/SkottieUtils.h"
+#include "modules/skresources/include/SkResources.h"
 #include "src/utils/SkOSPath.h"
 #include "tools/timer/TimeUtils.h"
 
@@ -97,7 +97,10 @@ void SkottieSlide::load(SkScalar w, SkScalar h) {
     fAnimation      = builder
             .setLogger(logger)
             .setResourceProvider(
-                skottie_utils::FileResourceProvider::Make(SkOSPath::Dirname(fPath.c_str())))
+                skresources::DataURIResourceProviderProxy::Make(
+                    skresources::FileResourceProvider::Make(SkOSPath::Dirname(fPath.c_str()),
+                                                              /*predecode=*/true),
+                    /*predecode=*/true))
             .makeFromFile(fPath.c_str());
     fAnimationStats = builder.getStats();
     fWinSize        = SkSize::Make(w, h);
@@ -181,9 +184,9 @@ bool SkottieSlide::onChar(SkUnichar c) {
     return INHERITED::onChar(c);
 }
 
-bool SkottieSlide::onMouse(SkScalar x, SkScalar y, InputState state, ModifierKey) {
+bool SkottieSlide::onMouse(SkScalar x, SkScalar y, skui::InputState state, skui::ModifierKey) {
     switch (state) {
-    case InputState::kUp:
+    case skui::InputState::kUp:
         fShowAnimationInval = !fShowAnimationInval;
         fShowAnimationStats = !fShowAnimationStats;
         break;

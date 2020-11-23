@@ -52,6 +52,9 @@
 #include "qcocoamimetypes.h"
 #include "qcocoaaccessibility.h"
 #include "qcocoascreen.h"
+#if QT_CONFIG(sessionmanager)
+#  include "qcocoasessionmanager.h"
+#endif
 
 #include <qpa/qplatforminputcontextfactory_p.h>
 #include <qpa/qplatformaccessibility.h>
@@ -113,7 +116,7 @@ class QFontEngineFT;
 static QCocoaIntegration::Options parseOptions(const QStringList &paramList)
 {
     QCocoaIntegration::Options options;
-    foreach (const QString &param, paramList) {
+    for (const QString &param : paramList) {
 #ifndef QT_NO_FREETYPE
         if (param == QLatin1String("fontengine=freetype"))
             options |= QCocoaIntegration::UseFreeTypeFontEngine;
@@ -244,6 +247,13 @@ QCocoaIntegration::Options QCocoaIntegration::options() const
 {
     return mOptions;
 }
+
+#if QT_CONFIG(sessionmanager)
+QPlatformSessionManager *QCocoaIntegration::createPlatformSessionManager(const QString &id, const QString &key) const
+{
+    return new QCocoaSessionManager(id, key);
+}
+#endif
 
 bool QCocoaIntegration::hasCapability(QPlatformIntegration::Capability cap) const
 {
@@ -462,14 +472,9 @@ QList<QCocoaWindow *> *QCocoaIntegration::popupWindowStack()
 
 void QCocoaIntegration::setApplicationIcon(const QIcon &icon) const
 {
-    NSImage *image = nil;
-    if (!icon.isNull()) {
-        NSSize size = [[[NSApplication sharedApplication] dockTile] size];
-        QPixmap pixmap = icon.pixmap(size.width, size.height);
-        image = static_cast<NSImage *>(qt_mac_create_nsimage(pixmap));
-    }
-    [[NSApplication sharedApplication] setApplicationIconImage:image];
-    [image release];
+    // Fall back to a size that looks good on the highest resolution screen available
+    auto fallbackSize = NSApp.dockTile.size.width * qGuiApp->devicePixelRatio();
+    NSApp.applicationIconImage = [NSImage imageFromQIcon:icon withSize:fallbackSize];
 }
 
 void QCocoaIntegration::beep() const

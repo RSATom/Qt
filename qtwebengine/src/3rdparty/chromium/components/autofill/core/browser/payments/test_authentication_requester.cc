@@ -19,13 +19,11 @@ TestAuthenticationRequester::GetWeakPtr() {
 }
 
 void TestAuthenticationRequester::OnCVCAuthenticationComplete(
-    bool did_succeed,
-    const CreditCard* card,
-    const base::string16& cvc) {
-  did_succeed_ = did_succeed;
+    const CreditCardCVCAuthenticator::CVCAuthenticationResponse& response) {
+  did_succeed_ = response.did_succeed;
   if (did_succeed_) {
-    DCHECK(card);
-    number_ = card->number();
+    DCHECK(response.card);
+    number_ = response.card->number();
   }
 }
 
@@ -38,6 +36,11 @@ void TestAuthenticationRequester::OnFIDOAuthenticationComplete(
     DCHECK(card);
     number_ = card->number();
   }
+}
+
+void TestAuthenticationRequester::OnFidoAuthorizationComplete(
+    bool did_succeed) {
+  did_succeed_ = did_succeed;
 }
 
 void TestAuthenticationRequester::IsUserVerifiableCallback(

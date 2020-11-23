@@ -21,7 +21,6 @@ class IIRFilterOptions;
 
 class IIRFilterHandler : public AudioBasicProcessorHandler,
                          public base::SupportsWeakPtr<IIRFilterHandler> {
-
  public:
   static scoped_refptr<IIRFilterHandler> Create(
       AudioNode&,
@@ -75,6 +74,10 @@ class IIRFilterNode : public AudioNode {
                             NotShared<DOMFloat32Array> mag_response,
                             NotShared<DOMFloat32Array> phase_response,
                             ExceptionState&);
+
+  // InspectorHelperMixin
+  void ReportDidCreate() final;
+  void ReportWillBeDestroyed() final;
 
  private:
   IIRProcessor* GetIIRFilterProcessor() const;

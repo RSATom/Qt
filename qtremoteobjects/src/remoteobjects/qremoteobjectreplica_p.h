@@ -124,6 +124,7 @@ public:
     virtual void notifyAboutReply(int, const QVariant &) {}
     virtual void configurePrivate(QRemoteObjectReplica *);
     void emitInitialized();
+    void emitNotified();
     QRemoteObjectNode *node() const override { return m_node; }
 
     void _q_send(QMetaObject::Call call, int index, const QVariantList &args) override = 0;

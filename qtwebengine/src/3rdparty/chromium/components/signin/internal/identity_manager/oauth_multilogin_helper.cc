@@ -52,11 +52,13 @@ namespace signin {
 OAuthMultiloginHelper::OAuthMultiloginHelper(
     SigninClient* signin_client,
     ProfileOAuth2TokenService* token_service,
+    gaia::MultiloginMode mode,
     const std::vector<GaiaCookieManagerService::AccountIdGaiaIdPair>& accounts,
     const std::string& external_cc_result,
     base::OnceCallback<void(SetAccountsInCookieResult)> callback)
     : signin_client_(signin_client),
       token_service_(token_service),
+      mode_(mode),
       accounts_(accounts),
       external_cc_result_(external_cc_result),
       callback_(std::move(callback)) {
@@ -124,18 +126,20 @@ void OAuthMultiloginHelper::StartFetchingMultiLogin() {
   DCHECK_EQ(gaia_id_token_pairs_.size(), accounts_.size());
   gaia_auth_fetcher_ =
       signin_client_->CreateGaiaAuthFetcher(this, gaia::GaiaSource::kChrome);
-  gaia_auth_fetcher_->StartOAuthMultilogin(gaia_id_token_pairs_,
+  gaia_auth_fetcher_->StartOAuthMultilogin(mode_, gaia_id_token_pairs_,
                                            external_cc_result_);
 }
 
 void OAuthMultiloginHelper::OnOAuthMultiloginFinished(
     const OAuthMultiloginResult& result) {
   if (result.status() == OAuthMultiloginResponseStatus::kOk) {
-    std::vector<std::string> account_ids;
-    for (const auto& account : accounts_)
-      account_ids.push_back(account.first.id);
-    VLOG(1) << "Multilogin successful accounts="
-            << base::JoinString(account_ids, " ");
+    if (VLOG_IS_ON(1)) {
+      std::vector<std::string> account_ids;
+      for (const auto& account : accounts_)
+        account_ids.push_back(account.first.ToString());
+      VLOG(1) << "Multilogin successful accounts="
+              << base::JoinString(account_ids, " ");
+    }
     StartSettingCookies(result);
     return;
   }
@@ -196,8 +200,10 @@ void OAuthMultiloginHelper::StartSettingCookies(
       cookie_manager->SetCanonicalCookie(
           cookie, "https", options,
           mojo::WrapCallbackWithDefaultInvokeIfNotRun(
-              std::move(callback), net::CanonicalCookie::CookieInclusionStatus::
-                                       EXCLUDE_UNKNOWN_ERROR));
+              std::move(callback),
+              net::CanonicalCookie::CookieInclusionStatus(
+                  net::CanonicalCookie::CookieInclusionStatus::
+                      EXCLUDE_UNKNOWN_ERROR)));
     } else {
       LOG(ERROR) << "Duplicate cookie found: " << cookie.Name() << " "
                  << cookie.Domain();
@@ -210,8 +216,7 @@ void OAuthMultiloginHelper::OnCookieSet(
     const std::string& cookie_domain,
     net::CanonicalCookie::CookieInclusionStatus status) {
   cookies_to_set_.erase(std::make_pair(cookie_name, cookie_domain));
-  bool success =
-      (status == net::CanonicalCookie::CookieInclusionStatus::INCLUDE);
+  bool success = status.IsInclude();
   if (!success) {
     LOG(ERROR) << "Failed to set cookie " << cookie_name
                << " for domain=" << cookie_domain << ".";

@@ -13,6 +13,7 @@
 #include "gpu/command_buffer/service/service_utils.h"
 #include "gpu/config/gpu_driver_bug_workarounds.h"
 #include "gpu/vulkan/buildflags.h"
+#include "skia/buildflags.h"
 #include "ui/gl/gl_bindings.h"
 #include "ui/gl/gl_context.h"
 #include "ui/gl/gl_share_group.h"
@@ -28,11 +29,47 @@
 #include "components/viz/common/gpu/metal_context_provider.h"
 #endif
 
+#if BUILDFLAG(SKIA_USE_DAWN)
+#include "components/viz/common/gpu/dawn_context_provider.h"
+#endif
+
 namespace {
 static constexpr size_t kInitialScratchDeserializationBufferSize = 1024;
 }
 
 namespace gpu {
+
+void SharedContextState::compileError(const char* shader, const char* errors) {
+  if (!context_lost_) {
+    LOG(ERROR) << "Skia shader compilation error\n"
+               << "------------------------\n"
+               << shader << "\nErrors:\n"
+               << errors;
+  }
+}
+
+SharedContextState::MemoryTracker::MemoryTracker(
+    gpu::MemoryTracker::Observer* peak_memory_monitor)
+    : peak_memory_monitor_(peak_memory_monitor) {}
+
+SharedContextState::MemoryTracker::~MemoryTracker() {
+  DCHECK(!size_);
+}
+
+void SharedContextState::MemoryTracker::OnMemoryAllocatedChange(
+    CommandBufferId id,
+    uint64_t old_size,
+    uint64_t new_size) {
+  uint64_t delta = new_size - old_size;
+  old_size = size_;
+  size_ += delta;
+  if (peak_memory_monitor_)
+    peak_memory_monitor_->OnMemoryAllocatedChange(id, old_size, size_);
+}
+
+uint64_t SharedContextState::MemoryTracker::GetMemoryUsage() const {
+  return size_;
+}
 
 SharedContextState::SharedContextState(
     scoped_refptr<gl::GLShareGroup> share_group,
@@ -40,12 +77,18 @@ SharedContextState::SharedContextState(
     scoped_refptr<gl::GLContext> context,
     bool use_virtualized_gl_contexts,
     base::OnceClosure context_lost_callback,
+    GrContextType gr_context_type,
     viz::VulkanContextProvider* vulkan_context_provider,
-    viz::MetalContextProvider* metal_context_provider)
+    viz::MetalContextProvider* metal_context_provider,
+    viz::DawnContextProvider* dawn_context_provider,
+    gpu::MemoryTracker::Observer* peak_memory_monitor)
     : use_virtualized_gl_contexts_(use_virtualized_gl_contexts),
       context_lost_callback_(std::move(context_lost_callback)),
+      gr_context_type_(gr_context_type),
+      memory_tracker_(peak_memory_monitor),
       vk_context_provider_(vulkan_context_provider),
       metal_context_provider_(metal_context_provider),
+      dawn_context_provider_(dawn_context_provider),
       share_group_(std::move(share_group)),
       context_(context),
       real_context_(std::move(context)),
@@ -62,6 +105,13 @@ SharedContextState::SharedContextState(
   if (GrContextIsMetal()) {
 #if defined(OS_MACOSX)
     gr_context_ = metal_context_provider_->GetGrContext();
+#endif
+    use_virtualized_gl_contexts_ = false;
+    DCHECK(gr_context_);
+  }
+  if (GrContextIsDawn()) {
+#if BUILDFLAG(SKIA_USE_DAWN)
+    gr_context_ = dawn_context_provider_->GetGrContext();
 #endif
     use_virtualized_gl_contexts_ = false;
     DCHECK(gr_context_);
@@ -135,19 +185,25 @@ void SharedContextState::InitializeGrContext(
             glProgramBinary(program, binaryFormat, binary, length);
           };
     }
-
     // If you make any changes to the GrContext::Options here that could
     // affect text rendering, make sure to match the capabilities initialized
     // in GetCapabilities and ensuring these are also used by the
     // PaintOpBufferSerializer.
     GrContextOptions options;
+    if (GrContextIsMetal()) {
+      options.fRuntimeProgramCacheSize = 1024;
+    }
     options.fDriverBugWorkarounds =
         GrDriverBugWorkarounds(workarounds.ToIntSet());
     options.fDisableCoverageCountingPaths = true;
     options.fGlyphCacheTextureMaximumBytes = glyph_cache_max_texture_bytes_;
     options.fPersistentCache = cache;
     options.fAvoidStencilBuffers = workarounds.avoid_stencil_buffers;
-    options.fDisallowGLSLBinaryCaching = workarounds.disable_program_disk_cache;
+    if (workarounds.disable_program_disk_cache) {
+      options.fShaderCacheStrategy =
+          GrContextOptions::ShaderCacheStrategy::kBackendSource;
+    }
+    options.fShaderErrorHandler = this;
     // TODO(csmartdalton): enable internal multisampling after the related Skia
     // rolls are in.
     options.fInternalMultisampleCount = 0;
@@ -159,9 +215,7 @@ void SharedContextState::InitializeGrContext(
     LOG(ERROR) << "OOP raster support disabled: GrContext creation "
                   "failed.";
   } else {
-    constexpr int kMaxGaneshResourceCacheCount = 16384;
-    gr_context_->setResourceCacheLimits(kMaxGaneshResourceCacheCount,
-                                        max_resource_cache_bytes_);
+    gr_context_->setResourceCacheLimit(max_resource_cache_bytes_);
   }
   transfer_cache_ = std::make_unique<ServiceTransferCache>();
 }
@@ -239,11 +293,15 @@ bool SharedContextState::InitializeGL(
     MakeCurrent(nullptr);
   }
 
+  bool is_native_vulkan =
+      gpu_preferences.use_vulkan == gpu::VulkanImplementationName::kNative ||
+      gpu_preferences.use_vulkan ==
+          gpu::VulkanImplementationName::kForcedNative;
+
   // Swiftshader GL and Vulkan report supporting external objects extensions,
   // but they don't.
   support_vulkan_external_object_ =
-      !gl::g_current_gl_version->is_swiftshader &&
-      gpu_preferences.use_vulkan == gpu::VulkanImplementationName::kNative &&
+      !gl::g_current_gl_version->is_swiftshader && is_native_vulkan &&
       gl::g_current_gl_driver->ext.b_GL_EXT_memory_object_fd &&
       gl::g_current_gl_driver->ext.b_GL_EXT_semaphore_fd;
 
@@ -291,8 +349,16 @@ bool SharedContextState::IsCurrent(gl::GLSurface* surface) {
 bool SharedContextState::OnMemoryDump(
     const base::trace_event::MemoryDumpArgs& args,
     base::trace_event::ProcessMemoryDump* pmd) {
-  if (gr_context_)
+  if (!gr_context_)
+    return true;
+
+  if (args.level_of_detail ==
+      base::trace_event::MemoryDumpLevelOfDetail::BACKGROUND) {
+    raster::DumpBackgroundGrMemoryStatistics(gr_context_, pmd);
+  } else {
     raster::DumpGrMemoryStatistics(gr_context_, pmd, base::nullopt);
+  }
+
   return true;
 }
 

@@ -139,10 +139,16 @@ Q_CORE_EXPORT void *qMemSet(void *dest, int c, size_t n);
 // in. The idea here is to error or warn if otherwise implicit Qt
 // assumptions are not fulfilled on new hardware or compilers
 // (if this list becomes too long, consider factoring into a separate file)
-Q_STATIC_ASSERT_X(sizeof(int) == 4, "Qt assumes that int is 32 bits");
 Q_STATIC_ASSERT_X(UCHAR_MAX == 255, "Qt assumes that char is 8 bits");
+Q_STATIC_ASSERT_X(sizeof(int) == 4, "Qt assumes that int is 32 bits");
 Q_STATIC_ASSERT_X(QT_POINTER_SIZE == sizeof(void *), "QT_POINTER_SIZE defined incorrectly");
 Q_STATIC_ASSERT_X(sizeof(float) == 4, "Qt assumes that float is 32 bits");
+Q_STATIC_ASSERT_X(sizeof(char16_t) == 2, "Qt assumes that char16_t is 16 bits");
+Q_STATIC_ASSERT_X(sizeof(char32_t) == 4, "Qt assumes that char32_t is 32 bits");
+Q_STATIC_ASSERT_X(std::numeric_limits<int>::radix == 2,
+                  "Qt assumes binary integers");
+Q_STATIC_ASSERT_X((std::numeric_limits<int>::max() + std::numeric_limits<int>::lowest()) == -1,
+                  "Qt assumes two's complement integers");
 
 // While we'd like to check for __STDC_IEC_559__, as per ISO/IEC 9899:2011
 // Annex F (C11, normative for C++11), there are a few corner cases regarding
@@ -250,7 +256,7 @@ Q_STATIC_ASSERT((std::is_same<qsizetype, qptrdiff>::value));
     Qt::Alignment type is simply a typedef for
     QFlags<Qt::AlignmentFlag>. QLabel::setAlignment() takes a
     Qt::Alignment parameter, which means that any combination of
-    Qt::AlignmentFlag values, or 0, is legal:
+    Qt::AlignmentFlag values, or \c{{ }}, is legal:
 
     \snippet code/src_corelib_global_qglobal.cpp 0
 
@@ -318,10 +324,20 @@ Q_STATIC_ASSERT((std::is_same<qsizetype, qptrdiff>::value));
 */
 
 /*!
+    \fn template <typename Enum> QFlags<Enum>::QFlags()
+    \since 5.15
+
+    Constructs a QFlags object with no flags set.
+*/
+
+/*!
     \fn template <typename Enum> QFlags<Enum>::QFlags(Zero)
+    \deprecated
 
     Constructs a QFlags object with no flags set. The parameter must be a
     literal 0 value.
+
+    Deprecated, use default constructor instead.
 */
 
 /*!
@@ -690,7 +706,7 @@ Q_STATIC_ASSERT((std::is_same<qsizetype, qptrdiff>::value));
     64-bit integer literals in a platform-independent way. The
     Q_CHECK_PTR() macro prints a warning containing the source code's
     file name and line number, saying that the program ran out of
-    memory, if the pointer is 0. The qPrintable() and qUtf8Printable()
+    memory, if the pointer is \nullptr. The qPrintable() and qUtf8Printable()
     macros represent an easy way of printing text.
 
     The QT_POINTER_SIZE macro expands to the size of a pointer in bytes.
@@ -2089,7 +2105,7 @@ QT_WARNING_DISABLE_DEPRECATED
 QSysInfo::MacVersion QSysInfo::macVersion()
 {
     const auto version = QOperatingSystemVersion::current();
-#if defined(Q_OS_OSX)
+#if defined(Q_OS_MACOS)
     return QSysInfo::MacVersion(Q_MV_OSX(version.majorVersion(), version.minorVersion()));
 #elif defined(Q_OS_IOS)
     return QSysInfo::MacVersion(Q_MV_IOS(version.majorVersion(), version.minorVersion()));
@@ -3251,7 +3267,7 @@ QByteArray QSysInfo::bootUniqueId()
     \macro void Q_CHECK_PTR(void *pointer)
     \relates <QtGlobal>
 
-    If \a pointer is 0, prints a message containing the source
+    If \a pointer is \nullptr, prints a message containing the source
     code's file name and line number, saying that the program ran out
     of memory and aborts program execution. It throws \c std::bad_alloc instead
     if exceptions are enabled.
@@ -4770,9 +4786,11 @@ bool QInternal::activateCallbacks(Callback cb, void **parameters)
 /*!
     \macro qMove(x)
     \relates <QtGlobal>
+    \obsolete
 
-    It expands to "std::move" if your compiler supports that C++11 function, or to nothing
-    otherwise.
+    Use \c std::move instead.
+
+    It expands to "std::move".
 
     qMove takes an rvalue reference to its parameter \a x, and converts it to an xvalue.
 */
@@ -4873,6 +4891,7 @@ bool QInternal::activateCallbacks(Callback cb, void **parameters)
 /*!
     \macro Q_DECL_OVERRIDE
     \since 5.0
+    \obsolete
     \relates <QtGlobal>
 
     This macro can be used to declare an overriding virtual
@@ -4880,8 +4899,7 @@ bool QInternal::activateCallbacks(Callback cb, void **parameters)
     an error if the overriding virtual function does not in fact
     override anything.
 
-    It expands to "override" if your compiler supports that C++11
-    contextual keyword, or to nothing otherwise.
+    It expands to "override".
 
     The macro goes at the end of the function, usually after the
     \c{const}, if any:
@@ -4893,6 +4911,7 @@ bool QInternal::activateCallbacks(Callback cb, void **parameters)
 /*!
     \macro Q_DECL_FINAL
     \since 5.0
+    \obsolete
     \relates <QtGlobal>
 
     This macro can be used to declare an overriding virtual or a class
@@ -4900,10 +4919,7 @@ bool QInternal::activateCallbacks(Callback cb, void **parameters)
     no longer override this virtual function, or inherit from this
     class, respectively.
 
-    It expands to "final" if your compiler supports that C++11
-    contextual keyword, or something non-standard if your compiler
-    supports something close enough to the C++11 semantics, or to
-    nothing otherwise.
+    It expands to "final".
 
     The macro goes at the end of the function, usually after the
     \c{const}, if any:

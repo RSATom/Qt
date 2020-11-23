@@ -13,7 +13,6 @@
 #include "chrome/browser/profiles/profile_manager.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/tabs/tab_strip_model.h"
-#include "chrome/common/extensions/chrome_extension_messages.h"
 #include "content/public/browser/web_contents.h"
 #include "extensions/common/api/automation.h"
 #include "extensions/common/api/automation_internal.h"
@@ -56,11 +55,8 @@ bool ChromeAutomationInternalApiDelegate::GetTabById(
     content::WebContents** contents,
     std::string* error_msg) {
   *error_msg = tabs_constants::kTabNotFoundError;
-  return ExtensionTabUtil::GetTabById(
-      tab_id, browser_context, include_incognito,
-      nullptr, /* browser out param */
-      nullptr, /* tab strip out param */
-      contents, nullptr /* tab_index out param */);
+  return ExtensionTabUtil::GetTabById(tab_id, browser_context,
+                                      include_incognito, contents);
 }
 
 int ChromeAutomationInternalApiDelegate::GetTabId(
@@ -69,7 +65,7 @@ int ChromeAutomationInternalApiDelegate::GetTabId(
 }
 
 content::WebContents* ChromeAutomationInternalApiDelegate::GetActiveWebContents(
-    UIThreadExtensionFunction* function) {
+    ExtensionFunction* function) {
   return ChromeExtensionFunctionDetails(function)
       .GetCurrentBrowser()
       ->tab_strip_model()

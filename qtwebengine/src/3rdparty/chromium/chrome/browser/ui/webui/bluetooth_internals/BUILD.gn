@@ -18,11 +18,16 @@ source_set("bluetooth_internals") {
 
   deps = [
     ":mojo_bindings",
+    "//chrome/browser/resources/bluetooth_internals:resources",
     "//chrome/common",
     "//content/public/browser",
     "//device/bluetooth",
     "//ui/webui",
   ]
+
+  if (is_chromeos) {
+    deps += [ "//chrome/browser/chromeos" ]
+  }
 }
 
 mojom("mojo_bindings") {
@@ -33,7 +38,4 @@ mojom("mojo_bindings") {
   deps = [
     "//device/bluetooth/public/mojom:deprecated_experimental_interfaces",
   ]
-
-  # TODO(https://crbug.com/968369): Change to use new names.
-  use_old_js_lite_bindings_names = true
 }

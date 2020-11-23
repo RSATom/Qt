@@ -7,7 +7,7 @@
 #include "build/build_config.h"
 #include "content/browser/webrtc/webrtc_webcam_browsertest.h"
 #include "content/public/browser/browser_child_process_host.h"
-#include "content/public/browser/system_connector.h"
+#include "content/public/browser/video_capture_service.h"
 #include "content/public/common/child_process_host.h"
 #include "content/public/common/content_features.h"
 #include "content/public/common/content_switches.h"
@@ -15,9 +15,8 @@
 #include "content/public/test/content_browser_test_utils.h"
 #include "content/shell/browser/shell.h"
 #include "media/base/media_switches.h"
+#include "mojo/public/cpp/bindings/remote.h"
 #include "net/test/embedded_test_server/embedded_test_server.h"
-#include "services/service_manager/public/cpp/connector.h"
-#include "services/video_capture/public/mojom/constants.mojom.h"
 #include "services/video_capture/public/mojom/testing_controls.mojom.h"
 
 namespace content {
@@ -71,7 +70,7 @@ IN_PROC_BROWSER_TEST_F(WebRtcVideoCaptureBrowserTest,
     return;
 
   GURL url(embedded_test_server()->GetURL(kVideoCaptureHtmlFile));
-  NavigateToURL(shell(), url);
+  EXPECT_TRUE(NavigateToURL(shell(), url));
 
   std::string result;
   // Start video capture and wait until it started rendering
@@ -80,9 +79,9 @@ IN_PROC_BROWSER_TEST_F(WebRtcVideoCaptureBrowserTest,
   ASSERT_EQ("OK", result);
 
   // Simulate crash in video capture process
-  video_capture::mojom::TestingControlsPtr service_controls;
-  GetSystemConnector()->BindInterface(video_capture::mojom::kServiceName,
-                                      mojo::MakeRequest(&service_controls));
+  mojo::Remote<video_capture::mojom::TestingControls> service_controls;
+  GetVideoCaptureService().BindControlsForTesting(
+      service_controls.BindNewPipeAndPassReceiver());
   service_controls->Crash();
 
   // Wait for video element to turn black

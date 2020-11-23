@@ -16,7 +16,7 @@
 
 namespace blink {
 
-using namespace css_test_helpers;
+using css_test_helpers::RegisterProperty;
 using VariableMode = CSSParserLocalContext::VariableMode;
 
 namespace {
@@ -32,7 +32,7 @@ class CustomPropertyTest : public PageTestBase {
   const CSSValue* GetComputedValue(const CustomProperty& property) {
     Element* node = GetDocument().getElementById("target");
     return property.CSSValueFromComputedStyle(node->ComputedStyleRef(),
-                                              nullptr /* layout_object */, node,
+                                              nullptr /* layout_object */,
                                               false /* allow_visited_style */);
   }
 

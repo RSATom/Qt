@@ -307,9 +307,8 @@ SSLServerContextImpl::SocketImpl::PrivateKeySignCallback(uint8_t* out,
   signature_result_ = ERR_IO_PENDING;
   context_->private_key_->Sign(
       algorithm, base::make_span(in, in_len),
-      base::BindRepeating(
-          &SSLServerContextImpl::SocketImpl::OnPrivateKeyComplete,
-          weak_factory_.GetWeakPtr()));
+      base::BindOnce(&SSLServerContextImpl::SocketImpl::OnPrivateKeyComplete,
+                     weak_factory_.GetWeakPtr()));
   return ssl_private_key_retry;
 }
 
@@ -957,9 +956,9 @@ void SSLServerContextImpl::Init() {
 
   if (ssl_server_config_.client_cert_type !=
           SSLServerConfig::ClientCertType::NO_CLIENT_CERT &&
-      !ssl_server_config_.cert_authorities_.empty()) {
+      !ssl_server_config_.cert_authorities.empty()) {
     bssl::UniquePtr<STACK_OF(CRYPTO_BUFFER)> stack(sk_CRYPTO_BUFFER_new_null());
-    for (const auto& authority : ssl_server_config_.cert_authorities_) {
+    for (const auto& authority : ssl_server_config_.cert_authorities) {
       sk_CRYPTO_BUFFER_push(stack.get(),
                             x509_util::CreateCryptoBuffer(authority).release());
     }

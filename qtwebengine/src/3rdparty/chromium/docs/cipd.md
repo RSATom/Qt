@@ -26,7 +26,7 @@ create the following:
       README.chromium
 ```
 
-For more on third-party dependencies, see [here][2].
+For more on third-party dependencies, see [adding_to_third_party.md][2].
 
 ### 2. Acquire whatever you want to package
 
@@ -110,6 +110,12 @@ data:
   - file: foo.jar
 ```
 
+To create a private (Googler-only) package:
+```
+# Map this to //clank/third_party/sample_cipd_dep.
+package: chrome_internal/third_party/sample_cipd_dep
+```
+
 For more information about the package definition spec, see [the code][3].
 
 > **Note:** Committing the .yaml file to the repository isn't required,
@@ -120,7 +126,7 @@ For more information about the package definition spec, see [the code][3].
 
 To actually create your package, you'll need:
 
- - the cipd.yaml file (described above)
+ - the `cipd.yaml` file (described above)
  - [permission](#permissions-in-cipd).
 
 Once you have those, you can create your package like so:
@@ -142,7 +148,7 @@ You'll be adding it to DEPS momentarily.
 
 ### 5. Add your CIPD package to DEPS
 
-You can add your package to DEPS by adding an entry of the following form to
+You can add your package to `DEPS` by adding an entry of the following form to
 the `deps` dict:
 
 ```
@@ -222,5 +228,5 @@ that is not so trusting of its own cache.
 
 [1]: https://chromium.googlesource.com/infra/luci/luci-go/+/master/cipd/
 [2]: /docs/adding_to_third_party.md
-[3]: https://chromium.googlesource.com/infra/luci/luci-go/+/master/cipd/client/cipd/local/pkgdef.go
+[3]: https://chromium.googlesource.com/infra/luci/luci-go/+/master/cipd/client/cipd/builder/pkgdef.go
 [4]: https://chrome-infra-auth.appspot.com/auth/groups/project-chromium-cipd-owners

@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Qt Android Multi-Activity</string>
+    <string name="hello_second_activity">Hello Second Activity</string>
+    <string name="go_back">Go back</string>
+</resources>

@@ -32,15 +32,15 @@ namespace dawn_native { namespace d3d12 {
         // SPRIV-cross does matrix multiplication expecting row major matrices
         compileFlags |= D3DCOMPILE_PACK_MATRIX_ROW_MAJOR;
 
-        const ShaderModule* module = ToBackend(descriptor->computeStage->module);
-        const std::string& hlslSource = module->GetHLSLSource(ToBackend(GetLayout()));
+        ShaderModule* module = ToBackend(descriptor->computeStage.module);
+        const std::string hlslSource = module->GetHLSLSource(ToBackend(GetLayout()));
 
         ComPtr<ID3DBlob> compiledShader;
         ComPtr<ID3DBlob> errors;
 
         const PlatformFunctions* functions = device->GetFunctions();
         if (FAILED(functions->d3dCompile(hlslSource.c_str(), hlslSource.length(), nullptr, nullptr,
-                                         nullptr, descriptor->computeStage->entryPoint, "cs_5_1",
+                                         nullptr, descriptor->computeStage.entryPoint, "cs_5_1",
                                          compileFlags, 0, &compiledShader, &errors))) {
             printf("%s\n", reinterpret_cast<char*>(errors->GetBufferPointer()));
             ASSERT(false);

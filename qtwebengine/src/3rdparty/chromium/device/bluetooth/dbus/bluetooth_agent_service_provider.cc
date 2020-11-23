@@ -30,8 +30,7 @@ class BluetoothAgentServiceProviderImpl : public BluetoothAgentServiceProvider {
       : origin_thread_id_(base::PlatformThread::CurrentId()),
         bus_(bus),
         delegate_(delegate),
-        object_path_(object_path),
-        weak_ptr_factory_(this) {
+        object_path_(object_path) {
     VLOG(1) << "Creating Bluetooth Agent: " << object_path_.value();
 
     exported_object_ = bus_->GetExportedObject(object_path_);
@@ -129,7 +128,7 @@ class BluetoothAgentServiceProviderImpl : public BluetoothAgentServiceProvider {
 
     delegate_->Released();
 
-    response_sender.Run(dbus::Response::FromMethodCall(method_call));
+    std::move(response_sender).Run(dbus::Response::FromMethodCall(method_call));
   }
 
   // Called by dbus:: when the Bluetooth daemon requires a PIN Code for
@@ -147,9 +146,10 @@ class BluetoothAgentServiceProviderImpl : public BluetoothAgentServiceProvider {
       return;
     }
 
-    Delegate::PinCodeCallback callback = base::BindOnce(
-        &BluetoothAgentServiceProviderImpl::OnPinCode,
-        weak_ptr_factory_.GetWeakPtr(), method_call, response_sender);
+    Delegate::PinCodeCallback callback =
+        base::BindOnce(&BluetoothAgentServiceProviderImpl::OnPinCode,
+                       weak_ptr_factory_.GetWeakPtr(), method_call,
+                       std::move(response_sender));
 
     delegate_->RequestPinCode(device_path, std::move(callback));
   }
@@ -173,7 +173,7 @@ class BluetoothAgentServiceProviderImpl : public BluetoothAgentServiceProvider {
 
     delegate_->DisplayPinCode(device_path, pincode);
 
-    response_sender.Run(dbus::Response::FromMethodCall(method_call));
+    std::move(response_sender).Run(dbus::Response::FromMethodCall(method_call));
   }
 
   // Called by dbus:: when the Bluetooth daemon requires a Passkey for
@@ -191,9 +191,10 @@ class BluetoothAgentServiceProviderImpl : public BluetoothAgentServiceProvider {
       return;
     }
 
-    Delegate::PasskeyCallback callback = base::BindOnce(
-        &BluetoothAgentServiceProviderImpl::OnPasskey,
-        weak_ptr_factory_.GetWeakPtr(), method_call, response_sender);
+    Delegate::PasskeyCallback callback =
+        base::BindOnce(&BluetoothAgentServiceProviderImpl::OnPasskey,
+                       weak_ptr_factory_.GetWeakPtr(), method_call,
+                       std::move(response_sender));
 
     delegate_->RequestPasskey(device_path, std::move(callback));
   }
@@ -219,7 +220,7 @@ class BluetoothAgentServiceProviderImpl : public BluetoothAgentServiceProvider {
 
     delegate_->DisplayPasskey(device_path, passkey, entered);
 
-    response_sender.Run(dbus::Response::FromMethodCall(method_call));
+    std::move(response_sender).Run(dbus::Response::FromMethodCall(method_call));
   }
 
   // Called by dbus:: when the Bluetooth daemon requires that the user
@@ -240,9 +241,10 @@ class BluetoothAgentServiceProviderImpl : public BluetoothAgentServiceProvider {
       return;
     }
 
-    Delegate::ConfirmationCallback callback = base::BindOnce(
-        &BluetoothAgentServiceProviderImpl::OnConfirmation,
-        weak_ptr_factory_.GetWeakPtr(), method_call, response_sender);
+    Delegate::ConfirmationCallback callback =
+        base::BindOnce(&BluetoothAgentServiceProviderImpl::OnConfirmation,
+                       weak_ptr_factory_.GetWeakPtr(), method_call,
+                       std::move(response_sender));
 
     delegate_->RequestConfirmation(device_path, passkey, std::move(callback));
   }
@@ -263,9 +265,10 @@ class BluetoothAgentServiceProviderImpl : public BluetoothAgentServiceProvider {
       return;
     }
 
-    Delegate::ConfirmationCallback callback = base::BindOnce(
-        &BluetoothAgentServiceProviderImpl::OnConfirmation,
-        weak_ptr_factory_.GetWeakPtr(), method_call, response_sender);
+    Delegate::ConfirmationCallback callback =
+        base::BindOnce(&BluetoothAgentServiceProviderImpl::OnConfirmation,
+                       weak_ptr_factory_.GetWeakPtr(), method_call,
+                       std::move(response_sender));
 
     delegate_->RequestAuthorization(device_path, std::move(callback));
   }
@@ -287,9 +290,10 @@ class BluetoothAgentServiceProviderImpl : public BluetoothAgentServiceProvider {
       return;
     }
 
-    Delegate::ConfirmationCallback callback = base::BindOnce(
-        &BluetoothAgentServiceProviderImpl::OnConfirmation,
-        weak_ptr_factory_.GetWeakPtr(), method_call, response_sender);
+    Delegate::ConfirmationCallback callback =
+        base::BindOnce(&BluetoothAgentServiceProviderImpl::OnConfirmation,
+                       weak_ptr_factory_.GetWeakPtr(), method_call,
+                       std::move(response_sender));
 
     delegate_->AuthorizeService(device_path, uuid, std::move(callback));
   }
@@ -303,7 +307,7 @@ class BluetoothAgentServiceProviderImpl : public BluetoothAgentServiceProvider {
 
     delegate_->Cancel();
 
-    response_sender.Run(dbus::Response::FromMethodCall(method_call));
+    std::move(response_sender).Run(dbus::Response::FromMethodCall(method_call));
   }
 
   // Called by dbus:: when a method is exported.
@@ -327,17 +331,19 @@ class BluetoothAgentServiceProviderImpl : public BluetoothAgentServiceProvider {
             dbus::Response::FromMethodCall(method_call));
         dbus::MessageWriter writer(response.get());
         writer.AppendString(pincode);
-        response_sender.Run(std::move(response));
+        std::move(response_sender).Run(std::move(response));
         break;
       }
       case Delegate::REJECTED: {
-        response_sender.Run(dbus::ErrorResponse::FromMethodCall(
-            method_call, bluetooth_agent::kErrorRejected, "rejected"));
+        std::move(response_sender)
+            .Run(dbus::ErrorResponse::FromMethodCall(
+                method_call, bluetooth_agent::kErrorRejected, "rejected"));
         break;
       }
       case Delegate::CANCELLED: {
-        response_sender.Run(dbus::ErrorResponse::FromMethodCall(
-            method_call, bluetooth_agent::kErrorCanceled, "canceled"));
+        std::move(response_sender)
+            .Run(dbus::ErrorResponse::FromMethodCall(
+                method_call, bluetooth_agent::kErrorCanceled, "canceled"));
         break;
       }
       default:
@@ -358,17 +364,19 @@ class BluetoothAgentServiceProviderImpl : public BluetoothAgentServiceProvider {
             dbus::Response::FromMethodCall(method_call));
         dbus::MessageWriter writer(response.get());
         writer.AppendUint32(passkey);
-        response_sender.Run(std::move(response));
+        std::move(response_sender).Run(std::move(response));
         break;
       }
       case Delegate::REJECTED: {
-        response_sender.Run(dbus::ErrorResponse::FromMethodCall(
-            method_call, bluetooth_agent::kErrorRejected, "rejected"));
+        std::move(response_sender)
+            .Run(dbus::ErrorResponse::FromMethodCall(
+                method_call, bluetooth_agent::kErrorRejected, "rejected"));
         break;
       }
       case Delegate::CANCELLED: {
-        response_sender.Run(dbus::ErrorResponse::FromMethodCall(
-            method_call, bluetooth_agent::kErrorCanceled, "canceled"));
+        std::move(response_sender)
+            .Run(dbus::ErrorResponse::FromMethodCall(
+                method_call, bluetooth_agent::kErrorCanceled, "canceled"));
         break;
       }
       default:
@@ -384,17 +392,20 @@ class BluetoothAgentServiceProviderImpl : public BluetoothAgentServiceProvider {
 
     switch (status) {
       case Delegate::SUCCESS: {
-        response_sender.Run(dbus::Response::FromMethodCall(method_call));
+        std::move(response_sender)
+            .Run(dbus::Response::FromMethodCall(method_call));
         break;
       }
       case Delegate::REJECTED: {
-        response_sender.Run(dbus::ErrorResponse::FromMethodCall(
-            method_call, bluetooth_agent::kErrorRejected, "rejected"));
+        std::move(response_sender)
+            .Run(dbus::ErrorResponse::FromMethodCall(
+                method_call, bluetooth_agent::kErrorRejected, "rejected"));
         break;
       }
       case Delegate::CANCELLED: {
-        response_sender.Run(dbus::ErrorResponse::FromMethodCall(
-            method_call, bluetooth_agent::kErrorCanceled, "canceled"));
+        std::move(response_sender)
+            .Run(dbus::ErrorResponse::FromMethodCall(
+                method_call, bluetooth_agent::kErrorCanceled, "canceled"));
         break;
       }
       default:
@@ -425,7 +436,8 @@ class BluetoothAgentServiceProviderImpl : public BluetoothAgentServiceProvider {
   // than we do.
   // Note: This should remain the last member so it'll be destroyed and
   // invalidate its weak pointers before any other members are destroyed.
-  base::WeakPtrFactory<BluetoothAgentServiceProviderImpl> weak_ptr_factory_;
+  base::WeakPtrFactory<BluetoothAgentServiceProviderImpl> weak_ptr_factory_{
+      this};
 
   DISALLOW_COPY_AND_ASSIGN(BluetoothAgentServiceProviderImpl);
 };

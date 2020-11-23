@@ -18,6 +18,7 @@
 #include "core/fpdfapi/page/cpdf_pageobject.h"
 #include "core/fpdfapi/page/cpdf_shadingpattern.h"
 #include "core/fpdfapi/page/cpdf_tilingpattern.h"
+#include "core/fpdfapi/page/cpdf_transferfunc.h"
 #include "core/fpdfapi/parser/cpdf_array.h"
 #include "core/fpdfapi/parser/cpdf_dictionary.h"
 #include "core/fpdfapi/parser/cpdf_document.h"
@@ -25,7 +26,6 @@
 #include "core/fpdfapi/render/cpdf_pagerendercache.h"
 #include "core/fpdfapi/render/cpdf_rendercontext.h"
 #include "core/fpdfapi/render/cpdf_renderstatus.h"
-#include "core/fpdfapi/render/cpdf_transferfunc.h"
 #include "core/fxcrt/fx_safe_types.h"
 #include "core/fxcrt/maybe_owned.h"
 #include "core/fxge/cfx_defaultrenderdevice.h"
@@ -77,7 +77,7 @@ bool CPDF_ImageRenderer::StartRenderDIBBase() {
     return false;
 
   CPDF_GeneralState& state = m_pImageObject->m_GeneralState;
-  m_BitmapAlpha = FXSYS_round(255 * state.GetFillAlpha());
+  m_BitmapAlpha = FXSYS_roundf(255 * state.GetFillAlpha());
   m_pDIBBase = m_Loader.GetBitmap();
   if (GetRenderOptions().ColorModeIs(CPDF_RenderOptions::kAlpha) &&
       !m_Loader.GetMask()) {

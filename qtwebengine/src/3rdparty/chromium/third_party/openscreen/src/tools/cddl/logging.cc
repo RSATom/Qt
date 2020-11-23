@@ -4,39 +4,33 @@
 
 #include "tools/cddl/logging.h"
 
-#include <fcntl.h>
-#include <stdlib.h>
-#include <string.h>
-#include <unistd.h>
-
-#include <cinttypes>
-#include <fstream>
-#include <iostream>
-#include <string>
-#include <utility>
-
-const char* Logger::MakePrintable(const std::string data) {
-  return data.c_str();
+// static
+void Logger::Abort(const char* condition) {
+  std::cerr << "CHECK(" << condition << ") failed!" << std::endl;
+  std::abort();
 }
 
 void Logger::InitializeInstance() {
-  this->is_initialized_ = true;
+  is_initialized_ = true;
 
-  this->WriteLog("CDDL GENERATION TOOL");
-  this->WriteLog("---------------------------------------------\n");
+  WriteLog("CDDL GENERATION TOOL");
+  WriteLog("---------------------------------------------\n");
 }
 
 void Logger::VerifyInitialized() {
-  if (!this->is_initialized_) {
-    this->InitializeInstance();
+  if (!is_initialized_) {
+    InitializeInstance();
   }
 }
 
-Logger::Logger() {
-  this->is_initialized_ = false;
-  openscreen::platform::LogInit(nullptr);
-  openscreen::platform::SetLogLevel(openscreen::platform::LogLevel::kInfo);
+const char* Logger::MakePrintable(const std::string& data) {
+  return data.c_str();
 }
+
+Logger::Logger() {
+  is_initialized_ = false;
+}
+
 // Static:
 Logger* Logger::Get() {
   return Logger::singleton_;

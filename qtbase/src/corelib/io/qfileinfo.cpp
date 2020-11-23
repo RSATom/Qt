@@ -1,6 +1,6 @@
 /****************************************************************************
 **
-** Copyright (C) 2016 The Qt Company Ltd.
+** Copyright (C) 2020 The Qt Company Ltd.
 ** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the QtCore module of the Qt Toolkit.
@@ -134,7 +134,7 @@ uint QFileInfoPrivate::getFileFlags(QAbstractFileEngine::FileFlags request) cons
     // extra syscall. Bundle detecton on Mac can be slow, expecially on network
     // paths, so we separate out that as well.
 
-    QAbstractFileEngine::FileFlags req = nullptr;
+    QAbstractFileEngine::FileFlags req;
     uint cachedFlags = 0;
 
     if (request & (QAbstractFileEngine::FlagsMask | QAbstractFileEngine::TypesMask)) {
@@ -272,7 +272,7 @@ QDateTime &QFileInfoPrivate::getFileTime(QAbstractFileEngine::FileTime request) 
     info objects, just append one to the file name given to the constructors
     or setFile().
 
-    The file's dates are returned by created(), lastModified(), lastRead() and
+    The file's dates are returned by birthTime(), lastModified(), lastRead() and
     fileTime(). Information about the file's access permissions is
     obtained with isReadable(), isWritable() and isExecutable(). The
     file's ownership is available from owner(), ownerId(), group() and
@@ -1145,6 +1145,27 @@ bool QFileInfo::isShortcut() const
             [d]() { return d->getFileFlags(QAbstractFileEngine::LinkType); });
 }
 
+
+/*!
+    \since 5.15
+
+    Returns \c true if the object points to a junction;
+    otherwise returns \c false.
+
+    Junctions only exist on Windows' NTFS file system, and are typically
+    created by the \c{mklink} command. They can be thought of as symlinks for
+    directories, and can only be created for absolute paths on the local
+    volume.
+*/
+bool QFileInfo::isJunction() const
+{
+    Q_D(const QFileInfo);
+    return d->checkAttribute<bool>(
+            QFileSystemMetaData::LegacyLinkType,
+            [d]() { return d->metaData.isJunction(); },
+            [d]() { return d->getFileFlags(QAbstractFileEngine::LinkType); });
+}
+
 /*!
     Returns \c true if the object points to a directory or to a symbolic
     link to a directory, and that directory is the root directory; otherwise
@@ -1535,6 +1556,23 @@ void QFileInfo::setCaching(bool enable)
 {
     Q_D(QFileInfo);
     d->cache_enabled = enable;
+}
+
+/*!
+    \internal
+
+    Reads all attributes from the file system.
+
+    This is useful when information about the file system is collected in a
+    worker thread, and then passed to the UI in the form of caching QFileInfo
+    instances.
+
+    \sa setCaching(), refresh()
+*/
+void QFileInfo::stat()
+{
+    Q_D(QFileInfo);
+    QFileSystemEngine::fillMetaData(d->fileEntry, d->metaData, QFileSystemMetaData::AllMetaDataFlags);
 }
 
 /*!

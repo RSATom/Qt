@@ -5,6 +5,7 @@
 #ifndef THIRD_PARTY_BLINK_RENDERER_CORE_PAGE_SPATIAL_NAVIGATION_CONTROLLER_H_
 #define THIRD_PARTY_BLINK_RENDERER_CORE_PAGE_SPATIAL_NAVIGATION_CONTROLLER_H_
 
+#include "mojo/public/cpp/bindings/remote.h"
 #include "third_party/blink/public/mojom/page/spatial_navigation.mojom-blink.h"
 #include "third_party/blink/renderer/core/core_export.h"
 #include "third_party/blink/renderer/core/page/spatial_navigation.h"
@@ -23,8 +24,8 @@ struct PhysicalRect;
 // Navigation is used to move and interact with a page in a purely directional
 // way, e.g. keyboard arrows. We use the term "interest" to specify which
 // element the user is currently on.
-class CORE_EXPORT SpatialNavigationController
-    : public GarbageCollectedFinalized<SpatialNavigationController> {
+class CORE_EXPORT SpatialNavigationController final
+    : public GarbageCollected<SpatialNavigationController> {
  public:
   explicit SpatialNavigationController(Page& page);
 
@@ -105,7 +106,8 @@ class CORE_EXPORT SpatialNavigationController
   bool UpdateIsFormFocused(Element* element);
   bool UpdateHasDefaultVideoControls(Element* element);
 
-  const mojom::blink::SpatialNavigationHostPtr& GetSpatialNavigationHost();
+  const mojo::Remote<mojom::blink::SpatialNavigationHost>&
+  GetSpatialNavigationHost();
   void ResetMojoBindings();
 
   // The currently indicated element or nullptr if no node is indicated by
@@ -119,7 +121,7 @@ class CORE_EXPORT SpatialNavigationController
   bool enter_key_press_seen_ = false;
 
   mojom::blink::SpatialNavigationStatePtr spatial_navigation_state_;
-  mojom::blink::SpatialNavigationHostPtr spatial_navigation_host_;
+  mojo::Remote<mojom::blink::SpatialNavigationHost> spatial_navigation_host_;
 };
 
 }  // namespace blink

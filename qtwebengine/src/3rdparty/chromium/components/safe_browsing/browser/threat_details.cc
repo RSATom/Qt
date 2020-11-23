@@ -17,6 +17,7 @@
 #include "base/lazy_instance.h"
 #include "base/metrics/histogram_macros.h"
 #include "base/stl_util.h"
+#include "base/strings/string_piece.h"
 #include "base/strings/string_util.h"
 #include "base/task/post_task.h"
 #include "components/history/core/browser/history_service.h"
@@ -27,8 +28,10 @@
 #include "components/safe_browsing/db/hit_report.h"
 #include "components/safe_browsing/features.h"
 #include "components/safe_browsing/web_ui/safe_browsing_ui.h"
+#include "content/public/browser/back_forward_cache.h"
 #include "content/public/browser/browser_task_traits.h"
 #include "content/public/browser/browser_thread.h"
+#include "content/public/browser/global_routing_id.h"
 #include "content/public/browser/navigation_controller.h"
 #include "content/public/browser/navigation_entry.h"
 #include "content/public/browser/render_frame_host.h"
@@ -99,7 +102,9 @@ ClientSafeBrowsingReportRequest::ReportType GetReportTypeFromSBThreatType(
       return ClientSafeBrowsingReportRequest::AD_SAMPLE;
     case SB_THREAT_TYPE_BLOCKED_AD_REDIRECT:
       return ClientSafeBrowsingReportRequest::BLOCKED_AD_REDIRECT;
-    case SB_THREAT_TYPE_SIGN_IN_PASSWORD_REUSE:
+    case SB_THREAT_TYPE_SAVED_PASSWORD_REUSE:
+    case SB_THREAT_TYPE_SIGNED_IN_SYNC_PASSWORD_REUSE:
+    case SB_THREAT_TYPE_SIGNED_IN_NON_SYNC_PASSWORD_REUSE:
     case SB_THREAT_TYPE_ENTERPRISE_PASSWORD_REUSE:
       return ClientSafeBrowsingReportRequest::URL_PASSWORD_PROTECTION_PHISHING;
     case SB_THREAT_TYPE_SUSPICIOUS_SITE:
@@ -306,6 +311,7 @@ void TrimElements(const std::set<int> target_ids,
     }
   }
 }
+
 }  // namespace
 
 // The default ThreatDetailsFactory.  Global, made a singleton so we
@@ -381,7 +387,6 @@ ThreatDetails::ThreatDetails(
       cache_result_(false),
       did_proceed_(false),
       num_visits_(0),
-      ambiguous_dom_(false),
       trim_to_ad_tags_(trim_to_ad_tags),
       cache_collector_(new ThreatDetailsCacheCollector),
       done_callback_(done_callback),
@@ -398,7 +403,6 @@ ThreatDetails::ThreatDetails()
     : cache_result_(false),
       did_proceed_(false),
       num_visits_(0),
-      ambiguous_dom_(false),
       trim_to_ad_tags_(false),
       all_done_expected_(false),
       is_all_done_(false) {}
@@ -638,8 +642,11 @@ void ThreatDetails::StartCollection() {
 }
 
 void ThreatDetails::RequestThreatDOMDetails(content::RenderFrameHost* frame) {
-  safe_browsing::mojom::ThreatReporterPtr threat_reporter;
-  frame->GetRemoteInterfaces()->GetInterface(&threat_reporter);
+  content::BackForwardCache::DisableForRenderFrameHost(
+      frame, "safe_browsing::ThreatDetails");
+  mojo::Remote<safe_browsing::mojom::ThreatReporter> threat_reporter;
+  frame->GetRemoteInterfaces()->GetInterface(
+      threat_reporter.BindNewPipeAndPassReceiver());
   safe_browsing::mojom::ThreatReporter* raw_threat_report =
       threat_reporter.get();
   pending_render_frame_hosts_.push_back(frame);
@@ -650,7 +657,7 @@ void ThreatDetails::RequestThreatDOMDetails(content::RenderFrameHost* frame) {
 
 // When the renderer is done, this is called.
 void ThreatDetails::OnReceivedThreatDOMDetails(
-    mojom::ThreatReporterPtr threat_reporter,
+    mojo::Remote<mojom::ThreatReporter> threat_reporter,
     content::RenderFrameHost* sender,
     std::vector<mojom::ThreatDOMDetailsNodePtr> params) {
   // If the RenderFrameHost was closed between sending the IPC and this callback
@@ -676,10 +683,8 @@ void ThreatDetails::OnReceivedThreatDOMDetails(
     int child_frame_tree_node_id =
         content::RenderFrameHost::GetFrameTreeNodeIdForRoutingId(
             sender_process_id, node->child_frame_routing_id);
-    if (child_frame_tree_node_id ==
+    if (child_frame_tree_node_id !=
         content::RenderFrameHost::kNoFrameTreeNodeId) {
-      ambiguous_dom_ = true;
-    } else {
       child_frame_tree_map[cur_element_key] = child_frame_tree_node_id;
     }
   }
@@ -822,12 +827,6 @@ void ThreatDetails::OnCacheCollectionReady() {
   for (auto& element_pair : elements_) {
     report_->add_dom()->Swap(element_pair.second.get());
   }
-  if (!elements_.empty()) {
-    // TODO(lpz): Consider including the ambiguous_dom_ bit in the report
-    // itself.
-    UMA_HISTOGRAM_BOOLEAN("SafeBrowsing.ThreatReport.DomIsAmbiguous",
-                          ambiguous_dom_);
-  }
 
   report_->set_did_proceed(did_proceed_);
   // Only sets repeat_visit if num_visits_ >= 0.
@@ -850,7 +849,7 @@ void ThreatDetails::OnCacheCollectionReady() {
     return;
   }
 
-  base::PostTaskWithTraits(
+  base::PostTask(
       FROM_HERE, {content::BrowserThread::UI},
       base::BindOnce(&WebUIInfoSingleton::AddToCSBRRsSent,
                      base::Unretained(WebUIInfoSingleton::GetInstance()),
@@ -878,7 +877,7 @@ void ThreatDetails::MaybeFillReferrerChain() {
 
 void ThreatDetails::AllDone() {
   is_all_done_ = true;
-  base::PostTaskWithTraits(
+  base::PostTask(
       FROM_HERE, {content::BrowserThread::UI},
       base::BindOnce(done_callback_, base::Unretained(web_contents())));
 }

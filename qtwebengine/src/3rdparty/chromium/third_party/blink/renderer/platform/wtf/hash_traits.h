@@ -86,10 +86,13 @@ struct GenericHashTraitsBase<false, T> {
     static const bool value = !std::is_pod<T>::value;
   };
 
-  static const WeakHandlingFlag kWeakHandlingFlag =
-      IsWeak<T>::value ? kWeakHandling : kNoWeakHandling;
-
   static constexpr bool kCanHaveDeletedValue = true;
+
+  // The kHasMovingCallback value is only used for HashTable backing stores.
+  // Currently it is needed for LinkedHashSet to register moving callback on
+  // write barrier. Users of this value have to provide RegisterMovingCallback
+  // function.
+  static constexpr bool kHasMovingCallback = false;
 };
 
 // Default integer traits disallow both 0 and -1 as keys (max value instead of
@@ -400,6 +403,10 @@ struct KeyValuePair {
   ValueTypeArg value;
 };
 
+template <typename K, typename V>
+struct IsWeak<KeyValuePair<K, V>>
+    : std::integral_constant<bool, IsWeak<K>::value || IsWeak<V>::value> {};
+
 template <typename KeyTraitsArg, typename ValueTraitsArg>
 struct KeyValuePairHashTraits
     : GenericHashTraits<KeyValuePair<typename KeyTraitsArg::TraitType,
@@ -433,12 +440,6 @@ struct KeyValuePairHashTraits
         KeyTraits::template NeedsToForbidGCOnMove<>::value ||
         ValueTraits::template NeedsToForbidGCOnMove<>::value;
   };
-
-  static const WeakHandlingFlag kWeakHandlingFlag =
-      (KeyTraits::kWeakHandlingFlag == kWeakHandling ||
-       ValueTraits::kWeakHandlingFlag == kWeakHandling)
-          ? kWeakHandling
-          : kNoWeakHandling;
 
   static const unsigned kMinimumTableSize = KeyTraits::kMinimumTableSize;
 

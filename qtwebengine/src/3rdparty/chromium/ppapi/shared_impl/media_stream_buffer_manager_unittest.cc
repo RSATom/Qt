@@ -8,23 +8,18 @@
 
 #include <utility>
 
-#include "base/memory/shared_memory.h"
+#include "base/memory/unsafe_shared_memory_region.h"
 #include "ppapi/c/pp_errors.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
-using base::SharedMemory;
-using base::SharedMemoryCreateOptions;
-
 namespace {
 
-std::unique_ptr<SharedMemory> CreateSharedMemory(int32_t buffer_size,
-                                                 int32_t number_of_buffers) {
-  std::unique_ptr<SharedMemory> shared_memory(new SharedMemory());
-  SharedMemoryCreateOptions options;
-  options.size = buffer_size * number_of_buffers;
-  options.executable = false;
-  EXPECT_TRUE(shared_memory->Create(options));
-  return shared_memory;
+base::UnsafeSharedMemoryRegion CreateSharedMemory(int32_t buffer_size,
+                                                  int32_t number_of_buffers) {
+  base::UnsafeSharedMemoryRegion region =
+      base::UnsafeSharedMemoryRegion::Create(buffer_size * number_of_buffers);
+  EXPECT_TRUE(region.IsValid());
+  return region;
 }
 
 }  // namespace
@@ -47,7 +42,7 @@ TEST(MediaStreamBufferManager, General) {
     const int32_t kBufferSize = 128;
     MockDelegate delegate;
     MediaStreamBufferManager manager(&delegate);
-    std::unique_ptr<SharedMemory> shared_memory =
+    base::UnsafeSharedMemoryRegion shared_memory =
         CreateSharedMemory(kBufferSize, kNumberOfBuffers);
     // SetBuffers with enqueue_all_buffers = true;
     EXPECT_TRUE(manager.SetBuffers(kNumberOfBuffers, kBufferSize,
@@ -104,7 +99,7 @@ TEST(MediaStreamBufferManager, General) {
     const int32_t kBufferSize = 128;
     MockDelegate delegate;
     MediaStreamBufferManager manager(&delegate);
-    std::unique_ptr<SharedMemory> shared_memory =
+    base::UnsafeSharedMemoryRegion shared_memory =
         CreateSharedMemory(kBufferSize, kNumberOfBuffers);
     // SetBuffers with enqueue_all_buffers = false;
     EXPECT_TRUE(manager.SetBuffers(kNumberOfBuffers, kBufferSize,
@@ -133,13 +128,8 @@ TEST(MediaStreamBufferManager, ResetBuffers) {
   MockDelegate delegate;
   MediaStreamBufferManager manager(&delegate);
   {
-    std::unique_ptr<SharedMemory> shared_memory(new SharedMemory());
-    SharedMemoryCreateOptions options;
-    options.size = kBufferSize1 * kNumberOfBuffers1;
-    options.executable = false;
-
-    EXPECT_TRUE(shared_memory->Create(options));
-
+    base::UnsafeSharedMemoryRegion shared_memory =
+        CreateSharedMemory(kBufferSize1, kNumberOfBuffers1);
     // SetBuffers with enqueue_all_buffers = true;
     EXPECT_TRUE(manager.SetBuffers(kNumberOfBuffers1, kBufferSize1,
                                    std::move(shared_memory), true));
@@ -159,7 +149,7 @@ TEST(MediaStreamBufferManager, ResetBuffers) {
   }
 
   {
-    std::unique_ptr<SharedMemory> shared_memory =
+    base::UnsafeSharedMemoryRegion shared_memory =
         CreateSharedMemory(kBufferSize2, kNumberOfBuffers2);
     // SetBuffers with enqueue_all_buffers = true;
     EXPECT_TRUE(manager.SetBuffers(kNumberOfBuffers2, kBufferSize2,

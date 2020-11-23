@@ -4,7 +4,7 @@
 
 #include "third_party/blink/renderer/controller/blink_leak_detector.h"
 
-#include "mojo/public/cpp/bindings/strong_binding.h"
+#include "mojo/public/cpp/bindings/self_owned_receiver.h"
 #include "third_party/blink/public/platform/platform.h"
 #include "third_party/blink/renderer/bindings/core/v8/v8_binding_for_core.h"
 #include "third_party/blink/renderer/bindings/core/v8/v8_gc_controller.h"
@@ -33,9 +33,10 @@ BlinkLeakDetector::BlinkLeakDetector()
 BlinkLeakDetector::~BlinkLeakDetector() = default;
 
 // static
-void BlinkLeakDetector::Create(mojom::blink::LeakDetectorRequest request) {
-  mojo::MakeStrongBinding(std::make_unique<BlinkLeakDetector>(),
-                          std::move(request));
+void BlinkLeakDetector::Create(
+    mojo::PendingReceiver<mojom::blink::LeakDetector> receiver) {
+  mojo::MakeSelfOwnedReceiver(std::make_unique<BlinkLeakDetector>(),
+                              std::move(receiver));
 }
 
 void BlinkLeakDetector::PerformLeakDetection(
@@ -66,10 +67,7 @@ void BlinkLeakDetector::PerformLeakDetection(
   for (auto resource_fetcher : ResourceFetcher::MainThreadFetchers())
     resource_fetcher->PrepareForLeakDetection();
 
-  // Internal settings are ScriptWrappable and thus may retain documents
-  // depending on whether the garbage collector(s) are able to find the settings
-  // object through the Page supplement.
-  InternalSettings::PrepareForLeakDetection();
+  Page::PrepareForLeakDetection();
 
   // Task queue may contain delayed object destruction tasks.
   // This method is called from navigation hook inside FrameLoader,
@@ -126,8 +124,6 @@ void BlinkLeakDetector::ReportResult() {
   result->number_of_live_context_lifecycle_state_observers =
       InstanceCounters::CounterValue(
           InstanceCounters::kContextLifecycleStateObserverCounter);
-  result->number_of_live_script_promises =
-      InstanceCounters::CounterValue(InstanceCounters::kScriptPromiseCounter);
   result->number_of_live_frames =
       InstanceCounters::CounterValue(InstanceCounters::kFrameCounter);
   result->number_of_live_v8_per_context_data = InstanceCounters::CounterValue(

@@ -211,7 +211,7 @@ bool QSqlTableModelPrivate::exec(const QString &stmt, bool prepStatement,
     lower-level QSqlQuery and can be used to provide data to view
     classes such as QTableView. For example:
 
-    \snippet sqldatabase/sqldatabase.cpp 24
+    \snippet sqldatabase/sqldatabase_snippet.cpp 24
 
     We set the SQL table's name and the edit strategy, then we set up
     the labels displayed in the view header. The edit strategy
@@ -1305,7 +1305,7 @@ Qt::ItemFlags QSqlTableModel::flags(const QModelIndex &index) const
     Q_D(const QSqlTableModel);
     if (index.internalPointer() || index.column() < 0 || index.column() >= d->rec.count()
         || index.row() < 0)
-        return 0;
+        return { };
 
     bool editable = true;
 
@@ -1369,7 +1369,7 @@ QSqlRecord QSqlTableModel::record(int row) const
     // get generated flags from the cache
     const QSqlTableModelPrivate::ModifiedRow mrow = d->cache.value(row);
     if (mrow.op() != QSqlTableModelPrivate::None) {
-        const QSqlRecord crec = mrow.rec();
+        const QSqlRecord &crec = mrow.rec();
         for (int i = 0, cnt = rec.count(); i < cnt; ++i)
             rec.setGenerated(i, crec.isGenerated(i));
     }

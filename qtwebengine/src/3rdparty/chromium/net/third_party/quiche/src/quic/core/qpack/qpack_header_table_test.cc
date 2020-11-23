@@ -4,6 +4,8 @@
 
 #include "net/third_party/quiche/src/quic/core/qpack/qpack_header_table.h"
 
+#include <utility>
+
 #include "net/third_party/quiche/src/quic/core/qpack/qpack_static_table.h"
 #include "net/third_party/quiche/src/quic/platform/api/quic_arraysize.h"
 #include "net/third_party/quiche/src/quic/platform/api/quic_test.h"
@@ -23,6 +25,7 @@ class MockObserver : public QpackHeaderTable::Observer {
   ~MockObserver() override = default;
 
   MOCK_METHOD0(OnInsertCountReachedThreshold, void());
+  MOCK_METHOD0(Cancel, void());
 };
 
 class QpackHeaderTableTest : public QuicTest {
@@ -30,6 +33,7 @@ class QpackHeaderTableTest : public QuicTest {
   QpackHeaderTableTest() {
     table_.SetMaximumDynamicTableCapacity(
         kMaximumDynamicTableCapacityForTesting);
+    table_.SetDynamicTableCapacity(kMaximumDynamicTableCapacityForTesting);
   }
   ~QpackHeaderTableTest() override = default;
 
@@ -88,9 +92,14 @@ class QpackHeaderTableTest : public QuicTest {
     return table_.SetDynamicTableCapacity(capacity);
   }
 
-  void RegisterObserver(QpackHeaderTable::Observer* observer,
-                        uint64_t required_insert_count) {
-    table_.RegisterObserver(observer, required_insert_count);
+  void RegisterObserver(uint64_t required_insert_count,
+                        QpackHeaderTable::Observer* observer) {
+    table_.RegisterObserver(required_insert_count, observer);
+  }
+
+  void UnregisterObserver(uint64_t required_insert_count,
+                          QpackHeaderTable::Observer* observer) {
+    table_.UnregisterObserver(required_insert_count, observer);
   }
 
   uint64_t max_entries() const { return table_.max_entries(); }
@@ -365,9 +374,59 @@ TEST_F(QpackHeaderTableTest, EvictOldestOfSameName) {
               /* expected_is_static = */ false, 2u);
 }
 
-TEST_F(QpackHeaderTableTest, Observer) {
+// Returns the size of the largest entry that could be inserted into the
+// dynamic table without evicting entry |index|.
+TEST_F(QpackHeaderTableTest, MaxInsertSizeWithoutEvictingGivenEntry) {
+  const uint64_t dynamic_table_capacity = 100;
+  QpackHeaderTable table;
+  table.SetMaximumDynamicTableCapacity(dynamic_table_capacity);
+  EXPECT_TRUE(table.SetDynamicTableCapacity(dynamic_table_capacity));
+
+  // Empty table can take an entry up to its capacity.
+  EXPECT_EQ(dynamic_table_capacity,
+            table.MaxInsertSizeWithoutEvictingGivenEntry(0));
+
+  const uint64_t entry_size1 = QpackEntry::Size("foo", "bar");
+  EXPECT_TRUE(table.InsertEntry("foo", "bar"));
+  EXPECT_EQ(dynamic_table_capacity - entry_size1,
+            table.MaxInsertSizeWithoutEvictingGivenEntry(0));
+  // Table can take an entry up to its capacity if all entries are allowed to be
+  // evicted.
+  EXPECT_EQ(dynamic_table_capacity,
+            table.MaxInsertSizeWithoutEvictingGivenEntry(1));
+
+  const uint64_t entry_size2 = QpackEntry::Size("baz", "foobar");
+  EXPECT_TRUE(table.InsertEntry("baz", "foobar"));
+  // Table can take an entry up to its capacity if all entries are allowed to be
+  // evicted.
+  EXPECT_EQ(dynamic_table_capacity,
+            table.MaxInsertSizeWithoutEvictingGivenEntry(2));
+  // Second entry must stay.
+  EXPECT_EQ(dynamic_table_capacity - entry_size2,
+            table.MaxInsertSizeWithoutEvictingGivenEntry(1));
+  // First and second entry must stay.
+  EXPECT_EQ(dynamic_table_capacity - entry_size2 - entry_size1,
+            table.MaxInsertSizeWithoutEvictingGivenEntry(0));
+
+  // Third entry evicts first one.
+  const uint64_t entry_size3 = QpackEntry::Size("last", "entry");
+  EXPECT_TRUE(table.InsertEntry("last", "entry"));
+  EXPECT_EQ(1u, table.dropped_entry_count());
+  // Table can take an entry up to its capacity if all entries are allowed to be
+  // evicted.
+  EXPECT_EQ(dynamic_table_capacity,
+            table.MaxInsertSizeWithoutEvictingGivenEntry(3));
+  // Third entry must stay.
+  EXPECT_EQ(dynamic_table_capacity - entry_size3,
+            table.MaxInsertSizeWithoutEvictingGivenEntry(2));
+  // Second and third entry must stay.
+  EXPECT_EQ(dynamic_table_capacity - entry_size3 - entry_size2,
+            table.MaxInsertSizeWithoutEvictingGivenEntry(1));
+}
+
+TEST_F(QpackHeaderTableTest, RegisterObserver) {
   StrictMock<MockObserver> observer1;
-  RegisterObserver(&observer1, 1);
+  RegisterObserver(1, &observer1);
   EXPECT_CALL(observer1, OnInsertCountReachedThreshold);
   InsertEntry("foo", "bar");
   EXPECT_EQ(1u, inserted_entry_count());
@@ -376,8 +435,8 @@ TEST_F(QpackHeaderTableTest, Observer) {
   // Registration order does not matter.
   StrictMock<MockObserver> observer2;
   StrictMock<MockObserver> observer3;
-  RegisterObserver(&observer3, 3);
-  RegisterObserver(&observer2, 2);
+  RegisterObserver(3, &observer3);
+  RegisterObserver(2, &observer2);
 
   EXPECT_CALL(observer2, OnInsertCountReachedThreshold);
   InsertEntry("foo", "bar");
@@ -393,8 +452,8 @@ TEST_F(QpackHeaderTableTest, Observer) {
   // notified.
   StrictMock<MockObserver> observer4;
   StrictMock<MockObserver> observer5;
-  RegisterObserver(&observer4, 4);
-  RegisterObserver(&observer5, 4);
+  RegisterObserver(4, &observer4);
+  RegisterObserver(4, &observer5);
 
   EXPECT_CALL(observer4, OnInsertCountReachedThreshold);
   EXPECT_CALL(observer5, OnInsertCountReachedThreshold);
@@ -402,6 +461,74 @@ TEST_F(QpackHeaderTableTest, Observer) {
   EXPECT_EQ(4u, inserted_entry_count());
   Mock::VerifyAndClearExpectations(&observer4);
   Mock::VerifyAndClearExpectations(&observer5);
+}
+
+TEST_F(QpackHeaderTableTest, UnregisterObserver) {
+  StrictMock<MockObserver> observer1;
+  StrictMock<MockObserver> observer2;
+  StrictMock<MockObserver> observer3;
+  StrictMock<MockObserver> observer4;
+  RegisterObserver(1, &observer1);
+  RegisterObserver(2, &observer2);
+  RegisterObserver(2, &observer3);
+  RegisterObserver(3, &observer4);
+
+  UnregisterObserver(2, &observer3);
+
+  EXPECT_CALL(observer1, OnInsertCountReachedThreshold);
+  EXPECT_CALL(observer2, OnInsertCountReachedThreshold);
+  EXPECT_CALL(observer4, OnInsertCountReachedThreshold);
+  InsertEntry("foo", "bar");
+  InsertEntry("foo", "bar");
+  InsertEntry("foo", "bar");
+  EXPECT_EQ(3u, inserted_entry_count());
+}
+
+TEST_F(QpackHeaderTableTest, DrainingIndex) {
+  QpackHeaderTable table;
+  table.SetMaximumDynamicTableCapacity(kMaximumDynamicTableCapacityForTesting);
+  EXPECT_TRUE(
+      table.SetDynamicTableCapacity(4 * QpackEntry::Size("foo", "bar")));
+
+  // Empty table: no draining entry.
+  EXPECT_EQ(0u, table.draining_index(0.0));
+  EXPECT_EQ(0u, table.draining_index(1.0));
+
+  // Table with one entry.
+  EXPECT_TRUE(table.InsertEntry("foo", "bar"));
+  // Any entry can be referenced if none of the table is draining.
+  EXPECT_EQ(0u, table.draining_index(0.0));
+  // No entry can be referenced if all of the table is draining.
+  EXPECT_EQ(1u, table.draining_index(1.0));
+
+  // Table with two entries is at half capacity.
+  EXPECT_TRUE(table.InsertEntry("foo", "bar"));
+  // Any entry can be referenced if at most half of the table is draining,
+  // because current entries only take up half of total capacity.
+  EXPECT_EQ(0u, table.draining_index(0.0));
+  EXPECT_EQ(0u, table.draining_index(0.5));
+  // No entry can be referenced if all of the table is draining.
+  EXPECT_EQ(2u, table.draining_index(1.0));
+
+  // Table with four entries is full.
+  EXPECT_TRUE(table.InsertEntry("foo", "bar"));
+  EXPECT_TRUE(table.InsertEntry("foo", "bar"));
+  // Any entry can be referenced if none of the table is draining.
+  EXPECT_EQ(0u, table.draining_index(0.0));
+  // In a full table with identically sized entries, |draining_fraction| of all
+  // entries are draining.
+  EXPECT_EQ(2u, table.draining_index(0.5));
+  // No entry can be referenced if all of the table is draining.
+  EXPECT_EQ(4u, table.draining_index(1.0));
+}
+
+TEST_F(QpackHeaderTableTest, Cancel) {
+  StrictMock<MockObserver> observer;
+  auto table = std::make_unique<QpackHeaderTable>();
+  table->RegisterObserver(1, &observer);
+
+  EXPECT_CALL(observer, Cancel);
+  table.reset();
 }
 
 }  // namespace

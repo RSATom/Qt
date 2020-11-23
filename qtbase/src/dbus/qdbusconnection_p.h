@@ -173,7 +173,7 @@ public:
 
 public:
     // typedefs
-    typedef QMultiHash<int, Watcher> WatcherHash;
+    typedef QMultiHash<qintptr, Watcher> WatcherHash;
     typedef QHash<int, DBusTimeout *> TimeoutHash;
     typedef QVector<QDBusMessage> PendingMessageList;
 
@@ -276,6 +276,8 @@ private:
 
     void _q_newConnection(QDBusConnectionPrivate *newConnection);
 
+    void handleAuthentication();
+
 protected:
     void timerEvent(QTimerEvent *e) override;
 
@@ -283,8 +285,8 @@ public slots:
     // public slots
     void setDispatchEnabled(bool enable);
     void doDispatch();
-    void socketRead(int);
-    void socketWrite(int);
+    void socketRead(qintptr);
+    void socketWrite(qintptr);
     void objectDestroyed(QObject *o);
     void relaySignal(QObject *obj, const QMetaObject *, int signalId, const QVariantList &args);
     bool addSignalHook(const QString &key, const SignalHook &hook);
@@ -308,7 +310,11 @@ signals:
 
 public:
     QAtomicInt ref;
-    QDBusConnection::ConnectionCapabilities capabilities;
+    QAtomicInt capabilities;
+    QDBusConnection::ConnectionCapabilities connectionCapabilities() const
+    {
+        return (QDBusConnection::ConnectionCapabilities)capabilities.loadRelaxed();
+    }
     QString name;               // this connection's name
     QString baseService;        // this connection's base service
     QStringList serverConnectionNames;
@@ -341,6 +347,7 @@ public:
 
     bool anonymousAuthenticationAllowed;
     bool dispatchEnabled;               // protected by the dispatch lock, not the main lock
+    bool isAuthenticated;
 
 public:
     // static methods

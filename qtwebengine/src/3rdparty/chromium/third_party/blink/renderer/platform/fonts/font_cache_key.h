@@ -133,8 +133,9 @@ struct FontCacheKeyHash {
 
 struct FontCacheKeyTraits : WTF::SimpleClassHashTraits<FontCacheKey> {
   STATIC_ONLY(FontCacheKeyTraits);
-  // There is an std::string in FontFaceCreationParams and with libstdc++ we
-  // cannot safely zero-initialize std::strings.
+
+  // std::string's empty state need not be zero in all implementations,
+  // and it is held within FontFaceCreationParams.
   static const bool kEmptyValueIsZero = false;
 };
 

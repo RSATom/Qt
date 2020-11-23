@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-import {fromNs} from '../../common/time';
+import {fromNs, toNs} from '../../common/time';
 import {LIMIT} from '../../common/track_data';
 import {
   TrackController,
@@ -23,22 +23,14 @@ import {Config, Data, SLICE_TRACK_KIND} from './common';
 
 class ChromeSliceTrackController extends TrackController<Config, Data> {
   static readonly kind = SLICE_TRACK_KIND;
-  private busy = false;
   private setup = false;
 
-  onBoundsChange(start: number, end: number, resolution: number): void {
-    this.update(start, end, resolution);
-  }
-
-  private async update(start: number, end: number, resolution: number) {
-    // TODO: we should really call TraceProcessor.Interrupt() at this point.
-    if (this.busy) return;
-
-    const startNs = Math.round(start * 1e9);
-    const endNs = Math.round(end * 1e9);
+  async onBoundsChange(start: number, end: number, resolution: number):
+      Promise<Data> {
+    const startNs = toNs(start);
+    const endNs = toNs(end);
     // Ns in 1px width. We want all slices smaller than 1px to be grouped.
-    const minNs = Math.round(resolution * 1e9);
-    this.busy = true;
+    const minNs = toNs(resolution);
 
     if (!this.setup) {
       await this.query(
@@ -46,15 +38,13 @@ class ChromeSliceTrackController extends TrackController<Config, Data> {
 
       await this.query(
           `create view ${this.tableName('small')} as ` +
-          `select ts,dur,depth,cat,name from slices ` +
-          `where utid = ${this.config.utid} ` +
-          `and ts >= ${startNs} - dur ` +
-          `and ts <= ${endNs} ` +
+          `select ts,dur,depth,name,slice_id from slice ` +
+          `where track_id = ${this.config.trackId} ` +
           `and dur < ${minNs} ` +
           `order by ts;`);
 
       await this.query(`create virtual table ${this.tableName('span')} using
-      span_join(${this.tableName('small')},
+      span_join(${this.tableName('small')} PARTITIONED depth,
       ${this.tableName('window')});`);
 
       this.setup = true;
@@ -73,36 +63,36 @@ class ChromeSliceTrackController extends TrackController<Config, Data> {
 
     await this.query(
         `create view ${this.tableName('small')} as ` +
-        `select ts,dur,depth,cat,name from slices ` +
-        `where utid = ${this.config.utid} ` +
-        `and ts >= ${startNs} - dur ` +
-        `and ts <= ${endNs} ` +
+        `select ts,dur,depth,name,slice_id from slice ` +
+        `where track_id = ${this.config.trackId} ` +
         `and dur < ${minNs} ` +
         `order by ts `);
 
     await this.query(
         `create view ${this.tableName('big')} as ` +
-        `select ts,dur,depth,cat,name from slices ` +
-        `where utid = ${this.config.utid} ` +
+        `select ts,dur,depth,name,slice_id from slice ` +
+        `where track_id = ${this.config.trackId} ` +
         `and ts >= ${startNs} - dur ` +
         `and ts <= ${endNs} ` +
         `and dur >= ${minNs} ` +
         `order by ts `);
 
+    // So that busy slices never overlap, we use the start of the bucket
+    // as the ts, even though min(ts) would technically be more accurate.
     await this.query(`create view ${this.tableName('summary')} as select
-      min(ts) as ts,
+      (quantum_ts * ${minNs} + ${startNs}) as ts,
       ${minNs} as dur,
       depth,
-      cat,
-      'Busy' as name
+      'Busy' as name,
+      -1 as slice_id
       from ${this.tableName('span')}
-      group by cat, depth, quantum_ts;`);
+      group by depth, quantum_ts
+      order by ts;`);
 
     const query = `select * from ${this.tableName('summary')} UNION ` +
         `select * from ${this.tableName('big')} order by ts limit ${LIMIT}`;
 
     const rawResult = await this.query(query);
-    this.busy = false;
 
     if (rawResult.error) {
       throw new Error(`Query error "${query}": ${rawResult.error}`);
@@ -116,11 +106,11 @@ class ChromeSliceTrackController extends TrackController<Config, Data> {
       resolution,
       length: numRows,
       strings: [],
+      sliceIds: new Float64Array(numRows),
       starts: new Float64Array(numRows),
       ends: new Float64Array(numRows),
       depths: new Uint16Array(numRows),
       titles: new Uint16Array(numRows),
-      categories: new Uint16Array(numRows),
     };
 
     const stringIndexes = new Map<string, number>();
@@ -139,20 +129,12 @@ class ChromeSliceTrackController extends TrackController<Config, Data> {
       slices.starts[row] = startSec;
       slices.ends[row] = startSec + fromNs(+cols[1].longValues![row]);
       slices.depths[row] = +cols[2].longValues![row];
-      slices.categories[row] = internString(cols[3].stringValues![row]);
-      slices.titles[row] = internString(cols[4].stringValues![row]);
+      slices.titles[row] = internString(cols[3].stringValues![row]);
+      slices.sliceIds[row] = +cols[4].longValues![row];
     }
-    this.publish(slices);
+    return slices;
   }
 
-  private async query(query: string) {
-    const result = await this.engine.query(query);
-    if (result.error) {
-      console.error(`Query error "${query}": ${result.error}`);
-      throw new Error(`Query error "${query}": ${result.error}`);
-    }
-    return result;
-  }
 }
 
 

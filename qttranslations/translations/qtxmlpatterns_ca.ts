@@ -2,6 +2,31 @@
 <!DOCTYPE TS>
 <TS version="2.1" language="ca">
 <context>
+    <name>QQuickXmlListModel</name>
+    <message>
+        <source>&quot;%1&quot; duplicates a previous role name and will be disabled.</source>
+        <translation>«%1» duplica un nom previ de rol i s&apos;inhabilitarà.</translation>
+    </message>
+    <message>
+        <source>invalid query: &quot;%1&quot;</source>
+        <translation>Consulta no vàlida: «%1»</translation>
+    </message>
+</context>
+<context>
+    <name>QQuickXmlListModelRole</name>
+    <message>
+        <source>An XmlRole query must not start with &apos;/&apos;</source>
+        <translation>Una consulta XmlRole no pot començar per «/»</translation>
+    </message>
+</context>
+<context>
+    <name>QQuickXmlRoleList</name>
+    <message>
+        <source>An XmlListModel query must start with &apos;/&apos; or &quot;//&quot;</source>
+        <translation>Una consulta XmlListModel ha de començar per «/» o «//»</translation>
+    </message>
+</context>
+<context>
     <name>QXmlPatternistCLI</name>
     <message>
         <source>Warning in %1, at line %2, column %3: %4</source>
@@ -362,7 +387,7 @@
     </message>
     <message>
         <source>In the replacement string, %1 can only be used to escape itself or %2, not %3</source>
-        <translation>A la cadena de substitució, %1 només es pot usar per escapar-se a si mateix o a %2, no a %3</translation>
+        <translation>A la cadena de substitució, %1 només es pot usar per a escapar-se a si mateix o a %2, no a %3</translation>
     </message>
     <message>
         <source>%1 matches newline characters</source>
@@ -918,7 +943,11 @@
     </message>
     <message>
         <source>Variety of member types of %1 must be atomic.</source>
-        <translation>Una varietat del tipus de membre de %1 ha de ser atòmic.</translation>
+        <translation type="vanished">Una varietat del tipus de membre de %1 ha de ser atòmic.</translation>
+    </message>
+    <message>
+        <source>Variety of member types of %1 must be atomic or union.</source>
+        <translation>Una varietat dels tipus de membre de %1 ha de ser atòmic o unió.</translation>
     </message>
     <message>
         <source>%1 is not allowed to derive from %2 by list as the latter defines it as final.</source>
@@ -974,7 +1003,7 @@
     </message>
     <message>
         <source>Complex type %1 has non-deterministic content.</source>
-        <translation>El tipus complex %1 té un contingut no deterministic.</translation>
+        <translation>El tipus complex %1 té un contingut no determinista.</translation>
     </message>
     <message>
         <source>Attributes of complex type %1 are not a valid extension of the attributes of base type %2: %3.</source>
@@ -1746,7 +1775,7 @@
     </message>
     <message>
         <source>No schema defined for validation.</source>
-        <translation>No s&apos;ha definit cap esquema per validar.</translation>
+        <translation>No s&apos;ha definit cap esquema per a validar.</translation>
     </message>
     <message>
         <source>No definition for element %1 available.</source>
@@ -1810,7 +1839,7 @@
     </message>
     <message>
         <source>Content of element %1 does not match defined value constraint.</source>
-        <translation>El contingut de l&apos;element %1 no concorda amb la restricció de valor definida.</translation>
+        <translation>El contingut de l&apos;element %1 no concorda amb la restricció definida de valor.</translation>
     </message>
     <message>
         <source>Element %1 contains not allowed child content.</source>
@@ -1854,7 +1883,7 @@
     </message>
     <message>
         <source>Content of attribute %1 does not match defined value constraint.</source>
-        <translation>El contingut de l&apos;atribut %1 no concorda amb la restricció de valor definida.</translation>
+        <translation>El contingut de l&apos;atribut %1 no concorda amb la restricció definida de valor.</translation>
     </message>
     <message>
         <source>Non-unique value found for constraint %1.</source>
@@ -1879,6 +1908,10 @@
     <message>
         <source>Field %1 has no simple type.</source>
         <translation>El camp %1 no té un tipus simple.</translation>
+    </message>
+    <message>
+        <source>Field %1 is missing its simple type.</source>
+        <translation>Al camp %1 manca el seu tipus simple.</translation>
     </message>
     <message>
         <source>ID value &apos;%1&apos; is not unique.</source>

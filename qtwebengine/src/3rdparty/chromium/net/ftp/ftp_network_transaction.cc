@@ -20,6 +20,7 @@
 #include "net/base/escape.h"
 #include "net/base/ip_endpoint.h"
 #include "net/base/net_errors.h"
+#include "net/base/network_isolation_key.h"
 #include "net/base/parse_number.h"
 #include "net/base/port_util.h"
 #include "net/base/url_util.h"
@@ -662,8 +663,11 @@ int FtpNetworkTransaction::DoLoop(int result) {
 int FtpNetworkTransaction::DoCtrlResolveHost() {
   next_state_ = STATE_CTRL_RESOLVE_HOST_COMPLETE;
 
-  resolve_request_ = resolver_->CreateRequest(
-      HostPortPair::FromURL(request_->url), net_log_, base::nullopt);
+  // Using an empty NetworkIsolationKey here, since FTP support is deprecated,
+  // and should go away soon.
+  resolve_request_ =
+      resolver_->CreateRequest(HostPortPair::FromURL(request_->url),
+                               NetworkIsolationKey(), net_log_, base::nullopt);
   return resolve_request_->Start(base::BindOnce(
       &FtpNetworkTransaction::OnIOComplete, base::Unretained(this)));
 }
@@ -697,8 +701,8 @@ int FtpNetworkTransaction::DoCtrlConnectComplete(int result) {
       if (ip_endpoint.GetFamily() == ADDRESS_FAMILY_IPV4) {
         // Do not use EPSV for IPv4 connections. Some servers become confused
         // and we time out while waiting to connect. PASV is perfectly fine for
-        // IPv4. Note that this blacklists IPv4 not to use EPSV instead of
-        // whitelisting IPv6 to use it, to make the code more future-proof:
+        // IPv4. Note that this blocks IPv4 not to use EPSV instead of allowing
+        // IPv6 to use it, to make the code more future-proof:
         // all future protocols should just use EPSV.
         use_epsv_ = false;
       }

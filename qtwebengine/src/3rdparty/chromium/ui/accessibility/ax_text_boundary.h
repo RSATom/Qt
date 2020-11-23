@@ -38,6 +38,9 @@ enum class AXTextBoundary {
   kLineStart,
   kLineStartOrEnd,
   kObject,
+  kPageEnd,
+  kPageStart,
+  kPageStartOrEnd,
   kParagraphEnd,
   kParagraphStart,
   kParagraphStartOrEnd,
@@ -48,6 +51,14 @@ enum class AXTextBoundary {
   kWordEnd,
   kWordStart,
   kWordStartOrEnd,
+};
+
+// Specifies the direction to search for a text boundary.
+enum class AXTextBoundaryDirection {
+  // Search forward for the next boundary past a given position.
+  kForwards,
+  // Search backward for the previous boundary before a given position.
+  kBackwards
 };
 
 // Produces a string representation of AXTextBoundary.

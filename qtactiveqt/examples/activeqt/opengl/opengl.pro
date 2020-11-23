@@ -2,7 +2,7 @@ TEMPLATE = app
 TARGET   = openglax
 
 CONFIG += warn_off
-QT += widgets axserver opengl
+QT += widgets axserver
 
 HEADERS  = glbox.h \
            globjwin.h

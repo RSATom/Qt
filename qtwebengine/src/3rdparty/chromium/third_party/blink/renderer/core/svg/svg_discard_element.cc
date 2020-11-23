@@ -30,6 +30,8 @@
 
 #include "third_party/blink/renderer/core/svg/svg_discard_element.h"
 
+#include "third_party/blink/renderer/core/dom/document.h"
+#include "third_party/blink/renderer/core/frame/web_feature.h"
 #include "third_party/blink/renderer/core/svg_names.h"
 
 namespace blink {
@@ -37,6 +39,11 @@ namespace blink {
 SVGDiscardElement::SVGDiscardElement(Document& document)
     : SVGSMILElement(svg_names::kDiscardTag, document) {
   UseCounter::Count(&GetDocument(), WebFeature::kSVGSMILDiscardElementParsed);
+}
+
+void SVGDiscardElement::StartedActiveInterval() {
+  SVGSMILElement::StartedActiveInterval();
+  QueueDiscard();
 }
 
 }  // namespace blink

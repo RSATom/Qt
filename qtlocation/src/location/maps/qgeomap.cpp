@@ -41,6 +41,7 @@
 #include "qdeclarativegeomapitembase_p.h"
 #include "qgeomapobject_p.h"
 #include "qgeomapobject_p_p.h"
+#include <QtQuick/private/qquickitem_p.h>
 #include <QDebug>
 #include <QRectF>
 
@@ -308,6 +309,12 @@ void QGeoMap::removeMapObject(QGeoMapObject * /*obj*/)
 QList<QObject *> QGeoMap::mapObjectsAt(const QGeoCoordinate &/*coordinate*/) const
 {
     return QList<QObject *>();
+}
+
+void QGeoMap::setItemToWindowTransform(const QTransform &itemToWindowTransform)
+{
+    Q_D(QGeoMap);
+    d->m_geoProjection->setItemToWindowTransform(itemToWindowTransform);
 }
 
 void QGeoMap::setVisibleArea(const QRectF &visibleArea)

@@ -81,7 +81,6 @@ class OutsideSettingsCSPDelegate final
   // off-the-main-thread shared worker/service worker top-level script fetch.
   // https://crbug.com/924041 https://crbug.com/924043
   void SetSandboxFlags(SandboxFlags) override {}
-  void SetAddressSpace(mojom::IPAddressSpace) override {}
   void SetRequireTrustedTypes() override {}
   void AddInsecureRequestPolicy(WebInsecureRequestPolicy) override {}
   void DisableEval(const String& error_message) override {}
@@ -175,6 +174,7 @@ WorkerOrWorkletGlobalScope::WorkerOrWorkletGlobalScope(
     const base::UnguessableToken& parent_devtools_token,
     V8CacheOptions v8_cache_options,
     WorkerClients* worker_clients,
+    std::unique_ptr<WebContentSettingsClient> content_settings_client,
     scoped_refptr<WebWorkerFetchContext> web_worker_fetch_context,
     WorkerReportingProxy& reporting_proxy)
     : ExecutionContext(isolate,
@@ -185,6 +185,7 @@ WorkerOrWorkletGlobalScope::WorkerOrWorkletGlobalScope(
       name_(name),
       parent_devtools_token_(parent_devtools_token),
       worker_clients_(worker_clients),
+      content_settings_client_(std::move(content_settings_client)),
       web_worker_fetch_context_(std::move(web_worker_fetch_context)),
       script_controller_(
           MakeGarbageCollected<WorkerOrWorkletScriptController>(this, isolate)),
@@ -275,6 +276,9 @@ void WorkerOrWorkletGlobalScope::InitializeWebFetchContextIfNeeded() {
 
 ResourceFetcher* WorkerOrWorkletGlobalScope::EnsureFetcher() {
   DCHECK(IsContextThread());
+  // Worklets don't support subresource fetch.
+  DCHECK(IsWorkerGlobalScope());
+
   if (inside_settings_resource_fetcher_)
     return inside_settings_resource_fetcher_;
 
@@ -336,6 +340,8 @@ ResourceFetcher* WorkerOrWorkletGlobalScope::CreateFetcherInternal(
 
 ResourceFetcher* WorkerOrWorkletGlobalScope::Fetcher() const {
   DCHECK(IsContextThread());
+  // Worklets don't support subresource fetch.
+  DCHECK(IsWorkerGlobalScope());
   DCHECK(inside_settings_resource_fetcher_);
   return inside_settings_resource_fetcher_;
 }
@@ -470,16 +476,10 @@ void WorkerOrWorkletGlobalScope::FetchModuleScript(
       destination, options, custom_fetch_type, client);
 }
 
-void WorkerOrWorkletGlobalScope::TasksWerePaused() {
-  ExecutionContext::TasksWerePaused();
+void WorkerOrWorkletGlobalScope::SetDefersLoadingForResourceFetchers(
+    bool defers) {
   for (ResourceFetcher* resource_fetcher : resource_fetchers_)
-    resource_fetcher->SetDefersLoading(true);
-}
-
-void WorkerOrWorkletGlobalScope::TasksWereUnpaused() {
-  ExecutionContext::TasksWereUnpaused();
-  for (ResourceFetcher* resource_fetcher : resource_fetchers_)
-    resource_fetcher->SetDefersLoading(false);
+    resource_fetcher->SetDefersLoading(defers);
 }
 
 void WorkerOrWorkletGlobalScope::Trace(blink::Visitor* visitor) {

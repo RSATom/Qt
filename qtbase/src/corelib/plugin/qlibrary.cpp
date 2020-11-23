@@ -256,7 +256,7 @@ static bool findPatternUnloaded(const QString &library, QLibraryPrivate *lib)
     qsizetype fdlen = qMin(file.size(), MaxMemoryMapSize);
     const char *filedata = reinterpret_cast<char *>(file.map(0, fdlen));
 
-    if (filedata == 0) {
+    if (filedata == nullptr) {
         // Try reading the data into memory instead (up to 64 MB).
         data = file.read(64 * 1024 * 1024);
         filedata = data.constData();
@@ -387,12 +387,12 @@ private:
 };
 
 static QBasicMutex qt_library_mutex;
-static QLibraryStore *qt_library_data = 0;
+static QLibraryStore *qt_library_data = nullptr;
 static bool qt_library_data_once;
 
 QLibraryStore::~QLibraryStore()
 {
-    qt_library_data = 0;
+    qt_library_data = nullptr;
 }
 
 inline void QLibraryStore::cleanup()
@@ -459,7 +459,7 @@ inline QLibraryPrivate *QLibraryStore::findOrCreate(const QString &fileName, con
     QLibraryStore *data = instance();
 
     // check if this library is already loaded
-    QLibraryPrivate *lib = 0;
+    QLibraryPrivate *lib = nullptr;
     if (Q_LIKELY(data)) {
         lib = data->libraryMap.value(fileName);
         if (lib)
@@ -527,7 +527,7 @@ void QLibraryPrivate::mergeLoadHints(QLibrary::LoadHints lh)
 QFunctionPointer QLibraryPrivate::resolve(const char *symbol)
 {
     if (!pHnd.loadRelaxed())
-        return 0;
+        return nullptr;
     return resolve_sys(symbol);
 }
 
@@ -576,9 +576,7 @@ bool QLibraryPrivate::load()
 
     Q_TRACE(QLibraryPrivate_load_entry, fileName);
 
-    mutex.lock();
     bool ret = load_sys();
-    mutex.unlock();
     if (qt_debug_component()) {
         if (ret) {
             qDebug() << "loaded library" << fileName;
@@ -879,7 +877,7 @@ bool QLibrary::isLoaded() const
     Constructs a library with the given \a parent.
  */
 QLibrary::QLibrary(QObject *parent)
-    :QObject(parent), d(0), did_load(false)
+    :QObject(parent), d(nullptr), did_load(false)
 {
 }
 
@@ -894,7 +892,7 @@ QLibrary::QLibrary(QObject *parent)
     ".dylib" on \macos and iOS, and ".dll" on Windows. (See \l{fileName}.)
  */
 QLibrary::QLibrary(const QString& fileName, QObject *parent)
-    :QObject(parent), d(0), did_load(false)
+    :QObject(parent), d(nullptr), did_load(false)
 {
     setFileName(fileName);
 }
@@ -911,7 +909,7 @@ QLibrary::QLibrary(const QString& fileName, QObject *parent)
     ".dylib" on \macos and iOS, and ".dll" on Windows. (See \l{fileName}.)
 */
 QLibrary::QLibrary(const QString& fileName, int verNum, QObject *parent)
-    :QObject(parent), d(0), did_load(false)
+    :QObject(parent), d(nullptr), did_load(false)
 {
     setFileNameAndVersion(fileName, verNum);
 }
@@ -927,7 +925,7 @@ QLibrary::QLibrary(const QString& fileName, int verNum, QObject *parent)
     ".dylib" on \macos and iOS, and ".dll" on Windows. (See \l{fileName}.)
  */
 QLibrary::QLibrary(const QString& fileName, const QString &version, QObject *parent)
-    :QObject(parent), d(0), did_load(false)
+    :QObject(parent), d(nullptr), did_load(false)
 {
     setFileNameAndVersion(fileName, version);
 }
@@ -974,7 +972,7 @@ void QLibrary::setFileName(const QString &fileName)
     if (d) {
         lh = d->loadHints();
         d->release();
-        d = 0;
+        d = nullptr;
         did_load = false;
     }
     d = QLibraryPrivate::findOrCreate(fileName, QString(), lh);
@@ -1004,7 +1002,7 @@ void QLibrary::setFileNameAndVersion(const QString &fileName, int verNum)
     if (d) {
         lh = d->loadHints();
         d->release();
-        d = 0;
+        d = nullptr;
         did_load = false;
     }
     d = QLibraryPrivate::findOrCreate(fileName, verNum >= 0 ? QString::number(verNum) : QString(), lh);
@@ -1025,7 +1023,7 @@ void QLibrary::setFileNameAndVersion(const QString &fileName, const QString &ver
     if (d) {
         lh = d->loadHints();
         d->release();
-        d = 0;
+        d = nullptr;
         did_load = false;
     }
     d = QLibraryPrivate::findOrCreate(fileName, version, lh);
@@ -1054,7 +1052,7 @@ void QLibrary::setFileNameAndVersion(const QString &fileName, const QString &ver
 QFunctionPointer QLibrary::resolve(const char *symbol)
 {
     if (!isLoaded() && !load())
-        return 0;
+        return nullptr;
     return d->resolve(symbol);
 }
 

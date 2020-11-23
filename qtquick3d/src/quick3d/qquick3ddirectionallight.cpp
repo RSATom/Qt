@@ -28,7 +28,7 @@
 ****************************************************************************/
 
 #include "qquick3ddirectionallight_p.h"
-#include "qquick3dobject_p_p.h"
+#include "qquick3dobject_p.h"
 
 #include <QtQuick3DRuntimeRender/private/qssgrenderlight_p.h>
 
@@ -59,7 +59,7 @@ QT_BEGIN_NAMESPACE
     \note Rotating the light will then have no effect.
     \endlist
 
-    \sa AreaLight, PointLight
+    \sa AreaLight, PointLight, SpotLight
 */
 
 QSSGRenderGraphObject *QQuick3DDirectionalLight::updateSpatialNode(QSSGRenderGraphObject *node)

@@ -5,8 +5,8 @@
 #include "media/capture/mojom/video_capture_types_mojom_traits.h"
 
 #include "media/base/ipc/media_param_traits_macros.h"
-#include "ui/gfx/geometry/mojo/geometry.mojom.h"
-#include "ui/gfx/geometry/mojo/geometry_struct_traits.h"
+#include "ui/gfx/geometry/mojom/geometry.mojom.h"
+#include "ui/gfx/geometry/mojom/geometry_mojom_traits.h"
 
 namespace mojo {
 
@@ -103,20 +103,18 @@ EnumTraits<media::mojom::VideoCapturePixelFormat,
       return media::mojom::VideoCapturePixelFormat::NV12;
     case media::VideoPixelFormat::PIXEL_FORMAT_NV21:
       return media::mojom::VideoCapturePixelFormat::NV21;
-    case media::VideoPixelFormat::PIXEL_FORMAT_UYVY:
-      return media::mojom::VideoCapturePixelFormat::UYVY;
     case media::VideoPixelFormat::PIXEL_FORMAT_YUY2:
       return media::mojom::VideoCapturePixelFormat::YUY2;
     case media::VideoPixelFormat::PIXEL_FORMAT_ARGB:
       return media::mojom::VideoCapturePixelFormat::ARGB;
+    case media::VideoPixelFormat::PIXEL_FORMAT_BGRA:
+      return media::mojom::VideoCapturePixelFormat::BGRA;
     case media::VideoPixelFormat::PIXEL_FORMAT_XRGB:
       return media::mojom::VideoCapturePixelFormat::XRGB;
     case media::VideoPixelFormat::PIXEL_FORMAT_RGB24:
       return media::mojom::VideoCapturePixelFormat::RGB24;
     case media::VideoPixelFormat::PIXEL_FORMAT_MJPEG:
       return media::mojom::VideoCapturePixelFormat::MJPEG;
-    case media::VideoPixelFormat::PIXEL_FORMAT_MT21:
-      return media::mojom::VideoCapturePixelFormat::MT21;
     case media::VideoPixelFormat::PIXEL_FORMAT_YUV420P9:
       return media::mojom::VideoCapturePixelFormat::YUV420P9;
     case media::VideoPixelFormat::PIXEL_FORMAT_YUV420P10:
@@ -143,6 +141,10 @@ EnumTraits<media::mojom::VideoCapturePixelFormat,
       return media::mojom::VideoCapturePixelFormat::XBGR;
     case media::VideoPixelFormat::PIXEL_FORMAT_P016LE:
       return media::mojom::VideoCapturePixelFormat::P016LE;
+    case media::VideoPixelFormat::PIXEL_FORMAT_XR30:
+      return media::mojom::VideoCapturePixelFormat::XR30;
+    case media::VideoPixelFormat::PIXEL_FORMAT_XB30:
+      return media::mojom::VideoCapturePixelFormat::XB30;
   }
   NOTREACHED();
   return media::mojom::VideoCapturePixelFormat::I420;
@@ -178,9 +180,6 @@ bool EnumTraits<media::mojom::VideoCapturePixelFormat,
     case media::mojom::VideoCapturePixelFormat::NV21:
       *output = media::PIXEL_FORMAT_NV21;
       return true;
-    case media::mojom::VideoCapturePixelFormat::UYVY:
-      *output = media::PIXEL_FORMAT_UYVY;
-      return true;
     case media::mojom::VideoCapturePixelFormat::YUY2:
       *output = media::PIXEL_FORMAT_YUY2;
       return true;
@@ -195,9 +194,6 @@ bool EnumTraits<media::mojom::VideoCapturePixelFormat,
       return true;
     case media::mojom::VideoCapturePixelFormat::MJPEG:
       *output = media::PIXEL_FORMAT_MJPEG;
-      return true;
-    case media::mojom::VideoCapturePixelFormat::MT21:
-      *output = media::PIXEL_FORMAT_MT21;
       return true;
     case media::mojom::VideoCapturePixelFormat::YUV420P9:
       *output = media::PIXEL_FORMAT_YUV420P9;
@@ -238,6 +234,15 @@ bool EnumTraits<media::mojom::VideoCapturePixelFormat,
     case media::mojom::VideoCapturePixelFormat::P016LE:
       *output = media::PIXEL_FORMAT_P016LE;
       return true;
+    case media::mojom::VideoCapturePixelFormat::XR30:
+      *output = media::PIXEL_FORMAT_XR30;
+      return true;
+    case media::mojom::VideoCapturePixelFormat::XB30:
+      *output = media::PIXEL_FORMAT_XB30;
+      return true;
+    case media::mojom::VideoCapturePixelFormat::BGRA:
+      *output = media::PIXEL_FORMAT_BGRA;
+      return true;
   }
   NOTREACHED();
   return false;
@@ -256,10 +261,8 @@ EnumTraits<media::mojom::VideoCaptureBufferType,
           kSharedMemoryViaRawFileDescriptor;
     case media::VideoCaptureBufferType::kMailboxHolder:
       return media::mojom::VideoCaptureBufferType::kMailboxHolder;
-#if defined(OS_CHROMEOS)
     case media::VideoCaptureBufferType::kGpuMemoryBuffer:
       return media::mojom::VideoCaptureBufferType::kGpuMemoryBuffer;
-#endif
   }
   NOTREACHED();
   return media::mojom::VideoCaptureBufferType::kSharedMemory;
@@ -282,11 +285,9 @@ bool EnumTraits<media::mojom::VideoCaptureBufferType,
     case media::mojom::VideoCaptureBufferType::kMailboxHolder:
       *output = media::VideoCaptureBufferType::kMailboxHolder;
       return true;
-#if defined(OS_CHROMEOS)
     case media::mojom::VideoCaptureBufferType::kGpuMemoryBuffer:
       *output = media::VideoCaptureBufferType::kGpuMemoryBuffer;
       return true;
-#endif
   }
   NOTREACHED();
   return false;

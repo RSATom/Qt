@@ -9,8 +9,6 @@ AUX_QML_FILES += \
     $$PWD/FrustumCameraSpecifics.qml \
     $$PWD/CustomCameraSection.qml \
     $$PWD/CustomCameraSpecifics.qml \
-    $$PWD/CustomMaterialSection.qml \
-    $$PWD/CustomMaterialSpecifics.qml \
     $$PWD/DefaultMaterialSection.qml \
     $$PWD/DefaultMaterialSpecifics.qml \
     $$PWD/TextureSection.qml \
@@ -20,8 +18,12 @@ AUX_QML_FILES += \
     $$PWD/DirectionalLightSpecifics.qml \
     $$PWD/PointLightSection.qml \
     $$PWD/PointLightSpecifics.qml \
+    $$PWD/PrincipledMaterialSection.qml \
+    $$PWD/PrincipledMaterialSpecifics.qml \
     $$PWD/AreaLightSection.qml \
     $$PWD/AreaLightSpecifics.qml \
+    $$PWD/SpotLightSection.qml \
+    $$PWD/SpotLightSpecifics.qml \
     $$PWD/MaterialSection.qml \
     $$PWD/ModelSection.qml \
     $$PWD/ModelSpecifics.qml \
@@ -31,8 +33,32 @@ AUX_QML_FILES += \
     $$PWD/SceneEnvironmentSection.qml \
     $$PWD/SceneEnvironmentSpecifics.qml \
     $$PWD/ShadowSection.qml \
-    $$PWD/View3dSection.qml \
-    $$PWD/View3dSpecifics.qml \
+    $$PWD/View3DSection.qml \
+    $$PWD/View3DSpecifics.qml \
+    $$PWD/ShaderSection.qml \
+    $$PWD/ShaderSpecifics.qml \
+    $$PWD/ShaderInfoSection.qml \
+    $$PWD/ShaderInfoSpecifics.qml \
+    $$PWD/TextureInputSection.qml \
+    $$PWD/TextureInputSpecifics.qml \
+    $$PWD/PassSection.qml \
+    $$PWD/PassSpecifics.qml \
+    $$PWD/BufferInputSection.qml \
+    $$PWD/BufferInputSpecifics.qml \
+    $$PWD/BufferBlitSection.qml \
+    $$PWD/BufferBlitSpecifics.qml \
+    $$PWD/BufferSection.qml \
+    $$PWD/BufferSpecifics.qml \
+    $$PWD/BlendingSection.qml \
+    $$PWD/BlendingSpecifics.qml \
+    $$PWD/RenderStateSection.qml \
+    $$PWD/RenderStateSpecifics.qml \
+    $$PWD/CullModeSection.qml \
+    $$PWD/CullModeSpecifics.qml \
+    $$PWD/DepthInputSection.qml \
+    $$PWD/DepthInputSpecifics.qml \
+    $$PWD/SetUniformValueSection.qml \
+    $$PWD/SetUniformValueSpecifics.qml \
     $$PWD/source/view3D_template.qml \
     $$PWD/source/cube_model_template.qml \
     $$PWD/source/sphere_model_template.qml \
@@ -65,12 +91,19 @@ AUX_QML_FILES += \
     $$PWD/images/material.png \
     $$PWD/images/material@2x.png \
     $$PWD/images/material16.png \
+    $$PWD/images/model16.png \
     $$PWD/images/plane.png \
     $$PWD/images/plane@2x.png \
     $$PWD/images/plane16.png \
     $$PWD/images/scene.png \
     $$PWD/images/scene@2x.png \
     $$PWD/images/scene16.png \
+    $$PWD/images/shadercommand.png \
+    $$PWD/images/shadercommand@2x.png \
+    $$PWD/images/shadercommand16.png \
+    $$PWD/images/shaderutil.png \
+    $$PWD/images/shaderutil@2x.png \
+    $$PWD/images/shaderutil16.png \
     $$PWD/images/sphere.png \
     $$PWD/images/sphere@2x.png \
     $$PWD/images/sphere16.png \

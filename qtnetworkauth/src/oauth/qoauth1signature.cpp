@@ -310,7 +310,9 @@ QVariantMap QOAuth1Signature::parameters() const
 */
 void QOAuth1Signature::setParameters(const QVariantMap &parameters)
 {
-    d->parameters = parameters;
+    d->parameters.clear();
+    for (auto it = parameters.cbegin(), end = parameters.cend(); it != end; ++it)
+        d->parameters.insert(it.key(), it.value());
 }
 
 /*!
@@ -322,7 +324,7 @@ void QOAuth1Signature::addRequestBody(const QUrlQuery &body)
 {
     const auto list = body.queryItems();
     for (auto it = list.begin(), end = list.end(); it != end; ++it)
-        d->parameters.insert(it->first, it->second);
+        d->parameters.replace(it->first, it->second);
 }
 
 /*!
@@ -332,7 +334,7 @@ void QOAuth1Signature::addRequestBody(const QUrlQuery &body)
 */
 void QOAuth1Signature::insert(const QString &key, const QVariant &value)
 {
-    d->parameters.insert(key, value);
+    d->parameters.replace(key, value);
 }
 
 /*!

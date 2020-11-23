@@ -128,6 +128,17 @@ void tst_Parser::testProperties_data()
     QTest::newRow("non-int default value") << "PROP(double foo=1.1 CONSTANT)" << "double" << "foo" << "1.1" << ASTProperty::Constant << false;
     QTest::newRow("tab") << "PROP(double\tfoo)" << "double" << "foo" << "" << ASTProperty::ReadPush << false;
     QTest::newRow("two tabs") << "PROP(double\t\tfoo)" << "double" << "foo" << "" << ASTProperty::ReadPush << false;
+    QTest::newRow("stringWithValue") << "PROP(QString foo=\"Hello World\")" << "QString" << "foo"
+                                     << QString("\"Hello World\"") << ASTProperty::ReadPush << false;
+    QTest::newRow("stringWithValueWhitespaces") << "PROP(QString foo   =   \"Hello   World\")"
+                                                << "QString" << "foo" << QString("\"Hello   World\"")
+                                                << ASTProperty::ReadPush << false;
+    QTest::newRow("readonlyStringWithValueWhitespaces") << "PROP(QString foo   =   \"Hello   World\"   READONLY  )"
+                                                        << "QString" << "foo" << "\"Hello   World\""
+                                                        << ASTProperty::ReadOnly << false;
+    QTest::newRow("readonlyStringWithValue") << "PROP(QString foo=\"Hello World\" READONLY)"
+                                             << "QString" << "foo" << "\"Hello World\""
+                                             << ASTProperty::ReadOnly << false;
 }
 
 void tst_Parser::testProperties()

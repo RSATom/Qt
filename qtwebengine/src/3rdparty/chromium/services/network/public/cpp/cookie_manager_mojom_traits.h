@@ -8,6 +8,7 @@
 #include "ipc/ipc_message_utils.h"
 #include "mojo/public/cpp/bindings/enum_traits.h"
 #include "net/cookies/canonical_cookie.h"
+#include "net/cookies/cookie_change_dispatcher.h"
 #include "net/cookies/cookie_constants.h"
 #include "net/cookies/cookie_options.h"
 #include "services/network/public/mojom/cookie_manager.mojom.h"
@@ -29,12 +30,22 @@ struct EnumTraits<network::mojom::CookieSameSite, net::CookieSameSite> {
 };
 
 template <>
-struct EnumTraits<network::mojom::CookieInclusionStatus,
-                  net::CanonicalCookie::CookieInclusionStatus> {
-  static network::mojom::CookieInclusionStatus ToMojom(
-      net::CanonicalCookie::CookieInclusionStatus input);
-  static bool FromMojom(network::mojom::CookieInclusionStatus input,
-                        net::CanonicalCookie::CookieInclusionStatus* output);
+struct EnumTraits<network::mojom::CookieAccessSemantics,
+                  net::CookieAccessSemantics> {
+  static network::mojom::CookieAccessSemantics ToMojom(
+      net::CookieAccessSemantics input);
+  static bool FromMojom(network::mojom::CookieAccessSemantics input,
+                        net::CookieAccessSemantics* output);
+};
+
+template <>
+struct EnumTraits<network::mojom::CookieInclusionStatusWarningReason,
+                  net::CanonicalCookie::CookieInclusionStatus::WarningReason> {
+  static network::mojom::CookieInclusionStatusWarningReason ToMojom(
+      net::CanonicalCookie::CookieInclusionStatus::WarningReason input);
+  static bool FromMojom(
+      network::mojom::CookieInclusionStatusWarningReason input,
+      net::CanonicalCookie::CookieInclusionStatus::WarningReason* output);
 };
 
 template <>
@@ -48,6 +59,24 @@ struct EnumTraits<network::mojom::CookieSameSiteContext,
 };
 
 template <>
+struct EnumTraits<network::mojom::CookieSourceScheme, net::CookieSourceScheme> {
+  static network::mojom::CookieSourceScheme ToMojom(
+      net::CookieSourceScheme input);
+
+  static bool FromMojom(network::mojom::CookieSourceScheme input,
+                        net::CookieSourceScheme* output);
+};
+
+template <>
+struct EnumTraits<network::mojom::CookieChangeCause, net::CookieChangeCause> {
+  static network::mojom::CookieChangeCause ToMojom(
+      net::CookieChangeCause input);
+
+  static bool FromMojom(network::mojom::CookieChangeCause input,
+                        net::CookieChangeCause* output);
+};
+
+template <>
 struct StructTraits<network::mojom::CookieOptionsDataView, net::CookieOptions> {
   static bool exclude_httponly(const net::CookieOptions& o) {
     return o.exclude_httponly();
@@ -58,11 +87,6 @@ struct StructTraits<network::mojom::CookieOptionsDataView, net::CookieOptions> {
   }
   static bool update_access_time(const net::CookieOptions& o) {
     return o.update_access_time();
-  }
-  static base::Optional<base::Time> server_time(const net::CookieOptions& o) {
-    if (!o.has_server_time())
-      return base::nullopt;
-    return base::Optional<base::Time>(o.server_time());
   }
   static bool return_excluded_cookies(const net::CookieOptions& o) {
     return o.return_excluded_cookies();
@@ -104,9 +128,27 @@ struct StructTraits<network::mojom::CanonicalCookieDataView,
   static net::CookiePriority priority(const net::CanonicalCookie& c) {
     return c.Priority();
   }
+  static net::CookieSourceScheme source_scheme(const net::CanonicalCookie& c) {
+    return c.SourceScheme();
+  }
 
   static bool Read(network::mojom::CanonicalCookieDataView cookie,
                    net::CanonicalCookie* out);
+};
+
+template <>
+struct StructTraits<network::mojom::CookieInclusionStatusDataView,
+                    net::CanonicalCookie::CookieInclusionStatus> {
+  static uint32_t exclusion_reasons(
+      const net::CanonicalCookie::CookieInclusionStatus& s) {
+    return s.exclusion_reasons();
+  }
+  static net::CanonicalCookie::CookieInclusionStatus::WarningReason warning(
+      const net::CanonicalCookie::CookieInclusionStatus& s) {
+    return s.warning();
+  }
+  static bool Read(network::mojom::CookieInclusionStatusDataView status,
+                   net::CanonicalCookie::CookieInclusionStatus* out);
 };
 
 template <>
@@ -140,6 +182,23 @@ struct StructTraits<network::mojom::CookieAndLineWithStatusDataView,
   }
   static bool Read(network::mojom::CookieAndLineWithStatusDataView cookie,
                    net::CookieAndLineWithStatus* out);
+};
+
+template <>
+struct StructTraits<network::mojom::CookieChangeInfoDataView,
+                    net::CookieChangeInfo> {
+  static const net::CanonicalCookie& cookie(const net::CookieChangeInfo& c) {
+    return c.cookie;
+  }
+  static net::CookieAccessSemantics access_semantics(
+      const net::CookieChangeInfo& c) {
+    return c.access_semantics;
+  }
+  static net::CookieChangeCause cause(const net::CookieChangeInfo& c) {
+    return c.cause;
+  }
+  static bool Read(network::mojom::CookieChangeInfoDataView info,
+                   net::CookieChangeInfo* out);
 };
 
 }  // namespace mojo

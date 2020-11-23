@@ -5,7 +5,6 @@
 #include "third_party/blink/renderer/modules/xr/xr_input_source.h"
 
 #include "base/time/time.h"
-#include "third_party/blink/renderer/core/dom/user_gesture_indicator.h"
 #include "third_party/blink/renderer/core/frame/local_frame.h"
 #include "third_party/blink/renderer/modules/xr/xr.h"
 #include "third_party/blink/renderer/modules/xr/xr_grip_space.h"
@@ -79,13 +78,20 @@ XRInputSource* XRInputSource::CreateOrUpdateFrom(
 
     updated_source->state_.target_ray_mode = desc->target_ray_mode;
     updated_source->state_.handedness = desc->handedness;
-    updated_source->state_.emulated_position = desc->emulated_position;
 
-    updated_source->pointer_transform_matrix_ =
-        TryGetTransformationMatrix(desc->pointer_offset);
+    updated_source->input_from_pointer_ =
+        TryGetTransformationMatrix(desc->input_from_pointer);
+
+    updated_source->state_.profiles.clear();
+    for (const auto& name : state->description->profiles) {
+      updated_source->state_.profiles.push_back(name);
+    }
   }
 
-  updated_source->base_pose_matrix_ = TryGetTransformationMatrix(state->grip);
+  updated_source->mojo_from_input_ =
+      TryGetTransformationMatrix(state->mojo_from_input);
+
+  updated_source->state_.emulated_position = state->emulated_position;
 
   return updated_source;
 }
@@ -109,10 +115,10 @@ XRInputSource::XRInputSource(const XRInputSource& other)
           MakeGarbageCollected<XRTargetRaySpace>(other.session_, this)),
       grip_space_(MakeGarbageCollected<XRGripSpace>(other.session_, this)),
       gamepad_(other.gamepad_),
-      base_pose_matrix_(
-          TryGetTransformationMatrix(other.base_pose_matrix_.get())),
-      pointer_transform_matrix_(
-          TryGetTransformationMatrix(other.pointer_transform_matrix_.get())) {}
+      mojo_from_input_(
+          TryGetTransformationMatrix(other.mojo_from_input_.get())),
+      input_from_pointer_(
+          TryGetTransformationMatrix(other.input_from_pointer_.get())) {}
 
 const String XRInputSource::handedness() const {
   switch (state_.handedness) {
@@ -166,15 +172,24 @@ bool XRInputSource::InvalidatesSameObject(
     if (state->description->target_ray_mode != state_.target_ray_mode) {
       return true;
     }
+
+    if (state->description->profiles.size() != state_.profiles.size()) {
+      return true;
+    }
+
+    for (wtf_size_t i = 0; i < state_.profiles.size(); ++i) {
+      if (state->description->profiles[i] != state_.profiles[i]) {
+        return true;
+      }
+    }
   }
 
   return false;
 }
 
-void XRInputSource::SetPointerTransformMatrix(
-    const TransformationMatrix* pointer_transform_matrix) {
-  pointer_transform_matrix_ =
-      TryGetTransformationMatrix(pointer_transform_matrix);
+void XRInputSource::SetInputFromPointer(
+    const TransformationMatrix* input_from_pointer) {
+  input_from_pointer_ = TryGetTransformationMatrix(input_from_pointer);
 }
 
 void XRInputSource::SetGamepadConnected(bool state) {
@@ -186,9 +201,7 @@ void XRInputSource::UpdateGamepad(
     const base::Optional<device::Gamepad>& gamepad) {
   if (gamepad) {
     if (!gamepad_) {
-      // TODO(https://crbug.com/955104): Is the Gamepad object creation time the
-      // correct time floor?
-      gamepad_ = MakeGarbageCollected<Gamepad>(this, 0, state_.base_timestamp,
+      gamepad_ = MakeGarbageCollected<Gamepad>(this, -1, state_.base_timestamp,
                                                base::TimeTicks::Now());
     }
 
@@ -196,6 +209,10 @@ void XRInputSource::UpdateGamepad(
   } else {
     gamepad_ = nullptr;
   }
+}
+
+base::Optional<XRNativeOriginInformation> XRInputSource::nativeOrigin() const {
+  return XRNativeOriginInformation::Create(this);
 }
 
 void XRInputSource::OnSelectStart() {
@@ -217,7 +234,7 @@ void XRInputSource::OnSelectStart() {
   event->frame()->Deactivate();
 }
 
-void XRInputSource::OnSelectEnd(UserActivation user_activation) {
+void XRInputSource::OnSelectEnd() {
   // Discard duplicate events and ones after the session has ended.
   if (!state_.primary_input_pressed || session_->ended())
     return;
@@ -227,11 +244,6 @@ void XRInputSource::OnSelectEnd(UserActivation user_activation) {
   LocalFrame* frame = session_->xr()->GetFrame();
   if (!frame)
     return;
-
-  std::unique_ptr<UserGestureIndicator> gesture_indicator =
-      user_activation == UserActivation::kEnabled
-          ? LocalFrame::NotifyUserActivation(frame)
-          : nullptr;
 
   XRInputSourceEvent* event =
       CreateInputSourceEvent(event_type_names::kSelectend);
@@ -252,16 +264,14 @@ void XRInputSource::OnSelect() {
     OnSelectStart();
   }
 
+  LocalFrame* frame = session_->xr()->GetFrame();
+  LocalFrame::NotifyUserActivation(frame);
+
   // If SelectStart caused the session to end, we shouldn't try to fire the
   // select event.
   if (!state_.selection_cancelled && !session_->ended()) {
-    LocalFrame* frame = session_->xr()->GetFrame();
     if (!frame)
       return;
-
-    std::unique_ptr<UserGestureIndicator> gesture_indicator =
-        LocalFrame::NotifyUserActivation(frame);
-
     XRInputSourceEvent* event =
         CreateInputSourceEvent(event_type_names::kSelect);
     session_->DispatchEvent(*event);
@@ -270,7 +280,7 @@ void XRInputSource::OnSelect() {
     event->frame()->Deactivate();
   }
 
-  OnSelectEnd(UserActivation::kEnabled);
+  OnSelectEnd();
 }
 
 void XRInputSource::UpdateSelectState(
@@ -290,7 +300,7 @@ void XRInputSource::UpdateSelectState(
     // treat this as a cancelled selection, firing the selectend event so the
     // page stays in sync with the controller state but won't fire the
     // usual select event.
-    OnSelectEnd(UserActivation::kDisabled);
+    OnSelectEnd();
   }
 }
 

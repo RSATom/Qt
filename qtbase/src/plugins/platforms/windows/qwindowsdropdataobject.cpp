@@ -54,7 +54,6 @@ QT_BEGIN_NAMESPACE
     (instead of creating local hyperlinks).
 
     \internal
-    \ingroup qt-lighthouse-win
 */
 
 QWindowsDropDataObject::QWindowsDropDataObject(QMimeData *mimeData) :
@@ -95,7 +94,7 @@ bool QWindowsDropDataObject::shouldIgnore(LPFORMATETC pformatetc) const
                 || pformatetc->cfFormat == CF_TEXT
                 || formatName == QStringLiteral("UniformResourceLocator")
                 || formatName == QStringLiteral("UniformResourceLocatorW")) {
-            QList<QUrl> urls = dropData->urls();
+            const auto urls = dropData->urls();
             return std::all_of(urls.cbegin(), urls.cend(), [] (const QUrl &u) { return u.isLocalFile(); });
         }
     }

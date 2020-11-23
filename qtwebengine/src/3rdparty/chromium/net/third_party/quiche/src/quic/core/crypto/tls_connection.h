@@ -26,7 +26,7 @@ class QUIC_EXPORT_PRIVATE TlsConnection {
  public:
   // A TlsConnection::Delegate implements the methods that are set as callbacks
   // of TlsConnection.
-  class Delegate {
+  class QUIC_EXPORT_PRIVATE Delegate {
    public:
     virtual ~Delegate() {}
 
@@ -69,7 +69,7 @@ class QUIC_EXPORT_PRIVATE TlsConnection {
   static enum ssl_encryption_level_t BoringEncryptionLevel(
       EncryptionLevel level);
 
-  SSL* ssl() { return ssl_.get(); }
+  SSL* ssl() const { return ssl_.get(); }
 
  protected:
   // TlsConnection does not take ownership of any of its arguments; they must

@@ -6,6 +6,8 @@
 
 #include <wayland-server-protocol-core.h>
 
+#include <memory>
+
 #include "base/bind.h"
 #include "components/exo/buffer.h"
 #include "components/exo/display.h"
@@ -63,12 +65,8 @@ void surface_attach(wl_client* client,
                     wl_resource* buffer,
                     int32_t x,
                     int32_t y) {
-  // TODO(reveman): Implement buffer offset support.
-  DLOG_IF(WARNING, x || y) << "Unsupported buffer offset: "
-                           << gfx::Point(x, y).ToString();
-
   GetUserDataAs<Surface>(resource)->Attach(
-      buffer ? GetUserDataAs<Buffer>(buffer) : nullptr);
+      buffer ? GetUserDataAs<Buffer>(buffer) : nullptr, gfx::Vector2d(x, y));
 }
 
 void surface_damage(wl_client* client,
@@ -224,7 +222,7 @@ void compositor_create_region(wl_client* client,
       wl_resource_create(client, &wl_region_interface, 1, id);
 
   SetImplementation(region_resource, &region_implementation,
-                    base::WrapUnique(new SkRegion));
+                    std::make_unique<SkRegion>());
 }
 
 const struct wl_compositor_interface compositor_implementation = {

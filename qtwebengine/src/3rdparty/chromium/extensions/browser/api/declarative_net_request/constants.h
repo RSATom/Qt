@@ -5,6 +5,7 @@
 #ifndef EXTENSIONS_BROWSER_API_DECLARATIVE_NET_REQUEST_CONSTANTS_H_
 #define EXTENSIONS_BROWSER_API_DECLARATIVE_NET_REQUEST_CONSTANTS_H_
 
+#include <cstddef>
 #include <cstdint>
 
 #include "extensions/common/api/declarative_net_request/constants.h"
@@ -19,7 +20,6 @@ enum class ParseResult {
   ERROR_RESOURCE_TYPE_DUPLICATED,
   ERROR_EMPTY_REDIRECT_RULE_PRIORITY,
   ERROR_EMPTY_UPGRADE_RULE_PRIORITY,
-  ERROR_EMPTY_REDIRECT_URL,
   ERROR_INVALID_RULE_ID,
   ERROR_INVALID_REDIRECT_RULE_PRIORITY,
   ERROR_INVALID_UPGRADE_RULE_PRIORITY,
@@ -30,12 +30,28 @@ enum class ParseResult {
   ERROR_INVALID_REDIRECT_URL,
   ERROR_DUPLICATE_IDS,
   ERROR_PERSISTING_RULESET,
+
   // Parse errors related to fields containing non-ascii characters.
   ERROR_NON_ASCII_URL_FILTER,
   ERROR_NON_ASCII_DOMAIN,
   ERROR_NON_ASCII_EXCLUDED_DOMAIN,
+
   ERROR_INVALID_URL_FILTER,
   ERROR_EMPTY_REMOVE_HEADERS_LIST,
+  ERROR_INVALID_REDIRECT,
+  ERROR_INVALID_EXTENSION_PATH,
+  ERROR_INVALID_TRANSFORM_SCHEME,
+  ERROR_INVALID_TRANSFORM_PORT,
+  ERROR_INVALID_TRANSFORM_QUERY,
+  ERROR_INVALID_TRANSFORM_FRAGMENT,
+  ERROR_QUERY_AND_TRANSFORM_BOTH_SPECIFIED,
+  ERROR_JAVASCRIPT_REDIRECT,
+  ERROR_EMPTY_REGEX_FILTER,
+  ERROR_NON_ASCII_REGEX_FILTER,
+  ERROR_INVALID_REGEX_FILTER,
+  ERROR_MULTIPLE_FILTERS_SPECIFIED,
+  ERROR_REGEX_SUBSTITUTION_WITHOUT_FILTER,
+  ERROR_INVALID_REGEX_SUBSTITUTION,
 };
 
 // Describes the ways in which updating dynamic rules can fail.
@@ -62,23 +78,8 @@ enum class UpdateDynamicRulesStatus {
   kMaxValue = kErrorCreateMatcher_VersionMismatch,
 };
 
-// Whether dynamic rules are to be added or removed.
-enum class DynamicRuleUpdateAction {
-  kAdd,
-  kRemove,
-};
-
-// Bitmask corresponding to RemoveHeaderType defined in the API.
-enum RemoveHeadersMask : uint8_t {
-  kRemoveHeadersMask_Cookie = (1u << 0),
-  kRemoveHeadersMask_Referer = (1u << 1),
-  kRemoveHeadersMask_SetCookie = (1u << 2),
-
-  // Should be equal to the last value.
-  kRemoveHeadersMask_Last = kRemoveHeadersMask_SetCookie,
-  // Equals the maximum bitmask value.
-  kRemoveHeadersMask_Max = (kRemoveHeadersMask_Last << 1) - 1,
-};
+// Schemes which can be used as part of url transforms.
+extern const char* const kAllowedTransformSchemes[4];
 
 // Rule parsing errors.
 extern const char kErrorResourceTypeDuplicated[];
@@ -87,13 +88,18 @@ extern const char kErrorEmptyUpgradeRulePriority[];
 extern const char kErrorInvalidRuleKey[];
 extern const char kErrorNoApplicableResourceTypes[];
 extern const char kErrorEmptyList[];
-extern const char kErrorEmptyUrlFilter[];
+extern const char kErrorEmptyKey[];
 extern const char kErrorInvalidRedirectUrl[];
 extern const char kErrorDuplicateIDs[];
 extern const char kErrorPersisting[];
 extern const char kErrorNonAscii[];
-extern const char kErrorInvalidUrlFilter[];
 extern const char kErrorEmptyRemoveHeadersList[];
+extern const char kErrorInvalidKey[];
+extern const char kErrorInvalidTransformScheme[];
+extern const char kErrorQueryAndTransformBothSpecified[];
+extern const char kErrorJavascriptRedirect[];
+extern const char kErrorMultipleFilters[];
+extern const char kErrorRegexSubstitutionWithoutFilter[];
 
 extern const char kErrorListNotPassed[];
 
@@ -112,6 +118,10 @@ extern const char kIndexAndPersistRulesTimeHistogram[];
 extern const char kManifestRulesCountHistogram[];
 extern const char kUpdateDynamicRulesStatusHistogram[];
 extern const char kReadDynamicRulesJSONStatusHistogram[];
+
+// Placeholder text to use for getBadgeText extension function call, when the
+// badge text is set to the DNR action count.
+extern const char kActionCountPlaceholderBadgeText[];
 
 }  // namespace declarative_net_request
 }  // namespace extensions

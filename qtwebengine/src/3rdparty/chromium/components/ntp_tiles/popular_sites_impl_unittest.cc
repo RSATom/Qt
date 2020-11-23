@@ -18,9 +18,10 @@
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/test/scoped_feature_list.h"
-#include "base/test/scoped_task_environment.h"
+#include "base/test/task_environment.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "base/values.h"
+#include "build/branding_buildflags.h"
 #include "build/build_config.h"
 #include "components/ntp_tiles/features.h"
 #include "components/ntp_tiles/pref_names.h"
@@ -28,7 +29,7 @@
 #include "components/pref_registry/pref_registry_syncable.h"
 #include "components/sync_preferences/testing_pref_service_syncable.h"
 #include "net/http/http_status_code.h"
-#include "services/data_decoder/public/cpp/testing_json_parser.h"
+#include "services/data_decoder/public/cpp/test_support/in_process_data_decoder.h"
 #include "services/network/public/cpp/shared_url_loader_factory.h"
 #include "services/network/public/cpp/weak_wrapper_shared_url_loader_factory.h"
 #include "services/network/test/test_url_loader_factory.h"
@@ -200,20 +201,19 @@ class PopularSitesTest : public ::testing::Test {
   }
 
   std::unique_ptr<PopularSites> CreatePopularSites() {
-    return std::make_unique<PopularSitesImpl>(
-        prefs_.get(),
-        /*template_url_service=*/nullptr,
-        /*variations_service=*/nullptr, test_shared_loader_factory_,
-        base::Bind(&data_decoder::SafeJsonParser::Parse, nullptr));
+    return std::make_unique<PopularSitesImpl>(prefs_.get(),
+                                              /*template_url_service=*/nullptr,
+                                              /*variations_service=*/nullptr,
+                                              test_shared_loader_factory_);
   }
 
   const TestPopularSite kWikipedia;
   const TestPopularSite kYouTube;
   const TestPopularSite kChromium;
 
-  base::test::ScopedTaskEnvironment task_environment_{
-      base::test::ScopedTaskEnvironment::MainThreadType::UI};
-  data_decoder::TestingJsonParser::ScopedFactoryOverride factory_override_;
+  base::test::SingleThreadTaskEnvironment task_environment_{
+      base::test::SingleThreadTaskEnvironment::MainThreadType::UI};
+  data_decoder::test::InProcessDataDecoder in_process_data_decoder_;
   std::unique_ptr<sync_preferences::TestingPrefServiceSyncable> prefs_;
   network::TestURLLoaderFactory test_url_loader_factory_;
   scoped_refptr<network::SharedURLLoaderFactory> test_shared_loader_factory_;
@@ -308,7 +308,7 @@ TEST_F(PopularSitesTest, AddsIconResourcesToDefaultPages) {
   ASSERT_FALSE(sites.empty());
   for (const auto& site : sites) {
     EXPECT_TRUE(site.baked_in);
-#if defined(GOOGLE_CHROME_BUILD)
+#if BUILDFLAG(GOOGLE_CHROME_BRANDING)
     EXPECT_THAT(site.default_icon_resource, Gt(0));
 #endif
   }

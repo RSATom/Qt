@@ -449,7 +449,7 @@ static const ushort mouseTbl[] = {
 
 static Qt::MouseButtons translateMouseButtonState(int s)
 {
-    Qt::MouseButtons bst = nullptr;
+    Qt::MouseButtons bst;
     if (s & MK_LBUTTON)
         bst |= Qt::LeftButton;
     if (s & MK_MBUTTON)
@@ -462,7 +462,7 @@ static Qt::MouseButtons translateMouseButtonState(int s)
 
 static Qt::KeyboardModifiers translateModifierState(int s)
 {
-    Qt::KeyboardModifiers bst = nullptr;
+    Qt::KeyboardModifiers bst;
     if (s & MK_SHIFT)
         bst |= Qt::ShiftModifier;
     if (s & MK_CONTROL)
@@ -1205,9 +1205,8 @@ HRESULT WINAPI QAxClientSite::InsertMenus(HMENU /*hmenuShared*/, LPOLEMENUGROUPW
     QMenu *fileMenu = nullptr;
     QMenu *viewMenu = nullptr;
     QMenu *windowMenu = nullptr;
-    QList<QAction*> actions = menuBar->actions();
-    for (int i = 0; i < actions.count(); ++i) {
-        QAction *action = actions.at(i);
+    const auto actions = menuBar->actions();
+    for (QAction *action : actions) {
         QString text = action->text().remove(QLatin1Char('&'));
         if (text == QLatin1String("File")) {
             fileMenu = action->menu();
@@ -1395,8 +1394,7 @@ HRESULT WINAPI QAxClientSite::SetMenu(HMENU hmenuShared, HOLEMENU holemenu, HWND
         }
     } else if (menuBar) {
         m_menuOwner = nullptr;
-        const MenuItemMap::Iterator mend = menuItemMap.end();
-        for (MenuItemMap::Iterator it = menuItemMap.begin(); it != mend; ++it)
+        for (auto it = menuItemMap.begin(), mend = menuItemMap.end(); it != mend; ++it)
             delete it.key();
         menuItemMap.clear();
     }
@@ -1426,8 +1424,7 @@ int QAxClientSite::qt_metacall(QMetaObject::Call call, int isignal, void **argv)
 HRESULT WINAPI QAxClientSite::RemoveMenus(HMENU /*hmenuShared*/)
 {
     AX_DEBUG(QAxClientSite::RemoveMenus);
-    const MenuItemMap::Iterator mend = menuItemMap.end();
-    for (MenuItemMap::Iterator it = menuItemMap.begin(); it != mend; ++it) {
+    for (auto it = menuItemMap.begin(), mend = menuItemMap.end(); it != mend; ++it) {
         it.key()->setVisible(false);
         delete it.key();
     }

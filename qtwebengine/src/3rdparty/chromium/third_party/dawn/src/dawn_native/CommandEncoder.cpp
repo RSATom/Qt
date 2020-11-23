@@ -19,12 +19,15 @@
 #include "dawn_native/Buffer.h"
 #include "dawn_native/CommandBuffer.h"
 #include "dawn_native/CommandBufferStateTracker.h"
+#include "dawn_native/CommandValidation.h"
 #include "dawn_native/Commands.h"
 #include "dawn_native/ComputePassEncoder.h"
 #include "dawn_native/Device.h"
 #include "dawn_native/ErrorData.h"
 #include "dawn_native/RenderPassEncoder.h"
 #include "dawn_native/RenderPipeline.h"
+#include "dawn_platform/DawnPlatform.h"
+#include "dawn_platform/tracing/TraceEvent.h"
 
 #include <map>
 
@@ -115,29 +118,6 @@ namespace dawn_native {
             if (imageHeight % format.blockHeight != 0) {
                 return DAWN_VALIDATION_ERROR(
                     "Image height must be a multiple of compressed texture format block width");
-            }
-
-            return {};
-        }
-
-        inline MaybeError PushDebugMarkerStack(unsigned int* counter) {
-            *counter += 1;
-            return {};
-        }
-
-        inline MaybeError PopDebugMarkerStack(unsigned int* counter) {
-            if (*counter == 0) {
-                return DAWN_VALIDATION_ERROR("Pop must be balanced by a corresponding Push.");
-            } else {
-                *counter -= 1;
-            }
-
-            return {};
-        }
-
-        inline MaybeError ValidateDebugGroups(const unsigned int counter) {
-            if (counter != 0) {
-                return DAWN_VALIDATION_ERROR("Each Push must be balanced by a corresponding Pop.");
             }
 
             return {};
@@ -262,8 +242,8 @@ namespace dawn_native {
             return {};
         }
 
-        MaybeError ValidateCanUseAs(BufferBase* buffer, dawn::BufferUsageBit usage) {
-            ASSERT(HasZeroOrOneBits(usage));
+        MaybeError ValidateCanUseAs(const BufferBase* buffer, wgpu::BufferUsage usage) {
+            ASSERT(wgpu::HasZeroOrOneBits(usage));
             if (!(buffer->GetUsage() & usage)) {
                 return DAWN_VALIDATION_ERROR("buffer doesn't have the required usage.");
             }
@@ -271,8 +251,8 @@ namespace dawn_native {
             return {};
         }
 
-        MaybeError ValidateCanUseAs(TextureBase* texture, dawn::TextureUsageBit usage) {
-            ASSERT(HasZeroOrOneBits(usage));
+        MaybeError ValidateCanUseAs(const TextureBase* texture, wgpu::TextureUsage usage) {
+            ASSERT(wgpu::HasZeroOrOneBits(usage));
             if (!(texture->GetUsage() & usage)) {
                 return DAWN_VALIDATION_ERROR("texture doesn't have the required usage.");
             }
@@ -330,39 +310,40 @@ namespace dawn_native {
 
         MaybeError ValidateResolveTarget(
             const DeviceBase* device,
-            const RenderPassColorAttachmentDescriptor* colorAttachment) {
-            if (colorAttachment->resolveTarget == nullptr) {
+            const RenderPassColorAttachmentDescriptor& colorAttachment) {
+            if (colorAttachment.resolveTarget == nullptr) {
                 return {};
             }
 
-            DAWN_TRY(device->ValidateObject(colorAttachment->resolveTarget));
+            const TextureViewBase* resolveTarget = colorAttachment.resolveTarget;
+            const TextureViewBase* attachment = colorAttachment.attachment;
+            DAWN_TRY(device->ValidateObject(colorAttachment.resolveTarget));
 
-            if (!colorAttachment->attachment->GetTexture()->IsMultisampledTexture()) {
+            if (!attachment->GetTexture()->IsMultisampledTexture()) {
                 return DAWN_VALIDATION_ERROR(
                     "Cannot set resolve target when the sample count of the color attachment is 1");
             }
 
-            if (colorAttachment->resolveTarget->GetTexture()->IsMultisampledTexture()) {
+            if (resolveTarget->GetTexture()->IsMultisampledTexture()) {
                 return DAWN_VALIDATION_ERROR("Cannot use multisampled texture as resolve target");
             }
 
-            if (colorAttachment->resolveTarget->GetLayerCount() > 1) {
+            if (resolveTarget->GetLayerCount() > 1) {
                 return DAWN_VALIDATION_ERROR(
                     "The array layer count of the resolve target must be 1");
             }
 
-            if (colorAttachment->resolveTarget->GetLevelCount() > 1) {
+            if (resolveTarget->GetLevelCount() > 1) {
                 return DAWN_VALIDATION_ERROR("The mip level count of the resolve target must be 1");
             }
 
-            uint32_t colorAttachmentBaseMipLevel = colorAttachment->attachment->GetBaseMipLevel();
-            const Extent3D& colorTextureSize = colorAttachment->attachment->GetTexture()->GetSize();
+            uint32_t colorAttachmentBaseMipLevel = attachment->GetBaseMipLevel();
+            const Extent3D& colorTextureSize = attachment->GetTexture()->GetSize();
             uint32_t colorAttachmentWidth = colorTextureSize.width >> colorAttachmentBaseMipLevel;
             uint32_t colorAttachmentHeight = colorTextureSize.height >> colorAttachmentBaseMipLevel;
 
-            uint32_t resolveTargetBaseMipLevel = colorAttachment->resolveTarget->GetBaseMipLevel();
-            const Extent3D& resolveTextureSize =
-                colorAttachment->resolveTarget->GetTexture()->GetSize();
+            uint32_t resolveTargetBaseMipLevel = resolveTarget->GetBaseMipLevel();
+            const Extent3D& resolveTextureSize = resolveTarget->GetTexture()->GetSize();
             uint32_t resolveTargetWidth = resolveTextureSize.width >> resolveTargetBaseMipLevel;
             uint32_t resolveTargetHeight = resolveTextureSize.height >> resolveTargetBaseMipLevel;
             if (colorAttachmentWidth != resolveTargetWidth ||
@@ -371,9 +352,8 @@ namespace dawn_native {
                     "The size of the resolve target must be the same as the color attachment");
             }
 
-            dawn::TextureFormat resolveTargetFormat =
-                colorAttachment->resolveTarget->GetFormat().format;
-            if (resolveTargetFormat != colorAttachment->attachment->GetFormat().format) {
+            wgpu::TextureFormat resolveTargetFormat = resolveTarget->GetFormat().format;
+            if (resolveTargetFormat != attachment->GetFormat().format) {
                 return DAWN_VALIDATION_ERROR(
                     "The format of the resolve target must be the same as the color attachment");
             }
@@ -383,15 +363,13 @@ namespace dawn_native {
 
         MaybeError ValidateRenderPassColorAttachment(
             const DeviceBase* device,
-            const RenderPassColorAttachmentDescriptor* colorAttachment,
+            const RenderPassColorAttachmentDescriptor& colorAttachment,
             uint32_t* width,
             uint32_t* height,
             uint32_t* sampleCount) {
-            DAWN_ASSERT(colorAttachment != nullptr);
+            DAWN_TRY(device->ValidateObject(colorAttachment.attachment));
 
-            DAWN_TRY(device->ValidateObject(colorAttachment->attachment));
-
-            const TextureViewBase* attachment = colorAttachment->attachment;
+            const TextureViewBase* attachment = colorAttachment.attachment;
             if (!attachment->GetFormat().IsColor() || !attachment->GetFormat().isRenderable) {
                 return DAWN_VALIDATION_ERROR(
                     "The format of the texture view used as color attachment is not color "
@@ -424,6 +402,12 @@ namespace dawn_native {
                 return DAWN_VALIDATION_ERROR(
                     "The format of the texture view used as depth stencil attachment is not a "
                     "depth stencil format");
+            }
+
+            // This validates that the depth storeOp and stencil storeOps are the same
+            if (depthStencilAttachment->depthStoreOp != depthStencilAttachment->stencilStoreOp) {
+                return DAWN_VALIDATION_ERROR(
+                    "The depth storeOp and stencil storeOp are not the same");
             }
 
             // *sampleCount == 0 must only happen when there is no color attachment. In that case we
@@ -475,170 +459,25 @@ namespace dawn_native {
             return {};
         }
 
-        enum class PassType {
-            Render,
-            Compute,
-        };
-
-        // Helper class to encapsulate the logic of tracking per-resource usage during the
-        // validation of command buffer passes. It is used both to know if there are validation
-        // errors, and to get a list of resources used per pass for backends that need the
-        // information.
-        class PassResourceUsageTracker {
-          public:
-            void BufferUsedAs(BufferBase* buffer, dawn::BufferUsageBit usage) {
-                // std::map's operator[] will create the key and return 0 if the key didn't exist
-                // before.
-                dawn::BufferUsageBit& storedUsage = mBufferUsages[buffer];
-
-                if (usage == dawn::BufferUsageBit::Storage &&
-                    storedUsage & dawn::BufferUsageBit::Storage) {
-                    mStorageUsedMultipleTimes = true;
-                }
-
-                storedUsage |= usage;
-            }
-
-            void TextureUsedAs(TextureBase* texture, dawn::TextureUsageBit usage) {
-                // std::map's operator[] will create the key and return 0 if the key didn't exist
-                // before.
-                dawn::TextureUsageBit& storedUsage = mTextureUsages[texture];
-
-                if (usage == dawn::TextureUsageBit::Storage &&
-                    storedUsage & dawn::TextureUsageBit::Storage) {
-                    mStorageUsedMultipleTimes = true;
-                }
-
-                storedUsage |= usage;
-            }
-
-            // Performs the per-pass usage validation checks
-            MaybeError ValidateUsages(PassType pass) const {
-                // Storage resources cannot be used twice in the same compute pass
-                if (pass == PassType::Compute && mStorageUsedMultipleTimes) {
-                    return DAWN_VALIDATION_ERROR(
-                        "Storage resource used multiple times in compute pass");
-                }
-
-                // Buffers can only be used as single-write or multiple read.
-                for (auto& it : mBufferUsages) {
-                    BufferBase* buffer = it.first;
-                    dawn::BufferUsageBit usage = it.second;
-
-                    if (usage & ~buffer->GetUsage()) {
-                        return DAWN_VALIDATION_ERROR("Buffer missing usage for the pass");
-                    }
-
-                    bool readOnly = (usage & kReadOnlyBufferUsages) == usage;
-                    bool singleUse = dawn::HasZeroOrOneBits(usage);
-
-                    if (!readOnly && !singleUse) {
-                        return DAWN_VALIDATION_ERROR(
-                            "Buffer used as writable usage and another usage in pass");
-                    }
-                }
-
-                // Textures can only be used as single-write or multiple read.
-                // TODO(cwallez@chromium.org): implement per-subresource tracking
-                for (auto& it : mTextureUsages) {
-                    TextureBase* texture = it.first;
-                    dawn::TextureUsageBit usage = it.second;
-
-                    if (usage & ~texture->GetUsage()) {
-                        return DAWN_VALIDATION_ERROR("Texture missing usage for the pass");
-                    }
-
-                    // For textures the only read-only usage in a pass is Sampled, so checking the
-                    // usage constraint simplifies to checking a single usage bit is set.
-                    if (!dawn::HasZeroOrOneBits(it.second)) {
-                        return DAWN_VALIDATION_ERROR(
-                            "Texture used with more than one usage in pass");
-                    }
-                }
-
-                return {};
-            }
-
-            // Returns the per-pass usage for use by backends for APIs with explicit barriers.
-            PassResourceUsage AcquireResourceUsage() {
-                PassResourceUsage result;
-                result.buffers.reserve(mBufferUsages.size());
-                result.bufferUsages.reserve(mBufferUsages.size());
-                result.textures.reserve(mTextureUsages.size());
-                result.textureUsages.reserve(mTextureUsages.size());
-
-                for (auto& it : mBufferUsages) {
-                    result.buffers.push_back(it.first);
-                    result.bufferUsages.push_back(it.second);
-                }
-
-                for (auto& it : mTextureUsages) {
-                    result.textures.push_back(it.first);
-                    result.textureUsages.push_back(it.second);
-                }
-
-                return result;
-            }
-
-          private:
-            std::map<BufferBase*, dawn::BufferUsageBit> mBufferUsages;
-            std::map<TextureBase*, dawn::TextureUsageBit> mTextureUsages;
-            bool mStorageUsedMultipleTimes = false;
-        };
-
-        void TrackBindGroupResourceUsage(BindGroupBase* group, PassResourceUsageTracker* tracker) {
-            const auto& layoutInfo = group->GetLayout()->GetBindingInfo();
-
-            for (uint32_t i : IterateBitSet(layoutInfo.mask)) {
-                dawn::BindingType type = layoutInfo.types[i];
-
-                switch (type) {
-                    case dawn::BindingType::UniformBuffer: {
-                        BufferBase* buffer = group->GetBindingAsBufferBinding(i).buffer;
-                        tracker->BufferUsedAs(buffer, dawn::BufferUsageBit::Uniform);
-                    } break;
-
-                    case dawn::BindingType::StorageBuffer: {
-                        BufferBase* buffer = group->GetBindingAsBufferBinding(i).buffer;
-                        tracker->BufferUsedAs(buffer, dawn::BufferUsageBit::Storage);
-                    } break;
-
-                    case dawn::BindingType::SampledTexture: {
-                        TextureBase* texture = group->GetBindingAsTextureView(i)->GetTexture();
-                        tracker->TextureUsedAs(texture, dawn::TextureUsageBit::Sampled);
-                    } break;
-
-                    case dawn::BindingType::Sampler:
-                        break;
-
-                    case dawn::BindingType::StorageTexture:
-                    case dawn::BindingType::ReadonlyStorageBuffer:
-                        UNREACHABLE();
-                        break;
-                }
-            }
-        }
-
     }  // namespace
 
-    CommandEncoderBase::CommandEncoderBase(DeviceBase* device, const CommandEncoderDescriptor*)
+    CommandEncoder::CommandEncoder(DeviceBase* device, const CommandEncoderDescriptor*)
         : ObjectBase(device), mEncodingContext(device, this) {
     }
 
-    CommandBufferResourceUsage CommandEncoderBase::AcquireResourceUsages() {
-        ASSERT(!mWereResourceUsagesAcquired);
-        mWereResourceUsagesAcquired = true;
-        return std::move(mResourceUsages);
+    CommandBufferResourceUsage CommandEncoder::AcquireResourceUsages() {
+        return CommandBufferResourceUsage{mEncodingContext.AcquirePassUsages(),
+                                          std::move(mTopLevelBuffers),
+                                          std::move(mTopLevelTextures)};
     }
 
-    CommandIterator CommandEncoderBase::AcquireCommands() {
+    CommandIterator CommandEncoder::AcquireCommands() {
         return mEncodingContext.AcquireCommands();
     }
 
     // Implementation of the API's command recording methods
 
-    ComputePassEncoderBase* CommandEncoderBase::BeginComputePass(
-        const ComputePassDescriptor* descriptor) {
+    ComputePassEncoder* CommandEncoder::BeginComputePass(const ComputePassDescriptor* descriptor) {
         DeviceBase* device = GetDevice();
 
         bool success =
@@ -651,19 +490,19 @@ namespace dawn_native {
             });
 
         if (success) {
-            ComputePassEncoderBase* passEncoder =
-                new ComputePassEncoderBase(device, this, &mEncodingContext);
+            ComputePassEncoder* passEncoder =
+                new ComputePassEncoder(device, this, &mEncodingContext);
             mEncodingContext.EnterPass(passEncoder);
             return passEncoder;
         }
 
-        return ComputePassEncoderBase::MakeError(device, this, &mEncodingContext);
+        return ComputePassEncoder::MakeError(device, this, &mEncodingContext);
     }
 
-    RenderPassEncoderBase* CommandEncoderBase::BeginRenderPass(
-        const RenderPassDescriptor* descriptor) {
+    RenderPassEncoder* CommandEncoder::BeginRenderPass(const RenderPassDescriptor* descriptor) {
         DeviceBase* device = GetDevice();
 
+        PassResourceUsageTracker usageTracker;
         bool success =
             mEncodingContext.TryEncode(this, [&](CommandAllocator* allocator) -> MaybeError {
                 uint32_t width = 0;
@@ -678,24 +517,32 @@ namespace dawn_native {
                 BeginRenderPassCmd* cmd =
                     allocator->Allocate<BeginRenderPassCmd>(Command::BeginRenderPass);
 
-                for (uint32_t i = 0; i < descriptor->colorAttachmentCount; ++i) {
-                    if (descriptor->colorAttachments[i] != nullptr) {
-                        cmd->colorAttachmentsSet.set(i);
-                        cmd->colorAttachments[i].view = descriptor->colorAttachments[i]->attachment;
-                        cmd->colorAttachments[i].resolveTarget =
-                            descriptor->colorAttachments[i]->resolveTarget;
-                        cmd->colorAttachments[i].loadOp = descriptor->colorAttachments[i]->loadOp;
-                        cmd->colorAttachments[i].storeOp = descriptor->colorAttachments[i]->storeOp;
-                        cmd->colorAttachments[i].clearColor =
-                            descriptor->colorAttachments[i]->clearColor;
+                cmd->attachmentState = device->GetOrCreateAttachmentState(descriptor);
+
+                for (uint32_t i : IterateBitSet(cmd->attachmentState->GetColorAttachmentsMask())) {
+                    TextureViewBase* view = descriptor->colorAttachments[i].attachment;
+                    TextureViewBase* resolveTarget = descriptor->colorAttachments[i].resolveTarget;
+
+                    cmd->colorAttachments[i].view = view;
+                    cmd->colorAttachments[i].resolveTarget = resolveTarget;
+                    cmd->colorAttachments[i].loadOp = descriptor->colorAttachments[i].loadOp;
+                    cmd->colorAttachments[i].storeOp = descriptor->colorAttachments[i].storeOp;
+                    cmd->colorAttachments[i].clearColor =
+                        descriptor->colorAttachments[i].clearColor;
+
+                    usageTracker.TextureUsedAs(view->GetTexture(),
+                                               wgpu::TextureUsage::OutputAttachment);
+
+                    if (resolveTarget != nullptr) {
+                        usageTracker.TextureUsedAs(resolveTarget->GetTexture(),
+                                                   wgpu::TextureUsage::OutputAttachment);
                     }
                 }
 
-                cmd->hasDepthStencilAttachment = descriptor->depthStencilAttachment != nullptr;
-                if (cmd->hasDepthStencilAttachment) {
-                    cmd->hasDepthStencilAttachment = true;
-                    cmd->depthStencilAttachment.view =
-                        descriptor->depthStencilAttachment->attachment;
+                if (cmd->attachmentState->HasDepthStencilAttachment()) {
+                    TextureViewBase* view = descriptor->depthStencilAttachment->attachment;
+
+                    cmd->depthStencilAttachment.view = view;
                     cmd->depthStencilAttachment.clearDepth =
                         descriptor->depthStencilAttachment->clearDepth;
                     cmd->depthStencilAttachment.clearStencil =
@@ -708,30 +555,32 @@ namespace dawn_native {
                         descriptor->depthStencilAttachment->stencilLoadOp;
                     cmd->depthStencilAttachment.stencilStoreOp =
                         descriptor->depthStencilAttachment->stencilStoreOp;
+
+                    usageTracker.TextureUsedAs(view->GetTexture(),
+                                               wgpu::TextureUsage::OutputAttachment);
                 }
 
                 cmd->width = width;
                 cmd->height = height;
-                cmd->sampleCount = sampleCount;
 
                 return {};
             });
 
         if (success) {
-            RenderPassEncoderBase* passEncoder =
-                new RenderPassEncoderBase(device, this, &mEncodingContext);
+            RenderPassEncoder* passEncoder =
+                new RenderPassEncoder(device, this, &mEncodingContext, std::move(usageTracker));
             mEncodingContext.EnterPass(passEncoder);
             return passEncoder;
         }
 
-        return RenderPassEncoderBase::MakeError(device, this, &mEncodingContext);
+        return RenderPassEncoder::MakeError(device, this, &mEncodingContext);
     }
 
-    void CommandEncoderBase::CopyBufferToBuffer(BufferBase* source,
-                                                uint64_t sourceOffset,
-                                                BufferBase* destination,
-                                                uint64_t destinationOffset,
-                                                uint64_t size) {
+    void CommandEncoder::CopyBufferToBuffer(BufferBase* source,
+                                            uint64_t sourceOffset,
+                                            BufferBase* destination,
+                                            uint64_t destinationOffset,
+                                            uint64_t size) {
         mEncodingContext.TryEncode(this, [&](CommandAllocator* allocator) -> MaybeError {
             DAWN_TRY(GetDevice()->ValidateObject(source));
             DAWN_TRY(GetDevice()->ValidateObject(destination));
@@ -744,13 +593,17 @@ namespace dawn_native {
             copy->destinationOffset = destinationOffset;
             copy->size = size;
 
+            if (GetDevice()->IsValidationEnabled()) {
+                mTopLevelBuffers.insert(source);
+                mTopLevelBuffers.insert(destination);
+            }
             return {};
         });
     }
 
-    void CommandEncoderBase::CopyBufferToTexture(const BufferCopyView* source,
-                                                 const TextureCopyView* destination,
-                                                 const Extent3D* copySize) {
+    void CommandEncoder::CopyBufferToTexture(const BufferCopyView* source,
+                                             const TextureCopyView* destination,
+                                             const Extent3D* copySize) {
         mEncodingContext.TryEncode(this, [&](CommandAllocator* allocator) -> MaybeError {
             DAWN_TRY(GetDevice()->ValidateObject(source->buffer));
             DAWN_TRY(GetDevice()->ValidateObject(destination->texture));
@@ -776,13 +629,17 @@ namespace dawn_native {
                 copy->source.imageHeight = source->imageHeight;
             }
 
+            if (GetDevice()->IsValidationEnabled()) {
+                mTopLevelBuffers.insert(source->buffer);
+                mTopLevelTextures.insert(destination->texture);
+            }
             return {};
         });
     }
 
-    void CommandEncoderBase::CopyTextureToBuffer(const TextureCopyView* source,
-                                                 const BufferCopyView* destination,
-                                                 const Extent3D* copySize) {
+    void CommandEncoder::CopyTextureToBuffer(const TextureCopyView* source,
+                                             const BufferCopyView* destination,
+                                             const Extent3D* copySize) {
         mEncodingContext.TryEncode(this, [&](CommandAllocator* allocator) -> MaybeError {
             DAWN_TRY(GetDevice()->ValidateObject(source->texture));
             DAWN_TRY(GetDevice()->ValidateObject(destination->buffer));
@@ -808,13 +665,17 @@ namespace dawn_native {
                 copy->destination.imageHeight = destination->imageHeight;
             }
 
+            if (GetDevice()->IsValidationEnabled()) {
+                mTopLevelTextures.insert(source->texture);
+                mTopLevelBuffers.insert(destination->buffer);
+            }
             return {};
         });
     }
 
-    void CommandEncoderBase::CopyTextureToTexture(const TextureCopyView* source,
-                                                  const TextureCopyView* destination,
-                                                  const Extent3D* copySize) {
+    void CommandEncoder::CopyTextureToTexture(const TextureCopyView* source,
+                                              const TextureCopyView* destination,
+                                              const Extent3D* copySize) {
         mEncodingContext.TryEncode(this, [&](CommandAllocator* allocator) -> MaybeError {
             DAWN_TRY(GetDevice()->ValidateObject(source->texture));
             DAWN_TRY(GetDevice()->ValidateObject(destination->texture));
@@ -831,33 +692,76 @@ namespace dawn_native {
             copy->destination.arrayLayer = destination->arrayLayer;
             copy->copySize = *copySize;
 
+            if (GetDevice()->IsValidationEnabled()) {
+                mTopLevelTextures.insert(source->texture);
+                mTopLevelTextures.insert(destination->texture);
+            }
             return {};
         });
     }
 
-    CommandBufferBase* CommandEncoderBase::Finish(const CommandBufferDescriptor* descriptor) {
-        if (GetDevice()->ConsumedError(ValidateFinish(descriptor))) {
-            // Even if finish validation fails, it is now invalid to call any encoding commands on
-            // this object, so we set its state to finished.
-            return CommandBufferBase::MakeError(GetDevice());
+    void CommandEncoder::InsertDebugMarker(const char* groupLabel) {
+        mEncodingContext.TryEncode(this, [&](CommandAllocator* allocator) -> MaybeError {
+            InsertDebugMarkerCmd* cmd =
+                allocator->Allocate<InsertDebugMarkerCmd>(Command::InsertDebugMarker);
+            cmd->length = strlen(groupLabel);
+
+            char* label = allocator->AllocateData<char>(cmd->length + 1);
+            memcpy(label, groupLabel, cmd->length + 1);
+
+            return {};
+        });
+    }
+
+    void CommandEncoder::PopDebugGroup() {
+        mEncodingContext.TryEncode(this, [&](CommandAllocator* allocator) -> MaybeError {
+            allocator->Allocate<PopDebugGroupCmd>(Command::PopDebugGroup);
+
+            return {};
+        });
+    }
+
+    void CommandEncoder::PushDebugGroup(const char* groupLabel) {
+        mEncodingContext.TryEncode(this, [&](CommandAllocator* allocator) -> MaybeError {
+            PushDebugGroupCmd* cmd =
+                allocator->Allocate<PushDebugGroupCmd>(Command::PushDebugGroup);
+            cmd->length = strlen(groupLabel);
+
+            char* label = allocator->AllocateData<char>(cmd->length + 1);
+            memcpy(label, groupLabel, cmd->length + 1);
+
+            return {};
+        });
+    }
+
+    CommandBufferBase* CommandEncoder::Finish(const CommandBufferDescriptor* descriptor) {
+        DeviceBase* device = GetDevice();
+        // Even if mEncodingContext.Finish() validation fails, calling it will mutate the internal
+        // state of the encoding context. The internal state is set to finished, and subsequent
+        // calls to encode commands will generate errors.
+        if (device->ConsumedError(mEncodingContext.Finish()) ||
+            (device->IsValidationEnabled() &&
+             device->ConsumedError(ValidateFinish(mEncodingContext.GetIterator(),
+                                                  mEncodingContext.GetPassUsages())))) {
+            return CommandBufferBase::MakeError(device);
         }
         ASSERT(!IsError());
-
-        return GetDevice()->CreateCommandBuffer(this, descriptor);
+        return device->CreateCommandBuffer(this, descriptor);
     }
 
     // Implementation of the command buffer validation that can be precomputed before submit
-
-    MaybeError CommandEncoderBase::ValidateFinish(const CommandBufferDescriptor*) {
+    MaybeError CommandEncoder::ValidateFinish(CommandIterator* commands,
+                                              const PerPassUsages& perPassUsages) const {
+        TRACE_EVENT0(GetDevice()->GetPlatform(), Validation, "CommandEncoder::ValidateFinish");
         DAWN_TRY(GetDevice()->ValidateObject(this));
 
-        // Even if Finish() validation fails, calling it will mutate the internal state of the
-        // encoding context. Subsequent calls to encode commands will generate errors.
-        DAWN_TRY(mEncodingContext.Finish());
+        for (const PassResourceUsage& passUsage : perPassUsages) {
+            DAWN_TRY(ValidatePassResourceUsage(passUsage));
+        }
 
-        CommandIterator* commands = mEncodingContext.GetIterator();
+        uint64_t debugGroupStackSize = 0;
+
         commands->Reset();
-
         Command type;
         while (commands->NextCommandId(&type)) {
             switch (type) {
@@ -867,12 +771,13 @@ namespace dawn_native {
                 } break;
 
                 case Command::BeginRenderPass: {
-                    BeginRenderPassCmd* cmd = commands->NextCommand<BeginRenderPassCmd>();
+                    const BeginRenderPassCmd* cmd = commands->NextCommand<BeginRenderPassCmd>();
                     DAWN_TRY(ValidateRenderPass(commands, cmd));
                 } break;
 
                 case Command::CopyBufferToBuffer: {
-                    CopyBufferToBufferCmd* copy = commands->NextCommand<CopyBufferToBufferCmd>();
+                    const CopyBufferToBufferCmd* copy =
+                        commands->NextCommand<CopyBufferToBufferCmd>();
 
                     DAWN_TRY(
                         ValidateCopySizeFitsInBuffer(copy->source, copy->sourceOffset, copy->size));
@@ -881,16 +786,13 @@ namespace dawn_native {
                     DAWN_TRY(ValidateB2BCopySizeAlignment(copy->size, copy->sourceOffset,
                                                           copy->destinationOffset));
 
-                    DAWN_TRY(ValidateCanUseAs(copy->source.Get(), dawn::BufferUsageBit::CopySrc));
-                    DAWN_TRY(
-                        ValidateCanUseAs(copy->destination.Get(), dawn::BufferUsageBit::CopyDst));
-
-                    mResourceUsages.topLevelBuffers.insert(copy->source.Get());
-                    mResourceUsages.topLevelBuffers.insert(copy->destination.Get());
+                    DAWN_TRY(ValidateCanUseAs(copy->source.Get(), wgpu::BufferUsage::CopySrc));
+                    DAWN_TRY(ValidateCanUseAs(copy->destination.Get(), wgpu::BufferUsage::CopyDst));
                 } break;
 
                 case Command::CopyBufferToTexture: {
-                    CopyBufferToTextureCmd* copy = commands->NextCommand<CopyBufferToTextureCmd>();
+                    const CopyBufferToTextureCmd* copy =
+                        commands->NextCommand<CopyBufferToTextureCmd>();
 
                     DAWN_TRY(
                         ValidateTextureSampleCountInCopyCommands(copy->destination.texture.Get()));
@@ -916,16 +818,14 @@ namespace dawn_native {
                                                        copy->destination.texture->GetFormat()));
 
                     DAWN_TRY(
-                        ValidateCanUseAs(copy->source.buffer.Get(), dawn::BufferUsageBit::CopySrc));
+                        ValidateCanUseAs(copy->source.buffer.Get(), wgpu::BufferUsage::CopySrc));
                     DAWN_TRY(ValidateCanUseAs(copy->destination.texture.Get(),
-                                              dawn::TextureUsageBit::CopyDst));
-
-                    mResourceUsages.topLevelBuffers.insert(copy->source.buffer.Get());
-                    mResourceUsages.topLevelTextures.insert(copy->destination.texture.Get());
+                                              wgpu::TextureUsage::CopyDst));
                 } break;
 
                 case Command::CopyTextureToBuffer: {
-                    CopyTextureToBufferCmd* copy = commands->NextCommand<CopyTextureToBufferCmd>();
+                    const CopyTextureToBufferCmd* copy =
+                        commands->NextCommand<CopyTextureToBufferCmd>();
 
                     DAWN_TRY(ValidateTextureSampleCountInCopyCommands(copy->source.texture.Get()));
 
@@ -950,17 +850,14 @@ namespace dawn_native {
                     DAWN_TRY(ValidateTexelBufferOffset(copy->destination,
                                                        copy->source.texture->GetFormat()));
 
-                    DAWN_TRY(ValidateCanUseAs(copy->source.texture.Get(),
-                                              dawn::TextureUsageBit::CopySrc));
+                    DAWN_TRY(
+                        ValidateCanUseAs(copy->source.texture.Get(), wgpu::TextureUsage::CopySrc));
                     DAWN_TRY(ValidateCanUseAs(copy->destination.buffer.Get(),
-                                              dawn::BufferUsageBit::CopyDst));
-
-                    mResourceUsages.topLevelTextures.insert(copy->source.texture.Get());
-                    mResourceUsages.topLevelBuffers.insert(copy->destination.buffer.Get());
+                                              wgpu::BufferUsage::CopyDst));
                 } break;
 
                 case Command::CopyTextureToTexture: {
-                    CopyTextureToTextureCmd* copy =
+                    const CopyTextureToTextureCmd* copy =
                         commands->NextCommand<CopyTextureToTextureCmd>();
 
                     DAWN_TRY(ValidateTextureToTextureCopyRestrictions(
@@ -978,228 +875,36 @@ namespace dawn_native {
                     DAWN_TRY(ValidateCopySizeFitsInTexture(copy->source, copy->copySize));
                     DAWN_TRY(ValidateCopySizeFitsInTexture(copy->destination, copy->copySize));
 
-                    DAWN_TRY(ValidateCanUseAs(copy->source.texture.Get(),
-                                              dawn::TextureUsageBit::CopySrc));
+                    DAWN_TRY(
+                        ValidateCanUseAs(copy->source.texture.Get(), wgpu::TextureUsage::CopySrc));
                     DAWN_TRY(ValidateCanUseAs(copy->destination.texture.Get(),
-                                              dawn::TextureUsageBit::CopyDst));
-
-                    mResourceUsages.topLevelTextures.insert(copy->source.texture.Get());
-                    mResourceUsages.topLevelTextures.insert(copy->destination.texture.Get());
+                                              wgpu::TextureUsage::CopyDst));
                 } break;
 
+                case Command::InsertDebugMarker: {
+                    const InsertDebugMarkerCmd* cmd = commands->NextCommand<InsertDebugMarkerCmd>();
+                    commands->NextData<char>(cmd->length + 1);
+                } break;
+
+                case Command::PopDebugGroup: {
+                    commands->NextCommand<PopDebugGroupCmd>();
+                    DAWN_TRY(ValidateCanPopDebugGroup(debugGroupStackSize));
+                    debugGroupStackSize--;
+                } break;
+
+                case Command::PushDebugGroup: {
+                    const PushDebugGroupCmd* cmd = commands->NextCommand<PushDebugGroupCmd>();
+                    commands->NextData<char>(cmd->length + 1);
+                    debugGroupStackSize++;
+                } break;
                 default:
                     return DAWN_VALIDATION_ERROR("Command disallowed outside of a pass");
             }
         }
 
+        DAWN_TRY(ValidateFinalDebugGroupStackSize(debugGroupStackSize));
+
         return {};
-    }
-
-    MaybeError CommandEncoderBase::ValidateComputePass(CommandIterator* commands) {
-        PassResourceUsageTracker usageTracker;
-        CommandBufferStateTracker persistentState;
-
-        Command type;
-        while (commands->NextCommandId(&type)) {
-            switch (type) {
-                case Command::EndComputePass: {
-                    commands->NextCommand<EndComputePassCmd>();
-
-                    DAWN_TRY(ValidateDebugGroups(mDebugGroupStackSize));
-
-                    DAWN_TRY(usageTracker.ValidateUsages(PassType::Compute));
-                    mResourceUsages.perPass.push_back(usageTracker.AcquireResourceUsage());
-                    return {};
-                } break;
-
-                case Command::Dispatch: {
-                    commands->NextCommand<DispatchCmd>();
-                    DAWN_TRY(persistentState.ValidateCanDispatch());
-                } break;
-
-                case Command::DispatchIndirect: {
-                    DispatchIndirectCmd* cmd = commands->NextCommand<DispatchIndirectCmd>();
-                    DAWN_TRY(persistentState.ValidateCanDispatch());
-                    usageTracker.BufferUsedAs(cmd->indirectBuffer.Get(),
-                                              dawn::BufferUsageBit::Indirect);
-                } break;
-
-                case Command::InsertDebugMarker: {
-                    InsertDebugMarkerCmd* cmd = commands->NextCommand<InsertDebugMarkerCmd>();
-                    commands->NextData<char>(cmd->length + 1);
-                } break;
-
-                case Command::PopDebugGroup: {
-                    commands->NextCommand<PopDebugGroupCmd>();
-                    DAWN_TRY(PopDebugMarkerStack(&mDebugGroupStackSize));
-                } break;
-
-                case Command::PushDebugGroup: {
-                    PushDebugGroupCmd* cmd = commands->NextCommand<PushDebugGroupCmd>();
-                    commands->NextData<char>(cmd->length + 1);
-                    DAWN_TRY(PushDebugMarkerStack(&mDebugGroupStackSize));
-                } break;
-
-                case Command::SetComputePipeline: {
-                    SetComputePipelineCmd* cmd = commands->NextCommand<SetComputePipelineCmd>();
-                    ComputePipelineBase* pipeline = cmd->pipeline.Get();
-                    persistentState.SetComputePipeline(pipeline);
-                } break;
-
-                case Command::SetBindGroup: {
-                    SetBindGroupCmd* cmd = commands->NextCommand<SetBindGroupCmd>();
-                    if (cmd->dynamicOffsetCount > 0) {
-                        commands->NextData<uint64_t>(cmd->dynamicOffsetCount);
-                    }
-
-                    TrackBindGroupResourceUsage(cmd->group.Get(), &usageTracker);
-                    persistentState.SetBindGroup(cmd->index, cmd->group.Get());
-                } break;
-
-                default:
-                    return DAWN_VALIDATION_ERROR("Command disallowed inside a compute pass");
-            }
-        }
-
-        UNREACHABLE();
-        return DAWN_VALIDATION_ERROR("Unfinished compute pass");
-    }
-
-    MaybeError CommandEncoderBase::ValidateRenderPass(CommandIterator* commands,
-                                                      BeginRenderPassCmd* renderPass) {
-        PassResourceUsageTracker usageTracker;
-        CommandBufferStateTracker persistentState;
-
-        // Track usage of the render pass attachments
-        for (uint32_t i : IterateBitSet(renderPass->colorAttachmentsSet)) {
-            RenderPassColorAttachmentInfo* colorAttachment = &renderPass->colorAttachments[i];
-            TextureBase* texture = colorAttachment->view->GetTexture();
-            usageTracker.TextureUsedAs(texture, dawn::TextureUsageBit::OutputAttachment);
-
-            TextureViewBase* resolveTarget = colorAttachment->resolveTarget.Get();
-            if (resolveTarget != nullptr) {
-                usageTracker.TextureUsedAs(resolveTarget->GetTexture(),
-                                           dawn::TextureUsageBit::OutputAttachment);
-            }
-        }
-
-        if (renderPass->hasDepthStencilAttachment) {
-            TextureBase* texture = renderPass->depthStencilAttachment.view->GetTexture();
-            usageTracker.TextureUsedAs(texture, dawn::TextureUsageBit::OutputAttachment);
-        }
-
-        Command type;
-        while (commands->NextCommandId(&type)) {
-            switch (type) {
-                case Command::EndRenderPass: {
-                    commands->NextCommand<EndRenderPassCmd>();
-
-                    DAWN_TRY(ValidateDebugGroups(mDebugGroupStackSize));
-
-                    DAWN_TRY(usageTracker.ValidateUsages(PassType::Render));
-                    mResourceUsages.perPass.push_back(usageTracker.AcquireResourceUsage());
-                    return {};
-                } break;
-
-                case Command::Draw: {
-                    commands->NextCommand<DrawCmd>();
-                    DAWN_TRY(persistentState.ValidateCanDraw());
-                } break;
-
-                case Command::DrawIndexed: {
-                    commands->NextCommand<DrawIndexedCmd>();
-                    DAWN_TRY(persistentState.ValidateCanDrawIndexed());
-                } break;
-
-                case Command::DrawIndirect: {
-                    DrawIndirectCmd* cmd = commands->NextCommand<DrawIndirectCmd>();
-                    DAWN_TRY(persistentState.ValidateCanDraw());
-                    usageTracker.BufferUsedAs(cmd->indirectBuffer.Get(),
-                                              dawn::BufferUsageBit::Indirect);
-                } break;
-
-                case Command::DrawIndexedIndirect: {
-                    DrawIndexedIndirectCmd* cmd = commands->NextCommand<DrawIndexedIndirectCmd>();
-                    DAWN_TRY(persistentState.ValidateCanDrawIndexed());
-                    usageTracker.BufferUsedAs(cmd->indirectBuffer.Get(),
-                                              dawn::BufferUsageBit::Indirect);
-                } break;
-
-                case Command::InsertDebugMarker: {
-                    InsertDebugMarkerCmd* cmd = commands->NextCommand<InsertDebugMarkerCmd>();
-                    commands->NextData<char>(cmd->length + 1);
-                } break;
-
-                case Command::PopDebugGroup: {
-                    commands->NextCommand<PopDebugGroupCmd>();
-                    DAWN_TRY(PopDebugMarkerStack(&mDebugGroupStackSize));
-                } break;
-
-                case Command::PushDebugGroup: {
-                    PushDebugGroupCmd* cmd = commands->NextCommand<PushDebugGroupCmd>();
-                    commands->NextData<char>(cmd->length + 1);
-                    DAWN_TRY(PushDebugMarkerStack(&mDebugGroupStackSize));
-                } break;
-
-                case Command::SetRenderPipeline: {
-                    SetRenderPipelineCmd* cmd = commands->NextCommand<SetRenderPipelineCmd>();
-                    RenderPipelineBase* pipeline = cmd->pipeline.Get();
-
-                    DAWN_TRY(pipeline->ValidateCompatibleWith(renderPass));
-                    persistentState.SetRenderPipeline(pipeline);
-                } break;
-
-                case Command::SetStencilReference: {
-                    commands->NextCommand<SetStencilReferenceCmd>();
-                } break;
-
-                case Command::SetBlendColor: {
-                    commands->NextCommand<SetBlendColorCmd>();
-                } break;
-
-                case Command::SetViewport: {
-                    commands->NextCommand<SetViewportCmd>();
-                } break;
-
-                case Command::SetScissorRect: {
-                    commands->NextCommand<SetScissorRectCmd>();
-                } break;
-
-                case Command::SetBindGroup: {
-                    SetBindGroupCmd* cmd = commands->NextCommand<SetBindGroupCmd>();
-                    if (cmd->dynamicOffsetCount > 0) {
-                        commands->NextData<uint64_t>(cmd->dynamicOffsetCount);
-                    }
-
-                    TrackBindGroupResourceUsage(cmd->group.Get(), &usageTracker);
-                    persistentState.SetBindGroup(cmd->index, cmd->group.Get());
-                } break;
-
-                case Command::SetIndexBuffer: {
-                    SetIndexBufferCmd* cmd = commands->NextCommand<SetIndexBufferCmd>();
-
-                    usageTracker.BufferUsedAs(cmd->buffer.Get(), dawn::BufferUsageBit::Index);
-                    persistentState.SetIndexBuffer();
-                } break;
-
-                case Command::SetVertexBuffers: {
-                    SetVertexBuffersCmd* cmd = commands->NextCommand<SetVertexBuffersCmd>();
-                    auto buffers = commands->NextData<Ref<BufferBase>>(cmd->count);
-                    commands->NextData<uint64_t>(cmd->count);
-
-                    for (uint32_t i = 0; i < cmd->count; ++i) {
-                        usageTracker.BufferUsedAs(buffers[i].Get(), dawn::BufferUsageBit::Vertex);
-                    }
-                    persistentState.SetVertexBuffer(cmd->startSlot, cmd->count);
-                } break;
-
-                default:
-                    return DAWN_VALIDATION_ERROR("Command disallowed inside a render pass");
-            }
-        }
-
-        UNREACHABLE();
-        return DAWN_VALIDATION_ERROR("Unfinished render pass");
     }
 
 }  // namespace dawn_native

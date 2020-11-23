@@ -31,7 +31,7 @@ SwapchainKHR::SwapchainKHR(const VkSwapchainCreateInfoKHR *pCreateInfo, void *me
 	imageCount(pCreateInfo->minImageCount),
 	retired(false)
 {
-	memset(images, 0, imageCount * sizeof(PresentImage));
+	memset(reinterpret_cast<void*>(images), 0, imageCount * sizeof(PresentImage));
 }
 
 void SwapchainKHR::destroy(const VkAllocationCallbacks *pAllocator)
@@ -198,11 +198,11 @@ VkResult SwapchainKHR::getNextImage(uint64_t timeout, Semaphore* semaphore, Fenc
 	return VK_NOT_READY;
 }
 
-void SwapchainKHR::present(uint32_t index)
+VkResult SwapchainKHR::present(uint32_t index)
 {
-	auto & image = images[index];
+	auto& image = images[index];
 	image.setStatus(PRESENTING);
-	surface->present(&image);
+	VkResult result = surface->present(&image);
 	image.setStatus(AVAILABLE);
 
 	if(retired)
@@ -210,6 +210,8 @@ void SwapchainKHR::present(uint32_t index)
 		surface->detachImage(&image);
 		image.clear();
 	}
+
+	return result;
 }
 
 }

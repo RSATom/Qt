@@ -1,5 +1,5 @@
 //
-// Copyright (c) 2002-2014 The ANGLE Project Authors. All rights reserved.
+// Copyright 2002 The ANGLE Project Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 //
@@ -268,6 +268,10 @@ bool TIntermLoop::replaceChildNode(TIntermNode *original, TIntermNode *replaceme
     return false;
 }
 
+TIntermBranch::TIntermBranch(const TIntermBranch &node)
+    : TIntermBranch(node.mFlowOp, node.mExpression->deepCopy())
+{}
+
 size_t TIntermBranch::getChildCount() const
 {
     return (mExpression ? 1 : 0);
@@ -346,19 +350,20 @@ bool TIntermUnary::replaceChildNode(TIntermNode *original, TIntermNode *replacem
     return false;
 }
 
-size_t TIntermInvariantDeclaration::getChildCount() const
+size_t TIntermGlobalQualifierDeclaration::getChildCount() const
 {
     return 1;
 }
 
-TIntermNode *TIntermInvariantDeclaration::getChildNode(size_t index) const
+TIntermNode *TIntermGlobalQualifierDeclaration::getChildNode(size_t index) const
 {
     ASSERT(mSymbol);
     ASSERT(index == 0);
     return mSymbol;
 }
 
-bool TIntermInvariantDeclaration::replaceChildNode(TIntermNode *original, TIntermNode *replacement)
+bool TIntermGlobalQualifierDeclaration::replaceChildNode(TIntermNode *original,
+                                                         TIntermNode *replacement)
 {
     REPLACE_IF_IS(mSymbol, TIntermSymbol, original, replacement);
     return false;
@@ -399,6 +404,14 @@ TIntermNode *TIntermAggregate::getChildNode(size_t index) const
 bool TIntermAggregate::replaceChildNode(TIntermNode *original, TIntermNode *replacement)
 {
     return replaceChildNodeInternal(original, replacement);
+}
+
+TIntermBlock::TIntermBlock(const TIntermBlock &block)
+{
+    for (TIntermNode *node : block.mStatements)
+    {
+        mStatements.push_back(node->deepCopy());
+    }
 }
 
 size_t TIntermBlock::getChildCount() const
@@ -954,6 +967,8 @@ bool TIntermSwitch::replaceChildNode(TIntermNode *original, TIntermNode *replace
     return false;
 }
 
+TIntermCase::TIntermCase(const TIntermCase &node) : TIntermCase(node.mCondition->deepCopy()) {}
+
 size_t TIntermCase::getChildCount() const
 {
     return (mCondition ? 1 : 0);
@@ -1318,13 +1333,19 @@ TIntermBinary *TIntermBinary::CreateComma(TIntermTyped *left,
     return node;
 }
 
-TIntermInvariantDeclaration::TIntermInvariantDeclaration(TIntermSymbol *symbol,
-                                                         const TSourceLoc &line)
+TIntermGlobalQualifierDeclaration::TIntermGlobalQualifierDeclaration(TIntermSymbol *symbol,
+                                                                     const TSourceLoc &line)
     : TIntermNode(), mSymbol(symbol)
 {
     ASSERT(symbol);
     setLine(line);
 }
+
+TIntermGlobalQualifierDeclaration::TIntermGlobalQualifierDeclaration(
+    const TIntermGlobalQualifierDeclaration &node)
+    : TIntermGlobalQualifierDeclaration(static_cast<TIntermSymbol *>(node.mSymbol->deepCopy()),
+                                        node.mLine)
+{}
 
 TIntermTernary::TIntermTernary(TIntermTyped *cond,
                                TIntermTyped *trueExpression,
@@ -1357,6 +1378,14 @@ TIntermLoop::TIntermLoop(TLoopType type,
     }
 }
 
+TIntermLoop::TIntermLoop(const TIntermLoop &node)
+    : TIntermLoop(node.mType,
+                  node.mInit->deepCopy(),
+                  node.mCond->deepCopy(),
+                  node.mExpr->deepCopy(),
+                  node.mBody->deepCopy())
+{}
+
 TIntermIfElse::TIntermIfElse(TIntermTyped *cond, TIntermBlock *trueB, TIntermBlock *falseB)
     : TIntermNode(), mCondition(cond), mTrueBlock(trueB), mFalseBlock(falseB)
 {
@@ -1368,12 +1397,22 @@ TIntermIfElse::TIntermIfElse(TIntermTyped *cond, TIntermBlock *trueB, TIntermBlo
     }
 }
 
+TIntermIfElse::TIntermIfElse(const TIntermIfElse &node)
+    : TIntermIfElse(node.mCondition->deepCopy(),
+                    node.mTrueBlock->deepCopy(),
+                    node.mFalseBlock ? node.mFalseBlock->deepCopy() : nullptr)
+{}
+
 TIntermSwitch::TIntermSwitch(TIntermTyped *init, TIntermBlock *statementList)
     : TIntermNode(), mInit(init), mStatementList(statementList)
 {
     ASSERT(mInit);
     ASSERT(mStatementList);
 }
+
+TIntermSwitch::TIntermSwitch(const TIntermSwitch &node)
+    : TIntermSwitch(node.mInit->deepCopy(), node.mStatementList->deepCopy())
+{}
 
 void TIntermSwitch::setStatementList(TIntermBlock *statementList)
 {
@@ -2953,7 +2992,7 @@ TConstantUnion *TIntermConstantUnion::foldUnaryComponentWise(TOperator op,
                 ASSERT(getType().getBasicType() == EbtFloat);
                 float x      = operandArray[i].getFConst();
                 float length = VectorLength(operandArray, objectSize);
-                if (length)
+                if (length != 0.0f)
                     resultArray[i].setFConst(x / length);
                 else
                     UndefinedConstantFoldingError(getLine(), op, getType().getBasicType(),
@@ -3770,6 +3809,10 @@ bool TIntermConstantUnion::IsFloatDivision(TBasicType t1, TBasicType t2)
 TIntermPreprocessorDirective::TIntermPreprocessorDirective(PreprocessorDirective directive,
                                                            ImmutableString command)
     : mDirective(directive), mCommand(std::move(command))
+{}
+
+TIntermPreprocessorDirective::TIntermPreprocessorDirective(const TIntermPreprocessorDirective &node)
+    : TIntermPreprocessorDirective(node.mDirective, node.mCommand)
 {}
 
 TIntermPreprocessorDirective::~TIntermPreprocessorDirective() = default;

@@ -15,6 +15,7 @@
 #ifndef sw_Blitter_hpp
 #define sw_Blitter_hpp
 
+#include "Memset.hpp"
 #include "RoutineCache.hpp"
 #include "Reactor/Reactor.hpp"
 #include "Vulkan/VkFormat.h"
@@ -34,11 +35,11 @@ namespace sw
 	{
 		struct Options
 		{
-			Options() = default;
-			Options(bool filter, bool convertSRGB)
-				: writeMask(0xF), clearOperation(false), filter(filter), convertSRGB(convertSRGB), clampToEdge(false) {}
-			Options(unsigned int writeMask)
-				: writeMask(writeMask), clearOperation(true), filter(false), convertSRGB(true), clampToEdge(false) {}
+			explicit Options() = default;
+			explicit Options(bool filter, bool allowSRGBConversion)
+				: writeMask(0xF), clearOperation(false), filter(filter), allowSRGBConversion(allowSRGBConversion), clampToEdge(false) {}
+			explicit Options(unsigned int writeMask)
+				: writeMask(writeMask), clearOperation(true), filter(false), allowSRGBConversion(true), clampToEdge(false) {}
 
 			union
 			{
@@ -55,7 +56,7 @@ namespace sw
 
 			bool clearOperation : 1;
 			bool filter : 1;
-			bool convertSRGB : 1;
+			bool allowSRGBConversion : 1;
 			bool clampToEdge : 1;
 		};
 
@@ -126,18 +127,24 @@ namespace sw
 
 		bool fastClear(void *pixel, vk::Format format, vk::Image *dest, const vk::Format& viewFormat, const VkImageSubresourceRange& subresourceRange, const VkRect2D* renderArea);
 
-		bool read(Float4 &color, Pointer<Byte> element, const State &state);
-		bool write(Float4 &color, Pointer<Byte> element, const State &state);
-		bool read(Int4 &color, Pointer<Byte> element, const State &state);
-		bool write(Int4 &color, Pointer<Byte> element, const State &state);
-		static bool ApplyScaleAndClamp(Float4 &value, const State &state, bool preScaled = false);
-		static Int ComputeOffset(Int &x, Int &y, Int &pitchB, int bytes, bool quadLayout);
+		Float4 readFloat4(Pointer<Byte> element, const State &state);
+		void write(Float4 &color, Pointer<Byte> element, const State &state);
+		Int4 readInt4(Pointer<Byte> element, const State &state);
+		void write(Int4 &color, Pointer<Byte> element, const State &state);
+		static void ApplyScaleAndClamp(Float4 &value, const State &state, bool preScaled = false);
+		static Int ComputeOffset(Int &x, Int &y, Int &pitchB, int bytes);
 		static Float4 LinearToSRGB(Float4 &color);
 		static Float4 sRGBtoLinear(Float4 &color);
-		Routine *getBlitRoutine(const State &state);
-		Routine *generate(const State &state);
-		Routine *getCornerUpdateRoutine(const State &state);
-		Routine *generateCornerUpdate(const State& state);
+
+		using BlitFunction = FunctionT<void(const BlitData*)>;
+		using BlitRoutineType = BlitFunction::RoutineType;
+		BlitRoutineType getBlitRoutine(const State &state);
+		BlitRoutineType generate(const State &state);
+
+		using CornerUpdateFunction = FunctionT<void(const CubeBorderData*)>;
+		using CornerUpdateRoutineType = CornerUpdateFunction::RoutineType;
+		CornerUpdateRoutineType getCornerUpdateRoutine(const State &state);
+		CornerUpdateRoutineType generateCornerUpdate(const State& state);
 		void computeCubeCorner(Pointer<Byte>& layer, Int& x0, Int& x1, Int& y0, Int& y1, Int& pitchB, const State& state);
 
 		void copyCubeEdge(vk::Image* image,
@@ -145,9 +152,9 @@ namespace sw
 	                      const VkImageSubresourceLayers& srcSubresourceLayers, Edge srcEdge);
 
 		std::mutex blitMutex;
-		RoutineCache<State> blitCache; // guarded by blitMutex
+		RoutineCacheT<State, BlitFunction::CFunctionType> blitCache; // guarded by blitMutex
 		std::mutex cornerUpdateMutex;
-		RoutineCache<State> cornerUpdateCache; // guarded by cornerUpdateMutex
+		RoutineCacheT<State, CornerUpdateFunction::CFunctionType> cornerUpdateCache; // guarded by cornerUpdateMutex
 	};
 }
 

@@ -33,25 +33,26 @@ void PaymentAppInfoFetcher::Start(
     const GURL& context_url,
     scoped_refptr<ServiceWorkerContextWrapper> service_worker_context,
     PaymentAppInfoFetchCallback callback) {
-  DCHECK_CURRENTLY_ON(BrowserThread::IO);
+  DCHECK_CURRENTLY_ON(ServiceWorkerContext::GetCoreThreadId());
 
-  std::unique_ptr<std::vector<GlobalFrameRoutingId>> provider_hosts =
-      service_worker_context->GetProviderHostIds(context_url.GetOrigin());
+  std::unique_ptr<std::vector<GlobalFrameRoutingId>> frame_routing_ids =
+      service_worker_context->GetWindowClientFrameRoutingIds(
+          context_url.GetOrigin());
 
-  base::PostTaskWithTraits(
-      FROM_HERE, {BrowserThread::UI},
+  RunOrPostTaskOnThread(
+      FROM_HERE, BrowserThread::UI,
       base::BindOnce(&PaymentAppInfoFetcher::StartOnUI, context_url,
-                     std::move(provider_hosts), std::move(callback)));
+                     std::move(frame_routing_ids), std::move(callback)));
 }
 
 void PaymentAppInfoFetcher::StartOnUI(
     const GURL& context_url,
-    const std::unique_ptr<std::vector<GlobalFrameRoutingId>>& provider_hosts,
+    const std::unique_ptr<std::vector<GlobalFrameRoutingId>>& frame_routing_ids,
     PaymentAppInfoFetchCallback callback) {
   DCHECK_CURRENTLY_ON(BrowserThread::UI);
 
   SelfDeleteFetcher* fetcher = new SelfDeleteFetcher(std::move(callback));
-  fetcher->Start(context_url, std::move(provider_hosts));
+  fetcher->Start(context_url, std::move(frame_routing_ids));
 }
 
 PaymentAppInfoFetcher::WebContentsHelper::WebContentsHelper(
@@ -77,10 +78,11 @@ PaymentAppInfoFetcher::SelfDeleteFetcher::~SelfDeleteFetcher() {
 
 void PaymentAppInfoFetcher::SelfDeleteFetcher::Start(
     const GURL& context_url,
-    const std::unique_ptr<std::vector<GlobalFrameRoutingId>>& provider_hosts) {
+    const std::unique_ptr<std::vector<GlobalFrameRoutingId>>&
+        frame_routing_ids) {
   DCHECK_CURRENTLY_ON(BrowserThread::UI);
 
-  if (provider_hosts->size() == 0U) {
+  if (frame_routing_ids->empty()) {
     // Cannot print this error to the developer console, because the appropriate
     // developer console has not been found.
     LOG(ERROR)
@@ -91,7 +93,7 @@ void PaymentAppInfoFetcher::SelfDeleteFetcher::Start(
     return;
   }
 
-  for (const auto& frame : *provider_hosts) {
+  for (const auto& frame : *frame_routing_ids) {
     // Find out the render frame host registering the payment app. Although a
     // service worker can manage instruments, the first instrument must be set
     // on a page that has a link to a web app manifest, so it can be fetched
@@ -166,10 +168,9 @@ void PaymentAppInfoFetcher::SelfDeleteFetcher::Start(
 void PaymentAppInfoFetcher::SelfDeleteFetcher::RunCallbackAndDestroy() {
   DCHECK_CURRENTLY_ON(BrowserThread::UI);
 
-  base::PostTaskWithTraits(
-      FROM_HERE, {BrowserThread::IO},
-      base::BindOnce(std::move(callback_),
-                     std::move(fetched_payment_app_info_)));
+  base::PostTask(FROM_HERE, {ServiceWorkerContext::GetCoreThreadId()},
+                 base::BindOnce(std::move(callback_),
+                                std::move(fetched_payment_app_info_)));
   delete this;
 }
 

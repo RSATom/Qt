@@ -36,8 +36,9 @@ void HTMLCanvasPainter::PaintReplaced(const PaintInfo& paint_info,
   PhysicalRect paint_rect = layout_html_canvas_.ReplacedContentRect();
   paint_rect.Move(paint_offset);
 
-  HTMLCanvasElement* canvas =
-      ToHTMLCanvasElement(layout_html_canvas_.GetNode());
+  auto* canvas = To<HTMLCanvasElement>(layout_html_canvas_.GetNode());
+  if (canvas->IsOffscreenCanvasRegistered())
+    canvas->UpdateOffscreenCanvasFilterQuality(canvas->FilterQuality());
 
   if (RuntimeEnabledFeatures::CompositeAfterPaintEnabled()) {
     if (auto* layer = canvas->ContentsCcLayer()) {
@@ -45,7 +46,8 @@ void HTMLCanvasPainter::PaintReplaced(const PaintInfo& paint_info,
       layer->SetBounds(gfx::Size(pixel_snapped_rect.Size()));
       layer->SetIsDrawable(true);
       layer->SetHitTestable(true);
-      RecordForeignLayer(context, DisplayItem::kForeignLayerCanvas, layer,
+      RecordForeignLayer(context, layout_html_canvas_,
+                         DisplayItem::kForeignLayerCanvas, layer,
                          FloatPoint(pixel_snapped_rect.Location()));
       return;
     }

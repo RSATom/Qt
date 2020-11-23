@@ -103,6 +103,8 @@ static_library("bundled_libxslt") {
   deps = [
     "//third_party/libxml",
   ]
+
+  visibility = [ ":libxslt" ]
 }
 
 if (use_system_libxslt) {
@@ -112,9 +114,11 @@ if (use_system_libxslt) {
   }
   source_set("libxslt") {
     public_configs = [ ":system_libxslt" ]
+    visibility = [ "//third_party/blink/renderer/*" ]
   }
 } else {
   group("libxslt") {
     public_deps = [ ":bundled_libxslt" ]
+    visibility = [ "//third_party/blink/renderer/*" ]
   }
 }

@@ -9,6 +9,7 @@
 #include "third_party/blink/renderer/core/dom/element.h"
 #include "third_party/blink/renderer/core/frame/browser_controls.h"
 #include "third_party/blink/renderer/core/frame/local_frame_view.h"
+#include "third_party/blink/renderer/core/frame/visual_viewport.h"
 #include "third_party/blink/renderer/core/fullscreen/document_fullscreen.h"
 #include "third_party/blink/renderer/core/html/html_frame_owner_element.h"
 #include "third_party/blink/renderer/core/layout/layout_box.h"
@@ -16,7 +17,6 @@
 #include "third_party/blink/renderer/core/layout/layout_view.h"
 #include "third_party/blink/renderer/core/page/chrome_client.h"
 #include "third_party/blink/renderer/core/page/page.h"
-#include "third_party/blink/renderer/core/page/scrolling/root_scroller_util.h"
 #include "third_party/blink/renderer/core/page/scrolling/top_document_root_scroller_controller.h"
 #include "third_party/blink/renderer/core/paint/compositing/paint_layer_compositor.h"
 #include "third_party/blink/renderer/core/paint/paint_layer.h"
@@ -175,7 +175,10 @@ void RootScrollerController::RecomputeEffectiveRootScroller() {
     }
   }
 
-  if (effective_root_scroller_ == new_effective_root_scroller)
+  // Note, the layout object can be replaced during a rebuild. In that case,
+  // re-run process even if the element itself is the same.
+  if (effective_root_scroller_ == new_effective_root_scroller &&
+      effective_root_scroller_->IsEffectiveRootScroller())
     return;
 
   Node* old_effective_root_scroller = effective_root_scroller_;
@@ -210,8 +213,13 @@ void RootScrollerController::RecomputeEffectiveRootScroller() {
   ApplyRootScrollerProperties(*old_effective_root_scroller);
   ApplyRootScrollerProperties(*effective_root_scroller_);
 
-  if (Page* page = document_->GetPage())
+  if (Page* page = document_->GetPage()) {
     page->GlobalRootScrollerController().DidChangeRootScroller();
+
+    // Needed to set the |prevent_viewport_scrolling_from_inner| bit on the
+    // VisualViewportScrollNode.
+    page->GetVisualViewport().SetNeedsPaintPropertyUpdate();
+  }
 }
 
 bool RootScrollerController::IsValidRootScroller(const Element& element) const {
@@ -238,6 +246,13 @@ bool RootScrollerController::IsValidRootScroller(const Element& element) const {
 
     // TODO(bokan): Make work with OOPIF. crbug.com/642378.
     if (!frame_owner->OwnedEmbeddedContentView()->IsLocalFrameView())
+      return false;
+
+    // It's possible for an iframe to have a LayoutView but not have performed
+    // the lifecycle yet. We shouldn't promote such an iframe until it has
+    // since we won't be able to use the scroller inside yet.
+    Document* doc = frame_owner->contentDocument();
+    if (!doc || !doc->View() || !doc->View()->DidFirstLayout())
       return false;
   }
 
@@ -402,11 +417,6 @@ void RootScrollerController::ProcessImplicitCandidates() {
   // Only promote an implicit root scroller if we have a unique match.
   if (multiple_matches)
     implicit_root_scroller_ = nullptr;
-}
-
-PaintLayer* RootScrollerController::RootScrollerPaintLayer() const {
-  return root_scroller_util::PaintLayerForRootScroller(
-      effective_root_scroller_);
 }
 
 void RootScrollerController::ElementRemoved(const Element& element) {

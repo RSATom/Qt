@@ -4,13 +4,13 @@
 
 #include "components/previews/content/previews_ui_service.h"
 
-#include <memory>
+#include <utility>
 
 #include "base/bind.h"
 #include "base/memory/ref_counted.h"
 #include "base/run_loop.h"
 #include "base/single_thread_task_runner.h"
-#include "base/test/scoped_task_environment.h"
+#include "base/test/task_environment.h"
 #include "base/time/default_clock.h"
 #include "components/blacklist/opt_out_blacklist/opt_out_blacklist_data.h"
 #include "components/previews/content/previews_decider_impl.h"
@@ -164,15 +164,6 @@ class TestPreviewsDeciderImpl : public PreviewsDeciderImpl {
   void SetIgnorePreviewsBlacklistDecision(bool ignored) override {
     blacklist_ignored_ = ignored;
   }
-  bool GetResourceLoadingHints(
-      const GURL& url,
-      std::vector<std::string>* out_resource_patterns_to_block) const override {
-    if (url.host() == "blockresources.com") {
-      out_resource_patterns_to_block->push_back("BlockMe");
-      return true;
-    }
-    return false;
-  }
 
   // Exposed the status of blacklist decisions ignored for testing
   // PreviewsUIService.
@@ -214,7 +205,7 @@ class PreviewsUIServiceTest : public testing::Test {
 
  protected:
   // Run this test on a single thread.
-  base::test::ScopedTaskEnvironment task_environment_;
+  base::test::SingleThreadTaskEnvironment task_environment_;
   TestPreviewsLogger* logger_ptr_;
   network::TestNetworkQualityTracker test_network_quality_tracker_;
 
@@ -300,7 +291,7 @@ TEST_F(PreviewsUIServiceTest, TestLogPreviewDecisionMadePassesCorrectParams) {
   const base::Time time_b = base::Time::Now();
   PreviewsType type_b = PreviewsType::OFFLINE;
   std::vector<PreviewsEligibilityReason> passed_reasons_b = {
-      PreviewsEligibilityReason::HOST_NOT_WHITELISTED_BY_SERVER,
+      PreviewsEligibilityReason::NOT_ALLOWED_BY_OPTIMIZATION_GUIDE,
       PreviewsEligibilityReason::NETWORK_QUALITY_UNAVAILABLE,
   };
   const std::vector<PreviewsEligibilityReason> expected_passed_reasons_b(
@@ -364,20 +355,6 @@ TEST_F(PreviewsUIServiceTest, TestOnIgnoreBlacklistDecisionStatusChanged) {
 
   ui_service()->OnIgnoreBlacklistDecisionStatusChanged(false /* ignored */);
   EXPECT_FALSE(logger_ptr_->blacklist_ignored());
-}
-
-TEST_F(PreviewsUIServiceTest,
-       TestGetResourceLoadingHintsResourcePatternsToBlock) {
-  EXPECT_TRUE(ui_service()
-                  ->GetResourceLoadingHintsResourcePatternsToBlock(
-                      GURL("https://www.somedomain.org/"))
-                  .empty());
-
-  std::vector<std::string> patterns_to_block =
-      ui_service()->GetResourceLoadingHintsResourcePatternsToBlock(
-          GURL("https://blockresources.com/"));
-  EXPECT_EQ(1ul, patterns_to_block.size());
-  EXPECT_EQ("BlockMe", patterns_to_block[0]);
 }
 
 }  // namespace previews

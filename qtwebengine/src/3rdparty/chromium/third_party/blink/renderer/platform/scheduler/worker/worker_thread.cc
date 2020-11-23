@@ -10,6 +10,7 @@
 #include "base/logging.h"
 #include "base/memory/scoped_refptr.h"
 #include "base/message_loop/message_pump.h"
+#include "base/message_loop/message_pump_type.h"
 #include "base/run_loop.h"
 #include "base/single_thread_task_runner.h"
 #include "base/synchronization/waitable_event.h"
@@ -17,6 +18,7 @@
 #include "base/task/sequence_manager/task_queue.h"
 #include "base/time/default_tick_clock.h"
 #include "third_party/blink/public/platform/task_type.h"
+#include "third_party/blink/renderer/platform/heap/blink_gc_memory_dump_provider.h"
 #include "third_party/blink/renderer/platform/instrumentation/memory_pressure_listener.h"
 #include "third_party/blink/renderer/platform/scheduler/worker/worker_scheduler_proxy.h"
 #include "third_party/blink/renderer/platform/scheduler/worker/worker_thread_scheduler.h"
@@ -51,6 +53,7 @@ WorkerThread::~WorkerThread() {
         const_cast<scheduler::WorkerThread*>(this));
   }
   thread_->Quit();
+  base::ScopedAllowBaseSyncPrimitives allow_wait;
   thread_->Join();
 }
 
@@ -101,7 +104,7 @@ WorkerThread::SimpleThreadImpl::SimpleThreadImpl(
   // thread?
   sequence_manager_ = base::sequence_manager::CreateUnboundSequenceManager(
       base::sequence_manager::SequenceManager::Settings::Builder()
-          .SetMessagePumpType(base::MessagePump::Type::DEFAULT)
+          .SetMessagePumpType(base::MessagePumpType::DEFAULT)
           .SetRandomisedSamplingEnabled(true)
           .Build());
   internal_task_queue_ = sequence_manager_->CreateTaskQueue(
@@ -117,12 +120,16 @@ void WorkerThread::SimpleThreadImpl::WaitForInit() {
   internal_task_runner_->PostTask(
       FROM_HERE, base::BindOnce(&base::WaitableEvent::Signal,
                                 base::Unretained(&initialized)));
+  base::ScopedAllowBaseSyncPrimitives allow_wait;
   initialized.Wait();
 }
 
 WorkerThread::GCSupport::GCSupport(WorkerThread* thread) {
-  ThreadState::AttachCurrentThread();
+  ThreadState* thread_state = ThreadState::AttachCurrentThread();
   gc_task_runner_ = std::make_unique<GCTaskRunner>(thread);
+  blink_gc_memory_dump_provider_ = std::make_unique<BlinkGCMemoryDumpProvider>(
+      thread_state, base::ThreadTaskRunnerHandle::Get(),
+      BlinkGCMemoryDumpProvider::HeapType::kBlinkWorkerThread);
 }
 
 WorkerThread::GCSupport::~GCSupport() {
@@ -131,6 +138,7 @@ WorkerThread::GCSupport::~GCSupport() {
 #endif
   // Ensure no posted tasks will run from this point on.
   gc_task_runner_.reset();
+  blink_gc_memory_dump_provider_.reset();
 
   ThreadState::DetachCurrentThread();
 }
@@ -143,7 +151,7 @@ void WorkerThread::SimpleThreadImpl::Run() {
   auto scoped_sequence_manager = std::move(sequence_manager_);
   auto scoped_internal_task_queue = std::move(internal_task_queue_);
   scoped_sequence_manager->BindToMessagePump(
-      base::MessagePump::Create(base::MessagePump::Type::DEFAULT));
+      base::MessagePump::Create(base::MessagePumpType::DEFAULT));
   non_main_thread_scheduler_ =
       std::move(scheduler_factory_).Run(scoped_sequence_manager.get());
   non_main_thread_scheduler_->Init();

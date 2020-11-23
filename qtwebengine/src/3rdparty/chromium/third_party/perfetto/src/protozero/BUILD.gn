@@ -15,7 +15,7 @@
 import("../../gn/fuzzer.gni")
 import("../../gn/perfetto.gni")
 import("../../gn/proto_library.gni")
-import("../../gn/protozero_library.gni")
+import("../../gn/test.gni")
 
 source_set("protozero") {
   public_configs = [ "../../gn:default_config" ]
@@ -28,27 +28,31 @@ source_set("protozero") {
     "../../include/perfetto/ext/base",  # TODO(primiano): remove this
   ]
   sources = [
+    "field.cc",
     "message.cc",
     "message_handle.cc",
+    "packed_repeated_fields.cc",
     "proto_decoder.cc",
     "scattered_heap_buffer.cc",
     "scattered_stream_null_delegate.cc",
     "scattered_stream_writer.cc",
+    "static_buffer.cc",
+    "virtual_destructors.cc",
   ]
 }
 
-if (!build_with_chromium) {
-  static_library("libprotozero") {
-    deps = [
-      ":protozero",
-    ]
-  }
+static_library("libprotozero") {
+  complete_static_lib = true
+  deps = [
+    ":protozero",
+  ]
 }
 
-source_set("unittests") {
+perfetto_unittest_source_set("unittests") {
   testonly = true
   deps = [
     ":protozero",
+    ":testing_messages_cpp",
     ":testing_messages_lite",
     ":testing_messages_zero",
     "../../gn:default_deps",
@@ -57,11 +61,13 @@ source_set("unittests") {
     "../base:test_support",
   ]
   sources = [
+    "copyable_ptr_unittest.cc",
     "message_handle_unittest.cc",
     "message_unittest.cc",
     "proto_decoder_unittest.cc",
     "proto_utils_unittest.cc",
     "scattered_stream_writer_unittest.cc",
+    "test/cppgen_conformance_unittest.cc",
     "test/fake_scattered_buffer.cc",
     "test/fake_scattered_buffer.h",
     "test/protozero_conformance_unittest.cc",
@@ -70,25 +76,14 @@ source_set("unittests") {
 
 # Generates both xxx.pbzero.h and xxx.pb.h (official proto).
 
-testing_proto_sources = [
-  "test/example_proto/library.proto",
-  "test/example_proto/library_internals/galaxies.proto",
-  "test/example_proto/test_messages.proto",
-  "test/example_proto/upper_import.proto",
-]
-
-protozero_library("testing_messages_zero") {
-  sources = testing_proto_sources
-  proto_in_dir = perfetto_root_path
-  proto_out_dir = perfetto_root_path
-  generator_plugin_options = "wrapper_namespace=pbzero"
-}
-
-proto_library("testing_messages_lite") {
-  generate_python = false
-  sources = testing_proto_sources
-  proto_in_dir = perfetto_root_path
-  proto_out_dir = perfetto_root_path
+perfetto_proto_library("testing_messages_@TYPE@") {
+  sources = [
+    "test/example_proto/library.proto",
+    "test/example_proto/library_internals/galaxies.proto",
+    "test/example_proto/test_messages.proto",
+    "test/example_proto/upper_import.proto",
+  ]
+  proto_path = perfetto_root_path
 }
 
 perfetto_fuzzer_test("protozero_decoder_fuzzer") {

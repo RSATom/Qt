@@ -14,7 +14,6 @@
 #include "src/core/SkBlitter.h"
 #include "src/core/SkRectPriv.h"
 #include "src/core/SkScan.h"
-#include "src/utils/SkUTF.h"
 #include <atomic>
 #include <utility>
 
@@ -827,7 +826,7 @@ bool SkAAClip::quickContains(int left, int top, int right, int bottom) const {
     if (this->isEmpty()) {
         return false;
     }
-    if (!fBounds.contains(left, top, right, bottom)) {
+    if (!fBounds.contains(SkIRect{left, top, right, bottom})) {
         return false;
     }
 #if 0

@@ -2,9 +2,9 @@ TEMPLATE = subdirs
 
 qtConfig(private_tests) {
     SUBDIRS += \
+        aspect \
         entity \
         renderpass \
-        qgraphicsutils \
         shader \
         shaderbuilder \
         texture \
@@ -42,7 +42,6 @@ qtConfig(private_tests) {
 #        boundingvolumedebug \
         ddstextures \
         ktxtextures \
-        shadercache \
         layerfiltering \
         filterentitybycomponent \
         genericlambdajob \
@@ -98,7 +97,6 @@ qtConfig(private_tests) {
         qraycaster \
         raycaster \
         qscreenraycaster \
-        raycastingjob \
         qcamera \
         qsetfence \
         qwaitfence \
@@ -106,7 +104,8 @@ qtConfig(private_tests) {
         waitfence \
         qtexturedataupdate \
         qshaderimage \
-        shaderimage
+        shaderimage \
+        shadergraph
 
     QT_FOR_CONFIG = 3dcore-private
     # TO DO: These could be restored to be executed in all cases
@@ -118,6 +117,11 @@ qtConfig(private_tests) {
         trianglesextractor \
         triangleboundingvolume \
     }
+
+    qtHaveModule(quick) {
+      SUBDIRS += \
+        raycastingjob
+    }
 }
 
 # Tests related to the OpenGL renderer
@@ -126,40 +130,32 @@ QT_FOR_CONFIG += 3drender-private
 qtConfig(qt3d-opengl-renderer):qtConfig(private_tests) {
 
     SUBDIRS += \
-        filtercompatibletechniquejob \
-        graphicshelpergl3_3 \
-        graphicshelpergl3_2 \
-        graphicshelpergl2 \
-        materialparametergathererjob \
-        textures \
-        renderer \
-        renderviewutils \
-        renderviews \
-        renderqueue \
-        renderviewbuilder \
-        sendrendercapturejob \
-        gltexture
+        opengl
 
     qtConfig(qt3d-extras) {
+        qtHaveModule(quick) {
+          SUBDIRS += \
+            boundingsphere \
+            pickboundingvolumejob \
+            updatemeshtrianglelistjob \
+            updateshaderdatatransformjob
+        }
+
         SUBDIRS += \
             qmaterial \
             geometryloaders \
             picking \
-            boundingsphere \
             qdefaultmeshes \
-            pickboundingvolumejob \
-            gltfplugins \
-            updatemeshtrianglelistjob \
-            updateshaderdatatransformjob
+            gltfplugins
     }
 
     qtConfig(qt3d-input) {
-        SUBDIRS += \
-            qscene2d \
-            scene2d
+        qtHaveModule(quick) {
+            SUBDIRS += \
+                qscene2d \
+                scene2d
+        }
     }
-
-    !macos: SUBDIRS += graphicshelpergl4
 
     qtConfig(qt3d-simd-avx2): SUBDIRS += alignedresourcesmanagers-avx
     qtConfig(qt3d-simd-sse2):!qtConfig(qt3d-simd-avx2): SUBDIRS += alignedresourcesmanagers-sse

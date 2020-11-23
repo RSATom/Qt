@@ -743,6 +743,18 @@ static inline int classify8(const QChar *s, int parseModeFlags) {
             }
           }
         }
+      } else if (s[2].unicode() == 'q') {
+        if (s[3].unicode() == 'u') {
+          if (s[4].unicode() == 'i') {
+            if (s[5].unicode() == 'r') {
+              if (s[6].unicode() == 'e') {
+                if (s[7].unicode() == 'd') {
+                  return Lexer::T_REQUIRED;
+                }
+              }
+            }
+          }
+        }
       }
     }
   }
@@ -815,6 +827,25 @@ static inline int classify9(const QChar *s, int parseModeFlags) {
                 if (s[7].unicode() == 'n') {
                   if (s[8].unicode() == 't') {
                     return (parseModeFlags & Lexer::QmlMode) ? int(Lexer::T_TRANSIENT) : int(Lexer::T_IDENTIFIER);
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+  else if (s[0].unicode() == 'c') {
+    if (s[1].unicode() == 'o') {
+      if (s[2].unicode() == 'm') {
+        if (s[3].unicode() == 'p') {
+          if (s[4].unicode() == 'o') {
+            if (s[5].unicode() == 'n') {
+              if (s[6].unicode() == 'e') {
+                if (s[7].unicode() == 'n') {
+                  if (s[8].unicode() == 't') {
+                    return (parseModeFlags & Lexer::QmlMode) ? int(Lexer::T_COMPONENT) : int(Lexer::T_IDENTIFIER);
                   }
                 }
               }

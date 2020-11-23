@@ -42,7 +42,7 @@
 #include <QtCore/qsystemdetection.h>
 #include <QtGui/qimage.h>
 
-#if defined(Q_OS_OSX)
+#if defined(Q_OS_MACOS)
 #import <AppKit/AppKit.h>
 #else
 #include <MobileCoreServices/MobileCoreServices.h>
@@ -664,7 +664,8 @@ QList<QByteArray> QMacPasteboardMimeFileUri::convertFromMime(const QString &mime
                 url.setHost(QLatin1String("localhost"));
             url.setPath(url.path().normalized(QString::NormalizationForm_D));
         }
-        ret.append(url.toEncoded());
+        if (url.isLocalFile())
+            ret.append(url.toEncoded());
     }
     return ret;
 }

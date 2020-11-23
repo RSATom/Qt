@@ -68,7 +68,7 @@ static void designerMessageHandler(QtMsgType type, const QMessageLogContext &con
         previousMessageHandler(type, context, msg);
         return;
     }
-    designerApp->showErrorMessage(qPrintable(msg));
+    designerApp->showErrorMessage(msg);
 }
 
 QDesigner::QDesigner(int &argc, char **argv)
@@ -94,10 +94,11 @@ QDesigner::~QDesigner()
     delete m_client;
 }
 
-void QDesigner::showErrorMessage(const char *message)
+void QDesigner::showErrorMessage(const QString &message)
 {
     // strip the prefix
-    const QString qMessage = QString::fromUtf8(message + qstrlen(designerWarningPrefix));
+    const QString qMessage =
+        message.right(message.size() - int(qstrlen(designerWarningPrefix)));
     // If there is no main window yet, just store the message.
     // The QErrorMessage would otherwise be hidden by the main window.
     if (m_mainWindow) {
@@ -188,6 +189,10 @@ static inline QDesigner::ParseArgumentsResult
     const QCommandLineOption internalDynamicPropertyOption(QStringLiteral("enableinternaldynamicproperties"),
                                           QStringLiteral("Enable internal dynamic properties"));
     parser.addOption(internalDynamicPropertyOption);
+    const QCommandLineOption noScalingOption(QStringLiteral("no-scaling"),
+                                             QStringLiteral("Disable High DPI scaling"));
+    parser.addOption(noScalingOption);
+
     parser.addPositionalArgument(QStringLiteral("files"),
                                  QStringLiteral("The UI files to open."));
 
@@ -252,7 +257,7 @@ QDesigner::ParseArgumentsResult QDesigner::parseCommandLineArguments()
 
     m_suppressNewFormShow = m_workbench->readInBackup();
 
-    if (!options.files.empty()) {
+    if (!options.files.isEmpty()) {
         const QStringList::const_iterator cend = options.files.constEnd();
         for (QStringList::const_iterator it = options.files.constBegin(); it != cend; ++it) {
             // Ensure absolute paths for recent file list to be unique

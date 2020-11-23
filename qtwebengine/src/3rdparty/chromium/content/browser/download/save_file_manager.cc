@@ -15,8 +15,8 @@
 #include "content/browser/data_url_loader_factory.h"
 #include "content/browser/download/save_file.h"
 #include "content/browser/download/save_package.h"
-#include "content/browser/file_url_loader_factory.h"
-#include "content/browser/fileapi/file_system_url_loader_factory.h"
+#include "content/browser/file_system/file_system_url_loader_factory.h"
+#include "content/browser/loader/file_url_loader_factory.h"
 #include "content/browser/renderer_host/render_view_host_impl.h"
 #include "content/browser/web_contents/web_contents_impl.h"
 #include "content/public/browser/browser_context.h"
@@ -26,6 +26,7 @@
 #include "content/public/browser/shared_cors_origin_access_list.h"
 #include "content/public/browser/storage_partition.h"
 #include "content/public/browser/web_ui_url_loader_factory.h"
+#include "content/public/common/content_client.h"
 #include "content/public/common/previews_state.h"
 #include "net/base/io_buffer.h"
 #include "net/base/load_flags.h"
@@ -36,6 +37,7 @@
 #include "services/network/public/cpp/simple_url_loader.h"
 #include "services/network/public/cpp/simple_url_loader_stream_consumer.h"
 #include "services/network/public/mojom/url_loader_factory.mojom.h"
+#include "services/network/public/mojom/url_response_head.mojom.h"
 #include "url/gurl.h"
 
 namespace content {
@@ -95,7 +97,7 @@ class SaveFileManager::SimpleURLLoaderHelper
                          int render_process_id,
                          int render_frame_routing_id,
                          const GURL& final_url,
-                         const network::ResourceResponseHead& response_head) {
+                         const network::mojom::URLResponseHead& response_head) {
     std::string content_disposition;
     if (response_head.headers) {
       response_head.headers->GetNormalizedHeader("Content-Disposition",
@@ -376,9 +378,9 @@ void SaveFileManager::StartSave(std::unique_ptr<SaveFileCreateInfo> info) {
   DCHECK(!LookupSaveFile(save_file->save_item_id()));
   save_file_map_[save_file->save_item_id()] = std::move(save_file);
 
-  base::PostTaskWithTraits(FROM_HERE, {BrowserThread::UI},
-                           base::BindOnce(&SaveFileManager::OnStartSave, this,
-                                          save_file_create_info));
+  base::PostTask(FROM_HERE, {BrowserThread::UI},
+                 base::BindOnce(&SaveFileManager::OnStartSave, this,
+                                save_file_create_info));
 }
 
 // We do forward an update to the UI thread here, since we do not use timer to
@@ -394,7 +396,7 @@ void SaveFileManager::UpdateSaveProgress(SaveItemId save_item_id,
 
     download::DownloadInterruptReason reason =
         save_file->AppendDataToFile(data.data(), data.size());
-    base::PostTaskWithTraits(
+    base::PostTask(
         FROM_HERE, {BrowserThread::UI},
         base::BindOnce(&SaveFileManager::OnUpdateSaveProgress, this,
                        save_file->save_item_id(), save_file->BytesSoFar(),
@@ -425,10 +427,9 @@ void SaveFileManager::SaveFinished(SaveItemId save_item_id,
     save_file->Detach();
   }
 
-  base::PostTaskWithTraits(
-      FROM_HERE, {BrowserThread::UI},
-      base::BindOnce(&SaveFileManager::OnSaveFinished, this, save_item_id,
-                     bytes_so_far, is_success));
+  base::PostTask(FROM_HERE, {BrowserThread::UI},
+                 base::BindOnce(&SaveFileManager::OnSaveFinished, this,
+                                save_item_id, bytes_so_far, is_success));
 }
 
 // Notifications sent from the file thread and run on the UI thread.
@@ -488,7 +489,7 @@ void SaveFileManager::CancelSave(SaveItemId save_item_id) {
       base::DeleteFile(save_file->FullPath(), false);
     } else if (save_file->save_source() ==
                SaveFileCreateInfo::SAVE_FILE_FROM_NET) {
-      base::PostTaskWithTraits(
+      base::PostTask(
           FROM_HERE, {BrowserThread::UI},
           base::BindOnce(&SaveFileManager::ClearURLLoader, this, save_item_id));
     }
@@ -537,11 +538,10 @@ void SaveFileManager::RenameAllFiles(const FinalNamesMap& final_names,
     }
   }
 
-  base::PostTaskWithTraits(
-      FROM_HERE, {BrowserThread::UI},
-      base::BindOnce(&SaveFileManager::OnFinishSavePageJob, this,
-                     render_process_id, render_frame_routing_id,
-                     save_package_id));
+  base::PostTask(FROM_HERE, {BrowserThread::UI},
+                 base::BindOnce(&SaveFileManager::OnFinishSavePageJob, this,
+                                render_process_id, render_frame_routing_id,
+                                save_package_id));
 }
 
 void SaveFileManager::OnFinishSavePageJob(int render_process_id,

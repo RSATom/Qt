@@ -155,7 +155,7 @@ TEST_F(ArcUtilTest, IsArcAvailable_OfficiallySupported) {
   EXPECT_TRUE(IsArcKioskAvailable());
 }
 
-TEST_F(ArcUtilTest, IsArcVmEnablede) {
+TEST_F(ArcUtilTest, IsArcVmEnabled) {
   EXPECT_FALSE(IsArcVmEnabled());
 
   auto* command_line = base::CommandLine::ForCurrentProcess();
@@ -231,18 +231,6 @@ TEST_F(ArcUtilTest, IsArcAllowedForUser) {
   EXPECT_TRUE(IsArcAllowedForUser(ephemeral_user));
 }
 
-TEST_F(ArcUtilTest, IsArcAllowedForChildUserWithExperiment) {
-  auto* command_line = base::CommandLine::ForCurrentProcess();
-  command_line->InitFromArgv(
-      {"", "--enable-features=ArcAvailableForChildAccount"});
-  base::test::ScopedFeatureList feature_list;
-  feature_list.InitFromCommandLine(
-      command_line->GetSwitchValueASCII(switches::kEnableFeatures),
-      command_line->GetSwitchValueASCII(switches::kDisableFeatures));
-  const FakeUser user(user_manager::USER_TYPE_CHILD);
-  EXPECT_TRUE(IsArcAllowedForUser(&user));
-}
-
 TEST_F(ArcUtilTest, ArcStartModeDefault) {
   auto* command_line = base::CommandLine::ForCurrentProcess();
   command_line->InitFromArgv({"", "--arc-availability=installed"});
@@ -264,14 +252,26 @@ TEST_F(ArcUtilTest, ScaleFactorToDensity) {
   EXPECT_EQ(160, GetLcdDensityForDeviceScaleFactor(1.0f));
   EXPECT_EQ(160, GetLcdDensityForDeviceScaleFactor(1.25f));
   EXPECT_EQ(213, GetLcdDensityForDeviceScaleFactor(1.6f));
+  EXPECT_EQ(240, GetLcdDensityForDeviceScaleFactor(1.7777777f));
   EXPECT_EQ(240, GetLcdDensityForDeviceScaleFactor(2.0f));
   EXPECT_EQ(280, GetLcdDensityForDeviceScaleFactor(2.25f));
+  EXPECT_EQ(320, GetLcdDensityForDeviceScaleFactor(2.6666666f));
 
   // Bad scale factors shouldn't blow up.
   EXPECT_EQ(160, GetLcdDensityForDeviceScaleFactor(0.5f));
   EXPECT_EQ(160, GetLcdDensityForDeviceScaleFactor(-0.1f));
   EXPECT_EQ(180, GetLcdDensityForDeviceScaleFactor(1.5f));
   EXPECT_EQ(1200, GetLcdDensityForDeviceScaleFactor(10.f));
+
+  auto* command_line = base::CommandLine::ForCurrentProcess();
+  command_line->InitFromArgv({"", "--arc-scale=280"});
+  EXPECT_EQ(280, GetLcdDensityForDeviceScaleFactor(1.234f));
+
+  command_line->InitFromArgv({"", "--arc-scale=120"});
+  EXPECT_EQ(120, GetLcdDensityForDeviceScaleFactor(1.234f));
+
+  command_line->InitFromArgv({"", "--arc-scale=abc"});
+  EXPECT_EQ(240, GetLcdDensityForDeviceScaleFactor(2.0));
 }
 
 }  // namespace

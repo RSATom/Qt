@@ -5,11 +5,14 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include <fuzzer/FuzzedDataProvider.h>
+
 #include <memory>
 
 #include "base/logging.h"
 #include "net/base/address_list.h"
 #include "net/base/net_errors.h"
+#include "net/base/network_isolation_key.h"
 #include "net/base/test_completion_callback.h"
 #include "net/dns/host_resolver.h"
 #include "net/dns/mock_host_resolver.h"
@@ -17,7 +20,6 @@
 #include "net/socket/fuzzed_socket.h"
 #include "net/socket/socks_client_socket.h"
 #include "net/traffic_annotation/network_traffic_annotation_test_helper.h"
-#include "third_party/libFuzzer/src/utils/FuzzedDataProvider.h"
 
 // Fuzzer for SocksClientSocket.  Only covers the SOCKS4 handshake.
 //
@@ -25,7 +27,7 @@
 // class for details.
 extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) {
   // Use a test NetLog, to exercise logging code.
-  net::TestNetLog test_net_log;
+  net::RecordingTestNetLog test_net_log;
 
   FuzzedDataProvider data_provider(data, size);
 
@@ -55,7 +57,8 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) {
 
   net::SOCKSClientSocket socket(
       std::move(fuzzed_socket), net::HostPortPair("foo", 80),
-      net::DEFAULT_PRIORITY, &mock_host_resolver, TRAFFIC_ANNOTATION_FOR_TESTS);
+      net::NetworkIsolationKey(), net::DEFAULT_PRIORITY, &mock_host_resolver,
+      false /* disable_secure_dns */, TRAFFIC_ANNOTATION_FOR_TESTS);
   int result = socket.Connect(callback.callback());
   callback.GetResult(result);
   return 0;

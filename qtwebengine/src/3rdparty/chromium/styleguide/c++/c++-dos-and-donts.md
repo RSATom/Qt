@@ -37,6 +37,23 @@ void foo() {
 }
 ```
 
+## Explicitly declare class copyability/movability
+
+The
+[Google Style Guide](http://google.github.io/styleguide/cppguide.html#Copyable_Movable_Types)
+says classes can omit copy/move declarations or deletions "only if they are
+obvious".  Because "obvious" is subjective and even the examples in the style
+guide take some thought to figure out, being explicit is clear, simple, and
+avoids any risk of accidental copying.
+
+Declare or delete these operations in the public section, between other
+constructors and the destructor; `DISALLOW_COPY_AND_ASSIGN` is deprecated.  For
+a non-copyable/movable type, delete the copy operations (the move operations
+will be implicitly deleted); otherwise, declare either copy operations, move
+operations, or both (a non-declared pair will be implicitly deleted).  Always
+declare or delete both construction and assignment, not just one (which can
+introduce subtle bugs).
+
 ## Variable initialization
 
 There are myriad ways to initialize variables in C++11.  Prefer the following
@@ -124,38 +141,6 @@ class C {
 Note that it's possible to call functions or pass `this` and other expressions
 in initializers, so even some complex initializations can be done in the
 declaration.
-
-## Prefer structs over pairs/tuples when used repeatedly
-
-The Google style guide
-[recommends using return values over outparams](http://google.github.io/styleguide/cppguide.html#Output_Parameters).
-For functions which return multiple values, a convenient way to do this is to
-return a pair or tuple:
-
-```cpp
-std::pair<int, int> GetPaddingValues() {
-  ...
-  return {1, 2};  // Shorter and more readable than std::make_pair(), works with tuples also.
-}
-```
-
-However, this return type can be cumbersome, opaque, and error-prone.  An
-alternative is to define a struct with named fields:
-
-```cpp
-struct PaddingValues {
-  int header;
-  int footer;
-};
-PaddingValues GetPaddingValues() {
-  ...
-  return {1, 2};  // This abbreviated syntax still works!
-}
-```
-
-A good rule of thumb for when to prefer a struct is whenever you'd find
-declaring a type alias for the pair or tuple beneficial, which is usually
-whenever it's used more than just as a local one-off.
 
 ## Use `std::make_unique` and `base::MakeRefCounted` instead of bare `new`
 
@@ -295,3 +280,9 @@ The common ways to represent names in comments are as follows:
 // FooImpl implements the FooBase class.
 // FooFunction() modifies |foo_member_|.
 ```
+
+## Named namespaces
+
+Named namespaces are discouraged in top-level embedders (e.g., `chrome/`). See
+[this thread](https://groups.google.com/a/chromium.org/d/msg/chromium-dev/8ROncnL1t4k/J7uJMCQ8BwAJ)
+for background and discussion.

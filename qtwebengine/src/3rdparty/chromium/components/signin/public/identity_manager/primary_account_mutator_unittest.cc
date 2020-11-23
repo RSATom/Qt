@@ -8,7 +8,7 @@
 #include "base/containers/flat_set.h"
 #include "base/run_loop.h"
 #include "base/scoped_observer.h"
-#include "base/test/scoped_task_environment.h"
+#include "base/test/task_environment.h"
 #include "components/signin/public/base/signin_metrics.h"
 #include "components/signin/public/base/signin_pref_names.h"
 #include "components/signin/public/identity_manager/identity_test_environment.h"
@@ -29,7 +29,6 @@ const char kUnknownAccountId[] = "{unknown account id}";
 const signin::AccountConsistencyMethod kTestedAccountConsistencyMethods[] = {
     signin::AccountConsistencyMethod::kDisabled,
     signin::AccountConsistencyMethod::kMirror,
-    signin::AccountConsistencyMethod::kDiceMigration,
     signin::AccountConsistencyMethod::kDice,
 };
 
@@ -47,7 +46,7 @@ using PrimaryAccountClearedCallback =
 // method OnRefreshTokenRemoved is invoked. The parameter will be a reference
 // to the account_id whose token was removed.
 using RefreshTokenRemovedCallback =
-    base::RepeatingCallback<void(const std::string&)>;
+    base::RepeatingCallback<void(const CoreAccountId&)>;
 
 // Helper IdentityManager::Observer that forwards some events to the
 // callback passed to the constructor.
@@ -100,7 +99,7 @@ void RunClearPrimaryAccountTest(
     signin::PrimaryAccountMutator::ClearAccountsAction account_action,
     RemoveAccountExpectation account_expectation,
     AuthExpectation auth_expection = AuthExpectation::kAuthNormal) {
-  base::test::ScopedTaskEnvironment task_environment;
+  base::test::TaskEnvironment task_environment;
   signin::IdentityTestEnvironment environment(
       /*test_url_loader_factory=*/nullptr, /*pref_service=*/nullptr,
       account_consistency_method);
@@ -154,11 +153,11 @@ void RunClearPrimaryAccountTest(
                           run_loop.QuitClosure());
 
   // Track Observer token removal notification.
-  base::flat_set<std::string> observed_removals;
+  base::flat_set<CoreAccountId> observed_removals;
   RefreshTokenRemovedCallback refresh_token_removed_callback =
       base::BindRepeating(
-          [](base::flat_set<std::string>* observed_removals,
-             const std::string& removed_account) {
+          [](base::flat_set<CoreAccountId>* observed_removals,
+             const CoreAccountId& removed_account) {
             observed_removals->insert(removed_account);
           },
           &observed_removals);
@@ -190,20 +189,20 @@ void RunClearPrimaryAccountTest(
           former_primary_account.account_id));
       EXPECT_TRUE(identity_manager->HasAccountWithRefreshToken(
           secondary_account_info.account_id));
-      EXPECT_TRUE(base::Contains(observed_removals,
-                                 former_primary_account.account_id.id));
-      EXPECT_FALSE(base::Contains(observed_removals,
-                                  secondary_account_info.account_id.id));
+      EXPECT_TRUE(
+          base::Contains(observed_removals, former_primary_account.account_id));
+      EXPECT_FALSE(
+          base::Contains(observed_removals, secondary_account_info.account_id));
       break;
     case RemoveAccountExpectation::kRemoveAll:
       EXPECT_FALSE(identity_manager->HasAccountWithRefreshToken(
           former_primary_account.account_id));
       EXPECT_FALSE(identity_manager->HasAccountWithRefreshToken(
           secondary_account_info.account_id));
-      EXPECT_TRUE(base::Contains(observed_removals,
-                                 former_primary_account.account_id.id));
-      EXPECT_TRUE(base::Contains(observed_removals,
-                                 secondary_account_info.account_id.id));
+      EXPECT_TRUE(
+          base::Contains(observed_removals, former_primary_account.account_id));
+      EXPECT_TRUE(
+          base::Contains(observed_removals, secondary_account_info.account_id));
       break;
   }
 }
@@ -215,7 +214,7 @@ using PrimaryAccountMutatorTest = PlatformTest;
 
 // Checks that setting the primary account works.
 TEST_F(PrimaryAccountMutatorTest, SetPrimaryAccount) {
-  base::test::ScopedTaskEnvironment task_environment;
+  base::test::TaskEnvironment task_environment;
   signin::IdentityTestEnvironment environment;
 
   signin::IdentityManager* identity_manager = environment.identity_manager();
@@ -247,7 +246,7 @@ TEST_F(PrimaryAccountMutatorTest, SetPrimaryAccount) {
 // Checks that setting the primary account fails if the account is not known by
 // the identity service.
 TEST_F(PrimaryAccountMutatorTest, SetPrimaryAccount_NoAccount) {
-  base::test::ScopedTaskEnvironment task_environment;
+  base::test::TaskEnvironment task_environment;
   signin::IdentityTestEnvironment environment;
 
   signin::IdentityManager* identity_manager = environment.identity_manager();
@@ -260,12 +259,13 @@ TEST_F(PrimaryAccountMutatorTest, SetPrimaryAccount_NoAccount) {
     return;
 
   EXPECT_FALSE(identity_manager->HasPrimaryAccount());
-  EXPECT_FALSE(primary_account_mutator->SetPrimaryAccount(kUnknownAccountId));
+  EXPECT_FALSE(primary_account_mutator->SetPrimaryAccount(
+      CoreAccountId(kUnknownAccountId)));
 }
 
 // Checks that setting the primary account fails if the account is unknown.
 TEST_F(PrimaryAccountMutatorTest, SetPrimaryAccount_UnknownAccount) {
-  base::test::ScopedTaskEnvironment task_environment;
+  base::test::TaskEnvironment task_environment;
   signin::IdentityTestEnvironment environment;
 
   signin::IdentityManager* identity_manager = environment.identity_manager();
@@ -281,13 +281,14 @@ TEST_F(PrimaryAccountMutatorTest, SetPrimaryAccount_UnknownAccount) {
       environment.MakeAccountAvailable(kPrimaryAccountEmail);
 
   EXPECT_FALSE(identity_manager->HasPrimaryAccount());
-  EXPECT_FALSE(primary_account_mutator->SetPrimaryAccount(kUnknownAccountId));
+  EXPECT_FALSE(primary_account_mutator->SetPrimaryAccount(
+      CoreAccountId(kUnknownAccountId)));
 }
 
 // Checks that trying to set the primary account fails when there is already a
 // primary account.
 TEST_F(PrimaryAccountMutatorTest, SetPrimaryAccount_AlreadyHasPrimaryAccount) {
-  base::test::ScopedTaskEnvironment task_environment;
+  base::test::TaskEnvironment task_environment;
   signin::IdentityTestEnvironment environment;
 
   signin::IdentityManager* identity_manager = environment.identity_manager();
@@ -320,7 +321,7 @@ TEST_F(PrimaryAccountMutatorTest, SetPrimaryAccount_AlreadyHasPrimaryAccount) {
 // account is not allowed.
 TEST_F(PrimaryAccountMutatorTest,
        SetPrimaryAccount_SettingPrimaryAccountForbidden) {
-  base::test::ScopedTaskEnvironment task_environment;
+  base::test::TaskEnvironment task_environment;
 
   sync_preferences::TestingPrefServiceSyncable pref_service;
   signin::IdentityTestEnvironment environment(
@@ -354,7 +355,7 @@ TEST_F(PrimaryAccountMutatorTest,
 // support clearing the primary account.
 #if !defined(OS_CHROMEOS)
 TEST_F(PrimaryAccountMutatorTest, ClearPrimaryAccount_NotSignedIn) {
-  base::test::ScopedTaskEnvironment task_environment;
+  base::test::TaskEnvironment task_environment;
   signin::IdentityTestEnvironment environment;
 
   signin::IdentityManager* identity_manager = environment.identity_manager();
@@ -385,7 +386,7 @@ TEST_F(PrimaryAccountMutatorTest, ClearPrimaryAccount_NotSignedIn) {
 }
 
 TEST_F(PrimaryAccountMutatorTest, ClearPrimaryAccount_Default) {
-  base::test::ScopedTaskEnvironment task_environment;
+  base::test::TaskEnvironment task_environment;
   signin::IdentityTestEnvironment environment;
 
   signin::IdentityManager* identity_manager = environment.identity_manager();

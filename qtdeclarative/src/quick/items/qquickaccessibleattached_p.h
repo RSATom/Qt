@@ -90,6 +90,10 @@ class Q_QUICK_PRIVATE_EXPORT QQuickAccessibleAttached : public QObject
     Q_PROPERTY(QString description READ description WRITE setDescription NOTIFY descriptionChanged FINAL)
     Q_PROPERTY(bool ignored READ ignored WRITE setIgnored NOTIFY ignoredChanged FINAL)
 
+    QML_NAMED_ELEMENT(Accessible)
+    QML_UNCREATABLE("Accessible is only available via attached properties.")
+    QML_ATTACHED(QQuickAccessibleAttached)
+
 public:
     Q_ENUMS(QAccessible::Role QAccessible::Event)
     STATE_PROPERTY(checkable)
@@ -214,7 +218,7 @@ Q_SIGNALS:
     void nextPageAction();
 
 private:
-    QQuickItem *item() const { return static_cast<QQuickItem*>(parent()); }
+    QQuickItem *item() const { return qobject_cast<QQuickItem*>(parent()); }
 
     QAccessible::Role m_role;
     QAccessible::State m_state;
@@ -242,7 +246,6 @@ public:
 QT_END_NAMESPACE
 
 QML_DECLARE_TYPE(QQuickAccessibleAttached)
-QML_DECLARE_TYPEINFO(QQuickAccessibleAttached, QML_HAS_ATTACHED_PROPERTIES)
 
 #endif // accessibility
 

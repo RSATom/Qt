@@ -63,5 +63,5 @@ ParentClassSource::MyEnum MyTestServer::enumSlot(QPoint p, MyEnum myEnum)
 Qt::DateFormat MyTestServer::dateSlot(Qt::DateFormat date)
 {
     Q_UNUSED(date)
-    return Qt::SystemLocaleDate;
+    return Qt::RFC2822Date;
 }

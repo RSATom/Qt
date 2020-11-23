@@ -8,11 +8,11 @@
 #include "base/compiler_specific.h"
 #include "base/macros.h"
 #include "content/common/content_export.h"
+#include "content/public/common/page_visibility_state.h"
 #include "ipc/ipc_listener.h"
 #include "ipc/ipc_sender.h"
 
 namespace blink {
-class WebGestureEvent;
 class WebLocalFrame;
 }
 
@@ -36,10 +36,9 @@ class CONTENT_EXPORT RenderViewObserver : public IPC::Listener,
   virtual void DidCommitCompositorFrame() {}
   virtual void DidUpdateMainFrameLayout() {}
 
-  // These match the RenderView methods.
-  virtual void DidHandleGestureEvent(const blink::WebGestureEvent& event) {}
-
   virtual void OnZoomLevelChanged() {}
+
+  virtual void OnPageVisibilityChanged(PageVisibilityState visibility_state) {}
 
   // IPC::Listener implementation.
   bool OnMessageReceived(const IPC::Message& message) override;

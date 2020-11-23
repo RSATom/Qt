@@ -5,7 +5,9 @@
 #ifndef COMPONENTS_SIGNIN_INTERNAL_IDENTITY_MANAGER_MUTABLE_PROFILE_OAUTH2_TOKEN_SERVICE_DELEGATE_H_
 #define COMPONENTS_SIGNIN_INTERNAL_IDENTITY_MANAGER_MUTABLE_PROFILE_OAUTH2_TOKEN_SERVICE_DELEGATE_H_
 
+#include <map>
 #include <memory>
+#include <string>
 #include <vector>
 
 #include "base/callback.h"
@@ -39,7 +41,6 @@ class MutableProfileOAuth2TokenServiceDelegate
       scoped_refptr<TokenWebData> token_web_data,
       signin::AccountConsistencyMethod account_consistency,
       bool revoke_all_tokens_on_load,
-      bool can_revoke_credentials,
       FixRequestErrorCallback fix_request_error_callback);
   ~MutableProfileOAuth2TokenServiceDelegate() override;
 
@@ -110,6 +111,8 @@ class MutableProfileOAuth2TokenServiceDelegate
                            RevokeOnUpdate);
   FRIEND_TEST_ALL_PREFIXES(MutableProfileOAuth2TokenServiceDelegateTest,
                            DelayedRevoke);
+  FRIEND_TEST_ALL_PREFIXES(MutableProfileOAuth2TokenServiceDelegateTest,
+                           DiceMigrationWithMissingHostedDomain);
   FRIEND_TEST_ALL_PREFIXES(MutableProfileOAuth2TokenServiceDelegateTest,
                            DiceMigrationHostedDomainPrimaryAccount);
   FRIEND_TEST_ALL_PREFIXES(MutableProfileOAuth2TokenServiceDelegateTest,
@@ -187,6 +190,11 @@ class MutableProfileOAuth2TokenServiceDelegate
   void RevokeCredentialsImpl(const CoreAccountId& account_id,
                              bool revoke_on_server);
 
+  // If the Dice migration happened before the tokens could be migrated, delete
+  // all the tokens. This is only called if the tokens could not be loaded
+  // successfully.
+  void MaybeDeletePreDiceTokens();
+
   // Maps the |account_id| of accounts known to ProfileOAuth2TokenService
   // to information about the account.
   typedef std::map<CoreAccountId, AccountStatus> AccountStatusMap;
@@ -221,11 +229,6 @@ class MutableProfileOAuth2TokenServiceDelegate
   // completely removed, and the primary account will be kept in authentication
   // error state.
   const bool revoke_all_tokens_on_load_;
-
-  // Supervised users cannot revoke credentials.
-  // TODO(droger): remove this when supervised users are no longer supported on
-  // any platform.
-  const bool can_revoke_credentials_;
 
   // Callback function that attempts to correct request errors.  Best effort
   // only.  Returns true if the error was fixed and retry should be reattempted.

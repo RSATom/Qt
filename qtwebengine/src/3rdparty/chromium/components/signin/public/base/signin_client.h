@@ -56,10 +56,6 @@ class SigninClient : public KeyedService {
   // Returns the CookieManager for the client.
   virtual network::mojom::CookieManager* GetCookieManager() = 0;
 
-  // Returns a string containing the version info of the product in which the
-  // Signin component is being used.
-  virtual std::string GetProductVersion() = 0;
-
   // Called before Google sign-out started. Implementers must run the
   // |on_signout_decision_reached|, passing a SignoutDecision to allow/disallow
   // sign-out to continue. When to disallow sign-out is implementation specific.
@@ -93,8 +89,13 @@ class SigninClient : public KeyedService {
       GaiaAuthConsumer* consumer,
       gaia::GaiaSource source) = 0;
 
-  // Schedules migration to happen at next startup.
-  virtual void SetReadyForDiceMigration(bool is_ready) {}
+  // Marks the DICE migration completed.
+  virtual void SetDiceMigrationCompleted() {}
+
+  // Checks whether a user is known to be non-enterprise. Domains such as
+  // gmail.com and googlemail.com are known to not be managed. Also returns
+  // false if the username is empty.
+  virtual bool IsNonEnterpriseUser(const std::string& username);
 };
 
 #endif  // COMPONENTS_SIGNIN_PUBLIC_BASE_SIGNIN_CLIENT_H_

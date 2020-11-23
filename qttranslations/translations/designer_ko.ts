@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!DOCTYPE TS>
-<TS version="2.0" language="ko_KR">
+<TS version="2.1" language="ko">
 <context>
     <name>AbstractFindWidget</name>
     <message>
@@ -24,8 +24,8 @@
         <translation>&lt;img src=&quot;:/qt-project.org/shared/images/wrap.png&quot;&gt;&amp;nbsp;검색 다시 시작됨</translation>
     </message>
     <message>
-        <source>&lt;img src=&quot;:/trolltech/shared/images/wrap.png&quot;&gt;&amp;nbsp;Search wrapped</source>
-        <translation>&lt;img src=&quot;:/trolltech/shared/images/wrap.png&quot;&gt;&amp;nbsp;검색 다시 시작됨</translation>
+        <source>&amp;Find in Text...</source>
+        <translation>텍스트에서 찾기(&amp;F)...</translation>
     </message>
 </context>
 <context>
@@ -121,7 +121,7 @@
     </message>
     <message>
         <source>The font &apos;%1&apos; (%2) could not be unloaded.</source>
-        <translation>글꼴 &apos;%1&apos; (%2)을(를) 닫을 수 없습니다.</translation>
+        <translation>글꼴 &apos;%1&apos;(%2)을(를) 닫을 수 없습니다.</translation>
     </message>
 </context>
 <context>
@@ -245,11 +245,11 @@
     </message>
     <message>
         <source>Backward diagonal</source>
-        <translation>대각선 (오른쪽 아래로)</translation>
+        <translation>대각선(오른쪽 아래로)</translation>
     </message>
     <message>
         <source>Forward diagonal</source>
-        <translation>대각선 (오른쪽 위로)</translation>
+        <translation>대각선(오른쪽 위로)</translation>
     </message>
     <message>
         <source>Crossing diagonal</source>
@@ -413,16 +413,8 @@
         <translation>하위 창 삭제</translation>
     </message>
     <message>
-        <source>page</source>
-        <translation type="obsolete">쪽</translation>
-    </message>
-    <message>
         <source>Insert Subwindow</source>
         <translation>하위 창 삽입</translation>
-    </message>
-    <message>
-        <source>subwindow</source>
-        <translation type="obsolete">subwindow</translation>
     </message>
     <message>
         <source>Subwindow</source>
@@ -529,10 +521,6 @@
         </translation>
     </message>
     <message>
-        <source>Change script</source>
-        <translation>스크립트 변경</translation>
-    </message>
-    <message>
         <source>Change signals/slots</source>
         <translation>시그널/슬롯 변경</translation>
     </message>
@@ -598,7 +586,7 @@
     </message>
     <message>
         <source>Show signals and slots inherited from QWidget</source>
-        <translation>QWidget에서 상속받은 시그널과 슬롯 보이기</translation>
+        <translation>QWidget에서 상속받은 시그널과 슬롯 표시</translation>
     </message>
 </context>
 <context>
@@ -621,24 +609,24 @@
     <message>
         <source>Standard (96 x 96)</source>
         <extracomment>Embedded device standard screen resolution</extracomment>
-        <translation>표준 (96 x 96)</translation>
+        <translation>표준(96 x 96)</translation>
     </message>
     <message>
         <source>Greenphone (179 x 185)</source>
         <extracomment>Embedded device screen resolution</extracomment>
-        <translation>Greenphone (179 x 185)</translation>
+        <translation>Greenphone(179 x 185)</translation>
     </message>
     <message>
         <source>High (192 x 192)</source>
         <extracomment>Embedded device high definition screen resolution</extracomment>
-        <translation>고해상도 (192 x 192)</translation>
+        <translation>고해상도(192 x 192)</translation>
     </message>
 </context>
 <context>
     <name>Designer</name>
     <message>
-        <source>Unable to launch %1.</source>
-        <translation>%1을(를) 실행할 수 없습니다.</translation>
+        <source>Unable to launch %1: %2</source>
+        <translation>%1을(를) 실행할 수 없음: %2</translation>
     </message>
     <message>
         <source>%1 timed out.</source>
@@ -655,52 +643,6 @@
     <message>
         <source>Qt Designer</source>
         <translation>Qt Designer</translation>
-    </message>
-    <message>
-        <source>This file contains top level spacers.&lt;br&gt;They have &lt;b&gt;NOT&lt;/b&gt; been saved into the form.</source>
-        <translation>이 파일에는 최상위 단계 스페이서가 포함되어 있습니다.&lt;br&gt;이들은 폼에 저장되지 &lt;b&gt;않았습니다&lt;/b&gt;.</translation>
-    </message>
-    <message>
-        <source>Perhaps you forgot to create a layout?</source>
-        <translation>레이아웃을 만들지 않았습니까?</translation>
-    </message>
-    <message>
-        <source>Invalid UI file: The root element &lt;ui&gt; is missing.</source>
-        <translation>잘못된 UI 파일: 최상위 원소 &lt;ui&gt;가 없습니다.</translation>
-    </message>
-    <message>
-        <source>An error has occurred while reading the UI file at line %1, column %2: %3</source>
-        <translation>UI 파일의 %1번째 줄, %2번째 칸을 읽는 중 오류가 발생하였습니다: %3</translation>
-    </message>
-    <message>
-        <source>This file cannot be read because it was created using %1.</source>
-        <translation>이 파일은 %1을(를) 사용하여 만들었기 때문에 읽을 수 없습니다.</translation>
-    </message>
-    <message>
-        <source>This file was created using Designer from Qt-%1 and cannot be read.</source>
-        <translation>이 파일은 Qt %1의 Designer로 만들었기 때문에 읽을 수 없습니다.</translation>
-    </message>
-    <message>
-        <source>The converted file could not be read.</source>
-        <translation>변환된 파일을 읽을 수 없습니다.</translation>
-    </message>
-    <message>
-        <source>This file was created using Designer from Qt-%1 and will be converted to a new form by Qt Designer.</source>
-        <translation>이 파일은 Qt %1의 Designer로 만들었으며, Qt Designer에서 새로운 폼으로 변환할 것입니다.</translation>
-    </message>
-    <message>
-        <source>The old form has not been touched, but you will have to save the form under a new name.</source>
-        <translation>이전 폼 파일은 변경되지 않았습니다. 새로운 폼을 저장하려면 다른 이름으로 저장하십시오.</translation>
-    </message>
-    <message>
-        <source>This file was created using Designer from Qt-%1 and could not be read:
-%2</source>
-        <translation>이 파일은 Qt %1의 Designer로 만들어졌으며 읽을 수 없습니다:
-%2</translation>
-    </message>
-    <message>
-        <source>Please run it through &lt;b&gt;uic3&amp;nbsp;-convert&lt;/b&gt; to convert it to Qt-4&apos;s ui format.</source>
-        <translation>&lt;b&gt;uic3&amp;nbsp;-convert&lt;/b&gt; 명령을 실행하여 Qt 4의 UI 형식으로 변환하십시오.</translation>
     </message>
     <message>
         <source>This file cannot be read because the extra info extension failed to load.</source>
@@ -776,7 +718,7 @@
     </message>
     <message>
         <source>The skin configuration file &apos;%1&apos; could not be read: %2</source>
-        <translation>스킨 설정 파일 &apos;%1&apos;을(를) 읽을 수 없습니다: %2</translation>
+        <translation>스킨 설정 파일 &apos;%1&apos;을(를) 읽을 수 없음: %2</translation>
     </message>
     <message>
         <source>Syntax error: %1</source>
@@ -804,7 +746,7 @@
     </message>
     <message>
         <source>Mismatch in number of areas, expected %1, got %2.</source>
-        <translation>영역 개수가 일치하지 않습니다: %1개를 예상하였지만 %2개 정의되었습니다.</translation>
+        <translation>영역 개수가 일치하지 않습니다: %1개를 예상했지만 %2개 정의되었습니다.</translation>
     </message>
 </context>
 <context>
@@ -888,7 +830,7 @@
     <message>
         <source>%1 %</source>
         <extracomment>Zoom percentage</extracomment>
-        <translation>%1 %</translation>
+        <translation>%1%</translation>
     </message>
     <message>
         <source>Preview Zoom</source>
@@ -928,7 +870,7 @@
     <name>FormLayoutRowDialog</name>
     <message>
         <source>Add Form Layout Row</source>
-        <translation>폼 레이아웃 행 추가하기</translation>
+        <translation>폼 레이아웃 행 추가</translation>
     </message>
     <message>
         <source>&amp;Label text:</source>
@@ -1016,6 +958,22 @@
         <source>&amp;Author</source>
         <translation>작성자(&amp;A)</translation>
     </message>
+    <message>
+        <source>Translations</source>
+        <translation>번역</translation>
+    </message>
+    <message>
+        <source>ID-based</source>
+        <translation>ID 기반</translation>
+    </message>
+    <message>
+        <source>Connections</source>
+        <translation>연결</translation>
+    </message>
+    <message>
+        <source>Connect slots by name</source>
+        <translation>이름으로 슬롯 연결</translation>
+    </message>
 </context>
 <context>
     <name>IconSelector</name>
@@ -1025,11 +983,11 @@
     </message>
     <message>
         <source>The file &apos;%1&apos; does not appear to be a valid pixmap file: %2</source>
-        <translation>파일 &apos;%1&apos;은(는) 올바른 픽스맵 파일 같지 않습니다: %2</translation>
+        <translation>파일 &apos;%1&apos;이(가) 올바른 픽스맵 파일 같지 않음: %2</translation>
     </message>
     <message>
         <source>The file &apos;%1&apos; could not be read: %2</source>
-        <translation>파일 &apos;%1&apos;을(를) 읽을 수 없습니다: %2</translation>
+        <translation>파일 &apos;%1&apos;을(를) 읽을 수 없음: %2</translation>
     </message>
     <message>
         <source>All Pixmaps (</source>
@@ -1136,7 +1094,7 @@
     <name>NewForm</name>
     <message>
         <source>Show this Dialog on Startup</source>
-        <translation>시작할 때 이 대화상자 보이기</translation>
+        <translation>시작할 때 이 대화 상자 표시</translation>
     </message>
     <message>
         <source>C&amp;reate</source>
@@ -1167,12 +1125,12 @@
         <translation>읽기 오류</translation>
     </message>
     <message>
-        <source>A temporary form file could not be created in %1.</source>
-        <translation>%1에 임시 폼 파일을 만들 수 없습니다.</translation>
+        <source>A temporary form file could not be created in %1: %2</source>
+        <translation>%1에 임시 폼 파일을 만들 수 없습니다: %2</translation>
     </message>
     <message>
-        <source>The temporary form file %1 could not be written.</source>
-        <translation>임시 폼 파일 %1에 쓸 수 없습니다.</translation>
+        <source>The temporary form file %1 could not be written: %2</source>
+        <translation>임시 폼 파일 %1에 쓸 수 없습니다: %2</translation>
     </message>
 </context>
 <context>
@@ -1231,7 +1189,7 @@
     </message>
     <message>
         <source>Print/Preview Configuration</source>
-        <translation>인쇄/미리보기 설정</translation>
+        <translation>인쇄/미리 보기 설정</translation>
     </message>
     <message>
         <source>Style</source>
@@ -1259,21 +1217,10 @@
     </message>
 </context>
 <context>
-    <name>Q3WizardContainer</name>
-    <message>
-        <source>Page</source>
-        <translation>쪽</translation>
-    </message>
-</context>
-<context>
     <name>QAbstractFormBuilder</name>
     <message>
-        <source>Unexpected element &lt;%1&gt;</source>
-        <translation>예상하지 못한 원소 &lt;%1&gt;</translation>
-    </message>
-    <message>
         <source>An error has occurred while reading the UI file at line %1, column %2: %3</source>
-        <translation>UI 파일의 %1번째 줄, %2번째 칸을 읽는 중 오류가 발생하였습니다: %3</translation>
+        <translation>UI 파일의 %1번째 줄, %2번째 칸을 읽는 중 오류가 발생했습니다: %3</translation>
     </message>
     <message>
         <source>This file was created using Designer from Qt-%1 and cannot be read.</source>
@@ -1321,10 +1268,6 @@ UI 파일의 일관성이 깨졌을 수도 있습니다.</translation>
         <source>Invalid QButtonGroup reference &apos;%1&apos; referenced by &apos;%2&apos;.</source>
         <translation>&apos;%2&apos;에서 잘못된 QButtonGroup 참조 &apos;%1&apos;을(를) 참조하고 있습니다.</translation>
     </message>
-    <message>
-        <source>This version of the uitools library is linked without script support.</source>
-        <translation>이 버전의 uitools 라이브러리는 스크립트를 지원하지 않습니다.</translation>
-    </message>
 </context>
 <context>
     <name>QAxWidgetPlugin</name>
@@ -1353,25 +1296,11 @@ UI 파일의 일관성이 깨졌을 수도 있습니다.</translation>
     </message>
     <message>
         <source>The control requires a design-time license</source>
-        <translation>이 컨트롤을 사용하려면 라이선스가 필요합니다</translation>
+        <translation>이 컨트롤을 사용하려면 디자인 시간 라이선스가 필요합니다</translation>
     </message>
 </context>
 <context>
     <name>QCoreApplication</name>
-    <message>
-        <source>Exception at line %1: %2</source>
-        <translation>%1번째 줄에서 예외 발생: %2</translation>
-    </message>
-    <message>
-        <source>Unknown error</source>
-        <translation>알 수 없는 오류</translation>
-    </message>
-    <message>
-        <source>An error occurred while running the script for %1: %2
-Script: %3</source>
-        <translation>%1의 스크립트를 실행하는 중 오류 발생: %2
-스크립트: %3</translation>
-    </message>
     <message>
         <source>%1 is not a promoted class.</source>
         <translation>%1은(는) 승격된 클래스가 아닙니다.</translation>
@@ -1419,26 +1348,12 @@ Script: %3</source>
         <source>%1 - warning</source>
         <translation>%1 - 경고</translation>
     </message>
-    <message>
-        <source>Qt Designer</source>
-        <translation>Qt Designer</translation>
-    </message>
-    <message>
-        <source>This application cannot be used for the Console edition of Qt</source>
-        <translation>이 프로그램은 Qt 콘솔 에디션에서 사용할 수 없습니다</translation>
-    </message>
 </context>
 <context>
     <name>QDesignerActions</name>
     <message>
         <source>Saved %1.</source>
-        <translation>%1을(를) 저장하였습니다.</translation>
-    </message>
-    <message>
-        <source>%1 already exists.
-Do you want to replace it?</source>
-        <translation>%1이(가) 이미 존재합니다.
-겹쳐 쓰시겠습니까?</translation>
+        <translation>%1을(를) 저장했습니다.</translation>
     </message>
     <message>
         <source>Edit Widgets</source>
@@ -1485,10 +1400,6 @@ Do you want to replace it?</source>
         <translation>끝내기(&amp;Q)</translation>
     </message>
     <message>
-        <source>View &amp;Code...</source>
-        <translation>코드 보기(&amp;C)...</translation>
-    </message>
-    <message>
         <source>&amp;Minimize</source>
         <translation>최소화(&amp;M)</translation>
     </message>
@@ -1529,10 +1440,6 @@ Do you want to replace it?</source>
         <translation>현재 위젯 도움말</translation>
     </message>
     <message>
-        <source>What&apos;s New in Qt Designer?</source>
-        <translation>Qt Designer의 새로운 기능</translation>
-    </message>
-    <message>
         <source>About Plugins</source>
         <translation>플러그인 정보</translation>
     </message>
@@ -1565,6 +1472,14 @@ Do you want to replace it?</source>
         <translation>다른 이름으로 폼 저장</translation>
     </message>
     <message>
+        <source>View &amp;C++ Code...</source>
+        <translation>C++ 코드 보기(&amp;C)...</translation>
+    </message>
+    <message>
+        <source>View &amp;Python Code...</source>
+        <translation>Python 코드 보기(&amp;P)...</translation>
+    </message>
+    <message>
         <source>Designer</source>
         <translation>Designer</translation>
     </message>
@@ -1592,7 +1507,7 @@ Do you want to update the file location or generate a new form?</source>
     </message>
     <message>
         <source>&amp;New Form</source>
-        <translation>새 폼 생성(&amp;N)</translation>
+        <translation>새 폼 만들기(&amp;N)</translation>
     </message>
     <message>
         <source>Qt Designer</source>
@@ -1619,16 +1534,18 @@ Would you like to retry or select a different file?</source>
         <translation>새 파일 선택</translation>
     </message>
     <message>
+        <source>Save Form</source>
+        <translation>폼 저장</translation>
+    </message>
+    <message>
         <source>Could not write file</source>
         <translation>파일에 쓸 수 없음</translation>
     </message>
     <message>
-        <source>It was not possible to write the entire file %1 to disk.
-Reason:%2
-Would you like to retry?</source>
-        <translation>파일 %1을(를) 디스크에 완전히 기록할 수 없었습니다.
-이유: %2
-다시 시도하시겠습니까?</translation>
+        <source>It was not possible to write the file %1 to disk.
+Reason: %2</source>
+        <translation>파일 %1을(를) 디스크에 기록할 수 없었습니다.
+이유: %2</translation>
     </message>
     <message>
         <source>Assistant</source>
@@ -1664,7 +1581,7 @@ Would you like to retry?</source>
     </message>
     <message>
         <source>Saved image %1.</source>
-        <translation>그림 %1을(를) 저장하였습니다.</translation>
+        <translation>그림 %1을(를) 저장했습니다.</translation>
     </message>
     <message>
         <source>The file %1 could not be written.</source>
@@ -1676,7 +1593,7 @@ Would you like to retry?</source>
     </message>
     <message>
         <source>Printed %1.</source>
-        <translation>%1을(를) 인쇄하였습니다.</translation>
+        <translation>%1을(를) 인쇄했습니다.</translation>
     </message>
 </context>
 <context>
@@ -1718,15 +1635,11 @@ Would you like to retry?</source>
     </message>
     <message>
         <source>A COM exception occurred when executing a meta call of type %1, index %2 of &quot;%3&quot;.</source>
-        <translation>&quot;%3&quot;의 메타 호출(형식 %1, 인덱스 %2)을 실행하는 중 COM 오류가 발생하였습니다.</translation>
+        <translation>&quot;%3&quot;의 메타 호출(형식 %1, 인덱스 %2)을 실행하는 중 COM 오류가 발생했습니다.</translation>
     </message>
 </context>
 <context>
     <name>QDesignerFormBuilder</name>
-    <message>
-        <source>Script errors occurred:</source>
-        <translation>발생한 스크립트 오류:</translation>
-    </message>
     <message>
         <source>The preview failed to build.</source>
         <translation>미리 보기를 빌드할 수 없습니다.</translation>
@@ -1809,7 +1722,7 @@ Would you like to retry?</source>
     <name>QDesignerPluginManager</name>
     <message>
         <source>An XML error was encountered when parsing the XML of the custom widget %1: %2</source>
-        <translation>사용자 정의 위젯 %1의 XML을 처리하는 중 XML 오류가 발생하였습니다: %2</translation>
+        <translation>사용자 정의 위젯 %1의 XML을 처리하는 중 XML 오류가 발생했습니다: %2</translation>
     </message>
     <message>
         <source>A required attribute (&apos;%1&apos;) is missing.</source>
@@ -1852,8 +1765,8 @@ Would you like to retry?</source>
     <message>
         <source>The container extension of the widget &apos;%1&apos; (%2) returned a widget not managed by Designer &apos;%3&apos; (%4) when queried for page #%5.
 Container pages should only be added by specifying them in XML returned by the domXml() method of the custom widget.</source>
-        <translation>위젯 &apos;%1&apos; (%2)의 컨테이너 확장에 쪽 #%5을(를) 조회하였을 때 Designer에서 관리되지 않는 위젯 &apos;%3&apos;(%4)을(를) 반환하였습니다.
-컨테이너 쪽은 사용자 정의 위젯의 domXml() 메서드에서 반환하는 XML에 정의하여야 합니다.</translation>
+        <translation>위젯 &apos;%1&apos; (%2)의 컨테이너 확장에 쪽 #%5을(를) 조회했을 때 Designer에서 관리되지 않는 위젯 &apos;%3&apos;(%4)을(를) 반환했습니다.
+컨테이너 쪽은 사용자 정의 위젯의 domXml() 메서드에서 반환하는 XML에 정의해야 합니다.</translation>
     </message>
     <message>
         <source>Unexpected element &lt;%1&gt;</source>
@@ -1880,6 +1793,13 @@ Container pages should only be added by specifying them in XML returned by the d
     <message>
         <source>An error has been encountered while parsing device profile XML: %1</source>
         <translation>장치 프로필 XML을 처리하는 중 오류 발생: %1</translation>
+    </message>
+</context>
+<context>
+    <name>QDesignerTaskMenu</name>
+    <message>
+        <source>no signals available</source>
+        <translation>사용 가능한 시그널 없음</translation>
     </message>
 </context>
 <context>
@@ -1914,10 +1834,6 @@ Container pages should only be added by specifying them in XML returned by the d
     <message>
         <source>&amp;File</source>
         <translation>파일(&amp;F)</translation>
-    </message>
-    <message>
-        <source>Edit</source>
-        <translation type="obsolete">편집</translation>
     </message>
     <message>
         <source>&amp;Edit</source>
@@ -1983,19 +1899,11 @@ Container pages should only be added by specifying them in XML returned by the d
     </message>
     <message>
         <source>The last session of Designer was not terminated correctly. Backup files were left behind. Do you want to load them?</source>
-        <translation>Designer가 마지막으로 실행되었을 때 올바르게 종료되지 않았으며, 백업 파일이 생성되었습니다. 백업 파일을 불러오시겠습니까?</translation>
+        <translation>Designer를 마지막으로 실행했을 때 올바르게 종료되지 않았으며, 백업 파일이 생성되었습니다. 백업 파일을 불러오시겠습니까?</translation>
     </message>
     <message>
         <source>The file &lt;b&gt;%1&lt;/b&gt; could not be opened: %2</source>
-        <translation>파일 &lt;b&gt;%1&lt;/b&gt;을(를) 열 수 없습니다: %2</translation>
-    </message>
-    <message>
-        <source>The file &lt;b&gt;%1&lt;/b&gt; could not be opened.</source>
-        <translation>파일 &lt;b&gt;%1&lt;/b&gt;을(를) 열 수 없습니다.</translation>
-    </message>
-    <message>
-        <source>The file &lt;b&gt;%1&lt;/b&gt; is not a valid Designer UI file.</source>
-        <translation>파일 &lt;b&gt;%1&lt;/b&gt;은(는) 올바른 Designer UI 파일이 아닙니다.</translation>
+        <translation>파일 &lt;b&gt;%1&lt;/b&gt;을(를) 열 수 없음: %2</translation>
     </message>
 </context>
 <context>
@@ -2085,11 +1993,11 @@ Container pages should only be added by specifying them in XML returned by the d
     <name>QStackedWidgetPreviewEventFilter</name>
     <message>
         <source>Go to previous page of %1 &apos;%2&apos; (%3/%4).</source>
-        <translation>%1 &apos;%2&apos;의 이전 쪽으로 이동합니다 (%3/%4).</translation>
+        <translation>%1 &apos;%2&apos;의 이전 쪽으로 이동합니다(%3/%4).</translation>
     </message>
     <message>
         <source>Go to next page of %1 &apos;%2&apos; (%3/%4).</source>
-        <translation>%1 &apos;%2&apos;의 다음 쪽으로 이동합니다 (%3/%4).</translation>
+        <translation>%1 &apos;%2&apos;의 다음 쪽으로 이동합니다(%3/%4).</translation>
     </message>
 </context>
 <context>
@@ -2473,7 +2381,7 @@ Container pages should only be added by specifying them in XML returned by the d
     </message>
     <message>
         <source>Toggle details extension</source>
-        <translation>자세한 정보 보이기/숨기기</translation>
+        <translation>자세한 정보 표시/숨기기</translation>
     </message>
     <message>
         <source>&gt;</source>
@@ -2646,13 +2554,6 @@ Container pages should only be added by specifying them in XML returned by the d
     </message>
 </context>
 <context>
-    <name>QtKeySequenceEdit</name>
-    <message>
-        <source>Clear Shortcut</source>
-        <translation>단축키 삭제</translation>
-    </message>
-</context>
-<context>
     <name>QtLocalePropertyManager</name>
     <message>
         <source>&lt;Invalid&gt;</source>
@@ -2804,7 +2705,7 @@ Do you want to replace it?</source>
     </message>
     <message>
         <source>The file does not appear to be a resource file; element &apos;%1&apos; was found where &apos;%2&apos; was expected.</source>
-        <translation>이 파일은 리소스 파일이 아닌 것 같습니다. 원소 &apos;%2&apos;을(를) 예상하였지만 &apos;%1&apos;이(가) 나왔습니다.</translation>
+        <translation>이 파일은 리소스 파일이 아닌 것 같습니다. 원소 &apos;%2&apos;을(를) 예상했지만 &apos;%1&apos;이(가) 나왔습니다.</translation>
     </message>
     <message>
         <source>%1 [read-only]</source>
@@ -2901,7 +2802,7 @@ to
     <message>
         <source>A parse error occurred at line %1, column %2 of %3:
 %4</source>
-        <translation>%3의 %1번째 줄, %2번째 칸에서 처리 오류가 발생하였습니다:
+        <translation>%3의 %1번째 줄, %2번째 칸에서 처리 오류가 발생했습니다:
 %4</translation>
     </message>
     <message>
@@ -2974,7 +2875,7 @@ to
     </message>
     <message>
         <source>&lt;html&gt;&lt;p&gt;&lt;b&gt;Warning:&lt;/b&gt; There have been problems while reloading the resources:&lt;/p&gt;&lt;pre&gt;%1&lt;/pre&gt;&lt;/html&gt;</source>
-        <translation>&lt;html&gt;&lt;p&gt;&lt;b&gt;경고:&lt;/b&gt; 다음 리소스을 다시 불러오는 중 오류가 발생하였습니다:&lt;/p&gt;&lt;pre&gt;%1&lt;/pre&gt;&lt;/html&gt;</translation>
+        <translation>&lt;html&gt;&lt;p&gt;&lt;b&gt;경고:&lt;/b&gt; 다음 리소스를 다시 불러오는 중 오류가 발생했습니다:&lt;/p&gt;&lt;pre&gt;%1&lt;/pre&gt;&lt;/html&gt;</translation>
     </message>
     <message>
         <source>Resource Warning</source>
@@ -3214,20 +3115,11 @@ Do you want overwrite the template?</source>
     </message>
     <message>
         <source>There was an error writing the template %1 to disk. Reason: %2</source>
-        <translation>템플릿 %1을(를) 디스크에 쓰는 중 오류가 발생하였습니다. 이유: %2</translation>
+        <translation>템플릿 %1을(를) 디스크에 쓰는 중 오류가 발생했습니다. 이유: %2</translation>
     </message>
     <message>
         <source>Pick a directory to save templates in</source>
         <translation>템플릿 저장 디렉터리 선택</translation>
-    </message>
-</context>
-<context>
-    <name>ScriptErrorDialog</name>
-    <message>
-        <source>An error occurred while running the scripts for &quot;%1&quot;:
-</source>
-        <translation>&quot;%1&quot;의 스크립트를 실행하는 중 오류 발생:
-</translation>
     </message>
 </context>
 <context>
@@ -3361,58 +3253,11 @@ Do you want overwrite the template?</source>
     </message>
     <message>
         <source>%1&lt;br/&gt;Copyright (C) %2 The Qt Company Ltd.</source>
-        <translation>%1&lt;br/&gt;저작권자 (C) %2 The Qt Company Ltd.</translation>
-    </message>
-    <message>
-        <source>%1&lt;br/&gt;Copyright (C) 2012 Nokia Corporation and/or its subsidiary(-ies).</source>
-        <translation>%1&lt;br/&gt;저작권자 (C) 2012 Nokia Corporation and/or its subsidiary(-ies).</translation>
-    </message>
-</context>
-<context>
-    <name>VideoPlayerTaskMenu</name>
-    <message>
-        <source>Available Mime Types</source>
-        <translation>사용 가능한 MIME 형식</translation>
-    </message>
-    <message>
-        <source>Display supported mime types...</source>
-        <translation>지원하는 MIME 형식 표시...</translation>
-    </message>
-    <message>
-        <source>Load...</source>
-        <translation>불러오기...</translation>
-    </message>
-    <message>
-        <source>Play</source>
-        <translation>재생</translation>
-    </message>
-    <message>
-        <source>Pause</source>
-        <translation>일시 정지</translation>
-    </message>
-    <message>
-        <source>Stop</source>
-        <translation>정지</translation>
-    </message>
-    <message>
-        <source>Choose Video Player Media Source</source>
-        <translation>비디오 재생기 미디어 원본 선택</translation>
-    </message>
-    <message>
-        <source>An error has occurred in &apos;%1&apos;: %2</source>
-        <translation>&apos;%1&apos;에서 오류 발생: %2</translation>
-    </message>
-    <message>
-        <source>Video Player Error</source>
-        <translation>비디오 재생기 오류</translation>
+        <translation>%1&lt;br/&gt;Copyright (C) %2 The Qt Company Ltd.</translation>
     </message>
 </context>
 <context>
     <name>WidgetDataBase</name>
-    <message>
-        <source>A custom widget plugin whose class name (%1) matches that of an existing class has been found.</source>
-        <translation>사용자 정의 위젯 플러그인의 전체 클래스 이름(%1)이 기존의 클래스 이름과 일치합니다.</translation>
-    </message>
     <message>
         <source>The file contains a custom widget &apos;%1&apos; whose base class (%2) differs from the current entry in the widget database (%3). The widget database is left unchanged.</source>
         <translation>이 파일에는 사용자 정의 위젯 &apos;%1&apos;이(가) 포함되어 있으며, 정의된 기본 클래스(%2)가 위젯 데이터베이스의 항목(%3)에 정의된 것과 다릅니다. 위젯 데이터베이스는 변경되지 않았습니다.</translation>
@@ -3528,29 +3373,6 @@ Do you want overwrite the template?</source>
     </message>
 </context>
 <context>
-    <name>qdesigner_internal::BrushManagerProxy</name>
-    <message>
-        <source>The element &apos;%1&apos; is missing the required attribute &apos;%2&apos;.</source>
-        <translation>원소 &apos;%1&apos;에 필요한 속성 &apos;%2&apos;이(가) 없습니다.</translation>
-    </message>
-    <message>
-        <source>Empty brush name encountered.</source>
-        <translation>브러시 이름이 비어 있습니다.</translation>
-    </message>
-    <message>
-        <source>An unexpected element &apos;%1&apos; was encountered.</source>
-        <translation>예상하지 못한 원소 &apos;%1&apos;이(가) 있습니다.</translation>
-    </message>
-    <message>
-        <source>An error occurred when reading the brush definition file &apos;%1&apos; at line line %2, column %3: %4</source>
-        <translation>브러시 정의 파일 &apos;%1&apos;의 %2번째 줄, %3번째 칸을 읽는 중 오류 발생: %4</translation>
-    </message>
-    <message>
-        <source>An error occurred when reading the resource file &apos;%1&apos; at line %2, column %3: %4</source>
-        <translation>리소스 파일 &apos;%1&apos;의 %2번째 줄, %3번째 칸을 읽는 중 오류 발생: %4</translation>
-    </message>
-</context>
-<context>
     <name>qdesigner_internal::BuddyEditor</name>
     <message>
         <source>Add buddy</source>
@@ -3640,10 +3462,6 @@ Do you want overwrite the template?</source>
         <translation>모두 복사</translation>
     </message>
     <message>
-        <source>&amp;Find in Text...</source>
-        <translation>텍스트에서 찾기(&amp;F)...</translation>
-    </message>
-    <message>
         <source>A temporary form file could not be created in %1.</source>
         <translation>%1에 임시 폼 파일을 만들 수 없습니다.</translation>
     </message>
@@ -3652,16 +3470,12 @@ Do you want overwrite the template?</source>
         <translation>임시 폼 파일 %1에 쓸 수 없습니다.</translation>
     </message>
     <message>
-        <source>%1 - [Code]</source>
-        <translation>%1 - [코드]</translation>
-    </message>
-    <message>
         <source>Save Code</source>
         <translation>코드 저장</translation>
     </message>
     <message>
-        <source>Header Files (*.%1)</source>
-        <translation>헤더 파일 (*.%1)</translation>
+        <source>%1 - [%2 Code]</source>
+        <translation>%1 - [%2 코드]</translation>
     </message>
     <message>
         <source>The file %1 could not be opened: %2</source>
@@ -3814,6 +3628,10 @@ Do you want overwrite the template?</source>
 <context>
     <name>qdesigner_internal::DesignerPropertyManager</name>
     <message>
+        <source>id</source>
+        <translation>id</translation>
+    </message>
+    <message>
         <source>AlignLeft</source>
         <translation>왼쪽정렬</translation>
     </message>
@@ -3848,7 +3666,7 @@ Do you want overwrite the template?</source>
     <message numerus="yes">
         <source>Customized (%n roles)</source>
         <translation>
-            <numerusform>사용자 정의 (역할 %n개)</numerusform>
+            <numerusform>사용자 정의(역할 %n개)</numerusform>
         </translation>
     </message>
     <message>
@@ -3936,7 +3754,7 @@ Do you want overwrite the template?</source>
     </message>
     <message>
         <source>Unable to open the file &apos;%1&apos; for writing: %2</source>
-        <translation>파일 %1에 쓰기 위해 열 수 없습니다: %2</translation>
+        <translation>파일 %1에 쓰려고 열 수 없음: %2</translation>
     </message>
     <message>
         <source>Open profile</source>
@@ -3948,11 +3766,11 @@ Do you want overwrite the template?</source>
     </message>
     <message>
         <source>Unable to open the file &apos;%1&apos; for reading: %2</source>
-        <translation>파일 %1에서 읽기 위해 열 수 없습니다: %2</translation>
+        <translation>파일 %1에서 읽으려고 열 수 없음: %2</translation>
     </message>
     <message>
         <source>&apos;%1&apos; is not a valid profile: %2</source>
-        <translation>&apos;%1&apos;은(는) 올바른 프로필이 아닙니다: %2</translation>
+        <translation>&apos;%1&apos;은(는) 올바른 프로필이 아님: %2</translation>
     </message>
 </context>
 <context>
@@ -4046,17 +3864,6 @@ Do you want overwrite the template?</source>
     </message>
 </context>
 <context>
-    <name>qdesigner_internal::FilterWidget</name>
-    <message>
-        <source>Filter</source>
-        <translation>필터</translation>
-    </message>
-    <message>
-        <source>Clear text</source>
-        <translation>텍스트 삭제</translation>
-    </message>
-</context>
-<context>
     <name>qdesigner_internal::FormEditor</name>
     <message>
         <source>Resource File Changed</source>
@@ -4114,7 +3921,7 @@ Do you want overwrite the template?</source>
     </message>
     <message>
         <source>Paste (%1 widgets, %2 actions)</source>
-        <translation>붙여넣기 (위젯 %1개, 동작 %2개)</translation>
+        <translation>붙여넣기(위젯 %1개, 동작 %2개)</translation>
     </message>
     <message>
         <source>Cannot paste widgets. Designer could not find a container without a layout to paste into.</source>
@@ -4325,7 +4132,7 @@ Do you want overwrite the template?</source>
     <message>
         <source>Could not create form preview</source>
         <comment>Title of warning message box</comment>
-        <translation>폼을 미리볼 수 없음</translation>
+        <translation>폼을 미리 볼 수 없음</translation>
     </message>
     <message>
         <source>Form Settings - %1</source>
@@ -4355,7 +4162,7 @@ Do you want overwrite the template?</source>
     </message>
     <message>
         <source>Visible</source>
-        <translation>보이기</translation>
+        <translation>표시됨</translation>
     </message>
     <message>
         <source>Grid &amp;X</source>
@@ -4386,81 +4193,6 @@ Do you want overwrite the template?</source>
     <message>
         <source>Insert HTML entity</source>
         <translation>HTML 엔티티 삽입</translation>
-    </message>
-</context>
-<context>
-    <name>qdesigner_internal::IconSelector</name>
-    <message>
-        <source>The pixmap file &apos;%1&apos; cannot be read.</source>
-        <translation>픽스맵 파일 &apos;%1&apos;을(를) 읽을 수 없습니다.</translation>
-    </message>
-    <message>
-        <source>The file &apos;%1&apos; does not appear to be a valid pixmap file: %2</source>
-        <translation>파일 &apos;%1&apos;은(는) 올바른 픽스맵 파일 같지 않습니다: %2</translation>
-    </message>
-    <message>
-        <source>The file &apos;%1&apos; could not be read: %2</source>
-        <translation>파일 &apos;%1&apos;을(를) 읽을 수 없습니다: %2</translation>
-    </message>
-    <message>
-        <source>Choose a Pixmap</source>
-        <translation>픽스맵 선택</translation>
-    </message>
-    <message>
-        <source>Pixmap Read Error</source>
-        <translation>픽스맵 읽기 오류</translation>
-    </message>
-    <message>
-        <source>...</source>
-        <translation>...</translation>
-    </message>
-    <message>
-        <source>Normal Off</source>
-        <translation>일반 꺼짐</translation>
-    </message>
-    <message>
-        <source>Normal On</source>
-        <translation>일반 켜짐</translation>
-    </message>
-    <message>
-        <source>Disabled Off</source>
-        <translation>사용 불가능 꺼짐</translation>
-    </message>
-    <message>
-        <source>Disabled On</source>
-        <translation>사용 불가능 켜짐</translation>
-    </message>
-    <message>
-        <source>Active Off</source>
-        <translation>활성 꺼짐</translation>
-    </message>
-    <message>
-        <source>Active On</source>
-        <translation>활성 켜짐</translation>
-    </message>
-    <message>
-        <source>Selected Off</source>
-        <translation>선택 꺼짐</translation>
-    </message>
-    <message>
-        <source>Selected On</source>
-        <translation>선택 켜짐</translation>
-    </message>
-    <message>
-        <source>Choose Resource...</source>
-        <translation>리소스 선택...</translation>
-    </message>
-    <message>
-        <source>Choose File...</source>
-        <translation>파일 선택...</translation>
-    </message>
-    <message>
-        <source>Reset</source>
-        <translation>초기화</translation>
-    </message>
-    <message>
-        <source>Reset All</source>
-        <translation>모두 초기화</translation>
     </message>
 </context>
 <context>
@@ -4525,7 +4257,7 @@ Do you want overwrite the template?</source>
     <name>qdesigner_internal::LabelTaskMenu</name>
     <message>
         <source>Change rich text...</source>
-        <translation>서식있는 텍스트 바꾸기...</translation>
+        <translation>서식 있는 텍스트 바꾸기...</translation>
     </message>
     <message>
         <source>Change plain text...</source>
@@ -4624,18 +4356,6 @@ Do you want overwrite the template?</source>
         <translation>아이콘(&amp;I):</translation>
     </message>
     <message>
-        <source>Shortcut:</source>
-        <translation type="obsolete">단축키:</translation>
-    </message>
-    <message>
-        <source>Checkable:</source>
-        <translation type="obsolete">선택 가능:</translation>
-    </message>
-    <message>
-        <source>ToolTip:</source>
-        <translation type="obsolete">풍선 도움말:</translation>
-    </message>
-    <message>
         <source>...</source>
         <translation>...</translation>
     </message>
@@ -4687,7 +4407,7 @@ Please select another, unique one.</source>
     <message>
         <source>The &apos;_q_&apos; prefix is reserved for the Qt library.
 Please select another name.</source>
-        <translation>&apos;_q_&apos; 접두사는 Qt 라이브러리에서 사용하기 위해 예약되어 있습니다.
+        <translation>&apos;_q_&apos; 접두사는 Qt 라이브러리에서 사용하려고 예약되어 있습니다.
 다른 이름을 사용하십시오.</translation>
     </message>
 </context>
@@ -4719,19 +4439,19 @@ Please select another name.</source>
     </message>
     <message>
         <source>QVGA portrait (240x320)</source>
-        <translation>QVGA 세로 (240x320)</translation>
+        <translation>QVGA 세로(240x320)</translation>
     </message>
     <message>
         <source>QVGA landscape (320x240)</source>
-        <translation>QVGA 가로 (320x240)</translation>
+        <translation>QVGA 가로(320x240)</translation>
     </message>
     <message>
         <source>VGA portrait (480x640)</source>
-        <translation>VGA 세로 (480x640)</translation>
+        <translation>VGA 세로(480x640)</translation>
     </message>
     <message>
         <source>VGA landscape (640x480)</source>
-        <translation>VGA 가로 (640x480)</translation>
+        <translation>VGA 가로(640x480)</translation>
     </message>
     <message>
         <source>Widgets</source>
@@ -4756,7 +4476,7 @@ Please select another name.</source>
     </message>
     <message>
         <source>Internal error: No template selected.</source>
-        <translation>내부 오류: 템플릿이 선택되지 않았습니다.</translation>
+        <translation>내부 오류: 템플릿을 선택하지 않았습니다.</translation>
     </message>
 </context>
 <context>
@@ -4793,12 +4513,12 @@ Please select another name.</source>
 <context>
     <name>qdesigner_internal::ObjectInspector</name>
     <message>
-        <source>Change Current Page</source>
-        <translation>현재 쪽 변경</translation>
+        <source>Filter</source>
+        <translation>필터</translation>
     </message>
     <message>
-        <source>&amp;Find in Text...</source>
-        <translation>텍스트에서 찾기(&amp;F)...</translation>
+        <source>Change Current Page</source>
+        <translation>현재 쪽 변경</translation>
     </message>
 </context>
 <context>
@@ -4821,7 +4541,7 @@ Please select another name.</source>
     </message>
     <message>
         <source>Index %1 (%2)</source>
-        <translation>인덱스 %1 (%2)</translation>
+        <translation>인덱스 %1(%2)</translation>
     </message>
     <message>
         <source>%1 %2</source>
@@ -4865,6 +4585,66 @@ Please select another name.</source>
     <message>
         <source>Active</source>
         <translation>활성</translation>
+    </message>
+    <message>
+        <source>Save...</source>
+        <translation>저장...</translation>
+    </message>
+    <message>
+        <source>Load...</source>
+        <translation>불러오기...</translation>
+    </message>
+    <message>
+        <source>Lighter</source>
+        <translation>밝게</translation>
+    </message>
+    <message>
+        <source>Darker</source>
+        <translation>어둡게</translation>
+    </message>
+    <message>
+        <source>Copy color %1</source>
+        <translation>색 %1 복사</translation>
+    </message>
+    <message>
+        <source>QPalette UI file (*.xml)</source>
+        <translation>QPalette UI 파일 (*xml)</translation>
+    </message>
+    <message>
+        <source>Cannot open %1 for writing: %2</source>
+        <translation>파일 %1에 쓰려고 열 수 없음: %2</translation>
+    </message>
+    <message>
+        <source>Cannot write %1: %2</source>
+        <translation>%1에 쓸 수 없음: %2</translation>
+    </message>
+    <message>
+        <source>Cannot read palette from %1:%2:%3</source>
+        <translation>%1에서 팔레트를 읽을 수 없음:%2:%3</translation>
+    </message>
+    <message>
+        <source>Cannot open %1 for reading: %2</source>
+        <translation>파일 %1에서 읽으려고 열 수 없음: %2</translation>
+    </message>
+    <message>
+        <source>Invalid element &quot;%1&quot;, expected &quot;palette&quot;.</source>
+        <translation>잘못된 원소 &quot;%1&quot;, &quot;palette&quot;를 예상했습니다.</translation>
+    </message>
+    <message>
+        <source>Save Palette</source>
+        <translation>팔레트 저장</translation>
+    </message>
+    <message>
+        <source>Error Writing Palette</source>
+        <translation>팔레트 쓰기 오류</translation>
+    </message>
+    <message>
+        <source>Load Palette</source>
+        <translation>팔레트 불러오기</translation>
+    </message>
+    <message>
+        <source>Error Reading Palette</source>
+        <translation>팔레트 읽기 오류</translation>
     </message>
 </context>
 <context>
@@ -5027,12 +4807,12 @@ Please select another name.</source>
     <message>
         <source>Landscape (&amp;CCW)</source>
         <extracomment>Rotate form preview counter-clockwise</extracomment>
-        <translation>가로 (반시계방향)(&amp;C)</translation>
+        <translation>가로(반시계 방향)(&amp;C)</translation>
     </message>
     <message>
         <source>&amp;Landscape (CW)</source>
         <extracomment>Rotate form preview clockwise</extracomment>
-        <translation>가로 (시계방향)(&amp;L)</translation>
+        <translation>가로(시계 방향)(&amp;L)</translation>
     </message>
     <message>
         <source>&amp;Close</source>
@@ -5079,24 +4859,9 @@ ate the goose who was loose.</source>
         <translation>누름 단추</translation>
     </message>
     <message>
-        <source>ButtonGroup2</source>
-        <extracomment>Palette Editor Preview Widget</extracomment>
-        <translation>단추 그룹 2</translation>
-    </message>
-    <message>
         <source>CheckBox1</source>
         <extracomment>Palette Editor Preview Widget</extracomment>
         <translation>체크 상자 1</translation>
-    </message>
-    <message>
-        <source>CheckBox2</source>
-        <extracomment>Palette Editor Preview Widget</extracomment>
-        <translation>체크 상자 2</translation>
-    </message>
-    <message>
-        <source>ButtonGroup</source>
-        <extracomment>Palette Editor Preview Widget</extracomment>
-        <translation>단추 그룹</translation>
     </message>
     <message>
         <source>RadioButton1</source>
@@ -5112,6 +4877,99 @@ ate the goose who was loose.</source>
         <source>RadioButton3</source>
         <extracomment>Palette Editor Preview Widget</extracomment>
         <translation>라디오 단추 3</translation>
+    </message>
+    <message>
+        <source>Buttons</source>
+        <extracomment>Palette Editor Preview Widget</extracomment>
+        <translation>단추</translation>
+    </message>
+    <message>
+        <source>Tristate CheckBox</source>
+        <extracomment>Palette Editor Preview Widget</extracomment>
+        <translation>삼중상태 체크 상자</translation>
+    </message>
+    <message>
+        <source>ToggleButton</source>
+        <extracomment>Palette Editor Preview Widget</extracomment>
+        <translation>전환 단추</translation>
+    </message>
+    <message>
+        <source>ToolButton</source>
+        <extracomment>Palette Editor Preview Widget</extracomment>
+        <translation>도구 단추</translation>
+    </message>
+    <message>
+        <source>Menu</source>
+        <extracomment>Palette Editor Preview Widget</extracomment>
+        <translation>메뉴</translation>
+    </message>
+    <message>
+        <source>Item Views</source>
+        <extracomment>Palette Editor Preview Widget</extracomment>
+        <translation>항목 보기</translation>
+    </message>
+    <message>
+        <source>Column 1</source>
+        <extracomment>Palette Editor Preview Widget</extracomment>
+        <translation>행 1</translation>
+    </message>
+    <message>
+        <source>Top Level 1</source>
+        <extracomment>Palette Editor Preview Widget</extracomment>
+        <translation>최상위 단계 1</translation>
+    </message>
+    <message>
+        <source>Nested Item 1</source>
+        <extracomment>Palette Editor Preview Widget</extracomment>
+        <translation>하위 항목 1</translation>
+    </message>
+    <message>
+        <source>Nested Item 2</source>
+        <extracomment>Palette Editor Preview Widget</extracomment>
+        <translation>하위 항목 2</translation>
+    </message>
+    <message>
+        <source>Nested Item 3</source>
+        <extracomment>Palette Editor Preview Widget</extracomment>
+        <translation>하위 항목 3</translation>
+    </message>
+    <message>
+        <source>Simple Input Widgets</source>
+        <extracomment>Palette Editor Preview Widget</extracomment>
+        <translation>간단한 입력 위젯</translation>
+    </message>
+    <message>
+        <source>Item1</source>
+        <extracomment>Palette Editor Preview Widget</extracomment>
+        <translation>항목1</translation>
+    </message>
+    <message>
+        <source>Item2</source>
+        <extracomment>Palette Editor Preview Widget</extracomment>
+        <translation>항목2</translation>
+    </message>
+    <message>
+        <source>Display Widgets</source>
+        <extracomment>Palette Editor Preview Widget</extracomment>
+        <translation>표시 위젯</translation>
+    </message>
+    <message>
+        <source>QLabel</source>
+        <extracomment>Palette Editor Preview Widget</extracomment>
+        <translation>QLabel</translation>
+    </message>
+    <message>
+        <source>QLabel with frame</source>
+        <extracomment>Palette Editor Preview Widget</extracomment>
+        <translation>프레임 있는 QLabel</translation>
+    </message>
+    <message>
+        <source>Option 1</source>
+        <translation>옵션 1</translation>
+    </message>
+    <message>
+        <source>Checkable</source>
+        <translation>선택 가능</translation>
     </message>
 </context>
 <context>
@@ -5321,16 +5179,16 @@ Class: %2</source>
         <translation>도구 모음 추가</translation>
     </message>
     <message>
+        <source>Add Tool Bar to Other Area</source>
+        <translation>다른 영역에 도구 모음 추가</translation>
+    </message>
+    <message>
         <source>Create Status Bar</source>
         <translation>상태 표시줄 생성</translation>
     </message>
     <message>
         <source>Remove Status Bar</source>
         <translation>상태 표시줄 삭제</translation>
-    </message>
-    <message>
-        <source>Change script...</source>
-        <translation>스크립트 변경...</translation>
     </message>
     <message>
         <source>Change signals/slots...</source>
@@ -5374,11 +5232,7 @@ Class: %2</source>
     </message>
     <message>
         <source>Edit WhatsThis</source>
-        <translation>컨텍스트 도움말 편집</translation>
-    </message>
-    <message>
-        <source>no signals available</source>
-        <translation>사용 가능한 시그널 없음</translation>
+        <translation>콘텍스트 도움말 편집</translation>
     </message>
     <message numerus="yes">
         <source>Set size constraint on %n widget(s)</source>
@@ -5489,7 +5343,7 @@ Class: %2</source>
     </message>
     <message>
         <source>Rich Text</source>
-        <translation>서식있는 텍스트</translation>
+        <translation>서식 있는 텍스트</translation>
     </message>
     <message>
         <source>Source</source>
@@ -5568,29 +5422,7 @@ Class: %2</source>
     </message>
     <message>
         <source>Simplify Rich Text</source>
-        <translation>서식있는 텍스트 단순화</translation>
-    </message>
-</context>
-<context>
-    <name>qdesigner_internal::ScriptDialog</name>
-    <message>
-        <source>Edit script</source>
-        <translation>스크립트 편집</translation>
-    </message>
-    <message>
-        <source>&lt;html&gt;Enter a Qt Script snippet to be executed while loading the form.&lt;br&gt;The widget and its children are accessible via the variables &lt;i&gt;widget&lt;/i&gt; and &lt;i&gt;childWidgets&lt;/i&gt;, respectively.</source>
-        <translation>&lt;html&gt;폼을 불러오는 동안 실행할 Qt 스크립트를 입력하십시오.&lt;br&gt;위젯과 자식 위젯은 각각 &lt;i&gt;widget&lt;/i&gt;과 &lt;i&gt;childWidgets&lt;/i&gt; 변수로 접근할 수 있습니다.</translation>
-    </message>
-    <message>
-        <source>Syntax error</source>
-        <translation>문법 오류</translation>
-    </message>
-</context>
-<context>
-    <name>qdesigner_internal::ScriptErrorDialog</name>
-    <message>
-        <source>Script errors</source>
-        <translation>스크립트 오류</translation>
+        <translation>서식 있는 텍스트 단순화</translation>
     </message>
 </context>
 <context>
@@ -5882,7 +5714,7 @@ Class: %2</source>
     </message>
     <message>
         <source>Move Item Left (before Parent Item)</source>
-        <translation>항목 왼쪽으로 이동 (부모 항목 이전)</translation>
+        <translation>항목 왼쪽으로 이동(부모 항목 이전)</translation>
     </message>
     <message>
         <source>L</source>
@@ -5890,7 +5722,7 @@ Class: %2</source>
     </message>
     <message>
         <source>Move Item Right (as a First Subitem of the Next Sibling Item)</source>
-        <translation>항목 오른쪽으로 이동 (다음 자식 항목의 첫 하위 항목으로)</translation>
+        <translation>항목 오른쪽으로 이동(다음 자식 항목의 첫 하위 항목으로)</translation>
     </message>
     <message>
         <source>R</source>
@@ -6008,15 +5840,11 @@ Class: %2</source>
     <name>qdesigner_internal::WidgetFactory</name>
     <message>
         <source>The custom widget factory registered for widgets of class %1 returned 0.</source>
-        <translation>클래스 %1인 위젯의 사용자 정의 위젯 팩터리에서 0을 반환하였습니다.</translation>
+        <translation>클래스 %1인 위젯의 사용자 정의 위젯 팩터리에서 0을 반환했습니다.</translation>
     </message>
     <message>
         <source>A class name mismatch occurred when creating a widget using the custom widget factory registered for widgets of class %1. It returned a widget of class %2.</source>
-        <translation>클래스 %1인 위젯에 등록된 사용자 정의 위젯 팩터리를 사용하여 위젯을 만드는 중 클래스 이름이 일치하지 않았습니다. 클래스 %2인 위젯을 반환하였습니다.</translation>
-    </message>
-    <message>
-        <source>%1 Widget</source>
-        <translation>%1 위젯</translation>
+        <translation>클래스 %1인 위젯에 등록된 사용자 정의 위젯 팩터리를 사용하여 위젯을 만드는 중 클래스 이름이 일치하지 않았습니다. 클래스 %2인 위젯을 반환했습니다.</translation>
     </message>
     <message>
         <source>The current page of the container &apos;%1&apos; (%2) could not be determined while creating a layout.This indicates an inconsistency in the ui-file, probably a layout being constructed on a container widget.</source>
@@ -6026,7 +5854,7 @@ Class: %2</source>
         <source>Attempt to add a layout to a widget &apos;%1&apos; (%2) which already has an unmanaged layout of type %3.
 This indicates an inconsistency in the ui-file.</source>
         <translation>관리되지 않은 %3 형식의 레이아웃이 있는 위젯 &apos;%1&apos; (%2)에 레이아웃을 추가할 수 없습니다.
-UI 파일 내부에 불일치가 발생하였습니다.</translation>
+UI 파일 내부에 불일치가 발생했습니다.</translation>
     </message>
     <message>
         <source>Cannot create style &apos;%1&apos;.</source>
@@ -6049,7 +5877,7 @@ UI 파일 내부에 불일치가 발생하였습니다.</translation>
     <message>
         <source>%1 %</source>
         <extracomment>Zoom factor</extracomment>
-        <translation>%1 %</translation>
+        <translation>%1%</translation>
     </message>
 </context>
 <context>

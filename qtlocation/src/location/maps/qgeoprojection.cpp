@@ -118,6 +118,19 @@ bool QGeoProjection::setBearing(qreal bearing, const QGeoCoordinate &coordinate)
     return false;
 }
 
+void QGeoProjection::setItemToWindowTransform(const QTransform &itemToWindowTransform)
+{
+    if (m_itemToWindowTransform == itemToWindowTransform)
+        return;
+    m_qsgTransformDirty = true;
+    m_itemToWindowTransform = itemToWindowTransform;
+}
+
+QTransform QGeoProjection::itemToWindowTransform() const
+{
+    return m_itemToWindowTransform;
+}
+
 
 /*
  * QGeoProjectionWebMercator implementation
@@ -186,6 +199,31 @@ QGeoProjectionWebMercator::~QGeoProjectionWebMercator()
 double QGeoProjectionWebMercator::minimumZoom() const
 {
     return m_minimumZoom;
+}
+
+QMatrix4x4 QGeoProjectionWebMercator::projectionTransformation() const
+{
+    return toMatrix4x4(m_transformation);
+}
+
+QMatrix4x4 QGeoProjectionWebMercator::projectionTransformation_centered() const
+{
+    return toMatrix4x4(m_transformation0);
+}
+
+const QMatrix4x4 &QGeoProjectionWebMercator::qsgTransform() const
+{
+    if (m_qsgTransformDirty) {
+        m_qsgTransformDirty = false;
+        m_qsgTransform = QMatrix4x4(m_itemToWindowTransform) * toMatrix4x4(m_transformation0);
+//        qDebug() << "QGeoProjectionWebMercator::qsgTransform" << m_itemToWindowTransform << toMatrix4x4(m_transformation0);
+    }
+    return m_qsgTransform;
+}
+
+QDoubleVector3D QGeoProjectionWebMercator::centerMercator() const
+{
+    return geoToMapProjection(m_cameraData.center()).toVector3D();
 }
 
 // This method recalculates the "no-trespassing" limits for the map center.
@@ -273,19 +311,23 @@ QGeoCoordinate QGeoProjectionWebMercator::mapProjectionToGeo(const QDoubleVector
     return QWebMercator::mercatorToCoord(projection);
 }
 
+int QGeoProjectionWebMercator::projectionWrapFactor(const QDoubleVector2D &projection) const
+{
+    const double &x = projection.x();
+    if (m_cameraCenterXMercator < 0.5) {
+        if (x - m_cameraCenterXMercator > 0.5 )
+            return -1;
+    } else if (m_cameraCenterXMercator > 0.5) {
+        if (x - m_cameraCenterXMercator < -0.5 )
+            return 1;
+    }
+    return 0;
+}
+
 //wraps around center
 QDoubleVector2D QGeoProjectionWebMercator::wrapMapProjection(const QDoubleVector2D &projection) const
 {
-    double x = projection.x();
-    if (m_cameraCenterXMercator < 0.5) {
-        if (x - m_cameraCenterXMercator > 0.5 )
-            x -= 1.0;
-    } else if (m_cameraCenterXMercator > 0.5) {
-        if (x - m_cameraCenterXMercator < -0.5 )
-            x += 1.0;
-    }
-
-    return QDoubleVector2D(x, projection.y());
+    return QDoubleVector2D(projection.x() + double(projectionWrapFactor(projection)), projection.y());
 }
 
 QDoubleVector2D QGeoProjectionWebMercator::unwrapMapProjection(const QDoubleVector2D &wrappedProjection) const
@@ -547,6 +589,7 @@ QGeoProjection::ProjectionType QGeoProjectionWebMercator::projectionType() const
 
 void QGeoProjectionWebMercator::setupCamera()
 {
+    m_qsgTransformDirty = true;
     m_centerMercator = geoToMapProjection(m_cameraData.center());
     m_cameraCenterXMercator = m_centerMercator.x();
     m_cameraCenterYMercator = m_centerMercator.y();
@@ -571,6 +614,10 @@ void QGeoProjectionWebMercator::setupCamera()
     // And in mercator space
     m_eyeMercator = m_centerMercator;
     m_eyeMercator.setZ(altitude_mercator  / m_aperture);
+    m_eyeMercator0 = QDoubleVector3D(0,0,0);
+    m_eyeMercator0.setZ(altitude_mercator  / m_aperture);
+    QDoubleVector3D eye0(0,0,0);
+    eye0.setZ(altitude * defaultTileSize / m_aperture);
 
     m_view = m_eye - m_center;
     QDoubleVector3D side = QDoubleVector3D::normal(m_view, QDoubleVector3D(0.0, 1.0, 0.0));
@@ -599,11 +646,13 @@ void QGeoProjectionWebMercator::setupCamera()
         QDoubleMatrix4x4 mTilt;
         mTilt.rotate(-m_cameraData.tilt(), m_side);
         m_eye = mTilt * m_view + m_center;
+        eye0 = mTilt * m_view;
 
         // In mercator space too
         QDoubleMatrix4x4 mTiltMercator;
         mTiltMercator.rotate(-m_cameraData.tilt(), m_sideMercator);
         m_eyeMercator = mTiltMercator * m_viewMercator + m_centerMercator;
+        m_eyeMercator0 = mTiltMercator * m_viewMercator;
     }
 
     m_view = m_eye - m_center; // ToDo: this should be inverted (center - eye), and the rest should follow
@@ -634,8 +683,10 @@ void QGeoProjectionWebMercator::setupCamera()
 
     double verticalHalfFOV = QLocationUtils::degrees(atan(m_aperture));
 
-    QDoubleMatrix4x4 cameraMatrix;
-    cameraMatrix.lookAt(m_eye, m_center, m_up);
+    m_cameraMatrix.setToIdentity();
+    m_cameraMatrix.lookAt(m_eye, m_center, m_up);
+    m_cameraMatrix0.setToIdentity();
+    m_cameraMatrix0.lookAt(eye0, QDoubleVector3D(0,0,0), m_up);
 
     QDoubleMatrix4x4 projectionMatrix;
     projectionMatrix.frustum(-m_halfWidth, m_halfWidth, -m_halfHeight, m_halfHeight, m_nearPlane, m_farPlane);
@@ -656,9 +707,12 @@ void QGeoProjectionWebMercator::setupCamera()
     matScreenTransformation(0,3) = (0.5 + offsetPct.x()) * m_viewportWidth;
     matScreenTransformation(1,3) = (0.5 + offsetPct.y()) * m_viewportHeight;
 
-    m_transformation = matScreenTransformation *  projectionMatrix * cameraMatrix;
+    m_transformation = matScreenTransformation *  projectionMatrix * m_cameraMatrix;
     m_quickItemTransformation = m_transformation;
     m_transformation.scale(m_sideLengthPixels, m_sideLengthPixels, 1.0);
+
+    m_transformation0 = matScreenTransformation *  projectionMatrix * m_cameraMatrix0;
+    m_transformation0.scale(m_sideLengthPixels, m_sideLengthPixels, 1.0);
 
     m_centerNearPlane = m_eye - m_viewNormalized;
     m_centerNearPlaneMercator = m_eyeMercator - m_viewNormalized * m_nearPlaneMercator;

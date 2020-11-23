@@ -47,7 +47,6 @@
 #include "third_party/blink/renderer/core/paint/paint_layer.h"
 #include "third_party/blink/renderer/core/style/computed_style.h"
 #include "third_party/blink/renderer/core/svg/animation/smil_time_container.h"
-#include "third_party/blink/renderer/core/svg/graphics/dark_mode_svg_image_classifier.h"
 #include "third_party/blink/renderer/core/svg/graphics/svg_image_chrome_client.h"
 #include "third_party/blink/renderer/core/svg/svg_document_extensions.h"
 #include "third_party/blink/renderer/core/svg/svg_fe_image_element.h"
@@ -57,6 +56,7 @@
 #include "third_party/blink/renderer/platform/geometry/int_rect.h"
 #include "third_party/blink/renderer/platform/geometry/length_functions.h"
 #include "third_party/blink/renderer/platform/graphics/color.h"
+#include "third_party/blink/renderer/platform/graphics/dark_mode_image_classifier.h"
 #include "third_party/blink/renderer/platform/graphics/graphics_context.h"
 #include "third_party/blink/renderer/platform/graphics/image_observer.h"
 #include "third_party/blink/renderer/platform/graphics/paint/cull_rect.h"
@@ -155,12 +155,12 @@ bool SVGImage::CurrentFrameHasSingleSecurityOrigin() const {
   // Don't allow foreignObject elements or images that are not known to be
   // single-origin since these can leak cross-origin information.
   for (Node* node = root_element; node; node = FlatTreeTraversal::Next(*node)) {
-    if (IsSVGForeignObjectElement(*node))
+    if (IsA<SVGForeignObjectElement>(*node))
       return false;
-    if (auto* image = ToSVGImageElementOrNull(*node)) {
+    if (auto* image = DynamicTo<SVGImageElement>(*node)) {
       if (!image->CurrentFrameHasSingleSecurityOrigin())
         return false;
-    } else if (auto* fe_image = ToSVGFEImageElementOrNull(*node)) {
+    } else if (auto* fe_image = DynamicTo<SVGFEImageElement>(*node)) {
       if (!fe_image->CurrentFrameHasSingleSecurityOrigin())
         return false;
     }
@@ -655,18 +655,14 @@ void SVGImage::ServiceAnimations(
   LocalFrameView* frame_view = To<LocalFrame>(page_->MainFrame())->View();
   frame_view->UpdateAllLifecyclePhasesExceptPaint();
 
-  if (RuntimeEnabledFeatures::CompositeAfterPaintEnabled() ||
-      RuntimeEnabledFeatures::BlinkGenPropertyTreesEnabled()) {
-    // For CAP/BGPT we run UpdateAnimations after the paint phase, but per the
-    // above comment, we don't want to run lifecycle through to paint for SVG
-    // images. Since we know SVG images never have composited animations we can
-    // update animations directly without worrying about including
-    // PaintArtifactCompositor analysis of whether animations should be
-    // composited.
-    DocumentAnimations::UpdateAnimations(
-        frame_view->GetLayoutView()->GetDocument(),
-        DocumentLifecycle::kLayoutClean, nullptr);
-  }
+  // We run UpdateAnimations after the paint phase, but per the above comment,
+  // we don't want to run lifecycle through to paint for SVG images. Since we
+  // know SVG images never have composited animations, we can update animations
+  // directly without worrying about including PaintArtifactCompositor's
+  // analysis of whether animations should be composited.
+  DocumentAnimations::UpdateAnimations(
+      frame_view->GetLayoutView()->GetDocument(),
+      DocumentLifecycle::kLayoutClean, nullptr);
 }
 
 void SVGImage::AdvanceAnimationForTesting() {
@@ -680,6 +676,8 @@ void SVGImage::AdvanceAnimationForTesting() {
     base::TimeTicks current_animation_time =
         page_->Animator().Clock().CurrentTime();
     page_->Animator().Clock().ResetTimeForTesting();
+    if (root_element->TimeContainer()->IsStarted())
+      root_element->TimeContainer()->ResetDocumentTime();
     page_->Animator().ServiceScriptedAnimations(
         root_element->GetDocument().Timeline().ZeroTime() +
         base::TimeDelta::FromSecondsD(root_element->getCurrentTime()));
@@ -853,10 +851,11 @@ String SVGImage::FilenameExtension() const {
   return "svg";
 }
 
-DarkModeClassification SVGImage::ClassifyImageForDarkMode(
-    const FloatRect& src_rect) {
-  DarkModeSVGImageClassifier dark_mode_svg_image_classifier;
-  return dark_mode_svg_image_classifier.Classify(this, src_rect);
+DarkModeClassification SVGImage::CheckTypeSpecificConditionsForDarkMode(
+    const FloatRect& dest_rect,
+    DarkModeImageClassifier* classifier) {
+  classifier->SetImageType(DarkModeImageClassifier::ImageType::kSvg);
+  return DarkModeClassification::kNotClassified;
 }
 
 }  // namespace blink

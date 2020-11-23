@@ -11,7 +11,7 @@
 
 #include <utility>
 
-#include "absl/memory/memory.h"
+#include <memory>
 #include "api/rtc_event_log/rtc_event_log.h"
 #include "api/rtc_event_log/rtc_event_log_factory.h"
 #include "modules/audio_mixer/audio_mixer_impl.h"
@@ -65,6 +65,7 @@ Call* CreateCall(TimeController* time_controller,
   call_config.task_queue_factory = time_controller->GetTaskQueueFactory();
   call_config.network_controller_factory = network_controller_factory;
   call_config.audio_state = audio_state;
+  call_config.trials = config.field_trials;
   return Call::Create(call_config, time_controller->GetClock(),
                       time_controller->CreateProcessThread("CallModules"),
                       time_controller->CreateProcessThread("Pacer"));
@@ -74,7 +75,7 @@ std::unique_ptr<RtcEventLog> CreateEventLog(
     TaskQueueFactory* task_queue_factory,
     LogWriterFactoryInterface* log_writer_factory) {
   if (!log_writer_factory) {
-    return absl::make_unique<RtcEventLogNull>();
+    return std::make_unique<RtcEventLogNull>();
   }
   auto event_log = RtcEventLogFactory(task_queue_factory)
                        .CreateRtcEventLog(RtcEventLog::EncodingType::NewFormat);
@@ -185,8 +186,8 @@ NetworkControlUpdate LoggingNetworkControllerFactory::GetUpdate() const {
 
 std::unique_ptr<NetworkControllerInterface>
 LoggingNetworkControllerFactory::Create(NetworkControllerConfig config) {
-  auto controller = absl::make_unique<NetworkControleUpdateCache>(
-      cc_factory_->Create(config));
+  auto controller =
+      std::make_unique<NetworkControleUpdateCache>(cc_factory_->Create(config));
   last_controller_ = controller.get();
   return controller;
 }
@@ -203,10 +204,11 @@ CallClient::CallClient(
       clock_(time_controller->GetClock()),
       log_writer_factory_(std::move(log_writer_factory)),
       network_controller_factory_(log_writer_factory_.get(), config.transport),
-      header_parser_(RtpHeaderParser::Create()),
+      header_parser_(RtpHeaderParser::CreateForTest()),
       task_queue_(time_controller->GetTaskQueueFactory()->CreateTaskQueue(
           "CallClient",
           TaskQueueFactory::Priority::NORMAL)) {
+  config.field_trials = &field_trials_;
   SendTask([this, config] {
     event_log_ = CreateEventLog(time_controller_->GetTaskQueueFactory(),
                                 log_writer_factory_.get());
@@ -214,7 +216,7 @@ CallClient::CallClient(
     call_.reset(CreateCall(time_controller_, event_log_.get(), config,
                            &network_controller_factory_,
                            fake_audio_setup_.audio_state));
-    transport_ = absl::make_unique<NetworkNodeTransport>(clock_, call_.get());
+    transport_ = std::make_unique<NetworkNodeTransport>(clock_, call_.get());
   });
 }
 
@@ -241,16 +243,19 @@ ColumnPrinter CallClient::StatsPrinter() {
 }
 
 Call::Stats CallClient::GetStats() {
-  return call_->GetStats();
+  // This call needs to be made on the thread that |call_| was constructed on.
+  Call::Stats stats;
+  SendTask([this, &stats] { stats = call_->GetStats(); });
+  return stats;
 }
 
 DataRate CallClient::target_rate() const {
   return network_controller_factory_.GetUpdate().target_rate->target_rate;
 }
 
-DataRate CallClient::link_capacity() const {
+DataRate CallClient::stable_target_rate() const {
   return network_controller_factory_.GetUpdate()
-      .target_rate->network_estimate.bandwidth;
+      .target_rate->stable_target_rate;
 }
 
 DataRate CallClient::padding_rate() const {
@@ -270,16 +275,11 @@ void CallClient::OnPacketReceived(EmulatedIpPacket packet) {
     RTC_CHECK(ssrc.has_value());
     media_type = ssrc_media_types_[*ssrc];
   }
-  struct Closure {
-    void operator()() {
-      call->Receiver()->DeliverPacket(media_type, packet.data,
-                                      packet.arrival_time.us());
-    }
-    Call* call;
-    MediaType media_type;
-    EmulatedIpPacket packet;
-  };
-  task_queue_.PostTask(Closure{call_.get(), media_type, std::move(packet)});
+  task_queue_.PostTask(
+      [call = call_.get(), media_type, packet = std::move(packet)]() mutable {
+        call->Receiver()->DeliverPacket(media_type, packet.data,
+                                        packet.arrival_time.us());
+      });
 }
 
 std::unique_ptr<RtcEventLogOutput> CallClient::GetLogWriter(std::string name) {
@@ -321,8 +321,7 @@ void CallClient::AddExtensions(std::vector<RtpExtension> extensions) {
 }
 
 void CallClient::SendTask(std::function<void()> task) {
-  time_controller_->InvokeWithControlledYield(
-      [&] { task_queue_.SendTask(std::move(task)); });
+  task_queue_.SendTask(std::move(task), RTC_FROM_HERE);
 }
 
 CallClientPair::~CallClientPair() = default;

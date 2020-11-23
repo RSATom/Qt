@@ -12,6 +12,7 @@
 #include "components/language/content/browser/language_code_locator_provider.h"
 #include "components/prefs/pref_registry_simple.h"
 #include "components/prefs/pref_service.h"
+#include "mojo/public/cpp/bindings/remote.h"
 #include "net/traffic_annotation/network_traffic_annotation.h"
 #include "services/device/public/mojom/constants.mojom.h"
 #include "services/device/public/mojom/geoposition.mojom.h"
@@ -32,8 +33,9 @@ const char GeoLanguageProvider::kCachedGeoLanguagesPref[] =
 
 GeoLanguageProvider::GeoLanguageProvider()
     : creation_task_runner_(base::SequencedTaskRunnerHandle::Get()),
-      background_task_runner_(base::CreateSequencedTaskRunnerWithTraits(
-          {base::MayBlock(), base::TaskPriority::BEST_EFFORT,
+      background_task_runner_(base::CreateSequencedTaskRunner(
+          {base::ThreadPool(), base::MayBlock(),
+           base::TaskPriority::BEST_EFFORT,
            base::TaskShutdownBehavior::SKIP_ON_SHUTDOWN})),
       prefs_(nullptr) {
   // Constructor is not required to run on |background_task_runner_|:
@@ -104,9 +106,11 @@ void GeoLanguageProvider::BindIpGeolocationService() {
   DCHECK(!geolocation_provider_.is_bound());
 
   // Bind a PublicIpAddressGeolocationProvider.
-  device::mojom::PublicIpAddressGeolocationProviderPtr ip_geolocation_provider;
-  service_manager_connector_->BindInterface(
-      device::mojom::kServiceName, mojo::MakeRequest(&ip_geolocation_provider));
+  mojo::Remote<device::mojom::PublicIpAddressGeolocationProvider>
+      ip_geolocation_provider;
+  service_manager_connector_->Connect(
+      device::mojom::kServiceName,
+      ip_geolocation_provider.BindNewPipeAndPassReceiver());
 
   net::PartialNetworkTrafficAnnotationTag partial_traffic_annotation =
       net::DefinePartialNetworkTrafficAnnotation("geo_language_provider",
@@ -132,7 +136,7 @@ void GeoLanguageProvider::BindIpGeolocationService() {
   ip_geolocation_provider->CreateGeolocation(
       static_cast<net::MutablePartialNetworkTrafficAnnotationTag>(
           partial_traffic_annotation),
-      mojo::MakeRequest(&geolocation_provider_));
+      geolocation_provider_.BindNewPipeAndPassReceiver());
   // No error handler required: If the connection is broken, QueryNextPosition
   // will bind it again.
 }
@@ -140,7 +144,7 @@ void GeoLanguageProvider::BindIpGeolocationService() {
 void GeoLanguageProvider::QueryNextPosition() {
   DCHECK_CALLED_ON_VALID_SEQUENCE(background_sequence_checker_);
 
-  if (geolocation_provider_.encountered_error())
+  if (geolocation_provider_.is_bound() && !geolocation_provider_.is_connected())
     geolocation_provider_.reset();
   if (!geolocation_provider_.is_bound())
     BindIpGeolocationService();

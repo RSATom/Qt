@@ -7,7 +7,8 @@
 
 #include "base/strings/strcat.h"
 #include "base/test/gtest_util.h"
-#include "base/test/scoped_task_environment.h"
+#include "base/test/task_environment.h"
+#include "mojo/public/cpp/bindings/remote.h"
 #include "net/http/http_status_code.h"
 #include "net/http/http_util.h"
 #include "net/reporting/reporting_policy.h"
@@ -37,8 +38,7 @@ void DummyRetrieveOriginPolicyCallback(const network::OriginPolicy& result) {}
 class OriginPolicyManagerTest : public testing::Test {
  public:
   OriginPolicyManagerTest()
-      : scoped_task_environment_(
-            base::test::ScopedTaskEnvironment::MainThreadType::IO) {
+      : task_environment_(base::test::TaskEnvironment::MainThreadType::IO) {
     network_service_ = NetworkService::CreateForTesting();
 
     auto context_params = mojom::NetworkContextParams::New();
@@ -47,7 +47,8 @@ class OriginPolicyManagerTest : public testing::Test {
     context_params->initial_proxy_config =
         net::ProxyConfigWithAnnotation::CreateDirect();
     network_context_ = std::make_unique<NetworkContext>(
-        network_service_.get(), mojo::MakeRequest(&network_context_ptr_),
+        network_service_.get(),
+        network_context_remote_.BindNewPipeAndPassReceiver(),
         std::move(context_params));
     manager_ = std::make_unique<OriginPolicyManager>(network_context_.get());
 
@@ -116,11 +117,11 @@ class OriginPolicyManagerTest : public testing::Test {
     return std::move(response);
   }
 
-  base::test::ScopedTaskEnvironment scoped_task_environment_;
+  base::test::TaskEnvironment task_environment_;
 
   std::unique_ptr<NetworkService> network_service_;
   std::unique_ptr<NetworkContext> network_context_;
-  mojom::NetworkContextPtr network_context_ptr_;
+  mojo::Remote<mojom::NetworkContext> network_context_remote_;
   std::unique_ptr<OriginPolicyManager> manager_;
   base::RunLoop response_run_loop;
   net::test_server::EmbeddedTestServer test_server_;
@@ -132,15 +133,12 @@ class OriginPolicyManagerTest : public testing::Test {
 };
 
 TEST_F(OriginPolicyManagerTest, AddBinding) {
-  mojom::OriginPolicyManagerPtr origin_policy_ptr;
-  mojom::OriginPolicyManagerRequest origin_policy_request(
-      mojo::MakeRequest(&origin_policy_ptr));
+  mojo::Remote<mojom::OriginPolicyManager> origin_policy_remote;
+  EXPECT_EQ(0u, manager()->GetReceiversForTesting().size());
 
-  EXPECT_EQ(0u, manager()->GetBindingsForTesting().size());
+  manager()->AddReceiver(origin_policy_remote.BindNewPipeAndPassReceiver());
 
-  manager()->AddBinding(std::move(origin_policy_request));
-
-  EXPECT_EQ(1u, manager()->GetBindingsForTesting().size());
+  EXPECT_EQ(1u, manager()->GetReceiversForTesting().size());
 }
 
 TEST_F(OriginPolicyManagerTest, ParseHeaders) {
@@ -326,14 +324,14 @@ TEST_F(OriginPolicyManagerTest, EndToEndPolicyRetrieve) {
 // response. The manager will be destroyed before the return callback is called.
 TEST_F(OriginPolicyManagerTest, DestroyWhileCallbackUninvoked) {
   {
-    mojom::OriginPolicyManagerPtr origin_policy_ptr;
+    mojo::Remote<mojom::OriginPolicyManager> origin_policy_remote;
 
     OriginPolicyManager manager(network_context());
 
-    manager.AddBinding(mojo::MakeRequest(&origin_policy_ptr));
+    manager.AddReceiver(origin_policy_remote.BindNewPipeAndPassReceiver());
 
     // This fetch will still be ongoing when the manager is destroyed.
-    origin_policy_ptr->RetrieveOriginPolicy(
+    origin_policy_remote->RetrieveOriginPolicy(
         test_server_origin(), "policy=delayed",
         base::BindOnce(&DummyRetrieveOriginPolicyCallback));
 
@@ -349,6 +347,7 @@ TEST_F(OriginPolicyManagerTest, CacheStatesAfterPolicyFetches) {
     OriginPolicyState expected_state;
     std::string expected_raw_policy;
     const url::Origin& origin;
+    bool add_exception_first = false;
   } kTests[] = {
       // The order of these tests is important as the cache is not cleared in
       // between tests and some tests rely on the state left over by previous
@@ -360,6 +359,10 @@ TEST_F(OriginPolicyManagerTest, CacheStatesAfterPolicyFetches) {
       // An invalid header and nothing in the cache means an error.
       {"invalid", OriginPolicyState::kCannotLoadPolicy, "",
        test_server_origin()},
+
+      // The invalid policy header has not been kept in the cache, an empty
+      // policy still means no policy applies.
+      {"", OriginPolicyState::kNoPolicyApplies, "", test_server_origin()},
 
       // A valid header results in loaded policy.
       {"policy=policy-1", OriginPolicyState::kLoaded,
@@ -423,9 +426,58 @@ TEST_F(OriginPolicyManagerTest, CacheStatesAfterPolicyFetches) {
       {"", OriginPolicyState::kLoaded,
        R"({ "feature-policy": ["geolocation http://example1.com"] })",
        test_server_origin()},
+
+      // Start testing exception logic.
+
+      // Adding an exception means a kNoPolicyApplies state will be returned,
+      // without attempting to retrieve a policy.
+      {"policy=policy-1", OriginPolicyState::kNoPolicyApplies, "",
+       test_server_origin(), true /* add_exception_first */},
+
+      // And it will still be exempted in further calls, even if a valid policy
+      // header is present.
+      {"policy=policy-1", OriginPolicyState::kNoPolicyApplies, "",
+       test_server_origin()},
+
+      // And also if an invalid header is present.
+      {"invalid", OriginPolicyState::kNoPolicyApplies, "",
+       test_server_origin()},
+
+      // This only affects the specified origin, a second origin should be
+      // unaffected.
+      {"policy=policy-2", OriginPolicyState::kLoaded,
+       R"({ "feature-policy": ["geolocation http://example2.com"] })",
+       test_server_origin_2()},
+
+      // Adding an exception will work for the second origin as well.
+      {"invalid", OriginPolicyState::kNoPolicyApplies, "",
+       test_server_origin_2(), true /* add_exception_first */},
+
+      // And future calls on the second origin will now return a
+      // kNoPolicyApplies
+      // state.
+      {"invalid", OriginPolicyState::kNoPolicyApplies, "",
+       test_server_origin_2()},
+
+      // Deleting a policy will delete the exception (which will become apparent
+      // in subsequent calls).
+      {kOriginPolicyDeletePolicy, OriginPolicyState::kNoPolicyApplies, "",
+       test_server_origin()},
+
+      // Now attempting to load a policy will proceed as normal.
+      {"policy=policy-1", OriginPolicyState::kLoaded,
+       R"({ "feature-policy": ["geolocation http://example1.com"] })",
+       test_server_origin()},
+
+      // But the second origin is unaffected by the deletion and still exempted.
+      {"invalid", OriginPolicyState::kNoPolicyApplies, "",
+       test_server_origin_2()},
   };
 
   for (const auto& test : kTests) {
+    if (test.add_exception_first)
+      manager()->AddExceptionFor(test.origin);
+
     TestOriginPolicyManagerResult tester(this);
     tester.RetrieveOriginPolicy(test.header, &test.origin);
     EXPECT_EQ(test.expected_state, tester.origin_policy_result()->state);

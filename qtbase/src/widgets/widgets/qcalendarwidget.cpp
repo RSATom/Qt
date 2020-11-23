@@ -186,7 +186,7 @@ QDate QCalendarDayValidator::applyToDate(QDate date, QCalendar cal) const
     auto parts = cal.partsFromDate(date);
     if (!parts.isValid())
         return QDate();
-    parts.day = qMin(qMax(1, m_day), cal.daysInMonth(parts.year, parts.month));
+    parts.day = qMin(qMax(1, m_day), cal.daysInMonth(parts.month, parts.year));
     return cal.dateFromParts(parts);
 }
 
@@ -292,7 +292,7 @@ QDate QCalendarMonthValidator::applyToDate(QDate date, QCalendar cal) const
     if (!parts.isValid())
         return QDate();
     parts.month = qMin(qMax(1, m_month), cal.monthsInYear(parts.year));
-    parts.day = qMin(parts.day, cal.daysInMonth(parts.year, m_month)); // m_month or parts.month ?
+    parts.day = qMin(parts.day, cal.daysInMonth(m_month, parts.year)); // m_month or parts.month ?
     return cal.dateFromParts(parts);
 }
 
@@ -401,7 +401,7 @@ QDate QCalendarYearValidator::applyToDate(QDate date, QCalendar cal) const
         return QDate();
     // This widget does not support negative years (some calendars may support)
     parts.year = qMax(1, m_year);
-    parts.day = qMin(parts.day, cal.daysInMonth(parts.year, parts.month));
+    parts.day = qMin(parts.day, cal.daysInMonth(parts.month, parts.year));
     return cal.dateFromParts(parts);
 }
 
@@ -559,7 +559,7 @@ void QCalendarDateValidator::setFormat(const QString &format)
                 separator += nextChar;
                 quoting = false;
             } else {
-                QCalendarDateSectionValidator *validator = 0;
+                QCalendarDateSectionValidator *validator = nullptr;
                 if (nextChar == QLatin1Char('d')) {
                     offset = qMin(4, countRepeat(format, pos));
                     validator = &m_dayValidator;
@@ -640,9 +640,9 @@ class QCalendarTextNavigator: public QObject
 {
     Q_OBJECT
 public:
-    QCalendarTextNavigator(QObject *parent = 0)
-        : QObject(parent), m_dateText(0), m_dateFrame(0), m_dateValidator(0),
-          m_widget(0), m_editDelay(1500), m_date(QDate::currentDate()) {}
+    QCalendarTextNavigator(QObject *parent = nullptr)
+        : QObject(parent), m_dateText(nullptr), m_dateFrame(nullptr), m_dateValidator(nullptr),
+          m_widget(nullptr), m_editDelay(1500), m_date(QDate::currentDate()) {}
 
     QWidget *widget() const;
     void setWidget(QWidget *widget);
@@ -752,9 +752,9 @@ void QCalendarTextNavigator::removeDateLabel()
     m_dateFrame->hide();
     m_dateFrame->deleteLater();
     delete m_dateValidator;
-    m_dateFrame = 0;
-    m_dateText = 0;
-    m_dateValidator = 0;
+    m_dateFrame = nullptr;
+    m_dateText = nullptr;
+    m_dateValidator = nullptr;
 }
 
 bool QCalendarTextNavigator::eventFilter(QObject *o, QEvent *e)
@@ -858,39 +858,24 @@ class QCalendarModel : public QAbstractTableModel
 {
     Q_OBJECT
 public:
-    QCalendarModel(QObject *parent = 0);
+    QCalendarModel(QObject *parent = nullptr);
 
-    int rowCount(const QModelIndex &) const override
-        { return RowCount + m_firstRow; }
-    int columnCount(const QModelIndex &) const override
-        { return ColumnCount + m_firstColumn; }
+    int rowCount(const QModelIndex &parent) const override
+    {
+        if (parent.isValid())
+            return 0;
+        return RowCount + m_firstRow;
+    }
+
+    int columnCount(const QModelIndex &parent) const override
+    {
+        if (parent.isValid())
+            return 0;
+        return ColumnCount + m_firstColumn;
+    }
+
     QVariant data(const QModelIndex &index, int role) const override;
     Qt::ItemFlags flags(const QModelIndex &index) const override;
-
-    bool insertRows(int row, int count, const QModelIndex &parent = QModelIndex()) override
-    {
-        beginInsertRows(parent, row, row + count - 1);
-        endInsertRows();
-        return true;
-    }
-    bool insertColumns(int column, int count, const QModelIndex &parent = QModelIndex()) override
-    {
-        beginInsertColumns(parent, column, column + count - 1);
-        endInsertColumns();
-        return true;
-    }
-    bool removeRows(int row, int count, const QModelIndex &parent = QModelIndex()) override
-    {
-        beginRemoveRows(parent, row, row + count - 1);
-        endRemoveRows();
-        return true;
-    }
-    bool removeColumns(int column, int count, const QModelIndex &parent = QModelIndex()) override
-    {
-        beginRemoveColumns(parent, column, column + count - 1);
-        endRemoveColumns();
-        return true;
-    }
 
     void showMonth(int year, int month);
     void setDate(QDate d);
@@ -951,7 +936,7 @@ class QCalendarView : public QTableView
 {
     Q_OBJECT
 public:
-    QCalendarView(QWidget *parent = 0);
+    QCalendarView(QWidget *parent = nullptr);
 
     void internalUpdate() { updateGeometries(); }
     void setReadOnly(bool enable);
@@ -1207,9 +1192,9 @@ Qt::ItemFlags QCalendarModel::flags(const QModelIndex &index) const
     if (!date.isValid())
         return QAbstractTableModel::flags(index);
     if (date < m_minimumDate)
-        return 0;
+        return { };
     if (date > m_maximumDate)
-        return 0;
+        return { };
     return QAbstractTableModel::flags(index);
 }
 
@@ -1303,11 +1288,13 @@ void QCalendarModel::setHorizontalHeaderFormat(QCalendarWidget::HorizontalHeader
     int oldFormat = m_horizontalHeaderFormat;
     m_horizontalHeaderFormat = format;
     if (oldFormat == QCalendarWidget::NoHorizontalHeader) {
+        beginInsertRows(QModelIndex(), 0, 0);
         m_firstRow = 1;
-        insertRow(0);
+        endInsertRows();
     } else if (m_horizontalHeaderFormat == QCalendarWidget::NoHorizontalHeader) {
+        beginRemoveRows(QModelIndex(), 0, 0);
         m_firstRow = 0;
-        removeRow(0);
+        endRemoveRows();
     }
     internalUpdate();
 }
@@ -1338,11 +1325,13 @@ void QCalendarModel::setWeekNumbersShown(bool show)
 
     m_weekNumbersShown = show;
     if (show) {
+        beginInsertColumns(QModelIndex(), 0, 0);
         m_firstColumn = 1;
-        insertColumn(0);
+        endInsertColumns();
     } else {
+        beginRemoveColumns(QModelIndex(), 0, 0);
         m_firstColumn = 0;
-        removeColumn(0);
+        endRemoveColumns();
     }
     internalUpdate();
 }
@@ -1397,7 +1386,7 @@ QModelIndex QCalendarView::moveCursor(CursorAction cursorAction, Qt::KeyboardMod
         case QAbstractItemView::MoveEnd: {
             auto parts = cal.partsFromDate(currentDate);
             if (parts.isValid()) {
-                parts.day = cal.daysInMonth(parts.year, parts.month);
+                parts.day = cal.daysInMonth(parts.month, parts.year);
                 currentDate = cal.dateFromParts(parts);
             }
         }
@@ -1599,7 +1588,7 @@ class QCalendarDelegate : public QItemDelegate
 {
     Q_OBJECT
 public:
-    QCalendarDelegate(QCalendarWidgetPrivate *w, QObject *parent = 0)
+    QCalendarDelegate(QCalendarWidgetPrivate *w, QObject *parent = nullptr)
         : QItemDelegate(parent), calendarWidgetPrivate(w)
             { }
     virtual void paint(QPainter *painter, const QStyleOptionViewItem &option,
@@ -1734,11 +1723,11 @@ void QCalendarDelegate::paintCell(QPainter *painter, const QRect &rect, QDate da
 QCalendarWidgetPrivate::QCalendarWidgetPrivate()
     : QWidgetPrivate()
 {
-    m_model = 0;
-    m_view = 0;
-    m_delegate = 0;
-    m_selection = 0;
-    m_navigator = 0;
+    m_model = nullptr;
+    m_view = nullptr;
+    m_delegate = nullptr;
+    m_selection = nullptr;
+    m_navigator = nullptr;
     m_dateEditEnabled = false;
     navBarVisible = true;
     oldFocusPolicy = Qt::StrongFocus;
@@ -1748,7 +1737,7 @@ void QCalendarWidgetPrivate::setNavigatorEnabled(bool enable)
 {
     Q_Q(QCalendarWidget);
 
-    bool navigatorEnabled = (m_navigator->widget() != 0);
+    bool navigatorEnabled = (m_navigator->widget() != nullptr);
     if (enable == navigatorEnabled)
         return;
 
@@ -1760,7 +1749,7 @@ void QCalendarWidgetPrivate::setNavigatorEnabled(bool enable)
                 q, SLOT(_q_editingFinished()));
         m_view->installEventFilter(m_navigator);
     } else {
-        m_navigator->setWidget(0);
+        m_navigator->setWidget(nullptr);
         q->disconnect(m_navigator, SIGNAL(dateChanged(QDate)),
                 q, SLOT(_q_slotChangeDate(QDate)));
         q->disconnect(m_navigator, SIGNAL(editingFinished()),
@@ -1847,8 +1836,8 @@ void QCalendarWidgetPrivate::createNavigationBar(QWidget *widget)
 void QCalendarWidgetPrivate::updateButtonIcons()
 {
     Q_Q(QCalendarWidget);
-    prevMonth->setIcon(q->style()->standardIcon(q->isRightToLeft() ? QStyle::SP_ArrowRight : QStyle::SP_ArrowLeft, 0, q));
-    nextMonth->setIcon(q->style()->standardIcon(q->isRightToLeft() ? QStyle::SP_ArrowLeft : QStyle::SP_ArrowRight, 0, q));
+    prevMonth->setIcon(q->style()->standardIcon(q->isRightToLeft() ? QStyle::SP_ArrowRight : QStyle::SP_ArrowLeft, nullptr, q));
+    nextMonth->setIcon(q->style()->standardIcon(q->isRightToLeft() ? QStyle::SP_ArrowLeft : QStyle::SP_ArrowRight, nullptr, q));
 }
 
 void QCalendarWidgetPrivate::updateMonthMenu()
@@ -2135,7 +2124,7 @@ void QCalendarWidgetPrivate::_q_editingFinished()
     \sa setCurrentPage()
 */
 QCalendarWidget::QCalendarWidget(QWidget *parent)
-    : QWidget(*new QCalendarWidgetPrivate, parent, 0)
+    : QWidget(*new QCalendarWidgetPrivate, parent, { })
 {
     Q_D(QCalendarWidget);
 
@@ -2395,7 +2384,7 @@ void QCalendarWidget::setCurrentPage(int year, int month)
     QDate currentDate = d->getCurrentDate();
     QCalendar cal = d->m_model->m_calendar;
     int day = currentDate.day(cal);
-    int daysInMonths = cal.daysInMonth(year, month);
+    int daysInMonths = cal.daysInMonth(month, year);
     if (day > daysInMonths)
         day = daysInMonths;
 

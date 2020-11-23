@@ -52,6 +52,7 @@ QMapPolygonObjectPrivateQSG::QMapPolygonObjectPrivateQSG(const QMapPolygonObject
 {
     // Data already cloned by the *Default copy constructor, but necessary
     // update operations triggered only by setters overrides
+    markSourceDirty();
     updateGeometry();
     if (m_map)
         emit m_map->sgNodeChanged();
@@ -63,65 +64,22 @@ QMapPolygonObjectPrivateQSG::~QMapPolygonObjectPrivateQSG()
         m_map->removeMapObject(q);
 }
 
-QList<QDoubleVector2D> QMapPolygonObjectPrivateQSG::projectPath()
+void QMapPolygonObjectPrivateQSG::setPath(const QList<QGeoCoordinate> &p)
 {
-    QList<QDoubleVector2D> geopathProjected_;
-    if (!m_map || m_map->geoProjection().projectionType() != QGeoProjection::ProjectionWebMercator)
-        return geopathProjected_;
-
-    const QGeoProjectionWebMercator &p =
-            static_cast<const QGeoProjectionWebMercator&>(m_map->geoProjection());
-    geopathProjected_.reserve(m_path.path().size());
-    for (const QGeoCoordinate &c : m_path.path())
-        geopathProjected_ << p.geoToMapProjection(c);
-    return geopathProjected_;
-}
-
-QSGNode *QMapPolygonObjectPrivateQSG::updateMapObjectNode(QSGNode *oldNode,
-                                                          VisibleNode **visibleNode,
-                                                          QSGNode *root,
-                                                          QQuickWindow * /*window*/)
-{
-    Q_UNUSED(visibleNode);
-    MapPolygonNode *node = static_cast<MapPolygonNode *>(oldNode);
-
-    bool created = false;
-    if (!node) {
-        if (!m_geometry.size() && !m_borderGeometry.size())
-            return nullptr;
-        node = new MapPolygonNode();
-        *visibleNode = static_cast<VisibleNode *>(node);
-        created = true;
-    }
-
-    //TODO: update only material
-    if (m_geometry.isScreenDirty() || !m_borderGeometry.isScreenDirty() || !oldNode || created) {
-        node->update(fillColor(), borderColor(), &m_geometry, &m_borderGeometry);
-        m_geometry.setPreserveGeometry(false);
-        m_borderGeometry.setPreserveGeometry(false);
-        m_geometry.markClean();
-        m_borderGeometry.markClean();
-    }
-
-    if (created)
-        root->appendChildNode(node);
-
-    return node;
-}
-
-void QMapPolygonObjectPrivateQSG::setPath(const QList<QGeoCoordinate> &path)
-{
-    QMapPolygonObjectPrivateDefault::setPath(path);
+    if (p == path())
+        return;
+    QMapPolygonObjectPrivateDefault::setPath(p);
+    markSourceDirty();
     updateGeometry();
 
     if (m_map)
         emit m_map->sgNodeChanged();
+    emit static_cast<QMapPolygonObject *>(q)->pathChanged();
 }
 
 void QMapPolygonObjectPrivateQSG::setFillColor(const QColor &color)
 {
     QMapPolygonObjectPrivateDefault::setFillColor(color);
-    updateGeometry();
 
     if (m_map)
         emit m_map->sgNodeChanged();
@@ -130,7 +88,6 @@ void QMapPolygonObjectPrivateQSG::setFillColor(const QColor &color)
 void QMapPolygonObjectPrivateQSG::setBorderColor(const QColor &color)
 {
     QMapPolygonObjectPrivateDefault::setBorderColor(color);
-    updateGeometry();
 
     if (m_map)
         emit m_map->sgNodeChanged();
@@ -139,7 +96,6 @@ void QMapPolygonObjectPrivateQSG::setBorderColor(const QColor &color)
 void QMapPolygonObjectPrivateQSG::setBorderWidth(qreal width)
 {
     QMapPolygonObjectPrivateDefault::setBorderWidth(width);
-    updateGeometry();
 
     if (m_map)
         emit m_map->sgNodeChanged();
@@ -156,59 +112,111 @@ void QMapPolygonObjectPrivateQSG::setGeoShape(const QGeoShape &shape)
         return;
 
     m_path = QGeoPathEager(shape);
+    markSourceDirty();
     updateGeometry();
     if (m_map)
         emit m_map->sgNodeChanged();
     emit static_cast<QMapPolygonObject *>(q)->pathChanged();
 }
 
+// This is called both when data changes and when viewport changes.
+// so handle both cases (sourceDirty, !sourceDirty)
 void QMapPolygonObjectPrivateQSG::updateGeometry()
 {
-    if (!m_map || m_path.path().length() == 0
-            || m_map->geoProjection().projectionType() != QGeoProjection::ProjectionWebMercator)
+    if (!m_map || m_map->geoProjection().projectionType() != QGeoProjection::ProjectionWebMercator)
         return;
 
-    QScopedValueRollback<bool> rollback(m_updatingGeometry);
-    m_updatingGeometry = true;
-
-    const QList<QDoubleVector2D> &geopathProjected = projectPath();
-
-    m_geometry.markSourceDirty();
-    m_geometry.setPreserveGeometry(true, m_path.boundingGeoRectangle().topLeft());
-    m_geometry.updateSourcePoints(*m_map, geopathProjected);
-    m_geometry.updateScreenPoints(*m_map);
-
-    m_borderGeometry.clear();
-
-    //if (border_.color() != Qt::transparent && border_.width() > 0)
-    {
-        const QGeoProjectionWebMercator &p = static_cast<const QGeoProjectionWebMercator&>(m_map->geoProjection());
-        QList<QDoubleVector2D> closedPath = geopathProjected;
-        closedPath << closedPath.first();
-
-        m_borderGeometry.markSourceDirty();
+    if (m_path.path().length() == 0) { // Possibly cleared
+        m_geometry.clear();
+        m_borderGeometry.clear();
+        return;
+    }
+    const QGeoProjectionWebMercator &p = static_cast<const QGeoProjectionWebMercator&>(m_map->geoProjection());
+    if (m_geometry.isSourceDirty() || m_borderGeometry.isSourceDirty()) {
+        // This works a bit differently than MapPolygon:
+        // the "screen bounds" aren't needed, so update only sources,
+        // regardless of the color, as color changes won't trigger polish(),
+        // and remember to flag m_dataChanged, that is in principle the same as
+        // sourceDirty_, but in practice is cleared in two different codepaths.
+        // sourceDirty_ is cleared in any case, dataChanged only if the primitive
+        // is effectively visible (e.g., not transparent or border not null)
+        m_geometry.setPreserveGeometry(true, m_path.boundingGeoRectangle().topLeft());
         m_borderGeometry.setPreserveGeometry(true, m_path.boundingGeoRectangle().topLeft());
+        m_geometry.m_dataChanged = m_borderGeometry.m_dataChanged = true;
+        m_geometry.updateSourcePoints(*m_map, m_path);
+        m_borderGeometry.updateSourcePoints(*m_map, m_path);
+        m_leftBoundMercator = p.geoToMapProjection(m_geometry.origin());
+    }
+    m_geometry.markScreenDirty();       // ToDo: this needs refactor. It's useless, remove screenDirty_ altogether.
+    m_borderGeometry.markScreenDirty();
+    m_borderGeometry.m_wrapOffset = m_geometry.m_wrapOffset = p.projectionWrapFactor(m_leftBoundMercator) + 1;
+}
 
-        const QGeoCoordinate &geometryOrigin = m_geometry.origin();
-
-        m_borderGeometry.clearSource();
-
-        QDoubleVector2D borderLeftBoundWrapped;
-        QList<QList<QDoubleVector2D > > clippedPaths =
-                m_borderGeometry.clipPath(*m_map.data(), closedPath, borderLeftBoundWrapped);
-
-        if (clippedPaths.size()) {
-            borderLeftBoundWrapped = p.geoToWrappedMapProjection(geometryOrigin);
-            m_borderGeometry.pathToScreen(*m_map.data(), clippedPaths, borderLeftBoundWrapped);
-            m_borderGeometry.updateScreenPoints(*m_map.data(), borderWidth(), false);
-        } else {
-            m_borderGeometry.clear();
-        }
+QSGNode *QMapPolygonObjectPrivateQSG::updateMapObjectNode(QSGNode *oldNode,
+                                                          VisibleNode **visibleNode,
+                                                          QSGNode *root,
+                                                          QQuickWindow * /*window*/)
+{
+    if (!m_rootNode || !oldNode) {
+        m_rootNode = new QDeclarativePolygonMapItemPrivateOpenGL::RootNode();
+        m_node = new MapPolygonNodeGL();
+        m_rootNode->appendChildNode(m_node);
+        m_polylinenode = new MapPolylineNodeOpenGLExtruded();
+        m_rootNode->appendChildNode(m_polylinenode);
+        m_rootNode->markDirty(QSGNode::DirtyNodeAdded);
+        *visibleNode = static_cast<VisibleNode *>(m_rootNode);
+        if (oldNode)
+            delete oldNode;
+    } else {
+        m_rootNode = static_cast<QDeclarativePolygonMapItemPrivateOpenGL::RootNode *>(oldNode);
     }
 
-    QPointF origin = m_map->geoProjection().coordinateToItemPosition(m_geometry.origin(), false).toPointF();
-    m_geometry.translate(origin - m_geometry.firstPointOffset());
-    m_borderGeometry.translate(origin - m_borderGeometry.firstPointOffset());
+    const QMatrix4x4 &combinedMatrix = m_map->geoProjection().qsgTransform();
+    const QDoubleVector3D &cameraCenter = m_map->geoProjection().centerMercator();
+
+    if (m_borderGeometry.isScreenDirty()) {
+        /* Do the border update first */
+        m_polylinenode->update(borderColor(),
+                               float(borderWidth()),
+                               &m_borderGeometry,
+                               combinedMatrix,
+                               cameraCenter,
+                               Qt::SquareCap,
+                               true);
+        m_borderGeometry.setPreserveGeometry(false);
+        m_borderGeometry.markClean();
+    }
+    if (m_geometry.isScreenDirty()) {
+        m_node->update(fillColor(),
+                     &m_geometry,
+                     combinedMatrix,
+                     cameraCenter);
+        m_geometry.setPreserveGeometry(false);
+        m_geometry.markClean();
+    }
+
+    if (!m_polylinenode->isSubtreeBlocked() || !m_node->isSubtreeBlocked()) {
+        m_rootNode->setSubtreeBlocked(false);
+        root->appendChildNode(m_rootNode);
+        return m_rootNode;
+    } else {
+        m_rootNode->setSubtreeBlocked(true);
+        // If the object is currently invisible, but not gone,
+        // it is reasonable to assume it will become visible again.
+        // However, better not to retain unused data.
+        delete m_rootNode;
+        m_rootNode = nullptr;
+        m_node = nullptr;
+        m_polylinenode = nullptr;
+        *visibleNode = nullptr;
+        return nullptr;
+    }
+}
+
+void QMapPolygonObjectPrivateQSG::markSourceDirty()
+{
+    m_geometry.markSourceDirty();
+    m_borderGeometry.markSourceDirty();
 }
 
 QT_END_NAMESPACE

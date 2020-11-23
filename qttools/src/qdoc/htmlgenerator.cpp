@@ -32,6 +32,7 @@
 
 #include "htmlgenerator.h"
 
+#include "config.h"
 #include "codemarker.h"
 #include "codeparser.h"
 #include "helpprojectwriter.h"
@@ -105,9 +106,9 @@ HtmlGenerator::~HtmlGenerator()
 
 /*!
   Initializes the HTML output generator's data structures
-  from the configuration class \a config.
+  from the configuration (Config) singleton.
  */
-void HtmlGenerator::initializeGenerator(const Config &config)
+void HtmlGenerator::initializeGenerator()
 {
     static const struct
     {
@@ -126,8 +127,9 @@ void HtmlGenerator::initializeGenerator(const Config &config)
                      { ATOM_FORMATTING_UNDERLINE, "<u>", "</u>" },
                      { nullptr, nullptr, nullptr } };
 
-    Generator::initializeGenerator(config);
-    obsoleteLinks = config.getBool(CONFIG_OBSOLETELINKS);
+    Generator::initializeGenerator();
+    config = &Config::instance();
+    obsoleteLinks = config->getBool(CONFIG_OBSOLETELINKS);
     setImageFileExtensions(QStringList() << "png"
                                          << "jpg"
                                          << "jpeg"
@@ -145,102 +147,92 @@ void HtmlGenerator::initializeGenerator(const Config &config)
         i++;
     }
 
-    style = config.getString(HtmlGenerator::format() + Config::dot + CONFIG_STYLE);
-    endHeader = config.getString(HtmlGenerator::format() + Config::dot + CONFIG_ENDHEADER);
-    postHeader = config.getString(HtmlGenerator::format() + Config::dot + HTMLGENERATOR_POSTHEADER);
+    style = config->getString(HtmlGenerator::format() + Config::dot + CONFIG_STYLE);
+    endHeader = config->getString(HtmlGenerator::format() + Config::dot + CONFIG_ENDHEADER);
+    postHeader =
+            config->getString(HtmlGenerator::format() + Config::dot + HTMLGENERATOR_POSTHEADER);
     postPostHeader =
-            config.getString(HtmlGenerator::format() + Config::dot + HTMLGENERATOR_POSTPOSTHEADER);
-    prologue = config.getString(HtmlGenerator::format() + Config::dot + HTMLGENERATOR_PROLOGUE);
+            config->getString(HtmlGenerator::format() + Config::dot + HTMLGENERATOR_POSTPOSTHEADER);
+    prologue = config->getString(HtmlGenerator::format() + Config::dot + HTMLGENERATOR_PROLOGUE);
 
-    footer = config.getString(HtmlGenerator::format() + Config::dot + HTMLGENERATOR_FOOTER);
-    address = config.getString(HtmlGenerator::format() + Config::dot + HTMLGENERATOR_ADDRESS);
+    footer = config->getString(HtmlGenerator::format() + Config::dot + HTMLGENERATOR_FOOTER);
+    address = config->getString(HtmlGenerator::format() + Config::dot + HTMLGENERATOR_ADDRESS);
     pleaseGenerateMacRef =
-            config.getBool(HtmlGenerator::format() + Config::dot + HTMLGENERATOR_GENERATEMACREFS);
+            config->getBool(HtmlGenerator::format() + Config::dot + HTMLGENERATOR_GENERATEMACREFS);
     noNavigationBar =
-            config.getBool(HtmlGenerator::format() + Config::dot + HTMLGENERATOR_NONAVIGATIONBAR);
-    navigationSeparator = config.getString(HtmlGenerator::format() + Config::dot
-                                           + HTMLGENERATOR_NAVIGATIONSEPARATOR);
-    tocDepth = config.getInt(HtmlGenerator::format() + Config::dot + HTMLGENERATOR_TOCDEPTH);
+            config->getBool(HtmlGenerator::format() + Config::dot + HTMLGENERATOR_NONAVIGATIONBAR);
+    navigationSeparator = config->getString(HtmlGenerator::format() + Config::dot
+                                            + HTMLGENERATOR_NAVIGATIONSEPARATOR);
+    tocDepth = config->getInt(HtmlGenerator::format() + Config::dot + HTMLGENERATOR_TOCDEPTH);
 
-    project = config.getString(CONFIG_PROJECT);
+    project = config->getString(CONFIG_PROJECT);
 
-    projectDescription = config.getString(CONFIG_DESCRIPTION);
+    projectDescription = config->getString(CONFIG_DESCRIPTION);
     if (projectDescription.isEmpty() && !project.isEmpty())
         projectDescription = project + QLatin1String(" Reference Documentation");
 
-    projectUrl = config.getString(CONFIG_URL);
-    tagFile_ = config.getString(CONFIG_TAGFILE);
+    projectUrl = config->getString(CONFIG_URL);
+    tagFile_ = config->getString(CONFIG_TAGFILE);
 
 #ifndef QT_NO_TEXTCODEC
-    outputEncoding = config.getString(CONFIG_OUTPUTENCODING);
+    outputEncoding = config->getString(CONFIG_OUTPUTENCODING);
     if (outputEncoding.isEmpty())
         outputEncoding = QLatin1String("UTF-8");
     outputCodec = QTextCodec::codecForName(outputEncoding.toLocal8Bit());
 #endif
 
-    naturalLanguage = config.getString(CONFIG_NATURALLANGUAGE);
+    naturalLanguage = config->getString(CONFIG_NATURALLANGUAGE);
     if (naturalLanguage.isEmpty())
         naturalLanguage = QLatin1String("en");
 
-    const QSet<QString> editionNames = config.subVars(CONFIG_EDITION);
-    for (const auto &editionName : editionNames) {
-        QStringList editionModules = config.getStringList(CONFIG_EDITION + Config::dot + editionName
-                                                          + Config::dot + "modules");
-        QStringList editionGroups = config.getStringList(CONFIG_EDITION + Config::dot + editionName
-                                                         + Config::dot + "groups");
-
-        if (!editionModules.isEmpty())
-            editionModuleMap[editionName] = editionModules;
-        if (!editionGroups.isEmpty())
-            editionGroupMap[editionName] = editionGroups;
-    }
-
-    codeIndent = config.getInt(CONFIG_CODEINDENT); // QTBUG-27798
-    codePrefix = config.getString(CONFIG_CODEPREFIX);
-    codeSuffix = config.getString(CONFIG_CODESUFFIX);
+    codeIndent = config->getInt(CONFIG_CODEINDENT); // QTBUG-27798
+    codePrefix = config->getString(CONFIG_CODEPREFIX);
+    codeSuffix = config->getString(CONFIG_CODESUFFIX);
 
     /*
       The help file write should be allocated once and only once
       per qdoc execution.
      */
     if (helpProjectWriter)
-        helpProjectWriter->reset(config, project.toLower() + ".qhp", this);
+        helpProjectWriter->reset(project.toLower() + ".qhp", this);
     else
-        helpProjectWriter = new HelpProjectWriter(config, project.toLower() + ".qhp", this);
+        helpProjectWriter = new HelpProjectWriter(project.toLower() + ".qhp", this);
 
     // Documentation template handling
-    headerScripts = config.getString(HtmlGenerator::format() + Config::dot + CONFIG_HEADERSCRIPTS);
-    headerStyles = config.getString(HtmlGenerator::format() + Config::dot + CONFIG_HEADERSTYLES);
+    headerScripts = config->getString(HtmlGenerator::format() + Config::dot + CONFIG_HEADERSCRIPTS);
+    headerStyles = config->getString(HtmlGenerator::format() + Config::dot + CONFIG_HEADERSTYLES);
 
     QString prefix = CONFIG_QHP + Config::dot + project + Config::dot;
     manifestDir =
-            QLatin1String("qthelp://") + config.getString(prefix + QLatin1String("namespace"));
-    manifestDir += QLatin1Char('/') + config.getString(prefix + QLatin1String("virtualFolder"))
+            QLatin1String("qthelp://") + config->getString(prefix + QLatin1String("namespace"));
+    manifestDir += QLatin1Char('/') + config->getString(prefix + QLatin1String("virtualFolder"))
             + QLatin1Char('/');
-    readManifestMetaContent(config);
-    examplesPath = config.getString(CONFIG_EXAMPLESINSTALLPATH);
+    readManifestMetaContent();
+    examplesPath = config->getString(CONFIG_EXAMPLESINSTALLPATH);
+    if (!examplesPath.isEmpty())
+        examplesPath += QLatin1Char('/');
 
     // Retrieve the config for the navigation bar
-    homepage = config.getString(CONFIG_NAVIGATION + Config::dot + CONFIG_HOMEPAGE);
+    homepage = config->getString(CONFIG_NAVIGATION + Config::dot + CONFIG_HOMEPAGE);
 
-    hometitle = config.getString(CONFIG_NAVIGATION + Config::dot + CONFIG_HOMETITLE, homepage);
+    hometitle = config->getString(CONFIG_NAVIGATION + Config::dot + CONFIG_HOMETITLE, homepage);
 
-    landingpage = config.getString(CONFIG_NAVIGATION + Config::dot + CONFIG_LANDINGPAGE);
+    landingpage = config->getString(CONFIG_NAVIGATION + Config::dot + CONFIG_LANDINGPAGE);
 
     landingtitle =
-            config.getString(CONFIG_NAVIGATION + Config::dot + CONFIG_LANDINGTITLE, landingpage);
+            config->getString(CONFIG_NAVIGATION + Config::dot + CONFIG_LANDINGTITLE, landingpage);
 
-    cppclassespage = config.getString(CONFIG_NAVIGATION + Config::dot + CONFIG_CPPCLASSESPAGE);
+    cppclassespage = config->getString(CONFIG_NAVIGATION + Config::dot + CONFIG_CPPCLASSESPAGE);
 
-    cppclassestitle = config.getString(CONFIG_NAVIGATION + Config::dot + CONFIG_CPPCLASSESTITLE,
-                                       QLatin1String("C++ Classes"));
+    cppclassestitle = config->getString(CONFIG_NAVIGATION + Config::dot + CONFIG_CPPCLASSESTITLE,
+                                        QLatin1String("C++ Classes"));
 
-    qmltypespage = config.getString(CONFIG_NAVIGATION + Config::dot + CONFIG_QMLTYPESPAGE);
+    qmltypespage = config->getString(CONFIG_NAVIGATION + Config::dot + CONFIG_QMLTYPESPAGE);
 
-    qmltypestitle = config.getString(CONFIG_NAVIGATION + Config::dot + CONFIG_QMLTYPESTITLE,
-                                     QLatin1String("QML Types"));
+    qmltypestitle = config->getString(CONFIG_NAVIGATION + Config::dot + CONFIG_QMLTYPESTITLE,
+                                      QLatin1String("QML Types"));
 
-    buildversion = config.getString(CONFIG_BUILDVERSION);
+    buildversion = config->getString(CONFIG_BUILDVERSION);
 }
 
 /*!
@@ -280,19 +272,19 @@ void HtmlGenerator::generateDocs()
     Node *qflags = qdb_->findClassNode(QStringList("QFlags"));
     if (qflags)
         qflagsHref_ = linkForNode(qflags, nullptr);
-    if (!preparing())
+    if (!config->preparing())
         Generator::generateDocs();
-    if (Generator::generating() && Generator::writeQaPages())
+    if (config->generating() && config->getBool(CONFIG_WRITEQAPAGES))
         generateQAPage();
 
-    if (!generating()) {
+    if (!config->generating()) {
         QString fileBase =
                 project.toLower().simplified().replace(QLatin1Char(' '), QLatin1Char('-'));
         qdb_->generateIndex(outputDir() + QLatin1Char('/') + fileBase + ".index", projectUrl,
                             projectDescription, this);
     }
 
-    if (!preparing()) {
+    if (!config->preparing()) {
         helpProjectWriter->generate();
         generateManifestFiles();
         /*
@@ -497,7 +489,8 @@ int HtmlGenerator::generateAtom(const Atom *atom, const Node *relative, CodeMark
             if (link.isEmpty()) {
                 out() << protectEnc(atom->string());
             } else {
-                if (Generator::writeQaPages() && node && (atom->type() != Atom::NavAutoLink)) {
+                if (config->getBool(CONFIG_WRITEQAPAGES)
+                        && node && (atom->type() != Atom::NavAutoLink)) {
                     QString text = atom->string();
                     QString target = qdb_->getNewLinkTarget(relative, node, outFileName(), text);
                     out() << "<a id=\"" << Doc::canonicalTitle(target)
@@ -823,7 +816,7 @@ int HtmlGenerator::generateAtom(const Atom *atom, const Node *relative, CodeMark
         out() << formattingRightMap()[ATOM_FORMATTING_BOLD];
         break;
     case Atom::NoteRight:
-        out() << "</p>";
+        out() << "</p>\n";
         break;
     case Atom::LegaleseLeft:
         out() << "<div class=\"LegaleseLeft\">";
@@ -841,13 +834,13 @@ int HtmlGenerator::generateAtom(const Atom *atom, const Node *relative, CodeMark
         QString link = getLink(atom, relative, &node);
         if (link.isEmpty() && (node != relative) && !noLinkErrors()) {
             relative->doc().location().warning(tr("Can't link to '%1'").arg(atom->string()));
-            if (Generator::writeQaPages() && (atom->type() != Atom::NavAutoLink)) {
+            if (config->getBool(CONFIG_WRITEQAPAGES) && (atom->type() != Atom::NavAutoLink)) {
                 QString text = atom->next()->next()->string();
                 QString target = qdb_->getNewLinkTarget(relative, node, outFileName(), text, true);
                 out() << "<a id=\"" << Doc::canonicalTitle(target) << "\" class=\"qa-mark\"></a>";
             }
         } else {
-            if (Generator::writeQaPages() && node && (atom->type() != Atom::NavLink)) {
+            if (config->getBool(CONFIG_WRITEQAPAGES) && node && (atom->type() != Atom::NavLink)) {
                 QString text = atom->next()->next()->string();
                 QString target = qdb_->getNewLinkTarget(relative, node, outFileName(), text);
                 out() << "<a id=\"" << Doc::canonicalTitle(target) << "\" class=\"qa-mark\"></a>";
@@ -1167,6 +1160,7 @@ void HtmlGenerator::generateCppReferencePage(Aggregate *aggregate, CodeMarker *m
 
     Sections sections(aggregate);
     QString word = aggregate->typeWord(true);
+    QString templateDecl = aggregate->templateDecl();
     if (aggregate->isNamespace()) {
         rawTitle = aggregate->plainName();
         fullTitle = aggregate->plainFullName();
@@ -1177,11 +1171,7 @@ void HtmlGenerator::generateCppReferencePage(Aggregate *aggregate, CodeMarker *m
     } else if (aggregate->isClassNode()) {
         rawTitle = aggregate->plainName();
         fullTitle = aggregate->plainFullName();
-        if (aggregate->isStruct())
-            word = QLatin1String("Struct");
-        else if (aggregate->isUnion())
-            word = QLatin1String("Union");
-        title = rawTitle + " " + word;
+        title = rawTitle + QLatin1Char(' ') + word;
         summarySections = &sections.stdCppClassSummarySections();
         detailsSections = &sections.stdCppClassDetailsSections();
     } else if (aggregate->isHeader()) {
@@ -1191,14 +1181,22 @@ void HtmlGenerator::generateCppReferencePage(Aggregate *aggregate, CodeMarker *m
     }
 
     Text subtitleText;
-    if (rawTitle != fullTitle) {
-        if (aggregate->parent()->isClassNode()) {
-            QString word2 = aggregate->parent()->typeWord(false);
-            subtitleText << word << " " << rawTitle << " is declared in " << word2 << " "
-                         << Atom(Atom::AutoLink, aggregate->parent()->plainName()) << "."
-                         << Atom(Atom::LineBreak);
+    if (rawTitle != fullTitle || !templateDecl.isEmpty()) {
+        if (aggregate->isClassNode()) {
+            if (!templateDecl.isEmpty())
+                subtitleText << templateDecl + QLatin1Char(' ');
+            subtitleText << aggregate->typeWord(false) + QLatin1Char(' ');
+            const QStringList ancestors = fullTitle.split(QLatin1String("::"));
+            for (const auto &a : ancestors) {
+                if (a == rawTitle) {
+                    subtitleText << a;
+                    break;
+                } else {
+                    subtitleText << Atom(Atom::AutoLink, a) << "::";
+                }
+            }
         } else {
-            subtitleText << "(" << Atom(Atom::AutoLink, fullTitle) << ")" << Atom(Atom::LineBreak);
+            subtitleText << fullTitle;
         }
     }
 
@@ -1633,33 +1631,36 @@ void HtmlGenerator::generateCollectionNode(CollectionNode *cn, CodeMarker *marke
     generateKeywordAnchors(cn);
     generateTitle(fullTitle, Text() << cn->subtitle(), subTitleSize, cn, marker);
 
-    if (cn->isModule()) {
-        // Generate brief text and status for modules.
-        generateBrief(cn, marker);
+    // Generate brief for C++ modules, status for all modules.
+    if (cn->genus() != Node::DOC && cn->genus() != Node::DontCare) {
+        if (cn->isModule())
+            generateBrief(cn, marker);
         generateStatus(cn, marker);
         generateSince(cn, marker);
-
-        NodeMultiMap nmm;
-        cn->getMemberNamespaces(nmm);
-        if (!nmm.isEmpty()) {
-            ref = registerRef("namespaces");
-            out() << "<a name=\"" << ref << "\"></a>" << divNavTop << '\n';
-            out() << "<h2 id=\"" << ref << "\">Namespaces</h2>\n";
-            generateAnnotatedList(cn, marker, nmm);
-        }
-        nmm.clear();
-        cn->getMemberClasses(nmm);
-        if (!nmm.isEmpty()) {
-            ref = registerRef("classes");
-            out() << "<a name=\"" << ref << "\"></a>" << divNavTop << '\n';
-            out() << "<h2 id=\"" << ref << "\">Classes</h2>\n";
-            generateAnnotatedList(cn, marker, nmm);
-        }
-        nmm.clear();
     }
 
-    Text brief = cn->doc().briefText();
-    if (cn->isModule() && !brief.isEmpty()) {
+    if (cn->isModule()) {
+        if (!cn->noAutoList()) {
+            NodeMultiMap nmm;
+            cn->getMemberNamespaces(nmm);
+            if (!nmm.isEmpty()) {
+                ref = registerRef("namespaces");
+                out() << "<a name=\"" << ref << "\"></a>" << divNavTop << '\n';
+                out() << "<h2 id=\"" << ref << "\">Namespaces</h2>\n";
+                generateAnnotatedList(cn, marker, nmm);
+            }
+            nmm.clear();
+            cn->getMemberClasses(nmm);
+            if (!nmm.isEmpty()) {
+                ref = registerRef("classes");
+                out() << "<a name=\"" << ref << "\"></a>" << divNavTop << '\n';
+                out() << "<h2 id=\"" << ref << "\">Classes</h2>\n";
+                generateAnnotatedList(cn, marker, nmm);
+            }
+        }
+    }
+
+    if (cn->isModule() && !cn->doc().briefText().isEmpty()) {
         generateExtractionMark(cn, DetailedDescriptionMark);
         ref = registerRef("details");
         out() << "<a name=\"" << ref << "\"></a>" << divNavTop << '\n';
@@ -2124,24 +2125,25 @@ void HtmlGenerator::generateQmlRequisites(QmlTypeNode *qcn, CodeMarker *marker)
 
     // add the module name and version to the map
     QString logicalModuleVersion;
-    const CollectionNode *collection =
-            qdb_->getCollectionNode(qcn->logicalModuleName(), qcn->nodeType());
-    if (collection != nullptr)
-        logicalModuleVersion = collection->logicalModuleVersion();
-    else
-        logicalModuleVersion = qcn->logicalModuleVersion();
+    const CollectionNode *collection = qcn->logicalModule();
 
-    if (logicalModuleVersion.isEmpty() || qcn->logicalModuleName().isEmpty())
-        qcn->doc().location().warning(tr("Could not resolve QML import "
-                                         "statement for type '%1'")
-                                              .arg(qcn->name()),
-                                      tr("Maybe you forgot to use the "
-                                         "'\\%1' command?")
-                                              .arg(COMMAND_INQMLMODULE));
+    // skip import statement of \internal collections
+    if (!collection || !collection->isInternal() || showInternal_) {
+        logicalModuleVersion =
+                collection ? collection->logicalModuleVersion() : qcn->logicalModuleVersion();
 
-    text.clear();
-    text << "import " + qcn->logicalModuleName() + QLatin1Char(' ') + logicalModuleVersion;
-    requisites.insert(importText, text);
+        if (logicalModuleVersion.isEmpty() || qcn->logicalModuleName().isEmpty())
+            qcn->doc().location().warning(tr("Could not resolve QML import "
+                                             "statement for type '%1'")
+                                                  .arg(qcn->name()),
+                                          tr("Maybe you forgot to use the "
+                                             "'\\%1' command?")
+                                                  .arg(COMMAND_INQMLMODULE));
+
+        text.clear();
+        text << "import " + qcn->logicalModuleName() + QLatin1Char(' ') + logicalModuleVersion;
+        requisites.insert(importText, text);
+    }
 
     // add the since and project into the map
     if (!qcn->since().isEmpty()) {
@@ -2269,13 +2271,15 @@ void HtmlGenerator::generateTableOfContents(const Node *node, CodeMarker *marker
     out() << "<ul>\n";
 
     if (node->isModule()) {
-        if (node->hasNamespaces()) {
-            out() << "<li class=\"level" << sectionNumber << "\"><a href=\"#"
-                  << registerRef("namespaces") << "\">Namespaces</a></li>\n";
-        }
-        if (node->hasClasses()) {
-            out() << "<li class=\"level" << sectionNumber << "\"><a href=\"#"
-                  << registerRef("classes") << "\">Classes</a></li>\n";
+        if (!static_cast<const CollectionNode *>(node)->noAutoList()) {
+            if (node->hasNamespaces()) {
+                out() << "<li class=\"level" << sectionNumber << "\"><a href=\"#"
+                      << registerRef("namespaces") << "\">Namespaces</a></li>\n";
+            }
+            if (node->hasClasses()) {
+                out() << "<li class=\"level" << sectionNumber << "\"><a href=\"#"
+                      << registerRef("classes") << "\">Classes</a></li>\n";
+            }
         }
         out() << "<li class=\"level" << sectionNumber << "\"><a href=\"#" << registerRef("details")
               << "\">Detailed Description</a></li>\n";
@@ -2906,8 +2910,7 @@ void HtmlGenerator::generateQmlItem(const Node *node, const Node *relative, Code
 
     // Look for the _ character in the member name followed by a number (or n):
     // this is intended to be rendered as a subscript.
-    marked.replace(QRegExp("<@param>([a-z]+)_([0-9]+|n)</@param>"),
-                   "<i>\\1<sub>\\2</sub></i>");
+    marked.replace(QRegExp("<@param>([a-z]+)_([0-9]+|n)</@param>"), "<i>\\1<sub>\\2</sub></i>");
 
     // Replace some markup by HTML tags. Do both the opening and the closing tag
     // in one go (instead of <@param> and </@param> separately, for instance).
@@ -3103,10 +3106,12 @@ void HtmlGenerator::generateSectionList(const Section &section, const Node *rela
             if (twoColumn)
                 out() << "</td></tr>\n</table></div>\n";
         }
-        if (hasPrivateSignals && alignNames)
-            generatePrivateSignalNote(relative, marker);
-        if (isInvokable && alignNames)
-            generateInvokableNote(relative, marker);
+        if (alignNames) {
+            if (hasPrivateSignals)
+                generateAddendum(relative, Generator::PrivateSignal, marker);
+            if (isInvokable)
+                generateAddendum(relative, Generator::Invokable, marker);
+        }
     }
 
     if (status != Section::Obsolete && section.style() == Section::Summary
@@ -3491,13 +3496,6 @@ void HtmlGenerator::generateDetailedMember(const Node *node, const PageNode *rel
             out() << "<p><b>Notifier signal:</b></p>\n";
             generateSectionList(notifiers, node, marker);
         }
-    } else if (node->isFunction()) {
-        const FunctionNode *fn = static_cast<const FunctionNode *>(node);
-        if (fn->isPrivateSignal())
-            generatePrivateSignalNote(node, marker);
-        if (fn->isInvokable())
-            generateInvokableNote(node, marker);
-        generateAssociatedPropertyNotes(const_cast<FunctionNode *>(fn));
     } else if (node->isEnumType()) {
         const EnumNode *etn = static_cast<const EnumNode *>(node);
         if (etn->flagsType()) {
@@ -3845,6 +3843,21 @@ void HtmlGenerator::generateManifestFiles()
 }
 
 /*!
+  Retrieve the install path for the \a example as specified with
+  the \meta command, or fall back to the one defined in .qdocconf.
+ */
+QString HtmlGenerator::retrieveInstallPath(const ExampleNode *example)
+{
+    QString installPath = example->doc().metaTagMap().value(QLatin1String("installpath"));
+    if (installPath.isEmpty())
+        installPath = examplesPath;
+    if (!installPath.isEmpty() && !installPath.endsWith(QLatin1Char('/')))
+        installPath += QLatin1Char('/');
+
+    return installPath;
+}
+
+/*!
   This function is called by generateManifestFiles(), once
   for each manifest file to be generated. \a manifest is the
   type of manifest file.
@@ -3893,13 +3906,7 @@ void HtmlGenerator::generateManifestFile(const QString &manifest, const QString 
             continue;
         }
 
-        // Retrieve the install path specified with \meta command,
-        // or fall back to the one defined in .qdocconf
-        QString installPath = en->doc().metaTagMap().value(QLatin1String("installpath"));
-        if (installPath.isEmpty())
-            installPath = examplesPath;
-        if (!installPath.isEmpty() && !installPath.endsWith(QLatin1Char('/')))
-            installPath += QLatin1Char('/');
+        const QString installPath = retrieveInstallPath(en);
         // attributes that are always written for the element
         usedAttributes.clear();
         usedAttributes << "name"
@@ -3910,33 +3917,9 @@ void HtmlGenerator::generateManifestFile(const QString &manifest, const QString 
         writer.writeAttribute("name", en->title());
         QString docUrl = manifestDir + fileBase(en) + ".html";
         writer.writeAttribute("docUrl", docUrl);
-        QStringList proFiles;
         const auto exampleFiles = en->files();
-        for (const QString &file : exampleFiles) {
-            if (file.endsWith(".pro") || file.endsWith(".qmlproject")
-                || file.endsWith(".pyproject"))
-                proFiles << file;
-        }
-        if (!proFiles.isEmpty()) {
-            if (proFiles.size() == 1) {
-                writer.writeAttribute("projectPath", installPath + proFiles[0]);
-            } else {
-                QString exampleName = en->name().split('/').last();
-                bool proWithExampleNameFound = false;
-                for (int j = 0; j < proFiles.size(); j++) {
-                    if (proFiles[j].endsWith(QStringLiteral("%1/%1.pro").arg(exampleName))
-                        || proFiles[j].endsWith(QStringLiteral("%1/%1.qmlproject").arg(exampleName))
-                        || proFiles[j].endsWith(
-                                QStringLiteral("%1/%1.pyproject").arg(exampleName))) {
-                        writer.writeAttribute("projectPath", installPath + proFiles[j]);
-                        proWithExampleNameFound = true;
-                        break;
-                    }
-                }
-                if (!proWithExampleNameFound)
-                    writer.writeAttribute("projectPath", installPath + proFiles[0]);
-            }
-        }
+        if (!en->projectFile().isEmpty())
+            writer.writeAttribute("projectPath", installPath + en->projectFile());
         if (!en->imageFileName().isEmpty()) {
             writer.writeAttribute("imageUrl", manifestDir + en->imageFileName());
             usedAttributes << "imageUrl";
@@ -3944,8 +3927,8 @@ void HtmlGenerator::generateManifestFile(const QString &manifest, const QString 
 
         QString fullName = project + QLatin1Char('/') + en->title();
         QSet<QString> tags;
-        for (int idx = 0; idx < manifestMetaContent.size(); ++idx) {
-            const auto names = manifestMetaContent[idx].names;
+        for (const auto &index : manifestMetaContent) {
+            const auto &names = index.names;
             for (const QString &name : names) {
                 bool match = false;
                 int wildcard = name.indexOf(QChar('*'));
@@ -3960,8 +3943,8 @@ void HtmlGenerator::generateManifestFile(const QString &manifest, const QString 
                     match = fullName.startsWith(name.left(wildcard));
                 }
                 if (match) {
-                    tags += manifestMetaContent[idx].tags;
-                    const auto attributes = manifestMetaContent[idx].attributes;
+                    tags += index.tags;
+                    const auto attributes = index.attributes;
                     for (const QString &attr : attributes) {
                         QLatin1Char div(':');
                         QStringList attrList = attr.split(div);
@@ -4093,8 +4076,9 @@ void HtmlGenerator::generateManifestFile(const QString &manifest, const QString 
   The manifest metacontent map is cleared immediately after
   the manifest files have been generated.
  */
-void HtmlGenerator::readManifestMetaContent(const Config &config)
+void HtmlGenerator::readManifestMetaContent()
 {
+    Config &config = Config::instance();
     const QStringList names =
             config.getStringList(CONFIG_MANIFESTMETA + Config::dot + QStringLiteral("filters"));
 
@@ -4197,42 +4181,6 @@ void HtmlGenerator::reportOrphans(const Aggregate *parent)
 QXmlStreamWriter &HtmlGenerator::xmlWriter()
 {
     return *xmlWriterStack.top();
-}
-
-/*!
-  Generates bold Note lines that explain how function \a fn
-  is associated with each of its associated properties.
- */
-void HtmlGenerator::generateAssociatedPropertyNotes(FunctionNode *fn)
-{
-    if (fn->hasAssociatedProperties()) {
-        out() << "<p><b>Note:</b> ";
-        NodeList &nodes = fn->associatedProperties();
-        std::sort(nodes.begin(), nodes.end(), Node::nodeNameLessThan);
-        for (const auto *node : qAsConst(nodes)) {
-            QString msg;
-            const PropertyNode *pn = static_cast<const PropertyNode *>(node);
-            switch (pn->role(fn)) {
-            case PropertyNode::Getter:
-                msg = QStringLiteral("Getter function ");
-                break;
-            case PropertyNode::Setter:
-                msg = QStringLiteral("Setter function ");
-                break;
-            case PropertyNode::Resetter:
-                msg = QStringLiteral("Resetter function ");
-                break;
-            case PropertyNode::Notifier:
-                msg = QStringLiteral("Notifier signal ");
-                break;
-            default:
-                break;
-            }
-            QString link = linkForNode(pn, nullptr);
-            out() << msg << "for property <a href=\"" << link << "\">" << pn->name() << "</a>. ";
-        }
-        out() << "</p>";
-    }
 }
 
 QT_END_NAMESPACE

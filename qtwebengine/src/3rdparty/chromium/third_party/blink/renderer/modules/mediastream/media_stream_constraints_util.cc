@@ -2,18 +2,16 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "third_party/blink/public/web/modules/mediastream/media_stream_constraints_util.h"
+#include "third_party/blink/renderer/modules/mediastream/media_stream_constraints_util.h"
 
 #include <algorithm>
 #include <limits>
 #include <utility>
 
-#include "base/strings/string_number_conversions.h"
-#include "base/strings/utf_string_conversions.h"
 #include "third_party/blink/public/common/mediastream/media_stream_request.h"
 #include "third_party/blink/public/platform/web_string.h"
-#include "third_party/blink/public/web/modules/mediastream/media_stream_constraints_util_sets.h"
-#include "third_party/blink/public/web/modules/mediastream/media_stream_constraints_util_video_device.h"
+#include "third_party/blink/renderer/modules/mediastream/media_stream_constraints_util_sets.h"
+#include "third_party/blink/renderer/modules/mediastream/media_stream_constraints_util_video_device.h"
 
 namespace blink {
 
@@ -156,12 +154,14 @@ AudioCaptureSettings::AudioCaptureSettings(
     const base::Optional<int>& requested_buffer_size,
     bool disable_local_echo,
     bool enable_automatic_output_device_selection,
+    ProcessingType processing_type,
     const AudioProcessingProperties& audio_processing_properties)
     : failed_constraint_name_(nullptr),
       device_id_(std::move(device_id)),
       requested_buffer_size_(requested_buffer_size),
       disable_local_echo_(disable_local_echo),
       render_to_associated_sink_(enable_automatic_output_device_selection),
+      processing_type_(processing_type),
       audio_processing_properties_(audio_processing_properties) {}
 
 AudioCaptureSettings::AudioCaptureSettings(const AudioCaptureSettings& other) =
@@ -206,50 +206,6 @@ bool GetConstraintValueAsDouble(
     const DoubleConstraint WebMediaTrackConstraintSet::*picker,
     double* value) {
   return ScanConstraintsForExactValue(constraints, picker, value);
-}
-
-bool GetConstraintMinAsDouble(
-    const WebMediaConstraints& constraints,
-    const DoubleConstraint WebMediaTrackConstraintSet::*picker,
-    double* value) {
-  return ScanConstraintsForMinValue(constraints, picker, value);
-}
-
-bool GetConstraintMaxAsDouble(
-    const WebMediaConstraints& constraints,
-    const DoubleConstraint WebMediaTrackConstraintSet::*picker,
-    double* value) {
-  return ScanConstraintsForMaxValue(constraints, picker, value);
-}
-
-bool GetConstraintValueAsString(
-    const WebMediaConstraints& constraints,
-    const StringConstraint WebMediaTrackConstraintSet::*picker,
-    std::string* value) {
-  WebVector<WebString> return_value;
-  if (ScanConstraintsForExactValue(constraints, picker, &return_value)) {
-    *value = return_value[0].Utf8();
-    return true;
-  }
-  return false;
-}
-
-std::string GetMediaStreamSource(const WebMediaConstraints& constraints) {
-  std::string source;
-  if (constraints.Basic().media_stream_source.HasIdeal() &&
-      constraints.Basic().media_stream_source.Ideal().size() > 0) {
-    source = constraints.Basic().media_stream_source.Ideal()[0].Utf8();
-  }
-  if (constraints.Basic().media_stream_source.HasExact() &&
-      constraints.Basic().media_stream_source.Exact().size() > 0) {
-    source = constraints.Basic().media_stream_source.Exact()[0].Utf8();
-  }
-
-  return source;
-}
-
-bool IsDeviceCapture(const WebMediaConstraints& constraints) {
-  return GetMediaStreamSource(constraints).empty();
 }
 
 VideoTrackAdapterSettings SelectVideoTrackAdapterSettings(

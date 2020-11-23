@@ -1,0 +1,42 @@
+// Copyright 2017 The Chromium Authors. All rights reserved.
+// Use of this source code is governed by a BSD-style license that can be
+// found in the LICENSE file.
+
+// based on chrome/common/plugin.mojom
+module chrome.mojom;
+
+import "mojo/public/mojom/base/file_path.mojom";
+import "mojo/public/mojom/base/string16.mojom";
+
+// These are only used internally, so the order does not matter.
+enum PluginStatus {
+  kAllowed,
+  // Plugin is blocked, but still can be manually loaded via context menu.
+  kBlocked,
+  // Plugin is blocked by policy, so it cannot be manually loaded.
+  kBlockedByPolicy,
+  // Plugin is blocked, and cannot be manually loaded via context menu.
+  kBlockedNoLoading,
+  kComponentUpdateRequired,
+  kDisabled,
+  // Flash is blocked, but user can click on the placeholder to trigger the
+  // Flash permission prompt.
+  kFlashHiddenPreferHtml,
+  kNotFound,
+  kOutdatedBlocked,
+  kOutdatedDisallowed,
+  kPlayImportantContent,
+  kRestartRequired,
+  kUnauthorized,
+};
+
+[Native]
+struct WebPluginInfo;
+
+struct PluginInfo {
+  PluginStatus status;
+  WebPluginInfo plugin;
+  string actual_mime_type;
+  string group_identifier;
+  mojo_base.mojom.String16 group_name;
+};

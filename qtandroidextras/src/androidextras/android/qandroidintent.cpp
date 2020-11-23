@@ -50,9 +50,11 @@ QT_BEGIN_NAMESPACE
 /*!
     \class QAndroidIntent
     \inmodule QtAndroidExtras
+    \brief Wraps the most important methods of Android Intent class.
 
     The QAndroidIntent is a convenience class that wraps the most important
-    \l {https://developer.android.com/reference/android/content/Intent.html} {Android Intent} methods.
+    \l {https://developer.android.com/reference/android/content/Intent.html}{Android Intent}
+    methods.
 
     \since 5.10
 */

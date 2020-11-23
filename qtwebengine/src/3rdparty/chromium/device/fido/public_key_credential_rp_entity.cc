@@ -78,12 +78,12 @@ bool PublicKeyCredentialRpEntity::operator==(
 
 cbor::Value AsCBOR(const PublicKeyCredentialRpEntity& entity) {
   cbor::Value::MapValue rp_map;
-  rp_map.emplace(kEntityIdMapKey, entity.id);
+  rp_map.emplace(kEntityIdMapKey, cbor::Value(entity.id));
   if (entity.name)
-    rp_map.emplace(kEntityNameMapKey, *entity.name);
+    rp_map.emplace(kEntityNameMapKey, cbor::Value(*entity.name));
 
   if (entity.icon_url)
-    rp_map.emplace(kIconUrlMapKey, entity.icon_url->spec());
+    rp_map.emplace(kIconUrlMapKey, cbor::Value(entity.icon_url->spec()));
 
   return cbor::Value(std::move(rp_map));
 }

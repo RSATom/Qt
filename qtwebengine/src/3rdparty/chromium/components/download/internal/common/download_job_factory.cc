@@ -6,6 +6,7 @@
 
 #include <memory>
 
+#include "base/memory/weak_ptr.h"
 #include "components/download/internal/common/download_job_impl.h"
 #include "components/download/internal/common/parallel_download_job.h"
 #include "components/download/internal/common/parallel_download_utils.h"
@@ -13,7 +14,6 @@
 #include "components/download/public/common/download_features.h"
 #include "components/download/public/common/download_item.h"
 #include "components/download/public/common/download_stats.h"
-#include "components/download/public/common/download_url_loader_factory_getter.h"
 #include "net/url_request/url_request_context_getter.h"
 
 namespace download {
@@ -29,42 +29,14 @@ enum class ConnectionType {
 
 ConnectionType GetConnectionType(
     net::HttpResponseInfo::ConnectionInfo connection_info) {
-  switch (connection_info) {
-    case net::HttpResponseInfo::CONNECTION_INFO_HTTP0_9:
-    case net::HttpResponseInfo::CONNECTION_INFO_HTTP1_0:
-    case net::HttpResponseInfo::CONNECTION_INFO_HTTP1_1:
+  switch (net::HttpResponseInfo::ConnectionInfoToCoarse(connection_info)) {
+    case net::HttpResponseInfo::CONNECTION_INFO_COARSE_HTTP1:
       return ConnectionType::kHTTP;
-    case net::HttpResponseInfo::CONNECTION_INFO_DEPRECATED_SPDY2:
-    case net::HttpResponseInfo::CONNECTION_INFO_DEPRECATED_SPDY3:
-    case net::HttpResponseInfo::CONNECTION_INFO_DEPRECATED_HTTP2_14:
-    case net::HttpResponseInfo::CONNECTION_INFO_DEPRECATED_HTTP2_15:
-    case net::HttpResponseInfo::CONNECTION_INFO_HTTP2:
+    case net::HttpResponseInfo::CONNECTION_INFO_COARSE_HTTP2:
       return ConnectionType::kHTTP2;
-    case net::HttpResponseInfo::CONNECTION_INFO_QUIC_UNKNOWN_VERSION:
-    case net::HttpResponseInfo::CONNECTION_INFO_QUIC_32:
-    case net::HttpResponseInfo::CONNECTION_INFO_QUIC_33:
-    case net::HttpResponseInfo::CONNECTION_INFO_QUIC_34:
-    case net::HttpResponseInfo::CONNECTION_INFO_QUIC_35:
-    case net::HttpResponseInfo::CONNECTION_INFO_QUIC_36:
-    case net::HttpResponseInfo::CONNECTION_INFO_QUIC_37:
-    case net::HttpResponseInfo::CONNECTION_INFO_QUIC_38:
-    case net::HttpResponseInfo::CONNECTION_INFO_QUIC_39:
-    case net::HttpResponseInfo::CONNECTION_INFO_QUIC_40:
-    case net::HttpResponseInfo::CONNECTION_INFO_QUIC_41:
-    case net::HttpResponseInfo::CONNECTION_INFO_QUIC_42:
-    case net::HttpResponseInfo::CONNECTION_INFO_QUIC_43:
-    case net::HttpResponseInfo::CONNECTION_INFO_QUIC_44:
-    case net::HttpResponseInfo::CONNECTION_INFO_QUIC_45:
-    case net::HttpResponseInfo::CONNECTION_INFO_QUIC_46:
-    case net::HttpResponseInfo::CONNECTION_INFO_QUIC_47:
-    case net::HttpResponseInfo::CONNECTION_INFO_QUIC_48:
-    case net::HttpResponseInfo::CONNECTION_INFO_QUIC_99:
-    case net::HttpResponseInfo::CONNECTION_INFO_QUIC_999:
+    case net::HttpResponseInfo::CONNECTION_INFO_COARSE_QUIC:
       return ConnectionType::kQUIC;
-    case net::HttpResponseInfo::CONNECTION_INFO_UNKNOWN:
-      return ConnectionType::kUnknown;
-    case net::HttpResponseInfo::NUM_OF_CONNECTION_INFOS:
-      NOTREACHED();
+    case net::HttpResponseInfo::CONNECTION_INFO_COARSE_OTHER:
       return ConnectionType::kUnknown;
   }
   NOTREACHED();
@@ -160,30 +132,28 @@ bool IsParallelizableDownload(const DownloadCreateInfo& create_info,
 // static
 std::unique_ptr<DownloadJob> DownloadJobFactory::CreateJob(
     DownloadItem* download_item,
-    std::unique_ptr<DownloadRequestHandleInterface> req_handle,
+    DownloadJob::CancelRequestCallback cancel_request_callback,
     const DownloadCreateInfo& create_info,
     bool is_save_package_download,
-    scoped_refptr<download::DownloadURLLoaderFactoryGetter>
-        url_loader_factory_getter,
-    net::URLRequestContextGetter* url_request_context_getter,
+    URLLoaderFactoryProvider::URLLoaderFactoryProviderPtr
+        url_loader_factory_provider,
     service_manager::Connector* connector) {
   if (is_save_package_download) {
-    return std::make_unique<SavePackageDownloadJob>(download_item,
-                                                    std::move(req_handle));
+    return std::make_unique<SavePackageDownloadJob>(
+        download_item, std::move(cancel_request_callback));
   }
 
   bool is_parallelizable = IsParallelizableDownload(create_info, download_item);
   // Build parallel download job.
   if (IsParallelDownloadEnabled() && is_parallelizable) {
     return std::make_unique<ParallelDownloadJob>(
-        download_item, std::move(req_handle), create_info,
-        std::move(url_loader_factory_getter), url_request_context_getter,
-        connector);
+        download_item, std::move(cancel_request_callback), create_info,
+        std::move(url_loader_factory_provider), connector);
   }
 
   // An ordinary download job.
-  return std::make_unique<DownloadJobImpl>(download_item, std::move(req_handle),
-                                           is_parallelizable);
+  return std::make_unique<DownloadJobImpl>(
+      download_item, std::move(cancel_request_callback), is_parallelizable);
 }
 
 }  // namespace download

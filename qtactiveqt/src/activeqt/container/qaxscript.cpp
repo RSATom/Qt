@@ -63,6 +63,7 @@
 #include <qmetaobject.h>
 #include <quuid.h>
 #include <qwidget.h>
+#include <qvector.h>
 
 #include <qt_windows.h>
 #ifndef QT_NO_QAXSCRIPT
@@ -75,7 +76,7 @@
 QT_BEGIN_NAMESPACE
 
 struct QAxEngineDescriptor { QString name, extension, code; };
-static QList<QAxEngineDescriptor> engines;
+static QVector<QAxEngineDescriptor> engines;
 
 class QAxScriptManagerPrivate
 {
@@ -1187,7 +1188,7 @@ QVariant QAxScriptManager::call(const QString &function, QList<QVariant> &argume
         return QVariant();
     }
 
-    QList<QVariant> args(arguments);
+    QVariantList args(arguments);
     return s->call(function, args);
 }
 

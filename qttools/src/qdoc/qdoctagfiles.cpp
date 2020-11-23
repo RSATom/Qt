@@ -181,8 +181,9 @@ void QDocTagFiles::generateTagFileMembers(QXmlStreamWriter &writer, const Aggreg
         switch (node->nodeType()) {
         case Node::Enum:
             nodeName = "member";
-            kind = "enum";
+            kind = "enumeration";
             break;
+        case Node::TypeAlias: // Treated as typedef
         case Node::Typedef:
             nodeName = "member";
             kind = "typedef";
@@ -260,7 +261,8 @@ void QDocTagFiles::generateTagFileMembers(QXmlStreamWriter &writer, const Aggreg
                 writer.writeTextElement("type", "virtual " + functionNode->returnType());
 
             writer.writeTextElement("name", objName);
-            QStringList pieces = gen_->fullDocumentLocation(node, false).split(QLatin1Char('#'));
+            const QStringList pieces =
+                    gen_->fullDocumentLocation(node, false).split(QLatin1Char('#'));
             writer.writeTextElement("anchorfile", pieces[0]);
             writer.writeTextElement("anchor", pieces[1]);
             QString signature = functionNode->signature(false, false);
@@ -281,7 +283,8 @@ void QDocTagFiles::generateTagFileMembers(QXmlStreamWriter &writer, const Aggreg
             const PropertyNode *propertyNode = static_cast<const PropertyNode *>(node);
             writer.writeAttribute("type", propertyNode->dataType());
             writer.writeTextElement("name", objName);
-            QStringList pieces = gen_->fullDocumentLocation(node, false).split(QLatin1Char('#'));
+            const QStringList pieces =
+                    gen_->fullDocumentLocation(node, false).split(QLatin1Char('#'));
             writer.writeTextElement("anchorfile", pieces[0]);
             writer.writeTextElement("anchor", pieces[1]);
             writer.writeTextElement("arglist", QString());
@@ -291,20 +294,23 @@ void QDocTagFiles::generateTagFileMembers(QXmlStreamWriter &writer, const Aggreg
         case Node::Enum: {
             const EnumNode *enumNode = static_cast<const EnumNode *>(node);
             writer.writeTextElement("name", objName);
-            QStringList pieces = gen_->fullDocumentLocation(node, false).split(QLatin1Char('#'));
+            const QStringList pieces =
+                    gen_->fullDocumentLocation(node, false).split(QLatin1Char('#'));
+            writer.writeTextElement("anchorfile", pieces[0]);
             writer.writeTextElement("anchor", pieces[1]);
-            writer.writeTextElement("arglist", QString());
             writer.writeEndElement(); // member
 
-            for (int i = 0; i < enumNode->items().size(); ++i) {
-                EnumItem item = enumNode->items().value(i);
+            for (const auto &item : enumNode->items()) {
                 writer.writeStartElement("member");
-                writer.writeAttribute("name", item.name());
+                writer.writeAttribute("kind", "enumvalue");
+                writer.writeTextElement("name", item.name());
+                writer.writeTextElement("anchorfile", pieces[0]);
                 writer.writeTextElement("anchor", pieces[1]);
                 writer.writeTextElement("arglist", QString());
                 writer.writeEndElement(); // member
             }
         } break;
+        case Node::TypeAlias: // Treated as typedef
         case Node::Typedef: {
             const TypedefNode *typedefNode = static_cast<const TypedefNode *>(node);
             if (typedefNode->associatedEnum())
@@ -312,7 +318,8 @@ void QDocTagFiles::generateTagFileMembers(QXmlStreamWriter &writer, const Aggreg
             else
                 writer.writeAttribute("type", QString());
             writer.writeTextElement("name", objName);
-            QStringList pieces = gen_->fullDocumentLocation(node, false).split(QLatin1Char('#'));
+            const QStringList pieces =
+                    gen_->fullDocumentLocation(node, false).split(QLatin1Char('#'));
             writer.writeTextElement("anchorfile", pieces[0]);
             writer.writeTextElement("anchor", pieces[1]);
             writer.writeTextElement("arglist", QString());

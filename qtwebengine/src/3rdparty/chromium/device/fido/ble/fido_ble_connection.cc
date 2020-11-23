@@ -49,7 +49,7 @@ constexpr const char* ToString(BluetoothDevice::ConnectErrorCode error_code) {
     case BluetoothDevice::ERROR_UNSUPPORTED_DEVICE:
       return "ERROR_UNSUPPORTED_DEVICE";
     default:
-      NOTREACHED();
+//       NOTREACHED();
       return "";
   }
 }
@@ -73,7 +73,7 @@ constexpr const char* ToString(BluetoothGattService::GattErrorCode error_code) {
     case BluetoothGattService::GATT_ERROR_NOT_SUPPORTED:
       return "GATT_ERROR_NOT_SUPPORTED";
     default:
-      NOTREACHED();
+//       NOTREACHED();
       return "";
   }
 }
@@ -149,14 +149,12 @@ void OnReadServiceRevisionBitfieldError(
 
 }  // namespace
 
-FidoBleConnection::FidoBleConnection(
-    BluetoothAdapter* adapter,
-    std::string device_address,
-    ReadCallback read_callback)
+FidoBleConnection::FidoBleConnection(BluetoothAdapter* adapter,
+                                     std::string device_address,
+                                     ReadCallback read_callback)
     : adapter_(adapter),
       address_(std::move(device_address)),
-      read_callback_(std::move(read_callback)),
-      weak_factory_(this) {
+      read_callback_(std::move(read_callback)) {
   DCHECK(adapter_);
   adapter_->AddObserver(this);
   DCHECK(!address_.empty());
@@ -176,9 +174,7 @@ const BluetoothDevice* FidoBleConnection::GetBleDevice() const {
 
 FidoBleConnection::FidoBleConnection(BluetoothAdapter* adapter,
                                      std::string device_address)
-    : adapter_(adapter),
-      address_(std::move(device_address)),
-      weak_factory_(this) {
+    : adapter_(adapter), address_(std::move(device_address)) {
   adapter_->AddObserver(this);
 }
 
@@ -193,11 +189,12 @@ void FidoBleConnection::Connect(ConnectionCallback callback) {
 
   pending_connection_callback_ = std::move(callback);
   FIDO_LOG(DEBUG) << "Creating a GATT connection...";
+  // TODO(crbug.com/1007780): This function should take OnceCallbacks.
   device->CreateGattConnection(
-      base::Bind(&FidoBleConnection::OnCreateGattConnection,
-                 weak_factory_.GetWeakPtr()),
-      base::Bind(&FidoBleConnection::OnCreateGattConnectionError,
-                 weak_factory_.GetWeakPtr()));
+      base::BindRepeating(&FidoBleConnection::OnCreateGattConnection,
+                          weak_factory_.GetWeakPtr()),
+      base::BindRepeating(&FidoBleConnection::OnCreateGattConnectionError,
+                          weak_factory_.GetWeakPtr()));
 }
 
 void FidoBleConnection::ReadControlPointLength(
@@ -230,8 +227,8 @@ void FidoBleConnection::ReadControlPointLength(
   // ReadRemoteCharacteristic() gets invoked, but we don't know which one.
   auto copyable_callback = base::AdaptCallbackForRepeating(std::move(callback));
   control_point_length->ReadRemoteCharacteristic(
-      base::Bind(OnReadControlPointLength, copyable_callback),
-      base::Bind(OnReadControlPointLengthError, copyable_callback));
+      base::BindOnce(OnReadControlPointLength, copyable_callback),
+      base::BindOnce(OnReadControlPointLengthError, copyable_callback));
 }
 
 void FidoBleConnection::WriteControlPoint(const std::vector<uint8_t>& data,
@@ -274,8 +271,8 @@ void FidoBleConnection::WriteControlPoint(const std::vector<uint8_t>& data,
   FIDO_LOG(DEBUG) << "Wrote Control Point.";
   auto copyable_callback = base::AdaptCallbackForRepeating(std::move(callback));
   control_point->WriteRemoteCharacteristic(
-      data, base::Bind(OnWriteRemoteCharacteristic, copyable_callback),
-      base::Bind(OnWriteRemoteCharacteristicError, copyable_callback));
+      data, base::BindOnce(OnWriteRemoteCharacteristic, copyable_callback),
+      base::BindOnce(OnWriteRemoteCharacteristicError, copyable_callback));
 }
 
 void FidoBleConnection::OnCreateGattConnection(
@@ -366,12 +363,14 @@ void FidoBleConnection::ConnectToFidoService() {
   // supported version by writing the corresponding bit. Reference:
   // https://fidoalliance.org/specs/fido-v2.0-rd-20180702/fido-client-to-authenticator-protocol-v2.0-rd-20180702.html#ble-protocol-overview
   if (service_revision_bitfield_id_) {
-    auto callback = base::Bind(&FidoBleConnection::OnReadServiceRevisions,
-                               weak_factory_.GetWeakPtr());
+    // This callback is only repeating so that it can be bound to two different
+    // callbacks.
+    auto callback = base::BindRepeating(
+        &FidoBleConnection::OnReadServiceRevisions, weak_factory_.GetWeakPtr());
     fido_service->GetCharacteristic(*service_revision_bitfield_id_)
         ->ReadRemoteCharacteristic(
-            base::Bind(OnReadServiceRevisionBitfield, callback),
-            base::Bind(OnReadServiceRevisionBitfieldError, callback));
+            base::BindOnce(OnReadServiceRevisionBitfield, callback),
+            base::BindOnce(OnReadServiceRevisionBitfieldError, callback));
     return;
   }
 
@@ -415,8 +414,8 @@ void FidoBleConnection::WriteServiceRevision(ServiceRevision service_revision) {
   fido_service->GetCharacteristic(*service_revision_bitfield_id_)
       ->WriteRemoteCharacteristic(
           {static_cast<uint8_t>(service_revision)},
-          base::Bind(OnWriteRemoteCharacteristic, copyable_callback),
-          base::Bind(OnWriteRemoteCharacteristicError, copyable_callback));
+          base::BindOnce(OnWriteRemoteCharacteristic, copyable_callback),
+          base::BindOnce(OnWriteRemoteCharacteristicError, copyable_callback));
 }
 
 void FidoBleConnection::OnServiceRevisionWritten(bool success) {
@@ -444,10 +443,10 @@ void FidoBleConnection::StartNotifySession() {
   DCHECK(status_id_);
   fido_service->GetCharacteristic(*status_id_)
       ->StartNotifySession(
-          base::Bind(&FidoBleConnection::OnStartNotifySession,
-                     weak_factory_.GetWeakPtr()),
-          base::Bind(&FidoBleConnection::OnStartNotifySessionError,
-                     weak_factory_.GetWeakPtr()));
+          base::BindOnce(&FidoBleConnection::OnStartNotifySession,
+                         weak_factory_.GetWeakPtr()),
+          base::BindOnce(&FidoBleConnection::OnStartNotifySessionError,
+                         weak_factory_.GetWeakPtr()));
 }
 
 void FidoBleConnection::OnStartNotifySession(
@@ -505,8 +504,6 @@ const BluetoothRemoteGattService* FidoBleConnection::GetFidoService() {
     // and a caBLE device.
     if (service->GetUUID() == BluetoothUUID(kFidoServiceUUID) ||
         service->GetUUID() == BluetoothUUID(kCableAdvertisementUUID128)) {
-      FIDO_LOG(EVENT) << "Found caBLE service UUID: "
-                      << service->GetUUID().value();
       return service;
     }
   }

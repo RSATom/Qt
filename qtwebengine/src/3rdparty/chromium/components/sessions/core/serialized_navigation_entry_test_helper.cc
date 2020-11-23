@@ -18,7 +18,8 @@ const int kIndex = 3;
 const int kUniqueID = 50;
 const GURL kReferrerURL = GURL("http://www.referrer.com");
 const int kReferrerPolicy = 0;
-const GURL kVirtualURL= GURL("http://www.virtual-url.com");
+const GURL kURL = GURL("http://www.url.com");
+const GURL kVirtualURL = GURL("http://www.virtual-url.com");
 const base::string16 kTitle = base::ASCIIToUTF16("title");
 const std::string kEncodedPageState = "page state";
 const ui::PageTransition kTransitionType =
@@ -65,21 +66,6 @@ void SerializedNavigationEntryTestHelper::ExpectNavigationEquals(
   EXPECT_EQ(expected.original_request_url_, actual.original_request_url_);
   EXPECT_EQ(expected.is_overriding_user_agent_,
             actual.is_overriding_user_agent_);
-}
-
-// static
-SerializedNavigationEntry SerializedNavigationEntryTestHelper::CreateNavigation(
-    const std::string& virtual_url,
-    const std::string& title) {
-  SerializedNavigationEntry navigation;
-  navigation.index_ = 0;
-  navigation.referrer_url_ = GURL("http://www.referrer.com");
-  navigation.virtual_url_ = GURL(virtual_url);
-  navigation.title_ = base::UTF8ToUTF16(title);
-  navigation.encoded_page_state_ = "fake state";
-  navigation.timestamp_ = base::Time::Now();
-  navigation.http_status_code_ = 200;
-  return navigation;
 }
 
 // static

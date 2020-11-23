@@ -29,7 +29,6 @@ namespace {
 
 // Maximum trace config file size that will be loaded, in bytes.
 const size_t kTraceConfigFileSizeLimit = 64 * 1024;
-const int kDefaultStartupDuration = 5;
 
 // Trace config file path:
 // - Android: /data/local/chrome-trace-config.json
@@ -73,21 +72,17 @@ TraceStartupConfig::GetDefaultBrowserStartupConfig() {
   // First 10k events at start are sufficient to debug startup traces.
   trace_config.SetTraceBufferSizeInEvents(10000);
   trace_config.SetProcessFilterConfig(process_config);
-  // Enable argument filter since we could be background tracing.
-  trace_config.EnableArgumentFilter();
   return trace_config;
 }
 
 TraceStartupConfig::TraceStartupConfig() {
   auto* command_line = base::CommandLine::ForCurrentProcess();
-  if (!command_line->HasSwitch(switches::kDisablePerfetto)) {
-    const std::string value =
-        command_line->GetSwitchValueASCII(switches::kTraceStartupOwner);
-    if (value == "devtools") {
-      session_owner_ = SessionOwner::kDevToolsTracingHandler;
-    } else if (value == "system") {
-      session_owner_ = SessionOwner::kSystemTracing;
-    }
+  const std::string value =
+      command_line->GetSwitchValueASCII(switches::kTraceStartupOwner);
+  if (value == "devtools") {
+    session_owner_ = SessionOwner::kDevToolsTracingHandler;
+  } else if (value == "system") {
+    session_owner_ = SessionOwner::kSystemTracing;
   }
 
   if (EnableFromCommandLine()) {
@@ -118,7 +113,7 @@ void TraceStartupConfig::SetDisabled() {
 }
 
 bool TraceStartupConfig::IsTracingStartupForDuration() const {
-  return IsEnabled() && startup_duration_ > 0 &&
+  return IsEnabled() && startup_duration_in_seconds_ > 0 &&
          session_owner_ == SessionOwner::kTracingController;
 }
 
@@ -129,7 +124,7 @@ base::trace_event::TraceConfig TraceStartupConfig::GetTraceConfig() const {
 
 int TraceStartupConfig::GetStartupDuration() const {
   DCHECK(IsEnabled() || IsUsingPerfettoOutput());
-  return startup_duration_;
+  return startup_duration_in_seconds_;
 }
 
 bool TraceStartupConfig::ShouldTraceToResultFile() const {
@@ -174,18 +169,20 @@ bool TraceStartupConfig::AttemptAdoptBySessionOwner(SessionOwner owner) {
 bool TraceStartupConfig::EnableFromCommandLine() {
   auto* command_line = base::CommandLine::ForCurrentProcess();
 
+  // Startup duration can be used by along with perfetto-output-file flag.
+  if (command_line->HasSwitch(switches::kTraceStartupDuration)) {
+    std::string startup_duration_str =
+        command_line->GetSwitchValueASCII(switches::kTraceStartupDuration);
+    if (!startup_duration_str.empty() &&
+        !base::StringToInt(startup_duration_str, &startup_duration_in_seconds_)) {
+      DLOG(WARNING) << "Could not parse --" << switches::kTraceStartupDuration
+                    << "=" << startup_duration_str << " defaulting to 5 (secs)";
+      startup_duration_in_seconds_ = kDefaultStartupDurationInSeconds;
+    }
+  }
+
   if (!command_line->HasSwitch(switches::kTraceStartup))
     return false;
-
-  std::string startup_duration_str =
-      command_line->GetSwitchValueASCII(switches::kTraceStartupDuration);
-  startup_duration_ = kDefaultStartupDuration;
-  if (!startup_duration_str.empty() &&
-      !base::StringToInt(startup_duration_str, &startup_duration_)) {
-    DLOG(WARNING) << "Could not parse --" << switches::kTraceStartupDuration
-                  << "=" << startup_duration_str << " defaulting to 5 (secs)";
-    startup_duration_ = kDefaultStartupDuration;
-  }
 
   trace_config_ = base::trace_event::TraceConfig(
       command_line->GetSwitchValueASCII(switches::kTraceStartup),
@@ -210,9 +207,6 @@ bool TraceStartupConfig::EnableFromConfigFile() {
 #endif
 
   if (trace_config_file.empty()) {
-    // If the trace config file path is not specified, trace Chrome with the
-    // default configuration for 5 sec.
-    startup_duration_ = kDefaultStartupDuration;
     is_enabled_ = true;
     should_trace_to_result_file_ = true;
     DLOG(WARNING) << "Use default trace config.";
@@ -252,12 +246,14 @@ bool TraceStartupConfig::EnableFromBackgroundTracing() {
 
   SetBackgroundStartupTracingEnabled(false);
   trace_config_ = GetDefaultBrowserStartupConfig();
+  trace_config_.EnableArgumentFilter();
+
   is_enabled_ = true;
   session_owner_ = SessionOwner::kBackgroundTracing;
   should_trace_to_result_file_ = false;
   // Set startup duration to 0 since background tracing config will configure
   // the durations later.
-  startup_duration_ = 0;
+  startup_duration_in_seconds_ = 0;
   return true;
 }
 
@@ -276,11 +272,11 @@ bool TraceStartupConfig::ParseTraceConfigFileContent(
 
   trace_config_ = base::trace_event::TraceConfig(*trace_config_dict);
 
-  if (!dict->GetInteger(kStartupDurationParam, &startup_duration_))
-    startup_duration_ = 0;
+  if (!dict->GetInteger(kStartupDurationParam, &startup_duration_in_seconds_))
+    startup_duration_in_seconds_ = 0;
 
-  if (startup_duration_ < 0)
-    startup_duration_ = 0;
+  if (startup_duration_in_seconds_ < 0)
+    startup_duration_in_seconds_ = 0;
 
   base::FilePath::StringType result_file_or_dir_str;
   if (dict->GetString(kResultFileParam, &result_file_or_dir_str))

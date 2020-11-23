@@ -24,7 +24,7 @@ class ServiceWorkerRegistration;
 class ServiceWorkerVersion;
 
 // Responsible for dispatching the Background Fetch API events on a given
-// Service Worker. Must only be used on the IO thread.
+// Service Worker. Must only be used on the service worker core thread.
 class CONTENT_EXPORT BackgroundFetchEventDispatcher {
  public:
   // This enumeration is used for recording histograms. Treat as append-only.
@@ -59,7 +59,8 @@ class CONTENT_EXPORT BackgroundFetchEventDispatcher {
 
  private:
   using ServiceWorkerLoadedCallback =
-      base::Callback<void(scoped_refptr<ServiceWorkerVersion>, int request_id)>;
+      base::OnceCallback<void(scoped_refptr<ServiceWorkerVersion>,
+                              int request_id)>;
 
   // Dispatches the `backgroundfetchabort` event, which indicates that an active
   // background fetch was aborted by the user or another external event.

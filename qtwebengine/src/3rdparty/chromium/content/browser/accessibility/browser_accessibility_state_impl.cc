@@ -79,14 +79,15 @@ BrowserAccessibilityStateImpl::BrowserAccessibilityStateImpl()
   // gives us better numbers.
 
   // Some things can be done on another thread safely.
-  base::PostDelayedTaskWithTraits(
-      FROM_HERE, {base::MayBlock(), base::TaskPriority::BEST_EFFORT},
+  base::PostDelayedTask(
+      FROM_HERE,
+      {base::ThreadPool(), base::MayBlock(), base::TaskPriority::BEST_EFFORT},
       base::BindOnce(
           &BrowserAccessibilityStateImpl::UpdateHistogramsOnOtherThread, this),
       base::TimeDelta::FromSeconds(ACCESSIBILITY_HISTOGRAM_DELAY_SECS));
 
   // Other things must be done on the UI thread (e.g. to access PrefService).
-  base::PostDelayedTaskWithTraits(
+  base::PostDelayedTask(
       FROM_HERE, {BrowserThread::UI},
       base::BindOnce(&BrowserAccessibilityStateImpl::UpdateHistogramsOnUIThread,
                      this),
@@ -155,16 +156,19 @@ void BrowserAccessibilityStateImpl::UpdateHistogramsForTesting() {
   UpdateHistogramsOnOtherThread();
 }
 
+bool BrowserAccessibilityStateImpl::IsCaretBrowsingEnabled() const {
+  // TODO(crbug.com/1018947): Refine this check once UX provided to toggle caret
+  // browsing mode.
+  return base::CommandLine::ForCurrentProcess()->HasSwitch(
+      switches::kEnableCaretBrowsing);
+}
+
 void BrowserAccessibilityStateImpl::UpdateHistogramsOnUIThread() {
   UpdatePlatformSpecificHistogramsOnUIThread();
 
   for (auto& callback : ui_thread_histogram_callbacks_)
     std::move(callback).Run();
   ui_thread_histogram_callbacks_.clear();
-
-  // TODO(dmazzoni): remove this in M59 since Accessibility.ModeFlag
-  // supercedes it.  http://crbug.com/672205
-  UMA_HISTOGRAM_BOOLEAN("Accessibility.State", IsAccessibleBrowser());
 
   UMA_HISTOGRAM_BOOLEAN("Accessibility.InvertedColors",
                         color_utils::IsInvertedColorScheme());

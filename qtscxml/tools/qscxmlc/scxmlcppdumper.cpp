@@ -482,19 +482,19 @@ void CppDumper::writeHeaderStart(const QString &headerGuard, const QStringList &
     h << doNotEditComment.arg(m_translationUnit->scxmlFileName,
                               QString::number(Q_QSCXMLC_OUTPUT_REVISION),
                               QString::fromLatin1(QT_VERSION_STR))
-      << endl;
+      << Qt::endl;
 
-    h << QStringLiteral("#ifndef ") << headerGuard << endl
-      << QStringLiteral("#define ") << headerGuard << endl
-      << endl;
+    h << QStringLiteral("#ifndef ") << headerGuard << Qt::endl
+      << QStringLiteral("#define ") << headerGuard << Qt::endl
+      << Qt::endl;
     h << l(headerStart);
     if (!m_translationUnit->namespaceName.isEmpty())
-        h << l("namespace ") << m_translationUnit->namespaceName << l(" {") << endl << endl;
+        h << l("namespace ") << m_translationUnit->namespaceName << l(" {") << Qt::endl << Qt::endl;
 
     if (!forwardDecls.isEmpty()) {
         for (const QString &forwardDecl : forwardDecls)
-            h << QStringLiteral("class %1;").arg(forwardDecl) << endl;
-        h << endl;
+            h << QStringLiteral("class %1;").arg(forwardDecl) << Qt::endl;
+        h << Qt::endl;
     }
 }
 
@@ -517,17 +517,17 @@ void CppDumper::writeHeaderEnd(const QString &headerGuard, const QStringList &me
 {
     QString ns;
     if (!m_translationUnit->namespaceName.isEmpty()) {
-        h << QStringLiteral("} // %1 namespace ").arg(m_translationUnit->namespaceName) << endl
-          << endl;
+        h << QStringLiteral("} // %1 namespace ").arg(m_translationUnit->namespaceName) << Qt::endl
+          << Qt::endl;
         ns = QStringLiteral("::%1").arg(m_translationUnit->namespaceName);
     }
 
     for (const QString &name : metatypeDecls) {
-        h << QStringLiteral("Q_DECLARE_METATYPE(%1::%2*)").arg(ns, name) << endl;
+        h << QStringLiteral("Q_DECLARE_METATYPE(%1::%2*)").arg(ns, name) << Qt::endl;
     }
-    h << endl;
+    h << Qt::endl;
 
-    h << QStringLiteral("#endif // ") << headerGuard << endl;
+    h << QStringLiteral("#endif // ") << headerGuard << Qt::endl;
 }
 
 void CppDumper::writeImplStart()
@@ -535,7 +535,7 @@ void CppDumper::writeImplStart()
     cpp << doNotEditComment.arg(m_translationUnit->scxmlFileName,
                                 QString::number(Q_QSCXMLC_OUTPUT_REVISION),
                                 l(QT_VERSION_STR))
-        << endl;
+        << Qt::endl;
 
     QStringList includes;
     for (DocumentModel::ScxmlDocument *doc : qAsConst(m_translationUnit->allDocuments)) {
@@ -556,20 +556,20 @@ void CppDumper::writeImplStart()
     includes.removeDuplicates();
 
     QString headerName = QFileInfo(m_translationUnit->outHFileName).fileName();
-    cpp << l("#include \"") << headerName << l("\"") << endl;
-    cpp << endl
-        << QStringLiteral("#include <qscxmlinvokableservice.h>") << endl
-        << QStringLiteral("#include <qscxmltabledata.h>") << endl;
+    cpp << l("#include \"") << headerName << l("\"") << Qt::endl;
+    cpp << Qt::endl
+        << QStringLiteral("#include <qscxmlinvokableservice.h>") << Qt::endl
+        << QStringLiteral("#include <qscxmltabledata.h>") << Qt::endl;
     for (const QString &inc : qAsConst(includes)) {
-        cpp << l("#include <") << inc << l(">") << endl;
+        cpp << l("#include <") << inc << l(">") << Qt::endl;
     }
-    cpp << endl
+    cpp << Qt::endl
         << revisionCheck.arg(m_translationUnit->scxmlFileName,
                              QString::number(Q_QSCXMLC_OUTPUT_REVISION),
                              QString::fromLatin1(QT_VERSION_STR))
-        << endl;
+        << Qt::endl;
     if (!m_translationUnit->namespaceName.isEmpty())
-        cpp << l("namespace ") << m_translationUnit->namespaceName << l(" {") << endl << endl;
+        cpp << l("namespace ") << m_translationUnit->namespaceName << l(" {") << Qt::endl << Qt::endl;
 }
 
 void CppDumper::writeImplBody(const GeneratedTableData &table,
@@ -629,8 +629,8 @@ void CppDumper::writeImplBody(const GeneratedTableData &table,
 void CppDumper::writeImplEnd()
 {
     if (!m_translationUnit->namespaceName.isEmpty()) {
-        cpp << endl
-            << QStringLiteral("} // %1 namespace").arg(m_translationUnit->namespaceName) << endl;
+        cpp << Qt::endl
+            << QStringLiteral("} // %1 namespace").arg(m_translationUnit->namespaceName) << Qt::endl;
     }
 }
 

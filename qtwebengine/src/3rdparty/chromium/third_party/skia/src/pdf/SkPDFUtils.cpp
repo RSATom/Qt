@@ -12,6 +12,7 @@
 #include "include/core/SkString.h"
 #include "include/private/SkFixed.h"
 #include "src/core/SkGeometry.h"
+#include "src/core/SkPathPriv.h"
 #include "src/image/SkImage_Base.h"
 #include "src/pdf/SkPDFResourceDict.h"
 #include "src/pdf/SkPDFTypes.h"
@@ -127,11 +128,11 @@ void SkPDFUtils::EmitPath(const SkPath& path, SkPaint::Style paintStyle,
 
     SkRect rect;
     bool isClosed; // Both closure and direction need to be checked.
-    SkPath::Direction direction;
+    SkPathDirection direction;
     if (path.isRect(&rect, &isClosed, &direction) &&
         isClosed &&
-        (SkPath::kCW_Direction == direction ||
-         SkPath::kEvenOdd_FillType == path.getFillType()))
+        (SkPathDirection::kCW == direction ||
+         SkPathFillType::kEvenOdd == path.getNewFillType()))
     {
         SkPDFUtils::AppendRectangle(rect, content);
         return;
@@ -150,9 +151,9 @@ void SkPDFUtils::EmitPath(const SkPath& path, SkPaint::Style paintStyle,
     SkDynamicMemoryWStream currentSegment;
     SkPoint args[4];
     SkPath::Iter iter(path, false);
-    for (SkPath::Verb verb = iter.next(args, doConsumeDegerates);
+    for (SkPath::Verb verb = iter.next(args);
          verb != SkPath::kDone_Verb;
-         verb = iter.next(args, doConsumeDegerates)) {
+         verb = iter.next(args)) {
         // args gets all the points, even the implicit first point.
         switch (verb) {
             case SkPath::kMove_Verb:
@@ -161,29 +162,37 @@ void SkPDFUtils::EmitPath(const SkPath& path, SkPaint::Style paintStyle,
                 fillState = kEmpty_SkipFillState;
                 break;
             case SkPath::kLine_Verb:
-                AppendLine(args[1].fX, args[1].fY, &currentSegment);
-                if ((fillState == kEmpty_SkipFillState) && (args[0] != lastMovePt)) {
-                    fillState = kSingleLine_SkipFillState;
-                    break;
+                if (!doConsumeDegerates || !SkPathPriv::AllPointsEq(args, 2)) {
+                    AppendLine(args[1].fX, args[1].fY, &currentSegment);
+                    if ((fillState == kEmpty_SkipFillState) && (args[0] != lastMovePt)) {
+                        fillState = kSingleLine_SkipFillState;
+                        break;
+                    }
+                    fillState = kNonSingleLine_SkipFillState;
                 }
-                fillState = kNonSingleLine_SkipFillState;
                 break;
             case SkPath::kQuad_Verb:
-                append_quad(args, &currentSegment);
-                fillState = kNonSingleLine_SkipFillState;
-                break;
-            case SkPath::kConic_Verb: {
-                SkAutoConicToQuads converter;
-                const SkPoint* quads = converter.computeQuads(args, iter.conicWeight(), tolerance);
-                for (int i = 0; i < converter.countQuads(); ++i) {
-                    append_quad(&quads[i * 2], &currentSegment);
+                if (!doConsumeDegerates || !SkPathPriv::AllPointsEq(args, 3)) {
+                    append_quad(args, &currentSegment);
+                    fillState = kNonSingleLine_SkipFillState;
                 }
-                fillState = kNonSingleLine_SkipFillState;
-            } break;
+                break;
+            case SkPath::kConic_Verb:
+                if (!doConsumeDegerates || !SkPathPriv::AllPointsEq(args, 3)) {
+                    SkAutoConicToQuads converter;
+                    const SkPoint* quads = converter.computeQuads(args, iter.conicWeight(), tolerance);
+                    for (int i = 0; i < converter.countQuads(); ++i) {
+                        append_quad(&quads[i * 2], &currentSegment);
+                    }
+                    fillState = kNonSingleLine_SkipFillState;
+                }
+                break;
             case SkPath::kCubic_Verb:
-                append_cubic(args[1].fX, args[1].fY, args[2].fX, args[2].fY,
-                             args[3].fX, args[3].fY, &currentSegment);
-                fillState = kNonSingleLine_SkipFillState;
+                if (!doConsumeDegerates || !SkPathPriv::AllPointsEq(args, 4)) {
+                    append_cubic(args[1].fX, args[1].fY, args[2].fX, args[2].fY,
+                                 args[3].fX, args[3].fY, &currentSegment);
+                    fillState = kNonSingleLine_SkipFillState;
+                }
                 break;
             case SkPath::kClose_Verb:
                 ClosePath(&currentSegment);
@@ -204,8 +213,7 @@ void SkPDFUtils::ClosePath(SkWStream* content) {
     content->writeText("h\n");
 }
 
-void SkPDFUtils::PaintPath(SkPaint::Style style, SkPath::FillType fill,
-                           SkWStream* content) {
+void SkPDFUtils::PaintPath(SkPaint::Style style, SkPathFillType fill, SkWStream* content) {
     if (style == SkPaint::kFill_Style) {
         content->writeText("f");
     } else if (style == SkPaint::kStrokeAndFill_Style) {
@@ -215,9 +223,9 @@ void SkPDFUtils::PaintPath(SkPaint::Style style, SkPath::FillType fill,
     }
 
     if (style != SkPaint::kStroke_Style) {
-        NOT_IMPLEMENTED(fill == SkPath::kInverseEvenOdd_FillType, false);
-        NOT_IMPLEMENTED(fill == SkPath::kInverseWinding_FillType, false);
-        if (fill == SkPath::kEvenOdd_FillType) {
+        NOT_IMPLEMENTED(fill == SkPathFillType::kInverseEvenOdd, false);
+        NOT_IMPLEMENTED(fill == SkPathFillType::kInverseWinding, false);
+        if (fill == SkPathFillType::kEvenOdd) {
             content->writeText("*");
         }
     }
@@ -225,8 +233,7 @@ void SkPDFUtils::PaintPath(SkPaint::Style style, SkPath::FillType fill,
 }
 
 void SkPDFUtils::StrokePath(SkWStream* content) {
-    SkPDFUtils::PaintPath(
-        SkPaint::kStroke_Style, SkPath::kWinding_FillType, content);
+    SkPDFUtils::PaintPath(SkPaint::kStroke_Style, SkPathFillType::kWinding, content);
 }
 
 void SkPDFUtils::ApplyGraphicState(int objectIndex, SkWStream* content) {

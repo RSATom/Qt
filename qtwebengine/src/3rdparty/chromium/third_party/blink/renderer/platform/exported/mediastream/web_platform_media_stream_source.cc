@@ -11,11 +11,6 @@
 
 namespace blink {
 
-const char kMediaStreamSourceTab[] = "tab";
-const char kMediaStreamSourceScreen[] = "screen";
-const char kMediaStreamSourceDesktop[] = "desktop";
-const char kMediaStreamSourceSystem[] = "system";
-
 const char WebPlatformMediaStreamSource::kSourceId[] = "sourceId";
 
 WebPlatformMediaStreamSource::WebPlatformMediaStreamSource() {}
@@ -52,9 +47,9 @@ void WebPlatformMediaStreamSource::SetDevice(const MediaStreamDevice& device) {
 }
 
 void WebPlatformMediaStreamSource::SetStopCallback(
-    const SourceStoppedCallback& stop_callback) {
+    SourceStoppedCallback stop_callback) {
   DCHECK(stop_callback_.is_null());
-  stop_callback_ = stop_callback;
+  stop_callback_ = std::move(stop_callback);
 }
 
 void WebPlatformMediaStreamSource::ResetSourceStoppedCallback() {

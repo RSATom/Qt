@@ -48,7 +48,6 @@ int Location::warningLimit = -1;
 QString Location::programName;
 QString Location::project;
 QRegExp *Location::spuriousRegExp = nullptr;
-bool Location::logProgress_ = false;
 
 /*!
   \class Location
@@ -256,7 +255,8 @@ QString Location::canonicalRelativePath(const QString &path)
  */
 void Location::warning(const QString &message, const QString &details) const
 {
-    if (!Generator::preparing() || Generator::singleExec())
+    const auto &config = Config::instance();
+    if (!config.preparing() || config.singleExec())
         emitMessage(Warning, message, details);
 }
 
@@ -267,7 +267,8 @@ void Location::warning(const QString &message, const QString &details) const
  */
 void Location::error(const QString &message, const QString &details) const
 {
-    if (!Generator::preparing() || Generator::singleExec())
+    const auto &config = Config::instance();
+    if (!config.preparing() || config.singleExec())
         emitMessage(Error, message, details);
 }
 
@@ -313,13 +314,14 @@ void Location::report(const QString &message, const QString &details) const
 }
 
 /*!
-  Gets several parameters from the \a config, including
+  Gets several parameters from the config, including
   tab size, program name, and a regular expression that
   appears to be used for matching certain error messages
   so that emitMessage() can avoid printing them.
  */
-void Location::initialize(const Config &config)
+void Location::initialize()
 {
+    Config &config = Config::instance();
     tabSize = config.getInt(CONFIG_TABSIZE);
     programName = config.programName();
     project = config.getString(CONFIG_PROJECT);
@@ -354,34 +356,6 @@ void Location::information(const QString &message)
 {
     printf("%s\n", message.toLatin1().data());
     fflush(stdout);
-}
-
-/*!
-  Prints \a message to \c stderr followed by a \c{'\n'},
-  but only if the -log-progress option is set.
- */
-void Location::logToStdErr(const QString &message)
-{
-    if (logProgress_) {
-        fprintf(stderr, "LOG: %s\n", message.toLatin1().data());
-        fflush(stderr);
-    }
-}
-
-/*!
-  Always prints the current time and \a message to \c stderr
-  followed by a \c{'\n'}.
- */
-void Location::logToStdErrAlways(const QString &message)
-{
-    if (Generator::useTimestamps()) {
-        QTime t = QTime::currentTime();
-        fprintf(stderr, "%s LOG: %s\n", t.toString().toLatin1().constData(),
-                message.toLatin1().data());
-    } else {
-        fprintf(stderr, "LOG: %s\n", message.toLatin1().constData());
-    }
-    fflush(stderr);
 }
 
 /*!

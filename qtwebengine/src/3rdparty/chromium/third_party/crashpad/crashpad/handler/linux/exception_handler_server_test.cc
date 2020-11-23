@@ -108,6 +108,7 @@ class TestDelegate : public ExceptionHandlerServer::Delegate {
   }
 
   bool HandleException(pid_t client_process_id,
+                       uid_t client_uid,
                        const ExceptionHandlerProtocol::ClientInformation& info,
                        VMAddress requesting_thread_stack_address,
                        pid_t* requesting_thread_id = nullptr,
@@ -141,6 +142,7 @@ class TestDelegate : public ExceptionHandlerServer::Delegate {
 
   bool HandleExceptionWithBroker(
       pid_t client_process_id,
+      uid_t client_uid,
       const ExceptionHandlerProtocol::ClientInformation& info,
       int broker_sock,
       UUID* local_report_id = nullptr) override {
@@ -365,16 +367,7 @@ TEST_P(ExceptionHandlerServerTest, RequestCrashDumpError) {
 
 INSTANTIATE_TEST_SUITE_P(ExceptionHandlerServerTestSuite,
                          ExceptionHandlerServerTest,
-#if defined(OS_ANDROID) && __ANDROID_API__ < 23
-                         // TODO(jperaza): Using a multi-client socket is not
-                         // supported on Android until an lss sigtimedwait()
-                         // wrapper is available to use in
-                         // ExceptionHandlerClient::SignalCrashDump().
-                         // https://crbug.com/crashpad/265
-                         testing::Values(false)
-#else
                          testing::Bool()
-#endif
 );
 
 }  // namespace

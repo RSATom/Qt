@@ -51,9 +51,16 @@ const size_t kNumSessionsToCreatePerSocketEvent = 16;
 QuicServer::QuicServer(std::unique_ptr<ProofSource> proof_source,
                        QuicSimpleServerBackend* quic_simple_server_backend)
     : QuicServer(std::move(proof_source),
+                 quic_simple_server_backend,
+                 AllSupportedVersions()) {}
+
+QuicServer::QuicServer(std::unique_ptr<ProofSource> proof_source,
+                       QuicSimpleServerBackend* quic_simple_server_backend,
+                       const ParsedQuicVersionVector& supported_versions)
+    : QuicServer(std::move(proof_source),
                  QuicConfig(),
                  QuicCryptoServerConfig::ConfigOptions(),
-                 AllSupportedVersions(),
+                 supported_versions,
                  quic_simple_server_backend,
                  kQuicDefaultConnectionIdLength) {}
 
@@ -155,7 +162,7 @@ QuicDispatcher* QuicServer::CreateQuicDispatcher() {
       std::unique_ptr<QuicEpollConnectionHelper>(new QuicEpollConnectionHelper(
           &epoll_server_, QuicAllocator::BUFFER_POOL)),
       std::unique_ptr<QuicCryptoServerStream::Helper>(
-          new QuicSimpleCryptoServerStreamHelper(QuicRandom::GetInstance())),
+          new QuicSimpleCryptoServerStreamHelper()),
       std::unique_ptr<QuicEpollAlarmFactory>(
           new QuicEpollAlarmFactory(&epoll_server_)),
       quic_simple_server_backend_, expected_server_connection_id_length_);
@@ -210,8 +217,6 @@ void QuicServer::OnEvent(int fd, QuicEpollEvent* event) {
     if (dispatcher_->HasPendingWrites()) {
       event->out_ready_mask |= EPOLLOUT;
     }
-  }
-  if (event->in_events & EPOLLERR) {
   }
 }
 

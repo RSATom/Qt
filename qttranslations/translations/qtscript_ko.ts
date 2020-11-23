@@ -43,7 +43,7 @@
     <name>QScriptDebugger</name>
     <message>
         <source>Go to Line</source>
-        <translation>줄로 가기</translation>
+        <translation>줄로 이동</translation>
     </message>
     <message>
         <source>Line:</source>

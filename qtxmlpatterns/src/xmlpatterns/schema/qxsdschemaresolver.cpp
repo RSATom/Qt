@@ -264,7 +264,7 @@ void XsdSchemaResolver::addSubstitutionGroupType(const XsdElement::Ptr &element)
 
 void XsdSchemaResolver::addComponentLocationHash(const ComponentLocationHash &hash)
 {
-    m_componentLocationHash.unite(hash);
+    m_componentLocationHash.insert(hash);
 }
 
 void XsdSchemaResolver::addEnumerationFacetValue(const AtomicValue::Ptr &facetValue, const NamespaceSupport &namespaceSupport)

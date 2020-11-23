@@ -20,6 +20,7 @@ layout(std140, binding = 0) uniform buf {
 void main()
 {
     float d = texture(_qt_texture, sampleCoord).a;
-    fragColor = mix(ubuf.styleColor, ubuf.color, smoothstep(ubuf.alphaMin, ubuf.alphaMax, d))
+    float a = smoothstep(ubuf.alphaMin, ubuf.alphaMax, d);
+    fragColor = step(1.0 - a, 1.0) * mix(ubuf.styleColor, ubuf.color, a)
             * smoothstep(ubuf.outlineAlphaMax0, ubuf.outlineAlphaMax1, d);
 }

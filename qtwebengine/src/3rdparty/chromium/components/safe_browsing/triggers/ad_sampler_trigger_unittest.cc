@@ -12,8 +12,8 @@
 #include "components/safe_browsing/triggers/mock_trigger_manager.h"
 #include "content/public/browser/render_frame_host.h"
 #include "content/public/browser/web_contents.h"
+#include "content/public/test/browser_task_environment.h"
 #include "content/public/test/navigation_simulator.h"
-#include "content/public/test/test_browser_thread_bundle.h"
 #include "content/public/test/test_renderer_host.h"
 #include "testing/gmock/include/gmock/gmock-generated-function-mockers.h"
 #include "testing/gmock/include/gmock/gmock.h"
@@ -64,17 +64,7 @@ class AdSamplerTriggerTest : public content::RenderViewHostTestHarness {
   // Returns the final RenderFrameHost after navigation commits.
   RenderFrameHost* NavigateFrame(const std::string& url,
                                  RenderFrameHost* frame) {
-    GURL gurl(url);
-    auto navigation_simulator =
-        NavigationSimulator::CreateRendererInitiated(gurl, frame);
-    navigation_simulator->Commit();
-    RenderFrameHost* final_frame_host =
-        navigation_simulator->GetFinalRenderFrameHost();
-    // Call the trigger's FinishLoad event handler directly since it doesn't
-    // happen as part of the navigation.
-    safe_browsing::AdSamplerTrigger::FromWebContents(web_contents())
-        ->DidFinishLoad(final_frame_host, gurl);
-    return final_frame_host;
+    return NavigationSimulator::NavigateAndCommitFromDocument(GURL(url), frame);
   }
 
   // Returns the final RenderFrameHost after navigation commits.
@@ -133,7 +123,7 @@ TEST_F(AdSamplerTriggerTest, TriggerDisabledBySamplingFrequency) {
                                       NO_SAMPLE_AD_SKIPPED_FOR_FREQUENCY, 2);
 }
 
-TEST_F(AdSamplerTriggerTest, PageWithNoAds) {
+TEST_F(AdSamplerTriggerTest, DISABLED_PageWithNoAds) {
   // Make sure the trigger doesn't fire when there are no ads on the page.
   CreateTriggerWithFrequency(/*denominator=*/1);
 
@@ -224,7 +214,7 @@ TEST(AdSamplerTriggerTestFinch, FrequencyDenominatorFeature) {
   // Make sure that setting the frequency denominator via Finch params works as
   // expected, and that the default frequency is used when no Finch config is
   // given.
-  content::TestBrowserThreadBundle thread_bundle;
+  content::BrowserTaskEnvironment task_environment;
   AdSamplerTrigger trigger_default(nullptr, nullptr, nullptr, nullptr, nullptr);
   EXPECT_EQ(kAdSamplerDefaultFrequency,
             trigger_default.sampler_frequency_denominator_);

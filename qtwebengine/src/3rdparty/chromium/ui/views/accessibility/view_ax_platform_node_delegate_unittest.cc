@@ -29,10 +29,9 @@ namespace {
 class TestButton : public Button {
  public:
   TestButton() : Button(nullptr) {}
+  TestButton(const TestButton&) = delete;
+  TestButton& operator=(const TestButton&) = delete;
   ~TestButton() override = default;
-
- private:
-  DISALLOW_COPY_AND_ASSIGN(TestButton);
 };
 
 }  // namespace
@@ -40,6 +39,10 @@ class TestButton : public Button {
 class ViewAXPlatformNodeDelegateTest : public ViewsTestBase {
  public:
   ViewAXPlatformNodeDelegateTest() = default;
+  ViewAXPlatformNodeDelegateTest(const ViewAXPlatformNodeDelegateTest&) =
+      delete;
+  ViewAXPlatformNodeDelegateTest& operator=(
+      const ViewAXPlatformNodeDelegateTest&) = delete;
   ~ViewAXPlatformNodeDelegateTest() override = default;
 
   void SetUp() override {
@@ -48,7 +51,7 @@ class ViewAXPlatformNodeDelegateTest : public ViewsTestBase {
     widget_ = new Widget;
     Widget::InitParams params = CreateParams(Widget::InitParams::TYPE_WINDOW);
     params.bounds = gfx::Rect(0, 0, 200, 200);
-    widget_->Init(params);
+    widget_->Init(std::move(params));
 
     button_ = new TestButton();
     button_->SetID(NON_DEFAULT_VIEW_ID);
@@ -149,9 +152,6 @@ class ViewAXPlatformNodeDelegateTest : public ViewsTestBase {
   Widget* widget_ = nullptr;
   Button* button_ = nullptr;
   Label* label_ = nullptr;
-
- private:
-  DISALLOW_COPY_AND_ASSIGN(ViewAXPlatformNodeDelegateTest);
 };
 
 TEST_F(ViewAXPlatformNodeDelegateTest, RoleShouldMatch) {
@@ -368,6 +368,27 @@ TEST_F(ViewAXPlatformNodeDelegateTest, Navigation) {
   EXPECT_EQ(view_accessibility(view_ids[4])->GetIndexInParent(), 3);
 }
 
+TEST_F(ViewAXPlatformNodeDelegateTest, OverrideHasPopup) {
+  std::vector<View*> view_ids = SetUpExtraViews();
+
+  view_ids[1]->GetViewAccessibility().OverrideHasPopup(
+      ax::mojom::HasPopup::kTrue);
+  view_ids[2]->GetViewAccessibility().OverrideHasPopup(
+      ax::mojom::HasPopup::kMenu);
+
+  ui::AXNodeData node_data_0;
+  view_ids[0]->GetViewAccessibility().GetAccessibleNodeData(&node_data_0);
+  EXPECT_EQ(node_data_0.GetHasPopup(), ax::mojom::HasPopup::kFalse);
+
+  ui::AXNodeData node_data_1;
+  view_ids[1]->GetViewAccessibility().GetAccessibleNodeData(&node_data_1);
+  EXPECT_EQ(node_data_1.GetHasPopup(), ax::mojom::HasPopup::kTrue);
+
+  ui::AXNodeData node_data_2;
+  view_ids[2]->GetViewAccessibility().GetAccessibleNodeData(&node_data_2);
+  EXPECT_EQ(node_data_2.GetHasPopup(), ax::mojom::HasPopup::kMenu);
+}
+
 #if defined(USE_AURA)
 class DerivedTestView : public View {
  public:
@@ -382,7 +403,8 @@ class TestAXEventObserver : public AXEventObserver {
   explicit TestAXEventObserver(AXAuraObjCache* cache) : cache_(cache) {
     AXEventManager::Get()->AddObserver(this);
   }
-
+  TestAXEventObserver(const TestAXEventObserver&) = delete;
+  TestAXEventObserver& operator=(const TestAXEventObserver&) = delete;
   ~TestAXEventObserver() override {
     AXEventManager::Get()->RemoveObserver(this);
   }
@@ -396,8 +418,6 @@ class TestAXEventObserver : public AXEventObserver {
 
  private:
   AXAuraObjCache* cache_;
-
-  DISALLOW_COPY_AND_ASSIGN(TestAXEventObserver);
 };
 
 using ViewAccessibilityTest = ViewsTestBase;
@@ -412,7 +432,7 @@ TEST_F(ViewAccessibilityTest, LayoutCalledInvalidateRootView) {
   std::unique_ptr<Widget> widget(new Widget);
   Widget::InitParams params = CreateParams(Widget::InitParams::TYPE_POPUP);
   params.ownership = Widget::InitParams::WIDGET_OWNS_NATIVE_WIDGET;
-  widget->Init(params);
+  widget->Init(std::move(params));
   widget->Show();
 
   View* root = widget->GetRootView();

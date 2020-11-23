@@ -53,7 +53,7 @@ class QQuickFlatProgressBar : public QQuickPaintedItem
 public:
     explicit QQuickFlatProgressBar(QQuickItem *parent = 0);
 
-    void paint(QPainter *painter);
+    void paint(QPainter *painter) override;
 
     qreal stripeOffset() const;
     void setStripeOffset(qreal stripeOffset);

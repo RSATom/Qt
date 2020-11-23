@@ -37,9 +37,8 @@
 **
 ****************************************************************************/
 
-#include <QtQmlWorkerScript/private/qqmlworkerscriptmodule_p.h>
+#include <QtQmlWorkerScript/private/qtqmlworkerscriptglobal_p.h>
 #include <QtQml/qqmlextensionplugin.h>
-#include <QtQml/qqml.h>
 
 QT_BEGIN_NAMESPACE
 
@@ -59,20 +58,15 @@ QT_BEGIN_NAMESPACE
     \endqml
 */
 
-class QtQmlWorkerScriptPlugin : public QQmlExtensionPlugin
+class QtQmlWorkerScriptPlugin : public QQmlEngineExtensionPlugin
 {
     Q_OBJECT
-    Q_PLUGIN_METADATA(IID QQmlExtensionInterface_iid)
+    Q_PLUGIN_METADATA(IID QQmlEngineExtensionInterface_iid)
 public:
-    QtQmlWorkerScriptPlugin(QObject *parent = nullptr) : QQmlExtensionPlugin(parent) { }
-    void registerTypes(const char *uri) override
+    QtQmlWorkerScriptPlugin(QObject *parent = nullptr) : QQmlEngineExtensionPlugin(parent)
     {
-        Q_ASSERT(QLatin1String(uri) == QLatin1String("QtQml.WorkerScript"));
-
-        QQmlWorkerScriptModule::defineModule();
-
-        // Auto-increment the import to stay in sync with ALL future QtQuick minor versions from 5.11 onward
-        qmlRegisterModule(uri, 2, QT_VERSION_MINOR);
+        volatile auto registration = &qml_register_types_QtQml_WorkerScript;
+        Q_UNUSED(registration);
     }
 };
 

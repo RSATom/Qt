@@ -53,6 +53,7 @@
 #include <QTabWidget>
 #include <QScopedPointer>
 #include <QTimer>
+#include <QVector>
 
 class Application;
 class DocumentList;
@@ -104,7 +105,7 @@ public slots:
     Document *item(int index) const;
 
 private:
-    QList<Document *> m_list;
+    QVector<Document *> m_list;
 };
 //! [1]
 

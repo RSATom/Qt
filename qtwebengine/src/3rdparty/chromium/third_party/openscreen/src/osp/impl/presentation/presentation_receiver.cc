@@ -12,11 +12,14 @@
 #include "osp/public/message_demuxer.h"
 #include "osp/public/network_service_manager.h"
 #include "osp/public/protocol_connection_server.h"
-#include "platform/api/logging.h"
 #include "platform/api/time.h"
+#include "util/logging.h"
+#include "util/trace_logging.h"
+
+using openscreen::platform::TraceCategory;
 
 namespace openscreen {
-namespace presentation {
+namespace osp {
 namespace {
 
 msgs::PresentationConnectionCloseEvent_reason GetEventCloseReason(
@@ -105,8 +108,11 @@ ErrorOr<size_t> Receiver::OnStreamMessage(uint64_t endpoint_id,
                                           const uint8_t* buffer,
                                           size_t buffer_size,
                                           platform::Clock::time_point now) {
+  TRACE_SCOPED(TraceCategory::Presentation, "Receiver::OnStreamMessage");
   switch (message_type) {
     case msgs::Type::kPresentationUrlAvailabilityRequest: {
+      TRACE_SCOPED(TraceCategory::Presentation,
+                   "kPresentationUrlAvailabilityRequest");
       OSP_VLOG << "got presentation-url-availability-request";
       msgs::PresentationUrlAvailabilityRequest request;
       ssize_t decode_result = msgs::DecodePresentationUrlAvailabilityRequest(
@@ -114,6 +120,7 @@ ErrorOr<size_t> Receiver::OnStreamMessage(uint64_t endpoint_id,
       if (decode_result < 0) {
         OSP_LOG_WARN << "Presentation-url-availability-request parse error: "
                      << decode_result;
+        TRACE_SET_RESULT(Error::Code::kParseError);
         return Error::Code::kParseError;
       }
 
@@ -130,6 +137,7 @@ ErrorOr<size_t> Receiver::OnStreamMessage(uint64_t endpoint_id,
     }
 
     case msgs::Type::kPresentationStartRequest: {
+      TRACE_SCOPED(TraceCategory::Presentation, "kPresentationStartRequest");
       OSP_VLOG << "got presentation-start-request";
       msgs::PresentationStartRequest request;
       const ssize_t result =
@@ -137,6 +145,7 @@ ErrorOr<size_t> Receiver::OnStreamMessage(uint64_t endpoint_id,
       if (result < 0) {
         OSP_LOG_WARN << "Presentation-initiation-request parse error: "
                      << result;
+        TRACE_SET_RESULT(Error::Code::kParseError);
         return Error::Code::kParseError;
       }
 
@@ -151,8 +160,11 @@ ErrorOr<size_t> Receiver::OnStreamMessage(uint64_t endpoint_id,
         Error write_error = WritePresentationInitiationResponse(
             response, GetProtocolConnection(endpoint_id).get());
 
-        if (!write_error.ok())
+        if (!write_error.ok()) {
+          TRACE_SET_RESULT(write_error);
           return write_error;
+        }
+
         return result;
       }
 
@@ -177,12 +189,17 @@ ErrorOr<size_t> Receiver::OnStreamMessage(uint64_t endpoint_id,
       response.result = msgs::PresentationStartResponse_result::kUnknownError;
       Error write_error = WritePresentationInitiationResponse(
           response, GetProtocolConnection(endpoint_id).get());
-      if (!write_error.ok())
+      if (!write_error.ok()) {
+        TRACE_SET_RESULT(write_error);
         return write_error;
+      }
+
       return result;
     }
 
     case msgs::Type::kPresentationConnectionOpenRequest: {
+      TRACE_SCOPED(TraceCategory::Presentation,
+                   "kPresentationConnectionOpenRequest");
       OSP_VLOG << "Got a presentation-connection-open-request";
       msgs::PresentationConnectionOpenRequest request;
       const ssize_t result = msgs::DecodePresentationConnectionOpenRequest(
@@ -190,6 +207,7 @@ ErrorOr<size_t> Receiver::OnStreamMessage(uint64_t endpoint_id,
       if (result < 0) {
         OSP_LOG_WARN << "Presentation-connection-open-request parse error: "
                      << result;
+        TRACE_SET_RESULT(Error::Code::kParseError);
         return Error::Code::kParseError;
       }
 
@@ -207,8 +225,11 @@ ErrorOr<size_t> Receiver::OnStreamMessage(uint64_t endpoint_id,
             kInvalidPresentationId;
         Error write_error = WritePresentationConnectionOpenResponse(
             response, GetProtocolConnection(endpoint_id).get());
-        if (!write_error.ok())
+        if (!write_error.ok()) {
+          TRACE_SET_RESULT(write_error);
           return write_error;
+        }
+
         return result;
       }
 
@@ -236,12 +257,17 @@ ErrorOr<size_t> Receiver::OnStreamMessage(uint64_t endpoint_id,
           msgs::PresentationConnectionOpenResponse_result::kUnknownError;
       Error write_error = WritePresentationConnectionOpenResponse(
           response, GetProtocolConnection(endpoint_id).get());
-      if (!write_error.ok())
+      if (!write_error.ok()) {
+        TRACE_SET_RESULT(write_error);
         return write_error;
+      }
+
       return result;
     }
 
     case msgs::Type::kPresentationTerminationRequest: {
+      TRACE_SCOPED(TraceCategory::Presentation,
+                   "kPresentationTerminationRequest");
       OSP_VLOG << "got presentation-termination-request";
       msgs::PresentationTerminationRequest request;
       const ssize_t result = msgs::DecodePresentationTerminationRequest(
@@ -249,6 +275,7 @@ ErrorOr<size_t> Receiver::OnStreamMessage(uint64_t endpoint_id,
       if (result < 0) {
         OSP_LOG_WARN << "Presentation-termination-request parse error: "
                      << result;
+        TRACE_SET_RESULT(Error::Code::kParseError);
         return Error::Code::kParseError;
       }
 
@@ -272,8 +299,10 @@ ErrorOr<size_t> Receiver::OnStreamMessage(uint64_t endpoint_id,
             kInvalidPresentationId;
         Error write_error = WritePresentationTerminationResponse(
             response, GetProtocolConnection(endpoint_id).get());
-        if (!write_error.ok())
+        if (!write_error.ok()) {
+          TRACE_SET_RESULT(write_error);
           return write_error;
+        }
         return result;
       }
 
@@ -289,13 +318,14 @@ ErrorOr<size_t> Receiver::OnStreamMessage(uint64_t endpoint_id,
     }
 
     default:
+      TRACE_SET_RESULT(Error::Code::kUnknownMessageType);
       return Error::Code::kUnknownMessageType;
   }
 }
 
-// TODO(issue/31): Remove singletons in the embedder API and protocol
-// implementation layers and in presentation_connection, as well as unit tests.
-// static
+// TODO(crbug.com/openscreen/31): Remove singletons in the embedder API and
+// protocol implementation layers and in presentation_connection, as well as
+// unit tests. static
 Receiver* Receiver::Get() {
   static Receiver& receiver = *new Receiver();
   return &receiver;
@@ -537,5 +567,5 @@ uint64_t Receiver::GetNextConnectionId() {
   return request_id++;
 }
 
-}  // namespace presentation
+}  // namespace osp
 }  // namespace openscreen

@@ -4,6 +4,7 @@
 
 #include "third_party/blink/renderer/modules/peerconnection/rtc_ice_transport.h"
 
+#include "media/media_buildflags.h"
 #include "third_party/blink/public/platform/platform.h"
 #include "third_party/blink/public/web/web_local_frame.h"
 #include "third_party/blink/renderer/core/dom/document.h"
@@ -13,6 +14,7 @@
 #include "third_party/blink/renderer/modules/peerconnection/adapters/ice_transport_adapter_cross_thread_factory.h"
 #include "third_party/blink/renderer/modules/peerconnection/adapters/ice_transport_adapter_impl.h"
 #include "third_party/blink/renderer/modules/peerconnection/adapters/ice_transport_proxy.h"
+#include "third_party/blink/renderer/modules/peerconnection/peer_connection_dependency_factory.h"
 #include "third_party/blink/renderer/modules/peerconnection/rtc_error_util.h"
 #include "third_party/blink/renderer/modules/peerconnection/rtc_ice_candidate.h"
 #include "third_party/blink/renderer/modules/peerconnection/rtc_ice_gather_options.h"
@@ -52,7 +54,7 @@ base::Optional<cricket::Candidate> ConvertToCricketIceCandidate(
 }
 
 RTCIceCandidate* ConvertToRtcIceCandidate(const cricket::Candidate& candidate) {
-  return RTCIceCandidate::Create(WebRTCICECandidate::Create(
+  return RTCIceCandidate::Create(RTCIceCandidatePlatform::Create(
       String::FromUTF8(webrtc::SdpSerializeCandidate(candidate)), "", 0));
 }
 
@@ -63,82 +65,99 @@ class DtlsIceTransportAdapterCrossThreadFactory
       rtc::scoped_refptr<webrtc::IceTransportInterface> ice_transport)
       : ice_transport_(ice_transport) {}
   void InitializeOnMainThread(LocalFrame& frame) override {
-    DCHECK(!worker_thread_rtc_thread_);
-    worker_thread_rtc_thread_ =
-        Platform::Current()->GetWebRtcWorkerThreadRtcThread();
   }
 
   std::unique_ptr<IceTransportAdapter> ConstructOnWorkerThread(
       IceTransportAdapter::Delegate* delegate) override {
+#if BUILDFLAG(ENABLE_WEBRTC)
     DCHECK(ice_transport_);
-    DCHECK(worker_thread_rtc_thread_);
-    return std::make_unique<IceTransportAdapterImpl>(
-        delegate, std::move(ice_transport_), worker_thread_rtc_thread_);
+    return std::make_unique<IceTransportAdapterImpl>(delegate,
+                                                     std::move(ice_transport_));
+#else
+    return nullptr;
+#endif
   }
 
  private:
   rtc::scoped_refptr<webrtc::IceTransportInterface> ice_transport_;
-  rtc::Thread* worker_thread_rtc_thread_ = nullptr;
 };
 
 class DefaultIceTransportAdapterCrossThreadFactory
     : public IceTransportAdapterCrossThreadFactory {
  public:
   void InitializeOnMainThread(LocalFrame& frame) override {
+#if BUILDFLAG(ENABLE_WEBRTC)
     DCHECK(!port_allocator_);
-    DCHECK(!worker_thread_rtc_thread_);
     DCHECK(!async_resolver_factory_);
-    port_allocator_ = Platform::Current()->CreateWebRtcPortAllocator(
+
+    auto* rtc_dependency_factory =
+        blink::PeerConnectionDependencyFactory::GetInstance();
+    port_allocator_ = rtc_dependency_factory->CreatePortAllocator(
         frame.Client()->GetWebFrame());
     async_resolver_factory_ =
-        Platform::Current()->CreateWebRtcAsyncResolverFactory();
-    worker_thread_rtc_thread_ =
-        Platform::Current()->GetWebRtcWorkerThreadRtcThread();
+        rtc_dependency_factory->CreateAsyncResolverFactory();
+#endif
   }
 
   std::unique_ptr<IceTransportAdapter> ConstructOnWorkerThread(
       IceTransportAdapter::Delegate* delegate) override {
+#if BUILDFLAG(ENABLE_WEBRTC)
     DCHECK(port_allocator_);
-    DCHECK(worker_thread_rtc_thread_);
     DCHECK(async_resolver_factory_);
     return std::make_unique<IceTransportAdapterImpl>(
         delegate, std::move(port_allocator_),
-        std::move(async_resolver_factory_), worker_thread_rtc_thread_);
+        std::move(async_resolver_factory_));
+#else
+    return nullptr;
+#endif
   }
 
  private:
   std::unique_ptr<cricket::PortAllocator> port_allocator_;
   std::unique_ptr<webrtc::AsyncResolverFactory> async_resolver_factory_;
-  rtc::Thread* worker_thread_rtc_thread_ = nullptr;
 };
 
 }  // namespace
 
 RTCIceTransport* RTCIceTransport::Create(ExecutionContext* context) {
+#if BUILDFLAG(ENABLE_WEBRTC)
   LocalFrame* frame = To<Document>(context)->GetFrame();
   scoped_refptr<base::SingleThreadTaskRunner> proxy_thread =
       frame->GetTaskRunner(TaskType::kNetworking);
+
+  PeerConnectionDependencyFactory::GetInstance()->EnsureInitialized();
   scoped_refptr<base::SingleThreadTaskRunner> host_thread =
-      Platform::Current()->GetWebRtcWorkerThread();
+      PeerConnectionDependencyFactory::GetInstance()
+          ->GetWebRtcWorkerTaskRunner();
   return MakeGarbageCollected<RTCIceTransport>(
       context, std::move(proxy_thread), std::move(host_thread),
       std::make_unique<DefaultIceTransportAdapterCrossThreadFactory>());
+#else
+  return nullptr;
+#endif
 }
 
 RTCIceTransport* RTCIceTransport::Create(
     ExecutionContext* context,
     rtc::scoped_refptr<webrtc::IceTransportInterface> ice_transport,
     RTCPeerConnection* peer_connection) {
+#if BUILDFLAG(ENABLE_WEBRTC)
   LocalFrame* frame = To<Document>(context)->GetFrame();
   scoped_refptr<base::SingleThreadTaskRunner> proxy_thread =
       frame->GetTaskRunner(TaskType::kNetworking);
+
+  PeerConnectionDependencyFactory::GetInstance()->EnsureInitialized();
   scoped_refptr<base::SingleThreadTaskRunner> host_thread =
-      Platform::Current()->GetWebRtcWorkerThread();
+      PeerConnectionDependencyFactory::GetInstance()
+          ->GetWebRtcWorkerTaskRunner();
   return MakeGarbageCollected<RTCIceTransport>(
       context, std::move(proxy_thread), std::move(host_thread),
       std::make_unique<DtlsIceTransportAdapterCrossThreadFactory>(
           std::move(ice_transport)),
       peer_connection);
+#else
+  return nullptr;
+#endif
 }
 
 RTCIceTransport* RTCIceTransport::Create(

@@ -42,6 +42,8 @@ const char kRegisterFunction[] = "Register";
 const char kConfigureServiceFunction[] = "ConfigureService";
 const char kFindMatchingServiceFunction[] = "FindMatchingService";
 const char kSetNetworkThrottlingFunction[] = "SetNetworkThrottlingStatus";
+const char kSetUsbEthernetMacAddressSourceFunction[] =
+    "SetUsbEthernetMacAddressSource";
 
 // Flimflam Service property names.
 const char kSecurityProperty[] = "Security";
@@ -61,7 +63,6 @@ const char kProfileProperty[] = "Profile";
 const char kConnectivityStateProperty[] = "ConnectivityState";
 const char kConnectableProperty[] = "Connectable";
 const char kAutoConnectProperty[] = "AutoConnect";
-const char kIsActiveProperty[] = "IsActive";
 const char kModeProperty[] = "Mode";
 const char kErrorProperty[] = "Error";
 const char kProviderProperty[] = "Provider";
@@ -75,8 +76,7 @@ const char kUIDataProperty[] = "UIData";
 const char kConnectionIdProperty[] = "ConnectionId";
 const char kVisibleProperty[] = "Visible";
 const char kDnsAutoFallbackProperty[] = "DNSAutoFallback";
-const char kPortalDetectionFailedPhaseProperty[] =
-    "PortalDetectionFailedPhase";
+const char kPortalDetectionFailedPhaseProperty[] = "PortalDetectionFailedPhase";
 const char kPortalDetectionFailedStatusProperty[] =
     "PortalDetectionFailedStatus";
 const char kProbeUrlProperty[] = "ProbeUrl";
@@ -177,9 +177,9 @@ const char kForceWakeToScanTimerProperty[] = "ForceWakeToScanTimer";
 const char kInterfaceProperty[] = "Interface";
 const char kSelectedServiceProperty[] = "SelectedService";
 const char kIPConfigsProperty[] = "IPConfigs";
-const char kMACAddressRandomizationSupportedProperty[] =
+const char kMacAddressRandomizationSupportedProperty[] =
     "MACAddressRandomizationSupported";
-const char kMACAddressRandomizationEnabledProperty[] =
+const char kMacAddressRandomizationEnabledProperty[] =
     "MACAddressRandomizationEnabled";
 
 // Flimflam Cellular Device property names.
@@ -199,7 +199,6 @@ const char kManufacturerProperty[] = "Cellular.Manufacturer";
 const char kFirmwareRevisionProperty[] = "Cellular.FirmwareRevision";
 const char kHardwareRevisionProperty[] = "Cellular.HardwareRevision";
 const char kDeviceIdProperty[] = "Cellular.DeviceID";
-const char kPRLVersionProperty[] = "Cellular.PRLVersion";
 const char kSelectedNetworkProperty[] = "Cellular.SelectedNetwork";
 const char kSupportNetworkScanProperty[] = "Cellular.SupportNetworkScan";
 const char kFoundNetworksProperty[] = "Cellular.FoundNetworks";
@@ -216,7 +215,7 @@ const char kStateRedirectFound[] = "redirect-found";
 const char kStatePortalSuspected[] = "portal-suspected";
 const char kStateOffline[] = "offline";
 const char kStateOnline[] = "online";
-const char kStateDisconnect[] = "disconnect";
+const char kStateDisconnect[] = "disconnecting";
 const char kStateFailure[] = "failure";
 const char kStateActivationFailure[] = "activation-failure";
 
@@ -334,7 +333,6 @@ const char kMonitorPropertyChanged[] = "PropertyChanged";
 // Flimflam type options.
 const char kTypeEthernet[] = "ethernet";
 const char kTypeWifi[] = "wifi";
-const char kTypeWimax[] = "wimax";
 const char kTypeBluetooth[] = "bluetooth";
 const char kTypeCellular[] = "cellular";
 const char kTypeVPN[] = "vpn";
@@ -452,7 +450,6 @@ const char kTypeDHCP[] = "dhcp";
 const char kTypeBOOTP[] = "bootp";
 const char kTypeZeroConf[] = "zeroconf";
 const char kTypeDHCP6[] = "dhcp6";
-const char kTypePPP[] = "ppp";
 
 // Flimflam error options.
 const char kErrorAaaFailed[] = "aaa-failed";
@@ -487,7 +484,7 @@ const char kErrorResultAlreadyConnected[] =
 const char kErrorResultAlreadyExists[] =
     "org.chromium.flimflam.Error.AlreadyExists";
 const char kErrorResultIncorrectPin[] =
-     "org.chromium.flimflam.Error.IncorrectPin";
+    "org.chromium.flimflam.Error.IncorrectPin";
 const char kErrorResultInProgress[] = "org.chromium.flimflam.Error.InProgress";
 const char kErrorResultInternalError[] =
     "org.chromium.flimflam.Error.InternalError";
@@ -502,7 +499,7 @@ const char kErrorResultInvalidProperty[] =
     "org.chromium.flimflam.Error.InvalidProperty";
 const char kErrorResultNoCarrier[] = "org.chromium.flimflam.Error.NoCarrier";
 const char kErrorResultNotConnected[] =
-     "org.chromium.flimflam.Error.NotConnected";
+    "org.chromium.flimflam.Error.NotConnected";
 const char kErrorResultNotFound[] = "org.chromium.flimflam.Error.NotFound";
 const char kErrorResultNotImplemented[] =
     "org.chromium.flimflam.Error.NotImplemented";
@@ -511,7 +508,7 @@ const char kErrorResultNotOnHomeNetwork[] =
 const char kErrorResultNotRegistered[] =
     "org.chromium.flimflam.Error.NotRegistered";
 const char kErrorResultNotSupported[] =
-     "org.chromium.flimflam.Error.NotSupported";
+    "org.chromium.flimflam.Error.NotSupported";
 const char kErrorResultOperationAborted[] =
     "org.chromium.flimflam.Error.OperationAborted";
 const char kErrorResultOperationInitiated[] =
@@ -524,7 +521,7 @@ const char kErrorResultPermissionDenied[] =
     "org.chromium.flimflam.Error.PermissionDenied";
 const char kErrorResultPinBlocked[] = "org.chromium.flimflam.Error.PinBlocked";
 const char kErrorResultPinRequired[] =
-     "org.chromium.flimflam.Error.PinRequired";
+    "org.chromium.flimflam.Error.PinRequired";
 const char kErrorResultWrongState[] = "org.chromium.flimflam.Error.WrongState";
 
 const char kUnknownString[] = "UNKNOWN";
@@ -560,6 +557,10 @@ const char kUpdateConnectionStateFunction[] = "UpdateConnectionState";
 const char kOnPacketReceivedFunction[] = "OnPacketReceived";
 const char kOnPlatformMessageFunction[] = "OnPlatformMessage";
 
+// Device bus types.
+const char kDeviceBusTypePci[] = "pci";
+const char kDeviceBusTypeUsb[] = "usb";
+
 // Device property names.
 const char kEapAuthenticationCompletedProperty[] = "EapAuthenticationCompleted";
 const char kEapAuthenticatorDetectedProperty[] = "EapAuthenticatorDetected";
@@ -572,9 +573,17 @@ const char kReceiveByteCountProperty[] = "ReceiveByteCount";
 const char kSIMPresentProperty[] = "Cellular.SIMPresent";
 const char kTransmitByteCountProperty[] = "TransmitByteCount";
 const char kWifiSupportedFrequenciesProperty[] = "WiFi.SupportedFrequencies";
+const char kDeviceBusTypeProperty[] = "Ethernet.DeviceBusType";
+const char kUsbEthernetMacAddressSourceProperty[] =
+    "Ethernet.UsbEthernetMacAddressSource";
 
 // Technology types (augments "Flimflam type options" above).
 const char kTypeEthernetEap[] = "etherneteap";
+const char kTypeTunnel[] = "tunnel";
+const char kTypeLoopback[] = "loopback";
+const char kTypePPP[] = "ppp";
+const char kTypeGuestInterface[] = "guest_interface";
+const char kTypeUnknown[] = "unknown";
 
 // Error strings.
 const char kErrorEapAuthenticationFailed[] = "eap-authentication-failed";
@@ -588,8 +597,7 @@ const char kDhcpPropertyHostnameProperty[] = "DHCPProperty.Hostname";
 const char kDhcpPropertyVendorClassProperty[] = "DHCPProperty.VendorClass";
 const char kDisableWiFiVHTProperty[] = "DisableWiFiVHT";
 const char kIgnoredDNSSearchPathsProperty[] = "IgnoredDNSSearchPaths";
-const char kLinkMonitorTechnologiesProperty[] =
-    "LinkMonitorTechnologies";
+const char kLinkMonitorTechnologiesProperty[] = "LinkMonitorTechnologies";
 const char kNoAutoConnectTechnologiesProperty[] = "NoAutoConnectTechnologies";
 const char kProhibitedTechnologiesProperty[] = "ProhibitedTechnologies";
 const char kServiceCompleteListProperty[] = "ServiceCompleteList";
@@ -610,12 +618,14 @@ const char kEapSubjectMatchProperty[] = "EAP.SubjectMatch";
 const char kErrorDetailsProperty[] = "ErrorDetails";
 const char kKeyManagementIEEE8021X[] = "IEEE8021X";
 const char kIPConfigProperty[] = "IPConfig";
+const char kIsConnectedProperty[] = "IsConnected";
 const char kL2tpIpsecCaCertPemProperty[] = "L2TPIPsec.CACertPEM";
 const char kL2tpIpsecTunnelGroupProperty[] = "L2TPIPsec.TunnelGroup";
 const char kL2tpIpsecXauthPasswordProperty[] = "L2TPIPsec.XauthPassword";
 const char kL2tpIpsecXauthUserProperty[] = "L2TPIPsec.XauthUser";
 const char kL2tpIpsecLcpEchoDisabledProperty[] = "L2TPIPsec.LCPEchoDisabled";
 const char kManagedCredentialsProperty[] = "ManagedCredentials";
+const char kMeteredProperty[] = "Metered";
 const char kOpenVPNCaCertPemProperty[] = "OpenVPN.CACertPEM";
 const char kOpenVPNCertProperty[] = "OpenVPN.Cert";
 const char kOpenVPNExtraCertPemProperty[] = "OpenVPN.ExtraCertPEM";
@@ -635,18 +645,6 @@ const char kOutOfCreditsProperty[] = "Cellular.OutOfCredits";
 const char kPhysicalTechnologyProperty[] = "PhysicalTechnology";
 const char kPreviousErrorProperty[] = "PreviousError";
 const char kPreviousErrorSerialNumberProperty[] = "PreviousErrorSerialNumber";
-const char kStaticIPAddressProperty[] = "StaticIP.Address";
-const char kStaticIPGatewayProperty[] = "StaticIP.Gateway";
-const char kStaticIPMtuProperty[] = "StaticIP.Mtu";
-const char kStaticIPNameServersProperty[] = "StaticIP.NameServers";
-const char kStaticIPPeerAddressProperty[] = "StaticIP.PeerAddress";
-const char kStaticIPPrefixlenProperty[] = "StaticIP.Prefixlen";
-const char kSavedIPAddressProperty[] = "SavedIP.Address";
-const char kSavedIPGatewayProperty[] = "SavedIP.Gateway";
-const char kSavedIPMtuProperty[] = "SavedIP.Mtu";
-const char kSavedIPNameServersProperty[] = "SavedIP.NameServers";
-const char kSavedIPPeerAddressProperty[] = "SavedIP.PeerAddress";
-const char kSavedIPPrefixlenProperty[] = "SavedIP.Prefixlen";
 const char kTetheringProperty[] = "Tethering";
 const char kVPNMTUProperty[] = "VPN.MTU";
 const char kWifiFrequencyListProperty[] = "WiFi.FrequencyList";
@@ -672,8 +670,7 @@ const char kVendorOUIListProperty[] = "OUIList";
 // WiFi Device link property names.
 const char kLinkStatisticsProperty[] = "LinkStatistics";
 const char kAverageReceiveSignalDbmProperty[] = "AverageReceiveSignalDbm";
-const char kInactiveTimeMillisecondsProperty[] =
-    "InactiveTimeMilliseconds";
+const char kInactiveTimeMillisecondsProperty[] = "InactiveTimeMilliseconds";
 const char kLastReceiveSignalDbmProperty[] = "LastReceiveSignalDbm";
 const char kPacketReceiveSuccessesProperty[] = "PacketReceiveSuccesses";
 const char kPacketTransmitFailuresProperty[] = "PacketTransmitFailures";
@@ -719,9 +716,16 @@ const char kCarrierVerizon[] = "Verizon Wireless";
 
 // Cellular activation types.
 const char kActivationTypeNonCellular[] = "NonCellular";  // For future use
-const char kActivationTypeOMADM[] = "OMADM";  // For future use
+const char kActivationTypeOMADM[] = "OMADM";              // For future use
 const char kActivationTypeOTA[] = "OTA";
 const char kActivationTypeOTASP[] = "OTASP";
+
+// USB Ethernet MAC address sources.
+const char kUsbEthernetMacAddressSourceDesignatedDockMac[] =
+    "designated_dock_mac";
+const char kUsbEthernetMacAddressSourceBuiltinAdapterMac[] =
+    "builtin_adapter_mac";
+const char kUsbEthernetMacAddressSourceUsbAdapterMac[] = "usb_adapter_mac";
 
 // Geolocation property field names.
 // Reference:

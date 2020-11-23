@@ -11,9 +11,9 @@
 #include "base/memory/scoped_refptr.h"
 #include "base/sync_socket.h"
 #include "base/unguessable_token.h"
-#include "media/mojo/interfaces/audio_data_pipe.mojom.h"
-#include "media/mojo/interfaces/audio_input_stream.mojom.h"
-#include "media/mojo/interfaces/audio_logging.mojom.h"
+#include "media/mojo/mojom/audio_data_pipe.mojom.h"
+#include "media/mojo/mojom/audio_input_stream.mojom.h"
+#include "media/mojo/mojom/audio_logging.mojom.h"
 #include "mojo/public/cpp/bindings/pending_receiver.h"
 #include "mojo/public/cpp/bindings/pending_remote.h"
 #include "mojo/public/cpp/bindings/receiver.h"
@@ -77,6 +77,7 @@ class InputStream final : public media::mojom::AudioInputStream,
  private:
   void OnStreamError(bool signalPlatformError);
   void CallDeleter();
+  void SendLogMessage(const std::string& message);
 
   const base::UnguessableToken id_;
 
@@ -98,7 +99,7 @@ class InputStream final : public media::mojom::AudioInputStream,
 
   SEQUENCE_CHECKER(owning_sequence_);
 
-  base::WeakPtrFactory<InputStream> weak_factory_;
+  base::WeakPtrFactory<InputStream> weak_factory_{this};
 
   DISALLOW_COPY_AND_ASSIGN(InputStream);
 };

@@ -102,7 +102,6 @@ QSGNode *QMapIconObjectPrivateQSG::updateMapObjectNode(QSGNode *oldNode,
                                                        QQuickWindow *window)
 {
     Q_UNUSED(visibleNode);
-    bool created = false;
     RootNode *node = static_cast<RootNode *>(oldNode);
     if (!node) {
         node = new RootNode();
@@ -110,7 +109,6 @@ QSGNode *QMapIconObjectPrivateQSG::updateMapObjectNode(QSGNode *oldNode,
         m_imageNode->setOwnsTexture(true);
         node->appendChildNode(m_imageNode);
         *visibleNode = static_cast<VisibleNode *>(node);
-        created = true;
     }
 
     if (m_imageDirty) {
@@ -131,8 +129,7 @@ QSGNode *QMapIconObjectPrivateQSG::updateMapObjectNode(QSGNode *oldNode,
         }
     }
 
-    if (created)
-        root->appendChildNode(node);
+    root->appendChildNode(node);
 
     return node;
 }

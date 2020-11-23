@@ -12,7 +12,7 @@ import("../../webrtc.gni")
 # Targets must link with either 'video_capture' or
 # 'video_capture_internal_impl' depending on whether they want to
 # use the internal capturer.
-rtc_static_library("video_capture_module") {
+rtc_library("video_capture_module") {
   visibility = [ "*" ]
   sources = [
     "device_info_impl.cc",
@@ -45,6 +45,7 @@ rtc_static_library("video_capture_module") {
 
 if (!build_with_chromium) {
   rtc_source_set("video_capture_internal_impl") {
+    visibility = [ "*" ]
     deps = [
       ":video_capture_module",
       "../../api:scoped_refptr",

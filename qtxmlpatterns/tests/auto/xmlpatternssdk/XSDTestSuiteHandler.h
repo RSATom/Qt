@@ -30,10 +30,10 @@
 #define PatternistSDK_XSDTestSuiteHandler_H
 
 #include <QUrl>
-#include <QXmlDefaultHandler>
 
 #include "ExternalSourceLoader.h"
 #include "TestSuite.h"
+#include "XmlParseHelper.h"
 #include "XQTSTestCase.h"
 
 QT_BEGIN_NAMESPACE
@@ -57,7 +57,7 @@ namespace QPatternistSDK
      * @ingroup PatternistSDK
      * @author Tobias Koenig <tobias.koenig@nokia.com>
      */
-    class XSDTestSuiteHandler : public QXmlDefaultHandler
+    class XSDTestSuiteHandler : public XmlParseHelper
     {
     public:
         /**
@@ -68,17 +68,14 @@ namespace QPatternistSDK
          * test groups when loading
          */
         XSDTestSuiteHandler(const QUrl &catalogFile);
-        virtual bool characters(const QString &ch);
+        bool characters(const QStringRef &ch) override;
 
-        virtual bool endElement(const QString &namespaceURI,
-                                const QString &localName,
-                                const QString &qName);
-        virtual bool startElement(const QString &namespaceURI,
-                                  const QString &localName,
-                                  const QString &qName,
-                                  const QXmlAttributes &atts);
+        bool endElement(const QStringRef &namespaceURI, const QStringRef &localName,
+                        const QStringRef &qName) override;
+        bool startElement(const QStringRef &namespaceURI, const QStringRef &localName,
+                          const QStringRef &qName, const QXmlStreamAttributes &atts) override;
 
-        virtual TestSuite *testSuite() const;
+        TestSuite *testSuite() const;
 
     private:
         TestSuite* m_ts;

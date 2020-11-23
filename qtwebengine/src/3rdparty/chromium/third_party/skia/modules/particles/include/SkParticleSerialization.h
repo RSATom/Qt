@@ -30,29 +30,20 @@ public:
         fWriter.appendBool(name, b);
     }
     void visit(const char* name, SkString& s) override {
-        fWriter.appendString(name, s.c_str());
-    }
-    void visit(const char* name, int& i, const EnumStringMapping* map, int count) override {
-        fWriter.appendString(name, EnumToString(i, map, count));
+        if (s.contains('\n')) {
+            SkTArray<SkString> lines;
+            SkStrSplit(s.c_str(), "\n", kStrict_SkStrSplitMode, &lines);
+            fWriter.beginArray(name);
+            for (const auto& line : lines) {
+                fWriter.appendString(line.c_str());
+            }
+            fWriter.endArray();
+        } else {
+            fWriter.appendString(name, s.c_str());
+        }
     }
 
     // Compound types
-    void visit(const char* name, SkPoint& p) override {
-        fWriter.beginObject(name, false);
-        fWriter.appendFloat("x", p.fX);
-        fWriter.appendFloat("y", p.fY);
-        fWriter.endObject();
-    }
-
-    void visit(const char* name, SkColor4f& c) override {
-        fWriter.beginArray(name, false);
-        fWriter.appendFloat(c.fR);
-        fWriter.appendFloat(c.fG);
-        fWriter.appendFloat(c.fB);
-        fWriter.appendFloat(c.fA);
-        fWriter.endArray();
-    }
-
     void visit(sk_sp<SkReflected>& e, const SkReflected::Type* baseType) override {
         fWriter.appendString("Type", e ? e->getType()->fName : "Null");
     }
@@ -89,29 +80,20 @@ public:
         TryParse(get(name), b);
     }
     void visit(const char* name, SkString& s) override {
-        TryParse(get(name), s);
-    }
-    void visit(const char* name, int& i, const EnumStringMapping* map, int count) override {
-        SkString str;
-        if (TryParse(get(name), str)) {
-            i = StringToEnum(str.c_str(), map, count);
-        }
-    }
-
-    void visit(const char* name, SkPoint& p) override {
-        if (const skjson::ObjectValue* obj = get(name)) {
-            TryParse((*obj)["x"], p.fX);
-            TryParse((*obj)["y"], p.fY);
-        }
-    }
-
-    void visit(const char* name, SkColor4f& c) override {
-        const skjson::ArrayValue* arr = get(name);
-        if (arr && arr->size() == 4) {
-            TryParse((*arr)[0], c.fR);
-            TryParse((*arr)[1], c.fG);
-            TryParse((*arr)[2], c.fB);
-            TryParse((*arr)[3], c.fA);
+        if (const skjson::ArrayValue* lines = get(name)) {
+            s.reset();
+            bool first = true;
+            for (const skjson::StringValue* line : *lines) {
+                if (line) {
+                    if (!first) {
+                        s.append("\n");
+                    }
+                    s.append(line->begin(), line->size());
+                    first = false;
+                }
+            }
+        } else {
+            TryParse(get(name), s);
         }
     }
 

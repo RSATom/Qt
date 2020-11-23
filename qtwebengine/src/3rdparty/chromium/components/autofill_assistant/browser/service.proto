@@ -10,6 +10,8 @@ option java_multiple_files = true;
 
 package autofill_assistant;
 
+import "generic_ui.proto";
+
 // A field trial containing the name of the trial and the name of the
 // randomly selected trial group.
 message FieldTrialProto {
@@ -42,8 +44,26 @@ message ClientContextProto {
   // Assistant.
   optional bool is_cct = 8;
 
+  // True if the onboarding screen was shown to the user.
+  optional bool is_onboarding_shown = 10;
+
   // True if the script was triggered by a direct action.
   optional bool is_direct_action = 9;
+
+  message DeviceContextProto {
+    message VersionProto {
+      // The Android SDK version of the device.
+      optional int32 sdk_int = 1;
+    }
+    optional VersionProto version = 1;
+
+    // The manufacturer of the device.
+    optional string manufacturer = 2;
+
+    // The model of the device.
+    optional string model = 3;
+  }
+  optional DeviceContextProto device_context = 11;
 }
 
 // Get the list of scripts that can potentially be run on a url.
@@ -73,7 +93,28 @@ message SupportsScriptResponseProto {
   optional ClientSettingsProto client_settings = 3;
 }
 
+// Overlay image to be drawn on top of full overlays.
+message OverlayImageProto {
+  // The image to display. If set, |image_size| is mandatory.
+  optional string image_url = 1;
+  // The size of the image to display.
+  optional ClientDimensionProto image_size = 2;
+  // The margin between the top of the page (anchor) and the image.
+  optional ClientDimensionProto image_top_margin = 3;
+  // The margin between the bottom of the image and the baseline of the text.
+  optional ClientDimensionProto image_bottom_margin = 4;
+  // The text to display beneath the image. If set, |text_color| and |text_size|
+  // are mandatory.
+  optional string text = 5;
+  // Supported formats: #RRGGBB or #AARRGGBB.
+  optional string text_color = 6;
+  // The size of the text to display.
+  optional ClientDimensionProto text_size = 7;
+}
+
 message ClientSettingsProto {
+  reserved 10, 11;
+
   // Time between two periodic script precondition checks.
   optional int32 periodic_script_check_interval_ms = 1;
 
@@ -107,6 +148,24 @@ message ClientSettingsProto {
   // Maximum number of checks to run while waiting for the document to become
   // ready.
   optional int32 document_ready_check_count = 9;
+
+  // How much time to give users to tap undo when they tap a cancel button.
+  optional int32 cancel_delay_ms = 12;
+
+  // If the user taps the overlay that many time within |tap_duration| turn the
+  // UI off and give them |tap_shutdown_delay| to undo. If 0, unexpected taps
+  // are ignored.
+  optional int32 tap_count = 13;
+
+  // Reset the unexpected tap counter after that time.
+  optional int32 tap_tracking_duration_ms = 14;
+
+  // How much time to give users to tap undo when after |tap_count| unexpected
+  // taps where
+  optional int32 tap_shutdown_delay_ms = 15;
+
+  // Optional image drawn on top of overlays.
+  optional OverlayImageProto overlay_image = 16;
 }
 
 message ScriptTimeoutError {
@@ -402,7 +461,7 @@ message ActionProto {
     ShowDetailsProto show_details = 32;
     ResetProto reset = 34;
     StopProto stop = 35;
-    GetPaymentInformationProto get_payment_information = 36;
+    CollectUserDataProto collect_user_data = 36;
     SetAttributeProto set_attribute = 37;
     ShowInfoBoxProto show_info_box = 39;
     ExpectNavigationProto expect_navigation = 40;
@@ -417,22 +476,30 @@ message ActionProto {
   // script finishes with this action. It has no effect if there is any other
   // action sent to the client after this one. Default is false.
   optional bool clean_contextual_ui = 33;
+
+  reserved 47;
 }
 
-// Result message used to send payment request related data to the server.
-message PaymentDetails {
+// Result of |CollectUserDataProto| to be sent to the server.
+message CollectUserDataResultProto {
   optional string card_issuer_network = 1;
   // Whether the integrated terms and conditions approval checkbox was checked.
   optional bool is_terms_and_conditions_accepted = 2;
   // The email address of the payer.
   optional string payer_email = 3;
   // If set, this means that the user triggered the action in
-  // |GetPaymentInformationProto.additional_actions| that has index
+  // |CollectUserDataProto.additional_actions| that has index
   // |additional_action_index|.
   optional int32 additional_action_index = 4;
   // If set, this means that the user clicked on one of the terms and conditions
   // links.
   optional int32 terms_link = 5;
+  // The payload of the chosen login option.
+  optional bytes login_payload = 6;
+  // The start of the date/time range, if requested.
+  optional DateTimeProto date_time_start = 7;
+  // The end of the date/time range, if requested.
+  optional DateTimeProto date_time_end = 8;
 }
 
 message ProcessedActionProto {
@@ -446,8 +513,8 @@ message ProcessedActionProto {
   oneof result_data {
     PromptProto.Choice prompt_choice = 5;
     string html_source = 12;
-    // Should be set as a result of GetPaymentInformationAction.
-    PaymentDetails payment_details = 15;
+    // Should be set as a result of CollectUserDataAction.
+    CollectUserDataResultProto collect_user_data_result = 15;
     // Should be set as a result of SetFormFieldValueAction.
     SetFormFieldValueProto.Result set_form_field_value_result = 17;
     // May be set as a result of WaitForDomProto.
@@ -488,8 +555,6 @@ message ProcessedActionStatusDetailsProto {
   optional ProcessedActionStatusProto original_status = 2;
 
   // More information included for autofill related errors.
-  //
-  // For now this is only filled for PRECONDITION_FAILED errors.
   optional AutofillErrorInfoProto autofill_error_info = 3;
 }
 
@@ -540,6 +605,12 @@ message UnexpectedErrorInfoProto {
   // JavaScript exception column number, within the js snippet that was sent to
   // devtools runtime by the client, if reporting a JavaScript error.
   optional int32 js_exception_column_number = 5;
+
+  // Error code returned by devtools, if any. 0 is considered a success.
+  optional int32 devtools_error_code = 6;
+
+  // Error message returned by devtools, if any.
+  optional string devtools_error_message = 7;
 }
 
 // Message to report autofill related errors for debugging purposes.
@@ -552,8 +623,15 @@ message AutofillErrorInfoProto {
   // Name of the address key requested in the list of keys in
   // |client_memory_address_key_names|.
   optional string address_key_requested = 2;
+
+  // Whether the client memory at |address_key_requested| pointed to null.
+  optional bool address_pointee_was_null = 3;
+
+  // Error status of the Chrome autofill attempt.
+  optional ProcessedActionStatusProto autofill_error_status = 4;
 }
 
+// Next: 22
 enum ProcessedActionStatusProto {
   UNKNOWN_ACTION_STATUS = 0;
 
@@ -572,8 +650,8 @@ enum ProcessedActionStatusProto {
   // ProcessedActionProto.UnexpectedErrorInfoProto contains more details.
   OTHER_ACTION_STATUS = 3;
 
-  // The action failed to get payment information.
-  PAYMENT_REQUEST_ERROR = 4;
+  // The action failed to collect the requested user data.
+  COLLECT_USER_DATA_ERROR = 4;
 
   // Server asked the client to execute an unknown or unsupported action.
   UNSUPPORTED_ACTION = 5;
@@ -609,8 +687,7 @@ enum ProcessedActionStatusProto {
   //
   // This is currently returned by the autofill action, when it could not find
   // the credit card or the address it needs in the client memory. This is
-  // usually the sign that the Get Payment Information action was not run or
-  // failed.
+  // usually the sign that the CollectUserDataAction was not run or failed.
   //
   PRECONDITION_FAILED = 10;
 
@@ -650,6 +727,13 @@ enum ProcessedActionStatusProto {
 
   // A selector included into the current action is invalid.
   INVALID_SELECTOR = 20;
+
+  // The requested autofill info (e.g., Chrome password manager login) was not
+  // available. It might have been recently deleted.
+  AUTOFILL_INFO_NOT_AVAILABLE = 21;
+
+  // An unexpected error occurred during element resolution.
+  FRAME_HOST_NOT_FOUND = 22;
 }
 
 // The pseudo type values come from
@@ -744,6 +828,11 @@ message SelectOptionProto {
 
 // Contain a localized text message from the server.
 message TellProto {
+  // The message to show in the status bar. The behavior is now the following
+  //
+  //  * If the field is set, the status bar is updated (explicitly setting an
+  //    empty string clears the status bar).
+  //  * If the field is not set, the status bar is not updated.
   optional string message = 1;
 
   // Show the UI if it's not shown yet, such as when a script has been started
@@ -855,7 +944,8 @@ message UseAddressProto {
   repeated RequiredField required_fields = 6;
 }
 
-// Fill a form with a credit card if there is, otherwise fail this action.
+// Fill a form with a credit card if there is one stored in client memory,
+// otherwise fail this action.
 message UseCreditCardProto {
   // Message used to indicate what form fields should be filled with what
   // information.
@@ -866,6 +956,9 @@ message UseCreditCardProto {
       CREDIT_CARD_EXP_MONTH = 2;
       CREDIT_CARD_EXP_2_DIGIT_YEAR = 3;
       CREDIT_CARD_EXP_4_DIGIT_YEAR = 4;
+      CREDIT_CARD_CARD_HOLDER_NAME = 5;
+      CREDIT_CARD_NUMBER = 6;
+      CREDIT_CARD_EXP_MM_YY = 7;
     }
 
     optional CardField card_field = 1;
@@ -1124,9 +1217,132 @@ message ContactDetailsProto {
   optional bool request_payer_phone = 4;
 }
 
+// A generic read-only popup message.
+message InfoPopupProto {
+  // The title of the popup window.
+  optional string title = 1;
+  // The text of the popup window.
+  optional string text = 2;
+
+  message DialogButton {
+    message CloseDialog {}
+    message OpenUrlInCCT { optional string url = 1; }
+
+    // The action to be executed on click.
+    oneof click_action {
+      // Closes the popup.
+      CloseDialog close_dialog = 4;
+      // Opens the specified url into a new CCT.
+      OpenUrlInCCT open_url_in_cct = 5;
+    }
+    optional string label = 1;
+  }
+  // Optional: adds a positive button.
+  optional DialogButton positive_button = 3;
+  // Optional: adds a negative button.
+  optional DialogButton negative_button = 4;
+  // Optional: adds a neutral button.
+  optional DialogButton neutral_button = 5;
+}
+
+message LoginDetailsProto {
+  // A custom login option which will be handled by the backend, e.g.,
+  // 'Guest checkout' or 'Log in with Google'.
+  message LoginOptionCustomProto {
+    // The label to display to the user.
+    optional string label = 1;
+  }
+
+  // Offers all matching Chrome password manager logins for the current website.
+  message LoginOptionPasswordManagerProto {}
+
+  message LoginOptionProto {
+    // If set, an info icon will be shown that displays a popup when tapped.
+    optional InfoPopupProto info_popup = 6;
+
+    // The optional sublabel to display beneath the label.
+    optional string sublabel = 7;
+    optional string sublabel_accessibility_hint = 8;
+
+    // If the option was chosen, this payload will be returned to the server.
+    optional bytes payload = 1;
+
+    // Whether the UI should automatically choose this login option if it is the
+    // only available choice.
+    optional bool choose_automatically_if_no_other_options = 2;
+
+    // Determines the priority with which to pre-select this login choice.
+    // The lower the value, the higher the priority.
+    optional int32 preselection_priority = 3;
+    oneof type {
+      LoginOptionCustomProto custom = 4;
+      LoginOptionPasswordManagerProto password_manager = 5;
+    }
+  }
+  // The title for the login selection (e.g., 'Login details for <domain>').
+  optional string section_title = 1;
+  // The list of available login options.
+  repeated LoginOptionProto login_options = 2;
+}
+
+message DateTimeRangeProto {
+  // The start value of the date/time range.
+  optional DateTimeProto start = 1;
+  // The end value of the date/time range.
+  optional DateTimeProto end = 2;
+  // The minimum allowed value of the date/time range.
+  optional DateTimeProto min = 3;
+  // The maximum allowed value of the date/time range.
+  optional DateTimeProto max = 4;
+  // The label of the start date/time value (e.g., 'Pick-up').
+  optional string start_label = 5;
+  // The label of the end date/time value (e.g., 'Return').
+  optional string end_label = 6;
+}
+
+// A section showing a simple text message.
+message StaticTextSectionProto {
+  // The text to display. Can contain markup tags like <b>.
+  optional string text = 1;
+}
+
+// A single text input.
+message TextInputProto {
+  optional string hint = 1;
+  enum InputType {
+    UNDEFINED = 0;
+    // Regular text, no special formatting rules.
+    INPUT_TEXT = 1;
+    // An alphanumeric input, e.g. postal code or discount code.
+    INPUT_ALPHANUMERIC = 2;
+  }
+  optional InputType input_type = 2;
+
+  // The client memory key to store the result in.
+  optional string client_memory_key = 3;
+
+  // The initial value of the text input.
+  optional string value = 4;
+}
+
+// A section containing one or multiple text inputs.
+message TextInputSectionProto {
+  repeated TextInputProto input_fields = 1;
+}
+
+message UserFormSectionProto {
+  optional string title = 1;
+
+  oneof section {
+    StaticTextSectionProto static_text_section = 2;
+    TextInputSectionProto text_input_section = 3;
+  }
+}
+
 // Asks to provide the data used by UseAddressAction and
 // UseCreditCardAction.
-message GetPaymentInformationProto {
+// Next: 22
+message CollectUserDataProto {
   enum TermsAndConditionsState {
     // No choice has been made yet.
     NOT_SELECTED = 0;
@@ -1137,7 +1353,7 @@ message GetPaymentInformationProto {
   }
 
   optional string prompt = 1;
-  // NOTE: Payment request does not ask separately for billing address.
+  // NOTE: The action does not ask separately for billing address.
   // The billing address is associated with the credit card that was picked.
   optional string billing_address_name = 2;
   // If present will save the shipping address inside the memory under the
@@ -1145,13 +1361,13 @@ message GetPaymentInformationProto {
   // under this name can be reused by UseAddressAction.
   optional string shipping_address_name = 3;
   // When 'true' will ask for the credit card.
-  optional bool ask_for_payment = 4;
+  optional bool request_payment_method = 4;
   // If non-empty, the UI will filter the available basic-card networks
   // accordingly (e.g., only `visa' and `mastercard').
   repeated string supported_basic_card_networks = 6;
   // Contact details that should be gathered.
   optional ContactDetailsProto contact_details = 5;
-  // Override for the text of the confirm button in the payment request.
+  // Override for the text of the confirm button.
   optional string confirm_button_text = 7;
   // The initial state of the terms & conditions choice.
   optional TermsAndConditionsState terms_and_conditions_state = 8;
@@ -1168,6 +1384,12 @@ message GetPaymentInformationProto {
   // that will finish this action and return the clicked link in the action
   // result.
   optional string accept_terms_and_conditions_text = 13;
+  // Message that indicates that the user wants to review the terms and
+  // conditions of a 3rd party's domain, e.g., 'example.com'.
+  optional string terms_require_review_text = 20;
+  // Privacy notice telling users that autofill assistant will send personal
+  // data to a third party’s website.
+  optional string privacy_notice_text = 21;
   // Optionally allows confiriming through the given direct actions.
   optional DirectActionProto confirm_direct_action = 10;
   // Additional actions available to the user. This can be used for instance to
@@ -1180,6 +1402,18 @@ message GetPaymentInformationProto {
   // The error message to display when the billing address is missing the
   // postal code. This field is mandatory if |require_postal_code| is true.
   optional string billing_postal_code_missing_text = 15;
+  // The error message to display when the selected credit card is expired.
+  optional string credit_card_expired_text = 23;
+  // The login details that should be gathered.
+  optional LoginDetailsProto login_details = 16;
+  // The date/time range that should be gathered.
+  optional DateTimeRangeProto date_time_range = 17;
+  // An optional list of additional sections, which is above all other sections.
+  repeated UserFormSectionProto additional_prepended_sections = 18;
+  // An optional list of additional sections, which is below all other sections.
+  repeated UserFormSectionProto additional_appended_sections = 19;
+  // Backend-configured user interface to show.
+  optional GenericUserInterfaceProto generic_user_interface = 22;
 }
 
 // Resets Autofill Assistant: clears any state and server payload.
@@ -1246,6 +1480,9 @@ message DetailsProto {
     // When set to true shows placeholder in place of an image.
     bool show_image_placeholder = 10;
   }
+  // Specifies the hint for accessibility. If set to empty, the image will not
+  // be announced by accessibility.
+  optional string image_accessibility_hint = 14;
 
   // Specifies what happens when user tap on the image in the details section.
   message ImageClickthroughData {
@@ -1323,6 +1560,14 @@ message SetFormFieldValueProto {
       // layout. This can also be used for keyboard control sequences such
       // as "\r" or "\t".
       string keyboard_input = 3;
+      // Use the username from the Chrome password manager login previously
+      // selected in a CollectUserDataAction.
+      bool use_username = 4;
+      // Use the password from the Chrome password manager login previously
+      // selected in a CollectUserDataAction.
+      bool use_password = 5;
+      // Use the value stored at the specified memory location.
+      string client_memory_key = 6;
     }
   }
 
@@ -1434,11 +1679,25 @@ message ShowFormProto {
 
 message FormProto {
   // A result associated to this form, such that |input_results[i]| is the
-  // result of |inputs[i]|.
-  message Result { repeated FormInputProto.Result input_results = 1; }
+  // result of |inputs[i]|. If the user clicks a link while in the form action,
+  // |link| will be set to the index of the clicked link and |input_results|
+  // may be incomplete.
+  message Result {
+    repeated FormInputProto.Result input_results = 1;
+    // If this is set, it contains the index of the text link that was clicked.
+    // E.g., <link4>Details</link4> will populate this field with '4' when
+    // clicked.
+    optional int32 link = 2;
+  }
 
   // The different inputs to display.
   repeated FormInputProto inputs = 1;
+
+  // Optionally adds an informational text below the form.
+  optional string info_label = 2;
+  // If set, an info icon will be shown next to the info label that prompts a
+  // popup when tapped. Ignored if info_label is not set.
+  optional InfoPopupProto info_popup = 3;
 }
 
 message FormInputProto {
@@ -1461,11 +1720,17 @@ message CounterInputProto {
   // A single counter.
   message Counter {
     // The label shown with the counter. All occurrences of the '{value}'
-    // substring will be replaced by the current counter value.
+    // substring will be replaced by the current counter value. May contain
+    // links of the form <link1>Some text</link1>.
     optional string label = 1;
 
-    // Text shown below the label. Optional.
-    optional string subtext = 5;
+    // Text shown below the label. Optional. May contain links of the form
+    // <link1>Some text</link1>.
+    optional string description_line_1 = 5;
+
+    // Text shown below |description_line_2|. Optional. May contain links of the
+    // form <link1>Some text</link1>.
+    optional string description_line_2 = 8;
 
     // The possible values this counter can have. If empty, the possible values
     // will be all integer values between |min_value| and |max_value|.
@@ -1594,8 +1859,17 @@ message CounterInputProto {
 // |min_choices|.
 message SelectionInputProto {
   message Choice {
-    // The label of this choice.
+    // The label of this choice. May contain links of the form <link1>Some
+    // text</link1>.
     optional string label = 1;
+
+    // Text shown below the label. Optional. May contain links of the form
+    // <link1>Some text</link1>.
+    optional string description_line_1 = 3;
+
+    // Text shown below |description_line_2|. Optional. May contain links of the
+    // form <link1>Some text</link1>.
+    optional string description_line_2 = 4;
 
     // Whether this choice is selected by default. If |allow_multiple| is false,
     // then maximum 1 Choice can have this set to true, otherwise the associated

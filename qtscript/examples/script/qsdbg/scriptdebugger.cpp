@@ -355,7 +355,7 @@ void ScriptDebuggerPrivate::interactive()
             else
                 m_lastInteractiveCommand = line;
 
-            QStringList parts = line.split(QLatin1Char(' '), QString::SkipEmptyParts);
+            QStringList parts = line.split(QLatin1Char(' '), Qt::SkipEmptyParts);
             if (!parts.isEmpty()) {
                 QString command = parts.takeFirst().mid(1);
                 if (executeCommand(command, parts))

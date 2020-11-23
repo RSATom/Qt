@@ -71,7 +71,7 @@ Q_DECLARE_OPERATORS_FOR_FLAGS(ObjectCategories)
 extern QMetaObject *qax_readEnumInfo(ITypeLib *typeLib, const QMetaObject *parentObject);
 extern QMetaObject *qax_readClassInfo(ITypeLib *typeLib, ITypeInfo *typeInfo, const QMetaObject *parentObject);
 extern QMetaObject *qax_readInterfaceInfo(ITypeLib *typeLib, ITypeInfo *typeInfo, const QMetaObject *parentObject);
-extern QList<QByteArray> qax_qualified_usertypes;
+extern QByteArrayList qax_qualified_usertypes;
 extern QString qax_docuFromName(ITypeInfo *typeInfo, const QString &name);
 extern bool qax_dispatchEqualsIDispatch;
 extern void qax_deleteMetaObject(QMetaObject *mo);
@@ -86,48 +86,48 @@ void writeEnums(QTextStream &out, const QMetaObject *mo)
     // enums
     for (int ienum = mo->enumeratorOffset(); ienum < mo->enumeratorCount(); ++ienum) {
         QMetaEnum metaEnum = mo->enumerator(ienum);
-        out << "    enum " << metaEnum.name() << " {" << endl;
+        out << "    enum " << metaEnum.name() << " {" << Qt::endl;
         for (int k = 0; k < metaEnum.keyCount(); ++k) {
             QByteArray key(metaEnum.key(k));
             out << "        " << key.leftJustified(24) << "= " << metaEnum.value(k);
             if (k < metaEnum.keyCount() - 1)
                 out << ',';
-            out << endl;
+            out << Qt::endl;
         }
-        out << "    };" << endl;
-        out << endl;
+        out << "    };" << Qt::endl;
+        out << Qt::endl;
     }
 }
 
 void writeHeader(QTextStream &out, const QString &nameSpace, const QString &outFileName)
 {
-    out << "#ifndef QAX_DUMPCPP_" << outFileName.toUpper() << "_H" << endl;
-    out << "#define QAX_DUMPCPP_" << outFileName.toUpper() << "_H" << endl;
-    out << endl;
-    out << "// Define this symbol to __declspec(dllexport) or __declspec(dllimport)" << endl;
-    out << "#ifndef " << nameSpace.toUpper() << "_EXPORT" << endl;
-    out << "#define " << nameSpace.toUpper() << "_EXPORT" << endl;
-    out << "#endif" << endl;
-    out << endl;
-    out << "#include <qaxobject.h>" << endl;
-    out << "#include <qaxwidget.h>" << endl;
-    out << "#include <qdatetime.h>" << endl;
-    out << "#include <qpixmap.h>" << endl;
-    out << endl;
-    out << "struct IDispatch;" << endl;
-    out << endl;
+    out << "#ifndef QAX_DUMPCPP_" << outFileName.toUpper() << "_H" << Qt::endl;
+    out << "#define QAX_DUMPCPP_" << outFileName.toUpper() << "_H" << Qt::endl;
+    out << Qt::endl;
+    out << "// Define this symbol to __declspec(dllexport) or __declspec(dllimport)" << Qt::endl;
+    out << "#ifndef " << nameSpace.toUpper() << "_EXPORT" << Qt::endl;
+    out << "#define " << nameSpace.toUpper() << "_EXPORT" << Qt::endl;
+    out << "#endif" << Qt::endl;
+    out << Qt::endl;
+    out << "#include <qaxobject.h>" << Qt::endl;
+    out << "#include <qaxwidget.h>" << Qt::endl;
+    out << "#include <qdatetime.h>" << Qt::endl;
+    out << "#include <qpixmap.h>" << Qt::endl;
+    out << Qt::endl;
+    out << "struct IDispatch;" << Qt::endl;
+    out << Qt::endl;
 }
 
 void generateNameSpace(QTextStream &out, const QMetaObject *mo, const QByteArray &nameSpace)
 {
-    out << "namespace " << nameSpace << " {" << endl;
-    out << endl;
+    out << "namespace " << nameSpace << " {" << Qt::endl;
+    out << Qt::endl;
     writeEnums(out, mo);
 
     // don't close on purpose
 }
 
-static QByteArray joinParameterNames(const QList<QByteArray> &parameterNames)
+static QByteArray joinParameterNames(const QByteArrayList &parameterNames)
 {
     QByteArray slotParameters;
     for (int p = 0; p < parameterNames.count(); ++p) {
@@ -189,32 +189,32 @@ static void formatConstructorBody(QTextStream &out, const QByteArray &className,
 {
     out << className << "::" << className;
     formatConstructorSignature(out, category, false);
-    out << " :" << endl << "    ";
+    out << " :" << Qt::endl << "    ";
     if (category & ActiveX)
         out << "QAxWidget(parent, f";
     else if (category & SubObject)
         out << "QAxObject(subobject, parent";
     else
         out << "QAxObject(parent";
-    out << ')' << endl << '{' << endl;
+    out << ')' << Qt::endl << '{' << Qt::endl;
     if (category & SubObject) {
-        out << "    internalRelease();" << endl;
+        out << "    internalRelease();" << Qt::endl;
     } else if (category & Licensed) {
-        out << "    if (licenseKey.isEmpty())" << endl;
-        out << "        setControl(QStringLiteral(\"" << controlID << "\"));" << endl;
-        out << "    else" << endl;
-        out << "        setControl(QStringLiteral(\"" << controlID << ":\") + licenseKey);" << endl;
+        out << "    if (licenseKey.isEmpty())" << Qt::endl;
+        out << "        setControl(QStringLiteral(\"" << controlID << "\"));" << Qt::endl;
+        out << "    else" << Qt::endl;
+        out << "        setControl(QStringLiteral(\"" << controlID << ":\") + licenseKey);" << Qt::endl;
     } else {
-        out << "    setControl(QStringLiteral(\"" << controlID << "\"));" << endl;
+        out << "    setControl(QStringLiteral(\"" << controlID << "\"));" << Qt::endl;
     }
-    out << '}' << endl << endl;
+    out << '}' << Qt::endl << Qt::endl;
 }
 
 void generateClassDecl(QTextStream &out, const QMetaObject *mo,
                        const QByteArray &className, const QByteArray &nameSpace,
                        ObjectCategories category)
 {
-    QList<QByteArray> functions;
+    QByteArrayList functions;
 
     QByteArray indent;
     if (!(category & OnlyInlines))
@@ -227,12 +227,12 @@ void generateClassDecl(QTextStream &out, const QMetaObject *mo,
             out << "QAxWidget";
         else
             out << "QAxObject";
-        out << endl;
+        out << Qt::endl;
 
-        out << '{' << endl;
-        out << "public:" << endl << "    explicit " << className;
+        out << '{' << Qt::endl;
+        out << "public:" << Qt::endl << "    explicit " << className;
         formatConstructorSignature(out, category, true);
-        out << ';' << endl;
+        out << ';' << Qt::endl;
         for (int ci = mo->classInfoOffset(); ci < mo->classInfoCount(); ++ci) {
             QMetaClassInfo info = mo->classInfo(ci);
             QByteArray iface_name = info.name();
@@ -241,17 +241,17 @@ void generateClassDecl(QTextStream &out, const QMetaObject *mo,
 
             QByteArray iface_class = info.value();
 
-            out << "    " << className << '(' << iface_class << " *iface)" << endl;
+            out << "    " << className << '(' << iface_class << " *iface)" << Qt::endl;
 
             if (category & ActiveX)
-                out << "    : QAxWidget()" << endl;
+                out << "    : QAxWidget()" << Qt::endl;
             else
-                out << "    : QAxObject()" << endl;
-            out << "    {" << endl;
-            out << "        initializeFrom(iface);" << endl;
-            out << "        delete iface;" << endl;
-            out << "    }" << endl;
-            out << endl;
+                out << "    : QAxObject()" << Qt::endl;
+            out << "    {" << Qt::endl;
+            out << "        initializeFrom(iface);" << Qt::endl;
+            out << "        delete iface;" << Qt::endl;
+            out << "    }" << Qt::endl;
+            out << Qt::endl;
         }
     }
 
@@ -261,20 +261,20 @@ void generateClassDecl(QTextStream &out, const QMetaObject *mo,
     if (nameSpace.isEmpty() && !(category & OnlyInlines)) {
         for (int ienum = mo->enumeratorOffset(); ienum < mo->enumeratorCount(); ++ienum) {
             QMetaEnum metaEnum = mo->enumerator(ienum);
-            out << "    enum " << metaEnum.name() << " {" << endl;
+            out << "    enum " << metaEnum.name() << " {" << Qt::endl;
             for (int k = 0; k < metaEnum.keyCount(); ++k) {
                 QByteArray key(metaEnum.key(k));
                 out << "        " << key.leftJustified(24) << "= " << metaEnum.value(k);
                 if (k < metaEnum.keyCount() - 1)
                     out << ',';
-                out << endl;
+                out << Qt::endl;
             }
-            out << "    };" << endl;
-            out << endl;
+            out << "    };" << Qt::endl;
+            out << Qt::endl;
         }
     }
     // QAxBase public virtual functions.
-    QList<QByteArray> axBase_vfuncs;
+    QByteArrayList axBase_vfuncs;
     axBase_vfuncs.append("metaObject");
     axBase_vfuncs.append("qObject");
     axBase_vfuncs.append("className");
@@ -292,13 +292,13 @@ void generateClassDecl(QTextStream &out, const QMetaObject *mo,
             continue;
 
         if (!(category & OnlyInlines)) {
-            out << indent << "/*" << endl << indent << "Property " << propertyName << endl;
+            out << indent << "/*" << Qt::endl << indent << "Property " << propertyName << Qt::endl;
             QString documentation = qax_docuFromName(currentTypeInfo, QString::fromLatin1(propertyName.constData()));
             if (!documentation.isEmpty()) {
-                out << endl;
-                out << indent << documentation << endl;
+                out << Qt::endl;
+                out << indent << documentation << Qt::endl;
             }
-            out << indent << "*/" << endl;
+            out << indent << "*/" << Qt::endl;
         }
 
         // Check whether the new function conflicts with any of QAxBase public virtual functions.
@@ -331,36 +331,36 @@ void generateClassDecl(QTextStream &out, const QMetaObject *mo,
         out << propertyFunctionName << "() const";
 
         if (!(category & NoInlines)) {
-            out << endl << indent << '{' << endl;
+            out << Qt::endl << indent << '{' << Qt::endl;
             if (qax_qualified_usertypes.contains(simplePropType)) {
                 if (foreignNamespace)
-                    out << "#ifdef QAX_DUMPCPP_" << propertyType.left(propertyType.indexOf("::")).toUpper() << "_H" << endl;
-                out << indent << "    " << propertyType << " qax_pointer = 0;" << endl;
+                    out << "#ifdef QAX_DUMPCPP_" << propertyType.left(propertyType.indexOf("::")).toUpper() << "_H" << Qt::endl;
+                out << indent << "    " << propertyType << " qax_pointer = 0;" << Qt::endl;
                 QByteArray simplePropTypeWithNamespace = propertyType;
                 simplePropTypeWithNamespace.replace('*', "");
-                out << indent << "    qRegisterMetaType<" << propertyType << ">(\"" << property.typeName() << "\", &qax_pointer);" << endl;
-                out << indent << "    qRegisterMetaType<" << simplePropTypeWithNamespace << ">(\"" << simplePropType << "\", qax_pointer);" << endl;
+                out << indent << "    qRegisterMetaType<" << propertyType << ">(\"" << property.typeName() << "\", &qax_pointer);" << Qt::endl;
+                out << indent << "    qRegisterMetaType<" << simplePropTypeWithNamespace << ">(\"" << simplePropType << "\", qax_pointer);" << Qt::endl;
             }
-            out << indent << "    QVariant qax_result = property(\"" << propertyName << "\");" << endl;
+            out << indent << "    QVariant qax_result = property(\"" << propertyName << "\");" << Qt::endl;
             if (propertyType.length() && propertyType.at(propertyType.length()-1) == '*')
-                out << indent << "    if (!qax_result.constData()) return 0;" << endl;
-            out << indent << "    Q_ASSERT(qax_result.isValid());" << endl;
+                out << indent << "    if (!qax_result.constData()) return 0;" << Qt::endl;
+            out << indent << "    Q_ASSERT(qax_result.isValid());" << Qt::endl;
             if (qax_qualified_usertypes.contains(simplePropType)) {
                 simplePropType = propertyType;
                 simplePropType.replace('*', "");
-                out << indent << "    return *(" << propertyType << "*)qax_result.constData();" << endl;
+                out << indent << "    return *(" << propertyType << "*)qax_result.constData();" << Qt::endl;
                 if (foreignNamespace) {
-                    out << "#else" << endl;
-                    out << indent << "    return 0; // foreign namespace not included" << endl;
-                    out << "#endif" << endl;
+                    out << "#else" << Qt::endl;
+                    out << indent << "    return 0; // foreign namespace not included" << Qt::endl;
+                    out << "#endif" << Qt::endl;
                 }
 
             } else {
-                out << indent << "    return *(" << propertyType << "*)qax_result.constData();" << endl;
+                out << indent << "    return *(" << propertyType << "*)qax_result.constData();" << Qt::endl;
             }
-            out << indent << '}' << endl;
+            out << indent << '}' << Qt::endl;
         } else {
-            out << "; //Returns the value of " << propertyName << endl;
+            out << "; //Returns the value of " << propertyName << Qt::endl;
         }
 
         functions << propertyName;
@@ -381,21 +381,21 @@ void generateClassDecl(QTextStream &out, const QMetaObject *mo,
 
             if (!(category & NoInlines)) {
                 if (propertyType.endsWith('*')) {
-                    out << '{' << endl;
-                    out << "    int typeId = qRegisterMetaType<" << propertyType << ">(\"" << propertyType << "\", &value);" << endl;
-                    out << "    setProperty(\"" << propertyName << "\", QVariant(typeId, &value));" << endl;
-                    out << '}' << endl;
+                    out << '{' << Qt::endl;
+                    out << "    int typeId = qRegisterMetaType<" << propertyType << ">(\"" << propertyType << "\", &value);" << Qt::endl;
+                    out << "    setProperty(\"" << propertyName << "\", QVariant(typeId, &value));" << Qt::endl;
+                    out << '}' << Qt::endl;
                 } else {
-                    out << "{ setProperty(\"" << propertyName << "\", QVariant(value)); }" << endl;
+                    out << "{ setProperty(\"" << propertyName << "\", QVariant(value)); }" << Qt::endl;
                 }
             } else {
-                out << "; //Sets the value of the " << propertyName << " property" << endl;
+                out << "; //Sets the value of the " << propertyName << " property" << Qt::endl;
             }
 
             functions << setter;
         }
 
-        out << endl;
+        out << Qt::endl;
     }
 
     // slots - but not property setters
@@ -419,13 +419,13 @@ void generateClassDecl(QTextStream &out, const QMetaObject *mo,
             continue;
 
         if (!(category & OnlyInlines)) {
-            out << indent << "/*" << endl << indent << "Method " << slotName << endl;
+            out << indent << "/*" << Qt::endl << indent << "Method " << slotName << Qt::endl;
             QString documentation = qax_docuFromName(currentTypeInfo, QString::fromLatin1(slotName.constData()));
             if (!documentation.isEmpty()) {
-                out << endl;
-                out << indent << documentation << endl;
+                out << Qt::endl;
+                out << indent << documentation << Qt::endl;
             }
-            out << indent << "*/" << endl;
+            out << indent << "*/" << Qt::endl;
         }
 
         QByteArray slotParameters(joinParameterNames(slot.parameterNames()));
@@ -446,8 +446,8 @@ void generateClassDecl(QTextStream &out, const QMetaObject *mo,
             QByteArray slotSignatureTruncated(slotSignature.mid(slotNamedSignature.length()));
             slotSignatureTruncated.truncate(slotSignatureTruncated.length() - 1);
 
-            QList<QByteArray> signatureSplit = slotSignatureTruncated.split(',');
-            QList<QByteArray> parameterSplit;
+            const auto signatureSplit = slotSignatureTruncated.split(',');
+            QByteArrayList parameterSplit;
             if (slotParameters.isEmpty()) { // generate parameter names
                 for (int i = 0; i < signatureSplit.count(); ++i)
                     parameterSplit << QByteArray("p") + QByteArray::number(i);
@@ -502,27 +502,27 @@ void generateClassDecl(QTextStream &out, const QMetaObject *mo,
         out << slotNamedSignature;
 
         if (category & NoInlines) {
-            out << ';' << endl;
+            out << ';' << Qt::endl;
         } else {
-            out << endl;
-            out << indent << '{' << endl;
+            out << Qt::endl;
+            out << indent << '{' << Qt::endl;
 
             if (slotType != QByteArrayLiteral("void")) {
                 out << indent << "    " << slotType << " qax_result";
                 if (slotType.endsWith('*'))
                     out << " = 0";
-                out << ';' << endl;
+                out << ';' << Qt::endl;
                 if (qax_qualified_usertypes.contains(simpleSlotType)) {
                     bool foreignNamespace = simpleSlotType.contains("::");
                     if (foreignNamespace)
-                        out << "#ifdef QAX_DUMPCPP_" << simpleSlotType.left(simpleSlotType.indexOf(':')).toUpper() << "_H" << endl;
+                        out << "#ifdef QAX_DUMPCPP_" << simpleSlotType.left(simpleSlotType.indexOf(':')).toUpper() << "_H" << Qt::endl;
                     QByteArray simpleSlotTypeWithNamespace = slotType;
                     simpleSlotTypeWithNamespace.replace('*', "");
-                    out << indent << "    qRegisterMetaType<" << simpleSlotTypeWithNamespace << "*>(\"" << simpleSlotType << "*\", &qax_result);" << endl;
+                    out << indent << "    qRegisterMetaType<" << simpleSlotTypeWithNamespace << "*>(\"" << simpleSlotType << "*\", &qax_result);" << Qt::endl;
                     if (!vTableOnlyStubs.contains(simpleSlotTypeWithNamespace))
-                        out << indent << "    qRegisterMetaType<" << simpleSlotTypeWithNamespace << ">(\"" << simpleSlotType << "\", qax_result);" << endl;
+                        out << indent << "    qRegisterMetaType<" << simpleSlotTypeWithNamespace << ">(\"" << simpleSlotType << "\", qax_result);" << Qt::endl;
                     if (foreignNamespace)
-                        out << "#endif" << endl;
+                        out << "#endif" << Qt::endl;
                 }
             }
             out << indent << "    void *_a[] = {";
@@ -534,27 +534,27 @@ void generateClassDecl(QTextStream &out, const QMetaObject *mo,
                 out << ", (void*)&";
                 out << slotParameters.replace(",", ", (void*)&");
             }
-            out << "};" << endl;
+            out << "};" << Qt::endl;
 
-            out << indent << "    qt_metacall(QMetaObject::InvokeMetaMethod, " << islot << ", _a);" << endl;
+            out << indent << "    qt_metacall(QMetaObject::InvokeMetaMethod, " << islot << ", _a);" << Qt::endl;
             if (slotType != QByteArrayLiteral("void"))
-                out << indent << "    return qax_result;" << endl;
-            out << indent << '}' << endl;
+                out << indent << "    return qax_result;" << Qt::endl;
+            out << indent << '}' << Qt::endl;
         }
 
-        out << endl;
+        out << Qt::endl;
         defaultArguments = 0;
     }
 
     if (!(category & OnlyInlines)) {
         if (!(category & NoMetaObject)) {
-            out << "// meta object functions" << endl;
-            out << "    static const QMetaObject staticMetaObject;" << endl;
-            out << "    const QMetaObject *metaObject() const override { return &staticMetaObject; }" << endl;
-            out << "    void *qt_metacast(const char *) override;" << endl;
+            out << "// meta object functions" << Qt::endl;
+            out << "    static const QMetaObject staticMetaObject;" << Qt::endl;
+            out << "    const QMetaObject *metaObject() const override { return &staticMetaObject; }" << Qt::endl;
+            out << "    void *qt_metacast(const char *) override;" << Qt::endl;
         }
 
-        out << "};" << endl;
+        out << "};" << Qt::endl;
     }
 }
 
@@ -658,7 +658,7 @@ void generateMethods(QTextStream &out, const QMetaObject *mo, const QMetaMethod:
         out << "slot";
         funcTypeFlag = MethodSlot;
     }
-    out  << ": name, argc, parameters, tag, flags" << endl;
+    out  << ": name, argc, parameters, tag, flags" << Qt::endl;
 
     int methodCount = mo->methodCount();
     for (int i = mo->methodOffset(); i < methodCount; ++i) {
@@ -670,10 +670,10 @@ void generateMethods(QTextStream &out, const QMetaObject *mo, const QMetaMethod:
         out << method.parameterCount() << ", ";
         out << paramsIndex << ", ";
         addStringIdx(method.tag());
-        out << (AccessProtected | method.attributes() | funcTypeFlag) << ',' << endl;
+        out << (AccessProtected | method.attributes() | funcTypeFlag) << ',' << Qt::endl;
         paramsIndex += 1 + method.parameterCount() * 2;
     }
-    out << endl;
+    out << Qt::endl;
 }
 
 void generateMethodParameters(QTextStream &out, const QMetaObject *mo, const QMetaMethod::MethodType funcType)
@@ -683,7 +683,7 @@ void generateMethodParameters(QTextStream &out, const QMetaObject *mo, const QMe
         out << "signal";
     else if (funcType == QMetaMethod::Slot)
         out << "slot";
-    out  << ": parameters" << endl;
+    out  << ": parameters" << Qt::endl;
 
     int methodCount = mo->methodCount();
     for (int i = mo->methodOffset(); i < methodCount; ++i) {
@@ -700,7 +700,7 @@ void generateMethodParameters(QTextStream &out, const QMetaObject *mo, const QMe
         out << ',';
 
         // Parameter types
-        const QList<QByteArray> parameterTypes = method.parameterTypes();
+        const auto parameterTypes = method.parameterTypes();
         for (int j = 0; j < argsCount; ++j) {
             out << ' ';
             generateTypeInfo(out, parameterTypes.at(j));
@@ -708,13 +708,13 @@ void generateMethodParameters(QTextStream &out, const QMetaObject *mo, const QMe
         }
 
         // Parameter names
-        const QList<QByteArray> parameterNames = method.parameterNames();
+        const auto parameterNames = method.parameterNames();
         for (int j = 0; j < argsCount; ++j)
             out << ' ' << stridx(parameterNames.at(j)) << ',';
 
-        out << endl;
+        out << Qt::endl;
     }
-    out << endl;
+    out << Qt::endl;
 }
 
 void generateClassImpl(QTextStream &out, const QMetaObject *mo, const QByteArray &className,
@@ -767,8 +767,8 @@ void generateClassImpl(QTextStream &out, const QMetaObject *mo, const QByteArray
             strreg(typeName);
         strreg(method.tag());
 
-        const QList<QByteArray> parameterNames = method.parameterNames();
-        const QList<QByteArray> parameterTypes = method.parameterTypes();
+        const auto parameterNames = method.parameterNames();
+        const auto parameterTypes = method.parameterTypes();
         for (int j = 0; j < argsCount; ++j) {
             if (!QtPrivate::isBuiltinType(parameterTypes.at(j)))
                 strDetachAndRegister(parameterTypes.at(j));
@@ -789,38 +789,38 @@ void generateClassImpl(QTextStream &out, const QMetaObject *mo, const QByteArray
     }
 
     // Build data array
-    out << "static const uint qt_meta_data_" << qualifiedClassNameIdentifier << "[] = {" << endl;
-    out << endl;
-    out << " // content:" << endl;
-    out << "    7, // revision" << endl;
+    out << "static const uint qt_meta_data_" << qualifiedClassNameIdentifier << "[] = {" << Qt::endl;
+    out << Qt::endl;
+    out << " // content:" << Qt::endl;
+    out << "    7, // revision" << Qt::endl;
     out << "    ";
     addStringIdx(qualifiedClassName);
-    out << " // classname" << endl;
-    out << "    " << thisClassInfoCount << ", " << (thisClassInfoCount ? enumStart : 0) << ", // classinfo" << endl;
+    out << " // classname" << Qt::endl;
+    out << "    " << thisClassInfoCount << ", " << (thisClassInfoCount ? enumStart : 0) << ", // classinfo" << Qt::endl;
     enumStart += thisClassInfoCount * 2;
-    out << "    " << thisMethodCount << ", " << (thisMethodCount ? enumStart : 0) << ", // methods" << endl;
+    out << "    " << thisMethodCount << ", " << (thisMethodCount ? enumStart : 0) << ", // methods" << Qt::endl;
     enumStart += thisMethodCount * 5;
     int paramsIndex = enumStart;
     enumStart += (combinedParameterCount * 2); // parameter types + names
     enumStart += thisMethodCount; // return types
-    out << "    " << thisPropertyCount << ", " << (thisPropertyCount ? enumStart : 0) << ", // properties" << endl;
+    out << "    " << thisPropertyCount << ", " << (thisPropertyCount ? enumStart : 0) << ", // properties" << Qt::endl;
     enumStart += thisPropertyCount * 3;
-    out << "    " << thisEnumCount << ", " << (thisEnumCount ? enumStart : 0) << ", // enums/sets" << endl;
-    out << "    0, 0, // constructors" << endl;
-    out << "    0, // flags" << endl;
-    out << "    " << signalCount << ", // signal count" << endl;
-    out << endl;
+    out << "    " << thisEnumCount << ", " << (thisEnumCount ? enumStart : 0) << ", // enums/sets" << Qt::endl;
+    out << "    0, 0, // constructors" << Qt::endl;
+    out << "    0, // flags" << Qt::endl;
+    out << "    " << signalCount << ", // signal count" << Qt::endl;
+    out << Qt::endl;
 
     if (thisClassInfoCount) {
-        out << " // classinfo: key, value" << endl;
+        out << " // classinfo: key, value" << Qt::endl;
         for (int i = mo->classInfoOffset(); i < allClassInfoCount; ++i) {
             QMetaClassInfo classInfo = mo->classInfo(i);
             out << "    ";
             addStringIdx(classInfo.name());
             addStringIdx(classInfo.value());
-            out << endl;
+            out << Qt::endl;
         }
-        out << endl;
+        out << Qt::endl;
     }
 
     // Signal/Slot arrays
@@ -836,7 +836,7 @@ void generateClassImpl(QTextStream &out, const QMetaObject *mo, const QByteArray
         generateMethodParameters(out, mo, QMetaMethod::Slot);
 
     if (thisPropertyCount) {
-        out << " // properties: name, type, flags" << endl;
+        out << " // properties: name, type, flags" << Qt::endl;
         for (int i = mo->propertyOffset(); i < allPropertyCount; ++i) {
             QMetaProperty property = mo->property(i);
             out << "    ";
@@ -866,24 +866,24 @@ void generateClassImpl(QTextStream &out, const QMetaObject *mo, const QByteArray
 
             out << "0x" << QString::number(flags, 16).rightJustified(8, QLatin1Char('0'))
                 << ", \t\t // " << property.typeName() << ' ' << property.name()
-                << endl;
+                << Qt::endl;
         }
-        out << endl;
+        out << Qt::endl;
     }
 
     if (thisEnumCount) {
-        out << " // enums: name, flags, count, data" << endl;
+        out << " // enums: name, flags, count, data" << Qt::endl;
         enumStart += thisEnumCount * 4;
         for (int i = mo->enumeratorOffset(); i < allEnumCount; ++i) {
             QMetaEnum enumerator = mo->enumerator(i);
             out << "    ";
             addStringIdx(enumerator.name());
-            out << (enumerator.isFlag() ? "0x1" : "0x0") << ", " << enumerator.keyCount() << ", " << enumStart << ", " << endl;
+            out << (enumerator.isFlag() ? "0x1" : "0x0") << ", " << enumerator.keyCount() << ", " << enumStart << ", " << Qt::endl;
             enumStart += enumerator.keyCount() * 2;
         }
-        out << endl;
+        out << Qt::endl;
 
-        out << " // enum data: key, value" << endl;
+        out << " // enum data: key, value" << Qt::endl;
         for (int i = mo->enumeratorOffset(); i < allEnumCount; ++i) {
             QMetaEnum enumerator = mo->enumerator(i);
             for (int j = 0; j < enumerator.keyCount(); ++j) {
@@ -894,36 +894,36 @@ void generateClassImpl(QTextStream &out, const QMetaObject *mo, const QByteArray
                     out << className << "::";
                 else
                     out << nameSpace << "::";
-                out << enumerator.key(j) << ")," << endl;
+                out << enumerator.key(j) << ")," << Qt::endl;
             }
         }
     }
-    out << "    0 // eod" << endl;
-    out << "};" << endl;
-    out << endl;
+    out << "    0 // eod" << Qt::endl;
+    out << "};" << Qt::endl;
+    out << Qt::endl;
 
     formatConstructorBody(out, className, controlID, category);
 
-    out << "const QMetaObject " << className << "::staticMetaObject = {" << endl;
+    out << "const QMetaObject " << className << "::staticMetaObject = {" << Qt::endl;
     if (category & ActiveX)
-        out << "{ &QWidget::staticMetaObject," << endl;
+        out << "{ &QWidget::staticMetaObject," << Qt::endl;
     else
-        out << "{ &QObject::staticMetaObject," << endl;
-    out << "qt_meta_stringdata_all.data," << endl;
-    out << "qt_meta_data_" << qualifiedClassNameIdentifier << ", nullptr, nullptr, nullptr }" << endl;
-    out << "};" << endl;
-    out << endl;
+        out << "{ &QObject::staticMetaObject," << Qt::endl;
+    out << "qt_meta_stringdata_all.data," << Qt::endl;
+    out << "qt_meta_data_" << qualifiedClassNameIdentifier << ", nullptr, nullptr, nullptr }" << Qt::endl;
+    out << "};" << Qt::endl;
+    out << Qt::endl;
 
-    out << "void *" << className << "::qt_metacast(const char *_clname)" << endl;
-    out << '{' << endl;
-    out << "    if (!_clname) return nullptr;" << endl;
-    out << "    if (!strcmp(_clname, \"" << qualifiedClassName << "\"))" << endl;
-    out << "        return static_cast<void*>(const_cast<" << className << "*>(this));" << endl;
+    out << "void *" << className << "::qt_metacast(const char *_clname)" << Qt::endl;
+    out << '{' << Qt::endl;
+    out << "    if (!_clname) return nullptr;" << Qt::endl;
+    out << "    if (!strcmp(_clname, \"" << qualifiedClassName << "\"))" << Qt::endl;
+    out << "        return static_cast<void*>(const_cast<" << className << "*>(this));" << Qt::endl;
     if (category & ActiveX)
-        out << "    return QAxWidget::qt_metacast(_clname);" << endl;
+        out << "    return QAxWidget::qt_metacast(_clname);" << Qt::endl;
     else
-        out << "    return QAxObject::qt_metacast(_clname);" << endl;
-    out << '}' << endl;
+        out << "    return QAxObject::qt_metacast(_clname);" << Qt::endl;
+    out << '}' << Qt::endl;
 }
 
 static void formatCommentBlockFooter(const QString &typeLibFile, QTextStream &str)
@@ -969,12 +969,12 @@ static void writeForwardDeclaration(QTextStream &declOut, const QByteArray &clas
 {
     if (className.startsWith("enum ")) {
         declOut << "#ifndef Q_CC_MINGW\n"
-                << "    " << className << ';' << endl // Only MSVC accepts this
+                << "    " << className << ';' << Qt::endl // Only MSVC accepts this
                 << "#else\n"
-                << "    " << className << " {};" << endl
+                << "    " << className << " {};" << Qt::endl
                 << "#endif\n";
     } else {
-        declOut << "    " << className << ';' << endl;
+        declOut << "    " << className << ';' << Qt::endl;
     }
 }
 
@@ -1038,13 +1038,13 @@ bool generateTypeLibrary(QString typeLibFile, QString outname,
                    "**\n** Metadata for " << libName;
         formatCommentBlockFooter(typeLibFile, implOut);
 
-        implOut << "#define QAX_DUMPCPP_" << libName.toUpper() << "_NOINLINES" << endl;
+        implOut << "#define QAX_DUMPCPP_" << libName.toUpper() << "_NOINLINES" << Qt::endl;
 
-        implOut << "#include \"" << outname << ".h\"" << endl;
-        implOut << "#include <OAIdl.h>" << endl; // For IDispatch
-        implOut << endl;
-        implOut << "using namespace " << libName << ';' << endl;
-        implOut << endl;
+        implOut << "#include \"" << outname << ".h\"" << Qt::endl;
+        implOut << "#include <OAIdl.h>" << Qt::endl; // For IDispatch
+        implOut << Qt::endl;
+        implOut << "using namespace " << libName << ';' << Qt::endl;
+        implOut << Qt::endl;
     }
 
     QFile declFile(outname + QLatin1String(".h"));
@@ -1054,7 +1054,7 @@ bool generateTypeLibrary(QString typeLibFile, QString outname,
     QByteArray inlines;
     QTextStream inlinesOut(&inlines, QIODevice::WriteOnly);
 
-    QMap<QByteArray, QList<QByteArray> > namespaces;
+    QMap<QByteArray, QByteArrayList> namespaces;
 
     if(!(category & NoDeclaration)) {
         if (!declFile.open(QIODevice::WriteOnly | QIODevice::Text)) {
@@ -1072,8 +1072,8 @@ bool generateTypeLibrary(QString typeLibFile, QString outname,
         UINT typeCount = typelib->GetTypeInfoCount();
         if (declFile.isOpen()) {
             QByteArrayList opaquePointerTypes;
-            declOut << endl;
-            declOut << "// Referenced namespace" << endl;
+            declOut << Qt::endl;
+            declOut << "// Referenced namespace" << Qt::endl;
             for (UINT index = 0; index < typeCount; ++index) {
                 ITypeInfo *typeinfo = nullptr;
                 typelib->GetTypeInfo(index, &typeinfo);
@@ -1155,37 +1155,37 @@ bool generateTypeLibrary(QString typeLibFile, QString outname,
             for (auto it = namespaces.cbegin(), end  = namespaces.cend(); it != end; ++it) {
                 const QByteArray &nspace = it.key();
                 if (libName != QLatin1String(nspace)) {
-                    declOut << "namespace " << nspace << " {" << endl;
+                    declOut << "namespace " << nspace << " {" << Qt::endl;
                     for (const auto &className : it.value()) {
                         if (className.contains(' ')) {
                             writeForwardDeclaration(declOut, className);
                             namespaceForType.insert(className.mid(className.indexOf(' ') + 1), nspace);
                         } else {
-                            declOut << "    class " << className << ';' << endl;
+                            declOut << "    class " << className << ';' << Qt::endl;
                             opaquePointerTypes.append(nspace + "::" + className);
                             namespaceForType.insert(className, nspace);
                             namespaceForType.insert(className + '*', nspace);
                             namespaceForType.insert(className + "**", nspace);
                         }
                     }
-                    declOut << '}' << endl << endl;
+                    declOut << '}' << Qt::endl << Qt::endl;
                 }
             }
             for (const QByteArray &opaquePointerType : qAsConst(opaquePointerTypes))
-                declOut << "Q_DECLARE_OPAQUE_POINTER(" << opaquePointerType << "*)" << endl;
-            declOut << endl;
+                declOut << "Q_DECLARE_OPAQUE_POINTER(" << opaquePointerType << "*)" << Qt::endl;
+            declOut << Qt::endl;
         }
         generateNameSpace(declOut, namespaceObject, libNameBa);
 
         auto nspIt = namespaces.constFind(libNameBa);
         if (nspIt != namespaces.constEnd() && !nspIt.value().isEmpty()) {
-            declOut << "// forward declarations" << endl;
+            declOut << "// forward declarations" << Qt::endl;
             for (const auto &className : nspIt.value()) {
                 if (className.contains(' ')) {
-                    declOut << "    " << className << ';' << endl;
+                    declOut << "    " << className << ';' << Qt::endl;
                     namespaceForType.insert(className.mid(className.indexOf(' ') + 1), libNameBa);
                 } else {
-                    declOut << "    class " << className << ';' << endl;
+                    declOut << "    class " << className << ';' << Qt::endl;
                     namespaceForType.insert(className, libNameBa);
                     namespaceForType.insert(className + '*', libNameBa);
                     namespaceForType.insert(className + "**", libNameBa);
@@ -1193,10 +1193,10 @@ bool generateTypeLibrary(QString typeLibFile, QString outname,
             }
         }
 
-        declOut << endl;
+        declOut << Qt::endl;
     }
 
-    QList<QByteArray> subtypes;
+    QByteArrayList subtypes;
 
     UINT typeCount = typelib->GetTypeInfoCount();
     for (UINT index = 0; index < typeCount; ++index) {
@@ -1263,7 +1263,7 @@ bool generateTypeLibrary(QString typeLibFile, QString outname,
             if (!(typeattr->wTypeFlags & TYPEFLAG_FDUAL)
                 && (metaObject->propertyCount() - metaObject->propertyOffset()) == 1
                 && className.contains("Events")) {
-                declOut << "// skipping event interface " << className << endl << endl;
+                declOut << "// skipping event interface " << className << Qt::endl << Qt::endl;
             } else {
                 if (declFile.isOpen()) {
                     if (typeattr->wTypeFlags & TYPEFLAG_FLICENSED)
@@ -1271,16 +1271,16 @@ bool generateTypeLibrary(QString typeLibFile, QString outname,
                     if (typekind == TKIND_COCLASS) { // write those later...
                         generateClassDecl(classesOut, metaObject, className, libNameBa,
                                           object_category | NoInlines);
-                        classesOut << endl;
+                        classesOut << Qt::endl;
                     } else {
                         generateClassDecl(declOut, metaObject, className, libNameBa,
                                           object_category | NoInlines);
-                        declOut << endl;
+                        declOut << Qt::endl;
                     }
                     subtypes << className;
                     generateClassDecl(inlinesOut, metaObject, className, libNameBa,
                                       object_category | OnlyInlines);
-                    inlinesOut << endl;
+                    inlinesOut << Qt::endl;
                 }
                 if (implFile.isOpen())
                     generateClassImpl(classImplOut, metaObject, className, guid.toString(), libNameBa,
@@ -1301,11 +1301,11 @@ bool generateTypeLibrary(QString typeLibFile, QString outname,
         //
         // Build stringdata struct
         //
-        implOut << "struct qt_meta_stringdata_all_t {" << endl;
-        implOut << "    QByteArrayData data[" << strings.size() << "];" << endl;
+        implOut << "struct qt_meta_stringdata_all_t {" << Qt::endl;
+        implOut << "    QByteArrayData data[" << strings.size() << "];" << Qt::endl;
 
-        QVector<QList<QByteArray> > listVector;
-        QList<QByteArray> currentList;
+        QVector<QByteArrayList> listVector;
+        QByteArrayList currentList;
 
         int currentTableLen = 0;
         for (const auto &s : strings) {
@@ -1313,14 +1313,14 @@ bool generateTypeLibrary(QString typeLibFile, QString outname,
             currentList.append(s);
             // Split strings into chunks less than 64k to work around compiler limits.
             if (currentTableLen > 60000) {
-                implOut << "    char stringdata" << listVector.size() << '[' << currentTableLen + 1 << "];" << endl;
+                implOut << "    char stringdata" << listVector.size() << '[' << currentTableLen + 1 << "];" << Qt::endl;
                 listVector.append(currentList);
                 currentList.clear();
                 currentTableLen = 0;
             }
         }
-        implOut << "    char stringdata" << listVector.size() << '[' << currentTableLen + 1 << "];" << endl;
-        implOut << "};" << endl;
+        implOut << "    char stringdata" << listVector.size() << '[' << currentTableLen + 1 << "];" << Qt::endl;
+        implOut << "};" << Qt::endl;
         listVector.append(currentList);
 
         // Macro that expands into a QByteArrayData. The offset member is
@@ -1328,27 +1328,27 @@ bool generateTypeLibrary(QString typeLibFile, QString outname,
         // stringdata.stringdata member, and 2) the stringdata.data index of the
         // QByteArrayData being defined. This calculation relies on the
         // QByteArrayData::data() implementation returning simply "this + offset".
-        implOut << "#define QT_MOC_LITERAL(idx, ofs, len, table) \\" << endl
-            << "    Q_STATIC_BYTE_ARRAY_DATA_HEADER_INITIALIZER_WITH_OFFSET(len, \\" << endl
-            << "    offsetof(qt_meta_stringdata_all_t, stringdata##table) + ofs \\" << endl
-            << "        - idx * sizeof(QByteArrayData) \\" << endl
-            << "    )" << endl;
+        implOut << "#define QT_MOC_LITERAL(idx, ofs, len, table) \\" << Qt::endl
+            << "    Q_STATIC_BYTE_ARRAY_DATA_HEADER_INITIALIZER_WITH_OFFSET(len, \\" << Qt::endl
+            << "    offsetof(qt_meta_stringdata_all_t, stringdata##table) + ofs \\" << Qt::endl
+            << "        - idx * sizeof(QByteArrayData) \\" << Qt::endl
+            << "    )" << Qt::endl;
 
-        implOut << "static const qt_meta_stringdata_all_t qt_meta_stringdata_all = {" << endl;
-        implOut << "    {" << endl;
+        implOut << "static const qt_meta_stringdata_all_t qt_meta_stringdata_all = {" << Qt::endl;
+        implOut << "    {" << Qt::endl;
 
         int totalStringCount = 0;
         for (int i = 0; i < listVector.size(); ++i) {
             int idx = 0;
             for (int j = 0; j < listVector[i].size(); j++) {
                 if (totalStringCount)
-                    implOut << ',' << endl;
+                    implOut << ',' << Qt::endl;
                 const QByteArray &str = listVector[i].at(j);
                 implOut << "QT_MOC_LITERAL(" << totalStringCount++ << ", " << idx << ", " << str.length() << ", " << i << ')';
                 idx += str.length() + 1;
             }
         }
-        implOut << endl << "    }";
+        implOut << Qt::endl << "    }";
 
         //
         // Build stringdata arrays
@@ -1356,12 +1356,12 @@ bool generateTypeLibrary(QString typeLibFile, QString outname,
         for (const auto &l : listVector) {
             int col = 0;
             int len = 0;
-            implOut << ',' << endl;
+            implOut << ',' << Qt::endl;
             implOut << "    \"";
             for (const auto &s : l) {
                 len = s.length();
                 if (col && col + len >= 150) {
-                    implOut << '"' << endl << "    \"";
+                    implOut << '"' << Qt::endl << "    \"";
                     col = 0;
                 } else if (len && s.at(0) >= '0' && s.at(0) <= '9') {
                     implOut << "\"\"";
@@ -1371,7 +1371,7 @@ bool generateTypeLibrary(QString typeLibFile, QString outname,
                 while (idx < s.length()) {
                     if (idx > 0) {
                         col = 0;
-                        implOut << '"' << endl << "    \"";
+                        implOut << '"' << Qt::endl << "    \"";
                     }
                     int spanLen = qMin(150, s.length() - idx);
                     implOut << s.mid(idx, spanLen);
@@ -1385,13 +1385,13 @@ bool generateTypeLibrary(QString typeLibFile, QString outname,
             implOut << '"';
         }
         // Terminate stringdata struct
-        implOut << endl << "};" << endl;
+        implOut << Qt::endl << "};" << Qt::endl;
 
-        implOut << "#undef QT_MOC_LITERAL" << endl << endl;
+        implOut << "#undef QT_MOC_LITERAL" << Qt::endl << Qt::endl;
 
         classImplOut.flush();
         copyFileToStream(&classImplFile, &implOut);
-        implOut << endl;
+        implOut << Qt::endl;
     }
 
     qax_deleteMetaObject(namespaceObject);
@@ -1401,54 +1401,54 @@ bool generateTypeLibrary(QString typeLibFile, QString outname,
 
     if (declFile.isOpen()) {
         if (classes.size()) {
-            declOut << "// Actual coclasses" << endl;
+            declOut << "// Actual coclasses" << Qt::endl;
             declOut << classes;
         }
         if (inlines.size()) {
-            declOut << "// member function implementation" << endl;
-            declOut << "#ifndef QAX_DUMPCPP_" << libName.toUpper() << "_NOINLINES" << endl;
-            declOut << inlines << endl;
-            declOut << "#endif" << endl << endl;
+            declOut << "// member function implementation" << Qt::endl;
+            declOut << "#ifndef QAX_DUMPCPP_" << libName.toUpper() << "_NOINLINES" << Qt::endl;
+            declOut << inlines << Qt::endl;
+            declOut << "#endif" << Qt::endl << Qt::endl;
         }
         // close namespace
-        declOut << '}' << endl;
-        declOut << endl;
+        declOut << '}' << Qt::endl;
+        declOut << Qt::endl;
 
         // partial template specialization for qMetaTypeCreateHelper and qMetaTypeConstructHelper
-        declOut << "QT_BEGIN_NAMESPACE" << endl << endl;
-        declOut << "namespace QtMetaTypePrivate {" << endl;
+        declOut << "QT_BEGIN_NAMESPACE" << Qt::endl << Qt::endl;
+        declOut << "namespace QtMetaTypePrivate {" << Qt::endl;
         for (int t = 0; t < subtypes.count(); ++t) {
             QByteArray subType(subtypes.at(t));
 
-            declOut << "template<>" << endl;
-            declOut << "struct QMetaTypeFunctionHelper<" << libName << "::" << subType << ", /* Accepted */ true> {" << endl;
+            declOut << "template<>" << Qt::endl;
+            declOut << "struct QMetaTypeFunctionHelper<" << libName << "::" << subType << ", /* Accepted */ true> {" << Qt::endl;
 
-            declOut << "    static void Destruct(void *t)" << endl;
-            declOut << "    {" << endl;
-            declOut << "        Q_UNUSED(t)" << endl; // Silence MSVC that warns for POD types.
-            declOut << "        static_cast<" << libName << "::" << subType << "*>(t)->" << libName << "::" << subType << "::~" << subType << "();" << endl;
-            declOut << "    }" << endl;
+            declOut << "    static void Destruct(void *t)" << Qt::endl;
+            declOut << "    {" << Qt::endl;
+            declOut << "        Q_UNUSED(t)" << Qt::endl; // Silence MSVC that warns for POD types.
+            declOut << "        static_cast<" << libName << "::" << subType << "*>(t)->" << libName << "::" << subType << "::~" << subType << "();" << Qt::endl;
+            declOut << "    }" << Qt::endl;
 
-            declOut << "    static void *Construct(void *where, const void *t)" << endl;
-            declOut << "    {" << endl;
-            declOut << "        Q_ASSERT(!t);" << endl;
-            declOut << "        Q_UNUSED(t)" << endl; // Silence warnings for release builds
-            declOut << "        return new (where) " << libName << "::" << subType << ';' << endl;
-            declOut << "    }" << endl;
+            declOut << "    static void *Construct(void *where, const void *t)" << Qt::endl;
+            declOut << "    {" << Qt::endl;
+            declOut << "        Q_ASSERT(!t);" << Qt::endl;
+            declOut << "        Q_UNUSED(t)" << Qt::endl; // Silence warnings for release builds
+            declOut << "        return new (where) " << libName << "::" << subType << ';' << Qt::endl;
+            declOut << "    }" << Qt::endl;
 
-            declOut << "#ifndef QT_NO_DATASTREAM" << endl;
+            declOut << "#ifndef QT_NO_DATASTREAM" << Qt::endl;
 
-            declOut << "    static void Save(QDataStream &stream, const void *t) { stream << *static_cast<const " << libName << "::" << subType << "*>(t); }" << endl;
-            declOut << "    static void Load(QDataStream &stream, void *t) { stream >> *static_cast<" << libName << "::" << subType << "*>(t); }" << endl;
+            declOut << "    static void Save(QDataStream &stream, const void *t) { stream << *static_cast<const " << libName << "::" << subType << "*>(t); }" << Qt::endl;
+            declOut << "    static void Load(QDataStream &stream, void *t) { stream >> *static_cast<" << libName << "::" << subType << "*>(t); }" << Qt::endl;
 
-            declOut << "#endif // QT_NO_DATASTREAM" << endl;
+            declOut << "#endif // QT_NO_DATASTREAM" << Qt::endl;
 
-            declOut << "};" << endl << endl;
+            declOut << "};" << Qt::endl << Qt::endl;
         }
-        declOut << "} // namespace QtMetaTypePrivate" << endl;
-        declOut << "QT_END_NAMESPACE" << endl << endl;
-        declOut << "#endif" << endl;
-        declOut << endl;
+        declOut << "} // namespace QtMetaTypePrivate" << Qt::endl;
+        declOut << "QT_END_NAMESPACE" << Qt::endl << Qt::endl;
+        declOut << "#endif" << Qt::endl;
+        declOut << Qt::endl;
     }
 
     typelib->Release();

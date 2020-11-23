@@ -42,13 +42,8 @@
 #include "net/socket/tcp_client_socket.h"
 #include "net/socket/tcp_server_socket.h"
 #include "net/test/gtest_util.h"
-#include "net/test/test_with_scoped_task_environment.h"
+#include "net/test/test_with_task_environment.h"
 #include "net/traffic_annotation/network_traffic_annotation_test_helper.h"
-#include "net/url_request/url_fetcher.h"
-#include "net/url_request/url_fetcher_delegate.h"
-#include "net/url_request/url_request_context.h"
-#include "net/url_request/url_request_context_getter.h"
-#include "net/url_request/url_request_test_util.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
@@ -125,7 +120,7 @@ class TestHttpClient {
   void Write() {
     int result = socket_->Write(
         write_buffer_.get(), write_buffer_->BytesRemaining(),
-        base::Bind(&TestHttpClient::OnWrite, base::Unretained(this)),
+        base::BindOnce(&TestHttpClient::OnWrite, base::Unretained(this)),
         TRAFFIC_ANNOTATION_FOR_TESTS);
     if (result != ERR_IO_PENDING)
       OnWrite(result);
@@ -170,7 +165,7 @@ class TestHttpClient {
 
 }  // namespace
 
-class HttpServerTest : public TestWithScopedTaskEnvironment,
+class HttpServerTest : public TestWithTaskEnvironment,
                        public HttpServer::Delegate {
  public:
   HttpServerTest()
@@ -451,37 +446,19 @@ TEST_F(WebSocketTest, RequestWebSocketTrailingJunk) {
 }
 
 TEST_F(HttpServerTest, RequestWithTooLargeBody) {
-  class TestURLFetcherDelegate : public URLFetcherDelegate {
-   public:
-    TestURLFetcherDelegate(const base::Closure& quit_loop_func)
-        : quit_loop_func_(quit_loop_func) {}
-    ~TestURLFetcherDelegate() override = default;
-
-    void OnURLFetchComplete(const URLFetcher* source) override {
-      EXPECT_EQ(HTTP_INTERNAL_SERVER_ERROR, source->GetResponseCode());
-      quit_loop_func_.Run();
-    }
-
-   private:
-    base::Closure quit_loop_func_;
-  };
-
-  base::RunLoop run_loop;
-  TestURLFetcherDelegate delegate(run_loop.QuitClosure());
-
-  scoped_refptr<URLRequestContextGetter> request_context_getter(
-      new TestURLRequestContextGetter(base::ThreadTaskRunnerHandle::Get()));
-  std::unique_ptr<URLFetcher> fetcher = URLFetcher::Create(
-      GURL(base::StringPrintf("http://127.0.0.1:%d/test",
-                              server_address_.port())),
-      URLFetcher::GET, &delegate, TRAFFIC_ANNOTATION_FOR_TESTS);
-  fetcher->SetRequestContext(request_context_getter.get());
-  fetcher->AddExtraRequestHeader(
-      base::StringPrintf("content-length:%d", 1 << 30));
-  fetcher->Start();
-
-  run_loop.Run();
-  ASSERT_EQ(0u, requests_.size());
+  TestHttpClient client;
+  ASSERT_THAT(client.ConnectAndWait(server_address_), IsOk());
+  client.Send(
+      "GET /test HTTP/1.1\r\n"
+      "Content-Length: 1073741824\r\n\r\n");
+  std::string response;
+  ASSERT_TRUE(client.ReadResponse(&response));
+  EXPECT_EQ(
+      "HTTP/1.1 500 Internal Server Error\r\n"
+      "Content-Length:42\r\n"
+      "Content-Type:text/html\r\n\r\n"
+      "request content-length too big or unknown.",
+      response);
 }
 
 TEST_F(HttpServerTest, Send200) {

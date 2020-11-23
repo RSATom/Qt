@@ -19,7 +19,6 @@
 #include "base/memory/ref_counted.h"
 #include "base/metrics/histogram_base.h"
 #include "base/metrics/histogram_samples.h"
-#include "base/metrics/statistics_recorder.h"
 #include "base/sequence_token.h"
 #include "base/sequenced_task_runner.h"
 #include "base/single_thread_task_runner.h"
@@ -37,6 +36,7 @@
 #include "base/threading/scoped_blocking_call.h"
 #include "base/threading/sequenced_task_runner_handle.h"
 #include "base/threading/simple_thread.h"
+#include "base/threading/thread_restrictions.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
@@ -118,7 +118,7 @@ class ThreadPostingAndRunningTask : public SimpleThread {
       post_and_queue_succeeded =
           tracker_->WillPostTask(&task_, sequence_->shutdown_behavior());
       sequence_->BeginTransaction().PushTask(std::move(task_));
-      task_source_ = tracker_->WillQueueTaskSource(std::move(sequence_));
+      task_source_ = tracker_->RegisterTaskSource(std::move(sequence_));
 
       post_and_queue_succeeded &= !!task_source_;
 
@@ -127,12 +127,11 @@ class ThreadPostingAndRunningTask : public SimpleThread {
     if (post_and_queue_succeeded &&
         (action_ == Action::RUN || action_ == Action::WILL_POST_AND_RUN)) {
       EXPECT_TRUE(task_source_);
-      auto run_intent = task_source_->WillRunTask();
+      task_source_.WillRunTask();
 
       // Expect RunAndPopNextTask to return nullptr since |sequence| is empty
       // after popping a task from it.
-      EXPECT_FALSE(tracker_->RunAndPopNextTask(
-          {std::move(task_source_), std::move(run_intent)}));
+      EXPECT_FALSE(tracker_->RunAndPopNextTask(std::move(task_source_)));
     }
   }
 
@@ -178,12 +177,11 @@ class ThreadPoolTaskTrackerTest
     if (!tracker_.WillPostTask(&task, traits.shutdown_behavior()))
       return nullptr;
     auto sequence = test::CreateSequenceWithTask(std::move(task), traits);
-    return tracker_.WillQueueTaskSource(std::move(sequence));
+    return tracker_.RegisterTaskSource(std::move(sequence));
   }
   RegisteredTaskSource RunAndPopNextTask(RegisteredTaskSource task_source) {
-    auto run_intent = task_source->WillRunTask();
-    return tracker_.RunAndPopNextTask(
-        {std::move(task_source), std::move(run_intent)});
+    task_source.WillRunTask();
+    return tracker_.RunAndPopNextTask(std::move(task_source));
   }
 
   // Calls tracker_->CompleteShutdown() on a new thread and expects it to block.
@@ -371,7 +369,7 @@ TEST_P(ThreadPoolTaskTrackerTest, WillPostBeforeShutdownQueueDuringShutdown) {
     EXPECT_EQ(1U, NumTasksExecuted());
     VERIFY_ASYNC_SHUTDOWN_IN_PROGRESS();
   } else {
-    EXPECT_FALSE(tracker_.WillQueueTaskSource(std::move(sequence)));
+    EXPECT_FALSE(tracker_.RegisterTaskSource(std::move(sequence)));
   }
 
   // Unblock shutdown by running the remaining BLOCK_SHUTDOWN task.
@@ -1246,8 +1244,6 @@ TEST(ThreadPoolTaskTrackerWaitAllowedTest, WaitAllowed) {
 // Verify that ThreadPool.TaskLatency.* histograms are correctly recorded
 // when a task runs.
 TEST(ThreadPoolTaskTrackerHistogramTest, TaskLatency) {
-  auto statistics_recorder = StatisticsRecorder::CreateTemporaryForTesting();
-
   TaskTracker tracker("Test");
 
   struct {
@@ -1259,28 +1255,28 @@ TEST(ThreadPoolTaskTrackerHistogramTest, TaskLatency) {
        "BackgroundTaskPriority"},
       {{ThreadPool(), MayBlock(), TaskPriority::BEST_EFFORT},
        "ThreadPool.TaskLatencyMicroseconds.Test."
-       "BackgroundTaskPriority_MayBlock"},
+       "BackgroundTaskPriority"},
       {{ThreadPool(), WithBaseSyncPrimitives(), TaskPriority::BEST_EFFORT},
        "ThreadPool.TaskLatencyMicroseconds.Test."
-       "BackgroundTaskPriority_MayBlock"},
+       "BackgroundTaskPriority"},
       {{ThreadPool(), TaskPriority::USER_VISIBLE},
        "ThreadPool.TaskLatencyMicroseconds.Test."
        "UserVisibleTaskPriority"},
       {{ThreadPool(), MayBlock(), TaskPriority::USER_VISIBLE},
        "ThreadPool.TaskLatencyMicroseconds.Test."
-       "UserVisibleTaskPriority_MayBlock"},
+       "UserVisibleTaskPriority"},
       {{ThreadPool(), WithBaseSyncPrimitives(), TaskPriority::USER_VISIBLE},
        "ThreadPool.TaskLatencyMicroseconds.Test."
-       "UserVisibleTaskPriority_MayBlock"},
+       "UserVisibleTaskPriority"},
       {{ThreadPool(), TaskPriority::USER_BLOCKING},
        "ThreadPool.TaskLatencyMicroseconds.Test."
        "UserBlockingTaskPriority"},
       {{ThreadPool(), MayBlock(), TaskPriority::USER_BLOCKING},
        "ThreadPool.TaskLatencyMicroseconds.Test."
-       "UserBlockingTaskPriority_MayBlock"},
+       "UserBlockingTaskPriority"},
       {{ThreadPool(), WithBaseSyncPrimitives(), TaskPriority::USER_BLOCKING},
        "ThreadPool.TaskLatencyMicroseconds.Test."
-       "UserBlockingTaskPriority_MayBlock"}};
+       "UserBlockingTaskPriority"}};
 
   for (const auto& test : kTests) {
     Task task(FROM_HERE, DoNothing(), TimeDelta());

@@ -25,9 +25,7 @@ namespace ui {
 DemoWindow::DemoWindow(WindowManager* window_manager,
                        RendererFactory* renderer_factory,
                        const gfx::Rect& bounds)
-    : window_manager_(window_manager),
-      renderer_factory_(renderer_factory),
-      weak_ptr_factory_(this) {
+    : window_manager_(window_manager), renderer_factory_(renderer_factory) {
   PlatformWindowInitProperties properties;
   properties.bounds = bounds;
 
@@ -70,6 +68,8 @@ void DemoWindow::Quit() {
 void DemoWindow::OnBoundsChanged(const gfx::Rect& new_bounds) {
   StartRendererIfNecessary();
 }
+
+void DemoWindow::OnMouseEnter() {}
 
 void DemoWindow::OnDamageRect(const gfx::Rect& damaged_region) {}
 

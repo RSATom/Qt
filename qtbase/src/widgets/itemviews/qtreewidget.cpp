@@ -48,6 +48,8 @@
 #include <private/qwidgetitemdata_p.h>
 #include <private/qtreewidgetitemiterator_p.h>
 
+#include <QtCore/private/qduplicatetracker_p.h>
+
 #include <algorithm>
 
 QT_BEGIN_NAMESPACE
@@ -144,7 +146,7 @@ QTreeModel::~QTreeModel()
     clear();
     headerItem->view = nullptr;
     delete headerItem;
-    rootItem->view = 0;
+    rootItem->view = nullptr;
     delete rootItem;
 }
 
@@ -160,8 +162,8 @@ void QTreeModel::clear()
     beginResetModel();
     for (int i = 0; i < rootItem->childCount(); ++i) {
         QTreeWidgetItem *item = rootItem->children.at(i);
-        item->par = 0;
-        item->view = 0;
+        item->par = nullptr;
+        item->view = nullptr;
         delete item;
     }
     rootItem->children.clear();
@@ -214,7 +216,7 @@ void QTreeModel::setColumnCount(int columns)
 QTreeWidgetItem *QTreeModel::item(const QModelIndex &index) const
 {
     if (!index.isValid())
-        return 0;
+        return nullptr;
     return static_cast<QTreeWidgetItem*>(index.internalPointer());
 }
 
@@ -515,9 +517,9 @@ bool QTreeModel::removeRows(int row, int count, const QModelIndex &parent) {
     for (int i = row + count - 1; i >= row; --i) {
         QTreeWidgetItem *child = itm ? itm->takeChild(i) : rootItem->children.takeAt(i);
         Q_ASSERT(child);
-        child->view = 0;
+        child->view = nullptr;
         delete child;
-        child = 0;
+        child = nullptr;
     }
     blocker.unblock();
 
@@ -738,7 +740,10 @@ QList<QTreeWidgetItem*>::iterator QTreeModel::sortedInsertionIterator(
 
 QStringList QTreeModel::mimeTypes() const
 {
-    return view()->mimeTypes();
+    auto v = view();
+    if (v)
+        return v->mimeTypes();
+    return {};
 }
 
 QMimeData *QTreeModel::internalMimeData()  const
@@ -1285,6 +1290,8 @@ bool QTreeWidgetItem::isFirstColumnSpanned() const
 
     Sets the background brush of the label in the given \a column to the
     specified \a brush.
+    Setting a default-constructed brush will let the view use the
+    default color from the style.
 
     \note If \l{Qt Style Sheets} are used on the same widget as setBackground(),
     style sheets will take precedence if the settings conflict.
@@ -1314,6 +1321,8 @@ bool QTreeWidgetItem::isFirstColumnSpanned() const
 
     Returns the brush used to render the foreground (e.g. text) of the
     specified \a column.
+    Setting a default-constructed brush will let the view use the
+    default color from the style.
 
     \sa background()
 */
@@ -1357,8 +1366,8 @@ bool QTreeWidgetItem::isFirstColumnSpanned() const
   \since 4.1
 
   Sets the size hint for the tree item in the given \a column to be \a size.
-  If no size hint is set, the item delegate will compute the size hint based
-  on the item data.
+  If no size hint is set or \a size is invalid, the item
+  delegate will compute the size hint based on the item data.
 */
 
 /*!
@@ -1608,11 +1617,11 @@ QTreeWidgetItem::~QTreeWidgetItem()
         }
     } else if (model) {
         if (this == model->headerItem) {
-            model->headerItem = 0;
+            model->headerItem = nullptr;
         } else {
             int i = model->rootItem->children.indexOf(this);
             if (i >= 0) {
-                model->beginRemoveItems(0, i, 1);
+                model->beginRemoveItems(nullptr, i, 1);
                 // users _could_ do changes when connected to rowsAboutToBeRemoved,
                 // so we check again to make sure 'i' is valid
                 if (!model->rootItem->children.isEmpty() && model->rootItem->children.at(i) == this)
@@ -1626,9 +1635,9 @@ QTreeWidgetItem::~QTreeWidgetItem()
     for (int i = 0; i < children.count(); ++i) {
         QTreeWidgetItem *child = children.at(i);
         // make sure the child does not try to remove itself from our children list
-        child->par = 0;
+        child->par = nullptr;
         // make sure the child does not try to remove itself from the top level list
-        child->view = 0;
+        child->view = nullptr;
         delete child;
     }
 
@@ -1644,16 +1653,16 @@ QTreeWidgetItem::~QTreeWidgetItem()
 */
 QTreeWidgetItem *QTreeWidgetItem::clone() const
 {
-    QTreeWidgetItem *copy = 0;
+    QTreeWidgetItem *copy = nullptr;
 
     QStack<const QTreeWidgetItem*> stack;
     QStack<QTreeWidgetItem*> parentStack;
     stack.push(this);
     parentStack.push(0);
 
-    QTreeWidgetItem *root = 0;
-    const QTreeWidgetItem *item = 0;
-    QTreeWidgetItem *parent = 0;
+    QTreeWidgetItem *root = nullptr;
+    const QTreeWidgetItem *item = nullptr;
+    QTreeWidgetItem *parent = nullptr;
     while (!stack.isEmpty()) {
         // get current item, and copied parent
         item = stack.pop();
@@ -1988,8 +1997,8 @@ void QTreeWidgetItem::write(QDataStream &out) const
     \sa data(), flags()
 */
 QTreeWidgetItem::QTreeWidgetItem(const QTreeWidgetItem &other)
-    : rtti(Type), values(other.values), view(0),
-      d(new QTreeWidgetItemPrivate(this)), par(0),
+    : rtti(Type), values(other.values), view(nullptr),
+      d(new QTreeWidgetItemPrivate(this)), par(nullptr),
       itemFlags(other.itemFlags)
 {
     d->display = other.d->display;
@@ -2032,14 +2041,14 @@ void QTreeWidgetItem::addChild(QTreeWidgetItem *child)
 */
 void QTreeWidgetItem::insertChild(int index, QTreeWidgetItem *child)
 {
-    if (index < 0 || index > children.count() || child == 0 || child->view != 0 || child->par != 0)
+    if (index < 0 || index > children.count() || child == nullptr || child->view != nullptr || child->par != nullptr)
         return;
 
     if (QTreeModel *model = treeModel()) {
         const bool wasSkipSort = model->skipPendingSort;
         model->skipPendingSort = true;
         if (model->rootItem == this)
-            child->par = 0;
+            child->par = nullptr;
         else
             child->par = this;
         if (view->isSortingEnabled()) {
@@ -2099,12 +2108,12 @@ QTreeWidgetItem *QTreeWidgetItem::takeChild(int index)
         if (model) model->beginRemoveItems(this, index, 1);
         d->updateHiddenStatus(children.at(index), false);
         QTreeWidgetItem *item = children.takeAt(index);
-        item->par = 0;
+        item->par = nullptr;
         QStack<QTreeWidgetItem*> stack;
         stack.push(item);
         while (!stack.isEmpty()) {
             QTreeWidgetItem *i = stack.pop();
-            i->view = 0;
+            i->view = nullptr;
             for (int c = 0; c < i->children.count(); ++c)
                 stack.push(i->children.at(c));
         }
@@ -2112,7 +2121,7 @@ QTreeWidgetItem *QTreeWidgetItem::takeChild(int index)
         if (model) model->endRemoveRows();
         return item;
     }
-    return 0;
+    return nullptr;
 }
 
 /*!
@@ -2159,7 +2168,7 @@ void QTreeWidgetItem::insertChildren(int index, const QList<QTreeWidgetItem*> &c
                 stack.push(child);
         }
         if (model && (model->rootItem == this))
-            child->par = 0;
+            child->par = nullptr;
         else
             child->par = this;
     }
@@ -2202,12 +2211,12 @@ QList<QTreeWidgetItem*> QTreeWidgetItem::takeChildren()
         if (model) model->beginRemoveItems(this, 0, children.count());
         for (int n = 0; n < children.count(); ++n) {
             QTreeWidgetItem *item = children.at(n);
-            item->par = 0;
+            item->par = nullptr;
             QStack<QTreeWidgetItem*> stack;
             stack.push(item);
             while (!stack.isEmpty()) {
                 QTreeWidgetItem *i = stack.pop();
-                i->view = 0;
+                i->view = nullptr;
                 for (int c = 0; c < i->children.count(); ++c)
                     stack.push(i->children.at(c));
             }
@@ -3171,13 +3180,12 @@ QList<QTreeWidgetItem*> QTreeWidget::selectedItems() const
     const QModelIndexList indexes = selectionModel()->selectedIndexes();
     QList<QTreeWidgetItem*> items;
     items.reserve(indexes.count());
-    QSet<QTreeWidgetItem *> seen;
+    QDuplicateTracker<QTreeWidgetItem *> seen;
     seen.reserve(indexes.count());
     for (const auto &index : indexes) {
         QTreeWidgetItem *item = d->item(index);
-        if (item->isHidden() || seen.contains(item))
+        if (item->isHidden() || seen.hasSeen(item))
             continue;
-        seen.insert(item);
         items.append(item);
     }
     return items;
@@ -3302,7 +3310,7 @@ QTreeWidgetItem *QTreeWidget::itemAbove(const QTreeWidgetItem *item) const
 {
     Q_D(const QTreeWidget);
     if (item == d->treeModel()->headerItem)
-        return 0;
+        return nullptr;
     const QModelIndex index = d->index(item);
     const QModelIndex above = indexAbove(index);
     return d->item(above);
@@ -3317,7 +3325,7 @@ QTreeWidgetItem *QTreeWidget::itemBelow(const QTreeWidgetItem *item) const
 {
     Q_D(const QTreeWidget);
     if (item == d->treeModel()->headerItem)
-        return 0;
+        return nullptr;
     const QModelIndex index = d->index(item);
     const QModelIndex below = indexBelow(index);
     return d->item(below);
@@ -3420,14 +3428,14 @@ QMimeData *QTreeWidget::mimeData(const QList<QTreeWidgetItem*> items) const
         for (const auto *item : items) {
             if (Q_UNLIKELY(!item)) {
                 qWarning("QTreeWidget::mimeData: Null-item passed");
-                return 0;
+                return nullptr;
             }
 
             for (int c = 0; c < item->values.count(); ++c) {
                 const QModelIndex index = indexFromItem(item, c);
                 if (Q_UNLIKELY(!index.isValid())) {
                     qWarning() << "QTreeWidget::mimeData: No index associated with item :" << item;
-                    return 0;
+                    return nullptr;
                 }
                 indexes << index;
             }

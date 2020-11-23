@@ -75,7 +75,8 @@
         \li  \l{Creating Main Windows in Qt Designer}
         \li  \l{Editing Resources with Qt Designer}
         \li  \l{Using Stylesheets with Qt Designer}
-        \li  \l{Using a Designer UI File in Your Application}
+        \li  \l{Using a Designer UI File in Your C++ Application}
+        \li  \l{Using a Designer UI File in Your Qt for Python Application}
     \li Advanced Use
     \list
         \li  \l{Customizing Qt Designer Forms}
@@ -90,7 +91,6 @@
 
 /*!
     \page designer-to-know.html
-    \contentspage {Qt Designer Manual}{Contents}
 
 
     \title Getting to Know Qt Designer
@@ -258,7 +258,6 @@
 
 /*!
     \page designer-quick-start.html
-    \contentspage {Qt Designer Manual}{Contents}
 
 
     \title A Quick Start to Qt Designer
@@ -398,7 +397,6 @@
 /*!
     \page designer-editing-mode.html
     \previouspage Getting to Know Qt Designer
-    \contentspage {Qt Designer Manual}{Contents}
     \nextpage Using Layouts in Qt Designer
 
     \title Qt Designer's Editing Modes
@@ -447,7 +445,6 @@
 /*!
     \page designer-widget-mode.html
     \previouspage Qt Designer's Editing Modes
-    \contentspage {Qt Designer Manual}{Contents}
     \nextpage Qt Designer's Signals and Slots Editing Mode
 
     \title Qt Designer's Widget Editing Mode
@@ -687,7 +684,6 @@
 /*!
     \page designer-layouts.html
     \previouspage Qt Designer's Widget Editing Mode
-    \contentspage
     \nextpage Qt Designer's Signals and Slots Editing Mode
 
     \title Using Layouts in Qt Designer
@@ -890,7 +886,6 @@
 
 /*!
     \page designer-preview.html
-    \contentspage {Qt Designer Manual}{Contents}
     \previouspage Using Layouts in Qt Designer
     \nextpage Qt Designer's Buddy Editing Mode
     \title Saving, Previewing and Printing Forms in Qt Designer
@@ -971,7 +966,6 @@
 
 /*!
     \page designer-connection-mode.html
-    \contentspage {Qt Designer Manual}{Contents}
     \previouspage Using Layouts in Qt Designer
     \nextpage Qt Designer's Buddy Editing Mode
 
@@ -1105,7 +1099,6 @@
 
 /*!
     \page designer-buddy-mode.html
-    \contentspage{Qt Designer Manual}{Contents}
     \previouspage Qt Designer's Signals and Slots Editing Mode
     \nextpage Qt Designer's Tab Order Editing Mode
 
@@ -1159,7 +1152,6 @@
 
 /*!
     \page designer-tab-order.html
-    \contentspage {Qt Designer Manual}{Contents}
     \previouspage Qt Designer's Buddy Editing Mode
     \nextpage Using Containers in Qt Designer
 
@@ -1208,7 +1200,6 @@
 
 /*!
     \page designer-using-containers.html
-    \contentspage {Qt Designer Manual}{Contents}
     \previouspage Qt Designer's Tab Order Editing Mode
     \nextpage Creating Main Windows in Qt Designer
 
@@ -1346,7 +1337,6 @@
 
 /*!
     \page designer-creating-mainwindows.html
-    \contentspage {Qt Designer Manual}{Contents}
     \previouspage Using Containers in Qt Designer
     \nextpage Editing Resources with Qt Designer
 
@@ -1601,7 +1591,6 @@
 
 /*!
     \page designer-resources.html
-    \contentspage {Qt Designer Manual}{Contents}
     \previouspage Creating Main Windows in Qt Designer
     \nextpage Using Stylesheets with Qt Designer
 
@@ -1706,9 +1695,8 @@ pixmap property in the property editor.
 
 /*!
     \page designer-stylesheet.html
-    \contentspage {Qt Designer Manual}{Contents}
     \previouspage Editing Resources with Qt Designer
-    \nextpage Using a Designer UI File in Your Application
+    \nextpage Using a Designer UI File in Your C++ Application
 
     \title Using Stylesheets with Qt Designer
 
@@ -1734,10 +1722,9 @@ pixmap property in the property editor.
 /*!
     \page designer-using-a-ui-file.html
     \previouspage Using Stylesheets with Qt Designer
-    \contentspage {Qt Designer Manual}{Contents}
-    \nextpage Using Custom Widgets with Qt Designer
+    \nextpage Using a Designer UI File in Your Qt for Python Application
 
-    \title Using a Designer UI File in Your Application
+    \title Using a Designer UI File in Your C++ Application
 
     Qt Designer UI files represent the widget tree of the form in XML format. The
     forms can be processed:
@@ -2125,11 +2112,96 @@ pixmap property in the property editor.
     write code themselves.
 */
 
+/*!
+    \page designer-using-a-ui-file-python.html
+    \previouspage Using a Designer UI File in Your C++ Application
+    \nextpage Using Custom Widgets with Qt Designer
+
+    \title Using a Designer UI File in Your Qt for Python Application
+
+    \section1 Converting the Form to Python Code
+
+    To demonstrate, we use the Qt Widgets animation easing example.
+
+    The application consists of one source file, \c easing.py, a UI
+    file \c form.ui, a resource file \c  easing.qrc and the project
+    file, \c{easing.pyproject} file in the YAML format:
+
+    \code
+    {
+        "files": ["easing.qrc", "ui_form.py", "easing.py", "easing_rc.py",
+                  "form.ui"]
+    }
+    \endcode
+
+    The UI file is converted to Python code building the form using the
+    \l{User Interface Compiler (uic)}:
+
+    \code
+    uic -g python form.ui > ui_form.py
+    \endcode
+
+    Since the top level widget is named \c Form, this results in a Python
+    class named \c Ui_Form being generated. It provides a function
+    \c setupUi(), taking the widget as parameter, which is called to
+    create the UI elements:
+
+    \code
+    from ui_form import Ui_Form
+    ...
+    class Window(QtWidgets.QWidget):
+        def __init__(self, parent=None):
+            super(Window, self).__init__(parent)
+
+            self.m_ui = Ui_Form()
+            self.m_ui.setupUi(self)
+    \endcode
+
+    Later on, the widgets can be accessed via the \c Ui_Form class:
+
+    \code
+    self.m_ui.graphicsView.setScene(self.m_scene)
+    \endcode
+
+    Besides \c setupUi(), \c Ui_Form provides another method
+    \c retranslateUi(), which can be called in reaction to
+    a QEvent of type QEvent.LanguageChange, which indicates
+    a change in the application language.
+
+    \section2 The UiTools Approach
+
+    The QUiLoader class provides a form loader object to construct the user
+    interface at runtime. This user interface can be retrieved from any
+    QIODevice, e.g., a QFile object. The QUiLoader::load() function
+    constructs the form widget using the user interface description
+    contained in the file.
+
+    It is demonstrated by the uiloader example:
+
+    \code
+    from PySide2.QtUiTools import QUiLoader
+
+    if __name__ == '__main__':
+        # Some code to obtain the form file name, ui_file_name
+        app = QApplication(sys.argv)
+        ui_file = QFile(ui_file_name)
+        if not ui_file.open(QIODevice.ReadOnly):
+            print("Cannot open {}: {}".format(ui_file_name, ui_file.errorString()))
+            sys.exit(-1)
+        loader = QUiLoader()
+        widget = loader.load(ui_file, None)
+        ui_file.close()
+        if not widget:
+            print(loader.errorString())
+            sys.exit(-1)
+        widget.show()
+        sys.exit(app.exec_())
+    \endcode
+*/
 
 /*!
     \page designer-customizing-forms.html
-    \contentspage {Qt Designer Manual}{Contents}
-    \previouspage Using Stylesheets with Qt Designer
+    \previouspage Using a Designer UI File in Your Qt for Python Application
     \nextpage Using Custom Widgets with Qt Designer
 
     \title Customizing Qt Designer Forms
@@ -2141,7 +2213,7 @@ pixmap property in the property editor.
     default layout, are stored along with the form's components. These settings
     are used when the \l uic generates the form's C++ code. For more
     information on how to use forms in your application, see the
-    \l{Using a Designer UI File in Your Application} section.
+    \l{Using a Designer UI File in Your C++ Application} section.
 
 
     \section1 Modifying the Form Settings
@@ -2185,7 +2257,6 @@ pixmap property in the property editor.
 
 /*!
     \page designer-using-custom-widgets.html
-    \contentspage {Qt Designer Manual}{Contents}
     \previouspage Customizing Qt Designer Forms
     \nextpage Creating Custom Widgets for Qt Designer
 
@@ -2281,7 +2352,6 @@ pixmap property in the property editor.
 /*!
     \page designer-creating-custom-widgets.html
     \previouspage Using Custom Widgets with Qt Designer
-    \contentspage {Qt Designer Manual}{Contents}
     \nextpage Creating Custom Widget Extensions
 
     \title Creating Custom Widgets for Qt Designer
@@ -2642,7 +2712,6 @@ pixmap property in the property editor.
     \page designer-creating-custom-widgets-extensions.html
     \previouspage Creating Custom Widgets for Qt Designer
     \nextpage Qt Designer's UI File Format
-    \contentspage {Qt Designer Manual}{Contents}
 
     \title Creating Custom Widget Extensions
 
@@ -2812,7 +2881,6 @@ pixmap property in the property editor.
 /*!
     \page designer-ui-file-format.html
     \previouspage Creating Custom Widget Extensions
-    \contentspage {Qt Designer Manual}{Contents}
 
     \title Qt Designer's UI File Format
 

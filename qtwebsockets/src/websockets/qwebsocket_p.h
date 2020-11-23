@@ -160,6 +160,17 @@ public:
     void ping(const QByteArray &payload);
     void setSocketState(QAbstractSocket::SocketState state);
 
+    void setMaxAllowedIncomingFrameSize(quint64 maxAllowedIncomingFrameSize);
+    quint64 maxAllowedIncomingFrameSize() const;
+    void setMaxAllowedIncomingMessageSize(quint64 maxAllowedIncomingMessageSize);
+    quint64 maxAllowedIncomingMessageSize() const;
+    static quint64 maxIncomingMessageSize();
+    static quint64 maxIncomingFrameSize();
+
+    void setOutgoingFrameSize(quint64 outgoingFrameSize);
+    quint64 outgoingFrameSize() const;
+    static quint64 maxOutgoingFrameSize();
+
 private:
     QWebSocketPrivate(QTcpSocket *pTcpSocket, QWebSocketProtocol::Version version);
     void setVersion(QWebSocketProtocol::Version version);
@@ -182,7 +193,7 @@ private:
 
     Q_REQUIRED_RESULT qint64 doWriteFrames(const QByteArray &data, bool isBinary);
 
-    void makeConnections(const QTcpSocket *pTcpSocket);
+    void makeConnections(QTcpSocket *pTcpSocket);
     void releaseConnections(const QTcpSocket *pTcpSocket);
 
     QByteArray getFrameHeader(QWebSocketProtocol::OpCode opCode, quint64 payloadLength,
@@ -231,7 +242,7 @@ private:
 
     QElapsedTimer m_pingTimer;
 
-    QWebSocketDataProcessor m_dataProcessor;
+    QWebSocketDataProcessor *m_dataProcessor = new QWebSocketDataProcessor();
     QWebSocketConfiguration m_configuration;
 
     QMaskGenerator *m_pMaskGenerator;
@@ -248,7 +259,9 @@ private:
     int m_httpStatusCode;
     int m_httpMajorVersion, m_httpMinorVersion;
     QString m_httpStatusMessage;
-    QMap<QString, QString> m_headers;
+    QMultiMap<QString, QString> m_headers;
+
+    quint64 m_outgoingFrameSize;
 
     friend class QWebSocketServerPrivate;
 #ifdef Q_OS_WASM

@@ -29,7 +29,7 @@
 
 #include "qquick3dscenerenderer_p.h"
 #include "qquick3dsceneenvironment_p.h"
-#include "qquick3dobject_p_p.h"
+#include "qquick3dobject_p.h"
 #include "qquick3dnode_p.h"
 #include "qquick3dscenemanager_p.h"
 #include "qquick3dtexture_p.h"
@@ -44,6 +44,9 @@
 #include <QtQuick3DRuntimeRender/private/qssgrenderlayer_p.h>
 #include <QtQuick3DRuntimeRender/private/qssgrendererutil_p.h>
 #include <QtQuick/QQuickWindow>
+
+#include <QtQuick3DRuntimeRender/private/qssgrendereffect_p.h>
+#include <QtQuick3DRuntimeRender/private/qssgrendererimpllayerrenderpreparationdata_p.h>
 
 QT_BEGIN_NAMESPACE
 
@@ -78,6 +81,7 @@ SGFramebufferObjectNode::SGFramebufferObjectNode()
     , renderPending(true)
     , invalidatePending(false)
     , devicePixelRatio(1)
+    , requestedFramesCount(0)
 {
     qsgnode_set_description(this, QStringLiteral("fbonode"));
     setFlag(QSGNode::UsePreprocess, true);
@@ -145,9 +149,12 @@ void SGFramebufferObjectNode::render()
                 QOpenGLContext::currentContext()->functions()->glFinish();
             renderer->renderStats()->endRender(dumpRenderTimes);
         }
-        if (renderer->m_sgContext->renderer()->rendererRequestsFrames()) {
+        if (renderer->m_sgContext->renderer()->rendererRequestsFrames()
+                || requestedFramesCount > 0) {
             scheduleRender();
             window->update();
+            if (requestedFramesCount > 0)
+                requestedFramesCount--;
         }
     }
 }
@@ -163,28 +170,21 @@ void SGFramebufferObjectNode::handleScreenChange()
 
 QQuick3DSceneRenderer::QQuick3DSceneRenderer(QWindow *window)
     : m_window(window)
-    , m_multisampleFbo(nullptr)
-    , m_supersampleFbo(nullptr)
+    , m_antialiasingFbo(nullptr)
     , m_fbo(nullptr)
 {
     QOpenGLContext *openGLContext = QOpenGLContext::currentContext();
 
     // There is only one Render context per window, so check if one exists for this window already
-    auto renderContextInterface = QSSGRenderContextInterface::getRenderContextInterface(quintptr(window));
-    if (!renderContextInterface.isNull()) {
-        m_sgContext = renderContextInterface;
-        m_renderContext = renderContextInterface->renderContext();
-    }
+    m_sgContext = QSSGRenderContextInterface::getRenderContextInterface(quintptr(window));
 
     // If there was no render context, then set it up for this window
-    if (m_renderContext.isNull())
-        m_renderContext = QSSGRenderContext::createGl(openGLContext->format());
     if (m_sgContext.isNull())
-        m_sgContext = QSSGRenderContextInterface::getRenderContextInterface(m_renderContext, QString::fromLatin1("./"), quintptr(window));
+        m_sgContext = QSSGRenderContextInterface::getRenderContextInterface(QSSGRenderContext::createGl(openGLContext->format()), QString::fromLatin1("./"), quintptr(window));
 
 
-    dumpPerfTiming = (qEnvironmentVariableIntValue("QUICK3D_PERFTIMERS") > 0);
-    dumpRenderTimes = (qEnvironmentVariableIntValue("QUICK3D_RENDERTIMES") > 0);
+    dumpPerfTiming = (qEnvironmentVariableIntValue("QT_QUICK3D_DUMP_PERFTIMERS") > 0);
+    dumpRenderTimes = (qEnvironmentVariableIntValue("QT_QUICK3D_DUMP_RENDERTIMES") > 0);
     if (dumpPerfTiming) {
         m_sgContext->renderer()->enableLayerGpuProfiling(true);
         m_sgContext->performanceTimer()->setEnabled(true);
@@ -195,8 +195,7 @@ QQuick3DSceneRenderer::~QQuick3DSceneRenderer()
 {
     delete m_layer;
     delete m_fbo;
-    delete m_multisampleFbo;
-    delete m_supersampleFbo;
+    delete m_antialiasingFbo;
 }
 
 GLuint QQuick3DSceneRenderer::render()
@@ -205,20 +204,23 @@ GLuint QQuick3DSceneRenderer::render()
         return 0;
 
     const bool hasMsSupport = m_sgContext->renderContext()->supportsMultisampleTextures();
-    const bool ssaaEnabled = hasMsSupport && m_layer->multisampleAAMode == QSSGRenderLayer::AAMode::SSAA;
-    const bool msaaEnabled = hasMsSupport && m_layer->multisampleAAMode > QSSGRenderLayer::AAMode::SSAA;
+    const bool ssaaEnabled = m_layer->antialiasingMode == QSSGRenderLayer::AAMode::SSAA;
+    const bool msaaEnabled = hasMsSupport && m_layer->antialiasingMode == QSSGRenderLayer::AAMode::MSAA;
 
     m_sgContext->beginFrame();
 
     // select correct fbo for aa
-    auto fbo = m_multisampleFbo ? m_multisampleFbo : m_fbo;
-    fbo = m_supersampleFbo ? m_supersampleFbo : fbo;
-    fbo = ssaaEnabled || msaaEnabled ? fbo : m_fbo;
+    const bool useMSAA = msaaEnabled && m_antialiasingFbo;
+    const bool useSSAA = ssaaEnabled && m_antialiasingFbo;
+    const bool useAA = (useMSAA || useSSAA);
+    auto fbo = useAA ? m_antialiasingFbo : m_fbo;
 
-    m_renderContext->setRenderTarget(fbo->fbo);
+    const auto &renderContext = m_sgContext->renderContext();
+    renderContext->setRenderTarget(fbo->fbo);
     QSize surfaceSize = m_surfaceSize;
-    if (ssaaEnabled && m_supersampleFbo)
-        surfaceSize *= SSAA_Multiplier;
+    if (useSSAA)
+        surfaceSize *= m_ssaaMultiplier;
+
     m_sgContext->setViewport(QRect(0, 0, surfaceSize.width(), surfaceSize.height()));
     m_sgContext->setScissorRect(QRect());
     m_sgContext->setWindowDimensions(m_surfaceSize);
@@ -229,21 +231,15 @@ GLuint QQuick3DSceneRenderer::render()
 
     m_sgContext->endFrame();
 
-    if ((msaaEnabled && m_multisampleFbo) || (ssaaEnabled && m_supersampleFbo)) {
-        m_renderContext->setRenderTarget(m_fbo->fbo);
-        m_renderContext->setReadTarget(m_supersampleFbo ? m_supersampleFbo->fbo
-                                                        : m_multisampleFbo->fbo);
-        if (m_supersampleFbo) {
-            m_renderContext->blitFramebuffer(0, 0, surfaceSize.width(), surfaceSize.height(),
-                                             0, 0, m_surfaceSize.width(), m_surfaceSize.height(),
-                                             QSSGRenderClearValues::Color,
-                                             QSSGRenderTextureMagnifyingOp::Linear);
-        } else {
-            m_renderContext->blitFramebuffer(0, 0, m_surfaceSize.width(), m_surfaceSize.height(),
-                                             0, 0, m_surfaceSize.width(), m_surfaceSize.height(),
-                                             QSSGRenderClearValues::Color,
-                                             QSSGRenderTextureMagnifyingOp::Nearest);
-        }
+    if (useAA) {
+        renderContext->setRenderTarget(m_fbo->fbo);
+        renderContext->setReadTarget(m_antialiasingFbo->fbo);
+        auto magOp = useSSAA ? QSSGRenderTextureMagnifyingOp::Linear
+                             : QSSGRenderTextureMagnifyingOp::Nearest;
+        renderContext->blitFramebuffer(0, 0, surfaceSize.width(), surfaceSize.height(),
+                                         0, 0, m_surfaceSize.width(), m_surfaceSize.height(),
+                                         QSSGRenderClearValues::Color,
+                                         magOp);
     }
 
     if (dumpPerfTiming) {
@@ -264,7 +260,8 @@ void QQuick3DSceneRenderer::render(const QRect &viewport, bool clearFirst)
     m_sgContext->beginFrame();
 
     // set render target to be current window (default)
-    m_renderContext->setRenderTarget(nullptr);
+    const auto &renderContext = m_sgContext->renderContext();
+    renderContext->setRenderTarget(nullptr);
 
     // set viewport
     m_sgContext->setWindowDimensions(m_surfaceSize);
@@ -306,10 +303,14 @@ void QQuick3DSceneRenderer::synchronize(QQuick3DViewport *item, const QSize &siz
     auto view3D = static_cast<QQuick3DViewport*>(item);
     m_sceneManager = QQuick3DObjectPrivate::get(view3D->scene())->sceneManager;
     m_sceneManager->updateDirtyNodes();
+    m_sceneManager->updateBoundingBoxes(m_sgContext->bufferManager());
 
     QQuick3DNode *importScene = view3D->importScene();
-    if (importScene)
-        QQuick3DObjectPrivate::get(importScene)->sceneManager->updateDirtyNodes();
+    if (importScene) {
+        auto sceneManager = QQuick3DObjectPrivate::get(importScene)->sceneManager;
+        sceneManager->updateBoundingBoxes(m_sgContext->bufferManager());
+        sceneManager->updateDirtyNodes();
+    }
 
     // Generate layer node
     if (!m_layer)
@@ -340,54 +341,54 @@ void QQuick3DSceneRenderer::synchronize(QQuick3DViewport *item, const QSize &siz
         if (m_importRootNode)
             removeNodeFromLayer(m_importRootNode);
 
-        if (importRootNode)
-            m_layer->addChildrenToLayer(*importRootNode);
+        if (importRootNode) {
+            // if importScene has the rendered viewport as ancestor, it probably means
+            // "importScene: MyScene { }" type of inclusion.
+            // In this case don't duplicate content by adding it again.
+            QObject *sceneParent = importScene->parent();
+            bool isEmbedded = false;
+            while (sceneParent) {
+                if (sceneParent == item) {
+                    isEmbedded = true;
+                    break;
+                }
+                sceneParent = sceneParent->parent();
+            }
+            if (!isEmbedded)
+                m_layer->addChildrenToLayer(*importRootNode);
+        }
 
         m_importRootNode = importRootNode;
     }
 
     if (useFBO) {
+        const auto &renderContext = m_sgContext->renderContext();
         if (!m_fbo || m_layerSizeIsDirty) {
             delete m_fbo;
-            m_fbo = new FramebufferObject(m_surfaceSize, m_renderContext);
+            m_fbo = new FramebufferObject(m_surfaceSize, renderContext);
         }
-        if (m_msaaIsDirty || m_layerSizeIsDirty) {
-            delete m_multisampleFbo;
-            m_multisampleFbo = nullptr;
-            delete m_supersampleFbo;
-            m_supersampleFbo = nullptr;
+        if (m_aaIsDirty || m_layerSizeIsDirty) {
+            delete m_antialiasingFbo;
+            m_antialiasingFbo = nullptr;
 
-            static const auto msaaModeSamples = [](QSSGRenderLayer::AAMode mode) -> int {
-                switch (mode) {
-                case QSSGRenderLayer::AAMode::X2:
-                    return 2;
-                case QSSGRenderLayer::AAMode::X4:
-                case QSSGRenderLayer::AAMode::X8:
-                    return 4;
-                case QSSGRenderLayer::AAMode::NoAA:
-                default:
-                    break;
-                }
-                return 1;
-            };
-
+            const bool ssaaEnabled = m_layer->antialiasingMode == QSSGRenderLayer::AAMode::SSAA;
+            const bool msaaEnabled = m_layer->antialiasingMode == QSSGRenderLayer::AAMode::MSAA;
             const bool hasMsSupport = m_sgContext->renderContext()->supportsMultisampleTextures();
-            const auto msaaMode = hasMsSupport ? m_layer->multisampleAAMode : QSSGRenderLayer::AAMode::NoAA;
-            const auto samples = msaaModeSamples(msaaMode);
 
-            if (samples > 1) {
-                m_multisampleFbo = new FramebufferObject(m_surfaceSize, m_renderContext, samples);
-            } else if (msaaMode == QSSGRenderLayer::AAMode::SSAA) {
-                m_supersampleFbo = new FramebufferObject(m_surfaceSize * SSAA_Multiplier,
-                                                         m_renderContext);
+            if (hasMsSupport && msaaEnabled) {
+                const auto samples = int(m_layer->antialiasingQuality);
+                m_antialiasingFbo = new FramebufferObject(m_surfaceSize, renderContext, samples);
+            } else if (ssaaEnabled) {
+                m_antialiasingFbo = new FramebufferObject(m_surfaceSize * m_ssaaMultiplier,
+                                                          renderContext);
             }
-            m_msaaIsDirty = false;
+            m_aaIsDirty = false;
         }
         m_layerSizeIsDirty = false;
     }
 
     if (m_renderStats)
-        m_renderStats->endSync(m_sgContext, dumpRenderTimes);
+        m_renderStats->endSync(dumpRenderTimes);
 }
 
 void QQuick3DSceneRenderer::update()
@@ -409,7 +410,10 @@ QSSGRenderPickResult QQuick3DSceneRenderer::pick(const QPointF &pos)
 
 QSSGRenderPickResult QQuick3DSceneRenderer::syncPick(const QPointF &pos)
 {
-    return m_sgContext->renderer()->syncPick(*m_layer, QVector2D(m_surfaceSize.width(), m_surfaceSize.height()), QVector2D(float(pos.x()), float(pos.y())));
+    return m_sgContext->renderer()->syncPick(*m_layer,
+                                             m_sgContext->bufferManager(),
+                                             QVector2D(m_surfaceSize.width(), m_surfaceSize.height()),
+                                             QVector2D(float(pos.x()), float(pos.y())));
 }
 
 QQuick3DRenderStats *QQuick3DSceneRenderer::renderStats()
@@ -420,13 +424,38 @@ QQuick3DRenderStats *QQuick3DSceneRenderer::renderStats()
 void QQuick3DSceneRenderer::updateLayerNode(QQuick3DViewport *view3D)
 {
     QSSGRenderLayer *layerNode = m_layer;
-    layerNode->progressiveAAMode = QSSGRenderLayer::AAMode(view3D->environment()->progressiveAAMode());
-    QSSGRenderLayer::AAMode msaaMode = QSSGRenderLayer::AAMode(view3D->environment()->multisampleAAMode());
-    if (msaaMode != layerNode->multisampleAAMode) {
-        layerNode->multisampleAAMode = msaaMode;
-        m_msaaIsDirty = true;
+
+    QSSGRenderLayer::AAMode aaMode = QSSGRenderLayer::AAMode(view3D->environment()->antialiasingMode());
+    if (aaMode != layerNode->antialiasingMode) {
+        layerNode->antialiasingMode = aaMode;
+        m_aaIsDirty = true;
     }
-    layerNode->temporalAAEnabled = view3D->environment()->temporalAAEnabled();
+    QSSGRenderLayer::AAQuality aaQuality = QSSGRenderLayer::AAQuality(view3D->environment()->antialiasingQuality());
+    if (aaQuality != layerNode->antialiasingQuality) {
+        layerNode->antialiasingQuality = aaQuality;
+        m_ssaaMultiplier = (aaQuality == QSSGRenderLayer::AAQuality::Normal) ? 1.2f :
+                           (aaQuality == QSSGRenderLayer::AAQuality::High) ? 1.5f :
+                                                                             2.0f;
+        layerNode->ssaaMultiplier = m_ssaaMultiplier;
+        m_aaIsDirty = true;
+    }
+
+    bool temporalIsDirty = false;
+    bool temporalAAEnabled = view3D->environment()->temporalAAEnabled();
+    if (temporalAAEnabled != layerNode->temporalAAEnabled) {
+        layerNode->temporalAAEnabled = view3D->environment()->temporalAAEnabled();
+        temporalIsDirty = true;
+    }
+    layerNode->temporalAAStrength = view3D->environment()->temporalAAStrength();
+
+    if ((m_aaIsDirty || temporalIsDirty) && layerNode->temporalAAEnabled) {
+        // When temporalAA is on and antialiasing mode changes,
+        // layer needs to be re-rendered (at least) MAX_TEMPORAL_AA_LEVELS times
+        // to generate temporal antialiasing.
+        if (data)
+            static_cast<SGFramebufferObjectNode *>(data)->requestedFramesCount
+                = QSSGLayerRenderPreparationData::MAX_TEMPORAL_AA_LEVELS;
+    }
 
     layerNode->background = QSSGRenderLayer::Background(view3D->environment()->backgroundMode());
     layerNode->clearColor = QVector3D(float(view3D->environment()->clearColor().redF()),
@@ -472,6 +501,18 @@ void QQuick3DSceneRenderer::updateLayerNode(QQuick3DViewport *view3D)
         layerNode->flags.setFlag(QSSGRenderNode::Flag::LayerEnableDepthPrePass, false);
 
     layerNode->markDirty(QSSGRenderNode::TransformDirtyFlag::TransformNotDirty);
+
+    // Effects need to be rendered in reverse order as described in the file.
+    layerNode->firstEffect = nullptr; // We reset the linked list
+    const auto &effects = view3D->environment()->m_effects;
+    auto rit = effects.crbegin();
+    const auto rend = effects.crend();
+    for (; rit != rend; ++rit) {
+        QQuick3DObjectPrivate *p = QQuick3DObjectPrivate::get(*rit);
+        QSSGRenderEffect *effectNode = static_cast<QSSGRenderEffect *>(p->spatialNode);
+        if (effectNode)
+            layerNode->addEffect(*effectNode);
+    }
 }
 
 void QQuick3DSceneRenderer::removeNodeFromLayer(QSSGRenderNode *node)
@@ -490,11 +531,15 @@ void QQuick3DSceneRenderer::addNodeToLayer(QSSGRenderNode *node)
     m_layer->addChild(*node);
 }
 
-QQuick3DSceneRenderer::FramebufferObject::FramebufferObject(const QSize &s, const QSSGRef<QSSGRenderContext> &context, int msaaSamples)
+QQuick3DSceneRenderer::FramebufferObject::FramebufferObject(const QSize &s,
+                                                            const QSSGRef<QSSGRenderContext> &context,
+                                                            int msaaSamples)
 {
     size = s;
     renderContext = context;
     samples = renderContext->supportsMultisampleTextures() ? msaaSamples : -1;
+    // Limit samples to max supported
+    samples = qMin(samples, renderContext->maxSamples());
 
     depthStencil = new QSSGRenderTexture2D(renderContext);
     if (samples > 1)

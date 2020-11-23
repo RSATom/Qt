@@ -24,6 +24,10 @@
         <translation>Отсутствует разрешение на определение местоположения. Поиск невозможен.</translation>
     </message>
     <message>
+        <source>Location service turned off. Search is not possible.</source>
+        <translation>Сервис определения местоположения отключён. Поиск невозможен.</translation>
+    </message>
+    <message>
         <source>Classic Discovery cannot be started</source>
         <translation>Невозможно запустить классическое обнаружение</translation>
     </message>

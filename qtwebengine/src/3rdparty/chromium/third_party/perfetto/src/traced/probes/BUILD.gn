@@ -12,6 +12,24 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import("../../../gn/test.gni")
+
+# The unprivileged daemon that is allowed to access tracefs (for ftrace).
+# Registers as a Producer on the traced daemon.
+executable("traced_probes") {
+  deps = [
+    "../../../:libperfetto",
+    "../../../gn:default_deps",
+    "../../../include/perfetto/ext/traced",
+  ]
+  sources = [
+    "main.cc",
+  ]
+  assert_no_deps = [ "//gn:protobuf_lite" ]
+}
+
+# Contains all the implementation but not the main() entry point. This target
+# is shared both by the executable and tests.
 source_set("probes") {
   public_deps = [
     "../../../include/perfetto/ext/traced",
@@ -21,6 +39,9 @@ source_set("probes") {
     "../../../gn:default_deps",
     "../../tracing:ipc",
   ]
+  if (enable_perfetto_version_gen) {
+    deps += [ "//gn/standalone:gen_git_revision" ]
+  }
   sources = [
     "probes.cc",
   ]
@@ -34,6 +55,7 @@ source_set("probes_src") {
     ":data_source",
     "../../../gn:default_deps",
     "../../../include/perfetto/ext/traced",
+    "../../../protos/perfetto/config/ftrace:cpp",
     "../../../protos/perfetto/trace/ps:zero",
     "../../base",
     "../../tracing:ipc",
@@ -65,7 +87,7 @@ source_set("data_source") {
   ]
 }
 
-source_set("unittests") {
+perfetto_unittest_source_set("unittests") {
   testonly = true
   deps = [
     ":probes_src",

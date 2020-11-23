@@ -43,9 +43,8 @@
 
 namespace blink {
 
-using namespace html_names;
-
-struct SameSizeAsLayoutTableCell : public LayoutBlockFlow {
+struct SameSizeAsLayoutTableCell : public LayoutBlockFlow,
+                                   public LayoutNGTableCellInterface {
   unsigned bitfields;
   int paddings[2];
   void* pointer1;
@@ -202,7 +201,7 @@ void LayoutTableCell::ComputePreferredLogicalWidths() {
     // See if nowrap was set.
     Length w = StyleOrColLogicalWidth();
     const AtomicString& nowrap =
-        To<Element>(GetNode())->getAttribute(kNowrapAttr);
+        To<Element>(GetNode())->FastGetAttribute(html_names::kNowrapAttr);
     if (!nowrap.IsNull() && w.IsFixed()) {
       // Nowrap is set, but we didn't actually use it because of the fixed width
       // set on the cell. Even so, it is a WinIE/Moz trait to make the minwidth
@@ -1060,6 +1059,8 @@ void LayoutTableCell::UpdateCollapsedBorderValues() const {
     }
   } else {
     Table()->InvalidateCollapsedBordersForAllCellsIfNeeded();
+    if (Section())
+      Section()->RecalcCellsIfNeeded();
     if (collapsed_border_values_valid_)
       return;
 
@@ -1112,6 +1113,11 @@ void LayoutTableCell::ScrollbarsChanged(bool horizontal_scrollbar_changed,
                                         ScrollbarChangeContext context) {
   LayoutBlock::ScrollbarsChanged(horizontal_scrollbar_changed,
                                  vertical_scrollbar_changed);
+
+  // The intrinsic-padding adjustment for scrollbars is directly handled by NG.
+  if (IsLayoutNGObject())
+    return;
+
   if (context != kLayout)
     return;
 

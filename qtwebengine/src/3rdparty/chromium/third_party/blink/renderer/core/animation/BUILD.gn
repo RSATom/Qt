@@ -2,11 +2,23 @@
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
+import("//build/buildflag_header.gni")
 import("//third_party/blink/renderer/core/core.gni")
 
-blink_core_sources("animation") {
-  split_count = 5
+declare_args() {
+  # Use base::TimeDelta to represent time in renderer/core/animations. See
+  # http://crbug.com/737867
+  blink_animation_use_time_delta = false
+}
 
+buildflag_header("buildflags") {
+  header = "buildflags.h"
+  header_dir = "third_party/blink/renderer/core/animation"
+
+  flags = [ "BLINK_ANIMATION_USE_TIME_DELTA=$blink_animation_use_time_delta" ]
+}
+
+blink_core_sources("animation") {
   sources = [
     "animatable.cc",
     "animatable.h",
@@ -35,6 +47,8 @@ blink_core_sources("animation") {
     "css/compositor_keyframe_value.h",
     "css/compositor_keyframe_value_factory.cc",
     "css/compositor_keyframe_value_factory.h",
+    "css/css_animation.cc",
+    "css/css_animation.h",
     "css/css_animation_data.cc",
     "css/css_animation_data.h",
     "css/css_animation_update.cc",
@@ -43,6 +57,8 @@ blink_core_sources("animation") {
     "css/css_animations.h",
     "css/css_timing_data.cc",
     "css/css_timing_data.h",
+    "css/css_transition.cc",
+    "css/css_transition.h",
     "css/css_transition_data.cc",
     "css/css_transition_data.h",
     "css_angle_interpolation_type.cc",
@@ -135,12 +151,18 @@ blink_core_sources("animation") {
     "effect_stack.h",
     "element_animations.cc",
     "element_animations.h",
-    "filter_interpolation_functions.cc",
-    "filter_interpolation_functions.h",
     "image_list_property_functions.h",
     "image_slice_property_functions.h",
     "inert_effect.cc",
     "inert_effect.h",
+    "interpolable_filter.cc",
+    "interpolable_filter.h",
+    "interpolable_length.cc",
+    "interpolable_length.h",
+    "interpolable_shadow.cc",
+    "interpolable_shadow.h",
+    "interpolable_transform_list.cc",
+    "interpolable_transform_list.h",
     "interpolable_value.cc",
     "interpolable_value.h",
     "interpolated_svg_path_source.h",
@@ -159,8 +181,6 @@ blink_core_sources("animation") {
     "keyframe_effect.h",
     "keyframe_effect_model.cc",
     "keyframe_effect_model.h",
-    "length_interpolation_functions.cc",
-    "length_interpolation_functions.h",
     "length_list_property_functions.cc",
     "length_list_property_functions.h",
     "length_property_functions.cc",
@@ -185,8 +205,6 @@ blink_core_sources("animation") {
     "scroll_timeline.h",
     "scroll_timeline_util.cc",
     "scroll_timeline_util.h",
-    "shadow_interpolation_functions.cc",
-    "shadow_interpolation_functions.h",
     "side_index.h",
     "size_interpolation_functions.cc",
     "size_interpolation_functions.h",
@@ -237,11 +255,19 @@ blink_core_sources("animation") {
     "transition_keyframe.h",
     "typed_interpolation_value.h",
     "underlying_length_checker.h",
+    "underlying_value.h",
     "underlying_value_owner.cc",
     "underlying_value_owner.h",
     "worklet_animation_base.h",
     "worklet_animation_controller.cc",
     "worklet_animation_controller.h",
+  ]
+  jumbo_excluded_sources = [
+    "css_transform_interpolation_type.cc",
+  ]
+
+  deps = [
+    ":buildflags",
   ]
 }
 
@@ -271,5 +297,6 @@ blink_core_tests("unit_tests") {
     "svg_number_interpolation_type_test.cc",
     "timing_calculations_test.cc",
     "timing_input_test.cc",
+    "timing_test.cc",
   ]
 }

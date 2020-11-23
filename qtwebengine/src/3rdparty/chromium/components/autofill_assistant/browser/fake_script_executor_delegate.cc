@@ -46,8 +46,20 @@ FakeScriptExecutorDelegate::GetPersonalDataManager() {
   return nullptr;
 }
 
+WebsiteLoginFetcher* FakeScriptExecutorDelegate::GetWebsiteLoginFetcher() {
+  return nullptr;
+}
+
 content::WebContents* FakeScriptExecutorDelegate::GetWebContents() {
   return nullptr;
+}
+
+std::string FakeScriptExecutorDelegate::GetAccountEmailAddress() {
+  return std::string();
+}
+
+std::string FakeScriptExecutorDelegate::GetLocale() {
+  return "en-US";
 }
 
 void FakeScriptExecutorDelegate::EnterState(AutofillAssistantState state) {
@@ -94,9 +106,20 @@ void FakeScriptExecutorDelegate::SetUserActions(
   user_actions_ = std::move(user_actions);
 }
 
-void FakeScriptExecutorDelegate::SetPaymentRequestOptions(
-    std::unique_ptr<PaymentRequestOptions> options) {
-  payment_request_options_ = std::move(options);
+void FakeScriptExecutorDelegate::SetCollectUserDataOptions(
+    CollectUserDataOptions* options) {
+  payment_request_options_ = options;
+}
+
+void FakeScriptExecutorDelegate::WriteUserData(
+    base::OnceCallback<void(UserData*, UserData::FieldChange*)>
+        write_callback) {
+  if (payment_request_options_ == nullptr || payment_request_info_ == nullptr) {
+    return;
+  }
+
+  UserData::FieldChange field_change = UserData::FieldChange::NONE;
+  std::move(write_callback).Run(payment_request_info_.get(), &field_change);
 }
 
 void FakeScriptExecutorDelegate::SetViewportMode(ViewportMode mode) {
@@ -138,7 +161,8 @@ void FakeScriptExecutorDelegate::RemoveListener(Listener* listener) {
 
 bool FakeScriptExecutorDelegate::SetForm(
     std::unique_ptr<FormProto> form,
-    base::RepeatingCallback<void(const FormProto::Result*)> callback) {
+    base::RepeatingCallback<void(const FormProto::Result*)> changed_callback,
+    base::OnceCallback<void(const ClientStatus&)> cancel_callback) {
   return true;
 }
 }  // namespace autofill_assistant

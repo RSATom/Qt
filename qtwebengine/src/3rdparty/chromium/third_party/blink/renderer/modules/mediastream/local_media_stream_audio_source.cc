@@ -2,23 +2,23 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "third_party/blink/public/web/modules/mediastream/local_media_stream_audio_source.h"
+#include "third_party/blink/renderer/modules/mediastream/local_media_stream_audio_source.h"
 
 #include <utility>
 
 #include "base/strings/stringprintf.h"
 #include "media/audio/audio_source_parameters.h"
-#include "third_party/blink/public/mojom/mediastream/media_stream.mojom-shared.h"
+#include "media/media_buildflags.h"
+#include "third_party/blink/public/mojom/mediastream/media_stream.mojom-blink.h"
 #include "third_party/blink/public/platform/modules/webrtc/webrtc_logging.h"
 #include "third_party/blink/public/platform/platform.h"
 #include "third_party/blink/public/web/web_local_frame.h"
 #include "third_party/blink/renderer/core/frame/local_frame.h"
-#include "third_party/blink/renderer/modules/mediastream/media_stream_local_frame_wrapper.h"
 
 namespace blink {
 
 LocalMediaStreamAudioSource::LocalMediaStreamAudioSource(
-    WebLocalFrame* web_frame,
+    LocalFrame* consumer_frame,
     const MediaStreamDevice& device,
     const int* requested_buffer_size,
     bool disable_local_echo,
@@ -27,8 +27,7 @@ LocalMediaStreamAudioSource::LocalMediaStreamAudioSource(
     : MediaStreamAudioSource(std::move(task_runner),
                              true /* is_local_source */,
                              disable_local_echo),
-      internal_consumer_frame_(
-          std::make_unique<MediaStreamInternalFrameWrapper>(web_frame)),
+      consumer_frame_(consumer_frame),
       started_callback_(std::move(started_callback)) {
   DVLOG(1) << "LocalMediaStreamAudioSource::LocalMediaStreamAudioSource()";
   SetDevice(device);
@@ -79,19 +78,25 @@ bool LocalMediaStreamAudioSource::EnsureSourceIsStarted() {
 
   // Sanity-check that the consuming WebLocalFrame still exists.
   // This is required by AudioDeviceFactory.
-  if (!internal_consumer_frame_->web_frame())
+  if (!consumer_frame_)
     return false;
 
+#if BUILDFLAG(ENABLE_WEBRTC)
   VLOG(1) << "Starting local audio input device (session_id="
           << device().session_id() << ") with audio parameters={"
           << GetAudioParameters().AsHumanReadableString() << "}.";
 
+  auto* web_frame =
+      static_cast<WebLocalFrame*>(WebFrame::FromFrame(consumer_frame_));
   source_ = Platform::Current()->NewAudioCapturerSource(
-      internal_consumer_frame_->web_frame(),
-      media::AudioSourceParameters(device().session_id()));
+      web_frame, media::AudioSourceParameters(device().session_id()));
   source_->Initialize(GetAudioParameters(), this);
   source_->Start();
   return true;
+#else
+  LOG(ERROR) << "Audio Capture not supported";
+  return false;
+#endif
 }
 
 void LocalMediaStreamAudioSource::EnsureSourceIsStopped() {
@@ -137,6 +142,22 @@ void LocalMediaStreamAudioSource::ChangeSourceImpl(
   EnsureSourceIsStopped();
   SetDevice(new_device);
   EnsureSourceIsStarted();
+}
+
+using EchoCancellationType =
+    blink::AudioProcessingProperties::EchoCancellationType;
+
+base::Optional<blink::AudioProcessingProperties>
+LocalMediaStreamAudioSource::GetAudioProcessingProperties() const {
+  blink::AudioProcessingProperties properties;
+  properties.DisableDefaultProperties();
+
+  if (device().input.effects() & media::AudioParameters::ECHO_CANCELLER) {
+    properties.echo_cancellation_type =
+        EchoCancellationType::kEchoCancellationSystem;
+  }
+
+  return properties;
 }
 
 }  // namespace blink

@@ -46,7 +46,7 @@ LocalClientIo::LocalClientIo(QObject *parent)
     , m_socket(new QLocalSocket(this))
 {
     connect(m_socket, &QLocalSocket::readyRead, this, &ClientIoDevice::readyRead);
-    connect(m_socket, static_cast<void (QLocalSocket::*)(QLocalSocket::LocalSocketError)>(&QLocalSocket::error), this, &LocalClientIo::onError);
+    connect(m_socket, &QLocalSocket::errorOccurred, this, &LocalClientIo::onError);
     connect(m_socket, &QLocalSocket::stateChanged, this, &LocalClientIo::onStateChanged);
 }
 
@@ -94,6 +94,7 @@ void LocalClientIo::onError(QLocalSocket::LocalSocketError error)
     switch (error) {
     case QLocalSocket::ServerNotFoundError:
     case QLocalSocket::UnknownSocketError:
+    case QLocalSocket::PeerClosedError:
         //Host not there, wait and try again
         emit shouldReconnect(this);
         break;

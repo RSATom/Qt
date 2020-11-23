@@ -276,7 +276,7 @@ protected:
 
    void setWHZ(int width, int height, int zoom) {
         fZoom = zoom;
-        fBounds.set(0, 0, SkIntToScalar(width * zoom), SkIntToScalar(height * zoom));
+        fBounds.setIWH(width * zoom, height * zoom);
         fMatrix.setScale(SkIntToScalar(zoom), SkIntToScalar(zoom));
         fInverse.setScale(SK_Scalar1 / zoom, SK_Scalar1 / zoom);
         fShader = ToolUtils::create_checkerboard_shader(0xFFCCCCCC, 0xFFFFFFFF, zoom);
@@ -488,7 +488,7 @@ protected:
         paint.setColor(0x3f0f1f3f);
         canvas->drawPath(path, paint);
         path.reset();
-        path.setFillType(SkPath::kEvenOdd_FillType);
+        path.setFillType(SkPathFillType::kEvenOdd);
         path.addCircle(center.fX, center.fY, maxSide + width / 2);
         SkRect outside = SkRect::MakeXYWH(center.fX - maxSide - width, center.fY - maxSide - width,
                 (maxSide + width) * 2, (maxSide + width) * 2);
@@ -635,7 +635,7 @@ protected:
         if (fRRectButton.fEnabled) {
             SkScalar rad = 32;
             SkRect r;
-            r.set(&fPts[13], 2);
+            r.setBounds(&fPts[13], 2);
             path.reset();
             SkRRect rr;
             rr.setRectXY(r, rad, rad);
@@ -646,9 +646,9 @@ protected:
             path.reset();
             SkRRect rr2;
             rr.inset(width/2, width/2, &rr2);
-            path.addRRect(rr2, SkPath::kCCW_Direction);
+            path.addRRect(rr2, SkPathDirection::kCCW);
             rr.inset(-width/2, -width/2, &rr2);
-            path.addRRect(rr2, SkPath::kCW_Direction);
+            path.addRRect(rr2, SkPathDirection::kCW);
             SkPaint paint;
             paint.setAntiAlias(true);
             paint.setColor(0x40FF8844);
@@ -658,15 +658,15 @@ protected:
         if (fCircleButton.fEnabled) {
             path.reset();
             SkRect r;
-            r.set(&fPts[15], 2);
+            r.setBounds(&fPts[15], 2);
             path.addOval(r);
             setForGeometry();
             if (fCircleButton.fFill) {
                 if (fArcButton.fEnabled) {
                     SkPoint center;
                     if (arcCenter(&center)) {
-                        r.set(center.fX - fRadius, center.fY - fRadius, center.fX + fRadius,
-                                center.fY + fRadius);
+                        r.setLTRB(center.fX - fRadius, center.fY - fRadius,
+                                  center.fX + fRadius, center.fY + fRadius);
                     }
                 }
                 draw_fill(canvas, r, width);
@@ -722,7 +722,7 @@ protected:
     };
 
     virtual Sample::Click* onFindClickHandler(SkScalar x, SkScalar y,
-                                              ModifierKey modi) override {
+                                              skui::ModifierKey modi) override {
         for (size_t i = 0; i < SK_ARRAY_COUNT(fPts); ++i) {
             if (hittest(fPts[i], x, y)) {
                 return new MyClick((int)i);

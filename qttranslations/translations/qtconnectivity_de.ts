@@ -24,6 +24,10 @@
         <translation>Die Berechtigung zur Positionsbestimmung fehlt. Es ist keine Suche möglich.</translation>
     </message>
     <message>
+        <source>Location service turned off. Search is not possible.</source>
+        <translation>Standortbestimmung abgeschaltet. Suche ist nicht möglich.</translation>
+    </message>
+    <message>
         <source>Classic Discovery cannot be started</source>
         <translation>Standardsuche kann nicht gestartet werden</translation>
     </message>

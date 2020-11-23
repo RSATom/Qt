@@ -4,14 +4,15 @@
 
 #include "components/viz/service/display/overlay_strategy_single_on_top.h"
 
-#include "components/viz/service/display/overlay_candidate_validator.h"
+#include "components/viz/service/display/overlay_candidate_list.h"
+#include "components/viz/service/display/overlay_candidate_validator_strategy.h"
 #include "ui/gfx/buffer_types.h"
 #include "ui/gfx/geometry/rect_conversions.h"
 
 namespace viz {
 
 OverlayStrategySingleOnTop::OverlayStrategySingleOnTop(
-    OverlayCandidateValidator* capability_checker)
+    OverlayCandidateValidatorStrategy* capability_checker)
     : capability_checker_(capability_checker) {
   DCHECK(capability_checker);
 }
@@ -23,8 +24,11 @@ bool OverlayStrategySingleOnTop::Attempt(
     const OverlayProcessor::FilterOperationsMap& render_pass_backdrop_filters,
     DisplayResourceProvider* resource_provider,
     RenderPassList* render_pass_list,
+    const PrimaryPlane* primary_plane,
     OverlayCandidateList* candidate_list,
     std::vector<gfx::Rect>* content_bounds) {
+  // Before we attempt an overlay strategy, we shouldn't have a candidate.
+  DCHECK(candidate_list->empty());
   RenderPass* render_pass = render_pass_list->back().get();
   QuadList* quad_list = &render_pass->quad_list;
   // Build a list of candidates with the associated quad.
@@ -54,7 +58,8 @@ bool OverlayStrategySingleOnTop::Attempt(
   if (best_quad_it == quad_list->end())
     return false;
 
-  if (TryOverlay(quad_list, candidate_list, best_candidate, best_quad_it)) {
+  if (TryOverlay(quad_list, primary_plane, candidate_list, best_candidate,
+                 best_quad_it)) {
     if (previous_frame_resource_id_ != best_candidate.resource_id) {
       previous_frame_resource_id_ = best_candidate.resource_id;
       same_resource_id_frames_count_ = 1;
@@ -69,16 +74,19 @@ bool OverlayStrategySingleOnTop::Attempt(
 
 bool OverlayStrategySingleOnTop::TryOverlay(
     QuadList* quad_list,
+    const PrimaryPlane* primary_plane,
     OverlayCandidateList* candidate_list,
     const OverlayCandidate& candidate,
     QuadList::Iterator candidate_iterator) {
+  // SingleOnTop strategy means we should have one candidate.
+  DCHECK(candidate_list->empty());
   // Add the overlay.
   OverlayCandidateList new_candidate_list = *candidate_list;
   new_candidate_list.push_back(candidate);
   new_candidate_list.back().plane_z_order = 1;
 
   // Check for support.
-  capability_checker_->CheckOverlaySupport(&new_candidate_list);
+  capability_checker_->CheckOverlaySupport(primary_plane, &new_candidate_list);
 
   const OverlayCandidate& overlay_candidate = new_candidate_list.back();
   // If the candidate can be handled by an overlay, create a pass for it.

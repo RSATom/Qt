@@ -50,7 +50,7 @@
 
 #include <QtLocation/private/qlocationglobal_p.h>
 #include <QtLocation/private/qgeomapobject_p_p.h>
-#include <QtLocation/private/qdeclarativecirclemapitem_p.h>
+#include <QtLocation/private/qdeclarativecirclemapitem_p_p.h>
 #include <QtLocation/private/qdeclarativepolygonmapitem_p.h>
 #include <QtLocation/private/qmapcircleobject_p.h>
 #include <QtLocation/private/qmapcircleobject_p_p.h>
@@ -68,14 +68,22 @@ public:
     QMapCircleObjectPrivateQSG(const QMapCircleObjectPrivate &other);
     ~QMapCircleObjectPrivateQSG() override;
 
-    void updateCirclePath();
-
     // QQSGMapObject
     void updateGeometry() override;
+    void updateGeometryCPU();
+    void updateGeometryGL();
     QSGNode *updateMapObjectNode(QSGNode *oldNode,
                                  VisibleNode **visibleNode,
                                  QSGNode *root,
                                  QQuickWindow *window) override;
+    QSGNode *updateMapObjectNodeCPU(QSGNode *oldNode,
+                                 VisibleNode **visibleNode,
+                                 QSGNode *root,
+                                 QQuickWindow *window);
+    QSGNode *updateMapObjectNodeGL(QSGNode *oldNode,
+                                 VisibleNode **visibleNode,
+                                 QSGNode *root,
+                                 QQuickWindow *window);
 
     // QGeoMapCirclePrivate interface
     void setCenter(const QGeoCoordinate &center) override;
@@ -87,15 +95,43 @@ public:
     // QGeoMapObjectPrivate
     QGeoMapObjectPrivate *clone() override;
 
+    void switchToGL();
+    void switchToCPU();
+
 public:
     // Data Members
+struct CircleDataCPU {
+    MapPolygonNode *m_node = nullptr;
     QList<QDoubleVector2D> m_circlePath;
     QGeoCoordinate m_leftBound;
     QGeoMapCircleGeometry m_geometry;
     QGeoMapPolylineGeometry m_borderGeometry;
     bool m_updatingGeometry = false;
+
+    void updateCirclePath(const QGeoCoordinate &center, qreal radius, const QGeoProjectionWebMercator &p);
+};
+struct CircleDataGL {
+    QList<QGeoCoordinate> m_circlePath;
+    QGeoCoordinate m_leftBound;
+    QDoubleVector2D m_leftBoundMercator;
+    QGeoMapPolygonGeometryOpenGL m_geometry;
+    QGeoMapPolylineGeometryOpenGL m_borderGeometry;
+    QDeclarativePolygonMapItemPrivateOpenGL::RootNode *m_rootNode = nullptr;
+    MapPolygonNodeGL *m_node = nullptr;
+    MapPolylineNodeOpenGLExtruded *m_polylinenode = nullptr;
+
+    void updateCirclePath(const QGeoCoordinate &center, qreal radius, const QGeoProjectionWebMercator &p);
+    void markSourceDirty()
+    {
+        m_geometry.markSourceDirty();
+        m_borderGeometry.markSourceDirty();
+    }
+};
+    QScopedPointer<CircleDataCPU> m_dataCPU;
+    QScopedPointer<CircleDataGL>  m_dataGL;
 };
 
 QT_END_NAMESPACE
 
 #endif // QMAPCIRCLEOBJECT_P_P_H
+

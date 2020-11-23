@@ -4,6 +4,7 @@
 
 #include "third_party/blink/renderer/core/css/remote_font_face_source.h"
 
+#include "third_party/blink/public/mojom/feature_policy/feature_policy_feature.mojom-blink.h"
 #include "third_party/blink/public/platform/task_type.h"
 #include "third_party/blink/public/platform/web_effective_connection_type.h"
 #include "third_party/blink/renderer/core/css/css_custom_font_data.h"
@@ -22,7 +23,6 @@
 #include "third_party/blink/renderer/platform/loader/fetch/resource_fetcher.h"
 #include "third_party/blink/renderer/platform/loader/fetch/resource_load_priority.h"
 #include "third_party/blink/renderer/platform/network/network_state_notifier.h"
-#include "third_party/blink/renderer/platform/wtf/time.h"
 
 namespace blink {
 
@@ -222,7 +222,7 @@ bool RemoteFontFaceSource::ShouldTriggerWebFontsIntervention() {
     return false;
 
   WebEffectiveConnectionType connection_type =
-      document->GetFrame()->Client()->GetEffectiveConnectionType();
+      GetNetworkStateNotifier().EffectiveType();
 
   bool network_is_slow =
       WebEffectiveConnectionType::kTypeOffline <= connection_type &&
@@ -252,8 +252,8 @@ scoped_refptr<SimpleFontData> RemoteFontFaceSource::CreateFontData(
           font_description.IsSyntheticBold(),
           font_description.IsSyntheticItalic(),
           font_description.GetFontSelectionRequest(),
-          font_selection_capabilities, font_description.Orientation(),
-          font_description.VariationSettings()),
+          font_selection_capabilities, font_description.FontOpticalSizing(),
+          font_description.Orientation(), font_description.VariationSettings()),
       CustomFontData::Create());
 }
 
@@ -280,7 +280,7 @@ void RemoteFontFaceSource::BeginLoadIfNeeded() {
     return;
   DCHECK(GetResource());
 
-  SetDisplay(face_->GetFontFace()->GetFontDisplayWithFallback());
+  SetDisplay(face_->GetFontFace()->GetFontDisplay());
 
   FontResource* font = ToFontResource(GetResource());
   if (font->StillNeedsLoad()) {

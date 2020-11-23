@@ -10,7 +10,7 @@
 #include "base/logging.h"
 #include "base/memory/ptr_util.h"
 #include "base/run_loop.h"
-#include "base/test/scoped_task_environment.h"
+#include "base/test/task_environment.h"
 #include "media/base/android/media_drm_bridge.h"
 #include "media/base/provision_fetcher.h"
 #include "testing/gmock/include/gmock/gmock.h"
@@ -68,8 +68,9 @@ class ProvisionFetcherWrapper : public ProvisionFetcher {
   // ProvisionFetcher implementation.
   void Retrieve(const std::string& default_url,
                 const std::string& request_data,
-                const ResponseCB& response_cb) override {
-    provision_fetcher_->Retrieve(default_url, request_data, response_cb);
+                ResponseCB response_cb) override {
+    provision_fetcher_->Retrieve(default_url, request_data,
+                                 std::move(response_cb));
   }
 
  private:
@@ -97,7 +98,7 @@ class MediaDrmBridgeTest : public ProvisionFetcher, public testing::Test {
   MOCK_METHOD3(Retrieve,
                void(const std::string& default_url,
                     const std::string& request_data,
-                    const ResponseCB& response_cb));
+                    ResponseCB response_cb));
 
   void Provision() {
     media_drm_bridge_->Provision(base::BindOnce(
@@ -116,7 +117,7 @@ class MediaDrmBridgeTest : public ProvisionFetcher, public testing::Test {
     return std::make_unique<ProvisionFetcherWrapper>(this);
   }
 
-  base::test::ScopedTaskEnvironment scoped_task_environment_;
+  base::test::TaskEnvironment task_environment_;
 };
 
 TEST_F(MediaDrmBridgeTest, IsKeySystemSupported_Widevine) {

@@ -73,7 +73,7 @@ public:
     QQuickAbstractFontDialog(QObject *parent = 0);
     virtual ~QQuickAbstractFontDialog();
 
-    virtual QString title() const;
+    QString title() const override;
     bool scalableFonts() const;
     bool nonScalableFonts() const;
     bool monospacedFonts() const;
@@ -82,9 +82,9 @@ public:
     QFont currentFont() const { return m_currentFont; }
 
 public Q_SLOTS:
-    void setVisible(bool v);
-    void setModality(Qt::WindowModality m);
-    void setTitle(const QString &t);
+    void setVisible(bool v) override;
+    void setModality(Qt::WindowModality m) override;
+    void setTitle(const QString &t) override;
     void setFont(const QFont &arg);
     void setCurrentFont(const QFont &arg);
     void setScalableFonts(bool arg);
@@ -102,7 +102,7 @@ Q_SIGNALS:
     void selectionAccepted();
 
 protected Q_SLOTS:
-    virtual void accept();
+    void accept() override;
 
 protected:
     QPlatformFontDialogHelper *m_dlgHelper;

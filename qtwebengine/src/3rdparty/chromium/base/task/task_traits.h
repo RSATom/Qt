@@ -32,17 +32,18 @@ class PostTaskAndroid;
 enum class TaskPriority : uint8_t {
   // This will always be equal to the lowest priority available.
   LOWEST = 0,
-  // This task will only start running when machine resources are available.
-  // Dependending on the ThreadPolicy, it may run on a thread that is likely to
-  // be descheduled when higher priority work arrives (in this process or
-  // another).
+  // This task will only start running when machine resources are available. The
+  // application may preempt the task if it expects that resources will soon be
+  // needed by work of higher priority. Dependending on the ThreadPolicy, the
+  // task may run on a thread that is likely to be descheduled when higher
+  // priority work arrives (in this process or another).
   //
   // Examples:
   // - Reporting metrics.
   // - Persisting data to disk.
   // - Loading data that is required for a potential future user interaction
-  //   (Note: Use CreateUpdateableSequencedTaskRunner() to increase
-  //    the priority when that user interactions happens).
+  //   (Note: Use CreateUpdateableSequencedTaskRunner() to increase the priority
+  //   when that user interactions happens).
   BEST_EFFORT = LOWEST,
 
   // The result of this task is visible to the user (in the UI or as a
@@ -65,8 +66,6 @@ enum class TaskPriority : uint8_t {
   // This will always be equal to the highest priority available.
   HIGHEST = USER_BLOCKING
 };
-
-using TaskPriorityType = std::underlying_type<TaskPriority>::type;
 
 // Valid shutdown behaviors supported by the thread pool.
 enum class TaskShutdownBehavior : uint8_t {
@@ -186,6 +185,17 @@ struct WithBaseSyncPrimitives {};
 // between tasks, see base::PostTask::CreateSequencedTaskRunner.
 struct ThreadPool {};
 
+// Tasks and task runners with this thread will run tasks on the virtual thread
+// (sequence) they are posted/created from. Other traits may be specified
+// alongside this one to refine properties for the associated tasks
+// (e.g. base::TaskPriority or content::BrowserTaskType) as long as those traits
+// are compatible with the current thread (e.g. cannot specify base::MayBlock()
+// on a non-blocking thread or alter base::TaskShutdownBehavior).
+//
+// Experimental: Further discussions are in progress for this API. Please
+// continue using SequencedTaskRunnerHandle::Get() in the mean time.
+struct CurrentThread {};
+
 // Describes metadata for a single task or a group of tasks.
 class BASE_EXPORT TaskTraits {
  public:
@@ -197,6 +207,7 @@ class BASE_EXPORT TaskTraits {
     ValidTrait(MayBlock);
     ValidTrait(WithBaseSyncPrimitives);
     ValidTrait(ThreadPool);
+    ValidTrait(CurrentThread);
   };
 
   // Invoking this constructor without arguments produces TaskTraits that are
@@ -213,13 +224,15 @@ class BASE_EXPORT TaskTraits {
   // WithBaseSyncPrimitives in any order to the constructor.
   //
   // E.g.
-  // constexpr base::TaskTraits default_traits = {};
-  // constexpr base::TaskTraits user_visible_traits =
-  //     {base::TaskPriority::USER_VISIBLE};
+  // constexpr base::TaskTraits default_traits = {base::ThreadPool()};
+  // constexpr base::TaskTraits user_visible_traits = {
+  //     base::ThreadPool(), base::TaskPriority::USER_VISIBLE};
   // constexpr base::TaskTraits user_visible_may_block_traits = {
-  //     base::TaskPriority::USER_VISIBLE, base::MayBlock()};
+  //     base::ThreadPool(), base::TaskPriority::USER_VISIBLE, base::MayBlock()
+  // };
   // constexpr base::TaskTraits other_user_visible_may_block_traits = {
-  //     base::MayBlock(), base::TaskPriority::USER_VISIBLE};
+  //     base::ThreadPool(), base::MayBlock(), base::TaskPriority::USER_VISIBLE
+  // };
   template <class... ArgTypes,
             class CheckArgumentsAreValid = std::enable_if_t<
                 trait_helpers::AreValidTraits<ValidTrait, ArgTypes...>::value ||
@@ -232,14 +245,15 @@ class BASE_EXPORT TaskTraits {
             static_cast<uint8_t>(
                 trait_helpers::GetEnum<TaskPriority,
                                        TaskPriority::USER_BLOCKING>(args...)) |
-            (trait_helpers::HasTrait<TaskPriority>(args...) ? kIsExplicitFlag
-                                                            : 0)),
+            (trait_helpers::HasTrait<TaskPriority, ArgTypes...>()
+                 ? kIsExplicitFlag
+                 : 0)),
         shutdown_behavior_(
             static_cast<uint8_t>(
                 trait_helpers::GetEnum<TaskShutdownBehavior,
                                        TaskShutdownBehavior::SKIP_ON_SHUTDOWN>(
                     args...)) |
-            (trait_helpers::HasTrait<TaskShutdownBehavior>(args...)
+            (trait_helpers::HasTrait<TaskShutdownBehavior, ArgTypes...>()
                  ? kIsExplicitFlag
                  : 0)),
         thread_policy_(
@@ -247,26 +261,44 @@ class BASE_EXPORT TaskTraits {
                 trait_helpers::GetEnum<ThreadPolicy,
                                        ThreadPolicy::PREFER_BACKGROUND>(
                     args...)) |
-            (trait_helpers::HasTrait<ThreadPolicy>(args...) ? kIsExplicitFlag
-                                                            : 0)),
-        may_block_(trait_helpers::HasTrait<MayBlock>(args...)),
+            (trait_helpers::HasTrait<ThreadPolicy, ArgTypes...>()
+                 ? kIsExplicitFlag
+                 : 0)),
+        may_block_(trait_helpers::HasTrait<MayBlock, ArgTypes...>()),
         with_base_sync_primitives_(
-            trait_helpers::HasTrait<WithBaseSyncPrimitives>(args...)),
-        use_thread_pool_(trait_helpers::HasTrait<ThreadPool>(args...)) {}
+            trait_helpers::HasTrait<WithBaseSyncPrimitives, ArgTypes...>()),
+        use_thread_pool_(trait_helpers::HasTrait<ThreadPool, ArgTypes...>()),
+        use_current_thread_(
+            trait_helpers::HasTrait<CurrentThread, ArgTypes...>()) {
+    constexpr bool has_thread_pool =
+        trait_helpers::HasTrait<ThreadPool, ArgTypes...>();
+    constexpr bool has_extension =
+        !trait_helpers::AreValidTraits<ValidTrait, ArgTypes...>::value;
+    constexpr bool has_current_thread =
+        trait_helpers::HasTrait<CurrentThread, ArgTypes...>();
+    static_assert(
+        !has_current_thread || !has_thread_pool,
+        "base::CurrentThread is mutually exclusive with base::ThreadPool");
+    static_assert(
+        has_thread_pool ^ has_extension || has_current_thread,
+        "Traits must explicitly specify a destination (e.g. ThreadPool or a "
+        "named thread like BrowserThread, or CurrentThread)");
+  }
 
   constexpr TaskTraits(const TaskTraits& other) = default;
   TaskTraits& operator=(const TaskTraits& other) = default;
 
   // TODO(eseckler): Default the comparison operator once C++20 arrives.
   bool operator==(const TaskTraits& other) const {
-    static_assert(sizeof(TaskTraits) == 15,
+    static_assert(sizeof(TaskTraits) == 16,
                   "Update comparison operator when TaskTraits change");
     return extension_ == other.extension_ && priority_ == other.priority_ &&
            shutdown_behavior_ == other.shutdown_behavior_ &&
            thread_policy_ == other.thread_policy_ &&
            may_block_ == other.may_block_ &&
            with_base_sync_primitives_ == other.with_base_sync_primitives_ &&
-           use_thread_pool_ == other.use_thread_pool_;
+           use_thread_pool_ == other.use_thread_pool_ &&
+           use_current_thread_ == other.use_current_thread_;
   }
 
   // Sets the priority of tasks with these traits to |priority|.
@@ -275,11 +307,7 @@ class BASE_EXPORT TaskTraits {
   }
 
   // Sets the priority to |priority| if it wasn't explicitly set before.
-  void InheritPriority(TaskPriority priority) {
-    if (priority_set_explicitly())
-      return;
-    priority_ = static_cast<uint8_t>(priority);
-  }
+  void InheritPriority(TaskPriority priority);
 
   // Returns true if the priority was set explicitly.
   constexpr bool priority_set_explicitly() const {
@@ -323,6 +351,10 @@ class BASE_EXPORT TaskTraits {
   // Returns true if tasks with these traits execute on the thread pool.
   constexpr bool use_thread_pool() const { return use_thread_pool_; }
 
+  // Returns true if tasks with these traits execute on the virtual thread
+  // (sequence) they are posted/created from.
+  constexpr bool use_current_thread() const { return use_current_thread_; }
+
   uint8_t extension_id() const { return extension_.extension_id; }
 
   // Access the extension data by parsing it into the provided extension type.
@@ -341,6 +373,7 @@ class BASE_EXPORT TaskTraits {
              TaskPriority priority,
              bool may_block,
              bool use_thread_pool,
+             bool use_current_thread,
              TaskTraitsExtensionStorage extension)
       : extension_(extension),
         priority_(static_cast<uint8_t>(priority) |
@@ -350,8 +383,9 @@ class BASE_EXPORT TaskTraits {
         thread_policy_(static_cast<uint8_t>(ThreadPolicy::PREFER_BACKGROUND)),
         may_block_(may_block),
         with_base_sync_primitives_(false),
-        use_thread_pool_(use_thread_pool) {
-    static_assert(sizeof(TaskTraits) == 15, "Keep this constructor up to date");
+        use_thread_pool_(use_thread_pool),
+        use_current_thread_(use_current_thread) {
+    static_assert(sizeof(TaskTraits) == 16, "Keep this constructor up to date");
   }
 
   // This bit is set in |priority_|, |shutdown_behavior_| and |thread_policy_|
@@ -366,6 +400,7 @@ class BASE_EXPORT TaskTraits {
   bool may_block_;
   bool with_base_sync_primitives_;
   bool use_thread_pool_;
+  bool use_current_thread_;
 };
 
 // Returns string literals for the enums defined in this file. These methods
@@ -381,6 +416,13 @@ BASE_EXPORT std::ostream& operator<<(std::ostream& os,
 BASE_EXPORT std::ostream& operator<<(
     std::ostream& os,
     const TaskShutdownBehavior& shutdown_behavior);
+
+namespace internal {
+// Enables the kNoPriorityInheritanceFromThreadPool experimental feature. Must
+// be done statically when the ThreadPoolImpl is initialized because it's racy
+// to check the state later.
+void SetNoPriorityInheritanceFromThreadPool();
+}  // namespace internal
 
 }  // namespace base
 

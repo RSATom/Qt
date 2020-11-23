@@ -14,6 +14,7 @@
 
 #include "VkImageView.hpp"
 #include "VkImage.hpp"
+#include <System/Math.hpp>
 
 namespace
 {
@@ -154,6 +155,48 @@ void ImageView::clear(const VkClearValue& clearValue, const VkImageAspectFlags a
 	image->clear(clearValue, format, renderArea.rect, sr);
 }
 
+void ImageView::clearWithLayerMask(const VkClearValue &clearValue, VkImageAspectFlags aspectMask, const VkRect2D &renderArea, uint32_t layerMask)
+{
+	while (layerMask)
+	{
+		uint32_t layer = sw::log2i(layerMask);
+		layerMask &= ~(1 << layer);
+		VkClearRect r = {renderArea, layer, 1};
+		r.baseArrayLayer = layer;
+		clear(clearValue, aspectMask, r);
+	}
+}
+
+void ImageView::resolve(ImageView* resolveAttachment, int layer)
+{
+	if((subresourceRange.levelCount != 1) || (resolveAttachment->subresourceRange.levelCount != 1))
+	{
+		UNIMPLEMENTED("levelCount");
+	}
+
+	VkImageCopy region;
+	region.srcSubresource =
+	{
+		subresourceRange.aspectMask,
+		subresourceRange.baseMipLevel,
+		subresourceRange.baseArrayLayer + layer,
+		1
+	};
+	region.srcOffset = { 0, 0, 0 };
+	region.dstSubresource =
+	{
+		resolveAttachment->subresourceRange.aspectMask,
+		resolveAttachment->subresourceRange.baseMipLevel,
+		resolveAttachment->subresourceRange.baseArrayLayer + layer,
+		1
+	};
+	region.dstOffset = { 0, 0, 0 };
+	region.extent = image->getMipLevelExtent(static_cast<VkImageAspectFlagBits>(subresourceRange.aspectMask),
+	                                         subresourceRange.baseMipLevel);
+
+	image->copyTo(resolveAttachment->image, region);
+}
+
 void ImageView::resolve(ImageView* resolveAttachment)
 {
 	if((subresourceRange.levelCount != 1) || (resolveAttachment->subresourceRange.levelCount != 1))
@@ -184,6 +227,16 @@ void ImageView::resolve(ImageView* resolveAttachment)
 	image->copyTo(resolveAttachment->image, region);
 }
 
+void ImageView::resolveWithLayerMask(ImageView *resolveAttachment, uint32_t layerMask)
+{
+	while (layerMask)
+	{
+		int layer = sw::log2i(layerMask);
+		layerMask &= ~(1 << layer);
+		resolve(resolveAttachment, layer);
+	}
+}
+
 const Image* ImageView::getImage(Usage usage) const
 {
 	switch(usage)
@@ -200,7 +253,8 @@ const Image* ImageView::getImage(Usage usage) const
 
 Format ImageView::getFormat(Usage usage) const
 {
-	return ((usage == RAW) || (getImage(usage) == image)) ? format : getImage(usage)->getFormat();
+	Format imageFormat = ((usage == RAW) || (getImage(usage) == image)) ? format : getImage(usage)->getFormat();
+	return imageFormat.getAspectFormat(subresourceRange.aspectMask);
 }
 
 int ImageView::rowPitchBytes(VkImageAspectFlagBits aspect, uint32_t mipLevel, Usage usage) const
@@ -211,6 +265,11 @@ int ImageView::rowPitchBytes(VkImageAspectFlagBits aspect, uint32_t mipLevel, Us
 int ImageView::slicePitchBytes(VkImageAspectFlagBits aspect, uint32_t mipLevel, Usage usage) const
 {
 	return getImage(usage)->slicePitchBytes(aspect, subresourceRange.baseMipLevel + mipLevel);
+}
+
+int ImageView::getMipLevelSize(VkImageAspectFlagBits aspect, uint32_t mipLevel, Usage usage) const
+{
+	return getImage(usage)->getMipLevelSize(aspect, subresourceRange.baseMipLevel + mipLevel);
 }
 
 int ImageView::layerPitchBytes(VkImageAspectFlagBits aspect, Usage usage) const

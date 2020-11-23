@@ -77,7 +77,7 @@ public:
     }
 
     void insert(Node *node);
-    void insert(const QString &key, Node *node) { memberMap_.insertMulti(key, node); }
+    void insert(const QString &key, Node *node) { memberMap_.insert(key, node); }
     bool insertReimplementedMember(Node *node);
 
     ClassMap *newClassMap(const Aggregate *aggregate);
@@ -180,6 +180,7 @@ public:
         QmlAttachedMethods = 6,
         ProtectedTypes = 7,
         SinceTypedefs = 7,
+        SinceTypeAliases = 7,
         ProtectedFunctions = 8,
         SinceProperties = 8,
         ProtectedSlots = 9,

@@ -50,14 +50,16 @@ class QtQuick2ParticlesPlugin : public QQmlExtensionPlugin
     Q_OBJECT
     Q_PLUGIN_METADATA(IID QQmlExtensionInterface_iid)
 public:
-    QtQuick2ParticlesPlugin(QObject *parent = nullptr) : QQmlExtensionPlugin(parent) { }
+    QtQuick2ParticlesPlugin(QObject *parent = nullptr) : QQmlExtensionPlugin(parent)
+    {
+        volatile auto registration = &qml_register_types_QtQuick_Particles;
+        Q_UNUSED(registration);
+    }
+
     void registerTypes(const char *uri) override
     {
-        Q_ASSERT(QLatin1String(uri) == QLatin1String("QtQuick.Particles"));
+        Q_UNUSED(uri);
         QQuickParticlesModule::defineModule();
-
-        // Auto-increment the import to stay in sync with ALL future QtQuick minor versions from 5.11 onward
-        qmlRegisterModule(uri, 2, QT_VERSION_MINOR);
     }
 };
 //![class decl]

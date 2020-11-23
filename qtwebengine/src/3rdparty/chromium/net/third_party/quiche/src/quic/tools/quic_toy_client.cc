@@ -45,6 +45,7 @@
 #include <iostream>
 #include <memory>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "net/third_party/quiche/src/quic/core/quic_packets.h"
@@ -52,7 +53,6 @@
 #include "net/third_party/quiche/src/quic/core/quic_utils.h"
 #include "net/third_party/quiche/src/quic/core/quic_versions.h"
 #include "net/third_party/quiche/src/quic/platform/api/quic_default_proof_providers.h"
-#include "net/third_party/quiche/src/quic/platform/api/quic_ptr_util.h"
 #include "net/third_party/quiche/src/quic/platform/api/quic_socket_address.h"
 #include "net/third_party/quiche/src/quic/platform/api/quic_str_cat.h"
 #include "net/third_party/quiche/src/quic/platform/api/quic_string_piece.h"
@@ -63,7 +63,6 @@
 
 namespace {
 
-using quic::QuicSocketAddress;
 using quic::QuicStringPiece;
 using quic::QuicTextUtils;
 using quic::QuicUrl;
@@ -111,13 +110,11 @@ DEFINE_QUIC_COMMAND_LINE_FLAG(
     "versions are offered in the handshake. Also supports wire versions "
     "such as Q043 or T099.");
 
-DEFINE_QUIC_COMMAND_LINE_FLAG(
-    int32_t,
-    quic_ietf_draft,
-    0,
-    "QUIC IETF draft number to use over the wire, e.g. 18. "
-    "By default this sets quic_version to T099. "
-    "This also enables required internal QUIC flags.");
+DEFINE_QUIC_COMMAND_LINE_FLAG(bool,
+                              quic_ietf_draft,
+                              false,
+                              "Use the IETF draft version. This also enables "
+                              "required internal QUIC flags.");
 
 DEFINE_QUIC_COMMAND_LINE_FLAG(
     bool,
@@ -163,6 +160,12 @@ DEFINE_QUIC_COMMAND_LINE_FLAG(
     false,
     "If true, drop response body immediately after it is received.");
 
+DEFINE_QUIC_COMMAND_LINE_FLAG(
+    bool,
+    disable_port_changes,
+    false,
+    "If true, do not change local port after each request.");
+
 namespace quic {
 
 QuicToyClient::QuicToyClient(ClientFactory* client_factory)
@@ -183,17 +186,15 @@ int QuicToyClient::SendRequestsAndPrintResponses(
   quic::ParsedQuicVersionVector versions = quic::CurrentSupportedVersions();
 
   std::string quic_version_string = GetQuicFlag(FLAGS_quic_version);
-  const int32_t quic_ietf_draft = GetQuicFlag(FLAGS_quic_ietf_draft);
-  if (quic_ietf_draft > 0) {
-    quic::QuicVersionInitializeSupportForIetfDraft(quic_ietf_draft);
-    if (quic_version_string.length() == 0) {
-      quic_version_string = "T099";
-    }
-  }
-  if (quic_version_string.length() > 0) {
+  if (GetQuicFlag(FLAGS_quic_ietf_draft)) {
+    quic::QuicVersionInitializeSupportForIetfDraft();
+    versions = {{quic::PROTOCOL_TLS1_3, quic::QUIC_VERSION_99}};
+    quic::QuicEnableVersion(versions[0]);
+
+  } else if (!quic_version_string.empty()) {
     if (quic_version_string[0] == 'T') {
       // ParseQuicVersionString checks quic_supports_tls_handshake.
-      SetQuicFlag(FLAGS_quic_supports_tls_handshake, true);
+      SetQuicReloadableFlag(quic_supports_tls_handshake, true);
     }
     quic::ParsedQuicVersion parsed_quic_version =
         quic::ParseQuicVersionString(quic_version_string);
@@ -201,8 +202,7 @@ int QuicToyClient::SendRequestsAndPrintResponses(
         quic::QUIC_VERSION_UNSUPPORTED) {
       return 1;
     }
-    versions.clear();
-    versions.push_back(parsed_quic_version);
+    versions = {parsed_quic_version};
     quic::QuicEnableVersion(parsed_quic_version);
   }
 
@@ -214,14 +214,19 @@ int QuicToyClient::SendRequestsAndPrintResponses(
   const int32_t num_requests(GetQuicFlag(FLAGS_num_requests));
   std::unique_ptr<quic::ProofVerifier> proof_verifier;
   if (GetQuicFlag(FLAGS_disable_certificate_verification)) {
-    proof_verifier = quic::QuicMakeUnique<FakeProofVerifier>();
+    proof_verifier = std::make_unique<FakeProofVerifier>();
   } else {
-    proof_verifier = quic::CreateDefaultProofVerifier();
+    proof_verifier = quic::CreateDefaultProofVerifier(url.host());
   }
 
   // Build the client, and try to connect.
   std::unique_ptr<QuicSpdyClientBase> client = client_factory_->CreateClient(
       url.host(), host, port, versions, std::move(proof_verifier));
+
+  if (client == nullptr) {
+    std::cerr << "Failed to create client." << std::endl;
+    return 1;
+  }
 
   int32_t initial_mtu = GetQuicFlag(FLAGS_initial_mtu);
   client->set_initial_max_packet_length(
@@ -343,7 +348,7 @@ int QuicToyClient::SendRequestsAndPrintResponses(
     }
 
     // Change the ephemeral port if there are more requests to do.
-    if (i + 1 < num_requests) {
+    if (!GetQuicFlag(FLAGS_disable_port_changes) && i + 1 < num_requests) {
       if (!client->ChangeEphemeralPort()) {
         std::cerr << "Failed to change ephemeral port." << std::endl;
         return 1;

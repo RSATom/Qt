@@ -5,6 +5,10 @@ QT += core-private gui-private
 QT_FOR_PRIVATE += service_support-private
 QT_PRIVATE += fontdatabase_support-private eventdispatcher_support-private theme_support-private
 
+qtConfig(vulkan) {
+    QT_PRIVATE += vulkan_support-private
+}
+
 # We have a bunch of C code with casts, so we can't have this option
 QMAKE_CXXFLAGS_WARN_ON -= -Wcast-qual
 
@@ -32,6 +36,7 @@ WAYLANDCLIENTSOURCES += \
             ../extensions/qt-key-unstable-v1.xml \
             ../extensions/qt-windowmanager.xml \
             ../3rdparty/protocol/wp-primary-selection-unstable-v1.xml \
+            ../3rdparty/protocol/tablet-unstable-v2.xml \
             ../3rdparty/protocol/text-input-unstable-v2.xml \
             ../3rdparty/protocol/xdg-output-unstable-v1.xml \
             ../3rdparty/protocol/wayland.xml
@@ -48,6 +53,7 @@ SOURCES +=  qwaylandintegration.cpp \
             qwaylandextendedsurface.cpp \
             qwaylandsubsurface.cpp \
             qwaylandsurface.cpp \
+            qwaylandtabletv2.cpp \
             qwaylandtouch.cpp \
             qwaylandqtkey.cpp \
             ../shared/qwaylandmimehelper.cpp \
@@ -73,6 +79,7 @@ HEADERS +=  qwaylandintegration_p.h \
             qwaylandextendedsurface_p.h \
             qwaylandsubsurface_p.h \
             qwaylandsurface_p.h \
+            qwaylandtabletv2_p.h \
             qwaylandtouch_p.h \
             qwaylandqtkey_p.h \
             qwaylandabstractdecoration_p.h \
@@ -96,6 +103,16 @@ include(hardwareintegration/hardwareintegration.pri)
 include(shellintegration/shellintegration.pri)
 include(inputdeviceintegration/inputdeviceintegration.pri)
 include(global/global.pri)
+
+qtConfig(vulkan) {
+    HEADERS += \
+        qwaylandvulkaninstance_p.h \
+        qwaylandvulkanwindow_p.h
+
+    SOURCES += \
+        qwaylandvulkaninstance.cpp \
+        qwaylandvulkanwindow.cpp
+}
 
 qtConfig(cursor) {
     QMAKE_USE += wayland-cursor

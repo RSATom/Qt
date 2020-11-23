@@ -14,7 +14,6 @@
 #include <memory>
 #include <utility>
 
-#include "absl/memory/memory.h"
 #include "common_audio/mocks/mock_smoothing_filter.h"
 #include "modules/audio_coding/audio_network_adaptor/mock/mock_audio_network_adaptor.h"
 #include "modules/audio_coding/codecs/opus/audio_encoder_opus.h"
@@ -55,7 +54,7 @@ struct AudioEncoderOpusStates {
 std::unique_ptr<AudioEncoderOpusStates> CreateCodec(int sample_rate_hz,
                                                     size_t num_channels) {
   std::unique_ptr<AudioEncoderOpusStates> states =
-      absl::make_unique<AudioEncoderOpusStates>();
+      std::make_unique<AudioEncoderOpusStates>();
   states->mock_audio_network_adaptor = nullptr;
   states->fake_clock.reset(new rtc::ScopedFakeClock());
   states->fake_clock->SetTime(Timestamp::us(kInitialTimeUs));
@@ -334,9 +333,11 @@ TEST_P(AudioEncoderOpusTest, SetReceiverFrameLengthRange) {
               ElementsAre(states->encoder->next_frame_length_ms()));
   states->encoder->SetReceiverFrameLengthRange(0, 12345);
   states->encoder->SetReceiverFrameLengthRange(21, 60);
-  EXPECT_THAT(states->encoder->supported_frame_lengths_ms(), ElementsAre(60));
+  EXPECT_THAT(states->encoder->supported_frame_lengths_ms(),
+              ElementsAre(40, 60));
   states->encoder->SetReceiverFrameLengthRange(20, 59);
-  EXPECT_THAT(states->encoder->supported_frame_lengths_ms(), ElementsAre(20));
+  EXPECT_THAT(states->encoder->supported_frame_lengths_ms(),
+              ElementsAre(20, 40));
 }
 
 TEST_P(AudioEncoderOpusTest,
@@ -780,9 +781,9 @@ TEST(AudioEncoderOpusTest, TestConfigFromInvalidParams) {
   const webrtc::SdpAudioFormat format("opus", 48000, 2);
   const auto default_config = *AudioEncoderOpus::SdpToConfig(format);
 #if WEBRTC_OPUS_SUPPORT_120MS_PTIME
-  const std::vector<int> default_supported_frame_lengths_ms({20, 60, 120});
+  const std::vector<int> default_supported_frame_lengths_ms({20, 40, 60, 120});
 #else
-  const std::vector<int> default_supported_frame_lengths_ms({20, 60});
+  const std::vector<int> default_supported_frame_lengths_ms({20, 40, 60});
 #endif
 
   AudioEncoderOpusConfig config;

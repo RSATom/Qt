@@ -458,6 +458,10 @@ void InputRouterImpl::SendGeneratedGestureScrollEvents(
                                               gesture_event.latency);
 }
 
+gfx::Size InputRouterImpl::GetRootWidgetViewportSize() {
+  return client_->GetRootWidgetViewportSize();
+}
+
 void InputRouterImpl::SendMouseWheelEventImmediately(
     const MouseWheelEventWithLatencyInfo& wheel_event) {
   mojom::WidgetInputHandler::DispatchEventCallback callback = base::BindOnce(
@@ -471,6 +475,7 @@ void InputRouterImpl::OnMouseWheelEventAck(
     InputEventAckSource ack_source,
     InputEventAckState ack_result) {
   disposition_handler_->OnWheelEventAck(event, ack_source, ack_result);
+  gesture_event_queue_.OnWheelEventAck(event, ack_source, ack_result);
 }
 
 void InputRouterImpl::ForwardGestureEventWithLatencyInfo(
@@ -663,9 +668,8 @@ void InputRouterImpl::MouseWheelEventHandled(
   if (overscroll)
     DidOverscroll(overscroll.value());
 
-  wheel_event_queue_.ProcessMouseWheelAck(source, state, event.latency);
-  touchpad_pinch_event_queue_.ProcessMouseWheelAck(source, state,
-                                                   event.latency);
+  wheel_event_queue_.ProcessMouseWheelAck(source, state, event);
+  touchpad_pinch_event_queue_.ProcessMouseWheelAck(source, state, event);
 }
 
 void InputRouterImpl::OnHasTouchEventHandlers(bool has_handlers) {
@@ -684,6 +688,10 @@ void InputRouterImpl::WaitForInputProcessed(base::OnceClosure callback) {
   client_->GetWidgetInputHandler()->WaitForInputProcessed(std::move(callback));
 }
 
+void InputRouterImpl::FlushTouchEventQueue() {
+  touch_event_queue_.FlushQueue();
+}
+
 void InputRouterImpl::ForceSetTouchActionAuto() {
   touch_action_filter_.AppendToGestureSequenceForDebugging("F");
   touch_action_filter_.OnSetTouchAction(cc::kTouchActionAuto);
@@ -696,6 +704,10 @@ void InputRouterImpl::ForceSetTouchActionAuto() {
 
 void InputRouterImpl::ForceResetTouchActionForTest() {
   touch_action_filter_.ForceResetTouchActionForTest();
+}
+
+bool InputRouterImpl::IsFlingActiveForTest() {
+  return gesture_event_queue_.IsFlingActiveForTest();
 }
 
 void InputRouterImpl::OnSetTouchAction(cc::TouchAction touch_action) {

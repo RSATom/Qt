@@ -15,17 +15,21 @@
 #include "base/memory/memory_pressure_listener.h"
 #include "base/memory/ref_counted.h"
 #include "base/memory/weak_ptr.h"
+#include "build/build_config.h"
 #include "content/browser/cache_storage/cache_storage.h"
 #include "content/browser/cache_storage/cache_storage_cache_observer.h"
+#include "content/browser/cache_storage/cache_storage_manager.h"
 #include "content/browser/cache_storage/cache_storage_scheduler_types.h"
 #include "content/browser/cache_storage/legacy/legacy_cache_storage_cache.h"
+#include "mojo/public/cpp/bindings/remote.h"
+#include "storage/browser/blob/mojom/blob_storage_context.mojom.h"
+
+#if defined(OS_ANDROID)
+#include "base/android/application_status_listener.h"
+#endif
 
 namespace base {
 class SequencedTaskRunner;
-}
-
-namespace storage {
-class BlobStorageContext;
 }
 
 namespace content {
@@ -37,6 +41,7 @@ class LegacyCacheStorageManager;
 namespace cache_storage_manager_unittest {
 class CacheStorageManagerTest;
 FORWARD_DECLARE_TEST(CacheStorageManagerTest, PersistedCacheKeyUsed);
+FORWARD_DECLARE_TEST(CacheStorageManagerTest, PutResponseWithExistingFileTest);
 FORWARD_DECLARE_TEST(CacheStorageManagerTest, TestErrorInitializingCache);
 }  // namespace cache_storage_manager_unittest
 
@@ -57,7 +62,7 @@ class CONTENT_EXPORT LegacyCacheStorage : public CacheStorage,
       base::SequencedTaskRunner* cache_task_runner,
       scoped_refptr<base::SequencedTaskRunner> scheduler_task_runner,
       scoped_refptr<storage::QuotaManagerProxy> quota_manager_proxy,
-      base::WeakPtr<storage::BlobStorageContext> blob_context,
+      scoped_refptr<BlobStorageContextWrapper> blob_storage_context,
       LegacyCacheStorageManager* cache_storage_manager,
       const url::Origin& origin,
       CacheStorageOwner owner);
@@ -95,11 +100,13 @@ class CONTENT_EXPORT LegacyCacheStorage : public CacheStorage,
   void MatchCache(const std::string& cache_name,
                   blink::mojom::FetchAPIRequestPtr request,
                   blink::mojom::CacheQueryOptionsPtr match_options,
+                  CacheStorageSchedulerPriority priority,
                   int64_t trace_id,
                   CacheStorageCache::ResponseCallback callback) override;
 
   void MatchAllCaches(blink::mojom::FetchAPIRequestPtr request,
                       blink::mojom::CacheQueryOptionsPtr match_options,
+                      CacheStorageSchedulerPriority priority,
                       int64_t trace_id,
                       CacheStorageCache::ResponseCallback callback) override;
 
@@ -148,6 +155,9 @@ class CONTENT_EXPORT LegacyCacheStorage : public CacheStorage,
   FRIEND_TEST_ALL_PREFIXES(
       cache_storage_manager_unittest::CacheStorageManagerTest,
       PersistedCacheKeyUsed);
+  FRIEND_TEST_ALL_PREFIXES(
+      cache_storage_manager_unittest::CacheStorageManagerTest,
+      PutResponseWithExistingFileTest);
   FRIEND_TEST_ALL_PREFIXES(
       cache_storage_manager_unittest::CacheStorageManagerTest,
       TestErrorInitializingCache);
@@ -210,6 +220,7 @@ class CONTENT_EXPORT LegacyCacheStorage : public CacheStorage,
   void MatchCacheImpl(const std::string& cache_name,
                       blink::mojom::FetchAPIRequestPtr request,
                       blink::mojom::CacheQueryOptionsPtr match_options,
+                      CacheStorageSchedulerPriority priority,
                       int64_t trace_id,
                       CacheStorageCache::ResponseCallback callback);
   void MatchCacheDidMatch(CacheStorageCacheHandle cache_handle,
@@ -221,6 +232,7 @@ class CONTENT_EXPORT LegacyCacheStorage : public CacheStorage,
   // The MatchAllCaches callbacks are below.
   void MatchAllCachesImpl(blink::mojom::FetchAPIRequestPtr request,
                           blink::mojom::CacheQueryOptionsPtr match_options,
+                          CacheStorageSchedulerPriority priority,
                           int64_t trace_id,
                           CacheStorageCache::ResponseCallback callback);
   void MatchAllCachesDidMatch(CacheStorageCacheHandle cache_handle,
@@ -260,6 +272,12 @@ class CONTENT_EXPORT LegacyCacheStorage : public CacheStorage,
   bool InitiateScheduledIndexWriteForTest(
       base::OnceCallback<void(bool)> callback);
 
+  void FlushIndexIfDirty();
+
+#if defined(OS_ANDROID)
+  void OnApplicationStateChange(base::android::ApplicationState state);
+#endif
+
   // Whether or not we've loaded the list of cache names into memory.
   bool initialized_;
   bool initializing_;
@@ -293,6 +311,9 @@ class CONTENT_EXPORT LegacyCacheStorage : public CacheStorage,
   // The quota manager.
   scoped_refptr<storage::QuotaManagerProxy> quota_manager_proxy_;
 
+  // An IO thread bound wrapper for storage.mojom.BlobStorageContext.
+  scoped_refptr<BlobStorageContextWrapper> blob_storage_context_;
+
   // The owner that this CacheStorage is associated with.
   CacheStorageOwner owner_;
 
@@ -304,6 +325,14 @@ class CONTENT_EXPORT LegacyCacheStorage : public CacheStorage,
 
   base::CancelableOnceClosure index_write_task_;
   size_t handle_ref_count_ = 0;
+
+#if defined(OS_ANDROID)
+  std::unique_ptr<base::android::ApplicationStatusListener>
+      app_status_listener_;
+#endif
+
+  // True if running on android and the app is in the background.
+  bool app_on_background_ = false;
 
   SEQUENCE_CHECKER(sequence_checker_);
   base::WeakPtrFactory<LegacyCacheStorage> weak_factory_{this};

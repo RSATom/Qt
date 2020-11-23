@@ -105,7 +105,7 @@ void XsdSchemaChecker::check()
 
 void XsdSchemaChecker::addComponentLocationHash(const ComponentLocationHash &hash)
 {
-    m_componentLocationHash.unite(hash);
+    m_componentLocationHash.insert(hash);
 }
 
 /**

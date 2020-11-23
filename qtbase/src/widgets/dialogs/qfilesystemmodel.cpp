@@ -376,7 +376,7 @@ QFileSystemModelPrivate::QFileSystemNode *QFileSystemModelPrivate::node(const QS
         absolutePath = QDir(longPath).absolutePath();
 
     // ### TODO can we use bool QAbstractFileEngine::caseSensitive() const?
-    QStringList pathElements = absolutePath.split(QLatin1Char('/'), QString::SkipEmptyParts);
+    QStringList pathElements = absolutePath.split(QLatin1Char('/'), Qt::SkipEmptyParts);
     if ((pathElements.isEmpty())
 #if !defined(Q_OS_WIN)
         && QDir::fromNativeSeparators(longPath) != QLatin1String("/")
@@ -586,9 +586,9 @@ QModelIndex QFileSystemModel::parent(const QModelIndex &index) const
         return QModelIndex();
 
     QFileSystemModelPrivate::QFileSystemNode *indexNode = d->node(index);
-    Q_ASSERT(indexNode != 0);
+    Q_ASSERT(indexNode != nullptr);
     QFileSystemModelPrivate::QFileSystemNode *parentNode = indexNode->parent;
-    if (parentNode == 0 || parentNode == &d->root)
+    if (parentNode == nullptr || parentNode == &d->root)
         return QModelIndex();
 
     // get the parent's row
@@ -608,7 +608,7 @@ QModelIndex QFileSystemModel::parent(const QModelIndex &index) const
 QModelIndex QFileSystemModelPrivate::index(const QFileSystemModelPrivate::QFileSystemNode *node, int column) const
 {
     Q_Q(const QFileSystemModel);
-    QFileSystemModelPrivate::QFileSystemNode *parentNode = (node ? node->parent : 0);
+    QFileSystemModelPrivate::QFileSystemNode *parentNode = (node ? node->parent : nullptr);
     if (node == &root || !parentNode)
         return QModelIndex();
 
@@ -948,9 +948,8 @@ QVariant QFileSystemModel::headerData(int section, Qt::Orientation orientation, 
         if (section == 0) {
             // ### TODO oh man this is ugly and doesn't even work all the way!
             // it is still 2 pixels off
-            QImage pixmap(16, 1, QImage::Format_Mono);
-            pixmap.fill(0);
-            pixmap.setAlphaChannel(pixmap.createAlphaMask());
+            QImage pixmap(16, 1, QImage::Format_ARGB32_Premultiplied);
+            pixmap.fill(Qt::transparent);
             return pixmap;
         }
         break;
@@ -2078,7 +2077,8 @@ void QFileSystemModelPrivate::init()
 #endif // filesystemwatcher
     q->connect(&delayedSortTimer, SIGNAL(timeout()), q, SLOT(_q_performDelayedSort()), Qt::QueuedConnection);
 
-    roleNames.insertMulti(QFileSystemModel::FileIconRole, QByteArrayLiteral("fileIcon")); // == Qt::decoration
+    roleNames.insert(QFileSystemModel::FileIconRole,
+                     QByteArrayLiteral("fileIcon")); // == Qt::decoration
     roleNames.insert(QFileSystemModel::FilePathRole, QByteArrayLiteral("filePath"));
     roleNames.insert(QFileSystemModel::FileNameRole, QByteArrayLiteral("fileName"));
     roleNames.insert(QFileSystemModel::FilePermissions, QByteArrayLiteral("filePermissions"));

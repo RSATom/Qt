@@ -27,11 +27,11 @@ class FocusElementAction : public Action {
   void OnWaitForElement(ProcessActionCallback callback,
                         const Selector& selector,
                         const TopPadding& top_padding,
-                        bool element_found);
+                        const ClientStatus& element_status);
   void OnFocusElement(ProcessActionCallback callback,
                       const ClientStatus& status);
 
-  base::WeakPtrFactory<FocusElementAction> weak_ptr_factory_;
+  base::WeakPtrFactory<FocusElementAction> weak_ptr_factory_{this};
 
   DISALLOW_COPY_AND_ASSIGN(FocusElementAction);
 };

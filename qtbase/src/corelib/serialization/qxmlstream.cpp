@@ -263,12 +263,10 @@ QXmlStreamEntityResolver *QXmlStreamReader::entityResolver() const
 
   \ingroup xml-tools
 
-  QXmlStreamReader is a faster and more convenient replacement for
-  Qt's own SAX parser (see QXmlSimpleReader). In some cases it might
-  also be a faster and more convenient alternative for use in
-  applications that would otherwise use a DOM tree (see QDomDocument).
-  QXmlStreamReader reads data either from a QIODevice (see
-  setDevice()), or from a raw QByteArray (see addData()).
+  QXmlStreamReader provides a simple streaming API to parse well-formed
+  XML. It is an alternative to first loading the complete XML into a
+  DOM tree (see \l QDomDocument). QXmlStreamReader reads data either
+  from a QIODevice (see setDevice()), or from a raw QByteArray (see addData()).
 
   Qt provides QXmlStreamWriter for writing XML.
 
@@ -1485,15 +1483,16 @@ uint QXmlStreamReaderPrivate::getChar_helper()
     const int BUFFER_SIZE = 8192;
     characterOffset += readBufferPos;
     readBufferPos = 0;
-    readBuffer.resize(0);
+    if (readBuffer.size())
+        readBuffer.resize(0);
 #if QT_CONFIG(textcodec)
     if (decoder)
 #endif
         nbytesread = 0;
     if (device) {
         rawReadBuffer.resize(BUFFER_SIZE);
-        int nbytesreadOrMinus1 = device->read(rawReadBuffer.data() + nbytesread, BUFFER_SIZE - nbytesread);
-        nbytesread += qMax(nbytesreadOrMinus1, 0);
+        qint64 nbytesreadOrMinus1 = device->read(rawReadBuffer.data() + nbytesread, BUFFER_SIZE - nbytesread);
+        nbytesread += qMax(nbytesreadOrMinus1, qint64{0});
     } else {
         if (nbytesread)
             rawReadBuffer += dataBuffer;
@@ -2039,6 +2038,42 @@ QStringRef QXmlStreamReader::dtdSystemId() const
    if (d->type == QXmlStreamReader::DTD)
        return d->dtdSystemId;
    return QStringRef();
+}
+
+/*!
+  \since 5.15
+
+  Returns the maximum amount of characters a single entity is
+  allowed to expand into. If a single entity expands past the
+  given limit, the document is not considered well formed.
+
+  \sa setEntityExpansionLimit
+*/
+int QXmlStreamReader::entityExpansionLimit() const
+{
+    Q_D(const QXmlStreamReader);
+    return d->entityExpansionLimit;
+}
+
+/*!
+  \since 5.15
+
+  Sets the maximum amount of characters a single entity is
+  allowed to expand into to \a limit. If a single entity expands
+  past the given limit, the document is not considered well formed.
+
+  The limit is there to prevent DoS attacks when loading unknown
+  XML documents where recursive entity expansion could otherwise
+  exhaust all available memory.
+
+  The default value for this property is 4096 characters.
+
+  \sa entityExpansionLimit
+*/
+void QXmlStreamReader::setEntityExpansionLimit(int limit)
+{
+    Q_D(QXmlStreamReader);
+    d->entityExpansionLimit = limit;
 }
 
 /*!  If the tokenType() is \l StartElement, this function returns the

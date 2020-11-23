@@ -28,7 +28,9 @@
 ****************************************************************************/
 
 #include "qquick3dmodel_p.h"
-#include "qquick3dobject_p_p.h"
+#include "qquick3dobject_p.h"
+#include "qquick3dscenemanager_p.h"
+#include "qquick3dnode_p_p.h"
 
 #include <QtQuick3DRuntimeRender/private/qssgrendergraphobject_p.h>
 #include <QtQuick3DRuntimeRender/private/qssgrendercustommaterial_p.h>
@@ -76,13 +78,37 @@ QT_BEGIN_NAMESPACE
     pre-made materials that can be used.
 */
 
-QQuick3DModel::QQuick3DModel() {}
+/*!
+    \qmltype Bounds
+    \inqmlmodule QtQuick3D
+    \since 5.15
+    \brief Specifies the bounds of a model.
 
-QQuick3DModel::~QQuick3DModel() {}
+    Bounds specify a bounding box with minimum and maximum points.
+    Bounds is a readonly property of the model.
+*/
 
-QQuick3DObject::Type QQuick3DModel::type() const
+/*!
+    \qmlproperty vector3d Bounds::minimum
+
+    Specifies the minimum point of the model bounds.
+    \sa maximum
+*/
+
+/*!
+    \qmlproperty vector3d Bounds::maximum
+
+    Specifies the maximum point of the model bounds.
+    \sa minimum
+*/
+
+QQuick3DModel::QQuick3DModel(QQuick3DNode *parent)
+    : QQuick3DNode(*(new QQuick3DNodePrivate(QQuick3DNodePrivate::Type::Model)), parent) {}
+
+QQuick3DModel::~QQuick3DModel()
 {
-    return QQuick3DObject::Model;
+    auto matList = materials();
+    qmlClearMaterials(&matList);
 }
 
 /*!
@@ -227,10 +253,23 @@ bool QQuick3DModel::pickable() const
     Specify custom geometry for the model. The Model::source must be empty when custom geometry
     is used.
 */
-
 QQuick3DGeometry *QQuick3DModel::geometry() const
 {
     return m_geometry;
+}
+
+/*!
+    \qmlproperty Bounds Model::bounds
+
+    This holds the bounds of the model. It can be read from the model that is set as a \l source.
+
+    \note Bounds might not be immediately available since the source might have not been loaded.
+
+    \readonly
+*/
+QQuick3DBounds3 QQuick3DModel::bounds() const
+{
+    return m_bounds;
 }
 
 void QQuick3DModel::setSource(const QUrl &source)
@@ -241,6 +280,8 @@ void QQuick3DModel::setSource(const QUrl &source)
     m_source = source;
     emit sourceChanged();
     markDirty(SourceDirty);
+    if (QQuick3DObjectPrivate::get(this)->sceneManager)
+        QQuick3DObjectPrivate::get(this)->sceneManager->dirtyBoundingBoxList.append(this);
 }
 
 void QQuick3DModel::setTessellationMode(QQuick3DModel::QSSGTessellationModeValues tessellationMode)
@@ -328,6 +369,16 @@ void QQuick3DModel::setGeometry(QQuick3DGeometry *geometry)
     markDirty(GeometryDirty);
 }
 
+void QQuick3DModel::setBounds(const QVector3D &min, const QVector3D &max)
+{
+    if (!qFuzzyCompare(m_bounds.m_maximum, max)
+            || !qFuzzyCompare(m_bounds.m_minimum, min))  {
+        m_bounds.m_maximum = max;
+        m_bounds.m_minimum = min;
+        emit boundsChanged();
+    }
+}
+
 static QSSGRenderGraphObject *getMaterialNodeFromQSSGMaterial(QQuick3DMaterial *material)
 {
     QQuick3DObjectPrivate *p = QQuick3DObjectPrivate::get(material);
@@ -336,11 +387,19 @@ static QSSGRenderGraphObject *getMaterialNodeFromQSSGMaterial(QQuick3DMaterial *
 
 void QQuick3DModel::itemChange(ItemChange change, const ItemChangeData &value)
 {
-    if (change == QQuick3DObject::ItemSceneChange && m_geometry) {
-        if (value.sceneManager)
-            QQuick3DObjectPrivate::get(m_geometry)->refSceneManager(value.sceneManager);
-        else
-            QQuick3DObjectPrivate::get(m_geometry)->derefSceneManager();
+    if (change == QQuick3DObject::ItemSceneChange) {
+        if (const auto &sceneManager = value.sceneManager) {
+            sceneManager->dirtyBoundingBoxList.append(this);
+            if (m_geometry)
+                QQuick3DObjectPrivate::refSceneManager(m_geometry, sceneManager);
+            for (const auto &mat : qAsConst(m_materials)) {
+                if (!mat->parentItem() && !QQuick3DObjectPrivate::get(mat)->sceneManager)
+                    QQuick3DObjectPrivate::refSceneManager(mat, sceneManager);
+            }
+        } else {
+            if (m_geometry)
+                QQuick3DObjectPrivate::derefSceneManager(m_geometry);
+        }
     }
 }
 
@@ -398,10 +457,13 @@ QSSGRenderGraphObject *QQuick3DModel::updateSpatialNode(QSSGRenderGraphObject *n
     }
 
     if (m_dirtyAttributes & GeometryDirty) {
-        if (m_geometry)
+        if (m_geometry) {
             modelNode->geometry = static_cast<QSSGRenderGeometry *>(QQuick3DObjectPrivate::get(m_geometry)->spatialNode);
-        else
+            setBounds(m_geometry->boundsMin(), m_geometry->boundsMax());
+        } else {
             modelNode->geometry = nullptr;
+            setBounds(QVector3D(), QVector3D());
+        }
     }
 
     m_dirtyAttributes = 0;
@@ -437,6 +499,12 @@ void QQuick3DModel::markDirty(QQuick3DModel::QSSGModelDirtyType type)
     }
 }
 
+void QQuick3DModel::onMaterialDestroyed(QObject *object)
+{
+    if (m_materials.removeAll(static_cast<QQuick3DMaterial *>(object)) > 0)
+        markDirty(QQuick3DModel::MaterialsDirty);
+}
+
 void QQuick3DModel::qmlAppendMaterial(QQmlListProperty<QQuick3DMaterial> *list, QQuick3DMaterial *material)
 {
     if (material == nullptr)
@@ -445,8 +513,22 @@ void QQuick3DModel::qmlAppendMaterial(QQmlListProperty<QQuick3DMaterial> *list, 
     self->m_materials.push_back(material);
     self->markDirty(QQuick3DModel::MaterialsDirty);
 
-    if(material->parentItem() == nullptr)
-        material->setParentItem(self);
+    if (material->parentItem() == nullptr) {
+        // If the material has no parent, check if it has a hierarchical parent that's a QQuick3DObject
+        // and re-parent it to that, e.g., inline materials
+        QQuick3DObject *parentItem = qobject_cast<QQuick3DObject *>(material->parent());
+        if (parentItem) {
+            material->setParentItem(parentItem);
+        } else { // If no valid parent was found, make sure the material refs our scene manager
+            const auto &scenManager = QQuick3DObjectPrivate::get(self)->sceneManager;
+            if (scenManager)
+                QQuick3DObjectPrivate::get(material)->refSceneManager(scenManager);
+            // else: If there's no scene manager, defer until one is set, see itemChange()
+        }
+    }
+
+    // Make sure materials are removed when destroyed
+    connect(material, &QQuick3DMaterial::destroyed, self, &QQuick3DModel::onMaterialDestroyed);
 }
 
 QQuick3DMaterial *QQuick3DModel::qmlMaterialAt(QQmlListProperty<QQuick3DMaterial> *list, int index)
@@ -464,6 +546,11 @@ int QQuick3DModel::qmlMaterialsCount(QQmlListProperty<QQuick3DMaterial> *list)
 void QQuick3DModel::qmlClearMaterials(QQmlListProperty<QQuick3DMaterial> *list)
 {
     QQuick3DModel *self = static_cast<QQuick3DModel *>(list->object);
+    for (const auto &mat : qAsConst(self->m_materials)) {
+        if (mat->parentItem() == nullptr)
+            QQuick3DObjectPrivate::get(mat)->derefSceneManager();
+        mat->disconnect(self, SLOT(onMaterialDestroyed(QObject*)));
+    }
     self->m_materials.clear();
     self->markDirty(QQuick3DModel::MaterialsDirty);
 }

@@ -46,7 +46,7 @@
 #include "net/test/embedded_test_server/http_response.h"
 #include "net/test/spawned_test_server/spawned_test_server.h"
 #include "net/test/test_data_directory.h"
-#include "net/test/test_with_scoped_task_environment.h"
+#include "net/test/test_with_task_environment.h"
 #include "net/traffic_annotation/network_traffic_annotation_test_helper.h"
 #include "net/url_request/url_request.h"
 #include "net/url_request/url_request_context.h"
@@ -97,12 +97,14 @@ class ConnectTestingEventInterface : public WebSocketEventInterface {
   void OnCreateURLRequest(URLRequest* request) override {}
 
   void OnAddChannelResponse(const std::string& selected_subprotocol,
-                            const std::string& extensions) override;
+                            const std::string& extensions,
+                            int64_t send_flow_control_quota) override;
 
   void OnDataFrame(bool fin,
                    WebSocketMessageType type,
-                   scoped_refptr<IOBuffer> data,
-                   size_t data_size) override;
+                   base::span<const char> payload) override;
+
+  bool HasPendingDataFrames() override { return false; }
 
   void OnSendFlowControlQuotaAdded(int64_t quota) override;
 
@@ -167,7 +169,8 @@ std::string ConnectTestingEventInterface::extensions() const {
 
 void ConnectTestingEventInterface::OnAddChannelResponse(
     const std::string& selected_subprotocol,
-    const std::string& extensions) {
+    const std::string& extensions,
+    int64_t send_flow_control_quota) {
   selected_subprotocol_ = selected_subprotocol;
   extensions_ = extensions;
   QuitNestedEventLoop();
@@ -175,8 +178,8 @@ void ConnectTestingEventInterface::OnAddChannelResponse(
 
 void ConnectTestingEventInterface::OnDataFrame(bool fin,
                                                WebSocketMessageType type,
-                                               scoped_refptr<IOBuffer> data,
-                                               size_t data_size) {}
+                                               base::span<const char> payload) {
+}
 
 void ConnectTestingEventInterface::OnSendFlowControlQuotaAdded(int64_t quota) {}
 
@@ -265,7 +268,7 @@ class TestProxyDelegateWithProxyInfo : public ProxyDelegate {
   DISALLOW_COPY_AND_ASSIGN(TestProxyDelegateWithProxyInfo);
 };
 
-class WebSocketEndToEndTest : public TestWithScopedTaskEnvironment {
+class WebSocketEndToEndTest : public TestWithTaskEnvironment {
  protected:
   WebSocketEndToEndTest()
       : event_interface_(),
@@ -292,11 +295,13 @@ class WebSocketEndToEndTest : public TestWithScopedTaskEnvironment {
     }
     url::Origin origin = url::Origin::Create(GURL("http://localhost"));
     GURL site_for_cookies("http://localhost/");
+    net::NetworkIsolationKey network_isolation_key(origin, origin);
     event_interface_ = new ConnectTestingEventInterface();
     channel_ = std::make_unique<WebSocketChannel>(
         base::WrapUnique(event_interface_), &context_);
     channel_->SendAddChannelRequest(GURL(socket_url), sub_protocols_, origin,
-                                    site_for_cookies, HttpRequestHeaders());
+                                    site_for_cookies, network_isolation_key,
+                                    HttpRequestHeaders());
     event_interface_->WaitForResponse();
     return !event_interface_->failed();
   }
@@ -460,10 +465,9 @@ TEST_F(WebSocketEndToEndTest, MAYBE_ProxyPacUsed) {
   proxy_config.set_pac_mandatory(true);
   auto proxy_config_service = std::make_unique<ProxyConfigServiceFixed>(
       ProxyConfigWithAnnotation(proxy_config, TRAFFIC_ANNOTATION_FOR_TESTS));
-  NetLog net_log;
   std::unique_ptr<ProxyResolutionService> proxy_resolution_service(
       ProxyResolutionService::CreateUsingSystemProxyResolver(
-          std::move(proxy_config_service), &net_log));
+          std::move(proxy_config_service), NetLog::Get()));
   ASSERT_EQ(ws_server.host_port_pair().host(), "127.0.0.1");
   context_.set_proxy_resolution_service(proxy_resolution_service.get());
   InitialiseContext();

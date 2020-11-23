@@ -11,95 +11,134 @@
 #include "net/base/registry_controlled_domains/registry_controlled_domain.h"
 #include "net/http/http_request_headers.h"
 #include "net/url_request/url_request.h"
-#include "services/network/initiator_lock_compatibility.h"
+#include "services/network/public/cpp/cors/origin_access_list.h"
 #include "services/network/public/cpp/features.h"
+#include "services/network/public/cpp/initiator_lock_compatibility.h"
 #include "services/network/public/cpp/is_potentially_trustworthy.h"
+#include "services/network/public/cpp/request_mode.h"
+#include "services/network/public/mojom/fetch_api.mojom.h"
 #include "services/network/public/mojom/network_context.mojom.h"
 
 namespace network {
 
 namespace {
 
-bool IsSameSite(const url::Origin& initiator,
-                const url::Origin& target_origin) {
-  // Cross-scheme initiator should be considered cross-site (even if it's host
-  // is same-site with the target).  See also https://crbug.com/979257.
-  if (initiator.scheme() != target_origin.scheme())
-    return false;
+const char kSecFetchMode[] = "Sec-Fetch-Mode";
+const char kSecFetchSite[] = "Sec-Fetch-Site";
+const char kSecFetchUser[] = "Sec-Fetch-User";
 
-  return net::registry_controlled_domains::SameDomainOrHost(
-      initiator, target_origin,
-      net::registry_controlled_domains::INCLUDE_PRIVATE_REGISTRIES);
-}
-
-// Possible values of Sec-Fetch-Site header.
+// Sec-Fetch-Site infrastructure:
 //
 // Note that the order of enum values below is significant - it is important for
 // std::max invocations that kSameOrigin < kSameSite < kCrossSite.
-enum class HeaderValue {
+enum class SecFetchSiteValue {
   kNoOrigin,
   kSameOrigin,
   kSameSite,
   kCrossSite,
 };
 
-HeaderValue CalculateHeaderValue(const GURL& target_url,
-                                 const url::Origin& initiator) {
-  url::Origin target_origin = url::Origin::Create(target_url);
-
-  if (target_origin == initiator)
-    return HeaderValue::kSameOrigin;
-
-  if (IsSameSite(initiator, target_origin))
-    return HeaderValue::kSameSite;
-
-  return HeaderValue::kCrossSite;
-}
-
-HeaderValue CalculateHeaderValue(
-    const net::URLRequest& request,
-    const GURL* pending_redirect_url,
-    const mojom::URLLoaderFactoryParams& factory_params) {
-  // Use `Sec-Fetch-Site: none` for browser-initiated requests with no
-  // initiator origin.
-  if (factory_params.process_id == mojom::kBrowserProcessId &&
-      !request.initiator().has_value()) {
-    return HeaderValue::kNoOrigin;
-  }
-
-  // Otherwise, calculate the |header_value| by comparing the initiator with the
-  // full chain of request URLs.
-  HeaderValue header_value = HeaderValue::kSameOrigin;
-  url::Origin initiator = GetTrustworthyInitiator(
-      factory_params.request_initiator_site_lock, request.initiator());
-  for (const GURL& target_url : request.url_chain()) {
-    header_value =
-        std::max(header_value, CalculateHeaderValue(target_url, initiator));
-  }
-  if (pending_redirect_url) {
-    header_value = std::max(
-        header_value, CalculateHeaderValue(*pending_redirect_url, initiator));
-  }
-  return header_value;
-}
-
-const char* GetHeaderString(const HeaderValue& value) {
+const char* GetSecFetchSiteHeaderString(const SecFetchSiteValue& value) {
   switch (value) {
-    case HeaderValue::kNoOrigin:
+    case SecFetchSiteValue::kNoOrigin:
       return "none";
-    case HeaderValue::kSameOrigin:
+    case SecFetchSiteValue::kSameOrigin:
       return "same-origin";
-    case HeaderValue::kSameSite:
+    case SecFetchSiteValue::kSameSite:
       return "same-site";
-    case HeaderValue::kCrossSite:
+    case SecFetchSiteValue::kCrossSite:
       return "cross-site";
   }
 }
 
-}  // namespace
+SecFetchSiteValue SecFetchSiteHeaderValue(const GURL& target_url,
+                                          const url::Origin& initiator) {
+  url::Origin target_origin = url::Origin::Create(target_url);
+
+  if (target_origin == initiator)
+    return SecFetchSiteValue::kSameOrigin;
+
+  // Cross-scheme initiator should be considered cross-site (even if it's host
+  // is same-site with the target).  See also https://crbug.com/979257.
+  if (initiator.scheme() == target_origin.scheme() &&
+      net::registry_controlled_domains::SameDomainOrHost(
+          initiator, target_origin,
+          net::registry_controlled_domains::INCLUDE_PRIVATE_REGISTRIES)) {
+    return SecFetchSiteValue::kSameSite;
+  }
+
+  return SecFetchSiteValue::kCrossSite;
+}
 
 void SetSecFetchSiteHeader(
     net::URLRequest* request,
+    const GURL* pending_redirect_url,
+    const mojom::URLLoaderFactoryParams& factory_params) {
+  SecFetchSiteValue header_value;
+  url::Origin initiator = GetTrustworthyInitiator(
+      factory_params.request_initiator_site_lock, request->initiator());
+
+  // Browser-initiated requests with no initiator origin, and
+  // privileged requests initiated from a "non-webby" context will send
+  // `Sec-Fetch-Site: None` while unprivileged ones will send
+  // `Sec-Fetch-Site: cross-site`. Other requests default to `kSameOrigin`,
+  // and walk through the request's URL chain to calculate the
+  // correct value.
+  if (factory_params.unsafe_non_webby_initiator) {
+    cors::OriginAccessList origin_access_list;
+    origin_access_list.SetAllowListForOrigin(
+        factory_params.factory_bound_access_patterns->source_origin,
+        factory_params.factory_bound_access_patterns->allow_patterns);
+    if (origin_access_list.CheckAccessState(
+            factory_params.factory_bound_access_patterns->source_origin,
+            request->url()) == cors::OriginAccessList::AccessState::kAllowed) {
+      header_value = SecFetchSiteValue::kNoOrigin;
+    } else {
+      header_value = SecFetchSiteValue::kCrossSite;
+    }
+  } else if (factory_params.process_id == mojom::kBrowserProcessId &&
+             !request->initiator().has_value()) {
+    header_value = SecFetchSiteValue::kNoOrigin;
+  } else {
+    header_value = SecFetchSiteValue::kSameOrigin;
+    for (const GURL& target_url : request->url_chain()) {
+      header_value = std::max(header_value,
+                              SecFetchSiteHeaderValue(target_url, initiator));
+    }
+    if (pending_redirect_url) {
+      header_value =
+          std::max(header_value,
+                   SecFetchSiteHeaderValue(*pending_redirect_url, initiator));
+    }
+  }
+
+  request->SetExtraRequestHeaderByName(
+      kSecFetchSite, GetSecFetchSiteHeaderString(header_value),
+      /* overwrite = */ true);
+}
+
+// Sec-Fetch-Mode
+void SetSecFetchModeHeader(net::URLRequest* request,
+                           network::mojom::RequestMode mode) {
+  std::string header_value = RequestModeToString(mode);
+
+  request->SetExtraRequestHeaderByName(kSecFetchMode, header_value, false);
+}
+
+// Sec-Fetch-User
+void SetSecFetchUserHeader(net::URLRequest* request, bool has_user_activation) {
+  if (has_user_activation)
+    request->SetExtraRequestHeaderByName(kSecFetchUser, "?1", true);
+  else
+    request->RemoveRequestHeaderByName(kSecFetchUser);
+}
+
+}  // namespace
+
+void SetFetchMetadataHeaders(
+    net::URLRequest* request,
+    network::mojom::RequestMode mode,
+    bool has_user_activation,
     const GURL* pending_redirect_url,
     const mojom::URLLoaderFactoryParams& factory_params) {
   DCHECK(request);
@@ -113,12 +152,9 @@ void SetSecFetchSiteHeader(
   if (!IsUrlPotentiallyTrustworthy(target_url))
     return;
 
-  // Set the request header.
-  const char kHeaderName[] = "Sec-Fetch-Site";
-  HeaderValue header_value =
-      CalculateHeaderValue(*request, pending_redirect_url, factory_params);
-  request->SetExtraRequestHeaderByName(
-      kHeaderName, GetHeaderString(header_value), /* overwrite = */ true);
+  SetSecFetchSiteHeader(request, pending_redirect_url, factory_params);
+  SetSecFetchModeHeader(request, mode);
+  SetSecFetchUserHeader(request, has_user_activation);
 }
 
 void MaybeRemoveSecHeaders(net::URLRequest* request,

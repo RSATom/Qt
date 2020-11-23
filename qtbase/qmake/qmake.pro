@@ -31,7 +31,8 @@ INCLUDEPATH += \
     generators \
     generators/unix \
     generators/win32 \
-    generators/mac
+    generators/mac \
+    ../src/3rdparty/tinycbor/src
 
 SOURCES += \
     main.cpp \
@@ -116,6 +117,8 @@ SOURCES += \
     qbytearray.cpp \
     qbytearraymatcher.cpp \
     qcalendar.cpp \
+    qcborstreamwriter.cpp \
+    qcborvalue.cpp \
     qcryptographichash.cpp \
     qdatetime.cpp \
     qdir.cpp \
@@ -131,8 +134,8 @@ SOURCES += \
     qgregoriancalendar.cpp \
     qhash.cpp \
     qiodevice.cpp \
-    qjson.cpp \
     qjsonarray.cpp \
+    qjsoncbor.cpp \
     qjsondocument.cpp \
     qjsonobject.cpp \
     qjsonparser.cpp \
@@ -174,6 +177,9 @@ HEADERS += \
     qcalendar.h \
     qcalendarbackend_p.h \
     qcalendarmath_p.h \
+    qcborstreamwriter.h \
+    qcborvalue.h \
+    qcborvalue_p.h \
     qchar.h \
     qcryptographichash.h \
     qdatetime.h \
@@ -225,7 +231,7 @@ unix {
     macos {
         SOURCES += \
             qcore_foundation.mm \
-            qcore_mac.cpp \
+            qcore_mac.mm \
             qoperatingsystemversion_darwin.mm \
             qsettings_mac.cpp
         LIBS += \

@@ -1,5 +1,5 @@
 TEMPLATE = app
-TARGET = tst_integration
+TARGET = tst_qmlintegration
 CONFIG += qmltestcase
 
 SOURCES += \

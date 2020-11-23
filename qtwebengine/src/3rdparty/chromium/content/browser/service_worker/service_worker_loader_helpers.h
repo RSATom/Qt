@@ -8,8 +8,8 @@
 #include <memory>
 #include <string>
 
-#include "services/network/public/cpp/resource_response.h"
 #include "services/network/public/cpp/url_loader_completion_status.h"
+#include "services/network/public/mojom/url_response_head.mojom.h"
 #include "third_party/blink/public/common/service_worker/service_worker_status_code.h"
 
 namespace base {
@@ -26,13 +26,14 @@ namespace content {
 
 namespace service_worker_loader_helpers {
 
+// Creates net::HttpResponseInfo from |response_head|. If |response_head| is
+// invalid as a service worker script (e.g. bad mime type), returns nullptr and
+// sets error code and a message.
 std::unique_ptr<net::HttpResponseInfo> CreateHttpResponseInfoAndCheckHeaders(
-    const network::ResourceResponseHead& response_head,
+    const network::mojom::URLResponseHead& response_head,
+    blink::ServiceWorkerStatusCode* out_service_worker_status,
     network::URLLoaderCompletionStatus* out_completion_status,
     std::string* out_error_message);
-
-blink::ServiceWorkerStatusCode MapNetErrorToServiceWorkerStatus(
-    net::Error error_code);
 
 bool ShouldBypassCacheDueToUpdateViaCache(
     bool is_main_script,

@@ -53,15 +53,14 @@ QT_BEGIN_NAMESPACE
 
     Maintains a global stack storing the current event dispatcher and
     its processing flags for access from the Windows procedure
-    qWindowsWndProc. Handling the Lighthouse gui events should be done
+    qWindowsWndProc. Handling the QPA gui events should be done
     from within the qWindowsWndProc to ensure correct processing of messages.
 
     \internal
-    \ingroup qt-lighthouse-win
 */
 
 QWindowsGuiEventDispatcher::QWindowsGuiEventDispatcher(QObject *parent) :
-    QEventDispatcherWin32(parent), m_flags(0)
+    QEventDispatcherWin32(parent)
 {
     setObjectName(QStringLiteral("QWindowsGuiEventDispatcher"));
     createInternalHwnd(); // QTBUG-40881: Do not delay registering timers, etc. for QtMfc.

@@ -144,6 +144,21 @@
     native support for resources. This might change in a future Qt
     release.
 
+   \section2 Resources in a Qt for Python application
+
+    The resource collection file is converted to a Python module by using
+    the resource compiler \l rcc:
+
+    \code
+    rcc -g python application.qrc > application_rc.py
+    \endcode
+
+    The module needs to be imported in the application:
+
+    \code
+    import application_rc.py
+    \endcode
+
     \section1 Compression
 
     \c rcc attempts to compress the content to optimize disk space usage in the
@@ -179,6 +194,17 @@
         rcc -compress 2 -compress-algo zlib myresources.qrc
     \endcode
 
+    It is also possible to use \c threshold, \c compress, and \c compress-algo
+    as attributes in a .qrc \c file tag.
+
+    \code
+    <qresource>
+        <file compress="1" compress-algo="zstd">data.txt</file>
+    </qresource>
+    \endcode
+
+    The above will select the \c zstd algorithm with compression level 1.
+
     \c rcc supports the following compression algorithms and compression
     levels:
 
@@ -196,10 +222,10 @@
       library to choose an implementation-defined default.
 
       \li \c{zlib}: use the \l{https://zlib.net}{zlib} library to compress
-      contents. Valid compression levels range from 1 to 9, with 1the least
-      compression (least CPU time) and 9 the most compression (most CPU time).
-      The special value 0 means "no compression" and should not be used. The
-      default is implementation-defined, but usually is level 6.
+      contents. Valid compression levels range from 1 to 9, with 1 applying
+      the least compression (least CPU time) and 9 the most compression (most
+      CPU time). The special value 0 means "no compression" and should not be
+      used. The default is implementation-defined, but usually is level 6.
 
       \li \c{none}: no compression. This is the same as the \c{-no-compress}
       option.

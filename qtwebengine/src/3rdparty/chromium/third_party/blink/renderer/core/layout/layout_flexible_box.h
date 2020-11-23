@@ -45,7 +45,7 @@ struct MinMaxSize;
 
 class CORE_EXPORT LayoutFlexibleBox : public LayoutBlock {
  public:
-  LayoutFlexibleBox(Element*);
+  explicit LayoutFlexibleBox(Element*);
   ~LayoutFlexibleBox() override;
 
   const char* GetName() const override { return "LayoutFlexibleBox"; }
@@ -155,7 +155,6 @@ class CORE_EXPORT LayoutFlexibleBox : public LayoutBlock {
       LayoutBox& child,
       LayoutUnit main_axis_border_and_padding,
       ChildLayoutType = kLayoutIfNeeded);
-  void AdjustAlignmentForChild(LayoutBox& child, LayoutUnit);
   void ResetAlignmentForChild(LayoutBox& child, LayoutUnit);
   bool MainAxisLengthIsDefinite(const LayoutBox& child,
                                 const Length& flex_basis,
@@ -172,8 +171,6 @@ class CORE_EXPORT LayoutFlexibleBox : public LayoutBlock {
 
   void LayoutFlexItems(bool relayout_children, SubtreeLayoutScope&);
   bool HasAutoMarginsInCrossAxis(const LayoutBox& child) const;
-  bool UpdateAutoMarginsInCrossAxis(LayoutBox& child,
-                                    LayoutUnit available_alignment_space);
   void RepositionLogicalHeightDependentFlexItems(
       FlexLayoutAlgorithm& algorithm);
   LayoutUnit ClientLogicalBottomAfterRepositioning();
@@ -203,11 +200,9 @@ class CORE_EXPORT LayoutFlexibleBox : public LayoutBlock {
                            LayoutUnit cross_axis_offset,
                            LayoutUnit available_free_space);
   void AlignFlexLines(FlexLayoutAlgorithm&);
-  void AlignChildren(Vector<FlexLine>&);
+  void AlignChildren(FlexLayoutAlgorithm&);
   void ApplyStretchAlignmentToChild(FlexItem& child);
   void FlipForRightToLeftColumn(const Vector<FlexLine>& line_contexts);
-  void FlipForWrapReverse(const Vector<FlexLine>&,
-                          LayoutUnit cross_axis_start_edge);
 
   float CountIntrinsicSizeForAlgorithmChange(
       LayoutUnit max_preferred_width,

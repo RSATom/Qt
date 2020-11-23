@@ -54,7 +54,7 @@ public:
     {
     }
 
-    QPixmap requestPixmap(const QString &id, QSize *size, const QSize &requestedSize)
+    QPixmap requestPixmap(const QString &id, QSize *size, const QSize &requestedSize) override
     {
         Q_UNUSED(requestedSize);
         Q_UNUSED(size);

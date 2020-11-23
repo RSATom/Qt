@@ -222,11 +222,11 @@ Item {
             polygon = QtPositioning.shapeToPolygon(QtPositioning.circle())
             verify(!polygon.isValid)
             polygon = QtPositioning.shapeToPolygon(QtPositioning.circle(tl, 10000))
-            verify(!polygon.isValid)
+            verify(polygon.isValid) // fixed, polygon copy constructor can now initialize from a circle.
             polygon = QtPositioning.shapeToPolygon(QtPositioning.rectangle())
             verify(!polygon.isValid)
             polygon = QtPositioning.shapeToPolygon(QtPositioning.rectangle(tl, br))
-            verify(!polygon.isValid)
+            verify(polygon.isValid) // fixed, polygon copy constructor can now initialize from a rectangle.
 
             polygon = QtPositioning.shapeToPolygon(QtPositioning.polygon())
             verify(!polygon.isValid)

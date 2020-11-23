@@ -9,6 +9,7 @@
 
 #include "base/at_exit.h"
 #include "base/command_line.h"
+#include "base/message_loop/message_pump_type.h"
 #include "base/task/single_thread_task_executor.h"
 #include "components/exo/wayland/clients/client_base.h"
 #include "components/exo/wayland/clients/client_helper.h"
@@ -131,14 +132,19 @@ int main(int argc, char* argv[]) {
   if (!params.FromCommandLine(*command_line))
     return 1;
 
+  if (!params.use_drm) {
+    LOG(ERROR) << "Missing --use-drm parameter which is required for buffer "
+                  "allocation";
+    return 1;
+  }
+
   // TODO(dcastagna): Support other YUV formats.
   params.drm_format = DRM_FORMAT_NV12;
   params.bo_usage =
       GBM_BO_USE_SCANOUT | GBM_BO_USE_LINEAR | GBM_BO_USE_TEXTURING;
 
-  base::SingleThreadTaskExecutor main_task_executor(
-      base::MessagePump::Type::UI);
+  base::SingleThreadTaskExecutor main_task_executor(base::MessagePumpType::UI);
   exo::wayland::clients::YuvClient client;
   client.Run(params);
-  return 1;
+  return 0;
 }

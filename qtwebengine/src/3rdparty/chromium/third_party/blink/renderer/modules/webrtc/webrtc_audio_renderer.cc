@@ -2,7 +2,7 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "third_party/blink/public/web/modules/webrtc/webrtc_audio_renderer.h"
+#include "third_party/blink/renderer/modules/webrtc/webrtc_audio_renderer.h"
 
 #include <utility>
 
@@ -18,13 +18,13 @@
 #include "media/base/audio_parameters.h"
 #include "media/base/sample_rates.h"
 #include "third_party/blink/public/platform/modules/mediastream/media_stream_audio_track.h"
-#include "third_party/blink/public/platform/modules/webrtc/peer_connection_remote_audio_source.h"
 #include "third_party/blink/public/platform/modules/webrtc/webrtc_logging.h"
 #include "third_party/blink/public/platform/platform.h"
 #include "third_party/blink/public/platform/web_media_stream_track.h"
 #include "third_party/blink/public/web/web_local_frame.h"
 #include "third_party/blink/renderer/core/frame/local_frame.h"
 #include "third_party/blink/renderer/platform/scheduler/public/post_cross_thread_task.h"
+#include "third_party/blink/renderer/platform/webrtc/peer_connection_remote_audio_source.h"
 #include "third_party/blink/renderer/platform/wtf/cross_thread_functional.h"
 #include "third_party/webrtc/api/media_stream_interface.h"
 
@@ -446,6 +446,7 @@ int WebRtcAudioRenderer::Render(base::TimeDelta delay,
                                 int prior_frames_skipped,
                                 media::AudioBus* audio_bus) {
   DCHECK(sink_->CurrentThreadIsRenderingThread());
+  DCHECK_LE(sink_params_.channels(), 8);
   base::AutoLock auto_lock(lock_);
   if (!source_)
     return 0;
@@ -463,7 +464,7 @@ int WebRtcAudioRenderer::Render(base::TimeDelta delay,
     if (!audio_fifo_ && prior_frames_skipped != source_frames_per_buffer) {
       audio_fifo_ = std::make_unique<media::AudioPullFifo>(
           sink_params_.channels(), source_frames_per_buffer,
-          ConvertToBaseCallback(
+          ConvertToBaseRepeatingCallback(
               CrossThreadBindRepeating(&WebRtcAudioRenderer::SourceCallback,
                                        CrossThreadUnretained(this))));
     }
@@ -699,9 +700,18 @@ void WebRtcAudioRenderer::PrepareSink() {
   // This sink is an AudioRendererSink which is implemented by an
   // AudioOutputDevice. Note that we used to use hard-coded settings for
   // stereo here but this has been changed since crbug.com/982276.
-  const int channels = device_info.output_params().channels();
-  const media::ChannelLayout channel_layout =
+  constexpr int kMaxChannels = 8;
+  int channels = device_info.output_params().channels();
+  media::ChannelLayout channel_layout =
       device_info.output_params().channel_layout();
+  if (channels > kMaxChannels) {
+    // WebRTC does not support channel remixing for more than 8 channels (7.1).
+    // This is an attempt to "support" more than 8 channels by falling back to
+    // stereo instead. See crbug.com/1003735.
+    LOG(WARNING) << "Falling back to stereo sink";
+    channels = 2;
+    channel_layout = media::CHANNEL_LAYOUT_STEREO;
+  }
   const int sink_frames_per_buffer = media::AudioLatency::GetRtcBufferSize(
       sample_rate, device_info.output_params().frames_per_buffer());
   new_sink_params.Reset(kFormat, channel_layout, sample_rate,
@@ -728,11 +738,12 @@ void WebRtcAudioRenderer::PrepareSink() {
          audio_fifo_->SizeInFrames() != source_frames_per_buffer)) {
       audio_fifo_ = std::make_unique<media::AudioPullFifo>(
           channels, source_frames_per_buffer,
-          ConvertToBaseCallback(
+          ConvertToBaseRepeatingCallback(
               CrossThreadBindRepeating(&WebRtcAudioRenderer::SourceCallback,
                                        CrossThreadUnretained(this))));
     }
     sink_params_ = new_sink_params;
+    DVLOG(1) << "New sink parameters: " << sink_params_.AsHumanReadableString();
   }
 
   // Specify the latency info to be passed to the browser side.

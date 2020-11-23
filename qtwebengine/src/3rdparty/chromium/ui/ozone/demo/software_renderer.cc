@@ -30,16 +30,17 @@ SoftwareRenderer::SoftwareRenderer(
     const gfx::Size& size)
     : RendererBase(widget, size),
       window_surface_(std::move(window_surface)),
-      vsync_period_(base::TimeDelta::FromMilliseconds(kFrameDelayMilliseconds)),
-      weak_ptr_factory_(this) {}
+      vsync_period_(
+          base::TimeDelta::FromMilliseconds(kFrameDelayMilliseconds)) {}
 
-SoftwareRenderer::~SoftwareRenderer() {
-}
+SoftwareRenderer::~SoftwareRenderer() {}
 
 bool SoftwareRenderer::Initialize() {
-  software_surface_ = ui::OzonePlatform::GetInstance()
-                          ->GetSurfaceFactoryOzone()
-                          ->CreateCanvasForWidget(widget_);
+  software_surface_ =
+      ui::OzonePlatform::GetInstance()
+          ->GetSurfaceFactoryOzone()
+          ->CreateCanvasForWidget(widget_,
+                                  base::ThreadTaskRunnerHandle::Get().get());
   if (!software_surface_) {
     LOG(ERROR) << "Failed to create software surface";
     return false;

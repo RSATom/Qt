@@ -48,6 +48,29 @@ inline constexpr size_t count(std::initializer_list<T> ilist, T value) {
   return c;
 }
 
+template <class... Ts >
+struct if_all;
+
+template <>
+struct if_all<>
+    : std::integral_constant<bool, true> {};
+
+template <class T, class... Ts >
+struct if_all<T, Ts...>
+    : std::conditional<T::value, if_all<Ts...>, std::integral_constant<bool, false>>::type {};
+
+
+template <class... Ts >
+struct if_any;
+
+template <>
+struct if_any<>
+    : std::integral_constant<bool, false> {};
+
+template <class T, class... Ts >
+struct if_any<T, Ts...>
+    : std::conditional<T::value, std::integral_constant<bool, true>, if_any<Ts...>>::type {};
+
 constexpr size_t pack_npos = -1;
 
 template <typename... Ts>

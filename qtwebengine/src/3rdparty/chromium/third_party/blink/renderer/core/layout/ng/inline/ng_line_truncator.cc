@@ -97,7 +97,9 @@ LayoutUnit NGLineTruncator::TruncateLine(
   // Create the ellipsis, associating it with the ellipsized child.
   LayoutObject* ellipsized_layout_object =
       ellpisized_child->PhysicalFragment()->GetMutableLayoutObject();
-  DCHECK(ellipsized_layout_object && ellipsized_layout_object->IsInline());
+  DCHECK(ellipsized_layout_object && ellipsized_layout_object->IsInline() &&
+         (ellipsized_layout_object->IsText() ||
+          ellipsized_layout_object->IsAtomicInlineLevel()));
   NGTextFragmentBuilder builder(line_style_->GetWritingMode());
   builder.SetText(ellipsized_layout_object, ellipsis_text, ellipsis_style,
                   true /* is_ellipsis_style */,
@@ -171,6 +173,12 @@ bool NGLineTruncator::EllipsizeChild(
   if (!child->HasInFlowFragment())
     return false;
 
+  // Inline boxes should not be ellipsized. Usually they will be created in the
+  // later phase, but empty inline box are already created.
+  if (child->layout_result &&
+      child->layout_result->PhysicalFragment().IsInlineBox())
+    return false;
+
   // Can't place ellipsis if this child is completely outside of the box.
   LayoutUnit child_inline_offset =
       IsLtr(line_direction_)
@@ -241,8 +249,8 @@ bool NGLineTruncator::TruncateChild(
       IsLtr(line_direction_) ? space_for_child
                              : shape_result->Width() - space_for_child,
       line_direction_);
-  DCHECK_LE(new_length, fragment.Length());
-  if (!new_length || new_length == fragment.Length()) {
+  DCHECK_LE(new_length, fragment.TextLength());
+  if (!new_length || new_length == fragment.TextLength()) {
     if (!is_first_child)
       return false;
     new_length = !new_length ? 1 : new_length - 1;

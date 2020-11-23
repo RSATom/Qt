@@ -10,6 +10,7 @@
 #include "base/bind.h"
 #include "base/bind_helpers.h"
 #include "base/i18n/message_formatter.h"
+#include "base/memory/scoped_refptr.h"
 #include "base/scoped_observer.h"
 #include "base/strings/stringprintf.h"
 #include "base/strings/utf_string_conversions.h"
@@ -19,8 +20,8 @@
 #include "extensions/browser/api/device_permissions_manager.h"
 #include "extensions/browser/api/usb/usb_device_manager.h"
 #include "extensions/common/extension.h"
-#include "mojo/public/cpp/bindings/associated_binding.h"
-#include "mojo/public/cpp/bindings/interface_request.h"
+#include "mojo/public/cpp/bindings/associated_receiver.h"
+#include "mojo/public/cpp/bindings/remote.h"
 #include "services/device/public/cpp/hid/hid_device_filter.h"
 #include "services/device/public/cpp/hid/hid_usage_and_page.h"
 #include "services/device/public/cpp/usb/usb_utils.h"
@@ -193,8 +194,7 @@ class HidDevicePermissionsPrompt : public DevicePermissionsPrompt::Prompt,
       : Prompt(extension, context, multiple),
         initialized_(false),
         filters_(filters),
-        callback_(callback),
-        binding_(this) {}
+        callback_(callback) {}
 
  private:
   ~HidDevicePermissionsPrompt() override {}
@@ -216,14 +216,11 @@ class HidDevicePermissionsPrompt : public DevicePermissionsPrompt::Prompt,
     DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
     service_manager::Connector* connector = content::GetSystemConnector();
     DCHECK(connector);
-    connector->BindInterface(device::mojom::kServiceName,
-                             mojo::MakeRequest(&hid_manager_));
-
-    device::mojom::HidManagerClientAssociatedPtrInfo client;
-    binding_.Bind(mojo::MakeRequest(&client));
+    connector->Connect(device::mojom::kServiceName,
+                       hid_manager_.BindNewPipeAndPassReceiver());
 
     hid_manager_->GetDevicesAndSetClient(
-        std::move(client),
+        receiver_.BindNewEndpointAndPassRemote(),
         base::BindOnce(&HidDevicePermissionsPrompt::OnDevicesEnumerated, this));
 
     initialized_ = true;
@@ -296,9 +293,9 @@ class HidDevicePermissionsPrompt : public DevicePermissionsPrompt::Prompt,
 
   bool initialized_;
   std::vector<HidDeviceFilter> filters_;
-  device::mojom::HidManagerPtr hid_manager_;
+  mojo::Remote<device::mojom::HidManager> hid_manager_;
   DevicePermissionsPrompt::HidDevicesCallback callback_;
-  mojo::AssociatedBinding<device::mojom::HidManagerClient> binding_;
+  mojo::AssociatedReceiver<device::mojom::HidManagerClient> receiver_{this};
 };
 
 }  // namespace
@@ -367,8 +364,8 @@ void DevicePermissionsPrompt::AskForUsbDevices(
     bool multiple,
     std::vector<UsbDeviceFilterPtr> filters,
     const UsbDevicesCallback& callback) {
-  prompt_ = new UsbDevicePermissionsPrompt(extension, context, multiple,
-                                           std::move(filters), callback);
+  prompt_ = base::MakeRefCounted<UsbDevicePermissionsPrompt>(
+      extension, context, multiple, std::move(filters), callback);
   ShowDialog();
 }
 
@@ -378,8 +375,8 @@ void DevicePermissionsPrompt::AskForHidDevices(
     bool multiple,
     const std::vector<HidDeviceFilter>& filters,
     const HidDevicesCallback& callback) {
-  prompt_ = new HidDevicePermissionsPrompt(extension, context, multiple,
-                                           filters, callback);
+  prompt_ = base::MakeRefCounted<HidDevicePermissionsPrompt>(
+      extension, context, multiple, filters, callback);
   ShowDialog();
 }
 

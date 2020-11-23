@@ -59,7 +59,7 @@ public:
     QPlatformInputContext *inputContext() const override;
     QPlatformTheme *createPlatformTheme(const QString &name) const override;
     QPlatformWindow *createPlatformWindow(QWindow *window) const override;
-    QPlatformOffscreenSurface *createPlatformOffscreenSurface(QOffscreenSurface *surface) const;
+    QPlatformOffscreenSurface *createPlatformOffscreenSurface(QOffscreenSurface *surface) const override;
     QPlatformBackingStore *createPlatformBackingStore(QWindow *window) const override;
     QPlatformOpenGLContext *createPlatformOpenGLContext(QOpenGLContext *context) const override;
 

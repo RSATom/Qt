@@ -5,15 +5,18 @@
 #ifndef MEDIA_MOJO_CLIENTS_MOJO_VIDEO_DECODER_H_
 #define MEDIA_MOJO_CLIENTS_MOJO_VIDEO_DECODER_H_
 
+#include "base/containers/mru_cache.h"
 #include "base/macros.h"
 #include "base/memory/ref_counted.h"
 #include "base/memory/weak_ptr.h"
 #include "media/base/video_decoder.h"
 #include "media/base/video_frame.h"
 #include "media/mojo/clients/mojo_media_log_service.h"
-#include "media/mojo/interfaces/video_decoder.mojom.h"
+#include "media/mojo/mojom/video_decoder.mojom.h"
 #include "media/video/video_decode_accelerator.h"
-#include "mojo/public/cpp/bindings/associated_binding.h"
+#include "mojo/public/cpp/bindings/associated_receiver.h"
+#include "mojo/public/cpp/bindings/pending_remote.h"
+#include "mojo/public/cpp/bindings/remote.h"
 #include "ui/gfx/color_space.h"
 
 namespace base {
@@ -34,13 +37,14 @@ class MojoVideoFrameHandleReleaser;
 class MojoVideoDecoder final : public VideoDecoder,
                                public mojom::VideoDecoderClient {
  public:
-  MojoVideoDecoder(scoped_refptr<base::SingleThreadTaskRunner> task_runner,
-                   GpuVideoAcceleratorFactories* gpu_factories,
-                   MediaLog* media_log,
-                   mojom::VideoDecoderPtr remote_decoder,
-                   VideoDecoderImplementation implementation,
-                   const RequestOverlayInfoCB& request_overlay_info_cb,
-                   const gfx::ColorSpace& target_color_space);
+  MojoVideoDecoder(
+      scoped_refptr<base::SingleThreadTaskRunner> task_runner,
+      GpuVideoAcceleratorFactories* gpu_factories,
+      MediaLog* media_log,
+      mojo::PendingRemote<mojom::VideoDecoder> pending_remote_decoder,
+      VideoDecoderImplementation implementation,
+      const RequestOverlayInfoCB& request_overlay_info_cb,
+      const gfx::ColorSpace& target_color_space);
   ~MojoVideoDecoder() final;
 
   // VideoDecoder implementation.
@@ -74,7 +78,7 @@ class MojoVideoDecoder final : public VideoDecoder,
   void OnInitializeDone(bool status,
                         bool needs_bitstream_conversion,
                         int32_t max_decode_requests);
-  void OnDecodeDone(uint64_t decode_id, int64_t timestamp, DecodeStatus status);
+  void OnDecodeDone(uint64_t decode_id, DecodeStatus status);
   void OnResetDone();
 
   void BindRemoteDecoder();
@@ -90,7 +94,7 @@ class MojoVideoDecoder final : public VideoDecoder,
 
   // Used to pass the remote decoder from the constructor (on the main thread)
   // to Initialize() (on the media thread).
-  mojom::VideoDecoderPtrInfo remote_decoder_info_;
+  mojo::PendingRemote<mojom::VideoDecoder> pending_remote_decoder_;
 
   // Manages VideoFrame destruction callbacks.
   scoped_refptr<MojoVideoFrameHandleReleaser> mojo_video_frame_handle_releaser_;
@@ -104,16 +108,20 @@ class MojoVideoDecoder final : public VideoDecoder,
   std::map<uint64_t, DecodeCB> pending_decodes_;
   base::OnceClosure reset_cb_;
 
-  mojom::VideoDecoderPtr remote_decoder_;
+  // DecodeBuffer/VideoFrame timestamps for histogram/tracing purposes. Must be
+  // large enough to account for any amount of frame reordering.
+  base::MRUCache<int64_t, base::TimeTicks> timestamps_;
+
+  mojo::Remote<mojom::VideoDecoder> remote_decoder_;
   std::unique_ptr<MojoDecoderBufferWriter> mojo_decoder_buffer_writer_;
 
   uint32_t writer_capacity_ = 0;
 
   bool remote_decoder_bound_ = false;
   bool has_connection_error_ = false;
-  mojo::AssociatedBinding<mojom::VideoDecoderClient> client_binding_;
+  mojo::AssociatedReceiver<mojom::VideoDecoderClient> client_receiver_{this};
   MojoMediaLogService media_log_service_;
-  mojo::AssociatedBinding<mojom::MediaLog> media_log_binding_;
+  mojo::AssociatedReceiver<mojom::MediaLog> media_log_receiver_;
   RequestOverlayInfoCB request_overlay_info_cb_;
   bool overlay_info_requested_ = false;
   gfx::ColorSpace target_color_space_;

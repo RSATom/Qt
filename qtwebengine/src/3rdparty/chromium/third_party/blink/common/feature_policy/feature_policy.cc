@@ -8,6 +8,8 @@
 #include "base/memory/ptr_util.h"
 #include "base/no_destructor.h"
 #include "base/stl_util.h"
+#include "third_party/blink/public/common/frame/sandbox_flags.h"
+#include "third_party/blink/public/mojom/feature_policy/feature_policy.mojom.h"
 
 namespace blink {
 namespace {
@@ -314,6 +316,48 @@ const FeaturePolicy::FeatureList& FeaturePolicy::GetFeatureList() const {
 }
 
 // static
+mojom::FeaturePolicyFeature FeaturePolicy::FeatureForSandboxFlag(
+    WebSandboxFlags flag) {
+  switch (flag) {
+    case WebSandboxFlags::kAll:
+      NOTREACHED();
+      break;
+    case WebSandboxFlags::kTopNavigation:
+      return mojom::FeaturePolicyFeature::kTopNavigation;
+    case WebSandboxFlags::kForms:
+      return mojom::FeaturePolicyFeature::kFormSubmission;
+    case WebSandboxFlags::kAutomaticFeatures:
+    case WebSandboxFlags::kScripts:
+      return mojom::FeaturePolicyFeature::kScript;
+    case WebSandboxFlags::kPopups:
+      return mojom::FeaturePolicyFeature::kPopups;
+    case WebSandboxFlags::kPointerLock:
+      return mojom::FeaturePolicyFeature::kPointerLock;
+    case WebSandboxFlags::kOrientationLock:
+      return mojom::FeaturePolicyFeature::kOrientationLock;
+    case WebSandboxFlags::kModals:
+      return mojom::FeaturePolicyFeature::kModals;
+    case WebSandboxFlags::kPresentationController:
+      return mojom::FeaturePolicyFeature::kPresentation;
+    case WebSandboxFlags::kDownloads:
+      return mojom::FeaturePolicyFeature::kDownloads;
+    // Other flags fall through to the bitmask test below. They are named
+    // specifically here so that authors introducing new flags must consider
+    // this method when adding them.
+    case WebSandboxFlags::kDocumentDomain:
+    case WebSandboxFlags::kNavigation:
+    case WebSandboxFlags::kNone:
+    case WebSandboxFlags::kOrigin:
+    case WebSandboxFlags::kPlugins:
+    case WebSandboxFlags::kPropagatesToAuxiliaryBrowsingContexts:
+    case WebSandboxFlags::kTopNavigationByUserActivation:
+    case WebSandboxFlags::kStorageAccessByUserActivation:
+      break;
+  }
+  return mojom::FeaturePolicyFeature::kNotFound;
+}
+
+// static
 // See third_party/blink/public/common/feature_policy/feature_policy.h for
 // status of each feature (in spec, implemented, etc).
 // The second field of FeatureDefaultValue is the type of PolicyValue that is
@@ -378,7 +422,7 @@ const FeaturePolicy::FeatureList& FeaturePolicy::GetDefaultFeatureList() {
        {mojom::FeaturePolicyFeature::kDocumentWrite,
         FeatureDefaultValue(FeaturePolicy::FeatureDefault::EnableForAll,
                             mojom::PolicyValueType::kBool)},
-       {mojom::FeaturePolicyFeature::kDownloadsWithoutUserActivation,
+       {mojom::FeaturePolicyFeature::kDownloads,
         FeatureDefaultValue(FeaturePolicy::FeatureDefault::EnableForAll,
                             mojom::PolicyValueType::kBool)},
        {mojom::FeaturePolicyFeature::kEncryptedMedia,
@@ -460,6 +504,9 @@ const FeaturePolicy::FeatureList& FeaturePolicy::GetDefaultFeatureList() {
        {mojom::FeaturePolicyFeature::kPresentation,
         FeatureDefaultValue(FeaturePolicy::FeatureDefault::EnableForAll,
                             mojom::PolicyValueType::kBool)},
+       {mojom::FeaturePolicyFeature::kPublicKeyCredentials,
+        FeatureDefaultValue(FeaturePolicy::FeatureDefault::EnableForSelf,
+                            mojom::PolicyValueType::kBool)},
        {mojom::FeaturePolicyFeature::kScript,
         FeatureDefaultValue(FeaturePolicy::FeatureDefault::EnableForAll,
                             mojom::PolicyValueType::kBool)},
@@ -497,6 +544,9 @@ const FeaturePolicy::FeatureList& FeaturePolicy::GetDefaultFeatureList() {
         FeatureDefaultValue(FeaturePolicy::FeatureDefault::EnableForSelf,
                             mojom::PolicyValueType::kBool)},
        {mojom::FeaturePolicyFeature::kWebVr,
+        FeatureDefaultValue(FeaturePolicy::FeatureDefault::EnableForSelf,
+                            mojom::PolicyValueType::kBool)},
+       {mojom::FeaturePolicyFeature::kWebXr,
         FeatureDefaultValue(FeaturePolicy::FeatureDefault::EnableForSelf,
                             mojom::PolicyValueType::kBool)}});
   return *default_feature_list;

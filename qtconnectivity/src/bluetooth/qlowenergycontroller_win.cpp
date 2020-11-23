@@ -62,13 +62,13 @@ Q_GLOBAL_STATIC(QLibrary, bluetoothapis)
 Q_GLOBAL_STATIC(QVector<QLowEnergyControllerPrivateWin32 *>, qControllers)
 static QMutex controllersGuard(QMutex::NonRecursive);
 
-const QEvent::Type CharactericticValueEventType = static_cast<QEvent::Type>(QEvent::User + 1);
+const QEvent::Type CharacteristicValueEventType = static_cast<QEvent::Type>(QEvent::User + 1);
 
-class CharactericticValueEvent : public QEvent
+class CharacteristicValueEvent : public QEvent
 {
 public:
-    explicit CharactericticValueEvent(const PBLUETOOTH_GATT_VALUE_CHANGED_EVENT gattValueChangedEvent)
-        : QEvent(CharactericticValueEventType)
+    explicit CharacteristicValueEvent(const BLUETOOTH_GATT_VALUE_CHANGED_EVENT *gattValueChangedEvent)
+        : QEvent(CharacteristicValueEventType)
         , m_handle(0)
     {
         if (!gattValueChangedEvent || gattValueChangedEvent->CharacteristicValueDataSize == 0)
@@ -517,8 +517,8 @@ static void WINAPI eventChangedCallbackEntry(
     if (!qControllers->contains(target))
         return;
 
-    CharactericticValueEvent *e = new CharactericticValueEvent(
-                reinterpret_cast<const PBLUETOOTH_GATT_VALUE_CHANGED_EVENT>(eventOutParameter));
+    CharacteristicValueEvent *e = new CharacteristicValueEvent(
+                reinterpret_cast<const BLUETOOTH_GATT_VALUE_CHANGED_EVENT *>(eventOutParameter));
 
     QCoreApplication::postEvent(target, e);
 }
@@ -668,11 +668,11 @@ static BTH_LE_GATT_DESCRIPTOR recoverNativeLeGattDescriptor(
 
 void QLowEnergyControllerPrivateWin32::customEvent(QEvent *e)
 {
-    if (e->type() != CharactericticValueEventType)
+    if (e->type() != CharacteristicValueEventType)
         return;
 
-    const CharactericticValueEvent *characteristicEvent
-            = static_cast<CharactericticValueEvent *>(e);
+    const CharacteristicValueEvent *characteristicEvent
+            = static_cast<CharacteristicValueEvent *>(e);
 
     updateValueOfCharacteristic(characteristicEvent->m_handle,
                                 characteristicEvent->m_value, false);

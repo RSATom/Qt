@@ -134,8 +134,9 @@ class QuicMemoryCacheBackend : public QuicSimpleServerBackend {
   // 'response'.
   void AddDefaultResponse(QuicBackendResponse* response);
 
-  // |cache_cirectory| can be generated using `wget -p --save-headers <url>`.
-  void InitializeFromDirectory(const std::string& cache_directory);
+  // Once called, URLs which have a numeric path will send a dynamically
+  // generated response of that many bytes.
+  void GenerateDynamicResponses();
 
   // Find all the server push resources associated with |request_url|.
   std::list<QuicBackendResponse::ServerPushInfo> GetServerPushResources(
@@ -177,15 +178,19 @@ class QuicMemoryCacheBackend : public QuicSimpleServerBackend {
 
   // Cached responses.
   QuicUnorderedMap<std::string, std::unique_ptr<QuicBackendResponse>> responses_
-      GUARDED_BY(response_mutex_);
+      QUIC_GUARDED_BY(response_mutex_);
 
   // The default response for cache misses, if set.
   std::unique_ptr<QuicBackendResponse> default_response_
-      GUARDED_BY(response_mutex_);
+      QUIC_GUARDED_BY(response_mutex_);
+
+  // The generate bytes response, if set.
+  std::unique_ptr<QuicBackendResponse> generate_bytes_response_
+      QUIC_GUARDED_BY(response_mutex_);
 
   // A map from request URL to associated server push responses (if any).
   std::multimap<std::string, QuicBackendResponse::ServerPushInfo>
-      server_push_resources_ GUARDED_BY(response_mutex_);
+      server_push_resources_ QUIC_GUARDED_BY(response_mutex_);
 
   // Protects against concurrent access from test threads setting responses, and
   // server threads accessing those responses.

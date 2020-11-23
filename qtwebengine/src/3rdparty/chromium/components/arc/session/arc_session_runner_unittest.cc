@@ -13,7 +13,7 @@
 #include "base/run_loop.h"
 #include "base/single_thread_task_runner.h"
 #include "base/test/metrics/histogram_tester.h"
-#include "base/test/scoped_task_environment.h"
+#include "base/test/task_environment.h"
 #include "chromeos/dbus/session_manager/session_manager_client.h"
 #include "components/arc/arc_util.h"
 #include "components/arc/session/arc_session_runner.h"
@@ -33,10 +33,11 @@ constexpr int kContainerCrashedEarly =
     static_cast<int>(ArcContainerLifetimeEvent::CONTAINER_CRASHED_EARLY);
 constexpr int kContainerCrashed =
     static_cast<int>(ArcContainerLifetimeEvent::CONTAINER_CRASHED);
+constexpr char kDefaultLocale[] = "en-US";
 
-ArcSession::UpgradeParams DefaultUpgradeParams() {
-  ArcSession::UpgradeParams params;
-  params.locale = "en-US";
+UpgradeParams DefaultUpgradeParams() {
+  UpgradeParams params;
+  params.locale = kDefaultLocale;
   return params;
 }
 
@@ -56,8 +57,7 @@ class ArcSessionRunnerTest : public testing::Test,
                              public ArcSessionRunner::Observer {
  public:
   ArcSessionRunnerTest()
-      : scoped_task_environment_(
-            base::test::ScopedTaskEnvironment::MainThreadType::UI) {}
+      : task_environment_(base::test::TaskEnvironment::MainThreadType::UI) {}
 
   void SetUp() override {
     chromeos::SessionManagerClient::InitializeFakeInMemory();
@@ -137,7 +137,7 @@ class ArcSessionRunnerTest : public testing::Test,
   bool stopped_called_;
   bool restarting_called_;
   std::unique_ptr<ArcSessionRunner> arc_session_runner_;
-  base::test::ScopedTaskEnvironment scoped_task_environment_;
+  base::test::TaskEnvironment task_environment_;
 
   DISALLOW_COPY_AND_ASSIGN(ArcSessionRunnerTest);
 };
@@ -295,6 +295,9 @@ TEST_F(ArcSessionRunnerTest, Restart) {
   EXPECT_TRUE(restarting_called());
   ASSERT_TRUE(arc_session());
   EXPECT_TRUE(arc_session()->is_running());
+  // Checks if the restart retains the original parameter.
+  EXPECT_EQ(std::string(kDefaultLocale),
+            arc_session()->upgrade_locale_param());
 
   arc_session_runner()->RequestStop();
   EXPECT_FALSE(arc_session());

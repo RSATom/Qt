@@ -58,8 +58,6 @@ int main(int argc, char **argv)
 {
     QGuiApplication app(argc, argv);
 
-    qmlRegisterType<XorBlender>("SceneGraphRendering", 1, 0, "XorBlender");
-
     QQuickView view;
     view.setResizeMode(QQuickView::SizeRootObjectToView);
     view.setSource(QUrl("qrc:///scenegraph/twotextureproviders/main.qml"));

@@ -12,6 +12,7 @@
 #include "base/location.h"
 #include "base/logging.h"
 #include "base/message_loop/message_loop_current.h"
+#include "base/message_loop/message_pump_type.h"
 #include "base/path_service.h"
 #include "base/process/process_metrics.h"
 #include "base/run_loop.h"
@@ -24,7 +25,7 @@
 #include "net/base/ip_endpoint.h"
 #include "net/base/net_errors.h"
 #include "net/base/port_util.h"
-#include "net/cert/pem_tokenizer.h"
+#include "net/cert/pem.h"
 #include "net/cert/test_root_certs.h"
 #include "net/log/net_log_source.h"
 #include "net/socket/ssl_server_socket.h"
@@ -84,6 +85,12 @@ void EmbeddedTestServer::SetConnectionListener(
   DCHECK(!io_thread_.get())
       << "ConnectionListener must be set before starting the server.";
   connection_listener_ = listener;
+}
+
+EmbeddedTestServerHandle EmbeddedTestServer::StartAndReturnHandle(int port) {
+  if (!Start(port))
+    return EmbeddedTestServerHandle();
+  return EmbeddedTestServerHandle(this);
 }
 
 bool EmbeddedTestServer::Start(int port) {
@@ -165,6 +172,7 @@ void EmbeddedTestServer::InitializeSSLServerContext() {
 
   std::unique_ptr<crypto::RSAPrivateKey> server_key(
       crypto::RSAPrivateKey::CreateFromPrivateKeyInfo(key_vector));
+  CHECK(server_key);
   context_ =
       CreateSSLServerContext(GetCertificate().get(), *server_key, ssl_config_);
 }
@@ -174,7 +182,7 @@ void EmbeddedTestServer::StartAcceptingConnections() {
   DCHECK(!io_thread_.get())
       << "Server must not be started while server is running";
   base::Thread::Options thread_options;
-  thread_options.message_loop_type = base::MessagePump::Type::IO;
+  thread_options.message_pump_type = base::MessagePumpType::IO;
   io_thread_ = std::make_unique<base::Thread>("EmbeddedTestServer IO Thread");
   CHECK(io_thread_->StartWithOptions(thread_options));
   CHECK(io_thread_->WaitUntilThreadStarted());
@@ -242,9 +250,10 @@ void EmbeddedTestServer::HandleRequest(HttpConnection* connection,
   }
 
   response->SendResponse(
-      base::Bind(&HttpConnection::SendResponseBytes, connection->GetWeakPtr()),
-      base::Bind(&EmbeddedTestServer::DidClose, weak_factory_.GetWeakPtr(),
-                 connection));
+      base::BindRepeating(&HttpConnection::SendResponseBytes,
+                          connection->GetWeakPtr()),
+      base::BindOnce(&EmbeddedTestServer::DidClose, weak_factory_.GetWeakPtr(),
+                     connection));
 }
 
 GURL EmbeddedTestServer::GetURL(const std::string& relative_url) const {
@@ -309,12 +318,20 @@ std::string EmbeddedTestServer::GetCertificateName() const {
       return "localhost_cert.pem";
     case CERT_EXPIRED:
       return "expired_cert.pem";
+    case CERT_CHAIN_WRONG_ROOT:
+      // This chain uses its own dedicated test root certificate to avoid
+      // side-effects that may affect testing.
+      return "redundant-server-chain.pem";
     case CERT_COMMON_NAME_ONLY:
       return "common_name_only.pem";
     case CERT_SHA1_LEAF:
       return "sha1_leaf.pem";
     case CERT_OK_BY_INTERMEDIATE:
       return "ok_cert_by_intermediate.pem";
+    case CERT_BAD_VALIDITY:
+      return "bad_validity.pem";
+    case CERT_TEST_NAMES:
+      return "test_names.pem";
   }
 
   return "ok_cert.pem";
@@ -382,10 +399,10 @@ std::unique_ptr<StreamSocket> EmbeddedTestServer::DoSSLUpgrade(
 }
 
 void EmbeddedTestServer::DoAcceptLoop() {
-  while (
-      listen_socket_->Accept(&accepted_socket_,
-                             base::Bind(&EmbeddedTestServer::OnAcceptCompleted,
-                                        base::Unretained(this))) == OK) {
+  while (listen_socket_->Accept(
+             &accepted_socket_,
+             base::BindOnce(&EmbeddedTestServer::OnAcceptCompleted,
+                            base::Unretained(this))) == OK) {
     HandleAcceptResult(std::move(accepted_socket_));
   }
 }
@@ -433,8 +450,8 @@ void EmbeddedTestServer::HandleAcceptResult(
     SSLServerSocket* ssl_socket =
         static_cast<SSLServerSocket*>(http_connection->socket_.get());
     int rv = ssl_socket->Handshake(
-        base::Bind(&EmbeddedTestServer::OnHandshakeDone, base::Unretained(this),
-                   http_connection));
+        base::BindOnce(&EmbeddedTestServer::OnHandshakeDone,
+                       base::Unretained(this), http_connection));
     if (rv != ERR_IO_PENDING)
       OnHandshakeDone(http_connection, rv);
   } else {
@@ -444,9 +461,9 @@ void EmbeddedTestServer::HandleAcceptResult(
 
 void EmbeddedTestServer::ReadData(HttpConnection* connection) {
   while (true) {
-    int rv =
-        connection->ReadData(base::Bind(&EmbeddedTestServer::OnReadCompleted,
-                                        base::Unretained(this), connection));
+    int rv = connection->ReadData(
+        base::BindOnce(&EmbeddedTestServer::OnReadCompleted,
+                       base::Unretained(this), connection));
     if (rv == ERR_IO_PENDING)
       return;
     if (!HandleReadResult(connection, rv))
@@ -518,6 +535,28 @@ bool EmbeddedTestServer::PostTaskToIOThreadAndWait(
   run_loop.Run();
 
   return true;
+}
+
+EmbeddedTestServerHandle::EmbeddedTestServerHandle(
+    EmbeddedTestServerHandle&& other) {
+  operator=(std::move(other));
+}
+
+EmbeddedTestServerHandle& EmbeddedTestServerHandle::operator=(
+    EmbeddedTestServerHandle&& other) {
+  EmbeddedTestServerHandle temporary;
+  std::swap(other.test_server_, temporary.test_server_);
+  std::swap(temporary.test_server_, test_server_);
+  return *this;
+}
+
+EmbeddedTestServerHandle::EmbeddedTestServerHandle(
+    EmbeddedTestServer* test_server)
+    : test_server_(test_server) {}
+
+EmbeddedTestServerHandle::~EmbeddedTestServerHandle() {
+  if (test_server_)
+    EXPECT_TRUE(test_server_->ShutdownAndWaitUntilComplete());
 }
 
 }  // namespace test_server

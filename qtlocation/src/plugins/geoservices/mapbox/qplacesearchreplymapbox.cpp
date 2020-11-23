@@ -104,7 +104,7 @@ QPlaceResult parsePlaceResult(const QJsonObject &response, const QString &attrib
         const QString categoryString = properties.value(QStringLiteral("category")).toString();
         if (!categoryString.isEmpty()) {
             QList<QPlaceCategory> categories;
-            for (const QString &categoryId : categoryString.split(QStringLiteral(", "), QString::SkipEmptyParts)) {
+            for (const QString &categoryId : categoryString.split(QStringLiteral(", "), Qt::SkipEmptyParts)) {
                 QPlaceCategory category;
                 category.setName(QMapboxCommon::mapboxNameForCategory(categoryId));
                 category.setCategoryId(categoryId);
@@ -142,8 +142,7 @@ QPlaceSearchReplyMapbox::QPlaceSearchReplyMapbox(const QPlaceSearchRequest &requ
     setRequest(request);
 
     connect(reply, &QNetworkReply::finished, this, &QPlaceSearchReplyMapbox::onReplyFinished);
-    connect(reply, QOverload<QNetworkReply::NetworkError>::of(&QNetworkReply::error),
-            this, &QPlaceSearchReplyMapbox::onNetworkError);
+    connect(reply, &QNetworkReply::errorOccurred, this, &QPlaceSearchReplyMapbox::onNetworkError);
 
     connect(this, &QPlaceReply::aborted, reply, &QNetworkReply::abort);
     connect(this, &QObject::destroyed, reply, &QObject::deleteLater);

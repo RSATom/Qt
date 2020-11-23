@@ -7,10 +7,13 @@
 #include <utility>
 
 #include "base/logging.h"
+#include "base/macros.h"
 #include "base/run_loop.h"
-#include "services/service_manager/public/cpp/interface_provider.h"
+#include "mojo/public/cpp/bindings/pending_receiver.h"
+#include "third_party/blink/public/common/browser_interface_broker_proxy.h"
 #include "third_party/blink/renderer/bindings/core/v8/script_function.h"
 #include "third_party/blink/renderer/bindings/core/v8/v8_dom_exception.h"
+#include "third_party/blink/renderer/bindings/modules/v8/v8_wake_lock_sentinel.h"
 #include "third_party/blink/renderer/core/dom/document.h"
 #include "third_party/blink/renderer/modules/wake_lock/wake_lock_type.h"
 #include "third_party/blink/renderer/platform/bindings/v8_binding.h"
@@ -69,10 +72,11 @@ WakeLockType ToBlinkWakeLockType(device::mojom::blink::WakeLockType type) {
 MockWakeLock::MockWakeLock() = default;
 MockWakeLock::~MockWakeLock() = default;
 
-void MockWakeLock::Bind(device::mojom::blink::WakeLockRequest request) {
-  DCHECK(!binding_.is_bound());
-  binding_.Bind(std::move(request));
-  binding_.set_connection_error_handler(
+void MockWakeLock::Bind(
+    mojo::PendingReceiver<device::mojom::blink::WakeLock> receiver) {
+  DCHECK(!receiver_.is_bound());
+  receiver_.Bind(std::move(receiver));
+  receiver_.set_disconnect_handler(
       WTF::Bind(&MockWakeLock::OnConnectionError, WTF::Unretained(this)));
 }
 
@@ -95,8 +99,7 @@ void MockWakeLock::WaitForCancelation() {
 }
 
 void MockWakeLock::OnConnectionError() {
-  if (binding_.is_bound())
-    binding_.Unbind();
+  receiver_.reset();
   CancelWakeLock();
 }
 
@@ -112,7 +115,8 @@ void MockWakeLock::CancelWakeLock() {
     std::move(cancel_wake_lock_callback_).Run();
 }
 
-void MockWakeLock::AddClient(device::mojom::blink::WakeLockRequest) {}
+void MockWakeLock::AddClient(
+    mojo::PendingReceiver<device::mojom::blink::WakeLock>) {}
 void MockWakeLock::ChangeType(device::mojom::blink::WakeLockType,
                               ChangeTypeCallback) {}
 void MockWakeLock::HasWakeLockForTests(HasWakeLockForTestsCallback) {}
@@ -123,8 +127,8 @@ MockWakeLockService::MockWakeLockService() = default;
 MockWakeLockService::~MockWakeLockService() = default;
 
 void MockWakeLockService::BindRequest(mojo::ScopedMessagePipeHandle handle) {
-  bindings_.AddBinding(this,
-                       mojom::blink::WakeLockServiceRequest(std::move(handle)));
+  receivers_.Add(this, mojo::PendingReceiver<mojom::blink::WakeLockService>(
+                           std::move(handle)));
 }
 
 MockWakeLock& MockWakeLockService::get_wake_lock(WakeLockType type) {
@@ -136,9 +140,9 @@ void MockWakeLockService::GetWakeLock(
     device::mojom::blink::WakeLockType type,
     device::mojom::blink::WakeLockReason reason,
     const String& description,
-    device::mojom::blink::WakeLockRequest request) {
+    mojo::PendingReceiver<device::mojom::blink::WakeLock> receiver) {
   size_t pos = static_cast<size_t>(ToBlinkWakeLockType(type));
-  mock_wake_lock_[pos].Bind(std::move(request));
+  mock_wake_lock_[pos].Bind(std::move(receiver));
 }
 
 // MockPermissionService
@@ -147,9 +151,10 @@ MockPermissionService::MockPermissionService() = default;
 MockPermissionService::~MockPermissionService() = default;
 
 void MockPermissionService::BindRequest(mojo::ScopedMessagePipeHandle handle) {
-  DCHECK(!binding_.is_bound());
-  binding_.Bind(mojom::blink::PermissionServiceRequest(std::move(handle)));
-  binding_.set_connection_error_handler(WTF::Bind(
+  DCHECK(!receiver_.is_bound());
+  receiver_.Bind(mojo::PendingReceiver<mojom::blink::PermissionService>(
+      std::move(handle)));
+  receiver_.set_disconnect_handler(WTF::Bind(
       &MockPermissionService::OnConnectionError, WTF::Unretained(this)));
 }
 
@@ -161,7 +166,7 @@ void MockPermissionService::SetPermissionResponse(WakeLockType type,
 }
 
 void MockPermissionService::OnConnectionError() {
-  binding_.Unbind();
+  ignore_result(receiver_.Unbind());
 }
 
 bool MockPermissionService::GetWakeLockTypeFromDescriptor(
@@ -235,7 +240,7 @@ void MockPermissionService::RevokePermission(PermissionDescriptorPtr permission,
 void MockPermissionService::AddPermissionObserver(
     PermissionDescriptorPtr permission,
     PermissionStatus last_known_status,
-    mojom::blink::PermissionObserverPtr) {
+    mojo::PendingRemote<mojom::blink::PermissionObserver>) {
   NOTREACHED();
 }
 
@@ -243,16 +248,24 @@ void MockPermissionService::AddPermissionObserver(
 
 WakeLockTestingContext::WakeLockTestingContext(
     MockWakeLockService* mock_wake_lock_service) {
-  service_manager::InterfaceProvider::TestApi test_api(
-      GetDocument()->GetInterfaceProvider());
-  test_api.SetBinderForName(
+  GetDocument()->GetBrowserInterfaceBroker().SetBinderForTesting(
       mojom::blink::WakeLockService::Name_,
       WTF::BindRepeating(&MockWakeLockService::BindRequest,
                          WTF::Unretained(mock_wake_lock_service)));
-  test_api.SetBinderForName(
+  GetDocument()->GetBrowserInterfaceBroker().SetBinderForTesting(
       mojom::blink::PermissionService::Name_,
       WTF::BindRepeating(&MockPermissionService::BindRequest,
                          WTF::Unretained(&permission_service_)));
+}
+
+WakeLockTestingContext::~WakeLockTestingContext() {
+  // Remove the testing binder to avoid crashes between tests caused by
+  // our mocks rebinding an already-bound Binding.
+  // See https://crbug.com/1010116 for more information.
+  GetDocument()->GetBrowserInterfaceBroker().SetBinderForTesting(
+      mojom::blink::WakeLockService::Name_, {});
+  GetDocument()->GetBrowserInterfaceBroker().SetBinderForTesting(
+      mojom::blink::PermissionService::Name_, {});
 }
 
 Document* WakeLockTestingContext::GetDocument() {
@@ -305,25 +318,16 @@ v8::Promise::PromiseState ScriptPromiseUtils::GetPromiseState(
 }
 
 // static
-String ScriptPromiseUtils::GetPromiseResolutionAsString(
-    const ScriptPromise& promise) {
-  auto v8_promise = promise.V8Value().As<v8::Promise>();
-  if (v8_promise->State() == v8::Promise::kPending) {
-    return g_empty_string;
-  }
-  ScriptValue promise_result(promise.GetScriptValue().GetScriptState(),
-                             v8_promise->Result());
-  String value;
-  if (!promise_result.ToString(value)) {
-    return g_empty_string;
-  }
-  return value;
-}
-
-// static
 DOMException* ScriptPromiseUtils::GetPromiseResolutionAsDOMException(
     const ScriptPromise& promise) {
   return V8DOMException::ToImplWithTypeCheck(
+      promise.GetIsolate(), promise.V8Value().As<v8::Promise>()->Result());
+}
+
+// static
+WakeLockSentinel* ScriptPromiseUtils::GetPromiseResolutionAsWakeLockSentinel(
+    const ScriptPromise& promise) {
+  return V8WakeLockSentinel::ToImplWithTypeCheck(
       promise.GetIsolate(), promise.V8Value().As<v8::Promise>()->Result());
 }
 

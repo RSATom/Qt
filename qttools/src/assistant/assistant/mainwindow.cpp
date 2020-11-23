@@ -60,7 +60,6 @@
 
 #include <QtWidgets/QAction>
 #include <QtWidgets/QComboBox>
-#include <QtWidgets/QDesktopWidget>
 #include <QtWidgets/QDockWidget>
 #include <QtGui/QFontDatabase>
 #include <QtGui/QImageReader>
@@ -677,12 +676,12 @@ void MainWindow::setupActions()
     connect(m_centralWidget, &CentralWidget::backwardAvailable,
             globalActions, &GlobalActions::updateActions);
     connect(m_centralWidget, &CentralWidget::highlighted,
-            this, [this](const QString &link) { statusBar()->showMessage(link);} );
+            this, [this](const QUrl &link) { statusBar()->showMessage(link.toString());} );
 
     // index window
     connect(m_indexWindow, &IndexWindow::linkActivated,
             m_centralWidget, &CentralWidget::setSource);
-    connect(m_indexWindow, &IndexWindow::linksActivated,
+    connect(m_indexWindow, &IndexWindow::documentsActivated,
             this, &MainWindow::showTopicChooser);
     connect(m_indexWindow, &IndexWindow::escapePressed,
             this, &MainWindow::activateCurrentCentralWidgetTab);
@@ -822,11 +821,11 @@ void MainWindow::gotoAddress()
     m_centralWidget->setSource(m_addressLineEdit->text());
 }
 
-void MainWindow::showTopicChooser(const QMap<QString, QUrl> &links,
+void MainWindow::showTopicChooser(const QList<QHelpLink> &documents,
                                   const QString &keyword)
 {
     TRACE_OBJ
-    TopicChooser tc(this, keyword, links);
+    TopicChooser tc(this, keyword, documents);
     if (tc.exec() == QDialog::Accepted) {
         m_centralWidget->setSource(tc.link());
     }

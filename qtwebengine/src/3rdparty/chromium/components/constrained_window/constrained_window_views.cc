@@ -208,12 +208,12 @@ views::Widget* ShowWebModalDialogWithOverlayViews(
 views::Widget* CreateWebModalDialogViews(views::WidgetDelegate* dialog,
                                          content::WebContents* web_contents) {
   DCHECK_EQ(ui::MODAL_TYPE_CHILD, dialog->GetModalType());
+  web_modal::WebContentsModalDialogManager* manager =
+      web_modal::WebContentsModalDialogManager::FromWebContents(web_contents);
+  CHECK(manager);
   return views::DialogDelegate::CreateDialogWidget(
       dialog, nullptr,
-      web_modal::WebContentsModalDialogManager::FromWebContents(web_contents)
-          ->delegate()
-          ->GetWebContentsModalDialogHost()
-          ->GetHostView());
+      manager->delegate()->GetWebContentsModalDialogHost()->GetHostView());
 }
 
 views::Widget* CreateBrowserModalDialogViews(views::DialogDelegate* dialog,
@@ -227,7 +227,7 @@ views::Widget* CreateBrowserModalDialogViews(views::DialogDelegate* dialog,
   views::Widget* widget =
       views::DialogDelegate::CreateDialogWidget(dialog, nullptr, parent_view);
 
-  bool requires_positioning = dialog->ShouldUseCustomFrame();
+  bool requires_positioning = dialog->use_custom_frame();
 
 #if defined(OS_MACOSX)
   // On Mac, window modal dialogs are displayed as sheets, so their position is

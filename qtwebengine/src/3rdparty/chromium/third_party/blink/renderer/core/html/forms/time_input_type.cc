@@ -42,11 +42,8 @@
 #include "third_party/blink/renderer/platform/wtf/date_math.h"
 #include "third_party/blink/renderer/platform/wtf/math_extras.h"
 #include "third_party/blink/renderer/platform/wtf/text/wtf_string.h"
-#include "third_party/blink/renderer/platform/wtf/time.h"
 
 namespace blink {
-
-using namespace html_names;
 
 static const int kTimeDefaultStep = 60;
 static const int kTimeDefaultStepBase = 0;
@@ -66,7 +63,7 @@ const AtomicString& TimeInputType::FormControlType() const {
 Decimal TimeInputType::DefaultValueForStepUp() const {
   DateComponents date;
   date.SetMillisecondsSinceMidnight(
-      ConvertToLocalTime(base::Time::Now().ToDoubleT() * 1000.0));
+      ConvertToLocalTime(base::Time::Now()).InMillisecondsF());
   double milliseconds = date.MillisecondsSinceEpoch();
   DCHECK(std::isfinite(milliseconds));
   return Decimal::FromDouble(milliseconds);
@@ -155,11 +152,13 @@ void TimeInputType::SetupLayoutParameters(
         layout_parameters.locale.ShortTimeFormat();
     layout_parameters.fallback_date_time_format = "HH:mm";
   }
-  if (!ParseToDateComponents(GetElement().FastGetAttribute(kMinAttr),
-                             &layout_parameters.minimum))
+  if (!ParseToDateComponents(
+          GetElement().FastGetAttribute(html_names::kMinAttr),
+          &layout_parameters.minimum))
     layout_parameters.minimum = DateComponents();
-  if (!ParseToDateComponents(GetElement().FastGetAttribute(kMaxAttr),
-                             &layout_parameters.maximum))
+  if (!ParseToDateComponents(
+          GetElement().FastGetAttribute(html_names::kMaxAttr),
+          &layout_parameters.maximum))
     layout_parameters.maximum = DateComponents();
 }
 

@@ -28,26 +28,48 @@ private:
     friend class GrProxyProvider; // for ctors
 
     // Deferred version
-    GrTextureRenderTargetProxy(const GrCaps&, const GrBackendFormat&, const GrSurfaceDesc&,
-                               int sampleCnt, GrSurfaceOrigin, GrMipMapped,
-                               const GrSwizzle& textureSwizzle, const GrSwizzle& outputSwizzle,
-                               SkBackingFit, SkBudgeted, GrProtected, GrInternalSurfaceFlags);
+    GrTextureRenderTargetProxy(const GrCaps&,
+                               const GrBackendFormat&,
+                               const GrSurfaceDesc&,
+                               int sampleCnt,
+                               GrSurfaceOrigin,
+                               GrMipMapped,
+                               GrMipMapsStatus,
+                               const GrSwizzle& textureSwizzle,
+                               SkBackingFit,
+                               SkBudgeted,
+                               GrProtected,
+                               GrInternalSurfaceFlags,
+                               UseAllocator);
 
     // Lazy-callback version
-    GrTextureRenderTargetProxy(LazyInstantiateCallback&&, LazyInstantiationType,
-                               const GrBackendFormat&, const GrSurfaceDesc& desc, int sampleCnt,
-                               GrSurfaceOrigin, GrMipMapped, const GrSwizzle& textureSwizzle,
-                               const GrSwizzle& outputSwizzle, SkBackingFit, SkBudgeted,
-                               GrProtected, GrInternalSurfaceFlags);
+    GrTextureRenderTargetProxy(const GrCaps&,
+                               LazyInstantiateCallback&&,
+                               const GrBackendFormat&,
+                               const GrSurfaceDesc& desc,
+                               int sampleCnt,
+                               GrSurfaceOrigin,
+                               GrMipMapped,
+                               GrMipMapsStatus,
+                               const GrSwizzle& textureSwizzle,
+                               SkBackingFit,
+                               SkBudgeted,
+                               GrProtected,
+                               GrInternalSurfaceFlags,
+                               UseAllocator);
 
     // Wrapped version
-    GrTextureRenderTargetProxy(sk_sp<GrSurface>, GrSurfaceOrigin, const GrSwizzle& textureSwizzle,
-                               const GrSwizzle& outputSwizzle);
+    GrTextureRenderTargetProxy(sk_sp<GrSurface>,
+                               GrSurfaceOrigin,
+                               const GrSwizzle& textureSwizzle,
+                               UseAllocator);
+
+    void initSurfaceFlags(const GrCaps&);
 
     bool instantiate(GrResourceProvider*) override;
     sk_sp<GrSurface> createSurface(GrResourceProvider*) const override;
 
-    size_t onUninstantiatedGpuMemorySize() const override;
+    size_t onUninstantiatedGpuMemorySize(const GrCaps&) const override;
 
     SkDEBUGCODE(void onValidateSurface(const GrSurface*) override;)
 };

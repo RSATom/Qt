@@ -5,13 +5,17 @@ include_rules = [
   "+components/viz/common",
   "+components/viz/host",
   "+device/fido",
+  "+services/content/public",
+  "+services/data_decoder/public",
   "+services/device/public",
   "+services/media_session/public",
   "+services/metrics/public/cpp",
   "+services/network/public/cpp",
+  "+services/resource_coordinator/public",
   "+services/service_manager/sandbox",
+  "+services/tracing/public/mojom",
   "+services/video_capture/public/mojom",
-  "+services/viz/public/interfaces",
+  "+services/viz/public/mojom",
 ]
 
 specific_include_rules = {
@@ -19,10 +23,6 @@ specific_include_rules = {
     "+content/browser",
     "+content/common/content_constants_internal.h",
     "-content/browser/loader",
-
-    # TODO: content/browser/loader is being separated out of content, and this
-    # file will be moved elsewhere. See http://crbug.com/598073.
-    "!content/browser/loader/resource_dispatcher_host_impl.h",
   ],
 
   "desktop_capture\.h": [

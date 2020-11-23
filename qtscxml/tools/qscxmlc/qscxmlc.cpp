@@ -57,13 +57,13 @@ int write(TranslationUnit *tu)
 
     QFile outH(tu->outHFileName);
     if (!outH.open(QFile::WriteOnly)) {
-        errs << QStringLiteral("Error: cannot open '%1': %2").arg(outH.fileName(), outH.errorString()) << endl;
+        errs << QStringLiteral("Error: cannot open '%1': %2").arg(outH.fileName(), outH.errorString()) << Qt::endl;
         return CannotOpenOutputHeaderFileError;
     }
 
     QFile outCpp(tu->outCppFileName);
     if (!outCpp.open(QFile::WriteOnly)) {
-        errs << QStringLiteral("Error: cannot open '%1': %2").arg(outCpp.fileName(), outCpp.errorString()) << endl;
+        errs << QStringLiteral("Error: cannot open '%1': %2").arg(outCpp.fileName(), outCpp.errorString()) << Qt::endl;
         return CannotOpenOutputCppFileError;
     }
 
@@ -139,13 +139,13 @@ int run(const QStringList &arguments)
     const QStringList inputFiles = cmdParser.positionalArguments();
 
     if (inputFiles.count() < 1) {
-        errs << QCoreApplication::translate("main", "Error: no input file.") << endl;
+        errs << QCoreApplication::translate("main", "Error: no input file.") << Qt::endl;
         cmdParser.showHelp(NoInputFilesError);
     }
 
     if (inputFiles.count() > 1) {
         errs << QCoreApplication::translate("main", "Error: unexpected argument(s): %1")
-                .arg(inputFiles.mid(1).join(QLatin1Char(' '))) << endl;
+                .arg(inputFiles.mid(1).join(QLatin1Char(' '))) << Qt::endl;
         cmdParser.showHelp(NoInputFilesError);
     }
 
@@ -180,7 +180,7 @@ int run(const QStringList &arguments)
     if (!compiler.errors().isEmpty()) {
         const auto errors = compiler.errors();
         for (const QScxmlError &error : errors) {
-            errs << error.toString() << endl;
+            errs << error.toString() << Qt::endl;
         }
         return ParseError;
     }
@@ -190,7 +190,7 @@ int run(const QStringList &arguments)
         Q_ASSERT(!compiler.errors().isEmpty());
         const auto errors = compiler.errors();
         for (const QScxmlError &error : errors) {
-            errs << error.toString() << endl;
+            errs << error.toString() << Qt::endl;
         }
         return ScxmlVerificationError;
     }

@@ -472,7 +472,7 @@ QVariant QScriptBreakpointsModel::headerData(int section, Qt::Orientation orient
 Qt::ItemFlags QScriptBreakpointsModel::flags(const QModelIndex &index) const
 {
     if (!index.isValid())
-        return 0;
+        return {};
     Qt::ItemFlags ret = QAbstractItemModel::flags(index);
     switch (index.column()) {
     case 0:

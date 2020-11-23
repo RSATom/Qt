@@ -528,9 +528,9 @@ QT_BEGIN_NAMESPACE
 */
 
 /*!
-    \fn QString QStringView::arg(Args &&...args) const
-    \fn QString QLatin1String::arg(Args &&...args) const
-    \fn QString QString::arg(Args &&...args) const
+    \fn template <typename...Args> QString QStringView::arg(Args &&...args) const
+    \fn template <typename...Args> QString QLatin1String::arg(Args &&...args) const
+    \fn template <typename...Args> QString QString::arg(Args &&...args) const
     \since 5.14
 
     Replaces occurrences of \c{%N} in this string with the corresponding
@@ -692,15 +692,29 @@ QT_BEGIN_NAMESPACE
 */
 
 /*!
-    \fn int QStringView::compare(QStringView other, Qt::CaseSensitivity cs) const
+    \fn int QStringView::compare(QStringView str, Qt::CaseSensitivity cs) const
     \since 5.12
 
-    Compares this string-view with the \a other string-view and returns an
-    integer less than, equal to, or greater than zero if this string-view
-    is less than, equal to, or greater than the other string-view.
+    Returns an integer that compares to zero as this string-view compares to the
+    string-view \a str.
 
-    If \a cs is Qt::CaseSensitive, the comparison is case sensitive;
-    otherwise the comparison is case insensitive.
+    If \a cs is Qt::CaseSensitive (the default), the comparison is case sensitive;
+    otherwise the comparison is case-insensitive.
+
+    \sa operator==(), operator<(), operator>()
+*/
+
+/*!
+    \fn int QStringView::compare(QLatin1String l1, Qt::CaseSensitivity cs) const
+    \fn int QStringView::compare(QChar ch) const
+    \fn int QStringView::compare(QChar ch, Qt::CaseSensitivity cs) const
+    \since 5.14
+
+    Returns an integer that compares to zero as this string-view compares to the
+    Latin-1 string \a l1, or character \a ch, respectively.
+
+    If \a cs is Qt::CaseSensitive (the default), the comparison is case sensitive;
+    otherwise the comparison is case-insensitive.
 
     \sa operator==(), operator<(), operator>()
 */
@@ -862,6 +876,21 @@ QT_BEGIN_NAMESPACE
     Returns \c true if the string is read right to left.
 
     \sa QString::isRightToLeft()
+*/
+
+/*!
+    \fn bool QStringView::isValidUtf16() const
+    \since 5.15
+
+    Returns \c true if the string contains valid UTF-16 encoded data,
+    or \c false otherwise.
+
+    Note that this function does not perform any special validation of the
+    data; it merely checks if it can be successfully decoded from UTF-16.
+    The data is assumed to be in host byte order; the presence of a BOM
+    is meaningless.
+
+    \sa QString::isValidUtf16()
 */
 
 /*!

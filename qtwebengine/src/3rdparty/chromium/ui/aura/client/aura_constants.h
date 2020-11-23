@@ -94,12 +94,6 @@ AURA_EXPORT extern const WindowProperty<FocusClient*>* const kFocusClientKey;
 // WebContentsViews find the windows that should constrain NPAPI plugins.
 AURA_EXPORT extern const WindowProperty<Window*>* const kHostWindowKey;
 
-// A property key to store the maximum size of the window.
-AURA_EXPORT extern const WindowProperty<gfx::Size*>* const kMaximumSize;
-
-// A property key to store the minimum size of the window.
-AURA_EXPORT extern const WindowProperty<gfx::Size*>* const kMinimumSize;
-
 // The modal parent of a child modal window.
 AURA_EXPORT extern const WindowProperty<Window*>* const kChildModalParentKey;
 
@@ -133,12 +127,6 @@ AURA_EXPORT extern const WindowProperty<ui::WindowShowState>* const
 // A property key to store the resize behavior, which is a bitmask of the
 // ResizeBehavior values.
 AURA_EXPORT extern const WindowProperty<int>* const kResizeBehaviorKey;
-
-// Reserves a number of dip around the window (i.e. inset from its exterior
-// border) for event routing back to the top level window. This is used for
-// routing events to toplevel window resize handles. It should only be respected
-// for restored windows (maximized and fullscreen can't be drag-resized).
-AURA_EXPORT extern const WindowProperty<int>* const kResizeHandleInset;
 
 // A property key to store the restore bounds in screen coordinates for a
 // window.

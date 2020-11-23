@@ -9,7 +9,7 @@
 #include "base/bind_helpers.h"
 #include "base/run_loop.h"
 #include "base/test/gmock_callback_support.h"
-#include "base/test/scoped_task_environment.h"
+#include "base/test/task_environment.h"
 #include "media/base/media_util.h"
 #include "media/base/mock_filters.h"
 #include "media/base/video_decoder_config.h"
@@ -38,7 +38,7 @@ class VideoThumbnailDecoderTest : public testing::Test {
     VideoDecoderConfig valid_config(
         kCodecVP8, VP8PROFILE_ANY, VideoDecoderConfig::AlphaMode::kIsOpaque,
         VideoColorSpace(), kNoTransformation, gfx::Size(1, 1), gfx::Rect(1, 1),
-        gfx::Size(1, 1), EmptyExtraData(), Unencrypted());
+        gfx::Size(1, 1), EmptyExtraData(), EncryptionScheme::kUnencrypted);
 
     thumbnail_decoder_ = std::make_unique<VideoThumbnailDecoder>(
         std::move(mock_video_decoder), valid_config, std::vector<uint8_t>{0u});
@@ -69,7 +69,7 @@ class VideoThumbnailDecoderTest : public testing::Test {
     frame_ = std::move(frame);
   }
 
-  base::test::ScopedTaskEnvironment scoped_task_environment_;
+  base::test::TaskEnvironment task_environment_;
 
   MockVideoDecoder* mock_video_decoder_;
   std::unique_ptr<VideoThumbnailDecoder> thumbnail_decoder_;

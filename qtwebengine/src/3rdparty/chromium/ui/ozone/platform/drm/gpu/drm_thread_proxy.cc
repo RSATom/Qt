@@ -8,6 +8,9 @@
 #include <utility>
 
 #include "base/bind.h"
+#include "ui/ozone/common/linux/gbm_wrapper.h"
+#include "ui/ozone/platform/drm/gpu/drm_device.h"
+#include "ui/ozone/platform/drm/gpu/drm_device_generator.h"
 #include "ui/ozone/platform/drm/gpu/drm_thread_message_proxy.h"
 #include "ui/ozone/platform/drm/gpu/drm_window_proxy.h"
 #include "ui/ozone/platform/drm/gpu/gbm_pixmap.h"
@@ -27,6 +30,32 @@ void OnBufferCreatedOnDrmThread(
                                        std::move(framebuffer)));
 }
 
+class GbmDeviceGenerator : public DrmDeviceGenerator {
+ public:
+  GbmDeviceGenerator() {}
+  ~GbmDeviceGenerator() override {}
+
+  // DrmDeviceGenerator:
+  scoped_refptr<DrmDevice> CreateDevice(const base::FilePath& path,
+                                        base::File file,
+                                        bool is_primary_device) override {
+    auto gbm = CreateGbmDevice(file.GetPlatformFile());
+    if (!gbm) {
+      PLOG(ERROR) << "Unable to initialize GBM for " << path.value();
+      return nullptr;
+    }
+
+    auto drm = base::MakeRefCounted<DrmDevice>(
+        path, std::move(file), is_primary_device, std::move(gbm));
+    if (!drm->Initialize())
+      return nullptr;
+    return drm;
+  }
+
+ private:
+  DISALLOW_COPY_AND_ASSIGN(GbmDeviceGenerator);
+};
+
 }  // namespace
 
 DrmThreadProxy::DrmThreadProxy() = default;
@@ -39,8 +68,9 @@ void DrmThreadProxy::BindThreadIntoMessagingProxy(
   messaging_proxy->SetDrmThread(&drm_thread_);
 }
 
-void DrmThreadProxy::StartDrmThread(base::OnceClosure binding_drainer) {
-  drm_thread_.Start(std::move(binding_drainer));
+void DrmThreadProxy::StartDrmThread(base::OnceClosure receiver_drainer) {
+  drm_thread_.Start(std::move(receiver_drainer),
+                    std::make_unique<GbmDeviceGenerator>());
 }
 
 std::unique_ptr<DrmWindowProxy> DrmThreadProxy::CreateDrmWindowProxy(
@@ -57,10 +87,13 @@ void DrmThreadProxy::CreateBuffer(gfx::AcceleratedWidget widget,
                                   scoped_refptr<DrmFramebuffer>* framebuffer) {
   DCHECK(drm_thread_.task_runner())
       << "no task runner! in DrmThreadProxy::CreateBuffer";
+  base::OnceClosure task =
+      base::BindOnce(&DrmThread::CreateBuffer, base::Unretained(&drm_thread_),
+                     widget, size, format, usage, flags, buffer, framebuffer);
   PostSyncTask(
       drm_thread_.task_runner(),
-      base::BindOnce(&DrmThread::CreateBuffer, base::Unretained(&drm_thread_),
-                     widget, size, format, usage, flags, buffer, framebuffer));
+      base::BindOnce(&DrmThread::RunTaskAfterWindowReady,
+                     base::Unretained(&drm_thread_), widget, std::move(task)));
 }
 
 void DrmThreadProxy::CreateBufferAsync(gfx::AcceleratedWidget widget,
@@ -71,14 +104,20 @@ void DrmThreadProxy::CreateBufferAsync(gfx::AcceleratedWidget widget,
                                        CreateBufferAsyncCallback callback) {
   DCHECK(drm_thread_.task_runner())
       << "no task runner! in DrmThreadProxy::CreateBufferAsync";
+  base::OnceClosure task = base::BindOnce(
+      &DrmThread::CreateBufferAsync, base::Unretained(&drm_thread_), widget,
+      size, format, usage, flags,
+      base::BindOnce(OnBufferCreatedOnDrmThread,
+                     base::ThreadTaskRunnerHandle::Get(), std::move(callback)));
+  // Since browser's UI thread blocks until a buffer is returned, we shouldn't
+  // block on |widget| because a blocked UI thread cannot register |widget| and
+  // causes a deadlock. We still want to block on a graphics device, though.
+  // TODO(samans): Remove this hack once OOP-D launches.
+  gfx::AcceleratedWidget blocking_widget = gfx::kNullAcceleratedWidget;
   drm_thread_.task_runner()->PostTask(
-      FROM_HERE,
-      base::BindOnce(&DrmThread::CreateBufferAsync,
-                     base::Unretained(&drm_thread_), widget, size, format,
-                     usage, flags,
-                     base::BindOnce(OnBufferCreatedOnDrmThread,
-                                    base::ThreadTaskRunnerHandle::Get(),
-                                    std::move(callback))));
+      FROM_HERE, base::BindOnce(&DrmThread::RunTaskAfterWindowReady,
+                                base::Unretained(&drm_thread_), blocking_widget,
+                                std::move(task), nullptr));
 }
 
 void DrmThreadProxy::CreateBufferFromHandle(
@@ -88,10 +127,13 @@ void DrmThreadProxy::CreateBufferFromHandle(
     gfx::NativePixmapHandle handle,
     std::unique_ptr<GbmBuffer>* buffer,
     scoped_refptr<DrmFramebuffer>* framebuffer) {
-  PostSyncTask(drm_thread_.task_runner(),
-               base::BindOnce(&DrmThread::CreateBufferFromHandle,
-                              base::Unretained(&drm_thread_), widget, size,
-                              format, std::move(handle), buffer, framebuffer));
+  base::OnceClosure task = base::BindOnce(
+      &DrmThread::CreateBufferFromHandle, base::Unretained(&drm_thread_),
+      widget, size, format, std::move(handle), buffer, framebuffer);
+  PostSyncTask(
+      drm_thread_.task_runner(),
+      base::BindOnce(&DrmThread::RunTaskAfterWindowReady,
+                     base::Unretained(&drm_thread_), widget, std::move(task)));
 }
 
 void DrmThreadProxy::SetClearOverlayCacheCallback(
@@ -110,23 +152,25 @@ void DrmThreadProxy::CheckOverlayCapabilities(
     const std::vector<OverlaySurfaceCandidate>& candidates,
     OverlayCapabilitiesCallback callback) {
   DCHECK(drm_thread_.task_runner());
+  base::OnceClosure task = base::BindOnce(
+      &DrmThread::CheckOverlayCapabilities, base::Unretained(&drm_thread_),
+      widget, candidates, CreateSafeOnceCallback(std::move(callback)));
 
   drm_thread_.task_runner()->PostTask(
-      FROM_HERE,
-      base::BindOnce(&DrmThread::CheckOverlayCapabilities,
-                     base::Unretained(&drm_thread_), widget, candidates,
-                     CreateSafeOnceCallback(std::move(callback))));
+      FROM_HERE, base::BindOnce(&DrmThread::RunTaskAfterWindowReady,
+                                base::Unretained(&drm_thread_), widget,
+                                std::move(task), nullptr));
 }
 
-void DrmThreadProxy::AddBindingDrmDevice(
-    ozone::mojom::DrmDeviceRequest request) {
-  DCHECK(drm_thread_.task_runner()) << "DrmThreadProxy::AddBindingDrmDevice "
+void DrmThreadProxy::AddDrmDeviceReceiver(
+    mojo::PendingReceiver<ozone::mojom::DrmDevice> receiver) {
+  DCHECK(drm_thread_.task_runner()) << "DrmThreadProxy::AddDrmDeviceReceiver "
                                        "drm_thread_ task runner missing";
 
   drm_thread_.task_runner()->PostTask(
       FROM_HERE,
-      base::BindOnce(&DrmThread::AddBindingDrmDevice,
-                     base::Unretained(&drm_thread_), std::move(request)));
+      base::BindOnce(&DrmThread::AddDrmDeviceReceiver,
+                     base::Unretained(&drm_thread_), std::move(receiver)));
 }
 
 }  // namespace ui

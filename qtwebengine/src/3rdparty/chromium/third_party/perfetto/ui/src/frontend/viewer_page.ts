@@ -15,39 +15,28 @@
 import * as m from 'mithril';
 
 import {Actions} from '../common/actions';
-import {LogExists, LogExistsKey} from '../common/logs';
 import {QueryResponse} from '../common/queries';
 import {TimeSpan} from '../common/time';
 
 import {copyToClipboard} from './clipboard';
-import {DragGestureHandler} from './drag_gesture_handler';
+import {TRACK_SHELL_WIDTH} from './css_constants';
+import {DetailsPanel} from './details_panel';
 import {globals} from './globals';
-import {LogPanel} from './logs_panel';
-import {NotesEditorPanel, NotesPanel} from './notes_panel';
+import {NotesPanel} from './notes_panel';
 import {OverviewTimelinePanel} from './overview_timeline_panel';
 import {createPage} from './pages';
 import {PanAndZoomHandler} from './pan_and_zoom_handler';
 import {Panel} from './panel';
 import {AnyAttrsVnode, PanelContainer} from './panel_container';
-import {SliceDetailsPanel} from './slice_panel';
-import {ThreadStatePanel} from './thread_state_panel';
+import {TickmarkPanel} from './tickmark_panel';
 import {TimeAxisPanel} from './time_axis_panel';
 import {computeZoom} from './time_scale';
 import {TimeSelectionPanel} from './time_selection_panel';
-import {TRACK_SHELL_WIDTH} from './track_constants';
 import {TrackGroupPanel} from './track_group_panel';
 import {TrackPanel} from './track_panel';
 import {VideoPanel} from './video_panel';
 
-const DRAG_HANDLE_HEIGHT_PX = 28;
-const DEFAULT_DETAILS_HEIGHT_PX = 230 + DRAG_HANDLE_HEIGHT_PX;
-const UP_ICON = 'keyboard_arrow_up';
-const DOWN_ICON = 'keyboard_arrow_down';
-
-function hasLogs(): boolean {
-  const data = globals.trackDataStore.get(LogExistsKey) as LogExists;
-  return data && data.exists;
-}
+const SIDEBAR_WIDTH = 256;
 
 class QueryTable extends Panel {
   view() {
@@ -108,68 +97,24 @@ class QueryTable extends Panel {
   renderCanvas() {}
 }
 
-interface DragHandleAttrs {
-  height: number;
-  resize: (height: number) => void;
-}
 
-class DragHandle implements m.ClassComponent<DragHandleAttrs> {
-  private dragStartHeight = 0;
-  private height = 0;
-  private resize: (height: number) => void = () => {};
-  private isClosed = this.height <= DRAG_HANDLE_HEIGHT_PX;
-
-  oncreate({dom, attrs}: m.CVnodeDOM<DragHandleAttrs>) {
-    this.resize = attrs.resize;
-    this.height = attrs.height;
-    const elem = dom as HTMLElement;
-    new DragGestureHandler(
-        elem,
-        this.onDrag.bind(this),
-        this.onDragStart.bind(this),
-        this.onDragEnd.bind(this));
+// Checks if the mousePos is within 3px of the start or end of the
+// current selected time range.
+function onTimeRangeBoundary(mousePos: number): 'START'|'END'|null {
+  const area = globals.frontendLocalState.selectedArea.area;
+  if (area !== undefined) {
+    const start = globals.frontendLocalState.timeScale.timeToPx(area.startSec);
+    const end = globals.frontendLocalState.timeScale.timeToPx(area.endSec);
+    const startDrag = mousePos - TRACK_SHELL_WIDTH;
+    const startDistance = Math.abs(start - startDrag);
+    const endDistance = Math.abs(end - startDrag);
+    const range = 3 * window.devicePixelRatio;
+    // We might be within 3px of both boundaries but we should choose
+    // the closest one.
+    if (startDistance < range && startDistance <= endDistance) return 'START';
+    if (endDistance < range && endDistance <= startDistance) return 'END';
   }
-
-  onupdate({attrs}: m.CVnodeDOM<DragHandleAttrs>) {
-    this.resize = attrs.resize;
-    this.height = attrs.height;
-  }
-
-  onDrag(_x: number, y: number) {
-    const newHeight = this.dragStartHeight + (DRAG_HANDLE_HEIGHT_PX / 2) - y;
-    this.isClosed = Math.floor(newHeight) <= DRAG_HANDLE_HEIGHT_PX;
-    this.resize(Math.floor(newHeight));
-    globals.rafScheduler.scheduleFullRedraw();
-  }
-
-  onDragStart(_x: number, _y: number) {
-    this.dragStartHeight = this.height;
-  }
-
-  onDragEnd() {}
-
-  view() {
-    const icon = this.isClosed ? UP_ICON : DOWN_ICON;
-    const title = this.isClosed ? 'Show panel' : 'Hide panel';
-    return m(
-        '.handle',
-        m('.handle-title', 'Current Selection'),
-        m('i.material-icons',
-          {
-            onclick: () => {
-              if (this.height === DRAG_HANDLE_HEIGHT_PX) {
-                this.isClosed = false;
-                this.resize(DEFAULT_DETAILS_HEIGHT_PX);
-              } else {
-                this.isClosed = true;
-                this.resize(DRAG_HANDLE_HEIGHT_PX);
-              }
-              globals.rafScheduler.scheduleFullRedraw();
-            },
-            title
-          },
-          icon));
-  }
+  return null;
 }
 
 /**
@@ -179,9 +124,6 @@ class DragHandle implements m.ClassComponent<DragHandleAttrs> {
 class TraceViewer implements m.ClassComponent {
   private onResize: () => void = () => {};
   private zoomContent?: PanAndZoomHandler;
-  private detailsHeight = DRAG_HANDLE_HEIGHT_PX;
-  // Used to set details panel to default height on selection.
-  private showDetailsPanel = true;
   // Used to prevent global deselection if a pan/drag select occurred.
   private keepCurrentSelection = false;
 
@@ -189,8 +131,7 @@ class TraceViewer implements m.ClassComponent {
     const frontendLocalState = globals.frontendLocalState;
     const updateDimensions = () => {
       const rect = vnode.dom.getBoundingClientRect();
-      frontendLocalState.timeScale.setLimitsPx(
-          0, rect.width - TRACK_SHELL_WIDTH);
+      frontendLocalState.updateResolution(0, rect.width - TRACK_SHELL_WIDTH);
     };
 
     updateDimensions();
@@ -209,7 +150,7 @@ class TraceViewer implements m.ClassComponent {
 
     this.zoomContent = new PanAndZoomHandler({
       element: panZoomEl,
-      contentOffsetX: TRACK_SHELL_WIDTH,
+      contentOffsetX: SIDEBAR_WIDTH,
       onPanned: (pannedPx: number) => {
         this.keepCurrentSelection = true;
         const traceTime = globals.state.traceTime;
@@ -238,19 +179,45 @@ class TraceViewer implements m.ClassComponent {
         frontendLocalState.updateVisibleTime(newSpan);
         globals.rafScheduler.scheduleRedraw();
       },
-      onDragSelect: (selectStartPx: number|null, selectEndPx: number) => {
-        if (!selectStartPx) return;
-        this.keepCurrentSelection = true;
-        globals.frontendLocalState.setShowTimeSelectPreview(false);
+      shouldDrag: (currentPx: number) => {
+        return onTimeRangeBoundary(currentPx) !== null;
+      },
+      onDrag: (
+          dragStartX: number,
+          dragStartY: number,
+          prevX: number,
+          currentX: number,
+          currentY: number,
+          editing: boolean) => {
         const traceTime = globals.state.traceTime;
         const scale = frontendLocalState.timeScale;
-        const startPx = Math.min(selectStartPx, selectEndPx);
-        const endPx = Math.max(selectStartPx, selectEndPx);
-        const startTs = Math.max(traceTime.startSec,
-                               scale.pxToTime(startPx - TRACK_SHELL_WIDTH));
-        const endTs = Math.min(traceTime.endSec,
-                               scale.pxToTime(endPx - TRACK_SHELL_WIDTH));
-        globals.dispatch(Actions.selectTimeSpan({startTs, endTs}));
+        this.keepCurrentSelection = true;
+        if (editing) {
+          const selectedArea = frontendLocalState.selectedArea.area;
+          if (selectedArea !== undefined) {
+            const newTime = scale.pxToTime(currentX - TRACK_SHELL_WIDTH);
+            // Have to check again for when one boundary crosses over the other.
+            const curBoundary = onTimeRangeBoundary(prevX);
+            if (curBoundary == null) return;
+            const keepTime = curBoundary === 'START' ? selectedArea.endSec :
+                                                       selectedArea.startSec;
+            frontendLocalState.selectArea(
+                Math.max(Math.min(keepTime, newTime), traceTime.startSec),
+                Math.min(Math.max(keepTime, newTime), traceTime.endSec),
+            );
+          }
+        } else {
+          frontendLocalState.setShowTimeSelectPreview(false);
+          const dragStartTime = scale.pxToTime(dragStartX - TRACK_SHELL_WIDTH);
+          const dragEndTime = scale.pxToTime(currentX - TRACK_SHELL_WIDTH);
+          frontendLocalState.selectArea(
+              Math.max(
+                  Math.min(dragStartTime, dragEndTime), traceTime.startSec),
+              Math.min(Math.max(dragStartTime, dragEndTime), traceTime.endSec),
+          );
+          frontendLocalState.areaY.start = dragStartY;
+          frontendLocalState.areaY.end = currentY;
+        }
         globals.rafScheduler.scheduleRedraw();
       }
     });
@@ -280,40 +247,6 @@ class TraceViewer implements m.ClassComponent {
     }
     scrollingPanels.unshift(m(QueryTable, {key: 'query'}));
 
-    const detailsPanels: AnyAttrsVnode[] = [];
-    const curSelection = globals.state.currentSelection;
-    if (curSelection) {
-      switch (curSelection.kind) {
-        case 'NOTE':
-          detailsPanels.push(m(NotesEditorPanel, {
-            key: 'notes',
-            id: curSelection.id,
-          }));
-          break;
-        case 'SLICE':
-          detailsPanels.push(m(SliceDetailsPanel, {
-            key: 'slice',
-            utid: curSelection.utid,
-          }));
-          break;
-        case 'THREAD_STATE':
-          detailsPanels.push(m(ThreadStatePanel, {
-            key: 'thread_state',
-            ts: curSelection.ts,
-            dur: curSelection.dur,
-            utid: curSelection.utid,
-            state: curSelection.state
-          }));
-          break;
-        default:
-          break;
-      }
-    } else if (hasLogs()) {
-      detailsPanels.push(m(LogPanel, {}));
-    }
-
-    this.showDetailsPanel = detailsPanels.length > 0;
-
     return m(
         '.page',
         m('.split-panel',
@@ -325,7 +258,7 @@ class TraceViewer implements m.ClassComponent {
                   this.keepCurrentSelection = false;
                   return;
                 }
-                globals.dispatch(Actions.deselect({}));
+                globals.makeSelection(Actions.deselect({}));
               }
             },
             m('.pinned-panel-container', m(PanelContainer, {
@@ -335,6 +268,7 @@ class TraceViewer implements m.ClassComponent {
                   m(TimeAxisPanel, {key: 'timeaxis'}),
                   m(TimeSelectionPanel, {key: 'timeselection'}),
                   m(NotesPanel, {key: 'notes'}),
+                  m(TickmarkPanel, {key: 'searchTickmarks'}),
                   ...globals.state.pinnedTracks.map(
                       id => m(TrackPanel, {key: id, id})),
                 ],
@@ -349,22 +283,7 @@ class TraceViewer implements m.ClassComponent {
             (globals.state.videoEnabled && globals.state.video != null) ?
                 m(VideoPanel) :
                 null)),
-        m('.details-content',
-          {
-            style: {
-              height: `${this.detailsHeight}px`,
-              display: this.showDetailsPanel ? null : 'none'
-            }
-          },
-          m(DragHandle, {
-            resize: (height: number) => {
-              this.detailsHeight = Math.max(height, DRAG_HANDLE_HEIGHT_PX);
-            },
-            height: this.detailsHeight,
-          }),
-          m('.details-panel-container',
-            m(PanelContainer,
-              {doesScroll: true, panels: detailsPanels, kind: 'DETAILS'}))));
+        m(DetailsPanel));
   }
 }
 

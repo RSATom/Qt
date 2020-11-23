@@ -16,7 +16,6 @@
 #include "include/private/SkTemplates.h"
 #include "src/core/SkArenaAlloc.h"
 #include "src/core/SkBitmapController.h"
-#include "src/core/SkBitmapProvider.h"
 #include "src/core/SkMatrixPriv.h"
 #include "src/core/SkMipMap.h"
 
@@ -29,20 +28,17 @@ typedef SkFixed3232    SkFractionalInt;
 class SkPaint;
 
 struct SkBitmapProcInfo {
-    SkBitmapProcInfo(const SkBitmapProvider&, SkTileMode tmx, SkTileMode tmy);
+    SkBitmapProcInfo(const SkImage_Base*, SkTileMode tmx, SkTileMode tmy);
     ~SkBitmapProcInfo();
 
-    const SkBitmapProvider  fProvider;
+    const SkImage_Base*     fImage;
 
     SkPixmap                fPixmap;
     SkMatrix                fInvMatrix;         // This changes based on tile mode.
-    // TODO: combine fInvMatrix and fRealInvMatrix.
-    SkMatrix                fRealInvMatrix;     // The actual inverse matrix.
     SkColor                 fPaintColor;
     SkTileMode              fTileModeX;
     SkTileMode              fTileModeY;
     SkFilterQuality         fFilterQuality;
-    SkMatrix::TypeMask      fInvType;
 
     bool init(const SkMatrix& inverse, const SkPaint&);
 
@@ -55,8 +51,8 @@ private:
 };
 
 struct SkBitmapProcState : public SkBitmapProcInfo {
-    SkBitmapProcState(const SkBitmapProvider& prov, SkTileMode tmx, SkTileMode tmy)
-        : SkBitmapProcInfo(prov, tmx, tmy) {}
+    SkBitmapProcState(const SkImage_Base* image, SkTileMode tmx, SkTileMode tmy)
+        : SkBitmapProcInfo(image, tmx, tmy) {}
 
     bool setup(const SkMatrix& inv, const SkPaint& paint) {
         return this->init(inv, paint) && this->chooseProcs();
@@ -81,9 +77,6 @@ struct SkBitmapProcState : public SkBitmapProcInfo {
     SkFixed             fFilterOneX;
     SkFixed             fFilterOneY;
 
-    SkFixed             fInvSx;             // chooseProcs
-    SkFixed             fInvKy;             // chooseProcs
-    SkPMColor           fPaintPMColor;      // chooseProcs - A8 config
     uint16_t            fAlphaScale;        // chooseProcs
 
     /** Given the byte size of the index buffer to be passed to the matrix proc,

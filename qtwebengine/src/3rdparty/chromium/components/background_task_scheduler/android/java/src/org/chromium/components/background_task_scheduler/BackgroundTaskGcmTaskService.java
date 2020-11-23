@@ -6,6 +6,8 @@ package org.chromium.components.background_task_scheduler;
 
 import android.os.Build;
 
+import androidx.annotation.VisibleForTesting;
+
 import com.google.android.gms.gcm.GcmNetworkManager;
 import com.google.android.gms.gcm.GcmTaskService;
 import com.google.android.gms.gcm.TaskParams;
@@ -13,7 +15,6 @@ import com.google.android.gms.gcm.TaskParams;
 import org.chromium.base.ContextUtils;
 import org.chromium.base.Log;
 import org.chromium.base.ThreadUtils;
-import org.chromium.base.VisibleForTesting;
 
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
@@ -91,21 +92,26 @@ public class BackgroundTaskGcmTaskService extends GcmTaskService {
 
     @Override
     public int onRunTask(TaskParams params) {
-        final BackgroundTask backgroundTask =
-                BackgroundTaskSchedulerGcmNetworkManager.getBackgroundTaskFromTaskParams(params);
-        if (backgroundTask == null) {
-            Log.w(TAG, "Failed to start task. Could not instantiate class.");
-            return GcmNetworkManager.RESULT_FAILURE;
-        }
-
-        Long deadlineTime =
-                BackgroundTaskSchedulerGcmNetworkManager.getDeadlineTimeFromTaskParams(params);
-        if (deadlineTime != null && mClock.currentTimeMillis() >= deadlineTime) {
-            return GcmNetworkManager.RESULT_FAILURE;
-        }
-
         final TaskParameters taskParams =
                 BackgroundTaskSchedulerGcmNetworkManager.getTaskParametersFromTaskParams(params);
+
+        final BackgroundTask backgroundTask =
+                BackgroundTaskSchedulerFactory.getBackgroundTaskFromTaskId(taskParams.getTaskId());
+        if (backgroundTask == null) {
+            Log.w(TAG, "Failed to start task. Could not instantiate BackgroundTask class.");
+            // Cancel task if the BackgroundTask class is not found anymore. We assume this means
+            // that the task has been deprecated.
+            BackgroundTaskSchedulerFactory.getScheduler().cancel(
+                    ContextUtils.getApplicationContext(), taskParams.getTaskId());
+            return GcmNetworkManager.RESULT_FAILURE;
+        }
+
+        if (BackgroundTaskSchedulerGcmNetworkManager.didTaskExpire(
+                    params, mClock.currentTimeMillis())) {
+            BackgroundTaskSchedulerUma.getInstance().reportTaskExpired(taskParams.getTaskId());
+            return GcmNetworkManager.RESULT_FAILURE;
+        }
+
         final Waiter waiter = new Waiter(Waiter.MAX_TIMEOUT_SECONDS);
 
         final AtomicBoolean taskNeedsBackgroundProcessing = new AtomicBoolean();

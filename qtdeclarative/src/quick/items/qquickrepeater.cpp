@@ -139,8 +139,6 @@ QQuickRepeaterPrivate::~QQuickRepeaterPrivate()
     This signal is emitted when an item is added to the repeater. The \a index
     parameter holds the index at which the item has been inserted within the
     repeater, and the \a item parameter holds the \l Item that has been added.
-
-    The corresponding handler is \c onItemAdded.
 */
 
 /*!
@@ -152,8 +150,6 @@ QQuickRepeaterPrivate::~QQuickRepeaterPrivate()
 
     Do not keep a reference to \a item if it was created by this repeater, as
     in these cases it will be deleted shortly after the signal is handled.
-
-    The corresponding handler is \c onItemRemoved.
 */
 QQuickRepeater::QQuickRepeater(QQuickItem *parent)
   : QQuickItem(*(new QQuickRepeaterPrivate), parent)
@@ -421,6 +417,12 @@ void QQuickRepeater::createdItem(int index, QObject *)
 void QQuickRepeater::initItem(int index, QObject *object)
 {
     Q_D(QQuickRepeater);
+    if (index >= d->deletables.size()) {
+        // this can happen when Package is used
+        // calling regenerate does too much work, all we need is to call resize
+        // so that d->deletables[index] = item below works
+        d->deletables.resize(d->model->count() + 1);
+    }
     QQuickItem *item = qmlobject_cast<QQuickItem*>(object);
 
     if (!d->deletables.at(index)) {

@@ -2599,18 +2599,14 @@ XFA_EventError CXFA_Node::ProcessValidate(CXFA_FFDocView* pDocView,
   }
 
   XFA_VERSION version = pDocView->GetDoc()->GetXFADoc()->GetCurVersionMode();
-  bool bVersionFlag = false;
-  if (version < XFA_VERSION_208)
-    bVersionFlag = true;
+  bool bVersionFlag = version < XFA_VERSION_208;
 
   if (bInitDoc) {
     validate->ClearFlag(XFA_NodeFlag_NeedsInitApp);
   } else {
     iFormat = ProcessFormatTestValidate(pDocView, validate, bVersionFlag);
-    if (!bVersionFlag) {
-      bVersionFlag =
-          pDocView->GetDoc()->GetXFADoc()->HasFlag(XFA_DOCFLAG_Scripting);
-    }
+    if (!bVersionFlag)
+      bVersionFlag = pDocView->GetDoc()->GetXFADoc()->is_scripting();
     XFA_EventErrorAccumulate(
         &iRet,
         ProcessNullTestValidate(pDocView, validate, iFlags, bVersionFlag));
@@ -3250,7 +3246,7 @@ void CXFA_Node::CalculateTextContentSize(CXFA_FFDoc* doc, CFX_SizeF* pSize) {
 
     pTextOut->SetStyles(dwStyles);
   }
-  layoutData->m_pTextOut->CalcLogicSize(wsText, pSize);
+  layoutData->m_pTextOut->CalcLogicSize(wsText.AsStringView(), pSize);
 }
 
 bool CXFA_Node::CalculateTextEditAutoSize(CXFA_FFDoc* doc, CFX_SizeF* pSize) {
@@ -3871,7 +3867,7 @@ RetainPtr<CFGAS_GEFont> CXFA_Node::GetFDEFont(CXFA_FFDoc* doc) {
   CXFA_Font* font = GetFontIfExists();
   if (font) {
     if (font->IsBold())
-      dwFontStyle |= FXFONT_BOLD;
+      dwFontStyle |= FXFONT_FORCE_BOLD;
     if (font->IsItalic())
       dwFontStyle |= FXFONT_ITALIC;
 
@@ -4409,11 +4405,8 @@ void CXFA_Node::InsertItem(const WideString& wsLabel,
     InsertListTextItem(pNode, wsLabel, nIndex);
     InsertListTextItem(pSaveItems, wsNewValue, nIndex);
   }
-  if (!bNotify)
-    return;
-
-  GetDocument()->GetNotify()->OnWidgetListItemAdded(this, wsLabel.c_str(),
-                                                    wsValue.c_str(), nIndex);
+  if (bNotify)
+    GetDocument()->GetNotify()->OnWidgetListItemAdded(this, wsLabel, nIndex);
 }
 
 WideString CXFA_Node::GetItemLabel(WideStringView wsValue) const {

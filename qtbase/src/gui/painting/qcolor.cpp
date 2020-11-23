@@ -39,6 +39,7 @@
 
 #include "qcolor.h"
 #include "qcolor_p.h"
+#include "qdrawhelper_p.h"
 #include "qfloat16.h"
 #include "qnamespace.h"
 #include "qdatastream.h"
@@ -89,6 +90,8 @@ static bool get_hex_rgb(const char *name, size_t len, QRgba64 *rgb)
         r = hex2int(name + 0, 3);
         g = hex2int(name + 3, 3);
         b = hex2int(name + 6, 3);
+        if (r == -1 || g == -1 || b == -1)
+            return false;
         r = (r << 4) | (r >> 8);
         g = (g << 4) | (g >> 8);
         b = (b << 4) | (b >> 8);
@@ -1064,11 +1067,11 @@ void QColor::getHsv(int *h, int *s, int *v, int *a) const
     }
 
     *h = ct.ahsv.hue == USHRT_MAX ? -1 : ct.ahsv.hue / 100;
-    *s = ct.ahsv.saturation >> 8;
-    *v = ct.ahsv.value      >> 8;
+    *s = qt_div_257(ct.ahsv.saturation);
+    *v = qt_div_257(ct.ahsv.value);
 
     if (a)
-        *a = ct.ahsv.alpha >> 8;
+        *a = qt_div_257(ct.ahsv.alpha);
 }
 
 /*!
@@ -1175,11 +1178,11 @@ void QColor::getHsl(int *h, int *s, int *l, int *a) const
     }
 
     *h = ct.ahsl.hue == USHRT_MAX ? -1 : ct.ahsl.hue / 100;
-    *s = ct.ahsl.saturation >> 8;
-    *l = ct.ahsl.lightness  >> 8;
+    *s = qt_div_257(ct.ahsl.saturation);
+    *l = qt_div_257(ct.ahsl.lightness);
 
     if (a)
-        *a = ct.ahsl.alpha >> 8;
+        *a = qt_div_257(ct.ahsl.alpha);
 }
 
 /*!
@@ -1306,12 +1309,12 @@ void QColor::getRgb(int *r, int *g, int *b, int *a) const
         return;
     }
 
-    *r = ct.argb.red   >> 8;
-    *g = ct.argb.green >> 8;
-    *b = ct.argb.blue  >> 8;
+    *r = qt_div_257(ct.argb.red);
+    *g = qt_div_257(ct.argb.green);
+    *b = qt_div_257(ct.argb.blue);
 
     if (a)
-        *a = ct.argb.alpha >> 8;
+        *a = qt_div_257(ct.argb.alpha);
 }
 
 /*!
@@ -1389,7 +1392,7 @@ QRgb QColor::rgba() const noexcept
 {
     if (cspec != Invalid && cspec != Rgb)
         return toRgb().rgba();
-    return qRgba(ct.argb.red >> 8, ct.argb.green >> 8, ct.argb.blue >> 8, ct.argb.alpha >> 8);
+    return qRgba(qt_div_257(ct.argb.red), qt_div_257(ct.argb.green), qt_div_257(ct.argb.blue), qt_div_257(ct.argb.alpha));
 }
 
 /*!
@@ -1452,7 +1455,7 @@ QRgb QColor::rgb() const noexcept
 {
     if (cspec != Invalid && cspec != Rgb)
         return toRgb().rgb();
-    return qRgb(ct.argb.red >> 8, ct.argb.green >> 8, ct.argb.blue >> 8);
+    return qRgb(qt_div_257(ct.argb.red), qt_div_257(ct.argb.green), qt_div_257(ct.argb.blue));
 }
 
 /*!
@@ -1479,7 +1482,7 @@ int QColor::alpha() const noexcept
 {
     if (cspec == ExtendedRgb)
         return qRound(qreal(castF16(ct.argbExtended.alphaF16)) * 255);
-    return ct.argb.alpha >> 8;
+    return qt_div_257(ct.argb.alpha);
 }
 
 
@@ -1541,7 +1544,7 @@ int QColor::red() const noexcept
 {
     if (cspec != Invalid && cspec != Rgb)
         return toRgb().red();
-    return ct.argb.red >> 8;
+    return qt_div_257(ct.argb.red);
 }
 
 /*!
@@ -1568,7 +1571,7 @@ int QColor::green() const noexcept
 {
     if (cspec != Invalid && cspec != Rgb)
         return toRgb().green();
-    return ct.argb.green >> 8;
+    return qt_div_257(ct.argb.green);
 }
 
 /*!
@@ -1596,7 +1599,7 @@ int QColor::blue() const noexcept
 {
     if (cspec != Invalid && cspec != Rgb)
         return toRgb().blue();
-    return ct.argb.blue >> 8;
+    return qt_div_257(ct.argb.blue);
 }
 
 
@@ -1757,7 +1760,7 @@ int QColor::hsvSaturation() const noexcept
 {
     if (cspec != Invalid && cspec != Hsv)
         return toHsv().saturation();
-    return ct.ahsv.saturation >> 8;
+    return qt_div_257(ct.ahsv.saturation);
 }
 
 /*!
@@ -1769,7 +1772,7 @@ int QColor::value() const noexcept
 {
     if (cspec != Invalid && cspec != Hsv)
         return toHsv().value();
-    return ct.ahsv.value >> 8;
+    return qt_div_257(ct.ahsv.value);
 }
 
 /*!
@@ -1859,7 +1862,7 @@ int QColor::hslSaturation() const noexcept
 {
     if (cspec != Invalid && cspec != Hsl)
         return toHsl().hslSaturation();
-    return ct.ahsl.saturation >> 8;
+    return qt_div_257(ct.ahsl.saturation);
 }
 
 /*!
@@ -1873,7 +1876,7 @@ int QColor::lightness() const noexcept
 {
     if (cspec != Invalid && cspec != Hsl)
         return toHsl().lightness();
-    return ct.ahsl.lightness >> 8;
+    return qt_div_257(ct.ahsl.lightness);
 }
 
 /*!
@@ -1927,7 +1930,7 @@ int QColor::cyan() const noexcept
 {
     if (cspec != Invalid && cspec != Cmyk)
         return toCmyk().cyan();
-    return ct.acmyk.cyan >> 8;
+    return qt_div_257(ct.acmyk.cyan);
 }
 
 /*!
@@ -1939,7 +1942,7 @@ int QColor::magenta() const noexcept
 {
     if (cspec != Invalid && cspec != Cmyk)
         return toCmyk().magenta();
-    return ct.acmyk.magenta >> 8;
+    return qt_div_257(ct.acmyk.magenta);
 }
 
 /*!
@@ -1951,7 +1954,7 @@ int QColor::yellow() const noexcept
 {
     if (cspec != Invalid && cspec != Cmyk)
         return toCmyk().yellow();
-    return ct.acmyk.yellow >> 8;
+    return qt_div_257(ct.acmyk.yellow);
 }
 
 /*!
@@ -1964,7 +1967,7 @@ int QColor::black() const noexcept
 {
     if (cspec != Invalid && cspec != Cmyk)
         return toCmyk().black();
-    return ct.acmyk.black >> 8;
+    return qt_div_257(ct.acmyk.black);
 }
 
 /*!
@@ -2655,13 +2658,13 @@ void QColor::getCmyk(int *c, int *m, int *y, int *k, int *a) const
         return;
     }
 
-    *c = ct.acmyk.cyan >> 8;
-    *m = ct.acmyk.magenta >> 8;
-    *y = ct.acmyk.yellow >> 8;
-    *k = ct.acmyk.black >> 8;
+    *c = qt_div_257(ct.acmyk.cyan);
+    *m = qt_div_257(ct.acmyk.magenta);
+    *y = qt_div_257(ct.acmyk.yellow);
+    *k = qt_div_257(ct.acmyk.black);
 
     if (a)
-        *a = ct.acmyk.alpha >> 8;
+        *a = qt_div_257(ct.acmyk.alpha);
 }
 
 /*!
@@ -2941,8 +2944,12 @@ QColor &QColor::operator=(Qt::GlobalColor color) noexcept
 }
 
 /*!
-    Returns \c true if this color has the same RGB and alpha values as \a color;
+    Returns \c true if this color has the same color specification and component values as \a color;
     otherwise returns \c false.
+
+    ExtendedRgb and Rgb specifications are considered matching in this context.
+
+    \sa spec()
 */
 bool QColor::operator==(const QColor &color) const noexcept
 {
@@ -2955,6 +2962,12 @@ bool QColor::operator==(const QColor &color) const noexcept
                     || ct.ahsl.lightness == USHRT_MAX
                     || color.ct.ahsl.lightness == USHRT_MAX)
                 && (qAbs(ct.ahsl.lightness - color.ct.ahsl.lightness)) < 50);
+    } else if ((cspec == ExtendedRgb || color.cspec == ExtendedRgb) &&
+               (cspec == color.cspec || cspec == Rgb || color.cspec == Rgb))  {
+        return qFuzzyCompare(alphaF(), color.alphaF())
+            && qFuzzyCompare(redF(), color.redF())
+            && qFuzzyCompare(greenF(), color.greenF())
+            && qFuzzyCompare(blueF(), color.blueF());
     } else {
         return (cspec == color.cspec
                 && ct.argb.alpha == color.ct.argb.alpha
@@ -2968,8 +2981,12 @@ bool QColor::operator==(const QColor &color) const noexcept
 }
 
 /*!
-    Returns \c true if this color has a different RGB and alpha values from
+    Returns \c true if this color has different color specification or component values from
     \a color; otherwise returns \c false.
+
+    ExtendedRgb and Rgb specifications are considered matching in this context.
+
+    \sa spec()
 */
 bool QColor::operator!=(const QColor &color) const noexcept
 { return !operator==(color); }
@@ -2980,7 +2997,7 @@ bool QColor::operator!=(const QColor &color) const noexcept
 */
 QColor::operator QVariant() const
 {
-    return QVariant(QVariant::Color, this);
+    return QVariant(QMetaType::QColor, this);
 }
 
 /*! \internal

@@ -66,9 +66,7 @@ CodeMarker::~CodeMarker()
   A code market performs no initialization by default. Marker-specific
   initialization is performed in subclasses.
  */
-void CodeMarker::initializeMarker(const Config &) // config
-{
-}
+void CodeMarker::initializeMarker() {}
 
 /*!
   Terminating a code marker is trivial.
@@ -82,11 +80,11 @@ void CodeMarker::terminateMarker()
   All the code markers in the static list are initialized
   here, after the qdoc configuration file has been loaded.
  */
-void CodeMarker::initialize(const Config &config)
+void CodeMarker::initialize()
 {
-    defaultLang = config.getString(CONFIG_LANGUAGE);
+    defaultLang = Config::instance().getString(CONFIG_LANGUAGE);
     for (const auto &marker : qAsConst(markers))
-        marker->initializeMarker(config);
+        marker->initializeMarker();
 }
 
 /*!

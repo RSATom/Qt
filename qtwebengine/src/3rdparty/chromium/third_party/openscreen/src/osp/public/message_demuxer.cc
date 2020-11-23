@@ -7,11 +7,12 @@
 #include <memory>
 
 #include "osp/impl/quic/quic_connection.h"
-#include "platform/api/logging.h"
 #include "platform/base/error.h"
 #include "util/big_endian.h"
+#include "util/logging.h"
 
 namespace openscreen {
+namespace osp {
 
 // static
 // Decodes a varUint, expecting it to follow the encoding format described here:
@@ -159,14 +160,16 @@ MessageDemuxer::MessageWatch MessageDemuxer::SetDefaultMessageTypeWatch(
   if (!emplace_result.second)
     return MessageWatch();
   for (auto& endpoint_buffers : buffers_) {
-    for (auto& buffer : endpoint_buffers.second) {
-      if (buffer.second.empty())
+    auto endpoint_id = endpoint_buffers.first;
+    for (auto& stream_map : endpoint_buffers.second) {
+      if (stream_map.second.empty())
         continue;
-      auto buffered_type = static_cast<msgs::Type>(buffer.second[0]);
+      auto buffered_type = static_cast<msgs::Type>(stream_map.second[0]);
       if (message_type == buffered_type) {
-        auto callbacks_entry = message_callbacks_.find(endpoint_buffers.first);
-        HandleStreamBufferLoop(endpoint_buffers.first, buffer.first,
-                               callbacks_entry, &buffer.second);
+        auto connection_id = stream_map.first;
+        auto callbacks_entry = message_callbacks_.find(endpoint_id);
+        HandleStreamBufferLoop(endpoint_id, connection_id, callbacks_entry,
+                               &stream_map.second);
       }
     }
   }
@@ -281,4 +284,5 @@ void StopWatching(MessageDemuxer::MessageWatch* watch) {
   *watch = MessageDemuxer::MessageWatch();
 }
 
+}  // namespace osp
 }  // namespace openscreen

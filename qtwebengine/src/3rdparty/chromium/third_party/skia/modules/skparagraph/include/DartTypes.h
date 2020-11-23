@@ -29,7 +29,9 @@ enum class RectHeightStyle {
     // The line spacing will be added to the top of the rect.
     kIncludeLineSpacingTop,
     // The line spacing will be added to the bottom of the rect.
-    kIncludeLineSpacingBottom
+    kIncludeLineSpacingBottom,
+    //
+    kStrut
 };
 
 enum class RectWidthStyle {
@@ -60,6 +62,7 @@ struct PositionWithAffinity {
     int32_t position;
     Affinity affinity;
 
+    PositionWithAffinity() : position(0), affinity(kDownstream) {}
     PositionWithAffinity(int32_t p, Affinity a) : position(p), affinity(a) {}
 };
 
@@ -92,6 +95,10 @@ template <typename T> struct SkRange {
         return start <= other.start && end >= other.end;
     }
 
+    bool intersects(SkRange<size_t> other) const {
+        return SkTMax(start, other.start) <= SkTMin(end, other.end);
+    }
+
     bool empty() const {
         return start == EMPTY_INDEX && end == EMPTY_INDEX;
     }
@@ -104,6 +111,7 @@ enum class TextBaseline {
     kAlphabetic,
     kIdeographic,
 };
+
 }  // namespace textlayout
 }  // namespace skia
 

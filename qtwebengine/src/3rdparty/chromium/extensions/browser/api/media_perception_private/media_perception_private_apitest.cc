@@ -19,6 +19,7 @@
 #include "extensions/shell/test/shell_apitest.h"
 #include "extensions/test/extension_test_message_listener.h"
 #include "extensions/test/result_catcher.h"
+#include "mojo/public/cpp/bindings/pending_receiver.h"
 
 namespace extensions {
 
@@ -36,20 +37,22 @@ class TestMediaPerceptionAPIDelegate : public MediaPerceptionAPIDelegate {
       base::ThreadTaskRunnerHandle::Get()->PostTask(
           FROM_HERE,
           base::BindOnce(
-              std::move(load_callback), true,
+              std::move(load_callback),
+              media_perception::COMPONENT_INSTALLATION_ERROR_NONE,
               base::FilePath("/run/imageloader/rtanalytics-light/1.0")));
       return;
     }
 
-    // Firing callback with false indicates that the installation of the
-    // component failed.
     base::ThreadTaskRunnerHandle::Get()->PostTask(
         FROM_HERE,
-        base::BindOnce(std::move(load_callback), false, base::FilePath()));
+        base::BindOnce(std::move(load_callback),
+                       media_perception::COMPONENT_INSTALLATION_ERROR_NOT_FOUND,
+                       base::FilePath()));
   }
 
-  void BindDeviceFactoryProviderToVideoCaptureService(
-      video_capture::mojom::DeviceFactoryProviderPtr* provider) override {
+  void BindVideoSourceProvider(
+      mojo::PendingReceiver<video_capture::mojom::VideoSourceProvider> receiver)
+      override {
     NOTIMPLEMENTED();
   }
 
@@ -58,8 +61,9 @@ class TestMediaPerceptionAPIDelegate : public MediaPerceptionAPIDelegate {
     NOTIMPLEMENTED();
   }
 
-  void ForwardMediaPerceptionRequest(
-      chromeos::media_perception::mojom::MediaPerceptionRequest request,
+  void ForwardMediaPerceptionReceiver(
+      mojo::PendingReceiver<chromeos::media_perception::mojom::MediaPerception>
+          receiver,
       content::RenderFrameHost* render_frame_host) override {
     NOTIMPLEMENTED();
   }

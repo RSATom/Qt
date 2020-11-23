@@ -57,7 +57,7 @@ private slots:
         serverProc.setProcessChannelMode(QProcess::ForwardedChannels);
         serverProc.start(TestUtils::findExecutable("signatureServer", {
             QCoreApplication::applicationDirPath() + "/../signatureServer/"
-        }));
+        }), QStringList());
         QVERIFY(serverProc.waitForStarted());
 
         // wait for server start
@@ -88,7 +88,7 @@ private slots:
             testProc.setProcessChannelMode(QProcess::ForwardedChannels);
             testProc.start(TestUtils::findExecutable(test, {
                 QCoreApplication::applicationDirPath() + _("/../") + test + _("/")
-            }));
+            }), QStringList());
             QVERIFY(testProc.waitForStarted());
             QVERIFY(testProc.waitForFinished());
             QCOMPARE(testProc.exitCode(), 0);

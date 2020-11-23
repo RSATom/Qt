@@ -341,9 +341,10 @@ void QSGRenderContext::invalidate()
 {
 }
 
-void QSGRenderContext::prepareSync(qreal devicePixelRatio)
+void QSGRenderContext::prepareSync(qreal devicePixelRatio, QRhiCommandBuffer *cb)
 {
     Q_UNUSED(devicePixelRatio);
+    Q_UNUSED(cb);
 }
 
 void QSGRenderContext::beginNextFrame(QSGRenderer *renderer,
@@ -391,6 +392,13 @@ void QSGRenderContext::endSync()
 {
     qDeleteAll(m_texturesToDelete);
     m_texturesToDelete.clear();
+}
+
+/*!
+    Do necessary preprocessing before the frame
+*/
+void QSGRenderContext::preprocess()
+{
 }
 
 /*!

@@ -70,7 +70,7 @@ TEST_F(ScrollTimelineUtilTest, ToCompositorScrollTimelineNullParameter) {
 TEST_F(ScrollTimelineUtilTest,
        ToCompositorScrollTimelineDocumentTimelineParameter) {
   DocumentTimeline* timeline =
-      DocumentTimeline::Create(MakeGarbageCollected<Document>());
+      MakeGarbageCollected<DocumentTimeline>(MakeGarbageCollected<Document>());
   EXPECT_EQ(ToCompositorScrollTimeline(timeline), nullptr);
 }
 
@@ -213,7 +213,6 @@ TEST_F(ScrollTimelineUtilTest, GetCompositorScrollElementIdNoUniqueId) {
   SetBodyInnerHTML("<div id='test'></div>");
   Element* test = GetElementById("test");
   ASSERT_TRUE(test->GetLayoutObject());
-  ASSERT_FALSE(test->GetLayoutObject()->UniqueId());
   EXPECT_EQ(GetCompositorScrollElementId(test), base::nullopt);
 }
 

@@ -1,0 +1,134 @@
+/****************************************************************************
+**
+** Copyright (C) 2020 The Qt Company Ltd.
+** Contact: https://www.qt.io/licensing/
+**
+** This file is part of the QtAndroidExtras module of the Qt Toolkit.
+**
+** $QT_BEGIN_LICENSE:BSD$
+** Commercial License Usage
+** Licensees holding valid commercial Qt licenses may use this file in
+** accordance with the commercial license agreement provided with the
+** Software or, alternatively, in accordance with the terms contained in
+** a written agreement between you and The Qt Company. For licensing terms
+** and conditions see https://www.qt.io/terms-conditions. For further
+** information use the contact form at https://www.qt.io/contact-us.
+**
+** BSD License Usage
+** Alternatively, you may use this file under the terms of the BSD license
+** as follows:
+**
+** "Redistribution and use in source and binary forms, with or without
+** modification, are permitted provided that the following conditions are
+** met:
+**   * Redistributions of source code must retain the above copyright
+**     notice, this list of conditions and the following disclaimer.
+**   * Redistributions in binary form must reproduce the above copyright
+**     notice, this list of conditions and the following disclaimer in
+**     the documentation and/or other materials provided with the
+**     distribution.
+**   * Neither the name of The Qt Company Ltd nor the names of its
+**     contributors may be used to endorse or promote products derived
+**     from this software without specific prior written permission.
+**
+**
+** THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
+** "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
+** LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
+** A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT
+** OWNER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
+** SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT
+** LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
+** DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
+** THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+** (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+** OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE."
+**
+** $QT_END_LICENSE$
+**
+****************************************************************************/
+
+/*!
+    \title Android Custom Activity
+    \ingroup examples-qtandroidextras
+    \example customactivity
+    \brief Demonstrates working with custom Android activities.
+
+    \image customactivity.png
+
+    This example demonstrates how to create an Android Activity and run it from
+    your Qt application. The activity is composed of a Java class and an Android
+    XML layout which is started from the main app. The activity can send back data
+    after finishing which can be used in QML.
+
+    When you click the \uicontrol{"Start custom Android activity"} button, the
+    activity is started, and the activity has a text view and a button to exit.
+    The activity can either use the button or the back gesture to go back.
+
+    \include examples-run.qdocinc
+
+    \section1 Create Activity Class
+
+    Define an Android class called \c CustomActivity in the CustomActivity.java
+    file as follows:
+
+    \quotefromfile customactivity/android/src/org/qtproject/example/activityhandler/CustomActivity.java
+    \skipto package
+    \printuntil /^\}/
+
+    The Activity's layout is defined at \e {customactivity/android/res/layout/second_activity.xml}.
+
+    To use this Activity, it must be defined in the \e AndroidManifest.xml file
+    as follows:
+
+    \quotefromfile customactivity/android/AndroidManifest.xml
+    \skipto :custom_activity
+    \printuntil </activity>
+
+    \note To use any native JNI calls, you must extend \c QtActivity instead of
+    \c Activity.
+
+    \section1 Start the Activity
+
+    To start an Activity from Qt, you need to create an intent using \l{QAndroidIntent},
+    then call \l{QtAndroid::startActivity} providing the intent, a custom request
+    code, and a callback function. The latter is called after the activity has
+    finished. You can start the activity as follows:
+
+    \quotefromfile customactivity/activityhandler.cpp
+    \skipto showSecondActivity
+    \printuntil });
+    \printline }
+
+    Then, define the callback function that is called directly after the activity
+    is done:
+
+    \quotefromfile customactivity/activityhandler.cpp
+    \skipto ActivityHandler::activityReceiver
+    \printuntil }
+
+    \note You can first check that the \c requestCode and \c resultCode are correct.
+
+    To connect C++ with QML, add an instance of the C++ class that is handling
+    the JNI logic as a QML property in the \e main.cpp file:
+
+    \quotefromfile customactivity/main.cpp
+    \skipto ActivityHandler
+    \printuntil setContextProperty
+
+    Then, add a \l Connections element to watch for messages from C++ in the
+    \e main.qml file:
+
+    \quotefromfile customactivity/main.qml
+    \skipto Connections
+    \printuntil /^\ {4}\}/
+
+    And set the \c onClicked for the \uicontrol{"Start custom Android activity"}
+    button to:
+
+    \quotefromfile services/common/main.qml
+    \skipto onClicked
+    \printline onClicked
+
+    \sa {Qt for Android}, {Qt Android Extras}
+*/

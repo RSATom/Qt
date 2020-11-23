@@ -13,7 +13,7 @@
 #include "base/task/post_task.h"
 #include "base/threading/scoped_blocking_call.h"
 #include "build/build_config.h"
-#include "storage/browser/quota/quota_disk_info_helper.h"
+#include "storage/browser/quota/quota_device_info_helper.h"
 #include "storage/browser/quota/quota_features.h"
 #include "storage/browser/quota/quota_macros.h"
 
@@ -21,43 +21,56 @@ namespace storage {
 
 namespace {
 
+const int64_t _kMBytes = 1024 * 1024;
+const int kRandomizedPercentage = 10;
+
 // Skews |value| by +/- |percent|.
 int64_t RandomizeByPercent(int64_t value, int percent) {
   double random_percent = (base::RandDouble() - 0.5) * percent * 2;
   return value + (value * (random_percent / 100.0));
 }
 
+storage::QuotaSettings CalculateIncognitoDynamicSettings(
+    int64_t physical_memory_amount) {
+  // The incognito pool size is a fraction of the amount of system memory,
+  // and the amount is capped to a hard limit.
+  double incognito_pool_size_ratio = 0.1;  // 10%
+  int64_t max_incognito_pool_size = 300 * _kMBytes;
+  if (base::FeatureList::IsEnabled(features::kIncognitoDynamicQuota)) {
+    const double lower_bound = features::kIncognitoQuotaRatioLowerBound.Get();
+    const double upper_bound = features::kIncognitoQuotaRatioUpperBound.Get();
+    incognito_pool_size_ratio =
+        lower_bound + (base::RandDouble() * (upper_bound - lower_bound));
+    max_incognito_pool_size = std::numeric_limits<int64_t>::max();
+  } else {
+    max_incognito_pool_size =
+        RandomizeByPercent(max_incognito_pool_size, kRandomizedPercentage);
+  }
+
+  storage::QuotaSettings settings;
+  settings.pool_size = std::min(
+      max_incognito_pool_size,
+      static_cast<int64_t>(physical_memory_amount * incognito_pool_size_ratio));
+  settings.per_host_quota = settings.pool_size / 3;
+  settings.session_only_per_host_quota = settings.per_host_quota;
+  settings.refresh_interval = base::TimeDelta::Max();
+  return settings;
+}
+
 base::Optional<storage::QuotaSettings> CalculateNominalDynamicSettings(
     const base::FilePath& partition_path,
     bool is_incognito,
-    QuotaDiskInfoHelper* disk_info_helper) {
+    QuotaDeviceInfoHelper* device_info_helper) {
   base::ScopedBlockingCall scoped_blocking_call(FROM_HERE,
                                                 base::BlockingType::MAY_BLOCK);
-  const int64_t kMBytes = 1024 * 1024;
-  const int kRandomizedPercentage = 10;
 
   if (is_incognito) {
-    // The incognito pool size is a fraction of the amount of system memory,
-    // and the amount is capped to a hard limit.
-    const double kIncognitoPoolSizeRatio = 0.1;  // 10%
-    const int64_t kMaxIncognitoPoolSize = 300 * kMBytes;
-
-    storage::QuotaSettings settings;
-    settings.pool_size = std::min(
-        RandomizeByPercent(kMaxIncognitoPoolSize, kRandomizedPercentage),
-        static_cast<int64_t>(base::SysInfo::AmountOfPhysicalMemory() *
-                             kIncognitoPoolSizeRatio));
-    settings.per_host_quota = settings.pool_size / 3;
-    settings.session_only_per_host_quota = settings.per_host_quota;
-    settings.refresh_interval = base::TimeDelta::Max();
-    return settings;
+    return CalculateIncognitoDynamicSettings(
+        device_info_helper->AmountOfPhysicalMemory());
   }
 
-  // The fraction of the device's storage the browser is willing to
-  // use for temporary storage.
-  // Check Finch for an experimental value to use as temporary pool size ratio
-  // if experiment is enabled, otherwise fallback to ~66% for chromeOS and
-  // ~33% otherwise.
+  // The fraction of the device's storage the browser is willing to use for
+  // temporary storage.
   const double kTemporaryPoolSizeRatio =
       base::FeatureList::IsEnabled(features::kQuotaUnlimitedPoolSize)
           ? 1.0
@@ -76,7 +89,7 @@ base::Optional<storage::QuotaSettings> CalculateNominalDynamicSettings(
   // *  64GB storage -- min(6GB,2GB) = 2GB
   // *  16GB storage -- min(1.6GB,2GB) = 1.6GB
   // *   8GB storage -- min(800MB,2GB) = 800MB
-  const int64_t kShouldRemainAvailableFixed = 2048 * kMBytes;  // 2GB
+  const int64_t kShouldRemainAvailableFixed = 2048 * _kMBytes;  // 2GB
   const double kShouldRemainAvailableRatio = 0.1;              // 10%
 
   // The amount of the device's storage the browser attempts to
@@ -91,11 +104,10 @@ base::Optional<storage::QuotaSettings> CalculateNominalDynamicSettings(
   // *  64GB storage -- min(640MB,1GB) = 640MB
   // *  16GB storage -- min(160MB,1GB) = 160MB
   // *   8GB storage -- min(80MB,1GB) = 80MB
-  const int64_t kMustRemainAvailableFixed = 1024 * kMBytes;  // 1GB
+  const int64_t kMustRemainAvailableFixed = 1024 * _kMBytes;  // 1GB
   const double kMustRemainAvailableRatio = 0.01;             // 1%
 
-  // Determines the portion of the temp pool that can be
-  // utilized by a single host (ie. 5 for 20%).
+  // The fraction of the temporary pool that can be utilized by a single host.
   const double kPerHostTemporaryRatio =
       base::FeatureList::IsEnabled(features::kQuotaUnlimitedPoolSize)
           ? 1.0
@@ -104,11 +116,11 @@ base::Optional<storage::QuotaSettings> CalculateNominalDynamicSettings(
   // SessionOnly (or ephemeral) origins are allotted a fraction of what
   // normal origins are provided, and the amount is capped to a hard limit.
   const double kSessionOnlyHostQuotaRatio = 0.1;  // 10%
-  const int64_t kMaxSessionOnlyHostQuota = 300 * kMBytes;
+  const int64_t kMaxSessionOnlyHostQuota = 300 * _kMBytes;
 
   storage::QuotaSettings settings;
 
-  int64_t total = disk_info_helper->AmountOfTotalDiskSpace(partition_path);
+  int64_t total = device_info_helper->AmountOfTotalDiskSpace(partition_path);
   if (total == -1) {
     LOG(ERROR) << "Unable to compute QuotaSettings.";
     return base::nullopt;
@@ -136,19 +148,19 @@ base::Optional<storage::QuotaSettings> CalculateNominalDynamicSettings(
 
 void GetNominalDynamicSettings(const base::FilePath& partition_path,
                                bool is_incognito,
-                               QuotaDiskInfoHelper* disk_info_helper,
+                               QuotaDeviceInfoHelper* device_info_helper,
                                OptionalQuotaSettingsCallback callback) {
-  base::PostTaskWithTraitsAndReplyWithResult(
+  base::PostTaskAndReplyWithResult(
       FROM_HERE,
-      {base::MayBlock(), base::TaskPriority::USER_VISIBLE,
+      {base::ThreadPool(), base::MayBlock(), base::TaskPriority::USER_VISIBLE,
        base::TaskShutdownBehavior::CONTINUE_ON_SHUTDOWN},
       base::BindOnce(&CalculateNominalDynamicSettings, partition_path,
-                     is_incognito, base::Unretained(disk_info_helper)),
+                     is_incognito, base::Unretained(device_info_helper)),
       std::move(callback));
 }
 
-QuotaDiskInfoHelper* GetDefaultDiskInfoHelper() {
-  static base::NoDestructor<QuotaDiskInfoHelper> singleton;
+QuotaDeviceInfoHelper* GetDefaultDeviceInfoHelper() {
+  static base::NoDestructor<QuotaDeviceInfoHelper> singleton;
   return singleton.get();
 }
 

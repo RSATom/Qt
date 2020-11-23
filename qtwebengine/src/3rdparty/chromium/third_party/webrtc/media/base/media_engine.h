@@ -11,10 +11,6 @@
 #ifndef MEDIA_BASE_MEDIA_ENGINE_H_
 #define MEDIA_BASE_MEDIA_ENGINE_H_
 
-#if defined(WEBRTC_MAC) && !defined(WEBRTC_IOS)
-#include <CoreAudio/CoreAudio.h>
-#endif
-
 #include <memory>
 #include <string>
 #include <vector>
@@ -147,7 +143,18 @@ enum DataChannelType {
   DCT_NONE = 0,
   DCT_RTP = 1,
   DCT_SCTP = 2,
-  DCT_MEDIA_TRANSPORT = 3
+
+  // Data channel transport over media transport.
+  DCT_MEDIA_TRANSPORT = 3,
+
+  // Data channel transport over datagram transport (with no fallback).  This is
+  // the same behavior as data channel transport over media transport, and is
+  // usable without DTLS.
+  DCT_DATA_CHANNEL_TRANSPORT = 4,
+
+  // Data channel transport over datagram transport (with SCTP negotiation
+  // semantics and a fallback to SCTP).  Only usable with DTLS.
+  DCT_DATA_CHANNEL_TRANSPORT_SCTP = 5,
 };
 
 class DataEngineInterface {

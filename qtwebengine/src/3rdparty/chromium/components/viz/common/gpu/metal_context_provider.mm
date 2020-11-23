@@ -4,11 +4,19 @@
 
 #include "components/viz/common/gpu/metal_context_provider.h"
 
+#import <Metal/Metal.h>
+
+#include "base/bind.h"
 #include "base/mac/scoped_nsobject.h"
+#include "base/memory/ref_counted.h"
+#include "base/metrics/histogram_macros.h"
+#include "base/synchronization/waitable_event.h"
+#include "base/threading/thread_task_runner_handle.h"
+#include "base/time/time.h"
+#include "components/metal_util/device.h"
+#include "components/metal_util/test_shader.h"
 #include "components/viz/common/gpu/metal_api_proxy.h"
 #include "third_party/skia/include/gpu/GrContext.h"
-
-#import <Metal/Metal.h>
 
 namespace viz {
 
@@ -32,7 +40,7 @@ struct API_AVAILABLE(macos(10.11)) MetalContextProviderImpl
     [device_ setProgressReporter:progress_reporter];
   }
   GrContext* GetGrContext() override { return gr_context_.get(); }
-  MTLDevicePtr GetMTLDevice() override { return device_.get(); }
+  metal::MTLDevicePtr GetMTLDevice() override { return device_.get(); }
 
  private:
   base::scoped_nsobject<MTLDeviceProxy> device_;
@@ -48,20 +56,13 @@ struct API_AVAILABLE(macos(10.11)) MetalContextProviderImpl
 std::unique_ptr<MetalContextProvider> MetalContextProvider::Create() {
   if (@available(macOS 10.11, *)) {
     // First attempt to find a low power device to use.
-    base::scoped_nsprotocol<id<MTLDevice>> device_to_use;
-    base::scoped_nsobject<NSArray<id<MTLDevice>>> devices(MTLCopyAllDevices());
-    for (id<MTLDevice> device in devices.get()) {
-      if ([device isLowPower]) {
-        device_to_use.reset(device, base::scoped_policy::RETAIN);
-        break;
-      }
+    base::scoped_nsprotocol<id<MTLDevice>> device_to_use(
+        metal::CreateDefaultDevice());
+    if (!device_to_use) {
+      DLOG(ERROR) << "Failed to find MTLDevice.";
+      return nullptr;
     }
-    // Failing that, use the system default device.
-    if (!device_to_use)
-      device_to_use.reset(MTLCreateSystemDefaultDevice());
-    if (device_to_use)
-      return std::make_unique<MetalContextProviderImpl>(device_to_use.get());
-    DLOG(ERROR) << "Failed to create MTLDevice.";
+    return std::make_unique<MetalContextProviderImpl>(device_to_use.get());
   }
   // If no device was found, or if the macOS version is too old for Metal,
   // return no context provider.

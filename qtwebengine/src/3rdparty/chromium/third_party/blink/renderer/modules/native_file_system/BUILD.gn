@@ -10,6 +10,8 @@ blink_modules_sources("native_file_system") {
     "native_file_system_directory_handle.h",
     "native_file_system_directory_iterator.cc",
     "native_file_system_directory_iterator.h",
+    "native_file_system_error.cc",
+    "native_file_system_error.h",
     "native_file_system_file_handle.cc",
     "native_file_system_file_handle.h",
     "native_file_system_handle.cc",
@@ -22,5 +24,25 @@ blink_modules_sources("native_file_system") {
 
   deps = [
     "//third_party/blink/renderer/platform",
+  ]
+}
+
+jumbo_source_set("unit_tests") {
+  testonly = true
+  sources = [
+    "window_native_file_system_test.cc",
+  ]
+
+  configs += [
+    "//third_party/blink/renderer:config",
+    "//third_party/blink/renderer:inside_blink",
+    "//third_party/blink/renderer/core:blink_core_pch",
+  ]
+
+  deps = [
+    "//testing/gtest",
+    "//third_party/blink/renderer/modules",
+    "//third_party/blink/renderer/platform",
+    "//third_party/blink/renderer/platform/wtf",
   ]
 }

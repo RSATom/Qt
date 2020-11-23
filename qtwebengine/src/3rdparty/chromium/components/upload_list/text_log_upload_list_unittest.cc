@@ -13,7 +13,7 @@
 #include "base/memory/ref_counted.h"
 #include "base/run_loop.h"
 #include "base/strings/string_number_conversions.h"
-#include "base/test/scoped_task_environment.h"
+#include "base/test/task_environment.h"
 #include "base/time/time.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
@@ -44,8 +44,10 @@ class TextLogUploadListTest : public testing::Test {
   }
 
  private:
-  base::test::ScopedTaskEnvironment scoped_task_environment_;
   base::ScopedTempDir temp_dir_;
+
+ protected:
+  base::test::TaskEnvironment task_environment_;
 
   DISALLOW_COPY_AND_ASSIGN(TextLogUploadListTest);
 };
@@ -376,6 +378,9 @@ TEST_F(TextLogUploadListTest, SimultaneousAccess) {
     time_double = uploads[0].capture_time.ToDoubleT();
     EXPECT_STREQ(kTestCaptureTime, base::NumberToString(time_double).c_str());
   }
+
+  // Allow the remaining loads to complete.
+  task_environment_.RunUntilIdle();
 }
 
 }  // namespace

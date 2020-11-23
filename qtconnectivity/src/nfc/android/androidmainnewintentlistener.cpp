@@ -39,6 +39,7 @@
 
 
 #include "androidmainnewintentlistener_p.h"
+#include "android/androidjninfc_p.h"
 #include "qdebug.h"
 #include <QtGui/QGuiApplication>
 #include <QtAndroidExtras/QAndroidJniObject>
@@ -60,6 +61,10 @@ MainNfcNewIntentListener::~MainNfcNewIntentListener()
 
 bool MainNfcNewIntentListener::handleNewIntent(JNIEnv */*env*/, jobject intent)
 {
+    // Only intents with a tag are relevant
+    if (!AndroidNfc::getTag(intent).isValid())
+        return false;
+
     listenersLock.lockForRead();
     for (AndroidNfc::AndroidNfcListenerInterface *listener : qAsConst(listeners)) {
         listener->newIntent(QAndroidJniObject(intent));

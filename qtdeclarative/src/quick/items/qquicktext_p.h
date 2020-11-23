@@ -100,6 +100,7 @@ class Q_QUICK_PRIVATE_EXPORT QQuickText : public QQuickImplicitSizeItem
 
     Q_PROPERTY(QJSValue fontInfo READ fontInfo NOTIFY fontInfoChanged REVISION 9)
     Q_PROPERTY(QSizeF advance READ advance NOTIFY contentSizeChanged REVISION 10)
+    QML_NAMED_ELEMENT(Text)
 
 public:
     QQuickText(QQuickItem *parent=nullptr);
@@ -222,7 +223,12 @@ public:
 
     QRectF boundingRect() const override;
     QRectF clipRect() const override;
-    Q_INVOKABLE void doLayout(); // ### Qt 6: remove
+#if QT_VERSION < QT_VERSION_CHECK(6, 0, 0)
+#if QT_DEPRECATED_SINCE(5, 15)
+    QT_DEPRECATED_X("Use forceLayout() instead")
+    Q_INVOKABLE void doLayout();
+#endif
+#endif
     Q_REVISION(9) Q_INVOKABLE void forceLayout();
 
     RenderType renderType() const;
@@ -329,13 +335,19 @@ class QQuickTextLine : public QObject
     Q_PROPERTY(qreal height READ height WRITE setHeight)
     Q_PROPERTY(qreal x READ x WRITE setX)
     Q_PROPERTY(qreal y READ y WRITE setY)
+    Q_PROPERTY(qreal implicitWidth READ implicitWidth REVISION 15)
+    Q_PROPERTY(bool isLast READ isLast REVISION 15)
+    QML_ANONYMOUS
 
 public:
     QQuickTextLine();
 
     void setLine(QTextLine* line);
     void setLineOffset(int offset);
+    void setFullLayoutTextLength(int length);
     int number() const;
+    qreal implicitWidth() const;
+    bool isLast() const;
 
     qreal width() const;
     void setWidth(qreal width);
@@ -353,6 +365,7 @@ private:
     QTextLine *m_line;
     qreal m_height;
     int m_lineOffset;
+    int m_fullLayoutTextLength;
 };
 
 QT_END_NAMESPACE

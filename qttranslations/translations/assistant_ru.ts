@@ -411,17 +411,6 @@ Reason:
     </message>
 </context>
 <context>
-    <name>FilterNameDialogClass</name>
-    <message>
-        <source>Filter Name:</source>
-        <translation>Название фильтра:</translation>
-    </message>
-    <message>
-        <source>Add Filter</source>
-        <translation>Добавить фильтр</translation>
-    </message>
-</context>
-<context>
     <name>FindWidget</name>
     <message>
         <source>Previous</source>
@@ -504,6 +493,40 @@ Reason:
     <message>
         <source>&amp;Find</source>
         <translation>&amp;Поиск</translation>
+    </message>
+</context>
+<context>
+    <name>HelpDocSettingsWidget</name>
+    <message>
+        <source>Form</source>
+        <translation></translation>
+    </message>
+    <message>
+        <source>Registered Documentation</source>
+        <translation>Зарегистрированная документация</translation>
+    </message>
+    <message>
+        <source>&lt;Filter&gt;</source>
+        <translation>&lt;Фильтр&gt;</translation>
+    </message>
+    <message>
+        <source>Add...</source>
+        <translation>Добавить...</translation>
+    </message>
+    <message>
+        <source>Remove</source>
+        <translation>Удалить</translation>
+    </message>
+</context>
+<context>
+    <name>HelpDocSettingsWidgetPrivate</name>
+    <message>
+        <source>Add Documentation</source>
+        <translation>Добавить документацию</translation>
+    </message>
+    <message>
+        <source>Qt Compressed Help Files (*.qch)</source>
+        <translation>Сжатые файлы справки Qt (*.qch)</translation>
     </message>
 </context>
 <context>
@@ -803,70 +826,7 @@ Reason:
     </message>
 </context>
 <context>
-    <name>OptionsWidget</name>
-    <message>
-        <source>No Option</source>
-        <translation>Нет параметра</translation>
-    </message>
-    <message>
-        <source>Invalid Option</source>
-        <translation>Неверный параметр</translation>
-    </message>
-</context>
-<context>
     <name>PreferencesDialog</name>
-    <message>
-        <source>No Component</source>
-        <translation>Нет компонента</translation>
-    </message>
-    <message>
-        <source>Invalid Component</source>
-        <translation>Неверный компонент</translation>
-    </message>
-    <message>
-        <source>No Version</source>
-        <translation>Нет версии</translation>
-    </message>
-    <message>
-        <source>Invalid Version</source>
-        <translation>Неверная версия</translation>
-    </message>
-    <message>
-        <source>Filter Exists</source>
-        <translation>Фильтр уже существует</translation>
-    </message>
-    <message>
-        <source>The filter &quot;%1&quot; already exists.</source>
-        <translation>Фильтр «%1» уже существует.</translation>
-    </message>
-    <message>
-        <source>Add Filter</source>
-        <translation>Добавить фильтр</translation>
-    </message>
-    <message>
-        <source>New Filter</source>
-        <translation>Новый фильтр</translation>
-    </message>
-    <message>
-        <source>Rename Filter</source>
-        <translation>Переименовать фильтр</translation>
-    </message>
-    <message>
-        <source>Remove Filter</source>
-        <translation>Удалить фильтр</translation>
-    </message>
-    <message>
-        <source>Are you sure you want to remove the &quot;%1&quot; filter?</source>
-        <translation>Удалить фильтр «%1»?</translation>
-    </message>
-    <message>
-        <source>Add Documentation</source>
-        <translation>Добавить документацию</translation>
-    </message>
-    <message>
-        <source>Qt Compressed Help Files (*.qch)</source>
-        <translation>Сжатые файлы справки Qt (*.qch)</translation>
-    </message>
     <message>
         <source>Use custom settings</source>
         <translation>Использовать индивидуальные настройки</translation>
@@ -899,24 +859,8 @@ Reason:
         <translation>Фильтры</translation>
     </message>
     <message>
-        <source>Filter:</source>
-        <translation>Фильтр:</translation>
-    </message>
-    <message>
-        <source>Remove</source>
-        <translation>Удалить</translation>
-    </message>
-    <message>
         <source>Documentation</source>
         <translation>Документация</translation>
-    </message>
-    <message>
-        <source>Registered Documentation:</source>
-        <translation>Зарегистрированная документация:</translation>
-    </message>
-    <message>
-        <source>Add...</source>
-        <translation>Добавить...</translation>
     </message>
     <message>
         <source>Options</source>
@@ -961,22 +905,6 @@ Reason:
     <message>
         <source>Show tabs for each individual page</source>
         <translation>Показывать вкладки для каждой страницы</translation>
-    </message>
-    <message>
-        <source>&lt;Filter&gt;</source>
-        <translation>&lt;Фильтр&gt;</translation>
-    </message>
-    <message>
-        <source>Components:</source>
-        <translation>Компоненты:</translation>
-    </message>
-    <message>
-        <source>Versions:</source>
-        <translation>Версии:</translation>
-    </message>
-    <message>
-        <source>Rename...</source>
-        <translation>Переименовать...</translation>
     </message>
 </context>
 <context>

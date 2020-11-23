@@ -220,6 +220,7 @@ public:
     QList<QGeoCoordinate> m_path;
     qreal m_width = 0;
     QGeoRectangle m_bbox; // cached
+    double m_leftBoundWrapped; // cached
     bool m_bboxDirty = false;
 };
 

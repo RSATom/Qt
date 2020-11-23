@@ -62,11 +62,11 @@ class DEVICE_BLUETOOTH_EXPORT BluetoothDeviceWinrt : public BluetoothDevice {
                             const base::Closure& callback,
                             const ErrorCallback& error_callback) override;
   void Connect(PairingDelegate* pairing_delegate,
-               const base::Closure& callback,
-               const ConnectErrorCallback& error_callback) override;
+               base::OnceClosure callback,
+               ConnectErrorCallback error_callback) override;
   void Pair(PairingDelegate* pairing_delegate,
-            const base::Closure& callback,
-            const ConnectErrorCallback& error_callback) override;
+            base::OnceClosure callback,
+            ConnectErrorCallback error_callback) override;
   void SetPinCode(const std::string& pincode) override;
   void SetPasskey(uint32_t passkey) override;
   void ConfirmPairing() override;
@@ -127,6 +127,8 @@ class DEVICE_BLUETOOTH_EXPORT BluetoothDeviceWinrt : public BluetoothDevice {
   void ClearGattServices();
   void ClearEventRegistrations();
 
+  ABI::Windows::Devices::Bluetooth::BluetoothConnectionStatus
+      connection_status_;
   uint64_t raw_address_;
   std::string address_;
   base::Optional<std::string> local_name_;
@@ -143,7 +145,7 @@ class DEVICE_BLUETOOTH_EXPORT BluetoothDeviceWinrt : public BluetoothDevice {
 
   // Note: This should remain the last member so it'll be destroyed and
   // invalidate its weak pointers before any other members are destroyed.
-  base::WeakPtrFactory<BluetoothDeviceWinrt> weak_ptr_factory_;
+  base::WeakPtrFactory<BluetoothDeviceWinrt> weak_ptr_factory_{this};
 
   DISALLOW_COPY_AND_ASSIGN(BluetoothDeviceWinrt);
 };

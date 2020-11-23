@@ -11,6 +11,11 @@
 
 namespace autofill {
 
+CreditCardCVCAuthenticator::CVCAuthenticationResponse::
+    CVCAuthenticationResponse() {}
+CreditCardCVCAuthenticator::CVCAuthenticationResponse::
+    ~CVCAuthenticationResponse() {}
+
 CreditCardCVCAuthenticator::CreditCardCVCAuthenticator(AutofillClient* client)
     : client_(client) {}
 
@@ -33,14 +38,24 @@ void CreditCardCVCAuthenticator::Authenticate(
 }
 
 void CreditCardCVCAuthenticator::OnFullCardRequestSucceeded(
-    const payments::FullCardRequest& /*full_card_request*/,
+    const payments::FullCardRequest& full_card_request,
     const CreditCard& card,
     const base::string16& cvc) {
-  requester_->OnCVCAuthenticationComplete(/*did_succeed=*/true, &card, cvc);
+  payments::PaymentsClient::UnmaskResponseDetails response =
+      full_card_request.unmask_response_details();
+  requester_->OnCVCAuthenticationComplete(
+      CVCAuthenticationResponse()
+          .with_did_succeed(true)
+          .with_card(&card)
+          .with_cvc(cvc)
+          .with_creation_options(std::move(response.fido_creation_options))
+          .with_request_options(std::move(response.fido_request_options))
+          .with_card_authorization_token(response.card_authorization_token));
 }
 
 void CreditCardCVCAuthenticator::OnFullCardRequestFailed() {
-  requester_->OnCVCAuthenticationComplete(/*did_succeed=*/false);
+  requester_->OnCVCAuthenticationComplete(
+      CVCAuthenticationResponse().with_did_succeed(false));
 }
 
 void CreditCardCVCAuthenticator::ShowUnmaskPrompt(

@@ -13,6 +13,7 @@
 #include "base/run_loop.h"
 #include "base/single_thread_task_runner.h"
 #include "net/cookies/canonical_cookie.h"
+#include "net/cookies/cookie_constants.h"
 #include "net/cookies/cookie_store.h"
 
 namespace base {
@@ -108,21 +109,77 @@ class GetCookieListCallback : public CookieCallback {
 
   ~GetCookieListCallback();
 
-  void Run(const CookieList& cookies, const CookieStatusList& excluded_cookies);
+  void Run(const CookieStatusList& cookies,
+           const CookieStatusList& excluded_cookies);
 
   // Makes a callback that will invoke Run. Assumes that |this| will be kept
   // alive till the time the callback is used.
-  base::OnceCallback<void(const CookieList&, const CookieStatusList&)>
+  base::OnceCallback<void(const CookieStatusList&, const CookieStatusList&)>
   MakeCallback() {
     return base::BindOnce(&GetCookieListCallback::Run, base::Unretained(this));
   }
 
   const CookieList& cookies() { return cookies_; }
+  const CookieStatusList& cookies_with_statuses() {
+    return cookies_with_statuses_;
+  }
   const CookieStatusList& excluded_cookies() { return excluded_cookies_; }
 
  private:
   CookieList cookies_;
+  CookieStatusList cookies_with_statuses_;
   CookieStatusList excluded_cookies_;
+};
+
+class GetAllCookiesCallback : public CookieCallback {
+ public:
+  GetAllCookiesCallback();
+  explicit GetAllCookiesCallback(base::Thread* run_in_thread);
+
+  ~GetAllCookiesCallback();
+
+  void Run(const CookieList& cookies);
+
+  // Makes a callback that will invoke Run. Assumes that |this| will be kept
+  // alive till the time the callback is used.
+  base::OnceCallback<void(const CookieList&)> MakeCallback() {
+    return base::BindOnce(&GetAllCookiesCallback::Run, base::Unretained(this));
+  }
+
+  const CookieList& cookies() { return cookies_; }
+
+ private:
+  CookieList cookies_;
+};
+
+class GetAllCookiesWithAccessSemanticsCallback : public CookieCallback {
+ public:
+  GetAllCookiesWithAccessSemanticsCallback();
+  explicit GetAllCookiesWithAccessSemanticsCallback(
+      base::Thread* run_in_thread);
+
+  ~GetAllCookiesWithAccessSemanticsCallback();
+
+  void Run(const CookieList& cookies,
+           const std::vector<CookieAccessSemantics>& access_semantics_list);
+
+  // Makes a callback that will invoke Run. Assumes that |this| will be kept
+  // alive till the time the callback is used.
+  base::OnceCallback<void(const CookieList&,
+                          const std::vector<CookieAccessSemantics>&)>
+  MakeCallback() {
+    return base::BindOnce(&GetAllCookiesWithAccessSemanticsCallback::Run,
+                          base::Unretained(this));
+  }
+
+  const CookieList& cookies() { return cookies_; }
+  const std::vector<CookieAccessSemantics>& access_semantics_list() {
+    return access_semantics_list_;
+  }
+
+ private:
+  CookieList cookies_;
+  std::vector<CookieAccessSemantics> access_semantics_list_;
 };
 
 }  // namespace net

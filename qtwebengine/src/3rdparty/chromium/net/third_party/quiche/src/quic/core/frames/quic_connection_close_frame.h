@@ -10,37 +10,22 @@
 
 #include "net/third_party/quiche/src/quic/core/quic_error_codes.h"
 #include "net/third_party/quiche/src/quic/core/quic_types.h"
+#include "net/third_party/quiche/src/quic/core/quic_versions.h"
 #include "net/third_party/quiche/src/quic/platform/api/quic_export.h"
 
 namespace quic {
 
-// There are three different forms of CONNECTION_CLOSE.
-typedef enum QuicConnectionCloseType {
-  GOOGLE_QUIC_CONNECTION_CLOSE = 0,
-  IETF_QUIC_TRANSPORT_CONNECTION_CLOSE = 1,
-  IETF_QUIC_APPLICATION_CONNECTION_CLOSE = 2
-} QuicConnectionCloseType;
-QUIC_EXPORT_PRIVATE std::ostream& operator<<(
-    std::ostream& os,
-    const QuicConnectionCloseType type);
-
 struct QUIC_EXPORT_PRIVATE QuicConnectionCloseFrame {
   QuicConnectionCloseFrame();
 
-  // TODO(fkastenholz): After migration to supporting IETF QUIC, this probably
-  // should be deprecated.
-  QuicConnectionCloseFrame(QuicErrorCode error_code, std::string error_details);
-
-  // Sets close_type to IETF_QUIC_APPLICATION_CONNECTION_CLOSE.
-  QuicConnectionCloseFrame(QuicErrorCode quic_error_code,
-                           std::string error_details,
-                           uint64_t ietf_application_error_code);
-
-  // Sets close_type to IETF_QUIC_TRANSPORT_CONNECTION_CLOSE.
-  QuicConnectionCloseFrame(QuicErrorCode quic_error_code,
-                           std::string error_details,
-                           QuicIetfTransportErrorCodes transport_error_code,
-                           uint64_t transport_frame_type);
+  // Builds a connection close frame based on the transport version
+  // and the mapping of error_code. THIS IS THE PREFERRED C'TOR
+  // TO USE IF YOU NEED TO CREATE A CONNECTION-CLOSE-FRAME AND
+  // HAVE IT BE CORRECT FOR THE VERSION AND CODE MAPPINGS.
+  QuicConnectionCloseFrame(QuicTransportVersion transport_version,
+                           QuicErrorCode error_code,
+                           std::string error_phrase,
+                           uint64_t transport_close_frame_type);
 
   friend QUIC_EXPORT_PRIVATE std::ostream& operator<<(
       std::ostream& os,
@@ -59,14 +44,14 @@ struct QUIC_EXPORT_PRIVATE QuicConnectionCloseFrame {
   // - A 16 bit QuicErrorCode, which is used in Google QUIC.
   union {
     QuicIetfTransportErrorCodes transport_error_code;
-    // TODO(fkastenholz): Change this to uint64_t to reflect -22 of the ID.
-    uint16_t application_error_code;
+    uint64_t application_error_code;
     QuicErrorCode quic_error_code;
   };
 
-  // This error code is extracted from, or added to, the "QuicErrorCode:
-  // QUIC_...(123)" text in the error_details. It provides fine-grained
-  // information as to the source of the error.
+  // For IETF QUIC frames, this is the error code is extracted from, or added
+  // to, the error details text. For received Google QUIC frames, the Google
+  // QUIC error code from the frame's error code field is copied here (as well
+  // as in quic_error_code, above).
   QuicErrorCode extracted_error_code;
 
   // String with additional error details. "QuicErrorCode: 123" will be appended

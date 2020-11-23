@@ -43,7 +43,8 @@ AudioDecodingCallStats MakeAudioDecodeStatsForTest() {
   audio_decode_stats.calls_to_silence_generator = 234;
   audio_decode_stats.calls_to_neteq = 567;
   audio_decode_stats.decoded_normal = 890;
-  audio_decode_stats.decoded_plc = 123;
+  audio_decode_stats.decoded_neteq_plc = 123;
+  audio_decode_stats.decoded_codec_plc = 124;
   audio_decode_stats.decoded_cng = 456;
   audio_decode_stats.decoded_plc_cng = 789;
   audio_decode_stats.decoded_muted_output = 987;
@@ -61,15 +62,16 @@ const int kPlayoutBufferDelay = 302;
 const unsigned int kSpeechOutputLevel = 99;
 const double kTotalOutputEnergy = 0.25;
 const double kTotalOutputDuration = 0.5;
+const int64_t kPlayoutNtpTimestampMs = 5678;
 
-const CallReceiveStatistics kCallStats = {678, 901, 234, -12, 567, 890, 123};
+const CallReceiveStatistics kCallStats = {678, 234, -12, 567, 78, 890, 123};
 const std::pair<int, SdpAudioFormat> kReceiveCodec = {
     123,
     {"codec_name_recv", 96000, 0}};
 const NetworkStatistics kNetworkStats = {
     123, 456, false, 789012, 3456, 123, 456, 789, 543, 432,
     321, 123, 101,   0,      {},   789, 12,  345, 678, 901,
-    0,   -1,  -1,    -1,     -1,   -1,  0,   0,   0,   0};
+    0,   -1,  -1,    -1,     -1,   0,   0,   0,   0};
 const AudioDecodingCallStats kAudioDecodeStats = MakeAudioDecodeStatsForTest();
 
 struct ConfigHelper {
@@ -87,7 +89,6 @@ struct ConfigHelper {
     audio_state_ = AudioState::Create(config);
 
     channel_receive_ = new ::testing::StrictMock<MockChannelReceive>();
-    EXPECT_CALL(*channel_receive_, SetLocalSSRC(kLocalSsrc)).Times(1);
     EXPECT_CALL(*channel_receive_, SetNACKStatus(true, 15)).Times(1);
     EXPECT_CALL(*channel_receive_,
                 RegisterReceiverCongestionControlObjects(&packet_router_))
@@ -145,6 +146,8 @@ struct ConfigHelper {
         .WillOnce(Return(kAudioDecodeStats));
     EXPECT_CALL(*channel_receive_, GetReceiveCodec())
         .WillOnce(Return(kReceiveCodec));
+    EXPECT_CALL(*channel_receive_, GetCurrentEstimatedPlayoutNtpTimestampMs(_))
+        .WillOnce(Return(kPlayoutNtpTimestampMs));
   }
 
  private:
@@ -220,8 +223,7 @@ TEST(AudioReceiveStreamTest, ConfigToString) {
       "{rtp: {remote_ssrc: 1234, local_ssrc: 5678, transport_cc: off, nack: "
       "{rtp_history_ms: 0}, extensions: [{uri: "
       "urn:ietf:params:rtp-hdrext:ssrc-audio-level, id: 3}]}, "
-      "rtcp_send_transport: null, media_transport_config: {media_transport: "
-      "null}}",
+      "rtcp_send_transport: null}",
       config.ToString());
 }
 
@@ -266,12 +268,13 @@ TEST(AudioReceiveStreamTest, GetStats) {
   helper.SetupMockForGetStats();
   AudioReceiveStream::Stats stats = recv_stream->GetStats();
   EXPECT_EQ(kRemoteSsrc, stats.remote_ssrc);
-  EXPECT_EQ(static_cast<int64_t>(kCallStats.bytesReceived), stats.bytes_rcvd);
+  EXPECT_EQ(kCallStats.payload_bytes_rcvd, stats.payload_bytes_rcvd);
+  EXPECT_EQ(kCallStats.header_and_padding_bytes_rcvd,
+            stats.header_and_padding_bytes_rcvd);
   EXPECT_EQ(static_cast<uint32_t>(kCallStats.packetsReceived),
             stats.packets_rcvd);
   EXPECT_EQ(kCallStats.cumulativeLost, stats.packets_lost);
   EXPECT_EQ(kReceiveCodec.second.name, stats.codec_name);
-  EXPECT_EQ(kCallStats.extendedMax, stats.ext_seqnum);
   EXPECT_EQ(
       kCallStats.jitterSamples / (kReceiveCodec.second.clockrate_hz / 1000),
       stats.jitter_ms);
@@ -306,13 +309,15 @@ TEST(AudioReceiveStreamTest, GetStats) {
             stats.decoding_calls_to_silence_generator);
   EXPECT_EQ(kAudioDecodeStats.calls_to_neteq, stats.decoding_calls_to_neteq);
   EXPECT_EQ(kAudioDecodeStats.decoded_normal, stats.decoding_normal);
-  EXPECT_EQ(kAudioDecodeStats.decoded_plc, stats.decoding_plc);
+  EXPECT_EQ(kAudioDecodeStats.decoded_neteq_plc, stats.decoding_plc);
+  EXPECT_EQ(kAudioDecodeStats.decoded_codec_plc, stats.decoding_codec_plc);
   EXPECT_EQ(kAudioDecodeStats.decoded_cng, stats.decoding_cng);
   EXPECT_EQ(kAudioDecodeStats.decoded_plc_cng, stats.decoding_plc_cng);
   EXPECT_EQ(kAudioDecodeStats.decoded_muted_output,
             stats.decoding_muted_output);
   EXPECT_EQ(kCallStats.capture_start_ntp_time_ms_,
             stats.capture_start_ntp_time_ms);
+  EXPECT_EQ(kPlayoutNtpTimestampMs, stats.estimated_playout_ntp_timestamp_ms);
 }
 
 TEST(AudioReceiveStreamTest, SetGain) {
@@ -363,7 +368,6 @@ TEST(AudioReceiveStreamTest, ReconfigureWithUpdatedConfig) {
   auto recv_stream = helper.CreateAudioReceiveStream();
 
   auto new_config = helper.config();
-  new_config.rtp.local_ssrc = kLocalSsrc + 1;
   new_config.rtp.nack.rtp_history_ms = 300 + 20;
   new_config.rtp.extensions.clear();
   new_config.rtp.extensions.push_back(
@@ -374,7 +378,6 @@ TEST(AudioReceiveStreamTest, ReconfigureWithUpdatedConfig) {
   new_config.decoder_map.emplace(1, SdpAudioFormat("foo", 8000, 1));
 
   MockChannelReceive& channel_receive = *helper.channel_receive();
-  EXPECT_CALL(channel_receive, SetLocalSSRC(kLocalSsrc + 1)).Times(1);
   EXPECT_CALL(channel_receive, SetNACKStatus(true, 15 + 1)).Times(1);
   EXPECT_CALL(channel_receive, SetReceiveCodecs(new_config.decoder_map));
 

@@ -5,6 +5,7 @@
 #include "chrome/browser/chromeos/accessibility/accessibility_manager.h"
 #include "chrome/browser/extensions/extension_apitest.h"
 #include "chrome/browser/ui/browser_list.h"
+#include "chrome/browser/ui/chrome_pages.h"
 #include "chrome/browser/ui/settings_window_manager_chromeos.h"
 #include "chrome/browser/ui/tabs/tab_strip_model.h"
 #include "chrome/browser/web_applications/system_web_app_manager.h"
@@ -28,7 +29,13 @@ IN_PROC_BROWSER_TEST_F(AccessibilityPrivateApiTest, GetDisplayLanguageTest) {
       << message_;
 }
 
-IN_PROC_BROWSER_TEST_F(AccessibilityPrivateApiTest, OpenSettingsSubpage) {
+// Flaky on a debug build, see crbug.com/1030507.
+#if !defined(NDEBUG)
+#define MAYBE_OpenSettingsSubpage DISABLED_OpenSettingsSubpage
+#else
+#define MAYBE_OpenSettingsSubpage OpenSettingsSubpage
+#endif
+IN_PROC_BROWSER_TEST_F(AccessibilityPrivateApiTest, MAYBE_OpenSettingsSubpage) {
   Profile* profile = chromeos::AccessibilityManager::Get()->profile();
 
   // Install the Settings App.
@@ -51,7 +58,7 @@ IN_PROC_BROWSER_TEST_F(AccessibilityPrivateApiTest, OpenSettingsSubpage) {
 
   WaitForLoadStop(web_contents);
 
-  EXPECT_EQ(GURL("chrome://settings/manageAccessibility/tts"),
+  EXPECT_EQ(GURL(chrome::GetOSSettingsUrl("manageAccessibility/tts")),
             web_contents->GetLastCommittedURL());
 }
 
@@ -71,15 +78,9 @@ IN_PROC_BROWSER_TEST_F(AccessibilityPrivateApiTest,
   chrome::SettingsWindowManager* settings_manager =
       chrome::SettingsWindowManager::GetInstance();
 
+  // Invalid subpage should not open settings window.
   Browser* settings_browser = settings_manager->FindBrowserForProfile(profile);
-  EXPECT_NE(nullptr, settings_browser);
-
-  content::WebContents* web_contents =
-      settings_browser->tab_strip_model()->GetWebContentsAt(0);
-
-  WaitForLoadStop(web_contents);
-
-  EXPECT_EQ(GURL("chrome://settings"), web_contents->GetLastCommittedURL());
+  EXPECT_EQ(nullptr, settings_browser);
 }
 
 }  // namespace extensions

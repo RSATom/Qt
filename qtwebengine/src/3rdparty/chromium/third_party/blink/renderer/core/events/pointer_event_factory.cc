@@ -97,6 +97,7 @@ void UpdateCommonPointerEventInit(const WebPointerEvent& web_pointer_event,
   MouseEvent::SetCoordinatesFromWebPointerProperties(
       web_pointer_event_in_root_frame, dom_window, pointer_event_init);
   if (RuntimeEnabledFeatures::ConsolidatedMovementXYEnabled() &&
+      !web_pointer_event.is_raw_movement_event &&
       (web_pointer_event.GetType() == WebInputEvent::kPointerMove ||
        web_pointer_event.GetType() == WebInputEvent::kPointerRawUpdate)) {
     // TODO(crbug.com/907309): Current movementX/Y is in physical pixel when
@@ -107,10 +108,9 @@ void UpdateCommonPointerEventInit(const WebPointerEvent& web_pointer_event,
     if (dom_window && dom_window->GetFrame()) {
       LocalFrame* frame = dom_window->GetFrame();
       if (frame->GetPage()->DeviceScaleFactorDeprecated() == 1) {
-        device_scale_factor = frame->GetPage()
-                                  ->GetChromeClient()
-                                  .GetScreenInfo()
-                                  .device_scale_factor;
+        ChromeClient& chrome_client = frame->GetPage()->GetChromeClient();
+        device_scale_factor =
+            chrome_client.GetScreenInfo(*frame).device_scale_factor;
       }
     }
 

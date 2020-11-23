@@ -39,6 +39,14 @@ namespace dawn_native { namespace vulkan {
 
     MaybeError Adapter::Initialize() {
         DAWN_TRY_ASSIGN(mDeviceInfo, GatherDeviceInfo(*this));
+        if (!mDeviceInfo.maintenance1 &&
+            mDeviceInfo.properties.apiVersion < VK_MAKE_VERSION(1, 1, 0)) {
+            return DAWN_DEVICE_LOST_ERROR(
+                "Dawn requires Vulkan 1.1 or Vulkan 1.0 with KHR_Maintenance1 in order to support "
+                "viewport flipY");
+        }
+
+        InitializeSupportedExtensions();
 
         mPCIInfo.deviceId = mDeviceInfo.properties.deviceID;
         mPCIInfo.vendorId = mDeviceInfo.properties.vendorID;
@@ -60,6 +68,12 @@ namespace dawn_native { namespace vulkan {
         }
 
         return {};
+    }
+
+    void Adapter::InitializeSupportedExtensions() {
+        if (mDeviceInfo.features.textureCompressionBC == VK_TRUE) {
+            mSupportedExtensions.EnableExtension(Extension::TextureCompressionBC);
+        }
     }
 
     ResultOrError<DeviceBase*> Adapter::CreateDeviceImpl(const DeviceDescriptor* descriptor) {

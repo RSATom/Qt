@@ -19,17 +19,13 @@ qtHaveModule(widgets) {
                 multicastreceiver \
                 multicastsender
 
-    qtConfig(bearermanagement) {
-        qtConfig(processenvironment): SUBDIRS += network-chat
+    qtConfig(processenvironment): SUBDIRS += network-chat
 
-        SUBDIRS += \
-                bearermonitor \
-                fortuneclient \
-                fortuneserver
+    SUBDIRS += \
+            fortuneclient \
+            fortuneserver
 
-    }
-
-    qtConfig(openssl): SUBDIRS += securesocketclient
+    qtConfig(ssl): SUBDIRS += securesocketclient
     qtConfig(dtls): SUBDIRS += secureudpserver secureudpclient
     qtConfig(sctp): SUBDIRS += multistreamserver multistreamclient
 }

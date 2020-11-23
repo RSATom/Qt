@@ -87,7 +87,7 @@ public:
 
         virtual QQmlDelegateModelItem *createItem(
                 QQmlAdaptorModel &,
-                QQmlDelegateModelItemMetaType *,
+                const QQmlRefPointer<QQmlDelegateModelItemMetaType> &,
                 int, int, int) const { return nullptr; }
 
         virtual bool notify(
@@ -140,10 +140,16 @@ public:
 
     inline QVariant value(int index, const QString &role) const {
         return accessors->value(*this, index, role); }
-    inline QQmlDelegateModelItem *createItem(QQmlDelegateModelItemMetaType *metaType, int index) {
-        return accessors->createItem(*this, metaType, index, rowAt(index), columnAt(index)); }
+    inline QQmlDelegateModelItem *createItem(
+            const QQmlRefPointer<QQmlDelegateModelItemMetaType> &metaType, int index)
+    {
+        return accessors->createItem(*this, metaType, index, rowAt(index), columnAt(index));
+    }
     inline bool hasProxyObject() const {
-        return list.type() == QQmlListAccessor::Instance || list.type() == QQmlListAccessor::ListProperty; }
+        return list.type() == QQmlListAccessor::Instance
+                || list.type() == QQmlListAccessor::ListProperty
+                || list.type() == QQmlListAccessor::ObjectList;
+    }
 
     inline bool notify(
             const QList<QQmlDelegateModelItem *> &items,

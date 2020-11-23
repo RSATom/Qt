@@ -28,8 +28,8 @@
 #include "base/trace_event/memory_dump_provider.h"
 #include "media/base/limits.h"
 #include "media/base/video_decoder_config.h"
+#include "media/gpu/chromeos/image_processor.h"
 #include "media/gpu/gpu_video_decode_accelerator_helpers.h"
-#include "media/gpu/image_processor.h"
 #include "media/gpu/media_gpu_export.h"
 #include "media/gpu/v4l2/v4l2_device.h"
 #include "media/video/picture.h"
@@ -391,10 +391,6 @@ class MEDIA_GPU_EXPORT V4L2VideoDecodeAccelerator
 
   // Set input and output formats before starting decode.
   bool SetupFormats();
-  // Return a usable input format of image processor. Return 0 if not found.
-  uint32_t FindImageProcessorInputFormat();
-  // Return a usable output format of image processor. Return 0 if not found.
-  uint32_t FindImageProcessorOutputFormat();
   // Reset image processor and drop all processing frames.
   bool ResetImageProcessor();
 

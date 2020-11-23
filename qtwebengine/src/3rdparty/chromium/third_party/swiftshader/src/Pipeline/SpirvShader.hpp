@@ -22,7 +22,6 @@
 #include "Vulkan/VkDebug.hpp"
 #include "Vulkan/VkConfig.h"
 #include "Vulkan/VkDescriptorSet.hpp"
-#include "Common/Types.hpp"
 #include "Device/Config.hpp"
 #include "Device/Sampler.hpp"
 
@@ -41,6 +40,8 @@
 #include <unordered_set>
 #include <vector>
 
+#undef Yield // b/127920555
+
 namespace vk
 {
 	class PipelineLayout;
@@ -54,248 +55,6 @@ namespace sw
 {
 	// Forward declarations.
 	class SpirvRoutine;
-
-	enum class OutOfBoundsBehavior
-	{
-		Nullify,             // Loads become zero, stores are elided.
-		RobustBufferAccess,  // As defined by the Vulkan spec (in short: access anywhere within bounds, or zeroing).
-		UndefinedValue,      // Only for load operations. Not secure. No program termination.
-		UndefinedBehavior,   // Program may terminate.
-	};
-
-	// SIMD contains types that represent multiple scalars packed into a single
-	// vector data type. Types in the SIMD namespace provide a semantic hint
-	// that the data should be treated as a per-execution-lane scalar instead of
-	// a typical euclidean-style vector type.
-	namespace SIMD
-	{
-		// Width is the number of per-lane scalars packed into each SIMD vector.
-		static constexpr int Width = 4;
-
-		using Float = rr::Float4;
-		using Int = rr::Int4;
-		using UInt = rr::UInt4;
-
-		struct Pointer
-		{
-			Pointer(rr::Pointer<Byte> base, rr::Int limit)
-				: base(base),
-				  dynamicLimit(limit), staticLimit(0),
-				  dynamicOffsets(0), staticOffsets{},
-				  hasDynamicLimit(true), hasDynamicOffsets(false) {}
-
-			Pointer(rr::Pointer<Byte> base, unsigned int limit)
-				: base(base),
-				  dynamicLimit(0), staticLimit(limit),
-				  dynamicOffsets(0), staticOffsets{},
-				  hasDynamicLimit(false), hasDynamicOffsets(false) {}
-
-			Pointer(rr::Pointer<Byte> base, rr::Int limit, SIMD::Int offset)
-				: base(base),
-				  dynamicLimit(limit), staticLimit(0),
-				  dynamicOffsets(offset), staticOffsets{},
-				  hasDynamicLimit(true), hasDynamicOffsets(true) {}
-
-			Pointer(rr::Pointer<Byte> base, unsigned int limit, SIMD::Int offset)
-				: base(base),
-				  dynamicLimit(0), staticLimit(limit),
-				  dynamicOffsets(offset), staticOffsets{},
-				  hasDynamicLimit(false), hasDynamicOffsets(true) {}
-
-			inline Pointer& operator += (Int i)
-			{
-				dynamicOffsets += i;
-				hasDynamicOffsets = true;
-				return *this;
-			}
-
-			inline Pointer& operator *= (Int i)
-			{
-				dynamicOffsets = offsets() * i;
-				staticOffsets = {};
-				hasDynamicOffsets = true;
-				return *this;
-			}
-
-			inline Pointer operator + (SIMD::Int i) { Pointer p = *this; p += i; return p; }
-			inline Pointer operator * (SIMD::Int i) { Pointer p = *this; p *= i; return p; }
-
-			inline Pointer& operator += (int i)
-			{
-				for (int el = 0; el < SIMD::Width; el++) { staticOffsets[el] += i; }
-				return *this;
-			}
-
-			inline Pointer& operator *= (int i)
-			{
-				for (int el = 0; el < SIMD::Width; el++) { staticOffsets[el] *= i; }
-				if (hasDynamicOffsets)
-				{
-					dynamicOffsets *= SIMD::Int(i);
-				}
-				return *this;
-			}
-
-			inline Pointer operator + (int i) { Pointer p = *this; p += i; return p; }
-			inline Pointer operator * (int i) { Pointer p = *this; p *= i; return p; }
-
-			inline SIMD::Int offsets() const
-			{
-				static_assert(SIMD::Width == 4, "Expects SIMD::Width to be 4");
-				return dynamicOffsets + SIMD::Int(staticOffsets[0], staticOffsets[1], staticOffsets[2], staticOffsets[3]);
-			}
-
-			inline SIMD::Int isInBounds(unsigned int accessSize, OutOfBoundsBehavior robustness) const
-			{
-				ASSERT(accessSize > 0);
-
-				if (isStaticallyInBounds(accessSize, robustness))
-				{
-					return SIMD::Int(0xffffffff);
-				}
-
-				if (!hasDynamicOffsets && !hasDynamicLimit)
-				{
-					// Common fast paths.
-					static_assert(SIMD::Width == 4, "Expects SIMD::Width to be 4");
-					return SIMD::Int(
-						(staticOffsets[0] + accessSize - 1 < staticLimit) ? 0xffffffff : 0,
-						(staticOffsets[1] + accessSize - 1 < staticLimit) ? 0xffffffff : 0,
-						(staticOffsets[2] + accessSize - 1 < staticLimit) ? 0xffffffff : 0,
-						(staticOffsets[3] + accessSize - 1 < staticLimit) ? 0xffffffff : 0);
-				}
-
-				return CmpLT(offsets() + SIMD::Int(accessSize - 1), SIMD::Int(limit()));
-			}
-
-			inline bool isStaticallyInBounds(unsigned int accessSize, OutOfBoundsBehavior robustness) const
-			{
-				if (hasDynamicOffsets)
-				{
-					return false;
-				}
-
-				if (hasDynamicLimit)
-				{
-					if (hasStaticEqualOffsets() || hasStaticSequentialOffsets(accessSize))
-					{
-						switch(robustness)
-						{
-						case OutOfBoundsBehavior::UndefinedBehavior:
-							// With this robustness setting the application/compiler guarantees in-bounds accesses on active lanes,
-							// but since it can't know in advance which branches are taken this must be true even for inactives lanes.
-							return true;
-						case OutOfBoundsBehavior::Nullify:
-						case OutOfBoundsBehavior::RobustBufferAccess:
-						case OutOfBoundsBehavior::UndefinedValue:
-							return false;
-						}
-					}
-				}
-
-				for (int i = 0; i < SIMD::Width; i++)
-				{
-					if (staticOffsets[i] + accessSize - 1 >= staticLimit)
-					{
-						return false;
-					}
-				}
-
-				return true;
-			}
-
-			inline Int limit() const
-			{
-				return dynamicLimit + staticLimit;
-			}
-
-			// Returns true if all offsets are sequential
-			// (N+0*step, N+1*step, N+2*step, N+3*step)
-			inline rr::Bool hasSequentialOffsets(unsigned int step) const
-			{
-				if (hasDynamicOffsets)
-				{
-					auto o = offsets();
-					static_assert(SIMD::Width == 4, "Expects SIMD::Width to be 4");
-					return rr::SignMask(~CmpEQ(o.yzww, o + SIMD::Int(1*step, 2*step, 3*step, 0))) == 0;
-				}
-				return hasStaticSequentialOffsets(step);
-			}
-
-			// Returns true if all offsets are are compile-time static and
-			// sequential (N+0*step, N+1*step, N+2*step, N+3*step)
-			inline bool hasStaticSequentialOffsets(unsigned int step) const
-			{
-				if (hasDynamicOffsets)
-				{
-					return false;
-				}
-				for (int i = 1; i < SIMD::Width; i++)
-				{
-					if (staticOffsets[i-1] + int32_t(step) != staticOffsets[i]) { return false; }
-				}
-				return true;
-			}
-
-			// Returns true if all offsets are equal (N, N, N, N)
-			inline rr::Bool hasEqualOffsets() const
-			{
-				if (hasDynamicOffsets)
-				{
-					auto o = offsets();
-					static_assert(SIMD::Width == 4, "Expects SIMD::Width to be 4");
-					return rr::SignMask(~CmpEQ(o, o.yzwx)) == 0;
-				}
-				return hasStaticEqualOffsets();
-			}
-
-			// Returns true if all offsets are compile-time static and are equal
-			// (N, N, N, N)
-			inline bool hasStaticEqualOffsets() const
-			{
-				if (hasDynamicOffsets)
-				{
-					return false;
-				}
-				for (int i = 1; i < SIMD::Width; i++)
-				{
-					if (staticOffsets[i-1] != staticOffsets[i]) { return false; }
-				}
-				return true;
-			}
-
-			// Base address for the pointer, common across all lanes.
-			rr::Pointer<rr::Byte> base;
-
-			// Upper (non-inclusive) limit for offsets from base.
-			rr::Int dynamicLimit; // If hasDynamicLimit is false, dynamicLimit is zero.
-			unsigned int staticLimit;
-
-			// Per lane offsets from base.
-			SIMD::Int dynamicOffsets; // If hasDynamicOffsets is false, all dynamicOffsets are zero.
-			std::array<int32_t, SIMD::Width> staticOffsets;
-
-			bool hasDynamicLimit;    // True if dynamicLimit is non-zero.
-			bool hasDynamicOffsets;  // True if any dynamicOffsets are non-zero.
-		};
-
-		template <typename T> struct Element {};
-		template <> struct Element<Float> { using type = rr::Float; };
-		template <> struct Element<Int>   { using type = rr::Int; };
-		template <> struct Element<UInt>  { using type = rr::UInt; };
-
-		template<typename T>
-		void Store(Pointer ptr, T val, OutOfBoundsBehavior robustness, Int mask, bool atomic = false, std::memory_order order = std::memory_order_relaxed);
-
-		template<typename T>
-		void Store(Pointer ptr, RValue<T> val, OutOfBoundsBehavior robustness, Int mask, bool atomic = false, std::memory_order order = std::memory_order_relaxed)
-		{
-			Store(ptr, T(val), robustness, mask, atomic, order);
-		}
-
-		template<typename T>
-		T Load(Pointer ptr, OutOfBoundsBehavior robustness, Int mask, bool atomic = false, std::memory_order order = std::memory_order_relaxed, int alignment = sizeof(float));
-	}
 
 	// Incrementally constructed complex bundle of rvalues
 	// Effectively a restricted vector, supporting only:
@@ -576,7 +335,7 @@ namespace sw
 
 			// Walks all reachable the blocks starting from id adding them to
 			// reachable.
-			void TraverseReachableBlocks(Block::ID id, Block::Set& reachable);
+			void TraverseReachableBlocks(Block::ID id, Block::Set& reachable) const;
 
 			// AssignBlockFields() performs the following for all reachable blocks:
 			// * Assigns Block::ins with the identifiers of all blocks that contain
@@ -721,6 +480,64 @@ namespace sw
 			return modes;
 		}
 
+		struct Capabilities
+		{
+			bool Matrix : 1;
+			bool Shader : 1;
+			bool ClipDistance : 1;
+			bool CullDistance : 1;
+			bool InputAttachment : 1;
+			bool Sampled1D : 1;
+			bool Image1D : 1;
+			bool SampledBuffer : 1;
+			bool ImageBuffer : 1;
+			bool StorageImageExtendedFormats : 1;
+			bool ImageQuery : 1;
+			bool DerivativeControl : 1;
+			bool GroupNonUniform : 1;
+			bool GroupNonUniformVote : 1;
+			bool GroupNonUniformBallot : 1;
+			bool GroupNonUniformShuffle : 1;
+			bool GroupNonUniformShuffleRelative : 1;
+			bool DeviceGroup : 1;
+			bool MultiView : 1;
+		};
+
+		Capabilities const &getUsedCapabilities() const
+		{
+			return capabilities;
+		}
+
+		// getNumOutputClipDistances() returns the number of ClipDistances
+		// outputted by this shader.
+		unsigned int getNumOutputClipDistances() const
+		{
+			if (getUsedCapabilities().ClipDistance)
+			{
+				auto it = outputBuiltins.find(spv::BuiltInClipDistance);
+				if(it != outputBuiltins.end())
+				{
+					return it->second.SizeInComponents;
+				}
+			}
+			return 0;
+		}
+
+		// getNumOutputCullDistances() returns the number of CullDistances
+		// outputted by this shader.
+		unsigned int getNumOutputCullDistances() const
+		{
+			if (getUsedCapabilities().CullDistance)
+			{
+				auto it = outputBuiltins.find(spv::BuiltInCullDistance);
+				if(it != outputBuiltins.end())
+				{
+					return it->second.SizeInComponents;
+				}
+			}
+			return 0;
+		}
+
 		enum AttribType : unsigned char
 		{
 			ATTRIBTYPE_FLOAT,
@@ -861,7 +678,7 @@ namespace sw
 		std::vector<InterfaceComponent> outputs;
 
 		void emitProlog(SpirvRoutine *routine) const;
-		void emit(SpirvRoutine *routine, RValue<SIMD::Int> const &activeLaneMask, const vk::DescriptorSet::Bindings &descriptorSets) const;
+		void emit(SpirvRoutine *routine, RValue<SIMD::Int> const &activeLaneMask, RValue<SIMD::Int> const &storesAndAtomicsMask, const vk::DescriptorSet::Bindings &descriptorSets) const;
 		void emitEpilog(SpirvRoutine *routine) const;
 
 		using BuiltInHash = std::hash<std::underlying_type<spv::BuiltIn>::type>;
@@ -871,7 +688,8 @@ namespace sw
 
 	private:
 		const uint32_t codeSerialID;
-		Modes modes;
+		Modes modes = {};
+		Capabilities capabilities = {};
 		HandleMap<Type> types;
 		HandleMap<Object> defs;
 		HandleMap<Function> functions;
@@ -939,17 +757,22 @@ namespace sw
 		static bool IsStorageInterleavedByLane(spv::StorageClass storageClass);
 		static bool IsExplicitLayout(spv::StorageClass storageClass);
 
-		template<typename F>
-		int VisitInterfaceInner(Type::ID id, Decorations d, F f) const;
+		static sw::SIMD::Pointer InterleaveByLane(sw::SIMD::Pointer p);
 
-		template<typename F>
-		void VisitInterface(Object::ID id, F f) const;
+		// Output storage buffers and images should not be affected by helper invocations
+		static bool StoresInHelperInvocation(spv::StorageClass storageClass);
 
-		template<typename F>
-		void VisitMemoryObject(Object::ID id, F f) const;
+		using InterfaceVisitor = std::function<void(Decorations const, AttribType)>;
 
-		template<typename F>
-		void VisitMemoryObjectInner(Type::ID id, Decorations d, uint32_t &index, uint32_t offset, F f) const;
+		void VisitInterface(Object::ID id, const InterfaceVisitor& v) const;
+
+		int VisitInterfaceInner(Type::ID id, Decorations d, const InterfaceVisitor& v) const;
+
+		using MemoryVisitor = std::function<void(uint32_t index, uint32_t offset)>;
+
+		void VisitMemoryObject(Object::ID id, const MemoryVisitor& v) const;
+
+		void VisitMemoryObjectInner(Type::ID id, Decorations d, uint32_t &index, uint32_t offset, const MemoryVisitor& v) const;
 
 		Object& CreateConstant(InsnIterator it);
 
@@ -962,12 +785,14 @@ namespace sw
 			EmitState(SpirvRoutine *routine,
 					Function::ID function,
 					RValue<SIMD::Int> activeLaneMask,
+					RValue<SIMD::Int> storesAndAtomicsMask,
 					const vk::DescriptorSet::Bindings &descriptorSets,
 					bool robustBufferAccess,
 					spv::ExecutionModel executionModel)
 				: routine(routine),
 				  function(function),
 				  activeLaneMaskValue(activeLaneMask.value),
+				  storesAndAtomicsMaskValue(storesAndAtomicsMask.value),
 				  descriptorSets(descriptorSets),
 				  robustBufferAccess(robustBufferAccess),
 				  executionModel(executionModel)
@@ -979,6 +804,12 @@ namespace sw
 			{
 				ASSERT(activeLaneMaskValue != nullptr);
 				return RValue<SIMD::Int>(activeLaneMaskValue);
+			}
+
+			RValue<SIMD::Int> storesAndAtomicsMask() const
+			{
+				ASSERT(storesAndAtomicsMaskValue != nullptr);
+				return RValue<SIMD::Int>(storesAndAtomicsMaskValue);
 			}
 
 			void setActiveLaneMask(RValue<SIMD::Int> mask)
@@ -1001,6 +832,7 @@ namespace sw
 			Function::ID function; // The current function being built.
 			Block::ID block; // The current block being built.
 			rr::Value *activeLaneMaskValue = nullptr; // The current active lane mask.
+			rr::Value *storesAndAtomicsMaskValue = nullptr; // The current atomics mask.
 			Block::Set visited; // Blocks already built.
 			std::unordered_map<Block::Edge, RValue<SIMD::Int>, Block::Edge::Hash> edgeActiveLaneMasks;
 			std::deque<Block::ID> *pending;
@@ -1067,22 +899,36 @@ namespace sw
 
 			RValue<SIMD::Float> Float(uint32_t i) const
 			{
-				if (intermediate != nullptr)
+				if (intermediate)
 				{
 					return intermediate->Float(i);
 				}
-				auto constantValue = reinterpret_cast<float *>(obj.constantValue.get());
-				return RValue<SIMD::Float>(constantValue[i]);
+
+				// Constructing a constant SIMD::Float is not guaranteed to preserve the data's exact
+				// bit pattern, but SPIR-V provides 32-bit words representing "the bit pattern for the constant".
+				// Thus we must first construct an integer constant, and bitcast to float.
+				auto constantValue = reinterpret_cast<uint32_t *>(obj.constantValue.get());
+				return As<SIMD::Float>(SIMD::UInt(constantValue[i]));
 			}
 
 			RValue<SIMD::Int> Int(uint32_t i) const
 			{
-				return As<SIMD::Int>(Float(i));
+				if (intermediate)
+				{
+					return intermediate->Int(i);
+				}
+				auto constantValue = reinterpret_cast<int *>(obj.constantValue.get());
+				return SIMD::Int(constantValue[i]);
 			}
 
 			RValue<SIMD::UInt> UInt(uint32_t i) const
 			{
-				return As<SIMD::UInt>(Float(i));
+				if (intermediate)
+				{
+					return intermediate->UInt(i);
+				}
+				auto constantValue = reinterpret_cast<uint32_t *>(obj.constantValue.get());
+				return SIMD::UInt(constantValue[i]);
 			}
 
 			SpirvShader::Type::ID const type;
@@ -1169,6 +1015,7 @@ namespace sw
 		EmitResult EmitUnreachable(InsnIterator insn, EmitState *state) const;
 		EmitResult EmitReturn(InsnIterator insn, EmitState *state) const;
 		EmitResult EmitKill(InsnIterator insn, EmitState *state) const;
+		EmitResult EmitFunctionCall(InsnIterator insn, EmitState *state) const;
 		EmitResult EmitPhi(InsnIterator insn, EmitState *state) const;
 		EmitResult EmitImageSampleImplicitLod(Variant variant, InsnIterator insn, EmitState *state) const;
 		EmitResult EmitImageSampleExplicitLod(Variant variant, InsnIterator insn, EmitState *state) const;
@@ -1232,13 +1079,12 @@ namespace sw
 		std::pair<SIMD::Float, SIMD::Int> Frexp(RValue<SIMD::Float> val) const;
 
 		static ImageSampler *getImageSampler(uint32_t instruction, vk::SampledImageDescriptor const *imageDescriptor, const vk::Sampler *sampler);
-		static rr::Routine *emitSamplerRoutine(ImageInstruction instruction, const Sampler &samplerState);
+		static std::shared_ptr<rr::Routine> emitSamplerRoutine(ImageInstruction instruction, const Sampler &samplerState);
 
 		// TODO(b/129523279): Eliminate conversion and use vk::Sampler members directly.
-		static sw::TextureType convertTextureType(VkImageViewType imageViewType);
 		static sw::FilterType convertFilterMode(const vk::Sampler *sampler);
 		static sw::MipmapType convertMipmapMode(const vk::Sampler *sampler);
-		static sw::AddressingMode convertAddressingMode(int coordinateIndex, VkSamplerAddressMode addressMode, VkImageViewType imageViewType);
+		static sw::AddressingMode convertAddressingMode(int coordinateIndex, const vk::Sampler *sampler, VkImageViewType imageViewType);
 
 		// Returns 0 when invalid.
 		static VkShaderStageFlagBits executionModelToStage(spv::ExecutionModel model);
@@ -1251,10 +1097,17 @@ namespace sw
 
 		using Variable = Array<SIMD::Float>;
 
+		struct SamplerCache
+		{
+			Pointer<Byte> imageDescriptor = nullptr;
+			Pointer<Byte> sampler;
+			Pointer<Byte> function;
+		};
+
 		vk::PipelineLayout const * const pipelineLayout;
 
 		std::unordered_map<SpirvShader::Object::ID, Variable> variables;
-
+		std::unordered_map<SpirvShader::Object::ID, SamplerCache> samplerCache;
 		Variable inputs = Variable{MAX_INTERFACE_COMPONENTS};
 		Variable outputs = Variable{MAX_INTERFACE_COMPONENTS};
 
@@ -1265,6 +1118,7 @@ namespace sw
 		Pointer<Byte> constants;
 		Int killMask = Int{0};
 		SIMD::Int windowSpacePosition[2];
+		Int viewID;	// slice offset into input attachments for multiview, even if the shader doesn't use ViewIndex
 
 		void createVariable(SpirvShader::Object::ID id, uint32_t size)
 		{
@@ -1277,6 +1131,25 @@ namespace sw
 			auto it = variables.find(id);
 			ASSERT_MSG(it != variables.end(), "Unknown variables %d", id.value());
 			return it->second;
+		}
+
+		// setImmutableInputBuiltins() sets all the immutable input builtins,
+		// common for all shader types.
+		void setImmutableInputBuiltins(SpirvShader const *shader);
+
+		// setInputBuiltin() calls f() with the builtin and value if the shader
+		// uses the input builtin, otherwise the call is a no-op.
+		// F is a function with the signature:
+		// void(const SpirvShader::BuiltinMapping& builtin, Array<SIMD::Float>& value)
+		template <typename F>
+		inline void setInputBuiltin(SpirvShader const *shader, spv::BuiltIn id, F&& f)
+		{
+			auto it = shader->inputBuiltins.find(id);
+			if (it != shader->inputBuiltins.end())
+			{
+				const auto& builtin = it->second;
+				f(builtin, getVariable(builtin.Id));
+			}
 		}
 
 	private:

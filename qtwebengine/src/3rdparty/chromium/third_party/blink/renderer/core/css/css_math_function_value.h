@@ -16,19 +16,16 @@ namespace blink {
 class CORE_EXPORT CSSMathFunctionValue : public CSSPrimitiveValue {
  public:
   static CSSMathFunctionValue* Create(const Length&, float zoom);
-  static CSSMathFunctionValue* Create(CSSMathExpressionNode*,
+  static CSSMathFunctionValue* Create(const CSSMathExpressionNode*,
                                       ValueRange = kValueRangeAll);
 
-  CSSMathFunctionValue(CSSMathExpressionNode* expression, ValueRange range);
+  CSSMathFunctionValue(const CSSMathExpressionNode* expression,
+                       ValueRange range);
 
-  CSSMathExpressionNode* ExpressionNode() const { return expression_; }
+  const CSSMathExpressionNode* ExpressionNode() const { return expression_; }
 
   scoped_refptr<CalculationValue> ToCalcValue(
-      const CSSToLengthConversionData& conversion_data) const {
-    PixelsAndPercent value(0, 0);
-    expression_->AccumulatePixelsAndPercent(conversion_data, value);
-    return CalculationValue::Create(value, PermittedValueRange());
-  }
+      const CSSToLengthConversionData& conversion_data) const;
 
   bool MayHaveRelativeUnit() const;
 
@@ -47,6 +44,22 @@ class CORE_EXPORT CSSMathFunctionValue : public CSSPrimitiveValue {
     return IsNonNegative() ? kValueRangeNonNegative : kValueRangeAll;
   }
 
+  // When |false|, comparisons between percentage values can be resolved without
+  // providing a reference value (e.g., min(10%, 20%) == 10%). When |true|, the
+  // result depends on the sign of the reference value (e.g., when referring to
+  // a negative value, min(10%, 20%) == 20%).
+  // Note: 'background-position' property allows negative reference values.
+  bool AllowsNegativePercentageReference() const {
+    return allows_negative_percentage_reference_;
+  }
+  void SetAllowsNegativePercentageReference() {
+    // TODO(crbug.com/825895): So far, 'background-position' is the only
+    // property that allows resolving a percentage against a negative value. If
+    // we have more of such properties, we should instead pass an additional
+    // argument to ask the parser to set this flag when constructing |this|.
+    allows_negative_percentage_reference_ = true;
+  }
+
   bool IsZero() const;
 
   bool IsComputationallyIndependent() const;
@@ -63,10 +76,14 @@ class CORE_EXPORT CSSMathFunctionValue : public CSSPrimitiveValue {
   double ComputeLengthPx(
       const CSSToLengthConversionData& conversion_data) const;
 
-  void AccumulateLengthArray(CSSLengthArray& length_array,
+  bool AccumulateLengthArray(CSSLengthArray& length_array,
                              double multiplier) const;
   Length ConvertToLength(
       const CSSToLengthConversionData& conversion_data) const;
+
+  void AccumulateLengthUnitTypes(LengthTypeFlags& types) const {
+    expression_->AccumulateLengthUnitTypes(types);
+  }
 
   String CustomCSSText() const;
   bool Equals(const CSSMathFunctionValue& other) const;
@@ -78,7 +95,7 @@ class CORE_EXPORT CSSMathFunctionValue : public CSSPrimitiveValue {
 
   double ClampToPermittedRange(double) const;
 
-  Member<CSSMathExpressionNode> expression_;
+  Member<const CSSMathExpressionNode> expression_;
 };
 
 template <>

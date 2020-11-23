@@ -42,33 +42,20 @@
 #include "qquicklinearlayout_p.h"
 #include "qquickstacklayout_p.h"
 
+extern void qml_register_types_QtQuick_Layouts();
+
 QT_BEGIN_NAMESPACE
 
 //![class decl]
-class QtQuickLayoutsPlugin : public QQmlExtensionPlugin
+class QtQuickLayoutsPlugin : public QQmlEngineExtensionPlugin
 {
     Q_OBJECT
-    Q_PLUGIN_METADATA(IID QQmlExtensionInterface_iid)
+    Q_PLUGIN_METADATA(IID QQmlEngineExtensionInterface_iid)
 public:
-    QtQuickLayoutsPlugin(QObject *parent = nullptr) : QQmlExtensionPlugin(parent)
+    QtQuickLayoutsPlugin(QObject *parent = nullptr) : QQmlEngineExtensionPlugin(parent)
     {
-    }
-    void registerTypes(const char *uri) override
-    {
-        Q_ASSERT(QLatin1String(uri) == QLatin1String("QtQuick.Layouts"));
-
-        qmlRegisterType<QQuickRowLayout>(uri, 1, 0, "RowLayout");
-        qmlRegisterType<QQuickColumnLayout>(uri, 1, 0, "ColumnLayout");
-        qmlRegisterType<QQuickGridLayout>(uri, 1, 0, "GridLayout");
-        qmlRegisterType<QQuickStackLayout>(uri, 1, 3, "StackLayout");
-        qmlRegisterUncreatableType<QQuickLayout>(uri, 1, 0, "Layout",
-                                                           QStringLiteral("Do not create objects of type Layout"));
-        qmlRegisterUncreatableType<QQuickLayout>(uri, 1, 2, "Layout",
-                                                           QStringLiteral("Do not create objects of type Layout"));
-        qmlRegisterRevision<QQuickGridLayoutBase, 1>(uri, 1, 1);
-
-        // Auto-increment the import to stay in sync with ALL future QtQuick minor versions from 5.11 onward
-        qmlRegisterModule(uri, 1, QT_VERSION_MINOR);
+        volatile auto registration = &qml_register_types_QtQuick_Layouts;
+        Q_UNUSED(registration);
     }
 };
 //![class decl]

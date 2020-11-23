@@ -5,6 +5,7 @@ ubuntu
 qemu
 b2qt
 rhel
+opensuse-leap-15.1
 [speech_rate]
 *
 [pitch]

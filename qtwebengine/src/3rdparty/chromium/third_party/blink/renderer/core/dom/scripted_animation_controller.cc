@@ -35,7 +35,6 @@
 #include "third_party/blink/renderer/core/loader/document_loader.h"
 #include "third_party/blink/renderer/core/page/page.h"
 #include "third_party/blink/renderer/core/probe/core_probes.h"
-#include "third_party/blink/renderer/platform/wtf/time.h"
 
 namespace blink {
 
@@ -132,7 +131,8 @@ void ScriptedAnimationController::DispatchEvents(
     // avoid special casting window.
     // FIXME: We should not fire events for nodes that are no longer in the
     // tree.
-    probe::AsyncTask async_task(event_target->GetExecutionContext(), event);
+    probe::AsyncTask async_task(event_target->GetExecutionContext(),
+                                event->async_task_id());
     if (LocalDOMWindow* window = event_target->ToLocalDOMWindow())
       window->DispatchEvent(*event, nullptr);
     else
@@ -163,7 +163,8 @@ bool ScriptedAnimationController::HasScheduledFrameTasks() const {
     return false;
 
   return callback_collection_.HasFrameCallback() || !task_queue_.IsEmpty() ||
-         !event_queue_.IsEmpty() || !media_query_list_listeners_.IsEmpty();
+         !event_queue_.IsEmpty() || !media_query_list_listeners_.IsEmpty() ||
+         (document_ && document_->HasAutofocusCandidates());
 }
 
 void ScriptedAnimationController::ServiceScriptedAnimations(
@@ -185,11 +186,39 @@ void ScriptedAnimationController::ServiceScriptedAnimations(
   if (!HasScheduledFrameTasks())
     return;
 
+  // https://html.spec.whatwg.org/C/#update-the-rendering
+
+  // 10.5. For each fully active Document in docs, flush autofocus
+  // candidates for that Document if its browsing context is a top-level
+  // browsing context.
+  if (document_)
+    document_->FlushAutofocusCandidates();
+
+  // 10.8. For each fully active Document in docs, evaluate media
+  // queries and report changes for that Document, passing in now as the
+  // timestamp
   CallMediaQueryListListeners();
+
+  // 10.6. For each fully active Document in docs, run the resize steps
+  // for that Document, passing in now as the timestamp.
+  // 10.7. For each fully active Document in docs, run the scroll steps
+  // for that Document, passing in now as the timestamp.
+  // 10.9. For each fully active Document in docs, update animations and
+  // send events for that Document, passing in now as the timestamp.
+  //
+  // We share a single event queue for them.
   DispatchEvents();
+
+  // 10.10. For each fully active Document in docs, run the fullscreen
+  // steps for that Document, passing in now as the timestamp.
   RunTasks();
+
+  // 10.11. For each fully active Document in docs, run the animation
+  // frame callbacks for that Document, passing in now as the timestamp.
   ExecuteFrameCallbacks();
   next_frame_has_pending_raf_ = HasFrameCallback();
+
+  // See LocalFrameView::RunPostLifecycleSteps() for 10.12.
 
   ScheduleAnimationIfNeeded();
 }
@@ -210,7 +239,7 @@ void ScriptedAnimationController::EnqueueTask(base::OnceClosure task) {
 
 void ScriptedAnimationController::EnqueueEvent(Event* event) {
   probe::AsyncTaskScheduled(event->target()->GetExecutionContext(),
-                            event->type(), event);
+                            event->type(), event->async_task_id());
   event_queue_.push_back(event);
   ScheduleAnimationIfNeeded();
 }

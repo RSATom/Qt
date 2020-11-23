@@ -8,12 +8,13 @@
 #include "include/core/SkRefCnt.h"
 #include "include/core/SkTypes.h"
 #include "include/private/SkDeferredDisplayList.h"
+#include "src/core/SkArenaAlloc.h"
 #include <utility>
 class SkSurfaceCharacterization;
 
 #if SK_SUPPORT_GPU
-#include "src/gpu/GrOpList.h"
-#include "src/gpu/ccpr/GrCCPerOpListPaths.h"
+#include "src/gpu/GrRenderTask.h"
+#include "src/gpu/ccpr/GrCCPerOpsTaskPaths.h"
 #endif
 
 SkDeferredDisplayList::SkDeferredDisplayList(const SkSurfaceCharacterization& characterization,

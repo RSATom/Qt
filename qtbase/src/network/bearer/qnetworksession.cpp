@@ -37,6 +37,8 @@
 **
 ****************************************************************************/
 
+#include <QtNetwork/private/qtnetworkglobal_p.h>
+
 #include "qnetworksession.h"
 #include "qnetworksession_p.h"
 #include "qbearerengine_p.h"
@@ -59,6 +61,7 @@ QT_BEGIN_NAMESPACE
 
 /*!
     \class QNetworkSession
+    \obsolete
 
     \brief The QNetworkSession class provides control over the system's access points
     and enables session management for cases when multiple clients access the same access point.
@@ -250,7 +253,7 @@ QT_BEGIN_NAMESPACE
     \sa QNetworkConfiguration
 */
 QNetworkSession::QNetworkSession(const QNetworkConfiguration &connectionConfig, QObject *parent)
-    : QObject(parent), d(0)
+    : QObject(parent), d(nullptr)
 {
     qRegisterMetaType<QNetworkSession::State>();
     qRegisterMetaType<QNetworkSession::SessionError>();

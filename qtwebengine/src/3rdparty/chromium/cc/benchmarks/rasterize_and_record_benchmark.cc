@@ -22,7 +22,6 @@
 #include "cc/layers/recording_source.h"
 #include "cc/paint/display_item_list.h"
 #include "cc/trees/layer_tree_host.h"
-#include "cc/trees/layer_tree_host_common.h"
 #include "ui/gfx/geometry/rect.h"
 
 namespace cc {
@@ -30,11 +29,6 @@ namespace cc {
 namespace {
 
 const int kDefaultRecordRepeatCount = 100;
-
-// Parameters for base::LapTimer.
-const int kTimeLimitMillis = 1;
-const int kWarmupRuns = 0;
-const int kTimeCheckInterval = 1;
 
 const char* kModeSuffixes[RecordingSource::RECORDING_MODE_COUNT] = {
     "",
@@ -91,9 +85,8 @@ RasterizeAndRecordBenchmark::~RasterizeAndRecordBenchmark() {
 void RasterizeAndRecordBenchmark::DidUpdateLayers(
     LayerTreeHost* layer_tree_host) {
   layer_tree_host_ = layer_tree_host;
-  LayerTreeHostCommon::CallFunctionForEveryLayer(
-      layer_tree_host_,
-      [this](Layer* layer) { layer->RunMicroBenchmark(this); });
+  for (auto* layer : *layer_tree_host)
+    layer->RunMicroBenchmark(this);
 
   DCHECK(!results_.get());
   results_ = base::WrapUnique(new base::DictionaryValue);
@@ -141,6 +134,9 @@ void RasterizeAndRecordBenchmark::RunOnLayer(PictureLayer* layer) {
   if (!layer->DrawsContent())
     return;
 
+  const int kTimeCheckInterval = 1;
+  const int kWarmupRuns = 0;
+  const int kTimeLimitMillis = 1;
   ContentLayerClient* painter = layer->client();
   RecordingSource recording_source;
 

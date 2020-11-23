@@ -275,7 +275,7 @@ QScriptClass::QueryFlags TestClass::queryProperty(const QScriptValue &object,
     m_lastQueryPropertyFlags = flags;
     CustomProperty *prop = findCustomProperty(name);
     if (!prop)
-        return 0;
+        return {};
     *id = prop->id;
     return prop->qflags & flags;
 }
@@ -318,14 +318,14 @@ QScriptValue::PropertyFlags TestClass::propertyFlags(
     m_lastPropertyFlagsId = id;
     CustomProperty *prop = findCustomProperty(name);
     if (!prop)
-        return 0;
+        return {};
     return prop->pflags;
 }
 
 QScriptClassPropertyIterator *TestClass::newIterator(const QScriptValue &object)
 {
     if (!m_iterationEnabled)
-        return 0;
+        return {};
     return new TestClassPropertyIterator(customProperties, object);
 }
 
@@ -469,7 +469,7 @@ void TestClass::clearReceivedArgs()
 {
     m_lastQueryPropertyObject = QScriptValue();
     m_lastQueryPropertyName = QScriptString();
-    m_lastQueryPropertyFlags = 0;
+    m_lastQueryPropertyFlags = {};
 
     m_lastPropertyObject = QScriptValue();
     m_lastPropertyName = QScriptString();
@@ -583,7 +583,7 @@ QScriptValue::PropertyFlags TestClassPropertyIterator::flags() const
 {
     QScriptString key = m_props.keys().value(m_last);
     if (!key.isValid())
-        return 0;
+        return {};
     TestClass::CustomProperty *prop = m_props.value(key);
     return prop->pflags;
 }
@@ -775,7 +775,7 @@ void tst_QScriptClass::getAndSetPropertyFromJS()
     cls.addCustomProperty(eng.toStringHandle("x"),
                           QScriptClass::HandlesReadAccess
                           | QScriptClass::HandlesWriteAccess,
-                          /*id=*/1, /*flags=*/0, /*value=*/123);
+                          /*id=*/ 1, QScriptValue::PropertyFlags{}, /*value=*/ 123);
     eng.globalObject().setProperty("o", eng.newObject(&cls));
 
     // Accessing a custom property
@@ -826,7 +826,7 @@ void tst_QScriptClass::writePropertyWithoutWriteAccess()
     TestClass cls(&eng);
     cls.addCustomProperty(eng.toStringHandle("x"),
                           QScriptClass::HandlesReadAccess,
-                          /*id=*/0, /*flags=*/0, 123);
+                          /*id=*/ 0,  QScriptValue::PropertyFlags{}, 123);
     eng.globalObject().setProperty("o", eng.newObject(&cls));
     QCOMPARE(eng.evaluate("o.x").toInt32(), 123);
 
@@ -1163,12 +1163,12 @@ void tst_QScriptClass::originalProperties1()
 
     {
         TestClass cls1(&eng);
-        cls1.addCustomProperty(orig2, QScriptClass::HandlesReadAccess | QScriptClass::HandlesWriteAccess, 1, 0, 89);
-        cls1.addCustomProperty(new1, QScriptClass::HandlesReadAccess | QScriptClass::HandlesWriteAccess, 1, 0, "hello");
+        cls1.addCustomProperty(orig2, QScriptClass::HandlesReadAccess | QScriptClass::HandlesWriteAccess, 1, {}, 89);
+        cls1.addCustomProperty(new1, QScriptClass::HandlesReadAccess | QScriptClass::HandlesWriteAccess, 1, {}, "hello");
 
         TestClass cls2(&eng);
-        cls2.addCustomProperty(orig2, QScriptClass::HandlesReadAccess | QScriptClass::HandlesWriteAccess, 1, 0, 59);
-        cls2.addCustomProperty(new2, QScriptClass::HandlesReadAccess | QScriptClass::HandlesWriteAccess, 1, 0, "world");
+        cls2.addCustomProperty(orig2, QScriptClass::HandlesReadAccess | QScriptClass::HandlesWriteAccess, 1, {}, 59);
+        cls2.addCustomProperty(new2, QScriptClass::HandlesReadAccess | QScriptClass::HandlesWriteAccess, 1, {}, "world");
 
         QScriptValue obj1 = eng.newObject();
         obj1.setProperty(orig1 , 42);
@@ -1233,12 +1233,12 @@ void tst_QScriptClass::originalProperties2()
 
     {
         TestClass cls1(&eng);
-        cls1.addCustomProperty(orig2, QScriptClass::HandlesReadAccess | QScriptClass::HandlesWriteAccess, 1, 0, 89);
-        cls1.addCustomProperty(new1, QScriptClass::HandlesReadAccess | QScriptClass::HandlesWriteAccess, 1, 0, "hello");
+        cls1.addCustomProperty(orig2, QScriptClass::HandlesReadAccess | QScriptClass::HandlesWriteAccess, 1, {}, 89);
+        cls1.addCustomProperty(new1, QScriptClass::HandlesReadAccess | QScriptClass::HandlesWriteAccess, 1, {}, "hello");
 
         TestClass cls2(&eng);
-        cls2.addCustomProperty(orig2, QScriptClass::HandlesReadAccess | QScriptClass::HandlesWriteAccess, 1, 0, 59);
-        cls2.addCustomProperty(new2, QScriptClass::HandlesReadAccess | QScriptClass::HandlesWriteAccess, 1, 0, "world");
+        cls2.addCustomProperty(orig2, QScriptClass::HandlesReadAccess | QScriptClass::HandlesWriteAccess, 1, {}, 59);
+        cls2.addCustomProperty(new2, QScriptClass::HandlesReadAccess | QScriptClass::HandlesWriteAccess, 1, {}, "world");
 
         QScriptValue obj1 = eng.newObject();
         obj1.setProperty(orig1 , 42);
@@ -1291,12 +1291,12 @@ void tst_QScriptClass::originalProperties3()
 
     {
         TestClass cls1(&eng);
-        cls1.addCustomProperty(orig2, QScriptClass::HandlesReadAccess | QScriptClass::HandlesWriteAccess, 1, 0, 89);
-        cls1.addCustomProperty(new1, QScriptClass::HandlesReadAccess | QScriptClass::HandlesWriteAccess, 1, 0, "hello");
+        cls1.addCustomProperty(orig2, QScriptClass::HandlesReadAccess | QScriptClass::HandlesWriteAccess, 1, {}, 89);
+        cls1.addCustomProperty(new1, QScriptClass::HandlesReadAccess | QScriptClass::HandlesWriteAccess, 1, {}, "hello");
 
         TestClass cls2(&eng);
-        cls2.addCustomProperty(orig2, QScriptClass::HandlesReadAccess | QScriptClass::HandlesWriteAccess, 1, 0, 59);
-        cls2.addCustomProperty(new2, QScriptClass::HandlesReadAccess | QScriptClass::HandlesWriteAccess, 1, 0, "world");
+        cls2.addCustomProperty(orig2, QScriptClass::HandlesReadAccess | QScriptClass::HandlesWriteAccess, 1, {}, 59);
+        cls2.addCustomProperty(new2, QScriptClass::HandlesReadAccess | QScriptClass::HandlesWriteAccess, 1, {}, "world");
 
         QScriptValue obj1 = eng.newObject(&cls1);
         QVERIFY(!obj1.property(orig1).isValid());
@@ -1346,12 +1346,12 @@ void tst_QScriptClass::originalProperties4()
 
     {
         TestClass cls1(&eng);
-        cls1.addCustomProperty(orig2, QScriptClass::HandlesReadAccess | QScriptClass::HandlesWriteAccess, 1, 0, 89);
-        cls1.addCustomProperty(new1, QScriptClass::HandlesReadAccess | QScriptClass::HandlesWriteAccess, 1, 0, "hello");
+        cls1.addCustomProperty(orig2, QScriptClass::HandlesReadAccess | QScriptClass::HandlesWriteAccess, 1, {}, 89);
+        cls1.addCustomProperty(new1, QScriptClass::HandlesReadAccess | QScriptClass::HandlesWriteAccess, 1, {}, "hello");
 
         TestClass cls2(&eng);
-        cls2.addCustomProperty(orig2, QScriptClass::HandlesReadAccess | QScriptClass::HandlesWriteAccess, 1, 0, 59);
-        cls2.addCustomProperty(new2, QScriptClass::HandlesReadAccess | QScriptClass::HandlesWriteAccess, 1, 0, "world");
+        cls2.addCustomProperty(orig2, QScriptClass::HandlesReadAccess | QScriptClass::HandlesWriteAccess, 1, {}, 59);
+        cls2.addCustomProperty(new2, QScriptClass::HandlesReadAccess | QScriptClass::HandlesWriteAccess, 1, {}, "world");
 
         QScriptValue obj1 = eng.newObject(&cls1);
         QVERIFY(!obj1.property(orig1).isValid());
@@ -1406,9 +1406,9 @@ void tst_QScriptClass::defaultImplementations()
 
     QScriptString name = eng.toStringHandle("foo");
     uint id = -1;
-    QCOMPARE(defaultClass.queryProperty(obj, name, QScriptClass::HandlesReadAccess, &id), QScriptClass::QueryFlags(0));
+    QCOMPARE(defaultClass.queryProperty(obj, name, QScriptClass::HandlesReadAccess, &id), QScriptClass::QueryFlags{});
     QVERIFY(!defaultClass.property(obj, name, id).isValid());
-    QCOMPARE(defaultClass.propertyFlags(obj, name, id), QScriptValue::PropertyFlags(0));
+    QCOMPARE(defaultClass.propertyFlags(obj, name, id), QScriptValue::PropertyFlags{});
     defaultClass.setProperty(obj, name, id, 123);
     QVERIFY(!obj.property(name).isValid());
 
@@ -1432,7 +1432,8 @@ void tst_QScriptClass::scriptClassObjectInPrototype()
     eng.globalObject().setProperty("classObject", classObject);
 
     QScriptString name = eng.toStringHandle("x");
-    cls.addCustomProperty(name, QScriptClass::HandlesReadAccess, /*id=*/1, /*flags=*/0, /*value=*/123);
+    cls.addCustomProperty(name, QScriptClass::HandlesReadAccess, /*id=*/ 1,
+                          QScriptValue::PropertyFlags{}, /*value=*/ 123);
     QVERIFY(plainObject.property(name).equals(classObject.property(name)));
     QVERIFY(eng.evaluate("plainObject.x == classObject.x").toBool());
 

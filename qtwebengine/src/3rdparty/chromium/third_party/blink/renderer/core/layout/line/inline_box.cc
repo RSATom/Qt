@@ -19,6 +19,7 @@
 
 #include "third_party/blink/renderer/core/layout/line/inline_box.h"
 
+#include "base/allocator/partition_allocator/partition_alloc.h"
 #include "third_party/blink/renderer/core/layout/api/line_layout_api_shim.h"
 #include "third_party/blink/renderer/core/layout/api/line_layout_block_flow.h"
 #include "third_party/blink/renderer/core/layout/hit_test_location.h"
@@ -353,7 +354,7 @@ LayoutPoint InlineBox::FlipForWritingMode(const LayoutPoint& point) const {
 }
 
 void InlineBox::SetShouldDoFullPaintInvalidationForFirstLine() {
-  GetLineLayoutItem().StyleRef().ClearCachedPseudoStyles();
+  GetLineLayoutItem().StyleRef().ClearCachedPseudoElementStyles();
   GetLineLayoutItem().SetShouldDoFullPaintInvalidation();
   if (!IsInlineFlowBox())
     return;

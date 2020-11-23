@@ -23,10 +23,25 @@ namespace sw
 {
 	ALIGN(16, struct Vertex
 	{
-		float4 position;
+		union
+		{
+			struct
+			{
+				float x;
+				float y;
+				float z;
+				float w;
+			};
+
+			float4 position;
+		};
+
 		float pointSize;
 
 		int clipFlags;
+		int cullMask;
+		float clipDistance[MAX_CLIP_DISTANCES];
+		float cullDistance[MAX_CLIP_DISTANCES];
 
 		alignas(16) struct
 		{

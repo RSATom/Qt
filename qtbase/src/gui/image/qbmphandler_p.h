@@ -98,7 +98,7 @@ struct BMP_INFOHDR {                     // BMP information header
 // BMP-Handler, which is also able to read and write the DIB
 // (Device-Independent-Bitmap) format used internally in the Windows operating
 // system for OLE/clipboard operations. DIB is a subset of BMP (without file
-// header). The Windows-Lighthouse plugin accesses the DIB-functionality.
+// header). The Windows platform plugin accesses the DIB-functionality.
 
 class QBmpHandler : public QImageIOHandler
 {
@@ -113,9 +113,6 @@ public:
     bool read(QImage *image) override;
     bool write(const QImage &image) override;
 
-#if QT_DEPRECATED_SINCE(5, 13)
-    QByteArray name() const override;
-#endif
     static bool canRead(QIODevice *device);
 
     QVariant option(ImageOption option) const override;

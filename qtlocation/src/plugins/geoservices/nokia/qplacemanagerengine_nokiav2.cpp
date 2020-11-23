@@ -637,7 +637,7 @@ QPlaceReply *QPlaceManagerEngineNokiaV2::initializeCategories()
                         QStringLiteral("/places/v1/categories/places/") + *it);
         QNetworkReply *networkReply = sendRequest(requestUrl);
         connect(networkReply, SIGNAL(finished()), this, SLOT(categoryReplyFinished()));
-        connect(networkReply, SIGNAL(error(QNetworkReply::NetworkError)),
+        connect(networkReply, SIGNAL(errorOccurred(QNetworkReply::NetworkError)),
                 this, SLOT(categoryReplyError()));
 
         m_categoryRequests.insert(*it, networkReply);

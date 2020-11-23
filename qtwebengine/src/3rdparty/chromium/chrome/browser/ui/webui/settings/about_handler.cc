@@ -25,8 +25,10 @@
 #include "base/task/post_task.h"
 #include "base/time/time.h"
 #include "base/values.h"
+#include "build/branding_buildflags.h"
 #include "build/build_config.h"
 #include "chrome/browser/browser_process.h"
+#include "chrome/browser/browser_process_platform_part.h"
 #include "chrome/browser/chrome_content_browser_client.h"
 #include "chrome/browser/obsolete_system/obsolete_system.h"
 #include "chrome/browser/ui/browser.h"
@@ -54,7 +56,6 @@
 
 #if defined(OS_CHROMEOS)
 #include "base/i18n/time_formatting.h"
-#include "base/system/sys_info.h"
 #include "chrome/browser/chromeos/ownership/owner_settings_service_chromeos.h"
 #include "chrome/browser/chromeos/ownership/owner_settings_service_chromeos_factory.h"
 #include "chrome/browser/chromeos/policy/browser_policy_connector_chromeos.h"
@@ -69,7 +70,7 @@
 #include "chromeos/constants/chromeos_features.h"
 #include "chromeos/constants/chromeos_switches.h"
 #include "chromeos/dbus/power/power_manager_client.h"
-#include "chromeos/dbus/util/version_loader.h"
+#include "chromeos/dbus/update_engine_client.h"
 #include "chromeos/network/network_state.h"
 #include "chromeos/network/network_state_handler.h"
 #include "chromeos/system/statistics_provider.h"
@@ -226,21 +227,6 @@ std::string ReadRegulatoryLabelText(const base::FilePath& label_dir_path) {
   return std::string();
 }
 
-std::unique_ptr<base::DictionaryValue> GetVersionInfo() {
-  std::unique_ptr<base::DictionaryValue> version_info(
-      new base::DictionaryValue);
-
-  version_info->SetString("osVersion",
-                          chromeos::version_loader::GetVersion(
-                              chromeos::version_loader::VERSION_FULL));
-  version_info->SetString("arcVersion",
-                          chromeos::version_loader::GetARCVersion());
-  version_info->SetString("osFirmware",
-                          chromeos::version_loader::GetFirmware());
-
-  return version_info;
-}
-
 #endif  // defined(OS_CHROMEOS)
 
 std::string UpdateStatusToString(VersionUpdater::Status status) {
@@ -325,7 +311,7 @@ AboutHandler* AboutHandler::Create(content::WebUIDataSource* html_source,
   html_source->AddString("aboutObsoleteSystemURL",
                          ObsoleteSystem::GetLinkURL());
 
-#if defined(GOOGLE_CHROME_BUILD)
+#if BUILDFLAG(GOOGLE_CHROME_BRANDING)
   base::string16 tos = l10n_util::GetStringFUTF16(
       IDS_ABOUT_TERMS_OF_SERVICE, base::UTF8ToUTF16(chrome::kChromeUITermsURL));
   html_source->AddString("aboutProductTos", tos);
@@ -334,7 +320,7 @@ AboutHandler* AboutHandler::Create(content::WebUIDataSource* html_source,
 #if defined(OS_CHROMEOS)
   std::string safetyInfoLink = GetSafetyInfoLink();
   html_source->AddBoolean("shouldShowSafetyInfo", !safetyInfoLink.empty());
-#if defined(GOOGLE_CHROME_BUILD)
+#if BUILDFLAG(GOOGLE_CHROME_BRANDING)
   html_source->AddString(
       "aboutProductSafety",
       l10n_util::GetStringUTF16(IDS_ABOUT_SAFETY_INFORMATION));
@@ -354,16 +340,6 @@ AboutHandler* AboutHandler::Create(content::WebUIDataSource* html_source,
                          os_with_linux_license);
   html_source->AddBoolean("aboutEnterpriseManaged", IsEnterpriseManaged());
 
-  base::Time build_time = base::SysInfo::GetLsbReleaseTime();
-  base::string16 build_date = base::TimeFormatFriendlyDate(build_time);
-  html_source->AddString("aboutBuildDate", build_date);
-
-  base::CommandLine::StringType command_line =
-      base::CommandLine::ForCurrentProcess()->GetCommandLineString();
-  html_source->AddString("aboutCommandLine", command_line);
-
-  html_source->AddString("aboutUserAgent", GetUserAgent());
-  html_source->AddString("aboutJsEngineVersion", V8_VERSION_STRING);
   html_source->AddString("endOfLifeMessage", l10n_util::GetStringFUTF16(
                                                  IDS_EOL_NOTIFICATION_EOL,
                                                  ui::GetChromeOSDeviceName()));
@@ -404,9 +380,6 @@ void AboutHandler::RegisterMessages() {
       base::BindRepeating(&AboutHandler::HandleRequestUpdateOverCellular,
                           base::Unretained(this)));
   web_ui()->RegisterMessageCallback(
-      "getVersionInfo", base::BindRepeating(&AboutHandler::HandleGetVersionInfo,
-                                            base::Unretained(this)));
-  web_ui()->RegisterMessageCallback(
       "getRegulatoryInfo",
       base::BindRepeating(&AboutHandler::HandleGetRegulatoryInfo,
                           base::Unretained(this)));
@@ -418,8 +391,8 @@ void AboutHandler::RegisterMessages() {
       base::BindRepeating(&AboutHandler::HandleRefreshTPMFirmwareUpdateStatus,
                           base::Unretained(this)));
   web_ui()->RegisterMessageCallback(
-      "getHasEndOfLife",
-      base::BindRepeating(&AboutHandler::HandleGetHasEndOfLife,
+      "getEndOfLifeInfo",
+      base::BindRepeating(&AboutHandler::HandleGetEndOfLifeInfo,
                           base::Unretained(this)));
   web_ui()->RegisterMessageCallback(
       "getEnabledReleaseNotes",
@@ -450,9 +423,9 @@ void AboutHandler::RegisterMessages() {
 void AboutHandler::OnJavascriptAllowed() {
   apply_changes_from_upgrade_observer_ = true;
   version_updater_.reset(VersionUpdater::Create(web_ui()->GetWebContents()));
-  policy_registrar_.reset(new policy::PolicyChangeRegistrar(
+  policy_registrar_ = std::make_unique<policy::PolicyChangeRegistrar>(
       g_browser_process->policy_service(),
-      policy::PolicyNamespace(policy::POLICY_DOMAIN_CHROME, std::string())));
+      policy::PolicyNamespace(policy::POLICY_DOMAIN_CHROME, std::string()));
   policy_registrar_->Observe(
       policy::key::kDeviceAutoUpdateDisabled,
       base::Bind(&AboutHandler::OnDeviceAutoUpdatePolicyChanged,
@@ -599,31 +572,14 @@ void AboutHandler::HandleSetChannel(const base::ListValue* args) {
   }
 }
 
-void AboutHandler::HandleGetVersionInfo(const base::ListValue* args) {
-  CHECK_EQ(1U, args->GetSize());
-  std::string callback_id;
-  CHECK(args->GetString(0, &callback_id));
-
-  base::PostTaskWithTraitsAndReplyWithResult(
-      FROM_HERE, {base::MayBlock(), base::TaskPriority::USER_VISIBLE},
-      base::Bind(&GetVersionInfo),
-      base::Bind(&AboutHandler::OnGetVersionInfoReady,
-                 weak_factory_.GetWeakPtr(), callback_id));
-}
-
-void AboutHandler::OnGetVersionInfoReady(
-    std::string callback_id,
-    std::unique_ptr<base::DictionaryValue> version_info) {
-  ResolveJavascriptCallback(base::Value(callback_id), *version_info);
-}
-
 void AboutHandler::HandleGetRegulatoryInfo(const base::ListValue* args) {
   CHECK_EQ(1U, args->GetSize());
   std::string callback_id;
   CHECK(args->GetString(0, &callback_id));
 
-  base::PostTaskWithTraitsAndReplyWithResult(
-      FROM_HERE, {base::MayBlock(), base::TaskPriority::USER_VISIBLE},
+  base::PostTaskAndReplyWithResult(
+      FROM_HERE,
+      {base::ThreadPool(), base::MayBlock(), base::TaskPriority::USER_VISIBLE},
       base::Bind(&FindRegulatoryLabelDir),
       base::Bind(&AboutHandler::OnRegulatoryLabelDirFound,
                  weak_factory_.GetWeakPtr(), callback_id));
@@ -701,22 +657,30 @@ void AboutHandler::RefreshTPMFirmwareUpdateStatus(
   FireWebUIListener("tpm-firmware-update-status-changed", *event);
 }
 
-void AboutHandler::HandleGetHasEndOfLife(const base::ListValue* args) {
+void AboutHandler::HandleGetEndOfLifeInfo(const base::ListValue* args) {
   CHECK_EQ(1U, args->GetSize());
   std::string callback_id;
   CHECK(args->GetString(0, &callback_id));
-  version_updater_->GetEolStatus(
-      base::BindOnce(&AboutHandler::OnGetEndOfLifeStatus,
-                     weak_factory_.GetWeakPtr(), callback_id));
+  version_updater_->GetEolInfo(base::BindOnce(&AboutHandler::OnGetEndOfLifeInfo,
+                                              weak_factory_.GetWeakPtr(),
+                                              callback_id));
 }
 
-void AboutHandler::OnGetEndOfLifeStatus(std::string callback_id,
-                                        update_engine::EndOfLifeStatus status) {
-  // Check for EndOfLifeStatus::kEol only because
-  // EndOfLifeStatus::kSecurityOnly state is no longer supported.
-  ResolveJavascriptCallback(
-      base::Value(callback_id),
-      base::Value(status == update_engine::EndOfLifeStatus::kEol));
+void AboutHandler::OnGetEndOfLifeInfo(
+    std::string callback_id,
+    chromeos::UpdateEngineClient::EolInfo eol_info) {
+  base::Value response(base::Value::Type::DICTIONARY);
+  if (!eol_info.eol_date.is_null()) {
+    response.SetBoolKey("hasEndOfLife", eol_info.eol_date <= base::Time::Now());
+    response.SetStringKey("aboutPageEndOfLifeMessage",
+                          l10n_util::GetStringFUTF16(
+                              IDS_SETTINGS_ABOUT_PAGE_END_OF_LIFE_MESSAGE,
+                              base::TimeFormatMonthAndYear(eol_info.eol_date)));
+  } else {
+    response.SetBoolKey("hasEndOfLife", false);
+    response.SetStringKey("aboutPageEndOfLifeMessage", "");
+  }
+  ResolveJavascriptCallback(base::Value(callback_id), response);
 }
 
 #endif  // defined(OS_CHROMEOS)
@@ -801,8 +765,9 @@ void AboutHandler::OnRegulatoryLabelDirFound(
     return;
   }
 
-  base::PostTaskWithTraitsAndReplyWithResult(
-      FROM_HERE, {base::MayBlock(), base::TaskPriority::USER_VISIBLE},
+  base::PostTaskAndReplyWithResult(
+      FROM_HERE,
+      {base::ThreadPool(), base::MayBlock(), base::TaskPriority::USER_VISIBLE},
       base::Bind(&ReadRegulatoryLabelText, label_dir_path),
       base::Bind(&AboutHandler::OnRegulatoryLabelTextRead,
                  weak_factory_.GetWeakPtr(), callback_id, label_dir_path));

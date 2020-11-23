@@ -34,7 +34,6 @@
 #define HTMLGENERATOR_H
 
 #include "codemarker.h"
-#include "config.h"
 #include "xmlgenerator.h"
 
 #include <QtCore/qhash.h>
@@ -43,6 +42,7 @@
 
 QT_BEGIN_NAMESPACE
 
+class Config;
 class HelpProjectWriter;
 
 class HtmlGenerator : public XmlGenerator
@@ -50,11 +50,10 @@ class HtmlGenerator : public XmlGenerator
     Q_DECLARE_TR_FUNCTIONS(QDoc::HtmlGenerator)
 
 public:
-public:
     HtmlGenerator();
     ~HtmlGenerator() override;
 
-    void initializeGenerator(const Config &config) override;
+    void initializeGenerator() override;
     void terminateGenerator() override;
     QString format() override;
     void generateDocs() override;
@@ -79,9 +78,8 @@ protected:
     QString fileExtension() const override;
 
     void generateManifestFile(const QString &manifest, const QString &element);
-    void readManifestMetaContent(const Config &config);
+    void readManifestMetaContent();
     void generateKeywordAnchors(const Node *node);
-    void generateAssociatedPropertyNotes(FunctionNode *fn);
 
 private:
     enum SubTitleSize { SmallSubTitle, LargeSubTitle };
@@ -94,6 +92,7 @@ private:
         QSet<QString> tags;
     };
 
+    QString retrieveInstallPath(const ExampleNode *exampleNode);
     void generateNavigationBar(const QString &title, const Node *node, CodeMarker *marker,
                                const QString &buildversion, bool tableItems = false);
     void generateHeader(const QString &title, const Node *node = nullptr,
@@ -200,6 +199,8 @@ private:
     QString buildversion;
     QString qflagsHref_;
     int tocDepth;
+
+    Config *config;
 
 public:
     static bool debugging_on;

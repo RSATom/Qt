@@ -29,8 +29,8 @@ sk_sp<GrTextureProxy> GrTextureMaker::onRefTextureProxyForParams(const GrSampler
     if (original) {
         if (!params.isRepeated() ||
             !GrGpu::IsACopyNeededForRepeatWrapMode(this->context()->priv().caps(), original.get(),
-                                                   original->width(), original->height(),
-                                                   params.filter(), &copyParams, scaleAdjust)) {
+                                                   original->dimensions(), params.filter(),
+                                                   &copyParams, scaleAdjust)) {
             needsCopyForMipsOnly = GrGpu::IsACopyNeededForMips(this->context()->priv().caps(),
                                                                original.get(), params.filter(),
                                                                &copyParams);
@@ -41,8 +41,8 @@ sk_sp<GrTextureProxy> GrTextureMaker::onRefTextureProxyForParams(const GrSampler
     } else {
         if (!params.isRepeated() ||
             !GrGpu::IsACopyNeededForRepeatWrapMode(this->context()->priv().caps(), nullptr,
-                                                   this->width(), this->height(),
-                                                   params.filter(), &copyParams, scaleAdjust)) {
+                                                   this->dimensions(), params.filter(), &copyParams,
+                                                   scaleAdjust)) {
             return this->refOriginalTextureProxy(willBeMipped, AllowedTexGenType::kAny);
         }
     }
@@ -54,7 +54,8 @@ sk_sp<GrTextureProxy> GrTextureMaker::onRefTextureProxyForParams(const GrSampler
     this->makeCopyKey(copyParams, &copyKey);
     sk_sp<GrTextureProxy> cachedProxy;
     if (copyKey.isValid()) {
-        cachedProxy = proxyProvider->findOrCreateProxyByUniqueKey(copyKey, origOrigin);
+        cachedProxy =
+                proxyProvider->findOrCreateProxyByUniqueKey(copyKey, this->colorType(), origOrigin);
         if (cachedProxy && (!willBeMipped || GrMipMapped::kYes == cachedProxy->mipMapped())) {
             return cachedProxy;
         }

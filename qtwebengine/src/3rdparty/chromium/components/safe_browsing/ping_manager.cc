@@ -12,19 +12,12 @@
 #include "base/strings/string_util.h"
 #include "base/strings/stringprintf.h"
 #include "components/safe_browsing/db/v4_protocol_manager_util.h"
-#include "content/public/browser/browser_thread.h"
 #include "google_apis/google_api_keys.h"
 #include "net/base/escape.h"
 #include "net/base/load_flags.h"
 #include "net/traffic_annotation/network_traffic_annotation.h"
-#include "net/url_request/url_fetcher.h"
-#include "net/url_request/url_request_context.h"
-#include "net/url_request/url_request_context_getter.h"
-#include "net/url_request/url_request_status.h"
 #include "services/network/public/cpp/simple_url_loader.h"
 #include "url/gurl.h"
-
-using content::BrowserThread;
 
 namespace {
 
@@ -84,8 +77,6 @@ PingManager::PingManager(
     : config_(config), url_loader_factory_(url_loader_factory) {}
 
 PingManager::~PingManager() {}
-
-// net::URLFetcherDelegate implementation ----------------------------------
 
 // All SafeBrowsing request responses are handled here.
 void PingManager::OnURLLoaderComplete(

@@ -47,13 +47,12 @@
 
 #include <QtQuick3DRender/private/qssgrenderbackend_p.h>
 #include <QtQuick3DRender/private/qssgopenglutil_p.h>
+#include <QtQuick3DRender/private/qssgrenderbackendshaderprogramgl_p.h>
 
 #include <QtCore/QVector>
 
 #include <QtGui/QSurfaceFormat>
 #include <QtGui/QOpenGLFunctions>
-
-#include <QtOpenGLExtensions/QtOpenGLExtensions>
 
 QT_BEGIN_NAMESPACE
 
@@ -95,6 +94,7 @@ public:
     bool getRenderBackendCap(QSSGRenderBackendCaps inCap) const override;
     qint32 getDepthBits() const override;
     qint32 getStencilBits() const override;
+    qint32 getMaxSamples() const override;
     void getRenderBackendValue(QSSGRenderBackendQuery inQuery, qint32 *params) const override;
 
     /// state get/set functions
@@ -200,6 +200,7 @@ public:
 
     QSSGRenderBackendTextureObject createTexture() override;
     void bindTexture(QSSGRenderBackendTextureObject to, QSSGRenderTextureTargetType target, qint32 unit) override;
+    void setActiveTexture(qint32 unit) override;
     void bindImageTexture(QSSGRenderBackendTextureObject to,
                           quint32 unit,
                           qint32 level,
@@ -343,6 +344,7 @@ public:
     void releaseInputAssembler(QSSGRenderBackendInputAssemblerObject iao) override;
 
     bool setInputAssembler(QSSGRenderBackendInputAssemblerObject iao, QSSGRenderBackendShaderProgramObject po) override = 0;
+    void resetStates() override;
     void setPatchVertexCount(QSSGRenderBackendInputAssemblerObject, quint32) override { Q_ASSERT(false); }
 
     // shader
@@ -385,6 +387,9 @@ public:
     QSSGRenderBackendShaderProgramObject createShaderProgram(bool isSeparable) override;
     void releaseShaderProgram(QSSGRenderBackendShaderProgramObject po) override;
     bool linkProgram(QSSGRenderBackendShaderProgramObject po, QByteArray &errorMessage) override;
+    bool linkProgram(QSSGRenderBackendShaderProgramObject po, QByteArray &errorMessage,
+                     quint32 format, const QByteArray &binary) override;
+    void getProgramBinary(QSSGRenderBackendShaderProgramObject po, quint32 &format, QByteArray &binary) override;
     void setActiveProgram(QSSGRenderBackendShaderProgramObject po) override;
     void dispatchCompute(QSSGRenderBackendShaderProgramObject po, quint32 numGroupsX, quint32 numGroupsY, quint32 numGroupsZ) override;
     QSSGRenderBackendProgramPipeline createProgramPipeline() override;
@@ -460,9 +465,13 @@ private:
     const char *getVersionString();
     const char *getVendorString();
     const char *getRendererString();
+    void getAttributes(QSSGRenderBackendShaderProgramGL *pProgram);
 
 protected:
     const char *getExtensionString(); // Used to resolve caps in the different backends
+
+private:
+    static const qint32 ACTIVATED_TEXTURE_UNIT_UNKNOWN = -1;
 
 protected:
     virtual bool compileSource(GLuint shaderID, QSSGByteView source, QByteArray &errorMessage, bool binary);
@@ -471,6 +480,8 @@ protected:
     GLConversion m_conversion; ///< Class for conversion from base type to GL types
     QList<QByteArray> m_extensions; ///< contains the OpenGL extension string
     qint32 m_maxAttribCount; ///< Maximum attributes which can be used
+    qint32 m_usedAttribCount; ///< Number of attributes which have possibly been used
+    qint32 m_activatedTextureUnit = ACTIVATED_TEXTURE_UNIT_UNKNOWN; ///< Activated Texture Unit
     QVector<GLenum> m_drawBuffersArray; ///< Contains the drawbuffer enums
     QSurfaceFormat m_format;
 

@@ -19,56 +19,6 @@ namespace rx
 {
 namespace vk
 {
-// Base class for all wrapped vulkan objects. Implements several common helper routines.
-template <typename DerivedT, typename HandleT>
-class WrappedObject : angle::NonCopyable
-{
-  public:
-    HandleT getHandle() const { return mHandle; }
-    bool valid() const { return (mHandle != VK_NULL_HANDLE); }
-
-    const HandleT *ptr() const { return &mHandle; }
-
-    template <typename ResourceOutType>
-    void dumpResources(Serial serial, std::vector<ResourceOutType> *outQueue)
-    {
-        if (valid())
-        {
-            outQueue->emplace_back(serial, *static_cast<DerivedT *>(this));
-            mHandle = VK_NULL_HANDLE;
-        }
-    }
-
-    template <typename ResourceOutType>
-    void dumpResources(std::vector<ResourceOutType> *outQueue)
-    {
-        if (valid())
-        {
-            outQueue->emplace_back(*static_cast<DerivedT *>(this));
-            mHandle = VK_NULL_HANDLE;
-        }
-    }
-
-  protected:
-    WrappedObject() : mHandle(VK_NULL_HANDLE) {}
-    ~WrappedObject() { ASSERT(!valid()); }
-
-    WrappedObject(WrappedObject &&other) : mHandle(other.mHandle)
-    {
-        other.mHandle = VK_NULL_HANDLE;
-    }
-
-    // Only works to initialize empty objects, since we don't have the device handle.
-    WrappedObject &operator=(WrappedObject &&other)
-    {
-        ASSERT(!valid());
-        std::swap(mHandle, other.mHandle);
-        return *this;
-    }
-
-    HandleT mHandle;
-};
-
 // Helper macros that apply to all the wrapped object types.
 // Unimplemented handle types:
 // Instance
@@ -137,6 +87,43 @@ struct HandleTypeHelper<priv::CommandBuffer>
 
 #undef ANGLE_HANDLE_TYPE_HELPER_FUNC
 
+// Base class for all wrapped vulkan objects. Implements several common helper routines.
+template <typename DerivedT, typename HandleT>
+class WrappedObject : angle::NonCopyable
+{
+  public:
+    HandleT getHandle() const { return mHandle; }
+    bool valid() const { return (mHandle != VK_NULL_HANDLE); }
+
+    const HandleT *ptr() const { return &mHandle; }
+
+    HandleT release()
+    {
+        HandleT handle = mHandle;
+        mHandle        = VK_NULL_HANDLE;
+        return handle;
+    }
+
+  protected:
+    WrappedObject() : mHandle(VK_NULL_HANDLE) {}
+    ~WrappedObject() { ASSERT(!valid()); }
+
+    WrappedObject(WrappedObject &&other) : mHandle(other.mHandle)
+    {
+        other.mHandle = VK_NULL_HANDLE;
+    }
+
+    // Only works to initialize empty objects, since we don't have the device handle.
+    WrappedObject &operator=(WrappedObject &&other)
+    {
+        ASSERT(!valid());
+        std::swap(mHandle, other.mHandle);
+        return *this;
+    }
+
+    HandleT mHandle;
+};
+
 class CommandPool final : public WrappedObject<CommandPool, VkCommandPool>
 {
   public:
@@ -189,7 +176,7 @@ class CommandBuffer : public WrappedObject<CommandBuffer, VkCommandBuffer>
 
     static bool SupportsQueries(const VkPhysicalDeviceFeatures &features)
     {
-        return features.inheritedQueries;
+        return (features.inheritedQueries == VK_TRUE);
     }
 
     // Vulkan command buffers are executed as secondary command buffers within a primary command
@@ -274,18 +261,41 @@ class CommandBuffer : public WrappedObject<CommandBuffer, VkCommandBuffer>
               uint32_t firstInstance);
     void draw(uint32_t vertexCount, uint32_t firstVertex);
     void drawInstanced(uint32_t vertexCount, uint32_t instanceCount, uint32_t firstVertex);
+    void drawInstancedBaseInstance(uint32_t vertexCount,
+                                   uint32_t instanceCount,
+                                   uint32_t firstVertex,
+                                   uint32_t firstInstance);
     void drawIndexed(uint32_t indexCount,
                      uint32_t instanceCount,
                      uint32_t firstIndex,
                      int32_t vertexOffset,
                      uint32_t firstInstance);
     void drawIndexed(uint32_t indexCount);
+    void drawIndexedBaseVertex(uint32_t indexCount, uint32_t vertexOffset);
     void drawIndexedInstanced(uint32_t indexCount, uint32_t instanceCount);
+    void drawIndexedInstancedBaseVertex(uint32_t indexCount,
+                                        uint32_t instanceCount,
+                                        uint32_t vertexOffset);
+    void drawIndexedInstancedBaseVertexBaseInstance(uint32_t indexCount,
+                                                    uint32_t instanceCount,
+                                                    uint32_t firstIndex,
+                                                    int32_t vertexOffset,
+                                                    uint32_t firstInstance);
+    void drawIndexedIndirect(const Buffer &buffer,
+                             VkDeviceSize offset,
+                             uint32_t drawCount,
+                             uint32_t stride);
+    void drawIndirect(const Buffer &buffer,
+                      VkDeviceSize offset,
+                      uint32_t drawCount,
+                      uint32_t stride);
 
     VkResult end();
     void endQuery(VkQueryPool queryPool, uint32_t query);
     void endRenderPass();
     void executeCommands(uint32_t commandBufferCount, const CommandBuffer *commandBuffers);
+
+    void getMemoryUsageStats(size_t *usedMemoryOut, size_t *allocatedMemoryOut) const;
 
     void executionBarrier(VkPipelineStageFlags stageMask);
 
@@ -293,6 +303,10 @@ class CommandBuffer : public WrappedObject<CommandBuffer, VkCommandBuffer>
                     VkDeviceSize dstOffset,
                     VkDeviceSize size,
                     uint32_t data);
+
+    void bufferBarrier(VkPipelineStageFlags srcStageMask,
+                       VkPipelineStageFlags dstStageMask,
+                       const VkBufferMemoryBarrier *bufferMemoryBarrier);
 
     void imageBarrier(VkPipelineStageFlags srcStageMask,
                       VkPipelineStageFlags dstStageMask,
@@ -478,6 +492,10 @@ class PipelineCache final : public WrappedObject<PipelineCache, VkPipelineCache>
 
     VkResult init(VkDevice device, const VkPipelineCacheCreateInfo &createInfo);
     VkResult getCacheData(VkDevice device, size_t *cacheSize, void *cacheData);
+    VkResult merge(VkDevice device,
+                   VkPipelineCache dstCache,
+                   uint32_t srcCacheCount,
+                   const VkPipelineCache *srcCaches);
 };
 
 class DescriptorSetLayout final : public WrappedObject<DescriptorSetLayout, VkDescriptorSetLayout>
@@ -658,6 +676,15 @@ ANGLE_INLINE void CommandBuffer::executionBarrier(VkPipelineStageFlags stageMask
     vkCmdPipelineBarrier(mHandle, stageMask, stageMask, 0, 0, nullptr, 0, nullptr, 0, nullptr);
 }
 
+ANGLE_INLINE void CommandBuffer::bufferBarrier(VkPipelineStageFlags srcStageMask,
+                                               VkPipelineStageFlags dstStageMask,
+                                               const VkBufferMemoryBarrier *bufferMemoryBarrier)
+{
+    ASSERT(valid());
+    vkCmdPipelineBarrier(mHandle, srcStageMask, dstStageMask, 0, 0, nullptr, 1, bufferMemoryBarrier,
+                         0, nullptr);
+}
+
 ANGLE_INLINE void CommandBuffer::imageBarrier(VkPipelineStageFlags srcStageMask,
                                               VkPipelineStageFlags dstStageMask,
                                               const VkImageMemoryBarrier *imageMemoryBarrier)
@@ -801,6 +828,14 @@ ANGLE_INLINE void CommandBuffer::executeCommands(uint32_t commandBufferCount,
     vkCmdExecuteCommands(mHandle, commandBufferCount, commandBuffers[0].ptr());
 }
 
+ANGLE_INLINE void CommandBuffer::getMemoryUsageStats(size_t *usedMemoryOut,
+                                                     size_t *allocatedMemoryOut) const
+{
+    // No data available.
+    *usedMemoryOut      = 0;
+    *allocatedMemoryOut = 1;
+}
+
 ANGLE_INLINE void CommandBuffer::fillBuffer(const Buffer &dstBuffer,
                                             VkDeviceSize dstOffset,
                                             VkDeviceSize size,
@@ -915,6 +950,15 @@ ANGLE_INLINE void CommandBuffer::drawInstanced(uint32_t vertexCount,
     vkCmdDraw(mHandle, vertexCount, instanceCount, firstVertex, 0);
 }
 
+ANGLE_INLINE void CommandBuffer::drawInstancedBaseInstance(uint32_t vertexCount,
+                                                           uint32_t instanceCount,
+                                                           uint32_t firstVertex,
+                                                           uint32_t firstInstance)
+{
+    ASSERT(valid());
+    vkCmdDraw(mHandle, vertexCount, instanceCount, firstVertex, firstInstance);
+}
+
 ANGLE_INLINE void CommandBuffer::drawIndexed(uint32_t indexCount,
                                              uint32_t instanceCount,
                                              uint32_t firstIndex,
@@ -931,10 +975,52 @@ ANGLE_INLINE void CommandBuffer::drawIndexed(uint32_t indexCount)
     vkCmdDrawIndexed(mHandle, indexCount, 1, 0, 0, 0);
 }
 
+ANGLE_INLINE void CommandBuffer::drawIndexedBaseVertex(uint32_t indexCount, uint32_t vertexOffset)
+{
+    ASSERT(valid());
+    vkCmdDrawIndexed(mHandle, indexCount, 1, 0, vertexOffset, 0);
+}
+
 ANGLE_INLINE void CommandBuffer::drawIndexedInstanced(uint32_t indexCount, uint32_t instanceCount)
 {
     ASSERT(valid());
     vkCmdDrawIndexed(mHandle, indexCount, instanceCount, 0, 0, 0);
+}
+
+ANGLE_INLINE void CommandBuffer::drawIndexedInstancedBaseVertex(uint32_t indexCount,
+                                                                uint32_t instanceCount,
+                                                                uint32_t vertexOffset)
+{
+    ASSERT(valid());
+    vkCmdDrawIndexed(mHandle, indexCount, instanceCount, 0, vertexOffset, 0);
+}
+
+ANGLE_INLINE void CommandBuffer::drawIndexedInstancedBaseVertexBaseInstance(uint32_t indexCount,
+                                                                            uint32_t instanceCount,
+                                                                            uint32_t firstIndex,
+                                                                            int32_t vertexOffset,
+                                                                            uint32_t firstInstance)
+{
+    ASSERT(valid());
+    vkCmdDrawIndexed(mHandle, indexCount, instanceCount, firstIndex, vertexOffset, firstInstance);
+}
+
+ANGLE_INLINE void CommandBuffer::drawIndexedIndirect(const Buffer &buffer,
+                                                     VkDeviceSize offset,
+                                                     uint32_t drawCount,
+                                                     uint32_t stride)
+{
+    ASSERT(valid());
+    vkCmdDrawIndexedIndirect(mHandle, buffer.getHandle(), offset, drawCount, stride);
+}
+
+ANGLE_INLINE void CommandBuffer::drawIndirect(const Buffer &buffer,
+                                              VkDeviceSize offset,
+                                              uint32_t drawCount,
+                                              uint32_t stride)
+{
+    ASSERT(valid());
+    vkCmdDrawIndirect(mHandle, buffer.getHandle(), offset, drawCount, stride);
 }
 
 ANGLE_INLINE void CommandBuffer::dispatch(uint32_t groupCountX,
@@ -1235,6 +1321,15 @@ ANGLE_INLINE VkResult PipelineCache::init(VkDevice device,
     // Note: if we are concerned with memory usage of this cache, we should give it custom
     // allocators.  Also, failure of this function is of little importance.
     return vkCreatePipelineCache(device, &createInfo, nullptr, &mHandle);
+}
+
+ANGLE_INLINE VkResult PipelineCache::merge(VkDevice device,
+                                           VkPipelineCache dstCache,
+                                           uint32_t srcCacheCount,
+                                           const VkPipelineCache *srcCaches)
+{
+    ASSERT(valid());
+    return vkMergePipelineCaches(device, dstCache, srcCacheCount, srcCaches);
 }
 
 ANGLE_INLINE VkResult PipelineCache::getCacheData(VkDevice device,

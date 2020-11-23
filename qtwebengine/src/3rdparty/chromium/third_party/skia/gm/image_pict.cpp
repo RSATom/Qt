@@ -26,11 +26,11 @@
 #include "include/core/SkSurface.h"
 #include "include/core/SkTypes.h"
 #include "include/gpu/GrContext.h"
-#include "include/gpu/GrSamplerState.h"
 #include "include/gpu/GrTypes.h"
 #include "include/private/GrTypesPriv.h"
 #include "src/core/SkMakeUnique.h"
 #include "src/gpu/GrContextPriv.h"
+#include "src/gpu/GrSamplerState.h"
 #include "src/gpu/GrSurfaceContext.h"
 #include "src/gpu/GrTextureProxy.h"
 #include "src/image/SkImage_Base.h"
@@ -191,14 +191,14 @@ protected:
             return nullptr;
         }
 
-        if (origin.fX == 0 && origin.fY == 0 &&
-            info.width() == fProxy->width() && info.height() == fProxy->height()) {
+        if (origin.fX == 0 && origin.fY == 0 && info.dimensions() == fProxy->dimensions()) {
             return fProxy;
         }
 
         GrMipMapped mipMapped = willBeMipped ? GrMipMapped::kYes : GrMipMapped::kNo;
 
-        return GrSurfaceProxy::Copy(fCtx.get(), fProxy.get(), mipMapped,
+        return GrSurfaceProxy::Copy(
+                fCtx.get(), fProxy.get(), mipMapped,
                 SkIRect::MakeXYWH(origin.x(), origin.y(), info.width(), info.height()),
                 SkBackingFit::kExact, SkBudgeted::kYes);
     }

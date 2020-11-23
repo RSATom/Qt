@@ -182,7 +182,7 @@ public:
     Q_INVOKABLE void clearMapParameters();
     QList<QObject *> mapParameters();
 
-    void addMapObject(QGeoMapObject *object);
+    void addMapObject(QGeoMapObject *object); // Not invokable as currently meant to be used through a main MapObjectView
     void removeMapObject(QGeoMapObject *object);
     void clearMapObjects();
     QList<QGeoMapObject *> mapObjects();
@@ -193,7 +193,7 @@ public:
 
     QQuickGeoMapGestureArea *gesture();
 
-    Q_INVOKABLE void fitViewportToMapItems();
+    Q_INVOKABLE void fitViewportToMapItems(const QVariantList &items = {});
     Q_INVOKABLE void fitViewportToVisibleMapItems();
     Q_INVOKABLE void pan(int dx, int dy);
     Q_INVOKABLE void prefetchData(); // optional hint for prefetch
@@ -267,6 +267,8 @@ protected:
     bool removeMapItemGroup_real(QDeclarativeGeoMapItemGroup *itemGroup);
     bool addMapItemView_real(QDeclarativeGeoMapItemView *itemView);
     bool removeMapItemView_real(QDeclarativeGeoMapItemView *itemView);
+    void updateItemToWindowTransform();
+    void onSGNodeChanged();
 
 private Q_SLOTS:
     void mappingManagerInitialized();
@@ -280,7 +282,7 @@ private:
     void setupMapView(QDeclarativeGeoMapItemView *view);
     void populateMap();
     void populateParameters();
-    void fitViewportToMapItemsRefine(bool refine, bool onlyVisible);
+    void fitViewportToMapItemsRefine(const QList<QPointer<QDeclarativeGeoMapItemBase> > &mapItems, bool refine, bool onlyVisible);
     bool isInteractive();
     void attachCopyrightNotice(bool initialVisibility);
     void detachCopyrightNotice(bool currentVisibility);
@@ -308,6 +310,7 @@ private:
     double m_maximumViewportLatitude;
     double m_minimumViewportLatitude = 0.0;
     bool m_initialized;
+    bool m_sgNodeHasChanged = false;
     QList<QDeclarativeGeoMapParameter *> m_mapParameters;
     QList<QGeoMapObject*> m_pendingMapObjects; // Used only in the initialization phase
     QGeoCameraCapabilities m_cameraCapabilities;

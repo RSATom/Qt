@@ -90,7 +90,9 @@ void StateMachine::componentComplete()
 
 QQmlListProperty<QObject> StateMachine::children()
 {
-    return QQmlListProperty<QObject>(this, &m_children, m_children.append, m_children.count, m_children.at, m_children.clear);
+    return QQmlListProperty<QObject>(this, &m_children,
+                                     m_children.append, m_children.count, m_children.at,
+                                     m_children.clear, m_children.replace, m_children.removeLast);
 }
 
 /*!
@@ -209,8 +211,6 @@ QQmlListProperty<QObject> StateMachine::children()
     This signal is emitted when the state machine has entered its initial state
     (State::initialState).
 
-    The corresponding handler is \c onStarted.
-
     \sa running, start(), State::finished
 */
 
@@ -227,8 +227,6 @@ QQmlListProperty<QObject> StateMachine::children()
     \qmlsignal StateMachine::stopped()
 
     This signal is emitted when the state machine has stopped.
-
-    The corresponding handler is \c onStopped.
 
     \sa running, stop(), State::finished
 */

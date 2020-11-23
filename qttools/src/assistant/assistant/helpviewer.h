@@ -117,7 +117,7 @@ signals:
     void sourceChanged(const QUrl &url);
     void forwardAvailable(bool enabled);
     void backwardAvailable(bool enabled);
-    void highlighted(const QString &link);
+    void highlighted(const QUrl &link);
     void printRequested();
 #elif !defined(BROWSER_QTWEBKIT)
     // Provide signals present in QWebView for browsers that do not inherit QWebView
@@ -130,6 +130,9 @@ protected:
     void wheelEvent(QWheelEvent *event) override;
     void mousePressEvent(QMouseEvent *event) override;
     void mouseReleaseEvent(QMouseEvent *event) override;
+#if defined(BROWSER_QTEXTBROWSER)
+    void resizeEvent(QResizeEvent *e) override;
+#endif
 
 private slots:
     void actionChanged();
@@ -141,6 +144,7 @@ private:
     void contextMenuEvent(QContextMenuEvent *event) override;
     QVariant loadResource(int type, const QUrl &name) TEXTBROWSER_OVERRIDE;
     bool handleForwardBackwardMouseButtons(QMouseEvent *e);
+    void scrollToTextPosition(int position);
 
 private:
     HelpViewerPrivate *d;

@@ -1,5 +1,5 @@
 //
-// Copyright (c) 2015 The ANGLE Project Authors. All rights reserved.
+// Copyright 2015 The ANGLE Project Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 //
@@ -233,11 +233,9 @@ Error ValidateChooseConfig(const Display *display,
 Error ValidateGetConfigs(const Display *display, EGLint configSize, EGLint *numConfig);
 
 // Other validation
-Error ValidateCompatibleConfigs(const Display *display,
-                                const Config *config1,
-                                const Surface *surface,
-                                const Config *config2,
-                                EGLint surfaceType);
+Error ValidateCompatibleSurface(const Display *display,
+                                gl::Context *context,
+                                const Surface *surface);
 
 Error ValidateGetPlatformDisplay(EGLenum platform,
                                  void *native_display,
@@ -331,6 +329,11 @@ Error ValidateGetNativeClientBufferANDROID(const struct AHardwareBuffer *buffer)
 
 // EGL_ANDROID_native_fence_sync
 Error ValidateDupNativeFenceFDANDROID(const Display *display, const Sync *sync);
+
+// EGL_ANGLE_swap_with_frame_token
+Error ValidateSwapBuffersWithFrameTokenANGLE(const Display *display,
+                                             const Surface *surface,
+                                             EGLFrameTokenANGLE frametoken);
 
 }  // namespace egl
 

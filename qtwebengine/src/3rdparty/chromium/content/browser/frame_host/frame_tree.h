@@ -18,6 +18,7 @@
 #include "base/macros.h"
 #include "content/browser/frame_host/frame_tree_node.h"
 #include "content/common/content_export.h"
+#include "mojo/public/cpp/bindings/pending_receiver.h"
 #include "services/service_manager/public/mojom/interface_provider.mojom.h"
 #include "third_party/blink/public/common/frame/frame_owner_element_type.h"
 
@@ -145,28 +146,27 @@ class CONTENT_EXPORT FrameTree {
   // Adds a new child frame to the frame tree. |process_id| is required to
   // disambiguate |new_routing_id|, and it must match the process of the
   // |parent| node. Otherwise no child is added and this method returns false.
-  // |interface_provider_request| is the request end of the InterfaceProvider
+  // |interface_provider_receiver| is the receiver end of the InterfaceProvider
   // interface through which the child RenderFrame can access Mojo services
   // exposed by the corresponding RenderFrameHost. The caller takes care of
   // sending the client end of the interface down to the RenderFrame.
-  FrameTreeNode* AddFrame(FrameTreeNode* parent,
-                          int process_id,
-                          int new_routing_id,
-                          service_manager::mojom::InterfaceProviderRequest
-                              interface_provider_request,
-                          blink::mojom::DocumentInterfaceBrokerRequest
-                              document_interface_broker_content_request,
-                          blink::mojom::DocumentInterfaceBrokerRequest
-                              document_interface_broker_blink_request,
-                          blink::WebTreeScopeType scope,
-                          const std::string& frame_name,
-                          const std::string& frame_unique_name,
-                          bool is_created_by_script,
-                          const base::UnguessableToken& devtools_frame_token,
-                          const blink::FramePolicy& frame_policy,
-                          const FrameOwnerProperties& frame_owner_properties,
-                          bool was_discarded,
-                          blink::FrameOwnerElementType owner_type);
+  FrameTreeNode* AddFrame(
+      FrameTreeNode* parent,
+      int process_id,
+      int new_routing_id,
+      mojo::PendingReceiver<service_manager::mojom::InterfaceProvider>
+          interface_provider_receiver,
+      mojo::PendingReceiver<blink::mojom::BrowserInterfaceBroker>
+          browser_interface_broker_receiver,
+      blink::WebTreeScopeType scope,
+      const std::string& frame_name,
+      const std::string& frame_unique_name,
+      bool is_created_by_script,
+      const base::UnguessableToken& devtools_frame_token,
+      const blink::FramePolicy& frame_policy,
+      const FrameOwnerProperties& frame_owner_properties,
+      bool was_discarded,
+      blink::FrameOwnerElementType owner_type);
 
   // Removes a frame from the frame tree. |child|, its children, and objects
   // owned by their RenderFrameHostManagers are immediately deleted. The root
@@ -199,7 +199,7 @@ class CONTENT_EXPORT FrameTree {
   // to receive the RenderViewHostImpl containing the frame and the renderer-
   // specific frame routing ID of the removed frame.
   void SetFrameRemoveListener(
-      const base::Callback<void(RenderFrameHost*)>& on_frame_removed);
+      base::RepeatingCallback<void(RenderFrameHost*)> on_frame_removed);
 
   // Creates a RenderViewHostImpl for a given |site_instance| in the tree.
   //
@@ -210,8 +210,7 @@ class CONTENT_EXPORT FrameTree {
       int32_t routing_id,
       int32_t main_frame_routing_id,
       int32_t widget_routing_id,
-      bool swapped_out,
-      bool hidden);
+      bool swapped_out);
 
   // Returns the existing RenderViewHost for a new RenderFrameHost.
   // There should always be such a RenderViewHost, because the main frame
@@ -219,11 +218,24 @@ class CONTENT_EXPORT FrameTree {
   scoped_refptr<RenderViewHostImpl> GetRenderViewHost(
       SiteInstance* site_instance);
 
-  // The FrameTree maintains a list of existing RenderViewHostImpl so that
-  // FrameTree::CreateRenderViewHost() can return them directly instead of
-  // creating a new one. Calling this function removes it from the list when the
-  // |render_view_host| is deleted.
-  void RenderViewHostDeleted(RenderViewHost* render_view_host);
+  // Registers a RenderViewHost so that it can be reused by other frames
+  // belonging to the same SiteInstance.
+  //
+  // This method does not take ownership of|rvh|.
+  //
+  // NOTE: This method CHECK fails if a RenderViewHost is already registered for
+  // |rvh|'s SiteInstance.
+  //
+  // ALSO NOTE: After calling RegisterRenderViewHost, UnregisterRenderViewHost
+  // *must* be called for |rvh| when it is destroyed or put into the
+  // BackForwardCache, to prevent FrameTree::CreateRenderViewHost from trying to
+  // reuse it.
+  void RegisterRenderViewHost(RenderViewHostImpl* rvh);
+
+  // Unregisters the RenderViewHostImpl that's available for reuse for a
+  // particular SiteInstance. NOTE: This method CHECK fails if it is called for
+  // a |render_view_host| that is not currently set for reuse.
+  void UnregisterRenderViewHost(RenderViewHostImpl* render_view_host);
 
   // This is called when the frame is about to be removed and started to run
   // unload handlers.
@@ -287,7 +299,7 @@ class CONTENT_EXPORT FrameTree {
 
   int focused_frame_tree_node_id_;
 
-  base::Callback<void(RenderFrameHost*)> on_frame_removed_;
+  base::RepeatingCallback<void(RenderFrameHost*)> on_frame_removed_;
 
   // Overall load progress.
   double load_progress_;

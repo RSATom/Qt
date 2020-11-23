@@ -26,6 +26,7 @@
 #include "third_party/blink/renderer/bindings/modules/v8/v8_binding_for_modules.h"
 
 #include "testing/gtest/include/gtest/gtest.h"
+#include "third_party/blink/public/mojom/indexeddb/indexeddb.mojom-shared.h"
 #include "third_party/blink/public/platform/web_blob_info.h"
 #include "third_party/blink/public/platform/web_data.h"
 #include "third_party/blink/public/platform/web_string.h"
@@ -41,12 +42,32 @@
 #include "third_party/blink/renderer/modules/indexeddb/idb_key_path.h"
 #include "third_party/blink/renderer/modules/indexeddb/idb_value.h"
 #include "third_party/blink/renderer/platform/bindings/v8_per_isolate_data.h"
-#include "third_party/blink/renderer/platform/shared_buffer.h"
+#include "third_party/blink/renderer/platform/wtf/shared_buffer.h"
 #include "third_party/blink/renderer/platform/wtf/text/string_view.h"
 
 namespace blink {
 
 namespace {
+
+v8::Local<v8::Object> EvaluateScriptAsObject(V8TestingScope& scope,
+                                             const char* source) {
+  v8::Local<v8::Script> script =
+      v8::Script::Compile(scope.GetContext(),
+                          V8String(scope.GetIsolate(), source))
+          .ToLocalChecked();
+  return script->Run(scope.GetContext()).ToLocalChecked().As<v8::Object>();
+}
+
+std::unique_ptr<IDBKey> ScriptToKey(V8TestingScope& scope, const char* source) {
+  NonThrowableExceptionState exception_state;
+  v8::Isolate* isolate = scope.GetIsolate();
+  v8::Local<v8::Context> context = scope.GetContext();
+  v8::Local<v8::Script> script =
+      v8::Script::Compile(context, V8String(isolate, source)).ToLocalChecked();
+  v8::Local<v8::Value> value = script->Run(context).ToLocalChecked();
+  return ScriptValue::To<std::unique_ptr<IDBKey>>(
+      isolate, ScriptValue(isolate, value), exception_state);
+}
 
 std::unique_ptr<IDBKey> CheckKeyFromValueAndKeyPathInternal(
     v8::Isolate* isolate,
@@ -128,6 +149,20 @@ void CheckKeyPathNumberValue(v8::Isolate* isolate,
   ASSERT_TRUE(idb_key);
   ASSERT_EQ(mojom::IDBKeyType::Number, idb_key->GetType());
   ASSERT_TRUE(expected == idb_key->Number());
+}
+
+// Compare a key against an array of keys. Supports keys with "holes" (keys of
+// type None), so IDBKey::Compare() can't be used directly.
+void CheckArrayKey(const IDBKey* key, const IDBKey::KeyArray& expected) {
+  EXPECT_EQ(mojom::IDBKeyType::Array, key->GetType());
+  const IDBKey::KeyArray& array = key->Array();
+  EXPECT_EQ(expected.size(), array.size());
+  for (wtf_size_t i = 0; i < array.size(); ++i) {
+    EXPECT_EQ(array[i]->GetType(), expected[i]->GetType());
+    if (array[i]->GetType() != mojom::IDBKeyType::None) {
+      EXPECT_EQ(0, expected[i]->Compare(array[i].get()));
+    }
+  }
 }
 
 // SerializedScriptValue header format offsets are inferred from the Blink and
@@ -227,19 +262,290 @@ TEST(IDBKeyFromValueAndKeyPathTest, SubProperty) {
   CheckKeyPathNullValue(isolate, script_value, "bar");
 }
 
+TEST(IDBKeyFromValue, Number) {
+  V8TestingScope scope;
+
+  auto key = ScriptToKey(scope, "42.0");
+  EXPECT_EQ(key->GetType(), mojom::IDBKeyType::Number);
+  EXPECT_EQ(key->Number(), 42);
+
+  EXPECT_FALSE(ScriptToKey(scope, "NaN")->IsValid());
+}
+
+TEST(IDBKeyFromValue, Date) {
+  V8TestingScope scope;
+
+  auto key = ScriptToKey(scope, "new Date(123)");
+  EXPECT_EQ(key->GetType(), mojom::IDBKeyType::Date);
+  EXPECT_EQ(key->Date(), 123);
+
+  EXPECT_FALSE(ScriptToKey(scope, "new Date(NaN)")->IsValid());
+  EXPECT_FALSE(ScriptToKey(scope, "new Date(Infinity)")->IsValid());
+}
+
+TEST(IDBKeyFromValue, String) {
+  V8TestingScope scope;
+
+  auto key = ScriptToKey(scope, "'abc'");
+  EXPECT_EQ(key->GetType(), mojom::IDBKeyType::String);
+  EXPECT_EQ(key->GetString(), "abc");
+}
+
+TEST(IDBKeyFromValue, Binary) {
+  V8TestingScope scope;
+
+  // Key which is an ArrayBuffer.
+  {
+    auto key = ScriptToKey(scope, "new ArrayBuffer(3)");
+    EXPECT_EQ(key->GetType(), mojom::IDBKeyType::Binary);
+    EXPECT_EQ(key->Binary()->size(), 3UL);
+  }
+
+  // Key which is a TypedArray view on an ArrayBuffer.
+  {
+    auto key = ScriptToKey(scope, "new Uint8Array([0,1,2])");
+    EXPECT_EQ(key->GetType(), mojom::IDBKeyType::Binary);
+    EXPECT_EQ(key->Binary()->size(), 3UL);
+  }
+}
+
+TEST(IDBKeyFromValue, InvalidSimpleKeyTypes) {
+  V8TestingScope scope;
+
+  const char* cases[] = {
+      "true", "false", "null", "undefined", "{}", "(function(){})", "/regex/",
+  };
+
+  for (const char* expr : cases)
+    EXPECT_FALSE(ScriptToKey(scope, expr)->IsValid());
+}
+
+TEST(IDBKeyFromValue, SimpleArrays) {
+  V8TestingScope scope;
+
+  {
+    auto key = ScriptToKey(scope, "[]");
+    EXPECT_EQ(key->GetType(), mojom::IDBKeyType::Array);
+    EXPECT_EQ(key->Array().size(), 0UL);
+  }
+
+  {
+    auto key = ScriptToKey(scope, "[0, 'abc']");
+    EXPECT_EQ(key->GetType(), mojom::IDBKeyType::Array);
+
+    const IDBKey::KeyArray& array = key->Array();
+    EXPECT_EQ(array.size(), 2UL);
+    EXPECT_EQ(array[0]->GetType(), mojom::IDBKeyType::Number);
+    EXPECT_EQ(array[1]->GetType(), mojom::IDBKeyType::String);
+  }
+}
+
+TEST(IDBKeyFromValue, NestedArray) {
+  V8TestingScope scope;
+
+  auto key = ScriptToKey(scope, "[0, ['xyz', Infinity], 'abc']");
+  EXPECT_EQ(key->GetType(), mojom::IDBKeyType::Array);
+
+  const IDBKey::KeyArray& array = key->Array();
+  EXPECT_EQ(array.size(), 3UL);
+  EXPECT_EQ(array[0]->GetType(), mojom::IDBKeyType::Number);
+  EXPECT_EQ(array[1]->GetType(), mojom::IDBKeyType::Array);
+  EXPECT_EQ(array[1]->Array().size(), 2UL);
+  EXPECT_EQ(array[1]->Array()[0]->GetType(), mojom::IDBKeyType::String);
+  EXPECT_EQ(array[1]->Array()[1]->GetType(), mojom::IDBKeyType::Number);
+  EXPECT_EQ(array[2]->GetType(), mojom::IDBKeyType::String);
+}
+
+TEST(IDBKeyFromValue, CircularArray) {
+  V8TestingScope scope;
+  auto key = ScriptToKey(scope,
+                         "(() => {"
+                         "  const a = [];"
+                         "  a.push(a);"
+                         "  return a;"
+                         "})()");
+  EXPECT_FALSE(key->IsValid());
+}
+
+TEST(IDBKeyFromValue, DeepArray) {
+  V8TestingScope scope;
+  auto key = ScriptToKey(scope,
+                         "(() => {"
+                         "  let a = [];"
+                         "  for (let i = 0; i < 10000; ++i) { a.push(a); }"
+                         "  return a;"
+                         "})()");
+  EXPECT_FALSE(key->IsValid());
+}
+
+TEST(IDBKeyFromValue, SparseArray) {
+  V8TestingScope scope;
+  auto key = ScriptToKey(scope, "[,1]");
+  EXPECT_FALSE(key->IsValid());
+}
+
+TEST(IDBKeyFromValue, ShrinkingArray) {
+  V8TestingScope scope;
+  auto key = ScriptToKey(
+      scope,
+      "(() => {"
+      "  const a = [0, 1, 2];"
+      "  Object.defineProperty(a, 1, {get: () => { a.length = 2; return 1; }});"
+      "  return a;"
+      "})()");
+  EXPECT_FALSE(key->IsValid());
+}
+
+TEST(IDBKeyFromValue, Exceptions) {
+  V8TestingScope scope;
+
+  const char* cases[] = {
+      // Detached ArrayBuffer.
+      "(() => {"
+      "  const a = new ArrayBuffer(3);"
+      "  postMessage(a, '*', [a]);"
+      "  return a;"
+      "})()",
+
+      // Detached ArrayBuffer view.
+      "(() => {"
+      "  const a = new Uint8Array([0,1,2]);"
+      "  postMessage(a.buffer, '*', [a.buffer]);"
+      "  return a;"
+      "})()",
+
+      // Value is an array with a getter that throws.
+      "(()=>{"
+      "  const a = [0, 1, 2];"
+      "  Object.defineProperty(a, 1, {get: () => { throw Error(); }});"
+      "  return a;"
+      "})()",
+
+      // Value is an array containing an array with a getter that throws.
+      "(()=>{"
+      "  const a = [0, 1, 2];"
+      "  Object.defineProperty(a, 1, {get: () => { throw Error(); }});"
+      "  return ['x', a, 'z'];"
+      "})()",
+
+      // Array with unconvertable item
+      "(() => {"
+      "  const a = new ArrayBuffer(3);"
+      "  postMessage(a, '*', [a]);"
+      "  return [a];"
+      "})()",
+  };
+
+  for (const char* source : cases) {
+    ScriptValue script_value(scope.GetIsolate(),
+                             EvaluateScriptAsObject(scope, source));
+
+    DummyExceptionStateForTesting exception_state;
+    auto key = ScriptValue::To<std::unique_ptr<IDBKey>>(
+        scope.GetIsolate(), script_value, exception_state);
+    EXPECT_FALSE(key->IsValid());
+    EXPECT_TRUE(exception_state.HadException());
+  }
+}
+
+TEST(IDBKeyFromValueAndKeyPathTest, Exceptions) {
+  V8TestingScope scope;
+  ScriptValue script_value(
+      scope.GetIsolate(),
+      EvaluateScriptAsObject(scope,
+                             "({id:1, get throws() { throw Error(); }})"));
+  {
+    // Key path references a property that throws.
+    DummyExceptionStateForTesting exception_state;
+    EXPECT_FALSE(ScriptValue::To<std::unique_ptr<IDBKey>>(
+        scope.GetIsolate(), script_value, exception_state,
+        IDBKeyPath("throws")));
+    EXPECT_TRUE(exception_state.HadException());
+  }
+
+  {
+    // Compound key path references a property that throws.
+    DummyExceptionStateForTesting exception_state;
+    EXPECT_FALSE(ScriptValue::To<std::unique_ptr<IDBKey>>(
+        scope.GetIsolate(), script_value, exception_state,
+        IDBKeyPath(Vector<String>{"id", "throws"})));
+    EXPECT_TRUE(exception_state.HadException());
+  }
+
+  {
+    // Compound key path references a property that throws, index case.
+    DummyExceptionStateForTesting exception_state;
+    EXPECT_FALSE(ScriptValue::To<std::unique_ptr<IDBKey>>(
+        scope.GetIsolate(), script_value, exception_state,
+        /*store_key_path=*/IDBKeyPath("id"),
+        /*index_key_path=*/IDBKeyPath(Vector<String>{"id", "throws"})));
+    EXPECT_TRUE(exception_state.HadException());
+  }
+}
+
+TEST(IDBKeyFromValueAndKeyPathsTest, IndexKeys) {
+  V8TestingScope scope;
+  ScriptState* script_state = scope.GetScriptState();
+  v8::Isolate* isolate = scope.GetIsolate();
+  NonThrowableExceptionState exception_state;
+
+  // object = { foo: { bar: "zee" }, bad: null }
+  ScriptValue script_value =
+      V8ObjectBuilder(script_state)
+          .Add("foo", V8ObjectBuilder(script_state).Add("bar", "zee"))
+          .AddNull("bad")
+          .GetScriptValue();
+
+  // Index key path member matches store key path.
+  std::unique_ptr<IDBKey> key = ScriptValue::To<std::unique_ptr<IDBKey>>(
+      isolate, script_value, exception_state,
+      /*store_key_path=*/IDBKeyPath("id"),
+      /*index_key_path=*/IDBKeyPath(Vector<String>{"id", "foo.bar"}));
+  IDBKey::KeyArray expected;
+  expected.emplace_back(IDBKey::CreateNone());
+  expected.emplace_back(IDBKey::CreateString("zee"));
+  CheckArrayKey(key.get(), expected);
+
+  // Index key path member matches, but there are unmatched members too.
+  EXPECT_FALSE(ScriptValue::To<std::unique_ptr<IDBKey>>(
+      isolate, script_value, exception_state,
+      /*store_key_path=*/IDBKeyPath("id"),
+      /*index_key_path=*/IDBKeyPath(Vector<String>{"id", "foo.bar", "nope"})));
+
+  // Index key path member matches, but there are invalid subkeys too.
+  EXPECT_FALSE(
+      ScriptValue::To<std::unique_ptr<IDBKey>>(
+          isolate, script_value, exception_state,
+          /*store_key_path=*/IDBKeyPath("id"),
+          /*index_key_path=*/IDBKeyPath(Vector<String>{"id", "foo.bar", "bad"}))
+          ->IsValid());
+
+  // Index key path member does not match store key path.
+  EXPECT_FALSE(ScriptValue::To<std::unique_ptr<IDBKey>>(
+      isolate, script_value, exception_state,
+      /*store_key_path=*/IDBKeyPath("id"),
+      /*index_key_path=*/IDBKeyPath(Vector<String>{"id2", "foo.bar"})));
+
+  // Index key path is not array, matches store key path.
+  EXPECT_FALSE(ScriptValue::To<std::unique_ptr<IDBKey>>(
+      isolate, script_value, exception_state,
+      /*store_key_path=*/IDBKeyPath("id"),
+      /*index_key_path=*/IDBKeyPath("id")));
+}
+
 TEST(InjectIDBKeyTest, ImplicitValues) {
   V8TestingScope scope;
   v8::Isolate* isolate = scope.GetIsolate();
   {
     v8::Local<v8::String> string = V8String(isolate, "string");
-    ScriptValue value = ScriptValue(scope.GetScriptState(), string);
+    ScriptValue value = ScriptValue(scope.GetIsolate(), string);
     std::unique_ptr<IDBKey> idb_key = IDBKey::CreateNumber(123);
     CheckInjectionIgnored(scope.GetScriptState(), idb_key.get(), value,
                           "length");
   }
   {
     v8::Local<v8::Array> array = v8::Array::New(isolate);
-    ScriptValue value = ScriptValue(scope.GetScriptState(), array);
+    ScriptValue value = ScriptValue(scope.GetIsolate(), array);
     std::unique_ptr<IDBKey> idb_key = IDBKey::CreateNumber(456);
     CheckInjectionIgnored(scope.GetScriptState(), idb_key.get(), value,
                           "length");

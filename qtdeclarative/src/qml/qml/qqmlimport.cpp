@@ -58,6 +58,7 @@
 #include <private/qqmltypeloaderqmldircontent_p.h>
 #include <QtCore/qjsonobject.h>
 #include <QtCore/qjsonarray.h>
+#include <QtQml/private/qqmltype_p_p.h>
 
 #include <algorithm>
 #include <functional>
@@ -229,8 +230,7 @@ public:
     bool resolveType(const QHashedStringRef &type, int *vmajor, int *vminor,
                      QQmlType *type_return, QList<QQmlError> *errors,
                      QQmlType::RegistrationType registrationType,
-                     QQmlImport::RecursionRestriction recursionRestriction
-                     = QQmlImport::PreventRecursion);
+                     bool *typeRecursionDetected = nullptr);
 
     QUrl baseUrl;
     QString base;
@@ -246,9 +246,9 @@ public:
 
     QQmlTypeLoader *typeLoader;
 
-    static bool locateQmldir(const QString &uri, int vmaj, int vmin,
-                             QQmlImportDatabase *database,
-                             QString *outQmldirFilePath, QString *outUrl);
+    static QQmlImports::LocalQmldirResult locateLocalQmldir(
+            const QString &uri, int vmaj, int vmin, QQmlImportDatabase *database,
+            QString *outQmldirFilePath, QString *outUrl);
 
     static bool validateQmldirVersion(const QQmlTypeLoaderQmldirContent &qmldir, const QString &uri, int vmaj, int vmin,
                                       QList<QQmlError> *errors);
@@ -534,7 +534,7 @@ static QString joinStringRefs(const QVector<QStringRef> &refs, const QChar &sep)
 */
 QStringList QQmlImports::completeQmldirPaths(const QString &uri, const QStringList &basePaths, int vmaj, int vmin)
 {
-    const QVector<QStringRef> parts = uri.splitRef(Dot, QString::SkipEmptyParts);
+    const QVector<QStringRef> parts = uri.splitRef(Dot, Qt::SkipEmptyParts);
 
     QStringList qmlDirPathsPaths;
     // fully & partially versioned parts + 1 unversioned for each base path
@@ -594,7 +594,7 @@ bool QQmlImports::resolveType(const QHashedStringRef &type,
                               QQmlType *type_return, int *vmaj, int *vmin,
                               QQmlImportNamespace** ns_return, QList<QQmlError> *errors,
                               QQmlType::RegistrationType registrationType,
-                              QQmlImport::RecursionRestriction recursionRestriction) const
+                              bool *typeRecursionDetected) const
 {
     QQmlImportNamespace* ns = d->findQualifiedNamespace(type);
     if (ns) {
@@ -604,7 +604,7 @@ bool QQmlImports::resolveType(const QHashedStringRef &type,
     }
     if (type_return) {
         if (d->resolveType(type, vmaj, vmin, type_return, errors, registrationType,
-                           recursionRestriction)) {
+                           typeRecursionDetected)) {
             if (qmlImportTrace()) {
 #define RESOLVE_TYPE_DEBUG qDebug().nospace() << "QQmlImports(" << qPrintable(baseUrl().toString()) \
                                               << ')' << "::resolveType: " << type.toString() << " => "
@@ -614,6 +614,8 @@ bool QQmlImports::resolveType(const QHashedStringRef &type,
                         RESOLVE_TYPE_DEBUG << type_return->typeName() << ' ' << type_return->sourceUrl() << " TYPE/URL-SINGLETON";
                     else if (type_return->isComposite())
                         RESOLVE_TYPE_DEBUG << type_return->typeName() << ' ' << type_return->sourceUrl() << " TYPE/URL";
+                    else if (type_return->isInlineComponentType())
+                        RESOLVE_TYPE_DEBUG << type_return->typeName() << ' ' << type_return->sourceUrl() << " TYPE(INLINECOMPONENT)";
                     else
                         RESOLVE_TYPE_DEBUG << type_return->typeName() << " TYPE";
                 }
@@ -710,6 +712,38 @@ bool QQmlImportInstance::resolveType(QQmlTypeLoader *typeLoader, const QHashedSt
     }
 
     const QString typeStr = type.toString();
+    if (isInlineComponent) {
+        Q_ASSERT(type_return);
+        bool ret = uri == typeStr;
+        if (ret) {
+            Q_ASSERT(!type_return->isValid());
+            auto createICType = [&]() {
+                auto typePriv = new QQmlTypePrivate {QQmlType::RegistrationType::InlineComponentType};
+                bool ok = false;
+                typePriv->extraData.id->objectId = QUrl(this->url).fragment().toInt(&ok);
+                Q_ASSERT(ok);
+                typePriv->extraData.id->url = QUrl(this->url);
+                auto icType = QQmlType(typePriv);
+                typePriv->release();
+                return icType;
+            };
+            if (containingType.isValid()) {
+                // we currently cannot reference a Singleton inside itself
+                // in that case, containingType is still invalid
+                if (int icID = containingType.lookupInlineComponentIdByName(typeStr) != -1) {
+                    *type_return = containingType.lookupInlineComponentById(icID);
+                } else {
+                    auto icType = createICType();
+                    int placeholderId = containingType.generatePlaceHolderICId();
+                    const_cast<QQmlImportInstance*>(this)->containingType.associateInlineComponent(typeStr, placeholderId, CompositeMetaTypeIds {}, icType);
+                    *type_return = QQmlType(icType);
+                }
+            } else  {
+                *type_return = createICType();
+            }
+        }
+        return ret;
+    }
     QQmlDirComponents::ConstIterator it = qmlDirComponents.find(typeStr), end = qmlDirComponents.end();
     if (it != end) {
         QString componentUrl;
@@ -744,9 +778,12 @@ bool QQmlImportInstance::resolveType(QQmlTypeLoader *typeLoader, const QHashedSt
                             if (resolveLocalUrl(*base, c.fileName) != componentUrl)
                                 continue; // failed attempt to access an internal type
                         }
-                        if (recursionRestriction == QQmlImport::PreventRecursion && *base == componentUrl) {
-                            if (typeRecursionDetected)
-                                *typeRecursionDetected = true;
+
+                        const bool recursion = *base == componentUrl;
+                        if (typeRecursionDetected)
+                            *typeRecursionDetected = recursion;
+
+                        if (recursionRestriction == QQmlImport::PreventRecursion && recursion) {
                             continue; // no recursion
                         }
                     }
@@ -803,10 +840,10 @@ bool QQmlImportInstance::resolveType(QQmlTypeLoader *typeLoader, const QHashedSt
         }
 
         if (exists) {
-            if (recursionRestriction == QQmlImport::PreventRecursion && base && (*base == qmlUrl)) { // no recursion
-                if (typeRecursionDetected)
-                    *typeRecursionDetected = true;
-            } else {
+            const bool recursion = base && *base == qmlUrl;
+            if (typeRecursionDetected)
+                *typeRecursionDetected = recursion;
+            if (recursionRestriction == QQmlImport::AllowRecursion || !recursion) {
                 QQmlType returnType = QQmlMetaType::typeForUrl(
                         qmlUrl, type, registrationType == QQmlType::CompositeSingletonType, errors);
                 if (type_return)
@@ -822,49 +859,111 @@ bool QQmlImportInstance::resolveType(QQmlTypeLoader *typeLoader, const QHashedSt
 bool QQmlImportsPrivate::resolveType(const QHashedStringRef& type, int *vmajor, int *vminor,
                                      QQmlType *type_return, QList<QQmlError> *errors,
                                      QQmlType::RegistrationType registrationType,
-                                     QQmlImport::RecursionRestriction recursionRestriction)
+                                     bool *typeRecursionDetected)
 {
-    QQmlImportNamespace *s = nullptr;
-    int dot = type.indexOf(Dot);
-    if (dot >= 0) {
-        QHashedStringRef namespaceName(type.constData(), dot);
-        s = findQualifiedNamespace(namespaceName);
-        if (!s) {
-            if (errors) {
-                QQmlError error;
-                error.setDescription(QQmlImportDatabase::tr("- %1 is not a namespace").arg(namespaceName.toString()));
-                errors->prepend(error);
-            }
-            return false;
-        }
-        int ndot = type.indexOf(Dot,dot+1);
-        if (ndot > 0) {
-            if (errors) {
-                QQmlError error;
-                error.setDescription(QQmlImportDatabase::tr("- nested namespaces not allowed"));
-                errors->prepend(error);
-            }
-            return false;
-        }
-    } else {
-        s = &unqualifiedset;
-    }
-    QHashedStringRef unqualifiedtype = dot < 0 ? type : QHashedStringRef(type.constData()+dot+1, type.length()-dot-1);
-    if (s) {
-        if (s->resolveType(typeLoader, unqualifiedtype, vmajor, vminor, type_return, &base, errors,
-                           registrationType, recursionRestriction))
+    const QVector<QHashedStringRef> splitName = type.split(Dot);
+    auto resolveTypeInNamespace = [&](QHashedStringRef unqualifiedtype, QQmlImportNamespace *nameSpace, QList<QQmlError> *errors) -> bool {
+        if (nameSpace->resolveType(typeLoader, unqualifiedtype, vmajor, vminor, type_return, &base, errors,
+                           registrationType, typeRecursionDetected))
             return true;
-        if (s->imports.count() == 1 && !s->imports.at(0)->isLibrary && type_return && s != &unqualifiedset) {
+        if (nameSpace->imports.count() == 1 && !nameSpace->imports.at(0)->isLibrary && type_return && nameSpace != &unqualifiedset) {
             // qualified, and only 1 url
             *type_return = QQmlMetaType::typeForUrl(
-                    resolveLocalUrl(s->imports.at(0)->url,
+                    resolveLocalUrl(nameSpace->imports.at(0)->url,
                                     unqualifiedtype.toString() + QLatin1String(".qml")),
                     type, false, errors);
             return type_return->isValid();
         }
+        return false;
+    };
+    switch (splitName.size()) {
+    case 1: {
+        // must be a simple type
+        return resolveTypeInNamespace(type, &unqualifiedset, errors);
     }
-
-    return false;
+    case 2: {
+        // either namespace + simple type OR simple type + inline component
+        QQmlImportNamespace *s = findQualifiedNamespace(splitName.at(0));
+        if (s) {
+            // namespace + simple type
+            return resolveTypeInNamespace(splitName.at(1), s, errors);
+        } else {
+            if (resolveTypeInNamespace(splitName.at(0), &unqualifiedset, nullptr)) {
+                // either simple type + inline component
+                auto const icName = splitName.at(1).toString();
+                auto objectIndex = type_return->lookupInlineComponentIdByName(icName);
+                if (objectIndex != -1) {
+                    *type_return = type_return->lookupInlineComponentById(objectIndex);
+                } else {
+                    auto icTypePriv = new QQmlTypePrivate(QQmlType::RegistrationType::InlineComponentType);
+                    icTypePriv->setContainingType(type_return);
+                    icTypePriv->extraData.id->url = type_return->sourceUrl();
+                    int placeholderId = type_return->generatePlaceHolderICId();
+                    icTypePriv->extraData.id->url.setFragment(QString::number(placeholderId));
+                    auto icType = QQmlType(icTypePriv);
+                    icTypePriv->release();
+                    type_return->associateInlineComponent(icName, placeholderId, CompositeMetaTypeIds {}, icType);
+                    *type_return = icType;
+                }
+                Q_ASSERT(type_return->containingType().isValid());
+                type_return->setPendingResolutionName(icName);
+                return true;
+            } else {
+                // or a failure
+                if (errors) {
+                    QQmlError error;
+                    error.setDescription(QQmlImportDatabase::tr("- %1 is neither a type nor a namespace").arg(splitName.at(0).toString()));
+                    errors->prepend(error);
+                }
+                return false;
+            }
+        }
+    }
+    case 3: {
+        // must be namespace + simple type + inline component
+        QQmlImportNamespace *s = findQualifiedNamespace(splitName.at(0));
+        QQmlError error;
+        if (!s) {
+            error.setDescription(QQmlImportDatabase::tr("- %1 is not a namespace").arg(splitName.at(0).toString()));
+        } else {
+            if (resolveTypeInNamespace(splitName.at(1), s, nullptr)) {
+                auto const icName = splitName.at(2).toString();
+                auto objectIndex = type_return->lookupInlineComponentIdByName(icName);
+                if (objectIndex != -1)
+                    *type_return = type_return->lookupInlineComponentById(objectIndex);
+                else {
+                    auto icTypePriv = new QQmlTypePrivate(QQmlType::RegistrationType::InlineComponentType);
+                    icTypePriv->setContainingType(type_return);
+                    icTypePriv->extraData.id->url = type_return->sourceUrl();
+                    int placeholderId = type_return->generatePlaceHolderICId();
+                    icTypePriv->extraData.id->url.setFragment(QString::number(placeholderId));
+                    auto icType = QQmlType(icTypePriv);
+                    icTypePriv->release();
+                    type_return->associateInlineComponent(icName, placeholderId, CompositeMetaTypeIds {}, icType);
+                    *type_return = icType;
+                }
+                type_return->setPendingResolutionName(icName);
+                return true;
+            } else {
+                error.setDescription(QQmlImportDatabase::tr("- %1 is not a type").arg(splitName.at(1).toString()));
+            }
+        }
+        if (errors) {
+            errors->prepend(error);
+        }
+        return false;
+    }
+    default: {
+        // all other numbers suggest a user error
+        if (errors) {
+            QQmlError error;
+            error.setDescription(QQmlImportDatabase::tr("- nested namespaces not allowed"));
+            errors->prepend(error);
+        }
+        return false;
+    }
+    }
+    Q_UNREACHABLE();
 }
 
 QQmlImportInstance *QQmlImportNamespace::findImport(const QString &uri) const
@@ -880,13 +979,25 @@ bool QQmlImportNamespace::resolveType(QQmlTypeLoader *typeLoader, const QHashedS
                                       int *vmajor, int *vminor, QQmlType *type_return,
                                       QString *base, QList<QQmlError> *errors,
                                       QQmlType::RegistrationType registrationType,
-                                      QQmlImport::RecursionRestriction recursionRestriction)
+                                      bool *typeRecursionDetected)
 {
-    bool typeRecursionDetected = false;
+    QQmlImport::RecursionRestriction recursionRestriction =
+            typeRecursionDetected ? QQmlImport::AllowRecursion : QQmlImport::PreventRecursion;
+
+    bool localTypeRecursionDetected = false;
+    if (!typeRecursionDetected)
+        typeRecursionDetected = &localTypeRecursionDetected;
+
+    if (needsSorting()) {
+        std::stable_sort(imports.begin(), imports.end(), [](QQmlImportInstance *left, QQmlImportInstance *) {
+            return left->isInlineComponent;
+        });
+        setNeedsSorting(false);
+    }
     for (int i=0; i<imports.count(); ++i) {
         const QQmlImportInstance *import = imports.at(i);
         if (import->resolveType(typeLoader, type, vmajor, vminor, type_return, base,
-                                &typeRecursionDetected, registrationType, recursionRestriction, errors)) {
+                                typeRecursionDetected, registrationType, recursionRestriction, errors)) {
             if (qmlCheckTypes()) {
                 // check for type clashes
                 for (int j = i+1; j<imports.count(); ++j) {
@@ -933,13 +1044,24 @@ bool QQmlImportNamespace::resolveType(QQmlTypeLoader *typeLoader, const QHashedS
     }
     if (errors) {
         QQmlError error;
-        if (typeRecursionDetected)
+        if (*typeRecursionDetected)
             error.setDescription(QQmlImportDatabase::tr("is instantiated recursively"));
         else
             error.setDescription(QQmlImportDatabase::tr("is not a type"));
         errors->prepend(error);
     }
     return false;
+}
+
+bool QQmlImportNamespace::needsSorting() const
+{
+    return nextNamespace == this;
+}
+
+void QQmlImportNamespace::setNeedsSorting(bool needsSorting)
+{
+    Q_ASSERT(nextNamespace == this || nextNamespace == nullptr);
+    nextNamespace = needsSorting ? this : nullptr;
 }
 
 QQmlImportsPrivate::QQmlImportsPrivate(QQmlTypeLoader *loader)
@@ -990,7 +1112,9 @@ static QVector<QStaticPlugin> makePlugins()
     const auto staticPlugins = QPluginLoader::staticPlugins();
     for (const QStaticPlugin &plugin : staticPlugins) {
         const QString iid = plugin.metaData().value(QLatin1String("IID")).toString();
-        if (iid == QLatin1String(QQmlExtensionInterface_iid) || iid == QLatin1String(QQmlExtensionInterface_iid_old)) {
+        if (iid == QLatin1String(QQmlEngineExtensionInterface_iid)
+                || iid == QLatin1String(QQmlExtensionInterface_iid)
+                || iid == QLatin1String(QQmlExtensionInterface_iid_old)) {
             plugins.append(plugin);
         }
     }
@@ -1008,7 +1132,9 @@ bool QQmlImportsPrivate::populatePluginPairVector(QVector<StaticPluginPair> &res
     static const QVector<QStaticPlugin> plugins = makePlugins();
     for (const QStaticPlugin &plugin : plugins) {
         // Since a module can list more than one plugin, we keep iterating even after we found a match.
-        if (QQmlExtensionPlugin *instance = qobject_cast<QQmlExtensionPlugin *>(plugin.instance())) {
+        QObject *instance = plugin.instance();
+        if (qobject_cast<QQmlEngineExtensionPlugin *>(instance)
+                || qobject_cast<QQmlExtensionPlugin *>(instance)) {
             const QJsonArray metaTagsUriList = plugin.metaData().value(QLatin1String("uri")).toArray();
             if (metaTagsUriList.isEmpty()) {
                 if (errors) {
@@ -1064,7 +1190,13 @@ bool QQmlImportsPrivate::importExtension(const QString &qmldirFilePath,
     if (qmldirPluginCount == 0)
         return true;
 
-    if (!database->qmlDirFilesForWhichPluginsHaveBeenLoaded.contains(qmldirFilePath)) {
+    if (database->qmlDirFilesForWhichPluginsHaveBeenLoaded.contains(qmldirFilePath)) {
+        if ((vmaj >= 0 && vmin >= 0)
+                ? !QQmlMetaType::isModule(uri, vmaj, vmin)
+                : !QQmlMetaType::isAnyModule(uri)) {
+            QQmlMetaType::qmlRegisterModuleTypes(uri, vmaj);
+        }
+    } else {
         // First search for listed qmldir plugins dynamically. If we cannot resolve them all, we continue
         // searching static plugins that has correct metadata uri. Note that since we only know the uri
         // for a static plugin, and not the filename, we cannot know which static plugin belongs to which
@@ -1225,8 +1357,9 @@ Locates the qmldir file for \a uri version \a vmaj.vmin.  Returns true if found,
 and fills in outQmldirFilePath and outQmldirUrl appropriately.  Otherwise returns
 false.
 */
-bool QQmlImportsPrivate::locateQmldir(const QString &uri, int vmaj, int vmin, QQmlImportDatabase *database,
-                                      QString *outQmldirFilePath, QString *outQmldirPathUrl)
+QQmlImports::LocalQmldirResult QQmlImportsPrivate::locateLocalQmldir(
+        const QString &uri, int vmaj, int vmin, QQmlImportDatabase *database,
+        QString *outQmldirFilePath, QString *outQmldirPathUrl)
 {
     Q_ASSERT(vmaj >= 0 && vmin >= 0); // Versions are always specified for libraries
 
@@ -1234,19 +1367,20 @@ bool QQmlImportsPrivate::locateQmldir(const QString &uri, int vmaj, int vmin, QQ
 
     QQmlImportDatabase::QmldirCache *cacheHead = nullptr;
     {
-    QQmlImportDatabase::QmldirCache **cachePtr = database->qmldirCache.value(uri);
-    if (cachePtr) {
-        cacheHead = *cachePtr;
-        QQmlImportDatabase::QmldirCache *cache = cacheHead;
-        while (cache) {
-            if (cache->versionMajor == vmaj && cache->versionMinor == vmin) {
-                *outQmldirFilePath = cache->qmldirFilePath;
-                *outQmldirPathUrl = cache->qmldirPathUrl;
-                return !cache->qmldirFilePath.isEmpty();
+        QQmlImportDatabase::QmldirCache **cachePtr = database->qmldirCache.value(uri);
+        if (cachePtr) {
+            cacheHead = *cachePtr;
+            QQmlImportDatabase::QmldirCache *cache = cacheHead;
+            while (cache) {
+                if (cache->versionMajor == vmaj && cache->versionMinor == vmin) {
+                    *outQmldirFilePath = cache->qmldirFilePath;
+                    *outQmldirPathUrl = cache->qmldirPathUrl;
+                    return cache->qmldirFilePath.isEmpty() ? QQmlImports::QmldirNotFound
+                                                           : QQmlImports::QmldirFound;
+                }
+                cache = cache->next;
             }
-            cache = cache->next;
         }
-    }
     }
 
     QQmlTypeLoader &typeLoader = QQmlEnginePrivate::get(database->engine)->typeLoader;
@@ -1257,12 +1391,17 @@ bool QQmlImportsPrivate::locateQmldir(const QString &uri, int vmaj, int vmin, QQ
                 interceptor ? QQmlImportDatabase::LocalOrRemote : QQmlImportDatabase::Local);
 
     // Search local import paths for a matching version
-    const QStringList qmlDirPaths = QQmlImports::completeQmldirPaths(uri, localImportPaths, vmaj, vmin);
+    const QStringList qmlDirPaths = QQmlImports::completeQmldirPaths(
+                uri, localImportPaths, vmaj, vmin);
+    bool pathTurnedRemote = false;
     for (QString qmldirPath : qmlDirPaths) {
         if (interceptor) {
-            qmldirPath = QQmlFile::urlToLocalFileOrQrc(
-                        interceptor->intercept(QQmlImports::urlFromLocalFileOrQrcOrUrl(qmldirPath),
-                                               QQmlAbstractUrlInterceptor::QmldirFile));
+            const QUrl intercepted = interceptor->intercept(
+                        QQmlImports::urlFromLocalFileOrQrcOrUrl(qmldirPath),
+                        QQmlAbstractUrlInterceptor::QmldirFile);
+            qmldirPath = QQmlFile::urlToLocalFileOrQrc(intercepted);
+            if (!pathTurnedRemote && qmldirPath.isEmpty() && !QQmlFile::isLocalFile(intercepted))
+                pathTurnedRemote = true;
         }
 
         QString absoluteFilePath = typeLoader.absoluteFilePath(qmldirPath);
@@ -1285,7 +1424,7 @@ bool QQmlImportsPrivate::locateQmldir(const QString &uri, int vmaj, int vmin, QQ
             *outQmldirFilePath = absoluteFilePath;
             *outQmldirPathUrl = url;
 
-            return true;
+            return QQmlImports::QmldirFound;
         }
     }
 
@@ -1295,7 +1434,7 @@ bool QQmlImportsPrivate::locateQmldir(const QString &uri, int vmaj, int vmin, QQ
     cache->next = cacheHead;
     database->qmldirCache.insert(uri, cache);
 
-    return false;
+    return pathTurnedRemote ? QQmlImports::QmldirInterceptedToRemote : QQmlImports::QmldirNotFound;
 }
 
 bool QQmlImportsPrivate::validateQmldirVersion(const QQmlTypeLoaderQmldirContent &qmldir, const QString &uri, int vmaj, int vmin,
@@ -1627,6 +1766,22 @@ bool QQmlImports::addImplicitImport(QQmlImportDatabase *importDb, QList<QQmlErro
 }
 
 /*!
+ \internal
+ */
+bool QQmlImports::addInlineComponentImport(QQmlImportInstance *const importInstance, const QString &name, const QUrl importUrl, QQmlType containingType)
+{
+    importInstance->url = importUrl.toString();
+    importInstance->uri = name;
+    importInstance->isInlineComponent = true;
+    importInstance->majversion = 0;
+    importInstance->minversion = 0;
+    importInstance->containingType = containingType;
+    d->unqualifiedset.imports.push_back(importInstance);
+    d->unqualifiedset.setNeedsSorting(true);
+    return true;
+}
+
+/*!
   \internal
 
   Adds information to \a imports such that subsequent calls to resolveType()
@@ -1689,11 +1844,11 @@ bool QQmlImports::updateQmldirContent(QQmlImportDatabase *importDb,
     return d->updateQmldirContent(uri, prefix, qmldirIdentifier, qmldirUrl, importDb, errors);
 }
 
-bool QQmlImports::locateQmldir(QQmlImportDatabase *importDb,
-                               const QString& uri, int vmaj, int vmin,
-                               QString *qmldirFilePath, QString *url)
+QQmlImports::LocalQmldirResult QQmlImports::locateLocalQmldir(
+        QQmlImportDatabase *importDb, const QString &uri, int vmaj,  int vmin,
+        QString *qmldirFilePath, QString *url)
 {
-    return d->locateQmldir(uri, vmaj, vmin, importDb, qmldirFilePath, url);
+    return d->locateLocalQmldir(uri, vmaj, vmin, importDb, qmldirFilePath, url);
 }
 
 bool QQmlImports::isLocal(const QString &url)
@@ -1744,7 +1899,7 @@ QQmlImportDatabase::QQmlImportDatabase(QQmlEngine *e)
 #else
         QLatin1Char pathSep(':');
 #endif
-        QStringList paths = envImportPath.split(pathSep, QString::SkipEmptyParts);
+        QStringList paths = envImportPath.split(pathSep, Qt::SkipEmptyParts);
         for (int ii = paths.count() - 1; ii >= 0; --ii)
             addImportPath(paths.at(ii));
     }
@@ -1756,7 +1911,7 @@ QQmlImportDatabase::QQmlImportDatabase(QQmlEngine *e)
     if (Q_UNLIKELY(!qEnvironmentVariableIsEmpty("QT_BUNDLED_LIBS_PATH"))) {
         const QString envImportPath = qEnvironmentVariable("QT_BUNDLED_LIBS_PATH");
         QLatin1Char pathSep(':');
-        QStringList paths = envImportPath.split(pathSep, QString::SkipEmptyParts);
+        QStringList paths = envImportPath.split(pathSep, Qt::SkipEmptyParts);
         for (int ii = paths.count() - 1; ii >= 0; --ii)
             addPluginPath(paths.at(ii));
     }
@@ -2001,12 +2156,25 @@ void QQmlImportDatabase::setImportPathList(const QStringList &paths)
 /*!
     \internal
 */
-bool QQmlImportDatabase::registerPluginTypes(QObject *instance, const QString &basePath,
-                                      const QString &uri, const QString &typeNamespace, int vmaj, QList<QQmlError> *errors)
+static bool registerPluginTypes(QObject *instance, const QString &basePath, const QString &uri,
+                                const QString &typeNamespace, int vmaj, QList<QQmlError> *errors)
 {
     if (qmlImportTrace())
         qDebug().nospace() << "QQmlImportDatabase::registerPluginTypes: " << uri << " from " << basePath;
-    return QQmlMetaType::registerPluginTypes(instance, basePath, uri, typeNamespace, vmaj, errors);
+
+    if (!QQmlMetaType::registerPluginTypes(instance, basePath, uri, typeNamespace, vmaj, errors))
+        return false;
+
+    if (vmaj >= 0 && !typeNamespace.isEmpty() && !QQmlMetaType::protectModule(uri, vmaj)) {
+        QQmlError error;
+        error.setDescription(
+                    QString::fromLatin1("Cannot protect module %1 %2 as it was never registered")
+                    .arg(uri).arg(vmaj));
+        errors->append(error);
+        return false;
+    }
+
+    return true;
 }
 
 /*!
@@ -2046,17 +2214,8 @@ bool QQmlImportDatabase::importStaticPlugin(QObject *instance, const QString &ba
         // other QML loader threads and thus not process the initializeEngine call).
     }
 
-    // The plugin's per-engine initialization does not need lock protection, as this function is
-    // only called from the engine specific loader thread and importDynamicPlugin as well as
-    // importStaticPlugin are the only places of access.
-    if (!initializedPlugins.contains(uniquePluginID)) {
-        initializedPlugins.insert(uniquePluginID);
-
-        if (QQmlExtensionInterface *eiface = qobject_cast<QQmlExtensionInterface *>(instance)) {
-            QQmlEnginePrivate *ep = QQmlEnginePrivate::get(engine);
-            ep->typeLoader.initializeEngine(eiface, uri.toUtf8().constData());
-        }
-    }
+    if (!initializedPlugins.contains(uniquePluginID))
+        finalizePlugin(instance, uniquePluginID, uri);
 
     return true;
 }
@@ -2131,22 +2290,46 @@ bool QQmlImportDatabase::importDynamicPlugin(const QString &filePath, const QStr
     // other QML loader threads and thus not process the initializeEngine call).
     }
 
-
-    if (!engineInitialized) {
-        // The plugin's per-engine initialization does not need lock protection, as this function is
-        // only called from the engine specific loader thread and importDynamicPlugin as well as
-        // importStaticPlugin are the only places of access.
-        initializedPlugins.insert(absoluteFilePath);
-
-        if (QQmlExtensionInterface *eiface = qobject_cast<QQmlExtensionInterface *>(instance)) {
-            QQmlEnginePrivate *ep = QQmlEnginePrivate::get(engine);
-            ep->typeLoader.initializeEngine(eiface, uri.toUtf8().constData());
-        }
-    }
+    if (!engineInitialized)
+        finalizePlugin(instance, absoluteFilePath, uri);
 
     return true;
 }
 
+bool QQmlImportDatabase::removeDynamicPlugin(const QString &filePath)
+{
+    StringRegisteredPluginMap *plugins = qmlEnginePluginsWithRegisteredTypes();
+    QMutexLocker lock(&plugins->mutex);
+
+    auto it = plugins->find(QFileInfo(filePath).absoluteFilePath());
+    if (it == plugins->end())
+        return false;
+
+    QPluginLoader *loader = it->loader;
+    if (!loader)
+        return false;
+
+    if (!loader->unload()) {
+        qWarning("Unloading %s failed: %s", qPrintable(it->uri),
+                 qPrintable(loader->errorString()));
+    }
+
+    delete loader;
+    plugins->erase(it);
+    return true;
+}
+
+QStringList QQmlImportDatabase::dynamicPlugins() const
+{
+    StringRegisteredPluginMap *plugins = qmlEnginePluginsWithRegisteredTypes();
+    QMutexLocker lock(&plugins->mutex);
+    QStringList results;
+    for (auto it = plugins->constBegin(), end = plugins->constEnd(); it != end; ++it) {
+        if (it->loader != nullptr)
+            results.append(it.key());
+    }
+    return results;
+}
 #endif // QT_CONFIG(library)
 
 void QQmlImportDatabase::clearDirCache()
@@ -2163,6 +2346,22 @@ void QQmlImportDatabase::clearDirCache()
         ++itr;
     }
     qmldirCache.clear();
+}
+
+void QQmlImportDatabase::finalizePlugin(QObject *instance, const QString &path, const QString &uri)
+{
+    // The plugin's per-engine initialization does not need lock protection, as this function is
+    // only called from the engine specific loader thread and importDynamicPlugin as well as
+    // importStaticPlugin are the only places of access.
+
+    initializedPlugins.insert(path);
+    if (auto *extensionIface = qobject_cast<QQmlExtensionInterface *>(instance)) {
+        QQmlEnginePrivate::get(engine)->typeLoader.initializeEngine(
+                    extensionIface, uri.toUtf8().constData());
+    } else if (auto *engineIface = qobject_cast<QQmlEngineExtensionInterface *>(instance)) {
+        QQmlEnginePrivate::get(engine)->typeLoader.initializeEngine(
+                    engineIface, uri.toUtf8().constData());
+    }
 }
 
 QT_END_NAMESPACE

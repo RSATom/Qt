@@ -1,5 +1,5 @@
 //
-// Copyright (c) 2013 The ANGLE Project Authors. All rights reserved.
+// Copyright 2013 The ANGLE Project Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 //
@@ -12,9 +12,9 @@
 
 #include <string.h>
 
+#include "common/system_utils.h"
 #include "platform/Platform.h"
 #include "util/OSWindow.h"
-#include "util/system_utils.h"
 
 // ConfigParameters implementation.
 ConfigParameters::ConfigParameters()
@@ -439,7 +439,7 @@ EGLContext EGLWindow::createContext(EGLContext share) const
     }
     contextAttributes.push_back(EGL_NONE);
 
-    EGLContext context = eglCreateContext(mDisplay, mConfig, nullptr, &contextAttributes[0]);
+    EGLContext context = eglCreateContext(mDisplay, mConfig, share, &contextAttributes[0]);
     if (eglGetError() != EGL_SUCCESS)
     {
         std::cerr << "Error on eglCreateContext.\n";

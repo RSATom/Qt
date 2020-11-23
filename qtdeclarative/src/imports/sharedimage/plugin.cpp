@@ -99,19 +99,19 @@
     The shared image module does not provide any directly usable QML types.
 */
 
+extern void qml_register_types_Qt_labs_sharedimage();
+
 QT_BEGIN_NAMESPACE
 
-class QtQuickSharedImagePlugin : public QQmlExtensionPlugin
+class QtQuickSharedImagePlugin : public QQmlEngineExtensionPlugin
 {
     Q_OBJECT
-    Q_PLUGIN_METADATA(IID QQmlExtensionInterface_iid)
+    Q_PLUGIN_METADATA(IID QQmlEngineExtensionInterface_iid)
 public:
-    QtQuickSharedImagePlugin(QObject *parent = nullptr) : QQmlExtensionPlugin(parent) {}
-
-    void registerTypes(const char *uri) override
+    QtQuickSharedImagePlugin(QObject *parent = nullptr) : QQmlEngineExtensionPlugin(parent)
     {
-        Q_ASSERT(uri == QStringLiteral("Qt.labs.sharedimage"));
-        qmlRegisterModule(uri, 1, 0);
+        volatile auto registration = &qml_register_types_Qt_labs_sharedimage;
+        Q_UNUSED(registration);
     }
 
     void initializeEngine(QQmlEngine *engine, const char *uri) override

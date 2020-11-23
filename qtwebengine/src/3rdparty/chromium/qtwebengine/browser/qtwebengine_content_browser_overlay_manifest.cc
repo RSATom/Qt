@@ -18,7 +18,6 @@ const service_manager::Manifest &GetQtWebEngineContentBrowserOverlayManifest()
 {
     static base::NoDestructor<service_manager::Manifest> manifest {
         service_manager::ManifestBuilder()
-            .RequireCapability("proxy_resolver", "factory")
 #if BUILDFLAG(ENABLE_EXTENSIONS)
             .ExposeInterfaceFilterCapability_Deprecated(
                 "navigation:frame", "renderer",

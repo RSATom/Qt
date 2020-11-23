@@ -31,12 +31,12 @@
 #include "components/cast_channel/cast_test_util.h"
 #include "components/cast_channel/cast_transport.h"
 #include "components/cast_channel/logger.h"
-#include "components/cast_channel/proto/cast_channel.pb.h"
-#include "content/public/test/test_browser_thread_bundle.h"
+#include "content/public/test/browser_task_environment.h"
 #include "crypto/rsa_private_key.h"
+#include "mojo/public/cpp/bindings/remote.h"
 #include "net/base/address_list.h"
 #include "net/base/net_errors.h"
-#include "net/cert/pem_tokenizer.h"
+#include "net/cert/pem.h"
 #include "net/socket/socket_test_util.h"
 #include "net/socket/ssl_client_socket.h"
 #include "net/socket/ssl_server_socket.h"
@@ -51,6 +51,7 @@
 #include "services/network/network_context.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
+#include "third_party/openscreen/src/cast/common/channel/proto/cast_channel.pb.h"
 
 const int64_t kDistantTimeoutMillis = 100000;  // 100 seconds (never hit).
 
@@ -62,6 +63,8 @@ using ::testing::NotNull;
 using ::testing::Return;
 using ::testing::SaveArg;
 using ::testing::_;
+
+using ::cast::channel::CastMessage;
 
 namespace cast_channel {
 namespace {
@@ -371,7 +374,7 @@ class TestSocketFactory : public net::ClientSocketFactory {
 class CastSocketTestBase : public testing::Test {
  protected:
   CastSocketTestBase()
-      : thread_bundle_(content::TestBrowserThreadBundle::IO_MAINLOOP),
+      : task_environment_(content::BrowserTaskEnvironment::IO_MAINLOOP),
         url_request_context_(true),
         logger_(new Logger()),
         observer_(new MockCastSocketObserver()),
@@ -387,7 +390,7 @@ class CastSocketTestBase : public testing::Test {
     url_request_context_.set_client_socket_factory(&client_socket_factory_);
     url_request_context_.Init();
     network_context_ = std::make_unique<network::NetworkContext>(
-        nullptr, mojo::MakeRequest(&network_context_ptr_),
+        nullptr, network_context_remote_.BindNewPipeAndPassReceiver(),
         &url_request_context_,
         /*cors_exempt_header_list=*/std::vector<std::string>());
   }
@@ -400,10 +403,10 @@ class CastSocketTestBase : public testing::Test {
 
   TestSocketFactory* client_socket_factory() { return &client_socket_factory_; }
 
-  content::TestBrowserThreadBundle thread_bundle_;
+  content::BrowserTaskEnvironment task_environment_;
   net::TestURLRequestContext url_request_context_;
   std::unique_ptr<network::NetworkContext> network_context_;
-  network::mojom::NetworkContextPtr network_context_ptr_;
+  mojo::Remote<network::mojom::NetworkContext> network_context_remote_;
   Logger* logger_;
   CompleteHandler handler_;
   std::unique_ptr<MockCastSocketObserver> observer_;

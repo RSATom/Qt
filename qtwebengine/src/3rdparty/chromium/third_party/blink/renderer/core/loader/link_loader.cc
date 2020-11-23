@@ -35,6 +35,7 @@
 #include "third_party/blink/public/common/prerender/prerender_rel_type.h"
 #include "third_party/blink/renderer/core/dom/document.h"
 #include "third_party/blink/renderer/core/frame/local_frame.h"
+#include "third_party/blink/renderer/core/frame/web_feature.h"
 #include "third_party/blink/renderer/core/loader/importance_attribute.h"
 #include "third_party/blink/renderer/core/loader/link_load_parameters.h"
 #include "third_party/blink/renderer/core/loader/link_loader_client.h"
@@ -81,7 +82,7 @@ LinkLoader* LinkLoader::Create(LinkLoaderClient* client) {
 }
 
 class LinkLoader::FinishObserver final
-    : public GarbageCollectedFinalized<ResourceFinishObserver>,
+    : public GarbageCollected<LinkLoader::FinishObserver>,
       public ResourceFinishObserver {
   USING_GARBAGE_COLLECTED_MIXIN(FinishObserver);
   USING_PRE_FINALIZER(FinishObserver, ClearResource);
@@ -228,20 +229,19 @@ void LinkLoader::LoadStylesheet(const LinkLoadParameters& params,
                                 ResourceClient* link_client) {
   Document* document_for_origin = &document;
   if (base::FeatureList::IsEnabled(
-           features::kHtmlImportsRequestInitiatorLock)) {
-     // For stylesheets loaded from HTML imported Documents, we use
-     // context document for getting origin and ResourceFetcher to use the main
-     // Document's origin, while using element document for CompleteURL() to use
-     // imported Documents' base URLs.
-     document_for_origin = document.ContextDocument();
+          features::kHtmlImportsRequestInitiatorLock) &&
+      document.ImportsController()) {
+    // For stylesheets loaded from HTML imported Documents, we use
+    // context document for getting origin and ResourceFetcher to use the main
+    // Document's origin, while using element document for CompleteURL() to use
+    // imported Documents' base URLs.
+    document_for_origin = document.ContextDocument();
   }
   if (!document_for_origin)
-     return;
+    return;
 
   ResourceRequest resource_request(document.CompleteURL(params.href));
-  resource_request.SetReferrerPolicy(
-      params.referrer_policy,
-      ResourceRequest::SetReferrerPolicyLocation::kLoadStylesheet);
+  resource_request.SetReferrerPolicy(params.referrer_policy);
 
   mojom::FetchImportanceMode importance_mode =
       GetFetchImportanceAttributeValue(params.importance);

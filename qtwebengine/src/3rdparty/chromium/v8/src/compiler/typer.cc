@@ -10,6 +10,7 @@
 #include "src/codegen/tick-counter.h"
 #include "src/compiler/common-operator.h"
 #include "src/compiler/graph-reducer.h"
+#include "src/compiler/js-heap-broker.h"
 #include "src/compiler/js-operator.h"
 #include "src/compiler/linkage.h"
 #include "src/compiler/loop-variable-optimizer.h"
@@ -787,7 +788,13 @@ Type Typer::Visitor::TypeParameter(Node* node) {
   return Type::NonInternal();
 }
 
-Type Typer::Visitor::TypeOsrValue(Node* node) { return Type::Any(); }
+Type Typer::Visitor::TypeOsrValue(Node* node) {
+  if (OsrValueIndexOf(node->op()) == Linkage::kOsrContextSpillSlotIndex) {
+    return Type::OtherInternal();
+  } else {
+    return Type::Any();
+  }
+}
 
 Type Typer::Visitor::TypeRetain(Node* node) { UNREACHABLE(); }
 
@@ -843,26 +850,21 @@ Type Typer::Visitor::TypeInductionVariablePhi(Node* node) {
   Type initial_type = Operand(node, 0);
   Type increment_type = Operand(node, 2);
 
-  // If we do not have enough type information for the initial value or
-  // the increment, just return the initial value's type.
+  // Fallback to normal phi typing in a variety of cases: when the induction
+  // variable is not initially of type Integer (we want to work with ranges
+  // below), when the increment is zero (in that case, phi typing will generally
+  // yield a better type), and when the induction variable can become NaN
+  // (through addition/subtraction of opposing infinities).
   if (initial_type.IsNone() ||
-      increment_type.Is(typer_->cache_->kSingletonZero)) {
-    return initial_type;
-   }
-
-  // We only handle integer induction variables (otherwise ranges do not apply
-  // and we cannot do anything). Moreover, we don't support infinities in
-  // {increment_type} because the induction variable can become NaN through
-  // addition/subtraction of opposing infinities.
-  if (!initial_type.Is(typer_->cache_->kInteger) ||
+      increment_type.Is(typer_->cache_->kSingletonZero) ||
+      !initial_type.Is(typer_->cache_->kInteger) ||
       !increment_type.Is(typer_->cache_->kInteger) ||
       increment_type.Min() == -V8_INFINITY ||
       increment_type.Max() == +V8_INFINITY) {
-    // Fallback to normal phi typing, but ensure monotonicity.
-    // (Unfortunately, without baking in the previous type, monotonicity might
-    // be violated because we might not yet have retyped the incrementing
-    // operation even though the increment's type might been already reflected
-    // in the induction variable phi.)
+    // Unfortunately, without baking in the previous type, monotonicity might be
+    // violated because we might not yet have retyped the incrementing operation
+    // even though the increment's type might been already reflected in the
+    // induction variable phi.
     Type type = NodeProperties::IsTyped(node) ? NodeProperties::GetType(node)
                                               : Type::None();
     for (int i = 0; i < arity; ++i) {
@@ -1002,10 +1004,6 @@ Type Typer::Visitor::TypeTypedObjectState(Node* node) {
 }
 
 Type Typer::Visitor::TypeCall(Node* node) { return Type::Any(); }
-
-Type Typer::Visitor::TypeCallWithCallerSavedRegisters(Node* node) {
-  UNREACHABLE();
-}
 
 Type Typer::Visitor::TypeProjection(Node* node) {
   Type const type = Operand(node, 0);
@@ -1340,6 +1338,10 @@ Type Typer::Visitor::TypeJSCreateLiteralRegExp(Node* node) {
   return Type::OtherObject();
 }
 
+Type Typer::Visitor::TypeJSGetTemplateObject(Node* node) {
+  return Type::Array();
+}
+
 Type Typer::Visitor::TypeJSLoadProperty(Node* node) {
   return Type::NonInternal();
 }
@@ -1472,12 +1474,14 @@ Type Typer::Visitor::TypeJSGetSuperConstructor(Node* node) {
 }
 
 // JS context operators.
+Type Typer::Visitor::TypeJSHasContextExtension(Node* node) {
+  return Type::Boolean();
+}
 
 Type Typer::Visitor::TypeJSLoadContext(Node* node) {
   ContextAccess const& access = ContextAccessOf(node->op());
   switch (access.index()) {
     case Context::PREVIOUS_INDEX:
-    case Context::NATIVE_CONTEXT_INDEX:
     case Context::SCOPE_INFO_INDEX:
       return Type::OtherInternal();
     default:
@@ -1528,6 +1532,10 @@ Type Typer::Visitor::JSCallTyper(Type fun, Typer* t) {
     return Type::NonInternal();
   }
   JSFunctionRef function = fun.AsHeapConstant()->Ref().AsJSFunction();
+  if (!function.serialized()) {
+    TRACE_BROKER_MISSING(t->broker(), "data for function " << function);
+    return Type::NonInternal();
+  }
   if (!function.shared().HasBuiltinId()) {
     return Type::NonInternal();
   }
@@ -1568,6 +1576,7 @@ Type Typer::Visitor::JSCallTyper(Type fun, Typer* t) {
     case Builtins::kMathPow:
     case Builtins::kMathMax:
     case Builtins::kMathMin:
+    case Builtins::kMathHypot:
       return Type::Number();
     case Builtins::kMathImul:
       return Type::Signed32();
@@ -2188,8 +2197,14 @@ Type Typer::Visitor::TypeLoadField(Node* node) {
   return FieldAccessOf(node->op()).type;
 }
 
+Type Typer::Visitor::TypeLoadMessage(Node* node) { return Type::Any(); }
+
 Type Typer::Visitor::TypeLoadElement(Node* node) {
   return ElementAccessOf(node->op()).type;
+}
+
+Type Typer::Visitor::TypeLoadStackArgument(Node* node) {
+  return Type::NonInternal();
 }
 
 Type Typer::Visitor::TypeLoadFromObject(Node* node) { UNREACHABLE(); }
@@ -2217,6 +2232,8 @@ Type Typer::Visitor::TypeLoadDataViewElement(Node* node) {
 }
 
 Type Typer::Visitor::TypeStoreField(Node* node) { UNREACHABLE(); }
+
+Type Typer::Visitor::TypeStoreMessage(Node* node) { UNREACHABLE(); }
 
 Type Typer::Visitor::TypeStoreElement(Node* node) { UNREACHABLE(); }
 
@@ -2367,6 +2384,8 @@ Type Typer::Visitor::TypeAssertType(Node* node) { UNREACHABLE(); }
 Type Typer::Visitor::TypeConstant(Handle<Object> value) {
   return Type::NewConstant(typer_->broker(), value, zone());
 }
+
+Type Typer::Visitor::TypeJSGetIterator(Node* node) { return Type::Any(); }
 
 }  // namespace compiler
 }  // namespace internal

@@ -145,10 +145,9 @@ void QMapPolygonObjectPrivateDefault::setGeoShape(const QGeoShape &shape)
         return;
 
     const QGeoPolygon poly(shape);
-    setPath(poly.path()); // to handle overrides
     for (int i = 0; i < poly.holesCount(); i++)
         m_path.addHole(poly.holePath(i));
-    emit static_cast<QMapPolygonObject *>(q)->pathChanged();
+    setPath(poly.path()); // to handle overrides. Last as it normally emits static_cast<QMapPolygonObject *>(q)->pathChanged();
 }
 
 bool QMapPolygonObjectPrivate::equals(const QGeoMapObjectPrivate &other) const
@@ -250,7 +249,7 @@ QColor QMapPolygonObject::color() const
 QDeclarativeMapLineProperties *QMapPolygonObject::border()
 {
     if (!m_border) {
-        m_border = new QDeclarativeMapLineProperties;
+        m_border = new QDeclarativeMapLineProperties(this);
         connect(m_border, &QDeclarativeMapLineProperties::colorChanged, this, [this](const QColor &color){
             static_cast<QMapPolygonObjectPrivate*>(d_ptr.data())->setBorderColor(color);
         });

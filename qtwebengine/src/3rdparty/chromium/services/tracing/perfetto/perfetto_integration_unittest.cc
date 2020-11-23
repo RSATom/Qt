@@ -9,13 +9,14 @@
 
 #include "base/bind.h"
 #include "base/run_loop.h"
-#include "base/test/scoped_task_environment.h"
+#include "base/test/task_environment.h"
 #include "mojo/public/cpp/bindings/binding.h"
 #include "services/tracing/perfetto/perfetto_service.h"
 #include "services/tracing/perfetto/producer_host.h"
 #include "services/tracing/perfetto/test_utils.h"
 #include "services/tracing/public/cpp/perfetto/producer_client.h"
 #include "testing/gtest/include/gtest/gtest.h"
+#include "third_party/perfetto/protos/perfetto/common/commit_data_request.pb.h"
 
 // TODO(crbug.com/961066): Fix memory leaks in tests and re-enable on LSAN.
 #ifdef LEAK_SANITIZER
@@ -48,12 +49,12 @@ class PerfettoIntegrationTest : public testing::Test {
   void TearDown() override { perfetto_service_.reset(); }
 
   PerfettoService* perfetto_service() const { return perfetto_service_.get(); }
-  void RunUntilIdle() { scoped_task_environment_.RunUntilIdle(); }
+  void RunUntilIdle() { task_environment_.RunUntilIdle(); }
 
  protected:
   std::unique_ptr<TestDataSource> data_source_;
   std::unique_ptr<PerfettoService> perfetto_service_;
-  base::test::ScopedTaskEnvironment scoped_task_environment_;
+  base::test::TaskEnvironment task_environment_;
 };
 
 TEST_F(PerfettoIntegrationTest, ProducerDatasourceInitialized) {
@@ -98,7 +99,7 @@ TEST_F(PerfettoIntegrationTest, ClientEnabledAndDisabled) {
   client_disabled_callback.Run();
 
   on_trace_packets.Run();
-  EXPECT_EQ(0u, consumer.received_packets());
+  EXPECT_EQ(0u, consumer.received_test_packets());
 
   ProducerClient::DeleteSoonForTesting(std::move(client));
 }
@@ -135,7 +136,7 @@ TEST_F(PerfettoIntegrationTest, PacketsEndToEndProducerFirst) {
 
   no_more_packets_runloop.Run();
 
-  EXPECT_EQ(kNumPackets, consumer.received_packets());
+  EXPECT_EQ(kNumPackets, consumer.received_test_packets());
 
   ProducerClient::DeleteSoonForTesting(std::move(client));
 }
@@ -169,7 +170,7 @@ TEST_F(PerfettoIntegrationTest, PacketsEndToEndConsumerFirst) {
 
   no_more_packets_runloop.Run();
 
-  EXPECT_EQ(kNumPackets, consumer.received_packets());
+  EXPECT_EQ(kNumPackets, consumer.received_test_packets());
   ProducerClient::DeleteSoonForTesting(std::move(client));
 }
 
@@ -211,8 +212,24 @@ TEST_F(PerfettoIntegrationTest, CommitDataRequestIsMaybeComplete) {
 
   no_more_packets_runloop.Run();
 
-  EXPECT_EQ(client->all_client_commit_data_requests(),
-            new_producer->all_host_commit_data_requests());
+  // {cli,host}_reqs are a std::vector<std::string>. Each entry of the vector
+  // is a proto-serialized CommitDataRequest.
+  const auto& cli_reqs = client->all_client_commit_data_requests();
+  const auto& host_reqs = new_producer->all_host_commit_data_requests();
+  ASSERT_EQ(cli_reqs.size(), host_reqs.size());
+  for (size_t i = 0; i < cli_reqs.size(); i++) {
+    // Note that the proto-encoded strings are not identical. This is because
+    // perfetto doesn't emit unset fields. But then when going over mojo these
+    // unset fields get copied as 0-value (it's fine), so on the host side we
+    // see extra fields being explicitly zero-initialized. Here we force a
+    // re-encode using the libprotobuf message for the sake of the comparison.
+    // libprotobuf will re-normalize messages before serializing.
+    perfetto::protos::CommitDataRequest cli_req;
+    ASSERT_TRUE(cli_req.ParseFromString(cli_reqs[i]));
+    perfetto::protos::CommitDataRequest host_req;
+    ASSERT_TRUE(host_req.ParseFromString(cli_reqs[i]));
+    ASSERT_EQ(cli_req.SerializeAsString(), host_req.SerializeAsString());
+  }
 
   ProducerClient::DeleteSoonForTesting(std::move(client));
 }
@@ -249,7 +266,7 @@ TEST_F(PerfettoIntegrationTest, TracingRestarted) {
 
   client_disabled_callback.Run();
   no_more_packets_runloop.Run();
-  EXPECT_EQ(kNumPackets, consumer.received_packets());
+  EXPECT_EQ(kNumPackets, consumer.received_test_packets());
 
   consumer.FreeBuffers();
 
@@ -270,7 +287,7 @@ TEST_F(PerfettoIntegrationTest, TracingRestarted) {
   consumer.StopTracing();
   client_redisabled_callback.Run();
 
-  EXPECT_EQ(kNumPackets * 2, consumer.received_packets());
+  EXPECT_EQ(kNumPackets * 2, consumer.received_test_packets());
 
   ProducerClient::DeleteSoonForTesting(std::move(client));
 }
@@ -304,7 +321,7 @@ TEST_F(PerfettoIntegrationTest, NoPacketsReceivedOnWrongSourceName) {
 
   no_more_packets_runloop.Run();
 
-  EXPECT_EQ(0u, consumer.received_packets());
+  EXPECT_EQ(0u, consumer.received_test_packets());
   ProducerClient::DeleteSoonForTesting(std::move(client));
 }
 

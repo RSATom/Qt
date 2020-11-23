@@ -10,11 +10,12 @@
 
 #include "audio/audio_send_stream.h"
 
+#include <memory>
 #include <string>
+#include <thread>
 #include <utility>
 #include <vector>
 
-#include "absl/memory/memory.h"
 #include "api/task_queue/default_task_queue_factory.h"
 #include "api/test/mock_frame_encryptor.h"
 #include "audio/audio_state.h"
@@ -63,7 +64,7 @@ const double kEchoReturnLoss = -65;
 const double kEchoReturnLossEnhancement = 101;
 const double kResidualEchoLikelihood = -1.0f;
 const double kResidualEchoLikelihoodMax = 23.0f;
-const CallSendStatistics kCallStats = {112, 13456, 17890};
+const CallSendStatistics kCallStats = {112, 12, 13456, 17890};
 const ReportBlock kReportBlock = {456, 780, 123, 567, 890, 132, 143, 13354};
 const int kTelephoneEventPayloadType = 123;
 const int kTelephoneEventPayloadFrequency = 65432;
@@ -82,15 +83,14 @@ const AudioCodecSpec kCodecSpecs[] = {
 // should be made more precise in the future. This can be changed when that
 // logic is more accurate.
 const DataSize kOverheadPerPacket = DataSize::bytes(20 + 8 + 10 + 12);
-const TimeDelta kMaxFrameLength = TimeDelta::ms(60);
-const DataRate kOverheadRate = kOverheadPerPacket / kMaxFrameLength;
+const TimeDelta kMinFrameLength = TimeDelta::ms(20);
+const TimeDelta kMaxFrameLength = TimeDelta::ms(120);
+const DataRate kMinOverheadRate = kOverheadPerPacket / kMaxFrameLength;
+const DataRate kMaxOverheadRate = kOverheadPerPacket / kMinFrameLength;
 
 class MockLimitObserver : public BitrateAllocator::LimitObserver {
  public:
-  MOCK_METHOD3(OnAllocationLimitsChanged,
-               void(uint32_t min_send_bitrate_bps,
-                    uint32_t max_padding_bitrate_bps,
-                    uint32_t total_bitrate_bps));
+  MOCK_METHOD1(OnAllocationLimitsChanged, void(BitrateAllocationLimits));
 };
 
 std::unique_ptr<MockAudioEncoder> SetupAudioEncoderMock(
@@ -106,6 +106,9 @@ std::unique_ptr<MockAudioEncoder> SetupAudioEncoderMock(
           .WillByDefault(Return(spec.info.num_channels));
       ON_CALL(*encoder.get(), RtpTimestampRateHz())
           .WillByDefault(Return(spec.format.clockrate_hz));
+      ON_CALL(*encoder.get(), GetFrameLengthRange())
+          .WillByDefault(Return(absl::optional<std::pair<TimeDelta, TimeDelta>>{
+              {TimeDelta::ms(20), TimeDelta::ms(120)}}));
       return encoder;
     }
   }
@@ -141,9 +144,9 @@ struct ConfigHelper {
   ConfigHelper(bool audio_bwe_enabled, bool expect_set_encoder_call)
       : clock_(1000000),
         task_queue_factory_(CreateDefaultTaskQueueFactory()),
-        stream_config_(/*send_transport=*/nullptr, MediaTransportConfig()),
+        stream_config_(/*send_transport=*/nullptr),
         audio_processing_(new rtc::RefCountedObject<MockAudioProcessing>()),
-        bitrate_allocator_(&clock_, &limit_observer_),
+        bitrate_allocator_(&limit_observer_),
         worker_queue_(task_queue_factory_->CreateTaskQueue(
             "ConfigHelper_worker_queue",
             TaskQueueFactory::Priority::NORMAL)),
@@ -207,7 +210,7 @@ struct ConfigHelper {
     EXPECT_CALL(*channel_send_, GetRtpRtcp()).WillRepeatedly(Invoke([this]() {
       return &this->rtp_rtcp_;
     }));
-    EXPECT_CALL(*channel_send_, SetLocalSSRC(kSsrc)).Times(1);
+    EXPECT_CALL(rtp_rtcp_, SSRC).WillRepeatedly(Return(kSsrc));
     EXPECT_CALL(*channel_send_, SetRTCP_CNAME(StrEq(kCName))).Times(1);
     EXPECT_CALL(*channel_send_, SetFrameEncryptor(_)).Times(1);
     EXPECT_CALL(*channel_send_, SetExtmapAllowMixed(false)).Times(1);
@@ -301,6 +304,7 @@ struct ConfigHelper {
     EXPECT_CALL(*audio_processing_, GetStatistics(true))
         .WillRepeatedly(Return(audio_processing_stats_));
   }
+  TaskQueueForTest* worker() { return &worker_queue_; }
 
  private:
   SimulatedClock clock_;
@@ -330,7 +334,7 @@ std::unique_ptr<AudioFrame> CreateAudioFrame1kHzSineWave(int16_t audio_level,
                                                          size_t num_channels) {
   size_t samples_per_channel = sample_rate_hz / (1000 / duration_ms);
   std::vector<int16_t> audio_data(samples_per_channel * num_channels, 0);
-  std::unique_ptr<AudioFrame> audio_frame = absl::make_unique<AudioFrame>();
+  std::unique_ptr<AudioFrame> audio_frame = std::make_unique<AudioFrame>();
   audio_frame->UpdateFrame(0 /* RTP timestamp */, &audio_data[0],
                            samples_per_channel, sample_rate_hz,
                            AudioFrame::SpeechType::kNormalSpeech,
@@ -343,8 +347,7 @@ std::unique_ptr<AudioFrame> CreateAudioFrame1kHzSineWave(int16_t audio_level,
 }  // namespace
 
 TEST(AudioSendStreamTest, ConfigToString) {
-  AudioSendStream::Config config(/*send_transport=*/nullptr,
-                                 MediaTransportConfig());
+  AudioSendStream::Config config(/*send_transport=*/nullptr);
   config.rtp.ssrc = kSsrc;
   config.rtp.c_name = kCName;
   config.min_bitrate_bps = 12000;
@@ -363,7 +366,7 @@ TEST(AudioSendStreamTest, ConfigToString) {
       "{rtp: {ssrc: 1234, extmap-allow-mixed: true, extensions: [{uri: "
       "urn:ietf:params:rtp-hdrext:ssrc-audio-level, id: 2}], "
       "c_name: foo_name}, rtcp_report_interval_ms: 2500, "
-      "send_transport: null, media_transport_config: {media_transport: null}, "
+      "send_transport: null, "
       "min_bitrate_bps: 12000, max_bitrate_bps: 34000, "
       "send_codec_spec: {nack_enabled: true, transport_cc_enabled: false, "
       "cng_payload_type: 42, payload_type: 103, "
@@ -410,13 +413,13 @@ TEST(AudioSendStreamTest, GetStats) {
   helper.SetupMockForGetStats();
   AudioSendStream::Stats stats = send_stream->GetStats(true);
   EXPECT_EQ(kSsrc, stats.local_ssrc);
-  EXPECT_EQ(static_cast<int64_t>(kCallStats.bytesSent), stats.bytes_sent);
+  EXPECT_EQ(kCallStats.payload_bytes_sent, stats.payload_bytes_sent);
+  EXPECT_EQ(kCallStats.header_and_padding_bytes_sent,
+            stats.header_and_padding_bytes_sent);
   EXPECT_EQ(kCallStats.packetsSent, stats.packets_sent);
   EXPECT_EQ(kReportBlock.cumulative_num_packets_lost, stats.packets_lost);
   EXPECT_EQ(Q8ToFloat(kReportBlock.fraction_lost), stats.fraction_lost);
   EXPECT_EQ(kIsacFormat.name, stats.codec_name);
-  EXPECT_EQ(static_cast<int32_t>(kReportBlock.extended_highest_sequence_number),
-            stats.ext_seqnum);
   EXPECT_EQ(static_cast<int32_t>(kReportBlock.interarrival_jitter /
                                  (kIsacFormat.clockrate_hz / 1000)),
             stats.jitter_ms);
@@ -550,7 +553,8 @@ TEST(AudioSendStreamTest, DoesNotPassHigherBitrateThanMaxBitrate) {
   update.packet_loss_ratio = 0;
   update.round_trip_time = TimeDelta::ms(50);
   update.bwe_period = TimeDelta::ms(6000);
-  send_stream->OnBitrateUpdated(update);
+  helper.worker()->SendTask([&] { send_stream->OnBitrateUpdated(update); },
+                            RTC_FROM_HERE);
 }
 
 TEST(AudioSendStreamTest, SSBweTargetInRangeRespected) {
@@ -563,7 +567,8 @@ TEST(AudioSendStreamTest, SSBweTargetInRangeRespected) {
                   Eq(DataRate::bps(helper.config().max_bitrate_bps - 5000)))));
   BitrateAllocationUpdate update;
   update.target_bitrate = DataRate::bps(helper.config().max_bitrate_bps - 5000);
-  send_stream->OnBitrateUpdated(update);
+  helper.worker()->SendTask([&] { send_stream->OnBitrateUpdated(update); },
+                            RTC_FROM_HERE);
 }
 
 TEST(AudioSendStreamTest, SSBweFieldTrialMinRespected) {
@@ -578,7 +583,8 @@ TEST(AudioSendStreamTest, SSBweFieldTrialMinRespected) {
                                 Eq(DataRate::kbps(6)))));
   BitrateAllocationUpdate update;
   update.target_bitrate = DataRate::kbps(1);
-  send_stream->OnBitrateUpdated(update);
+  helper.worker()->SendTask([&] { send_stream->OnBitrateUpdated(update); },
+                            RTC_FROM_HERE);
 }
 
 TEST(AudioSendStreamTest, SSBweFieldTrialMaxRespected) {
@@ -593,55 +599,68 @@ TEST(AudioSendStreamTest, SSBweFieldTrialMaxRespected) {
                                 Eq(DataRate::kbps(64)))));
   BitrateAllocationUpdate update;
   update.target_bitrate = DataRate::kbps(128);
-  send_stream->OnBitrateUpdated(update);
+  helper.worker()->SendTask([&] { send_stream->OnBitrateUpdated(update); },
+                            RTC_FROM_HERE);
 }
 
 TEST(AudioSendStreamTest, SSBweWithOverhead) {
   ScopedFieldTrials field_trials(
       "WebRTC-Audio-SendSideBwe/Enabled/"
-      "WebRTC-SendSideBwe-WithOverhead/Enabled/");
+      "WebRTC-SendSideBwe-WithOverhead/Enabled/"
+      "WebRTC-Audio-LegacyOverhead/Disabled/");
   ConfigHelper helper(true, true);
   auto send_stream = helper.CreateAudioSendStream();
+  EXPECT_CALL(*helper.channel_send(), CallEncoder(_)).Times(1);
+  send_stream->OnOverheadChanged(kOverheadPerPacket.bytes<size_t>());
   const DataRate bitrate =
-      DataRate::bps(helper.config().max_bitrate_bps) + kOverheadRate;
+      DataRate::bps(helper.config().max_bitrate_bps) + kMaxOverheadRate;
   EXPECT_CALL(*helper.channel_send(),
               OnBitrateAllocation(Field(
                   &BitrateAllocationUpdate::target_bitrate, Eq(bitrate))));
   BitrateAllocationUpdate update;
   update.target_bitrate = bitrate;
-  send_stream->OnBitrateUpdated(update);
+  helper.worker()->SendTask([&] { send_stream->OnBitrateUpdated(update); },
+                            RTC_FROM_HERE);
 }
 
 TEST(AudioSendStreamTest, SSBweWithOverheadMinRespected) {
   ScopedFieldTrials field_trials(
       "WebRTC-Audio-SendSideBwe/Enabled/"
       "WebRTC-SendSideBwe-WithOverhead/Enabled/"
+      "WebRTC-Audio-LegacyOverhead/Disabled/"
       "WebRTC-Audio-Allocation/min:6kbps,max:64kbps/");
   ConfigHelper helper(true, true);
   auto send_stream = helper.CreateAudioSendStream();
-  const DataRate bitrate = DataRate::kbps(6) + kOverheadRate;
+  EXPECT_CALL(*helper.channel_send(), CallEncoder(_)).Times(1);
+  send_stream->OnOverheadChanged(kOverheadPerPacket.bytes<size_t>());
+  const DataRate bitrate = DataRate::kbps(6) + kMinOverheadRate;
   EXPECT_CALL(*helper.channel_send(),
               OnBitrateAllocation(Field(
                   &BitrateAllocationUpdate::target_bitrate, Eq(bitrate))));
   BitrateAllocationUpdate update;
   update.target_bitrate = DataRate::kbps(1);
-  send_stream->OnBitrateUpdated(update);
+  helper.worker()->SendTask([&] { send_stream->OnBitrateUpdated(update); },
+                            RTC_FROM_HERE);
 }
 
 TEST(AudioSendStreamTest, SSBweWithOverheadMaxRespected) {
   ScopedFieldTrials field_trials(
       "WebRTC-Audio-SendSideBwe/Enabled/"
       "WebRTC-SendSideBwe-WithOverhead/Enabled/"
+      "WebRTC-Audio-LegacyOverhead/Disabled/"
       "WebRTC-Audio-Allocation/min:6kbps,max:64kbps/");
   ConfigHelper helper(true, true);
   auto send_stream = helper.CreateAudioSendStream();
-  const DataRate bitrate = DataRate::kbps(64) + kOverheadRate;
+  EXPECT_CALL(*helper.channel_send(), CallEncoder(_)).Times(1);
+  send_stream->OnOverheadChanged(kOverheadPerPacket.bytes<size_t>());
+  const DataRate bitrate = DataRate::kbps(64) + kMaxOverheadRate;
   EXPECT_CALL(*helper.channel_send(),
               OnBitrateAllocation(Field(
                   &BitrateAllocationUpdate::target_bitrate, Eq(bitrate))));
   BitrateAllocationUpdate update;
   update.target_bitrate = DataRate::kbps(128);
-  send_stream->OnBitrateUpdated(update);
+  helper.worker()->SendTask([&] { send_stream->OnBitrateUpdated(update); },
+                            RTC_FROM_HERE);
 }
 
 TEST(AudioSendStreamTest, ProbingIntervalOnBitrateUpdated) {
@@ -656,7 +675,8 @@ TEST(AudioSendStreamTest, ProbingIntervalOnBitrateUpdated) {
   update.packet_loss_ratio = 0;
   update.round_trip_time = TimeDelta::ms(50);
   update.bwe_period = TimeDelta::ms(5000);
-  send_stream->OnBitrateUpdated(update);
+  helper.worker()->SendTask([&] { send_stream->OnBitrateUpdated(update); },
+                            RTC_FROM_HERE);
 }
 
 // Test that AudioSendStream doesn't recreate the encoder unnecessarily.

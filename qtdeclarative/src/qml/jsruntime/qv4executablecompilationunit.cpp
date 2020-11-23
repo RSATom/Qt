@@ -53,6 +53,7 @@
 #include <private/qv4compilationunitmapper_p.h>
 #include <private/qml_compile_hash_p.h>
 #include <private/qqmltypewrapper_p.h>
+#include <private/inlinecomponentutils_p.h>
 
 #include <QtQml/qqmlfile.h>
 #include <QtQml/qqmlpropertymap.h>
@@ -62,6 +63,7 @@
 #include <QtCore/qfileinfo.h>
 #include <QtCore/qscopeguard.h>
 #include <QtCore/qcryptographichash.h>
+#include <QtCore/QScopedValueRollback>
 
 #if defined(QML_COMPILE_HASH)
 #  ifdef Q_OS_LINUX
@@ -94,11 +96,15 @@ ExecutableCompilationUnit::~ExecutableCompilationUnit()
 
 QString ExecutableCompilationUnit::localCacheFilePath(const QUrl &url)
 {
+    static const QByteArray envCachePath = qgetenv("QML_DISK_CACHE_PATH");
+
     const QString localSourcePath = QQmlFile::urlToLocalFileOrQrc(url);
     const QString cacheFileSuffix = QFileInfo(localSourcePath + QLatin1Char('c')).completeSuffix();
     QCryptographicHash fileNameHash(QCryptographicHash::Sha1);
     fileNameHash.addData(localSourcePath.toUtf8());
-    QString directory = QStandardPaths::writableLocation(QStandardPaths::CacheLocation) + QLatin1String("/qmlcache/");
+    QString directory = envCachePath.isEmpty()
+            ? QStandardPaths::writableLocation(QStandardPaths::CacheLocation) + QLatin1String("/qmlcache/")
+            : QString::fromLocal8Bit(envCachePath) + QLatin1String("/");
     QDir::root().mkpath(directory);
     return directory + QString::fromUtf8(fileNameHash.result().toHex()) + QLatin1Char('.') + cacheFileSuffix;
 }
@@ -121,7 +127,7 @@ static QString toString(QV4::ReturnedValue v)
 static void dumpConstantTable(const StaticValue *constants, uint count)
 {
     QDebug d = qDebug();
-    d.nospace() << right;
+    d.nospace() << Qt::right;
     for (uint i = 0; i < count; ++i) {
         d << qSetFieldWidth(8) << i << qSetFieldWidth(0) << ":    "
           << toString(constants[i].asReturnedValue()).toUtf8().constData() << "\n";
@@ -283,7 +289,7 @@ void ExecutableCompilationUnit::unlink()
         Q_ASSERT(data && propertyCaches.count() > 0 && propertyCaches.at(/*root object*/0));
         if (qmlEngine)
             qmlEngine->unregisterInternalCompositeType(this);
-        QQmlMetaType::unregisterInternalCompositeType(this);
+        QQmlMetaType::unregisterInternalCompositeType({metaTypeId, listMetaTypeId});
         isRegisteredWithEngine = false;
     }
 
@@ -383,21 +389,26 @@ IdentifierHash ExecutableCompilationUnit::createNamedObjectsPerComponent(int com
     return *namedObjectsPerComponentCache.insert(componentObjectIndex, namedObjectCache);
 }
 
-void ExecutableCompilationUnit::finalizeCompositeType(QQmlEnginePrivate *qmlEngine)
+void ExecutableCompilationUnit::finalizeCompositeType(QQmlEnginePrivate *qmlEngine, CompositeMetaTypeIds typeIds)
 {
     this->qmlEngine = qmlEngine;
 
     // Add to type registry of composites
     if (propertyCaches.needsVMEMetaObject(/*root object*/0)) {
-        QQmlMetaType::registerInternalCompositeType(this);
+        // typeIds is only valid for types that have references to themselves.
+        if (!typeIds.isValid())
+            typeIds = QQmlMetaType::registerInternalCompositeType(rootPropertyCache()->className());
+        metaTypeId = typeIds.id;
+        listMetaTypeId = typeIds.listId;
         qmlEngine->registerInternalCompositeType(this);
+
     } else {
         const QV4::CompiledData::Object *obj = objectAt(/*root object*/0);
         auto *typeRef = resolvedTypes.value(obj->inheritedTypeNameIndex);
         Q_ASSERT(typeRef);
-        if (typeRef->compilationUnit) {
-            metaTypeId = typeRef->compilationUnit->metaTypeId;
-            listMetaTypeId = typeRef->compilationUnit->listMetaTypeId;
+        if (const auto compilationUnit = typeRef->compilationUnit()) {
+            metaTypeId = compilationUnit->metaTypeId;
+            listMetaTypeId = compilationUnit->listMetaTypeId;
         } else {
             metaTypeId = typeRef->type.typeId();
             listMetaTypeId = typeRef->type.qListTypeId();
@@ -405,29 +416,105 @@ void ExecutableCompilationUnit::finalizeCompositeType(QQmlEnginePrivate *qmlEngi
     }
 
     // Collect some data for instantiation later.
+    using namespace  icutils;
+    std::vector<QV4::CompiledData::InlineComponent> allICs {};
+    for (int i=0; i != objectCount(); ++i) {
+        const CompiledObject *obj = objectAt(i);
+        for (auto it = obj->inlineComponentsBegin(); it != obj->inlineComponentsEnd(); ++it) {
+            allICs.push_back(*it);
+        }
+    }
+    std::vector<Node> nodes;
+    nodes.resize(allICs.size());
+    std::iota(nodes.begin(), nodes.end(), 0);
+    AdjacencyList adjacencyList;
+    adjacencyList.resize(nodes.size());
+    fillAdjacencyListForInlineComponents(this, adjacencyList, nodes, allICs);
+    bool hasCycle = false;
+    auto nodesSorted = topoSort(nodes, adjacencyList, hasCycle);
+    Q_ASSERT(!hasCycle); // would have already been discovered by qqmlpropertycachcecreator
+
+    // We need to first iterate over all inline components, as the containing component might create instances of them
+    // and in that case we need to add its object count
+    for (auto nodeIt = nodesSorted.rbegin(); nodeIt != nodesSorted.rend(); ++nodeIt) {
+        const auto &ic = allICs.at(nodeIt->index);
+        int lastICRoot = ic.objectIndex;
+        for (int i = ic.objectIndex; i<objectCount(); ++i) {
+            const QV4::CompiledData::Object *obj = objectAt(i);
+            bool leftCurrentInlineComponent =
+                       (i != lastICRoot && obj->flags & QV4::CompiledData::Object::IsInlineComponentRoot)
+                    || !(obj->flags & QV4::CompiledData::Object::InPartOfInlineComponent);
+            if (leftCurrentInlineComponent)
+                break;
+            inlineComponentData[lastICRoot].totalBindingCount += obj->nBindings;
+
+            if (auto *typeRef = resolvedTypes.value(obj->inheritedTypeNameIndex)) {
+                if (typeRef->type.isValid() && typeRef->type.parserStatusCast() != -1)
+                    ++inlineComponentData[lastICRoot].totalParserStatusCount;
+
+                ++inlineComponentData[lastICRoot].totalObjectCount;
+                if (const auto compilationUnit = typeRef->compilationUnit()) {
+                    // if the type is an inline component type, we have to extract the information from it
+                    // This requires that inline components are visited in the correct order
+                    auto icRoot = compilationUnit->icRoot;
+                    if (typeRef->type.isInlineComponentType()) {
+                        icRoot = typeRef->type.inlineComponendId();
+                    }
+                    QScopedValueRollback<int> rollback {compilationUnit->icRoot, icRoot};
+                    inlineComponentData[lastICRoot].totalBindingCount += compilationUnit->totalBindingsCount();
+                    inlineComponentData[lastICRoot].totalParserStatusCount += compilationUnit->totalParserStatusCount();
+                    inlineComponentData[lastICRoot].totalObjectCount += compilationUnit->totalObjectCount();
+                }
+            }
+        }
+    }
     int bindingCount = 0;
     int parserStatusCount = 0;
     int objectCount = 0;
     for (quint32 i = 0, count = this->objectCount(); i < count; ++i) {
         const QV4::CompiledData::Object *obj = objectAt(i);
+        if (obj->flags & QV4::CompiledData::Object::InPartOfInlineComponent) {
+            continue;
+        }
         bindingCount += obj->nBindings;
         if (auto *typeRef = resolvedTypes.value(obj->inheritedTypeNameIndex)) {
-            if (typeRef->type.isValid()) {
-                if (typeRef->type.parserStatusCast() != -1)
-                    ++parserStatusCount;
-            }
+            if (typeRef->type.isValid() && typeRef->type.parserStatusCast() != -1)
+                ++parserStatusCount;
             ++objectCount;
-            if (typeRef->compilationUnit) {
-                bindingCount += typeRef->compilationUnit->totalBindingsCount;
-                parserStatusCount += typeRef->compilationUnit->totalParserStatusCount;
-                objectCount += typeRef->compilationUnit->totalObjectCount;
+            if (const auto compilationUnit = typeRef->compilationUnit()) {
+                auto icRoot = compilationUnit->icRoot;
+                if (typeRef->type.isInlineComponentType()) {
+                    icRoot = typeRef->type.inlineComponendId();
+                }
+                QScopedValueRollback<int> rollback {compilationUnit->icRoot, icRoot};
+                bindingCount += compilationUnit->totalBindingsCount();
+                parserStatusCount += compilationUnit->totalParserStatusCount();
+                objectCount += compilationUnit->totalObjectCount();
             }
         }
     }
 
-    totalBindingsCount = bindingCount;
-    totalParserStatusCount = parserStatusCount;
-    totalObjectCount = objectCount;
+    m_totalBindingsCount = bindingCount;
+    m_totalParserStatusCount = parserStatusCount;
+    m_totalObjectCount = objectCount;
+}
+
+int ExecutableCompilationUnit::totalBindingsCount() const {
+    if (icRoot == -1)
+        return m_totalBindingsCount;
+    return inlineComponentData[icRoot].totalBindingCount;
+}
+
+int ExecutableCompilationUnit::totalObjectCount() const {
+    if (icRoot == -1)
+        return m_totalObjectCount;
+    return inlineComponentData[icRoot].totalObjectCount;
+}
+
+int ExecutableCompilationUnit::totalParserStatusCount() const {
+    if (icRoot == -1)
+        return m_totalParserStatusCount;
+    return inlineComponentData[icRoot].totalParserStatusCount;
 }
 
 bool ExecutableCompilationUnit::verifyChecksum(const CompiledData::DependentTypesHasher &dependencyHasher) const
@@ -443,6 +530,13 @@ bool ExecutableCompilationUnit::verifyChecksum(const CompiledData::DependentType
     return checksum.size() == sizeof(data->dependencyMD5Checksum)
             && memcmp(data->dependencyMD5Checksum, checksum.constData(),
                       sizeof(data->dependencyMD5Checksum)) == 0;
+}
+
+CompositeMetaTypeIds ExecutableCompilationUnit::typeIdsForComponent(int objectid) const
+{
+    if (objectid == 0)
+        return {metaTypeId, listMetaTypeId};
+    return inlineComponentData[objectid].typeIds;
 }
 
 QStringList ExecutableCompilationUnit::moduleRequests() const
@@ -712,7 +806,7 @@ QQmlRefPointer<QQmlPropertyCache> ResolvedTypeReference::propertyCache() const
     if (type.isValid())
         return typePropertyCache;
     else
-        return compilationUnit->rootPropertyCache();
+        return m_compilationUnit->rootPropertyCache();
 }
 
 /*!
@@ -726,21 +820,22 @@ QQmlRefPointer<QQmlPropertyCache> ResolvedTypeReference::createPropertyCache(QQm
         typePropertyCache = QQmlEnginePrivate::get(engine)->cache(type.metaObject(), minorVersion);
         return typePropertyCache;
     } else {
-        return compilationUnit->rootPropertyCache();
+        Q_ASSERT(m_compilationUnit);
+        return m_compilationUnit->rootPropertyCache();
     }
 }
 
 bool ResolvedTypeReference::addToHash(QCryptographicHash *hash, QQmlEngine *engine)
 {
-    if (type.isValid()) {
+    if (type.isValid() && !type.isInlineComponentType()) {
         bool ok = false;
         hash->addData(createPropertyCache(engine)->checksum(&ok));
         return ok;
     }
-    if (!compilationUnit)
+    if (!m_compilationUnit)
         return false;
-    hash->addData(compilationUnit->data->md5Checksum,
-                  sizeof(compilationUnit->data->md5Checksum));
+    hash->addData(m_compilationUnit->data->md5Checksum,
+                  sizeof(m_compilationUnit->data->md5Checksum));
     return true;
 }
 
@@ -761,8 +856,8 @@ void ResolvedTypeReference::doDynamicTypeCheck()
         mo = typePropertyCache->firstCppMetaObject();
     else if (type.isValid())
         mo = type.metaObject();
-    else if (compilationUnit)
-        mo = compilationUnit->rootPropertyCache()->firstCppMetaObject();
+    else if (m_compilationUnit)
+        mo = m_compilationUnit->rootPropertyCache()->firstCppMetaObject();
     isFullyDynamicType = qtTypeInherits<QQmlPropertyMap>(mo);
 }
 

@@ -31,7 +31,10 @@
 #include "third_party/blink/renderer/modules/websockets/web_pepper_socket_impl.h"
 
 #include <stddef.h>
+
 #include <memory>
+
+#include "base/callback.h"
 #include "third_party/blink/public/mojom/devtools/console_message.mojom-blink.h"
 #include "third_party/blink/public/platform/web_url.h"
 #include "third_party/blink/public/web/web_array_buffer.h"
@@ -41,6 +44,7 @@
 #include "third_party/blink/renderer/modules/websockets/web_pepper_socket_channel_client_proxy.h"
 #include "third_party/blink/renderer/modules/websockets/websocket_channel.h"
 #include "third_party/blink/renderer/modules/websockets/websocket_channel_impl.h"
+#include "third_party/blink/renderer/platform/heap/heap.h"
 #include "third_party/blink/renderer/platform/wtf/text/wtf_string.h"
 
 namespace blink {
@@ -56,7 +60,8 @@ std::unique_ptr<WebPepperSocket> WebPepperSocket::Create(
 WebPepperSocketImpl::WebPepperSocketImpl(const WebDocument& document,
                                          WebPepperSocketClient* client)
     : client_(client),
-      channel_proxy_(WebPepperSocketChannelClientProxy::Create(this)),
+      channel_proxy_(
+          MakeGarbageCollected<WebPepperSocketChannelClientProxy>(this)),
       is_closing_or_closed_(false),
       buffered_amount_(0),
       buffered_amount_after_close_(0) {
@@ -93,7 +98,7 @@ bool WebPepperSocketImpl::SendText(const WebString& message) {
   if (is_closing_or_closed_)
     return true;
 
-  private_->Send(encoded_message);
+  private_->Send(encoded_message, base::OnceClosure());
   return true;
 }
 
@@ -111,7 +116,8 @@ bool WebPepperSocketImpl::SendArrayBuffer(
     return true;
 
   DOMArrayBuffer* array_buffer = web_array_buffer;
-  private_->Send(*array_buffer, 0, array_buffer->ByteLength());
+  private_->Send(*array_buffer, 0, array_buffer->ByteLengthAsSizeT(),
+                 base::OnceClosure());
   return true;
 }
 

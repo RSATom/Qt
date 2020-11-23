@@ -35,17 +35,10 @@
 QT_BEGIN_NAMESPACE_DATAVISUALIZATION
 
 SurfaceObject::SurfaceObject(Surface3DRenderer *renderer)
-    : m_surfaceType(Undefined),
-      m_columns(0),
-      m_rows(0),
-      m_gridIndexCount(0),
-      m_axisCacheX(renderer->m_axisCacheX),
+    : m_axisCacheX(renderer->m_axisCacheX),
       m_axisCacheY(renderer->m_axisCacheY),
       m_axisCacheZ(renderer->m_axisCacheZ),
-      m_renderer(renderer),
-      m_returnTextureBuffer(false),
-      m_dataDimension(0),
-      m_oldDataDimension(-1)
+      m_renderer(renderer)
 {
     glGenBuffers(1, &m_vertexbuffer);
     glGenBuffers(1, &m_normalbuffer);

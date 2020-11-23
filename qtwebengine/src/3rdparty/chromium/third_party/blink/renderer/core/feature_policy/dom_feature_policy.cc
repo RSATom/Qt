@@ -4,6 +4,7 @@
 
 #include "third_party/blink/renderer/core/feature_policy/dom_feature_policy.h"
 
+#include "third_party/blink/public/mojom/feature_policy/feature_policy.mojom-blink.h"
 #include "third_party/blink/renderer/core/dom/document.h"
 #include "third_party/blink/renderer/core/feature_policy/feature_policy_parser.h"
 #include "third_party/blink/renderer/core/inspector/console_message.h"
@@ -100,7 +101,7 @@ Vector<String> DOMFeaturePolicy::getAllowlistForFeature(
     }
     Vector<String> result;
     for (const auto& entry : values) {
-      result.push_back(WTF::String::FromUTF8(entry.first.Serialize().c_str()));
+      result.push_back(WTF::String::FromUTF8(entry.first.Serialize()));
     }
     return result;
   }

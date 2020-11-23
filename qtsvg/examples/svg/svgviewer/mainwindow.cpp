@@ -179,7 +179,7 @@ bool MainWindow::loadFile(const QString &fileName)
     m_outlineAction->setEnabled(true);
     m_backgroundAction->setEnabled(true);
 
-    const QSize availableSize = QApplication::desktop()->availableGeometry(this).size();
+    const QSize availableSize = this->screen()->availableGeometry().size();
     resize(m_view->sizeHint().expandedTo(availableSize / 4) + QSize(80, 80 + menuBar()->height()));
 
     return true;

@@ -66,8 +66,8 @@ static bool parseArgs(QStringList& args, QVariantMap& parameters)
 
         if (param.startsWith("--help")) {
             QTextStream out(stdout);
-            out << "Usage: " << endl;
-            out << "--plugin.<parameter_name> <parameter_value>    -  Sets parameter = value for plugin" << endl;
+            out << "Usage: " << Qt::endl;
+            out << "--plugin.<parameter_name> <parameter_value>    -  Sets parameter = value for plugin" << Qt::endl;
             out.flush();
             return true;
         }

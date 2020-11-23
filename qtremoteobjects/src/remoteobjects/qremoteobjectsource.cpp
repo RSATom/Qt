@@ -75,6 +75,16 @@ QByteArray QtPrivate::qtro_classinfo_signature(const QMetaObject *metaObject)
     return QByteArray{};
 }
 
+inline bool qtro_is_cloned_method(const QMetaObject *mobj, int local_method_index)
+{
+    const auto priv = reinterpret_cast<const QtPrivate::QMetaObjectPrivate*>(mobj->d.data);
+    Q_ASSERT(local_method_index < priv->methodCount);
+    int handle = priv->methodData + 5 * local_method_index;
+    if (mobj->d.data[handle + 4] & 0x20 /*MethodFlags::MethodCloned*/)
+        return true;
+    return false;
+}
+
 QRemoteObjectSourceBase::QRemoteObjectSourceBase(QObject *obj, Private *d, const SourceApiMap *api,
                                                  QObject *adapter)
     : QObject(obj),
@@ -160,8 +170,26 @@ QRemoteObjectSourceBase::~QRemoteObjectSourceBase()
 void QRemoteObjectSourceBase::setConnections()
 {
     const QMetaObject *meta = m_object->metaObject();
+
+    const int index = meta->indexOfClassInfo(QCLASSINFO_REMOTEOBJECT_TYPE);
+    if (index != -1) { //We have an object created from repc or at least with QCLASSINFO defined
+        while (true) {
+            Q_ASSERT(meta->superClass()); //This recurses to QObject, which doesn't have QCLASSINFO_REMOTEOBJECT_TYPE
+            if (index != meta->superClass()->indexOfClassInfo(QCLASSINFO_REMOTEOBJECT_TYPE)) //At the point we don't find the same QCLASSINFO_REMOTEOBJECT_TYPE,
+                            //we have the metaobject we should work from
+                break;
+            meta = meta->superClass();
+        }
+    }
+
     for (int idx = 0; idx < m_api->signalCount(); ++idx) {
         const int sourceIndex = m_api->sourceSignalIndex(idx);
+        const bool isAdapter = m_api->isAdapterSignal(idx);
+        const auto targetMeta = isAdapter ? m_adapter->metaObject() : meta;
+
+        // don't connect cloned signals, or we end up with multiple emissions
+        if (qtro_is_cloned_method(targetMeta, sourceIndex - targetMeta->methodOffset()))
+            continue;
 
         // This basically connects the parent Signals (note, all dynamic properties have onChange
         //notifications, thus signals) to us.  Normally each Signal is mapped to a unique index,
@@ -169,16 +197,14 @@ void QRemoteObjectSourceBase::setConnections()
         //
         //We know no one will inherit from this class, so no need to worry about indices from
         //derived classes.
-        const auto target = m_api->isAdapterSignal(idx) ? m_adapter : m_object;
+        const auto target = isAdapter ? m_adapter : m_object;
         if (!QMetaObject::connect(target, sourceIndex, this, QRemoteObjectSource::qobjectMethodOffset+idx, Qt::DirectConnection, 0)) {
             qCWarning(QT_REMOTEOBJECT) << "QRemoteObjectSourceBase: QMetaObject::connect returned false. Unable to connect.";
             return;
         }
 
         qCDebug(QT_REMOTEOBJECT) << "Connection made" << idx << sourceIndex
-                                 << (m_api->isAdapterSignal(idx)
-                                     ? m_adapter->metaObject()->method(sourceIndex).name()
-                                     : meta->method(sourceIndex).name());
+                                 << targetMeta->method(sourceIndex).name();
     }
 }
 

@@ -10,6 +10,7 @@
 
 #include "base/memory/scoped_refptr.h"
 #include "base/memory/shared_memory_mapping.h"
+#include "base/optional.h"
 #include "components/viz/common/gpu/vulkan_context_provider.h"
 #include "gpu/command_buffer/common/shared_image_usage.h"
 #include "gpu/command_buffer/service/shared_context_state.h"
@@ -23,7 +24,7 @@ namespace gpu {
 
 class VulkanCommandPool;
 
-class ExternalVkImageBacking : public SharedImageBacking {
+class ExternalVkImageBacking final : public SharedImageBacking {
  public:
   static std::unique_ptr<ExternalVkImageBacking> Create(
       SharedContextState* context_state,
@@ -50,6 +51,10 @@ class ExternalVkImageBacking : public SharedImageBacking {
 
   SharedContextState* context_state() const { return context_state_; }
   const GrBackendTexture& backend_texture() const { return backend_texture_; }
+  const scoped_refptr<gles2::TexturePassthrough>& GetTexturePassthrough()
+      const {
+    return texture_passthrough_;
+  }
   VulkanImplementation* vulkan_implementation() const {
     return context_state()->vk_context_provider()->GetVulkanImplementation();
   }
@@ -60,9 +65,14 @@ class ExternalVkImageBacking : public SharedImageBacking {
         ->GetVulkanDevice();
   }
   bool need_sychronization() const {
-    if (use_separate_gl_texture())
-      return false;
-    return usage() & SHARED_IMAGE_USAGE_GLES2;
+    if (usage() & SHARED_IMAGE_USAGE_WEBGPU) {
+      return true;
+    }
+
+    if (usage() & SHARED_IMAGE_USAGE_GLES2) {
+      return !use_separate_gl_texture();
+    }
+    return false;
   }
   bool use_separate_gl_texture() const {
     return !context_state()->support_vulkan_external_object();
@@ -94,6 +104,10 @@ class ExternalVkImageBacking : public SharedImageBacking {
   void EndAccessInternal(bool readonly, SemaphoreHandle semaphore_handle);
 
   // SharedImageBacking implementation.
+  std::unique_ptr<SharedImageRepresentationDawn> ProduceDawn(
+      SharedImageManager* manager,
+      MemoryTypeTracker* tracker,
+      WGPUDevice dawnDevice) override;
   std::unique_ptr<SharedImageRepresentationGLTexture> ProduceGLTexture(
       SharedImageManager* manager,
       MemoryTypeTracker* tracker) override;
@@ -116,19 +130,30 @@ class ExternalVkImageBacking : public SharedImageBacking {
                          VkDeviceMemory memory,
                          size_t memory_size,
                          VkFormat vk_format,
-                         VulkanCommandPool* command_pool);
+                         VulkanCommandPool* command_pool,
+                         const GrVkYcbcrConversionInfo& ycbcr_info,
+                         base::Optional<WGPUTextureFormat> wgpu_format,
+                         base::Optional<uint32_t> memory_type_index);
+
+#ifdef OS_LINUX
+  // Extract file descriptor from image
+  int GetMemoryFd(const GrVkImageInfo& image_info);
+#endif
 
   // Install a shared memory GMB to the backing.
   void InstallSharedMemory(
       base::WritableSharedMemoryMapping shared_memory_mapping,
       size_t stride,
       size_t memory_offset);
+  // Returns texture_service_id for ProduceGLTexture and GLTexturePassthrough.
+  GLuint ProduceGLTextureInternal();
 
   using FillBufferCallback = base::OnceCallback<void(void* buffer)>;
   bool WritePixels(size_t data_size,
                    size_t stride,
                    FillBufferCallback callback);
-  void CopyPixelsFromGLTexture();
+  void CopyPixelsFromGLTextureToVkImage();
+  void CopyPixelsFromShmToGLTexture();
 
   SharedContextState* const context_state_;
   GrBackendTexture backend_texture_;
@@ -141,6 +166,7 @@ class ExternalVkImageBacking : public SharedImageBacking {
   bool is_write_in_progress_ = false;
   uint32_t reads_in_progress_ = 0;
   gles2::Texture* texture_ = nullptr;
+  scoped_refptr<gles2::TexturePassthrough> texture_passthrough_;
 
   // GMB related stuff.
   base::WritableSharedMemoryMapping shared_memory_mapping_;
@@ -153,6 +179,9 @@ class ExternalVkImageBacking : public SharedImageBacking {
     kInGLTexture = 1 << 2,
   };
   uint32_t latest_content_ = 0;
+
+  base::Optional<WGPUTextureFormat> wgpu_format_;
+  base::Optional<uint32_t> memory_type_index_;
 
   DISALLOW_COPY_AND_ASSIGN(ExternalVkImageBacking);
 };

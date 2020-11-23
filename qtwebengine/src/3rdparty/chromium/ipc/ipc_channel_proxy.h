@@ -26,6 +26,8 @@
 #include "ipc/ipc_sender.h"
 #include "mojo/public/cpp/bindings/associated_interface_ptr.h"
 #include "mojo/public/cpp/bindings/associated_interface_request.h"
+#include "mojo/public/cpp/bindings/associated_remote.h"
+#include "mojo/public/cpp/bindings/lib/message_quota_checker.h"
 #include "mojo/public/cpp/bindings/scoped_interface_endpoint_handle.h"
 #include "mojo/public/cpp/bindings/thread_safe_interface_ptr.h"
 
@@ -166,7 +168,7 @@ class COMPONENT_EXPORT(IPC) ChannelProxy : public Sender {
   void RemoveFilter(MessageFilter* filter);
 
   using GenericAssociatedInterfaceFactory =
-      base::Callback<void(mojo::ScopedInterfaceEndpointHandle)>;
+      base::RepeatingCallback<void(mojo::ScopedInterfaceEndpointHandle)>;
 
   // Adds a generic associated interface factory to bind incoming interface
   // requests directly on the IO thread. MUST be called either before Init() or
@@ -177,8 +179,8 @@ class COMPONENT_EXPORT(IPC) ChannelProxy : public Sender {
       const GenericAssociatedInterfaceFactory& factory);
 
   template <typename Interface>
-  using AssociatedInterfaceFactory =
-      base::Callback<void(mojo::AssociatedInterfaceRequest<Interface>)>;
+  using AssociatedInterfaceFactory = base::RepeatingCallback<void(
+      mojo::AssociatedInterfaceRequest<Interface>)>;
 
   // Helper to bind an IO-thread associated interface factory, inferring the
   // interface name from the callback argument's type. MUST be called before
@@ -188,8 +190,8 @@ class COMPONENT_EXPORT(IPC) ChannelProxy : public Sender {
       const AssociatedInterfaceFactory<Interface>& factory) {
     AddGenericAssociatedInterfaceForIOThread(
         Interface::Name_,
-        base::Bind(&ChannelProxy::BindAssociatedInterfaceRequest<Interface>,
-                   factory));
+        base::BindRepeating(
+            &ChannelProxy::BindAssociatedInterfaceRequest<Interface>, factory));
   }
 
   // Requests an associated interface from the remote endpoint.
@@ -203,6 +205,13 @@ class COMPONENT_EXPORT(IPC) ChannelProxy : public Sender {
       mojo::AssociatedInterfacePtr<Interface>* proxy) {
     auto request = mojo::MakeRequest(proxy);
     GetGenericRemoteAssociatedInterface(Interface::Name_, request.PassHandle());
+  }
+
+  // Template helper to receive associated interfaces from the remote endpoint.
+  template <typename Interface>
+  void GetRemoteAssociatedInterface(mojo::AssociatedRemote<Interface>* proxy) {
+    GetGenericRemoteAssociatedInterface(
+        Interface::Name_, proxy->BindNewEndpointAndPassReceiver().PassHandle());
   }
 
 #if defined(ENABLE_IPC_FUZZER)
@@ -367,6 +376,9 @@ class COMPONENT_EXPORT(IPC) ChannelProxy : public Sender {
     // One exception is the thread-safe send. See the class comment.
     std::unique_ptr<Channel> channel_;
     bool channel_connected_called_;
+
+    // The quota checker associated with this channel, if any.
+    scoped_refptr<mojo::internal::MessageQuotaChecker> quota_checker_;
 
     // Lock for |channel_| value. This is only relevant in the context of
     // thread-safe send.

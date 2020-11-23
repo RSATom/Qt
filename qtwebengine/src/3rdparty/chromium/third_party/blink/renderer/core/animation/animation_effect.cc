@@ -45,8 +45,7 @@ AnimationEffect::AnimationEffect(const Timing& timing,
       timing_(timing),
       event_delegate_(event_delegate),
       calculated_(),
-      needs_update_(true),
-      last_update_time_(NullValue()) {
+      needs_update_(true) {
   timing_.AssertValid();
 }
 
@@ -74,88 +73,37 @@ void AnimationEffect::updateTiming(OptionalEffectTiming* optional_timing,
   InvalidateAndNotifyOwner();
 }
 
-void AnimationEffect::UpdateInheritedTime(double inherited_time,
+void AnimationEffect::UpdateInheritedTime(base::Optional<double> inherited_time,
                                           TimingUpdateReason reason) const {
-  bool needs_update =
-      needs_update_ ||
-      (last_update_time_ != inherited_time &&
-       !(IsNull(last_update_time_) && IsNull(inherited_time))) ||
-      (owner_ && owner_->EffectSuppressed());
+  base::Optional<double> playback_rate = base::nullopt;
+  if (GetAnimation())
+    playback_rate = GetAnimation()->playbackRate();
+  const Timing::AnimationDirection direction =
+      (playback_rate && playback_rate.value() < 0)
+          ? Timing::AnimationDirection::kBackwards
+          : Timing::AnimationDirection::kForwards;
+
+  bool needs_update = needs_update_ || last_update_time_ != inherited_time ||
+                      (owner_ && owner_->EffectSuppressed());
   needs_update_ = false;
   last_update_time_ = inherited_time;
 
-  const double local_time = inherited_time;
-  double time_to_next_iteration = std::numeric_limits<double>::infinity();
+  const base::Optional<double> local_time = inherited_time;
   if (needs_update) {
-    const double active_duration = SpecifiedTiming().ActiveDuration();
-    const AnimationDirection direction =
-        (GetAnimation() && GetAnimation()->playbackRate() < 0) ? kBackwards
-                                                               : kForwards;
+    Timing::CalculatedTiming calculated = SpecifiedTiming().CalculateTimings(
+        local_time, direction, IsKeyframeEffect(), playback_rate);
 
-    const Timing::Phase current_phase =
-        CalculatePhase(active_duration, local_time, direction, timing_);
-    const double active_time = CalculateActiveTime(
-        active_duration, timing_.ResolvedFillMode(IsKeyframeEffect()),
-        local_time, current_phase, timing_);
+    const bool was_canceled = calculated.phase != calculated_.phase &&
+                              calculated.phase == Timing::kPhaseNone;
 
-    base::Optional<double> progress;
-    const double iteration_duration =
-        SpecifiedTiming().IterationDuration().InSecondsF();
-
-    const double overall_progress = CalculateOverallProgress(
-        current_phase, active_time, iteration_duration, timing_.iteration_count,
-        timing_.iteration_start);
-    const double simple_iteration_progress = CalculateSimpleIterationProgress(
-        current_phase, overall_progress, timing_.iteration_start, active_time,
-        active_duration, timing_.iteration_count);
-    const double current_iteration = CalculateCurrentIteration(
-        current_phase, active_time, timing_.iteration_count, overall_progress,
-        simple_iteration_progress);
-    const bool current_direction_is_forwards =
-        IsCurrentDirectionForwards(current_iteration, timing_.direction);
-    const double directed_progress = CalculateDirectedProgress(
-        simple_iteration_progress, current_iteration, timing_.direction);
-
-    progress = CalculateTransformedProgress(
-        current_phase, directed_progress, iteration_duration,
-        current_direction_is_forwards, timing_.timing_function);
-    if (IsNull(progress.value())) {
-      progress.reset();
-    }
-
-    // Conditionally compute the time to next iteration, which is only
-    // applicable if the iteration duration is non-zero.
-    if (iteration_duration) {
-      const double start_offset = MultiplyZeroAlwaysGivesZero(
-          timing_.iteration_start, iteration_duration);
-      DCHECK_GE(start_offset, 0);
-      const double offset_active_time =
-          CalculateOffsetActiveTime(active_duration, active_time, start_offset);
-      const double iteration_time = CalculateIterationTime(
-          iteration_duration, active_duration, offset_active_time, start_offset,
-          current_phase, timing_);
-      if (!IsNull(iteration_time)) {
-        time_to_next_iteration = iteration_duration - iteration_time;
-        if (active_duration - active_time < time_to_next_iteration)
-          time_to_next_iteration = std::numeric_limits<double>::infinity();
-      }
-    }
-
-    const bool was_canceled = current_phase != calculated_.phase &&
-                              current_phase == Timing::kPhaseNone;
-    calculated_.phase = current_phase;
     // If the animation was canceled, we need to fire the event condition before
-    // updating the timing so that the cancelation time can be determined.
-    if (was_canceled && event_delegate_)
-      event_delegate_->OnEventCondition(*this);
+    // updating the calculated timing so that the cancellation time can be
+    // determined.
+    if (was_canceled && event_delegate_) {
+      event_delegate_->OnEventCondition(*this, calculated.phase);
+    }
 
-    calculated_.current_iteration = current_iteration;
-    calculated_.progress = progress;
-
-    calculated_.is_in_effect = !IsNull(active_time);
-    calculated_.is_in_play = GetPhase() == Timing::kPhaseActive;
-    calculated_.is_current = GetPhase() == Timing::kPhaseBefore || IsInPlay();
-    calculated_.local_time = last_update_time_;
+    calculated_ = calculated;
   }
 
   // Test for events even if timing didn't need an update as the animation may
@@ -165,16 +113,16 @@ void AnimationEffect::UpdateInheritedTime(double inherited_time,
   if (reason == kTimingUpdateForAnimationFrame &&
       (!owner_ || owner_->IsEventDispatchAllowed())) {
     if (event_delegate_)
-      event_delegate_->OnEventCondition(*this);
+      event_delegate_->OnEventCondition(*this, calculated_.phase);
   }
 
   if (needs_update) {
     // FIXME: This probably shouldn't be recursive.
     UpdateChildrenAndEffects();
-    calculated_.time_to_forwards_effect_change =
-        CalculateTimeToEffectChange(true, local_time, time_to_next_iteration);
-    calculated_.time_to_reverse_effect_change =
-        CalculateTimeToEffectChange(false, local_time, time_to_next_iteration);
+    calculated_.time_to_forwards_effect_change = CalculateTimeToEffectChange(
+        true, local_time, calculated_.time_to_next_iteration);
+    calculated_.time_to_reverse_effect_change = CalculateTimeToEffectChange(
+        false, local_time, calculated_.time_to_next_iteration);
   }
 }
 
@@ -185,10 +133,8 @@ void AnimationEffect::InvalidateAndNotifyOwner() const {
 }
 
 const Timing::CalculatedTiming& AnimationEffect::EnsureCalculated() const {
-  if (!owner_)
-    return calculated_;
-
-  owner_->UpdateIfNecessary();
+  if (owner_)
+    owner_->UpdateIfNecessary();
   return calculated_;
 }
 

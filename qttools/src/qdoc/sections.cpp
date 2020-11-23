@@ -205,13 +205,13 @@ void Section::insert(Node *node)
     if (!irrelevant) {
         QString key = sortName(node);
         if (node->isObsolete()) {
-            obsoleteMemberMap_.insertMulti(key, node);
+            obsoleteMemberMap_.insert(key, node);
         } else {
             if (!inherited)
-                memberMap_.insertMulti(key, node);
+                memberMap_.insert(key, node);
             else if (style_ == AllMembers) {
                 if (!memberMap_.contains(key))
-                    memberMap_.insertMulti(key, node);
+                    memberMap_.insert(key, node);
             }
             if (inherited && (node->parent()->isClassNode() || node->parent()->isNamespace())) {
                 if (inheritedMembers_.isEmpty()
@@ -372,6 +372,9 @@ Sections::Sections(const NodeMultiMap &nsmap) : aggregate_(nullptr)
             break;
         case Node::Typedef:
             sections[SinceTypedefs].appendMember(node);
+            break;
+        case Node::TypeAlias:
+            sections[SinceTypeAliases].appendMember(node);
             break;
         case Node::Function: {
             const FunctionNode *fn = static_cast<const FunctionNode *>(node);
@@ -552,6 +555,7 @@ void Sections::initSections()
         v[SinceMacros].init("    New Macros");
         v[SinceEnumTypes].init("    New Enum Types");
         v[SinceTypedefs].init("    New Typedefs");
+        v[SinceTypeAliases].init("    New Type Aliases");
         v[SinceProperties].init("    New Properties");
         v[SinceVariables].init("    New Variables");
         v[SinceQmlTypes].init("    New QML Types");
@@ -623,6 +627,7 @@ void Sections::stdRefPageSwitch(SectionVector &v, Node *n, Node *t)
         return;
     case Node::Enum:
     case Node::Typedef:
+    case Node::TypeAlias:
         v[StdTypes].insert(n);
         return;
     case Node::Function: {

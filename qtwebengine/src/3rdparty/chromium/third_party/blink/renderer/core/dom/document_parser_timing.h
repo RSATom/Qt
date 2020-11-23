@@ -15,7 +15,7 @@ namespace blink {
 // DocumentParserTiming is responsible for tracking parser-related timings for a
 // given document.
 class DocumentParserTiming final
-    : public GarbageCollectedFinalized<DocumentParserTiming>,
+    : public GarbageCollected<DocumentParserTiming>,
       public Supplement<Document> {
   USING_GARBAGE_COLLECTED_MIXIN(DocumentParserTiming);
 
@@ -63,8 +63,7 @@ class DocumentParserTiming final
       bool script_inserted_via_document_write);
 
   // The getters below return monotonically-increasing time, or zero if the
-  // given parser event has not yet occurred.  See the comments for
-  // MonotonicallyIncreasingTime in platform/wtf/time.h for additional details.
+  // given parser event has not yet occurred.
 
   base::TimeTicks ParserStart() const { return parser_start_; }
   base::TimeTicks ParserStop() const { return parser_stop_; }

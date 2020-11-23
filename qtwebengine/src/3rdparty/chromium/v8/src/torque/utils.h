@@ -38,6 +38,13 @@ struct TorqueMessage {
 
 DECLARE_CONTEXTUAL_VARIABLE(TorqueMessages, std::vector<TorqueMessage>);
 
+template <class... Args>
+std::string ToString(Args&&... args) {
+  std::stringstream stream;
+  USE((stream << std::forward<Args>(args))...);
+  return stream.str();
+}
+
 class V8_EXPORT_PRIVATE MessageBuilder {
  public:
   MessageBuilder(const std::string& message, TorqueMessage::Kind kind);
@@ -59,6 +66,7 @@ class V8_EXPORT_PRIVATE MessageBuilder {
   void Report() const;
 
   TorqueMessage message_;
+  std::vector<TorqueMessage> extra_messages_;
 };
 
 // Used for throwing exceptions. Retrieve TorqueMessage from the contextual
@@ -67,9 +75,7 @@ struct TorqueAbortCompilation {};
 
 template <class... Args>
 static MessageBuilder Message(TorqueMessage::Kind kind, Args&&... args) {
-  std::stringstream stream;
-  USE((stream << std::forward<Args>(args))...);
-  return MessageBuilder(stream.str(), kind);
+  return MessageBuilder(ToString(std::forward<Args>(args)...), kind);
 }
 
 template <class... Args>
@@ -292,24 +298,12 @@ T* CheckNotNull(T* x) {
 }
 
 template <class T>
-inline std::ostream& operator<<(std::ostream& os, Stack<T>& t) {
+inline std::ostream& operator<<(std::ostream& os, const Stack<T>& t) {
   os << "Stack{";
   PrintCommaSeparatedList(os, t);
   os << "}";
   return os;
 }
-class ToString {
- public:
-  template <class T>
-  ToString& operator<<(T&& x) {
-    s_ << std::forward<T>(x);
-    return *this;
-  }
-  operator std::string() { return s_.str(); }
-
- private:
-  std::stringstream s_;
-};
 
 static const char* const kBaseNamespaceName = "base";
 static const char* const kTestNamespaceName = "test";
@@ -355,6 +349,54 @@ inline bool StringEndsWith(const std::string& s, const std::string& suffix) {
   if (s.size() < suffix.size()) return false;
   return s.substr(s.size() - suffix.size()) == suffix;
 }
+
+class IfDefScope {
+ public:
+  IfDefScope(std::ostream& os, std::string d);
+  ~IfDefScope();
+
+ private:
+  IfDefScope(const IfDefScope&) = delete;
+  IfDefScope& operator=(const IfDefScope&) = delete;
+  std::ostream& os_;
+  std::string d_;
+};
+
+class NamespaceScope {
+ public:
+  NamespaceScope(std::ostream& os,
+                 std::initializer_list<std::string> namespaces);
+  ~NamespaceScope();
+
+ private:
+  NamespaceScope(const NamespaceScope&) = delete;
+  NamespaceScope& operator=(const NamespaceScope&) = delete;
+  std::ostream& os_;
+  std::vector<std::string> d_;
+};
+
+class IncludeGuardScope {
+ public:
+  IncludeGuardScope(std::ostream& os, std::string file_name);
+  ~IncludeGuardScope();
+
+ private:
+  IncludeGuardScope(const IncludeGuardScope&) = delete;
+  IncludeGuardScope& operator=(const IncludeGuardScope&) = delete;
+  std::ostream& os_;
+  std::string d_;
+};
+
+class IncludeObjectMacrosScope {
+ public:
+  explicit IncludeObjectMacrosScope(std::ostream& os);
+  ~IncludeObjectMacrosScope();
+
+ private:
+  IncludeObjectMacrosScope(const IncludeObjectMacrosScope&) = delete;
+  IncludeObjectMacrosScope& operator=(const IncludeObjectMacrosScope&) = delete;
+  std::ostream& os_;
+};
 
 }  // namespace torque
 }  // namespace internal

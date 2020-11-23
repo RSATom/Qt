@@ -34,6 +34,9 @@ IPC_ENUM_TRAITS_MAX_VALUE(ax::mojom::Action, ax::mojom::Action::kMaxValue)
 IPC_ENUM_TRAITS_MAX_VALUE(ax::mojom::ScrollAlignment,
                           ax::mojom::ScrollAlignment::kMaxValue)
 
+IPC_ENUM_TRAITS_MAX_VALUE(ax::mojom::ScrollBehavior,
+                          ax::mojom::ScrollBehavior::kMaxValue)
+
 IPC_STRUCT_TRAITS_BEGIN(ui::AXActionData)
   IPC_STRUCT_TRAITS_MEMBER(action)
   IPC_STRUCT_TRAITS_MEMBER(target_tree_id)
@@ -52,6 +55,7 @@ IPC_STRUCT_TRAITS_BEGIN(ui::AXActionData)
   IPC_STRUCT_TRAITS_MEMBER(hit_test_event_to_fire)
   IPC_STRUCT_TRAITS_MEMBER(horizontal_scroll_alignment)
   IPC_STRUCT_TRAITS_MEMBER(vertical_scroll_alignment)
+  IPC_STRUCT_TRAITS_MEMBER(scroll_behavior)
 IPC_STRUCT_TRAITS_END()
 
 IPC_STRUCT_TRAITS_BEGIN(content::AXContentNodeData)
@@ -194,6 +198,10 @@ IPC_MESSAGE_ROUTED1(
 IPC_MESSAGE_ROUTED1(
     AccessibilityHostMsg_FindInPageResult,
     AccessibilityHostMsg_FindInPageResultParams)
+
+// Sent when a Find In Page operation is finished and all highlighted results
+// are cleared.
+IPC_MESSAGE_ROUTED0(AccessibilityHostMsg_FindInPageTermination)
 
 // Sent in response to PerformAction with parameter kHitTest.
 IPC_MESSAGE_ROUTED5(AccessibilityHostMsg_ChildFrameHitTestResult,

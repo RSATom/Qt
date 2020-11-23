@@ -23,9 +23,14 @@
 #include "services/network/public/mojom/url_loader_factory.mojom.h"
 
 #if defined(OS_ANDROID)
+#include "mojo/public/cpp/bindings/remote.h"
 #include "services/device/public/mojom/wake_lock.mojom.h"
 #include "ui/android/view_android.h"
 #endif  // OS_ANDROID
+
+namespace cc {
+class RenderFrameMetadata;
+}
 
 namespace content {
 
@@ -33,9 +38,7 @@ class BrowserContext;
 class DevToolsFrameTraceRecorder;
 class FrameTreeNode;
 class NavigationRequest;
-class NavigationHandleImpl;
 class RenderFrameHostImpl;
-struct DevToolsFrameMetadata;
 
 class CONTENT_EXPORT RenderFrameDevToolsAgentHost
     : public DevToolsAgentHostImpl,
@@ -56,19 +59,21 @@ class CONTENT_EXPORT RenderFrameDevToolsAgentHost
   static scoped_refptr<DevToolsAgentHost> GetOrCreateFor(
       FrameTreeNode* frame_tree_node);
 
-  // This method does not climb up to the suitable parent frame,
-  // so only use it when we are sure the frame will be a local root.
-  // Prefer GetOrCreateFor instead.
-  static scoped_refptr<DevToolsAgentHost> GetOrCreateForDangling(
-      FrameTreeNode* frame_tree_node);
+  // This method is called when new frame is created during cross process
+  // navigation.
+  static scoped_refptr<DevToolsAgentHost> CreateForCrossProcessNavigation(
+      NavigationRequest* request);
   static scoped_refptr<DevToolsAgentHost> FindForDangling(
       FrameTreeNode* frame_tree_node);
 
   static void WebContentsCreated(WebContents* web_contents);
 
+#if defined(OS_ANDROID)
   static void SignalSynchronousSwapCompositorFrame(
       RenderFrameHost* frame_host,
-      const DevToolsFrameMetadata& frame_metadata);
+      const cc::RenderFrameMetadata& frame_metadata);
+#endif
+
   FrameTreeNode* frame_tree_node() { return frame_tree_node_; }
 
   void OnNavigationRequestWillBeSent(
@@ -100,7 +105,7 @@ class CONTENT_EXPORT RenderFrameDevToolsAgentHost
   static void UpdateRawHeadersAccess(RenderFrameHostImpl* old_rfh,
                                      RenderFrameHostImpl* new_rfh);
 
-  explicit RenderFrameDevToolsAgentHost(FrameTreeNode*);
+  RenderFrameDevToolsAgentHost(FrameTreeNode*, RenderFrameHostImpl*);
   ~RenderFrameDevToolsAgentHost() override;
 
   // DevToolsAgentHostImpl overrides.
@@ -133,22 +138,21 @@ class CONTENT_EXPORT RenderFrameDevToolsAgentHost
 
 #if defined(OS_ANDROID)
   device::mojom::WakeLock* GetWakeLock();
+  void SynchronousSwapCompositorFrame(
+      const cc::RenderFrameMetadata& frame_metadata);
 #endif
 
-  void SynchronousSwapCompositorFrame(
-      const DevToolsFrameMetadata& frame_metadata);
   void UpdateResourceLoaderFactories();
 
-  std::unique_ptr<DevToolsFrameTraceRecorder> frame_trace_recorder_;
 #if defined(OS_ANDROID)
-  device::mojom::WakeLockPtr wake_lock_;
+  std::unique_ptr<DevToolsFrameTraceRecorder> frame_trace_recorder_;
+  mojo::Remote<device::mojom::WakeLock> wake_lock_;
 #endif
 
   // The active host we are talking to.
   RenderFrameHostImpl* frame_host_ = nullptr;
-  base::flat_set<NavigationHandleImpl*> navigation_handles_;
+  base::flat_set<NavigationRequest*> navigation_requests_;
   bool render_frame_alive_ = false;
-  void* active_file_chooser_interceptor_ = nullptr;
 
   // The FrameTreeNode associated with this agent.
   FrameTreeNode* frame_tree_node_;

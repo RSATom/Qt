@@ -141,6 +141,7 @@ void ShadowRoot::setInnerHTML(const StringOrTrustedHTML& stringOrHtml,
 void ShadowRoot::RecalcStyle(const StyleRecalcChange change) {
   // ShadowRoot doesn't support custom callbacks.
   DCHECK(!HasCustomStyleCallbacks());
+  DCHECK(!RuntimeEnabledFeatures::FlatTreeStyleRecalcEnabled());
 
   StyleRecalcChange child_change = change;
   if (GetStyleChangeType() == kSubtreeStyleChange)
@@ -155,9 +156,9 @@ void ShadowRoot::RecalcStyle(const StyleRecalcChange change) {
 }
 
 void ShadowRoot::RebuildLayoutTree(WhitespaceAttacher& whitespace_attacher) {
-  ClearNeedsReattachLayoutTree();
+  DCHECK(!NeedsReattachLayoutTree());
+  DCHECK(!ChildNeedsReattachLayoutTree());
   RebuildChildrenLayoutTrees(whitespace_attacher);
-  ClearChildNeedsReattachLayoutTree();
 }
 
 Node::InsertionNotificationRequest ShadowRoot::InsertedInto(
@@ -247,8 +248,6 @@ void ShadowRoot::SetNeedsDistributionRecalc() {
     return;
   needs_distribution_recalc_ = true;
   host().MarkAncestorsWithChildNeedsDistributionRecalc();
-  if (!IsV1())
-    V0().ClearDistribution();
 }
 
 void ShadowRoot::Trace(Visitor* visitor) {

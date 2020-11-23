@@ -71,6 +71,7 @@ QT_BEGIN_NAMESPACE
 static QByteArray qNtlmPhase1();
 static QByteArray qNtlmPhase3(QAuthenticatorPrivate *ctx, const QByteArray& phase2data);
 #if QT_CONFIG(sspi) // SSPI
+static bool q_SSPI_library_load();
 static QByteArray qSspiStartup(QAuthenticatorPrivate *ctx, QAuthenticatorPrivate::Method method,
                                const QString& host);
 static QByteArray qSspiContinue(QAuthenticatorPrivate *ctx, QAuthenticatorPrivate::Method method,
@@ -158,7 +159,7 @@ static QByteArray qGssapiContinue(QAuthenticatorPrivate *ctx,
   Constructs an empty authentication object.
 */
 QAuthenticator::QAuthenticator()
-    : d(0)
+    : d(nullptr)
 {
 }
 
@@ -175,7 +176,7 @@ QAuthenticator::~QAuthenticator()
     Constructs a copy of \a other.
 */
 QAuthenticator::QAuthenticator(const QAuthenticator &other)
-    : d(0)
+    : d(nullptr)
 {
     if (other.d)
         *this = other;
@@ -462,8 +463,10 @@ void QAuthenticatorPrivate::parseHttpResponse(const QList<QPair<QByteArray, QByt
         break;
     case DigestMd5: {
         this->options[QLatin1String("realm")] = realm = QString::fromLatin1(options.value("realm"));
-        if (options.value("stale").compare("true", Qt::CaseInsensitive) == 0)
+        if (options.value("stale").compare("true", Qt::CaseInsensitive) == 0) {
             phase = Start;
+            nonceCount = 0;
+        }
         if (user.isEmpty() && password.isEmpty())
             phase = Done;
         break;
@@ -503,8 +506,13 @@ QByteArray QAuthenticatorPrivate::calculateResponse(const QByteArray &requestMet
         if (challenge.isEmpty()) {
 #if QT_CONFIG(sspi) // SSPI
             QByteArray phase1Token;
-            if (user.isEmpty()) // Only pull from system if no user was specified in authenticator
+            if (user.isEmpty()) { // Only pull from system if no user was specified in authenticator
                 phase1Token = qSspiStartup(this, method, host);
+            } else if (!q_SSPI_library_load()) {
+                // Since we're not running qSspiStartup we have to make sure the library is loaded
+                qWarning("Failed to load the SSPI libraries");
+                return "";
+            }
             if (!phase1Token.isEmpty()) {
                 response = phase1Token.toBase64();
                 phase = Phase2;
@@ -531,6 +539,7 @@ QByteArray QAuthenticatorPrivate::calculateResponse(const QByteArray &requestMet
                 response = qNtlmPhase3(this, QByteArray::fromBase64(challenge)).toBase64();
                 phase = Done;
             }
+            challenge = "";
         }
 
         break;
@@ -560,6 +569,7 @@ QByteArray QAuthenticatorPrivate::calculateResponse(const QByteArray &requestMet
             if (!phase3Token.isEmpty()) {
                 response = phase3Token.toBase64();
                 phase = Done;
+                challenge = "";
             }
         }
 
@@ -1227,7 +1237,7 @@ QByteArray qEncodeHmacMd5(QByteArray &key, const QByteArray &message)
 static QByteArray qCreatev2Hash(const QAuthenticatorPrivate *ctx,
                                 QNtlmPhase3Block *phase3)
 {
-    Q_ASSERT(phase3 != 0);
+    Q_ASSERT(phase3 != nullptr);
     // since v2 Hash is need for both NTLMv2 and LMv2 it is calculated
     // only once and stored and reused
     if(phase3->v2Hash.size() == 0) {
@@ -1284,7 +1294,7 @@ static QByteArray qEncodeNtlmv2Response(const QAuthenticatorPrivate *ctx,
                                         const QNtlmPhase2Block& ch,
                                         QNtlmPhase3Block *phase3)
 {
-    Q_ASSERT(phase3 != 0);
+    Q_ASSERT(phase3 != nullptr);
     // return value stored in phase3
     qCreatev2Hash(ctx, phase3);
 
@@ -1351,7 +1361,7 @@ static QByteArray qEncodeLmv2Response(const QAuthenticatorPrivate *ctx,
                                       const QNtlmPhase2Block& ch,
                                       QNtlmPhase3Block *phase3)
 {
-    Q_ASSERT(phase3 != 0);
+    Q_ASSERT(phase3 != nullptr);
     // return value stored in phase3
     qCreatev2Hash(ctx, phase3);
 

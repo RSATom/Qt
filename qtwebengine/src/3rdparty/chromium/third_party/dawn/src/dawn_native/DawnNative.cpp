@@ -15,6 +15,7 @@
 #include "dawn_native/DawnNative.h"
 #include "dawn_native/Device.h"
 #include "dawn_native/Instance.h"
+#include "dawn_platform/DawnPlatform.h"
 
 // Contains the entry-points into dawn_native
 
@@ -26,7 +27,7 @@ namespace dawn_native {
         return GetProcsAutogen();
     }
 
-    std::vector<const char*> GetTogglesUsed(DawnDevice device) {
+    std::vector<const char*> GetTogglesUsed(WGPUDevice device) {
         const dawn_native::DeviceBase* deviceBase =
             reinterpret_cast<const dawn_native::DeviceBase*>(device);
         return deviceBase->GetTogglesUsed();
@@ -55,12 +56,21 @@ namespace dawn_native {
         return mImpl->GetPCIInfo();
     }
 
+    std::vector<const char*> Adapter::GetSupportedExtensions() const {
+        ExtensionsSet supportedExtensionsSet = mImpl->GetSupportedExtensions();
+        return supportedExtensionsSet.GetEnabledExtensionNames();
+    }
+
+    WGPUDeviceProperties Adapter::GetAdapterProperties() const {
+        return mImpl->GetAdapterProperties();
+    }
+
     Adapter::operator bool() const {
         return mImpl != nullptr;
     }
 
-    DawnDevice Adapter::CreateDevice(const DeviceDescriptor* deviceDescriptor) {
-        return reinterpret_cast<DawnDevice>(mImpl->CreateDevice(deviceDescriptor));
+    WGPUDevice Adapter::CreateDevice(const DeviceDescriptor* deviceDescriptor) {
+        return reinterpret_cast<WGPUDevice>(mImpl->CreateDevice(deviceDescriptor));
     }
 
     // AdapterDiscoverOptionsBase
@@ -113,6 +123,25 @@ namespace dawn_native {
 
     bool Instance::IsBeginCaptureOnStartupEnabled() const {
         return mImpl->IsBeginCaptureOnStartupEnabled();
+    }
+
+    void Instance::SetPlatform(dawn_platform::Platform* platform) {
+        mImpl->SetPlatform(platform);
+    }
+
+    dawn_platform::Platform* Instance::GetPlatform() const {
+        return mImpl->GetPlatform();
+    }
+
+    size_t GetLazyClearCountForTesting(WGPUDevice device) {
+        dawn_native::DeviceBase* deviceBase = reinterpret_cast<dawn_native::DeviceBase*>(device);
+        return deviceBase->GetLazyClearCountForTesting();
+    }
+
+    std::vector<const char*> GetProcMapNamesForTestingInternal();
+
+    std::vector<const char*> GetProcMapNamesForTesting() {
+        return GetProcMapNamesForTestingInternal();
     }
 
 }  // namespace dawn_native

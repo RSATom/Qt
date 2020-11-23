@@ -195,10 +195,10 @@ bool InitializeStaticGLBindings(GLImplementation implementation) {
 }
 #endif // !defined(TOOLKIT_QT)
 
-void InitializeDebugGLBindings() {
-  InitializeDebugGLBindingsEGL();
-  InitializeDebugGLBindingsGL();
-  InitializeDebugGLBindingsGLX();
+void InitializeLogGLBindings() {
+  InitializeLogGLBindingsEGL();
+  InitializeLogGLBindingsGL();
+  InitializeLogGLBindingsGLX();
 }
 
 void ShutdownGLPlatform() {

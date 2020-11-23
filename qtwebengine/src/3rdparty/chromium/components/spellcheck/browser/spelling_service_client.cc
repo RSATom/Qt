@@ -10,7 +10,6 @@
 #include <memory>
 
 #include "base/bind.h"
-#include "base/feature_list.h"
 #include "base/json/json_reader.h"
 #include "base/json/string_escape.h"
 #include "base/memory/ptr_util.h"
@@ -24,7 +23,6 @@
 #include "components/prefs/pref_service.h"
 #include "components/spellcheck/browser/pref_names.h"
 #include "components/spellcheck/common/spellcheck_common.h"
-#include "components/spellcheck/common/spellcheck_features.h"
 #include "components/spellcheck/common/spellcheck_result.h"
 #include "components/user_prefs/user_prefs.h"
 #include "content/public/browser/browser_context.h"
@@ -38,21 +36,12 @@
 
 namespace {
 
-// The old JSON-RPC endpoint for requesting spell checking and sending user
-// feedback.
-const char kSpellingServiceRpcURL[] = "https://www.googleapis.com/rpc";
-
-// The new REST endpoint for requesting spell checking and sending user
-// feedback.
+// The REST endpoint for requesting spell checking and sending user feedback.
 const char kSpellingServiceRestURL[] =
     "https://www.googleapis.com/spelling/v%d/spelling/check?key=%s";
 
 // The spellcheck suggestions object key in the JSON response from the spelling
-// service when using the JSON-RPC endpoint.
-const char kMisspellingsRpcPath[] = "result.spellingCheckResponse.misspellings";
-
-// The spellcheck suggestions object key in the JSON response from the spelling
-// service when using the REST endpoint.
+// service.
 const char kMisspellingsRestPath[] = "spellingCheckResponse.misspellings";
 
 // The location of error messages in JSON response from spelling service.
@@ -99,37 +88,17 @@ bool SpellingServiceClient::RequestTextCheck(
 
   std::string api_key = google_apis::GetAPIKey();
   std::string encoded_text = base::GetQuotedJSONString(text_copy);
-  std::string request_body;
-#ifdef TOOLKIT_QT
-  if (base::FeatureList::IsEnabled(spellcheck::kSpellingServiceRestApi)) {
-    static const char kSpellingRequestRestBodyTemplate[] =
-        "{"
-        "\"text\":%s,"
-        "\"language\":\"%s\","
-        "\"originCountry\":\"%s\""
-        "}";
 
-    request_body = base::StringPrintf(
-        kSpellingRequestRestBodyTemplate, encoded_text.c_str(),
-        language_code.c_str(), country_code.c_str());
-  } else {
-    static const char kSpellingRequestRpcBodyTemplate[] =
-        "{"
-        "\"method\":\"spelling.check\","
-        "\"apiVersion\":\"v%d\","
-        "\"params\":{"
-        "\"text\":%s,"
-        "\"language\":\"%s\","
-        "\"originCountry\":\"%s\","
-        "\"key\":%s"
-        "}"
-        "}";
+  static const char kSpellingRequestRestBodyTemplate[] =
+      "{"
+      "\"text\":%s,"
+      "\"language\":\"%s\","
+      "\"originCountry\":\"%s\""
+      "}";
 
-    request_body = base::StringPrintf(
-        kSpellingRequestRpcBodyTemplate, type, encoded_text.c_str(),
-        language_code.c_str(), country_code.c_str(),
-        base::GetQuotedJSONString(api_key).c_str());
-  }
+  std::string request_body =
+      base::StringPrintf(kSpellingRequestRestBodyTemplate, encoded_text.c_str(),
+                         language_code.c_str(), country_code.c_str());
 
   // Create traffic annotation tag.
   net::NetworkTrafficAnnotationTag traffic_annotation =
@@ -167,7 +136,7 @@ bool SpellingServiceClient::RequestTextCheck(
 
   auto resource_request = std::make_unique<network::ResourceRequest>();
   resource_request->url = BuildEndpointUrl(type);
-  resource_request->allow_credentials = false;
+  resource_request->credentials_mode = network::mojom::CredentialsMode::kOmit;
   resource_request->method = "POST";
 
   std::unique_ptr<network::SimpleURLLoader> simple_url_loader =
@@ -190,7 +159,6 @@ bool SpellingServiceClient::RequestTextCheck(
       base::BindOnce(&SpellingServiceClient::OnSimpleLoaderComplete,
                      base::Unretained(this), std::move(it),
                      base::TimeTicks::Now()));
-#endif
   return true;
 }
 
@@ -198,8 +166,8 @@ bool SpellingServiceClient::IsAvailable(content::BrowserContext* context,
                                         ServiceType type) {
   const PrefService* pref = user_prefs::UserPrefs::Get(context);
   DCHECK(pref);
-  // If prefs don't allow spellchecking, if the context is off the record, or if
-  // multilingual spellchecking is enabled the spelling service should be
+  // If prefs don't allow spell checking, if enhanced spell check is disabled,
+  // or if the context is off the record, the spelling service should be
   // unavailable.
   if (!pref->GetBoolean(spellcheck::prefs::kSpellCheckEnable) ||
       !pref->GetBoolean(spellcheck::prefs::kSpellCheckUseSpellingService) ||
@@ -233,43 +201,36 @@ void SpellingServiceClient::SetURLLoaderFactoryForTesting(
 }
 
 GURL SpellingServiceClient::BuildEndpointUrl(int type) {
-  if (base::FeatureList::IsEnabled(spellcheck::kSpellingServiceRestApi)) {
     return GURL(base::StringPrintf(kSpellingServiceRestURL, type,
                                    google_apis::GetAPIKey().c_str()));
-  } else {
-    return GURL(kSpellingServiceRpcURL);
-  }
 }
 
 bool SpellingServiceClient::ParseResponse(
     const std::string& data,
     std::vector<SpellCheckResult>* results) {
   // Data is in the following format:
-  //  * result: (only in the RPC API; skipped for the REST API) A root object
-  //    * spellingCheckResponse: A wrapper object containing the response
-  //      * mispellings: (optional Array<object>) A list of mistakes for the
-  //        requested text, with the following format:
-  //        * charStart: (number) The zero-based start of the misspelled region
-  //        * charLength: (number) The length of the misspelled region
-  //        * suggestions: (Array<object>) The suggestions for the misspelled
-  //          text, with the following format:
-  //          * suggestion: (string) the suggestion for the correct text
-  //        * canAutoCorrect (optional boolean) Whether we can use the first
-  //          suggestion for auto-correction
+  //  * spellingCheckResponse: A wrapper object containing the response
+  //    * mispellings: (optional Array<object>) A list of mistakes for the
+  //      requested text, with the following format:
+  //      * charStart: (number) The zero-based start of the misspelled region
+  //      * charLength: (number) The length of the misspelled region
+  //      * suggestions: (Array<object>) The suggestions for the misspelled
+  //        text, with the following format:
+  //        * suggestion: (string) the suggestion for the correct text
+  //      * canAutoCorrect (optional boolean) Whether we can use the first
+  //        suggestion for auto-correction
   //
   // Example response for "duck goes quisk":
   //  {
-  //    "result": {                   // (Only in the RPC API)
-  //      "spellingCheckResponse": {
-  //        "misspellings": [{
-  //          "charStart": 10,
-  //          "charLength": 5,
-  //          "suggestions": [{
-  //            "suggestion": "quack"
-  //          }],
-  //          "canAutoCorrect": false
-  //        }]
-  //      }
+  //    "spellingCheckResponse": {
+  //      "misspellings": [{
+  //        "charStart": 10,
+  //        "charLength": 5,
+  //        "suggestions": [{
+  //          "suggestion": "quack"
+  //        }],
+  //        "canAutoCorrect": false
+  //      }]
   //    }
   //  }
   //
@@ -300,11 +261,8 @@ bool SpellingServiceClient::ParseResponse(
   // have misspelled words, it returns an empty JSON. (In this case, its HTTP
   // status is 200.) We just return true for this case.
   base::ListValue* misspellings = nullptr;
-  std::string mispellingsPath =
-      base::FeatureList::IsEnabled(spellcheck::kSpellingServiceRestApi)
-          ? kMisspellingsRestPath
-          : kMisspellingsRpcPath;
-  if (!value->GetList(mispellingsPath, &misspellings))
+
+  if (!value->GetList(kMisspellingsRestPath, &misspellings))
     return true;
 
   for (size_t i = 0; i < misspellings->GetSize(); ++i) {

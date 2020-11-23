@@ -31,7 +31,7 @@
 #ifndef THIRD_PARTY_BLINK_PUBLIC_WEB_WEB_FRAME_WIDGET_H_
 #define THIRD_PARTY_BLINK_PUBLIC_WEB_WEB_FRAME_WIDGET_H_
 
-#include "third_party/blink/public/common/frame/occlusion_state.h"
+#include "third_party/blink/public/platform/viewport_intersection_state.h"
 #include "third_party/blink/public/platform/web_common.h"
 #include "third_party/blink/public/platform/web_drag_operation.h"
 #include "third_party/blink/public/platform/web_touch_action.h"
@@ -60,9 +60,6 @@ class WebFrameWidget : public WebWidget {
 
   // Returns the local root of this WebFrameWidget.
   virtual WebLocalFrame* LocalRoot() const = 0;
-
-  // WebWidget implementation.
-  bool IsWebFrameWidget() const final { return true; }
 
   // Called when the root LocalFrame of this WebFrameWidget (and implicitly its
   // subtree) are being detached. The frame pointer and the WebWidgetClient are
@@ -109,8 +106,8 @@ class WebFrameWidget : public WebWidget {
   // and indicates whether the frame may be painted over or obscured in the
   // parent. This is needed for out-of-process iframes to know if they are
   // clipped or obscured by ancestor frames in another process.
-  virtual void SetRemoteViewportIntersection(const WebRect&,
-                                             FrameOcclusionState) {}
+  virtual void SetRemoteViewportIntersection(const ViewportIntersectionState&) {
+  }
 
   // Sets the inert bit on an out-of-process iframe, causing it to ignore
   // input.

@@ -203,6 +203,15 @@ void proxyAutoConfigCallback(void *client, CFArrayRef proxylist, CFErrorRef erro
         info->proxies = proxylist;
     }
 }
+
+QCFType<CFStringRef> stringByAddingPercentEscapes(CFStringRef originalPath)
+{
+    Q_ASSERT(originalPath);
+    const auto qtPath = QString::fromCFString(originalPath);
+    const auto escaped = QString::fromUtf8(QUrl::toPercentEncoding(qtPath));
+    return escaped.toCFString();
+}
+
 } // anon namespace
 
 QList<QNetworkProxy> macQueryInternal(const QNetworkProxyQuery &query)
@@ -210,16 +219,14 @@ QList<QNetworkProxy> macQueryInternal(const QNetworkProxyQuery &query)
     QList<QNetworkProxy> result;
 
     // obtain a dictionary to the proxy settings:
-    CFDictionaryRef dict = SCDynamicStoreCopyProxies(NULL);
+    const QCFType<CFDictionaryRef> dict = SCDynamicStoreCopyProxies(NULL);
     if (!dict) {
         qWarning("QNetworkProxyFactory::systemProxyForQuery: SCDynamicStoreCopyProxies returned NULL");
         return result;          // failed
     }
 
-    if (isHostExcluded(dict, query.peerHostName())) {
-        CFRelease(dict);
+    if (isHostExcluded(dict, query.peerHostName()))
         return result;          // no proxy for this host
-    }
 
     // is there a PAC enabled? If so, use it first.
     CFNumberRef pacEnabled;
@@ -230,9 +237,7 @@ QList<QNetworkProxy> macQueryInternal(const QNetworkProxyQuery &query)
             // kSCPropNetProxiesProxyAutoConfigURLString returns the URL string
             // as entered in the system proxy configuration dialog
             CFStringRef pacLocationSetting = (CFStringRef)CFDictionaryGetValue(dict, kSCPropNetProxiesProxyAutoConfigURLString);
-            QCFType<CFStringRef> cfPacLocation = CFURLCreateStringByAddingPercentEscapes(kCFAllocatorDefault, pacLocationSetting, NULL, NULL,
-                kCFStringEncodingUTF8);
-
+            auto cfPacLocation = stringByAddingPercentEscapes(pacLocationSetting);
             QCFType<CFDataRef> pacData;
             QCFType<CFURLRef> pacUrl = CFURLCreateWithString(kCFAllocatorDefault, cfPacLocation, NULL);
             if (!pacUrl) {
@@ -329,7 +334,6 @@ QList<QNetworkProxy> macQueryInternal(const QNetworkProxyQuery &query)
             result << https;
     }
 
-    CFRelease(dict);
     return result;
 }
 

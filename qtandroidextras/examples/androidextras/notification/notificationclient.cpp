@@ -50,7 +50,7 @@
 
 #include "notificationclient.h"
 
-#include <QtAndroidExtras/QAndroidJniObject>
+#include <QtAndroid>
 
 NotificationClient::NotificationClient(QObject *parent)
     : QObject(parent)
@@ -75,8 +75,10 @@ QString NotificationClient::notification() const
 void NotificationClient::updateAndroidNotification()
 {
     QAndroidJniObject javaNotification = QAndroidJniObject::fromString(m_notification);
-    QAndroidJniObject::callStaticMethod<void>("org/qtproject/example/notification/NotificationClient",
-                                       "notify",
-                                       "(Ljava/lang/String;)V",
-                                       javaNotification.object<jstring>());
+    QAndroidJniObject::callStaticMethod<void>(
+        "org/qtproject/example/notification/NotificationClient",
+        "notify",
+        "(Landroid/content/Context;Ljava/lang/String;)V",
+        QtAndroid::androidContext().object(),
+        javaNotification.object<jstring>());
 }

@@ -47,19 +47,18 @@
     \ingroup painting
     \ingroup io
 
-    QImageWriter supports setting format specific options, such as the
-    gamma level, compression level and quality, prior to storing the
+    QImageWriter supports setting format specific options, such as
+    compression level and quality, prior to storing the
     image. If you do not need such options, you can use QImage::save()
     or QPixmap::save() instead.
 
     To store an image, you start by constructing a QImageWriter
     object.  Pass either a file name or a device pointer, and the
     image format to QImageWriter's constructor. You can then set
-    several options, such as the gamma level (by calling setGamma())
-    and quality (by calling setQuality()). canWrite() returns \c true if
-    QImageWriter can write the image (i.e., the image format is
-    supported and the device is open for writing). Call write() to
-    write the image to the device.
+    several options, such as quality (by calling setQuality()).
+    canWrite() returns \c true if QImageWriter can write the image
+    (i.e., the image format is supported and the device is open for
+    writing). Call write() to write the image to the device.
 
     If any error occurs when writing the image, write() will return
     false. You can then call error() to find the type of error that
@@ -81,7 +80,7 @@
 
     \snippet qimagewriter/main.cpp 0
 
-    \sa QImageReader, QImageIOHandler, QImageIOPlugin
+    \sa QImageReader, QImageIOHandler, QImageIOPlugin, QColorSpace
 */
 
 /*!
@@ -139,7 +138,7 @@ static QImageIOHandler *createWriteHandlerHelper(QIODevice *device,
 {
     QByteArray form = format.toLower();
     QByteArray suffix;
-    QImageIOHandler *handler = 0;
+    QImageIOHandler *handler = nullptr;
 
 #ifndef QT_NO_IMAGEFORMATPLUGIN
     typedef QMultiMap<int, QString> PluginKeyMap;
@@ -226,7 +225,7 @@ static QImageIOHandler *createWriteHandlerHelper(QIODevice *device,
 #endif // QT_NO_IMAGEFORMATPLUGIN
 
     if (!handler)
-        return 0;
+        return nullptr;
 
     handler->setDevice(device);
     if (!testFormat.isEmpty())
@@ -270,9 +269,9 @@ public:
 */
 QImageWriterPrivate::QImageWriterPrivate(QImageWriter *qq)
 {
-    device = 0;
+    device = nullptr;
     deleteDevice = false;
-    handler = 0;
+    handler = nullptr;
     quality = -1;
     compression = -1;
     gamma = 0.0;
@@ -304,7 +303,7 @@ bool QImageWriterPrivate::canWriteHelper()
         errorString = QImageWriter::tr("Device not writable");
         return false;
     }
-    if (!handler && (handler = createWriteHandlerHelper(device, format)) == 0) {
+    if (!handler && (handler = createWriteHandlerHelper(device, format)) == nullptr) {
         imageWriterError = QImageWriter::UnsupportedFormatError;
         errorString = QImageWriter::tr("Unsupported image format");
         return false;
@@ -403,7 +402,7 @@ void QImageWriter::setDevice(QIODevice *device)
     d->device = device;
     d->deleteDevice = false;
     delete d->handler;
-    d->handler = 0;
+    d->handler = nullptr;
 }
 
 /*!
@@ -498,7 +497,10 @@ int QImageWriter::compression() const
     return d->compression;
 }
 
+#if QT_DEPRECATED_SINCE(5, 15)
 /*!
+    \obsolete Use QColorSpace conversion on the QImage instead.
+
     This is an image format specific function that sets the gamma
     level of the image to \a gamma. For image formats that do not
     support setting the gamma level, this value is ignored.
@@ -514,6 +516,8 @@ void QImageWriter::setGamma(float gamma)
 }
 
 /*!
+    \obsolete Use QImage::colorSpace() and QColorSpace::gamma() instead.
+
     Returns the gamma level of the image.
 
     \sa setGamma()
@@ -522,6 +526,7 @@ float QImageWriter::gamma() const
 {
     return d->gamma;
 }
+#endif
 
 /*!
     \since 5.4
@@ -561,7 +566,7 @@ QList<QByteArray> QImageWriter::supportedSubTypes() const
 {
     if (!supportsOption(QImageIOHandler::SupportedSubTypes))
         return QList<QByteArray>();
-    return d->handler->option(QImageIOHandler::SupportedSubTypes).value< QList<QByteArray> >();
+    return qvariant_cast<QList<QByteArray> >(d->handler->option(QImageIOHandler::SupportedSubTypes));
 }
 
 /*!
@@ -823,7 +828,7 @@ QString QImageWriter::errorString() const
 */
 bool QImageWriter::supportsOption(QImageIOHandler::ImageOption option) const
 {
-    if (!d->handler && (d->handler = createWriteHandlerHelper(d->device, d->format)) == 0) {
+    if (!d->handler && (d->handler = createWriteHandlerHelper(d->device, d->format)) == nullptr) {
         d->imageWriterError = QImageWriter::UnsupportedFormatError;
         d->errorString = QImageWriter::tr("Unsupported image format");
         return false;

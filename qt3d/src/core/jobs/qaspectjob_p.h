@@ -54,6 +54,7 @@
 #include <QtCore/QWeakPointer>
 
 #include <Qt3DCore/private/qt3dcore_global_p.h>
+#include <Qt3DCore/private/qsysteminformationservice_p_p.h>
 #include <Qt3DCore/qt3dcore-config.h>
 
 QT_BEGIN_NAMESPACE
@@ -63,47 +64,6 @@ namespace Qt3DCore {
 class QAspectJob;
 class QAspectManager;
 
-#if QT_CONFIG(qt3d_profile_jobs)
-struct FrameHeader
-{
-    FrameHeader()
-        : frameId(0)
-        , jobCount(0)
-        , frameType(WorkerJob)
-    {
-    }
-
-    enum FrameType {
-        WorkerJob = 0,
-        Submission
-    };
-
-    quint32 frameId;
-    quint16 jobCount;
-    quint16 frameType; // Submission or worker job
-};
-
-union JobId
-{
-    quint32 typeAndInstance[2];
-    quint64 id;
-};
-
-struct JobRunStats
-{
-    JobRunStats()
-    {
-        jobId.id = 0;
-    }
-
-    qint64 startTime;
-    qint64 endTime;
-    JobId jobId;
-    // QAspectJob subclasses should properly populate the jobId
-    quint64 threadId;
-};
-#endif
-
 class Q_3DCORE_PRIVATE_EXPORT QAspectJobPrivate
 {
 public:
@@ -111,37 +71,35 @@ public:
     virtual ~QAspectJobPrivate();
 
     static QAspectJobPrivate *get(QAspectJob *job);
-    static const QAspectJobPrivate *get(const QAspectJob *job);
 
+    virtual bool isRequired() const;
     virtual void postFrame(QAspectManager *aspectManager);
 
-    QVector<QWeakPointer<QAspectJob> > m_dependencies;
-#if QT_CONFIG(qt3d_profile_jobs)
-    JobRunStats m_stats;
-#endif
-};
+    void clearDependencies() { m_dependencies.clear(); }
 
+    QVector<QWeakPointer<QAspectJob> > m_dependencies;
+    JobId m_jobId;
+    QString m_jobName;
+};
 } // Qt3D
 
-#define Q_DJOB(Class) \
-    Class##Private *d = static_cast<Class##Private *>(Qt3DCore::QAspectJobPrivate::get(this))
-
-#if QT_CONFIG(qt3d_profile_jobs)
-
-#include <Qt3DCore/private/qaspectjob_p.h>
-
 #define SET_JOB_RUN_STAT_TYPE(job, type, instance) \
-    Qt3DCore::QAspectJobPrivate::get(job)->m_stats.jobId.typeAndInstance[0] = type; \
-    Qt3DCore::QAspectJobPrivate::get(job)->m_stats.jobId.typeAndInstance[1] = instance;
+    { \
+        auto djob = Qt3DCore::QAspectJobPrivate::get(job); \
+        auto &jobId = djob->m_jobId; \
+        jobId.typeAndInstance[0] = type; \
+        jobId.typeAndInstance[1] = instance; \
+        djob->m_jobName = QLatin1String(#type); \
+    }
 
-#else
-
-#define SET_JOB_RUN_STAT_TYPE(job, type, instance) \
-    Q_UNUSED(job) \
-    Q_UNUSED(type) \
-    Q_UNUSED(instance)
-
-#endif
+#define SET_JOB_RUN_STAT_TYPE_AND_NAME(job, type, name, instance) \
+    { \
+        auto djob = Qt3DCore::QAspectJobPrivate::get(job); \
+        auto &jobId = djob->m_jobId; \
+        jobId.typeAndInstance[0] = type; \
+        jobId.typeAndInstance[1] = instance; \
+        djob->m_jobName = QLatin1String(name); \
+    }
 
 QT_END_NAMESPACE
 

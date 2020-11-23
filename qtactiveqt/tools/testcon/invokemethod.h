@@ -48,7 +48,7 @@ protected slots:
     void on_buttonInvoke_clicked();
     void on_buttonSet_clicked();
 
-    void on_comboMethods_activated(const QString &method);
+    void on_comboMethods_textActivated(const QString &method);
     void on_listParameters_currentItemChanged(QTreeWidgetItem *item);
 
 private:

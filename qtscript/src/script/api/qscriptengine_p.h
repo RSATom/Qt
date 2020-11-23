@@ -345,7 +345,7 @@ public:
     void markQObjectData(JSC::MarkStack&);
     JSC::JSValue newQObject(QObject *object,
         QScriptEngine::ValueOwnership ownership = QScriptEngine::QtOwnership,
-        const QScriptEngine:: QObjectWrapOptions &options = 0);
+                 const QScriptEngine:: QObjectWrapOptions &options = {});
     JSC::JSValue newQMetaObject(const QMetaObject *metaObject,
                                 JSC::JSValue ctor);
 

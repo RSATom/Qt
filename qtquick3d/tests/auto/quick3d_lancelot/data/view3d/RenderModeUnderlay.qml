@@ -48,10 +48,10 @@
 **
 ****************************************************************************/
 
-import QtQuick 2.14
-import QtQuick3D 1.14
-import QtQuick3D.Materials 1.14
-import QtQuick3D.Helpers 1.14
+import QtQuick 2.15
+import QtQuick3D 1.15
+import QtQuick3D.Materials 1.15
+import QtQuick3D.Helpers 1.15
 
 import "../shared/"
 
@@ -62,10 +62,15 @@ Rectangle {
 
     View3D {
         anchors.fill: parent
+
+        // This is only here to match the QQuickWindow default clear color
+        // (white), and so to provide identical results with Qt 5 and 6. It has
+        // no effect in Qt 6 due to the renderMode!
         environment: SceneEnvironment {
             backgroundMode: SceneEnvironment.Color
-            clearColor: "blue"
+            clearColor: "white"
         }
+
         renderMode: View3D.Underlay
 
         Node {
@@ -74,8 +79,8 @@ Rectangle {
                 id: camera2
 
                 x: -300
-                z: -300
-                rotation: Qt.vector3d(0, 45, 0)
+                z: 300
+                rotation: Quaternion.fromEulerAngles(0, -45, 0)
             }
 
             DirectionalLight {

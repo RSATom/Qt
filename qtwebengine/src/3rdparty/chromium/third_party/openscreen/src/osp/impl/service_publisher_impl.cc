@@ -4,9 +4,10 @@
 
 #include "osp/impl/service_publisher_impl.h"
 
-#include "platform/api/logging.h"
+#include "util/logging.h"
 
 namespace openscreen {
+namespace osp {
 namespace {
 
 bool IsTransitionValid(ServicePublisher::State from,
@@ -87,10 +88,6 @@ bool ServicePublisherImpl::Resume() {
   return true;
 }
 
-void ServicePublisherImpl::RunTasks() {
-  delegate_->RunTasksPublisher();
-}
-
 void ServicePublisherImpl::SetState(State state) {
   OSP_DCHECK(IsTransitionValid(state_, state));
   state_ = state;
@@ -115,4 +112,5 @@ void ServicePublisherImpl::MaybeNotifyObserver() {
   }
 }
 
+}  // namespace osp
 }  // namespace openscreen

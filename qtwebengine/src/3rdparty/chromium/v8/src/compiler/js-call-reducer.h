@@ -7,6 +7,7 @@
 
 #include "src/base/flags.h"
 #include "src/compiler/frame-states.h"
+#include "src/compiler/globals.h"
 #include "src/compiler/graph-reducer.h"
 #include "src/compiler/node-properties.h"
 #include "src/deoptimizer/deoptimize-reason.h"
@@ -17,7 +18,6 @@ namespace internal {
 // Forward declarations.
 class Factory;
 class JSGlobalProxy;
-class VectorSlotPair;
 
 namespace compiler {
 
@@ -25,7 +25,9 @@ namespace compiler {
 class CallFrequency;
 class CommonOperatorBuilder;
 class CompilationDependencies;
+struct FeedbackSource;
 struct FieldAccess;
+class JSCallReducerAssembler;
 class JSGraph;
 class JSHeapBroker;
 class JSOperatorBuilder;
@@ -42,10 +44,12 @@ class V8_EXPORT_PRIVATE JSCallReducer final : public AdvancedReducer {
   using Flags = base::Flags<Flag>;
 
   JSCallReducer(Editor* editor, JSGraph* jsgraph, JSHeapBroker* broker,
-                Flags flags, CompilationDependencies* dependencies)
+                Zone* temp_zone, Flags flags,
+                CompilationDependencies* dependencies)
       : AdvancedReducer(editor),
         jsgraph_(jsgraph),
         broker_(broker),
+        temp_zone_(temp_zone),
         flags_(flags),
         dependencies_(dependencies) {}
 
@@ -80,9 +84,9 @@ class V8_EXPORT_PRIVATE JSCallReducer final : public AdvancedReducer {
   Reduction ReduceReflectGetPrototypeOf(Node* node);
   Reduction ReduceReflectHas(Node* node);
   Reduction ReduceArrayForEach(Node* node, const SharedFunctionInfoRef& shared);
-  enum class ArrayReduceDirection { kLeft, kRight };
-  Reduction ReduceArrayReduce(Node* node, ArrayReduceDirection direction,
-                              const SharedFunctionInfoRef& shared);
+  Reduction ReduceArrayReduce(Node* node, const SharedFunctionInfoRef& shared);
+  Reduction ReduceArrayReduceRight(Node* node,
+                                   const SharedFunctionInfoRef& shared);
   Reduction ReduceArrayMap(Node* node, const SharedFunctionInfoRef& shared);
   Reduction ReduceArrayFilter(Node* node, const SharedFunctionInfoRef& shared);
   enum class ArrayFindVariant { kFind, kFindIndex };
@@ -106,7 +110,8 @@ class V8_EXPORT_PRIVATE JSCallReducer final : public AdvancedReducer {
 
   Reduction ReduceCallOrConstructWithArrayLikeOrSpread(
       Node* node, int arity, CallFrequency const& frequency,
-      VectorSlotPair const& feedback);
+      FeedbackSource const& feedback, SpeculationMode speculation_mode,
+      CallFeedbackRelation feedback_relation);
   Reduction ReduceJSConstruct(Node* node);
   Reduction ReduceJSConstructWithArrayLike(Node* node);
   Reduction ReduceJSConstructWithSpread(Node* node);
@@ -156,7 +161,6 @@ class V8_EXPORT_PRIVATE JSCallReducer final : public AdvancedReducer {
   Reduction ReduceMathImul(Node* node);
   Reduction ReduceMathClz32(Node* node);
   Reduction ReduceMathMinMax(Node* node, const Operator* op, Node* empty_value);
-  Reduction ReduceMathHypot(Node* node);
 
   Reduction ReduceNumberIsFinite(Node* node);
   Reduction ReduceNumberIsInteger(Node* node);
@@ -193,6 +197,9 @@ class V8_EXPORT_PRIVATE JSCallReducer final : public AdvancedReducer {
 
   Reduction ReduceNumberConstructor(Node* node);
   Reduction ReduceBigIntAsUintN(Node* node);
+
+  // The pendant to ReplaceWithValue when using GraphAssembler-based reductions.
+  Reduction ReplaceWithSubgraph(JSCallReducerAssembler* gasm, Node* subgraph);
 
   // Helper to verify promise receiver maps are as expected.
   // On bailout from a reduction, be sure to return inference.NoChange().
@@ -234,7 +241,7 @@ class V8_EXPORT_PRIVATE JSCallReducer final : public AdvancedReducer {
   // k is thusly changed, and the effect is changed as well.
   Node* SafeLoadElement(ElementsKind kind, Node* receiver, Node* control,
                         Node** effect, Node** k,
-                        const VectorSlotPair& feedback);
+                        const FeedbackSource& feedback);
 
   Node* CreateArtificialFrameState(Node* node, Node* outer_frame_state,
                                    int parameter_count, BailoutId bailout_id,
@@ -249,6 +256,7 @@ class V8_EXPORT_PRIVATE JSCallReducer final : public AdvancedReducer {
   Graph* graph() const;
   JSGraph* jsgraph() const { return jsgraph_; }
   JSHeapBroker* broker() const { return broker_; }
+  Zone* temp_zone() const { return temp_zone_; }
   Isolate* isolate() const;
   Factory* factory() const;
   NativeContextRef native_context() const;
@@ -260,6 +268,7 @@ class V8_EXPORT_PRIVATE JSCallReducer final : public AdvancedReducer {
 
   JSGraph* const jsgraph_;
   JSHeapBroker* const broker_;
+  Zone* const temp_zone_;
   Flags const flags_;
   CompilationDependencies* const dependencies_;
   std::set<Node*> waitlist_;

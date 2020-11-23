@@ -105,7 +105,6 @@
     \page sql-connecting.html
     \title Connecting to Databases
 
-    \contentspage SQL Programming
     \previouspage SQL Programming
     \nextpage Executing SQL Statements
 
@@ -175,7 +174,6 @@
     \title Executing SQL Statements
 
     \previouspage Connecting to Databases
-    \contentspage SQL Programming
     \nextpage Using the SQL Model Classes
 
 
@@ -325,7 +323,6 @@
     \title Using the SQL Model Classes
 
     \previouspage Executing SQL Statements
-    \contentspage SQL Programming
     \nextpage Presenting Data in a Table View
 
     In addition to QSqlQuery, Qt offers three higher-level classes
@@ -471,7 +468,6 @@
     \title Presenting Data in a Table View
 
     \previouspage Using the SQL Model Classes
-    \contentspage SQL Programming
     \nextpage Creating Data-Aware Forms
 
     The QSqlQueryModel, QSqlTableModel, and QSqlRelationalTableModel
@@ -484,15 +480,15 @@
 
     The following example creates a view based on an SQL data model:
 
-    \snippet sqldatabase/sqldatabase.cpp 17
-    \snippet sqldatabase/sqldatabase.cpp 18
-    \snippet sqldatabase/sqldatabase.cpp 19
+    \snippet sqldatabase/sqldatabase_snippet.cpp 17
+    \snippet sqldatabase/sqldatabase_snippet.cpp 18
+    \snippet sqldatabase/sqldatabase_snippet.cpp 19
 
     If the model is a read-write model (e.g., QSqlTableModel), the
     view lets the user edit the fields. You can disable this by
     calling
 
-    \snippet sqldatabase/sqldatabase.cpp 20
+    \snippet sqldatabase/sqldatabase_snippet.cpp 20
 
     You can use the same model as a data source for multiple views.
     If the user edits the model through one of the views, the other
@@ -575,7 +571,6 @@
     \title Creating Data-Aware Forms
 
     \previouspage Presenting Data in a Table View
-    \contentspage SQL Programming
 
     Using the SQL models described above, the contents of a database can
     be presented to other model/view components. For some applications,

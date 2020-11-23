@@ -64,11 +64,13 @@ struct COMPONENT_EXPORT(DEVICE_FIDO) CtapMakeCredentialRequest {
   bool is_u2f_only = false;
   bool is_incognito_mode = false;
 
-  base::Optional<std::vector<PublicKeyCredentialDescriptor>> exclude_list;
+  std::vector<PublicKeyCredentialDescriptor> exclude_list;
   base::Optional<std::vector<uint8_t>> pin_auth;
   base::Optional<uint8_t> pin_protocol;
   AttestationConveyancePreference attestation_preference =
       AttestationConveyancePreference::kNone;
+  // U2F AppID for excluding credentials.
+  base::Optional<std::string> app_id;
 
   // cred_protect indicates the level of protection afforded to a credential.
   // This depends on a CTAP2 extension that not all authenticators will support.

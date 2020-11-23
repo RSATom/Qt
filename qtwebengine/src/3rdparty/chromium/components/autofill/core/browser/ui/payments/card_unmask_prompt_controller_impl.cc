@@ -37,7 +37,7 @@ CardUnmaskPromptControllerImpl::~CardUnmaskPromptControllerImpl() {
 }
 
 void CardUnmaskPromptControllerImpl::ShowPrompt(
-    CardUnmaskPromptView* card_unmask_view,
+    CardUnmaskPromptViewFactory card_unmask_view_factory,
     const CreditCard& card,
     AutofillClient::UnmaskCardReason reason,
     base::WeakPtr<CardUnmaskDelegate> delegate) {
@@ -46,11 +46,11 @@ void CardUnmaskPromptControllerImpl::ShowPrompt(
 
   new_card_link_clicked_ = false;
   shown_timestamp_ = AutofillClock::Now();
-  pending_response_ = CardUnmaskDelegate::UnmaskResponse();
-  card_unmask_view_ = card_unmask_view;
+  pending_details_ = CardUnmaskDelegate::UserProvidedUnmaskDetails();
   card_ = card;
   reason_ = reason;
   delegate_ = delegate;
+  card_unmask_view_ = std::move(card_unmask_view_factory).Run();
   card_unmask_view_->Show();
   unmasking_result_ = AutofillClient::NONE;
   unmasking_number_of_attempts_ = 0;
@@ -106,37 +106,48 @@ void CardUnmaskPromptControllerImpl::OnUnmaskDialogClosed() {
     delegate_->OnUnmaskPromptClosed();
 }
 
-void CardUnmaskPromptControllerImpl::OnUnmaskResponse(
+void CardUnmaskPromptControllerImpl::OnUnmaskPromptAccepted(
     const base::string16& cvc,
     const base::string16& exp_month,
     const base::string16& exp_year,
-    bool should_store_pan) {
+    bool should_store_pan,
+    bool enable_fido_auth) {
   verify_timestamp_ = AutofillClock::Now();
   unmasking_number_of_attempts_++;
   unmasking_result_ = AutofillClient::NONE;
   card_unmask_view_->DisableAndWaitForVerification();
 
   DCHECK(InputCvcIsValid(cvc));
-  base::TrimWhitespace(cvc, base::TRIM_ALL, &pending_response_.cvc);
+  base::TrimWhitespace(cvc, base::TRIM_ALL, &pending_details_.cvc);
   if (ShouldRequestExpirationDate()) {
     DCHECK(InputExpirationIsValid(exp_month, exp_year));
-    pending_response_.exp_month = exp_month;
-    pending_response_.exp_year = exp_year;
+    pending_details_.exp_month = exp_month;
+    pending_details_.exp_year = exp_year;
   }
   if (CanStoreLocally()) {
-    pending_response_.should_store_pan = should_store_pan;
+    pending_details_.should_store_pan = should_store_pan;
     // Remember the last choice the user made (on this device).
     pref_service_->SetBoolean(prefs::kAutofillWalletImportStorageCheckboxState,
                               should_store_pan);
   } else {
     DCHECK(!should_store_pan);
-    pending_response_.should_store_pan = false;
+    pending_details_.should_store_pan = false;
+  }
+
+  // The FIDO authentication checkbox is only shown when the local storage
+  // checkbox is not shown and the flag is turned on. If it is shown, then
+  // remember the last choice the user made on this device.
+  if (base::FeatureList::IsEnabled(
+          features::kAutofillCreditCardAuthentication) &&
+      !CanStoreLocally()) {
+    pref_service_->SetBoolean(
+        prefs::kAutofillCreditCardFidoAuthOfferCheckboxState, enable_fido_auth);
   }
 
   // There is a chance the delegate has disappeared (i.e. tab closed) before the
   // unmask response came in. Avoid a crash.
   if (delegate_)
-    delegate_->OnUnmaskResponse(pending_response_);
+    delegate_->OnUnmaskPromptAccepted(pending_details_);
 }
 
 void CardUnmaskPromptControllerImpl::NewCardLinkClicked() {
@@ -218,6 +229,11 @@ bool CardUnmaskPromptControllerImpl::GetStoreLocallyStartState() const {
       prefs::kAutofillWalletImportStorageCheckboxState);
 }
 
+bool CardUnmaskPromptControllerImpl::GetWebauthnOfferStartState() const {
+  return pref_service_->GetBoolean(
+      prefs::kAutofillCreditCardFidoAuthOfferCheckboxState);
+}
+
 bool CardUnmaskPromptControllerImpl::InputCvcIsValid(
     const base::string16& input_text) const {
   base::string16 trimmed_text;
@@ -292,7 +308,7 @@ void CardUnmaskPromptControllerImpl::LogOnCloseEvents() {
                                                    verify_timestamp_);
   }
 
-  bool final_should_store_pan = pending_response_.should_store_pan;
+  bool final_should_store_pan = pending_details_.should_store_pan;
   if (unmasking_result_ == AutofillClient::SUCCESS && final_should_store_pan) {
     AutofillMetrics::LogUnmaskPromptEvent(
         AutofillMetrics::UNMASK_PROMPT_SAVED_CARD_LOCALLY);

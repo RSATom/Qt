@@ -6,6 +6,7 @@
 #define THIRD_PARTY_BLINK_RENDERER_CORE_HTML_ANCHOR_ELEMENT_METRICS_SENDER_H_
 
 #include "base/macros.h"
+#include "mojo/public/cpp/bindings/remote.h"
 #include "third_party/blink/public/mojom/loader/navigation_predictor.mojom-blink.h"
 #include "third_party/blink/renderer/core/core_export.h"
 #include "third_party/blink/renderer/core/frame/local_frame_view.h"
@@ -23,7 +24,7 @@ class HTMLAnchorElement;
 // AnchorElementMetricsSender is responsible to send anchor element metrics to
 // the browser process for a given document.
 class CORE_EXPORT AnchorElementMetricsSender final
-    : public GarbageCollectedFinalized<AnchorElementMetricsSender>,
+    : public GarbageCollected<AnchorElementMetricsSender>,
       public LocalFrameView::LifecycleNotificationObserver,
       public Supplement<Document> {
   USING_GARBAGE_COLLECTED_MIXIN(AnchorElementMetricsSender);
@@ -70,7 +71,7 @@ class CORE_EXPORT AnchorElementMetricsSender final
   bool AssociateInterface();
 
   // Browser host to which the anchor element metrics are sent.
-  mojom::blink::AnchorElementMetricsHostPtr metrics_host_;
+  mojo::Remote<mojom::blink::AnchorElementMetricsHost> metrics_host_;
 
   // Collection of anchor elements in the document. Use a HashSet to ensure that
   // an element is inserted at most once.

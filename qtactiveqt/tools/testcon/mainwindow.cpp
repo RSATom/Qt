@@ -105,10 +105,10 @@ QAxWidget *MainWindow::activeAxWidget() const
     return nullptr;
 }
 
-QList<QAxWidget *> MainWindow::axWidgets() const
+QVector<QAxWidget *> MainWindow::axWidgets() const
 {
-    QList<QAxWidget *> result;
-    const QList<QMdiSubWindow *> mdiSubWindows = m_mdiArea->subWindowList();
+    QVector<QAxWidget *> result;
+    const auto mdiSubWindows = m_mdiArea->subWindowList();
     for (const QMdiSubWindow *subWindow : mdiSubWindows)
         if (QAxWidget *axWidget = qobject_cast<QAxWidget *>(subWindow->widget()))
             result.push_back(axWidget);
@@ -463,7 +463,7 @@ bool MainWindow::loadScript(const QString &file)
         m_scripts->addObject(this);
     }
 
-    const QList<QAxWidget *> axw = axWidgets();
+    const auto axw = axWidgets();
     for (QAxWidget *axWidget : axw) {
         QAxBase *ax = axWidget;
         m_scripts->addObject(ax);
@@ -547,7 +547,7 @@ void MainWindow::updateGUI()
     if (m_dlgProperties)
         m_dlgProperties->setControl(hasControl ? container : nullptr);
 
-    const QList<QAxWidget *> axw = axWidgets();
+    const auto axw = axWidgets();
     for (QAxWidget *container : axw) {
         container->disconnect(SIGNAL(signal(QString,int,void*)));
         if (actionLogSignals->isChecked())

@@ -86,15 +86,19 @@ static void (*{{method.name}}MethodForPartialInterface)(const v8::FunctionCallba
 
 {##############################################################################}
 {# Attributes #}
-{% from 'attributes.cc.tmpl' import attribute_getter,
-       attribute_setter,
+{% from 'attributes.cc.tmpl' import attribute_getter, attribute_setter,
        with context %}
 {% for attribute in attributes %}
 {% for world_suffix in attribute.world_suffixes %}
-{% if not attribute.has_custom_getter and not attribute.constructor_type %}
+{% if attribute.private_property_is_shared_between_getter_and_setter %}
+// Define a private property key shared between getter and setter.
+static const V8PrivateProperty::SymbolKey kPrivateProperty{{attribute.camel_case_name}};
+{% endif %}
+
+{% if attribute.does_generate_getter %}
 {{attribute_getter(attribute, world_suffix)}}
 {% endif %}
-{% if attribute.has_setter and not (attribute.has_custom_setter or attribute.is_lenient_setter) %}
+{% if attribute.does_generate_setter %}
 {{attribute_setter(attribute, world_suffix)}}
 {% endif %}
 {% endfor %}
@@ -128,7 +132,6 @@ static void (*{{method.name}}MethodForPartialInterface)(const v8::FunctionCallba
 {% if iterator_method %}
 {{generate_method(iterator_method)}}
 {% endif %}
-{% block origin_safe_method_setter %}{% endblock %}
 {# Constructors #}
 {% for constructor in constructors %}
 {{generate_constructor(constructor)}}
@@ -150,13 +153,12 @@ static void (*{{method.name}}MethodForPartialInterface)(const v8::FunctionCallba
 {% if has_access_check_callbacks and not is_partial and has_cross_origin_named_enumerator %}
 static const struct {
   using GetterCallback = void(*)(const v8::PropertyCallbackInfo<v8::Value>&);
-  using SetterCallback = void(*)(v8::Local<v8::Value>, const V8CrossOriginSetterInfo&);
+  using SetterCallback = void(*)(v8::Local<v8::Value>, const V8CrossOriginCallbackInfo&);
 
   const char* const name;
   const GetterCallback getter;
   const SetterCallback setter;
 } kCrossOriginAttributeTable[] = {
-  {##### Cross-origin attributes #####}
   {% for attribute in attributes if attribute.has_cross_origin_getter or attribute.has_cross_origin_setter %}
   {
     "{{attribute.name}}",
@@ -172,10 +174,17 @@ static const struct {
     {%+ if attribute.has_cross_origin_setter %}&{{internal_namespace}}::{{attribute.camel_case_name}}AttributeSetter{% else %}nullptr{% endif %},
   },
   {% endfor %}
-  {##### Cross-origin methods #####}
+};
+
+static const struct {
+  using ValueCallback = void(*)(const v8::PropertyCallbackInfo<v8::Value>&);
+
+  const char* const name;
+  const ValueCallback value;
+} kCrossOriginOperationTable[] = {
   {% for method in methods if method.is_cross_origin and
         (not method.overload_index or method.overloads) %}
-  {"{{method.name}}", &{{internal_namespace}}::{{method.camel_case_name}}OriginSafeMethodGetter, nullptr},
+  {"{{method.name}}", &{{internal_namespace}}::{{method.camel_case_name}}OriginSafeMethodGetter},
   {% endfor %}
 };
 {% endif %}
@@ -229,7 +238,6 @@ static const struct {
 {% if iterator_method %}
 {{method_callback(iterator_method)}}
 {% endif %}
-{% block origin_safe_method_setter_callback %}{% endblock %}
 {# Special operations (methods) #}
 {% block named_property_getter_callback %}{% endblock %}
 {% block named_property_setter_callback %}{% endblock %}
@@ -273,6 +281,12 @@ void {{v8_class_or_partial}}::CrossOriginNamedGetter(v8::Local<v8::Name> name, c
       return;
     }
   }
+  for (const auto& operation : {{internal_namespace}}::kCrossOriginOperationTable) {
+    if (property_name == operation.name) {
+      operation.value(info);
+      return;
+    }
+  }
 
   {% if named_property_getter and named_property_getter.is_cross_origin %}
   {% if named_property_getter.is_custom %}
@@ -309,7 +323,7 @@ void {{v8_class_or_partial}}::CrossOriginNamedSetter(v8::Local<v8::Name> name, v
 
   for (const auto& attribute : {{internal_namespace}}::kCrossOriginAttributeTable) {
     if (property_name == attribute.name && attribute.setter) {
-      attribute.setter(value, V8CrossOriginSetterInfo(info.GetIsolate(), info.Holder()));
+      attribute.setter(value, V8CrossOriginCallbackInfo(info));
       return;
     }
   }
@@ -330,6 +344,8 @@ void {{v8_class_or_partial}}::CrossOriginNamedEnumerator(const v8::PropertyCallb
   Vector<String> names;
   for (const auto& attribute : {{internal_namespace}}::kCrossOriginAttributeTable)
     names.push_back(attribute.name);
+  for (const auto& operation : {{internal_namespace}}::kCrossOriginOperationTable)
+    names.push_back(operation.name);
 
   // Use the current context as the creation context, as a cross-origin access
   // may involve an object that does not have a creation context.
@@ -602,7 +618,7 @@ static void Install{{v8_class}}Template(
                         if method.overloads else method.runtime_enabled_feature_name %}
   {% if not feature_name %}
   {% if method.is_cross_origin %}
-  {{install_origin_safe_method(method, 'instance_template', 'prototype_template') | trim | indent(2)}}
+  {{install_origin_safe_method(method, 'instance_template', 'prototype_template', 'interface_template', 'signature') | trim | indent(2)}}
   {% else %}
   {{install_custom_signature(method, 'instance_template', 'prototype_template', 'interface_template', 'signature') | trim | indent(2)}}
   {% endif %}

@@ -9,6 +9,7 @@
 
 #include "builtins-generated/bytecodes-builtins-list.h"
 #include "src/ast/prettyprinter.h"
+#include "src/ast/scopes.h"
 #include "src/codegen/compiler.h"
 #include "src/codegen/unoptimized-compilation-info.h"
 #include "src/init/bootstrapper.h"
@@ -42,6 +43,8 @@ class InterpreterCompilationJob final : public UnoptimizedCompilationJob {
 
  private:
   BytecodeGenerator* generator() { return &generator_; }
+  void CheckAndPrintBytecodeMismatch(Isolate* isolate,
+                                     Handle<BytecodeArray> bytecode);
 
   Zone zone_;
   UnoptimizedCompilationInfo compilation_info_;
@@ -86,6 +89,7 @@ Code Interpreter::GetBytecodeHandler(Bytecode bytecode,
 
 void Interpreter::SetBytecodeHandler(Bytecode bytecode,
                                      OperandScale operand_scale, Code handler) {
+  DCHECK(handler.is_off_heap_trampoline());
   DCHECK(handler.kind() == Code::BYTECODE_HANDLER);
   size_t index = GetDispatchTableIndex(bytecode, operand_scale);
   dispatch_table_[index] = handler.InstructionStart();
@@ -98,41 +102,6 @@ size_t Interpreter::GetDispatchTableIndex(Bytecode bytecode,
   size_t index = static_cast<size_t>(bytecode);
   return index + BytecodeOperands::OperandScaleAsIndex(operand_scale) *
                      kEntriesPerOperandScale;
-}
-
-void Interpreter::IterateDispatchTable(RootVisitor* v) {
-  if (FLAG_embedded_builtins && !isolate_->serializer_enabled() &&
-      isolate_->embedded_blob() != nullptr) {
-// If builtins are embedded (and we're not generating a snapshot), then
-// every bytecode handler will be off-heap, so there's no point iterating
-// over them.
-#ifdef DEBUG
-    for (int i = 0; i < kDispatchTableSize; i++) {
-      Address code_entry = dispatch_table_[i];
-      CHECK(code_entry == kNullAddress ||
-            InstructionStream::PcIsOffHeap(isolate_, code_entry));
-    }
-#endif  // DEBUG
-    return;
-  }
-
-  for (int i = 0; i < kDispatchTableSize; i++) {
-    Address code_entry = dispatch_table_[i];
-    // Skip over off-heap bytecode handlers since they will never move.
-    if (InstructionStream::PcIsOffHeap(isolate_, code_entry)) continue;
-
-    // TODO(jkummerow): Would it hurt to simply do:
-    // if (code_entry == kNullAddress) continue;
-    Code code;
-    if (code_entry != kNullAddress) {
-      code = Code::GetCodeFromTargetAddress(code_entry);
-    }
-    Code old_code = code;
-    v->VisitRootPointer(Root::kDispatchTable, nullptr, FullObjectSlot(&code));
-    if (code != old_code) {
-      dispatch_table_[i] = code.entry();
-    }
-  }
 }
 
 int Interpreter::InterruptBudget() {
@@ -184,9 +153,8 @@ InterpreterCompilationJob::InterpreterCompilationJob(
 InterpreterCompilationJob::Status InterpreterCompilationJob::ExecuteJobImpl() {
   RuntimeCallTimerScope runtimeTimerScope(
       parse_info()->runtime_call_stats(),
-      parse_info()->on_background_thread()
-          ? RuntimeCallCounterId::kCompileBackgroundIgnition
-          : RuntimeCallCounterId::kCompileIgnition);
+      RuntimeCallCounterId::kCompileIgnition,
+      RuntimeCallStats::kThreadSpecific);
   // TODO(lpy): add support for background compilation RCS trace.
   TRACE_EVENT0(TRACE_DISABLED_BY_DEFAULT("v8.compile"), "V8.CompileIgnition");
 
@@ -202,6 +170,42 @@ InterpreterCompilationJob::Status InterpreterCompilationJob::ExecuteJobImpl() {
   return SUCCEEDED;
 }
 
+#ifdef DEBUG
+void InterpreterCompilationJob::CheckAndPrintBytecodeMismatch(
+    Isolate* isolate, Handle<BytecodeArray> bytecode) {
+  int first_mismatch = generator()->CheckBytecodeMatches(bytecode);
+  if (first_mismatch >= 0) {
+    parse_info()->ast_value_factory()->Internalize(isolate);
+    DeclarationScope::AllocateScopeInfos(parse_info(), isolate);
+
+    Handle<BytecodeArray> new_bytecode =
+        generator()->FinalizeBytecode(isolate, parse_info()->script());
+
+    std::cerr << "Bytecode mismatch";
+#ifdef OBJECT_PRINT
+    std::cerr << " found for function: ";
+    Handle<String> name = parse_info()->function_name()->string();
+    if (name->length() == 0) {
+      std::cerr << "anonymous";
+    } else {
+      name->StringPrint(std::cerr);
+    }
+    Object script_name = parse_info()->script()->GetNameOrSourceURL();
+    if (script_name.IsString()) {
+      std::cerr << " ";
+      String::cast(script_name).StringPrint(std::cerr);
+      std::cerr << ":" << parse_info()->start_position();
+    }
+#endif
+    std::cerr << "\nOriginal bytecode:\n";
+    bytecode->Disassemble(std::cerr);
+    std::cerr << "\nNew bytecode:\n";
+    new_bytecode->Disassemble(std::cerr);
+    FATAL("Bytecode mismatch at offset %d\n", first_mismatch);
+  }
+}
+#endif
+
 InterpreterCompilationJob::Status InterpreterCompilationJob::FinalizeJobImpl(
     Handle<SharedFunctionInfo> shared_info, Isolate* isolate) {
   RuntimeCallTimerScope runtimeTimerScope(
@@ -210,23 +214,36 @@ InterpreterCompilationJob::Status InterpreterCompilationJob::FinalizeJobImpl(
   TRACE_EVENT0(TRACE_DISABLED_BY_DEFAULT("v8.compile"),
                "V8.CompileIgnitionFinalization");
 
-  Handle<BytecodeArray> bytecodes =
-      generator()->FinalizeBytecode(isolate, parse_info()->script());
-  if (generator()->HasStackOverflow()) {
-    return FAILED;
+  Handle<BytecodeArray> bytecodes = compilation_info_.bytecode_array();
+  if (bytecodes.is_null()) {
+    bytecodes = generator()->FinalizeBytecode(isolate, parse_info()->script());
+    if (generator()->HasStackOverflow()) {
+      return FAILED;
+    }
+    compilation_info()->SetBytecodeArray(bytecodes);
+  }
+
+  if (compilation_info()->SourcePositionRecordingMode() ==
+      SourcePositionTableBuilder::RecordingMode::RECORD_SOURCE_POSITIONS) {
+    Handle<ByteArray> source_position_table =
+        generator()->FinalizeSourcePositionTable(isolate);
+    bytecodes->set_source_position_table(*source_position_table);
   }
 
   if (ShouldPrintBytecode(shared_info)) {
     StdoutStream os;
     std::unique_ptr<char[]> name =
         compilation_info()->literal()->GetDebugName();
-    os << "[generated bytecode for function: " << name.get() << "]"
-       << std::endl;
+    os << "[generated bytecode for function: " << name.get() << " ("
+       << shared_info << ")]" << std::endl;
     bytecodes->Disassemble(os);
     os << std::flush;
   }
 
-  compilation_info()->SetBytecodeArray(bytecodes);
+#ifdef DEBUG
+  CheckAndPrintBytecodeMismatch(isolate, bytecodes);
+#endif
+
   return SUCCEEDED;
 }
 
@@ -234,8 +251,18 @@ std::unique_ptr<UnoptimizedCompilationJob> Interpreter::NewCompilationJob(
     ParseInfo* parse_info, FunctionLiteral* literal,
     AccountingAllocator* allocator,
     std::vector<FunctionLiteral*>* eager_inner_literals) {
-  return base::make_unique<InterpreterCompilationJob>(
+  return std::make_unique<InterpreterCompilationJob>(
       parse_info, literal, allocator, eager_inner_literals);
+}
+
+std::unique_ptr<UnoptimizedCompilationJob>
+Interpreter::NewSourcePositionCollectionJob(
+    ParseInfo* parse_info, FunctionLiteral* literal,
+    Handle<BytecodeArray> existing_bytecode, AccountingAllocator* allocator) {
+  auto job = std::make_unique<InterpreterCompilationJob>(parse_info, literal,
+                                                         allocator, nullptr);
+  job->compilation_info()->SetBytecodeArray(existing_bytecode);
+  return job;
 }
 
 void Interpreter::ForEachBytecode(

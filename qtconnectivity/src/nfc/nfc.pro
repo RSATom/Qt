@@ -5,7 +5,7 @@ DEFINES += QT_NO_FOREACH
 QMAKE_DOCS = $$PWD/doc/qtnfc.qdocconf
 OTHER_FILES += doc/src/*.qdoc   # show .qdoc files in Qt Creator
 
-PUBLIC_HEADERS += \
+HEADERS += \
     qtnfcglobal.h \
     qnearfieldmanager.h \
     qnearfieldtarget.h \
@@ -17,9 +17,7 @@ PUBLIC_HEADERS += \
     qqmlndefrecord.h \
     qndefnfcsmartposterrecord.h \
     qnearfieldsharemanager.h \
-    qnearfieldsharetarget.h
-
-PRIVATE_HEADERS += \
+    qnearfieldsharetarget.h \
     qtnfcglobal_p.h \
     qllcpsocket_p.h \
     qllcpserver_p.h \
@@ -63,7 +61,7 @@ linux:!android:qtHaveModule(dbus) {
 
     DEFINES += NEARD_NFC
 
-    PRIVATE_HEADERS += \
+    HEADERS += \
         qllcpsocket_p_p.h \
         qllcpserver_p_p.h \
         qnearfieldmanager_neard_p.h \
@@ -91,7 +89,7 @@ linux:!android:qtHaveModule(dbus) {
     DEFINES += ANDROID_NFC
     QT_PRIVATE += core-private gui androidextras
 
-    PRIVATE_HEADERS += \
+    HEADERS += \
         qllcpserver_android_p.h \
         qllcpsocket_android_p.h \
         android/androidjninfc_p.h \
@@ -117,7 +115,7 @@ linux:!android:qtHaveModule(dbus) {
 isEmpty(NFC_BACKEND_AVAILABLE) {
     message("Unsupported NFC platform, will not build a working QtNfc library.")
 
-    PRIVATE_HEADERS += \
+    HEADERS += \
         qllcpsocket_p_p.h \
         qllcpserver_p_p.h \
         qnearfieldmanagerimpl_p.h \
@@ -132,7 +130,5 @@ isEmpty(NFC_BACKEND_AVAILABLE) {
         qnearfieldsharetargetimpl_p.cpp \
         qnearfieldtarget_p.cpp
 }
-
-HEADERS += $$PUBLIC_HEADERS $$PRIVATE_HEADERS
 
 load(qt_module)

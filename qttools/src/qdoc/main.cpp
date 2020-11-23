@@ -34,6 +34,7 @@
 #include "cppcodeparser.h"
 #include "doc.h"
 #include "htmlgenerator.h"
+#include "docbookgenerator.h"
 #include "jscodemarker.h"
 #include "location.h"
 #include "loggingcategory.h"
@@ -87,8 +88,9 @@ static ClangCodeParser *clangParser_ = nullptr;
   a list of output formats; each format may have a different
   output subdirectory where index files are located.
 */
-static void loadIndexFiles(Config &config, const QSet<QString> &formats)
+static void loadIndexFiles(const QSet<QString> &formats)
 {
+    Config &config = Config::instance();
     QDocDatabase *qdb = QDocDatabase::qdocDB();
     QStringList indexFiles;
     const QStringList configIndexes = config.getStringList(CONFIG_INDEXES);
@@ -158,9 +160,9 @@ static void loadIndexFiles(Config &config, const QSet<QString> &formats)
                 // Remove self-dependencies and possible duplicates
                 config.dependModules().removeAll(config.getString(CONFIG_PROJECT).toLower());
                 config.dependModules().removeDuplicates();
-                Location::logToStdErrAlways(QString("qdocconf file has depends = *;"
-                                                    " loading all %1 index files found")
-                                                    .arg(config.dependModules().count()));
+                qCCritical(lcQdoc) << "qdocconf file has depends = *; loading all "
+                               << config.dependModules().count()
+                               << " index files found";
             }
             for (const auto &module : config.dependModules()) {
                 QVector<QFileInfo> foundIndices;
@@ -235,13 +237,13 @@ void logStartEndMessage(const QLatin1String &startStop, const Config &config)
     const QString runName = " qdoc for "
             + config.getString(CONFIG_PROJECT)
             + QLatin1String(" in ")
-            + QLatin1String(Generator::singleExec() ? "single" : "dual")
-            + QLatin1String(" process mode, (")
-            + QLatin1String(Generator::preparing() ? "prepare" : "generate")
-            + QLatin1String(" phase)");
+            + QLatin1String(config.singleExec() ? "single" : "dual")
+            + QLatin1String(" process mode: ")
+            + QLatin1String(config.preparing() ? "prepare" : "generate")
+            + QLatin1String(" phase.");
 
     const QString msg = startStop + runName;
-    Location::logToStdErrAlways(msg);
+    qCInfo(lcQdoc) << msg.toUtf8().data();
 }
 
 /*!
@@ -249,8 +251,9 @@ void logStartEndMessage(const QLatin1String &startStop, const Config &config)
     of QDoc. The \a config instance represents the configuration data for QDoc.
     All other classes are initialized with the same config.
  */
-static void processQdocconfFile(const QString &fileName, Config &config)
+static void processQdocconfFile(const QString &fileName)
 {
+    Config &config = Config::instance();
     config.setPreviousCurrentDir(QDir::currentPath());
 
     /*
@@ -262,12 +265,11 @@ static void processQdocconfFile(const QString &fileName, Config &config)
       in the file being processed, mainly for error reporting
       purposes.
      */
-    Location::initialize(config);
+    Location::initialize();
     config.load(fileName);
     QString project = config.getString(CONFIG_PROJECT);
     if (project.isEmpty()) {
-        Location::logToStdErrAlways(
-                QLatin1String("qdoc can't run; no project set in qdocconf file"));
+        qCCritical(lcQdoc) << QLatin1String("qdoc can't run; no project set in qdocconf file");
         exit(1);
     }
     Location::terminate();
@@ -290,12 +292,12 @@ static void processQdocconfFile(const QString &fileName, Config &config)
       are either cleared after they have been used, or they
       are cleared in the terminate() functions below.
      */
-    Location::initialize(config);
-    Tokenizer::initialize(config);
-    CodeMarker::initialize(config);
-    CodeParser::initialize(config);
-    Generator::initialize(config);
-    Doc::initialize(config);
+    Location::initialize();
+    Tokenizer::initialize();
+    CodeMarker::initialize();
+    CodeParser::initialize();
+    Generator::initialize();
+    Doc::initialize();
 
 #ifndef QT_NO_TRANSLATION
     /*
@@ -356,14 +358,14 @@ static void processQdocconfFile(const QString &fileName, Config &config)
     Location outputFormatsLocation = config.lastLocation();
 
     qdb->clearSearchOrder();
-    if (!Generator::singleExec()) {
-        if (!Generator::preparing()) {
+    if (!config.singleExec()) {
+        if (!config.preparing()) {
             qCDebug(lcQdoc, "  loading index files");
-            loadIndexFiles(config, outputFormats);
+            loadIndexFiles(outputFormats);
             qCDebug(lcQdoc, "  done loading index files");
         }
         qdb->newPrimaryTree(project);
-    } else if (Generator::preparing())
+    } else if (config.preparing())
         qdb->newPrimaryTree(project);
     else
         qdb->setPrimaryTree(project);
@@ -407,7 +409,7 @@ static void processQdocconfFile(const QString &fileName, Config &config)
     }
     Generator::augmentImageDirs(exampleImageDirs);
 
-    if (Generator::dualExec() || Generator::preparing()) {
+    if (config.dualExec() || config.preparing()) {
         QStringList headerList;
         QStringList sourceList;
 
@@ -476,7 +478,7 @@ static void processQdocconfFile(const QString &fileName, Config &config)
           add it to the big tree.
         */
         parsed = 0;
-        Location::logToStdErrAlways("Parse source files for " + project);
+        qCInfo(lcQdoc) << "Parse source files for" << project;
         for (const auto &key : sources.keys()) {
             auto *codeParser = CodeParser::parserForSourceFile(key);
             if (codeParser) {
@@ -485,7 +487,7 @@ static void processQdocconfFile(const QString &fileName, Config &config)
                 codeParser->parseSourceFile(config.location(), key);
             }
         }
-        Location::logToStdErrAlways("Source files parsed for " + project);
+        qCInfo(lcQdoc) << "Source files parsed for" << project;
     }
     /*
       Now the primary tree has been built from all the header and
@@ -508,7 +510,7 @@ static void processQdocconfFile(const QString &fileName, Config &config)
         if (generator == nullptr)
             outputFormatsLocation.fatal(
                     QCoreApplication::translate("QDoc", "Unknown output format '%1'").arg(format));
-        generator->initializeFormat(config);
+        generator->initializeFormat();
         generator->generateDocs();
     }
     qdb->clearLinkCounts();
@@ -570,8 +572,10 @@ int main(int argc, char **argv)
 
     HtmlGenerator htmlGenerator;
     WebXMLGenerator webXMLGenerator;
+    DocBookGenerator docBookGenerator;
 
-    Config config(QCoreApplication::translate("QDoc", "qdoc"), app.arguments());
+    Config::instance().init(QCoreApplication::translate("QDoc", "qdoc"), app.arguments());
+    Config &config = Config::instance();
 
     // Get the list of files to act on:
     QStringList qdocFiles = config.qdocFiles();
@@ -581,24 +585,24 @@ int main(int argc, char **argv)
     if (config.singleExec())
         qdocFiles = Config::loadMaster(qdocFiles.at(0));
 
-    if (Generator::singleExec()) {
+    if (config.singleExec()) {
         // single qdoc process for prepare and generate phases
-        Generator::setQDocPass(Generator::Prepare);
+        config.setQDocPass(Config::Prepare);
         for (const auto &file : qAsConst(qdocFiles)) {
             config.dependModules().clear();
-            processQdocconfFile(file, config);
+            processQdocconfFile(file);
         }
-        Generator::setQDocPass(Generator::Generate);
+        config.setQDocPass(Config::Generate);
         QDocDatabase::qdocDB()->processForest();
         for (const auto &file : qAsConst(qdocFiles)) {
             config.dependModules().clear();
-            processQdocconfFile(file, config);
+            processQdocconfFile(file);
         }
     } else {
         // separate qdoc processes for prepare and generate phases
         for (const auto &file : qAsConst(qdocFiles)) {
             config.dependModules().clear();
-            processQdocconfFile(file, config);
+            processQdocconfFile(file);
         }
     }
 

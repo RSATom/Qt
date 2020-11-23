@@ -77,7 +77,8 @@ class P2PQuicPacketWriter : public quic::QuicPacketWriter,
     }
 
     P2PQuicPacketTransport::QuicPacket packet;
-    packet.packet_number = connection_->packet_generator().packet_number().ToUint64();
+    packet.packet_number =
+        connection_->packet_creator().packet_number().ToUint64();
     packet.buffer = buffer;
     packet.buf_len = buf_len;
     int bytes_written = packet_transport_->WritePacket(packet);
@@ -172,15 +173,9 @@ std::unique_ptr<quic::QuicConnection> CreateQuicConnection(
 class DummyCryptoServerStreamHelper
     : public quic::QuicCryptoServerStream::Helper {
  public:
-  explicit DummyCryptoServerStreamHelper(quic::QuicRandom* random)
-      : random_(random) {}
-  ~DummyCryptoServerStreamHelper() override {}
+  explicit DummyCryptoServerStreamHelper(quic::QuicRandom* random) {}
 
-  quic::QuicConnectionId GenerateConnectionIdForReject(
-      quic::QuicTransportVersion /*version*/,
-      quic::QuicConnectionId connection_id) const override {
-    return quic::QuicUtils::CreateRandomConnectionId(random_);
-  }
+  ~DummyCryptoServerStreamHelper() override {}
 
   bool CanAcceptClientHello(const quic::CryptoHandshakeMessage& message,
                             const quic::QuicSocketAddress& client_address,
@@ -189,10 +184,6 @@ class DummyCryptoServerStreamHelper
                             std::string* error_details) const override {
     return true;
   }
-
- private:
-  // Used to generate random connection IDs. Needs to outlive this.
-  quic::QuicRandom* random_;
 };
 }  // namespace
 
@@ -264,7 +255,8 @@ P2PQuicTransportImpl::P2PQuicTransportImpl(
     : quic::QuicSession(connection.get(),
                         nullptr /* visitor */,
                         quic_config,
-                        quic::CurrentSupportedVersions()),
+                        quic::CurrentSupportedVersions(),
+                        /*expected_num_static_unidirectional_streams = */ 0),
       helper_(std::move(helper)),
       connection_(std::move(connection)),
       crypto_config_factory_(std::move(crypto_config_factory)),
@@ -541,6 +533,26 @@ void P2PQuicTransportImpl::OnCryptoHandshakeEvent(CryptoHandshakeEvent event) {
   DCHECK_CALLED_ON_VALID_THREAD(thread_checker_);
   QuicSession::OnCryptoHandshakeEvent(event);
   if (event == HANDSHAKE_CONFIRMED) {
+    DCHECK(IsEncryptionEstablished());
+    DCHECK(IsCryptoHandshakeConfirmed());
+    P2PQuicNegotiatedParams negotiated_params;
+    // The guaranteed largest message payload will not change throughout the
+    // connection.
+    uint16_t max_datagram_length =
+        quic::QuicSession::GetGuaranteedLargestMessagePayload();
+    if (max_datagram_length > 0) {
+      // Datagrams are supported in this case.
+      negotiated_params.set_max_datagram_length(max_datagram_length);
+    }
+    delegate_->OnConnected(negotiated_params);
+  }
+}
+
+void P2PQuicTransportImpl::SetDefaultEncryptionLevel(
+    quic::EncryptionLevel level) {
+  DCHECK_CALLED_ON_VALID_THREAD(thread_checker_);
+  QuicSession::SetDefaultEncryptionLevel(level);
+  if (level == quic::ENCRYPTION_FORWARD_SECURE) {
     DCHECK(IsEncryptionEstablished());
     DCHECK(IsCryptoHandshakeConfirmed());
     P2PQuicNegotiatedParams negotiated_params;

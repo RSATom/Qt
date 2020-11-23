@@ -22,6 +22,7 @@
 #include "device/base/features.h"
 #include "device/bluetooth/dbus/bluetooth_adapter_client.h"
 #include "device/bluetooth/dbus/bluetooth_agent_manager_client.h"
+#include "device/bluetooth/dbus/bluetooth_debug_manager_client.h"
 #include "device/bluetooth/dbus/bluetooth_device_client.h"
 #include "device/bluetooth/dbus/bluetooth_gatt_characteristic_client.h"
 #include "device/bluetooth/dbus/bluetooth_gatt_descriptor_client.h"
@@ -46,8 +47,7 @@ BluezDBusManager::BluezDBusManager(dbus::Bus* bus,
     : bus_(bus),
       alternate_bus_(alternate_bus),
       object_manager_support_known_(false),
-      object_manager_supported_(false),
-      weak_ptr_factory_(this) {
+      object_manager_supported_(false) {
   // On Chrome OS, Bluez might not be ready by the time we initialize the
   // BluezDBusManager so we initialize the clients anyway.
   bool should_check_object_manager = true;
@@ -108,6 +108,12 @@ BluetoothAgentManagerClient*
 bluez::BluezDBusManager::GetBluetoothAgentManagerClient() {
   DCHECK(object_manager_support_known_);
   return client_bundle_->bluetooth_agent_manager_client();
+}
+
+BluetoothDebugManagerClient*
+bluez::BluezDBusManager::GetBluetoothDebugManagerClient() {
+  DCHECK(object_manager_support_known_);
+  return client_bundle_->bluetooth_debug_manager_client();
 }
 
 BluetoothDeviceClient* bluez::BluezDBusManager::GetBluetoothDeviceClient() {
@@ -205,6 +211,8 @@ void BluezDBusManager::InitializeClients() {
                                                    bluetooth_service_name);
   client_bundle_->bluetooth_agent_manager_client()->Init(
       GetSystemBus(), bluetooth_service_name);
+  client_bundle_->bluetooth_debug_manager_client()->Init(
+      GetSystemBus(), bluetooth_service_name);
   client_bundle_->bluetooth_device_client()->Init(GetSystemBus(),
                                                   bluetooth_service_name);
   client_bundle_->bluetooth_gatt_characteristic_client()->Init(
@@ -236,14 +244,9 @@ void BluezDBusManager::InitializeClients() {
 }
 
 std::string BluezDBusManager::GetBluetoothServiceName() {
-  bool use_newblue = false;
-#if defined(OS_CHROMEOS)
-  use_newblue = base::FeatureList::IsEnabled(device::kNewblueDaemon);
-#endif  // defined(OS_CHROMEOS)
-
-  return use_newblue
-             ? bluetooth_object_manager::kBluetoothObjectManagerServiceName
-             : bluez_object_manager::kBluezObjectManagerServiceName;
+  // TODO(b/145163508): Remove the NewBlue feature flag as Bluetooth service is
+  // now always BlueZ.
+  return bluez_object_manager::kBluezObjectManagerServiceName;
 }
 
 // static
@@ -353,6 +356,12 @@ void BluezDBusManagerSetter::SetBluetoothAgentManagerClient(
     std::unique_ptr<BluetoothAgentManagerClient> client) {
   bluez::BluezDBusManager::Get()
       ->client_bundle_->bluetooth_agent_manager_client_ = std::move(client);
+}
+
+void BluezDBusManagerSetter::SetBluetoothDebugManagerClient(
+    std::unique_ptr<BluetoothDebugManagerClient> client) {
+  bluez::BluezDBusManager::Get()
+      ->client_bundle_->bluetooth_debug_manager_client_ = std::move(client);
 }
 
 void BluezDBusManagerSetter::SetBluetoothDeviceClient(

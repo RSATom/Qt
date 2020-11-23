@@ -57,7 +57,7 @@ public:
     VkFormat imageFormat() const { return fInfo.fFormat; }
     GrBackendFormat getBackendFormat() const {
         if (fResource && this->ycbcrConversionInfo().isValid()) {
-            SkASSERT(this->imageFormat() == VK_FORMAT_UNDEFINED);
+            SkASSERT(this->imageFormat() == this->ycbcrConversionInfo().fFormat);
             return GrBackendFormat::MakeVk(this->ycbcrConversionInfo());
         }
         SkASSERT(this->imageFormat() != VK_FORMAT_UNDEFINED);
@@ -137,7 +137,7 @@ public:
                 , fIsProtected(GrProtected::kNo) {}
     };
 
-    static bool InitImageInfo(const GrVkGpu* gpu, const ImageDesc& imageDesc, GrVkImageInfo*);
+    static bool InitImageInfo(GrVkGpu* gpu, const ImageDesc& imageDesc, GrVkImageInfo*);
     // Destroys the internal VkImage and VkDeviceMemory in the GrVkImageInfo
     static void DestroyImageInfo(const GrVkGpu* gpu, GrVkImageInfo*);
 

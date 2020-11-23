@@ -5,12 +5,13 @@
 #ifndef COMPONENTS_ARC_BLUETOOTH_BLUETOOTH_TYPE_CONVERTERS_H_
 #define COMPONENTS_ARC_BLUETOOTH_BLUETOOTH_TYPE_CONVERTERS_H_
 
+#include <bluetooth/bluetooth.h>
 #include <stddef.h>
 #include <stdint.h>
 #include <string>
 #include <utility>
 
-#include "components/arc/common/bluetooth.mojom.h"
+#include "components/arc/mojom/bluetooth.mojom.h"
 #include "device/bluetooth/bluetooth_gatt_service.h"
 #include "device/bluetooth/bluez/bluetooth_service_attribute_value_bluez.h"
 #include "device/bluetooth/bluez/bluetooth_service_record_bluez.h"
@@ -38,6 +39,16 @@ struct TypeConverter<arc::mojom::BluetoothAddressPtr, std::string> {
 template <>
 struct TypeConverter<std::string, arc::mojom::BluetoothAddress> {
   static std::string Convert(const arc::mojom::BluetoothAddress& ptr);
+};
+
+template <>
+struct TypeConverter<arc::mojom::BluetoothAddressPtr, bdaddr_t> {
+  static arc::mojom::BluetoothAddressPtr Convert(const bdaddr_t& address);
+};
+
+template <>
+struct TypeConverter<bdaddr_t, arc::mojom::BluetoothAddress> {
+  static bdaddr_t Convert(const arc::mojom::BluetoothAddress& address);
 };
 
 template <>

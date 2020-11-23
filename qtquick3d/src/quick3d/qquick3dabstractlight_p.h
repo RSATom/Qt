@@ -62,7 +62,7 @@ class Q_QUICK3D_EXPORT QQuick3DAbstractLight : public QQuick3DNode
     Q_PROPERTY(float shadowFilter READ shadowFilter WRITE setShadowFilter NOTIFY shadowFilterChanged)
 
 public:
-    QQuick3DAbstractLight() : m_color(Qt::white), m_ambientColor(Qt::black) {}
+    explicit QQuick3DAbstractLight(QQuick3DNode *parent = nullptr);
     ~QQuick3DAbstractLight() override {}
 
     enum class QSSGShadowMapQuality {
@@ -73,7 +73,6 @@ public:
     };
     Q_ENUM(QSSGShadowMapQuality)
 
-    QQuick3DObject::Type type() const override;
     QColor color() const;
     QColor ambientColor() const;
     float brightness() const;
@@ -139,7 +138,7 @@ private:
     float m_shadowFactor = 5.0f;
     QSSGShadowMapQuality m_shadowMapQuality = QSSGShadowMapQuality::ShadowMapQualityLow;
     float m_shadowMapFar = 5000.0f;
-    float m_shadowFilter = 35.0f;
+    float m_shadowFilter = 5.0f;
 };
 
 QT_END_NAMESPACE

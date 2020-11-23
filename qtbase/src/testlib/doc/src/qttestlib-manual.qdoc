@@ -182,6 +182,11 @@
 
     \snippet code/doc_src_qtestlib.pro 2
 
+    To prevent the test from being installed to your target, add the
+    additional line:
+
+    \snippet code/doc_src_qtestlib.pro 3
+
     See the \l{Building a Testcase}{qmake manual} for
     more information about \c{make check}.
 
@@ -237,7 +242,7 @@
     \list
     \li \c -o \e{filename,format} \br
     Writes output to the specified file, in the specified format (one of
-    \c txt, \c xml, \c lightxml, \c xunitxml or \c tap).  The special filename \c -
+    \c txt, \c xml, \c lightxml, \c junitxml or \c tap).  The special filename \c -
     may be used to log to standard output.
     \li \c -o \e filename \br
     Writes output to the specified file.
@@ -247,8 +252,8 @@
     Outputs results as an XML document.
     \li \c -lightxml \br
     Outputs results as a stream of XML tags.
-    \li \c -xunitxml \br
-    Outputs results as an Xunit XML document.
+    \li \c -junitxml \br
+    Outputs results as an JUnit XML document.
     \li \c -csv \br
     Outputs results as comma-separated values (CSV). This mode is only suitable for
     benchmarks, since it suppresses normal pass/fail messages.
@@ -264,7 +269,7 @@
 
     If the first version of the \c -o option is used, neither the second version
     of the \c -o option nor the \c -txt, \c -xml, \c -lightxml, \c -teamcity,
-    \c -xunitxml or \c -tap options should be used.
+    \c -junitxml or \c -tap options should be used.
 
     If neither version of the \c -o option is used, test results will be logged to
     standard output.  If no format option is used, test results will be logged in
@@ -475,13 +480,12 @@
     For example, to test each number provided by \c {roundTripInt_data()} with
     each locale provided by \c {initTestCase_data()}:
 
-    \snippet code/src_qtestlib_qtestcase.cpp 31
+    \snippet code/src_qtestlib_qtestcase_snippet.cpp 31
 */
 
 /*!
     \page qtest-tutorial.html
     \brief A short introduction to testing with Qt Test.
-    \contentspage Qt Test Overview
     \nextpage {Chapter 1: Writing a Unit Test}{Chapter 1}
     \ingroup best-practices
 
@@ -506,7 +510,6 @@
 /*!
     \example tutorial1
 
-    \contentspage {Qt Test Tutorial}{Contents}
     \nextpage {Chapter 2: Data Driven Testing}{Chapter 2}
 
     \title Chapter 1: Writing a Unit Test
@@ -582,7 +585,6 @@
     \example tutorial2
 
     \previouspage {Chapter 1: Writing a Unit Test}{Chapter 1}
-    \contentspage {Qt Test Tutorial}{Contents}
     \nextpage {Chapter 3: Simulating Gui Events}{Chapter 3}
 
     \title Chapter 2: Data Driven Testing
@@ -691,7 +693,6 @@
     \example tutorial3
 
     \previouspage {Chapter 2: Data Driven Testing}{Chapter 2}
-    \contentspage {Qt Test Tutorial}{Contents}
     \nextpage {Chapter 4: Replaying GUI Events}{Chapter 4}
 
     \title Chapter 3: Simulating GUI Events
@@ -752,7 +753,6 @@
     \example tutorial4
 
     \previouspage {Chapter 3: Simulating GUI Events}{Chapter 3}
-    \contentspage {Qt Test Tutorial}{Contents}
     \nextpage {Chapter 5: Writing a Benchmark}{Chapter 5}
 
     \title Chapter 4: Replaying GUI Events
@@ -833,7 +833,6 @@
     \example tutorial5
 
     \previouspage {Chapter 4: Replaying GUI Events}{Chapter 4}
-    \contentspage {Qt Test Tutorial}{Contents}
     \nextpage {Chapter 6: Skipping Tests with QSKIP}{Chapter 6}
 
     \title Chapter 5: Writing a Benchmark
@@ -889,7 +888,6 @@
     \page qttestlib-tutorial6.html
 
     \previouspage {Chapter 5: Writing a Benchmark}{Chapter 5}
-    \contentspage {Qt Test Tutorial}{Contents}
 
     \title Chapter 6: Skipping Tests with QSKIP
     \brief How to skip tests in certain cases.
@@ -909,7 +907,7 @@
 
     Example of QSKIP in a test function:
 
-    \snippet code/doc_src_qtqskip.cpp 0
+    \snippet code/doc_src_qtqskip_snippet.cpp 0
 
     In a data-driven test, each call to QSKIP() skips only the current
     row of test data. If the data-driven test contains an unconditional

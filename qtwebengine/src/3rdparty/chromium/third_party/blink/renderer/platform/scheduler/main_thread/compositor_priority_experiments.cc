@@ -11,14 +11,16 @@
 namespace blink {
 namespace scheduler {
 
-using QueuePriority = base::sequence_manager::TaskQueue::QueuePriority;
-
 CompositorPriorityExperiments::CompositorPriorityExperiments(
     MainThreadSchedulerImpl* scheduler)
     : scheduler_(scheduler),
       experiment_(GetExperimentFromFeatureList()),
       prioritize_compositing_after_delay_length_(
-          base::TimeDelta::FromMilliseconds(kCompositingDelayLength.Get())) {
+          base::TimeDelta::FromMilliseconds(kCompositingDelayLength.Get())),
+      stop_signal_(base::FeatureList::IsEnabled(
+                       kPrioritizeCompositingUntilBeginMainFrame)
+                       ? StopSignalType::kBeginMainFrameTask
+                       : StopSignalType::kAnyCompositorTask) {
   do_prioritize_compositing_after_delay_callback_.Reset(base::BindRepeating(
       &CompositorPriorityExperiments::DoPrioritizeCompositingAfterDelay,
       base::Unretained(this)));
@@ -38,6 +40,9 @@ CompositorPriorityExperiments::GetExperimentFromFeatureList() {
   } else if (base::FeatureList::IsEnabled(
                  kVeryHighPriorityForCompositingAfterDelay)) {
     return Experiment::kVeryHighPriorityForCompositingAfterDelay;
+  } else if (base::FeatureList::IsEnabled(
+                 kVeryHighPriorityForCompositingBudget)) {
+    return Experiment::kVeryHighPriorityForCompositingBudget;
   } else {
     return Experiment::kNone;
   }
@@ -54,7 +59,7 @@ QueuePriority CompositorPriorityExperiments::GetCompositorPriority() const {
     case Experiment::kVeryHighPriorityForCompositingAlways:
       return QueuePriority::kVeryHighPriority;
     case Experiment::kVeryHighPriorityForCompositingWhenFast:
-      if (compositing_is_fast_) {
+      if (scheduler_->main_thread_compositing_is_fast()) {
         return QueuePriority::kVeryHighPriority;
       }
       return QueuePriority::kNormalPriority;
@@ -62,15 +67,12 @@ QueuePriority CompositorPriorityExperiments::GetCompositorPriority() const {
       return alternating_compositor_priority_;
     case Experiment::kVeryHighPriorityForCompositingAfterDelay:
       return delay_compositor_priority_;
+    case Experiment::kVeryHighPriorityForCompositingBudget:
+      return budget_compositor_priority_;
     case Experiment::kNone:
       NOTREACHED();
       return QueuePriority::kNormalPriority;
   }
-}
-
-void CompositorPriorityExperiments::SetCompositingIsFast(
-    bool compositing_is_fast) {
-  compositing_is_fast_ = compositing_is_fast;
 }
 
 void CompositorPriorityExperiments::DoPrioritizeCompositingAfterDelay() {
@@ -82,6 +84,22 @@ void CompositorPriorityExperiments::OnMainThreadSchedulerInitialized() {
   if (experiment_ == Experiment::kVeryHighPriorityForCompositingAfterDelay) {
     PostPrioritizeCompositingAfterDelayTask();
   }
+  if (experiment_ == Experiment::kVeryHighPriorityForCompositingBudget) {
+    budget_pool_controller_.reset(new CompositorBudgetPoolController(
+        this, scheduler_, scheduler_->CompositorTaskQueue().get(),
+        &scheduler_->tracing_controller_,
+        base::TimeDelta::FromMilliseconds(
+            kInitialCompositorBudgetInMilliseconds.Get()),
+        kCompositorBudgetRecoveryRate.Get()));
+  }
+}
+
+void CompositorPriorityExperiments::OnMainThreadSchedulerShutdown() {
+  budget_pool_controller_.reset();
+}
+
+void CompositorPriorityExperiments::OnWillBeginMainFrame() {
+  will_begin_main_frame_ = true;
 }
 
 void CompositorPriorityExperiments::PostPrioritizeCompositingAfterDelayTask() {
@@ -94,14 +112,20 @@ void CompositorPriorityExperiments::PostPrioritizeCompositingAfterDelayTask() {
 
 void CompositorPriorityExperiments::OnTaskCompleted(
     MainThreadTaskQueue* queue,
-    QueuePriority current_compositor_priority) {
+    QueuePriority current_compositor_priority,
+    MainThreadTaskQueue::TaskTiming* task_timing) {
   if (!queue)
     return;
 
-  // Don't change priorities if compositor priority is already set to highest
-  // or higher.
-  if (current_compositor_priority <= QueuePriority::kHighestPriority)
-    return;
+  bool have_seen_stop_signal = false;
+  if (queue->queue_type() == MainThreadTaskQueue::QueueType::kCompositor) {
+    if (stop_signal_ == StopSignalType::kAnyCompositorTask) {
+      have_seen_stop_signal = true;
+    } else if (will_begin_main_frame_) {
+      have_seen_stop_signal = true;
+      will_begin_main_frame_ = false;
+    }
+  }
 
   switch (experiment_) {
     case Experiment::kVeryHighPriorityForCompositingAlways:
@@ -113,9 +137,8 @@ void CompositorPriorityExperiments::OnTaskCompleted(
       // compositor if another task has run regardless of its priority. This
       // prevents starving the compositor while allowing other work to run
       // in-between.
-      if (queue->queue_type() == MainThreadTaskQueue::QueueType::kCompositor &&
-          alternating_compositor_priority_ ==
-              QueuePriority::kVeryHighPriority) {
+      if (have_seen_stop_signal && alternating_compositor_priority_ ==
+                                       QueuePriority::kVeryHighPriority) {
         alternating_compositor_priority_ = QueuePriority::kNormalPriority;
         scheduler_->OnCompositorPriorityExperimentUpdateCompositorPriority();
       } else if (alternating_compositor_priority_ ==
@@ -125,7 +148,7 @@ void CompositorPriorityExperiments::OnTaskCompleted(
       }
       return;
     case Experiment::kVeryHighPriorityForCompositingAfterDelay:
-      if (queue->queue_type() == MainThreadTaskQueue::QueueType::kCompositor) {
+      if (have_seen_stop_signal) {
         delay_compositor_priority_ = QueuePriority::kNormalPriority;
         do_prioritize_compositing_after_delay_callback_.Cancel();
         PostPrioritizeCompositingAfterDelayTask();
@@ -134,9 +157,81 @@ void CompositorPriorityExperiments::OnTaskCompleted(
           scheduler_->OnCompositorPriorityExperimentUpdateCompositorPriority();
       }
       return;
+    case Experiment::kVeryHighPriorityForCompositingBudget:
+      budget_pool_controller_->OnTaskCompleted(queue, task_timing,
+                                               have_seen_stop_signal);
+      return;
     case Experiment::kNone:
       return;
   }
+}
+
+void CompositorPriorityExperiments::OnBudgetExhausted() {
+  // Compositor will still be allowed to run tasks if the budget is exhausted
+  // if there is no other higher priority work to be done. If a compositor task
+  // is run while the budget is exhausted it will still deplete the budget which
+  // will keep it at a normal priority for longer.
+  budget_compositor_priority_ = QueuePriority::kNormalPriority;
+  scheduler_->OnCompositorPriorityExperimentUpdateCompositorPriority();
+}
+
+void CompositorPriorityExperiments::OnBudgetReplenished() {
+  budget_compositor_priority_ = QueuePriority::kVeryHighPriority;
+  scheduler_->OnCompositorPriorityExperimentUpdateCompositorPriority();
+}
+
+CompositorPriorityExperiments::CompositorBudgetPoolController::
+    CompositorBudgetPoolController(
+        CompositorPriorityExperiments* experiment,
+        MainThreadSchedulerImpl* scheduler,
+        MainThreadTaskQueue* compositor_queue,
+        TraceableVariableController* tracing_controller,
+        base::TimeDelta min_budget,
+        double budget_recovery_rate)
+    : experiment_(experiment), tick_clock_(scheduler->GetTickClock()) {
+  DCHECK_EQ(compositor_queue->queue_type(),
+            MainThreadTaskQueue::QueueType::kCompositor);
+  base::TimeTicks now = scheduler->GetTickClock()->NowTicks();
+
+  compositor_budget_pool_.reset(new CPUTimeBudgetPool(
+      "CompositorBudgetPool", this, tracing_controller, now));
+  compositor_budget_pool_->SetMinBudgetLevelToRun(now, min_budget);
+  compositor_budget_pool_->SetTimeBudgetRecoveryRate(now, budget_recovery_rate);
+  compositor_budget_pool_->AddQueue(now, compositor_queue);
+}
+
+CompositorPriorityExperiments::CompositorBudgetPoolController::
+    ~CompositorBudgetPoolController() = default;
+
+void CompositorPriorityExperiments::CompositorBudgetPoolController::
+    UpdateQueueSchedulingLifecycleState(base::TimeTicks now, TaskQueue* queue) {
+  UpdateCompositorBudgetState(now);
+}
+
+void CompositorPriorityExperiments::CompositorBudgetPoolController::
+    UpdateCompositorBudgetState(base::TimeTicks now) {
+  bool is_exhausted =
+      !compositor_budget_pool_->CanRunTasksAt(now, false /* is_wake_up */);
+  if (is_exhausted_ == is_exhausted)
+    return;
+
+  is_exhausted_ = is_exhausted;
+  if (is_exhausted_) {
+    experiment_->OnBudgetExhausted();
+    return;
+  }
+  experiment_->OnBudgetReplenished();
+}
+
+void CompositorPriorityExperiments::CompositorBudgetPoolController::
+    OnTaskCompleted(MainThreadTaskQueue* queue,
+                    MainThreadTaskQueue::TaskTiming* task_timing,
+                    bool have_seen_stop_signal) {
+  if (have_seen_stop_signal) {
+    compositor_budget_pool_->RecordTaskRunTime(queue, task_timing->start_time(),
+                                               task_timing->end_time());
+  }
+  UpdateCompositorBudgetState(task_timing->end_time());
 }
 
 }  // namespace scheduler

@@ -6,10 +6,13 @@
 
 #if defined(OS_WIN)
 #include <windows.h>
+
 #include <sddl.h>
+
 #include "base/bind.h"
 #include "base/callback_helpers.h"
 #include "base/debug/stack_trace.h"
+#include "base/strings/string_util.h"
 #include "base/win/win_util.h"
 #elif defined(OS_LINUX)
 // <syslog.h> defines LOG_INFO, LOG_WARNING macros that could conflict with
@@ -31,7 +34,7 @@ namespace {
 std::string* g_event_source_name = nullptr;
 uint16_t g_category = 0;
 uint32_t g_event_id = 0;
-base::string16* g_user_sid = nullptr;
+std::wstring* g_user_sid = nullptr;
 
 }  // namespace
 
@@ -43,7 +46,7 @@ void SetEventSource(const std::string& name,
   g_category = category;
   g_event_id = event_id;
   DCHECK_EQ(nullptr, g_user_sid);
-  g_user_sid = new base::string16();
+  g_user_sid = new std::wstring();
   base::win::GetUserSidString(g_user_sid);
 }
 

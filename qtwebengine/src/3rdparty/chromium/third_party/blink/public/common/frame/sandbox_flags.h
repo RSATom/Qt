@@ -36,6 +36,7 @@ enum class WebSandboxFlags : int {
   kTopNavigationByUserActivation = 1 << 14,
   // See https://crbug.com/539938
   kDownloads = 1 << 15,
+  kStorageAccessByUserActivation = 1 << 16,
   kAll = -1  // Mask with all bits set to 1.
 };
 
@@ -60,11 +61,7 @@ inline constexpr WebSandboxFlags operator~(WebSandboxFlags flags) {
 }
 
 inline std::ostream& operator<<(std::ostream& out, WebSandboxFlags flags) {
-#ifndef _MSC_VER
   return out << std::bitset<sizeof(int) * 8>(static_cast<int>(flags));
-#else
-  return out << static_cast<int>(flags);
-#endif
 }
 
 }  // namespace blink

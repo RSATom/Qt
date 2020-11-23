@@ -66,6 +66,28 @@ class QQmlAbstractBinding;
 class QQmlInstantiationInterrupt;
 class QQmlIncubatorPrivate;
 
+struct AliasToRequiredInfo {
+    QString propertyName;
+    QUrl fileUrl;
+};
+
+/*!
+\internal
+This struct contains information solely used for displaying error messages
+\variable aliasesToRequired allows us to give the user a way to know which (aliasing) properties
+can be set to set the required property
+\sa QQmlComponentPrivate::unsetRequiredPropertyToQQmlError
+*/
+struct RequiredPropertyInfo
+{
+    QString propertyName;
+    QUrl fileUrl;
+    QV4::CompiledData::Location location;
+    QVector<AliasToRequiredInfo> aliasesToRequired;
+};
+
+class RequiredProperties : public QHash<QQmlPropertyData*, RequiredPropertyInfo> {};
+
 struct QQmlObjectCreatorSharedState : public QSharedData
 {
     QQmlContextData *rootContext;
@@ -78,6 +100,8 @@ struct QQmlObjectCreatorSharedState : public QSharedData
     QList<QQmlEnginePrivate::FinalizeCallback> finalizeCallbacks;
     QQmlVmeProfiler profiler;
     QRecursionNode recursionNode;
+    RequiredProperties requiredProperties;
+    bool hadRequiredProperties;
 };
 
 class Q_QML_PRIVATE_EXPORT QQmlObjectCreator
@@ -87,9 +111,16 @@ public:
     QQmlObjectCreator(QQmlContextData *parentContext, const QQmlRefPointer<QV4::ExecutableCompilationUnit> &compilationUnit, QQmlContextData *creationContext, QQmlIncubatorPrivate  *incubator = nullptr);
     ~QQmlObjectCreator();
 
-    QObject *create(int subComponentIndex = -1, QObject *parent = nullptr, QQmlInstantiationInterrupt *interrupt = nullptr);
-    bool populateDeferredProperties(QObject *instance, QQmlData::DeferredData *deferredData);
-    bool populateDeferredBinding(const QQmlProperty &qmlProperty, QQmlData::DeferredData *deferredData, const QV4::CompiledData::Binding *binding);
+    enum CreationFlags { NormalObject = 1, InlineComponent = 2 };
+    QObject *create(int subComponentIndex = -1, QObject *parent = nullptr, QQmlInstantiationInterrupt *interrupt = nullptr, int flags = NormalObject);
+
+    bool populateDeferredProperties(QObject *instance, const QQmlData::DeferredData *deferredData);
+
+    void beginPopulateDeferred(QQmlContextData *context);
+    void populateDeferredBinding(const QQmlProperty &qmlProperty, int deferredIndex,
+                                 const QV4::CompiledData::Binding *binding);
+    void finalizePopulateDeferred();
+
     QQmlContextData *finalize(QQmlInstantiationInterrupt &interrupt);
     void clear();
 
@@ -102,6 +133,9 @@ public:
     QQmlContextData *parentContextData() const { return parentContext.contextData(); }
     QFiniteStack<QPointer<QObject> > &allCreatedObjects() { return sharedState->allCreatedObjects; }
 
+    RequiredProperties &requiredProperties() {return sharedState->requiredProperties;}
+    bool componentHadRequiredProperties() const {return sharedState->hadRequiredProperties;}
+
 private:
     QQmlObjectCreator(QQmlContextData *contextData, const QQmlRefPointer<QV4::ExecutableCompilationUnit> &compilationUnit, QQmlObjectCreatorSharedState *inheritedSharedState);
 
@@ -111,6 +145,11 @@ private:
 
     bool populateInstance(int index, QObject *instance,
                           QObject *bindingTarget, const QQmlPropertyData *valueTypeProperty);
+
+    // If qmlProperty and binding are null, populate all properties, otherwise only the given one.
+    void populateDeferred(QObject *instance, int deferredIndex,
+                          const QQmlPropertyPrivate *qmlProperty = nullptr,
+                          const QV4::CompiledData::Binding *binding = nullptr);
 
     void setupBindings(bool applyDeferredBindings = false);
     bool setPropertyBinding(const QQmlPropertyData *property, const QV4::CompiledData::Binding *binding);

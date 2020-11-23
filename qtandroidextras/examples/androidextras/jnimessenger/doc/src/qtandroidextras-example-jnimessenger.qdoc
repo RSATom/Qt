@@ -1,0 +1,145 @@
+/****************************************************************************
+**
+** Copyright (C) 2020 The Qt Company Ltd.
+** Contact: https://www.qt.io/licensing/
+**
+** This file is part of the QtAndroidExtras module of the Qt Toolkit.
+**
+** $QT_BEGIN_LICENSE:BSD$
+** Commercial License Usage
+** Licensees holding valid commercial Qt licenses may use this file in
+** accordance with the commercial license agreement provided with the
+** Software or, alternatively, in accordance with the terms contained in
+** a written agreement between you and The Qt Company. For licensing terms
+** and conditions see https://www.qt.io/terms-conditions. For further
+** information use the contact form at https://www.qt.io/contact-us.
+**
+** BSD License Usage
+** Alternatively, you may use this file under the terms of the BSD license
+** as follows:
+**
+** "Redistribution and use in source and binary forms, with or without
+** modification, are permitted provided that the following conditions are
+** met:
+**   * Redistributions of source code must retain the above copyright
+**     notice, this list of conditions and the following disclaimer.
+**   * Redistributions in binary form must reproduce the above copyright
+**     notice, this list of conditions and the following disclaimer in
+**     the documentation and/or other materials provided with the
+**     distribution.
+**   * Neither the name of The Qt Company Ltd nor the names of its
+**     contributors may be used to endorse or promote products derived
+**     from this software without specific prior written permission.
+**
+**
+** THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
+** "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
+** LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
+** A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT
+** OWNER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
+** SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT
+** LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
+** DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
+** THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+** (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+** OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE."
+**
+** $QT_END_LICENSE$
+**
+****************************************************************************/
+
+/*!
+    \title Qt JNI Messenger
+    \ingroup examples-qtandroidextras
+    \example jnimessenger
+    \brief Demonstrates communication between Java code and QML or C++ using NJI calls.
+
+    \image jnimessenger.png
+
+    This example demonstrates how to add a custom Java class to an Android application, and
+    how to both call it from C++ and call C++ functions from Java using the JNI convenience
+    APIs in the Qt Android Extras module. The application UI is created by using Qt Quick.
+
+    When clicking the send button, a message will be sent from QML to Java class though
+    the C++ class and a log of that is shown in the screen view. Logs also can be seen
+    from the Android logcat of the messages being exchanged, which would be similar to:
+
+    \badcode
+        I System.out: This is printed from JAVA, message is: QML sending to Java: Hello from QML
+        D libjnimessenger_armeabi-v7a.so: qml: QML received a message: Hello from JAVA!
+    \endcode
+
+    \include examples-run.qdocinc
+
+    \section1 Calling Java Methods from C++ Code
+
+    We define a custom Java class called \c JniMessenger in the JniMessenger.java file:
+
+    \quotefromfile jnimessenger/android/src/org/qtproject/example/jnimessenger/JniMessenger.java
+    \skipto org.qtproject.example.jnimessenger
+    \printuntil /^\}/
+
+    \note The custom Java class can extend other classes like QtActivity, Activity or any
+    other Java class.
+
+    In the jnimessenger.cpp file, we call the function \c printFromJava(String message)
+    by first creating a \c QAndroidJniObject for the Java String that we want to send
+    and then invoking a JNI call with \c callStaticMethod<>() while providing the method
+    signature:
+
+    \quotefromfile jnimessenger/jnimessenger.cpp
+    \skipto void JniMessenger::printFromJava
+    \printuntil }
+
+    That call will then execute the following from Java side, which would print the
+    message to the \c System.output.
+
+    \quotefromfile jnimessenger/android/src/org/qtproject/example/jnimessenger/JniMessenger.java
+    \skipto public static void printFromJava
+    \printuntil );
+
+    \section1 Calling QML/C++ Functions from Java Code
+
+    Directly after that, our native function \c callFromJava(String message) will be
+    called, which would be then handled from C++ side. Note, that this method has
+    to be defined as \c native at the top of the Java class as:
+
+    \code
+        private static native void callFromJava(String message);
+    \endcode
+
+    To be able to call C++ functions from Java, in our C++ class JniMessenger.cpp,
+    we need to define those functions using \c RegisterNatives() as follows:
+
+    \quotefromfile jnimessenger/jnimessenger.cpp
+    \skipto JNINativeMethod
+    \printuntil }
+
+    (See \l{Java Native Methods} for more details).
+
+    We would need to register the functions' signatures in \c methods[], which have
+    the name in Java class, then its parameters and return types, then the function
+    pointer in the C++ code.
+
+    \code
+        JNINativeMethod methods[] {{"callFromJava", "(Ljava/lang/String;)V", reinterpret_cast<void *>(callFromJava)}};
+    \endcode
+
+    This would insure that our C++ function is available from within the Java call.
+    Now, that function could simply print the message it received from Java to
+    the debug log, but we want to forward the received message to the QML components
+    so that it gets displayed in our text view, so we get:
+
+    \quotefromfile jnimessenger/jnimessenger.cpp
+    \skipto static void callFromJava
+    \printuntil }
+
+    Now, we need to implement the necessary \c Connections in the QML code to receive
+    the message from C++, which we would print into the \c Text view with the id \c messengerLog:
+
+    \quotefromfile jnimessenger/main.qml
+    \skipto Connections
+    \printuntil /^\ {4}\}/
+
+    \sa {Qt for Android}, {Qt Android Extras}
+*/

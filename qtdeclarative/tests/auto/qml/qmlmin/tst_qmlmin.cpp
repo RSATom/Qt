@@ -60,6 +60,9 @@ private:
 
 tst_qmlmin::tst_qmlmin()
 {
+    // this test can be slow, double the timeout from the default 5 minutes to 10 minutes
+    const int timeout = 10*60*1000;     // 10 minutes
+    qputenv("QTEST_FUNCTION_TIMEOUT", QByteArray::number(timeout));
 }
 
 void tst_qmlmin::initTestCase()
@@ -131,6 +134,7 @@ void tst_qmlmin::initTestCase()
     invalidFiles << "tests/auto/qml/debugger/qqmlpreview/data/broken.qml";
     invalidFiles << "tests/auto/qml/qqmllanguage/data/fuzzed.2.qml";
     invalidFiles << "tests/auto/qml/qqmllanguage/data/fuzzed.3.qml";
+    invalidFiles << "tests/auto/qml/qqmllanguage/data/requiredProperties.2.qml";
     // generatorFunction.qml is not invalid per se, but the minifier cannot handle yield statements
     invalidFiles << "tests/auto/qml/qqmlecmascript/data/generatorFunction.qml";
 #endif

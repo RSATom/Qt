@@ -111,11 +111,11 @@ private:
                                     bool flipXZ);
 
 private:
-    SurfaceType m_surfaceType;
-    int m_columns;
-    int m_rows;
+    SurfaceType m_surfaceType = Undefined;
+    int m_columns = 0;
+    int m_rows = 0;
     GLuint m_gridElementbuffer;
-    GLuint m_gridIndexCount;
+    GLuint m_gridIndexCount = 0;
     QVector<QVector3D> m_vertices;
     QVector<QVector3D> m_normals;
     // Caches are not owned
@@ -126,9 +126,9 @@ private:
     float m_minY;
     float m_maxY;
     GLuint m_uvTextureBuffer;
-    bool m_returnTextureBuffer;
+    bool m_returnTextureBuffer = false;
     SurfaceObject::DataDimensions m_dataDimension;
-    SurfaceObject::DataDimensions m_oldDataDimension;
+    SurfaceObject::DataDimensions m_oldDataDimension = DataDimensions(-1);
 };
 
 QT_END_NAMESPACE_DATAVISUALIZATION

@@ -89,10 +89,8 @@ QStringList TestSuiteHandler::readExclusionList(const bool useExclusionList) con
     return avoid;
 }
 
-bool TestSuiteHandler::startElement(const QString &namespaceURI,
-                                    const QString &localName,
-                                    const QString &/*qName*/,
-                                    const QXmlAttributes &atts)
+bool TestSuiteHandler::startElement(const QStringRef &namespaceURI, const QStringRef &localName,
+                                    const QStringRef & /*qName*/, const QXmlStreamAttributes &atts)
 {
     if(namespaceURI != Global::xqtsCatalogNS)
         return true;
@@ -100,7 +98,7 @@ bool TestSuiteHandler::startElement(const QString &namespaceURI,
     {
         if(localName == QLatin1String("test-group"))
         {
-            m_testGroupName.push(atts.value(QLatin1String("name")));
+            m_testGroupName.push(atts.value(QLatin1String("name")).toString());
             return true;
         }
         else
@@ -111,16 +109,20 @@ bool TestSuiteHandler::startElement(const QString &namespaceURI,
     if(localName == QLatin1String("test-case"))
     {
         XQTSTestCase *const c = new XQTSTestCase(
-                TestCase::scenarioFromString(atts.value(QLatin1String("scenario"))), m_container);
+                TestCase::scenarioFromString(atts.value(QLatin1String("scenario")).toString()),
+                m_container);
 
-        c->setName(atts.value(QLatin1String("name")));
-        c->setCreator(atts.value(QLatin1String("Creator")));
-        c->setIsXPath(Global::readBoolean(atts.value(QLatin1String("is-XPath2"))));
-        c->setLastModified(QDate::fromString(atts.value(QLatin1String("version-drop")), Qt::ISODate));
+        c->setName(atts.value(QLatin1String("name")).toString());
+        c->setCreator(atts.value(QLatin1String("Creator")).toString());
+        c->setIsXPath(Global::readBoolean(atts.value(QLatin1String("is-XPath2")).toString()));
+        c->setLastModified(QDate::fromString(atts.value(QLatin1String("version-drop")).toString(),
+                                             Qt::ISODate));
         Q_ASSERT(c->lastModified().isNull() || c->lastModified().isValid());
 
-        m_currentQueryPath = m_queryOffset.resolved(QUrl(atts.value(QLatin1String("FilePath"))));
-        m_currentBaselinePath = m_baselineOffset.resolved(QUrl(atts.value(QLatin1String("FilePath"))));
+        m_currentQueryPath =
+                m_queryOffset.resolved(QUrl(atts.value(QLatin1String("FilePath")).toString()));
+        m_currentBaselinePath =
+                m_baselineOffset.resolved(QUrl(atts.value(QLatin1String("FilePath")).toString()));
 
         m_container->appendChild(c);
         m_tc = c;
@@ -133,11 +135,12 @@ bool TestSuiteHandler::startElement(const QString &namespaceURI,
     else if(localName == QLatin1String("input-file") ||
             localName == QLatin1String("input-URI"))
     {
-        m_currentInputVariable = atts.value(QLatin1String("variable"));
+        m_currentInputVariable = atts.value(QLatin1String("variable")).toString();
     }
     else if(localName == QLatin1String("output-file"))
     {
-        m_baseLine = new TestBaseLine(TestBaseLine::identifierFromString(atts.value(QLatin1String("compare"))));
+        m_baseLine = new TestBaseLine(TestBaseLine::identifierFromString(
+                atts.value(QLatin1String("compare")).toString()));
     }
     else if(localName == QLatin1String("expected-error"))
     {
@@ -145,7 +148,7 @@ bool TestSuiteHandler::startElement(const QString &namespaceURI,
     }
     else if(localName == QLatin1String("test-group"))
     {
-        m_testGroupName.push(atts.value(QLatin1String("name")));
+        m_testGroupName.push(atts.value(QLatin1String("name")).toString());
 
         if(m_exclusionList.contains(m_testGroupName.top()))
         {
@@ -164,35 +167,43 @@ bool TestSuiteHandler::startElement(const QString &namespaceURI,
     }
     else if(localName == QLatin1String("source"))
     {
-        m_sourceMap.insert(atts.value(QLatin1String("ID")),
-                           m_sourceOffset.resolved(QUrl(atts.value(QLatin1String("FileName")))));
+        m_sourceMap.insert(
+                atts.value(QLatin1String("ID")).toString(),
+                m_sourceOffset.resolved(QUrl(atts.value(QLatin1String("FileName")).toString())));
     }
     else if(localName == QLatin1String("test-suite"))
     {
         m_ts = new TestSuite();
-        m_ts->setVersion(atts.value(QLatin1String("version")));
-        m_ts->setDesignDate(QDate::fromString(atts.value(QLatin1String("CatalogDesignDate")), Qt::ISODate));
+        m_ts->setVersion(atts.value(QLatin1String("version")).toString());
+        m_ts->setDesignDate(QDate::fromString(
+                atts.value(QLatin1String("CatalogDesignDate")).toString(), Qt::ISODate));
         Q_ASSERT(m_ts->designDate().isValid());
         m_container = m_ts;
 
-        m_xqueryFileExtension   = atts.value(QLatin1String("XQueryFileExtension"));
-        m_queryOffset           = m_catalogFile.resolved(atts.value(QLatin1String("XQueryQueryOffsetPath")));
-        m_baselineOffset        = m_catalogFile.resolved(atts.value(QLatin1String("ResultOffsetPath")));
-        m_sourceOffset          = m_catalogFile.resolved(atts.value(QLatin1String("SourceOffsetPath")));
+        m_xqueryFileExtension = atts.value(QLatin1String("XQueryFileExtension")).toString();
+        m_queryOffset = m_catalogFile.resolved(
+                atts.value(QLatin1String("XQueryQueryOffsetPath")).toString());
+        m_baselineOffset =
+                m_catalogFile.resolved(atts.value(QLatin1String("ResultOffsetPath")).toString());
+        m_sourceOffset =
+                m_catalogFile.resolved(atts.value(QLatin1String("SourceOffsetPath")).toString());
     }
     else if(localName == QLatin1String("input-query"))
     {
-        m_tcSourceInputs.insert(atts.value(QLatin1String("variable")),
-                                ExternalSourceLoader::VariableValue(m_currentQueryPath.resolved(atts.value(QLatin1String("name")) + m_xqueryFileExtension),
-                                                                    ExternalSourceLoader::Query));
+        m_tcSourceInputs.insert(
+                atts.value(QLatin1String("variable")).toString(),
+                ExternalSourceLoader::VariableValue(
+                        m_currentQueryPath.resolved(atts.value(QLatin1String("name"))
+                                                    + m_xqueryFileExtension),
+                        ExternalSourceLoader::Query));
     }
 
     return true;
 }
 
-bool TestSuiteHandler::endElement(const QString &namespaceURI,
-                                  const QString &localName,
-                                  const QString &/*qName*/)
+bool TestSuiteHandler::endElement(const QStringRef &namespaceURI,
+                                  const QStringRef &localName,
+                                  const QStringRef &/*qName*/)
 {
     if(namespaceURI != Global::xqtsCatalogNS)
         return true;
@@ -299,9 +310,9 @@ bool TestSuiteHandler::endElement(const QString &namespaceURI,
     return true;
 }
 
-bool TestSuiteHandler::characters(const QString &ch)
+bool TestSuiteHandler::characters(const QStringRef &ch)
 {
-    m_ch = ch;
+    m_ch = ch.toString();
     return true;
 }
 

@@ -124,6 +124,16 @@ bool VulkanFunctionPointers::BindInstanceFunctionPointers(
     return false;
   }
 
+  vkGetPhysicalDeviceFormatPropertiesFn =
+      reinterpret_cast<PFN_vkGetPhysicalDeviceFormatProperties>(
+          vkGetInstanceProcAddrFn(vk_instance,
+                                  "vkGetPhysicalDeviceFormatProperties"));
+  if (!vkGetPhysicalDeviceFormatPropertiesFn) {
+    DLOG(WARNING) << "Failed to bind vulkan entrypoint: "
+                  << "vkGetPhysicalDeviceFormatProperties";
+    return false;
+  }
+
   vkGetPhysicalDeviceMemoryPropertiesFn =
       reinterpret_cast<PFN_vkGetPhysicalDeviceMemoryProperties>(
           vkGetInstanceProcAddrFn(vk_instance,
@@ -231,7 +241,34 @@ bool VulkanFunctionPointers::BindInstanceFunctionPointers(
   }
 #endif  // defined(OS_ANDROID)
 
-  if (api_version >= VK_VERSION_1_1) {
+#if defined(OS_FUCHSIA)
+  if (gfx::HasExtension(enabled_extensions,
+                        VK_FUCHSIA_IMAGEPIPE_SURFACE_EXTENSION_NAME)) {
+    vkCreateImagePipeSurfaceFUCHSIAFn =
+        reinterpret_cast<PFN_vkCreateImagePipeSurfaceFUCHSIA>(
+            vkGetInstanceProcAddrFn(vk_instance,
+                                    "vkCreateImagePipeSurfaceFUCHSIA"));
+    if (!vkCreateImagePipeSurfaceFUCHSIAFn) {
+      DLOG(WARNING) << "Failed to bind vulkan entrypoint: "
+                    << "vkCreateImagePipeSurfaceFUCHSIA";
+      return false;
+    }
+  }
+#endif  // defined(OS_FUCHSIA)
+
+  if (api_version >= VK_API_VERSION_1_1) {
+    vkGetPhysicalDeviceImageFormatProperties2Fn =
+        reinterpret_cast<PFN_vkGetPhysicalDeviceImageFormatProperties2>(
+            vkGetInstanceProcAddrFn(
+                vk_instance, "vkGetPhysicalDeviceImageFormatProperties2"));
+    if (!vkGetPhysicalDeviceImageFormatProperties2Fn) {
+      DLOG(WARNING) << "Failed to bind vulkan entrypoint: "
+                    << "vkGetPhysicalDeviceImageFormatProperties2";
+      return false;
+    }
+  }
+
+  if (api_version >= VK_API_VERSION_1_1) {
     vkGetPhysicalDeviceFeatures2Fn =
         reinterpret_cast<PFN_vkGetPhysicalDeviceFeatures2>(
             vkGetInstanceProcAddrFn(vk_instance,
@@ -700,6 +737,25 @@ bool VulkanFunctionPointers::BindDeviceFunctionPointers(
     return false;
   }
 
+  if (api_version >= VK_API_VERSION_1_1) {
+    vkGetDeviceQueue2Fn = reinterpret_cast<PFN_vkGetDeviceQueue2>(
+        vkGetDeviceProcAddrFn(vk_device, "vkGetDeviceQueue2"));
+    if (!vkGetDeviceQueue2Fn) {
+      DLOG(WARNING) << "Failed to bind vulkan entrypoint: "
+                    << "vkGetDeviceQueue2";
+      return false;
+    }
+
+    vkGetImageMemoryRequirements2Fn =
+        reinterpret_cast<PFN_vkGetImageMemoryRequirements2>(
+            vkGetDeviceProcAddrFn(vk_device, "vkGetImageMemoryRequirements2"));
+    if (!vkGetImageMemoryRequirements2Fn) {
+      DLOG(WARNING) << "Failed to bind vulkan entrypoint: "
+                    << "vkGetImageMemoryRequirements2";
+      return false;
+    }
+  }
+
 #if defined(OS_ANDROID)
   if (gfx::HasExtension(
           enabled_extensions,
@@ -745,6 +801,15 @@ bool VulkanFunctionPointers::BindDeviceFunctionPointers(
     if (!vkGetMemoryFdKHRFn) {
       DLOG(WARNING) << "Failed to bind vulkan entrypoint: "
                     << "vkGetMemoryFdKHR";
+      return false;
+    }
+
+    vkGetMemoryFdPropertiesKHRFn =
+        reinterpret_cast<PFN_vkGetMemoryFdPropertiesKHR>(
+            vkGetDeviceProcAddrFn(vk_device, "vkGetMemoryFdPropertiesKHR"));
+    if (!vkGetMemoryFdPropertiesKHRFn) {
+      DLOG(WARNING) << "Failed to bind vulkan entrypoint: "
+                    << "vkGetMemoryFdPropertiesKHR";
       return false;
     }
   }

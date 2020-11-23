@@ -22,7 +22,6 @@
 #include "third_party/blink/renderer/core/editing/visible_units.h"
 #include "third_party/blink/renderer/core/frame/local_frame.h"
 #include "third_party/blink/renderer/platform/instrumentation/tracing/trace_event.h"
-#include "third_party/blink/renderer/platform/wtf/time.h"
 
 namespace blink {
 
@@ -65,10 +64,6 @@ void IdleSpellCheckController::Trace(Visitor* visitor) {
   visitor->Trace(frame_);
   visitor->Trace(cold_mode_requester_);
   DocumentShutdownObserver::Trace(visitor);
-}
-
-IdleSpellCheckController* IdleSpellCheckController::Create(LocalFrame& frame) {
-  return MakeGarbageCollected<IdleSpellCheckController>(frame);
 }
 
 IdleSpellCheckController::IdleSpellCheckController(LocalFrame& frame)

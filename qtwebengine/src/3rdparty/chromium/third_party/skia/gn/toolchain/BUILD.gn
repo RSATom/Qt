@@ -1,3 +1,7 @@
+if (is_fuchsia) {
+  import("//build/fuchsia/sdk.gni")
+}
+
 declare_args() {
   host_ar = ar
   host_cc = cc
@@ -15,6 +19,13 @@ declare_args() {
       target_cc = "$_prefix/$ndk_target$ndk_api-clang"
       target_cxx = "$_prefix/$ndk_target$ndk_api-clang++"
     }
+  } else if (is_fuchsia && using_fuchsia_sdk) {
+    target_ar = rebase_path("$fuchsia_toolchain_path/bin/llvm-ar")
+    target_cc = rebase_path("$fuchsia_toolchain_path/bin/clang")
+    target_cxx = rebase_path("$fuchsia_toolchain_path/bin/clang++")
+    cflags = "--sysroot=" +
+             rebase_path("$fuchsia_toolchain_path/$target_cpu/sysroot")
+    link = rebase_path("$fuchsia_toolchain_path/bin/ld.lld")
   } else {
     target_ar = ar
     target_cc = cc
@@ -22,12 +33,25 @@ declare_args() {
   }
 
   cc_wrapper = ""
+
+  # dsymutil seems to kill the machine when too many processes are run in
+  # parallel, so we need to use a pool to limit the concurrency when passing
+  # large -j to Ninja (e.g. Goma build). Unfortunately this is also one of the
+  # slowest steps in a build, so we don't want to limit too much. Use the number
+  # of CPUs as a default.
+  dlsymutil_pool_depth = exec_script("num_cpus.py", [], "value")
 }
 
 if (host_os == "win") {
   stamp = "cmd.exe /c echo >"
 } else {
   stamp = "touch"
+}
+
+if (current_toolchain == default_toolchain) {
+  pool("dsymutil_pool") {
+    depth = dlsymutil_pool_depth
+  }
 }
 
 toolchain("msvc") {
@@ -193,7 +217,7 @@ template("gcc_like_toolchain") {
 
     tool("cc") {
       depfile = "{{output}}.d"
-      command = "$cc_wrapper $cc -MMD -MF $depfile {{defines}} {{include_dirs}} {{cflags}} {{cflags_c}} -c {{source}} -o {{output}}"
+      command = "$cc_wrapper $cc -MD -MF $depfile {{defines}} {{include_dirs}} {{cflags}} {{cflags_c}} -c {{source}} -o {{output}}"
       depsformat = "gcc"
       outputs = [
         "{{source_out_dir}}/{{target_output_name}}.{{source_name_part}}.o",
@@ -203,7 +227,7 @@ template("gcc_like_toolchain") {
 
     tool("cxx") {
       depfile = "{{output}}.d"
-      command = "$cc_wrapper $cxx -MMD -MF $depfile {{defines}} {{include_dirs}} {{cflags}} {{cflags_cc}} -c {{source}} -o {{output}}"
+      command = "$cc_wrapper $cxx -MD -MF $depfile {{defines}} {{include_dirs}} {{cflags}} {{cflags_cc}} -c {{source}} -o {{output}}"
       depsformat = "gcc"
       outputs = [
         "{{source_out_dir}}/{{target_output_name}}.{{source_name_part}}.o",
@@ -213,7 +237,7 @@ template("gcc_like_toolchain") {
 
     tool("objc") {
       depfile = "{{output}}.d"
-      command = "$cc_wrapper $cc -MMD -MF $depfile {{defines}} {{include_dirs}} {{cflags}} {{cflags_objc}} -c {{source}} -o {{output}}"
+      command = "$cc_wrapper $cc -MD -MF $depfile {{defines}} {{include_dirs}} {{cflags}} {{cflags_objc}} -c {{source}} -o {{output}}"
       depsformat = "gcc"
       outputs = [
         "{{source_out_dir}}/{{target_output_name}}.{{source_name_part}}.o",
@@ -223,7 +247,7 @@ template("gcc_like_toolchain") {
 
     tool("objcxx") {
       depfile = "{{output}}.d"
-      command = "$cc_wrapper $cxx -MMD -MF $depfile {{defines}} {{include_dirs}} {{cflags}} {{cflags_cc}} {{cflags_objcc}} -c {{source}} -o {{output}}"
+      command = "$cc_wrapper $cxx -MD -MF $depfile {{defines}} {{include_dirs}} {{cflags}} {{cflags_cc}} {{cflags_objcc}} -c {{source}} -o {{output}}"
       depsformat = "gcc"
       outputs = [
         "{{source_out_dir}}/{{target_output_name}}.{{source_name_part}}.o",
@@ -233,7 +257,7 @@ template("gcc_like_toolchain") {
 
     tool("asm") {
       depfile = "{{output}}.d"
-      command = "$cc_wrapper $cc -MMD -MF $depfile {{defines}} {{include_dirs}} {{asmflags}} -c {{source}} -o {{output}}"
+      command = "$cc_wrapper $cc -MD -MF $depfile {{defines}} {{include_dirs}} {{asmflags}} -c {{source}} -o {{output}}"
       depsformat = "gcc"
       outputs = [
         "{{source_out_dir}}/{{target_output_name}}.{{source_name_part}}.o",
@@ -241,11 +265,19 @@ template("gcc_like_toolchain") {
       description = "assemble {{source}}"
     }
 
+    if (is_mac || is_ios) {
+      not_needed([ "ar" ])  # We use libtool instead.
+    }
+
     tool("alink") {
-      rspfile = "{{output}}.rsp"
-      rspfile_content = "{{inputs}}"
-      ar_py = rebase_path("../ar.py")
-      command = "python $ar_py $ar {{output}} $rspfile"
+      if (is_mac || is_ios) {
+        command = "libtool -static -o {{output}} -no_warning_for_no_symbols {{inputs}}"
+      } else {
+        rspfile = "{{output}}.rsp"
+        rspfile_content = "{{inputs}}"
+        command = "$ar rcs {{output}} @$rspfile"
+      }
+
       outputs = [
         "{{root_out_dir}}/{{target_output_name}}{{output_extension}}",
       ]
@@ -258,7 +290,7 @@ template("gcc_like_toolchain") {
       soname = "{{target_output_name}}{{output_extension}}"
 
       rpath = "-Wl,-soname,$soname"
-      if (is_mac) {
+      if (is_mac || is_ios) {
         rpath = "-Wl,-install_name,@rpath/$soname"
       }
 
@@ -273,12 +305,12 @@ template("gcc_like_toolchain") {
       # LLD doesn't need these flags, but accepts and ignores them.
       _start_group = "-Wl,--start-group"
       _end_group = "-Wl,--end-group"
-      if (is_mac || is_ios) {
+      if (is_mac || is_ios || is_fuchsia) {
         _start_group = ""
         _end_group = ""
       }
 
-      command = "$cc_wrapper $cxx -shared {{ldflags}} $_start_group @$rspfile {{solibs}} $_end_group {{libs}} $rpath -o {{output}}"
+      command = "$cxx -shared {{ldflags}} $_start_group @$rspfile {{solibs}} $_end_group {{libs}} $rpath -o {{output}}"
       outputs = [
         "{{root_out_dir}}/$soname",
       ]
@@ -300,22 +332,15 @@ template("gcc_like_toolchain") {
       # LLD doesn't need these flags, but accepts and ignores them.
       _start_group = "-Wl,--start-group"
       _end_group = "-Wl,--end-group"
-      if (is_mac || is_ios) {
+      if (is_mac || is_ios || is_fuchsia) {
         _start_group = ""
         _end_group = ""
       }
-      if (is_ios) {
-        command = "$cc_wrapper $cxx {{ldflags}} $_start_group @$rspfile {{solibs}} $_end_group {{libs}} -o $exe_name && dsymutil $exe_name"
-      } else {
-        command = "$cc_wrapper $cxx {{ldflags}} $_start_group @$rspfile {{solibs}} $_end_group {{libs}} -o $exe_name"
-      }
+      command = "$cxx {{ldflags}} $_start_group @$rspfile {{solibs}} $_end_group {{libs}} -o $exe_name"
 
       outputs = [
         "$exe_name",
       ]
-      if (is_ios) {
-        outputs += [ "{{root_out_dir}}/{{target_output_name}}.dSYM" ]
-      }
       description = "link {{output}}"
     }
 

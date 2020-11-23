@@ -16,8 +16,9 @@ std::unique_ptr<syncer::DeviceInfo> CloneDeviceInfo(
       device_info.guid(), device_info.client_name(),
       device_info.chrome_version(), device_info.sync_user_agent(),
       device_info.device_type(), device_info.signin_scoped_device_id(),
-      device_info.last_updated_timestamp(),
-      device_info.send_tab_to_self_receiving_enabled());
+      device_info.hardware_info(), device_info.last_updated_timestamp(),
+      device_info.send_tab_to_self_receiving_enabled(),
+      device_info.sharing_info());
 }
 
 }  // namespace
@@ -34,7 +35,11 @@ bool FakeDeviceInfoTracker::IsSyncing() const {
 
 std::unique_ptr<DeviceInfo> FakeDeviceInfoTracker::GetDeviceInfo(
     const std::string& client_id) const {
-  NOTREACHED();
+  for (const DeviceInfo* device : devices_) {
+    if (device->guid() == client_id) {
+      return CloneDeviceInfo(*device);
+    }
+  }
   return nullptr;
 }
 
@@ -49,11 +54,11 @@ FakeDeviceInfoTracker::GetAllDeviceInfo() const {
 }
 
 void FakeDeviceInfoTracker::AddObserver(Observer* observer) {
-  NOTREACHED();
+  observers_.AddObserver(observer);
 }
 
 void FakeDeviceInfoTracker::RemoveObserver(Observer* observer) {
-  NOTREACHED();
+  observers_.RemoveObserver(observer);
 }
 
 int FakeDeviceInfoTracker::CountActiveDevices() const {
@@ -66,20 +71,25 @@ void FakeDeviceInfoTracker::ForcePulseForTest() {
 
 bool FakeDeviceInfoTracker::IsRecentLocalCacheGuid(
     const std::string& cache_guid) const {
-  for (const DeviceInfo* device : devices_) {
-    if (device->guid() == cache_guid) {
-      return true;
-    }
-  }
-  return false;
+  return local_device_cache_guid_ == cache_guid;
 }
 
 void FakeDeviceInfoTracker::Add(const DeviceInfo* device) {
   devices_.push_back(device);
+  for (auto& observer : observers_)
+    observer.OnDeviceInfoChange();
 }
 
 void FakeDeviceInfoTracker::OverrideActiveDeviceCount(int count) {
   active_device_count_ = count;
+  for (auto& observer : observers_)
+    observer.OnDeviceInfoChange();
+}
+
+void FakeDeviceInfoTracker::SetLocalCacheGuid(const std::string& cache_guid) {
+  // ensure that this cache guid is present in the tracker.
+  DCHECK(GetDeviceInfo(cache_guid));
+  local_device_cache_guid_ = cache_guid;
 }
 
 }  // namespace syncer

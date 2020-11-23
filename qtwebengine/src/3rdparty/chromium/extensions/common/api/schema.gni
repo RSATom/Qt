@@ -27,7 +27,6 @@ extensions_api_schema_files_ = [
   "events.json",
   "extensions_manifest_types.json",
   "extension_options_internal.idl",
-  "extension_view_internal.json",
   "extension_types.json",
   "feedback_private.idl",
   "file_system.idl",
@@ -66,6 +65,7 @@ extensions_api_schema_files_ = [
 
 if (is_chromeos) {
   extensions_api_schema_files_ += [
+    "crash_report_private.idl",
     "diagnostics.idl",
     "lock_screen_data.idl",
     "media_perception_private.idl",

@@ -97,6 +97,32 @@ int InstructionScheduler::GetTargetInstructionFlags(
     case kAVXFloat32Neg:
     case kIA32BitcastFI:
     case kIA32BitcastIF:
+    case kSSEF64x2Splat:
+    case kAVXF64x2Splat:
+    case kSSEF64x2ExtractLane:
+    case kAVXF64x2ExtractLane:
+    case kSSEF64x2ReplaceLane:
+    case kAVXF64x2ReplaceLane:
+    case kIA32F64x2Sqrt:
+    case kIA32F64x2Add:
+    case kIA32F64x2Sub:
+    case kIA32F64x2Mul:
+    case kIA32F64x2Div:
+    case kIA32F64x2Min:
+    case kIA32F64x2Max:
+    case kIA32F64x2Eq:
+    case kIA32F64x2Ne:
+    case kIA32F64x2Lt:
+    case kIA32F64x2Le:
+    case kIA32I64x2SplatI32Pair:
+    case kIA32I64x2ReplaceLaneI32Pair:
+    case kIA32I64x2Neg:
+    case kIA32I64x2Shl:
+    case kIA32I64x2ShrS:
+    case kIA32I64x2Add:
+    case kIA32I64x2Sub:
+    case kIA32I64x2Mul:
+    case kIA32I64x2ShrU:
     case kSSEF32x4Splat:
     case kAVXF32x4Splat:
     case kSSEF32x4ExtractLane:
@@ -110,6 +136,8 @@ int InstructionScheduler::GetTargetInstructionFlags(
     case kAVXF32x4Abs:
     case kSSEF32x4Neg:
     case kAVXF32x4Neg:
+    case kSSEF32x4Sqrt:
+    case kAVXF32x4Sqrt:
     case kIA32F32x4RecipApprox:
     case kIA32F32x4RecipSqrtApprox:
     case kSSEF32x4Add:
@@ -120,6 +148,8 @@ int InstructionScheduler::GetTargetInstructionFlags(
     case kAVXF32x4Sub:
     case kSSEF32x4Mul:
     case kAVXF32x4Mul:
+    case kSSEF32x4Div:
+    case kAVXF32x4Div:
     case kSSEF32x4Min:
     case kAVXF32x4Min:
     case kSSEF32x4Max:
@@ -180,7 +210,8 @@ int InstructionScheduler::GetTargetInstructionFlags(
     case kSSEI32x4GeU:
     case kAVXI32x4GeU:
     case kIA32I16x8Splat:
-    case kIA32I16x8ExtractLane:
+    case kIA32I16x8ExtractLaneU:
+    case kIA32I16x8ExtractLaneS:
     case kSSEI16x8ReplaceLane:
     case kAVXI16x8ReplaceLane:
     case kIA32I16x8SConvertI8x16Low:
@@ -235,7 +266,8 @@ int InstructionScheduler::GetTargetInstructionFlags(
     case kSSEI16x8GeU:
     case kAVXI16x8GeU:
     case kIA32I8x16Splat:
-    case kIA32I8x16ExtractLane:
+    case kIA32I8x16ExtractLaneU:
+    case kIA32I8x16ExtractLaneS:
     case kSSEI8x16ReplaceLane:
     case kAVXI8x16ReplaceLane:
     case kSSEI8x16SConvertI16x8:
@@ -292,6 +324,7 @@ int InstructionScheduler::GetTargetInstructionFlags(
     case kAVXS128Xor:
     case kSSES128Select:
     case kAVXS128Select:
+    case kIA32S8x16Swizzle:
     case kIA32S8x16Shuffle:
     case kIA32S32x4Swizzle:
     case kIA32S32x4Shuffle:
@@ -356,7 +389,6 @@ int InstructionScheduler::GetTargetInstructionFlags(
       // Moves are used for memory load/store operations.
       return instr->HasOutput() ? kIsLoadOperation : kHasSideEffect;
 
-    case kIA32StackCheck:
     case kIA32Peek:
       return kIsLoadOperation;
 

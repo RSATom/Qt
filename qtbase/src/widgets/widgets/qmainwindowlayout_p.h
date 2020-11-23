@@ -338,7 +338,7 @@ class QDockWidgetGroupWindow : public QWidget
 {
     Q_OBJECT
 public:
-    explicit QDockWidgetGroupWindow(QWidget* parent = nullptr, Qt::WindowFlags f = nullptr)
+    explicit QDockWidgetGroupWindow(QWidget* parent = nullptr, Qt::WindowFlags f = { })
         : QWidget(parent, f) {}
     QDockAreaLayoutInfo *layoutInfo() const;
 #if QT_CONFIG(tabbar)
@@ -523,7 +523,7 @@ public:
     int sep; // separator extent
 
 #if QT_CONFIG(tabwidget)
-    QTabWidget::TabPosition tabPositions[4];
+    QTabWidget::TabPosition tabPositions[QInternal::DockCount];
     QTabWidget::TabShape _tabShape;
 
     QTabWidget::TabShape tabShape() const;

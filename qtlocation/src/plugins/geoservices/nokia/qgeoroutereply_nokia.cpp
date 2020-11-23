@@ -60,7 +60,7 @@ QGeoRouteReplyNokia::QGeoRouteReplyNokia(const QGeoRouteRequest &request,
             continue;
         }
         connect(reply, SIGNAL(finished()), this, SLOT(networkFinished()));
-        connect(reply, SIGNAL(error(QNetworkReply::NetworkError)),
+        connect(reply, SIGNAL(errorOccurred(QNetworkReply::NetworkError)),
                 this, SLOT(networkError(QNetworkReply::NetworkError)));
         connect(this, &QGeoRouteReply::aborted, reply, &QNetworkReply::abort);
         connect(this, &QObject::destroyed, reply, &QObject::deleteLater);

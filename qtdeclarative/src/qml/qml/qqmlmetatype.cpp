@@ -92,8 +92,13 @@ static QQmlTypePrivate *createQQmlType(QQmlMetaTypeData *data,
     d->typeId = type.typeId;
     d->listId = type.listId;
     d->isSetup = true;
-    d->version_maj = 0;
     d->version_min = 0;
+    if (type.version > 0) {
+        d->module = QString::fromUtf8(type.uri);
+        d->version_maj = type.versionMajor;
+    } else {
+        d->version_maj = 0;
+    }
     data->registerType(d);
     return d;
 }
@@ -154,7 +159,7 @@ static QQmlTypePrivate *createQQmlType(QQmlMetaTypeData *data, const QString &el
     d->extraData.cd->propertyValueSourceCast = type.valueSourceCast;
     d->extraData.cd->propertyValueInterceptorCast = type.valueInterceptorCast;
     d->extraData.cd->extFunc = type.extensionObjectCreate;
-    d->extraData.cd->customParser = type.customParser;
+    d->extraData.cd->customParser = reinterpret_cast<QQmlCustomParser *>(type.customParser);
     d->extraData.cd->registerEnumClassesUnscoped = true;
 
     if (type.extensionMetaObject)
@@ -267,6 +272,48 @@ void QQmlMetaType::clone(QMetaObjectBuilder &builder, const QMetaObject *mo,
     }
 }
 
+void QQmlMetaType::qmlInsertModuleRegistration(const QString &uri, int majorVersion,
+                                               void (*registerFunction)())
+{
+    const QQmlMetaTypeData::VersionedUri versionedUri(uri, majorVersion);
+    QQmlMetaTypeDataPtr data;
+    if (data->moduleTypeRegistrationFunctions.contains(versionedUri))
+        qFatal("Cannot add multiple registrations for %s %d", qPrintable(uri), majorVersion);
+    else
+        data->moduleTypeRegistrationFunctions.insert(versionedUri, registerFunction);
+}
+
+void QQmlMetaType::qmlRemoveModuleRegistration(const QString &uri, int majorVersion)
+{
+    const QQmlMetaTypeData::VersionedUri versionedUri(uri, majorVersion);
+    QQmlMetaTypeDataPtr data;
+
+    if (!data.isValid())
+        return; // shutdown/deletion race. Not a problem.
+
+    if (!data->moduleTypeRegistrationFunctions.contains(versionedUri))
+        qFatal("Cannot remove multiple registrations for %s %d", qPrintable(uri), majorVersion);
+    else
+        data->moduleTypeRegistrationFunctions.remove(versionedUri);
+}
+
+bool QQmlMetaType::qmlRegisterModuleTypes(const QString &uri, int majorVersion)
+{
+    QQmlMetaTypeDataPtr data;
+    return data->registerModuleTypes(QQmlMetaTypeData::VersionedUri(uri, majorVersion));
+}
+
+/*!
+   \internal
+    Method is only used to in tst_qqmlenginecleanup.cpp to test whether all
+    types have been removed from qmlLists after shutdown of QQmlEngine
+ */
+int QQmlMetaType::qmlRegisteredListTypeCount()
+{
+    QQmlMetaTypeDataPtr data;
+    return data->qmlLists.count();
+}
+
 void QQmlMetaType::clearTypeRegistrations()
 {
     //Only cleans global static, assumed no running engine
@@ -303,7 +350,7 @@ void QQmlMetaType::unregisterAutoParentFunction(const QQmlPrivate::AutoParentFun
 
 QQmlType QQmlMetaType::registerInterface(const QQmlPrivate::RegisterInterface &type)
 {
-    if (type.version > 0)
+    if (type.version > 1)
         qFatal("qmlRegisterType(): Cannot mix incompatible QML versions.");
 
     QQmlMetaTypeDataPtr data;
@@ -312,9 +359,6 @@ QQmlType QQmlMetaType::registerInterface(const QQmlPrivate::RegisterInterface &t
 
     data->idToType.insert(priv->typeId, priv);
     data->idToType.insert(priv->listId, priv);
-    // XXX No insertMulti, so no multi-version interfaces?
-    if (!priv->elementName.isEmpty())
-        data->nameToType.insert(priv->elementName, priv);
 
     if (data->interfaces.size() <= type.typeId)
         data->interfaces.resize(type.typeId + 16);
@@ -342,7 +386,7 @@ QString registrationTypeString(QQmlType::RegistrationType typeType)
 
 // NOTE: caller must hold a QMutexLocker on "data"
 bool checkRegistration(QQmlType::RegistrationType typeType, QQmlMetaTypeData *data,
-                       const char *uri, const QString &typeName, int majorVersion = -1)
+                       const char *uri, const QString &typeName, int majorVersion)
 {
     if (!typeName.isEmpty()) {
         if (typeName.at(0).isLower()) {
@@ -363,26 +407,15 @@ bool checkRegistration(QQmlType::RegistrationType typeType, QQmlMetaTypeData *da
 
     if (uri && !typeName.isEmpty()) {
         QString nameSpace = QString::fromUtf8(uri);
-
-        if (data->typeRegistrationNamespace.isEmpty() && !nameSpace.isEmpty()) {
-            // Is the target namespace protected against further registrations?
-            if (data->protectedNamespaces.contains(nameSpace)) {
+        QQmlMetaTypeData::VersionedUri versionedUri;
+        versionedUri.uri = nameSpace;
+        versionedUri.majorVersion = majorVersion;
+        if (QQmlTypeModule* qqtm = data->uriToModule.value(versionedUri, 0)){
+            if (qqtm->isLocked()){
                 QString failure(QCoreApplication::translate("qmlRegisterType",
-                                                            "Cannot install %1 '%2' into protected namespace '%3'"));
-                data->recordTypeRegFailure(failure.arg(registrationTypeString(typeType)).arg(typeName).arg(nameSpace));
+                                                            "Cannot install %1 '%2' into protected module '%3' version '%4'"));
+                data->recordTypeRegFailure(failure.arg(registrationTypeString(typeType)).arg(typeName).arg(nameSpace).arg(majorVersion));
                 return false;
-            }
-        } else if (majorVersion >= 0) {
-            QQmlMetaTypeData::VersionedUri versionedUri;
-            versionedUri.uri = nameSpace;
-            versionedUri.majorVersion = majorVersion;
-            if (QQmlTypeModule* qqtm = data->uriToModule.value(versionedUri, 0)){
-                if (qqtm->isLocked()){
-                    QString failure(QCoreApplication::translate("qmlRegisterType",
-                                                                "Cannot install %1 '%2' into protected module '%3' version '%4'"));
-                    data->recordTypeRegFailure(failure.arg(registrationTypeString(typeType)).arg(typeName).arg(nameSpace).arg(majorVersion));
-                    return false;
-                }
             }
         }
     }
@@ -408,10 +441,10 @@ void addTypeToData(QQmlTypePrivate *type, QQmlMetaTypeData *data)
     Q_ASSERT(type);
 
     if (!type->elementName.isEmpty())
-        data->nameToType.insertMulti(type->elementName, type);
+        data->nameToType.insert(type->elementName, type);
 
     if (type->baseMetaObject)
-        data->metaObjectToType.insertMulti(type->baseMetaObject, type);
+        data->metaObjectToType.insert(type->baseMetaObject, type);
 
     if (type->typeId) {
         data->idToType.insert(type->typeId, type);
@@ -477,14 +510,16 @@ QQmlType QQmlMetaType::registerCompositeSingletonType(const QQmlPrivate::Registe
     bool fileImport = false;
     if (*(type.uri) == '\0')
         fileImport = true;
-    if (!checkRegistration(QQmlType::CompositeSingletonType, data, fileImport ? nullptr : type.uri, typeName))
+    if (!checkRegistration(QQmlType::CompositeSingletonType, data, fileImport ? nullptr : type.uri,
+                           typeName, type.versionMajor)) {
         return QQmlType();
+    }
 
     QQmlTypePrivate *priv = createQQmlType(data, typeName, type);
     addTypeToData(priv, data);
 
     QQmlMetaTypeData::Files *files = fileImport ? &(data->urlToType) : &(data->urlToNonFileImportType);
-    files->insertMulti(QQmlTypeLoader::normalize(type.url), priv);
+    files->insert(QQmlTypeLoader::normalize(type.url), priv);
 
     return QQmlType(priv);
 }
@@ -505,17 +540,15 @@ QQmlType QQmlMetaType::registerCompositeType(const QQmlPrivate::RegisterComposit
     addTypeToData(priv, data);
 
     QQmlMetaTypeData::Files *files = fileImport ? &(data->urlToType) : &(data->urlToNonFileImportType);
-    files->insertMulti(QQmlTypeLoader::normalize(type.url), priv);
+    files->insert(QQmlTypeLoader::normalize(type.url), priv);
 
     return QQmlType(priv);
 }
 
-void QQmlMetaType::registerInternalCompositeType(QV4::ExecutableCompilationUnit *compilationUnit)
+CompositeMetaTypeIds QQmlMetaType::registerInternalCompositeType(const QByteArray &className)
 {
-    QByteArray name = compilationUnit->rootPropertyCache()->className();
-
-    QByteArray ptr = name + '*';
-    QByteArray lst = "QQmlListProperty<" + name + '>';
+    QByteArray ptr = className + '*';
+    QByteArray lst = "QQmlListProperty<" + className + '>';
 
     int ptr_type = QMetaType::registerNormalizedType(ptr,
                                                      QtMetaTypePrivate::QMetaTypeFunctionHelper<QObject*>::Destruct,
@@ -530,23 +563,19 @@ void QQmlMetaType::registerInternalCompositeType(QV4::ExecutableCompilationUnit 
                                                      static_cast<QFlags<QMetaType::TypeFlag> >(QtPrivate::QMetaTypeTypeFlags<QQmlListProperty<QObject> >::Flags),
                                                      static_cast<QMetaObject*>(nullptr));
 
-    compilationUnit->metaTypeId = ptr_type;
-    compilationUnit->listMetaTypeId = lst_type;
-
     QQmlMetaTypeDataPtr data;
     data->qmlLists.insert(lst_type, ptr_type);
+
+    return {ptr_type, lst_type};
 }
 
-void QQmlMetaType::unregisterInternalCompositeType(QV4::ExecutableCompilationUnit *compilationUnit)
+void QQmlMetaType::unregisterInternalCompositeType(const CompositeMetaTypeIds &typeIds)
 {
-    int ptr_type = compilationUnit->metaTypeId;
-    int lst_type = compilationUnit->listMetaTypeId;
-
     QQmlMetaTypeDataPtr data;
-    data->qmlLists.remove(lst_type);
+    data->qmlLists.remove(typeIds.listId);
 
-    QMetaType::unregisterType(ptr_type);
-    QMetaType::unregisterType(lst_type);
+    QMetaType::unregisterType(typeIds.id);
+    QMetaType::unregisterType(typeIds.listId);
 }
 
 int QQmlMetaType::registerUnitCacheHook(
@@ -560,12 +589,12 @@ int QQmlMetaType::registerUnitCacheHook(
     return 0;
 }
 
-bool QQmlMetaType::protectModule(const char *uri, int majVersion)
+bool QQmlMetaType::protectModule(const QString &uri, int majVersion)
 {
     QQmlMetaTypeDataPtr data;
 
     QQmlMetaTypeData::VersionedUri versionedUri;
-    versionedUri.uri = QString::fromUtf8(uri);
+    versionedUri.uri = uri;
     versionedUri.majorVersion = majVersion;
 
     if (QQmlTypeModule* qqtm = data->uriToModule.value(versionedUri, 0)) {
@@ -642,17 +671,6 @@ bool QQmlMetaType::registerPluginTypes(QObject *instance, const QString &basePat
                                        const QString &uri, const QString &typeNamespace, int vmaj,
                                        QList<QQmlError> *errors)
 {
-    QQmlTypesExtensionInterface *iface = qobject_cast<QQmlTypesExtensionInterface *>(instance);
-    if (!iface) {
-        if (errors) {
-            QQmlError error;
-            error.setDescription(QStringLiteral("Module loaded for URI '%1' does not implement "
-                                                "QQmlTypesExtensionInterface").arg(typeNamespace));
-            errors->prepend(error);
-        }
-        return false;
-    }
-
     if (!typeNamespace.isEmpty() && typeNamespace != uri) {
         // This is an 'identified' module
         // The namespace for type registrations must match the URI for locating the module
@@ -683,8 +701,6 @@ bool QQmlMetaType::registerPluginTypes(QObject *instance, const QString &basePat
                 }
                 return false;
             }
-
-            data->protectedNamespaces.insert(uri);
         } else {
             // This is not an identified module - provide a warning
             qWarning().nospace() << qPrintable(
@@ -692,28 +708,42 @@ bool QQmlMetaType::registerPluginTypes(QObject *instance, const QString &basePat
                                    "it cannot be protected from external registrations.").arg(uri));
         }
 
-        if (auto *plugin = qobject_cast<QQmlExtensionPlugin *>(instance)) {
-        // basepath should point to the directory of the module, not the plugin file itself:
-        QQmlExtensionPluginPrivate::get(plugin)->baseUrl
-                = QQmlImports::urlFromLocalFileOrQrcOrUrl(basePath);
-        }
-
-        data->typeRegistrationNamespace = typeNamespace;
-        const QByteArray bytes = uri.toUtf8();
-        const char *moduleId = bytes.constData();
-        iface->registerTypes(moduleId);
-        data->typeRegistrationNamespace.clear();
-    }
-
-    if (!failures.isEmpty()) {
-        if (errors) {
-            for (const QString &failure : qAsConst(failures)) {
-                QQmlError error;
-                error.setDescription(failure);
-                errors->prepend(error);
+        if (!qobject_cast<QQmlEngineExtensionInterface *>(instance)) {
+            QQmlTypesExtensionInterface *iface = qobject_cast<QQmlTypesExtensionInterface *>(instance);
+            if (!iface) {
+                if (errors) {
+                    QQmlError error;
+                    // Also does not implement QQmlTypesExtensionInterface, but we want to discourage that.
+                    error.setDescription(QStringLiteral("Module loaded for URI '%1' does not implement "
+                                                        "QQmlEngineExtensionInterface").arg(typeNamespace));
+                    errors->prepend(error);
+                }
+                return false;
             }
+
+            if (auto *plugin = qobject_cast<QQmlExtensionPlugin *>(instance)) {
+                // basepath should point to the directory of the module, not the plugin file itself:
+                QQmlExtensionPluginPrivate::get(plugin)->baseUrl
+                        = QQmlImports::urlFromLocalFileOrQrcOrUrl(basePath);
+            }
+
+            const QByteArray bytes = uri.toUtf8();
+            const char *moduleId = bytes.constData();
+            iface->registerTypes(moduleId);
         }
-        return false;
+
+        data->registerModuleTypes(QQmlMetaTypeData::VersionedUri(uri, vmaj));
+
+        if (!failures.isEmpty()) {
+            if (errors) {
+                for (const QString &failure : qAsConst(failures)) {
+                    QQmlError error;
+                    error.setDescription(failure);
+                    errors->prepend(error);
+                }
+            }
+            return false;
+        }
     }
 
     return true;
@@ -794,7 +824,7 @@ QQmlType QQmlMetaType::typeForUrl(const QString &urlString,
 
         data->registerType(priv);
         addTypeToData(priv, data);
-        data->urlToType.insertMulti(url, priv);
+        data->urlToType.insert(url, priv);
         return QQmlType(priv);
     }
 
@@ -1196,10 +1226,14 @@ QQmlType QQmlMetaType::qmlType(const QUrl &unNormalizedUrl, bool includeNonFileI
         return QQmlType();
 }
 
-QQmlPropertyCache *QQmlMetaType::propertyCache(const QMetaObject *metaObject, int minorVersion)
+QQmlPropertyCache *QQmlMetaType::propertyCache(const QMetaObject *metaObject, int minorVersion, bool doRef)
 {
     QQmlMetaTypeDataPtr data; // not const: the cache is created on demand
-    return data->propertyCache(metaObject, minorVersion);
+    auto ret =  data->propertyCache(metaObject, minorVersion);
+    if (doRef)
+        return ret.take();
+    else
+        return ret.data();
 }
 
 QQmlPropertyCache *QQmlMetaType::propertyCache(const QQmlType &type, int minorVersion)

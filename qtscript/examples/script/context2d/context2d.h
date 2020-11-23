@@ -244,7 +244,7 @@ private:
 
     struct State {
         State() : flags(0) {}
-        QMatrix matrix;
+        QTransform matrix;
         QPainterPath clipPath;
         QBrush strokeStyle;
         QBrush fillStyle;

@@ -1,5 +1,5 @@
 //
-// Copyright (c) 2016 The ANGLE Project Authors. All rights reserved.
+// Copyright 2016 The ANGLE Project Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 //
@@ -23,6 +23,8 @@ namespace rx
 namespace
 {
 // gen7
+const uint32_t IvyBridge[] = {0x0152, 0x0156, 0x015A, 0x0162, 0x0166, 0x016A};
+
 const uint32_t Haswell[] = {
     0x0402, 0x0406, 0x040A, 0x040B, 0x040E, 0x0C02, 0x0C06, 0x0C0A, 0x0C0B, 0x0C0E,
     0x0A02, 0x0A06, 0x0A0A, 0x0A0B, 0x0A0E, 0x0D02, 0x0D06, 0x0D0A, 0x0D0B, 0x0D0E,  // hsw_gt1
@@ -90,6 +92,11 @@ bool IntelDriverVersion::operator>=(const IntelDriverVersion &version)
     return !(*this < version);
 }
 
+bool IsIvyBridge(uint32_t DeviceId)
+{
+    return std::find(std::begin(IvyBridge), std::end(IvyBridge), DeviceId) != std::end(IvyBridge);
+}
+
 bool IsHaswell(uint32_t DeviceId)
 {
     return std::find(std::begin(Haswell), std::end(Haswell), DeviceId) != std::end(Haswell);
@@ -127,14 +134,16 @@ const char *GetVendorString(uint32_t vendorId)
     {
         case VENDOR_ID_AMD:
             return "Advanced Micro Devices";
-        case VENDOR_ID_NVIDIA:
-            return "NVIDIA";
-        case VENDOR_ID_INTEL:
-            return "Intel";
-        case VENDOR_ID_QUALCOMM:
-            return "Qualcomm";
         case VENDOR_ID_ARM:
             return "ARM";
+        case VENDOR_ID_GOOGLE:
+            return "Google";
+        case VENDOR_ID_INTEL:
+            return "Intel";
+        case VENDOR_ID_NVIDIA:
+            return "NVIDIA";
+        case VENDOR_ID_QUALCOMM:
+            return "Qualcomm";
         default:
             // TODO(jmadill): More vendor IDs.
             ASSERT(vendorId == 0xba5eba11);  // Mock vendor ID used for tests.

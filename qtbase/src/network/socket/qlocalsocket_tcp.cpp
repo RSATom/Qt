@@ -77,8 +77,8 @@ void QLocalSocketPrivate::setSocket(QLocalUnixSocket* socket)
     q->connect(tcpSocket, SIGNAL(disconnected()), q, SIGNAL(disconnected()));
     q->connect(tcpSocket, SIGNAL(stateChanged(QAbstractSocket::SocketState)),
                q, SLOT(_q_stateChanged(QAbstractSocket::SocketState)));
-    q->connect(tcpSocket, SIGNAL(error(QAbstractSocket::SocketError)),
-               q, SLOT(_q_error(QAbstractSocket::SocketError)));
+    q->connect(tcpSocket, SIGNAL(errorOccurred(QAbstractSocket::SocketError)),
+               q, SLOT(_q_errorOccurred(QAbstractSocket::SocketError)));
     q->connect(tcpSocket, SIGNAL(readChannelFinished()), q, SIGNAL(readChannelFinished()));
     tcpSocket->setParent(q);
 }
@@ -88,14 +88,14 @@ qint64 QLocalSocketPrivate::skip(qint64 maxSize)
     return tcpSocket->skip(maxSize);
 }
 
-void QLocalSocketPrivate::_q_error(QAbstractSocket::SocketError socketError)
+void QLocalSocketPrivate::_q_errorOccurred(QAbstractSocket::SocketError socketError)
 {
     Q_Q(QLocalSocket);
     QString function = QLatin1String("QLocalSocket");
     QLocalSocket::LocalSocketError error = (QLocalSocket::LocalSocketError)socketError;
     QString errorString = generateErrorString(error, function);
     q->setErrorString(errorString);
-    emit q->error(error);
+    emit q->errorOccurred(error);
 }
 
 void QLocalSocketPrivate::_q_stateChanged(QAbstractSocket::SocketState newState)
@@ -168,7 +168,7 @@ QString QLocalSocketPrivate::generateErrorString(QLocalSocket::LocalSocketError 
     return errorString;
 }
 
-void QLocalSocketPrivate::errorOccurred(QLocalSocket::LocalSocketError error, const QString &function)
+void QLocalSocketPrivate::setErrorAndEmit(QLocalSocket::LocalSocketError error, const QString &function)
 {
     Q_Q(QLocalSocket);
     switch (error) {
@@ -206,7 +206,7 @@ void QLocalSocketPrivate::errorOccurred(QLocalSocket::LocalSocketError error, co
 
     QString errorString = generateErrorString(error, function);
     q->setErrorString(errorString);
-    emit q->error(error);
+    emit q->errorOccurred(error);
 
     // errors cause a disconnect
     tcpSocket->setSocketState(QAbstractSocket::UnconnectedState);
@@ -222,7 +222,7 @@ void QLocalSocket::connectToServer(OpenMode openMode)
     Q_D(QLocalSocket);
     if (state() == ConnectedState || state() == ConnectingState) {
         setErrorString(tr("Trying to connect while connection is in progress"));
-        emit error(QLocalSocket::OperationError);
+        emit errorOccurred(QLocalSocket::OperationError);
         return;
     }
 
@@ -231,8 +231,8 @@ void QLocalSocket::connectToServer(OpenMode openMode)
     emit stateChanged(d->state);
 
     if (d->serverName.isEmpty()) {
-        d->errorOccurred(ServerNotFoundError,
-                         QLatin1String("QLocalSocket::connectToServer"));
+        d->setErrorAndEmit(ServerNotFoundError,
+                           QLatin1String("QLocalSocket::connectToServer"));
         return;
     }
 
@@ -246,8 +246,8 @@ void QLocalSocket::connectToServer(OpenMode openMode)
     bool ok;
     const quint16 port = settings.value(d->fullServerName).toUInt(&ok);
     if (!ok) {
-        d->errorOccurred(ServerNotFoundError,
-                         QLatin1String("QLocalSocket::connectToServer"));
+        d->setErrorAndEmit(ServerNotFoundError,
+                           QLatin1String("QLocalSocket::connectToServer"));
         return;
     }
     QIODevice::open(openMode);

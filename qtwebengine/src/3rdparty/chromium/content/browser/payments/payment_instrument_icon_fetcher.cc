@@ -39,9 +39,8 @@ void OnIconFetched(
 
   if (bitmap.drawsNothing()) {
     if (icons.empty()) {
-      base::PostTaskWithTraits(
-          FROM_HERE, {BrowserThread::IO},
-          base::BindOnce(std::move(callback), std::string()));
+      base::PostTask(FROM_HERE, {ServiceWorkerContext::GetCoreThreadId()},
+                     base::BindOnce(std::move(callback), std::string()));
     } else {
       // If could not download or decode the chosen image(e.g. not supported,
       // invalid), try it again with remaining icons.
@@ -58,8 +57,8 @@ void OnIconFetched(
       base::StringPiece(reinterpret_cast<const char*>(&bitmap_data[0]),
                         bitmap_data.size()),
       &encoded_data);
-  base::PostTaskWithTraits(FROM_HERE, {BrowserThread::IO},
-                           base::BindOnce(std::move(callback), encoded_data));
+  base::PostTask(FROM_HERE, {ServiceWorkerContext::GetCoreThreadId()},
+                 base::BindOnce(std::move(callback), encoded_data));
 }
 
 void DownloadBestMatchingIcon(
@@ -70,9 +69,8 @@ void DownloadBestMatchingIcon(
   DCHECK_CURRENTLY_ON(BrowserThread::UI);
 
   if (web_contents == nullptr) {
-    base::PostTaskWithTraits(
-        FROM_HERE, {BrowserThread::IO},
-        base::BindOnce(std::move(callback), std::string()));
+    base::PostTask(FROM_HERE, {ServiceWorkerContext::GetCoreThreadId()},
+                   base::BindOnce(std::move(callback), std::string()));
     return;
   }
 
@@ -87,9 +85,8 @@ void DownloadBestMatchingIcon(
     // developers in advance unlike when fetching or decoding fails. We already
     // checked whether they are valid in renderer side. So, if the icon url is
     // invalid, it's something wrong.
-    base::PostTaskWithTraits(
-        FROM_HERE, {BrowserThread::IO},
-        base::BindOnce(std::move(callback), std::string()));
+    base::PostTask(FROM_HERE, {ServiceWorkerContext::GetCoreThreadId()},
+                   base::BindOnce(std::move(callback), std::string()));
     return;
   }
 
@@ -110,14 +107,14 @@ void DownloadBestMatchingIcon(
   DCHECK(can_download_icon);
 }
 
-WebContents* GetWebContentsFromProviderHostIds(
+WebContents* GetWebContentsFromFrameRoutingIds(
     const GURL& scope,
-    std::unique_ptr<std::vector<GlobalFrameRoutingId>> provider_hosts) {
+    std::unique_ptr<std::vector<GlobalFrameRoutingId>> frame_routing_ids) {
   DCHECK_CURRENTLY_ON(BrowserThread::UI);
 
-  for (const auto& host : *provider_hosts) {
+  for (const auto& ids : *frame_routing_ids) {
     RenderFrameHostImpl* render_frame_host =
-        RenderFrameHostImpl::FromID(host.child_id, host.frame_routing_id);
+        RenderFrameHostImpl::FromID(ids.child_id, ids.frame_routing_id);
     if (!render_frame_host)
       continue;
 
@@ -135,14 +132,14 @@ WebContents* GetWebContentsFromProviderHostIds(
 
 void StartOnUI(
     const GURL& scope,
-    std::unique_ptr<std::vector<GlobalFrameRoutingId>> provider_hosts,
+    std::unique_ptr<std::vector<GlobalFrameRoutingId>> frame_routing_ids,
     const std::vector<blink::Manifest::ImageResource>& icons,
     PaymentInstrumentIconFetcher::PaymentInstrumentIconFetcherCallback
         callback) {
   DCHECK_CURRENTLY_ON(BrowserThread::UI);
 
   WebContents* web_contents =
-      GetWebContentsFromProviderHostIds(scope, std::move(provider_hosts));
+      GetWebContentsFromFrameRoutingIds(scope, std::move(frame_routing_ids));
   DownloadBestMatchingIcon(web_contents, icons, std::move(callback));
 }
 
@@ -154,10 +151,10 @@ void PaymentInstrumentIconFetcher::Start(
     std::unique_ptr<std::vector<GlobalFrameRoutingId>> provider_hosts,
     const std::vector<blink::Manifest::ImageResource>& icons,
     PaymentInstrumentIconFetcherCallback callback) {
-  DCHECK_CURRENTLY_ON(BrowserThread::IO);
+  DCHECK_CURRENTLY_ON(ServiceWorkerContext::GetCoreThreadId());
 
-  base::PostTaskWithTraits(
-      FROM_HERE, {BrowserThread::UI},
+  RunOrPostTaskOnThread(
+      FROM_HERE, BrowserThread::UI,
       base::BindOnce(&StartOnUI, scope, std::move(provider_hosts), icons,
                      std::move(callback)));
 }

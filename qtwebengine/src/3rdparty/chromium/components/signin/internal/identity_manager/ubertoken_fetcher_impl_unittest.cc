@@ -8,7 +8,7 @@
 
 #include "base/bind.h"
 #include "base/memory/ref_counted.h"
-#include "base/test/scoped_task_environment.h"
+#include "base/test/task_environment.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "components/prefs/testing_pref_service.h"
 #include "components/signin/internal/identity_manager/fake_profile_oauth2_token_service.h"
@@ -51,21 +51,20 @@ class MockUbertokenConsumer {
 class UbertokenFetcherImplTest : public testing::Test {
  public:
   UbertokenFetcherImplTest()
-      : scoped_task_environment_(
-            base::test::ScopedTaskEnvironment::MainThreadType::UI),
+      : task_environment_(base::test::TaskEnvironment::MainThreadType::UI),
         token_service_(&pref_service_),
         test_shared_loader_factory_(
             base::MakeRefCounted<network::WeakWrapperSharedURLLoaderFactory>(
                 &url_loader_factory_)) {
     fetcher_ = std::make_unique<signin::UbertokenFetcherImpl>(
-        kTestAccountId, &token_service_,
+        CoreAccountId(kTestAccountId), &token_service_,
         base::BindOnce(&MockUbertokenConsumer::OnUbertokenFetchComplete,
                        base::Unretained(&consumer_)),
         gaia::GaiaSource::kChrome, test_shared_loader_factory_);
   }
 
  protected:
-  base::test::ScopedTaskEnvironment scoped_task_environment_;
+  base::test::TaskEnvironment task_environment_;
   TestingPrefServiceSimple pref_service_;
   FakeProfileOAuth2TokenService token_service_;
   network::TestURLLoaderFactory url_loader_factory_;

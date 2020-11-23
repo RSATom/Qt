@@ -82,8 +82,6 @@ class QQuickWebEngineProfilePrivate;
 class QQuickWebEngineTouchHandleProvider;
 class QWebEngineFindTextResult;
 
-QQuickWebEngineView::WebAction editorActionForKeyEvent(QKeyEvent* event);
-
 #if QT_CONFIG(webengine_testsupport)
 class QQuickWebEngineTestSupport;
 #endif
@@ -112,6 +110,7 @@ public:
     void didUpdateTargetURL(const QUrl&) override;
     void selectionChanged() override;
     void recentlyAudibleChanged(bool recentlyAudible) override;
+    void renderProcessPidChanged(qint64 pid) override;
     QRectF viewportRect() const override;
     QColor backgroundColor() const override;
     void loadStarted(const QUrl &provisionalUrl, bool isErrorPage = false) override;
@@ -120,7 +119,10 @@ public:
     void loadFinished(bool success, const QUrl &url, bool isErrorPage = false, int errorCode = 0, const QString &errorDescription = QString()) override;
     void focusContainer() override;
     void unhandledKeyEvent(QKeyEvent *event) override;
-    void adoptNewWindow(QSharedPointer<QtWebEngineCore::WebContentsAdapter> newWebContents, WindowOpenDisposition disposition, bool userGesture, const QRect &, const QUrl &targetUrl) override;
+    QSharedPointer<QtWebEngineCore::WebContentsAdapter>
+    adoptNewWindow(QSharedPointer<QtWebEngineCore::WebContentsAdapter> newWebContents,
+                   WindowOpenDisposition disposition, bool userGesture, const QRect &,
+                   const QUrl &targetUrl) override;
     bool isBeingAdopted() override;
     void close() override;
     void windowCloseRejected() override;
@@ -147,8 +149,7 @@ public:
     QtWebEngineCore::WebEngineSettings *webEngineSettings() const override;
     void allowCertificateError(const QSharedPointer<CertificateErrorController> &errorController) override;
     void selectClientCert(const QSharedPointer<ClientCertSelectController> &selectController) override;
-    void runGeolocationPermissionRequest(QUrl const&) override;
-    void runUserNotificationPermissionRequest(QUrl const&) override;
+    void runFeaturePermissionRequest(QtWebEngineCore::ProfileAdapter::PermissionType permission, const QUrl &securityOrigin) override;
     void renderProcessTerminated(RenderProcessTerminationStatus terminationStatus, int exitCode) override;
     void requestGeometryChange(const QRect &geometry, const QRect &frameGeometry) override;
     void updateScrollPosition(const QPointF &position) override;
@@ -214,6 +215,7 @@ public:
     QPointer<QQuickWebEngineView> inspectedView;
     QPointer<QQuickWebEngineView> devToolsView;
     uint m_webChannelWorld;
+    bool m_defaultAudioMuted;
     bool m_isBeingAdopted;
     mutable QQuickWebEngineAction *actions[QQuickWebEngineView::WebActionCount];
     QtWebEngineCore::RenderWidgetHostViewQtDelegateQuick *widget = nullptr;

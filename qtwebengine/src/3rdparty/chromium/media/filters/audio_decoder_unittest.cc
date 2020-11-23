@@ -16,7 +16,7 @@
 #include "base/run_loop.h"
 #include "base/strings/stringprintf.h"
 #include "base/sys_byteorder.h"
-#include "base/test/scoped_task_environment.h"
+#include "base/test/task_environment.h"
 #include "base/threading/platform_thread.h"
 #include "build/build_config.h"
 #include "media/base/audio_buffer.h"
@@ -134,12 +134,12 @@ class AudioDecoderTest
     switch (decoder_type_) {
       case FFMPEG:
         decoder_.reset(new FFmpegAudioDecoder(
-            scoped_task_environment_.GetMainThreadTaskRunner(), &media_log_));
+            task_environment_.GetMainThreadTaskRunner(), &media_log_));
         break;
 #if defined(OS_ANDROID)
       case MEDIA_CODEC:
         decoder_.reset(new MediaCodecAudioDecoder(
-            scoped_task_environment_.GetMainThreadTaskRunner()));
+            task_environment_.GetMainThreadTaskRunner()));
         break;
 #endif
     }
@@ -209,7 +209,8 @@ class AudioDecoderTest
 
     AudioDecoderConfig config;
     ASSERT_TRUE(AVCodecContextToAudioDecoderConfig(
-        reader_->codec_context_for_testing(), Unencrypted(), &config));
+        reader_->codec_context_for_testing(), EncryptionScheme::kUnencrypted,
+        &config));
 
 #if defined(OS_ANDROID) && BUILDFLAG(USE_PROPRIETARY_CODECS)
     // MEDIA_CODEC type requires config->extra_data() for AAC codec. For ADTS
@@ -224,7 +225,7 @@ class AudioDecoderTest
                     &channel_layout, nullptr, nullptr, &extra_data),
                 0);
       config.Initialize(kCodecAAC, kSampleFormatS16, channel_layout,
-                        sample_rate, extra_data, Unencrypted(),
+                        sample_rate, extra_data, EncryptionScheme::kUnencrypted,
                         base::TimeDelta(), 0);
       ASSERT_FALSE(config.extra_data().empty());
     }
@@ -393,7 +394,7 @@ class AudioDecoderTest
   // that the decoder can be reinitialized with different parameters.
   TestParams params_;
 
-  base::test::ScopedTaskEnvironment scoped_task_environment_;
+  base::test::SingleThreadTaskEnvironment task_environment_;
 
   NullMediaLog media_log_;
   scoped_refptr<DecoderBuffer> data_;

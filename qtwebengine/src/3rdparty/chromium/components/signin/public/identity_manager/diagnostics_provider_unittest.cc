@@ -6,7 +6,7 @@
 
 #include "base/bind_helpers.h"
 #include "base/macros.h"
-#include "base/test/scoped_task_environment.h"
+#include "base/test/task_environment.h"
 #include "components/signin/public/identity_manager/accounts_cookie_mutator.h"
 #include "components/signin/public/identity_manager/identity_test_environment.h"
 #include "components/signin/public/identity_manager/load_credentials_state.h"
@@ -29,7 +29,7 @@ class DiagnosticsProviderTest : public testing::Test {
   }
 
  protected:
-  base::test::ScopedTaskEnvironment scoped_task_environment_;
+  base::test::TaskEnvironment task_environment_;
 
  private:
   signin::IdentityTestEnvironment identity_test_env_;
@@ -56,7 +56,7 @@ TEST_F(DiagnosticsProviderTest, GetDelayBeforeMakingAccessTokenRequests) {
   base::TimeDelta zero;
   EXPECT_EQ(diagnostics_provider()->GetDelayBeforeMakingAccessTokenRequests(),
             zero);
-  std::string account_id =
+  CoreAccountId account_id =
       identity_test_env()->MakeAccountAvailable(kAccountId).account_id;
   identity_test_env()->UpdatePersistentErrorOfRefreshTokenForAccount(
       account_id, GoogleServiceAuthError(
@@ -70,7 +70,7 @@ TEST_F(DiagnosticsProviderTest, GetDelayBeforeMakingCookieRequests) {
   identity_test_env()
       ->identity_manager()
       ->GetAccountsCookieMutator()
-      ->AddAccountToCookie(kAccountId, gaia::GaiaSource::kChrome,
+      ->AddAccountToCookie(CoreAccountId(kAccountId), gaia::GaiaSource::kChrome,
                            base::DoNothing());
   EXPECT_EQ(diagnostics_provider()->GetDelayBeforeMakingCookieRequests(), zero);
 

@@ -21,7 +21,6 @@
 
 namespace content {
 
-class BrowserThreadDelegate;
 class BrowserThreadImpl;
 
 // Use DCHECK_CURRENTLY_ON(BrowserThread::ID) to assert that a function can only
@@ -58,7 +57,7 @@ class CONTENT_EXPORT BrowserThread {
     IO,
 
     // NOTE: do not add new threads here. Instead you should just use
-    // base::Create*TaskRunnerWithTraits to run tasks on the ThreadPool.
+    // base::Create*TaskRunner to run tasks on the ThreadPool.
 
     // This identifier does not represent a thread.  Instead it counts the
     // number of well-known threads.  Insert new well-known threads before this
@@ -69,8 +68,13 @@ class CONTENT_EXPORT BrowserThread {
   // NOTE: Task posting APIs have moved to post_task.h. See
   // browser_task_traits.h.
 
-  // TODO(crbug.com/878356): Consider replacing callsites of this with
-  // base::CreateTaskRunnerWithTraits({id})->DeleteSoon(..).
+  // Delete/ReleaseSoon() helpers allow future deletion of an owned object on
+  // its associated thread. If you already have a task runner bound to a
+  // BrowserThread you should use its SequencedTaskRunner::DeleteSoon() member
+  // method. If you don't, the helpers below avoid having to do
+  // base::CreateSingleThreadTaskRunner({BrowserThread::ID})->DeleteSoon(...)
+  // which is equivalent.
+
   template <class T>
   static bool DeleteSoon(ID identifier,
                          const base::Location& from_here,
@@ -115,16 +119,6 @@ class CONTENT_EXPORT BrowserThread {
   // If the current message loop is one of the known threads, returns true and
   // sets identifier to its ID.  Otherwise returns false.
   static bool GetCurrentThreadIdentifier(ID* identifier) WARN_UNUSED_RESULT;
-
-  // Sets the delegate for BrowserThread::IO.
-  //
-  // Only one delegate may be registered at a time. The delegate may be
-  // unregistered by providing a nullptr pointer.
-  //
-  // The delegate can only be registered through this call before
-  // BrowserThreadImpl(BrowserThread::IO) is created and unregistered after
-  // it was destroyed and its underlying thread shutdown.
-  static void SetIOThreadDelegate(BrowserThreadDelegate* delegate);
 
   // Use these templates in conjunction with RefCountedThreadSafe or scoped_ptr
   // when you want to ensure that an object is deleted on a specific thread.
@@ -206,6 +200,15 @@ class CONTENT_EXPORT BrowserThread {
   BrowserThread() {}
   DISALLOW_COPY_AND_ASSIGN(BrowserThread);
 };
+
+// Runs |task| on the thread specified by |thread_id| if already on that thread,
+// otherwise posts a task to that thread.
+//
+// This is intended to be a temporary helper function for the IO/UI thread
+// simplification effort.
+CONTENT_EXPORT void RunOrPostTaskOnThread(const base::Location& location,
+                                          BrowserThread::ID thread_id,
+                                          base::OnceClosure task);
 
 }  // namespace content
 

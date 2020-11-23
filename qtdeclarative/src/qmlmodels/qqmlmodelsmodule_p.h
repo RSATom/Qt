@@ -51,6 +51,12 @@
 // We mean it.
 //
 
+#include <QtQml/qqml.h>
+
+#if QT_CONFIG(itemmodel)
+#include <QtCore/qitemselectionmodel.h>
+#endif
+
 #include <private/qtqmlmodelsglobal_p.h>
 
 QT_BEGIN_NAMESPACE
@@ -62,10 +68,17 @@ public:
     static void registerQmlTypes();
     static void registerQuickTypes();
 #endif
-
-    static void defineModule();
-    static void defineLabsModule();
 };
+
+#if QT_CONFIG(itemmodel)
+struct QItemSelectionModelForeign
+{
+    Q_GADGET
+    QML_FOREIGN(QItemSelectionModel)
+    QML_NAMED_ELEMENT(ItemSelectionModel)
+    QML_ADDED_IN_MINOR_VERSION(2)
+};
+#endif
 
 QT_END_NAMESPACE
 

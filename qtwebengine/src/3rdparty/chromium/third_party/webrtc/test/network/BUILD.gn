@@ -8,13 +8,16 @@
 
 import("../../webrtc.gni")
 
-rtc_source_set("emulated_network") {
+rtc_library("emulated_network") {
   visibility = [
     "../../api:create_network_emulation_manager",
     ":*",
   ]
   if (rtc_include_tests) {
-    visibility += [ "../scenario" ]
+    visibility += [
+      "../scenario:*",
+      "../peer_scenario:*",
+    ]
   }
   testonly = true
   sources = [
@@ -30,12 +33,15 @@ rtc_source_set("emulated_network") {
     "network_emulation.h",
     "network_emulation_manager.cc",
     "network_emulation_manager.h",
+    "simulated_network_node.cc",
+    "simulated_network_node.h",
     "traffic_route.cc",
     "traffic_route.h",
   ]
   deps = [
     "../../api:network_emulation_manager_api",
     "../../api:simulated_network_api",
+    "../../api:time_controller",
     "../../api/units:data_rate",
     "../../api/units:data_size",
     "../../api/units:time_delta",
@@ -57,7 +63,7 @@ rtc_source_set("emulated_network") {
   ]
 }
 
-rtc_source_set("network_emulation_unittest") {
+rtc_library("network_emulation_unittest") {
   testonly = true
   sources = [
     "network_emulation_unittest.cc",
@@ -72,11 +78,10 @@ rtc_source_set("network_emulation_unittest") {
     "../../rtc_base:logging",
     "../../rtc_base:rtc_event",
     "../../system_wrappers:system_wrappers",
-    "//third_party/abseil-cpp/absl/memory",
   ]
 }
 
-rtc_source_set("network_emulation_pc_unittest") {
+rtc_library("network_emulation_pc_unittest") {
   testonly = true
   sources = [
     "network_emulation_pc_unittest.cc",
@@ -101,11 +106,10 @@ rtc_source_set("network_emulation_pc_unittest") {
     "../../rtc_base:gunit_helpers",
     "../../rtc_base:logging",
     "../../rtc_base:rtc_event",
-    "//third_party/abseil-cpp/absl/memory",
   ]
 }
 
-rtc_source_set("cross_traffic_unittest") {
+rtc_library("cross_traffic_unittest") {
   testonly = true
   sources = [
     "cross_traffic_unittest.cc",
@@ -117,11 +121,12 @@ rtc_source_set("cross_traffic_unittest") {
     "../../call:simulated_network",
     "../../rtc_base:logging",
     "../../rtc_base:rtc_event",
+    "//test/time_controller:time_controller",
     "//third_party/abseil-cpp/absl/memory",
   ]
 }
 
-rtc_source_set("feedback_generator") {
+rtc_library("feedback_generator") {
   testonly = true
   sources = [
     "feedback_generator.cc",
@@ -137,7 +142,7 @@ rtc_source_set("feedback_generator") {
   ]
 }
 
-rtc_source_set("feedback_generator_unittest") {
+rtc_library("feedback_generator_unittest") {
   testonly = true
   sources = [
     "feedback_generator_unittest.cc",
@@ -148,7 +153,7 @@ rtc_source_set("feedback_generator_unittest") {
   ]
 }
 
-rtc_source_set("network_emulation_unittests") {
+rtc_library("network_emulation_unittests") {
   testonly = true
   deps = [
     ":cross_traffic_unittest",

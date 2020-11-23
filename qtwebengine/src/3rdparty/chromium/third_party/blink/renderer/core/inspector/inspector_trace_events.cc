@@ -10,7 +10,6 @@
 
 #include "cc/layers/picture_layer.h"
 #include "third_party/blink/public/mojom/loader/request_context_frame_type.mojom-blink.h"
-#include "third_party/blink/public/platform/web_layer_tree_view.h"
 #include "third_party/blink/renderer/bindings/core/v8/script_source_code.h"
 #include "third_party/blink/renderer/bindings/core/v8/source_location.h"
 #include "third_party/blink/renderer/core/animation/animation.h"
@@ -38,6 +37,7 @@
 #include "third_party/blink/renderer/platform/instrumentation/instance_counters.h"
 #include "third_party/blink/renderer/platform/instrumentation/tracing/traced_value.h"
 #include "third_party/blink/renderer/platform/loader/fetch/resource_load_priority.h"
+#include "third_party/blink/renderer/platform/loader/fetch/resource_load_timing.h"
 #include "third_party/blink/renderer/platform/loader/fetch/resource_request.h"
 #include "third_party/blink/renderer/platform/loader/fetch/resource_response.h"
 #include "third_party/blink/renderer/platform/weborigin/kurl.h"
@@ -50,11 +50,6 @@
 namespace blink {
 
 namespace {
-
-void* AsyncId(uint64_t identifier) {
-  // This value should be odd to avoid collisions with regular pointers.
-  return reinterpret_cast<void*>((identifier << 1) | 1);
-}
 
 std::unique_ptr<TracedValue> InspectorParseHtmlBeginData(Document* document,
                                                          unsigned start_line) {
@@ -150,8 +145,6 @@ void InspectorTraceEvents::DidReceiveData(uint64_t identifier,
                        TRACE_EVENT_SCOPE_THREAD, "data",
                        inspector_receive_data_event::Data(
                            loader, identifier, frame, encoded_data_length));
-  probe::AsyncTask async_task(frame ? frame->GetDocument() : nullptr,
-                              AsyncId(identifier), "data");
 }
 
 void InspectorTraceEvents::DidFinishLoading(uint64_t identifier,
@@ -160,14 +153,11 @@ void InspectorTraceEvents::DidFinishLoading(uint64_t identifier,
                                             int64_t encoded_data_length,
                                             int64_t decoded_body_length,
                                             bool should_report_corb_blocking) {
-  LocalFrame* frame = loader ? loader->GetFrame() : nullptr;
   TRACE_EVENT_INSTANT1(
       "devtools.timeline", "ResourceFinish", TRACE_EVENT_SCOPE_THREAD, "data",
       inspector_resource_finish_event::Data(loader, identifier, finish_time,
                                             false, encoded_data_length,
                                             decoded_body_length));
-  probe::AsyncTask async_task(frame ? frame->GetDocument() : nullptr,
-                              AsyncId(identifier));
 }
 
 void InspectorTraceEvents::DidFailLoading(uint64_t identifier,
@@ -177,6 +167,13 @@ void InspectorTraceEvents::DidFailLoading(uint64_t identifier,
                        TRACE_EVENT_SCOPE_THREAD, "data",
                        inspector_resource_finish_event::Data(
                            loader, identifier, base::TimeTicks(), true, 0, 0));
+}
+
+void InspectorTraceEvents::MarkResourceAsCached(DocumentLoader* loader,
+                                                uint64_t identifier) {
+  TRACE_EVENT_INSTANT1(
+      "devtools.timeline", "ResourceMarkAsCached", TRACE_EVENT_SCOPE_THREAD,
+      "data", inspector_mark_resource_cached_event::Data(loader, identifier));
 }
 
 void InspectorTraceEvents::Will(const probe::ExecuteScript&) {}
@@ -261,6 +258,7 @@ const char* PseudoTypeToString(CSSSelector::PseudoType pseudo_type) {
     DEFINE_STRING_MAPPING(PseudoNthLastChild)
     DEFINE_STRING_MAPPING(PseudoNthLastOfType)
     DEFINE_STRING_MAPPING(PseudoPart)
+    DEFINE_STRING_MAPPING(PseudoState)
     DEFINE_STRING_MAPPING(PseudoLink)
     DEFINE_STRING_MAPPING(PseudoVisited)
     DEFINE_STRING_MAPPING(PseudoAny)
@@ -293,6 +291,7 @@ const char* PseudoTypeToString(CSSSelector::PseudoType pseudo_type) {
     DEFINE_STRING_MAPPING(PseudoTarget)
     DEFINE_STRING_MAPPING(PseudoBefore)
     DEFINE_STRING_MAPPING(PseudoAfter)
+    DEFINE_STRING_MAPPING(PseudoMarker)
     DEFINE_STRING_MAPPING(PseudoBackdrop)
     DEFINE_STRING_MAPPING(PseudoLang)
     DEFINE_STRING_MAPPING(PseudoNot)
@@ -343,9 +342,11 @@ const char* PseudoTypeToString(CSSSelector::PseudoType pseudo_type) {
     DEFINE_STRING_MAPPING(PseudoSpatialNavigationInterest)
     DEFINE_STRING_MAPPING(PseudoIsHtml)
     DEFINE_STRING_MAPPING(PseudoListBox)
+    DEFINE_STRING_MAPPING(PseudoMultiSelectFocus)
     DEFINE_STRING_MAPPING(PseudoHostHasAppearance)
     DEFINE_STRING_MAPPING(PseudoVideoPersistent)
     DEFINE_STRING_MAPPING(PseudoVideoPersistentAncestor)
+    DEFINE_STRING_MAPPING(PseudoXrImmersiveDomOverlay)
 #undef DEFINE_STRING_MAPPING
   }
 
@@ -857,6 +858,15 @@ std::unique_ptr<TracedValue> inspector_resource_finish_event::Data(
   return value;
 }
 
+std::unique_ptr<TracedValue> inspector_mark_resource_cached_event::Data(
+    DocumentLoader* loader,
+    uint64_t identifier) {
+  auto value = std::make_unique<TracedValue>();
+  String request_id = IdentifiersFactory::RequestId(loader, identifier);
+  value->SetString("requestId", request_id);
+  return value;
+}
+
 static LocalFrame* FrameForExecutionContext(ExecutionContext* context) {
   if (auto* document = DynamicTo<Document>(context))
     return document->GetFrame();
@@ -1329,10 +1339,8 @@ std::unique_ptr<TracedValue> inspector_set_layer_tree_id::Data(
     LocalFrame* frame) {
   auto value = std::make_unique<TracedValue>();
   value->SetString("frame", IdentifiersFactory::FrameId(frame));
-  WebLayerTreeView* layerTreeView =
-      frame->GetPage()->GetChromeClient().GetWebLayerTreeView(frame);
   value->SetInteger("layerTreeId",
-                    layerTreeView ? layerTreeView->LayerTreeId() : 0);
+                    frame->GetPage()->GetChromeClient().GetLayerTreeId(*frame));
   return value;
 }
 

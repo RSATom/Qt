@@ -26,11 +26,12 @@ namespace protocol {
 class PageHandler : public DomainHandler, public Page::Backend {
  public:
   PageHandler(scoped_refptr<content::DevToolsAgentHost> agent_host,
-              base::WeakPtr<HeadlessBrowserImpl> browser,
               content::WebContents* web_contents);
   ~PageHandler() override;
 
+  // DomainHandler implementation
   void Wire(UberDispatcher* dispatcher) override;
+  Response Disable() override;
 
   // Page::Backend implementation
   void PrintToPDF(Maybe<bool> landscape,
@@ -60,7 +61,7 @@ class PageHandler : public DomainHandler, public Page::Backend {
 #endif
   scoped_refptr<content::DevToolsAgentHost> agent_host_;
   content::WebContents* web_contents_;
-  base::WeakPtrFactory<PageHandler> weak_factory_;
+  base::WeakPtrFactory<PageHandler> weak_factory_{this};
   DISALLOW_COPY_AND_ASSIGN(PageHandler);
 };
 

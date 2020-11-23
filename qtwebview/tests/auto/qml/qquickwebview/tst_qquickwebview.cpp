@@ -68,6 +68,7 @@ private Q_SLOTS:
     void multipleWebViewWindows();
     void multipleWebViews();
     void titleUpdate();
+    void changeUserAgent();
 
 private:
     inline QQuickWebView *newWebView();
@@ -75,11 +76,12 @@ private:
     void runJavaScript(const QString &script);
     QScopedPointer<TestWindow> m_window;
     QScopedPointer<QQmlComponent> m_component;
+    QQmlEngine *engine = nullptr;
 };
 
 tst_QQuickWebView::tst_QQuickWebView()
 {
-    static QQmlEngine *engine = new QQmlEngine(this);
+    engine = new QQmlEngine(this);
     m_component.reset(new QQmlComponent(engine, this));
     m_component->setData(QByteArrayLiteral("import QtQuick 2.0\n"
                                            "import QtWebView 1.1\n"
@@ -330,6 +332,20 @@ void tst_QQuickWebView::titleUpdate()
     QVERIFY(waitForLoadFailed(webView()));
     QCOMPARE(titleSpy.size(), 0);
 
+}
+
+void tst_QQuickWebView::changeUserAgent()
+{
+    QQmlComponent userAgentWebView(engine, this);
+    userAgentWebView.setData(QByteArrayLiteral("import QtQuick 2.0\n"
+                                               "import QtWebView 1.14\n"
+                                               "WebView {\n"
+                                               "httpUserAgent: \"dummy\"\n"
+                                               "}"),
+                             QUrl());
+    QObject *viewInstance = userAgentWebView.create();
+    QQuickWebView *webView = qobject_cast<QQuickWebView *>(viewInstance);
+    QCOMPARE(webView->httpUserAgent(), "dummy");
 }
 
 QTEST_MAIN(tst_QQuickWebView)

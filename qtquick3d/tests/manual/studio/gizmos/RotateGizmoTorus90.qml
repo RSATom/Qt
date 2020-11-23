@@ -47,8 +47,8 @@
 ** $QT_END_LICENSE$
 **
 ****************************************************************************/
-import QtQuick 2.14
-import QtQuick3D 1.14
+import QtQuick 2.15
+import QtQuick3D 1.15
 
 Model {
     id: torus90
@@ -56,8 +56,6 @@ Model {
     property color color: "white"
     property Node gizmoAxisRoot
 
-    rotationOrder: Node.XYZr
-    orientation: Node.LeftHanded
     source: "qrc:///meshes/gizmotorus90.mesh"
 
     materials: DefaultMaterial {

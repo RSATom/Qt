@@ -6,46 +6,27 @@
  */
 
 
-#include "include/gpu/GrRenderTarget.h"
+#include "src/gpu/GrRenderTarget.h"
 
 #include "include/gpu/GrContext.h"
 #include "src/core/SkRectPriv.h"
 #include "src/gpu/GrContextPriv.h"
 #include "src/gpu/GrGpu.h"
 #include "src/gpu/GrRenderTargetContext.h"
-#include "src/gpu/GrRenderTargetOpList.h"
 #include "src/gpu/GrRenderTargetPriv.h"
 #include "src/gpu/GrSamplePatternDictionary.h"
 #include "src/gpu/GrStencilAttachment.h"
 #include "src/gpu/GrStencilSettings.h"
 
-GrRenderTarget::GrRenderTarget(GrGpu* gpu, const GrSurfaceDesc& desc, int sampleCount,
-                               GrProtected isProtected, GrStencilAttachment* stencil)
-        : INHERITED(gpu, desc, isProtected)
+GrRenderTarget::GrRenderTarget(GrGpu* gpu, const SkISize& dimensions, GrPixelConfig config,
+                               int sampleCount, GrProtected isProtected,
+                               GrStencilAttachment* stencil)
+        : INHERITED(gpu, dimensions, config, isProtected)
         , fSampleCnt(sampleCount)
         , fSamplePatternKey(GrSamplePatternDictionary::kInvalidSamplePatternKey)
-        , fStencilAttachment(stencil) {
-    fResolveRect = SkRectPriv::MakeILargestInverted();
-}
+        , fStencilAttachment(stencil) {}
 
 GrRenderTarget::~GrRenderTarget() = default;
-
-void GrRenderTarget::flagAsNeedingResolve(const SkIRect* rect) {
-    if (kCanResolve_ResolveType == getResolveType()) {
-        if (rect) {
-            fResolveRect.join(*rect);
-            if (!fResolveRect.intersect(0, 0, this->width(), this->height())) {
-                fResolveRect.setEmpty();
-            }
-        } else {
-            fResolveRect.setLTRB(0, 0, this->width(), this->height());
-        }
-    }
-}
-
-void GrRenderTarget::flagAsResolved() {
-    fResolveRect = SkRectPriv::MakeILargestInverted();
-}
 
 void GrRenderTarget::onRelease() {
     fStencilAttachment = nullptr;

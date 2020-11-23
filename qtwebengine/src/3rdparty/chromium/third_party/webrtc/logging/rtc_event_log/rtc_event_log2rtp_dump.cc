@@ -23,8 +23,8 @@
 #include "absl/memory/memory.h"
 #include "absl/types/optional.h"
 #include "api/array_view.h"
+#include "api/rtc_event_log/rtc_event_log.h"
 #include "api/rtp_headers.h"
-#include "logging/rtc_event_log/rtc_event_log.h"
 #include "logging/rtc_event_log/rtc_event_log_parser.h"
 #include "logging/rtc_event_log/rtc_event_processor.h"
 #include "modules/rtp_rtcp/include/rtp_header_extension_map.h"
@@ -186,8 +186,10 @@ int main(int argc, char* argv[]) {
   }
 
   webrtc::ParsedRtcEventLog parsed_stream;
-  if (!parsed_stream.ParseFile(input_file)) {
-    std::cerr << "Error while parsing input file: " << input_file << std::endl;
+  auto status = parsed_stream.ParseFile(input_file);
+  if (!status.ok()) {
+    std::cerr << "Failed to parse event log " << input_file << ": "
+              << status.message() << std::endl;
     return -1;
   }
 

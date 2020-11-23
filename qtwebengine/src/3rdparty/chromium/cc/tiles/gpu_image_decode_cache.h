@@ -13,12 +13,12 @@
 #include "base/containers/mru_cache.h"
 #include "base/memory/discardable_memory.h"
 #include "base/memory/memory_pressure_listener.h"
+#include "base/optional.h"
 #include "base/synchronization/lock.h"
 #include "base/trace_event/memory_dump_provider.h"
 #include "cc/cc_export.h"
 #include "cc/paint/image_transfer_cache_entry.h"
 #include "cc/tiles/image_decode_cache.h"
-#include "third_party/skia/include/core/SkData.h"
 #include "third_party/skia/include/core/SkRefCnt.h"
 #include "third_party/skia/include/core/SkYUVAIndex.h"
 #include "third_party/skia/include/gpu/gl/GrGLTypes.h"
@@ -163,6 +163,7 @@ class CC_EXPORT GpuImageDecodeCache
   void ClearCache() override;
   size_t GetMaximumMemoryLimitBytes() const override;
   bool UseCacheForDrawImage(const DrawImage& image) const override;
+  void RecordStats() override;
 
   // MemoryDumpProvider overrides.
   bool OnMemoryDump(const base::trace_event::MemoryDumpArgs& args,
@@ -175,7 +176,7 @@ class CC_EXPORT GpuImageDecodeCache
 
   // Called by Decode / Upload tasks.
   void DecodeImageInTask(const DrawImage& image, TaskType task_type);
-  void UploadImageInTask(const DrawImage& image, sk_sp<SkData> encoded_data);
+  void UploadImageInTask(const DrawImage& image);
 
   // Called by Decode / Upload tasks when tasks are finished.
   void OnImageDecodeTaskCompleted(const DrawImage& image,
@@ -248,6 +249,7 @@ class CC_EXPORT GpuImageDecodeCache
   // Stores the CPU-side decoded bits of an image and supporting fields.
   struct DecodedImageData : public ImageDataBase {
     explicit DecodedImageData(bool is_bitmap_backed,
+                              bool can_do_hardware_accelerated_decode,
                               bool do_hardware_accelerated_decode);
     ~DecodedImageData();
 
@@ -287,6 +289,10 @@ class CC_EXPORT GpuImageDecodeCache
 
     bool is_yuv() const { return image_yuv_planes_.has_value(); }
 
+    bool can_do_hardware_accelerated_decode() const {
+      return can_do_hardware_accelerated_decode_;
+    }
+
     bool do_hardware_accelerated_decode() const {
       return do_hardware_accelerated_decode_;
     }
@@ -313,7 +319,15 @@ class CC_EXPORT GpuImageDecodeCache
     const bool is_bitmap_backed_;
     std::unique_ptr<base::DiscardableMemory> data_;
     sk_sp<SkImage> image_;  // RGBX (or null in YUV decode path)
+    // Only fill out the base::Optional |yuv_color_space| if doing YUV decoding.
+    // Otherwise it was filled out with a default "identity" value by the
+    // decoder.
     base::Optional<YUVSkImages> image_yuv_planes_;
+
+    // Keeps tracks of images that could go through hardware decode acceleration
+    // though they're possibly prevented from doing so because of a disabled
+    // feature flag.
+    bool can_do_hardware_accelerated_decode_;
 
     // |do_hardware_accelerated_decode_| keeps track of images that should go
     // through hardware decode acceleration. Currently, this path is intended
@@ -489,8 +503,10 @@ class CC_EXPORT GpuImageDecodeCache
               int upload_scale_mip_level,
               bool needs_mips,
               bool is_bitmap_backed,
+              bool can_do_hardware_accelerated_decode,
               bool do_hardware_accelerated_decode,
-              bool is_yuv_format);
+              bool is_yuv_format,
+              SkYUVColorSpace yuv_cs);
 
     bool IsGpuOrTransferCache() const;
     bool HasUploadedData() const;
@@ -506,6 +522,7 @@ class CC_EXPORT GpuImageDecodeCache
     bool is_bitmap_backed;
     bool is_yuv;
     bool is_budgeted = false;
+    base::Optional<SkYUVColorSpace> yuv_color_space;
 
     // If true, this image is no longer in our |persistent_cache_| and will be
     // deleted as soon as its ref count reaches zero.
@@ -598,14 +615,13 @@ class CC_EXPORT GpuImageDecodeCache
       const SkImage* uploaded_v_image,
       const size_t image_width,
       const size_t image_height,
-      const SkYUVColorSpace* yuva_color_space,
+      const SkYUVColorSpace& yuva_color_space,
       sk_sp<SkColorSpace> target_color_space,
       sk_sp<SkColorSpace> decoded_color_space) const;
 
   scoped_refptr<GpuImageDecodeCache::ImageData> CreateImageData(
       const DrawImage& image,
-      bool allow_hardware_decode,
-      sk_sp<SkData>* encoded_data);
+      bool allow_hardware_decode);
   void WillAddCacheEntry(const DrawImage& draw_image);
   SkImageInfo CreateImageInfoForDrawImage(const DrawImage& draw_image,
                                           int upload_scale_mip_level) const;
@@ -639,8 +655,7 @@ class CC_EXPORT GpuImageDecodeCache
 
   // Requires that the |context_| lock be held when calling.
   void UploadImageIfNecessary(const DrawImage& draw_image,
-                              ImageData* image_data,
-                              sk_sp<SkData> encoded_data);
+                              ImageData* image_data);
 
   // Flush pending operations on context_->GrContext() for each element of
   // |yuv_images| and then clear the vector.
@@ -655,6 +670,26 @@ class CC_EXPORT GpuImageDecodeCache
 
   sk_sp<SkColorSpace> ColorSpaceForImageDecode(const DrawImage& image,
                                                DecodedDataMode mode) const;
+
+  // Helper function to add a memory dump to |pmd| for a single texture
+  // identified by |gl_id| with size |bytes| and |locked_size| equal to either
+  // |bytes| or 0 depending on whether the texture is currently locked.
+  void AddTextureDump(base::trace_event::ProcessMemoryDump* pmd,
+                      const std::string& texture_dump_name,
+                      const size_t bytes,
+                      const GrGLuint gl_id,
+                      const size_t locked_size) const;
+
+  // Alias each texture of the YUV image entry to its Skia texture counterpart,
+  // taking ownership of the memory and preventing double counting.
+  //
+  // Given |dump_base_name| as the location where single RGB image textures are
+  // dumped, this method creates dumps under |pmd| for the planar textures
+  // backing |image_data| as subcategories plane_0, plane_1, etc.
+  void MemoryDumpYUVImage(base::trace_event::ProcessMemoryDump* pmd,
+                          const ImageData* image_data,
+                          const std::string& dump_base_name,
+                          size_t locked_size) const;
 
   // |persistent_cache_| represents the long-lived cache, keeping a certain
   // budget of ImageDatas alive even when their ref count reaches zero.
@@ -674,6 +709,8 @@ class CC_EXPORT GpuImageDecodeCache
   viz::RasterContextProvider* context_;
   int max_texture_size_ = 0;
   const PaintImage::GeneratorClientId generator_client_id_;
+  bool allow_accelerated_jpeg_decodes_ = false;
+  bool allow_accelerated_webp_decodes_ = false;
 
   // All members below this point must only be accessed while holding |lock_|.
   // The exception are const members like |normal_max_cache_bytes_| that can

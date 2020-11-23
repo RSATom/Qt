@@ -27,6 +27,7 @@
 #include "google_apis/drive/time_util.h"
 #include "net/base/url_util.h"
 #include "net/http/http_response_headers.h"
+#include "services/network/public/mojom/url_response_head.mojom.h"
 
 namespace google_apis {
 namespace drive {
@@ -1109,8 +1110,7 @@ SingleBatchableDelegateRequest::SingleBatchableDelegateRequest(
               // class and cannot outlive this instance.
               base::Unretained(this)),
           ProgressCallback()),
-      delegate_(std::move(delegate)),
-      weak_ptr_factory_(this) {}
+      delegate_(std::move(delegate)) {}
 
 SingleBatchableDelegateRequest::~SingleBatchableDelegateRequest() {
 }
@@ -1139,7 +1139,7 @@ bool SingleBatchableDelegateRequest::GetContentData(
 }
 
 void SingleBatchableDelegateRequest::ProcessURLFetchResults(
-    const network::ResourceResponseHead* response_head,
+    const network::mojom::URLResponseHead* response_head,
     base::FilePath response_file,
     std::string response_body) {
   delegate_->NotifyResult(
@@ -1181,8 +1181,7 @@ BatchUploadRequest::BatchUploadRequest(
       sender_(sender),
       url_generator_(url_generator),
       committed_(false),
-      last_progress_value_(0),
-      weak_ptr_factory_(this) {}
+      last_progress_value_(0) {}
 
 BatchUploadRequest::~BatchUploadRequest() {
 }
@@ -1321,7 +1320,7 @@ std::vector<std::string> BatchUploadRequest::GetExtraRequestHeaders() const {
 }
 
 void BatchUploadRequest::ProcessURLFetchResults(
-    const network::ResourceResponseHead* response_head,
+    const network::mojom::URLResponseHead* response_head,
     base::FilePath response_file,
     std::string response_body) {
   if (!IsSuccessfulDriveApiErrorCode(GetErrorCode())) {

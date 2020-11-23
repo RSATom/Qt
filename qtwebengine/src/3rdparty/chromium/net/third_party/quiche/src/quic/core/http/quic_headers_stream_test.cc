@@ -18,7 +18,6 @@
 #include "net/third_party/quiche/src/quic/platform/api/quic_expect_bug.h"
 #include "net/third_party/quiche/src/quic/platform/api/quic_flags.h"
 #include "net/third_party/quiche/src/quic/platform/api/quic_logging.h"
-#include "net/third_party/quiche/src/quic/platform/api/quic_ptr_util.h"
 #include "net/third_party/quiche/src/quic/platform/api/quic_str_cat.h"
 #include "net/third_party/quiche/src/quic/platform/api/quic_string_piece.h"
 #include "net/third_party/quiche/src/quic/platform/api/quic_test.h"
@@ -26,6 +25,7 @@
 #include "net/third_party/quiche/src/quic/test_tools/quic_spdy_session_peer.h"
 #include "net/third_party/quiche/src/quic/test_tools/quic_stream_peer.h"
 #include "net/third_party/quiche/src/quic/test_tools/quic_test_utils.h"
+#include "net/third_party/quiche/src/common/platform/api/quiche_endian.h"
 #include "net/third_party/quiche/src/spdy/core/http2_frame_decoder_adapter.h"
 #include "net/third_party/quiche/src/spdy/core/spdy_alt_svc_wire_format.h"
 #include "net/third_party/quiche/src/spdy/core/spdy_protocol.h"
@@ -37,7 +37,6 @@ using spdy::SETTINGS_HEADER_TABLE_SIZE;
 using spdy::SETTINGS_INITIAL_WINDOW_SIZE;
 using spdy::SETTINGS_MAX_CONCURRENT_STREAMS;
 using spdy::SETTINGS_MAX_FRAME_SIZE;
-using spdy::SETTINGS_MAX_HEADER_LIST_SIZE;
 using spdy::Spdy3PriorityToHttp2Weight;
 using spdy::SpdyAltSvcWireFormat;
 using spdy::SpdyDataIR;
@@ -162,10 +161,20 @@ struct TestParams {
   Perspective perspective;
 };
 
+// Used by ::testing::PrintToStringParamName().
+std::string PrintToString(const TestParams& tp) {
+  return QuicStrCat(
+      ParsedQuicVersionToString(tp.version), "_",
+      (tp.perspective == Perspective::IS_CLIENT ? "client" : "server"));
+}
+
 std::vector<TestParams> GetTestParams() {
   std::vector<TestParams> params;
   ParsedQuicVersionVector all_supported_versions = AllSupportedVersions();
   for (size_t i = 0; i < all_supported_versions.size(); ++i) {
+    if (VersionUsesHttp3(all_supported_versions[i].transport_version)) {
+      continue;
+    }
     for (Perspective p : {Perspective::IS_SERVER, Perspective::IS_CLIENT}) {
       params.emplace_back(all_supported_versions[i], p);
     }
@@ -191,7 +200,6 @@ class QuicHeadersStreamTest : public QuicTestWithParam<TestParams> {
     QuicSpdySessionPeer::SetMaxInboundHeaderListSize(&session_, 256 * 1024);
     session_.Initialize();
     headers_stream_ = QuicSpdySessionPeer::GetHeadersStream(&session_);
-    headers_[":version"] = "HTTP/1.1";
     headers_[":status"] = "200 Ok";
     headers_["content-length"] = "11";
     framer_ = std::unique_ptr<SpdyFramer>(
@@ -199,7 +207,7 @@ class QuicHeadersStreamTest : public QuicTestWithParam<TestParams> {
     deframer_ = std::unique_ptr<http2::Http2DecoderAdapter>(
         new http2::Http2DecoderAdapter());
     deframer_->set_visitor(&visitor_);
-    EXPECT_EQ(transport_version(), session_.connection()->transport_version());
+    EXPECT_EQ(transport_version(), session_.transport_version());
     EXPECT_TRUE(headers_stream_ != nullptr);
     connection_->AdvanceTime(QuicTime::Delta::FromMilliseconds(1));
     client_id_1_ = GetNthClientInitiatedBidirectionalStreamId(
@@ -219,7 +227,7 @@ class QuicHeadersStreamTest : public QuicTestWithParam<TestParams> {
 
   QuicConsumedData SaveIov(size_t write_length) {
     char* buf = new char[write_length];
-    QuicDataWriter writer(write_length, buf, NETWORK_BYTE_ORDER);
+    QuicDataWriter writer(write_length, buf, quiche::NETWORK_BYTE_ORDER);
     headers_stream_->WriteStreamData(headers_stream_->stream_bytes_written(),
                                      write_length, &writer);
     saved_data_.append(buf, write_length);
@@ -255,7 +263,7 @@ class QuicHeadersStreamTest : public QuicTestWithParam<TestParams> {
   }
 
   void SaveToHandler(size_t size, const QuicHeaderList& header_list) {
-    headers_handler_ = QuicMakeUnique<TestHeadersHandler>();
+    headers_handler_ = std::make_unique<TestHeadersHandler>();
     headers_handler_->OnHeaderBlockStart();
     for (const auto& p : header_list) {
       headers_handler_->OnHeader(p.first, p.second);
@@ -284,7 +292,8 @@ class QuicHeadersStreamTest : public QuicTestWithParam<TestParams> {
                                      _, _, NO_FIN))
         .WillOnce(WithArgs<2>(Invoke(this, &QuicHeadersStreamTest::SaveIov)));
     QuicSpdySessionPeer::WriteHeadersOnHeadersStream(
-        &session_, stream_id, headers_.Clone(), fin, priority, nullptr);
+        &session_, stream_id, headers_.Clone(), fin,
+        spdy::SpdyStreamPrecedence(priority), nullptr);
 
     // Parse the outgoing data and check that it matches was was written.
     if (is_request) {
@@ -296,11 +305,11 @@ class QuicHeadersStreamTest : public QuicTestWithParam<TestParams> {
     } else {
       EXPECT_CALL(visitor_,
                   OnHeaders(stream_id, !kHasPriority,
-                            /*priority=*/0,
+                            /*weight=*/0,
                             /*parent_stream_id=*/0,
                             /*exclusive=*/false, fin, kFrameComplete));
     }
-    headers_handler_ = QuicMakeUnique<TestHeadersHandler>();
+    headers_handler_ = std::make_unique<TestHeadersHandler>();
     EXPECT_CALL(visitor_, OnHeaderFrameStart(stream_id))
         .WillOnce(Return(headers_handler_.get()));
     EXPECT_CALL(visitor_, OnHeaderFrameEnd(stream_id)).Times(1);
@@ -317,6 +326,7 @@ class QuicHeadersStreamTest : public QuicTestWithParam<TestParams> {
   }
 
   void CheckHeaders() {
+    ASSERT_TRUE(headers_handler_);
     EXPECT_EQ(headers_, headers_handler_->decoded_block());
     headers_handler_.reset();
   }
@@ -369,7 +379,8 @@ class QuicHeadersStreamTest : public QuicTestWithParam<TestParams> {
 // Run all tests with each version and perspective (client or server).
 INSTANTIATE_TEST_SUITE_P(Tests,
                          QuicHeadersStreamTest,
-                         ::testing::ValuesIn(GetTestParams()));
+                         ::testing::ValuesIn(GetTestParams()),
+                         ::testing::PrintToStringParamName());
 
 TEST_P(QuicHeadersStreamTest, StreamId) {
   EXPECT_EQ(QuicUtils::GetHeadersStreamId(connection_->transport_version()),
@@ -377,10 +388,6 @@ TEST_P(QuicHeadersStreamTest, StreamId) {
 }
 
 TEST_P(QuicHeadersStreamTest, WriteHeaders) {
-  if (VersionUsesQpack(transport_version())) {
-    return;
-  }
-
   for (QuicStreamId stream_id = client_id_1_; stream_id < client_id_3_;
        stream_id += next_stream_id_) {
     for (bool fin : {false, true}) {
@@ -397,9 +404,8 @@ TEST_P(QuicHeadersStreamTest, WriteHeaders) {
 }
 
 TEST_P(QuicHeadersStreamTest, WritePushPromises) {
-  if (GetParam().version.DoesNotHaveHeadersStream()) {
-    return;
-  }
+  session_.SetMaxAllowedPushId(kMaxQuicStreamId);
+
   for (QuicStreamId stream_id = client_id_1_; stream_id < client_id_3_;
        stream_id += next_stream_id_) {
     QuicStreamId promised_stream_id = NextPromisedStreamId();
@@ -416,7 +422,7 @@ TEST_P(QuicHeadersStreamTest, WritePushPromises) {
       // Parse the outgoing data and check that it matches was was written.
       EXPECT_CALL(visitor_,
                   OnPushPromise(stream_id, promised_stream_id, kFrameComplete));
-      headers_handler_ = QuicMakeUnique<TestHeadersHandler>();
+      headers_handler_ = std::make_unique<TestHeadersHandler>();
       EXPECT_CALL(visitor_, OnHeaderFrameStart(stream_id))
           .WillOnce(Return(headers_handler_.get()));
       EXPECT_CALL(visitor_, OnHeaderFrameEnd(stream_id)).Times(1);
@@ -435,10 +441,6 @@ TEST_P(QuicHeadersStreamTest, WritePushPromises) {
 }
 
 TEST_P(QuicHeadersStreamTest, ProcessRawData) {
-  if (VersionUsesQpack(transport_version())) {
-    return;
-  }
-
   for (QuicStreamId stream_id = client_id_1_; stream_id < client_id_3_;
        stream_id += next_stream_id_) {
     for (bool fin : {false, true}) {
@@ -451,7 +453,8 @@ TEST_P(QuicHeadersStreamTest, ProcessRawData) {
           headers_frame.set_has_priority(true);
           headers_frame.set_weight(Spdy3PriorityToHttp2Weight(0));
           frame = framer_->SerializeFrame(headers_frame);
-          EXPECT_CALL(session_, OnStreamHeadersPriority(stream_id, 0));
+          EXPECT_CALL(session_, OnStreamHeadersPriority(
+                                    stream_id, spdy::SpdyStreamPrecedence(0)));
         } else {
           SpdyHeadersIR headers_frame(stream_id, headers_.Clone());
           headers_frame.set_fin(fin);
@@ -471,9 +474,6 @@ TEST_P(QuicHeadersStreamTest, ProcessRawData) {
 }
 
 TEST_P(QuicHeadersStreamTest, ProcessPushPromise) {
-  if (GetParam().version.DoesNotHaveHeadersStream()) {
-    return;
-  }
   if (perspective() == Perspective::IS_SERVER) {
     return;
   }
@@ -512,9 +512,6 @@ TEST_P(QuicHeadersStreamTest, ProcessPushPromise) {
 }
 
 TEST_P(QuicHeadersStreamTest, ProcessPriorityFrame) {
-  if (GetParam().version.DoesNotHaveHeadersStream()) {
-    return;
-  }
   QuicStreamId parent_stream_id = 0;
   for (SpdyPriority priority = 0; priority < 7; ++priority) {
     for (QuicStreamId stream_id = client_id_1_; stream_id < client_id_3_;
@@ -523,20 +520,17 @@ TEST_P(QuicHeadersStreamTest, ProcessPriorityFrame) {
       SpdyPriorityIR priority_frame(stream_id, parent_stream_id, weight, true);
       SpdySerializedFrame frame(framer_->SerializeFrame(priority_frame));
       parent_stream_id = stream_id;
-      if (transport_version() <= QUIC_VERSION_39) {
-        EXPECT_CALL(*connection_,
-                    CloseConnection(QUIC_INVALID_HEADERS_STREAM_DATA,
-                                    "SPDY PRIORITY frame received.", _))
-            .WillRepeatedly(InvokeWithoutArgs(
-                this, &QuicHeadersStreamTest::TearDownLocalConnectionState));
-      } else if (perspective() == Perspective::IS_CLIENT) {
+      if (perspective() == Perspective::IS_CLIENT) {
         EXPECT_CALL(*connection_,
                     CloseConnection(QUIC_INVALID_HEADERS_STREAM_DATA,
                                     "Server must not send PRIORITY frames.", _))
             .WillRepeatedly(InvokeWithoutArgs(
                 this, &QuicHeadersStreamTest::TearDownLocalConnectionState));
       } else {
-        EXPECT_CALL(session_, OnPriorityFrame(stream_id, priority)).Times(1);
+        EXPECT_CALL(
+            session_,
+            OnPriorityFrame(stream_id, spdy::SpdyStreamPrecedence(priority)))
+            .Times(1);
       }
       stream_frame_.data_buffer = frame.data();
       stream_frame_.data_length = frame.size();
@@ -566,10 +560,6 @@ TEST_P(QuicHeadersStreamTest, ProcessPushPromiseDisabledSetting) {
 }
 
 TEST_P(QuicHeadersStreamTest, ProcessLargeRawData) {
-  if (VersionUsesQpack(transport_version())) {
-    return;
-  }
-
   // We want to create a frame that is more than the SPDY Framer's max control
   // frame size, which is 16K, but less than the HPACK decoders max decode
   // buffer size, which is 32K.
@@ -588,7 +578,8 @@ TEST_P(QuicHeadersStreamTest, ProcessLargeRawData) {
           headers_frame.set_has_priority(true);
           headers_frame.set_weight(Spdy3PriorityToHttp2Weight(0));
           frame = framer_->SerializeFrame(headers_frame);
-          EXPECT_CALL(session_, OnStreamHeadersPriority(stream_id, 0));
+          EXPECT_CALL(session_, OnStreamHeadersPriority(
+                                    stream_id, spdy::SpdyStreamPrecedence(0)));
         } else {
           SpdyHeadersIR headers_frame(stream_id, headers_.Clone());
           headers_frame.set_fin(fin);
@@ -743,12 +734,8 @@ TEST_P(QuicHeadersStreamTest, NoConnectionLevelFlowControl) {
 }
 
 TEST_P(QuicHeadersStreamTest, HpackDecoderDebugVisitor) {
-  if (VersionUsesQpack(transport_version())) {
-    return;
-  }
-
   auto hpack_decoder_visitor =
-      QuicMakeUnique<StrictMock<MockQuicHpackDebugVisitor>>();
+      std::make_unique<StrictMock<MockQuicHpackDebugVisitor>>();
   {
     InSequence seq;
     // Number of indexed representations generated in headers below.
@@ -778,7 +765,8 @@ TEST_P(QuicHeadersStreamTest, HpackDecoderDebugVisitor) {
           headers_frame.set_has_priority(true);
           headers_frame.set_weight(Spdy3PriorityToHttp2Weight(0));
           frame = framer_->SerializeFrame(headers_frame);
-          EXPECT_CALL(session_, OnStreamHeadersPriority(stream_id, 0));
+          EXPECT_CALL(session_, OnStreamHeadersPriority(
+                                    stream_id, spdy::SpdyStreamPrecedence(0)));
         } else {
           SpdyHeadersIR headers_frame(stream_id, headers_.Clone());
           headers_frame.set_fin(fin);
@@ -799,12 +787,8 @@ TEST_P(QuicHeadersStreamTest, HpackDecoderDebugVisitor) {
 }
 
 TEST_P(QuicHeadersStreamTest, HpackEncoderDebugVisitor) {
-  if (VersionUsesQpack(transport_version())) {
-    return;
-  }
-
   auto hpack_encoder_visitor =
-      QuicMakeUnique<StrictMock<MockQuicHpackDebugVisitor>>();
+      std::make_unique<StrictMock<MockQuicHpackDebugVisitor>>();
   if (perspective() == Perspective::IS_SERVER) {
     InSequence seq;
     for (int i = 1; i < 4; i++) {

@@ -32,7 +32,8 @@
 #define THIRD_PARTY_BLINK_PUBLIC_WEB_WEB_VIEW_H_
 
 #include "base/time/time.h"
-#include "third_party/blink/public/common/manifest/web_display_mode.h"
+#include "third_party/blink/public/common/page/page_visibility_state.h"
+#include "third_party/blink/public/mojom/manifest/display_mode.mojom-shared.h"
 #include "third_party/blink/public/platform/web_drag_operation.h"
 #include "third_party/blink/public/platform/web_focus_type.h"
 #include "third_party/blink/public/platform/web_string.h"
@@ -40,6 +41,7 @@
 
 namespace cc {
 class PaintCanvas;
+struct BrowserControlsParams;
 }
 
 namespace gfx {
@@ -60,11 +62,10 @@ class WebSettings;
 class WebString;
 class WebViewClient;
 class WebWidget;
-class WebWidgetClient;
+struct PluginAction;
 struct WebDeviceEmulationParams;
 struct WebFloatPoint;
 struct WebFloatSize;
-struct WebPluginAction;
 struct WebRect;
 struct WebSize;
 struct WebTextAutosizerPageInfo;
@@ -100,26 +101,16 @@ class WebView {
                                       bool compositing_enabled,
                                       WebView* opener);
 
+  // Destroys the WebView.
+  virtual void Close() = 0;
+
+  // Sets whether the WebView is focused.
+  virtual void SetFocus(bool enable) = 0;
+
   // Called to inform WebViewImpl that a local main frame has been attached.
   // After this call MainFrameImpl() will return a valid frame until it is
-  // detached. It receives the WebWidgetClient* that provides input/compositing
-  // services for the attached main frame.
-  // This must be called for composited WebViews. Non-composited WebViews do not
-  // require a WebWidgetClient, but must call this in order to establish one.
-  virtual void DidAttachLocalMainFrame(WebWidgetClient*) = 0;
-
-  // Called to inform WebViewImpl that it has an initial remote main frame. This
-  // is a hack to just get a WebWidgetClient to WebViewImpl since it expects to
-  // always have one at this time.
-  // This does *NOT* need to be called every time a remote main frame exists,
-  // but is meant to be called when WebViewImpl is initialized with a remote
-  // main frame, since it will not receive a WebWidgetClient otherwise.
-  // TODO(danakj): Remove this method when WebViewImpl does not need a
-  // WebWidgetClient without a local main frame. At that point it should
-  // also drop the WebWidgetClient when a local main frame is detached.
-  // This must only be called for composited WebViews. Non-composited WebViews
-  // do not require a WebWidgetClient.
-  virtual void DidAttachRemoteMainFrame(WebWidgetClient*) = 0;
+  // detached.
+  virtual void DidAttachLocalMainFrame() = 0;
 
   // Initializes the various client interfaces.
   virtual void SetPrerendererClient(WebPrerendererClient*) = 0;
@@ -168,12 +159,6 @@ class WebView {
   virtual WebLocalFrame* FocusedFrame() = 0;
   virtual void SetFocusedFrame(WebFrame*) = 0;
 
-  // Sets the provided frame as focused and fires blur/focus events on any
-  // currently focused elements in old/new focused documents.  Note that this
-  // is different from setFocusedFrame, which does not fire events on focused
-  // elements.
-  virtual void FocusDocumentView(WebFrame*) = 0;
-
   // Focus the first (last if reverse is true) focusable node.
   virtual void SetInitialFocus(bool reverse) = 0;
 
@@ -182,8 +167,10 @@ class WebView {
   // send it.
   virtual void ClearFocusedElement() = 0;
 
-  // Smooth scroll the root layer to |targetX|, |targetY| in |durationMs|.
-  virtual void SmoothScroll(int target_x, int target_y, uint64_t duration_ms) {}
+  // Smooth scroll the root layer to |targetX|, |targetY| in |duration|.
+  virtual void SmoothScroll(int target_x,
+                            int target_y,
+                            base::TimeDelta duration) {}
 
   // Advance the focus of the WebView forward to the next element or to the
   // previous element in the tab sequence (if reverse is true).
@@ -209,15 +196,6 @@ class WebView {
   // noted above, and returns the current zoom level after applying the
   // change.
   virtual double SetZoomLevel(double) = 0;
-
-  // Updates the zoom limits for this view.
-  virtual void ZoomLimitsChanged(double minimum_zoom_level,
-                                 double maximum_zoom_level) = 0;
-
-  // Helper functions to convert between zoom level and zoom factor.  zoom
-  // factor is zoom percent / 100, so 300% = 3.0.
-  BLINK_EXPORT static double ZoomLevelToZoomFactor(double zoom_level);
-  BLINK_EXPORT static double ZoomFactorToZoomLevel(double factor);
 
   // Returns the current text zoom factor, where 1.0 is the normal size, > 1.0
   // is scaled up and < 1.0 is scaled down.
@@ -287,6 +265,9 @@ class WebView {
   // mode (does not have <!doctype html>), the height will stretch to fill the
   // viewport. The returned size has the page zoom factor applied. The lifecycle
   // must be updated to at least layout before calling (see: |UpdateLifecycle|).
+  //
+  // This may only be called when there is a local main frame attached to this
+  // WebView.
   virtual WebSize ContentsPreferredMinimumSize() = 0;
 
   // Requests a page-scale animation based on the specified point/rect.
@@ -296,7 +277,7 @@ class WebView {
   virtual void ZoomToFindInPageRect(const WebRect&) = 0;
 
   // Sets the display mode of the web app.
-  virtual void SetDisplayMode(WebDisplayMode) = 0;
+  virtual void SetDisplayMode(blink::mojom::DisplayMode) = 0;
 
   // Sets the ratio as computed by computePageScaleConstraints.
   // TODO(oshima): Remove this once the device scale factor implementation is
@@ -319,6 +300,18 @@ class WebView {
       float bottom_controls_height,
       bool browser_controls_shrink_layout) = 0;
 
+  // Same as ResizeWithBrowserControls(const WebSize&,float,float,bool), but
+  // includes all browser controls params such as the min heights.
+  virtual void ResizeWithBrowserControls(
+      const WebSize&,
+      cc::BrowserControlsParams browser_controls_params) = 0;
+
+  // Same as ResizeWithBrowserControls, but keeps the same BrowserControl
+  // settings.
+  virtual void Resize(const WebSize&) = 0;
+
+  virtual WebSize GetSize() = 0;
+
   // Auto-Resize -----------------------------------------------------------
 
   // In auto-resize mode, the view is automatically adjusted to fit the html
@@ -332,7 +325,7 @@ class WebView {
   // Media ---------------------------------------------------------------
 
   // Performs the specified plugin action on the node at the given location.
-  virtual void PerformPluginAction(const WebPluginAction&,
+  virtual void PerformPluginAction(const PluginAction&,
                                    const gfx::Point& location) = 0;
 
   // Notifies WebView when audio is started or stopped.
@@ -415,8 +408,9 @@ class WebView {
   // Visibility -----------------------------------------------------------
 
   // Sets the visibility of the WebView.
-  virtual void SetIsHidden(bool hidden, bool is_initial_state) = 0;
-  virtual bool IsHidden() = 0;
+  virtual void SetVisibilityState(PageVisibilityState visibility_state,
+                                  bool is_initial_state) = 0;
+  virtual PageVisibilityState GetVisibilityState() = 0;
 
   // FrameOverlay ----------------------------------------------------------
 
@@ -438,6 +432,13 @@ class WebView {
 
   // Freezes or unfreezes the page and all the local frames.
   virtual void SetPageFrozen(bool frozen) = 0;
+
+  // Dispatches a pagehide event, freezes a page and hooks page eviction.
+  virtual void PutPageIntoBackForwardCache() = 0;
+
+  // Unhooks eviction, resumes a page and dispatches a pageshow event.
+  virtual void RestorePageFromBackForwardCache(
+      base::TimeTicks navigation_start) = 0;
 
   // Testing functionality for TestRunner ---------------------------------
 

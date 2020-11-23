@@ -284,18 +284,18 @@ static QVariant variantFromXml(QXmlStreamReader &xml, Converter::Options options
         ba.resize(n);
         result = ba;
     } else {
-        int id = QVariant::Invalid;
+        int id = QMetaType::UnknownType;
         if (type == QLatin1String("datetime"))
-            id = QVariant::DateTime;
+            id = QMetaType::QDateTime;
         else if (type == QLatin1String("url"))
-            id = QVariant::Url;
+            id = QMetaType::QUrl;
         else if (type == QLatin1String("uuid"))
-            id = QVariant::Uuid;
+            id = QMetaType::QUuid;
         else if (type == QLatin1String("regex"))
-            id = QVariant::RegularExpression;
+            id = QMetaType::QRegularExpression;
         else
             id = QMetaType::type(type.toLatin1());
-        if (id == QVariant::Invalid) {
+        if (id == QMetaType::UnknownType) {
             fprintf(stderr, "%lld:%lld: Invalid XML: unknown type '%s'.\n",
                     xml.lineNumber(), xml.columnNumber(), qPrintable(type.toString()));
             exit(EXIT_FAILURE);
@@ -327,16 +327,16 @@ static QVariant variantFromXml(QXmlStreamReader &xml, Converter::Options options
 static void variantToXml(QXmlStreamWriter &xml, const QVariant &v)
 {
     int type = v.userType();
-    if (type == QVariant::List) {
+    if (type == QMetaType::QVariantList) {
         QVariantList list = v.toList();
         xml.writeStartElement("list");
         for (const QVariant &v : list)
             variantToXml(xml, v);
         xml.writeEndElement();
-    } else if (type == QVariant::Map || type == qMetaTypeId<VariantOrderedMap>()) {
-        const VariantOrderedMap map = (type == QVariant::Map) ?
+    } else if (type == QMetaType::QVariantMap || type == qMetaTypeId<VariantOrderedMap>()) {
+        const VariantOrderedMap map = (type == QMetaType::QVariantMap) ?
                     VariantOrderedMap(v.toMap()) :
-                    v.value<VariantOrderedMap>();
+                    qvariant_cast<VariantOrderedMap>(v);
 
         xml.writeStartElement("map");
         for (const auto &pair : map) {
@@ -425,15 +425,15 @@ static void variantToXml(QXmlStreamWriter &xml, const QVariant &v)
         default:
             if (type == qMetaTypeId<qfloat16>()) {
                 xml.writeAttribute(typeString, "number");
-                xml.writeCharacters(QString::number(float(v.value<qfloat16>())));
+                xml.writeCharacters(QString::number(float(qvariant_cast<qfloat16>(v))));
             } else if (type == qMetaTypeId<QCborSimpleType>()) {
                 xml.writeAttribute(typeString, "CBOR simple type");
-                xml.writeCharacters(QString::number(int(v.value<QCborSimpleType>())));
+                xml.writeCharacters(QString::number(int(qvariant_cast<QCborSimpleType>(v))));
             } else {
                 // does this convert to string?
                 const char *typeName = v.typeName();
                 QVariant copy = v;
-                if (copy.convert(QVariant::String)) {
+                if (copy.convert(QMetaType::QString)) {
                     xml.writeAttribute(typeString, QString::fromLatin1(typeName));
                     xml.writeCharacters(copy.toString());
                 } else {

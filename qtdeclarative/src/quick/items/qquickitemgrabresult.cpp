@@ -40,6 +40,7 @@
 #include <private/qtquickglobal_p.h>
 #include "qquickitemgrabresult.h"
 
+#include "qquickrendercontrol.h"
 #include "qquickwindow.h"
 #include "qquickitem.h"
 #if QT_CONFIG(quick_shadereffect)
@@ -195,6 +196,7 @@ bool QQuickItemGrabResult::saveToFile(const QString &fileName) const
 }
 
 #if QT_VERSION < QT_VERSION_CHECK(6, 0, 0)
+#if QT_DEPRECATED_SINCE(5, 15)
 /*!
  * \overload
  * \internal
@@ -203,6 +205,7 @@ bool QQuickItemGrabResult::saveToFile(const QString &fileName)
 {
     return qAsConst(*this).saveToFile(fileName);
 }
+#endif
 #endif // < Qt 6
 
 QUrl QQuickItemGrabResult::url() const
@@ -291,7 +294,11 @@ QQuickItemGrabResult *QQuickItemGrabResultPrivate::create(QQuickItem *item, cons
         return nullptr;
     }
 
-    if (!item->window()->isVisible()) {
+    QWindow *effectiveWindow = item->window();
+    if (QWindow *renderWindow = QQuickRenderControl::renderWindowFor(item->window()))
+        effectiveWindow = renderWindow;
+
+    if (!effectiveWindow->isVisible()) {
         qmlWarning(item) << "grabToImage: item's window is not visible";
         return nullptr;
     }

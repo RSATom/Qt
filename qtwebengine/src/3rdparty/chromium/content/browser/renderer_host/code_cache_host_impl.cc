@@ -24,7 +24,7 @@
 #include "content/public/browser/storage_partition.h"
 #include "content/public/common/content_features.h"
 #include "content/public/common/url_constants.h"
-#include "mojo/public/cpp/bindings/strong_binding.h"
+#include "mojo/public/cpp/bindings/self_owned_receiver.h"
 #include "net/base/io_buffer.h"
 #include "third_party/blink/public/common/cache_storage/cache_storage_utils.h"
 #include "url/gurl.h"
@@ -100,11 +100,11 @@ CodeCacheHostImpl::CodeCacheHostImpl(
     int render_process_id,
     scoped_refptr<CacheStorageContextImpl> cache_storage_context,
     scoped_refptr<GeneratedCodeCacheContext> generated_code_cache_context,
-    blink::mojom::CodeCacheHostRequest request)
+    mojo::PendingReceiver<blink::mojom::CodeCacheHost> receiver)
     : render_process_id_(render_process_id),
       cache_storage_context_(std::move(cache_storage_context)),
       generated_code_cache_context_(std::move(generated_code_cache_context)),
-      binding_(this, std::move(request)) {}
+      receiver_(this, std::move(receiver)) {}
 
 CodeCacheHostImpl::~CodeCacheHostImpl() {
   DCHECK_CURRENTLY_ON(BrowserThread::UI);
@@ -136,7 +136,8 @@ void CodeCacheHostImpl::DidGenerateCacheableMetadata(
   if (!origin_lock)
     return;
 
-  code_cache->WriteData(url, *origin_lock, expected_response_time, data);
+  code_cache->WriteEntry(url, *origin_lock, expected_response_time,
+                         std::move(data));
 }
 
 void CodeCacheHostImpl::FetchCachedCode(blink::mojom::CodeCacheType cache_type,
@@ -206,7 +207,9 @@ void CodeCacheHostImpl::DidGenerateCacheableMetadataInCacheStorage(
       "CodeCacheHostImpl::DidGenerateCacheableMetadataInCacheStorage",
       TRACE_ID_GLOBAL(trace_id), TRACE_EVENT_FLAG_FLOW_OUT, "url", url.spec());
 
-  if (!cache_storage_context_->CacheManager())
+  scoped_refptr<CacheStorageManager> manager =
+      cache_storage_context_->CacheManager();
+  if (!manager)
     return;
 
   scoped_refptr<net::IOBuffer> buf =
@@ -214,9 +217,8 @@ void CodeCacheHostImpl::DidGenerateCacheableMetadataInCacheStorage(
   if (data.size())
     memcpy(buf->data(), data.data(), data.size());
 
-  CacheStorageHandle cache_storage =
-      cache_storage_context_->CacheManager()->OpenCacheStorage(
-          cache_storage_origin, CacheStorageOwner::kCacheAPI);
+  CacheStorageHandle cache_storage = manager->OpenCacheStorage(
+      cache_storage_origin, CacheStorageOwner::kCacheAPI);
   cache_storage.value()->OpenCache(
       cache_storage_cache_name, trace_id,
       base::BindOnce(&CodeCacheHostImpl::OnCacheStorageOpenCallback,
@@ -238,10 +240,10 @@ GeneratedCodeCache* CodeCacheHostImpl::GetCodeCache(
 
 void CodeCacheHostImpl::OnReceiveCachedCode(FetchCachedCodeCallback callback,
                                             const base::Time& response_time,
-                                            const std::vector<uint8_t>& data) {
+                                            mojo_base::BigBuffer data) {
   // TODO(crbug.com/867848): Pass the data as a mojo data pipe instead
-  // of vector<uint8>
-  std::move(callback).Run(response_time, data);
+  // of BigBuffer.
+  std::move(callback).Run(response_time, std::move(data));
 }
 
 void CodeCacheHostImpl::OnCacheStorageOpenCallback(

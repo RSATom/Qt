@@ -39,6 +39,8 @@
 
 #include "qgeopolygon.h"
 #include "qgeopolygon_p.h"
+#include "qgeopath_p.h"
+#include "qgeocircle.h"
 
 #include "qgeocoordinate.h"
 #include "qnumeric.h"
@@ -135,6 +137,41 @@ QGeoPolygon::QGeoPolygon(const QGeoPolygon &other)
     initPolygonConversions();
 }
 
+static void calculatePeripheralPoints(QList<QGeoCoordinate> &path,
+                                      const QGeoCircle &circle,
+                                      int steps)
+{
+    const QGeoCoordinate &center = circle.center();
+    const qreal distance = circle.radius();
+    // Calculate points based on great-circle distance
+    // Calculation is the same as GeoCoordinate's atDistanceAndAzimuth function
+    // but tweaked here for computing multiple points
+
+    // pre-calculations
+    steps = qMax(steps, 3);
+    qreal centerLon = center.longitude();
+    qreal latRad = QLocationUtils::radians(center.latitude());
+    qreal lonRad = QLocationUtils::radians(centerLon);
+    qreal cosLatRad = std::cos(latRad);
+    qreal sinLatRad = std::sin(latRad);
+    qreal ratio = (distance / QLocationUtils::earthMeanRadius());
+    qreal cosRatio = std::cos(ratio);
+    qreal sinRatio = std::sin(ratio);
+    qreal sinLatRad_x_cosRatio = sinLatRad * cosRatio;
+    qreal cosLatRad_x_sinRatio = cosLatRad * sinRatio;
+    for (int i = 0; i < steps; ++i) {
+        qreal azimuthRad = 2 * M_PI * i / steps;
+        qreal resultLatRad = std::asin(sinLatRad_x_cosRatio
+                                   + cosLatRad_x_sinRatio * std::cos(azimuthRad));
+        qreal resultLonRad = lonRad + std::atan2(std::sin(azimuthRad) * cosLatRad_x_sinRatio,
+                                       cosRatio - sinLatRad * std::sin(resultLatRad));
+        qreal lat2 = QLocationUtils::degrees(resultLatRad);
+        qreal lon2 = QLocationUtils::wrapLong(QLocationUtils::degrees(resultLonRad));
+
+        path << QGeoCoordinate(lat2, lon2, center.altitude());
+    }
+}
+
 /*!
     Constructs a new geo polygon from the contents of \a other.
 */
@@ -142,8 +179,22 @@ QGeoPolygon::QGeoPolygon(const QGeoShape &other)
 :   QGeoShape(other)
 {
     initPolygonConversions();
-    if (type() != QGeoShape::PolygonType)
-        d_ptr = new QGeoPolygonPrivate();
+    if (type() != QGeoShape::PolygonType) {
+        QGeoPolygonPrivate *poly = new QGeoPolygonPrivate();
+        if (type() == QGeoShape::CircleType) {
+            const QGeoCircle &circle = static_cast<const QGeoCircle &>(other);
+            QList<QGeoCoordinate> perimeter;
+            calculatePeripheralPoints(perimeter, circle, 128);
+            poly->setPath(perimeter);
+        } else if (type() == QGeoShape::RectangleType) {
+            const QGeoRectangle &rect = static_cast<const QGeoRectangle &>(other);
+            QList<QGeoCoordinate> perimeter;
+            perimeter << rect.topLeft() << rect.topRight()
+                      << rect.bottomRight() << rect.bottomLeft();
+            poly->setPath(perimeter);
+        }
+        d_ptr = poly;
+    }
 }
 
 /*!
@@ -504,10 +555,11 @@ void QGeoPolygonPrivate::translate(double degreesLatitude, double degreesLongitu
     // Need min/maxLati, so update bbox
     QVector<double> m_deltaXs;
     double m_minX, m_maxX, m_minLati, m_maxLati;
-    m_bboxDirty = false;
+    m_bboxDirty = false; // Updated in translatePoly
     computeBBox(m_path, m_deltaXs, m_minX, m_maxX, m_minLati, m_maxLati, m_bbox);
-
     translatePoly(m_path, m_holesList, m_bbox, degreesLatitude, degreesLongitude, m_maxLati, m_minLati);
+    m_leftBoundWrapped = QWebMercator::coordToMercator(m_bbox.topLeft()).x();
+    m_clipperDirty = true;
 }
 
 bool QGeoPolygonPrivate::operator==(const QGeoShapePrivate &other) const
@@ -557,9 +609,10 @@ bool QGeoPolygonPrivate::polygonContains(const QGeoCoordinate &coordinate) const
         const_cast<QGeoPolygonPrivate *>(this)->updateClipperPath(); // this one updates bbox too if needed
 
     QDoubleVector2D coord = QWebMercator::coordToMercator(coordinate);
-    double tlx = QWebMercator::coordToMercator(m_bbox.topLeft()).x();
-    if (coord.x() < tlx)
+
+    if (coord.x() < m_leftBoundWrapped)
         coord.setX(coord.x() + 1.0);
+
 
     IntPoint intCoord = QClipperUtils::toIntPoint(coord);
     if (!c2t::clip2tri::pointInPolygon(intCoord, m_clipperPath))
@@ -570,12 +623,7 @@ bool QGeoPolygonPrivate::polygonContains(const QGeoCoordinate &coordinate) const
         // ToDo: cache these
         QGeoPolygon holePolygon;
         holePolygon.setPath(holePath);
-        //            QGeoPath holeBoundary;
-        //            holeBoundary.setPath(holePath);
-
-        if (holePolygon.contains(coordinate)
-                //                    && !(holeBoundary.contains(coordinate))
-                )
+        if (holePolygon.contains(coordinate))
             return false;
     }
     return true;
@@ -591,11 +639,11 @@ void QGeoPolygonPrivate::updateClipperPath()
     if (m_bboxDirty)
         computeBoundingBox();
     m_clipperDirty = false;
-    double tlx = QWebMercator::coordToMercator(m_bbox.topLeft()).x();
+
     QList<QDoubleVector2D> preservedPath;
     for (const QGeoCoordinate &c : m_path) {
         QDoubleVector2D crd = QWebMercator::coordToMercator(c);
-        if (crd.x() < tlx)
+        if (crd.x() < m_leftBoundWrapped)
             crd.setX(crd.x() + 1.0);
         preservedPath << crd;
     }
@@ -625,6 +673,8 @@ QGeoShapePrivate *QGeoPolygonPrivateEager::clone() const
 void QGeoPolygonPrivateEager::translate(double degreesLatitude, double degreesLongitude)
 {
     translatePoly(m_path, m_holesList, m_bbox, degreesLatitude, degreesLongitude, m_maxLati, m_minLati);
+    m_leftBoundWrapped = QWebMercator::coordToMercator(m_bbox.topLeft()).x();
+    m_clipperDirty = true;
 }
 
 void QGeoPolygonPrivateEager::markDirty()
@@ -645,6 +695,7 @@ void QGeoPolygonPrivateEager::addCoordinate(const QGeoCoordinate &coordinate)
 void QGeoPolygonPrivateEager::computeBoundingBox()
 {
     computeBBox(m_path, m_deltaXs, m_minX, m_maxX, m_minLati, m_maxLati, m_bbox);
+    m_leftBoundWrapped = QWebMercator::coordToMercator(m_bbox.topLeft()).x();
 }
 
 void QGeoPolygonPrivateEager::updateBoundingBox()

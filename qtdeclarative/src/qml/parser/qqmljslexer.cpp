@@ -492,6 +492,42 @@ int Lexer::scanToken()
 again:
     _validTokenText = false;
 
+    // handle comment can be called after a '/' has been read
+    // and returns true if it actually encountered a comment
+    auto handleComment = [this](){
+        if (_char == QLatin1Char('*')) {
+            scanChar();
+            while (_codePtr <= _endPtr) {
+                if (_char == QLatin1Char('*')) {
+                    scanChar();
+                    if (_char == QLatin1Char('/')) {
+                        scanChar();
+
+                        if (_engine) {
+                            _engine->addComment(tokenOffset() + 2, _codePtr - _tokenStartPtr - 1 - 4,
+                                                tokenStartLine(), tokenStartColumn() + 2);
+                        }
+
+                        return true;
+                    }
+                } else {
+                    scanChar();
+                }
+            }
+        } else if (_char == QLatin1Char('/')) {
+            while (_codePtr <= _endPtr && !isLineTerminator()) {
+                scanChar();
+            }
+            if (_engine) {
+                _engine->addComment(tokenOffset() + 2, _codePtr - _tokenStartPtr - 1 - 2,
+                                    tokenStartLine(), tokenStartColumn() + 2);
+            }
+            return true;
+        }
+        return false;
+    };
+
+
     while (_char.isSpace()) {
         if (isLineTerminator()) {
             if (_restrictedKeyword) {
@@ -544,7 +580,14 @@ again:
 
     case ']': return T_RBRACKET;
     case '[': return T_LBRACKET;
-    case '?': return T_QUESTION;
+    case '?': {
+        if (_char == QLatin1Char('?')) {
+            scanChar();
+            return T_QUESTION_QUESTION;
+        }
+
+        return T_QUESTION;
+    }
 
     case '>':
         if (_char == QLatin1Char('>')) {
@@ -599,35 +642,9 @@ again:
     case ':': return T_COLON;
 
     case '/':
-        if (_char == QLatin1Char('*')) {
-            scanChar();
-            while (_codePtr <= _endPtr) {
-                if (_char == QLatin1Char('*')) {
-                    scanChar();
-                    if (_char == QLatin1Char('/')) {
-                        scanChar();
-
-                        if (_engine) {
-                            _engine->addComment(tokenOffset() + 2, _codePtr - _tokenStartPtr - 1 - 4,
-                                                tokenStartLine(), tokenStartColumn() + 2);
-                        }
-
-                        goto again;
-                    }
-                } else {
-                    scanChar();
-                }
-            }
-        } else if (_char == QLatin1Char('/')) {
-            while (_codePtr <= _endPtr && !isLineTerminator()) {
-                scanChar();
-            }
-            if (_engine) {
-                _engine->addComment(tokenOffset() + 2, _codePtr - _tokenStartPtr - 1 - 2,
-                                    tokenStartLine(), tokenStartColumn() + 2);
-            }
+        if (handleComment())
             goto again;
-        } if (_char == QLatin1Char('=')) {
+        else if (_char == QLatin1Char('=')) {
             scanChar();
             return T_DIVIDE_EQ;
         }
@@ -701,6 +718,8 @@ again:
 
     case ')': return T_RPAREN;
     case '(': return T_LPAREN;
+
+    case '@': return T_AT;
 
     case '&':
         if (_char == QLatin1Char('=')) {
@@ -828,6 +847,21 @@ again:
 
             if (!identifierWithEscapeChars)
                 kind = classify(_tokenStartPtr, _tokenLength, parseModeFlags());
+
+            if (kind == T_FUNCTION) {
+                continue_skipping:
+                while (_codePtr < _endPtr && _char.isSpace())
+                    scanChar();
+                if (_char == QLatin1Char('*')) {
+                    _tokenLength = _codePtr - _tokenStartPtr - 1;
+                    kind = T_FUNCTION_STAR;
+                    scanChar();
+                } else if (_char == QLatin1Char('/')) {
+                    scanChar();
+                    if (handleComment())
+                        goto continue_skipping;
+                }
+            }
 
             if (_engine) {
                 if (kind == T_IDENTIFIER && identifierWithEscapeChars)
@@ -1407,6 +1441,7 @@ static const int uriTokens[] = {
     QQmlJSGrammar::T_FINALLY,
     QQmlJSGrammar::T_FOR,
     QQmlJSGrammar::T_FUNCTION,
+    QQmlJSGrammar::T_FUNCTION_STAR,
     QQmlJSGrammar::T_IF,
     QQmlJSGrammar::T_IN,
     QQmlJSGrammar::T_OF,
@@ -1445,8 +1480,8 @@ bool Lexer::scanDirectives(Directives *directives, DiagnosticMessage *error)
 {
     auto setError = [error, this](QString message) {
         error->message = std::move(message);
-        error->line = tokenStartLine();
-        error->column = tokenStartColumn();
+        error->loc.startLine = tokenStartLine();
+        error->loc.startColumn = tokenStartColumn();
     };
 
     QScopedValueRollback<bool> directivesGuard(_handlingDirectives, true);
@@ -1561,8 +1596,8 @@ bool Lexer::scanDirectives(Directives *directives, DiagnosticMessage *error)
                 else
                     setError(QCoreApplication::translate("QQmlParser", "Module import requires a qualifier"));
                 if (tokenStartLine() != lineNumber) {
-                    error->line = lineNumber;
-                    error->line = column;
+                    error->loc.startLine = lineNumber;
+                    error->loc.startColumn = column;
                 }
                 return false; // expected `as'
             }

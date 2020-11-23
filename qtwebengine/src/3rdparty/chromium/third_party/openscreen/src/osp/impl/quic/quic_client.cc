@@ -5,18 +5,25 @@
 #include "osp/impl/quic/quic_client.h"
 
 #include <algorithm>
+#include <functional>
 #include <memory>
 
-#include "platform/api/logging.h"
+#include "platform/api/task_runner.h"
+#include "platform/api/time.h"
+#include "util/logging.h"
 
 namespace openscreen {
+namespace osp {
 
 QuicClient::QuicClient(
     MessageDemuxer* demuxer,
     std::unique_ptr<QuicConnectionFactory> connection_factory,
-    ProtocolConnectionServiceObserver* observer)
+    ProtocolConnectionServiceObserver* observer,
+    platform::ClockNowFunctionPtr now_function,
+    platform::TaskRunner* task_runner)
     : ProtocolConnectionClient(demuxer, observer),
-      connection_factory_(std::move(connection_factory)) {}
+      connection_factory_(std::move(connection_factory)),
+      cleanup_alarm_(now_function, task_runner) {}
 
 QuicClient::~QuicClient() {
   CloseAllConnections();
@@ -26,6 +33,7 @@ bool QuicClient::Start() {
   if (state_ == State::kRunning)
     return false;
   state_ = State::kRunning;
+  Cleanup();  // Start periodic clean-ups.
   observer_->OnRunning();
   return true;
 }
@@ -35,22 +43,31 @@ bool QuicClient::Stop() {
     return false;
   CloseAllConnections();
   state_ = State::kStopped;
+  Cleanup();  // Final clean-up.
   observer_->OnStopped();
   return true;
 }
 
-void QuicClient::RunTasks() {
-  connection_factory_->RunTasks();
+void QuicClient::Cleanup() {
   for (auto& entry : connections_) {
     entry.second.delegate->DestroyClosedStreams();
     if (!entry.second.delegate->has_streams())
       entry.second.connection->Close();
   }
 
-  for (auto& entry : delete_connections_)
-    connections_.erase(entry);
-
+  for (uint64_t endpoint_id : delete_connections_) {
+    auto it = connections_.find(endpoint_id);
+    if (it != connections_.end()) {
+      connections_.erase(it);
+    }
+  }
   delete_connections_.clear();
+
+  constexpr platform::Clock::duration kQuicCleanupPeriod =
+      std::chrono::milliseconds(500);
+  if (state_ != State::kStopped) {
+    cleanup_alarm_.ScheduleFromNow([this] { Cleanup(); }, kQuicCleanupPeriod);
+  }
 }
 
 QuicClient::ConnectRequest QuicClient::Connect(
@@ -133,12 +150,11 @@ void QuicClient::OnConnectionClosed(uint64_t endpoint_id,
   auto connection_entry = connections_.find(endpoint_id);
   if (connection_entry == connections_.end())
     return;
+  delete_connections_.push_back(endpoint_id);
 
-  delete_connections_.emplace_back(connection_entry);
-
-  // TODO(issue/42): If we reset request IDs when a connection is closed, we
-  // might end up re-using request IDs when a new connection is created to the
-  // same endpoint.
+  // TODO(crbug.com/openscreen/42): If we reset request IDs when a connection is
+  // closed, we might end up re-using request IDs when a new connection is
+  // created to the same endpoint.
   endpoint_request_ids_.ResetRequestId(endpoint_id);
 }
 
@@ -153,10 +169,10 @@ QuicClient::PendingConnectionData::PendingConnectionData(
     ServiceConnectionData&& data)
     : data(std::move(data)) {}
 QuicClient::PendingConnectionData::PendingConnectionData(
-    PendingConnectionData&&) = default;
+    PendingConnectionData&&) noexcept = default;
 QuicClient::PendingConnectionData::~PendingConnectionData() = default;
 QuicClient::PendingConnectionData& QuicClient::PendingConnectionData::operator=(
-    PendingConnectionData&&) = default;
+    PendingConnectionData&&) noexcept = default;
 
 QuicClient::ConnectRequest QuicClient::CreatePendingConnection(
     const IPEndpoint& endpoint,
@@ -234,4 +250,5 @@ void QuicClient::CancelConnectRequest(uint64_t request_id) {
   request_map_.erase(request_entry);
 }
 
+}  // namespace osp
 }  // namespace openscreen

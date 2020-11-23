@@ -63,4 +63,3 @@ class CORE_EXPORT CreateMarkupOptions::Builder final {
 }  // namespace blink
 
 #endif  // THIRD_PARTY_BLINK_RENDERER_CORE_EDITING_SERIALIZERS_CREATE_MARKUP_OPTIONS_H_
-

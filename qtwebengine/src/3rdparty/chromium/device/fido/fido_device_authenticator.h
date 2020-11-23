@@ -82,7 +82,7 @@ class COMPONENT_EXPORT(DEVICE_FIDO) FidoDeviceAuthenticator
   void GetModality(BioEnrollmentCallback callback) override;
   void GetSensorInfo(BioEnrollmentCallback callback) override;
   void BioEnrollFingerprint(const pin::TokenResponse&,
-                            BioEnrollmentSampleCallback,
+                            base::Optional<std::vector<uint8_t>> template_id,
                             BioEnrollmentCallback) override;
   void BioEnrollCancel(BioEnrollmentCallback) override;
   void BioEnrollEnumerate(const pin::TokenResponse&,
@@ -108,6 +108,9 @@ class COMPONENT_EXPORT(DEVICE_FIDO) FidoDeviceAuthenticator
 #if defined(OS_WIN)
   bool IsWinNativeApiAuthenticator() const override;
 #endif  // defined(OS_WIN)
+#if defined(OS_MACOSX)
+  bool IsTouchIdAuthenticator() const override;
+#endif  // defined(OS_MACOSX)
   base::WeakPtr<FidoAuthenticator> GetWeakPtr() override;
 
   FidoDevice* device() { return device_.get(); }
@@ -151,18 +154,11 @@ class COMPONENT_EXPORT(DEVICE_FIDO) FidoDeviceAuthenticator
       CtapDeviceResponseCode status,
       base::Optional<EnumerateCredentialsResponse> response);
 
-  void OnBioEnroll(pin::TokenResponse,
-                   BioEnrollmentSampleCallback sample_callback,
-                   BioEnrollmentCallback completion_callback,
-                   base::Optional<std::vector<uint8_t>> current_template_id,
-                   CtapDeviceResponseCode,
-                   base::Optional<BioEnrollmentResponse>);
-
   const std::unique_ptr<FidoDevice> device_;
   base::Optional<AuthenticatorSupportedOptions> options_;
   std::unique_ptr<FidoTask> task_;
   std::unique_ptr<GenericDeviceOperation> operation_;
-  base::WeakPtrFactory<FidoDeviceAuthenticator> weak_factory_;
+  base::WeakPtrFactory<FidoDeviceAuthenticator> weak_factory_{this};
 
   DISALLOW_COPY_AND_ASSIGN(FidoDeviceAuthenticator);
 };

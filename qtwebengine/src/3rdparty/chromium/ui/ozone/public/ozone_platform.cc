@@ -19,10 +19,21 @@ namespace ui {
 
 namespace {
 
-bool g_platform_initialized_ui = false;
-bool g_platform_initialized_gpu = false;
-
 OzonePlatform* g_instance = nullptr;
+
+void EnsureInstance() {
+  if (g_instance)
+    return;
+
+  TRACE_EVENT1("ozone", "OzonePlatform::Initialize", "platform",
+               GetOzonePlatformName());
+  std::unique_ptr<OzonePlatform> platform =
+      PlatformObject<OzonePlatform>::Create();
+
+  // TODO(spang): Currently need to leak this object.
+  OzonePlatform* pl = platform.release();
+  DCHECK_EQ(g_instance, pl);
+}
 
 }  // namespace
 
@@ -36,9 +47,10 @@ OzonePlatform::~OzonePlatform() = default;
 // static
 void OzonePlatform::InitializeForUI(const InitParams& args) {
   EnsureInstance();
-  if (g_platform_initialized_ui)
+  if (g_instance->initialized_ui_)
     return;
-  g_platform_initialized_ui = true;
+  g_instance->initialized_ui_ = true;
+  g_instance->single_process_ = args.single_process;
   g_instance->InitializeUI(args);
   // This is deliberately created after initializing so that the platform can
   // create its own version of DDM.
@@ -48,9 +60,10 @@ void OzonePlatform::InitializeForUI(const InitParams& args) {
 // static
 void OzonePlatform::InitializeForGPU(const InitParams& args) {
   EnsureInstance();
-  if (g_platform_initialized_gpu)
+  if (g_instance->initialized_gpu_)
     return;
-  g_platform_initialized_gpu = true;
+  g_instance->initialized_gpu_ = true;
+  g_instance->single_process_ = args.single_process;
   g_instance->InitializeGPU(args);
 }
 
@@ -61,27 +74,11 @@ OzonePlatform* OzonePlatform::GetInstance() {
 }
 
 // static
-OzonePlatform* OzonePlatform::EnsureInstance() {
-  if (!g_instance) {
-    TRACE_EVENT1("ozone",
-                 "OzonePlatform::Initialize",
-                 "platform",
-                 GetOzonePlatformName());
-    std::unique_ptr<OzonePlatform> platform =
-        PlatformObject<OzonePlatform>::Create();
-
-    // TODO(spang): Currently need to leak this object.
-    OzonePlatform* pl = platform.release();
-    DCHECK_EQ(g_instance, pl);
-  }
-  return g_instance;
+const char* OzonePlatform::GetPlatformName() {
+  return GetOzonePlatformName();
 }
 
 IPC::MessageFilter* OzonePlatform::GetGpuMessageFilter() {
-  return nullptr;
-}
-
-std::unique_ptr<PlatformScreen> OzonePlatform::CreateScreen() {
   return nullptr;
 }
 
@@ -105,19 +102,17 @@ OzonePlatform::GetPlatformProperties() {
 
 const OzonePlatform::InitializedHostProperties&
 OzonePlatform::GetInitializedHostProperties() {
-  DCHECK(g_platform_initialized_ui);
+  DCHECK(initialized_ui_);
 
   static InitializedHostProperties host_properties;
   return host_properties;
 }
 
-void OzonePlatform::AddInterfaces(service_manager::BinderRegistry* registry) {}
+void OzonePlatform::AddInterfaces(mojo::BinderMap* binders) {}
 
-void OzonePlatform::AfterSandboxEntry() {}
-
-// static
-bool OzonePlatform::has_initialized_ui() {
-  return g_platform_initialized_ui;
+void OzonePlatform::AfterSandboxEntry() {
+  // This should not be called in single-process mode.
+  DCHECK(!single_process_);
 }
 
 }  // namespace ui

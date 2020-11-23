@@ -213,11 +213,6 @@ base::string16 FakeUserManager::GetUserDisplayName(
   return base::string16();
 }
 
-std::string FakeUserManager::GetUserDisplayEmail(
-    const AccountId& account_id) const {
-  return std::string();
-}
-
 bool FakeUserManager::IsCurrentUserOwner() const {
   return false;
 }
@@ -263,6 +258,17 @@ bool FakeUserManager::IsLoggedInAsArcKioskApp() const {
   const User* active_user = GetActiveUser();
   return active_user ? active_user->GetType() == USER_TYPE_ARC_KIOSK_APP
                      : false;
+}
+
+bool FakeUserManager::IsLoggedInAsWebKioskApp() const {
+  const User* active_user = GetActiveUser();
+  return active_user ? active_user->GetType() == USER_TYPE_WEB_KIOSK_APP
+                     : false;
+}
+
+bool FakeUserManager::IsLoggedInAsAnyKioskApp() const {
+  const User* active_user = GetActiveUser();
+  return active_user && active_user->IsKioskType();
 }
 
 bool FakeUserManager::IsLoggedInAsStub() const {

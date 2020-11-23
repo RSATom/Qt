@@ -10,47 +10,64 @@
 #include "third_party/blink/renderer/platform/bindings/script_wrappable.h"
 #include "third_party/blink/renderer/platform/heap/handle.h"
 #include "third_party/blink/renderer/platform/wtf/text/wtf_string.h"
+#include "third_party/blink/renderer/platform/wtf/vector.h"
 
 namespace blink {
 
+class DOMDataView;
+class ExceptionState;
+class ExecutionContext;
+class NDEFMessage;
 class NDEFRecordInit;
-class ScriptState;
-class StringOrUnrestrictedDoubleOrArrayBufferOrDictionary;
 
 class MODULES_EXPORT NDEFRecord final : public ScriptWrappable {
   DEFINE_WRAPPERTYPEINFO();
 
  public:
-  static NDEFRecord* Create(const NDEFRecordInit*);
+  static NDEFRecord* Create(const ExecutionContext*,
+                            const NDEFRecordInit*,
+                            ExceptionState&);
 
-  NDEFRecord(const NDEFRecordInit*);
-  NDEFRecord(const device::mojom::blink::NDEFRecordPtr&);
+  // Construct a "text" record from a string.
+  explicit NDEFRecord(const ExecutionContext*, const String&);
+
+  // Construct a "mime" record from the raw payload bytes.
+  explicit NDEFRecord(WTF::Vector<uint8_t> /* payload_data */,
+                      const String& /* media_type */);
+
+  NDEFRecord(const String& /* record_type */, WTF::Vector<uint8_t> /* data */);
+  NDEFRecord(const String& /* record_type */,
+             const String& /* encoding */,
+             const String& /* lang */,
+             WTF::Vector<uint8_t> /* data */);
+  explicit NDEFRecord(const device::mojom::blink::NDEFRecord&);
 
   const String& recordType() const;
   const String& mediaType() const;
-  void data(ScriptState*,
-            StringOrUnrestrictedDoubleOrArrayBufferOrDictionary&) const;
+  const String& id() const;
+  const String& encoding() const;
+  const String& lang() const;
+  DOMDataView* data() const;
+  base::Optional<HeapVector<Member<NDEFRecord>>> toRecords(
+      ExceptionState& exception_state) const;
+
+  const WTF::Vector<uint8_t>& payloadData() const;
+  const NDEFMessage* payload_message() const;
 
   void Trace(blink::Visitor*) override;
 
  private:
   String record_type_;
   String media_type_;
-
-  enum class DataType {
-    kNone,
-    kArrayBuffer,
-    kDictionary,
-    kString,
-    kUnrestrictedDouble,
-  };
-  DataType data_type_ = DataType::kNone;
-  // For array buffer data type.
-  scoped_refptr<WTF::ArrayBuffer> array_buffer_;
-  // For dictionary or string data type.
-  String string_;
-  // For double data type.
-  double unrestricted_double_;
+  String id_;
+  String encoding_;
+  String lang_;
+  // Holds the NDEFRecord.[[PayloadData]] bytes defined at
+  // https://w3c.github.io/web-nfc/#the-ndefrecord-interface.
+  WTF::Vector<uint8_t> payload_data_;
+  // |payload_data_| parsed as an NDEFMessage. This field will be set for some
+  // "smart-poster" and external type records.
+  Member<NDEFMessage> payload_message_;
 };
 
 }  // namespace blink

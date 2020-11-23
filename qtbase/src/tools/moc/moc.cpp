@@ -35,6 +35,7 @@
 #include <QtCore/qfile.h>
 #include <QtCore/qfileinfo.h>
 #include <QtCore/qdir.h>
+#include <QtCore/qjsondocument.h>
 
 // for normalizeTypeInternal
 #include <private/qmetaobject_moc_p.h>
@@ -280,11 +281,21 @@ bool Moc::parseEnum(EnumDef *def)
     }
     if (!test(LBRACE))
         return false;
+    auto handleInclude = [this]() {
+        if (test(MOC_INCLUDE_BEGIN))
+            currentFilenames.push(symbol().unquotedLexem());
+        if (test(NOTOKEN)) {
+            next(MOC_INCLUDE_END);
+            currentFilenames.pop();
+        }
+    };
     do {
         if (lookup() == RBRACE) // accept trailing comma
             break;
+        handleInclude();
         next(IDENTIFIER);
         def->values += lexem();
+        handleInclude();
         skipCxxAttributes();
     } while (test(EQ) ? until(COMMA) : test(COMMA));
     next(RBRACE);
@@ -922,16 +933,16 @@ void Moc::parse()
         ClassDef def;
         static_cast<BaseDef &>(def) = static_cast<BaseDef>(n);
         def.qualified += def.classname;
-        def.hasQGadget = true;
+        def.hasQNamespace = true;
         auto it = std::find_if(classList.begin(), classList.end(), [&def](const ClassDef &val) {
             return def.classname == val.classname && def.qualified == val.qualified;
         });
 
         if (it != classList.end()) {
             it->classInfoList += def.classInfoList;
-            it->enumDeclarations.unite(def.enumDeclarations);
+            it->enumDeclarations.insert(def.enumDeclarations);
             it->enumList += def.enumList;
-            it->flagAliases.unite(def.flagAliases);
+            it->flagAliases.insert(def.flagAliases);
         } else {
             knownGadgets.insert(def.classname, def.qualified);
             knownGadgets.insert(def.qualified, def.qualified);
@@ -999,7 +1010,7 @@ static QByteArrayList requiredQtContainers(const QVector<ClassDef> &classes)
     return required;
 }
 
-void Moc::generate(FILE *out)
+void Moc::generate(FILE *out, FILE *jsonOutput)
 {
     QByteArray fn = filename;
     int i = filename.length()-1;
@@ -1062,6 +1073,23 @@ void Moc::generate(FILE *out)
 
     fprintf(out, "QT_WARNING_POP\n");
     fprintf(out, "QT_END_MOC_NAMESPACE\n");
+
+    if (jsonOutput) {
+        QJsonObject mocData;
+        mocData[QLatin1String("outputRevision")] = mocOutputRevision;
+        mocData[QLatin1String("inputFile")] = QLatin1String(fn.constData());
+
+        QJsonArray classesJsonFormatted;
+
+        for (const ClassDef &cdef: qAsConst(classList))
+            classesJsonFormatted.append(cdef.toJson());
+
+        if (!classesJsonFormatted.isEmpty())
+            mocData[QLatin1String("classes")] = classesJsonFormatted;
+
+        QJsonDocument jsonDoc(mocData);
+        fputs(jsonDoc.toJson().constData(), jsonOutput);
+    }
 }
 
 void Moc::parseSlots(ClassDef *def, FunctionDef::Access access)
@@ -1220,6 +1248,9 @@ void Moc::createPropertyDef(PropertyDef &propDef)
         } else if(l[0] == 'F' && l == "FINAL") {
             propDef.final = true;
             continue;
+        } else if (l[0] == 'R' && l == "REQUIRED") {
+            propDef.required = true;
+            continue;
         }
 
         QByteArray v, v2;
@@ -1275,9 +1306,12 @@ void Moc::createPropertyDef(PropertyDef &propDef)
             propDef.designable = v + v2;
             checkIsFunction(propDef.designable, "DESIGNABLE");
             break;
-        case 'E': if (l != "EDITABLE") error(2);
+        case 'E': if (l != "EDITABLE") error(2); {
+            const QByteArray msg = "EDITABLE flag for property declaration is deprecated.";
+            warning(msg.constData());
             propDef.editable = v + v2;
             checkIsFunction(propDef.editable, "EDITABLE");
+        }
             break;
         case 'N': if (l != "NOTIFY") error(2);
             propDef.notify = v;
@@ -1364,6 +1398,7 @@ void Moc::parsePluginData(ClassDef *def)
                 error(msg.constData());
                 return;
             }
+            parsedPluginMetadataFiles.append(fi.canonicalFilePath());
             metaData = file.readAll();
         }
     }
@@ -1784,6 +1819,191 @@ void Moc::checkProperties(ClassDef *cdef)
     }
 }
 
+QJsonObject ClassDef::toJson() const
+{
+    QJsonObject cls;
+    cls[QLatin1String("className")] = QString::fromUtf8(classname.constData());
+    cls[QLatin1String("qualifiedClassName")] = QString::fromUtf8(qualified.constData());
 
+    QJsonArray classInfos;
+    for (const auto &info: qAsConst(classInfoList)) {
+        QJsonObject infoJson;
+        infoJson[QLatin1String("name")] = QString::fromUtf8(info.name);
+        infoJson[QLatin1String("value")] = QString::fromUtf8(info.value);
+        classInfos.append(infoJson);
+    }
+
+    if (classInfos.size())
+        cls[QLatin1String("classInfos")] = classInfos;
+
+    const auto appendFunctions = [&cls](const QString &type, const QVector<FunctionDef> &funcs) {
+        QJsonArray jsonFuncs;
+
+        for (const FunctionDef &fdef: funcs)
+            jsonFuncs.append(fdef.toJson());
+
+        if (!jsonFuncs.isEmpty())
+            cls[type] = jsonFuncs;
+    };
+
+    appendFunctions(QLatin1String("signals"), signalList);
+    appendFunctions(QLatin1String("slots"), slotList);
+    appendFunctions(QLatin1String("constructors"), constructorList);
+    appendFunctions(QLatin1String("methods"), methodList);
+
+    QJsonArray props;
+
+    for (const PropertyDef &propDef: qAsConst(propertyList))
+        props.append(propDef.toJson());
+
+    if (!props.isEmpty())
+        cls[QLatin1String("properties")] = props;
+
+    if (hasQObject)
+        cls[QLatin1String("object")] = true;
+    if (hasQGadget)
+        cls[QLatin1String("gadget")] = true;
+    if (hasQNamespace)
+        cls[QLatin1String("namespace")] = true;
+
+    QJsonArray superClasses;
+
+    for (const auto &super: qAsConst(superclassList)) {
+        const auto name = super.first;
+        const auto access = super.second;
+        QJsonObject superCls;
+        superCls[QLatin1String("name")] = QString::fromUtf8(name);
+        FunctionDef::accessToJson(&superCls, access);
+        superClasses.append(superCls);
+    }
+
+    if (!superClasses.isEmpty())
+        cls[QLatin1String("superClasses")] = superClasses;
+
+    QJsonArray enums;
+    for (const EnumDef &enumDef: qAsConst(enumList))
+        enums.append(enumDef.toJson(*this));
+    if (!enums.isEmpty())
+        cls[QLatin1String("enums")] = enums;
+
+    QJsonArray ifaces;
+    for (const QVector<Interface> &ifaceList: interfaceList) {
+        QJsonArray jsonList;
+        for (const Interface &iface: ifaceList) {
+            QJsonObject ifaceJson;
+            ifaceJson[QLatin1String("id")] = QString::fromUtf8(iface.interfaceId);
+            ifaceJson[QLatin1String("className")] = QString::fromUtf8(iface.className);
+            jsonList.append(ifaceJson);
+        }
+        ifaces.append(jsonList);
+    }
+    if (!ifaces.isEmpty())
+        cls[QLatin1String("interfaces")] = ifaces;
+
+    return cls;
+}
+
+QJsonObject FunctionDef::toJson() const
+{
+    QJsonObject fdef;
+    fdef[QLatin1String("name")] = QString::fromUtf8(name);
+    if (!tag.isEmpty())
+        fdef[QLatin1String("tag")] = QString::fromUtf8(tag);
+    fdef[QLatin1String("returnType")] = QString::fromUtf8(normalizedType);
+
+    QJsonArray args;
+    for (const ArgumentDef &arg: arguments)
+        args.append(arg.toJson());
+
+    if (!args.isEmpty())
+        fdef[QLatin1String("arguments")] = args;
+
+    accessToJson(&fdef, access);
+
+    if (revision > 0)
+        fdef[QLatin1String("revision")] = revision;
+
+    return fdef;
+}
+
+void FunctionDef::accessToJson(QJsonObject *obj, FunctionDef::Access acs)
+{
+    switch (acs) {
+    case Private: (*obj)[QLatin1String("access")] = QLatin1String("private"); break;
+    case Public: (*obj)[QLatin1String("access")] = QLatin1String("public"); break;
+    case Protected: (*obj)[QLatin1String("access")] = QLatin1String("protected"); break;
+    }
+}
+
+QJsonObject ArgumentDef::toJson() const
+{
+    QJsonObject arg;
+    arg[QLatin1String("type")] = QString::fromUtf8(normalizedType);
+    if (!name.isEmpty())
+        arg[QLatin1String("name")] = QString::fromUtf8(name);
+    return arg;
+}
+
+QJsonObject PropertyDef::toJson() const
+{
+    QJsonObject prop;
+    prop[QLatin1String("name")] = QString::fromUtf8(name);
+    prop[QLatin1String("type")] = QString::fromUtf8(type);
+
+    const auto jsonify = [&prop](const char *str, const QByteArray &member) {
+        if (!member.isEmpty())
+            prop[QLatin1String(str)] = QString::fromUtf8(member);
+    };
+
+    jsonify("member", member);
+    jsonify("read", read);
+    jsonify("write", write);
+    jsonify("reset", reset);
+    jsonify("notify", notify);
+    jsonify("privateClass", inPrivateClass);
+
+    const auto jsonifyBoolOrString = [&prop](const char *str, const QByteArray &boolOrString) {
+        QJsonValue value;
+        if (boolOrString == "true")
+            value = true;
+        else if (boolOrString == "false")
+            value = false;
+        else
+            value = QString::fromUtf8(boolOrString); // function name to query at run-time
+        prop[QLatin1String(str)] = value;
+    };
+
+    jsonifyBoolOrString("designable", designable);
+    jsonifyBoolOrString("scriptable", scriptable);
+    jsonifyBoolOrString("stored", stored);
+    jsonifyBoolOrString("user", user);
+
+    prop[QLatin1String("constant")] = constant;
+    prop[QLatin1String("final")] = final;
+    prop[QLatin1String("required")] = required;
+
+    if (revision > 0)
+        prop[QLatin1String("revision")] = revision;
+
+    return prop;
+}
+
+QJsonObject EnumDef::toJson(const ClassDef &cdef) const
+{
+    QJsonObject def;
+    def[QLatin1String("name")] = QString::fromUtf8(name);
+    if (!enumName.isEmpty())
+        def[QLatin1String("alias")] = QString::fromUtf8(enumName);
+    def[QLatin1String("isFlag")] = cdef.enumDeclarations.value(name);
+    def[QLatin1String("isClass")] = isEnumClass;
+
+    QJsonArray valueArr;
+    for (const QByteArray &value: values)
+        valueArr.append(QString::fromUtf8(value));
+    if (!valueArr.isEmpty())
+        def[QLatin1String("values")] = valueArr;
+
+    return def;
+}
 
 QT_END_NAMESPACE

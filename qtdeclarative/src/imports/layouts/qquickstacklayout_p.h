@@ -51,6 +51,8 @@ class QQuickStackLayout : public QQuickLayout
     Q_OBJECT
     Q_PROPERTY(int count READ count NOTIFY countChanged)
     Q_PROPERTY(int currentIndex READ currentIndex WRITE setCurrentIndex NOTIFY currentIndexChanged)
+    QML_NAMED_ELEMENT(StackLayout)
+    QML_ADDED_IN_MINOR_VERSION(3)
 
 public:
     explicit QQuickStackLayout(QQuickItem *parent = 0);
@@ -59,6 +61,7 @@ public:
     void setCurrentIndex(int index);
 
     void componentComplete() override;
+    void itemChange(ItemChange change, const ItemChangeData &value) override;
     QSizeF sizeHint(Qt::SizeHint whichSizeHint) const override;
     void setAlignment(QQuickItem *item, Qt::Alignment align)  override;
     void invalidate(QQuickItem *childItem = 0)  override;

@@ -4,9 +4,11 @@
 
 #include "components/prefs/pref_notifier_impl.h"
 
+#include "base/debug/alias.h"
 #include "base/debug/dump_without_crashing.h"
 #include "base/logging.h"
 #include "base/memory/ptr_util.h"
+#include "base/strings/strcat.h"
 #include "components/prefs/pref_service.h"
 
 PrefNotifierImpl::PrefNotifierImpl() : pref_service_(nullptr) {}
@@ -33,8 +35,10 @@ PrefNotifierImpl::~PrefNotifierImpl() {
       // leaked on termination, it is guaranteed that they don't attempt to
       // unsubscribe.
       const auto& pref_name = observer_list.first;
-      LOG(WARNING) << "Pref observer for " << pref_name
-                   << " found at shutdown.";
+      std::string message = base::StrCat(
+          {"Pref observer for ", pref_name, " found at shutdown."});
+      LOG(WARNING) << message;
+      DEBUG_ALIAS_FOR_CSTR(aliased_message, message.c_str(), 128);
 
       // TODO(crbug.com/942491, 946668, 945772) The following code collects
       // stacktraces that show how the profile is destroyed that owns
@@ -62,6 +66,8 @@ PrefNotifierImpl::~PrefNotifierImpl() {
 
 void PrefNotifierImpl::AddPrefObserver(const std::string& path,
                                        PrefObserver* obs) {
+  DCHECK(thread_checker_.CalledOnValidThread());
+
   // Get the pref observer list associated with the path.
   PrefObserverList* observer_list = nullptr;
   auto observer_iterator = pref_observers_.find(path);

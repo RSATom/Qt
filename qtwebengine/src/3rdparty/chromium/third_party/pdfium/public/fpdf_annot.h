@@ -65,17 +65,6 @@ extern "C" {
 #define FPDF_ANNOT_APPEARANCEMODE_DOWN 2
 #define FPDF_ANNOT_APPEARANCEMODE_COUNT 3
 
-#define FPDF_OBJECT_UNKNOWN 0
-#define FPDF_OBJECT_BOOLEAN 1
-#define FPDF_OBJECT_NUMBER 2
-#define FPDF_OBJECT_STRING 3
-#define FPDF_OBJECT_NAME 4
-#define FPDF_OBJECT_ARRAY 5
-#define FPDF_OBJECT_DICTIONARY 6
-#define FPDF_OBJECT_STREAM 7
-#define FPDF_OBJECT_NULLOBJ 8
-#define FPDF_OBJECT_REFERENCE 9
-
 // Refer to PDF Reference version 1.7 table 8.70 for field flags common to all
 // interactive form field types.
 #define FPDF_FORMFLAG_NONE 0
@@ -519,18 +508,15 @@ FPDF_EXPORT FPDF_BOOL FPDF_CALLCONV FPDFAnnot_SetFlags(FPDF_ANNOTATION annot,
                                                        int flags);
 
 // Experimental API.
-// Get the annotation flags of |annot|, which is an interactive form
-// annotation in |page|.
+// Get the annotation flags of |annot|.
 //
 //    hHandle     -   handle to the form fill module, returned by
 //                    FPDFDOC_InitFormFillEnvironment().
-//    page        -   handle to a page.
 //    annot       -   handle to an interactive form annotation.
 //
 // Returns the annotation flags specific to interactive forms.
 FPDF_EXPORT int FPDF_CALLCONV
 FPDFAnnot_GetFormFieldFlags(FPDF_FORMHANDLE handle,
-                            FPDF_PAGE page,
                             FPDF_ANNOTATION annot);
 
 // Experimental API.

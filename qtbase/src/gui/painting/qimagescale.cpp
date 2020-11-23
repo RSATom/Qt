@@ -43,6 +43,11 @@
 #include "qcolor.h"
 #include "qrgba64_p.h"
 
+#if QT_CONFIG(thread) && !defined(Q_OS_WASM)
+#include "qsemaphore.h"
+#include "qthreadpool.h"
+#endif
+
 QT_BEGIN_NAMESPACE
 
 /*
@@ -223,7 +228,7 @@ static QImageScaleInfo* QImageScale::qimageFreeScaleInfo(QImageScaleInfo *isi)
         delete[] isi->yapoints;
         delete isi;
     }
-    return 0;
+    return nullptr;
 }
 
 static QImageScaleInfo* QImageScale::qimageCalcScaleInfo(const QImage &img,
@@ -238,7 +243,9 @@ static QImageScaleInfo* QImageScale::qimageCalcScaleInfo(const QImage &img,
 
     isi = new QImageScaleInfo;
     if (!isi)
-        return 0;
+        return nullptr;
+    isi->sh = sh;
+    isi->sw = sw;
 
     isi->xup_yup = (qAbs(dw) >= sw) + ((qAbs(dh) >= sh) << 1);
 
@@ -294,6 +301,31 @@ void qt_qimageScaleAARGBA_down_xy_neon(QImageScaleInfo *isi, unsigned int *dest,
                                        int dw, int dh, int dow, int sow);
 #endif
 
+template<typename T>
+static inline void multithread_pixels_function(QImageScaleInfo *isi, int dh, const T &scaleSection)
+{
+#if QT_CONFIG(thread) && !defined(Q_OS_WASM)
+    int segments = (qsizetype(isi->sh) * isi->sw) / (1<<16);
+    segments = std::min(segments, dh);
+    QThreadPool *threadPool = QThreadPool::globalInstance();
+    if (segments > 1 && !threadPool->contains(QThread::currentThread())) {
+        QSemaphore semaphore;
+        int y = 0;
+        for (int i = 0; i < segments; ++i) {
+            int yn = (dh - y) / (segments - i);
+            threadPool->start([&, y, yn]() {
+                scaleSection(y, y + yn);
+                semaphore.release(1);
+            });
+            y += yn;
+        }
+        semaphore.acquire(segments);
+        return;
+    }
+#endif
+    scaleSection(0, dh);
+}
+
 static void qt_qimageScaleAARGBA_up_xy(QImageScaleInfo *isi, unsigned int *dest,
                                        int dw, int dh, int dow, int sow)
 {
@@ -303,33 +335,36 @@ static void qt_qimageScaleAARGBA_up_xy(QImageScaleInfo *isi, unsigned int *dest,
     int *yapoints = isi->yapoints;
 
     /* go through every scanline in the output buffer */
-    for (int y = 0; y < dh; y++) {
-        /* calculate the source line we'll scan from */
-        const unsigned int *sptr = ypoints[y];
-        unsigned int *dptr = dest + (y * dow);
-        const int yap = yapoints[y];
-        if (yap > 0) {
-            for (int x = 0; x < dw; x++) {
-                const unsigned int *pix = sptr + xpoints[x];
-                const int xap = xapoints[x];
-                if (xap > 0)
-                    *dptr = interpolate_4_pixels(pix, pix + sow, xap, yap);
-                else
-                    *dptr = INTERPOLATE_PIXEL_256(pix[0], 256 - yap, pix[sow], yap);
-                dptr++;
-            }
-        } else {
-            for (int x = 0; x < dw; x++) {
-                const unsigned int *pix = sptr + xpoints[x];
-                const int xap = xapoints[x];
-                if (xap > 0)
-                    *dptr = INTERPOLATE_PIXEL_256(pix[0], 256 - xap, pix[1], xap);
-                else
-                    *dptr = pix[0];
-                dptr++;
+    auto scaleSection = [&] (int yStart, int yEnd) {
+        for (int y = yStart; y < yEnd; ++y) {
+            /* calculate the source line we'll scan from */
+            const unsigned int *sptr = ypoints[y];
+            unsigned int *dptr = dest + (y * dow);
+            const int yap = yapoints[y];
+            if (yap > 0) {
+                for (int x = 0; x < dw; x++) {
+                    const unsigned int *pix = sptr + xpoints[x];
+                    const int xap = xapoints[x];
+                    if (xap > 0)
+                        *dptr = interpolate_4_pixels(pix, pix + sow, xap, yap);
+                    else
+                        *dptr = INTERPOLATE_PIXEL_256(pix[0], 256 - yap, pix[sow], yap);
+                    dptr++;
+                }
+            } else {
+                for (int x = 0; x < dw; x++) {
+                    const unsigned int *pix = sptr + xpoints[x];
+                    const int xap = xapoints[x];
+                    if (xap > 0)
+                        *dptr = INTERPOLATE_PIXEL_256(pix[0], 256 - xap, pix[1], xap);
+                    else
+                        *dptr = pix[0];
+                    dptr++;
+                }
             }
         }
-    }
+    };
+    multithread_pixels_function(isi, dh, scaleSection);
 }
 
 /* scale by area sampling - with alpha */
@@ -411,33 +446,36 @@ static void qt_qimageScaleAARGBA_up_x_down_y(QImageScaleInfo *isi, unsigned int 
     int *yapoints = isi->yapoints;
 
     /* go through every scanline in the output buffer */
-    for (int y = 0; y < dh; y++) {
-        int Cy = yapoints[y] >> 16;
-        int yap = yapoints[y] & 0xffff;
+    auto scaleSection = [&] (int yStart, int yEnd) {
+        for (int y = yStart; y < yEnd; ++y) {
+            int Cy = yapoints[y] >> 16;
+            int yap = yapoints[y] & 0xffff;
 
-        unsigned int *dptr = dest + (y * dow);
-        for (int x = 0; x < dw; x++) {
-            const unsigned int *sptr = ypoints[y] + xpoints[x];
-            int r, g, b, a;
-            qt_qimageScaleAARGBA_helper(sptr, yap, Cy, sow, r, g, b, a);
+            unsigned int *dptr = dest + (y * dow);
+            for (int x = 0; x < dw; x++) {
+                const unsigned int *sptr = ypoints[y] + xpoints[x];
+                int r, g, b, a;
+                qt_qimageScaleAARGBA_helper(sptr, yap, Cy, sow, r, g, b, a);
 
-            int xap = xapoints[x];
-            if (xap > 0) {
-                int rr, gg, bb, aa;
-                qt_qimageScaleAARGBA_helper(sptr + 1, yap, Cy, sow, rr, gg, bb, aa);
+                int xap = xapoints[x];
+                if (xap > 0) {
+                    int rr, gg, bb, aa;
+                    qt_qimageScaleAARGBA_helper(sptr + 1, yap, Cy, sow, rr, gg, bb, aa);
 
-                r = r * (256 - xap);
-                g = g * (256 - xap);
-                b = b * (256 - xap);
-                a = a * (256 - xap);
-                r = (r + (rr * xap)) >> 8;
-                g = (g + (gg * xap)) >> 8;
-                b = (b + (bb * xap)) >> 8;
-                a = (a + (aa * xap)) >> 8;
+                    r = r * (256 - xap);
+                    g = g * (256 - xap);
+                    b = b * (256 - xap);
+                    a = a * (256 - xap);
+                    r = (r + (rr * xap)) >> 8;
+                    g = (g + (gg * xap)) >> 8;
+                    b = (b + (bb * xap)) >> 8;
+                    a = (a + (aa * xap)) >> 8;
+                }
+                *dptr++ = qRgba(r >> 14, g >> 14, b >> 14, a >> 14);
             }
-            *dptr++ = qRgba(r >> 14, g >> 14, b >> 14, a >> 14);
         }
-    }
+    };
+    multithread_pixels_function(isi, dh, scaleSection);
 }
 
 static void qt_qimageScaleAARGBA_down_x_up_y(QImageScaleInfo *isi, unsigned int *dest,
@@ -449,34 +487,37 @@ static void qt_qimageScaleAARGBA_down_x_up_y(QImageScaleInfo *isi, unsigned int 
     int *yapoints = isi->yapoints;
 
     /* go through every scanline in the output buffer */
-    for (int y = 0; y < dh; y++) {
-        unsigned int *dptr = dest + (y * dow);
-        for (int x = 0; x < dw; x++) {
-            int Cx = xapoints[x] >> 16;
-            int xap = xapoints[x] & 0xffff;
+    auto scaleSection = [&] (int yStart, int yEnd) {
+        for (int y = yStart; y < yEnd; ++y) {
+            unsigned int *dptr = dest + (y * dow);
+            for (int x = 0; x < dw; x++) {
+                int Cx = xapoints[x] >> 16;
+                int xap = xapoints[x] & 0xffff;
 
-            const unsigned int *sptr = ypoints[y] + xpoints[x];
-            int r, g, b, a;
-            qt_qimageScaleAARGBA_helper(sptr, xap, Cx, 1, r, g, b, a);
+                const unsigned int *sptr = ypoints[y] + xpoints[x];
+                int r, g, b, a;
+                qt_qimageScaleAARGBA_helper(sptr, xap, Cx, 1, r, g, b, a);
 
-            int yap = yapoints[y];
-            if (yap > 0) {
-                int rr, gg, bb, aa;
-                qt_qimageScaleAARGBA_helper(sptr + sow, xap, Cx, 1, rr, gg, bb, aa);
+                int yap = yapoints[y];
+                if (yap > 0) {
+                    int rr, gg, bb, aa;
+                    qt_qimageScaleAARGBA_helper(sptr + sow, xap, Cx, 1, rr, gg, bb, aa);
 
-                r = r * (256 - yap);
-                g = g * (256 - yap);
-                b = b * (256 - yap);
-                a = a * (256 - yap);
-                r = (r + (rr * yap)) >> 8;
-                g = (g + (gg * yap)) >> 8;
-                b = (b + (bb * yap)) >> 8;
-                a = (a + (aa * yap)) >> 8;
+                    r = r * (256 - yap);
+                    g = g * (256 - yap);
+                    b = b * (256 - yap);
+                    a = a * (256 - yap);
+                    r = (r + (rr * yap)) >> 8;
+                    g = (g + (gg * yap)) >> 8;
+                    b = (b + (bb * yap)) >> 8;
+                    a = (a + (aa * yap)) >> 8;
+                }
+                *dptr = qRgba(r >> 14, g >> 14, b >> 14, a >> 14);
+                dptr++;
             }
-            *dptr = qRgba(r >> 14, g >> 14, b >> 14, a >> 14);
-            dptr++;
         }
-    }
+    };
+    multithread_pixels_function(isi, dh, scaleSection);
 }
 
 static void qt_qimageScaleAARGBA_down_xy(QImageScaleInfo *isi, unsigned int *dest,
@@ -487,45 +528,48 @@ static void qt_qimageScaleAARGBA_down_xy(QImageScaleInfo *isi, unsigned int *des
     int *xapoints = isi->xapoints;
     int *yapoints = isi->yapoints;
 
-    for (int y = 0; y < dh; y++) {
-        int Cy = (yapoints[y]) >> 16;
-        int yap = (yapoints[y]) & 0xffff;
+    auto scaleSection = [&] (int yStart, int yEnd) {
+        for (int y = yStart; y < yEnd; ++y) {
+            int Cy = (yapoints[y]) >> 16;
+            int yap = (yapoints[y]) & 0xffff;
 
-        unsigned int *dptr = dest + (y * dow);
-        for (int x = 0; x < dw; x++) {
-            int Cx = xapoints[x] >> 16;
-            int xap = xapoints[x] & 0xffff;
+            unsigned int *dptr = dest + (y * dow);
+            for (int x = 0; x < dw; x++) {
+                int Cx = xapoints[x] >> 16;
+                int xap = xapoints[x] & 0xffff;
 
-            const unsigned int *sptr = ypoints[y] + xpoints[x];
-            int rx, gx, bx, ax;
-            qt_qimageScaleAARGBA_helper(sptr, xap, Cx, 1, rx, gx, bx, ax);
+                const unsigned int *sptr = ypoints[y] + xpoints[x];
+                int rx, gx, bx, ax;
+                qt_qimageScaleAARGBA_helper(sptr, xap, Cx, 1, rx, gx, bx, ax);
 
-            int r = ((rx>>4) * yap);
-            int g = ((gx>>4) * yap);
-            int b = ((bx>>4) * yap);
-            int a = ((ax>>4) * yap);
+                int r = ((rx>>4) * yap);
+                int g = ((gx>>4) * yap);
+                int b = ((bx>>4) * yap);
+                int a = ((ax>>4) * yap);
 
-            int j;
-            for (j = (1 << 14) - yap; j > Cy; j -= Cy) {
+                int j;
+                for (j = (1 << 14) - yap; j > Cy; j -= Cy) {
+                    sptr += sow;
+                    qt_qimageScaleAARGBA_helper(sptr, xap, Cx, 1, rx, gx, bx, ax);
+                    r += ((rx>>4) * Cy);
+                    g += ((gx>>4) * Cy);
+                    b += ((bx>>4) * Cy);
+                    a += ((ax>>4) * Cy);
+                }
                 sptr += sow;
                 qt_qimageScaleAARGBA_helper(sptr, xap, Cx, 1, rx, gx, bx, ax);
-                r += ((rx>>4) * Cy);
-                g += ((gx>>4) * Cy);
-                b += ((bx>>4) * Cy);
-                a += ((ax>>4) * Cy);
+
+                r += ((rx>>4) * j);
+                g += ((gx>>4) * j);
+                b += ((bx>>4) * j);
+                a += ((ax>>4) * j);
+
+                *dptr = qRgba(r >> 24, g >> 24, b >> 24, a >> 24);
+                dptr++;
             }
-            sptr += sow;
-            qt_qimageScaleAARGBA_helper(sptr, xap, Cx, 1, rx, gx, bx, ax);
-
-            r += ((rx>>4) * j);
-            g += ((gx>>4) * j);
-            b += ((bx>>4) * j);
-            a += ((ax>>4) * j);
-
-            *dptr = qRgba(r >> 24, g >> 24, b >> 24, a >> 24);
-            dptr++;
         }
-    }
+    };
+    multithread_pixels_function(isi, dh, scaleSection);
 }
 
 #if QT_CONFIG(raster_64bit)
@@ -546,32 +590,35 @@ static void qt_qimageScaleRgba64_up_xy(QImageScaleInfo *isi, QRgba64 *dest,
     int *xapoints = isi->xapoints;
     int *yapoints = isi->yapoints;
 
-    for (int y = 0; y < dh; y++) {
-        const QRgba64 *sptr = ypoints[y];
-        QRgba64 *dptr = dest + (y * dow);
-        const int yap = yapoints[y];
-        if (yap > 0) {
-            for (int x = 0; x < dw; x++) {
-                const QRgba64 *pix = sptr + xpoints[x];
-                const int xap = xapoints[x];
-                if (xap > 0)
-                    *dptr = interpolate_4_pixels_rgb64(pix, pix + sow, xap * 256, yap * 256);
-                else
-                    *dptr = interpolate256(pix[0], 256 - yap, pix[sow], yap);
-                dptr++;
-            }
-        } else {
-            for (int x = 0; x < dw; x++) {
-                const QRgba64 *pix = sptr + xpoints[x];
-                const int xap = xapoints[x];
-                if (xap > 0)
-                    *dptr = interpolate256(pix[0], 256 - xap, pix[1], xap);
-                else
-                    *dptr = pix[0];
-                dptr++;
+    auto scaleSection = [&] (int yStart, int yEnd) {
+        for (int y = yStart; y < yEnd; ++y) {
+            const QRgba64 *sptr = ypoints[y];
+            QRgba64 *dptr = dest + (y * dow);
+            const int yap = yapoints[y];
+            if (yap > 0) {
+                for (int x = 0; x < dw; x++) {
+                    const QRgba64 *pix = sptr + xpoints[x];
+                    const int xap = xapoints[x];
+                    if (xap > 0)
+                        *dptr = interpolate_4_pixels_rgb64(pix, pix + sow, xap * 256, yap * 256);
+                    else
+                        *dptr = interpolate256(pix[0], 256 - yap, pix[sow], yap);
+                    dptr++;
+                }
+            } else {
+                for (int x = 0; x < dw; x++) {
+                    const QRgba64 *pix = sptr + xpoints[x];
+                    const int xap = xapoints[x];
+                    if (xap > 0)
+                        *dptr = interpolate256(pix[0], 256 - xap, pix[1], xap);
+                    else
+                        *dptr = pix[0];
+                    dptr++;
+                }
             }
         }
-    }
+    };
+    multithread_pixels_function(isi, dh, scaleSection);
 }
 
 void qt_qimageScaleRgba64(QImageScaleInfo *isi, QRgba64 *dest,
@@ -616,33 +663,36 @@ static void qt_qimageScaleRgba64_up_x_down_y(QImageScaleInfo *isi, QRgba64 *dest
     int *xapoints = isi->xapoints;
     int *yapoints = isi->yapoints;
 
-    for (int y = 0; y < dh; y++) {
-        int Cy = (yapoints[y]) >> 16;
-        int yap = (yapoints[y]) & 0xffff;
+    auto scaleSection = [&] (int yStart, int yEnd) {
+        for (int y = yStart; y < yEnd; ++y) {
+            int Cy = (yapoints[y]) >> 16;
+            int yap = (yapoints[y]) & 0xffff;
 
-        QRgba64 *dptr = dest + (y * dow);
-        for (int x = 0; x < dw; x++) {
-            const QRgba64 *sptr = ypoints[y] + xpoints[x];
-            qint64 r, g, b, a;
-            qt_qimageScaleRgba64_helper(sptr, yap, Cy, sow, r, g, b, a);
+            QRgba64 *dptr = dest + (y * dow);
+            for (int x = 0; x < dw; x++) {
+                const QRgba64 *sptr = ypoints[y] + xpoints[x];
+                qint64 r, g, b, a;
+                qt_qimageScaleRgba64_helper(sptr, yap, Cy, sow, r, g, b, a);
 
-            int xap = xapoints[x];
-            if (xap > 0) {
-                qint64 rr, gg, bb, aa;
-                qt_qimageScaleRgba64_helper(sptr + 1, yap, Cy, sow, rr, gg, bb, aa);
+                int xap = xapoints[x];
+                if (xap > 0) {
+                    qint64 rr, gg, bb, aa;
+                    qt_qimageScaleRgba64_helper(sptr + 1, yap, Cy, sow, rr, gg, bb, aa);
 
-                r = r * (256 - xap);
-                g = g * (256 - xap);
-                b = b * (256 - xap);
-                a = a * (256 - xap);
-                r = (r + (rr * xap)) >> 8;
-                g = (g + (gg * xap)) >> 8;
-                b = (b + (bb * xap)) >> 8;
-                a = (a + (aa * xap)) >> 8;
+                    r = r * (256 - xap);
+                    g = g * (256 - xap);
+                    b = b * (256 - xap);
+                    a = a * (256 - xap);
+                    r = (r + (rr * xap)) >> 8;
+                    g = (g + (gg * xap)) >> 8;
+                    b = (b + (bb * xap)) >> 8;
+                    a = (a + (aa * xap)) >> 8;
+                }
+                *dptr++ = qRgba64(r >> 14, g >> 14, b >> 14, a >> 14);
             }
-            *dptr++ = qRgba64(r >> 14, g >> 14, b >> 14, a >> 14);
         }
-    }
+    };
+    multithread_pixels_function(isi, dh, scaleSection);
 }
 
 static void qt_qimageScaleRgba64_down_x_up_y(QImageScaleInfo *isi, QRgba64 *dest,
@@ -653,34 +703,37 @@ static void qt_qimageScaleRgba64_down_x_up_y(QImageScaleInfo *isi, QRgba64 *dest
     int *xapoints = isi->xapoints;
     int *yapoints = isi->yapoints;
 
-    for (int y = 0; y < dh; y++) {
-        QRgba64 *dptr = dest + (y * dow);
-        for (int x = 0; x < dw; x++) {
-            int Cx = xapoints[x] >> 16;
-            int xap = xapoints[x] & 0xffff;
+    auto scaleSection = [&] (int yStart, int yEnd) {
+        for (int y = yStart; y < yEnd; ++y) {
+            QRgba64 *dptr = dest + (y * dow);
+            for (int x = 0; x < dw; x++) {
+                int Cx = xapoints[x] >> 16;
+                int xap = xapoints[x] & 0xffff;
 
-            const QRgba64 *sptr = ypoints[y] + xpoints[x];
-            qint64 r, g, b, a;
-            qt_qimageScaleRgba64_helper(sptr, xap, Cx, 1, r, g, b, a);
+                const QRgba64 *sptr = ypoints[y] + xpoints[x];
+                qint64 r, g, b, a;
+                qt_qimageScaleRgba64_helper(sptr, xap, Cx, 1, r, g, b, a);
 
-            int yap = yapoints[y];
-            if (yap > 0) {
-                qint64 rr, gg, bb, aa;
-                qt_qimageScaleRgba64_helper(sptr + sow, xap, Cx, 1, rr, gg, bb, aa);
+                int yap = yapoints[y];
+                if (yap > 0) {
+                    qint64 rr, gg, bb, aa;
+                    qt_qimageScaleRgba64_helper(sptr + sow, xap, Cx, 1, rr, gg, bb, aa);
 
-                r = r * (256 - yap);
-                g = g * (256 - yap);
-                b = b * (256 - yap);
-                a = a * (256 - yap);
-                r = (r + (rr * yap)) >> 8;
-                g = (g + (gg * yap)) >> 8;
-                b = (b + (bb * yap)) >> 8;
-                a = (a + (aa * yap)) >> 8;
+                    r = r * (256 - yap);
+                    g = g * (256 - yap);
+                    b = b * (256 - yap);
+                    a = a * (256 - yap);
+                    r = (r + (rr * yap)) >> 8;
+                    g = (g + (gg * yap)) >> 8;
+                    b = (b + (bb * yap)) >> 8;
+                    a = (a + (aa * yap)) >> 8;
+                }
+                *dptr = qRgba64(r >> 14, g >> 14, b >> 14, a >> 14);
+                dptr++;
             }
-            *dptr = qRgba64(r >> 14, g >> 14, b >> 14, a >> 14);
-            dptr++;
         }
-    }
+    };
+    multithread_pixels_function(isi, dh, scaleSection);
 }
 
 static void qt_qimageScaleRgba64_down_xy(QImageScaleInfo *isi, QRgba64 *dest,
@@ -691,43 +744,46 @@ static void qt_qimageScaleRgba64_down_xy(QImageScaleInfo *isi, QRgba64 *dest,
     int *xapoints = isi->xapoints;
     int *yapoints = isi->yapoints;
 
-    for (int y = 0; y < dh; y++) {
-        int Cy = (yapoints[y]) >> 16;
-        int yap = (yapoints[y]) & 0xffff;
+    auto scaleSection = [&] (int yStart, int yEnd) {
+        for (int y = yStart; y < yEnd; ++y) {
+            int Cy = (yapoints[y]) >> 16;
+            int yap = (yapoints[y]) & 0xffff;
 
-        QRgba64 *dptr = dest + (y * dow);
-        for (int x = 0; x < dw; x++) {
-            int Cx = xapoints[x] >> 16;
-            int xap = xapoints[x] & 0xffff;
+            QRgba64 *dptr = dest + (y * dow);
+            for (int x = 0; x < dw; x++) {
+                int Cx = xapoints[x] >> 16;
+                int xap = xapoints[x] & 0xffff;
 
-            const QRgba64 *sptr = ypoints[y] + xpoints[x];
-            qint64 rx, gx, bx, ax;
-            qt_qimageScaleRgba64_helper(sptr, xap, Cx, 1, rx, gx, bx, ax);
+                const QRgba64 *sptr = ypoints[y] + xpoints[x];
+                qint64 rx, gx, bx, ax;
+                qt_qimageScaleRgba64_helper(sptr, xap, Cx, 1, rx, gx, bx, ax);
 
-            qint64 r = rx * yap;
-            qint64 g = gx * yap;
-            qint64 b = bx * yap;
-            qint64 a = ax * yap;
-            int j;
-            for (j = (1 << 14) - yap; j > Cy; j -= Cy) {
+                qint64 r = rx * yap;
+                qint64 g = gx * yap;
+                qint64 b = bx * yap;
+                qint64 a = ax * yap;
+                int j;
+                for (j = (1 << 14) - yap; j > Cy; j -= Cy) {
+                    sptr += sow;
+                    qt_qimageScaleRgba64_helper(sptr, xap, Cx, 1, rx, gx, bx, ax);
+                    r += rx * Cy;
+                    g += gx * Cy;
+                    b += bx * Cy;
+                    a += ax * Cy;
+                }
                 sptr += sow;
                 qt_qimageScaleRgba64_helper(sptr, xap, Cx, 1, rx, gx, bx, ax);
-                r += rx * Cy;
-                g += gx * Cy;
-                b += bx * Cy;
-                a += ax * Cy;
-            }
-            sptr += sow;
-            qt_qimageScaleRgba64_helper(sptr, xap, Cx, 1, rx, gx, bx, ax);
-            r += rx * j;
-            g += gx * j;
-            b += bx * j;
-            a += ax * j;
+                r += rx * j;
+                g += gx * j;
+                b += bx * j;
+                a += ax * j;
 
-            *dptr = qRgba64(r >> 28, g >> 28, b >> 28, a >> 28);
-            dptr++;
+                *dptr = qRgba64(r >> 28, g >> 28, b >> 28, a >> 28);
+                dptr++;
+            }
         }
-    }
+    };
+    multithread_pixels_function(isi, dh, scaleSection);
 }
 #endif
 
@@ -817,31 +873,34 @@ static void qt_qimageScaleAARGB_up_x_down_y(QImageScaleInfo *isi, unsigned int *
     int *yapoints = isi->yapoints;
 
     /* go through every scanline in the output buffer */
-    for (int y = 0; y < dh; y++) {
-        int Cy = yapoints[y] >> 16;
-        int yap = yapoints[y] & 0xffff;
+    auto scaleSection = [&] (int yStart, int yEnd) {
+        for (int y = yStart; y < yEnd; ++y) {
+            int Cy = yapoints[y] >> 16;
+            int yap = yapoints[y] & 0xffff;
 
-        unsigned int *dptr = dest + (y * dow);
-        for (int x = 0; x < dw; x++) {
-            const unsigned int *sptr = ypoints[y] + xpoints[x];
-            int r, g, b;
-            qt_qimageScaleAARGB_helper(sptr, yap, Cy, sow, r, g, b);
+            unsigned int *dptr = dest + (y * dow);
+            for (int x = 0; x < dw; x++) {
+                const unsigned int *sptr = ypoints[y] + xpoints[x];
+                int r, g, b;
+                qt_qimageScaleAARGB_helper(sptr, yap, Cy, sow, r, g, b);
 
-            int xap = xapoints[x];
-            if (xap > 0) {
-                int rr, bb, gg;
-                qt_qimageScaleAARGB_helper(sptr + 1, yap, Cy, sow, rr, gg, bb);
+                int xap = xapoints[x];
+                if (xap > 0) {
+                    int rr, bb, gg;
+                    qt_qimageScaleAARGB_helper(sptr + 1, yap, Cy, sow, rr, gg, bb);
 
-                r = r * (256 - xap);
-                g = g * (256 - xap);
-                b = b * (256 - xap);
-                r = (r + (rr * xap)) >> 8;
-                g = (g + (gg * xap)) >> 8;
-                b = (b + (bb * xap)) >> 8;
+                    r = r * (256 - xap);
+                    g = g * (256 - xap);
+                    b = b * (256 - xap);
+                    r = (r + (rr * xap)) >> 8;
+                    g = (g + (gg * xap)) >> 8;
+                    b = (b + (bb * xap)) >> 8;
+                }
+                *dptr++ = qRgb(r >> 14, g >> 14, b >> 14);
             }
-            *dptr++ = qRgb(r >> 14, g >> 14, b >> 14);
         }
-    }
+    };
+    multithread_pixels_function(isi, dh, scaleSection);
 }
 
 static void qt_qimageScaleAARGB_down_x_up_y(QImageScaleInfo *isi, unsigned int *dest,
@@ -853,31 +912,34 @@ static void qt_qimageScaleAARGB_down_x_up_y(QImageScaleInfo *isi, unsigned int *
     int *yapoints = isi->yapoints;
 
     /* go through every scanline in the output buffer */
-    for (int y = 0; y < dh; y++) {
-        unsigned int *dptr = dest + (y * dow);
-        for (int x = 0; x < dw; x++) {
-            int Cx = xapoints[x] >> 16;
-            int xap = xapoints[x] & 0xffff;
+    auto scaleSection = [&] (int yStart, int yEnd) {
+        for (int y = yStart; y < yEnd; ++y) {
+            unsigned int *dptr = dest + (y * dow);
+            for (int x = 0; x < dw; x++) {
+                int Cx = xapoints[x] >> 16;
+                int xap = xapoints[x] & 0xffff;
 
-            const unsigned int *sptr = ypoints[y] + xpoints[x];
-            int r, g, b;
-            qt_qimageScaleAARGB_helper(sptr, xap, Cx, 1, r, g, b);
+                const unsigned int *sptr = ypoints[y] + xpoints[x];
+                int r, g, b;
+                qt_qimageScaleAARGB_helper(sptr, xap, Cx, 1, r, g, b);
 
-            int yap = yapoints[y];
-            if (yap > 0) {
-                int rr, bb, gg;
-                qt_qimageScaleAARGB_helper(sptr + sow, xap, Cx, 1, rr, gg, bb);
+                int yap = yapoints[y];
+                if (yap > 0) {
+                    int rr, bb, gg;
+                    qt_qimageScaleAARGB_helper(sptr + sow, xap, Cx, 1, rr, gg, bb);
 
-                r = r * (256 - yap);
-                g = g * (256 - yap);
-                b = b * (256 - yap);
-                r = (r + (rr * yap)) >> 8;
-                g = (g + (gg * yap)) >> 8;
-                b = (b + (bb * yap)) >> 8;
+                    r = r * (256 - yap);
+                    g = g * (256 - yap);
+                    b = b * (256 - yap);
+                    r = (r + (rr * yap)) >> 8;
+                    g = (g + (gg * yap)) >> 8;
+                    b = (b + (bb * yap)) >> 8;
+                }
+                *dptr++ = qRgb(r >> 14, g >> 14, b >> 14);
             }
-            *dptr++ = qRgb(r >> 14, g >> 14, b >> 14);
         }
-    }
+    };
+    multithread_pixels_function(isi, dh, scaleSection);
 }
 
 static void qt_qimageScaleAARGB_down_xy(QImageScaleInfo *isi, unsigned int *dest,
@@ -888,43 +950,46 @@ static void qt_qimageScaleAARGB_down_xy(QImageScaleInfo *isi, unsigned int *dest
     int *xapoints = isi->xapoints;
     int *yapoints = isi->yapoints;
 
-    for (int y = 0; y < dh; y++) {
-        int Cy = yapoints[y] >> 16;
-        int yap = yapoints[y] & 0xffff;
+    auto scaleSection = [&] (int yStart, int yEnd) {
+        for (int y = yStart; y < yEnd; ++y) {
+            int Cy = yapoints[y] >> 16;
+            int yap = yapoints[y] & 0xffff;
 
-        unsigned int *dptr = dest + (y * dow);
-        for (int x = 0; x < dw; x++) {
-            int Cx = xapoints[x] >> 16;
-            int xap = xapoints[x] & 0xffff;
+            unsigned int *dptr = dest + (y * dow);
+            for (int x = 0; x < dw; x++) {
+                int Cx = xapoints[x] >> 16;
+                int xap = xapoints[x] & 0xffff;
 
-            const unsigned int *sptr = ypoints[y] + xpoints[x];
-            int rx, gx, bx;
-            qt_qimageScaleAARGB_helper(sptr, xap, Cx, 1, rx, gx, bx);
+                const unsigned int *sptr = ypoints[y] + xpoints[x];
+                int rx, gx, bx;
+                qt_qimageScaleAARGB_helper(sptr, xap, Cx, 1, rx, gx, bx);
 
-            int r = (rx >> 4) * yap;
-            int g = (gx >> 4) * yap;
-            int b = (bx >> 4) * yap;
+                int r = (rx >> 4) * yap;
+                int g = (gx >> 4) * yap;
+                int b = (bx >> 4) * yap;
 
-            int j;
-            for (j = (1 << 14) - yap; j > Cy; j -= Cy) {
+                int j;
+                for (j = (1 << 14) - yap; j > Cy; j -= Cy) {
+                    sptr += sow;
+                    qt_qimageScaleAARGB_helper(sptr, xap, Cx, 1, rx, gx, bx);
+
+                    r += (rx >> 4) * Cy;
+                    g += (gx >> 4) * Cy;
+                    b += (bx >> 4) * Cy;
+                }
                 sptr += sow;
                 qt_qimageScaleAARGB_helper(sptr, xap, Cx, 1, rx, gx, bx);
 
-                r += (rx >> 4) * Cy;
-                g += (gx >> 4) * Cy;
-                b += (bx >> 4) * Cy;
+                r += (rx >> 4) * j;
+                g += (gx >> 4) * j;
+                b += (bx >> 4) * j;
+
+                *dptr = qRgb(r >> 24, g >> 24, b >> 24);
+                dptr++;
             }
-            sptr += sow;
-            qt_qimageScaleAARGB_helper(sptr, xap, Cx, 1, rx, gx, bx);
-
-            r += (rx >> 4) * j;
-            g += (gx >> 4) * j;
-            b += (bx >> 4) * j;
-
-            *dptr = qRgb(r >> 24, g >> 24, b >> 24);
-            dptr++;
         }
-    }
+    };
+    multithread_pixels_function(isi, dh, scaleSection);
 }
 
 QImage qSmoothScaleImage(const QImage &src, int dw, int dh)

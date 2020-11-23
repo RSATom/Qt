@@ -266,7 +266,7 @@ bool XsdTypeChecker::isValidString(const QString &normalizedString, const AnySim
                 *boundType = type;
 
         } else if (simpleType->category() == XsdSimpleType::SimpleTypeList) {
-            QStringList entries = normalizedString.split(QLatin1Char(' '), QString::SkipEmptyParts);
+            QStringList entries = normalizedString.split(QLatin1Char(' '), Qt::SkipEmptyParts);
             for (int i = 0; i < entries.count(); ++i) {
                 entries[i] = normalizedValue(entries.at(i), mergedFacetsForType(simpleType->itemType(), m_context));
             }
@@ -336,8 +336,8 @@ bool XsdTypeChecker::valuesAreEqual(const QString &value, const QString &otherVa
 
         return XsdSchemaHelper::constructAndCompare(valueStr, AtomicComparator::OperatorEqual, otherValueStr, targetType, m_context, m_reflection);
     } else if (type->category() == SchemaType::SimpleTypeList) {
-        const QStringList values = value.split(QLatin1Char(' '), QString::SkipEmptyParts);
-        const QStringList otherValues = otherValue.split(QLatin1Char(' '), QString::SkipEmptyParts);
+        const QStringList values = value.split(QLatin1Char(' '), Qt::SkipEmptyParts);
+        const QStringList otherValues = otherValue.split(QLatin1Char(' '), Qt::SkipEmptyParts);
         if (values.count() != otherValues.count())
             return false;
 
@@ -1131,7 +1131,7 @@ bool XsdTypeChecker::checkConstrainingFacetsList(const QStringList &values, cons
 
             const AtomicValue::List multiValue = facet->multiValue();
             for (int i = 0; i < multiValue.count(); ++i) {
-                const QStringList facetValueList = multiValue.at(i)->as<DerivedString<TypeString> >()->stringValue().split(QLatin1Char(' '), QString::SkipEmptyParts);
+                const QStringList facetValueList = multiValue.at(i)->as<DerivedString<TypeString> >()->stringValue().split(QLatin1Char(' '), Qt::SkipEmptyParts);
 
                 // create the list of atomic string values
                 QList<QXmlName> facetValues;
@@ -1171,7 +1171,7 @@ bool XsdTypeChecker::checkConstrainingFacetsList(const QStringList &values, cons
 
             const AtomicValue::List multiValue = facet->multiValue();
             for (int i = 0; i < multiValue.count(); ++i) {
-                const QStringList facetValueList = multiValue.at(i)->as<DerivedString<TypeString> >()->stringValue().split(QLatin1Char(' '), QString::SkipEmptyParts);
+                const QStringList facetValueList = multiValue.at(i)->as<DerivedString<TypeString> >()->stringValue().split(QLatin1Char(' '), Qt::SkipEmptyParts);
 
                 // create the list of atomic string values
                 AtomicValue::List facetValues;

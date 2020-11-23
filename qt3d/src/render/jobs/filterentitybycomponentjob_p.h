@@ -74,18 +74,18 @@ public:
         : Qt3DCore::QAspectJob()
         , m_manager(nullptr)
     {
-        SET_JOB_RUN_STAT_TYPE(this, JobTypes::EntityComponentTypeFiltering, 0);
+        SET_JOB_RUN_STAT_TYPE(this, JobTypes::EntityComponentTypeFiltering, 0)
     }
 
     inline void setManager(EntityManager *manager) Q_DECL_NOTHROW { m_manager = manager; }
     inline QVector<Entity *> &filteredEntities() Q_DECL_NOTHROW { return m_filteredEntities; }
 
-    void run() final
+    void run() override
     {
         m_filteredEntities.clear();
-        const QVector<HEntity> handles = m_manager->activeHandles();
+        const std::vector<HEntity> &handles = m_manager->activeHandles();
         m_filteredEntities.reserve(handles.size());
-        for (const HEntity handle : handles) {
+        for (const HEntity &handle : handles) {
             Entity *e = m_manager->data(handle);
             if (e->containsComponentsOfType<T, Ts...>())
                 m_filteredEntities.push_back(e);
@@ -96,6 +96,9 @@ private:
     EntityManager *m_manager;
     QVector<Entity *> m_filteredEntities;
 };
+
+template<typename T, typename ... Ts>
+using FilterEntityByComponentJobPtr = QSharedPointer<FilterEntityByComponentJob<T, Ts...>>;
 
 } // Render
 

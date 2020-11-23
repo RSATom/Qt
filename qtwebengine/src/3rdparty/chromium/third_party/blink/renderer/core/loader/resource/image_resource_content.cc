@@ -6,6 +6,8 @@
 
 #include <memory>
 
+#include "third_party/blink/public/mojom/feature_policy/feature_policy_feature.mojom-blink.h"
+#include "third_party/blink/public/mojom/feature_policy/policy_value.mojom-blink.h"
 #include "third_party/blink/renderer/core/execution_context/security_context.h"
 #include "third_party/blink/renderer/core/loader/resource/image_resource.h"
 #include "third_party/blink/renderer/core/loader/resource/image_resource_info.h"
@@ -18,7 +20,7 @@
 #include "third_party/blink/renderer/platform/instrumentation/tracing/trace_event.h"
 #include "third_party/blink/renderer/platform/network/http_parsers.h"
 #include "third_party/blink/renderer/platform/network/mime/mime_type_registry.h"
-#include "third_party/blink/renderer/platform/shared_buffer.h"
+#include "third_party/blink/renderer/platform/wtf/shared_buffer.h"
 #include "third_party/blink/renderer/platform/wtf/std_lib_extras.h"
 #include "third_party/blink/renderer/platform/wtf/vector.h"
 #include "v8/include/v8.h"
@@ -28,7 +30,7 @@ namespace blink {
 namespace {
 
 class NullImageResourceInfo final
-    : public GarbageCollectedFinalized<NullImageResourceInfo>,
+    : public GarbageCollected<NullImageResourceInfo>,
       public ImageResourceInfo {
   USING_GARBAGE_COLLECTED_MIXIN(NullImageResourceInfo);
 
@@ -146,15 +148,21 @@ void ImageResourceContent::Trace(blink::Visitor* visitor) {
   ImageObserver::Trace(visitor);
 }
 
-void ImageResourceContent::MarkObserverFinished(
+void ImageResourceContent::HandleObserverFinished(
     ImageResourceObserver* observer) {
-  ProhibitAddRemoveObserverInScope prohibit_add_remove_observer_in_scope(this);
-
-  auto it = observers_.find(observer);
-  if (it == observers_.end())
+  if (info_->SchedulingReloadOrShouldReloadBrokenPlaceholder())
     return;
-  observers_.erase(it);
-  finished_observers_.insert(observer);
+  {
+    ProhibitAddRemoveObserverInScope prohibit_add_remove_observer_in_scope(
+        this);
+    auto it = observers_.find(observer);
+    if (it != observers_.end()) {
+      observers_.erase(it);
+      finished_observers_.insert(observer);
+    }
+  }
+  observer->ImageNotifyFinished(this);
+  UpdateImageAnimationPolicy();
 }
 
 void ImageResourceContent::AddObserver(ImageResourceObserver* observer) {
@@ -175,11 +183,8 @@ void ImageResourceContent::AddObserver(ImageResourceObserver* observer) {
     observer->ImageChanged(this, CanDeferInvalidation::kNo);
   }
 
-  if (IsLoaded() && observers_.Contains(observer) &&
-      !info_->SchedulingReloadOrShouldReloadBrokenPlaceholder()) {
-    MarkObserverFinished(observer);
-    observer->ImageNotifyFinished(this);
-  }
+  if (IsLoaded() && observers_.Contains(observer))
+    HandleObserverFinished(observer);
 }
 
 void ImageResourceContent::RemoveObserver(ImageResourceObserver* observer) {
@@ -294,10 +299,8 @@ void ImageResourceContent::NotifyObservers(
       if (observers_.Contains(observer)) {
         observer->ImageChanged(this, defer);
         if (notifying_finish_option == kShouldNotifyFinish &&
-            observers_.Contains(observer) &&
-            !info_->SchedulingReloadOrShouldReloadBrokenPlaceholder()) {
-          MarkObserverFinished(observer);
-          observer->ImageNotifyFinished(this);
+            observers_.Contains(observer)) {
+          HandleObserverFinished(observer);
         }
       }
     }
@@ -548,20 +551,27 @@ bool ImageResourceContent::IsAcceptableCompressionRatio(
     UMA_HISTOGRAM_ENUMERATION("Blink.UseCounter.FeaturePolicy.ImageFormats",
                               compression_format);
   }
+
+  // Pass image url to reporting API.
+  const String& image_url = Url().GetString();
+
   if (compression_format == ImageDecoder::kLossyFormat) {
     // Enforce the lossy image policy.
     return context.IsFeatureEnabled(
         mojom::FeaturePolicyFeature::kUnoptimizedLossyImages,
-        PolicyValue(compression_ratio_1k), ReportOptions::kReportOnFailure);
+        PolicyValue(compression_ratio_1k), ReportOptions::kReportOnFailure,
+        g_empty_string, image_url);
   }
   if (compression_format == ImageDecoder::kLosslessFormat) {
     // Enforce the lossless image policy.
     bool enabled_by_10k_policy = context.IsFeatureEnabled(
         mojom::FeaturePolicyFeature::kUnoptimizedLosslessImages,
-        PolicyValue(compression_ratio_10k), ReportOptions::kReportOnFailure);
+        PolicyValue(compression_ratio_10k), ReportOptions::kReportOnFailure,
+        g_empty_string, image_url);
     bool enabled_by_1k_policy = context.IsFeatureEnabled(
         mojom::FeaturePolicyFeature::kUnoptimizedLosslessImagesStrict,
-        PolicyValue(compression_ratio_1k), ReportOptions::kReportOnFailure);
+        PolicyValue(compression_ratio_1k), ReportOptions::kReportOnFailure,
+        g_empty_string, image_url);
     return enabled_by_10k_policy && enabled_by_1k_policy;
   }
 

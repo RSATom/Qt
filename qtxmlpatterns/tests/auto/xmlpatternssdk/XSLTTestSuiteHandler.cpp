@@ -69,11 +69,9 @@ XSLTTestSuiteHandler::XSLTTestSuiteHandler(const QUrl &catalogFile) : m_ts(0)
     Q_ASSERT(!m_catalogFile.isRelative());
 }
 
-bool XSLTTestSuiteHandler::startElement(const QString &namespaceURI,
-                                        const QString &localName,
-                                        const QString &/*qName*/,
-                                        const QXmlAttributes &atts)
-    {
+bool XSLTTestSuiteHandler::startElement(const QStringRef &namespaceURI, const QStringRef &localName,
+                                        const QStringRef & /*qName*/, const QXmlStreamAttributes &atts)
+{
     if(namespaceURI != Global::xsltsCatalogNS)
         return true;
 
@@ -83,40 +81,50 @@ bool XSLTTestSuiteHandler::startElement(const QString &namespaceURI,
         /* We pass m_ts temporarily, and change it later. */
         m_tc = new XQTSTestCase(TestCase::Standard, 0, QXmlQuery::XSLT20);
 
-        m_currentQueryPath = m_queryOffset.resolved(QUrl(atts.value(QLatin1String("FilePath"))));
-        m_currentBaselinePath = m_baselineOffset.resolved(QUrl(atts.value(QLatin1String("FilePath"))));
+        m_currentQueryPath =
+                m_queryOffset.resolved(QUrl(atts.value(QLatin1String("FilePath")).toString()));
+        m_currentBaselinePath =
+                m_baselineOffset.resolved(QUrl(atts.value(QLatin1String("FilePath")).toString()));
     }
     else if(localName == QLatin1String("stylesheet"))
-        m_tc->setQueryPath(m_currentQueryPath.resolved(atts.value(QLatin1String("file"))));
+        m_tc->setQueryPath(
+                m_currentQueryPath.resolved(atts.value(QLatin1String("file")).toString()));
     else if(localName == QLatin1String("error"))
     {
         m_baseLine = new TestBaseLine(TestBaseLine::ExpectedError);
-        m_baseLine->setDetails(atts.value(QLatin1String("error-id")));
+        m_baseLine->setDetails(atts.value(QLatin1String("error-id")).toString());
         m_tc->addBaseLine(m_baseLine);
     }
     else if(localName == QLatin1String("testcases"))
     {
         m_ts = new TestSuite();
-        m_ts->setVersion(atts.value(QLatin1String("testSuiteVersion")));
+        m_ts->setVersion(atts.value(QLatin1String("testSuiteVersion")).toString());
 
-        m_queryOffset           = m_catalogFile.resolved(atts.value(QLatin1String("InputOffsetPath")));
-        m_baselineOffset        = m_catalogFile.resolved(atts.value(QLatin1String("ResultOffsetPath")));
-        m_sourceOffset          = m_catalogFile.resolved(atts.value(QLatin1String("InputOffsetPath")));
+        m_queryOffset =
+                m_catalogFile.resolved(atts.value(QLatin1String("InputOffsetPath")).toString());
+        m_baselineOffset =
+                m_catalogFile.resolved(atts.value(QLatin1String("ResultOffsetPath")).toString());
+        m_sourceOffset =
+                m_catalogFile.resolved(atts.value(QLatin1String("InputOffsetPath")).toString());
     }
     else if(localName == QLatin1String("source-document"))
     {
         if(atts.value(QLatin1String("role")) == QLatin1String("principal"))
-            m_tc->setContextItemSource(m_sourceOffset.resolved(QUrl(atts.value(QLatin1String("file")))));
+            m_tc->setContextItemSource(
+                    m_sourceOffset.resolved(QUrl(atts.value(QLatin1String("file")).toString())));
     }
     else if(localName == QLatin1String("result-document"))
     {
-        m_baseLine = new TestBaseLine(TestBaseLine::identifierFromString(atts.value(QLatin1String("type"))));
-        m_baseLine->setDetails(m_currentBaselinePath.resolved(atts.value(QLatin1String("file"))).toString());
+        m_baseLine = new TestBaseLine(
+                TestBaseLine::identifierFromString(atts.value(QLatin1String("type")).toString()));
+        m_baseLine->setDetails(
+                m_currentBaselinePath.resolved(atts.value(QLatin1String("file")).toString())
+                        .toString());
         m_tc->addBaseLine(m_baseLine);
     }
     else if(localName == QLatin1String("discretionary-feature"))
     {
-        const QString feature(atts.value(QLatin1String("name")));
+        const QString feature(atts.value(QLatin1String("name")).toString());
 
         m_removeTestcase = feature == QLatin1String("schema_aware") ||
                            feature == QLatin1String("namespace_axis") ||
@@ -126,9 +134,9 @@ bool XSLTTestSuiteHandler::startElement(const QString &namespaceURI,
     else if(localName == QLatin1String("discretionary-choice"))
     {
         m_baseLine = new TestBaseLine(TestBaseLine::ExpectedError);
-        m_baseLine->setDetails(atts.value(QLatin1String("name")));
+        m_baseLine->setDetails(atts.value(QLatin1String("name")).toString());
         m_tc->addBaseLine(m_baseLine);
-        const QString feature(atts.value(QLatin1String("name")));
+        const QString feature(atts.value(QLatin1String("name")).toString());
 
         m_removeTestcase = feature == QLatin1String("schema_aware") ||
                            feature == QLatin1String("namespace_axis") ||
@@ -137,7 +145,7 @@ bool XSLTTestSuiteHandler::startElement(const QString &namespaceURI,
     }
     else if(localName == QLatin1String("entry-named-template"))
     {
-        const QString name(atts.value(QLatin1String("qname")));
+        const QString name(atts.value(QLatin1String("qname")).toString());
 
         if(!name.contains(QLatin1Char(':')))
         {
@@ -166,9 +174,9 @@ TestGroup *XSLTTestSuiteHandler::containerFor(const QString &name)
     return c;
 }
 
-bool XSLTTestSuiteHandler::endElement(const QString &namespaceURI,
-                                      const QString &localName,
-                                      const QString &/*qName*/)
+bool XSLTTestSuiteHandler::endElement(const QStringRef &namespaceURI,
+                                      const QStringRef &localName,
+                                      const QStringRef &/*qName*/)
 {
     if(namespaceURI != Global::xsltsCatalogNS)
         return true;
@@ -221,9 +229,9 @@ bool XSLTTestSuiteHandler::endElement(const QString &namespaceURI,
     return true;
 }
 
-bool XSLTTestSuiteHandler::characters(const QString &ch)
+bool XSLTTestSuiteHandler::characters(const QStringRef &ch)
 {
-    m_ch = ch;
+    m_ch = ch.toString();
     return true;
 }
 

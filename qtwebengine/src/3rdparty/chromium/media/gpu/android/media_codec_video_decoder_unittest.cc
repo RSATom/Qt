@@ -10,20 +10,21 @@
 #include "base/run_loop.h"
 #include "base/test/gmock_callback_support.h"
 #include "base/test/mock_callback.h"
-#include "base/test/scoped_task_environment.h"
+#include "base/test/task_environment.h"
 #include "base/threading/thread_task_runner_handle.h"
+#include "gpu/command_buffer/service/mock_texture_owner.h"
 #include "gpu/config/gpu_preferences.h"
 #include "media/base/android/media_codec_util.h"
 #include "media/base/android/mock_android_overlay.h"
 #include "media/base/android/mock_media_crypto_context.h"
 #include "media/base/decoder_buffer.h"
+#include "media/base/media_util.h"
 #include "media/base/test_helpers.h"
 #include "media/base/video_frame.h"
 #include "media/gpu/android/android_video_surface_chooser_impl.h"
 #include "media/gpu/android/fake_codec_allocator.h"
 #include "media/gpu/android/mock_android_video_surface_chooser.h"
 #include "media/gpu/android/mock_device_info.h"
-#include "media/gpu/android/mock_texture_owner.h"
 #include "media/gpu/android/video_frame_factory.h"
 #include "media/video/supported_video_decoder_config.h"
 #include "testing/gtest/include/gtest/gtest.h"
@@ -66,7 +67,7 @@ class MockVideoFrameFactory : public VideoFrameFactory {
   MOCK_METHOD5(
       MockCreateVideoFrame,
       void(CodecOutputBuffer* raw_output_buffer,
-           scoped_refptr<TextureOwner> texture_owner,
+           scoped_refptr<gpu::TextureOwner> texture_owner,
            base::TimeDelta timestamp,
            gfx::Size natural_size,
            PromotionHintAggregator::NotifyPromotionHintCB promotion_hint_cb));
@@ -80,8 +81,10 @@ class MockVideoFrameFactory : public VideoFrameFactory {
     if (!surface_bundle) {
       texture_owner_ = nullptr;
     } else {
-      texture_owner_ =
-          surface_bundle->overlay() ? nullptr : surface_bundle->texture_owner();
+      texture_owner_ = surface_bundle->overlay()
+                           ? nullptr
+                           : surface_bundle->codec_buffer_wait_coordinator()
+                                 ->texture_owner();
     }
   }
 
@@ -103,7 +106,7 @@ class MockVideoFrameFactory : public VideoFrameFactory {
   }
 
   std::unique_ptr<CodecOutputBuffer> last_output_buffer_;
-  scoped_refptr<TextureOwner> texture_owner_;
+  scoped_refptr<gpu::TextureOwner> texture_owner_;
   base::OnceClosure last_closure_;
 };
 
@@ -135,8 +138,8 @@ class MediaCodecVideoDecoderTest : public testing::TestWithParam<VideoCodec> {
         std::make_unique<NiceMock<MockAndroidVideoSurfaceChooser>>();
     surface_chooser_ = surface_chooser.get();
 
-    auto texture_owner =
-        base::MakeRefCounted<NiceMock<MockTextureOwner>>(0, nullptr, nullptr);
+    auto texture_owner = base::MakeRefCounted<NiceMock<gpu::MockTextureOwner>>(
+        0, nullptr, nullptr);
     texture_owner_ = texture_owner.get();
 
     auto video_frame_factory =
@@ -147,8 +150,8 @@ class MediaCodecVideoDecoderTest : public testing::TestWithParam<VideoCodec> {
         .WillByDefault(RunCallback<1>(texture_owner));
 
     auto* observable_mcvd = new DestructionObservableMCVD(
-        gpu_preferences_, gpu_feature_info_, device_info_.get(),
-        codec_allocator_.get(), std::move(surface_chooser),
+        gpu_preferences_, gpu_feature_info_, std::make_unique<NullMediaLog>(),
+        device_info_.get(), codec_allocator_.get(), std::move(surface_chooser),
         base::BindRepeating(&CreateAndroidOverlayCb),
         base::Bind(&MediaCodecVideoDecoderTest::RequestOverlayInfoCb,
                    base::Unretained(this)),
@@ -278,13 +281,13 @@ class MediaCodecVideoDecoderTest : public testing::TestWithParam<VideoCodec> {
 
  protected:
   const VideoCodec codec_;
-  base::test::ScopedTaskEnvironment scoped_task_environment_;
+  base::test::SingleThreadTaskEnvironment task_environment_;
   base::android::ScopedJavaGlobalRef<jobject> java_surface_;
   scoped_refptr<DecoderBuffer> fake_decoder_buffer_;
   std::unique_ptr<MockDeviceInfo> device_info_;
   std::unique_ptr<FakeCodecAllocator> codec_allocator_;
   MockAndroidVideoSurfaceChooser* surface_chooser_;
-  MockTextureOwner* texture_owner_;
+  gpu::MockTextureOwner* texture_owner_;
   MockVideoFrameFactory* video_frame_factory_;
   NiceMock<base::MockCallback<VideoDecoder::DecodeCB>> decode_cb_;
   std::unique_ptr<DestructionObserver> destruction_observer_;
@@ -703,6 +706,28 @@ TEST_P(MediaCodecVideoDecoderVp8Test, UnregisterPlayerBeforeSyncDestruction) {
 
   // Make sure the decoder is now destroyed.
   destruction_observer_->ExpectDestruction();
+}
+
+TEST_P(MediaCodecVideoDecoderVp8Test, ResetDoesNotDrainVp8WithAsyncApi) {
+  EXPECT_CALL(*device_info_, IsAsyncApiSupported())
+      .WillRepeatedly(Return(true));
+
+  auto* codec =
+      InitializeFully_OneDecodePending(TestVideoConfig::Large(codec_));
+  // Accept the first decode to transition out of the flushed state.
+  codec->AcceptOneInput();
+  PumpCodec();
+
+  // The reset should complete immediately because the codec is not VP8 so
+  // it doesn't need draining.  We don't expect a call to Flush on the codec
+  // since it will be deferred until the first decode after the reset.
+  base::MockCallback<base::Closure> reset_cb;
+  EXPECT_CALL(reset_cb, Run());
+  mcvd_->Reset(reset_cb.Get());
+  // The reset should complete before destroying the codec, since TearDown will
+  // complete the drain for VP8.  It still might not call reset since a drain
+  // for destroy probably doesn't, but either way we expect it before the drain.
+  testing::Mock::VerifyAndClearExpectations(&reset_cb);
 }
 
 TEST_P(MediaCodecVideoDecoderH264Test, ResetDoesNotDrainNonVp8Codecs) {

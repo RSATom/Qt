@@ -1,5 +1,5 @@
 //
-// Copyright (c) 2002-2012 The ANGLE Project Authors. All rights reserved.
+// Copyright 2002 The ANGLE Project Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 //
@@ -99,7 +99,7 @@ bool TVersionGLSL::visitDeclaration(Visit, TIntermDeclaration *node)
     return true;
 }
 
-bool TVersionGLSL::visitInvariantDeclaration(Visit, TIntermInvariantDeclaration *node)
+bool TVersionGLSL::visitGlobalQualifierDeclaration(Visit, TIntermGlobalQualifierDeclaration *node)
 {
     ensureVersionIsAtLeast(GLSL_VERSION_120);
     return true;

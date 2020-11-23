@@ -13,20 +13,13 @@
 # limitations under the License.
 
 import("../../gn/fuzzer.gni")
-import("../../gn/ipc_library.gni")
 import("../../gn/perfetto.gni")
 import("../../gn/proto_library.gni")
-
-# For use_libfuzzer.
-if (perfetto_build_standalone || perfetto_build_with_android) {
-  import("//gn/standalone/sanitizers/vars.gni")
-} else {
-  import("//build/config/sanitizers/sanitizers.gni")
-}
+import("../../gn/test.gni")
 
 # This build file should not be leaked into all embedders. Only select
 # projects should be depending on our IPC layer.
-assert(perfetto_build_with_ipc_layer)
+assert(enable_perfetto_ipc)
 
 source_set("ipc") {
   public_configs = [ "../../gn:default_config" ]
@@ -35,13 +28,15 @@ source_set("ipc") {
     "../base:unix_socket",
   ]
   deps = [
-    ":wire_protocol",
     "../../gn:default_deps",
+    "../../protos/perfetto/ipc:wire_protocol_cpp",
     "../base",
   ]
   sources = [
     "buffered_frame_deserializer.cc",
+    "buffered_frame_deserializer.h",
     "client_impl.cc",
+    "client_impl.h",
     "deferred.cc",
     "host_impl.cc",
     "host_impl.h",
@@ -56,19 +51,20 @@ perfetto_fuzzer_test("buffered_frame_deserializer_fuzzer") {
   ]
   deps = [
     ":ipc",
-    ":wire_protocol",
     "../../gn:default_deps",
+    "../../protos/perfetto/ipc:wire_protocol_cpp",
   ]
 }
 
-source_set("unittests") {
+perfetto_unittest_source_set("unittests") {
   testonly = true
   deps = [
     ":ipc",
-    ":test_messages",
-    ":wire_protocol",
+    ":test_messages_cpp",
+    ":test_messages_ipc",
     "../../gn:default_deps",
     "../../gn:gtest_and_gmock",
+    "../../protos/perfetto/ipc:wire_protocol_cpp",
     "../base",
     "../base:test_support",
   ]
@@ -81,21 +77,24 @@ source_set("unittests") {
   ]
 }
 
-proto_library("wire_protocol") {
-  generate_python = false
-  sources = [
-    "wire_protocol.proto",
+perfetto_proto_library("test_messages_@TYPE@") {
+  proto_generators = [
+    "ipc",
+    "zero",
+    "cpp",
   ]
-  proto_in_dir = perfetto_root_path
-  proto_out_dir = perfetto_root_path
-}
-
-ipc_library("test_messages") {
   sources = [
     "test/client_unittest_messages.proto",
     "test/deferred_unittest_messages.proto",
     "test/greeter_service.proto",
   ]
-  proto_in_dir = perfetto_root_path
-  proto_out_dir = perfetto_root_path
+}
+
+# This is used by Bazel BUILD rules.
+static_library("perfetto_ipc") {
+  complete_static_lib = true
+  deps = [
+    ":ipc",
+    "../../gn:default_deps",
+  ]
 }

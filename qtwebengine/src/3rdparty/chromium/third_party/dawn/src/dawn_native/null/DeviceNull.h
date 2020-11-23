@@ -15,6 +15,7 @@
 #ifndef DAWNNATIVE_NULL_DEVICENULL_H_
 #define DAWNNATIVE_NULL_DEVICENULL_H_
 
+#include "dawn_native/Adapter.h"
 #include "dawn_native/BindGroup.h"
 #include "dawn_native/BindGroupLayout.h"
 #include "dawn_native/Buffer.h"
@@ -25,7 +26,7 @@
 #include "dawn_native/PipelineLayout.h"
 #include "dawn_native/Queue.h"
 #include "dawn_native/RenderPipeline.h"
-#include "dawn_native/RingBuffer.h"
+#include "dawn_native/RingBufferAllocator.h"
 #include "dawn_native/Sampler.h"
 #include "dawn_native/ShaderModule.h"
 #include "dawn_native/StagingBuffer.h"
@@ -85,13 +86,13 @@ namespace dawn_native { namespace null {
         Device(Adapter* adapter, const DeviceDescriptor* descriptor);
         ~Device();
 
-        CommandBufferBase* CreateCommandBuffer(CommandEncoderBase* encoder,
+        CommandBufferBase* CreateCommandBuffer(CommandEncoder* encoder,
                                                const CommandBufferDescriptor* descriptor) override;
 
         Serial GetCompletedCommandSerial() const final override;
         Serial GetLastSubmittedCommandSerial() const final override;
         Serial GetPendingCommandSerial() const override;
-        void TickImpl() override;
+        MaybeError TickImpl() override;
 
         void AddPendingOperation(std::unique_ptr<PendingOperation> operation);
         void SubmitPendingOperations();
@@ -137,6 +138,18 @@ namespace dawn_native { namespace null {
         size_t mMemoryUsage = 0;
     };
 
+    class Adapter : public AdapterBase {
+      public:
+        Adapter(InstanceBase* instance);
+        virtual ~Adapter();
+
+        // Used for the tests that intend to use an adapter without all extensions enabled.
+        void SetSupportedExtensions(const std::vector<const char*>& requiredExtensions);
+
+      private:
+        ResultOrError<DeviceBase*> CreateDeviceImpl(const DeviceDescriptor* descriptor) override;
+    };
+
     class Buffer : public BufferBase {
       public:
         Buffer(Device* device, const BufferDescriptor* descriptor);
@@ -165,7 +178,7 @@ namespace dawn_native { namespace null {
 
     class CommandBuffer : public CommandBufferBase {
       public:
-        CommandBuffer(CommandEncoderBase* encoder, const CommandBufferDescriptor* descriptor);
+        CommandBuffer(CommandEncoder* encoder, const CommandBufferDescriptor* descriptor);
         ~CommandBuffer();
 
       private:
@@ -178,7 +191,7 @@ namespace dawn_native { namespace null {
         ~Queue();
 
       private:
-        void SubmitImpl(uint32_t commandCount, CommandBufferBase* const* commands) override;
+        MaybeError SubmitImpl(uint32_t commandCount, CommandBufferBase* const* commands) override;
     };
 
     class SwapChain : public SwapChainBase {
@@ -188,20 +201,20 @@ namespace dawn_native { namespace null {
 
       protected:
         TextureBase* GetNextTextureImpl(const TextureDescriptor* descriptor) override;
-        void OnBeforePresent(TextureBase*) override;
+        MaybeError OnBeforePresent(TextureBase*) override;
     };
 
     class NativeSwapChainImpl {
       public:
         using WSIContext = struct {};
         void Init(WSIContext* context);
-        DawnSwapChainError Configure(DawnTextureFormat format,
-                                     DawnTextureUsageBit,
+        DawnSwapChainError Configure(WGPUTextureFormat format,
+                                     WGPUTextureUsage,
                                      uint32_t width,
                                      uint32_t height);
         DawnSwapChainError GetNextTexture(DawnSwapChainNextTexture* nextTexture);
         DawnSwapChainError Present();
-        dawn::TextureFormat GetPreferredFormat() const;
+        wgpu::TextureFormat GetPreferredFormat() const;
     };
 
     class StagingBuffer : public StagingBufferBase {

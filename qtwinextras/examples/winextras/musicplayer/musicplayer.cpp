@@ -154,7 +154,7 @@ void MusicPlayer::showEvent(QShowEvent *event)
 
 static bool canHandleDrop(const QDropEvent *event)
 {
-    const QList<QUrl> urls = event->mimeData()->urls();
+    const auto urls = event->mimeData()->urls();
     if (urls.size() != 1)
         return false;
     QMimeDatabase mimeDatabase;

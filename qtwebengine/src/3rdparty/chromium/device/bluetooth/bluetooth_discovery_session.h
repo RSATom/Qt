@@ -35,6 +35,17 @@ class DEVICE_BLUETOOTH_EXPORT BluetoothDiscoverySession {
   // The ErrorCallback is used by methods to asynchronously report errors.
   typedef base::Closure ErrorCallback;
 
+  enum SessionStatus {
+    // Just added to the adapter.
+    PENDING_START,
+    // Request sent to OS.
+    STARTING,
+    // Actively scanning.
+    SCANNING,
+    // Finished scanning, should be deleted soon.
+    INACTIVE
+  };
+
   // Destructor automatically terminates the discovery session. If this
   // results in a call to the underlying system to stop device discovery
   // (i.e. this instance represents the last active discovery session),
@@ -62,12 +73,15 @@ class DEVICE_BLUETOOTH_EXPORT BluetoothDiscoverySession {
   virtual void Stop(const base::Closure& callback,
                     const ErrorCallback& error_callback);
 
-  virtual void SetDiscoveryFilter(
-      std::unique_ptr<BluetoothDiscoveryFilter> discovery_filter,
-      const base::Closure& callback,
-      const ErrorCallback& error_callback);
-
   virtual const BluetoothDiscoveryFilter* GetDiscoveryFilter() const;
+
+  SessionStatus status() const { return status_; }
+
+  // Updates the status from PENDING_START to STARTING.
+  void PendingSessionsStarting();
+
+  // Updates the status from STARTING to SCANNING.
+  void StartingSessionsScanning();
 
   base::WeakPtr<BluetoothDiscoverySession> GetWeakPtr();
 
@@ -102,8 +116,8 @@ class DEVICE_BLUETOOTH_EXPORT BluetoothDiscoverySession {
   // discovery state.
   void MarkAsInactive();
 
-  // Whether or not this instance represents an active discovery session.
-  bool active_;
+  // Indicates the state of this session.
+  SessionStatus status_;
 
   // Whether a Stop() operation is in progress for this session.
   bool is_stop_in_progress_;
@@ -116,7 +130,7 @@ class DEVICE_BLUETOOTH_EXPORT BluetoothDiscoverySession {
 
   // Note: This should remain the last member so it'll be destroyed and
   // invalidate its weak pointers before any other members are destroyed.
-  base::WeakPtrFactory<BluetoothDiscoverySession> weak_ptr_factory_;
+  base::WeakPtrFactory<BluetoothDiscoverySession> weak_ptr_factory_{this};
 
   DISALLOW_COPY_AND_ASSIGN(BluetoothDiscoverySession);
 };

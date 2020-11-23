@@ -7,7 +7,7 @@
 #include "build/build_config.h"
 #include "services/metrics/public/cpp/ukm_builders.h"
 #include "services/metrics/public/cpp/ukm_recorder.h"
-#include "third_party/blink/public/mojom/frame/document_interface_broker.mojom-blink.h"
+#include "third_party/blink/public/common/browser_interface_broker_proxy.h"
 #include "third_party/blink/public/platform/web_audio_latency_hint.h"
 #include "third_party/blink/renderer/bindings/core/v8/script_promise_resolver.h"
 #include "third_party/blink/renderer/core/dom/dom_exception.h"
@@ -54,6 +54,13 @@ AudioContext* AudioContext::Create(Document& document,
                                    const AudioContextOptions* context_options,
                                    ExceptionState& exception_state) {
   DCHECK(IsMainThread());
+
+  if (document.IsDetached()) {
+    exception_state.ThrowDOMException(
+        DOMExceptionCode::kNotSupportedError,
+        "Cannot create AudioContext on a detached document.");
+    return nullptr;
+  }
 
   document.CountUseOnlyInCrossOriginIframe(
       WebFeature::kAudioContextCrossOriginIframe);
@@ -125,7 +132,8 @@ AudioContext::AudioContext(Document& document,
                            const WebAudioLatencyHint& latency_hint,
                            base::Optional<float> sample_rate)
     : BaseAudioContext(&document, kRealtimeContext),
-      context_id_(g_context_id++) {
+      context_id_(g_context_id++),
+      keep_alive_(PERSISTENT_FROM_HERE, this) {
   destination_node_ =
       RealtimeAudioDestinationNode::Create(this, latency_hint, sample_rate);
 
@@ -148,13 +156,28 @@ AudioContext::AudioContext(Document& document,
   }
 
   Initialize();
+
+  // Compute the base latency now and cache the value since it doesn't change
+  // once the context is constructed.  We need the destination to be initialized
+  // so we have to compute it here.
+  //
+  // TODO(hongchan): Due to the incompatible constructor between
+  // AudioDestinationNode and RealtimeAudioDestinationNode, casting directly
+  // from |destination()| is impossible. This is a temporary workaround until
+  // the refactoring is completed.
+  RealtimeAudioDestinationHandler& destination_handler =
+      static_cast<RealtimeAudioDestinationHandler&>(
+          destination()->GetAudioDestinationHandler());
+  base_latency_ = destination_handler.GetFramesPerBuffer() /
+                  static_cast<double>(sampleRate());
+
 }
 
 void AudioContext::Uninitialize() {
   DCHECK(IsMainThread());
   DCHECK_NE(g_hardware_context_count, 0u);
   --g_hardware_context_count;
-
+  StopRendering();
   DidClose();
   RecordAutoplayMetrics();
   BaseAudioContext::Uninitialize();
@@ -193,7 +216,7 @@ ScriptPromise AudioContext::suspendContext(ScriptState* script_state) {
 
     // Stop rendering now.
     if (destination())
-      StopRendering();
+      SuspendRendering();
 
     // Since we don't have any way of knowing when the hardware actually stops,
     // we'll just resolve the promise now.
@@ -337,14 +360,36 @@ bool AudioContext::IsContextClosed() const {
   return close_resolver_ || BaseAudioContext::IsContextClosed();
 }
 
+void AudioContext::StartRendering() {
+  DCHECK(IsMainThread());
+
+  if (!keep_alive_)
+    keep_alive_ = this;
+  BaseAudioContext::StartRendering();
+}
+
 void AudioContext::StopRendering() {
+  DCHECK(IsMainThread());
+  DCHECK(destination());
+
+  // It is okay to perform the following on a suspended AudioContext because
+  // this method gets called from ExecutionContext::ContextDestroyed() meaning
+  // the AudioContext is already unreachable from the user code.
+  if (ContextState() != kClosed) {
+    destination()->GetAudioDestinationHandler().StopRendering();
+    SetContextState(kClosed);
+    GetDeferredTaskHandler().ClearHandlersToBeDeleted();
+    keep_alive_.Clear();
+  }
+}
+
+void AudioContext::SuspendRendering() {
   DCHECK(IsMainThread());
   DCHECK(destination());
 
   if (ContextState() == kRunning) {
     destination()->GetAudioDestinationHandler().StopRendering();
     SetContextState(kSuspended);
-    GetDeferredTaskHandler().ClearHandlersToBeDeleted();
   }
 }
 
@@ -352,15 +397,7 @@ double AudioContext::baseLatency() const {
   DCHECK(IsMainThread());
   DCHECK(destination());
 
-  // TODO(hongchan): Due to the incompatible constructor between
-  // AudioDestinationNode and RealtimeAudioDestinationNode, casting directly
-  // from |destination()| is impossible. This is a temporary workaround until
-  // the refactoring is completed.
-  RealtimeAudioDestinationHandler& destination_handler =
-      static_cast<RealtimeAudioDestinationHandler&>(
-          destination()->GetAudioDestinationHandler());
-  return destination_handler.GetFramesPerBuffer() /
-         static_cast<double>(sampleRate());
+  return base_latency_;
 }
 
 MediaElementAudioSourceNode* AudioContext::createMediaElementSource(
@@ -469,8 +506,8 @@ bool AudioContext::IsAllowedToStart() const {
       NOTREACHED();
       break;
     case AutoplayPolicy::Type::kUserGestureRequired:
-      DCHECK(document->GetFrame() &&
-             document->GetFrame()->IsCrossOriginSubframe());
+      DCHECK(document->GetFrame());
+      DCHECK(document->GetFrame()->IsCrossOriginSubframe());
       document->AddConsoleMessage(ConsoleMessage::Create(
           mojom::ConsoleMessageSource::kOther,
           mojom::ConsoleMessageLevel::kWarning,
@@ -538,9 +575,11 @@ void AudioContext::ContextDestroyed(ExecutionContext*) {
 }
 
 bool AudioContext::HasPendingActivity() const {
-  // There's activity only if the context is running.  Suspended contexts are
-  // basically idle with nothing going on.
-  return (ContextState() == kRunning) && BaseAudioContext::HasPendingActivity();
+  // There's activity if the context is is not closed.  Suspended contexts count
+  // as having activity even though they are basically idle with nothing going
+  // on.  However, the can be resumed at any time, so we don't want contexts
+  // going away prematurely.
+  return (ContextState() != kClosed) && BaseAudioContext::HasPendingActivity();
 }
 
 bool AudioContext::HandlePreRenderTasks(const AudioIOPosition* output_position,
@@ -676,11 +715,10 @@ void AudioContext::EnsureAudioContextManagerService() {
   if (audio_context_manager_ || !GetDocument())
     return;
 
-  GetDocument()
-      ->GetFrame()
-      ->GetDocumentInterfaceBroker()
-      .GetAudioContextManager(
-          audio_context_manager_.BindNewPipeAndPassReceiver());
+  GetDocument()->GetFrame()->GetBrowserInterfaceBroker().GetInterface(
+      mojo::GenericPendingReceiver(
+          audio_context_manager_.BindNewPipeAndPassReceiver()));
+
   audio_context_manager_.set_disconnect_handler(
       WTF::Bind(&AudioContext::OnAudioContextManagerServiceConnectionError,
                 WrapWeakPersistent(this)));

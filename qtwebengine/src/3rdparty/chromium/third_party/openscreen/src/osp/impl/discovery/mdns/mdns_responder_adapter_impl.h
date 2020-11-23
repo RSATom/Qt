@@ -15,7 +15,7 @@
 #include "third_party/mDNSResponder/src/mDNSCore/mDNSEmbeddedAPI.h"
 
 namespace openscreen {
-namespace mdns {
+namespace osp {
 
 class MdnsResponderAdapterImpl final : public MdnsResponderAdapter {
  public:
@@ -34,12 +34,12 @@ class MdnsResponderAdapterImpl final : public MdnsResponderAdapter {
                           platform::UdpSocket* socket) override;
   Error DeregisterInterface(platform::UdpSocket* socket) override;
 
-  void OnDataReceived(const IPEndpoint& source,
-                      const IPEndpoint& original_destination,
-                      const uint8_t* data,
-                      size_t length,
-                      platform::UdpSocket* receiving_socket) override;
-  int RunTasks() override;
+  void OnRead(platform::UdpSocket* socket,
+              ErrorOr<platform::UdpPacket> packet) override;
+  void OnSendError(platform::UdpSocket* socket, Error error) override;
+  void OnError(platform::UdpSocket* socket, Error error) override;
+
+  platform::Clock::duration RunTasks() override;
 
   std::vector<PtrEvent> TakePtrResponses() override;
   std::vector<SrvEvent> TakeSrvResponses() override;
@@ -153,7 +153,7 @@ class MdnsResponderAdapterImpl final : public MdnsResponderAdapter {
   std::vector<std::unique_ptr<ServiceRecordSet>> service_records_;
 };
 
-}  // namespace mdns
+}  // namespace osp
 }  // namespace openscreen
 
 #endif  // OSP_IMPL_DISCOVERY_MDNS_MDNS_RESPONDER_ADAPTER_IMPL_H_

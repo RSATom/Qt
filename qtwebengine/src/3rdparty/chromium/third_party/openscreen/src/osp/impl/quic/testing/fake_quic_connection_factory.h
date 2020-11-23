@@ -7,25 +7,27 @@
 
 #include <vector>
 
+#include "gmock/gmock.h"
 #include "osp/impl/quic/quic_connection_factory.h"
 #include "osp/impl/quic/testing/fake_quic_connection.h"
 #include "osp/public/message_demuxer.h"
 
 namespace openscreen {
+namespace osp {
 
 class FakeQuicConnectionFactoryBridge {
  public:
-  explicit FakeQuicConnectionFactoryBridge(
-      const IPEndpoint& controller_endpoint);
+  FakeQuicConnectionFactoryBridge(const IPEndpoint& controller_endpoint);
 
-  bool idle() const { return idle_; }
+  bool server_idle() const { return server_idle_; }
+  bool client_idle() const { return client_idle_; }
 
   void OnConnectionClosed(QuicConnection* connection);
   void OnOutgoingStream(QuicConnection* connection, QuicStream* stream);
 
   void SetServerDelegate(QuicConnectionFactory::ServerDelegate* delegate,
                          const IPEndpoint& endpoint);
-  void RunTasks();
+  void RunTasks(bool is_client);
   std::unique_ptr<QuicConnection> Connect(
       const IPEndpoint& endpoint,
       QuicConnection::Delegate* connection_delegate);
@@ -38,7 +40,8 @@ class FakeQuicConnectionFactoryBridge {
 
   const IPEndpoint controller_endpoint_;
   IPEndpoint receiver_endpoint_;
-  bool idle_ = true;
+  bool client_idle_ = true;
+  bool server_idle_ = true;
   uint64_t next_connection_id_ = 0;
   bool connections_pending_ = true;
   ConnectionPair connections_ = {};
@@ -51,16 +54,26 @@ class FakeClientQuicConnectionFactory final : public QuicConnectionFactory {
       FakeQuicConnectionFactoryBridge* bridge);
   ~FakeClientQuicConnectionFactory() override;
 
+  // UdpSocket::Client overrides.
+  void OnError(platform::UdpSocket* socket, Error error) override;
+  void OnSendError(platform::UdpSocket* socket, Error error) override;
+  void OnRead(platform::UdpSocket* socket,
+              ErrorOr<platform::UdpPacket> packet) override;
+
   // QuicConnectionFactory overrides.
   void SetServerDelegate(ServerDelegate* delegate,
                          const std::vector<IPEndpoint>& endpoints) override;
-  void RunTasks() override;
   std::unique_ptr<QuicConnection> Connect(
       const IPEndpoint& endpoint,
       QuicConnection::Delegate* connection_delegate) override;
 
+  bool idle() const { return idle_; }
+
+  std::unique_ptr<platform::UdpSocket> socket_;
+
  private:
   FakeQuicConnectionFactoryBridge* bridge_;
+  bool idle_ = true;
 };
 
 class FakeServerQuicConnectionFactory final : public QuicConnectionFactory {
@@ -69,18 +82,27 @@ class FakeServerQuicConnectionFactory final : public QuicConnectionFactory {
       FakeQuicConnectionFactoryBridge* bridge);
   ~FakeServerQuicConnectionFactory() override;
 
+  // UdpSocket::Client overrides.
+  void OnError(platform::UdpSocket* socket, Error error) override;
+  void OnSendError(platform::UdpSocket* socket, Error error) override;
+  void OnRead(platform::UdpSocket* socket,
+              ErrorOr<platform::UdpPacket> packet) override;
+
   // QuicConnectionFactory overrides.
   void SetServerDelegate(ServerDelegate* delegate,
                          const std::vector<IPEndpoint>& endpoints) override;
-  void RunTasks() override;
   std::unique_ptr<QuicConnection> Connect(
       const IPEndpoint& endpoint,
       QuicConnection::Delegate* connection_delegate) override;
 
+  bool idle() const { return idle_; }
+
  private:
   FakeQuicConnectionFactoryBridge* bridge_;
+  bool idle_ = true;
 };
 
+}  // namespace osp
 }  // namespace openscreen
 
 #endif  // OSP_IMPL_QUIC_TESTING_FAKE_QUIC_CONNECTION_FACTORY_H_

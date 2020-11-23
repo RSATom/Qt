@@ -41,9 +41,9 @@
 #include <Qt3DRender/private/buffer_p.h>
 #include <Qt3DRender/private/qbuffer_p.h>
 #include <Qt3DRender/private/buffermanager_p.h>
-#include <Qt3DRender/private/renderer_p.h>
 #include <Qt3DRender/private/job_common_p.h>
 #include <Qt3DCore/private/qaspectmanager_p.h>
+#include <Qt3DRender/private/renderlogging_p.h>
 
 QT_BEGIN_NAMESPACE
 
@@ -77,7 +77,7 @@ LoadBufferJob::~LoadBufferJob()
 
 void LoadBufferJob::run()
 {
-    Q_DJOB(LoadBufferJob);
+    Q_D(LoadBufferJob);
     // Let's leave it for the moment until this has been properly tested
     qCDebug(Jobs) << Q_FUNC_INFO;
     Buffer *buffer = m_nodeManagers->data<Buffer, BufferManager>(m_handle);

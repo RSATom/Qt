@@ -32,7 +32,7 @@ struct alignas(16) SampledImageDescriptor
 {
 	~SampledImageDescriptor() = delete;
 
-	void updateSampler(const vk::Sampler *sampler);
+	void updateSampler(VkSampler sampler);
 
 	// TODO(b/129523279): Minimize to the data actually needed.
 	vk::Sampler sampler;
@@ -90,7 +90,7 @@ public:
 	static void CopyDescriptorSet(const VkCopyDescriptorSet& descriptorCopies);
 
 	static void WriteDescriptorSet(Device* device, DescriptorSet *dstSet, VkDescriptorUpdateTemplateEntry const &entry, char const *src);
-	static void WriteTextureLevelInfo(sw::Texture *texture, int level, int width, int height, int depth, int pitchP, int sliceP);
+	static void WriteTextureLevelInfo(sw::Texture *texture, int level, int width, int height, int depth, int pitchP, int sliceP, int samplePitchP, int sampleMax);
 
 	void initialize(DescriptorSet* descriptorSet);
 

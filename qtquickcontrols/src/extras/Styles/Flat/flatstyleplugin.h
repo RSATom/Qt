@@ -53,7 +53,7 @@ class QtQuickExtrasStylesPlugin : public QQmlExtensionPlugin
 public:
     explicit QtQuickExtrasStylesPlugin(QObject *parent = 0);
 
-    void registerTypes(const char *uri);
+    void registerTypes(const char *uri) override;
 };
 
 QT_END_NAMESPACE

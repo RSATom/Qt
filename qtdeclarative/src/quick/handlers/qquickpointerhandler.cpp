@@ -51,7 +51,6 @@ Q_LOGGING_CATEGORY(lcPointerHandlerActive, "qt.quick.handler.active")
     \qmltype PointerHandler
     \qmlabstract
     \since 5.10
-    \preliminary
     \instantiates QQuickPointerHandler
     \inqmlmodule QtQuick
     \brief Abstract handler for pointer events.
@@ -111,6 +110,128 @@ void QQuickPointerHandler::setMargin(qreal pointDistanceThreshold)
     d->m_margin = pointDistanceThreshold;
     emit marginChanged();
 }
+
+/*!
+    \qmlproperty int PointerHandler::dragThreshold
+    \since 5.15
+
+    The distance in pixels that the user must drag an event point in order to
+    have it treated as a drag gesture.
+
+    The default value depends on the platform and screen resolution.
+    It can be reset back to the default value by setting it to undefined.
+    The behavior when a drag gesture begins varies in different handlers.
+*/
+int QQuickPointerHandler::dragThreshold() const
+{
+    Q_D(const QQuickPointerHandler);
+    if (d->dragThreshold < 0)
+        return qApp->styleHints()->startDragDistance();
+    return d->dragThreshold;
+}
+
+void QQuickPointerHandler::setDragThreshold(int t)
+{
+    Q_D(QQuickPointerHandler);
+    if (d->dragThreshold == t)
+        return;
+
+    if (t > std::numeric_limits<qint16>::max())
+        qWarning() << "drag threshold cannot exceed" << std::numeric_limits<qint16>::max();
+    d->dragThreshold = qint16(t);
+    emit dragThresholdChanged();
+}
+
+void QQuickPointerHandler::resetDragThreshold()
+{
+    Q_D(QQuickPointerHandler);
+    if (d->dragThreshold < 0)
+        return;
+
+    d->dragThreshold = -1;
+    emit dragThresholdChanged();
+}
+
+/*!
+    \since 5.15
+    \qmlproperty Qt::CursorShape PointerHandler::cursorShape
+    This property holds the cursor shape that will appear whenever the mouse is
+    hovering over the \l parentItem while \l active is \c true.
+
+    The available cursor shapes are:
+    \list
+    \li Qt.ArrowCursor
+    \li Qt.UpArrowCursor
+    \li Qt.CrossCursor
+    \li Qt.WaitCursor
+    \li Qt.IBeamCursor
+    \li Qt.SizeVerCursor
+    \li Qt.SizeHorCursor
+    \li Qt.SizeBDiagCursor
+    \li Qt.SizeFDiagCursor
+    \li Qt.SizeAllCursor
+    \li Qt.BlankCursor
+    \li Qt.SplitVCursor
+    \li Qt.SplitHCursor
+    \li Qt.PointingHandCursor
+    \li Qt.ForbiddenCursor
+    \li Qt.WhatsThisCursor
+    \li Qt.BusyCursor
+    \li Qt.OpenHandCursor
+    \li Qt.ClosedHandCursor
+    \li Qt.DragCopyCursor
+    \li Qt.DragMoveCursor
+    \li Qt.DragLinkCursor
+    \endlist
+
+    The default value is not set, which allows the \l {QQuickItem::cursor()}{cursor}
+    of \l parentItem to appear. This property can be reset to the same initial
+    condition by setting it to undefined.
+
+    \note When this property has not been set, or has been set to \c undefined,
+    if you read the value it will return \c Qt.ArrowCursor.
+
+    \sa Qt::CursorShape, QQuickItem::cursor(), HoverHandler::cursorShape
+*/
+#if QT_CONFIG(cursor)
+Qt::CursorShape QQuickPointerHandler::cursorShape() const
+{
+    Q_D(const QQuickPointerHandler);
+    return d->cursorShape;
+}
+
+void QQuickPointerHandler::setCursorShape(Qt::CursorShape shape)
+{
+    Q_D(QQuickPointerHandler);
+    if (d->cursorSet && shape == d->cursorShape)
+        return;
+    d->cursorShape = shape;
+    d->cursorSet = true;
+    QQuickItemPrivate *itemPriv = QQuickItemPrivate::get(parentItem());
+    itemPriv->hasCursorHandler = true;
+    itemPriv->setHasCursorInChild(true);
+    emit cursorShapeChanged();
+}
+
+void QQuickPointerHandler::resetCursorShape()
+{
+    Q_D(QQuickPointerHandler);
+    if (!d->cursorSet)
+        return;
+    d->cursorShape = Qt::ArrowCursor;
+    d->cursorSet = false;
+    QQuickItemPrivate *itemPriv = QQuickItemPrivate::get(parentItem());
+    itemPriv->hasCursorHandler = false;
+    itemPriv->setHasCursorInChild(itemPriv->hasCursor);
+    emit cursorShapeChanged();
+}
+
+bool QQuickPointerHandler::isCursorShapeExplicitlySet() const
+{
+    Q_D(const QQuickPointerHandler);
+    return d->cursorSet;
+}
+#endif
 
 /*!
     Notification that the grab has changed in some way which is relevant to this handler.
@@ -266,7 +387,7 @@ bool QQuickPointerHandler::approveGrabTransition(QQuickEventPoint *point, QObjec
                 allowed = true;
         }
     }
-    qCDebug(lcPointerHandlerGrab) << "point" << hex << point->pointId() << "permission" <<
+    qCDebug(lcPointerHandlerGrab) << "point" << Qt::hex << point->pointId() << "permission" <<
             QMetaEnum::fromType<GrabPermissions>().valueToKeys(grabPermissions()) <<
             ':' << this << (allowed ? "approved to" : "denied to") << proposedGrabber;
     return allowed;
@@ -490,7 +611,7 @@ bool QQuickPointerHandler::wantsPointerEvent(QQuickPointerEvent *event)
 bool QQuickPointerHandler::wantsEventPoint(QQuickEventPoint *point)
 {
     bool ret = point->exclusiveGrabber() == this || point->passiveGrabbers().contains(this) || parentContains(point);
-    qCDebug(lcPointerHandlerDispatch) << hex << point->pointId() << "@" << point->scenePosition()
+    qCDebug(lcPointerHandlerDispatch) << Qt::hex << point->pointId() << "@" << point->scenePosition()
                                       << metaObject()->className() << objectName() << ret;
     return ret;
 }
@@ -556,12 +677,42 @@ QQuickPointerHandlerPrivate::QQuickPointerHandlerPrivate()
   : grabPermissions(QQuickPointerHandler::CanTakeOverFromItems |
                       QQuickPointerHandler::CanTakeOverFromHandlersOfDifferentType |
                       QQuickPointerHandler::ApprovesTakeOverByAnything)
+  , cursorShape(Qt::ArrowCursor)
   , enabled(true)
   , active(false)
   , targetExplicitlySet(false)
   , hadKeepMouseGrab(false)
   , hadKeepTouchGrab(false)
+  , cursorSet(false)
 {
+}
+
+template <typename TEventPoint>
+bool QQuickPointerHandlerPrivate::dragOverThreshold(qreal d, Qt::Axis axis, const TEventPoint *p) const
+{
+    Q_Q(const QQuickPointerHandler);
+    QStyleHints *styleHints = qApp->styleHints();
+    bool overThreshold = qAbs(d) > q->dragThreshold();
+    const bool dragVelocityLimitAvailable = (styleHints->startDragVelocity() > 0);
+    if (!overThreshold && dragVelocityLimitAvailable) {
+        qreal velocity = qreal(axis == Qt::XAxis ? p->velocity().x() : p->velocity().y());
+        overThreshold |= qAbs(velocity) > styleHints->startDragVelocity();
+    }
+    return overThreshold;
+}
+
+bool QQuickPointerHandlerPrivate::dragOverThreshold(QVector2D delta) const
+{
+    Q_Q(const QQuickPointerHandler);
+    const float threshold = q->dragThreshold();
+    return qAbs(delta.x()) > threshold || qAbs(delta.y()) > threshold;
+}
+
+bool QQuickPointerHandlerPrivate::dragOverThreshold(const QQuickEventPoint *point) const
+{
+    QPointF delta = point->scenePosition() - point->scenePressPosition();
+    return (dragOverThreshold(delta.x(), Qt::XAxis, point) ||
+            dragOverThreshold(delta.y(), Qt::YAxis, point));
 }
 
 QT_END_NAMESPACE

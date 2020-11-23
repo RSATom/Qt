@@ -59,12 +59,6 @@ int main(int argc, char *argv[])
 //![0]
     QGuiApplication app(argc, argv);
 
-    qmlRegisterType<PieChart>("Charts", 1, 0, "PieChart");
-
-//![1]
-    qmlRegisterType<PieSlice>("Charts", 1, 0, "PieSlice");
-//![1]
-
     QQuickView view;
     view.setResizeMode(QQuickView::SizeRootObjectToView);
     view.setSource(QUrl("qrc:///app.qml"));

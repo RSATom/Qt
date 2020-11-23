@@ -127,7 +127,7 @@ Base.GaugeStyle {
                 // We don't want that, as we want the label's y pos to be at zero when it's not anchored.
                 // Using a binding here whose when property is true when control.orientation === Qt.Horizontal
                 // doesn't work.
-                onOrientationChanged: textLabel.y = 0
+                function onOrientationChanged() { textLabel.y = 0 }
             }
             anchors.baseline: control.orientation === Qt.Vertical ? parent.verticalCenter : undefined
         }

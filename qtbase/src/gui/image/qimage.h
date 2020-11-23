@@ -266,7 +266,10 @@ public:
 
     bool hasAlphaChannel() const;
     void setAlphaChannel(const QImage &alphaChannel);
+#if QT_DEPRECATED_SINCE(5, 15)
+    QT_DEPRECATED_X("Use convertToFormat(QImage::Format_Alpha8)")
     QImage alphaChannel() const;
+#endif
     QImage createAlphaMask(Qt::ImageConversionFlags flags = Qt::AutoColor) const;
 #ifndef QT_NO_IMAGE_HEURISTIC_MASK
     QImage createHeuristicMask(bool clipTight = true) const;
@@ -280,8 +283,12 @@ public:
                  Qt::TransformationMode mode = Qt::FastTransformation) const;
     QImage scaledToWidth(int w, Qt::TransformationMode mode = Qt::FastTransformation) const;
     QImage scaledToHeight(int h, Qt::TransformationMode mode = Qt::FastTransformation) const;
+#if QT_DEPRECATED_SINCE(5, 15)
+    QT_DEPRECATED_X("Use transformed(const QTransform &matrix, Qt::TransformationMode mode)")
     QImage transformed(const QMatrix &matrix, Qt::TransformationMode mode = Qt::FastTransformation) const;
+    QT_DEPRECATED_X("trueMatrix(const QTransform &, int w, int h)")
     static QMatrix trueMatrix(const QMatrix &, int w, int h);
+#endif // QT_DEPRECATED_SINCE(5, 15)
     QImage transformed(const QTransform &matrix, Qt::TransformationMode mode = Qt::FastTransformation) const;
     static QTransform trueMatrix(const QTransform &, int w, int h);
 #if defined(Q_COMPILER_REF_QUALIFIERS) && !defined(QT_COMPILING_QIMAGE_COMPAT_CPP)
@@ -378,6 +385,7 @@ private:
     friend class QRasterPlatformPixmap;
     friend class QBlittablePlatformPixmap;
     friend class QPixmapCacheEntry;
+    friend struct QImageData;
 
 public:
     typedef QImageData * DataPtr;

@@ -1,5 +1,6 @@
 #=============================================================================
 # Copyright 2005-2011 Kitware, Inc.
+# Copyright (C) 2020 The Qt Company Ltd.
 # All rights reserved.
 #
 # Redistribution and use in source and binary forms, with or without
@@ -38,8 +39,17 @@
 
 include(CMakeParseArguments)
 
+function(_qt5_warn_deprecated command_name)
+    if(NOT DEFINED _QT5_INTERNAL_SCOPE)
+        message(AUTHOR_WARNING
+            "${command_name} is not part of the official API, and might be removed in Qt 6.")
+    endif()
+endfunction()
+
 # macro used to create the names of output files preserving relative dirs
-macro(QT5_MAKE_OUTPUT_FILE infile prefix ext outfile )
+macro(qt5_make_output_file infile prefix ext outfile )
+    _qt5_warn_deprecated("qt5_make_output_file")
+
     string(LENGTH ${CMAKE_CURRENT_BINARY_DIR} _binlength)
     string(LENGTH ${infile} _infileLength)
     set(_checkinfile ${CMAKE_CURRENT_SOURCE_DIR})
@@ -53,7 +63,7 @@ macro(QT5_MAKE_OUTPUT_FILE infile prefix ext outfile )
     else()
         file(RELATIVE_PATH rel ${CMAKE_CURRENT_SOURCE_DIR} ${infile})
     endif()
-    if(WIN32 AND rel MATCHES "^([a-zA-Z]):(.*)$") # absolute path
+    if(CMAKE_HOST_WIN32 AND rel MATCHES "^([a-zA-Z]):(.*)$") # absolute path
         set(rel "${CMAKE_MATCH_1}_${CMAKE_MATCH_2}")
     endif()
     set(_outfile "${CMAKE_CURRENT_BINARY_DIR}/${rel}")
@@ -72,7 +82,9 @@ macro(QT5_MAKE_OUTPUT_FILE infile prefix ext outfile )
 endmacro()
 
 
-macro(QT5_GET_MOC_FLAGS _moc_flags)
+macro(qt5_get_moc_flags _moc_flags)
+    _qt5_warn_deprecated("qt5_get_moc_flags")
+
     set(${_moc_flags})
     get_directory_property(_inc_DIRS INCLUDE_DIRECTORIES)
 
@@ -104,7 +116,9 @@ endmacro()
 
 
 # helper macro to set up a moc rule
-function(QT5_CREATE_MOC_COMMAND infile outfile moc_flags moc_options moc_target moc_depends)
+function(qt5_create_moc_command infile outfile moc_flags moc_options moc_target moc_depends)
+    _qt5_warn_deprecated("qt5_create_moc_command")
+
     # Pass the parameters in a file.  Set the working directory to
     # be that containing the parameters file and reference it by
     # just the file name.  This is necessary because the moc tool on
@@ -150,7 +164,9 @@ function(QT5_CREATE_MOC_COMMAND infile outfile moc_flags moc_options moc_target 
 endfunction()
 
 
-function(QT5_GENERATE_MOC infile outfile )
+function(qt5_generate_moc infile outfile )
+    set(_QT5_INTERNAL_SCOPE ON)
+
     # get include dirs and flags
     qt5_get_moc_flags(moc_flags)
     get_filename_component(abs_infile ${infile} ABSOLUTE)
@@ -164,10 +180,22 @@ function(QT5_GENERATE_MOC infile outfile )
     qt5_create_moc_command(${abs_infile} ${_outfile} "${moc_flags}" "" "${moc_target}" "")
 endfunction()
 
+if(NOT QT_NO_CREATE_VERSIONLESS_FUNCTIONS)
+    function(qt_generate_moc)
+        if(QT_DEFAULT_MAJOR_VERSION EQUAL 5)
+            qt5_generate_moc(${ARGV})
+        elseif(QT_DEFAULT_MAJOR_VERSION EQUAL 6)
+            qt6_generate_moc(${ARGV})
+        endif()
+    endfunction()
+endif()
+
 
 # qt5_wrap_cpp(outfiles inputfile ... )
 
-function(QT5_WRAP_CPP outfiles )
+function(qt5_wrap_cpp outfiles)
+    set(_QT5_INTERNAL_SCOPE ON)
+
     # get include dirs
     qt5_get_moc_flags(moc_flags)
 
@@ -191,12 +219,23 @@ function(QT5_WRAP_CPP outfiles )
     set(${outfiles} ${${outfiles}} PARENT_SCOPE)
 endfunction()
 
+# This will override the CMake upstream command, because that one is for Qt 3.
+if(NOT QT_NO_CREATE_VERSIONLESS_FUNCTIONS)
+    function(qt_wrap_cpp outfiles)
+        if(QT_DEFAULT_MAJOR_VERSION EQUAL 5)
+            qt5_wrap_cpp("${outfiles}" ${ARGN})
+        elseif(QT_DEFAULT_MAJOR_VERSION EQUAL 6)
+            qt6_wrap_cpp("${outfiles}" ${ARGN})
+        endif()
+        set("${outfiles}" "${${outfiles}}" PARENT_SCOPE)
+    endfunction()
+endif()
 
 
 # _qt5_parse_qrc_file(infile _out_depends _rc_depends)
 # internal
 
-function(_QT5_PARSE_QRC_FILE infile _out_depends _rc_depends)
+function(_qt5_parse_qrc_file infile _out_depends _rc_depends)
     get_filename_component(rc_path ${infile} PATH)
 
     if(EXISTS "${infile}")
@@ -229,7 +268,8 @@ endfunction()
 
 # qt5_add_binary_resources(target inputfiles ... )
 
-function(QT5_ADD_BINARY_RESOURCES target )
+function(qt5_add_binary_resources target)
+    set(_QT5_INTERNAL_SCOPE ON)
 
     set(options)
     set(oneValueArgs DESTINATION)
@@ -248,7 +288,7 @@ function(QT5_ADD_BINARY_RESOURCES target )
     foreach(it ${rcc_files})
         get_filename_component(infile ${it} ABSOLUTE)
 
-        _QT5_PARSE_QRC_FILE(${infile} _out_depends _rc_depends)
+        _qt5_parse_qrc_file(${infile} _out_depends _rc_depends)
         set_source_files_properties(${infile} PROPERTIES SKIP_AUTORCC ON)
         set(infiles ${infiles} ${infile})
         set(out_depends ${out_depends} ${_out_depends})
@@ -262,10 +302,21 @@ function(QT5_ADD_BINARY_RESOURCES target )
     add_custom_target(${target} ALL DEPENDS ${rcc_destination})
 endfunction()
 
+if(NOT QT_NO_CREATE_VERSIONLESS_FUNCTIONS)
+    function(qt_add_binary_resources)
+        if(QT_DEFAULT_MAJOR_VERSION EQUAL 5)
+            qt5_add_binary_resources(${ARGV})
+        elseif(QT_DEFAULT_MAJOR_VERSION EQUAL 6)
+            qt6_add_binary_resources(${ARGV})
+        endif()
+    endfunction()
+endif()
+
 
 # qt5_add_resources(outfiles inputfile ... )
 
-function(QT5_ADD_RESOURCES outfiles )
+function(qt5_add_resources outfiles)
+    set(_QT5_INTERNAL_SCOPE ON)
 
     set(options)
     set(oneValueArgs)
@@ -285,7 +336,7 @@ function(QT5_ADD_RESOURCES outfiles )
         get_filename_component(infile ${it} ABSOLUTE)
         set(outfile ${CMAKE_CURRENT_BINARY_DIR}/qrc_${outfilename}.cpp)
 
-        _QT5_PARSE_QRC_FILE(${infile} _out_depends _rc_depends)
+        _qt5_parse_qrc_file(${infile} _out_depends _rc_depends)
         set_source_files_properties(${infile} PROPERTIES SKIP_AUTORCC ON)
 
         add_custom_command(OUTPUT ${outfile}
@@ -300,9 +351,23 @@ function(QT5_ADD_RESOURCES outfiles )
     set(${outfiles} ${${outfiles}} PARENT_SCOPE)
 endfunction()
 
+if(NOT QT_NO_CREATE_VERSIONLESS_FUNCTIONS)
+    function(qt_add_resources outfiles)
+        if(QT_DEFAULT_MAJOR_VERSION EQUAL 5)
+            qt5_add_resources("${outfiles}" ${ARGN})
+        elseif(QT_DEFAULT_MAJOR_VERSION EQUAL 6)
+            qt6_add_resources("${outfiles}" ${ARGN})
+        endif()
+        set("${outfiles}" "${${outfiles}}" PARENT_SCOPE)
+    endfunction()
+endif()
+
+
 # qt5_add_big_resources(outfiles inputfile ... )
 
-function(QT5_ADD_BIG_RESOURCES outfiles )
+function(qt5_add_big_resources outfiles)
+    set(_QT5_INTERNAL_SCOPE ON)
+
     if (CMAKE_VERSION VERSION_LESS 3.9)
         message(FATAL_ERROR, "qt5_add_big_resources requires CMake 3.9 or newer")
     endif()
@@ -326,7 +391,7 @@ function(QT5_ADD_BIG_RESOURCES outfiles )
         set(tmpoutfile ${CMAKE_CURRENT_BINARY_DIR}/qrc_${outfilename}tmp.cpp)
         set(outfile ${CMAKE_CURRENT_BINARY_DIR}/qrc_${outfilename}.o)
 
-        _QT5_PARSE_QRC_FILE(${infile} _out_depends _rc_depends)
+        _qt5_parse_qrc_file(${infile} _out_depends _rc_depends)
         set_source_files_properties(${infile} PROPERTIES SKIP_AUTORCC ON)
         add_custom_command(OUTPUT ${tmpoutfile}
                            COMMAND ${Qt5Core_RCC_EXECUTABLE} ${rcc_options} --name ${outfilename} --pass 1 --output ${tmpoutfile} ${infile}
@@ -341,67 +406,66 @@ function(QT5_ADD_BIG_RESOURCES outfiles )
         add_custom_command(OUTPUT ${outfile}
                            COMMAND ${Qt5Core_RCC_EXECUTABLE}
                            ARGS ${rcc_options} --name ${outfilename} --pass 2 --temp $<TARGET_OBJECTS:rcc_object_${outfilename}> --output ${outfile} ${infile}
-                           DEPENDS rcc_object_${outfilename}
+                           DEPENDS rcc_object_${outfilename} $<TARGET_OBJECTS:rcc_object_${outfilename}>
                            VERBATIM)
        list(APPEND ${outfiles} ${outfile})
     endforeach()
     set(${outfiles} ${${outfiles}} PARENT_SCOPE)
 endfunction()
 
-set(_Qt5_COMPONENT_PATH "${CMAKE_CURRENT_LIST_DIR}/..")
-
-if (NOT CMAKE_VERSION VERSION_LESS 2.8.9)
-    macro(qt5_use_modules _target _link_type)
-        if(NOT CMAKE_MINIMUM_REQUIRED_VERSION VERSION_LESS 2.8.11)
-            if(CMAKE_WARN_DEPRECATED)
-                set(messageType WARNING)
-            endif()
-            if(CMAKE_ERROR_DEPRECATED)
-                set(messageType FATAL_ERROR)
-            endif()
-            if(messageType)
-                message(${messageType} "The qt5_use_modules macro is obsolete. Use target_link_libraries with IMPORTED targets instead.")
-            endif()
+if(NOT QT_NO_CREATE_VERSIONLESS_FUNCTIONS)
+    function(qt_add_big_resources outfiles)
+        if(QT_DEFAULT_MAJOR_VERSION EQUAL 5)
+            qt5_add_big_resources(${outfiles} ${ARGN})
+        elseif(QT_DEFAULT_MAJOR_VERSION EQUAL 6)
+            qt6_add_big_resources(${outfiles} ${ARGN})
         endif()
-
-        if (NOT TARGET ${_target})
-            message(FATAL_ERROR "The first argument to qt5_use_modules must be an existing target.")
-        endif()
-        if ("${_link_type}" STREQUAL "LINK_PUBLIC" OR "${_link_type}" STREQUAL "LINK_PRIVATE" )
-            set(_qt5_modules ${ARGN})
-            set(_qt5_link_type ${_link_type})
-        else()
-            set(_qt5_modules ${_link_type} ${ARGN})
-        endif()
-
-        if ("${_qt5_modules}" STREQUAL "")
-            message(FATAL_ERROR "qt5_use_modules requires at least one Qt module to use.")
-        endif()
-
-        foreach(_module ${_qt5_modules})
-            if (NOT Qt5${_module}_FOUND)
-                find_package(Qt5${_module} PATHS "${_Qt5_COMPONENT_PATH}" NO_DEFAULT_PATH)
-                if (NOT Qt5${_module}_FOUND)
-                    message(FATAL_ERROR "Cannot use \"${_module}\" module which has not yet been found.")
-                endif()
-            endif()
-            target_link_libraries(${_target} ${_qt5_link_type} ${Qt5${_module}_LIBRARIES})
-            set_property(TARGET ${_target} APPEND PROPERTY INCLUDE_DIRECTORIES ${Qt5${_module}_INCLUDE_DIRS})
-            set_property(TARGET ${_target} APPEND PROPERTY COMPILE_DEFINITIONS ${Qt5${_module}_COMPILE_DEFINITIONS})
-            set_property(TARGET ${_target} APPEND PROPERTY COMPILE_DEFINITIONS_RELEASE QT_NO_DEBUG)
-            set_property(TARGET ${_target} APPEND PROPERTY COMPILE_DEFINITIONS_RELWITHDEBINFO QT_NO_DEBUG)
-            set_property(TARGET ${_target} APPEND PROPERTY COMPILE_DEFINITIONS_MINSIZEREL QT_NO_DEBUG)
-            if (Qt5_POSITION_INDEPENDENT_CODE
-                    AND (CMAKE_VERSION VERSION_GREATER_EQUAL 2.8.12
-                        AND (NOT CMAKE_CXX_COMPILER_ID STREQUAL "GNU"
-                        OR CMAKE_CXX_COMPILER_VERSION VERSION_LESS 5.0)))
-                set_property(TARGET ${_target} PROPERTY POSITION_INDEPENDENT_CODE ${Qt5_POSITION_INDEPENDENT_CODE})
-            endif()
-        endforeach()
-    endmacro()
+        set("${outfiles}" "${${outfiles}}" PARENT_SCOPE)
+    endfunction()
 endif()
 
-function(QT5_IMPORT_PLUGINS TARGET_NAME)
+
+set(_Qt5_COMPONENT_PATH "${CMAKE_CURRENT_LIST_DIR}/..")
+
+macro(qt5_use_modules _target _link_type)
+    _qt5_warn_deprecated("qt5_use_modules")
+
+    if (NOT TARGET ${_target})
+        message(FATAL_ERROR "The first argument to qt5_use_modules must be an existing target.")
+    endif()
+    if ("${_link_type}" STREQUAL "LINK_PUBLIC" OR "${_link_type}" STREQUAL "LINK_PRIVATE" )
+        set(_qt5_modules ${ARGN})
+        set(_qt5_link_type ${_link_type})
+    else()
+        set(_qt5_modules ${_link_type} ${ARGN})
+    endif()
+
+    if ("${_qt5_modules}" STREQUAL "")
+        message(FATAL_ERROR "qt5_use_modules requires at least one Qt module to use.")
+    endif()
+
+    foreach(_module ${_qt5_modules})
+        if (NOT Qt5${_module}_FOUND)
+            find_package(Qt5${_module} PATHS "${_Qt5_COMPONENT_PATH}" NO_DEFAULT_PATH)
+            if (NOT Qt5${_module}_FOUND)
+                message(FATAL_ERROR "Cannot use \"${_module}\" module which has not yet been found.")
+            endif()
+        endif()
+        target_link_libraries(${_target} ${_qt5_link_type} ${Qt5${_module}_LIBRARIES})
+        set_property(TARGET ${_target} APPEND PROPERTY INCLUDE_DIRECTORIES ${Qt5${_module}_INCLUDE_DIRS})
+        set_property(TARGET ${_target} APPEND PROPERTY COMPILE_DEFINITIONS ${Qt5${_module}_COMPILE_DEFINITIONS})
+        set_property(TARGET ${_target} APPEND PROPERTY COMPILE_DEFINITIONS_RELEASE QT_NO_DEBUG)
+        set_property(TARGET ${_target} APPEND PROPERTY COMPILE_DEFINITIONS_RELWITHDEBINFO QT_NO_DEBUG)
+        set_property(TARGET ${_target} APPEND PROPERTY COMPILE_DEFINITIONS_MINSIZEREL QT_NO_DEBUG)
+        if (Qt5_POSITION_INDEPENDENT_CODE
+            AND (NOT CMAKE_CXX_COMPILER_ID STREQUAL "GNU"
+                OR CMAKE_CXX_COMPILER_VERSION VERSION_LESS 5.0))
+            set_property(TARGET ${_target} PROPERTY POSITION_INDEPENDENT_CODE ${Qt5_POSITION_INDEPENDENT_CODE})
+        endif()
+    endforeach()
+endmacro()
+
+function(qt5_import_plugins TARGET_NAME)
     set(_doing "")
     foreach(_arg ${ARGN})
         if(_arg STREQUAL "INCLUDE")
@@ -425,10 +489,19 @@ function(QT5_IMPORT_PLUGINS TARGET_NAME)
             elseif(_doing STREQUAL "EXCLUDE_BY_TYPE")
                 string(REGEX REPLACE "[-/]" "_" _plugin_type "${_arg}")
                 set_property(TARGET ${TARGET_NAME} PROPERTY "QT_PLUGINS_${_plugin_type}" -)
-                set(_doing "")
             else()
                 message(FATAL_ERROR "Unexpected extra argument: \"${_arg}\"")
             endif()
         endif()
     endforeach()
 endfunction()
+
+if(NOT QT_NO_CREATE_VERSIONLESS_FUNCTIONS)
+    function(qt_import_plugins)
+        if(QT_DEFAULT_MAJOR_VERSION EQUAL 5)
+            qt5_import_plugins(${ARGV})
+        elseif(QT_DEFAULT_MAJOR_VERSION EQUAL 6)
+            qt6_import_plugins(${ARGV})
+        endif()
+    endfunction()
+endif()

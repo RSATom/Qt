@@ -4,6 +4,7 @@
 
 import("//components/viz/viz.gni")
 import("//gpu/vulkan/features.gni")
+import("//skia/features.gni")
 import("//testing/test.gni")
 
 source_set("resource_format") {
@@ -38,8 +39,14 @@ viz_component("resource_format_utils") {
     "//ui/gfx:buffer_types",
     "//ui/gfx/geometry:geometry",
   ]
+
+  if (skia_use_dawn) {
+    deps += [ "//third_party/dawn/src/dawn:dawncpp_headers" ]
+  }
 }
 
+# TODO(sgilhuly): To reduce link times, merge these context provider components
+# into a single gr_context_provider component.
 if (is_mac) {
   viz_component("metal_context_provider") {
     output_name = "viz_metal_context_provider"
@@ -61,6 +68,7 @@ if (is_mac) {
     deps = [
       "//base",
       "//components/crash/core/common:crash_key",
+      "//components/metal_util",
       "//ui/gfx",
       "//ui/gl",
     ]
@@ -106,6 +114,33 @@ if (enable_vulkan) {
   }
 }
 
+if (skia_use_dawn) {
+  viz_component("dawn_context_provider") {
+    output_name = "viz_dawn_context_provider"
+
+    defines = [ "VIZ_DAWN_CONTEXT_PROVIDER_IMPLEMENTATION" ]
+
+    sources = [
+      "gpu/dawn_context_provider.cc",
+      "gpu/dawn_context_provider.h",
+      "viz_dawn_context_provider_export.h",
+    ]
+
+    public_deps = [
+      "//skia",
+      "//third_party/dawn/src/dawn:dawn_headers",
+    ]
+
+    deps = [
+      "//base",
+      "//third_party/dawn:libdawn_native",
+      "//third_party/dawn:libdawn_native_sources",
+      "//third_party/dawn/src/dawn:dawncpp",
+      "//third_party/dawn/src/dawn:libdawn_proc",
+    ]
+  }
+}
+
 viz_component("common") {
   output_name = "viz_common"
 
@@ -114,6 +149,8 @@ viz_component("common") {
   sources = [
     "constants.cc",
     "constants.h",
+    "display/de_jelly.cc",
+    "display/de_jelly.h",
     "display/overlay_strategy.cc",
     "display/overlay_strategy.h",
     "display/renderer_settings.cc",
@@ -154,8 +191,6 @@ viz_component("common") {
     "gpu/raster_context_provider.cc",
     "gpu/raster_context_provider.h",
     "hit_test/aggregated_hit_test_region.h",
-    "hit_test/hit_test_data_builder.cc",
-    "hit_test/hit_test_data_builder.h",
     "hit_test/hit_test_region_list.cc",
     "hit_test/hit_test_region_list.h",
     "quads/compositor_frame.cc",
@@ -236,6 +271,7 @@ viz_component("common") {
     "switches.h",
     "traced_value.cc",
     "traced_value.h",
+    "vertical_scroll_direction.h",
     "viz_common_export.h",
     "viz_utils.cc",
     "viz_utils.h",
@@ -252,10 +288,12 @@ viz_component("common") {
     "//gpu/command_buffer/client:gles2_interface",
     "//gpu/command_buffer/client:raster",
     "//gpu/command_buffer/client:raster_interface",
+    "//gpu/config",
     "//gpu/ipc/common:common",
     "//gpu/vulkan:buildflags",
     "//mojo/public/cpp/base",
     "//mojo/public/cpp/system",
+    "//services/tracing/public/cpp:cpp",
     "//third_party/libyuv",
     "//ui/gfx",
     "//ui/gfx:color_space",
@@ -275,11 +313,10 @@ viz_component("common") {
   }
 
   if (is_android) {
-    deps += [ "//gpu/config" ]
-  }
-
-  if (is_chromecast) {
-    defines += [ "IS_CHROMECAST" ]
+    deps += [
+      ":common_jni_headers",
+      "//gpu/config",
+    ]
   }
 
   public_deps = [
@@ -294,6 +331,9 @@ viz_component("common") {
   }
   if (is_mac) {
     public_deps += [ ":metal_context_provider" ]
+  }
+  if (skia_use_dawn) {
+    public_deps += [ ":dawn_context_provider" ]
   }
 }
 
@@ -392,4 +432,22 @@ viz_source_set("perf_tests") {
     "//testing/gtest",
     "//testing/perf",
   ]
+}
+
+if (is_android) {
+  android_library("common_java") {
+    deps = [
+      "//base:base_java",
+    ]
+    java_files = [
+      "java/src/org/chromium/components/viz/common/display/DeJellyUtils.java",
+      "java/src/org/chromium/components/viz/common/VizSwitches.java",
+    ]
+  }
+
+  generate_jni("common_jni_headers") {
+    sources = [
+      "java/src/org/chromium/components/viz/common/display/DeJellyUtils.java",
+    ]
+  }
 }

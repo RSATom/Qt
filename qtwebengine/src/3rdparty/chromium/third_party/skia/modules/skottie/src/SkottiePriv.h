@@ -42,6 +42,8 @@ class TransformAdapter3D;
 
 namespace internal {
 
+class TextAdapter;
+
 using AnimatorScope = sksg::AnimatorList;
 
 class AnimationBuilder final : public SkNoncopyable {
@@ -67,98 +69,74 @@ public:
     // it will either apply immediately or instantiate and attach a keyframe animator.
     template <typename T>
     bool bindProperty(const skjson::Value&,
-                      AnimatorScope*,
                       std::function<void(const T&)>&&,
                       const T* default_igore = nullptr) const;
 
     template <typename T>
     bool bindProperty(const skjson::Value& jv,
-                      AnimatorScope* ascope,
                       std::function<void(const T&)>&& apply,
                       const T& default_ignore) const {
-        return this->bindProperty(jv, ascope, std::move(apply), &default_ignore);
+        return this->bindProperty(jv, std::move(apply), &default_ignore);
     }
 
     void log(Logger::Level, const skjson::Value*, const char fmt[], ...) const;
 
-    sk_sp<sksg::Color> attachColor(const skjson::ObjectValue&, AnimatorScope*,
-                                   const char prop_name[]) const;
-    sk_sp<sksg::Transform> attachMatrix2D(const skjson::ObjectValue&, AnimatorScope*,
-                                          sk_sp<sksg::Transform>) const;
-    sk_sp<sksg::Transform> attachMatrix3D(const skjson::ObjectValue&, AnimatorScope*,
-                                          sk_sp<sksg::Transform>,
+    sk_sp<sksg::Color> attachColor(const skjson::ObjectValue&, const char prop_name[]) const;
+    sk_sp<sksg::Transform> attachMatrix2D(const skjson::ObjectValue&, sk_sp<sksg::Transform>) const;
+    sk_sp<sksg::Transform> attachMatrix3D(const skjson::ObjectValue&, sk_sp<sksg::Transform>,
                                           sk_sp<TransformAdapter3D> = nullptr,
                                           bool precompose_parent = false) const;
-    sk_sp<sksg::RenderNode> attachOpacity(const skjson::ObjectValue&, AnimatorScope*,
-                                      sk_sp<sksg::RenderNode>) const;
-    sk_sp<sksg::Path> attachPath(const skjson::Value&, AnimatorScope*) const;
+    sk_sp<sksg::RenderNode> attachOpacity(const skjson::ObjectValue&,
+                                          sk_sp<sksg::RenderNode>) const;
+    sk_sp<sksg::Path> attachPath(const skjson::Value&) const;
 
     bool hasNontrivialBlending() const { return fHasNontrivialBlending; }
 
-private:
-    struct AttachLayerContext;
-    struct AttachShapeContext;
-    struct ImageAssetInfo;
-    struct LayerInfo;
+    class AutoScope final {
+    public:
+        explicit AutoScope(const AnimationBuilder* builder) : AutoScope(builder, AnimatorScope()) {}
 
-    void parseAssets(const skjson::ArrayValue*);
-    void parseFonts (const skjson::ObjectValue* jfonts,
-                     const skjson::ArrayValue* jchars);
-
-    void dispatchMarkers(const skjson::ArrayValue*) const;
-
-    sk_sp<sksg::RenderNode> attachComposition(const skjson::ObjectValue&, AnimatorScope*) const;
-    sk_sp<sksg::RenderNode> attachLayer(const skjson::ObjectValue*,
-                                        AnimatorScope*,
-                                        AttachLayerContext*) const;
-
-    sk_sp<sksg::RenderNode> attachBlendMode(const skjson::ObjectValue&,
-                                            sk_sp<sksg::RenderNode>) const;
-
-    sk_sp<sksg::RenderNode> attachShape(const skjson::ArrayValue*, AttachShapeContext*) const;
-    sk_sp<sksg::RenderNode> attachAssetRef(const skjson::ObjectValue&, AnimatorScope*,
-        const std::function<sk_sp<sksg::RenderNode>(const skjson::ObjectValue&,
-                                                    AnimatorScope* ctx)>&) const;
-    const ImageAssetInfo* loadImageAsset(const skjson::ObjectValue&) const;
-    sk_sp<sksg::RenderNode> attachImageAsset(const skjson::ObjectValue&, LayerInfo*,
-                                             AnimatorScope*) const;
-
-    sk_sp<sksg::RenderNode> attachNestedAnimation(const char* name, AnimatorScope* ascope) const;
-
-    sk_sp<sksg::RenderNode> attachImageLayer  (const skjson::ObjectValue&, LayerInfo*,
-                                               AnimatorScope*) const;
-    sk_sp<sksg::RenderNode> attachNullLayer   (const skjson::ObjectValue&, LayerInfo*,
-                                               AnimatorScope*) const;
-    sk_sp<sksg::RenderNode> attachPrecompLayer(const skjson::ObjectValue&, LayerInfo*,
-                                               AnimatorScope*) const;
-    sk_sp<sksg::RenderNode> attachShapeLayer  (const skjson::ObjectValue&, LayerInfo*,
-                                               AnimatorScope*) const;
-    sk_sp<sksg::RenderNode> attachSolidLayer  (const skjson::ObjectValue&, LayerInfo*,
-                                               AnimatorScope*) const;
-    sk_sp<sksg::RenderNode> attachTextLayer   (const skjson::ObjectValue&, LayerInfo*,
-                                               AnimatorScope*) const;
-
-    bool dispatchColorProperty(const sk_sp<sksg::Color>&) const;
-    bool dispatchOpacityProperty(const sk_sp<sksg::OpacityEffect>&) const;
-    bool dispatchTransformProperty(const sk_sp<TransformAdapter2D>&) const;
-
-    // Delay resolving the fontmgr until it is actually needed.
-    struct LazyResolveFontMgr {
-        LazyResolveFontMgr(sk_sp<SkFontMgr> fontMgr) : fFontMgr(std::move(fontMgr)) {}
-
-        const sk_sp<SkFontMgr>& get() {
-            if (!fFontMgr) {
-                fFontMgr = SkFontMgr::RefDefault();
-                SkASSERT(fFontMgr);
-            }
-            return fFontMgr;
+        AutoScope(const AnimationBuilder* builder, AnimatorScope&& scope)
+            : fBuilder(builder)
+            , fCurrentScope(std::move(scope))
+            , fPrevScope(fBuilder->fCurrentAnimatorScope) {
+            fBuilder->fCurrentAnimatorScope = &fCurrentScope;
         }
 
-        const sk_sp<SkFontMgr>& getMaybeNull() const { return fFontMgr; }
+        AnimatorScope release() {
+            fBuilder->fCurrentAnimatorScope = fPrevScope;
+            SkDEBUGCODE(fBuilder = nullptr);
+
+            return std::move(fCurrentScope);
+        }
+
+        ~AutoScope() { SkASSERT(!fBuilder); }
 
     private:
-        sk_sp<SkFontMgr> fFontMgr;
+        const AnimationBuilder* fBuilder;
+        AnimatorScope           fCurrentScope;
+        AnimatorScope*          fPrevScope;
     };
+
+    template <typename T,  typename... Args>
+    sk_sp<sksg::RenderNode> attachDiscardableAdapter(Args&&... args) const {
+        AutoScope ascope(this);
+        auto adapter = T::Make(std::forward<Args>(args)...);
+        auto adapter_animators = ascope.release();
+
+        if (!adapter) { return nullptr; }
+
+        const auto& node = adapter->renderNode();
+        if (adapter_animators.empty()) {
+            // Fire off a synthetic tick to force a single SG sync before discarding the adapter.
+            adapter->tick(0);
+        } else {
+            adapter->setAnimators(std::move(adapter_animators));
+            fCurrentAnimatorScope->push_back(std::move(adapter));
+        }
+
+        return node;
+    }
 
     class AutoPropertyTracker {
     public:
@@ -182,6 +160,62 @@ private:
         const char*             fPrevContext;
     };
 
+    bool dispatchColorProperty(const sk_sp<sksg::Color>&) const;
+    bool dispatchOpacityProperty(const sk_sp<sksg::OpacityEffect>&) const;
+    bool dispatchTextProperty(const sk_sp<TextAdapter>&) const;
+    bool dispatchTransformProperty(const sk_sp<TransformAdapter2D>&) const;
+
+private:
+    friend class CompositionBuilder;
+    friend class LayerBuilder;
+
+    struct AttachLayerContext;
+    struct AttachShapeContext;
+    struct ImageAssetInfo;
+    struct LayerInfo;
+
+    void parseAssets(const skjson::ArrayValue*);
+    void parseFonts (const skjson::ObjectValue* jfonts,
+                     const skjson::ArrayValue* jchars);
+
+    void dispatchMarkers(const skjson::ArrayValue*) const;
+
+    sk_sp<sksg::RenderNode> attachBlendMode(const skjson::ObjectValue&,
+                                            sk_sp<sksg::RenderNode>) const;
+
+    sk_sp<sksg::RenderNode> attachShape(const skjson::ArrayValue*, AttachShapeContext*) const;
+    sk_sp<sksg::RenderNode> attachAssetRef(const skjson::ObjectValue&,
+        const std::function<sk_sp<sksg::RenderNode>(const skjson::ObjectValue&)>&) const;
+    const ImageAssetInfo* loadImageAsset(const skjson::ObjectValue&) const;
+    sk_sp<sksg::RenderNode> attachImageAsset(const skjson::ObjectValue&, LayerInfo*) const;
+
+    sk_sp<sksg::RenderNode> attachNestedAnimation(const char* name) const;
+
+    sk_sp<sksg::RenderNode> attachImageLayer  (const skjson::ObjectValue&, LayerInfo*) const;
+    sk_sp<sksg::RenderNode> attachNullLayer   (const skjson::ObjectValue&, LayerInfo*) const;
+    sk_sp<sksg::RenderNode> attachPrecompLayer(const skjson::ObjectValue&, LayerInfo*) const;
+    sk_sp<sksg::RenderNode> attachShapeLayer  (const skjson::ObjectValue&, LayerInfo*) const;
+    sk_sp<sksg::RenderNode> attachSolidLayer  (const skjson::ObjectValue&, LayerInfo*) const;
+    sk_sp<sksg::RenderNode> attachTextLayer   (const skjson::ObjectValue&, LayerInfo*) const;
+
+    // Delay resolving the fontmgr until it is actually needed.
+    struct LazyResolveFontMgr {
+        LazyResolveFontMgr(sk_sp<SkFontMgr> fontMgr) : fFontMgr(std::move(fontMgr)) {}
+
+        const sk_sp<SkFontMgr>& get() {
+            if (!fFontMgr) {
+                fFontMgr = SkFontMgr::RefDefault();
+                SkASSERT(fFontMgr);
+            }
+            return fFontMgr;
+        }
+
+        const sk_sp<SkFontMgr>& getMaybeNull() const { return fFontMgr; }
+
+    private:
+        sk_sp<SkFontMgr> fFontMgr;
+    };
+
     sk_sp<ResourceProvider>    fResourceProvider;
     LazyResolveFontMgr         fLazyFontMgr;
     sk_sp<PropertyObserver>    fPropertyObserver;
@@ -191,6 +225,7 @@ private:
     const SkSize               fSize;
     const float                fDuration,
                                fFrameRate;
+    mutable AnimatorScope*     fCurrentAnimatorScope;
     mutable const char*        fPropertyObserverContext;
     mutable bool               fHasNontrivialBlending : 1;
 
@@ -215,48 +250,6 @@ private:
     mutable SkTHashMap<SkString, ImageAssetInfo> fImageAssetCache;
 
     using INHERITED = SkNoncopyable;
-};
-
-struct AnimationBuilder::AttachLayerContext {
-    explicit AttachLayerContext(const skjson::ArrayValue&);
-    ~AttachLayerContext();
-
-    struct TransformRec {
-        sk_sp<sksg::Transform> fTransformNode;
-        AnimatorScope          fTransformScope;
-    };
-
-    const skjson::ArrayValue&     fLayerList;
-    SkTHashMap<int, TransformRec> fLayerTransformMap;
-    sk_sp<sksg::RenderNode>       fCurrentMatte;
-    sk_sp<sksg::Transform>        fCameraTransform;
-
-    size_t                        fMotionBlurSamples = 1;
-    float                         fMotionBlurAngle   = 0,
-                                  fMotionBlurPhase   = 0;
-
-    enum class TransformType { kLayer, kCamera };
-
-    TransformRec attachLayerTransform(const skjson::ObjectValue& jlayer,
-                                      const AnimationBuilder* abuilder,
-                                      TransformType type = TransformType::kLayer);
-
-    bool hasMotionBlur(const skjson::ObjectValue& jlayer) const;
-
-private:
-    sk_sp<sksg::Transform> attachParentLayerTransform(const skjson::ObjectValue& jlayer,
-                                                      const AnimationBuilder* abuilder,
-                                                      int layer_index);
-
-    sk_sp<sksg::Transform> attachTransformNode(const skjson::ObjectValue& jlayer,
-                                               const AnimationBuilder* abuilder,
-                                               AnimatorScope*,
-                                               sk_sp<sksg::Transform> parent_transform,
-                                               TransformType type) const;
-
-    TransformRec* attachLayerTransformImpl(const skjson::ObjectValue& jlayer,
-                                           const AnimationBuilder* abuilder,
-                                           TransformType type, int layer_index);
 };
 
 } // namespace internal

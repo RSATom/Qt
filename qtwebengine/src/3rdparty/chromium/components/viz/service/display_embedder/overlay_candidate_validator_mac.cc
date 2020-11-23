@@ -26,7 +26,4 @@ bool OverlayCandidateValidatorMac::NeedsSurfaceOccludingDamageRect() const {
   return false;
 }
 
-void OverlayCandidateValidatorMac::CheckOverlaySupport(
-    OverlayCandidateList* surfaces) {}
-
 }  // namespace viz

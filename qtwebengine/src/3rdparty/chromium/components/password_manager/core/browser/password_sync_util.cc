@@ -50,7 +50,7 @@ std::string GetSyncUsernameIfSyncingPasswords(
 bool IsSyncAccountCredential(const autofill::PasswordForm& form,
                              const syncer::SyncService* sync_service,
                              const signin::IdentityManager* identity_manager) {
-  if (!IsGaiaCredentialPage(form.signon_realm))
+  if (!GURL(form.signon_realm).DomainIs("google.com"))
     return false;
 
   // The empty username can mean that Chrome did not detect it correctly. For
@@ -62,38 +62,6 @@ bool IsSyncAccountCredential(const autofill::PasswordForm& form,
   return gaia::AreEmailsSame(
       base::UTF16ToUTF8(form.username_value),
       GetSyncUsernameIfSyncingPasswords(sync_service, identity_manager));
-}
-
-bool ShouldSavePasswordHash(const autofill::PasswordForm& form,
-                            const signin::IdentityManager* identity_manager,
-                            PrefService* prefs) {
-#if defined(SYNC_PASSWORD_REUSE_DETECTION_ENABLED)
-  bool is_protected_credential_url =
-      gaia::IsGaiaSignonRealm(GURL(form.signon_realm)) ||
-      form.signon_realm == kGoogleChangePasswordSignonRealm ||
-      safe_browsing::MatchesPasswordProtectionLoginURL(form.origin, *prefs) ||
-      safe_browsing::MatchesPasswordProtectionChangePasswordURL(form.origin,
-                                                                *prefs);
-
-  if (!is_protected_credential_url)
-    return false;
-
-  std::string sync_email = identity_manager->GetPrimaryAccountInfo().email;
-  std::string username = base::UTF16ToUTF8(form.username_value);
-
-  if (sync_email.empty() || username.empty())
-    return false;
-
-  // Add @domain.name to the username if it is absent.
-  std::string email =
-      username + (username.find('@') == std::string::npos
-                      ? "@" + gaia::ExtractDomainName(sync_email)
-                      : std::string());
-
-  return email == sync_email;
-#else
-  return false;
-#endif  // SYNC_PASSWORD_REUSE_DETECTION_ENABLED
 }
 
 bool IsSyncAccountEmail(const std::string& username,

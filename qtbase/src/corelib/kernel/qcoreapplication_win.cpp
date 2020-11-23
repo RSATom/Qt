@@ -772,7 +772,7 @@ QString decodeMSG(const MSG& msg)
             auto rect = reinterpret_cast<const RECT *>(lParam);
             QTextStream(&parameters) << "DPI: " << HIWORD(wParam) << ','
                 << LOWORD(wParam) << ' ' << (rect->right - rect->left) << 'x'
-                << (rect->bottom - rect->top) << forcesign << rect->left << rect->top;
+                << (rect->bottom - rect->top) << Qt::forcesign << rect->left << rect->top;
             }
             break;
         case WM_IME_NOTIFY:
@@ -918,7 +918,7 @@ QDebug operator<<(QDebug dbg, const MSG &msg)
 #ifndef QT_NO_QOBJECT
 void QCoreApplicationPrivate::removePostedTimerEvent(QObject *object, int timerId)
 {
-    QThreadData *data = object->d_func()->threadData;
+    QThreadData *data = object->d_func()->threadData.loadRelaxed();
 
     const auto locker = qt_scoped_lock(data->postEventList.mutex);
     if (data->postEventList.size() == 0)

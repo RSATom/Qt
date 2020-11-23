@@ -85,7 +85,7 @@ CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
         document.querySelector('header').appendChild(xrButton.domElement);
 
         if (navigator.xr) {
-          navigator.xr.requestSession('inline').then(onSessionStarted);
+          requestInlineSession();
         } else {
           initFallback();
         }
@@ -126,24 +126,28 @@ CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
       }
 
       function onRequestSession() {
-        navigator.xr.requestSession('immersive-vr').then((session) => {
+        navigator.xr.requestSession('immersive-vr', {requiredFeatures: ['local']}).then((session) => {
           session.mode = 'immersive-vr';
           xrButton.setSession(session);
           onSessionStarted(session);
         });
       }
 
+      function requestInlineSession(options) {
+        return navigator.xr.requestSession('inline', options)
+          .then((session) => {
+            session.mode = 'inline';
+            return onSessionStarted(session);
+          });
+      }
+
       function onSessionStarted(session) {
-        if (!session.mode)
-          session.mode = 'inline';
         session.addEventListener('end', onSessionEnded);
 
         initGL();
 
         session.updateRenderState({
-            baseLayer: new XRWebGLLayer(session, gl, {
-              compositionDisabled: session.mode == 'inline'
-            })
+            baseLayer: new XRWebGLLayer(session, gl)
         });
 
         session.requestReferenceSpace('local').then((refSpace) => {
@@ -164,6 +168,8 @@ CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
           }
           session.requestAnimationFrame(onXRFrame);
         });
+
+        return session;
       }
 
       function onEndSession(session) {

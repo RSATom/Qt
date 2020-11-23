@@ -112,7 +112,6 @@
 #include <limits.h>
 #include <string.h>
 
-#include <openssl/buf.h>
 #include <openssl/err.h>
 #include <openssl/evp.h>
 #include <openssl/mem.h>
@@ -414,7 +413,7 @@ int ssl_send_alert_impl(SSL *ssl, int level, int desc) {
     ssl->s3->write_shutdown = ssl_shutdown_error;
   }
 
-  ssl->s3->alert_dispatch = 1;
+  ssl->s3->alert_dispatch = true;
   ssl->s3->send_alert[0] = level;
   ssl->s3->send_alert[1] = desc;
   if (ssl->s3->write_buffer.empty()) {
@@ -441,7 +440,7 @@ int ssl3_dispatch_alert(SSL *ssl) {
     }
   }
 
-  ssl->s3->alert_dispatch = 0;
+  ssl->s3->alert_dispatch = false;
 
   // If the alert is fatal, flush the BIO now.
   if (ssl->s3->send_alert[0] == SSL3_AL_FATAL) {

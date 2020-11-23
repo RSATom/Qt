@@ -25,17 +25,21 @@ namespace video_coding {
 
 RtpFrameReferenceFinder::RtpFrameReferenceFinder(
     OnCompleteFrameCallback* frame_callback)
+    : RtpFrameReferenceFinder(frame_callback, 0) {}
+
+RtpFrameReferenceFinder::RtpFrameReferenceFinder(
+    OnCompleteFrameCallback* frame_callback,
+    int64_t picture_id_offset)
     : last_picture_id_(-1),
       current_ss_idx_(0),
       cleared_to_seq_num_(-1),
-      frame_callback_(frame_callback) {}
+      frame_callback_(frame_callback),
+      picture_id_offset_(picture_id_offset) {}
 
 RtpFrameReferenceFinder::~RtpFrameReferenceFinder() = default;
 
 void RtpFrameReferenceFinder::ManageFrame(
     std::unique_ptr<RtpFrameObject> frame) {
-  rtc::CritScope lock(&crit_);
-
   // If we have cleared past this frame, drop it.
   if (cleared_to_seq_num_ != -1 &&
       AheadOf<uint16_t>(cleared_to_seq_num_, frame->first_seq_num())) {
@@ -51,7 +55,7 @@ void RtpFrameReferenceFinder::ManageFrame(
       stashed_frames_.push_front(std::move(frame));
       break;
     case kHandOff:
-      frame_callback_->OnCompleteFrame(std::move(frame));
+      HandOffFrame(std::move(frame));
       RetryStashedFrames();
       break;
     case kDrop:
@@ -73,13 +77,23 @@ void RtpFrameReferenceFinder::RetryStashedFrames() {
           break;
         case kHandOff:
           complete_frame = true;
-          frame_callback_->OnCompleteFrame(std::move(*frame_it));
+          HandOffFrame(std::move(*frame_it));
           RTC_FALLTHROUGH();
         case kDrop:
           frame_it = stashed_frames_.erase(frame_it);
       }
     }
   } while (complete_frame);
+}
+
+void RtpFrameReferenceFinder::HandOffFrame(
+    std::unique_ptr<RtpFrameObject> frame) {
+  frame->id.picture_id += picture_id_offset_;
+  for (size_t i = 0; i < frame->num_references; ++i) {
+    frame->references[i] += picture_id_offset_;
+  }
+
+  frame_callback_->OnCompleteFrame(std::move(frame));
 }
 
 RtpFrameReferenceFinder::FrameDecision
@@ -99,10 +113,10 @@ RtpFrameReferenceFinder::ManageFrameInternal(RtpFrameObject* frame) {
       return ManageFrameH264(frame);
     default: {
       // Use 15 first bits of frame ID as picture ID if available.
-      absl::optional<RTPVideoHeader> video_header = frame->GetRtpVideoHeader();
+      const RTPVideoHeader& video_header = frame->GetRtpVideoHeader();
       int picture_id = kNoPictureId;
-      if (video_header && video_header->generic)
-        picture_id = video_header->generic->frame_id & 0x7fff;
+      if (video_header.generic)
+        picture_id = video_header.generic->frame_id & 0x7fff;
 
       return ManageFramePidOrSeqNum(frame, picture_id);
     }
@@ -110,7 +124,6 @@ RtpFrameReferenceFinder::ManageFrameInternal(RtpFrameObject* frame) {
 }
 
 void RtpFrameReferenceFinder::PaddingReceived(uint16_t seq_num) {
-  rtc::CritScope lock(&crit_);
   auto clean_padding_to =
       stashed_padding_.lower_bound(seq_num - kMaxPaddingAge);
   stashed_padding_.erase(stashed_padding_.begin(), clean_padding_to);
@@ -120,7 +133,6 @@ void RtpFrameReferenceFinder::PaddingReceived(uint16_t seq_num) {
 }
 
 void RtpFrameReferenceFinder::ClearTo(uint16_t seq_num) {
-  rtc::CritScope lock(&crit_);
   cleared_to_seq_num_ = seq_num;
 
   auto it = stashed_frames_.begin();
@@ -265,13 +277,8 @@ RtpFrameReferenceFinder::ManageFramePidOrSeqNum(RtpFrameObject* frame,
 
 RtpFrameReferenceFinder::FrameDecision RtpFrameReferenceFinder::ManageFrameVp8(
     RtpFrameObject* frame) {
-  absl::optional<RTPVideoHeader> video_header = frame->GetRtpVideoHeader();
-  if (!video_header) {
-    RTC_LOG(LS_WARNING)
-        << "Failed to get codec header from frame, dropping frame.";
-    return kDrop;
-  }
-  RTPVideoTypeHeader rtp_codec_header = video_header->video_type_header;
+  const RTPVideoHeader& video_header = frame->GetRtpVideoHeader();
+  RTPVideoTypeHeader rtp_codec_header = video_header.video_type_header;
 
   const RTPVideoHeaderVP8& codec_header =
       absl::get<RTPVideoHeaderVP8>(rtp_codec_header);
@@ -281,6 +288,7 @@ RtpFrameReferenceFinder::FrameDecision RtpFrameReferenceFinder::ManageFrameVp8(
       codec_header.tl0PicIdx == kNoTl0PicIdx) {
     return ManageFramePidOrSeqNum(frame, codec_header.pictureId);
   }
+
   // Protect against corrupted packets with arbitrary large temporal idx.
   if (codec_header.temporalIdx >= kMaxTemporalLayers)
     return kDrop;
@@ -418,13 +426,8 @@ void RtpFrameReferenceFinder::UpdateLayerInfoVp8(RtpFrameObject* frame,
 
 RtpFrameReferenceFinder::FrameDecision RtpFrameReferenceFinder::ManageFrameVp9(
     RtpFrameObject* frame) {
-  absl::optional<RTPVideoHeader> video_header = frame->GetRtpVideoHeader();
-  if (!video_header) {
-    RTC_LOG(LS_WARNING)
-        << "Failed to get codec header from frame, dropping frame.";
-    return kDrop;
-  }
-  RTPVideoTypeHeader rtp_codec_header = video_header->video_type_header;
+  const RTPVideoHeader& video_header = frame->GetRtpVideoHeader();
+  RTPVideoTypeHeader rtp_codec_header = video_header.video_type_header;
 
   const RTPVideoHeaderVP9& codec_header =
       absl::get<RTPVideoHeaderVP9>(rtp_codec_header);
@@ -682,13 +685,10 @@ void RtpFrameReferenceFinder::UnwrapPictureIds(RtpFrameObject* frame) {
 
 RtpFrameReferenceFinder::FrameDecision RtpFrameReferenceFinder::ManageFrameH264(
     RtpFrameObject* frame) {
-  absl::optional<FrameMarking> rtp_frame_marking = frame->GetFrameMarking();
-  if (!rtp_frame_marking) {
-    return ManageFramePidOrSeqNum(std::move(frame), kNoPictureId);
-  }
+  const FrameMarking& rtp_frame_marking = frame->GetFrameMarking();
 
-  uint8_t tid = rtp_frame_marking->temporal_id;
-  bool blSync = rtp_frame_marking->base_layer_sync;
+  uint8_t tid = rtp_frame_marking.temporal_id;
+  bool blSync = rtp_frame_marking.base_layer_sync;
 
   if (tid == kNoTemporalIdx)
     return ManageFramePidOrSeqNum(std::move(frame), kNoPictureId);
@@ -723,7 +723,7 @@ RtpFrameReferenceFinder::FrameDecision RtpFrameReferenceFinder::ManageFrameH264(
     }
   }
 
-  int64_t unwrapped_tl0 = tl0_unwrapper_.Unwrap(rtp_frame_marking->tl0_pic_idx);
+  int64_t unwrapped_tl0 = tl0_unwrapper_.Unwrap(rtp_frame_marking.tl0_pic_idx);
 
   // Clean up info for base layers that are too old.
   int64_t old_tl0_pic_idx = unwrapped_tl0 - kMaxLayerInfo;

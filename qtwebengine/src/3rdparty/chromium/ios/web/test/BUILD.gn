@@ -58,6 +58,7 @@ source_set("test_support") {
     ":test_constants",
     "//base",
     "//base/test:test_support",
+    "//ios/testing:verify_custom_webkit",
     "//ios/web",
     "//ios/web/common:web_view_creation_util",
     "//ios/web/navigation:core",
@@ -73,10 +74,10 @@ source_set("test_support") {
 
   sources = [
     "test_web_thread.cc",
-    "test_web_thread_bundle.cc",
     "url_test_util.mm",
     "web_int_test.h",
     "web_int_test.mm",
+    "web_task_environment.cc",
     "web_test_suite.mm",
     "web_test_with_web_controller.h",
     "web_test_with_web_controller.mm",

@@ -30,6 +30,7 @@
 
 #include "third_party/blink/renderer/bindings/modules/v8/v8_sql_statement_callback.h"
 #include "third_party/blink/renderer/bindings/modules/v8/v8_sql_statement_error_callback.h"
+#include "third_party/blink/renderer/core/probe/async_task_id.h"
 #include "third_party/blink/renderer/modules/webdatabase/sql_result_set.h"
 #include "third_party/blink/renderer/modules/webdatabase/sqlite/sql_value.h"
 #include "third_party/blink/renderer/platform/wtf/forward.h"
@@ -44,8 +45,7 @@ class SQLTransaction;
 
 class SQLStatement final : public GarbageCollected<SQLStatement> {
  public:
-  class OnSuccessCallback
-      : public GarbageCollectedFinalized<OnSuccessCallback> {
+  class OnSuccessCallback : public GarbageCollected<OnSuccessCallback> {
    public:
     virtual ~OnSuccessCallback() = default;
     virtual void Trace(blink::Visitor*) {}
@@ -72,7 +72,7 @@ class SQLStatement final : public GarbageCollected<SQLStatement> {
     Member<V8SQLStatementCallback> callback_;
   };
 
-  class OnErrorCallback : public GarbageCollectedFinalized<OnErrorCallback> {
+  class OnErrorCallback : public GarbageCollected<OnErrorCallback> {
    public:
     virtual ~OnErrorCallback() = default;
     virtual void Trace(blink::Visitor*) {}
@@ -119,6 +119,8 @@ class SQLStatement final : public GarbageCollected<SQLStatement> {
 
   Member<OnSuccessCallback> success_callback_;
   Member<OnErrorCallback> error_callback_;
+
+  probe::AsyncTaskId async_task_id_;
 };
 
 }  // namespace blink

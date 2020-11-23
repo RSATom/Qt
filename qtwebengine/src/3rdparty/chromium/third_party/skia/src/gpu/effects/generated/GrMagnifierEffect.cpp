@@ -47,7 +47,8 @@ public:
                 kFragment_GrShaderFlag, kFloat_GrSLType, "yInvInset");
         offsetVar =
                 args.fUniformHandler->addUniform(kFragment_GrShaderFlag, kHalf2_GrSLType, "offset");
-        SkString sk_TransformedCoords2D_0 = fragBuilder->ensureCoords2D(args.fTransformedCoords[0]);
+        SkString sk_TransformedCoords2D_0 =
+                fragBuilder->ensureCoords2D(args.fTransformedCoords[0].fVaryingPoint);
         fragBuilder->codeAppendf(
                 "float2 coord = %s;\nfloat2 zoom_coord = float2(%s) + coord * float2(%s, "
                 "%s);\nfloat2 delta = (coord - %s.xy) * %s.zw;\ndelta = min(delta, "
@@ -65,10 +66,13 @@ public:
                 args.fUniformHandler->getUniformCStr(xInvInsetVar),
                 args.fUniformHandler->getUniformCStr(yInvInsetVar));
         fragBuilder->codeAppendf(
-                "d.y), 1.0);\n}\n%s = texture(%s, mix(coord, zoom_coord, weight)).%s;\n",
+                "d.y), 1.0);\n}\n%s = sample(%s, mix(coord, zoom_coord, weight)).%s;\n",
                 args.fOutputColor,
                 fragBuilder->getProgramBuilder()->samplerVariable(args.fTexSamplers[0]),
-                fragBuilder->getProgramBuilder()->samplerSwizzle(args.fTexSamplers[0]).c_str());
+                fragBuilder->getProgramBuilder()
+                        ->samplerSwizzle(args.fTexSamplers[0])
+                        .asString()
+                        .c_str());
     }
 
 private:
@@ -115,15 +119,17 @@ private:
 
         {
             SkScalar y = bounds.y() * invH;
+            SkScalar hSign = 1.f;
             if (srcProxy.origin() != kTopLeft_GrSurfaceOrigin) {
-                y = 1.0f - bounds.height() * invH;
+                y = 1.0f - bounds.y() * invH;
+                hSign = -1.f;
             }
 
             pdman.set4f(boundsUniform,
                         bounds.x() * invW,
                         y,
                         SkIntToScalar(src.width()) / bounds.width(),
-                        SkIntToScalar(src.height()) / bounds.height());
+                        hSign * SkIntToScalar(src.height()) / bounds.height());
         }
     }
     UniformHandle boundsUniformVar;

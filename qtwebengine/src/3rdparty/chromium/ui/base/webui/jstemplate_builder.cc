@@ -24,7 +24,7 @@ namespace {
 // assigned to it.
 void AppendJsonHtml(const base::DictionaryValue* json, std::string* output) {
   std::string javascript_string;
-  AppendJsonJS(json, &javascript_string);
+  AppendJsonJS(json, &javascript_string, /*from_js_module=*/false);
 
   // </ confuses the HTML parser because it could be a </script> tag.  So we
   // replace </ with <\/.  The extra \ will be ignored by the JS engine.
@@ -38,9 +38,9 @@ void AppendJsonHtml(const base::DictionaryValue* json, std::string* output) {
 // Appends the source for load_time_data.js in a script tag.
 void AppendLoadTimeData(std::string* output) {
   // fetch and cache the pointer of the jstemplate resource source text.
-  base::StringPiece load_time_data_src(
-      ui::ResourceBundle::GetSharedInstance().GetRawDataResource(
-          IDR_WEBUI_JS_LOAD_TIME_DATA));
+  std::string load_time_data_src =
+      ui::ResourceBundle::GetSharedInstance().LoadDataResourceString(
+          IDR_WEBUI_JS_LOAD_TIME_DATA);
 
   if (load_time_data_src.empty()) {
     NOTREACHED() << "Unable to get loadTimeData src";
@@ -48,16 +48,16 @@ void AppendLoadTimeData(std::string* output) {
   }
 
   output->append("<script>");
-  load_time_data_src.AppendToString(output);
+  output->append(load_time_data_src);
   output->append("</script>");
 }
 
 // Appends the source for JsTemplates in a script tag.
 void AppendJsTemplateSourceHtml(std::string* output) {
   // fetch and cache the pointer of the jstemplate resource source text.
-  base::StringPiece jstemplate_src(
-      ui::ResourceBundle::GetSharedInstance().GetRawDataResource(
-          IDR_WEBUI_JSTEMPLATE_JS));
+  std::string jstemplate_src =
+      ui::ResourceBundle::GetSharedInstance().LoadDataResourceString(
+          IDR_WEBUI_JSTEMPLATE_JS);
 
   if (jstemplate_src.empty()) {
     NOTREACHED() << "Unable to get jstemplate src";
@@ -65,7 +65,7 @@ void AppendJsTemplateSourceHtml(std::string* output) {
   }
 
   output->append("<script>");
-  jstemplate_src.AppendToString(output);
+  output->append(jstemplate_src);
   output->append("</script>");
 }
 
@@ -112,9 +112,18 @@ std::string GetTemplatesHtml(const base::StringPiece& html_template,
   return output;
 }
 
-void AppendJsonJS(const base::DictionaryValue* json, std::string* output) {
+void AppendJsonJS(const base::DictionaryValue* json,
+                  std::string* output,
+                  bool from_js_module) {
   // Convert the template data to a json string.
   DCHECK(json) << "must include json data structure";
+
+  if (from_js_module) {
+    // If the script is being imported as a module, import |loadTimeData| in
+    // order to allow assigning the localized strings to loadTimeData.data.
+    output->append("import {loadTimeData} from ");
+    output->append("'chrome://resources/js/load_time_data.m.js';\n");
+  }
 
   std::string jstext;
   JSONStringValueSerializer serializer(&jstext);

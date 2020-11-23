@@ -204,7 +204,7 @@ inline QRegion scale(const QRegion &region, qreal scaleFactor, QPoint origin = Q
 
     QRegion scaled;
     for (const QRect &rect : region)
-        scaled += scale(rect, scaleFactor, origin);
+        scaled += scale(QRectF(rect), scaleFactor, origin).toRect();
     return scaled;
 }
 
@@ -279,7 +279,7 @@ inline QRegion fromNativeLocalExposedRegion(const QRegion &pixelRegion, const QW
 
     const qreal scaleFactor = QHighDpiScaling::factor(window);
     QRegion pointRegion;
-    for (const QRectF &rect : pixelRegion) {
+    for (const QRectF rect: pixelRegion) {
         const QPointF topLeftP = rect.topLeft() / scaleFactor;
         const QSizeF sizeP = rect.size() / scaleFactor;
         pointRegion += QRect(QPoint(qFloor(topLeftP.x()), qFloor(topLeftP.y())),
@@ -313,7 +313,7 @@ public:
     static inline QPoint mapPositionToNative(const QPoint &pos, const QPlatformScreen *) { return pos; }
     static inline QPoint mapPositionToGlobal(const QPoint &pos, const QPoint &windowGlobalPosition, const QWindow *window) { return pos; }
     static inline QPoint mapPositionFromGlobal(const QPoint &pos, const QPoint &windowGlobalPosition, const QWindow *window) { return pos; }
-    static inline QDpi logicalDpi() { return QDpi(-1,-1); }
+    static inline QDpi logicalDpi(const QScreen *screen) { return QDpi(-1,-1); }
 };
 
 namespace QHighDpi {

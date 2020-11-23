@@ -199,7 +199,7 @@ int tst_OAuth1::waitForFinish(QNetworkReplyPtr &reply)
     int count = 0;
 
     connect(reply, SIGNAL(finished()), SLOT(finished()));
-    connect(reply, SIGNAL(error(QNetworkReply::NetworkError)), SLOT(gotError()));
+    connect(reply, SIGNAL(errorOccurred(QNetworkReply::NetworkError)), SLOT(gotError()));
     returnCode = Success;
     loop = new QEventLoop;
     QSignalSpy spy(reply.data(), SIGNAL(downloadProgress(qint64,qint64)));
@@ -468,7 +468,8 @@ void tst_OAuth1::getToken()
     QCOMPARE(oauthHeaders["oauth_version"], "1.0");
     QString expectedSignature;
     {
-        QVariantMap modifiedHeaders = oauthHeaders.unite(parameters);
+        QVariantMap modifiedHeaders = oauthHeaders;
+        modifiedHeaders.insert(parameters);
         modifiedHeaders.remove("oauth_signature");
         QOAuth1Signature signature(url,
                                    clientCredentials.second,
@@ -592,11 +593,13 @@ void tst_OAuth1::prepareRequestSignature()
     // verify the signature
     const auto sigString = QUrl::fromPercentEncoding(authArgs.take(oauthSignature)
                                                      .toByteArray()).toUtf8();
+
+    authArgs.insert(extraParams);
     QOAuth1Signature signature(request.url(),
                                consumerSecret,
                                accessKeySecret,
                                QOAuth1Signature::HttpRequestMethod::Custom,
-                               authArgs.unite(extraParams));
+                               authArgs);
     signature.setCustomMethodString(operation);
     const auto signatureData = signature.hmacSha1();
     QCOMPARE(signatureData.toBase64(), sigString);
@@ -636,6 +639,8 @@ void tst_OAuth1::grant_data()
                                     << QUrl("http://term.ie/oauth/example/access_token.php")
                                     << QUrl("http://term.ie/oauth/example/echo_api.php")
                                     << QNetworkAccessManager::PostOperation;
+    } else {
+        QSKIP("Skipping test due to unreachable term.ie host");
     }
 }
 
@@ -740,7 +745,7 @@ void tst_OAuth1::authenticatedCalls_data()
             << parameters
             << QNetworkAccessManager::GetOperation;
     } else {
-        QSKIP("Skipping test due to unreacahble term.ie host");
+        QSKIP("Skipping test due to unreachable term.ie host");
     }
 }
 
@@ -835,7 +840,7 @@ void tst_OAuth1::prepareRequestCalls_data()
             << parameters
             << QByteArray("GET");
     } else {
-        QSKIP("Skipping test due to unreacahble term.ie host");
+        QSKIP("Skipping test due to unreachable term.ie host");
     }
 }
 

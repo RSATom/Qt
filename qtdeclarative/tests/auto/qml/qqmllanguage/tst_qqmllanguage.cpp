@@ -123,6 +123,7 @@ private slots:
     void dynamicProperties();
     void dynamicPropertiesNested();
     void listProperties();
+    void listPropertiesInheritanceNoCrash();
     void badListItemType();
     void dynamicObjectProperties();
     void dynamicSignalsAndSlots();
@@ -132,6 +133,9 @@ private slots:
     void autoComponentCreation();
     void autoComponentCreationInGroupProperty();
     void propertyValueSource();
+    void requiredProperty();
+    void requiredPropertyFromCpp_data();
+    void requiredPropertyFromCpp();
     void attachedProperties();
     void dynamicObjects();
     void customVariantTypes();
@@ -303,7 +307,29 @@ private slots:
 
     void typeWrapperToVariant();
 
+    void extendedForeignTypes();
+
+    void inlineComponent();
+    void inlineComponent_data();
+    void inlineComponentReferenceCycle_data();
+    void inlineComponentReferenceCycle();
+    void nestedInlineComponentNotAllowed();
+    void inlineComponentStaticTypeResolution();
+    void inlineComponentInSingleton();
+    void nonExistingInlineComponent_data();
+    void nonExistingInlineComponent();
+    void inlineComponentFoundBeforeOtherImports();
+    void inlineComponentDuplicateNameError();
+
+    void selfReference();
+    void selfReferencingSingleton();
+
+    void listContainingDeletedObject();
+    void overrideSingleton();
+
     void arrayToContainer();
+    void qualifiedScopeInCustomParser();
+    void accessNullPointerPropertyCache();
 
 private:
     QQmlEngine engine;
@@ -473,6 +499,11 @@ void tst_qqmllanguage::errors_data()
     QTest::newRow("finalOverride") << "finalOverride.qml" << "finalOverride.errors.txt" << false;
     QTest::newRow("customParserIdNotAllowed") << "customParserIdNotAllowed.qml" << "customParserIdNotAllowed.errors.txt" << false;
 
+    QTest::newRow("nullishCoalescing_LHS_Or") << "nullishCoalescing_LHS_Or.qml" << "nullishCoalescing_LHS_Or.errors.txt" << false;
+    QTest::newRow("nullishCoalescing_LHS_And") << "nullishCoalescing_LHS_And.qml" << "nullishCoalescing_LHS_And.errors.txt" << false;
+    QTest::newRow("nullishCoalescing_RHS_Or") << "nullishCoalescing_RHS_Or.qml" << "nullishCoalescing_RHS_Or.errors.txt" << false;
+    QTest::newRow("nullishCoalescing_RHS_And") << "nullishCoalescing_RHS_And.qml" << "nullishCoalescing_RHS_And.errors.txt" << false;
+
     QTest::newRow("invalidGroupedProperty.1") << "invalidGroupedProperty.1.qml" << "invalidGroupedProperty.1.errors.txt" << false;
     QTest::newRow("invalidGroupedProperty.2") << "invalidGroupedProperty.2.qml" << "invalidGroupedProperty.2.errors.txt" << false;
     QTest::newRow("invalidGroupedProperty.3") << "invalidGroupedProperty.3.qml" << "invalidGroupedProperty.3.errors.txt" << false;
@@ -630,6 +661,8 @@ void tst_qqmllanguage::errors_data()
     QTest::newRow("typeAnnotations.2") << "typeAnnotations.2.qml" << "typeAnnotations.2.errors.txt" << false;
 
     QTest::newRow("propertyUnknownType") << "propertyUnknownType.qml" << "propertyUnknownType.errors.txt" << false;
+
+    QTest::newRow("selfInstantiation") << "SelfInstantiation.qml" << "SelfInstantiation.errors.txt" << false;
 }
 
 void tst_qqmllanguage::errors()
@@ -1462,6 +1495,16 @@ void tst_qqmllanguage::listProperties()
     QCOMPARE(object->property("test").toInt(), 2);
 }
 
+// Tests that initializing list properties of a base class does not crash
+// (QTBUG-82171)
+void tst_qqmllanguage::listPropertiesInheritanceNoCrash()
+{
+    QQmlEngine engine;
+    QQmlComponent component(&engine, testFileUrl("listPropertiesChild.qml"));
+    QScopedPointer<QObject> object(component.create()); // should not crash
+    QVERIFY(object != nullptr);
+}
+
 void tst_qqmllanguage::badListItemType()
 {
     QQmlComponent component(&engine, testFileUrl("badListItemType.qml"));
@@ -1636,6 +1679,120 @@ void tst_qqmllanguage::propertyValueSource()
     }
 }
 
+void tst_qqmllanguage::requiredProperty()
+{
+    QQmlEngine engine;
+    {
+        QQmlComponent component(&engine, testFileUrl("requiredProperties.1.qml"));
+        VERIFY_ERRORS(0);
+        QScopedPointer<QObject> object(component.create());
+        QVERIFY(object);
+    }
+    {
+        QQmlComponent component(&engine, testFileUrl("requiredProperties.2.qml"));
+        QVERIFY(!component.errors().empty());
+    }
+    {
+        QQmlComponent component(&engine, testFileUrl("requiredProperties.4.qml"));
+        QScopedPointer<QObject> object(component.create());
+        QVERIFY(!component.errors().empty());
+        QVERIFY(component.errorString().contains("Required property objectName was not initialized"));
+    }
+    {
+        QQmlComponent component(&engine, testFileUrl("requiredProperties.3.qml"));
+        QScopedPointer<QObject> object(component.create());
+        QVERIFY(!component.errors().empty());
+        QVERIFY(component.errorString().contains("Required property i was not initialized"));
+    }
+    {
+        QQmlComponent component(&engine, testFileUrl("requiredProperties.5.qml"));
+        QScopedPointer<QObject> object(component.create());
+        QVERIFY(!component.errors().empty());
+        QVERIFY(component.errorString().contains("Required property i was not initialized"));
+    }
+    {
+        QQmlComponent component(&engine, testFileUrl("requiredProperties.6.qml"));
+        VERIFY_ERRORS(0);
+        QScopedPointer<QObject> object(component.create());
+        QVERIFY(object);
+    }
+    {
+        QQmlComponent component(&engine, testFileUrl("requiredProperties.7.qml"));
+        QScopedPointer<QObject> object(component.create());
+        QVERIFY(!component.errors().empty());
+        QVERIFY(component.errorString().contains("Property blub was marked as required but does not exist"));
+    }
+}
+
+class MyClassWithRequiredProperty : public QObject
+{
+public:
+    Q_OBJECT
+    Q_PROPERTY(int test MEMBER m_test REQUIRED NOTIFY testChanged)
+    Q_SIGNAL void testChanged();
+private:
+    int m_test;
+};
+
+class ChildClassWithoutOwnRequired : public MyClassWithRequiredProperty
+{
+public:
+    Q_OBJECT
+    Q_PROPERTY(int test2 MEMBER m_test2 NOTIFY test2Changed)
+    Q_SIGNAL void test2Changed();
+private:
+    int m_test2;
+};
+
+class ChildClassWithOwnRequired : public MyClassWithRequiredProperty
+{
+public:
+    Q_OBJECT
+    Q_PROPERTY(int test2 MEMBER m_test2 REQUIRED NOTIFY test2Changed)
+    Q_SIGNAL void test2Changed();
+private:
+    int m_test2;
+};
+
+void tst_qqmllanguage::requiredPropertyFromCpp_data()
+{
+    qmlRegisterType<MyClassWithRequiredProperty>("example.org", 1, 0, "MyClass");
+    qmlRegisterType<ChildClassWithoutOwnRequired>("example.org", 1, 0, "Child");
+    qmlRegisterType<ChildClassWithOwnRequired>("example.org", 1, 0, "Child2");
+
+
+    QTest::addColumn<QUrl>("setFile");
+    QTest::addColumn<QUrl>("notSetFile");
+    QTest::addColumn<QString>("errorMessage");
+    QTest::addColumn<int>("expectedValue");
+
+    QTest::addRow("direct") << testFileUrl("cppRequiredProperty.qml") << testFileUrl("cppRequiredPropertyNotSet.qml") << QString(":4 Required property test was not initialized\n") << 42;
+    QTest::addRow("in parent") << testFileUrl("cppRequiredPropertyInParent.qml") << testFileUrl("cppRequiredPropertyInParentNotSet.qml") << QString(":4 Required property test was not initialized\n") << 42;
+    QTest::addRow("in child and parent") << testFileUrl("cppRequiredPropertyInChildAndParent.qml") << testFileUrl("cppRequiredPropertyInChildAndParentNotSet.qml") << QString(":4 Required property test2 was not initialized\n") << 18;
+}
+
+void tst_qqmllanguage::requiredPropertyFromCpp()
+{
+    QQmlEngine engine;
+    QFETCH(QUrl, setFile);
+    QFETCH(QUrl, notSetFile);
+    QFETCH(QString, errorMessage);
+    QFETCH(int, expectedValue);
+    {
+        QQmlComponent comp(&engine, notSetFile);
+        QScopedPointer<QObject> o { comp.create() };
+        QVERIFY(o.isNull());
+        QVERIFY(comp.isError());
+        QCOMPARE(comp.errorString(), notSetFile.toString() + errorMessage);
+    }
+    {
+        QQmlComponent comp(&engine, setFile);
+        QScopedPointer<QObject> o { comp.create() };
+        QVERIFY(!o.isNull());
+        QCOMPARE(o->property("test").toInt(), expectedValue);
+    }
+}
+
 void tst_qqmllanguage::attachedProperties()
 {
     QQmlComponent component(&engine, testFileUrl("attachedProperties.qml"));
@@ -1704,21 +1861,30 @@ void tst_qqmllanguage::valueTypes()
 
 void tst_qqmllanguage::cppnamespace()
 {
-    {
-        QQmlComponent component(&engine, testFileUrl("cppnamespace.qml"));
-        VERIFY_ERRORS(0);
-        QScopedPointer<QObject> object(component.create());
-        QVERIFY(object != nullptr);
+    QScopedPointer<QObject> object;
 
-        QCOMPARE(object->property("intProperty").toInt(), (int)MyNamespace::MyOtherNSEnum::OtherKey2);
-    }
-
-    {
-        QQmlComponent component(&engine, testFileUrl("cppnamespace.2.qml"));
+    auto create = [&](const char *file) {
+        QQmlComponent component(&engine, testFileUrl(file));
         VERIFY_ERRORS(0);
-        QScopedPointer<QObject> object(component.create());
+        object.reset(component.create());
         QVERIFY(object != nullptr);
-    }
+    };
+
+    auto createAndCheck = [&](const char *file) {
+        create(file);
+        return !QTest::currentTestFailed();
+    };
+
+    QVERIFY(createAndCheck("cppnamespace.qml"));
+    QCOMPARE(object->property("intProperty").toInt(),
+             (int)MyNamespace::MyOtherNSEnum::OtherKey2);
+
+    QVERIFY(createAndCheck("cppstaticnamespace.qml"));
+    QCOMPARE(object->property("intProperty").toInt(),
+             (int)MyStaticNamespace::MyOtherNSEnum::OtherKey2);
+
+    QVERIFY(createAndCheck("cppnamespace.2.qml"));
+    QVERIFY(createAndCheck("cppstaticnamespace.2.qml"));
 }
 
 void tst_qqmllanguage::aliasProperties()
@@ -1936,7 +2102,6 @@ void tst_qqmllanguage::aliasProperties()
 
     // "Nested" aliases within an object that require iterative resolution
     {
-        // This is known to fail at the moment.
         QQmlComponent component(&engine, testFileUrl("alias.14.qml"));
         VERIFY_ERRORS(0);
 
@@ -2034,6 +2199,11 @@ void tst_qqmllanguage::aliasProperties()
         QVERIFY(myText);
         auto text = myText->property("text").toString();
         QCOMPARE(text, "alias:\n20");
+    }
+
+    {
+        QQmlComponent component(&engine, testFileUrl("alias.18.qml"));
+        VERIFY_ERRORS("alias.18.errors.txt");
     }
 }
 
@@ -2294,20 +2464,31 @@ void tst_qqmllanguage::scriptStringJs()
     QVERIFY(!object->scriptProperty().booleanLiteral(&ok) && !ok);
 }
 
+struct FreeUnitData
+{
+    static void cleanup(const QV4::CompiledData::Unit *readOnlyQmlUnit)
+    {
+        if (readOnlyQmlUnit && !(readOnlyQmlUnit->flags & QV4::CompiledData::Unit::StaticData))
+            free(const_cast<QV4::CompiledData::Unit *>(readOnlyQmlUnit));
+    }
+};
+
 void tst_qqmllanguage::scriptStringWithoutSourceCode()
 {
     QUrl url = testFileUrl("scriptString7.qml");
+    QScopedPointer<const QV4::CompiledData::Unit, FreeUnitData> readOnlyQmlUnit;
     {
         QQmlEnginePrivate *eng = QQmlEnginePrivate::get(&engine);
         QQmlRefPointer<QQmlTypeData> td = eng->typeLoader.getType(url);
         Q_ASSERT(td);
 
-        const QV4::CompiledData::Unit *readOnlyQmlUnit = td->compilationUnit()->unitData();
+        QQmlRefPointer<QV4::ExecutableCompilationUnit> compilationUnit = td->compilationUnit();
+        readOnlyQmlUnit.reset(compilationUnit->unitData());
         Q_ASSERT(readOnlyQmlUnit);
         QV4::CompiledData::Unit *qmlUnit = reinterpret_cast<QV4::CompiledData::Unit *>(malloc(readOnlyQmlUnit->unitSize));
-        memcpy(qmlUnit, readOnlyQmlUnit, readOnlyQmlUnit->unitSize);
+        memcpy(qmlUnit, readOnlyQmlUnit.data(), readOnlyQmlUnit->unitSize);
+
         qmlUnit->flags &= ~QV4::CompiledData::Unit::StaticData;
-        QQmlRefPointer<QV4::ExecutableCompilationUnit> compilationUnit = td->compilationUnit();
         compilationUnit->setUnitData(qmlUnit);
 
         const QV4::CompiledData::Object *rootObject = compilationUnit->objectAt(/*root object*/0);
@@ -2743,12 +2924,12 @@ void tst_qqmllanguage::importsLocal_data()
     QTest::newRow("local import QTBUG-7721 A")
         << "subdir.Test {}" // no longer allowed (QTBUG-7721)
         << ""
-        << "subdir.Test - subdir is not a namespace";
+        << "subdir.Test - subdir is neither a type nor a namespace";
     QTest::newRow("local import QTBUG-7721 B")
         << "import \"subdir\" as X\n"
            "X.subsubdir.SubTest {}" // no longer allowed (QTBUG-7721)
         << ""
-        << "X.subsubdir.SubTest - nested namespaces not allowed";
+        << "X.subsubdir.SubTest - subsubdir is not a type";
     QTest::newRow("local import as")
         << "import \"subdir\" as T\n"
            "T.Test {}"
@@ -4709,11 +4890,13 @@ static void beginDeferredOnce(QQmlEnginePrivate *enginePriv,
         typedef QMultiHash<int, const QV4::CompiledData::Binding *> QV4PropertyBindingHash;
         auto it = std::reverse_iterator<QV4PropertyBindingHash::iterator>(range.second);
         auto last = std::reverse_iterator<QV4PropertyBindingHash::iterator>(range.first);
+        state->creator->beginPopulateDeferred(deferData->context);
         while (it != last) {
-            if (!state->creator->populateDeferredBinding(property, deferData, *it))
-                state->errors << state->creator->errors;
+            state->creator->populateDeferredBinding(property, deferData->deferredIdx, *it);
             ++it;
         }
+        state->creator->finalizePopulateDeferred();
+        state->errors << state->creator->errors;
 
         deferredState->constructionStates += state;
 
@@ -4938,24 +5121,24 @@ void tst_qqmllanguage::instanceof_data()
     // assert that basic types don't convert to QObject
     QTest::newRow("1 instanceof QtObject")
         << testFileUrl("instanceof_qtqml.qml")
-        << QVariant("TypeError: Type error");
+        << QVariant(false);
     QTest::newRow("true instanceof QtObject")
         << testFileUrl("instanceof_qtqml.qml")
-        << QVariant("TypeError: Type error");
+        << QVariant(false);
     QTest::newRow("\"foobar\" instanceof QtObject")
         << testFileUrl("instanceof_qtqml.qml")
-        << QVariant("TypeError: Type error");
+        << QVariant(false);
 
     // assert that Managed don't either
     QTest::newRow("new String(\"foobar\") instanceof QtObject")
         << testFileUrl("instanceof_qtqml.qml")
-        << QVariant("TypeError: Type error");
+        << QVariant(false);
     QTest::newRow("new Object() instanceof QtObject")
         << testFileUrl("instanceof_qtqml.qml")
-        << QVariant("TypeError: Type error");
+        << QVariant(false);
     QTest::newRow("new Date() instanceof QtObject")
         << testFileUrl("instanceof_qtqml.qml")
-        << QVariant("TypeError: Type error");
+        << QVariant(false);
 
     // test that simple QtQml comparisons work
     QTest::newRow("qtobjectInstance instanceof QtObject")
@@ -5240,29 +5423,376 @@ void tst_qqmllanguage::typeWrapperToVariant()
     QVERIFY(target);
 }
 
+void tst_qqmllanguage::extendedForeignTypes()
+{
+    QQmlEngine engine;
+    QQmlComponent component(&engine, testFileUrl("foreignExtended.qml"));
+    VERIFY_ERRORS(0);
+    QScopedPointer<QObject> o(component.create());
+    QVERIFY(!o.isNull());
+
+    QCOMPARE(o->property("extendedBase").toInt(), 43);
+    QCOMPARE(o->property("extendedExtension").toInt(), 42);
+    QCOMPARE(o->property("foreignExtendedExtension").toInt(), 42);
+    QCOMPARE(o->property("foreignObjectName").toString(), QLatin1String("foreign"));
+    QCOMPARE(o->property("foreignExtendedObjectName").toString(), QLatin1String("foreignExtended"));
+}
+
+void tst_qqmllanguage::selfReference()
+{
+    QQmlEngine engine;
+    QQmlComponent component(&engine, testFileUrl("SelfReference.qml"));
+    VERIFY_ERRORS(0);
+    QScopedPointer<QObject> o(component.create());
+    QVERIFY(!o.isNull());
+
+    QQmlComponentPrivate *componentPrivate = QQmlComponentPrivate::get(&component);
+    auto compilationUnit = componentPrivate->compilationUnit;
+    QVERIFY(compilationUnit);
+
+    const QMetaObject *metaObject = o->metaObject();
+    QMetaProperty selfProperty = metaObject->property(metaObject->indexOfProperty("self"));
+    QCOMPARE(selfProperty.userType(), compilationUnit->metaTypeId);
+
+    QByteArray typeName = selfProperty.typeName();
+    QVERIFY(typeName.endsWith('*'));
+    typeName = typeName.chopped(1);
+    QCOMPARE(typeName, metaObject->className());
+
+    QMetaMethod selfFunction = metaObject->method(metaObject->indexOfMethod("returnSelf()"));
+    QVERIFY(selfFunction.isValid());
+    QCOMPARE(selfFunction.returnType(), compilationUnit->metaTypeId);
+
+    QMetaMethod selfSignal;
+
+    for (int i = metaObject->methodOffset(); i < metaObject->methodCount(); ++i) {
+        QMetaMethod method = metaObject->method(i);
+        if (method.isValid() && method.name().startsWith("blah")) {
+            selfSignal = method;
+            break;
+        }
+    }
+
+    QVERIFY(selfSignal.isValid());
+    QCOMPARE(selfSignal.parameterCount(), 1);
+    QCOMPARE(selfSignal.parameterType(0), compilationUnit->metaTypeId);
+}
+
+void tst_qqmllanguage::selfReferencingSingleton()
+{
+    QQmlEngine engine;
+    engine.addImportPath(dataDirectory());
+
+    QPointer<QObject> singletonPointer;
+    {
+        QQmlComponent component(&engine);
+        component.setData(QByteArray(R"(import QtQml 2.0
+                                     import selfreferencingsingletonmodule 1.0
+                                     QtObject {
+                                         property SelfReferencingSingleton singletonPointer: SelfReferencingSingleton
+                                     })"), QUrl());
+        VERIFY_ERRORS(0);
+        QScopedPointer<QObject> o(component.create());
+        QVERIFY(!o.isNull());
+        singletonPointer = o->property("singletonPointer").value<QObject*>();
+    }
+
+    QVERIFY(!singletonPointer.isNull());
+    QCOMPARE(singletonPointer->property("dummy").toInt(), 42);
+}
+
+void tst_qqmllanguage::listContainingDeletedObject()
+{
+    QQmlEngine engine;
+    auto url = testFileUrl("listContainingDeleted.qml");
+    const QString message = url.toString() + ":24: TypeError: Cannot read property 'enabled' of null";
+    QTest::ignoreMessage(QtMsgType::QtWarningMsg, message.toUtf8().data());
+    QQmlComponent comp(&engine, url);
+    QScopedPointer<QObject> root(comp.create());
+    QVERIFY(root);
+
+    auto cmp = root->property("a").value<QQmlComponent*>();
+    auto o = cmp->create();
+
+    QMetaObject::invokeMethod(root.get(), "doAssign", Q_ARG(QVariant, QVariant::fromValue(o)));
+    delete o;
+    QMetaObject::invokeMethod(root.get(), "use");
+
+}
+
+void tst_qqmllanguage::overrideSingleton()
+{
+    auto check = [](const QString &name, const QByteArray &singletonElement) {
+        const QByteArray testQml = "import Test 1.0\n"
+                                   "import QtQml 2.0\n"
+                                   "QtObject { objectName: " + singletonElement + ".objectName }";
+        QQmlEngine engine;
+        QQmlComponent component(&engine, nullptr);
+        component.setData(testQml, QUrl("singleton.qml"));
+        QVERIFY(component.isReady());
+        QScopedPointer<QObject> obj(component.create());
+        QCOMPARE(obj->objectName(), name);
+    };
+
+    check("statically registered", "BareSingleton");
+
+    BareSingleton singleton;
+    singleton.setObjectName("dynamically registered");
+    qmlRegisterSingletonInstance("Test", 1, 0, "BareSingleton", &singleton);
+
+    check("dynamically registered", "BareSingleton");
+
+    QTest::ignoreMessage(
+                QtWarningMsg,
+                "singleton.qml:3: TypeError: Cannot read property 'objectName' of undefined");
+    check("", "UncreatableSingleton");
+
+    qmlRegisterSingletonInstance("Test", 1, 0, "UncreatableSingleton",
+                                 UncreatableSingleton::instance());
+    check("uncreatable", "UncreatableSingleton");
+}
+
+void tst_qqmllanguage::inlineComponent()
+{
+    QFETCH(QUrl, componentUrl);
+    QFETCH(QColor, color);
+    QFETCH(int, width);
+    QQmlEngine engine;
+    QQmlComponent component(&engine, componentUrl);
+    QScopedPointer<QObject> o(component.create());
+    if (component.isError()) {
+        qDebug() << component.errorString();
+    }
+    QVERIFY(!o.isNull());
+    auto icInstance = o->findChild<QObject *>("icInstance");
+    QVERIFY(icInstance);
+    QCOMPARE(icInstance->property("color").value<QColor>(),color);
+    QCOMPARE(icInstance->property("width").value<qreal>(), width);
+}
+
+void tst_qqmllanguage::inlineComponent_data()
+{
+    QTest::addColumn<QUrl>("componentUrl");
+    QTest::addColumn<QColor>("color");
+    QTest::addColumn<int>("width");
+
+    QTest::newRow("Usage from other component") << testFileUrl("inlineComponentUser1.qml") << QColorConstants::Blue << 24;
+    QTest::newRow("Reexport")                   << testFileUrl("inlineComponentUser2.qml") << QColorConstants::Svg::green << 24;
+    QTest::newRow("Usage in same component")    << testFileUrl("inlineComponentUser3.qml") << QColorConstants::Blue << 24;
+
+    QTest::newRow("Resolution happens at instantiation") << testFileUrl("inlineComponentUser4.qml") << QColorConstants::Blue << 24;
+    QTest::newRow("Non-toplevel IC is found") << testFileUrl("inlineComponentUser5.qml") << QColorConstants::Svg::red << 24;
+
+    QTest::newRow("Resolved in correct order") << testFileUrl("inlineComponentOrder.qml") << QColorConstants::Blue << 200;
+
+    QTest::newRow("ID resolves correctly") << testFileUrl("inlineComponentWithId.qml") << QColorConstants::Svg::red << 42;
+    QTest::newRow("Alias resolves correctly") << testFileUrl("inlineComponentWithAlias.qml") << QColorConstants::Svg::lime << 42;
+}
+
+void tst_qqmllanguage::inlineComponentReferenceCycle_data()
+{
+    QTest::addColumn<QUrl>("componentUrl");
+
+    QTest::newRow("Simple cycle") << testFileUrl("icSimpleCycle.qml");
+    QTest::newRow("Via property") << testFileUrl("icCycleViaProperty.qml");
+}
+
+void tst_qqmllanguage::inlineComponentReferenceCycle()
+{
+    QFETCH(QUrl, componentUrl);
+    QQmlEngine engine;
+    QTest::ignoreMessage(QtMsgType::QtWarningMsg, "QQmlComponent: Component is not ready");
+    QQmlComponent component(&engine, componentUrl);
+    QScopedPointer<QObject> o(component.create());
+    QVERIFY(o.isNull());
+    QVERIFY(component.isError());
+    QCOMPARE(component.errorString(), componentUrl.toString() + QLatin1String(":-1 Inline components form a cycle!\n"));
+}
+
+void tst_qqmllanguage::nestedInlineComponentNotAllowed()
+{
+    QQmlEngine engine;
+    auto url = testFileUrl("nestedIC.qml");
+    QQmlComponent component(&engine, url);
+    QTest::ignoreMessage(QtMsgType::QtWarningMsg, "QQmlComponent: Component is not ready");
+    QScopedPointer<QObject> o(component.create());
+    QVERIFY(component.isError());
+    QCOMPARE(component.errorString(), QLatin1String("%1:%2").arg(url.toString(), QLatin1String("5 Nested inline components are not supported\n")));
+}
+
+void tst_qqmllanguage::inlineComponentStaticTypeResolution()
+{
+    QQmlEngine engine;
+    QQmlComponent component(&engine, testFileUrl("InlineComponentChild.qml"));
+    VERIFY_ERRORS(0);
+    QScopedPointer<QObject> o(component.create());
+    QVERIFY(o);
+    QCOMPARE(o->property("i").toInt(), 42);
+}
+
+void tst_qqmllanguage::inlineComponentInSingleton()
+{
+    QQmlEngine engine;
+    QQmlComponent component(&engine, testFileUrl("singletonICTest.qml"));
+    VERIFY_ERRORS(0);
+    QScopedPointer<QObject> o(component.create());
+    QVERIFY(!o.isNull());
+    auto untyped = o->property("singleton1");
+    QVERIFY(untyped.isValid());
+    auto singleton1 = untyped.value<QObject*>();
+    QVERIFY(singleton1);
+    QCOMPARE(singleton1->property("iProp").value<int>(), 42);
+    QCOMPARE(singleton1->property("sProp").value<QString>(), QString::fromLatin1("Hello, world"));
+    QVERIFY(!o.isNull());
+}
+
+void tst_qqmllanguage::nonExistingInlineComponent_data()
+{
+    QTest::addColumn<QUrl>("componentUrl");
+    QTest::addColumn<QString>("errorMessage");
+    QTest::addColumn<int>("line");
+    QTest::addColumn<int>("column");
+
+    QTest::newRow("Property type")  << testFileUrl("nonExistingICUser1.qml") << QString("Type InlineComponentProvider has no inline component type called NonExisting") << 4 << 5;
+    QTest::newRow("Instantiation")  << testFileUrl("nonExistingICUser2.qml") << QString("Type InlineComponentProvider has no inline component type called NotExisting") << 4 << 5;
+    QTest::newRow("Inheritance")    << testFileUrl("nonExistingICUser3.qml") << QString("Type InlineComponentProvider has no inline component type called NotExisting") << 3 << 1;
+    QTest::newRow("From singleton") << testFileUrl("nonExistingICUser4.qml") << QString("Type MySingleton.SingletonTypeWithIC has no inline component type called NonExisting") << 5 << 5;
+
+    QTest::newRow("Cannot access parent inline components from child")  << testFileUrl("nonExistingICUser5.qml") << QString("Type InlineComponentProviderChild has no inline component type called StyledRectangle") << 4 << 5;
+}
+
+void tst_qqmllanguage::nonExistingInlineComponent()
+{
+    QFETCH(QUrl, componentUrl);
+    QFETCH(QString, errorMessage);
+    QFETCH(int, line);
+    QFETCH(int, column);
+    QQmlEngine engine;
+    QQmlComponent component(&engine, componentUrl);
+    auto errors = component.errors();
+    QCOMPARE(errors.size(), 1);
+    const auto &error = errors.first();
+    QCOMPARE(error.description(), errorMessage);
+    QCOMPARE(error.line(), line);
+    QCOMPARE(error.column(), column);
+}
+
+void tst_qqmllanguage::inlineComponentFoundBeforeOtherImports()
+{
+    QQmlEngine engine;
+    QUrl url = testFileUrl("inlineComponentFoundBeforeOtherImports.qml");
+    QQmlComponent component(&engine, url);
+
+    QTest::ignoreMessage(QtMsgType::QtInfoMsg, "Created");
+    QScopedPointer<QObject> root {component.create()};
+}
+
+void tst_qqmllanguage::inlineComponentDuplicateNameError()
+{
+    QQmlEngine engine;
+    QUrl url = testFileUrl("inlineComponentDuplicateName.qml");
+    QQmlComponent component(&engine, url);
+
+    QString message = QLatin1String("%1:5 Inline component names must be unique per file\n").arg(url.toString());
+    QScopedPointer<QObject> root {component.create()};
+    QVERIFY(root.isNull());
+    QVERIFY(component.isError());
+    QCOMPARE(component.errorString(), message);
+}
+
+struct QJSValueConvertible {
+
+    Q_GADGET
+
+public:
+    QString msg;
+};
+
+bool operator==(const QJSValueConvertible &lhs, const QJSValueConvertible &rhs) {
+    return lhs.msg == rhs.msg;
+}
+
 class TestItem : public QObject
 {
     Q_OBJECT
     Q_PROPERTY( QVector<QPointF> positions MEMBER m_points  )
+    Q_PROPERTY( QSet<QByteArray> barrays MEMBER m_barrays  )
+    Q_PROPERTY( QVector<QJSValueConvertible> convertibles MEMBER m_convertibles)
 
 public:
     TestItem() = default;
     QVector< QPointF > m_points;
+    QSet<QByteArray> m_barrays;
+    QVector<QJSValueConvertible> m_convertibles;
 };
 
 
 Q_DECLARE_METATYPE(QVector<QPointF>);
+Q_DECLARE_METATYPE(QSet<QByteArray>);
+Q_DECLARE_METATYPE(QJSValueConvertible);
+Q_DECLARE_METATYPE(QVector<QJSValueConvertible>);
+
 void tst_qqmllanguage::arrayToContainer()
 {
+    QMetaType::registerConverter< QJSValue, QJSValueConvertible >(
+
+        [](const QJSValue& value)
+        {
+            return QJSValueConvertible{value.toString()};
+        }
+    );
     QQmlEngine engine;
     qmlRegisterType<TestItem>("qt.test", 1, 0, "TestItem");
     QVector<QPointF> points { QPointF (2.0, 3.0) };
+    QSet<QByteArray> barrays { QByteArray("hello"), QByteArray("world") };
     engine.rootContext()->setContextProperty("test", QVariant::fromValue(points));
     QQmlComponent component(&engine, testFileUrl("arrayToContainer.qml"));
     VERIFY_ERRORS(0);
-    QScopedPointer<TestItem> root(qobject_cast<TestItem *>(component.createWithInitialProperties( {{"vector", QVariant::fromValue(points)}} )));
+    QScopedPointer<TestItem> root(qobject_cast<TestItem *>(component.createWithInitialProperties( {{"vector", QVariant::fromValue(points)}, {"myset", QVariant::fromValue(barrays)} } )));
     QVERIFY(root);
     QCOMPARE(root->m_points.at(0), QPointF (2.0, 3.0) );
+    QVERIFY(root->m_barrays.contains("hello"));
+    QVERIFY(root->m_barrays.contains("world"));
+    QCOMPARE(root->m_convertibles.at(0).msg, QLatin1String("hello"));
+    QCOMPARE(root->m_convertibles.at(1).msg, QLatin1String("world"));
+}
+
+class EnumTester : public QObject
+{
+    Q_OBJECT
+public:
+    enum Types
+    {
+        FIRST = 0,
+        SECOND,
+        THIRD
+    };
+    Q_ENUM(Types)
+};
+
+void tst_qqmllanguage::qualifiedScopeInCustomParser()
+{
+    qmlRegisterUncreatableType<EnumTester>("scoped.custom.test", 1, 0, "EnumTester",
+                                           "Object only creatable in C++");
+    QQmlEngine engine;
+    QQmlComponent component(&engine);
+    component.setData("import QtQml.Models 2.12\n"
+                      "import scoped.custom.test 1.0 as BACKEND\n"
+                      "ListModel {\n"
+                      "    ListElement { text: \"a\"; type: BACKEND.EnumTester.FIRST }\n"
+                      "}\n", QUrl());
+    QVERIFY(component.isReady());
+    QScopedPointer<QObject> obj(component.create());
+    QVERIFY(!obj.isNull());
+}
+
+void tst_qqmllanguage::accessNullPointerPropertyCache()
+{
+    QQmlEngine engine;
+    QQmlComponent c(&engine, testFileUrl("NullPointerPropertyCache.qml"));
+    QVERIFY(c.isReady());
+    QScopedPointer<QObject> obj(c.create());
+    QVERIFY(!obj.isNull());
 }
 
 QTEST_MAIN(tst_qqmllanguage)

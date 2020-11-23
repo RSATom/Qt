@@ -13,7 +13,6 @@
 #include "base/sequenced_task_runner.h"
 #include "base/task/post_task.h"
 #include "content/browser/dom_storage/dom_storage_context_wrapper.h"
-#include "content/browser/dom_storage/dom_storage_task_runner.h"
 #include "content/browser/dom_storage/session_storage_context_mojo.h"
 #include "content/public/browser/browser_task_traits.h"
 #include "content/public/browser/browser_thread.h"
@@ -114,8 +113,8 @@ SessionStorageNamespaceImpl::~SessionStorageNamespaceImpl() {
   if (!BrowserThread::CurrentlyOn(BrowserThread::UI)) {
     // If this fails to post then that's fine, as the mojo state should
     // already be destructed.
-    base::PostTaskWithTraits(FROM_HERE, {BrowserThread::UI},
-                             deleteNamespaceRunner.Release());
+    base::PostTask(FROM_HERE, {BrowserThread::UI},
+                   deleteNamespaceRunner.Release());
   }
 }
 

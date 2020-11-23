@@ -587,7 +587,6 @@ namespace {
 /*!
     \struct QWindowsFontEngineData
     \brief Static constant data shared by the font engines.
-    \ingroup qt-lighthouse-win
 */
 
 QWindowsFontEngineData::QWindowsFontEngineData()
@@ -673,10 +672,9 @@ static inline bool initDirectWrite(QWindowsFontEngineData *d)
     delayed population of the database again passing a font name
     to EnumFontFamiliesEx(), working around the fact that
     EnumFontFamiliesEx() does not list all fonts by default.
-    This should be introduced to Lighthouse as well?
+    This should be introduced to QPA as well?
 
     \internal
-    \ingroup qt-lighthouse-win
 */
 
 #ifndef QT_NO_DEBUG_STREAM
@@ -1069,18 +1067,16 @@ static bool addFontToDatabase(QString familyName,
 
     QString subFamilyName;
     QString subFamilyStyle;
-    if (ttf) {
-        // Look-up names registered in the font
-        QFontNames canonicalNames = qt_getCanonicalFontNames(logFont);
-        if (qt_localizedName(familyName) && !canonicalNames.name.isEmpty())
-            englishName = canonicalNames.name;
-        if (!canonicalNames.preferredName.isEmpty()) {
-            subFamilyName = familyName;
-            subFamilyStyle = styleName;
-            faceName = familyName; // Remember the original name for later lookups
-            familyName = canonicalNames.preferredName;
-            styleName = canonicalNames.preferredStyle;
-        }
+    // Look-up names registered in the font
+    QFontNames canonicalNames = qt_getCanonicalFontNames(logFont);
+    if (qt_localizedName(familyName) && !canonicalNames.name.isEmpty())
+        englishName = canonicalNames.name;
+    if (!canonicalNames.preferredName.isEmpty()) {
+        subFamilyName = familyName;
+        subFamilyStyle = styleName;
+        faceName = familyName; // Remember the original name for later lookups
+        familyName = canonicalNames.preferredName;
+        styleName = canonicalNames.preferredStyle;
     }
 
     QSupportedWritingSystems writingSystems;
@@ -1978,6 +1974,8 @@ QFontEngine *QWindowsFontDatabase::createEngine(const QFontDef &request, const Q
                                                                   reinterpret_cast<void **>(&directWriteFontFace2)))) {
                     if (directWriteFontFace2->IsColorFont())
                         isColorFont = directWriteFontFace2->GetPaletteEntryCount() > 0;
+
+                    directWriteFontFace2->Release();
                 }
 #endif
                 useDw = useDw || useDirectWrite(hintingPreference, fam, isColorFont);
@@ -1999,9 +1997,8 @@ QFontEngine *QWindowsFontDatabase::createEngine(const QFontDef &request, const Q
                         fedw->glyphFormat = QFontEngine::Format_ARGB;
                     fedw->initFontInfo(fontDef, dpi);
                     fe = fedw;
-                } else {
-                    directWriteFontFace->Release();
                 }
+                directWriteFontFace->Release();
             } else if (useDw) {
                 const QString errorString = qt_error_string(int(hr));
                 qWarning().noquote().nospace() << "DirectWrite: CreateFontFaceFromHDC() failed ("
@@ -2066,19 +2063,16 @@ QFont QWindowsFontDatabase::LOGFONT_to_QFont(const LOGFONT& logFont, int vertica
     return qFont;
 }
 
+static int s_defaultVerticalDPI = 96; // Native Pixels
+
 int QWindowsFontDatabase::defaultVerticalDPI()
 {
-    static int vDPI = -1;
-    if (vDPI == -1) {
-        if (HDC defaultDC = GetDC(0)) {
-            vDPI = GetDeviceCaps(defaultDC, LOGPIXELSY);
-            ReleaseDC(0, defaultDC);
-        } else {
-            // FIXME: Resolve now or return 96 and keep unresolved?
-            vDPI = 96;
-        }
-    }
-    return vDPI;
+    return s_defaultVerticalDPI;
+}
+
+void QWindowsFontDatabase::setDefaultVerticalDPI(int d)
+{
+    s_defaultVerticalDPI = d;
 }
 
 bool QWindowsFontDatabase::isPrivateFontFamily(const QString &family) const

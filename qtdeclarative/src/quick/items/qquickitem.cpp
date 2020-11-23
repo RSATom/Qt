@@ -74,6 +74,7 @@
 #include <private/qv4object_p.h>
 #include <private/qv4qobjectwrapper_p.h>
 #include <private/qdebug_p.h>
+#include <private/qqmlvaluetypewrapper_p.h>
 
 #if QT_CONFIG(cursor)
 # include <QtGui/qcursor.h>
@@ -464,8 +465,8 @@ void QQuickKeyNavigationAttached::setLeft(QQuickItem *i)
     Q_D(QQuickKeyNavigationAttached);
     if (d->leftSet && d->left == i)
         return;
+    d->leftSet = d->left != i;
     d->left = i;
-    d->leftSet = true;
     QQuickKeyNavigationAttached* other =
             qobject_cast<QQuickKeyNavigationAttached*>(qmlAttachedPropertiesObject<QQuickKeyNavigationAttached>(i));
     if (other && !other->d_func()->rightSet){
@@ -486,8 +487,8 @@ void QQuickKeyNavigationAttached::setRight(QQuickItem *i)
     Q_D(QQuickKeyNavigationAttached);
     if (d->rightSet && d->right == i)
         return;
+    d->rightSet = d->right != i;
     d->right = i;
-    d->rightSet = true;
     QQuickKeyNavigationAttached* other =
             qobject_cast<QQuickKeyNavigationAttached*>(qmlAttachedPropertiesObject<QQuickKeyNavigationAttached>(i));
     if (other && !other->d_func()->leftSet){
@@ -508,8 +509,8 @@ void QQuickKeyNavigationAttached::setUp(QQuickItem *i)
     Q_D(QQuickKeyNavigationAttached);
     if (d->upSet && d->up == i)
         return;
+    d->upSet = d->up != i;
     d->up = i;
-    d->upSet = true;
     QQuickKeyNavigationAttached* other =
             qobject_cast<QQuickKeyNavigationAttached*>(qmlAttachedPropertiesObject<QQuickKeyNavigationAttached>(i));
     if (other && !other->d_func()->downSet){
@@ -530,8 +531,8 @@ void QQuickKeyNavigationAttached::setDown(QQuickItem *i)
     Q_D(QQuickKeyNavigationAttached);
     if (d->downSet && d->down == i)
         return;
+    d->downSet = d->down != i;
     d->down = i;
-    d->downSet = true;
     QQuickKeyNavigationAttached* other =
             qobject_cast<QQuickKeyNavigationAttached*>(qmlAttachedPropertiesObject<QQuickKeyNavigationAttached>(i));
     if (other && !other->d_func()->upSet) {
@@ -552,8 +553,8 @@ void QQuickKeyNavigationAttached::setTab(QQuickItem *i)
     Q_D(QQuickKeyNavigationAttached);
     if (d->tabSet && d->tab == i)
         return;
+    d->tabSet = d->tab != i;
     d->tab = i;
-    d->tabSet = true;
     QQuickKeyNavigationAttached* other =
             qobject_cast<QQuickKeyNavigationAttached*>(qmlAttachedPropertiesObject<QQuickKeyNavigationAttached>(i));
     if (other && !other->d_func()->backtabSet) {
@@ -574,8 +575,8 @@ void QQuickKeyNavigationAttached::setBacktab(QQuickItem *i)
     Q_D(QQuickKeyNavigationAttached);
     if (d->backtabSet && d->backtab == i)
         return;
+    d->backtabSet = d->backtab != i;
     d->backtab = i;
-    d->backtabSet = true;
     QQuickKeyNavigationAttached* other =
             qobject_cast<QQuickKeyNavigationAttached*>(qmlAttachedPropertiesObject<QQuickKeyNavigationAttached>(i));
     if (other && !other->d_func()->tabSet) {
@@ -938,8 +939,6 @@ bool QQuickKeysAttached::isConnected(const char *signalName) const
 
     This signal is emitted when a key has been pressed. The \a event
     parameter provides information about the event.
-
-    The corresponding handler is \c onPressed.
 */
 
 /*!
@@ -947,8 +946,6 @@ bool QQuickKeysAttached::isConnected(const char *signalName) const
 
     This signal is emitted when a key has been released. The \a event
     parameter provides information about the event.
-
-    The corresponding handler is \c onReleased.
 */
 
 /*!
@@ -986,8 +983,6 @@ bool QQuickKeysAttached::isConnected(const char *signalName) const
     As with the other signals, \c shortcutOverride will only be emitted for an
     item if that item has \l {Item::}{activeFocus}.
 
-    The corresponding handler is \c onShortcutOverride.
-
     \sa Shortcut
 */
 
@@ -996,8 +991,6 @@ bool QQuickKeysAttached::isConnected(const char *signalName) const
 
     This signal is emitted when the digit '0' has been pressed. The \a event
     parameter provides information about the event.
-
-    The corresponding handler is \c onDigit0Pressed.
 */
 
 /*!
@@ -1005,8 +998,6 @@ bool QQuickKeysAttached::isConnected(const char *signalName) const
 
     This signal is emitted when the digit '1' has been pressed. The \a event
     parameter provides information about the event.
-
-    The corresponding handler is \c onDigit1Pressed.
 */
 
 /*!
@@ -1014,8 +1005,6 @@ bool QQuickKeysAttached::isConnected(const char *signalName) const
 
     This signal is emitted when the digit '2' has been pressed. The \a event
     parameter provides information about the event.
-
-    The corresponding handler is \c onDigit2Pressed.
 */
 
 /*!
@@ -1023,8 +1012,6 @@ bool QQuickKeysAttached::isConnected(const char *signalName) const
 
     This signal is emitted when the digit '3' has been pressed. The \a event
     parameter provides information about the event.
-
-    The corresponding handler is \c onDigit3Pressed.
 */
 
 /*!
@@ -1032,8 +1019,6 @@ bool QQuickKeysAttached::isConnected(const char *signalName) const
 
     This signal is emitted when the digit '4' has been pressed. The \a event
     parameter provides information about the event.
-
-    The corresponding handler is \c onDigit4Pressed.
 */
 
 /*!
@@ -1041,8 +1026,6 @@ bool QQuickKeysAttached::isConnected(const char *signalName) const
 
     This signal is emitted when the digit '5' has been pressed. The \a event
     parameter provides information about the event.
-
-    The corresponding handler is \c onDigit5Pressed.
 */
 
 /*!
@@ -1050,8 +1033,6 @@ bool QQuickKeysAttached::isConnected(const char *signalName) const
 
     This signal is emitted when the digit '6' has been pressed. The \a event
     parameter provides information about the event.
-
-    The corresponding handler is \c onDigit6Pressed.
 */
 
 /*!
@@ -1059,8 +1040,6 @@ bool QQuickKeysAttached::isConnected(const char *signalName) const
 
     This signal is emitted when the digit '7' has been pressed. The \a event
     parameter provides information about the event.
-
-    The corresponding handler is \c onDigit7Pressed.
 */
 
 /*!
@@ -1068,8 +1047,6 @@ bool QQuickKeysAttached::isConnected(const char *signalName) const
 
     This signal is emitted when the digit '8' has been pressed. The \a event
     parameter provides information about the event.
-
-    The corresponding handler is \c onDigit8Pressed.
 */
 
 /*!
@@ -1077,8 +1054,6 @@ bool QQuickKeysAttached::isConnected(const char *signalName) const
 
     This signal is emitted when the digit '9' has been pressed. The \a event
     parameter provides information about the event.
-
-    The corresponding handler is \c onDigit9Pressed.
 */
 
 /*!
@@ -1086,8 +1061,6 @@ bool QQuickKeysAttached::isConnected(const char *signalName) const
 
     This signal is emitted when the Left arrow has been pressed. The \a event
     parameter provides information about the event.
-
-    The corresponding handler is \c onLeftPressed.
 */
 
 /*!
@@ -1095,8 +1068,6 @@ bool QQuickKeysAttached::isConnected(const char *signalName) const
 
     This signal is emitted when the Right arrow has been pressed. The \a event
     parameter provides information about the event.
-
-    The corresponding handler is \c onRightPressed.
 */
 
 /*!
@@ -1104,8 +1075,6 @@ bool QQuickKeysAttached::isConnected(const char *signalName) const
 
     This signal is emitted when the Up arrow has been pressed. The \a event
     parameter provides information about the event.
-
-    The corresponding handler is \c onUpPressed.
 */
 
 /*!
@@ -1113,8 +1082,6 @@ bool QQuickKeysAttached::isConnected(const char *signalName) const
 
     This signal is emitted when the Down arrow has been pressed. The \a event
     parameter provides information about the event.
-
-    The corresponding handler is \c onDownPressed.
 */
 
 /*!
@@ -1122,8 +1089,6 @@ bool QQuickKeysAttached::isConnected(const char *signalName) const
 
     This signal is emitted when the Tab key has been pressed. The \a event
     parameter provides information about the event.
-
-    The corresponding handler is \c onTabPressed.
 */
 
 /*!
@@ -1131,8 +1096,6 @@ bool QQuickKeysAttached::isConnected(const char *signalName) const
 
     This signal is emitted when the Shift+Tab key combination (Backtab) has
     been pressed. The \a event parameter provides information about the event.
-
-    The corresponding handler is \c onBacktabPressed.
 */
 
 /*!
@@ -1140,8 +1103,6 @@ bool QQuickKeysAttached::isConnected(const char *signalName) const
 
     This signal is emitted when the Asterisk '*' has been pressed. The \a event
     parameter provides information about the event.
-
-    The corresponding handler is \c onAsteriskPressed.
 */
 
 /*!
@@ -1149,8 +1110,6 @@ bool QQuickKeysAttached::isConnected(const char *signalName) const
 
     This signal is emitted when the Escape key has been pressed. The \a event
     parameter provides information about the event.
-
-    The corresponding handler is \c onEscapePressed.
 */
 
 /*!
@@ -1158,8 +1117,6 @@ bool QQuickKeysAttached::isConnected(const char *signalName) const
 
     This signal is emitted when the Return key has been pressed. The \a event
     parameter provides information about the event.
-
-    The corresponding handler is \c onReturnPressed.
 */
 
 /*!
@@ -1167,8 +1124,6 @@ bool QQuickKeysAttached::isConnected(const char *signalName) const
 
     This signal is emitted when the Enter key has been pressed. The \a event
     parameter provides information about the event.
-
-    The corresponding handler is \c onEnterPressed.
 */
 
 /*!
@@ -1176,8 +1131,6 @@ bool QQuickKeysAttached::isConnected(const char *signalName) const
 
     This signal is emitted when the Delete key has been pressed. The \a event
     parameter provides information about the event.
-
-    The corresponding handler is \c onDeletePressed.
 */
 
 /*!
@@ -1185,8 +1138,6 @@ bool QQuickKeysAttached::isConnected(const char *signalName) const
 
     This signal is emitted when the Space key has been pressed. The \a event
     parameter provides information about the event.
-
-    The corresponding handler is \c onSpacePressed.
 */
 
 /*!
@@ -1194,8 +1145,6 @@ bool QQuickKeysAttached::isConnected(const char *signalName) const
 
     This signal is emitted when the Back key has been pressed. The \a event
     parameter provides information about the event.
-
-    The corresponding handler is \c onBackPressed.
 */
 
 /*!
@@ -1203,8 +1152,6 @@ bool QQuickKeysAttached::isConnected(const char *signalName) const
 
     This signal is emitted when the Cancel key has been pressed. The \a event
     parameter provides information about the event.
-
-    The corresponding handler is \c onCancelPressed.
 */
 
 /*!
@@ -1212,8 +1159,6 @@ bool QQuickKeysAttached::isConnected(const char *signalName) const
 
     This signal is emitted when the Select key has been pressed. The \a event
     parameter provides information about the event.
-
-    The corresponding handler is \c onSelectPressed.
 */
 
 /*!
@@ -1221,8 +1166,6 @@ bool QQuickKeysAttached::isConnected(const char *signalName) const
 
     This signal is emitted when the Yes key has been pressed. The \a event
     parameter provides information about the event.
-
-    The corresponding handler is \c onYesPressed.
 */
 
 /*!
@@ -1230,8 +1173,6 @@ bool QQuickKeysAttached::isConnected(const char *signalName) const
 
     This signal is emitted when the No key has been pressed. The \a event
     parameter provides information about the event.
-
-    The corresponding handler is \c onNoPressed.
 */
 
 /*!
@@ -1239,8 +1180,6 @@ bool QQuickKeysAttached::isConnected(const char *signalName) const
 
     This signal is emitted when the Context1 key has been pressed. The \a event
     parameter provides information about the event.
-
-    The corresponding handler is \c onContext1Pressed.
 */
 
 /*!
@@ -1248,8 +1187,6 @@ bool QQuickKeysAttached::isConnected(const char *signalName) const
 
     This signal is emitted when the Context2 key has been pressed. The \a event
     parameter provides information about the event.
-
-    The corresponding handler is \c onContext2Pressed.
 */
 
 /*!
@@ -1257,8 +1194,6 @@ bool QQuickKeysAttached::isConnected(const char *signalName) const
 
     This signal is emitted when the Context3 key has been pressed. The \a event
     parameter provides information about the event.
-
-    The corresponding handler is \c onContext3Pressed.
 */
 
 /*!
@@ -1266,8 +1201,6 @@ bool QQuickKeysAttached::isConnected(const char *signalName) const
 
     This signal is emitted when the Context4 key has been pressed. The \a event
     parameter provides information about the event.
-
-    The corresponding handler is \c onContext4Pressed.
 */
 
 /*!
@@ -1275,8 +1208,6 @@ bool QQuickKeysAttached::isConnected(const char *signalName) const
 
     This signal is emitted when the Call key has been pressed. The \a event
     parameter provides information about the event.
-
-    The corresponding handler is \c onCallPressed.
 */
 
 /*!
@@ -1284,8 +1215,6 @@ bool QQuickKeysAttached::isConnected(const char *signalName) const
 
     This signal is emitted when the Hangup key has been pressed. The \a event
     parameter provides information about the event.
-
-    The corresponding handler is \c onHangupPressed.
 */
 
 /*!
@@ -1293,8 +1222,6 @@ bool QQuickKeysAttached::isConnected(const char *signalName) const
 
     This signal is emitted when the Flip key has been pressed. The \a event
     parameter provides information about the event.
-
-    The corresponding handler is \c onFlipPressed.
 */
 
 /*!
@@ -1302,8 +1229,6 @@ bool QQuickKeysAttached::isConnected(const char *signalName) const
 
     This signal is emitted when the Menu key has been pressed. The \a event
     parameter provides information about the event.
-
-    The corresponding handler is \c onMenuPressed.
 */
 
 /*!
@@ -1311,8 +1236,6 @@ bool QQuickKeysAttached::isConnected(const char *signalName) const
 
     This signal is emitted when the VolumeUp key has been pressed. The \a event
     parameter provides information about the event.
-
-    The corresponding handler is \c onVolumeUpPressed.
 */
 
 /*!
@@ -1320,8 +1243,6 @@ bool QQuickKeysAttached::isConnected(const char *signalName) const
 
     This signal is emitted when the VolumeDown key has been pressed. The \a event
     parameter provides information about the event.
-
-    The corresponding handler is \c onVolumeDownPressed.
 */
 
 QQuickKeysAttached::QQuickKeysAttached(QObject *parent)
@@ -1478,7 +1399,7 @@ QVariant QQuickKeysAttached::inputMethodQuery(Qt::InputMethodQuery query) const
             if (i && i->isVisible() && (i->flags() & QQuickItem::ItemAcceptsInputMethod) && i == d->imeItem) {
                 //### how robust is i == d->imeItem check?
                 QVariant v = i->inputMethodQuery(query);
-                if (v.userType() == QVariant::RectF)
+                if (v.userType() == QMetaType::QRectF)
                     v = d->item->mapRectFromItem(i, v.toRectF());  //### cost?
                 return v;
             }
@@ -3249,6 +3170,7 @@ QQuickItemPrivate::QQuickItemPrivate()
 #else
     , touchEnabled(false)
 #endif
+    , hasCursorHandler(false)
     , dirtyAttributes(0)
     , nextDirtyItem(nullptr)
     , prevDirtyItem(nullptr)
@@ -4055,6 +3977,9 @@ void QQuickItem::focusOutEvent(QFocusEvent * /*event*/)
     press events for an item. The event information is provided by the
     \a event parameter.
 
+    In order to receive mouse press events, \l acceptedMouseButtons() must
+    return the relevant mouse button.
+
     \input item.qdocinc accepting-events
   */
 void QQuickItem::mousePressEvent(QMouseEvent *event)
@@ -4067,6 +3992,10 @@ void QQuickItem::mousePressEvent(QMouseEvent *event)
     move events for an item. The event information is provided by the
     \a event parameter.
 
+    In order to receive mouse movement events, the preceding mouse press event
+    must be accepted (by overriding \l mousePressEvent(), for example) and
+    \l acceptedMouseButtons() must return the relevant mouse button.
+
     \input item.qdocinc accepting-events
   */
 void QQuickItem::mouseMoveEvent(QMouseEvent *event)
@@ -4078,6 +4007,10 @@ void QQuickItem::mouseMoveEvent(QMouseEvent *event)
     This event handler can be reimplemented in a subclass to receive mouse
     release events for an item. The event information is provided by the
     \a event parameter.
+
+    In order to receive mouse release events, the preceding mouse press event
+    must be accepted (by overriding \l mousePressEvent(), for example) and
+    \l acceptedMouseButtons() must return the relevant mouse button.
 
     \input item.qdocinc accepting-events
   */
@@ -4481,9 +4414,94 @@ void QQuickItem::polish()
     }
 }
 
+static bool unwrapMapFromToFromItemArgs(QQmlV4Function *args, const QQuickItem *itemForWarning, const QString &functionNameForWarning,
+                                        QQuickItem **itemObj, qreal *x, qreal *y, qreal *w, qreal *h, bool *isRect)
+{
+    QV4::ExecutionEngine *v4 = args->v4engine();
+    if (args->length() != 2 && args->length() != 3 && args->length() != 5) {
+        v4->throwTypeError();
+        return false;
+    }
+
+    QV4::Scope scope(v4);
+    QV4::ScopedValue item(scope, (*args)[0]);
+
+    *itemObj = nullptr;
+    if (!item->isNull()) {
+        QV4::Scoped<QV4::QObjectWrapper> qobjectWrapper(scope, item->as<QV4::QObjectWrapper>());
+        if (qobjectWrapper)
+            *itemObj = qobject_cast<QQuickItem*>(qobjectWrapper->object());
+    }
+
+    if (!(*itemObj) && !item->isNull()) {
+        qmlWarning(itemForWarning) << functionNameForWarning << " given argument \"" << item->toQStringNoThrow()
+                                   << "\" which is neither null nor an Item";
+        v4->throwTypeError();
+        return false;
+    }
+
+    *isRect = false;
+
+    if (args->length() == 2) {
+        QV4::ScopedValue sv(scope, (*args)[1]);
+        if (sv->isNull()) {
+            qmlWarning(itemForWarning) << functionNameForWarning << "given argument \"" << sv->toQStringNoThrow()
+                                       << "\" which is neither a point nor a rect";
+            v4->throwTypeError();
+            return false;
+        }
+        const QV4::Scoped<QV4::QQmlValueTypeWrapper> variantWrapper(scope, sv->as<QV4::QQmlValueTypeWrapper>());
+        const QVariant v = variantWrapper ? variantWrapper->toVariant() : QVariant();
+        if (v.canConvert<QPointF>()) {
+            const QPointF p = v.toPointF();
+            *x = p.x();
+            *y = p.y();
+        } else if (v.canConvert<QRectF>()) {
+            const QRectF r = v.toRectF();
+            *x = r.x();
+            *y = r.y();
+            *w = r.width();
+            *h = r.height();
+            *isRect = true;
+        } else {
+            qmlWarning(itemForWarning) << functionNameForWarning << "given argument \"" << sv->toQStringNoThrow()
+                                       << "\" which is neither a point nor a rect";
+            v4->throwTypeError();
+            return false;
+        }
+    } else {
+        QV4::ScopedValue vx(scope, (*args)[1]);
+        QV4::ScopedValue vy(scope, (*args)[2]);
+
+        if (!vx->isNumber() || !vy->isNumber()) {
+            v4->throwTypeError();
+            return false;
+        }
+
+        *x = vx->asDouble();
+        *y = vy->asDouble();
+
+        if (args->length() > 3) {
+            QV4::ScopedValue vw(scope, (*args)[3]);
+            QV4::ScopedValue vh(scope, (*args)[4]);
+            if (!vw->isNumber() || !vh->isNumber()) {
+                v4->throwTypeError();
+                return false;
+            }
+            *w = vw->asDouble();
+            *h = vh->asDouble();
+            *isRect = true;
+        }
+    }
+
+    return true;
+}
+
 /*!
     \qmlmethod object QtQuick::Item::mapFromItem(Item item, real x, real y)
+    \qmlmethod object QtQuick::Item::mapFromItem(Item item, point p)
     \qmlmethod object QtQuick::Item::mapFromItem(Item item, real x, real y, real width, real height)
+    \qmlmethod object QtQuick::Item::mapFromItem(Item item, rect r)
 
     Maps the point (\a x, \a y) or rect (\a x, \a y, \a width, \a height), which is in \a
     item's coordinate system, to this item's coordinate system, and returns a \l point or \l rect
@@ -4493,6 +4511,8 @@ void QQuickItem::polish()
 
     If \a item is a \c null value, this maps the point or rect from the coordinate system of
     the root QML view.
+
+    The versions accepting point and rect are since Qt 5.15.
 */
 /*!
     \internal
@@ -4500,55 +4520,16 @@ void QQuickItem::polish()
 void QQuickItem::mapFromItem(QQmlV4Function *args) const
 {
     QV4::ExecutionEngine *v4 = args->v4engine();
-    if (args->length() != 3 && args->length() != 5) {
-        v4->throwTypeError();
-        return;
-    }
-
     QV4::Scope scope(v4);
-    QV4::ScopedValue item(scope, (*args)[0]);
 
-    QQuickItem *itemObj = nullptr;
-    if (!item->isNull()) {
-        QV4::Scoped<QV4::QObjectWrapper> qobjectWrapper(scope, item->as<QV4::QObjectWrapper>());
-        if (qobjectWrapper)
-            itemObj = qobject_cast<QQuickItem*>(qobjectWrapper->object());
-    }
-
-    if (!itemObj && !item->isNull()) {
-        qmlWarning(this) << "mapFromItem() given argument \"" << item->toQStringNoThrow()
-                      << "\" which is neither null nor an Item";
-        v4->throwTypeError();
+    qreal x, y, w, h;
+    bool isRect;
+    QQuickItem *itemObj;
+    if (!unwrapMapFromToFromItemArgs(args, this, QStringLiteral("mapFromItem()"), &itemObj, &x, &y, &w, &h, &isRect))
         return;
-    }
 
-    QV4::ScopedValue vx(scope, (*args)[1]);
-    QV4::ScopedValue vy(scope, (*args)[2]);
-
-    if (!vx->isNumber() || !vy->isNumber()) {
-        v4->throwTypeError();
-        return;
-    }
-
-    qreal x = vx->asDouble();
-    qreal y = vy->asDouble();
-
-    QVariant result;
-
-    if (args->length() > 3) {
-        QV4::ScopedValue vw(scope, (*args)[3]);
-        QV4::ScopedValue vh(scope, (*args)[4]);
-        if (!vw->isNumber() || !vh->isNumber()) {
-            v4->throwTypeError();
-            return;
-        }
-        qreal w = vw->asDouble();
-        qreal h = vh->asDouble();
-
-        result = mapRectFromItem(itemObj, QRectF(x, y, w, h));
-    } else {
-        result = mapFromItem(itemObj, QPointF(x, y));
-    }
+    const QVariant result = isRect ? QVariant(mapRectFromItem(itemObj, QRectF(x, y, w, h)))
+                                   : QVariant(mapFromItem(itemObj, QPointF(x, y)));
 
     QV4::ScopedObject rv(scope, v4->fromVariant(result));
     args->setReturnValue(rv.asReturnedValue());
@@ -4573,7 +4554,9 @@ QTransform QQuickItem::itemTransform(QQuickItem *other, bool *ok) const
 
 /*!
     \qmlmethod object QtQuick::Item::mapToItem(Item item, real x, real y)
+    \qmlmethod object QtQuick::Item::mapToItem(Item item, point p)
     \qmlmethod object QtQuick::Item::mapToItem(Item item, real x, real y, real width, real height)
+    \qmlmethod object QtQuick::Item::mapToItem(Item item, rect r)
 
     Maps the point (\a x, \a y) or rect (\a x, \a y, \a width, \a height), which is in this
     item's coordinate system, to \a item's coordinate system, and returns a \l point or \l rect
@@ -4583,6 +4566,8 @@ QTransform QQuickItem::itemTransform(QQuickItem *other, bool *ok) const
 
     If \a item is a \c null value, this maps the point or rect to the coordinate system of the
     root QML view.
+
+    The versions accepting point and rect are since Qt 5.15.
 */
 /*!
     \internal
@@ -4590,58 +4575,65 @@ QTransform QQuickItem::itemTransform(QQuickItem *other, bool *ok) const
 void QQuickItem::mapToItem(QQmlV4Function *args) const
 {
     QV4::ExecutionEngine *v4 = args->v4engine();
-    if (args->length() != 3 && args->length() != 5) {
-        v4->throwTypeError();
-        return;
-    }
-
     QV4::Scope scope(v4);
-    QV4::ScopedValue item(scope, (*args)[0]);
 
-    QQuickItem *itemObj = nullptr;
-    if (!item->isNull()) {
-        QV4::Scoped<QV4::QObjectWrapper> qobjectWrapper(scope, item->as<QV4::QObjectWrapper>());
-        if (qobjectWrapper)
-            itemObj = qobject_cast<QQuickItem*>(qobjectWrapper->object());
-    }
-
-    if (!itemObj && !item->isNull()) {
-        qmlWarning(this) << "mapToItem() given argument \"" << item->toQStringNoThrow()
-                      << "\" which is neither null nor an Item";
-        v4->throwTypeError();
+    qreal x, y, w, h;
+    bool isRect;
+    QQuickItem *itemObj;
+    if (!unwrapMapFromToFromItemArgs(args, this, QStringLiteral("mapToItem()"), &itemObj, &x, &y, &w, &h, &isRect))
         return;
-    }
 
-    QV4::ScopedValue vx(scope, (*args)[1]);
-    QV4::ScopedValue vy(scope, (*args)[2]);
-
-    if (!vx->isNumber() || !vy->isNumber()) {
-        v4->throwTypeError();
-        return;
-    }
-
-    qreal x = vx->asDouble();
-    qreal y = vy->asDouble();
-
-    QVariant result;
-
-    if (args->length() > 3) {
-        QV4::ScopedValue vw(scope, (*args)[3]);
-        QV4::ScopedValue vh(scope, (*args)[4]);
-        if (!vw->isNumber() || !vh->isNumber()) {
-            v4->throwTypeError();
-            return;
-        }
-        qreal w = vw->asDouble();
-        qreal h = vh->asDouble();
-
-        result = mapRectToItem(itemObj, QRectF(x, y, w, h));
-    } else {
-        result = mapToItem(itemObj, QPointF(x, y));
-    }
+    const QVariant result = isRect ? QVariant(mapRectToItem(itemObj, QRectF(x, y, w, h)))
+                                   : QVariant(mapToItem(itemObj, QPointF(x, y)));
 
     QV4::ScopedObject rv(scope, v4->fromVariant(result));
     args->setReturnValue(rv.asReturnedValue());
+}
+
+static bool unwrapMapFromToFromGlobalArgs(QQmlV4Function *args, const QQuickItem *itemForWarning, const QString &functionNameForWarning, qreal *x, qreal *y)
+{
+    QV4::ExecutionEngine *v4 = args->v4engine();
+    if (args->length() != 1 && args->length() != 2) {
+        v4->throwTypeError();
+        return false;
+    }
+
+    QV4::Scope scope(v4);
+
+    if (args->length() == 1) {
+        QV4::ScopedValue sv(scope, (*args)[0]);
+        if (sv->isNull()) {
+            qmlWarning(itemForWarning) << functionNameForWarning << "given argument \"" << sv->toQStringNoThrow()
+                                       << "\" which is not a point";
+            v4->throwTypeError();
+            return false;
+        }
+        const QV4::Scoped<QV4::QQmlValueTypeWrapper> variantWrapper(scope, sv->as<QV4::QQmlValueTypeWrapper>());
+        const QVariant v = variantWrapper ? variantWrapper->toVariant() : QVariant();
+        if (v.canConvert<QPointF>()) {
+            const QPointF p = v.toPointF();
+            *x = p.x();
+            *y = p.y();
+        } else {
+            qmlWarning(itemForWarning) << functionNameForWarning << "given argument \"" << sv->toQStringNoThrow()
+                                       << "\" which is not a point";
+            v4->throwTypeError();
+            return false;
+        }
+    } else {
+        QV4::ScopedValue vx(scope, (*args)[0]);
+        QV4::ScopedValue vy(scope, (*args)[1]);
+
+        if (!vx->isNumber() || !vy->isNumber()) {
+            v4->throwTypeError();
+            return false;
+        }
+
+        *x = vx->asDouble();
+        *y = vy->asDouble();
+    }
+
+    return true;
 }
 
 /*!
@@ -4659,22 +4651,12 @@ void QQuickItem::mapToItem(QQmlV4Function *args) const
 void QQuickItem::mapFromGlobal(QQmlV4Function *args) const
 {
     QV4::ExecutionEngine *v4 = args->v4engine();
-    if (args->length() != 2) {
-        v4->throwTypeError();
-        return;
-    }
-
     QV4::Scope scope(v4);
-    QV4::ScopedValue vx(scope, (*args)[0]);
-    QV4::ScopedValue vy(scope, (*args)[1]);
 
-    if (!vx->isNumber() || !vy->isNumber()) {
-        v4->throwTypeError();
+    qreal x, y;
+    if (!unwrapMapFromToFromGlobalArgs(args, this, QStringLiteral("mapFromGlobal()"), &x, &y))
         return;
-    }
 
-    qreal x = vx->asDouble();
-    qreal y = vy->asDouble();
     QVariant result = mapFromGlobal(QPointF(x, y));
 
     QV4::ScopedObject rv(scope, v4->fromVariant(result));
@@ -4696,22 +4678,12 @@ void QQuickItem::mapFromGlobal(QQmlV4Function *args) const
 void QQuickItem::mapToGlobal(QQmlV4Function *args) const
 {
     QV4::ExecutionEngine *v4 = args->v4engine();
-    if (args->length() != 2) {
-        v4->throwTypeError();
-        return;
-    }
-
     QV4::Scope scope(v4);
-    QV4::ScopedValue vx(scope, (*args)[0]);
-    QV4::ScopedValue vy(scope, (*args)[1]);
 
-    if (!vx->isNumber() || !vy->isNumber()) {
-        v4->throwTypeError();
+    qreal x, y;
+    if (!unwrapMapFromToFromGlobalArgs(args, this, QStringLiteral("mapFromGlobal()"), &x, &y))
         return;
-    }
 
-    qreal x = vx->asDouble();
-    qreal y = vy->asDouble();
     QVariant result = mapToGlobal(QPointF(x, y));
 
     QV4::ScopedObject rv(scope, v4->fromVariant(result));
@@ -7438,14 +7410,14 @@ void QQuickItem::setAcceptTouchEvents(bool enabled)
     d->touchEnabled = enabled;
 }
 
-void QQuickItemPrivate::setHasCursorInChild(bool hasCursor)
+void QQuickItemPrivate::setHasCursorInChild(bool hc)
 {
 #if QT_CONFIG(cursor)
     Q_Q(QQuickItem);
 
     // if we're asked to turn it off (because of an unsetcursor call, or a node
     // removal) then we should make sure it's really ok to turn it off.
-    if (!hasCursor && subtreeCursorEnabled) {
+    if (!hc && subtreeCursorEnabled) {
         if (hasCursor)
             return; // nope! sorry, I have a cursor myself
         for (QQuickItem *otherChild : qAsConst(childItems)) {
@@ -7455,14 +7427,14 @@ void QQuickItemPrivate::setHasCursorInChild(bool hasCursor)
         }
     }
 
-    subtreeCursorEnabled = hasCursor;
+    subtreeCursorEnabled = hc;
     QQuickItem *parent = q->parentItem();
     if (parent) {
         QQuickItemPrivate *parentPrivate = QQuickItemPrivate::get(parent);
-        parentPrivate->setHasCursorInChild(hasCursor);
+        parentPrivate->setHasCursorInChild(hc);
     }
 #else
-    Q_UNUSED(hasCursor);
+    Q_UNUSED(hc);
 #endif
 }
 
@@ -7539,17 +7511,20 @@ void QQuickItem::setCursor(const QCursor &cursor)
         }
     }
 
+    QPointF updateCursorPos;
     if (!d->hasCursor) {
-        d->setHasCursorInChild(true);
         d->hasCursor = true;
         if (d->window) {
             QWindow *renderWindow = QQuickRenderControl::renderWindowFor(d->window);
             QWindow *window = renderWindow ? renderWindow : d->window;
             QPointF pos = window->mapFromGlobal(QGuiApplicationPrivate::lastCursorPosition.toPoint());
             if (contains(mapFromScene(pos)))
-                QQuickWindowPrivate::get(d->window)->updateCursor(pos);
+                updateCursorPos = pos;
         }
     }
+    d->setHasCursorInChild(d->hasCursor || d->hasCursorHandler);
+    if (!updateCursorPos.isNull())
+        QQuickWindowPrivate::get(d->window)->updateCursor(updateCursorPos);
 }
 
 /*!
@@ -7563,8 +7538,8 @@ void QQuickItem::unsetCursor()
     Q_D(QQuickItem);
     if (!d->hasCursor)
         return;
-    d->setHasCursorInChild(false);
     d->hasCursor = false;
+    d->setHasCursorInChild(d->hasCursorHandler);
     if (d->extra.isAllocated())
         d->extra->cursor = QCursor();
 
@@ -7575,6 +7550,64 @@ void QQuickItem::unsetCursor()
             windowPrivate->updateCursor(pos);
         }
     }
+}
+
+/*!
+    \internal
+    Returns the cursor that should actually be shown, allowing the given
+    \handler to override the Item cursor if it is active or hovered.
+
+    \sa cursor(), setCursor(), QtQuick::PointerHandler::cursor
+*/
+QCursor QQuickItemPrivate::effectiveCursor(const QQuickPointerHandler *handler) const
+{
+    Q_Q(const QQuickItem);
+    if (!handler)
+        return q->cursor();
+    bool hoverCursorSet = false;
+    QCursor hoverCursor;
+    bool activeCursorSet = false;
+    QCursor activeCursor;
+    if (const QQuickHoverHandler *hoverHandler = qobject_cast<const QQuickHoverHandler *>(handler)) {
+        hoverCursorSet = hoverHandler->isCursorShapeExplicitlySet();
+        hoverCursor = hoverHandler->cursorShape();
+    } else if (handler->active()) {
+        activeCursorSet = handler->isCursorShapeExplicitlySet();
+        activeCursor = handler->cursorShape();
+    }
+    if (activeCursorSet)
+        return activeCursor;
+    if (hoverCursorSet)
+        return hoverCursor;
+    return q->cursor();
+}
+
+/*!
+    \internal
+    Returns the Pointer Handler that is currently attempting to set the cursor shape,
+    or null if there is no such handler.
+
+    \sa QtQuick::PointerHandler::cursor
+*/
+QQuickPointerHandler *QQuickItemPrivate::effectiveCursorHandler() const
+{
+    if (!hasPointerHandlers())
+        return nullptr;
+    QQuickPointerHandler *retHoverHandler = nullptr;
+    for (QQuickPointerHandler *h : extra->pointerHandlers) {
+        if (!h->isCursorShapeExplicitlySet())
+            continue;
+        QQuickHoverHandler *hoverHandler = qmlobject_cast<QQuickHoverHandler *>(h);
+        // For now, we don't expect multiple hover handlers in one Item, so we choose the first one found;
+        // but a future use case could be to have different cursors for different tablet stylus devices.
+        // In that case, this function needs more information: which device did the event come from.
+        // TODO Qt 6: add QPointerDevice* as argument to this function? (it doesn't exist yet in Qt 5)
+        if (!retHoverHandler && hoverHandler)
+            retHoverHandler = hoverHandler;
+        if (!hoverHandler && h->active())
+            return h;
+    }
+    return retHoverHandler;
 }
 
 #endif
@@ -8158,6 +8191,10 @@ bool QQuickItem::event(QEvent *ev)
         ev->ignore();
         break;
 #endif // gestures
+    case QEvent::LanguageChange:
+        for (QQuickItem *item : d->childItems)
+            QCoreApplication::sendEvent(item, ev);
+        break;
     default:
         return QObject::event(ev);
     }
@@ -8818,7 +8855,7 @@ QQuickItemPrivate::ExtraData::ExtraData()
   effectRefCount(0), hideRefCount(0),
   recursiveEffectRefCount(0),
   opacityNode(nullptr), clipNode(nullptr), rootNode(nullptr),
-  acceptedMouseButtons(nullptr), origin(QQuickItem::Center),
+  origin(QQuickItem::Center),
   transparentForPositioner(false)
 {
 }

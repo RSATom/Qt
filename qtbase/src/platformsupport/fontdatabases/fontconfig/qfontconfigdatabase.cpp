@@ -1,6 +1,6 @@
 /****************************************************************************
 **
-** Copyright (C) 2016 The Qt Company Ltd.
+** Copyright (C) 2019 The Qt Company Ltd.
 ** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the plugins of the Qt Toolkit.
@@ -55,6 +55,8 @@
 #include <QtGui/private/qhighdpiscaling_p.h>
 
 #include <QtGui/qguiapplication.h>
+
+#include <QtCore/private/qduplicatetracker_p.h>
 
 #include <fontconfig/fontconfig.h>
 #if FC_VERSION >= 20402
@@ -260,7 +262,22 @@ static const char specialLanguages[][6] = {
     "", // MasaramGondi
     "", // Nushu
     "", // Soyombo
-    "" // ZanabazarSquare
+    "", // ZanabazarSquare
+    "", // Dogra
+    "", // GunjalaGondi
+    "", // HanifiRohingya
+    "", // Makasar
+    "", // Medefaidrin
+    "", // OldSogdian
+    "", // Sogdian
+    "", // Elymaic
+    "", // Nandinagari
+    "", // NyiakengPuachueHmong
+    "", // Wancho
+    "", // Chorasmian
+    "", // DivesAkuru
+    "", // KhitanSmallScript
+    "" // Yezidi
 };
 Q_STATIC_ASSERT(sizeof specialLanguages / sizeof *specialLanguages == QChar::ScriptCount);
 
@@ -349,7 +366,7 @@ Q_STATIC_ASSERT(sizeof(capabilityForWritingSystem) / sizeof(*capabilityForWritin
 
 static const char *getFcFamilyForStyleHint(const QFont::StyleHint style)
 {
-    const char *stylehint = 0;
+    const char *stylehint = nullptr;
     switch (style) {
     case QFont::SansSerif:
         stylehint = "sans-serif";
@@ -383,7 +400,7 @@ static void populateFromPattern(FcPattern *pattern)
 {
     QString familyName;
     QString familyNameLang;
-    FcChar8 *value = 0;
+    FcChar8 *value = nullptr;
     int weight_value;
     int slant_value;
     int spacing_value;
@@ -406,7 +423,7 @@ static void populateFromPattern(FcPattern *pattern)
     slant_value = FC_SLANT_ROMAN;
     weight_value = FC_WEIGHT_REGULAR;
     spacing_value = FC_PROPORTIONAL;
-    file_value = 0;
+    file_value = nullptr;
     indexValue = 0;
     scalable = FcTrue;
 
@@ -420,20 +437,20 @@ static void populateFromPattern(FcPattern *pattern)
     if (FcPatternGetInteger(pattern, FC_SPACING, 0, &spacing_value) != FcResultMatch)
         spacing_value = FC_PROPORTIONAL;
     if (FcPatternGetString(pattern, FC_FILE, 0, &file_value) != FcResultMatch)
-        file_value = 0;
+        file_value = nullptr;
     if (FcPatternGetInteger(pattern, FC_INDEX, 0, &indexValue) != FcResultMatch)
         indexValue = 0;
     if (FcPatternGetBool(pattern, FC_SCALABLE, 0, &scalable) != FcResultMatch)
         scalable = FcTrue;
     if (FcPatternGetString(pattern, FC_FOUNDRY, 0, &foundry_value) != FcResultMatch)
-        foundry_value = 0;
+        foundry_value = nullptr;
     if (FcPatternGetString(pattern, FC_STYLE, 0, &style_value) != FcResultMatch)
-        style_value = 0;
+        style_value = nullptr;
     if (FcPatternGetBool(pattern,FC_ANTIALIAS,0,&antialias) != FcResultMatch)
         antialias = true;
 
     QSupportedWritingSystems writingSystems;
-    FcLangSet *langset = 0;
+    FcLangSet *langset = nullptr;
     FcResult res = FcPatternGetLangSet(pattern, FC_LANG, 0, &langset);
     if (res == FcResultMatch) {
         bool hasLang = false;
@@ -450,7 +467,7 @@ static void populateFromPattern(FcPattern *pattern)
                     if (*capabilityForWritingSystem[j] && requiresOpenType(j)) {
                         if (cap == nullptr)
                             capRes = FcPatternGetString(pattern, FC_CAPABILITY, 0, &cap);
-                        if (capRes == FcResultMatch && strstr(reinterpret_cast<const char *>(cap), capabilityForWritingSystem[j]) == 0)
+                        if (capRes == FcResultMatch && strstr(reinterpret_cast<const char *>(cap), capabilityForWritingSystem[j]) == nullptr)
                             continue;
                     }
 #endif
@@ -535,14 +552,14 @@ void QFontconfigDatabase::populateFontDatabase()
 #if FC_VERSION >= 20297
             FC_CAPABILITY,
 #endif
-            (const char *)0
+            (const char *)nullptr
         };
         const char **p = properties;
         while (*p) {
             FcObjectSetAdd(os, *p);
             ++p;
         }
-        fonts = FcFontList(0, pattern, os);
+        fonts = FcFontList(nullptr, pattern, os);
         FcObjectSetDestroy(os);
         FcPatternDestroy(pattern);
     }
@@ -561,7 +578,7 @@ void QFontconfigDatabase::populateFontDatabase()
         { "Serif", "serif", false },
         { "Sans Serif", "sans-serif", false },
         { "Monospace", "monospace", true },
-        { 0, 0, false }
+        { nullptr, nullptr, false }
     };
     const FcDefaultFont *f = defaults;
     // aliases only make sense for 'common', not for any of the specials
@@ -570,13 +587,13 @@ void QFontconfigDatabase::populateFontDatabase()
 
     while (f->qtname) {
         QString familyQtName = QString::fromLatin1(f->qtname);
-        registerFont(familyQtName,QString(),QString(),QFont::Normal,QFont::StyleNormal,QFont::Unstretched,true,true,0,f->fixed,ws,0);
-        registerFont(familyQtName,QString(),QString(),QFont::Normal,QFont::StyleItalic,QFont::Unstretched,true,true,0,f->fixed,ws,0);
-        registerFont(familyQtName,QString(),QString(),QFont::Normal,QFont::StyleOblique,QFont::Unstretched,true,true,0,f->fixed,ws,0);
+        registerFont(familyQtName,QString(),QString(),QFont::Normal,QFont::StyleNormal,QFont::Unstretched,true,true,0,f->fixed,ws,nullptr);
+        registerFont(familyQtName,QString(),QString(),QFont::Normal,QFont::StyleItalic,QFont::Unstretched,true,true,0,f->fixed,ws,nullptr);
+        registerFont(familyQtName,QString(),QString(),QFont::Normal,QFont::StyleOblique,QFont::Unstretched,true,true,0,f->fixed,ws,nullptr);
         ++f;
     }
 
-    //Lighthouse has very lazy population of the font db. We want it to be initialized when
+    //QPA has very lazy population of the font db. We want it to be initialized when
     //QApplication is constructed, so that the population procedure can do something like this to
     //set the default font
 //    const FcDefaultFont *s = defaults;
@@ -588,7 +605,7 @@ void QFontconfigDatabase::populateFontDatabase()
 void QFontconfigDatabase::invalidate()
 {
     // Clear app fonts.
-    FcConfigAppFontClear(0);
+    FcConfigAppFontClear(nullptr);
 }
 
 QFontEngineMulti *QFontconfigDatabase::fontEngineMulti(QFontEngine *fontEngine, QChar::Script script)
@@ -680,7 +697,7 @@ QFontEngine::SubpixelAntialiasingType subpixelTypeFromMatch(FcPattern *match, bo
 QFontEngine *QFontconfigDatabase::fontEngine(const QFontDef &f, void *usrPtr)
 {
     if (!usrPtr)
-        return 0;
+        return nullptr;
 
     FontFile *fontfile = static_cast<FontFile *> (usrPtr);
     QFontEngine::FaceId fid;
@@ -695,7 +712,7 @@ QFontEngine *QFontconfigDatabase::fontEngine(const QFontDef &f, void *usrPtr)
 
     if (!engine->init(fid, engine->antialias, engine->defaultFormat) || engine->invalid()) {
         delete engine;
-        engine = 0;
+        engine = nullptr;
     }
 
     return engine;
@@ -704,8 +721,8 @@ QFontEngine *QFontconfigDatabase::fontEngine(const QFontDef &f, void *usrPtr)
 QFontEngine *QFontconfigDatabase::fontEngine(const QByteArray &fontData, qreal pixelSize, QFont::HintingPreference hintingPreference)
 {
     QFontEngineFT *engine = static_cast<QFontEngineFT*>(QFreeTypeFontDatabase::fontEngine(fontData, pixelSize, hintingPreference));
-    if (engine == 0)
-        return 0;
+    if (engine == nullptr)
+        return nullptr;
 
     setupFontEngine(engine, engine->fontDef);
 
@@ -746,7 +763,7 @@ QStringList QFontconfigDatabase::fallbacksForFamily(const QString &family, QFont
         // while a Japanese font should be used for that if LANG=ja)
         FcPattern *dummy = FcPatternCreate();
         FcDefaultSubstitute(dummy);
-        FcChar8 *lang = 0;
+        FcChar8 *lang = nullptr;
         FcResult res = FcPatternGetString(dummy, FC_LANG, 0, &lang);
         if (res == FcResultMatch)
             FcPatternAddString(pattern, FC_LANG, lang);
@@ -759,27 +776,26 @@ QStringList QFontconfigDatabase::fallbacksForFamily(const QString &family, QFont
         FcPatternAddWeak(pattern, FC_FAMILY, value, FcTrue);
     }
 
-    FcConfigSubstitute(0, pattern, FcMatchPattern);
+    FcConfigSubstitute(nullptr, pattern, FcMatchPattern);
     FcDefaultSubstitute(pattern);
 
     FcResult result = FcResultMatch;
-    FcFontSet *fontSet = FcFontSort(0,pattern,FcFalse,0,&result);
+    FcFontSet *fontSet = FcFontSort(nullptr,pattern,FcFalse,nullptr,&result);
     FcPatternDestroy(pattern);
 
     if (fontSet) {
-        QSet<QString> duplicates;
+        QDuplicateTracker<QString> duplicates;
         duplicates.reserve(fontSet->nfont + 1);
-        duplicates.insert(family.toCaseFolded());
+        (void)duplicates.hasSeen(family.toCaseFolded());
         for (int i = 0; i < fontSet->nfont; i++) {
-            FcChar8 *value = 0;
+            FcChar8 *value = nullptr;
             if (FcPatternGetString(fontSet->fonts[i], FC_FAMILY, 0, &value) != FcResultMatch)
                 continue;
             //         capitalize(value);
             const QString familyName = QString::fromUtf8((const char *)value);
             const QString familyNameCF = familyName.toCaseFolded();
-            if (!duplicates.contains(familyNameCF)) {
+            if (!duplicates.hasSeen(familyNameCF)) {
                 fallbackFamilies << familyName;
-                duplicates.insert(familyNameCF);
             }
         }
         FcFontSetDestroy(fontSet);
@@ -800,7 +816,7 @@ static FcPattern *queryFont(const FcChar8 *file, const QByteArray &data, int id,
 
     FT_Library lib = qt_getFreetype();
 
-    FcPattern *pattern = 0;
+    FcPattern *pattern = nullptr;
 
     FT_Face face;
     if (!FT_New_Memory_Face(lib, (const FT_Byte *)data.constData(), data.size(), id, &face)) {
@@ -819,16 +835,16 @@ QStringList QFontconfigDatabase::addApplicationFont(const QByteArray &fontData, 
 {
     QStringList families;
 
-    FcFontSet *set = FcConfigGetFonts(0, FcSetApplication);
+    FcFontSet *set = FcConfigGetFonts(nullptr, FcSetApplication);
     if (!set) {
-        FcConfigAppFontAddFile(0, (const FcChar8 *)":/non-existent");
-        set = FcConfigGetFonts(0, FcSetApplication); // try again
+        FcConfigAppFontAddFile(nullptr, (const FcChar8 *)":/non-existent");
+        set = FcConfigGetFonts(nullptr, FcSetApplication); // try again
         if (!set)
             return families;
     }
 
     int id = 0;
-    FcBlanks *blanks = FcConfigGetBlanks(0);
+    FcBlanks *blanks = FcConfigGetBlanks(nullptr);
     int count = 0;
 
     FcPattern *pattern;
@@ -838,7 +854,7 @@ QStringList QFontconfigDatabase::addApplicationFont(const QByteArray &fontData, 
         if (!pattern)
             return families;
 
-        FcChar8 *fam = 0;
+        FcChar8 *fam = nullptr;
         if (FcPatternGetString(pattern, FC_FAMILY, 0, &fam) == FcResultMatch) {
             QString family = QString::fromUtf8(reinterpret_cast<const char *>(fam));
             families << family;
@@ -866,10 +882,10 @@ QString QFontconfigDatabase::resolveFontFamilyAlias(const QString &family) const
         const QByteArray cs = family.toUtf8();
         FcPatternAddString(pattern, FC_FAMILY, (const FcChar8 *) cs.constData());
     }
-    FcConfigSubstitute(0, pattern, FcMatchPattern);
+    FcConfigSubstitute(nullptr, pattern, FcMatchPattern);
     FcDefaultSubstitute(pattern);
 
-    FcChar8 *familyAfterSubstitution = 0;
+    FcChar8 *familyAfterSubstitution = nullptr;
     FcPatternGetString(pattern, FC_FAMILY, 0, &familyAfterSubstitution);
     resolved = QString::fromUtf8((const char *) familyAfterSubstitution);
     FcPatternDestroy(pattern);
@@ -884,7 +900,7 @@ QFont QFontconfigDatabase::defaultFont() const
     // or https://bugs.freedesktop.org/show_bug.cgi?id=35482 is fixed
     FcPattern *dummy = FcPatternCreate();
     FcDefaultSubstitute(dummy);
-    FcChar8 *lang = 0;
+    FcChar8 *lang = nullptr;
     FcResult res = FcPatternGetString(dummy, FC_LANG, 0, &lang);
 
     FcPattern *pattern = FcPatternCreate();
@@ -893,10 +909,10 @@ QFont QFontconfigDatabase::defaultFont() const
         // certain FC_LANG based custom rules may happen in FcConfigSubstitute()
         FcPatternAddString(pattern, FC_LANG, lang);
     }
-    FcConfigSubstitute(0, pattern, FcMatchPattern);
+    FcConfigSubstitute(nullptr, pattern, FcMatchPattern);
     FcDefaultSubstitute(pattern);
 
-    FcChar8 *familyAfterSubstitution = 0;
+    FcChar8 *familyAfterSubstitution = nullptr;
     FcPatternGetString(pattern, FC_FAMILY, 0, &familyAfterSubstitution);
     QString resolved = QString::fromUtf8((const char *) familyAfterSubstitution);
     FcPatternDestroy(pattern);
@@ -953,10 +969,10 @@ void QFontconfigDatabase::setupFontEngine(QFontEngineFT *engine, const QFontDef 
 
     FcResult result;
 
-    FcConfigSubstitute(0, pattern, FcMatchPattern);
+    FcConfigSubstitute(nullptr, pattern, FcMatchPattern);
     FcDefaultSubstitute(pattern);
 
-    FcPattern *match = FcFontMatch(0, pattern, &result);
+    FcPattern *match = FcFontMatch(nullptr, pattern, &result);
     if (match) {
         engine->setDefaultHintStyle(defaultHintStyleFromMatch((QFont::HintingPreference)fontDef.hintingPreference, match, useXftConf));
 

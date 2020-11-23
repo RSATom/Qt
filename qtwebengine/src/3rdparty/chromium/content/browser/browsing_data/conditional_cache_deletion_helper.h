@@ -34,7 +34,7 @@ class CONTENT_EXPORT ConditionalCacheDeletionHelper {
   // (exclusively) and whose URL is matched by the |url_predicate|. Note that
   // |begin_time| and |end_time| can be null to indicate unbounded time interval
   // in their respective direction.
-  static base::Callback<bool(const disk_cache::Entry*)>
+  static base::RepeatingCallback<bool(const disk_cache::Entry*)>
   CreateURLAndTimeCondition(
       base::RepeatingCallback<bool(const GURL&)> url_predicate,
       base::Time begin_time,
@@ -66,17 +66,16 @@ class CONTENT_EXPORT ConditionalCacheDeletionHelper {
   friend class base::DeleteHelper<ConditionalCacheDeletionHelper>;
   ~ConditionalCacheDeletionHelper();
 
-  void IterateOverEntries(int error);
+  void IterateOverEntries(disk_cache::EntryResult result);
 
   disk_cache::Backend* cache_;
-  const base::Callback<bool(const disk_cache::Entry*)> condition_;
+  const base::RepeatingCallback<bool(const disk_cache::Entry*)> condition_;
 
   net::CompletionOnceCallback completion_callback_;
 
   SEQUENCE_CHECKER(sequence_checker_);
 
   std::unique_ptr<disk_cache::Backend::Iterator> iterator_;
-  disk_cache::Entry* current_entry_;
   disk_cache::Entry* previous_entry_;
 
   DISALLOW_COPY_AND_ASSIGN(ConditionalCacheDeletionHelper);

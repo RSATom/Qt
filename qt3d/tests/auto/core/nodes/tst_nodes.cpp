@@ -26,6 +26,10 @@
 **
 ****************************************************************************/
 
+// TODO Remove in Qt6
+#include <QtCore/qcompilerdetection.h>
+QT_WARNING_DISABLE_DEPRECATED
+
 #include <QtTest/QTest>
 #include <Qt3DCore/qnode.h>
 #include <Qt3DCore/qentity.h>
@@ -40,7 +44,6 @@
 #include <Qt3DCore/qpropertynoderemovedchange.h>
 #include <Qt3DCore/private/qnodecreatedchangegenerator_p.h>
 #include <Qt3DCore/private/qaspectengine_p.h>
-#include <Qt3DCore/private/qscenechange_p.h>
 #include <Qt3DCore/private/qaspectengine_p.h>
 #include <private/qabstractaspect_p.h>
 #include <private/qpostman_p.h>
@@ -531,7 +534,7 @@ public:
     void syncDirtyFrontEndNode(Qt3DCore::QNode *node, Qt3DCore::QBackendNode *backend,
                                bool firstTime) const override
     {
-        Q_UNUSED(backend)
+        Q_UNUSED(backend);
         auto q = q_func();
         if (firstTime)
             q->allNodes.insert(node->id(), node);
@@ -542,11 +545,10 @@ public:
 
 TestAspect::TestAspect(QObject *parent) : TestAspect(*new TestAspectPrivate, parent)
 {
-    Q_D(TestAspect);
-    d->registerBackendType<Qt3DCore::QEntity, true>(QSharedPointer<TestFunctor>::create(this));
-    d->registerBackendType<MyQEntity, true>(QSharedPointer<TestFunctor>::create(this));
-    d->registerBackendType<MyQNode, true>(QSharedPointer<TestFunctor>::create(this));
-    d->registerBackendType<Qt3DCore::QNode, true>(QSharedPointer<TestFunctor>::create(this));
+    registerBackendType<Qt3DCore::QEntity, true>(QSharedPointer<TestFunctor>::create(this));
+    registerBackendType<MyQEntity, true>(QSharedPointer<TestFunctor>::create(this));
+    registerBackendType<MyQNode, true>(QSharedPointer<TestFunctor>::create(this));
+    registerBackendType<Qt3DCore::QNode, true>(QSharedPointer<TestFunctor>::create(this));
 }
 
 TestAspect::TestAspect(TestAspectPrivate &dd, QObject *parent)

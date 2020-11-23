@@ -51,12 +51,19 @@ struct IndexedRule {
   url_pattern_index::flat::AnchorType anchor_right =
       url_pattern_index::flat::AnchorType_NONE;
   std::string url_pattern;
+
   // Lower-cased and sorted as required by the url_pattern_index component.
   std::vector<std::string> domains;
   std::vector<std::string> excluded_domains;
 
-  // The redirect url, valid iff this is a redirect rule.
-  std::string redirect_url;
+  // Note: For redirect rules, exactly one of |redirect_url|,
+  // |regex_substitution| or |url_transform|  will be set.
+  // The redirect url for the rule.
+  base::Optional<std::string> redirect_url;
+  // The regex substitution for this rule.
+  base::Optional<std::string> regex_substitution;
+  // UrlTransform for this rule.
+  std::unique_ptr<api::declarative_net_request::URLTransform> url_transform;
 
   // List of headers to remove, valid iff this is a remove headers rule.
   std::set<api::declarative_net_request::RemoveHeaderType> remove_headers_set;

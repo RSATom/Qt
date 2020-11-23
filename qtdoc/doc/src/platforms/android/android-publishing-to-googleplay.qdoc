@@ -1,0 +1,121 @@
+/****************************************************************************
+**
+** Copyright (C) 2020 The Qt Company Ltd.
+** Contact: https://www.qt.io/licensing/
+**
+** This file is part of the documentation of the Qt Toolkit.
+**
+** $QT_BEGIN_LICENSE:FDL$
+** Commercial License Usage
+** Licensees holding valid commercial Qt licenses may use this file in
+** accordance with the commercial license agreement provided with the
+** Software or, alternatively, in accordance with the terms contained in
+** a written agreement between you and The Qt Company. For licensing terms
+** and conditions see https://www.qt.io/terms-conditions. For further
+** information use the contact form at https://www.qt.io/contact-us.
+**
+** GNU Free Documentation License Usage
+** Alternatively, this file may be used under the terms of the GNU Free
+** Documentation License version 1.3 as published by the Free Software
+** Foundation and appearing in the file included in the packaging of
+** this file. Please review the following information to ensure
+** the GNU Free Documentation License version 1.3 requirements
+** will be met: https://www.gnu.org/licenses/fdl-1.3.html.
+** $QT_END_LICENSE$
+**
+****************************************************************************/
+
+/*!
+\page android-publishing-to-googleplay.html
+\title Publishing to Google Play
+\brief Provides instructions to prepare your application for publishing.
+
+\l{Qt for Android} provides a complete solution to develop, build, and package
+your applications for Android. Most of these tasks, especially packaging and
+deployment are handled by Qt Creator providing rich developer experience.
+
+Every time you run the application using Qt Creator, an Android Application
+Package (APK) is created and deployed onto the target of your choice
+(device or emulator). With few minor changes to packaging settings, you can
+publish your application on Google Play. The following instructions guide you
+to create an \c{.apk} that can go live on Google Play:
+\list 1
+    \li Open your project with Qt Creator 4.11 or later choosing a \c{Release Build}.
+
+    \li Select \uicontrol Projects > \uicontrol Build > \uicontrol {Build Android APK}
+    > \uicontrol {Create Templates} to create the Android package template files
+    such as \c{AndroidManifest.xml} which is the main file of concern here.
+
+    \li Check for the following settings in \c{AndroidManifest.xml}:
+
+    \list
+        \li Set \uicontrol{Minimum required SDK} to API 21 or later.
+
+        \li Set \uicontrol{Application name} and \uicontrol{Application icon}.
+
+        \li Check the \uicontrol{Permissions} list has all the required permissions.
+
+        \li Check the \uicontrol{Features} list has the software or hardware
+            features that your application depends on, such as GPS or NFC.
+    \endlist
+
+    For more information, see
+    \l{Qt Creator: Editing Manifest Files}{editing the Manifest Files in Qt Creator}.
+
+    \note By default, Qt adds the permissions and the features based on the module
+    dependencies of your application. If you do not want these default permissions
+    and features, either deselect the checkboxes
+    \uicontrol{Include default permissions for Qt modules} and
+    \uicontrol{Include default features for Qt modules}, or remove the following
+    part from the \c{AndroidManifest.xml} file:
+
+    \badcode
+    <!-- The following comment will be replaced upon deployment with default permissions based on the dependencies of the application.
+         Remove the comment if you do not require these default permissions. -->
+    <!-- %%INSERT_PERMISSIONS -->
+
+    <!-- The following comment will be replaced upon deployment with default features based on the dependencies of the application.
+         Remove the comment if you do not require these default features. -->
+    <!-- %%INSERT_FEATURES -->
+    \endcode
+
+    For information on the manifest XML format, see \l{Android: App Manifest}.
+
+    \li Set up a \l{Android: Android keystore system}{keystore} to sign your
+    \c{.apk} file. You can create a new keystore if you do not have one. For more
+    information, see \l{Qt Creator: Specifying Settings for Packages}
+    {Specifying Settings for Packages in Qt Creator}.
+
+    \li Locate the generated package:
+
+    \list
+        \li For APK packages, locate the \c{.apk} package at:
+
+            \badcode
+            <$BUILD_DIR>/android-build/build/outputs/apk/release/android-build-release.apk
+            \endcode
+
+            \note In Qt Creator, select \uicontrol{Projects} > \uicontrol{Build}
+                > \uicontrol{Build Steps} > \uicontrol{Build Android APK} >
+                \uicontrol{Open package location after build} to build the
+                application's \c{.apk} and open the directory containing the
+                package.
+
+        \li For AAB packages, select \uicontrol{Projects} > \uicontrol{Build}
+            > \uicontrol{Build Steps} > \uicontrol{Build Android APK} >
+            \uicontrol{Build .aab (Android App Bundle)} for Qt Creator to generate
+            the \c{.aab} file, then locate the package at:
+
+            \badcode
+            <$BUILD_DIR>/android-build/build/outputs/bundle/release/android-build-release.aab
+            \endcode
+
+    \endlist
+
+    \li Log into the \l{Google Play Developer Console} and upload either of
+        \c{.apk} or \c{.aab} files, along with a description and screen captures
+        resembling the usage of your application.
+\endlist
+
+For more information on packaging, see \l{Deploying an Application on Android}.
+*/

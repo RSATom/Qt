@@ -236,7 +236,7 @@ Base.DelayButtonStyle {
 
                 Connections {
                     target: privateScope
-                    onProgressBarColorChanged: {
+                    function onProgressBarColorChanged() {
                         progressBar.clearStops()
                         progressBar.addStop(0, privateScope.progressBarColor)
                         progressBar.redraw()

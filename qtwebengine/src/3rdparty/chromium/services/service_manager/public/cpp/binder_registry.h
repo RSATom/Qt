@@ -11,6 +11,7 @@
 
 #include "base/callback.h"
 #include "base/memory/weak_ptr.h"
+#include "mojo/public/cpp/bindings/pending_receiver.h"
 #include "mojo/public/cpp/system/message_pipe.h"
 #include "services/service_manager/public/cpp/export.h"
 #include "services/service_manager/public/cpp/interface_binder.h"
@@ -20,10 +21,10 @@ namespace service_manager {
 template <typename... BinderArgs>
 class BinderRegistryWithArgs {
  public:
-  using Binder = base::Callback<
+  using Binder = base::RepeatingCallback<
       void(const std::string&, mojo::ScopedMessagePipeHandle, BinderArgs...)>;
 
-  BinderRegistryWithArgs() : weak_factory_(this) {}
+  BinderRegistryWithArgs() {}
   ~BinderRegistryWithArgs() = default;
 
   // Adds an interface inferring the interface name via the templated
@@ -31,8 +32,18 @@ class BinderRegistryWithArgs {
   // Usage example: //services/service_manager/README.md#OnBindInterface
   template <typename Interface>
   void AddInterface(
-      const base::Callback<void(mojo::InterfaceRequest<Interface>,
-                                BinderArgs...)>& callback,
+      const base::RepeatingCallback<void(mojo::InterfaceRequest<Interface>,
+                                         BinderArgs...)>& callback,
+      const scoped_refptr<base::SequencedTaskRunner>& task_runner = nullptr) {
+    SetInterfaceBinder(
+        Interface::Name_,
+        std::make_unique<CallbackBinder<Interface, BinderArgs...>>(
+            callback, task_runner));
+  }
+  template <typename Interface>
+  void AddInterface(
+      const base::RepeatingCallback<void(mojo::PendingReceiver<Interface>,
+                                         BinderArgs...)>& callback,
       const scoped_refptr<base::SequencedTaskRunner>& task_runner = nullptr) {
     SetInterfaceBinder(
         Interface::Name_,
@@ -41,8 +52,8 @@ class BinderRegistryWithArgs {
   }
   void AddInterface(
       const std::string& interface_name,
-      const base::Callback<void(mojo::ScopedMessagePipeHandle, BinderArgs...)>&
-          callback,
+      const base::RepeatingCallback<void(mojo::ScopedMessagePipeHandle,
+                                         BinderArgs...)>& callback,
       const scoped_refptr<base::SequencedTaskRunner>& task_runner = nullptr) {
     SetInterfaceBinder(interface_name,
                        std::make_unique<GenericCallbackBinder<BinderArgs...>>(
@@ -133,7 +144,7 @@ class BinderRegistryWithArgs {
 
   InterfaceNameToBinderMap binders_;
 
-  base::WeakPtrFactory<BinderRegistryWithArgs> weak_factory_;
+  base::WeakPtrFactory<BinderRegistryWithArgs> weak_factory_{this};
 
   DISALLOW_COPY_AND_ASSIGN(BinderRegistryWithArgs);
 };

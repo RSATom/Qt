@@ -92,14 +92,14 @@ bool PublicKeyCredentialUserEntity::operator==(
 
 cbor::Value AsCBOR(const PublicKeyCredentialUserEntity& user) {
   cbor::Value::MapValue user_map;
-  user_map.emplace(kEntityIdMapKey, user.id);
+  user_map.emplace(kEntityIdMapKey, cbor::Value(user.id));
   if (user.name)
-    user_map.emplace(kEntityNameMapKey, *user.name);
+    user_map.emplace(kEntityNameMapKey, cbor::Value(*user.name));
   // Empty icon URLs result in CTAP1_ERR_INVALID_LENGTH on some security keys.
   if (user.icon_url && !user.icon_url->is_empty())
-    user_map.emplace(kIconUrlMapKey, user.icon_url->spec());
+    user_map.emplace(kIconUrlMapKey, cbor::Value(user.icon_url->spec()));
   if (user.display_name)
-    user_map.emplace(kDisplayNameMapKey, *user.display_name);
+    user_map.emplace(kDisplayNameMapKey, cbor::Value(*user.display_name));
   return cbor::Value(std::move(user_map));
 }
 

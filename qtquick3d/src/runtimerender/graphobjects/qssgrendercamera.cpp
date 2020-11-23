@@ -61,7 +61,7 @@ QSSGRenderCamera::QSSGRenderCamera()
     , enableFrustumClipping(true)
 {
     projection = QMatrix4x4();
-    position = QVector3D(0, 0, -600);
+    position = QVector3D(0, 0, 600);
 
     flags.setFlag(Flag::CameraDirty, true);
 }
@@ -139,39 +139,29 @@ float QSSGRenderCamera::getOrthographicScaleFactor(const QRectF &inViewport) con
     return 1.0f;
 }
 
-QMatrix3x3 QSSGRenderCamera::getLookAtMatrix(const QVector3D &inUpDir, const QVector3D &inDirection) const
+static QQuaternion rotationQuaternionForLookAt(const QVector3D &sourcePosition,
+                                               const QVector3D &sourceDirection,
+                                               const QVector3D &targetPosition,
+                                               const QVector3D &upDirection)
 {
-    QVector3D theDirection(inDirection);
+    QVector3D targetDirection = sourcePosition - targetPosition;
+    targetDirection.normalize();
 
-    theDirection.normalize();
+    QVector3D rotationAxis = QVector3D::crossProduct(sourceDirection, targetDirection);
 
-    const QVector3D &theUpDir(inUpDir);
+    const QVector3D normalizedAxis = rotationAxis.normalized();
+    if (qFuzzyIsNull(normalizedAxis.lengthSquared()))
+        rotationAxis = upDirection;
 
-    // gram-shmidt orthogonalization
-    QVector3D theCrossDir = QVector3D::crossProduct(theDirection, theUpDir);
-    theCrossDir.normalize();
-    QVector3D theFinalDir = QVector3D::crossProduct(theCrossDir, theDirection);
-    theFinalDir.normalize();
-    float multiplier = 1.0f;
-    if (flags.testFlag(Flag::LeftHanded))
-        multiplier = -1.0f;
+    float dot = QVector3D::dotProduct(sourceDirection, targetDirection);
+    float rotationAngle = float(qRadiansToDegrees(qAcos(qreal(dot))));
 
-    theDirection *= multiplier;
-    float matrixData[9] = { theCrossDir.x(), theFinalDir.x(), theDirection.x(),
-                            theCrossDir.y(), theFinalDir.y(), theDirection.y(),
-                            theCrossDir.z(), theFinalDir.z(), theDirection.z()
-                          };
-
-    QMatrix3x3 theResultMatrix(matrixData);
-    return theResultMatrix;
+    return QQuaternion::fromAxisAndAngle(rotationAxis, rotationAngle);
 }
 
 void QSSGRenderCamera::lookAt(const QVector3D &inCameraPos, const QVector3D &inUpDir, const QVector3D &inTargetPos)
 {
-    QVector3D theDirection = inTargetPos - inCameraPos;
-    if (flags.testFlag(Flag::LeftHanded))
-        theDirection.setZ(theDirection.z() * -1.0f);
-    rotation = getRotationVectorFromRotationMatrix(getLookAtMatrix(inUpDir, theDirection));
+    rotation = rotationQuaternionForLookAt(inCameraPos, getScalingCorrectDirection(), inTargetPos, inUpDir.normalized());
     position = inCameraPos;
     markDirty(TransformDirtyFlag::TransformIsDirty);
 }
@@ -191,21 +181,11 @@ QSSGCuboidRect QSSGRenderCamera::getCameraBounds(const QRectF &inViewport) const
 void QSSGRenderCamera::setupOrthographicCameraForOffscreenRender(QSSGRenderTexture2D &inTexture, QMatrix4x4 &outVP)
 {
     QSSGTextureDetails theDetails(inTexture.textureDetails());
-    // TODO:
-    Q_UNUSED(theDetails);
-    QSSGRenderCamera theTempCamera;
-    setupOrthographicCameraForOffscreenRender(inTexture, outVP, theTempCamera);
-}
-
-void QSSGRenderCamera::setupOrthographicCameraForOffscreenRender(QSSGRenderTexture2D &inTexture, QMatrix4x4 &outVP, QSSGRenderCamera &outCamera)
-{
-    QSSGTextureDetails theDetails(inTexture.textureDetails());
     QSSGRenderCamera theTempCamera;
     theTempCamera.flags.setFlag(Flag::Orthographic);
     theTempCamera.markDirty(TransformDirtyFlag::TransformIsDirty);
     theTempCamera.calculateGlobalVariables(QRect(0, 0, theDetails.width, theDetails.height));
     theTempCamera.calculateViewProjectionMatrix(outVP);
-    outCamera = theTempCamera;
 }
 
 QSSGRenderRay QSSGRenderCamera::unproject(const QVector2D &inViewportRelativeCoords,
@@ -252,15 +232,12 @@ QVector3D QSSGRenderCamera::unprojectToPosition(const QVector3D &inGlobalPos, co
     QVector3D theObjGlobalPos = inGlobalPos;
     float theDistance = -1.0f * QVector3D::dotProduct(theObjGlobalPos, theCameraDir);
     QSSGPlane theCameraPlane(theCameraDir, theDistance);
-    return inRay.intersect(theCameraPlane);
+    return QSSGRenderRay::intersect(theCameraPlane, inRay);
 }
 
 float QSSGRenderCamera::verticalFov(float aspectRatio) const
 {
-    if (fovHorizontal)
-        return 2.0f * qAtan(qTan(qreal(fov) / 2.0) / qreal(aspectRatio));
-    else
-        return fov;
+    return fovHorizontal ? float(2.0 * qAtan(qTan(qreal(fov) / 2.0) / qreal(aspectRatio))) : fov;
 }
 
 float QSSGRenderCamera::verticalFov(const QRectF &inViewport) const

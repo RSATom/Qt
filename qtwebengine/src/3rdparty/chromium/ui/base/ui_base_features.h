@@ -16,12 +16,18 @@ namespace features {
 
 COMPONENT_EXPORT(UI_BASE_FEATURES)
 extern const base::Feature kCompositorThreadedScrollbarScrolling;
+COMPONENT_EXPORT(UI_BASE_FEATURES)
+extern const base::Feature kExperimentalFlingAnimation;
 #if defined(OS_CHROMEOS)
 COMPONENT_EXPORT(UI_BASE_FEATURES)
 extern const base::Feature kSettingsShowsPerKeyboardSettings;
 #endif  // defined(OS_CHROMEOS)
 COMPONENT_EXPORT(UI_BASE_FEATURES)
 extern const base::Feature kInputMethodSettingsUiUpdate;
+COMPONENT_EXPORT(UI_BASE_FEATURES)
+extern const base::Feature kPercentBasedScrolling;
+COMPONENT_EXPORT(UI_BASE_FEATURES)
+extern const base::Feature kPointerLockOptions;
 COMPONENT_EXPORT(UI_BASE_FEATURES)
 extern const base::Feature kSystemCaptionStyle;
 COMPONENT_EXPORT(UI_BASE_FEATURES)
@@ -73,15 +79,6 @@ COMPONENT_EXPORT(UI_BASE_FEATURES) bool IsFormControlsRefreshEnabled();
 COMPONENT_EXPORT(UI_BASE_FEATURES)
 bool IsAutomaticUiAdjustmentsForTouchEnabled();
 
-#if defined(OS_MACOSX)
-COMPONENT_EXPORT(UI_BASE_FEATURES)
-extern const base::Feature kHostWindowsInAppShimProcess;
-
-// Returns true if the NSWindows for apps will be created in the app's process,
-// and will forward input to the browser process.
-COMPONENT_EXPORT(UI_BASE_FEATURES) bool HostWindowsInAppShimProcess();
-#endif  //  defined(OS_MACOSX)
-
 // Use mojo communication in the drm platform instead of paramtraits. Remove
 // this switch (and associated code) when the drm platform always uses mojo
 // communication.
@@ -94,6 +91,9 @@ COMPONENT_EXPORT(UI_BASE_FEATURES) bool IsOzoneDrmMojo();
 COMPONENT_EXPORT(UI_BASE_FEATURES)
 extern const base::Feature kHandwritingGesture;
 #endif
+
+COMPONENT_EXPORT(UI_BASE_FEATURES)
+extern const base::Feature kWebUIA11yEnhancements;
 }  // namespace features
 
 #endif  // UI_BASE_UI_BASE_FEATURES_H_

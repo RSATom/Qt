@@ -18,8 +18,9 @@
 
 namespace gpu {
 
-class VulkanFenceHelper;
 class VulkanCommandPool;
+class VulkanFenceHelper;
+class VulkanInfo;
 
 class VULKAN_EXPORT VulkanDeviceQueue {
  public:
@@ -28,7 +29,8 @@ class VULKAN_EXPORT VulkanDeviceQueue {
     PRESENTATION_SUPPORT_QUEUE_FLAG = 0x02,
   };
 
-  explicit VulkanDeviceQueue(VkInstance vk_instance);
+  VulkanDeviceQueue(VkInstance vk_instance,
+                    bool enforce_protected_memory = false);
   ~VulkanDeviceQueue();
 
   using GetPresentationSupportCallback =
@@ -37,8 +39,9 @@ class VULKAN_EXPORT VulkanDeviceQueue {
                                    uint32_t queue_family_index)>;
   bool Initialize(
       uint32_t options,
-      uint32_t max_api_version,
+      const VulkanInfo& info,
       const std::vector<const char*>& required_extensions,
+      bool allow_protected_memory,
       const GetPresentationSupportCallback& get_presentation_support);
 
   bool InitializeForWebView(VkPhysicalDevice vk_physical_device,
@@ -89,6 +92,8 @@ class VULKAN_EXPORT VulkanDeviceQueue {
     return enabled_device_features_2_.features;
   }
 
+  bool allow_protected_memory() const { return allow_protected_memory_; }
+
  private:
   gfx::ExtensionSet enabled_extensions_;
   VkPhysicalDevice vk_physical_device_ = VK_NULL_HANDLE;
@@ -99,12 +104,17 @@ class VULKAN_EXPORT VulkanDeviceQueue {
   uint32_t vk_queue_index_ = 0;
   const VkInstance vk_instance_;
   std::unique_ptr<VulkanFenceHelper> cleanup_helper_;
-  VkPhysicalDeviceFeatures2 enabled_device_features_2_ = {};
+  VkPhysicalDeviceFeatures2 enabled_device_features_2_;
 
-#if defined(OS_ANDROID)
+  const bool enforce_protected_memory_;
+  bool allow_protected_memory_ = false;
+
+#if defined(OS_ANDROID) || defined(OS_FUCHSIA)
   VkPhysicalDeviceSamplerYcbcrConversionFeatures
-      sampler_ycbcr_conversion_features_ = {};
-#endif
+      sampler_ycbcr_conversion_features_;
+#endif  // defined(OS_ANDROID) || defined(OS_FUCHSIA)
+
+  VkPhysicalDeviceProtectedMemoryFeatures protected_memory_features_;
 
   DISALLOW_COPY_AND_ASSIGN(VulkanDeviceQueue);
 };

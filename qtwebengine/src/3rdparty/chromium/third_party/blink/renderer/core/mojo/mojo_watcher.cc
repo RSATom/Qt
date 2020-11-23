@@ -4,6 +4,7 @@
 
 #include "third_party/blink/renderer/core/mojo/mojo_watcher.h"
 
+#include "base/single_thread_task_runner.h"
 #include "third_party/blink/public/platform/task_type.h"
 #include "third_party/blink/renderer/bindings/core/v8/v8_mojo_watch_callback.h"
 #include "third_party/blink/renderer/core/execution_context/execution_context.h"
@@ -65,7 +66,7 @@ void MojoWatcher::ContextDestroyed(ExecutionContext*) {
 MojoWatcher::MojoWatcher(ExecutionContext* context,
                          V8MojoWatchCallback* callback)
     : ContextLifecycleObserver(context),
-      task_runner_(context->GetTaskRunner(TaskType::kInternalIPC)),
+      task_runner_(context->GetTaskRunner(TaskType::kInternalDefault)),
       callback_(callback) {}
 
 MojoResult MojoWatcher::Watch(mojo::Handle handle,

@@ -117,7 +117,11 @@ public:
 Q_SIGNALS:
     void connected();
     void disconnected();
+#if QT_DEPRECATED_SINCE(5,15)
+    QT_DEPRECATED_NETWORK_API_5_15_X("Use QLocalSocket::errorOccurred(QLocalSocket::LocalSocketError) instead")
     void error(QLocalSocket::LocalSocketError socketError);
+#endif
+    void errorOccurred(QLocalSocket::LocalSocketError socketError);
     void stateChanged(QLocalSocket::LocalSocketState socketState);
 
 protected:
@@ -128,14 +132,14 @@ private:
     Q_DISABLE_COPY(QLocalSocket)
 #if defined(QT_LOCALSOCKET_TCP)
     Q_PRIVATE_SLOT(d_func(), void _q_stateChanged(QAbstractSocket::SocketState))
-    Q_PRIVATE_SLOT(d_func(), void _q_error(QAbstractSocket::SocketError))
+    Q_PRIVATE_SLOT(d_func(), void _q_errorOccurred(QAbstractSocket::SocketError))
 #elif defined(Q_OS_WIN)
     Q_PRIVATE_SLOT(d_func(), void _q_canWrite())
     Q_PRIVATE_SLOT(d_func(), void _q_pipeClosed())
     Q_PRIVATE_SLOT(d_func(), void _q_winError(ulong, const QString &))
 #else
     Q_PRIVATE_SLOT(d_func(), void _q_stateChanged(QAbstractSocket::SocketState))
-    Q_PRIVATE_SLOT(d_func(), void _q_error(QAbstractSocket::SocketError))
+    Q_PRIVATE_SLOT(d_func(), void _q_errorOccurred(QAbstractSocket::SocketError))
     Q_PRIVATE_SLOT(d_func(), void _q_connectToSocket())
     Q_PRIVATE_SLOT(d_func(), void _q_abortConnectionAttempt())
 #endif

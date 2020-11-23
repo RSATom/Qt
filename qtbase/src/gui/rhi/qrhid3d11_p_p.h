@@ -64,6 +64,7 @@ struct QD3D11Buffer : public QRhiBuffer
     ~QD3D11Buffer();
     void release() override;
     bool build() override;
+    QRhiBuffer::NativeBuffer nativeBuffer() override;
 
     ID3D11UnorderedAccessView *unorderedAccessView();
 
@@ -99,8 +100,8 @@ struct QD3D11Texture : public QRhiTexture
     ~QD3D11Texture();
     void release() override;
     bool build() override;
-    bool buildFrom(const QRhiNativeHandles *src) override;
-    const QRhiNativeHandles *nativeHandles() override;
+    bool buildFrom(NativeTexture src) override;
+    NativeTexture nativeTexture() override;
 
     bool prepareBuild(QSize *adjustedSize = nullptr);
     bool finishBuild();
@@ -112,7 +113,6 @@ struct QD3D11Texture : public QRhiTexture
     DXGI_FORMAT dxgiFormat;
     uint mipLevelCount = 0;
     DXGI_SAMPLE_DESC sampleDesc;
-    QRhiD3D11TextureNativeHandles nativeHandlesStruct;
     ID3D11UnorderedAccessView *perLevelViews[QRhi::MAX_LEVELS];
     uint generation = 0;
     friend class QRhiD3D11;
@@ -121,7 +121,7 @@ struct QD3D11Texture : public QRhiTexture
 struct QD3D11Sampler : public QRhiSampler
 {
     QD3D11Sampler(QRhiImplementation *rhi, Filter magFilter, Filter minFilter, Filter mipmapMode,
-                  AddressMode u, AddressMode v);
+                  AddressMode u, AddressMode v, AddressMode w);
     ~QD3D11Sampler();
     void release() override;
     bool build() override;
@@ -136,6 +136,7 @@ struct QD3D11RenderPassDescriptor : public QRhiRenderPassDescriptor
     QD3D11RenderPassDescriptor(QRhiImplementation *rhi);
     ~QD3D11RenderPassDescriptor();
     void release() override;
+    bool isCompatible(const QRhiRenderPassDescriptor *other) const override;
 };
 
 struct QD3D11RenderTargetData
@@ -209,10 +210,13 @@ struct QD3D11ShaderResourceBindings : public QRhiShaderResourceBindings
         uint generation;
     };
     struct BoundSampledTextureData {
-        quint64 texId;
-        uint texGeneration;
-        quint64 samplerId;
-        uint samplerGeneration;
+        int count;
+        struct {
+            quint64 texId;
+            uint texGeneration;
+            quint64 samplerId;
+            uint samplerGeneration;
+        } d[QRhiShaderResourceBinding::Data::MAX_TEX_SAMPLER_ARRAY_SIZE];
     };
     struct BoundStorageImageData {
         quint64 id;
@@ -269,8 +273,14 @@ struct QD3D11GraphicsPipeline : public QRhiGraphicsPipeline
 
     ID3D11DepthStencilState *dsState = nullptr;
     ID3D11BlendState *blendState = nullptr;
-    ID3D11VertexShader *vs = nullptr;
-    ID3D11PixelShader *fs = nullptr;
+    struct {
+        ID3D11VertexShader *shader = nullptr;
+        QShader::NativeResourceBindingMap nativeResourceBindingMap;
+    } vs;
+    struct {
+        ID3D11PixelShader *shader = nullptr;
+        QShader::NativeResourceBindingMap nativeResourceBindingMap;
+    } fs;
     ID3D11InputLayout *inputLayout = nullptr;
     D3D11_PRIMITIVE_TOPOLOGY d3dTopology = D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
     ID3D11RasterizerState *rastState = nullptr;
@@ -285,7 +295,10 @@ struct QD3D11ComputePipeline : public QRhiComputePipeline
     void release() override;
     bool build() override;
 
-    ID3D11ComputeShader *cs = nullptr;
+    struct {
+        ID3D11ComputeShader *shader = nullptr;
+        QShader::NativeResourceBindingMap nativeResourceBindingMap;
+    } cs;
     uint generation = 0;
     friend class QRhiD3D11;
 };
@@ -559,9 +572,12 @@ public:
                                const QSize &pixelSize,
                                int sampleCount,
                                QRhiTexture::Flags flags) override;
-    QRhiSampler *createSampler(QRhiSampler::Filter magFilter, QRhiSampler::Filter minFilter,
+    QRhiSampler *createSampler(QRhiSampler::Filter magFilter,
+                               QRhiSampler::Filter minFilter,
                                QRhiSampler::Filter mipmapMode,
-                               QRhiSampler:: AddressMode u, QRhiSampler::AddressMode v) override;
+                               QRhiSampler:: AddressMode u,
+                               QRhiSampler::AddressMode v,
+                               QRhiSampler::AddressMode w) override;
 
     QRhiTextureRenderTarget *createTextureRenderTarget(const QRhiTextureRenderTargetDescription &desc,
                                                        QRhiTextureRenderTarget::Flags flags) override;
@@ -638,8 +654,9 @@ public:
     void enqueueSubresUpload(QD3D11Texture *texD, QD3D11CommandBuffer *cbD,
                              int layer, int level, const QRhiTextureSubresourceUploadDescription &subresDesc);
     void enqueueResourceUpdates(QRhiCommandBuffer *cb, QRhiResourceUpdateBatch *resourceUpdates);
-    void updateShaderResourceBindings(QD3D11ShaderResourceBindings *srbD);
-    void executeBufferHostWritesForCurrentFrame(QD3D11Buffer *bufD);
+    void updateShaderResourceBindings(QD3D11ShaderResourceBindings *srbD,
+                                      const QShader::NativeResourceBindingMap *nativeResourceBindingMaps[]);
+    void executeBufferHostWrites(QD3D11Buffer *bufD);
     void bindShaderResources(QD3D11ShaderResourceBindings *srbD,
                              const uint *dynOfsPairs, int dynOfsPairCount,
                              bool offsetOnlyChange);
@@ -697,9 +714,11 @@ public:
 
     struct Shader {
         Shader() = default;
-        Shader(IUnknown *s, const QByteArray &bytecode) : s(s), bytecode(bytecode) { }
+        Shader(IUnknown *s, const QByteArray &bytecode, const QShader::NativeResourceBindingMap &rbm)
+            : s(s), bytecode(bytecode), nativeResourceBindingMap(rbm) { }
         IUnknown *s;
         QByteArray bytecode;
+        QShader::NativeResourceBindingMap nativeResourceBindingMap;
     };
     QHash<QRhiShaderStage, Shader> m_shaderCache;
 

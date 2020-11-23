@@ -208,11 +208,6 @@ String BiquadFilterNode::type() const {
 }
 
 void BiquadFilterNode::setType(const String& type) {
-  // For the Q histogram, we need to change the name of the AudioParam for the
-  // lowpass and highpass filters so we know to count the Q value when it is
-  // set. And explicitly set the value to itself so the histograms know the
-  // initial value.
-
   if (type == "lowpass") {
     setType(BiquadProcessor::kLowPass);
   } else if (type == "highpass") {
@@ -250,23 +245,28 @@ void BiquadFilterNode::getFrequencyResponse(
     NotShared<DOMFloat32Array> mag_response,
     NotShared<DOMFloat32Array> phase_response,
     ExceptionState& exception_state) {
-  unsigned frequency_hz_length = frequency_hz.View()->length();
+  unsigned frequency_hz_length =
+      frequency_hz.View()->deprecatedLengthAsUnsigned();
 
-  if (mag_response.View()->length() != frequency_hz_length) {
+  if (mag_response.View()->deprecatedLengthAsUnsigned() !=
+      frequency_hz_length) {
     exception_state.ThrowDOMException(
         DOMExceptionCode::kInvalidAccessError,
         ExceptionMessages::IndexOutsideRange(
-            "magResponse length", mag_response.View()->length(),
+            "magResponse length",
+            mag_response.View()->deprecatedLengthAsUnsigned(),
             frequency_hz_length, ExceptionMessages::kInclusiveBound,
             frequency_hz_length, ExceptionMessages::kInclusiveBound));
     return;
   }
 
-  if (phase_response.View()->length() != frequency_hz_length) {
+  if (phase_response.View()->deprecatedLengthAsUnsigned() !=
+      frequency_hz_length) {
     exception_state.ThrowDOMException(
         DOMExceptionCode::kInvalidAccessError,
         ExceptionMessages::IndexOutsideRange(
-            "phaseResponse length", phase_response.View()->length(),
+            "phaseResponse length",
+            phase_response.View()->deprecatedLengthAsUnsigned(),
             frequency_hz_length, ExceptionMessages::kInclusiveBound,
             frequency_hz_length, ExceptionMessages::kInclusiveBound));
     return;
@@ -275,6 +275,22 @@ void BiquadFilterNode::getFrequencyResponse(
   GetBiquadProcessor()->GetFrequencyResponse(
       frequency_hz_length, frequency_hz.View()->Data(),
       mag_response.View()->Data(), phase_response.View()->Data());
+}
+
+void BiquadFilterNode::ReportDidCreate() {
+  GraphTracer().DidCreateAudioNode(this);
+  GraphTracer().DidCreateAudioParam(detune_);
+  GraphTracer().DidCreateAudioParam(frequency_);
+  GraphTracer().DidCreateAudioParam(gain_);
+  GraphTracer().DidCreateAudioParam(q_);
+}
+
+void BiquadFilterNode::ReportWillBeDestroyed() {
+  GraphTracer().WillDestroyAudioParam(detune_);
+  GraphTracer().WillDestroyAudioParam(frequency_);
+  GraphTracer().WillDestroyAudioParam(gain_);
+  GraphTracer().WillDestroyAudioParam(q_);
+  GraphTracer().WillDestroyAudioNode(this);
 }
 
 }  // namespace blink

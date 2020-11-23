@@ -26,16 +26,18 @@ BROWSER_TEST_SUITES = [
     'android_browsertests',
     'components_browsertests',
     'content_browsertests',
+    'weblayer_browsertests',
 ]
 
 RUN_IN_SUB_THREAD_TEST_SUITES = [
-  # Multiprocess tests should be run outside of the main thread.
-  'base_unittests',  # file_locking_unittest.cc uses a child process.
-  'ipc_perftests',
-  'ipc_tests',
-  'mojo_perftests',
-  'mojo_unittests',
-  'net_unittests'
+    # Multiprocess tests should be run outside of the main thread.
+    'base_unittests',  # file_locking_unittest.cc uses a child process.
+    'gwp_asan_unittests',
+    'ipc_perftests',
+    'ipc_tests',
+    'mojo_perftests',
+    'mojo_unittests',
+    'net_unittests'
 ]
 
 

@@ -85,7 +85,6 @@ class USER_MANAGER_EXPORT FakeUserManager : public UserManagerBase {
   base::string16 GetUserDisplayName(const AccountId& account_id) const override;
   void SaveUserDisplayEmail(const AccountId& account_id,
                             const std::string& display_email) override {}
-  std::string GetUserDisplayEmail(const AccountId& account_id) const override;
   bool IsCurrentUserOwner() const override;
   bool IsCurrentUserNew() const override;
   bool IsCurrentUserNonCryptohomeDataEphemeral() const override;
@@ -97,6 +96,8 @@ class USER_MANAGER_EXPORT FakeUserManager : public UserManagerBase {
   bool IsLoggedInAsSupervisedUser() const override;
   bool IsLoggedInAsKioskApp() const override;
   bool IsLoggedInAsArcKioskApp() const override;
+  bool IsLoggedInAsWebKioskApp() const override;
+  bool IsLoggedInAsAnyKioskApp() const override;
   bool IsLoggedInAsStub() const override;
   bool IsUserNonCryptohomeDataEphemeral(
       const AccountId& account_id) const override;
@@ -144,6 +145,7 @@ class USER_MANAGER_EXPORT FakeUserManager : public UserManagerBase {
   void DemoAccountLoggedIn() override {}
   void KioskAppLoggedIn(User* user) override {}
   void ArcKioskAppLoggedIn(User* user) override {}
+  void WebKioskAppLoggedIn(User* user) override {}
   void PublicAccountUserLoggedIn(User* user) override {}
   void SupervisedUserLoggedIn(const AccountId& account_id) override {}
   void OnUserRemoved(const AccountId& account_id) override {}

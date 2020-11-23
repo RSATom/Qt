@@ -69,6 +69,7 @@ public:
         int majorVersion;
         int minorVersion;
         QQmlRefPointer<QQmlTypeData> typeData;
+        bool selfReference = false;
         QString prefix; // used by CompositeSingleton types
         QString qualifiedName() const;
         bool needsCreation;
@@ -85,6 +86,8 @@ private:
     friend class QQmlTypeLoader;
 
     QQmlTypeData(const QUrl &, QQmlTypeLoader *);
+    template<typename Container>
+    void setCompileUnit(const Container &container);
 
 public:
     ~QQmlTypeData() override;
@@ -92,6 +95,7 @@ public:
     const QList<ScriptReference> &resolvedScripts() const;
 
     QV4::ExecutableCompilationUnit *compilationUnit() const;
+    QV4::ExecutableCompilationUnit *compilationUnitForInlineComponent(unsigned int icObjectId) const;
 
     // Used by QQmlComponent to get notifications
     struct TypeDataCallback {
@@ -101,6 +105,9 @@ public:
     };
     void registerCallback(TypeDataCallback *);
     void unregisterCallback(TypeDataCallback *);
+
+    CompositeMetaTypeIds typeIds(int objectId = 0) const;
+    QByteArray typeClassName() const { return m_typeClassName; }
 
 protected:
     void done() override;
@@ -118,7 +125,7 @@ private:
     void restoreIR(QV4::CompiledData::CompilationUnit &&unit);
     void continueLoadFromIR();
     void resolveTypes();
-    QQmlJS::DiagnosticMessage buildTypeResolutionCaches(
+    QQmlError buildTypeResolutionCaches(
             QQmlRefPointer<QQmlTypeNameCache> *typeNameCache,
             QV4::ResolvedTypeReferenceMap *resolvedTypeCache
             ) const;
@@ -130,10 +137,10 @@ private:
     bool resolveType(const QString &typeName, int &majorVersion, int &minorVersion,
                      TypeReference &ref, int lineNumber = -1, int columnNumber = -1,
                      bool reportErrors = true,
-                     QQmlType::RegistrationType registrationType = QQmlType::AnyRegistrationType);
+                     QQmlType::RegistrationType registrationType = QQmlType::AnyRegistrationType,
+                     bool *typeRecursionDetected = nullptr);
 
     void scriptImported(const QQmlRefPointer<QQmlScriptBlob> &blob, const QV4::CompiledData::Location &location, const QString &qualifier, const QString &nameSpace) override;
-
 
     SourceCodeData m_backupSourceCode; // used when cache verification fails.
     QScopedPointer<QmlIR::Document> m_document;
@@ -150,7 +157,16 @@ private:
     QMap<int, TypeReference> m_resolvedTypes;
     bool m_typesResolved:1;
 
-    QQmlRefPointer<QV4::ExecutableCompilationUnit> m_compiledData;
+    // Used for self-referencing types, otherwise -1.
+    CompositeMetaTypeIds m_typeIds;
+    QByteArray m_typeClassName; // used for meta-object later
+
+    using ExecutableCompilationUnitPtr = QQmlRefPointer<QV4::ExecutableCompilationUnit>;
+
+    QHash<int, InlineComponentData> m_inlineComponentData;
+
+    ExecutableCompilationUnitPtr m_compiledData;
+    QHash<int, ExecutableCompilationUnitPtr> m_inlineComponentToCompiledData;
 
     QList<TypeDataCallback *> m_callbacks;
 

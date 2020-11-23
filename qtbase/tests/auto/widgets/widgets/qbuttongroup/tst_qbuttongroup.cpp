@@ -58,6 +58,23 @@ protected:
     }
 };
 
+class TestPushButton : public QPushButton
+{
+public:
+    TestPushButton(QWidget *parent = nullptr)
+    : QPushButton(parent)
+    {}
+    TestPushButton(const QString &title, QWidget *parent = nullptr)
+    : QPushButton(title, parent)
+    {}
+
+protected:
+    bool hitButton(const QPoint &pos) const override
+    {
+        return rect().contains(pos);
+    }
+};
+
 #include <qbuttongroup.h>
 
 class tst_QButtonGroup : public QObject
@@ -66,6 +83,7 @@ Q_OBJECT
 
 private slots:
     void arrowKeyNavigation();
+    void keyNavigationPushButtons();
     void exclusive();
     void exclusiveWithActions();
     void testSignals();
@@ -89,12 +107,15 @@ void tst_QButtonGroup::arrowKeyNavigation()
     if (!qt_tab_all_widgets())
         QSKIP("This test requires full keyboard control to be enabled.");
 
+    if (QGuiApplication::platformName().startsWith(QLatin1String("wayland"), Qt::CaseInsensitive))
+        QSKIP("Wayland: This fails. Figure out why.");
+
     QDialog dlg(0);
     QHBoxLayout layout(&dlg);
     QGroupBox g1("1", &dlg);
     QHBoxLayout g1layout(&g1);
     QRadioButton bt1("Radio1", &g1);
-    QPushButton pb("PB", &g1);
+    TestPushButton pb("PB", &g1);
     QLineEdit le(&g1);
     QRadioButton bt2("Radio2", &g1);
     g1layout.addWidget(&bt1);
@@ -165,6 +186,73 @@ void tst_QButtonGroup::arrowKeyNavigation()
     QVERIFY(bt3.hasFocus());
 }
 
+/*
+    Test that tab and arrow key navigation through buttons
+    in an invisible button group works as expected. Tabbing
+    into the group should give focus to the checked button,
+    and arrow navigation should change the checked button and
+    move focus.
+*/
+void tst_QButtonGroup::keyNavigationPushButtons()
+{
+    if (!qt_tab_all_widgets())
+        QSKIP("This test requires full keyboard control to be enabled.");
+
+    QDialog dlg(nullptr);
+    QLineEdit *le1 = new QLineEdit;
+    le1->setObjectName("le1");
+    QPushButton *pb1 = new QPushButton("Exclusive 1");
+    pb1->setObjectName("pb1");
+    pb1->setCheckable(true);
+    pb1->setChecked(true);
+    QPushButton *pb2 = new QPushButton("Exclusive 2");
+    pb2->setObjectName("pb2");
+    pb2->setCheckable(true);
+    QPushButton *pb3 = new QPushButton("Exclusive 3");
+    pb3->setObjectName("pb3");
+    pb3->setCheckable(true);
+    QLineEdit *le2 = new QLineEdit;
+    le2->setObjectName("le2");
+
+    QVBoxLayout* layout = new QVBoxLayout(&dlg);
+    layout->addWidget(le1);
+    layout->addWidget(pb1);
+    layout->addWidget(pb2);
+    layout->addWidget(pb3);
+    layout->addWidget(le2);
+
+    QButtonGroup *buttonGroup = new QButtonGroup;
+    buttonGroup->addButton(pb1);
+    buttonGroup->addButton(pb2);
+    buttonGroup->addButton(pb3);
+
+    dlg.show();
+    qApp->setActiveWindow(&dlg);
+    if (!QTest::qWaitForWindowActive(&dlg))
+        QSKIP("Window activation failed, skipping test");
+
+    QVERIFY2(le1->hasFocus(), qPrintable(qApp->focusWidget()->objectName()));
+    QTest::keyClick(qApp->focusWidget(), Qt::Key_Tab);
+    QVERIFY2(pb1->hasFocus(), qPrintable(qApp->focusWidget()->objectName()));
+    QVERIFY2(pb1->isChecked(), qPrintable(buttonGroup->checkedButton()->objectName()));
+    QTest::keyClick(qApp->focusWidget(), Qt::Key_Down);
+    QVERIFY2(pb2->hasFocus(), qPrintable(qApp->focusWidget()->objectName()));
+    QVERIFY2(pb2->isChecked(), qPrintable(buttonGroup->checkedButton()->objectName()));
+    QTest::keyClick(qApp->focusWidget(), Qt::Key_Down);
+    QVERIFY2(pb3->hasFocus(), qPrintable(qApp->focusWidget()->objectName()));
+    QVERIFY2(pb3->isChecked(), qPrintable(buttonGroup->checkedButton()->objectName()));
+    QTest::keyClick(qApp->focusWidget(), Qt::Key_Up);
+    QVERIFY2(pb2->hasFocus(), qPrintable(qApp->focusWidget()->objectName()));
+    QVERIFY2(pb2->isChecked(), qPrintable(buttonGroup->checkedButton()->objectName()));
+    QTest::keyClick(qApp->focusWidget(), Qt::Key_Tab);
+    QVERIFY2(le2->hasFocus(), qPrintable(qApp->focusWidget()->objectName()));
+    QTest::keyClick(qApp->focusWidget(), Qt::Key_Backtab);
+    QVERIFY2(pb2->hasFocus(), qPrintable(qApp->focusWidget()->objectName()));
+    QVERIFY2(pb2->isChecked(), qPrintable(buttonGroup->checkedButton()->objectName()));
+    QTest::keyClick(qApp->focusWidget(), Qt::Key_Backtab);
+    QVERIFY2(le1->hasFocus(), qPrintable(qApp->focusWidget()->objectName()));
+}
+
 void tst_QButtonGroup::exclusiveWithActions()
 {
     QDialog dlg(0);
@@ -228,9 +316,9 @@ void tst_QButtonGroup::exclusive()
 {
     QDialog dlg(0);
     QHBoxLayout layout(&dlg);
-    QPushButton *pushButton1 = new QPushButton(&dlg);
-    QPushButton *pushButton2 = new QPushButton(&dlg);
-    QPushButton *pushButton3 = new QPushButton(&dlg);
+    TestPushButton *pushButton1 = new TestPushButton(&dlg);
+    TestPushButton *pushButton2 = new TestPushButton(&dlg);
+    TestPushButton *pushButton3 = new TestPushButton(&dlg);
     pushButton1->setCheckable(true);
     pushButton2->setCheckable(true);
     pushButton3->setCheckable(true);
@@ -268,20 +356,20 @@ void tst_QButtonGroup::exclusive()
 void tst_QButtonGroup::testSignals()
 {
     QButtonGroup buttons;
-    QPushButton pb1;
-    QPushButton pb2;
-    QPushButton pb3;
+    TestPushButton pb1;
+    TestPushButton pb2;
+    TestPushButton pb3;
     buttons.addButton(&pb1);
     buttons.addButton(&pb2, 23);
     buttons.addButton(&pb3);
 
     qRegisterMetaType<QAbstractButton *>("QAbstractButton *");
     QSignalSpy clickedSpy(&buttons, SIGNAL(buttonClicked(QAbstractButton*)));
-    QSignalSpy clickedIdSpy(&buttons, SIGNAL(buttonClicked(int)));
+    QSignalSpy clickedIdSpy(&buttons, SIGNAL(idClicked(int)));
     QSignalSpy pressedSpy(&buttons, SIGNAL(buttonPressed(QAbstractButton*)));
-    QSignalSpy pressedIdSpy(&buttons, SIGNAL(buttonPressed(int)));
+    QSignalSpy pressedIdSpy(&buttons, SIGNAL(idPressed(int)));
     QSignalSpy releasedSpy(&buttons, SIGNAL(buttonReleased(QAbstractButton*)));
-    QSignalSpy releasedIdSpy(&buttons, SIGNAL(buttonReleased(int)));
+    QSignalSpy releasedIdSpy(&buttons, SIGNAL(idReleased(int)));
 
     pb1.animateClick();
     QTestEventLoop::instance().enterLoop(1);
@@ -321,7 +409,7 @@ void tst_QButtonGroup::testSignals()
 
 
     QSignalSpy toggledSpy(&buttons, SIGNAL(buttonToggled(QAbstractButton*, bool)));
-    QSignalSpy toggledIdSpy(&buttons, SIGNAL(buttonToggled(int, bool)));
+    QSignalSpy toggledIdSpy(&buttons, SIGNAL(idToggled(int, bool)));
 
     pb1.setCheckable(true);
     pb2.setCheckable(true);
@@ -387,9 +475,9 @@ void tst_QButtonGroup::checkedButton()
 {
     QButtonGroup buttons;
     buttons.setExclusive(false);
-    QPushButton pb1;
+    TestPushButton pb1;
     pb1.setCheckable(true);
-    QPushButton pb2;
+    TestPushButton pb2;
     pb2.setCheckable(true);
     buttons.addButton(&pb1);
     buttons.addButton(&pb2, 23);
@@ -453,7 +541,7 @@ void tst_QButtonGroup::task209485_removeFromGroupInEventHandler()
     QFETCH(int, signalCount);
     qRegisterMetaType<QAbstractButton *>("QAbstractButton *");
 
-    QPushButton *button = new QPushButton;
+    TestPushButton *button = new TestPushButton;
     QButtonGroup group;
     group.addButton(button);
 

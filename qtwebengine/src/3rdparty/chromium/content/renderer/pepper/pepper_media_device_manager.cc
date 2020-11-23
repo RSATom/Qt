@@ -15,13 +15,11 @@
 #include "content/renderer/pepper/renderer_ppapi_host_impl.h"
 #include "content/renderer/render_frame_impl.h"
 #include "media/media_buildflags.h"
+#include "mojo/public/cpp/bindings/pending_remote.h"
 #include "ppapi/shared_impl/ppb_device_ref_shared.h"
 #include "services/service_manager/public/cpp/interface_provider.h"
 #include "third_party/blink/public/mojom/devtools/console_message.mojom.h"
-
-#if BUILDFLAG(ENABLE_WEBRTC)
-#include "content/renderer/media/stream/media_stream_device_observer.h"
-#endif
+#include "third_party/blink/public/web/modules/mediastream/web_media_stream_device_observer.h"
 
 namespace content {
 
@@ -136,9 +134,9 @@ size_t PepperMediaDeviceManager::StartMonitoringDevices(
   bool subscribe_audio_output = type == PP_DEVICETYPE_DEV_AUDIOOUTPUT;
   CHECK(subscribe_audio_input || subscribe_video_input ||
         subscribe_audio_output);
-  blink::mojom::MediaDevicesListenerPtr listener;
+  mojo::PendingRemote<blink::mojom::MediaDevicesListener> listener;
   size_t subscription_id =
-      bindings_.AddBinding(this, mojo::MakeRequest(&listener));
+      receivers_.Add(this, listener.InitWithNewPipeAndPassReceiver());
   GetMediaDevicesDispatcher()->AddMediaDevicesListener(
       subscribe_audio_input, subscribe_video_input, subscribe_audio_output,
       std::move(listener));
@@ -161,7 +159,7 @@ void PepperMediaDeviceManager::StopMonitoringDevices(PP_DeviceType_Dev type,
                 [subscription_id](const Subscription& subscription) {
                   return subscription.first == subscription_id;
                 });
-  bindings_.RemoveBinding(subscription_id);
+  receivers_.Remove(subscription_id);
 #endif
 }
 
@@ -214,7 +212,8 @@ void PepperMediaDeviceManager::CancelOpenDevice(int request_id) {
 
 void PepperMediaDeviceManager::CloseDevice(const std::string& label) {
 #if BUILDFLAG(ENABLE_WEBRTC)
-  if (!GetMediaStreamDeviceObserver()->RemoveStream(label))
+  if (!GetMediaStreamDeviceObserver()->RemoveStream(
+          blink::WebString::FromUTF8(label)))
     return;
 
   GetMediaStreamDispatcherHost()->CloseDevice(label);
@@ -227,9 +226,11 @@ base::UnguessableToken PepperMediaDeviceManager::GetSessionID(
 #if BUILDFLAG(ENABLE_WEBRTC)
   switch (type) {
     case PP_DEVICETYPE_DEV_AUDIOCAPTURE:
-      return GetMediaStreamDeviceObserver()->audio_session_id(label);
+      return GetMediaStreamDeviceObserver()->GetAudioSessionId(
+          blink::WebString::FromUTF8(label));
     case PP_DEVICETYPE_DEV_VIDEOCAPTURE:
-      return GetMediaStreamDeviceObserver()->video_session_id(label);
+      return GetMediaStreamDeviceObserver()->GetVideoSessionId(
+          blink::WebString::FromUTF8(label));
     default:
       NOTREACHED();
       return base::UnguessableToken();
@@ -278,7 +279,8 @@ void PepperMediaDeviceManager::OnDeviceOpened(
 
 #if BUILDFLAG(ENABLE_WEBRTC)
   if (success)
-    GetMediaStreamDeviceObserver()->AddStream(label, device);
+    GetMediaStreamDeviceObserver()->AddStream(blink::WebString::FromUTF8(label),
+                                              device);
 #endif
 
   OpenDeviceCallback callback = std::move(iter->second);
@@ -299,37 +301,35 @@ void PepperMediaDeviceManager::DevicesEnumerated(
       .Run(FromMediaDeviceInfoArray(type, enumeration[type]));
 }
 
-const blink::mojom::MediaStreamDispatcherHostPtr&
+blink::mojom::MediaStreamDispatcherHost*
 PepperMediaDeviceManager::GetMediaStreamDispatcherHost() {
   if (!dispatcher_host_) {
     CHECK(render_frame());
-    CHECK(render_frame()->GetRemoteInterfaces());
-    render_frame()->GetRemoteInterfaces()->GetInterface(
-        mojo::MakeRequest(&dispatcher_host_));
+    render_frame()->GetBrowserInterfaceBroker()->GetInterface(
+        dispatcher_host_.BindNewPipeAndPassReceiver());
   }
-  return dispatcher_host_;
+  return dispatcher_host_.get();
 }
 
-MediaStreamDeviceObserver*
+blink::WebMediaStreamDeviceObserver*
 PepperMediaDeviceManager::GetMediaStreamDeviceObserver() const {
   DCHECK(render_frame());
-  MediaStreamDeviceObserver* const observer =
+  blink::WebMediaStreamDeviceObserver* const observer =
       static_cast<RenderFrameImpl*>(render_frame())
-          ->GetMediaStreamDeviceObserver();
+          ->MediaStreamDeviceObserver();
   DCHECK(observer);
   return observer;
 }
 
-const blink::mojom::MediaDevicesDispatcherHostPtr&
+blink::mojom::MediaDevicesDispatcherHost*
 PepperMediaDeviceManager::GetMediaDevicesDispatcher() {
   if (!media_devices_dispatcher_) {
     CHECK(render_frame());
-    CHECK(render_frame()->GetRemoteInterfaces());
-    render_frame()->GetRemoteInterfaces()->GetInterface(
-        mojo::MakeRequest(&media_devices_dispatcher_));
+    render_frame()->GetBrowserInterfaceBroker()->GetInterface(
+        media_devices_dispatcher_.BindNewPipeAndPassReceiver());
   }
 
-  return media_devices_dispatcher_;
+  return media_devices_dispatcher_.get();
 }
 
 void PepperMediaDeviceManager::OnDestruct() {

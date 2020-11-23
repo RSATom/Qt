@@ -180,21 +180,12 @@ int XGetModifiers() {
   return modifiers;
 }
 
-// The time to wait for the target to respond after the user has released the
-// mouse button before ending the move loop.
-const int kEndMoveLoopTimeoutMs = 1000;
-
-// The time to wait since sending the last XdndPosition message before
-// reprocessing the most recent mouse move event in case that the window
-// stacking order has changed and |source_current_window_| needs to be updated.
-const int kRepeatMouseMoveTimeoutMs = 350;
-
 // The minimum alpha before we declare a pixel transparent when searching in
 // our source image.
-const uint32_t kMinAlpha = 32;
+constexpr uint32_t kMinAlpha = 32;
 
 // |drag_widget_|'s opacity.
-const float kDragWidgetOpacity = .75f;
+constexpr float kDragWidgetOpacity = .75f;
 
 static base::LazyInstance<
     std::map<::Window, views::DesktopDragDropClientAuraX11*> >::Leaky
@@ -591,8 +582,8 @@ void DesktopDragDropClientAuraX11::OnXdndStatus(
   if (source_window != source_current_window_)
     return;
 
-  if (source_state_ != SOURCE_STATE_PENDING_DROP &&
-      source_state_ != SOURCE_STATE_OTHER) {
+  if (source_state_ != SourceState::kPendingDrop &&
+      source_state_ != SourceState::kOther) {
     return;
   }
 
@@ -606,13 +597,13 @@ void DesktopDragDropClientAuraX11::OnXdndStatus(
     negotiated_operation_ = ui::DragDropTypes::DRAG_NONE;
   }
 
-  if (source_state_ == SOURCE_STATE_PENDING_DROP) {
+  if (source_state_ == SourceState::kPendingDrop) {
     // We were waiting on the status message so we could send the XdndDrop.
     if (negotiated_operation_ == ui::DragDropTypes::DRAG_NONE) {
       move_loop_->EndMoveLoop();
       return;
     }
-    source_state_ = SOURCE_STATE_DROPPED;
+    source_state_ = SourceState::kDropped;
     SendXdndDrop(source_window);
     return;
   }
@@ -683,22 +674,22 @@ void DesktopDragDropClientAuraX11::OnXdndDrop(
           std::make_unique<ui::OSExchangeDataProviderAuraX11>(
               xwindow_, target_current_context_->fetched_targets())));
 
-      ui::DropTargetEvent event(*data.get(),
-                                gfx::PointF(target_window_location_),
-                                gfx::PointF(target_window_root_location_),
-                                target_current_context_->GetDragOperation());
+      ui::DropTargetEvent drop_event(
+          *data.get(), gfx::PointF(target_window_location_),
+          gfx::PointF(target_window_root_location_),
+          target_current_context_->GetDragOperation());
       if (target_current_context_->source_client()) {
-        event.set_flags(target_current_context_->source_client()
-                            ->current_modifier_state());
+        drop_event.set_flags(
+            target_current_context_->source_client()->current_modifier_state());
       } else {
-        event.set_flags(XGetModifiers());
+        drop_event.set_flags(XGetModifiers());
       }
 
       if (!IsDragDropInProgress()) {
         UMA_HISTOGRAM_COUNTS_1M("Event.DragDrop.ExternalOriginDrop", 1);
       }
 
-      drag_operation = delegate->OnPerformDrop(event, std::move(data));
+      drag_operation = delegate->OnPerformDrop(drop_event, std::move(data));
     }
 
     target_window_->RemoveObserver(this);
@@ -744,7 +735,7 @@ int DesktopDragDropClientAuraX11::StartDragAndDrop(
   waiting_on_status_ = false;
   next_position_message_.reset();
   status_received_since_enter_ = false;
-  source_state_ = SOURCE_STATE_OTHER;
+  source_state_ = SourceState::kOther;
   drag_operation_ = operation;
   negotiated_operation_ = ui::DragDropTypes::DRAG_NONE;
 
@@ -863,7 +854,7 @@ void DesktopDragDropClientAuraX11::OnMouseMovement(
 void DesktopDragDropClientAuraX11::OnMouseReleased() {
   repeat_mouse_move_timer_.Stop();
 
-  if (source_state_ != SOURCE_STATE_OTHER) {
+  if (source_state_ != SourceState::kOther) {
     // The user has previously released the mouse and is clicking in
     // frustration.
     move_loop_->EndMoveLoop();
@@ -875,7 +866,7 @@ void DesktopDragDropClientAuraX11::OnMouseReleased() {
       if (status_received_since_enter_) {
         // If we are waiting for an XdndStatus message, we need to wait for it
         // to complete.
-        source_state_ = SOURCE_STATE_PENDING_DROP;
+        source_state_ = SourceState::kPendingDrop;
 
         // Start timer to end the move loop if the target takes too long to send
         // the XdndStatus and XdndFinished messages.
@@ -896,7 +887,7 @@ void DesktopDragDropClientAuraX11::OnMouseReleased() {
       StartEndMoveLoopTimer();
 
       // We have negotiated an action with the other end.
-      source_state_ = SOURCE_STATE_DROPPED;
+      source_state_ = SourceState::kDropped;
       SendXdndDrop(source_current_window_);
       return;
     }
@@ -989,7 +980,7 @@ void DesktopDragDropClientAuraX11::SendXClientEvent(::Window xid,
 void DesktopDragDropClientAuraX11::ProcessMouseMove(
     const gfx::Point& screen_point,
     unsigned long event_time) {
-  if (source_state_ != SOURCE_STATE_OTHER)
+  if (source_state_ != SourceState::kOther)
     return;
 
   // Find the current window the cursor is over.
@@ -1021,11 +1012,8 @@ void DesktopDragDropClientAuraX11::ProcessMouseMove(
 }
 
 void DesktopDragDropClientAuraX11::StartEndMoveLoopTimer() {
-  end_move_loop_timer_.Start(FROM_HERE,
-                             base::TimeDelta::FromMilliseconds(
-                                 kEndMoveLoopTimeoutMs),
-                             this,
-                             &DesktopDragDropClientAuraX11::EndMoveLoop);
+  end_move_loop_timer_.Start(FROM_HERE, base::TimeDelta::FromMilliseconds(1000),
+                             this, &DesktopDragDropClientAuraX11::EndMoveLoop);
 }
 
 void DesktopDragDropClientAuraX11::EndMoveLoop() {
@@ -1239,7 +1227,7 @@ void DesktopDragDropClientAuraX11::SendXdndPosition(
   // the Xdnd protocol both recommend that drag events should be sent
   // periodically.
   repeat_mouse_move_timer_.Start(
-      FROM_HERE, base::TimeDelta::FromMilliseconds(kRepeatMouseMoveTimeoutMs),
+      FROM_HERE, base::TimeDelta::FromMilliseconds(350),
       base::BindOnce(&DesktopDragDropClientAuraX11::ProcessMouseMove,
                      base::Unretained(this), screen_point, event_time));
 }
@@ -1263,9 +1251,9 @@ void DesktopDragDropClientAuraX11::CreateDragWidget(
   Widget* widget = new Widget;
   Widget::InitParams params(Widget::InitParams::TYPE_DRAG);
   if (ui::IsCompositingManagerPresent())
-    params.opacity = Widget::InitParams::TRANSLUCENT_WINDOW;
+    params.opacity = Widget::InitParams::WindowOpacity::kTranslucent;
   else
-    params.opacity = Widget::InitParams::OPAQUE_WINDOW;
+    params.opacity = Widget::InitParams::WindowOpacity::kOpaque;
   params.ownership = Widget::InitParams::WIDGET_OWNS_NATIVE_WIDGET;
   params.accept_events = false;
 
@@ -1273,9 +1261,9 @@ void DesktopDragDropClientAuraX11::CreateDragWidget(
                         drag_widget_offset_;
   params.bounds = gfx::Rect(location, image.size());
   widget->set_focus_on_creation(false);
-  widget->set_frame_type(Widget::FRAME_TYPE_FORCE_NATIVE);
-  widget->Init(params);
-  if (params.opacity == Widget::InitParams::TRANSLUCENT_WINDOW)
+  widget->set_frame_type(Widget::FrameType::kForceNative);
+  widget->Init(std::move(params));
+  if (params.opacity == Widget::InitParams::WindowOpacity::kTranslucent)
     widget->SetOpacity(kDragWidgetOpacity);
   widget->GetNativeWindow()->SetName("DragWindow");
 

@@ -9,7 +9,7 @@
 #include "base/base64.h"
 #include "base/metrics/field_trial.h"
 #include "base/run_loop.h"
-#include "base/test/scoped_task_environment.h"
+#include "base/test/task_environment.h"
 #include "components/variations/entropy_provider.h"
 #include "components/variations/proto/client_variations.pb.h"
 #include "components/variations/variations_associated_data.h"
@@ -41,10 +41,16 @@ scoped_refptr<base::FieldTrial> CreateTrialAndAssociateId(
     const std::string& default_group_name,
     IDCollectionKey key,
     VariationID id) {
+  AssociateGoogleVariationID(key, trial_name, default_group_name, id);
   scoped_refptr<base::FieldTrial> trial(
       base::FieldTrialList::CreateFieldTrial(trial_name, default_group_name));
+  EXPECT_TRUE(trial);
 
-  AssociateGoogleVariationID(key, trial->trial_name(), trial->group_name(), id);
+  if (trial) {
+    // Ensure the trial is registered under the correct key so we can look it
+    // up.
+    trial->group();
+  }
 
   return trial;
 }
@@ -61,7 +67,7 @@ class VariationsHttpHeaderProviderTest : public ::testing::Test {
 };
 
 TEST_F(VariationsHttpHeaderProviderTest, ForceVariationIds_Valid) {
-  base::test::ScopedTaskEnvironment task_environment;
+  base::test::SingleThreadTaskEnvironment task_environment;
   VariationsHttpHeaderProvider provider;
 
   // Valid experiment ids.
@@ -80,7 +86,7 @@ TEST_F(VariationsHttpHeaderProviderTest, ForceVariationIds_Valid) {
 }
 
 TEST_F(VariationsHttpHeaderProviderTest, ForceVariationIds_ValidCommandLine) {
-  base::test::ScopedTaskEnvironment task_environment;
+  base::test::SingleThreadTaskEnvironment task_environment;
   VariationsHttpHeaderProvider provider;
 
   // Valid experiment ids.
@@ -99,7 +105,7 @@ TEST_F(VariationsHttpHeaderProviderTest, ForceVariationIds_ValidCommandLine) {
 }
 
 TEST_F(VariationsHttpHeaderProviderTest, ForceVariationIds_Invalid) {
-  base::test::ScopedTaskEnvironment task_environment;
+  base::test::SingleThreadTaskEnvironment task_environment;
   VariationsHttpHeaderProvider provider;
 
   // Invalid experiment ids.
@@ -121,9 +127,44 @@ TEST_F(VariationsHttpHeaderProviderTest, ForceVariationIds_Invalid) {
   EXPECT_TRUE(provider.GetClientDataHeader(false).empty());
 }
 
+TEST_F(VariationsHttpHeaderProviderTest,
+       ForceDisableVariationIds_ValidCommandLine) {
+  base::test::SingleThreadTaskEnvironment task_environment;
+  VariationsHttpHeaderProvider provider;
+
+  // Valid experiment ids.
+  EXPECT_EQ(VariationsHttpHeaderProvider::ForceIdsResult::SUCCESS,
+            provider.ForceVariationIds({"1", "2", "t3", "t4"}, "5,6,t7,t8"));
+  EXPECT_TRUE(provider.ForceDisableVariationIds("2,t4,6,t8"));
+  provider.InitVariationIDsCacheIfNeeded();
+  std::string variations = provider.GetClientDataHeader(false);
+  EXPECT_FALSE(variations.empty());
+  std::set<VariationID> variation_ids;
+  std::set<VariationID> trigger_ids;
+  ASSERT_TRUE(ExtractVariationIds(variations, &variation_ids, &trigger_ids));
+  EXPECT_TRUE(variation_ids.find(1) != variation_ids.end());
+  EXPECT_FALSE(variation_ids.find(2) != variation_ids.end());
+  EXPECT_TRUE(trigger_ids.find(3) != trigger_ids.end());
+  EXPECT_FALSE(trigger_ids.find(4) != trigger_ids.end());
+  EXPECT_TRUE(variation_ids.find(5) != variation_ids.end());
+  EXPECT_FALSE(variation_ids.find(6) != variation_ids.end());
+  EXPECT_TRUE(trigger_ids.find(7) != trigger_ids.end());
+  EXPECT_FALSE(trigger_ids.find(8) != trigger_ids.end());
+}
+
+TEST_F(VariationsHttpHeaderProviderTest, ForceDisableVariationIds_Invalid) {
+  base::test::SingleThreadTaskEnvironment task_environment;
+  VariationsHttpHeaderProvider provider;
+
+  // Invalid command-line ids.
+  EXPECT_FALSE(provider.ForceDisableVariationIds("abc"));
+  EXPECT_FALSE(provider.ForceDisableVariationIds("tabc456"));
+  provider.InitVariationIDsCacheIfNeeded();
+  EXPECT_TRUE(provider.GetClientDataHeader(false).empty());
+}
+
 TEST_F(VariationsHttpHeaderProviderTest, OnFieldTrialGroupFinalized) {
-  base::test::ScopedTaskEnvironment task_environment;
-  base::FieldTrialList field_trial_list(nullptr);
+  base::test::SingleThreadTaskEnvironment task_environment;
   VariationsHttpHeaderProvider provider;
   provider.InitVariationIDsCacheIfNeeded();
 
@@ -171,8 +212,7 @@ TEST_F(VariationsHttpHeaderProviderTest, OnFieldTrialGroupFinalized) {
 }
 
 TEST_F(VariationsHttpHeaderProviderTest, GetVariationsString) {
-  base::test::ScopedTaskEnvironment task_environment;
-  base::FieldTrialList field_trial_list(nullptr);
+  base::test::SingleThreadTaskEnvironment task_environment;
 
   CreateTrialAndAssociateId("t1", "g1", GOOGLE_WEB_PROPERTIES, 123);
   CreateTrialAndAssociateId("t2", "g2", GOOGLE_WEB_PROPERTIES, 124);
@@ -185,9 +225,7 @@ TEST_F(VariationsHttpHeaderProviderTest, GetVariationsString) {
 }
 
 TEST_F(VariationsHttpHeaderProviderTest, GetVariationsVector) {
-  base::test::ScopedTaskEnvironment task_environment;
-  base::FieldTrialList field_trial_list(nullptr);
-
+  base::test::SingleThreadTaskEnvironment task_environment;
   CreateTrialAndAssociateId("t1", "g1", GOOGLE_WEB_PROPERTIES, 121);
   CreateTrialAndAssociateId("t2", "g2", GOOGLE_WEB_PROPERTIES, 122);
   CreateTrialAndAssociateId("t3", "g3", GOOGLE_WEB_PROPERTIES_TRIGGER, 123);

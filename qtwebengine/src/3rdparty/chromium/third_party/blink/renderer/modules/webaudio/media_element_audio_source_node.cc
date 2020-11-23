@@ -300,4 +300,12 @@ void MediaElementAudioSourceNode::unlock() {
   GetMediaElementAudioSourceHandler().unlock();
 }
 
+void MediaElementAudioSourceNode::ReportDidCreate() {
+  GraphTracer().DidCreateAudioNode(this);
+}
+
+void MediaElementAudioSourceNode::ReportWillBeDestroyed() {
+  GraphTracer().WillDestroyAudioNode(this);
+}
+
 }  // namespace blink

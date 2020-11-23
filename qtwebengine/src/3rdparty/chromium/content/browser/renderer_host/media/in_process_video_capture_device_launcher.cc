@@ -15,6 +15,7 @@
 #include "build/build_config.h"
 #include "content/browser/renderer_host/media/in_process_launched_video_capture_device.h"
 #include "content/browser/renderer_host/media/video_capture_controller.h"
+#include "content/common/buildflags.h"
 #include "content/public/browser/browser_task_traits.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/desktop_media_id.h"
@@ -29,7 +30,7 @@
 #include "media/capture/video/video_frame_receiver_on_task_runner.h"
 #include "third_party/blink/public/common/mediastream/media_stream_request.h"
 
-#if defined(ENABLE_SCREEN_CAPTURE)
+#if BUILDFLAG(ENABLE_SCREEN_CAPTURE)
 #include "content/browser/media/capture/desktop_capture_device_uma_types.h"
 #if defined(OS_ANDROID)
 #include "content/browser/media/capture/screen_capture_device_android.h"
@@ -42,7 +43,7 @@
 #include "content/browser/media/capture/desktop_capture_device.h"
 #endif
 #endif  // defined(OS_ANDROID)
-#endif  // defined(ENABLE_SCREEN_CAPTURE)
+#endif  // BUILDFLAG(ENABLE_SCREEN_CAPTURE)
 
 #if defined(OS_CHROMEOS)
 #include "content/browser/gpu/chromeos/video_capture_dependencies.h"
@@ -56,8 +57,8 @@ namespace {
 std::unique_ptr<media::VideoCaptureJpegDecoder> CreateGpuJpegDecoder(
     media::VideoCaptureJpegDecoder::DecodeDoneCB decode_done_cb,
     base::Callback<void(const std::string&)> send_log_message_cb) {
-  auto io_task_runner = base::CreateSingleThreadTaskRunnerWithTraits(
-      {content::BrowserThread::IO});
+  auto io_task_runner =
+      base::CreateSingleThreadTaskRunner({content::BrowserThread::IO});
   return std::make_unique<media::ScopedVideoCaptureJpegDecoder>(
       std::make_unique<media::VideoCaptureJpegDecoderImpl>(
           base::BindRepeating(
@@ -113,7 +114,7 @@ void InProcessVideoCaptureDeviceLauncher::LaunchDeviceAsync(
   // to the IO thread.
   auto receiver = std::make_unique<media::VideoFrameReceiverOnTaskRunner>(
       receiver_on_io_thread,
-      base::CreateSingleThreadTaskRunnerWithTraits({BrowserThread::IO}));
+      base::CreateSingleThreadTaskRunner({BrowserThread::IO}));
 
   base::OnceClosure start_capture_closure;
   // Use of Unretained |this| is safe, because |done_cb| guarantees that |this|
@@ -142,7 +143,7 @@ void InProcessVideoCaptureDeviceLauncher::LaunchDeviceAsync(
       break;
     }
 
-#if defined(ENABLE_SCREEN_CAPTURE)
+#if BUILDFLAG(ENABLE_SCREEN_CAPTURE)
 #if !defined(OS_ANDROID)
     case blink::mojom::MediaStreamType::GUM_TAB_VIDEO_CAPTURE:
       start_capture_closure = base::BindOnce(
@@ -223,7 +224,7 @@ void InProcessVideoCaptureDeviceLauncher::LaunchDeviceAsync(
           std::move(after_start_capture_callback));
       break;
     }
-#endif  // defined(ENABLE_SCREEN_CAPTURE)
+#endif  // BUILDFLAG(ENABLE_SCREEN_CAPTURE)
 
     default: {
       NOTIMPLEMENTED();
@@ -253,7 +254,7 @@ InProcessVideoCaptureDeviceLauncher::CreateDeviceClient(
   scoped_refptr<media::VideoCaptureBufferPool> buffer_pool =
       new media::VideoCaptureBufferPoolImpl(
           std::make_unique<media::VideoCaptureBufferTrackerFactoryImpl>(),
-          buffer_pool_max_buffer_count);
+          requested_buffer_type, buffer_pool_max_buffer_count);
 
 #if defined(OS_CHROMEOS)
   return std::make_unique<media::VideoCaptureDeviceClient>(
@@ -333,7 +334,7 @@ void InProcessVideoCaptureDeviceLauncher::DoStartDeviceCaptureOnDeviceThread(
   std::move(result_callback).Run(std::move(video_capture_device));
 }
 
-#if defined(ENABLE_SCREEN_CAPTURE)
+#if BUILDFLAG(ENABLE_SCREEN_CAPTURE)
 
 #if !defined(OS_ANDROID)
 void InProcessVideoCaptureDeviceLauncher::DoStartTabCaptureOnDeviceThread(
@@ -411,7 +412,7 @@ void InProcessVideoCaptureDeviceLauncher::DoStartDesktopCaptureOnDeviceThread(
   std::move(result_callback).Run(std::move(video_capture_device));
 }
 
-#endif  // defined(ENABLE_SCREEN_CAPTURE)
+#endif  // BUILDFLAG(ENABLE_SCREEN_CAPTURE)
 
 void InProcessVideoCaptureDeviceLauncher::
     DoStartFakeDisplayCaptureOnDeviceThread(

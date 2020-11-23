@@ -69,13 +69,13 @@ Base.PieMenuStyle {
 
             Connections {
                 target: pieMenuStyle
-                onStartAngleChanged: actionCanvas.requestPaint()
-                onEndAngleChanged: actionCanvas.requestPaint()
+                function onStartAngleChanged() { actionCanvas.requestPaint() }
+                function onEndAngleChanged() { actionCanvas.requestPaint() }
             }
 
             Connections {
                 target: __styleData
-                onPressedChanged: actionCanvas.requestPaint()
+                function onPressedChanged() { actionCanvas.requestPaint() }
             }
 
             readonly property bool stroke: !__styleData.hovered

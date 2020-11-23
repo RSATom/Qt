@@ -193,8 +193,10 @@ void QGeoMapObject::setMap(QGeoMap *map)
     if (map) {
         bool oldVisible = d_ptr->m_visible;
         bool oldCmponentCompleted = d_ptr->m_componentCompleted;
-        if (!map->createMapObjectImplementation(this))
-            qWarning() << "Unsupported type " << type();
+        if (!map->createMapObjectImplementation(this)) {
+            if (type() != ViewType)
+                qWarning() << "Unsupported type " << type();
+        }
         // old implementation gets destroyed if/when d_ptr gets replaced
         d_ptr->m_componentCompleted = oldCmponentCompleted;
         d_ptr->setVisible(oldVisible);

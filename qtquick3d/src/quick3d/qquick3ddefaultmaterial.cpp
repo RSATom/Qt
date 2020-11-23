@@ -28,7 +28,7 @@
 ****************************************************************************/
 
 #include "qquick3ddefaultmaterial_p.h"
-#include "qquick3dobject_p_p.h"
+#include "qquick3dobject_p.h"
 
 #include <QtQuick3DRuntimeRender/private/qssgrenderdefaultmaterial_p.h>
 
@@ -169,9 +169,9 @@ QT_BEGIN_NAMESPACE
     This property determines which functions are used to calculate specular
     highlights for lights in the scene.
 
-    \value DefaultMaterial::Default Specular lighting uses default lighting model.
-    \value DefaultMaterial::KGGX Specular lighting uses GGX lighting model.
-    \value DefaultMaterial::KWard Specular lighting uses Ward lighting model.
+    \value DefaultMaterial.Default Specular lighting uses default lighting model.
+    \value DefaultMaterial.KGGX Specular lighting uses GGX lighting model.
+    \value DefaultMaterial.KWard Specular lighting uses Ward lighting model.
 */
 
 /*!
@@ -185,7 +185,8 @@ QT_BEGIN_NAMESPACE
     \qmlproperty real DefaultMaterial::indexOfRefraction
 
     This property controls what angles of reflections are affected by the
-    fresnelPower.
+    fresnelPower. The default is \c 1.45. The value must be greater or equal to \c 1.0.
+    \note No known material in the world have ior much greater than \c 3.0.
 */
 
 /*!
@@ -193,14 +194,14 @@ QT_BEGIN_NAMESPACE
 
     This property decreases head-on reflections (looking directly at the
     surface) while maintaining reflections seen at grazing angles.
-
+    The default value is \c 0 disabling the fresnel effect.
 */
 
 /*!
     \qmlproperty real DefaultMaterial::specularAmount
 
     This property controls the strength of specularity (highlights and
-    reflections).
+    reflections). The default value is \c 0 disabling the specularity. The range is [0.0, 1.0].
 
     \note This property does not affect the \l specularReflectionMap, but does
     affect the amount of reflections from a scene's SceneEnvironment::lightProbe.
@@ -222,14 +223,27 @@ QT_BEGIN_NAMESPACE
     \qmlproperty Texture DefaultMaterial::roughnessMap
 
     This property defines a Texture to control the specular roughness of the
-    material.
+    material. If the texture contains multiple channels(RGBA), then the correct channel
+    can be set using the roughnessChannel property.
+*/
+
+/*!
+    \qmlproperty enumeration DefaultMaterial::roughnessChannel
+
+    This property defines the texture channel used to read the roughness value from roughnessMap.
+    The default value is \c Material.R.
+
+    \value Material.R Read value from texture R channel.
+    \value Material.G Read value from texture G channel.
+    \value Material.B Read value from texture B channel.
+    \value Material.A Read value from texture A channel.
 */
 
 /*!
     \qmlproperty real DefaultMaterial::opacity
 
-    This property drops the opacity of just this material, separate from the
-    model.
+    This property drops the opacity of just this material, separate from the model.
+    The default is \c 1.0. The range is [0.0, 1.0].
 */
 
 /*!
@@ -237,9 +251,18 @@ QT_BEGIN_NAMESPACE
 
     This property defines a Texture used to control the opacity differently for
     different parts of the material.
+*/
 
-    \note This must be an image format with transparency for the opacity to be
-     applied.
+/*!
+    \qmlproperty enumeration DefaultMaterial::opacityChannel
+
+    This property defines the texture channel used to read the opacity value from opacityMap.
+    The default value is \c Material.A.
+
+    \value Material.R Read value from texture R channel.
+    \value Material.G Read value from texture G channel.
+    \value Material.B Read value from texture B channel.
+    \value Material.A Read value from texture A channel.
 */
 
 /*!
@@ -259,7 +282,8 @@ QT_BEGIN_NAMESPACE
     \qmlproperty real DefaultMaterial::bumpAmount
 
     This property controls the amount of simulated displacement for the
-    \l bumpMap or \l normalMap.
+    \l bumpMap or \l normalMap. The default value is \c 0 disabling the bump effect.
+    The range is [0, 1].
 
 */
 
@@ -280,6 +304,18 @@ QT_BEGIN_NAMESPACE
 
     This property defines a grayscale Texture controlling how much light can
     pass through the material from behind.
+*/
+
+/*!
+    \qmlproperty enumeration DefaultMaterial::translucencyChannel
+
+    This property defines the texture channel used to read the translucency value from translucencyMap.
+    The default value is \c Material.A.
+
+    \value Material.R Read value from texture R channel.
+    \value Material.G Read value from texture G channel.
+    \value Material.B Read value from texture B channel.
+    \value Material.A Read value from texture A channel.
 */
 
 /*!
@@ -305,45 +341,17 @@ QT_BEGIN_NAMESPACE
     material.
 */
 
-QQuick3DDefaultMaterial::QQuick3DDefaultMaterial()
-    : m_diffuseColor(Qt::white)
+QQuick3DDefaultMaterial::QQuick3DDefaultMaterial(QQuick3DObject *parent)
+    : QQuick3DMaterial(*(new QQuick3DObjectPrivate(QQuick3DObjectPrivate::Type::DefaultMaterial)), parent)
+    , m_diffuseColor(Qt::white)
     , m_emissiveColor(Qt::white)
     , m_specularTint(Qt::white)
 {}
 
 QQuick3DDefaultMaterial::~QQuick3DDefaultMaterial()
 {
-    for(auto connection : m_connections.values())
+    for (const auto &connection : m_connections.values())
         disconnect(connection);
-}
-
-static void updatePropertyListener(QQuick3DObject *newO, QQuick3DObject *oldO, QQuick3DSceneManager *window, QQuick3DDefaultMaterial::ConnectionMap &connections, std::function<void(QQuick3DObject *o)> callFn) {
-    // disconnect previous destruction listern
-    if (oldO) {
-        if (window)
-            QQuick3DObjectPrivate::get(oldO)->derefSceneManager();
-
-        auto connection = connections.find(oldO);
-        if (connection != connections.end()) {
-            QObject::disconnect(connection.value());
-            connections.erase(connection);
-        }
-    }
-
-    // listen for new map's destruction
-    if (newO) {
-        if (window)
-            QQuick3DObjectPrivate::get(newO)->refSceneManager(window);
-        auto connection = QObject::connect(newO, &QObject::destroyed, [callFn](){
-            callFn(nullptr);
-        });
-        connections.insert(newO, connection);
-    }
-}
-
-QQuick3DObject::Type QQuick3DDefaultMaterial::type() const
-{
-    return QQuick3DObject::DefaultMaterial;
 }
 
 QQuick3DDefaultMaterial::Lighting QQuick3DDefaultMaterial::lighting() const
@@ -471,11 +479,27 @@ bool QQuick3DDefaultMaterial::vertexColorsEnabled() const
     return m_vertexColorsEnabled;
 }
 
+QQuick3DMaterial::TextureChannelMapping QQuick3DDefaultMaterial::roughnessChannel() const
+{
+    return m_roughnessChannel;
+}
+
+QQuick3DMaterial::TextureChannelMapping QQuick3DDefaultMaterial::opacityChannel() const
+{
+    return m_opacityChannel;
+}
+
+QQuick3DMaterial::TextureChannelMapping QQuick3DDefaultMaterial::translucencyChannel() const
+{
+    return m_translucencyChannel;
+}
+
 void QQuick3DDefaultMaterial::markAllDirty()
 {
     m_dirtyAttributes = 0xffffffff;
     QQuick3DMaterial::markAllDirty();
 }
+
 
 void QQuick3DDefaultMaterial::setLighting(QQuick3DDefaultMaterial::Lighting lighting)
 {
@@ -512,7 +536,7 @@ void QQuick3DDefaultMaterial::setDiffuseMap(QQuick3DTexture *diffuseMap)
     if (m_diffuseMap == diffuseMap)
         return;
 
-    updatePropertyListener(diffuseMap, m_diffuseMap, sceneManager(), m_connections, [this](QQuick3DObject *n) {
+    updatePropertyListener(diffuseMap, m_diffuseMap, QQuick3DObjectPrivate::get(this)->sceneManager, QByteArrayLiteral("diffuseMap"), m_connections, [this](QQuick3DObject *n) {
         setDiffuseMap(qobject_cast<QQuick3DTexture *>(n));
     });
 
@@ -537,8 +561,7 @@ void QQuick3DDefaultMaterial::setEmissiveMap(QQuick3DTexture *emissiveMap)
     if (m_emissiveMap == emissiveMap)
         return;
 
-
-    updatePropertyListener(emissiveMap, m_emissiveMap, sceneManager(), m_connections, [this](QQuick3DObject *n) {
+    updatePropertyListener(emissiveMap, m_emissiveMap, QQuick3DObjectPrivate::get(this)->sceneManager, QByteArrayLiteral("emissiveMap"), m_connections, [this](QQuick3DObject *n) {
         setEmissiveMap(qobject_cast<QQuick3DTexture *>(n));
     });
 
@@ -562,7 +585,7 @@ void QQuick3DDefaultMaterial::setSpecularReflectionMap(QQuick3DTexture *specular
     if (m_specularReflectionMap == specularReflectionMap)
         return;
 
-    updatePropertyListener(specularReflectionMap, m_specularReflectionMap, sceneManager(), m_connections, [this](QQuick3DObject *n) {
+    updatePropertyListener(specularReflectionMap, m_specularReflectionMap, QQuick3DObjectPrivate::get(this)->sceneManager, QByteArrayLiteral("specularReflectionMap"), m_connections, [this](QQuick3DObject *n) {
         setSpecularReflectionMap(qobject_cast<QQuick3DTexture *>(n));
     });
 
@@ -576,7 +599,7 @@ void QQuick3DDefaultMaterial::setSpecularMap(QQuick3DTexture *specularMap)
     if (m_specularMap == specularMap)
         return;
 
-    updatePropertyListener(specularMap, m_specularMap, sceneManager(), m_connections, [this](QQuick3DObject *n) {
+    updatePropertyListener(specularMap, m_specularMap, QQuick3DObjectPrivate::get(this)->sceneManager, QByteArrayLiteral("specularMap"), m_connections, [this](QQuick3DObject *n) {
         setSpecularMap(qobject_cast<QQuick3DTexture *>(n));
     });
 
@@ -650,7 +673,7 @@ void QQuick3DDefaultMaterial::setRoughnessMap(QQuick3DTexture *roughnessMap)
     if (m_roughnessMap == roughnessMap)
         return;
 
-    updatePropertyListener(roughnessMap, m_roughnessMap, sceneManager(), m_connections, [this](QQuick3DObject *n) {
+    updatePropertyListener(roughnessMap, m_roughnessMap, QQuick3DObjectPrivate::get(this)->sceneManager, QByteArrayLiteral("roughnessMap"),  m_connections, [this](QQuick3DObject *n) {
         setRoughnessMap(qobject_cast<QQuick3DTexture *>(n));
     });
 
@@ -681,7 +704,7 @@ void QQuick3DDefaultMaterial::setOpacityMap(QQuick3DTexture *opacityMap)
     if (m_opacityMap == opacityMap)
         return;
 
-    updatePropertyListener(opacityMap, m_opacityMap, sceneManager(), m_connections, [this](QQuick3DObject *n) {
+    updatePropertyListener(opacityMap, m_opacityMap, QQuick3DObjectPrivate::get(this)->sceneManager, QByteArrayLiteral("opacityMap"), m_connections, [this](QQuick3DObject *n) {
         setOpacityMap(qobject_cast<QQuick3DTexture *>(n));
     });
 
@@ -695,7 +718,7 @@ void QQuick3DDefaultMaterial::setBumpMap(QQuick3DTexture *bumpMap)
     if (m_bumpMap == bumpMap)
         return;
 
-    updatePropertyListener(bumpMap, m_bumpMap, sceneManager(), m_connections, [this](QQuick3DObject *n) {
+    updatePropertyListener(bumpMap, m_bumpMap, QQuick3DObjectPrivate::get(this)->sceneManager, QByteArrayLiteral("bumpMap"), m_connections, [this](QQuick3DObject *n) {
         setBumpMap(qobject_cast<QQuick3DTexture *>(n));
     });
 
@@ -719,7 +742,7 @@ void QQuick3DDefaultMaterial::setNormalMap(QQuick3DTexture *normalMap)
     if (m_normalMap == normalMap)
         return;
 
-    updatePropertyListener(normalMap, m_normalMap, sceneManager(), m_connections, [this](QQuick3DObject *n) {
+    updatePropertyListener(normalMap, m_normalMap, QQuick3DObjectPrivate::get(this)->sceneManager, QByteArrayLiteral("normalMap"), m_connections, [this](QQuick3DObject *n) {
         setNormalMap(qobject_cast<QQuick3DTexture *>(n));
     });
 
@@ -733,7 +756,7 @@ void QQuick3DDefaultMaterial::setTranslucencyMap(QQuick3DTexture *translucencyMa
     if (m_translucencyMap == translucencyMap)
         return;
 
-    updatePropertyListener(translucencyMap, m_translucencyMap, sceneManager(), m_connections, [this](QQuick3DObject *n) {
+    updatePropertyListener(translucencyMap, m_translucencyMap, QQuick3DObjectPrivate::get(this)->sceneManager, QByteArrayLiteral("translucencyMap"), m_connections, [this](QQuick3DObject *n) {
         setTranslucencyMap(qobject_cast<QQuick3DTexture *>(n));
     });
 
@@ -772,12 +795,44 @@ void QQuick3DDefaultMaterial::setVertexColorsEnabled(bool vertexColors)
     markDirty(VertexColorsDirty);
 }
 
+void QQuick3DDefaultMaterial::setRoughnessChannel(TextureChannelMapping channel)
+{
+    if (m_roughnessChannel == channel)
+        return;
+    m_roughnessChannel = channel;
+    emit roughnessChannelChanged(channel);
+    markDirty(SpecularDirty);
+}
+
+void QQuick3DDefaultMaterial::setOpacityChannel(TextureChannelMapping channel)
+{
+    if (m_opacityChannel == channel)
+        return;
+    m_opacityChannel = channel;
+    emit opacityChannelChanged(channel);
+    markDirty(OpacityDirty);
+}
+
+void QQuick3DDefaultMaterial::setTranslucencyChannel(TextureChannelMapping channel)
+{
+    if (m_translucencyChannel == channel)
+        return;
+    m_translucencyChannel = channel;
+    emit translucencyChannelChanged(channel);
+    markDirty(TranslucencyDirty);
+}
+
+
 QSSGRenderGraphObject *QQuick3DDefaultMaterial::updateSpatialNode(QSSGRenderGraphObject *node)
 {
     if (!node) {
         markAllDirty();
         node = new QSSGRenderDefaultMaterial(QSSGRenderGraphObject::Type::DefaultMaterial);
     }
+
+    static const auto channelMapping = [](TextureChannelMapping mapping) {
+        return QSSGRenderDefaultMaterial::TextureChannelMapping(mapping);
+    };
 
     // Set common material properties
     QQuick3DMaterial::updateSpatialNode(node);
@@ -830,6 +885,7 @@ QSSGRenderGraphObject *QQuick3DDefaultMaterial::updateSpatialNode(QSSGRenderGrap
         material->fresnelPower = m_fresnelPower;
         material->specularAmount = m_specularAmount;
         material->specularRoughness = m_specularRoughness;
+        material->roughnessChannel = channelMapping(m_roughnessChannel);
 
         if (!m_roughnessMap)
             material->roughnessMap = nullptr;
@@ -839,6 +895,7 @@ QSSGRenderGraphObject *QQuick3DDefaultMaterial::updateSpatialNode(QSSGRenderGrap
 
     if (m_dirtyAttributes & OpacityDirty) {
         material->opacity = m_opacity;
+        material->opacityChannel = channelMapping(m_opacityChannel);
         if (!m_opacityMap)
             material->opacityMap = nullptr;
         else
@@ -866,6 +923,7 @@ QSSGRenderGraphObject *QQuick3DDefaultMaterial::updateSpatialNode(QSSGRenderGrap
         else
             material->translucencyMap = m_translucencyMap->getRenderImage();
         material->translucentFalloff = m_translucentFalloff;
+        material->translucencyChannel = channelMapping(m_translucencyChannel);
     }
 
     if (m_dirtyAttributes & VertexColorsDirty)
@@ -882,47 +940,29 @@ void QQuick3DDefaultMaterial::itemChange(QQuick3DObject::ItemChange change, cons
         updateSceneManager(value.sceneManager);
 }
 
-void QQuick3DDefaultMaterial::updateSceneManager(QQuick3DSceneManager *sceneManager)
+void QQuick3DDefaultMaterial::updateSceneManager(const QSharedPointer<QQuick3DSceneManager> &sceneManager)
 {
     // Check all the resource value's windows, and update as necessary
     if (sceneManager) {
-        if (m_diffuseMap)
-            QQuick3DObjectPrivate::get(m_diffuseMap)->refSceneManager(sceneManager);
-        if (m_emissiveMap)
-            QQuick3DObjectPrivate::get(m_emissiveMap)->refSceneManager(sceneManager);
-        if (m_specularReflectionMap)
-            QQuick3DObjectPrivate::get(m_specularReflectionMap)->refSceneManager(sceneManager);
-        if (m_specularMap)
-            QQuick3DObjectPrivate::get(m_specularMap)->refSceneManager(sceneManager);
-        if (m_roughnessMap)
-            QQuick3DObjectPrivate::get(m_roughnessMap)->refSceneManager(sceneManager);
-        if (m_opacityMap)
-            QQuick3DObjectPrivate::get(m_opacityMap)->refSceneManager(sceneManager);
-        if (m_bumpMap)
-            QQuick3DObjectPrivate::get(m_bumpMap)->refSceneManager(sceneManager);
-        if (m_normalMap)
-            QQuick3DObjectPrivate::get(m_normalMap)->refSceneManager(sceneManager);
-        if (m_translucencyMap)
-            QQuick3DObjectPrivate::get(m_translucencyMap)->refSceneManager(sceneManager);
+        QQuick3DObjectPrivate::refSceneManager(m_diffuseMap, sceneManager);
+        QQuick3DObjectPrivate::refSceneManager(m_emissiveMap, sceneManager);
+        QQuick3DObjectPrivate::refSceneManager(m_specularReflectionMap, sceneManager);
+        QQuick3DObjectPrivate::refSceneManager(m_specularMap, sceneManager);
+        QQuick3DObjectPrivate::refSceneManager(m_roughnessMap, sceneManager);
+        QQuick3DObjectPrivate::refSceneManager(m_opacityMap, sceneManager);
+        QQuick3DObjectPrivate::refSceneManager(m_bumpMap, sceneManager);
+        QQuick3DObjectPrivate::refSceneManager(m_normalMap, sceneManager);
+        QQuick3DObjectPrivate::refSceneManager(m_translucencyMap, sceneManager);
     } else {
-        if (m_diffuseMap)
-            QQuick3DObjectPrivate::get(m_diffuseMap)->derefSceneManager();
-        if (m_emissiveMap)
-            QQuick3DObjectPrivate::get(m_emissiveMap)->derefSceneManager();
-        if (m_specularReflectionMap)
-            QQuick3DObjectPrivate::get(m_specularReflectionMap)->derefSceneManager();
-        if (m_specularMap)
-            QQuick3DObjectPrivate::get(m_specularMap)->derefSceneManager();
-        if (m_roughnessMap)
-            QQuick3DObjectPrivate::get(m_roughnessMap)->derefSceneManager();
-        if (m_opacityMap)
-            QQuick3DObjectPrivate::get(m_opacityMap)->derefSceneManager();
-        if (m_bumpMap)
-            QQuick3DObjectPrivate::get(m_bumpMap)->derefSceneManager();
-        if (m_normalMap)
-            QQuick3DObjectPrivate::get(m_normalMap)->derefSceneManager();
-        if (m_translucencyMap)
-            QQuick3DObjectPrivate::get(m_translucencyMap)->derefSceneManager();
+        QQuick3DObjectPrivate::derefSceneManager(m_diffuseMap);
+        QQuick3DObjectPrivate::derefSceneManager(m_emissiveMap);
+        QQuick3DObjectPrivate::derefSceneManager(m_specularReflectionMap);
+        QQuick3DObjectPrivate::derefSceneManager(m_specularMap);
+        QQuick3DObjectPrivate::derefSceneManager(m_roughnessMap);
+        QQuick3DObjectPrivate::derefSceneManager(m_opacityMap);
+        QQuick3DObjectPrivate::derefSceneManager(m_bumpMap);
+        QQuick3DObjectPrivate::derefSceneManager(m_normalMap);
+        QQuick3DObjectPrivate::derefSceneManager(m_translucencyMap);
     }
 }
 

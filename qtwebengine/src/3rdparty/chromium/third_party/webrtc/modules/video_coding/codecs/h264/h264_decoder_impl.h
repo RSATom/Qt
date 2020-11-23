@@ -17,10 +17,6 @@
 // #ifdef unless needed and tested.
 #ifdef WEBRTC_USE_H264
 
-#if defined(WEBRTC_WIN) && !defined(__clang__)
-#error "See: bugs.webrtc.org/9213#c13."
-#endif
-
 #include <memory>
 
 #include "modules/video_coding/codecs/h264/include/h264.h"
@@ -77,7 +73,6 @@ class H264DecoderImpl : public H264Decoder {
   const char* ImplementationName() const override;
 
  private:
-  const bool kEnable8bitHdrFix_;
   // Called by FFmpeg when it needs a frame buffer to store decoded frames in.
   // The |VideoFrame| returned by FFmpeg at |Decode| originate from here. Their
   // buffers are reference counted and freed by FFmpeg using |AVFreeBuffer2|.

@@ -9,14 +9,19 @@
 #include <utility>
 
 #include "base/macros.h"
-#include "base/message_loop/message_loop.h"
+#include "base/message_loop/message_pump_type.h"
 #include "base/message_loop/timer_slack.h"
+#include "base/sequenced_task_runner.h"
 #include "base/single_thread_task_runner.h"
 #include "base/task/sequence_manager/task_queue_impl.h"
 #include "base/task/sequence_manager/task_time_observer.h"
 #include "base/time/default_tick_clock.h"
 
 namespace base {
+
+class MessagePump;
+class TaskObserver;
+
 namespace sequence_manager {
 
 class TimeDomain;
@@ -80,7 +85,7 @@ class BASE_EXPORT SequenceManager {
     // so we are making Settings move-only in preparation.
     Settings(Settings&& move_from) noexcept;
 
-    MessagePump::Type message_loop_type = MessagePump::Type::DEFAULT;
+    MessagePumpType message_loop_type = MessagePumpType::DEFAULT;
     bool randomised_sampling_enabled = false;
     const TickClock* clock = DefaultTickClock::GetInstance();
 
@@ -99,6 +104,11 @@ class BASE_EXPORT SequenceManager {
       kNone,
       kEnabled,
       kEnabledWithBacktrace,
+
+      // Logs high priority tasks and the lower priority tasks they skipped
+      // past.  Useful for debugging test failures caused by scheduler policy
+      // changes.
+      kReorderedOnly,
     };
     TaskLogging task_execution_logging = TaskLogging::kNone;
 
@@ -138,8 +148,13 @@ class BASE_EXPORT SequenceManager {
   // performs this initialization automatically.
   virtual void BindToCurrentThread() = 0;
 
+  // Returns the task runner the current task was posted on. Returns null if no
+  // task is currently running. Must be called on the bound thread.
+  virtual const scoped_refptr<SequencedTaskRunner>&
+  GetTaskRunnerForCurrentTask() = 0;
+
   // Finishes the initialization for a SequenceManager created via
-  // CreateUnboundSequenceManagerWithPump(). Must not be called in any other
+  // CreateUnboundSequenceManager(). Must not be called in any other
   // circumstances. The ownership of the pump is transferred to SequenceManager.
   virtual void BindToMessagePump(std::unique_ptr<MessagePump> message_pump) = 0;
 
@@ -235,6 +250,14 @@ class BASE_EXPORT SequenceManager {
   virtual std::unique_ptr<NativeWorkHandle> OnNativeWorkPending(
       TaskQueue::QueuePriority priority) = 0;
 
+  // Adds an observer which reports task execution. Can only be called on the
+  // same thread that |this| is running on.
+  virtual void AddTaskObserver(TaskObserver* task_observer) = 0;
+
+  // Removes an observer which reports task execution. Can only be called on the
+  // same thread that |this| is running on.
+  virtual void RemoveTaskObserver(TaskObserver* task_observer) = 0;
+
  protected:
   virtual std::unique_ptr<internal::TaskQueueImpl> CreateTaskQueueImpl(
       const TaskQueue::Spec& spec) = 0;
@@ -245,8 +268,8 @@ class BASE_EXPORT SequenceManager::Settings::Builder {
   Builder();
   ~Builder();
 
-  // Sets the MessagePump::Type which is used to create a MessagePump.
-  Builder& SetMessagePumpType(MessagePump::Type message_loop_type);
+  // Sets the MessagePumpType which is used to create a MessagePump.
+  Builder& SetMessagePumpType(MessagePumpType message_loop_type);
 
   Builder& SetRandomisedSamplingEnabled(bool randomised_sampling_enabled);
 

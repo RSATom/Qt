@@ -20,8 +20,9 @@
 #include "components/content_settings/core/test/content_settings_mock_provider.h"
 #include "components/content_settings/core/test/content_settings_test_utils.h"
 #include "components/prefs/pref_service.h"
-#include "content/public/test/test_browser_thread_bundle.h"
+#include "content/public/test/browser_task_environment.h"
 #include "extensions/browser/extension_registry.h"
+#include "mojo/public/cpp/bindings/pending_remote.h"
 #include "services/device/public/cpp/test/fake_usb_device_manager.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "url/gurl.h"
@@ -29,7 +30,7 @@
 namespace site_settings {
 
 namespace {
-constexpr ContentSettingsType kContentType = CONTENT_SETTINGS_TYPE_GEOLOCATION;
+constexpr ContentSettingsType kContentType = ContentSettingsType::GEOLOCATION;
 }
 
 class SiteSettingsHelperTest : public testing::Test {
@@ -63,7 +64,7 @@ class SiteSettingsHelperTest : public testing::Test {
   }
 
  private:
-  content::TestBrowserThreadBundle thread_bundle_;
+  content::BrowserTaskEnvironment task_environment_;
 };
 
 TEST_F(SiteSettingsHelperTest, CheckExceptionOrder) {
@@ -186,7 +187,7 @@ TEST_F(SiteSettingsHelperTest, ContentSettingSource) {
   // Note this is not testing |kContentType|, because this setting is only valid
   // for protected content.
   content_setting = GetContentSettingForOrigin(
-      &profile, map, origin, CONTENT_SETTINGS_TYPE_PROTECTED_MEDIA_IDENTIFIER,
+      &profile, map, origin, ContentSettingsType::PROTECTED_MEDIA_IDENTIFIER,
       &source, extension_registry, &display_name);
   EXPECT_EQ(SiteSettingSourceToString(SiteSettingSource::kDrmDisabled), source);
   EXPECT_EQ(CONTENT_SETTING_BLOCK, content_setting);
@@ -316,7 +317,7 @@ void ExpectValidSiteExceptionObject(const base::Value& actual_site_object,
 
 TEST_F(SiteSettingsHelperTest, CreateChooserExceptionObject) {
   const std::string kUsbChooserGroupName =
-      ContentSettingsTypeToGroupName(CONTENT_SETTINGS_TYPE_USB_CHOOSER_DATA);
+      ContentSettingsTypeToGroupName(ContentSettingsType::USB_CHOOSER_DATA);
   const std::string& kPolicySource =
       SiteSettingSourceToString(SiteSettingSource::kPolicy);
   const std::string& kPreferenceSource =
@@ -457,9 +458,10 @@ class SiteSettingsHelperChooserExceptionTest : public testing::Test {
         device_manager_.CreateAndAddDevice(6354, 0, "Google", "Gadget", "");
 
     auto* chooser_context = UsbChooserContextFactory::GetForProfile(profile());
-    device::mojom::UsbDeviceManagerPtr device_manager_ptr;
-    device_manager_.AddBinding(mojo::MakeRequest(&device_manager_ptr));
-    chooser_context->SetDeviceManagerForTesting(std::move(device_manager_ptr));
+    mojo::PendingRemote<device::mojom::UsbDeviceManager> device_manager;
+    device_manager_.AddReceiver(
+        device_manager.InitWithNewPipeAndPassReceiver());
+    chooser_context->SetDeviceManagerForTesting(std::move(device_manager));
     chooser_context->GetDevices(
         base::DoNothing::Once<std::vector<device::mojom::UsbDeviceInfoPtr>>());
     base::RunLoop().RunUntilIdle();
@@ -490,7 +492,7 @@ class SiteSettingsHelperChooserExceptionTest : public testing::Test {
   device::FakeUsbDeviceManager device_manager_;
 
  private:
-  content::TestBrowserThreadBundle thread_bundle_;
+  content::BrowserTaskEnvironment task_environment_;
   TestingProfile profile_;
 };
 
@@ -507,7 +509,7 @@ void ExpectDisplayNameEq(const base::Value& actual_exception_object,
 TEST_F(SiteSettingsHelperChooserExceptionTest,
        GetChooserExceptionListFromProfile) {
   const std::string kUsbChooserGroupName =
-      ContentSettingsTypeToGroupName(CONTENT_SETTINGS_TYPE_USB_CHOOSER_DATA);
+      ContentSettingsTypeToGroupName(ContentSettingsType::USB_CHOOSER_DATA);
   const ChooserTypeNameEntry* chooser_type =
       ChooserTypeFromGroupName(kUsbChooserGroupName);
   const std::string& kPolicySource =
@@ -522,7 +524,7 @@ TEST_F(SiteSettingsHelperChooserExceptionTest,
   // permissions are not displayed.
   base::Value exceptions =
       GetChooserExceptionListFromProfile(profile(), *chooser_type);
-  auto& exceptions_list = exceptions.GetList();
+  base::Value::ConstListView exceptions_list = exceptions.GetList();
   ASSERT_EQ(exceptions_list.size(), 4u);
 
   // This exception should describe the permissions for any device with the

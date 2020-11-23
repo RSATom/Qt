@@ -80,7 +80,8 @@ GYear::Ptr GYear::fromLexical(const QString &lexical)
 
 GYear::Ptr GYear::fromDateTime(const QDateTime &dt)
 {
-    QDateTime result(QDate(dt.date().year(), DefaultMonth, DefaultDay));
+    const QDate date(dt.date().year(), DefaultMonth, DefaultDay);
+    QDateTime result(date.startOfDay());
     copyTimeSpec(dt, result);
 
     return GYear::Ptr(new GYear(result));

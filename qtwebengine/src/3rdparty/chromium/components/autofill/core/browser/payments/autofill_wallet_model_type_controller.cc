@@ -18,10 +18,11 @@ namespace browser_sync {
 
 AutofillWalletModelTypeController::AutofillWalletModelTypeController(
     syncer::ModelType type,
-    std::unique_ptr<syncer::ModelTypeControllerDelegate> delegate_on_disk,
+    std::unique_ptr<syncer::ModelTypeControllerDelegate>
+        delegate_for_full_sync_mode,
     PrefService* pref_service,
     syncer::SyncService* sync_service)
-    : ModelTypeController(type, std::move(delegate_on_disk)),
+    : ModelTypeController(type, std::move(delegate_for_full_sync_mode)),
       pref_service_(pref_service),
       sync_service_(sync_service) {
   DCHECK(type == syncer::AUTOFILL_WALLET_DATA ||
@@ -34,13 +35,15 @@ AutofillWalletModelTypeController::AutofillWalletModelTypeController(
 
 AutofillWalletModelTypeController::AutofillWalletModelTypeController(
     syncer::ModelType type,
-    std::unique_ptr<syncer::ModelTypeControllerDelegate> delegate_on_disk,
-    std::unique_ptr<syncer::ModelTypeControllerDelegate> delegate_in_memory,
+    std::unique_ptr<syncer::ModelTypeControllerDelegate>
+        delegate_for_full_sync_mode,
+    std::unique_ptr<syncer::ModelTypeControllerDelegate>
+        delegate_for_transport_mode,
     PrefService* pref_service,
     syncer::SyncService* sync_service)
     : ModelTypeController(type,
-                          std::move(delegate_on_disk),
-                          std::move(delegate_in_memory)),
+                          std::move(delegate_for_full_sync_mode),
+                          std::move(delegate_for_transport_mode)),
       pref_service_(pref_service),
       sync_service_(sync_service) {
   DCHECK(type == syncer::AUTOFILL_WALLET_DATA ||
@@ -72,22 +75,25 @@ void AutofillWalletModelTypeController::Stop(
   ModelTypeController::Stop(shutdown_reason, std::move(callback));
 }
 
-bool AutofillWalletModelTypeController::ReadyForStart() const {
+syncer::DataTypeController::PreconditionState
+AutofillWalletModelTypeController::GetPreconditionState() const {
   DCHECK(CalledOnValidThread());
   // Not being in a persistent error state implies not being in a web signout
   // state.
   // TODO(https://crbug.com/819729): Add integration tests for web signout and
   // other persistent auth errors.
-  return pref_service_->GetBoolean(
-             autofill::prefs::kAutofillWalletImportEnabled) &&
-         pref_service_->GetBoolean(
-             autofill::prefs::kAutofillCreditCardEnabled) &&
-         !sync_service_->GetAuthError().IsPersistentError();
+  bool preconditions_met =
+      pref_service_->GetBoolean(
+          autofill::prefs::kAutofillWalletImportEnabled) &&
+      pref_service_->GetBoolean(autofill::prefs::kAutofillCreditCardEnabled) &&
+      !sync_service_->GetAuthError().IsPersistentError();
+  return preconditions_met ? PreconditionState::kPreconditionsMet
+                           : PreconditionState::kMustStopAndClearData;
 }
 
 void AutofillWalletModelTypeController::OnUserPrefChanged() {
   DCHECK(CalledOnValidThread());
-  sync_service_->ReadyForStartChanged(type());
+  sync_service_->DataTypePreconditionChanged(type());
 }
 
 void AutofillWalletModelTypeController::SubscribeToPrefChanges() {
@@ -105,7 +111,7 @@ void AutofillWalletModelTypeController::SubscribeToPrefChanges() {
 void AutofillWalletModelTypeController::OnStateChanged(
     syncer::SyncService* sync) {
   DCHECK(CalledOnValidThread());
-  sync_service_->ReadyForStartChanged(type());
+  sync_service_->DataTypePreconditionChanged(type());
 }
 
 }  // namespace browser_sync

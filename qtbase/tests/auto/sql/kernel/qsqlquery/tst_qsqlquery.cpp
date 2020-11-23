@@ -238,6 +238,9 @@ private slots:
     void QTBUG_53969_data() { generic_data("QMYSQL"); }
     void QTBUG_53969();
 
+    void gisPointDatatype_data() { generic_data("QMYSQL"); }
+    void gisPointDatatype();
+
     void sqlite_constraint_data() { generic_data("QSQLITE"); }
     void sqlite_constraint();
 
@@ -475,10 +478,6 @@ void tst_QSqlQuery::char1SelectUnicode()
     if ( db.driver()->hasFeature( QSqlDriver::Unicode ) ) {
         QString uniStr( QChar(0x0915) ); // DEVANAGARI LETTER KA
         QSqlQuery q( db );
-
-        if ( db.driverName().startsWith( "QMYSQL" ) && tst_Databases::getMySqlVersion( db ).section( QChar('.'), 0, 0 ).toInt()<5 )
-            QSKIP( "Test requires MySQL >= 5.0");
-
         QString createQuery;
         const QString char1SelectUnicode(qTableName("char1SU", __FILE__, db));
 
@@ -558,9 +557,6 @@ void tst_QSqlQuery::mysql_outValues()
     QFETCH( QString, dbName );
     QSqlDatabase db = QSqlDatabase::database( dbName );
     CHECK_DATABASE( db );
-    if (tst_Databases::getMySqlVersion(db).section(QChar('.'), 0, 0 ).toInt() < 5)
-        QSKIP( "Test requires MySQL >= 5.0");
-
     const QString hello(qTableName("hello", __FILE__, db)), qtestproc(qTableName("qtestproc", __FILE__, db));
 
     QSqlQuery q( db );
@@ -2082,10 +2078,6 @@ void tst_QSqlQuery::prepare_bind_exec()
         bool useUnicode = db.driver()->hasFeature( QSqlDriver::Unicode );
 
         QSqlQuery q( db );
-
-        if ( db.driverName().startsWith( "QMYSQL" ) && tst_Databases::getMySqlVersion( db ).section( QChar('.'), 0, 0 ).toInt()<5 )
-            useUnicode = false;
-
         QString createQuery;
         QSqlDriver::DbmsType dbType = tst_Databases::getDatabaseType(db);
         if (dbType == QSqlDriver::PostgreSQL)
@@ -3058,10 +3050,6 @@ void tst_QSqlQuery::nextResult()
         QSKIP("DBMS does not support multiple result sets");
 
     QSqlQuery q( db );
-
-    if ( db.driverName().startsWith( "QMYSQL" ) && tst_Databases::getMySqlVersion( db ).section( QChar('.'), 0, 0 ).toInt()<5 )
-        QSKIP( "Test requires MySQL >= 5.0");
-
     const QString tableName(qTableName("more_results", __FILE__, db));
 
     QVERIFY_SQL( q, exec( "CREATE TABLE " + tableName + " (id integer, text varchar(20), num numeric(6, 3), empty varchar(10));" ) );
@@ -3740,9 +3728,6 @@ void tst_QSqlQuery::QTBUG_6852()
     QFETCH( QString, dbName );
     QSqlDatabase db = QSqlDatabase::database( dbName );
     CHECK_DATABASE( db );
-    if ( tst_Databases::getMySqlVersion( db ).section( QChar('.'), 0, 0 ).toInt()<5 )
-        QSKIP( "Test requires MySQL >= 5.0");
-
     QSqlQuery q(db);
     const QString tableName(qTableName("bug6852", __FILE__, db)), procName(qTableName("bug6852_proc", __FILE__, db));
 
@@ -3774,9 +3759,6 @@ void tst_QSqlQuery::QTBUG_5765()
     QFETCH( QString, dbName );
     QSqlDatabase db = QSqlDatabase::database( dbName );
     CHECK_DATABASE( db );
-    if ( tst_Databases::getMySqlVersion( db ).section( QChar('.'), 0, 1 ).toFloat()<4.1 )
-        QSKIP( "Test requires MySQL >= 4.1");
-
     QSqlQuery q(db);
     const QString tableName(qTableName("bug5765", __FILE__, db));
 
@@ -4036,6 +4018,7 @@ void tst_QSqlQuery::QTBUG_36211()
         QSqlQuery q(db);
         QVERIFY_SQL(q, exec(QString("CREATE TABLE %1 (dtwtz timestamptz, dtwotz timestamp)").arg(tableName)));
 
+#if QT_CONFIG(timezone)
         QTimeZone l_tzBrazil("America/Sao_Paulo");
         QTimeZone l_tzChina("Asia/Shanghai");
         QVERIFY(l_tzBrazil.isValid());
@@ -4062,6 +4045,7 @@ void tst_QSqlQuery::QTBUG_36211()
                 QVERIFY(diff <= 1000 - keep);
             }
         }
+#endif
     }
 }
 
@@ -4099,6 +4083,25 @@ void tst_QSqlQuery::QTBUG_53969()
         }
         QCOMPARE(values, tableValues);
     }
+}
+
+void tst_QSqlQuery::gisPointDatatype()
+{
+    QFETCH(QString, dbName);
+    QSqlDatabase db = QSqlDatabase::database(dbName);
+    CHECK_DATABASE(db);
+
+    QSqlQuery sqlQuery(db);
+    const auto tableName = qTableName("qtbug72140", __FILE__, db);
+    tst_Databases::safeDropTable(db, tableName);
+    QString sqlCommand = QStringLiteral("CREATE TABLE %1 (`lonlat_point` POINT NULL) ENGINE = InnoDB;").arg(tableName);
+    QVERIFY(sqlQuery.exec(sqlCommand));
+    sqlCommand = QStringLiteral("INSERT INTO %1(lonlat_point) VALUES(ST_GeomFromText('POINT(1 1)'));").arg(tableName);
+    QVERIFY(sqlQuery.exec(sqlCommand));
+    sqlCommand = QStringLiteral("SELECT * FROM %1;").arg(tableName);
+    QVERIFY(sqlQuery.exec(sqlCommand));
+    QCOMPARE(sqlQuery.record().field(0).type(), QVariant::Type::ByteArray);
+    QVERIFY(sqlQuery.next());
 }
 
 void tst_QSqlQuery::oraOCINumber()
@@ -4542,6 +4545,7 @@ void tst_QSqlQuery::dateTime_data()
     QTest::addColumn<QList<QDateTime> >("initialDateTimes");
     QTest::addColumn<QList<QDateTime> >("expectedDateTimes");
 
+#if QT_CONFIG(timezone)
     // Using time zones which are highly unlikely to be the same as the testing machine's one
     // as it could pass as a result despite it.
     // +8.5 hours from UTC to North Korea
@@ -4549,17 +4553,37 @@ void tst_QSqlQuery::dateTime_data()
     // -8 hours from UTC to Belize
     const QTimeZone beforeUTCTimeZone(-28800);
     const QTimeZone utcTimeZone("UTC");
-    const QDateTime dt(QDate(2015, 5, 18), QTime(4, 26, 30));
-    const QDateTime dtWithMS(QDate(2015, 5, 18), QTime(4, 26, 30, 500));
+
     const QDateTime dtWithAfterTZ(QDate(2015, 5, 18), QTime(4, 26, 30, 500), afterUTCTimeZone);
     const QDateTime dtWithBeforeTZ(QDate(2015, 5, 18), QTime(4, 26, 30, 500), beforeUTCTimeZone);
     const QDateTime dtWithUTCTZ(QDate(2015, 5, 18), QTime(4, 26, 30, 500), utcTimeZone);
-    const QList<QDateTime> dateTimes = { dt, dtWithMS, dtWithAfterTZ, dtWithBeforeTZ, dtWithUTCTZ };
-    const QList<QDateTime> expectedDateTimesLocalTZ = { dt, dtWithMS, dtWithAfterTZ.toLocalTime(),
-                                                        dtWithBeforeTZ.toLocalTime(),
-                                                        dtWithUTCTZ.toLocalTime() };
-    const QList<QDateTime> expectedTimeStampDateTimes = { dt, dtWithMS, dtWithMS, dtWithMS, dtWithMS };
-    const QList<QDateTime> expectedDateTimes = { dt, dt, dt, dt, dt };
+#endif
+    const QDateTime dt(QDate(2015, 5, 18), QTime(4, 26, 30));
+    const QDateTime dtWithMS(QDate(2015, 5, 18), QTime(4, 26, 30, 500));
+    const QList<QDateTime> dateTimes = {
+        dt, dtWithMS,
+#if QT_CONFIG(timezone)
+        dtWithAfterTZ, dtWithBeforeTZ, dtWithUTCTZ
+#endif
+    };
+    const QList<QDateTime> expectedDateTimesLocalTZ = {
+        dt, dtWithMS,
+#if QT_CONFIG(timezone)
+        dtWithAfterTZ.toLocalTime(), dtWithBeforeTZ.toLocalTime(), dtWithUTCTZ.toLocalTime()
+#endif
+    };
+    const QList<QDateTime> expectedTimeStampDateTimes = {
+        dt, dtWithMS,
+#if QT_CONFIG(timezone)
+        dtWithMS, dtWithMS, dtWithMS
+#endif
+    };
+    const QList<QDateTime> expectedDateTimes = {
+        dt, dt,
+#if QT_CONFIG(timezone)
+        dt, dt, dt
+#endif
+    };
 
     for (const QString &dbName : qAsConst(dbs.dbNames)) {
         QSqlDatabase db = QSqlDatabase::database(dbName);

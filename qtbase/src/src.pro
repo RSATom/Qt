@@ -70,7 +70,7 @@ src_winmain.depends = sub-corelib  # just for the module .pri file
 
 src_corelib.subdir = $$PWD/corelib
 src_corelib.target = sub-corelib
-src_corelib.depends = src_tools_moc src_tools_rcc src_tools_tracegen
+src_corelib.depends = src_tools_moc src_tools_tracegen
 
 src_xml.subdir = $$PWD/xml
 src_xml.target = sub-xml
@@ -118,7 +118,7 @@ src_angle.target = sub-angle
 
 src_gui.subdir = $$PWD/gui
 src_gui.target = sub-gui
-src_gui.depends = src_corelib
+src_gui.depends = src_corelib src_tools_rcc
 
 src_platformheaders.subdir = $$PWD/platformheaders
 src_platformheaders.target = sub-platformheaders
@@ -158,7 +158,7 @@ src_android.subdir = $$PWD/android
     }
 }
 SUBDIRS += src_tools_bootstrap src_tools_moc src_tools_rcc src_tools_tracegen
-qtConfig(regularexpression):pcre2 {
+qtConfig(regularexpression):!qtConfig(system-pcre2):pcre2 {
     SUBDIRS += src_3rdparty_pcre2
     src_corelib.depends += src_3rdparty_pcre2
 }
@@ -168,6 +168,7 @@ win32:SUBDIRS += src_winmain
 qtConfig(network) {
     SUBDIRS += src_network
     src_plugins.depends += src_network
+    android: SUBDIRS += network/android/jar
 }
 qtConfig(sql) {
     SUBDIRS += src_sql
@@ -175,6 +176,7 @@ qtConfig(sql) {
 }
 qtConfig(xml): SUBDIRS += src_xml
 qtConfig(testlib): SUBDIRS += src_testlib
+
 qtConfig(dbus) {
     force_dbus_bootstrap|qtConfig(private_tests): \
         SUBDIRS += src_tools_bootstrap_dbus
@@ -240,6 +242,40 @@ SUBDIRS += src_plugins
 nacl: SUBDIRS -= src_network src_testlib
 
 android:!android-embedded: SUBDIRS += src_android src_3rdparty_gradle
+
+qtConfig(private_tests) {
+     qtConfig(network):qtConfig(gui) {
+        src_network_doc_snippets.subdir = network/doc/snippets
+        src_network_doc_snippets.target = sub-network-doc-snippets
+        src_network_doc_snippets.depends = src_network src_gui
+        uikit: src_network_doc_snippets.depends += src_plugins
+        SUBDIRS += src_network_doc_snippets
+    }
+
+    qtConfig(sql) {
+        src_sql_doc_snippets.subdir = sql/doc/snippets
+        src_sql_doc_snippets.target = sub-sql-doc-snippets
+        src_sql_doc_snippets.depends = src_sql
+        uikit: src_network_doc_snippets.depends += src_plugins
+        SUBDIRS += src_sql_doc_snippets
+    }
+
+    qtConfig(testlib):qtConfig(widgets):qtConfig(sql) {
+        src_testlib_doc_snippets.subdir = testlib/doc/snippets
+        src_testlib_doc_snippets.target = sub-testlib-doc-snippets
+        src_testlib_doc_snippets.depends = src_testlib src_widgets src_sql
+        uikit: src_network_doc_snippets.depends += src_plugins
+        SUBDIRS += src_testlib_doc_snippets
+    }
+
+    qtConfig(widgets):qtConfig(printer):qtConfig(opengl) {
+        src_widgets_doc_snippets.subdir = widgets/doc/snippets
+        src_widgets_doc_snippets.target = sub-widgets-doc-snippets
+        src_widgets_doc_snippets.depends = src_widgets src_printsupport src_opengl
+        uikit: src_network_doc_snippets.depends += src_plugins
+        SUBDIRS += src_widgets_doc_snippets
+    }
+}
 
 TR_EXCLUDE = \
     src_tools_bootstrap src_tools_moc src_tools_rcc src_tools_uic src_tools_qlalr \

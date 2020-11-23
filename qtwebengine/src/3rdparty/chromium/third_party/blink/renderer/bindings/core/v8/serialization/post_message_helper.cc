@@ -4,6 +4,7 @@
 
 #include "third_party/blink/renderer/bindings/core/v8/serialization/post_message_helper.h"
 
+#include "third_party/blink/public/mojom/messaging/user_activation_snapshot.mojom-blink.h"
 #include "third_party/blink/renderer/bindings/core/v8/serialization/serialized_script_value.h"
 #include "third_party/blink/renderer/core/dom/document.h"
 #include "third_party/blink/renderer/core/frame/frame.h"
@@ -71,7 +72,7 @@ scoped_refptr<SerializedScriptValue> PostMessageHelper::SerializeMessageByCopy(
   if (exception_state.HadException())
     return nullptr;
 
-  // Neuter the original array buffers on the sender context.
+  // Detach the original array buffers on the sender context.
   SerializedScriptValue::TransferArrayBufferContents(
       isolate, transferable_array_buffers, exception_state);
   if (exception_state.HadException())
@@ -96,7 +97,7 @@ PostMessageHelper::CreateUserActivationSnapshot(
     if (LocalFrame* frame = dom_window->GetFrame()) {
       return mojom::blink::UserActivationSnapshot::New(
           frame->HasBeenActivated(),
-          LocalFrame::HasTransientUserActivation(frame, false));
+          LocalFrame::HasTransientUserActivation(frame));
     }
   }
   return nullptr;

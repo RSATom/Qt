@@ -290,7 +290,10 @@ Window {
 
                         Connections {
                             target: recordingFlashTimer
-                            onTriggered: if (name == "Recording") indicator.active = !indicator.active
+                            function onTriggered() {
+                                if (name == "Recording")
+                                    indicator.active = !indicator.active
+                            }
                         }
                     }
                     ControlLabel {

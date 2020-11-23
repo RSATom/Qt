@@ -70,7 +70,7 @@ class QRecursiveMutexPrivate : public QMutexData
 {
 public:
     QRecursiveMutexPrivate()
-        : QMutexData(QMutex::Recursive), owner(0), count(0) {}
+        : QMutexData(QMutex::Recursive), owner(nullptr), count(0) {}
 
     // written to by the thread that first owns 'mutex';
     // read during attempts to acquire ownership of 'mutex' from any other thread:
@@ -186,7 +186,7 @@ public:
 */
 QMutex::QMutex(RecursionMode mode)
 {
-    d_ptr.storeRelaxed(mode == Recursive ? new QRecursiveMutexPrivate : 0);
+    d_ptr.storeRelaxed(mode == Recursive ? new QRecursiveMutexPrivate : nullptr);
 }
 
 /*!
@@ -212,7 +212,6 @@ QMutex::~QMutex()
 }
 
 /*! \fn void QMutex::lock()
-    \fn QRecursiveMutex::lock()
 
     Locks the mutex. If another thread has locked the mutex then this
     call will block until that thread has unlocked it.
@@ -237,7 +236,6 @@ void QMutex::lock() QT_MUTEX_LOCK_NOEXCEPT
 }
 
 /*! \fn bool QMutex::tryLock(int timeout)
-    \fn bool QRecursiveMutex::tryLock(int timeout)
 
     Attempts to lock the mutex. This function returns \c true if the lock
     was obtained; otherwise it returns \c false. If another thread has
@@ -272,7 +270,6 @@ bool QMutex::tryLock(int timeout) QT_MUTEX_LOCK_NOEXCEPT
 }
 
 /*! \fn bool QMutex::try_lock()
-    \fn bool QRecursiveMutex::try_lock()
     \since 5.8
 
     Attempts to lock the mutex. This function returns \c true if the lock
@@ -286,7 +283,6 @@ bool QMutex::tryLock(int timeout) QT_MUTEX_LOCK_NOEXCEPT
 */
 
 /*! \fn template <class Rep, class Period> bool QMutex::try_lock_for(std::chrono::duration<Rep, Period> duration)
-    \fn template <class Rep, class Period> bool QRecursiveMutex::try_lock_for(std::chrono::duration<Rep, Period> duration)
     \since 5.8
 
     Attempts to lock the mutex. This function returns \c true if the lock
@@ -311,7 +307,6 @@ bool QMutex::tryLock(int timeout) QT_MUTEX_LOCK_NOEXCEPT
 */
 
 /*! \fn template<class Clock, class Duration> bool QMutex::try_lock_until(std::chrono::time_point<Clock, Duration> timePoint)
-    \fn template<class Clock, class Duration> bool QRecursiveMutex::try_lock_until(std::chrono::time_point<Clock, Duration> timePoint)
     \since 5.8
 
     Attempts to lock the mutex. This function returns \c true if the lock
@@ -336,7 +331,6 @@ bool QMutex::tryLock(int timeout) QT_MUTEX_LOCK_NOEXCEPT
 */
 
 /*! \fn void QMutex::unlock()
-    \fn void QRecursiveMutex::unlock()
 
     Unlocks the mutex. Attempting to unlock a mutex in a different
     thread to the one that locked it results in an error. Unlocking a
@@ -487,7 +481,7 @@ QRecursiveMutex::~QRecursiveMutex()
     \fn QMutexLocker::QMutexLocker(QMutex *mutex)
 
     Constructs a QMutexLocker and locks \a mutex. The mutex will be
-    unlocked when the QMutexLocker is destroyed. If \a mutex is zero,
+    unlocked when the QMutexLocker is destroyed. If \a mutex is \nullptr,
     QMutexLocker does nothing.
 
     \sa QMutex::lock()
@@ -799,7 +793,7 @@ inline void QRecursiveMutexPrivate::unlock() noexcept
     if (count > 0) {
         count--;
     } else {
-        owner.storeRelaxed(0);
+        owner.storeRelaxed(nullptr);
         mutex.QBasicMutex::unlock();
     }
 }

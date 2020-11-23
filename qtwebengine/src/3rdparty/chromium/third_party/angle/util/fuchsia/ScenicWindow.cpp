@@ -12,6 +12,7 @@
 #include <fuchsia/images/cpp/fidl.h>
 #include <fuchsia/ui/views/cpp/fidl.h>
 #include <lib/async-loop/cpp/loop.h>
+#include <lib/async-loop/default.h>
 #include <lib/fdio/directory.h>
 #include <lib/fidl/cpp/interface_ptr.h>
 #include <lib/fidl/cpp/interface_request.h>
@@ -26,7 +27,7 @@ namespace
 
 async::Loop *GetDefaultLoop()
 {
-    static async::Loop *defaultLoop = new async::Loop(&kAsyncLoopConfigAttachToThread);
+    static async::Loop *defaultLoop = new async::Loop(&kAsyncLoopConfigAttachToCurrentThread);
     return defaultLoop;
 }
 
@@ -73,7 +74,7 @@ ScenicWindow::~ScenicWindow()
     destroy();
 }
 
-bool ScenicWindow::initialize(const std::string &name, size_t width, size_t height)
+bool ScenicWindow::initialize(const std::string &name, int width, int height)
 {
     // Set up scenic resources.
     mShape.SetShape(scenic::Rectangle(&mScenicSession, width, height));
@@ -86,7 +87,8 @@ bool ScenicWindow::initialize(const std::string &name, size_t width, size_t heig
     // Create view.
     mView = std::make_unique<scenic::View>(&mScenicSession, std::move(viewToken), name);
     mView->AddChild(mShape);
-    mScenicSession.Present(0, [](fuchsia::images::PresentationInfo info) {});
+    mScenicSession.Present2(0, 0,
+                            [](fuchsia::scenic::scheduling::FuturePresentationTimes info) {});
 
     // Present view.
     mPresenter->PresentView(std::move(viewHolderToken), nullptr);
@@ -106,15 +108,17 @@ void ScenicWindow::destroy()
 
 void ScenicWindow::resetNativeWindow()
 {
-    fuchsia::images::ImagePipePtr imagePipe;
+    fuchsia::images::ImagePipe2Ptr imagePipe;
     uint32_t imagePipeId = mScenicSession.AllocResourceId();
-    mScenicSession.Enqueue(scenic::NewCreateImagePipeCmd(imagePipeId, imagePipe.NewRequest()));
+    mScenicSession.Enqueue(scenic::NewCreateImagePipe2Cmd(imagePipeId, imagePipe.NewRequest()));
+    zx_handle_t imagePipeHandle = imagePipe.Unbind().TakeChannel().release();
+
     mMaterial.SetTexture(imagePipeId);
     mScenicSession.ReleaseResource(imagePipeId);
-    mScenicSession.Present(0, [](fuchsia::images::PresentationInfo info) {});
+    mScenicSession.Present2(0, 0,
+                            [](fuchsia::scenic::scheduling::FuturePresentationTimes info) {});
 
-    mFuchsiaEGLWindow.reset(
-        fuchsia_egl_window_create(imagePipe.Unbind().TakeChannel().release(), mWidth, mHeight));
+    mFuchsiaEGLWindow.reset(fuchsia_egl_window_create(imagePipeHandle, mWidth, mHeight));
 }
 
 EGLNativeWindowType ScenicWindow::getNativeWindow() const

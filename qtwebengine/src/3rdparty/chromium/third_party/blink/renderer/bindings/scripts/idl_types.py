@@ -50,7 +50,6 @@ BASIC_TYPES = (PRIMITIVE_TYPES | frozenset([
     'DOMString',
     'ByteString',
     'USVString',
-    'Date',
     # http://heycam.github.io/webidl/#idl-types
     'void',
 ]))
@@ -74,7 +73,6 @@ TYPE_NAMES = {
     'ByteString': 'ByteString',
     'USVString': 'USVString',
     'object': 'Object',
-    'Date': 'Date',
 }
 
 STRING_TYPES = frozenset([
@@ -365,6 +363,11 @@ class IdlUnionType(IdlTypeBase):
             lambda member_type: member_type.is_sequence_type)
 
     @property
+    def dictionary_member_type(self):
+        return self.single_matching_member_type(
+            lambda member_type: member_type.is_dictionary)
+
+    @property
     def as_union_type(self):
         # Note: Use this to "look through" a possible IdlNullableType wrapper.
         return self
@@ -520,9 +523,29 @@ class IdlRecordType(IdlTypeBase):
 # IdlNullableType
 ################################################################################
 
+# https://heycam.github.io/webidl/#idl-nullable-type
 class IdlNullableType(IdlTypeBase):
     def __init__(self, inner_type):
         super(IdlNullableType, self).__init__()
+        if inner_type.name == 'Any':
+            raise ValueError('Inner type of nullable type must not be any.')
+        if inner_type.name == 'Promise':
+            raise ValueError(
+                'Inner type of nullable type must not be a promise.')
+        if inner_type.is_nullable:
+            raise ValueError(
+                'Inner type of nullable type must not be a nullable type.')
+        if inner_type.is_union_type:
+            if inner_type.number_of_nullable_member_types > 0:
+                raise ValueError(
+                    'Inner type of nullable type must not be a union type that '
+                    'itself includes a nullable type.')
+            if any(member.is_dictionary
+                   for member in inner_type.flattened_member_types):
+                raise ValueError(
+                    'Inner type of nullable type must not be a union type that '
+                    'has a dictionary type as its members.')
+
         self.inner_type = inner_type
 
     def __str__(self):

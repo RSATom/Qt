@@ -92,8 +92,6 @@ class Q_QUICK3DRUNTIMERENDER_EXPORT QSSGRendererInterface
 public:
     QAtomicInt ref;
     virtual ~QSSGRendererInterface() {}
-    virtual void enableLayerCaching(bool inEnabled) = 0;
-    virtual bool isLayerCachingEnabled() const = 0;
     virtual void enableLayerGpuProfiling(bool inEnabled) = 0;
     virtual bool isLayerGpuProfilingEnabled() const = 0;
 
@@ -113,8 +111,11 @@ public:
     // to an image.
     virtual void renderQuad() = 0;
 
-    // Render a given texture to the scene using a given transform.
-    virtual void renderQuad(const QVector2D inDimensions, const QMatrix4x4 &inMVP, QSSGRenderTexture2D &inQuadTexture) = 0;
+    // Render a given texture as flipped to the scene using a given transform.
+    virtual void renderFlippedQuad(const QVector2D &inDimensions,
+                                   const QMatrix4x4 &inMVP,
+                                   QSSGRenderTexture2D &inQuadTexture,
+                                   float opacity) = 0;
 
     // Returns true if this layer or a sibling was dirty.
     virtual bool prepareLayerForRender(QSSGRenderLayer &inLayer, const QSize &surfaceSize) = 0;
@@ -135,11 +136,10 @@ public:
                                         const QVector2D &inMouseCoords,
                                         bool inPickSiblings = true,
                                         bool inPickEverything = false) = 0;
-    virtual QSSGRenderPickResult syncPick(QSSGRenderLayer &inLayer,
-                                        const QVector2D &inViewportDimensions,
-                                        const QVector2D &inMouseCoords,
-                                        bool inPickSiblings = true,
-                                        bool inPickEverything = false) = 0;
+    virtual QSSGRenderPickResult syncPick(const QSSGRenderLayer &inLayer,
+                                          const QSSGRef<QSSGBufferManager> &bufferManager,
+                                          const QVector2D &inViewportDimensions,
+                                          const QVector2D &inMouseCoords) = 0;
 
     // Return the relative hit position, in UV space, of a mouse pick against this object.
     // We need the node in order to figure out which layer rendered this object.

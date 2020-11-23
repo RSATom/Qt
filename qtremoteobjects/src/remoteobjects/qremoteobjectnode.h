@@ -181,14 +181,16 @@ public:
         ApiDefinition<ObjectType> *api = new ApiDefinition<ObjectType>(object);
         return enableRemoting(object, api);
     }
-    bool enableRemoting(QObject *object, const QString &name = QString());
+    Q_INVOKABLE bool enableRemoting(QObject *object, const QString &name = QString());
     bool enableRemoting(QAbstractItemModel *model, const QString &name, const QVector<int> roles, QItemSelectionModel *selectionModel = nullptr);
-    bool disableRemoting(QObject *remoteObject);
+    Q_INVOKABLE bool disableRemoting(QObject *remoteObject);
     void addHostSideConnection(QIODevice *ioDevice);
 
     typedef std::function<bool(const QString &, const QString &)> RemoteObjectNameFilter;
     bool proxy(const QUrl &registryUrl, const QUrl &hostUrl={},
                RemoteObjectNameFilter filter=[](const QString &, const QString &) {return true; });
+    // ### Qt 6: Fix -> This should only be part of the QRemoteObjectRegistryHost type, since the
+    // reverse aspect requires the registry.
     bool reverseProxy(RemoteObjectNameFilter filter=[](const QString &, const QString &) {return true; });
 
 protected:
@@ -204,6 +206,8 @@ private:
 class Q_REMOTEOBJECTS_EXPORT QRemoteObjectHost : public QRemoteObjectHostBase
 {
     Q_OBJECT
+    Q_PROPERTY(QUrl hostUrl READ hostUrl WRITE setHostUrl NOTIFY hostUrlChanged)
+
 public:
     QRemoteObjectHost(QObject *parent = nullptr);
     QRemoteObjectHost(const QUrl &address, const QUrl &registryAddress = QUrl(),
@@ -212,6 +216,9 @@ public:
     ~QRemoteObjectHost() override;
     QUrl hostUrl() const override;
     bool setHostUrl(const QUrl &hostAddress, AllowedSchemas allowedSchemas=BuiltInSchemasOnly) override;
+
+Q_SIGNALS:
+    void hostUrlChanged();
 
 protected:
     QRemoteObjectHost(QRemoteObjectHostPrivate &, QObject *);

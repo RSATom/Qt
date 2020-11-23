@@ -15,7 +15,7 @@
 #include "media/base/overlay_info.h"
 #include "media/media_buildflags.h"
 #include "media/mojo/buildflags.h"
-#include "media/mojo/interfaces/video_decoder.mojom.h"
+#include "media/mojo/mojom/video_decoder.mojom.h"
 #include "media/mojo/services/media_mojo_export.h"
 #include "media/video/supported_video_decoder_config.h"
 
@@ -102,11 +102,11 @@ class MEDIA_MOJO_EXPORT MojoMediaClient {
   virtual std::unique_ptr<CdmFactory> CreateCdmFactory(
       service_manager::mojom::InterfaceProvider* host_interfaces);
 
-#if BUILDFLAG(ENABLE_LIBRARY_CDMS)
+#if BUILDFLAG(ENABLE_CDM_PROXY)
   // Creates a CdmProxy that proxies part of CDM functionalities to a different
   // entity, e.g. hardware CDM modules.
   virtual std::unique_ptr<CdmProxy> CreateCdmProxy(const base::Token& cdm_guid);
-#endif  // BUILDFLAG(ENABLE_LIBRARY_CDMS)
+#endif  // BUILDFLAG(ENABLE_CDM_PROXY)
 
  protected:
   MojoMediaClient();

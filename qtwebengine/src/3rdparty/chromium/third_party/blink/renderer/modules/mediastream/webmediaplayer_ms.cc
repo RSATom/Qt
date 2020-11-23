@@ -26,7 +26,6 @@
 #include "third_party/blink/public/platform/modules/mediastream/media_stream_audio_track.h"
 #include "third_party/blink/public/platform/modules/mediastream/web_media_element_source_utils.h"
 #include "third_party/blink/public/platform/modules/mediastream/web_media_stream_audio_renderer.h"
-#include "third_party/blink/public/platform/modules/mediastream/web_media_stream_renderer_factory.h"
 #include "third_party/blink/public/platform/modules/mediastream/web_media_stream_video_renderer.h"
 #include "third_party/blink/public/platform/modules/webrtc/webrtc_logging.h"
 #include "third_party/blink/public/platform/url_conversion.h"
@@ -37,6 +36,7 @@
 #include "third_party/blink/public/platform/web_surface_layer_bridge.h"
 #include "third_party/blink/public/web/modules/media/webmediaplayer_util.h"
 #include "third_party/blink/public/web/modules/mediastream/media_stream_video_track.h"
+#include "third_party/blink/public/web/modules/mediastream/web_media_stream_renderer_factory.h"
 #include "third_party/blink/public/web/web_local_frame.h"
 #include "third_party/blink/renderer/modules/mediastream/media_stream_local_frame_wrapper.h"
 #include "third_party/blink/renderer/modules/mediastream/webmediaplayer_ms_compositor.h"
@@ -361,7 +361,7 @@ WebMediaPlayer::LoadTiming WebMediaPlayerMS::Load(
       media_task_runner_, worker_task_runner_, gpu_factories_));
   video_frame_provider_ = renderer_factory_->GetVideoRenderer(
       web_stream_,
-      ConvertToBaseCallback(frame_deliverer_->GetRepaintCallback()),
+      ConvertToBaseRepeatingCallback(frame_deliverer_->GetRepaintCallback()),
       io_task_runner_, main_render_task_runner_);
 
   if (internal_frame_->web_frame()) {
@@ -373,7 +373,7 @@ WebMediaPlayer::LoadTiming WebMediaPlayerMS::Load(
 
   audio_renderer_ = renderer_factory_->GetAudioRenderer(
       web_stream_, internal_frame_->web_frame(),
-      initial_audio_output_device_id_.Utf8());
+      initial_audio_output_device_id_);
 
   if (!audio_renderer_)
     WebRtcLogMessage("Warning: Failed to instantiate audio renderer.");
@@ -519,7 +519,8 @@ void WebMediaPlayerMS::ReloadVideo() {
       SetNetworkState(kNetworkStateLoading);
       video_frame_provider_ = renderer_factory_->GetVideoRenderer(
           web_stream_,
-          ConvertToBaseCallback(frame_deliverer_->GetRepaintCallback()),
+          ConvertToBaseRepeatingCallback(
+              frame_deliverer_->GetRepaintCallback()),
           io_task_runner_, main_render_task_runner_);
       DCHECK(video_frame_provider_);
       video_frame_provider_->Start();
@@ -570,7 +571,7 @@ void WebMediaPlayerMS::ReloadAudio() {
       SetNetworkState(WebMediaPlayer::kNetworkStateLoading);
       audio_renderer_ = renderer_factory_->GetAudioRenderer(
           web_stream_, internal_frame_->web_frame(),
-          initial_audio_output_device_id_.Utf8());
+          initial_audio_output_device_id_);
 
       // |audio_renderer_| can be null in tests.
       if (!audio_renderer_)
@@ -668,6 +669,13 @@ void WebMediaPlayerMS::SetVolume(double volume) {
   if (audio_renderer_.get())
     audio_renderer_->SetVolume(volume_ * volume_multiplier_);
   delegate_->DidPlayerMutedStatusChange(delegate_id_, volume == 0.0);
+}
+
+void WebMediaPlayerMS::SetLatencyHint(double seconds) {
+  // WebRTC latency has separate latency APIs, focused more on network jitter
+  // and implemented inside the WebRTC stack.
+  // https://webrtc.org/experiments/rtp-hdrext/playout-delay/
+  // https://henbos.github.io/webrtc-timing/#dom-rtcrtpreceiver-playoutdelayhint
 }
 
 void WebMediaPlayerMS::OnRequestPictureInPicture() {
@@ -1102,12 +1110,8 @@ void WebMediaPlayerMS::OnFirstFrameReceived(media::VideoRotation video_rotation,
   OnRotationChanged(video_rotation);
   OnOpacityChanged(is_opaque);
 
-  if (surface_layer_mode_ == WebMediaPlayer::SurfaceLayerMode::kAlways ||
-      (surface_layer_mode_ == WebMediaPlayer::SurfaceLayerMode::kOnDemand &&
-       client_->DisplayType() ==
-           WebMediaPlayer::DisplayType::kPictureInPicture)) {
+  if (surface_layer_mode_ == WebMediaPlayer::SurfaceLayerMode::kAlways)
     ActivateSurfaceLayerForVideo();
-  }
 
   SetReadyState(WebMediaPlayer::kReadyStateHaveMetadata);
   SetReadyState(WebMediaPlayer::kReadyStateHaveEnoughData);

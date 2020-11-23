@@ -160,10 +160,6 @@ bool TestSyncedTabDelegate::ShouldSync(SyncSessionsClient* sessions_client) {
   return http_count > 0;
 }
 
-SessionID TestSyncedTabDelegate::GetSourceTabID() const {
-  return SessionID::InvalidValue();
-}
-
 int64_t TestSyncedTabDelegate::GetTaskIdForNavigationId(int nav_id) const {
   // Task IDs are currently not used in the tests. -1 signals an unknown Task
   // ID.
@@ -268,10 +264,6 @@ bool PlaceholderTabDelegate::ShouldSync(SyncSessionsClient* sessions_client) {
   return false;
 }
 
-SessionID PlaceholderTabDelegate::GetSourceTabID() const {
-  return SessionID::InvalidValue();
-}
-
 int64_t PlaceholderTabDelegate::GetTaskIdForNavigationId(int nav_id) const {
   // Task IDs are currently not used in the tests. -1 signals an unknown Task
   // ID.
@@ -337,11 +329,7 @@ int TestSyncedWindowDelegate::GetActiveIndex() const {
   return 0;
 }
 
-bool TestSyncedWindowDelegate::IsApp() const {
-  return false;
-}
-
-bool TestSyncedWindowDelegate::IsTypeTabbed() const {
+bool TestSyncedWindowDelegate::IsTypeNormal() const {
   return window_type_ == sync_pb::SessionWindow_BrowserType_TYPE_TABBED;
 }
 

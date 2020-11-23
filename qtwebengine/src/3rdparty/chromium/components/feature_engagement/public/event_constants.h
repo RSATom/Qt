@@ -31,6 +31,12 @@ extern const char kReopenTabConditionsMet[];
 // The user reopened a previously closed tab.
 extern const char kTabReopened[];
 
+// A tab with playing media was sent to the background.
+extern const char kMediaBackgrounded[];
+
+// The user opened the Global Media Controls dialog.
+extern const char kGlobalMediaControlsOpened[];
+
 // All the events declared below are the string names of deferred onboarding
 // events for the Focus Mode feature.
 
@@ -38,6 +44,11 @@ extern const char kTabReopened[];
 extern const char kFocusModeOpened[];
 // All conditions for show Focus Mode IPH were met.
 extern const char kFocusModeConditionsMet[];
+
+// The WebUI tab strip was closed by the user.
+extern const char kWebUITabStripClosed[];
+// The WebUI tab strip was opened by the user.
+extern const char kWebUITabStripOpened[];
 
 #if BUILDFLAG(ENABLE_LEGACY_DESKTOP_IN_PRODUCT_HELP)
 // All the events declared below are the string names of deferred onboarding

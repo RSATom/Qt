@@ -19,10 +19,14 @@
 #include "PixelProcessor.hpp"
 #include "SetupProcessor.hpp"
 #include "Plane.hpp"
+#include "Primitive.hpp"
 #include "Blitter.hpp"
 #include "Device/Config.hpp"
-#include "System/Synchronization.hpp"
 #include "Vulkan/VkDescriptorSet.hpp"
+
+#include "marl/pool.h"
+#include "marl/finally.h"
+#include "marl/ticket.h"
 
 #include <atomic>
 #include <list>
@@ -32,6 +36,7 @@
 namespace vk
 {
 	class DescriptorSet;
+	class Device;
 	class Query;
 }
 
@@ -45,6 +50,14 @@ namespace sw
 	class Resource;
 	struct Constants;
 
+	static constexpr int MaxBatchSize = 128;
+	static constexpr int MaxBatchCount = 16;
+	static constexpr int MaxClusterCount = 16;
+	static constexpr int MaxDrawCount = 16;
+
+	using TriangleBatch = std::array<Triangle, MaxBatchSize>;
+	using PrimitiveBatch = std::array<Primitive, MaxBatchSize>;
+
 	struct DrawData
 	{
 		const Constants *constants;
@@ -53,21 +66,23 @@ namespace sw
 		vk::DescriptorSet::DynamicOffsets descriptorDynamicOffsets = {};
 
 		const void *input[MAX_INTERFACE_COMPONENTS / 4];
+		unsigned int robustnessSize[MAX_INTERFACE_COMPONENTS / 4];
 		unsigned int stride[MAX_INTERFACE_COMPONENTS / 4];
 		const void *indices;
 
 		int instanceID;
 		int baseVertex;
 		float lineWidth;
+		int viewID;
 
 		PixelProcessor::Stencil stencil[2];   // clockwise, counterclockwise
 		PixelProcessor::Factor factor;
-		unsigned int occlusion[16];   // Number of pixels passing depth test
+		unsigned int occlusion[MaxClusterCount];   // Number of pixels passing depth test
 
-		float4 Wx16;
-		float4 Hx16;
-		float4 X0x16;
-		float4 Y0x16;
+		float4 WxF;
+		float4 HxF;
+		float4 X0xF;
+		float4 Y0xF;
 		float4 halfPixelX;
 		float4 halfPixelY;
 		float viewportHeight;
@@ -98,74 +113,97 @@ namespace sw
 		PushConstantStorage pushConstants;
 	};
 
-	class Renderer : public VertexProcessor, public PixelProcessor, public SetupProcessor
+	struct DrawCall
 	{
-		struct Task
+		struct BatchData
 		{
-			enum Type
-			{
-				PRIMITIVES,
-				PIXELS,
+			using Pool = marl::BoundedPool<BatchData, MaxBatchCount, marl::PoolPolicy::Preserve>;
 
-				RESUME,
-				SUSPEND
-			};
-
-			void operator=(const Task& task)
-			{
-				type = task.type.load();
-				primitiveUnit = task.primitiveUnit.load();
-				pixelCluster = task.pixelCluster.load();
-			}
-
-			std::atomic<int> type;
-			std::atomic<int> primitiveUnit;
-			std::atomic<int> pixelCluster;
+			TriangleBatch triangles;
+			PrimitiveBatch primitives;
+			VertexTask vertexTask;
+			unsigned int id;
+			unsigned int firstPrimitive;
+			unsigned int numPrimitives;
+			int numVisible;
+			marl::Ticket clusterTickets[MaxClusterCount];
 		};
 
-		struct PrimitiveProgress
-		{
-			void init()
-			{
-				drawCall = 0;
-				firstPrimitive = 0;
-				primitiveCount = 0;
-				visible = 0;
-				references = 0;
-			}
+		using Pool = marl::BoundedPool<DrawCall, MaxDrawCount, marl::PoolPolicy::Preserve>;
+		using SetupFunction = int(*)(Triangle *triangles, Primitive *primitives, const DrawCall *drawCall, int count);
 
-			std::atomic<int> drawCall;
-			std::atomic<int> firstPrimitive;
-			std::atomic<int> primitiveCount;
-			std::atomic<int> visible;
-			std::atomic<int> references;
-		};
+		DrawCall();
+		~DrawCall();
 
-		struct PixelProgress
-		{
-			void init()
-			{
-				drawCall = 0;
-				processedPrimitives = 0;
-				executing = false;
-			}
+		static void run(const marl::Loan<DrawCall>& draw, marl::Ticket::Queue* tickets, marl::Ticket::Queue clusterQueues[MaxClusterCount]);
+		static void processVertices(DrawCall* draw, BatchData* batch);
+		static void processPrimitives(DrawCall* draw, BatchData* batch);
+		static void processPixels(const marl::Loan<DrawCall>& draw, const marl::Loan<BatchData>& batch, const std::shared_ptr<marl::Finally>& finally);
+		void setup();
+		void teardown();
 
-			std::atomic<int> drawCall;
-			std::atomic<int> processedPrimitives;
-			std::atomic<int> executing;
-		};
+		int id;
 
+		BatchData::Pool *batchDataPool;
+		unsigned int numPrimitives;
+		unsigned int numPrimitivesPerBatch;
+		unsigned int numBatches;
+
+		VkPrimitiveTopology topology;
+		VkProvokingVertexModeEXT provokingVertexMode;
+		VkIndexType indexType;
+		VkLineRasterizationModeEXT lineRasterizationMode;
+
+		VertexProcessor::RoutineType vertexRoutine;
+		SetupProcessor::RoutineType setupRoutine;
+		PixelProcessor::RoutineType pixelRoutine;
+
+		SetupFunction setupPrimitives;
+		SetupProcessor::State setupState;
+
+		vk::ImageView *renderTarget[RENDERTARGETS];
+		vk::ImageView *depthBuffer;
+		vk::ImageView *stencilBuffer;
+		TaskEvents *events;
+
+		vk::Query* occlusionQuery;
+
+		DrawData *data;
+
+		static void processPrimitiveVertices(
+				unsigned int triangleIndicesOut[MaxBatchSize + 1][3],
+				const void *primitiveIndices,
+				VkIndexType indexType,
+				unsigned int start,
+				unsigned int triangleCount,
+				VkPrimitiveTopology topology,
+				VkProvokingVertexModeEXT provokingVertexMode);
+
+		static int setupSolidTriangles(Triangle* triangles, Primitive* primitives, const DrawCall* drawCall, int count);
+		static int setupWireframeTriangles(Triangle* triangles, Primitive* primitives, const DrawCall* drawCall, int count);
+		static int setupPointTriangles(Triangle* triangles, Primitive* primitives, const DrawCall* drawCall, int count);
+		static int setupLines(Triangle *triangles, Primitive *primitives, const DrawCall *drawCall, int count);
+		static int setupPoints(Triangle *triangles, Primitive *primitives, const DrawCall *drawCall, int count);
+
+		static bool setupLine(Primitive &primitive, Triangle &triangle, const DrawCall &draw);
+		static bool setupPoint(Primitive &primitive, Triangle &triangle, const DrawCall &draw);
+	};
+
+	class alignas(16) Renderer : public VertexProcessor, public PixelProcessor, public SetupProcessor
+	{
 	public:
-		Renderer();
+		Renderer(vk::Device* device);
 
 		virtual ~Renderer();
 
-		void *operator new(size_t size);
-		void operator delete(void * mem);
+		void* operator new(size_t size);
+		void operator delete(void* mem);
 
-		bool hasQueryOfType(VkQueryType type) const;
+		bool hasOcclusionQuery() const { return occlusionQuery != nullptr; }
 
-		void draw(const sw::Context* context, VkIndexType indexType, unsigned int count, int baseVertex, TaskEvents *events, bool update = true);
+		void draw(const sw::Context* context, VkIndexType indexType, unsigned int count, int baseVertex,
+				TaskEvents *events, int instanceID, int viewID, void *indexBuffer, const VkExtent3D& framebufferExtent,
+				PushConstantStorage const & pushConstants, bool update = true);
 
 		// Viewport & Clipper
 		void setViewport(const VkViewport &viewport);
@@ -178,118 +216,30 @@ namespace sw
 
 		void synchronize();
 
-		static int getClusterCount() { return clusterCount; }
-
 	private:
-		static void threadFunction(void *parameters);
-		void threadLoop(int threadIndex);
-		void taskLoop(int threadIndex);
-		void findAvailableTasks();
-		void scheduleTask(int threadIndex);
-		void executeTask(int threadIndex);
-		void finishRendering(Task &pixelTask);
-
-		void processPrimitiveVertices(int unit, unsigned int start, unsigned int count, unsigned int loop, int thread);
-
-		int setupTriangles(int batch, int count);
-		int setupLines(int batch, int count);
-		int setupPoints(int batch, int count);
-
-		bool setupLine(Primitive &primitive, Triangle &triangle, const DrawCall &draw);
-		bool setupPoint(Primitive &primitive, Triangle &triangle, const DrawCall &draw);
-
-		void updateConfiguration(bool initialUpdate = false);
-		void initializeThreads();
-		void terminateThreads();
-
 		VkViewport viewport;
 		VkRect2D scissor;
 
-		Triangle *triangleBatch[16];
-		Primitive *primitiveBatch[16];
+		DrawCall::Pool drawCallPool;
+		DrawCall::BatchData::Pool batchDataPool;
 
-		std::atomic<int> exitThreads;
-		std::atomic<int> threadsAwake;
-		std::thread *worker[16];
-		Event *resume[16];         // Events for resuming threads
-		Event *suspend[16];        // Events for suspending threads
-		Event *resumeApp;          // Event for resuming the application thread
+		std::atomic<int> nextDrawID = {0};
 
-		PrimitiveProgress primitiveProgress[16];
-		PixelProgress pixelProgress[16];
-		Task task[16];   // Current tasks for threads
-
-		enum {
-			DRAW_COUNT = 16,   // Number of draw calls buffered (must be power of 2)
-			DRAW_COUNT_BITS = DRAW_COUNT - 1,
-		};
-		DrawCall *drawCall[DRAW_COUNT];
-		DrawCall *drawList[DRAW_COUNT];
-
-		std::atomic<int> currentDraw;
-		std::atomic<int> nextDraw;
-
-		enum {
-			TASK_COUNT = 32,   // Size of the task queue (must be power of 2)
-			TASK_COUNT_BITS = TASK_COUNT - 1,
-		};
-		Task taskQueue[TASK_COUNT];
-		std::atomic<int> qHead;
-		std::atomic<int> qSize;
-
-		static std::atomic<int> unitCount;
-		static std::atomic<int> clusterCount;
-
-		std::mutex schedulerMutex;
-
-		VertexTask *vertexTask[16];
-
-		std::list<vk::Query*> queries;
-		WaitGroup sync;
+		vk::Query *occlusionQuery = nullptr;
+		marl::Ticket::Queue drawTickets;
+		marl::Ticket::Queue clusterQueues[MaxClusterCount];
 
 		VertexProcessor::State vertexState;
 		SetupProcessor::State setupState;
 		PixelProcessor::State pixelState;
 
-		Routine *vertexRoutine;
-		Routine *setupRoutine;
-		Routine *pixelRoutine;
+		VertexProcessor::RoutineType vertexRoutine;
+		SetupProcessor::RoutineType setupRoutine;
+		PixelProcessor::RoutineType pixelRoutine;
+
+		vk::Device* device;
 	};
 
-	struct DrawCall
-	{
-		DrawCall();
-
-		~DrawCall();
-
-		std::atomic<int> topology;
-		std::atomic<int> indexType;
-		std::atomic<int> batchSize;
-
-		Routine *vertexRoutine;
-		Routine *setupRoutine;
-		Routine *pixelRoutine;
-
-		VertexProcessor::RoutinePointer vertexPointer;
-		SetupProcessor::RoutinePointer setupPointer;
-		PixelProcessor::RoutinePointer pixelPointer;
-
-		int (Renderer::*setupPrimitives)(int batch, int count);
-		SetupProcessor::State setupState;
-
-		vk::ImageView *renderTarget[RENDERTARGETS];
-		vk::ImageView *depthBuffer;
-		vk::ImageView *stencilBuffer;
-		TaskEvents *events;
-
-		std::list<vk::Query*> *queries;
-
-		std::atomic<int> primitive;    // Current primitive to enter pipeline
-		std::atomic<int> count;        // Number of primitives to render
-		std::atomic<int> references;   // Remaining references to this draw call, 0 when done drawing, -1 when resources unlocked and slot is free
-
-		DrawData *data;
-	};
 }
 
 #endif   // sw_Renderer_hpp

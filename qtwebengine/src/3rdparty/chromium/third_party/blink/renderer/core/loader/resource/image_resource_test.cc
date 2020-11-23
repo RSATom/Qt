@@ -62,11 +62,11 @@
 #include "third_party/blink/renderer/platform/network/http_names.h"
 #include "third_party/blink/renderer/platform/scheduler/test/fake_frame_scheduler.h"
 #include "third_party/blink/renderer/platform/scheduler/test/fake_task_runner.h"
-#include "third_party/blink/renderer/platform/shared_buffer.h"
 #include "third_party/blink/renderer/platform/testing/runtime_enabled_features_test_helpers.h"
 #include "third_party/blink/renderer/platform/testing/scoped_mocked_url.h"
 #include "third_party/blink/renderer/platform/testing/testing_platform_support_with_mock_scheduler.h"
 #include "third_party/blink/renderer/platform/testing/unit_test_helpers.h"
+#include "third_party/blink/renderer/platform/wtf/shared_buffer.h"
 #include "third_party/blink/renderer/platform/wtf/text/base64.h"
 
 namespace blink {
@@ -231,8 +231,8 @@ void TestThatReloadIsStartedThenServeReload(
   image_resource->Loader()->DidReceiveResponse(
       WrappedResourceResponse(resource_response));
   image_resource->Loader()->DidReceiveData(data, kDataLength);
-  image_resource->Loader()->DidFinishLoading(
-      base::TimeTicks(), kDataLength, kDataLength, kDataLength, false, {});
+  image_resource->Loader()->DidFinishLoading(base::TimeTicks(), kDataLength,
+                                             kDataLength, kDataLength, false);
 
   // Checks |imageResource|'s status after reloading.
   EXPECT_EQ(ResourceStatus::kCached, image_resource->GetStatus());
@@ -290,7 +290,7 @@ void TestThatIsPlaceholderRequestAndServeResponse(
   image_resource->Loader()->DidFinishLoading(
       base::TimeTicks(), kJpegImageSubrangeWithDimensionsLength,
       kJpegImageSubrangeWithDimensionsLength,
-      kJpegImageSubrangeWithDimensionsLength, false, {});
+      kJpegImageSubrangeWithDimensionsLength, false);
 
   // Checks that |imageResource| is successfully loaded, showing a placeholder.
   EXPECT_EQ(ResourceStatus::kCached, image_resource->GetStatus());
@@ -332,7 +332,7 @@ void TestThatIsNotPlaceholderRequestAndServeResponse(
       reinterpret_cast<const char*>(kJpegImage), sizeof(kJpegImage));
   image_resource->Loader()->DidFinishLoading(
       base::TimeTicks(), sizeof(kJpegImage), sizeof(kJpegImage),
-      sizeof(kJpegImage), false, {});
+      sizeof(kJpegImage), false);
 
   // Checks that |imageResource| is successfully loaded,
   // showing a non-placeholder image.
@@ -429,8 +429,7 @@ TEST(ImageResourceTest, MultipartImage) {
 
   // This part finishes. The image is created, callbacks are sent, and the data
   // buffer is cleared.
-  image_resource->Loader()->DidFinishLoading(base::TimeTicks(), 0, 0, 0, false,
-                                             {});
+  image_resource->Loader()->DidFinishLoading(base::TimeTicks(), 0, 0, 0, false);
   EXPECT_TRUE(image_resource->ResourceBuffer());
   EXPECT_FALSE(image_resource->ErrorOccurred());
   ASSERT_TRUE(image_resource->GetContent()->HasImage());
@@ -474,8 +473,7 @@ TEST(ImageResourceTest, BitmapMultipartImage) {
   image_resource->AppendData(reinterpret_cast<const char*>(kJpegImage),
                              sizeof(kJpegImage));
   image_resource->AppendData(kBoundary, strlen(kBoundary));
-  image_resource->Loader()->DidFinishLoading(base::TimeTicks(), 0, 0, 0, false,
-                                             {});
+  image_resource->Loader()->DidFinishLoading(base::TimeTicks(), 0, 0, 0, false);
   EXPECT_TRUE(image_resource->GetContent()->HasImage());
   EXPECT_TRUE(image_resource->GetContent()->GetImage()->IsBitmapImage());
   EXPECT_TRUE(image_resource->GetContent()
@@ -516,7 +514,7 @@ TEST(ImageResourceTest, CancelOnRemoveObserver) {
   EXPECT_FALSE(GetMemoryCache()->ResourceForURL(test_url));
 }
 
-class MockFinishObserver : public GarbageCollectedFinalized<MockFinishObserver>,
+class MockFinishObserver : public GarbageCollected<MockFinishObserver>,
                            public ResourceFinishObserver {
   USING_GARBAGE_COLLECTED_MIXIN(MockFinishObserver);
 
@@ -662,36 +660,6 @@ TEST(ImageResourceReloadTest, ReloadIfLoFiOrPlaceholderForPlaceholder) {
   TestThatReloadIsStartedThenServeReload(test_url, image_resource,
                                          image_resource->GetContent(),
                                          observer.get(), false);
-}
-
-TEST(ImageResourceReloadTest, ReloadLoFiImagesWithDuplicateURLs) {
-  KURL test_url(kTestURL);
-  ScopedMockedURLLoad scoped_mocked_url_load(test_url, GetTestFilePath());
-  ResourceFetcher* fetcher = CreateFetcher();
-
-  FetchParameters placeholder_params{ResourceRequest(test_url)};
-  placeholder_params.SetAllowImagePlaceholder();
-  ImageResource* placeholder_resource =
-      ImageResource::Fetch(placeholder_params, fetcher);
-  EXPECT_EQ(FetchParameters::kAllowPlaceholder,
-            placeholder_params.GetImageRequestOptimization());
-  EXPECT_TRUE(placeholder_resource->ShouldShowPlaceholder());
-
-  FetchParameters full_image_params{ResourceRequest(test_url)};
-  ImageResource* full_image_resource =
-      ImageResource::Fetch(full_image_params, fetcher);
-  EXPECT_EQ(FetchParameters::kNone,
-            full_image_params.GetImageRequestOptimization());
-  EXPECT_FALSE(full_image_resource->ShouldShowPlaceholder());
-
-  // The |placeholder_resource| should not be reused for the
-  // |full_image_resource|.
-  EXPECT_NE(placeholder_resource, full_image_resource);
-
-  fetcher->ReloadLoFiImages();
-
-  EXPECT_FALSE(placeholder_resource->ShouldShowPlaceholder());
-  EXPECT_FALSE(full_image_resource->ShouldShowPlaceholder());
 }
 
 TEST(ImageResourceTest, SVGImage) {
@@ -1039,8 +1007,7 @@ TEST(ImageResourceTest, DecodeErrorWithEmptyBody) {
   EXPECT_FALSE(observer->ImageNotifyFinishedCalled());
   EXPECT_EQ(0, observer->ImageChangedCount());
 
-  image_resource->Loader()->DidFinishLoading(base::TimeTicks(), 0, 0, 0, false,
-                                             {});
+  image_resource->Loader()->DidFinishLoading(base::TimeTicks(), 0, 0, 0, false);
 
   EXPECT_EQ(ResourceStatus::kDecodeError, image_resource->GetStatus());
   EXPECT_TRUE(observer->ImageNotifyFinishedCalled());
@@ -1087,7 +1054,7 @@ TEST(ImageResourceTest, PartialContentWithoutDimensions) {
   image_resource->Loader()->DidFinishLoading(
       base::TimeTicks(), kJpegImageSubrangeWithoutDimensionsLength,
       kJpegImageSubrangeWithoutDimensionsLength,
-      kJpegImageSubrangeWithoutDimensionsLength, false, {});
+      kJpegImageSubrangeWithoutDimensionsLength, false);
 
   EXPECT_EQ(ResourceStatus::kDecodeError, image_resource->GetStatus());
   EXPECT_TRUE(observer->ImageNotifyFinishedCalled());
@@ -1212,52 +1179,6 @@ TEST(ImageResourceTest, FetchAllowPlaceholderUnsuccessful) {
                                          observer.get(), false);
 }
 
-TEST(ImageResourceTest, FetchAllowPlaceholderUnsuccessfulClientLoFi) {
-  KURL test_url(kTestURL);
-  ScopedMockedURLLoad scoped_mocked_url_load(test_url, GetTestFilePath());
-
-  ResourceRequest request = ResourceRequest(test_url);
-  request.SetPreviewsState(WebURLRequest::kClientLoFiOn);
-  FetchParameters params{request};
-  params.SetAllowImagePlaceholder();
-  ImageResource* image_resource = ImageResource::Fetch(params, CreateFetcher());
-  EXPECT_EQ(FetchParameters::kAllowPlaceholder,
-            params.GetImageRequestOptimization());
-  EXPECT_EQ("bytes=0-2047",
-            image_resource->GetResourceRequest().HttpHeaderField("range"));
-  EXPECT_TRUE(image_resource->ShouldShowPlaceholder());
-  auto observer =
-      std::make_unique<MockImageResourceObserver>(image_resource->GetContent());
-
-  const char kBadData[] = "notanimageresponse";
-
-  ResourceResponse bad_response(test_url);
-  bad_response.SetMimeType("image/jpeg");
-  bad_response.SetExpectedContentLength(sizeof(kBadData));
-  bad_response.SetHttpStatusCode(206);
-  bad_response.SetHttpHeaderField(
-      "content-range", BuildContentRange(sizeof(kBadData), sizeof(kJpegImage)));
-
-  image_resource->Loader()->DidReceiveResponse(
-      WrappedResourceResponse(bad_response));
-
-  EXPECT_EQ(0, observer->ImageChangedCount());
-
-  image_resource->Loader()->DidReceiveData(kBadData, sizeof(kBadData));
-
-  // The dimensions could not be extracted, so the full original image should be
-  // loading.
-  EXPECT_FALSE(observer->ImageNotifyFinishedCalled());
-  EXPECT_EQ(2, observer->ImageChangedCount());
-
-  TestThatReloadIsStartedThenServeReload(test_url, image_resource,
-                                         image_resource->GetContent(),
-                                         observer.get(), true);
-
-  EXPECT_FALSE(image_resource->GetContent()->GetImage()->IsBitmapImage());
-  EXPECT_TRUE(image_resource->ShouldShowPlaceholder());
-}
-
 TEST(ImageResourceTest, FetchAllowPlaceholderPartialContentWithoutDimensions) {
   const struct {
     WebURLRequest::PreviewsState initial_previews_state;
@@ -1267,10 +1188,6 @@ TEST(ImageResourceTest, FetchAllowPlaceholderPartialContentWithoutDimensions) {
   } tests[] = {
       {WebURLRequest::kPreviewsUnspecified, WebURLRequest::kPreviewsNoTransform,
        false},
-      {WebURLRequest::kClientLoFiOn,
-       WebURLRequest::kPreviewsNoTransform |
-           WebURLRequest::kClientLoFiAutoReload,
-       true},
   };
 
   for (const auto& test : tests) {
@@ -1315,7 +1232,7 @@ TEST(ImageResourceTest, FetchAllowPlaceholderPartialContentWithoutDimensions) {
     image_resource->Loader()->DidFinishLoading(
         base::TimeTicks(), kJpegImageSubrangeWithoutDimensionsLength,
         kJpegImageSubrangeWithoutDimensionsLength,
-        kJpegImageSubrangeWithoutDimensionsLength, false, {});
+        kJpegImageSubrangeWithoutDimensionsLength, false);
 
     EXPECT_FALSE(observer->ImageNotifyFinishedCalled());
     EXPECT_EQ(2, observer->ImageChangedCount());
@@ -1456,7 +1373,7 @@ TEST(ImageResourceTest, FetchAllowPlaceholderFullResponseDecodeSuccess) {
         reinterpret_cast<const char*>(kJpegImage), sizeof(kJpegImage));
     image_resource->Loader()->DidFinishLoading(
         base::TimeTicks(), sizeof(kJpegImage), sizeof(kJpegImage),
-        sizeof(kJpegImage), false, {});
+        sizeof(kJpegImage), false);
 
     EXPECT_EQ(ResourceStatus::kCached, image_resource->GetStatus());
     EXPECT_EQ(sizeof(kJpegImage), image_resource->EncodedSize());

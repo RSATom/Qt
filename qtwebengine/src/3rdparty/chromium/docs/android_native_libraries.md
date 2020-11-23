@@ -1,5 +1,6 @@
 # Shared Libraries on Android
-This doc outlines some tricks / gotchas / features of how we ship native code in Chrome on Android.
+This doc outlines some tricks / gotchas / features of how we ship native code in
+Chrome on Android.
 
 [TOC]
 
@@ -11,17 +12,77 @@ This doc outlines some tricks / gotchas / features of how we ship native code in
    * It is loaded directly from the apk (without extracting) by `mmap()`'ing it.
  * Android N, O & P (MonochromePublic.apk):
    * `libmonochrome.so` is stored uncompressed (AndroidManifest.xml attribute disables extraction) and loaded directly from the apk (functionality now supported by the system linker).
- * Android Q (TrichromeChrome.apk+TrichromeLibrary.apk):
+ * Android Q (TrichromeChrome.aab+TrichromeLibrary.apk):
    * `libmonochrome.so` is stored in the shared library apk (TrichromeLibrary.apk) instead of in the Chrome apk, so that it can be shared with TrichromeWebView. It's stored uncompressed and loaded directly from the apk the same way as on N-P. Trichrome uses the same native library as Monochrome, so it's still called `libmonochrome.so`.
+
+## Build Variants (eg. monochrome_64_32_apk)
+The packaging above extends to cover both 32-bit and 64-bit device
+configurations.
+
+Chrome and ChromeModern support 64-bit builds, but these do not ship to Stable.
+The system Webview APK that ships to those devices contains a 32-bit library,
+and for 64-bit devices, a 64-bit library as well (32-bit Webview client apps
+will use the 32-bit library, and vice-versa).
+
+### Monochrome
+Monochrome's intent was to eliminate the duplication between the 32-bit Chrome
+and Webview libraries (most of the library is identical). In 32-bit Monochrome,
+a single combined library serves both Chrome and Webview needs. The 64-bit
+version adds an extra Webview-only library.
+
+More recently, additional Monochrome permutations have arrived. First, Google
+Play will eventually require that apps offer a 64-bit version to compatible
+devices. In Monochrome, this implies swapping the architecture of the Chrome and
+Webview libraries (64-bit combined lib, and extra 32-bit Webview lib). Further
+down the road, silicon vendors may drop 32-bit support from their chips, after
+which a pure 64-bit version of Monochrome will apply. In each of these cases,
+the library name of the combined and Webview-only libraries must match (an
+Android platform requirement), so both libs are named libmonochrome.so (or
+libmonochrome_64.so in the 64-bit browser case).
+
+Since 3 of these variations require a 64-bit build config, it makes sense to
+also support the 4th variant on 64-bit, thus allowing a single builder to build
+all variants (if desired). Further, a naming scheme must exist to disambiguate
+the various targets:
+
+**monochrome_(browser ABI)_(extra_webview ABI)**
+
+For example, the 64-bit browser version with extra 32-bit Webview is
+**monochrome_64_32_apk**. The combinations are as follows:
+
+Builds on | Variant | Description
+--- | --- | ---
+32-bit | monochrome | The original 32-bit-only version
+64-bit | monochrome | The original 64-bit version, with 32-bit combined lib and 64-bit Webview. This would be named monochrome_32_64_apk if not for legacy naming.
+64-bit | monochrome_64_32 | 64-bit combined lib with 32-bit Webview library.
+64-bit | monochrome_64 | 64-bit combined lib only, for eventual pure 64-bit hardware.
+64-bit | monochrome_32 | A mirror of the original 32-bit-only version on 64-bit, to allow building all products on one builder. The result won't be bit-identical to the original, since there are subtle compilation differences.
+
+### Trichrome
+Trichrome has the same 4 permutations as Monochrome, but adds another dimension.
+Trichrome returns to separate apps for Chrome and Webview, but places shared
+resources in a third shared-library APK. The table below shows which native
+libraries are packaged where. Note that **dummy** placeholder libraries are
+inserted where needed, since Android determines supported ABIs from the presence
+of native libraries, and the ABIs of a shared library APK must match its client
+app.
+
+Builds on | Variant | Chrome | Library | Webview
+--- | --- | --- | --- | ---
+32-bit | trichrome | `32/dummy` | `32/combined` | `32/dummy`
+64-bit | trichrome | `32/dummy`, `64/dummy` | `32/combined`, `64/dummy` | `32/dummy`, `64/webview`
+64-bit | trichrome_64_32 | `32/dummy`, `64/dummy` | `32/dummy`, `64/combined` | `32/webview`, `64/dummy`
+64-bit | trichrome_64 | `64/dummy` | `64/combined` | `64/dummy`
+64-bit | trichrome_32 | `32/dummy` | `32/combined` | `32/dummy`
 
 ## Crashpad Packaging
  * Crashpad is a native library providing out-of-process crash dumping. When a
    dump is requested (e.g. after a crash), a Crashpad handler process is started
    to produce a dump.
  * Chrome and ChromeModern (Android J through M):
-   * libcrashpad_handler.so is a standalone executable containing all of the
-     crash dumping code. It is stored compressed and extracted automatically by
-     the system, allowing it to be directly executed to produce a crash dump.
+   * libchrome_crashpad_handler.so is a standalone executable containing all of
+     the crash dumping code. It is stored compressed and extracted automatically
+     by the system, allowing it to be directly executed to produce a crash dump.
  * Monochrome (N through P) and SystemWebView (L through P):
     * All of the Crashpad code is linked into the package's main native library
       (e.g. libmonochrome.so). When a dump is requested, /system/bin/app_process
@@ -74,7 +135,7 @@ This doc outlines some tricks / gotchas / features of how we ship native code in
    * `JNI_OnLoad()` is the only exported symbol (enforced by a linker script).
    * Native methods registered explicitly during start-up by generated code.
      * Explicit generation is required because the Android runtime uses the system's `dlsym()`, which doesn't know about Crazy-Linker-opened libraries.
- * For MonochromePublic.apk and TrichromeChrome.apk:
+ * For MonochromePublic.apk and TrichromeChrome.aab:
    * `JNI_OnLoad()` and `Java_*` symbols are exported by linker script.
    * No manual JNI registration is done. Symbols are resolved lazily by the runtime.
 
@@ -125,6 +186,59 @@ This doc outlines some tricks / gotchas / features of how we ship native code in
    * For renderer processes, TrichromeChrome `fork()`s from a chrome-specific app zygote. `libmonochrome.so` is loaded in the zygote before `fork()`.
      * Similar to O-P, app zygote provides copy-on-write memory semantics so RELRO sharing is redundant.
    * For renderer processes, TrichromeWebView works the same way as on Android N-P.
+
+## Partitioned libraries
+Some Chrome code is placed in feature-specific libraries and delivered via
+[Dynamic Feature Modules](android_dynamic_feature_modules.md).
+
+A linker-assisted partitioning system automates the placement of code into
+either the main Chrome library or feature-specific .so libraries. Feature code
+may continue to make use of core Chrome code (eg. base::) without modification,
+but Chrome must call feature code through a virtual interface.
+
+**How partitioning works**
+
+The lld linker is now capable of producing a [partitioned
+library](https://lld.llvm.org/Partitions.html), which is effectively an
+intermediate single file containing multiple libraries. A separate tool
+*(llvm-objcopy)* then splits the file into standalone .so files, invoked through
+a [partitioned shared library](https://cs.chromium.org/chromium/src/build/partitioned_shared_library.gni)
+GN template.
+
+The primary partition is Chrome's main library (eg. libchrome.so), and other
+partitions may contain feature code (eg. libvr.so). By specifying a list of
+C/C++ symbols to use as entrypoints, the linker can collect all code used only
+through these entrypoints, and place it in a particular partition.
+
+To facilitate partitioning, all references from Chrome to the feature
+entrypoints must be indirect. That is, Chrome must obtain a symbol from the
+feature library through dlsym(), cast the pointer to its actual type, and call
+through the resulting pointer.
+
+Feature code retains the ability to freely call back into Chrome's core code.
+When loading the library, the feature module system uses the feature name to
+look up a partition name *(libfoo.so)* in an address offset table built into the
+main library. The resulting offset is supplied to android_dlopen_ext(), which
+instructs Android to load the library in a particular reserved address region.
+This allows the feature library's relative references back to the main library
+to work, as if the feature code had been linked into the main library
+originally. No dynamic symbol resolution is required here.
+
+**Implications on code placement**
+
+* Any symbol referenced by multiple partitions ends up in the main library (even
+  if all calling libraries are feature partitions).
+* Symbols that aren't feature code (eg. base::) will be pulled into the
+  feature's library if only that feature uses the code. This is a benefit, but
+  can be unexpected.
+
+**Builds that support partitioned libraries**
+
+Partitioned libraries are usable when all of the following are true:
+* Component build is disabled (component build splits code across GN component
+  target boundaries instead).
+* The compiler is Clang.
+* The linker is lld.
 
 ## Library Prefetching
  * During start-up, we `fork()` a process that reads a byte from each page of the library's memory (or just the ordered range of the library).

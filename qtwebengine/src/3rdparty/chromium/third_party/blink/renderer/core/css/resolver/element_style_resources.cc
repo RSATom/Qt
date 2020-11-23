@@ -33,7 +33,7 @@
 #include "third_party/blink/renderer/core/dom/tree_scope.h"
 #include "third_party/blink/renderer/core/frame/local_frame.h"
 #include "third_party/blink/renderer/core/frame/settings.h"
-#include "third_party/blink/renderer/core/html/lazy_load_image_observer.h"
+#include "third_party/blink/renderer/core/loader/lazy_image_helper.h"
 #include "third_party/blink/renderer/core/style/computed_style.h"
 #include "third_party/blink/renderer/core/style/content_data.h"
 #include "third_party/blink/renderer/core/style/cursor_data.h"
@@ -51,8 +51,6 @@
 #include "third_party/blink/renderer/platform/loader/fetch/resource_fetcher.h"
 
 namespace blink {
-
-using namespace cssvalue;
 
 ElementStyleResources::ElementStyleResources(Element& element,
                                              float device_scale_factor,
@@ -108,7 +106,7 @@ StyleImage* ElementStyleResources::CachedOrPendingFromValue(
 
 SVGResource* ElementStyleResources::GetSVGResourceFromValue(
     TreeScope& tree_scope,
-    const CSSURIValue& value,
+    const cssvalue::CSSURIValue& value,
     AllowExternal allow_external) const {
   if (value.IsLocal(element_->GetDocument())) {
     SVGTreeScopeResources& tree_scope_resources =
@@ -222,7 +220,7 @@ void ElementStyleResources::LoadPendingImages(ComputedStyle* style) {
                 LoadPendingImage(style, To<StylePendingImage>(background_image),
                                  image_request_optimization);
             if (new_image && new_image->IsLazyloadPossiblyDeferred()) {
-              LazyLoadImageObserver::StartMonitoring(
+              LazyImageHelper::StartMonitoring(
                   pseudo_element_ ? pseudo_element_ : element_.Get());
             }
             background_layer->SetImage(new_image);
@@ -314,7 +312,8 @@ void ElementStyleResources::LoadPendingImages(ComputedStyle* style) {
               mask_layer->GetImage()->IsPendingImage()) {
             mask_layer->SetImage(LoadPendingImage(
                 style, To<StylePendingImage>(mask_layer->GetImage()),
-                FetchParameters::kAllowPlaceholder));
+                FetchParameters::kAllowPlaceholder,
+                kCrossOriginAttributeAnonymous));
           }
         }
         break;

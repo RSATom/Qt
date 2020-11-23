@@ -6,7 +6,6 @@
 #define MEDIA_GPU_WINDOWS_D3D11_PICTURE_BUFFER_H_
 
 #include <d3d11.h>
-#include <dxva.h>
 #include <wrl/client.h>
 
 #include <memory>
@@ -50,15 +49,13 @@ class MEDIA_GPU_EXPORT D3D11PictureBuffer
   // |texture_wrapper| is responsible for controlling mailbox access to
   // the ID3D11Texture2D,
   // |level| is the picturebuffer index inside the Array-type ID3D11Texture2D.
-  D3D11PictureBuffer(GLenum target,
-                     std::unique_ptr<Texture2DWrapper> texture_wrapper,
+  D3D11PictureBuffer(std::unique_ptr<Texture2DWrapper> texture_wrapper,
                      gfx::Size size,
                      size_t level);
 
   bool Init(GetCommandBufferHelperCB get_helper_cb,
             ComD3D11VideoDevice video_device,
             const GUID& decoder_guid,
-            int textures_per_picture,
             std::unique_ptr<MediaLog> media_log);
 
   // Set the contents of a mailbox holder array, return true if successful.
@@ -88,7 +85,6 @@ class MEDIA_GPU_EXPORT D3D11PictureBuffer
   ~D3D11PictureBuffer();
   friend class base::RefCountedThreadSafe<D3D11PictureBuffer>;
 
-  GLenum target_;
   std::unique_ptr<Texture2DWrapper> texture_wrapper_;
   gfx::Size size_;
   bool in_picture_use_ = false;

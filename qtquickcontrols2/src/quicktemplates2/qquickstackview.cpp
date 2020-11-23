@@ -558,7 +558,14 @@ QQuickItem *QQuickStackView::find(const QJSValue &callback, LoadBehavior behavio
 void QQuickStackView::push(QQmlV4Function *args)
 {
     Q_D(QQuickStackView);
-    QScopedValueRollback<QString> rollback(d->operation, QStringLiteral("push"));
+    const QString operationName = QStringLiteral("push");
+    if (d->modifyingElements) {
+        d->warnOfInterruption(operationName);
+        return;
+    }
+
+    QScopedValueRollback<bool> modifyingElements(d->modifyingElements, true);
+    QScopedValueRollback<QString> operationNameRollback(d->operation, operationName);
     if (args->length() <= 0) {
         d->warn(QStringLiteral("missing arguments"));
         args->setReturnValue(QV4::Encode::null());
@@ -627,6 +634,9 @@ void QQuickStackView::push(QQmlV4Function *args)
     items down to (but not including) the first item is popped.
     If not specified, only the current item is popped.
 
+    \note A pop() operation on a stack with depth 1 or 0 does nothing. In such
+    cases, the stack can be emptied using the \l clear() method.
+
     \include qquickstackview.qdocinc pop-ownership
 
     An \a operation can be optionally specified as the last argument. Supported
@@ -651,14 +661,15 @@ void QQuickStackView::push(QQmlV4Function *args)
 void QQuickStackView::pop(QQmlV4Function *args)
 {
     Q_D(QQuickStackView);
-    if (d->removingElements) {
-        d->warn(QStringLiteral("cannot pop while already in the process of removing elements"));
+    const QString operationName = QStringLiteral("pop");
+    if (d->modifyingElements) {
+        d->warnOfInterruption(operationName);
         args->setReturnValue(QV4::Encode::null());
         return;
     }
 
-    QScopedValueRollback<bool> removingElements(d->removingElements, true);
-    QScopedValueRollback<QString> rollback(d->operation, QStringLiteral("pop"));
+    QScopedValueRollback<bool> modifyingElements(d->modifyingElements, true);
+    QScopedValueRollback<QString> operationNameRollback(d->operation, operationName);
     int argc = args->length();
     if (d->elements.count() <= 1 || argc > 2) {
         if (argc > 2)
@@ -813,14 +824,15 @@ void QQuickStackView::pop(QQmlV4Function *args)
 void QQuickStackView::replace(QQmlV4Function *args)
 {
     Q_D(QQuickStackView);
-    if (d->removingElements) {
-        d->warn(QStringLiteral("cannot replace while already in the process of removing elements"));
+    const QString operationName = QStringLiteral("replace");
+    if (d->modifyingElements) {
+        d->warnOfInterruption(operationName);
         args->setReturnValue(QV4::Encode::null());
         return;
     }
 
-    QScopedValueRollback<bool> removingElements(d->removingElements, true);
-    QScopedValueRollback<QString> rollback(d->operation, QStringLiteral("replace"));
+    QScopedValueRollback<bool> modifyingElements(d->modifyingElements, true);
+    QScopedValueRollback<QString> operationNameRollback(d->operation, operationName);
     if (args->length() <= 0) {
         d->warn(QStringLiteral("missing arguments"));
         args->setReturnValue(QV4::Encode::null());
@@ -916,12 +928,14 @@ void QQuickStackView::clear(Operation operation)
     if (d->elements.isEmpty())
         return;
 
-    if (d->removingElements) {
-        d->warn(QStringLiteral("cannot clear while already in the process of removing elements"));
+    const QString operationName = QStringLiteral("clear");
+    if (d->modifyingElements) {
+        d->warnOfInterruption(operationName);
         return;
     }
 
-    QScopedValueRollback<bool> removingElements(d->removingElements, true);
+    QScopedValueRollback<bool> modifyingElements(d->modifyingElements, true);
+    QScopedValueRollback<QString> operationNameRollback(d->operation, operationName);
     if (operation != Immediate) {
         QQuickStackElement *exit = d->elements.pop();
         exit->removal = true;
@@ -1128,7 +1142,7 @@ void QQuickStackView::componentComplete()
     QQuickControl::componentComplete();
 
     Q_D(QQuickStackView);
-    QScopedValueRollback<QString> rollback(d->operation, QStringLiteral("initialItem"));
+    QScopedValueRollback<QString> operationNameRollback(d->operation, QStringLiteral("initialItem"));
     QQuickStackElement *element = nullptr;
     QString error;
     int oldDepth = d->elements.count();

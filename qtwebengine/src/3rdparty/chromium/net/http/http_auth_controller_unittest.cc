@@ -8,7 +8,7 @@
 #include <utility>
 
 #include "base/strings/utf_string_conversions.h"
-#include "base/test/scoped_task_environment.h"
+#include "base/test/task_environment.h"
 #include "net/base/net_errors.h"
 #include "net/base/test_completion_callback.h"
 #include "net/dns/mock_host_resolver.h"
@@ -56,7 +56,8 @@ void RunSingleRoundAuthTest(
     int expected_controller_rv,
     SchemeState scheme_state,
     const NetLogWithSource& net_log = NetLogWithSource()) {
-  HttpAuthCache dummy_auth_cache;
+  HttpAuthCache dummy_auth_cache(
+      false /* key_server_entries_by_network_isolation_key */);
 
   HttpRequestInfo request;
   request.method = "GET";
@@ -75,9 +76,11 @@ void RunSingleRoundAuthTest(
   auth_handler_factory.set_do_init_from_challenge(true);
   auto host_resolver = std::make_unique<MockHostResolver>();
 
-  scoped_refptr<HttpAuthController> controller(new HttpAuthController(
-      HttpAuth::AUTH_PROXY, GURL("http://example.com"), &dummy_auth_cache,
-      &auth_handler_factory, host_resolver.get()));
+  scoped_refptr<HttpAuthController> controller(
+      base::MakeRefCounted<HttpAuthController>(
+          HttpAuth::AUTH_PROXY, GURL("http://example.com"),
+          NetworkIsolationKey(), &dummy_auth_cache, &auth_handler_factory,
+          host_resolver.get()));
   SSLInfo null_ssl_info;
   ASSERT_EQ(OK, controller->HandleAuthChallenge(headers, null_ssl_info, false,
                                                 false, net_log));
@@ -102,7 +105,7 @@ void RunSingleRoundAuthTest(
 // permanent error, the HttpAuthController should disable the scheme
 // used and retry the request.
 TEST(HttpAuthControllerTest, PermanentErrors) {
-  base::test::ScopedTaskEnvironment scoped_task_environment;
+  base::test::TaskEnvironment task_environment;
 
   // Run a synchronous handler that returns
   // ERR_UNEXPECTED_SECURITY_LIBRARY_STATUS.  We expect a return value
@@ -133,8 +136,8 @@ TEST(HttpAuthControllerTest, PermanentErrors) {
 
 // Verify that the controller logs appropriate lifetime events.
 TEST(HttpAuthControllerTest, Logging) {
-  base::test::ScopedTaskEnvironment scoped_task_environment;
-  BoundTestNetLog net_log;
+  base::test::TaskEnvironment task_environment;
+  RecordingBoundTestNetLog net_log;
 
   RunSingleRoundAuthTest(RUN_HANDLER_SYNC, OK, OK, SCHEME_IS_ENABLED,
                          net_log.bound());
@@ -186,7 +189,7 @@ TEST(HttpAuthControllerTest, NoExplicitCredentialsAllowed) {
       set_allows_explicit_credentials(false);
       set_connection_based(true);
       // Pretend to be SCHEME_BASIC so we can test failover logic.
-      if (challenge->scheme() == "Basic") {
+      if (challenge->auth_scheme() == "basic") {
         auth_scheme_ = HttpAuth::AUTH_SCHEME_BASIC;
         --score_;  // Reduce score, so we rank below Mock.
         set_allows_explicit_credentials(true);
@@ -212,7 +215,8 @@ TEST(HttpAuthControllerTest, NoExplicitCredentialsAllowed) {
   };
 
   NetLogWithSource dummy_log;
-  HttpAuthCache dummy_auth_cache;
+  HttpAuthCache dummy_auth_cache(
+      false /* key_server_entries_by_network_isolation_key */);
   HttpRequestInfo request;
   request.method = "GET";
   request.url = GURL("http://example.com");
@@ -257,9 +261,11 @@ TEST(HttpAuthControllerTest, NoExplicitCredentialsAllowed) {
 
   auto host_resolver = std::make_unique<MockHostResolver>();
 
-  scoped_refptr<HttpAuthController> controller(new HttpAuthController(
-      HttpAuth::AUTH_SERVER, GURL("http://example.com"), &dummy_auth_cache,
-      &auth_handler_factory, host_resolver.get()));
+  scoped_refptr<HttpAuthController> controller(
+      base::MakeRefCounted<HttpAuthController>(
+          HttpAuth::AUTH_SERVER, GURL("http://example.com"),
+          NetworkIsolationKey(), &dummy_auth_cache, &auth_handler_factory,
+          host_resolver.get()));
   SSLInfo null_ssl_info;
   ASSERT_EQ(OK, controller->HandleAuthChallenge(headers, null_ssl_info, false,
                                                 false, dummy_log));

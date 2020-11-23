@@ -14,9 +14,9 @@
 #include "core/fpdfapi/font/cpdf_type3font.h"
 #include "core/fpdfapi/page/cpdf_dibbase.h"
 #include "core/fpdfapi/page/cpdf_function.h"
+#include "core/fpdfapi/page/cpdf_transferfunc.h"
 #include "core/fpdfapi/parser/cpdf_array.h"
 #include "core/fpdfapi/parser/cpdf_document.h"
-#include "core/fpdfapi/render/cpdf_transferfunc.h"
 #include "core/fpdfapi/render/cpdf_type3cache.h"
 
 namespace {
@@ -98,7 +98,7 @@ RetainPtr<CPDF_TransferFunc> CPDF_DocRenderData::CreateTransferFunc(
           continue;
         }
         pFuncs[i]->Call(&input, 1, output, &noutput);
-        size_t o = FXSYS_round(output[0] * 255);
+        size_t o = FXSYS_roundf(output[0] * 255);
         if (o != v)
           bIdentity = false;
         samples[i][v] = o;
@@ -107,7 +107,7 @@ RetainPtr<CPDF_TransferFunc> CPDF_DocRenderData::CreateTransferFunc(
     }
     if (pFuncs[0]->CountOutputs() <= kMaxOutputs)
       pFuncs[0]->Call(&input, 1, output, &noutput);
-    size_t o = FXSYS_round(output[0] * 255);
+    size_t o = FXSYS_roundf(output[0] * 255);
     if (o != v)
       bIdentity = false;
     for (auto& channel : samples)

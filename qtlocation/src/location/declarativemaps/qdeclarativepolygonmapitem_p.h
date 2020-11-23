@@ -51,44 +51,29 @@
 #include <QtLocation/private/qlocationglobal_p.h>
 #include <QtLocation/private/qdeclarativegeomapitembase_p.h>
 #include <QtLocation/private/qdeclarativepolylinemapitem_p.h>
-#include <QtLocation/private/qgeomapitemgeometry_p.h>
 #include <QtPositioning/qgeopolygon.h>
-
-#include <QSGGeometryNode>
-#include <QSGFlatColorMaterial>
 
 QT_BEGIN_NAMESPACE
 
-class MapPolygonNode;
-
-class Q_LOCATION_PRIVATE_EXPORT QGeoMapPolygonGeometry : public QGeoMapItemGeometry
-{
-public:
-    QGeoMapPolygonGeometry();
-
-    inline void setAssumeSimple(bool value) { assumeSimple_ = value; }
-
-    void updateSourcePoints(const QGeoMap &map,
-                            const QList<QDoubleVector2D> &path);
-
-    void updateScreenPoints(const QGeoMap &map, qreal strokeWidth = 0.0);
-
-protected:
-    QPainterPath srcPath_;
-    bool assumeSimple_;
-};
-
+class QDeclarativePolygonMapItemPrivate;
 class Q_LOCATION_PRIVATE_EXPORT QDeclarativePolygonMapItem : public QDeclarativeGeoMapItemBase
 {
     Q_OBJECT
+    Q_ENUMS(Backend)
 
     Q_PROPERTY(QJSValue path READ path WRITE setPath NOTIFY pathChanged)
     Q_PROPERTY(QColor color READ color WRITE setColor NOTIFY colorChanged)
     Q_PROPERTY(QDeclarativeMapLineProperties *border READ border CONSTANT)
+    Q_PROPERTY(Backend backend READ backend WRITE setBackend NOTIFY backendChanged REVISION 15)
 
 public:
-    explicit QDeclarativePolygonMapItem(QQuickItem *parent = 0);
-    ~QDeclarativePolygonMapItem();
+    enum Backend {
+        Software = 0,
+        OpenGL = 1
+    };
+
+    explicit QDeclarativePolygonMapItem(QQuickItem *parent = nullptr);
+    ~QDeclarativePolygonMapItem() override;
 
     virtual void setMap(QDeclarativeGeoMap *quickMap, QGeoMap *map) override;
     //from QuickItem
@@ -105,6 +90,9 @@ public:
 
     QDeclarativeMapLineProperties *border();
 
+    Backend backend() const;
+    void setBackend(Backend b);
+
     bool contains(const QPointF &point) const override;
     const QGeoShape &geoShape() const override;
     void setGeoShape(const QGeoShape &shape) override;
@@ -112,45 +100,34 @@ public:
 Q_SIGNALS:
     void pathChanged();
     void colorChanged(const QColor &color);
+    void backendChanged();
+
+protected Q_SLOTS:
+    void markSourceDirtyAndUpdate();
+    void onLinePropertiesChanged();
+    virtual void afterViewportChanged(const QGeoMapViewportChangeEvent &event) override;
 
 protected:
     void geometryChanged(const QRectF &newGeometry, const QRectF &oldGeometry) override;
     void updatePolish() override;
+    void setMaterialDirty() override;
 
-protected Q_SLOTS:
-    void markSourceDirtyAndUpdate();
-    virtual void afterViewportChanged(const QGeoMapViewportChangeEvent &event) override;
-
-private:
-    void regenerateCache();
-    void updateCache();
-
-    QGeoPolygon geopath_;
-    QList<QDoubleVector2D> geopathProjected_;
-    QDeclarativeMapLineProperties border_;
-    QColor color_;
-    bool dirtyMaterial_;
-    QGeoMapPolygonGeometry geometry_;
-    QGeoMapPolylineGeometry borderGeometry_;
-    bool updatingGeometry_;
-};
-
-//////////////////////////////////////////////////////////////////////
-
-class Q_LOCATION_PRIVATE_EXPORT MapPolygonNode : public MapItemGeometryNode
-{
-
+#ifdef QT_LOCATION_DEBUG
 public:
-    MapPolygonNode();
-    ~MapPolygonNode() override;
+#endif
+    QGeoPolygon m_geopoly;
+    QDeclarativeMapLineProperties m_border;
+    QColor m_color;
+    Backend m_backend = Software;
+    bool m_dirtyMaterial;
+//    bool m_dirtyGeometry = false;
+    bool m_updatingGeometry;
 
-    void update(const QColor &fillColor, const QColor &borderColor,
-                const QGeoMapItemGeometry *fillShape,
-                const QGeoMapItemGeometry *borderShape);
-private:
-    QSGFlatColorMaterial fill_material_;
-    MapPolylineNode *border_;
-    QSGGeometry geometry_;
+    QScopedPointer<QDeclarativePolygonMapItemPrivate> m_d;
+
+    friend class QDeclarativePolygonMapItemPrivate;
+    friend class QDeclarativePolygonMapItemPrivateCPU;
+    friend class QDeclarativePolygonMapItemPrivateOpenGL;
 };
 
 QT_END_NAMESPACE

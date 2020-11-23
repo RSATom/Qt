@@ -20,14 +20,14 @@
 #include <limits>
 #include <memory>
 
-#include "src/trace_processor/table.h"
+#include "src/trace_processor/sqlite/sqlite_table.h"
 
 namespace perfetto {
 namespace trace_processor {
 
 class TraceStorage;
 
-class WindowOperatorTable : public Table {
+class WindowOperatorTable : public SqliteTable {
  public:
   enum Column {
     kRowId = 0,
@@ -38,12 +38,14 @@ class WindowOperatorTable : public Table {
     kDuration = 5,
     kQuantumTs = 6
   };
-  class Cursor : public Table::Cursor {
+  class Cursor : public SqliteTable::Cursor {
    public:
     Cursor(WindowOperatorTable*);
 
-    // Implementation of Table::Cursor.
-    int Filter(const QueryConstraints& qc, sqlite3_value**) override;
+    // Implementation of SqliteTable::Cursor.
+    int Filter(const QueryConstraints& qc,
+               sqlite3_value**,
+               FilterHistory) override;
     int Next() override;
     int Eof() override;
     int Column(sqlite3_context*, int N) override;
@@ -76,8 +78,9 @@ class WindowOperatorTable : public Table {
 
   // Table implementation.
   util::Status Init(int, const char* const*, Schema* schema) override;
-  std::unique_ptr<Table::Cursor> CreateCursor() override;
+  std::unique_ptr<SqliteTable::Cursor> CreateCursor() override;
   int BestIndex(const QueryConstraints&, BestIndexInfo*) override;
+  int ModifyConstraints(QueryConstraints* qc) override;
   int Update(int, sqlite3_value**, sqlite3_int64*) override;
 
  private:

@@ -7,7 +7,7 @@
 #include "base/stl_util.h"
 #include "base/strings/utf_string_conversions.h"
 #include "content/browser/webui/web_ui_data_source_impl.h"
-#include "content/public/test/test_browser_thread_bundle.h"
+#include "content/public/test/browser_task_environment.h"
 #include "content/test/test_content_client.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
@@ -24,7 +24,6 @@ const char kDummyResource[] = "<html>blah</html>";
 
 class TestClient : public TestContentClient {
  public:
-  TestClient() : is_gzipped_(false) {}
   ~TestClient() override {}
 
   base::string16 GetLocalizedString(int message_id) override {
@@ -44,14 +43,6 @@ class TestClient : public TestContentClient {
     }
     return bytes;
   }
-
-  bool IsDataResourceGzipped(int resource_id) override { return is_gzipped_; }
-
-  // Sets the response for |IsDataResourceGzipped()|.
-  void SetIsDataResourceGzipped(bool is_gzipped) { is_gzipped_ = is_gzipped; }
-
- private:
-  bool is_gzipped_;
 };
 
 }  // namespace
@@ -63,9 +54,9 @@ class WebUIDataSourceTest : public testing::Test {
   WebUIDataSourceImpl* source() { return source_.get(); }
 
   void StartDataRequest(const std::string& path,
-                        const URLDataSource::GotDataCallback& callback) {
-    source_->StartDataRequest(path, ResourceRequestInfo::WebContentsGetter(),
-                              callback);
+                        URLDataSource::GotDataCallback callback) {
+    source_->StartDataRequest(GURL("https://any-host/" + path),
+                              WebContents::Getter(), std::move(callback));
   }
 
   std::string GetMimeType(const std::string& path) const {
@@ -73,7 +64,7 @@ class WebUIDataSourceTest : public testing::Test {
   }
 
   void HandleRequest(const std::string& path,
-                     const WebUIDataSourceImpl::GotDataCallback&) {
+                     WebUIDataSourceImpl::GotDataCallback) {
     request_path_ = path;
   }
 
@@ -94,19 +85,27 @@ class WebUIDataSourceTest : public testing::Test {
     source_ = base::WrapRefCounted(source_impl);
   }
 
-  TestBrowserThreadBundle thread_bundle_;
+  BrowserTaskEnvironment task_environment_;
   scoped_refptr<WebUIDataSourceImpl> source_;
 };
 
-void EmptyStringsCallback(scoped_refptr<base::RefCountedMemory> data) {
+void EmptyStringsCallback(bool from_js_module,
+                          scoped_refptr<base::RefCountedMemory> data) {
   std::string result(data->front_as<char>(), data->size());
   EXPECT_NE(result.find("loadTimeData.data = {"), std::string::npos);
   EXPECT_NE(result.find("};"), std::string::npos);
+  bool has_import = result.find("import {loadTimeData}") != std::string::npos;
+  EXPECT_EQ(from_js_module, has_import);
 }
 
 TEST_F(WebUIDataSourceTest, EmptyStrings) {
-  source()->SetJsonPath("strings.js");
-  StartDataRequest("strings.js", base::Bind(&EmptyStringsCallback));
+  source()->UseStringsJs();
+  StartDataRequest("strings.js", base::BindOnce(&EmptyStringsCallback, false));
+}
+
+TEST_F(WebUIDataSourceTest, EmptyModuleStrings) {
+  source()->UseStringsJs();
+  StartDataRequest("strings.m.js", base::BindOnce(&EmptyStringsCallback, true));
 }
 
 void SomeValuesCallback(scoped_refptr<base::RefCountedMemory> data) {
@@ -119,13 +118,13 @@ void SomeValuesCallback(scoped_refptr<base::RefCountedMemory> data) {
 }
 
 TEST_F(WebUIDataSourceTest, SomeValues) {
-  source()->SetJsonPath("strings.js");
+  source()->UseStringsJs();
   source()->AddBoolean("flag", true);
   source()->AddInteger("counter", 10);
   source()->AddInteger("debt", -456);
   source()->AddString("planet", base::ASCIIToUTF16("pluto"));
   source()->AddLocalizedString("button", kDummyStringId);
-  StartDataRequest("strings.js", base::Bind(&SomeValuesCallback));
+  StartDataRequest("strings.js", base::BindOnce(&SomeValuesCallback));
 }
 
 void DefaultResourceFoobarCallback(scoped_refptr<base::RefCountedMemory> data) {
@@ -141,8 +140,9 @@ void DefaultResourceStringsCallback(
 
 TEST_F(WebUIDataSourceTest, DefaultResource) {
   source()->SetDefaultResource(kDummyDefaultResourceId);
-  StartDataRequest("foobar", base::Bind(&DefaultResourceFoobarCallback));
-  StartDataRequest("strings.js", base::Bind(&DefaultResourceStringsCallback));
+  StartDataRequest("foobar", base::BindOnce(&DefaultResourceFoobarCallback));
+  StartDataRequest("strings.js",
+                   base::BindOnce(&DefaultResourceStringsCallback));
 }
 
 void NamedResourceFoobarCallback(scoped_refptr<base::RefCountedMemory> data) {
@@ -158,8 +158,8 @@ void NamedResourceStringsCallback(scoped_refptr<base::RefCountedMemory> data) {
 TEST_F(WebUIDataSourceTest, NamedResource) {
   source()->SetDefaultResource(kDummyDefaultResourceId);
   source()->AddResourcePath("foobar", kDummyResourceId);
-  StartDataRequest("foobar", base::Bind(&NamedResourceFoobarCallback));
-  StartDataRequest("strings.js", base::Bind(&NamedResourceStringsCallback));
+  StartDataRequest("foobar", base::BindOnce(&NamedResourceFoobarCallback));
+  StartDataRequest("strings.js", base::BindOnce(&NamedResourceStringsCallback));
 }
 
 void NamedResourceWithQueryStringCallback(
@@ -172,7 +172,7 @@ TEST_F(WebUIDataSourceTest, NamedResourceWithQueryString) {
   source()->SetDefaultResource(kDummyDefaultResourceId);
   source()->AddResourcePath("foobar", kDummyResourceId);
   StartDataRequest("foobar?query?string",
-                   base::Bind(&NamedResourceWithQueryStringCallback));
+                   base::BindOnce(&NamedResourceWithQueryStringCallback));
 }
 
 void WebUIDataSourceTest::RequestFilterQueryStringCallback(
@@ -193,8 +193,8 @@ TEST_F(WebUIDataSourceTest, RequestFilterQueryString) {
   source()->AddResourcePath("foobar", kDummyResourceId);
   StartDataRequest(
       "foobar?query?string",
-      base::Bind(&WebUIDataSourceTest::RequestFilterQueryStringCallback,
-                 base::Unretained(this)));
+      base::BindOnce(&WebUIDataSourceTest::RequestFilterQueryStringCallback,
+                     base::Unretained(this)));
 }
 
 TEST_F(WebUIDataSourceTest, MimeType) {
@@ -222,51 +222,6 @@ TEST_F(WebUIDataSourceTest, MimeType) {
   EXPECT_EQ(GetMimeType("foo.html?abc?abc"), html);
   EXPECT_EQ(GetMimeType("foo.css?abc?abc"), css);
   EXPECT_EQ(GetMimeType("foo.js?abc?abc"), js);
-}
-
-TEST_F(WebUIDataSourceTest, IsGzipped) {
-  source()->SetJsonPath("strings.js");
-  source()->SetDefaultResource(kDummyDefaultResourceId);
-
-  // Test that WebUIDataSource delegates IsGzipped to the content client.
-  client_.SetIsDataResourceGzipped(false);
-  EXPECT_FALSE(source()->IsGzipped("foobar"));
-  EXPECT_FALSE(source()->IsGzipped(""));
-  // Test that |json_path_| is correctly reported as non-gzipped.
-  EXPECT_FALSE(source()->IsGzipped("strings.js"));
-
-  client_.SetIsDataResourceGzipped(true);
-  EXPECT_TRUE(source()->IsGzipped("foobar"));
-  EXPECT_TRUE(source()->IsGzipped(""));
-  // Test that |json_path_| is correctly reported as non-gzipped.
-  EXPECT_FALSE(source()->IsGzipped("strings.js"));
-}
-
-TEST_F(WebUIDataSourceTest, IsGzippedNoDefaultResource) {
-  // Test that WebUIDataSource reports non existing resources as non-gzipped
-  // and does not trigger any CHECKs.
-  client_.SetIsDataResourceGzipped(false);
-  EXPECT_FALSE(source()->IsGzipped("foobar"));
-
-  client_.SetIsDataResourceGzipped(true);
-  EXPECT_FALSE(source()->IsGzipped("foobar"));
-}
-
-TEST_F(WebUIDataSourceTest, IsGzippedWithRequestFiltering) {
-  source()->SetRequestFilter(
-      base::BindRepeating(
-          [](const std::string& path) { return path == "json/special/path"; }),
-      base::BindRepeating(&WebUIDataSourceTest::HandleRequest,
-                          base::Unretained(this)));
-  source()->SetDefaultResource(kDummyDefaultResourceId);
-
-  client_.SetIsDataResourceGzipped(false);
-  EXPECT_FALSE(source()->IsGzipped("json/special/path"));
-  EXPECT_FALSE(source()->IsGzipped("other/path"));
-
-  client_.SetIsDataResourceGzipped(true);
-  EXPECT_FALSE(source()->IsGzipped("json/special/path"));
-  EXPECT_TRUE(source()->IsGzipped("other/path"));
 }
 
 TEST_F(WebUIDataSourceTest, ShouldServeMimeTypeAsContentTypeHeader) {

@@ -28,6 +28,7 @@
 #include "services/network/public/cpp/resource_request.h"
 #include "services/network/public/cpp/shared_url_loader_factory.h"
 #include "services/network/public/cpp/simple_url_loader.h"
+#include "services/network/public/mojom/url_response_head.mojom.h"
 
 using net::DefineNetworkTrafficAnnotation;
 
@@ -122,8 +123,7 @@ void GCDApiFlowImpl::OnAccessTokenFetchComplete(
   auto request = std::make_unique<network::ResourceRequest>();
   request->url = request_->GetURL();
 
-  request->load_flags =
-      net::LOAD_DO_NOT_SAVE_COOKIES | net::LOAD_DO_NOT_SEND_COOKIES;
+  request->credentials_mode = network::mojom::CredentialsMode::kOmit;
 
   request->headers.SetHeader(kCloudPrintOAuthHeaderKey,
                              GetOAuthHeaderValue(access_token_info.token));
@@ -147,7 +147,7 @@ void GCDApiFlowImpl::OnAccessTokenFetchComplete(
 
 void GCDApiFlowImpl::OnDownloadedToString(
     std::unique_ptr<std::string> response_body) {
-  const network::ResourceResponseHead* response_info =
+  const network::mojom::URLResponseHead* response_info =
       url_loader_->ResponseInfo();
 
   if (url_loader_->NetError() != net::OK || !response_info) {

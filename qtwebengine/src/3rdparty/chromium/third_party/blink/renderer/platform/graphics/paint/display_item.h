@@ -28,7 +28,7 @@ class PLATFORM_EXPORT DisplayItem {
  public:
   enum {
     // Must be kept in sync with core/paint/PaintPhase.h.
-    kPaintPhaseMax = 11,
+    kPaintPhaseMax = 12,
   };
 
   // A display item type uniquely identifies a display item of a client.
@@ -65,6 +65,7 @@ class PLATFORM_EXPORT DisplayItem {
     kDragImage,
     kDragCaret,
     kEmptyContentForFilters,
+    kForcedColorsModeBackplate,
     kSVGImage,
     kLinkHighlight,
     kImageAreaFocusRing,
@@ -80,18 +81,13 @@ class PLATFORM_EXPORT DisplayItem {
     kSVGClip,
     kSVGFilter,
     kSVGMask,
-    kScrollbarBackButtonEnd,
-    kScrollbarBackButtonStart,
-    kScrollbarBackground,
-    kScrollbarBackTrack,
-    kScrollbarCorner,
-    kScrollbarForwardButtonEnd,
-    kScrollbarForwardButtonStart,
-    kScrollbarForwardTrack,
+    kScrollCorner,
+    // The following 3 types are used during cc::Scrollbar::PaintPart() only.
+    // During Paint stage of document lifecycle update, we record
+    // ScrollbarDisplayItem instead of DrawingItems of these types.
+    kScrollbarTrackAndButtons,
     kScrollbarThumb,
     kScrollbarTickmarks,
-    kScrollbarTrackBackground,
-    kScrollbarCompositedScrollbar,
     kSelectionTint,
     kTableCollapsedBorders,
     kVideoBitmap,
@@ -107,7 +103,9 @@ class PLATFORM_EXPORT DisplayItem {
     kForeignLayerWrapper,
     kForeignLayerContentsWrapper,
     kForeignLayerLinkHighlight,
-    kForeignLayerLast = kForeignLayerLinkHighlight,
+    kForeignLayerViewportScroll,
+    kForeignLayerViewportScrollbar,
+    kForeignLayerLast = kForeignLayerViewportScrollbar,
 
     kClipPaintPhaseFirst,
     kClipPaintPhaseLast = kClipPaintPhaseFirst + kPaintPhaseMax,
@@ -127,7 +125,13 @@ class PLATFORM_EXPORT DisplayItem {
     // be painted.
     kHitTest,
 
+    // Used both for specifying the paint-order scroll location, and for non-
+    // composited scroll hit testing (see: scroll_hit_test_display_item.h).
     kScrollHitTest,
+    // Used to prevent composited scrolling on the resize handle.
+    kResizerScrollHitTest,
+    // Used to prevent composited scrolling on plugins with wheel handlers.
+    kPluginScrollHitTest,
 
     kLayerChunkBackground,
     kLayerChunkNegativeZOrderChildren,
@@ -135,6 +139,10 @@ class PLATFORM_EXPORT DisplayItem {
     kLayerChunkFloat,
     kLayerChunkForeground,
     kLayerChunkNormalFlowAndPositiveZOrderChildren,
+
+    // The following 2 types are For ScrollbarDisplayItem.
+    kScrollbarHorizontal,
+    kScrollbarVertical,
 
     kUninitializedType,
     kTypeLast = kUninitializedType
@@ -153,10 +161,11 @@ class PLATFORM_EXPORT DisplayItem {
         draws_content_(draws_content),
         fragment_(0),
         is_cacheable_(client.IsCacheable()),
-        is_tombstone_(false) {
+        is_tombstone_(false),
+        is_copied_from_cached_subsequence_(false) {
     // |derived_size| must fit in |derived_size_|.
     // If it doesn't, enlarge |derived_size_| and fix this assert.
-    SECURITY_DCHECK(derived_size < (1 << 8));
+    SECURITY_DCHECK(derived_size < (1 << 7));
     SECURITY_DCHECK(derived_size >= sizeof(*this));
     derived_size_ = static_cast<unsigned>(derived_size);
   }
@@ -242,10 +251,26 @@ class PLATFORM_EXPORT DisplayItem {
   DEFINE_PAINT_PHASE_CONVERSION_METHOD(SVGEffect)
 
   bool IsHitTest() const { return type_ == kHitTest; }
-  bool IsScrollHitTest() const { return type_ == kScrollHitTest; }
+  bool IsScrollHitTest() const {
+    return type_ == kScrollHitTest || IsResizerScrollHitTest() ||
+           IsPluginScrollHitTest();
+  }
+  bool IsResizerScrollHitTest() const { return type_ == kResizerScrollHitTest; }
+  bool IsPluginScrollHitTest() const { return type_ == kPluginScrollHitTest; }
+
+  bool IsScrollbar() const {
+    return type_ == kScrollbarHorizontal || type_ == kScrollbarVertical;
+  }
 
   bool IsCacheable() const { return is_cacheable_; }
   void SetUncacheable() { is_cacheable_ = false; }
+
+  bool IsCopiedFromCachedSubsequence() const {
+    return is_copied_from_cached_subsequence_;
+  }
+  void SetCopiedFromCachedSubsequence(bool b) {
+    is_copied_from_cached_subsequence_ = b;
+  }
 
   virtual bool Equals(const DisplayItem& other) const {
     // Failure of this DCHECK would cause bad casts in subclasses.
@@ -287,10 +312,11 @@ class PLATFORM_EXPORT DisplayItem {
   static_assert(kTypeLast < (1 << 7), "DisplayItem::Type should fit in 7 bits");
   unsigned type_ : 7;
   unsigned draws_content_ : 1;
-  unsigned derived_size_ : 8;  // size of the actual derived class
+  unsigned derived_size_ : 7;  // size of the actual derived class
   unsigned fragment_ : 14;
   unsigned is_cacheable_ : 1;
   unsigned is_tombstone_ : 1;
+  unsigned is_copied_from_cached_subsequence_ : 1;
 };
 
 inline bool operator==(const DisplayItem::Id& a, const DisplayItem::Id& b) {

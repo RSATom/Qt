@@ -678,7 +678,7 @@ void AbstractDeclarative::checkWindowList(QQuickWindow *window)
     }
 
     if (oldWindow && !windowList.contains(oldWindow)
-            && windowClearList.values(oldWindow).size() != 0) {
+            && windowClearList.contains(oldWindow)) {
         // Return window clear value
         oldWindow->setClearBeforeRendering(windowClearList.value(oldWindow));
         windowClearList.remove(oldWindow);
@@ -691,7 +691,7 @@ void AbstractDeclarative::checkWindowList(QQuickWindow *window)
 
     if ((m_renderMode == RenderDirectToBackground
          || m_renderMode == RenderDirectToBackground_NoClear)
-            && windowClearList.values(window).size() == 0) {
+            && !windowClearList.contains(window)) {
         // Save old clear value
         windowClearList[window] = window->clearBeforeRendering();
         // Disable clearing of the window as we render underneath

@@ -19,7 +19,6 @@ void MarkingVerifier::VerifyObject(HeapObjectHeader* header) {
   const bool can_verify =
       !info->has_v_table || blink::VTableInitialized(header->Payload());
   if (can_verify) {
-    CHECK(header->IsValid());
     parent_ = header;
     info->trace(this, header->Payload());
   }
@@ -30,7 +29,7 @@ void MarkingVerifier::Visit(void* object, TraceDescriptor desc) {
 }
 
 void MarkingVerifier::VisitWeak(void* object,
-                                void** object_slot,
+                                void* object_weak_ref,
                                 TraceDescriptor desc,
                                 WeakCallback callback) {
   // Weak objects should have been cleared at this point. As a consequence, all
@@ -53,7 +52,8 @@ void MarkingVerifier::VisitBackingStoreStrongly(void* object,
 
 void MarkingVerifier::VisitBackingStoreWeakly(void* object,
                                               void**,
-                                              TraceDescriptor desc,
+                                              TraceDescriptor strong_desc,
+                                              TraceDescriptor weak_desc,
                                               WeakCallback,
                                               void*) {
   if (!object)
@@ -64,7 +64,7 @@ void MarkingVerifier::VisitBackingStoreWeakly(void* object,
   // treated strongly when found through stack scanning. The verification
   // here only makes sure that the backing itself is properly marked. Weak
   // backing stores found through
-  VerifyChild(object, desc.base_object_payload);
+  VerifyChild(object, weak_desc.base_object_payload);
 }
 
 void MarkingVerifier::VerifyChild(void* object, void* base_object_payload) {

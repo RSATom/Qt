@@ -52,9 +52,9 @@ QT_BEGIN_NAMESPACE
 
     To use this module, import the module with the following line:
 
-    \code
+    \qml
     import Qt.labs.location 1.0
-    \endcode
+    \endqml
 
     \note These types are experimental and subject to source-incompatible changes from one
     Qt minor release to the next, until they are ready to be moved to the stable QtLocation QML

@@ -45,6 +45,7 @@
 #include <QtCore/QStateMachine>
 #include <QtQml/QQmlParserStatus>
 #include <QtQml/QQmlListProperty>
+#include <QtQml/qqml.h>
 
 QT_BEGIN_NAMESPACE
 
@@ -58,6 +59,7 @@ class StateMachine : public QStateMachine, public QQmlParserStatus
     Q_PROPERTY(bool running READ isRunning WRITE setRunning NOTIFY qmlRunningChanged)
 
     Q_CLASSINFO("DefaultProperty", "children")
+    QML_ELEMENT
 
 public:
     explicit StateMachine(QObject *parent = 0);
@@ -80,7 +82,7 @@ Q_SIGNALS:
     void qmlRunningChanged();
 
 private:
-    ChildrenPrivate<StateMachine> m_children;
+    ChildrenPrivate<StateMachine, ChildrenMode::StateOrTransition> m_children;
     bool m_completed;
     bool m_running;
 };

@@ -48,6 +48,11 @@ QGeoMapItemGeometry::QGeoMapItemGeometry()
 {
 }
 
+QGeoMapItemGeometry::~QGeoMapItemGeometry()
+{
+
+}
+
 /*!
     \internal
 */

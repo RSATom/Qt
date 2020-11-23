@@ -16,6 +16,7 @@
 #include "third_party/blink/renderer/core/exported/web_view_impl.h"
 #include "third_party/blink/renderer/core/frame/local_frame.h"
 #include "third_party/blink/renderer/core/frame/local_frame_view.h"
+#include "third_party/blink/renderer/core/html/forms/chooser_resource_loader.h"
 #include "third_party/blink/renderer/core/html/forms/html_opt_group_element.h"
 #include "third_party/blink/renderer/core/html/forms/html_option_element.h"
 #include "third_party/blink/renderer/core/html/forms/html_select_element.h"
@@ -125,10 +126,11 @@ class InternalPopupMenu::ItemIterationContext {
     // <select> background color. On Linux, that makes the <option>
     // background color very dark, so by default, try to use a lighter
     // background color for <option>s.
-    if (LayoutTheme::GetTheme().SystemColor(CSSValueID::kButtonface) ==
+    if (LayoutTheme::GetTheme().SystemColor(CSSValueID::kButtonface,
+                                            style.UsedColorScheme()) ==
         background_color_) {
-      background_color_ =
-          LayoutTheme::GetTheme().SystemColor(CSSValueID::kMenu);
+      background_color_ = LayoutTheme::GetTheme().SystemColor(
+          CSSValueID::kMenu, style.UsedColorScheme());
     }
 #endif
   }
@@ -229,11 +231,12 @@ void InternalPopupMenu::WriteDocument(SharedBuffer* data) {
       owner_element.VisibleBoundsInVisualViewport(),
       owner_element.GetDocument().View());
 
-  float scale_factor = chrome_client_->WindowToViewportScalar(1.f);
+  float scale_factor = chrome_client_->WindowToViewportScalar(
+      owner_element.GetDocument().GetFrame(), 1.f);
   PagePopupClient::AddString(
       "<!DOCTYPE html><head><meta charset='UTF-8'><style>\n", data);
-  data->Append(Platform::Current()->GetDataResource("pickerCommon.css"));
-  data->Append(Platform::Current()->GetDataResource("listPicker.css"));
+  data->Append(ChooserResourceLoader::GetPickerCommonStyleSheet());
+  data->Append(ChooserResourceLoader::GetListPickerStyleSheet());
   if (!RuntimeEnabledFeatures::ForceTallerSelectPopupEnabled())
     PagePopupClient::AddString("@media (any-pointer:coarse) {", data);
   int padding = static_cast<int>(roundf(4 * scale_factor));
@@ -266,13 +269,13 @@ void InternalPopupMenu::WriteDocument(SharedBuffer* data) {
   const HeapVector<Member<HTMLElement>>& items = owner_element.GetListItems();
   for (; context.list_index_ < items.size(); ++context.list_index_) {
     Element& child = *items[context.list_index_];
-    if (!IsHTMLOptGroupElement(child.parentNode()))
+    if (!IsA<HTMLOptGroupElement>(child.parentNode()))
       context.FinishGroupIfNecessary();
-    if (auto* option = ToHTMLOptionElementOrNull(child))
+    if (auto* option = DynamicTo<HTMLOptionElement>(child))
       AddOption(context, *option);
-    else if (auto* optgroup = ToHTMLOptGroupElementOrNull(child))
+    else if (auto* optgroup = DynamicTo<HTMLOptGroupElement>(child))
       AddOptGroup(context, *optgroup);
-    else if (auto* hr = ToHTMLHRElementOrNull(child))
+    else if (auto* hr = DynamicTo<HTMLHRElement>(child))
       AddSeparator(context, *hr);
   }
   context.FinishGroupIfNecessary();
@@ -288,8 +291,9 @@ void InternalPopupMenu::WriteDocument(SharedBuffer* data) {
                      : owner_element.ClientPaddingLeft().ToDouble(),
               data);
   PagePopupClient::AddString("};\n", data);
-  data->Append(Platform::Current()->GetDataResource("pickerCommon.js"));
-  data->Append(Platform::Current()->GetDataResource("listPicker.js"));
+  data->Append(ChooserResourceLoader::GetPickerCommonJS());
+  data->Append(ChooserResourceLoader::GetListPickerJS());
+
   PagePopupClient::AddString("</script></body>\n", data);
 }
 
@@ -471,6 +475,10 @@ Element& InternalPopupMenu::OwnerElement() {
   return *owner_element_;
 }
 
+ChromeClient& InternalPopupMenu::GetChromeClient() {
+  return *chrome_client_;
+}
+
 Locale& InternalPopupMenu::GetLocale() {
   return Locale::DefaultLocale();
 }
@@ -531,13 +539,13 @@ void InternalPopupMenu::Update() {
   const HeapVector<Member<HTMLElement>>& items = owner_element_->GetListItems();
   for (; context.list_index_ < items.size(); ++context.list_index_) {
     Element& child = *items[context.list_index_];
-    if (!IsHTMLOptGroupElement(child.parentNode()))
+    if (!IsA<HTMLOptGroupElement>(child.parentNode()))
       context.FinishGroupIfNecessary();
-    if (auto* option = ToHTMLOptionElementOrNull(child))
+    if (auto* option = DynamicTo<HTMLOptionElement>(child))
       AddOption(context, *option);
-    else if (auto* optgroup = ToHTMLOptGroupElementOrNull(child))
+    else if (auto* optgroup = DynamicTo<HTMLOptGroupElement>(child))
       AddOptGroup(context, *optgroup);
-    else if (auto* hr = ToHTMLHRElementOrNull(child))
+    else if (auto* hr = DynamicTo<HTMLHRElement>(child))
       AddSeparator(context, *hr);
   }
   context.FinishGroupIfNecessary();

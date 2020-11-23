@@ -55,6 +55,7 @@
 #include <QtPositioning/private/qdoublevector2d_p.h>
 #include <QtLocation/private/qgeoprojection_p.h>
 #include <QtLocation/qgeoroute.h>
+#include <QTransform>
 
 QT_BEGIN_NAMESPACE
 
@@ -67,6 +68,7 @@ class QQuickWindow;
 class QGeoMapParameter;
 class QDeclarativeGeoMapItemBase;
 class QGeoMapObject;
+class QDeclarativeGeoMap;
 
 class Q_LOCATION_PRIVATE_EXPORT QGeoMap : public QObject
 {
@@ -155,6 +157,7 @@ public:
     virtual void setCopyrightVisible(bool visible);
     virtual void removeMapObject(QGeoMapObject *obj);
     virtual QList<QObject *> mapObjectsAt(const QGeoCoordinate &coordinate) const;
+    virtual void setItemToWindowTransform(const QTransform &itemToWindowTransform);
 
     void setVisibleArea(const QRectF &visibleArea);
     QRectF visibleArea() const;

@@ -19,7 +19,7 @@ class AverageLagTrackerTest : public testing::Test {
   AverageLagTrackerTest() { ResetHistograms(); }
 
   void ResetHistograms() {
-    histogram_tester_.reset(new base::HistogramTester());
+    histogram_tester_ = std::make_unique<base::HistogramTester>();
   }
 
   const base::HistogramTester& histogram_tester() { return *histogram_tester_; }
@@ -493,6 +493,47 @@ TEST_F(AverageLagTrackerTest, NoPredictionEffect) {
       ElementsAre(Bucket(0, 1)));
   histogram_tester().ExpectTotalCount(
       "Event.Latency.ScrollUpdate.Touch.AverageLag.PredictionNegative", 0);
+}
+
+// Tests that when an event arrives out-of-order, the average lag tracker
+// properly ignores it.
+TEST_F(AverageLagTrackerTest, EventOutOfOrder) {
+  base::TimeTicks event_time = MillisecondsToTimeTicks(5);
+  base::TimeTicks frame_time = MillisecondsToTimeTicks(10);
+  float scroll_delta = 5.f;
+  SyntheticTouchScrollBeginLatencyInfo(event_time, frame_time, scroll_delta);
+
+  event_time = MillisecondsToTimeTicks(15);
+  frame_time = MillisecondsToTimeTicks(20);
+  SyntheticTouchScrollUpdateLatencyInfo(event_time, frame_time, scroll_delta);
+
+  event_time = MillisecondsToTimeTicks(25);
+  frame_time = MillisecondsToTimeTicks(30);
+  SyntheticTouchScrollUpdateLatencyInfo(event_time, frame_time, scroll_delta);
+
+  // A ScrollBegin to flush unfinished frames.
+  event_time = MillisecondsToTimeTicks(1000);
+  frame_time = MillisecondsToTimeTicks(1000);
+  SyntheticTouchScrollBeginLatencyInfo(event_time, frame_time, 0);
+
+  histogram_tester().ExpectTotalCount(
+      "Event.Latency.ScrollUpdate.Touch.AverageLag", 1);
+
+  // Send an event whose timestamp is earlier than the most recent event,
+  // representing an event that gets process out of order.
+  base::TimeTicks earlier_event_time = MillisecondsToTimeTicks(15);
+  frame_time = MillisecondsToTimeTicks(1010);
+  SyntheticTouchScrollUpdateLatencyInfo(earlier_event_time, frame_time,
+                                        scroll_delta);
+
+  // Another ScrollBegin to flush unfinished frames.
+  event_time = MillisecondsToTimeTicks(2000);
+  frame_time = MillisecondsToTimeTicks(2000);
+  SyntheticTouchScrollBeginLatencyInfo(event_time, frame_time, 0);
+
+  // Ensure that the event was ignored.
+  histogram_tester().ExpectTotalCount(
+      "Event.Latency.ScrollUpdate.Touch.AverageLag", 1);
 }
 
 }  // namespace

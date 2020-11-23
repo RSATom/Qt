@@ -206,7 +206,7 @@ QConfFile *QConfFile::fromName(const QString &fileName, bool _userPerms)
     ConfFileHash *usedHash = usedHashFunc();
     ConfFileCache *unusedCache = unusedCacheFunc();
 
-    QConfFile *confFile = 0;
+    QConfFile *confFile = nullptr;
     const auto locker = qt_scoped_lock(settingsGlobalMutex);
 
     if (!(confFile = usedHash->value(absPath))) {
@@ -230,7 +230,7 @@ void QConfFile::clearCache()
 // QSettingsPrivate
 
 QSettingsPrivate::QSettingsPrivate(QSettings::Format format)
-    : format(format), scope(QSettings::UserScope /* nothing better to put */), iniCodec(0), fallbacks(true),
+    : format(format), scope(QSettings::UserScope /* nothing better to put */), iniCodec(nullptr), fallbacks(true),
       pendingChanges(false), status(QSettings::NoError)
 {
 }
@@ -238,7 +238,7 @@ QSettingsPrivate::QSettingsPrivate(QSettings::Format format)
 QSettingsPrivate::QSettingsPrivate(QSettings::Format format, QSettings::Scope scope,
                                    const QString &organization, const QString &application)
     : format(format), scope(scope), organizationName(organization), applicationName(application),
-      iniCodec(0), fallbacks(true), pendingChanges(false), status(QSettings::NoError)
+      iniCodec(nullptr), fallbacks(true), pendingChanges(false), status(QSettings::NoError)
 {
 }
 
@@ -396,12 +396,12 @@ QString QSettingsPrivate::variantToString(const QVariant &v)
 {
     QString result;
 
-    switch (v.type()) {
-        case QVariant::Invalid:
+    switch (v.userType()) {
+        case QMetaType::UnknownType:
             result = QLatin1String("@Invalid()");
             break;
 
-        case QVariant::ByteArray: {
+        case QMetaType::QByteArray: {
             QByteArray a = v.toByteArray();
             result = QLatin1String("@ByteArray(")
                      + QLatin1String(a.constData(), a.size())
@@ -409,14 +409,14 @@ QString QSettingsPrivate::variantToString(const QVariant &v)
             break;
         }
 
-        case QVariant::String:
-        case QVariant::LongLong:
-        case QVariant::ULongLong:
-        case QVariant::Int:
-        case QVariant::UInt:
-        case QVariant::Bool:
-        case QVariant::Double:
-        case QVariant::KeySequence: {
+        case QMetaType::QString:
+        case QMetaType::LongLong:
+        case QMetaType::ULongLong:
+        case QMetaType::Int:
+        case QMetaType::UInt:
+        case QMetaType::Bool:
+        case QMetaType::Double:
+        case QMetaType::QKeySequence: {
             result = v.toString();
             if (result.contains(QChar::Null))
                 result = QLatin1String("@String(") + result + QLatin1Char(')');
@@ -425,17 +425,17 @@ QString QSettingsPrivate::variantToString(const QVariant &v)
             break;
         }
 #ifndef QT_NO_GEOM_VARIANT
-        case QVariant::Rect: {
+        case QMetaType::QRect: {
             QRect r = qvariant_cast<QRect>(v);
             result = QString::asprintf("@Rect(%d %d %d %d)", r.x(), r.y(), r.width(), r.height());
             break;
         }
-        case QVariant::Size: {
+        case QMetaType::QSize: {
             QSize s = qvariant_cast<QSize>(v);
             result = QString::asprintf("@Size(%d %d)", s.width(), s.height());
             break;
         }
-        case QVariant::Point: {
+        case QMetaType::QPoint: {
             QPoint p = qvariant_cast<QPoint>(v);
             result = QString::asprintf("@Point(%d %d)", p.x(), p.y());
             break;
@@ -446,7 +446,7 @@ QString QSettingsPrivate::variantToString(const QVariant &v)
 #ifndef QT_NO_DATASTREAM
             QDataStream::Version version;
             const char *typeSpec;
-            if (v.type() == QVariant::DateTime) {
+            if (v.userType() == QMetaType::QDateTime) {
                 version = QDataStream::Qt_5_6;
                 typeSpec = "@DateTime(";
             } else {
@@ -746,7 +746,7 @@ bool QSettingsPrivate::iniUnescapedStringList(const QByteArray &str, int from, i
     bool isStringList = false;
     bool inQuotedString = false;
     bool currentValueIsQuoted = false;
-    int escapeVal = 0;
+    char16_t escapeVal = 0;
     int i = from;
     char ch;
 
@@ -924,8 +924,8 @@ QStringList QSettingsPrivate::splitArgs(const QString &s, int idx)
 void QConfFileSettingsPrivate::initFormat()
 {
     extension = (format == QSettings::NativeFormat) ? QLatin1String(".conf") : QLatin1String(".ini");
-    readFunc = 0;
-    writeFunc = 0;
+    readFunc = nullptr;
+    writeFunc = nullptr;
 #if defined(Q_OS_MAC)
     caseSensitivity = (format == QSettings::NativeFormat) ? Qt::CaseSensitive : IniCaseSensitivity;
 #else
@@ -1673,14 +1673,16 @@ bool QConfFileSettingsPrivate::readIniFile(const QByteArray &data,
     int sectionPosition = 0;
     bool ok = true;
 
-#if QT_CONFIG(textcodec)
     // detect utf8 BOM
     const uchar *dd = (const uchar *)data.constData();
     if (data.size() >= 3 && dd[0] == 0xef && dd[1] == 0xbb && dd[2] == 0xbf) {
+#if QT_CONFIG(textcodec)
         iniCodec = QTextCodec::codecForName("UTF-8");
+#else
+        ok = false;
+#endif
         dataPos = 3;
     }
-#endif
 
     while (readIniLine(data, dataPos, lineStart, lineLen, equalsPos)) {
         char ch = data.at(lineStart);
@@ -1888,8 +1890,8 @@ bool QConfFileSettingsPrivate::writeIniFile(QIODevice &device, const ParsedSetti
                 QVariant(QString("foo")).toList() returns an empty
                 list, not a list containing "foo".
             */
-            if (value.type() == QVariant::StringList
-                    || (value.type() == QVariant::List && value.toList().size() != 1)) {
+            if (value.userType() == QMetaType::QStringList
+                    || (value.userType() == QMetaType::QVariantList && value.toList().size() != 1)) {
                 iniEscapedStringList(variantListToStringList(value.toList()), block, iniCodec);
             } else {
                 iniEscapedString(variantToString(value), block, iniCodec);
@@ -3338,7 +3340,7 @@ bool QSettings::contains(const QString &key) const
 {
     Q_D(const QSettings);
     QString k = d->actualKey(key);
-    return d->get(k, 0);
+    return d->get(k, nullptr);
 }
 
 /*!

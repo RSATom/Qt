@@ -114,7 +114,7 @@ QT_BEGIN_NAMESPACE
 
 class QMacCocoaViewContainerPrivate : public QWidgetPrivate
 {
-    Q_DECLARE_PUBLIC(QMacCocoaViewContainer)
+    QT_IGNORE_DEPRECATIONS(Q_DECLARE_PUBLIC(QMacCocoaViewContainer))
 public:
     NSView *nsview;
     QMacCocoaViewContainerPrivate();
@@ -138,7 +138,7 @@ QMacCocoaViewContainerPrivate::~QMacCocoaViewContainerPrivate()
 
 */
 QMacCocoaViewContainer::QMacCocoaViewContainer(NSView *view, QWidget *parent)
-   : QWidget(*new QMacCocoaViewContainerPrivate, parent, 0)
+   : QWidget(*new QMacCocoaViewContainerPrivate, parent, {})
 {
     // Ensures that we have a QWindow, even if we're not a top level widget
     setAttribute(Qt::WA_NativeWindow);

@@ -6,10 +6,11 @@
 
 #include <string>
 
+#include "base/containers/flat_set.h"
 #include "base/metrics/field_trial_params.h"
 #include "base/strings/stringprintf.h"
-#include "components/optimization_guide/hint_update_data.h"
 #include "components/optimization_guide/optimization_guide_features.h"
+#include "components/optimization_guide/store_update_data.h"
 #include "components/optimization_guide/url_pattern_with_wildcards.h"
 #include "url/gurl.h"
 
@@ -84,14 +85,13 @@ std::string HashHostForDictionary(const std::string& host) {
   return base::StringPrintf("%x", base::PersistentHash(host));
 }
 
-bool ProcessHints(
-    google::protobuf::RepeatedPtrField<optimization_guide::proto::Hint>* hints,
-    optimization_guide::HintUpdateData* hint_update_data) {
+bool ProcessHints(google::protobuf::RepeatedPtrField<proto::Hint>* hints,
+                  optimization_guide::StoreUpdateData* update_data) {
   // If there's no update data, then there's nothing to do.
-  if (!hint_update_data)
+  if (!update_data)
     return false;
 
-  std::unordered_set<std::string> seen_host_suffixes;
+  base::flat_set<std::string> seen_host_suffixes;
 
   bool did_process_hints = false;
   // Process each hint in the the hint configuration. The hints are mutable
@@ -101,7 +101,7 @@ bool ProcessHints(
   for (auto& hint : *hints) {
     // We only support host suffixes at the moment. Skip anything else.
     // One |hint| applies to one host URL suffix.
-    if (hint.key_representation() != optimization_guide::proto::HOST_SUFFIX) {
+    if (hint.key_representation() != proto::HOST_SUFFIX) {
       continue;
     }
 
@@ -126,12 +126,30 @@ bool ProcessHints(
       // data.
       // WARNING: Do not use |hint| after this call. Its contents will no
       // longer be valid.
-      hint_update_data->MoveHintIntoUpdateData(std::move(hint));
+      update_data->MoveHintIntoUpdateData(std::move(hint));
       did_process_hints = true;
     }
   }
 
   return did_process_hints;
+}
+
+net::EffectiveConnectionType ConvertProtoEffectiveConnectionType(
+    proto::EffectiveConnectionType proto_ect) {
+  switch (proto_ect) {
+    case proto::EffectiveConnectionType::EFFECTIVE_CONNECTION_TYPE_UNKNOWN:
+      return net::EffectiveConnectionType::EFFECTIVE_CONNECTION_TYPE_UNKNOWN;
+    case proto::EffectiveConnectionType::EFFECTIVE_CONNECTION_TYPE_OFFLINE:
+      return net::EffectiveConnectionType::EFFECTIVE_CONNECTION_TYPE_OFFLINE;
+    case proto::EffectiveConnectionType::EFFECTIVE_CONNECTION_TYPE_SLOW_2G:
+      return net::EffectiveConnectionType::EFFECTIVE_CONNECTION_TYPE_SLOW_2G;
+    case proto::EffectiveConnectionType::EFFECTIVE_CONNECTION_TYPE_2G:
+      return net::EffectiveConnectionType::EFFECTIVE_CONNECTION_TYPE_2G;
+    case proto::EffectiveConnectionType::EFFECTIVE_CONNECTION_TYPE_3G:
+      return net::EffectiveConnectionType::EFFECTIVE_CONNECTION_TYPE_3G;
+    case proto::EffectiveConnectionType::EFFECTIVE_CONNECTION_TYPE_4G:
+      return net::EffectiveConnectionType::EFFECTIVE_CONNECTION_TYPE_4G;
+  }
 }
 
 }  // namespace optimization_guide

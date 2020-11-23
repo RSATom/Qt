@@ -111,8 +111,8 @@ management::ExtensionInfo CreateExtensionInfo(
   info.options_url = OptionsPageInfo::GetOptionsPage(&extension).spec();
   info.homepage_url.reset(
       new std::string(ManifestURL::GetHomepageURL(&extension).spec()));
-  info.may_disable = system->management_policy()->ExtensionMayModifySettings(
-      source_extension, &extension, nullptr);
+  info.may_disable =
+      !system->management_policy()->MustRemainEnabled(&extension, nullptr);
   info.is_app = extension.is_app();
   if (info.is_app) {
     if (extension.is_legacy_packaged_app())
@@ -337,22 +337,30 @@ ManagementGetPermissionWarningsByManifestFunction::Run() {
     delegate->GetPermissionWarningsByManifestFunctionDelegate(
         this, params->manifest_str);
 
-    // Matched with a Release() in OnParseSuccess/Failure().
+    // Matched with a Release() in OnParse().
     AddRef();
 
-    // Response is sent async in OnParseSuccess/Failure().
+    // Response is sent async in OnParse().
     return RespondLater();
   } else {
     // TODO(lfg) add error string
     return RespondNow(Error(kUnknownErrorDoNotUse));
   }
 }
+void ManagementGetPermissionWarningsByManifestFunction::OnParse(
+    data_decoder::DataDecoder::ValueOrError result) {
+  if (!result.value) {
+    Respond(Error(*result.error));
 
-void ManagementGetPermissionWarningsByManifestFunction::OnParseSuccess(
-    base::Value value) {
+    // Matched with AddRef() in Run().
+    Release();
+    return;
+  }
+
   const base::DictionaryValue* parsed_manifest;
-  if (!value.GetAsDictionary(&parsed_manifest)) {
-    OnParseFailure(keys::kManifestParseError);
+  if (!result.value->GetAsDictionary(&parsed_manifest)) {
+    Respond(Error(keys::kManifestParseError));
+    Release();
     return;
   }
 
@@ -362,21 +370,14 @@ void ManagementGetPermissionWarningsByManifestFunction::OnParseSuccess(
                         *parsed_manifest, Extension::NO_FLAGS, &error);
   // TODO(lazyboy): Do we need to use |error|?
   if (!extension) {
-    OnParseFailure(keys::kExtensionCreateError);
+    Respond(Error(keys::kExtensionCreateError));
+    Release();
     return;
   }
 
   std::vector<std::string> warnings = CreateWarningsList(extension.get());
   Respond(ArgumentList(
       management::GetPermissionWarningsByManifest::Results::Create(warnings)));
-
-  // Matched with AddRef() in Run().
-  Release();
-}
-
-void ManagementGetPermissionWarningsByManifestFunction::OnParseFailure(
-    const std::string& error) {
-  Respond(Error(error));
 
   // Matched with AddRef() in Run().
   Release();
@@ -821,6 +822,106 @@ ExtensionFunction::ResponseAction ManagementGenerateAppForLinkFunction::Run() {
   return RespondLater();
 }
 
+ManagementCanInstallReplacementAndroidAppFunction::
+    ManagementCanInstallReplacementAndroidAppFunction() {}
+
+ManagementCanInstallReplacementAndroidAppFunction::
+    ~ManagementCanInstallReplacementAndroidAppFunction() {}
+
+ExtensionFunction::ResponseAction
+ManagementCanInstallReplacementAndroidAppFunction::Run() {
+  if (ExtensionsBrowserClient::Get()->IsRunningInForcedAppMode())
+    return RespondNow(Error(keys::kNotAllowedInKioskError));
+
+  if (!extension()->from_webstore()) {
+    return RespondNow(
+        Error(keys::kInstallReplacementAndroidAppNotFromWebstoreError));
+  }
+
+  auto* api_delegate = ManagementAPI::GetFactoryInstance()
+                           ->Get(browser_context())
+                           ->GetDelegate();
+
+  DCHECK(api_delegate);
+
+  if (!api_delegate->CanContextInstallAndroidApps(browser_context())) {
+    return RespondNow(ArgumentList(
+        management::CanInstallReplacementAndroidApp::Results::Create(false)));
+  }
+
+  DCHECK(ReplacementAppsInfo::HasReplacementAndroidApp(extension()));
+
+  const std::string& package_name =
+      ReplacementAppsInfo::GetReplacementAndroidApp(extension());
+
+  api_delegate->CheckAndroidAppInstallStatus(
+      package_name,
+      base::BindOnce(&ManagementCanInstallReplacementAndroidAppFunction::
+                         OnFinishedAndroidAppCheck,
+                     this));
+
+  // Response is sent async in FinishCheckAndroidApp().
+  return RespondLater();
+}
+
+void ManagementCanInstallReplacementAndroidAppFunction::
+    OnFinishedAndroidAppCheck(bool installable) {
+  Respond(
+      ArgumentList(management::CanInstallReplacementAndroidApp::Results::Create(
+          installable)));
+}
+
+ManagementInstallReplacementAndroidAppFunction::
+    ManagementInstallReplacementAndroidAppFunction() {}
+
+ManagementInstallReplacementAndroidAppFunction::
+    ~ManagementInstallReplacementAndroidAppFunction() {}
+
+ExtensionFunction::ResponseAction
+ManagementInstallReplacementAndroidAppFunction::Run() {
+  if (ExtensionsBrowserClient::Get()->IsRunningInForcedAppMode())
+    return RespondNow(Error(keys::kNotAllowedInKioskError));
+
+  if (!extension()->from_webstore()) {
+    return RespondNow(
+        Error(keys::kInstallReplacementAndroidAppNotFromWebstoreError));
+  }
+
+  if (!user_gesture()) {
+    return RespondNow(
+        Error(keys::kGestureNeededForInstallReplacementAndroidAppError));
+  }
+
+  auto* api_delegate = ManagementAPI::GetFactoryInstance()
+                           ->Get(browser_context())
+                           ->GetDelegate();
+
+  DCHECK(api_delegate);
+  if (!api_delegate->CanContextInstallAndroidApps(browser_context())) {
+    return RespondNow(
+        Error(keys::kInstallReplacementAndroidAppInvalidContextError));
+  }
+
+  DCHECK(ReplacementAppsInfo::HasReplacementAndroidApp(extension()));
+
+  api_delegate->InstallReplacementAndroidApp(
+      ReplacementAppsInfo::GetReplacementAndroidApp(extension()),
+      base::BindOnce(&ManagementInstallReplacementAndroidAppFunction::
+                         OnAppInstallInitiated,
+                     this));
+
+  // Response is sent async in OnAppInstallInitiated().
+  return RespondLater();
+}
+
+void ManagementInstallReplacementAndroidAppFunction::OnAppInstallInitiated(
+    bool initiated) {
+  if (!initiated)
+    return Respond(Error(keys::kInstallReplacementAndroidAppCannotInstallApp));
+
+  return Respond(NoArguments());
+}
+
 ManagementInstallReplacementWebAppFunction::
     ManagementInstallReplacementWebAppFunction() {}
 
@@ -857,45 +958,38 @@ ManagementInstallReplacementWebAppFunction::Run() {
         Error(keys::kInstallReplacementWebAppInvalidContextError));
   }
 
-  if (api_delegate->IsWebAppInstalled(browser_context(), web_app_url)) {
-    return RespondNow(
-        Error(keys::kInstallReplacementWebAppAlreadyInstalledError));
-  }
-
   // Adds a ref-count.
-  api_delegate->InstallReplacementWebApp(
+  api_delegate->InstallOrLaunchReplacementWebApp(
       browser_context(), web_app_url,
       base::BindOnce(
-          &ManagementInstallReplacementWebAppFunction::FinishCreateWebApp,
-          this));
+          &ManagementInstallReplacementWebAppFunction::FinishResponse, this));
 
-  // Response is sent async in FinishCreateWebApp().
+  // Response is sent async in FinishResponse().
   return RespondLater();
 }
 
-ManagementEventRouter::ManagementEventRouter(content::BrowserContext* context)
-    : browser_context_(context), extension_registry_observer_(this) {
-  extension_registry_observer_.Add(ExtensionRegistry::Get(browser_context_));
-}
-
-ManagementEventRouter::~ManagementEventRouter() {
-}
-
-void ManagementInstallReplacementWebAppFunction::FinishCreateWebApp(
-    ManagementAPIDelegate::InstallWebAppResult result) {
+void ManagementInstallReplacementWebAppFunction::FinishResponse(
+    ManagementAPIDelegate::InstallOrLaunchWebAppResult result) {
   ResponseValue response;
   switch (result) {
-    case ManagementAPIDelegate::InstallWebAppResult::kSuccess:
+    case ManagementAPIDelegate::InstallOrLaunchWebAppResult::kSuccess:
       response = NoArguments();
       break;
-    case ManagementAPIDelegate::InstallWebAppResult::kInvalidWebApp:
+    case ManagementAPIDelegate::InstallOrLaunchWebAppResult::kInvalidWebApp:
       response = Error(keys::kInstallReplacementWebAppInvalidWebAppError);
       break;
-    case ManagementAPIDelegate::InstallWebAppResult::kUnknownError:
+    case ManagementAPIDelegate::InstallOrLaunchWebAppResult::kUnknownError:
       response = Error(keys::kGenerateAppForLinkInstallError);
   }
   Respond(std::move(response));
 }
+
+ManagementEventRouter::ManagementEventRouter(content::BrowserContext* context)
+    : browser_context_(context) {
+  extension_registry_observer_.Add(ExtensionRegistry::Get(browser_context_));
+}
+
+ManagementEventRouter::~ManagementEventRouter() {}
 
 void ManagementEventRouter::OnExtensionLoaded(
     content::BrowserContext* browser_context,

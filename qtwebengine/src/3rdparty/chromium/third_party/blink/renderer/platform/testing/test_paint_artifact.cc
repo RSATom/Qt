@@ -79,8 +79,9 @@ TestPaintArtifact& TestPaintArtifact::RectDrawing(const FloatRect& bounds,
 }
 
 TestPaintArtifact& TestPaintArtifact::ScrollHitTest(
-    const TransformPaintPropertyNode& scroll_offset) {
-  return ScrollHitTest(NewClient(), scroll_offset);
+    const TransformPaintPropertyNode* scroll_offset,
+    const IntRect& scroll_container_bounds) {
+  return ScrollHitTest(NewClient(), scroll_offset, scroll_container_bounds);
 }
 
 TestPaintArtifact& TestPaintArtifact::RectDrawing(FakeDisplayItemClient& client,
@@ -95,16 +96,20 @@ TestPaintArtifact& TestPaintArtifact::RectDrawing(FakeDisplayItemClient& client,
 TestPaintArtifact& TestPaintArtifact::ForeignLayer(
     scoped_refptr<cc::Layer> layer,
     const FloatPoint& offset) {
+  DEFINE_STATIC_LOCAL(LiteralDebugNameClient, client, ("ForeignLayer"));
   display_item_list_.AllocateAndConstruct<ForeignLayerDisplayItem>(
-      DisplayItem::kForeignLayerFirst, std::move(layer), offset);
+      client, DisplayItem::kForeignLayerFirst, std::move(layer), offset,
+      nullptr);
   return *this;
 }
 
 TestPaintArtifact& TestPaintArtifact::ScrollHitTest(
     FakeDisplayItemClient& client,
-    const TransformPaintPropertyNode& scroll_offset) {
+    const TransformPaintPropertyNode* scroll_offset,
+    const IntRect& scroll_container_bounds) {
   display_item_list_.AllocateAndConstruct<ScrollHitTestDisplayItem>(
-      client, scroll_offset);
+      client, DisplayItem::kScrollHitTest, scroll_offset,
+      scroll_container_bounds);
   return *this;
 }
 

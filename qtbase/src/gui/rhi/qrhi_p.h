@@ -348,6 +348,12 @@ public:
 
     static QRhiShaderResourceBinding sampledTexture(int binding, StageFlags stage, QRhiTexture *tex, QRhiSampler *sampler);
 
+    struct TextureAndSampler {
+        QRhiTexture *tex;
+        QRhiSampler *sampler;
+    };
+    static QRhiShaderResourceBinding sampledTextures(int binding, StageFlags stage, int count, const TextureAndSampler *texSamplers);
+
     static QRhiShaderResourceBinding imageLoad(int binding, StageFlags stage, QRhiTexture *tex, int level);
     static QRhiShaderResourceBinding imageStore(int binding, StageFlags stage, QRhiTexture *tex, int level);
     static QRhiShaderResourceBinding imageLoadStore(int binding, StageFlags stage, QRhiTexture *tex, int level);
@@ -370,9 +376,10 @@ public:
             int maybeSize;
             bool hasDynamicOffset;
         };
+        static const int MAX_TEX_SAMPLER_ARRAY_SIZE = 16;
         struct SampledTextureData {
-            QRhiTexture *tex;
-            QRhiSampler *sampler;
+            int count;
+            TextureAndSampler texSamplers[MAX_TEX_SAMPLER_ARRAY_SIZE];
         };
         struct StorageImageData {
             QRhiTexture *tex;
@@ -681,6 +688,11 @@ public:
     };
     Q_DECLARE_FLAGS(UsageFlags, UsageFlag)
 
+    struct NativeBuffer {
+        const void *objects[3];
+        int slotCount;
+    };
+
     QRhiResource::Type resourceType() const override;
 
     Type type() const { return m_type; }
@@ -693,6 +705,8 @@ public:
     void setSize(int sz) { m_size = sz; }
 
     virtual bool build() = 0;
+
+    virtual NativeBuffer nativeBuffer();
 
 protected:
     QRhiBuffer(QRhiImplementation *rhi, Type type_, UsageFlags usage_, int size_);
@@ -728,6 +742,8 @@ public:
 
         RGBA16F,
         RGBA32F,
+        R16F,
+        R32F,
 
         D16,
         D32F,
@@ -760,6 +776,11 @@ public:
         ASTC_12x12
     };
 
+    struct NativeTexture {
+        const void *object;
+        int layout;
+    };
+
     QRhiResource::Type resourceType() const override;
 
     Format format() const { return m_format; }
@@ -775,8 +796,9 @@ public:
     void setSampleCount(int s) { m_sampleCount = s; }
 
     virtual bool build() = 0;
-    virtual const QRhiNativeHandles *nativeHandles();
-    virtual bool buildFrom(const QRhiNativeHandles *src);
+    virtual NativeTexture nativeTexture();
+    virtual bool buildFrom(NativeTexture src);
+    virtual void setNativeLayout(int layout);
 
 protected:
     QRhiTexture(QRhiImplementation *rhi, Format format_, const QSize &pixelSize_,
@@ -801,9 +823,7 @@ public:
     enum AddressMode {
         Repeat,
         ClampToEdge,
-        Border,
         Mirror,
-        MirrorOnce
     };
 
     enum CompareOp {
@@ -845,7 +865,7 @@ public:
 protected:
     QRhiSampler(QRhiImplementation *rhi,
                 Filter magFilter_, Filter minFilter_, Filter mipmapMode_,
-                AddressMode u_, AddressMode v_);
+                AddressMode u_, AddressMode v_, AddressMode w_);
     Filter m_magFilter;
     Filter m_minFilter;
     Filter m_mipmapMode;
@@ -902,6 +922,7 @@ class Q_GUI_EXPORT QRhiRenderPassDescriptor : public QRhiResource
 public:
     QRhiResource::Type resourceType() const override;
 
+    virtual bool isCompatible(const QRhiRenderPassDescriptor *other) const = 0;
     virtual const QRhiNativeHandles *nativeHandles();
 
 protected:
@@ -1149,6 +1170,12 @@ public:
     float lineWidth() const { return m_lineWidth; }
     void setLineWidth(float width) { m_lineWidth = width; }
 
+    int depthBias() const { return m_depthBias; }
+    void setDepthBias(int bias) { m_depthBias = bias; }
+
+    float slopeScaledDepthBias() const { return m_slopeScaledDepthBias; }
+    void setSlopeScaledDepthBias(float bias) { m_slopeScaledDepthBias = bias; }
+
     void setShaderStages(std::initializer_list<QRhiShaderStage> list) { m_shaderStages = list; }
     template<typename InputIterator>
     void setShaderStages(InputIterator first, InputIterator last)
@@ -1187,6 +1214,8 @@ protected:
     quint32 m_stencilWriteMask = 0xFF;
     int m_sampleCount = 1;
     float m_lineWidth = 1.0f;
+    int m_depthBias = 0;
+    float m_slopeScaledDepthBias = 0.0f;
     QVarLengthArray<QRhiShaderStage, 4> m_shaderStages;
     QRhiVertexInputLayout m_vertexInputLayout;
     QRhiShaderResourceBindings *m_shaderResourceBindings = nullptr;
@@ -1416,7 +1445,8 @@ public:
         BaseInstance,
         TriangleFanTopology,
         ReadBackNonUniformBuffer,
-        ReadBackNonBaseMipLevel
+        ReadBackNonBaseMipLevel,
+        TexelFetch
     };
 
     enum BeginFrameFlag {
@@ -1433,7 +1463,8 @@ public:
         TextureSizeMin = 1,
         TextureSizeMax,
         MaxColorAttachments,
-        FramesInFlight
+        FramesInFlight,
+        MaxAsyncReadbackFrames
     };
 
     ~QRhi();
@@ -1468,9 +1499,12 @@ public:
                             int sampleCount = 1,
                             QRhiTexture::Flags flags = QRhiTexture::Flags());
 
-    QRhiSampler *newSampler(QRhiSampler::Filter magFilter, QRhiSampler::Filter minFilter,
+    QRhiSampler *newSampler(QRhiSampler::Filter magFilter,
+                            QRhiSampler::Filter minFilter,
                             QRhiSampler::Filter mipmapMode,
-                            QRhiSampler::AddressMode u, QRhiSampler::AddressMode v);
+                            QRhiSampler::AddressMode addressU,
+                            QRhiSampler::AddressMode addressV,
+                            QRhiSampler::AddressMode addressW = QRhiSampler::Repeat);
 
     QRhiTextureRenderTarget *newTextureRenderTarget(const QRhiTextureRenderTargetDescription &desc,
                                                     QRhiTextureRenderTarget::Flags flags = QRhiTextureRenderTarget::Flags());

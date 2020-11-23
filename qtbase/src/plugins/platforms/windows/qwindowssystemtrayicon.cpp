@@ -168,7 +168,7 @@ static inline HWND createTrayIconMessageWindow()
         return nullptr;
     // Register window class in the platform plugin.
     const QString className =
-        ctx->registerWindowClass(QStringLiteral("QTrayIconMessageWindowClass"),
+        ctx->registerWindowClass(QWindowsContext::classNamePrefix() + QStringLiteral("TrayIconMessageWindowClass"),
                                  qWindowsTrayIconWndProc);
     const wchar_t windowName[] = L"QTrayIconMessageWindow";
     return CreateWindowEx(0, reinterpret_cast<const wchar_t *>(className.utf16()),
@@ -184,7 +184,6 @@ static inline HWND createTrayIconMessageWindow()
     \brief Windows native system tray icon
 
     \internal
-    \ingroup qt-lighthouse-win
 */
 
 QWindowsSystemTrayIcon::QWindowsSystemTrayIcon()
@@ -261,7 +260,7 @@ void QWindowsSystemTrayIcon::showMessage(const QString &title, const QString &me
     // For empty messages, ensures that they show when only title is set
     QString message = messageIn;
     if (message.isEmpty() && !title.isEmpty())
-        message.append(QLatin1Char(' '));
+        message.append(u' ');
 
     NOTIFYICONDATA tnd;
     initNotifyIconData(tnd);

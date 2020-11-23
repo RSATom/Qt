@@ -7,6 +7,7 @@
 
 #include <map>
 #include <memory>
+#include <set>
 #include <string>
 #include <vector>
 
@@ -107,7 +108,7 @@ class AutofillManager : public AutofillHandler,
   virtual bool ShouldShowCreditCardSigninPromo(const FormData& form,
                                                const FormFieldData& field);
 
-  // Handlers for the "Set Cards From Account" row. This row should be shown to
+  // Handlers for the "Show Cards From Account" row. This row should be shown to
   // users who have cards in their account and can use Sync Transport. Clicking
   // the row records the user's consent to see these cards on this device, and
   // refreshes the popup.
@@ -156,6 +157,11 @@ class AutofillManager : public AutofillHandler,
   // Invoked when the user selected |value| in the Autocomplete drop-down.
   void OnAutocompleteEntrySelected(const base::string16& value);
 
+  // Invoked when the user selects the "Hide Suggestions" item in the
+  // Autocomplete drop-down.
+  virtual void OnUserHideSuggestions(const FormData& form,
+                                     const FormFieldData& field);
+
   // Returns true only if the previewed form should be cleared.
   bool ShouldClearPreviewedForm();
 
@@ -163,6 +169,10 @@ class AutofillManager : public AutofillHandler,
 
   AutofillDownloadManager* download_manager() {
     return download_manager_.get();
+  }
+
+  CreditCardAccessManager* credit_card_access_manager() {
+    return credit_card_access_manager_.get();
   }
 
   payments::FullCardRequest* GetOrCreateFullCardRequest();
@@ -215,16 +225,16 @@ class AutofillManager : public AutofillHandler,
       bool autoselect_first_suggestion,
       const std::vector<Suggestion>& suggestions) override;
 
-  // Returns the value of AutofillEnabled pref.
+  // Returns true if either Profile or CreditCard Autofill is enabled.
   virtual bool IsAutofillEnabled() const;
 
   // Returns true if the value of the AutofillProfileEnabled pref is true and
   // the client supports Autofill.
-  virtual bool IsProfileAutofillEnabled() const;
+  virtual bool IsAutofillProfileEnabled() const;
 
   // Returns true if the value of the AutofillCreditCardEnabled pref is true and
   // the client supports Autofill.
-  virtual bool IsCreditCardAutofillEnabled() const;
+  virtual bool IsAutofillCreditCardEnabled() const;
 
   // Shared code to determine if |form| should be uploaded to the Autofill
   // server. It verifies that uploading is allowed and |form| meets conditions
@@ -235,15 +245,20 @@ class AutofillManager : public AutofillHandler,
   // neither on the STABLE nor BETA release channel.
   static bool IsRichQueryEnabled(version_info::Channel channel);
 
+  // Returns the last form the autofill manager considered in this frame.
+  virtual const FormData& last_query_form() const;
+
  protected:
   // Test code should prefer to use this constructor.
-  AutofillManager(AutofillDriver* driver,
-                  AutofillClient* client,
-                  PersonalDataManager* personal_data,
-                  AutocompleteHistoryManager* autocomplete_history_manager,
-                  const std::string app_locale = "en-US",
-                  AutofillDownloadManagerState enable_download_manager =
-                      DISABLE_AUTOFILL_DOWNLOAD_MANAGER);
+  AutofillManager(
+      AutofillDriver* driver,
+      AutofillClient* client,
+      PersonalDataManager* personal_data,
+      AutocompleteHistoryManager* autocomplete_history_manager,
+      const std::string app_locale = "en-US",
+      AutofillDownloadManagerState enable_download_manager =
+          DISABLE_AUTOFILL_DOWNLOAD_MANAGER,
+      std::unique_ptr<CreditCardAccessManager> cc_access_manager = nullptr);
 
   // Uploads the form data to the Autofill server. |observed_submission|
   // indicates that upload is the result of a submission event.
@@ -300,9 +315,6 @@ class AutofillManager : public AutofillHandler,
   AutofillMetrics::FormInteractionsUkmLogger* form_interactions_ukm_logger() {
     return form_interactions_ukm_logger_.get();
   }
-
-  // Exposed for testing.
-  AutofillExternalDelegate* external_delegate() { return external_delegate_; }
 
   // Exposed for testing.
   void set_download_manager(AutofillDownloadManager* manager) {
@@ -464,6 +476,7 @@ class AutofillManager : public AutofillHandler,
   static void DeterminePossibleFieldTypesForUpload(
       const std::vector<AutofillProfile>& profiles,
       const std::vector<CreditCard>& credit_cards,
+      const base::string16& last_unlocked_credit_card_cvc,
       const std::string& app_locale,
       FormStructure* submitted_form);
 
@@ -582,6 +595,7 @@ class AutofillManager : public AutofillHandler,
   FormData credit_card_form_;
   FormFieldData credit_card_field_;
   CreditCard credit_card_;
+  base::string16 last_unlocked_credit_card_cvc_;
 
   // Ablation experiment turns off autofill, but logging still has to be kept
   // for metrics analysis.
@@ -623,6 +637,7 @@ class AutofillManager : public AutofillHandler,
   friend class AutofillMetricsTest;
   friend class FormStructureBrowserTest;
   friend class GetMatchingTypesTest;
+  friend class CreditCardAccessoryControllerTest;
   FRIEND_TEST_ALL_PREFIXES(ProfileMatchingTypesTest,
                            DeterminePossibleFieldTypesForUpload);
   FRIEND_TEST_ALL_PREFIXES(AutofillManagerTest,
@@ -631,6 +646,19 @@ class AutofillManager : public AutofillHandler,
                            DeterminePossibleFieldTypesForUploadStressTest);
   FRIEND_TEST_ALL_PREFIXES(AutofillManagerTest, DisambiguateUploadTypes);
   FRIEND_TEST_ALL_PREFIXES(AutofillManagerTest, CrowdsourceUPIVPA);
+  FRIEND_TEST_ALL_PREFIXES(AutofillManagerTest, CrowdsourceCVCFieldByValue);
+  FRIEND_TEST_ALL_PREFIXES(AutofillManagerTest,
+                           CrowdsourceCVCFieldAfterExpDateByHeuristics);
+  FRIEND_TEST_ALL_PREFIXES(AutofillManagerTest,
+                           CrowdsourceCVCFieldDisableHeurisitcs);
+  FRIEND_TEST_ALL_PREFIXES(AutofillManagerTest,
+                           CrowdsourceNoCVCDueToInvalidCandidateValue);
+  FRIEND_TEST_ALL_PREFIXES(AutofillManagerTest,
+                           CrowdsourceNoCVCFieldDueToMissingCreditCardNumber);
+  FRIEND_TEST_ALL_PREFIXES(AutofillManagerTest,
+                           CrowdsourceCVCFieldAfterInvalidExpDateByHeuristics);
+  FRIEND_TEST_ALL_PREFIXES(AutofillManagerTest,
+                           CrowdsourceCVCFieldBeforeExpDateByHeuristics);
   FRIEND_TEST_ALL_PREFIXES(AutofillManagerTest,
                            DisabledAutofillDispatchesError);
   FRIEND_TEST_ALL_PREFIXES(AutofillManagerTest,
@@ -647,6 +675,8 @@ class AutofillManager : public AutofillHandler,
                            CreditCardSelectedFormEvents);
   FRIEND_TEST_ALL_PREFIXES(AutofillMetricsIFrameTest,
                            CreditCardFilledFormEvents);
+  FRIEND_TEST_ALL_PREFIXES(AutofillMetricsTest,
+                           CreditCardUnmaskingPreflightCall);
   FRIEND_TEST_ALL_PREFIXES(AutofillMetricsTest, CreditCardGetRealPanDuration);
   FRIEND_TEST_ALL_PREFIXES(AutofillMetricsIFrameTest,
                            CreditCardWillSubmitFormEvents);

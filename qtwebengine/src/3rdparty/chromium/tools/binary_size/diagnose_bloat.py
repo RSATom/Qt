@@ -10,6 +10,8 @@ See //tools/binary_size/README.md for example usage.
 Note: this tool will perform gclient sync/git checkout on your local repo.
 """
 
+from __future__ import print_function
+
 import atexit
 import argparse
 import collections
@@ -37,8 +39,10 @@ _RESOURCE_SIZES_PATH = os.path.join(
     _SRC_ROOT, 'build', 'android', 'resource_sizes.py')
 _LLVM_TOOLS_DIR = os.path.join(
     _SRC_ROOT, 'third_party', 'llvm-build', 'Release+Asserts', 'bin')
-_DOWNLOAD_OBJDUMP_PATH = os.path.join(
-    _SRC_ROOT, 'tools', 'clang', 'scripts', 'download_objdump.py')
+_CLANG_UPDATE_PATH = os.path.join(_SRC_ROOT, 'tools', 'clang', 'scripts',
+                                  'update.py')
+_GN_PATH = os.path.join(_SRC_ROOT, 'third_party', 'depot_tools', 'gn')
+_NINJA_PATH = os.path.join(_SRC_ROOT, 'third_party', 'depot_tools', 'ninja')
 
 
 _DiffResult = collections.namedtuple('DiffResult', ['name', 'value', 'units'])
@@ -288,7 +292,7 @@ class _BuildHelper(object):
 
   def _SetDefaults(self):
     has_goma_dir = os.path.exists(os.path.join(os.path.expanduser('~'), 'goma'))
-    self.use_goma = self.use_goma or has_goma_dir
+    self.use_goma = self.use_goma and has_goma_dir
     self.max_load_average = (self.max_load_average or
                              str(multiprocessing.cpu_count()))
 
@@ -337,10 +341,10 @@ class _BuildHelper(object):
       gn_args += (' enable_chrome_android_internal=%s' %
                   str(self.enable_chrome_android_internal).lower())
     gn_args += self.extra_gn_args_str
-    return ['gn', 'gen', self.output_directory, '--args=%s' % gn_args]
+    return [_GN_PATH, 'gen', self.output_directory, '--args=%s' % gn_args]
 
   def _GenNinjaCmd(self):
-    cmd = ['ninja', '-C', self.output_directory]
+    cmd = [_NINJA_PATH, '-C', self.output_directory]
     cmd += ['-j', self.max_jobs] if self.max_jobs else []
     cmd += ['-l', self.max_load_average] if self.max_load_average else []
     cmd += [self.target]
@@ -351,7 +355,7 @@ class _BuildHelper(object):
     logging.info('Building %s within %s (this might take a while).',
                  self.target, os.path.relpath(self.output_directory))
     if self.clean:
-      _RunCmd(['gn', 'clean', self.output_directory])
+      _RunCmd([_GN_PATH, 'clean', self.output_directory])
     retcode = _RunCmd(
         self._GenGnCmd(), verbose=True, exit_on_failure=False)[1]
     if retcode:
@@ -720,7 +724,7 @@ def _ValidateRevs(rev, reference_rev, subrepo, extra_rev):
 
 
 def _VerifyUserAccepts(message):
-  print message + ' Do you want to proceed? [y/n]'
+  print(message + ' Do you want to proceed? [y/n]')
   if raw_input('> ').lower() != 'y':
     sys.exit()
 
@@ -763,9 +767,9 @@ def _TmpCopyBinarySizeDir():
     shutil.copytree(_BINARY_SIZE_DIR, bs_dir)
     # We also copy the tools supersize needs, but only if they exist.
     tool_prefix = None
-    if os.path.exists(_DOWNLOAD_OBJDUMP_PATH):
+    if os.path.exists(_CLANG_UPDATE_PATH):
       if not os.path.exists(os.path.join(_LLVM_TOOLS_DIR, 'llvm-readelf')):
-        _RunCmd([_DOWNLOAD_OBJDUMP_PATH])
+        _RunCmd([_CLANG_UPDATE_PATH, '--package=objdump'])
       tools_dir = os.path.join(bs_dir, 'bintools')
       tool_prefix = os.path.join(tools_dir, 'llvm-')
       shutil.copytree(_LLVM_TOOLS_DIR, tools_dir)

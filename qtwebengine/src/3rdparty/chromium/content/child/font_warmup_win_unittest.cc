@@ -4,12 +4,13 @@
 
 #include "content/child/font_warmup_win.h"
 
+#include <windows.h>
 #include <dwrite.h>
 #include <stddef.h>
 #include <stdint.h>
-#include <windows.h>
 #include <wrl.h>
 
+#include <algorithm>
 #include <memory>
 #include <vector>
 
@@ -17,7 +18,7 @@
 #include "base/logging.h"
 #include "base/path_service.h"
 #include "base/sys_byteorder.h"
-#include "base/test/scoped_task_environment.h"
+#include "base/test/task_environment.h"
 #include "base/win/windows_version.h"
 
 #include "content/child/dwrite_font_proxy/dwrite_font_proxy_win.h"
@@ -43,7 +44,7 @@ class GDIFontEmulationTest : public testing::Test {
     fake_collection_ = std::make_unique<FakeFontCollection>();
     SetupFonts(fake_collection_.get());
     DWriteFontCollectionProxy::Create(&collection_, factory.Get(),
-                                      fake_collection_->CreatePtr());
+                                      fake_collection_->CreateRemote());
     EXPECT_TRUE(collection_.Get());
 
     content::SetPreSandboxWarmupFontMgrForTesting(
@@ -74,7 +75,7 @@ class GDIFontEmulationTest : public testing::Test {
   }
 
  protected:
-  base::test::ScopedTaskEnvironment task_environment;
+  base::test::TaskEnvironment task_environment;
   std::unique_ptr<FakeFontCollection> fake_collection_;
   mswr::ComPtr<DWriteFontCollectionProxy> collection_;
 

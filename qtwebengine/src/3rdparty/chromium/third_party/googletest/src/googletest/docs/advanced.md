@@ -101,14 +101,15 @@ If you already have a function or functor that returns `bool` (or a type that
 can be implicitly converted to `bool`), you can use it in a *predicate
 assertion* to get the function arguments printed for free:
 
-| Fatal assertion      | Nonfatal assertion   | Verifies                    |
-| -------------------- | -------------------- | --------------------------- |
-| `ASSERT_PRED1(pred1, | `EXPECT_PRED1(pred1, | `pred1(val1)` is true       |
-: val1);`              : val1);`              :                             :
-| `ASSERT_PRED2(pred2, | `EXPECT_PRED2(pred2, | `pred2(val1, val2)` is true |
-: val1, val2);`        : val1, val2);`        :                             :
-| `...`                | `...`                | ...                         |
+<!-- mdformat off(github rendering does not support multiline tables) -->
 
+| Fatal assertion                   | Nonfatal assertion                | Verifies                    |
+| --------------------------------- | --------------------------------- | --------------------------- |
+| `ASSERT_PRED1(pred1, val1)`       | `EXPECT_PRED1(pred1, val1)`       | `pred1(val1)` is true       |
+| `ASSERT_PRED2(pred2, val1, val2)` | `EXPECT_PRED2(pred2, val1, val2)` | `pred1(val1, val2)` is true |
+| `...`                             | `...`                             | `...`                       |
+
+<!-- mdformat on-->
 In the above, `predn` is an `n`-ary predicate function or functor, where `val1`,
 `val2`, ..., and `valn` are its arguments. The assertion succeeds if the
 predicate returns `true` when applied to the given arguments, and fails
@@ -330,23 +331,26 @@ want to learn more, see
 
 #### Floating-Point Macros
 
-| Fatal assertion         | Nonfatal assertion      | Verifies                |
-| ----------------------- | ----------------------- | ----------------------- |
-| `ASSERT_FLOAT_EQ(val1,  | `EXPECT_FLOAT_EQ(val1,  | the two `float` values  |
-: val2);`                 : val2);`                 : are almost equal        :
-| `ASSERT_DOUBLE_EQ(val1, | `EXPECT_DOUBLE_EQ(val1, | the two `double` values |
-: val2);`                 : val2);`                 : are almost equal        :
+<!-- mdformat off(github rendering does not support multiline tables) -->
+
+| Fatal assertion                 | Nonfatal assertion              | Verifies                                 |
+| ------------------------------- | ------------------------------- | ---------------------------------------- |
+| `ASSERT_FLOAT_EQ(val1, val2);`  | `EXPECT_FLOAT_EQ(val1, val2);`  | the two `float` values are almost equal  |
+| `ASSERT_DOUBLE_EQ(val1, val2);` | `EXPECT_DOUBLE_EQ(val1, val2);` | the two `double` values are almost equal |
+
+<!-- mdformat on-->
 
 By "almost equal" we mean the values are within 4 ULP's from each other.
 
 The following assertions allow you to choose the acceptable error bound:
 
-| Fatal assertion    | Nonfatal assertion       | Verifies                  |
-| ------------------ | ------------------------ | ------------------------- |
-| `ASSERT_NEAR(val1, | `EXPECT_NEAR(val1, val2, | the difference between    |
-: val2, abs_error);` : abs_error);`             : `val1` and `val2` doesn't :
-:                    :                          : exceed the given absolute :
-:                    :                          : error                     :
+<!-- mdformat off(github rendering does not support multiline tables) -->
+
+| Fatal assertion                       | Nonfatal assertion                    | Verifies                                                                         |
+| ------------------------------------- | ------------------------------------- | -------------------------------------------------------------------------------- |
+| `ASSERT_NEAR(val1, val2, abs_error);` | `EXPECT_NEAR(val1, val2, abs_error);` | the difference between `val1` and `val2` doesn't exceed the given absolute error |
+
+<!-- mdformat on-->
 
 #### Floating-Point Predicate-Format Functions
 
@@ -369,10 +373,13 @@ Verifies that `val1` is less than, or almost equal to, `val2`. You can replace
 arguments passed to mock objects. A gMock *matcher* is basically a predicate
 that knows how to describe itself. It can be used in these assertion macros:
 
-| Fatal assertion     | Nonfatal assertion             | Verifies              |
-| ------------------- | ------------------------------ | --------------------- |
-| `ASSERT_THAT(value, | `EXPECT_THAT(value, matcher);` | value matches matcher |
-: matcher);`          :                                :                       :
+<!-- mdformat off(github rendering does not support multiline tables) -->
+
+| Fatal assertion                | Nonfatal assertion             | Verifies              |
+| ------------------------------ | ------------------------------ | --------------------- |
+| `ASSERT_THAT(value, matcher);` | `EXPECT_THAT(value, matcher);` | value matches matcher |
+
+<!-- mdformat on-->
 
 For example, `StartsWith(prefix)` is a matcher that matches a string starting
 with `prefix`, and you can write:
@@ -399,7 +406,8 @@ and you're ready to go.
 
 ### More String Assertions
 
-(Please read the [previous](#AssertThat) section first if you haven't.)
+(Please read the [previous](#asserting-using-gmock-matchers) section first if
+you haven't.)
 
 You can use the gMock
 [string matchers](../../googlemock/docs/cheat_sheet.md#string-matchers) with
@@ -456,9 +464,10 @@ You can call the function
 
 to assert that types `T1` and `T2` are the same. The function does nothing if
 the assertion is satisfied. If the types are different, the function call will
-fail to compile, and the compiler error message will likely (depending on the
-compiler) show you the actual values of `T1` and `T2`. This is mainly useful
-inside template code.
+fail to compile, the compiler error message will say that
+`T1 and T2 are not the same type` and most likely (depending on the compiler)
+show you the actual values of `T1` and `T2`. This is mainly useful inside
+template code.
 
 **Caveat**: When used inside a member function of a class template or a function
 template, `StaticAssertTypeEq<T1, T2>()` is effective only if the function is
@@ -535,8 +544,6 @@ to do a better job at printing your particular type than to dump the bytes. To
 do that, define `<<` for your type:
 
 ```c++
-// Streams are allowed only for logging.  Don't include this for
-// any other purpose.
 #include <ostream>
 
 namespace foo {
@@ -565,8 +572,6 @@ doesn't do what you want (and you cannot change it). If so, you can instead
 define a `PrintTo()` function like this:
 
 ```c++
-// Streams are allowed only for logging.  Don't include this for
-// any other purpose.
 #include <ostream>
 
 namespace foo {
@@ -637,7 +642,7 @@ Fatal assertion                                  | Nonfatal assertion           
 
 where `statement` is a statement that is expected to cause the process to die,
 `predicate` is a function or function object that evaluates an integer exit
-status, and `matcher` is either a GMock matcher matching a `const std::string&`
+status, and `matcher` is either a gMock matcher matching a `const std::string&`
 or a (Perl) regular expression - either of which is matched against the stderr
 output of `statement`. For legacy reasons, a bare string (i.e. with no matcher)
 is interpreted as `ContainsRegex(str)`, **not** `Eq(str)`. Note that `statement`
@@ -652,7 +657,7 @@ As usual, the `ASSERT` variants abort the current test function, while the
 > has called `exit()` or `_exit()` with a non-zero value, or it may be killed by
 > a signal.
 >
-> This means that if `*statement*` terminates the process with a 0 exit code, it
+> This means that if *`statement`* terminates the process with a 0 exit code, it
 > is *not* considered a crash by `EXPECT_DEATH`. Use `EXPECT_EXIT` instead if
 > this is the case, or if you want to restrict the exit code more precisely.
 
@@ -682,7 +687,7 @@ Note that a death test only cares about three things:
 2.  (in the case of `ASSERT_EXIT` and `EXPECT_EXIT`) does the exit status
     satisfy `predicate`? Or (in the case of `ASSERT_DEATH` and `EXPECT_DEATH`)
     is the exit status non-zero? And
-3.  does the stderr output match `regex`?
+3.  does the stderr output match `matcher`?
 
 In particular, if `statement` generates an `ASSERT_*` or `EXPECT_*` failure, it
 will **not** cause the death test to fail, as googletest assertions don't abort
@@ -1127,7 +1132,7 @@ will output XML like this:
 > *   `RecordProperty()` is a static member of the `Test` class. Therefore it
 >     needs to be prefixed with `::testing::Test::` if used outside of the
 >     `TEST` body and the test fixture class.
-> *   `*key*` must be a valid XML attribute name, and cannot conflict with the
+> *   *`key`* must be a valid XML attribute name, and cannot conflict with the
 >     ones already used by googletest (`name`, `status`, `time`, `classname`,
 >     `type_param`, and `value_param`).
 > *   Calling `RecordProperty()` outside of the lifespan of a test is allowed.
@@ -1150,9 +1155,9 @@ also supports per-test-suite set-up/tear-down. To use it:
 
 1.  In your test fixture class (say `FooTest` ), declare as `static` some member
     variables to hold the shared resources.
-1.  Outside your test fixture class (typically just below it), define those
+2.  Outside your test fixture class (typically just below it), define those
     member variables, optionally giving them initial values.
-1.  In the same test fixture class, define a `static void SetUpTestSuite()`
+3.  In the same test fixture class, define a `static void SetUpTestSuite()`
     function (remember not to spell it as **`SetupTestSuite`** with a small
     `u`!) to set up the shared resources and a `static void TearDownTestSuite()`
     function to tear them down.
@@ -1222,15 +1227,15 @@ First, you subclass the `::testing::Environment` class to define a test
 environment, which knows how to set-up and tear-down:
 
 ```c++
-class Environment {
+class Environment : public ::testing::Environment {
  public:
   virtual ~Environment() {}
 
   // Override this to define how to set up the environment.
-  virtual void SetUp() {}
+  void SetUp() override {}
 
   // Override this to define how to tear down the environment.
-  virtual void TearDown() {}
+  void TearDown() override {}
 };
 ```
 
@@ -1341,19 +1346,17 @@ for generating test parameters. They return what we call (surprise!) *parameter
 generators*. Here is a summary of them, which are all in the `testing`
 namespace:
 
-| Parameter Generator          | Behavior                                    |
-| ---------------------------- | ------------------------------------------- |
-| `Range(begin, end [, step])` | Yields values `{begin, begin+step,          |
-:                              : begin+step+step, ...}`. The values do not   :
-:                              : include `end`. `step` defaults to 1.        :
-| `Values(v1, v2, ..., vN)`    | Yields values `{v1, v2, ..., vN}`.          |
-| `ValuesIn(container)` and    | Yields values from a C-style array, an      |
-: `ValuesIn(begin,end)`        : STL-style container, or an iterator range   :
-:                              : `[begin, end)`.                             :
-| `Bool()`                     | Yields sequence `{false, true}`.            |
-| `Combine(g1, g2, ..., gN)`   | Yields all combinations (Cartesian product) |
-:                              : as std\:\:tuples of the values generated by :
-:                              : the `N` generators.                         :
+<!-- mdformat off(github rendering does not support multiline tables) -->
+
+| Parameter Generator                                                                       | Behavior                                                                                                          |
+| ----------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------- |
+| `Range(begin, end [, step])`                                                              | Yields values `{begin, begin+step, begin+step+step, ...}`. The values do not include `end`. `step` defaults to 1. |
+| `Values(v1, v2, ..., vN)`                                                                 | Yields values `{v1, v2, ..., vN}`.                                                                                |
+| `ValuesIn(container)` and  `ValuesIn(begin,end)`                                          | Yields values from a C-style array, an  STL-style container, or an iterator range `[begin, end)`                  |
+| `Bool()`                                                                                  | Yields sequence `{false, true}`.                                                                                  |
+| `Combine(g1, g2, ..., gN)`                                                                | Yields all combinations (Cartesian product) as std\:\:tuples of the values generated by the `N` generators.       |
+
+<!-- mdformat on-->
 
 For more details, see the comments at the definitions of these functions.
 
@@ -1407,7 +1410,10 @@ Please note that `INSTANTIATE_TEST_SUITE_P` will instantiate *all* tests in the
 given test suite, whether their definitions come before or *after* the
 `INSTANTIATE_TEST_SUITE_P` statement.
 
-You can see sample7_unittest.cc and sample8_unittest.cc for more examples.
+You can see [sample7_unittest.cc] and [sample8_unittest.cc] for more examples.
+
+[sample7_unittest.cc]: ../samples/sample7_unittest.cc "Parameterized Test example"
+[sample8_unittest.cc]: ../samples/sample8_unittest.cc "Parameterized Test example with multiple parameters"
 
 ### Creating Value-Parameterized Abstract Tests
 
@@ -1425,7 +1431,7 @@ To define abstract tests, you should organize your code like this:
 1.  Put the definition of the parameterized test fixture class (e.g. `FooTest`)
     in a header file, say `foo_param_test.h`. Think of this as *declaring* your
     abstract tests.
-1.  Put the `TEST_P` definitions in `foo_param_test.cc`, which includes
+2.  Put the `TEST_P` definitions in `foo_param_test.cc`, which includes
     `foo_param_test.h`. Think of this as *implementing* your abstract tests.
 
 Once they are defined, you can instantiate them by including `foo_param_test.h`,
@@ -1446,7 +1452,7 @@ returns the value of `testing::PrintToString(GetParam())`. It does not work for
 
 NOTE: test names must be non-empty, unique, and may only contain ASCII
 alphanumeric characters. In particular, they
-[should not contain underscores](https://github.com/google/googletest/blob/master/googletest/docs/faq.md#why-should-test-suite-names-and-test-names-not-contain-underscore)
+[should not contain underscores](faq.md#why-should-test-suite-names-and-test-names-not-contain-underscore)
 
 ```c++
 class MyTestSuite : public testing::TestWithParam<int> {};
@@ -1555,7 +1561,9 @@ TYPED_TEST(FooTest, DoesBlah) {
 TYPED_TEST(FooTest, HasPropertyA) { ... }
 ```
 
-You can see sample6_unittest.cc
+You can see [sample6_unittest.cc] for a complete example.
+
+[sample6_unittest.cc]: ../samples/sample6_unittest.cc "Typed Test example"
 
 ## Type-Parameterized Tests
 
@@ -1630,7 +1638,7 @@ that type directly without `::testing::Types<...>`, like this:
 INSTANTIATE_TYPED_TEST_SUITE_P(My, FooTest, int);
 ```
 
-You can see `sample6_unittest.cc` for a complete example.
+You can see [sample6_unittest.cc] for a complete example.
 
 ## Testing Private Code
 
@@ -1786,10 +1794,10 @@ For technical reasons, there are some caveats:
 
 1.  You cannot stream a failure message to either macro.
 
-1.  `statement` in `EXPECT_FATAL_FAILURE{_ON_ALL_THREADS}()` cannot reference
+2.  `statement` in `EXPECT_FATAL_FAILURE{_ON_ALL_THREADS}()` cannot reference
     local non-static variables or non-static members of `this` object.
 
-1.  `statement` in `EXPECT_FATAL_FAILURE{_ON_ALL_THREADS}()` cannot return a
+3.  `statement` in `EXPECT_FATAL_FAILURE{_ON_ALL_THREADS}()` cannot return a
     value.
 
 ## Registering tests programmatically
@@ -1896,8 +1904,6 @@ To obtain a `TestInfo` object for the currently running test, call
   const ::testing::TestInfo* const test_info =
     ::testing::UnitTest::GetInstance()->current_test_info();
 
-
-
   printf("We are in test %s of test suite %s.\n",
          test_info->name(),
          test_info->test_suite_name());
@@ -1998,7 +2004,9 @@ You can do so by adding one line:
 ```
 
 Now, sit back and enjoy a completely different output from your tests. For more
-details, you can read this sample9_unittest.cc
+details, see [sample9_unittest.cc].
+
+[sample9_unittest.cc]: ../samples/sample9_unittest.cc "Event listener example"
 
 You may append more than one listener to the list. When an `On*Start()` or
 `OnTestPartResult()` event is fired, the listeners will receive it in the order
@@ -2015,7 +2023,7 @@ when processing an event. There are some restrictions:
 
 1.  You cannot generate any failure in `OnTestPartResult()` (otherwise it will
     cause `OnTestPartResult()` to be called recursively).
-1.  A listener that handles `OnTestPartResult()` is not allowed to generate any
+2.  A listener that handles `OnTestPartResult()` is not allowed to generate any
     failure.
 
 When you add listeners to the listener list, you should put listeners that
@@ -2023,7 +2031,9 @@ handle `OnTestPartResult()` *before* listeners that can generate failures. This
 ensures that failures generated by the latter are attributed to the right test
 by the former.
 
-We have a sample of failure-raising listener sample10_unittest.cc
+See [sample10_unittest.cc] for an example of a failure-raising listener.
+
+[sample10_unittest.cc]: ../samples/sample10_unittest.cc "Failure-raising listener example"
 
 ## Running Test Programs: Advanced Options
 

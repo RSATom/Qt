@@ -70,42 +70,6 @@
 // </if>
 
 /**
- * Parses query parameters from Location.
- * @param {Location} location The URL to generate the CSS url for.
- * @return {Object} Dictionary containing name value pairs for URL
- */
-/* #export */ function parseQueryParams(location) {
-  const params = {};
-  const query = unescape(location.search.substring(1));
-  const vars = query.split('&');
-  for (let i = 0; i < vars.length; i++) {
-    const pair = vars[i].split('=');
-    params[pair[0]] = pair[1];
-  }
-  return params;
-}
-
-/**
- * Creates a new URL by appending or replacing the given query key and value.
- * Not supporting URL with username and password.
- * @param {Location} location The original URL.
- * @param {string} key The query parameter name.
- * @param {string} value The query parameter value.
- * @return {string} The constructed new URL.
- */
-/* #export */ function setQueryParam(location, key, value) {
-  const query = parseQueryParams(location);
-  query[encodeURIComponent(key)] = encodeURIComponent(value);
-
-  let newQuery = '';
-  for (const q in query) {
-    newQuery += (newQuery ? '&' : '?') + q + '=' + query[q];
-  }
-
-  return location.origin + location.pathname + newQuery + location.hash;
-}
-
-/**
  * @param {Node} el A node to search for ancestors with |className|.
  * @param {string} className A class to search for.
  * @return {Element} A node with class of |className| or null if none is found.
@@ -190,55 +154,6 @@
   return assertInstanceof(
       element, HTMLElement, 'Missing required element: ' + selectors);
 }
-
-// Handle click on a link. If the link points to a chrome: or file: url, then
-// call into the browser to do the navigation.
-['click', 'auxclick'].forEach(function(eventName) {
-  document.addEventListener(eventName, function(e) {
-    if (e.button > 1) {
-      return;
-    }  // Ignore buttons other than left and middle.
-    if (e.defaultPrevented) {
-      return;
-    }
-
-    const eventPath = e.path;
-    let anchor = null;
-    if (eventPath) {
-      for (let i = 0; i < eventPath.length; i++) {
-        const element = eventPath[i];
-        if (element.tagName === 'A' && element.href) {
-          anchor = element;
-          break;
-        }
-      }
-    }
-
-    // Fallback if Event.path is not available.
-    let el = e.target;
-    if (!anchor && el.nodeType == Node.ELEMENT_NODE &&
-        el.webkitMatchesSelector('A, A *')) {
-      while (el.tagName != 'A') {
-        el = el.parentElement;
-      }
-      anchor = el;
-    }
-
-    if (!anchor) {
-      return;
-    }
-
-    anchor = /** @type {!HTMLAnchorElement} */ (anchor);
-    if ((anchor.protocol == 'file:' || anchor.protocol == 'about:') &&
-        (e.button == 0 || e.button == 1)) {
-      chrome.send('navigateToUrl', [
-        anchor.href, anchor.target, e.button, e.altKey, e.ctrlKey, e.metaKey,
-        e.shiftKey
-      ]);
-      e.preventDefault();
-    }
-  });
-});
 
 /**
  * Creates a new URL which is the old URL with a GET param of key=value.
@@ -519,6 +434,6 @@ if (!('key' in KeyboardEvent.prototype)) {
  * @param {!Element} el
  * @return {boolean} Whether the element is interactive via text input.
  */
-function isTextInputElement(el) {
+/* #export */ function isTextInputElement(el) {
   return el.tagName == 'INPUT' || el.tagName == 'TEXTAREA';
 }

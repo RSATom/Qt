@@ -1,4 +1,6 @@
 TEMPLATE = subdirs
 
 SUBDIRS = \
-    generatedoutput
+    config \
+    generatedoutput \
+    utilities

@@ -2,15 +2,19 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#ifndef NGLayoutResult_h
-#define NGLayoutResult_h
+#ifndef THIRD_PARTY_BLINK_RENDERER_CORE_LAYOUT_NG_NG_LAYOUT_RESULT_H_
+#define THIRD_PARTY_BLINK_RENDERER_CORE_LAYOUT_NG_NG_LAYOUT_RESULT_H_
 
 #include "base/memory/scoped_refptr.h"
+#include "third_party/blink/renderer/bindings/core/v8/serialization/serialized_script_value.h"
 #include "third_party/blink/renderer/core/core_export.h"
 #include "third_party/blink/renderer/core/layout/ng/exclusions/ng_exclusion_space.h"
 #include "third_party/blink/renderer/core/layout/ng/geometry/ng_bfc_offset.h"
 #include "third_party/blink/renderer/core/layout/ng/geometry/ng_margin_strut.h"
 #include "third_party/blink/renderer/core/layout/ng/list/ng_unpositioned_list_marker.h"
+#include "third_party/blink/renderer/core/layout/ng/ng_block_node.h"
+#include "third_party/blink/renderer/core/layout/ng/ng_break_appeal.h"
+#include "third_party/blink/renderer/core/layout/ng/ng_early_break.h"
 #include "third_party/blink/renderer/core/layout/ng/ng_floats_utils.h"
 #include "third_party/blink/renderer/core/layout/ng/ng_fragment.h"
 #include "third_party/blink/renderer/core/layout/ng/ng_link.h"
@@ -33,9 +37,10 @@ class NGLineBoxFragmentBuilder;
 // NGFragment et al.
 class CORE_EXPORT NGLayoutResult : public RefCounted<NGLayoutResult> {
  public:
-  enum NGLayoutResultStatus {
+  enum EStatus {
     kSuccess = 0,
     kBfcBlockOffsetResolved = 1,
+    kNeedsEarlierBreak = 2,
     // When adding new values, make sure the bit size of |Bitfields::status| is
     // large enough to store.
   };
@@ -45,13 +50,15 @@ class CORE_EXPORT NGLayoutResult : public RefCounted<NGLayoutResult> {
   // still replaced with |nullopt|.
   NGLayoutResult(const NGLayoutResult& other,
                  const NGConstraintSpace& new_space,
+                 const NGMarginStrut& new_end_margin_strut,
                  LayoutUnit bfc_line_offset,
-                 base::Optional<LayoutUnit> bfc_block_offset);
+                 base::Optional<LayoutUnit> bfc_block_offset,
+                 LayoutUnit block_offset_delta);
   ~NGLayoutResult();
 
   const NGPhysicalContainerFragment& PhysicalFragment() const {
     DCHECK(physical_fragment_);
-    DCHECK_EQ(NGLayoutResultStatus::kSuccess, Status());
+    DCHECK_EQ(kSuccess, Status());
     return *physical_fragment_;
   }
 
@@ -61,9 +68,33 @@ class CORE_EXPORT NGLayoutResult : public RefCounted<NGLayoutResult> {
                          : oof_positioned_offset_;
   }
 
+  // Returns if we can use the first-tier OOF-positioned cache.
+  bool CanUseOutOfFlowPositionedFirstTierCache() const {
+    DCHECK(physical_fragment_->IsOutOfFlowPositioned());
+    return bitfields_.can_use_out_of_flow_positioned_first_tier_cache;
+  }
+
   const NGUnpositionedListMarker UnpositionedListMarker() const {
     return HasRareData() ? rare_data_->unpositioned_list_marker
                          : NGUnpositionedListMarker();
+  }
+
+  // Get the column spanner (if any) that interrupted column layout.
+  NGBlockNode ColumnSpanner() const {
+    return HasRareData() ? rare_data_->column_spanner : NGBlockNode(nullptr);
+  }
+
+  scoped_refptr<const NGEarlyBreak> GetEarlyBreak() const {
+    if (!HasRareData())
+      return nullptr;
+    return rare_data_->early_break;
+  }
+
+  // Return the appeal of the best breakpoint (if any) we found inside the node.
+  NGBreakAppeal EarlyBreakAppeal() const {
+    if (HasRareData())
+      return static_cast<NGBreakAppeal>(rare_data_->early_break_appeal);
+    return kBreakAppealLastResort;
   }
 
   const NGExclusionSpace& ExclusionSpace() const {
@@ -75,9 +106,7 @@ class CORE_EXPORT NGLayoutResult : public RefCounted<NGLayoutResult> {
     return space_.ExclusionSpace();
   }
 
-  NGLayoutResultStatus Status() const {
-    return static_cast<NGLayoutResultStatus>(bitfields_.status);
-  }
+  EStatus Status() const { return static_cast<EStatus>(bitfields_.status); }
 
   LayoutUnit BfcLineOffset() const {
     if (HasRareData())
@@ -117,9 +146,35 @@ class CORE_EXPORT NGLayoutResult : public RefCounted<NGLayoutResult> {
     return intrinsic_block_size_;
   }
 
+  LayoutUnit UnconstrainedIntrinsicBlockSize() const {
+    return HasRareData() && rare_data_->unconstrained_intrinsic_block_size_ !=
+                                kIndefiniteSize
+               ? rare_data_->unconstrained_intrinsic_block_size_
+               : intrinsic_block_size_;
+  }
+
   LayoutUnit MinimalSpaceShortage() const {
-    return HasRareData() ? rare_data_->minimal_space_shortage
-                         : LayoutUnit::Max();
+    if (!HasRareData())
+      return LayoutUnit::Max();
+#if DCHECK_IS_ON()
+    // This field shares storage with another field.
+    DCHECK(!rare_data_->has_tallest_unbreakable_block_size);
+#endif
+    return rare_data_->minimal_space_shortage;
+  }
+
+  LayoutUnit TallestUnbreakableBlockSize() const {
+    if (!HasRareData())
+      return LayoutUnit();
+#if DCHECK_IS_ON()
+    // This field shares storage with another field.
+    DCHECK(rare_data_->has_tallest_unbreakable_block_size);
+#endif
+    return rare_data_->tallest_unbreakable_block_size;
+  }
+
+  SerializedScriptValue* CustomLayoutData() const {
+    return HasRareData() ? rare_data_->custom_layout_data.get() : nullptr;
   }
 
   // The break-before value on the first child needs to be propagated to the
@@ -172,14 +227,17 @@ class CORE_EXPORT NGLayoutResult : public RefCounted<NGLayoutResult> {
     return bitfields_.has_descendant_that_depends_on_percentage_block_size;
   }
 
-  // Returns true if the space stored with this layout result, is valid.
-  bool HasValidConstraintSpaceForCaching() const {
-    return bitfields_.has_valid_space;
+  // Returns true if this subtree modified the incoming margin-strut (i.e.
+  // appended a non-zero margin).
+  bool SubtreeModifiedMarginStrut() const {
+    return bitfields_.subtree_modified_margin_strut;
   }
 
   // Returns the space which generated this object for caching purposes.
   const NGConstraintSpace& GetConstraintSpaceForCaching() const {
-    DCHECK(bitfields_.has_valid_space);
+#if DCHECK_IS_ON()
+    DCHECK(has_valid_space_);
+#endif
     return space_;
   }
 
@@ -191,13 +249,18 @@ class CORE_EXPORT NGLayoutResult : public RefCounted<NGLayoutResult> {
    protected:
     friend class NGOutOfFlowLayoutPart;
 
-    void SetOutOfFlowPositionedOffset(const LogicalOffset& offset) {
+    void SetOutOfFlowPositionedOffset(
+        const LogicalOffset& offset,
+        bool can_use_out_of_flow_positioned_first_tier_cache) {
       // OOF-positioned nodes *must* always have an initial BFC-offset.
       DCHECK(layout_result_->physical_fragment_->IsOutOfFlowPositioned());
       DCHECK_EQ(layout_result_->BfcLineOffset(), LayoutUnit());
       DCHECK_EQ(layout_result_->BfcBlockOffset().value_or(LayoutUnit()),
                 LayoutUnit());
 
+      layout_result_->bitfields_
+          .can_use_out_of_flow_positioned_first_tier_cache =
+          can_use_out_of_flow_positioned_first_tier_cache;
       layout_result_->bitfields_.has_oof_positioned_offset = true;
       if (layout_result_->HasRareData())
         layout_result_->rare_data_->oof_positioned_offset = offset;
@@ -236,7 +299,7 @@ class CORE_EXPORT NGLayoutResult : public RefCounted<NGLayoutResult> {
       scoped_refptr<const NGPhysicalContainerFragment> physical_fragment,
       NGLineBoxFragmentBuilder*);
   // This constructor is for a non-success status.
-  NGLayoutResult(NGLayoutResultStatus, NGBoxFragmentBuilder*);
+  NGLayoutResult(EStatus, NGBoxFragmentBuilder*);
 
   // We don't need the copy constructor, move constructor, copy
   // assigmnment-operator, or move assignment-operator today.
@@ -254,14 +317,13 @@ class CORE_EXPORT NGLayoutResult : public RefCounted<NGLayoutResult> {
   // Delegate constructor that sets up what it can, based on the builder.
   NGLayoutResult(
       scoped_refptr<const NGPhysicalContainerFragment> physical_fragment,
-      NGContainerFragmentBuilder* builder,
-      bool cache_space);
+      NGContainerFragmentBuilder* builder);
 
   static NGExclusionSpace MergeExclusionSpaces(
       const NGLayoutResult& other,
       const NGExclusionSpace& new_input_exclusion_space,
       LayoutUnit bfc_line_offset,
-      base::Optional<LayoutUnit> bfc_block_offset);
+      LayoutUnit block_offset_delta);
 
   struct RareData {
     USING_FAST_MALLOC(RareData);
@@ -275,11 +337,31 @@ class CORE_EXPORT NGLayoutResult : public RefCounted<NGLayoutResult> {
     LayoutUnit bfc_line_offset;
     base::Optional<LayoutUnit> bfc_block_offset;
 
+    scoped_refptr<const NGEarlyBreak> early_break;
+    NGBreakAppeal early_break_appeal = kBreakAppealLastResort;
     LogicalOffset oof_positioned_offset;
     NGMarginStrut end_margin_strut;
     NGUnpositionedListMarker unpositioned_list_marker;
-    LayoutUnit minimal_space_shortage = LayoutUnit::Max();
+    NGBlockNode column_spanner = nullptr;
+    union {
+      // Only set in the initial column balancing layout pass, when we have no
+      // clue what the column block-size is going to be.
+      LayoutUnit tallest_unbreakable_block_size;
+
+      // Only set in subsequent column balancing passes, when we have set a
+      // tentative column block-size. At every column boundary we'll record
+      // space shortage, and store the smallest one here. If the columns
+      // couldn't fit all the content, and we're allowed to stretch columns
+      // further, we'll perform another pass with the column block-size
+      // increased by this amount.
+      LayoutUnit minimal_space_shortage = LayoutUnit::Max();
+    };
     NGExclusionSpace exclusion_space;
+    scoped_refptr<SerializedScriptValue> custom_layout_data;
+    LayoutUnit unconstrained_intrinsic_block_size_ = kIndefiniteSize;
+#if DCHECK_IS_ON()
+    bool has_tallest_unbreakable_block_size = false;
+#endif
   };
 
   bool HasRareData() const { return bitfields_.has_rare_data; }
@@ -293,22 +375,20 @@ class CORE_EXPORT NGLayoutResult : public RefCounted<NGLayoutResult> {
     // never uninitialized (potentially allowing a dangling pointer).
     Bitfields()
         : Bitfields(
-              /* has_valid_space */ false,
               /* is_self_collapsing */ false,
               /* is_pushed_by_floats */ false,
               /* adjoining_object_types */ kAdjoiningNone,
               /* has_descendant_that_depends_on_percentage_block_size */
               false) {}
-    Bitfields(bool has_valid_space,
-              bool is_self_collapsing,
+    Bitfields(bool is_self_collapsing,
               bool is_pushed_by_floats,
               NGAdjoiningObjectTypes adjoining_object_types,
               bool has_descendant_that_depends_on_percentage_block_size)
         : has_rare_data(false),
           has_rare_data_exclusion_space(false),
           has_oof_positioned_offset(false),
+          can_use_out_of_flow_positioned_first_tier_cache(false),
           is_bfc_block_offset_nullopt(false),
-          has_valid_space(has_valid_space),
           has_forced_break(false),
           is_self_collapsing(is_self_collapsing),
           is_pushed_by_floats(is_pushed_by_floats),
@@ -316,6 +396,7 @@ class CORE_EXPORT NGLayoutResult : public RefCounted<NGLayoutResult> {
           is_initial_block_size_indefinite(false),
           has_descendant_that_depends_on_percentage_block_size(
               has_descendant_that_depends_on_percentage_block_size),
+          subtree_modified_margin_strut(false),
           initial_break_before(static_cast<unsigned>(EBreakBetween::kAuto)),
           final_break_after(static_cast<unsigned>(EBreakBetween::kAuto)),
           status(static_cast<unsigned>(kSuccess)) {}
@@ -323,9 +404,9 @@ class CORE_EXPORT NGLayoutResult : public RefCounted<NGLayoutResult> {
     unsigned has_rare_data : 1;
     unsigned has_rare_data_exclusion_space : 1;
     unsigned has_oof_positioned_offset : 1;
+    unsigned can_use_out_of_flow_positioned_first_tier_cache : 1;
     unsigned is_bfc_block_offset_nullopt : 1;
 
-    unsigned has_valid_space : 1;
     unsigned has_forced_break : 1;
 
     unsigned is_self_collapsing : 1;
@@ -335,14 +416,16 @@ class CORE_EXPORT NGLayoutResult : public RefCounted<NGLayoutResult> {
     unsigned is_initial_block_size_indefinite : 1;
     unsigned has_descendant_that_depends_on_percentage_block_size : 1;
 
+    unsigned subtree_modified_margin_strut : 1;
+
     unsigned initial_break_before : 4;  // EBreakBetween
     unsigned final_break_after : 4;     // EBreakBetween
 
-    unsigned status : 1;  // NGLayoutResultStatus
+    unsigned status : 2;  // EStatus
   };
 
   // The constraint space which generated this layout result, may not be valid
-  // as indicated by |Bitfields::has_valid_space|.
+  // as indicated by |has_valid_space_|.
   const NGConstraintSpace space_;
 
   scoped_refptr<const NGPhysicalContainerFragment> physical_fragment_;
@@ -366,8 +449,12 @@ class CORE_EXPORT NGLayoutResult : public RefCounted<NGLayoutResult> {
 
   LayoutUnit intrinsic_block_size_;
   Bitfields bitfields_;
+
+#if DCHECK_IS_ON()
+  bool has_valid_space_ = false;
+#endif
 };
 
 }  // namespace blink
 
-#endif  // NGLayoutResult_h
+#endif  // THIRD_PARTY_BLINK_RENDERER_CORE_LAYOUT_NG_NG_LAYOUT_RESULT_H_

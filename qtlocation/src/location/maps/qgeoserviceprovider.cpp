@@ -896,9 +896,9 @@ void QGeoServiceProviderPrivate::loadPlugin(const QVariantMap &parameters)
     }
 }
 
-QHash<QString, QJsonObject> QGeoServiceProviderPrivate::plugins(bool reload)
+QMultiHash<QString, QJsonObject> QGeoServiceProviderPrivate::plugins(bool reload)
 {
-    static QHash<QString, QJsonObject> plugins;
+    static QMultiHash<QString, QJsonObject> plugins;
     static bool alreadyDiscovered = false;
 
     if (reload == true)
@@ -911,14 +911,14 @@ QHash<QString, QJsonObject> QGeoServiceProviderPrivate::plugins(bool reload)
     return plugins;
 }
 
-void QGeoServiceProviderPrivate::loadPluginMetadata(QHash<QString, QJsonObject> &list)
+void QGeoServiceProviderPrivate::loadPluginMetadata(QMultiHash<QString, QJsonObject> &list)
 {
     QFactoryLoader *l = loader();
     QList<QJsonObject> meta = l->metaData();
     for (int i = 0; i < meta.size(); ++i) {
         QJsonObject obj = meta.at(i).value(QStringLiteral("MetaData")).toObject();
         obj.insert(QStringLiteral("index"), i);
-        list.insertMulti(obj.value(QStringLiteral("Provider")).toString(), obj);
+        list.insert(obj.value(QStringLiteral("Provider")).toString(), obj);
     }
 }
 

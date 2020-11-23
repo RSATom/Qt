@@ -1371,6 +1371,40 @@ bool Codegen::visit(BinaryExpression *ast)
             setExprResult(Reference::fromAccumulator(this));
         }
         return false;
+    } else if (ast->op == QSOperator::Coalesce) {
+
+        Reference left = expression(ast->left);
+        if (hasError())
+            return false;
+
+        BytecodeGenerator::Label iftrue = bytecodeGenerator->newLabel();
+        BytecodeGenerator::Label iffalse = bytecodeGenerator->newLabel();
+
+        Instruction::CmpNeNull cmp;
+
+        left = left.storeOnStack();
+        left.loadInAccumulator();
+        bytecodeGenerator->addInstruction(cmp);
+
+        bytecodeGenerator->jumpTrue().link(iftrue);
+        bytecodeGenerator->jumpFalse().link(iffalse);
+
+        blockTailCalls.unblock();
+
+        iftrue.link();
+
+        left.loadInAccumulator();
+
+        BytecodeGenerator::Jump jump_endif = bytecodeGenerator->jump();
+
+        iffalse.link();
+
+        Reference right = expression(ast->right);
+        right.loadInAccumulator();
+        jump_endif.link();
+        setExprResult(Reference::fromAccumulator(this));
+
+        return false;
     } else if (ast->op == QSOperator::Assign) {
         if (AST::Pattern *p = ast->left->patternCast()) {
             RegisterScope scope(this);
@@ -1497,7 +1531,9 @@ bool Codegen::visit(BinaryExpression *ast)
 
         break;
     }
-
+    case QSOperator::As:
+        setExprResult(left);
+        break;
     } // switch
 
     return false;
@@ -3785,8 +3821,7 @@ void Codegen::throwError(ErrorType errorType, const SourceLocation &loc, const Q
 
     _errorType = errorType;
     _error.message = detail;
-    _error.line = loc.startLine;
-    _error.column = loc.startColumn;
+    _error.loc = loc;
 }
 
 void Codegen::throwSyntaxError(const SourceLocation &loc, const QString &detail)
@@ -4069,7 +4104,7 @@ Codegen::Reference Codegen::Reference::asLValue() const
     case Accumulator:
         Q_UNREACHABLE();
     case Super:
-        codegen->throwSyntaxError(AST::SourceLocation(), QStringLiteral("Super lvalues not implemented."));
+        codegen->throwSyntaxError(SourceLocation(), QStringLiteral("Super lvalues not implemented."));
         return *this;
     case Member:
         if (!propertyBase.isStackSlot()) {

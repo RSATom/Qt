@@ -61,12 +61,12 @@ class QCloseableMessageBox : public QMessageBox
 public:
     QCloseableMessageBox(QWidget *parent = 0) : QMessageBox(parent) { }
 
-    void closeEvent(QCloseEvent *e) {
+    void closeEvent(QCloseEvent *e) override {
         // QTBUG-36227: Bypass QMessageBox::closeEvent()
         QDialog::closeEvent(e);
     }
 
-    void keyPressEvent(QKeyEvent *e) {
+    void keyPressEvent(QKeyEvent *e) override {
         QMessageBox::keyPressEvent(e);
         // QTBUG-36227: reject on escape or cmd-period even if there's no cancel button
         if ((isVisible() && e->key() == Qt::Key_Escape)
@@ -88,9 +88,9 @@ public:
         connect(&m_dialog, SIGNAL(buttonClicked(QAbstractButton*)), this, SLOT(buttonClicked(QAbstractButton*)));
     }
 
-    virtual void exec() { m_dialog.exec(); }
+    void exec() override { m_dialog.exec(); }
 
-    virtual bool show(Qt::WindowFlags f, Qt::WindowModality m, QWindow *parent) {
+    bool show(Qt::WindowFlags f, Qt::WindowModality m, QWindow *parent) override {
         m_dialog.winId();
         QWindow *window = m_dialog.windowHandle();
         Q_ASSERT(window);
@@ -113,7 +113,7 @@ public:
         return m_dialog.isVisible();
     }
 
-    virtual void hide() { m_dialog.hide(); }
+    void hide() override { m_dialog.hide(); }
 
     QCloseableMessageBox m_dialog;
 

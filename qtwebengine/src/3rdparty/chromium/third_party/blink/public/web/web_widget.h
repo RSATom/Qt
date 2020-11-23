@@ -34,6 +34,7 @@
 #include "base/callback.h"
 #include "base/time/time.h"
 #include "cc/input/browser_controls_state.h"
+#include "cc/metrics/begin_main_frame_metrics.h"
 #include "cc/paint/element_id.h"
 #include "cc/trees/layer_tree_host_client.h"
 #include "third_party/blink/public/platform/web_common.h"
@@ -60,14 +61,13 @@ class Point;
 
 namespace blink {
 class WebCoalescedInputEvent;
-class WebLayerTreeView;
 
 class WebWidget {
  public:
-  // Called during set up of the WebWidget to declare the WebLayerTreeView for
+  // Called during set up of the WebWidget to declare the AnimationHost for
   // the widget to use. This does not pass ownership, but the caller must keep
   // the pointer valid until Close() is called.
-  virtual void SetLayerTreeView(WebLayerTreeView*, cc::AnimationHost*) = 0;
+  virtual void SetAnimationHost(cc::AnimationHost*) = 0;
 
   // This method closes and deletes the WebWidget.
   virtual void Close() {}
@@ -103,6 +103,17 @@ class WebWidget {
   // Called when a main frame time metric should be emitted, along with
   // any metrics that depend upon the main frame total time.
   virtual void RecordEndOfFrameMetrics(base::TimeTicks frame_begin_time) {}
+
+  // Return metrics information for the stages of BeginMainFrame. This is
+  // ultimately implemented by Blink's LocalFrameUKMAggregator. It must be a
+  // distinct call from the FrameMetrics above because the BeginMainFrameMetrics
+  // for compositor latency must be gathered before the layer tree is
+  // committed to the compositor, which is before the call to
+  // RecordEndOfFrameMetrics.
+  virtual std::unique_ptr<cc::BeginMainFrameMetrics>
+  GetBeginMainFrameMetrics() {
+    return nullptr;
+  }
 
   // Methods called to mark the beginning and end of input processing work
   // before rAF scripts are executed. Only called when gathering main frame
@@ -207,9 +218,6 @@ class WebWidget {
 
   // Returns true if the WebWidget created is of type PepperWidget.
   virtual bool IsPepperWidget() const { return false; }
-
-  // Returns true if the WebWidget created is of type WebFrameWidget.
-  virtual bool IsWebFrameWidget() const { return false; }
 
   // Calling WebWidgetClient::requestPointerLock() will result in one
   // return call to didAcquirePointerLock() or didNotAcquirePointerLock().

@@ -63,8 +63,7 @@ class VIEWS_EXPORT TableView
     : public views::View,
       public ui::TableModelObserver {
  public:
-  // Internal class name.
-  static const char kViewClassName[];
+  METADATA_HEADER(TableView);
 
   // Used by AdvanceActiveVisibleColumn(), AdvanceSelection() and
   // ResizeColumnViaKeyboard() to determine the direction to change the
@@ -130,13 +129,13 @@ class VIEWS_EXPORT TableView
   void SetGrouper(TableGrouper* grouper);
 
   // Returns the number of rows in the TableView.
-  int RowCount() const;
+  int GetRowCount() const;
 
   // Selects the specified item, making sure it's visible.
   void Select(int model_row);
 
   // Returns the first selected row in terms of the model.
-  int FirstSelectedRow();
+  int GetFirstSelectedRow() const;
 
   const ui::ListSelectionModel& selection_model() const {
     return selection_model_;
@@ -154,11 +153,7 @@ class VIEWS_EXPORT TableView
   bool HasColumn(int id) const;
 
   // Returns whether an active row and column have been set.
-  bool HasFocusIndicator() const;
-
-  // Moves the focus ring to its new location if the active cell has changed, or
-  // hides the focus ring if the table is not focused.
-  void ResetFocusIndicator();
+  bool GetHasFocusIndicator() const;
 
   void set_observer(TableViewObserver* observer) { observer_ = observer; }
   TableViewObserver* observer() const { return observer_; }
@@ -187,7 +182,7 @@ class VIEWS_EXPORT TableView
 
   const SortDescriptors& sort_descriptors() const { return sort_descriptors_; }
   void SetSortDescriptors(const SortDescriptors& descriptors);
-  bool is_sorted() const { return !sort_descriptors_.empty(); }
+  bool GetIsSorted() const { return !sort_descriptors_.empty(); }
 
   // Maps from the index in terms of the model to that of the view.
   int ModelToView(int model_index) const;
@@ -195,11 +190,10 @@ class VIEWS_EXPORT TableView
   // Maps from the index in terms of the view to that of the model.
   int ViewToModel(int view_index) const;
 
-  int row_height() const { return row_height_; }
+  int GetRowHeight() const { return row_height_; }
 
-  void set_select_on_remove(bool select_on_remove) {
-    select_on_remove_ = select_on_remove;
-  }
+  bool GetSelectOnRemove() const;
+  void SetSelectOnRemove(bool select_on_remove);
 
   // WARNING: this function forces a sort on every paint, and is therefore
   // expensive! It assumes you are calling SchedulePaint() at intervals for
@@ -208,11 +202,13 @@ class VIEWS_EXPORT TableView
   // time the SchedulePaint() is called and the paint is processed, the
   // underlying data may change. Also, this only works if the number of rows
   // remains the same.
-  void set_sort_on_paint(bool sort_on_paint) { sort_on_paint_ = sort_on_paint; }
+  bool GetSortOnPaint() const;
+  void SetSortOnPaint(bool sort_on_paint);
+
+  TableTypes GetTableType() const;
 
   // View overrides:
   void Layout() override;
-  const char* GetClassName() const override;
   gfx::Size CalculatePreferredSize() const override;
   bool OnKeyPressed(const ui::KeyEvent& event) override;
   bool OnMousePressed(const ui::MouseEvent& event) override;
@@ -237,6 +233,8 @@ class VIEWS_EXPORT TableView
 
  private:
   friend class TableViewTestHelper;
+
+  class HighlightPathGenerator;
   struct GroupSortHelper;
   struct SortHelper;
 
@@ -282,6 +280,9 @@ class VIEWS_EXPORT TableView
   // Returns the bounds of the specified cell. |visible_column_index| indexes
   // into |visible_columns_|.
   gfx::Rect GetCellBounds(int row, int visible_column_index) const;
+
+  // Returns the bounds of the active cell.
+  gfx::Rect GetActiveCellBounds() const;
 
   // Adjusts |bounds| based on where the text should be painted. |bounds| comes
   // from GetCellBounds() and |visible_column_index| is the corresponding column
@@ -356,6 +357,10 @@ class VIEWS_EXPORT TableView
   // |visible_column_index| indexes into |visible_columns_|.
   AXVirtualView* GetVirtualAccessibilityCell(int row, int visible_column_index);
 
+  // Returns |rect|, adjusted for use in AXRelativeBounds by converting it to
+  // gfx::RectF and translating it into screen coordinates.
+  gfx::RectF AdjustRectForAXRelativeBounds(gfx::Rect rect) const;
+
   ui::TableModel* model_ = nullptr;
 
   std::vector<ui::TableColumn> columns_;
@@ -369,7 +374,7 @@ class VIEWS_EXPORT TableView
   int active_visible_column_index_ = -1;
 
   // Used to draw a focus indicator around the active cell.
-  std::unique_ptr<FocusRing> focus_ring_;
+  std::unique_ptr<FocusRing> focus_ring_ = FocusRing::Install(this);
 
   // The header. This is only created if more than one column is specified or
   // the first column has a non-empty title.
@@ -415,6 +420,14 @@ class VIEWS_EXPORT TableView
 
   // True if in SetVisibleColumnWidth().
   bool in_set_visible_column_width_ = false;
+
+  // Keeps track whether a focus change has occurred so that the accessibility
+  // focus would be updated after all the virtual accessibility children. Some
+  // screen readers don't process the accessibility focus event right away and
+  // by the time they do the focused virtual accessibility child is no longer
+  // there. We need to fire the accessibility focus event after the virtual
+  // accessibility children have been updated.
+  bool needs_update_accessibility_focus_ = false;
 
   DISALLOW_COPY_AND_ASSIGN(TableView);
 };

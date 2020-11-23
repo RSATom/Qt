@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-import {fromNs} from '../../common/time';
+import {fromNs, toNs} from '../../common/time';
 import {LIMIT} from '../../common/track_data';
 
 import {
@@ -28,40 +28,33 @@ import {
 
 class CounterTrackController extends TrackController<Config, Data> {
   static readonly kind = COUNTER_TRACK_KIND;
-  private busy = false;
   private setup = false;
   private maximumValueSeen = 0;
   private minimumValueSeen = 0;
 
-  onBoundsChange(start: number, end: number, resolution: number): void {
-    this.update(start, end, resolution);
-  }
+  async onBoundsChange(start: number, end: number, resolution: number):
+      Promise<Data> {
+    const startNs = toNs(start);
+    const endNs = toNs(end);
 
-  private async update(start: number, end: number, resolution: number):
-      Promise<void> {
-    // TODO: we should really call TraceProcessor.Interrupt() at this point.
-    if (this.busy) return;
-
-    const startNs = Math.round(start * 1e9);
-    const endNs = Math.round(end * 1e9);
-
-    this.busy = true;
     if (!this.setup) {
       const result = await this.query(`
-      select max(value), min(value) from
-        counters where name = '${this.config.name}'
-        and ref = ${this.config.ref}`);
+        select max(value), min(value)
+        from counter
+        where track_id = ${this.config.trackId}`);
       this.maximumValueSeen = +result.columns[0].doubleValues![0];
       this.minimumValueSeen = +result.columns[1].doubleValues![0];
       await this.query(
         `create virtual table ${this.tableName('window')} using window;`);
 
-      await this.query(`create view ${this.tableName('counter_view')} as
-        select ts,
-        lead(ts, 1, ts) over (partition by ref_type order by ts) - ts as dur,
-        value, name, ref
-        from counters
-        where name = '${this.config.name}' and ref = ${this.config.ref};`);
+      await this.query(`
+        create view ${this.tableName('counter_view')} as
+        select
+          ts,
+          lead(ts, 1, ts) over (order by ts) - ts as dur,
+          value
+        from counter
+        where track_id = ${this.config.trackId};`);
 
       await this.query(`create virtual table ${this.tableName('span')} using
         span_join(${this.tableName('counter_view')},
@@ -69,7 +62,19 @@ class CounterTrackController extends TrackController<Config, Data> {
       this.setup = true;
     }
 
-    const isQuantized = this.shouldSummarize(resolution);
+    const result = await this.engine.queryOneRow(`
+      select count(*)
+      from (
+        select
+          ts,
+          lead(ts, 1, ts) over (order by ts) as ts_end,
+        from counter
+        where track_id = ${this.config.trackId}
+      )
+      where ts <= ${endNs} and ${startNs} <= ts_end`);
+
+    // Only quantize if we have too much data to draw.
+    const isQuantized = result[0] > LIMIT;
     // |resolution| is in s/px we want # ns for 10px window:
     const bucketSizeNs = Math.round(resolution * 10 * 1e9);
     let windowStartNs = startNs;
@@ -94,18 +99,32 @@ class CounterTrackController extends TrackController<Config, Data> {
       // Union that with the query that finds all the counters within
       // the current query range.
       query = `
-      select * from (select ts, value from counters
-      where name = '${this.config.name}' and ref = ${this.config.ref} and
-      ts <= ${startNs} order by ts desc limit 1)
-      UNION
-      select * from (select ts, value
-        from (select
-          ts,
-          lead(ts, 1, ts) over (partition by ref_type order by ts) as ts_end,
-          value
-          from counters
-          where name = '${this.config.name}' and ref = ${this.config.ref})
-      where ts <= ${endNs} and ${startNs} <= ts_end limit ${LIMIT});`;
+      select *
+      from (
+        select ts, value, track_id
+        from counter
+        where
+          track_id = ${this.config.trackId} and
+          ts <= ${startNs}
+        order by ts desc
+        limit 1
+      )
+      union
+      select *
+      from (
+        select ts, value, track_id
+        from (
+          select
+            ts,
+            lead(ts, 1, ts) over (order by ts) as ts_end,
+            value,
+            track_id
+          from counter
+          where track_id = ${this.config.trackId}
+        )
+        where ts <= ${endNs} and ${startNs} <= ts_end
+        limit ${LIMIT}
+      );`;
     }
 
     const rawResult = await this.query(query);
@@ -122,36 +141,38 @@ class CounterTrackController extends TrackController<Config, Data> {
       resolution,
       timestamps: new Float64Array(numRows),
       values: new Float64Array(numRows),
+      ids: new Float64Array(numRows),
     };
 
     const cols = rawResult.columns;
     for (let row = 0; row < numRows; row++) {
       const startSec = fromNs(+cols[0].longValues![row]);
       const value = +cols[1].doubleValues![row];
+      const id = +cols[2].longValues![row];
       data.timestamps[row] = startSec;
       data.values[row] = value;
+      data.ids[row] = id;
     }
 
-    this.publish(data);
-    this.busy = false;
+    return data;
   }
 
   private maximumValue() {
-    return Math.max(this.config.maximumValue || 0, this.maximumValueSeen);
+    if (this.config.maximumValue === undefined) {
+      return this.maximumValueSeen;
+    } else {
+      return this.config.maximumValue;
+    }
   }
 
   private minimumValue() {
-    return Math.min(this.config.minimumValue || 0, this.minimumValueSeen);
+    if (this.config.minimumValue === undefined) {
+      return this.minimumValueSeen;
+    } else {
+      return this.config.minimumValue;
+    }
   }
 
-  private async query(query: string) {
-    const result = await this.engine.query(query);
-    if (result.error) {
-      console.error(`Query error "${query}": ${result.error}`);
-      throw new Error(`Query error "${query}": ${result.error}`);
-    }
-    return result;
-  }
 }
 
 trackControllerRegistry.register(CounterTrackController);

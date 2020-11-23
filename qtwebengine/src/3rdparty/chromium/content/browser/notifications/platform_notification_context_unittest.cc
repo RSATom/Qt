@@ -17,10 +17,11 @@
 #include "content/browser/service_worker/service_worker_context_wrapper.h"
 #include "content/public/browser/notification_database_data.h"
 #include "content/public/browser/permission_type.h"
+#include "content/public/common/content_client.h"
 #include "content/public/common/content_features.h"
+#include "content/public/test/browser_task_environment.h"
 #include "content/public/test/mock_permission_manager.h"
 #include "content/public/test/test_browser_context.h"
-#include "content/public/test/test_browser_thread_bundle.h"
 #include "content/test/mock_platform_notification_service.h"
 #include "content/test/test_content_browser_client.h"
 #include "testing/gtest/include/gtest/gtest.h"
@@ -244,7 +245,7 @@ class PlatformNotificationContextTest : public ::testing::Test {
   const std::string& notification_id() const { return notification_id_; }
 
  private:
-  TestBrowserThreadBundle thread_bundle_;  // Must be first member
+  BrowserTaskEnvironment task_environment_;  // Must be first member
   TestBrowserContext browser_context_;
   MockPermissionManager* permission_manager_ = nullptr;
 
@@ -555,7 +556,7 @@ TEST_F(PlatformNotificationContextTest, ServiceWorkerUnregistered) {
   blink::mojom::ServiceWorkerRegistrationOptions options;
   options.scope = origin;
   embedded_worker_test_helper->context()->RegisterServiceWorker(
-      script_url, options,
+      script_url, options, blink::mojom::FetchClientSettingsObject::New(),
       base::BindOnce(&PlatformNotificationContextTest::DidRegisterServiceWorker,
                      base::Unretained(this), &service_worker_registration_id));
 

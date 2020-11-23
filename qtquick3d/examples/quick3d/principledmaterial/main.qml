@@ -48,9 +48,9 @@
 **
 ****************************************************************************/
 
-import QtQuick 2.14
+import QtQuick 2.15
 import QtQuick.Window 2.14
-import QtQuick3D 1.14
+import QtQuick3D 1.15
 
 Window {
     id: window
@@ -73,14 +73,14 @@ Window {
         //! [rotating light]
         // Rotate the light direction
         DirectionalLight {
-            rotation: Qt.vector3d(0, 100, 0)
+            eulerRotation.y: -100
             brightness: 100
-            SequentialAnimation on rotation {
+            SequentialAnimation on eulerRotation.y {
                 loops: Animation.Infinite
                 PropertyAnimation {
                     duration: 5000
-                    to: Qt.vector3d(0, 360, 0)
-                    from: Qt.vector3d(0, 0, 0)
+                    to: 360
+                    from: 0
                 }
             }
         }
@@ -88,7 +88,7 @@ Window {
 
         //! [environment]
         environment: SceneEnvironment {
-            probeBrightness: 250
+            probeBrightness: 100
             clearColor: "#848895"
 
             backgroundMode: SceneEnvironment.Color
@@ -100,7 +100,7 @@ Window {
 
         PerspectiveCamera {
             id: camera
-            position: Qt.vector3d(0, 0, -600)
+            position: Qt.vector3d(0, 0, 600)
         }
 
         //! [basic principled]
@@ -132,20 +132,24 @@ Window {
                     specularAmount: materialCtrl.specular
                     indexOfRefraction: materialCtrl.ior
                     opacity: materialCtrl.opacityValue
+
                     baseColorMap: Texture { source: "maps/metallic/basecolor.jpg" }
                     metalnessMap: Texture { source: "maps/metallic/metallic.jpg" }
                     roughnessMap: Texture { source: "maps/metallic/roughness.jpg" }
                     normalMap: Texture { source: "maps/metallic/normal.jpg" }
+
+                    metalnessChannel: Material.R
+                    roughnessChannel: Material.R
                 }
             ]
             //! [textured principled]
 
-            SequentialAnimation on rotation {
+            SequentialAnimation on eulerRotation {
                 loops: Animation.Infinite
                 PropertyAnimation {
                     duration: 5000
-                    to: Qt.vector3d(360, 360, 360)
                     from: Qt.vector3d(0, 0, 0)
+                    to: Qt.vector3d(360, 360, 360)
                 }
             }
         }

@@ -71,6 +71,11 @@
 #include "../internal.h"
 
 
+// Node depends on |EVP_R_NOT_XOF_OR_INVALID_LENGTH|.
+//
+// TODO(davidben): Fix Node to not touch the error queue itself and remove this.
+OPENSSL_DECLARE_ERROR_REASON(EVP, NOT_XOF_OR_INVALID_LENGTH)
+
 EVP_PKEY *EVP_PKEY_new(void) {
   EVP_PKEY *ret;
 
@@ -200,6 +205,8 @@ static const EVP_PKEY_ASN1_METHOD *evp_pkey_asn1_find(int nid) {
       return &dsa_asn1_meth;
     case EVP_PKEY_ED25519:
       return &ed25519_asn1_meth;
+    case EVP_PKEY_X25519:
+      return &x25519_asn1_meth;
     default:
       return NULL;
   }
@@ -427,3 +434,10 @@ void OpenSSL_add_all_ciphers(void) {}
 void OpenSSL_add_all_digests(void) {}
 
 void EVP_cleanup(void) {}
+
+int EVP_PKEY_base_id(const EVP_PKEY *pkey) {
+  // OpenSSL has two notions of key type because it supports multiple OIDs for
+  // the same algorithm: NID_rsa vs NID_rsaEncryption and five distinct spelling
+  // of DSA. We do not support these, so the base ID is simply the ID.
+  return EVP_PKEY_id(pkey);
+}

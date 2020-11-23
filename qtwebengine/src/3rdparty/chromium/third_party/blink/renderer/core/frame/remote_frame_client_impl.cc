@@ -91,11 +91,6 @@ Frame* RemoteFrameClientImpl::FirstChild() const {
   return ToCoreFrame(web_frame_->FirstChild());
 }
 
-void RemoteFrameClientImpl::FrameFocused() const {
-  if (web_frame_->Client())
-    web_frame_->Client()->FrameFocused();
-}
-
 base::UnguessableToken RemoteFrameClientImpl::GetDevToolsFrameToken() const {
   if (web_frame_->Client()) {
     return web_frame_->Client()->GetDevToolsFrameToken();
@@ -109,16 +104,15 @@ void RemoteFrameClientImpl::Navigate(
     bool is_opener_navigation,
     bool has_download_sandbox_flag,
     bool initiator_frame_is_ad,
-    mojom::blink::BlobURLTokenPtr blob_url_token) {
-  bool blocking_downloads_in_sandbox_without_user_activation_enabled =
-      RuntimeEnabledFeatures::
-          BlockingDownloadsInSandboxWithoutUserActivationEnabled();
+    mojo::PendingRemote<mojom::blink::BlobURLToken> blob_url_token) {
+  bool blocking_downloads_in_sandbox_enabled =
+      RuntimeEnabledFeatures::BlockingDownloadsInSandboxEnabled();
   if (web_frame_->Client()) {
     web_frame_->Client()->Navigate(
         WrappedResourceRequest(request), should_replace_current_entry,
         is_opener_navigation, has_download_sandbox_flag,
-        blocking_downloads_in_sandbox_without_user_activation_enabled,
-        initiator_frame_is_ad, blob_url_token.PassInterface().PassHandle());
+        blocking_downloads_in_sandbox_enabled, initiator_frame_is_ad,
+        blob_url_token.PassPipe());
   }
 }
 
@@ -137,13 +131,11 @@ void RemoteFrameClientImpl::CheckCompleted() {
 void RemoteFrameClientImpl::ForwardPostMessage(
     MessageEvent* event,
     scoped_refptr<const SecurityOrigin> target,
-    LocalFrame* source_frame,
-    bool has_user_gesture) const {
+    LocalFrame* source_frame) const {
   if (web_frame_->Client()) {
     web_frame_->Client()->ForwardPostMessage(
         WebLocalFrameImpl::FromFrame(source_frame), web_frame_,
-        WebSecurityOrigin(std::move(target)), WebDOMMessageEvent(event),
-        has_user_gesture);
+        WebSecurityOrigin(std::move(target)), WebDOMMessageEvent(event));
   }
 }
 
@@ -154,10 +146,8 @@ void RemoteFrameClientImpl::FrameRectsChanged(
 }
 
 void RemoteFrameClientImpl::UpdateRemoteViewportIntersection(
-    const IntRect& viewport_intersection,
-    FrameOcclusionState occlusion_state) {
-  web_frame_->Client()->UpdateRemoteViewportIntersection(viewport_intersection,
-                                                         occlusion_state);
+    const ViewportIntersectionState& intersection_state) {
+  web_frame_->Client()->UpdateRemoteViewportIntersection(intersection_state);
 }
 
 void RemoteFrameClientImpl::AdvanceFocus(WebFocusType type,
@@ -166,18 +156,8 @@ void RemoteFrameClientImpl::AdvanceFocus(WebFocusType type,
                                      WebLocalFrameImpl::FromFrame(source));
 }
 
-void RemoteFrameClientImpl::VisibilityChanged(
-    blink::mojom::FrameVisibility visibility) {
-  web_frame_->Client()->VisibilityChanged(visibility);
-}
-
 void RemoteFrameClientImpl::SetIsInert(bool inert) {
   web_frame_->Client()->SetIsInert(inert);
-}
-
-void RemoteFrameClientImpl::SetInheritedEffectiveTouchAction(
-    TouchAction touch_action) {
-  web_frame_->Client()->SetInheritedEffectiveTouchAction(touch_action);
 }
 
 void RemoteFrameClientImpl::UpdateRenderThrottlingStatus(

@@ -20,8 +20,10 @@
 #include "base/time/time.h"
 #include "content/common/content_export.h"
 #include "ipc/ipc_listener.h"
-#include "mojo/public/cpp/bindings/binding.h"
+#include "mojo/public/cpp/bindings/pending_associated_remote.h"
 #include "mojo/public/cpp/bindings/pending_receiver.h"
+#include "mojo/public/cpp/bindings/remote.h"
+#include "mojo/public/cpp/bindings/shared_associated_remote.h"
 #include "third_party/blink/public/common/service_worker/service_worker_status_code.h"
 #include "third_party/blink/public/mojom/background_fetch/background_fetch.mojom.h"
 #include "third_party/blink/public/mojom/blob/blob_registry.mojom.h"
@@ -33,6 +35,7 @@
 #include "third_party/blink/public/mojom/service_worker/service_worker_event_status.mojom.h"
 #include "third_party/blink/public/mojom/service_worker/service_worker_provider.mojom.h"
 #include "third_party/blink/public/mojom/service_worker/service_worker_registration.mojom.h"
+#include "third_party/blink/public/mojom/worker/subresource_loader_updater.mojom.h"
 #include "third_party/blink/public/platform/modules/service_worker/web_service_worker_error.h"
 #include "third_party/blink/public/web/modules/service_worker/web_service_worker_context_client.h"
 #include "third_party/blink/public/web/modules/service_worker/web_service_worker_context_proxy.h"
@@ -47,6 +50,7 @@ class SingleThreadTaskRunner;
 namespace blink {
 class WebServiceWorkerContextProxy;
 class WebURLResponse;
+struct WebServiceWorkerInstalledScriptsManagerParams;
 }
 
 namespace content {
@@ -61,13 +65,16 @@ class WebWorkerFetchContext;
 // starting up, and destroyed when the service worker stops. It is owned by
 // WebEmbeddedWorkerImpl (which is owned by EmbeddedWorkerInstanceClientImpl).
 //
-// This class is created and destroyed on the main thread. Unless otherwise
-// noted (here or in base class documentation), all methods are called on the
-// worker thread.
+// This class is created and destroyed on the "initiator" thread. The initiator
+// thread is the thread that constructs this class. Currently it's the main
+// thread but could be the IO thread in the future. https://crbug.com/692909
+//
+// Unless otherwise noted (here or in base class documentation), all methods
+// are called on the worker thread.
 class CONTENT_EXPORT ServiceWorkerContextClient
     : public blink::WebServiceWorkerContextClient {
  public:
-  // Called on the main thread.
+  // Called on the initiator thread.
   // - |is_starting_installed_worker| is true if the script is already installed
   //   and will be streamed from the browser process.
   // - |owner| must outlive this new instance.
@@ -77,49 +84,60 @@ class CONTENT_EXPORT ServiceWorkerContextClient
   // - |subresource_loader_updater| is a mojo receiver that will be bound to
   //   ServiceWorkerFetchContextImpl. This interface is used to update
   //   subresource loader factories.
+  // - |script_url_to_skip_throttling| is the URL of the service worker script
+  //   that already started being loaded by the browser process due to the
+  //   update check, or the empty URL if there is no such script. See also
+  //   comments in EmbeddedWorkerStartParams::script_url_to_skip_throttling.
   ServiceWorkerContextClient(
       int64_t service_worker_version_id,
       const GURL& service_worker_scope,
       const GURL& script_url,
       bool is_starting_installed_worker,
       blink::mojom::RendererPreferencesPtr renderer_preferences,
-      blink::mojom::ServiceWorkerRequest service_worker_request,
+      mojo::PendingReceiver<blink::mojom::ServiceWorker>
+          service_worker_receiver,
       mojo::PendingReceiver<blink::mojom::ControllerServiceWorker>
           controller_receiver,
-      blink::mojom::EmbeddedWorkerInstanceHostAssociatedPtrInfo instance_host,
+      mojo::PendingAssociatedRemote<blink::mojom::EmbeddedWorkerInstanceHost>
+          instance_host,
       blink::mojom::ServiceWorkerProviderInfoForStartWorkerPtr provider_info,
       EmbeddedWorkerInstanceClientImpl* owner,
       blink::mojom::EmbeddedWorkerStartTimingPtr start_timing,
-      blink::mojom::RendererPreferenceWatcherRequest preference_watcher_request,
-      std::unique_ptr<blink::URLLoaderFactoryBundleInfo> subresource_loaders,
-      mojo::PendingReceiver<blink::mojom::ServiceWorkerSubresourceLoaderUpdater>
+      mojo::PendingReceiver<blink::mojom::RendererPreferenceWatcher>
+          preference_watcher_receiver,
+      std::unique_ptr<blink::PendingURLLoaderFactoryBundle> subresource_loaders,
+      mojo::PendingReceiver<blink::mojom::SubresourceLoaderUpdater>
           subresource_loader_updater,
-      scoped_refptr<base::SingleThreadTaskRunner> main_thread_task_runner);
-  // Called on the main thread.
+      const GURL& script_url_to_skip_throttling,
+      scoped_refptr<base::SingleThreadTaskRunner> initiator_thread_task_runner,
+      int32_t service_worker_route_id);
+  // Called on the initiator thread.
   ~ServiceWorkerContextClient() override;
 
-  // Called on the main thread.
-  void StartWorkerContext(std::unique_ptr<blink::WebEmbeddedWorker> worker,
-                          const blink::WebEmbeddedWorkerStartData& start_data);
-  // Called on the main thread.
+  // Called on the initiator thread.
+  void StartWorkerContextOnInitiatorThread(
+      std::unique_ptr<blink::WebEmbeddedWorker> worker,
+      std::unique_ptr<blink::WebEmbeddedWorkerStartData> start_data,
+      std::unique_ptr<blink::WebServiceWorkerInstalledScriptsManagerParams>,
+      mojo::ScopedMessagePipeHandle content_settings_handle,
+      mojo::ScopedMessagePipeHandle cache_storage,
+      mojo::ScopedMessagePipeHandle browser_interface_broker);
+  // Called on the initiator thread.
   blink::WebEmbeddedWorker& worker();
 
   // WebServiceWorkerContextClient overrides.
-  void WorkerReadyForInspectionOnMainThread() override;
-  void WorkerContextFailedToStartOnMainThread() override;
-  void FailedToLoadClassicScript() override;
+  void WorkerReadyForInspectionOnInitiatorThread(
+      mojo::ScopedMessagePipeHandle devtools_agent_ptr_info,
+      mojo::ScopedMessagePipeHandle devtools_agent_host_request) override;
+  void FailedToFetchClassicScript() override;
   void FailedToFetchModuleScript() override;
-  void WorkerScriptLoadedOnMainThread() override;
   void WorkerScriptLoadedOnWorkerThread() override;
   void WorkerContextStarted(
       blink::WebServiceWorkerContextProxy* proxy,
       scoped_refptr<base::SequencedTaskRunner> worker_task_runner) override;
-  void WillEvaluateScript() override;
+  void WillEvaluateScript(v8::Local<v8::Context> v8_context) override;
   void DidEvaluateScript(bool success) override;
   void WillInitializeWorkerContext() override;
-  void DidInitializeWorkerContext(
-      blink::WebServiceWorkerContextProxy* context_proxy,
-      v8::Local<v8::Context> v8_context) override;
   void WillDestroyWorkerContext(v8::Local<v8::Context> context) override;
   void WorkerContextDestroyed() override;
   void CountFeature(blink::mojom::WebFeature feature) override;
@@ -137,13 +155,8 @@ class CONTENT_EXPORT ServiceWorkerContextClient
                               std::unique_ptr<blink::WebFetchEventPreloadHandle>
                                   preload_handle) override;
   void RequestTermination(RequestTerminationCallback callback) override;
-  std::unique_ptr<blink::WebServiceWorkerNetworkProvider>
-  CreateServiceWorkerNetworkProviderOnMainThread() override;
   scoped_refptr<blink::WebWorkerFetchContext>
-  CreateWorkerFetchContextOnMainThreadLegacy(
-      blink::WebServiceWorkerNetworkProvider*) override;
-  scoped_refptr<blink::WebWorkerFetchContext>
-  CreateWorkerFetchContextOnMainThread() override;
+  CreateWorkerFetchContextOnInitiatorThread() override;
 
   /////////////////////////////////////////////////////////////////////////////
   // The following are for use by NavigationPreloadRequest.
@@ -186,8 +199,8 @@ class CONTENT_EXPORT ServiceWorkerContextClient
 
   void SendWorkerStarted(blink::mojom::ServiceWorkerStartStatus status);
 
-  // Stops the worker context. Called on the main thread.
-  void StopWorkerOnMainThread();
+  // Stops the worker context. Called on the initiator thread.
+  void StopWorkerOnInitiatorThread();
 
   base::WeakPtr<ServiceWorkerContextClient> GetWeakPtr();
 
@@ -198,39 +211,44 @@ class CONTENT_EXPORT ServiceWorkerContextClient
   // startup time.
   const bool is_starting_installed_worker_;
 
+  // See comments in EmbeddedWorkerStartParams::script_url_to_skip_throttling.
+  const GURL script_url_to_skip_throttling_;
+
   blink::mojom::RendererPreferencesPtr renderer_preferences_;
   // Passed on creation of ServiceWorkerFetchContext.
-  blink::mojom::RendererPreferenceWatcherRequest preference_watcher_request_;
+  mojo::PendingReceiver<blink::mojom::RendererPreferenceWatcher>
+      preference_watcher_receiver_;
 
-  scoped_refptr<base::SingleThreadTaskRunner> main_thread_task_runner_;
+  scoped_refptr<base::SingleThreadTaskRunner> initiator_thread_task_runner_;
   scoped_refptr<base::SequencedTaskRunner> worker_task_runner_;
 
   // Not owned; |this| is destroyed when |proxy_| becomes invalid.
   blink::WebServiceWorkerContextProxy* proxy_;
 
   // These Mojo objects are bound on the worker thread.
-  blink::mojom::ServiceWorkerRequest pending_service_worker_request_;
+  mojo::PendingReceiver<blink::mojom::ServiceWorker>
+      pending_service_worker_receiver_;
   mojo::PendingReceiver<blink::mojom::ControllerServiceWorker>
       controller_receiver_;
-  mojo::PendingReceiver<blink::mojom::ServiceWorkerSubresourceLoaderUpdater>
+  mojo::PendingReceiver<blink::mojom::SubresourceLoaderUpdater>
       pending_subresource_loader_updater_;
 
-  // This is bound on the main thread.
-  scoped_refptr<blink::mojom::ThreadSafeEmbeddedWorkerInstanceHostAssociatedPtr>
+  // This is bound on the initiator thread.
+  mojo::SharedAssociatedRemote<blink::mojom::EmbeddedWorkerInstanceHost>
       instance_host_;
 
   // This holds blink.mojom.ServiceWorkerContainer(Host) connections to the
   // browser-side ServiceWorkerProviderHost to keep it alive there.
-  // Note: |service_worker_provider_info_->script_loader_factory_ptr_info| is
+  // Note: |service_worker_provider_info_->script_loader_factory_remote| is
   // moved to WebServiceWorkerNetworkProviderImpl when
   // CreateServiceWorkerNetworkProvider is called.
   blink::mojom::ServiceWorkerProviderInfoForStartWorkerPtr
       service_worker_provider_info_;
 
-  // Must be accessed on the main thread only.
+  // Must be accessed on the initiator thread only.
   EmbeddedWorkerInstanceClientImpl* owner_;
 
-  blink::mojom::BlobRegistryPtr blob_registry_;
+  mojo::Remote<blink::mojom::BlobRegistry> blob_registry_;
 
   // Initialized on the worker thread in WorkerContextStarted and
   // destructed on the worker thread in WillDestroyWorkerContext.
@@ -253,11 +271,12 @@ class CONTENT_EXPORT ServiceWorkerContextClient
 
   // Out-of-process NetworkService:
   // Detects disconnection from the network service.
-  // TODO(crbug.com/955171): Replace this with Remote.
-  network::mojom::URLLoaderFactoryPtr
-      network_service_connection_error_handler_holder_;
+  mojo::Remote<network::mojom::URLLoaderFactory>
+      network_service_disconnect_handler_holder_;
 
   std::unique_ptr<blink::WebEmbeddedWorker> worker_;
+
+  int32_t service_worker_route_id_;
 
   DISALLOW_COPY_AND_ASSIGN(ServiceWorkerContextClient);
 };

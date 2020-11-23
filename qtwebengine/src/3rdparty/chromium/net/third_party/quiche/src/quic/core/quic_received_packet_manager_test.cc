@@ -45,13 +45,13 @@ const QuicTime::Delta kDelayedAckTime =
 struct TestParams {
   explicit TestParams(QuicTransportVersion version) : version(version) {}
 
-  friend std::ostream& operator<<(std::ostream& os, const TestParams& p) {
-    os << "{ version: " << QuicVersionToString(p.version) << " }";
-    return os;
-  }
-
   QuicTransportVersion version;
 };
+
+// Used by ::testing::PrintToStringParamName().
+std::string PrintToString(const TestParams& p) {
+  return QuicVersionToString(p.version);
+}
 
 std::vector<TestParams> GetTestParams() {
   std::vector<TestParams> params;
@@ -90,7 +90,7 @@ class QuicReceivedPacketManagerTest : public QuicTestWithParam<TestParams> {
     received_manager_.MaybeUpdateAckTimeout(
         should_last_packet_instigate_acks,
         QuicPacketNumber(last_received_packet_number), clock_.ApproximateNow(),
-        clock_.ApproximateNow(), &rtt_stats_, kDelayedAckTime);
+        clock_.ApproximateNow(), &rtt_stats_);
   }
 
   void CheckAckTimeout(QuicTime time) {
@@ -110,7 +110,8 @@ class QuicReceivedPacketManagerTest : public QuicTestWithParam<TestParams> {
 
 INSTANTIATE_TEST_SUITE_P(QuicReceivedPacketManagerTest,
                          QuicReceivedPacketManagerTest,
-                         ::testing::ValuesIn(GetTestParams()));
+                         ::testing::ValuesIn(GetTestParams()),
+                         ::testing::PrintToStringParamName());
 
 TEST_P(QuicReceivedPacketManagerTest, DontWaitForPacketsBefore) {
   QuicPacketHeader header;

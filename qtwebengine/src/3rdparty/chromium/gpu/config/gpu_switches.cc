@@ -6,10 +6,6 @@
 
 namespace switches {
 
-// Disable workarounds for various GPU driver bugs.
-const char kDisableGpuDriverBugWorkarounds[] =
-    "disable-gpu-driver-bug-workarounds";
-
 // Disable GPU rasterization, i.e. rasterize on the CPU only.
 // Overrides the kEnableGpuRasterization and kForceGpuRasterization flags.
 const char kDisableGpuRasterization[] = "disable-gpu-rasterization";
@@ -44,13 +40,19 @@ const char kDisableGpuProcessForDX12VulkanInfoCollection[] =
 
 const char kEnableUnsafeWebGPU[] = "enable-unsafe-webgpu";
 
-// Enables WebGL overlays for Windows.
-const char kEnableWebGLSwapChain[] = "enable-webgl-swap-chain";
-
 // Increases the priority (to REALTIME_AUDIO) of gpu process and compositor
 // thread.
 // This is only to be used for perf tests on macOS for more reliable values.
 const char kUseHighGPUThreadPriorityForPerfTests[] =
     "use-gpu-high-thread-priority-for-perf-tests";
+
+// Start the non-sandboxed GPU process for DX12 and Vulkan info collection
+// immediately after the browser starts. The default is to delay for 120
+// seconds.
+const char kNoDelayForDX12VulkanInfoCollection[] =
+    "no-delay-for-dx12-vulkan-info-collection";
+
+// Enables measures of how long GPU Main Thread was blocked between SwapBuffers
+const char kEnableGpuBlockedTime[] = "enable-gpu-blocked-time";
 
 }  // namespace switches

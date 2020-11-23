@@ -30,11 +30,13 @@
 #include "segmentproperties.h"
 
 #include <QPainter>
+#include <QPainterPath>
 #include <QMouseEvent>
 #include <QContextMenuEvent>
 #include <QDebug>
 #include <QApplication>
 #include <QVector>
+#include <QPainterPath>
 
 const int canvasWidth = 640;
 const int canvasHeight = 320;
@@ -674,7 +676,7 @@ void SplineEditor::setEasingCurve(const QString &code)
         return;
     if (code.startsWith(QLatin1Char('[')) && code.endsWith(QLatin1Char(']'))) {
         const QStringRef cleanCode(&code, 1, code.size() - 2);
-        const auto stringList = cleanCode.split(QLatin1Char(','), QString::SkipEmptyParts);
+        const auto stringList = cleanCode.split(QLatin1Char(','), Qt::SkipEmptyParts);
         if (stringList.count() >= 6 && (stringList.count() % 6 == 0)) {
             QVector<qreal> realList;
             realList.reserve(stringList.count());

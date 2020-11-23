@@ -326,11 +326,6 @@ Module {
         Property { name: "contentItem"; type: "QQuickItem"; isPointer: true }
     }
     Component {
-        name: "QQuickControlsPrivate1Attached"
-        prototype: "QObject"
-        Property { name: "window"; type: "QQuickWindow"; isReadonly: true; isPointer: true }
-    }
-    Component {
         name: "QQuickDialog1"
         defaultProperty: "contentItem"
         prototype: "QQuickAbstractDialog"

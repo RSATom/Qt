@@ -108,6 +108,15 @@ const TestParams kTestParams[] = {
     {"has_single_extension.pem", OCSPRevocationStatus::GOOD,
      OCSPVerifyResult::PROVIDED},
 
+    {"has_critical_single_extension.pem", OCSPRevocationStatus::UNKNOWN,
+     OCSPVerifyResult::UNHANDLED_CRITICAL_EXTENSION},
+
+    {"has_critical_response_extension.pem", OCSPRevocationStatus::UNKNOWN,
+     OCSPVerifyResult::UNHANDLED_CRITICAL_EXTENSION},
+
+    {"has_critical_ct_extension.pem", OCSPRevocationStatus::GOOD,
+     OCSPVerifyResult::PROVIDED},
+
     {"missing_response.pem", OCSPRevocationStatus::UNKNOWN,
      OCSPVerifyResult::NO_MATCHING_RESPONSE},
 };
@@ -122,7 +131,7 @@ struct PrintTestName {
   }
 };
 
-INSTANTIATE_TEST_SUITE_P(,
+INSTANTIATE_TEST_SUITE_P(All,
                          CheckOCSPTest,
                          ::testing::ValuesIn(kTestParams),
                          PrintTestName());
@@ -180,7 +189,7 @@ base::StringPiece kGetURLTestParams[] = {
 class CreateOCSPGetURLTest
     : public ::testing::TestWithParam<base::StringPiece> {};
 
-INSTANTIATE_TEST_SUITE_P(,
+INSTANTIATE_TEST_SUITE_P(All,
                          CreateOCSPGetURLTest,
                          ::testing::ValuesIn(kGetURLTestParams));
 

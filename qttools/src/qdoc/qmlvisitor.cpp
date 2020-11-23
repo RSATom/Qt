@@ -76,11 +76,11 @@ QmlDocVisitor::~QmlDocVisitor()
 /*!
   Returns the location of the nearest comment above the \a offset.
  */
-QQmlJS::AST::SourceLocation QmlDocVisitor::precedingComment(quint32 offset) const
+QQmlJS::SourceLocation QmlDocVisitor::precedingComment(quint32 offset) const
 {
     const auto comments = engine->comments();
     for (auto it = comments.rbegin(); it != comments.rend(); ++it) {
-        QQmlJS::AST::SourceLocation loc = *it;
+        QQmlJS::SourceLocation loc = *it;
 
         if (loc.begin() <= lastEndOffset) {
             // Return if we reach the end of the preceding structure.
@@ -99,7 +99,7 @@ QQmlJS::AST::SourceLocation QmlDocVisitor::precedingComment(quint32 offset) cons
         }
     }
 
-    return QQmlJS::AST::SourceLocation();
+    return QQmlJS::SourceLocation();
 }
 
 class QmlSignatureParser
@@ -134,9 +134,9 @@ private:
   If a qdoc comment is found for \a location, true is returned.
   If a comment is not found there, false is returned.
  */
-bool QmlDocVisitor::applyDocumentation(QQmlJS::AST::SourceLocation location, Node *node)
+bool QmlDocVisitor::applyDocumentation(QQmlJS::SourceLocation location, Node *node)
 {
-    QQmlJS::AST::SourceLocation loc = precedingComment(location.begin());
+    QQmlJS::SourceLocation loc = precedingComment(location.begin());
 
     if (loc.isValid()) {
         QString source = document.mid(loc.offset, loc.length);
@@ -188,7 +188,7 @@ bool QmlDocVisitor::applyDocumentation(QQmlJS::AST::SourceLocation location, Nod
                         }
                     } else
                         qDebug() << "  FAILED TO PARSE QML OR JS PROPERTY:" << topic << args;
-                } else if (topic.endsWith(QLatin1String("method"))) {
+                } else if (topic.endsWith(QLatin1String("method")) || topic == COMMAND_QMLSIGNAL) {
                     if (node->isFunction()) {
                         FunctionNode *fn = static_cast<FunctionNode *>(node);
                         QmlSignatureParser qsp(fn, args, doc.location());
@@ -419,7 +419,7 @@ bool QmlDocVisitor::splitQmlPropertyArg(const Doc &doc, const QString &arg, QmlP
 /*!
   Applies the metacommands found in the comment.
  */
-void QmlDocVisitor::applyMetacommands(QQmlJS::AST::SourceLocation, Node *node, Doc &doc)
+void QmlDocVisitor::applyMetacommands(QQmlJS::SourceLocation, Node *node, Doc &doc)
 {
     QDocDatabase *qdb = QDocDatabase::qdocDB();
     QSet<QString> metacommands = doc.metaCommandsUsed();
@@ -453,8 +453,6 @@ void QmlDocVisitor::applyMetacommands(QQmlJS::AST::SourceLocation, Node *node, D
                 node->setStatus(Node::Internal);
             } else if (command == COMMAND_OBSOLETE) {
                 node->setStatus(Node::Obsolete);
-            } else if (command == COMMAND_PAGEKEYWORDS) {
-                // Not done yet. Do we need this?
             } else if (command == COMMAND_PRELIMINARY) {
                 node->setStatus(Node::Preliminary);
             } else if (command == COMMAND_SINCE) {
@@ -540,10 +538,14 @@ bool QmlDocVisitor::visit(QQmlJS::AST::UiImport *import)
     QString name = document.mid(import->fileNameToken.offset, import->fileNameToken.length);
     if (name[0] == '\"')
         name = name.mid(1, name.length() - 2);
-    QString version = document.mid(import->versionToken.offset, import->versionToken.length);
+    QString version;
+    if (import->version) {
+        const auto start = import->version->firstSourceLocation().begin();
+        const auto end = import->version->lastSourceLocation().end();
+        version = document.mid(start, end - start);
+    }
     QString importId = document.mid(import->importIdToken.offset, import->importIdToken.length);
     QString importUri = getFullyQualifiedId(import->importUri);
-    QString reconstructed = importUri + QLatin1Char(' ') + version;
     importList.append(ImportRec(name, version, importId, importUri));
 
     return true;
@@ -684,7 +686,14 @@ bool QmlDocVisitor::visit(QQmlJS::AST::FunctionDeclaration *fd)
         if (formals) {
             QQmlJS::AST::FormalParameterList *fp = formals;
             do {
-                parameters.append(QString(), QString(), fp->element->bindingIdentifier.toString());
+                QString defaultValue;
+                auto initializer = fp->element->initializer;
+                if (initializer) {
+                    auto loc = initializer->firstSourceLocation();
+                    defaultValue = document.mid(loc.begin(), loc.length);
+                }
+                parameters.append(QString(), fp->element->bindingIdentifier.toString(),
+                        defaultValue);
                 fp = fp->next;
             } while (fp && fp != formals);
         }

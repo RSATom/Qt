@@ -27,6 +27,8 @@
 #ifndef THIRD_PARTY_BLINK_RENDERER_MODULES_CANVAS_CANVAS2D_CANVAS_RENDERING_CONTEXT_2D_H_
 #define THIRD_PARTY_BLINK_RENDERER_MODULES_CANVAS_CANVAS2D_CANVAS_RENDERING_CONTEXT_2D_H_
 
+#include <random>
+
 #include "base/macros.h"
 #include "third_party/blink/renderer/core/html/canvas/canvas_context_creation_attributes_core.h"
 #include "third_party/blink/renderer/core/html/canvas/canvas_rendering_context.h"
@@ -85,7 +87,7 @@ class MODULES_EXPORT CanvasRenderingContext2D final
           static_cast<HTMLCanvasElement*>(host), attrs);
     }
     CanvasRenderingContext::ContextType GetContextType() const override {
-      return CanvasRenderingContext::kContext2d;
+      return CanvasRenderingContext::kContext2D;
     }
 
    private:
@@ -168,7 +170,6 @@ class MODULES_EXPORT CanvasRenderingContext2D final
     return CanvasRenderingContext::WouldTaintOrigin(source);
   }
   void DisableAcceleration() override;
-  void DidInvokeGPUReadbackInCurrentFrame() override;
 
   int Width() const final;
   int Height() const final;
@@ -181,7 +182,7 @@ class MODULES_EXPORT CanvasRenderingContext2D final
   cc::PaintCanvas* ExistingDrawingCanvas() const final;
 
   void DidDraw(const SkIRect& dirty_rect) final;
-  scoped_refptr<StaticBitmapImage> GetImage(AccelerationHint) const final;
+  scoped_refptr<StaticBitmapImage> GetImage(AccelerationHint) final;
 
   bool StateHasFilter() final;
   sk_sp<PaintFilter> StateGetFilter() final;
@@ -189,9 +190,11 @@ class MODULES_EXPORT CanvasRenderingContext2D final
 
   void ValidateStateStack() const final;
 
-  void FinalizeFrame() override { usage_counters_.num_frames_since_reset++; }
+  void FinalizeFrame() override;
 
-  bool IsPaintable() const final { return canvas()->GetCanvas2DLayerBridge(); }
+  bool IsPaintable() const final {
+    return canvas() && canvas()->GetCanvas2DLayerBridge();
+  }
 
   void WillDrawImage(CanvasImageSource*) const final;
 
@@ -200,10 +203,6 @@ class MODULES_EXPORT CanvasRenderingContext2D final
   CanvasColorParams ColorParamsForTest() const { return ColorParams(); }
 
  protected:
-  void NeedsFinalizeFrame() override {
-    CanvasRenderingContext::NeedsFinalizeFrame();
-  }
-
   CanvasColorParams ColorParams() const override;
   bool WritePixels(const SkImageInfo& orig_info,
                    const void* pixels,
@@ -237,7 +236,7 @@ class MODULES_EXPORT CanvasRenderingContext2D final
   void UpdateElementAccessibility(const Path&, Element*);
 
   CanvasRenderingContext::ContextType GetContextType() const override {
-    return CanvasRenderingContext::kContext2d;
+    return CanvasRenderingContext::kContext2D;
   }
 
   String ColorSpaceAsString() const override;
@@ -248,7 +247,8 @@ class MODULES_EXPORT CanvasRenderingContext2D final
   bool IsAccelerated() const override;
   bool IsOriginTopLeft() const override;
   bool HasAlpha() const override { return CreationAttributes().alpha; }
-  void SetIsHidden(bool) override;
+  void SetIsInHiddenPage(bool) override;
+  void SetIsBeingDisplayed(bool) override;
   void Stop() final;
 
   bool IsTransformInvertible() const override;
@@ -270,6 +270,10 @@ class MODULES_EXPORT CanvasRenderingContext2D final
   HashMap<String, Font> fonts_resolved_using_current_style_;
   bool should_prune_local_font_cache_;
   LinkedHashSet<String> font_lru_list_;
+
+  static constexpr float kRasterMetricProbability = 0.01;
+  std::mt19937 random_generator_;
+  std::bernoulli_distribution bernoulli_distribution_;
 };
 
 }  // namespace blink

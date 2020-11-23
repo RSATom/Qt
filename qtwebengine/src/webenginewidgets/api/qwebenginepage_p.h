@@ -79,8 +79,6 @@ class QWebEngineProfile;
 class QWebEngineSettings;
 class QWebEngineView;
 
-QWebEnginePage::WebAction editorActionForKeyEvent(QKeyEvent* event);
-
 class QWebEnginePagePrivate : public QtWebEngineCore::WebContentsAdapterClient
 {
 public:
@@ -103,6 +101,7 @@ public:
     void didUpdateTargetURL(const QUrl&) override;
     void selectionChanged() override;
     void recentlyAudibleChanged(bool recentlyAudible) override;
+    void renderProcessPidChanged(qint64 pid) override;
     QRectF viewportRect() const override;
     QColor backgroundColor() const override;
     void loadStarted(const QUrl &provisionalUrl, bool isErrorPage = false) override;
@@ -111,10 +110,10 @@ public:
     void loadFinished(bool success, const QUrl &url, bool isErrorPage = false, int errorCode = 0, const QString &errorDescription = QString()) override;
     void focusContainer() override;
     void unhandledKeyEvent(QKeyEvent *event) override;
-    void adoptNewWindow(QSharedPointer<QtWebEngineCore::WebContentsAdapter> newWebContents, WindowOpenDisposition disposition, bool userGesture, const QRect &initialGeometry, const QUrl &targetUrl) override;
-    void adoptNewWindowImpl(QWebEnginePage *newPage,
-            const QSharedPointer<QtWebEngineCore::WebContentsAdapter> &newWebContents,
-            const QRect &initialGeometry);
+    QSharedPointer<QtWebEngineCore::WebContentsAdapter>
+    adoptNewWindow(QSharedPointer<QtWebEngineCore::WebContentsAdapter> newWebContents,
+                   WindowOpenDisposition disposition, bool userGesture,
+                   const QRect &initialGeometry, const QUrl &targetUrl) override;
     bool isBeingAdopted() override;
     void close() override;
     void windowCloseRejected() override;
@@ -135,8 +134,7 @@ public:
     void authenticationRequired(QSharedPointer<QtWebEngineCore::AuthenticationDialogController>) override;
     void releaseProfile() override;
     void runMediaAccessPermissionRequest(const QUrl &securityOrigin, MediaRequestFlags requestFlags) override;
-    void runGeolocationPermissionRequest(const QUrl &securityOrigin) override;
-    void runUserNotificationPermissionRequest(const QUrl &securityOrigin) override;
+    void runFeaturePermissionRequest(QtWebEngineCore::ProfileAdapter::PermissionType permission, const QUrl &securityOrigin) override;
     void runMouseLockPermissionRequest(const QUrl &securityOrigin) override;
     void runQuotaRequest(QWebEngineQuotaRequest) override;
     void runRegisterProtocolHandlerRequest(QWebEngineRegisterProtocolHandlerRequest) override;
@@ -161,7 +159,6 @@ public:
     void hideTouchSelectionMenu() override { }
     const QObject *holdingQObject() const override;
     ClientType clientType() override { return QtWebEngineCore::WebContentsAdapterClient::WidgetsClient; }
-    void interceptRequest(QWebEngineUrlRequestInfo &) override;
     void widgetChanged(QtWebEngineCore::RenderWidgetHostViewQtDelegate *newWidget) override;
     void findTextFinished(const QWebEngineFindTextResult &result) override;
 
@@ -202,7 +199,6 @@ public:
     bool defaultAudioMuted;
     qreal defaultZoomFactor;
     QTimer wasShownTimer;
-    QWebEngineUrlRequestInterceptor *requestInterceptor;
     QtWebEngineCore::RenderWidgetHostViewQtDelegateWidget *widget = nullptr;
 
     mutable QtWebEngineCore::CallbackDirectory m_callbacks;

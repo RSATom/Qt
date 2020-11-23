@@ -6,6 +6,7 @@ TEMPLATE = subdirs
 SUBDIRS += \
     dialogs \
     inspectorserver \
+    qmltests \
     publicapi \
     qquickwebenginedefaultsurfaceformat \
     qquickwebengineview \
@@ -13,9 +14,11 @@ SUBDIRS += \
 
 qtConfig(webengine-testsupport) {
     SUBDIRS += \
-        qmltests \
+        qmltests2 \
         qquickwebengineviewgraphics
 }
 
+qtConfig(ssl): SUBDIRS += qmltests_ssl
+
 # QTBUG-66055
-boot2qt: SUBDIRS -= inspectorserver qquickwebengineview qmltests
+boot2qt: SUBDIRS -= inspectorserver qquickwebengineview qmltests qmltests2

@@ -154,7 +154,7 @@ class OutputController : public media::AudioOutputStream::AudioSourceCallback,
                  base::TimeTicks delay_timestamp,
                  int prior_frames_skipped,
                  media::AudioBus* dest) override;
-  void OnError() override;
+  void OnError(ErrorType type) override;
 
   // LoopbackGroupMember implementation.
   const media::AudioParameters& GetAudioParameters() const override;
@@ -306,7 +306,7 @@ class OutputController : public media::AudioOutputStream::AudioSourceCallback,
   // WeakPtrFactory+WeakPtr that is used to post tasks that are canceled when a
   // stream is closed.
   base::WeakPtr<OutputController> weak_this_for_stream_;
-  base::WeakPtrFactory<OutputController> weak_factory_for_stream_;
+  base::WeakPtrFactory<OutputController> weak_factory_for_stream_{this};
 
   DISALLOW_COPY_AND_ASSIGN(OutputController);
 };

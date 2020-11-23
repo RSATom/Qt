@@ -46,6 +46,7 @@
 #include "third_party/blink/renderer/core/frame/visual_viewport.h"
 #include "third_party/blink/renderer/core/fullscreen/fullscreen_options.h"
 #include "third_party/blink/renderer/core/fullscreen/scoped_allow_fullscreen.h"
+#include "third_party/blink/renderer/core/html/html_body_element.h"
 #include "third_party/blink/renderer/core/html/html_iframe_element.h"
 #include "third_party/blink/renderer/core/html_element_type_helpers.h"
 #include "third_party/blink/renderer/core/input/event_handler.h"
@@ -88,7 +89,7 @@ void FullscreenElementChanged(Document& document,
     // fullscreen element. Hence, it must match :-webkit-full-screen-ancestor.
     if (new_request_type ==
         Fullscreen::RequestType::kPrefixedForCrossProcessDescendant) {
-      DCHECK(IsHTMLIFrameElement(new_element));
+      DCHECK(IsA<HTMLIFrameElement>(new_element));
       new_element->SetContainsFullScreenElement(true);
     }
     new_element->SetContainsFullScreenElementOnAncestorsCrossingFrameBoundaries(
@@ -238,6 +239,19 @@ bool AllowedToRequestFullscreen(Document& document) {
     return true;
   }
 
+  if (document.IsImmersiveArOverlay()) {
+    // This is a workaround for lack of a user activation when an immersive-ar
+    // session is starting. If the app sets an element fullscreen in the "Enter
+    // AR" button click, that gets unfullscreened when the browser shows its AR
+    // session consent prompt. By the time the session starts, the 5-second
+    // timer for the initial user activation is likely to have expired. This
+    // also allows switching the active fullscreen element during the session.
+    // Note that exiting the immersive-ar session does FullyExitFullscreen to
+    // ensure a consistent post-session state.
+    DVLOG(1) << __func__ << ": allowing fullscreen immersive-ar DOM overlay";
+    return true;
+  }
+
   String message = ExceptionMessages::FailedToExecute(
       "requestFullscreen", "Element",
       "API can only be initiated by a user gesture.");
@@ -282,11 +296,11 @@ bool FullscreenElementReady(const Element& element,
 bool RequestFullscreenConditionsMet(Element& pending, Document& document) {
   // |pending|'s namespace is the HTML namespace or |pending| is an SVG svg or
   // MathML math element. Note: MathML is not supported.
-  if (!pending.IsHTMLElement() && !IsSVGSVGElement(pending))
+  if (!pending.IsHTMLElement() && !IsA<SVGSVGElement>(pending))
     return false;
 
   // |pending| is not a dialog element.
-  if (IsHTMLDialogElement(pending))
+  if (IsA<HTMLDialogElement>(pending))
     return false;
 
   // The fullscreen element ready check for |pending| returns false.
@@ -463,11 +477,6 @@ void EnqueueEvent(const AtomicString& type,
                                                WrapPersistent(&document)));
 }
 
-void DidEnterFullscreenTask(Document* document) {
-  DCHECK(document);
-  Fullscreen::DidEnterFullscreen(*document);
-}
-
 }  // anonymous namespace
 
 const char Fullscreen::kSupplementName[] = "Fullscreen";
@@ -626,7 +635,8 @@ ScriptPromise Fullscreen::RequestFullscreen(Element& pending,
     From(document).pending_requests_.push_back(
         MakeGarbageCollected<PendingRequest>(&pending, request_type, resolver));
     LocalFrame& frame = *document.GetFrame();
-    frame.GetChromeClient().EnterFullscreen(frame, options);
+    frame.GetChromeClient().EnterFullscreen(frame, options,
+                                            for_cross_process_descendant);
   } else {
     // Note: Although we are past the "in parallel" point, it's OK to continue
     // synchronously because when |error| is true, |ContinueRequestFullscreen()|
@@ -639,14 +649,19 @@ ScriptPromise Fullscreen::RequestFullscreen(Element& pending,
   return promise;
 }
 
-void Fullscreen::DidEnterFullscreen(Document& document) {
+void Fullscreen::DidResolveEnterFullscreenRequest(Document& document,
+                                                  bool granted) {
   // We may be called synchronously from within
   // |FullscreenController::EnterFullscreen()| if we were already fullscreen,
   // but must still not synchronously change the fullscreen element. Instead
   // enqueue a microtask to continue.
   if (RequestFullscreenScope::RunningRequestFullscreen()) {
-    Microtask::EnqueueMicrotask(
-        WTF::Bind(DidEnterFullscreenTask, WrapPersistent(&document)));
+    Microtask::EnqueueMicrotask(WTF::Bind(
+        [](Document* document, bool granted) {
+          DCHECK(document);
+          DidResolveEnterFullscreenRequest(*document, granted);
+        },
+        WrapPersistent(&document), granted));
     return;
   }
 
@@ -654,7 +669,7 @@ void Fullscreen::DidEnterFullscreen(Document& document) {
   requests.swap(From(document).pending_requests_);
   for (const Member<PendingRequest>& request : requests) {
     ContinueRequestFullscreen(document, *request->element(), request->type(),
-                              request->resolver(), false /* error */);
+                              request->resolver(), !granted);
   }
 }
 

@@ -45,8 +45,19 @@ With the Qt NFC API typical use cases are:
 
 The following sections describe how to use Qt NFC C++ classes and QML types for the above use cases.
 
-\note On Android, Qt Nfc only works in foreground applications. Android services are not supported which is due to
-API limitations on the Android side.
+\note On Android, the detection of new NFC tags only works in foreground applications. Android
+services do not support this because of API limitations on the Android side. The only way to use a
+\l{https://developer.android.com/reference/android/nfc/Tag}{Tag} in a service is to provide an
+\l{https://developer.android.com/guide/components/aidl}{AIDL} interface accepting the Tag and forward
+it to Qt as shown in the following example.
+
+\code
+    public void setTag(Tag pTag) {
+        Intent newIntent = new Intent();
+        newIntent.putExtra(NfcAdapter.EXTRA_TAG, pTag);
+        QtNative.onNewIntent(newIntent);
+    }
+\ endcode
 
 \section1 C++ Overview
 

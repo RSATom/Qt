@@ -15,6 +15,8 @@
 
 namespace net {
 
+// TODO(crbug/988608): Convert to SpdyStreamPrecedence directly instead of to
+// SpdyPriority which will go away eventually.
 NET_EXPORT_PRIVATE spdy::SpdyPriority ConvertRequestPriorityToQuicPriority(
     RequestPriority priority);
 
@@ -40,8 +42,7 @@ NET_EXPORT base::Value QuicResponseNetLogParams(
 // all entries that aren't found in |supported_versions|.
 NET_EXPORT quic::ParsedQuicVersionVector FilterSupportedAltSvcVersions(
     const spdy::SpdyAltSvcWireFormat::AlternativeService& quic_alt_svc,
-    const quic::ParsedQuicVersionVector& supported_versions,
-    bool support_ietf_format_quic_altsvc);
+    const quic::ParsedQuicVersionVector& supported_versions);
 
 }  // namespace net
 

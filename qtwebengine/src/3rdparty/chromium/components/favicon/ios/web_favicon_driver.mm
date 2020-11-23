@@ -13,7 +13,7 @@
 #include "ios/web/public/navigation/navigation_context.h"
 #include "ios/web/public/navigation/navigation_item.h"
 #include "ios/web/public/navigation/navigation_manager.h"
-#include "ios/web/public/web_state/web_state.h"
+#import "ios/web/public/web_state.h"
 #include "services/network/public/cpp/shared_url_loader_factory.h"
 #include "skia/ext/skia_utils_ios.h"
 #include "third_party/skia/include/core/SkBitmap.h"
@@ -22,14 +22,6 @@
 #if !defined(__has_feature) || !__has_feature(objc_arc)
 #error "This file requires ARC support."
 #endif
-
-// Callback for the download of favicon.
-using ImageDownloadCallback =
-    base::Callback<void(int image_id,
-                        int http_status_code,
-                        const GURL& image_url,
-                        const std::vector<SkBitmap>& bitmaps,
-                        const std::vector<gfx::Size>& sizes)>;
 
 namespace favicon {
 

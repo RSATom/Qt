@@ -12,13 +12,16 @@
 #include "ui/events/ozone/evdev/touch_filter/shared_palm_detection_filter_state.h"
 
 namespace ui {
+
 class HeuristicStylusPalmDetectionFilterTest : public testing::Test {
  public:
   HeuristicStylusPalmDetectionFilterTest() = default;
   void SetUp() override {
-    shared_palm_state.reset(new SharedPalmDetectionFilterState);
-    palm_detection_filter_.reset(new HeuristicStylusPalmDetectionFilter(
-        shared_palm_state.get(), hold_sample_count, hold_time, suppress_time));
+    shared_palm_state = std::make_unique<SharedPalmDetectionFilterState>();
+    palm_detection_filter_ =
+        std::make_unique<HeuristicStylusPalmDetectionFilter>(
+            shared_palm_state.get(), hold_sample_count, hold_time,
+            suppress_time);
     touches_.resize(kNumTouchEvdevSlots);
     test_start_time_ = base::TimeTicks::Now();
   }
@@ -30,10 +33,12 @@ class HeuristicStylusPalmDetectionFilterTest : public testing::Test {
 
   const base::TimeDelta sample_interval =
       base::TimeDelta::FromMillisecondsD(7.5);
+
   std::unique_ptr<SharedPalmDetectionFilterState> shared_palm_state;
   std::unique_ptr<PalmDetectionFilter> palm_detection_filter_;
   std::vector<InProgressTouchEvdev> touches_;
   base::TimeTicks test_start_time_;
+
   DISALLOW_COPY_AND_ASSIGN(HeuristicStylusPalmDetectionFilterTest);
 };
 
@@ -43,9 +48,10 @@ class HeuristicStylusPalmDetectionFilterDeathTest
 TEST_F(HeuristicStylusPalmDetectionFilterDeathTest, TestDCheck) {
   // We run with a time where hold_time < suppress_time, which should DCHECK.
   EXPECT_DCHECK_DEATH(
-      palm_detection_filter_.reset(new HeuristicStylusPalmDetectionFilter(
-          shared_palm_state.get(), hold_sample_count, hold_time,
-          hold_time + base::TimeDelta::FromMillisecondsD(0.1))));
+      palm_detection_filter_ =
+          std::make_unique<HeuristicStylusPalmDetectionFilter>(
+              shared_palm_state.get(), hold_sample_count, hold_time,
+              hold_time + base::TimeDelta::FromMillisecondsD(0.1)));
 }
 
 TEST_F(HeuristicStylusPalmDetectionFilterTest, TestSetsToZero) {
@@ -101,6 +107,7 @@ TEST_F(HeuristicStylusPalmDetectionFilterTest, TestHoldAfterStylus) {
   palm_detection_filter_->Filter(touches_, test_start_time_, &hold, &suppress);
   EXPECT_TRUE(hold.none());
   EXPECT_TRUE(suppress.none());
+  EXPECT_EQ(0u, shared_palm_state->active_finger_touches);
 
   // Now, lets start two touches a little before end of hold time.
   touches_[0].tool_code = 0;
@@ -127,8 +134,11 @@ TEST_F(HeuristicStylusPalmDetectionFilterTest, TestHoldAfterStylus) {
       hold.reset(0);
       hold.reset(1);
       EXPECT_TRUE(hold.none());
-
+      ASSERT_EQ(0u, shared_palm_state->active_finger_touches)
+          << " Failed at i = " << i;
     } else {
+      ASSERT_EQ(2u, shared_palm_state->active_finger_touches)
+          << " Failed at i = " << i;
       EXPECT_TRUE(hold.none());
     }
   }
@@ -147,6 +157,7 @@ TEST_F(HeuristicStylusPalmDetectionFilterTest, TestNothingLongAfterStylus) {
   base::TimeTicks start_time =
       test_start_time_ + hold_time + base::TimeDelta::FromMillisecondsD(1e-2);
   palm_detection_filter_->Filter(touches_, start_time, &hold, &suppress);
+  EXPECT_EQ(2u, shared_palm_state->active_finger_touches);
   EXPECT_TRUE(hold.none());
   EXPECT_TRUE(suppress.none());
 }
@@ -171,4 +182,5 @@ TEST_F(HeuristicStylusPalmDetectionFilterTest, TestHover) {
   hold.reset(0);
   EXPECT_TRUE(hold.none());
 }
+
 }  // namespace ui

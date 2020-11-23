@@ -29,16 +29,17 @@ TestNetworkQualityEstimator::TestNetworkQualityEstimator()
 
 TestNetworkQualityEstimator::TestNetworkQualityEstimator(
     const std::map<std::string, std::string>& variation_params)
-    : TestNetworkQualityEstimator(variation_params,
-                                  true,
-                                  true,
-                                  std::make_unique<BoundTestNetLog>()) {}
+    : TestNetworkQualityEstimator(
+          variation_params,
+          true,
+          true,
+          std::make_unique<RecordingBoundTestNetLog>()) {}
 
 TestNetworkQualityEstimator::TestNetworkQualityEstimator(
     const std::map<std::string, std::string>& variation_params,
     bool allow_local_host_requests_for_tests,
     bool allow_smaller_responses_for_tests,
-    std::unique_ptr<BoundTestNetLog> net_log)
+    std::unique_ptr<RecordingBoundTestNetLog> net_log)
     : TestNetworkQualityEstimator(variation_params,
                                   allow_local_host_requests_for_tests,
                                   allow_smaller_responses_for_tests,
@@ -50,7 +51,7 @@ TestNetworkQualityEstimator::TestNetworkQualityEstimator(
     bool allow_local_host_requests_for_tests,
     bool allow_smaller_responses_for_tests,
     bool suppress_notifications_for_testing,
-    std::unique_ptr<BoundTestNetLog> net_log)
+    std::unique_ptr<RecordingBoundTestNetLog> net_log)
     : NetworkQualityEstimator(
           std::make_unique<NetworkQualityEstimatorParams>(variation_params),
           net_log->bound().net_log()),
@@ -64,18 +65,18 @@ TestNetworkQualityEstimator::TestNetworkQualityEstimator(
 
 TestNetworkQualityEstimator::TestNetworkQualityEstimator(
     std::unique_ptr<NetworkQualityEstimatorParams> params)
-    : TestNetworkQualityEstimator(std::move(params),
-                                  std::make_unique<BoundTestNetLog>()) {}
+    : TestNetworkQualityEstimator(
+          std::move(params),
+          std::make_unique<RecordingBoundTestNetLog>()) {}
 
 TestNetworkQualityEstimator::TestNetworkQualityEstimator(
     std::unique_ptr<NetworkQualityEstimatorParams> params,
-    std::unique_ptr<BoundTestNetLog> net_log)
+    std::unique_ptr<RecordingBoundTestNetLog> net_log)
     : NetworkQualityEstimator(std::move(params), net_log->bound().net_log()),
       net_log_(std::move(net_log)),
       current_network_type_(NetworkChangeNotifier::CONNECTION_UNKNOWN),
       embedded_test_server_(base::FilePath(kTestFilePath)),
-      suppress_notifications_for_testing_(false) {
-}
+      suppress_notifications_for_testing_(false) {}
 
 TestNetworkQualityEstimator::~TestNetworkQualityEstimator() = default;
 
@@ -129,16 +130,7 @@ TestNetworkQualityEstimator::GetEffectiveConnectionType() const {
 }
 
 EffectiveConnectionType
-TestNetworkQualityEstimator::GetRecentEffectiveConnectionType(
-    const base::TimeTicks& start_time) const {
-  if (recent_effective_connection_type_)
-    return recent_effective_connection_type_.value();
-  return NetworkQualityEstimator::GetRecentEffectiveConnectionType(start_time);
-}
-
-EffectiveConnectionType
-TestNetworkQualityEstimator::GetRecentEffectiveConnectionTypeAndNetworkQuality(
-    const base::TimeTicks& start_time,
+TestNetworkQualityEstimator::GetRecentEffectiveConnectionTypeUsingMetrics(
     base::TimeDelta* http_rtt,
     base::TimeDelta* transport_rtt,
     base::TimeDelta* end_to_end_rtt,
@@ -146,18 +138,17 @@ TestNetworkQualityEstimator::GetRecentEffectiveConnectionTypeAndNetworkQuality(
     size_t* observations_count,
     size_t* end_to_end_rtt_observation_count) const {
   if (recent_effective_connection_type_) {
-    GetRecentRTT(nqe::internal::OBSERVATION_CATEGORY_HTTP, start_time, http_rtt,
-                 nullptr);
-    GetRecentRTT(nqe::internal::OBSERVATION_CATEGORY_TRANSPORT, start_time,
-                 transport_rtt, observations_count);
-    GetRecentDownlinkThroughputKbps(start_time, downstream_throughput_kbps);
+    GetRecentRTT(nqe::internal::OBSERVATION_CATEGORY_HTTP, base::TimeTicks(),
+                 http_rtt, nullptr);
+    GetRecentRTT(nqe::internal::OBSERVATION_CATEGORY_TRANSPORT,
+                 base::TimeTicks(), transport_rtt, observations_count);
+    GetRecentDownlinkThroughputKbps(base::TimeTicks(),
+                                    downstream_throughput_kbps);
     return recent_effective_connection_type_.value();
   }
-  return NetworkQualityEstimator::
-      GetRecentEffectiveConnectionTypeAndNetworkQuality(
-          start_time, http_rtt, transport_rtt, end_to_end_rtt,
-          downstream_throughput_kbps, observations_count,
-          end_to_end_rtt_observation_count);
+  return NetworkQualityEstimator::GetRecentEffectiveConnectionTypeUsingMetrics(
+      http_rtt, transport_rtt, end_to_end_rtt, downstream_throughput_kbps,
+      observations_count, end_to_end_rtt_observation_count);
 }
 
 bool TestNetworkQualityEstimator::GetRecentRTT(

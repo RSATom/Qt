@@ -172,7 +172,8 @@ class CONTENT_EXPORT RenderWidgetHostInputEventRouter
                                  RenderWidgetHostViewBase* target) override;
   void SetCursor(const WebCursor& cursor) override;
   void ShowContextMenuAtPoint(const gfx::Point& point,
-                              const ui::MenuSourceType source_type) override;
+                              const ui::MenuSourceType source_type,
+                              RenderWidgetHostViewBase* target) override;
 
   // HitTestRegionObserver
   void OnAggregatedHitTestRegionListUpdated(
@@ -188,11 +189,7 @@ class CONTENT_EXPORT RenderWidgetHostInputEventRouter
     route_to_root_for_devtools_ = route;
   }
 
-  // Makes the appropriate RenderWidgetHosts ignore touch acks for events
-  // rooted at |root_view| that are pending acks. This is used when we replace
-  // the view of a RenderWidgetHost with a new view and should be called before
-  // destroying the old view.
-  void IgnoreUnackedTouchEvents(RenderWidgetHostViewBase* root_view);
+  void SetAutoScrollInProgress(bool is_autoscroll_in_progress);
 
  private:
   FRIEND_TEST_ALL_PREFIXES(BrowserSideFlingBrowserTest,
@@ -232,9 +229,16 @@ class CONTENT_EXPORT RenderWidgetHostInputEventRouter
   // properly fire. This method determines which RenderWidgetHostViews other
   // than the actual target require notification, and sends the appropriate
   // events to them. |event| should be in |root_view|'s coordinate space.
-  void SendMouseEnterOrLeaveEvents(const blink::WebMouseEvent& event,
-                                   RenderWidgetHostViewBase* target,
-                                   RenderWidgetHostViewBase* root_view);
+  // |include_target_view| indicates whether a MouseEnter should also be sent
+  // to |target|, which is typically not needed if this is invoked while a
+  // MouseMove already being sent there.
+  void SendMouseEnterOrLeaveEvents(
+      const blink::WebMouseEvent& event,
+      RenderWidgetHostViewBase* target,
+      RenderWidgetHostViewBase* root_view,
+      blink::WebInputEvent::Modifiers extra_modifiers =
+          blink::WebInputEvent::Modifiers::kNoModifiers,
+      bool include_target_view = false);
 
   void CancelScrollBubbling();
 
@@ -314,7 +318,7 @@ class CONTENT_EXPORT RenderWidgetHostInputEventRouter
   void DispatchEventToTarget(
       RenderWidgetHostViewBase* root_view,
       RenderWidgetHostViewBase* target,
-      const blink::WebInputEvent& event,
+      blink::WebInputEvent* event,
       const ui::LatencyInfo& latency,
       const base::Optional<gfx::PointF>& target_location) override;
   // Notify whether the events in the queue are being flushed due to touch ack

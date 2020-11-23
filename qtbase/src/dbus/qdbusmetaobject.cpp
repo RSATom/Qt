@@ -138,7 +138,7 @@ static int registerComplexDBusType(const char *typeName)
         static void *construct(void *, const void *)
         {
             qFatal("Cannot construct placeholder type QDBusRawType");
-            return 0;
+            return nullptr;
         }
     };
 
@@ -147,7 +147,7 @@ static int registerComplexDBusType(const char *typeName)
                                              QDBusRawTypeHandler::construct,
                                              sizeof(void *),
                                              QMetaType::MovableType,
-                                             0);
+                                             nullptr);
 }
 
 Q_DBUS_EXPORT bool qt_dbus_metaobject_skip_annotations = false;
@@ -158,10 +158,10 @@ QDBusMetaObjectGenerator::findType(const QByteArray &signature,
                                    const char *direction, int id)
 {
     Type result;
-    result.id = QVariant::Invalid;
+    result.id = QMetaType::UnknownType;
 
     int type = QDBusMetaType::signatureToType(signature);
-    if (type == QVariant::Invalid && !qt_dbus_metaobject_skip_annotations) {
+    if (type == QMetaType::UnknownType && !qt_dbus_metaobject_skip_annotations) {
         // it's not a type normally handled by our meta type system
         // it must contain an annotation
         QString annotationName = QString::fromLatin1("org.qtproject.QtDBus.QtTypeName");
@@ -189,7 +189,7 @@ QDBusMetaObjectGenerator::findType(const QByteArray &signature,
             type = QMetaType::type(typeName);
         }
 
-        if (type == QVariant::Invalid || signature != QDBusMetaType::typeToSignature(type)) {
+        if (type == QMetaType::UnknownType || signature != QDBusMetaType::typeToSignature(type)) {
             // type is still unknown or doesn't match back to the signature that it
             // was expected to, so synthesize a fake type
             typeName = "QDBusRawType<0x" + signature.toHex() + ">*";
@@ -197,16 +197,16 @@ QDBusMetaObjectGenerator::findType(const QByteArray &signature,
         }
 
         result.name = typeName;
-    } else if (type == QVariant::Invalid) {
+    } else if (type == QMetaType::UnknownType) {
         // this case is used only by the qdbus command-line tool
         // invalid, let's create an impossible type that contains the signature
 
         if (signature == "av") {
             result.name = "QVariantList";
-            type = QVariant::List;
+            type = QMetaType::QVariantList;
         } else if (signature == "a{sv}") {
             result.name = "QVariantMap";
-            type = QVariant::Map;
+            type = QMetaType::QVariantMap;
         } else if (signature == "a{ss}") {
             result.name = "QMap<QString,QString>";
             type = qMetaTypeId<QMap<QString, QString> >();
@@ -246,7 +246,7 @@ void QDBusMetaObjectGenerator::parseMethods()
             const QDBusIntrospection::Argument &arg = m.inputArgs.at(i);
 
             Type type = findType(arg.type.toLatin1(), m.annotations, "In", i);
-            if (type.id == QVariant::Invalid) {
+            if (type.id == QMetaType::UnknownType) {
                 ok = false;
                 break;
             }
@@ -265,7 +265,7 @@ void QDBusMetaObjectGenerator::parseMethods()
             const QDBusIntrospection::Argument &arg = m.outputArgs.at(i);
 
             Type type = findType(arg.type.toLatin1(), m.annotations, "Out", i);
-            if (type.id == QVariant::Invalid) {
+            if (type.id == QMetaType::UnknownType) {
                 ok = false;
                 break;
             }
@@ -322,7 +322,7 @@ void QDBusMetaObjectGenerator::parseSignals()
             const QDBusIntrospection::Argument &arg = s.outputArgs.at(i);
 
             Type type = findType(arg.type.toLatin1(), s.annotations, "Out", i);
-            if (type.id == QVariant::Invalid) {
+            if (type.id == QMetaType::UnknownType) {
                 ok = false;
                 break;
             }
@@ -358,7 +358,7 @@ void QDBusMetaObjectGenerator::parseProperties()
         const QDBusIntrospection::Property &p = *prop_it;
         Property mp;
         Type type = findType(p.type.toLatin1(), p.annotations);
-        if (type.id == QVariant::Invalid)
+        if (type.id == QMetaType::UnknownType)
             continue;
 
         QByteArray name = p.name.toLatin1();
@@ -544,9 +544,9 @@ void QDBusMetaObjectGenerator::write(QDBusMetaObject *obj)
 
     // put the metaobject together
     obj->d.data = uint_data;
-    obj->d.relatedMetaObjects = 0;
-    obj->d.static_metacall = 0;
-    obj->d.extradata = 0;
+    obj->d.relatedMetaObjects = nullptr;
+    obj->d.static_metacall = nullptr;
+    obj->d.extradata = nullptr;
     obj->d.stringdata = reinterpret_cast<const QByteArrayData *>(string_data);
     obj->d.superdata = &QDBusAbstractInterface::staticMetaObject;
 }
@@ -587,7 +587,7 @@ QDBusMetaObject *QDBusMetaObject::createMetaObject(const QString &interface, con
     error = QDBusError();
     QDBusIntrospection::Interfaces parsed = QDBusIntrospection::parseInterfaces(xml);
 
-    QDBusMetaObject *we = 0;
+    QDBusMetaObject *we = nullptr;
     QDBusIntrospection::Interfaces::ConstIterator it = parsed.constBegin();
     QDBusIntrospection::Interfaces::ConstIterator end = parsed.constEnd();
     for ( ; it != end; ++it) {
@@ -621,7 +621,7 @@ QDBusMetaObject *QDBusMetaObject::createMetaObject(const QString &interface, con
     if (parsed.isEmpty()) {
         // object didn't return introspection
         we = new QDBusMetaObject;
-        QDBusMetaObjectGenerator generator(interface, 0);
+        QDBusMetaObjectGenerator generator(interface, nullptr);
         generator.write(we);
         we->cached = false;
         return we;
@@ -631,10 +631,10 @@ QDBusMetaObject *QDBusMetaObject::createMetaObject(const QString &interface, con
         QDBusIntrospection::Interface merged = *it.value().constData();
 
         for (++it; it != end; ++it) {
-            merged.annotations.unite(it.value()->annotations);
+            merged.annotations.insert(it.value()->annotations);
             merged.methods.unite(it.value()->methods);
             merged.signals_.unite(it.value()->signals_);
-            merged.properties.unite(it.value()->properties);
+            merged.properties.insert(it.value()->properties);
         }
 
         merged.name = QLatin1String("local.Merged");
@@ -651,7 +651,7 @@ QDBusMetaObject *QDBusMetaObject::createMetaObject(const QString &interface, con
     error = QDBusError(QDBusError::UnknownInterface,
         QLatin1String("Interface '%1' was not found")
                        .arg(interface));
-    return 0;
+    return nullptr;
 }
 
 QDBusMetaObject::QDBusMetaObject()
@@ -670,7 +670,7 @@ const int *QDBusMetaObject::inputTypesForMethod(int id) const
         int handle = priv(d.data)->methodDBusData + id*intsPerMethod;
         return reinterpret_cast<const int*>(d.data + d.data[handle]);
     }
-    return 0;
+    return nullptr;
 }
 
 const int *QDBusMetaObject::outputTypesForMethod(int id) const
@@ -680,7 +680,7 @@ const int *QDBusMetaObject::outputTypesForMethod(int id) const
         int handle = priv(d.data)->methodDBusData + id*intsPerMethod;
         return reinterpret_cast<const int*>(d.data + d.data[handle + 1]);
     }
-    return 0;
+    return nullptr;
 }
 
 int QDBusMetaObject::propertyMetaType(int id) const

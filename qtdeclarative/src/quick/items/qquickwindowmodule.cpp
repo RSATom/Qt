@@ -39,6 +39,7 @@
 
 #include "qquickwindowmodule_p.h"
 #include "qquickwindowattached_p.h"
+#include "qquickrendercontrol.h"
 #include "qquickscreen_p.h"
 #include "qquickview_p.h"
 #include <QtQuick/QQuickWindow>
@@ -48,6 +49,7 @@
 #include <private/qguiapplication_p.h>
 #include <private/qqmlengine_p.h>
 #include <private/qv4qobjectwrapper_p.h>
+#include <private/qqmlglobal_p.h>
 #include <qpa/qplatformintegration.h>
 
 QT_BEGIN_NAMESPACE
@@ -82,7 +84,7 @@ void QQuickWindowQmlImpl::setVisible(bool visible)
 {
     Q_D(QQuickWindowQmlImpl);
     d->visible = visible;
-    if (d->complete && (!transientParent() || transientParent()->isVisible()))
+    if (d->complete && (!transientParent() || transientParentVisible()))
         QQuickWindow::setVisible(visible);
 }
 
@@ -141,7 +143,7 @@ void QQuickWindowQmlImpl::componentComplete()
 void QQuickWindowQmlImpl::setWindowVisibility()
 {
     Q_D(QQuickWindowQmlImpl);
-    if (transientParent() && !transientParent()->isVisible())
+    if (transientParent() && !transientParentVisible())
         return;
 
     if (QQuickItem *senderItem = qmlobject_cast<QQuickItem *>(sender())) {
@@ -195,26 +197,15 @@ void QQuickWindowQmlImpl::setScreen(QObject *screen)
     QWindow::setScreen(screenWrapper ? screenWrapper->wrappedScreen() : nullptr);
 }
 
-void QQuickWindowModule::defineModule()
+bool QQuickWindowQmlImpl::transientParentVisible()
 {
-    const char uri[] = "QtQuick.Window";
-
-    qmlRegisterType<QQuickWindow>(uri, 2, 0, "Window");
-    qmlRegisterRevision<QWindow,1>(uri, 2, 1);
-    qmlRegisterRevision<QWindow,2>(uri, 2, 2);
-    qmlRegisterRevision<QQuickWindow,1>(uri, 2, 1);//Type moved to a subclass, but also has new members
-    qmlRegisterRevision<QQuickWindow,2>(uri, 2, 2);
-    qmlRegisterType<QQuickWindowQmlImpl>(uri, 2, 1, "Window");
-    qmlRegisterType<QQuickWindowQmlImpl,2>(uri, 2, 2, "Window");
-    qmlRegisterType<QQuickWindowQmlImpl,3>(uri, 2, 3, "Window");
-    qmlRegisterUncreatableType<QQuickScreen>(uri, 2, 0, "Screen", QStringLiteral("Screen can only be used via the attached property."));
-    qmlRegisterUncreatableType<QQuickScreen,3>(uri, 2, 3, "Screen", QStringLiteral("Screen can only be used via the attached property."));
-    qmlRegisterUncreatableType<QQuickScreenInfo,3>(uri, 2, 3, "ScreenInfo", QStringLiteral("ScreenInfo can only be used via the attached property."));
-    qmlRegisterUncreatableType<QQuickScreenInfo,10>(uri, 2, 10, "ScreenInfo", QStringLiteral("ScreenInfo can only be used via the attached property."));
-    qmlRegisterRevision<QWindow,13>(uri, 2, 13);
-    qmlRegisterRevision<QQuickWindow,13>(uri, 2, 13);
-    qmlRegisterType<QQuickWindowQmlImpl,13>(uri, 2, 13, "Window");
-    qmlRegisterRevision<QQuickWindow,14>(uri, 2, 14);
+   Q_ASSERT(transientParent());
+   if (!transientParent()->isVisible()) {
+       // handle case where transient parent is offscreen window
+       QWindow *rw = QQuickRenderControl::renderWindowFor(qobject_cast<QQuickWindow*>(transientParent()));
+       return rw && rw->isVisible();
+   }
+   return true;
 }
 
 QT_END_NAMESPACE

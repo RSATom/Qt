@@ -37,6 +37,8 @@
 **
 ****************************************************************************/
 
+#include <QtNetwork/private/qtnetworkglobal_p.h>
+
 #include "qnetworkreply.h"
 #include "qnetworkreply_p.h"
 #include <QtNetwork/qsslconfiguration.h>
@@ -91,7 +93,7 @@ QNetworkReplyPrivate::QNetworkReplyPrivate()
     content.
 
     \note Do not delete the object in the slot connected to the
-    error() or finished() signal. Use deleteLater().
+    errorOccurred() or finished() signal. Use deleteLater().
 
     \sa QNetworkRequest, QNetworkAccessManager
 */
@@ -219,6 +221,7 @@ QNetworkReplyPrivate::QNetworkReplyPrivate()
     the server response was detected
 
     \sa error()
+    \sa errorOccurred()
 */
 
 /*!
@@ -362,6 +365,14 @@ QNetworkReplyPrivate::QNetworkReplyPrivate()
 
 /*!
     \fn void QNetworkReply::error(QNetworkReply::NetworkError code)
+    \obsolete
+
+    Use errorOccurred() instead.
+*/
+
+/*!
+    \fn void QNetworkReply::errorOccurred(QNetworkReply::NetworkError code)
+    \since 5.15
 
     This signal is emitted when the reply detects an error in
     processing. The finished() signal will probably follow, indicating
@@ -442,7 +453,7 @@ QNetworkReplyPrivate::QNetworkReplyPrivate()
     QNetworkAccessManager functions to do that.
 */
 QNetworkReply::QNetworkReply(QObject *parent)
-    : QIODevice(*new QNetworkReplyPrivate, parent)
+    : QNetworkReply(*new QNetworkReplyPrivate, parent)
 {
 }
 
@@ -452,6 +463,8 @@ QNetworkReply::QNetworkReply(QObject *parent)
 QNetworkReply::QNetworkReply(QNetworkReplyPrivate &dd, QObject *parent)
     : QIODevice(dd, parent)
 {
+    // Support the deprecated error() signal:
+    connect(this, &QNetworkReply::errorOccurred, this, QOverload<QNetworkReply::NetworkError>::of(&QNetworkReply::error));
 }
 
 /*!
@@ -855,7 +868,7 @@ void QNetworkReply::setRequest(const QNetworkRequest &request)
     Sets the error condition to be \a errorCode. The human-readable
     message is set with \a errorString.
 
-    Calling setError() does not emit the error(QNetworkReply::NetworkError)
+    Calling setError() does not emit the errorOccurred(QNetworkReply::NetworkError)
     signal.
 
     \sa error(), errorString()

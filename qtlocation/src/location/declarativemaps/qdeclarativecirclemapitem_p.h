@@ -50,33 +50,33 @@
 
 #include <QtLocation/private/qlocationglobal_p.h>
 #include <QtLocation/private/qdeclarativegeomapitembase_p.h>
-#include <QtLocation/private/qdeclarativepolylinemapitem_p.h>
-#include <QtLocation/private/qdeclarativepolygonmapitem_p.h>
+#include <QtLocation/private/qdeclarativepolylinemapitem_p_p.h>
 #include <QSGGeometryNode>
 #include <QSGFlatColorMaterial>
 #include <QtPositioning/QGeoCircle>
 
 QT_BEGIN_NAMESPACE
 
-class Q_LOCATION_PRIVATE_EXPORT QGeoMapCircleGeometry : public QGeoMapPolygonGeometry
-{
-public:
-    QGeoMapCircleGeometry();
-
-    void updateScreenPointsInvert(const QList<QDoubleVector2D> &circlePath, const QGeoMap &map);
-};
-
+class QDeclarativeCircleMapItemPrivate;
 class Q_LOCATION_PRIVATE_EXPORT QDeclarativeCircleMapItem : public QDeclarativeGeoMapItemBase
 {
     Q_OBJECT
+    Q_ENUMS(Backend)
+
     Q_PROPERTY(QGeoCoordinate center READ center WRITE setCenter NOTIFY centerChanged)
     Q_PROPERTY(qreal radius READ radius WRITE setRadius NOTIFY radiusChanged)
     Q_PROPERTY(QColor color READ color WRITE setColor NOTIFY colorChanged)
     Q_PROPERTY(QDeclarativeMapLineProperties *border READ border CONSTANT)
+    Q_PROPERTY(Backend backend READ backend WRITE setBackend NOTIFY backendChanged REVISION 15)
 
 public:
-    explicit QDeclarativeCircleMapItem(QQuickItem *parent = 0);
-    ~QDeclarativeCircleMapItem();
+    enum Backend {
+        Software = 0,
+        OpenGL = 1
+    };
+
+    explicit QDeclarativeCircleMapItem(QQuickItem *parent = nullptr);
+    ~QDeclarativeCircleMapItem() override;
 
     virtual void setMap(QDeclarativeGeoMap *quickMap, QGeoMap *map) override;
     virtual QSGNode *updateMapItemPaintNode(QSGNode *, UpdatePaintNodeData *) override;
@@ -96,40 +96,41 @@ public:
     const QGeoShape &geoShape() const override;
     void setGeoShape(const QGeoShape &shape) override;
 
-    static bool crossEarthPole(const QGeoCoordinate &center, qreal distance);
-    static void calculatePeripheralPoints(QList<QGeoCoordinate> &path, const QGeoCoordinate &center,
-                                   qreal distance, int steps, QGeoCoordinate &leftBound);
-    static bool preserveCircleGeometry(QList<QDoubleVector2D> &path, const QGeoCoordinate &center,
-                                qreal distance, const QGeoProjectionWebMercator &p);
-    static void updateCirclePathForRendering(QList<QDoubleVector2D> &path, const QGeoCoordinate &center,
-                                      qreal distance, const QGeoProjectionWebMercator &p);
+    Backend backend() const;
+    void setBackend(Backend b);
 
 Q_SIGNALS:
     void centerChanged(const QGeoCoordinate &center);
     void radiusChanged(qreal radius);
     void colorChanged(const QColor &color);
+    void backendChanged();
 
 protected:
     void geometryChanged(const QRectF &newGeometry, const QRectF &oldGeometry) override;
     void updatePolish() override;
+    void possiblySwitchBackend(const QGeoCoordinate &oldCenter, qreal oldRadius, const QGeoCoordinate &newCenter, qreal newRadius);
 
 protected Q_SLOTS:
     void markSourceDirtyAndUpdate();
+    void onLinePropertiesChanged();
     virtual void afterViewportChanged(const QGeoMapViewportChangeEvent &event) override;
 
 private:
     void updateCirclePath();
 
 private:
-    QGeoCircle circle_;
-    QDeclarativeMapLineProperties border_;
-    QColor color_;
-    QList<QDoubleVector2D> circlePath_;
-    QGeoCoordinate leftBound_;
-    bool dirtyMaterial_;
-    QGeoMapCircleGeometry geometry_;
-    QGeoMapPolylineGeometry borderGeometry_;
-    bool updatingGeometry_;
+    QGeoCircle m_circle;
+    QDeclarativeMapLineProperties m_border;
+    QColor m_color;
+    bool m_dirtyMaterial;
+    bool m_updatingGeometry;
+    Backend m_backend = Software;
+
+    QScopedPointer<QDeclarativeCircleMapItemPrivate> m_d;
+
+    friend class QDeclarativeCircleMapItemPrivate;
+    friend class QDeclarativeCircleMapItemPrivateCPU;
+    friend class QDeclarativeCircleMapItemPrivateOpenGL;
 };
 
 //////////////////////////////////////////////////////////////////////

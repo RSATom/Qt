@@ -56,29 +56,28 @@
 #include <math.h>
 
 //! [0]
-const double DefaultCenterX = -0.637011f;
-const double DefaultCenterY = -0.0395159f;
-const double DefaultScale = 0.00403897f;
+const double DefaultCenterX = -0.637011;
+const double DefaultCenterY = -0.0395159;
+const double DefaultScale = 0.00403897;
 
-const double ZoomInFactor = 0.8f;
+const double ZoomInFactor = 0.8;
 const double ZoomOutFactor = 1 / ZoomInFactor;
 const int ScrollStep = 20;
 //! [0]
 
 //! [1]
-MandelbrotWidget::MandelbrotWidget(QWidget *parent)
-    : QWidget(parent)
+MandelbrotWidget::MandelbrotWidget(QWidget *parent) :
+    QWidget(parent),
+    centerX(DefaultCenterX),
+    centerY(DefaultCenterY),
+    pixmapScale(DefaultScale),
+    curScale(DefaultScale)
 {
-    centerX = DefaultCenterX;
-    centerY = DefaultCenterY;
-    pixmapScale = DefaultScale;
-    curScale = DefaultScale;
-
     connect(&thread, &RenderThread::renderedImage,
             this, &MandelbrotWidget::updatePixmap);
 
     setWindowTitle(tr("Mandelbrot"));
-#ifndef QT_NO_CURSOR
+#if QT_CONFIG(cursor)
     setCursor(Qt::CrossCursor);
 #endif
     resize(550, 400);
@@ -102,24 +101,28 @@ void MandelbrotWidget::paintEvent(QPaintEvent * /* event */)
 //! [4]
 
 //! [5]
-    if (curScale == pixmapScale) {
+    if (qFuzzyCompare(curScale, pixmapScale)) {
 //! [5] //! [6]
         painter.drawPixmap(pixmapOffset, pixmap);
 //! [6] //! [7]
     } else {
 //! [7] //! [8]
+        auto previewPixmap = qFuzzyCompare(pixmap.devicePixelRatioF(), qreal(1))
+            ? pixmap
+            : pixmap.scaled(pixmap.size() / pixmap.devicePixelRatioF(), Qt::KeepAspectRatio,
+                            Qt::SmoothTransformation);
         double scaleFactor = pixmapScale / curScale;
-        int newWidth = int(pixmap.width() * scaleFactor);
-        int newHeight = int(pixmap.height() * scaleFactor);
-        int newX = pixmapOffset.x() + (pixmap.width() - newWidth) / 2;
-        int newY = pixmapOffset.y() + (pixmap.height() - newHeight) / 2;
+        int newWidth = int(previewPixmap.width() * scaleFactor);
+        int newHeight = int(previewPixmap.height() * scaleFactor);
+        int newX = pixmapOffset.x() + (previewPixmap.width() - newWidth) / 2;
+        int newY = pixmapOffset.y() + (previewPixmap.height() - newHeight) / 2;
 
         painter.save();
         painter.translate(newX, newY);
         painter.scale(scaleFactor, scaleFactor);
 
         QRectF exposed = painter.transform().inverted().mapRect(rect()).adjusted(-1, -1, 1, 1);
-        painter.drawPixmap(exposed, pixmap, exposed);
+        painter.drawPixmap(exposed, previewPixmap, exposed);
         painter.restore();
     }
 //! [8] //! [9]
@@ -140,7 +143,7 @@ void MandelbrotWidget::paintEvent(QPaintEvent * /* event */)
 //! [10]
 void MandelbrotWidget::resizeEvent(QResizeEvent * /* event */)
 {
-    thread.render(centerX, centerY, curScale, size());
+    thread.render(centerX, centerY, curScale, size(), devicePixelRatioF());
 }
 //! [10]
 
@@ -176,8 +179,8 @@ void MandelbrotWidget::keyPressEvent(QKeyEvent *event)
 //! [12]
 void MandelbrotWidget::wheelEvent(QWheelEvent *event)
 {
-    int numDegrees = event->angleDelta().y() / 8;
-    double numSteps = numDegrees / 15.0f;
+    const int numDegrees = event->angleDelta().y() / 8;
+    const double numSteps = numDegrees / double(15);
     zoom(pow(ZoomInFactor, numSteps));
 }
 //! [12]
@@ -209,8 +212,9 @@ void MandelbrotWidget::mouseReleaseEvent(QMouseEvent *event)
         pixmapOffset += event->pos() - lastDragPos;
         lastDragPos = QPoint();
 
-        int deltaX = (width() - pixmap.width()) / 2 - pixmapOffset.x();
-        int deltaY = (height() - pixmap.height()) / 2 - pixmapOffset.y();
+        const auto pixmapSize = pixmap.size() / pixmap.devicePixelRatioF();
+        int deltaX = (width() - pixmapSize.width()) / 2 - pixmapOffset.x();
+        int deltaY = (height() - pixmapSize.height()) / 2 - pixmapOffset.y();
         scroll(deltaX, deltaY);
     }
 }
@@ -235,7 +239,7 @@ void MandelbrotWidget::zoom(double zoomFactor)
 {
     curScale *= zoomFactor;
     update();
-    thread.render(centerX, centerY, curScale, size());
+    thread.render(centerX, centerY, curScale, size(), devicePixelRatioF());
 }
 //! [17]
 
@@ -245,6 +249,6 @@ void MandelbrotWidget::scroll(int deltaX, int deltaY)
     centerX += deltaX * curScale;
     centerY += deltaY * curScale;
     update();
-    thread.render(centerX, centerY, curScale, size());
+    thread.render(centerX, centerY, curScale, size(), devicePixelRatioF());
 }
 //! [18]

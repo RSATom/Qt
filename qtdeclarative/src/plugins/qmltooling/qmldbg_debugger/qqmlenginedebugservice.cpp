@@ -94,7 +94,7 @@ qint64 NullDevice::writeData(const char *data, qint64 len)
 // (otherwise we assert in QVariant::operator<< when actually saving it)
 static bool isSaveable(const QVariant &value)
 {
-    const int valType = static_cast<int>(value.type());
+    const int valType = static_cast<int>(value.userType());
     if (valType >= QMetaType::User)
         return false;
     NullDevice nullDevice;
@@ -220,7 +220,7 @@ QVariant QQmlEngineDebugServiceImpl::valueContents(QVariant value) const
     //QObject * is not streamable.
     //Convert all such instances to a String value
 
-    if (value.type() == QVariant::List) {
+    if (value.userType() == QMetaType::QVariantList) {
         QVariantList contents;
         QVariantList list = value.toList();
         int count = list.size();
@@ -230,7 +230,7 @@ QVariant QQmlEngineDebugServiceImpl::valueContents(QVariant value) const
         return contents;
     }
 
-    if (value.type() == QVariant::Map) {
+    if (value.userType() == QMetaType::QVariantMap) {
         QVariantMap contents;
         const auto map = value.toMap();
         for (auto i = map.cbegin(), end = map.cend(); i != end; ++i)

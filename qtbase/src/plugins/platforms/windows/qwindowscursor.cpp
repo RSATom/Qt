@@ -73,17 +73,16 @@ Q_GUI_EXPORT HBITMAP qt_createIconMask(const QBitmap &bitmap);
     \brief Cache key for storing values in a QHash with a QCursor as key.
 
     \internal
-    \ingroup qt-lighthouse-win
 */
 
 QWindowsPixmapCursorCacheKey::QWindowsPixmapCursorCacheKey(const QCursor &c)
     : bitmapCacheKey(c.pixmap().cacheKey()), maskCacheKey(0)
 {
     if (!bitmapCacheKey) {
-        Q_ASSERT(c.bitmap());
-        Q_ASSERT(c.mask());
-        bitmapCacheKey = c.bitmap()->cacheKey();
-        maskCacheKey = c.mask()->cacheKey();
+        Q_ASSERT(!c.bitmap(Qt::ReturnByValue).isNull());
+        Q_ASSERT(!c.mask(Qt::ReturnByValue).isNull());
+        bitmapCacheKey = c.bitmap(Qt::ReturnByValue).cacheKey();
+        maskCacheKey = c.mask(Qt::ReturnByValue).cacheKey();
     }
 }
 
@@ -97,7 +96,6 @@ QWindowsPixmapCursorCacheKey::QWindowsPixmapCursorCacheKey(const QCursor &c)
     as do the Window manager frames (resize/move handles).
 
     \internal
-    \ingroup qt-lighthouse-win
     \sa QWindowsWindowCursor
 */
 
@@ -169,9 +167,9 @@ static HCURSOR createBitmapCursor(const QImage &bbits, const QImage &mbits,
 // Create a cursor from image and mask of the format QImage::Format_Mono.
 static HCURSOR createBitmapCursor(const QCursor &cursor, qreal scaleFactor = 1)
 {
-    Q_ASSERT(cursor.shape() == Qt::BitmapCursor && cursor.bitmap());
-    QImage bbits = cursor.bitmap()->toImage();
-    QImage mbits = cursor.mask()->toImage();
+    Q_ASSERT(cursor.shape() == Qt::BitmapCursor && !cursor.bitmap(Qt::ReturnByValue).isNull());
+    QImage bbits = cursor.bitmap(Qt::ReturnByValue).toImage();
+    QImage mbits = cursor.mask(Qt::ReturnByValue).toImage();
     scaleFactor /= bbits.devicePixelRatioF();
     if (!qFuzzyCompare(scaleFactor, 1)) {
         const QSize scaledSize = (QSizeF(bbits.size()) * scaleFactor).toSize();
@@ -816,7 +814,6 @@ HCURSOR QWindowsCursor::hCursor(const QCursor &c) const
      cursor handle resource.
 
     \internal
-    \ingroup qt-lighthouse-win
     \sa QWindowsCursor
 */
 

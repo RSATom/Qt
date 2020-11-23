@@ -174,7 +174,7 @@ public:
 
     using RenderPassCallback = void (*)(void *);
 
-    virtual void prepareSync(qreal devicePixelRatio);
+    virtual void prepareSync(qreal devicePixelRatio, QRhiCommandBuffer *cb);
     virtual void beginNextFrame(QSGRenderer *renderer,
                                 RenderPassCallback mainPassRecordingStart,
                                 RenderPassCallback mainPassRecordingEnd,
@@ -192,6 +192,7 @@ public:
 
     virtual void endSync();
 
+    virtual void preprocess();
     virtual QSGDistanceFieldGlyphCache *distanceFieldGlyphCache(const QRawFont &font);
     QSGTexture *textureForFactory(QQuickTextureFactory *factory, QQuickWindow *window);
 

@@ -4,21 +4,15 @@
 
 #include "components/optimization_guide/hints_processing_util.h"
 
-#include "components/optimization_guide/hint_update_data.h"
 #include "components/optimization_guide/proto/hint_cache.pb.h"
 #include "components/optimization_guide/proto/hints.pb.h"
+#include "components/optimization_guide/store_update_data.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "url/gurl.h"
 
 namespace optimization_guide {
 
-class HintsProcessingUtilTest : public testing::Test {
- public:
-  HintsProcessingUtilTest() {}
-  ~HintsProcessingUtilTest() override {}
-};
-
-TEST_F(HintsProcessingUtilTest, FindPageHintForSubstringPagePattern) {
+TEST(HintsProcessingUtilTest, FindPageHintForSubstringPagePattern) {
   proto::Hint hint1;
 
   // Page hint for "/one/"
@@ -64,7 +58,7 @@ TEST_F(HintsProcessingUtilTest, FindPageHintForSubstringPagePattern) {
                             GURL("https://www.foo.org/bar/three.jpg"), &hint1));
 }
 
-TEST_F(HintsProcessingUtilTest, ProcessHintsNoUpdateData) {
+TEST(HintsProcessingUtilTest, ProcessHintsNoUpdateData) {
   proto::Hint hint;
   hint.set_key("whatever.com");
   hint.set_key_representation(proto::HOST_SUFFIX);
@@ -77,7 +71,7 @@ TEST_F(HintsProcessingUtilTest, ProcessHintsNoUpdateData) {
   EXPECT_FALSE(ProcessHints(&hints, nullptr));
 }
 
-TEST_F(HintsProcessingUtilTest, ProcessHintsWithNoPageHintsAndUpdateData) {
+TEST(HintsProcessingUtilTest, ProcessHintsWithNoPageHintsAndUpdateData) {
   proto::Hint hint;
   hint.set_key("whatever.com");
   hint.set_key_representation(proto::HOST_SUFFIX);
@@ -85,14 +79,14 @@ TEST_F(HintsProcessingUtilTest, ProcessHintsWithNoPageHintsAndUpdateData) {
   google::protobuf::RepeatedPtrField<proto::Hint> hints;
   *(hints.Add()) = hint;
 
-  std::unique_ptr<HintUpdateData> update_data =
-      HintUpdateData::CreateComponentHintUpdateData(base::Version("1.0.0"));
+  std::unique_ptr<StoreUpdateData> update_data =
+      StoreUpdateData::CreateComponentStoreUpdateData(base::Version("1.0.0"));
   EXPECT_FALSE(ProcessHints(&hints, update_data.get()));
   // Verify there is 1 store entries: 1 for the metadata entry.
   EXPECT_EQ(1ul, update_data->TakeUpdateEntries()->size());
 }
 
-TEST_F(HintsProcessingUtilTest, ProcessHintsWithPageHintsAndUpdateData) {
+TEST(HintsProcessingUtilTest, ProcessHintsWithPageHintsAndUpdateData) {
   google::protobuf::RepeatedPtrField<proto::Hint> hints;
 
   proto::Hint hint;
@@ -113,12 +107,36 @@ TEST_F(HintsProcessingUtilTest, ProcessHintsWithPageHintsAndUpdateData) {
   no_page_hints_hint.set_key_representation(proto::HOST_SUFFIX);
   *(hints.Add()) = no_page_hints_hint;
 
-  std::unique_ptr<HintUpdateData> update_data =
-      HintUpdateData::CreateComponentHintUpdateData(base::Version("1.0.0"));
+  std::unique_ptr<StoreUpdateData> update_data =
+      StoreUpdateData::CreateComponentStoreUpdateData(base::Version("1.0.0"));
   EXPECT_TRUE(ProcessHints(&hints, update_data.get()));
   // Verify there are 2 store entries: 1 for the metadata entry plus
   // the 1 added hint entries.
   EXPECT_EQ(2ul, update_data->TakeUpdateEntries()->size());
+}
+
+TEST(HintsProcessingUtilTest, ConvertProtoEffectiveConnectionType) {
+  EXPECT_EQ(
+      ConvertProtoEffectiveConnectionType(
+          proto::EffectiveConnectionType::EFFECTIVE_CONNECTION_TYPE_UNKNOWN),
+      net::EffectiveConnectionType::EFFECTIVE_CONNECTION_TYPE_UNKNOWN);
+  EXPECT_EQ(
+      ConvertProtoEffectiveConnectionType(
+          proto::EffectiveConnectionType::EFFECTIVE_CONNECTION_TYPE_OFFLINE),
+      net::EffectiveConnectionType::EFFECTIVE_CONNECTION_TYPE_OFFLINE);
+  EXPECT_EQ(
+      ConvertProtoEffectiveConnectionType(
+          proto::EffectiveConnectionType::EFFECTIVE_CONNECTION_TYPE_SLOW_2G),
+      net::EffectiveConnectionType::EFFECTIVE_CONNECTION_TYPE_SLOW_2G);
+  EXPECT_EQ(ConvertProtoEffectiveConnectionType(
+                proto::EffectiveConnectionType::EFFECTIVE_CONNECTION_TYPE_2G),
+            net::EffectiveConnectionType::EFFECTIVE_CONNECTION_TYPE_2G);
+  EXPECT_EQ(ConvertProtoEffectiveConnectionType(
+                proto::EffectiveConnectionType::EFFECTIVE_CONNECTION_TYPE_3G),
+            net::EffectiveConnectionType::EFFECTIVE_CONNECTION_TYPE_3G);
+  EXPECT_EQ(ConvertProtoEffectiveConnectionType(
+                proto::EffectiveConnectionType::EFFECTIVE_CONNECTION_TYPE_4G),
+            net::EffectiveConnectionType::EFFECTIVE_CONNECTION_TYPE_4G);
 }
 
 }  // namespace optimization_guide

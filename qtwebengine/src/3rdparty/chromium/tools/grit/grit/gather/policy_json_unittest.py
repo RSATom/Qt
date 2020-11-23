@@ -15,7 +15,8 @@ if __name__ == '__main__':
   sys.path.append(os.path.join(os.path.dirname(__file__), '../..'))
 
 import unittest
-import StringIO
+
+from six import StringIO
 
 from grit.gather import policy_json
 
@@ -33,7 +34,7 @@ class PolicyJsonUnittest(unittest.TestCase):
       'policy_atomic_group_definitions': [],
       'messages': {}
       }"""
-    gatherer = policy_json.PolicyJson(StringIO.StringIO(original))
+    gatherer = policy_json.PolicyJson(StringIO(original))
     gatherer.Parse()
     self.failUnless(len(gatherer.GetCliques()) == 0)
     self.failUnless(eval(original) == json.loads(gatherer.Translate('en')))
@@ -45,6 +46,7 @@ class PolicyJsonUnittest(unittest.TestCase):
         "    {"
         "      'name': 'HomepageLocation',"
         "      'type': 'string',"
+        "      'owners': ['foo@bar.com'],"
         "      'supported_on': ['chrome.*:8-'],"
         "      'features': {'dynamic_refresh': 1},"
         "      'example_value': 'http://chromium.org',"
@@ -61,7 +63,7 @@ class PolicyJsonUnittest(unittest.TestCase):
         "    }"
         "  }"
         "}")
-    gatherer = policy_json.PolicyJson(StringIO.StringIO(original))
+    gatherer = policy_json.PolicyJson(StringIO(original))
     gatherer.Parse()
     self.failUnless(len(gatherer.GetCliques()) == 4)
     expected = self.GetExpectedOutput(original)
@@ -73,6 +75,7 @@ class PolicyJsonUnittest(unittest.TestCase):
         "  'policy_definitions': ["
         "    {"
         "      'name': 'Policy1',"
+        "      'owners': ['a@b'],"
         "      'items': ["
         "        {"
         "          'name': 'Item1',"
@@ -84,7 +87,7 @@ class PolicyJsonUnittest(unittest.TestCase):
         "  'policy_atomic_group_definitions': [],"
         "  'messages': {}"
         "}")
-    gatherer = policy_json.PolicyJson(StringIO.StringIO(original))
+    gatherer = policy_json.PolicyJson(StringIO(original))
     gatherer.Parse()
     self.failUnless(len(gatherer.GetCliques()) == 1)
     expected = self.GetExpectedOutput(original)
@@ -115,12 +118,13 @@ class PolicyJsonUnittest(unittest.TestCase):
                 "        },"
                 "      },"
                 "      'caption': 'nothing special',"
+                "      'owners': ['a@b']"
                 "    },"
                 "  ],"
                 "  'policy_atomic_group_definitions': [],"
                 "  'messages': {}"
                 "}")
-    gatherer = policy_json.PolicyJson(StringIO.StringIO(original))
+    gatherer = policy_json.PolicyJson(StringIO(original))
     gatherer.Parse()
     self.failUnless(len(gatherer.GetCliques()) == 4)
     expected = self.GetExpectedOutput(original)
@@ -131,6 +135,7 @@ class PolicyJsonUnittest(unittest.TestCase):
                 "  'policy_definitions': ["
                 "    {"
                 "      'name': 'Policy1',"
+                "      'owners': ['a@b'],"
                 "      'validation_schema': {"
                 "        'type': 'object',"
                 "        'properties': {"
@@ -143,7 +148,7 @@ class PolicyJsonUnittest(unittest.TestCase):
                 "  'policy_atomic_group_definitions': [],"
                 "  'messages': {}"
                 "}")
-    gatherer = policy_json.PolicyJson(StringIO.StringIO(original))
+    gatherer = policy_json.PolicyJson(StringIO(original))
     gatherer.Parse()
     self.failUnless(len(gatherer.GetCliques()) == 1)
     expected = self.GetExpectedOutput(original)
@@ -154,6 +159,7 @@ class PolicyJsonUnittest(unittest.TestCase):
                 "  'policy_definitions': ["
                 "    {"
                 "      'name': 'Policy1',"
+                "      'owners': ['a@b'],"
                 "      'description_schema': {"
                 "        'type': 'object',"
                 "        'properties': {"
@@ -166,7 +172,7 @@ class PolicyJsonUnittest(unittest.TestCase):
                 "  'policy_atomic_group_definitions': [],"
                 "  'messages': {}"
                 "}")
-    gatherer = policy_json.PolicyJson(StringIO.StringIO(original))
+    gatherer = policy_json.PolicyJson(StringIO(original))
     gatherer.Parse()
     self.failUnless(len(gatherer.GetCliques()) == 1)
     expected = self.GetExpectedOutput(original)
@@ -183,6 +189,7 @@ class PolicyJsonUnittest(unittest.TestCase):
         "        {"
         "          'name': 'Policy1',"
         "          'caption': 'nothing special',"
+        "          'owners': ['a@b']"
         "        }"
         "      ]"
         "    }"
@@ -190,7 +197,7 @@ class PolicyJsonUnittest(unittest.TestCase):
         "  'policy_atomic_group_definitions': [],"
         "  'messages': {}"
         "}")
-    gatherer = policy_json.PolicyJson(StringIO.StringIO(original))
+    gatherer = policy_json.PolicyJson(StringIO(original))
     gatherer.Parse()
     self.failUnless(len(gatherer.GetCliques()) == 1)
     expected = self.GetExpectedOutput(original)
@@ -207,12 +214,13 @@ class PolicyJsonUnittest(unittest.TestCase):
         "    {"
         "      'name': 'Policy1',"
         "      'caption': 'nothing special',"
+        "      'owners': ['a@b']"
         "    }"
         "  ],"
         "  'policy_atomic_group_definitions': [],"
         "  'messages': {}"
         "}")
-    gatherer = policy_json.PolicyJson(StringIO.StringIO(original))
+    gatherer = policy_json.PolicyJson(StringIO(original))
     gatherer.Parse()
     self.failUnless(len(gatherer.GetCliques()) == 1)
     expected = self.GetExpectedOutput(original)
@@ -256,7 +264,7 @@ with a newline?''',
           }
         }
 }"""
-    gatherer = policy_json.PolicyJson(StringIO.StringIO(original))
+    gatherer = policy_json.PolicyJson(StringIO(original))
     gatherer.Parse()
     self.failUnless(len(gatherer.GetCliques()) == 6)
     expected = self.GetExpectedOutput(original)
@@ -267,13 +275,14 @@ with a newline?''',
         "policy_definitions": [
           {
             "name": "Policy1",
-            "caption": "Please install\\n<ph name=\\"PRODUCT_NAME\\">$1<ex>Google Chrome</ex></ph>."
+            "caption": "Please install\\n<ph name=\\"PRODUCT_NAME\\">$1<ex>Google Chrome</ex></ph>.",
+            "owners": "a@b"
           }
         ],
         "policy_atomic_group_definitions": [],
         "messages": {}
 }"""
-    gatherer = policy_json.PolicyJson(StringIO.StringIO(original))
+    gatherer = policy_json.PolicyJson(StringIO(original))
     gatherer.SetDefines({'_chromium': True})
     gatherer.Parse()
     self.failUnless(len(gatherer.GetCliques()) == 1)
@@ -292,13 +301,14 @@ with a newline?''',
         "policy_definitions": [
           {
             "name": "Policy1",
-            "caption": "Please install\\n<ph name=\\"PRODUCT_NAME\\">$1<ex>Google Chrome</ex></ph>."
+            "caption": "Please install\\n<ph name=\\"PRODUCT_NAME\\">$1<ex>Google Chrome</ex></ph>.",
+            "owners": "a@b"
           }
         ],
         "policy_atomic_group_definitions": [],
         "messages": {}
 }"""
-    gatherer = policy_json.PolicyJson(StringIO.StringIO(original))
+    gatherer = policy_json.PolicyJson(StringIO(original))
     gatherer.SetDefines({'_google_chrome': True})
     gatherer.Parse()
     self.failUnless(len(gatherer.GetCliques()) == 1)
@@ -316,18 +326,21 @@ with a newline?''',
     gatherer = policy_json.PolicyJson({})
     gatherer.SetDefines({'_google_chrome': True})
     self.assertEquals(
-        gatherer._GetDescription({'name': 'Policy1'}, 'policy', None, 'desc'),
-        'Description of the policy named Policy1')
+        gatherer._GetDescription({'name': 'Policy1', 'owners': ['a@b']},
+                                 'policy', None, 'desc'),
+        'Description of the policy named Policy1 [owner(s): a@b]')
     self.assertEquals(
-        gatherer._GetDescription({'name': 'Plcy2'}, 'policy', None, 'caption'),
-        'Caption of the policy named Plcy2')
+        gatherer._GetDescription({'name': 'Plcy2', 'owners': ['a@b', 'c@d']},
+                                 'policy', None, 'caption'),
+        'Caption of the policy named Plcy2 [owner(s): a@b,c@d]')
     self.assertEquals(
-        gatherer._GetDescription({'name': 'Plcy3'}, 'policy', None, 'label'),
-        'Label of the policy named Plcy3')
+        gatherer._GetDescription({'name': 'Plcy3', 'owners': ['a@b']},
+                                 'policy', None, 'label'),
+        'Label of the policy named Plcy3 [owner(s): a@b]')
     self.assertEquals(
         gatherer._GetDescription({'name': 'Item'}, 'enum_item',
-                                 {'name': 'Policy'}, 'caption'),
-        'Caption of the option named Item in policy Policy')
+                                 {'name': 'Plcy', 'owners': ['a@b']}, 'caption'),
+        'Caption of the option named Item in policy Plcy [owner(s): a@b]')
 
 
 if __name__ == '__main__':

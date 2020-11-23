@@ -46,7 +46,6 @@
 #include <QtCore/qloggingcategory.h>
 #include <private/qmediapluginloader_p.h>
 #include <private/qsgvideonode_p.h>
-#include <private/qvideoframe_p.h>
 
 #include <QtGui/QOpenGLContext>
 #include <QtQuick/QQuickWindow>
@@ -304,7 +303,7 @@ QSGNode *QDeclarativeVideoRendererBackend::updatePaintNode(QSGNode *oldNode,
                     if (!runnable)
                         continue;
 
-                    QVideoFilterRunnable::RunFlags flags = 0;
+                    QVideoFilterRunnable::RunFlags flags;
                     if (i == m_filters.count() - 1)
                         flags |= QVideoFilterRunnable::LastInChain;
 
@@ -363,7 +362,7 @@ QSGNode *QDeclarativeVideoRendererBackend::updatePaintNode(QSGNode *oldNode,
     videoNode->setTexturedRectGeometry(m_renderedRect, m_sourceTextureRect,
                                        qNormalizedOrientation(q->orientation()));
     if (m_frameChanged) {
-        QSGVideoNode::FrameFlags flags = 0;
+        QSGVideoNode::FrameFlags flags;
         if (isFrameModified)
             flags |= QSGVideoNode::FrameFiltered;
         videoNode->setCurrentFrame(m_frame, flags);
@@ -372,7 +371,7 @@ QSGNode *QDeclarativeVideoRendererBackend::updatePaintNode(QSGNode *oldNode,
             || q->flushMode() == QDeclarativeVideoOutput::LastFrame) {
             m_frameOnFlush = m_surfaceFormat.handleType() == QAbstractVideoBuffer::NoHandle
                 ? m_frame
-                : qt_imageFromVideoFrame(m_frame);
+                : m_frame.image();
         }
 
         //don't keep the frame for more than really necessary

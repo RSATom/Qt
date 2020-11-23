@@ -20,10 +20,11 @@
 #include "base/json/json_writer.h"
 #include "base/logging.h"
 #include "base/macros.h"
+#include "base/message_loop/message_pump_type.h"
 #include "base/run_loop.h"
 #include "base/strings/string_split.h"
 #include "base/task/single_thread_task_executor.h"
-#include "base/task/thread_pool/thread_pool.h"
+#include "base/task/thread_pool/thread_pool_instance.h"
 #include "base/values.h"
 #include "build/build_config.h"
 #include "net/base/network_change_notifier.h"
@@ -118,9 +119,6 @@ class NetWatcher :
 
   // net::NetworkChangeNotifier::DNSObserver implementation.
   void OnDNSChanged() override { LOG(INFO) << "OnDNSChanged()"; }
-  void OnInitialDNSConfigRead() override {
-    LOG(INFO) << "OnInitialDNSConfigRead()";
-  }
 
   // net::NetworkChangeNotifier::NetworkChangeObserver implementation.
   void OnNetworkChanged(
@@ -155,7 +153,7 @@ int main(int argc, char* argv[]) {
   logging::InitLogging(settings);
 
   // Just make the main task executor the network loop.
-  base::SingleThreadTaskExecutor io_task_executor(base::MessagePump::Type::IO);
+  base::SingleThreadTaskExecutor io_task_executor(base::MessagePumpType::IO);
 
   base::ThreadPoolInstance::CreateAndStartWithDefaultParams("NetWatcher");
 
@@ -178,7 +176,7 @@ int main(int argc, char* argv[]) {
       new net::NetworkChangeNotifierLinux(ignored_interfaces));
 #else
   std::unique_ptr<net::NetworkChangeNotifier> network_change_notifier(
-      net::NetworkChangeNotifier::Create());
+      net::NetworkChangeNotifier::CreateIfNeeded());
 #endif
 
   // Use the network loop as the file loop also.

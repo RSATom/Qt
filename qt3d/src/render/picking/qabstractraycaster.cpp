@@ -337,11 +337,7 @@ void QAbstractRayCaster::addLayer(QLayer *layer)
         if (!layer->parent())
             layer->setParent(this);
 
-        if (d->m_changeArbiter != nullptr) {
-            const auto change = Qt3DCore::QPropertyNodeAddedChangePtr::create(id(), layer);
-            change->setPropertyName("layer");
-            d->notifyObservers(change);
-        }
+        d->updateNode(layer, "layer", Qt3DCore::PropertyValueAdded);
     }
 }
 
@@ -354,11 +350,7 @@ void QAbstractRayCaster::removeLayer(QLayer *layer)
     Q_D(QAbstractRayCaster);
     if (!d->m_layers.removeOne(layer))
         return;
-    if (d->m_changeArbiter != nullptr) {
-        const auto change = Qt3DCore::QPropertyNodeRemovedChangePtr::create(id(), layer);
-        change->setPropertyName("layer");
-        d->notifyObservers(change);
-    }
+    d->updateNode(layer, "layer", Qt3DCore::PropertyValueRemoved);
     // Remove bookkeeping connection
     d->unregisterDestructionHelper(layer);
 }

@@ -34,6 +34,7 @@ VULKAN_INSTANCE_FUNCTIONS = [
       'vkEnumeratePhysicalDevices',
       'vkGetDeviceProcAddr',
       'vkGetPhysicalDeviceFeatures',
+      'vkGetPhysicalDeviceFormatProperties',
       'vkGetPhysicalDeviceMemoryProperties',
       'vkGetPhysicalDeviceProperties',
       'vkGetPhysicalDeviceQueueFamilyProperties',
@@ -64,9 +65,22 @@ VULKAN_INSTANCE_FUNCTIONS = [
     ]
   },
   {
+    'ifdef': 'defined(OS_FUCHSIA)',
+    'extension': 'VK_FUCHSIA_IMAGEPIPE_SURFACE_EXTENSION_NAME',
+    'functions': [
+      'vkCreateImagePipeSurfaceFUCHSIA',
+    ]
+  },
+  {
+  'min_api_version': 'VK_API_VERSION_1_1',
+    'functions': [
+      'vkGetPhysicalDeviceImageFormatProperties2',
+    ]
+  },
+  {
     # vkGetPhysicalDeviceFeatures2() is defined in Vulkan 1.1 or suffixed in the
     # VK_KHR_get_physical_device_properties2 extension.
-    'min_api_version': 'VK_VERSION_1_1',
+    'min_api_version': 'VK_API_VERSION_1_1',
     'extension': 'VK_KHR_GET_PHYSICAL_DEVICE_PROPERTIES_2_EXTENSION_NAME',
     'extension_suffix': 'KHR',
     'functions': [
@@ -135,6 +149,13 @@ VULKAN_DEVICE_FUNCTIONS = [
     ]
   },
   {
+    'min_api_version': 'VK_API_VERSION_1_1',
+    'functions': [
+      'vkGetDeviceQueue2',
+      'vkGetImageMemoryRequirements2',
+    ]
+  },
+  {
     'ifdef': 'defined(OS_ANDROID)',
     'extension':
         'VK_ANDROID_EXTERNAL_MEMORY_ANDROID_HARDWARE_BUFFER_EXTENSION_NAME',
@@ -154,7 +175,8 @@ VULKAN_DEVICE_FUNCTIONS = [
     'ifdef': 'defined(OS_LINUX)',
     'extension': 'VK_KHR_EXTERNAL_MEMORY_FD_EXTENSION_NAME',
     'functions': [
-      'vkGetMemoryFdKHR'
+      'vkGetMemoryFdKHR',
+      'vkGetMemoryFdPropertiesKHR',
     ]
   },
   {
@@ -205,12 +227,12 @@ LICENSE_AND_HEADER = """\
 
 def WriteFunctions(file, functions, template, check_extension=False):
   for group in functions:
-    if group.has_key('ifdef'):
+    if 'ifdef' in group:
       file.write('#if %s\n' % group['ifdef'])
 
-    extension = group['extension'] if group.has_key('extension') else ''
+    extension = group['extension'] if 'extension' in group else ''
     min_api_version = \
-        group['min_api_version'] if group.has_key('min_api_version') else ''
+        group['min_api_version'] if 'min_api_version' in group else ''
 
     if not check_extension:
       for func in group['functions']:
@@ -235,7 +257,7 @@ def WriteFunctions(file, functions, template, check_extension=False):
                    extension)
 
         extension_suffix = \
-            group['extension_suffix'] if group.has_key('extension_suffix') \
+            group['extension_suffix'] if 'extension_suffix' in group \
             else ''
         for func in group['functions']:
           file.write(template.substitute(
@@ -243,7 +265,7 @@ def WriteFunctions(file, functions, template, check_extension=False):
 
         file.write('}\n')
 
-    if group.has_key('ifdef'):
+    if 'ifdef' in group:
       file.write('#endif  // %s\n' % group['ifdef'])
 
     file.write('\n')
@@ -278,6 +300,10 @@ def GenerateHeaderFile(file):
 #endif
 
 #if defined(OS_FUCHSIA)
+#include <zircon/types.h>
+// <vulkan/vulkan_fuchsia.h> must be included after <zircon/types.h>
+#include <vulkan/vulkan_fuchsia.h>
+
 #include "gpu/vulkan/fuchsia/vulkan_fuchsia_ext.h"
 #endif
 
@@ -341,7 +367,7 @@ struct VulkanFunctionPointers {
 // Unassociated functions
 """)
 
-  WriteMacros(file, [{'functions':[ 'vkGetInstanceProcAddr' ]}])
+  WriteMacros(file, [{'functions': [ 'vkGetInstanceProcAddr' ]}])
   WriteMacros(file, VULKAN_UNASSOCIATED_FUNCTIONS)
 
   file.write("""\

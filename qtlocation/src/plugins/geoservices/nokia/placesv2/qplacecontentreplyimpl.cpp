@@ -58,7 +58,7 @@ QPlaceContentReplyImpl::QPlaceContentReplyImpl(const QPlaceContentRequest &reque
     setRequest(request);
 
     connect(reply, SIGNAL(finished()), this, SLOT(replyFinished()));
-    connect(reply, SIGNAL(error(QNetworkReply::NetworkError)),
+    connect(reply, SIGNAL(errorOccurred(QNetworkReply::NetworkError)),
             this, SLOT(replyError(QNetworkReply::NetworkError)));
     connect(this, &QPlaceReply::aborted, reply, &QNetworkReply::abort);
     connect(this, &QObject::destroyed, reply, &QObject::deleteLater);

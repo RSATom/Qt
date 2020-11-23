@@ -47,6 +47,7 @@ public:
     tst_QQuickWorkerScript() {}
 private slots:
     void source();
+    void ready();
     void messaging();
     void messaging_data();
     void messaging_sendQObjectList();
@@ -105,6 +106,22 @@ void tst_QQuickWorkerScript::source()
     qApp->processEvents();
 }
 
+void tst_QQuickWorkerScript::ready()
+{
+    QQmlComponent component(&m_engine, testFileUrl("worker.qml"));
+    QScopedPointer<QQuickWorkerScript>worker(qobject_cast<QQuickWorkerScript*>(component.create()));
+    QVERIFY(worker != nullptr);
+
+    const QMetaObject *mo = worker->metaObject();
+
+    QTRY_VERIFY(worker->ready());
+
+    QVariant readyChangedCalled = mo->property(mo->indexOfProperty("readyChangedCalled")).read(worker.data()).value<QVariant>();
+
+    QVERIFY(!readyChangedCalled.isNull());
+    QVERIFY(readyChangedCalled.toBool());
+}
+
 void tst_QQuickWorkerScript::messaging()
 {
     QFETCH(QVariant, value);
@@ -152,6 +169,7 @@ void tst_QQuickWorkerScript::messaging_data()
                                                          QRegExp::RegExp2));
     QTest::newRow("regularexpression") << QVariant::fromValue(QRegularExpression(
             "^\\d\\d?$", QRegularExpression::CaseInsensitiveOption));
+    QTest::newRow("url") << QVariant::fromValue(QUrl("http://example.com/foo/bar"));
 }
 
 void tst_QQuickWorkerScript::messaging_sendQObjectList()

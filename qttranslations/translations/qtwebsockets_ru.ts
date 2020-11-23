@@ -144,10 +144,6 @@
 <context>
     <name>QWebSocketFrame</name>
     <message>
-        <source>Timeout when reading data from socket.</source>
-        <translation>Истекло время ожидания при чтении данных из сокета.</translation>
-    </message>
-    <message>
         <source>Waiting for more data from socket.</source>
         <translation>Ожидание данных из сокета.</translation>
     </message>
@@ -230,8 +226,16 @@
         <translation>Сервер закрыт.</translation>
     </message>
     <message>
+        <source>Header is too large.</source>
+        <translation>Слишком большой заголовок.</translation>
+    </message>
+    <message>
         <source>Too many pending connections.</source>
         <translation>Слишком много ожидающих подключений.</translation>
+    </message>
+    <message>
+        <source>Read handshake request header failed.</source>
+        <translation>Не удалось прочитать заголовок рукопожатия.</translation>
     </message>
     <message>
         <source>Upgrade to WebSocket failed.</source>

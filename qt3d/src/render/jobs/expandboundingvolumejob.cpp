@@ -39,7 +39,6 @@
 
 #include "expandboundingvolumejob_p.h"
 
-#include <Qt3DRender/private/renderer_p.h>
 #include <Qt3DRender/private/entity_p.h>
 #include <Qt3DRender/private/renderlogging_p.h>
 #include <Qt3DRender/private/sphere_p.h>
@@ -84,7 +83,7 @@ ExpandBoundingVolumeJob::ExpandBoundingVolumeJob()
     : m_node(nullptr)
     , m_manager(nullptr)
 {
-    SET_JOB_RUN_STAT_TYPE(this, JobTypes::ExpandBoundingVolume, 0);
+    SET_JOB_RUN_STAT_TYPE(this, JobTypes::ExpandBoundingVolume, 0)
 }
 
 void ExpandBoundingVolumeJob::setRoot(Entity *root)

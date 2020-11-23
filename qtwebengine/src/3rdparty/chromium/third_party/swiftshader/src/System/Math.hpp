@@ -16,7 +16,6 @@
 #define sw_Math_hpp
 
 #include "Types.hpp"
-#include "Half.hpp"
 
 #include "Vulkan/VkDebug.hpp"
 
@@ -33,37 +32,37 @@ namespace sw
 	#undef max
 
 	template<class T>
-	inline T max(T a, T b)
+	inline T constexpr max(T a, T b)
 	{
 		return a > b ? a : b;
 	}
 
 	template<class T>
-	inline T min(T a, T b)
+	inline constexpr T min(T a, T b)
 	{
 		return a < b ? a : b;
 	}
 
 	template<class T>
-	inline T max(T a, T b, T c)
+	inline constexpr T max(T a, T b, T c)
 	{
 		return max(max(a, b), c);
 	}
 
 	template<class T>
-	inline T min(T a, T b, T c)
+	inline constexpr T min(T a, T b, T c)
 	{
 		return min(min(a, b), c);
 	}
 
 	template<class T>
-	inline T max(T a, T b, T c, T d)
+	inline constexpr T max(T a, T b, T c, T d)
 	{
 		return max(max(a, b), max(c, d));
 	}
 
 	template<class T>
-	inline T min(T a, T b, T c, T d)
+	inline constexpr T min(T a, T b, T c, T d)
 	{
 		return min(min(a, b), min(c, d));
 	}
@@ -138,17 +137,7 @@ namespace sw
 	#define MAX(x, y) ((x) > (y) ? (x) : (y))
 	#define MIN(x, y) ((x) < (y) ? (x) : (y))
 
-	inline float exp2(float x)
-	{
-		return exp2f(x);
-	}
-
-	inline int exp2(int x)
-	{
-		return 1 << x;
-	}
-
-	inline unsigned long log2(int x)
+	inline unsigned long log2i(int x)
 	{
 		#if defined(_MSC_VER)
 			unsigned long y;
@@ -157,18 +146,6 @@ namespace sw
 		#else
 			return 31 - __builtin_clz(x);
 		#endif
-	}
-
-	inline int ilog2(float x)
-	{
-		unsigned int y = *(unsigned int*)&x;
-
-		return ((y & 0x7F800000) >> 23) - 127;
-	}
-
-	inline float log2(float x)
-	{
-		return logf(x) * 1.44269504f;   // 1.0 / log[e](2)
 	}
 
 	inline bool isPow2(int x)
@@ -394,6 +371,11 @@ namespace sw
 	inline int clampToSignedInt(unsigned int x)
 	{
 		return static_cast<int>(min(x, 0x7FFFFFFFu));
+	}
+
+	// Convert floating value v to fixed point with p digits after the decimal point
+	constexpr int toFixedPoint(float v, int p) {
+		return static_cast<int>(v * (1 << p));
 	}
 }
 

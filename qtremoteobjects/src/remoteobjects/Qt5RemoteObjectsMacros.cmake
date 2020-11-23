@@ -48,7 +48,7 @@
 #         create C++ code from a list of .rep files. Per-directory preprocessor
 #         definitions are also added.
 #         infile should be a replicant template file (.rep)
-#         outputtype specifies output file type, it can be one of SOURCE|REPLICA
+#         outputtype specifies output file type, it can be one of SOURCE|REPLICA|MERGED
 #         Example usage: qt5_generate_repc(LIB_SRCS interface.rep SOURCE)
 #           for generating interface_source.h and adding it to LIB_SRCS
 
@@ -57,6 +57,8 @@ if(NOT Qt5RemoteObjects_REPC_EXECUTABLE)
 endif()
 
 macro(qt5_generate_repc outfiles infile outputtype)
+    set(_QT5_INTERNAL_SCOPE ON)
+
     # get include dirs and flags
     get_filename_component(abs_infile ${infile} ABSOLUTE)
     get_filename_component(infile_name "${infile}" NAME)
@@ -64,6 +66,9 @@ macro(qt5_generate_repc outfiles infile outputtype)
     if(${outputtype} STREQUAL "SOURCE")
         set(_outfile_base "rep_${_infile_base}_source")
         set(_repc_args -o source)
+    elseif(${outputtype} STREQUAL "MERGED")
+        set(_outfile_base "rep_${_infile_base}_merged")
+        set(_repc_args -o merged)
     else()
         set(_outfile_base "rep_${_infile_base}_replica")
         set(_repc_args -o replica)
@@ -73,7 +78,10 @@ macro(qt5_generate_repc outfiles infile outputtype)
         DEPENDS ${abs_infile}
         COMMAND ${Qt5RemoteObjects_REPC_EXECUTABLE} ${abs_infile} ${_repc_args} ${_outfile_header}
         VERBATIM)
-    set_source_files_properties(${_outfile_header} PROPERTIES GENERATED TRUE)
+    set_source_files_properties(${_outfile_header} PROPERTIES
+                                                GENERATED TRUE
+                                                SKIP_AUTOMOC ON
+                                                SKIP_AUTOUIC ON)
 
     qt5_get_moc_flags(_moc_flags)
     # Make sure we get the compiler flags from the Qt5::RemoteObjects target (for includes)
@@ -91,3 +99,14 @@ macro(qt5_generate_repc outfiles infile outputtype)
     qt5_create_moc_command(${_outfile_header} ${_moc_outfile} "${_moc_flags}" "" "" "")
     list(APPEND ${outfiles} "${_outfile_header}" ${_moc_outfile})
 endmacro()
+
+if(NOT QT_NO_CREATE_VERSIONLESS_FUNCTIONS)
+    function(qt_generate_repc outfiles)
+        if(QT_DEFAULT_MAJOR_VERSION EQUAL 5)
+            qt5_generate_repc("${outfiles}" ${ARGN})
+        elseif(QT_DEFAULT_MAJOR_VERSION EQUAL 6)
+            qt6_generate_repc("${outfiles}" ${ARGN})
+        endif()
+        set("${outfiles}" "${${outfiles}}" PARENT_SCOPE)
+    endfunction()
+endif()

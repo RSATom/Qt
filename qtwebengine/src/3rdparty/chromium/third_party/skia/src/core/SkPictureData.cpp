@@ -175,7 +175,7 @@ void SkPictureData::flattenToBuffer(SkWriteBuffer& buffer, bool textBlobsOnly) c
         if (!fVertices.empty()) {
             write_tag_size(buffer, SK_PICT_VERTICES_BUFFER_TAG, fVertices.count());
             for (const auto& vert : fVertices) {
-                buffer.writeDataAsByteArray(vert->encode().get());
+                vert->encode(buffer);
             }
         }
 
@@ -375,10 +375,6 @@ bool SkPictureData::parseStreamTag(SkStream* stream,
 static sk_sp<SkImage> create_image_from_buffer(SkReadBuffer& buffer) {
     return buffer.readImage();
 }
-static sk_sp<SkVertices> create_vertices_from_buffer(SkReadBuffer& buffer) {
-    auto data = buffer.readByteArrayAsData();
-    return data ? SkVertices::Decode(data->data(), data->size()) : nullptr;
-}
 
 static sk_sp<SkDrawable> create_drawable_from_buffer(SkReadBuffer& buffer) {
     return sk_sp<SkDrawable>((SkDrawable*)buffer.readFlattenable(SkFlattenable::kSkDrawable_Type));
@@ -441,7 +437,7 @@ void SkPictureData::parseBufferTag(SkReadBuffer& buffer, uint32_t tag, uint32_t 
             new_array_from_buffer(buffer, size, fTextBlobs, SkTextBlobPriv::MakeFromBuffer);
             break;
         case SK_PICT_VERTICES_BUFFER_TAG:
-            new_array_from_buffer(buffer, size, fVertices, create_vertices_from_buffer);
+            new_array_from_buffer(buffer, size, fVertices, SkVertices::Decode);
             break;
         case SK_PICT_IMAGE_BUFFER_TAG:
             new_array_from_buffer(buffer, size, fImages, create_image_from_buffer);

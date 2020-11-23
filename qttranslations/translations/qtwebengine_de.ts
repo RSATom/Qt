@@ -101,6 +101,37 @@
     </message>
 </context>
 <context>
+    <name>QQuickPdfDocument</name>
+    <message>
+        <source>no error</source>
+        <translation>kein Fehler</translation>
+    </message>
+    <message>
+        <source>data not yet available</source>
+        <translation>Daten stehen noch nicht bereit</translation>
+    </message>
+    <message>
+        <source>file not found</source>
+        <translation>Datei nicht gefunden</translation>
+    </message>
+    <message>
+        <source>invalid file format</source>
+        <translation>ungültiges Dateiformat</translation>
+    </message>
+    <message>
+        <source>incorrect password</source>
+        <translation>ungültiges Passwort</translation>
+    </message>
+    <message>
+        <source>unsupported security scheme</source>
+        <translation>nicht unterstütztes Sicherheitsverfahren</translation>
+    </message>
+    <message>
+        <source>unknown error</source>
+        <translation>unbekannter Fehler</translation>
+    </message>
+</context>
+<context>
     <name>QQuickWebEngineView</name>
     <message>
         <source>Stop</source>
@@ -264,18 +295,6 @@
     <message>
         <source>Insert &amp;Unordered List</source>
         <translation>&amp;Liste einfügen</translation>
-    </message>
-    <message>
-        <source>&amp;Back</source>
-        <translation>&amp;Zurück</translation>
-    </message>
-    <message>
-        <source>&amp;Forward</source>
-        <translation>&amp;Vorwärts</translation>
-    </message>
-    <message>
-        <source>&amp;Reload</source>
-        <translation>&amp;Neu laden</translation>
     </message>
     <message>
         <source>Select folder to upload</source>

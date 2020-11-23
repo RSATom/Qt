@@ -745,6 +745,7 @@ bool Validators::QueryTargetValidator::IsValid(const GLenum value) const {
     case GL_ANY_SAMPLES_PASSED_EXT:
     case GL_ANY_SAMPLES_PASSED_CONSERVATIVE_EXT:
     case GL_COMMANDS_ISSUED_CHROMIUM:
+    case GL_COMMANDS_ISSUED_TIMESTAMP_CHROMIUM:
     case GL_LATENCY_QUERY_CHROMIUM:
     case GL_ASYNC_PIXEL_PACK_COMPLETED_CHROMIUM:
     case GL_COMMANDS_COMPLETED_CHROMIUM:
@@ -861,21 +862,11 @@ bool Validators::ResetStatusValidator::IsValid(const GLenum value) const {
   return false;
 }
 
-bool Validators::SamplerParameterValidator::IsValid(const GLenum value) const {
-  switch (value) {
-    case GL_TEXTURE_MAG_FILTER:
-    case GL_TEXTURE_MIN_FILTER:
-    case GL_TEXTURE_MIN_LOD:
-    case GL_TEXTURE_MAX_LOD:
-    case GL_TEXTURE_WRAP_S:
-    case GL_TEXTURE_WRAP_T:
-    case GL_TEXTURE_WRAP_R:
-    case GL_TEXTURE_COMPARE_MODE:
-    case GL_TEXTURE_COMPARE_FUNC:
-      return true;
-  }
-  return false;
-}
+static const GLenum valid_sampler_parameter_table[] = {
+    GL_TEXTURE_MAG_FILTER, GL_TEXTURE_MIN_FILTER,   GL_TEXTURE_MIN_LOD,
+    GL_TEXTURE_MAX_LOD,    GL_TEXTURE_WRAP_S,       GL_TEXTURE_WRAP_T,
+    GL_TEXTURE_WRAP_R,     GL_TEXTURE_COMPARE_MODE, GL_TEXTURE_COMPARE_FUNC,
+};
 
 static const GLenum valid_shader_parameter_table[] = {
     GL_SHADER_TYPE,          GL_DELETE_STATUS,
@@ -1454,6 +1445,8 @@ Validators::Validators()
                               base::size(valid_render_buffer_parameter_table)),
       render_buffer_target(valid_render_buffer_target_table,
                            base::size(valid_render_buffer_target_table)),
+      sampler_parameter(valid_sampler_parameter_table,
+                        base::size(valid_sampler_parameter_table)),
       shader_binary_format(),
       shader_parameter(valid_shader_parameter_table,
                        base::size(valid_shader_parameter_table)),

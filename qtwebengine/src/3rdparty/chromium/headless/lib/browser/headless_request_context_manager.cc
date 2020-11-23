@@ -15,8 +15,11 @@
 #include "content/public/browser/resource_context.h"
 #include "headless/app/headless_shell_switches.h"
 #include "headless/lib/browser/headless_browser_context_options.h"
+#include "mojo/public/cpp/bindings/receiver.h"
+#include "net/http/http_auth_preferences.h"
 #include "services/network/network_service.h"
 #include "services/network/public/cpp/features.h"
+#include "services/network/public/mojom/network_service.mojom.h"
 #include "services/network/url_request_context_builder_mojo.h"
 
 namespace headless {
@@ -85,7 +88,7 @@ class HeadlessProxyConfigMonitor
 
   explicit HeadlessProxyConfigMonitor(
       scoped_refptr<base::SingleThreadTaskRunner> task_runner)
-      : task_runner_(task_runner), poller_binding_(this) {
+      : task_runner_(task_runner) {
     DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
     // We must create the proxy config service on the UI loop on Linux because
     // it must synchronously run on the glib message loop.
@@ -111,10 +114,10 @@ class HeadlessProxyConfigMonitor
       ::network::mojom::NetworkContextParams* network_context_params) {
     DCHECK(task_runner_->RunsTasksInCurrentSequence());
     DCHECK(!proxy_config_client_);
-    network_context_params->proxy_config_client_request =
-        mojo::MakeRequest(&proxy_config_client_);
-    poller_binding_.Bind(
-        mojo::MakeRequest(&network_context_params->proxy_config_poller_client));
+    network_context_params->proxy_config_client_receiver =
+        proxy_config_client_.BindNewPipeAndPassReceiver();
+    poller_receiver_.Bind(network_context_params->proxy_config_poller_client
+                              .InitWithNewPipeAndPassReceiver());
     net::ProxyConfigWithAnnotation proxy_config;
     net::ProxyConfigService::ConfigAvailability availability =
         proxy_config_service_->GetLatestProxyConfig(&proxy_config);
@@ -148,8 +151,9 @@ class HeadlessProxyConfigMonitor
 
   scoped_refptr<base::SingleThreadTaskRunner> task_runner_;
   std::unique_ptr<net::ProxyConfigService> proxy_config_service_;
-  mojo::Binding<::network::mojom::ProxyConfigPollerClient> poller_binding_;
-  ::network::mojom::ProxyConfigClientPtr proxy_config_client_;
+  mojo::Receiver<::network::mojom::ProxyConfigPollerClient> poller_receiver_{
+      this};
+  mojo::Remote<::network::mojom::ProxyConfigClient> proxy_config_client_;
 
   DISALLOW_COPY_AND_ASSIGN(HeadlessProxyConfigMonitor);
 };
@@ -163,13 +167,13 @@ HeadlessRequestContextManager::CreateSystemContext(
 
   base::CommandLine* command_line = base::CommandLine::ForCurrentProcess();
   auto auth_params = ::network::mojom::HttpAuthDynamicParams::New();
-  auth_params->server_whitelist =
+  auth_params->server_allowlist =
       command_line->GetSwitchValueASCII(switches::kAuthServerWhitelist);
   auto* network_service = content::GetNetworkService();
   network_service->ConfigureHttpAuthPrefs(std::move(auth_params));
 
   network_service->CreateNetworkContext(
-      mojo::MakeRequest(&manager->system_context_),
+      manager->system_context_.InitWithNewPipeAndPassReceiver(),
       manager->CreateNetworkContextParams(/* is_system = */ true));
 
   return manager;
@@ -206,13 +210,13 @@ HeadlessRequestContextManager::~HeadlessRequestContextManager() {
     HeadlessProxyConfigMonitor::DeleteSoon(std::move(proxy_config_monitor_));
 }
 
-::network::mojom::NetworkContextPtr
+mojo::Remote<::network::mojom::NetworkContext>
 HeadlessRequestContextManager::CreateNetworkContext(
     bool in_memory,
     const base::FilePath& relative_partition_path) {
-  ::network::mojom::NetworkContextPtr network_context;
+  mojo::Remote<::network::mojom::NetworkContext> network_context;
   content::GetNetworkService()->CreateNetworkContext(
-      MakeRequest(&network_context),
+      network_context.BindNewPipeAndPassReceiver(),
       CreateNetworkContextParams(/* is_system = */ false));
   return network_context;
 }
@@ -224,6 +228,12 @@ HeadlessRequestContextManager::CreateNetworkContextParams(bool is_system) {
   context_params->user_agent = user_agent_;
   context_params->accept_language = accept_language_;
   context_params->primary_network_context = is_system;
+
+  // TODO(https://crbug.com/458508): Allow
+  // context_params->http_auth_static_network_context_params->allow_default_credentials
+  // to be controllable by a flag.
+  context_params->http_auth_static_network_context_params =
+      ::network::mojom::HttpAuthStaticNetworkContextParams::New();
 
   if (!user_data_path_.empty()) {
     context_params->enable_encrypted_cookies = cookie_encryption_enabled_;

@@ -175,41 +175,6 @@ void ElementAnimations::RemoveKeyframeEffectsFromTicking() const {
     keyframe_effect.RemoveFromTicking();
 }
 
-void ElementAnimations::NotifyAnimationStarted(const AnimationEvent& event) {
-  DCHECK(!event.is_impl_only);
-  for (auto& keyframe_effect : keyframe_effects_list_) {
-    if (keyframe_effect.NotifyKeyframeModelStarted(event))
-      break;
-  }
-}
-
-void ElementAnimations::NotifyAnimationFinished(const AnimationEvent& event) {
-  DCHECK(!event.is_impl_only);
-  for (auto& keyframe_effect : keyframe_effects_list_) {
-    if (keyframe_effect.NotifyKeyframeModelFinished(event))
-      break;
-  }
-}
-
-void ElementAnimations::NotifyAnimationTakeover(const AnimationEvent& event) {
-  DCHECK(!event.is_impl_only);
-  DCHECK(event.target_property == TargetProperty::SCROLL_OFFSET);
-
-  for (auto& keyframe_effect : keyframe_effects_list_)
-    keyframe_effect.NotifyKeyframeModelTakeover(event);
-}
-
-void ElementAnimations::NotifyAnimationAborted(const AnimationEvent& event) {
-  DCHECK(!event.is_impl_only);
-
-  for (auto& keyframe_effect : keyframe_effects_list_) {
-    if (keyframe_effect.NotifyKeyframeModelAborted(event))
-      break;
-  }
-
-  UpdateClientAnimationState();
-}
-
 bool ElementAnimations::AnimationsPreserveAxisAlignment() const {
   for (auto& keyframe_effect : keyframe_effects_list_) {
     if (!keyframe_effect.AnimationsPreserveAxisAlignment())
@@ -248,15 +213,30 @@ bool ElementAnimations::ScrollOffsetAnimationWasInterrupted() const {
 }
 
 void ElementAnimations::NotifyClientFloatAnimated(
-    float opacity,
+    float value,
     int target_property_id,
     KeyframeModel* keyframe_model) {
-  DCHECK(keyframe_model->target_property_id() == TargetProperty::OPACITY);
-  opacity = base::ClampToRange(opacity, 0.0f, 1.0f);
-  if (KeyframeModelAffectsActiveElements(keyframe_model))
-    OnOpacityAnimated(ElementListType::ACTIVE, opacity, keyframe_model);
-  if (KeyframeModelAffectsPendingElements(keyframe_model))
-    OnOpacityAnimated(ElementListType::PENDING, opacity, keyframe_model);
+  switch (keyframe_model->target_property_id()) {
+    case TargetProperty::CSS_CUSTOM_PROPERTY:
+      // Custom properties are only tracked on the pending tree, where they may
+      // be used as inputs for PaintWorklets (which are only dispatched from the
+      // pending tree). As such, we don't need to notify in the case where a
+      // KeyframeModel only affects active elements.
+      if (KeyframeModelAffectsPendingElements(keyframe_model))
+        OnCustomPropertyAnimated(PaintWorkletInput::PropertyValue(value),
+                                 keyframe_model);
+      break;
+    case TargetProperty::OPACITY: {
+      float opacity = base::ClampToRange(value, 0.0f, 1.0f);
+      if (KeyframeModelAffectsActiveElements(keyframe_model))
+        OnOpacityAnimated(ElementListType::ACTIVE, opacity, keyframe_model);
+      if (KeyframeModelAffectsPendingElements(keyframe_model))
+        OnOpacityAnimated(ElementListType::PENDING, opacity, keyframe_model);
+      break;
+    }
+    default:
+      NOTREACHED();
+  }
 }
 
 void ElementAnimations::NotifyClientFilterAnimated(
@@ -281,6 +261,16 @@ void ElementAnimations::NotifyClientFilterAnimated(
     default:
       NOTREACHED();
   }
+}
+
+void ElementAnimations::NotifyClientColorAnimated(
+    SkColor value,
+    int target_property_id,
+    KeyframeModel* keyframe_model) {
+  DCHECK_EQ(keyframe_model->target_property_id(),
+            TargetProperty::CSS_CUSTOM_PROPERTY);
+  OnCustomPropertyAnimated(PaintWorkletInput::PropertyValue(value),
+                           keyframe_model);
 }
 
 void ElementAnimations::NotifyClientTransformOperationsAnimated(
@@ -481,6 +471,16 @@ void ElementAnimations::OnOpacityAnimated(ElementListType list_type,
   DCHECK(animation_host_->mutator_host_client());
   animation_host_->mutator_host_client()->SetElementOpacityMutated(
       target_element_id, list_type, opacity);
+}
+
+void ElementAnimations::OnCustomPropertyAnimated(
+    PaintWorkletInput::PropertyValue custom_prop_value,
+    KeyframeModel* keyframe_model) {
+  DCHECK(animation_host_);
+  DCHECK(animation_host_->mutator_host_client());
+  animation_host_->mutator_host_client()->OnCustomPropertyMutated(
+      CalculateTargetElementId(this, keyframe_model),
+      keyframe_model->custom_property_name(), std::move(custom_prop_value));
 }
 
 void ElementAnimations::OnTransformAnimated(ElementListType list_type,

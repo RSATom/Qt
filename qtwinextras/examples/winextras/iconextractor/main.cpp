@@ -77,7 +77,7 @@ struct PixmapEntry {
     QPixmap pixmap;
 };
 
-using PixmapEntryList = QList<PixmapEntry>;
+using PixmapEntryList = QVector<PixmapEntry>;
 
 static std::wostream &operator<<(std::wostream &str, const QString &s)
 {
@@ -91,7 +91,7 @@ static std::wostream &operator<<(std::wostream &str, const QString &s)
 
 static QString formatSize(const QSize &size)
 {
-    return QString::number(size.width()) + QLatin1Char('x') + QString::number(size.height());
+    return QString::number(size.width()) + u'x' + QString::number(size.height());
 }
 
 // Extract icons contained in executable or DLL using the Win32 API ExtractIconEx()
@@ -194,11 +194,11 @@ static PixmapEntryList extractShellIcons(const QString &sourceFile, bool addOver
         const unsigned modeFlags = baseFlags | modeEntry.flags;
         QString modePrefix = QLatin1String("_shell_");
         if (modeEntry.name[0])
-            modePrefix += QLatin1String(modeEntry.name) + QLatin1Char('_');
+            modePrefix += QLatin1String(modeEntry.name) + u'_';
         for (auto standardSizeEntry : standardSizeEntries) {
             const unsigned flags = modeFlags | standardSizeEntry.flags;
             const QString prefix = modePrefix + QLatin1String(standardSizeEntry.name)
-                + QLatin1Char('_');
+                + u'_';
             ZeroMemory(&info, sizeof(SHFILEINFO));
             const HRESULT hr = SHGetFileInfo(sourceFileC, 0, &info, sizeof(SHFILEINFO), flags);
             if (FAILED(hr)) {
@@ -291,7 +291,7 @@ int main(int argc, char *argv[])
         return 1;
     }
     const QString &sourceFile = positionalArguments.constFirst();
-    imageFileRoot = imageFileRootInfo.absoluteFilePath() + QLatin1Char('/') + QFileInfo(sourceFile).baseName();
+    imageFileRoot = imageFileRootInfo.absoluteFilePath() + u'/' + QFileInfo(sourceFile).baseName();
 
     const PixmapEntryList pixmaps = parser.isSet(shellIconOption)
         ? extractShellIcons(sourceFile, parser.isSet(shellOverlayOption))

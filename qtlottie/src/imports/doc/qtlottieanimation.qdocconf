@@ -36,5 +36,4 @@ tagfile                 = qtlottieanimation.tags
 examplesinstallpath     = lottieanimation
 
 navigation.landingpage  = Qt Lottie Animation
-navigation.landingtitle = Qt Lottie Animation (Technology Preview)
 navigation.qmltypespage = Qt Lottie Animation QML Types

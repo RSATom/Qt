@@ -55,6 +55,20 @@ QT_BEGIN_NAMESPACE
 #  define Q_NETWORK_EXPORT
 #endif
 
+// ### Qt6: Remove
+// We work around an issue in ICC where it errors out during compilation of Qt by not marking it
+// deprecated if ICC is used. We also drop the notice if MSVC 2015 is used because it generated
+// warnings in the header in ways that cannot be suppressed.
+#if defined(Q_CC_INTEL) || (defined(Q_CC_MSVC) && _MSC_VER < 1910)
+#define QT_DEPRECATED_BEARER_MANAGEMENT
+#else
+#define QT_DEPRECATED_BEARER_MANAGEMENT QT_DEPRECATED_VERSION_5_15
+#endif
+
+// ### Qt6: Remove
+#define QT_DEPRECATED_NETWORK_API_5_15 QT_DEPRECATED_VERSION_5_15
+#define QT_DEPRECATED_NETWORK_API_5_15_X QT_DEPRECATED_VERSION_X_5_15
+
 QT_END_NAMESPACE
 
 #endif

@@ -12,7 +12,11 @@
 #include "base/macros.h"
 #include "ipc/ipc_message.h"
 #include "mojo/public/cpp/base/big_buffer.h"
+#if !defined(__GNUC__) || defined(__clang__) || __GNUC__ > 6
 #include "mojo/public/interfaces/bindings/native_struct.mojom-forward.h"
+#else
+#include "mojo/public/interfaces/bindings/native_struct.mojom.h"
+#endif
 
 namespace IPC {
 
@@ -40,9 +44,7 @@ class COMPONENT_EXPORT(IPC_MOJOM) MessageView {
 
   mojo_base::BigBufferView TakeBufferView() { return std::move(buffer_view_); }
 
-  base::Optional<std::vector<mojo::native::SerializedHandlePtr>> TakeHandles() {
-    return std::move(handles_);
-  }
+  base::Optional<std::vector<mojo::native::SerializedHandlePtr>> TakeHandles();
 
  private:
   mojo_base::BigBufferView buffer_view_;

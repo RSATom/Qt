@@ -8,6 +8,7 @@
 
 #include "base/strings/string_piece.h"
 #include "crypto/sha2.h"
+#include "net/base/network_isolation_key.h"
 #include "net/cert/cert_net_fetcher.h"
 #include "net/cert/internal/common_cert_errors.h"
 #include "net/cert/internal/crl.h"
@@ -35,10 +36,12 @@ void MarkCertificateRevoked(CertErrors* errors) {
 bool CheckCertRevocation(const ParsedCertificateList& certs,
                          size_t target_cert_index,
                          const RevocationPolicy& policy,
+                         base::TimeTicks deadline,
                          base::StringPiece stapled_ocsp_response,
                          base::TimeDelta max_age,
                          CertNetFetcher* net_fetcher,
-                         CertErrors* cert_errors) {
+                         CertErrors* cert_errors,
+                         OCSPVerifyResult* stapled_ocsp_verify_result) {
   DCHECK_LT(target_cert_index, certs.size());
   const ParsedCertificate* cert = certs[target_cert_index].get();
   const ParsedCertificate* issuer_cert =
@@ -47,13 +50,14 @@ bool CheckCertRevocation(const ParsedCertificateList& certs,
 
   // Check using stapled OCSP, if available.
   if (!stapled_ocsp_response.empty() && issuer_cert) {
-    // TODO(eroman): CheckOCSP() re-parses the certificates, perhaps just pass
-    //               ParsedCertificate into it.
     OCSPVerifyResult::ResponseStatus response_details;
     OCSPRevocationStatus ocsp_status =
-        CheckOCSP(stapled_ocsp_response, cert->der_cert().AsStringPiece(),
-                  issuer_cert->der_cert().AsStringPiece(), base::Time::Now(),
+        CheckOCSP(stapled_ocsp_response, cert, issuer_cert, base::Time::Now(),
                   max_age, &response_details);
+    if (stapled_ocsp_verify_result) {
+      stapled_ocsp_verify_result->response_status = response_details;
+      stapled_ocsp_verify_result->revocation_status = ocsp_status;
+    }
 
     // TODO(eroman): Save the stapled OCSP response to cache.
     switch (ocsp_status) {
@@ -75,7 +79,6 @@ bool CheckCertRevocation(const ParsedCertificateList& certs,
   }
 
   bool found_revocation_info = false;
-  bool failed_network_fetch = false;
 
   // Check OCSP.
   if (cert->has_authority_info_access()) {
@@ -90,6 +93,11 @@ bool CheckCertRevocation(const ParsedCertificateList& certs,
       }
 
       found_revocation_info = true;
+
+      // Check the deadline after setting found_revocation_info, to not give a
+      // misleading kNoRevocationMechanism failure.
+      if (!deadline.is_null() && base::TimeTicks::Now() > deadline)
+        break;
 
       if (!policy.networking_allowed)
         continue;
@@ -113,21 +121,17 @@ bool CheckCertRevocation(const ParsedCertificateList& certs,
       // TODO(eroman): Issue POST instead of GET if request is larger than 255
       //               bytes?
       // TODO(eroman): Improve interplay with HTTP cache.
-      //
-      // TODO(eroman): Bound the maximum time allowed spent doing network
-      // requests.
       std::unique_ptr<CertNetFetcher::Request> net_ocsp_request =
-          net_fetcher->FetchOcsp(get_url, CertNetFetcher::DEFAULT,
+          net_fetcher->FetchOcsp(get_url, NetworkIsolationKey::Todo(),
+                                 CertNetFetcher::DEFAULT,
                                  CertNetFetcher::DEFAULT);
 
       Error net_error;
       std::vector<uint8_t> ocsp_response_bytes;
       net_ocsp_request->WaitForResult(&net_error, &ocsp_response_bytes);
 
-      if (net_error != OK) {
-        failed_network_fetch = true;
+      if (net_error != OK)
         continue;
-      }
 
       OCSPVerifyResult::ResponseStatus response_details;
 
@@ -135,9 +139,7 @@ bool CheckCertRevocation(const ParsedCertificateList& certs,
           base::StringPiece(
               reinterpret_cast<const char*>(ocsp_response_bytes.data()),
               ocsp_response_bytes.size()),
-          cert->der_cert().AsStringPiece(),
-          issuer_cert->der_cert().AsStringPiece(), base::Time::Now(), max_age,
-          &response_details);
+          cert, issuer_cert, base::Time::Now(), max_age, &response_details);
 
       switch (ocsp_status) {
         case OCSPRevocationStatus::REVOKED:
@@ -175,6 +177,11 @@ bool CheckCertRevocation(const ParsedCertificateList& certs,
 
           found_revocation_info = true;
 
+          // Check the deadline after setting found_revocation_info, to not give
+          // a misleading kNoRevocationMechanism failure.
+          if (!deadline.is_null() && base::TimeTicks::Now() > deadline)
+            break;
+
           if (!policy.networking_allowed)
             continue;
 
@@ -188,21 +195,17 @@ bool CheckCertRevocation(const ParsedCertificateList& certs,
           // Note that no attempt is made to refetch without cache if a cached
           // CRL is too old, nor is there a separate CRL cache. It is assumed
           // the CRL server will send reasonable HTTP caching headers.
-          //
-          // TODO(eroman): Bound the maximum time allowed spent doing network
-          // requests.
           std::unique_ptr<CertNetFetcher::Request> net_crl_request =
-              net_fetcher->FetchCrl(parsed_crl_url, CertNetFetcher::DEFAULT,
+              net_fetcher->FetchCrl(parsed_crl_url, NetworkIsolationKey::Todo(),
+                                    CertNetFetcher::DEFAULT,
                                     CertNetFetcher::DEFAULT);
 
           Error net_error;
           std::vector<uint8_t> crl_response_bytes;
           net_crl_request->WaitForResult(&net_error, &crl_response_bytes);
 
-          if (net_error != OK) {
-            failed_network_fetch = true;
+          if (net_error != OK)
             continue;
-          }
 
           CRLRevocationStatus crl_status = CheckCRL(
               base::StringPiece(
@@ -241,9 +244,9 @@ bool CheckCertRevocation(const ParsedCertificateList& certs,
     }
   }
 
-  // In soft-fail mode permit failures due to network errors.
+  // In soft-fail mode permit other failures.
   // TODO(eroman): Add a warning to |cert_errors| indicating the failure.
-  if (failed_network_fetch && policy.allow_network_failure)
+  if (policy.allow_unable_to_check)
     return true;
 
   // Otherwise the policy doesn't allow revocation checking to fail.
@@ -259,13 +262,19 @@ RevocationPolicy::RevocationPolicy()
     : check_revocation(true),
       networking_allowed(false),
       allow_missing_info(false),
-      allow_network_failure(false) {}
+      allow_unable_to_check(false) {}
 
-void CheckValidatedChainRevocation(const ParsedCertificateList& certs,
-                                   const RevocationPolicy& policy,
-                                   base::StringPiece stapled_leaf_ocsp_response,
-                                   CertNetFetcher* net_fetcher,
-                                   CertPathErrors* errors) {
+void CheckValidatedChainRevocation(
+    const ParsedCertificateList& certs,
+    const RevocationPolicy& policy,
+    base::TimeTicks deadline,
+    base::StringPiece stapled_leaf_ocsp_response,
+    CertNetFetcher* net_fetcher,
+    CertPathErrors* errors,
+    OCSPVerifyResult* stapled_ocsp_verify_result) {
+  if (stapled_ocsp_verify_result)
+    *stapled_ocsp_verify_result = OCSPVerifyResult();
+
   // Check each certificate for revocation using OCSP/CRL. Checks proceed
   // from the root certificate towards the leaf certificate. Revocation errors
   // are added to |errors|.
@@ -273,7 +282,7 @@ void CheckValidatedChainRevocation(const ParsedCertificateList& certs,
     size_t i = certs.size() - reverse_i - 1;
 
     // Trust anchors bypass OCSP/CRL revocation checks. (The only way to revoke
-    // trust anchors is via CRLSet or the built-in SPKI blacklist). Since
+    // trust anchors is via CRLSet or the built-in SPKI block list). Since
     // |certs| must be a validated chain, the final cert must be a trust
     // anchor.
     if (reverse_i == 0)
@@ -292,8 +301,9 @@ void CheckValidatedChainRevocation(const ParsedCertificateList& certs,
     // Check whether this certificate's revocation status complies with the
     // policy.
     bool cert_ok =
-        CheckCertRevocation(certs, i, policy, stapled_ocsp, max_age,
-                            net_fetcher, errors->GetErrorsForCert(i));
+        CheckCertRevocation(certs, i, policy, deadline, stapled_ocsp, max_age,
+                            net_fetcher, errors->GetErrorsForCert(i),
+                            (i == 0) ? stapled_ocsp_verify_result : nullptr);
 
     if (!cert_ok) {
       // If any certificate in the chain fails revocation checks, the chain is

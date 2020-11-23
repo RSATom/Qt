@@ -14,6 +14,7 @@
 #include "content/browser/accessibility/browser_accessibility_manager_win.h"
 #include "content/browser/accessibility/browser_accessibility_state_impl.h"
 #include "content/browser/accessibility/browser_accessibility_win.h"
+#include "content/browser/accessibility/one_shot_accessibility_tree_search.h"
 #include "content/browser/renderer_host/direct_manipulation_helper_win.h"
 #include "content/browser/renderer_host/render_widget_host_impl.h"
 #include "content/browser/renderer_host/render_widget_host_view_aura.h"
@@ -27,7 +28,6 @@
 #include "ui/base/view_prop.h"
 #include "ui/base/win/internal_constants.h"
 #include "ui/base/win/window_event_target.h"
-#include "ui/compositor/compositor.h"
 #include "ui/display/win/screen_win.h"
 #include "ui/gfx/geometry/rect.h"
 
@@ -37,47 +37,6 @@ namespace content {
 // other client is listening on MSAA events - if so, we enable full web
 // accessibility support.
 const int kIdScreenReaderHoneyPot = 1;
-
-// DirectManipulation needs to poll for new events every frame while finger
-// gesturing on touchpad.
-class CompositorAnimationObserverForDirectManipulation
-    : public ui::CompositorAnimationObserver {
- public:
-  CompositorAnimationObserverForDirectManipulation(
-      LegacyRenderWidgetHostHWND* render_widget_host_hwnd,
-      ui::Compositor* compositor)
-      : render_widget_host_hwnd_(render_widget_host_hwnd),
-        compositor_(compositor) {
-    DCHECK(compositor_);
-    compositor_->AddAnimationObserver(this);
-    DebugLogging("Add AnimationObserverForDirectManipulation.");
-  }
-
-  ~CompositorAnimationObserverForDirectManipulation() override {
-    if (compositor_) {
-      compositor_->RemoveAnimationObserver(this);
-      DebugLogging("Remove AnimationObserverForDirectManipulation.");
-    }
-  }
-
-  // ui::CompositorAnimationObserver
-  void OnAnimationStep(base::TimeTicks timestamp) override {
-    render_widget_host_hwnd_->PollForNextEvent();
-  }
-
-  // ui::CompositorAnimationObserver
-  void OnCompositingShuttingDown(ui::Compositor* compositor) override {
-    DebugLogging("OnCompositingShuttingDown.");
-    compositor->RemoveAnimationObserver(this);
-    compositor_ = nullptr;
-  }
-
- private:
-  LegacyRenderWidgetHostHWND* render_widget_host_hwnd_;
-  ui::Compositor* compositor_;
-
-  DISALLOW_COPY_AND_ASSIGN(CompositorAnimationObserverForDirectManipulation);
-};
 
 // static
 LegacyRenderWidgetHostHWND* LegacyRenderWidgetHostHWND::Create(
@@ -103,8 +62,9 @@ LegacyRenderWidgetHostHWND* LegacyRenderWidgetHostHWND::Create(
 }
 
 void LegacyRenderWidgetHostHWND::Destroy() {
-  // Stop the AnimationObserver when window close.
-  DestroyAnimationObserver();
+  // Delete DirectManipulationHelper before the window is destroyed.
+  if (direct_manipulation_helper_)
+    direct_manipulation_helper_.reset();
   host_ = nullptr;
   if (::IsWindow(hwnd()))
     ::DestroyWindow(hwnd());
@@ -113,10 +73,16 @@ void LegacyRenderWidgetHostHWND::Destroy() {
 void LegacyRenderWidgetHostHWND::UpdateParent(HWND parent) {
   if (GetWindowEventTarget(GetParent()))
     GetWindowEventTarget(GetParent())->HandleParentChanged();
-  // Stop the AnimationObserver when window hide. eg. tab switch, move tab to
-  // another window.
-  DestroyAnimationObserver();
+
   ::SetParent(hwnd(), parent);
+
+  // Direct Manipulation is enabled on Windows 10+. The CreateInstance function
+  // returns NULL if Direct Manipulation is not available. Recreate
+  // |direct_manipulation_helper_| when parent changed (compositor and window
+  // event target updated).
+  direct_manipulation_helper_ = DirectManipulationHelper::CreateInstance(
+      hwnd(), host_->GetNativeView()->GetHost()->compositor(),
+      GetWindowEventTarget(GetParent()));
 }
 
 HWND LegacyRenderWidgetHostHWND::GetParent() {
@@ -125,14 +91,10 @@ HWND LegacyRenderWidgetHostHWND::GetParent() {
 
 void LegacyRenderWidgetHostHWND::Show() {
   ::ShowWindow(hwnd(), SW_SHOW);
-  if (direct_manipulation_helper_)
-    direct_manipulation_helper_->Activate();
 }
 
 void LegacyRenderWidgetHostHWND::Hide() {
   ::ShowWindow(hwnd(), SW_HIDE);
-  if (direct_manipulation_helper_)
-    direct_manipulation_helper_->Deactivate();
 }
 
 void LegacyRenderWidgetHostHWND::SetBounds(const gfx::Rect& bounds) {
@@ -179,10 +141,13 @@ bool LegacyRenderWidgetHostHWND::Init() {
     RegisterTouchWindow(hwnd(), TWF_WANTPALM);
 
   HRESULT hr;
-  if (!::switches::IsExperimentalAccessibilityPlatformUIAEnabled()) {
-    hr = ::CreateStdAccessibleObject(hwnd(), OBJID_WINDOW,
-                                     IID_PPV_ARGS(&window_accessible_));
-  } else {
+  hr = ::CreateStdAccessibleObject(hwnd(), OBJID_WINDOW,
+                                   IID_PPV_ARGS(&window_accessible_));
+
+  if (FAILED(hr))
+    return false;
+
+  if (::switches::IsExperimentalAccessibilityPlatformUIAEnabled()) {
     // The usual way for UI Automation to obtain a fragment root is through
     // WM_GETOBJECT. However, if there's a relation such as "Controller For"
     // between element A in one window and element B in another window, UIA
@@ -191,7 +156,6 @@ bool LegacyRenderWidgetHostHWND::Init() {
     // WM_GETOBJECT to element B's window. So we create the fragment root now to
     // ensure it's ready if asked for.
     ax_fragment_root_ = std::make_unique<ui::AXFragmentRootWin>(hwnd(), this);
-    hr = S_OK;
   }
 
   ui::AXMode mode =
@@ -203,15 +167,10 @@ bool LegacyRenderWidgetHostHWND::Init() {
                    CHILDID_SELF);
   }
 
-  // Direct Manipulation is enabled on Windows 10+. The CreateInstance function
-  // returns NULL if Direct Manipulation is not available.
-  direct_manipulation_helper_ = DirectManipulationHelper::CreateInstance(
-      hwnd(), GetWindowEventTarget(GetParent()));
-
   // Disable pen flicks (http://crbug.com/506977)
   base::win::DisableFlicks(hwnd());
 
-  return !!SUCCEEDED(hr);
+  return true;
 }
 
 // static
@@ -253,8 +212,7 @@ LRESULT LegacyRenderWidgetHostHWND::OnGetObject(UINT message,
 
   if ((is_uia_request &&
        ::switches::IsExperimentalAccessibilityPlatformUIAEnabled()) ||
-      (is_msaa_request &&
-       !::switches::IsExperimentalAccessibilityPlatformUIAEnabled())) {
+      is_msaa_request) {
     if (is_uia_request) {
       // UIA, by design, insulates providers from knowing about the client(s)
       // asking for information. When UIA interface is requested, the presence
@@ -263,14 +221,15 @@ LRESULT LegacyRenderWidgetHostHWND::OnGetObject(UINT message,
       BrowserAccessibilityStateImpl::GetInstance()->EnableAccessibility();
     }
 
+    gfx::NativeViewAccessible root =
+        GetOrCreateWindowRootAccessible(is_uia_request);
+
     if (is_uia_request) {
       Microsoft::WRL::ComPtr<IRawElementProviderSimple> root_uia;
-      ax_fragment_root_->GetNativeViewAccessible()->QueryInterface(
-          IID_PPV_ARGS(&root_uia));
+      root->QueryInterface(IID_PPV_ARGS(&root_uia));
       return UiaReturnRawElementProvider(hwnd(), w_param, l_param,
                                          root_uia.Get());
     } else {
-      gfx::NativeViewAccessible root = GetOrCreateBrowserAccessibilityRoot();
       if (root == nullptr)
         return static_cast<LRESULT>(0L);
 
@@ -439,6 +398,19 @@ LRESULT LegacyRenderWidgetHostHWND::OnTouch(UINT message,
   return ret;
 }
 
+LRESULT LegacyRenderWidgetHostHWND::OnInput(UINT message,
+                                            WPARAM w_param,
+                                            LPARAM l_param) {
+  LRESULT ret = 0;
+  if (GetWindowEventTarget(GetParent())) {
+    bool msg_handled = false;
+    ret = GetWindowEventTarget(GetParent())
+              ->HandleInputMessage(message, w_param, l_param, &msg_handled);
+    SetMsgHandled(msg_handled);
+  }
+  return ret;
+}
+
 LRESULT LegacyRenderWidgetHostHWND::OnScroll(UINT message,
                                              WPARAM w_param,
                                              LPARAM l_param) {
@@ -513,21 +485,6 @@ LRESULT LegacyRenderWidgetHostHWND::OnSize(UINT message,
   return 0;
 }
 
-LRESULT LegacyRenderWidgetHostHWND::OnWindowPosChanged(UINT message,
-                                                       WPARAM w_param,
-                                                       LPARAM l_param) {
-  WINDOWPOS* window_pos = reinterpret_cast<WINDOWPOS*>(l_param);
-  if (direct_manipulation_helper_) {
-    if (window_pos->flags & SWP_SHOWWINDOW) {
-      direct_manipulation_helper_->Activate();
-    } else if (window_pos->flags & SWP_HIDEWINDOW) {
-      direct_manipulation_helper_->Deactivate();
-    }
-  }
-  SetMsgHandled(FALSE);
-  return 0;
-}
-
 LRESULT LegacyRenderWidgetHostHWND::OnDestroy(UINT message,
                                               WPARAM w_param,
                                               LPARAM l_param) {
@@ -546,28 +503,10 @@ LRESULT LegacyRenderWidgetHostHWND::OnPointerHitTest(UINT message,
     return 0;
 
   DebugLogging("Receive DM_POINTERHITTEST.");
-  // Update window event target for each DM_POINTERHITTEST.
-  if (direct_manipulation_helper_->OnPointerHitTest(
-          w_param, GetWindowEventTarget(GetParent()))) {
-    if (compositor_animation_observer_) {
-      // This is reach if Windows send a DM_POINTERHITTEST before the last
-      // DM_POINTERHITTEST receive READY status. We never see this but still
-      // worth to handle it.
-      DebugLogging("AnimationObserverForDirectManipulation exists.");
-      return 0;
-    }
 
-    CreateAnimationObserver();
-  }
+  direct_manipulation_helper_->OnPointerHitTest(w_param);
 
   return 0;
-}
-
-void LegacyRenderWidgetHostHWND::PollForNextEvent() {
-  DCHECK(direct_manipulation_helper_);
-
-  if (!direct_manipulation_helper_->PollForNextEvent())
-    DestroyAnimationObserver();
 }
 
 gfx::NativeViewAccessible
@@ -582,12 +521,19 @@ LegacyRenderWidgetHostHWND::GetParentOfAXFragmentRoot() {
   return nullptr;
 }
 
+bool LegacyRenderWidgetHostHWND::IsAXFragmentRootAControlElement() {
+  // Treat LegacyRenderWidgetHostHWND as a non-control element so that clients
+  // don't read out "Chrome Legacy Window" for it.
+  return false;
+}
+
 gfx::NativeViewAccessible
-LegacyRenderWidgetHostHWND::GetOrCreateWindowRootAccessible() {
-  if (::switches::IsExperimentalAccessibilityPlatformUIAEnabled()) {
+LegacyRenderWidgetHostHWND::GetOrCreateWindowRootAccessible(
+    bool is_uia_request) {
+  if (is_uia_request) {
+    DCHECK(::switches::IsExperimentalAccessibilityPlatformUIAEnabled());
     return ax_fragment_root_->GetNativeViewAccessible();
   }
-
   return GetOrCreateBrowserAccessibilityRoot();
 }
 
@@ -607,23 +553,41 @@ LegacyRenderWidgetHostHWND::GetOrCreateBrowserAccessibilityRoot() {
   if (!manager || !manager->GetRoot())
     return nullptr;
 
-  return manager->GetRoot()->GetNativeViewAccessible();
-}
+  BrowserAccessibility* root_node = manager->GetRoot();
 
-void LegacyRenderWidgetHostHWND::CreateAnimationObserver() {
-  DCHECK(!compositor_animation_observer_);
-  DCHECK(host_);
-  DCHECK(host_->GetNativeView()->GetHost());
-  DCHECK(host_->GetNativeView()->GetHost()->compositor());
+  // A datetime popup will have a second window with its own kRootWebArea.
+  // However, the BrowserAccessibilityManager is shared with the main window,
+  // and the popup window's kRootWebArea will be inserted as a sibling of the
+  // popup button. When this is called on a popup, we must return the popup
+  // window's kRootWebArea instead of the root document's kRootWebArea. This
+  // will ensure that we're not placing duplicate document roots in the
+  // accessibility tree.
+  if (host_->GetWidgetType() == WidgetType::kPopup) {
+    OneShotAccessibilityTreeSearch tree_search(root_node);
+    tree_search.SetStartNode(root_node);
+    tree_search.SetDirection(OneShotAccessibilityTreeSearch::FORWARDS);
+    tree_search.SetImmediateDescendantsOnly(false);
+    tree_search.SetCanWrapToLastElement(false);
+    tree_search.AddPredicate(AccessibilityPopupButtonPredicate);
 
-  compositor_animation_observer_ =
-      std::make_unique<CompositorAnimationObserverForDirectManipulation>(
-          this, host_->GetNativeView()->GetHost()->compositor());
-}
+    size_t matches = tree_search.CountMatches();
+    for (size_t i = 0; i < matches; ++i) {
+      BrowserAccessibility* match = tree_search.GetMatchAtIndex(i);
+      DCHECK(match);
 
-void LegacyRenderWidgetHostHWND::DestroyAnimationObserver() {
-  DebugLogging("DestroyAnimationObserver.");
-  compositor_animation_observer_.reset();
+      // The web root should be the next sibling of the popup node, however it
+      // is not created instantly, so sometimes the popup window exists before
+      // the popup's kRootWebArea has been added to the tree. In this case we
+      // will fall back to the main document's root.
+      BrowserAccessibility* popup_web_root = match->PlatformGetNextSibling();
+      if (popup_web_root &&
+          popup_web_root->GetRole() == ax::mojom::Role::kRootWebArea) {
+        return popup_web_root->GetNativeViewAccessible();
+      }
+    }
+  }
+
+  return root_node->GetNativeViewAccessible();
 }
 
 }  // namespace content

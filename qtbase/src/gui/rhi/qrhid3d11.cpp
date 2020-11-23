@@ -108,20 +108,13 @@ QT_BEGIN_NAMESPACE
     \c{ID3D11Device *} and \c{ID3D11DeviceContext *}.
  */
 
-/*!
-    \class QRhiD3D11TextureNativeHandles
-    \internal
-    \inmodule QtGui
-    \brief Holds the D3D texture object that is backing a QRhiTexture instance.
-
-    \note The class uses \c{void *} as the type since including the COM-based
-    \c{d3d11.h} headers is not acceptable here. The actual type is
-    \c{ID3D11Texture2D *}.
- */
-
 // help mingw with its ancient sdk headers
 #ifndef DXGI_ADAPTER_FLAG_SOFTWARE
 #define DXGI_ADAPTER_FLAG_SOFTWARE 2
+#endif
+
+#ifndef D3D11_1_UAV_SLOT_COUNT
+#define D3D11_1_UAV_SLOT_COUNT 64
 #endif
 
 QRhiD3D11::QRhiD3D11(QRhiD3D11InitParams *params, QRhiD3D11NativeHandles *importDevice)
@@ -475,6 +468,8 @@ bool QRhiD3D11::isFeatureSupported(QRhi::Feature feature) const
         return true;
     case QRhi::ReadBackNonBaseMipLevel:
         return true;
+    case QRhi::TexelFetch:
+        return true;
     default:
         Q_UNREACHABLE();
         return false;
@@ -491,7 +486,13 @@ int QRhiD3D11::resourceLimit(QRhi::ResourceLimit limit) const
     case QRhi::MaxColorAttachments:
         return 8;
     case QRhi::FramesInFlight:
-        return 2; // dummy
+        // From our perspective. What D3D does internally is another question
+        // (there could be pipelining, helped f.ex. by our MAP_DISCARD based
+        // uniform buffer update strategy), but that's out of our hands and
+        // does not concern us here.
+        return 1;
+    case QRhi::MaxAsyncReadbackFrames:
+        return 1;
     default:
         Q_UNREACHABLE();
         return 0;
@@ -538,9 +539,9 @@ QRhiTexture *QRhiD3D11::createTexture(QRhiTexture::Format format, const QSize &p
 
 QRhiSampler *QRhiD3D11::createSampler(QRhiSampler::Filter magFilter, QRhiSampler::Filter minFilter,
                                       QRhiSampler::Filter mipmapMode,
-                                      QRhiSampler::AddressMode u, QRhiSampler::AddressMode v)
+                                      QRhiSampler::AddressMode u, QRhiSampler::AddressMode v, QRhiSampler::AddressMode w)
 {
-    return new QD3D11Sampler(this, magFilter, minFilter, mipmapMode, u, v);
+    return new QD3D11Sampler(this, magFilter, minFilter, mipmapMode, u, v, w);
 }
 
 QRhiTextureRenderTarget *QRhiD3D11::createTextureRenderTarget(const QRhiTextureRenderTargetDescription &desc,
@@ -583,6 +584,11 @@ void QRhiD3D11::setGraphicsPipeline(QRhiCommandBuffer *cb, QRhiGraphicsPipeline 
     }
 }
 
+static const int RBM_SUPPORTED_STAGES = 3;
+static const int RBM_VERTEX = 0;
+static const int RBM_FRAGMENT = 1;
+static const int RBM_COMPUTE = 2;
+
 void QRhiD3D11::setShaderResources(QRhiCommandBuffer *cb, QRhiShaderResourceBindings *srb,
                                    int dynamicOffsetCount,
                                    const QRhiCommandBuffer::DynamicOffset *dynamicOffsets)
@@ -611,7 +617,7 @@ void QRhiD3D11::setShaderResources(QRhiCommandBuffer *cb, QRhiShaderResourceBind
         {
             QD3D11Buffer *bufD = QRHI_RES(QD3D11Buffer, b->u.ubuf.buf);
             if (bufD->m_type == QRhiBuffer::Dynamic)
-                executeBufferHostWritesForCurrentFrame(bufD);
+                executeBufferHostWrites(bufD);
 
             if (bufD->generation != bd.ubuf.generation || bufD->m_id != bd.ubuf.id) {
                 srbUpdate = true;
@@ -625,25 +631,30 @@ void QRhiD3D11::setShaderResources(QRhiCommandBuffer *cb, QRhiShaderResourceBind
             break;
         case QRhiShaderResourceBinding::SampledTexture:
         {
-            QD3D11Texture *texD = QRHI_RES(QD3D11Texture, b->u.stex.tex);
-            QD3D11Sampler *samplerD = QRHI_RES(QD3D11Sampler, b->u.stex.sampler);
-            if (texD->generation != bd.stex.texGeneration
-                    || texD->m_id != bd.stex.texId
-                    || samplerD->generation != bd.stex.samplerGeneration
-                    || samplerD->m_id != bd.stex.samplerId)
-            {
+            const QRhiShaderResourceBinding::Data::SampledTextureData *data = &b->u.stex;
+            if (bd.stex.count != data->count) {
+                bd.stex.count = data->count;
                 srbUpdate = true;
-                bd.stex.texId = texD->m_id;
-                bd.stex.texGeneration = texD->generation;
-                bd.stex.samplerId = samplerD->m_id;
-                bd.stex.samplerGeneration = samplerD->generation;
+            }
+            for (int elem = 0; elem < data->count; ++elem) {
+                QD3D11Texture *texD = QRHI_RES(QD3D11Texture, data->texSamplers[elem].tex);
+                QD3D11Sampler *samplerD = QRHI_RES(QD3D11Sampler, data->texSamplers[elem].sampler);
+                if (texD->generation != bd.stex.d[elem].texGeneration
+                        || texD->m_id != bd.stex.d[elem].texId
+                        || samplerD->generation != bd.stex.d[elem].samplerGeneration
+                        || samplerD->m_id != bd.stex.d[elem].samplerId)
+                {
+                    srbUpdate = true;
+                    bd.stex.d[elem].texId = texD->m_id;
+                    bd.stex.d[elem].texGeneration = texD->generation;
+                    bd.stex.d[elem].samplerId = samplerD->m_id;
+                    bd.stex.d[elem].samplerGeneration = samplerD->generation;
+                }
             }
         }
             break;
         case QRhiShaderResourceBinding::ImageLoad:
-            Q_FALLTHROUGH();
         case QRhiShaderResourceBinding::ImageStore:
-            Q_FALLTHROUGH();
         case QRhiShaderResourceBinding::ImageLoadStore:
         {
             QD3D11Texture *texD = QRHI_RES(QD3D11Texture, b->u.simage.tex);
@@ -655,9 +666,7 @@ void QRhiD3D11::setShaderResources(QRhiCommandBuffer *cb, QRhiShaderResourceBind
         }
             break;
         case QRhiShaderResourceBinding::BufferLoad:
-            Q_FALLTHROUGH();
         case QRhiShaderResourceBinding::BufferStore:
-            Q_FALLTHROUGH();
         case QRhiShaderResourceBinding::BufferLoadStore:
         {
             QD3D11Buffer *bufD = QRHI_RES(QD3D11Buffer, b->u.sbuf.buf);
@@ -674,8 +683,17 @@ void QRhiD3D11::setShaderResources(QRhiCommandBuffer *cb, QRhiShaderResourceBind
         }
     }
 
-    if (srbUpdate)
-        updateShaderResourceBindings(srbD);
+    if (srbUpdate) {
+        const QShader::NativeResourceBindingMap *resBindMaps[RBM_SUPPORTED_STAGES];
+        memset(resBindMaps, 0, sizeof(resBindMaps));
+        if (gfxPsD) {
+            resBindMaps[RBM_VERTEX] = &gfxPsD->vs.nativeResourceBindingMap;
+            resBindMaps[RBM_FRAGMENT] = &gfxPsD->fs.nativeResourceBindingMap;
+        } else {
+            resBindMaps[RBM_COMPUTE] = &compPsD->cs.nativeResourceBindingMap;
+        }
+        updateShaderResourceBindings(srbD, resBindMaps);
+    }
 
     const bool srbChanged = gfxPsD ? (cbD->currentGraphicsSrb != srb) : (cbD->currentComputeSrb != srb);
     const bool srbRebuilt = cbD->currentSrbGeneration != srbD->generation;
@@ -732,7 +750,7 @@ void QRhiD3D11::setVertexInput(QRhiCommandBuffer *cb,
         QD3D11Buffer *bufD = QRHI_RES(QD3D11Buffer, bindings[i].first);
         Q_ASSERT(bufD->m_usage.testFlag(QRhiBuffer::VertexBuffer));
         if (bufD->m_type == QRhiBuffer::Dynamic)
-            executeBufferHostWritesForCurrentFrame(bufD);
+            executeBufferHostWrites(bufD);
 
         if (cbD->currentVertexBuffers[inputSlot] != bufD->buffer
                 || cbD->currentVertexOffsets[inputSlot] != bindings[i].second)
@@ -764,7 +782,7 @@ void QRhiD3D11::setVertexInput(QRhiCommandBuffer *cb,
         QD3D11Buffer *ibufD = QRHI_RES(QD3D11Buffer, indexBuf);
         Q_ASSERT(ibufD->m_usage.testFlag(QRhiBuffer::IndexBuffer));
         if (ibufD->m_type == QRhiBuffer::Dynamic)
-            executeBufferHostWritesForCurrentFrame(ibufD);
+            executeBufferHostWrites(ibufD);
 
         const DXGI_FORMAT dxgiFormat = indexFormat == QRhiCommandBuffer::IndexUInt16 ? DXGI_FORMAT_R16_UINT
                                                                                      : DXGI_FORMAT_R32_UINT;
@@ -1117,6 +1135,10 @@ static inline DXGI_FORMAT toD3DTextureFormat(QRhiTexture::Format format, QRhiTex
         return DXGI_FORMAT_R16G16B16A16_FLOAT;
     case QRhiTexture::RGBA32F:
         return DXGI_FORMAT_R32G32B32A32_FLOAT;
+    case QRhiTexture::R16F:
+        return DXGI_FORMAT_R16_FLOAT;
+    case QRhiTexture::R32F:
+        return DXGI_FORMAT_R32_FLOAT;
 
     case QRhiTexture::D16:
         return DXGI_FORMAT_R16_TYPELESS;
@@ -1139,39 +1161,24 @@ static inline DXGI_FORMAT toD3DTextureFormat(QRhiTexture::Format format, QRhiTex
         return srgb ? DXGI_FORMAT_BC7_UNORM_SRGB : DXGI_FORMAT_BC7_UNORM;
 
     case QRhiTexture::ETC2_RGB8:
-        Q_FALLTHROUGH();
     case QRhiTexture::ETC2_RGB8A1:
-        Q_FALLTHROUGH();
     case QRhiTexture::ETC2_RGBA8:
         qWarning("QRhiD3D11 does not support ETC2 textures");
         return DXGI_FORMAT_R8G8B8A8_UNORM;
 
     case QRhiTexture::ASTC_4x4:
-        Q_FALLTHROUGH();
     case QRhiTexture::ASTC_5x4:
-        Q_FALLTHROUGH();
     case QRhiTexture::ASTC_5x5:
-        Q_FALLTHROUGH();
     case QRhiTexture::ASTC_6x5:
-        Q_FALLTHROUGH();
     case QRhiTexture::ASTC_6x6:
-        Q_FALLTHROUGH();
     case QRhiTexture::ASTC_8x5:
-        Q_FALLTHROUGH();
     case QRhiTexture::ASTC_8x6:
-        Q_FALLTHROUGH();
     case QRhiTexture::ASTC_8x8:
-        Q_FALLTHROUGH();
     case QRhiTexture::ASTC_10x5:
-        Q_FALLTHROUGH();
     case QRhiTexture::ASTC_10x6:
-        Q_FALLTHROUGH();
     case QRhiTexture::ASTC_10x8:
-        Q_FALLTHROUGH();
     case QRhiTexture::ASTC_10x10:
-        Q_FALLTHROUGH();
     case QRhiTexture::ASTC_12x10:
-        Q_FALLTHROUGH();
     case QRhiTexture::ASTC_12x12:
         qWarning("QRhiD3D11 does not support ASTC textures");
         return DXGI_FORMAT_R8G8B8A8_UNORM;
@@ -1212,7 +1219,6 @@ static inline bool isDepthTextureFormat(QRhiTexture::Format format)
 {
     switch (format) {
     case QRhiTexture::Format::D16:
-        Q_FALLTHROUGH();
     case QRhiTexture::Format::D32F:
         return true;
 
@@ -1793,7 +1799,26 @@ void QRhiD3D11::dispatch(QRhiCommandBuffer *cb, int x, int y, int z)
     cbD->commands.append(cmd);
 }
 
-void QRhiD3D11::updateShaderResourceBindings(QD3D11ShaderResourceBindings *srbD)
+static inline QPair<int, int> mapBinding(int binding,
+                                         int stageIndex,
+                                         const QShader::NativeResourceBindingMap *nativeResourceBindingMaps[])
+{
+    const QShader::NativeResourceBindingMap *map = nativeResourceBindingMaps[stageIndex];
+    if (!map || map->isEmpty())
+        return { binding, binding }; // old QShader versions do not have this map, assume 1:1 mapping then
+
+    auto it = map->constFind(binding);
+    if (it != map->cend())
+        return *it;
+
+    // Hitting this path is normal too. It is not given that the resource is
+    // present in the shaders for all the stages specified by the visibility
+    // mask in the QRhiShaderResourceBinding.
+    return { -1, -1 };
+}
+
+void QRhiD3D11::updateShaderResourceBindings(QD3D11ShaderResourceBindings *srbD,
+                                             const QShader::NativeResourceBindingMap *nativeResourceBindingMaps[])
 {
     srbD->vsubufs.clear();
     srbD->vsubufoffsets.clear();
@@ -1818,6 +1843,31 @@ void QRhiD3D11::updateShaderResourceBindings(QD3D11ShaderResourceBindings *srbD)
 
     srbD->csUAVs.clear();
 
+    struct Stage {
+        struct Buffer {
+            int breg; // b0, b1, ...
+            ID3D11Buffer *buffer;
+            uint offsetInConstants;
+            uint sizeInConstants;
+        };
+        struct Texture {
+            int treg; // t0, t1, ...
+            ID3D11ShaderResourceView *srv;
+        };
+        struct Sampler {
+            int sreg; // s0, s1, ...
+            ID3D11SamplerState *sampler;
+        };
+        struct Uav {
+            int ureg;
+            ID3D11UnorderedAccessView *uav;
+        };
+        QVarLengthArray<Buffer, 8> buffers;
+        QVarLengthArray<Texture, 8> textures;
+        QVarLengthArray<Sampler, 8> samplers;
+        QVarLengthArray<Uav, 8> uavs;
+    } res[RBM_SUPPORTED_STAGES];
+
     for (int i = 0, ie = srbD->sortedBindings.count(); i != ie; ++i) {
         const QRhiShaderResourceBinding::Data *b = srbD->sortedBindings.at(i).data();
         QD3D11ShaderResourceBindings::BoundResourceData &bd(srbD->boundResourceData[i]);
@@ -1837,77 +1887,93 @@ void QRhiD3D11::updateShaderResourceBindings(QD3D11ShaderResourceBindings *srbD)
             // (ByteWidth) is always a multiple of 256.
             const uint sizeInConstants = uint(aligned(b->u.ubuf.maybeSize ? b->u.ubuf.maybeSize : bufD->m_size, 256) / 16);
             if (b->stage.testFlag(QRhiShaderResourceBinding::VertexStage)) {
-                srbD->vsubufs.feed(b->binding, bufD->buffer);
-                srbD->vsubufoffsets.feed(b->binding, offsetInConstants);
-                srbD->vsubufsizes.feed(b->binding, sizeInConstants);
+                QPair<int, int> nativeBinding = mapBinding(b->binding, RBM_VERTEX, nativeResourceBindingMaps);
+                if (nativeBinding.first >= 0)
+                    res[RBM_VERTEX].buffers.append({ nativeBinding.first, bufD->buffer, offsetInConstants, sizeInConstants });
             }
             if (b->stage.testFlag(QRhiShaderResourceBinding::FragmentStage)) {
-                srbD->fsubufs.feed(b->binding, bufD->buffer);
-                srbD->fsubufoffsets.feed(b->binding, offsetInConstants);
-                srbD->fsubufsizes.feed(b->binding, sizeInConstants);
+                QPair<int, int> nativeBinding = mapBinding(b->binding, RBM_FRAGMENT, nativeResourceBindingMaps);
+                if (nativeBinding.first >= 0)
+                    res[RBM_FRAGMENT].buffers.append({ nativeBinding.first, bufD->buffer, offsetInConstants, sizeInConstants });
             }
             if (b->stage.testFlag(QRhiShaderResourceBinding::ComputeStage)) {
-                srbD->csubufs.feed(b->binding, bufD->buffer);
-                srbD->csubufoffsets.feed(b->binding, offsetInConstants);
-                srbD->csubufsizes.feed(b->binding, sizeInConstants);
+                QPair<int, int> nativeBinding = mapBinding(b->binding, RBM_COMPUTE, nativeResourceBindingMaps);
+                if (nativeBinding.first >= 0)
+                    res[RBM_COMPUTE].buffers.append({ nativeBinding.first, bufD->buffer, offsetInConstants, sizeInConstants });
             }
         }
             break;
         case QRhiShaderResourceBinding::SampledTexture:
         {
-            // A sampler with binding N is mapped to a HLSL sampler and texture
-            // with registers sN and tN by SPIRV-Cross.
-            QD3D11Texture *texD = QRHI_RES(QD3D11Texture, b->u.stex.tex);
-            QD3D11Sampler *samplerD = QRHI_RES(QD3D11Sampler, b->u.stex.sampler);
-            bd.stex.texId = texD->m_id;
-            bd.stex.texGeneration = texD->generation;
-            bd.stex.samplerId = samplerD->m_id;
-            bd.stex.samplerGeneration = samplerD->generation;
-            if (b->stage.testFlag(QRhiShaderResourceBinding::VertexStage)) {
-                srbD->vssamplers.feed(b->binding, samplerD->samplerState);
-                srbD->vsshaderresources.feed(b->binding, texD->srv);
-            }
-            if (b->stage.testFlag(QRhiShaderResourceBinding::FragmentStage)) {
-                srbD->fssamplers.feed(b->binding, samplerD->samplerState);
-                srbD->fsshaderresources.feed(b->binding, texD->srv);
-            }
-            if (b->stage.testFlag(QRhiShaderResourceBinding::ComputeStage)) {
-                srbD->cssamplers.feed(b->binding, samplerD->samplerState);
-                srbD->csshaderresources.feed(b->binding, texD->srv);
+            const QRhiShaderResourceBinding::Data::SampledTextureData *data = &b->u.stex;
+            bd.stex.count = data->count;
+            const QPair<int, int> nativeBindingVert = mapBinding(b->binding, RBM_VERTEX, nativeResourceBindingMaps);
+            const QPair<int, int> nativeBindingFrag = mapBinding(b->binding, RBM_FRAGMENT, nativeResourceBindingMaps);
+            const QPair<int, int> nativeBindingComp = mapBinding(b->binding, RBM_COMPUTE, nativeResourceBindingMaps);
+            // if SPIR-V binding b is mapped to tN and sN in HLSL, and it
+            // is an array, then it will use tN, tN+1, tN+2, ..., and sN,
+            // sN+1, sN+2, ...
+            for (int elem = 0; elem < data->count; ++elem) {
+                QD3D11Texture *texD = QRHI_RES(QD3D11Texture, data->texSamplers[elem].tex);
+                QD3D11Sampler *samplerD = QRHI_RES(QD3D11Sampler, data->texSamplers[elem].sampler);
+                bd.stex.d[elem].texId = texD->m_id;
+                bd.stex.d[elem].texGeneration = texD->generation;
+                bd.stex.d[elem].samplerId = samplerD->m_id;
+                bd.stex.d[elem].samplerGeneration = samplerD->generation;
+                if (b->stage.testFlag(QRhiShaderResourceBinding::VertexStage)) {
+                    if (nativeBindingVert.first >= 0 && nativeBindingVert.second >= 0) {
+                        res[RBM_VERTEX].textures.append({ nativeBindingVert.first + elem, texD->srv });
+                        res[RBM_VERTEX].samplers.append({ nativeBindingVert.second + elem, samplerD->samplerState });
+                    }
+                }
+                if (b->stage.testFlag(QRhiShaderResourceBinding::FragmentStage)) {
+                    if (nativeBindingFrag.first >= 0 && nativeBindingFrag.second >= 0) {
+                        res[RBM_FRAGMENT].textures.append({ nativeBindingFrag.first + elem, texD->srv });
+                        res[RBM_FRAGMENT].samplers.append({ nativeBindingFrag.second + elem, samplerD->samplerState });
+                    }
+                }
+                if (b->stage.testFlag(QRhiShaderResourceBinding::ComputeStage)) {
+                    if (nativeBindingComp.first >= 0 && nativeBindingComp.second >= 0) {
+                        res[RBM_COMPUTE].textures.append({ nativeBindingComp.first + elem, texD->srv });
+                        res[RBM_COMPUTE].samplers.append({ nativeBindingComp.second + elem, samplerD->samplerState });
+                    }
+                }
             }
         }
             break;
         case QRhiShaderResourceBinding::ImageLoad:
-            Q_FALLTHROUGH();
         case QRhiShaderResourceBinding::ImageStore:
-            Q_FALLTHROUGH();
         case QRhiShaderResourceBinding::ImageLoadStore:
         {
             QD3D11Texture *texD = QRHI_RES(QD3D11Texture, b->u.simage.tex);
             bd.simage.id = texD->m_id;
             bd.simage.generation = texD->generation;
             if (b->stage.testFlag(QRhiShaderResourceBinding::ComputeStage)) {
-                ID3D11UnorderedAccessView *uav = texD->unorderedAccessViewForLevel(b->u.simage.level);
-                if (uav)
-                    srbD->csUAVs.feed(b->binding, uav);
+                QPair<int, int> nativeBinding = mapBinding(b->binding, RBM_COMPUTE, nativeResourceBindingMaps);
+                if (nativeBinding.first >= 0) {
+                    ID3D11UnorderedAccessView *uav = texD->unorderedAccessViewForLevel(b->u.simage.level);
+                    if (uav)
+                        res[RBM_COMPUTE].uavs.append({ nativeBinding.first, uav });
+                }
             } else {
                 qWarning("Unordered access only supported at compute stage");
             }
         }
             break;
         case QRhiShaderResourceBinding::BufferLoad:
-            Q_FALLTHROUGH();
         case QRhiShaderResourceBinding::BufferStore:
-            Q_FALLTHROUGH();
         case QRhiShaderResourceBinding::BufferLoadStore:
         {
             QD3D11Buffer *bufD = QRHI_RES(QD3D11Buffer, b->u.sbuf.buf);
             bd.sbuf.id = bufD->m_id;
             bd.sbuf.generation = bufD->generation;
             if (b->stage.testFlag(QRhiShaderResourceBinding::ComputeStage)) {
-                ID3D11UnorderedAccessView *uav = bufD->unorderedAccessView();
-                if (uav)
-                    srbD->csUAVs.feed(b->binding, uav);
+                QPair<int, int> nativeBinding = mapBinding(b->binding, RBM_COMPUTE, nativeResourceBindingMaps);
+                if (nativeBinding.first >= 0) {
+                    ID3D11UnorderedAccessView *uav = bufD->unorderedAccessView();
+                    if (uav)
+                        res[RBM_COMPUTE].uavs.append({ nativeBinding.first, uav });
+                }
             } else {
                 qWarning("Unordered access only supported at compute stage");
             }
@@ -1919,31 +1985,79 @@ void QRhiD3D11::updateShaderResourceBindings(QD3D11ShaderResourceBindings *srbD)
         }
     }
 
+    // QRhiBatchedBindings works with the native bindings and expects
+    // sorted input. The pre-sorted QRhiShaderResourceBinding list (based
+    // on the QRhi (SPIR-V) binding) is not helpful in this regard, so we
+    // have to sort here every time.
+    for (int stage = 0; stage < RBM_SUPPORTED_STAGES; ++stage) {
+        std::sort(res[stage].buffers.begin(), res[stage].buffers.end(), [](const Stage::Buffer &a, const Stage::Buffer &b) {
+            return a.breg < b.breg;
+        });
+        std::sort(res[stage].textures.begin(), res[stage].textures.end(), [](const Stage::Texture &a, const Stage::Texture &b) {
+            return a.treg < b.treg;
+        });
+        std::sort(res[stage].samplers.begin(), res[stage].samplers.end(), [](const Stage::Sampler &a, const Stage::Sampler &b) {
+            return a.sreg < b.sreg;
+        });
+        std::sort(res[stage].uavs.begin(), res[stage].uavs.end(), [](const Stage::Uav &a, const Stage::Uav &b) {
+            return a.ureg < b.ureg;
+        });
+    }
+
+    for (const Stage::Buffer &buf : qAsConst(res[RBM_VERTEX].buffers)) {
+        srbD->vsubufs.feed(buf.breg, buf.buffer);
+        srbD->vsubufoffsets.feed(buf.breg, buf.offsetInConstants);
+        srbD->vsubufsizes.feed(buf.breg, buf.sizeInConstants);
+    }
     srbD->vsubufs.finish();
     srbD->vsubufoffsets.finish();
     srbD->vsubufsizes.finish();
 
+    for (const Stage::Buffer &buf : qAsConst(res[RBM_FRAGMENT].buffers)) {
+        srbD->fsubufs.feed(buf.breg, buf.buffer);
+        srbD->fsubufoffsets.feed(buf.breg, buf.offsetInConstants);
+        srbD->fsubufsizes.feed(buf.breg, buf.sizeInConstants);
+    }
     srbD->fsubufs.finish();
     srbD->fsubufoffsets.finish();
     srbD->fsubufsizes.finish();
 
+    for (const Stage::Buffer &buf : qAsConst(res[RBM_COMPUTE].buffers)) {
+        srbD->csubufs.feed(buf.breg, buf.buffer);
+        srbD->csubufoffsets.feed(buf.breg, buf.offsetInConstants);
+        srbD->csubufsizes.feed(buf.breg, buf.sizeInConstants);
+    }
     srbD->csubufs.finish();
     srbD->csubufoffsets.finish();
     srbD->csubufsizes.finish();
 
+    for (const Stage::Texture &t : qAsConst(res[RBM_VERTEX].textures))
+        srbD->vsshaderresources.feed(t.treg, t.srv);
+    for (const Stage::Sampler &s : qAsConst(res[RBM_VERTEX].samplers))
+        srbD->vssamplers.feed(s.sreg, s.sampler);
     srbD->vssamplers.finish();
     srbD->vsshaderresources.finish();
 
+    for (const Stage::Texture &t : qAsConst(res[RBM_FRAGMENT].textures))
+        srbD->fsshaderresources.feed(t.treg, t.srv);
+    for (const Stage::Sampler &s : qAsConst(res[RBM_FRAGMENT].samplers))
+        srbD->fssamplers.feed(s.sreg, s.sampler);
     srbD->fssamplers.finish();
     srbD->fsshaderresources.finish();
 
+    for (const Stage::Texture &t : qAsConst(res[RBM_COMPUTE].textures))
+        srbD->csshaderresources.feed(t.treg, t.srv);
+    for (const Stage::Sampler &s : qAsConst(res[RBM_COMPUTE].samplers))
+        srbD->cssamplers.feed(s.sreg, s.sampler);
     srbD->cssamplers.finish();
     srbD->csshaderresources.finish();
 
+    for (const Stage::Uav &u : qAsConst(res[RBM_COMPUTE].uavs))
+        srbD->csUAVs.feed(u.ureg, u.uav);
     srbD->csUAVs.finish();
 }
 
-void QRhiD3D11::executeBufferHostWritesForCurrentFrame(QD3D11Buffer *bufD)
+void QRhiD3D11::executeBufferHostWrites(QD3D11Buffer *bufD)
 {
     if (!bufD->hasPendingDynamicUpdates)
         return;
@@ -1981,102 +2095,156 @@ static void applyDynamicOffsets(QVarLengthArray<UINT, 4> *offsets,
     }
 }
 
+static inline uint clampedResourceCount(uint startSlot, int countSlots, uint maxSlots, const char *resType)
+{
+    if (startSlot + countSlots > maxSlots) {
+        qWarning("Not enough D3D11 %s slots to bind %d resources starting at slot %d, max slots is %d",
+                 resType, countSlots, startSlot, maxSlots);
+        countSlots = maxSlots > startSlot ? maxSlots - startSlot : 0;
+    }
+    return countSlots;
+}
+
 void QRhiD3D11::bindShaderResources(QD3D11ShaderResourceBindings *srbD,
                                     const uint *dynOfsPairs, int dynOfsPairCount,
                                     bool offsetOnlyChange)
 {
     if (!offsetOnlyChange) {
-        for (const auto &batch : srbD->vssamplers.batches)
-            context->VSSetSamplers(batch.startBinding, UINT(batch.resources.count()), batch.resources.constData());
+        for (const auto &batch : srbD->vssamplers.batches) {
+            const uint count = clampedResourceCount(batch.startBinding, batch.resources.count(),
+                                                    D3D11_COMMONSHADER_SAMPLER_SLOT_COUNT, "VS sampler");
+            if (count)
+                context->VSSetSamplers(batch.startBinding, count, batch.resources.constData());
+        }
 
         for (const auto &batch : srbD->vsshaderresources.batches) {
-            context->VSSetShaderResources(batch.startBinding, UINT(batch.resources.count()), batch.resources.constData());
-            contextState.vsHighestActiveSrvBinding = qMax<int>(contextState.vsHighestActiveSrvBinding,
-                                                               int(batch.startBinding) + batch.resources.count() - 1);
+            const uint count = clampedResourceCount(batch.startBinding, batch.resources.count(),
+                                                    D3D11_COMMONSHADER_INPUT_RESOURCE_SLOT_COUNT, "VS SRV");
+            if (count) {
+                context->VSSetShaderResources(batch.startBinding, count, batch.resources.constData());
+                contextState.vsHighestActiveSrvBinding = qMax(contextState.vsHighestActiveSrvBinding,
+                                                            int(batch.startBinding + count) - 1);
+            }
         }
 
-        for (const auto &batch : srbD->fssamplers.batches)
-            context->PSSetSamplers(batch.startBinding, UINT(batch.resources.count()), batch.resources.constData());
+        for (const auto &batch : srbD->fssamplers.batches) {
+            const uint count = clampedResourceCount(batch.startBinding, batch.resources.count(),
+                                                    D3D11_COMMONSHADER_SAMPLER_SLOT_COUNT, "PS sampler");
+            if (count)
+                context->PSSetSamplers(batch.startBinding, count, batch.resources.constData());
+        }
 
         for (const auto &batch : srbD->fsshaderresources.batches) {
-            context->PSSetShaderResources(batch.startBinding, UINT(batch.resources.count()), batch.resources.constData());
-            contextState.fsHighestActiveSrvBinding = qMax<int>(contextState.fsHighestActiveSrvBinding,
-                                                               int(batch.startBinding) + batch.resources.count() - 1);
+            const uint count = clampedResourceCount(batch.startBinding, batch.resources.count(),
+                                                    D3D11_COMMONSHADER_INPUT_RESOURCE_SLOT_COUNT, "PS SRV");
+            if (count) {
+                context->PSSetShaderResources(batch.startBinding, count, batch.resources.constData());
+                contextState.fsHighestActiveSrvBinding = qMax(contextState.fsHighestActiveSrvBinding,
+                                                            int(batch.startBinding + count) - 1);
+            }
         }
 
-        for (const auto &batch : srbD->cssamplers.batches)
-            context->CSSetSamplers(batch.startBinding, UINT(batch.resources.count()), batch.resources.constData());
+        for (const auto &batch : srbD->cssamplers.batches) {
+            const uint count = clampedResourceCount(batch.startBinding, batch.resources.count(),
+                                                    D3D11_COMMONSHADER_SAMPLER_SLOT_COUNT, "CS sampler");
+            if (count)
+                context->CSSetSamplers(batch.startBinding, count, batch.resources.constData());
+        }
 
         for (const auto &batch : srbD->csshaderresources.batches) {
-            context->CSSetShaderResources(batch.startBinding, UINT(batch.resources.count()), batch.resources.constData());
-            contextState.csHighestActiveSrvBinding = qMax<int>(contextState.csHighestActiveSrvBinding,
-                                                               int(batch.startBinding) + batch.resources.count() - 1);
+            const uint count = clampedResourceCount(batch.startBinding, batch.resources.count(),
+                                                    D3D11_COMMONSHADER_INPUT_RESOURCE_SLOT_COUNT, "CS SRV");
+            if (count) {
+                context->CSSetShaderResources(batch.startBinding, count, batch.resources.constData());
+                contextState.csHighestActiveSrvBinding = qMax(contextState.csHighestActiveSrvBinding,
+                                                              int(batch.startBinding + count) - 1);
+            }
         }
     }
 
     for (int i = 0, ie = srbD->vsubufs.batches.count(); i != ie; ++i) {
-        if (!dynOfsPairCount) {
-            context->VSSetConstantBuffers1(srbD->vsubufs.batches[i].startBinding,
-                                           UINT(srbD->vsubufs.batches[i].resources.count()),
-                                           srbD->vsubufs.batches[i].resources.constData(),
-                                           srbD->vsubufoffsets.batches[i].resources.constData(),
-                                           srbD->vsubufsizes.batches[i].resources.constData());
-        } else {
-            QVarLengthArray<UINT, 4> offsets;
-            applyDynamicOffsets(&offsets, i, &srbD->vsubufs, &srbD->vsubufoffsets, dynOfsPairs, dynOfsPairCount);
-            context->VSSetConstantBuffers1(srbD->vsubufs.batches[i].startBinding,
-                                           UINT(srbD->vsubufs.batches[i].resources.count()),
-                                           srbD->vsubufs.batches[i].resources.constData(),
-                                           offsets.constData(),
-                                           srbD->vsubufsizes.batches[i].resources.constData());
+        const uint count = clampedResourceCount(srbD->vsubufs.batches[i].startBinding,
+                                                srbD->vsubufs.batches[i].resources.count(),
+                                                D3D11_COMMONSHADER_CONSTANT_BUFFER_API_SLOT_COUNT,
+                                                "VS cbuf");
+        if (count) {
+            if (!dynOfsPairCount) {
+                context->VSSetConstantBuffers1(srbD->vsubufs.batches[i].startBinding,
+                                               count,
+                                               srbD->vsubufs.batches[i].resources.constData(),
+                                               srbD->vsubufoffsets.batches[i].resources.constData(),
+                                               srbD->vsubufsizes.batches[i].resources.constData());
+            } else {
+                QVarLengthArray<UINT, 4> offsets;
+                applyDynamicOffsets(&offsets, i, &srbD->vsubufs, &srbD->vsubufoffsets, dynOfsPairs, dynOfsPairCount);
+                context->VSSetConstantBuffers1(srbD->vsubufs.batches[i].startBinding,
+                                               count,
+                                               srbD->vsubufs.batches[i].resources.constData(),
+                                               offsets.constData(),
+                                               srbD->vsubufsizes.batches[i].resources.constData());
+            }
         }
     }
 
     for (int i = 0, ie = srbD->fsubufs.batches.count(); i != ie; ++i) {
-        if (!dynOfsPairCount) {
-            context->PSSetConstantBuffers1(srbD->fsubufs.batches[i].startBinding,
-                                           UINT(srbD->fsubufs.batches[i].resources.count()),
-                                           srbD->fsubufs.batches[i].resources.constData(),
-                                           srbD->fsubufoffsets.batches[i].resources.constData(),
-                                           srbD->fsubufsizes.batches[i].resources.constData());
-        } else {
-            QVarLengthArray<UINT, 4> offsets;
-            applyDynamicOffsets(&offsets, i, &srbD->fsubufs, &srbD->fsubufoffsets, dynOfsPairs, dynOfsPairCount);
-            context->PSSetConstantBuffers1(srbD->fsubufs.batches[i].startBinding,
-                                           UINT(srbD->fsubufs.batches[i].resources.count()),
-                                           srbD->fsubufs.batches[i].resources.constData(),
-                                           offsets.constData(),
-                                           srbD->fsubufsizes.batches[i].resources.constData());
+        const uint count = clampedResourceCount(srbD->fsubufs.batches[i].startBinding,
+                                                srbD->fsubufs.batches[i].resources.count(),
+                                                D3D11_COMMONSHADER_CONSTANT_BUFFER_API_SLOT_COUNT,
+                                                "PS cbuf");
+        if (count) {
+            if (!dynOfsPairCount) {
+                context->PSSetConstantBuffers1(srbD->fsubufs.batches[i].startBinding,
+                                               count,
+                                               srbD->fsubufs.batches[i].resources.constData(),
+                                               srbD->fsubufoffsets.batches[i].resources.constData(),
+                                               srbD->fsubufsizes.batches[i].resources.constData());
+            } else {
+                QVarLengthArray<UINT, 4> offsets;
+                applyDynamicOffsets(&offsets, i, &srbD->fsubufs, &srbD->fsubufoffsets, dynOfsPairs, dynOfsPairCount);
+                context->PSSetConstantBuffers1(srbD->fsubufs.batches[i].startBinding,
+                                               count,
+                                               srbD->fsubufs.batches[i].resources.constData(),
+                                               offsets.constData(),
+                                               srbD->fsubufsizes.batches[i].resources.constData());
+            }
         }
     }
 
     for (int i = 0, ie = srbD->csubufs.batches.count(); i != ie; ++i) {
-        if (!dynOfsPairCount) {
-            context->CSSetConstantBuffers1(srbD->csubufs.batches[i].startBinding,
-                                           UINT(srbD->csubufs.batches[i].resources.count()),
-                                           srbD->csubufs.batches[i].resources.constData(),
-                                           srbD->csubufoffsets.batches[i].resources.constData(),
-                                           srbD->csubufsizes.batches[i].resources.constData());
-        } else {
-            QVarLengthArray<UINT, 4> offsets;
-            applyDynamicOffsets(&offsets, i, &srbD->csubufs, &srbD->csubufoffsets, dynOfsPairs, dynOfsPairCount);
-            context->CSSetConstantBuffers1(srbD->csubufs.batches[i].startBinding,
-                                           UINT(srbD->csubufs.batches[i].resources.count()),
-                                           srbD->csubufs.batches[i].resources.constData(),
-                                           offsets.constData(),
-                                           srbD->csubufsizes.batches[i].resources.constData());
+        const uint count = clampedResourceCount(srbD->csubufs.batches[i].startBinding,
+                                                srbD->csubufs.batches[i].resources.count(),
+                                                D3D11_COMMONSHADER_CONSTANT_BUFFER_API_SLOT_COUNT,
+                                                "CS cbuf");
+        if (count) {
+            if (!dynOfsPairCount) {
+                context->CSSetConstantBuffers1(srbD->csubufs.batches[i].startBinding,
+                                               count,
+                                               srbD->csubufs.batches[i].resources.constData(),
+                                               srbD->csubufoffsets.batches[i].resources.constData(),
+                                               srbD->csubufsizes.batches[i].resources.constData());
+            } else {
+                QVarLengthArray<UINT, 4> offsets;
+                applyDynamicOffsets(&offsets, i, &srbD->csubufs, &srbD->csubufoffsets, dynOfsPairs, dynOfsPairCount);
+                context->CSSetConstantBuffers1(srbD->csubufs.batches[i].startBinding,
+                                               count,
+                                               srbD->csubufs.batches[i].resources.constData(),
+                                               offsets.constData(),
+                                               srbD->csubufsizes.batches[i].resources.constData());
+            }
         }
     }
 
-    for (int i = 0, ie = srbD->csUAVs.batches.count(); i != ie; ++i) {
-        const uint startBinding = srbD->csUAVs.batches[i].startBinding;
-        const uint count = uint(srbD->csUAVs.batches[i].resources.count());
-        context->CSSetUnorderedAccessViews(startBinding,
-                                           count,
-                                           srbD->csUAVs.batches[i].resources.constData(),
-                                           nullptr);
-        contextState.csHighestActiveUavBinding = qMax<int>(contextState.csHighestActiveUavBinding,
-                                                           int(startBinding + count - 1));
+    for (const auto &batch : srbD->csUAVs.batches) {
+        const uint count = clampedResourceCount(batch.startBinding, batch.resources.count(),
+                                                D3D11_1_UAV_SLOT_COUNT, "CS UAV");
+        if (count) {
+            context->CSSetUnorderedAccessViews(batch.startBinding,
+                                               count,
+                                               batch.resources.constData(),
+                                               nullptr);
+            contextState.csHighestActiveUavBinding = qMax(contextState.csHighestActiveUavBinding,
+                                                          int(batch.startBinding + count) - 1);
+        }
     }
 }
 
@@ -2228,8 +2396,8 @@ void QRhiD3D11::executeCommandBuffer(QD3D11CommandBuffer *cbD, QD3D11SwapChain *
         case QD3D11CommandBuffer::Command::BindGraphicsPipeline:
         {
             QD3D11GraphicsPipeline *psD = cmd.args.bindGraphicsPipeline.ps;
-            context->VSSetShader(psD->vs, nullptr, 0);
-            context->PSSetShader(psD->fs, nullptr, 0);
+            context->VSSetShader(psD->vs.shader, nullptr, 0);
+            context->PSSetShader(psD->fs.shader, nullptr, 0);
             context->IASetPrimitiveTopology(psD->d3dTopology);
             context->IASetInputLayout(psD->inputLayout);
             context->OMSetDepthStencilState(psD->dsState, stencilRef);
@@ -2304,7 +2472,7 @@ void QRhiD3D11::executeCommandBuffer(QD3D11CommandBuffer *cbD, QD3D11SwapChain *
             annotations->SetMarker(reinterpret_cast<LPCWSTR>(QString::fromLatin1(cmd.args.debugMark.s).utf16()));
             break;
         case QD3D11CommandBuffer::Command::BindComputePipeline:
-            context->CSSetShader(cmd.args.bindComputePipeline.ps->cs, nullptr, 0);
+            context->CSSetShader(cmd.args.bindComputePipeline.ps->cs.shader, nullptr, 0);
             break;
         case QD3D11CommandBuffer::Command::Dispatch:
             context->Dispatch(cmd.args.dispatch.x, cmd.args.dispatch.y, cmd.args.dispatch.z);
@@ -2407,6 +2575,15 @@ bool QD3D11Buffer::build()
     generation += 1;
     rhiD->registerResource(this);
     return true;
+}
+
+QRhiBuffer::NativeBuffer QD3D11Buffer::nativeBuffer()
+{
+    if (m_type == Dynamic) {
+        QRHI_RES_RHI(QRhiD3D11);
+        rhiD->executeBufferHostWrites(this);
+    }
+    return { { &buffer }, 1 };
 }
 
 ID3D11UnorderedAccessView *QD3D11Buffer::unorderedAccessView()
@@ -2674,8 +2851,6 @@ bool QD3D11Texture::finishBuild()
         return false;
     }
 
-    nativeHandlesStruct.texture = tex;
-
     generation += 1;
     return true;
 }
@@ -2741,16 +2916,16 @@ bool QD3D11Texture::build()
     return true;
 }
 
-bool QD3D11Texture::buildFrom(const QRhiNativeHandles *src)
+bool QD3D11Texture::buildFrom(QRhiTexture::NativeTexture src)
 {
-    const QRhiD3D11TextureNativeHandles *h = static_cast<const QRhiD3D11TextureNativeHandles *>(src);
-    if (!h || !h->texture)
+    auto *srcTex = static_cast<ID3D11Texture2D * const *>(src.object);
+    if (!srcTex || !*srcTex)
         return false;
 
     if (!prepareBuild())
         return false;
 
-    tex = static_cast<ID3D11Texture2D *>(h->texture);
+    tex = *srcTex;
 
     if (!finishBuild())
         return false;
@@ -2764,9 +2939,9 @@ bool QD3D11Texture::buildFrom(const QRhiNativeHandles *src)
     return true;
 }
 
-const QRhiNativeHandles *QD3D11Texture::nativeHandles()
+QRhiTexture::NativeTexture QD3D11Texture::nativeTexture()
 {
-    return &nativeHandlesStruct;
+    return {&tex, 0};
 }
 
 ID3D11UnorderedAccessView *QD3D11Texture::unorderedAccessViewForLevel(int level)
@@ -2801,8 +2976,8 @@ ID3D11UnorderedAccessView *QD3D11Texture::unorderedAccessViewForLevel(int level)
 }
 
 QD3D11Sampler::QD3D11Sampler(QRhiImplementation *rhi, Filter magFilter, Filter minFilter, Filter mipmapMode,
-                             AddressMode u, AddressMode v)
-    : QRhiSampler(rhi, magFilter, minFilter, mipmapMode, u, v)
+                             AddressMode u, AddressMode v, AddressMode w)
+    : QRhiSampler(rhi, magFilter, minFilter, mipmapMode, u, v, w)
 {
 }
 
@@ -2862,12 +3037,8 @@ static inline D3D11_TEXTURE_ADDRESS_MODE toD3DAddressMode(QRhiSampler::AddressMo
         return D3D11_TEXTURE_ADDRESS_WRAP;
     case QRhiSampler::ClampToEdge:
         return D3D11_TEXTURE_ADDRESS_CLAMP;
-    case QRhiSampler::Border:
-        return D3D11_TEXTURE_ADDRESS_BORDER;
     case QRhiSampler::Mirror:
         return D3D11_TEXTURE_ADDRESS_MIRROR;
-    case QRhiSampler::MirrorOnce:
-        return D3D11_TEXTURE_ADDRESS_MIRROR_ONCE;
     default:
         Q_UNREACHABLE();
         return D3D11_TEXTURE_ADDRESS_CLAMP;
@@ -2942,6 +3113,12 @@ QD3D11RenderPassDescriptor::~QD3D11RenderPassDescriptor()
 void QD3D11RenderPassDescriptor::release()
 {
     // nothing to do here
+}
+
+bool QD3D11RenderPassDescriptor::isCompatible(const QRhiRenderPassDescriptor *other) const
+{
+    Q_UNUSED(other);
+    return true;
 }
 
 QD3D11ReferenceRenderTarget::QD3D11ReferenceRenderTarget(QRhiImplementation *rhi)
@@ -3151,6 +3328,7 @@ QD3D11ShaderResourceBindings::~QD3D11ShaderResourceBindings()
 void QD3D11ShaderResourceBindings::release()
 {
     sortedBindings.clear();
+    boundResourceData.clear();
 }
 
 bool QD3D11ShaderResourceBindings::build()
@@ -3167,8 +3345,8 @@ bool QD3D11ShaderResourceBindings::build()
 
     boundResourceData.resize(sortedBindings.count());
 
-    QRHI_RES_RHI(QRhiD3D11);
-    rhiD->updateShaderResourceBindings(this);
+    for (BoundResourceData &bd : boundResourceData)
+        memset(&bd, 0, sizeof(BoundResourceData));
 
     generation += 1;
     return true;
@@ -3209,15 +3387,17 @@ void QD3D11GraphicsPipeline::release()
         rastState = nullptr;
     }
 
-    if (vs) {
-        vs->Release();
-        vs = nullptr;
+    if (vs.shader) {
+        vs.shader->Release();
+        vs.shader = nullptr;
     }
+    vs.nativeResourceBindingMap.clear();
 
-    if (fs) {
-        fs->Release();
-        fs = nullptr;
+    if (fs.shader) {
+        fs.shader->Release();
+        fs.shader = nullptr;
     }
+    fs.nativeResourceBindingMap.clear();
 
     rhiD->unregisterResource(this);
 }
@@ -3343,21 +3523,27 @@ static inline UINT8 toD3DColorWriteMask(QRhiGraphicsPipeline::ColorMask c)
     return f;
 }
 
-static inline D3D11_BLEND toD3DBlendFactor(QRhiGraphicsPipeline::BlendFactor f)
+static inline D3D11_BLEND toD3DBlendFactor(QRhiGraphicsPipeline::BlendFactor f, bool rgb)
 {
+    // SrcBlendAlpha and DstBlendAlpha do not accept *_COLOR. With other APIs
+    // this is handled internally (so that e.g. VK_BLEND_FACTOR_SRC_COLOR is
+    // accepted and is in effect equivalent to VK_BLEND_FACTOR_SRC_ALPHA when
+    // set as an alpha src/dest factor), but for D3D we have to take care of it
+    // ourselves. Hence the rgb argument.
+
     switch (f) {
     case QRhiGraphicsPipeline::Zero:
         return D3D11_BLEND_ZERO;
     case QRhiGraphicsPipeline::One:
         return D3D11_BLEND_ONE;
     case QRhiGraphicsPipeline::SrcColor:
-        return D3D11_BLEND_SRC_COLOR;
+        return rgb ? D3D11_BLEND_SRC_COLOR : D3D11_BLEND_SRC_ALPHA;
     case QRhiGraphicsPipeline::OneMinusSrcColor:
-        return D3D11_BLEND_INV_SRC_COLOR;
+        return rgb ? D3D11_BLEND_INV_SRC_COLOR : D3D11_BLEND_INV_SRC_ALPHA;
     case QRhiGraphicsPipeline::DstColor:
-        return D3D11_BLEND_DEST_COLOR;
+        return rgb ? D3D11_BLEND_DEST_COLOR : D3D11_BLEND_DEST_ALPHA;
     case QRhiGraphicsPipeline::OneMinusDstColor:
-        return D3D11_BLEND_INV_DEST_COLOR;
+        return rgb ? D3D11_BLEND_INV_DEST_COLOR : D3D11_BLEND_INV_DEST_ALPHA;
     case QRhiGraphicsPipeline::SrcAlpha:
         return D3D11_BLEND_SRC_ALPHA;
     case QRhiGraphicsPipeline::OneMinusSrcAlpha:
@@ -3367,19 +3553,17 @@ static inline D3D11_BLEND toD3DBlendFactor(QRhiGraphicsPipeline::BlendFactor f)
     case QRhiGraphicsPipeline::OneMinusDstAlpha:
         return D3D11_BLEND_INV_DEST_ALPHA;
     case QRhiGraphicsPipeline::ConstantColor:
-        Q_FALLTHROUGH();
     case QRhiGraphicsPipeline::ConstantAlpha:
         return D3D11_BLEND_BLEND_FACTOR;
     case QRhiGraphicsPipeline::OneMinusConstantColor:
-        Q_FALLTHROUGH();
     case QRhiGraphicsPipeline::OneMinusConstantAlpha:
         return D3D11_BLEND_INV_BLEND_FACTOR;
     case QRhiGraphicsPipeline::SrcAlphaSaturate:
         return D3D11_BLEND_SRC_ALPHA_SAT;
     case QRhiGraphicsPipeline::Src1Color:
-        return D3D11_BLEND_SRC1_COLOR;
+        return rgb ? D3D11_BLEND_SRC1_COLOR : D3D11_BLEND_SRC1_ALPHA;
     case QRhiGraphicsPipeline::OneMinusSrc1Color:
-        return D3D11_BLEND_INV_SRC1_COLOR;
+        return rgb ? D3D11_BLEND_INV_SRC1_COLOR : D3D11_BLEND_INV_SRC1_ALPHA;
     case QRhiGraphicsPipeline::Src1Alpha:
         return D3D11_BLEND_SRC1_ALPHA;
     case QRhiGraphicsPipeline::OneMinusSrc1Alpha:
@@ -3421,13 +3605,18 @@ static pD3DCompile resolveD3DCompile()
     return nullptr;
 }
 
-static QByteArray compileHlslShaderSource(const QShader &shader, QShader::Variant shaderVariant, QString *error)
+static QByteArray compileHlslShaderSource(const QShader &shader, QShader::Variant shaderVariant, QString *error, QShaderKey *usedShaderKey)
 {
-    QShaderCode dxbc = shader.shader({ QShader::DxbcShader, 50, shaderVariant });
-    if (!dxbc.shader().isEmpty())
+    QShaderKey key = { QShader::DxbcShader, 50, shaderVariant };
+    QShaderCode dxbc = shader.shader(key);
+    if (!dxbc.shader().isEmpty()) {
+        if (usedShaderKey)
+            *usedShaderKey = key;
         return dxbc.shader();
+    }
 
-    QShaderCode hlslSource = shader.shader({ QShader::HlslShader, 50, shaderVariant });
+    key = { QShader::HlslShader, 50, shaderVariant };
+    QShaderCode hlslSource = shader.shader(key);
     if (hlslSource.shader().isEmpty()) {
         qWarning() << "No HLSL (shader model 5.0) code found in baked shader" << shader;
         return QByteArray();
@@ -3479,6 +3668,9 @@ static QByteArray compileHlslShaderSource(const QShader &shader, QShader::Varian
         return QByteArray();
     }
 
+    if (usedShaderKey)
+        *usedShaderKey = key;
+
     QByteArray result;
     result.resize(int(bytecode->GetBufferSize()));
     memcpy(result.data(), bytecode->GetBufferPointer(), size_t(result.size()));
@@ -3500,6 +3692,9 @@ bool QD3D11GraphicsPipeline::build()
     rastDesc.FillMode = D3D11_FILL_SOLID;
     rastDesc.CullMode = toD3DCullMode(m_cullMode);
     rastDesc.FrontCounterClockwise = m_frontFace == CCW;
+    rastDesc.DepthBias = m_depthBias;
+    rastDesc.SlopeScaledDepthBias = m_slopeScaledDepthBias;
+    rastDesc.DepthClipEnable = true;
     rastDesc.ScissorEnable = m_flags.testFlag(UsesScissor);
     rastDesc.MultisampleEnable = rhiD->effectiveSampleCount(m_sampleCount).Count > 1;
     HRESULT hr = rhiD->dev->CreateRasterizerState(&rastDesc, &rastState);
@@ -3540,11 +3735,11 @@ bool QD3D11GraphicsPipeline::build()
         D3D11_RENDER_TARGET_BLEND_DESC blend;
         memset(&blend, 0, sizeof(blend));
         blend.BlendEnable = b.enable;
-        blend.SrcBlend = toD3DBlendFactor(b.srcColor);
-        blend.DestBlend = toD3DBlendFactor(b.dstColor);
+        blend.SrcBlend = toD3DBlendFactor(b.srcColor, true);
+        blend.DestBlend = toD3DBlendFactor(b.dstColor, true);
         blend.BlendOp = toD3DBlendOp(b.opColor);
-        blend.SrcBlendAlpha = toD3DBlendFactor(b.srcAlpha);
-        blend.DestBlendAlpha = toD3DBlendFactor(b.dstAlpha);
+        blend.SrcBlendAlpha = toD3DBlendFactor(b.srcAlpha, false);
+        blend.DestBlendAlpha = toD3DBlendFactor(b.dstAlpha, false);
         blend.BlendOpAlpha = toD3DBlendOp(b.opAlpha);
         blend.RenderTargetWriteMask = toD3DColorWriteMask(b.colorWrite);
         blendDesc.RenderTarget[i] = blend;
@@ -3567,20 +3762,23 @@ bool QD3D11GraphicsPipeline::build()
         if (cacheIt != rhiD->m_shaderCache.constEnd()) {
             switch (shaderStage.type()) {
             case QRhiShaderStage::Vertex:
-                vs = static_cast<ID3D11VertexShader *>(cacheIt->s);
-                vs->AddRef();
+                vs.shader = static_cast<ID3D11VertexShader *>(cacheIt->s);
+                vs.shader->AddRef();
                 vsByteCode = cacheIt->bytecode;
+                vs.nativeResourceBindingMap = cacheIt->nativeResourceBindingMap;
                 break;
             case QRhiShaderStage::Fragment:
-                fs = static_cast<ID3D11PixelShader *>(cacheIt->s);
-                fs->AddRef();
+                fs.shader = static_cast<ID3D11PixelShader *>(cacheIt->s);
+                fs.shader->AddRef();
+                fs.nativeResourceBindingMap = cacheIt->nativeResourceBindingMap;
                 break;
             default:
                 break;
             }
         } else {
             QString error;
-            const QByteArray bytecode = compileHlslShaderSource(shaderStage.shader(), shaderStage.shaderVariant(), &error);
+            QShaderKey shaderKey;
+            const QByteArray bytecode = compileHlslShaderSource(shaderStage.shader(), shaderStage.shaderVariant(), &error, &shaderKey);
             if (bytecode.isEmpty()) {
                 qWarning("HLSL shader compilation failed: %s", qPrintable(error));
                 return false;
@@ -3593,23 +3791,27 @@ bool QD3D11GraphicsPipeline::build()
 
             switch (shaderStage.type()) {
             case QRhiShaderStage::Vertex:
-                hr = rhiD->dev->CreateVertexShader(bytecode.constData(), SIZE_T(bytecode.size()), nullptr, &vs);
+                hr = rhiD->dev->CreateVertexShader(bytecode.constData(), SIZE_T(bytecode.size()), nullptr, &vs.shader);
                 if (FAILED(hr)) {
                     qWarning("Failed to create vertex shader: %s", qPrintable(comErrorMessage(hr)));
                     return false;
                 }
                 vsByteCode = bytecode;
-                rhiD->m_shaderCache.insert(shaderStage, QRhiD3D11::Shader(vs, bytecode));
-                vs->AddRef();
+                if (const QShader::NativeResourceBindingMap *map = shaderStage.shader().nativeResourceBindingMap(shaderKey))
+                    vs.nativeResourceBindingMap = *map;
+                rhiD->m_shaderCache.insert(shaderStage, QRhiD3D11::Shader(vs.shader, bytecode, vs.nativeResourceBindingMap));
+                vs.shader->AddRef();
                 break;
             case QRhiShaderStage::Fragment:
-                hr = rhiD->dev->CreatePixelShader(bytecode.constData(), SIZE_T(bytecode.size()), nullptr, &fs);
+                hr = rhiD->dev->CreatePixelShader(bytecode.constData(), SIZE_T(bytecode.size()), nullptr, &fs.shader);
                 if (FAILED(hr)) {
                     qWarning("Failed to create pixel shader: %s", qPrintable(comErrorMessage(hr)));
                     return false;
                 }
-                rhiD->m_shaderCache.insert(shaderStage, QRhiD3D11::Shader(fs, bytecode));
-                fs->AddRef();
+                if (const QShader::NativeResourceBindingMap *map = shaderStage.shader().nativeResourceBindingMap(shaderKey))
+                    fs.nativeResourceBindingMap = *map;
+                rhiD->m_shaderCache.insert(shaderStage, QRhiD3D11::Shader(fs.shader, bytecode, fs.nativeResourceBindingMap));
+                fs.shader->AddRef();
                 break;
             default:
                 break;
@@ -3668,46 +3870,52 @@ void QD3D11ComputePipeline::release()
 {
     QRHI_RES_RHI(QRhiD3D11);
 
-    if (!cs)
+    if (!cs.shader)
         return;
 
-    cs->Release();
-    cs = nullptr;
+    cs.shader->Release();
+    cs.shader = nullptr;
+    cs.nativeResourceBindingMap.clear();
 
     rhiD->unregisterResource(this);
 }
 
 bool QD3D11ComputePipeline::build()
 {
-    if (cs)
+    if (cs.shader)
         release();
 
     QRHI_RES_RHI(QRhiD3D11);
 
     auto cacheIt = rhiD->m_shaderCache.constFind(m_shaderStage);
     if (cacheIt != rhiD->m_shaderCache.constEnd()) {
-        cs = static_cast<ID3D11ComputeShader *>(cacheIt->s);
+        cs.shader = static_cast<ID3D11ComputeShader *>(cacheIt->s);
+        cs.nativeResourceBindingMap = cacheIt->nativeResourceBindingMap;
     } else {
         QString error;
-        const QByteArray bytecode = compileHlslShaderSource(m_shaderStage.shader(), m_shaderStage.shaderVariant(), &error);
+        QShaderKey shaderKey;
+        const QByteArray bytecode = compileHlslShaderSource(m_shaderStage.shader(), m_shaderStage.shaderVariant(), &error, &shaderKey);
         if (bytecode.isEmpty()) {
             qWarning("HLSL compute shader compilation failed: %s", qPrintable(error));
             return false;
         }
 
-        HRESULT hr = rhiD->dev->CreateComputeShader(bytecode.constData(), SIZE_T(bytecode.size()), nullptr, &cs);
+        HRESULT hr = rhiD->dev->CreateComputeShader(bytecode.constData(), SIZE_T(bytecode.size()), nullptr, &cs.shader);
         if (FAILED(hr)) {
             qWarning("Failed to create compute shader: %s", qPrintable(comErrorMessage(hr)));
             return false;
         }
 
+        if (const QShader::NativeResourceBindingMap *map = m_shaderStage.shader().nativeResourceBindingMap(shaderKey))
+            cs.nativeResourceBindingMap = *map;
+
         if (rhiD->m_shaderCache.count() >= QRhiD3D11::MAX_SHADER_CACHE_ENTRIES)
             rhiD->clearShaderCache();
 
-        rhiD->m_shaderCache.insert(m_shaderStage, QRhiD3D11::Shader(cs, bytecode));
+        rhiD->m_shaderCache.insert(m_shaderStage, QRhiD3D11::Shader(cs.shader, bytecode, cs.nativeResourceBindingMap));
     }
 
-    cs->AddRef();
+    cs.shader->AddRef();
 
     generation += 1;
     rhiD->registerResource(this);

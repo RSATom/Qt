@@ -13,7 +13,7 @@ AXPlatformNodeTest::AXPlatformNodeTest() {}
 AXPlatformNodeTest::~AXPlatformNodeTest() {}
 
 void AXPlatformNodeTest::Init(const AXTreeUpdate& initial_state) {
-  tree_.reset(new AXTree(initial_state));
+  tree_ = std::make_unique<AXTree>(initial_state);
 }
 
 void AXPlatformNodeTest::Init(
@@ -63,36 +63,6 @@ AXNode* AXPlatformNodeTest::GetNodeFromTree(const ui::AXTreeID tree_id,
                                             const int32_t node_id) const {
   if (GetTreeID() == tree_id)
     return tree_->GetFromId(node_id);
-
-  return nullptr;
-}
-
-AXPlatformNodeDelegate* AXPlatformNodeTest::GetDelegate(
-    const ui::AXTreeID tree_id,
-    const int32_t node_id) const {
-  AXNode* node = GetNodeFromTree(tree_id, node_id);
-
-  if (node) {
-    TestAXNodeWrapper* wrapper =
-        TestAXNodeWrapper::GetOrCreate(tree_.get(), node);
-
-    return wrapper;
-  }
-
-  return nullptr;
-}
-
-AXPlatformNodeDelegate* AXPlatformNodeTest::GetRootDelegate(
-    const AXTreeID tree_id) const {
-  if (GetTreeID() == tree_id) {
-    AXNode* root_node = GetRootNode();
-
-    if (root_node) {
-      TestAXNodeWrapper* wrapper =
-          TestAXNodeWrapper::GetOrCreate(tree_.get(), root_node);
-      return wrapper;
-    }
-  }
 
   return nullptr;
 }

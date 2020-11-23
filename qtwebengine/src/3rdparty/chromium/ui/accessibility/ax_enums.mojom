@@ -2,11 +2,11 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-// Must also be kept in sync with chrome/common/extensions/api/automation.idl.
+// Must also be kept in sync with extensions/common/api/automation.idl.
 module ax.mojom;
 
 // For new entries to the following four enums, also add to
-// chrome/common/extensions/api/automation.idl. This is enforced
+// extensions/common/api/automation.idl. This is enforced
 // by a PRESUBMIT check.
 //
 // Explanation of in-lined comments next to some enum values/attributes:
@@ -83,6 +83,8 @@ enum Event {
   kWindowDeactivated,           // Native
   kWindowVisibilityChanged,     // Native
   kTextSelectionChanged,
+  kTooltipClosed,
+  kTooltipOpened,
   kTreeChanged,  // Accessibility tree changed. Don't
                  // explicitly fire an accessibility event,
                  // only implicitly due to the change.
@@ -107,7 +109,6 @@ enum Role {
   kAlert,
   kAlertDialog,
   kAnchor,
-  kAnnotation,
   kApplication,
   kArticle,
   kAudio,
@@ -120,12 +121,15 @@ enum Role {
   kCell,
   kCheckBox,
   kClient,
+  kCode,
   kColorWell,
   kColumn,
   kColumnHeader,
   kComboBoxGrouping,
   kComboBoxMenuButton,
   kComplementary,
+  kComment,
+  kCommentSection,
   kContentDeletion,
   kContentInsertion,
   kContentInfo,
@@ -186,10 +190,12 @@ enum Role {
   // --------------------------------------------------------------
   kDocument,
   kEmbeddedObject,
+  kEmphasis,
   kFeed,
   kFigcaption,
   kFigure,
   kFooter,
+  kFooterAsNonLandmark,
   kForm,
   kGenericContainer,
   // --------------------------------------------------------------
@@ -202,6 +208,8 @@ enum Role {
   // --------------------------------------------------------------
   kGrid,
   kGroup,
+  kHeader,
+  kHeaderAsNonLandmark,
   kHeading,
   kIframe,
   kIframePresentational,
@@ -253,20 +261,26 @@ enum Role {
   kRadioButton,
   kRadioGroup,
   kRegion,
+  kRevision,
   kRootWebArea,
   kRow,
+  kRowGroup,
   kRowHeader,
   kRuby,
+  kRubyAnnotation,
   kScrollBar,
   kScrollView,
   kSearch,
   kSearchBox,
+  kSection,
   kSlider,
   kSliderThumb,
   kSpinButton,
   kSplitter,
   kStaticText,
   kStatus,
+  kStrong,
+  kSuggestion,
   kSvgRoot,
   kSwitch,
   kTab,
@@ -432,6 +446,15 @@ enum ScrollAlignment {
   kScrollAlignmentClosestEdge
 };
 
+// A list of valid values for the scroll behavior argument to argument in
+// |AXActionData|. These values control whether a node is scrolled in the
+// viewport if it is already visible.
+enum ScrollBehavior {
+  kNone,
+  kDoNotScrollIfVisible,
+  kScrollIfVisible,
+};
+
 // A list of valid values for the |AXIntAttribute| |default_action_verb|.
 // These will describe the action that will be performed on a given node when
 // executing the default action, which is a click.
@@ -486,6 +509,7 @@ enum StringAttribute {
   kImageAnnotation,
   kImageDataUrl,
   kInnerHtml,
+  kInputType,
   kKeyShortcuts,
   // Only present when different from parent.
   kLanguage,
@@ -659,8 +683,10 @@ enum FloatAttribute {
 // given attribute, while another tree source only uses two.
 enum BoolAttribute {
   kNone,
+
   // Generic busy state, does not have to be on a live region.
   kBusy,
+
   // The object is at the root of an editable field, such as a content
   // editable.
   kEditableRoot,
@@ -703,6 +729,9 @@ enum BoolAttribute {
   // Indicates whether this node causes a hard line-break
   // (e.g. block level elements, or <br>)
   kIsLineBreakingObject,
+
+  // Indicates whether this node causes a page break
+  kIsPageBreakingObject,
 };
 
 enum IntListAttribute {
@@ -760,45 +789,15 @@ enum StringListAttribute {
   kCustomActionDescriptions,
 };
 
-// TODO(dmazzoni, nektar): make this list not grow exponentially as new
-// MarkerTypes are added
 enum MarkerType {
-  kNone,
-  // Assignments are ignored by the parser, but are kept here for clarity.
+  kNone = 0,
   kSpelling = 1,
   kGrammar = 2,
-  kSpellingGrammar = 3,
   kTextMatch = 4,
-  kSpellingTextMatch = 5,
-  kGrammarTextMatch = 6,
-  kSpellingGrammarTextMatch = 7,
   // DocumentMarker::MarkerType::Composition = 8 is ignored for accessibility
   // purposes
   kActiveSuggestion = 16,
-  kSpellingActiveSuggestion = 17,
-  kGrammarActiveSuggestion = 18,
-  kSpellingGrammarActiveSuggestion = 19,
-  kTextMatchActiveSuggestion = 20,
-  kSpellingTextMatchActiveSuggestion = 21,
-  kGrammarTextMatchActiveSuggestion = 22,
-  kSpellingGrammarTextMatchActiveSuggestion = 23,
   kSuggestion = 32,
-  kSpellingSuggestion = 33,
-  kGrammarSuggestion = 34,
-  kSpellingGrammarSuggestion = 35,
-  kTextMatchSuggestion = 36,
-  kSpellingTextMatchSuggestion = 37,
-  kGrammarTextMatchSuggestion = 38,
-  kSpellingGrammarTextMatchSuggestion = 39,
-  // We again skip over DocumentMarker::MarkerType::Composition = 8 here
-  kActiveSuggestionSuggestion = 48,
-  kSpellingActiveSuggestionSuggestion = 49,
-  kGrammarActiveSuggestionSuggestion = 50,
-  kSpellingGrammarActiveSuggestionSuggestion = 51,
-  kTextMatchActiveSuggestionSuggestion = 52,
-  kSpellingTextMatchActiveSuggestionSuggestion = 53,
-  kGrammarTextMatchActiveSuggestionSuggestion = 54,
-  kSpellingGrammarTextMatchActiveSuggestionSuggestion = 55,
 };
 
 enum ListStyle {
@@ -919,6 +918,7 @@ enum DescriptionFrom {
   kAttribute,
   kContents,
   kRelatedElement,
+  kTitle,
 };
 
 enum EventFrom {

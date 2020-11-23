@@ -61,6 +61,7 @@
 QT_BEGIN_NAMESPACE
 
 Q_DECLARE_LOGGING_CATEGORY(lcBindingRemoval)
+Q_LOGGING_CATEGORY(lcQmlBindingRestoreMode, "qt.qml.binding.restoreMode")
 
 class QQmlBindPrivate : public QObjectPrivate
 {
@@ -482,11 +483,11 @@ void QQmlBind::eval()
                     Q_ASSERT(vmemo);
                     vmemo->setVMEProperty(propPriv->core.coreIndex(), *d->v4Value.valueRef());
                     d->clearPrev();
-                } else if (!d->restoreModeExplicit) {
+                } else if (!d->restoreModeExplicit && lcQmlBindingRestoreMode().isWarningEnabled()) {
                     qmlWarning(this)
                             << "Not restoring previous value because restoreMode has not been set.\n"
                             << "This behavior is deprecated.\n"
-                            << "You have to import QtQml 2.14 after any QtQuick imports and set\n"
+                            << "You have to import QtQml 2.15 after any QtQuick imports and set\n"
                             << "the restoreMode of the binding to fix this warning.\n"
                             << "In Qt < 6.0 the default is Binding.RestoreBinding.\n"
                             << "In Qt >= 6.0 the default is Binding.RestoreBindingOrValue.";
@@ -495,11 +496,11 @@ void QQmlBind::eval()
                 if (d->restoreValue) {
                     d->prop.write(d->prevValue);
                     d->clearPrev();
-                } else if (!d->restoreModeExplicit) {
+                } else if (!d->restoreModeExplicit  && lcQmlBindingRestoreMode().isWarningEnabled()) {
                     qmlWarning(this)
                             << "Not restoring previous value because restoreMode has not been set.\n"
                             << "This behavior is deprecated.\n"
-                            << "You have to import QtQml 2.14 after any QtQuick imports and set\n"
+                            << "You have to import QtQml 2.15 after any QtQuick imports and set\n"
                             << "the restoreMode of the binding to fix this warning.\n"
                             << "In Qt < 6.0 the default is Binding.RestoreBinding.\n"
                             << "In Qt >= 6.0 the default is Binding.RestoreBindingOrValue.\n";

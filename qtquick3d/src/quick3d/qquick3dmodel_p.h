@@ -52,6 +52,41 @@
 
 QT_BEGIN_NAMESPACE
 
+class Q_QUICK3D_EXPORT QQuick3DBounds3
+{
+    Q_GADGET
+    Q_PROPERTY(QVector3D minimum READ minimum CONSTANT)
+    Q_PROPERTY(QVector3D maximum READ maximum CONSTANT)
+
+public:
+    QQuick3DBounds3() = default;
+    QQuick3DBounds3(const QQuick3DBounds3& bounds)
+        : m_minimum(bounds.m_minimum), m_maximum(bounds.m_maximum)
+    {
+
+    }
+
+    QQuick3DBounds3 operator = (const QQuick3DBounds3 &bounds)
+    {
+        m_minimum = bounds.m_minimum;
+        m_maximum = bounds.m_maximum;
+        return *this;
+    }
+
+    QVector3D minimum() const
+    {
+        return m_minimum;
+    }
+
+    QVector3D maximum() const
+    {
+        return m_maximum;
+    }
+
+    QVector3D m_minimum;
+    QVector3D m_maximum;
+};
+
 class Q_QUICK3D_EXPORT QQuick3DModel : public QQuick3DNode
 {
     Q_OBJECT
@@ -65,6 +100,7 @@ class Q_QUICK3D_EXPORT QQuick3DModel : public QQuick3DNode
     Q_PROPERTY(QQmlListProperty<QQuick3DMaterial> materials READ materials)
     Q_PROPERTY(bool pickable READ pickable WRITE setPickable NOTIFY pickableChanged)
     Q_PROPERTY(QQuick3DGeometry *geometry READ geometry WRITE setGeometry NOTIFY geometryChanged)
+    Q_PROPERTY(QQuick3DBounds3 bounds READ bounds NOTIFY boundsChanged REVISION 1)
 
 public:
     enum QSSGTessellationModeValues {
@@ -75,10 +111,8 @@ public:
     };
     Q_ENUM(QSSGTessellationModeValues)
 
-    QQuick3DModel();
+    explicit QQuick3DModel(QQuick3DNode *parent = nullptr);
     ~QQuick3DModel() override;
-
-    QQuick3DObject::Type type() const override;
 
     QUrl source() const;
     QSSGTessellationModeValues tessellationMode() const;
@@ -89,6 +123,7 @@ public:
     bool receivesShadows() const;
     bool pickable() const;
     QQuick3DGeometry *geometry() const;
+    QQuick3DBounds3 bounds() const;
 
     QQmlListProperty<QQuick3DMaterial> materials();
 
@@ -103,6 +138,8 @@ public Q_SLOTS:
     void setPickable(bool pickable);
     void setGeometry(QQuick3DGeometry *geometry);
 
+    void setBounds(const QVector3D &min, const QVector3D &max);
+
 Q_SIGNALS:
     void sourceChanged();
     void tessellationModeChanged();
@@ -113,11 +150,15 @@ Q_SIGNALS:
     void receivesShadowsChanged();
     void pickableChanged();
     void geometryChanged();
+    void boundsChanged();
 
 protected:
     QSSGRenderGraphObject *updateSpatialNode(QSSGRenderGraphObject *node) override;
     void markAllDirty() override;
     void itemChange(ItemChange, const ItemChangeData &) override;
+
+private Q_SLOTS:
+    void onMaterialDestroyed(QObject *object);
 
 private:
     enum QSSGModelDirtyType {
@@ -149,6 +190,7 @@ private:
 
     QVector<QQuick3DMaterial *> m_materials;
     QQuick3DGeometry *m_geometry = nullptr;
+    QQuick3DBounds3 m_bounds;
     QMetaObject::Connection m_geometryConnection;
     bool m_castsShadows = true;
     bool m_receivesShadows = true;
@@ -156,5 +198,7 @@ private:
 };
 
 QT_END_NAMESPACE
+
+Q_DECLARE_METATYPE(QQuick3DBounds3)
 
 #endif // QSSGMODEL_H

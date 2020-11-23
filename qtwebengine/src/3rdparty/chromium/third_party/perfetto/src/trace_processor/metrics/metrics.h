@@ -17,6 +17,8 @@
 #ifndef SRC_TRACE_PROCESSOR_METRICS_METRICS_H_
 #define SRC_TRACE_PROCESSOR_METRICS_METRICS_H_
 
+#include <sqlite3.h>
+
 #include <unordered_map>
 #include <vector>
 
@@ -25,11 +27,9 @@
 #include "perfetto/protozero/message.h"
 #include "perfetto/protozero/scattered_heap_buffer.h"
 #include "perfetto/trace_processor/trace_processor.h"
+#include "src/trace_processor/descriptors.h"
 
-#include "src/trace_processor/metrics/descriptors.h"
-#include "src/trace_processor/sqlite.h"
-
-#include "perfetto/trace_processor/metrics_impl.pbzero.h"
+#include "protos/perfetto/trace_processor/metrics_impl.pbzero.h"
 
 namespace perfetto {
 namespace trace_processor {
@@ -158,7 +158,7 @@ struct BuildProtoContext {
   const ProtoDescriptor* desc;
 };
 
-// This funciton implements all the proto creation functions.
+// This function implements all the proto creation functions.
 void BuildProto(sqlite3_context* ctx, int argc, sqlite3_value** argv);
 
 // Context struct for the below function.

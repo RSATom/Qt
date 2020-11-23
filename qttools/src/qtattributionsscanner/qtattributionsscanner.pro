@@ -1,3 +1,7 @@
+include($$OUT_PWD/../../qttools-config.pri)
+QT_FOR_CONFIG += tools-private
+requires(qtConfig(qtattributionsscanner))
+
 option(host_build)
 CONFIG += console
 
@@ -43,6 +47,8 @@ contains(CMAKE_BIN_DIR, "^\\.\\./.*") {
 }
 
 load(qt_build_paths)
+
+equals(QMAKE_HOST.os, Windows): CMAKE_BIN_SUFFIX = ".exe"
 
 cmake_qattributionsscanner_config_file.input = $$PWD/Qt5AttributionsScannerTools.cmake.in
 cmake_qattributionsscanner_config_version_file.input = $$[QT_HOST_DATA/src]/mkspecs/features/data/cmake/Qt5ConfigVersion.cmake.in

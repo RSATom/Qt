@@ -76,7 +76,7 @@ void QScriptDebuggerStackWidgetPrivate::_q_onCurrentChanged(const QModelIndex &i
 }
 
 QScriptDebuggerStackWidget::QScriptDebuggerStackWidget(QWidget *parent)
-    : QScriptDebuggerStackWidgetInterface(*new QScriptDebuggerStackWidgetPrivate, parent, 0)
+    : QScriptDebuggerStackWidgetInterface(*new QScriptDebuggerStackWidgetPrivate, parent, {})
 {
     Q_D(QScriptDebuggerStackWidget);
     d->view = new QTreeView();

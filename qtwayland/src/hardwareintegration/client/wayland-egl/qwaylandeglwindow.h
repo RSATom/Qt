@@ -56,7 +56,7 @@ class QWaylandEglWindow : public QWaylandWindow
 {
     Q_OBJECT
 public:
-    QWaylandEglWindow(QWindow *window);
+    QWaylandEglWindow(QWindow *window, QWaylandDisplay *display);
     ~QWaylandEglWindow();
     WindowType windowType() const override;
     void ensureSize() override;
@@ -75,7 +75,6 @@ public:
     void bindContentFBO();
 
     void invalidateSurface() override;
-    void setVisible(bool visible) override;
 
 private:
     QWaylandEglClientBufferIntegration *m_clientBufferIntegration = nullptr;

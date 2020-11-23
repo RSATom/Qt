@@ -97,11 +97,12 @@ int32_t BrowserGpuVideoAcceleratorFactories::GetCommandBufferRouteId() {
   return context_provider_->GetCommandBufferProxy()->route_id();
 }
 
-bool BrowserGpuVideoAcceleratorFactories::IsDecoderConfigSupported(
+media::GpuVideoAcceleratorFactories::Supported
+BrowserGpuVideoAcceleratorFactories::IsDecoderConfigSupported(
     media::VideoDecoderImplementation implementation,
     const media::VideoDecoderConfig& config) {
   // TODO(sandersd): Add a cache here too?
-  return true;
+  return media::GpuVideoAcceleratorFactories::Supported::kTrue;
 }
 
 std::unique_ptr<media::VideoDecoder>
@@ -153,9 +154,9 @@ BrowserGpuVideoAcceleratorFactories::GpuMemoryBufferManager() {
   return nullptr;
 }
 
-std::unique_ptr<base::SharedMemory>
-BrowserGpuVideoAcceleratorFactories::CreateSharedMemory(size_t size) {
-  return nullptr;
+base::UnsafeSharedMemoryRegion
+BrowserGpuVideoAcceleratorFactories::CreateSharedMemoryRegion(size_t size) {
+  return {};
 }
 
 scoped_refptr<base::SingleThreadTaskRunner>
@@ -169,7 +170,7 @@ BrowserGpuVideoAcceleratorFactories::
   return media::VideoEncodeAccelerator::SupportedProfiles();
 }
 
-scoped_refptr<viz::ContextProviderCommandBuffer>
+scoped_refptr<viz::ContextProvider>
 BrowserGpuVideoAcceleratorFactories::GetMediaContextProvider() {
   return context_provider_;
 }

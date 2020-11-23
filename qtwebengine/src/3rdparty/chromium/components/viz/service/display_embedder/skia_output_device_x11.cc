@@ -16,10 +16,10 @@
 namespace viz {
 
 SkiaOutputDeviceX11::SkiaOutputDeviceX11(
-    GrContext* gr_context,
+    scoped_refptr<gpu::SharedContextState> context_state,
     gfx::AcceleratedWidget widget,
     DidSwapBufferCompleteCallback did_swap_buffer_complete_callback)
-    : SkiaOutputDeviceOffscreen(gr_context,
+    : SkiaOutputDeviceOffscreen(context_state,
                                 true /* flipped */,
                                 true /* has_alpha */,
                                 did_swap_buffer_complete_callback),
@@ -41,16 +41,19 @@ SkiaOutputDeviceX11::~SkiaOutputDeviceX11() {
   XFreeGC(display_, gc_);
 }
 
-void SkiaOutputDeviceX11::Reshape(const gfx::Size& size,
+bool SkiaOutputDeviceX11::Reshape(const gfx::Size& size,
                                   float device_scale_factor,
                                   const gfx::ColorSpace& color_space,
                                   bool has_alpha,
                                   gfx::OverlayTransform transform) {
-  SkiaOutputDeviceOffscreen::Reshape(size, device_scale_factor, color_space,
-                                     has_alpha, transform);
+  if (!SkiaOutputDeviceOffscreen::Reshape(size, device_scale_factor,
+                                          color_space, has_alpha, transform)) {
+    return false;
+  }
   auto ii =
       SkImageInfo::MakeN32(size.width(), size.height(), kOpaque_SkAlphaType);
   pixels_.reserve(ii.computeMinByteSize());
+  return true;
 }
 
 void SkiaOutputDeviceX11::SwapBuffers(

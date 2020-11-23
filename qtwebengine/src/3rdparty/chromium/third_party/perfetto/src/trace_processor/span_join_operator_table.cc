@@ -16,7 +16,9 @@
 
 #include "src/trace_processor/span_join_operator_table.h"
 
+#include <sqlite3.h>
 #include <string.h>
+
 #include <algorithm>
 #include <set>
 #include <utility>
@@ -25,8 +27,7 @@
 #include "perfetto/ext/base/string_splitter.h"
 #include "perfetto/ext/base/string_utils.h"
 #include "perfetto/ext/base/string_view.h"
-#include "src/trace_processor/sqlite.h"
-#include "src/trace_processor/sqlite_utils.h"
+#include "src/trace_processor/sqlite/sqlite_utils.h"
 
 namespace perfetto {
 namespace trace_processor {
@@ -41,7 +42,7 @@ bool IsRequiredColumn(const std::string& name) {
 }
 
 base::Optional<std::string> HasDuplicateColumns(
-    const std::vector<Table::Column>& cols) {
+    const std::vector<SqliteTable::Column>& cols) {
   std::set<std::string> names;
   for (const auto& col : cols) {
     if (names.count(col.name()) > 0)
@@ -58,17 +59,17 @@ SpanJoinOperatorTable::SpanJoinOperatorTable(sqlite3* db, const TraceStorage*)
 
 void SpanJoinOperatorTable::RegisterTable(sqlite3* db,
                                           const TraceStorage* storage) {
-  Table::Register<SpanJoinOperatorTable>(db, storage, "span_join",
-                                         /* read_write */ false,
-                                         /* requires_args */ true);
+  SqliteTable::Register<SpanJoinOperatorTable>(db, storage, "span_join",
+                                               /* read_write */ false,
+                                               /* requires_args */ true);
 
-  Table::Register<SpanJoinOperatorTable>(db, storage, "span_left_join",
-                                         /* read_write */ false,
-                                         /* requires_args */ true);
+  SqliteTable::Register<SpanJoinOperatorTable>(db, storage, "span_left_join",
+                                               /* read_write */ false,
+                                               /* requires_args */ true);
 
-  Table::Register<SpanJoinOperatorTable>(db, storage, "span_outer_join",
-                                         /* read_write */ false,
-                                         /* requires_args */ true);
+  SqliteTable::Register<SpanJoinOperatorTable>(db, storage, "span_outer_join",
+                                               /* read_write */ false,
+                                               /* requires_args */ true);
 }
 
 util::Status SpanJoinOperatorTable::Init(int argc,
@@ -122,13 +123,14 @@ util::Status SpanJoinOperatorTable::Init(int argc,
   if (!status.ok())
     return status;
 
-  std::vector<Table::Column> cols;
+  std::vector<SqliteTable::Column> cols;
   // Ensure the shared columns are consistently ordered and are not
   // present twice in the final schema
-  cols.emplace_back(Column::kTimestamp, kTsColumnName, ColumnType::kLong);
-  cols.emplace_back(Column::kDuration, kDurColumnName, ColumnType::kLong);
+  cols.emplace_back(Column::kTimestamp, kTsColumnName, SqlValue::Type::kLong);
+  cols.emplace_back(Column::kDuration, kDurColumnName, SqlValue::Type::kLong);
   if (partitioning_ != PartitioningType::kNoPartitioning)
-    cols.emplace_back(Column::kPartition, partition_col(), ColumnType::kLong);
+    cols.emplace_back(Column::kPartition, partition_col(),
+                      SqlValue::Type::kLong);
 
   CreateSchemaColsForDefn(t1_defn_, &cols);
   CreateSchemaColsForDefn(t2_defn_, &cols);
@@ -149,7 +151,7 @@ util::Status SpanJoinOperatorTable::Init(int argc,
 
 void SpanJoinOperatorTable::CreateSchemaColsForDefn(
     const TableDefinition& defn,
-    std::vector<Table::Column>* cols) {
+    std::vector<SqliteTable::Column>* cols) {
   for (size_t i = 0; i < defn.columns().size(); i++) {
     const auto& n = defn.columns()[i].name();
     if (IsRequiredColumn(n) || n == defn.partition_col())
@@ -163,12 +165,18 @@ void SpanJoinOperatorTable::CreateSchemaColsForDefn(
   }
 }
 
-std::unique_ptr<Table::Cursor> SpanJoinOperatorTable::CreateCursor() {
+std::unique_ptr<SqliteTable::Cursor> SpanJoinOperatorTable::CreateCursor() {
   return std::unique_ptr<SpanJoinOperatorTable::Cursor>(new Cursor(this, db_));
 }
 
-int SpanJoinOperatorTable::BestIndex(const QueryConstraints&, BestIndexInfo*) {
+int SpanJoinOperatorTable::BestIndex(const QueryConstraints& qc,
+                                     BestIndexInfo* info) {
   // TODO(lalitm): figure out cost estimation.
+  const auto& ob = qc.order_by();
+  if (ob.size() == 1 && ob.front().iColumn == Column::kTimestamp &&
+      !ob.front().desc) {
+    info->sqlite_omit_order_by = true;
+  }
   return SQLITE_OK;
 }
 
@@ -180,13 +188,12 @@ SpanJoinOperatorTable::ComputeSqlConstraintsForDefinition(
   std::vector<std::string> constraints;
   for (size_t i = 0; i < qc.constraints().size(); i++) {
     const auto& cs = qc.constraints()[i];
-    auto col_name = GetNameForGlobalColumnIndex(defn, cs.iColumn);
+    auto col_name = GetNameForGlobalColumnIndex(defn, cs.column);
     if (col_name == "")
       continue;
 
     if (col_name == kTsColumnName || col_name == kDurColumnName) {
-      // We don't support constraints on ts or duration in the child tables.
-      PERFETTO_DFATAL("ts or duration constraints on child tables");
+      // Allow SQLite handle any constraints on ts or duration.
       continue;
     }
     auto op = sqlite_utils::OpToString(cs.op);
@@ -218,8 +225,8 @@ util::Status SpanJoinOperatorTable::CreateTableDefinition(
     auto col = cols[i];
     if (IsRequiredColumn(col.name())) {
       ++required_columns_found;
-      if (col.type() != Table::ColumnType::kLong &&
-          col.type() != Table::ColumnType::kUnknown) {
+      if (col.type() != SqlValue::Type::kLong &&
+          col.type() != SqlValue::Type::kNull) {
         return util::ErrStatus(
             "SPAN_JOIN: Invalid type for column %s in table %s",
             col.name().c_str(), desc.name.c_str());
@@ -270,13 +277,14 @@ std::string SpanJoinOperatorTable::GetNameForGlobalColumnIndex(
 }
 
 SpanJoinOperatorTable::Cursor::Cursor(SpanJoinOperatorTable* table, sqlite3* db)
-    : Table::Cursor(table),
+    : SqliteTable::Cursor(table),
       t1_(table, &table->t1_defn_, db),
       t2_(table, &table->t2_defn_, db),
       table_(table) {}
 
 int SpanJoinOperatorTable::Cursor::Filter(const QueryConstraints& qc,
-                                          sqlite3_value** argv) {
+                                          sqlite3_value** argv,
+                                          FilterHistory) {
   int err = t1_.Initialize(qc, argv);
   if (err != SQLITE_OK)
     return err;
@@ -310,10 +318,14 @@ int SpanJoinOperatorTable::Cursor::Filter(const QueryConstraints& qc,
     res = next_stepped_->StepToPartition(step_now->partition());
     if (PERFETTO_UNLIKELY(res.is_err()))
       return res.err_code;
+  } else {
+    res = next_stepped_->Step();
+    if (PERFETTO_UNLIKELY(res.is_err()))
+      return res.err_code;
   }
 
   // Otherwise, find an overlapping span.
-  return Next();
+  return FindOverlappingSpan();
 }
 
 bool SpanJoinOperatorTable::Cursor::IsOverlappingSpan() {
@@ -321,10 +333,19 @@ bool SpanJoinOperatorTable::Cursor::IsOverlappingSpan() {
     return false;
   } else if (t1_.partition() != t2_.partition()) {
     return false;
-  } else if (t1_.ts_end() <= t2_.ts_start() || t2_.ts_end() <= t1_.ts_start()) {
-    return false;
   }
-  return true;
+
+  // We consider all slices to be [start, end) - that is the range of
+  // timestamps has an open interval at the start but a closed interval
+  // at the end. (with the exception of dur == -1 which we treat as if
+  // end == start for the purpose of this function).
+  int64_t t1_start = t1_.ts_start();
+  int64_t t1_end = t1_.ts_end() - t1_start == -1 ? t1_start : t1_.ts_end();
+  int64_t t2_start = t2_.ts_start();
+  int64_t t2_end = t2_.ts_end() - t2_start == -1 ? t2_start : t2_.ts_end();
+  return (t1_start == t2_start && t1_.IsRealSlice() && t2_.IsRealSlice()) ||
+         (t1_start >= t2_start && t1_start < t2_end) ||
+         (t2_start >= t1_start && t2_start < t1_end);
 }
 
 int SpanJoinOperatorTable::Cursor::Next() {
@@ -332,7 +353,10 @@ int SpanJoinOperatorTable::Cursor::Next() {
   auto res = next_stepped_->Step();
   if (res.is_err())
     return res.err_code;
+  return FindOverlappingSpan();
+}
 
+int SpanJoinOperatorTable::Cursor::FindOverlappingSpan() {
   while (true) {
     if (t1_.Eof() || t2_.Eof()) {
       if (table_->partitioning_ != PartitioningType::kMixedPartitioning)
@@ -343,7 +367,7 @@ int SpanJoinOperatorTable::Cursor::Next() {
       if (partitioned->Eof())
         return SQLITE_OK;
 
-      res = partitioned->StepToNextPartition();
+      auto res = partitioned->StepToNextPartition();
       if (PERFETTO_UNLIKELY(res.is_err()))
         return res.err_code;
       else if (PERFETTO_UNLIKELY(res.is_eof()))
@@ -357,7 +381,7 @@ int SpanJoinOperatorTable::Cursor::Next() {
     }
 
     int64_t partition = std::max(t1_.partition(), t2_.partition());
-    res = t1_.StepToPartition(partition);
+    auto res = t1_.StepToPartition(partition);
     if (PERFETTO_UNLIKELY(res.is_err()))
       return res.err_code;
     else if (PERFETTO_UNLIKELY(res.is_eof()))
@@ -401,8 +425,15 @@ int SpanJoinOperatorTable::Cursor::Next() {
       auto t2_partition =
           t2_.IsPartitioned() ? t2_.CursorPartition() : t2_.partition();
 
+      // If either cusor has finished, be sure to not forward that one as it
+      // will have a pending full partition shadow slice which needs to be
+      // retained.
       Query* stepped;
-      if (t1_partition == t2_partition) {
+      if (t1_.CursorEof()) {
+        stepped = &t2_;
+      } else if (t2_.CursorEof()) {
+        stepped = &t1_;
+      } else if (t1_partition == t2_partition) {
         stepped = t1_.ts_end() <= t2_.ts_end() ? &t1_ : &t2_;
       } else {
         stepped = t1_partition <= t2_partition ? &t1_ : &t2_;
@@ -437,7 +468,6 @@ int SpanJoinOperatorTable::Cursor::Column(sqlite3_context* context, int N) {
   } else if (N == Column::kDuration) {
     auto max_start = std::max(t1_.ts_start(), t2_.ts_start());
     auto min_end = std::min(t1_.ts_end(), t2_.ts_end());
-    PERFETTO_DCHECK(min_end > max_start);
     auto dur = min_end - max_start;
     sqlite3_result_int64(context, static_cast<sqlite3_int64>(dur));
   } else if (N == Column::kPartition &&
@@ -535,7 +565,7 @@ SpanJoinOperatorTable::Query::StepRet SpanJoinOperatorTable::Query::Step() {
       // to do so. Otherwise, just emit the underlying slice.
       if (defn_->emit_shadow_slices()) {
         mode_ = Mode::kShadowSlice;
-        ts_start_ = ts_end_;
+        ts_start_ = ts_end_ - ts_start_ == -1 ? ts_start_ : ts_end_;
         ts_end_ = !defn_->IsPartitioned() || partition_ == CursorPartition()
                       ? CursorTs()
                       : std::numeric_limits<int64_t>::max();
@@ -553,12 +583,12 @@ SpanJoinOperatorTable::Query::StepRet SpanJoinOperatorTable::Query::Step() {
 
       // Close off the remainder of this partition with a shadow slice.
       mode_ = Mode::kShadowSlice;
-      ts_start_ = ts_end_;
+      ts_start_ = ts_end_ - ts_start_ == -1 ? ts_start_ : ts_end_;
       ts_end_ = std::numeric_limits<int64_t>::max();
     } else {
       return StepRet(StepRet::Code::kError, res);
     }
-  } while (ts_start_ == ts_end_);
+  } while (ts_start_ == ts_end_ && !IsRealSlice());
 
   return StepRet(StepRet::Code::kRow);
 }
@@ -596,6 +626,9 @@ SpanJoinOperatorTable::Query::StepToPartition(int64_t target_partition) {
     int res = PrepareRawStmt();
     if (res != SQLITE_OK)
       return StepRet(StepRet::Code::kError, res);
+    auto ret = Step();
+    if (!ret.is_row())
+      return ret;
     partition_ = target_partition;
   }
   return StepRet(StepRet::Code::kRow);
@@ -605,7 +638,8 @@ SpanJoinOperatorTable::Query::StepRet SpanJoinOperatorTable::Query::StepUntil(
     int64_t timestamp) {
   PERFETTO_DCHECK(!Eof());
   auto partition = partition_;
-  while (partition_ == partition && ts_end_ <= timestamp) {
+  while (partition_ == partition && ts_start_ < timestamp &&
+         ts_end_ <= timestamp) {
     auto res = Step();
     if (!res.is_row())
       return res;
@@ -616,7 +650,7 @@ SpanJoinOperatorTable::Query::StepRet SpanJoinOperatorTable::Query::StepUntil(
 std::string SpanJoinOperatorTable::Query::CreateSqlQuery(
     const std::vector<std::string>& cs) const {
   std::vector<std::string> col_names;
-  for (const Table::Column& c : defn_->columns()) {
+  for (const SqliteTable::Column& c : defn_->columns()) {
     col_names.push_back("`" + c.name() + "`");
   }
 
@@ -682,7 +716,7 @@ void SpanJoinOperatorTable::Query::ReportSqliteResult(sqlite3_context* context,
 SpanJoinOperatorTable::TableDefinition::TableDefinition(
     std::string name,
     std::string partition_col,
-    std::vector<Table::Column> cols,
+    std::vector<SqliteTable::Column> cols,
     bool emit_shadow_slices,
     uint32_t ts_idx,
     uint32_t dur_idx,

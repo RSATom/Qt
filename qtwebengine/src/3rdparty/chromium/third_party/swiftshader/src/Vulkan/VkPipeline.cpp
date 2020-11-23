@@ -18,9 +18,12 @@
 #include "VkPipelineCache.hpp"
 #include "VkPipelineLayout.hpp"
 #include "VkShaderModule.hpp"
+#include "VkStringify.hpp"
 #include "VkRenderPass.hpp"
 #include "Pipeline/ComputeProgram.hpp"
 #include "Pipeline/SpirvShader.hpp"
+
+#include "marl/trace.h"
 
 #include "spirv-tools/optimizer.hpp"
 
@@ -163,17 +166,16 @@ std::vector<uint32_t> preprocessSpirv(
 	spvtools::Optimizer opt{SPV_ENV_VULKAN_1_1};
 
 	opt.SetMessageConsumer([](spv_message_level_t level, const char*, const spv_position_t& p, const char* m) {
-		const char* category = "";
 		switch (level)
 		{
-		case SPV_MSG_FATAL:          category = "FATAL";          break;
-		case SPV_MSG_INTERNAL_ERROR: category = "INTERNAL_ERROR"; break;
-		case SPV_MSG_ERROR:          category = "ERROR";          break;
-		case SPV_MSG_WARNING:        category = "WARNING";        break;
-		case SPV_MSG_INFO:           category = "INFO";           break;
-		case SPV_MSG_DEBUG:          category = "DEBUG";          break;
+		case SPV_MSG_FATAL:          vk::warn("SPIR-V FATAL: %d:%d %s\n", int(p.line), int(p.column), m);
+		case SPV_MSG_INTERNAL_ERROR: vk::warn("SPIR-V INTERNAL_ERROR: %d:%d %s\n", int(p.line), int(p.column), m);
+		case SPV_MSG_ERROR:          vk::warn("SPIR-V ERROR: %d:%d %s\n", int(p.line), int(p.column), m);
+		case SPV_MSG_WARNING:        vk::warn("SPIR-V WARNING: %d:%d %s\n", int(p.line), int(p.column), m);
+		case SPV_MSG_INFO:           vk::trace("SPIR-V INFO: %d:%d %s\n", int(p.line), int(p.column), m);
+		case SPV_MSG_DEBUG:          vk::trace("SPIR-V DEBUG: %d:%d %s\n", int(p.line), int(p.column), m);
+		default:                     vk::trace("SPIR-V MESSAGE: %d:%d %s\n", int(p.line), int(p.column), m);
 		}
-		vk::trace("%s: %d:%d %s", category, int(p.line), int(p.column), m);
 	});
 
 	// If the pipeline uses specialization, apply the specializations before freezing
@@ -192,39 +194,7 @@ std::vector<uint32_t> preprocessSpirv(
 	}
 
 	// Full optimization list taken from spirv-opt.
-	opt.RegisterPass(spvtools::CreateDeadBranchElimPass())
-		.RegisterPass(spvtools::CreateMergeReturnPass())
-		.RegisterPass(spvtools::CreateInlineExhaustivePass())
-		.RegisterPass(spvtools::CreateAggressiveDCEPass())
-		.RegisterPass(spvtools::CreatePrivateToLocalPass())
-		.RegisterPass(spvtools::CreateLocalSingleBlockLoadStoreElimPass())
-		.RegisterPass(spvtools::CreateLocalSingleStoreElimPass())
-		.RegisterPass(spvtools::CreateAggressiveDCEPass())
-		.RegisterPass(spvtools::CreateScalarReplacementPass())
-		.RegisterPass(spvtools::CreateLocalAccessChainConvertPass())
-		.RegisterPass(spvtools::CreateLocalSingleBlockLoadStoreElimPass())
-		.RegisterPass(spvtools::CreateLocalSingleStoreElimPass())
-		.RegisterPass(spvtools::CreateAggressiveDCEPass())
-		.RegisterPass(spvtools::CreateLocalMultiStoreElimPass())
-		.RegisterPass(spvtools::CreateAggressiveDCEPass())
-		.RegisterPass(spvtools::CreateCCPPass())
-		.RegisterPass(spvtools::CreateAggressiveDCEPass())
-		.RegisterPass(spvtools::CreateRedundancyEliminationPass())
-		.RegisterPass(spvtools::CreateCombineAccessChainsPass())
-		.RegisterPass(spvtools::CreateSimplificationPass())
-		.RegisterPass(spvtools::CreateVectorDCEPass())
-		.RegisterPass(spvtools::CreateDeadInsertElimPass())
-		.RegisterPass(spvtools::CreateDeadBranchElimPass())
-		.RegisterPass(spvtools::CreateSimplificationPass())
-		.RegisterPass(spvtools::CreateIfConversionPass())
-		.RegisterPass(spvtools::CreateCopyPropagateArraysPass())
-		.RegisterPass(spvtools::CreateReduceLoadSizePass())
-		.RegisterPass(spvtools::CreateAggressiveDCEPass())
-		.RegisterPass(spvtools::CreateBlockMergePass())
-		.RegisterPass(spvtools::CreateRedundancyEliminationPass())
-		.RegisterPass(spvtools::CreateDeadBranchElimPass())
-		.RegisterPass(spvtools::CreateBlockMergePass())
-		.RegisterPass(spvtools::CreateSimplificationPass());
+	opt.RegisterPerformancePasses();
 
 	std::vector<uint32_t> optimized;
 	opt.Run(code.data(), code.size(), &optimized);
@@ -258,6 +228,8 @@ std::shared_ptr<sw::SpirvShader> createShader(const vk::PipelineCache::SpirvShad
 
 std::shared_ptr<sw::ComputeProgram> createProgram(const vk::PipelineCache::ComputeProgramKey& key)
 {
+	MARL_SCOPED_EVENT("createProgram");
+
 	vk::DescriptorSet::Bindings descriptorSets;  // FIXME(b/129523279): Delay code generation until invoke time.
 	// TODO(b/119409619): use allocator.
 	auto program = std::make_shared<sw::ComputeProgram>(key.getShader(), key.getLayout(), descriptorSets);
@@ -280,6 +252,8 @@ Pipeline::Pipeline(PipelineLayout const *layout, const Device *device)
 GraphicsPipeline::GraphicsPipeline(const VkGraphicsPipelineCreateInfo* pCreateInfo, void* mem, const Device *device)
 	: Pipeline(vk::Cast(pCreateInfo->layout), device)
 {
+	context.robustBufferAccess = robustBufferAccess;
+
 	if(((pCreateInfo->flags &
 		~(VK_PIPELINE_CREATE_DISABLE_OPTIMIZATION_BIT |
 	      VK_PIPELINE_CREATE_DERIVATIVE_BIT |
@@ -379,8 +353,7 @@ GraphicsPipeline::GraphicsPipeline(const VkGraphicsPipelineCreateInfo* pCreateIn
 
 	const VkPipelineRasterizationStateCreateInfo* rasterizationState = pCreateInfo->pRasterizationState;
 	if((rasterizationState->flags != 0) ||
-	   (rasterizationState->depthClampEnable != VK_FALSE) ||
-	   (rasterizationState->polygonMode != VK_POLYGON_MODE_FILL))
+	   (rasterizationState->depthClampEnable != VK_FALSE))
 	{
 		UNIMPLEMENTED("pCreateInfo->pRasterizationState settings");
 	}
@@ -388,13 +361,44 @@ GraphicsPipeline::GraphicsPipeline(const VkGraphicsPipelineCreateInfo* pCreateIn
 	context.rasterizerDiscard = (rasterizationState->rasterizerDiscardEnable == VK_TRUE);
 	context.cullMode = rasterizationState->cullMode;
 	context.frontFace = rasterizationState->frontFace;
+	context.polygonMode = rasterizationState->polygonMode;
 	context.depthBias = (rasterizationState->depthBiasEnable != VK_FALSE) ? rasterizationState->depthBiasConstantFactor : 0.0f;
 	context.slopeDepthBias = (rasterizationState->depthBiasEnable != VK_FALSE) ? rasterizationState->depthBiasSlopeFactor : 0.0f;
+
+	const VkBaseInStructure* extensionCreateInfo = reinterpret_cast<const VkBaseInStructure*>(rasterizationState->pNext);
+	while(extensionCreateInfo)
+	{
+		// Casting to a long since some structures, such as
+		// VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROVOKING_VERTEX_FEATURES_EXT
+		// are not enumerated in the official Vulkan header
+		switch((long)(extensionCreateInfo->sType))
+		{
+		case VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_LINE_STATE_CREATE_INFO_EXT:
+		{
+			const VkPipelineRasterizationLineStateCreateInfoEXT* lineStateCreateInfo = reinterpret_cast<const VkPipelineRasterizationLineStateCreateInfoEXT*>(extensionCreateInfo);
+			context.lineRasterizationMode = lineStateCreateInfo->lineRasterizationMode;
+		}
+		break;
+		case VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_PROVOKING_VERTEX_STATE_CREATE_INFO_EXT:
+		{
+			const VkPipelineRasterizationProvokingVertexStateCreateInfoEXT* provokingVertexModeCreateInfo =
+				reinterpret_cast<const VkPipelineRasterizationProvokingVertexStateCreateInfoEXT*>(extensionCreateInfo);
+			context.provokingVertexMode = provokingVertexModeCreateInfo->provokingVertexMode;
+		}
+		break;
+		default:
+			WARN("pCreateInfo->pRasterizationState->pNext sType = %s", vk::Stringify(extensionCreateInfo->sType).c_str());
+			break;
+		}
+
+		extensionCreateInfo = extensionCreateInfo->pNext;
+	}
 
 	const VkPipelineMultisampleStateCreateInfo* multisampleState = pCreateInfo->pMultisampleState;
 	if(multisampleState)
 	{
-		switch (multisampleState->rasterizationSamples) {
+		switch (multisampleState->rasterizationSamples)
+		{
 		case VK_SAMPLE_COUNT_1_BIT:
 			context.sampleCount = 1;
 			break;
@@ -406,7 +410,9 @@ GraphicsPipeline::GraphicsPipeline(const VkGraphicsPipelineCreateInfo* pCreateIn
 		}
 
 		if (multisampleState->pSampleMask)
+		{
 			context.sampleMask = multisampleState->pSampleMask[0];
+		}
 
 		context.alphaToCoverage = (multisampleState->alphaToCoverageEnable == VK_TRUE);
 
@@ -465,20 +471,14 @@ GraphicsPipeline::GraphicsPipeline(const VkGraphicsPipelineCreateInfo* pCreateIn
 		{
 			const VkPipelineColorBlendAttachmentState& attachment = colorBlendState->pAttachments[i];
 			context.colorWriteMask[i] = attachment.colorWriteMask;
-		}
 
-		if(colorBlendState->attachmentCount > 0)
-		{
-			const VkPipelineColorBlendAttachmentState& attachment = colorBlendState->pAttachments[0];
-			context.alphaBlendEnable = (attachment.blendEnable == VK_TRUE);
-			context.blendOperationStateAlpha = attachment.alphaBlendOp;
-			context.blendOperationState = attachment.colorBlendOp;
-			context.destBlendFactorStateAlpha = attachment.dstAlphaBlendFactor;
-			context.destBlendFactorState = attachment.dstColorBlendFactor;
-			context.sourceBlendFactorStateAlpha = attachment.srcAlphaBlendFactor;
-			context.sourceBlendFactorState = attachment.srcColorBlendFactor;
+			context.setBlendState(i, { (attachment.blendEnable == VK_TRUE),
+				attachment.srcColorBlendFactor, attachment.dstColorBlendFactor, attachment.colorBlendOp,
+				attachment.srcAlphaBlendFactor, attachment.dstAlphaBlendFactor, attachment.alphaBlendOp });
 		}
 	}
+
+	context.multiSampleMask = context.sampleMask & ((unsigned) 0xFFFFFFFF >> (32 - context.sampleCount));
 }
 
 void GraphicsPipeline::destroyPipeline(const VkAllocationCallbacks* pAllocator)

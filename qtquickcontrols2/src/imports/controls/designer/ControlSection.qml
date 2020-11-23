@@ -69,7 +69,7 @@ Section {
 
         Label {
             text: qsTr("Hover")
-            tooltip: qsTr("Whether control accepts hover evets.")
+            tooltip: qsTr("Whether control accepts hover events.")
         }
         SecondColumnLayout {
             CheckBox {
@@ -95,7 +95,7 @@ Section {
 
         Label {
             text: qsTr("Wheel")
-            tooltip: qsTr("Whether control accepts wheel evets.")
+            tooltip: qsTr("Whether control accepts wheel events.")
         }
         SecondColumnLayout {
             CheckBox {

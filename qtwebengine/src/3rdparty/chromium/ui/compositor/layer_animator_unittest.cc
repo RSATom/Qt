@@ -13,7 +13,7 @@
 #include "base/run_loop.h"
 #include "base/strings/stringprintf.h"
 #include "base/test/scoped_mock_clock_override.h"
-#include "base/test/scoped_task_environment.h"
+#include "base/test/task_environment.h"
 #include "base/time/time.h"
 #include "cc/trees/layer_tree_host.h"
 #include "cc/trees/mutator_host.h"
@@ -1706,7 +1706,7 @@ TEST(LayerAnimatorTest, AddObserverExplicit) {
 
   animator->StartAnimation(sequence);
 
-  animator = NULL;
+  animator.reset();
 
   EXPECT_EQ(observer.last_aborted_sequence(), sequence);
 }
@@ -2366,7 +2366,7 @@ TEST(LayerAnimatorTest, ImplicitObserversAtAnimatorDestruction) {
 
   EXPECT_FALSE(observer_notify.animations_completed());
   EXPECT_FALSE(observer_do_not_notify.animations_completed());
-  animator = NULL;
+  animator.reset();
   EXPECT_TRUE(observer_notify.animations_completed());
   EXPECT_TRUE(observer_notify.WasAnimationAbortedForProperty(
       LayerAnimationElement::BRIGHTNESS));
@@ -3253,8 +3253,8 @@ TEST(LayerAnimatorTest, AnimatorRemovedFromCollectionWhenLayerIsDestroyed) {
 }
 
 TEST(LayerAnimatorTest, LayerMovedBetweenCompositorsDuringAnimation) {
-  base::test::ScopedTaskEnvironment scoped_task_environment_(
-      base::test::ScopedTaskEnvironment::MainThreadType::UI);
+  base::test::TaskEnvironment task_environment_(
+      base::test::TaskEnvironment::MainThreadType::UI);
   const bool enable_pixel_output = false;
   TestContextFactories context_factories(enable_pixel_output);
   const gfx::Rect bounds(10, 10, 100, 100);
@@ -3317,8 +3317,8 @@ TEST(LayerAnimatorTest, LayerMovedBetweenCompositorsDuringAnimation) {
 }
 
 TEST(LayerAnimatorTest, ThreadedAnimationSurvivesIfLayerRemovedAdded) {
-  base::test::ScopedTaskEnvironment scoped_task_environment_(
-      base::test::ScopedTaskEnvironment::MainThreadType::UI);
+  base::test::TaskEnvironment task_environment_(
+      base::test::TaskEnvironment::MainThreadType::UI);
   const bool enable_pixel_output = false;
   TestContextFactories context_factories(enable_pixel_output);
   const gfx::Rect bounds(10, 10, 100, 100);

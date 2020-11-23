@@ -24,12 +24,12 @@ class UploadDomAction : public Action {
 
   void OnWaitForElement(ProcessActionCallback callback,
                         const Selector& selector,
-                        bool element_found);
+                        const ClientStatus& element_status);
   void OnGetOuterHtml(ProcessActionCallback callback,
                       const ClientStatus& status,
                       const std::string& outer_html);
 
-  base::WeakPtrFactory<UploadDomAction> weak_ptr_factory_;
+  base::WeakPtrFactory<UploadDomAction> weak_ptr_factory_{this};
 
   DISALLOW_COPY_AND_ASSIGN(UploadDomAction);
 };

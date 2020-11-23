@@ -10,12 +10,13 @@
 
 #include "base/memory/ptr_util.h"
 #include "base/memory/scoped_refptr.h"
+#include "base/run_loop.h"
 #include "base/test/test_simple_task_runner.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "third_party/blink/renderer/core/dom/events/event.h"
 #include "third_party/blink/renderer/core/testing/null_execution_context.h"
+#include "third_party/blink/renderer/modules/peerconnection/mock_web_rtc_peer_connection_handler.h"
 #include "third_party/blink/renderer/platform/scheduler/public/post_cross_thread_task.h"
-#include "third_party/blink/renderer/platform/testing/testing_platform_support_with_web_rtc.h"
 #include "third_party/blink/renderer/platform/wtf/cross_thread_functional.h"
 #include "third_party/blink/renderer/platform/wtf/text/wtf_string.h"
 
@@ -84,8 +85,12 @@ class MockDataChannel : public webrtc::DataChannelInterface {
   std::string label() const override { return std::string(); }
   bool reliable() const override { return false; }
   bool ordered() const override { return false; }
-  uint16_t maxRetransmitTime() const override { return 0; }
-  uint16_t maxRetransmits() const override { return 0; }
+  absl::optional<int> maxPacketLifeTime() const override {
+    return absl::nullopt;
+  }
+  absl::optional<int> maxRetransmitsOpt() const override {
+    return absl::nullopt;
+  }
   std::string protocol() const override { return std::string(); }
   bool negotiated() const override { return false; }
   int id() const override { return 0; }

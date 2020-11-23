@@ -44,6 +44,9 @@ class ChloFramerVisitor : public QuicFramerVisitorInterface,
   void OnDecryptedPacket(EncryptionLevel /*level*/) override {}
   bool OnPacketHeader(const QuicPacketHeader& header) override;
   void OnCoalescedPacket(const QuicEncryptedPacket& packet) override;
+  void OnUndecryptablePacket(const QuicEncryptedPacket& packet,
+                             EncryptionLevel decryption_level,
+                             bool has_decryption_key) override;
   bool OnStreamFrame(const QuicStreamFrame& frame) override;
   bool OnCryptoFrame(const QuicCryptoFrame& frame) override;
   bool OnAckFrameStart(QuicPacketNumber largest_acked,
@@ -117,22 +120,10 @@ bool ChloFramerVisitor::OnUnauthenticatedPublicHeader(
     const QuicPacketHeader& header) {
   connection_id_ = header.destination_connection_id;
   // QuicFramer creates a NullEncrypter and NullDecrypter at level
-  // ENCRYPTION_INITIAL, which are the correct ones to use with the QUIC Crypto
-  // handshake. When the TLS handshake is used, the IETF-style initial crypters
-  // are used instead, so those need to be created and installed.
-  if (header.version.handshake_protocol == PROTOCOL_TLS1_3) {
-    CrypterPair crypters;
-    CryptoUtils::CreateTlsInitialCrypters(
-        Perspective::IS_SERVER, header.version.transport_version,
-        header.destination_connection_id, &crypters);
-    framer_->SetEncrypter(ENCRYPTION_INITIAL, std::move(crypters.encrypter));
-    if (framer_->version().KnowsWhichDecrypterToUse()) {
-      framer_->InstallDecrypter(ENCRYPTION_INITIAL,
-                                std::move(crypters.decrypter));
-    } else {
-      framer_->SetDecrypter(ENCRYPTION_INITIAL, std::move(crypters.decrypter));
-    }
-  }
+  // ENCRYPTION_INITIAL. While those are the correct ones to use with some
+  // versions of QUIC, others use the IETF-style initial crypters, so those need
+  // to be created and installed.
+  framer_->SetInitialObfuscators(header.destination_connection_id);
   return true;
 }
 bool ChloFramerVisitor::OnUnauthenticatedHeader(
@@ -142,8 +133,15 @@ bool ChloFramerVisitor::OnUnauthenticatedHeader(
 bool ChloFramerVisitor::OnPacketHeader(const QuicPacketHeader& /*header*/) {
   return true;
 }
+
 void ChloFramerVisitor::OnCoalescedPacket(
     const QuicEncryptedPacket& /*packet*/) {}
+
+void ChloFramerVisitor::OnUndecryptablePacket(
+    const QuicEncryptedPacket& /*packet*/,
+    EncryptionLevel /*decryption_level*/,
+    bool /*has_decryption_key*/) {}
+
 bool ChloFramerVisitor::OnStreamFrame(const QuicStreamFrame& frame) {
   if (QuicVersionUsesCryptoFrames(framer_->transport_version())) {
     // CHLO will be sent in CRYPTO frames in v47 and above.
@@ -311,13 +309,12 @@ void ChloFramerVisitor::OnHandshakeMessage(
 
 // static
 bool ChloExtractor::Extract(const QuicEncryptedPacket& packet,
-                            const ParsedQuicVersionVector& versions,
+                            ParsedQuicVersion version,
                             const QuicTagVector& create_session_tag_indicators,
                             Delegate* delegate,
                             uint8_t connection_id_length) {
-  QUIC_DVLOG(1) << "Extracting CHLO using versions "
-                << ParsedQuicVersionVectorToString(versions);
-  QuicFramer framer(versions, QuicTime::Zero(), Perspective::IS_SERVER,
+  QUIC_DVLOG(1) << "Extracting CHLO using version " << version;
+  QuicFramer framer({version}, QuicTime::Zero(), Perspective::IS_SERVER,
                     connection_id_length);
   ChloFramerVisitor visitor(&framer, create_session_tag_indicators, delegate);
   framer.set_visitor(&visitor);

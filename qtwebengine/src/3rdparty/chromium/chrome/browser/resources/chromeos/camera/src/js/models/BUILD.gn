@@ -9,6 +9,8 @@ js_type_check("closure_compile") {
     ":filenamer",
     ":filesystem",
     ":gallery",
+    ":result_saver",
+    ":video_saver",
   ]
 }
 
@@ -24,5 +26,19 @@ js_library("filesystem") {
 js_library("gallery") {
   deps = [
     ":filesystem",
+  ]
+}
+
+js_library("result_saver") {
+}
+
+js_library("video_saver") {
+  sources = [
+    "file_video_saver.js",
+    "intent_video_saver.js",
+    "video_saver_interface.js",
+  ]
+  deps = [
+    "..:intent",
   ]
 }

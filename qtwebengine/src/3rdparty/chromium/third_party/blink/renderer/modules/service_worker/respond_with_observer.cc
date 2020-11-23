@@ -4,6 +4,7 @@
 
 #include "third_party/blink/renderer/modules/service_worker/respond_with_observer.h"
 
+#include "third_party/blink/public/mojom/service_worker/service_worker_error_type.mojom-blink.h"
 #include "third_party/blink/renderer/bindings/core/v8/script_function.h"
 #include "third_party/blink/renderer/bindings/core/v8/script_promise.h"
 #include "third_party/blink/renderer/bindings/core/v8/script_value.h"
@@ -64,7 +65,8 @@ void RespondWithObserver::RespondWith(ScriptState* script_state,
   bool will_wait = observer_->WaitUntil(
       script_state, script_promise, exception_state,
       WTF::BindRepeating(&RespondWithObserver::ResponseWasFulfilled,
-                         WrapPersistent(this), exception_state.Context(),
+                         WrapPersistent(this), WrapPersistent(script_state),
+                         exception_state.Context(),
                          WTF::Unretained(exception_state.InterfaceName()),
                          WTF::Unretained(exception_state.PropertyName())),
       WTF::BindRepeating(&RespondWithObserver::ResponseWasRejected,
@@ -86,11 +88,13 @@ void RespondWithObserver::ResponseWasRejected(ServiceWorkerResponseError error,
 }
 
 void RespondWithObserver::ResponseWasFulfilled(
+    ScriptState* script_state,
     ExceptionState::ContextType context_type,
     const char* interface_name,
     const char* property_name,
     const ScriptValue& value) {
-  OnResponseFulfilled(value, context_type, interface_name, property_name);
+  OnResponseFulfilled(script_state, value, context_type, interface_name,
+                      property_name);
   state_ = kDone;
 }
 

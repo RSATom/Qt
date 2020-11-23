@@ -4,6 +4,7 @@
 
 #include "third_party/blink/renderer/core/workers/installed_scripts_manager.h"
 
+#include "services/network/public/mojom/ip_address_space.mojom-blink.h"
 #include "third_party/blink/renderer/core/frame/csp/content_security_policy.h"
 #include "third_party/blink/renderer/core/origin_trials/origin_trial_context.h"
 #include "third_party/blink/renderer/platform/network/http_names.h"
@@ -30,11 +31,11 @@ InstalledScriptsManager::ScriptData::ScriptData(
   // TODO(https://crbug.com/955213): Make this consistent with the spec.
   // TODO(https://crbug.com/955213): Move this function to a more appropriate
   // place so that this is shareable out of worker code.
-  response_address_space_ = mojom::IPAddressSpace::kPublic;
+  response_address_space_ = network::mojom::IPAddressSpace::kPublic;
   if (network_utils::IsReservedIPAddress(script_url_.Host()))
-    response_address_space_ = mojom::IPAddressSpace::kPrivate;
+    response_address_space_ = network::mojom::IPAddressSpace::kPrivate;
   if (SecurityOrigin::Create(script_url_)->IsLocalhost())
-    response_address_space_ = mojom::IPAddressSpace::kLocal;
+    response_address_space_ = network::mojom::IPAddressSpace::kLocal;
 }
 
 ContentSecurityPolicyResponseHeaders

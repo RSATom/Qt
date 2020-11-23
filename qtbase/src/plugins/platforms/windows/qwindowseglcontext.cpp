@@ -63,7 +63,6 @@ QT_BEGIN_NAMESPACE
     there is no need to differentiate between dynamic or Angle-only builds in here.
 
     \internal
-    \ingroup qt-lighthouse-win
 */
 
 QWindowsLibEGL QWindowsEGLStaticContext::libEGL;
@@ -88,7 +87,7 @@ static void *resolveFunc(HMODULE lib, const char *name)
     while (!proc && argSize <= 64) {
         nameStr = baseNameStr;
         if (argSize >= 0)
-            nameStr += QLatin1Char('@') + QString::number(argSize);
+            nameStr += u'@' + QString::number(argSize);
         argSize = argSize < 0 ? 0 : argSize + 4;
         proc = (void *) ::GetProcAddress(lib, nameStr.toLatin1().constData());
     }
@@ -376,7 +375,6 @@ QSurfaceFormat QWindowsEGLStaticContext::formatFromConfig(EGLDisplay display, EG
     \endlist
 
     \internal
-    \ingroup qt-lighthouse-win
 */
 
 QWindowsEGLContext::QWindowsEGLContext(QWindowsEGLStaticContext *staticContext,

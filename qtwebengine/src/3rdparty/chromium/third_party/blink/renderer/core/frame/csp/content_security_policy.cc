@@ -28,7 +28,6 @@
 #include <memory>
 #include <utility>
 
-#include "third_party/blink/public/mojom/net/ip_address_space.mojom-blink.h"
 #include "third_party/blink/public/platform/platform.h"
 #include "third_party/blink/public/platform/task_type.h"
 #include "third_party/blink/public/platform/web_url_request.h"
@@ -153,7 +152,6 @@ ContentSecurityPolicy::ContentSecurityPolicy()
       script_hash_algorithms_used_(kContentSecurityPolicyHashAlgorithmNone),
       style_hash_algorithms_used_(kContentSecurityPolicyHashAlgorithmNone),
       sandbox_mask_(WebSandboxFlags::kNone),
-      treat_as_public_address_(false),
       require_trusted_types_(false),
       insecure_request_policy_(kLeaveInsecureRequestsAlone) {}
 
@@ -200,8 +198,6 @@ void ContentSecurityPolicy::ApplyPolicySideEffectsToDelegate() {
     Count(WebFeature::kSandboxViaCSP);
     delegate_->SetSandboxFlags(sandbox_mask_);
   }
-  if (treat_as_public_address_)
-    delegate_->SetAddressSpace(mojom::IPAddressSpace::kPublic);
 
   if (require_trusted_types_)
     delegate_->SetRequireTrustedTypes();
@@ -221,8 +217,7 @@ void ContentSecurityPolicy::ApplyPolicySideEffectsToDelegate() {
       Count(WebFeature::kCSPWithStrictDynamic);
     }
 
-    if (policy->AllowEval(nullptr,
-                          SecurityViolationReportingPolicy::kSuppressReporting,
+    if (policy->AllowEval(SecurityViolationReportingPolicy::kSuppressReporting,
                           kWillNotThrowException, g_empty_string)) {
       Count(WebFeature::kCSPWithUnsafeEval);
     }
@@ -531,27 +526,25 @@ bool ContentSecurityPolicy::IsScriptInlineType(InlineType inline_type) {
 }
 
 bool ContentSecurityPolicy::AllowEval(
-    ScriptState* script_state,
     SecurityViolationReportingPolicy reporting_policy,
     ContentSecurityPolicy::ExceptionStatus exception_status,
     const String& script_content) const {
   bool is_allowed = true;
   for (const auto& policy : policies_) {
-    is_allowed &= policy->AllowEval(script_state, reporting_policy,
-                                    exception_status, script_content);
+    is_allowed &=
+        policy->AllowEval(reporting_policy, exception_status, script_content);
   }
   return is_allowed;
 }
 
 bool ContentSecurityPolicy::AllowWasmEval(
-    ScriptState* script_state,
     SecurityViolationReportingPolicy reporting_policy,
     ContentSecurityPolicy::ExceptionStatus exception_status,
     const String& script_content) const {
   bool is_allowed = true;
   for (const auto& policy : policies_) {
-    is_allowed &= policy->AllowWasmEval(script_state, reporting_policy,
-                                        exception_status, script_content);
+    is_allowed &= policy->AllowWasmEval(reporting_policy, exception_status,
+                                        script_content);
   }
   return is_allowed;
 }
@@ -810,15 +803,15 @@ bool ContentSecurityPolicy::AllowWorkerContextFromSource(
   return AllowFromSource(ContentSecurityPolicy::DirectiveType::kWorkerSrc, url);
 }
 
-bool ContentSecurityPolicy::AllowTrustedTypePolicy(
-    const String& policy_name) const {
+bool ContentSecurityPolicy::AllowTrustedTypePolicy(const String& policy_name,
+                                                   bool is_duplicate) const {
   bool is_allowed = true;
   for (const auto& policy : policies_) {
     if (!CheckHeaderTypeMatches(CheckHeaderType::kCheckAll,
                                 policy->HeaderType())) {
       continue;
     }
-    is_allowed &= policy->AllowTrustedTypePolicy(policy_name);
+    is_allowed &= policy->AllowTrustedTypePolicy(policy_name, is_duplicate);
   }
 
   return is_allowed;
@@ -870,12 +863,6 @@ const KURL ContentSecurityPolicy::FallbackUrlForPlugin() const {
 
 void ContentSecurityPolicy::EnforceSandboxFlags(SandboxFlags mask) {
   sandbox_mask_ |= mask;
-}
-
-void ContentSecurityPolicy::TreatAsPublicAddress() {
-  if (!RuntimeEnabledFeatures::CorsRFC1918Enabled())
-    return;
-  treat_as_public_address_ = true;
 }
 
 void ContentSecurityPolicy::RequireTrustedTypes() {
@@ -960,8 +947,11 @@ static void GatherSecurityPolicyViolationEventData(
             StripURLForUseInReport(delegate->GetSecurityOrigin(), blocked_url,
                                    redirect_status, effective_type));
         break;
-      case ContentSecurityPolicy::kTrustedTypesViolation:
-        init->setBlockedURI("trusted-types");
+      case ContentSecurityPolicy::kTrustedTypesSinkViolation:
+        init->setBlockedURI("trusted-types-sink");
+        break;
+      case ContentSecurityPolicy::kTrustedTypesPolicyViolation:
+        init->setBlockedURI("trusted-types-policy");
         break;
     }
   }
@@ -998,10 +988,25 @@ static void GatherSecurityPolicyViolationEventData(
   if (!source_location)
     source_location = delegate->GetSourceLocation();
   if (source_location && source_location->LineNumber()) {
-    KURL source = KURL(source_location->Url());
-    init->setSourceFile(StripURLForUseInReport(delegate->GetSecurityOrigin(),
-                                               source, redirect_status,
-                                               effective_type));
+    KURL source_url = KURL(source_location->Url());
+    // The source file might be a script loaded from a redirect. Web browser
+    // usually tries to hide post-redirect information. The script might be
+    // cross-origin with the document, but also with other scripts. As a result,
+    // everything is cleared no matter the |source_url| origin.
+    // See https://crbug.com/1074317
+    //
+    // Note: The username, password and ref are stripped later below by
+    // StripURLForUseInReport(..)
+    source_url.SetQuery(String());
+
+    // TODO(arthursonzogni): |redirect_status| refers to the redirect status of
+    // the |blocked_url|. This is unrelated to |source_url|. Why using it in
+    // this case? This is obviously wrong:
+    String source_file =
+        StripURLForUseInReport(delegate->GetSecurityOrigin(), source_url,
+                               redirect_status, effective_type);
+
+    init->setSourceFile(source_file);
     init->setLineNumber(source_location->LineNumber());
     init->setColumnNumber(source_location->ColumnNumber());
   } else {
@@ -1454,8 +1459,6 @@ const char* ContentSecurityPolicy::GetDirectiveName(const DirectiveType& type) {
       return "style-src-attr";
     case DirectiveType::kStyleSrcElem:
       return "style-src-elem";
-    case DirectiveType::kTreatAsPublicAddress:
-      return "treat-as-public-address";
     case DirectiveType::kUpgradeInsecureRequests:
       return "upgrade-insecure-requests";
     case DirectiveType::kWorkerSrc:
@@ -1525,8 +1528,6 @@ ContentSecurityPolicy::DirectiveType ContentSecurityPolicy::GetDirectiveType(
     return DirectiveType::kStyleSrcAttr;
   if (name == "style-src-elem")
     return DirectiveType::kStyleSrcElem;
-  if (name == "treat-as-public-address")
-    return DirectiveType::kTreatAsPublicAddress;
   if (name == "upgrade-insecure-requests")
     return DirectiveType::kUpgradeInsecureRequests;
   if (name == "worker-src")

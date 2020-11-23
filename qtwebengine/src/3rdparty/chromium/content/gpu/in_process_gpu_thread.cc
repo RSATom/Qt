@@ -80,7 +80,7 @@ public:
         base::Thread::Options options;
 #if (defined(OS_WIN) || defined(OS_MACOSX)) && !defined(TOOLKIT_QT)
         // WGL needs to create its own window and pump messages on it.
-        options.message_loop_type = base::MessageLoop::TYPE_UI;
+        options.message_loop_type = base::MessagePumpType::UI;
 #endif
 
         if (base::FeatureList::IsEnabled(features::kGpuUseDisplayThreadPriority))

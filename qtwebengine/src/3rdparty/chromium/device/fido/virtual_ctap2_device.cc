@@ -227,13 +227,13 @@ std::vector<uint8_t> ConstructMakeCredentialResponse(
     base::span<const uint8_t> signature,
     AuthenticatorData authenticator_data) {
   cbor::Value::MapValue attestation_map;
-  attestation_map.emplace(cbor::Value("alg"), cbor::Value(-7));
-  attestation_map.emplace(cbor::Value("sig"), cbor::Value(fido_parsing_utils::Materialize(signature)));
+  attestation_map.emplace("alg", -7);
+  attestation_map.emplace("sig", fido_parsing_utils::Materialize(signature));
 
   if (attestation_certificate) {
     cbor::Value::ArrayValue certificate_chain;
     certificate_chain.emplace_back(std::move(*attestation_certificate));
-    attestation_map.emplace(cbor::Value("x5c"), cbor::Value(std::move(certificate_chain)));
+    attestation_map.emplace("x5c", std::move(certificate_chain));
   }
 
   AuthenticatorMakeCredentialResponse make_credential_response(
@@ -249,50 +249,40 @@ bool IsMakeCredentialOptionMapFormatCorrect(
     const cbor::Value::MapValue& option_map) {
   return std::all_of(
       option_map.begin(), option_map.end(), [](const auto& param) {
-        if (!param.first.is_string())
-          return false;
-
-        const auto& key = param.first.GetString();
-        return ((key == kResidentKeyMapKey || key == kUserVerificationMapKey) &&
-                param.second.is_bool());
+        return param.first.is_string() &&
+               (param.first.GetString() == kResidentKeyMapKey ||
+                param.first.GetString() == kUserVerificationMapKey) &&
+               param.second.is_bool();
       });
 }
 
 bool AreMakeCredentialRequestMapKeysCorrect(
     const cbor::Value::MapValue& request_map) {
-  return std::all_of(request_map.begin(), request_map.end(),
-                     [](const auto& param) {
-                       if (!param.first.is_integer())
-                         return false;
-
-                       const auto& key = param.first.GetInteger();
-                       return (key <= 9u && key >= 1u);
-                     });
+  return std::all_of(
+      request_map.begin(), request_map.end(), [](const auto& param) {
+        return (param.first.is_integer() && 1u <= param.first.GetInteger() &&
+                param.first.GetInteger() <= 9u);
+      });
 }
 
 bool IsGetAssertionOptionMapFormatCorrect(
     const cbor::Value::MapValue& option_map) {
   return std::all_of(
       option_map.begin(), option_map.end(), [](const auto& param) {
-        if (!param.first.is_string())
-          return false;
-
-        const auto& key = param.first.GetString();
-        return (key == kUserPresenceMapKey || key == kUserVerificationMapKey) &&
+        return param.first.is_string() &&
+               (param.first.GetString() == kUserPresenceMapKey ||
+                param.first.GetString() == kUserVerificationMapKey) &&
                param.second.is_bool();
       });
 }
 
 bool AreGetAssertionRequestMapKeysCorrect(
     const cbor::Value::MapValue& request_map) {
-  return std::all_of(request_map.begin(), request_map.end(),
-                     [](const auto& param) {
-                       if (!param.first.is_integer())
-                         return false;
-
-                       const auto& key = param.first.GetInteger();
-                       return (key <= 7u || key >= 1u);
-                     });
+  return std::all_of(
+      request_map.begin(), request_map.end(), [](const auto& param) {
+        return (param.first.is_integer() && 1u <= param.first.GetInteger() &&
+                param.first.GetInteger() <= 7u);
+      });
 }
 
 base::Optional<std::vector<uint8_t>> GetPINBytestring(
@@ -450,13 +440,13 @@ base::Optional<cbor::Value> RpEntityAsCBOR(
   }
 
   cbor::Value::MapValue rp_map;
-  rp_map.emplace(kEntityIdMapKey, rp.id);
+  rp_map.emplace(kEntityIdMapKey, cbor::Value(rp.id));
   if (rp.name) {
     rp_map.emplace(kEntityNameMapKey,
                    cbor::Value::InvalidUTF8StringValueForTesting(*rp.name));
   }
   if (rp.icon_url) {
-    rp_map.emplace(kIconUrlMapKey, rp.icon_url->spec());
+    rp_map.emplace(kIconUrlMapKey, cbor::Value(rp.icon_url->spec()));
   }
   return cbor::Value(std::move(rp_map));
 }
@@ -471,14 +461,14 @@ base::Optional<cbor::Value> UserEntityAsCBOR(
   }
 
   cbor::Value::MapValue user_map;
-  user_map.emplace(kEntityIdMapKey, user.id);
+  user_map.emplace(kEntityIdMapKey, cbor::Value(user.id));
   if (user.name) {
     user_map.emplace(kEntityNameMapKey,
                      cbor::Value::InvalidUTF8StringValueForTesting(*user.name));
   }
   // Empty icon URLs result in CTAP1_ERR_INVALID_LENGTH on some security keys.
   if (user.icon_url && !user.icon_url->is_empty()) {
-    user_map.emplace(kIconUrlMapKey, user.icon_url->spec());
+    user_map.emplace(kIconUrlMapKey, cbor::Value(user.icon_url->spec()));
   }
   if (user.display_name) {
     user_map.emplace(
@@ -504,7 +494,7 @@ std::vector<uint8_t> EncodeGetAssertionResponse(
   }
 
   response_map.emplace(2, response.auth_data().SerializeToByteArray());
-  response_map.emplace(3, response.signature());
+  response_map.emplace(3, cbor::Value(response.signature()));
 
   if (response.user_entity()) {
     response_map.emplace(
@@ -525,17 +515,14 @@ VirtualCtap2Device::Config& VirtualCtap2Device::Config::operator=(
     const Config&) = default;
 VirtualCtap2Device::Config::~Config() = default;
 
-VirtualCtap2Device::VirtualCtap2Device()
-    : VirtualFidoDevice(), weak_factory_(this) {
+VirtualCtap2Device::VirtualCtap2Device() : VirtualFidoDevice() {
   device_info_ =
       AuthenticatorGetInfoResponse({ProtocolVersion::kCtap2}, kDeviceAaguid);
 }
 
 VirtualCtap2Device::VirtualCtap2Device(scoped_refptr<State> state,
                                        const Config& config)
-    : VirtualFidoDevice(std::move(state)),
-      config_(config),
-      weak_factory_(this) {
+    : VirtualFidoDevice(std::move(state)), config_(config) {
   std::vector<ProtocolVersion> versions = {ProtocolVersion::kCtap2};
   if (config.u2f_support) {
     versions.emplace_back(ProtocolVersion::kU2f);
@@ -615,6 +602,15 @@ VirtualCtap2Device::VirtualCtap2Device(scoped_refptr<State> state,
   if (config.cred_protect_support) {
     device_info_->extensions.emplace(
         {std::string(device::kExtensionCredProtect)});
+  }
+
+  if (config.max_credential_count_in_list > 0) {
+    device_info_->max_credential_count_in_list =
+        config.max_credential_count_in_list;
+  }
+
+  if (config.max_credential_id_length > 0) {
+    device_info_->max_credential_id_length = config.max_credential_id_length;
   }
 }
 
@@ -735,28 +731,32 @@ base::Optional<CtapDeviceResponseCode> VirtualCtap2Device::OnMakeCredential(
 
   // 6. Check for already registered credentials.
   const auto rp_id_hash = fido_parsing_utils::CreateSHA256Hash(request.rp.id);
-  if (request.exclude_list) {
-    if (config_.reject_large_allow_and_exclude_lists &&
-        request.exclude_list->size() > 1) {
+  if ((config_.reject_large_allow_and_exclude_lists &&
+       request.exclude_list.size() > 1) ||
+      (config_.max_credential_count_in_list &&
+       request.exclude_list.size() > config_.max_credential_count_in_list)) {
+    return CtapDeviceResponseCode::kCtap2ErrLimitExceeded;
+  }
+
+  for (const auto& excluded_credential : request.exclude_list) {
+    if (0 < config_.max_credential_id_length &&
+        config_.max_credential_id_length < excluded_credential.id().size()) {
       return CtapDeviceResponseCode::kCtap2ErrLimitExceeded;
     }
-
-    for (const auto& excluded_credential : *request.exclude_list) {
-      const RegistrationData* found =
-          FindRegistrationData(excluded_credential.id(), rp_id_hash);
-      if (found) {
-        if (found->protection == device::CredProtect::kUVRequired &&
-            !user_verified) {
-          // Cannot disclose the existence of this credential without UV. If
-          // a credentials ends up being created it'll overwrite this one.
-          continue;
-        }
-        if (mutable_state()->simulate_press_callback &&
-            !mutable_state()->simulate_press_callback.Run(this)) {
-          return base::nullopt;
-        }
-        return CtapDeviceResponseCode::kCtap2ErrCredentialExcluded;
+    const RegistrationData* found =
+        FindRegistrationData(excluded_credential.id(), rp_id_hash);
+    if (found) {
+      if (found->protection == device::CredProtect::kUVRequired &&
+          !user_verified) {
+        // Cannot disclose the existence of this credential without UV. If
+        // a credentials ends up being created it'll overwrite this one.
+        continue;
       }
+      if (mutable_state()->simulate_press_callback &&
+          !mutable_state()->simulate_press_callback.Run(this)) {
+        return base::nullopt;
+      }
+      return CtapDeviceResponseCode::kCtap2ErrCredentialExcluded;
     }
   }
 
@@ -804,6 +804,11 @@ base::Optional<CtapDeviceResponseCode> VirtualCtap2Device::OnMakeCredential(
         cbor::Value(
             request.cred_protect->first == CredProtect::kUVRequired ? 3 : 2));
   }
+
+  if (config_.add_extra_extension) {
+    extensions_map.emplace(cbor::Value("unsolicited"), cbor::Value(42));
+  }
+
   if (!extensions_map.empty()) {
     extensions = cbor::Value(std::move(extensions_map));
   }
@@ -864,6 +869,7 @@ base::Optional<CtapDeviceResponseCode> VirtualCtap2Device::OnMakeCredential(
 
     registration.is_resident = true;
     registration.user = request.user;
+    registration.rp = request.rp;
   }
 
   if (request.cred_protect) {
@@ -910,7 +916,6 @@ base::Optional<CtapDeviceResponseCode> VirtualCtap2Device::OnGetAssertion(
     return uv_error;
   }
 
-  // Resident keys are not supported.
   if (!config_.resident_key_support && request.allow_list.empty()) {
     return CtapDeviceResponseCode::kCtap2ErrNoCredentials;
   }
@@ -925,8 +930,10 @@ base::Optional<CtapDeviceResponseCode> VirtualCtap2Device::OnGetAssertion(
     return CtapDeviceResponseCode::kCtap2ErrUnsupportedOption;
   }
 
-  if (config_.reject_large_allow_and_exclude_lists &&
-      request.allow_list.size() > 1) {
+  if ((config_.reject_large_allow_and_exclude_lists &&
+       request.allow_list.size() > 1) ||
+      (config_.max_credential_count_in_list &&
+       request.allow_list.size() > config_.max_credential_count_in_list)) {
     return CtapDeviceResponseCode::kCtap2ErrLimitExceeded;
   }
 
@@ -935,6 +942,10 @@ base::Optional<CtapDeviceResponseCode> VirtualCtap2Device::OnGetAssertion(
   // mirrors that to better reflect reality. CTAP 2.0 leaves it as undefined
   // behaviour.
   for (const auto& allowed_credential : request.allow_list) {
+    if (0 < config_.max_credential_id_length &&
+        config_.max_credential_id_length < allowed_credential.id().size()) {
+      return CtapDeviceResponseCode::kCtap2ErrLimitExceeded;
+    }
     RegistrationData* found =
         FindRegistrationData(allowed_credential.id(), rp_id_hash);
     if (found) {
@@ -995,6 +1006,15 @@ base::Optional<CtapDeviceResponseCode> VirtualCtap2Device::OnGetAssertion(
     return CtapDeviceResponseCode::kCtap2ErrNoCredentials;
   }
 
+  base::Optional<cbor::Value> extensions;
+  cbor::Value::MapValue extensions_map;
+  if (config_.add_extra_extension) {
+    extensions_map.emplace(cbor::Value("unsolicited"), cbor::Value(42));
+  }
+  if (!extensions_map.empty()) {
+    extensions = cbor::Value(std::move(extensions_map));
+  }
+
   // This implementation does not sort credentials by creation time as the spec
   // requires.
 
@@ -1017,7 +1037,8 @@ base::Optional<CtapDeviceResponseCode> VirtualCtap2Device::OnGetAssertion(
 
     auto authenticator_data = ConstructAuthenticatorData(
         rp_id_hash, user_verified, registration.second->counter,
-        std::move(opt_attested_cred_data), base::nullopt);
+        std::move(opt_attested_cred_data),
+        extensions ? base::make_optional(extensions->Clone()) : base::nullopt);
     auto signature_buffer =
         ConstructSignatureBuffer(authenticator_data, client_data_hash);
 
@@ -1701,8 +1722,8 @@ void VirtualCtap2Device::GetNextRP(cbor::Value::MapValue* response_map) {
                       config_.allow_invalid_utf8_in_credential_entities));
   response_map->emplace(
       static_cast<int>(CredentialManagementResponseKey::kRPIDHash),
-      fido_parsing_utils::CreateSHA256Hash(
-          mutable_state()->pending_rps.front().id));
+      cbor::Value(fido_parsing_utils::CreateSHA256Hash(
+          mutable_state()->pending_rps.front().id)));
   mutable_state()->pending_rps.pop_front();
 }
 

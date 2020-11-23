@@ -57,6 +57,8 @@ bool AreLocalAndSyncPasswordsEqual(
       base::UTF16ToUTF8(password_form.password_value) ==
           password_specifics.password_value() &&
       password_form.preferred == password_specifics.preferred() &&
+      password_form.date_last_used.ToDeltaSinceWindowsEpoch()
+              .InMicroseconds() == password_specifics.date_last_used() &&
       password_form.date_created.ToInternalValue() ==
           password_specifics.date_created() &&
       password_form.blacklisted_by_user == password_specifics.blacklisted() &&
@@ -336,12 +338,6 @@ bool PasswordSyncableService::ReadFromPasswordStore(
   std::vector<std::unique_ptr<autofill::PasswordForm>> blacklist_entries;
   if (!password_store_->FillAutofillableLogins(&autofillable_entries) ||
       !password_store_->FillBlacklistLogins(&blacklist_entries)) {
-    // Password store often fails to load passwords. Track failures with UMA.
-    // (http://crbug.com/249000)
-    // TODO(wychen): enum uma should be strongly typed. crbug.com/661401
-    UMA_HISTOGRAM_ENUMERATION("Sync.LocalDataFailedToLoad",
-                              ModelTypeToHistogramInt(syncer::PASSWORDS),
-                              static_cast<int>(syncer::ModelType::NUM_ENTRIES));
     return false;
   }
   password_entries->resize(autofillable_entries.size() +
@@ -456,9 +452,7 @@ void PasswordSyncableService::CreateOrUpdateEntry(
 }
 
 bool PasswordSyncableService::ShouldRecoverPasswordsDuringMerge() const {
-  return base::FeatureList::IsEnabled(
-             features::kRecoverPasswordsForSyncUsers) &&
-         !base::FeatureList::IsEnabled(features::kDeleteCorruptedPasswords);
+  return !base::FeatureList::IsEnabled(features::kDeleteCorruptedPasswords);
 }
 
 syncer::SyncData SyncDataFromPassword(
@@ -480,6 +474,8 @@ syncer::SyncData SyncDataFromPassword(
   CopyStringField(username_value);
   CopyStringField(password_value);
   CopyField(preferred);
+  password_specifics->set_date_last_used(
+      password_form.date_last_used.ToDeltaSinceWindowsEpoch().InMicroseconds());
   password_specifics->set_date_created(
       password_form.date_created.ToInternalValue());
   password_specifics->set_blacklisted(password_form.blacklisted_by_user);
@@ -514,6 +510,15 @@ autofill::PasswordForm PasswordFromSpecifics(
   new_password.username_value = base::UTF8ToUTF16(password.username_value());
   new_password.password_value = base::UTF8ToUTF16(password.password_value());
   new_password.preferred = password.preferred();
+  if (password.has_date_last_used()) {
+    new_password.date_last_used = base::Time::FromDeltaSinceWindowsEpoch(
+        base::TimeDelta::FromMicroseconds(password.date_last_used()));
+  } else if (password.preferred()) {
+    // For legacy passwords that don't have the |date_last_used| field set, we
+    // should set it similar to the logic in login database migration.
+    new_password.date_last_used =
+        base::Time::FromDeltaSinceWindowsEpoch(base::TimeDelta::FromDays(1));
+  }
   new_password.date_created =
       base::Time::FromInternalValue(password.date_created());
   new_password.blacklisted_by_user = password.blacklisted();

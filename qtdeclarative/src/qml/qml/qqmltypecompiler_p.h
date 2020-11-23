@@ -79,7 +79,9 @@ struct QQmlTypeCompiler
 {
     Q_DECLARE_TR_FUNCTIONS(QQmlTypeCompiler)
 public:
-    QQmlTypeCompiler(QQmlEnginePrivate *engine, QQmlTypeData *typeData, QmlIR::Document *document,
+    QQmlTypeCompiler(QQmlEnginePrivate *engine,
+                     QQmlTypeData *typeData,
+                     QmlIR::Document *document,
                      const QQmlRefPointer<QQmlTypeNameCache> &typeNameCache,
                      QV4::ResolvedTypeReferenceMap *resolvedTypeCache,
                      const QV4::CompiledData::DependentTypesHasher &dependencyHasher);
@@ -98,7 +100,8 @@ public:
 
     QList<QQmlError> compilationErrors() const { return errors; }
     void recordError(const QV4::CompiledData::Location &location, const QString &description);
-    void recordError(const QQmlJS::DiagnosticMessage &error);
+    void recordError(const QQmlJS::DiagnosticMessage &message);
+    void recordError(const QQmlError &e);
 
     int registerString(const QString &str);
     int registerConstant(QV4::ReturnedValue v);
@@ -129,12 +132,12 @@ public:
         return resolvedTypes->value(id);
     }
 
+    CompositeMetaTypeIds typeIdsForComponent(int objectId = 0) const;
+
 private:
     QList<QQmlError> errors;
     QQmlEnginePrivate *engine;
-    QQmlTypeData *typeData;
     const QV4::CompiledData::DependentTypesHasher &dependencyHasher;
-    QQmlRefPointer<QQmlTypeNameCache> typeNameCache;
     QmlIR::Document *document;
     // index is string index of type name (use obj->inheritedTypeNameIndex)
     QHash<int, QQmlCustomParser*> customParsers;
@@ -142,6 +145,9 @@ private:
     // index in first hash is component index, vector inside contains object indices of objects with id property
     QVector<quint32> m_componentRoots;
     QQmlPropertyCacheVector m_propertyCaches;
+
+    QQmlRefPointer<QQmlTypeNameCache> typeNameCache;
+    QQmlTypeData *typeData;
 };
 
 struct QQmlCompilePass
@@ -152,7 +158,7 @@ struct QQmlCompilePass
 protected:
     void recordError(const QV4::CompiledData::Location &location, const QString &description) const
     { compiler->recordError(location, description); }
-    void recordError(const QQmlJS::DiagnosticMessage &error)
+    void recordError(const QQmlError &error)
     { compiler->recordError(error); }
 
     QV4::ResolvedTypeReference *resolvedType(int id) const
@@ -275,7 +281,7 @@ protected:
         AllAliasesResolved
     };
 
-    AliasResolutionResult resolveAliasesInObject(int objectIndex, QQmlJS::DiagnosticMessage *error);
+    AliasResolutionResult resolveAliasesInObject(int objectIndex, QQmlError *error);
 
     QQmlEnginePrivate *enginePrivate;
     QQmlJS::MemoryPool *pool;

@@ -19,8 +19,10 @@
 #include "chrome/common/extensions/api/cookies.h"
 #include "extensions/browser/browser_context_keyed_api_factory.h"
 #include "extensions/browser/event_router.h"
-#include "mojo/public/cpp/bindings/binding.h"
+#include "mojo/public/cpp/bindings/receiver.h"
+#include "mojo/public/cpp/bindings/remote.h"
 #include "net/cookies/canonical_cookie.h"
+#include "net/cookies/cookie_change_dispatcher.h"
 #include "services/network/public/mojom/cookie_manager.mojom.h"
 #include "url/gurl.h"
 
@@ -48,8 +50,7 @@ class CookiesEventRouter : public BrowserListObserver {
     ~CookieChangeListener() override;
 
     // network::mojom::CookieChangeListener:
-    void OnCookieChange(const net::CanonicalCookie& canonical_cookie,
-                        network::mojom::CookieChangeCause cause) override;
+    void OnCookieChange(const net::CookieChangeInfo& change) override;
 
    private:
     CookiesEventRouter* router_;
@@ -60,13 +61,11 @@ class CookiesEventRouter : public BrowserListObserver {
 
   void MaybeStartListening();
   void BindToCookieManager(
-      mojo::Binding<network::mojom::CookieChangeListener>* binding,
+      mojo::Receiver<network::mojom::CookieChangeListener>* receiver,
       Profile* profile);
   void OnConnectionError(
-      mojo::Binding<network::mojom::CookieChangeListener>* binding);
-  void OnCookieChange(bool otr,
-                      const net::CanonicalCookie& canonical_cookie,
-                      network::mojom::CookieChangeCause cause);
+      mojo::Receiver<network::mojom::CookieChangeListener>* receiver);
+  void OnCookieChange(bool otr, const net::CookieChangeInfo& change);
 
   // This method dispatches events to the extension message service.
   void DispatchEvent(content::BrowserContext* context,
@@ -81,17 +80,17 @@ class CookiesEventRouter : public BrowserListObserver {
   // profiles, we need a pair of bindings, as well as a pair of
   // CookieChangeListener instances.
   CookieChangeListener listener_{this, false};
-  mojo::Binding<network::mojom::CookieChangeListener> binding_{&listener_};
+  mojo::Receiver<network::mojom::CookieChangeListener> receiver_{&listener_};
 
   CookieChangeListener otr_listener_{this, true};
-  mojo::Binding<network::mojom::CookieChangeListener> otr_binding_{
+  mojo::Receiver<network::mojom::CookieChangeListener> otr_receiver_{
       &otr_listener_};
 
   DISALLOW_COPY_AND_ASSIGN(CookiesEventRouter);
 };
 
 // Implements the cookies.get() extension function.
-class CookiesGetFunction : public UIThreadExtensionFunction {
+class CookiesGetFunction : public ExtensionFunction {
  public:
   DECLARE_EXTENSION_FUNCTION("cookies.get", COOKIES_GET)
 
@@ -104,16 +103,16 @@ class CookiesGetFunction : public UIThreadExtensionFunction {
   ResponseAction Run() override;
 
  private:
-  void GetCookieCallback(const net::CookieList& cookie_list,
-                         const net::CookieStatusList& excluded_cookies);
+  void GetCookieListCallback(const net::CookieStatusList& cookie_status_list,
+                             const net::CookieStatusList& excluded_cookies);
 
   GURL url_;
-  network::mojom::CookieManagerPtr store_browser_cookie_manager_;
+  mojo::Remote<network::mojom::CookieManager> store_browser_cookie_manager_;
   std::unique_ptr<api::cookies::Get::Params> parsed_args_;
 };
 
 // Implements the cookies.getAll() extension function.
-class CookiesGetAllFunction : public UIThreadExtensionFunction {
+class CookiesGetAllFunction : public ExtensionFunction {
  public:
   DECLARE_EXTENSION_FUNCTION("cookies.getAll", COOKIES_GETALL)
 
@@ -126,16 +125,19 @@ class CookiesGetAllFunction : public UIThreadExtensionFunction {
   ResponseAction Run() override;
 
  private:
-  void GetAllCookiesCallback(const net::CookieList& cookie_list,
+  // For the two different callback signatures for getting cookies for a URL vs
+  // getting all cookies. They do the same thing.
+  void GetAllCookiesCallback(const net::CookieList& cookie_list);
+  void GetCookieListCallback(const net::CookieStatusList& cookie_status_list,
                              const net::CookieStatusList& excluded_cookies);
 
   GURL url_;
-  network::mojom::CookieManagerPtr store_browser_cookie_manager_;
+  mojo::Remote<network::mojom::CookieManager> store_browser_cookie_manager_;
   std::unique_ptr<api::cookies::GetAll::Params> parsed_args_;
 };
 
 // Implements the cookies.set() extension function.
-class CookiesSetFunction : public UIThreadExtensionFunction {
+class CookiesSetFunction : public ExtensionFunction {
  public:
   DECLARE_EXTENSION_FUNCTION("cookies.set", COOKIES_SET)
 
@@ -148,18 +150,18 @@ class CookiesSetFunction : public UIThreadExtensionFunction {
  private:
   void SetCanonicalCookieCallback(
       net::CanonicalCookie::CookieInclusionStatus set_cookie_result);
-  void GetCookieListCallback(const net::CookieList& cookie_list,
+  void GetCookieListCallback(const net::CookieStatusList& cookie_list,
                              const net::CookieStatusList& excluded_cookies);
 
   enum { NO_RESPONSE, SET_COMPLETED, GET_COMPLETED } state_;
   GURL url_;
   bool success_;
-  network::mojom::CookieManagerPtr store_browser_cookie_manager_;
+  mojo::Remote<network::mojom::CookieManager> store_browser_cookie_manager_;
   std::unique_ptr<api::cookies::Set::Params> parsed_args_;
 };
 
 // Implements the cookies.remove() extension function.
-class CookiesRemoveFunction : public UIThreadExtensionFunction {
+class CookiesRemoveFunction : public ExtensionFunction {
  public:
   DECLARE_EXTENSION_FUNCTION("cookies.remove", COOKIES_REMOVE)
 
@@ -175,12 +177,12 @@ class CookiesRemoveFunction : public UIThreadExtensionFunction {
   void RemoveCookieCallback(uint32_t /* num_deleted */);
 
   GURL url_;
-  network::mojom::CookieManagerPtr store_browser_cookie_manager_;
+  mojo::Remote<network::mojom::CookieManager> store_browser_cookie_manager_;
   std::unique_ptr<api::cookies::Remove::Params> parsed_args_;
 };
 
 // Implements the cookies.getAllCookieStores() extension function.
-class CookiesGetAllCookieStoresFunction : public UIThreadExtensionFunction {
+class CookiesGetAllCookieStoresFunction : public ExtensionFunction {
  public:
   DECLARE_EXTENSION_FUNCTION("cookies.getAllCookieStores",
                              COOKIES_GETALLCOOKIESTORES)

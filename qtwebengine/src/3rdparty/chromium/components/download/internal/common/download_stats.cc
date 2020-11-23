@@ -471,6 +471,14 @@ constexpr const base::FilePath::CharType* kDangerousFileTypes[] = {
     FILE_PATH_LITERAL(".weba"),             // 385
     FILE_PATH_LITERAL(".webm"),             // 386
     FILE_PATH_LITERAL(".xbm"),              // 387
+    FILE_PATH_LITERAL(".accdb"),            // 388
+    FILE_PATH_LITERAL(".accde"),            // 389
+    FILE_PATH_LITERAL(".accdr"),            // 390
+    FILE_PATH_LITERAL(".accda"),            // 391
+    FILE_PATH_LITERAL(".cer"),              // 392
+    FILE_PATH_LITERAL(".der"),              // 393
+    FILE_PATH_LITERAL(".fileloc"),          // 394
+    FILE_PATH_LITERAL(".webloc"),           // 395
     // NOTE! When you add a type here, please add the UMA value as a comment.
     // These must all match DownloadItem.DangerousFileType in
     // enums.xml. From 263 onward, they should also match
@@ -613,17 +621,11 @@ void RecordDownloadInterrupted(DownloadInterruptReason reason,
                                int64_t total,
                                bool is_parallelizable,
                                bool is_parallel_download_enabled,
-                               DownloadSource download_source,
-                               bool post_content_length_mismatch) {
+                               DownloadSource download_source) {
   RecordDownloadCountWithSource(INTERRUPTED_COUNT, download_source);
   if (is_parallelizable) {
     RecordParallelizableDownloadCount(INTERRUPTED_COUNT,
                                       is_parallel_download_enabled);
-  }
-
-  if (post_content_length_mismatch) {
-    base::UmaHistogramSparse(
-        "Download.ResumptionAfterContentLengthMismatch.Reason", reason);
   }
 
   std::vector<base::HistogramBase::Sample> samples =
@@ -674,11 +676,6 @@ void RecordDownloadInterrupted(DownloadInterruptReason reason,
   }
 }
 
-void RecordMaliciousDownloadClassified(DownloadDangerType danger_type) {
-  UMA_HISTOGRAM_ENUMERATION("Download.MaliciousDownloadClassified", danger_type,
-                            DOWNLOAD_DANGER_TYPE_MAX);
-}
-
 void RecordDangerousDownloadAccept(DownloadDangerType danger_type,
                                    const base::FilePath& file_path) {
   UMA_HISTOGRAM_ENUMERATION("Download.DangerousDownloadValidated", danger_type,
@@ -687,31 +684,6 @@ void RecordDangerousDownloadAccept(DownloadDangerType danger_type,
     base::UmaHistogramSparse(
         "Download.DangerousFile.DangerousDownloadValidated",
         GetDangerousFileType(file_path));
-  }
-}
-
-void RecordDangerousDownloadDiscard(DownloadDiscardReason reason,
-                                    DownloadDangerType danger_type,
-                                    const base::FilePath& file_path) {
-  switch (reason) {
-    case DOWNLOAD_DISCARD_DUE_TO_USER_ACTION:
-      UMA_HISTOGRAM_ENUMERATION("Download.UserDiscard", danger_type,
-                                DOWNLOAD_DANGER_TYPE_MAX);
-      if (danger_type == DOWNLOAD_DANGER_TYPE_DANGEROUS_FILE) {
-        base::UmaHistogramSparse("Download.DangerousFile.UserDiscard",
-                                 GetDangerousFileType(file_path));
-      }
-      break;
-    case DOWNLOAD_DISCARD_DUE_TO_SHUTDOWN:
-      UMA_HISTOGRAM_ENUMERATION("Download.Discard", danger_type,
-                                DOWNLOAD_DANGER_TYPE_MAX);
-      if (danger_type == DOWNLOAD_DANGER_TYPE_DANGEROUS_FILE) {
-        base::UmaHistogramSparse("Download.DangerousFile.Discard",
-                                 GetDangerousFileType(file_path));
-      }
-      break;
-    default:
-      NOTREACHED();
   }
 }
 
@@ -1097,6 +1069,11 @@ void RecordParallelDownloadAddStreamSuccess(bool success,
   }
 }
 
+void RecordParallelRequestCreationFailure(DownloadInterruptReason reason) {
+  base::UmaHistogramSparse("Download.ParallelDownload.CreationFailureReason",
+                           reason);
+}
+
 void RecordParallelizableContentLength(int64_t content_length) {
   UMA_HISTOGRAM_CUSTOM_COUNTS("Download.ContentLength.Parallelizable",
                               content_length / 1024, 1, kMaxFileSizeKb, 50);
@@ -1235,14 +1212,6 @@ void RecordDownloadValidationMetrics(DownloadMetricsCallsite callsite,
       DownloadContent::MAX);
 }
 
-void RecordDownloadConnectionSecurity(const GURL& download_url,
-                                      const std::vector<GURL>& url_chain) {
-  UMA_HISTOGRAM_ENUMERATION(
-      "Download.TargetConnectionSecurity",
-      CheckDownloadConnectionSecurity(download_url, url_chain),
-      DOWNLOAD_CONNECTION_SECURITY_MAX);
-}
-
 void RecordDownloadContentTypeSecurity(
     const GURL& download_url,
     const std::vector<GURL>& url_chain,
@@ -1320,6 +1289,17 @@ void RecordDownloadConnectionInfo(
   base::UmaHistogramEnumeration(
       "Download.ConnectionInfo", connection_info,
       net::HttpResponseInfo::ConnectionInfo::NUM_OF_CONNECTION_INFOS);
+}
+
+void RecordDownloadManagerCreationTimeSinceStartup(
+    base::TimeDelta elapsed_time) {
+  base::UmaHistogramLongTimes("Download.DownloadManager.CreationDelay",
+                              elapsed_time);
+}
+
+void RecordDownloadManagerMemoryUsage(size_t bytes_used) {
+  base::UmaHistogramMemoryKB("Download.DownloadManager.MemoryUsage",
+                             bytes_used / 1000);
 }
 
 #if defined(OS_ANDROID)

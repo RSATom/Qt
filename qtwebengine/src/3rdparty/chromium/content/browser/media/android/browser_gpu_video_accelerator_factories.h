@@ -8,6 +8,10 @@
 #include "base/macros.h"
 #include "media/video/gpu_video_accelerator_factories.h"
 
+namespace viz {
+class ContextProviderCommandBuffer;
+}  // namespace viz
+
 namespace content {
 
 // Provides hardware video decoding contexts in the browser process. Used to
@@ -24,7 +28,7 @@ class BrowserGpuVideoAcceleratorFactories
   bool IsGpuVideoAcceleratorEnabled() override;
   base::UnguessableToken GetChannelToken() override;
   int32_t GetCommandBufferRouteId() override;
-  bool IsDecoderConfigSupported(
+  Supported IsDecoderConfigSupported(
       media::VideoDecoderImplementation implementation,
       const media::VideoDecoderConfig& config) override;
   std::unique_ptr<media::VideoDecoder> CreateVideoDecoder(
@@ -44,12 +48,11 @@ class BrowserGpuVideoAcceleratorFactories
       media::VideoPixelFormat pixel_format) override;
   gpu::SharedImageInterface* SharedImageInterface() override;
   gpu::GpuMemoryBufferManager* GpuMemoryBufferManager() override;
-  std::unique_ptr<base::SharedMemory> CreateSharedMemory(size_t size) override;
+  base::UnsafeSharedMemoryRegion CreateSharedMemoryRegion(size_t size) override;
   scoped_refptr<base::SingleThreadTaskRunner> GetTaskRunner() override;
   media::VideoEncodeAccelerator::SupportedProfiles
   GetVideoEncodeAcceleratorSupportedProfiles() override;
-  scoped_refptr<viz::ContextProviderCommandBuffer> GetMediaContextProvider()
-      override;
+  scoped_refptr<viz::ContextProvider> GetMediaContextProvider() override;
   void SetRenderingColorSpace(const gfx::ColorSpace& color_space) override;
 
   scoped_refptr<viz::ContextProviderCommandBuffer> context_provider_;

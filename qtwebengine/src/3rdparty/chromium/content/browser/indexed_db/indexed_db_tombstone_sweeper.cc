@@ -4,12 +4,15 @@
 
 #include "content/browser/indexed_db/indexed_db_tombstone_sweeper.h"
 
+#include <string>
+
 #include "base/metrics/histogram_functions.h"
 #include "base/rand_util.h"
 #include "base/sequenced_task_runner.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/threading/sequenced_task_runner_handle.h"
 #include "base/time/tick_clock.h"
+#include "components/services/storage/indexed_db/scopes/varint_coding.h"
 #include "content/browser/indexed_db/indexed_db_backing_store.h"
 #include "third_party/blink/public/common/indexeddb/indexeddb_key.h"
 #include "third_party/blink/public/common/indexeddb/indexeddb_metadata.h"
@@ -219,7 +222,7 @@ void IndexedDBTombstoneSweeper::RecordUMAStats(
 
   // We put our max at 20 instead of 100 to reduce the number of buckets.
   if (total_indices_ > 0) {
-    const static int kIndexPercentageBucketCount = 20;
+    static const int kIndexPercentageBucketCount = 20;
     base::UmaHistogramExactLinear(
         "WebCore.IndexedDB.TombstoneSweeper.IndexScanPercent",
         indices_scanned_ * kIndexPercentageBucketCount / total_indices_,

@@ -12,10 +12,16 @@ class PrefRegistrySimple;
 namespace optimization_guide {
 namespace prefs {
 
-extern const char kHintLoadedCounts[];
 extern const char kHintsFetcherLastFetchAttempt[];
+extern const char kModelAndFeaturesLastFetchAttempt[];
 extern const char kHintsFetcherTopHostBlacklist[];
 extern const char kHintsFetcherTopHostBlacklistState[];
+extern const char kTimeHintsFetcherTopHostBlacklistLastInitialized[];
+extern const char kHintsFetcherTopHostBlacklistMinimumEngagementScore[];
+extern const char kHintsFetcherHostsSuccessfullyFetched[];
+extern const char kPendingHintsProcessingVersion[];
+extern const char kSessionStatisticFCPMean[];
+extern const char kSessionStatisticFCPStdDev[];
 
 // State of |HintsFetcherTopHostsBlacklist|. The blacklist begins in
 // kNotInitialized and transitions to kInitialized after

@@ -218,6 +218,33 @@ void QDeclarativeGeoMapItemBase::setAutoFadeIn(bool fadeIn)
         polishAndUpdate();
 }
 
+int QDeclarativeGeoMapItemBase::lodThreshold() const
+{
+    return m_lodThreshold;
+}
+
+void QDeclarativeGeoMapItemBase::setLodThreshold(int lt)
+{
+    if (lt == m_lodThreshold)
+        return;
+    m_lodThreshold = lt;
+    update();
+}
+
+/*!
+    \internal
+
+    This returns the zoom level to be used when requesting the LOD.
+    Essentially it clamps to m_lodThreshold, and if above, it selects
+    a ZL higher than the maximum LODable level.
+*/
+unsigned int QDeclarativeGeoMapItemBase::zoomForLOD(int zoom) const
+{
+    if (zoom >= m_lodThreshold)
+        return 30; // some arbitrarily large zoom
+    return uint(zoom);
+}
+
 /*!
     \internal
 */
@@ -322,6 +349,8 @@ bool QDeclarativeGeoMapItemBase::isPolishScheduled() const
 {
     return QQuickItemPrivate::get(this)->polishScheduled;
 }
+
+void QDeclarativeGeoMapItemBase::setMaterialDirty() {}
 
 void QDeclarativeGeoMapItemBase::polishAndUpdate()
 {

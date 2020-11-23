@@ -89,68 +89,8 @@ struct Q_QUICK3DRUNTIMERENDER_EXPORT QSSGRenderCustomMaterial : public QSSGRende
     };
 
     ShaderInfo shaderInfo;
+    QMap<QByteArray, QByteArray> shaders;
 
-    struct Shader
-    {
-        enum class Stage : quint8
-        {
-            Shared,
-            Vertex,
-            Fragment
-        };
-
-        QString code;
-        Stage stage;
-    };
-
-    QVector<Shader> shaders;
-
-    struct Pass
-    {
-        struct BufferInput
-        {
-            QString bufferName;
-            QString shaderParam;
-            // dynamic::QSSGApplyBufferValue(bufferName, shaderParam)
-        };
-
-        struct BufferBlit
-        {
-            QString source;
-            QString dest;
-            // dynamic::QSSGApplyBlitFramebuffer(source, dest)
-        };
-
-        struct Blending
-        {
-            QSSGRenderSrcBlendFunc source = QSSGRenderSrcBlendFunc::One;
-            QSSGRenderDstBlendFunc dest = QSSGRenderDstBlendFunc::One;
-            // hasBlending = true; when used
-            // dynamic::QSSGApplyBlending(source, dest)
-        };
-
-        struct RenderState
-        {
-            QSSGRenderState renderState = QSSGRenderState::Unknown;
-            bool enabled;
-            // dynamic::QSSGApplyRenderState(renderState, enabled)
-        };
-
-        QString shaderName;
-        QString input;
-        QString output;
-        QSSGRenderTextureFormat::Format outputFormat;
-        bool needsClear;
-
-        Pass()
-            : input(QLatin1String("[source]"))
-            , output(QLatin1String("[dest]"))
-            , outputFormat(QSSGRenderTextureFormat::RGBA8)
-            , needsClear(false)
-        {}
-    };
-
-    QVector<Pass> passes;
     QVector<dynamic::QSSGCommand *> commands;
 
     // IMPORTANT: These flags matches the key produced by a MDL export file
@@ -180,7 +120,7 @@ struct Q_QUICK3DRUNTIMERENDER_EXPORT QSSGRenderCustomMaterial : public QSSGRende
     QSSGRenderImage *m_emissiveMap = nullptr;
     QSSGRenderImage *m_displacementMap = nullptr;
     float m_displaceAmount = 0.0f; ///< depends on the object size
-    QSSGCullFaceMode cullingMode = QSSGCullFaceMode::Back;
+    QSSGCullFaceMode cullMode = QSSGCullFaceMode::Back;
 
     QSSGRenderGraphObject *m_nextSibling = nullptr;
 

@@ -52,6 +52,7 @@
 #include <qabstractbutton.h>
 #endif
 #include <qpainter.h>
+#include <qpainterpath.h>
 #include <qdir.h>
 #include <qstyleoption.h>
 #include <qapplication.h>
@@ -478,7 +479,7 @@ void QFusionStyle::drawPrimitive(PrimitiveElement elem,
     {
         QPixmap pixmap(QLatin1String(":/qt-project.org/styles/commonstyle/images/fusion_groupbox.png"));
         int topMargin = 0;
-        auto control = dynamic_cast<const QGroupBox *>(widget);
+        auto control = qobject_cast<const QGroupBox *>(widget);
         if (control && !control->isCheckable() && control->title().isEmpty()) {
             // Shrinking the topMargin if Not checkable AND title is empty
             topMargin = groupBoxTopMargin;
@@ -1531,7 +1532,7 @@ void QFusionStyle::drawControl(ControlElement element, const QStyleOption *optio
                 //draw text
                 QPalette::ColorRole textRole = dis ? QPalette::Text : QPalette::HighlightedText;
                 uint alignment = Qt::AlignCenter | Qt::TextShowMnemonic | Qt::TextDontClip | Qt::TextSingleLine;
-                if (!styleHint(SH_UnderlineShortcut, mbi, widget))
+                if (!proxy()->styleHint(SH_UnderlineShortcut, mbi, widget))
                     alignment |= Qt::TextHideMnemonic;
                 proxy()->drawItemText(painter, item.rect, alignment, mbi->palette, mbi->state & State_Enabled, mbi->text, textRole);
             } else {
@@ -1590,7 +1591,7 @@ void QFusionStyle::drawControl(ControlElement element, const QStyleOption *optio
                 (option->styleObject && option->styleObject->property("_q_isComboBoxPopupItem").toBool()))
                 ignoreCheckMark = true; //ignore the checkmarks provided by the QComboMenuDelegate
 
-            if (!ignoreCheckMark) {
+            if (!ignoreCheckMark || menuItem->state & (State_On | State_Off)) {
                 // Check, using qreal and QRectF to avoid error accumulation
                 const qreal boxMargin = dpiScaled(3.5, option);
                 const qreal boxWidth = checkcol - 2 * boxMargin;
@@ -1601,7 +1602,7 @@ void QFusionStyle::drawControl(ControlElement element, const QStyleOption *optio
                 if (checkable) {
                     if (menuItem->checkType & QStyleOptionMenuItem::Exclusive) {
                         // Radio button
-                        if (checked || sunken) {
+                        if (menuItem->state & State_On || checked || sunken) {
                             painter->setRenderHint(QPainter::Antialiasing);
                             painter->setPen(Qt::NoPen);
 
@@ -1617,8 +1618,10 @@ void QFusionStyle::drawControl(ControlElement element, const QStyleOption *optio
                             QStyleOptionButton box;
                             box.QStyleOption::operator=(*option);
                             box.rect = checkRect;
-                            if (checked)
+                            if (checked || menuItem->state & State_On)
                                 box.state |= State_On;
+                            else
+                                box.state |= State_Off;
                             proxy()->drawPrimitive(PE_IndicatorCheckBox, &box, painter, widget);
                         }
                     }
@@ -1699,7 +1702,7 @@ void QFusionStyle::drawControl(ControlElement element, const QStyleOption *optio
                 p->save();
                 int t = s.indexOf(QLatin1Char('\t'));
                 int text_flags = Qt::AlignVCenter | Qt::TextShowMnemonic | Qt::TextDontClip | Qt::TextSingleLine;
-                if (!styleHint(SH_UnderlineShortcut, menuitem, widget))
+                if (!proxy()->styleHint(SH_UnderlineShortcut, menuitem, widget))
                     text_flags |= Qt::TextHideMnemonic;
                 text_flags |= Qt::AlignLeft;
                 if (t >= 0) {
@@ -2411,7 +2414,7 @@ void QFusionStyle::drawComplexControl(ComplexControl control, const QStyleOption
                 int oldMin = styleObject->property("_q_stylemin").toInt();
                 int oldMax = styleObject->property("_q_stylemax").toInt();
                 QRect oldRect = styleObject->property("_q_stylerect").toRect();
-                QStyle::State oldState = static_cast<QStyle::State>(styleObject->property("_q_stylestate").value<QStyle::State::Int>());
+                QStyle::State oldState = static_cast<QStyle::State>(qvariant_cast<QStyle::State::Int>(styleObject->property("_q_stylestate")));
                 uint oldActiveControls = styleObject->property("_q_stylecontrols").toUInt();
 
                 // a scrollbar is transient when the scrollbar itself and
@@ -3684,7 +3687,7 @@ int QFusionStyle::styleHint(StyleHint hint, const QStyleOption *option, const QW
         return 0;
 
     case SH_Table_GridLineColor:
-        return option ? option->palette.window().color().darker(120).rgb() : 0;
+        return option ? option->palette.window().color().darker(120).rgba() : 0;
 
     case SH_MessageBox_TextInteractionFlags:
         return Qt::TextSelectableByMouse | Qt::LinksAccessibleByMouse;

@@ -18,7 +18,7 @@
 #include "base/run_loop.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/test/bind_test_util.h"
-#include "base/test/scoped_task_environment.h"
+#include "base/test/task_environment.h"
 #include "base/time/time.h"
 #include "components/autofill/core/browser/autofill_profile_sync_util.h"
 #include "components/autofill/core/browser/data_model/autofill_profile.h"
@@ -28,7 +28,7 @@
 #include "components/autofill/core/browser/webdata/autofill_table.h"
 #include "components/autofill/core/browser/webdata/mock_autofill_webdata_backend.h"
 #include "components/autofill/core/common/autofill_constants.h"
-#include "components/sync/base/hash_util.h"
+#include "components/sync/base/client_tag_hash.h"
 #include "components/sync/model/data_batch.h"
 #include "components/sync/model/data_type_activation_request.h"
 #include "components/sync/model/entity_data.h"
@@ -296,7 +296,7 @@ class AutofillProfileSyncBridgeTest : public testing::Test {
       const AutofillProfileSpecifics& specifics) {
     auto data = std::make_unique<EntityData>();
     *data->specifics.mutable_autofill_profile() = specifics;
-    data->client_tag_hash = syncer::GenerateSyncableHash(
+    data->client_tag_hash = syncer::ClientTagHash::FromUnhashed(
         syncer::AUTOFILL_PROFILE, bridge()->GetClientTag(*data));
     return data;
   }
@@ -321,7 +321,7 @@ class AutofillProfileSyncBridgeTest : public testing::Test {
  private:
   autofill::TestAutofillClock test_clock_;
   ScopedTempDir temp_dir_;
-  base::test::ScopedTaskEnvironment scoped_task_environment_;
+  base::test::SingleThreadTaskEnvironment task_environment_;
   testing::NiceMock<MockAutofillWebDataBackend> backend_;
   AutofillTable table_;
   WebDatabase db_;

@@ -30,6 +30,8 @@
 #ifndef THIRD_PARTY_BLINK_RENDERER_CORE_DOM_DOCUMENT_INIT_H_
 #define THIRD_PARTY_BLINK_RENDERER_CORE_DOM_DOCUMENT_INIT_H_
 
+#include "services/network/public/mojom/ip_address_space.mojom-shared.h"
+#include "third_party/blink/public/common/frame/frame_policy.h"
 #include "third_party/blink/public/platform/web_insecure_request_policy.h"
 #include "third_party/blink/renderer/core/core_export.h"
 #include "third_party/blink/renderer/core/execution_context/security_context.h"
@@ -76,10 +78,10 @@ class CORE_EXPORT DocumentInit final {
   bool IsSrcdocDocument() const;
   bool ShouldSetURL() const;
   WebSandboxFlags GetSandboxFlags() const;
-  bool IsHostedInReservedIPRange() const;
   WebInsecureRequestPolicy GetInsecureRequestPolicy() const;
   const SecurityContext::InsecureNavigationsSet* InsecureNavigationsToUpgrade()
       const;
+  bool GrantLoadLocalResources() const { return grant_load_local_resources_; }
 
   Settings* GetSettings() const;
 
@@ -113,7 +115,13 @@ class CORE_EXPORT DocumentInit final {
     return origin_to_commit_;
   }
 
+  DocumentInit& WithIPAddressSpace(
+      network::mojom::IPAddressSpace ip_address_space);
+  network::mojom::IPAddressSpace GetIPAddressSpace() const;
+
   DocumentInit& WithSrcdocDocument(bool is_srcdoc_document);
+  DocumentInit& WithBlockedByCSP(bool blocked_by_csp);
+  DocumentInit& WithGrantLoadLocalResources(bool grant_load_local_resources);
 
   DocumentInit& WithRegistrationContext(V0CustomElementRegistrationContext*);
   V0CustomElementRegistrationContext* RegistrationContext(Document*) const;
@@ -128,8 +136,13 @@ class CORE_EXPORT DocumentInit final {
   DocumentInit& WithSandboxFlags(WebSandboxFlags flags);
 
   DocumentInit& WithContentSecurityPolicy(ContentSecurityPolicy* policy);
-  ContentSecurityPolicy* GetContentSecurityPolicy() const {
-    return content_security_policy_;
+  DocumentInit& WithContentSecurityPolicyFromContextDoc();
+  ContentSecurityPolicy* GetContentSecurityPolicy() const;
+
+  DocumentInit& WithFramePolicy(
+      const base::Optional<FramePolicy>& frame_policy);
+  const base::Optional<FramePolicy>& GetFramePolicy() const {
+    return frame_policy_;
   }
 
  private:
@@ -174,6 +187,13 @@ class CORE_EXPORT DocumentInit final {
   // the parent document, not from loading a URL.
   bool is_srcdoc_document_ = false;
 
+  // Whether the actual document was blocked by csp and we are creating a dummy
+  // empty document instead.
+  bool blocked_by_csp_ = false;
+
+  // Whether the document should be able to access local file:// resources.
+  bool grant_load_local_resources_ = false;
+
   Member<V0CustomElementRegistrationContext> registration_context_;
   bool create_new_registration_context_;
 
@@ -188,6 +208,13 @@ class CORE_EXPORT DocumentInit final {
 
   // Loader's CSP
   Member<ContentSecurityPolicy> content_security_policy_;
+  bool content_security_policy_from_context_doc_;
+
+  network::mojom::IPAddressSpace ip_address_space_ =
+      network::mojom::IPAddressSpace::kUnknown;
+
+  // The frame policy snapshot from the beginning of navigation.
+  base::Optional<FramePolicy> frame_policy_ = base::nullopt;
 };
 
 }  // namespace blink

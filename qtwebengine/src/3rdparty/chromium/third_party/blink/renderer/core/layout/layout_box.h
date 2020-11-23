@@ -27,7 +27,6 @@
 
 #include "base/macros.h"
 #include "third_party/blink/renderer/core/core_export.h"
-#include "third_party/blink/renderer/core/layout/custom/custom_layout_child.h"
 #include "third_party/blink/renderer/core/layout/layout_box_model_object.h"
 #include "third_party/blink/renderer/core/layout/min_max_size.h"
 #include "third_party/blink/renderer/core/layout/overflow_model.h"
@@ -35,6 +34,7 @@
 
 namespace blink {
 
+class CustomLayoutChild;
 class EventHandler;
 class LayoutBlockFlow;
 class LayoutMultiColumnSpannerPlaceholder;
@@ -42,6 +42,7 @@ class NGBoxFragmentBuilder;
 class NGConstraintSpace;
 class ShapeOutsideInfo;
 struct BoxLayoutExtraInput;
+class NGEarlyBreak;
 class NGBreakToken;
 struct NGFragmentGeometry;
 enum class NGLayoutCacheStatus;
@@ -63,24 +64,13 @@ enum BackgroundRectType { kBackgroundClipRect, kBackgroundKnownOpaqueRect };
 
 enum ShouldComputePreferred { kComputeActual, kComputePreferred };
 
-using SnapAreaSet = HashSet<const LayoutBox*>;
+using SnapAreaSet = HashSet<LayoutBox*>;
 
 struct LayoutBoxRareData {
   USING_FAST_MALLOC(LayoutBoxRareData);
 
  public:
-  LayoutBoxRareData()
-      : spanner_placeholder_(nullptr),
-        override_logical_width_(-1),
-        override_logical_height_(-1),
-        // TODO(rego): We should store these based on physical direction.
-        has_override_containing_block_content_logical_width_(false),
-        has_override_containing_block_content_logical_height_(false),
-        has_override_percentage_resolution_block_size_(false),
-        has_previous_content_box_rect_and_layout_overflow_rect_(false),
-        percent_height_container_(nullptr),
-        snap_container_(nullptr),
-        snap_areas_(nullptr) {}
+  LayoutBoxRareData();
 
   // For spanners, the spanner placeholder that lays us out within the multicol
   // container.
@@ -616,6 +606,35 @@ class CORE_EXPORT LayoutBox : public LayoutBoxModelObject {
                                                 : ContentWidth();
   }
 
+  // CSS intrinsic sizing getters.
+  // https://drafts.csswg.org/css-sizing-4/#intrinsic-size-override
+  // Physical:
+  bool HasOverrideIntrinsicContentWidth() const;
+  bool HasOverrideIntrinsicContentHeight() const;
+  LayoutUnit OverrideIntrinsicContentWidth() const;
+  LayoutUnit OverrideIntrinsicContentHeight() const;
+  // Logical:
+  bool HasOverrideIntrinsicContentLogicalWidth() const {
+    return StyleRef().IsHorizontalWritingMode()
+               ? HasOverrideIntrinsicContentWidth()
+               : HasOverrideIntrinsicContentHeight();
+  }
+  bool HasOverrideIntrinsicContentLogicalHeight() const {
+    return StyleRef().IsHorizontalWritingMode()
+               ? HasOverrideIntrinsicContentHeight()
+               : HasOverrideIntrinsicContentWidth();
+  }
+  LayoutUnit OverrideIntrinsicContentLogicalWidth() const {
+    return StyleRef().IsHorizontalWritingMode()
+               ? OverrideIntrinsicContentWidth()
+               : OverrideIntrinsicContentHeight();
+  }
+  LayoutUnit OverrideIntrinsicContentLogicalHeight() const {
+    return StyleRef().IsHorizontalWritingMode()
+               ? OverrideIntrinsicContentHeight()
+               : OverrideIntrinsicContentWidth();
+  }
+
   // IE extensions. Used to calculate offsetWidth/Height. Overridden by inlines
   // (LayoutFlow) to return the remaining width on a given line (and the height
   // of a single line).
@@ -678,24 +697,24 @@ class CORE_EXPORT LayoutBox : public LayoutBoxModelObject {
   // TODO(crbug.com/962299): This is incorrect in some cases.
   int PixelSnappedClientWidth() const;
   int PixelSnappedClientHeight() const;
+  int PixelSnappedClientWidthWithTableSpecialBehavior() const;
+  int PixelSnappedClientHeightWithTableSpecialBehavior() const;
 
   // scrollWidth/scrollHeight will be the same as clientWidth/clientHeight
   // unless the object has overflow:hidden/scroll/auto specified and also has
-  // overflow. scrollLeft/Top return the current scroll position. These methods
-  // are virtual so that objects like textareas can scroll shadow content (but
-  // pretend that they are the objects that are scrolling).
-  virtual LayoutUnit ScrollLeft() const;
-  virtual LayoutUnit ScrollTop() const;
+  // overflow. These methods are virtual so that objects like textareas can
+  // scroll shadow content (but pretend that they are the objects that are
+  // scrolling).
+
+  // Replaced ScrollLeft/Top by using Element::GetScrollableArea to return the
+  // correct ScrollableArea.
+  // TODO(cathiechen): We should do the same with ScrollWidth|Height .
   virtual LayoutUnit ScrollWidth() const;
   virtual LayoutUnit ScrollHeight() const;
   // TODO(crbug.com/962299): This is incorrect in some cases.
   int PixelSnappedScrollWidth() const;
   int PixelSnappedScrollHeight() const;
-  virtual void SetScrollLeft(LayoutUnit);
-  virtual void SetScrollTop(LayoutUnit);
 
-  void ScrollToPosition(const FloatPoint&,
-                        ScrollBehavior = kScrollBehaviorInstant);
   void ScrollByRecursively(const ScrollOffset& delta);
   // If makeVisibleInVisualViewport is set, the visual viewport will be scrolled
   // if required to make the rect visible.
@@ -924,8 +943,12 @@ class CORE_EXPORT LayoutBox : public LayoutBoxModelObject {
 
   NGPaintFragment* FirstInlineFragment() const final;
   void SetFirstInlineFragment(NGPaintFragment*) final;
+  wtf_size_t FirstInlineFragmentItemIndex() const final;
+  void ClearFirstInlineFragmentItemIndex() final;
+  void SetFirstInlineFragmentItemIndex(wtf_size_t) final;
 
   void SetCachedLayoutResult(const NGLayoutResult&, const NGBreakToken*);
+  void ClearCachedLayoutResult();
   const NGLayoutResult* GetCachedLayoutResult() const {
     return cached_layout_result_.get();
   }
@@ -942,6 +965,7 @@ class CORE_EXPORT LayoutBox : public LayoutBoxModelObject {
   scoped_refptr<const NGLayoutResult> CachedLayoutResult(
       const NGConstraintSpace&,
       const NGBreakToken*,
+      const NGEarlyBreak*,
       base::Optional<NGFragmentGeometry>* initial_fragment_geometry,
       NGLayoutCacheStatus* out_cache_status);
 
@@ -1039,7 +1063,9 @@ class CORE_EXPORT LayoutBox : public LayoutBoxModelObject {
                                                 : IntrinsicSize().Width();
   }
   virtual LayoutUnit IntrinsicContentLogicalHeight() const {
-    return intrinsic_content_logical_height_;
+    return HasOverrideIntrinsicContentLogicalHeight()
+               ? OverrideIntrinsicContentLogicalHeight()
+               : intrinsic_content_logical_height_;
   }
 
   // Whether or not the element shrinks to its intrinsic width (rather than
@@ -1138,7 +1164,8 @@ class CORE_EXPORT LayoutBox : public LayoutBoxModelObject {
   bool CanAutoscroll() const;
   PhysicalOffset CalculateAutoscrollDirection(
       const FloatPoint& point_in_root_frame) const;
-  static LayoutBox* FindAutoscrollable(LayoutObject*);
+  static LayoutBox* FindAutoscrollable(LayoutObject*,
+                                       bool is_middle_click_autoscroll);
   virtual void StopAutoscroll() {}
   virtual void MayUpdateHoverWhenContentUnderMouseChanged(EventHandler&);
 
@@ -1268,9 +1295,6 @@ class CORE_EXPORT LayoutBox : public LayoutBoxModelObject {
   bool IsCustomItem() const;
   bool IsCustomItemShrinkToFit() const;
 
-  bool IsDeprecatedFlexItem() const {
-    return IsFlexItemCommon() && Parent()->IsDeprecatedFlexibleBox();
-  }
   bool IsFlexItemIncludingDeprecatedAndNG() const {
     return IsFlexItemCommon() &&
            Parent()->IsFlexibleBoxIncludingDeprecatedAndNG();
@@ -1375,6 +1399,13 @@ class CORE_EXPORT LayoutBox : public LayoutBoxModelObject {
   IntPoint ScrollOrigin() const;
   LayoutSize ScrolledContentOffset() const;
 
+  // Scroll offset as snapped to physical pixels. This value should be used in
+  // any values used after layout and inside "layout code" that cares about
+  // where the content is displayed, rather than what the ideal offset is. For
+  // most other cases ScrolledContentOffset is probably more appropriate. This
+  // is the offset that's actually drawn to the screen.
+  LayoutSize PixelSnappedScrolledContentOffset() const;
+
   // Maps from scrolling contents space to box space and apply overflow
   // clip if needed. Returns true if no clipping applied or the flattened quad
   // bounds actually intersects the clipping region. If edgeInclusive is true,
@@ -1456,6 +1487,8 @@ class CORE_EXPORT LayoutBox : public LayoutBoxModelObject {
   // For snap containers, returns all associated snap areas.
   SnapAreaSet* SnapAreas() const;
   void ClearSnapAreas();
+  // Moves all snap areas to the new container.
+  void ReassignSnapAreas(LayoutBox& new_container);
 
   // CustomLayoutChild only exists if this LayoutBox is a IsCustomItem (aka. a
   // child of a LayoutCustom). This is created/destroyed when this LayoutBox is
@@ -1605,7 +1638,7 @@ class CORE_EXPORT LayoutBox : public LayoutBoxModelObject {
       const Length& logical_width_length,
       LayoutUnit available_logical_width,
       LayoutUnit border_and_padding) const;
-  virtual LayoutUnit ComputeIntrinsicLogicalContentHeightUsing(
+  LayoutUnit ComputeIntrinsicLogicalContentHeightUsing(
       const Length& logical_height_length,
       LayoutUnit intrinsic_content_height,
       LayoutUnit border_and_padding) const;
@@ -1755,7 +1788,7 @@ class CORE_EXPORT LayoutBox : public LayoutBoxModelObject {
 
   LayoutRectOutsets margin_box_outsets_;
 
-  void AddSnapArea(const LayoutBox&);
+  void AddSnapArea(LayoutBox&);
   void RemoveSnapArea(const LayoutBox&);
 
   // Returns true when the current recursive scroll into visible could propagate
@@ -1853,6 +1886,10 @@ class CORE_EXPORT LayoutBox : public LayoutBoxModelObject {
     // atomic inline elements. Valid only when
     // IsInLayoutNGInlineFormattingContext().
     NGPaintFragment* first_paint_fragment_;
+    // The index of the first fragment item associated with this object in
+    // |NGFragmentItems::Items()|. Zero means there are no such item.
+    // Valid only when IsInLayoutNGInlineFormattingContext().
+    wtf_size_t first_fragment_item_index_;
   };
 
   std::unique_ptr<LayoutBoxRareData> rare_data_;
@@ -1937,8 +1974,20 @@ inline void LayoutBox::SetInlineBoxWrapper(InlineBox* box_wrapper) {
 }
 
 inline NGPaintFragment* LayoutBox::FirstInlineFragment() const {
-  return IsInLayoutNGInlineFormattingContext() ? first_paint_fragment_
-                                               : nullptr;
+  if (!IsInLayoutNGInlineFormattingContext())
+    return nullptr;
+  // TODO(yosin): Once we replace all usage of |FirstInlineFragment()| to
+  // |NGInlineCursor|, we should change this to |DCHECK()|.
+  if (RuntimeEnabledFeatures::LayoutNGFragmentItemEnabled())
+    return nullptr;
+  return first_paint_fragment_;
+}
+
+inline wtf_size_t LayoutBox::FirstInlineFragmentItemIndex() const {
+  if (!IsInLayoutNGInlineFormattingContext())
+    return 0u;
+  DCHECK(RuntimeEnabledFeatures::LayoutNGFragmentItemEnabled());
+  return first_fragment_item_index_;
 }
 
 inline bool LayoutBox::IsForcedFragmentainerBreakValue(

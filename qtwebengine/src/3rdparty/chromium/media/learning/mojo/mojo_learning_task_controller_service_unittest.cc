@@ -8,7 +8,7 @@
 #include "base/bind.h"
 #include "base/macros.h"
 #include "base/memory/ptr_util.h"
-#include "base/test/scoped_task_environment.h"
+#include "base/test/task_environment.h"
 #include "base/threading/thread.h"
 #include "media/learning/mojo/mojo_learning_task_controller_service.h"
 #include "testing/gtest/include/gtest/gtest.h"
@@ -20,10 +20,13 @@ class MojoLearningTaskControllerServiceTest : public ::testing::Test {
  public:
   class FakeLearningTaskController : public LearningTaskController {
    public:
-    void BeginObservation(base::UnguessableToken id,
-                          const FeatureVector& features) override {
+    void BeginObservation(
+        base::UnguessableToken id,
+        const FeatureVector& features,
+        const base::Optional<TargetValue>& default_target) override {
       begin_args_.id_ = id;
       begin_args_.features_ = features;
+      begin_args_.default_target_ = std::move(default_target);
     }
 
     void CompleteObservation(base::UnguessableToken id,
@@ -36,9 +39,21 @@ class MojoLearningTaskControllerServiceTest : public ::testing::Test {
       cancel_args_.id_ = id;
     }
 
+    void UpdateDefaultTarget(
+        base::UnguessableToken id,
+        const base::Optional<TargetValue>& default_target) override {
+      update_default_args_.id_ = id;
+      update_default_args_.default_target_ = default_target;
+    }
+
+    const LearningTask& GetLearningTask() override {
+      return LearningTask::Empty();
+    }
+
     struct {
       base::UnguessableToken id_;
       FeatureVector features_;
+      base::Optional<TargetValue> default_target_;
     } begin_args_;
 
     struct {
@@ -49,6 +64,11 @@ class MojoLearningTaskControllerServiceTest : public ::testing::Test {
     struct {
       base::UnguessableToken id_;
     } cancel_args_;
+
+    struct {
+      base::UnguessableToken id_;
+      base::Optional<TargetValue> default_target_;
+    } update_default_args_;
   };
 
  public:
@@ -72,7 +92,7 @@ class MojoLearningTaskControllerServiceTest : public ::testing::Test {
   LearningTask task_;
 
   // Mojo stuff.
-  base::test::ScopedTaskEnvironment scoped_task_environment_;
+  base::test::TaskEnvironment task_environment_;
 
   FakeLearningTaskController* controller_raw_ = nullptr;
 
@@ -83,9 +103,10 @@ class MojoLearningTaskControllerServiceTest : public ::testing::Test {
 TEST_F(MojoLearningTaskControllerServiceTest, BeginComplete) {
   base::UnguessableToken id = base::UnguessableToken::Create();
   FeatureVector features = {FeatureValue(123), FeatureValue(456)};
-  service_->BeginObservation(id, features);
+  service_->BeginObservation(id, features, base::nullopt);
   EXPECT_EQ(id, controller_raw_->begin_args_.id_);
   EXPECT_EQ(features, controller_raw_->begin_args_.features_);
+  EXPECT_FALSE(controller_raw_->begin_args_.default_target_);
 
   ObservationCompletion completion(TargetValue(1234));
   service_->CompleteObservation(id, completion);
@@ -98,20 +119,31 @@ TEST_F(MojoLearningTaskControllerServiceTest, BeginComplete) {
 TEST_F(MojoLearningTaskControllerServiceTest, BeginCancel) {
   base::UnguessableToken id = base::UnguessableToken::Create();
   FeatureVector features = {FeatureValue(123), FeatureValue(456)};
-  service_->BeginObservation(id, features);
+  service_->BeginObservation(id, features, base::nullopt);
   EXPECT_EQ(id, controller_raw_->begin_args_.id_);
   EXPECT_EQ(features, controller_raw_->begin_args_.features_);
+  EXPECT_FALSE(controller_raw_->begin_args_.default_target_);
 
   service_->CancelObservation(id);
 
   EXPECT_EQ(id, controller_raw_->cancel_args_.id_);
 }
 
+TEST_F(MojoLearningTaskControllerServiceTest, BeginWithDefaultTarget) {
+  base::UnguessableToken id = base::UnguessableToken::Create();
+  FeatureVector features = {FeatureValue(123), FeatureValue(456)};
+  TargetValue default_target(987);
+  service_->BeginObservation(id, features, default_target);
+  EXPECT_EQ(id, controller_raw_->begin_args_.id_);
+  EXPECT_EQ(features, controller_raw_->begin_args_.features_);
+  EXPECT_EQ(default_target, controller_raw_->begin_args_.default_target_);
+}
+
 TEST_F(MojoLearningTaskControllerServiceTest, TooFewFeaturesIsIgnored) {
   // A FeatureVector with too few elements should be ignored.
   base::UnguessableToken id = base::UnguessableToken::Create();
   FeatureVector short_features = {FeatureValue(123)};
-  service_->BeginObservation(id, short_features);
+  service_->BeginObservation(id, short_features, base::nullopt);
   EXPECT_NE(id, controller_raw_->begin_args_.id_);
   EXPECT_EQ(controller_raw_->begin_args_.features_.size(), 0u);
 }
@@ -121,7 +153,7 @@ TEST_F(MojoLearningTaskControllerServiceTest, TooManyFeaturesIsIgnored) {
   base::UnguessableToken id = base::UnguessableToken::Create();
   FeatureVector long_features = {FeatureValue(123), FeatureValue(456),
                                  FeatureValue(789)};
-  service_->BeginObservation(id, long_features);
+  service_->BeginObservation(id, long_features, base::nullopt);
   EXPECT_NE(id, controller_raw_->begin_args_.id_);
   EXPECT_EQ(controller_raw_->begin_args_.features_.size(), 0u);
 }
@@ -137,6 +169,28 @@ TEST_F(MojoLearningTaskControllerServiceTest, CancelWithoutBeginFails) {
   base::UnguessableToken id = base::UnguessableToken::Create();
   service_->CancelObservation(id);
   EXPECT_NE(id, controller_raw_->cancel_args_.id_);
+}
+
+TEST_F(MojoLearningTaskControllerServiceTest, UpdateDefaultTargetToValue) {
+  base::UnguessableToken id = base::UnguessableToken::Create();
+  FeatureVector features = {FeatureValue(123), FeatureValue(456)};
+  service_->BeginObservation(id, features, base::nullopt);
+  TargetValue default_target(987);
+  service_->UpdateDefaultTarget(id, default_target);
+  EXPECT_EQ(id, controller_raw_->update_default_args_.id_);
+  EXPECT_EQ(default_target,
+            controller_raw_->update_default_args_.default_target_);
+}
+
+TEST_F(MojoLearningTaskControllerServiceTest, UpdateDefaultTargetToNoValue) {
+  base::UnguessableToken id = base::UnguessableToken::Create();
+  FeatureVector features = {FeatureValue(123), FeatureValue(456)};
+  TargetValue default_target(987);
+  service_->BeginObservation(id, features, default_target);
+  service_->UpdateDefaultTarget(id, base::nullopt);
+  EXPECT_EQ(id, controller_raw_->update_default_args_.id_);
+  EXPECT_EQ(base::nullopt,
+            controller_raw_->update_default_args_.default_target_);
 }
 
 }  // namespace learning

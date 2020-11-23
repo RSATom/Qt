@@ -10,16 +10,17 @@
 #include <algorithm>
 #include <limits>
 #include <utility>
-#include <vector>
 
 #include "base/strings/string_util.h"
 #include "base/strings/utf_string_conversions.h"
-#include "base/trace_event/common/trace_event_common.h"
+#include "base/time/time.h"
+#include "base/trace_event/trace_event.h"
 #include "base/win/com_init_util.h"
 #include "base/win/core_winrt_util.h"
 #include "base/win/scoped_co_mem.h"
 #include "base/win/scoped_hstring.h"
 #include "device/vr/test/test_hook.h"
+#include "device/vr/util/transform_utils.h"
 #include "device/vr/windows/d3d11_texture_helper.h"
 #include "device/vr/windows_mixed_reality/mixed_reality_input_helper.h"
 #include "device/vr/windows_mixed_reality/mixed_reality_statics.h"
@@ -43,12 +44,14 @@ using SpatialMovementRange =
 using ABI::Windows::Foundation::DateTime;
 using ABI::Windows::Foundation::TimeSpan;
 using ABI::Windows::Foundation::Numerics::Matrix4x4;
+using HolographicSpaceUserPresence =
+    ABI::Windows::Graphics::Holographic::HolographicSpaceUserPresence;
 using ABI::Windows::Graphics::Holographic::HolographicStereoTransform;
 using Microsoft::WRL::ComPtr;
 
 class MixedRealityWindow : public gfx::WindowImpl {
  public:
-  MixedRealityWindow(base::OnceCallback<void()> on_destroyed)
+  explicit MixedRealityWindow(base::OnceCallback<void()> on_destroyed)
       : gfx::WindowImpl(), on_destroyed_(std::move(on_destroyed)) {
     set_window_style(WS_OVERLAPPED);
   }
@@ -85,8 +88,7 @@ gfx::Transform ConvertToGfxTransform(const Matrix4x4& matrix) {
       matrix.M11, matrix.M21, matrix.M31, matrix.M41,
       matrix.M12, matrix.M22, matrix.M32, matrix.M42,
       matrix.M13, matrix.M23, matrix.M33, matrix.M43,
-      matrix.M14, matrix.M24, matrix.M34, matrix.M44
-    );
+      matrix.M14, matrix.M24, matrix.M34, matrix.M44);
   // clang-format on
 }
 
@@ -136,9 +138,7 @@ MixedRealityRenderLoop::MixedRealityRenderLoop(
     base::RepeatingCallback<void(mojom::VRDisplayInfoPtr)>
         on_display_info_changed)
     : XRCompositorCommon(),
-      on_display_info_changed_(std::move(on_display_info_changed)),
-      weak_ptr_factory_(this) {
-}
+      on_display_info_changed_(std::move(on_display_info_changed)) {}
 
 MixedRealityRenderLoop::~MixedRealityRenderLoop() {
   Stop();
@@ -222,6 +222,15 @@ bool MixedRealityRenderLoop::StartRuntime() {
   if (!holographic_space_)
     return false;
 
+  // Since we explicitly null out both the holographic_space and the
+  // subscription during StopRuntime (which happens before destruction),
+  // base::Unretained is safe.
+  user_presence_changed_subscription_ =
+      holographic_space_->AddUserPresenceChangedCallback(
+          base::BindRepeating(&MixedRealityRenderLoop::OnUserPresenceChanged,
+                              base::Unretained(this)));
+  UpdateVisibilityState();
+
   input_helper_ = std::make_unique<MixedRealityInputHelper>(
       window_->hwnd(), weak_ptr_factory_.GetWeakPtr());
 
@@ -253,7 +262,19 @@ bool MixedRealityRenderLoop::StartRuntime() {
   if (FAILED(hr))
     return false;
 
-  return holographic_space_->TrySetDirect3D11Device(device);
+  if (!holographic_space_->TrySetDirect3D11Device(device))
+    return false;
+
+  // Go through one initial dummy frame to update the display info and notify
+  // the device of the correct values before it sends the initial info to the
+  // renderer. The frame must be submitted because WMR requires frames to be
+  // submitted in the order they're created.
+  UpdateWMRDataForNextFrame();
+  UpdateDisplayInfo();
+  main_thread_task_runner_->PostTask(
+      FROM_HERE,
+      base::BindOnce(on_display_info_changed_, current_display_info_.Clone()));
+  return SubmitCompositedFrame();
 }
 
 void MixedRealityRenderLoop::StopRuntime() {
@@ -272,6 +293,8 @@ void MixedRealityRenderLoop::StopRuntime() {
   pose_ = nullptr;
   rendering_params_ = nullptr;
   camera_ = nullptr;
+
+  user_presence_changed_subscription_ = nullptr;
 
   if (input_helper_)
     input_helper_->Dispose();
@@ -379,6 +402,51 @@ void MixedRealityRenderLoop::OnCurrentStageChanged() {
                               base::Unretained(this)));
 }
 
+void MixedRealityRenderLoop::OnUserPresenceChanged() {
+  // Unretained is safe here because the task_runner() gets invalidated
+  // during Stop() which happens before our destruction
+  task_runner()->PostTask(FROM_HERE,
+                          base::BindOnce(
+                              [](MixedRealityRenderLoop* render_loop) {
+                                render_loop->UpdateVisibilityState();
+                              },
+                              base::Unretained(this)));
+}
+
+void MixedRealityRenderLoop::UpdateVisibilityState() {
+  // We could've had a task get queued up during or before a StopRuntime call.
+  // Which would lead to the holographic space being null. In that case, don't
+  // update the visibility state. We'll get the fresh state  when and if the
+  // runtime starts back up again.
+  if (!holographic_space_) {
+    return;
+  }
+
+  switch (holographic_space_->UserPresence()) {
+    // Indicates that the browsers immersive content is visible in the headset
+    // receiving input, and the headset is being worn.
+    case HolographicSpaceUserPresence::
+        HolographicSpaceUserPresence_PresentActive:
+      SetVisibilityState(device::mojom::XRVisibilityState::VISIBLE);
+      return;
+    // Indicates that the browsers immersive content is visible in the headset
+    // and the headset is being worn, but a modal dialog is capturing input.
+    case HolographicSpaceUserPresence::
+        HolographicSpaceUserPresence_PresentPassive:
+      // TODO(1016907): Should report VISIBLE_BLURRED, but changed to VISIBLE to
+      // work around an issue in some versions of Windows Mixed Reality which
+      // only report PresentPassive and never PresentActive. Should be reverted
+      // after the Windows fix has been widely released.
+      SetVisibilityState(device::mojom::XRVisibilityState::VISIBLE);
+      return;
+    // Indicates that the browsers immersive content is not visible in the
+    // headset or the user is not wearing the headset.
+    case HolographicSpaceUserPresence::HolographicSpaceUserPresence_Absent:
+      SetVisibilityState(device::mojom::XRVisibilityState::HIDDEN);
+      return;
+  }
+}
+
 void MixedRealityRenderLoop::EnsureStageBounds() {
   if (!spatial_stage_)
     return;
@@ -442,21 +510,6 @@ void MixedRealityRenderLoop::StartPresenting() {
   ShowWindow(window_->hwnd(), SW_SHOW);
 }
 
-mojom::XRGamepadDataPtr MixedRealityRenderLoop::GetNextGamepadData() {
-  if (!timestamp_) {
-    WMRLogging::TraceError(WMRErrorLocation::kGamepadMissingTimestamp);
-    return nullptr;
-  }
-
-  if (!anchor_origin_) {
-    WMRLogging::TraceError(WMRErrorLocation::kGamepadMissingOrigin);
-    return nullptr;
-  }
-
-  return input_helper_->GetWebVRGamepadData(anchor_origin_.get(),
-                                            timestamp_.get());
-}
-
 struct EyeToWorldDecomposed {
   gfx::Quaternion world_to_eye_rotation;
   gfx::Point3F eye_in_world_space;
@@ -501,8 +554,8 @@ mojom::VRPosePtr GetMonoViewData(const HolographicStereoTransform& view) {
 
 struct PoseAndEyeTransform {
   mojom::VRPosePtr pose;
-  gfx::Vector3dF left_offset;
-  gfx::Vector3dF right_offset;
+  gfx::Transform head_from_left_eye;
+  gfx::Transform head_from_right_eye;
 };
 
 PoseAndEyeTransform GetStereoViewData(const HolographicStereoTransform& view) {
@@ -514,25 +567,25 @@ PoseAndEyeTransform GetStereoViewData(const HolographicStereoTransform& view) {
       (left_eye.eye_in_world_space.z() + right_eye.eye_in_world_space.z()) / 2);
 
   // We calculate the overal headset pose to be the slerp of per-eye poses as
-  // calculated by the view transform's decompositions.  Although this works, we
-  // should consider using per-eye rotation as well as translation for eye
-  // parameters. See https://crbug.com/928433 for a similar issue.
+  // calculated by the view transform's decompositions.
   gfx::Quaternion world_to_view_rotation = left_eye.world_to_eye_rotation;
   world_to_view_rotation.Slerp(right_eye.world_to_eye_rotation, 0.5f);
 
   // Calculate new eye offsets.
   PoseAndEyeTransform ret;
-  ret.left_offset = left_eye.eye_in_world_space - center;
-  ret.right_offset = right_eye.eye_in_world_space - center;
+  gfx::Vector3dF left_offset = left_eye.eye_in_world_space - center;
+  gfx::Vector3dF right_offset = right_eye.eye_in_world_space - center;
 
   gfx::Transform transform(world_to_view_rotation);  // World to view.
   transform.Transpose();                             // Now it is view to world.
 
-  transform.TransformVector(&(ret.left_offset));  // Offset is now in view space
-  transform.TransformVector(&(ret.right_offset));
-
-  // TODO(https://crbug.com/928433): We don't currently support per-eye rotation
-  // in the mojo interface, but we should.
+  // TODO(crbug.com/980791): Get the actual eye-to-head transforms instead of
+  // building them from just the translation components so that angled screens
+  // are handled properly.
+  transform.TransformVector(&left_offset);  // Offset is now in view space
+  transform.TransformVector(&right_offset);
+  ret.head_from_left_eye = vr_utils::MakeTranslationTransform(left_offset);
+  ret.head_from_right_eye = vr_utils::MakeTranslationTransform(right_offset);
 
   ret.pose = mojom::VRPose::New();
 
@@ -620,18 +673,6 @@ bool MixedRealityRenderLoop::UpdateDisplayInfo() {
     current_display_info_ = mojom::VRDisplayInfo::New();
     current_display_info_->id =
         device::mojom::XRDeviceId::WINDOWS_MIXED_REALITY_ID;
-    current_display_info_->display_name =
-        "Windows Mixed Reality";  // TODO(billorr): share this string.
-    current_display_info_->capabilities = mojom::VRDisplayCapabilities::New(
-        true /* has_position */, true /* has_external_display */,
-        true /* can_present */,
-        false /* can_provide_environment_integration */);
-
-    // TODO(billorr): consider scaling framebuffers after rendering support is
-    // added.
-    current_display_info_->webvr_default_framebuffer_scale = 1.0f;
-    current_display_info_->webxr_default_framebuffer_scale = 1.0f;
-
     changed = true;
   }
 
@@ -760,8 +801,6 @@ mojom::XRFrameDataPtr MixedRealityRenderLoop::GetNextFrameData() {
   if (anchor_origin_ &&
       pose_->TryGetViewTransform(anchor_origin_.get(), &view)) {
     got_view = true;
-    // TODO(http://crbug.com/931393): Send down emulated_position_, and report
-    // reset events when this changes.
     emulated_position_ = false;
     ABI::Windows::Foundation::Numerics::Matrix4x4 origin_from_attached;
     if (attached_coordinates->TryGetTransformTo(anchor_origin_.get(),
@@ -795,21 +834,21 @@ mojom::XRFrameDataPtr MixedRealityRenderLoop::GetNextFrameData() {
     PoseAndEyeTransform pose_and_eye_transform = GetStereoViewData(view);
     ret->pose = std::move(pose_and_eye_transform.pose);
 
-    if (current_display_info_->left_eye->offset !=
-            pose_and_eye_transform.left_offset ||
-        current_display_info_->right_eye->offset !=
-            pose_and_eye_transform.right_offset) {
-      current_display_info_->left_eye->offset =
-          std::move(pose_and_eye_transform.left_offset);
-      current_display_info_->right_eye->offset =
-          std::move(pose_and_eye_transform.right_offset);
+    if (current_display_info_->left_eye->head_from_eye !=
+            pose_and_eye_transform.head_from_left_eye ||
+        current_display_info_->right_eye->head_from_eye !=
+            pose_and_eye_transform.head_from_right_eye) {
+      current_display_info_->left_eye->head_from_eye =
+          std::move(pose_and_eye_transform.head_from_left_eye);
+      current_display_info_->right_eye->head_from_eye =
+          std::move(pose_and_eye_transform.head_from_right_eye);
       send_new_display_info = true;
     }
   } else {
     ret->pose = GetMonoViewData(view);
-    gfx::Vector3dF offset;
-    if (current_display_info_->left_eye->offset != offset) {
-      current_display_info_->left_eye->offset = offset;
+    gfx::Transform head_from_eye;
+    if (current_display_info_->left_eye->head_from_eye != head_from_eye) {
+      current_display_info_->left_eye->head_from_eye = head_from_eye;
       send_new_display_info = true;
     }
   }
@@ -834,8 +873,10 @@ mojom::XRFrameDataPtr MixedRealityRenderLoop::GetNextFrameData() {
                                   current_display_info_.Clone()));
   }
 
-  ret->pose->input_state =
+  ret->input_state =
       input_helper_->GetInputState(anchor_origin_.get(), timestamp_.get());
+
+  ret->pose->emulated_position = emulated_position_;
 
   if (emulated_position_ && last_origin_from_attached_) {
     gfx::DecomposedTransform attached_from_view_decomp;

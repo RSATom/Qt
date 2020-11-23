@@ -40,9 +40,6 @@
 using signin::AccountReconcilorDelegate;
 using signin_metrics::AccountReconcilorState;
 
-const base::Feature kUseMultiloginEndpoint{"UseMultiloginEndpoint",
-                                           base::FEATURE_DISABLED_BY_DEFAULT};
-
 namespace {
 
 class AccountEqualToFunc {
@@ -63,6 +60,13 @@ gaia::ListedAccount AccountForId(const CoreAccountId& account_id) {
   gaia::ListedAccount account;
   account.id = account_id;
   return account;
+}
+
+bool ContainsGaiaAccount(const std::vector<gaia::ListedAccount>& gaia_accounts,
+                         const CoreAccountId& account_id) {
+  return gaia_accounts.end() !=
+         std::find_if(gaia_accounts.begin(), gaia_accounts.end(),
+                      AccountEqualToFunc(AccountForId(account_id)));
 }
 
 // Returns a copy of |accounts| without the unverified accounts.
@@ -123,6 +127,50 @@ bool RevokeAllSecondaryTokens(
     }
   }
   return token_revoked;
+}
+
+// TODO(msalama): Move this code and |RevokeAllSecondaryTokens|
+// to |DiceAccountReconcilorDelegate|.
+signin::RevokeTokenAction RevokeTokensNotInCookies(
+    signin::IdentityManager* identity_manager,
+    const CoreAccountId& primary_account,
+    const std::vector<gaia::ListedAccount>& gaia_accounts) {
+  bool invalidated_primary_account_token = false;
+  bool revoked_token_for_secondary_account = false;
+  signin_metrics::SourceForRefreshTokenOperation source =
+      signin_metrics::SourceForRefreshTokenOperation::
+          kAccountReconcilor_RevokeTokensNotInCookies;
+
+  for (const CoreAccountInfo& account_info :
+       identity_manager->GetAccountsWithRefreshTokens()) {
+    CoreAccountId account = account_info.account_id;
+    if (ContainsGaiaAccount(gaia_accounts, account))
+      continue;
+
+    auto* accounts_mutator = identity_manager->GetAccountsMutator();
+    if (account == primary_account) {
+      invalidated_primary_account_token = true;
+      accounts_mutator->InvalidateRefreshTokenForPrimaryAccount(source);
+    } else {
+      revoked_token_for_secondary_account = true;
+      accounts_mutator->RemoveAccount(account, source);
+    }
+  }
+
+  signin::RevokeTokenAction revoke_token_action =
+      signin::RevokeTokenAction::kNone;
+  if (invalidated_primary_account_token &&
+      revoked_token_for_secondary_account) {
+    revoke_token_action =
+        signin::RevokeTokenAction::kRevokeTokensForPrimaryAndSecondaryAccounts;
+  } else if (invalidated_primary_account_token) {
+    revoke_token_action =
+        signin::RevokeTokenAction::kInvalidatePrimaryAccountToken;
+  } else if (revoked_token_for_secondary_account) {
+    revoke_token_action =
+        signin::RevokeTokenAction::kRevokeSecondaryAccountsTokens;
+  }
+  return revoke_token_action;
 }
 
 // Pick the account will become first after this reconcile is finished.
@@ -240,12 +288,6 @@ void AccountReconcilor::SetConsistencyCookieManager(
   consistency_cookie_manager_ = std::move(consistency_cookie_manager);
 }
 
-#if defined(OS_IOS)
-void AccountReconcilor::SetIsWKHTTPSystemCookieStoreEnabled(bool is_enabled) {
-  is_wkhttp_system_cookie_store_enabled_ = is_enabled;
-}
-#endif  // defined(OS_IOS)
-
 void AccountReconcilor::EnableReconcile() {
   SetState(AccountReconcilorState::ACCOUNT_RECONCILOR_SCHEDULED);
   RegisterWithAllDependencies();
@@ -333,7 +375,7 @@ void AccountReconcilor::OnContentSettingChanged(
     ContentSettingsType content_type,
     const std::string& resource_identifier) {
   // If this is not a change to cookie settings, just ignore.
-  if (content_type != CONTENT_SETTINGS_TYPE_COOKIES)
+  if (content_type != ContentSettingsType::COOKIES)
     return;
 
   // If this does not affect GAIA, just ignore.  If the primary pattern is
@@ -401,13 +443,8 @@ void AccountReconcilor::PerformSetCookiesAction(
   //
   // Using Unretained is safe here because the CookieManagerService outlives
   // the AccountReconcilor.
-  // TODO(triploblastic): Remove this vector once account_reconcilor and
-  // related classes has been refactored to use CoreAccountId.
-  std::vector<CoreAccountId> accounts_to_send;
-  for (const auto& account : parameters.accounts_to_send)
-    accounts_to_send.push_back(CoreAccountId(account));
   identity_manager_->GetAccountsCookieMutator()->SetAccountsInCookie(
-      accounts_to_send, delegate_->GetGaiaApiSource(),
+      parameters, delegate_->GetGaiaApiSource(),
       base::BindOnce(&AccountReconcilor::OnSetAccountsInCookieCompleted,
                      base::Unretained(this)));
 }
@@ -541,8 +578,7 @@ void AccountReconcilor::FinishReconcileWithMultiloginEndpoint(
     DCHECK_NE(AccountReconcilorState::ACCOUNT_RECONCILOR_RUNNING, state_);
     CoreAccountId first_gaia_account_after_reconcile =
         PickFirstGaiaAccount(parameters_for_multilogin, gaia_accounts);
-    delegate_->OnReconcileFinished(first_gaia_account_after_reconcile,
-                                   reconcile_is_noop_);
+    delegate_->OnReconcileFinished(first_gaia_account_after_reconcile);
   }
   first_execution_ = false;
 }
@@ -592,6 +628,12 @@ void AccountReconcilor::OnAccountsInCookieUpdated(
       << " unverified account(s).";
 
   CoreAccountId primary_account = identity_manager_->GetPrimaryAccountId();
+  if (delegate_->ShouldRevokeTokensNotInCookies()) {
+    signin::RevokeTokenAction revoke_token_action = RevokeTokensNotInCookies(
+        identity_manager_, primary_account, verified_gaia_accounts);
+    delegate_->OnRevokeTokensNotInCookiesCompleted(revoke_token_action);
+  }
+
   // Revoking tokens for secondary accounts causes the AccountTracker to
   // completely remove them from Chrome.
   // Revoking the token for the primary account is not supported (it should be
@@ -657,14 +699,14 @@ AccountReconcilor::LoadValidAccountsFromTokenService() const {
 
   std::vector<CoreAccountId> chrome_account_ids;
 
-  // Remove any accounts that have an error.  There is no point in trying to
-  // reconcile them, since it won't work anyway.  If the list ends up being
+  // Remove any accounts that have an error. There is no point in trying to
+  // reconcile them, since it won't work anyway. If the list ends up being
   // empty then don't reconcile any accounts.
   for (const auto& chrome_account_with_refresh_tokens :
        chrome_accounts_with_refresh_tokens) {
     if (identity_manager_->HasAccountWithRefreshTokenInPersistentErrorState(
             chrome_account_with_refresh_tokens.account_id)) {
-      VLOG(1) << "AccountReconcilor::ValidateAccountsFromTokenService: "
+      VLOG(1) << "AccountReconcilor::LoadValidAccountsFromTokenService: "
               << chrome_account_with_refresh_tokens.account_id
               << " has error, don't reconcile";
       continue;
@@ -672,7 +714,7 @@ AccountReconcilor::LoadValidAccountsFromTokenService() const {
     chrome_account_ids.push_back(chrome_account_with_refresh_tokens.account_id);
   }
 
-  VLOG(1) << "AccountReconcilor::ValidateAccountsFromTokenService: "
+  VLOG(1) << "AccountReconcilor::LoadValidAccountsFromTokenService: "
           << "Chrome " << chrome_account_ids.size() << " accounts";
 
   return chrome_account_ids;
@@ -693,9 +735,6 @@ void AccountReconcilor::FinishReconcile(
   DCHECK(add_to_cookie_.empty());
   DCHECK(delegate_->IsUnknownInvalidAccountInCookieAllowed())
       << "Only supported in UPDATE mode";
-
-  delegate_->MaybeLogInconsistencyReason(primary_account, chrome_accounts,
-                                         gaia_accounts, first_execution_);
 
   size_t number_gaia_accounts = gaia_accounts.size();
   // If there are any accounts in the gaia cookie but not in chrome, then
@@ -728,9 +767,12 @@ void AccountReconcilor::FinishReconcile(
 
   if (first_account.empty()) {
     DCHECK(!delegate_->ShouldAbortReconcileIfPrimaryHasError());
+    auto revoke_option =
+        delegate_->ShouldRevokeTokensIfNoPrimaryAccount()
+            ? AccountReconcilorDelegate::RevokeTokenOption::kRevoke
+            : AccountReconcilorDelegate::RevokeTokenOption::kDoNotRevoke;
     reconcile_is_noop_ = !RevokeAllSecondaryTokens(
-        identity_manager_,
-        AccountReconcilorDelegate::RevokeTokenOption::kRevoke, primary_account,
+        identity_manager_, revoke_option, primary_account,
         delegate_->IsAccountConsistencyEnforced(),
         signin_metrics::SourceForRefreshTokenOperation::
             kAccountReconcilor_Reconcile);
@@ -758,17 +800,12 @@ void AccountReconcilor::FinishReconcile(
   std::vector<CoreAccountId> add_to_cookie_copy = add_to_cookie_;
   int added_to_cookie = 0;
   for (size_t i = 0; i < add_to_cookie_copy.size(); ++i) {
-    if (gaia_accounts.end() !=
-        std::find_if(gaia_accounts.begin(), gaia_accounts.end(),
-                     AccountEqualToFunc(AccountForId(add_to_cookie_copy[i])))) {
+    if (ContainsGaiaAccount(gaia_accounts, add_to_cookie_copy[i])) {
       OnAddAccountToCookieCompleted(add_to_cookie_copy[i],
                                     GoogleServiceAuthError::AuthErrorNone());
     } else {
       PerformMergeAction(add_to_cookie_copy[i]);
-      if (original_gaia_accounts.end() ==
-          std::find_if(
-              original_gaia_accounts.begin(), original_gaia_accounts.end(),
-              AccountEqualToFunc(AccountForId(add_to_cookie_copy[i])))) {
+      if (!ContainsGaiaAccount(original_gaia_accounts, add_to_cookie_copy[i])) {
         added_to_cookie++;
       }
     }
@@ -780,7 +817,7 @@ void AccountReconcilor::FinishReconcile(
   first_execution_ = false;
   CalculateIfReconcileIsDone();
   if (!is_reconcile_started_)
-    delegate_->OnReconcileFinished(first_account, reconcile_is_noop_);
+    delegate_->OnReconcileFinished(first_account);
   ScheduleStartReconcileIfChromeAccountsChanged();
 }
 
@@ -973,19 +1010,7 @@ void AccountReconcilor::HandleReconcileTimeout() {
 }
 
 bool AccountReconcilor::IsMultiloginEndpointEnabled() const {
-#if defined(OS_IOS)
-  // kUseMultiloginEndpoint feature should not be used if
-  // kWKHTTPSystemCookieStore feature is disabbled.
-  // See http://crbug.com/902584.
-  if (!is_wkhttp_system_cookie_store_enabled_)
-    return false;
-#endif  // defined(OS_IOS)
-
-#if defined(OS_ANDROID)
-  if (base::FeatureList::IsEnabled(signin::kMiceFeature))
-    return true;  // Mice is only implemented with multilogin.
-#endif
-  return base::FeatureList::IsEnabled(kUseMultiloginEndpoint);
+  return delegate_->IsMultiloginEndpointEnabled();
 }
 
 bool AccountReconcilor::CookieNeedsUpdate(

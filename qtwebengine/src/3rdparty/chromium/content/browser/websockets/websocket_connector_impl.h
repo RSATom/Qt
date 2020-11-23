@@ -30,7 +30,8 @@ class WebSocketConnectorImpl final : public blink::mojom::WebSocketConnector {
   //   MSG_ROUTING_NONE because they do not have a frame.
   WebSocketConnectorImpl(int process_id,
                          int frame_id,
-                         const url::Origin& origin);
+                         const url::Origin& origin,
+                         const net::NetworkIsolationKey& network_isolation_key);
   ~WebSocketConnectorImpl() override;
 
   // WebSocketConnector implementation
@@ -38,27 +39,30 @@ class WebSocketConnectorImpl final : public blink::mojom::WebSocketConnector {
                const std::vector<std::string>& requested_protocols,
                const GURL& site_for_cookies,
                const base::Optional<std::string>& user_agent,
-               network::mojom::WebSocketHandshakeClientPtr handshake_client,
-               network::mojom::WebSocketClientPtr websocket_client) override;
+               mojo::PendingRemote<network::mojom::WebSocketHandshakeClient>
+                   handshake_client) override;
 
  private:
   static void ConnectCalledByContentBrowserClient(
       const std::vector<std::string>& requested_protocols,
       const GURL& site_for_cookies,
+      const net::NetworkIsolationKey& network_isolation_key,
       int process_id,
       int frame_id,
       const url::Origin& origin,
       uint32_t options,
-      network::mojom::WebSocketClientPtr websocket_client,
       const GURL& url,
       std::vector<network::mojom::HttpHeaderPtr> additional_headers,
-      network::mojom::WebSocketHandshakeClientPtr handshake_client,
-      network::mojom::AuthenticationHandlerPtr auth_handler,
-      network::mojom::TrustedHeaderClientPtr trusted_header_client);
+      mojo::PendingRemote<network::mojom::WebSocketHandshakeClient>
+          handshake_client,
+      mojo::PendingRemote<network::mojom::AuthenticationHandler> auth_handler,
+      mojo::PendingRemote<network::mojom::TrustedHeaderClient>
+          trusted_header_client);
 
   const int process_id_;
   const int frame_id_;
   const url::Origin origin_;
+  const net::NetworkIsolationKey network_isolation_key_;
 };
 
 }  // namespace content

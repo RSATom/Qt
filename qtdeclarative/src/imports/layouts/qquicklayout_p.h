@@ -49,18 +49,17 @@
 QT_BEGIN_NAMESPACE
 
 class QQuickLayoutAttached;
-
-#if 0 && !defined(QT_NO_DEBUG) && !defined(QT_NO_DEBUG_OUTPUT)
-# define quickLayoutDebug QMessageLogger(__FILE__, __LINE__, Q_FUNC_INFO).debug
-#else
-# define quickLayoutDebug QT_NO_QDEBUG_MACRO
-#endif
+Q_DECLARE_LOGGING_CATEGORY(lcQuickLayouts)
 
 class QQuickLayoutPrivate;
 class QQuickLayout : public QQuickItem, public QQuickItemChangeListener
 
 {
     Q_OBJECT
+    QML_NAMED_ELEMENT(Layout)
+    QML_UNCREATABLE("Do not create objects of type Layout.")
+    QML_ATTACHED(QQuickLayoutAttached)
+
 public:
     enum SizeHint {
         MinimumSize = 0,
@@ -80,13 +79,13 @@ public:
     virtual void setAlignment(QQuickItem *item, Qt::Alignment align) = 0;
     virtual void invalidate(QQuickItem * childItem = 0);
     virtual void updateLayoutItems() = 0;
+    void ensureLayoutItemsUpdated() const;
 
     // iterator
     virtual QQuickItem *itemAt(int index) const = 0;
     virtual int itemCount() const = 0;
 
     virtual void rearrange(const QSizeF &);
-    bool arrangementIsDirty() const { return m_dirty; }
 
     static void effectiveSizeHints_helper(QQuickItem *item, QSizeF *cachedSizeHints, QQuickLayoutAttached **info, bool useFallbackToWidthOrHeight);
     static QLayoutPolicy::Policy effectiveSizePolicy_helper(QQuickItem *item, Qt::Orientation orientation, QQuickLayoutAttached *info);
@@ -98,6 +97,8 @@ public:
     bool isReady() const;
     void deactivateRecur();
 
+    bool invalidated() const;
+    bool invalidatedArrangement() const;
 
     /* QQuickItemChangeListener */
     void itemSiblingOrderChanged(QQuickItem *item) override;
@@ -105,6 +106,9 @@ public:
     void itemImplicitHeightChanged(QQuickItem *item) override;
     void itemDestroyed(QQuickItem *item) override;
     void itemVisibilityChanged(QQuickItem *item) override;
+
+    Q_INVOKABLE void _q_dumpLayoutTree() const;
+    void dumpLayoutTreeRecursive(int level, QString &buf) const;
 
 protected:
     void updatePolish() override;
@@ -119,7 +123,6 @@ protected slots:
     void invalidateSenderItem();
 
 private:
-    unsigned m_dirty : 1;
     unsigned m_inUpdatePolish : 1;
     unsigned m_polishInsideUpdatePolish : 2;
 
@@ -133,9 +136,26 @@ class QQuickLayoutPrivate : public QQuickItemPrivate
 {
     Q_DECLARE_PUBLIC(QQuickLayout)
 public:
-    QQuickLayoutPrivate() : m_isReady(false), m_disableRearrange(true), m_hasItemChangeListeners(false) {}
+    QQuickLayoutPrivate() : m_dirty(true), m_dirtyArrangement(true), m_isReady(false), m_disableRearrange(true), m_hasItemChangeListeners(false) {}
+
+    qreal getImplicitWidth() const override;
+    qreal getImplicitHeight() const override;
+
+    void applySizeHints() const;
 
 protected:
+    /* m_dirty == true means that something in the layout was changed,
+       but its state has not been synced to the internal grid layout engine. It is usually:
+       1. A child item was added or removed from the layout (or made visible/invisble)
+       2. A child item got one of its size hints changed
+    */
+    mutable unsigned m_dirty : 1;
+    /* m_dirtyArrangement == true means that the layout still needs a rearrange despite that
+     * m_dirty == false. This is only used for the case that a layout has been invalidated,
+     * but its new size is the same as the old size (in that case the child layout won't get
+     * a geometryChanged() notification, which rearrange() usually reacts to)
+     */
+    mutable unsigned m_dirtyArrangement : 1;
     unsigned m_isReady : 1;
     unsigned m_disableRearrange : 1;
     unsigned m_hasItemChangeListeners : 1;      // if false, we don't need to remove its item change listeners...
@@ -283,7 +303,6 @@ signals:
 
 private:
     void invalidateItem();
-    void repopulateLayout();
     QQuickLayout *parentLayout() const;
     QQuickItem *item() const;
 private:
@@ -333,6 +352,5 @@ inline QQuickLayoutAttached *attachedLayoutObject(QQuickItem *item, bool create 
 QT_END_NAMESPACE
 
 QML_DECLARE_TYPE(QQuickLayout)
-QML_DECLARE_TYPEINFO(QQuickLayout, QML_HAS_ATTACHED_PROPERTIES)
 
 #endif // QQUICKLAYOUT_P_H

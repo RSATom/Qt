@@ -90,7 +90,7 @@ private:
     Q_DECLARE_PRIVATE(QQuickTableSectionSizeProvider)
 };
 
-class Q_QML_AUTOTEST_EXPORT QQuickTableViewPrivate : public QQuickFlickablePrivate
+class Q_QUICK_PRIVATE_EXPORT QQuickTableViewPrivate : public QQuickFlickablePrivate
 {
     Q_DECLARE_PUBLIC(QQuickTableView)
 
@@ -277,6 +277,10 @@ public:
     bool inSyncViewportPosRecursive = false;
     bool inUpdateContentSize = false;
 
+    // isTransposed is currently only used by HeaderView.
+    // Consider making it public.
+    bool isTransposed = false;
+
     QJSValue rowHeightProvider;
     QJSValue columnWidthProvider;
     QQuickTableSectionSizeProvider rowHeights;
@@ -403,11 +407,13 @@ public:
     void itemReusedCallback(int modelIndex, QObject *object);
     void modelUpdated(const QQmlChangeSet &changeSet, bool reset);
 
-    inline void syncWithPendingChanges();
-    inline void syncDelegate();
-    inline void syncModel();
+    virtual void syncWithPendingChanges();
+    virtual void syncDelegate();
+    virtual QVariant modelImpl() const;
+    virtual void setModelImpl(const QVariant &newModel);
+    virtual void syncModel();
     inline void syncRebuildOptions();
-    inline void syncSyncView();
+    virtual void syncSyncView();
 
     void connectToModel();
     void disconnectFromModel();

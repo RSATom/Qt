@@ -166,8 +166,8 @@ DevToolsAndroidBridge::DevToolsAndroidBridge(Profile* profile)
       base::Bind(&DevToolsAndroidBridge::CreateDeviceProviders,
                  base::Unretained(this)));
   base::Value target_discovery(base::Value::Type::LIST);
-  target_discovery.GetList().emplace_back(kChromeDiscoveryURL);
-  target_discovery.GetList().emplace_back(kNodeDiscoveryURL);
+  target_discovery.Append(kChromeDiscoveryURL);
+  target_discovery.Append(kNodeDiscoveryURL);
   profile->GetPrefs()->SetDefaultPrefValue(prefs::kDevToolsTCPDiscoveryConfig,
                                            std::move(target_discovery));
   CreateDeviceProviders();
@@ -400,6 +400,6 @@ void DevToolsAndroidBridge::set_tcp_provider_callback_for_test(
 }
 
 void DevToolsAndroidBridge::set_usb_device_manager_for_test(
-    device::mojom::UsbDeviceManagerPtrInfo fake_usb_manager) {
+    mojo::PendingRemote<device::mojom::UsbDeviceManager> fake_usb_manager) {
   device_manager_->set_usb_device_manager_for_test(std::move(fake_usb_manager));
 }

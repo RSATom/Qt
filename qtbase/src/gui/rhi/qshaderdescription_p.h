@@ -56,6 +56,7 @@
 QT_BEGIN_NAMESPACE
 
 struct QShaderDescriptionPrivate;
+class QDataStream;
 
 class Q_GUI_EXPORT QShaderDescription
 {
@@ -68,10 +69,16 @@ public:
 
     bool isValid() const;
 
-    QByteArray toBinaryJson() const;
+    QByteArray toCbor() const;
+    void serialize(QDataStream *stream) const;
     QByteArray toJson() const;
 
+#if QT_CONFIG(binaryjson) && QT_DEPRECATED_SINCE(5, 15)
+    QT_DEPRECATED_X("Use CBOR format instead")
     static QShaderDescription fromBinaryJson(const QByteArray &data);
+#endif
+    static QShaderDescription fromCbor(const QByteArray &data);
+    static QShaderDescription deserialize(QDataStream *stream, int version);
 
     enum VariableType {
         Unknown = 0,
@@ -209,6 +216,7 @@ public:
         int descriptorSet = -1;
         ImageFormat imageFormat = ImageFormatUnknown;
         ImageFlags imageFlags;
+        QVector<int> arrayDims;
     };
 
     struct BlockVariable {
@@ -263,6 +271,7 @@ private:
 #ifndef QT_NO_DEBUG_STREAM
     friend Q_GUI_EXPORT QDebug operator<<(QDebug, const QShaderDescription &);
 #endif
+    friend Q_GUI_EXPORT bool operator==(const QShaderDescription &lhs, const QShaderDescription &rhs) Q_DECL_NOTHROW;
 };
 
 Q_DECLARE_OPERATORS_FOR_FLAGS(QShaderDescription::ImageFlags)
@@ -275,6 +284,43 @@ Q_GUI_EXPORT QDebug operator<<(QDebug, const QShaderDescription::UniformBlock &)
 Q_GUI_EXPORT QDebug operator<<(QDebug, const QShaderDescription::PushConstantBlock &);
 Q_GUI_EXPORT QDebug operator<<(QDebug, const QShaderDescription::StorageBlock &);
 #endif
+
+Q_GUI_EXPORT bool operator==(const QShaderDescription &lhs, const QShaderDescription &rhs) Q_DECL_NOTHROW;
+Q_GUI_EXPORT bool operator==(const QShaderDescription::InOutVariable &lhs, const QShaderDescription::InOutVariable &rhs) Q_DECL_NOTHROW;
+Q_GUI_EXPORT bool operator==(const QShaderDescription::BlockVariable &lhs, const QShaderDescription::BlockVariable &rhs) Q_DECL_NOTHROW;
+Q_GUI_EXPORT bool operator==(const QShaderDescription::UniformBlock &lhs, const QShaderDescription::UniformBlock &rhs) Q_DECL_NOTHROW;
+Q_GUI_EXPORT bool operator==(const QShaderDescription::PushConstantBlock &lhs, const QShaderDescription::PushConstantBlock &rhs) Q_DECL_NOTHROW;
+Q_GUI_EXPORT bool operator==(const QShaderDescription::StorageBlock &lhs, const QShaderDescription::StorageBlock &rhs) Q_DECL_NOTHROW;
+
+inline bool operator!=(const QShaderDescription &lhs, const QShaderDescription &rhs) Q_DECL_NOTHROW
+{
+    return !(lhs == rhs);
+}
+
+inline bool operator!=(const QShaderDescription::InOutVariable &lhs, const QShaderDescription::InOutVariable &rhs) Q_DECL_NOTHROW
+{
+    return !(lhs == rhs);
+}
+
+inline bool operator!=(const QShaderDescription::BlockVariable &lhs, const QShaderDescription::BlockVariable &rhs) Q_DECL_NOTHROW
+{
+    return !(lhs == rhs);
+}
+
+inline bool operator!=(const QShaderDescription::UniformBlock &lhs, const QShaderDescription::UniformBlock &rhs) Q_DECL_NOTHROW
+{
+    return !(lhs == rhs);
+}
+
+inline bool operator!=(const QShaderDescription::PushConstantBlock &lhs, const QShaderDescription::PushConstantBlock &rhs) Q_DECL_NOTHROW
+{
+    return !(lhs == rhs);
+}
+
+inline bool operator!=(const QShaderDescription::StorageBlock &lhs, const QShaderDescription::StorageBlock &rhs) Q_DECL_NOTHROW
+{
+    return !(lhs == rhs);
+}
 
 QT_END_NAMESPACE
 

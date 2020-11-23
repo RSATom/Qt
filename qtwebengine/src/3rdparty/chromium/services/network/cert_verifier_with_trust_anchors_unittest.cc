@@ -13,11 +13,12 @@
 #include "base/callback.h"
 #include "base/memory/ref_counted.h"
 #include "base/run_loop.h"
-#include "base/test/scoped_task_environment.h"
+#include "base/test/task_environment.h"
 #include "crypto/nss_util_internal.h"
 #include "crypto/scoped_test_nss_chromeos_user.h"
 #include "net/base/test_completion_callback.h"
 #include "net/cert/cert_net_fetcher.h"
+#include "net/cert/cert_verify_proc_builtin.h"
 #include "net/cert/cert_verify_result.h"
 #include "net/cert/nss_cert_database_chromeos.h"
 #include "net/cert/x509_certificate.h"
@@ -26,17 +27,17 @@
 #include "net/test/cert_test_util.h"
 #include "net/test/test_data_directory.h"
 #include "services/network/cert_verify_proc_chromeos.h"
+#include "services/network/system_trust_store_provider_chromeos.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
 namespace network {
 
-class CertVerifierWithTrustAnchorsTest : public testing::Test {
+class CertVerifierWithTrustAnchorsTest : public testing::TestWithParam<bool> {
  public:
   CertVerifierWithTrustAnchorsTest()
       : trust_anchor_used_(false),
         test_nss_user_("user1"),
-        scoped_task_environment_(
-            base::test::ScopedTaskEnvironment::MainThreadType::IO) {}
+        task_environment_(base::test::TaskEnvironment::MainThreadType::IO) {}
 
   ~CertVerifierWithTrustAnchorsTest() override {}
 
@@ -44,17 +45,27 @@ class CertVerifierWithTrustAnchorsTest : public testing::Test {
     ASSERT_TRUE(test_nss_user_.constructed_successfully());
     test_nss_user_.FinishInit();
 
-    test_cert_db_.reset(new net::NSSCertDatabaseChromeOS(
+    test_cert_db_ = std::make_unique<net::NSSCertDatabaseChromeOS>(
         crypto::GetPublicSlotForChromeOSUser(test_nss_user_.username_hash()),
         crypto::GetPrivateSlotForChromeOSUser(
             test_nss_user_.username_hash(),
-            base::RepeatingCallback<void(crypto::ScopedPK11Slot)>())));
+            base::RepeatingCallback<void(crypto::ScopedPK11Slot)>()));
 
-    cert_verifier_.reset(new CertVerifierWithTrustAnchors(base::BindRepeating(
-        &CertVerifierWithTrustAnchorsTest::OnTrustAnchorUsed,
-        base::Unretained(this))));
-    cert_verifier_->InitializeOnIOThread(new network::CertVerifyProcChromeOS(
-        crypto::GetPublicSlotForChromeOSUser(test_nss_user_.username_hash())));
+    cert_verifier_ =
+        std::make_unique<CertVerifierWithTrustAnchors>(base::BindRepeating(
+            &CertVerifierWithTrustAnchorsTest::OnTrustAnchorUsed,
+            base::Unretained(this)));
+    if (GetParam()) {
+      cert_verify_proc_ = net::CreateCertVerifyProcBuiltin(
+          /*net_fetcher=*/nullptr,
+          std::make_unique<SystemTrustStoreProviderChromeOS>(
+              crypto::GetPublicSlotForChromeOSUser(
+                  test_nss_user_.username_hash())));
+    } else {
+      cert_verify_proc_ = base::MakeRefCounted<network::CertVerifyProcChromeOS>(
+          crypto::GetPublicSlotForChromeOSUser(test_nss_user_.username_hash()));
+    }
+    cert_verifier_->InitializeOnIOThread(cert_verify_proc_);
 
     test_ca_cert_ = LoadCertificate("root_ca_cert.pem", net::CA_CERT);
     ASSERT_TRUE(test_ca_cert_);
@@ -71,7 +82,7 @@ class CertVerifierWithTrustAnchorsTest : public testing::Test {
   }
 
   void TearDown() override {
-    // Destroy |cert_verifier_| before destroying the ThreadBundle, otherwise
+    // Destroy |cert_verifier_| before destroying the TaskEnvironment, otherwise
     // BrowserThread::CurrentlyOn checks fail.
     cert_verifier_.reset();
   }
@@ -90,9 +101,7 @@ class CertVerifierWithTrustAnchorsTest : public testing::Test {
   }
 
   bool SupportsAdditionalTrustAnchors() {
-    scoped_refptr<net::CertVerifyProc> proc =
-        net::CertVerifyProc::CreateDefault(/*cert_net_fetcher=*/nullptr);
-    return proc->SupportsAdditionalTrustAnchors();
+    return cert_verify_proc_->SupportsAdditionalTrustAnchors();
   }
 
   // Returns whether |cert_verifier| signalled usage of one of the additional
@@ -111,6 +120,7 @@ class CertVerifierWithTrustAnchorsTest : public testing::Test {
   net::ScopedCERTCertificateList test_ca_cert_list_;
   std::unique_ptr<net::NSSCertDatabaseChromeOS> test_cert_db_;
   std::unique_ptr<CertVerifierWithTrustAnchors> cert_verifier_;
+  scoped_refptr<net::CertVerifyProc> cert_verify_proc_;
 
  private:
   void OnTrustAnchorUsed() { trust_anchor_used_ = true; }
@@ -132,10 +142,14 @@ class CertVerifierWithTrustAnchorsTest : public testing::Test {
 
   bool trust_anchor_used_;
   crypto::ScopedTestNSSChromeOSUser test_nss_user_;
-  base::test::ScopedTaskEnvironment scoped_task_environment_;
+  base::test::TaskEnvironment task_environment_;
 };
 
-TEST_F(CertVerifierWithTrustAnchorsTest, VerifyUntrustedCert) {
+INSTANTIATE_TEST_SUITE_P(All,
+                         CertVerifierWithTrustAnchorsTest,
+                         testing::Bool());
+
+TEST_P(CertVerifierWithTrustAnchorsTest, VerifyUntrustedCert) {
   // |test_server_cert_| is untrusted, so Verify() fails.
   {
     net::CertVerifyResult verify_result;
@@ -163,7 +177,7 @@ TEST_F(CertVerifierWithTrustAnchorsTest, VerifyUntrustedCert) {
   EXPECT_FALSE(WasTrustAnchorUsedAndReset());
 }
 
-TEST_F(CertVerifierWithTrustAnchorsTest, VerifyTrustedCert) {
+TEST_P(CertVerifierWithTrustAnchorsTest, VerifyTrustedCert) {
   // Make the database trust |test_ca_cert_|.
   net::NSSCertDatabase::ImportCertFailureList failure_list;
   ASSERT_TRUE(test_cert_db_->ImportCACerts(
@@ -191,7 +205,7 @@ TEST_F(CertVerifierWithTrustAnchorsTest, VerifyTrustedCert) {
   EXPECT_FALSE(WasTrustAnchorUsedAndReset());
 }
 
-TEST_F(CertVerifierWithTrustAnchorsTest, VerifyUsingAdditionalTrustAnchor) {
+TEST_P(CertVerifierWithTrustAnchorsTest, VerifyUsingAdditionalTrustAnchor) {
   ASSERT_TRUE(SupportsAdditionalTrustAnchors());
 
   // |test_server_cert_| is untrusted, so Verify() fails.
@@ -259,7 +273,7 @@ TEST_F(CertVerifierWithTrustAnchorsTest, VerifyUsingAdditionalTrustAnchor) {
   EXPECT_FALSE(WasTrustAnchorUsedAndReset());
 }
 
-TEST_F(CertVerifierWithTrustAnchorsTest,
+TEST_P(CertVerifierWithTrustAnchorsTest,
        VerifyUsesAdditionalTrustAnchorsAfterConfigChange) {
   ASSERT_TRUE(SupportsAdditionalTrustAnchors());
 

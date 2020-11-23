@@ -23,11 +23,11 @@
 #include "third_party/base/numerics/safe_math.h"
 #include "third_party/base/ptr_util.h"
 
-#define FXCODEC_BLOCK_SIZE 4096
-
 namespace fxcodec {
 
 namespace {
+
+constexpr size_t kBlockSize = 4096;
 
 #ifdef PDF_ENABLE_XFA_PNG
 #if defined(OS_MACOSX)
@@ -73,7 +73,7 @@ void ProgressiveDecoder::CFXCODEC_WeightTable::Calc(int dest_len, int src_len) {
       if (pixel_weights.m_SrcStart == pixel_weights.m_SrcEnd) {
         pixel_weights.m_Weights[0] = 65536;
       } else {
-        pixel_weights.m_Weights[1] = FXSYS_round(
+        pixel_weights.m_Weights[1] = FXSYS_roundf(
             (float)(src_pos - pixel_weights.m_SrcStart - 1.0f / 2) * 65536);
         pixel_weights.m_Weights[0] = 65536 - pixel_weights.m_Weights[1];
       }
@@ -121,7 +121,7 @@ void ProgressiveDecoder::CFXCODEC_WeightTable::Calc(int dest_len, int src_len) {
         break;
       }
       pixel_weights.m_Weights[j - start_i] =
-          FXSYS_round((float)(weight * 65536));
+          FXSYS_roundf((float)(weight * 65536));
     }
   }
 }
@@ -139,7 +139,7 @@ void ProgressiveDecoder::CFXCODEC_HorzTable::Calc(int dest_len, int src_len) {
     int pre_dest_col = 0;
     for (int src_col = 0; src_col < src_len; src_col++) {
       double dest_col_f = src_col * scale;
-      int dest_col = FXSYS_round((float)dest_col_f);
+      int dest_col = FXSYS_roundf((float)dest_col_f);
       PixelWeight* pWeight = GetPixelWeight(dest_col);
       pWeight->m_SrcStart = pWeight->m_SrcEnd = src_col;
       pWeight->m_Weights[0] = 65536;
@@ -161,8 +161,8 @@ void ProgressiveDecoder::CFXCODEC_HorzTable::Calc(int dest_len, int src_len) {
         pWeight->m_SrcStart = src_col - 1;
         pWeight->m_SrcEnd = src_col;
         pWeight->m_Weights[0] =
-            FXSYS_round((float)(((float)dest_col - (float)dest_col_index) /
-                                (float)dest_col_len * 65536));
+            FXSYS_roundf((float)(((float)dest_col - (float)dest_col_index) /
+                                 (float)dest_col_len * 65536));
         pWeight->m_Weights[1] = 65536 - pWeight->m_Weights[0];
       }
       pre_dest_col = dest_col;
@@ -171,7 +171,7 @@ void ProgressiveDecoder::CFXCODEC_HorzTable::Calc(int dest_len, int src_len) {
   }
   for (int dest_col = 0; dest_col < dest_len; dest_col++) {
     double src_col_f = dest_col / scale;
-    int src_col = FXSYS_round((float)src_col_f);
+    int src_col = FXSYS_roundf((float)src_col_f);
     PixelWeight* pWeight = GetPixelWeight(dest_col);
     pWeight->m_SrcStart = pWeight->m_SrcEnd = src_col;
     pWeight->m_Weights[0] = 65536;
@@ -229,7 +229,7 @@ void ProgressiveDecoder::CFXCODEC_VertTable::Calc(int dest_len, int src_len) {
       pWeight->m_SrcStart = start_step;
       pWeight->m_SrcEnd = end_step;
       pWeight->m_Weights[0] =
-          FXSYS_round((float)(end_step - dest_row) / (float)length * 65536);
+          FXSYS_roundf((float)(end_step - dest_row) / (float)length * 65536);
       pWeight->m_Weights[1] = 65536 - pWeight->m_Weights[0];
     }
   }
@@ -566,11 +566,13 @@ bool ProgressiveDecoder::BmpInputImagePositionBuf(uint32_t rcd_pos) {
 }
 
 void ProgressiveDecoder::BmpReadScanline(uint32_t row_num,
-                                         const std::vector<uint8_t>& row_buf) {
+                                         pdfium::span<const uint8_t> row_buf) {
   RetainPtr<CFX_DIBitmap> pDIBitmap = m_pDeviceBitmap;
   ASSERT(pDIBitmap);
-  std::copy(row_buf.begin(), row_buf.begin() + m_ScanlineSize,
-            m_pDecodeBuf.get());
+
+  pdfium::span<const uint8_t> src_span = row_buf.first(m_ScanlineSize);
+  std::copy(std::begin(src_span), std::end(src_span), m_pDecodeBuf.get());
+
   int src_top = m_clipBox.top;
   int src_bottom = m_clipBox.bottom;
   int dest_top = m_startY;
@@ -740,16 +742,15 @@ bool ProgressiveDecoder::BmpDetectImageTypeInBuffer(
   }
 
   uint32_t pitch = 0;
-  uint32_t neededData = 0;
+  size_t neededData = 0;
   if (!CFX_DIBitmap::CalculatePitchAndSize(m_SrcWidth, m_SrcHeight, format,
                                            &pitch, &neededData)) {
     m_status = FXCODEC_STATUS_ERR_FORMAT;
     return false;
   }
 
-  uint32_t availableData = m_pCodecMemory->GetSize() > m_offSet
-                               ? m_pCodecMemory->GetSize() - m_offSet
-                               : 0;
+  size_t availableData = m_pFile->GetSize() - m_offSet +
+                           pBmpModule->GetAvailInput(pBmpContext.get());
   if (neededData > availableData) {
     m_status = FXCODEC_STATUS_ERR_FORMAT;
     return false;
@@ -798,29 +799,25 @@ FXCODEC_STATUS ProgressiveDecoder::BmpContinueDecode() {
     m_status = FXCODEC_STATUS_ERR_MEMORY;
     return m_status;
   }
-  while (true) {
-    BmpModule::Status read_res = pBmpModule->LoadImage(m_pBmpContext.get());
-    while (read_res == BmpModule::Status::kContinue) {
-      FXCODEC_STATUS error_status = FXCODEC_STATUS_DECODE_FINISH;
-      if (!BmpReadMoreData(pBmpModule, m_pBmpContext.get(), error_status)) {
-        m_pDeviceBitmap = nullptr;
-        m_pFile = nullptr;
-        m_status = error_status;
-        return m_status;
-      }
-      read_res = pBmpModule->LoadImage(m_pBmpContext.get());
-    }
-    if (read_res == BmpModule::Status::kSuccess) {
+
+  BmpModule::Status read_res = pBmpModule->LoadImage(m_pBmpContext.get());
+  while (read_res == BmpModule::Status::kContinue) {
+    FXCODEC_STATUS error_status = FXCODEC_STATUS_DECODE_FINISH;
+    if (!BmpReadMoreData(pBmpModule, m_pBmpContext.get(), error_status)) {
       m_pDeviceBitmap = nullptr;
       m_pFile = nullptr;
-      m_status = FXCODEC_STATUS_DECODE_FINISH;
+      m_status = error_status;
       return m_status;
     }
-    m_pDeviceBitmap = nullptr;
-    m_pFile = nullptr;
-    m_status = FXCODEC_STATUS_ERROR;
-    return m_status;
+    read_res = pBmpModule->LoadImage(m_pBmpContext.get());
   }
+
+  m_pDeviceBitmap = nullptr;
+  m_pFile = nullptr;
+  m_status = read_res == BmpModule::Status::kSuccess
+                 ? FXCODEC_STATUS_DECODE_FINISH
+                 : FXCODEC_STATUS_ERROR;
+  return m_status;
 }
 #endif  // PDF_ENABLE_XFA_BMP
 
@@ -1235,8 +1232,7 @@ bool ProgressiveDecoder::PngDetectImageTypeInBuffer(
   }
   while (pPngModule->Input(m_pPngContext.get(), m_pCodecMemory, pAttribute)) {
     uint32_t remain_size = static_cast<uint32_t>(m_pFile->GetSize()) - m_offSet;
-    uint32_t input_size =
-        remain_size > FXCODEC_BLOCK_SIZE ? FXCODEC_BLOCK_SIZE : remain_size;
+    uint32_t input_size = std::min<uint32_t>(remain_size, kBlockSize);
     if (input_size == 0) {
       m_pPngContext.reset();
       m_status = FXCODEC_STATUS_ERR_FORMAT;
@@ -1316,8 +1312,7 @@ FXCODEC_STATUS ProgressiveDecoder::PngContinueDecode() {
   }
   while (true) {
     uint32_t remain_size = (uint32_t)m_pFile->GetSize() - m_offSet;
-    uint32_t input_size =
-        remain_size > FXCODEC_BLOCK_SIZE ? FXCODEC_BLOCK_SIZE : remain_size;
+    uint32_t input_size = std::min<uint32_t>(remain_size, kBlockSize);
     if (input_size == 0) {
       m_pPngContext.reset();
       m_pDeviceBitmap = nullptr;
@@ -1525,7 +1520,7 @@ bool ProgressiveDecoder::DetectImageType(FXCODEC_IMAGE_TYPE imageType,
     return TiffDetectImageTypeFromFile(pAttribute);
 #endif  // PDF_ENABLE_XFA_TIFF
 
-  size_t size = std::min<size_t>(m_pFile->GetSize(), FXCODEC_BLOCK_SIZE);
+  size_t size = std::min<size_t>(m_pFile->GetSize(), kBlockSize);
   m_pCodecMemory = pdfium::MakeRetain<CFX_CodecMemory>(size);
   m_offSet = 0;
   if (!m_pFile->ReadBlockAtOffset(m_pCodecMemory->GetBuffer(), m_offSet,
@@ -1582,7 +1577,7 @@ bool ProgressiveDecoder::ReadMoreData(ModuleIface* pModule,
     // Increase the buffer size so that there might be enough contiguous
     // bytes to allow whatever operation is having difficulty to succeed.
     dwBytesToFetchFromFile =
-        std::min<uint32_t>(dwBytesToFetchFromFile, FXCODEC_BLOCK_SIZE);
+        std::min<uint32_t>(dwBytesToFetchFromFile, kBlockSize);
     size_t dwNewSize = m_pCodecMemory->GetSize() + dwBytesToFetchFromFile;
     if (!m_pCodecMemory->TryResize(dwNewSize)) {
       err_status = FXCODEC_STATUS_ERR_MEMORY;

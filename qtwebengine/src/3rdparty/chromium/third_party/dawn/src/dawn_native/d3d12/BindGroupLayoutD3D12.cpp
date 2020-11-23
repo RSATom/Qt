@@ -24,26 +24,31 @@ namespace dawn_native { namespace d3d12 {
         const auto& groupInfo = GetBindingInfo();
 
         for (uint32_t binding : IterateBitSet(groupInfo.mask)) {
+            // For dynamic resources, Dawn uses root descriptor in D3D12 backend.
+            // So there is no need to allocate the descriptor from descriptor heap. Skip counting
+            // dynamic resources for calculating size of descriptor heap.
+            if (groupInfo.hasDynamicOffset[binding]) {
+                continue;
+            }
+
             switch (groupInfo.types[binding]) {
-                case dawn::BindingType::UniformBuffer:
+                case wgpu::BindingType::UniformBuffer:
                     mBindingOffsets[binding] = mDescriptorCounts[CBV]++;
                     break;
-                case dawn::BindingType::StorageBuffer:
+                case wgpu::BindingType::StorageBuffer:
                     mBindingOffsets[binding] = mDescriptorCounts[UAV]++;
                     break;
-                case dawn::BindingType::SampledTexture:
+                case wgpu::BindingType::SampledTexture:
                     mBindingOffsets[binding] = mDescriptorCounts[SRV]++;
                     break;
-                case dawn::BindingType::Sampler:
+                case wgpu::BindingType::Sampler:
                     mBindingOffsets[binding] = mDescriptorCounts[Sampler]++;
                     break;
 
-                case dawn::BindingType::StorageTexture:
-                case dawn::BindingType::ReadonlyStorageBuffer:
+                case wgpu::BindingType::StorageTexture:
+                case wgpu::BindingType::ReadonlyStorageBuffer:
                     UNREACHABLE();
                     break;
-
-                    // TODO(shaobo.yan@intel.com): Implement dynamic buffer offset.
             }
         }
 
@@ -89,22 +94,41 @@ namespace dawn_native { namespace d3d12 {
         descriptorOffsets[Sampler] = 0;
 
         for (uint32_t binding : IterateBitSet(groupInfo.mask)) {
+            if (groupInfo.hasDynamicOffset[binding]) {
+                // Dawn is using values in mBindingOffsets to decide register number in HLSL.
+                // Root descriptor needs to set this value to set correct register number in
+                // generated HLSL shader.
+                switch (groupInfo.types[binding]) {
+                    case wgpu::BindingType::UniformBuffer:
+                    case wgpu::BindingType::StorageBuffer:
+                        mBindingOffsets[binding] = baseRegister++;
+                        break;
+                    case wgpu::BindingType::SampledTexture:
+                    case wgpu::BindingType::Sampler:
+                    case wgpu::BindingType::StorageTexture:
+                    case wgpu::BindingType::ReadonlyStorageBuffer:
+                        UNREACHABLE();
+                        break;
+                }
+                continue;
+            }
+
             switch (groupInfo.types[binding]) {
-                case dawn::BindingType::UniformBuffer:
+                case wgpu::BindingType::UniformBuffer:
                     mBindingOffsets[binding] += descriptorOffsets[CBV];
                     break;
-                case dawn::BindingType::StorageBuffer:
+                case wgpu::BindingType::StorageBuffer:
                     mBindingOffsets[binding] += descriptorOffsets[UAV];
                     break;
-                case dawn::BindingType::SampledTexture:
+                case wgpu::BindingType::SampledTexture:
                     mBindingOffsets[binding] += descriptorOffsets[SRV];
                     break;
-                case dawn::BindingType::Sampler:
+                case wgpu::BindingType::Sampler:
                     mBindingOffsets[binding] += descriptorOffsets[Sampler];
                     break;
 
-                case dawn::BindingType::StorageTexture:
-                case dawn::BindingType::ReadonlyStorageBuffer:
+                case wgpu::BindingType::StorageTexture:
+                case wgpu::BindingType::ReadonlyStorageBuffer:
                     UNREACHABLE();
                     break;
 

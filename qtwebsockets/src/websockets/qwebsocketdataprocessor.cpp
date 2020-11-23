@@ -84,13 +84,14 @@ QWebSocketDataProcessor::QWebSocketDataProcessor(QObject *parent) :
     m_textMessage(),
     m_payloadLength(0),
     m_pConverterState(nullptr),
-    m_pTextCodec(QTextCodec::codecForName("UTF-8"))
+    m_pTextCodec(QTextCodec::codecForName("UTF-8")),
+    m_waitTimer(new QTimer(this))
 {
     clear();
     // initialize the internal timeout timer
-    waitTimer.setInterval(5000);
-    waitTimer.setSingleShot(true);
-    waitTimer.callOnTimeout(this, &QWebSocketDataProcessor::timeout);
+    m_waitTimer->setInterval(5000);
+    m_waitTimer->setSingleShot(true);
+    m_waitTimer->callOnTimeout(this, &QWebSocketDataProcessor::timeout);
 }
 
 /*!
@@ -103,6 +104,33 @@ QWebSocketDataProcessor::~QWebSocketDataProcessor()
         delete m_pConverterState;
         m_pConverterState = nullptr;
     }
+}
+
+void QWebSocketDataProcessor::setMaxAllowedFrameSize(quint64 maxAllowedFrameSize)
+{
+    frame.setMaxAllowedFrameSize(maxAllowedFrameSize);
+}
+
+quint64 QWebSocketDataProcessor::maxAllowedFrameSize() const
+{
+    return frame.maxAllowedFrameSize();
+}
+
+/*!
+    \internal
+ */
+void QWebSocketDataProcessor::setMaxAllowedMessageSize(quint64 maxAllowedMessageSize)
+{
+    if (maxAllowedMessageSize <= maxMessageSize())
+        m_maxAllowedMessageSize = maxAllowedMessageSize;
+}
+
+/*!
+    \internal
+ */
+quint64 QWebSocketDataProcessor::maxAllowedMessageSize() const
+{
+    return m_maxAllowedMessageSize;
 }
 
 /*!
@@ -118,7 +146,7 @@ quint64 QWebSocketDataProcessor::maxMessageSize()
  */
 quint64 QWebSocketDataProcessor::maxFrameSize()
 {
-    return MAX_FRAME_SIZE_IN_BYTES;
+   return QWebSocketFrame::maxFrameSize();
 }
 
 /*!
@@ -136,8 +164,8 @@ bool QWebSocketDataProcessor::process(QIODevice *pIoDevice)
         if (!frame.isDone()) {
             // waiting for more data available
             QObject::connect(pIoDevice, &QIODevice::readyRead,
-                             &waitTimer, &QTimer::stop, Qt::UniqueConnection);
-            waitTimer.start();
+                             m_waitTimer, &QTimer::stop, Qt::UniqueConnection);
+            m_waitTimer->start();
             return false;
         } else if (Q_LIKELY(frame.isValid())) {
             if (frame.isControlFrame()) {
@@ -167,7 +195,7 @@ bool QWebSocketDataProcessor::process(QIODevice *pIoDevice)
                         ? quint64(m_textMessage.length())
                         : quint64(m_binaryMessage.length());
                 if (Q_UNLIKELY((messageLength + quint64(frame.payload().length())) >
-                               MAX_MESSAGE_SIZE_IN_BYTES)) {
+                               maxAllowedMessageSize())) {
                     clear();
                     Q_EMIT errorEncountered(QWebSocketProtocol::CloseCodeTooMuchData,
                                             tr("Received message is too big."));

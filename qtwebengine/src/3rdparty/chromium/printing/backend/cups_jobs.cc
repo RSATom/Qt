@@ -35,6 +35,8 @@ const char kPrinterMakeAndModel[] = "printer-make-and-model";
 const char kIppVersionsSupported[] = "ipp-versions-supported";
 const char kIppFeaturesSupported[] = "ipp-features-supported";
 const char kDocumentFormatSupported[] = "document-format-supported";
+const char kPwgRasterDocumentResolutionSupported[] =
+    "pwg-raster-document-resolution-supported";
 
 // job attributes
 const char kJobUri[] = "job-uri";
@@ -108,11 +110,9 @@ constexpr int kHttpConnectTimeoutMs = 1000;
 constexpr std::array<const char* const, 3> kPrinterAttributes{
     {kPrinterState, kPrinterStateReasons, kPrinterStateMessage}};
 
-constexpr std::array<const char* const, 4> kPrinterInfo{
+constexpr std::array<const char* const, 5> kPrinterInfo{
     {kPrinterMakeAndModel, kIppVersionsSupported, kIppFeaturesSupported,
-     kDocumentFormatSupported}};
-
-using ScopedHttpPtr = std::unique_ptr<http_t, HttpDeleter>;
+     kDocumentFormatSupported, kPwgRasterDocumentResolutionSupported}};
 
 // Converts an IPP attribute |attr| to the appropriate JobState enum.
 CupsJob::JobState ToJobState(ipp_attribute_t* attr) {
@@ -145,40 +145,40 @@ CupsJob::JobState ToJobState(ipp_attribute_t* attr) {
 const std::map<base::StringPiece, PReason>& GetLabelToReason() {
   static const std::map<base::StringPiece, PReason> kLabelToReason =
       std::map<base::StringPiece, PReason>{
-          {kNone, PReason::NONE},
-          {kMediaNeeded, PReason::MEDIA_NEEDED},
-          {kMediaJam, PReason::MEDIA_JAM},
-          {kMovingToPaused, PReason::MOVING_TO_PAUSED},
-          {kPaused, PReason::PAUSED},
-          {kShutdown, PReason::SHUTDOWN},
-          {kConnectingToDevice, PReason::CONNECTING_TO_DEVICE},
-          {kTimedOut, PReason::TIMED_OUT},
-          {kStopping, PReason::STOPPING},
-          {kStoppedPartly, PReason::STOPPED_PARTLY},
-          {kTonerLow, PReason::TONER_LOW},
-          {kTonerEmpty, PReason::TONER_EMPTY},
-          {kSpoolAreaFull, PReason::SPOOL_AREA_FULL},
-          {kCoverOpen, PReason::COVER_OPEN},
-          {kInterlockOpen, PReason::INTERLOCK_OPEN},
-          {kDoorOpen, PReason::DOOR_OPEN},
-          {kInputTrayMissing, PReason::INPUT_TRAY_MISSING},
-          {kMediaLow, PReason::MEDIA_LOW},
-          {kMediaEmpty, PReason::MEDIA_EMPTY},
-          {kOutputTrayMissing, PReason::OUTPUT_TRAY_MISSING},
-          {kOutputAreaAlmostFull, PReason::OUTPUT_AREA_ALMOST_FULL},
-          {kOutputAreaFull, PReason::OUTPUT_AREA_FULL},
-          {kMarkerSupplyLow, PReason::MARKER_SUPPLY_LOW},
-          {kMarkerSupplyEmpty, PReason::MARKER_SUPPLY_EMPTY},
-          {kMarkerWasteAlmostFull, PReason::MARKER_WASTE_ALMOST_FULL},
-          {kMarkerWasteFull, PReason::MARKER_WASTE_FULL},
-          {kFuserOverTemp, PReason::FUSER_OVER_TEMP},
-          {kFuserUnderTemp, PReason::FUSER_UNDER_TEMP},
-          {kOpcNearEol, PReason::OPC_NEAR_EOL},
-          {kOpcLifeOver, PReason::OPC_LIFE_OVER},
-          {kDeveloperLow, PReason::DEVELOPER_LOW},
-          {kDeveloperEmpty, PReason::DEVELOPER_EMPTY},
-          {kInterpreterResourceUnavailable,
-           PReason::INTERPRETER_RESOURCE_UNAVAILABLE},
+        {kNone, PReason::NONE},
+        {kMediaNeeded, PReason::MEDIA_NEEDED},
+        {kMediaJam, PReason::MEDIA_JAM},
+        {kMovingToPaused, PReason::MOVING_TO_PAUSED},
+        {kPaused, PReason::PAUSED},
+        {kShutdown, PReason::SHUTDOWN},
+        {kConnectingToDevice, PReason::CONNECTING_TO_DEVICE},
+        {kTimedOut, PReason::TIMED_OUT},
+        {kStopping, PReason::STOPPING},
+        {kStoppedPartly, PReason::STOPPED_PARTLY},
+        {kTonerLow, PReason::TONER_LOW},
+        {kTonerEmpty, PReason::TONER_EMPTY},
+        {kSpoolAreaFull, PReason::SPOOL_AREA_FULL},
+        {kCoverOpen, PReason::COVER_OPEN},
+        {kInterlockOpen, PReason::INTERLOCK_OPEN},
+        {kDoorOpen, PReason::DOOR_OPEN},
+        {kInputTrayMissing, PReason::INPUT_TRAY_MISSING},
+        {kMediaLow, PReason::MEDIA_LOW},
+        {kMediaEmpty, PReason::MEDIA_EMPTY},
+        {kOutputTrayMissing, PReason::OUTPUT_TRAY_MISSING},
+        {kOutputAreaAlmostFull, PReason::OUTPUT_AREA_ALMOST_FULL},
+        {kOutputAreaFull, PReason::OUTPUT_AREA_FULL},
+        {kMarkerSupplyLow, PReason::MARKER_SUPPLY_LOW},
+        {kMarkerSupplyEmpty, PReason::MARKER_SUPPLY_EMPTY},
+        {kMarkerWasteAlmostFull, PReason::MARKER_WASTE_ALMOST_FULL},
+        {kMarkerWasteFull, PReason::MARKER_WASTE_FULL},
+        {kFuserOverTemp, PReason::FUSER_OVER_TEMP},
+        {kFuserUnderTemp, PReason::FUSER_UNDER_TEMP},
+        {kOpcNearEol, PReason::OPC_NEAR_EOL},
+        {kOpcLifeOver, PReason::OPC_LIFE_OVER},
+        {kDeveloperLow, PReason::DEVELOPER_LOW},
+        {kDeveloperEmpty, PReason::DEVELOPER_EMPTY},
+        {kInterpreterResourceUnavailable,
+          PReason::INTERPRETER_RESOURCE_UNAVAILABLE},
       };
   return kLabelToReason;
 }
@@ -322,11 +322,26 @@ bool ParsePrinterInfo(ipp_t* response, PrinterInfo* printer_info) {
       printer_info->ipp_everywhere = base::Contains(features, kIppEverywhere);
     } else if (name == base::StringPiece(kDocumentFormatSupported)) {
       ParseCollection(attr, &printer_info->document_formats);
+    } else if (name ==
+               base::StringPiece(kPwgRasterDocumentResolutionSupported)) {
+      printer_info->supports_pwg_raster_resolution = ippGetCount(attr) > 0;
     }
   }
 
-  return !printer_info->make_and_model.empty() &&
-         !printer_info->ipp_versions.empty();
+  if (printer_info->ipp_versions.empty()) {
+    // ipp-versions-supported is missing from the response.  This is IPP 1.0.
+    printer_info->ipp_versions.push_back(base::Version({1, 0}));
+  }
+
+  // All IPP versions require make and model to be populated so we use it to
+  // verify that we parsed the response.
+  return !printer_info->make_and_model.empty();
+}
+
+// Returns true if |status| represents a complete failure in the IPP request.
+bool StatusError(ipp_status_e status) {
+  return status != IPP_STATUS_OK &&
+         status != IPP_STATUS_OK_IGNORED_OR_SUBSTITUTED;
 }
 
 }  // namespace
@@ -455,7 +470,7 @@ PrinterQueryResult GetPrinterInfo(const std::string& address,
   ScopedIppPtr response =
       GetPrinterAttributes(http.get(), printer_uri, resource,
                            kPrinterInfo.size(), kPrinterInfo.data(), &status);
-  if (status != IPP_STATUS_OK || response.get() == nullptr) {
+  if (StatusError(status) || response.get() == nullptr) {
     LOG(WARNING) << "Get attributes failure: " << status;
     return PrinterQueryResult::UNKNOWN_FAILURE;
   }

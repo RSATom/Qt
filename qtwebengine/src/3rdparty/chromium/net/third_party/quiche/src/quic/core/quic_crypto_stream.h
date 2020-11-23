@@ -5,6 +5,7 @@
 #ifndef QUICHE_QUIC_CORE_QUIC_CRYPTO_STREAM_H_
 #define QUICHE_QUIC_CORE_QUIC_CRYPTO_STREAM_H_
 
+#include <array>
 #include <cstddef>
 #include <string>
 
@@ -80,6 +81,13 @@ class QUIC_EXPORT_PRIVATE QuicCryptoStream : public QuicStream {
   // Provides the message parser to use when data is received on this stream.
   virtual CryptoMessageParser* crypto_message_parser() = 0;
 
+  // Called when a packet of encryption |level| has been successfully decrypted.
+  virtual void OnPacketDecrypted(EncryptionLevel level) = 0;
+
+  // Returns the maximum number of bytes that can be buffered at a particular
+  // encryption level |level|.
+  virtual size_t BufferSizeLimitForLevel(EncryptionLevel level) const;
+
   // Called when the underlying QuicConnection has agreed upon a QUIC version to
   // use.
   virtual void OnSuccessfulVersionNegotiation(const ParsedQuicVersion& version);
@@ -130,6 +138,12 @@ class QUIC_EXPORT_PRIVATE QuicCryptoStream : public QuicStream {
   // encryption level, offset, and length in |crypto_frame|.
   void RetransmitData(QuicCryptoFrame* crypto_frame);
 
+  // Called to write buffered crypto frames.
+  void WriteBufferedCryptoFrames();
+
+  // Returns true if there is buffered crypto frames.
+  bool HasBufferedCryptoFrames() const;
+
   // Returns true if any portion of the data at encryption level |level|
   // starting at |offset| for |length| bytes is outstanding.
   bool IsFrameOutstanding(EncryptionLevel level,
@@ -145,7 +159,7 @@ class QUIC_EXPORT_PRIVATE QuicCryptoStream : public QuicStream {
   // levels. Some of the state for the single logical crypto stream is split
   // across encryption levels, and a CryptoSubstream is used to manage that
   // state for a particular encryption level.
-  struct CryptoSubstream {
+  struct QUIC_EXPORT_PRIVATE CryptoSubstream {
     CryptoSubstream(QuicCryptoStream* crypto_stream, EncryptionLevel);
 
     QuicStreamSequencer sequencer;
@@ -165,7 +179,7 @@ class QUIC_EXPORT_PRIVATE QuicCryptoStream : public QuicStream {
 
   // Keeps state for data sent/received in CRYPTO frames at each encryption
   // level.
-  CryptoSubstream substreams_[NUM_ENCRYPTION_LEVELS];
+  std::array<CryptoSubstream, NUM_ENCRYPTION_LEVELS> substreams_;
 };
 
 }  // namespace quic

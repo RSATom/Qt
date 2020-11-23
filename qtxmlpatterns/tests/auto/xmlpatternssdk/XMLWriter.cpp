@@ -328,16 +328,7 @@ bool XMLWriter::startDocument()
     return true;
 }
 
-bool XMLWriter::startElement(const QString &/*namespaceURI*/,
-                             const QString &/*localName*/,
-                             const QString &qName,
-                             const QXmlAttributes &atts)
-{
-    return startElement(qName, atts);
-}
-
-bool XMLWriter::startElement(const QString &qName,
-                             const QXmlAttributes &atts)
+bool XMLWriter::startElement(const QString &qName, const QXmlStreamAttributes &atts)
 {
     Q_ASSERT_X(!d->insideCDATA, Q_FUNC_INFO,
                "Only characters() can be received when inside CDATA.");
@@ -377,30 +368,21 @@ bool XMLWriter::startElement(const QString &qName,
     }
     d->namespaces.clear();
 
-    const int c = atts.count();
+    for (const auto &attr : atts) {
+        const auto qName = attr.qualifiedName().toString();
 
-    /* Serialize attributes. */
-    for(int i = 0; i != c; ++i)
-    {
-        d->validateQName(atts.qName(i));
-        d->verifyNS(atts.qName(i));
+        d->validateQName(qName);
+        d->verifyNS(qName);
 
         serialize(' ');
-        serialize(atts.qName(i));
+        serialize(qName);
         serialize("=\"");
-        serialize(d->escapeAttributeContent(atts.value(i)));
+        serialize(d->escapeAttributeContent(attr.value().toString()));
         serialize('"');
     }
 
     d->hasContentStack.push(false);
     return true;
-}
-
-bool XMLWriter::endElement(const QString &/*namespaceURI*/,
-                           const QString &/*localName*/,
-                           const QString &qName)
-{
-    return endElement(qName);
 }
 
 bool XMLWriter::endElement(const QString &qName)
@@ -609,21 +591,6 @@ QString XMLWriter::errorString() const
 bool XMLWriter::ignorableWhitespace(const QString &ch)
 {
     return characters(ch);
-}
-
-bool XMLWriter::endPrefixMapping(const QString &)
-{
-    /* Again, should we do something with this? */
-    return true;
-}
-
-bool XMLWriter::skippedEntity(const QString &)
-{
-    return true;
-}
-
-void XMLWriter::setDocumentLocator(QXmlLocator *)
-{
 }
 
 QIODevice *XMLWriter::device() const

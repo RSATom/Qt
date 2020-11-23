@@ -83,7 +83,6 @@
 
 /*!
     \page richtext-structure.html
-    \contentspage richtext.html Contents
     \previouspage Rich Text Processing
     \nextpage The QTextCursor Interface
 
@@ -349,7 +348,6 @@
 
 /*!
     \page richtext-cursor.html
-    \contentspage richtext.html Contents
     \previouspage Rich Text Document Structure
     \nextpage Document Layouts
 
@@ -656,7 +654,6 @@
 
 /*!
     \page richtext-layouts.html
-    \contentspage richtext.html Contents
     \previouspage The QTextCursor Interface
     \nextpage Common Rich Text Editing Tasks
 
@@ -707,7 +704,6 @@
 
     /*!
     \page richtext-common-tasks.html
-    \contentspage richtext.html Contents
     \previouspage Document Layouts
     \nextpage Advanced Rich Text Processing
 
@@ -800,7 +796,6 @@
 
 /*!
     \page richtext-advanced-processing.html
-    \contentspage richtext.html Contents
     \previouspage Common Rich Text Editing Tasks
     \nextpage Supported HTML Subset
 
@@ -849,7 +844,6 @@
     \title Supported HTML Subset
     \brief Describes the support for HTML markup in text widgets.
 
-    \contentspage richtext.html Contents
     \previouspage Common Rich Text Editing Tasks
 
     Qt's text widgets are able to display rich text, specified using a subset of \l {http://www.w3.org/TR/html401/}{HTML 4}
@@ -1197,16 +1191,16 @@
             \li none | dotted | dashed | dot-dash | dot-dot-dash | solid | double | groove | ridge | inset | outset
             \li Border style for text tables and table cells.
     \row    \li \c border-top-style
-            \li <color>
+            \li <border-style>
             \li Top border style for table cells.
     \row    \li \c border-bottom-style
-            \li <color>
+            \li <border-style>
             \li Bottom border style for table cells.
     \row    \li \c border-left-style
-            \li <color>
+            \li <border-style>
             \li Left border style for table cells.
     \row    \li \c border-right-style
-            \li <color>
+            \li <border-style>
             \li Right border style for table cells.
     \row    \li \c border-width
             \li <width>px

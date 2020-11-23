@@ -28,7 +28,6 @@
 /*!
     \page 13-qdoc-commands-topics.html
     \previouspage Command Index
-    \contentspage QDoc Manual
     \nextpage Context Commands
 
     \title Topic Commands
@@ -665,6 +664,8 @@
                ...
            \endquotation
 
+    See also \l {inheaderfile-command}{\\inheaderfile}.
+
     \target macro-command
     \section1 \\macro
 
@@ -943,7 +944,7 @@
 
     \li api - This is the type of page used for C++ class references and
     QML type references. You should never use this one for the pages
-    you write, because this one is reserved for qdoc.
+    you write, because this one is reserved for QDoc.
 
     \endlist
 
@@ -1409,6 +1410,40 @@
     {\\instantiates} to specify that a Transform is instantiated by
     the C++ class QGraphicsTransform. A \\qmltype comment should
 
+    \target typealias-command
+    \section1 \\typealias
+
+    The \\typealias command is similar to \l {typedef-command}{\\typedef},
+    but specific to documenting a C++ type alias:
+
+    \code
+    class Foo
+    {
+    public:
+        using ptr = void*;
+    // ...
+    }
+    \endcode
+
+    This can be documented as
+
+    \badcode *
+    /\1!
+        \typealias Foo::ptr
+    \1/
+    \endcode
+
+    QDoc will automatically generate a sentence in the documentation describing
+    the alias:
+
+    \quotation
+    This is a type alias for \c {void*}.
+    \endquotation
+
+    The \\typealias command was introduced in QDoc 5.15.
+
+    See also \l {typedef-command}{\\typedef}.
+
     \target typedef-command
     \section1 \\typedef
 
@@ -1453,7 +1488,7 @@
             void myMsgHandler(QtMsgType, const char *);
         \ endcode
 
-        \sa QtMsgType, qInstallMsgHandler()
+        \sa QtMsgType, qInstallMessageHandler()
     * /
     \endcode
 
@@ -1473,7 +1508,7 @@
         </tt>
         \endraw
 
-        See also QtMsgType and qInstallMsgHandler().
+        See also QtMsgType and qInstallMessageHandler().
     \endquotation
 
     Other typedefs are located on the reference page for the class
@@ -1496,6 +1531,8 @@
 
         Qt-style synonym for QList::iterator.
     \endquotation
+
+    See also \l {typealias-command}{\\typealias}.
 
     \target variable-command
     \section1 \\variable

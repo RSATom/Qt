@@ -92,13 +92,6 @@ void QAbstractAspectPrivate::onEngineAboutToShutdown()
 }
 
 /*! \internal */
-void QAbstractAspectPrivate::registerBackendType(const QMetaObject &obj, const QBackendNodeMapperPtr &functor, bool supportsSyncing)
-{
-    const auto f = supportsSyncing ? QAbstractAspectPrivate::SupportsSyncing : QAbstractAspectPrivate::DefaultMapper;
-    m_backendCreatorFunctors.insert(&obj, {functor, f});
-}
-
-/*! \internal */
 void QAbstractAspectPrivate::unregisterBackendType(const QMetaObject &mo)
 {
     m_backendCreatorFunctors.remove(&mo);
@@ -190,6 +183,13 @@ void QAbstractAspect::registerBackendType(const QMetaObject &obj, const QBackend
     d->m_backendCreatorFunctors.insert(&obj, {functor, QAbstractAspectPrivate::DefaultMapper});
 }
 
+void QAbstractAspect::registerBackendType(const QMetaObject &obj, const QBackendNodeMapperPtr &functor, bool supportsSyncing)
+{
+    Q_D(QAbstractAspect);
+    const auto f = supportsSyncing ? QAbstractAspectPrivate::SupportsSyncing : QAbstractAspectPrivate::DefaultMapper;
+    d->m_backendCreatorFunctors.insert(&obj, {functor, f});
+}
+
 void QAbstractAspect::unregisterBackendType(const QMetaObject &obj)
 {
     Q_D(QAbstractAspect);
@@ -247,6 +247,8 @@ void QAbstractAspectPrivate::syncDirtyFrontEndSubNodes(const QVector<NodeRelatio
     for (const auto &nodeChange: qAsConst(nodes)) {
         auto getBackend = [this](QNode *node) -> std::tuple<QBackendNode *, bool> {
             const QMetaObject *metaObj = QNodePrivate::get(node)->m_typeInfo;
+            if (!metaObj)
+                return {};
             const BackendNodeMapperAndInfo backendNodeMapperInfo = mapperForNode(metaObj);
             const QBackendNodeMapperPtr backendNodeMapper = backendNodeMapperInfo.first;
 
@@ -510,7 +512,10 @@ QVector<QAspectJobPtr> QAbstractAspectPrivate::jobsToExecute(qint64 time)
 
 void QAbstractAspectPrivate::jobsDone()
 {
+}
 
+void QAbstractAspectPrivate::frameDone()
+{
 }
 
 /*!

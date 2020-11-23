@@ -52,6 +52,7 @@
 //
 
 #include <Qt3DRender/qrendertargetoutput.h>
+#include <Qt3DRender/private/qt3drender_global_p.h>
 #include <QVector>
 
 QT_BEGIN_NAMESPACE
@@ -59,7 +60,7 @@ QT_BEGIN_NAMESPACE
 namespace Qt3DRender {
 namespace Render {
 
-struct Attachment
+struct Q_3DRENDERSHARED_PRIVATE_EXPORT Attachment
 {
     Attachment()
         : m_mipLevel(0)
@@ -80,7 +81,7 @@ class RenderTarget;
 class RenderTargetSelector;
 class AttachmentManager;
 
-class AttachmentPack
+class Q_3DRENDERSHARED_PRIVATE_EXPORT AttachmentPack
 {
 public:
     AttachmentPack();
@@ -99,11 +100,11 @@ private:
     QVector<int> m_drawBuffers;
 };
 
-bool operator ==(const Attachment &a, const Attachment &b);
-bool operator !=(const Attachment &a, const Attachment &b);
+Q_3DRENDERSHARED_PRIVATE_EXPORT bool operator ==(const Attachment &a, const Attachment &b);
+Q_3DRENDERSHARED_PRIVATE_EXPORT bool operator !=(const Attachment &a, const Attachment &b);
 
-bool operator ==(const AttachmentPack &packA, const AttachmentPack &packB);
-bool operator !=(const AttachmentPack &packA, const AttachmentPack &packB);
+Q_3DRENDERSHARED_PRIVATE_EXPORT bool operator ==(const AttachmentPack &packA, const AttachmentPack &packB);
+Q_3DRENDERSHARED_PRIVATE_EXPORT bool operator !=(const AttachmentPack &packA, const AttachmentPack &packB);
 
 } // namespace Render
 } // namespace Qt3DRender

@@ -50,6 +50,7 @@ class CORE_EXPORT StyleSheetCollection
   friend class ImportedDocumentStyleSheetCollector;
 
   StyleSheetCollection();
+  virtual ~StyleSheetCollection() = default;
 
   const ActiveStyleSheetVector& ActiveAuthorStyleSheets() const {
     return active_author_style_sheets_;

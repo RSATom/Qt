@@ -74,7 +74,8 @@ GMonth::Ptr GMonth::fromLexical(const QString &lexical)
 
 GMonth::Ptr GMonth::fromDateTime(const QDateTime &dt)
 {
-    QDateTime result(QDate(DefaultYear, dt.date().month(), DefaultDay));
+    const QDate date(DefaultYear, dt.date().month(), DefaultDay);
+    QDateTime result(date.startOfDay());
     copyTimeSpec(dt, result);
 
     return GMonth::Ptr(new GMonth(result));

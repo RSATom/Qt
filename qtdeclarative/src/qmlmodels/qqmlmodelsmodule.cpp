@@ -40,24 +40,19 @@
 #include "qqmlmodelsmodule_p.h"
 #include <private/qtqmlmodelsglobal_p.h>
 
-#if QT_CONFIG(itemmodel)
-#include <QtCore/qitemselectionmodel.h>
-#endif
 #if QT_CONFIG(qml_list_model)
 #include <private/qqmllistmodel_p.h>
+#include <private/qqmllistmodelworkeragent_p.h>
 #endif
 #if QT_CONFIG(qml_delegate_model)
+#include <private/qqmlabstractdelegatecomponent_p.h>
 #include <private/qqmldelegatemodel_p.h>
-#include <private/qqmldelegatecomponent_p.h>
 #include <private/qquickpackage_p.h>
+#include <private/qqmlcomponentattached_p.h>
 #endif
 #if QT_CONFIG(qml_object_model)
 #include <private/qqmlobjectmodel_p.h>
 #include <private/qqmlinstantiator_p.h>
-#endif
-#if QT_CONFIG(qml_table_model)
-#include <private/qqmltablemodel_p.h>
-#include <private/qqmltablemodelcolumn_p.h>
 #endif
 
 QT_BEGIN_NAMESPACE
@@ -67,6 +62,8 @@ QT_BEGIN_NAMESPACE
 void QQmlModelsModule::registerQmlTypes()
 {
     // Don't add anything here. These are only for backwards compatibility.
+    // Don't convert these to qmlRegisterTypesAndRevisions!
+    // -> the annotations in the headers are for the QtQml.Models module <-
 #if QT_CONFIG(qml_object_model)
     qmlRegisterType<QQmlInstantiator>("QtQml", 2, 1, "Instantiator"); // Only available in >= 2.1
     qmlRegisterAnonymousType<QQmlInstanceModel>("QtQml", 2);
@@ -76,6 +73,8 @@ void QQmlModelsModule::registerQmlTypes()
 void QQmlModelsModule::registerQuickTypes()
 {
     // Don't add anything here. These are only for backwards compatibility.
+    // Don't convert these to qmlRegisterTypesAndRevisions!
+    // -> the annotations in the headers are for the QtQml.Models module <-
 
     const char uri[] = "QtQuick";
 
@@ -96,44 +95,5 @@ void QQmlModelsModule::registerQuickTypes()
 }
 
 #endif // QT_VERSION < QT_VERSION_CHECK(6, 0, 0)
-
-void QQmlModelsModule::defineModule()
-{
-    const char uri[] = "QtQml.Models";
-
-#if QT_CONFIG(qml_list_model)
-    qmlRegisterType<QQmlListElement>(uri, 2, 1, "ListElement");
-    qmlRegisterCustomType<QQmlListModel>(uri, 2, 1, "ListModel", new QQmlListModelParser);
-#endif
-#if QT_CONFIG(qml_delegate_model)
-    qmlRegisterType<QQmlDelegateModel>(uri, 2, 1, "DelegateModel");
-    qmlRegisterType<QQmlDelegateModelGroup>(uri, 2, 1, "DelegateModelGroup");
-    qmlRegisterType<QQuickPackage>(uri, 2, 14, "Package");
-#endif
-#if QT_CONFIG(qml_object_model)
-    qmlRegisterType<QQmlObjectModel>(uri, 2, 1, "ObjectModel");
-    qmlRegisterType<QQmlObjectModel,3>(uri, 2, 3, "ObjectModel");
-    qmlRegisterType<QQmlInstantiator>(uri, 2, 14, "Instantiator");
-    qmlRegisterAnonymousType<QQmlInstanceModel>(uri, 2);
-#endif
-#if QT_CONFIG(itemmodel)
-    qmlRegisterType<QItemSelectionModel>(uri, 2, 2, "ItemSelectionModel");
-#endif
-}
-
-void QQmlModelsModule::defineLabsModule()
-{
-    const char uri[] = "Qt.labs.qmlmodels";
-
-#if QT_CONFIG(qml_delegate_model)
-    qmlRegisterUncreatableType<QQmlAbstractDelegateComponent>(uri, 1, 0, "AbstractDelegateComponent", QQmlAbstractDelegateComponent::tr("Cannot create instance of abstract class AbstractDelegateComponent."));
-    qmlRegisterType<QQmlDelegateChooser>(uri, 1, 0, "DelegateChooser");
-    qmlRegisterType<QQmlDelegateChoice>(uri, 1, 0, "DelegateChoice");
-#endif
-#if QT_CONFIG(qml_table_model)
-    qmlRegisterType<QQmlTableModel>(uri, 1, 0, "TableModel");
-    qmlRegisterType<QQmlTableModelColumn>(uri, 1, 0, "TableModelColumn");
-#endif
-}
 
 QT_END_NAMESPACE

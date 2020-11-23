@@ -79,7 +79,7 @@ SendBufferCaptureJob::~SendBufferCaptureJob()
 // Called from SubmitRenderView while rendering
 void SendBufferCaptureJob::addRequest(QPair<Qt3DCore::QNodeId, QByteArray> request)
 {
-    Q_DJOB(SendBufferCaptureJob);
+    Q_D(SendBufferCaptureJob);
     QMutexLocker locker(&d->m_mutex);
     d->m_buffersToCapture.push_back(request);
 }
@@ -87,7 +87,7 @@ void SendBufferCaptureJob::addRequest(QPair<Qt3DCore::QNodeId, QByteArray> reque
 // Called by aspect thread jobs to execute (we may still be rendering at this point)
 bool SendBufferCaptureJob::hasRequests() const
 {
-    Q_DJOB(const SendBufferCaptureJob);
+    Q_D(const SendBufferCaptureJob);
     QMutexLocker locker(&d->m_mutex);
     return d->m_buffersToCapture.size() > 0;
 }
@@ -95,7 +95,7 @@ bool SendBufferCaptureJob::hasRequests() const
 void SendBufferCaptureJob::run()
 {
     Q_ASSERT(m_nodeManagers);
-    Q_DJOB(SendBufferCaptureJob);
+    Q_D(SendBufferCaptureJob);
     QMutexLocker locker(&d->m_mutex);
     for (const QPair<Qt3DCore::QNodeId, QByteArray> &pendingCapture : qAsConst(d->m_buffersToCapture)) {
         Buffer *buffer = m_nodeManagers->bufferManager()->lookupResource(pendingCapture.first);

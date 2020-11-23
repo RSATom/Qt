@@ -176,13 +176,14 @@ const char kNameOnCardRe[] =
 const char kNameOnCardContextualRe[] = "name";
 const char kCardNumberRe[] =
     "(add)?(?:card|cc|acct).?(?:number|#|no|num|field)"
-    "|(?<!telefon|haus)nummer"                             // de-DE
-    "|カード番号"                                          // ja-JP
-    "|Номер.*карты"                                        // ru
-    "|信用卡号|信用卡号码"                                 // zh-CN
-    "|信用卡卡號"                                          // zh-TW
-    "|카드"                                                // ko-KR
-    "|(numero|número|numéro)(?!.*(document|fono|phone))";  // es/pt/fr
+    "|(?<!telefon|haus)nummer"  // de-DE
+    "|カード番号"               // ja-JP
+    "|Номер.*карты"             // ru
+    "|信用卡号|信用卡号码"      // zh-CN
+    "|信用卡卡號"               // zh-TW
+    "|카드"                     // ko-KR
+    // es/pt/fr
+    "|(numero|número|numéro)(?!.*(document|fono|phone|réservation))";
 
 const char kCardCvcRe[] =
     "verification|card.?identification|security.?code|card.?code"
@@ -500,6 +501,12 @@ const char kUPIVirtualPaymentAddressRe[] =
 
 const char kInternationalBankAccountNumberRe[] =
     "^[a-zA-Z]{2}[0-9]{2}[a-zA-Z0-9]{4}[0-9]{7}([a-zA-Z0-9]?){0,16}$";
+
+// Matches all 3 and 4 digit numbers.
+const char kCreditCardCVCPattern[] = "^\\d{3,4}$";
+
+// Matches numbers in the range [2010-2099].
+const char kCreditCard4DigitExpYearPattern[] = "^[2][0][1-9][0-9]$";
 
 /////////////////////////////////////////////////////////////////////////////
 // form_structure.cc

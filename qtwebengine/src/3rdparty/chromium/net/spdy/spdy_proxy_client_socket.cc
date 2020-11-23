@@ -342,8 +342,8 @@ int SpdyProxyClientSocket::DoGenerateAuthToken() {
   next_state_ = STATE_GENERATE_AUTH_TOKEN_COMPLETE;
   return auth_->MaybeGenerateAuthToken(
       &request_,
-      base::Bind(&SpdyProxyClientSocket::OnIOComplete,
-                 weak_factory_.GetWeakPtr()),
+      base::BindOnce(&SpdyProxyClientSocket::OnIOComplete,
+                     weak_factory_.GetWeakPtr()),
       net_log_);
 }
 
@@ -519,6 +519,10 @@ void SpdyProxyClientSocket::OnClose(int status)  {
   // This may have been deleted by read_callback_, so check first.
   if (weak_ptr.get() && !write_callback.is_null())
     std::move(write_callback).Run(ERR_CONNECTION_CLOSED);
+}
+
+bool SpdyProxyClientSocket::CanGreaseFrameType() const {
+  return false;
 }
 
 NetLogSource SpdyProxyClientSocket::source_dependency() const {

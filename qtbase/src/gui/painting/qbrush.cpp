@@ -179,7 +179,7 @@ struct QTexturedBrushData : public QBrushData
 {
     QTexturedBrushData() {
         m_has_pixmap_texture = false;
-        m_pixmap = 0;
+        m_pixmap = nullptr;
     }
     ~QTexturedBrushData() {
         delete m_pixmap;
@@ -189,7 +189,7 @@ struct QTexturedBrushData : public QBrushData
         delete m_pixmap;
 
         if (pm.isNull()) {
-            m_pixmap = 0;
+            m_pixmap = nullptr;
             m_has_pixmap_texture = false;
         } else {
             m_pixmap = new QPixmap(pm);
@@ -202,7 +202,7 @@ struct QTexturedBrushData : public QBrushData
     void setImage(const QImage &image) {
         m_image = image;
         delete m_pixmap;
-        m_pixmap = 0;
+        m_pixmap = nullptr;
         m_has_pixmap_texture = false;
     }
 
@@ -360,7 +360,7 @@ public:
     {
         if (!brush->ref.deref())
             delete brush;
-        brush = 0;
+        brush = nullptr;
     }
 };
 
@@ -671,7 +671,7 @@ QBrush &QBrush::operator=(const QBrush &b)
 */
 QBrush::operator QVariant() const
 {
-    return QVariant(QVariant::Brush, this);
+    return QVariant(QMetaType::QBrush, this);
 }
 
 /*!
@@ -831,7 +831,7 @@ const QGradient *QBrush::gradient() const
         || d->style == Qt::ConicalGradientPattern) {
         return &static_cast<const QGradientBrushData *>(d.data())->gradient;
     }
-    return 0;
+    return nullptr;
 }
 
 Q_GUI_EXPORT bool qt_isExtendedRadialGradient(const QBrush &brush)
@@ -892,8 +892,12 @@ bool QBrush::isOpaque() const
 }
 
 
+#if QT_DEPRECATED_SINCE(5, 15)
 /*!
     \since 4.2
+    \obsolete
+
+    Use setTransform() instead.
 
     Sets \a matrix as an explicit transformation matrix on the
     current brush. The brush transformation matrix is merged with
@@ -905,6 +909,7 @@ void QBrush::setMatrix(const QMatrix &matrix)
 {
     setTransform(QTransform(matrix));
 }
+#endif // QT_DEPRECATED_SINCE(5, 15)
 
 /*!
     \since 4.3
@@ -922,14 +927,19 @@ void QBrush::setTransform(const QTransform &matrix)
 }
 
 
+#if QT_DEPRECATED_SINCE(5, 15)
 /*!
     \fn void QBrush::matrix() const
     \since 4.2
+    \obsolete
+
+    Use transform() instead.
 
     Returns the current transformation matrix for the brush.
 
     \sa setMatrix()
 */
+#endif // QT_DEPRECATED_SINCE(5, 15)
 
 /*!
     \fn bool QBrush::operator!=(const QBrush &brush) const
@@ -968,7 +978,7 @@ bool QBrush::operator==(const QBrush &b) const
             // but does not share the same data in memory. Since equality is likely to
             // be used to avoid iterating over the data for a texture update, this should
             // still be better than doing an accurate comparison.
-            const QPixmap *us = 0, *them = 0;
+            const QPixmap *us = nullptr, *them = nullptr;
             qint64 cacheKey1, cacheKey2;
             if (qHasPixmapTexture(*this)) {
                 us = (static_cast<QTexturedBrushData *>(d.data()))->m_pixmap;
@@ -1335,7 +1345,7 @@ QDataStream &operator>>(QDataStream &s, QBrush &b)
     \internal
 */
 QGradient::QGradient()
-    : m_type(NoGradient), dummy(0)
+    : m_type(NoGradient), dummy(nullptr)
 {
 }
 
@@ -1374,7 +1384,10 @@ QGradient::QGradient(Preset preset)
         static QJsonDocument jsonPresets = []() {
             QFile webGradients(QLatin1String(":/qgradient/webgradients.binaryjson"));
             webGradients.open(QFile::ReadOnly);
+QT_WARNING_PUSH
+QT_WARNING_DISABLE_DEPRECATED
             return QJsonDocument::fromBinaryData(webGradients.readAll());
+QT_WARNING_POP
         }();
 
         const QJsonValue presetData = jsonPresets[preset - 1];

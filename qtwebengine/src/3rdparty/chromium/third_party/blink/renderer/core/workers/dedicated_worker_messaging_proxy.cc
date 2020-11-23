@@ -64,14 +64,16 @@ void DedicatedWorkerMessagingProxy::StartWorkerGlobalScope(
   if (options->type() == "classic") {
     // "classic: Fetch a classic worker script given url, outside settings,
     // destination, and inside settings."
+    UseCounter::Count(GetExecutionContext(),
+                      WebFeature::kClassicDedicatedWorker);
     switch (off_main_thread_fetch_option) {
       case OffMainThreadWorkerScriptFetchOption::kEnabled: {
         auto* resource_timing_notifier =
             WorkerResourceTimingNotifierImpl::CreateForOutsideResourceFetcher(
                 *GetExecutionContext());
         GetWorkerThread()->FetchAndRunClassicScript(
-            script_url, outside_settings_object, *resource_timing_notifier,
-            stack_id);
+            script_url, outside_settings_object.CopyData(),
+            resource_timing_notifier, stack_id);
         break;
       }
       case OffMainThreadWorkerScriptFetchOption::kDisabled:
@@ -86,6 +88,8 @@ void DedicatedWorkerMessagingProxy::StartWorkerGlobalScope(
     // "module: Fetch a module worker script graph given url, outside settings,
     // destination, the value of the credentials member of options, and inside
     // settings."
+    UseCounter::Count(GetExecutionContext(),
+                      WebFeature::kModuleDedicatedWorker);
     network::mojom::CredentialsMode credentials_mode;
     bool result = Request::ParseCredentialsMode(options->credentials(),
                                                 &credentials_mode);
@@ -94,8 +98,8 @@ void DedicatedWorkerMessagingProxy::StartWorkerGlobalScope(
         WorkerResourceTimingNotifierImpl::CreateForOutsideResourceFetcher(
             *GetExecutionContext());
     GetWorkerThread()->FetchAndRunModuleScript(
-        script_url, outside_settings_object, *resource_timing_notifier,
-        credentials_mode);
+        script_url, outside_settings_object.CopyData(),
+        resource_timing_notifier, credentials_mode);
   } else {
     NOTREACHED();
   }

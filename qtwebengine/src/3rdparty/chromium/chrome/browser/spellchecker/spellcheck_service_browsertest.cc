@@ -19,13 +19,11 @@
 #include "base/test/metrics/histogram_tester.h"
 #include "base/threading/thread_restrictions.h"
 #include "base/values.h"
-#include "chrome/browser/chrome_service.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/spellchecker/spell_check_host_chrome_impl.h"
 #include "chrome/browser/spellchecker/spellcheck_factory.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/common/chrome_paths.h"
-#include "chrome/common/constants.mojom.h"
 #include "chrome/test/base/in_process_browser_test.h"
 #include "components/browser_sync/browser_sync_switches.h"
 #include "components/language/core/browser/pref_names.h"
@@ -38,8 +36,9 @@
 #include "content/public/test/browser_test_utils.h"
 #include "content/public/test/mock_render_process_host.h"
 #include "content/public/test/test_utils.h"
-#include "mojo/public/cpp/bindings/binding.h"
-#include "services/service_manager/public/cpp/connector.h"
+#include "mojo/public/cpp/bindings/pending_receiver.h"
+#include "mojo/public/cpp/bindings/receiver.h"
+#include "mojo/public/cpp/bindings/remote.h"
 
 using content::BrowserContext;
 using content::RenderProcessHost;
@@ -47,7 +46,7 @@ using content::RenderProcessHost;
 class SpellcheckServiceBrowserTest : public InProcessBrowserTest,
                                      public spellcheck::mojom::SpellChecker {
  public:
-  SpellcheckServiceBrowserTest() : binding_(this) {}
+  SpellcheckServiceBrowserTest() = default;
 
   void SetUpOnMainThread() override {
     renderer_.reset(new content::MockRenderProcessHost(GetContext()));
@@ -63,10 +62,13 @@ class SpellcheckServiceBrowserTest : public InProcessBrowserTest,
     // forever if the service already existed). So disable sync of the custom
     // dictionary for these tests.
     command_line->AppendSwitchASCII(switches::kDisableSyncTypes, "Dictionary");
+    SpellcheckService::OverrideBinderForTesting(base::BindRepeating(
+        &SpellcheckServiceBrowserTest::Bind, base::Unretained(this)));
   }
 
   void TearDownOnMainThread() override {
-    binding_.Close();
+    SpellcheckService::OverrideBinderForTesting(base::NullCallback());
+    receiver_.reset();
     prefs_ = nullptr;
     renderer_.reset();
   }
@@ -91,21 +93,9 @@ class SpellcheckServiceBrowserTest : public InProcessBrowserTest,
                           base::SPLIT_WANT_NONEMPTY));
     prefs_->Set(spellcheck::prefs::kSpellCheckDictionaries, dictionaries_value);
 
-    service_manager::Identity renderer_identity = renderer_->GetChildIdentity();
     SpellcheckService* spellcheck =
-        SpellcheckServiceFactory::GetForRenderer(renderer_identity);
+        SpellcheckServiceFactory::GetForContext(renderer_->GetBrowserContext());
     ASSERT_NE(nullptr, spellcheck);
-
-    // Override requests for the spellcheck::mojom::SpellChecker interface so we
-    // can test the SpellChecker request flow.
-    ChromeService::GetInstance()->connector()->OverrideBinderForTesting(
-        service_manager::ServiceFilter::ByNameWithIdInGroup(
-            chrome::mojom::kRendererServiceName,
-            renderer_identity.instance_id(),
-            renderer_identity.instance_group()),
-        spellcheck::mojom::SpellChecker::Name_,
-        base::BindRepeating(&SpellcheckServiceBrowserTest::Bind,
-                            base::Unretained(this)));
   }
 
   void EnableSpellcheck(bool enable_spellcheck) {
@@ -114,7 +104,7 @@ class SpellcheckServiceBrowserTest : public InProcessBrowserTest,
 
   void ChangeCustomDictionary() {
     SpellcheckService* spellcheck =
-        SpellcheckServiceFactory::GetForRenderer(renderer_->GetChildIdentity());
+        SpellcheckServiceFactory::GetForContext(renderer_->GetBrowserContext());
     ASSERT_NE(nullptr, spellcheck);
 
     SpellcheckCustomDictionary::Change change;
@@ -181,9 +171,10 @@ class SpellcheckServiceBrowserTest : public InProcessBrowserTest,
   }
 
   // Binds requests for the SpellChecker interface.
-  void Bind(mojo::ScopedMessagePipeHandle handle) {
-    binding_.Bind(spellcheck::mojom::SpellCheckerRequest(std::move(handle)));
-    binding_.set_connection_error_handler(
+  void Bind(mojo::PendingReceiver<spellcheck::mojom::SpellChecker> receiver) {
+    receiver_.reset();
+    receiver_.Bind(std::move(receiver));
+    receiver_.set_disconnect_handler(
         base::BindOnce(&SpellcheckServiceBrowserTest::BoundConnectionClosed,
                        base::Unretained(this)));
   }
@@ -191,7 +182,7 @@ class SpellcheckServiceBrowserTest : public InProcessBrowserTest,
   // The requester closes (disconnects) when done.
   void BoundConnectionClosed() {
     bound_connection_closed_ = true;
-    binding_.Close();
+    receiver_.reset();
     if (quit_)
       std::move(quit_).Run();
   }
@@ -225,7 +216,7 @@ class SpellcheckServiceBrowserTest : public InProcessBrowserTest,
   PrefService* prefs_;
 
   // Binding to receive the SpellChecker request flow.
-  mojo::Binding<spellcheck::mojom::SpellChecker> binding_;
+  mojo::Receiver<spellcheck::mojom::SpellChecker> receiver_{this};
 
   // Used to verify the SpellChecker request flow.
   bool bound_connection_closed_;
@@ -241,14 +232,14 @@ class SpellcheckServiceHostBrowserTest : public SpellcheckServiceBrowserTest {
   SpellcheckServiceHostBrowserTest() = default;
 
   void RequestDictionary() {
-    spellcheck::mojom::SpellCheckHostPtr interface;
+    mojo::Remote<spellcheck::mojom::SpellCheckHost> interface;
     RequestSpellCheckHost(&interface);
 
     interface->RequestDictionary();
   }
 
   void NotifyChecked() {
-    spellcheck::mojom::SpellCheckHostPtr interface;
+    mojo::Remote<spellcheck::mojom::SpellCheckHost> interface;
     RequestSpellCheckHost(&interface);
 
     const bool misspelt = true;
@@ -258,7 +249,7 @@ class SpellcheckServiceHostBrowserTest : public SpellcheckServiceBrowserTest {
   }
 
   void CallSpellingService() {
-    spellcheck::mojom::SpellCheckHostPtr interface;
+    mojo::Remote<spellcheck::mojom::SpellCheckHost> interface;
     RequestSpellCheckHost(&interface);
 
     base::UTF8ToUTF16("hello", 5, &word_);
@@ -275,10 +266,10 @@ class SpellcheckServiceHostBrowserTest : public SpellcheckServiceBrowserTest {
   }
 
  private:
-  void RequestSpellCheckHost(spellcheck::mojom::SpellCheckHostPtr* interface) {
-    service_manager::BindSourceInfo source_info;
-    source_info.identity = GetRenderer()->GetChildIdentity();
-    SpellCheckHostChromeImpl::Create(mojo::MakeRequest(interface), source_info);
+  void RequestSpellCheckHost(
+      mojo::Remote<spellcheck::mojom::SpellCheckHost>* interface) {
+    SpellCheckHostChromeImpl::Create(GetRenderer()->GetID(),
+                                     interface->BindNewPipeAndPassReceiver());
   }
 
   void SpellingServiceDone(bool success,
@@ -510,7 +501,7 @@ IN_PROC_BROWSER_TEST_F(SpellcheckServiceBrowserTest, DeleteCorruptedBDICT) {
   base::ScopedAllowBlockingForTesting allow_blocking;
   if (base::PathExists(bdict_path)) {
     ADD_FAILURE();
-    EXPECT_TRUE(base::DeleteFile(bdict_path, true));
+    EXPECT_TRUE(base::DeleteFileRecursively(bdict_path));
   }
 }
 

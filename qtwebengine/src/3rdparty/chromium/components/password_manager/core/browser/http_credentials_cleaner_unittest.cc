@@ -10,13 +10,14 @@
 #include "base/strings/utf_string_conversions.h"
 #include "base/test/bind_test_util.h"
 #include "base/test/metrics/histogram_tester.h"
-#include "base/test/scoped_task_environment.h"
+#include "base/test/task_environment.h"
 #include "base/time/time.h"
 #include "components/password_manager/core/browser/password_manager_util.h"
 #include "components/password_manager/core/browser/test_password_store.h"
 #include "components/password_manager/core/common/password_manager_pref_names.h"
 #include "components/prefs/pref_registry_simple.h"
 #include "components/prefs/testing_pref_service.h"
+#include "mojo/public/cpp/bindings/remote.h"
 #include "net/url_request/url_request_test_util.h"
 #include "services/network/network_context.h"
 #include "testing/gmock/include/gmock/gmock.h"
@@ -138,7 +139,7 @@ TEST_P(HttpCredentialCleanerTest, ReportHttpMigrationMetrics) {
   static const base::string16 password[2] = {base::ASCIIToUTF16("pass0"),
                                              base::ASCIIToUTF16("pass1")};
 
-  base::test::ScopedTaskEnvironment scoped_task_environment;
+  base::test::TaskEnvironment task_environment;
   ASSERT_TRUE(store_->Init(syncer::SyncableService::StartSyncFlare(), nullptr));
   TestCase test = GetParam();
   SCOPED_TRACE(testing::Message()
@@ -174,9 +175,9 @@ TEST_P(HttpCredentialCleanerTest, ReportHttpMigrationMetrics) {
 
   auto request_context = base::MakeRefCounted<net::TestURLRequestContextGetter>(
       base::ThreadTaskRunnerHandle::Get());
-  network::mojom::NetworkContextPtr network_context_pipe;
+  mojo::Remote<network::mojom::NetworkContext> network_context_remote;
   auto network_context = std::make_unique<network::NetworkContext>(
-      nullptr, mojo::MakeRequest(&network_context_pipe),
+      nullptr, network_context_remote.BindNewPipeAndPassReceiver(),
       request_context->GetURLRequestContext(),
       /*cors_exempt_header_list=*/std::vector<std::string>());
 
@@ -187,7 +188,7 @@ TEST_P(HttpCredentialCleanerTest, ReportHttpMigrationMetrics) {
                              run_loop.QuitClosure());
     run_loop.Run();
   }
-  scoped_task_environment.RunUntilIdle();
+  task_environment.RunUntilIdle();
 
   base::HistogramTester histogram_tester;
   const TestPasswordStore::PasswordMap passwords_before_cleaning =
@@ -201,18 +202,18 @@ TEST_P(HttpCredentialCleanerTest, ReportHttpMigrationMetrics) {
   HttpCredentialCleaner cleaner(
       store_,
       base::BindLambdaForTesting([&]() -> network::mojom::NetworkContext* {
-        // This needs to be network_context_pipe.get() and
+        // This needs to be network_context_remote.get() and
         // not network_context.get() to make HSTS queries asynchronous, which
         // is what the progress tracking logic in HttpMetricsMigrationReporter
         // assumes.  This also matches reality, since
         // StoragePartition::GetNetworkContext will return a mojo pipe
         // even in the in-process case.
-        return network_context_pipe.get();
+        return network_context_remote.get();
       }),
       &prefs);
   EXPECT_CALL(observer, CleaningCompleted);
   cleaner.StartCleaning(&observer);
-  scoped_task_environment.RunUntilIdle();
+  task_environment.RunUntilIdle();
 
   histogram_tester.ExpectUniqueSample(
       "PasswordManager.HttpCredentials",
@@ -237,10 +238,10 @@ TEST_P(HttpCredentialCleanerTest, ReportHttpMigrationMetrics) {
   }
 
   store_->ShutdownOnUIThread();
-  scoped_task_environment.RunUntilIdle();
+  task_environment.RunUntilIdle();
 }
 
-INSTANTIATE_TEST_SUITE_P(,
+INSTANTIATE_TEST_SUITE_P(All,
                          HttpCredentialCleanerTest,
                          ::testing::ValuesIn(kCases));
 
@@ -249,7 +250,7 @@ TEST(HttpCredentialCleaner, StartCleanUpTest) {
     SCOPED_TRACE(testing::Message()
                  << "should_start_clean_up=" << should_start_clean_up);
 
-    base::test::ScopedTaskEnvironment scoped_task_environment;
+    base::test::TaskEnvironment task_environment;
     auto password_store = base::MakeRefCounted<TestPasswordStore>();
     ASSERT_TRUE(password_store->Init(syncer::SyncableService::StartSyncFlare(),
                                      nullptr));
@@ -275,16 +276,16 @@ TEST(HttpCredentialCleaner, StartCleanUpTest) {
 
     if (!should_start_clean_up) {
       password_store->ShutdownOnUIThread();
-      scoped_task_environment.RunUntilIdle();
+      task_environment.RunUntilIdle();
       continue;
     }
 
     auto request_context =
         base::MakeRefCounted<net::TestURLRequestContextGetter>(
             base::ThreadTaskRunnerHandle::Get());
-    network::mojom::NetworkContextPtr network_context_pipe;
+    mojo::Remote<network::mojom::NetworkContext> network_context_remote;
     auto network_context = std::make_unique<network::NetworkContext>(
-        nullptr, mojo::MakeRequest(&network_context_pipe),
+        nullptr, network_context_remote.BindNewPipeAndPassReceiver(),
         request_context->GetURLRequestContext(),
         /*cors_exempt_header_list=*/std::vector<std::string>());
 
@@ -292,25 +293,25 @@ TEST(HttpCredentialCleaner, StartCleanUpTest) {
     HttpCredentialCleaner cleaner(
         password_store,
         base::BindLambdaForTesting([&]() -> network::mojom::NetworkContext* {
-          // This needs to be network_context_pipe.get() and
+          // This needs to be network_context_remote.get() and
           // not network_context.get() to make HSTS queries asynchronous, which
           // is what the progress tracking logic in HttpMetricsMigrationReporter
           // assumes.  This also matches reality, since
           // StoragePartition::GetNetworkContext will return a mojo pipe
           // even in the in-process case.
-          return network_context_pipe.get();
+          return network_context_remote.get();
         }),
         &prefs);
     EXPECT_TRUE(cleaner.NeedsCleaning());
     EXPECT_CALL(observer, CleaningCompleted);
     cleaner.StartCleaning(&observer);
-    scoped_task_environment.RunUntilIdle();
+    task_environment.RunUntilIdle();
 
     EXPECT_NE(prefs.GetDouble(prefs::kLastTimeObsoleteHttpCredentialsRemoved),
               last_time);
 
     password_store->ShutdownOnUIThread();
-    scoped_task_environment.RunUntilIdle();
+    task_environment.RunUntilIdle();
   }
 }
 

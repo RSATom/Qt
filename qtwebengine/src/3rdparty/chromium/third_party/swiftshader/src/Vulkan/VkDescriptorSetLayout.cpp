@@ -158,7 +158,7 @@ void DescriptorSetLayout::initialize(DescriptorSet* descriptorSet)
 			for(uint32_t j = 0; j < bindings[i].descriptorCount; j++)
 			{
 				SampledImageDescriptor* imageSamplerDescriptor = reinterpret_cast<SampledImageDescriptor*>(mem);
-				imageSamplerDescriptor->updateSampler(vk::Cast(bindings[i].pImmutableSamplers[j]));
+				imageSamplerDescriptor->updateSampler(bindings[i].pImmutableSamplers[j]);
 				mem += typeSize;
 			}
 		}
@@ -255,18 +255,9 @@ uint8_t* DescriptorSetLayout::getOffsetPointer(DescriptorSet *descriptorSet, uin
 	return &descriptorSet->data[byteOffset];
 }
 
-void SampledImageDescriptor::updateSampler(const vk::Sampler *newSampler)
+void SampledImageDescriptor::updateSampler(const VkSampler newSampler)
 {
-	if(newSampler)
-	{
-		memcpy(&sampler, newSampler, sizeof(sampler));
-	}
-	else
-	{
-		// Descriptor ID's start at 1, allowing to detect descriptor update
-		// bugs by checking for 0. Also avoid reading random values.
-		memset(&sampler, 0, sizeof(sampler));
-	}
+	memcpy(reinterpret_cast<void*>(&sampler), vk::Cast(newSampler), sizeof(sampler));
 }
 
 void DescriptorSetLayout::WriteDescriptorSet(Device* device, DescriptorSet *dstSet, VkDescriptorUpdateTemplateEntry const &entry, char const *src)
@@ -292,7 +283,7 @@ void DescriptorSetLayout::WriteDescriptorSet(Device* device, DescriptorSet *dstS
 			//  descriptorCount of zero, must all either use immutable samplers or must all not use immutable samplers."
 			if (!binding.pImmutableSamplers)
 			{
-				imageSampler[i].updateSampler(vk::Cast(update->sampler));
+				imageSampler[i].updateSampler(update->sampler);
 			}
 			imageSampler[i].device = device;
 		}
@@ -347,11 +338,14 @@ void DescriptorSetLayout::WriteDescriptorSet(Device* device, DescriptorSet *dstS
 
 			sw::Texture *texture = &imageSampler[i].texture;
 
-			// "All consecutive bindings updated via a single VkWriteDescriptorSet structure, except those with a
-			//  descriptorCount of zero, must all either use immutable samplers or must all not use immutable samplers."
-			if(!binding.pImmutableSamplers)
+			if(entry.descriptorType == VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER)
 			{
-				imageSampler[i].updateSampler(vk::Cast(update->sampler));
+				// "All consecutive bindings updated via a single VkWriteDescriptorSet structure, except those with a
+				//  descriptorCount of zero, must all either use immutable samplers or must all not use immutable samplers."
+				if(!binding.pImmutableSamplers)
+				{
+					imageSampler[i].updateSampler(update->sampler);
+				}
 			}
 
 			imageSampler[i].imageViewId = imageView->id;
@@ -390,13 +384,13 @@ void DescriptorSetLayout::WriteDescriptorSet(Device* device, DescriptorSet *dstS
 				              imageView->getFormat(VK_IMAGE_ASPECT_PLANE_0_BIT).bytes();
 
 				// Write plane 0 parameters to mipmap level 0.
-				WriteTextureLevelInfo(texture, 0, width, height, 1, pitchP0, 0);
+				WriteTextureLevelInfo(texture, 0, width, height, 1, pitchP0, 0, 0, 0);
 
 				// Plane 2, if present, has equal parameters to plane 1, so we use mipmap level 1 for both.
 				int pitchP1 = imageView->rowPitchBytes(VK_IMAGE_ASPECT_PLANE_1_BIT, level, ImageView::SAMPLING) /
 				              imageView->getFormat(VK_IMAGE_ASPECT_PLANE_1_BIT).bytes();
 
-				WriteTextureLevelInfo(texture, 1, width / 2, height / 2, 1, pitchP1, 0);
+				WriteTextureLevelInfo(texture, 1, width / 2, height / 2, 1, pitchP1, 0, 0, 0);
 			}
 			else
 			{
@@ -424,12 +418,15 @@ void DescriptorSetLayout::WriteDescriptorSet(Device* device, DescriptorSet *dstS
 
 					int width = extent.width;
 					int height = extent.height;
+					int bytes = format.bytes();
 					int layers = imageView->getSubresourceRange().layerCount;  // TODO(b/129523279): Untangle depth vs layers throughout the sampler
 					int depth = layers > 1 ? layers : extent.depth;
-					int pitchP = imageView->rowPitchBytes(aspect, level, ImageView::SAMPLING) / format.bytes();
-					int sliceP = (layers > 1 ? imageView->layerPitchBytes(aspect, ImageView::SAMPLING) : imageView->slicePitchBytes(aspect, level, ImageView::SAMPLING)) / format.bytes();
+					int pitchP = imageView->rowPitchBytes(aspect, level, ImageView::SAMPLING) / bytes;
+					int sliceP = (layers > 1 ? imageView->layerPitchBytes(aspect, ImageView::SAMPLING) : imageView->slicePitchBytes(aspect, level, ImageView::SAMPLING)) / bytes;
+					int samplePitchP = imageView->getMipLevelSize(aspect, level, ImageView::SAMPLING) / bytes;
+					int sampleMax = imageView->getSampleCount() - 1;
 
-					WriteTextureLevelInfo(texture, mipmapLevel, width, height, depth, pitchP, sliceP);
+					WriteTextureLevelInfo(texture, mipmapLevel, width, height, depth, pitchP, sliceP, samplePitchP, sampleMax);
 				}
 			}
 		}
@@ -457,9 +454,9 @@ void DescriptorSetLayout::WriteDescriptorSet(Device* device, DescriptorSet *dstS
 			{
 				descriptor[i].stencilPtr = imageView->getOffsetPointer({0, 0, 0}, VK_IMAGE_ASPECT_STENCIL_BIT, 0, 0);
 				descriptor[i].stencilRowPitchBytes = imageView->rowPitchBytes(VK_IMAGE_ASPECT_STENCIL_BIT, 0);
-				descriptor[i].stencilSamplePitchBytes = imageView->getSubresourceRange().layerCount > 1
-												 ? imageView->layerPitchBytes(VK_IMAGE_ASPECT_STENCIL_BIT)
-												 : imageView->slicePitchBytes(VK_IMAGE_ASPECT_STENCIL_BIT, 0);
+				descriptor[i].stencilSamplePitchBytes = (imageView->getSubresourceRange().layerCount > 1)
+												        ? imageView->layerPitchBytes(VK_IMAGE_ASPECT_STENCIL_BIT)
+												        : imageView->slicePitchBytes(VK_IMAGE_ASPECT_STENCIL_BIT, 0);
 				descriptor[i].stencilSlicePitchBytes = descriptor[i].stencilSamplePitchBytes * imageView->getSampleCount();
 			}
 		}
@@ -498,7 +495,7 @@ void DescriptorSetLayout::WriteDescriptorSet(Device* device, DescriptorSet *dstS
 	}
 }
 
-void DescriptorSetLayout::WriteTextureLevelInfo(sw::Texture *texture, int level, int width, int height, int depth, int pitchP, int sliceP)
+void DescriptorSetLayout::WriteTextureLevelInfo(sw::Texture *texture, int level, int width, int height, int depth, int pitchP, int sliceP, int samplePitchP, int sampleMax)
 {
 	if(level == 0)
 	{
@@ -573,6 +570,16 @@ void DescriptorSetLayout::WriteTextureLevelInfo(sw::Texture *texture, int level,
 	mipmap.sliceP[1] = sliceP;
 	mipmap.sliceP[2] = sliceP;
 	mipmap.sliceP[3] = sliceP;
+
+	mipmap.samplePitchP[0] = samplePitchP;
+	mipmap.samplePitchP[1] = samplePitchP;
+	mipmap.samplePitchP[2] = samplePitchP;
+	mipmap.samplePitchP[3] = samplePitchP;
+
+	mipmap.sampleMax[0] = sampleMax;
+	mipmap.sampleMax[1] = sampleMax;
+	mipmap.sampleMax[2] = sampleMax;
+	mipmap.sampleMax[3] = sampleMax;
 }
 
 void DescriptorSetLayout::WriteDescriptorSet(Device* device, const VkWriteDescriptorSet& writeDescriptorSet)

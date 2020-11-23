@@ -279,6 +279,9 @@ private slots:
 
     void reuseQFile();
 
+    void moveToTrash_data();
+    void moveToTrash();
+
 private:
 #ifdef BUILTIN_TESTDATA
     QSharedPointer<QTemporaryDir> m_dataDir;
@@ -499,7 +502,7 @@ void tst_QFile::initTestCase()
     file.write("b", 1);
     file.close();
 #ifndef Q_OS_WIN // Not supported on Windows.
-    QVERIFY2(file.setPermissions(0), qPrintable(file.errorString()));
+    QVERIFY2(file.setPermissions({ }), qPrintable(file.errorString()));
 #else
     QVERIFY2(file.open(QFile::WriteOnly), msgOpenFailed(file).constData());
 #endif
@@ -2211,7 +2214,7 @@ public:
     QStringList entryList(QDir::Filters, const QStringList &) const { return QStringList(); }
     bool caseSensitive() const { return false; }
     bool isRelativePath() const { return false; }
-    FileFlags fileFlags(FileFlags) const { return 0; }
+    FileFlags fileFlags(FileFlags) const { return { }; }
     bool chmod(uint) { return false; }
     QString fileName(FileName) const { return name; }
     uint ownerId(FileOwner) const { return 0; }
@@ -3669,6 +3672,153 @@ void tst_QFile::reuseQFile()
         file.read(fileSize);
         QVERIFY(file.atEnd());
         file.close();
+    }
+}
+
+void tst_QFile::moveToTrash_data()
+{
+    QTest::addColumn<QString>("source");
+    QTest::addColumn<bool>("create");
+    QTest::addColumn<bool>("result");
+
+    // success cases
+    {
+        QTemporaryFile temp;
+        if (!temp.open())
+            QSKIP("Failed to create temporary file!");
+        QTest::newRow("temporary file") << temp.fileName() << true << true;
+    }
+    {
+        QTemporaryDir tempDir;
+        if (!tempDir.isValid())
+            QSKIP("Failed to create temporary directory!");
+        tempDir.setAutoRemove(false);
+        QTest::newRow("temporary dir")
+            << tempDir.path() + QLatin1Char('/')
+            << true << true;
+    }
+    {
+        QTemporaryDir homeDir(QDir::homePath() + QLatin1String("/XXXXXX"));
+        if (!homeDir.isValid())
+            QSKIP("Failed to create temporary directory in $HOME!");
+        QTemporaryFile homeFile(homeDir.path()
+                              + QLatin1String("/tst_qfile-XXXXXX"));
+        if (!homeFile.open())
+            QSKIP("Failed to create temporary file in $HOME");
+        homeDir.setAutoRemove(false);
+        QTest::newRow("home file")
+            << homeFile.fileName()
+            << true << true;
+
+        QTest::newRow("home dir")
+            << homeDir.path() + QLatin1Char('/')
+            << true << true;
+    }
+    QTest::newRow("relative") << QStringLiteral("tst_qfile_moveToTrash.tmp") << true << true;
+
+    // failure cases
+    QTest::newRow("root") << QDir::rootPath() << false << false;
+    QTest::newRow("no-such-file") << QString::fromLatin1("no/such/file") << false << false;
+}
+
+void tst_QFile::moveToTrash()
+{
+    QFETCH(QString, source);
+    QFETCH(bool, create);
+    QFETCH(bool, result);
+
+#if defined(Q_OS_WINRT)
+    QSKIP("WinRT does not have a trash", SkipAll);
+#endif
+
+    auto ensureFile = [](const QString &source, bool create) {
+        if (QFileInfo::exists(source) || !create)
+            return;
+        if (source.endsWith(QLatin1Char('/'))) {
+            QDir::root().mkdir(source);
+            QFile file(source + QLatin1String("test"));
+            if (!file.open(QIODevice::WriteOnly))
+                QSKIP("Couldn't create directory with file");
+        } else {
+            QFile sourceFile(source);
+            QVERIFY2(sourceFile.open(QFile::WriteOnly | QFile::Text), qPrintable(sourceFile.errorString()));
+            sourceFile.close();
+        }
+    };
+    auto cleanupFile = [source, create]() {
+        if (!QFileInfo::exists(source) || !create)
+            return;
+        if (source.endsWith(QLatin1Char('/'))) {
+            QDir(source).removeRecursively();
+        } else {
+            QFile sourceFile(source);
+            sourceFile.remove();
+        }
+    };
+
+    ensureFile(source, create);
+
+    /* This test makes assumptions about the file system layout
+       which might be wrong - moveToTrash may fail if the file lives
+       on a file system that is different from the home file system, and
+       has no .Trash directory.
+    */
+    const QStorageInfo sourceStorage(source);
+    const bool mayFail = sourceStorage.isValid()
+                      && QStorageInfo(source) != QStorageInfo(QDir::home());
+
+    // non-static version
+    {
+        QFile sourceFile(source);
+        const bool success = sourceFile.moveToTrash();
+
+        // tolerate moveToTrash failing
+        if (result && !success && mayFail)
+            result = false;
+
+        if (result) {
+            // if any of the test fails, we still want to remove the file
+            auto onFailure = qScopeGuard(cleanupFile);
+            QVERIFY2(success, qPrintable(sourceFile.errorString()));
+            QCOMPARE(sourceFile.error(), QFile::NoError);
+            QVERIFY(source != sourceFile.fileName());
+            if (!sourceFile.fileName().isEmpty()) {
+                QVERIFY2(sourceFile.exists(), qPrintable(sourceFile.fileName()));
+                // remove file/dir in trash as well, don't fill disk
+                if (source.endsWith(QLatin1Char('/')))
+                    QDir(sourceFile.fileName()).removeRecursively();
+                else
+                    sourceFile.remove();
+            }
+        } else {
+            QVERIFY(!success);
+            QVERIFY(!sourceFile.errorString().isEmpty());
+            QCOMPARE(source, sourceFile.fileName());
+        }
+    }
+
+    // don't retry
+    if (mayFail)
+        return;
+
+    // static version
+    {
+        ensureFile(source, create);
+        QString pathInTrash;
+        const bool success = QFile::moveToTrash(source, &pathInTrash);
+        QCOMPARE(success, result);
+        if (result) {
+            auto onFailure = qScopeGuard(cleanupFile);
+            QVERIFY(source != pathInTrash);
+            if (!pathInTrash.isEmpty()) {
+                // remove file/dir in trash as well, don't fill disk
+                QVERIFY2(QFile::exists(pathInTrash), qPrintable(pathInTrash));
+                if (source.endsWith(QLatin1Char('/')))
+                    QDir(pathInTrash).removeRecursively();
+                else
+                    QFile::remove(pathInTrash);
+            }
+        }
     }
 }
 

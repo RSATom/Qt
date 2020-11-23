@@ -51,7 +51,7 @@ QScxmlStateMachineExtended::QScxmlStateMachineExtended(QObject *extendee) :
 
 QQmlListProperty<QObject> QScxmlStateMachineExtended::children()
 {
-    return QQmlListProperty<QObject>(this, m_children);
+    return QQmlListProperty<QObject>(this, &m_children);
 }
 
 QT_END_NAMESPACE

@@ -57,7 +57,7 @@ public:
     void setParentWindow(QWindow *effectiveParentWindow, QQuickWindow *parentWindow);
     void setGeometry(int posx, int posy, int w, int h);
 
-    void setParentItem(QQuickItem *);
+    void setParentItem(QQuickItem *) override;
 
     QQuickMenu1 *menu() const;
 public Q_SLOTS:
@@ -71,9 +71,9 @@ Q_SIGNALS:
     void willBeDeletedLater();
 
 protected:
-    void focusInEvent(QFocusEvent *);
-    void exposeEvent(QExposeEvent *);
-    bool shouldForwardEventAfterDismiss(QMouseEvent *) const;
+    void focusInEvent(QFocusEvent *) override;
+    void exposeEvent(QExposeEvent *) override;
+    bool shouldForwardEventAfterDismiss(QMouseEvent *) const override;
 
 private:
     QQuickItem *m_itemAt;

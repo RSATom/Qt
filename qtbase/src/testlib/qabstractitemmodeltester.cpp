@@ -288,6 +288,12 @@ QAbstractItemModelTester::FailureReportingMode QAbstractItemModelTester::failure
     return d->failureReportingMode;
 }
 
+bool QAbstractItemModelTester::verify(bool statement, const char *statementStr, const char *description, const char *file, int line)
+{
+    Q_D(QAbstractItemModelTester);
+    return d->verify(statement, statementStr, description, file, line);
+}
+
 QAbstractItemModelTesterPrivate::QAbstractItemModelTesterPrivate(QAbstractItemModel *model, QAbstractItemModelTester::FailureReportingMode failureReportingMode)
     : model(model),
       failureReportingMode(failureReportingMode),
@@ -605,7 +611,7 @@ void QAbstractItemModelTesterPrivate::data()
     // Check that the alignment is one we know about
     QVariant textAlignmentVariant = model->data(model->index(0, 0), Qt::TextAlignmentRole);
     if (textAlignmentVariant.isValid()) {
-        Qt::Alignment alignment = textAlignmentVariant.value<Qt::Alignment>();
+        Qt::Alignment alignment = qvariant_cast<Qt::Alignment>(textAlignmentVariant);
         MODELTESTER_COMPARE(alignment, (alignment & (Qt::AlignHorizontal_Mask | Qt::AlignVertical_Mask)));
     }
 
@@ -813,13 +819,23 @@ bool QAbstractItemModelTesterPrivate::compare(const T1 &t1, const T2 &t2,
         break;
 
     case QAbstractItemModelTester::FailureReportingMode::Warning:
-        if (!result)
-            qCWarning(lcModelTest, formatString, actual, QTest::toString(t1), expected, QTest::toString(t2), file, line);
+        if (!result) {
+            auto t1string = QTest::toString(t1);
+            auto t2string = QTest::toString(t2);
+            qCWarning(lcModelTest, formatString, actual, t1string, expected, t2string, file, line);
+            delete [] t1string;
+            delete [] t2string;
+        }
         break;
 
     case QAbstractItemModelTester::FailureReportingMode::Fatal:
-        if (!result)
-            qFatal(formatString, actual, QTest::toString(t1), expected, QTest::toString(t2), file, line);
+        if (!result) {
+            auto t1string = QTest::toString(t1);
+            auto t2string = QTest::toString(t2);
+            qFatal(formatString, actual, t1string, expected, t2string, file, line);
+            delete [] t1string;
+            delete [] t2string;
+        }
         break;
     }
 

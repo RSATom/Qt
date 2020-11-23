@@ -5,15 +5,15 @@
 #ifndef UI_ACCESSIBILITY_PLATFORM_AX_PLATFORM_NODE_DELEGATE_BASE_H_
 #define UI_ACCESSIBILITY_PLATFORM_AX_PLATFORM_NODE_DELEGATE_BASE_H_
 
-#include "ui/accessibility/platform/ax_platform_node_delegate.h"
-
 #include <stdint.h>
 
+#include <memory>
 #include <set>
 #include <string>
 #include <vector>
 
 #include "base/optional.h"
+#include "ui/accessibility/platform/ax_platform_node_delegate.h"
 
 namespace ui {
 
@@ -40,12 +40,14 @@ class AX_EXPORT AXPlatformNodeDelegateBase : public AXPlatformNodeDelegate {
 
   // Creates a text position rooted at this object.
   AXNodePosition::AXPositionInstance CreateTextPositionAt(
-      int offset,
-      ax::mojom::TextAffinity affinity =
-          ax::mojom::TextAffinity::kDownstream) const override;
+      int offset) const override;
 
   // See comments in AXPlatformNodeDelegate.
   gfx::NativeViewAccessible GetNSWindow() override;
+
+  // Get the node for this delegate, which may be an AXPlatformNode or it may
+  // be a native accessible object implemented by another class.
+  gfx::NativeViewAccessible GetNativeViewAccessible() override;
 
   // Get the parent of the node, which may be an AXPlatformNode or it may
   // be a native accessible object implemented by another class.
@@ -69,7 +71,7 @@ class AX_EXPORT AXPlatformNodeDelegateBase : public AXPlatformNodeDelegate {
    public:
     ChildIteratorBase(AXPlatformNodeDelegateBase* parent, int index);
     ChildIteratorBase(const ChildIteratorBase& it);
-    ~ChildIteratorBase() override {}
+    ~ChildIteratorBase() override = default;
     bool operator==(const ChildIterator& rhs) const override;
     bool operator!=(const ChildIterator& rhs) const override;
     void operator++() override;
@@ -77,9 +79,9 @@ class AX_EXPORT AXPlatformNodeDelegateBase : public AXPlatformNodeDelegate {
     void operator--() override;
     void operator--(int) override;
     gfx::NativeViewAccessible GetNativeViewAccessible() const override;
-
-   protected:
     int GetIndexInParent() const override;
+    AXPlatformNodeDelegate& operator*() const override;
+    AXPlatformNodeDelegate* operator->() const override;
 
    private:
     int index_;
@@ -91,6 +93,9 @@ class AX_EXPORT AXPlatformNodeDelegateBase : public AXPlatformNodeDelegate {
 
   base::string16 GetHypertext() const override;
   bool SetHypertextSelection(int start_offset, int end_offset) override;
+  TextAttributeMap ComputeTextAttributeMap(
+      const TextAttributeList& default_attributes) const override;
+  std::string GetInheritedFontFamilyName() const override;
 
   base::string16 GetInnerText() const override;
 
@@ -144,7 +149,17 @@ class AX_EXPORT AXPlatformNodeDelegateBase : public AXPlatformNodeDelegate {
   // Get whether this node is in web content.
   bool IsWebContent() const override;
 
+  // Returns true if the caret or selection is visible on this object.
+  bool HasVisibleCaretOrSelection() const override;
+
+  // Get another node from this same tree.
   AXPlatformNode* GetFromNodeID(int32_t id) override;
+
+  // Get a node from a different tree using a tree ID and node ID.
+  // Note that this is only guaranteed to work if the other tree is of the
+  // same type, i.e. it won't work between web and views or vice-versa.
+  AXPlatformNode* GetFromTreeIDAndNodeID(const ui::AXTreeID& ax_tree_id,
+                                         int32_t id) override;
 
   // Given a node ID attribute (one where IsNodeIdIntAttribute is true), return
   // a target nodes for which this delegate's node has that relationship
@@ -177,7 +192,7 @@ class AX_EXPORT AXPlatformNodeDelegateBase : public AXPlatformNodeDelegate {
   base::Optional<int> FindTextBoundary(
       AXTextBoundary boundary,
       int offset,
-      TextBoundaryDirection direction,
+      AXTextBoundaryDirection direction,
       ax::mojom::TextAffinity affinity) const override;
 
   const std::vector<gfx::NativeViewAccessible> GetDescendants() const override;
@@ -251,6 +266,7 @@ class AX_EXPORT AXPlatformNodeDelegateBase : public AXPlatformNodeDelegate {
       ax::mojom::ImageAnnotationStatus status) const override;
   base::string16 GetLocalizedRoleDescriptionForUnlabeledImage() const override;
   base::string16 GetLocalizedStringForLandmarkType() const override;
+  base::string16 GetLocalizedStringForRoleDescription() const override;
   base::string16 GetStyleNameAttributeAsLocalizedString() const override;
 
   //
@@ -264,6 +280,8 @@ class AX_EXPORT AXPlatformNodeDelegateBase : public AXPlatformNodeDelegate {
   bool ShouldIgnoreHoveredStateForTesting() override;
 
  protected:
+  std::string SubtreeToStringHelper(size_t level) override;
+
   // Given a list of node ids, return the nodes in this delegate's tree to
   // which they correspond.
   std::set<ui::AXPlatformNode*> GetNodesForNodeIds(

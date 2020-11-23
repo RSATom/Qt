@@ -8,7 +8,7 @@
 #include <string>
 
 #include "media/audio/audio_logging.h"
-#include "media/mojo/interfaces/audio_logging.mojom.h"
+#include "media/mojo/mojom/audio_logging.mojom.h"
 #include "mojo/public/cpp/bindings/remote.h"
 
 namespace media {
@@ -17,7 +17,7 @@ class AudioParameters;
 
 namespace audio {
 
-// This class wraps a media::mojom::AudioLogPtr into a media::AudioLog.
+// This class wraps a Remote<media::mojom::AudioLog> into a media::AudioLog.
 class LogAdapter : public media::AudioLog {
  public:
   explicit LogAdapter(mojo::PendingRemote<media::mojom::AudioLog> audio_log);

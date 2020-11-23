@@ -72,8 +72,12 @@ QAndroidBinderPrivate::~QAndroidBinderPrivate()
 /*!
     \class QAndroidBinder
     \inmodule QtAndroidExtras
+    \brief Wraps the most important methods of Android Binder class.
+
     The QAndroidBinder is a convenience class that wraps the most important
-           \l {https://developer.android.com/reference/android/os/Binder.html} {Android Binder} methods.
+    \l {https://developer.android.com/reference/android/os/Binder.html}{Android Binder}
+    methods.
+
     \since 5.10
 */
 

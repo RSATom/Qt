@@ -47,7 +47,6 @@ bool IsUnexpectedCodeObject(Isolate* isolate, HeapObject obj) {
 
   if (code.kind() == Code::REGEXP) return false;
   if (!code.is_builtin()) return true;
-  if (!FLAG_embedded_builtins) return false;
   if (code.is_off_heap_trampoline()) return false;
 
   // An on-heap builtin. We only expect this for the interpreter entry
@@ -143,13 +142,9 @@ void StartupSerializer::SerializeStrongReferences() {
   // No active or weak handles.
   CHECK(isolate->handle_scope_implementer()->blocks()->empty());
 
-  // Visit smi roots.
-  // Clear the stack limits to make the snapshot reproducible.
-  // Reset it again afterwards.
-  isolate->heap()->ClearStackLimits();
+  // Visit smi roots and immortal immovables first to make sure they end up in
+  // the first page.
   isolate->heap()->IterateSmiRoots(this);
-  isolate->heap()->SetStackLimits();
-  // First visit immortal immovables to make sure they end up in the first page.
   isolate->heap()->IterateStrongRoots(this, VISIT_FOR_SERIALIZATION);
 }
 

@@ -17,8 +17,6 @@
 GrCaps::GrCaps(const GrContextOptions& options) {
     fMipMapSupport = false;
     fNPOTTextureTileSupport = false;
-    fSRGBSupport = false;
-    fSRGBWriteControl = false;
     fReuseScratchTextures = true;
     fReuseScratchBuffers = true;
     fGpuTracingSupport = false;
@@ -28,6 +26,7 @@ GrCaps::GrCaps(const GrContextOptions& options) {
     fMultisampleDisableSupport = false;
     fInstanceAttribSupport = false;
     fMixedSamplesSupport = false;
+    fMSAAResolvesAutomatically = false;
     fUsePrimitiveRestart = false;
     fPreferClientSideDynamicBuffers = false;
     fPreferFullscreenClears = false;
@@ -41,6 +40,7 @@ GrCaps::GrCaps(const GrContextOptions& options) {
     fDynamicStateArrayGeometryProcessorTextureSupport = false;
     fPerformPartialClearsAsDraws = false;
     fPerformColorClearsAsDraws = false;
+    fAvoidLargeIndexBufferDraws = false;
     fPerformStencilClearsAsDraws = false;
     fAllowCoverageCounting = false;
     fTransferBufferSupport = false;
@@ -81,7 +81,19 @@ GrCaps::GrCaps(const GrContextOptions& options) {
     fDriverBugWorkarounds = options.fDriverBugWorkarounds;
 }
 
+void GrCaps::finishInitialization(const GrContextOptions& options) {
+    if (fMixedSamplesSupport) {
+        // We need multisample disable and dual source blending in order to support mixed samples.
+        fMixedSamplesSupport = this->multisampleDisableSupport() &&
+                               this->shaderCaps()->dualSourceBlendingSupport();
+    }
+
+    // Overrides happen last.
+    this->applyOptionsOverrides(options);
+}
+
 void GrCaps::applyOptionsOverrides(const GrContextOptions& options) {
+    fShaderCaps->applyOptionsOverrides(options);
     this->onApplyOptionsOverrides(options);
     if (options.fDisableDriverCorrectnessWorkarounds) {
         SkASSERT(!fDriverBlacklistCCPR);
@@ -110,8 +122,10 @@ void GrCaps::applyOptionsOverrides(const GrContextOptions& options) {
     if (options.fMaxTileSizeOverride && options.fMaxTileSizeOverride < fMaxTextureSize) {
         fMaxTileSize = options.fMaxTileSizeOverride;
     }
-    if (options.fSuppressGeometryShaders) {
-        fShaderCaps->fGeometryShaderSupport = false;
+    if (options.fSuppressDualSourceBlending) {
+        // GrShaderCaps::applyOptionsOverrides already handled the rest; here we just need to make
+        // sure mixed samples gets disabled if dual source blending is suppressed.
+        fMixedSamplesSupport = false;
     }
     if (options.fClearAllTextures) {
         fShouldInitializeTextures = true;
@@ -133,40 +147,7 @@ void GrCaps::applyOptionsOverrides(const GrContextOptions& options) {
 
 
 #ifdef SK_ENABLE_DUMP_GPU
-static const char* pixel_config_name(GrPixelConfig config) {
-    switch (config) {
-        case kUnknown_GrPixelConfig: return "Unknown";
-        case kAlpha_8_GrPixelConfig: return "Alpha8";
-        case kAlpha_8_as_Alpha_GrPixelConfig: return "Alpha8_asAlpha";
-        case kAlpha_8_as_Red_GrPixelConfig: return "Alpha8_asRed";
-        case kGray_8_GrPixelConfig: return "Gray8";
-        case kGray_8_as_Lum_GrPixelConfig: return "Gray8_asLum";
-        case kGray_8_as_Red_GrPixelConfig: return "Gray8_asRed";
-        case kRGB_565_GrPixelConfig: return "RGB565";
-        case kRGBA_4444_GrPixelConfig: return "RGBA444";
-        case kRGBA_8888_GrPixelConfig: return "RGBA8888";
-        case kRGB_888_GrPixelConfig: return "RGB888";
-        case kRGB_888X_GrPixelConfig: return "RGB888X";
-        case kRG_88_GrPixelConfig: return "RG88";
-        case kBGRA_8888_GrPixelConfig: return "BGRA8888";
-        case kSRGBA_8888_GrPixelConfig: return "SRGBA8888";
-        case kRGBA_1010102_GrPixelConfig: return "RGBA1010102";
-        case kRGBA_float_GrPixelConfig: return "RGBAFloat";
-        case kAlpha_half_GrPixelConfig: return "AlphaHalf";
-        case kAlpha_half_as_Lum_GrPixelConfig: return "AlphaHalf_asLum";
-        case kAlpha_half_as_Red_GrPixelConfig: return "AlphaHalf_asRed";
-        case kRGBA_half_GrPixelConfig: return "RGBAHalf";
-        case kRGBA_half_Clamped_GrPixelConfig: return "RGBAHalfClamped";
-        case kRGB_ETC1_GrPixelConfig: return "RGBETC1";
-        case kR_16_GrPixelConfig: return "R16";
-        case kRG_1616_GrPixelConfig: return "RG1616";
-        // Experimental (for Y416 and mutant P016/P010)
-        case kRGBA_16161616_GrPixelConfig: return "RGBA16161616";
-        case kRG_half_GrPixelConfig: return "RGHalf";
-    }
-    SK_ABORT("Invalid pixel config");
-    return "<invalid>";
-}
+#include "src/gpu/GrTestUtils.h"
 
 static SkString map_flags_to_string(uint32_t flags) {
     SkString str;
@@ -199,8 +180,6 @@ void GrCaps::dumpJSON(SkJSONWriter* writer) const {
 
     writer->appendBool("MIP Map Support", fMipMapSupport);
     writer->appendBool("NPOT Texture Tile Support", fNPOTTextureTileSupport);
-    writer->appendBool("sRGB Support", fSRGBSupport);
-    writer->appendBool("sRGB Write Control", fSRGBWriteControl);
     writer->appendBool("Reuse Scratch Textures", fReuseScratchTextures);
     writer->appendBool("Reuse Scratch Buffers", fReuseScratchBuffers);
     writer->appendBool("Gpu Tracing Support", fGpuTracingSupport);
@@ -210,9 +189,10 @@ void GrCaps::dumpJSON(SkJSONWriter* writer) const {
     writer->appendBool("Multisample disable support", fMultisampleDisableSupport);
     writer->appendBool("Instance Attrib Support", fInstanceAttribSupport);
     writer->appendBool("Mixed Samples Support", fMixedSamplesSupport);
+    writer->appendBool("MSAA Resolves Automatically", fMSAAResolvesAutomatically);
     writer->appendBool("Use primitive restart", fUsePrimitiveRestart);
     writer->appendBool("Prefer client-side dynamic buffers", fPreferClientSideDynamicBuffers);
-    writer->appendBool("Prefer fullscreen clears", fPreferFullscreenClears);
+    writer->appendBool("Prefer fullscreen clears (and stencil discard)", fPreferFullscreenClears);
     writer->appendBool("Must clear buffer memory", fMustClearUploadedBufferData);
     writer->appendBool("Should initialize textures", fShouldInitializeTextures);
     writer->appendBool("Supports importing AHardwareBuffers", fSupportsAHardwareBufferImages);
@@ -224,6 +204,7 @@ void GrCaps::dumpJSON(SkJSONWriter* writer) const {
                        fDynamicStateArrayGeometryProcessorTextureSupport);
     writer->appendBool("Use draws for partial clears", fPerformPartialClearsAsDraws);
     writer->appendBool("Use draws for color clears", fPerformColorClearsAsDraws);
+    writer->appendBool("Avoid Large IndexBuffer Draws", fAvoidLargeIndexBufferDraws);
     writer->appendBool("Use draws for stencil clip clears", fPerformStencilClearsAsDraws);
     writer->appendBool("Allow coverage counting shortcuts", fAllowCoverageCounting);
     writer->appendBool("Supports transfer buffers", fTransferBufferSupport);
@@ -265,22 +246,6 @@ void GrCaps::dumpJSON(SkJSONWriter* writer) const {
                          kBlendEquationSupportNames[fBlendEquationSupport]);
     writer->appendString("Map Buffer Support", map_flags_to_string(fMapBufferFlags).c_str());
 
-    SkASSERT(!this->isConfigRenderable(kUnknown_GrPixelConfig));
-    SkASSERT(!this->isConfigTexturable(kUnknown_GrPixelConfig));
-
-    writer->beginArray("configs");
-
-    for (size_t i = 1; i < kGrPixelConfigCnt; ++i) {
-        GrPixelConfig config = static_cast<GrPixelConfig>(i);
-        writer->beginObject(nullptr, false);
-        writer->appendString("name", pixel_config_name(config));
-        writer->appendS32("max sample count", this->maxRenderTargetSampleCount(config));
-        writer->appendBool("texturable", this->isConfigTexturable(config));
-        writer->endObject();
-    }
-
-    writer->endArray();
-
     this->onDumpJSON(writer);
 
     writer->appendName("shaderCaps");
@@ -294,32 +259,6 @@ void GrCaps::dumpJSON(SkJSONWriter* writer) const { }
 
 bool GrCaps::surfaceSupportsWritePixels(const GrSurface* surface) const {
     return surface->readOnly() ? false : this->onSurfaceSupportsWritePixels(surface);
-}
-
-size_t GrCaps::transferFromOffsetAlignment(GrColorType bufferColorType) const {
-    if (!this->transferBufferSupport()) {
-        return 0;
-    }
-    size_t result = this->onTransferFromOffsetAlignment(bufferColorType);
-    if (!result) {
-        return 0;
-    }
-    // It's very convenient to access 1 byte-per-channel 32 bitvRGB/RGBA color types as uint32_t.
-    // Make those aligned reads out of the buffer even if the underlying API doesn't require it.
-    auto componentFlags = GrColorTypeComponentFlags(bufferColorType);
-    if ((componentFlags == kRGBA_SkColorTypeComponentFlags ||
-         componentFlags == kRGB_SkColorTypeComponentFlags) &&
-        GrColorTypeBytesPerPixel(bufferColorType) == 4) {
-        switch (result & 0b11) {
-            // offset alignment already a multiple of 4
-            case 0:     return result;
-            // offset alignment is a multiple of 2 but not 4.
-            case 2:     return 2 * result;
-            // offset alignment is not a multiple of 2.
-            default:    return 4 * result;
-        }
-    }
-    return result;
 }
 
 bool GrCaps::canCopySurface(const GrSurfaceProxy* dst, const GrSurfaceProxy* src,
@@ -340,9 +279,10 @@ bool GrCaps::canCopySurface(const GrSurfaceProxy* dst, const GrSurfaceProxy* src
     return this->onCanCopySurface(dst, src, srcRect, dstPoint);
 }
 
-bool GrCaps::validateSurfaceDesc(const GrSurfaceDesc& desc, GrRenderable renderable,
-                                 int renderTargetSampleCnt, GrMipMapped mipped) const {
-    if (!this->isConfigTexturable(desc.fConfig)) {
+bool GrCaps::validateSurfaceParams(const SkISize& dimensions, const GrBackendFormat& format,
+                                   GrPixelConfig config, GrRenderable renderable,
+                                   int renderTargetSampleCnt, GrMipMapped mipped) const {
+    if (!this->isFormatTexturable(format)) {
         return false;
     }
 
@@ -350,16 +290,16 @@ bool GrCaps::validateSurfaceDesc(const GrSurfaceDesc& desc, GrRenderable rendera
         return false;
     }
 
-    if (desc.fWidth < 1 || desc.fHeight < 1) {
+    if (dimensions.width() < 1 || dimensions.height() < 1) {
         return false;
     }
 
     if (renderable == GrRenderable::kYes) {
-        if (0 == this->getRenderTargetSampleCount(renderTargetSampleCnt, desc.fConfig)) {
+        if (!this->isFormatRenderable(format, renderTargetSampleCnt)) {
             return false;
         }
         int maxRTSize = this->maxRenderTargetSize();
-        if (desc.fWidth > maxRTSize || desc.fHeight > maxRTSize) {
+        if (dimensions.width() > maxRTSize || dimensions.height() > maxRTSize) {
             return false;
         }
     } else {
@@ -368,7 +308,7 @@ bool GrCaps::validateSurfaceDesc(const GrSurfaceDesc& desc, GrRenderable rendera
             return false;
         }
         int maxSize = this->maxTextureSize();
-        if (desc.fWidth > maxSize || desc.fHeight > maxSize) {
+        if (dimensions.width() > maxSize || dimensions.height() > maxSize) {
             return false;
         }
     }
@@ -377,9 +317,37 @@ bool GrCaps::validateSurfaceDesc(const GrSurfaceDesc& desc, GrRenderable rendera
 }
 
 GrCaps::SupportedRead GrCaps::supportedReadPixelsColorType(GrColorType srcColorType,
-                                                           const GrBackendFormat&,
+                                                           const GrBackendFormat& srcFormat,
                                                            GrColorType dstColorType) const {
-    return SupportedRead{GrSwizzle::RGBA(), srcColorType};
+    SupportedRead read = this->onSupportedReadPixelsColorType(srcColorType, srcFormat,
+                                                              dstColorType);
+
+    // There are known problems with 24 vs 32 bit BPP with this color type. Just fail for now if
+    // using a transfer buffer.
+    if (GrColorType::kRGB_888x == read.fColorType) {
+        read.fOffsetAlignmentForTransferBuffer = 0;
+    }
+    // It's very convenient to access 1 byte-per-channel 32 bit color types as uint32_t on the CPU.
+    // Make those aligned reads out of the buffer even if the underlying API doesn't require it.
+    auto componentFlags = GrColorTypeComponentFlags(read.fColorType);
+    if ((componentFlags == kRGBA_SkColorTypeComponentFlags ||
+         componentFlags == kRGB_SkColorTypeComponentFlags  ||
+         componentFlags == kAlpha_SkColorTypeComponentFlag ||
+         componentFlags == kGray_SkColorTypeComponentFlag) &&
+        GrColorTypeBytesPerPixel(read.fColorType) == 4) {
+        switch (read.fOffsetAlignmentForTransferBuffer & 0b11) {
+            // offset alignment already a multiple of 4
+            case 0:
+                break;
+            // offset alignment is a multiple of 2 but not 4.
+            case 2:
+                read.fOffsetAlignmentForTransferBuffer *= 2;
+            // offset alignment is not a multiple of 2.
+            default:
+                read.fOffsetAlignmentForTransferBuffer *= 4;
+        }
+    }
+    return read;
 }
 
 #ifdef SK_DEBUG
@@ -422,3 +390,20 @@ bool GrCaps::AreConfigsCompatible(GrPixelConfig genericConfig, GrPixelConfig spe
     return compatible;
 }
 #endif
+
+GrBackendFormat GrCaps::getDefaultBackendFormat(GrColorType grColorType,
+                                                GrRenderable renderable) const {
+    GrBackendFormat format = this->onGetDefaultBackendFormat(grColorType, renderable);
+    if (!this->isFormatTexturableAndUploadable(grColorType, format)) {
+        return {};
+    }
+
+    if (renderable == GrRenderable::kYes) {
+        if (!this->isFormatAsColorTypeRenderable(grColorType, format)) {
+            return {};
+        }
+    }
+
+    return format;
+}
+

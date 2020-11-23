@@ -14,8 +14,8 @@
 #include <utility>
 
 #include "util/logging.h"
-#include "util/pod_array.h"
 #include "util/utf.h"
+#include "re2/pod_array.h"
 #include "re2/prog.h"
 #include "re2/re2.h"
 #include "re2/regexp.h"
@@ -695,7 +695,7 @@ static struct ByteRangeProg {
 
 void Compiler::Add_80_10ffff() {
   int inst[arraysize(prog_80_10ffff)] = { 0 }; // does not need to be initialized; silences gcc warning
-  for (int i = 0; i < arraysize(prog_80_10ffff); i++) {
+  for (size_t i = 0; i < arraysize(prog_80_10ffff); i++) {
     const ByteRangeProg& p = prog_80_10ffff[i];
     int next = 0;
     if (p.next >= 0)

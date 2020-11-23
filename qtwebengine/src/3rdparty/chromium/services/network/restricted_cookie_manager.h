@@ -13,7 +13,6 @@
 #include "base/memory/weak_ptr.h"
 #include "base/sequence_checker.h"
 #include "base/threading/sequenced_task_runner_handle.h"
-#include "mojo/public/cpp/bindings/binding.h"
 #include "net/cookies/canonical_cookie.h"
 #include "net/cookies/cookie_change_dispatcher.h"
 #include "net/cookies/cookie_store.h"
@@ -49,6 +48,8 @@ class COMPONENT_EXPORT(NETWORK_SERVICE) RestrictedCookieManager
                           net::CookieStore* cookie_store,
                           const CookieSettings* cookie_settings,
                           const url::Origin& origin,
+                          const GURL& site_for_cookies,
+                          const url::Origin& top_frame_origin,
                           mojom::NetworkContextClient* network_context_client,
                           bool is_service_worker,
                           int32_t process_id,
@@ -56,33 +57,51 @@ class COMPONENT_EXPORT(NETWORK_SERVICE) RestrictedCookieManager
 
   ~RestrictedCookieManager() override;
 
+  void OverrideSiteForCookiesForTesting(const GURL& new_site_for_cookies) {
+    site_for_cookies_ = new_site_for_cookies;
+  }
+  void OverrideOriginForTesting(const url::Origin& new_origin) {
+    origin_ = new_origin;
+  }
+  void OverrideTopFrameOriginForTesting(
+      const url::Origin& new_top_frame_origin) {
+    top_frame_origin_ = new_top_frame_origin;
+  }
+
   const CookieSettings* cookie_settings() const { return cookie_settings_; }
 
   void GetAllForUrl(const GURL& url,
                     const GURL& site_for_cookies,
+                    const url::Origin& top_frame_origin,
                     mojom::CookieManagerGetOptionsPtr options,
                     GetAllForUrlCallback callback) override;
 
   void SetCanonicalCookie(const net::CanonicalCookie& cookie,
                           const GURL& url,
                           const GURL& site_for_cookies,
+                          const url::Origin& top_frame_origin,
                           SetCanonicalCookieCallback callback) override;
 
-  void AddChangeListener(const GURL& url,
-                         const GURL& site_for_cookies,
-                         mojom::CookieChangeListenerPtr listener,
-                         AddChangeListenerCallback callback) override;
+  void AddChangeListener(
+      const GURL& url,
+      const GURL& site_for_cookies,
+      const url::Origin& top_frame_origin,
+      mojo::PendingRemote<mojom::CookieChangeListener> listener,
+      AddChangeListenerCallback callback) override;
 
   void SetCookieFromString(const GURL& url,
                            const GURL& site_for_cookies,
+                           const url::Origin& top_frame_origin,
                            const std::string& cookie,
                            SetCookieFromStringCallback callback) override;
 
   void GetCookiesString(const GURL& url,
                         const GURL& site_for_cookies,
+                        const url::Origin& top_frame_origin,
                         GetCookiesStringCallback callback) override;
   void CookiesEnabledFor(const GURL& url,
                          const GURL& site_for_cookies,
+                         const url::Origin& top_frame_origin,
                          CookiesEnabledForCallback callback) override;
 
  private:
@@ -93,10 +112,11 @@ class COMPONENT_EXPORT(NETWORK_SERVICE) RestrictedCookieManager
   void CookieListToGetAllForUrlCallback(
       const GURL& url,
       const GURL& site_for_cookies,
+      const url::Origin& top_frame_origin,
       const net::CookieOptions& net_options,
       mojom::CookieManagerGetOptionsPtr options,
       GetAllForUrlCallback callback,
-      const net::CookieList& cookie_list,
+      const net::CookieStatusList& cookie_list,
       const net::CookieStatusList& excluded_cookies);
 
   // Reports the result of setting the cookie to |network_context_client_|, and
@@ -119,12 +139,16 @@ class COMPONENT_EXPORT(NETWORK_SERVICE) RestrictedCookieManager
   //
   // If the access would not be allowed, this helper calls
   // mojo::ReportBadMessage(), which closes the pipe.
-  bool ValidateAccessToCookiesAt(const GURL& url);
+  bool ValidateAccessToCookiesAt(const GURL& url,
+                                 const GURL& site_for_cookies,
+                                 const url::Origin& top_frame_origin);
 
   const mojom::RestrictedCookieManagerRole role_;
   net::CookieStore* const cookie_store_;
   const CookieSettings* const cookie_settings_;
-  const url::Origin origin_;
+  url::Origin origin_;
+  GURL site_for_cookies_;
+  url::Origin top_frame_origin_;
   mojom::NetworkContextClient* const network_context_client_;
   const bool is_service_worker_;
   const int32_t process_id_;

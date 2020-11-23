@@ -22,6 +22,11 @@
 
 #include "System/Synchronization.hpp"
 
+namespace marl
+{
+	class Scheduler;
+}
+
 namespace sw
 {
 	class Context;
@@ -31,6 +36,7 @@ namespace sw
 namespace vk
 {
 
+class Device;
 class Fence;
 
 class Queue
@@ -38,7 +44,7 @@ class Queue
 	VK_LOADER_DATA loaderData = { ICD_LOADER_MAGIC };
 
 public:
-	Queue();
+	Queue(Device* device, marl::Scheduler *scheduler);
 	~Queue();
 
 	operator VkQueue()
@@ -49,7 +55,7 @@ public:
 	VkResult submit(uint32_t submitCount, const VkSubmitInfo* pSubmits, Fence* fence);
 	VkResult waitIdle();
 #ifndef __ANDROID__
-	void present(const VkPresentInfoKHR* presentInfo);
+	VkResult present(const VkPresentInfoKHR* presentInfo);
 #endif
 
 private:
@@ -63,12 +69,12 @@ private:
 		Type type = SUBMIT_QUEUE;
 	};
 
-	static void TaskLoop(vk::Queue* queue);
-	void taskLoop();
+	void taskLoop(marl::Scheduler* scheduler);
 	void garbageCollect();
 	void submitQueue(const Task& task);
 
-	sw::Renderer renderer;
+	Device* device;
+	std::unique_ptr<sw::Renderer> renderer;
 	sw::Chan<Task> pending;
 	sw::Chan<VkSubmitInfo*> toDelete;
 	std::thread queueThread;

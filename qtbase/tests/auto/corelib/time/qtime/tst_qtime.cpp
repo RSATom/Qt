@@ -1,6 +1,6 @@
 /****************************************************************************
 **
-** Copyright (C) 2016 The Qt Company Ltd.
+** Copyright (C) 2020 The Qt Company Ltd.
 ** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the test suite of the Qt Toolkit.
@@ -77,7 +77,9 @@ private slots:
     void toStringDateFormat();
     void toStringFormat_data();
     void toStringFormat();
+#if QT_VERSION < QT_VERSION_CHECK(6, 0, 0)
     void toStringLocale();
+#endif // ### Qt 6: remove
     void msecsSinceStartOfDay_data();
     void msecsSinceStartOfDay();
 
@@ -590,7 +592,12 @@ void tst_QTime::fromStringDateFormat_data()
     QTest::newRow("TextDate - invalid, minutes") << QString::fromLatin1("23:XX:00") << Qt::TextDate << invalidTime();
     QTest::newRow("TextDate - invalid, minute fraction") << QString::fromLatin1("23:00.123456") << Qt::TextDate << invalidTime();
     QTest::newRow("TextDate - invalid, seconds") << QString::fromLatin1("23:00:XX") << Qt::TextDate << invalidTime();
-    QTest::newRow("TextDate - invalid, milliseconds") << QString::fromLatin1("23:01:01:XXXX") << Qt::TextDate << QTime(23, 1, 1, 0);
+    QTest::newRow("TextDate - invalid, milliseconds") << QString::fromLatin1("23:01:01:XXXX") << Qt::TextDate
+#if QT_VERSION >= QT_VERSION_CHECK(6,0,0)
+        << invalidTime();
+#else
+        << QTime(23, 1, 1, 0);
+#endif
     QTest::newRow("TextDate - midnight 24") << QString("24:00:00") << Qt::TextDate << QTime();
 
     QTest::newRow("IsoDate - valid, start of day, omit seconds") << QString::fromLatin1("00:00") << Qt::ISODate << QTime(0, 0, 0);
@@ -607,8 +614,12 @@ void tst_QTime::fromStringDateFormat_data()
     QTest::newRow("IsoDate - invalid, not enough minutes") << QString::fromLatin1("23:0") << Qt::ISODate << invalidTime();
     QTest::newRow("IsoDate - invalid, minute fraction") << QString::fromLatin1("23:00,XX") << Qt::ISODate << invalidTime();
     QTest::newRow("IsoDate - invalid, seconds") << QString::fromLatin1("23:00:XX") << Qt::ISODate << invalidTime();
-    QTest::newRow("IsoDate - invalid, milliseconds") << QString::fromLatin1("23:01:01:XXXX") << Qt::ISODate << QTime(23, 1, 1, 0);
-
+    QTest::newRow("IsoDate - invalid, milliseconds") << QString::fromLatin1("23:01:01:XXXX") << Qt::ISODate
+#if QT_VERSION >= QT_VERSION_CHECK(6,0,0)
+        << invalidTime();
+#else
+        << QTime(23, 1, 1, 0);
+#endif
     QTest::newRow("IsoDate - data0") << QString("00:00:00") << Qt::ISODate << QTime(0,0,0,0);
     QTest::newRow("IsoDate - data1") << QString("10:12:34") << Qt::ISODate << QTime(10,12,34,0);
     QTest::newRow("IsoDate - data2") << QString("19:03:54.998601") << Qt::ISODate << QTime(19, 3, 54, 999);
@@ -761,6 +772,7 @@ void tst_QTime::toStringFormat()
     QCOMPARE( t.toString( format ), str );
 }
 
+#if QT_VERSION < QT_VERSION_CHECK(6, 0, 0)
 void tst_QTime::toStringLocale()
 {
     QTime time(18, 30);
@@ -782,6 +794,7 @@ void tst_QTime::toStringLocale()
     QCOMPARE(time.toString(Qt::DefaultLocaleLongDate),
                 QLocale().toString(time, QLocale::LongFormat));
 }
+#endif // ### Qt 6: remove
 
 void tst_QTime::msecsSinceStartOfDay_data()
 {

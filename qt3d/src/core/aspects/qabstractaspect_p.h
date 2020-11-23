@@ -127,7 +127,8 @@ public:
     QAbstractAspectJobManager *jobManager() const;
 
     QVector<QAspectJobPtr> jobsToExecute(qint64 time) override;
-    void jobsDone() override;
+    void jobsDone() override;      // called when all the jobs are completed
+    void frameDone() override;     // called when frame is completed (after the jobs), safe to wait until next frame here
 
     QBackendNode *createBackendNode(const NodeTreeChange &change) const;
     void clearBackendNode(const NodeTreeChange &change) const;
@@ -138,10 +139,7 @@ public:
 
     virtual void onEngineAboutToShutdown();
 
-    // TODO: Make public at some point
-    template<class Frontend, bool supportsSyncing>
-    void registerBackendType(const QBackendNodeMapperPtr &functor);
-    void registerBackendType(const QMetaObject &obj, const QBackendNodeMapperPtr &functor, bool supportsSyncing);
+    // TODO: Make these public in 5.8
     template<class Frontend>
     void unregisterBackendType();
     void unregisterBackendType(const QMetaObject &mo);
@@ -166,12 +164,6 @@ public:
 
     static QAbstractAspectPrivate *get(QAbstractAspect *aspect);
 };
-
-template<class Frontend, bool supportsSyncing>
-void QAbstractAspectPrivate::registerBackendType(const QBackendNodeMapperPtr &functor)
-{
-    registerBackendType(Frontend::staticMetaObject, functor, supportsSyncing);
-}
 
 template<class Frontend>
 void QAbstractAspectPrivate::unregisterBackendType()

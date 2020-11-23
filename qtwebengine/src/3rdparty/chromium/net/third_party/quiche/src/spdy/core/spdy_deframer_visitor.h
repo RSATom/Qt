@@ -32,7 +32,7 @@
 //    // Create your visitor, a subclass of SpdyDeframerVisitorInterface.
 //    // For example, using DeframerCallbackCollector to collect frames:
 //    std::vector<CollectedFrame> collected_frames;
-//    auto your_visitor = SpdyMakeUnique<DeframerCallbackCollector>(
+//    auto your_visitor = std::make_unique<DeframerCallbackCollector>(
 //        &collected_frames);
 //
 //    // Transfer ownership of your visitor to the converter, which ensures that
@@ -68,8 +68,8 @@
 // are met.
 
 #include <cstdint>
-
 #include <memory>
+#include <string>
 #include <type_traits>
 #include <utility>
 #include <vector>
@@ -79,7 +79,6 @@
 #include "net/third_party/quiche/src/spdy/core/spdy_protocol_test_utils.h"
 #include "net/third_party/quiche/src/spdy/core/spdy_test_utils.h"
 #include "net/third_party/quiche/src/spdy/platform/api/spdy_logging.h"
-#include "net/third_party/quiche/src/spdy/platform/api/spdy_string.h"
 
 namespace spdy {
 namespace test {
@@ -91,7 +90,7 @@ typedef std::vector<std::pair<SpdyKnownSettingsId, uint32_t>> SettingVector;
 // particular the order of each header entry, though it doesn't expose the
 // inner details of the HPACK block, such as the type of encoding selected
 // for each header entry, nor dynamic table size changes.
-typedef std::pair<SpdyString, SpdyString> StringPair;
+typedef std::pair<std::string, std::string> StringPair;
 typedef std::vector<StringPair> StringPairVector;
 
 // Forward decl.

@@ -277,22 +277,29 @@ QT_BEGIN_NAMESPACE
         Indicates whether the QNetworkAccessManager code is
         allowed to use SPDY with this request. This applies only
         to SSL requests, and depends on the server supporting SPDY.
+        Obsolete, use Http2 instead of Spdy.
 
     \value SpdyWasUsedAttribute
         Replies only, type: QMetaType::Bool
         Indicates whether SPDY was used for receiving
-        this reply.
+        this reply. Obsolete, use Http2 instead of Spdy.
 
-    \value HTTP2AllowedAttribute
+    \value Http2AllowedAttribute
         Requests only, type: QMetaType::Bool (default: false)
         Indicates whether the QNetworkAccessManager code is
         allowed to use HTTP/2 with this request. This applies
         to SSL requests or 'cleartext' HTTP/2.
 
-    \value HTTP2WasUsedAttribute
+    \value Http2WasUsedAttribute
         Replies only, type: QMetaType::Bool (default: false)
         Indicates whether HTTP/2 was used for receiving this reply.
         (This value was introduced in 5.9.)
+
+    \value HTTP2AllowedAttribute
+        Obsolete alias for Http2AllowedAttribute.
+
+    \value HTTP2WasUsedAttribute
+        Obsolete alias for Http2WasUsedAttribute.
 
     \value EmitAllUploadProgressSignalsAttribute
         Requests only, type: QMetaType::Bool (default: false)
@@ -329,7 +336,7 @@ QT_BEGIN_NAMESPACE
         server supports HTTP/2. The attribute works with SSL or 'cleartext'
         HTTP/2. If a server turns out to not support HTTP/2, when HTTP/2 direct
         was specified, QNetworkAccessManager gives up, without attempting to
-        fall back to HTTP/1.1. If both HTTP2AllowedAttribute and
+        fall back to HTTP/1.1. If both Http2AllowedAttribute and
         Http2DirectAttribute are set, Http2DirectAttribute takes priority.
         (This value was introduced in 5.11.)
 
@@ -418,6 +425,18 @@ QT_BEGIN_NAMESPACE
                                        based on some app-specific configuration.
 */
 
+/*!
+    \enum QNetworkRequest::TransferTimeoutConstant
+    \since 5.15
+
+    A constant that can be used for enabling transfer
+    timeouts with a preset value.
+
+    \value DefaultTransferTimeoutConstant     The transfer timeout in milliseconds.
+                                              Used if setTimeout() is called
+                                              without an argument.
+ */
+
 class QNetworkRequestPrivate: public QSharedData, public QNetworkHeadersPrivate
 {
 public:
@@ -425,9 +444,10 @@ public:
     inline QNetworkRequestPrivate()
         : priority(QNetworkRequest::NormalPriority)
 #ifndef QT_NO_SSL
-        , sslConfiguration(0)
+        , sslConfiguration(nullptr)
 #endif
         , maxRedirectsAllowed(maxRedirectCount)
+        , transferTimeout(0)
     { qRegisterMetaType<QNetworkRequest>(); }
     ~QNetworkRequestPrivate()
     {
@@ -444,7 +464,7 @@ public:
         priority = other.priority;
         maxRedirectsAllowed = other.maxRedirectsAllowed;
 #ifndef QT_NO_SSL
-        sslConfiguration = 0;
+        sslConfiguration = nullptr;
         if (other.sslConfiguration)
             sslConfiguration = new QSslConfiguration(*other.sslConfiguration);
 #endif
@@ -452,6 +472,7 @@ public:
 #if QT_CONFIG(http)
         h2Configuration = other.h2Configuration;
 #endif
+        transferTimeout = other.transferTimeout;
     }
 
     inline bool operator==(const QNetworkRequestPrivate &other) const
@@ -465,6 +486,7 @@ public:
 #if QT_CONFIG(http)
             && h2Configuration == other.h2Configuration
 #endif
+            && transferTimeout == other.transferTimeout
             ;
         // don't compare cookedHeaders
     }
@@ -479,6 +501,7 @@ public:
 #if QT_CONFIG(http)
     QHttp2Configuration h2Configuration;
 #endif
+    int transferTimeout;
 };
 
 /*!
@@ -527,7 +550,7 @@ QNetworkRequest::QNetworkRequest(const QNetworkRequest &other)
 QNetworkRequest::~QNetworkRequest()
 {
     // QSharedDataPointer auto deletes
-    d = 0;
+    d = nullptr;
 }
 
 /*!
@@ -903,6 +926,41 @@ void QNetworkRequest::setHttp2Configuration(const QHttp2Configuration &configura
     d->h2Configuration = configuration;
 }
 #endif // QT_CONFIG(http) || defined(Q_CLANG_QDOC)
+#if QT_CONFIG(http) || defined(Q_CLANG_QDOC) || defined (Q_OS_WASM)
+/*!
+    \since 5.15
+
+    Returns the timeout used for transfers, in milliseconds.
+
+    This timeout is zero if setTransferTimeout hasn't been
+    called, which means that the timeout is not used.
+
+    \sa setTransferTimeout
+*/
+int QNetworkRequest::transferTimeout() const
+{
+    return d->transferTimeout;
+}
+
+/*!
+    \since 5.15
+
+    Sets \a timeout as the transfer timeout in milliseconds.
+
+    Transfers are aborted if no bytes are transferred before
+    the timeout expires. Zero means no timer is set. If no
+    argument is provided, the timeout is
+    QNetworkRequest::DefaultTransferTimeoutConstant. If this function
+    is not called, the timeout is disabled and has the
+    value zero.
+
+    \sa transferTimeout
+*/
+void QNetworkRequest::setTransferTimeout(int timeout)
+{
+    d->transferTimeout = timeout;
+}
+#endif // QT_CONFIG(http) || defined(Q_CLANG_QDOC) || defined (Q_OS_WASM)
 
 static QByteArray headerName(QNetworkRequest::KnownHeaders header)
 {

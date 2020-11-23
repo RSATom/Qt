@@ -5,6 +5,7 @@
 #include <algorithm>
 #include <cstring>
 
+#include "base/message_loop/message_pump_type.h"
 #include "build/build_config.h"
 #include "gpu/ipc/common/gpu_preferences.mojom.h"
 #include "testing/gtest/include/gtest/gtest.h"
@@ -61,18 +62,21 @@ void CheckGpuPreferencesEqual(GpuPreferences left, GpuPreferences right) {
             right.disable_biplanar_gpu_memory_buffers_for_video_frames);
   EXPECT_EQ(left.texture_target_exception_list,
             right.texture_target_exception_list);
-  EXPECT_EQ(left.disable_gpu_driver_bug_workarounds,
-            right.disable_gpu_driver_bug_workarounds);
   EXPECT_EQ(left.ignore_gpu_blacklist, right.ignore_gpu_blacklist);
   EXPECT_EQ(left.enable_oop_rasterization, right.enable_oop_rasterization);
   EXPECT_EQ(left.disable_oop_rasterization, right.disable_oop_rasterization);
   EXPECT_EQ(left.watchdog_starts_backgrounded,
             right.watchdog_starts_backgrounded);
+  EXPECT_EQ(left.gr_context_type, right.gr_context_type);
   EXPECT_EQ(left.use_vulkan, right.use_vulkan);
   EXPECT_EQ(left.enable_gpu_benchmarking_extension,
             right.enable_gpu_benchmarking_extension);
   EXPECT_EQ(left.enable_webgpu, right.enable_webgpu);
-  EXPECT_EQ(left.message_loop_type, right.message_loop_type);
+  EXPECT_EQ(left.enable_gpu_blocked_time_metric,
+            right.enable_gpu_blocked_time_metric);
+#if defined(USE_OZONE)
+  EXPECT_EQ(left.message_pump_type, right.message_pump_type);
+#endif
 }
 
 }  // namespace
@@ -146,17 +150,22 @@ TEST(GpuPreferencesTest, EncodeDecode) {
     GPU_PREFERENCES_FIELD(use_passthrough_cmd_decoder, true)
     GPU_PREFERENCES_FIELD(disable_biplanar_gpu_memory_buffers_for_video_frames,
                           true)
-    GPU_PREFERENCES_FIELD(disable_gpu_driver_bug_workarounds, true)
     GPU_PREFERENCES_FIELD(ignore_gpu_blacklist, true)
     GPU_PREFERENCES_FIELD(enable_oop_rasterization, true)
     GPU_PREFERENCES_FIELD(disable_oop_rasterization, true)
     GPU_PREFERENCES_FIELD(watchdog_starts_backgrounded, true)
+    GPU_PREFERENCES_FIELD_ENUM(gr_context_type,
+                               GrContextType::kVulkan,
+                               mojom::GrContextType::kVulkan)
     GPU_PREFERENCES_FIELD_ENUM(use_vulkan, VulkanImplementationName::kNative,
                                mojom::VulkanImplementationName::kNative)
     GPU_PREFERENCES_FIELD(enable_gpu_benchmarking_extension, true)
     GPU_PREFERENCES_FIELD(enable_webgpu, true)
-    GPU_PREFERENCES_FIELD_ENUM(message_loop_type, base::MessageLoop::TYPE_UI,
-                               base::MessageLoop::TYPE_UI)
+    GPU_PREFERENCES_FIELD(enable_gpu_blocked_time_metric, true)
+#if defined(USE_OZONE)
+    GPU_PREFERENCES_FIELD_ENUM(message_pump_type, base::MessagePumpType::UI,
+                               base::MessagePumpType::UI)
+#endif
 
     input_prefs.texture_target_exception_list.emplace_back(
         gfx::BufferUsage::SCANOUT, gfx::BufferFormat::RGBA_8888);

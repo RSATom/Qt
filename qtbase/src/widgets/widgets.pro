@@ -45,3 +45,5 @@ testcocoon {
 MODULE_PLUGIN_TYPES += \
     styles
 load(qt_module)
+
+CONFIG += metatypes install_metatypes

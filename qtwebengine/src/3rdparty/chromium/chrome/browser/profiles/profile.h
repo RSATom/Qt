@@ -28,10 +28,6 @@ class Profile : public content::BrowserContext {
   // preferences for this user profile.
   virtual PrefService* GetPrefs() = 0;
   virtual const PrefService* GetPrefs() const = 0;
-
-  // Returns the main request context.
-  virtual net::URLRequestContextGetter* GetRequestContext() = 0;
-
 };
 
 #endif  // CHROME_BROWSER_PROFILES_PROFILE_H_

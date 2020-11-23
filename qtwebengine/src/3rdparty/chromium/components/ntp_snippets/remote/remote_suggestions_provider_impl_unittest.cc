@@ -23,8 +23,8 @@
 #include "base/strings/utf_string_conversions.h"
 #include "base/test/metrics/histogram_tester.h"
 #include "base/test/scoped_feature_list.h"
-#include "base/test/scoped_task_environment.h"
 #include "base/test/simple_test_clock.h"
+#include "base/test/task_environment.h"
 #include "base/test/test_mock_time_task_runner.h"
 #include "base/time/default_clock.h"
 #include "base/time/tick_clock.h"
@@ -62,7 +62,6 @@
 #include "components/strings/grit/components_strings.h"
 #include "net/traffic_annotation/network_traffic_annotation_test_helper.h"
 #include "testing/gmock/include/gmock/gmock.h"
-#include "testing/gmock_mutant.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "ui/base/l10n/l10n_util.h"
 #include "ui/gfx/geometry/size.h"
@@ -79,7 +78,6 @@ using testing::_;
 using testing::AnyNumber;
 using testing::AtMost;
 using testing::Contains;
-using testing::CreateFunctor;
 using testing::ElementsAre;
 using testing::ElementsAreArray;
 using testing::Eq;
@@ -389,7 +387,7 @@ class RemoteSuggestionsProviderImplTest : public ::testing::Test {
 
   void RunUntilIdle() {
     timer_mock_task_runner_->RunUntilIdle();
-    scoped_task_environment_.RunUntilIdle();
+    task_environment_.RunUntilIdle();
   }
 
   void SetCategoryRanker(std::unique_ptr<CategoryRanker> category_ranker) {
@@ -595,7 +593,7 @@ class RemoteSuggestionsProviderImplTest : public ::testing::Test {
   image_fetcher::FakeImageDecoder image_decoder_;
   std::unique_ptr<MockScheduler> scheduler_;
   RemoteSuggestionsStatusService* remote_suggestions_status_service_;
-  base::test::ScopedTaskEnvironment scoped_task_environment_;
+  base::test::TaskEnvironment task_environment_;
 
   RemoteSuggestionsStatusService::StatusChangeCallback status_change_callback_;
 
@@ -1233,11 +1231,8 @@ TEST_F(RemoteSuggestionsProviderImplTest,
               ElementsAre(Pointee(Property(&RemoteSuggestion::id, "id"))));
 
   image_decoder()->SetDecodedImage(gfx::test::CreateImage(1, 1));
-  auto serve_one_by_one_image_callback =
-      base::BindRepeating(&ServeOneByOneImage);
   EXPECT_CALL(*image_fetcher(), FetchImageAndData_(_, _, _, _))
-      .WillOnce(WithArgs<1, 2>(
-          Invoke(CreateFunctor(serve_one_by_one_image_callback))));
+      .WillOnce(WithArgs<1, 2>(Invoke(&ServeOneByOneImage)));
 
   gfx::Image image = FetchImage(MakeArticleID("id"));
 
@@ -1304,11 +1299,8 @@ TEST_F(RemoteSuggestionsProviderImplTest,
       Status::Success(), std::move(fetched_categories));
 
   image_decoder()->SetDecodedImage(gfx::test::CreateImage(1, 1));
-  auto serve_one_by_one_image_callback =
-      base::BindRepeating(&ServeOneByOneImage);
   EXPECT_CALL(*image_fetcher(), FetchImageAndData_(_, _, _, _))
-      .WillOnce(WithArgs<1, 2>(
-          Invoke(CreateFunctor(serve_one_by_one_image_callback))));
+      .WillOnce(WithArgs<1, 2>(Invoke(&ServeOneByOneImage)));
 
   gfx::Image image = FetchImage(MakeArticleID("id"));
   ASSERT_FALSE(image.IsEmpty());
@@ -1473,8 +1465,7 @@ TEST_F(RemoteSuggestionsProviderImplTest,
   // assumptions for the test are right.
   EXPECT_CALL(*image_fetcher(), FetchImageAndData_(_, _, _, _))
       .Times(2)
-      .WillRepeatedly(WithArgs<1, 2>(
-          Invoke(CreateFunctor(base::BindRepeating(&ServeOneByOneImage)))));
+      .WillRepeatedly(WithArgs<1, 2>(Invoke(&ServeOneByOneImage)));
   image_decoder()->SetDecodedImage(gfx::test::CreateImage(1, 1));
   gfx::Image image = FetchImage(MakeArticleID("http://id-1"));
   ASSERT_FALSE(image.IsEmpty());
@@ -1637,8 +1628,7 @@ TEST_F(RemoteSuggestionsProviderImplTest, Dismiss) {
               SizeIs(1));
   // Load the image to store it in the database.
   EXPECT_CALL(*image_fetcher(), FetchImageAndData_(_, _, _, _))
-      .WillOnce(WithArgs<1, 2>(
-          Invoke(CreateFunctor(base::BindRepeating(&ServeOneByOneImage)))));
+      .WillOnce(WithArgs<1, 2>(Invoke(&ServeOneByOneImage)));
   image_decoder()->SetDecodedImage(gfx::test::CreateImage(1, 1));
   gfx::Image image = FetchImage(MakeArticleID("http://site.com"));
   EXPECT_FALSE(image.IsEmpty());
@@ -1758,8 +1748,7 @@ TEST_F(RemoteSuggestionsProviderImplTest, RemoveExpiredDismissedContent) {
   // TODO(tschumann): Introduce some abstraction to nicely work with image
   // fetching expectations.
   EXPECT_CALL(*image_fetcher(), FetchImageAndData_(_, _, _, _))
-      .WillOnce(WithArgs<1, 2>(
-          Invoke(CreateFunctor(base::BindRepeating(&ServeOneByOneImage)))));
+      .WillOnce(WithArgs<1, 2>(Invoke(&ServeOneByOneImage)));
   image_decoder()->SetDecodedImage(gfx::test::CreateImage(1, 1));
   gfx::Image image = FetchImage(MakeArticleID("http://first/"));
   EXPECT_FALSE(image.IsEmpty());
@@ -2018,8 +2007,7 @@ TEST_F(RemoteSuggestionsProviderImplTest, ImageReturnedWithTheSameId) {
                         std::move(fetched_categories));
 
   EXPECT_CALL(*image_fetcher(), FetchImageAndData_(_, _, _, _))
-      .WillOnce(WithArgs<1, 2>(
-          Invoke(CreateFunctor(base::BindRepeating(&ServeOneByOneImage)))));
+      .WillOnce(WithArgs<1, 2>(Invoke(&ServeOneByOneImage)));
 
   gfx::Image image = FetchImage(MakeArticleID(kSuggestionUrl));
 
@@ -2146,8 +2134,7 @@ TEST_F(RemoteSuggestionsProviderImplTest, ShouldClearOrphanedImagesOnRestart) {
                         std::move(fetched_categories));
 
   EXPECT_CALL(*image_fetcher(), FetchImageAndData_(_, _, _, _))
-      .WillOnce(WithArgs<1, 2>(
-          Invoke(CreateFunctor(base::BindRepeating(&ServeOneByOneImage)))));
+      .WillOnce(WithArgs<1, 2>(Invoke(&ServeOneByOneImage)));
   image_decoder()->SetDecodedImage(gfx::test::CreateImage(1, 1));
 
   gfx::Image image = FetchImage(MakeArticleID(kSuggestionUrl));

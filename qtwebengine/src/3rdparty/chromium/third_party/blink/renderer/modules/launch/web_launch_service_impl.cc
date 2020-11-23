@@ -6,12 +6,12 @@
 
 #include <memory>
 
-#include "mojo/public/cpp/bindings/strong_associated_binding.h"
+#include "mojo/public/cpp/bindings/self_owned_associated_receiver.h"
 #include "third_party/blink/public/mojom/native_file_system/native_file_system_directory_handle.mojom-blink.h"
 #include "third_party/blink/renderer/core/frame/local_dom_window.h"
 #include "third_party/blink/renderer/core/frame/local_frame.h"
 #include "third_party/blink/renderer/core/script/script.h"
-#include "third_party/blink/renderer/modules/launch/dom_window_launch_params.h"
+#include "third_party/blink/renderer/modules/launch/dom_window_launch_queue.h"
 #include "third_party/blink/renderer/platform/heap/heap.h"
 #include "third_party/blink/renderer/platform/heap/heap_allocator.h"
 
@@ -19,12 +19,12 @@ namespace blink {
 
 void WebLaunchServiceImpl::Create(
     LocalFrame* frame,
-    mojom::blink::WebLaunchServiceAssociatedRequest request) {
+    mojo::PendingAssociatedReceiver<mojom::blink::WebLaunchService> receiver) {
   DCHECK(frame);
 
-  mojo::MakeStrongAssociatedBinding(
+  mojo::MakeSelfOwnedAssociatedReceiver(
       std::make_unique<WebLaunchServiceImpl>(*frame->DomWindow()),
-      std::move(request));
+      std::move(receiver));
 }
 
 WebLaunchServiceImpl::WebLaunchServiceImpl(LocalDOMWindow& window)
@@ -43,7 +43,7 @@ void WebLaunchServiceImpl::SetLaunchFiles(
         std::move(entry), window_->GetExecutionContext()));
   }
 
-  DOMWindowLaunchParams::UpdateLaunchFiles(window_, std::move(files));
+  DOMWindowLaunchQueue::UpdateLaunchFiles(window_, std::move(files));
 }
 
 }  // namespace blink

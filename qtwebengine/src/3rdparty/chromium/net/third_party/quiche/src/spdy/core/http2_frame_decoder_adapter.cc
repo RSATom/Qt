@@ -21,7 +21,6 @@
 #include "net/third_party/quiche/src/http2/decoder/http2_frame_decoder_listener.h"
 #include "net/third_party/quiche/src/http2/http2_constants.h"
 #include "net/third_party/quiche/src/http2/http2_structures.h"
-#include "net/third_party/quiche/src/http2/platform/api/http2_string.h"
 #include "net/third_party/quiche/src/spdy/core/hpack/hpack_decoder_adapter.h"
 #include "net/third_party/quiche/src/spdy/core/hpack/hpack_header_table.h"
 #include "net/third_party/quiche/src/spdy/core/spdy_alt_svc_wire_format.h"
@@ -33,7 +32,6 @@
 #include "net/third_party/quiche/src/spdy/platform/api/spdy_estimate_memory_usage.h"
 #include "net/third_party/quiche/src/spdy/platform/api/spdy_flags.h"
 #include "net/third_party/quiche/src/spdy/platform/api/spdy_logging.h"
-#include "net/third_party/quiche/src/spdy/platform/api/spdy_ptr_util.h"
 #include "net/third_party/quiche/src/spdy/platform/api/spdy_string_utils.h"
 
 using ::spdy::ExtensionVisitorInterface;
@@ -49,7 +47,6 @@ using ::spdy::SpdyFramerVisitorInterface;
 using ::spdy::SpdyFrameType;
 using ::spdy::SpdyHeadersHandlerInterface;
 using ::spdy::SpdyKnownSettingsId;
-using ::spdy::SpdyMakeUnique;
 using ::spdy::SpdySettingsId;
 
 namespace http2 {
@@ -812,7 +809,7 @@ void Http2DecoderAdapter::ResetInternal() {
   CorruptFrameHeader(&frame_header_);
   CorruptFrameHeader(&hpack_first_frame_header_);
 
-  frame_decoder_ = SpdyMakeUnique<Http2FrameDecoder>(this);
+  frame_decoder_ = std::make_unique<Http2FrameDecoder>(this);
   hpack_decoder_ = nullptr;
 }
 
@@ -951,7 +948,7 @@ void Http2DecoderAdapter::ReportReceiveCompressedFrame(
 
 HpackDecoderAdapter* Http2DecoderAdapter::GetHpackDecoder() {
   if (hpack_decoder_ == nullptr) {
-    hpack_decoder_ = SpdyMakeUnique<HpackDecoderAdapter>();
+    hpack_decoder_ = std::make_unique<HpackDecoderAdapter>();
   }
   return hpack_decoder_.get();
 }

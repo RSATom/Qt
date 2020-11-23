@@ -31,6 +31,7 @@
 #include "third_party/blink/public/platform/web_vector.h"
 #include "third_party/blink/public/web/web_ax_enums.h"
 #include "third_party/blink/public/web/web_ax_object.h"
+#include "third_party/blink/public/web/web_disallow_transition_scope.h"
 #include "third_party/blink/public/web/web_document.h"
 #include "third_party/blink/public/web/web_element.h"
 #include "third_party/blink/public/web/web_form_control_element.h"
@@ -274,6 +275,8 @@ std::string GetEquivalentAriaRoleString(const ax::mojom::Role role) {
       return "figure";
     case ax::mojom::Role::kFooter:
       return "contentinfo";
+    case ax::mojom::Role::kHeader:
+      return "banner";
     case ax::mojom::Role::kHeading:
       return "heading";
     case ax::mojom::Role::kImage:
@@ -285,6 +288,9 @@ std::string GetEquivalentAriaRoleString(const ax::mojom::Role role) {
     case ax::mojom::Role::kRadioButton:
       return "radio";
     case ax::mojom::Role::kRegion:
+      return "region";
+    case ax::mojom::Role::kSection:
+      // A <section> element uses the 'region' ARIA role mapping.
       return "region";
     case ax::mojom::Role::kSlider:
       return "slider";
@@ -543,6 +549,13 @@ WebAXObject BlinkAXTreeSource::GetNull() const {
 
 void BlinkAXTreeSource::SerializeNode(WebAXObject src,
                                       AXContentNodeData* dst) const {
+#if DCHECK_IS_ON()
+  // Never causes a document lifecycle change during serialization,
+  // because the assumption is that layout is in a safe, stable state.
+  WebDocument document = GetMainDocument();
+  blink::WebDisallowTransitionScope disallow(&document);
+#endif
+
   dst->role = src.Role();
   AXStateFromBlink(src, dst);
   dst->id = src.AxID();
@@ -803,19 +816,20 @@ void BlinkAXTreeSource::SerializeNode(WebAXObject src,
                                     src.AccessKey().Utf8());
     }
 
-    if (src.AriaAutoComplete().length()) {
+    if (src.AutoComplete().length()) {
       TruncateAndAddStringAttribute(dst,
                                     ax::mojom::StringAttribute::kAutoComplete,
-                                    src.AriaAutoComplete().Utf8());
+                                    src.AutoComplete().Utf8());
     }
 
     if (src.Action() != ax::mojom::DefaultActionVerb::kNone) {
       dst->SetDefaultActionVerb(src.Action());
     }
 
-    if (src.HasComputedStyle()) {
+    blink::WebString display_style = src.ComputedStyleDisplay();
+    if (!display_style.IsEmpty()) {
       TruncateAndAddStringAttribute(dst, ax::mojom::StringAttribute::kDisplay,
-                                    src.ComputedStyleDisplay().Utf8());
+                                    display_style.Utf8());
     }
 
     if (src.Language().length()) {
@@ -1042,6 +1056,16 @@ void BlinkAXTreeSource::SerializeNode(WebAXObject src,
       if (FindExactlyOneInnerImageInMaxDepthTwo(src, &inner_image))
         AddImageAnnotations(inner_image, dst);
     }
+
+    WebNode node = src.GetNode();
+    if (!node.IsNull() && node.IsElementNode()) {
+      WebElement element = node.To<WebElement>();
+      if (element.HasHTMLTagName("input") && element.HasAttribute("type")) {
+        TruncateAndAddStringAttribute(dst,
+                                      ax::mojom::StringAttribute::kInputType,
+                                      element.GetAttribute("type").Utf8());
+      }
+    }
   }
 
   // The majority of the rest of this code computes attributes needed for
@@ -1210,6 +1234,11 @@ void BlinkAXTreeSource::AddImageAnnotations(blink::WebAXObject& src,
                                             AXContentNodeData* dst) const {
   if (!base::FeatureList::IsEnabled(features::kExperimentalAccessibilityLabels))
     return;
+
+  // Reject ignored objects
+  if (src.AccessibilityIsIgnored()) {
+    return;
+  }
 
   // Reject images that are explicitly empty, or that have a name already.
   //

@@ -59,7 +59,7 @@ bool RenderFrameMatches(const ExtensionFrameHelper* frame_helper,
   // This logic matches ExtensionWebContentsObserver::GetExtensionFromFrame.
   blink::WebSecurityOrigin origin =
       frame_helper->render_frame()->GetWebFrame()->GetSecurityOrigin();
-  if (origin.IsUnique() ||
+  if (origin.IsOpaque() ||
       !base::EqualsASCII(origin.Protocol().Utf16(), kExtensionScheme) ||
       !base::EqualsASCII(origin.Host().Utf16(), match_extension_id.c_str()))
     return false;
@@ -329,25 +329,44 @@ void ExtensionFrameHelper::ReadyToCommitNavigation(
   // TODO(devlin): Add constants for main world id, no extension group.
 }
 
+void ExtensionFrameHelper::DidCommitProvisionalLoad(
+    bool is_same_document_navigation,
+    ui::PageTransition transition) {
+  // Grant cross browsing instance frame lookup if we are an extension. This
+  // should match the conditions in FindFrame.
+  content::RenderFrame* frame = render_frame();
+  if (GetExtensionFromFrame(frame))
+    frame->SetAllowsCrossBrowsingInstanceFrameLookup();
+}
+
 void ExtensionFrameHelper::DidCreateScriptContext(
     v8::Local<v8::Context> context,
-    int world_id) {
-  if (world_id == kMainWorldId &&
-      render_frame()->IsBrowserSideNavigationPending()) {
-    DCHECK(!delayed_main_world_script_initialization_);
-    // Defer initializing the extensions script context now because it depends
-    // on having the URL of the provisional load which isn't available at this
-    // point with PlzNavigate.
-    delayed_main_world_script_initialization_ = true;
-  } else {
-    extension_dispatcher_->DidCreateScriptContext(render_frame()->GetWebFrame(),
-                                                  context, world_id);
+    int32_t world_id) {
+  if (world_id == kMainWorldId) {
+    if (render_frame()->IsBrowserSideNavigationPending()) {
+      // Defer initializing the extensions script context now because it depends
+      // on having the URL of the provisional load which isn't available at this
+      // point.
+      // We can come here twice in the case of window.open(url): first for
+      // about:blank empty document, then possibly for the actual url load
+      // (depends on whoever triggers window proxy init), before getting
+      // ReadyToCommitNavigation.
+      delayed_main_world_script_initialization_ = true;
+      return;
+    }
+    // Sometimes DidCreateScriptContext comes before ReadyToCommitNavigation.
+    // In this case we don't have to wait until ReadyToCommitNavigation.
+    // TODO(dgozman): ensure consistent call order between
+    // DidCreateScriptContext and ReadyToCommitNavigation.
+    delayed_main_world_script_initialization_ = false;
   }
+  extension_dispatcher_->DidCreateScriptContext(render_frame()->GetWebFrame(),
+                                                context, world_id);
 }
 
 void ExtensionFrameHelper::WillReleaseScriptContext(
     v8::Local<v8::Context> context,
-    int world_id) {
+    int32_t world_id) {
   extension_dispatcher_->WillReleaseScriptContext(
       render_frame()->GetWebFrame(), context, world_id);
 }
@@ -499,8 +518,7 @@ void ExtensionFrameHelper::DraggableRegionsChanged() {
       render_frame()->GetWebFrame()->GetDocument().DraggableRegions();
   std::vector<DraggableRegion> regions;
   for (blink::WebDraggableRegion& webregion : webregions) {
-    render_frame()->GetRenderView()->ConvertViewportToWindowViaWidget(
-        &webregion.bounds);
+    render_frame()->ConvertViewportToWindow(&webregion.bounds);
 
     regions.push_back(DraggableRegion());
     DraggableRegion& region = regions.back();

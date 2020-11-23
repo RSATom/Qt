@@ -2,8 +2,8 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#ifndef NGLineBoxFragmentBuilder_h
-#define NGLineBoxFragmentBuilder_h
+#ifndef THIRD_PARTY_BLINK_RENDERER_CORE_LAYOUT_NG_INLINE_NG_LINE_BOX_FRAGMENT_BUILDER_H_
+#define THIRD_PARTY_BLINK_RENDERER_CORE_LAYOUT_NG_INLINE_NG_LINE_BOX_FRAGMENT_BUILDER_H_
 
 #include "third_party/blink/renderer/core/layout/geometry/logical_offset.h"
 #include "third_party/blink/renderer/core/layout/ng/inline/ng_inline_break_token.h"
@@ -91,6 +91,10 @@ class CORE_EXPORT NGLineBoxFragmentBuilder final
     // The index of |box_data_list_|, used in |PrepareForReorder()| and
     // |UpdateAfterReorder()| to track children of boxes across BiDi reorder.
     unsigned box_data_index = 0;
+    // For an inline box, shows the number of descendant |Child|ren, including
+    // empty ones. Includes itself, so 1 means no descendants. 0 if not an
+    // inline box. Available only after |CreateBoxFragments()|.
+    unsigned children_count = 0;
     UBiDiLevel bidi_level = 0xff;
     // The current text direction for OOF positioned items.
     TextDirection container_direction = TextDirection::kLtr;
@@ -162,6 +166,20 @@ class CORE_EXPORT NGLineBoxFragmentBuilder final
     }
     bool HasBidiLevel() const { return bidi_level != 0xff; }
     bool IsPlaceholder() const { return !HasFragment() && !HasBidiLevel(); }
+    bool IsOpaqueToBidiReordering() const {
+      if (IsPlaceholder())
+        return true;
+      // Skip all inline boxes. Fragments for inline boxes maybe created earlier
+      // if they have no children.
+      if (layout_result) {
+        const LayoutObject* layout_object =
+            layout_result->PhysicalFragment().GetLayoutObject();
+        DCHECK(layout_object);
+        if (layout_object->IsLayoutInline())
+          return true;
+      }
+      return false;
+    }
     const NGPhysicalFragment* PhysicalFragment() const {
       if (layout_result)
         return &layout_result->PhysicalFragment();
@@ -235,6 +253,11 @@ class CORE_EXPORT NGLineBoxFragmentBuilder final
   // Add all items in ChildList. Skips null Child if any.
   void AddChildren(ChildList&);
 
+  // Propagate data in |ChildList| without adding them to this builder. When
+  // adding children as fragment items, they appear in the container, but there
+  // are some data that should be propagated through line box fragments.
+  void PropagateChildrenData(ChildList&);
+
   // Creates the fragment. Can only be called once.
   scoped_refptr<const NGLayoutResult> ToLineBoxFragment();
 
@@ -255,4 +278,4 @@ class CORE_EXPORT NGLineBoxFragmentBuilder final
 WTF_ALLOW_MOVE_INIT_AND_COMPARE_WITH_MEM_FUNCTIONS(
     blink::NGLineBoxFragmentBuilder::Child)
 
-#endif  // NGLineBoxFragmentBuilder
+#endif  // THIRD_PARTY_BLINK_RENDERER_CORE_LAYOUT_NG_INLINE_NG_LINE_BOX_FRAGMENT_BUILDER_H_

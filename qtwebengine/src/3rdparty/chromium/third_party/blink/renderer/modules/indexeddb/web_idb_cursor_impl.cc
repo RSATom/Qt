@@ -7,19 +7,16 @@
 #include <stddef.h>
 
 #include "base/single_thread_task_runner.h"
-#include "mojo/public/cpp/bindings/strong_associated_binding.h"
-#include "third_party/blink/public/platform/modules/indexeddb/web_idb_database_exception.h"
+#include "mojo/public/cpp/bindings/self_owned_associated_receiver.h"
+#include "third_party/blink/public/mojom/indexeddb/indexeddb.mojom-blink.h"
 #include "third_party/blink/renderer/modules/indexeddb/idb_key_range.h"
 #include "third_party/blink/renderer/modules/indexeddb/indexed_db_dispatcher.h"
 #include "third_party/blink/renderer/platform/wtf/functional.h"
 
-using blink::mojom::blink::IDBCallbacksAssociatedPtrInfo;
-using blink::mojom::blink::IDBCursorAssociatedPtrInfo;
-
 namespace blink {
 
 WebIDBCursorImpl::WebIDBCursorImpl(
-    mojom::blink::IDBCursorAssociatedPtrInfo cursor_info,
+    mojo::PendingAssociatedRemote<mojom::blink::IDBCursor> cursor_info,
     int64_t transaction_id,
     scoped_refptr<base::SingleThreadTaskRunner> task_runner)
     : transaction_id_(transaction_id),
@@ -72,7 +69,7 @@ void WebIDBCursorImpl::AdvanceCallback(
     callbacks.reset();
     return;
   } else if (result->is_empty()) {
-    callbacks->Error(blink::kWebIDBDatabaseExceptionUnknownError,
+    callbacks->Error(blink::mojom::IDBException::kUnknownError,
                      "Invalid response");
     callbacks.reset();
     return;
@@ -81,7 +78,7 @@ void WebIDBCursorImpl::AdvanceCallback(
   if (result->get_values()->keys.size() != 1u ||
       result->get_values()->primary_keys.size() != 1u ||
       result->get_values()->values.size() != 1u) {
-    callbacks->Error(blink::kWebIDBDatabaseExceptionUnknownError,
+    callbacks->Error(blink::mojom::IDBException::kUnknownError,
                      "Invalid response");
     callbacks.reset();
     return;
@@ -100,8 +97,8 @@ void WebIDBCursorImpl::CursorContinue(const IDBKey* key,
   DCHECK(key && primary_key);
   std::unique_ptr<WebIDBCallbacks> callbacks(callbacks_ptr);
 
-  if (key->GetType() == mojom::IDBKeyType::Null &&
-      primary_key->GetType() == mojom::IDBKeyType::Null) {
+  if (key->GetType() == mojom::IDBKeyType::None &&
+      primary_key->GetType() == mojom::IDBKeyType::None) {
     // No key(s), so this would qualify for a prefetch.
     ++continue_count_;
 
@@ -156,7 +153,7 @@ void WebIDBCursorImpl::CursorContinueCallback(
     callbacks.reset();
     return;
   } else if (result->is_empty()) {
-    callbacks->Error(blink::kWebIDBDatabaseExceptionUnknownError,
+    callbacks->Error(blink::mojom::IDBException::kUnknownError,
                      "Invalid response");
     callbacks.reset();
     return;
@@ -165,7 +162,7 @@ void WebIDBCursorImpl::CursorContinueCallback(
   if (result->get_values()->keys.size() != 1u ||
       result->get_values()->primary_keys.size() != 1u ||
       result->get_values()->values.size() != 1u) {
-    callbacks->Error(blink::kWebIDBDatabaseExceptionUnknownError,
+    callbacks->Error(blink::mojom::IDBException::kUnknownError,
                      "Invalid response");
     callbacks.reset();
     return;
@@ -193,7 +190,7 @@ void WebIDBCursorImpl::PrefetchCallback(
     callbacks.reset();
     return;
   } else if (result->is_empty()) {
-    callbacks->Error(blink::kWebIDBDatabaseExceptionUnknownError,
+    callbacks->Error(blink::mojom::IDBException::kUnknownError,
                      "Invalid response");
     callbacks.reset();
     return;
@@ -203,7 +200,7 @@ void WebIDBCursorImpl::PrefetchCallback(
           result->get_values()->primary_keys.size() ||
       result->get_values()->keys.size() !=
           result->get_values()->values.size()) {
-    callbacks->Error(blink::kWebIDBDatabaseExceptionUnknownError,
+    callbacks->Error(blink::mojom::IDBException::kUnknownError,
                      "Invalid response");
     callbacks.reset();
     return;
@@ -315,13 +312,14 @@ void WebIDBCursorImpl::ResetPrefetchCache() {
   pending_onsuccess_callbacks_ = 0;
 }
 
-IDBCallbacksAssociatedPtrInfo WebIDBCursorImpl::GetCallbacksProxy(
-    std::unique_ptr<WebIDBCallbacks> callbacks) {
-  IDBCallbacksAssociatedPtrInfo ptr_info;
-  auto request = mojo::MakeRequest(&ptr_info);
-  mojo::MakeStrongAssociatedBinding(std::move(callbacks), std::move(request),
-                                    task_runner_);
-  return ptr_info;
+mojo::PendingAssociatedRemote<mojom::blink::IDBCallbacks>
+WebIDBCursorImpl::GetCallbacksProxy(
+    std::unique_ptr<WebIDBCallbacks> callbacks_impl) {
+  mojo::PendingAssociatedRemote<mojom::blink::IDBCallbacks> pending_callbacks;
+  mojo::MakeSelfOwnedAssociatedReceiver(
+      std::move(callbacks_impl),
+      pending_callbacks.InitWithNewEndpointAndPassReceiver(), task_runner_);
+  return pending_callbacks;
 }
 
 }  // namespace blink

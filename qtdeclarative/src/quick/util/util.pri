@@ -1,6 +1,5 @@
 SOURCES += \
     $$PWD/qquickapplication.cpp\
-    $$PWD/qquickutilmodule.cpp\
     $$PWD/qquickanimation.cpp \
     $$PWD/qquicksystempalette.cpp \
     $$PWD/qquickspringanimation.cpp \
@@ -15,7 +14,6 @@ SOURCES += \
     $$PWD/qquicktimeline.cpp \
     $$PWD/qquickpixmapcache.cpp \
     $$PWD/qquickbehavior.cpp \
-    $$PWD/qquickboundaryrule.cpp \
     $$PWD/qquickfontloader.cpp \
     $$PWD/qquickstyledtext.cpp \
     $$PWD/qquickimageprovider.cpp \
@@ -33,7 +31,6 @@ qtConfig(qml-debug): SOURCES += $$PWD/qquickprofiler.cpp
 
 HEADERS += \
     $$PWD/qquickapplication_p.h\
-    $$PWD/qquickutilmodule_p.h\
     $$PWD/qquickanimation_p.h \
     $$PWD/qquickanimation_p_p.h \
     $$PWD/qquicksystempalette_p.h \
@@ -51,7 +48,6 @@ HEADERS += \
     $$PWD/qquicktimeline_p_p.h \
     $$PWD/qquickpixmapcache_p.h \
     $$PWD/qquickbehavior_p.h \
-    $$PWD/qquickboundaryrule_p.h \
     $$PWD/qquickfontloader_p.h \
     $$PWD/qquickstyledtext_p.h \
     $$PWD/qquickimageprovider.h \
@@ -65,7 +61,8 @@ HEADERS += \
     $$PWD/qquickprofiler_p.h \
     $$PWD/qquickfontmetrics_p.h \
     $$PWD/qquicktextmetrics_p.h \
-    $$PWD/qquickvalidator_p.h
+    $$PWD/qquickvalidator_p.h \
+    $$PWD/qquickforeignutils_p.h
 
 qtConfig(shortcut) {
     SOURCES += \

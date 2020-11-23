@@ -118,10 +118,8 @@ class CORE_EXPORT WebSettingsImpl final : public WebSettings {
   void SetPresentationRequiresUserGesture(bool) override;
   void SetEmbeddedMediaExperienceEnabled(bool) override;
   void SetImmersiveModeEnabled(bool) override;
-  void SetMinimumAccelerated2dCanvasSize(int) override;
   void SetMinimumFontSize(int) override;
   void SetMinimumLogicalFontSize(int) override;
-  void SetMockScrollbarsEnabled(bool) override;
   void SetHideScrollbars(bool) override;
   void SetOfflineWebApplicationCacheEnabled(bool) override;
   void SetPassiveEventListenerDefault(PassiveEventListenerDefault) override;
@@ -184,7 +182,6 @@ class CORE_EXPORT WebSettingsImpl final : public WebSettings {
   void SetBarrelButtonForDragEnabled(bool) override;
   void SetUseLegacyBackgroundSizeShorthandBehavior(bool) override;
   void SetViewportStyle(WebViewportStyle) override;
-  void SetUseSolidColorScrollbars(bool) override;
   void SetUseWideViewport(bool) override;
   void SetV8CacheOptions(V8CacheOptions) override;
   void SetValidationMessageTimerMagnification(int) override;
@@ -196,7 +193,6 @@ class CORE_EXPORT WebSettingsImpl final : public WebSettings {
   void SetWebGLErrorsToConsoleEnabled(bool) override;
   void SetWebSecurityEnabled(bool) override;
   void SetWideViewportQuirkEnabled(bool) override;
-  void SetXSSAuditorEnabled(bool) override;
   void SetMediaControlsEnabled(bool) override;
   void SetDoNotUpdateSelectionOnMutatingSelectionRange(bool) override;
   void SetLowPriorityIframesThreshold(WebEffectiveConnectionType) override;
@@ -217,10 +213,14 @@ class CORE_EXPORT WebSettingsImpl final : public WebSettings {
   void SetLazyImageLoadingDistanceThresholdPx2G(int) override;
   void SetLazyImageLoadingDistanceThresholdPx3G(int) override;
   void SetLazyImageLoadingDistanceThresholdPx4G(int) override;
+  void SetLazyImageFirstKFullyLoadUnknown(int) override;
+  void SetLazyImageFirstKFullyLoadSlow2G(int) override;
+  void SetLazyImageFirstKFullyLoad2G(int) override;
+  void SetLazyImageFirstKFullyLoad3G(int) override;
+  void SetLazyImageFirstKFullyLoad4G(int) override;
 
   void SetForceDarkModeEnabled(bool) override;
-  void SetPreferredColorScheme(PreferredColorScheme) override;
-  void SetForcedColors(ForcedColors) override;
+  void SetNavigationControls(NavigationControls) override;
 
   bool RenderVSyncNotificationEnabled() const {
     return render_v_sync_notification_enabled_;

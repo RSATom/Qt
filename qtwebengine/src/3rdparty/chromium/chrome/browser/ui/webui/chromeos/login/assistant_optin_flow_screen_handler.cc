@@ -15,17 +15,16 @@
 #include "chrome/browser/chromeos/profiles/profile_helper.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/profiles/profile_manager.h"
+#include "chrome/browser/ui/ash/assistant/assistant_service_connection.h"
 #include "chrome/browser/ui/webui/chromeos/assistant_optin/assistant_optin_utils.h"
 #include "chrome/grit/generated_resources.h"
 #include "chromeos/services/assistant/public/cpp/assistant_prefs.h"
 #include "chromeos/services/assistant/public/features.h"
-#include "chromeos/services/assistant/public/mojom/constants.mojom.h"
 #include "chromeos/services/assistant/public/proto/settings_ui.pb.h"
-#include "components/arc/arc_prefs.h"
 #include "components/login/localized_values_builder.h"
 #include "components/prefs/pref_service.h"
 #include "components/user_manager/user_manager.h"
-#include "services/service_manager/public/cpp/connector.h"
+#include "ui/chromeos/devicetype_utils.h"
 
 namespace chromeos {
 
@@ -50,35 +49,33 @@ constexpr StaticOobeScreenId AssistantOptInFlowScreenView::kScreenId;
 
 AssistantOptInFlowScreenHandler::AssistantOptInFlowScreenHandler(
     JSCallsContainer* js_calls_container)
-    : BaseScreenHandler(kScreenId, js_calls_container),
-      client_binding_(this),
-      weak_factory_(this) {
+    : BaseScreenHandler(kScreenId, js_calls_container) {
   set_user_acted_method_path("login.AssistantOptInFlowScreen.userActed");
 }
 
 AssistantOptInFlowScreenHandler::~AssistantOptInFlowScreenHandler() {
-  if (arc::VoiceInteractionControllerClient::Get()) {
-    arc::VoiceInteractionControllerClient::Get()->RemoveObserver(this);
-  }
-  if (screen_) {
+  if (client_receiver_.is_bound())
+    StopSpeakerIdEnrollment();
+  if (ash::AssistantState::Get())
+    ash::AssistantState::Get()->RemoveObserver(this);
+  if (screen_)
     screen_->OnViewDestroyed(this);
-  }
 }
 
 void AssistantOptInFlowScreenHandler::DeclareLocalizedValues(
     ::login::LocalizedValuesBuilder* builder) {
   builder->Add("locale", g_browser_process->GetApplicationLocale());
-  builder->Add("assistantLogo", IDS_VOICE_INTERACTION_LOGO);
-  builder->Add("assistantOptinLoading",
-               IDS_VOICE_INTERACTION_VALUE_PROP_LOADING);
+  builder->Add("assistantLogo", IDS_ASSISTANT_LOGO);
+  builder->Add("assistantOptinLoading", IDS_ASSISTANT_VALUE_PROP_LOADING);
   builder->Add("assistantOptinLoadErrorTitle",
-               IDS_VOICE_INTERACTION_VALUE_PROP_LOAD_ERROR_TITLE);
+               IDS_ASSISTANT_VALUE_PROP_LOAD_ERROR_TITLE);
   builder->Add("assistantOptinLoadErrorMessage",
-               IDS_VOICE_INTERACTION_VALUE_PROP_LOAD_ERROR_MESSAGE);
+               IDS_ASSISTANT_VALUE_PROP_LOAD_ERROR_MESSAGE);
   builder->Add("assistantOptinSkipButton",
-               IDS_VOICE_INTERACTION_VALUE_PROP_SKIP_BUTTON);
+               IDS_ASSISTANT_VALUE_PROP_SKIP_BUTTON);
   builder->Add("assistantOptinRetryButton",
-               IDS_VOICE_INTERACTION_VALUE_PROP_RETRY_BUTTON);
+               IDS_ASSISTANT_VALUE_PROP_RETRY_BUTTON);
+  builder->Add("assistantUserImage", IDS_ASSISTANT_OOBE_USER_IMAGE);
   builder->Add("assistantVoiceMatchTitle", IDS_ASSISTANT_VOICE_MATCH_TITLE);
   builder->Add("assistantVoiceMatchMessage", IDS_ASSISTANT_VOICE_MATCH_MESSAGE);
   builder->Add("assistantVoiceMatchNoDspMessage",
@@ -113,10 +110,13 @@ void AssistantOptInFlowScreenHandler::DeclareLocalizedValues(
   builder->Add("assistantOptinSaveButton", IDS_ASSISTANT_SAVE_BUTTON);
   builder->Add("assistantOptinWaitMessage", IDS_ASSISTANT_WAIT_MESSAGE);
   builder->Add("assistantReadyTitle", IDS_ASSISTANT_READY_SCREEN_TITLE);
-  builder->Add("assistantReadyMessage", IDS_ASSISTANT_READY_SCREEN_MESSAGE);
+  builder->AddF("assistantReadyMessage", IDS_ASSISTANT_READY_SCREEN_MESSAGE,
+                ui::GetChromeOSDeviceName());
   builder->Add("assistantReadyButton", IDS_ASSISTANT_DONE_BUTTON);
   builder->Add("back", IDS_EULA_BACK_BUTTON);
   builder->Add("next", IDS_EULA_NEXT_BUTTON);
+  builder->Add("assistantOobePopupOverlayLoading",
+               IDS_ASSISTANT_OOBE_POPUP_OVERLAY_LOADING);
 }
 
 void AssistantOptInFlowScreenHandler::RegisterMessages() {
@@ -145,6 +145,14 @@ void AssistantOptInFlowScreenHandler::RegisterMessages() {
               &AssistantOptInFlowScreenHandler::HandleFlowFinished);
   AddCallback("login.AssistantOptInFlowScreen.initialized",
               &AssistantOptInFlowScreenHandler::HandleFlowInitialized);
+}
+
+void AssistantOptInFlowScreenHandler::GetAdditionalParameters(
+    base::DictionaryValue* dict) {
+  dict->SetBoolean("hotwordDspAvailable", chromeos::IsHotwordDspAvailable());
+  dict->SetBoolean("voiceMatchDisabled",
+                   chromeos::assistant::features::IsVoiceMatchDisabled());
+  BaseScreenHandler::GetAdditionalParameters(dict);
 }
 
 void AssistantOptInFlowScreenHandler::Bind(AssistantOptInFlowScreen* screen) {
@@ -214,11 +222,11 @@ void AssistantOptInFlowScreenHandler::SetupAssistantConnection() {
   }
 
   // Make sure enable Assistant service since we need it during the flow.
-  prefs->SetBoolean(arc::prefs::kVoiceInteractionEnabled, true);
+  prefs->SetBoolean(chromeos::assistant::prefs::kAssistantEnabled, true);
 
-  if (arc::VoiceInteractionControllerClient::Get()->voice_interaction_state() ==
-      ash::mojom::VoiceInteractionState::NOT_READY) {
-    arc::VoiceInteractionControllerClient::Get()->AddObserver(this);
+  if (ash::AssistantState::Get()->assistant_state() ==
+      ash::mojom::AssistantState::NOT_READY) {
+    ash::AssistantState::Get()->AddObserver(this);
   } else {
     BindAssistantSettingsManager();
   }
@@ -266,15 +274,15 @@ void AssistantOptInFlowScreenHandler::OnDialogClosed() {
   if (!voice_match_enrollment_done_ &&
       flow_type_ == ash::FlowType::kSpeakerIdEnrollment) {
     ProfileManager::GetActiveUserProfile()->GetPrefs()->SetBoolean(
-        arc::prefs::kVoiceInteractionHotwordEnabled, false);
+        assistant::prefs::kAssistantHotwordEnabled, false);
   }
 }
 
-void AssistantOptInFlowScreenHandler::OnStateChanged(
-    ash::mojom::VoiceInteractionState state) {
-  if (state != ash::mojom::VoiceInteractionState::NOT_READY) {
+void AssistantOptInFlowScreenHandler::OnAssistantStatusChanged(
+    ash::mojom::AssistantState state) {
+  if (state != ash::mojom::AssistantState::NOT_READY) {
     BindAssistantSettingsManager();
-    arc::VoiceInteractionControllerClient::Get()->RemoveObserver(this);
+    ash::AssistantState::Get()->RemoveObserver(this);
   }
 }
 
@@ -283,11 +291,10 @@ void AssistantOptInFlowScreenHandler::BindAssistantSettingsManager() {
     return;
 
   // Set up settings mojom.
-  service_manager::Connector* connector =
-      content::BrowserContext::GetConnectorFor(
-          ProfileManager::GetActiveUserProfile());
-  connector->BindInterface(assistant::mojom::kServiceName,
-                           mojo::MakeRequest(&settings_manager_));
+  AssistantServiceConnection::GetForProfile(
+      ProfileManager::GetActiveUserProfile())
+      ->service()
+      ->BindSettingsManager(settings_manager_.BindNewPipeAndPassReceiver());
 
   if (initialized_) {
     SendGetSettingsRequest();
@@ -305,8 +312,8 @@ void AssistantOptInFlowScreenHandler::SendGetSettingsRequest() {
 
 void AssistantOptInFlowScreenHandler::StopSpeakerIdEnrollment() {
   settings_manager_->StopSpeakerIdEnrollment(base::DoNothing());
-  // Close the binding so it can be used again if enrollment is retried.
-  client_binding_.Close();
+  // Reset the receiver so it can be used again if enrollment is retried.
+  client_receiver_.reset();
 }
 
 void AssistantOptInFlowScreenHandler::ReloadContent(const base::Value& dict) {
@@ -339,7 +346,7 @@ void AssistantOptInFlowScreenHandler::OnGetSettingsResponse(
                   "opt-in flow.";
       PrefService* prefs = ProfileManager::GetActiveUserProfile()->GetPrefs();
       prefs->SetBoolean(assistant::prefs::kAssistantDisabledByPolicy, true);
-      prefs->SetBoolean(arc::prefs::kVoiceInteractionEnabled, false);
+      prefs->SetBoolean(chromeos::assistant::prefs::kAssistantEnabled, false);
       HandleFlowFinished();
       return;
     }
@@ -508,19 +515,18 @@ void AssistantOptInFlowScreenHandler::HandleVoiceMatchScreenUserAction(
     RecordAssistantOptInStatus(VOICE_MATCH_ENROLLMENT_SKIPPED);
     if (flow_type_ != ash::FlowType::kSpeakerIdRetrain) {
       // No need to disable hotword for retrain flow since user has a model.
-      prefs->SetBoolean(arc::prefs::kVoiceInteractionHotwordEnabled, false);
+      prefs->SetBoolean(assistant::prefs::kAssistantHotwordEnabled, false);
     }
     StopSpeakerIdEnrollment();
     ShowNextScreen();
   } else if (action == kRecordPressed) {
-    if (!prefs->GetBoolean(arc::prefs::kVoiceInteractionHotwordEnabled)) {
-      prefs->SetBoolean(arc::prefs::kVoiceInteractionHotwordEnabled, true);
+    if (!prefs->GetBoolean(assistant::prefs::kAssistantHotwordEnabled)) {
+      prefs->SetBoolean(assistant::prefs::kAssistantHotwordEnabled, true);
     }
 
-    assistant::mojom::SpeakerIdEnrollmentClientPtr client_ptr;
-    client_binding_.Bind(mojo::MakeRequest(&client_ptr));
     settings_manager_->StartSpeakerIdEnrollment(
-        flow_type_ == ash::FlowType::kSpeakerIdRetrain, std::move(client_ptr));
+        flow_type_ == ash::FlowType::kSpeakerIdRetrain,
+        client_receiver_.BindNewPipeAndPassRemote());
   }
 }
 
@@ -529,8 +535,7 @@ void AssistantOptInFlowScreenHandler::HandleGetMoreScreenUserAction(
     const bool email_opted_in) {
   RecordAssistantOptInStatus(GET_MORE_CONTINUED);
   PrefService* prefs = ProfileManager::GetActiveUserProfile()->GetPrefs();
-  prefs->SetBoolean(arc::prefs::kVoiceInteractionContextEnabled,
-                    screen_context);
+  prefs->SetBoolean(assistant::prefs::kAssistantContextEnabled, screen_context);
   OnEmailOptInResult(email_opted_in);
 }
 
@@ -576,7 +581,7 @@ void AssistantOptInFlowScreenHandler::HandleFlowFinished() {
 void AssistantOptInFlowScreenHandler::HandleFlowInitialized(
     const int flow_type) {
   auto* prefs = ProfileManager::GetActiveUserProfile()->GetPrefs();
-  if (!prefs->GetBoolean(arc::prefs::kVoiceInteractionEnabled)) {
+  if (!prefs->GetBoolean(chromeos::assistant::prefs::kAssistantEnabled)) {
     HandleFlowFinished();
     return;
   }

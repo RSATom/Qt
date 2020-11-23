@@ -206,7 +206,7 @@ std::unique_ptr<SharedImageRepresentationSkia> SharedImageManager::ProduceSkia(
 std::unique_ptr<SharedImageRepresentationDawn> SharedImageManager::ProduceDawn(
     const Mailbox& mailbox,
     MemoryTypeTracker* tracker,
-    DawnDevice device) {
+    WGPUDevice device) {
   CALLED_ON_VALID_THREAD();
 
   AutoLock autolock(this);
@@ -220,7 +220,30 @@ std::unique_ptr<SharedImageRepresentationDawn> SharedImageManager::ProduceDawn(
   auto representation = (*found)->ProduceDawn(this, tracker, device);
   if (!representation) {
     LOG(ERROR) << "SharedImageManager::ProduceDawn: Trying to produce a "
-                  "Skia representation from an incompatible mailbox.";
+                  "Dawn representation from an incompatible mailbox.";
+    return nullptr;
+  }
+
+  return representation;
+}
+
+std::unique_ptr<SharedImageRepresentationOverlay>
+SharedImageManager::ProduceOverlay(const gpu::Mailbox& mailbox,
+                                   gpu::MemoryTypeTracker* tracker) {
+  CALLED_ON_VALID_THREAD();
+
+  AutoLock autolock(this);
+  auto found = images_.find(mailbox);
+  if (found == images_.end()) {
+    LOG(ERROR) << "SharedImageManager::ProduceOverlay: Trying to Produce a "
+                  "Overlay representation from a non-existent mailbox.";
+    return nullptr;
+  }
+
+  auto representation = (*found)->ProduceOverlay(this, tracker);
+  if (!representation) {
+    LOG(ERROR) << "SharedImageManager::ProduceOverlay: Trying to produce a "
+                  "Overlay representation from an incompatible mailbox.";
     return nullptr;
   }
 
@@ -271,7 +294,7 @@ void SharedImageManager::OnMemoryDump(const Mailbox& mailbox,
 
   // Unique name in the process.
   std::string dump_name =
-      base::StringPrintf("gpu/shared-images/client_0x%" PRIX32 "/mailbox_%s",
+      base::StringPrintf("gpu/shared_images/client_0x%" PRIX32 "/mailbox_%s",
                          client_id, mailbox.ToDebugString().c_str());
 
   base::trace_event::MemoryAllocatorDump* dump =

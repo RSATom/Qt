@@ -3,7 +3,9 @@
 // found in the LICENSE file.
 
 #include "ui/accessibility/null_ax_action_target.h"
+
 #include "testing/gtest/include/gtest/gtest.h"
+#include "ui/accessibility/ax_enums.mojom.h"
 
 namespace ui {
 
@@ -30,7 +32,8 @@ TEST(NullAXActionTargetTest, TestMethods) {
   EXPECT_FALSE(action_target->ScrollToMakeVisible());
   EXPECT_FALSE(action_target->ScrollToMakeVisibleWithSubFocus(
       gfx::Rect(), ax::mojom::ScrollAlignment::kScrollAlignmentCenter,
-      ax::mojom::ScrollAlignment::kScrollAlignmentCenter));
+      ax::mojom::ScrollAlignment::kScrollAlignmentCenter,
+      ax::mojom::ScrollBehavior::kDoNotScrollIfVisible));
   EXPECT_FALSE(action_target->ScrollToGlobalPoint(gfx::Point()));
 }
 

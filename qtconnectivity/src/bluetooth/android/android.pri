@@ -1,4 +1,4 @@
-PRIVATE_HEADERS +=  \
+HEADERS +=  \
         android/inputstreamthread_p.h \
         android/devicediscoverybroadcastreceiver_p.h \
         android/servicediscoverybroadcastreceiver_p.h \

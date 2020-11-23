@@ -47,7 +47,6 @@ group("examples") {
   if (is_linux || is_win) {
     deps += [
       ":peerconnection_server",
-      ":relayserver",
       ":stunserver",
       ":turnserver",
     ]
@@ -61,7 +60,7 @@ group("examples") {
   }
 }
 
-rtc_source_set("read_auth_file") {
+rtc_library("read_auth_file") {
   testonly = true
   sources = [
     "turnserver/read_auth_file.cc",
@@ -190,7 +189,7 @@ if (is_ios || (is_mac && target_cpu != "x86")) {
     include_dirs = [ "objc/AppRTCMobile/common" ]
   }
 
-  rtc_static_library("apprtc_common") {
+  rtc_library("apprtc_common") {
     testonly = true
     sources = [
       "objc/AppRTCMobile/common/ARDUtilities.h",
@@ -212,9 +211,14 @@ if (is_ios || (is_mac && target_cpu != "x86")) {
 
   config("apprtc_signaling_config") {
     include_dirs = [ "objc/AppRTCMobile" ]
+    cflags_objc = [
+      # TODO(bugs.webrtc.org/10837): Remove this when usage of
+      # archivedDataWithRootObject will be removed.
+      "-Wno-unguarded-availability",
+    ]
   }
 
-  rtc_static_library("apprtc_signaling") {
+  rtc_library("apprtc_signaling") {
     testonly = true
     sources = [
       "objc/AppRTCMobile/ARDAppClient+Internal.h",
@@ -279,7 +283,7 @@ if (is_ios || (is_mac && target_cpu != "x86")) {
   }
 
   if (is_ios) {
-    rtc_static_library("AppRTCMobile_lib") {
+    rtc_library("AppRTCMobile_lib") {
       # iOS must use WebRTC.framework which is dynamically linked.
       testonly = true
       sources = [
@@ -374,7 +378,7 @@ if (is_ios || (is_mac && target_cpu != "x86")) {
         ]
       }
 
-      rtc_static_library("AppRTCMobileBroadcastUpload_lib") {
+      rtc_library("AppRTCMobileBroadcastUpload_lib") {
         testonly = true
         sources = [
           "objc/AppRTCMobile/ios/broadcast_extension/ARDBroadcastSampleHandler.h",
@@ -448,7 +452,7 @@ if (is_ios || (is_mac && target_cpu != "x86")) {
       ]
     }
 
-    rtc_static_library("ObjCNativeAPIDemo_lib") {
+    rtc_library("ObjCNativeAPIDemo_lib") {
       testonly = true
       sources = [
         "objcnativeapi/objc/NADAppDelegate.h",
@@ -478,7 +482,6 @@ if (is_ios || (is_mac && target_cpu != "x86")) {
         "../sdk:ui_objc",
         "../sdk:videocapture_objc",
         "../sdk:videotoolbox_objc",
-        "//third_party/abseil-cpp/absl/memory",
       ]
 
       if (current_cpu == "arm64") {
@@ -508,7 +511,7 @@ if (is_ios || (is_mac && target_cpu != "x86")) {
   }
 
   if (is_mac) {
-    rtc_static_library("AppRTCMobile_lib") {
+    rtc_library("AppRTCMobile_lib") {
       testonly = true
       sources = [
         "objc/AppRTCMobile/mac/APPRTCAppDelegate.h",
@@ -572,7 +575,7 @@ if (is_ios || (is_mac && target_cpu != "x86")) {
     ]
   }
 
-  rtc_static_library("socketrocket") {
+  rtc_library("socketrocket") {
     testonly = true
     sources = [
       "objc/AppRTCMobile/third_party/SocketRocket/SRWebSocket.h",
@@ -583,6 +586,7 @@ if (is_ios || (is_mac && target_cpu != "x86")) {
 
     libs = [
       "CFNetwork.framework",
+      "Security.framework",
       "icucore",
     ]
   }
@@ -590,7 +594,7 @@ if (is_ios || (is_mac && target_cpu != "x86")) {
   if (rtc_include_tests) {
     # TODO(kthelgason): compile xctests on mac when chromium supports it.
     if (is_ios) {
-      rtc_source_set("apprtcmobile_test_sources") {
+      rtc_library("apprtcmobile_test_sources") {
         # iOS must use WebRTC.framework which is dynamically linked.
         testonly = true
         include_dirs = [
@@ -646,6 +650,7 @@ if (is_linux || is_win) {
       "../api:audio_options_api",
       "../api:create_peerconnection_factory",
       "../api:libjingle_peerconnection_api",
+      "../api:media_stream_interface",
       "../api:scoped_refptr",
       "../api/audio:audio_mixer_api",
       "../api/audio_codecs:audio_codecs_api",
@@ -659,6 +664,7 @@ if (is_linux || is_win) {
       "../system_wrappers:field_trial",
       "../test:field_trial",
       "../test:platform_video_capturer",
+      "../test:rtp_test_utils",
       "//third_party/abseil-cpp/absl/memory",
       "//third_party/abseil-cpp/absl/types:optional",
     ]
@@ -735,19 +741,6 @@ if (is_linux || is_win) {
       "//third_party/abseil-cpp/absl/flags:usage",
     ]
   }
-  rtc_executable("relayserver") {
-    testonly = true
-    sources = [
-      "relayserver/relayserver_main.cc",
-    ]
-    deps = [
-      "../p2p:p2p_server_utils",
-      "../p2p:rtc_p2p",
-      "../pc:rtc_pc",
-      "../rtc_base",
-      "../rtc_base:rtc_base_approved",
-    ]
-  }
   rtc_executable("turnserver") {
     testonly = true
     sources = [
@@ -804,6 +797,7 @@ if (is_win || is_android) {
     deps = [
       "../api:create_peerconnection_factory",
       "../api:libjingle_peerconnection_api",
+      "../api:media_stream_interface",
       "../api/audio_codecs:builtin_audio_decoder_factory",
       "../api/audio_codecs:builtin_audio_encoder_factory",
       "../api/video:video_frame",

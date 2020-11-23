@@ -4,18 +4,6 @@
 <context>
     <name>Object</name>
     <message>
-        <source>Duplicate method name</source>
-        <translation>Duplikeret metodenavn</translation>
-    </message>
-    <message>
-        <source>Method names cannot begin with an upper case letter</source>
-        <translation>Metodenavne må ikke begynde med et stort bogstav</translation>
-    </message>
-    <message>
-        <source>Illegal method name</source>
-        <translation>Forbudt metodenavn</translation>
-    </message>
-    <message>
         <source>Duplicate scoped enum name</source>
         <translation>Duplikeret scoped enum-navn</translation>
     </message>
@@ -53,6 +41,13 @@
     <message>
         <source>InputMethod is an abstract class</source>
         <translation>Inputmetode er en abstrakt klasse</translation>
+    </message>
+</context>
+<context>
+    <name>QQmlAbstractDelegateComponent</name>
+    <message>
+        <source>Cannot create instance of abstract class AbstractDelegateComponent.</source>
+        <translation>Kan ikke oprette instans af den akstrakte klasse AbstractDelegateComponent.</translation>
     </message>
 </context>
 <context>
@@ -133,6 +128,18 @@
         <translation>Forbudt egenskabsnavn</translation>
     </message>
     <message>
+        <source>Duplicate method name</source>
+        <translation>Duplikeret metodenavn</translation>
+    </message>
+    <message>
+        <source>Method names cannot begin with an upper case letter</source>
+        <translation>Metodenavne må ikke begynde med et stort bogstav</translation>
+    </message>
+    <message>
+        <source>Illegal method name</source>
+        <translation>Forbudt metodenavn</translation>
+    </message>
+    <message>
         <source>Scoped enum names must begin with an upper case letter</source>
         <translation>Scoped enum-navne skal begynde med et stort bogstav</translation>
     </message>
@@ -188,8 +195,8 @@
         <translation>createObject: værdi er ikke et objekt</translation>
     </message>
     <message>
-        <source>Object destroyed during incubation</source>
-        <translation>Objekt ødelagt under indkubering</translation>
+        <source>Object or context destroyed during incubation</source>
+        <translation>Objekt eller kontekst ødelagt under indkubering</translation>
     </message>
 </context>
 <context>
@@ -293,6 +300,10 @@
     <message>
         <source>The group of a DelegateModel cannot be changed within onChanged</source>
         <translation>Gruppen af en DelegateModel kan ikke ændres inden i onChanged</translation>
+    </message>
+    <message>
+        <source>The delegates of a DelegateModel cannot be changed within onUpdated.</source>
+        <translation>Delegaterne af en DelegateModel kan ikke ændres inden i onUpdated.</translation>
     </message>
 </context>
 <context>
@@ -759,6 +770,18 @@
         <translation>Mindst et heksadecimal tal kræves efter &apos;0%1&apos;</translation>
     </message>
     <message>
+        <source>Unexpected token &apos;.&apos;</source>
+        <translation>Uventet token &apos;.&apos;</translation>
+    </message>
+    <message>
+        <source>At least one octal digit is required after &apos;0%1&apos;</source>
+        <translation>Mindst et oktalt tal kræves efter &apos;0%1&apos;</translation>
+    </message>
+    <message>
+        <source>At least one binary digit is required after &apos;0%1&apos;</source>
+        <translation>Mindst et binært tal kræves efter &apos;0%1&apos;</translation>
+    </message>
+    <message>
         <source>Invalid regular expression flag &apos;%0&apos;</source>
         <translation>Ugyldigt regulært udtryk flag &apos;%0&apos;</translation>
     </message>
@@ -801,14 +824,6 @@
     <message>
         <source>Invalid import qualifier</source>
         <translation>Ugyldig import-kvalifikator</translation>
-    </message>
-    <message>
-        <source>Unexpected token `%1&apos;</source>
-        <translation>Uventet token `%1&apos;</translation>
-    </message>
-    <message>
-        <source>Expected token `%1&apos;</source>
-        <translation>Forventet token `%1&apos;</translation>
     </message>
 </context>
 <context>
@@ -859,6 +874,10 @@
     <message>
         <source>Invalid property type</source>
         <translation>Ugyldig egenskabstype</translation>
+    </message>
+    <message>
+        <source>Cyclic alias</source>
+        <translation>Cyklisk alias</translation>
     </message>
     <message>
         <source>Invalid alias target</source>
@@ -914,6 +933,14 @@
     <message>
         <source>Invalid grouped property access</source>
         <translation>Ugyldig grupperet egenskabsadgang</translation>
+    </message>
+    <message>
+        <source>Invalid grouped property access: Property &quot;%1&quot; with primitive type &quot;%2&quot;.</source>
+        <translation>Ugyldigt grupperet egenskabsadgang: Egenskaben &quot;%1&quot; med den primivite type &quot;%2&quot;.</translation>
+    </message>
+    <message>
+        <source>Invalid grouped property access: Property &quot;%1&quot; with type &quot;%2&quot;, which is not a value type</source>
+        <translation>Ugyldigt grupperet egenskabsadgang: Egenskaben &quot;%1&quot; med typen &quot;%2&quot;, hvilket ikke er en værditype</translation>
     </message>
     <message>
         <source>Cannot assign to non-existent default property</source>
@@ -1048,16 +1075,20 @@
         <translation>Kan ikke tildele objekt til liste-egenskab &quot;%1&quot;</translation>
     </message>
     <message>
-        <source>Unexpected object assignment</source>
-        <translation>Uventet objekt-tildeling</translation>
+        <source>Can not assign value of type &quot;%1&quot; to property &quot;%2&quot;, expecting &quot;%3&quot;</source>
+        <translation>Kan ikke tildele værdi af typen &quot;%1&quot; til egenskaben &quot;%2&quot;, venter &quot;%3&quot;</translation>
+    </message>
+    <message>
+        <source>Can not assign value of type &quot;%1&quot; to property &quot;%2&quot;, expecting an object</source>
+        <translation>Kan ikke tildele værdi af typen &quot;%1&quot; til egenskaben &quot;%2&quot;, venter et objekt</translation>
+    </message>
+    <message>
+        <source>Cannot assign object of type &quot;%1&quot; to property of type &quot;%2&quot; as the former is neither the same as the latter nor a sub-class of it.</source>
+        <translation>Kan ikke tildele obejekt af typen &quot;%1&quot; til egenskab af typen &quot;%2&quot; eftersom den førstnævnte hverken er den samme som den sidstenævnte eller en underklasse af den.</translation>
     </message>
     <message>
         <source>Invalid property assignment: script expected</source>
         <translation>Ugyldig egenskabstildeling: script forventet</translation>
-    </message>
-    <message>
-        <source>Cannot assign object to property</source>
-        <translation>Kan ikke tildele objekt til egenskab</translation>
     </message>
 </context>
 <context>
@@ -1438,6 +1469,14 @@
         <translation>PointerEvent er kun tilgængelig som en parameter af adskillige signaler i PointerHandler</translation>
     </message>
     <message>
+        <source>PointerMouseEvent is only available as a parameter of several signals in PointerHandler</source>
+        <translation>PointerMouseEvent er kun tilgængelig som en parameter af adskillige signaler i PointerHandler</translation>
+    </message>
+    <message>
+        <source>PointerTouchEvent is only available as a parameter of several signals in PointerHandler</source>
+        <translation>PointerTouchEvent er kun tilgængelig som en parameter af adskillige signaler i PointerHandler</translation>
+    </message>
+    <message>
         <source>EventPoint is only available as a member of PointerEvent</source>
         <translation>EventPoint er kun tilgængelig som et medlem af PointerEvent</translation>
     </message>
@@ -1448,10 +1487,6 @@
     <message>
         <source>PointerDevice is only available as a property of PointerEvent</source>
         <translation>PointerDevice er kun tilgængelig som en egenskab af PointerEvent</translation>
-    </message>
-    <message>
-        <source>PointingDeviceUniqueId is only available as a property of PointerEvent</source>
-        <translation>PointingDeviceUniqueId er kun tilgængelig som en egenskab af PointerEvent</translation>
     </message>
     <message>
         <source>PointerHandler is an abstract base class</source>
@@ -1554,31 +1589,6 @@ Installer en driver med OpenGL 2.0 eller højere, eller, hvis det ikke er muligt
     <message>
         <source>Conflicting properties &apos;visible&apos; and &apos;visibility&apos;</source>
         <translation>Konflikterende egenskaber &apos;visible&apos; og &apos;visibility&apos;</translation>
-    </message>
-</context>
-<context>
-    <name>QQuickXmlListModel</name>
-    <message>
-        <source>&quot;%1&quot; duplicates a previous role name and will be disabled.</source>
-        <translation>&quot;%1&quot; duplikerer et forrige rollenavn og deaktiveres.</translation>
-    </message>
-    <message>
-        <source>invalid query: &quot;%1&quot;</source>
-        <translation>ugyldig forespørgsel: &quot;%1&quot;</translation>
-    </message>
-</context>
-<context>
-    <name>QQuickXmlListModelRole</name>
-    <message>
-        <source>An XmlRole query must not start with &apos;/&apos;</source>
-        <translation>En XmlRole-forespørgsel må ikke begynde med &apos;/&apos;</translation>
-    </message>
-</context>
-<context>
-    <name>QQuickXmlRoleList</name>
-    <message>
-        <source>An XmlListModel query must start with &apos;/&apos; or &quot;//&quot;</source>
-        <translation>En XmlListModel-forespørgsel må ikke begynde med &apos;/&apos; eller &quot;//&quot;</translation>
     </message>
 </context>
 <context>

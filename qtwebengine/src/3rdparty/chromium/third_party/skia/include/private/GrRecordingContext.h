@@ -22,10 +22,15 @@ class GrSurfaceContext;
 class GrSurfaceProxy;
 class GrTextBlobCache;
 class GrTextureContext;
+class SkArenaAlloc;
 
-class SK_API GrRecordingContext : public GrImageContext {
+class GrRecordingContext : public GrImageContext {
 public:
     ~GrRecordingContext() override;
+
+    SK_API GrBackendFormat defaultBackendFormat(SkColorType ct, GrRenderable renderable) const {
+        return INHERITED::defaultBackendFormat(ct, renderable);
+    }
 
     // Provides access to functions that aren't part of the public API.
     GrRecordingContextPriv priv();
@@ -36,7 +41,7 @@ protected:
 
     GrRecordingContext(GrBackendApi, const GrContextOptions&, uint32_t contextID);
     bool init(sk_sp<const GrCaps>, sk_sp<GrSkSLFPFactoryCache>) override;
-    void setupDrawingManager(bool sortOpLists, bool reduceOpListSplitting);
+    void setupDrawingManager(bool sortOpsTasks, bool reduceOpsTaskSplitting);
 
     void abandonContext() override;
 
@@ -44,6 +49,11 @@ protected:
 
     sk_sp<GrOpMemoryPool> refOpMemoryPool();
     GrOpMemoryPool* opMemoryPool();
+
+    SkArenaAlloc* recordTimeAllocator();
+    // This entry point should only be used for DDL creation where we want the ops' data's lifetime
+    // to match that of the DDL.
+    std::unique_ptr<SkArenaAlloc> detachRecordTimeAllocator();
 
     GrStrikeCache* getGrStrikeCache() { return fStrikeCache.get(); }
     GrTextBlobCache* getTextBlobCache();
@@ -57,14 +67,14 @@ protected:
      */
     void addOnFlushCallbackObject(GrOnFlushCallbackObject*);
 
-    sk_sp<GrSurfaceContext> makeWrappedSurfaceContext(sk_sp<GrSurfaceProxy>,
-                                                      GrColorType,
-                                                      SkAlphaType,
-                                                      sk_sp<SkColorSpace> = nullptr,
-                                                      const SkSurfaceProps* = nullptr);
+    std::unique_ptr<GrSurfaceContext> makeWrappedSurfaceContext(sk_sp<GrSurfaceProxy>,
+                                                                GrColorType,
+                                                                SkAlphaType,
+                                                                sk_sp<SkColorSpace> = nullptr,
+                                                                const SkSurfaceProps* = nullptr);
 
     /** Create a new texture context backed by a deferred-style GrTextureProxy. */
-    sk_sp<GrTextureContext> makeDeferredTextureContext(
+    std::unique_ptr<GrTextureContext> makeDeferredTextureContext(
             SkBackingFit,
             int width,
             int height,
@@ -81,7 +91,7 @@ protected:
      * GrRenderTargetProxy. We guarantee that "asTextureProxy" will succeed for
      * renderTargetContexts created via this entry point.
      */
-    sk_sp<GrRenderTargetContext> makeDeferredRenderTargetContext(
+    std::unique_ptr<GrRenderTargetContext> makeDeferredRenderTargetContext(
             SkBackingFit fit,
             int width,
             int height,
@@ -100,7 +110,7 @@ protected:
      * converted to 8888). It may also swizzle the channels (e.g., BGRA -> RGBA).
      * SRGB-ness will be preserved.
      */
-    sk_sp<GrRenderTargetContext> makeDeferredRenderTargetContextWithFallback(
+    std::unique_ptr<GrRenderTargetContext> makeDeferredRenderTargetContextWithFallback(
             SkBackingFit fit,
             int width,
             int height,
@@ -121,6 +131,7 @@ private:
     std::unique_ptr<GrDrawingManager> fDrawingManager;
     // All the GrOp-derived classes use this pool.
     sk_sp<GrOpMemoryPool>             fOpMemoryPool;
+    std::unique_ptr<SkArenaAlloc>     fRecordTimeAllocator;
 
     std::unique_ptr<GrStrikeCache>    fStrikeCache;
     std::unique_ptr<GrTextBlobCache>  fTextBlobCache;

@@ -11,17 +11,26 @@
 #include <utility>
 #include <vector>
 
+#include "ash/public/cpp/network_config_service.h"
 #include "ash/public/cpp/resources/grit/ash_public_unscaled_resources.h"
+#include "base/bind.h"
+#include "base/feature_list.h"
 #include "build/build_config.h"
+#include "chrome/browser/ui/web_applications/system_web_app_ui_utils.h"
+#include "chrome/browser/ui/webui/app_management/app_management.mojom.h"
+#include "chrome/browser/ui/webui/app_management/app_management_page_handler.h"
+#include "chrome/browser/ui/webui/chromeos/sync/os_sync_handler.h"
 #include "chrome/browser/ui/webui/managed_ui_handler.h"
 #include "chrome/browser/ui/webui/metrics_handler.h"
 #include "chrome/browser/ui/webui/plural_string_handler.h"
 #include "chrome/browser/ui/webui/settings/about_handler.h"
 #include "chrome/browser/ui/webui/settings/accessibility_main_handler.h"
-#include "chrome/browser/ui/webui/settings/appearance_handler.h"
 #include "chrome/browser/ui/webui/settings/browser_lifetime_handler.h"
+#include "chrome/browser/ui/webui/settings/chromeos/parental_controls_handler.h"
+#include "chrome/browser/ui/webui/settings/chromeos/wallpaper_handler.h"
 #include "chrome/browser/ui/webui/settings/downloads_handler.h"
 #include "chrome/browser/ui/webui/settings/extension_control_handler.h"
+#include "chrome/browser/ui/webui/settings/font_handler.h"
 #include "chrome/browser/ui/webui/settings/languages_handler.h"
 #include "chrome/browser/ui/webui/settings/people_handler.h"
 #include "chrome/browser/ui/webui/settings/profile_info_handler.h"
@@ -33,22 +42,26 @@
 #include "chrome/browser/ui/webui/settings/settings_media_devices_selection_handler.h"
 #include "chrome/browser/ui/webui/settings/settings_ui.h"
 #include "chrome/browser/web_applications/system_web_app_manager.h"
+#include "chrome/common/chrome_features.h"
 #include "chrome/common/webui_url_constants.h"
 #include "chrome/grit/browser_resources.h"
 #include "chrome/grit/generated_resources.h"
 #include "chrome/grit/os_settings_resources.h"
 #include "chrome/grit/os_settings_resources_map.h"
-#include "chromeos/services/network_config/public/mojom/constants.mojom.h"
+#include "chromeos/constants/chromeos_features.h"
+#include "chromeos/services/network_config/public/mojom/cros_network_config.mojom.h"
 #include "components/password_manager/core/common/password_manager_features.h"
-#include "components/unified_consent/feature.h"
 #include "content/public/browser/web_ui_data_source.h"
-#include "services/service_manager/public/cpp/connector.h"
+#include "mojo/public/cpp/bindings/pending_receiver.h"
 
 namespace chromeos {
 namespace settings {
 
 OSSettingsUI::OSSettingsUI(content::WebUI* web_ui)
-    : ui::MojoWebUIController(web_ui, /*enable_chrome_send =*/true) {
+    : ui::MojoWebUIController(web_ui, /*enable_chrome_send=*/true),
+      webui_load_timer_(web_ui->GetWebContents(),
+                        "ChromeOS.Settings.LoadDocumentTime",
+                        "ChromeOS.Settings.LoadCompletedTime") {
   Profile* profile = Profile::FromWebUI(web_ui);
   content::WebUIDataSource* html_source =
       content::WebUIDataSource::Create(chrome::kChromeUIOSSettingsHost);
@@ -62,8 +75,9 @@ OSSettingsUI::OSSettingsUI(content::WebUI* web_ui)
   // page_visibility.js).
   html_source->AddBoolean("showOSSettings", true);
 
-  AddSettingsPageUIHandler(
-      std::make_unique<::settings::AppearanceHandler>(web_ui));
+  html_source->AddBoolean(
+      "showParentalControls",
+      chromeos::settings::ShouldShowParentalControls(profile));
 
   AddSettingsPageUIHandler(
       std::make_unique<::settings::AccessibilityMainHandler>());
@@ -74,10 +88,13 @@ OSSettingsUI::OSSettingsUI(content::WebUI* web_ui)
       std::make_unique<::settings::DownloadsHandler>(profile));
   AddSettingsPageUIHandler(
       std::make_unique<::settings::ExtensionControlHandler>());
+  AddSettingsPageUIHandler(std::make_unique<::settings::FontHandler>(web_ui));
   AddSettingsPageUIHandler(
       std::make_unique<::settings::LanguagesHandler>(web_ui));
   AddSettingsPageUIHandler(
       std::make_unique<::settings::MediaDevicesSelectionHandler>(profile));
+  if (chromeos::features::IsSplitSettingsSyncEnabled())
+    AddSettingsPageUIHandler(std::make_unique<OSSyncHandler>(profile));
   AddSettingsPageUIHandler(
       std::make_unique<::settings::PeopleHandler>(profile));
   AddSettingsPageUIHandler(
@@ -86,9 +103,19 @@ OSSettingsUI::OSSettingsUI(content::WebUI* web_ui)
       std::make_unique<::settings::ProtocolHandlersHandler>());
   AddSettingsPageUIHandler(
       std::make_unique<::settings::SearchEnginesHandler>(profile));
+  AddSettingsPageUIHandler(
+      std::make_unique<chromeos::settings::WallpaperHandler>(web_ui));
 
-  html_source->AddBoolean("unifiedConsentEnabled",
-                          unified_consent::IsUnifiedConsentFeatureEnabled());
+  html_source->AddBoolean("showAppManagement", base::FeatureList::IsEnabled(
+                                                   ::features::kAppManagement));
+  html_source->AddBoolean("splitSettingsSyncEnabled",
+                          chromeos::features::IsSplitSettingsSyncEnabled());
+
+#if defined(OS_CHROMEOS)
+  html_source->AddBoolean(
+      "isSupportedArcVersion",
+      AppManagementPageHandler::IsCurrentArcVersionSupported(profile));
+#endif  // OS_CHROMEOS
 
   AddSettingsPageUIHandler(
       base::WrapUnique(::settings::AboutHandler::Create(html_source, profile)));
@@ -103,7 +130,8 @@ OSSettingsUI::OSSettingsUI(content::WebUI* web_ui)
   if (web_app::SystemWebAppManager::IsEnabled()) {
     html_source->AddResourcePath("icon-192.png", IDR_SETTINGS_LOGO_192);
     html_source->AddResourcePath("pwa.html", IDR_PWA_HTML);
-    html_source->AddResourcePath("manifest.json", IDR_OS_SETTINGS_MANIFEST);
+    web_app::SetManifestRequestFilter(html_source, IDR_OS_SETTINGS_MANIFEST,
+                                      IDS_SETTINGS_SETTINGS);
   }
 
 #if BUILDFLAG(OPTIMIZE_WEBUI)
@@ -122,7 +150,19 @@ OSSettingsUI::OSSettingsUI(content::WebUI* web_ui)
   html_source->SetDefaultResource(IDR_OS_SETTINGS_SETTINGS_HTML);
 #endif
 
-  ::settings::AddLocalizedStrings(html_source, profile);
+  html_source->AddResourcePath("app-management/app_management.mojom-lite.js",
+                               IDR_APP_MANAGEMENT_MOJO_LITE_JS);
+  html_source->AddResourcePath("app-management/types.mojom-lite.js",
+                               IDR_APP_MANAGEMENT_TYPES_MOJO_LITE_JS);
+  html_source->AddResourcePath("app-management/bitmap.mojom-lite.js",
+                               IDR_APP_MANAGEMENT_BITMAP_MOJO_LITE_JS);
+  html_source->AddResourcePath("app-management/image.mojom-lite.js",
+                               IDR_APP_MANAGEMENT_IMAGE_MOJO_LITE_JS);
+  html_source->AddResourcePath("app-management/image_info.mojom-lite.js",
+                               IDR_APP_MANAGEMENT_IMAGE_INFO_MOJO_LITE_JS);
+
+  ::settings::AddLocalizedStrings(html_source, profile,
+                                  web_ui->GetWebContents());
 
   auto plural_string_handler = std::make_unique<PluralStringHandler>();
   plural_string_handler->AddLocalizedString("profileLabel",
@@ -136,6 +176,10 @@ OSSettingsUI::OSSettingsUI(content::WebUI* web_ui)
 
   AddHandlerToRegistry(base::BindRepeating(&OSSettingsUI::BindCrosNetworkConfig,
                                            base::Unretained(this)));
+
+  AddHandlerToRegistry(
+      base::BindRepeating(&OSSettingsUI::BindAppManagementPageHandlerFactory,
+                          base::Unretained(this)));
 }
 
 OSSettingsUI::~OSSettingsUI() = default;
@@ -147,10 +191,18 @@ void OSSettingsUI::AddSettingsPageUIHandler(
 }
 
 void OSSettingsUI::BindCrosNetworkConfig(
-    network_config::mojom::CrosNetworkConfigRequest request) {
-  content::BrowserContext::GetConnectorFor(
-      web_ui()->GetWebContents()->GetBrowserContext())
-      ->BindInterface(network_config::mojom::kServiceName, std::move(request));
+    mojo::PendingReceiver<network_config::mojom::CrosNetworkConfig> receiver) {
+  ash::GetNetworkConfigService(std::move(receiver));
+}
+
+void OSSettingsUI::BindAppManagementPageHandlerFactory(
+    mojo::PendingReceiver<app_management::mojom::PageHandlerFactory> receiver) {
+  if (!app_management_page_handler_factory_) {
+    app_management_page_handler_factory_ =
+        std::make_unique<AppManagementPageHandlerFactory>(
+            Profile::FromWebUI(web_ui()));
+  }
+  app_management_page_handler_factory_->Bind(std::move(receiver));
 }
 
 }  // namespace settings

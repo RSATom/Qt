@@ -10,6 +10,7 @@
 #include "base/bind_helpers.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "content/browser/service_worker/embedded_worker_status.h"
+#include "content/browser/service_worker/service_worker_container_host.h"
 #include "content/browser/service_worker/service_worker_context_core.h"
 #include "content/browser/service_worker/service_worker_context_wrapper.h"
 #include "content/browser/service_worker/service_worker_info.h"
@@ -17,6 +18,7 @@
 #include "content/browser/service_worker/service_worker_metrics.h"
 #include "content/browser/service_worker/service_worker_register_job.h"
 #include "content/public/browser/browser_thread.h"
+#include "content/public/common/navigation_policy.h"
 #include "third_party/blink/public/mojom/service_worker/service_worker_registration.mojom.h"
 
 namespace content {
@@ -51,14 +53,14 @@ ServiceWorkerRegistration::ServiceWorkerRegistration(
       resources_total_size_bytes_(0),
       context_(context),
       task_runner_(base::ThreadTaskRunnerHandle::Get()) {
-  DCHECK_CURRENTLY_ON(BrowserThread::IO);
+  DCHECK_CURRENTLY_ON(ServiceWorkerContext::GetCoreThreadId());
   DCHECK_NE(blink::mojom::kInvalidServiceWorkerRegistrationId, registration_id);
   DCHECK(context_);
   context_->AddLiveRegistration(this);
 }
 
 ServiceWorkerRegistration::~ServiceWorkerRegistration() {
-  DCHECK_CURRENTLY_ON(BrowserThread::IO);
+  DCHECK_CURRENTLY_ON(ServiceWorkerContext::GetCoreThreadId());
   DCHECK(!listeners_.might_have_observers());
   if (context_)
     context_->RemoveLiveRegistration(registration_id_);
@@ -124,7 +126,7 @@ void ServiceWorkerRegistration::NotifyVersionAttributesChanged(
 }
 
 ServiceWorkerRegistrationInfo ServiceWorkerRegistration::GetInfo() {
-  DCHECK_CURRENTLY_ON(BrowserThread::IO);
+  DCHECK_CURRENTLY_ON(ServiceWorkerContext::GetCoreThreadId());
   return ServiceWorkerRegistrationInfo(
       scope(), update_via_cache(), registration_id_,
       is_deleted() ? ServiceWorkerRegistrationInfo::IS_DELETED
@@ -255,35 +257,35 @@ void ServiceWorkerRegistration::ClaimClients() {
   // "For each service worker client client whose origin is the same as the
   //  service worker's origin:
   const bool include_reserved_clients = false;
-  for (std::unique_ptr<ServiceWorkerContextCore::ProviderHostIterator> it =
-           context_->GetClientProviderHostIterator(scope_.GetOrigin(),
-                                                   include_reserved_clients);
+  for (std::unique_ptr<ServiceWorkerContextCore::ContainerHostIterator> it =
+           context_->GetClientContainerHostIterator(scope_.GetOrigin(),
+                                                    include_reserved_clients);
        !it->IsAtEnd(); it->Advance()) {
-    ServiceWorkerProviderHost* host = it->GetProviderHost();
+    ServiceWorkerContainerHost* container_host = it->GetContainerHost();
     // "1. If client’s execution ready flag is unset or client’s discarded flag
     //     is set, continue."
     // |include_reserved_clients| ensures only execution ready clients are
     // returned.
-    DCHECK(host->is_execution_ready());
+    DCHECK(container_host->is_execution_ready());
 
     // This is part of step 5 but performed here as an optimization. Do nothing
     // if this version is already the controller.
-    if (host->controller() == active_version())
+    if (container_host->controller() == active_version())
       continue;
 
     // "2. If client is not a secure context, continue."
-    if (!host->IsContextSecureForServiceWorker())
+    if (!container_host->IsContextSecureForServiceWorker())
       continue;
 
     // "3. Let registration be the result of running Match Service Worker
     //     Registration algorithm passing client’s creation URL as the argument.
     //  4. If registration is not the service worker's containing service worker
     //     registration, continue."
-    if (host->MatchRegistration() != this)
+    if (container_host->MatchRegistration() != this)
       continue;
 
     // The remaining steps are performed here:
-    host->ClaimedByRegistration(this);
+    container_host->ClaimedByRegistration(this);
   }
 }
 
@@ -422,7 +424,7 @@ void ServiceWorkerRegistration::RemoveLameDuckIfNeeded() {
 }
 
 void ServiceWorkerRegistration::ActivateWaitingVersion(bool delay) {
-  DCHECK_CURRENTLY_ON(BrowserThread::IO);
+  DCHECK_CURRENTLY_ON(ServiceWorkerContext::GetCoreThreadId());
   DCHECK(context_);
   DCHECK(IsReadyToActivate());
   should_activate_when_ready_ = false;
@@ -436,6 +438,13 @@ void ServiceWorkerRegistration::ActivateWaitingVersion(bool delay) {
 
   // "5. If exitingWorker is not null,
   if (exiting_version.get()) {
+    // Whenever activation happens, evict bfcached controllees.
+    if (IsBackForwardCacheEnabled()) {
+      exiting_version->EvictBackForwardCachedControllees(
+          BackForwardCacheMetrics::NotRestoredReason::
+              kServiceWorkerVersionActivation);
+    }
+
     // TODO(falken): Update the quoted spec comments once
     // https://github.com/slightlyoff/ServiceWorker/issues/916 is codified in
     // the spec.

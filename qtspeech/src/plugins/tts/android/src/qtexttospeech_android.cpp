@@ -256,8 +256,11 @@ QVector<QLocale> QTextToSpeechEngineAndroid::availableLocales() const
     result.reserve(count);
     for (int i = 0; i < count; ++i) {
         auto locale = locales.callObjectMethod("get", "(I)Ljava/lang/Object;", i);
-        auto localeName = locale.callObjectMethod<jstring>("toString").toString();
-        result << QLocale(localeName);
+        auto localeLanguage = locale.callObjectMethod<jstring>("getLanguage").toString();
+        auto localeCountry = locale.callObjectMethod<jstring>("getCountry").toString();
+        if (!localeCountry.isEmpty())
+            localeLanguage += QString("_%1").arg(localeCountry).toUpper();
+        result << QLocale(localeLanguage);
     }
     return result;
 }

@@ -65,6 +65,7 @@ namespace Qt3DCore {
 class JobRunner;
 class DependencyHandler;
 class QThreadPooler;
+class QSystemInformationService;
 
 class RunnableInterface : public QRunnable
 {
@@ -76,7 +77,8 @@ public:
 
     virtual ~RunnableInterface();
 
-    virtual void run() = 0;
+    virtual bool isRequired() const = 0;
+    virtual void run() override = 0;
 
     virtual int id() = 0;
     virtual void setId(int id) = 0;
@@ -92,9 +94,10 @@ public:
 class AspectTaskRunnable : public RunnableInterface
 {
 public:
-    AspectTaskRunnable();
+    AspectTaskRunnable(QSystemInformationService *service);
     ~AspectTaskRunnable();
 
+    bool isRequired() const override;
     void run() override;
 
     void setPooler(QThreadPooler *pooler) override { m_pooler = pooler; }
@@ -113,6 +116,7 @@ public:
     int m_dependerCount = 0;
 
 private:
+    QSystemInformationService *m_service;
     QThreadPooler *m_pooler;
     int m_id; // For testing purposes for now
     bool m_reserved;
@@ -125,6 +129,7 @@ public:
                               QAtomicInt *atomicCount);
     ~SyncTaskRunnable();
 
+    bool isRequired() const override;
     void run() override;
 
     void setPooler(QThreadPooler *pooler) override { m_pooler = pooler; }

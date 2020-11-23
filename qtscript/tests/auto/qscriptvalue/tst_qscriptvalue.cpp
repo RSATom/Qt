@@ -2202,7 +2202,7 @@ void tst_QScriptValue::getSetProperty()
 
     // change flags
     object.setProperty("flagProperty", str);
-    QCOMPARE(object.propertyFlags("flagProperty"), static_cast<QScriptValue::PropertyFlags>(0));
+    QCOMPARE(object.propertyFlags("flagProperty"), QScriptValue::PropertyFlags{});
 
     object.setProperty("flagProperty", str, QScriptValue::ReadOnly);
     QCOMPARE(object.propertyFlags("flagProperty"), QScriptValue::ReadOnly);

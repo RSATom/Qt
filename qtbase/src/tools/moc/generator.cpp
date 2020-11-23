@@ -77,7 +77,7 @@ static const char *metaTypeEnumValueString(int type)
 QT_FOR_EACH_STATIC_TYPE(RETURN_METATYPENAME_STRING)
     }
 #undef RETURN_METATYPENAME_STRING
-    return 0;
+    return nullptr;
  }
 
 Generator::Generator(ClassDef *classDef, const QVector<QByteArray> &metaTypes, const QHash<QByteArray, QByteArray> &knownQObjectClasses, const QHash<QByteArray, QByteArray> &knownGadgets, FILE *outfile)
@@ -381,7 +381,7 @@ void Generator::generateCode()
             isConstructible ? index : 0);
 
     int flags = 0;
-    if (cdef->hasQGadget) {
+    if (cdef->hasQGadget || cdef->hasQNamespace) {
         // Ideally, all the classes could have that flag. But this broke classes generated
         // by qdbusxml2cpp which generate code that require that we call qt_metacall for properties
         flags |= PropertyAccessInStaticMetaCall;
@@ -462,7 +462,7 @@ void Generator::generateCode()
 // Build extra array
 //
     QVector<QByteArray> extraList;
-    QHash<QByteArray, QByteArray> knownExtraMetaObject = knownGadgets;
+    QMultiHash<QByteArray, QByteArray> knownExtraMetaObject = knownGadgets;
     knownExtraMetaObject.unite(knownQObjectClasses);
 
     for (int i = 0; i < cdef->propertyList.count(); ++i) {
@@ -541,8 +541,10 @@ void Generator::generateCode()
 
     if (isQObject)
         fprintf(out, "    nullptr,\n");
-    else if (cdef->superclassList.size() && (!cdef->hasQGadget || knownGadgets.contains(purestSuperClass)))
+    else if (cdef->superclassList.size() && !cdef->hasQGadget && !cdef->hasQNamespace) // for qobject, we know the super class must have a static metaobject
         fprintf(out, "    QMetaObject::SuperData::link<%s::staticMetaObject>(),\n", purestSuperClass.constData());
+    else if (cdef->superclassList.size()) // for gadgets we need to query at compile time for it
+        fprintf(out, "    QtPrivate::MetaObjectForType<%s>::value(),\n", purestSuperClass.constData());
     else
         fprintf(out, "    nullptr,\n");
     fprintf(out, "    qt_meta_stringdata_%s.data,\n"
@@ -862,6 +864,8 @@ void Generator::generateProperties()
             flags |= Constant;
         if (p.final)
             flags |= Final;
+        if (p.required)
+            flags |= Required;
 
         fprintf(out, "    %4d, ", stridx(p.name));
         generateTypeInfo(p.type);
@@ -1175,7 +1179,7 @@ void Generator::generateStaticMetacall()
             }
             fprintf(out, ");\n");
             fprintf(out, "            if (_a[0]) *reinterpret_cast<%s**>(_a[0]) = _r; } break;\n",
-                    cdef->hasQGadget ? "void" : "QObject");
+                    (cdef->hasQGadget || cdef->hasQNamespace) ? "void" : "QObject");
         }
         fprintf(out, "        default: break;\n");
         fprintf(out, "        }\n");

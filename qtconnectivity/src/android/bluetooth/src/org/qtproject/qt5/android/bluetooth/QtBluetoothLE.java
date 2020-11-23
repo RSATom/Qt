@@ -52,7 +52,10 @@ import android.bluetooth.le.ScanCallback;
 import android.bluetooth.le.ScanFilter;
 import android.bluetooth.le.ScanResult;
 import android.bluetooth.le.ScanSettings;
+import android.content.BroadcastReceiver;
 import android.content.Context;
+import android.content.Intent;
+import android.content.IntentFilter;
 import android.os.Build;
 import android.os.Handler;
 import android.os.HandlerThread;
@@ -125,6 +128,60 @@ public class QtBluetoothLE {
         private int pendingJobHandle = -1;
     };
 
+    // In case bond state has been changed due to access to a restricted handle,
+    // Android never completes the operation which triggered the devices to bind
+    // and thus never fires on(Characteristic|Descriptor)(Read|Write) callback,
+    // causing TimeoutRunnable to interrupt pending job,
+    // albeit the read/write job hasn't been actually executed by the peripheral;
+    // re-add the currently pending job to the queue's head and re-run it.
+    // If, by some reason, bonding process has been interrupted, either
+    // re-add the currently pending job to the queue's head and re-run it.
+    private class BondStateBroadcastReceiver extends BroadcastReceiver {
+        @Override
+        public void onReceive(Context context, Intent intent) {
+            if (mBluetoothGatt == null)
+                return;
+
+            final BluetoothDevice device = intent.getParcelableExtra(BluetoothDevice.EXTRA_DEVICE);
+            if (device == null || !device.getAddress().equals(mBluetoothGatt.getDevice().getAddress()))
+                return;
+
+            final int bondState = intent.getIntExtra(BluetoothDevice.EXTRA_BOND_STATE, -1);
+            final int previousBondState = intent.getIntExtra(BluetoothDevice.EXTRA_PREVIOUS_BOND_STATE, -1);
+
+            if (bondState == BluetoothDevice.BOND_BONDING) {
+                    synchronized (readWriteQueue) {
+                        if (pendingJob == null || pendingJob.jobType == IoJobType.Mtu)
+                            return;
+                    }
+
+                    timeoutHandler.removeCallbacksAndMessages(null);
+                    handleForTimeout.set(HANDLE_FOR_RESET);
+            } else if (previousBondState == BluetoothDevice.BOND_BONDING && (bondState == BluetoothDevice.BOND_BONDED || bondState == BluetoothDevice.BOND_NONE)) {
+                    synchronized (readWriteQueue) {
+                        if (pendingJob == null || pendingJob.jobType == IoJobType.Mtu)
+                            return;
+
+                        readWriteQueue.addFirst(pendingJob);
+                        pendingJob = null;
+                    }
+
+                    performNextIO();
+            } else if (previousBondState == BluetoothDevice.BOND_BONDED && bondState == BluetoothDevice.BOND_NONE) {
+                // peripheral or central removed the bond information;
+                // if it was peripheral, the connection attempt would fail with PIN_OR_KEY_MISSING,
+                // which is handled by Android by broadcasting ACTION_BOND_STATE_CHANGED
+                // with new state BOND_NONE, without actually deleting the bond information :facepalm:
+                // if we get there, it is safer to delete it now, by invoking the undocumented API call
+                try {
+                    device.getClass().getMethod("removeBond").invoke(device);
+                } catch (Exception ex) {
+                    ex.printStackTrace();
+                }
+            }
+        }
+    };
+    private BroadcastReceiver bondStateBroadcastReceiver = null;
 
     /* Pointer to the Qt object that "owns" the Java object */
     @SuppressWarnings({"CanBeFinal", "WeakerAccess"})
@@ -218,6 +275,11 @@ public class QtBluetoothLE {
             //This must be in sync with QLowEnergyController::ControllerState
             switch (newState) {
                 case BluetoothProfile.STATE_DISCONNECTED:
+                    if (bondStateBroadcastReceiver != null) {
+                        qtContext.unregisterReceiver(bondStateBroadcastReceiver);
+                        bondStateBroadcastReceiver = null;
+                    }
+
                     qLowEnergyController_State = 0;
                     // we disconnected -> get rid of data from previous run
                     resetData();
@@ -233,6 +295,10 @@ public class QtBluetoothLE {
                     mBluetoothGatt = null;
                     break;
                 case BluetoothProfile.STATE_CONNECTED:
+                    if (bondStateBroadcastReceiver == null) {
+                        bondStateBroadcastReceiver = new BondStateBroadcastReceiver();
+                        qtContext.registerReceiver(bondStateBroadcastReceiver, new IntentFilter(BluetoothDevice.ACTION_BOND_STATE_CHANGED));
+                    }
                     qLowEnergyController_State = 2;
             }
 
@@ -296,7 +362,7 @@ public class QtBluetoothLE {
 
                     //unlock the queue for next item
                     synchronized (readWriteQueue) {
-                        ioJobPending = false;
+                        pendingJob = null;
                     }
 
                     performNextIO();
@@ -309,7 +375,7 @@ public class QtBluetoothLE {
             if (requestTimedOut) {
                 Log.w(TAG, "Late char read reply after timeout was hit for handle " + foundHandle);
                 // Timeout has hit before this response -> ignore the response
-                // no need to unlock ioJobPending -> the timeout has done that already
+                // no need to unlock pendingJob -> the timeout has done that already
                 return;
             }
 
@@ -349,7 +415,7 @@ public class QtBluetoothLE {
 
             //unlock the queue for next item
             synchronized (readWriteQueue) {
-                ioJobPending = false;
+                pendingJob = null;
             }
 
             performNextIO();
@@ -373,7 +439,7 @@ public class QtBluetoothLE {
             if (requestTimedOut) {
                 Log.w(TAG, "Late char write reply after timeout was hit for handle " + handle);
                 // Timeout has hit before this response -> ignore the response
-                // no need to unlock ioJobPending -> the timeout has done that already
+                // no need to unlock pendingJob -> the timeout has done that already
                 return;
             }
 
@@ -386,9 +452,10 @@ public class QtBluetoothLE {
                     errorCode = 2; break; // CharacteristicWriteError
             }
 
-            byte[] value = pendingJob.newValue;
+            byte[] value;
             synchronized (readWriteQueue) {
-                ioJobPending = false;
+                value = pendingJob.newValue;
+                pendingJob = null;
             }
             leCharacteristicWritten(qtObject, handle+1, value, errorCode);
             performNextIO();
@@ -419,7 +486,7 @@ public class QtBluetoothLE {
 
                     //unlock the queue for next item
                     synchronized (readWriteQueue) {
-                        ioJobPending = false;
+                        pendingJob = null;
                     }
                     performNextIO();
                     return;
@@ -432,7 +499,7 @@ public class QtBluetoothLE {
                 Log.w(TAG, "Late descriptor read reply after timeout was hit for handle " +
                            foundHandle);
                 // Timeout has hit before this response -> ignore the response
-                // no need to unlock ioJobPending -> the timeout has done that already
+                // no need to unlock pendingJob -> the timeout has done that already
                 return;
             }
 
@@ -491,7 +558,7 @@ public class QtBluetoothLE {
 
             //unlock the queue for next item
             synchronized (readWriteQueue) {
-                ioJobPending = false;
+                pendingJob = null;
             }
 
             performNextIO();
@@ -512,7 +579,7 @@ public class QtBluetoothLE {
                 Log.w(TAG, "Late descriptor write reply after timeout was hit for handle " +
                            handle);
                 // Timeout has hit before this response -> ignore the response
-                // no need to unlock ioJobPending -> the timeout has done that already
+                // no need to unlock pendingJob -> the timeout has done that already
                 return;
             }
 
@@ -526,7 +593,7 @@ public class QtBluetoothLE {
             }
 
             synchronized (readWriteQueue) {
-                ioJobPending = false;
+                pendingJob = null;
             }
 
             leDescriptorWritten(qtObject, handle+1, descriptor.getValue(), errorCode);
@@ -559,12 +626,12 @@ public class QtBluetoothLE {
             if (requestTimedOut) {
                 Log.w(TAG, "Late mtu reply after timeout was hit");
                 // Timeout has hit before this response -> ignore the response
-                // no need to unlock ioJobPending -> the timeout has done that already
+                // no need to unlock pendingJob -> the timeout has done that already
                 return;
             }
 
             synchronized (readWriteQueue) {
-                ioJobPending = false;
+                pendingJob = null;
             }
 
             performNextIO();
@@ -724,7 +791,6 @@ public class QtBluetoothLE {
 
 
     private final LinkedList<ReadWriteJob> readWriteQueue = new LinkedList<ReadWriteJob>();
-    private boolean ioJobPending;
     private ReadWriteJob pendingJob;
 
     /*
@@ -1247,7 +1313,7 @@ public class QtBluetoothLE {
     {
         //unlock the queue for next item
         synchronized (readWriteQueue) {
-            ioJobPending = false;
+            pendingJob = null;
         }
 
         performNextIOThreaded();
@@ -1308,7 +1374,7 @@ public class QtBluetoothLE {
         int handle = HANDLE_FOR_RESET;
 
         synchronized (readWriteQueue) {
-            if (readWriteQueue.isEmpty() || ioJobPending)
+            if (readWriteQueue.isEmpty() || pendingJob != null)
                 return;
 
             nextJob = readWriteQueue.remove();
@@ -1352,7 +1418,6 @@ public class QtBluetoothLE {
             if (skip) {
                 handleForTimeout.set(HANDLE_FOR_RESET); // not a pending call -> release atomic
             } else {
-                ioJobPending = true;
                 pendingJob = nextJob;
                 timeoutHandler.postDelayed(new TimeoutRunnable(
                         modifiedReadWriteHandle(handle, nextJob.jobType)), RUNNABLE_TIMEOUT);

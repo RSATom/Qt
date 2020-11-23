@@ -2,8 +2,8 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#ifndef NGLayoutInputNode_h
-#define NGLayoutInputNode_h
+#ifndef THIRD_PARTY_BLINK_RENDERER_CORE_LAYOUT_NG_NG_LAYOUT_INPUT_NODE_H_
+#define THIRD_PARTY_BLINK_RENDERER_CORE_LAYOUT_NG_NG_LAYOUT_INPUT_NODE_H_
 
 #include "base/optional.h"
 #include "third_party/blink/renderer/core/core_export.h"
@@ -82,6 +82,9 @@ class CORE_EXPORT NGLayoutInputNode {
   bool IsBlock() const { return type_ == kBlock; }
 
   bool IsBlockFlow() const { return IsBlock() && box_->IsLayoutBlockFlow(); }
+  bool IsLayoutNGCustom() const {
+    return IsBlock() && box_->IsLayoutNGCustom();
+  }
   bool IsColumnSpanAll() const { return IsBlock() && box_->IsColumnSpanAll(); }
   bool IsFloating() const { return IsBlock() && box_->IsFloating(); }
   bool IsOutOfFlowPositioned() const {
@@ -111,7 +114,6 @@ class CORE_EXPORT NGLayoutInputNode {
     DCHECK(IsListMarker());
     return ToLayoutNGListMarker(box_)->NeedsOccupyWholeLine();
   }
-  bool IsTableCell() const { return IsBlock() && box_->IsTableCell(); }
   bool IsFieldsetContainer() const {
     return IsBlock() && box_->IsLayoutNGFieldset();
   }
@@ -130,6 +132,14 @@ class CORE_EXPORT NGLayoutInputNode {
   bool IsQuirkyContainer() const {
     return box_->GetDocument().InQuirksMode() &&
            (box_->IsBody() || box_->IsTableCell());
+  }
+
+  // Return true if this node is monolithic for block fragmentation.
+  bool IsMonolithic() const {
+    // Lines are always monolithic. We cannot block-fragment inside them.
+    if (IsInline())
+      return true;
+    return box_->GetPaginationBreakability() == LayoutBox::kForbidBreaks;
   }
 
   bool CreatesNewFormattingContext() const {
@@ -160,9 +170,6 @@ class CORE_EXPORT NGLayoutInputNode {
                      base::Optional<LayoutUnit>* computed_block_size,
                      LogicalSize* aspect_ratio) const;
 
-  LayoutUnit IntrinsicPaddingBlockStart() const;
-  LayoutUnit IntrinsicPaddingBlockEnd() const;
-
   // Returns the next sibling.
   NGLayoutInputNode NextSibling();
 
@@ -179,22 +186,39 @@ class CORE_EXPORT NGLayoutInputNode {
     return box_->ShouldApplySizeContainment();
   }
 
+  // CSS intrinsic sizing getters.
+  // https://drafts.csswg.org/css-sizing-4/#intrinsic-size-override
+  // Note that this returns kIndefiniteSize if the override was not specified.
+  LayoutUnit OverrideIntrinsicContentInlineSize() const {
+    if (box_->HasOverrideIntrinsicContentLogicalWidth())
+      return box_->OverrideIntrinsicContentLogicalWidth();
+    return kIndefiniteSize;
+  }
+  // Note that this returns kIndefiniteSize if the override was not specified.
+  LayoutUnit OverrideIntrinsicContentBlockSize() const {
+    if (box_->HasOverrideIntrinsicContentLogicalHeight())
+      return box_->OverrideIntrinsicContentLogicalHeight();
+    return kIndefiniteSize;
+  }
+
   // Display locking functionality.
   const DisplayLockContext& GetDisplayLockContext() const {
     DCHECK(box_->GetDisplayLockContext());
     return *box_->GetDisplayLockContext();
   }
-  bool DisplayLockInducesSizeContainment() const {
-    return box_->DisplayLockInducesSizeContainment();
-  }
-  bool LayoutBlockedByDisplayLock(
-      DisplayLockContext::LifecycleTarget target) const {
+  bool LayoutBlockedByDisplayLock(DisplayLockLifecycleTarget target) const {
     return box_->LayoutBlockedByDisplayLock(target);
   }
 
   // Returns the first NGPaintFragment for this node. When block fragmentation
   // occurs, there will be multiple NGPaintFragment for a node.
   const NGPaintFragment* PaintFragment() const;
+
+  CustomLayoutChild* GetCustomLayoutChild() const {
+    // TODO(ikilpatrick): Support NGInlineNode.
+    DCHECK(IsBlock());
+    return box_->GetCustomLayoutChild();
+  }
 
   String ToString() const;
 
@@ -223,4 +247,4 @@ class CORE_EXPORT NGLayoutInputNode {
 
 }  // namespace blink
 
-#endif  // NGLayoutInputNode_h
+#endif  // THIRD_PARTY_BLINK_RENDERER_CORE_LAYOUT_NG_NG_LAYOUT_INPUT_NODE_H_

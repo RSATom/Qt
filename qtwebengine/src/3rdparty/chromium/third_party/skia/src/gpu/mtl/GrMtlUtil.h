@@ -10,6 +10,7 @@
 
 #import <Metal/Metal.h>
 
+#include "include/gpu/GrBackendSurface.h"
 #include "include/private/GrTypesPriv.h"
 #include "src/sksl/ir/SkSLProgram.h"
 
@@ -17,22 +18,18 @@
 #error This file must be compiled with Arc. Use -fobjc-arc flag
 #endif
 
+#if defined(SK_BUILD_FOR_MAC)
+#if __MAC_OS_X_VERSION_MAX_ALLOWED < 101400
+#error Must use at least 10.14 SDK to build Metal backend for MacOS
+#endif
+#else
+#if __IPHONE_OS_VERSION_MAX_ALLOWED < 120000 && __TV_OS_VERSION_MAX_ALLOWED < 120000
+#error Must use at least 12.00 SDK to build Metal backend for iOS
+#endif
+#endif
+
 class GrMtlGpu;
 class GrSurface;
-
-#if defined(SK_BUILD_FOR_MAC)
-#if __MAC_OS_X_VERSION_MAX_ALLOWED >= 101400
-#define GR_METAL_SDK_VERSION 200
-#else
-#define GR_METAL_SDK_VERSION 100
-#endif
-#else
-#if __IPHONE_OS_VERSION_MAX_ALLOWED >= 120000 || __TV_OS_VERSION_MAX_ALLOWED >= 120000
-#define GR_METAL_SDK_VERSION 200
-#else
-#define GR_METAL_SDK_VERSION 100
-#endif
-#endif
 
 /**
  * Returns the Metal texture format for the given GrPixelConfig
@@ -94,4 +91,18 @@ id<MTLRenderPipelineState> GrMtlNewRenderPipelineStateWithDescriptor(
  */
 id<MTLTexture> GrGetMTLTextureFromSurface(GrSurface* surface);
 
+static inline MTLPixelFormat GrBackendFormatAsMTLPixelFormat(const GrBackendFormat& format) {
+    return static_cast<MTLPixelFormat>(format.asMtlFormat());
+}
+
+/**
+ * Returns true if the format is compressed.
+ */
+bool GrMtlFormatIsCompressed(MTLPixelFormat mtlFormat);
+
+/**
+ * Maps a MTLPixelFormat into the CompressionType enum if applicable.
+ */
+bool GrMtlFormatToCompressionType(MTLPixelFormat mtlFormat,
+                                  SkImage::CompressionType* compressionType);
 #endif

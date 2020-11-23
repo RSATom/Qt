@@ -15,11 +15,12 @@
 #ifndef rr_Nucleus_hpp
 #define rr_Nucleus_hpp
 
+#include <atomic>
 #include <cassert>
 #include <cstdarg>
 #include <cstdint>
+#include <memory>
 #include <vector>
-#include <atomic>
 
 #ifdef None
 #undef None  // b/127920555
@@ -128,7 +129,7 @@ namespace rr
 		static void adjustDefaultConfig(const Config::Edit &cfgEdit);
 		static Config getDefaultConfig();
 
-		Routine *acquireRoutine(const char *name, const Config::Edit &cfgEdit = Config::Edit::None);
+		std::shared_ptr<Routine> acquireRoutine(const char *name, const Config::Edit &cfgEdit = Config::Edit::None);
 
 		static Value *allocateStackVariable(Type *type, int arraySize = 0);
 		static BasicBlock *createBasicBlock();
@@ -155,7 +156,7 @@ namespace rr
 		};
 
 		static void createCoroutine(Type *ReturnType, std::vector<Type*> &Params);
-		Routine *acquireCoroutine(const char *name, const Config::Edit &cfg = Config::Edit::None);
+		std::shared_ptr<Routine> acquireCoroutine(const char *name, const Config::Edit &cfg = Config::Edit::None);
 		static void yield(Value*);
 
 		// Terminators
@@ -198,10 +199,6 @@ namespace rr
 		static Value *createMaskedLoad(Value *base, Type *elementType, Value *mask, unsigned int alignment, bool zeroMaskedLanes);
 		static void createMaskedStore(Value *base, Value *value, Value *mask, unsigned int alignment);
 
-		// Scatter / Gather instructions
-		static Value *createGather(Value *base, Type *elementType, Value *offsets, Value *mask, unsigned int alignment, bool zeroMaskedLanes);
-		static void createScatter(Value *base, Value *value, Value *offsets, Value *mask, unsigned int alignment);
-
 		// Barrier instructions
 		static void createFence(std::memory_order memoryOrder);
 
@@ -229,6 +226,7 @@ namespace rr
 		static Value *createBitCast(Value *V, Type *destType);
 
 		// Compare instructions
+		static Value *createPtrEQ(Value *lhs, Value *rhs);
 		static Value *createICmpEQ(Value *lhs, Value *rhs);
 		static Value *createICmpNE(Value *lhs, Value *rhs);
 		static Value *createICmpUGT(Value *lhs, Value *rhs);

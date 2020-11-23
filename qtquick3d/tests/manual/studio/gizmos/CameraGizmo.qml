@@ -48,8 +48,8 @@
 **
 ****************************************************************************/
 
-import QtQuick 2.14
-import QtQuick3D 1.14
+import QtQuick 2.15
+import QtQuick3D 1.15
 
 /*
     The gizmo showing the rotation of the camera differs from other
@@ -63,8 +63,8 @@ import QtQuick3D 1.14
 View3D {
     id: root
     property PerspectiveCamera targetCamera
-    implicitWidth: 50
-    implicitHeight: 50
+    implicitWidth: 60
+    implicitHeight: 60
     camera: localCamera
 
     property color xColor: "red"
@@ -80,21 +80,6 @@ View3D {
     function updateGizmo()
     {
         sceneGizmo.position = root.mapTo3DScene(Qt.vector3d(root.width / 2, root.height / 2, 180))
-
-        var xLabelScenePos = arrowX.mapPositionToScene(Qt.vector3d(0, 2, -12))
-        var xLabelViewPos = root.mapFrom3DScene(xLabelScenePos)
-        xLabel.x = xLabelViewPos.x - xLabel.width
-        xLabel.y = xLabelViewPos.y - xLabel.height
-
-        var yLabelScenePos = arrowY.mapPositionToScene(Qt.vector3d(4, 0, -9.5))
-        var yLabelViewPos = root.mapFrom3DScene(yLabelScenePos)
-        yLabel.x = yLabelViewPos.x - yLabel.width
-        yLabel.y = yLabelViewPos.y - yLabel.height
-
-        var zLabelScenePos = arrowZ.mapPositionToScene(Qt.vector3d(0, 2, -12))
-        var zLabelViewPos = root.mapFrom3DScene(zLabelScenePos)
-        zLabel.x = zLabelViewPos.x - zLabel.width
-        zLabel.y = zLabelViewPos.y - zLabel.height
     }
 
     Node {
@@ -110,8 +95,7 @@ View3D {
 
             Model {
                 id: arrowX
-                rotation: Qt.vector3d(0, -90, 0)
-                rotationOrder: Node.XYZr
+                eulerRotation: Qt.vector3d(0, 90, 0)
                 source: "qrc:///meshes/gizmoarrow.mesh"
                 materials: DefaultMaterial {
                     id: materialX
@@ -119,46 +103,51 @@ View3D {
                     lighting: DefaultMaterial.NoLighting
                 }
             }
-
+            Node {
+                x: 14
+                scale: Qt.vector3d(0.4, 0.4, 0.4)
+                rotation: camera.rotation
+                Text {
+                    color: xColor
+                    text: "x"
+                }
+            }
             Model {
                 id: arrowY
-                rotation: Qt.vector3d(90, 0, 0)
-                rotationOrder: Node.XYZr
+                eulerRotation: Qt.vector3d(-90, 0, 0)
                 source: "qrc:///meshes/gizmoarrow.mesh"
                 materials: DefaultMaterial {
                     emissiveColor: yColor
                     lighting: DefaultMaterial.NoLighting
                 }
             }
-
+            Node {
+                y: 14
+                scale: Qt.vector3d(0.4, 0.4, 0.4)
+                rotation: camera.rotation
+                Text {
+                    color: yColor
+                    text: "y"
+                }
+            }
             Model {
                 id: arrowZ
-                rotation: Qt.vector3d(0, 180, 0)
-                rotationOrder: Node.XYZr
+                eulerRotation: Qt.vector3d(0, -180, 0)
                 source: "qrc:///meshes/gizmoarrow.mesh"
                 materials: DefaultMaterial {
                     emissiveColor: zColor
                     lighting: DefaultMaterial.NoLighting
                 }
             }
+            Node {
+                z: -14
+                scale: Qt.vector3d(0.4, 0.4, 0.4)
+                rotation: camera.rotation
+                Text {
+                    color: zColor
+                    text: "z"
+                }
+            }
         }
-    }
-
-    Text {
-        id: xLabel
-        text: "x"
-        color: xColor
-    }
-
-    Text {
-        id: yLabel
-        text: "y"
-        color: yColor
-    }
-
-    Text {
-        id: zLabel
-        text: "z"
-        color: zColor
     }
 }

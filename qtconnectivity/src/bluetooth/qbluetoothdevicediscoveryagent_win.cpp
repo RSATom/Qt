@@ -51,6 +51,8 @@
 #include <setupapi.h>
 #include <bluetoothapis.h>
 
+#include <algorithm>
+
 QT_BEGIN_NAMESPACE
 
 Q_DECLARE_LOGGING_CATEGORY(QT_BT_WINDOWS)
@@ -541,11 +543,12 @@ void QBluetoothDeviceDiscoveryAgentPrivate::processDiscoveredDevice(
     } else {
         qCDebug(QT_BT_WINDOWS) << "Updating device:" << deviceIt->name() << deviceIt->address();
         // merge service uuids
-        QList<QBluetoothUuid> uuids = deviceIt->serviceUuids();
-        uuids.append(foundDevice.serviceUuids());
-        const QSet<QBluetoothUuid> uuidSet = uuids.toSet();
-        if (deviceIt->serviceUuids().count() != uuidSet.count())
-            deviceIt->setServiceUuids(uuidSet.toList().toVector());
+        auto uuids = deviceIt->serviceUuids().toVector();
+        uuids.append(foundDevice.serviceUuids().toVector());
+        std::sort(uuids.begin(), uuids.end());
+        uuids.erase(std::unique(uuids.begin(), uuids.end()), uuids.end());
+        if (deviceIt->serviceUuids().count() != uuids.count())
+            deviceIt->setServiceUuids(uuids);
         if (deviceIt->coreConfigurations() != foundDevice.coreConfigurations())
             deviceIt->setCoreConfigurations(
                         QBluetoothDeviceInfo::BaseRateAndLowEnergyCoreConfiguration);

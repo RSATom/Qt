@@ -30,8 +30,8 @@
 
 #include <memory>
 #include "base/memory/scoped_refptr.h"
-#include "services/network/public/mojom/fetch_api.mojom-blink.h"
-#include "third_party/blink/public/mojom/net/ip_address_space.mojom-blink.h"
+#include "services/network/public/mojom/fetch_api.mojom-blink-forward.h"
+#include "services/network/public/mojom/ip_address_space.mojom-blink-forward.h"
 #include "third_party/blink/public/platform/web_url_request.h"
 #include "third_party/blink/renderer/core/core_export.h"
 #include "third_party/blink/renderer/core/loader/threadable_loader.h"
@@ -53,7 +53,7 @@ class ExecutionContext;
 class TextResourceDecoder;
 
 class CORE_EXPORT WorkerClassicScriptLoader final
-    : public GarbageCollectedFinalized<WorkerClassicScriptLoader>,
+    : public GarbageCollected<WorkerClassicScriptLoader>,
       public ThreadableLoaderClient {
   USING_GARBAGE_COLLECTED_MIXIN(WorkerClassicScriptLoader);
 
@@ -103,7 +103,7 @@ class CORE_EXPORT WorkerClassicScriptLoader final
 
   const String& GetReferrerPolicy() const { return referrer_policy_; }
 
-  mojom::IPAddressSpace ResponseAddressSpace() const {
+  network::mojom::IPAddressSpace ResponseAddressSpace() const {
     return response_address_space_;
   }
 
@@ -152,7 +152,7 @@ class CORE_EXPORT WorkerClassicScriptLoader final
   int64_t app_cache_id_ = 0;
   std::unique_ptr<Vector<uint8_t>> cached_metadata_;
   Member<ContentSecurityPolicy> content_security_policy_;
-  mojom::IPAddressSpace response_address_space_;
+  network::mojom::IPAddressSpace response_address_space_;
   std::unique_ptr<Vector<String>> origin_trial_tokens_;
   String referrer_policy_;
 

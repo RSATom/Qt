@@ -10,7 +10,6 @@
 #include "third_party/blink/renderer/core/core_export.h"
 #include "third_party/blink/renderer/core/paint/paint_event.h"
 #include "third_party/blink/renderer/platform/heap/handle.h"
-#include "third_party/blink/renderer/platform/wtf/time.h"
 
 namespace base {
 class TickClock;
@@ -27,7 +26,7 @@ class PaintTiming;
 // seconds), and computes the layout-based First Meaningful Paint.
 // See https://goo.gl/vpaxv6 and http://goo.gl/TEiMi4 for more details.
 class CORE_EXPORT FirstMeaningfulPaintDetector
-    : public GarbageCollectedFinalized<FirstMeaningfulPaintDetector> {
+    : public GarbageCollected<FirstMeaningfulPaintDetector> {
  public:
   static FirstMeaningfulPaintDetector& From(Document&);
 
@@ -35,8 +34,8 @@ class CORE_EXPORT FirstMeaningfulPaintDetector
   virtual ~FirstMeaningfulPaintDetector() = default;
 
   void MarkNextPaintAsMeaningfulIfNeeded(const LayoutObjectCounter&,
-                                         int contents_height_before_layout,
-                                         int contents_height_after_layout,
+                                         double contents_height_before_layout,
+                                         double contents_height_after_layout,
                                          int visible_height);
   void NotifyInputEvent();
   void NotifyPaint();

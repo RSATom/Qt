@@ -9,19 +9,17 @@
 #include "base/macros.h"
 #include "base/no_destructor.h"
 #include "base/task/post_task.h"
-#include "base/test/scoped_feature_list.h"
 #include "base/test/test_timeouts.h"
 #include "content/browser/appcache/appcache_fuzzer.pb.h"
 #include "content/browser/appcache/chrome_appcache_service.h"
-#include "content/browser/loader/navigation_url_loader_impl.h"
 #include "content/public/browser/browser_task_traits.h"
-#include "content/public/test/test_browser_thread_bundle.h"
+#include "content/public/test/browser_task_environment.h"
+#include "content/public/test/test_browser_context.h"
 #include "content/test/test_content_browser_client.h"
 #include "content/test/test_content_client.h"
 #include "mojo/core/embedder/embedder.h"
 #include "mojo/public/cpp/bindings/pending_remote.h"
 #include "mojo/public/cpp/bindings/remote.h"
-#include "services/network/public/cpp/features.h"
 #include "services/network/test/test_url_loader_factory.h"
 #include "storage/browser/test/mock_special_storage_policy.h"
 #include "third_party/blink/public/mojom/appcache/appcache.mojom.h"
@@ -33,12 +31,11 @@ namespace {
 
 struct Env {
   Env()
-      : thread_bundle((base::CommandLine::Init(0, nullptr),
-                       TestTimeouts::Initialize(),
-                       base::test::ScopedTaskEnvironment::MainThreadType::IO)) {
+      : task_environment((base::CommandLine::Init(0, nullptr),
+                          TestTimeouts::Initialize(),
+                          base::test::TaskEnvironment::MainThreadType::IO)) {
     logging::SetMinLogLevel(logging::LOG_FATAL);
     mojo::core::Init();
-    feature_list.InitWithFeatures({network::features::kNetworkService}, {});
     test_content_client = std::make_unique<TestContentClient>();
     test_content_browser_client = std::make_unique<TestContentBrowserClient>();
     SetContentClient(test_content_client.get());
@@ -51,30 +48,19 @@ struct Env {
     appcache_service = base::MakeRefCounted<ChromeAppCacheService>(
         /*proxy=*/nullptr, /*partition=*/nullptr);
 
-    scoped_refptr<URLLoaderFactoryGetter> loader_factory_getter =
-        base::MakeRefCounted<URLLoaderFactoryGetter>();
-    loader_factory_getter->SetNetworkFactoryForTesting(
-        mock_url_loader_factory, /* is_corb_enabled = */ true);
-    appcache_service->set_url_loader_factory_getter(
-        loader_factory_getter.get());
-
-    base::PostTaskWithTraits(
-        FROM_HERE,
-        {NavigationURLLoaderImpl::GetLoaderRequestControllerThreadID()},
-        base::BindOnce(&ChromeAppCacheService::InitializeOnLoaderThread,
-                       appcache_service, base::FilePath(),
-                       /*browser_context=*/nullptr,
-                       /*resource_context=*/nullptr,
-                       /*request_context_getter=*/nullptr,
+    base::PostTask(
+        FROM_HERE, {BrowserThread::UI},
+        base::BindOnce(&ChromeAppCacheService::Initialize, appcache_service,
+                       base::FilePath(), &test_browser_context,
                        /*special_storage_policy=*/nullptr));
-    thread_bundle.RunUntilIdle();
+    task_environment.RunUntilIdle();
   }
 
-  TestBrowserThreadBundle thread_bundle;
-  base::test::ScopedFeatureList feature_list;
+  BrowserTaskEnvironment task_environment;
   scoped_refptr<ChromeAppCacheService> appcache_service;
   std::unique_ptr<TestContentClient> test_content_client;
   std::unique_ptr<TestContentBrowserClient> test_content_browser_client;
+  TestBrowserContext test_browser_context;
 
   // used by ICU integration.
   base::AtExitManager at_exit_manager;
@@ -116,7 +102,7 @@ void DoRequest(network::TestURLLoaderFactory* factory,
   network::URLLoaderCompletionStatus status;
   status.error_code = net::OK;
 
-  network::ResourceResponseHead response;
+  auto response = network::mojom::URLResponseHead::New();
 
   std::string headers = "HTTP/1.1 ";
   headers += std::to_string(code);
@@ -130,7 +116,7 @@ void DoRequest(network::TestURLLoaderFactory* factory,
   }
   HeadersToRaw(&headers);
 
-  response.headers = base::MakeRefCounted<net::HttpResponseHeaders>(headers);
+  response->headers = base::MakeRefCounted<net::HttpResponseHeaders>(headers);
 
   // To simplify the fuzzer, we respond to all requests with a manifest.
   // When we're performing a manifest fetch, this data will affect the
@@ -140,7 +126,7 @@ void DoRequest(network::TestURLLoaderFactory* factory,
   content += "\n# ";
 
   factory->SimulateResponseForPendingRequest(
-      GURL(GetUrl(url)), status, response, content,
+      GURL(GetUrl(url)), status, std::move(response), content,
       network::TestURLLoaderFactory::kUrlMatchPrefix);
 }
 
@@ -157,7 +143,8 @@ DEFINE_BINARY_PROTO_FUZZER(const fuzzing::proto::Session& session) {
 
   mojo::Remote<blink::mojom::AppCacheBackend> host;
   SingletonEnv().appcache_service->CreateBackend(
-      /*process_id=*/1, host.BindNewPipeAndPassReceiver());
+      /*process_id=*/1, /*routing_id=*/MSG_ROUTING_NONE,
+      host.BindNewPipeAndPassReceiver());
 
   std::map<int, mojo::Remote<blink::mojom::AppCacheHost>> registered_hosts;
   std::map<int, base::UnguessableToken> registered_host_ids_;
@@ -170,6 +157,7 @@ DEFINE_BINARY_PROTO_FUZZER(const fuzzing::proto::Session& session) {
           host_id_token = base::UnguessableToken::Create();
         mojo::PendingRemote<blink::mojom::AppCacheFrontend> frontend;
         ignore_result(frontend.InitWithNewPipeAndPassReceiver());
+        registered_hosts[host_id].reset();
         host->RegisterHost(
             registered_hosts[host_id].BindNewPipeAndPassReceiver(),
             std::move(frontend), host_id_token);
@@ -210,16 +198,14 @@ DEFINE_BINARY_PROTO_FUZZER(const fuzzing::proto::Session& session) {
         host_it->second->SetSpawningHostId(spawning_host_id_token);
         break;
       }
-      case fuzzing::proto::Command::kSelectCacheForSharedWorker: {
-        int32_t host_id = command.select_cache_for_shared_worker().host_id();
+      case fuzzing::proto::Command::kSelectCacheForWorker: {
+        int32_t host_id = command.select_cache_for_worker().host_id();
         auto host_it = registered_hosts.find(host_id);
         if (host_it == registered_hosts.end())
           break;
         int64_t cache_document_was_loaded_from =
-            command.select_cache_for_shared_worker()
-                .cache_document_was_loaded_from();
-        host_it->second->SelectCacheForSharedWorker(
-            cache_document_was_loaded_from);
+            command.select_cache_for_worker().cache_document_was_loaded_from();
+        host_it->second->SelectCacheForWorker(cache_document_was_loaded_from);
         break;
       }
       case fuzzing::proto::Command::kMarkAsForeignEntry: {
@@ -276,7 +262,7 @@ DEFINE_BINARY_PROTO_FUZZER(const fuzzing::proto::Session& session) {
         break;
       }
       case fuzzing::proto::Command::kRunUntilIdle: {
-        SingletonEnv().thread_bundle.RunUntilIdle();
+        SingletonEnv().task_environment.RunUntilIdle();
         break;
       }
       case fuzzing::proto::Command::COMMAND_NOT_SET: {
@@ -288,7 +274,7 @@ DEFINE_BINARY_PROTO_FUZZER(const fuzzing::proto::Session& session) {
   host.reset();
   // TODO(nedwilliamson): Investigate removing this or reinitializing
   // the appcache service as a fuzzer command.
-  SingletonEnv().thread_bundle.RunUntilIdle();
+  SingletonEnv().task_environment.RunUntilIdle();
 }
 
 }  // namespace content

@@ -29,6 +29,7 @@ bool Validators::QueryObjectParameterValidator::IsValid(
 bool Validators::QueryTargetValidator::IsValid(const GLenum value) const {
   switch (value) {
     case GL_COMMANDS_ISSUED_CHROMIUM:
+    case GL_COMMANDS_ISSUED_TIMESTAMP_CHROMIUM:
     case GL_COMMANDS_COMPLETED_CHROMIUM:
       return true;
   }
@@ -80,7 +81,6 @@ static const viz::ResourceFormat valid_viz_resource_format_table[] = {
     viz::ResourceFormat::RGBX_8888,    viz::ResourceFormat::BGRX_8888,
     viz::ResourceFormat::RGBX_1010102, viz::ResourceFormat::BGRX_1010102,
     viz::ResourceFormat::YVU_420,      viz::ResourceFormat::YUV_420_BIPLANAR,
-    viz::ResourceFormat::UYVY_422,
 };
 
 Validators::Validators()

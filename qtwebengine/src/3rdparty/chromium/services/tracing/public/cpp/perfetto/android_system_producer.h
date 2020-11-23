@@ -47,6 +47,9 @@ class COMPONENT_EXPORT(TRACING_CPP) AndroidSystemProducer
   // TODO(nuskos): We need to make this possible for telemetry as well, since
   // they might have side loaded the app.
   void SetDisallowPreAndroidPieForTesting(bool disallow);
+  // |socket| must remain alive as long as AndroidSystemProducer is around
+  // trying to connect to it.
+  void SetNewSocketForTesting(const char* socket);
 
   // PerfettoProducer implementation.
   bool IsTracingActive() override;
@@ -65,6 +68,11 @@ class COMPONENT_EXPORT(TRACING_CPP) AndroidSystemProducer
   // traces.
   void DisconnectWithReply(
       base::OnceClosure on_disconnect_complete = base::OnceClosure()) override;
+  // IMPORTANT!! this only resets |sequence_checker_| owned by this class, if
+  // this SystemProducer is connected to a service through the unix socket there
+  // will be additional sequence checkers which will fail if the socket
+  // disconnects.
+  void ResetSequenceForTesting() override;
 
   // perfetto::Producer implementation.
   // Used by the service to start and stop traces.
@@ -129,7 +137,7 @@ class COMPONENT_EXPORT(TRACING_CPP) AndroidSystemProducer
   // later.
   void DelayedReconnect();
 
-  const char* socket_name_;
+  std::string socket_name_;
   uint32_t connection_backoff_ms_;
   uint64_t data_sources_tracing_ = 0;
   bool disallow_pre_android_pie = true;
@@ -147,7 +155,7 @@ class COMPONENT_EXPORT(TRACING_CPP) AndroidSystemProducer
   SEQUENCE_CHECKER(sequence_checker_);
   // NOTE: Weak pointers must be invalidated before all other member variables.
   // and thus must be the last member variable.
-  base::WeakPtrFactory<AndroidSystemProducer> weak_ptr_factory_;
+  base::WeakPtrFactory<AndroidSystemProducer> weak_ptr_factory_{this};
   DISALLOW_COPY_AND_ASSIGN(AndroidSystemProducer);
 };
 

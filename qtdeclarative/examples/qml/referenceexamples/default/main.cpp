@@ -58,11 +58,6 @@ int main(int argc, char ** argv)
 {
     QCoreApplication app(argc, argv);
 
-    qmlRegisterType<BirthdayParty>("People", 1,0, "BirthdayParty");
-    qmlRegisterType<Person>();
-    qmlRegisterType<Boy>("People", 1,0, "Boy");
-    qmlRegisterType<Girl>("People", 1,0, "Girl");
-
     QQmlEngine engine;
     QQmlComponent component(&engine, QUrl("qrc:example.qml"));
     auto *party = qobject_cast<BirthdayParty *>(component.create());
@@ -77,9 +72,10 @@ int main(int argc, char ** argv)
 
         for (int ii = 0; ii < party->guestCount(); ++ii)
             qWarning() << "   " << party->guest(ii)->name();
-    } else {
-        qWarning() << component.errors();
+
+        return EXIT_SUCCESS;
     }
 
-    return 0;
+    qWarning() << component.errors();
+    return EXIT_FAILURE;
 }

@@ -1,5 +1,5 @@
 //
-// Copyright (c) 2015 The ANGLE Project Authors. All rights reserved.
+// Copyright 2015 The ANGLE Project Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 //
@@ -428,7 +428,7 @@ bool ShaderConstants11::updateSamplerMetadata(SamplerMetadata *data,
         }
 
         const angle::ColorGeneric &borderColor(samplerState.getBorderColor());
-        constexpr int kBlack[4]          = {0};
+        constexpr int kBlack[4]          = {};
         const void *const intBorderColor = (borderColor.type == angle::ColorGeneric::Type::Float)
                                                ? kBlack
                                                : borderColor.colorI.data();
@@ -539,10 +539,11 @@ void ShaderConstants11::onViewportChange(const gl::Rectangle &glViewport,
 }
 
 // Update the ShaderConstants with a new first vertex and return whether the update dirties them.
-ANGLE_INLINE bool ShaderConstants11::onFirstVertexChange(GLint firstVertex)
+ANGLE_INLINE bool ShaderConstants11::onFirstVertexChange(GLint firstVertex, GLint baseVertex)
 {
-    uint32_t newFirstVertex = static_cast<uint32_t>(firstVertex);
-    bool firstVertexDirty   = (mVertex.firstVertex != newFirstVertex);
+    uint32_t newFirstVertex = static_cast<uint32_t>(firstVertex + baseVertex);
+
+    bool firstVertexDirty = (mVertex.firstVertex != newFirstVertex);
     if (firstVertexDirty)
     {
         mVertex.firstVertex = newFirstVertex;
@@ -643,7 +644,7 @@ angle::Result ShaderConstants11::updateBuffer(const gl::Context *context,
     }
 
     // Previous buffer contents are discarded, so we need to refresh the whole buffer.
-    D3D11_MAPPED_SUBRESOURCE mapping = {0};
+    D3D11_MAPPED_SUBRESOURCE mapping = {};
     ANGLE_TRY(renderer->mapResource(context, driverConstantBuffer.get(), 0, D3D11_MAP_WRITE_DISCARD,
                                     0, &mapping));
 
@@ -1015,91 +1016,39 @@ void StateManager11::syncState(const gl::Context *context, const gl::State::Dirt
                     mInternalDirtyBits.set(DIRTY_BIT_BLEND_STATE);
                 }
                 break;
+            // Depth and stencil redundant state changes are guarded in the
+            // frontend so for related cases here just set the dirty bit.
             case gl::State::DIRTY_BIT_DEPTH_MASK:
-                if (state.getDepthStencilState().depthMask != mCurDepthStencilState.depthMask)
-                {
-                    mInternalDirtyBits.set(DIRTY_BIT_DEPTH_STENCIL_STATE);
-                }
+                mInternalDirtyBits.set(DIRTY_BIT_DEPTH_STENCIL_STATE);
                 break;
             case gl::State::DIRTY_BIT_DEPTH_TEST_ENABLED:
-                if (state.getDepthStencilState().depthTest != mCurDepthStencilState.depthTest)
-                {
-                    mInternalDirtyBits.set(DIRTY_BIT_DEPTH_STENCIL_STATE);
-                }
+                mInternalDirtyBits.set(DIRTY_BIT_DEPTH_STENCIL_STATE);
                 break;
             case gl::State::DIRTY_BIT_DEPTH_FUNC:
-                if (state.getDepthStencilState().depthFunc != mCurDepthStencilState.depthFunc)
-                {
-                    mInternalDirtyBits.set(DIRTY_BIT_DEPTH_STENCIL_STATE);
-                }
+                mInternalDirtyBits.set(DIRTY_BIT_DEPTH_STENCIL_STATE);
                 break;
             case gl::State::DIRTY_BIT_STENCIL_TEST_ENABLED:
-                if (state.getDepthStencilState().stencilTest != mCurDepthStencilState.stencilTest)
-                {
-                    mInternalDirtyBits.set(DIRTY_BIT_DEPTH_STENCIL_STATE);
-                }
+                mInternalDirtyBits.set(DIRTY_BIT_DEPTH_STENCIL_STATE);
                 break;
             case gl::State::DIRTY_BIT_STENCIL_FUNCS_FRONT:
-            {
-                const gl::DepthStencilState &depthStencil = state.getDepthStencilState();
-                if (depthStencil.stencilFunc != mCurDepthStencilState.stencilFunc ||
-                    depthStencil.stencilMask != mCurDepthStencilState.stencilMask ||
-                    state.getStencilRef() != mCurStencilRef)
-                {
-                    mInternalDirtyBits.set(DIRTY_BIT_DEPTH_STENCIL_STATE);
-                }
+                mInternalDirtyBits.set(DIRTY_BIT_DEPTH_STENCIL_STATE);
                 break;
-            }
             case gl::State::DIRTY_BIT_STENCIL_FUNCS_BACK:
-            {
-                const gl::DepthStencilState &depthStencil = state.getDepthStencilState();
-                if (depthStencil.stencilBackFunc != mCurDepthStencilState.stencilBackFunc ||
-                    depthStencil.stencilBackMask != mCurDepthStencilState.stencilBackMask ||
-                    state.getStencilBackRef() != mCurStencilBackRef)
-                {
-                    mInternalDirtyBits.set(DIRTY_BIT_DEPTH_STENCIL_STATE);
-                }
+                mInternalDirtyBits.set(DIRTY_BIT_DEPTH_STENCIL_STATE);
                 break;
-            }
             case gl::State::DIRTY_BIT_STENCIL_WRITEMASK_FRONT:
-                if (state.getDepthStencilState().stencilWritemask !=
-                    mCurDepthStencilState.stencilWritemask)
-                {
-                    mInternalDirtyBits.set(DIRTY_BIT_DEPTH_STENCIL_STATE);
-                }
+                mInternalDirtyBits.set(DIRTY_BIT_DEPTH_STENCIL_STATE);
                 break;
             case gl::State::DIRTY_BIT_STENCIL_WRITEMASK_BACK:
-                if (state.getDepthStencilState().stencilBackWritemask !=
-                    mCurDepthStencilState.stencilBackWritemask)
-                {
-                    mInternalDirtyBits.set(DIRTY_BIT_DEPTH_STENCIL_STATE);
-                }
+                mInternalDirtyBits.set(DIRTY_BIT_DEPTH_STENCIL_STATE);
                 break;
             case gl::State::DIRTY_BIT_STENCIL_OPS_FRONT:
-            {
-                const gl::DepthStencilState &depthStencil = state.getDepthStencilState();
-                if (depthStencil.stencilFail != mCurDepthStencilState.stencilFail ||
-                    depthStencil.stencilPassDepthFail !=
-                        mCurDepthStencilState.stencilPassDepthFail ||
-                    depthStencil.stencilPassDepthPass != mCurDepthStencilState.stencilPassDepthPass)
-                {
-                    mInternalDirtyBits.set(DIRTY_BIT_DEPTH_STENCIL_STATE);
-                }
+                mInternalDirtyBits.set(DIRTY_BIT_DEPTH_STENCIL_STATE);
                 break;
-            }
             case gl::State::DIRTY_BIT_STENCIL_OPS_BACK:
-            {
-                const gl::DepthStencilState &depthStencil = state.getDepthStencilState();
-                if (depthStencil.stencilBackFail != mCurDepthStencilState.stencilBackFail ||
-                    depthStencil.stencilBackPassDepthFail !=
-                        mCurDepthStencilState.stencilBackPassDepthFail ||
-                    depthStencil.stencilBackPassDepthPass !=
-                        mCurDepthStencilState.stencilBackPassDepthPass)
-                {
-                    mInternalDirtyBits.set(DIRTY_BIT_DEPTH_STENCIL_STATE);
-                }
+                mInternalDirtyBits.set(DIRTY_BIT_DEPTH_STENCIL_STATE);
                 break;
-            }
+
             case gl::State::DIRTY_BIT_CULL_FACE_ENABLED:
                 if (state.getRasterizerState().cullFace != mCurRasterState.cullFace)
                 {
@@ -1462,8 +1411,8 @@ void StateManager11::syncViewport(const gl::Context *context)
     float actualZFar             = gl::clamp01(glState.getFarPlane());
 
     const auto &caps         = context->getCaps();
-    int dxMaxViewportBoundsX = static_cast<int>(caps.maxViewportWidth);
-    int dxMaxViewportBoundsY = static_cast<int>(caps.maxViewportHeight);
+    int dxMaxViewportBoundsX = caps.maxViewportWidth;
+    int dxMaxViewportBoundsY = caps.maxViewportHeight;
     int dxMinViewportBoundsX = -dxMaxViewportBoundsX;
     int dxMinViewportBoundsY = -dxMaxViewportBoundsY;
 
@@ -1582,7 +1531,7 @@ void StateManager11::processFramebufferInvalidation(const gl::Context *context)
         mCurDisableStencil = disableStencil;
     }
 
-    bool multiSample = (fbo->getCachedSamples(context) != 0);
+    bool multiSample = (fbo->getCachedSamples(context, gl::AttachmentSampleType::Emulated) != 0);
     if (multiSample != mCurRasterState.multiSample)
     {
         mInternalDirtyBits.set(DIRTY_BIT_RASTERIZER_STATE);
@@ -1865,7 +1814,8 @@ void StateManager11::unsetConflictingUAVs(gl::PipelineType pipeline,
         if (record.view && record.resource == resource &&
             (!index || ImageIndexConflictsWithUAV(*index, record.desc)))
         {
-            deviceContext->CSSetUnorderedAccessViews(resourceIndex, 1, &mNullUAVs[0], nullptr);
+            deviceContext->CSSetUnorderedAccessViews(static_cast<UINT>(resourceIndex), 1,
+                                                     &mNullUAVs[0], nullptr);
             mCurComputeUAVs.update(resourceIndex, nullptr);
             foundOne = true;
         }
@@ -1938,7 +1888,8 @@ angle::Result StateManager11::ensureInitialized(const gl::Context *context)
 
     for (gl::ShaderType shaderType : gl::AllShaderTypes())
     {
-        const GLuint maxShaderTextureImageUnits = caps.maxShaderTextureImageUnits[shaderType];
+        const GLuint maxShaderTextureImageUnits =
+            static_cast<GLuint>(caps.maxShaderTextureImageUnits[shaderType]);
 
         mCurShaderSRVs[shaderType].initialize(maxShaderTextureImageUnits);
         mForceSetShaderSamplerStates[shaderType].resize(maxShaderTextureImageUnits, true);
@@ -1988,7 +1939,7 @@ angle::Result StateManager11::syncFramebuffer(const gl::Context *context)
     // Check for zero-sized default framebuffer, which is a special case.
     // in this case we do not wish to modify any state and just silently return false.
     // this will not report any gl error but will cause the calling method to return.
-    if (mFramebuffer11->getState().id() == 0)
+    if (mFramebuffer11->getState().isDefault())
     {
         RenderTarget11 *firstRT = mFramebuffer11->getFirstRenderTarget();
         const gl::Extents &size = firstRT->getExtents();
@@ -2250,7 +2201,7 @@ angle::Result StateManager11::updateState(const gl::Context *context,
     // The ShaderConstants only need to be updated when the program uses vertexID
     if (mProgramD3D->usesVertexID())
     {
-        if (mShaderConstants.onFirstVertexChange(firstVertex))
+        if (mShaderConstants.onFirstVertexChange(firstVertex, baseVertex))
         {
             mInternalDirtyBits.set(DIRTY_BIT_DRIVER_UNIFORMS);
         }
@@ -2641,8 +2592,7 @@ angle::Result StateManager11::setSamplerState(const gl::Context *context,
 
     auto *deviceContext = mRenderer->getDeviceContext();
 
-    ASSERT(static_cast<unsigned int>(index) <
-           mRenderer->getNativeCaps().maxShaderTextureImageUnits[type]);
+    ASSERT(index < mRenderer->getNativeCaps().maxShaderTextureImageUnits[type]);
 
     if (mForceSetShaderSamplerStates[type][index] ||
         memcmp(&samplerState, &mCurShaderSamplerStates[type][index], sizeof(gl::SamplerState)) != 0)
@@ -2715,15 +2665,13 @@ angle::Result StateManager11::setTextureForSampler(const gl::Context *context,
         textureImpl->resetDirty();
     }
 
-    ASSERT((type == gl::ShaderType::Fragment &&
-            static_cast<unsigned int>(index) <
-                mRenderer->getNativeCaps().maxShaderTextureImageUnits[gl::ShaderType::Fragment]) ||
-           (type == gl::ShaderType::Vertex &&
-            static_cast<unsigned int>(index) <
-                mRenderer->getNativeCaps().maxShaderTextureImageUnits[gl::ShaderType::Vertex]) ||
-           (type == gl::ShaderType::Compute &&
-            static_cast<unsigned int>(index) <
-                mRenderer->getNativeCaps().maxShaderTextureImageUnits[gl::ShaderType::Compute]));
+    ASSERT(
+        (type == gl::ShaderType::Fragment &&
+         index < mRenderer->getNativeCaps().maxShaderTextureImageUnits[gl::ShaderType::Fragment]) ||
+        (type == gl::ShaderType::Vertex &&
+         index < mRenderer->getNativeCaps().maxShaderTextureImageUnits[gl::ShaderType::Vertex]) ||
+        (type == gl::ShaderType::Compute &&
+         index < mRenderer->getNativeCaps().maxShaderTextureImageUnits[gl::ShaderType::Compute]));
 
     setShaderResourceInternal(type, index, textureSRV);
     return angle::Result::Continue;
@@ -2734,8 +2682,7 @@ angle::Result StateManager11::setImageState(const gl::Context *context,
                                             int index,
                                             const gl::ImageUnit &imageUnit)
 {
-    ASSERT(static_cast<unsigned int>(index) <
-           mRenderer->getNativeCaps().maxShaderImageUniforms[type]);
+    ASSERT(index < mRenderer->getNativeCaps().maxShaderImageUniforms[type]);
 
     mShaderConstants.onImageChange(type, index, imageUnit);
 
@@ -2886,7 +2833,7 @@ angle::Result StateManager11::setTextureForImage(const gl::Context *context,
         // If we get an invalid SRV here, something went wrong in the texture class and we're
         // unexpectedly missing the shader resource view.
         ASSERT(textureSRV->valid());
-        ASSERT((static_cast<unsigned int>(index) < mRenderer->getNativeCaps().maxImageUnits));
+        ASSERT((index < mRenderer->getNativeCaps().maxImageUnits));
         setShaderResourceInternal(type, index, textureSRV);
     }
     else
@@ -2896,7 +2843,7 @@ angle::Result StateManager11::setTextureForImage(const gl::Context *context,
         // If we get an invalid UAV here, something went wrong in the texture class and we're
         // unexpectedly missing the unordered access view.
         ASSERT(textureUAV->valid());
-        ASSERT((static_cast<unsigned int>(index) < mRenderer->getNativeCaps().maxImageUnits));
+        ASSERT((index < mRenderer->getNativeCaps().maxImageUnits));
         setUnorderedAccessViewInternal(type, index, textureUAV);
     }
 
@@ -3418,7 +3365,7 @@ angle::Result StateManager11::applyDriverUniformsForShader(const gl::Context *co
     {
         size_t requiredSize = mShaderConstants.getRequiredBufferSize(shaderType);
 
-        D3D11_BUFFER_DESC constantBufferDescription = {0};
+        D3D11_BUFFER_DESC constantBufferDescription = {};
         d3d11::InitConstantBufferDesc(&constantBufferDescription, requiredSize);
         ANGLE_TRY(mRenderer->allocateResource(
             GetImplAs<Context11>(context), constantBufferDescription, &shaderDriverConstantBuffer));
@@ -3514,7 +3461,7 @@ angle::Result StateManager11::applyComputeUniforms(const gl::Context *context,
     {
         size_t requiredSize = mShaderConstants.getRequiredBufferSize(gl::ShaderType::Compute);
 
-        D3D11_BUFFER_DESC constantBufferDescription = {0};
+        D3D11_BUFFER_DESC constantBufferDescription = {};
         d3d11::InitConstantBufferDesc(&constantBufferDescription, requiredSize);
         ANGLE_TRY(
             mRenderer->allocateResource(GetImplAs<Context11>(context), constantBufferDescription,

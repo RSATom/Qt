@@ -58,6 +58,10 @@ typedef void* PFN_vkVoidFunction;
 typedef unsigned long VkSurfaceKHR;
 typedef unsigned long VkImage;
 typedef unsigned long VkImageView;
+typedef void* VkInstance;
+typedef void* VkPhysicalDevice;
+typedef void* VkDevice;
+typedef int VkResult;
 #endif
 
 #include <QtCore/qhashfunctions.h>
@@ -186,6 +190,7 @@ public:
 
     bool supportsPresent(VkPhysicalDevice physicalDevice, uint32_t queueFamilyIndex, QWindow *window);
 
+    void presentAboutToBeQueued(QWindow *window);
     void presentQueued(QWindow *window);
 
     typedef bool (*DebugFilter)(VkDebugReportFlagsEXT flags, VkDebugReportObjectTypeEXT objectType, uint64_t object,

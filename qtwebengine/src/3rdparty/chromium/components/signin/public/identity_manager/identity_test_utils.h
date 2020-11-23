@@ -115,21 +115,21 @@ AccountInfo MakeAccountAvailableWithCookies(
 // value will be used instead.
 // NOTE: See disclaimer at top of file re: direct usage.
 void SetRefreshTokenForAccount(IdentityManager* identity_manager,
-                               const std::string& account_id,
+                               const CoreAccountId& account_id,
                                const std::string& token_value = std::string());
 
 // Sets a special invalid refresh token for the given account (which must
 // already be available). Blocks until the refresh token is set.
 // NOTE: See disclaimer at top of file re: direct usage.
 void SetInvalidRefreshTokenForAccount(IdentityManager* identity_manager,
-                                      const std::string& account_id);
+                                      const CoreAccountId& account_id);
 
 // Removes any refresh token that is present for the given account. Blocks until
 // the refresh token is removed. Is a no-op if no refresh token is present for
 // the given account.
 // NOTE: See disclaimer at top of file re: direct usage.
 void RemoveRefreshTokenForAccount(IdentityManager* identity_manager,
-                                  const std::string& account_id);
+                                  const CoreAccountId& account_id);
 
 // Puts the given accounts into the Gaia cookie, replacing any previous
 // accounts. Blocks until the accounts have been set.
@@ -146,6 +146,10 @@ void SetCookieAccounts(IdentityManager* identity_manager,
 void UpdateAccountInfoForAccount(IdentityManager* identity_manager,
                                  AccountInfo account_info);
 
+void SimulateAccountImageFetch(IdentityManager* identity_manager,
+                               const CoreAccountId& account_id,
+                               const gfx::Image& image);
+
 // Sets whether the list of accounts in Gaia cookie jar is fresh and does not
 // need to be updated.
 void SetFreshnessOfAccountsInGaiaCookie(IdentityManager* identity_manager,
@@ -157,14 +161,15 @@ std::string GetTestGaiaIdForEmail(const std::string& email);
 // account, i.e., an account with a refresh token.
 void UpdatePersistentErrorOfRefreshTokenForAccount(
     IdentityManager* identity_manager,
-    const std::string& account_id,
+    const CoreAccountId& account_id,
     const GoogleServiceAuthError& auth_error);
 
 // Disables internal retries of failed access token fetches.
 void DisableAccessTokenFetchRetries(IdentityManager* identity_manager);
 
 #if defined(OS_ANDROID)
-// Disables interaction with system accounts, which requires special permission.
+// Disables interaction with system accounts, which requires special
+// initialization of the java subsystems (AccountManagerFacade).
 void DisableInteractionWithSystemAccounts();
 #endif
 
@@ -174,7 +179,7 @@ void CancelAllOngoingGaiaCookieOperations(IdentityManager* identity_manager);
 // Simulate account fetching using AccountTrackerService without sending
 // network requests.
 void SimulateSuccessfulFetchOfAccountInfo(IdentityManager* identity_manager,
-                                          const std::string& account_id,
+                                          const CoreAccountId& account_id,
                                           const std::string& email,
                                           const std::string& gaia,
                                           const std::string& hosted_domain,

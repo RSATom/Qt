@@ -23,7 +23,7 @@ enum VerifyArenaCompaction {
   HashTablesAreCompacted,
 };
 
-class IntWrapper : public blink::GarbageCollectedFinalized<IntWrapper> {
+class IntWrapper : public blink::GarbageCollected<IntWrapper> {
  public:
   static bool did_verify_at_least_once;
 
@@ -391,4 +391,3 @@ TEST_F(HeapCompactTest, CompactInlinedBackingStore) {
 }
 
 }  // namespace blink
-

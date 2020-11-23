@@ -50,8 +50,6 @@ constexpr const int kMB = 1024 * 1024;
 // Hard coded default when not using quota management.
 constexpr const int kDefaultQuota = 5 * kMB;
 
-constexpr const int kMaxAppCacheMemDiskCacheSize = 10 * kMB;
-
 constexpr base::FilePath::CharType kDiskCacheDirectoryName[] =
     FILE_PATH_LITERAL("Cache");
 constexpr base::FilePath::CharType kAppCacheDatabaseName[] =
@@ -277,7 +275,7 @@ void AppCacheStorageImpl::InitTask::Run() {
   if (!db_file_path_.empty() &&
       !base::PathExists(db_file_path_) &&
       base::DirectoryExists(disk_cache_directory_)) {
-    base::DeleteFile(disk_cache_directory_, true);
+    base::DeleteFileRecursively(disk_cache_directory_);
     if (base::DirectoryExists(disk_cache_directory_)) {
       database_->Disable();  // This triggers OnFatalError handling.
       return;
@@ -307,16 +305,11 @@ void AppCacheStorageImpl::InitTask::RunCompleted() {
         kDelay);
   }
 
-  if (storage_->service()->quota_manager_proxy()) {
-    if (BrowserThread::CurrentlyOn(BrowserThread::IO)) {
-      if (storage_->service()->quota_client())
-        storage_->service()->quota_client()->NotifyAppCacheReady();
-    } else {
-      base::PostTaskWithTraits(
-          FROM_HERE, {BrowserThread::IO},
-          base::BindOnce(&AppCacheQuotaClient::NotifyAppCacheReady,
-                         storage_->service()->quota_client()));
-    }
+  if (storage_->service()->quota_client()) {
+    base::PostTask(
+        FROM_HERE, {BrowserThread::IO},
+        base::BindOnce(&AppCacheQuotaClient::NotifyAppCacheReady,
+                       base::RetainedRef(storage_->service()->quota_client())));
   }
 }
 
@@ -374,6 +367,8 @@ void AppCacheStorageImpl::GetAllInfoTask::Run() {
       info.cache_id = cache_record.cache_id;
       info.group_id = group.group_id;
       info.is_complete = true;
+      info.manifest_parser_version = cache_record.manifest_parser_version;
+      info.manifest_scope = cache_record.manifest_scope;
       infos.push_back(info);
     }
   }
@@ -1856,9 +1851,8 @@ AppCacheDiskCache* AppCacheStorageImpl::disk_cache() {
     disk_cache_ = std::make_unique<AppCacheDiskCache>();
     if (is_incognito_) {
       rv = disk_cache_->InitWithMemBackend(
-          kMaxAppCacheMemDiskCacheSize,
-          base::BindOnce(&AppCacheStorageImpl::OnDiskCacheInitialized,
-                         base::Unretained(this)));
+          0, base::BindOnce(&AppCacheStorageImpl::OnDiskCacheInitialized,
+                            base::Unretained(this)));
     } else {
       expecting_cleanup_complete_on_disable_ = true;
 

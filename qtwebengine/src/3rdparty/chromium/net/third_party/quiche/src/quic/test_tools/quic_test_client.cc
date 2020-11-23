@@ -205,8 +205,8 @@ MockableQuicClient::MockableQuicClient(
           supported_versions,
           config,
           epoll_server,
-          QuicMakeUnique<MockableQuicClientEpollNetworkHelper>(epoll_server,
-                                                               this),
+          std::make_unique<MockableQuicClientEpollNetworkHelper>(epoll_server,
+                                                                 this),
           QuicWrapUnique(
               new RecordingProofVerifier(std::move(proof_verifier)))),
       override_server_connection_id_(EmptyQuicConnectionId()),
@@ -233,9 +233,14 @@ MockableQuicClient::mockable_network_helper() const {
 }
 
 QuicConnectionId MockableQuicClient::GenerateNewConnectionId() {
-  return server_connection_id_overridden_
-             ? override_server_connection_id_
-             : QuicClient::GenerateNewConnectionId();
+  if (server_connection_id_overridden_) {
+    return override_server_connection_id_;
+  }
+  if (override_server_connection_id_length_ >= 0) {
+    return QuicUtils::CreateRandomConnectionId(
+        override_server_connection_id_length_);
+  }
+  return QuicClient::GenerateNewConnectionId();
 }
 
 void MockableQuicClient::UseConnectionId(
@@ -244,15 +249,31 @@ void MockableQuicClient::UseConnectionId(
   override_server_connection_id_ = server_connection_id;
 }
 
+void MockableQuicClient::UseConnectionIdLength(
+    int server_connection_id_length) {
+  override_server_connection_id_length_ = server_connection_id_length;
+}
+
 QuicConnectionId MockableQuicClient::GetClientConnectionId() {
-  return client_connection_id_overridden_ ? override_client_connection_id_
-                                          : QuicClient::GetClientConnectionId();
+  if (client_connection_id_overridden_) {
+    return override_client_connection_id_;
+  }
+  if (override_client_connection_id_length_ >= 0) {
+    return QuicUtils::CreateRandomConnectionId(
+        override_client_connection_id_length_);
+  }
+  return QuicClient::GetClientConnectionId();
 }
 
 void MockableQuicClient::UseClientConnectionId(
     QuicConnectionId client_connection_id) {
   client_connection_id_overridden_ = true;
   override_client_connection_id_ = client_connection_id;
+}
+
+void MockableQuicClient::UseClientConnectionIdLength(
+    int client_connection_id_length) {
+  override_client_connection_id_length_ = client_connection_id_length;
 }
 
 void MockableQuicClient::UseWriter(QuicPacketWriterWrapper* writer) {
@@ -326,6 +347,10 @@ void QuicTestClient::Initialize() {
   num_requests_ = 0;
   num_responses_ = 0;
   ClearPerConnectionState();
+  // TODO(b/142715651): Figure out how to use QPACK in tests.
+  // Do not use the QPACK dynamic table in tests to avoid flakiness due to the
+  // uncertain order of receiving the SETTINGS frame and sending headers.
+  client_->disable_qpack_dynamic_table();
   // As chrome will generally do this, we want it to be the default when it's
   // not overridden.
   if (!client_->config()->HasSetBytesForConnectionIdToSend()) {
@@ -356,8 +381,10 @@ ssize_t QuicTestClient::SendRequestAndRstTogether(const std::string& uri) {
   ssize_t ret = SendMessage(headers, "", /*fin=*/true, /*flush=*/false);
 
   QuicStreamId stream_id = GetNthClientInitiatedBidirectionalStreamId(
-      session->connection()->transport_version(), 0);
-  session->SendRstStream(stream_id, QUIC_STREAM_CANCELLED, 0);
+      session->transport_version(), 0);
+  QuicStream* stream = session->GetOrCreateStream(stream_id);
+  session->SendRstStream(stream_id, QUIC_STREAM_CANCELLED,
+                         stream->stream_bytes_written());
   return ret;
 }
 
@@ -385,7 +412,7 @@ ssize_t QuicTestClient::GetOrCreateStreamAndSendRequest(
       // May need to retry request if asynchronous rendezvous fails.
       std::unique_ptr<spdy::SpdyHeaderBlock> new_headers(
           new spdy::SpdyHeaderBlock(headers->Clone()));
-      push_promise_data_to_resend_ = QuicMakeUnique<TestClientDataToResend>(
+      push_promise_data_to_resend_ = std::make_unique<TestClientDataToResend>(
           std::move(new_headers), body, fin, this, std::move(ack_listener));
       return 1;
     }
@@ -526,7 +553,8 @@ QuicSpdyClientStream* QuicTestClient::GetOrCreateStream() {
   if (!latest_created_stream_) {
     SetLatestCreatedStream(client_->CreateClientStream());
     if (latest_created_stream_) {
-      latest_created_stream_->SetPriority(priority_);
+      latest_created_stream_->SetPriority(
+          spdy::SpdyStreamPrecedence(priority_));
     }
   }
 
@@ -769,10 +797,21 @@ void QuicTestClient::UseConnectionId(QuicConnectionId server_connection_id) {
   client_->UseConnectionId(server_connection_id);
 }
 
+void QuicTestClient::UseConnectionIdLength(int server_connection_id_length) {
+  DCHECK(!connected());
+  client_->UseConnectionIdLength(server_connection_id_length);
+}
+
 void QuicTestClient::UseClientConnectionId(
     QuicConnectionId client_connection_id) {
   DCHECK(!connected());
   client_->UseClientConnectionId(client_connection_id);
+}
+
+void QuicTestClient::UseClientConnectionIdLength(
+    int client_connection_id_length) {
+  DCHECK(!connected());
+  client_->UseClientConnectionIdLength(client_connection_id_length);
 }
 
 bool QuicTestClient::MigrateSocket(const QuicIpAddress& new_host) {

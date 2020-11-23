@@ -1,6 +1,6 @@
 /****************************************************************************
 **
-** Copyright (C) 2019 The Qt Company Ltd.
+** Copyright (C) 2020 The Qt Company Ltd.
 ** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the documentation of the Qt Toolkit.
@@ -291,7 +291,13 @@
            application on supported platforms, use of a session manager may be
            redundant for system services.
            This attribute must be set before QGuiApplication is constructed.
-           This value was added in 5.13
+           This value was added in 5.14
+
+    \value AA_DisableNativeVirtualKeyboard When this attribute is set, the native
+           on-screen virtual keyboard will not be shown automatically when a
+           text input widget gains focus on a system without a physical keyboard.
+           Currently supported on the Windows platform only.
+           This value was added in 5.15
 
     The following values are deprecated or obsolete:
 
@@ -703,44 +709,59 @@
 
     \value ISODateWithMs \l{ISO 8601} extended format, including milliseconds if applicable.
 
-    \value SystemLocaleShortDate The \l{QLocale::ShortFormat}{short format} used
-    by the \l{QLocale::system()}{operating system}.
+    \value SystemLocaleShortDate \e{This enum value is deprecated and
+    shall be removed in Qt 6.} Use QLocale's methods for converting
+    dates and times to and from strings, with the
+    \l{QLocale::ShortFormat}{short format} of
+    \l{QLocale::system()}{the locale used by the operating system}.
 
-    \value SystemLocaleLongDate The \l{QLocale::LongFormat}{long format} used
-    by the \l{QLocale::system()}{operating system}.
+    \value SystemLocaleLongDate \e{This enum value is deprecated and
+    shall be removed in Qt 6.} Use QLocale's methods for converting
+    dates and times to and from strings, with the
+    \l{QLocale::LongFormat}{long format} of \l{QLocale::system()}{the
+    locale used by the operating system}.
 
-    \value DefaultLocaleShortDate The \l{QLocale::ShortFormat}{short format} specified
-    by the \l{QLocale::setDefault()}{application's locale}.
+    \value DefaultLocaleShortDate \e{This enum value is deprecated and
+    shall be removed in Qt 6.} Use QLocale's methods for converting
+    dates and times to and from strings, with the
+    \l{QLocale::ShortFormat}{short format} of
+    \l{QLocale::setDefault()}{the application's locale}.
 
-    \value DefaultLocaleLongDate The \l{QLocale::LongFormat}{long format} used
-    by the \l{QLocale::setDefault()}{application's locale}.
+    \value DefaultLocaleLongDate \e{This enum value is deprecated and
+    shall be removed in Qt 6.} Use QLocale's methods for converting
+    dates and times to and from strings, with the
+    \l{QLocale::LongFormat}{long format} \l{QLocale::setDefault()}{the
+    application's locale}.
 
-    \value SystemLocaleDate \e{This enum value is deprecated.} Use Qt::SystemLocaleShortDate
-    instead (or Qt::SystemLocaleLongDate if you want long dates).
+    \value SystemLocaleDate \e{This enum value is deprecated and shall
+    be removed in Qt 6.} It is equivalent to SystemLocaleShortDate.
 
-    \value LocaleDate \e{This enum value is deprecated.} Use Qt::DefaultLocaleShortDate
-    instead (or Qt::DefaultLocaleLongDate if you want long dates).
+    \value LocaleDate \e{This enum value is deprecated and shall be
+    removed in Qt 6.} It is equivalent to DefaultLocaleShortDate.
 
-    \value LocalDate \e{This enum value is deprecated.} Use Qt::SystemLocaleShortDate
-    instead (or Qt::SystemLocaleLongDate if you want long dates).
+    \value LocalDate \e{This enum value is deprecated and shall be
+    removed in Qt 6.} It is equivalent to SystemLocaleShortDate.
 
     \value RFC2822Date \l{RFC 2822}, \l{RFC 850} and \l{RFC 1036} format:
-    either \c{[ddd,] dd MMM yyyy [hh:mm[:ss]][ ±tzoff]}
-    or \c{ddd MMM dd[ hh:mm:ss] yyyy[ ±tzoff]} are recognized for combined dates
-    and times, where \c{tzoff} is a timezone offset in \c{hhmm} format. For
+    either \c{[ddd,] dd MMM yyyy [HH:mm[:ss]][ ±tzoff]}
+    or \c{ddd MMM dd[ HH:mm:ss] yyyy[ ±tzoff]} are recognized for combined dates
+    and times, where \c{tzoff} is a timezone offset in \c{HHmm} format. For
     dates and times separately, the same formats are matched and the unwanted
     parts are ignored. In particular, note that a time is not recognized without
     an accompanying date. When converting dates to string form,
-    format \c{dd MMM yyyy} is used, for times the format is \c{hh:mm:ss}. For
+    format \c{dd MMM yyyy} is used, for times the format is \c{HH:mm:ss}. For
     combined date and time, these are combined
-    as \c{dd MMM yyyy hh:mm:ss ±tzoff} (omitting the optional leading day of the
+    as \c{dd MMM yyyy HH:mm:ss ±tzoff} (omitting the optional leading day of the
     week from the first format recognized).
 
-    \note For \c ISODate formats, each \c Y, \c M and \c D represents a single digit
-    of the year, month and day used to specify the date. Each \c H, \c M and \c S
-    represents a single digit of the hour, minute and second used to specify the time.
-    The presence of a literal \c T character is used to separate the date and time when
-    both are specified.
+    \note For \c ISODate formats, each \c y, \c M and \c d represents a single
+    digit of the year, month, and day used to specify the date. Each \c H, \c m,
+    and \c s represents a single digit of the hour (up to 24), minute and second
+    used to specify the time. The presence of a literal \c T character is used
+    to separate the date and time when both are specified. For the \c
+    RFC2822Date format, MMM stands for the first three letters of the month name
+    in English, the other format characters have the same meaning as for the
+    ISODate format.
 */
 
 
@@ -2849,24 +2870,32 @@
     This enum describes the type of matches that can be used when searching
     for items in a model.
 
-    \value MatchExactly     Performs QVariant-based matching.
-    \value MatchFixedString Performs string-based matching.
+    \value MatchExactly            Performs QVariant-based matching.
+    \value MatchFixedString        Performs string-based matching.
            String-based comparisons are case-insensitive unless the
            \c MatchCaseSensitive flag is also specified.
-    \value MatchContains    The search term is contained in the item.
-    \value MatchStartsWith  The search term matches the start of the item.
-    \value MatchEndsWith    The search term matches the end of the item.
-    \value MatchCaseSensitive  The search is case sensitive.
-    \value MatchRegExp      Performs string-based matching using a regular
-           expression as the search term.
-    \value MatchWildcard    Performs string-based matching using a string with
+    \value MatchContains           The search term is contained in the item.
+    \value MatchStartsWith         The search term matches the start of the item.
+    \value MatchEndsWith           The search term matches the end of the item.
+    \value MatchCaseSensitive      The search is case sensitive.
+    \value MatchRegExp             Performs string-based matching using a regular
+           expression as the search term. Uses the deprecated QRegExp class.
+           \e{This enum value is deprecated since Qt 5.15.}
+    \value MatchRegularExpression  Performs string-based matching using a regular
+           expression as the search term. Uses QRegularExpression.
+           When using this flag, a QRegularExpression object can be passed as
+           parameter and will directly be used to perform the search. The case
+           sensitivity flag will be ignored as the QRegularExpression object is
+           expected to be fully configured.
+           This enum value was added in Qt 5.15.
+    \value MatchWildcard           Performs string-based matching using a string with
            wildcards as the search term.
-    \value MatchWrap        Perform a search that wraps around, so that when
+    \value MatchWrap               Perform a search that wraps around, so that when
            the search reaches the last item in the model, it begins again at
            the first item and continues until all items have been examined.
-    \value MatchRecursive   Searches the entire hierarchy.
+    \value MatchRecursive          Searches the entire hierarchy.
 
-    \sa QString::compare(), QRegExp
+    \sa QString::compare(), QRegExp, QRegularExpression
 */
 
 /*!
@@ -3305,4 +3334,18 @@
   \value Floor Always round down.
   \value RoundPreferFloor Round up for .75 and above.
   \value PassThrough Don't round.
+*/
+
+/*!
+  \enum Qt::ReturnByValueConstant
+  \since 5.15
+
+  This is a dummy type, designed to help users transition from certain deprecated APIs to their replacement APIs.
+
+  \omitvalue ReturnByValue
+
+  \sa QCursor::bitmap()
+  \sa QCursor::mask()
+  \sa QLabel::picture()
+  \sa QLabel::pixmap()
 */

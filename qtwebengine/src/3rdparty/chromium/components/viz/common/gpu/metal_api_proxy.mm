@@ -10,6 +10,7 @@
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/sys_string_conversions.h"
 #include "base/synchronization/condition_variable.h"
+#include "base/trace_event/trace_event.h"
 #include "components/crash/core/common/crash_key.h"
 #include "ui/gl/progress_reporter.h"
 
@@ -47,84 +48,83 @@ id<MTLLibrary> API_AVAILABLE(macos(10.11))
     NewLibraryWithRetry(id<MTLDevice> device,
                         NSString* source,
                         MTLCompileOptions* options,
-                        __autoreleasing NSError** error) {
-  // Request and wait on an asynchronous shader compilation. If the compilation
-  // does not return within kRetryPeriod, then re-issue the compilation request.
-  // The value of kRetryPeriod is the 98th percentile of
-  // Gpu.MetalProxy.NewLibraryTime.
+                        __autoreleasing NSError** error,
+                        gl::ProgressReporter* progress_reporter) {
   SCOPED_UMA_HISTOGRAM_TIMER("Gpu.MetalProxy.NewLibraryTime");
-  const base::TimeDelta kRetryPeriod = base::TimeDelta::FromMilliseconds(50);
-
+  const base::TimeTicks start_time = base::TimeTicks::Now();
   auto state = base::MakeRefCounted<AsyncMetalState>();
-  for (size_t attempt = 0;; ++attempt) {
-    // The completion handler will signal the condition variable we will wait
-    // on. Note that completionHandler will hold a reference to |state|.
-    MTLNewLibraryCompletionHandler completionHandler = ^(id<MTLLibrary> library,
-                                                         NSError* error) {
-      base::AutoLock lock(state->lock);
-      if (!state->has_result) {
-        UMA_HISTOGRAM_COUNTS_100("Gpu.MetalProxy.NewLibraryAttempt", attempt);
+
+  // The completion handler will signal the condition variable we will wait
+  // on. Note that completionHandler will hold a reference to |state|.
+  MTLNewLibraryCompletionHandler completionHandler =
+      ^(id<MTLLibrary> library, NSError* error) {
+        base::AutoLock lock(state->lock);
         state->has_result = true;
         state->library = [library retain];
         state->error = [error retain];
         state->condition_variable.Signal();
-      }
-    };
+      };
 
-    // Request asynchronous compilation. Note that |completionHandler| may be
-    // called from within this function call, or it may be called from a
-    // different thread.
-    [device newLibraryWithSource:source
-                         options:options
-               completionHandler:completionHandler];
+  // Request asynchronous compilation. Note that |completionHandler| may be
+  // called from within this function call, or it may be called from a
+  // different thread.
+  if (progress_reporter)
+    progress_reporter->ReportProgress();
+  [device newLibraryWithSource:source
+                       options:options
+             completionHandler:completionHandler];
 
-    // Wait for any of the previous calls to complete.
+  // Suppress the watchdog timer for kTimeout by reporting progress every
+  // half-second. After that, allow it to kill the the GPU process.
+  constexpr base::TimeDelta kTimeout = base::TimeDelta::FromSeconds(60);
+  constexpr base::TimeDelta kWaitPeriod =
+      base::TimeDelta::FromMilliseconds(500);
+  while (true) {
+    if (base::TimeTicks::Now() - start_time < kTimeout && progress_reporter)
+      progress_reporter->ReportProgress();
     base::AutoLock lock(state->lock);
-    state->condition_variable.TimedWait(kRetryPeriod);
-
-    // If we have results from any attempt, use them.
     if (state->has_result) {
       *error = [state->error autorelease];
       return state->library;
     }
-
-    // Otherwise, try compiling the shader again. Keep re-trying forever until
-    // the watchdog timer kills the process.
+    state->condition_variable.TimedWait(kWaitPeriod);
   }
 }
 
 id<MTLRenderPipelineState> API_AVAILABLE(macos(10.11))
     NewRenderPipelineStateWithRetry(id<MTLDevice> device,
                                     MTLRenderPipelineDescriptor* descriptor,
-                                    __autoreleasing NSError** error) {
+                                    __autoreleasing NSError** error,
+                                    gl::ProgressReporter* progress_reporter) {
   // This function is almost-identical to the above NewLibraryWithRetry. See
   // comments in that function.
-  // The value of kRetryPeriod is the 99th percentile of
-  // Gpu.MetalProxy.NewRenderPipelineStateTime.
   SCOPED_UMA_HISTOGRAM_TIMER("Gpu.MetalProxy.NewRenderPipelineStateTime");
-  const base::TimeDelta kRetryPeriod = base::TimeDelta::FromMilliseconds(50);
+  const base::TimeTicks start_time = base::TimeTicks::Now();
   auto state = base::MakeRefCounted<AsyncMetalState>();
-  for (size_t attempt = 0;; ++attempt) {
-    MTLNewRenderPipelineStateCompletionHandler completionHandler =
-        ^(id<MTLRenderPipelineState> render_pipeline_state, NSError* error) {
-          base::AutoLock lock(state->lock);
-          if (!state->has_result) {
-            UMA_HISTOGRAM_COUNTS_100(
-                "Gpu.MetalProxy.NewRenderPipelineStateAttempt", attempt);
-            state->has_result = true;
-            state->render_pipeline_state = [render_pipeline_state retain];
-            state->error = [error retain];
-            state->condition_variable.Signal();
-          }
-        };
-    [device newRenderPipelineStateWithDescriptor:descriptor
-                               completionHandler:completionHandler];
+  MTLNewRenderPipelineStateCompletionHandler completionHandler =
+      ^(id<MTLRenderPipelineState> render_pipeline_state, NSError* error) {
+        base::AutoLock lock(state->lock);
+        state->has_result = true;
+        state->render_pipeline_state = [render_pipeline_state retain];
+        state->error = [error retain];
+        state->condition_variable.Signal();
+      };
+  if (progress_reporter)
+    progress_reporter->ReportProgress();
+  [device newRenderPipelineStateWithDescriptor:descriptor
+                             completionHandler:completionHandler];
+  constexpr base::TimeDelta kTimeout = base::TimeDelta::FromSeconds(60);
+  constexpr base::TimeDelta kWaitPeriod =
+      base::TimeDelta::FromMilliseconds(500);
+  while (true) {
+    if (base::TimeTicks::Now() - start_time < kTimeout && progress_reporter)
+      progress_reporter->ReportProgress();
     base::AutoLock lock(state->lock);
-    state->condition_variable.TimedWait(kRetryPeriod);
     if (state->has_result) {
       *error = [state->error autorelease];
       return state->render_pipeline_state;
     }
+    state->condition_variable.TimedWait(kWaitPeriod);
   }
 }
 
@@ -133,10 +133,100 @@ constexpr uint32_t kShaderCrashDumpLength = 8128;
 
 }  // namespace
 
+// A cache of the result of calls to NewLibraryWithRetry. This will store all
+// resulting MTLLibraries indefinitely, and will grow without bound. This is to
+// minimize the number of calls hitting the MTLCompilerService, which is prone
+// to hangs. Should this significantly help the situation, a more robust (and
+// not indefinitely-growing) cache will be added either here or in Skia.
+// https://crbug.com/974219
+class API_AVAILABLE(macos(10.11)) MTLLibraryCache {
+ public:
+  MTLLibraryCache() = default;
+  ~MTLLibraryCache() = default;
+
+  id<MTLLibrary> NewLibraryWithSource(id<MTLDevice> device,
+                                      NSString* source,
+                                      MTLCompileOptions* options,
+                                      __autoreleasing NSError** error,
+                                      gl::ProgressReporter* progress_reporter) {
+    LibraryKey key(source, options);
+    auto found = libraries_.find(key);
+    if (found != libraries_.end()) {
+      const LibraryData& data = found->second;
+      *error = [[data.error retain] autorelease];
+      return [data.library retain];
+    }
+    SCOPED_UMA_HISTOGRAM_TIMER("Gpu.MetalProxy.NewLibraryTime");
+    id<MTLLibrary> library =
+        NewLibraryWithRetry(device, source, options, error, progress_reporter);
+    LibraryData data(library, *error);
+    libraries_.insert(std::make_pair(key, std::move(data)));
+    return library;
+  }
+  // The number of cache misses is the number of times that we have had to call
+  // the true newLibraryWithSource function.
+  uint64_t CacheMissCount() const { return libraries_.size(); }
+
+ private:
+  struct LibraryKey {
+    LibraryKey(NSString* source, MTLCompileOptions* options)
+        : source_(source, base::scoped_policy::RETAIN),
+          options_(options, base::scoped_policy::RETAIN) {}
+    LibraryKey(const LibraryKey& other) = default;
+    LibraryKey& operator=(const LibraryKey& other) = default;
+    ~LibraryKey() = default;
+
+    bool operator<(const LibraryKey& other) const {
+      switch ([source_ compare:other.source_]) {
+        case NSOrderedAscending:
+          return true;
+        case NSOrderedDescending:
+          return false;
+        case NSOrderedSame:
+          break;
+      }
+#define COMPARE(x)                       \
+  if ([options_ x] < [other.options_ x]) \
+    return true;                         \
+  if ([options_ x] > [other.options_ x]) \
+    return false;
+      COMPARE(fastMathEnabled);
+      COMPARE(languageVersion);
+#undef COMPARE
+      // Skia doesn't set any preprocessor macros, and defining an order on two
+      // NSDictionaries is a lot of code, so just assert that there are no
+      // macros. Should this alleviate https://crbug.com/974219, then a more
+      // robust cache should be implemented.
+      DCHECK_EQ([[options_ preprocessorMacros] count], 0u);
+      return false;
+    }
+
+   private:
+    base::scoped_nsobject<NSString> source_;
+    base::scoped_nsobject<MTLCompileOptions> options_;
+  };
+  struct LibraryData {
+    LibraryData(id<MTLLibrary> library_, NSError* error_)
+        : library(library_, base::scoped_policy::RETAIN),
+          error(error_, base::scoped_policy::RETAIN) {}
+    LibraryData(const LibraryData& other) = default;
+    LibraryData& operator=(const LibraryData& other) = default;
+    ~LibraryData() = default;
+
+    base::scoped_nsprotocol<id<MTLLibrary>> library;
+    base::scoped_nsobject<NSError> error;
+  };
+
+  std::map<LibraryKey, LibraryData> libraries_;
+  DISALLOW_COPY_AND_ASSIGN(MTLLibraryCache);
+};
+
 @implementation MTLDeviceProxy
 - (id)initWithDevice:(id<MTLDevice>)device {
-  if (self = [super init])
+  if (self = [super init]) {
     device_.reset(device, base::scoped_policy::RETAIN);
+    libraryCache_ = std::make_unique<MTLLibraryCache>();
+  }
   return self;
 }
 
@@ -165,28 +255,33 @@ constexpr uint32_t kShaderCrashDumpLength = 8128;
   }
 #define PROXY_METHOD0_SLOW(R, fn)                                  \
   -(R)fn {                                                         \
+    TRACE_EVENT0("gpu", "-[MTLDevice " #fn "]");                   \
     gl::ScopedProgressReporter scoped_reporter(progressReporter_); \
     return [device_ fn];                                           \
   }
 #define PROXY_METHOD1_SLOW(R, fn, A0)                              \
   -(R)fn : (A0)a0 {                                                \
+    TRACE_EVENT0("gpu", "-[MTLDevice " #fn ":]");                  \
     gl::ScopedProgressReporter scoped_reporter(progressReporter_); \
     return [device_ fn:a0];                                        \
   }
 #define PROXY_METHOD2_SLOW(R, fn, A0, a1, A1)                      \
   -(R)fn : (A0)a0 a1 : (A1)a1 {                                    \
+    TRACE_EVENT0("gpu", "-[MTLDevice " #fn ":" #a1 ":]");          \
     gl::ScopedProgressReporter scoped_reporter(progressReporter_); \
     return [device_ fn:a0 a1:a1];                                  \
   }
 #define PROXY_METHOD3_SLOW(R, fn, A0, a1, A1, a2, A2)              \
   -(R)fn : (A0)a0 a1 : (A1)a1 a2 : (A2)a2 {                        \
+    TRACE_EVENT0("gpu", "-[MTLDevice " #fn ":" #a1 ":" #a2 ":]");  \
     gl::ScopedProgressReporter scoped_reporter(progressReporter_); \
     return [device_ fn:a0 a1:a1 a2:a2];                            \
   }
-#define PROXY_METHOD4_SLOW(R, fn, A0, a1, A1, a2, A2, a3, A3)      \
-  -(R)fn : (A0)a0 a1 : (A1)a1 a2 : (A2)a2 a3 : (A3)a3 {            \
-    gl::ScopedProgressReporter scoped_reporter(progressReporter_); \
-    return [device_ fn:a0 a1:a1 a2:a2 a3:a3];                      \
+#define PROXY_METHOD4_SLOW(R, fn, A0, a1, A1, a2, A2, a3, A3)             \
+  -(R)fn : (A0)a0 a1 : (A1)a1 a2 : (A2)a2 a3 : (A3)a3 {                   \
+    TRACE_EVENT0("gpu", "-[MTLDevice " #fn ":" #a1 ":" #a2 ":" #a3 ":]"); \
+    gl::ScopedProgressReporter scoped_reporter(progressReporter_);        \
+    return [device_ fn:a0 a1:a1 a2:a2 a3:a3];                             \
   }
 
 // Disable availability warnings for the calls to |device_| in the macros. (The
@@ -287,11 +382,12 @@ PROXY_METHOD2_SLOW(nullable id<MTLLibrary>,
                    dispatch_data_t,
                    error,
                    __autoreleasing NSError**)
+
 - (nullable id<MTLLibrary>)
     newLibraryWithSource:(NSString*)source
                  options:(nullable MTLCompileOptions*)options
                    error:(__autoreleasing NSError**)error {
-  newLibraryCount_ += 1;
+  TRACE_EVENT0("gpu", "-[MTLDevice newLibraryWithSource:options:error:]");
 
   // Capture the shader's source in a crash key in case newLibraryWithSource
   // hangs.
@@ -303,11 +399,14 @@ PROXY_METHOD2_SLOW(nullable id<MTLLibrary>,
     DLOG(WARNING) << "Truncating shader in crash log.";
 
   shaderKey.Set(sourceAsSysString);
+  static crash_reporter::CrashKeyString<16> newLibraryCountKey(
+      "MTLNewLibraryCount");
+  newLibraryCountKey.Set(base::NumberToString(libraryCache_->CacheMissCount()));
 
-  gl::ScopedProgressReporter scoped_reporter(progressReporter_);
-  SCOPED_UMA_HISTOGRAM_TIMER("Gpu.MetalProxy.NewLibraryTime");
-  id<MTLLibrary> library = NewLibraryWithRetry(device_, source, options, error);
+  id<MTLLibrary> library = libraryCache_->NewLibraryWithSource(
+      device_, source, options, error, progressReporter_);
   shaderKey.Clear();
+  newLibraryCountKey.Clear();
 
   // Shaders from Skia will have either a vertexMain or fragmentMain function.
   // Save the source and a weak pointer to the function, so we can capture
@@ -339,6 +438,8 @@ PROXY_METHOD3_SLOW(void,
     newRenderPipelineStateWithDescriptor:
         (MTLRenderPipelineDescriptor*)descriptor
                                    error:(__autoreleasing NSError**)error {
+  TRACE_EVENT0("gpu",
+               "-[MTLDevice newRenderPipelineStateWithDescriptor:error:]");
   // Capture the vertex and shader source being used. Skia's use pattern is to
   // compile two MTLLibraries before creating a MTLRenderPipelineState -- one
   // with vertexMain and the other with fragmentMain. The two immediately
@@ -359,12 +460,11 @@ PROXY_METHOD3_SLOW(void,
     DLOG(WARNING) << "Failed to capture fragment shader.";
   static crash_reporter::CrashKeyString<16> newLibraryCountKey(
       "MTLNewLibraryCount");
-  newLibraryCountKey.Set(base::NumberToString(newLibraryCount_));
+  newLibraryCountKey.Set(base::NumberToString(libraryCache_->CacheMissCount()));
 
-  gl::ScopedProgressReporter scoped_reporter(progressReporter_);
   SCOPED_UMA_HISTOGRAM_TIMER("Gpu.MetalProxy.NewRenderPipelineStateTime");
-  id<MTLRenderPipelineState> pipelineState =
-      NewRenderPipelineStateWithRetry(device_, descriptor, error);
+  id<MTLRenderPipelineState> pipelineState = NewRenderPipelineStateWithRetry(
+      device_, descriptor, error, progressReporter_);
 
   vertexShaderKey.Clear();
   fragmentShaderKey.Clear();
@@ -448,6 +548,7 @@ PROXY_METHOD2(void,
 PROXY_METHOD1_SLOW(nullable id<MTLArgumentEncoder>,
                    newArgumentEncoderWithArguments,
                    NSArray<MTLArgumentDescriptor*>*)
+
 #if defined(MAC_OS_X_VERSION_10_14)
 PROXY_METHOD1_SLOW(nullable id<MTLTexture>,
                    newSharedTextureWithDescriptor,
@@ -472,6 +573,27 @@ PROXY_METHOD0(nullable id<MTLSharedEvent>, newSharedEvent)
 PROXY_METHOD1(nullable id<MTLSharedEvent>,
               newSharedEventWithHandle,
               MTLSharedEventHandle*)
-#endif
+#endif  // MAC_OS_X_VERSION_10_14
+
+#if defined(MAC_OS_X_VERSION_10_15)
+PROXY_METHOD0(BOOL, hasUnifiedMemory)
+PROXY_METHOD0(MTLDeviceLocation, location)
+PROXY_METHOD0(NSUInteger, locationNumber)
+PROXY_METHOD0(uint64_t, maxTransferRate)
+PROXY_METHOD0(BOOL, areBarycentricCoordsSupported)
+PROXY_METHOD0(BOOL, supportsShaderBarycentricCoordinates)
+PROXY_METHOD0(uint64_t, peerGroupID)
+PROXY_METHOD0(uint32_t, peerIndex)
+PROXY_METHOD0(uint32_t, peerCount)
+PROXY_METHOD0(nullable NSArray<id<MTLCounterSet>>*, counterSets)
+PROXY_METHOD1(BOOL, supportsFamily, MTLGPUFamily)
+PROXY_METHOD2_SLOW(nullable id<MTLCounterSampleBuffer>,
+                   newCounterSampleBufferWithDescriptor,
+                   MTLCounterSampleBufferDescriptor*,
+                   error,
+                   NSError**)
+PROXY_METHOD2(void, sampleTimestamps, NSUInteger*, gpuTimestamp, NSUInteger*)
+#endif  // MAC_OS_X_VERSION_10_15
+
 #pragma clang diagnostic pop
 @end

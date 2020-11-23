@@ -132,8 +132,8 @@ class TestDragDropClient : public SimpleTestDragDropClient {
  public:
   // The location in screen coordinates used for the synthetic mouse moves
   // generated in SetTopmostXWindowAndMoveMouse().
-  static const int kMouseMoveX;
-  static const int kMouseMoveY;
+  static constexpr int kMouseMoveX = 100;
+  static constexpr int kMouseMoveY = 200;
 
   TestDragDropClient(aura::Window* window,
                      DesktopNativeCursorManager* cursor_manager);
@@ -279,12 +279,6 @@ XID SimpleTestDragDropClient::FindWindowFor(const gfx::Point& screen_point) {
 ///////////////////////////////////////////////////////////////////////////////
 // TestDragDropClient
 
-// static
-const int TestDragDropClient::kMouseMoveX = 100;
-
-// static
-const int TestDragDropClient::kMouseMoveY = 200;
-
 TestDragDropClient::TestDragDropClient(
     aura::Window* window,
     DesktopNativeCursorManager* cursor_manager)
@@ -386,7 +380,7 @@ class DesktopDragDropClientAuraX11Test : public ViewsTestBase {
     Widget::InitParams params(Widget::InitParams::TYPE_WINDOW);
     params.ownership = Widget::InitParams::WIDGET_OWNS_NATIVE_WIDGET;
     params.bounds = gfx::Rect(100, 100);
-    widget_->Init(params);
+    widget_->Init(std::move(params));
     widget_->Show();
 
     cursor_manager_ = std::make_unique<DesktopNativeCursorManager>();
@@ -853,7 +847,7 @@ class DesktopDragDropClientAuraX11ChromeSourceTargetTest
     params.ownership = Widget::InitParams::WIDGET_OWNS_NATIVE_WIDGET;
     params.native_widget = new DesktopNativeWidgetAura(widget_.get());
     params.bounds = gfx::Rect(100, 100);
-    widget_->Init(params);
+    widget_->Init(std::move(params));
     widget_->Show();
 
     cursor_manager_ = std::make_unique<DesktopNativeCursorManager>();
@@ -896,7 +890,7 @@ void ChromeSourceTargetStep2(SimpleTestDragDropClient* client,
   target_params.native_widget =
       new DesktopNativeWidgetAura(target_widget.get());
   target_params.bounds = gfx::Rect(100, 100);
-  target_widget->Init(target_params);
+  target_widget->Init(std::move(target_params));
   target_widget->Show();
 
   std::unique_ptr<TestDragDropDelegate> delegate(new TestDragDropDelegate);

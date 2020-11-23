@@ -15,6 +15,7 @@
 #include "base/memory/weak_ptr.h"
 #include "base/single_thread_task_runner.h"
 #include "components/viz/common/quads/compositor_frame.h"
+#include "components/viz/common/surfaces/frame_sink_id.h"
 #include "content/common/input/synchronous_compositor.mojom.h"
 #include "content/public/browser/android/synchronous_compositor.h"
 #include "content/public/common/input_event_ack_state.h"
@@ -41,7 +42,8 @@ class SynchronousCompositorHost : public SynchronousCompositor,
                                   public mojom::SynchronousCompositorHost {
  public:
   static std::unique_ptr<SynchronousCompositorHost> Create(
-      RenderWidgetHostViewAndroid* rwhva);
+      RenderWidgetHostViewAndroid* rwhva,
+      const viz::FrameSinkId& frame_sink_id);
 
   ~SynchronousCompositorHost() override;
 
@@ -62,6 +64,7 @@ class SynchronousCompositorHost : public SynchronousCompositor,
       const gfx::ScrollOffset& root_offset) override;
   void SynchronouslyZoomBy(float zoom_delta, const gfx::Point& anchor) override;
   void OnComputeScroll(base::TimeTicks animation_time) override;
+  void ProgressFling(base::TimeTicks frame_time) override;
 
   ui::ViewAndroid::CopyViewCallback GetCopyViewCallback();
   void DidOverscroll(const ui::DidOverscrollParams& over_scroll_params);
@@ -71,7 +74,6 @@ class SynchronousCompositorHost : public SynchronousCompositor,
   void SetBeginFramePaused(bool paused);
 
   // Called by SynchronousCompositorSyncCallBridge.
-  int routing_id() const { return routing_id_; }
   void UpdateFrameMetaData(uint32_t version,
                            viz::CompositorFrameMetadata frame_metadata);
 
@@ -96,6 +98,7 @@ class SynchronousCompositorHost : public SynchronousCompositor,
   friend class SynchronousCompositorBase;
 
   SynchronousCompositorHost(RenderWidgetHostViewAndroid* rwhva,
+                            const viz::FrameSinkId& frame_sink_id,
                             bool use_in_proc_software_draw);
   SynchronousCompositor::Frame DemandDrawHw(
       const gfx::Size& viewport_size,
@@ -113,8 +116,7 @@ class SynchronousCompositorHost : public SynchronousCompositor,
 
   RenderWidgetHostViewAndroid* const rwhva_;
   SynchronousCompositorClient* const client_;
-  const int process_id_;
-  const int routing_id_;
+  const viz::FrameSinkId frame_sink_id_;
   const bool use_in_process_zero_copy_software_draw_;
   mojo::AssociatedRemote<mojom::SynchronousCompositor> sync_compositor_;
   mojo::AssociatedReceiver<mojom::SynchronousCompositorHost> host_receiver_{
@@ -132,9 +134,6 @@ class SynchronousCompositorHost : public SynchronousCompositor,
   // isn't required.
   bool allow_async_draw_ = false;
 
-  // Indicates the next draw needs to be synchronous
-  bool compute_scroll_needs_synchronous_draw_ = false;
-
   // Indicates begin frames are paused from the browser.
   bool begin_frame_paused_ = false;
 
@@ -149,7 +148,6 @@ class SynchronousCompositorHost : public SynchronousCompositor,
 
   // From renderer.
   uint32_t renderer_param_version_;
-  bool need_animate_scroll_;
   uint32_t need_invalidate_count_;
   bool invalidate_needs_draw_;
   uint32_t did_activate_pending_tree_count_;

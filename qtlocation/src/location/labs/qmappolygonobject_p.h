@@ -82,7 +82,7 @@ signals:
     void colorChanged();
 
 protected:
-    QDeclarativeMapLineProperties *m_border;
+    QDeclarativeMapLineProperties *m_border = nullptr;
 };
 
 QT_END_NAMESPACE

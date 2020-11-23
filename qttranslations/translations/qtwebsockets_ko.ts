@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!DOCTYPE TS>
-<TS version="2.0" language="ko_KR">
+<TS version="2.1" language="ko">
 <context>
     <name>QQmlWebSocket</name>
     <message>
@@ -31,7 +31,7 @@
     </message>
     <message>
         <source>Invalid resource name.</source>
-        <translation>자원 이름이 잘못되었습니다.</translation>
+        <translation>리소스 이름이 잘못되었습니다.</translation>
     </message>
     <message>
         <source>SSL Sockets are not supported on this platform.</source>

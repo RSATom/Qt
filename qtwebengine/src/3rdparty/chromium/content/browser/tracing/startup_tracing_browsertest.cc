@@ -69,7 +69,7 @@ class CommandlineStartupTracingTest : public ContentBrowserTest {
 };
 
 IN_PROC_BROWSER_TEST_F(CommandlineStartupTracingTest, TestStartupTracing) {
-  NavigateToURL(shell(), GetTestUrl("", "title1.html"));
+  EXPECT_TRUE(NavigateToURL(shell(), GetTestUrl("", "title1.html")));
   WaitForCondition(base::BindRepeating([]() {
                      return !TracingController::GetInstance()->IsTracing();
                    }),
@@ -94,8 +94,7 @@ class StartupTracingInProcessTest : public ContentBrowserTest {
  public:
   StartupTracingInProcessTest() {
     scoped_feature_list_.InitWithFeatures(
-        /*enabled_features=*/{features::kTracingPerfettoBackend,
-                              features::kTracingServiceInProcess},
+        /*enabled_features=*/{features::kTracingServiceInProcess},
         /*disabled_features=*/{});
   }
 
@@ -128,6 +127,8 @@ IN_PROC_BROWSER_TEST_F(StartupTracingInProcessTest, TestFilledStartupBuffer) {
 
   auto config = tracing::TraceStartupConfig::GetInstance()
                     ->GetDefaultBrowserStartupConfig();
+  config.SetTraceBufferSizeInEvents(0);
+  config.SetTraceBufferSizeInKb(0);
   uint8_t modes = base::trace_event::TraceLog::RECORDING_MODE;
   base::trace_event::TraceLog::GetInstance()->SetEnabled(config, modes);
 
@@ -136,21 +137,22 @@ IN_PROC_BROWSER_TEST_F(StartupTracingInProcessTest, TestFilledStartupBuffer) {
     TRACE_EVENT1("toplevel", "bar", "data", std::move(data));
   }
 
-  config.SetTraceBufferSizeInKb(12);
+  config.SetTraceBufferSizeInKb(32);
 
   base::RunLoop wait_for_tracing;
   TracingControllerImpl::GetInstance()->StartTracing(
       config, wait_for_tracing.QuitClosure());
   wait_for_tracing.Run();
 
-  NavigateToURL(shell(), GetTestUrl("", "title1.html"));
+  EXPECT_TRUE(NavigateToURL(shell(), GetTestUrl("", "title1.html")));
 
   base::RunLoop wait_for_stop;
   TracingControllerImpl::GetInstance()->StopTracing(
-      TracingController::CreateStringEndpoint(base::BindRepeating(
-          [](base::RepeatingClosure quit_callback,
-             std::unique_ptr<const base::DictionaryValue> metadata,
-             base::RefCountedString* data) { quit_callback.Run(); },
+      TracingController::CreateStringEndpoint(base::BindOnce(
+          [](base::OnceClosure quit_callback,
+             std::unique_ptr<std::string> data) {
+            std::move(quit_callback).Run();
+          },
           wait_for_stop.QuitClosure())));
   wait_for_stop.Run();
 }
@@ -164,7 +166,7 @@ class BackgroundStartupTracingTest : public ContentBrowserTest {
     auto* startup_config = tracing::TraceStartupConfig::GetInstance();
     startup_config->enable_background_tracing_for_testing_ = true;
     startup_config->EnableFromBackgroundTracing();
-    startup_config->startup_duration_ = 3;
+    startup_config->startup_duration_in_seconds_ = 3;
     tracing::EnableStartupTracingIfNeeded();
     command_line->AppendSwitchASCII(switches::kPerfettoOutputFile,
                                     temp_file_path_.AsUTF8Unsafe());
@@ -183,7 +185,7 @@ class BackgroundStartupTracingTest : public ContentBrowserTest {
 #define MAYBE_TestStartupTracing TestStartupTracing
 #endif
 IN_PROC_BROWSER_TEST_F(BackgroundStartupTracingTest, MAYBE_TestStartupTracing) {
-  NavigateToURL(shell(), GetTestUrl("", "title1.html"));
+  EXPECT_TRUE(NavigateToURL(shell(), GetTestUrl("", "title1.html")));
 
   EXPECT_FALSE(tracing::TraceStartupConfig::GetInstance()->IsEnabled());
   EXPECT_FALSE(TracingController::GetInstance()->IsTracing());
@@ -200,7 +202,7 @@ IN_PROC_BROWSER_TEST_F(BackgroundStartupTracingTest, MAYBE_TestStartupTracing) {
   tracing::PrivacyFilteringCheck checker;
   checker.CheckProtoForUnexpectedFields(trace);
   EXPECT_GT(checker.stats().track_event, 0u);
-  EXPECT_EQ(checker.stats().process_desc, 0u);
+  EXPECT_GT(checker.stats().process_desc, 0u);
   EXPECT_GT(checker.stats().thread_desc, 0u);
   EXPECT_TRUE(checker.stats().has_interned_names);
   EXPECT_TRUE(checker.stats().has_interned_categories);

@@ -21,10 +21,9 @@ class SharedResourcesDataSource : public URLDataSource {
 
   // URLDataSource implementation.
   std::string GetSource() override;
-  void StartDataRequest(
-      const std::string& path,
-      const ResourceRequestInfo::WebContentsGetter& wc_getter,
-      const URLDataSource::GotDataCallback& callback) override;
+  void StartDataRequest(const GURL& url,
+                        const WebContents::Getter& wc_getter,
+                        URLDataSource::GotDataCallback callback) override;
   bool AllowCaching() override;
   std::string GetMimeType(const std::string& path) override;
   bool ShouldServeMimeTypeAsContentTypeHeader() override;
@@ -32,17 +31,16 @@ class SharedResourcesDataSource : public URLDataSource {
       const std::string& path) override;
   std::string GetAccessControlAllowOriginForOrigin(
       const std::string& origin) override;
-  bool IsGzipped(const std::string& path) override;
 #if defined(OS_CHROMEOS)
   void DisablePolymer2ForHost(const std::string& host) override;
+  std::string GetContentSecurityPolicyWorkerSrc() override;
 #endif  // defined (OS_CHROMEOS)
 
  private:
 #if defined(OS_CHROMEOS)
   std::string disabled_polymer2_host_;
 
-  bool IsPolymer2DisabledForPage(
-      const ResourceRequestInfo::WebContentsGetter& wc_getter);
+  bool IsPolymer2DisabledForPage(const WebContents::Getter& wc_getter);
 #endif  // defined (OS_CHROMEOS)
 
   ~SharedResourcesDataSource() override;

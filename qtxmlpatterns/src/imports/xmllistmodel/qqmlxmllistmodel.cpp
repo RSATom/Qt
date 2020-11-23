@@ -745,7 +745,7 @@ QQuickXmlListModel::~QQuickXmlListModel()
 QQmlListProperty<QQuickXmlListModelRole> QQuickXmlListModel::roleObjects()
 {
     Q_D(QQuickXmlListModel);
-    QQmlListProperty<QQuickXmlListModelRole> list(this, d->roleObjects);
+    QQmlListProperty<QQuickXmlListModelRole> list(this, &d->roleObjects);
     list.append = &QQuickXmlListModelPrivate::append_role;
     list.clear = &QQuickXmlListModelPrivate::clear_role;
     return list;

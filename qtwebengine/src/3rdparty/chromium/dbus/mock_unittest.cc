@@ -9,7 +9,7 @@
 #include "base/memory/ref_counted.h"
 #include "base/run_loop.h"
 #include "base/single_thread_task_runner.h"
-#include "base/test/scoped_task_environment.h"
+#include "base/test/task_environment.h"
 #include "dbus/message.h"
 #include "dbus/mock_bus.h"
 #include "dbus/mock_exported_object.h"
@@ -83,7 +83,7 @@ class MockTest : public testing::Test {
 
  protected:
   std::string response_string_;
-  base::test::ScopedTaskEnvironment scoped_task_environment_;
+  base::test::SingleThreadTaskEnvironment task_environment_;
   std::unique_ptr<base::RunLoop> run_loop_;
   scoped_refptr<MockBus> mock_bus_;
   scoped_refptr<MockObjectProxy> mock_proxy_;
@@ -123,7 +123,7 @@ class MockTest : public testing::Test {
       ObjectProxy::ResponseCallback* response_callback) {
     std::unique_ptr<Response> response =
         CreateMockProxyResponse(method_call, timeout_ms);
-    scoped_task_environment_.GetMainThreadTaskRunner()->PostTask(
+    task_environment_.GetMainThreadTaskRunner()->PostTask(
         FROM_HERE,
         base::BindOnce(&MockTest::RunResponseCallback, base::Unretained(this),
                        std::move(*response_callback), std::move(response)));
@@ -202,10 +202,9 @@ TEST_F(MockTest, CallMethod) {
 
   // Call the method.
   run_loop_.reset(new base::RunLoop);
-  proxy->CallMethod(&method_call,
-                    ObjectProxy::TIMEOUT_USE_DEFAULT,
-                    base::Bind(&MockTest::OnResponse,
-                               base::Unretained(this)));
+  proxy->CallMethod(
+      &method_call, ObjectProxy::TIMEOUT_USE_DEFAULT,
+      base::BindOnce(&MockTest::OnResponse, base::Unretained(this)));
   // Run the message loop to let OnResponse be called.
   run_loop_->Run();
 

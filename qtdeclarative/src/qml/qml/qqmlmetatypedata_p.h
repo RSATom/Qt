@@ -71,7 +71,7 @@ struct QQmlMetaTypeData
     QSet<QQmlType> undeletableTypes;
     typedef QHash<int, QQmlTypePrivate *> Ids;
     Ids idToType;
-    typedef QHash<QHashedStringRef, QQmlTypePrivate *> Names;
+    typedef QMultiHash<QHashedStringRef, QQmlTypePrivate *> Names;
     Names nameToType;
     typedef QHash<QUrl, QQmlTypePrivate *> Files; //For file imported composite types only
     Files urlToType;
@@ -79,7 +79,7 @@ struct QQmlMetaTypeData
             // singleton types. This way we can locate any
             // of them by url, even if it was registered as
             // a module via QQmlPrivate::RegisterCompositeType
-    typedef QHash<const QMetaObject *, QQmlTypePrivate *> MetaObjects;
+    typedef QMultiHash<const QMetaObject *, QQmlTypePrivate *> MetaObjects;
     MetaObjects metaObjectToType;
     typedef QHash<int, QQmlMetaType::StringConverter> StringConverters;
     StringConverters stringConverters;
@@ -96,8 +96,12 @@ struct QQmlMetaTypeData
         QHashedString uri;
         int majorVersion;
     };
+
     typedef QHash<VersionedUri, QQmlTypeModule *> TypeModules;
     TypeModules uriToModule;
+
+    QHash<VersionedUri, void (*)()> moduleTypeRegistrationFunctions;
+    bool registerModuleTypes(const VersionedUri &versionedUri);
 
     QBitArray objects;
     QBitArray interfaces;
@@ -105,10 +109,6 @@ struct QQmlMetaTypeData
 
     QList<QQmlPrivate::AutoParentFunction> parentFunctions;
     QVector<QQmlPrivate::QmlUnitCacheLookupFunction> lookupCachedQmlUnit;
-
-    QSet<QString> protectedNamespaces;
-
-    QString typeRegistrationNamespace;
 
     QHash<int, int> qmlLists;
 
@@ -118,7 +118,7 @@ struct QQmlMetaTypeData
     void setPropertyCacheForMinorVersion(int index, int minorVersion, QQmlPropertyCache *cache);
     void clearPropertyCachesForMinorVersion(int index);
 
-    QQmlPropertyCache *propertyCache(const QMetaObject *metaObject, int minorVersion);
+    QQmlRefPointer<QQmlPropertyCache> propertyCache(const QMetaObject *metaObject, int minorVersion);
     QQmlPropertyCache *propertyCache(const QQmlType &type, int minorVersion);
 
     void setTypeRegistrationFailures(QStringList *failures)

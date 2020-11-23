@@ -21,6 +21,7 @@
 #include "content/child/child_process_sandbox_support_impl_mac.h"
 #elif defined(OS_LINUX)
 #include "content/child/child_process_sandbox_support_impl_linux.h"
+#include "mojo/public/cpp/bindings/pending_remote.h"
 #endif
 
 using blink::WebSandboxSupport;
@@ -34,28 +35,21 @@ namespace content {
 
 PpapiBlinkPlatformImpl::PpapiBlinkPlatformImpl() {
 #if defined(OS_LINUX)
-  font_loader_ =
-      sk_make_sp<font_service::FontLoader>(ChildThread::Get()->GetConnector());
+  mojo::PendingRemote<font_service::mojom::FontService> font_service;
+  ChildThread::Get()->BindHostReceiver(
+      font_service.InitWithNewPipeAndPassReceiver());
+  font_loader_ = sk_make_sp<font_service::FontLoader>(std::move(font_service));
   SkFontConfigInterface::SetGlobal(font_loader_);
   sandbox_support_.reset(new WebSandboxSupportLinux(font_loader_));
 #elif defined(OS_MACOSX)
-  sandbox_support_.reset(
-      new WebSandboxSupportMac(ChildThread::Get()->GetConnector()));
+  sandbox_support_ = std::make_unique<WebSandboxSupportMac>();
 #endif
 }
 
 PpapiBlinkPlatformImpl::~PpapiBlinkPlatformImpl() {
 }
 
-void PpapiBlinkPlatformImpl::Shutdown() {
-#if defined(OS_LINUX) || defined(OS_MACOSX)
-  // SandboxSupport contains a map of OutOfProcessFont objects, which hold
-  // WebStrings and WebVectors, which become invalidated when blink is shut
-  // down. Hence, we need to clear that map now, just before blink::shutdown()
-  // is called.
-  sandbox_support_.reset();
-#endif
-}
+void PpapiBlinkPlatformImpl::Shutdown() {}
 
 blink::WebSandboxSupport* PpapiBlinkPlatformImpl::GetSandboxSupport() {
 #if defined(OS_LINUX) || defined(OS_MACOSX)
@@ -83,11 +77,6 @@ blink::WebString PpapiBlinkPlatformImpl::DefaultLocale() {
 blink::WebThemeEngine* PpapiBlinkPlatformImpl::ThemeEngine() {
   NOTREACHED();
   return nullptr;
-}
-
-blink::WebData PpapiBlinkPlatformImpl::GetDataResource(const char* name) {
-  NOTREACHED();
-  return blink::WebData();
 }
 
 }  // namespace content

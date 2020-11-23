@@ -40,7 +40,7 @@
 #include "net/nqe/rtt_throughput_estimates_observer.h"
 #include "net/socket/socket_performance_watcher.h"
 #include "net/socket/socket_performance_watcher_factory.h"
-#include "net/test/test_with_scoped_task_environment.h"
+#include "net/test/test_with_task_environment.h"
 #include "net/traffic_annotation/network_traffic_annotation_test_helper.h"
 #include "net/url_request/url_request.h"
 #include "net/url_request/url_request_test_util.h"
@@ -203,7 +203,7 @@ class TestThroughputObserver
 }  // namespace
 
 constexpr float kEpsilon = 0.001f;
-using NetworkQualityEstimatorTest = TestWithScopedTaskEnvironment;
+using NetworkQualityEstimatorTest = TestWithTaskEnvironment;
 
 TEST_F(NetworkQualityEstimatorTest, TestKbpsRTTUpdates) {
   base::HistogramTester histogram_tester;
@@ -779,8 +779,9 @@ TEST_F(NetworkQualityEstimatorTest, DefaultObservations) {
   TestRTTObserver rtt_observer;
   TestThroughputObserver throughput_observer;
   std::map<std::string, std::string> variation_params;
-  TestNetworkQualityEstimator estimator(variation_params, false, false,
-                                        std::make_unique<BoundTestNetLog>());
+  TestNetworkQualityEstimator estimator(
+      variation_params, false, false,
+      std::make_unique<RecordingBoundTestNetLog>());
 
   // Default observations should be added when constructing the |estimator|.
   histogram_tester.ExpectBucketCount(
@@ -920,8 +921,9 @@ TEST_F(NetworkQualityEstimatorTest, DefaultObservationsOverridden) {
   // Negative variation value should not be used.
   variation_params["2G.DefaultMedianTransportRTTMsec"] = "-5";
 
-  TestNetworkQualityEstimator estimator(variation_params, false, false,
-                                        std::make_unique<BoundTestNetLog>());
+  TestNetworkQualityEstimator estimator(
+      variation_params, false, false,
+      std::make_unique<RecordingBoundTestNetLog>());
   estimator.SimulateNetworkChange(
       NetworkChangeNotifier::ConnectionType::CONNECTION_UNKNOWN, "unknown-1");
 
@@ -1419,9 +1421,6 @@ TEST_F(NetworkQualityEstimatorTest, TestGetMetricsSince) {
       EXPECT_EQ(test.expected_transport_rtt, transport_rtt);
       EXPECT_EQ(test.expected_downstream_throughput,
                 downstream_throughput_kbps);
-      EXPECT_EQ(
-          test.expected_effective_connection_type,
-          estimator.GetRecentEffectiveConnectionType(test.start_timestamp));
     }
   }
 }
@@ -1446,10 +1445,10 @@ TEST_F(NetworkQualityEstimatorTest, TestThroughputNoRequestOverlap) {
   };
 
   for (const auto& test : tests) {
-    TestNetworkQualityEstimator estimator(variation_params,
-                                          test.allow_small_localhost_requests,
-                                          test.allow_small_localhost_requests,
-                                          std::make_unique<BoundTestNetLog>());
+    TestNetworkQualityEstimator estimator(
+        variation_params, test.allow_small_localhost_requests,
+        test.allow_small_localhost_requests,
+        std::make_unique<RecordingBoundTestNetLog>());
 
     base::TimeDelta rtt;
     EXPECT_FALSE(
@@ -2146,7 +2145,9 @@ TEST_F(NetworkQualityEstimatorTest, TestGlobalSocketWatcherThrottle) {
 
 // TestTCPSocketRTT requires kernel support for tcp_info struct, and so it is
 // enabled only on certain platforms.
-#if defined(TCP_INFO) || defined(OS_LINUX) || defined(OS_ANDROID)
+// ChromeOS is disabled due to crbug.com/986904
+#if (defined(TCP_INFO) || defined(OS_LINUX) || defined(OS_ANDROID)) && \
+    !defined(OS_CHROMEOS)
 #define MAYBE_TestTCPSocketRTT TestTCPSocketRTT
 #else
 #define MAYBE_TestTCPSocketRTT DISABLED_TestTCPSocketRTT
@@ -2163,8 +2164,9 @@ TEST_F(NetworkQualityEstimatorTest, MAYBE_TestTCPSocketRTT) {
   std::map<std::string, std::string> variation_params;
   variation_params["persistent_cache_reading_enabled"] = "true";
   variation_params["throughput_min_requests_in_flight"] = "1";
-  TestNetworkQualityEstimator estimator(variation_params, true, true,
-                                        std::make_unique<BoundTestNetLog>());
+  TestNetworkQualityEstimator estimator(
+      variation_params, true, true,
+      std::make_unique<RecordingBoundTestNetLog>());
   estimator.SetTickClockForTesting(&tick_clock);
   estimator.SimulateNetworkChange(
       NetworkChangeNotifier::ConnectionType::CONNECTION_2G, "test");
@@ -2548,8 +2550,9 @@ TEST_F(NetworkQualityEstimatorTest, OnPrefsRead) {
   variation_params["add_default_platform_observations"] = "false";
   // Disable default platform values so that the effect of cached estimates
   // at the time of startup can be studied in isolation.
-  TestNetworkQualityEstimator estimator(variation_params, true, true,
-                                        std::make_unique<BoundTestNetLog>());
+  TestNetworkQualityEstimator estimator(
+      variation_params, true, true,
+      std::make_unique<RecordingBoundTestNetLog>());
 
   // Add observers.
   TestRTTObserver rtt_observer;
@@ -2659,8 +2662,9 @@ TEST_F(NetworkQualityEstimatorTest, OnPrefsReadWithReadingDisabled) {
 
   // Disable default platform values so that the effect of cached estimates
   // at the time of startup can be studied in isolation.
-  TestNetworkQualityEstimator estimator(variation_params, true, true,
-                                        std::make_unique<BoundTestNetLog>());
+  TestNetworkQualityEstimator estimator(
+      variation_params, true, true,
+      std::make_unique<RecordingBoundTestNetLog>());
 
   // Add observers.
   TestRTTObserver rtt_observer;
@@ -2749,8 +2753,9 @@ TEST_F(NetworkQualityEstimatorTest,
   variation_params["add_default_platform_observations"] = "false";
   // Disable default platform values so that the effect of cached estimates
   // at the time of startup can be studied in isolation.
-  TestNetworkQualityEstimator estimator(variation_params, true, true,
-                                        std::make_unique<BoundTestNetLog>());
+  TestNetworkQualityEstimator estimator(
+      variation_params, true, true,
+      std::make_unique<RecordingBoundTestNetLog>());
 
   // Add observers.
   TestRTTObserver rtt_observer;

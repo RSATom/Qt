@@ -89,8 +89,8 @@ static const int QGRAPHICSVIEW_PREALLOC_STYLE_OPTIONS = 503; // largest prime < 
     By default, QGraphicsView provides a regular QWidget for the viewport
     widget. You can access this widget by calling viewport(), or you can
     replace it by calling setViewport(). To render using OpenGL, simply call
-    setViewport(new QGLWidget). QGraphicsView takes ownership of the viewport
-    widget.
+    setViewport(new QOpenGLWidget). QGraphicsView takes ownership of the
+    viewport widget.
 
     QGraphicsView supports affine transformations, using QTransform. You can
     either pass a matrix to setTransform(), or you can call one of the
@@ -122,6 +122,10 @@ static const int QGRAPHICSVIEW_PREALLOC_STYLE_OPTIONS = 503; // largest prime < 
     using view coordinates.
 
     \image graphicsview-view.png
+
+    \note Using an OpenGL viewport limits the ability to use QGraphicsProxyWidget.
+    Not all combinations of widgets and styles can be supported with such a setup.
+    You should carefully test your UI and make the necessary adjustments.
 
     \sa QGraphicsScene, QGraphicsItem, QGraphicsSceneEvent
 */
@@ -155,8 +159,8 @@ static const int QGRAPHICSVIEW_PREALLOC_STYLE_OPTIONS = 503; // largest prime < 
     fastest when QGraphicsView spends more time figuring out what to draw than
     it would spend drawing (e.g., when very many small items are repeatedly
     updated). This is the preferred update mode for viewports that do not
-    support partial updates, such as QGLWidget, and for viewports that need to
-    disable scroll optimization.
+    support partial updates, such as QOpenGLWidget, and for viewports that
+    need to disable scroll optimization.
 
     \value MinimalViewportUpdate QGraphicsView will determine the minimal
     viewport region that requires a redraw, minimizing the time spent drawing
@@ -290,6 +294,7 @@ static const int QGRAPHICSVIEW_PREALLOC_STYLE_OPTIONS = 503; // largest prime < 
 #include <QtGui/qtransform.h>
 #include <QtGui/qmatrix.h>
 #include <QtGui/qpainter.h>
+#include <QtGui/qpainterpath.h>
 #include <QtWidgets/qscrollbar.h>
 #include <QtWidgets/qstyleoption.h>
 
@@ -348,22 +353,21 @@ QGraphicsViewPrivate::QGraphicsViewPrivate()
       hasUpdateClip(false),
       mousePressButton(Qt::NoButton),
       leftIndent(0), topIndent(0),
-      lastMouseEvent(QEvent::None, QPointF(), QPointF(), QPointF(), Qt::NoButton, 0, 0),
+      lastMouseEvent(QEvent::None, QPointF(), QPointF(), QPointF(), Qt::NoButton, { }, { }),
       alignment(Qt::AlignCenter),
       transformationAnchor(QGraphicsView::AnchorViewCenter), resizeAnchor(QGraphicsView::NoAnchor),
       viewportUpdateMode(QGraphicsView::MinimalViewportUpdate),
-      optimizationFlags(0),
-      scene(0),
+      scene(nullptr),
 #if QT_CONFIG(rubberband)
       rubberBanding(false),
       rubberBandSelectionMode(Qt::IntersectsItemShape),
       rubberBandSelectionOperation(Qt::ReplaceSelection),
 #endif
-      handScrollMotions(0), cacheMode(0),
+      handScrollMotions(0),
 #ifndef QT_NO_CURSOR
       hasStoredOriginalCursor(false),
 #endif
-      lastDragDropEvent(0),
+      lastDragDropEvent(nullptr),
       updateSceneSlotReimplementedChecked(false)
 {
     styleOptions.reserve(QGRAPHICSVIEW_PREALLOC_STYLE_OPTIONS);
@@ -385,7 +389,7 @@ void QGraphicsViewPrivate::recalculateContentSize()
     int height = maxSize.height();
     QRectF viewRect = matrix.mapRect(q->sceneRect());
 
-    bool frameOnlyAround = (q->style()->styleHint(QStyle::SH_ScrollView_FrameOnlyAroundContents, 0, q));
+    bool frameOnlyAround = (q->style()->styleHint(QStyle::SH_ScrollView_FrameOnlyAroundContents, nullptr, q));
     if (frameOnlyAround) {
         if (hbarpolicy == Qt::ScrollBarAlwaysOn)
             height -= frameWidth * 2;
@@ -395,7 +399,7 @@ void QGraphicsViewPrivate::recalculateContentSize()
 
     // Adjust the maximum width and height of the viewport based on the width
     // of visible scroll bars.
-    int scrollBarExtent = q->style()->pixelMetric(QStyle::PM_ScrollBarExtent, 0, q);
+    int scrollBarExtent = q->style()->pixelMetric(QStyle::PM_ScrollBarExtent, nullptr, q);
     if (frameOnlyAround)
         scrollBarExtent += frameWidth * 2;
 
@@ -783,6 +787,27 @@ void QGraphicsViewPrivate::updateRubberBand(const QMouseEvent *event)
     if (scene)
         scene->setSelectionArea(selectionArea, rubberBandSelectionOperation, rubberBandSelectionMode, q->viewportTransform());
 }
+
+void QGraphicsViewPrivate::clearRubberBand()
+{
+    Q_Q(QGraphicsView);
+    if (dragMode != QGraphicsView::RubberBandDrag || !sceneInteractionAllowed || !rubberBanding)
+        return;
+
+    if (viewportUpdateMode != QGraphicsView::NoViewportUpdate) {
+        if (viewportUpdateMode != QGraphicsView::FullViewportUpdate)
+            q->viewport()->update(rubberBandRegion(q->viewport(), rubberBandRect));
+        else
+            updateAll();
+    }
+
+    rubberBanding = false;
+    rubberBandSelectionOperation = Qt::ReplaceSelection;
+    if (!rubberBandRect.isNull()) {
+        rubberBandRect = QRect();
+        emit q->rubberBandChanged(rubberBandRect, QPointF(), QPointF());
+    }
+}
 #endif
 
 /*!
@@ -964,7 +989,7 @@ static inline void QRect_unite(QRect *rect, const QRect &other)
 /*
    Calling this function results in update rects being clipped to the item's
    bounding rect. Note that updates prior to this function call is not clipped.
-   The clip is removed by passing 0.
+   The clip is removed by passing \nullptr.
 */
 void QGraphicsViewPrivate::setUpdateClip(QGraphicsItem *item)
 {
@@ -1163,19 +1188,19 @@ QList<QGraphicsItem *> QGraphicsViewPrivate::findItems(const QRegion &exposedReg
 void QGraphicsViewPrivate::updateInputMethodSensitivity()
 {
     Q_Q(QGraphicsView);
-    QGraphicsItem *focusItem = 0;
+    QGraphicsItem *focusItem = nullptr;
     bool enabled = scene && (focusItem = scene->focusItem())
                    && (focusItem->d_ptr->flags & QGraphicsItem::ItemAcceptsInputMethod);
     q->setAttribute(Qt::WA_InputMethodEnabled, enabled);
     q->viewport()->setAttribute(Qt::WA_InputMethodEnabled, enabled);
 
     if (!enabled) {
-        q->setInputMethodHints(0);
+        q->setInputMethodHints({ });
         return;
     }
 
     QGraphicsProxyWidget *proxy = focusItem->d_ptr->isWidget && focusItem->d_ptr->isProxyWidget()
-                                    ? static_cast<QGraphicsProxyWidget *>(focusItem) : 0;
+                                    ? static_cast<QGraphicsProxyWidget *>(focusItem) : nullptr;
     if (!proxy) {
         q->setInputMethodHints(focusItem->inputMethodHints());
     } else if (QWidget *widget = proxy->widget()) {
@@ -1183,7 +1208,7 @@ void QGraphicsViewPrivate::updateInputMethodSensitivity()
             widget = fw;
         q->setInputMethodHints(widget->inputMethodHints());
     } else {
-        q->setInputMethodHints(0);
+        q->setInputMethodHints({ });
     }
 }
 
@@ -1193,7 +1218,7 @@ void QGraphicsViewPrivate::updateInputMethodSensitivity()
 QGraphicsView::QGraphicsView(QWidget *parent)
     : QAbstractScrollArea(*new QGraphicsViewPrivate, parent)
 {
-    setViewport(0);
+    setViewport(nullptr);
     setAcceptDrops(true);
     setBackgroundRole(QPalette::Base);
     // Investigate leaving these disabled by default.
@@ -1209,7 +1234,7 @@ QGraphicsView::QGraphicsView(QGraphicsScene *scene, QWidget *parent)
     : QAbstractScrollArea(*new QGraphicsViewPrivate, parent)
 {
     setScene(scene);
-    setViewport(0);
+    setViewport(nullptr);
     setAcceptDrops(true);
     setBackgroundRole(QPalette::Base);
     // Investigate leaving these disabled by default.
@@ -1223,7 +1248,7 @@ QGraphicsView::QGraphicsView(QGraphicsScene *scene, QWidget *parent)
 QGraphicsView::QGraphicsView(QGraphicsViewPrivate &dd, QWidget *parent)
   : QAbstractScrollArea(dd, parent)
 {
-    setViewport(0);
+    setViewport(nullptr);
     setAcceptDrops(true);
     setBackgroundRole(QPalette::Base);
     // Investigate leaving these disabled by default.
@@ -1485,6 +1510,10 @@ void QGraphicsView::setDragMode(DragMode mode)
     Q_D(QGraphicsView);
     if (d->dragMode == mode)
         return;
+
+#if QT_CONFIG(rubberband)
+    d->clearRubberBand();
+#endif
 
 #ifndef QT_NO_CURSOR
     if (d->dragMode == ScrollHandDrag)
@@ -1796,7 +1825,13 @@ void QGraphicsView::setSceneRect(const QRectF &rect)
     d->recalculateContentSize();
 }
 
+#if QT_DEPRECATED_SINCE(5, 15)
+
 /*!
+    \obsolete
+
+    Use transform() instead.
+
     Returns the current transformation matrix for the view. If no current
     transformation is set, the identity matrix is returned.
 
@@ -1809,6 +1844,10 @@ QMatrix QGraphicsView::matrix() const
 }
 
 /*!
+    \obsolete
+
+    Use setTransform() instead.
+
     Sets the view's current transformation matrix to \a matrix.
 
     If \a combine is true, then \a matrix is combined with the current matrix;
@@ -1840,6 +1879,10 @@ void QGraphicsView::setMatrix(const QMatrix &matrix, bool combine)
 }
 
 /*!
+    \obsolete
+
+    Use resetTransform() instead.
+
     Resets the view transformation matrix to the identity matrix.
 
     \sa resetTransform()
@@ -1848,6 +1891,8 @@ void QGraphicsView::resetMatrix()
 {
     resetTransform();
 }
+
+#endif // QT_DEPRECATED_SINCE(5, 15)
 
 /*!
     Rotates the current view transformation \a angle degrees clockwise.
@@ -2375,7 +2420,7 @@ QGraphicsItem *QGraphicsView::itemAt(const QPoint &pos) const
 {
     Q_D(const QGraphicsView);
     if (!d->scene)
-        return 0;
+        return nullptr;
     const QList<QGraphicsItem *> itemsAtPos = items(pos);
     return itemsAtPos.isEmpty() ? 0 : itemsAtPos.first();
 }
@@ -2590,13 +2635,13 @@ QVariant QGraphicsView::inputMethodQuery(Qt::InputMethodQuery query) const
         return QVariant();
 
     QVariant value = d->scene->inputMethodQuery(query);
-    if (value.type() == QVariant::RectF)
+    if (value.userType() == QMetaType::QRectF)
         value = d->mapRectFromScene(value.toRectF());
-    else if (value.type() == QVariant::PointF)
+    else if (value.userType() == QMetaType::QPointF)
         value = mapFromScene(value.toPointF());
-    else if (value.type() == QVariant::Rect)
+    else if (value.userType() == QMetaType::QRect)
         value = d->mapRectFromScene(value.toRect()).toRect();
-    else if (value.type() == QVariant::Point)
+    else if (value.userType() == QMetaType::QPoint)
         value = mapFromScene(value.toPoint());
     return value;
 }
@@ -2889,7 +2934,7 @@ bool QGraphicsView::viewportEvent(QEvent *event)
         }
         d->useLastMouseEvent = false;
         // a hack to pass a viewport pointer to the scene inside the leave event
-        Q_ASSERT(event->d == 0);
+        Q_ASSERT(event->d == nullptr);
         QScopedValueRollback<QEventPrivate *> rb(event->d);
         event->d = reinterpret_cast<QEventPrivate *>(viewport());
         QCoreApplication::sendEvent(d->scene, event);
@@ -3020,7 +3065,7 @@ void QGraphicsView::dropEvent(QDropEvent *event)
         event->setDropAction(sceneEvent.dropAction());
 
     delete d->lastDragDropEvent;
-    d->lastDragDropEvent = 0;
+    d->lastDragDropEvent = nullptr;
 }
 
 /*!
@@ -3078,7 +3123,7 @@ void QGraphicsView::dragLeaveEvent(QDragLeaveEvent *event)
     sceneEvent.setWidget(d->lastDragDropEvent->widget());
     sceneEvent.setSource(d->lastDragDropEvent->source());
     delete d->lastDragDropEvent;
-    d->lastDragDropEvent = 0;
+    d->lastDragDropEvent = nullptr;
 
     // Send it to the scene.
     QCoreApplication::sendEvent(d->scene, &sceneEvent);
@@ -3339,20 +3384,7 @@ void QGraphicsView::mouseReleaseEvent(QMouseEvent *event)
 
 #if QT_CONFIG(rubberband)
     if (d->dragMode == QGraphicsView::RubberBandDrag && d->sceneInteractionAllowed && !event->buttons()) {
-        if (d->rubberBanding) {
-            if (d->viewportUpdateMode != QGraphicsView::NoViewportUpdate){
-                if (d->viewportUpdateMode != FullViewportUpdate)
-                    viewport()->update(d->rubberBandRegion(viewport(), d->rubberBandRect));
-                else
-                    d->updateAll();
-            }
-            d->rubberBanding = false;
-            d->rubberBandSelectionOperation = Qt::ReplaceSelection;
-            if (!d->rubberBandRect.isNull()) {
-                d->rubberBandRect = QRect();
-                emit rubberBandChanged(d->rubberBandRect, QPointF(), QPointF());
-            }
-        }
+        d->clearRubberBand();
     } else
 #endif
     if (d->dragMode == QGraphicsView::ScrollHandDrag && event->button() == Qt::LeftButton) {
@@ -3526,7 +3558,7 @@ void QGraphicsView::paintEvent(QPaintEvent *event)
             d->scene->d_func()->rectAdjust = 1;
         else
             d->scene->d_func()->rectAdjust = 2;
-        d->scene->d_func()->drawItems(&painter, viewTransformed ? &viewTransform : 0,
+        d->scene->d_func()->drawItems(&painter, viewTransformed ? &viewTransform : nullptr,
                                       &d->exposedRegion, viewport());
         d->scene->d_func()->rectAdjust = oldRectAdjust;
         // Make sure the painter's world transform is restored correctly when
@@ -3795,7 +3827,7 @@ void QGraphicsView::drawItems(QPainter *painter, int numItems,
 {
     Q_D(QGraphicsView);
     if (d->scene) {
-        QWidget *widget = painter->device() == viewport() ? viewport() : 0;
+        QWidget *widget = painter->device() == viewport() ? viewport() : nullptr;
         d->scene->drawItems(painter, numItems, items, options, widget);
     }
 }

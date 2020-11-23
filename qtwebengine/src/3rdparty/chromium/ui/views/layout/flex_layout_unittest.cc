@@ -32,6 +32,8 @@ using gfx::Size;
 
 class MockView : public View {
  public:
+  enum class SizeMode { kUsePreferredSize, kFixedArea };
+
   void SetMinimumSize(const Size& minimum_size) {
     minimum_size_ = minimum_size;
   }
@@ -39,6 +41,19 @@ class MockView : public View {
   Size GetMinimumSize() const override {
     return minimum_size_.value_or(GetPreferredSize());
   }
+
+  int GetHeightForWidth(int width) const override {
+    DCHECK(width > 0);
+    const gfx::Size preferred = GetPreferredSize();
+    switch (size_mode_) {
+      case SizeMode::kUsePreferredSize:
+        return preferred.height();
+      case SizeMode::kFixedArea:
+        return (preferred.width() * preferred.height()) / width;
+    }
+  }
+
+  void set_size_mode(SizeMode size_mode) { size_mode_ = size_mode; }
 
   void SetVisible(bool visible) override {
     View::SetVisible(visible);
@@ -52,6 +67,7 @@ class MockView : public View {
  private:
   Optional<Size> minimum_size_;
   int set_visible_count_ = 0;
+  SizeMode size_mode_ = SizeMode::kUsePreferredSize;
 };
 
 // Custom flex rule that snaps a view between its preffered size and half that
@@ -110,19 +126,20 @@ class FlexLayoutTest : public testing::Test {
   std::vector<Rect> GetChildBounds() const {
     std::vector<Rect> result;
     std::transform(host_->children().cbegin(), host_->children().cend(),
-                   std::back_inserter(result),
-                   [](const View* v) { return v->bounds(); });
+                   std::back_inserter(result), [](const View* v) {
+                     return v->GetVisible() ? v->bounds() : gfx::Rect();
+                   });
     return result;
   }
 
  protected:
   // Constants re-used in many tests.
-  static const Insets kSmallInsets;
-  static const Insets kLayoutInsets;
-  static const Insets kLargeInsets;
-  static const Size kChild1Size;
-  static const Size kChild2Size;
-  static const Size kChild3Size;
+  static constexpr Insets kSmallInsets = Insets(1, 2, 3, 4);
+  static constexpr Insets kLayoutInsets = Insets(5, 6, 7, 9);
+  static constexpr Insets kLargeInsets = Insets(10, 11, 12, 13);
+  static constexpr Size kChild1Size = Size(12, 10);
+  static constexpr Size kChild2Size = Size(13, 11);
+  static constexpr Size kChild3Size = Size(17, 13);
 
   // Preferred size or drop out.
   static const FlexSpecification kDropOut;
@@ -149,12 +166,13 @@ class FlexLayoutTest : public testing::Test {
   FlexLayout* layout_;
 };
 
-const Insets FlexLayoutTest::kSmallInsets{1, 2, 3, 4};
-const Insets FlexLayoutTest::kLayoutInsets{5, 6, 7, 9};
-const Insets FlexLayoutTest::kLargeInsets{10, 11, 12, 13};
-const Size FlexLayoutTest::kChild1Size{12, 10};
-const Size FlexLayoutTest::kChild2Size{13, 11};
-const Size FlexLayoutTest::kChild3Size{17, 13};
+// static
+constexpr Insets FlexLayoutTest::kSmallInsets;
+constexpr Insets FlexLayoutTest::kLayoutInsets;
+constexpr Insets FlexLayoutTest::kLargeInsets;
+constexpr Size FlexLayoutTest::kChild1Size;
+constexpr Size FlexLayoutTest::kChild2Size;
+constexpr Size FlexLayoutTest::kChild3Size;
 
 const FlexSpecification FlexLayoutTest::kDropOut =
     FlexSpecification::ForSizeRule(MinimumFlexSizeRule::kPreferredSnapToZero,
@@ -730,6 +748,188 @@ TEST_F(FlexLayoutTest, LayoutMultipleViews_InteriorPadding_Additive) {
   EXPECT_EQ(Size(70, 50), host_->GetPreferredSize());
 }
 
+// Height-for-width tests ------------------------------------------------------
+
+namespace {
+
+// Returns a flex specification which uses preferred size but allows
+// height-for-width flex.
+FlexSpecification GetHeightForWidthFlexSpecification() {
+  return FlexSpecification::ForSizeRule(MinimumFlexSizeRule::kPreferred,
+                                        MaximumFlexSizeRule::kPreferred, true)
+      .WithWeight(0);
+}
+
+}  // anonymous namespace
+
+TEST_F(FlexLayoutTest, HeightForWidth_Vertical_CrossStart) {
+  layout_->SetOrientation(LayoutOrientation::kVertical);
+  layout_->SetMainAxisAlignment(LayoutAlignment::kStart);
+  layout_->SetCrossAxisAlignment(LayoutAlignment::kStart);
+  layout_->SetDefault(kMarginsKey, gfx::Insets(5));
+  layout_->SetDefault(kFlexBehaviorKey, GetHeightForWidthFlexSpecification());
+  AddChild({10, 10})->set_size_mode(MockView::SizeMode::kFixedArea);
+  AddChild({10, 10});
+
+  EXPECT_EQ(gfx::Size(20, 40), host_->GetPreferredSize());
+  EXPECT_EQ(40, host_->GetHeightForWidth(26));
+  EXPECT_EQ(40, host_->GetHeightForWidth(20));
+  EXPECT_EQ(46, host_->GetHeightForWidth(16));
+
+  host_->SizeToPreferredSize();
+  std::vector<gfx::Rect> expected{{5, 5, 10, 10}, {5, 25, 10, 10}};
+  EXPECT_EQ(expected, GetChildBounds());
+  host_->SetSize({26, 50});
+  EXPECT_EQ(expected, GetChildBounds());
+  host_->SetSize({20, 50});
+  EXPECT_EQ(expected, GetChildBounds());
+  host_->SetSize({16, 50});
+  expected = {{5, 5, 6, 16}, {5, 31, 6, 10}};
+  EXPECT_EQ(expected, GetChildBounds());
+}
+
+TEST_F(FlexLayoutTest,
+       HeightForWidth_Vertical_CrossStretch_WidthChangesHeight) {
+  layout_->SetOrientation(LayoutOrientation::kVertical);
+  layout_->SetMainAxisAlignment(LayoutAlignment::kStart);
+  layout_->SetCrossAxisAlignment(LayoutAlignment::kStretch);
+  layout_->SetDefault(kMarginsKey, gfx::Insets(5));
+  layout_->SetDefault(kFlexBehaviorKey, GetHeightForWidthFlexSpecification());
+  AddChild({10, 10})->set_size_mode(MockView::SizeMode::kFixedArea);
+  AddChild({10, 10});
+
+  EXPECT_EQ(gfx::Size(20, 40), host_->GetPreferredSize());
+  EXPECT_EQ(40, host_->GetHeightForWidth(26));
+  EXPECT_EQ(40, host_->GetHeightForWidth(20));
+  EXPECT_EQ(46, host_->GetHeightForWidth(16));
+
+  host_->SizeToPreferredSize();
+  std::vector<gfx::Rect> expected{{5, 5, 10, 10}, {5, 25, 10, 10}};
+  EXPECT_EQ(expected, GetChildBounds());
+
+  host_->SetSize({26, 50});
+  expected = {{5, 5, 16, 10}, {5, 25, 16, 10}};
+  EXPECT_EQ(expected, GetChildBounds());
+
+  host_->SetSize({20, 50});
+  expected = {{5, 5, 10, 10}, {5, 25, 10, 10}};
+  EXPECT_EQ(expected, GetChildBounds());
+
+  host_->SetSize({16, 50});
+  expected = {{5, 5, 6, 16}, {5, 31, 6, 10}};
+  EXPECT_EQ(expected, GetChildBounds());
+}
+
+TEST_F(FlexLayoutTest, HeightForWidth_Vertical_CrossStretch_FlexPreferredSize) {
+  layout_->SetOrientation(LayoutOrientation::kVertical);
+  layout_->SetMainAxisAlignment(LayoutAlignment::kStart);
+  layout_->SetCrossAxisAlignment(LayoutAlignment::kStretch);
+  layout_->SetDefault(kMarginsKey, gfx::Insets(5));
+  layout_->SetDefault(
+      kFlexBehaviorKey,
+      FlexSpecification::ForSizeRule(MinimumFlexSizeRule::kScaleToZero,
+                                     MaximumFlexSizeRule::kUnbounded, true));
+  AddChild({10, 10})->set_size_mode(MockView::SizeMode::kFixedArea);
+  AddChild({10, 10});
+
+  EXPECT_EQ(gfx::Size(20, 40), host_->GetPreferredSize());
+  EXPECT_EQ(40, host_->GetHeightForWidth(26));
+  EXPECT_EQ(40, host_->GetHeightForWidth(20));
+  EXPECT_EQ(46, host_->GetHeightForWidth(16));
+
+  host_->SizeToPreferredSize();
+  host_->Layout();
+  std::vector<gfx::Rect> expected{{5, 5, 10, 10}, {5, 25, 10, 10}};
+  EXPECT_EQ(expected, GetChildBounds());
+}
+
+TEST_F(FlexLayoutTest, HeightForWidth_Vertical_CrossStretch_FlexLarger) {
+  layout_->SetOrientation(LayoutOrientation::kVertical);
+  layout_->SetMainAxisAlignment(LayoutAlignment::kStart);
+  layout_->SetCrossAxisAlignment(LayoutAlignment::kStretch);
+  layout_->SetDefault(kMarginsKey, gfx::Insets(5));
+  layout_->SetDefault(
+      kFlexBehaviorKey,
+      FlexSpecification::ForSizeRule(MinimumFlexSizeRule::kScaleToZero,
+                                     MaximumFlexSizeRule::kUnbounded, true));
+  AddChild({10, 10})->set_size_mode(MockView::SizeMode::kFixedArea);
+  AddChild({10, 10});
+
+  host_->SetSize({26, 50});
+  host_->Layout();
+  std::vector<gfx::Rect> expected{{5, 5, 16, 15}, {5, 30, 16, 15}};
+  EXPECT_EQ(expected, GetChildBounds());
+
+  host_->SetSize({20, 50});
+  host_->Layout();
+  expected = {{5, 5, 10, 15}, {5, 30, 10, 15}};
+  EXPECT_EQ(expected, GetChildBounds());
+
+  // TODO(crbug.com/1012134): This should be {{5, 5, 6, 18}, {5, 31, 6, 12}} but
+  // we don't correctly distribute deficit or excess from preferred size across
+  // child views.
+  host_->SetSize({16, 50});
+  host_->Layout();
+  expected = {{5, 5, 6, 15}, {5, 30, 6, 15}};
+  EXPECT_EQ(expected, GetChildBounds());
+}
+
+TEST_F(FlexLayoutTest, HeightForWidth_Vertical_CrossStretch_FlexSmaller) {
+  layout_->SetOrientation(LayoutOrientation::kVertical);
+  layout_->SetMainAxisAlignment(LayoutAlignment::kStart);
+  layout_->SetCrossAxisAlignment(LayoutAlignment::kStretch);
+  layout_->SetDefault(kMarginsKey, gfx::Insets(5));
+  layout_->SetDefault(
+      kFlexBehaviorKey,
+      FlexSpecification::ForSizeRule(MinimumFlexSizeRule::kScaleToZero,
+                                     MaximumFlexSizeRule::kUnbounded, true));
+  AddChild({10, 10})->set_size_mode(MockView::SizeMode::kFixedArea);
+  AddChild({10, 10});
+
+  EXPECT_EQ(gfx::Size(20, 40), host_->GetPreferredSize());
+  EXPECT_EQ(40, host_->GetHeightForWidth(26));
+  EXPECT_EQ(40, host_->GetHeightForWidth(20));
+  EXPECT_EQ(46, host_->GetHeightForWidth(16));
+
+  host_->SetSize({26, 30});
+  host_->Layout();
+  std::vector<gfx::Rect> expected{{5, 5, 16, 5}, {5, 20, 16, 5}};
+  EXPECT_EQ(expected, GetChildBounds());
+
+  host_->SetSize({20, 30});
+  host_->Layout();
+  expected = {{5, 5, 10, 5}, {5, 20, 10, 5}};
+  EXPECT_EQ(expected, GetChildBounds());
+
+  // TODO(crbug.com/1012134): This should be {{5, 5, 6, 8}, {5, 18, 6, 2}} but
+  // we don't correctly distribute deficit from preferred size across child
+  // views.
+  host_->SetSize({16, 30});
+  host_->Layout();
+  expected = {{5, 5, 6, 5}, {5, 20, 6, 5}};
+  EXPECT_EQ(expected, GetChildBounds());
+}
+
+TEST_F(FlexLayoutTest, HeightForWidth_Horizontal_PreferredSize) {
+  layout_->SetOrientation(LayoutOrientation::kVertical);
+  layout_->SetMainAxisAlignment(LayoutAlignment::kStart);
+  layout_->SetCrossAxisAlignment(LayoutAlignment::kStart);
+  layout_->SetDefault(
+      kFlexBehaviorKey,
+      FlexSpecification::ForSizeRule(MinimumFlexSizeRule::kScaleToZero,
+                                     MaximumFlexSizeRule::kUnbounded, true));
+  MockView* const child = AddChild({10, 10});
+  child->set_size_mode(MockView::SizeMode::kFixedArea);
+
+  // In horizontal views, the height can expand if a child is compressed
+  // horizontally and uses a height-for-width calculation, but it cannot
+  // contract (lest we have zero-height views in some cases).
+  EXPECT_EQ(gfx::Size(10, 10), host_->GetPreferredSize());
+  EXPECT_EQ(10, host_->GetHeightForWidth(10));
+  EXPECT_EQ(10, host_->GetHeightForWidth(20));
+  EXPECT_EQ(20, host_->GetHeightForWidth(5));
+}
+
 // Host insets tests -----------------------------------------------------------
 
 TEST_F(FlexLayoutTest, Layout_HostInsets_Horizontal) {
@@ -819,6 +1019,129 @@ TEST_F(FlexLayoutTest, Layout_HostInsets_Vertical_End) {
       kLayoutInsets.top() +
       (host_->size().height() - kChild1Size.height() - kLayoutInsets.height());
   EXPECT_EQ(Rect(6, expected_y, 12, 10), child->bounds());
+}
+
+// Include Host Insets Tests ---------------------------------------------------
+
+TEST_F(FlexLayoutTest, SetIncludeHostInsetsInLayout_NoChange) {
+  host_->SetBorder(views::CreateEmptyBorder(2, 2, 2, 2));
+  layout_->SetOrientation(LayoutOrientation::kVertical);
+  layout_->SetCollapseMargins(false);
+  layout_->SetInteriorMargin(kLayoutInsets);
+  layout_->SetMainAxisAlignment(LayoutAlignment::kStart);
+  layout_->SetCrossAxisAlignment(LayoutAlignment::kEnd);
+  layout_->SetDefault(views::kMarginsKey, gfx::Insets(4));
+  constexpr Size kChildSize(10, 10);
+  AddChild(kChildSize);
+  View* const child2 = AddChild(kChildSize);
+  AddChild(kChildSize);
+  child2->SetProperty(views::kMarginsKey, gfx::Insets(10));
+
+  const Size expected_preferred_size = host_->GetPreferredSize();
+  host_->SetSize(expected_preferred_size);
+  const std::vector<Rect> expected_bounds = GetChildBounds();
+
+  layout_->SetIncludeHostInsetsInLayout(true);
+  const Size preferred_size = host_->GetPreferredSize();
+  EXPECT_EQ(expected_preferred_size, preferred_size);
+  host_->Layout();
+  EXPECT_EQ(expected_bounds, GetChildBounds());
+}
+
+TEST_F(FlexLayoutTest, SetIncludeHostInsetsInLayout_CollapseIntoInsets) {
+  host_->SetBorder(views::CreateEmptyBorder(2, 2, 2, 2));
+  layout_->SetOrientation(LayoutOrientation::kVertical);
+  layout_->SetCollapseMargins(true);
+  layout_->SetInteriorMargin(kLayoutInsets);
+  layout_->SetMainAxisAlignment(LayoutAlignment::kStart);
+  layout_->SetCrossAxisAlignment(LayoutAlignment::kEnd);
+  layout_->SetDefault(views::kMarginsKey, gfx::Insets(4));
+  constexpr Size kChildSize(10, 10);
+  AddChild(kChildSize);
+  View* const child2 = AddChild(kChildSize);
+  AddChild(kChildSize);
+  child2->SetProperty(views::kMarginsKey, gfx::Insets(15));
+
+  layout_->SetIncludeHostInsetsInLayout(true);
+  const Size preferred_size = host_->GetPreferredSize();
+  EXPECT_EQ(Size(40, 76), preferred_size);
+  host_->SetSize(preferred_size);
+  const std::vector<Rect> expected{Rect(19, 7, 10, 10), Rect(15, 32, 10, 10),
+                                   Rect(19, 57, 10, 10)};
+  EXPECT_EQ(expected, GetChildBounds());
+}
+
+TEST_F(FlexLayoutTest, SetIncludeHostInsetsInLayout_OverlapInsets) {
+  host_->SetBorder(views::CreateEmptyBorder(4, 5, 5, 5));
+  layout_->SetOrientation(LayoutOrientation::kHorizontal);
+  layout_->SetCollapseMargins(true);
+  layout_->SetInteriorMargin(kLayoutInsets);
+  layout_->SetMainAxisAlignment(LayoutAlignment::kStart);
+  layout_->SetCrossAxisAlignment(LayoutAlignment::kStart);
+  View* const child = AddChild(Size(10, 10));
+  child->SetProperty(views::kInternalPaddingKey, Insets(10, 10, 10, 10));
+
+  layout_->SetIncludeHostInsetsInLayout(true);
+  const Size preferred_size = host_->GetPreferredSize();
+  EXPECT_EQ(Size(15, 12), preferred_size);
+  host_->SetSize(preferred_size);
+  EXPECT_EQ(Rect(1, 0, 10, 10), child->bounds());
+}
+
+// Default Main Axis Margins Tests ---------------------------------------------
+
+TEST_F(FlexLayoutTest, SetIgnoreDefaultMainAxisMargins_IgnoresDefaultMargins) {
+  layout_->SetOrientation(LayoutOrientation::kVertical);
+  layout_->SetCollapseMargins(false);
+  layout_->SetInteriorMargin(kLayoutInsets);
+  layout_->SetMainAxisAlignment(LayoutAlignment::kStart);
+  layout_->SetCrossAxisAlignment(LayoutAlignment::kEnd);
+  layout_->SetDefault(views::kMarginsKey, gfx::Insets(4));
+  constexpr Size kChildSize(10, 10);
+  AddChild(kChildSize);
+  AddChild(kChildSize);
+  AddChild(kChildSize);
+
+  Size preferred_size = host_->GetPreferredSize();
+  EXPECT_EQ(Size(33, 66), preferred_size);
+
+  layout_->SetIgnoreDefaultMainAxisMargins(true);
+  preferred_size = host_->GetPreferredSize();
+  EXPECT_EQ(Size(33, 58), preferred_size);
+
+  host_->SetSize(preferred_size);
+  const std::vector<Rect> expected{Rect(10, 5, 10, 10), Rect(10, 23, 10, 10),
+                                   Rect(10, 41, 10, 10)};
+  EXPECT_EQ(expected, GetChildBounds());
+}
+
+TEST_F(FlexLayoutTest,
+       SetIgnoreDefaultMainAxisMargins_IncludesExplicitMargins) {
+  layout_->SetOrientation(LayoutOrientation::kVertical);
+  layout_->SetCollapseMargins(true);
+  layout_->SetInteriorMargin(kLayoutInsets);
+  layout_->SetMainAxisAlignment(LayoutAlignment::kStart);
+  layout_->SetCrossAxisAlignment(LayoutAlignment::kStart);
+  layout_->SetDefault(views::kMarginsKey, gfx::Insets(4));
+  constexpr Size kChildSize(10, 10);
+  View* const child1 = AddChild(kChildSize);
+  AddChild(kChildSize);
+  View* const child3 = AddChild(kChildSize);
+
+  child1->SetProperty(views::kMarginsKey, gfx::Insets(11));
+  child3->SetProperty(views::kMarginsKey, gfx::Insets(12));
+
+  Size preferred_size = host_->GetPreferredSize();
+  EXPECT_EQ(Size(34, 76), preferred_size);
+
+  layout_->SetIgnoreDefaultMainAxisMargins(true);
+  preferred_size = host_->GetPreferredSize();
+  EXPECT_EQ(Size(34, 76), preferred_size);
+
+  host_->SetSize(preferred_size);
+  const std::vector<Rect> expected{Rect(11, 11, 10, 10), Rect(6, 32, 10, 10),
+                                   Rect(12, 54, 10, 10)};
+  EXPECT_EQ(expected, GetChildBounds());
 }
 
 // Alignment Tests -------------------------------------------------------------
@@ -1289,7 +1612,7 @@ TEST_F(FlexLayoutTest,
 
   host_->SetSize(Size(20, 19));
   host_->Layout();
-  // TODO(dfried): Make this work.
+  // TODO(crbug.com/1012134): Make this work.
   // EXPECT_EQ(Size(10, 9), child1->size());
   EXPECT_EQ(Size(10, 7), child1->size());
   EXPECT_FALSE(child2->GetVisible());
@@ -1390,10 +1713,35 @@ TEST_F(FlexLayoutTest, Layout_Flex_TwoChildViews_UnequalWeight_SecondAtMax) {
   host_->SetSize(Size(50, 20));
   host_->Layout();
 
-  // TODO(dfried): Make this work.
+  // TODO(crbug.com/1012134): Make this work.
   // EXPECT_EQ(Size(15, 10), child1->size());
   EXPECT_EQ(Size(14, 10), child1->size());
   EXPECT_EQ(Size(20, 10), child2->size());
+}
+
+// This is a regression test for a case where a view marked as having flex
+// weight but which could not flex larger than its preferred size would cause
+// other views at that weight to not receive available flex space.
+TEST_F(FlexLayoutTest, Layout_Flex_TwoChildViews_FirstViewFillsAvailableSpace) {
+  const FlexSpecification can_flex = FlexSpecification::ForSizeRule(
+      MinimumFlexSizeRule::kPreferred, MaximumFlexSizeRule::kUnbounded);
+  const FlexSpecification cannot_flex = FlexSpecification::ForSizeRule(
+      MinimumFlexSizeRule::kPreferred, MaximumFlexSizeRule::kPreferred);
+
+  layout_->SetOrientation(LayoutOrientation::kHorizontal);
+  layout_->SetCollapseMargins(true);
+  layout_->SetInteriorMargin(Insets(5));
+  layout_->SetMainAxisAlignment(LayoutAlignment::kStart);
+  layout_->SetCrossAxisAlignment(LayoutAlignment::kStart);
+  layout_->SetDefault(views::kMarginsKey, gfx::Insets(5));
+  View* child1 = AddChild(Size(20, 10));
+  View* child2 = AddChild(Size(20, 10));
+  child1->SetProperty(views::kFlexBehaviorKey, can_flex);
+  child2->SetProperty(views::kFlexBehaviorKey, cannot_flex);
+
+  host_->SetSize(Size(70, 20));
+  const std::vector<Rect> expected_bounds{{5, 5, 35, 10}, {45, 5, 20, 10}};
+  EXPECT_EQ(expected_bounds, GetChildBounds());
 }
 
 TEST_F(FlexLayoutTest, Layout_Flex_TwoChildViews_Priority) {
@@ -1710,6 +2058,69 @@ TEST_F(FlexLayoutTest,
   EXPECT_EQ(kLargeSize, child2->size());
 }
 
+TEST_F(FlexLayoutTest, Layout_Flex_TwoChildViews_FlexAlignment_Start) {
+  const FlexSpecification float_start =
+      FlexSpecification::ForSizeRule(MinimumFlexSizeRule::kPreferred,
+                                     MaximumFlexSizeRule::kUnbounded)
+          .WithAlignment(LayoutAlignment::kStart);
+
+  layout_->SetOrientation(LayoutOrientation::kHorizontal);
+  layout_->SetCollapseMargins(true);
+  layout_->SetInteriorMargin(Insets(5));
+  layout_->SetMainAxisAlignment(LayoutAlignment::kStart);
+  layout_->SetCrossAxisAlignment(LayoutAlignment::kStart);
+  layout_->SetDefault(views::kMarginsKey, gfx::Insets(5));
+  View* child1 = AddChild(Size(10, 10));
+  AddChild(Size(10, 10));
+  child1->SetProperty(views::kFlexBehaviorKey, float_start);
+
+  host_->SetSize(Size(50, 20));
+  const std::vector<Rect> expected_bounds{{5, 5, 10, 10}, {35, 5, 10, 10}};
+  EXPECT_EQ(expected_bounds, GetChildBounds());
+}
+
+TEST_F(FlexLayoutTest, Layout_Flex_TwoChildViews_FlexAlignment_End) {
+  const FlexSpecification float_start =
+      FlexSpecification::ForSizeRule(MinimumFlexSizeRule::kPreferred,
+                                     MaximumFlexSizeRule::kUnbounded)
+          .WithAlignment(LayoutAlignment::kEnd);
+
+  layout_->SetOrientation(LayoutOrientation::kHorizontal);
+  layout_->SetCollapseMargins(true);
+  layout_->SetInteriorMargin(Insets(5));
+  layout_->SetMainAxisAlignment(LayoutAlignment::kStart);
+  layout_->SetCrossAxisAlignment(LayoutAlignment::kStart);
+  layout_->SetDefault(views::kMarginsKey, gfx::Insets(5));
+  View* child1 = AddChild(Size(10, 10));
+  AddChild(Size(10, 10));
+  child1->SetProperty(views::kFlexBehaviorKey, float_start);
+
+  host_->SetSize(Size(50, 20));
+  const std::vector<Rect> expected_bounds{{20, 5, 10, 10}, {35, 5, 10, 10}};
+  EXPECT_EQ(expected_bounds, GetChildBounds());
+}
+
+TEST_F(FlexLayoutTest, Layout_Flex_TwoChildViews_FlexAlignment_Center) {
+  const FlexSpecification float_start =
+      FlexSpecification::ForSizeRule(MinimumFlexSizeRule::kPreferred,
+                                     MaximumFlexSizeRule::kUnbounded)
+          .WithAlignment(LayoutAlignment::kCenter);
+
+  layout_->SetOrientation(LayoutOrientation::kHorizontal);
+  layout_->SetCollapseMargins(true);
+  layout_->SetInteriorMargin(Insets(5));
+  layout_->SetMainAxisAlignment(LayoutAlignment::kStart);
+  layout_->SetCrossAxisAlignment(LayoutAlignment::kStart);
+  layout_->SetDefault(views::kMarginsKey, gfx::Insets(5));
+  View* child1 = AddChild(Size(10, 10));
+  AddChild(Size(10, 10));
+  child1->SetProperty(views::kFlexBehaviorKey, float_start);
+
+  host_->SetSize(Size(50, 20));
+  const std::vector<Rect> expected_bounds{{12, 5, 10, 10}, {35, 5, 10, 10}};
+  EXPECT_EQ(expected_bounds, GetChildBounds());
+}
+
 TEST_F(FlexLayoutTest, Layout_FlexRule_CustomFlexRule) {
   constexpr int kFullSize = 50;
   constexpr int kHalfSize = 25;
@@ -1859,6 +2270,88 @@ TEST_F(FlexLayoutTest, Layout_OnlyCallsSetViewVisibilityWhenNecessary) {
   EXPECT_EQ(0, child2->GetSetVisibleCount());
 }
 
+TEST_F(FlexLayoutTest, Between_Child_Spacing) {
+  layout_->SetOrientation(LayoutOrientation::kHorizontal);
+  layout_->SetInteriorMargin(Insets(7));
+  layout_->SetBetweenChildSpacing(8);
+  View* v1 = AddChild(gfx::Size(10, 20));
+  View* v2 = AddChild(gfx::Size(10, 20));
+  EXPECT_EQ(gfx::Size(42, 34), layout_->GetPreferredSize(host_.get()));
+  host_->SetBounds(0, 0, 100, 100);
+  host_->Layout();
+  EXPECT_EQ(gfx::Rect(7, 7, 10, 86), v1->bounds());
+  EXPECT_EQ(gfx::Rect(25, 7, 10, 86), v2->bounds());
+}
+
+TEST_F(FlexLayoutTest, Between_Child_Spacing_With_Margins) {
+  layout_->SetOrientation(LayoutOrientation::kHorizontal);
+  layout_->SetDefault(views::kMarginsKey, Insets(7));
+  layout_->SetBetweenChildSpacing(8);
+  View* v1 = AddChild(gfx::Size(10, 20));
+  View* v2 = AddChild(gfx::Size(10, 20));
+  EXPECT_EQ(gfx::Size(56, 34), layout_->GetPreferredSize(host_.get()));
+  host_->SetBounds(0, 0, 100, 100);
+  host_->Layout();
+  EXPECT_EQ(gfx::Rect(7, 7, 10, 86), v1->bounds());
+  EXPECT_EQ(gfx::Rect(39, 7, 10, 86), v2->bounds());
+}
+
+TEST_F(FlexLayoutTest, Between_Child_Spacing_With_Margins_Collapsed) {
+  layout_->SetOrientation(LayoutOrientation::kHorizontal);
+  layout_->SetDefault(views::kMarginsKey, Insets(7));
+  layout_->SetBetweenChildSpacing(8);
+  layout_->SetCollapseMargins(true);
+  View* v1 = AddChild(gfx::Size(10, 20));
+  View* v2 = AddChild(gfx::Size(10, 20));
+  EXPECT_EQ(gfx::Size(42, 34), layout_->GetPreferredSize(host_.get()));
+  host_->SetBounds(0, 0, 100, 100);
+  host_->Layout();
+  EXPECT_EQ(gfx::Rect(7, 7, 10, 86), v1->bounds());
+  EXPECT_EQ(gfx::Rect(25, 7, 10, 86), v2->bounds());
+}
+
+// Specific Regression Cases ---------------------------------------------------
+
+// Test case (and example code) for crbug.com/1012119.
+TEST_F(FlexLayoutTest, FlexRuleContradictsPreferredSize) {
+  const FlexSpecification custom_spec = FlexSpecification::ForCustomRule(
+      base::BindRepeating([](const View*, const SizeBounds& maximum_size) {
+        return !maximum_size.width() || *maximum_size.width() >= 100
+                   ? gfx::Size(100, 100)
+                   : gfx::Size(0, 100);
+      }));
+
+  const FlexSpecification other_spec = FlexSpecification::ForSizeRule(
+      MinimumFlexSizeRule::kScaleToZero, MaximumFlexSizeRule::kUnbounded);
+
+  layout_->SetOrientation(LayoutOrientation::kHorizontal);
+  layout_->SetCrossAxisAlignment(LayoutAlignment::kStretch);
+  View* const v1 = AddChild(gfx::Size(7, 7));
+  View* const v2 = AddChild(gfx::Size(7, 7));
+  v1->SetProperty(kFlexBehaviorKey, custom_spec.WithOrder(1));
+  v2->SetProperty(kFlexBehaviorKey, other_spec.WithOrder(2));
+
+  host_->SetSize({200, 100});
+  std::vector<gfx::Rect> expected{{0, 0, 100, 100}, {100, 0, 100, 100}};
+  EXPECT_EQ(expected, GetChildBounds());
+
+  host_->SetSize({101, 100});
+  expected = {{0, 0, 100, 100}, {100, 0, 1, 100}};
+  EXPECT_EQ(expected, GetChildBounds());
+
+  host_->SetSize({100, 100});
+  expected = {{0, 0, 100, 100}, {}};
+  EXPECT_EQ(expected, GetChildBounds());
+
+  host_->SetSize({99, 100});
+  expected = {{}, {0, 0, 99, 100}};
+  EXPECT_EQ(expected, GetChildBounds());
+
+  host_->SetSize({1, 100});
+  expected = {{}, {0, 0, 1, 100}};
+  EXPECT_EQ(expected, GetChildBounds());
+}
+
 // Cross-axis Fit Tests --------------------------------------------------------
 
 // Tests for cross-axis alignment that checks three different conditions:
@@ -1887,22 +2380,21 @@ class FlexLayoutCrossAxisFitTest : public FlexLayoutTest {
 
  protected:
   static constexpr size_t kNumChildren = 3;
-  static const gfx::Size kHostSize;
-  static const gfx::Size kChildSizes[kNumChildren];
-  static const gfx::Insets kChildMargins[kNumChildren];
+  static constexpr gfx::Size kHostSize = gfx::Size(200, 20);
+  static constexpr gfx::Size kChildSizes[kNumChildren] = {{10, 10},
+                                                          {10, 10},
+                                                          {10, 30}};
+  static constexpr gfx::Insets kChildMargins[kNumChildren] = {{6, 0, 2, 0},
+                                                              {10, 0, 5, 0},
+                                                              {6, 0, 2, 0}};
 
   std::vector<View*> child_views_;
 };
 
-const gfx::Size FlexLayoutCrossAxisFitTest::kHostSize{200, 20};
-
-const gfx::Size FlexLayoutCrossAxisFitTest::kChildSizes[]{{10, 10},
-                                                          {10, 10},
-                                                          {10, 30}};
-
-const gfx::Insets FlexLayoutCrossAxisFitTest::kChildMargins[]{{6, 0, 2, 0},
-                                                              {10, 0, 5, 0},
-                                                              {6, 0, 2, 0}};
+// static
+constexpr gfx::Size FlexLayoutCrossAxisFitTest::kHostSize;
+constexpr gfx::Size FlexLayoutCrossAxisFitTest::kChildSizes[kNumChildren];
+constexpr gfx::Insets FlexLayoutCrossAxisFitTest::kChildMargins[kNumChildren];
 
 TEST_F(FlexLayoutCrossAxisFitTest, Layout_CrossStretch) {
   layout_->SetCrossAxisAlignment(LayoutAlignment::kStretch);
@@ -2004,6 +2496,57 @@ class NestedFlexLayoutTest : public FlexLayoutTest {
   std::vector<FlexLayout*> layouts_;
   View::Views children_;
 };
+
+TEST_F(NestedFlexLayoutTest, SetVisible_UpdatesLayout) {
+  AddChildren(1);
+  AddGrandchild(1, gfx::Size(5, 5));
+  AddGrandchild(1, gfx::Size(5, 5));
+
+  layout_->SetOrientation(LayoutOrientation::kHorizontal);
+  layout(1)->SetOrientation(LayoutOrientation::kHorizontal);
+  EXPECT_EQ(gfx::Size(10, 5), host_->GetPreferredSize());
+  grandchild(1, 1)->SetVisible(false);
+  EXPECT_EQ(gfx::Size(5, 5), host_->GetPreferredSize());
+  host_->Layout();
+  EXPECT_EQ(gfx::Rect(0, 0, 5, 5), child(1)->bounds());
+  EXPECT_EQ(gfx::Rect(0, 0, 5, 5), grandchild(1, 2)->bounds());
+}
+
+TEST_F(NestedFlexLayoutTest, AddChild_UpdatesLayout) {
+  AddChildren(1);
+  AddGrandchild(1, gfx::Size(5, 5));
+
+  layout_->SetOrientation(LayoutOrientation::kHorizontal);
+  layout(1)->SetOrientation(LayoutOrientation::kHorizontal);
+  EXPECT_EQ(gfx::Size(5, 5), host_->GetPreferredSize());
+  AddGrandchild(1, gfx::Size(5, 5));
+  EXPECT_EQ(gfx::Size(10, 5), host_->GetPreferredSize());
+  host_->Layout();
+  EXPECT_EQ(gfx::Rect(0, 0, 10, 5), child(1)->bounds());
+  EXPECT_EQ(gfx::Rect(0, 0, 5, 5), grandchild(1, 1)->bounds());
+  EXPECT_EQ(gfx::Rect(5, 0, 5, 5), grandchild(1, 2)->bounds());
+}
+
+TEST_F(NestedFlexLayoutTest, RemoveChild_UpdatesLayout) {
+  AddChildren(1);
+  AddGrandchild(1, gfx::Size(5, 5));
+  AddGrandchild(1, gfx::Size(5, 5));
+
+  layout_->SetOrientation(LayoutOrientation::kHorizontal);
+  layout(1)->SetOrientation(LayoutOrientation::kHorizontal);
+  EXPECT_EQ(gfx::Size(10, 5), host_->GetPreferredSize());
+
+  // Remove one grandchild view, avoiding a memory leak since the view is no
+  // longer owned.
+  View* const to_remove = grandchild(1, 2);
+  child(1)->RemoveChildView(to_remove);
+  delete to_remove;
+
+  EXPECT_EQ(gfx::Size(5, 5), host_->GetPreferredSize());
+  host_->Layout();
+  EXPECT_EQ(gfx::Rect(0, 0, 5, 5), child(1)->bounds());
+  EXPECT_EQ(gfx::Rect(0, 0, 5, 5), grandchild(1, 1)->bounds());
+}
 
 TEST_F(NestedFlexLayoutTest, Layout_OppositeOrientation) {
   AddChildren(2);

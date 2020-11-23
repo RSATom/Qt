@@ -48,6 +48,9 @@ class AssistantOptInDialog : public SystemWebDialogDelegate {
                    ash::AssistantSetup::StartAssistantOptInFlowCallback
                        callback = base::DoNothing());
 
+  // Returns true and bounces the window if the dialog is active.
+  static bool BounceIfActive();
+
  protected:
   AssistantOptInDialog(
       ash::FlowType type,
@@ -60,8 +63,7 @@ class AssistantOptInDialog : public SystemWebDialogDelegate {
   // ui::WebDialogDelegate
   void GetDialogSize(gfx::Size* size) const override;
   std::string GetDialogArgs() const override;
-  void OnDialogShown(content::WebUI* webui,
-                     content::RenderViewHost* render_view_host) override;
+  void OnDialogShown(content::WebUI* webui) override;
   void OnDialogClosed(const std::string& json_retval) override;
 
  private:

@@ -1,5 +1,0 @@
-specific_include_rules = {
-  "discards_ui.h": [
-    "+chrome/browser/performance_manager/webui_graph_dump.mojom.h",
-  ],
-}

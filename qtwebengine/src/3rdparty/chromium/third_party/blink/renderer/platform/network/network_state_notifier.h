@@ -40,7 +40,7 @@
 #include "third_party/blink/renderer/platform/wtf/hash_map.h"
 #include "third_party/blink/renderer/platform/wtf/text/wtf_string.h"
 #include "third_party/blink/renderer/platform/wtf/threading_primitives.h"
-#include "third_party/blink/renderer/platform/wtf/time.h"
+
 #include "third_party/blink/renderer/platform/wtf/vector.h"
 
 namespace blink {
@@ -362,9 +362,9 @@ class PLATFORM_EXPORT NetworkStateNotifier {
   double GetRandomMultiplier(const String& host) const;
 
   mutable Mutex mutex_;
-  NetworkState state_;
-  bool has_override_;
-  NetworkState override_;
+  NetworkState state_ GUARDED_BY(mutex_);
+  bool has_override_ GUARDED_BY(mutex_);
+  NetworkState override_ GUARDED_BY(mutex_);
 
   ObserverListMap connection_observers_;
   ObserverListMap on_line_state_observers_;

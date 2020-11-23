@@ -147,16 +147,16 @@ bool SerializerMarkupAccumulator::ShouldIgnoreAttribute(
 
 bool SerializerMarkupAccumulator::ShouldIgnoreElement(
     const Element& element) const {
-  if (IsHTMLScriptElement(element))
+  if (IsA<HTMLScriptElement>(element))
     return true;
-  if (IsHTMLNoScriptElement(element))
+  if (IsA<HTMLNoScriptElement>(element))
     return true;
-  if (IsHTMLMetaElement(element) &&
-      ToHTMLMetaElement(element).ComputeEncoding().IsValid()) {
+  auto* meta = DynamicTo<HTMLMetaElement>(element);
+  if (meta && meta->ComputeEncoding().IsValid()) {
     return true;
   }
   // This is done in serializing document.StyleSheets.
-  if (IsHTMLStyleElement(element))
+  if (IsA<HTMLStyleElement>(element))
     return true;
   return delegate_.ShouldIgnoreElement(element);
 }
@@ -165,7 +165,7 @@ AtomicString SerializerMarkupAccumulator::AppendElement(
     const Element& element) {
   AtomicString prefix = MarkupAccumulator::AppendElement(element);
 
-  if (IsHTMLHeadElement(element))
+  if (IsA<HTMLHeadElement>(element))
     AppendExtraForHeadElement(element);
 
   resource_delegate_.AddResourceForElement(*document_, element);
@@ -178,7 +178,7 @@ AtomicString SerializerMarkupAccumulator::AppendElement(
 
 void SerializerMarkupAccumulator::AppendExtraForHeadElement(
     const Element& element) {
-  DCHECK(IsHTMLHeadElement(element));
+  DCHECK(IsA<HTMLHeadElement>(element));
 
   // TODO(tiger): Refactor MarkupAccumulator so it is easier to append an
   // element like this, without special cases for XHTML
@@ -216,7 +216,7 @@ void SerializerMarkupAccumulator::AppendStylesheets(Document* document,
     StyleSheet* sheet = sheets.item(i);
     if (!sheet->IsCSSStyleSheet() || sheet->disabled())
       continue;
-    if (style_element_only && !IsHTMLStyleElement(sheet->ownerNode()))
+    if (style_element_only && !IsA<HTMLStyleElement>(sheet->ownerNode()))
       continue;
 
     StringBuilder pseudo_sheet_url_builder;
@@ -383,10 +383,10 @@ void FrameSerializer::AddResourceForElement(Document& document,
         const_cast<Element&>(element).PresentationAttributeStyle(), document);
   }
 
-  if (const auto* image = ToHTMLImageElementOrNull(element)) {
+  if (const auto* image = DynamicTo<HTMLImageElement>(element)) {
     AtomicString image_url_value;
     const Element* parent = element.parentElement();
-    if (parent && IsHTMLPictureElement(parent)) {
+    if (parent && IsA<HTMLPictureElement>(parent)) {
       // If parent element is <picture>, use ImageSourceURL() to get best fit
       // image URL from sibling source.
       image_url_value = image->ImageSourceURL();
@@ -394,23 +394,23 @@ void FrameSerializer::AddResourceForElement(Document& document,
       // Otherwise, it is single <img> element. We should get image url
       // contained in href attribute. ImageSourceURL() may return a different
       // URL from srcset attribute.
-      image_url_value = image->getAttribute(html_names::kSrcAttr);
+      image_url_value = image->FastGetAttribute(html_names::kSrcAttr);
     }
     ImageResourceContent* cached_image = image->CachedImage();
     AddImageToResources(cached_image, document.CompleteURL(image_url_value));
-  } else if (const auto* input = ToHTMLInputElementOrNull(element)) {
+  } else if (const auto* input = DynamicTo<HTMLInputElement>(element)) {
     if (input->type() == input_type_names::kImage && input->ImageLoader()) {
       KURL image_url = input->Src();
       ImageResourceContent* cached_image = input->ImageLoader()->GetContent();
       AddImageToResources(cached_image, image_url);
     }
-  } else if (const auto* link = ToHTMLLinkElementOrNull(element)) {
+  } else if (const auto* link = DynamicTo<HTMLLinkElement>(element)) {
     if (CSSStyleSheet* sheet = link->sheet()) {
       KURL sheet_url =
-          document.CompleteURL(link->getAttribute(html_names::kHrefAttr));
+          document.CompleteURL(link->FastGetAttribute(html_names::kHrefAttr));
       SerializeCSSStyleSheet(*sheet, sheet_url);
     }
-  } else if (const auto* style = ToHTMLStyleElementOrNull(element)) {
+  } else if (const auto* style = DynamicTo<HTMLStyleElement>(element)) {
     if (CSSStyleSheet* sheet = style->sheet())
       SerializeCSSStyleSheet(*sheet, NullURL());
   } else if (IsHTMLPlugInElement(element)) {
@@ -536,7 +536,6 @@ void FrameSerializer::SerializeCSSRule(CSSRule* rule) {
     case CSSRule::kKeyframeRule:
     case CSSRule::kNamespaceRule:
     case CSSRule::kViewportRule:
-    case CSSRule::kFontFeatureValuesRule:
       break;
   }
 }
@@ -634,7 +633,8 @@ void FrameSerializer::RetrieveResourcesForCSSValue(const CSSValue& css_value,
       return;
 
     if (base::FeatureList::IsEnabled(
-            features::kHtmlImportsRequestInitiatorLock)) {
+            features::kHtmlImportsRequestInitiatorLock) &&
+        document.ImportsController()) {
       if (Document* context_document = document.ContextDocument()) {
         // For @imports from HTML imported Documents, we use the
         // context document for getting origin and ResourceFetcher to use the

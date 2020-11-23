@@ -4,9 +4,9 @@
 
 #include "content/browser/renderer_host/input/fling_scheduler.h"
 
+#include "content/public/test/browser_task_environment.h"
 #include "content/public/test/mock_render_process_host.h"
 #include "content/public/test/test_browser_context.h"
-#include "content/public/test/test_browser_thread_bundle.h"
 #include "content/test/mock_render_widget_host_delegate.h"
 #include "content/test/test_render_view_host.h"
 #include "content/test/test_render_widget_host.h"
@@ -105,12 +105,15 @@ class FlingSchedulerTest : public testing::Test,
       const MouseWheelEventWithLatencyInfo& wheel_event) override {}
   void SendGeneratedGestureScrollEvents(
       const GestureEventWithLatencyInfo& gesture_event) override {}
+  gfx::Size GetRootWidgetViewportSize() override {
+    return gfx::Size(1920, 1080);
+  }
 
   std::unique_ptr<FlingController> fling_controller_;
   std::unique_ptr<FakeFlingScheduler> fling_scheduler_;
 
  private:
-  TestBrowserThreadBundle thread_bundle_;
+  BrowserTaskEnvironment task_environment_;
   std::unique_ptr<TestBrowserContext> browser_context_;
   RenderWidgetHostImpl* widget_host_;
   MockRenderProcessHost* process_host_;

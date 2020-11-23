@@ -8,8 +8,7 @@
 
 #include "base/bind.h"
 #include "base/strings/strcat.h"
-#include "base/test/scoped_task_environment.h"
-#include "build/build_config.h"
+#include "base/test/task_environment.h"
 #include "device/fido/credential_management.h"
 #include "device/fido/fido_constants.h"
 #include "device/fido/fido_request_handler_base.h"
@@ -18,10 +17,6 @@
 #include "device/fido/test_callback_receiver.h"
 #include "device/fido/virtual_fido_device_factory.h"
 #include "testing/gtest/include/gtest/gtest.h"
-
-#if defined(OS_WIN)
-#include "device/fido/win/fake_webauthn_api.h"
-#endif  // defined(OS_WIN)
 
 namespace device {
 namespace {
@@ -55,7 +50,7 @@ class CredentialManagementHandlerTest : public ::testing::Test {
     std::move(provide_pin).Run(kPIN);
   }
 
-  base::test::ScopedTaskEnvironment scoped_task_environment_;
+  base::test::TaskEnvironment task_environment_;
 
   test::TestCallbackReceiver<> ready_callback_;
   test::StatusAndValuesCallbackReceiver<
@@ -64,13 +59,8 @@ class CredentialManagementHandlerTest : public ::testing::Test {
       base::Optional<size_t>>
       get_credentials_callback_;
   test::ValueCallbackReceiver<CtapDeviceResponseCode> delete_callback_;
-  test::ValueCallbackReceiver<FidoReturnCode> finished_callback_;
+  test::ValueCallbackReceiver<CredentialManagementStatus> finished_callback_;
   test::VirtualFidoDeviceFactory virtual_device_factory_;
-
-#if defined(OS_WIN)
-  device::ScopedFakeWinWebAuthnApi win_webauthn_api_ =
-      device::ScopedFakeWinWebAuthnApi::MakeUnavailable();
-#endif  // defined(OS_WIN)
 };
 
 TEST_F(CredentialManagementHandlerTest, Test) {

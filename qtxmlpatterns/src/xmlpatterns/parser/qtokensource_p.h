@@ -81,7 +81,7 @@ namespace QPatternist
          * typedef for the enum Bison generates that contains
          * the token symbols.
          */
-        typedef yytokentype TokenType;
+        typedef XPathtokentype TokenType;
 
         /**
          * Represents a token by carrying its name and value.
@@ -122,8 +122,7 @@ namespace QPatternist
         /**
          * @returns the next token.
          */
-
-            virtual Token nextToken(YYLTYPE *const sourceLocator) = 0;
+        virtual Token nextToken(XPATHLTYPE *const sourceLocator) = 0;
 
     private:
         Q_DISABLE_COPY(TokenSource)

@@ -72,6 +72,10 @@ def GenerateBundleApks(bundle_path,
       or "system_compressed".
   """
   device_spec = None
+  if minimal_sdk_version:
+    assert minimal or system_image_locales, (
+        'minimal_sdk_version is only used when minimal or system_image_locales '
+        'is specified')
   if minimal:
     # Measure with one language split installed. Use Hindi because it is
     # popular. resource_size.py looks for splits/base-hi.apk.
@@ -90,28 +94,36 @@ def GenerateBundleApks(bundle_path,
 
   def rebuild():
     logging.info('Building %s', bundle_apks_path)
-    with tempfile.NamedTemporaryFile(suffix='.json') as spec_file, \
-        build_utils.AtomicOutput(bundle_apks_path, only_if_changed=False) as f:
+    with tempfile.NamedTemporaryFile(suffix='.apks') as tmp_apks_file:
       cmd_args = [
           'build-apks',
           '--aapt2=%s' % aapt2_path,
-          '--output=%s' % f.name,
+          '--output=%s' % tmp_apks_file.name,
           '--bundle=%s' % bundle_path,
           '--ks=%s' % keystore_path,
           '--ks-pass=pass:%s' % keystore_password,
           '--ks-key-alias=%s' % keystore_alias,
           '--overwrite',
       ]
-      if device_spec:
-        json.dump(device_spec, spec_file)
-        spec_file.flush()
-        cmd_args += ['--device-spec=' + spec_file.name]
+
       if mode is not None:
         if mode not in BUILD_APKS_MODES:
           raise Exception('Invalid mode parameter %s (should be in %s)' %
                           (mode, BUILD_APKS_MODES))
         cmd_args += ['--mode=' + mode]
-      bundletool.RunBundleTool(cmd_args)
+
+      with tempfile.NamedTemporaryFile(suffix='.json') as spec_file:
+        if device_spec:
+          json.dump(device_spec, spec_file)
+          spec_file.flush()
+          cmd_args += ['--device-spec=' + spec_file.name]
+        bundletool.RunBundleTool(cmd_args)
+
+      # Make the resulting .apks file hermetic.
+      with build_utils.TempDir() as temp_dir, \
+        build_utils.AtomicOutput(bundle_apks_path, only_if_changed=False) as f:
+        files = build_utils.ExtractAll(tmp_apks_file.name, temp_dir)
+        build_utils.DoZip(files, f, base_dir=temp_dir)
 
   if check_for_noop:
     # NOTE: BUNDLETOOL_JAR_PATH is added to input_strings, rather than

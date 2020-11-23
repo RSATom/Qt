@@ -90,7 +90,7 @@ public:
     Constructs a new SVG display widget with the given \a parent.
 */
 QSvgWidget::QSvgWidget(QWidget *parent)
-    : QWidget(*new QSvgWidgetPrivate, parent, 0)
+    : QWidget(*new QSvgWidgetPrivate, parent, {})
 {
     d_func()->renderer = new QSvgRenderer(this);
     QObject::connect(d_func()->renderer, SIGNAL(repaintNeeded()),
@@ -102,7 +102,7 @@ QSvgWidget::QSvgWidget(QWidget *parent)
     of the specified \a file.
 */
 QSvgWidget::QSvgWidget(const QString &file, QWidget *parent)
-    : QWidget(*new QSvgWidgetPrivate, parent, 0)
+    : QWidget(*new QSvgWidgetPrivate, parent, {})
 {
     d_func()->renderer = new QSvgRenderer(file, this);
     QObject::connect(d_func()->renderer, SIGNAL(repaintNeeded()),

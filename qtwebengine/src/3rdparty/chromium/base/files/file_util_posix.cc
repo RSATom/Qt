@@ -15,7 +15,6 @@
 #include <string.h>
 #include <sys/mman.h>
 #include <sys/param.h>
-#include <sys/stat.h>
 #include <sys/time.h>
 #include <sys/types.h>
 #include <time.h>
@@ -31,6 +30,7 @@
 #include "base/files/scoped_file.h"
 #include "base/logging.h"
 #include "base/memory/singleton.h"
+#include "base/numerics/safe_conversions.h"
 #include "base/path_service.h"
 #include "base/posix/eintr_wrapper.h"
 #include "base/stl_util.h"
@@ -42,6 +42,7 @@
 #include "base/system/sys_info.h"
 #include "base/threading/scoped_blocking_call.h"
 #include "base/time/time.h"
+#include "build/branding_buildflags.h"
 #include "build/build_config.h"
 
 #if defined(OS_MACOSX)
@@ -68,36 +69,13 @@ namespace base {
 
 namespace {
 
-#if defined(OS_BSD) || defined(OS_MACOSX) || defined(OS_NACL) || \
-  defined(OS_FUCHSIA) || (defined(OS_ANDROID) && __ANDROID_API__ < 21)
-int CallStat(const char* path, stat_wrapper_t* sb) {
-  ScopedBlockingCall scoped_blocking_call(FROM_HERE, BlockingType::MAY_BLOCK);
-  return stat(path, sb);
-}
-#if !defined(OS_NACL_NONSFI)
-int CallLstat(const char* path, stat_wrapper_t* sb) {
-  ScopedBlockingCall scoped_blocking_call(FROM_HERE, BlockingType::MAY_BLOCK);
-  return lstat(path, sb);
-}
-#endif
-#else
-int CallStat(const char* path, stat_wrapper_t* sb) {
-  ScopedBlockingCall scoped_blocking_call(FROM_HERE, BlockingType::MAY_BLOCK);
-  return stat64(path, sb);
-}
-int CallLstat(const char* path, stat_wrapper_t* sb) {
-  ScopedBlockingCall scoped_blocking_call(FROM_HERE, BlockingType::MAY_BLOCK);
-  return lstat64(path, sb);
-}
-#endif
-
 #if !defined(OS_NACL_NONSFI)
 // Helper for VerifyPathControlledByUser.
 bool VerifySpecificPathControlledByUser(const FilePath& path,
                                         uid_t owner_uid,
                                         const std::set<gid_t>& group_gids) {
   stat_wrapper_t stat_info;
-  if (CallLstat(path.value().c_str(), &stat_info) != 0) {
+  if (File::Lstat(path.value().c_str(), &stat_info) != 0) {
     DPLOG(ERROR) << "Failed to get information on path "
                  << path.value();
     return false;
@@ -133,7 +111,7 @@ std::string TempFileName() {
   return StringPrintf(".%s.XXXXXX", base::mac::BaseBundleID());
 #endif
 
-#if defined(GOOGLE_CHROME_BUILD)
+#if BUILDFLAG(GOOGLE_CHROME_BRANDING)
   return std::string(".com.google.Chrome.XXXXXX");
 #else
   return std::string(".org.chromium.Chromium.XXXXXX");
@@ -142,7 +120,7 @@ std::string TempFileName() {
 
 bool AdvanceEnumeratorWithStat(FileEnumerator* traversal,
                                FilePath* out_next_path,
-                               struct stat* out_next_stat) {
+                               stat_wrapper_t* out_next_stat) {
   DCHECK(out_next_path);
   DCHECK(out_next_stat);
   *out_next_path = traversal->Next();
@@ -216,9 +194,9 @@ bool DoCopyDirectory(const FilePath& from_path,
 
   // We have to mimic windows behavior here. |to_path| may not exist yet,
   // start the loop with |to_path|.
-  struct stat from_stat;
+  stat_wrapper_t from_stat;
   FilePath current = from_path;
-  if (stat(from_path.value().c_str(), &from_stat) < 0) {
+  if (File::Stat(from_path.value().c_str(), &from_stat) < 0) {
     DPLOG(ERROR) << "CopyDirectory() couldn't stat source directory: "
                  << from_path.value();
     return false;
@@ -269,8 +247,8 @@ bool DoCopyDirectory(const FilePath& from_path,
       return false;
     }
 
-    struct stat stat_at_use;
-    if (fstat(infile.GetPlatformFile(), &stat_at_use) < 0) {
+    stat_wrapper_t stat_at_use;
+    if (File::Fstat(infile.GetPlatformFile(), &stat_at_use) < 0) {
       DPLOG(ERROR) << "CopyDirectory() couldn't stat file: " << current.value();
       return false;
     }
@@ -318,37 +296,12 @@ bool DoCopyDirectory(const FilePath& from_path,
 
   return true;
 }
-#endif  // !defined(OS_NACL_NONSFI)
-
-#if !defined(OS_MACOSX)
-// Appends |mode_char| to |mode| before the optional character set encoding; see
-// https://www.gnu.org/software/libc/manual/html_node/Opening-Streams.html for
-// details.
-std::string AppendModeCharacter(StringPiece mode, char mode_char) {
-  std::string result(mode.as_string());
-  size_t comma_pos = result.find(',');
-  result.insert(comma_pos == std::string::npos ? result.length() : comma_pos, 1,
-                mode_char);
-  return result;
-}
-#endif
-
-}  // namespace
-
-#if !defined(OS_NACL_NONSFI)
-FilePath MakeAbsoluteFilePath(const FilePath& input) {
-  ScopedBlockingCall scoped_blocking_call(FROM_HERE, BlockingType::MAY_BLOCK);
-  char full_path[PATH_MAX];
-  if (realpath(input.value().c_str(), full_path) == nullptr)
-    return FilePath();
-  return FilePath(full_path);
-}
 
 // TODO(erikkay): The Windows version of this accepts paths like "foo/bar/*"
 // which works both with and without the recursive flag.  I'm not sure we need
 // that functionality. If not, remove from file_util_win.cc, otherwise add it
 // here.
-bool DeleteFile(const FilePath& path, bool recursive) {
+bool DoDeleteFile(const FilePath& path, bool recursive) {
   ScopedBlockingCall scoped_blocking_call(FROM_HERE, BlockingType::MAY_BLOCK);
 
 #if defined(OS_ANDROID)
@@ -358,7 +311,7 @@ bool DeleteFile(const FilePath& path, bool recursive) {
 
   const char* path_str = path.value().c_str();
   stat_wrapper_t file_info;
-  if (CallLstat(path_str, &file_info) != 0) {
+  if (File::Lstat(path_str, &file_info) != 0) {
     // The Windows version defines this condition as success.
     return (errno == ENOENT || errno == ENOTDIR);
   }
@@ -387,6 +340,39 @@ bool DeleteFile(const FilePath& path, bool recursive) {
     success &= (rmdir(dir.value().c_str()) == 0);
   }
   return success;
+}
+#endif  // !defined(OS_NACL_NONSFI)
+
+#if !defined(OS_MACOSX)
+// Appends |mode_char| to |mode| before the optional character set encoding; see
+// https://www.gnu.org/software/libc/manual/html_node/Opening-Streams.html for
+// details.
+std::string AppendModeCharacter(StringPiece mode, char mode_char) {
+  std::string result(mode.as_string());
+  size_t comma_pos = result.find(',');
+  result.insert(comma_pos == std::string::npos ? result.length() : comma_pos, 1,
+                mode_char);
+  return result;
+}
+#endif
+
+}  // namespace
+
+#if !defined(OS_NACL_NONSFI)
+FilePath MakeAbsoluteFilePath(const FilePath& input) {
+  ScopedBlockingCall scoped_blocking_call(FROM_HERE, BlockingType::MAY_BLOCK);
+  char full_path[PATH_MAX];
+  if (realpath(input.value().c_str(), full_path) == nullptr)
+    return FilePath();
+  return FilePath(full_path);
+}
+
+bool DeleteFile(const FilePath& path, bool recursive) {
+  return DoDeleteFile(path, recursive);
+}
+
+bool DeleteFileRecursively(const FilePath& path) {
+  return DoDeleteFile(path, /*recursive=*/true);
 }
 
 bool ReplaceFile(const FilePath& from_path,
@@ -493,7 +479,7 @@ bool PathIsWritable(const FilePath& path) {
 bool DirectoryExists(const FilePath& path) {
   ScopedBlockingCall scoped_blocking_call(FROM_HERE, BlockingType::MAY_BLOCK);
   stat_wrapper_t file_info;
-  if (CallStat(path.value().c_str(), &file_info) != 0)
+  if (File::Stat(path.value().c_str(), &file_info) != 0)
     return false;
   return S_ISDIR(file_info.st_mode);
 }
@@ -512,8 +498,8 @@ bool ReadFromFD(int fd, char* buffer, size_t bytes) {
 
 #if !defined(OS_NACL_NONSFI)
 
-int CreateAndOpenFdForTemporaryFileInDir(const FilePath& directory,
-                                         FilePath* path) {
+ScopedFD CreateAndOpenFdForTemporaryFileInDir(const FilePath& directory,
+                                              FilePath* path) {
   ScopedBlockingCall scoped_blocking_call(
       FROM_HERE,
       BlockingType::MAY_BLOCK);  // For call to mkstemp().
@@ -522,7 +508,7 @@ int CreateAndOpenFdForTemporaryFileInDir(const FilePath& directory,
   // this should be OK since mkstemp just replaces characters in place
   char* buffer = const_cast<char*>(tmpdir_string.c_str());
 
-  return HANDLE_EINTR(mkstemp(buffer));
+  return ScopedFD(HANDLE_EINTR(mkstemp(buffer)));
 }
 
 #if !defined(OS_FUCHSIA)
@@ -557,7 +543,7 @@ bool GetPosixFilePermissions(const FilePath& path, int* mode) {
   stat_wrapper_t file_info;
   // Uses stat(), because on symbolic link, lstat() does not return valid
   // permission bits in st_mode
-  if (CallStat(path.value().c_str(), &file_info) != 0)
+  if (File::Stat(path.value().c_str(), &file_info) != 0)
     return false;
 
   *mode = file_info.st_mode & FILE_PERMISSION_MASK;
@@ -571,7 +557,7 @@ bool SetPosixFilePermissions(const FilePath& path,
 
   // Calls stat() so that we can preserve the higher bits like S_ISGID.
   stat_wrapper_t stat_buf;
-  if (CallStat(path.value().c_str(), &stat_buf) != 0)
+  if (File::Stat(path.value().c_str(), &stat_buf) != 0)
     return false;
 
   // Clears the existing permission bits, and adds the new ones.
@@ -651,23 +637,21 @@ FilePath GetHomeDir() {
 #endif  // !defined(OS_MACOSX)
 
 bool CreateTemporaryFile(FilePath* path) {
-  ScopedBlockingCall scoped_blocking_call(
-      FROM_HERE, BlockingType::MAY_BLOCK);  // For call to close().
+  // For call to close() inside ScopedFD.
+  ScopedBlockingCall scoped_blocking_call(FROM_HERE, BlockingType::MAY_BLOCK);
   FilePath directory;
   if (!GetTempDir(&directory))
     return false;
-  int fd = CreateAndOpenFdForTemporaryFileInDir(directory, path);
-  if (fd < 0)
-    return false;
-  close(fd);
-  return true;
+  ScopedFD fd = CreateAndOpenFdForTemporaryFileInDir(directory, path);
+  return fd.is_valid();
 }
 
 FILE* CreateAndOpenTemporaryFileInDir(const FilePath& dir, FilePath* path) {
-  int fd = CreateAndOpenFdForTemporaryFileInDir(dir, path);
-  if (fd < 0)
+  ScopedFD scoped_fd = CreateAndOpenFdForTemporaryFileInDir(dir, path);
+  if (!scoped_fd.is_valid())
     return nullptr;
 
+  int fd = scoped_fd.release();
   FILE* file = fdopen(fd, "a+");
   if (!file)
     close(fd);
@@ -675,10 +659,10 @@ FILE* CreateAndOpenTemporaryFileInDir(const FilePath& dir, FilePath* path) {
 }
 
 bool CreateTemporaryFileInDir(const FilePath& dir, FilePath* temp_file) {
-  ScopedBlockingCall scoped_blocking_call(
-      FROM_HERE, BlockingType::MAY_BLOCK);  // For call to close().
-  int fd = CreateAndOpenFdForTemporaryFileInDir(dir, temp_file);
-  return ((fd >= 0) && !IGNORE_EINTR(close(fd)));
+  // For call to close() inside ScopedFD.
+  ScopedBlockingCall scoped_blocking_call(FROM_HERE, BlockingType::MAY_BLOCK);
+  ScopedFD fd = CreateAndOpenFdForTemporaryFileInDir(dir, temp_file);
+  return fd.is_valid();
 }
 
 static bool CreateTemporaryDirInDirImpl(const FilePath& base_dir,
@@ -775,7 +759,7 @@ bool IsLink(const FilePath& file_path) {
   stat_wrapper_t st;
   // If we can't lstat the file, it's safe to assume that the file won't at
   // least be a 'followable' link.
-  if (CallLstat(file_path.value().c_str(), &st) != 0)
+  if (File::Lstat(file_path.value().c_str(), &st) != 0)
     return false;
   return S_ISLNK(st.st_mode);
 }
@@ -790,7 +774,7 @@ bool GetFileInfo(const FilePath& file_path, File::Info* results) {
     return file.GetInfo(results);
   } else {
 #endif  // defined(OS_ANDROID)
-    if (CallStat(file_path.value().c_str(), &file_info) != 0)
+    if (File::Stat(file_path.value().c_str(), &file_info) != 0)
       return false;
 #if defined(OS_ANDROID)
   }
@@ -922,9 +906,9 @@ bool AllocateFileRegion(File* file, int64_t offset, size_t size) {
 
   // Manually realize the extended file by writing bytes to it at intervals.
   int64_t block_size = 512;  // Start with something safe.
-  struct stat statbuf;
-  if (fstat(file->GetPlatformFile(), &statbuf) == 0 && statbuf.st_blksize > 0 &&
-      base::bits::IsPowerOfTwo(statbuf.st_blksize)) {
+  stat_wrapper_t statbuf;
+  if (File::Fstat(file->GetPlatformFile(), &statbuf) == 0 &&
+      statbuf.st_blksize > 0 && base::bits::IsPowerOfTwo(statbuf.st_blksize)) {
     block_size = statbuf.st_blksize;
   }
 
@@ -1122,6 +1106,34 @@ bool CopyFile(const FilePath& from_path, const FilePath& to_path) {
 }
 #endif  // !defined(OS_MACOSX)
 
+bool PreReadFile(const FilePath& file_path,
+                 bool is_executable,
+                 int64_t max_bytes) {
+  DCHECK_GE(max_bytes, 0);
+
+  // ChromeOS is also covered by OS_LINUX.
+  // posix_fadvise() is only available in the Android NDK in API 21+. Older
+  // versions may have the required kernel support, but don't have enough usage
+  // to justify backporting.
+#if defined(OS_LINUX) || (defined(OS_ANDROID) && __ANDROID_API__ >= 21)
+  File file(file_path, File::FLAG_OPEN | File::FLAG_READ);
+  if (!file.IsValid())
+    return false;
+
+  if (max_bytes == 0) {
+    // fadvise() pre-fetches the entire file when given a zero length.
+    return true;
+  }
+
+  const PlatformFile fd = file.GetPlatformFile();
+  const ::off_t len = base::saturated_cast<::off_t>(max_bytes);
+  return posix_fadvise(fd, /*offset=*/0, len, POSIX_FADV_WILLNEED) == 0;
+#else
+  // TODO(pwnall): Fall back to madvise() for macOS.
+  return internal::PreReadFileSlow(file_path, max_bytes);
+#endif  // defined(OS_LINUX) || (defined(OS_ANDROID) && __ANDROID_API__ >= 21)
+}
+
 // -----------------------------------------------------------------------------
 
 namespace internal {
@@ -1131,9 +1143,9 @@ bool MoveUnsafe(const FilePath& from_path, const FilePath& to_path) {
   // Windows compatibility: if |to_path| exists, |from_path| and |to_path|
   // must be the same type, either both files, or both directories.
   stat_wrapper_t to_file_info;
-  if (CallStat(to_path.value().c_str(), &to_file_info) == 0) {
+  if (File::Stat(to_path.value().c_str(), &to_file_info) == 0) {
     stat_wrapper_t from_file_info;
-    if (CallStat(from_path.value().c_str(), &from_file_info) != 0)
+    if (File::Stat(from_path.value().c_str(), &from_file_info) != 0)
       return false;
     if (S_ISDIR(to_file_info.st_mode) != S_ISDIR(from_file_info.st_mode))
       return false;
@@ -1145,7 +1157,7 @@ bool MoveUnsafe(const FilePath& from_path, const FilePath& to_path) {
   if (!CopyDirectory(from_path, to_path, true))
     return false;
 
-  DeleteFile(from_path, true);
+  DeleteFileRecursively(from_path);
   return true;
 }
 
@@ -1158,7 +1170,7 @@ BASE_EXPORT bool IsPathExecutable(const FilePath& path) {
   bool result = false;
   FilePath tmp_file_path;
 
-  ScopedFD fd(CreateAndOpenFdForTemporaryFileInDir(path, &tmp_file_path));
+  ScopedFD fd = CreateAndOpenFdForTemporaryFileInDir(path, &tmp_file_path);
   if (fd.is_valid()) {
     DeleteFile(tmp_file_path, false);
     long sysconf_result = sysconf(_SC_PAGESIZE);

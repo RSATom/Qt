@@ -8,11 +8,12 @@
 #include <string>
 
 #include "components/optimization_guide/proto/hints.pb.h"
+#include "net/nqe/effective_connection_type.h"
 
 class GURL;
 
 namespace optimization_guide {
-class HintUpdateData;
+class StoreUpdateData;
 
 // Returns the string representation of the optimization type.
 std::string GetStringNameForOptimizationType(
@@ -41,11 +42,15 @@ const proto::PageHint* FindPageHintForURL(const GURL& gurl,
 std::string HashHostForDictionary(const std::string& host);
 
 // Verifies and processes |hints| and places the ones it supports into
-// |hint_update_data|.
+// |update_data|.
 //
-// Returns true if there was at least one hint moved into |hint_update_data|.
+// Returns true if there was at least one hint moved into |update_data|.
 bool ProcessHints(google::protobuf::RepeatedPtrField<proto::Hint>* hints,
-                  HintUpdateData* hint_update_data);
+                  StoreUpdateData* update_data);
+
+// Converts |proto_ect| into a net::EffectiveConnectionType.
+net::EffectiveConnectionType ConvertProtoEffectiveConnectionType(
+    proto::EffectiveConnectionType proto_ect);
 
 }  // namespace optimization_guide
 

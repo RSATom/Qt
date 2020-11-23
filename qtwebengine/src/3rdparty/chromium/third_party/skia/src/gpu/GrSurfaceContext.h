@@ -13,13 +13,13 @@
 #include "include/core/SkRect.h"
 #include "include/core/SkRefCnt.h"
 #include "include/core/SkSurface.h"
-#include "src/gpu/GrColorSpaceInfo.h"
+#include "src/gpu/GrColorInfo.h"
 #include "src/gpu/GrDataUtils.h"
 #include "src/gpu/GrSurfaceProxy.h"
+#include "src/gpu/GrSurfaceProxyView.h"
 
 class GrAuditTrail;
 class GrDrawingManager;
-class GrOpList;
 class GrRecordingContext;
 class GrRenderTargetContext;
 class GrRenderTargetProxy;
@@ -34,15 +34,22 @@ struct SkIRect;
 /**
  * A helper object to orchestrate commands for a particular surface
  */
-class SK_API GrSurfaceContext : public SkRefCnt {
+class GrSurfaceContext {
 public:
-    ~GrSurfaceContext() override {}
+    virtual ~GrSurfaceContext() = default;
 
-    const GrColorSpaceInfo& colorSpaceInfo() const { return fColorSpaceInfo; }
+    const GrColorInfo& colorInfo() const { return fColorInfo; }
+    GrSurfaceOrigin origin() const { return fOrigin; }
+    const GrSwizzle& textureSwizzle() const { return fTextureSwizzle; }
+    GrSurfaceProxyView textureSurfaceView() {
+        return { this->asSurfaceProxyRef(), fOrigin, fTextureSwizzle };
+    }
 
     // TODO: these two calls would be way cooler if this object had a GrSurfaceProxy pointer
     int width() const { return this->asSurfaceProxy()->width(); }
     int height() const { return this->asSurfaceProxy()->height(); }
+
+    const GrCaps* caps() const;
 
     /**
      * Reads a rectangle of pixels from the render target context.
@@ -53,7 +60,7 @@ public:
      * @param direct        The direct context to use. If null will use our GrRecordingContext if it
      *                      is a GrDirectContext and fail otherwise.
      */
-    bool readPixels(const GrPixelInfo& dstInfo, void* dst, size_t rowBytes, SkIPoint srcPt,
+    bool readPixels(const GrImageInfo& dstInfo, void* dst, size_t rowBytes, SkIPoint srcPt,
                     GrContext* direct = nullptr);
 
     /**
@@ -66,7 +73,7 @@ public:
      * @param direct        The direct context to use. If null will use our GrRecordingContext if it
      *                      is a GrDirectContext and fail otherwise.
      */
-    bool writePixels(const GrPixelInfo& srcInfo, const void* src, size_t rowBytes, SkIPoint dstPt,
+    bool writePixels(const GrImageInfo& srcInfo, const void* src, size_t rowBytes, SkIPoint dstPt,
                      GrContext* direct = nullptr);
 
     // TODO: this is virtual b.c. this object doesn't have a pointer to the wrapped GrSurfaceProxy?
@@ -99,26 +106,41 @@ public:
     }
 #endif
 
-
 protected:
     friend class GrSurfaceContextPriv;
 
-    GrSurfaceContext(GrRecordingContext*, GrColorType, SkAlphaType, sk_sp<SkColorSpace>);
+    GrSurfaceContext(GrRecordingContext*, GrColorType, SkAlphaType, sk_sp<SkColorSpace>,
+                     GrSurfaceOrigin, GrSwizzle texSwizzle);
 
     GrDrawingManager* drawingManager();
     const GrDrawingManager* drawingManager() const;
 
-    virtual GrOpList* getOpList() = 0;
     SkDEBUGCODE(virtual void validate() const = 0;)
 
     SkDEBUGCODE(GrSingleOwner* singleOwner();)
 
     GrRecordingContext* fContext;
 
+    GrSurfaceOrigin fOrigin;
+
     // The rescaling step of asyncRescaleAndReadPixels[YUV420]().
-    sk_sp<GrRenderTargetContext> rescale(const SkImageInfo& info, const SkIRect& srcRect,
-                                         SkSurface::RescaleGamma rescaleGamma,
-                                         SkFilterQuality rescaleQuality);
+    std::unique_ptr<GrRenderTargetContext> rescale(const SkImageInfo& info, const SkIRect& srcRect,
+                                                   SkSurface::RescaleGamma rescaleGamma,
+                                                   SkFilterQuality rescaleQuality);
+
+    // Inserts a transfer, part of the implementation of asyncReadPixels and
+    // asyncRescaleAndReadPixelsYUV420().
+    struct PixelTransferResult {
+        using ConversionFn = void(void* dst, const void* mappedBuffer);
+        // If null then the transfer could not be performed. Otherwise this buffer will contain
+        // the pixel data when the transfer is complete.
+        sk_sp<GrGpuBuffer> fTransferBuffer;
+        // If this is null then the transfer buffer will contain the data in the requested
+        // color type. Otherwise, when the transfer is done this must be called to convert
+        // from the transfer buffer's color type to the requested color type.
+        std::function<ConversionFn> fPixelConverter;
+    };
+    PixelTransferResult transferPixels(GrColorType colorType, const SkIRect& rect);
 
 private:
     friend class GrSurfaceProxy; // for copy
@@ -141,10 +163,11 @@ private:
     bool copy(GrSurfaceProxy* src, const SkIRect& srcRect, const SkIPoint& dstPoint);
 
     bool copy(GrSurfaceProxy* src) {
-        return this->copy(src, SkIRect::MakeWH(src->width(), src->height()), SkIPoint::Make(0, 0));
+        return this->copy(src, SkIRect::MakeSize(src->dimensions()), SkIPoint::Make(0, 0));
     }
 
-    GrColorSpaceInfo    fColorSpaceInfo;
+    GrColorInfo fColorInfo;
+    GrSwizzle fTextureSwizzle;
 
     typedef SkRefCnt INHERITED;
 };

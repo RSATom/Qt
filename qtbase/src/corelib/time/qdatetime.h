@@ -1,6 +1,6 @@
 /****************************************************************************
 **
-** Copyright (C) 2019 The Qt Company Ltd.
+** Copyright (C) 2020 The Qt Company Ltd.
 ** Copyright (C) 2016 Intel Corporation.
 ** Contact: https://www.qt.io/licensing/
 **
@@ -55,7 +55,9 @@ Q_FORWARD_DECLARE_OBJC_CLASS(NSDate);
 QT_BEGIN_NAMESPACE
 
 class QCalendar;
+#if QT_CONFIG(timezone)
 class QTimeZone;
+#endif
 class QDateTime;
 
 class Q_CORE_EXPORT QDate // ### Qt 6: change to be used by value, not const &
@@ -110,14 +112,19 @@ public:
         static QString longDayName(int weekday, MonthNameType type = DateFormat);
 #endif // textdate && deprecated
 #if QT_CONFIG(datestring)
-    QString toString(Qt::DateFormat f = Qt::TextDate) const;
+    QString toString(Qt::DateFormat format = Qt::TextDate) const;
+#if QT_DEPRECATED_SINCE(5, 15)
+    // Only the deprecated locale-dependent formats use the calendar.
+    QT_DEPRECATED_X("Use QLocale or omit the calendar")
+    QString toString(Qt::DateFormat format, QCalendar cal) const;
+#endif
+
 #if QT_STRINGVIEW_LEVEL < 2
     QString toString(const QString &format) const;
     QString toString(const QString &format, QCalendar cal) const;
 #endif
 
     QString toString(QStringView format) const;
-    QString toString(Qt::DateFormat f, QCalendar cal) const;
     QString toString(QStringView format, QCalendar cal) const;
 #endif
 #if QT_DEPRECATED_SINCE(5,0)
@@ -287,7 +294,9 @@ class Q_CORE_EXPORT QDateTime
 
 public:
     QDateTime() noexcept(Data::CanBeSmall);
-    explicit QDateTime(const QDate &); // ### Qt 6: plain QDate, QTime
+#if QT_DEPRECATED_SINCE(5, 15) // ### Qt 6: remove
+    QT_DEPRECATED_X("Use QDate::startOfDay()") explicit QDateTime(const QDate &);
+#endif
     QDateTime(const QDate &, const QTime &, Qt::TimeSpec spec = Qt::LocalTime);
     // ### Qt 6: Merge with above with default offsetSeconds = 0
     QDateTime(const QDate &date, const QTime &time, Qt::TimeSpec spec, int offsetSeconds);
@@ -330,11 +339,13 @@ public:
     void setSecsSinceEpoch(qint64 secs);
 
 #if QT_CONFIG(datestring)
-    QString toString(Qt::DateFormat f = Qt::TextDate) const;
+    QString toString(Qt::DateFormat format = Qt::TextDate) const;
 #if QT_STRINGVIEW_LEVEL < 2
     QString toString(const QString &format) const;
+    QString toString(const QString &format, QCalendar cal) const;
 #endif
     QString toString(QStringView format) const;
+    QString toString(QStringView format, QCalendar cal) const;
 #endif
     Q_REQUIRED_RESULT QDateTime addDays(qint64 days) const;
     Q_REQUIRED_RESULT QDateTime addMonths(int months) const;
@@ -380,7 +391,9 @@ public:
     static QDateTime fromTime_t(uint secsSince1Jan1970UTC);
     static QDateTime fromTime_t(uint secsSince1Jan1970UTC, Qt::TimeSpec spec,
                                 int offsetFromUtc = 0);
+#  if QT_CONFIG(timezone)
     static QDateTime fromTime_t(uint secsSince1Jan1970UTC, const QTimeZone &timeZone);
+#  endif
 #endif
 
     static QDateTime fromMSecsSinceEpoch(qint64 msecs);

@@ -15,6 +15,7 @@
 #include "base/win/windows_version.h"
 #include "ui/gfx/native_widget_types.h"
 #include "ui/gl/color_space_utils.h"
+#include "ui/gl/direct_composition_surface_win.h"
 #include "ui/gl/egl_util.h"
 #include "ui/gl/gl_angle_util_win.h"
 #include "ui/gl/gl_context.h"
@@ -40,52 +41,6 @@ namespace {
 // is made current, then this surface will be suspended.
 IDCompositionSurface* g_current_surface = nullptr;
 
-// Returns true if swap chain tearing is supported.
-bool IsSwapChainTearingSupported() {
-  static const bool supported = [] {
-    // Swap chain tearing is used only if vsync is disabled explicitly.
-    if (!base::CommandLine::ForCurrentProcess()->HasSwitch(
-            switches::kDisableGpuVsync))
-      return false;
-
-    // Swap chain tearing is supported only on Windows 10 Anniversary Edition
-    // (Redstone 1) and above.
-    if (base::win::GetVersion() < base::win::Version::WIN10_RS1)
-      return false;
-
-    Microsoft::WRL::ComPtr<ID3D11Device> d3d11_device =
-        QueryD3D11DeviceObjectFromANGLE();
-    if (!d3d11_device) {
-      DLOG(ERROR) << "Not using swap chain tearing because failed to retrieve "
-                     "D3D11 device from ANGLE";
-      return false;
-    }
-    Microsoft::WRL::ComPtr<IDXGIDevice> dxgi_device;
-    d3d11_device.As(&dxgi_device);
-    DCHECK(dxgi_device);
-    Microsoft::WRL::ComPtr<IDXGIAdapter> dxgi_adapter;
-    dxgi_device->GetAdapter(&dxgi_adapter);
-    DCHECK(dxgi_adapter);
-    Microsoft::WRL::ComPtr<IDXGIFactory5> dxgi_factory;
-    if (FAILED(dxgi_adapter->GetParent(IID_PPV_ARGS(&dxgi_factory)))) {
-      DLOG(ERROR) << "Not using swap chain tearing because failed to retrieve "
-                     "IDXGIFactory5 interface";
-      return false;
-    }
-
-    BOOL present_allow_tearing = FALSE;
-    DCHECK(dxgi_factory);
-    if (FAILED(dxgi_factory->CheckFeatureSupport(
-            DXGI_FEATURE_PRESENT_ALLOW_TEARING, &present_allow_tearing,
-            sizeof(present_allow_tearing)))) {
-      DLOG(ERROR)
-          << "Not using swap chain tearing because CheckFeatureSupport failed";
-      return false;
-    }
-    return !!present_allow_tearing;
-  }();
-  return supported;
-}
 }  // namespace
 
 DirectCompositionChildSurfaceWin::DirectCompositionChildSurfaceWin() = default;
@@ -156,9 +111,11 @@ bool DirectCompositionChildSurfaceWin::ReleaseDrawTexture(bool will_discard) {
       dcomp_surface_serial_++;
     } else if (!will_discard) {
       TRACE_EVENT0("gpu", "DirectCompositionChildSurfaceWin::PresentSwapChain");
-      bool allow_tearing = IsSwapChainTearingSupported();
-      UINT interval = first_swap_ || !vsync_enabled_ || allow_tearing ? 0 : 1;
-      UINT flags = allow_tearing ? DXGI_PRESENT_ALLOW_TEARING : 0;
+      const bool use_swap_chain_tearing =
+          DirectCompositionSurfaceWin::AllowTearing();
+      UINT interval =
+          first_swap_ || !vsync_enabled_ || use_swap_chain_tearing ? 0 : 1;
+      UINT flags = use_swap_chain_tearing ? DXGI_PRESENT_ALLOW_TEARING : 0;
       DXGI_PRESENT_PARAMETERS params = {};
       RECT dirty_rect = swap_rect_.ToRECT();
       params.DirtyRectsCount = 1;
@@ -293,6 +250,17 @@ bool DirectCompositionChildSurfaceWin::SetDrawRectangle(
     return false;
   }
 
+  gl::GLContext* context = gl::GLContext::GetCurrent();
+  if (!context) {
+    DLOG(ERROR) << "gl::GLContext::GetCurrent() returned nullptr";
+    return false;
+  }
+  gl::GLSurface* surface = gl::GLSurface::GetCurrent();
+  if (!surface) {
+    DLOG(ERROR) << "gl::GLSurface::GetCurrent() returned nullptr";
+    return false;
+  }
+
   DXGI_FORMAT dxgi_format = ColorSpaceUtils::GetDXGIFormat(color_space_);
 
   if (!dcomp_surface_ && enable_dc_layers_) {
@@ -336,8 +304,9 @@ bool DirectCompositionChildSurfaceWin::SetDrawRectangle(
     desc.AlphaMode = (has_alpha_ || enable_dc_layers_)
                          ? DXGI_ALPHA_MODE_PREMULTIPLIED
                          : DXGI_ALPHA_MODE_IGNORE;
-    desc.Flags =
-        IsSwapChainTearingSupported() ? DXGI_SWAP_CHAIN_FLAG_ALLOW_TEARING : 0;
+    desc.Flags = DirectCompositionSurfaceWin::AllowTearing()
+                     ? DXGI_SWAP_CHAIN_FLAG_ALLOW_TEARING
+                     : 0;
     HRESULT hr = dxgi_factory->CreateSwapChainForComposition(
         d3d11_device_.Get(), &desc, nullptr, &swap_chain_);
     first_swap_ = true;
@@ -398,10 +367,6 @@ bool DirectCompositionChildSurfaceWin::SetDrawRectangle(
 
   // We make current with the same surface (could be the parent), but its
   // handle has changed to |real_surface_|.
-  gl::GLContext* context = gl::GLContext::GetCurrent();
-  DCHECK(context);
-  gl::GLSurface* surface = gl::GLSurface::GetCurrent();
-  DCHECK(surface);
   if (!context->MakeCurrent(surface)) {
     DLOG(ERROR) << "Failed to make current in SetDrawRectangle";
     return false;
@@ -439,8 +404,9 @@ bool DirectCompositionChildSurfaceWin::Resize(const gfx::Size& size,
   // ResizeBuffers can't change alpha blending mode.
   if (swap_chain_ && resize_only) {
     DXGI_FORMAT format = ColorSpaceUtils::GetDXGIFormat(color_space_);
-    UINT flags =
-        IsSwapChainTearingSupported() ? DXGI_SWAP_CHAIN_FLAG_ALLOW_TEARING : 0;
+    UINT flags = DirectCompositionSurfaceWin::AllowTearing()
+                     ? DXGI_SWAP_CHAIN_FLAG_ALLOW_TEARING
+                     : 0;
     HRESULT hr = swap_chain_->ResizeBuffers(2 /* BufferCount */, size.width(),
                                             size.height(), format, flags);
     UMA_HISTOGRAM_BOOLEAN("GPU.DirectComposition.SwapChainResizeResult",

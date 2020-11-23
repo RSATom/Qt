@@ -19,19 +19,19 @@ AuthenticatorSupportedOptions::~AuthenticatorSupportedOptions() = default;
 
 cbor::Value AsCBOR(const AuthenticatorSupportedOptions& options) {
   cbor::Value::MapValue option_map;
-  option_map.emplace(cbor::Value(kResidentKeyMapKey), cbor::Value(options.supports_resident_key));
-  option_map.emplace(cbor::Value(kUserPresenceMapKey), cbor::Value(options.supports_user_presence));
-  option_map.emplace(cbor::Value(kPlatformDeviceMapKey), cbor::Value(options.is_platform_device));
+  option_map.emplace(kResidentKeyMapKey, options.supports_resident_key);
+  option_map.emplace(kUserPresenceMapKey, options.supports_user_presence);
+  option_map.emplace(kPlatformDeviceMapKey, options.is_platform_device);
 
   using UvAvailability =
       AuthenticatorSupportedOptions::UserVerificationAvailability;
 
   switch (options.user_verification_availability) {
     case UvAvailability::kSupportedAndConfigured:
-      option_map.emplace(cbor::Value(kUserVerificationMapKey), cbor::Value(true));
+      option_map.emplace(kUserVerificationMapKey, true);
       break;
     case UvAvailability::kSupportedButNotConfigured:
-      option_map.emplace(cbor::Value(kUserVerificationMapKey), cbor::Value(false));
+      option_map.emplace(kUserVerificationMapKey, false);
       break;
     case UvAvailability::kNotSupported:
       break;
@@ -42,10 +42,10 @@ cbor::Value AsCBOR(const AuthenticatorSupportedOptions& options) {
 
   switch (options.client_pin_availability) {
     case ClientPinAvailability::kSupportedAndPinSet:
-      option_map.emplace(cbor::Value(kClientPinMapKey), cbor::Value(true));
+      option_map.emplace(kClientPinMapKey, true);
       break;
     case ClientPinAvailability::kSupportedButPinNotSet:
-      option_map.emplace(cbor::Value(kClientPinMapKey), cbor::Value(false));
+      option_map.emplace(kClientPinMapKey, false);
       break;
     case ClientPinAvailability::kNotSupported:
       break;

@@ -40,7 +40,9 @@
 #include <QtQml/qqmlextensionplugin.h>
 #include <QtQml/qqml.h>
 
-#include <private/qquickboundaryrule_p.h>
+#include "qquickboundaryrule_p.h"
+
+extern void qml_register_types_Qt_labs_animation();
 
 QT_BEGIN_NAMESPACE
 
@@ -61,17 +63,15 @@ QT_BEGIN_NAMESPACE
 */
 
 //![class decl]
-class QtLabsAnimationPlugin : public QQmlExtensionPlugin
+class QtLabsAnimationPlugin : public QQmlEngineExtensionPlugin
 {
     Q_OBJECT
-    Q_PLUGIN_METADATA(IID QQmlExtensionInterface_iid)
+    Q_PLUGIN_METADATA(IID QQmlEngineExtensionInterface_iid)
 public:
-    QtLabsAnimationPlugin(QObject *parent = nullptr) : QQmlExtensionPlugin(parent) { }
-    void registerTypes(const char *uri) override
+    QtLabsAnimationPlugin(QObject *parent = nullptr) : QQmlEngineExtensionPlugin(parent)
     {
-        Q_ASSERT(QLatin1String(uri) == QLatin1String("Qt.labs.animation"));
-        qmlRegisterType<QQuickBoundaryRule>(uri, 1, 0, "BoundaryRule");
-        qmlRegisterModule(uri, 1, 0);
+        volatile auto registration = &qml_register_types_Qt_labs_animation;
+        Q_UNUSED(registration);
     }
 };
 //![class decl]

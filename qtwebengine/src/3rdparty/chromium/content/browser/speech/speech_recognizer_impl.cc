@@ -10,6 +10,7 @@
 
 #include "base/bind.h"
 #include "base/macros.h"
+#include "base/numerics/ranges.h"
 #include "base/task/post_task.h"
 #include "base/time/time.h"
 #include "build/build_config.h"
@@ -22,7 +23,7 @@
 #include "content/public/browser/speech_recognition_event_listener.h"
 #include "media/audio/audio_system.h"
 #include "media/base/audio_converter.h"
-#include "media/mojo/interfaces/audio_logging.mojom.h"
+#include "media/mojo/mojom/audio_logging.mojom.h"
 #include "services/audio/public/cpp/audio_system_factory.h"
 #include "services/audio/public/cpp/device_factory.h"
 #include "services/service_manager/public/mojom/connector.mojom.h"
@@ -224,22 +225,22 @@ void SpeechRecognizerImpl::StartRecognition(const std::string& device_id) {
   DCHECK(!device_id.empty());
   device_id_ = device_id;
 
-  base::PostTaskWithTraits(FROM_HERE, {BrowserThread::IO},
-                           base::BindOnce(&SpeechRecognizerImpl::DispatchEvent,
-                                          this, FSMEventArgs(EVENT_PREPARE)));
+  base::PostTask(FROM_HERE, {BrowserThread::IO},
+                 base::BindOnce(&SpeechRecognizerImpl::DispatchEvent, this,
+                                FSMEventArgs(EVENT_PREPARE)));
 }
 
 void SpeechRecognizerImpl::AbortRecognition() {
-  base::PostTaskWithTraits(FROM_HERE, {BrowserThread::IO},
-                           base::BindOnce(&SpeechRecognizerImpl::DispatchEvent,
-                                          this, FSMEventArgs(EVENT_ABORT)));
+  base::PostTask(FROM_HERE, {BrowserThread::IO},
+                 base::BindOnce(&SpeechRecognizerImpl::DispatchEvent,
+                                weak_ptr_factory_.GetWeakPtr(),
+                                FSMEventArgs(EVENT_ABORT)));
 }
 
 void SpeechRecognizerImpl::StopAudioCapture() {
-  base::PostTaskWithTraits(
-      FROM_HERE, {BrowserThread::IO},
-      base::BindOnce(&SpeechRecognizerImpl::DispatchEvent, this,
-                     FSMEventArgs(EVENT_STOP_CAPTURE)));
+  base::PostTask(FROM_HERE, {BrowserThread::IO},
+                 base::BindOnce(&SpeechRecognizerImpl::DispatchEvent, this,
+                                FSMEventArgs(EVENT_STOP_CAPTURE)));
 }
 
 bool SpeechRecognizerImpl::IsActive() const {
@@ -277,14 +278,14 @@ void SpeechRecognizerImpl::Capture(const AudioBus* data,
   // Convert audio from native format to fixed format used by WebSpeech.
   FSMEventArgs event_args(EVENT_AUDIO_DATA);
   event_args.audio_data = audio_converter_->Convert(data);
-  base::PostTaskWithTraits(
+  base::PostTask(
       FROM_HERE, {BrowserThread::IO},
       base::BindOnce(&SpeechRecognizerImpl::DispatchEvent, this, event_args));
   // See http://crbug.com/506051 regarding why one extra convert call can
   // sometimes be required. It should be a rare case.
   if (!audio_converter_->data_was_converted()) {
     event_args.audio_data = audio_converter_->Convert(data);
-    base::PostTaskWithTraits(
+    base::PostTask(
         FROM_HERE, {BrowserThread::IO},
         base::BindOnce(&SpeechRecognizerImpl::DispatchEvent, this, event_args));
   }
@@ -295,7 +296,7 @@ void SpeechRecognizerImpl::Capture(const AudioBus* data,
 
 void SpeechRecognizerImpl::OnCaptureError(const std::string& message) {
   FSMEventArgs event_args(EVENT_AUDIO_ERROR);
-  base::PostTaskWithTraits(
+  base::PostTask(
       FROM_HERE, {BrowserThread::IO},
       base::BindOnce(&SpeechRecognizerImpl::DispatchEvent, this, event_args));
 }
@@ -304,7 +305,7 @@ void SpeechRecognizerImpl::OnSpeechRecognitionEngineResults(
     const std::vector<blink::mojom::SpeechRecognitionResultPtr>& results) {
   FSMEventArgs event_args(EVENT_ENGINE_RESULT);
   event_args.engine_results = mojo::Clone(results);
-  base::PostTaskWithTraits(
+  base::PostTask(
       FROM_HERE, {BrowserThread::IO},
       base::BindOnce(&SpeechRecognizerImpl::DispatchEvent, this, event_args));
 }
@@ -318,7 +319,7 @@ void SpeechRecognizerImpl::OnSpeechRecognitionEngineError(
     const blink::mojom::SpeechRecognitionError& error) {
   FSMEventArgs event_args(EVENT_ENGINE_ERROR);
   event_args.engine_error = error;
-  base::PostTaskWithTraits(
+  base::PostTask(
       FROM_HERE, {BrowserThread::IO},
       base::BindOnce(&SpeechRecognizerImpl::DispatchEvent, this, event_args));
 }
@@ -848,15 +849,15 @@ void SpeechRecognizerImpl::UpdateSignalAndNoiseLevels(const float& rms,
   // Perhaps it might be quite expensive on mobile.
   float level = (rms - kAudioMeterMinDb) /
       (kAudioMeterDbRange / kAudioMeterRangeMaxUnclipped);
-  level = std::min(std::max(0.0f, level), kAudioMeterRangeMaxUnclipped);
+  level = base::ClampToRange(level, 0.0f, kAudioMeterRangeMaxUnclipped);
   const float smoothing_factor = (level > audio_level_) ? kUpSmoothingFactor :
                                                           kDownSmoothingFactor;
   audio_level_ += (level - audio_level_) * smoothing_factor;
 
   float noise_level = (endpointer_.NoiseLevelDb() - kAudioMeterMinDb) /
       (kAudioMeterDbRange / kAudioMeterRangeMaxUnclipped);
-  noise_level = std::min(std::max(0.0f, noise_level),
-                         kAudioMeterRangeMaxUnclipped);
+  noise_level =
+      base::ClampToRange(noise_level, 0.0f, kAudioMeterRangeMaxUnclipped);
 
   listener()->OnAudioLevelsChange(
       session_id(), clip_detected ? 1.0f : audio_level_, noise_level);
@@ -879,10 +880,9 @@ void SpeechRecognizerImpl::CreateAudioCapturerSource() {
   if (connector) {
     audio_capturer_source_ = audio::CreateInputDevice(
         connector->Clone(), device_id_,
-        MediaInternals::GetInstance()
-            ->CreateMojoAudioLog(media::AudioLogFactory::AUDIO_INPUT_CONTROLLER,
-                                 0 /* component_id */)
-            .PassInterface());
+        MediaInternals::GetInstance()->CreateMojoAudioLog(
+            media::AudioLogFactory::AUDIO_INPUT_CONTROLLER,
+            0 /* component_id */));
   }
 }
 

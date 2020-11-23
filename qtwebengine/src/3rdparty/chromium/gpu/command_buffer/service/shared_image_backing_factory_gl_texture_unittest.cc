@@ -5,6 +5,7 @@
 #include "gpu/command_buffer/service/shared_image_backing_factory_gl_texture.h"
 
 #include "base/bind_helpers.h"
+#include "base/optional.h"
 #include "components/viz/common/resources/resource_format_utils.h"
 #include "components/viz/common/resources/resource_sizes.h"
 #include "gpu/command_buffer/common/gpu_memory_buffer_support.h"
@@ -29,6 +30,7 @@
 #include "third_party/skia/include/gpu/GrBackendSurface.h"
 #include "ui/gfx/buffer_format_util.h"
 #include "ui/gfx/color_space.h"
+#include "ui/gl/buffer_format_utils.h"
 #include "ui/gl/gl_bindings.h"
 #include "ui/gl/gl_context.h"
 #include "ui/gl/gl_image_shared_memory.h"
@@ -183,31 +185,35 @@ TEST_P(SharedImageBackingFactoryGLTextureTest, Basic) {
   EXPECT_TRUE(skia_representation);
   std::vector<GrBackendSemaphore> begin_semaphores;
   std::vector<GrBackendSemaphore> end_semaphores;
-  auto surface = skia_representation->BeginWriteAccess(
-      0, SkSurfaceProps(0, kUnknown_SkPixelGeometry), &begin_semaphores,
-      &end_semaphores);
+  base::Optional<SharedImageRepresentationSkia::ScopedWriteAccess>
+      scoped_write_access;
+  scoped_write_access.emplace(skia_representation.get(), &begin_semaphores,
+                              &end_semaphores);
+  auto* surface = scoped_write_access->surface();
   EXPECT_TRUE(surface);
   EXPECT_EQ(size.width(), surface->width());
   EXPECT_EQ(size.height(), surface->height());
   EXPECT_TRUE(begin_semaphores.empty());
   EXPECT_TRUE(end_semaphores.empty());
-  skia_representation->EndWriteAccess(std::move(surface));
-  auto promise_texture =
-      skia_representation->BeginReadAccess(&begin_semaphores, &end_semaphores);
+  scoped_write_access.reset();
+
+  base::Optional<SharedImageRepresentationSkia::ScopedReadAccess>
+      scoped_read_access;
+  scoped_read_access.emplace(skia_representation.get(), &begin_semaphores,
+                             &end_semaphores);
+  auto* promise_texture = scoped_read_access->promise_image_texture();
   EXPECT_TRUE(promise_texture);
   EXPECT_TRUE(begin_semaphores.empty());
   EXPECT_TRUE(end_semaphores.empty());
-  if (promise_texture) {
     GrBackendTexture backend_texture = promise_texture->backendTexture();
     EXPECT_TRUE(backend_texture.isValid());
     EXPECT_EQ(size.width(), backend_texture.width());
     EXPECT_EQ(size.height(), backend_texture.height());
-  }
-  skia_representation->EndReadAccess();
-  skia_representation.reset();
+    scoped_read_access.reset();
+    skia_representation.reset();
 
-  shared_image.reset();
-  EXPECT_FALSE(mailbox_manager_.ConsumeTexture(mailbox));
+    shared_image.reset();
+    EXPECT_FALSE(mailbox_manager_.ConsumeTexture(mailbox));
 }
 
 TEST_P(SharedImageBackingFactoryGLTextureTest, Image) {
@@ -290,15 +296,21 @@ TEST_P(SharedImageBackingFactoryGLTextureTest, Image) {
   EXPECT_TRUE(skia_representation);
   std::vector<GrBackendSemaphore> begin_semaphores;
   std::vector<GrBackendSemaphore> end_semaphores;
-  auto surface = skia_representation->BeginWriteAccess(
-      0, SkSurfaceProps(0, kUnknown_SkPixelGeometry), &begin_semaphores,
-      &end_semaphores);
+  base::Optional<SharedImageRepresentationSkia::ScopedWriteAccess>
+      scoped_write_access;
+  scoped_write_access.emplace(skia_representation.get(), &begin_semaphores,
+                              &end_semaphores);
+  auto* surface = scoped_write_access->surface();
   EXPECT_TRUE(surface);
   EXPECT_EQ(size.width(), surface->width());
   EXPECT_EQ(size.height(), surface->height());
-  skia_representation->EndWriteAccess(std::move(surface));
-  auto promise_texture =
-      skia_representation->BeginReadAccess(&begin_semaphores, &end_semaphores);
+  scoped_write_access.reset();
+
+  base::Optional<SharedImageRepresentationSkia::ScopedReadAccess>
+      scoped_read_access;
+  scoped_read_access.emplace(skia_representation.get(), &begin_semaphores,
+                             &end_semaphores);
+  auto* promise_texture = scoped_read_access->promise_image_texture();
   EXPECT_TRUE(promise_texture);
   EXPECT_TRUE(begin_semaphores.empty());
   EXPECT_TRUE(end_semaphores.empty());
@@ -308,7 +320,7 @@ TEST_P(SharedImageBackingFactoryGLTextureTest, Image) {
     EXPECT_EQ(size.width(), backend_texture.width());
     EXPECT_EQ(size.height(), backend_texture.height());
   }
-  skia_representation->EndReadAccess();
+  scoped_read_access.reset();
   skia_representation.reset();
 
   shared_image.reset();
@@ -450,7 +462,7 @@ TEST_P(SharedImageBackingFactoryGLTextureTest, InitialDataWrongSize) {
 
 TEST_P(SharedImageBackingFactoryGLTextureTest, InvalidFormat) {
   auto mailbox = Mailbox::GenerateForSharedImage();
-  auto format = viz::ResourceFormat::UYVY_422;
+  auto format = viz::ResourceFormat::YUV_420_BIPLANAR;
   gfx::Size size(256, 256);
   auto color_space = gfx::ColorSpace::CreateSRGB();
   uint32_t usage = SHARED_IMAGE_USAGE_GLES2;
@@ -550,7 +562,10 @@ class StubImage : public gl::GLImageStub {
 
   gfx::Size GetSize() override { return size_; }
   unsigned GetInternalFormat() override {
-    return InternalFormatForGpuMemoryBufferFormat(format_);
+    return gl::BufferFormatToGLInternalFormat(format_);
+  }
+  unsigned GetDataType() override {
+    return gl::BufferFormatToGLDataType(format_);
   }
 
   BindOrCopy ShouldBindOrCopy() override { return BIND; }

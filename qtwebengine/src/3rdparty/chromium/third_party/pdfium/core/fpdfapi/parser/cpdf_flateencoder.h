@@ -9,7 +9,7 @@
 
 #include <memory>
 
-#include "core/fxcrt/fx_memory.h"
+#include "core/fxcrt/fx_memory_wrappers.h"
 #include "core/fxcrt/maybe_owned.h"
 #include "core/fxcrt/retain_ptr.h"
 #include "third_party/base/span.h"
@@ -40,7 +40,7 @@ class CPDF_FlateEncoder {
   MaybeOwned<uint8_t, FxFreeDeleter> m_pData;
 
   // Only one of these two pointers is valid at any time.
-  UnownedPtr<const CPDF_Dictionary> m_pDict;
+  RetainPtr<const CPDF_Dictionary> m_pDict;
   RetainPtr<CPDF_Dictionary> m_pClonedDict;
 };
 

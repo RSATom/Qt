@@ -16,7 +16,6 @@
 #include "build/build_config.h"
 #include "cc/base/histograms.h"
 #include "cc/trees/layer_tree_frame_sink_client.h"
-#include "components/viz/common/hit_test/hit_test_data_builder.h"
 #include "components/viz/common/hit_test/hit_test_region_list.h"
 #include "components/viz/common/quads/compositor_frame.h"
 #include "components/viz/common/surfaces/frame_sink_id.h"
@@ -163,13 +162,13 @@ void DirectLayerTreeFrameSink::SubmitCompositorFrame(
                          TRACE_EVENT_FLAG_FLOW_OUT, "step",
                          "SubmitHitTestData");
 
-  base::Optional<HitTestRegionList> hit_test_region_list(
-      HitTestDataBuilder::CreateHitTestData(
-          frame, /*root_accepts_events=*/true,
-          /*should_ask_for_child_region=*/false));
+  base::Optional<HitTestRegionList> hit_test_region_list =
+      client_->BuildHitTestData();
 
-  // Do not send duplicate hit-test data.
-  if (!hit_test_data_changed) {
+  if (!hit_test_region_list) {
+    last_hit_test_data_ = HitTestRegionList();
+  } else if (!hit_test_data_changed) {
+    // Do not send duplicate hit-test data.
     if (HitTestRegionList::IsEqual(*hit_test_region_list,
                                    last_hit_test_data_)) {
       DCHECK(!HitTestRegionList::IsEqual(*hit_test_region_list,
@@ -179,7 +178,7 @@ void DirectLayerTreeFrameSink::SubmitCompositorFrame(
       last_hit_test_data_ = *hit_test_region_list;
     }
   } else {
-    last_hit_test_data_ = HitTestRegionList();
+    last_hit_test_data_ = *hit_test_region_list;
   }
 
   support_->SubmitCompositorFrame(
@@ -285,8 +284,7 @@ void DirectLayerTreeFrameSink::OnBeginFrame(
     const BeginFrameArgs& args,
     const FrameTimingDetailsMap& timing_details) {
   for (const auto& pair : timing_details)
-    client_->DidPresentCompositorFrame(pair.first,
-                                       pair.second.presentation_feedback);
+    client_->DidPresentCompositorFrame(pair.first, pair.second);
 
   DCHECK_LE(pipeline_reporting_frame_times_.size(), 25u);
   if (args.trace_id != -1) {

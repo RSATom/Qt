@@ -49,8 +49,8 @@ private slots:
 
 static inline QByteArray msgFileNameMismatch(const QString &f1, const QString &f2)
 {
-    const QString result = QLatin1Char('"') + f1 + QStringLiteral("\" != \"")
-        + f2 + QLatin1Char('"');
+    const QString result = u'"' + f1 + QStringLiteral("\" != \"")
+        + f2 + u'"';
     return result.toLocal8Bit();
 }
 

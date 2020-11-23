@@ -58,6 +58,14 @@
 #include <linux/input.h>
 #endif
 
+#ifndef input_event_sec
+#define input_event_sec time.tv_sec
+#endif
+
+#ifndef input_event_usec
+#define input_event_usec time.tv_usec
+#endif
+
 #include <math.h>
 
 #if QT_CONFIG(mtdev)
@@ -113,16 +121,13 @@ public:
     QList<QWindowSystemInterface::TouchPoint> m_lastTouchPoints;
 
     struct Contact {
-        int trackingId;
-        int x;
-        int y;
-        int maj;
-        int pressure;
-        Qt::TouchPointState state;
+        int trackingId = -1;
+        int x = 0;
+        int y = 0;
+        int maj = -1;
+        int pressure = 0;
+        Qt::TouchPointState state = Qt::TouchPointPressed;
         QTouchEvent::TouchPoint::InfoFlags flags;
-        Contact() : trackingId(-1),
-            x(0), y(0), maj(-1), pressure(0),
-            state(Qt::TouchPointPressed), flags(0) { }
     };
     QHash<int, Contact> m_contacts; // The key is a tracking id for type A, slot number for type B.
     QHash<int, Contact> m_lastContacts;
@@ -576,7 +581,7 @@ void QEvdevTouchScreenData::processInputEvent(input_event *data)
 
         // update timestamps
         m_lastTimeStamp = m_timeStamp;
-        m_timeStamp = data->time.tv_sec + data->time.tv_usec / 1000000.0;
+        m_timeStamp = data->input_event_sec + data->input_event_usec / 1000000.0;
 
         m_lastTouchPoints = m_touchPoints;
         m_touchPoints.clear();

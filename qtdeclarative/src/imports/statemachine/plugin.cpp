@@ -42,35 +42,26 @@
 #include "state.h"
 #include "statemachine.h"
 #include "timeouttransition.h"
+#include "statemachineforeign.h"
 
 #include <QHistoryState>
 #include <QQmlExtensionPlugin>
 #include <qqml.h>
 
+extern void qml_register_types_QtQml_StateMachine();
+
 QT_BEGIN_NAMESPACE
 
-class QtQmlStateMachinePlugin : public QQmlExtensionPlugin
+class QtQmlStateMachinePlugin : public QQmlEngineExtensionPlugin
 {
     Q_OBJECT
-    Q_PLUGIN_METADATA(IID QQmlExtensionInterface_iid)
+    Q_PLUGIN_METADATA(IID QQmlEngineExtensionInterface_iid)
 
 public:
-    QtQmlStateMachinePlugin(QObject *parent = nullptr) : QQmlExtensionPlugin(parent) { }
-    void registerTypes(const char *uri) override
+    QtQmlStateMachinePlugin(QObject *parent = nullptr) : QQmlEngineExtensionPlugin(parent)
     {
-        qmlRegisterType<State>(uri, 1, 0, "State");
-        qmlRegisterType<StateMachine>(uri, 1, 0, "StateMachine");
-        qmlRegisterType<QHistoryState>(uri, 1, 0, "HistoryState");
-        qmlRegisterType<FinalState>(uri, 1, 0, "FinalState");
-        qmlRegisterUncreatableType<QState>(uri, 1, 0, "QState", "Don't use this, use State instead");
-        qmlRegisterUncreatableType<QAbstractState>(uri, 1, 0, "QAbstractState", "Don't use this, use State instead");
-        qmlRegisterUncreatableType<QSignalTransition>(uri, 1, 0, "QSignalTransition", "Don't use this, use SignalTransition instead");
-        qmlRegisterCustomType<SignalTransition>(uri, 1, 0, "SignalTransition", new SignalTransitionParser);
-        qmlRegisterType<TimeoutTransition>(uri, 1, 0, "TimeoutTransition");
-        qmlProtectModule(uri, 1);
-
-        // Auto-increment the import to stay in sync with ALL future QtQuick minor versions from 5.11 onward
-        qmlRegisterModule(uri, 1, QT_VERSION_MINOR);
+        volatile auto registration = &qml_register_types_QtQml_StateMachine;
+        Q_UNUSED(registration);
     }
 };
 

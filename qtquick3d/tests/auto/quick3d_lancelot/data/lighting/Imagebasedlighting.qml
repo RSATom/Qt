@@ -48,9 +48,10 @@
 **
 ****************************************************************************/
 
-import QtQuick3D 1.14
-import QtQuick 2.14
-import QtQuick3D.Materials 1.14
+import QtQuick3D 1.15
+import QtQuick 2.15
+import QtQuick3D.Materials 1.15
+
 import "./materials" as Materials
 
 Rectangle {
@@ -77,8 +78,7 @@ Rectangle {
 
         PerspectiveCamera {
             id: camera
-            position: Qt.vector3d(0, 0, -1000)
-            rotationOrder: Node.YZX
+            position: Qt.vector3d(0, 0, 1000)
             clipFar: 5000
             fieldOfViewOrientation: PerspectiveCamera.Horizontal
         }
@@ -94,12 +94,10 @@ Rectangle {
             id: group
             position: Qt.vector3d(468.305, -129.677, 0)
             scale: Qt.vector3d(2, 2, 2)
-            rotationOrder: Node.YZX
 
             Model {
                 id: cylinder
                 position: Qt.vector3d(-448.399, 78.869, 0)
-                rotationOrder: Node.YZX
                 source: "#Cylinder"
                 
                 
@@ -113,7 +111,6 @@ Rectangle {
             Model {
                 id: cone
                 position: Qt.vector3d(-452.899, -147.545, 0)
-                rotationOrder: Node.YZX
                 source: "#Cone"
                 
                 
@@ -127,7 +124,6 @@ Rectangle {
             Model {
                 id: sphere
                 position: Qt.vector3d(-441.352, 255.317, 0)
-                rotationOrder: Node.YZX
                 source: "#Sphere"
                 
                 
@@ -148,7 +144,6 @@ Rectangle {
             Model {
                 id: defaultOverride
                 position: Qt.vector3d(-233.489, 252.353, 0)
-                rotationOrder: Node.YZX
                 source: "#Sphere"
                 
                 
@@ -177,7 +172,6 @@ Rectangle {
             Model {
                 id: referenceMaterialOverride
                 position: Qt.vector3d(-235.717, 78.869, 0)
-                rotationOrder: Node.YZX
                 source: "#Cylinder"
                 
                 
@@ -199,7 +193,6 @@ Rectangle {
             Model {
                 id: customMaterialOverride
                 position: Qt.vector3d(-245.686, -147.545, 0)
-                rotationOrder: Node.YZX
                 source: "#Cone"
                 
                 
@@ -221,7 +214,6 @@ Rectangle {
             Model {
                 id: defaultMaterialSpecial
                 position: Qt.vector3d(-18.5029, 255.317, 0)
-                rotationOrder: Node.YZX
                 source: "#Sphere"
                 
                 
@@ -252,7 +244,6 @@ Rectangle {
             Model {
                 id: referenceMaterialSpecial
                 position: Qt.vector3d(-14.5576, 78.869, 0)
-                rotationOrder: Node.YZX
                 source: "#Cylinder"
                 
                 
@@ -275,7 +266,6 @@ Rectangle {
             Model {
                 id: customMaterialSpecial
                 position: Qt.vector3d(-17.4744, -147.545, 0)
-                rotationOrder: Node.YZX
                 source: "#Cone"
                 
                 
@@ -315,8 +305,7 @@ Rectangle {
 
         PerspectiveCamera {
             id: camera_001
-            position: Qt.vector3d(0, 0, -1000)
-            rotationOrder: Node.YZX
+            position: Qt.vector3d(0, 0, 1000)
             clipFar: 5000
             fieldOfViewOrientation: PerspectiveCamera.Horizontal
         }
@@ -332,12 +321,10 @@ Rectangle {
             id: group_001
             position: Qt.vector3d(468.305, -129.677, 0)
             scale: Qt.vector3d(2, 2, 2)
-            rotationOrder: Node.YZX
 
             Model {
                 id: referenceMaterial
                 position: Qt.vector3d(-448.399, 78.869, 0)
-                rotationOrder: Node.YZX
                 source: "#Cylinder"
                 
                 
@@ -351,7 +338,6 @@ Rectangle {
             Model {
                 id: customMaterial
                 position: Qt.vector3d(-452.899, -147.545, 0)
-                rotationOrder: Node.YZX
                 source: "#Cone"
                 
                 
@@ -365,7 +351,6 @@ Rectangle {
             Model {
                 id: defaultMaterial
                 position: Qt.vector3d(-441.352, 255.317, 0)
-                rotationOrder: Node.YZX
                 source: "#Sphere"
                 
                 
@@ -386,7 +371,6 @@ Rectangle {
             Model {
                 id: defaultOverride_001
                 position: Qt.vector3d(-233.489, 252.353, 0)
-                rotationOrder: Node.YZX
                 source: "#Sphere"
                 
                 
@@ -415,7 +399,6 @@ Rectangle {
             Model {
                 id: referenceMaterialOverride_001
                 position: Qt.vector3d(-235.717, 78.869, 0)
-                rotationOrder: Node.YZX
                 source: "#Cylinder"
                 
                 
@@ -437,7 +420,6 @@ Rectangle {
             Model {
                 id: customMaterialOverride_001
                 position: Qt.vector3d(-245.686, -147.545, 0)
-                rotationOrder: Node.YZX
                 source: "#Cone"
                 
                 
@@ -459,7 +441,6 @@ Rectangle {
             Model {
                 id: defaultMaterialSpecial_001
                 position: Qt.vector3d(-18.5029, 255.317, 0)
-                rotationOrder: Node.YZX
                 source: "#Sphere"
                 
                 
@@ -490,7 +471,6 @@ Rectangle {
             Model {
                 id: referenceMaterialSpecial_001
                 position: Qt.vector3d(-14.5576, 78.869, 0)
-                rotationOrder: Node.YZX
                 source: "#Cylinder"
                 
                 
@@ -513,7 +493,6 @@ Rectangle {
             Model {
                 id: customMaterialSpecial_001
                 position: Qt.vector3d(-17.4744, -147.545, 0)
-                rotationOrder: Node.YZX
                 source: "#Cone"
                 
                 

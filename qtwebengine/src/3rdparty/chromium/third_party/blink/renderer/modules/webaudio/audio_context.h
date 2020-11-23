@@ -13,6 +13,7 @@
 #include "third_party/blink/renderer/modules/webaudio/audio_context_options.h"
 #include "third_party/blink/renderer/modules/webaudio/base_audio_context.h"
 #include "third_party/blink/renderer/platform/heap/handle.h"
+#include "third_party/blink/renderer/platform/heap/self_keep_alive.h"
 
 namespace blink {
 
@@ -133,7 +134,18 @@ class MODULES_EXPORT AudioContext : public BaseAudioContext {
   // Record the current autoplay metrics.
   void RecordAutoplayMetrics();
 
+  // Starts rendering via AudioDestinationNode. This sets the self-referencing
+  // pointer to this object.
+  void StartRendering() override;
+
+  // Called when the context is being closed to stop rendering audio and clean
+  // up handlers. This clears the self-referencing pointer, making this object
+  // available for the potential GC.
   void StopRendering();
+
+  // Called when suspending the context to stop reundering audio, but don't
+  // clean up handlers because we expect to be resuming where we left off.
+  void SuspendRendering();
 
   void DidClose();
 
@@ -176,6 +188,9 @@ class MODULES_EXPORT AudioContext : public BaseAudioContext {
   // Represents whether a context is suspended by explicit |context.suspend()|.
   bool suspended_by_user_ = false;
 
+  // baseLatency for this context
+  double base_latency_ = 0;
+
   // AudioContextManager for reporting audibility.
   mojo::Remote<mojom::blink::AudioContextManager> audio_context_manager_;
 
@@ -187,6 +202,8 @@ class MODULES_EXPORT AudioContext : public BaseAudioContext {
   // determine audibility on render quantum boundaries, so counting quanta is
   // all that's needed.
   size_t total_audible_renders_ = 0;
+
+  SelfKeepAlive<AudioContext> keep_alive_;
 };
 
 }  // namespace blink

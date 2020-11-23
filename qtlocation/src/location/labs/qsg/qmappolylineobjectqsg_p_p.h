@@ -68,6 +68,7 @@ public:
     QList<QDoubleVector2D> projectPath();
 
     // QQSGMapObject
+    void markSourceDirty();
     void updateGeometry() override;
     QSGNode *updateMapObjectNode(QSGNode *oldNode,
                                  VisibleNode **visibleNode,
@@ -84,10 +85,12 @@ public:
     QGeoMapObjectPrivate *clone() override;
     virtual QGeoShape geoShape() const override;
 
+    unsigned int zoomForLOD(int zoom) const;
+
     // Data Members
-    QGeoPathEager m_geoPath;
-    QGeoMapPolylineGeometry m_geometry;
-    bool m_updatingGeometry = false;
+    QDoubleVector2D m_leftBoundMercator;
+    QGeoMapPolylineGeometryOpenGL m_borderGeometry;
+    MapPolylineNodeOpenGLExtruded *m_polylinenode = nullptr;
 };
 
 QT_END_NAMESPACE

@@ -169,13 +169,6 @@ QVector3D mat44::getPosition(const QMatrix4x4 &m)
     return QVector3D(m(0, 3), m(1, 3), m(2, 3));
 }
 
-QVector3D mat44::getRotation(const QMatrix4x4 &m, EulerOrder order)
-{
-    const QMatrix3x3 rotationMatrix = mat44::getUpper3x3(m);
-    const QVector3D radians = QSSGEulerAngleConverter::calculateRotationVector(rotationMatrix, false, order);
-    return radToDeg(radians);
-}
-
 QVector3D mat44::getScale(const QMatrix4x4 &m)
 {
     const float scaleX = m.column(0).length();
@@ -233,26 +226,6 @@ QVector3D quant::inverseRotated(const QQuaternion &q, const QVector3D &v)
 const char *nonNull(const char *src)
 {
     return src == nullptr ? "" : src;
-}
-
-float radToDeg(const float a)
-{
-    return 57.29577951308232286465f * a;
-}
-
-double radToDeg(const double a)
-{
-    return 57.29577951308232286465 * a;
-}
-
-float degToRad(const float a)
-{
-    return 0.01745329251994329547f * a;
-}
-
-double degToRad(const double a)
-{
-    return 0.01745329251994329547 * a;
 }
 
 QT_END_NAMESPACE

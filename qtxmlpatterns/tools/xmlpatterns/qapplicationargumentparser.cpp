@@ -245,7 +245,7 @@ bool QApplicationArgumentParserPrivate::error(const QString &message)
 bool QApplicationArgumentParserPrivate::errorMessage(const QString &message)
 {
     QTextStream out(stderr, QIODevice::WriteOnly);
-    out << message << endl;
+    out << message << Qt::endl;
     return false;
 }
 
@@ -290,7 +290,7 @@ void QApplicationArgumentParserPrivate::displayVersion() const
     QTextStream out(stderr);
 
     out << tr("%1 version %2 using Qt %3").arg(QCoreApplication::applicationName(), applicationVersion, QString::fromLatin1(qVersion()))
-        << endl;
+        << Qt::endl;
 }
 
 void QApplicationArgumentParserPrivate::displayHelp() const
@@ -356,16 +356,16 @@ void QApplicationArgumentParserPrivate::displayHelp() const
     }
 
     QTextStream out(stderr);
-    out << endl
+    out << Qt::endl
         << QString(IndentPadding, QLatin1Char(' '))
         << QCoreApplication::applicationName()
         << QLatin1String(" -- ")
         << applicationDescription
-        << endl;
+        << Qt::endl;
     // TODO synopsis
 
     /* One extra so we get some space between the overview and the options. */
-    out << endl;
+    out << Qt::endl;
 
     const int indentWidth = maxWidth + 3;
 
@@ -408,7 +408,7 @@ void QApplicationArgumentParserPrivate::displayHelp() const
 
         out << prolog
             << lineWrap(at.description(), indentWidth, LineWrapAt)
-            << endl;
+            << Qt::endl;
     }
 }
 

@@ -346,41 +346,12 @@ TEST_F(DebugDumpTest, ToggleAec) {
   generator.StartRecording();
   generator.Process(100);
 
-  apm_config.echo_canceller.enabled = true;
+  apm_config.echo_canceller.enabled = false;
   generator.apm()->ApplyConfig(apm_config);
 
   generator.Process(100);
   generator.StopRecording();
   VerifyDebugDump(generator.dump_file_name());
-}
-
-TEST_F(DebugDumpTest, VerifyRefinedAdaptiveFilterExperimentalString) {
-  Config config;
-  AudioProcessing::Config apm_config;
-  apm_config.echo_canceller.enabled = true;
-  apm_config.echo_canceller.use_legacy_aec = true;
-  config.Set<RefinedAdaptiveFilter>(new RefinedAdaptiveFilter(true));
-  DebugDumpGenerator generator(config, apm_config);
-  generator.StartRecording();
-  generator.Process(100);
-  generator.StopRecording();
-
-  DebugDumpReplayer debug_dump_replayer_;
-
-  ASSERT_TRUE(debug_dump_replayer_.SetDumpFile(generator.dump_file_name()));
-
-  while (const absl::optional<audioproc::Event> event =
-             debug_dump_replayer_.GetNextEvent()) {
-    debug_dump_replayer_.RunNextEvent();
-    if (event->type() == audioproc::Event::CONFIG) {
-      const audioproc::Config* msg = &event->config();
-      ASSERT_TRUE(msg->has_experiments_description());
-      EXPECT_PRED_FORMAT2(::testing::IsSubstring, "RefinedAdaptiveFilter",
-                          msg->experiments_description().c_str());
-      EXPECT_PRED_FORMAT2(::testing::IsSubstring, "Legacy AEC",
-                          msg->experiments_description().c_str());
-    }
-  }
 }
 
 TEST_F(DebugDumpTest, VerifyCombinedExperimentalStringInclusive) {
@@ -406,8 +377,6 @@ TEST_F(DebugDumpTest, VerifyCombinedExperimentalStringInclusive) {
       ASSERT_TRUE(msg->has_experiments_description());
       EXPECT_PRED_FORMAT2(::testing::IsSubstring, "EchoController",
                           msg->experiments_description().c_str());
-      EXPECT_PRED_FORMAT2(::testing::IsNotSubstring, "Legacy AEC",
-                          msg->experiments_description().c_str());
       EXPECT_PRED_FORMAT2(::testing::IsSubstring, "AgcClippingLevelExperiment",
                           msg->experiments_description().c_str());
     }
@@ -418,7 +387,6 @@ TEST_F(DebugDumpTest, VerifyCombinedExperimentalStringExclusive) {
   Config config;
   AudioProcessing::Config apm_config;
   apm_config.echo_canceller.enabled = true;
-  apm_config.echo_canceller.use_legacy_aec = true;
   DebugDumpGenerator generator(config, apm_config);
   generator.StartRecording();
   generator.Process(100);
@@ -434,8 +402,6 @@ TEST_F(DebugDumpTest, VerifyCombinedExperimentalStringExclusive) {
     if (event->type() == audioproc::Event::CONFIG) {
       const audioproc::Config* msg = &event->config();
       ASSERT_TRUE(msg->has_experiments_description());
-      EXPECT_PRED_FORMAT2(::testing::IsNotSubstring, "EchoController",
-                          msg->experiments_description().c_str());
       EXPECT_PRED_FORMAT2(::testing::IsNotSubstring,
                           "AgcClippingLevelExperiment",
                           msg->experiments_description().c_str());
@@ -462,8 +428,6 @@ TEST_F(DebugDumpTest, VerifyAec3ExperimentalString) {
     if (event->type() == audioproc::Event::CONFIG) {
       const audioproc::Config* msg = &event->config();
       ASSERT_TRUE(msg->has_experiments_description());
-      EXPECT_PRED_FORMAT2(::testing::IsNotSubstring, "Legacy AEC",
-                          msg->experiments_description().c_str());
       EXPECT_PRED_FORMAT2(::testing::IsSubstring, "EchoController",
                           msg->experiments_description().c_str());
     }
@@ -529,8 +493,9 @@ TEST_F(DebugDumpTest, MAYBE_ToggleAgc) {
   generator.StartRecording();
   generator.Process(100);
 
-  GainControl* agc = generator.apm()->gain_control();
-  EXPECT_EQ(AudioProcessing::kNoError, agc->Enable(!agc->is_enabled()));
+  AudioProcessing::Config apm_config = generator.apm()->GetConfig();
+  apm_config.gain_controller1.enabled = !apm_config.gain_controller1.enabled;
+  generator.apm()->ApplyConfig(apm_config);
 
   generator.Process(100);
   generator.StopRecording();

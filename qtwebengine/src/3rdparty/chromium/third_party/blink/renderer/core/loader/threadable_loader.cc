@@ -67,11 +67,11 @@
 #include "third_party/blink/renderer/platform/loader/fetch/resource_loader.h"
 #include "third_party/blink/renderer/platform/loader/fetch/resource_loader_options.h"
 #include "third_party/blink/renderer/platform/loader/fetch/resource_request.h"
-#include "third_party/blink/renderer/platform/shared_buffer.h"
 #include "third_party/blink/renderer/platform/weborigin/scheme_registry.h"
 #include "third_party/blink/renderer/platform/weborigin/security_origin.h"
 #include "third_party/blink/renderer/platform/weborigin/security_policy.h"
 #include "third_party/blink/renderer/platform/wtf/assertions.h"
+#include "third_party/blink/renderer/platform/wtf/shared_buffer.h"
 
 namespace blink {
 
@@ -104,7 +104,7 @@ AtomicString CreateAccessControlRequestHeadersHeader(
 // ThreadableLoader. It's for fetch requests with keepalive set, so
 // it keeps itself alive during loading.
 class ThreadableLoader::DetachedClient final
-    : public GarbageCollectedFinalized<DetachedClient>,
+    : public GarbageCollected<DetachedClient>,
       public ThreadableLoaderClient {
   USING_GARBAGE_COLLECTED_MIXIN(DetachedClient);
 
@@ -170,14 +170,8 @@ ThreadableLoader::CreateAccessControlPreflightRequest(
   preflight_request->SetRequestContext(request.GetRequestContext());
   preflight_request->SetCredentialsMode(network::mojom::CredentialsMode::kOmit);
   preflight_request->SetSkipServiceWorker(true);
-  preflight_request->SetReferrerString(
-      request.ReferrerString(),
-      ResourceRequest::SetReferrerStringLocation::
-          kThreadableLoaderCreateAccessControlPreflightRequest);
-  preflight_request->SetReferrerPolicy(
-      request.GetReferrerPolicy(),
-      ResourceRequest::SetReferrerPolicyLocation::
-          kThreadableLoaderCreateAccessControlPreflightRequest);
+  preflight_request->SetReferrerString(request.ReferrerString());
+  preflight_request->SetReferrerPolicy(request.GetReferrerPolicy());
 
   if (request.IsExternalRequest()) {
     preflight_request->SetHttpHeaderField(
@@ -256,6 +250,7 @@ void ThreadableLoader::Start(const ResourceRequest& request) {
     SECURITY_CHECK(cors::IsNoCorsAllowedContext(request_context_));
   }
   cors_flag_ = cors::CalculateCorsFlag(request.Url(), GetSecurityOrigin(),
+                                       request.IsolatedWorldOrigin().get(),
                                        request.GetMode());
 
   // The CORS flag variable is not yet used at the step in the spec that
@@ -349,12 +344,8 @@ void ThreadableLoader::PrepareCrossOriginRequest(
     request.SetHTTPOrigin(GetSecurityOrigin());
 
   if (override_referrer_) {
-    request.SetReferrerString(referrer_after_redirect_.referrer,
-                              ResourceRequest::SetReferrerStringLocation::
-                                  kThreadableLoaderPrepareCrossOriginRequest);
-    request.SetReferrerPolicy(referrer_after_redirect_.referrer_policy,
-                              ResourceRequest::SetReferrerPolicyLocation::
-                                  kThreadableLoaderPrepareCrossOriginRequest);
+    request.SetReferrerString(referrer_after_redirect_.referrer);
+    request.SetReferrerPolicy(referrer_after_redirect_.referrer_policy);
   }
 }
 
@@ -623,12 +614,15 @@ bool ThreadableLoader::RedirectReceived(
 
     // Allow same origin requests to continue after allowing clients to audit
     // the redirect.
-    if (!(cors_flag_ || cors::CalculateCorsFlag(new_url, GetSecurityOrigin(),
-                                                new_request.GetMode()))) {
+    if (!(cors_flag_ ||
+          cors::CalculateCorsFlag(new_url, GetSecurityOrigin(),
+                                  new_request.IsolatedWorldOrigin().get(),
+                                  new_request.GetMode()))) {
       bool follow =
           client_->WillFollowRedirect(new_url, redirect_response_to_pass);
       response_tainting_ = cors::CalculateResponseTainting(
-          new_url, new_request.GetMode(), GetSecurityOrigin(), CorsFlag::Unset);
+          new_url, new_request.GetMode(), GetSecurityOrigin(),
+          new_request.IsolatedWorldOrigin().get(), CorsFlag::Unset);
       return follow;
     }
 
@@ -667,7 +661,7 @@ bool ThreadableLoader::RedirectReceived(
           SecurityOrigin::Create(original_url);
       scoped_refptr<const SecurityOrigin> new_origin =
           SecurityOrigin::Create(new_url);
-      if (!original_origin->IsSameSchemeHostPort(new_origin.get()))
+      if (!original_origin->IsSameOriginWith(new_origin.get()))
         security_origin_ = SecurityOrigin::CreateUniqueOpaque();
     }
 
@@ -733,15 +727,6 @@ void ThreadableLoader::DataDownloaded(Resource* resource,
 
   checker_.DataDownloaded();
   client_->DidDownloadData(data_length);
-}
-
-void ThreadableLoader::DidReceiveResourceTiming(
-    Resource* resource,
-    const ResourceTimingInfo& info) {
-  DCHECK(client_);
-  DCHECK_EQ(resource, GetResource());
-
-  client_->DidReceiveResourceTiming(info);
 }
 
 void ThreadableLoader::DidDownloadToBlob(Resource* resource,
@@ -1034,6 +1019,7 @@ void ThreadableLoader::LoadRequest(
     if (actual_request_.IsNull()) {
       response_tainting_ = cors::CalculateResponseTainting(
           request.Url(), request.GetMode(), GetSecurityOrigin(),
+          request.IsolatedWorldOrigin().get(),
           cors_flag_ ? CorsFlag::Set : CorsFlag::Unset);
       request.SetAllowStoredCredentials(cors::CalculateCredentialsFlag(
           request.GetCredentialsMode(), response_tainting_));

@@ -37,11 +37,13 @@ RetainPtr<CFGAS_GEFont> CFGAS_GEFont::LoadFont(const wchar_t* pszFontFamily,
 }
 
 // static
-RetainPtr<CFGAS_GEFont> CFGAS_GEFont::LoadFont(CPDF_Font* pPDFFont,
-                                               CFGAS_FontMgr* pFontMgr) {
+RetainPtr<CFGAS_GEFont> CFGAS_GEFont::LoadFont(
+    const RetainPtr<CPDF_Font>& pPDFFont,
+    CFGAS_FontMgr* pFontMgr) {
   auto pFont = pdfium::MakeRetain<CFGAS_GEFont>(pFontMgr);
-  if (!pFont->LoadFontInternal(pPDFFont->GetFont()))
+  if (!pFont->LoadFontInternal(pPDFFont))
     return nullptr;
+
   return pFont;
 }
 
@@ -53,6 +55,16 @@ RetainPtr<CFGAS_GEFont> CFGAS_GEFont::LoadFont(
   if (!pFont->LoadFontInternal(std::move(pInternalFont)))
     return nullptr;
   return pFont;
+}
+
+// static
+RetainPtr<CFGAS_GEFont> CFGAS_GEFont::LoadStockFont(
+    CPDF_Document* pDoc,
+    CFGAS_FontMgr* pMgr,
+    const ByteString& font_family) {
+  RetainPtr<CPDF_Font> stock_font =
+      CPDF_Font::GetStockFont(pDoc, font_family.AsStringView());
+  return stock_font ? CFGAS_GEFont::LoadFont(stock_font, pMgr) : nullptr;
 }
 
 CFGAS_GEFont::CFGAS_GEFont(CFGAS_FontMgr* pFontMgr) : m_pFontMgr(pFontMgr) {}
@@ -70,11 +82,11 @@ bool CFGAS_GEFont::LoadFontInternal(const wchar_t* pszFontFamily,
     csFontFamily = WideString(pszFontFamily).ToDefANSI();
 
   int32_t iWeight =
-      FontStyleIsBold(dwFontStyles) ? FXFONT_FW_BOLD : FXFONT_FW_NORMAL;
+      FontStyleIsForceBold(dwFontStyles) ? FXFONT_FW_BOLD : FXFONT_FW_NORMAL;
   m_pFont = pdfium::MakeUnique<CFX_Font>();
-  if (FontStyleIsItalic(dwFontStyles) && FontStyleIsBold(dwFontStyles))
+  if (FontStyleIsItalic(dwFontStyles) && FontStyleIsForceBold(dwFontStyles))
     csFontFamily += ",BoldItalic";
-  else if (FontStyleIsBold(dwFontStyles))
+  else if (FontStyleIsForceBold(dwFontStyles))
     csFontFamily += ",Bold";
   else if (FontStyleIsItalic(dwFontStyles))
     csFontFamily += ",Italic";
@@ -85,12 +97,17 @@ bool CFGAS_GEFont::LoadFontInternal(const wchar_t* pszFontFamily,
 }
 #endif  // defined(OS_WIN)
 
-bool CFGAS_GEFont::LoadFontInternal(CFX_Font* pExternalFont) {
+bool CFGAS_GEFont::LoadFontInternal(const RetainPtr<CPDF_Font>& pPDFFont) {
+  CFX_Font* pExternalFont = pPDFFont->GetFont();
   if (m_pFont || !pExternalFont)
     return false;
 
   m_pFont = pExternalFont;
-  return InitFont();
+  if (!InitFont())
+    return false;
+
+  m_pPDFFont = pPDFFont;  // Keep pPDFFont alive for the duration.
+  return true;
 }
 
 bool CFGAS_GEFont::LoadFontInternal(std::unique_ptr<CFX_Font> pInternalFont) {
@@ -130,12 +147,10 @@ uint32_t CFGAS_GEFont::GetFontStyles() const {
   auto* pSubstFont = m_pFont->GetSubstFont();
   if (pSubstFont) {
     if (pSubstFont->m_Weight == FXFONT_FW_BOLD)
-      dwStyles |= FXFONT_BOLD;
-    if (pSubstFont->m_bFlagItalic)
-      dwStyles |= FXFONT_ITALIC;
+      dwStyles |= FXFONT_FORCE_BOLD;
   } else {
     if (m_pFont->IsBold())
-      dwStyles |= FXFONT_BOLD;
+      dwStyles |= FXFONT_FORCE_BOLD;
     if (m_pFont->IsItalic())
       dwStyles |= FXFONT_ITALIC;
   }

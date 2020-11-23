@@ -59,7 +59,7 @@ private slots:
         serverProc.setProcessChannelMode(QProcess::ForwardedChannels);
         serverProc.start(findExecutable("sslTestServer", {
             QCoreApplication::applicationDirPath() + "/../sslTestServer/"
-        }));
+        }), QStringList());
         QVERIFY(serverProc.waitForStarted());
 
         // wait for server start
@@ -76,7 +76,7 @@ private slots:
         socketClient->connectToHostEncrypted(QStringLiteral("127.0.0.1"), 65111);
         QVERIFY(socketClient->waitForEncrypted(-1));
 
-        connect(socketClient.data(), QOverload<QAbstractSocket::SocketError>::of(&QSslSocket::error),
+        connect(socketClient.data(), &QSslSocket::errorOccurred,
                 socketClient.data(), [](QAbstractSocket::SocketError error){
             QCOMPARE(error, QAbstractSocket::RemoteHostClosedError);
         });

@@ -57,6 +57,8 @@ class QQuickGridLayoutBase : public QQuickLayout
     Q_OBJECT
 
     Q_PROPERTY(Qt::LayoutDirection layoutDirection READ layoutDirection WRITE setLayoutDirection NOTIFY layoutDirectionChanged REVISION 1)
+    QML_ANONYMOUS
+    QML_ADDED_IN_MINOR_VERSION(1)
 
 public:
 
@@ -142,6 +144,7 @@ class QQuickGridLayout : public QQuickGridLayoutBase
     Q_PROPERTY(int columns READ columns WRITE setColumns NOTIFY columnsChanged)
     Q_PROPERTY(int rows READ rows WRITE setRows NOTIFY rowsChanged)
     Q_PROPERTY(Flow flow READ flow WRITE setFlow NOTIFY flowChanged)
+    QML_NAMED_ELEMENT(GridLayout)
 public:
     explicit QQuickGridLayout(QQuickItem *parent = 0);
     qreal columnSpacing() const;
@@ -225,6 +228,7 @@ public:
 class QQuickRowLayout : public QQuickLinearLayout
 {
     Q_OBJECT
+    QML_NAMED_ELEMENT(RowLayout)
 
 public:
     explicit QQuickRowLayout(QQuickItem *parent = 0)
@@ -240,6 +244,7 @@ public:
 class QQuickColumnLayout : public QQuickLinearLayout
 {
     Q_OBJECT
+    QML_NAMED_ELEMENT(ColumnLayout)
 
 public:
     explicit QQuickColumnLayout(QQuickItem *parent = 0)

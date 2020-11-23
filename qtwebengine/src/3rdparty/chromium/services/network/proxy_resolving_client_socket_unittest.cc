@@ -13,8 +13,9 @@
 #include "base/run_loop.h"
 #include "base/strings/stringprintf.h"
 #include "base/strings/utf_string_conversions.h"
-#include "base/test/scoped_task_environment.h"
+#include "base/test/task_environment.h"
 #include "base/threading/thread_task_runner_handle.h"
+#include "net/base/network_isolation_key.h"
 #include "net/base/test_completion_callback.h"
 #include "net/dns/mock_host_resolver.h"
 #include "net/proxy_resolution/mock_proxy_resolver.h"
@@ -70,7 +71,7 @@ class ProxyResolvingClientSocketTest
     base::RunLoop().RunUntilIdle();
   }
 
-  base::test::ScopedTaskEnvironment scoped_task_environment_;
+  base::test::TaskEnvironment task_environment_;
   TestURLRequestContextWithProxy context_with_proxy_;
   net::MockClientSocketFactory mock_client_socket_factory_;
   const bool use_tls_;
@@ -465,16 +466,16 @@ TEST_P(ProxyResolvingClientSocketTest, MultiroundAuth) {
           ->GetSession()
           ->http_auth_cache();
 
-  auth_cache->Add(GURL("http://bad:99"), "test_realm",
-                  net::HttpAuth::AUTH_SCHEME_BASIC,
-                  "Basic realm=\"test_realm\"",
+  auth_cache->Add(GURL("http://bad:99"), net::HttpAuth::AUTH_PROXY,
+                  "test_realm", net::HttpAuth::AUTH_SCHEME_BASIC,
+                  net::NetworkIsolationKey(), "Basic realm=\"test_realm\"",
                   net::AuthCredentials(base::ASCIIToUTF16("user"),
                                        base::ASCIIToUTF16("password")),
                   std::string());
 
-  auth_cache->Add(GURL("http://bad:99"), "test_realm2",
-                  net::HttpAuth::AUTH_SCHEME_BASIC,
-                  "Basic realm=\"test_realm2\"",
+  auth_cache->Add(GURL("http://bad:99"), net::HttpAuth::AUTH_PROXY,
+                  "test_realm2", net::HttpAuth::AUTH_SCHEME_BASIC,
+                  net::NetworkIsolationKey(), "Basic realm=\"test_realm2\"",
                   net::AuthCredentials(base::ASCIIToUTF16("user2"),
                                        base::ASCIIToUTF16("password2")),
                   std::string());
@@ -529,9 +530,9 @@ TEST_P(ProxyResolvingClientSocketTest, ReusesHTTPAuthCache_Lookup) {
   // We are adding these credentials at an empty path so that it won't be picked
   // up by the preemptive authentication step and will only be picked up via
   // origin + realm + scheme lookup.
-  auth_cache->Add(GURL("http://bad:99"), "test_realm",
-                  net::HttpAuth::AUTH_SCHEME_BASIC,
-                  "Basic realm=\"test_realm\"",
+  auth_cache->Add(GURL("http://bad:99"), net::HttpAuth::AUTH_PROXY,
+                  "test_realm", net::HttpAuth::AUTH_SCHEME_BASIC,
+                  net::NetworkIsolationKey(), "Basic realm=\"test_realm\"",
                   net::AuthCredentials(base::ASCIIToUTF16("user"),
                                        base::ASCIIToUTF16("password")),
                   std::string());
@@ -563,9 +564,9 @@ TEST_P(ProxyResolvingClientSocketTest, FactoryUsesLatestHTTPAuthCache) {
   // We are adding these credentials at an empty path so that it won't be picked
   // up by the preemptive authentication step and will only be picked up via
   // origin + realm + scheme lookup.
-  auth_cache->Add(GURL("http://bad:99"), "test_realm",
-                  net::HttpAuth::AUTH_SCHEME_BASIC,
-                  "Basic realm=\"test_realm\"",
+  auth_cache->Add(GURL("http://bad:99"), net::HttpAuth::AUTH_PROXY,
+                  "test_realm", net::HttpAuth::AUTH_SCHEME_BASIC,
+                  net::NetworkIsolationKey(), "Basic realm=\"test_realm\"",
                   net::AuthCredentials(base::ASCIIToUTF16("user"),
                                        base::ASCIIToUTF16("password")),
                   std::string());
@@ -627,9 +628,9 @@ TEST_P(ProxyResolvingClientSocketTest, ReusesHTTPAuthCache_Preemptive) {
           ->GetSession()
           ->http_auth_cache();
 
-  auth_cache->Add(GURL("http://bad:99"), "test_realm",
-                  net::HttpAuth::AUTH_SCHEME_BASIC,
-                  "Basic realm=\"test_realm\"",
+  auth_cache->Add(GURL("http://bad:99"), net::HttpAuth::AUTH_PROXY,
+                  "test_realm", net::HttpAuth::AUTH_SCHEME_BASIC,
+                  net::NetworkIsolationKey(), "Basic realm=\"test_realm\"",
                   net::AuthCredentials(base::ASCIIToUTF16("user"),
                                        base::ASCIIToUTF16("password")),
                   "/");
@@ -791,7 +792,7 @@ class ReconsiderProxyAfterErrorTest
 
   ~ReconsiderProxyAfterErrorTest() override {}
 
-  base::test::ScopedTaskEnvironment scoped_task_environment_;
+  base::test::TaskEnvironment task_environment_;
   net::MockClientSocketFactory mock_client_socket_factory_;
   TestURLRequestContextWithProxy context_with_proxy_;
   const bool use_tls_;

@@ -133,9 +133,9 @@ bool tls13_process_certificate(SSL_HANDSHAKE *hs, const SSLMessage &msg,
     }
 
     ssl_cert_decompression_func_t decompress = nullptr;
-    for (const auto* alg : ssl->ctx->cert_compression_algs.get()) {
-      if (alg->alg_id == alg_id) {
-        decompress = alg->decompress;
+    for (const auto &alg : ssl->ctx->cert_compression_algs) {
+      if (alg.alg_id == alg_id) {
+        decompress = alg.decompress;
         break;
       }
     }
@@ -384,21 +384,20 @@ bool tls13_process_finished(SSL_HANDSHAKE *hs, const SSLMessage &msg,
                             bool use_saved_value) {
   SSL *const ssl = hs->ssl;
   uint8_t verify_data_buf[EVP_MAX_MD_SIZE];
-  const uint8_t *verify_data;
-  size_t verify_data_len;
+  Span<const uint8_t> verify_data;
   if (use_saved_value) {
     assert(ssl->server);
-    verify_data = hs->expected_client_finished;
-    verify_data_len = hs->hash_len;
+    verify_data = hs->expected_client_finished();
   } else {
-    if (!tls13_finished_mac(hs, verify_data_buf, &verify_data_len,
-                            !ssl->server)) {
+    size_t len;
+    if (!tls13_finished_mac(hs, verify_data_buf, &len, !ssl->server)) {
       return false;
     }
-    verify_data = verify_data_buf;
+    verify_data = MakeConstSpan(verify_data_buf, len);
   }
 
-  bool finished_ok = CBS_mem_equal(&msg.body, verify_data, verify_data_len);
+  bool finished_ok =
+      CBS_mem_equal(&msg.body, verify_data.data(), verify_data.size());
 #if defined(BORINGSSL_UNSAFE_FUZZER_MODE)
   finished_ok = true;
 #endif
@@ -518,9 +517,9 @@ bool tls13_add_certificate(SSL_HANDSHAKE *hs) {
   }
 
   const CertCompressionAlg *alg = nullptr;
-  for (const auto *candidate : ssl->ctx->cert_compression_algs.get()) {
-    if (candidate->alg_id == hs->cert_compression_alg_id) {
-      alg = candidate;
+  for (const auto &candidate : ssl->ctx->cert_compression_algs) {
+    if (candidate.alg_id == hs->cert_compression_alg_id) {
+      alg = &candidate;
       break;
     }
   }

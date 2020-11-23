@@ -42,7 +42,7 @@ const char kErrorCannotRemoveManifestRules[] =
 base::Value RulesToValue(const std::vector<const api::events::Rule*>& rules) {
   base::Value value(base::Value::Type::LIST);
   for (const auto* rule : rules)
-    value.GetList().push_back(std::move(*rule->ToValue()));
+    value.Append(std::move(*rule->ToValue()));
   return value;
 }
 
@@ -348,7 +348,7 @@ void RulesRegistry::ProcessChangedRules(const std::string& extension_id) {
 
   std::vector<const api::events::Rule*> new_rules;
   GetRules(extension_id, &rules_, &new_rules);
-  base::PostTaskWithTraits(
+  base::PostTask(
       FROM_HERE, {content::BrowserThread::UI},
       base::BindOnce(&RulesCacheDelegate::UpdateRules, cache_delegate_,
                      extension_id, RulesToValue(new_rules)));

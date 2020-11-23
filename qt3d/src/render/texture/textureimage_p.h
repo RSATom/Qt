@@ -70,7 +70,7 @@ class TextureImageDataManager;
  * Backend class for QAbstractTextureImage.
  * Will only hold the generator and some info values.
  */
-class Q_AUTOTEST_EXPORT TextureImage : public BackendNode
+class Q_3DRENDERSHARED_PRIVATE_EXPORT TextureImage : public BackendNode
 {
 public:
     TextureImage();
@@ -117,7 +117,7 @@ inline QDebug operator<<(QDebug dbg, const TextureImage &textureImage)
         << "mip level =" << textureImage.mipLevel()
         << "layer =" << textureImage.layer()
         << "cube face =" << textureImage.face()
-        << "dataGenerator =" << textureImage.dataGenerator() << endl;
+        << "dataGenerator =" << textureImage.dataGenerator() << Qt::endl;
     return dbg;
 }
 #endif

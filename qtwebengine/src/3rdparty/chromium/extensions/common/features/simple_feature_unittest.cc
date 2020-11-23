@@ -22,6 +22,7 @@
 #include "extensions/common/features/feature_session_type.h"
 #include "extensions/common/manifest.h"
 #include "extensions/common/manifest_handlers/background_info.h"
+#include "extensions/common/scoped_worker_based_extensions_channel.h"
 #include "extensions/common/switches.h"
 #include "extensions/common/value_builder.h"
 #include "testing/gtest/include/gtest/gtest.h"
@@ -548,6 +549,8 @@ TEST_F(SimpleFeatureTest, Location) {
                                   Manifest::COMPONENT));
   EXPECT_TRUE(
       LocationIsAvailable(SimpleFeature::POLICY_LOCATION, Manifest::COMPONENT));
+  EXPECT_TRUE(LocationIsAvailable(SimpleFeature::UNPACKED_LOCATION,
+                                  Manifest::COMPONENT));
 
   // Only component extensions can access the "component" location.
   EXPECT_FALSE(LocationIsAvailable(SimpleFeature::COMPONENT_LOCATION,
@@ -583,6 +586,15 @@ TEST_F(SimpleFeatureTest, Location) {
   // location.
   EXPECT_TRUE(LocationIsAvailable(SimpleFeature::EXTERNAL_COMPONENT_LOCATION,
                                   Manifest::EXTERNAL_COMPONENT));
+
+  // Only unpacked and command line extensions can access the "unpacked"
+  // location.
+  EXPECT_TRUE(LocationIsAvailable(SimpleFeature::UNPACKED_LOCATION,
+                                  Manifest::UNPACKED));
+  EXPECT_TRUE(LocationIsAvailable(SimpleFeature::UNPACKED_LOCATION,
+                                  Manifest::COMMAND_LINE));
+  EXPECT_FALSE(LocationIsAvailable(SimpleFeature::UNPACKED_LOCATION,
+                                   Manifest::INTERNAL));
 }
 
 TEST_F(SimpleFeatureTest, Platform) {
@@ -991,33 +1003,28 @@ TEST(SimpleFeatureUnitTest, TestExperimentalExtensionApisSwitch) {
 }
 
 TEST(SimpleFeatureUnitTest, DisallowForServiceWorkers) {
-  // Service Worker features are only available on the trunk.
-  ScopedCurrentChannel current_channel_override(version_info::Channel::UNKNOWN);
+  ScopedWorkerBasedExtensionsChannel worker_channel_override;
 
   SimpleFeature feature;
   feature.set_name("somefeature");
   feature.set_contexts({Feature::BLESSED_EXTENSION_CONTEXT});
   feature.set_extension_types({Manifest::TYPE_EXTENSION});
 
-  constexpr char script_file[] = "script.js";
-
-  auto extension =
-      ExtensionBuilder("test")
-          .SetManifestPath({"background", "service_worker"}, script_file)
-          .Build();
+  auto extension = ExtensionBuilder("test")
+                       .SetBackgroundContext(
+                           ExtensionBuilder::BackgroundContext::SERVICE_WORKER)
+                       .Build();
   ASSERT_TRUE(extension.get());
   EXPECT_TRUE(BackgroundInfo::IsServiceWorkerBased(extension.get()));
 
-  // Expect the feature is not allowed, since the initial state is disallowed.
-  // TODO(crbug.com/979790): This will default to allowed once the transition
-  // to blocklisting unsupported APIs is complete. This will require swapping
-  // these two EXPECTs.
-  EXPECT_EQ(Feature::INVALID_CONTEXT,
+  // Expect the feature is allowed, since the default is to allow.
+  EXPECT_EQ(Feature::IS_AVAILABLE,
             feature
-                .IsAvailableToContext(extension.get(),
-                                      Feature::BLESSED_EXTENSION_CONTEXT,
-                                      extension->GetResourceURL(script_file),
-                                      Feature::CHROMEOS_PLATFORM)
+                .IsAvailableToContext(
+                    extension.get(), Feature::BLESSED_EXTENSION_CONTEXT,
+                    extension->GetResourceURL(
+                        ExtensionBuilder::kServiceWorkerScriptFile),
+                    Feature::CHROMEOS_PLATFORM)
                 .result());
 
   // Check with a different script file, which should return available,
@@ -1030,14 +1037,15 @@ TEST(SimpleFeatureUnitTest, DisallowForServiceWorkers) {
                                       Feature::CHROMEOS_PLATFORM)
                 .result());
 
-  // Enable the feature for service workers.
-  feature.set_disallow_for_service_workers(false);
-  EXPECT_EQ(Feature::IS_AVAILABLE,
+  // Disable the feature for service workers. The feature should be disallowed.
+  feature.set_disallow_for_service_workers(true);
+  EXPECT_EQ(Feature::INVALID_CONTEXT,
             feature
-                .IsAvailableToContext(extension.get(),
-                                      Feature::BLESSED_EXTENSION_CONTEXT,
-                                      extension->GetResourceURL(script_file),
-                                      Feature::CHROMEOS_PLATFORM)
+                .IsAvailableToContext(
+                    extension.get(), Feature::BLESSED_EXTENSION_CONTEXT,
+                    extension->GetResourceURL(
+                        ExtensionBuilder::kServiceWorkerScriptFile),
+                    Feature::CHROMEOS_PLATFORM)
                 .result());
 }
 

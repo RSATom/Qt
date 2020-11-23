@@ -31,8 +31,8 @@ enum
 {
 	API_VERSION = VK_API_VERSION_1_1,
 	DRIVER_VERSION = VK_MAKE_VERSION(MAJOR_VERSION, MINOR_VERSION, PATCH_VERSION),
-	VENDOR_ID = 0x1AE0, // Google
-	DEVICE_ID = 0xC0DE, // SwiftShader
+	VENDOR_ID = 0x1AE0, // Google, Inc.: https://pcisig.com/google-inc-1
+	DEVICE_ID = 0xC0DE, // SwiftShader (placeholder)
 };
 
 enum
@@ -54,6 +54,7 @@ enum
 	MAX_IMAGE_LEVELS_3D = 11,
 	MAX_IMAGE_LEVELS_CUBE = 14,
 	MAX_IMAGE_ARRAY_LAYERS = 2048,
+	MAX_SAMPLER_LOD_BIAS = 15,
 };
 
 enum
@@ -77,6 +78,15 @@ enum
 	MAX_POINT_SIZE = 1,		// Large points are not supported. If/when we turn this on, must be >= 64.
 };
 
+constexpr int SUBPIXEL_PRECISION_BITS = 4;
+constexpr float SUBPIXEL_PRECISION_FACTOR = static_cast<float>(1 << SUBPIXEL_PRECISION_BITS);
+constexpr int SUBPIXEL_PRECISION_MASK = 0xFFFFFFFF >> (32 - SUBPIXEL_PRECISION_BITS);
+
 }
+
+#if defined(__linux__) || defined(__ANDROID__)
+#define SWIFTSHADER_EXTERNAL_MEMORY_OPAQUE_FD        1
+#define SWIFTSHADER_EXTERNAL_SEMAPHORE_OPAQUE_FD     1
+#endif
 
 #endif // VK_CONFIG_HPP_

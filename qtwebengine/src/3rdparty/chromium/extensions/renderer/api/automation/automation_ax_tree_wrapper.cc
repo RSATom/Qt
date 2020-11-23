@@ -123,6 +123,9 @@ api::automation::EventType ToAutomationEvent(ax::mojom::Event event_type) {
       return api::automation::EVENT_TYPE_TEXTCHANGED;
     case ax::mojom::Event::kTextSelectionChanged:
       return api::automation::EVENT_TYPE_TEXTSELECTIONCHANGED;
+    case ax::mojom::Event::kTooltipClosed:
+    case ax::mojom::Event::kTooltipOpened:
+      return api::automation::EVENT_TYPE_NONE;
     case ax::mojom::Event::kWindowActivated:
       return api::automation::EVENT_TYPE_WINDOWACTIVATED;
     case ax::mojom::Event::kWindowDeactivated:
@@ -424,6 +427,27 @@ ui::AXNode* AutomationAXTreeWrapper::GetUnignoredNodeFromId(int32_t id) {
   return (node && !node->IsIgnored()) ? node : nullptr;
 }
 
+void AutomationAXTreeWrapper::EventListenerAdded(ax::mojom::Event event_type,
+                                                 ui::AXNode* node) {
+  node_id_to_events_[node->id()].insert(event_type);
+}
+
+void AutomationAXTreeWrapper::EventListenerRemoved(ax::mojom::Event event_type,
+                                                   ui::AXNode* node) {
+  auto it = node_id_to_events_.find(node->id());
+  if (it != node_id_to_events_.end())
+    it->second.erase(event_type);
+}
+
+bool AutomationAXTreeWrapper::HasEventListener(ax::mojom::Event event_type,
+                                               ui::AXNode* node) {
+  auto it = node_id_to_events_.find(node->id());
+  if (it == node_id_to_events_.end())
+    return false;
+
+  return it->second.count(event_type);
+}
+
 // static
 std::map<ui::AXTreeID, AutomationAXTreeWrapper*>&
 AutomationAXTreeWrapper::GetChildTreeIDReverseMap() {
@@ -446,6 +470,7 @@ void AutomationAXTreeWrapper::OnNodeWillBeDeleted(ui::AXTree* tree,
   did_send_tree_change_during_unserialization_ |= owner_->SendTreeChangeEvent(
       api::automation::TREE_CHANGE_TYPE_NODEREMOVED, tree, node);
   deleted_node_ids_.push_back(node->id());
+  node_id_to_events_.erase(node->id());
 }
 
 void AutomationAXTreeWrapper::OnAtomicUpdateFinished(
@@ -541,6 +566,8 @@ bool AutomationAXTreeWrapper::IsEventTypeHandledByAXEventGenerator(
     case api::automation::EVENT_TYPE_MOUSEPRESSED:
     case api::automation::EVENT_TYPE_MOUSERELEASED:
     case api::automation::EVENT_TYPE_SCROLLEDTOANCHOR:
+    case api::automation::EVENT_TYPE_TOOLTIPCLOSED:
+    case api::automation::EVENT_TYPE_TOOLTIPOPENED:
     case api::automation::EVENT_TYPE_WINDOWACTIVATED:
     case api::automation::EVENT_TYPE_WINDOWDEACTIVATED:
     case api::automation::EVENT_TYPE_WINDOWVISIBILITYCHANGED:

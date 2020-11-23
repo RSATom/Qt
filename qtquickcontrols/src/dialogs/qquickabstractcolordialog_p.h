@@ -73,7 +73,7 @@ public:
     QQuickAbstractColorDialog(QObject *parent = 0);
     virtual ~QQuickAbstractColorDialog();
 
-    virtual QString title() const;
+    QString title() const override;
     bool showAlphaChannel() const;
     QColor color() const { return m_color; }
     QColor currentColor() const { return m_currentColor; }
@@ -83,9 +83,9 @@ public:
     qreal currentAlpha() const { return m_currentColor.alphaF(); }
 
 public Q_SLOTS:
-    void setVisible(bool v);
-    void setModality(Qt::WindowModality m);
-    void setTitle(const QString &t);
+    void setVisible(bool v) override;
+    void setModality(Qt::WindowModality m) override;
+    void setTitle(const QString &t) override;
     void setColor(QColor arg);
     void setCurrentColor(QColor currentColor);
     void setShowAlphaChannel(bool arg);
@@ -97,7 +97,7 @@ Q_SIGNALS:
     void selectionAccepted();
 
 protected Q_SLOTS:
-    virtual void accept();
+    void accept() override;
 
 protected:
     QPlatformColorDialogHelper *m_dlgHelper;

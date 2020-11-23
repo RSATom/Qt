@@ -15,11 +15,16 @@
 #ifndef DAWNNATIVE_DAWNNATIVE_H_
 #define DAWNNATIVE_DAWNNATIVE_H_
 
-#include <dawn/dawn.h>
+#include <dawn/dawn_proc_table.h>
+#include <dawn/webgpu.h>
 #include <dawn_native/dawn_native_export.h>
 
 #include <string>
 #include <vector>
+
+namespace dawn_platform {
+    class Platform;
+}  // namespace dawn_platform
 
 namespace dawn_native {
 
@@ -50,6 +55,7 @@ namespace dawn_native {
     // An optional parameter of Adapter::CreateDevice() to send additional information when creating
     // a Device. For example, we can use it to enable a workaround, optimization or feature.
     struct DAWN_NATIVE_EXPORT DeviceDescriptor {
+        std::vector<const char*> requiredExtensions;
         std::vector<const char*> forceEnabledToggles;
         std::vector<const char*> forceDisabledToggles;
     };
@@ -62,6 +68,11 @@ namespace dawn_native {
         const char* description;
         const char* url;
     };
+
+    // A struct to record the information of an extension. An extension is a GPU feature that is not
+    // required to be supported by all Dawn backends and can only be used when it is enabled on the
+    // creation of device.
+    using ExtensionInfo = ToggleInfo;
 
     // An adapter is an object that represent on possibility of creating devices in the system.
     // Most of the time it will represent a combination of a physical GPU and an API. Not that the
@@ -78,13 +89,15 @@ namespace dawn_native {
         BackendType GetBackendType() const;
         DeviceType GetDeviceType() const;
         const PCIInfo& GetPCIInfo() const;
+        std::vector<const char*> GetSupportedExtensions() const;
+        WGPUDeviceProperties GetAdapterProperties() const;
 
         explicit operator bool() const;
 
         // Create a device on this adapter, note that the interface will change to include at least
         // a device descriptor and a pointer to backend specific options.
         // On an error, nullptr is returned.
-        DawnDevice CreateDevice(const DeviceDescriptor* deviceDescriptor = nullptr);
+        WGPUDevice CreateDevice(const DeviceDescriptor* deviceDescriptor = nullptr);
 
       private:
         AdapterBase* mImpl = nullptr;
@@ -133,6 +146,9 @@ namespace dawn_native {
         void EnableBeginCaptureOnStartup(bool beginCaptureOnStartup);
         bool IsBeginCaptureOnStartupEnabled() const;
 
+        void SetPlatform(dawn_platform::Platform* platform);
+        dawn_platform::Platform* GetPlatform() const;
+
       private:
         InstanceBase* mImpl = nullptr;
     };
@@ -141,8 +157,13 @@ namespace dawn_native {
     DAWN_NATIVE_EXPORT DawnProcTable GetProcs();
 
     // Query the names of all the toggles that are enabled in device
-    DAWN_NATIVE_EXPORT std::vector<const char*> GetTogglesUsed(DawnDevice device);
+    DAWN_NATIVE_EXPORT std::vector<const char*> GetTogglesUsed(WGPUDevice device);
 
+    // Backdoor to get the number of lazy clears for testing
+    DAWN_NATIVE_EXPORT size_t GetLazyClearCountForTesting(WGPUDevice device);
+
+    // Backdoor to get the order of the ProcMap for testing
+    DAWN_NATIVE_EXPORT std::vector<const char*> GetProcMapNamesForTesting();
 }  // namespace dawn_native
 
 #endif  // DAWNNATIVE_DAWNNATIVE_H_

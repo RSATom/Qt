@@ -192,7 +192,7 @@ class QWellArray : public QWidget
     Q_PROPERTY(int selectedRow READ selectedRow)
 
 public:
-    QWellArray(int rows, int cols, QWidget* parent=0);
+    QWellArray(int rows, int cols, QWidget* parent=nullptr);
     ~QWellArray() {}
     QString cellContent(int row, int col) const;
 
@@ -745,7 +745,7 @@ class QColorLuminancePicker : public QWidget
 {
     Q_OBJECT
 public:
-    QColorLuminancePicker(QWidget* parent=0);
+    QColorLuminancePicker(QWidget* parent=nullptr);
     ~QColorLuminancePicker();
 
 public slots:
@@ -790,7 +790,7 @@ QColorLuminancePicker::QColorLuminancePicker(QWidget* parent)
     :QWidget(parent)
 {
     hue = 100; val = 100; sat = 100;
-    pix = 0;
+    pix = nullptr;
     //    setAttribute(WA_NoErase, true);
 }
 
@@ -813,7 +813,7 @@ void QColorLuminancePicker::setVal(int v)
     if (val == v)
         return;
     val = qMax(0, qMin(v,255));
-    delete pix; pix=0;
+    delete pix; pix=nullptr;
     repaint();
     emit newHsv(hue, sat, val);
 }
@@ -862,7 +862,7 @@ void QColorLuminancePicker::setCol(int h, int s , int v)
     val = v;
     hue = h;
     sat = s;
-    delete pix; pix=0;
+    delete pix; pix=nullptr;
     repaint();
 }
 
@@ -1679,8 +1679,8 @@ void QColorDialogPrivate::init(const QColor &initial)
     q->setWindowTitle(QColorDialog::tr("Select Color"));
 
     // default: use the native dialog if possible.  Can be overridden in setOptions()
-    nativeDialogInUse = (platformColorDialogHelper() != 0);
-    colorPickingEventFilter = 0;
+    nativeDialogInUse = (platformColorDialogHelper() != nullptr);
+    colorPickingEventFilter = nullptr;
     nextCust = 0;
 
     if (!nativeDialogInUse)
@@ -1704,7 +1704,7 @@ void QColorDialogPrivate::initWidgets()
     QHBoxLayout *topLay = new QHBoxLayout();
     mainLay->addLayout(topLay);
 
-    leftLay = 0;
+    leftLay = nullptr;
 
 #if defined(QT_SMALL_COLORDIALOG)
     smallDisplay = true;
@@ -1774,8 +1774,8 @@ void QColorDialogPrivate::initWidgets()
         pWidth = 150;
         pHeight = 100;
 #endif
-        custom = 0;
-        standard = 0;
+        custom = nullptr;
+        standard = nullptr;
     }
 
     QVBoxLayout *rightLay = new QVBoxLayout;
@@ -2303,7 +2303,7 @@ void QColorDialog::done(int result)
     if (d->receiverToDisconnectOnClose) {
         disconnect(this, SIGNAL(colorSelected(QColor)),
                    d->receiverToDisconnectOnClose, d->memberToDisconnectOnClose);
-        d->receiverToDisconnectOnClose = 0;
+        d->receiverToDisconnectOnClose = nullptr;
     }
     d->memberToDisconnectOnClose.clear();
 }

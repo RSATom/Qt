@@ -212,38 +212,38 @@ TEST_F(WindowEventDispatcherTest, MouseButtonState) {
   std::unique_ptr<ui::MouseEvent> event;
 
   // Press the left button.
-  event.reset(new ui::MouseEvent(
+  event = std::make_unique<ui::MouseEvent>(
       ui::ET_MOUSE_PRESSED, location, location, ui::EventTimeForNow(),
-      ui::EF_LEFT_MOUSE_BUTTON, ui::EF_LEFT_MOUSE_BUTTON));
+      ui::EF_LEFT_MOUSE_BUTTON, ui::EF_LEFT_MOUSE_BUTTON);
   DispatchEventUsingWindowDispatcher(event.get());
   EXPECT_TRUE(Env::GetInstance()->IsMouseButtonDown());
 
   // Additionally press the right.
-  event.reset(new ui::MouseEvent(
+  event = std::make_unique<ui::MouseEvent>(
       ui::ET_MOUSE_PRESSED, location, location, ui::EventTimeForNow(),
       ui::EF_LEFT_MOUSE_BUTTON | ui::EF_RIGHT_MOUSE_BUTTON,
-      ui::EF_RIGHT_MOUSE_BUTTON));
+      ui::EF_RIGHT_MOUSE_BUTTON);
   DispatchEventUsingWindowDispatcher(event.get());
   EXPECT_TRUE(Env::GetInstance()->IsMouseButtonDown());
 
   // Release the left button.
-  event.reset(new ui::MouseEvent(
+  event = std::make_unique<ui::MouseEvent>(
       ui::ET_MOUSE_RELEASED, location, location, ui::EventTimeForNow(),
-      ui::EF_RIGHT_MOUSE_BUTTON, ui::EF_LEFT_MOUSE_BUTTON));
+      ui::EF_RIGHT_MOUSE_BUTTON, ui::EF_LEFT_MOUSE_BUTTON);
   DispatchEventUsingWindowDispatcher(event.get());
   EXPECT_TRUE(Env::GetInstance()->IsMouseButtonDown());
 
   // Release the right button.  We should ignore the Shift-is-down flag.
-  event.reset(new ui::MouseEvent(ui::ET_MOUSE_RELEASED, location, location,
-                                 ui::EventTimeForNow(), ui::EF_SHIFT_DOWN,
-                                 ui::EF_RIGHT_MOUSE_BUTTON));
+  event = std::make_unique<ui::MouseEvent>(
+      ui::ET_MOUSE_RELEASED, location, location, ui::EventTimeForNow(),
+      ui::EF_SHIFT_DOWN, ui::EF_RIGHT_MOUSE_BUTTON);
   DispatchEventUsingWindowDispatcher(event.get());
   EXPECT_FALSE(Env::GetInstance()->IsMouseButtonDown());
 
   // Press the middle button.
-  event.reset(new ui::MouseEvent(
+  event = std::make_unique<ui::MouseEvent>(
       ui::ET_MOUSE_PRESSED, location, location, ui::EventTimeForNow(),
-      ui::EF_MIDDLE_MOUSE_BUTTON, ui::EF_MIDDLE_MOUSE_BUTTON));
+      ui::EF_MIDDLE_MOUSE_BUTTON, ui::EF_MIDDLE_MOUSE_BUTTON);
   DispatchEventUsingWindowDispatcher(event.get());
   EXPECT_TRUE(Env::GetInstance()->IsMouseButtonDown());
 }
@@ -512,7 +512,7 @@ class EventFilterRecorder : public ui::EventHandler {
 
   void WaitUntilReceivedEvent(ui::EventType type) {
     wait_until_event_ = type;
-    run_loop_.reset(new base::RunLoop());
+    run_loop_ = std::make_unique<base::RunLoop>();
     run_loop_->Run();
   }
 
@@ -2454,7 +2454,8 @@ TEST_F(WindowEventDispatcherTestInHighDPI, TouchMovesHeldOnScroll) {
 // event, and runs a single callback in the nested run loop.
 class TriggerNestedLoopOnRightMousePress : public ui::test::TestEventHandler {
  public:
-  explicit TriggerNestedLoopOnRightMousePress(const base::Closure& callback)
+  explicit TriggerNestedLoopOnRightMousePress(
+      const base::RepeatingClosure& callback)
       : callback_(callback) {}
   ~TriggerNestedLoopOnRightMousePress() override {}
 
@@ -2477,7 +2478,7 @@ class TriggerNestedLoopOnRightMousePress : public ui::test::TestEventHandler {
     }
   }
 
-  base::Closure callback_;
+  base::RepeatingClosure callback_;
   gfx::Point mouse_move_location_;
 
   DISALLOW_COPY_AND_ASSIGN(TriggerNestedLoopOnRightMousePress);
@@ -2495,7 +2496,7 @@ TEST_F(WindowEventDispatcherTestInHighDPI,
   ui::MouseEvent mouse_move(ui::ET_MOUSE_MOVED, gfx::Point(80, 80),
                             gfx::Point(80, 80), ui::EventTimeForNow(),
                             ui::EF_NONE, ui::EF_NONE);
-  const base::Closure callback_on_right_click = base::Bind(
+  base::RepeatingClosure callback_on_right_click = base::BindRepeating(
       base::IgnoreResult(&WindowEventDispatcherTestInHighDPI::DispatchEvent),
       base::Unretained(this), base::Unretained(&mouse_move));
   TriggerNestedLoopOnRightMousePress handler(callback_on_right_click);

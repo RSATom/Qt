@@ -5,7 +5,7 @@
 #ifndef THIRD_PARTY_BLINK_RENDERER_MODULES_IMAGE_DOWNLOADER_IMAGE_DOWNLOADER_IMPL_H_
 #define THIRD_PARTY_BLINK_RENDERER_MODULES_IMAGE_DOWNLOADER_IMAGE_DOWNLOADER_IMPL_H_
 
-#include "mojo/public/cpp/bindings/binding.h"
+#include "mojo/public/cpp/bindings/receiver.h"
 #include "third_party/blink/public/mojom/image_downloader/image_downloader.mojom-blink.h"
 #include "third_party/blink/renderer/core/execution_context/context_lifecycle_observer.h"
 #include "third_party/blink/renderer/platform/supplementable.h"
@@ -15,12 +15,14 @@ namespace blink {
 class KURL;
 class LocalFrame;
 class MultiResolutionImageResourceFetcher;
+class WebString;
 
-class ImageDownloaderImpl final
-    : public GarbageCollectedFinalized<ImageDownloaderImpl>,
-      public Supplement<LocalFrame>,
-      public ContextLifecycleObserver,
-      public mojom::blink::ImageDownloader {
+struct WebSize;
+
+class ImageDownloaderImpl final : public GarbageCollected<ImageDownloaderImpl>,
+                                  public Supplement<LocalFrame>,
+                                  public ContextLifecycleObserver,
+                                  public mojom::blink::ImageDownloader {
   USING_PRE_FINALIZER(ImageDownloaderImpl, Dispose);
   USING_GARBAGE_COLLECTED_MIXIN(ImageDownloaderImpl);
 
@@ -47,6 +49,7 @@ class ImageDownloaderImpl final
   // image. When done, |callback| will be called.
   void DownloadImage(const KURL& url,
                      bool is_favicon,
+                     uint32_t preferred_size,
                      uint32_t max_bitmap_size,
                      bool bypass_cache,
                      DownloadImageCallback callback) override;
@@ -61,7 +64,8 @@ class ImageDownloaderImpl final
                         int32_t http_status_code,
                         const WTF::Vector<SkBitmap>& images);
 
-  void CreateMojoService(mojom::blink::ImageDownloaderRequest request);
+  void CreateMojoService(
+      mojo::PendingReceiver<mojom::blink::ImageDownloader> receiver);
 
   // USING_PRE_FINALIZER interface.
   // Called before the object gets garbage collected.
@@ -73,6 +77,7 @@ class ImageDownloaderImpl final
   // are returned.
   void FetchImage(const KURL& image_url,
                   bool is_favicon,
+                  const WebSize& preferred_size,
                   bool bypass_cache,
                   DownloadCallback callback);
 
@@ -80,8 +85,10 @@ class ImageDownloaderImpl final
   // successfully or with a failure. See FetchImage for more
   // details.
   void DidFetchImage(DownloadCallback callback,
+                     const WebSize& preferred_size,
                      MultiResolutionImageResourceFetcher* fetcher,
-                     const WTF::Vector<SkBitmap>& images);
+                     const std::string& image_data,
+                     const WebString& mime_type);
 
   typedef WTF::Vector<std::unique_ptr<MultiResolutionImageResourceFetcher>>
       ImageResourceFetcherList;
@@ -89,7 +96,7 @@ class ImageDownloaderImpl final
   // ImageResourceFetchers schedule via FetchImage.
   ImageResourceFetcherList image_fetchers_;
 
-  mojo::Binding<mojom::blink::ImageDownloader> binding_{this};
+  mojo::Receiver<mojom::blink::ImageDownloader> receiver_{this};
 
   DISALLOW_COPY_AND_ASSIGN(ImageDownloaderImpl);
 };

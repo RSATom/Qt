@@ -11,7 +11,7 @@
 
 #include "base/bind.h"
 #include "base/run_loop.h"
-#include "base/test/scoped_task_environment.h"
+#include "base/test/task_environment.h"
 #include "base/threading/thread.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "media/capture/video/blob_utils.h"
@@ -19,11 +19,12 @@
 #include "media/capture/video/chromeos/camera_device_context.h"
 #include "media/capture/video/chromeos/camera_device_delegate.h"
 #include "media/capture/video/chromeos/mock_video_capture_client.h"
-#include "media/capture/video/chromeos/reprocess_manager.h"
 #include "media/capture/video/chromeos/stream_buffer_manager.h"
 #include "media/capture/video/mock_gpu_memory_buffer_manager.h"
+#include "mojo/public/cpp/bindings/remote.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
+
 using testing::_;
 using testing::A;
 using testing::AtLeast;
@@ -85,13 +86,11 @@ class RequestManagerTest : public ::testing::Test {
  public:
   void SetUp() override {
     quit_ = false;
-    cros::mojom::Camera3CallbackOpsRequest callback_ops_request =
-        mojo::MakeRequest(&mock_callback_ops_);
     device_context_ = std::make_unique<CameraDeviceContext>(
         std::make_unique<unittest_internal::MockVideoCaptureClient>());
 
     request_manager_ = std::make_unique<RequestManager>(
-        std::move(callback_ops_request),
+        mock_callback_ops_.BindNewPipeAndPassReceiver(),
         std::make_unique<MockStreamCaptureInterface>(), device_context_.get(),
         VideoCaptureBufferType::kSharedMemory,
         std::make_unique<FakeCameraBufferFactory>(),
@@ -99,7 +98,7 @@ class RequestManagerTest : public ::testing::Test {
             [](const uint8_t* buffer, const uint32_t bytesused,
                const VideoCaptureFormat& capture_format,
                const int rotation) { return mojom::Blob::New(); }),
-        base::ThreadTaskRunnerHandle::Get());
+        base::ThreadTaskRunnerHandle::Get(), nullptr);
   }
 
   void TearDown() override { request_manager_.reset(); }
@@ -144,6 +143,17 @@ class RequestManagerTest : public ::testing::Test {
     int32_t jpeg_max_size = 65535;
     as_int8 = reinterpret_cast<uint8_t*>(&jpeg_max_size);
     entry->data.assign(as_int8, as_int8 + entry->count * sizeof(int32_t));
+    static_metadata->entries->push_back(std::move(entry));
+
+    entry = cros::mojom::CameraMetadataEntry::New();
+    entry->index = 2;
+    entry->tag =
+        cros::mojom::CameraMetadataTag::ANDROID_REQUEST_PIPELINE_MAX_DEPTH;
+    entry->type = cros::mojom::EntryType::TYPE_BYTE;
+    entry->count = 1;
+    uint8_t pipeline_max_depth = 1;
+    entry->data.assign(&pipeline_max_depth,
+                       &pipeline_max_depth + entry->count * sizeof(uint8_t));
     static_metadata->entries->push_back(std::move(entry));
 
     return static_metadata;
@@ -263,14 +273,14 @@ class RequestManagerTest : public ::testing::Test {
 
  protected:
   std::unique_ptr<RequestManager> request_manager_;
-  cros::mojom::Camera3CallbackOpsPtr mock_callback_ops_;
+  mojo::Remote<cros::mojom::Camera3CallbackOps> mock_callback_ops_;
   std::unique_ptr<CameraDeviceContext> device_context_;
   cros::mojom::Camera3StreamPtr stream;
 
  private:
   std::unique_ptr<base::RunLoop> run_loop_;
   bool quit_;
-  base::test::ScopedTaskEnvironment scoped_test_environment_;
+  base::test::TaskEnvironment scoped_test_environment_;
 };
 
 // A basic sanity test to capture one frame with the capture loop.

@@ -32,7 +32,7 @@
 #include "net/test/cert_test_util.h"
 #include "net/test/gtest_util.h"
 #include "net/test/test_data_directory.h"
-#include "net/test/test_with_scoped_task_environment.h"
+#include "net/test/test_with_task_environment.h"
 #include "net/traffic_annotation/network_traffic_annotation_test_helper.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
@@ -123,7 +123,7 @@ class CancelStreamCallback : public TestCompletionCallbackBase {
 
 }  // namespace
 
-class SpdyHttpStreamTest : public TestWithScopedTaskEnvironment {
+class SpdyHttpStreamTest : public TestWithTaskEnvironment {
  public:
   SpdyHttpStreamTest()
       : url_(kDefaultUrl),
@@ -132,7 +132,9 @@ class SpdyHttpStreamTest : public TestWithScopedTaskEnvironment {
              ProxyServer::Direct(),
              PRIVACY_MODE_DISABLED,
              SpdySessionKey::IsProxySession::kFalse,
-             SocketTag()),
+             SocketTag(),
+             NetworkIsolationKey(),
+             false /* disable_secure_dns */),
         ssl_(SYNCHRONOUS, OK) {
     session_deps_.net_log = &net_log_;
   }
@@ -163,7 +165,7 @@ class SpdyHttpStreamTest : public TestWithScopedTaskEnvironment {
   }
 
   SpdyTestUtil spdy_util_;
-  TestNetLog net_log_;
+  RecordingTestNetLog net_log_;
   SpdySessionDependencies session_deps_;
   const GURL url_;
   const HostPortPair host_port_pair_;

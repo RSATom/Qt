@@ -85,9 +85,12 @@ public:
                                        const QSize &pixelSize,
                                        int sampleCount,
                                        QRhiTexture::Flags flags) = 0;
-    virtual QRhiSampler *createSampler(QRhiSampler::Filter magFilter, QRhiSampler::Filter minFilter,
+    virtual QRhiSampler *createSampler(QRhiSampler::Filter magFilter,
+                                       QRhiSampler::Filter minFilter,
                                        QRhiSampler::Filter mipmapMode,
-                                       QRhiSampler:: AddressMode u, QRhiSampler::AddressMode v) = 0;
+                                       QRhiSampler:: AddressMode u,
+                                       QRhiSampler::AddressMode v,
+                                       QRhiSampler::AddressMode w) = 0;
 
     virtual QRhiTextureRenderTarget *createTextureRenderTarget(const QRhiTextureRenderTargetDescription &desc,
                                                                QRhiTextureRenderTarget::Flags flags) = 0;
@@ -293,6 +296,8 @@ public:
             op.buf = buf;
             op.offset = offset;
             op.data = QByteArray(reinterpret_cast<const char *>(data), size ? size : buf->size());
+            op.readSize = 0;
+            op.result = nullptr;
             return op;
         }
 
@@ -303,6 +308,8 @@ public:
             op.buf = buf;
             op.offset = offset;
             op.data = QByteArray(reinterpret_cast<const char *>(data), size ? size : buf->size());
+            op.readSize = 0;
+            op.result = nullptr;
             return op;
         }
 
@@ -345,6 +352,9 @@ public:
             op.dst = tex;
             for (auto it = desc.cbeginEntries(), itEnd = desc.cendEntries(); it != itEnd; ++it)
                 op.subresDesc[it->layer()][it->level()].append(it->description());
+            op.src = nullptr;
+            op.result = nullptr;
+            op.layer = 0;
             return op;
         }
 
@@ -355,6 +365,8 @@ public:
             op.dst = dst;
             op.src = src;
             op.desc = desc;
+            op.result = nullptr;
+            op.layer = 0;
             return op;
         }
 
@@ -362,8 +374,11 @@ public:
         {
             TextureOp op;
             op.type = Read;
+            op.dst = nullptr;
+            op.src = nullptr;
             op.rb = rb;
             op.result = result;
+            op.layer = 0;
             return op;
         }
 
@@ -372,6 +387,8 @@ public:
             TextureOp op;
             op.type = GenMips;
             op.dst = tex;
+            op.src = nullptr;
+            op.result = nullptr;
             op.layer = layer;
             return op;
         }

@@ -94,7 +94,8 @@ bool FocusManager::OnKeyEvent(const ui::KeyEvent& event) {
         index = views.size() - 1;
       else
         index += next ? 1 : -1;
-      SetFocusedViewWithReason(views[index], kReasonFocusTraversal);
+      SetFocusedViewWithReason(views[index],
+                               FocusChangeReason::kFocusTraversal);
       return false;
     }
   }
@@ -136,7 +137,7 @@ void FocusManager::AdvanceFocus(bool reverse) {
     // FocusManager.
     DCHECK(v->GetWidget());
     v->GetWidget()->GetFocusManager()->SetFocusedViewWithReason(
-        v, kReasonFocusTraversal);
+        v, FocusChangeReason::kFocusTraversal);
 
     // When moving focus from a child widget to a top-level widget,
     // the top-level widget may report IsActive()==true because it's
@@ -376,6 +377,14 @@ void FocusManager::SetFocusedViewWithReason(View* view,
     delegate_->OnDidChangeFocus(old_focused_view, focused_view_);
 }
 
+void FocusManager::SetFocusedView(View* view) {
+  FocusChangeReason reason = FocusChangeReason::kDirectFocusChange;
+  if (in_restoring_focused_view_)
+    reason = FocusChangeReason::kFocusRestore;
+
+  SetFocusedViewWithReason(view, reason);
+}
+
 void FocusManager::ClearFocus() {
   // SetFocusedView(nullptr) is going to clear out the stored view to. We need
   // to persist it in this case.
@@ -433,16 +442,12 @@ bool FocusManager::RestoreFocusedView() {
       if (!view->IsFocusable() && view->IsAccessibilityFocusable()) {
         // RequestFocus would fail, but we want to restore focus to controls
         // that had focus in accessibility mode.
-        SetFocusedViewWithReason(view, kReasonFocusRestore);
+        SetFocusedViewWithReason(view, FocusChangeReason::kFocusRestore);
       } else {
         // This usually just sets the focus if this view is focusable, but
         // let the view override RequestFocus if necessary.
+        base::AutoReset<bool> in_restore_bit(&in_restoring_focused_view_, true);
         view->RequestFocus();
-
-        // If it succeeded, the reason would be incorrect; set it to
-        // focus restore.
-        if (focused_view_ == view)
-          focus_change_reason_ = kReasonFocusRestore;
       }
     }
     // The |keyboard_accessible_| mode may have changed while the widget was

@@ -62,7 +62,7 @@ class CONTENT_EXPORT FrameTreeNode {
     virtual ~Observer() {}
   };
 
-  static const int kFrameTreeNodeInvalidId = -1;
+  static const int kFrameTreeNodeInvalidId;
 
   // Returns the FrameTreeNode with the given global |frame_tree_node_id|,
   // regardless of which FrameTree it is in.
@@ -95,25 +95,11 @@ class CONTENT_EXPORT FrameTreeNode {
   // Feature-Policy HTTP headers).
   void ResetForNavigation();
 
-  FrameTree* frame_tree() const {
-    return frame_tree_;
-  }
-
-  Navigator* navigator() {
-    return navigator_.get();
-  }
-
-  RenderFrameHostManager* render_manager() {
-    return &render_manager_;
-  }
-
-  int frame_tree_node_id() const {
-    return frame_tree_node_id_;
-  }
-
-  const std::string& frame_name() const {
-    return replication_state_.name;
-  }
+  FrameTree* frame_tree() const { return frame_tree_; }
+  Navigator* navigator() { return navigator_.get(); }
+  RenderFrameHostManager* render_manager() { return &render_manager_; }
+  int frame_tree_node_id() const { return frame_tree_node_id_; }
+  const std::string& frame_name() const { return replication_state_.name; }
 
   const std::string& unique_name() const {
     return replication_state_.unique_name;
@@ -133,6 +119,10 @@ class CONTENT_EXPORT FrameTreeNode {
   FrameTreeNode* opener() const { return opener_; }
 
   FrameTreeNode* original_opener() const { return original_opener_; }
+
+  // Gets the total number of descendants to this FrameTreeNode in addition to
+  // this node.
+  size_t GetFrameTreeSize() const;
 
   // Assigns a new opener for this node and, if |opener| is non-null, registers
   // an observer that will clear this node's opener if |opener| is ever
@@ -160,9 +150,7 @@ class CONTENT_EXPORT FrameTreeNode {
   void SetCurrentURL(const GURL& url);
 
   // Returns true iff SetCurrentURL has been called with a non-blank URL.
-  bool has_committed_real_load() const {
-    return has_committed_real_load_;
-  }
+  bool has_committed_real_load() const { return has_committed_real_load_; }
 
   // Returns whether the frame's owner element in the parent document is
   // collapsed, that is, removed from the layout as if it did not exist, as per
@@ -286,7 +274,6 @@ class CONTENT_EXPORT FrameTreeNode {
   void TransferNavigationRequestOwnership(
       RenderFrameHostImpl* render_frame_host);
 
-  // PlzNavigate
   // Takes ownership of |navigation_request| and makes it the current
   // NavigationRequest of this frame. This corresponds to the start of a new
   // navigation. If there was an ongoing navigation request before calling this
@@ -294,14 +281,10 @@ class CONTENT_EXPORT FrameTreeNode {
   void CreatedNavigationRequest(
       std::unique_ptr<NavigationRequest> navigation_request);
 
-  // PlzNavigate
   // Resets the current navigation request. If |keep_state| is true, any state
   // created by the NavigationRequest (e.g. speculative RenderFrameHost,
   // loading state) will not be reset by the function.
-  // If |keep_state| is false and the request is renderer-initiated and
-  // |inform_renderer| is true, an IPC will be sent to the renderer process to
-  // inform it that the navigation it requested was cancelled.
-  void ResetNavigationRequest(bool keep_state, bool inform_renderer);
+  void ResetNavigationRequest(bool keep_state);
 
   // A RenderFrameHost in this node started loading.
   // |to_different_document| will be true unless the load is a fragment
@@ -438,6 +421,13 @@ class CONTENT_EXPORT FrameTreeNode {
 
   bool ClearUserActivation();
 
+  // Verify that the renderer process is allowed to set user activation on this
+  // frame by checking whether this frame's RenderWidgetHost had previously seen
+  // an input event that might lead to user activation. If user activation
+  // should be allowed, this returns true and also clears corresponding pending
+  // user activation state in the widget. Otherwise, this returns false.
+  bool VerifyUserActivation();
+
   // The next available browser-global FrameTreeNode ID.
   static int next_frame_tree_node_id_;
 
@@ -525,7 +515,6 @@ class CONTENT_EXPORT FrameTreeNode {
   // Note that dynamic updates only take effect on the next frame navigation.
   FrameOwnerProperties frame_owner_properties_;
 
-  // PlzNavigate
   // Owns an ongoing NavigationRequest until it is ready to commit. It will then
   // be reset and a RenderFrameHost will be responsible for the navigation.
   std::unique_ptr<NavigationRequest> navigation_request_;

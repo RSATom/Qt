@@ -101,7 +101,7 @@
     This can be disabled by setting the environment variable
     \c QT_HIGHDPI_DISABLE_2X_IMAGE_LOADING.
 
-    \sa QImageWriter, QImageIOHandler, QImageIOPlugin, QMimeDatabase
+    \sa QImageWriter, QImageIOHandler, QImageIOPlugin, QMimeDatabase, QColorSpace
     \sa QImage::devicePixelRatio(), QPixmap::devicePixelRatio(), QIcon, QPainter::drawPixmap(), QPainter::drawImage(), Qt::AA_UseHighDpiPixmaps
 */
 
@@ -179,10 +179,10 @@ static QImageIOHandler *createReadHandlerHelper(QIODevice *device,
                                                 bool ignoresFormatAndExtension)
 {
     if (!autoDetectImageFormat && format.isEmpty())
-        return 0;
+        return nullptr;
 
     QByteArray form = format.toLower();
-    QImageIOHandler *handler = 0;
+    QImageIOHandler *handler = nullptr;
     QByteArray suffix;
 
 #ifndef QT_NO_IMAGEFORMATPLUGIN
@@ -450,7 +450,7 @@ static QImageIOHandler *createReadHandlerHelper(QIODevice *device,
         qDebug("QImageReader::createReadHandler: no handlers found. giving up.");
 #endif
         // no handler: give up.
-        return 0;
+        return nullptr;
     }
 
     handler->setDevice(device);
@@ -500,9 +500,9 @@ public:
 QImageReaderPrivate::QImageReaderPrivate(QImageReader *qq)
     : autoDetectImageFormat(true), ignoresFormatAndExtension(false)
 {
-    device = 0;
+    device = nullptr;
     deleteDevice = false;
-    handler = 0;
+    handler = nullptr;
     quality = -1;
     imageReaderError = QImageReader::UnknownError;
     autoTransform = UsePluginDefault;
@@ -571,7 +571,7 @@ bool QImageReaderPrivate::initHandler()
     }
 
     // assign a handler
-    if (!handler && (handler = createReadHandlerHelper(device, format, autoDetectImageFormat, ignoresFormatAndExtension)) == 0) {
+    if (!handler && (handler = createReadHandlerHelper(device, format, autoDetectImageFormat, ignoresFormatAndExtension)) == nullptr) {
         imageReaderError = QImageReader::UnsupportedFormatError;
         errorString = QImageReader::tr("Unsupported image format");
         return false;
@@ -1089,7 +1089,7 @@ QList<QByteArray> QImageReader::supportedSubTypes() const
         return QList<QByteArray>();
 
     if (d->handler->supportsOption(QImageIOHandler::SupportedSubTypes))
-        return d->handler->option(QImageIOHandler::SupportedSubTypes).value< QList<QByteArray> >();
+        return qvariant_cast<QList<QByteArray> >(d->handler->option(QImageIOHandler::SupportedSubTypes));
     return QList<QByteArray>();
 }
 
@@ -1149,8 +1149,10 @@ bool QImageReader::autoTransform() const
     return false;
 }
 
+#if QT_DEPRECATED_SINCE(5, 15)
 /*!
     \since 5.6
+    \obsolete Use QColorSpace conversion on the QImage instead.
 
     This is an image format specific function that forces images with
     gamma information to be gamma corrected to \a gamma. For image formats
@@ -1168,6 +1170,7 @@ void QImageReader::setGamma(float gamma)
 
 /*!
     \since 5.6
+    \obsolete Use QImage::colorSpace() and QColorSpace::gamma() instead.
 
     Returns the gamma level of the decoded image. If setGamma() has been
     called and gamma correction is supported it will return the gamma set.
@@ -1181,6 +1184,7 @@ float QImageReader::gamma() const
         return d->handler->option(QImageIOHandler::Gamma).toFloat();
     return 0.0;
 }
+#endif
 
 /*!
     Returns \c true if an image can be read for the device (i.e., the

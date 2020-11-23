@@ -2,11 +2,11 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-// https://github.com/gpuweb/gpuweb/blob/master/design/sketch.webidl
+// https://gpuweb.github.io/gpuweb/
 
 dictionary GPUBufferBinding {
     required GPUBuffer buffer;
-    unsigned long long offset = 0;
+    GPUBufferSize offset = 0;
     // If size is undefined, use the whole size of the buffer.
-    unsigned long long size;
+    GPUBufferSize size;
 };

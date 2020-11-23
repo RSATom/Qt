@@ -118,23 +118,19 @@ class QODBCDriverPrivate : public QSqlDriverPrivate
     Q_DECLARE_PUBLIC(QODBCDriver)
 
 public:
-    enum DefaultCase{Lower, Mixed, Upper, Sensitive};
-    QODBCDriverPrivate()
-    : QSqlDriverPrivate(), hEnv(0), hDbc(0), unicode(false), useSchema(false), disconnectCount(0), datetime_precision(19),
-      isFreeTDSDriver(false), hasSQLFetchScroll(true), hasMultiResultSets(false), isQuoteInitialized(false), quote(QLatin1Char('"'))
-    {
-    }
+    enum DefaultCase {Lower, Mixed, Upper, Sensitive};
+    using QSqlDriverPrivate::QSqlDriverPrivate;
 
-    SQLHANDLE hEnv;
-    SQLHANDLE hDbc;
+    SQLHANDLE hEnv = nullptr;
+    SQLHANDLE hDbc = nullptr;
 
-    bool unicode;
-    bool useSchema;
-    int disconnectCount;
-    int datetime_precision;
-    bool isFreeTDSDriver;
-    bool hasSQLFetchScroll;
-    bool hasMultiResultSets;
+    int disconnectCount = 0;
+    int datetimePrecision = 19;
+    bool unicode = false;
+    bool useSchema = false;
+    bool isFreeTDSDriver = false;
+    bool hasSQLFetchScroll = true;
+    bool hasMultiResultSets = false;
 
     bool checkDriver() const;
     void checkUnicode();
@@ -150,8 +146,8 @@ public:
     QString adjustCase(const QString&) const;
     QChar quoteChar();
 private:
-    bool isQuoteInitialized;
-    QChar quote;
+    bool isQuoteInitialized = false;
+    QChar quote = QLatin1Char('"');
 };
 
 class QODBCResultPrivate;
@@ -194,10 +190,7 @@ class QODBCResultPrivate: public QSqlResultPrivate
 public:
     Q_DECLARE_SQLDRIVER_PRIVATE(QODBCDriver)
     QODBCResultPrivate(QODBCResult *q, const QODBCDriver *db)
-        : QSqlResultPrivate(q, db),
-          hStmt(0),
-          useSchema(false),
-          hasSQLFetchScroll(true)
+        : QSqlResultPrivate(q, db)
     {
         unicode = drv_d_func()->unicode;
         useSchema = drv_d_func()->useSchema;
@@ -210,16 +203,15 @@ public:
 
     SQLHANDLE dpEnv() const { return drv_d_func() ? drv_d_func()->hEnv : 0;}
     SQLHANDLE dpDbc() const { return drv_d_func() ? drv_d_func()->hDbc : 0;}
-    SQLHANDLE hStmt;
-
-    bool unicode;
-    bool useSchema;
+    SQLHANDLE hStmt = nullptr;
 
     QSqlRecord rInf;
     QVector<QVariant> fieldCache;
-    int fieldCacheIdx;
-    int disconnectCount;
-    bool hasSQLFetchScroll;
+    int fieldCacheIdx = 0;
+    int disconnectCount = 0;
+    bool hasSQLFetchScroll = true;
+    bool unicode = false;
+    bool useSchema = false;
 
     bool isStmtHandleValid() const;
     void updateStmtHandleState();
@@ -775,7 +767,7 @@ QChar QODBCDriverPrivate::quoteChar()
 bool QODBCDriverPrivate::setConnectionOptions(const QString& connOpts)
 {
     // Set any connection attributes
-    const QStringList opts(connOpts.split(QLatin1Char(';'), QString::SkipEmptyParts));
+    const QStringList opts(connOpts.split(QLatin1Char(';'), Qt::SkipEmptyParts));
     SQLRETURN r = SQL_SUCCESS;
     for (int i = 0; i < opts.count(); ++i) {
         const QString tmp(opts.at(i));
@@ -1422,7 +1414,7 @@ bool QODBCResult::exec()
         SQLLEN *ind = &indicators[i];
         if (val.isNull())
             *ind = SQL_NULL_DATA;
-        switch (val.type()) {
+        switch (val.userType()) {
             case QVariant::Date: {
                 QByteArray &ba = tmpStorage[i];
                 ba.resize(sizeof(DATE_STRUCT));
@@ -1464,20 +1456,22 @@ bool QODBCResult::exec()
             case QVariant::DateTime: {
                 QByteArray &ba = tmpStorage[i];
                 ba.resize(sizeof(TIMESTAMP_STRUCT));
-                TIMESTAMP_STRUCT * dt = (TIMESTAMP_STRUCT *)const_cast<char *>(ba.constData());
-                QDateTime qdt = val.toDateTime();
-                dt->year = qdt.date().year();
-                dt->month = qdt.date().month();
-                dt->day = qdt.date().day();
-                dt->hour = qdt.time().hour();
-                dt->minute = qdt.time().minute();
-                dt->second = qdt.time().second();
-
-                int precision = d->drv_d_func()->datetime_precision - 20; // (20 includes a separating period)
+                TIMESTAMP_STRUCT *dt = reinterpret_cast<TIMESTAMP_STRUCT *>(const_cast<char *>(ba.constData()));
+                const QDateTime qdt = val.toDateTime();
+                const QDate qdate = qdt.date();
+                const QTime qtime = qdt.time();
+                dt->year = qdate.year();
+                dt->month = qdate.month();
+                dt->day = qdate.day();
+                dt->hour = qtime.hour();
+                dt->minute = qtime.minute();
+                dt->second = qtime.second();
+                // (20 includes a separating period)
+                const int precision = d->drv_d_func()->datetimePrecision - 20;
                 if (precision <= 0) {
                     dt->fraction = 0;
                 } else {
-                    dt->fraction = qdt.time().msec() * 1000000;
+                    dt->fraction = qtime.msec() * 1000000;
 
                     // (How many leading digits do we want to keep?  With SQL Server 2005, this should be 3: 123000000)
                     int keep = (int)qPow(10.0, 9 - qMin(9, precision));
@@ -1489,7 +1483,7 @@ bool QODBCResult::exec()
                                       qParamType[bindValueType(i) & QSql::InOut],
                                       SQL_C_TIMESTAMP,
                                       SQL_TIMESTAMP,
-                                      d->drv_d_func()->datetime_precision,
+                                      d->drv_d_func()->datetimePrecision,
                                       precision,
                                       (void *) dt,
                                       0,
@@ -1694,7 +1688,7 @@ bool QODBCResult::exec()
         return true;
 
     for (i = 0; i < values.count(); ++i) {
-        switch (values.at(i).type()) {
+        switch (values.at(i).userType()) {
             case QVariant::Date: {
                 DATE_STRUCT ds = *((DATE_STRUCT *)const_cast<char *>(tmpStorage.at(i).constData()));
                 values[i] = QVariant(QDate(ds.year, ds.month, ds.day));
@@ -1735,7 +1729,7 @@ bool QODBCResult::exec()
                 break; }
         }
         if (indicators[i] == SQL_NULL_DATA)
-            values[i] = QVariant(values[i].type());
+            values[i] = QVariant(QVariant::Type(values[i].userType()));
     }
     return true;
 }
@@ -2245,7 +2239,7 @@ void QODBCDriverPrivate::checkDateTimePrecision()
         if ( r == SQL_SUCCESS || r == SQL_SUCCESS_WITH_INFO )
         {
             if (SQLGetData(hStmt, 3, SQL_INTEGER, &columnSize, sizeof(columnSize), 0) == SQL_SUCCESS) {
-                datetime_precision = (int)columnSize;
+                datetimePrecision = (int)columnSize;
             }
         }
     }
@@ -2385,7 +2379,7 @@ QStringList QODBCDriver::tables(QSql::TableType type) const
     }
 
     while (r == SQL_SUCCESS) {
-        QString fieldVal = qGetStringData(hStmt, 2, -1, false);
+        QString fieldVal = qGetStringData(hStmt, 2, -1, d->unicode);
         tl.append(fieldVal);
 
         if (d->hasSQLFetchScroll)

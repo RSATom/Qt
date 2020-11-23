@@ -9,16 +9,14 @@
 #include "gpu/ipc/client/gpu_channel_host.h"
 #include "gpu/ipc/common/command_buffer_id.h"
 #include "gpu/ipc/common/gpu_messages.h"
+#include "gpu/ipc/common/vulkan_ycbcr_info.h"
 #include "ipc/ipc_message_macros.h"
 
 namespace content {
 
 StreamTextureHost::StreamTextureHost(scoped_refptr<gpu::GpuChannelHost> channel,
                                      int32_t route_id)
-    : route_id_(route_id),
-      listener_(nullptr),
-      channel_(std::move(channel)),
-      weak_ptr_factory_(this) {
+    : route_id_(route_id), listener_(nullptr), channel_(std::move(channel)) {
   DCHECK(channel_);
   DCHECK(route_id_);
 }
@@ -50,6 +48,8 @@ bool StreamTextureHost::BindToCurrentThread(Listener* listener) {
 bool StreamTextureHost::OnMessageReceived(const IPC::Message& message) {
   bool handled = true;
   IPC_BEGIN_MESSAGE_MAP(StreamTextureHost, message)
+    IPC_MESSAGE_HANDLER(GpuStreamTextureMsg_FrameWithYcbcrInfoAvailable,
+                        OnFrameWithYcbcrInfoAvailable);
     IPC_MESSAGE_HANDLER(GpuStreamTextureMsg_FrameAvailable, OnFrameAvailable);
     IPC_MESSAGE_UNHANDLED(handled = false)
   IPC_END_MESSAGE_MAP()
@@ -59,6 +59,12 @@ bool StreamTextureHost::OnMessageReceived(const IPC::Message& message) {
 
 void StreamTextureHost::OnChannelError() {
   channel_ = nullptr;
+}
+
+void StreamTextureHost::OnFrameWithYcbcrInfoAvailable(
+    base::Optional<gpu::VulkanYCbCrInfo> ycbcr_info) {
+  if (listener_)
+    listener_->OnFrameWithYcbcrInfoAvailable(std::move(ycbcr_info));
 }
 
 void StreamTextureHost::OnFrameAvailable() {
@@ -89,7 +95,7 @@ gpu::SyncToken StreamTextureHost::GenUnverifiedSyncToken() {
   // StreamTextureHost could still be alive when |channel_| is gone.
   if (!channel_)
     return gpu::SyncToken();
-  
+
   return gpu::SyncToken(gpu::CommandBufferNamespace::GPU_IO,
                         gpu::CommandBufferIdFromChannelAndRoute(
                             channel_->channel_id(), route_id_),

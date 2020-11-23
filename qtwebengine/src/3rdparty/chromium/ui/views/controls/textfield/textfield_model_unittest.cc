@@ -172,9 +172,9 @@ TEST_F(TextfieldModelTest, EditString_ComplexScript) {
 // characters turned into empty square due to font regression. So, not able
 // to test 2 characters belong to the same grapheme.
 #if defined(OS_LINUX)
-  EXPECT_EQ(base::WideToUTF16(
-                L"\x0915\x093f\x0061\x0062\x0915\x0915\x094d\x092e\x094d"),
-            model.text());
+  EXPECT_EQ(
+      base::WideToUTF16(L"\x0915\x093f\x0061\x0062\x0915\x094d\x092e\x094d"),
+      model.text());
 #endif
   EXPECT_EQ(4U, model.GetCursorPosition());
 
@@ -185,13 +185,12 @@ TEST_F(TextfieldModelTest, EditString_ComplexScript) {
   // to test 2 characters belong to the same grapheme.
 #if defined(OS_LINUX)
   EXPECT_TRUE(model.Delete());
-  EXPECT_EQ(base::WideToUTF16(L"\x0061\x0062\x0915\x0915\x094d\x092e\x094d"),
+  EXPECT_EQ(base::WideToUTF16(L"\x0061\x0062\x0915\x094d\x092e\x094d"),
             model.text());
   MoveCursorTo(model, model.text().length());
   EXPECT_EQ(model.text().length(), model.GetCursorPosition());
   EXPECT_TRUE(model.Backspace());
-  EXPECT_EQ(base::WideToUTF16(L"\x0061\x0062\x0915\x0915\x094d\x092e"),
-            model.text());
+  EXPECT_EQ(base::WideToUTF16(L"\x0061\x0062\x0915\x094d\x092e"), model.text());
 #endif
 
   // Test cursor position and deletion for Hindi Virama.
@@ -208,9 +207,9 @@ TEST_F(TextfieldModelTest, EditString_ComplexScript) {
   // seems Windows treats "\x0D38\x0D4D\x0D15" as a single grapheme.
 #if !defined(OS_WIN)
   MoveCursorTo(model, 2);
-  EXPECT_EQ(2U, model.GetCursorPosition());
+  EXPECT_EQ(3U, model.GetCursorPosition());
   EXPECT_TRUE(model.Backspace());
-  EXPECT_EQ(base::WideToUTF16(L"\x0D38\x0D15\x0D16\x0D2E"), model.text());
+  EXPECT_EQ(base::WideToUTF16(L"\x0D38\x0D4D\x0D16\x0D2E"), model.text());
 #endif
 
   model.SetText(
@@ -591,7 +590,7 @@ TEST_F(TextfieldModelTest, Clipboard) {
   ui::Clipboard* clipboard = ui::Clipboard::GetForCurrentThread();
   const base::string16 initial_clipboard_text =
       base::ASCIIToUTF16("initial text");
-  ui::ScopedClipboardWriter(ui::ClipboardType::kCopyPaste)
+  ui::ScopedClipboardWriter(ui::ClipboardBuffer::kCopyPaste)
       .WriteText(initial_clipboard_text);
 
   base::string16 clipboard_text;
@@ -601,14 +600,14 @@ TEST_F(TextfieldModelTest, Clipboard) {
   // Cut with an empty selection should do nothing.
   model.MoveCursor(gfx::LINE_BREAK, gfx::CURSOR_RIGHT, gfx::SELECTION_NONE);
   EXPECT_FALSE(model.Cut());
-  clipboard->ReadText(ui::ClipboardType::kCopyPaste, &clipboard_text);
+  clipboard->ReadText(ui::ClipboardBuffer::kCopyPaste, &clipboard_text);
   EXPECT_EQ(initial_clipboard_text, clipboard_text);
   EXPECT_STR_EQ("HELLO WORLD", model.text());
   EXPECT_EQ(11U, model.GetCursorPosition());
 
   // Copy with an empty selection should do nothing.
   model.Copy();
-  clipboard->ReadText(ui::ClipboardType::kCopyPaste, &clipboard_text);
+  clipboard->ReadText(ui::ClipboardBuffer::kCopyPaste, &clipboard_text);
   EXPECT_EQ(initial_clipboard_text, clipboard_text);
   EXPECT_STR_EQ("HELLO WORLD", model.text());
   EXPECT_EQ(11U, model.GetCursorPosition());
@@ -617,7 +616,7 @@ TEST_F(TextfieldModelTest, Clipboard) {
   model.render_text()->SetObscured(true);
   model.SelectAll(false);
   EXPECT_FALSE(model.Cut());
-  clipboard->ReadText(ui::ClipboardType::kCopyPaste, &clipboard_text);
+  clipboard->ReadText(ui::ClipboardBuffer::kCopyPaste, &clipboard_text);
   EXPECT_EQ(initial_clipboard_text, clipboard_text);
   EXPECT_STR_EQ("HELLO WORLD", model.text());
   EXPECT_STR_EQ("HELLO WORLD", model.GetSelectedText());
@@ -625,7 +624,7 @@ TEST_F(TextfieldModelTest, Clipboard) {
   // Copy on obscured (password) text should do nothing.
   model.SelectAll(false);
   EXPECT_FALSE(model.Copy());
-  clipboard->ReadText(ui::ClipboardType::kCopyPaste, &clipboard_text);
+  clipboard->ReadText(ui::ClipboardBuffer::kCopyPaste, &clipboard_text);
   EXPECT_EQ(initial_clipboard_text, clipboard_text);
   EXPECT_STR_EQ("HELLO WORLD", model.text());
   EXPECT_STR_EQ("HELLO WORLD", model.GetSelectedText());
@@ -635,7 +634,7 @@ TEST_F(TextfieldModelTest, Clipboard) {
   model.MoveCursor(gfx::LINE_BREAK, gfx::CURSOR_RIGHT, gfx::SELECTION_NONE);
   model.MoveCursor(gfx::WORD_BREAK, gfx::CURSOR_LEFT, gfx::SELECTION_RETAIN);
   EXPECT_TRUE(model.Cut());
-  clipboard->ReadText(ui::ClipboardType::kCopyPaste, &clipboard_text);
+  clipboard->ReadText(ui::ClipboardBuffer::kCopyPaste, &clipboard_text);
   EXPECT_STR_EQ("WORLD", clipboard_text);
   EXPECT_STR_EQ("HELLO ", model.text());
   EXPECT_EQ(6U, model.GetCursorPosition());
@@ -643,7 +642,7 @@ TEST_F(TextfieldModelTest, Clipboard) {
   // Copy with non-empty selection.
   model.SelectAll(false);
   EXPECT_TRUE(model.Copy());
-  clipboard->ReadText(ui::ClipboardType::kCopyPaste, &clipboard_text);
+  clipboard->ReadText(ui::ClipboardBuffer::kCopyPaste, &clipboard_text);
   EXPECT_STR_EQ("HELLO ", clipboard_text);
   EXPECT_STR_EQ("HELLO ", model.text());
   EXPECT_EQ(6U, model.GetCursorPosition());
@@ -718,7 +717,6 @@ TEST_F(TextfieldModelTest, SelectWordTest_MixScripts) {
   word_and_cursor.emplace_back(L"\x05d1\x05d2", 5);
   word_and_cursor.emplace_back(L" ", 3);
   word_and_cursor.emplace_back(L"a\x05d0", 2);
-  word_and_cursor.emplace_back(L"\x0915\x094d\x0915", 9);
   word_and_cursor.emplace_back(L"\x0915\x094d\x0915", 9);
   word_and_cursor.emplace_back(L" ", 10);
   word_and_cursor.emplace_back(L"\x4E2D\x56FD", 12);
@@ -1380,139 +1378,144 @@ TEST_F(TextfieldModelTest, UndoRedo_CutCopyPasteTest) {
   model.SetText(base::ASCIIToUTF16("ABCDE"));
   EXPECT_FALSE(model.Redo());  // There is nothing to redo.
   // Test Cut.
-  model.SelectRange(gfx::Range(1, 3));
-  model.Cut();
+  model.SelectRange(gfx::Range(1, 3));  //                         A[BC]DE
+  EXPECT_EQ(3U, model.GetCursorPosition());
+  model.Cut();  //                                                 A|DE
   EXPECT_STR_EQ("ADE", model.text());
   EXPECT_EQ(1U, model.GetCursorPosition());
-  EXPECT_TRUE(model.Undo());
-  EXPECT_STR_EQ("ABCDE", model.text());
-  EXPECT_EQ(1U, model.GetCursorPosition());
-  EXPECT_TRUE(model.render_text()->selection().EqualsIgnoringDirection(
-      gfx::Range(1, 3)));
-  EXPECT_TRUE(model.Undo());
-  EXPECT_STR_EQ("", model.text());
-  EXPECT_EQ(0U, model.GetCursorPosition());
-  EXPECT_FALSE(model.Undo());  // There is no more to undo.
-  EXPECT_STR_EQ("", model.text());
-  EXPECT_TRUE(model.Redo());
-  EXPECT_STR_EQ("ABCDE", model.text());
-  EXPECT_EQ(5U, model.GetCursorPosition());
-  EXPECT_TRUE(model.Redo());
-  EXPECT_STR_EQ("ADE", model.text());
-  EXPECT_EQ(1U, model.GetCursorPosition());
-  EXPECT_FALSE(model.Redo());  // There is no more to redo.
-  EXPECT_STR_EQ("ADE", model.text());
-
-  model.Paste();
-  model.Paste();
-  model.Paste();
-  EXPECT_STR_EQ("ABCBCBCDE", model.text());
-  EXPECT_EQ(7U, model.GetCursorPosition());
-  EXPECT_TRUE(model.Undo());
-  EXPECT_STR_EQ("ABCBCDE", model.text());
-  EXPECT_EQ(5U, model.GetCursorPosition());
-  EXPECT_TRUE(model.Undo());
+  EXPECT_TRUE(model.Undo());  //                                   A[BC]DE
   EXPECT_STR_EQ("ABCDE", model.text());
   EXPECT_EQ(3U, model.GetCursorPosition());
-  EXPECT_TRUE(model.Undo());
-  EXPECT_STR_EQ("ADE", model.text());
-  EXPECT_EQ(1U, model.GetCursorPosition());
-  EXPECT_TRUE(model.Undo());
-  EXPECT_STR_EQ("ABCDE", model.text());
-  EXPECT_EQ(1U, model.GetCursorPosition());
   EXPECT_TRUE(model.render_text()->selection().EqualsIgnoringDirection(
       gfx::Range(1, 3)));
-  EXPECT_TRUE(model.Undo());
+  EXPECT_TRUE(model.Undo());  //                                   |
   EXPECT_STR_EQ("", model.text());
   EXPECT_EQ(0U, model.GetCursorPosition());
-  EXPECT_FALSE(model.Undo());
+  EXPECT_FALSE(model.Undo());  // There is no more to undo.        |
+  EXPECT_STR_EQ("", model.text());
+  EXPECT_TRUE(model.Redo());  //                                   ABCDE|
+  EXPECT_STR_EQ("ABCDE", model.text());
+  EXPECT_EQ(5U, model.GetCursorPosition());
+  EXPECT_TRUE(model.Redo());  //                                   A|DE
+  EXPECT_STR_EQ("ADE", model.text());
+  EXPECT_EQ(1U, model.GetCursorPosition());
+  EXPECT_FALSE(model.Redo());  // There is no more to redo.        A|DE
+  EXPECT_STR_EQ("ADE", model.text());
+
+  model.Paste();  //                                               ABC|DE
+  model.Paste();  //                                               ABCBC|DE
+  model.Paste();  //                                               ABCBCBC|DE
+  EXPECT_STR_EQ("ABCBCBCDE", model.text());
+  EXPECT_EQ(7U, model.GetCursorPosition());
+  EXPECT_TRUE(model.Undo());  //                                   ABCBC|DE
+  EXPECT_STR_EQ("ABCBCDE", model.text());
+  EXPECT_EQ(5U, model.GetCursorPosition());
+  EXPECT_TRUE(model.Undo());  //                                   ABC|DE
+  EXPECT_STR_EQ("ABCDE", model.text());
+  EXPECT_EQ(3U, model.GetCursorPosition());
+  EXPECT_TRUE(model.Undo());  //                                   A|DE
+  EXPECT_STR_EQ("ADE", model.text());
+  EXPECT_EQ(1U, model.GetCursorPosition());
+  EXPECT_TRUE(model.Undo());  //                                   A[BC]DE
+  EXPECT_STR_EQ("ABCDE", model.text());
+  EXPECT_EQ(3U, model.GetCursorPosition());
+  EXPECT_TRUE(model.render_text()->selection().EqualsIgnoringDirection(
+      gfx::Range(1, 3)));
+  EXPECT_TRUE(model.Undo());  //                                   |
+  EXPECT_STR_EQ("", model.text());
+  EXPECT_EQ(0U, model.GetCursorPosition());
+  EXPECT_FALSE(model.Undo());  //                                  |
   EXPECT_STR_EQ("", model.text());
   EXPECT_TRUE(model.Redo());
-  EXPECT_STR_EQ("ABCDE", model.text());
+  EXPECT_STR_EQ("ABCDE", model.text());  //                        ABCDE|
   EXPECT_EQ(5U, model.GetCursorPosition());
 
   // Test Redo.
-  EXPECT_TRUE(model.Redo());
+  EXPECT_TRUE(model.Redo());  //                                   A|DE
   EXPECT_STR_EQ("ADE", model.text());
   EXPECT_EQ(1U, model.GetCursorPosition());
-  EXPECT_TRUE(model.Redo());
+  EXPECT_TRUE(model.Redo());  //                                   ABC|DE
   EXPECT_STR_EQ("ABCDE", model.text());
   EXPECT_EQ(3U, model.GetCursorPosition());
-  EXPECT_TRUE(model.Redo());
+  EXPECT_TRUE(model.Redo());  //                                   ABCBC|DE
   EXPECT_STR_EQ("ABCBCDE", model.text());
   EXPECT_EQ(5U, model.GetCursorPosition());
-  EXPECT_TRUE(model.Redo());
+  EXPECT_TRUE(model.Redo());  //                                   ABCBCBC|DE
   EXPECT_STR_EQ("ABCBCBCDE", model.text());
   EXPECT_EQ(7U, model.GetCursorPosition());
-  EXPECT_FALSE(model.Redo());
+  EXPECT_FALSE(model.Redo());  //                                  ABCBCBC|DE
 
   // Test using SelectRange.
-  model.SelectRange(gfx::Range(1, 3));
-  EXPECT_TRUE(model.Cut());
+  model.SelectRange(gfx::Range(1, 3));  //                         A[BC]BCBCDE
+  EXPECT_TRUE(model.Cut());  //                                    A|BCBCDE
   EXPECT_STR_EQ("ABCBCDE", model.text());
   EXPECT_EQ(1U, model.GetCursorPosition());
-  model.SelectRange(gfx::Range(1, 1));
-  EXPECT_FALSE(model.Cut());
+  model.SelectRange(gfx::Range(1, 1));  //                         A|BCBCDE
+  EXPECT_FALSE(model.Cut());  //                                   A|BCBCDE
   model.MoveCursor(gfx::LINE_BREAK, gfx::CURSOR_RIGHT, gfx::SELECTION_NONE);
-  EXPECT_TRUE(model.Paste());
+  //                                                               ABCBCDE|
+  EXPECT_TRUE(model.Paste());  //                                  ABCBCDEBC|
   EXPECT_STR_EQ("ABCBCDEBC", model.text());
   EXPECT_EQ(9U, model.GetCursorPosition());
-  EXPECT_TRUE(model.Undo());
+  EXPECT_TRUE(model.Undo());  //                                   ABCBCDE|
   EXPECT_STR_EQ("ABCBCDE", model.text());
   EXPECT_EQ(7U, model.GetCursorPosition());
   // An empty cut shouldn't create an edit.
-  EXPECT_TRUE(model.Undo());
+  EXPECT_TRUE(model.Undo());  //                                   ABC|BCBCDE
   EXPECT_STR_EQ("ABCBCBCDE", model.text());
-  EXPECT_EQ(1U, model.GetCursorPosition());
+  EXPECT_EQ(3U, model.GetCursorPosition());
   EXPECT_TRUE(model.render_text()->selection().EqualsIgnoringDirection(
       gfx::Range(1, 3)));
   // Test Copy.
   ResetModel(&model);
-  model.SetText(base::ASCIIToUTF16("12345"));
+  model.SetText(base::ASCIIToUTF16("12345"));  //                  12345|
   EXPECT_STR_EQ("12345", model.text());
   EXPECT_EQ(5U, model.GetCursorPosition());
-  model.SelectRange(gfx::Range(1, 3));
-  model.Copy();  // Copy "23".
+  model.SelectRange(gfx::Range(1, 3));  //                         1[23]45
+  model.Copy();  // Copy "23".  //                                 1[23]45
   EXPECT_STR_EQ("12345", model.text());
   EXPECT_EQ(3U, model.GetCursorPosition());
-  model.Paste();  // Paste "23" into "23".
+  model.Paste();  // Paste "23" into "23".  //                     123|45
   EXPECT_STR_EQ("12345", model.text());
   EXPECT_EQ(3U, model.GetCursorPosition());
-  model.Paste();
+  model.Paste();  //                                               12323|45
   EXPECT_STR_EQ("1232345", model.text());
   EXPECT_EQ(5U, model.GetCursorPosition());
-  EXPECT_TRUE(model.Undo());
+  EXPECT_TRUE(model.Undo());  //                                   123|45
   EXPECT_STR_EQ("12345", model.text());
   EXPECT_EQ(3U, model.GetCursorPosition());
   // TODO(oshima): Change the return type from bool to enum.
-  EXPECT_FALSE(model.Undo());  // No text change.
+  EXPECT_FALSE(model.Undo());  // No text change.                  1[23]45
   EXPECT_STR_EQ("12345", model.text());
   EXPECT_EQ(3U, model.GetCursorPosition());
-  EXPECT_TRUE(model.Undo());
+  EXPECT_TRUE(model.render_text()->selection().EqualsIgnoringDirection(
+      gfx::Range(1, 3)));
+  EXPECT_TRUE(model.Undo());  //                                   |
   EXPECT_STR_EQ("", model.text());
-  EXPECT_FALSE(model.Undo());
+  EXPECT_FALSE(model.Undo());  //                                  |
   // Test Redo.
-  EXPECT_TRUE(model.Redo());
+  EXPECT_TRUE(model.Redo());  //                                   12345|
   EXPECT_STR_EQ("12345", model.text());
   EXPECT_EQ(5U, model.GetCursorPosition());
-  EXPECT_TRUE(model.Redo());
+  EXPECT_TRUE(model.Redo());  //                                   12|345
   EXPECT_STR_EQ("12345", model.text());  // For 1st paste
   EXPECT_EQ(3U, model.GetCursorPosition());
-  EXPECT_TRUE(model.Redo());
+  EXPECT_TRUE(model.Redo());  //                                   12323|45
   EXPECT_STR_EQ("1232345", model.text());
   EXPECT_EQ(5U, model.GetCursorPosition());
-  EXPECT_FALSE(model.Redo());
+  EXPECT_FALSE(model.Redo());  //                                  12323|45
   EXPECT_STR_EQ("1232345", model.text());
 
   // Test using SelectRange.
-  model.SelectRange(gfx::Range(1, 3));
-  model.Copy();
+  model.SelectRange(gfx::Range(1, 3));  //                         1[23]2345
+  model.Copy();  //                                                1[23]2345
   EXPECT_STR_EQ("1232345", model.text());
   model.MoveCursor(gfx::LINE_BREAK, gfx::CURSOR_RIGHT, gfx::SELECTION_NONE);
-  EXPECT_TRUE(model.Paste());
+  //                                                               1232345|
+  EXPECT_TRUE(model.Paste());  //                                  123234523|
   EXPECT_STR_EQ("123234523", model.text());
   EXPECT_EQ(9U, model.GetCursorPosition());
-  EXPECT_TRUE(model.Undo());
+  EXPECT_TRUE(model.Undo());  //                                   1232345|
   EXPECT_STR_EQ("1232345", model.text());
   EXPECT_EQ(7U, model.GetCursorPosition());
 }
@@ -1736,12 +1739,12 @@ TEST_F(TextfieldModelTest, UndoRedo_CompositionText) {
 
 // Tests that clipboard text with leading, trailing and interspersed tabs
 // spaces etc is pasted correctly. Leading and trailing tabs should be
-// stripped. Text separated by multiple tabs/spaces should be collapsed into
-// one space. Text with just tabs and spaces should be pasted as one space.
+// stripped. Text separated by multiple tabs/spaces should be left alone.
+// Text with just tabs and spaces should be pasted as one space.
 TEST_F(TextfieldModelTest, Clipboard_WhiteSpaceStringTest) {
   // Test 1
   // Clipboard text with a leading tab should be pasted with the tab stripped.
-  ui::ScopedClipboardWriter(ui::ClipboardType::kCopyPaste)
+  ui::ScopedClipboardWriter(ui::ClipboardBuffer::kCopyPaste)
       .WriteText(base::ASCIIToUTF16("\tB"));
 
   TextfieldModel model(nullptr);
@@ -1760,7 +1763,7 @@ TEST_F(TextfieldModelTest, Clipboard_WhiteSpaceStringTest) {
   // Test 2
   // Clipboard text with multiple leading tabs and spaces should be pasted with
   // all tabs and spaces stripped.
-  ui::ScopedClipboardWriter(ui::ClipboardType::kCopyPaste)
+  ui::ScopedClipboardWriter(ui::ClipboardBuffer::kCopyPaste)
       .WriteText(base::ASCIIToUTF16("\t\t\t B"));
 
   model.Append(base::ASCIIToUTF16("HELLO WORLD"));
@@ -1776,8 +1779,8 @@ TEST_F(TextfieldModelTest, Clipboard_WhiteSpaceStringTest) {
 
   // Test 3
   // Clipboard text with multiple tabs separating the words should be pasted
-  // with one space replacing all tabs.
-  ui::ScopedClipboardWriter(ui::ClipboardType::kCopyPaste)
+  // as-is.
+  ui::ScopedClipboardWriter(ui::ClipboardBuffer::kCopyPaste)
       .WriteText(base::ASCIIToUTF16("FOO \t\t BAR"));
 
   model.Append(base::ASCIIToUTF16("HELLO WORLD"));
@@ -1785,7 +1788,7 @@ TEST_F(TextfieldModelTest, Clipboard_WhiteSpaceStringTest) {
   model.MoveCursor(gfx::LINE_BREAK, gfx::CURSOR_RIGHT, gfx::SELECTION_NONE);
   EXPECT_EQ(11U, model.GetCursorPosition());
   EXPECT_TRUE(model.Paste());
-  EXPECT_STR_EQ("HELLO WORLDFOO BAR", model.text());
+  EXPECT_STR_EQ("HELLO WORLDFOO \t\t BAR", model.text());
 
   model.SelectAll(false);
   model.DeleteSelection();
@@ -1793,13 +1796,12 @@ TEST_F(TextfieldModelTest, Clipboard_WhiteSpaceStringTest) {
 
   // Test 4
   // Clipboard text with multiple leading tabs and multiple tabs separating
-  // the words should be pasted with the leading tabs stripped and one space
-  // replacing the intermediate tabs.
-  ui::ScopedClipboardWriter(ui::ClipboardType::kCopyPaste)
+  // the words should be pasted with the leading tabs stripped.
+  ui::ScopedClipboardWriter(ui::ClipboardBuffer::kCopyPaste)
       .WriteText(base::ASCIIToUTF16("\t\tFOO \t\t BAR"));
 
   EXPECT_TRUE(model.Paste());
-  EXPECT_STR_EQ("FOO BAR", model.text());
+  EXPECT_STR_EQ("FOO \t\t BAR", model.text());
 
   model.SelectAll(false);
   model.DeleteSelection();
@@ -1808,7 +1810,7 @@ TEST_F(TextfieldModelTest, Clipboard_WhiteSpaceStringTest) {
   // Test 5
   // Clipboard text with multiple trailing tabs should be pasted with all
   // trailing tabs stripped.
-  ui::ScopedClipboardWriter(ui::ClipboardType::kCopyPaste)
+  ui::ScopedClipboardWriter(ui::ClipboardBuffer::kCopyPaste)
       .WriteText(base::ASCIIToUTF16("FOO BAR\t\t\t"));
   EXPECT_TRUE(model.Paste());
   EXPECT_STR_EQ("FOO BAR", model.text());
@@ -1820,7 +1822,7 @@ TEST_F(TextfieldModelTest, Clipboard_WhiteSpaceStringTest) {
   // Test 6
   // Clipboard text with only spaces and tabs should be pasted as a single
   // space.
-  ui::ScopedClipboardWriter(ui::ClipboardType::kCopyPaste)
+  ui::ScopedClipboardWriter(ui::ClipboardBuffer::kCopyPaste)
       .WriteText(base::ASCIIToUTF16("     \t\t"));
   EXPECT_TRUE(model.Paste());
   EXPECT_STR_EQ(" ", model.text());
@@ -1830,12 +1832,11 @@ TEST_F(TextfieldModelTest, Clipboard_WhiteSpaceStringTest) {
   EXPECT_STR_EQ("", model.text());
 
   // Test 7
-  // Clipboard text with lots of spaces between words should have all spaces
-  // replaced with a single space.
-  ui::ScopedClipboardWriter(ui::ClipboardType::kCopyPaste)
+  // Clipboard text with lots of spaces between words should be pasted as-is.
+  ui::ScopedClipboardWriter(ui::ClipboardBuffer::kCopyPaste)
       .WriteText(base::ASCIIToUTF16("FOO      BAR"));
   EXPECT_TRUE(model.Paste());
-  EXPECT_STR_EQ("FOO BAR", model.text());
+  EXPECT_STR_EQ("FOO      BAR", model.text());
 }
 
 TEST_F(TextfieldModelTest, Transpose) {

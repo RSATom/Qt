@@ -27,7 +27,7 @@
 **
 ****************************************************************************/
 
-import QtQuick 2.12
+import QtQuick 2.15
 import HelperWidgets 2.0
 import QtQuick.Layouts 1.12
 
@@ -88,8 +88,8 @@ Section {
         }
         ComboBox {
             scope: "Material"
-            model: ["BackfaceCulling", "FrontfaceCulling", "FrontAndBackfaceCulling", "DisableCulling"]
-            backendValue: backendValues.cullingMode
+            model: ["BackFaceCulling", "FrontFaceCulling", "NoCulling"]
+            backendValue: backendValues.cullMode
             Layout.fillWidth: true
         }
     }

@@ -20,19 +20,18 @@
 
 namespace dawn_native {
 
-    // This is called RenderPassEncoderBase to match the code generator expectations. Note that it
-    // is a pure frontend type to record in its parent CommandEncoder and never has a backend
-    // implementation.
-    // TODO(cwallez@chromium.org): Remove that generator limitation and rename to ComputePassEncoder
-    class RenderPassEncoderBase : public RenderEncoderBase {
-      public:
-        RenderPassEncoderBase(DeviceBase* device,
-                              CommandEncoderBase* commandEncoder,
-                              EncodingContext* encodingContext);
+    class RenderBundleBase;
 
-        static RenderPassEncoderBase* MakeError(DeviceBase* device,
-                                                CommandEncoderBase* commandEncoder,
-                                                EncodingContext* encodingContext);
+    class RenderPassEncoder final : public RenderEncoderBase {
+      public:
+        RenderPassEncoder(DeviceBase* device,
+                          CommandEncoder* commandEncoder,
+                          EncodingContext* encodingContext,
+                          PassResourceUsageTracker usageTracker);
+
+        static RenderPassEncoder* MakeError(DeviceBase* device,
+                                            CommandEncoder* commandEncoder,
+                                            EncodingContext* encodingContext);
 
         void EndPass();
 
@@ -45,17 +44,18 @@ namespace dawn_native {
                          float minDepth,
                          float maxDepth);
         void SetScissorRect(uint32_t x, uint32_t y, uint32_t width, uint32_t height);
+        void ExecuteBundles(uint32_t count, RenderBundleBase* const* renderBundles);
 
       protected:
-        RenderPassEncoderBase(DeviceBase* device,
-                              CommandEncoderBase* commandEncoder,
-                              EncodingContext* encodingContext,
-                              ErrorTag errorTag);
+        RenderPassEncoder(DeviceBase* device,
+                          CommandEncoder* commandEncoder,
+                          EncodingContext* encodingContext,
+                          ErrorTag errorTag);
 
       private:
         // For render and compute passes, the encoding context is borrowed from the command encoder.
         // Keep a reference to the encoder to make sure the context isn't freed.
-        Ref<CommandEncoderBase> mCommandEncoder;
+        Ref<CommandEncoder> mCommandEncoder;
     };
 
 }  // namespace dawn_native

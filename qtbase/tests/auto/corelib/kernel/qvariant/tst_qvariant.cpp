@@ -1440,11 +1440,11 @@ void tst_QVariant::checkDataStream()
     QVERIFY(!QMetaType::isRegistered(typeId));
 
     QByteArray errorMessage("Trying to construct an instance of an invalid type, type id: ");
-    errorMessage.append(QString::number(typeId, 10));
+    errorMessage.append(QString::number(typeId, 10).toUtf8());
 
     QTest::ignoreMessage(QtWarningMsg, errorMessage.constData());
     QByteArray settingsHex("000000");
-    settingsHex.append(QString::number(typeId, 16));
+    settingsHex.append(QString::number(typeId, 16).toUtf8());
     settingsHex.append("ffffffffff");
     const QByteArray settings = QByteArray::fromHex(settingsHex);
     QDataStream in(settings);
@@ -3885,12 +3885,17 @@ void tst_QVariant::moreCustomTypes()
         PLAY_WITH_VARIANT(data, false, QString(), 0, false);
     }
 
+#if QT_DEPRECATED_SINCE(5, 15)
+QT_WARNING_PUSH
+QT_WARNING_DISABLE_DEPRECATED
     {
         QList<QLinkedList<int> > data;
         PLAY_WITH_VARIANT(data, false, QString(), 0, false);
         data << (QLinkedList<int>() << 42);
         PLAY_WITH_VARIANT(data, false, QString(), 0, false);
     }
+QT_WARNING_POP
+#endif
 }
 
 void tst_QVariant::movabilityTest()
@@ -5156,14 +5161,28 @@ void tst_QVariant::sequentialIterableEndianessSanityCheck()
 
 void tst_QVariant::sequentialIterableAppend()
 {
-    QVector<int> container {1, 2};
-    auto variant = QVariant::fromValue(container);
-    QVERIFY(variant.canConvert<QtMetaTypePrivate::QSequentialIterableImpl>());
-    auto asIterable = variant.value<QtMetaTypePrivate::QSequentialIterableImpl>();
-    const int i = 3, j = 4;
-    asIterable.append(&i);
-    asIterable.append(&j);
-    QCOMPARE(variant.value<QVector<int>>(), QVector<int> ({1, 2, 3, 4}));
+    {
+        QVector<int> container {1, 2};
+        auto variant = QVariant::fromValue(container);
+        QVERIFY(variant.canConvert<QtMetaTypePrivate::QSequentialIterableImpl>());
+        auto asIterable = variant.value<QtMetaTypePrivate::QSequentialIterableImpl>();
+        const int i = 3, j = 4;
+        asIterable.append(&i);
+        asIterable.append(&j);
+        QCOMPARE(variant.value<QVector<int>>(), QVector<int> ({1, 2, 3, 4}));
+    }
+    {
+        QSet<QByteArray> container { QByteArray{"hello"}, QByteArray{"world"} };
+        auto variant = QVariant::fromValue(std::move(container));
+        QVERIFY(variant.canConvert<QtMetaTypePrivate::QSequentialIterableImpl>());
+        auto asIterable = variant.value<QtMetaTypePrivate::QSequentialIterableImpl>();
+        QByteArray qba1 {"goodbye"};
+        QByteArray qba2 { "moon" };
+        asIterable.append( &qba1 );
+        asIterable.append( &qba2);
+        QSet<QByteArray> reference { "hello", "world", "goodbye", "moon" };
+        QCOMPARE(variant.value<QSet<QByteArray>>(), reference);
+    }
 }
 
 void tst_QVariant::preferDirectConversionOverInterfaces()

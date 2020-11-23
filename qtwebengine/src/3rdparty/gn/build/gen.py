@@ -281,15 +281,20 @@ def WriteGNNinja(path, platform, host, options):
   #  ld = os.environ.get('LD', 'g++')
   #  ar = os.environ.get('AR', 'ar -X64')
   #else:
-  #  cc = os.environ.get('CC', 'clang')
-  #  cxx = os.environ.get('CXX', 'clang++')
+  #  cc = os.environ.get('CC', 'cc')
+  #  cxx = os.environ.get('CXX', 'c++')
   #  ld = cxx
   #  ar = os.environ.get('AR', 'ar')
-  #
-  #cflags = os.environ.get('CFLAGS', '').split()
-  #cflags_cc = os.environ.get('CXXFLAGS', '').split()
-  #ldflags = os.environ.get('LDFLAGS', '').split()
-  #libflags = os.environ.get('LIBFLAGS', '').split()
+
+  # cflags = os.environ.get('CFLAGS', '').split()
+  # cflags_cc = os.environ.get('CXXFLAGS', '').split()
+  # ldflags = os.environ.get('LDFLAGS', '').split()
+  # libflags = os.environ.get('LIBFLAGS', '').split()
+
+  cflags = []
+  cflags_cc = []
+  ldflags = []
+  libflags = []
 
   cc = options.cc
   cxx = options.cxx
@@ -301,11 +306,6 @@ def WriteGNNinja(path, platform, host, options):
         ar = os.environ.get('AR', 'lib.exe')
      else:
         ar = os.environ.get('AR', 'ar')
-
-  cflags = []
-  cflags_cc = []
-  ldflags = []
-  libflags = []
 
   include_dirs = [os.path.relpath(REPO_ROOT, os.path.dirname(path)), '.']
   libs = []
@@ -321,6 +321,8 @@ def WriteGNNinja(path, platform, host, options):
       ldflags.append('-O3')
       if platform.is_darwin() and options.isysroot:
         cflags.append('-isysroot ' +  options.isysroot)
+        ldflags.append('-isysroot ' +  options.isysroot)
+
       # Use -fdata-sections and -ffunction-sections to place each function
       # or data item into its own section so --gc-sections can eliminate any
       # unused functions and data items.

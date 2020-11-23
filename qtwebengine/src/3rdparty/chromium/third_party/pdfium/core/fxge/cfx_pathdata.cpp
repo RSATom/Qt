@@ -30,11 +30,6 @@ bool IsFoldingDiagonalLine(const CFX_PointF& a,
          (a.y - b.y) * (c.x - b.x) == (c.y - b.y) * (a.x - b.x);
 }
 
-bool IsClosedFigure(const FX_PATHPOINT& prev, const FX_PATHPOINT& next) {
-  return prev.m_Type == FXPT_TYPE::MoveTo && next.m_Type == FXPT_TYPE::LineTo &&
-         prev.m_Point == next.m_Point && next.m_CloseFigure;
-}
-
 void UpdateLineEndPoints(CFX_FloatRect* rect,
                          const CFX_PointF& start_pos,
                          const CFX_PointF& end_pos,
@@ -236,7 +231,7 @@ void CFX_PathData::AppendLine(const CFX_PointF& pt1, const CFX_PointF& pt2) {
   AppendPoint(pt2, FXPT_TYPE::LineTo, false);
 }
 
-void CFX_PathData::AppendRect(const CFX_FloatRect& rect) {
+void CFX_PathData::AppendFloatRect(const CFX_FloatRect& rect) {
   return AppendRect(rect.left, rect.bottom, rect.right, rect.top);
 }
 
@@ -422,12 +417,6 @@ bool CFX_PathData::GetZeroAreaPath(const CFX_Matrix* pMatrix,
       NewPath->AppendPoint(start.m_Point, FXPT_TYPE::MoveTo, false);
       NewPath->AppendPoint(end.m_Point, FXPT_TYPE::LineTo, false);
       continue;
-    }
-
-    if (IsClosedFigure(prev, next)) {
-      NewPath->AppendPoint(prev.m_Point, FXPT_TYPE::MoveTo, false);
-      NewPath->AppendPoint(cur.m_Point, FXPT_TYPE::LineTo, false);
-      *bThin = true;
     }
   }
 

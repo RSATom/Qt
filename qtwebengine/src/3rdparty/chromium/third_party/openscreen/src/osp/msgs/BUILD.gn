@@ -17,8 +17,10 @@ source_set("msgs") {
     "../../third_party/tinycbor",
   ]
 
-  public_configs = [ ":cddl_gen_config" ]
-  configs += [ "../../build:allow_build_from_embedder" ]
+  public_configs = [
+    ":cddl_gen_config",
+    "../../build:openscreen_include_dirs",
+  ]
 }
 
 config("cddl_gen_config") {
@@ -40,19 +42,27 @@ action("cddl_gen") {
     outputs += [ root_gen_dir + "/" + o ]
   }
 
-  args = [
-           "--header",
-           outputs_src[0],
-           "--cc",
-           outputs_src[1],
-           "--gen-dir",
-           rebase_path(root_gen_dir, root_build_dir),
-           "--log",
-           rebase_path("cddl.log", "//"),
-         ] + rebase_path(sources, root_build_dir)
+  cddl_label = "../../tools/cddl:cddl($host_toolchain)"
+  cddl_path = get_label_info(cddl_label, "root_out_dir") + "/cddl"
+  args =
+      [
+        "--cddl",
+
+        # Path should be rebased because |root_build_dir| for current toolchain
+        # may be different from |root_out_dir| of cddl built on host toolchain.
+        "./" + rebase_path(cddl_path, root_build_dir),
+        "--header",
+        outputs_src[0],
+        "--cc",
+        outputs_src[1],
+        "--gen-dir",
+        rebase_path(root_gen_dir, root_build_dir),
+        "--log",
+        rebase_path("cddl.log", "//"),
+      ] + rebase_path(sources, root_build_dir)
 
   deps = [
-    "../../tools/cddl",
+    cddl_label,
   ]
 }
 
@@ -67,6 +77,4 @@ source_set("unittests") {
     ":msgs",
     "../../third_party/googletest:gtest",
   ]
-
-  configs += [ "../../build:allow_build_from_embedder" ]
 }

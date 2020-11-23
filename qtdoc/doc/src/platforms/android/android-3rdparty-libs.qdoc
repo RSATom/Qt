@@ -1,0 +1,101 @@
+/****************************************************************************
+**
+** Copyright (C) 2020 The Qt Company Ltd.
+** Contact: https://www.qt.io/licensing/
+**
+** This file is part of the documentation of the Qt Toolkit.
+**
+** $QT_BEGIN_LICENSE:FDL$
+** Commercial License Usage
+** Licensees holding valid commercial Qt licenses may use this file in
+** accordance with the commercial license agreement provided with the
+** Software or, alternatively, in accordance with the terms contained in
+** a written agreement between you and The Qt Company. For licensing terms
+** and conditions see https://www.qt.io/terms-conditions. For further
+** information use the contact form at https://www.qt.io/contact-us.
+**
+** GNU Free Documentation License Usage
+** Alternatively, this file may be used under the terms of the GNU Free
+** Documentation License version 1.3 as published by the Free Software
+** Foundation and appearing in the file included in the packaging of
+** this file. Please review the following information to ensure
+** the GNU Free Documentation License version 1.3 requirements
+** will be met: https://www.gnu.org/licenses/fdl-1.3.html.
+** $QT_END_LICENSE$
+**
+****************************************************************************/
+
+/*!
+    \page android-3rdparty-libs.html
+    \title Third-party Android Libraries
+    \brief Provides instructions to include third-party Android libraries in an application.
+
+    This guide describes how to include a Java-based third-party library in your
+    application package. There are many Java libraries which provide APIs that
+    may be useful to your application.
+
+    \section1 Prerequisites
+
+    This guide assumes that the \l{androiddeployqt} tool is used for constructing
+    the deployment package. When using Qt Creator for building and deploying,
+    androiddeployqt is used behind the scenes, so this also applies to
+    development with Qt Creator. Explaining how to access the Java APIs after
+    being included in the the project is not in the scope of this guide. For
+    more information, see \l{Customizing the Package Templates}.
+
+    \section1 Including a Library to an Android Project
+
+    The very first thing you need to do is to copy the library files into
+    your project. The contents of the library have to be copied without
+    modifications into the packaging directory, i.e. into the path set with
+    \l{qmake} variable \l{ANDROID_PACKAGE_SOURCE_DIR}. For more information, see
+    \l{Android Libraries}.
+
+    If you are using Qt Creator, you can quickly set up the packaging directory
+    structure by selecting \uicontrol Projects > \uicontrol Build >
+    \uicontrol {Build Android APK} > \uicontrol {Create Templates}. This creates
+    a directory for your \l{Customizing the Package Templates}{Android package customizations}.
+    Copy the library directory into \c {$ANDROID_PACKAGE_SOURCE_DIR/libs/}.
+
+    \section2 Adding a .jar or .aar Library
+
+    By default, Qt for Android uses can use \c .jar or \c .aar libraries that are
+    found in the path \c {$ANDROID_PACKAGE_SOURCE_DIR/libs/}. Qt has the following
+    rule in \c{build.gradle} file that is part of \l{Gradle files}{the Gradle files}
+    used by Android build:
+
+    \badcode
+    dependencies {
+        implementation fileTree(dir: 'libs', include: ['*.jar', '*.aar'])
+    \endcode
+
+    \section1 Adding a Library Project
+
+    Having a library called \c{CustomLibrary}, similar to the previous approach,
+    copy the library project to your packaging directory
+    \c{$ANDROID_PACKAGE_SOURCE_DIR/libs/}, then create a file \c{settings.gradle}
+    with the following content:
+
+    \badcode
+    include ':libs:CustomLibrary'
+    \endcode
+
+    Then, add the dependency to \c{build.gradle} file inside the \c{dependencies}
+    block:
+
+    \badcode
+    dependencies {
+        implementation project(":libs:CustomLibrary")
+    }
+    \endcode
+
+    For more information on adding libraries to an Android project, see
+    \l{Android: Add build dependencies}{Add build dependencies Android documentation}.
+
+    \section1 Deployment
+
+    Once \l{Gradle} settings and the library files are all properly configured,
+    Qt for Android should be able to build your \c APK or \c AAB package with
+    your custom library.
+
+*/

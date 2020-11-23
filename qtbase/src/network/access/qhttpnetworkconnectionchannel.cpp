@@ -57,7 +57,7 @@
 #    include <QtNetwork/qsslcipher.h>
 #endif
 
-#ifndef QT_NO_BEARERMANAGEMENT
+#ifndef QT_NO_BEARERMANAGEMENT // ### Qt6: Remove section
 #include "private/qnetworksession_p.h"
 #endif
 
@@ -87,11 +87,11 @@ private:
 static const int reconnectAttemptsDefault = 3;
 
 QHttpNetworkConnectionChannel::QHttpNetworkConnectionChannel()
-    : socket(0)
+    : socket(nullptr)
     , ssl(false)
     , isInitialized(false)
     , state(IdleState)
-    , reply(0)
+    , reply(nullptr)
     , written(0)
     , bytesTotal(0)
     , resendCurrent(false)
@@ -102,13 +102,13 @@ QHttpNetworkConnectionChannel::QHttpNetworkConnectionChannel()
     , proxyAuthMethod(QAuthenticatorPrivate::None)
     , authenticationCredentialsSent(false)
     , proxyCredentialsSent(false)
-    , protocolHandler(0)
+    , protocolHandler(nullptr)
 #ifndef QT_NO_SSL
     , ignoreAllSslErrors(false)
 #endif
     , pipeliningSupported(PipeliningSupportUnknown)
     , networkLayerPreference(QAbstractSocket::AnyIPProtocol)
-    , connection(0)
+    , connection(nullptr)
 {
     // Inlining this function in the header leads to compiler error on
     // release-armv5, on at least timebox 9.2 and 10.1.
@@ -124,7 +124,7 @@ void QHttpNetworkConnectionChannel::init()
 #else
     socket = new QTcpSocket;
 #endif
-#ifndef QT_NO_BEARERMANAGEMENT
+#ifndef QT_NO_BEARERMANAGEMENT // ### Qt6: Remove section
     //push session down to socket
     if (networkSession)
         socket->setProperty("_q_networksession", QVariant::fromValue(networkSession));
@@ -157,7 +157,7 @@ void QHttpNetworkConnectionChannel::init()
     QObject::connect(socket, SIGNAL(disconnected()),
                      this, SLOT(_q_disconnected()),
                      Qt::DirectConnection);
-    QObject::connect(socket, SIGNAL(error(QAbstractSocket::SocketError)),
+    QObject::connect(socket, SIGNAL(errorOccurred(QAbstractSocket::SocketError)),
                      this, SLOT(_q_error(QAbstractSocket::SocketError)),
                      Qt::DirectConnection);
 
@@ -295,9 +295,9 @@ void QHttpNetworkConnectionChannel::handleUnexpectedEOF()
         close();
         reply->d_func()->errorString = connection->d_func()->errorDetail(QNetworkReply::RemoteHostClosedError, socket);
         emit reply->finishedWithError(QNetworkReply::RemoteHostClosedError, reply->d_func()->errorString);
-        reply = 0;
+        reply = nullptr;
         if (protocolHandler)
-            protocolHandler->setReply(0);
+            protocolHandler->setReply(nullptr);
         request = QHttpNetworkRequest();
         QMetaObject::invokeMethod(connection, "_q_startNextRequest", Qt::QueuedConnection);
     } else {
@@ -488,6 +488,9 @@ void QHttpNetworkConnectionChannel::allDone()
             QHttp2ProtocolHandler *h2c = static_cast<QHttp2ProtocolHandler *>(protocolHandler.data());
             QMetaObject::invokeMethod(h2c, "_q_receiveReply", Qt::QueuedConnection);
             QMetaObject::invokeMethod(connection, "_q_startNextRequest", Qt::QueuedConnection);
+            // If we only had one request sent with H2 allowed, we may fail to send
+            // a client preface and SETTINGS, which is required by RFC 7540, 3.2.
+            QMetaObject::invokeMethod(h2c, "ensureClientPrefaceSent", Qt::QueuedConnection);
             return;
         } else {
             // Ok, whatever happened, we do not try HTTP/2 anymore ...
@@ -526,8 +529,8 @@ void QHttpNetworkConnectionChannel::allDone()
     // problem.
     if (!resendCurrent) {
         request = QHttpNetworkRequest();
-        reply = 0;
-        protocolHandler->setReply(0);
+        reply = nullptr;
+        protocolHandler->setReply(nullptr);
     }
 
     // move next from pipeline to current request
@@ -1101,9 +1104,9 @@ void QHttpNetworkConnectionChannel::_q_error(QAbstractSocket::SocketError socket
             reply->d_func()->errorString = errorString;
             reply->d_func()->httpErrorCode = errorCode;
             emit reply->finishedWithError(errorCode, errorString);
-            reply = 0;
+            reply = nullptr;
             if (protocolHandler)
-                protocolHandler->setReply(0);
+                protocolHandler->setReply(nullptr);
         }
     } while (!connection->d_func()->highPriorityQueue.isEmpty()
              || !connection->d_func()->lowPriorityQueue.isEmpty());

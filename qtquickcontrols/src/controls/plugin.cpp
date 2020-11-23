@@ -196,7 +196,7 @@ void QtQuickControls1Plugin::registerTypes(const char *uri)
     qmlRegisterSingletonType<QQuickControlSettings1>(private_uri, 1, 0, "Settings", QQuickControlsPrivate1::registerSettingsModule);
 
     qmlRegisterUncreatableType<QQuickControlsPrivate1>(private_uri, 1, 0, "Controls", QLatin1String("Controls is an abstract type."));
-    qmlRegisterType<QQuickControlsPrivate1Attached>();
+    qmlRegisterAnonymousType<QQuickControlsPrivate1Attached>(private_uri, 1);
 
     qmlRegisterType<QQuickTreeModelAdaptor1>(private_uri, 1, 0, "TreeModelAdaptor");
     qmlRegisterType<QQuickScenePosListener1>(private_uri, 1, 0, "ScenePosListener");

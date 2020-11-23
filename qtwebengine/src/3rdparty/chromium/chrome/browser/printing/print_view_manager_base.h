@@ -22,14 +22,8 @@
 #include "content/public/browser/notification_registrar.h"
 #include "printing/buildflags/buildflags.h"
 
-struct PrintHostMsg_DidPrintDocument_Params;
-
 namespace base {
 class RefCountedMemory;
-}
-
-namespace content {
-class RenderFrameHost;
 }
 
 namespace printing {
@@ -72,8 +66,16 @@ class PrintViewManagerBase : public content::NotificationObserver,
 
   base::string16 RenderSourceName();
 
+  content::RenderFrameHost* GetPrintingRFHForTesting() const {
+    return printing_rfh_;
+  }
+
  protected:
   explicit PrintViewManagerBase(content::WebContents* web_contents);
+
+  // Helper method for checking whether the WebContents is showing an
+  // interstitial page or is crashed.
+  bool IsInterstitialOrCrashed();
 
   // Helper method for Print*Now().
   bool PrintNowInternal(content::RenderFrameHost* rfh,
@@ -92,6 +94,10 @@ class PrintViewManagerBase : public content::NotificationObserver,
   // impossible to create a new print job.
   virtual bool CreateNewPrintJob(std::unique_ptr<PrinterQuery> query);
 
+  // Makes sure the current print_job_ has all its data before continuing, and
+  // disconnect from it.
+  void DisconnectFromCurrentPrintJob();
+
   // Manages the low-level talk to the printer.
   scoped_refptr<PrintJob> print_job_;
 
@@ -107,17 +113,26 @@ class PrintViewManagerBase : public content::NotificationObserver,
   // Cancels the print job.
   void NavigationStopped() override;
 
-  // IPC Message handlers.
+  // printing::PrintManager:
   void OnDidGetPrintedPagesCount(int cookie, int number_pages) override;
+  void OnDidPrintDocument(
+      content::RenderFrameHost* render_frame_host,
+      const PrintHostMsg_DidPrintDocument_Params& params,
+      std::unique_ptr<DelayedFrameDispatchHelper> helper) override;
+  void OnGetDefaultPrintSettings(content::RenderFrameHost* render_frame_host,
+                                 IPC::Message* reply_msg) override;
   void OnPrintingFailed(int cookie) override;
+  void OnScriptedPrint(content::RenderFrameHost* render_frame_host,
+                       const PrintHostMsg_ScriptedPrint_Params& params,
+                       IPC::Message* reply_msg) override;
+
   void OnShowInvalidPrinterSettingsError();
-  void OnDidPrintDocument(content::RenderFrameHost* render_frame_host,
-                          const PrintHostMsg_DidPrintDocument_Params& params);
 
   // IPC message handlers for service.
   void OnComposePdfDone(const gfx::Size& page_size,
                         const gfx::Rect& content_area,
                         const gfx::Point& physical_offsets,
+                        std::unique_ptr<DelayedFrameDispatchHelper> helper,
                         mojom::PdfCompositor::Status status,
                         base::ReadOnlySharedMemoryRegion region);
 
@@ -159,10 +174,6 @@ class PrintViewManagerBase : public content::NotificationObserver,
   // notification. The inner message loop is created was created by
   // RenderAllMissingPagesNow().
   void ShouldQuitFromInnerMessageLoop();
-
-  // Makes sure the current print_job_ has all its data before continuing, and
-  // disconnect from it.
-  void DisconnectFromCurrentPrintJob();
 
   // Terminates the print job. No-op if no print job has been created. If
   // |cancel| is true, cancel it instead of waiting for the job to finish. Will

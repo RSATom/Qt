@@ -59,7 +59,7 @@ public:
         setParentMenu(0);
     }
 
-    void setParentMenu(QQuickMenu1 *parentMenu)
+    void setParentMenu(QQuickMenu1 *parentMenu) override
     {
         QQuickMenuBase1::setParentMenu(parentMenu);
         for (QQuickMenuBase1 *item : qAsConst(m_menuItems))

@@ -82,14 +82,12 @@
     \snippet activeqt/opengl/main.cpp 2
     \snippet activeqt/opengl/main.cpp 3
 
-    The \c GLBox class inherits from both the \l QGLWidget class to be able
+    The \c GLBox class inherits from both the \l QOpenGLWidget class to be able
     to render OpenGL, and from \l QAxBindable.
     \snippet activeqt/opengl/glbox.h 0
     The class reimplements the \l QAxBindable::createAggregate() function from QAxBindable
     to return the pointer to a \l QAxAggregated object.
     \snippet activeqt/opengl/glbox.h 1
-    The rest of the class declaration and the implementation of the OpenGL
-    rendering is identical to the original "box" example.
 
     The implementation file of the \c GLBox class includes the \c objsafe.h
     system header, in which the \c IObjectSafety COM interface is defined.

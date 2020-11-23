@@ -32,6 +32,8 @@
 #include <QtQuick3DRender/private/qssgrenderbackendinputassemblergl_p.h>
 #include <QtQuick3DRender/private/qssgrenderbackendshaderprogramgl_p.h>
 
+#include <QtQuick3DRender/private/qssgopenglextensions_p.h>
+
 QT_BEGIN_NAMESPACE
 
 #ifdef RENDER_BACKEND_LOG_GL_ERRORS
@@ -218,7 +220,7 @@ void QSSGRenderBackendGL4Impl::createTextureStorage2D(QSSGRenderBackendTextureOb
 {
     GLuint texID = HandleToID_cast(GLuint, quintptr, to);
     GLenum glTarget = GLConversion::fromTextureTargetToGL(target);
-    GL_CALL_EXTRA_FUNCTION(glActiveTexture(GL_TEXTURE0));
+    setActiveTexture(GL_TEXTURE0);
     GL_CALL_EXTRA_FUNCTION(glBindTexture(glTarget, texID));
 
     // up to now compressed is not supported
@@ -242,7 +244,7 @@ void QSSGRenderBackendGL4Impl::setMultisampledTextureData2D(QSSGRenderBackendTex
 {
     GLuint texID = HandleToID_cast(GLuint, quintptr, to);
     GLenum glTarget = GLConversion::fromTextureTargetToGL(target);
-    GL_CALL_EXTRA_FUNCTION(glActiveTexture(GL_TEXTURE0));
+    setActiveTexture(GL_TEXTURE0);
     GL_CALL_EXTRA_FUNCTION(glBindTexture(glTarget, texID));
 
     QSSGRenderTextureSwizzleMode swizzleMode = QSSGRenderTextureSwizzleMode::NoSwizzle;

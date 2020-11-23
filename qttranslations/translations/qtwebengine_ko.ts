@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!DOCTYPE TS>
-<TS version="2.0" language="ko_KR">
+<TS version="2.1" language="ko">
 <context>
     <name>QQuickWebEngineView</name>
     <message>
@@ -21,7 +21,7 @@
     </message>
     <message>
         <source>View Page Source</source>
-        <translation>페이지 원본 보기</translation>
+        <translation>페이지 소스 보기</translation>
     </message>
     <message>
         <source>Copy</source>
@@ -216,7 +216,7 @@
     </message>
     <message>
         <source>&amp;View Page Source</source>
-        <translation>페이지 원본 보기(&amp;V)</translation>
+        <translation>페이지 소스 보기(&amp;V)</translation>
     </message>
     <message>
         <source>Are you sure you want to leave this page?</source>

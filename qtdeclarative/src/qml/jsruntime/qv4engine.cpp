@@ -303,15 +303,19 @@ ExecutionEngine::ExecutionEngine(QJSEngine *jsEngine)
     memoryManager = new QV4::MemoryManager(this);
 
     if (maxCallDepth == -1) {
-        ok = false;
-        maxCallDepth = qEnvironmentVariableIntValue("QV4_MAX_CALL_DEPTH", &ok);
-        if (!ok || maxCallDepth <= 0) {
+        if (qEnvironmentVariableIsSet("QV4_CRASH_ON_STACKOVERFLOW")) {
+            maxCallDepth = std::numeric_limits<qint32>::max();
+        } else {
+            ok = false;
+            maxCallDepth = qEnvironmentVariableIntValue("QV4_MAX_CALL_DEPTH", &ok);
+            if (!ok || maxCallDepth <= 0) {
 #if defined(QT_NO_DEBUG) && !defined(__SANITIZE_ADDRESS__) && !__has_feature(address_sanitizer)
-            maxCallDepth = 1234;
+                maxCallDepth = 1234;
 #else
-            // no (tail call) optimization is done, so there'll be a lot mare stack frames active
-            maxCallDepth = 200;
+                // no (tail call) optimization is done, so there'll be a lot mare stack frames active
+                maxCallDepth = 200;
 #endif
+            }
         }
     }
     Q_ASSERT(maxCallDepth > 0);
@@ -1262,20 +1266,15 @@ QUrl ExecutionEngine::resolvedUrl(const QString &file)
 
 void ExecutionEngine::markObjects(MarkStack *markStack)
 {
-    for (int i = 0; i < NClasses; ++i)
-        if (classes[i]) {
-            classes[i]->mark(markStack);
-            if (markStack->top >= markStack->limit)
-                markStack->drain();
-        }
-    markStack->drain();
+    for (int i = 0; i < NClasses; ++i) {
+        if (Heap::InternalClass *c = classes[i])
+            c->mark(markStack);
+    }
 
     identifierTable->markObjects(markStack);
 
-    for (auto compilationUnit: compilationUnits) {
+    for (auto compilationUnit: compilationUnits)
         compilationUnit->markObjects(markStack);
-        markStack->drain();
-    }
 }
 
 ReturnedValue ExecutionEngine::throwError(const Value &value)
@@ -1457,7 +1456,7 @@ static QVariant toVariant(QV4::ExecutionEngine *e, const QV4::Value &value, int 
     if (const QV4::VariantObject *v = value.as<QV4::VariantObject>())
         return v->d()->data();
 
-    if (typeHint == QVariant::Bool)
+    if (typeHint == QMetaType::Bool)
         return QVariant(value.toBoolean());
 
     if (typeHint == QMetaType::QJsonValue)
@@ -1522,19 +1521,30 @@ static QVariant toVariant(QV4::ExecutionEngine *e, const QV4::Value &value, int 
             retn = QVariant(typeHint, temp);
             QMetaType::destroy(typeHint, temp);
             auto retnAsIterable = retn.value<QtMetaTypePrivate::QSequentialIterableImpl>();
-            if (retnAsIterable._iteratorCapabilities & QtMetaTypePrivate::ContainerIsAppendable) {
+            if (retnAsIterable.containerCapabilities() & QtMetaTypePrivate::ContainerIsAppendable) {
                 auto const length = a->getLength();
                 QV4::ScopedValue arrayValue(scope);
                 for (qint64 i = 0; i < length; ++i) {
                     arrayValue = a->get(i);
-                    QVariant asVariant = toVariant(e, arrayValue, retnAsIterable._metaType_id, false, visitedObjects);
+                    QVariant asVariant;
+                    if (QMetaType::hasRegisteredConverterFunction(qMetaTypeId<QJSValue>(), retnAsIterable._metaType_id)) {
+                        // before attempting a conversion from the concrete types,
+                        // check if there exists a conversion from QJSValue -> out type
+                        // prefer that one for compatibility reasons
+                        asVariant = QVariant::fromValue(QJSValue(scope.engine, arrayValue->asReturnedValue()));
+                        if (asVariant.convert(retnAsIterable._metaType_id)) {
+                            retnAsIterable.append(asVariant.constData());
+                            continue;
+                        }
+                    }
+                    asVariant = toVariant(e, arrayValue, retnAsIterable._metaType_id, false, visitedObjects);
                     auto originalType = asVariant.userType();
                     bool couldConvert = asVariant.convert(retnAsIterable._metaType_id);
                     if (!couldConvert) {
                         qWarning() << QLatin1String("Could not convert array value at position %1 from %2 to %3")
                                                     .arg(QString::number(i),
-                                                         QMetaType::typeName(originalType),
-                                                         QMetaType::typeName(retnAsIterable._metaType_id));
+                                                         QString::fromUtf8(QMetaType::typeName(originalType)),
+                                                         QString::fromUtf8(QMetaType::typeName(retnAsIterable._metaType_id)));
                         // create default constructed value
                         asVariant = QVariant(retnAsIterable._metaType_id, nullptr);
                     }
@@ -1558,7 +1568,7 @@ static QVariant toVariant(QV4::ExecutionEngine *e, const QV4::Value &value, int 
     if (String *s = value.stringValue()) {
         const QString &str = s->toQString();
         // QChars are stored as a strings
-        if (typeHint == QVariant::Char && str.size() == 1)
+        if (typeHint == QMetaType::QChar && str.size() == 1)
             return str.at(0);
         return str;
     }
@@ -1857,7 +1867,7 @@ QV4::ReturnedValue ExecutionEngine::metaTypeToJS(int type, const void *data)
     Q_ASSERT(data != nullptr);
 
     QVariant variant(type, data);
-    if (QMetaType::Type(variant.type()) == QMetaType::QVariant) {
+    if (QMetaType::Type(variant.userType()) == QMetaType::QVariant) {
         // unwrap it: this is tested in QJSEngine, and makes the most sense for
         // end-user code too.
         return variantToJS(this, *reinterpret_cast<const QVariant*>(data));
@@ -1911,10 +1921,10 @@ QQmlRefPointer<ExecutableCompilationUnit> ExecutionEngine::compileModule(
                                                  sourceCode, sourceTimeStamp, &diagnostics);
     for (const QQmlJS::DiagnosticMessage &m : diagnostics) {
         if (m.isError()) {
-            throwSyntaxError(m.message, url.toString(), m.line, m.column);
+            throwSyntaxError(m.message, url.toString(), m.loc.startLine, m.loc.startColumn);
             return nullptr;
         } else {
-            qWarning() << url << ':' << m.line << ':' << m.column
+            qWarning() << url << ':' << m.loc.startLine << ':' << m.loc.startColumn
                       << ": warning: " << m.message;
         }
     }
@@ -1974,10 +1984,11 @@ void ExecutionEngine::initQmlGlobalObject()
 void ExecutionEngine::initializeGlobal()
 {
     QV4::Scope scope(this);
-    QV4::GlobalExtensions::init(globalObject, QJSEngine::AllExtensions);
 
     QV4::ScopedObject qt(scope, memoryManager->allocate<QV4::QtObject>(qmlEngine()));
     globalObject->defineDefaultProperty(QStringLiteral("Qt"), qt);
+
+    QV4::GlobalExtensions::init(globalObject, QJSEngine::AllExtensions);
 
 #if QT_CONFIG(qml_locale)
     QQmlLocale::registerStringLocaleCompare(this);

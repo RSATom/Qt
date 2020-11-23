@@ -127,6 +127,7 @@ private:
                             const dynamic::QSSGApplyInstanceValue &inCommand);
 
     void applyBlending(const dynamic::QSSGApplyBlending &inCommand);
+    void applyCullMode(const dynamic::QSSGApplyCullMode &inCommand);
 
     void applyRenderStateValue(const dynamic::QSSGApplyRenderState &inCommand);
 
@@ -154,7 +155,8 @@ private:
                     bool inRenderTargetNeedsClear,
                     const QSSGRef<QSSGRenderInputAssembler> &inAssembler,
                     quint32 inCount,
-                    quint32 inOffset);
+                    quint32 inOffset,
+                    bool applyCullMode);
     void doRenderCustomMaterial(QSSGCustomMaterialRenderContext &inRenderContext,
                                 const QSSGRenderCustomMaterial &inMaterial,
                                 const ShaderFeatureSetList &inFeatureSet);
@@ -212,19 +214,19 @@ struct Q_QUICK3DRUNTIMERENDER_EXPORT QSSGCustomMaterialVertexPipeline : public Q
     void finalizeTessEvaluationShader();
 
     // Responsible for beginning all vertex and fragment generation (void main() { etc).
-    virtual void beginVertexGeneration(quint32 displacementImageIdx, QSSGRenderableImage *displacementImage) override;
+    virtual void beginVertexGeneration(const QSSGShaderDefaultMaterialKey &inKey, quint32 displacementImageIdx, QSSGRenderableImage *displacementImage) override;
     // The fragment shader expects a floating point constant, objectOpacity to be defined
     // post this method.
     virtual void beginFragmentGeneration() override;
     // Output variables may be mangled in some circumstances so the shader generation
     // system needs an abstraction mechanism around this.
     virtual void assignOutput(const QByteArray &inVarName, const QByteArray &inVarValue) override;
-    virtual void generateEnvMapReflection() override {}
+    virtual void generateEnvMapReflection(const QSSGShaderDefaultMaterialKey &inKey) override { Q_UNUSED(inKey); }
     virtual void generateViewVector() override {}
-    virtual void generateUVCoords(quint32 inUVSet) override;
-    virtual void generateWorldNormal() override;
+    virtual void generateUVCoords(const QSSGShaderDefaultMaterialKey &inKey, quint32 inUVSet) override;
+    virtual void generateWorldNormal(const QSSGShaderDefaultMaterialKey &inKey) override;
     virtual void generateObjectNormal() override;
-    virtual void generateVarTangentAndBinormal() override;
+    virtual void generateVarTangentAndBinormal(const QSSGShaderDefaultMaterialKey &inKey) override;
     virtual void generateWorldPosition() override;
     // responsible for closing all vertex and fragment generation
     virtual void endVertexGeneration(bool customShader) override;
@@ -235,8 +237,9 @@ struct Q_QUICK3DRUNTIMERENDER_EXPORT QSSGCustomMaterialVertexPipeline : public Q
     virtual void doGenerateWorldNormal() override;
     virtual void doGenerateObjectNormal() override;
     virtual void doGenerateWorldPosition() override;
-    virtual void doGenerateVarTangentAndBinormal() override;
-    virtual void doGenerateVertexColor() override;
+    virtual void doGenerateVarTangent() override;
+    virtual void doGenerateVarBinormal() override;
+    virtual void doGenerateVertexColor(const QSSGShaderDefaultMaterialKey &inKey) override;
 };
 QT_END_NAMESPACE
 #endif

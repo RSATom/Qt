@@ -19,6 +19,8 @@
 #include "chrome/test/base/browser_with_test_window_test.h"
 #include "content/public/browser/storage_partition.h"
 #include "extensions/browser/api/socket/udp_socket.h"
+#include "mojo/public/cpp/bindings/pending_receiver.h"
+#include "mojo/public/cpp/bindings/pending_remote.h"
 #include "net/base/io_buffer.h"
 #include "net/base/ip_address.h"
 #include "net/base/test_completion_callback.h"
@@ -37,14 +39,15 @@ class UDPSocketUnitTest : public extensions::ExtensionServiceTestBase {
     network::mojom::NetworkContext* network_context =
         content::BrowserContext::GetDefaultStoragePartition(profile())
             ->GetNetworkContext();
-    network::mojom::UDPSocketPtrInfo socket;
-    network::mojom::UDPSocketReceiverPtr receiver_ptr;
-    network::mojom::UDPSocketReceiverRequest receiver_request =
-        mojo::MakeRequest(&receiver_ptr);
-    network_context->CreateUDPSocket(mojo::MakeRequest(&socket),
-                                     std::move(receiver_ptr));
-    return std::make_unique<UDPSocket>(
-        std::move(socket), std::move(receiver_request), "abcdefghijklmnopqrst");
+    mojo::PendingRemote<network::mojom::UDPSocket> socket;
+    mojo::PendingRemote<network::mojom::UDPSocketListener> listener_remote;
+    mojo::PendingReceiver<network::mojom::UDPSocketListener> listener_receiver =
+        listener_remote.InitWithNewPipeAndPassReceiver();
+    network_context->CreateUDPSocket(socket.InitWithNewPipeAndPassReceiver(),
+                                     std::move(listener_remote));
+    return std::make_unique<UDPSocket>(std::move(socket),
+                                       std::move(listener_receiver),
+                                       "abcdefghijklmnopqrst");
   }
 };
 
@@ -174,7 +177,7 @@ TEST_F(UDPSocketUnitTest, TestUDPMulticastRecv) {
   std::unique_ptr<UDPSocket> src = CreateSocket();
   std::unique_ptr<UDPSocket> dest = CreateSocket();
 
-  // Receiver
+  // Listener
   {
     net::TestCompletionCallback callback;
     dest->Bind("0.0.0.0", kPort, callback.callback());

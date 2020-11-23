@@ -1,5 +1,5 @@
 //
-// Copyright (c) 2016 The ANGLE Project Authors. All rights reserved.
+// Copyright 2016 The ANGLE Project Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 //
@@ -22,7 +22,8 @@ class RemoveInvariantDeclarationTraverser : public TIntermTraverser
     RemoveInvariantDeclarationTraverser() : TIntermTraverser(true, false, false) {}
 
   private:
-    bool visitInvariantDeclaration(Visit visit, TIntermInvariantDeclaration *node) override
+    bool visitGlobalQualifierDeclaration(Visit visit,
+                                         TIntermGlobalQualifierDeclaration *node) override
     {
         TIntermSequence emptyReplacement;
         mMultiReplacements.push_back(
@@ -33,11 +34,11 @@ class RemoveInvariantDeclarationTraverser : public TIntermTraverser
 
 }  // anonymous namespace
 
-void RemoveInvariantDeclaration(TIntermNode *root)
+bool RemoveInvariantDeclaration(TCompiler *compiler, TIntermNode *root)
 {
     RemoveInvariantDeclarationTraverser traverser;
     root->traverse(&traverser);
-    traverser.updateTree();
+    return traverser.updateTree(compiler, root);
 }
 
 }  // namespace sh

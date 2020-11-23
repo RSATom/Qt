@@ -515,7 +515,7 @@ void QGeoTiledMapRootNode::updateTiles(QGeoTiledMapTileContainerNode *root,
         bool ok = d->buildGeometry(it.key(), node, overzooming)
                 && qgeotiledmapscene_isTileInViewport(node->rect(), root->matrix(), straight);
 
-        QSGNode::DirtyState dirtyBits = 0;
+        QSGNode::DirtyState dirtyBits = {};
 
         if (!ok) {
 #ifdef QT_LOCATION_DEBUG

@@ -20,7 +20,6 @@
 #include "content/renderer/service_worker/service_worker_subresource_loader.h"
 #include "content/renderer/service_worker/web_service_worker_provider_impl.h"
 #include "content/renderer/worker/worker_thread_registry.h"
-#include "mojo/public/cpp/bindings/pending_remote.h"
 #include "services/network/public/cpp/shared_url_loader_factory.h"
 #include "services/network/public/cpp/weak_wrapper_shared_url_loader_factory.h"
 #include "third_party/blink/public/mojom/service_worker/service_worker_object.mojom.h"
@@ -31,21 +30,32 @@ namespace content {
 namespace {
 
 void CreateSubresourceLoaderFactoryForProviderContext(
-    blink::mojom::ServiceWorkerContainerHostPtrInfo container_host_info,
+    mojo::PendingRemote<blink::mojom::ServiceWorkerContainerHost>
+        remote_container_host,
     mojo::PendingRemote<blink::mojom::ControllerServiceWorker>
         remote_controller,
     const std::string& client_id,
-    std::unique_ptr<network::SharedURLLoaderFactoryInfo> fallback_factory_info,
-    blink::mojom::ControllerServiceWorkerConnectorRequest connector_request,
-    network::mojom::URLLoaderFactoryRequest request,
-    scoped_refptr<base::SequencedTaskRunner> task_runner) {
+    std::unique_ptr<network::PendingSharedURLLoaderFactory>
+        pending_fallback_factory,
+    mojo::PendingReceiver<blink::mojom::ControllerServiceWorkerConnector>
+        connector_receiver,
+    mojo::PendingReceiver<network::mojom::URLLoaderFactory> receiver,
+    scoped_refptr<base::SequencedTaskRunner> task_runner,
+    scoped_refptr<base::SequencedTaskRunner> worker_timing_callback_task_runner,
+    base::RepeatingCallback<
+        void(int, mojo::PendingReceiver<blink::mojom::WorkerTimingContainer>)>
+        worker_timing_callback) {
   auto connector = base::MakeRefCounted<ControllerServiceWorkerConnector>(
-      std::move(container_host_info), std::move(remote_controller), client_id);
-  connector->AddBinding(std::move(connector_request));
+      std::move(remote_container_host), std::move(remote_controller),
+      client_id);
+  connector->AddBinding(std::move(connector_receiver));
   ServiceWorkerSubresourceLoaderFactory::Create(
       std::move(connector),
-      network::SharedURLLoaderFactory::Create(std::move(fallback_factory_info)),
-      std::move(request), std::move(task_runner));
+      network::SharedURLLoaderFactory::Create(
+          std::move(pending_fallback_factory)),
+      std::move(receiver), std::move(task_runner),
+      std::move(worker_timing_callback_task_runner),
+      std::move(worker_timing_callback));
 }
 
 }  // namespace
@@ -53,15 +63,18 @@ void CreateSubresourceLoaderFactoryForProviderContext(
 // For service worker clients.
 ServiceWorkerProviderContext::ServiceWorkerProviderContext(
     blink::mojom::ServiceWorkerProviderType provider_type,
-    blink::mojom::ServiceWorkerContainerAssociatedRequest request,
-    blink::mojom::ServiceWorkerContainerHostAssociatedPtrInfo host_ptr_info,
+    mojo::PendingAssociatedReceiver<blink::mojom::ServiceWorkerContainer>
+        receiver,
+    mojo::PendingAssociatedRemote<blink::mojom::ServiceWorkerContainerHost>
+        host_remote,
     blink::mojom::ControllerServiceWorkerInfoPtr controller_info,
     scoped_refptr<network::SharedURLLoaderFactory> fallback_loader_factory)
     : provider_type_(provider_type),
       main_thread_task_runner_(base::ThreadTaskRunnerHandle::Get()),
-      binding_(this, std::move(request)),
+      receiver_(this, std::move(receiver)),
       fallback_loader_factory_(std::move(fallback_loader_factory)) {
-  container_host_.Bind(std::move(host_ptr_info));
+  if (host_remote.is_valid())
+    container_host_.Bind(std::move(host_remote));
 
   // Set up the URL loader factory for sending subresource requests to
   // the controller.
@@ -110,23 +123,30 @@ ServiceWorkerProviderContext::GetSubresourceLoaderFactoryInternal() {
     DCHECK(!controller_connector_);
     DCHECK(remote_controller_);
 
-    blink::mojom::ServiceWorkerContainerHostPtrInfo host_ptr_info =
-        CloneContainerHostPtrInfo();
-    if (!host_ptr_info)
+    mojo::PendingRemote<blink::mojom::ServiceWorkerContainerHost>
+        remote_container_host = CloneRemoteContainerHost();
+    if (!remote_container_host)
       return nullptr;
 
     // Create a SubresourceLoaderFactory on a background thread to avoid
     // extra contention on the main thread.
-    auto task_runner = base::CreateSequencedTaskRunnerWithTraits(
-        {base::MayBlock(), base::TaskShutdownBehavior::SKIP_ON_SHUTDOWN});
+    auto task_runner = base::CreateSequencedTaskRunner(
+        {base::ThreadPool(), base::MayBlock(),
+         base::TaskShutdownBehavior::SKIP_ON_SHUTDOWN});
+    auto current_task_runner =
+        base::CreateSequencedTaskRunner({base::CurrentThread()});
     task_runner->PostTask(
         FROM_HERE,
-        base::BindOnce(&CreateSubresourceLoaderFactoryForProviderContext,
-                       std::move(host_ptr_info), std::move(remote_controller_),
-                       client_id_, fallback_loader_factory_->Clone(),
-                       mojo::MakeRequest(&controller_connector_),
-                       mojo::MakeRequest(&subresource_loader_factory_),
-                       task_runner));
+        base::BindOnce(
+            &CreateSubresourceLoaderFactoryForProviderContext,
+            std::move(remote_container_host), std::move(remote_controller_),
+            client_id_, fallback_loader_factory_->Clone(),
+            controller_connector_.BindNewPipeAndPassReceiver(),
+            subresource_loader_factory_.BindNewPipeAndPassReceiver(),
+            task_runner, std::move(current_task_runner),
+            base::BindRepeating(
+                &ServiceWorkerProviderContext::AddPendingWorkerTimingReceiver,
+                weak_factory_.GetWeakPtr())));
 
     DCHECK(!weak_wrapped_subresource_loader_factory_);
     weak_wrapped_subresource_loader_factory_ =
@@ -152,7 +172,7 @@ blink::mojom::ServiceWorkerContainerHost*
 ServiceWorkerProviderContext::container_host() const {
   DCHECK_EQ(blink::mojom::ServiceWorkerProviderType::kForWindow,
             provider_type_);
-  return container_host_.get();
+  return container_host_ ? container_host_.get() : nullptr;
 }
 
 const std::set<blink::mojom::WebFeature>&
@@ -175,41 +195,38 @@ void ServiceWorkerProviderContext::SetWebServiceWorkerProvider(
 }
 
 void ServiceWorkerProviderContext::RegisterWorkerClient(
-    blink::mojom::ServiceWorkerWorkerClientPtr client) {
+    mojo::PendingRemote<blink::mojom::ServiceWorkerWorkerClient>
+        pending_client) {
   DCHECK(main_thread_task_runner_->RunsTasksInCurrentSequence());
-  client.set_connection_error_handler(base::BindOnce(
+  mojo::Remote<blink::mojom::ServiceWorkerWorkerClient> client(
+      std::move(pending_client));
+  client.set_disconnect_handler(base::BindOnce(
       &ServiceWorkerProviderContext::UnregisterWorkerFetchContext,
       base::Unretained(this), client.get()));
   worker_clients_.push_back(std::move(client));
 }
 
 void ServiceWorkerProviderContext::CloneWorkerClientRegistry(
-    blink::mojom::ServiceWorkerWorkerClientRegistryRequest request) {
+    mojo::PendingReceiver<blink::mojom::ServiceWorkerWorkerClientRegistry>
+        receiver) {
   DCHECK(main_thread_task_runner_->RunsTasksInCurrentSequence());
-  worker_client_registry_bindings_.AddBinding(this, std::move(request));
+  worker_client_registry_receivers_.Add(this, std::move(receiver));
 }
 
-blink::mojom::ServiceWorkerContainerHostPtrInfo
-ServiceWorkerProviderContext::CloneContainerHostPtrInfo() {
+mojo::PendingRemote<blink::mojom::ServiceWorkerContainerHost>
+ServiceWorkerProviderContext::CloneRemoteContainerHost() {
   DCHECK(main_thread_task_runner_->RunsTasksInCurrentSequence());
   if (!container_host_)
-    return nullptr;
-  blink::mojom::ServiceWorkerContainerHostPtrInfo container_host_ptr_info;
+    return mojo::NullRemote();
+  mojo::PendingRemote<blink::mojom::ServiceWorkerContainerHost>
+      remote_container_host;
   container_host_->CloneContainerHost(
-      mojo::MakeRequest(&container_host_ptr_info));
-  return container_host_ptr_info;
+      remote_container_host.InitWithNewPipeAndPassReceiver());
+  return remote_container_host;
 }
 
 void ServiceWorkerProviderContext::OnNetworkProviderDestroyed() {
   container_host_.reset();
-}
-
-void ServiceWorkerProviderContext::PingContainerHost(
-    base::OnceClosure callback) {
-  DCHECK(main_thread_task_runner_->RunsTasksInCurrentSequence());
-  if (!container_host_)
-    return;
-  container_host_->Ping(std::move(callback));
 }
 
 void ServiceWorkerProviderContext::DispatchNetworkQuiet() {
@@ -248,14 +265,33 @@ void ServiceWorkerProviderContext::NotifyExecutionReady() {
   container_host_->OnExecutionReady();
 }
 
+void ServiceWorkerProviderContext::AddPendingWorkerTimingReceiver(
+    int request_id,
+    mojo::PendingReceiver<blink::mojom::WorkerTimingContainer> receiver) {
+  // TODO(https://crbug.com/900700): Handle redirects properly. Currently on
+  // redirect, the receiver is replaced with a new one, discarding the timings
+  // before the redirect.
+  worker_timing_container_receivers_[request_id] = std::move(receiver);
+}
+
+mojo::PendingReceiver<blink::mojom::WorkerTimingContainer>
+ServiceWorkerProviderContext::TakePendingWorkerTimingReceiver(int request_id) {
+  auto iter = worker_timing_container_receivers_.find(request_id);
+  if (iter == worker_timing_container_receivers_.end()) {
+    return mojo::NullReceiver();
+  }
+  auto worker_timing_receiver = std::move(iter->second);
+  worker_timing_container_receivers_.erase(iter);
+  return worker_timing_receiver;
+}
+
 void ServiceWorkerProviderContext::UnregisterWorkerFetchContext(
     blink::mojom::ServiceWorkerWorkerClient* client) {
   DCHECK(main_thread_task_runner_->RunsTasksInCurrentSequence());
   base::EraseIf(
       worker_clients_,
-      [client](const blink::mojom::ServiceWorkerWorkerClientPtr& client_ptr) {
-        return client_ptr.get() == client;
-      });
+      [client](const mojo::Remote<blink::mojom::ServiceWorkerWorkerClient>&
+                   remote_client) { return remote_client.get() == client; });
 }
 
 void ServiceWorkerProviderContext::SetController(

@@ -157,8 +157,13 @@ class alignas(kNativeVkHandleAlignment) VkNonDispatchableHandle {
 #    include "common/windows_with_undefs.h"
 #endif
 // Remove X11/Xlib.h macros after vulkan_platform's include of it.
-#if defined(DAWN_PLATFORM_LINUX)
+#if defined(DAWN_USE_X11)
 #    include "common/xlib_with_undefs.h"
+#endif
+
+// Include Fuchsia-specific definitions that are not upstreamed yet.
+#if defined(DAWN_PLATFORM_FUCHSIA)
+#    include <vulkan/vulkan_fuchsia_extras.h>
 #endif
 
 #endif  // COMMON_VULKANPLATFORM_H_

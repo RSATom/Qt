@@ -62,7 +62,7 @@ public:
     virtual ~QQuickQMessageBox();
 
 protected:
-    virtual QPlatformDialogHelper *helper();
+    QPlatformDialogHelper *helper() override;
 
 protected:
     Q_DISABLE_COPY(QQuickQMessageBox)

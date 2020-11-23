@@ -23,6 +23,8 @@ source_set("exo") {
     "data_source_observer.h",
     "display.cc",
     "display.h",
+    "drag_drop_operation.cc",
+    "drag_drop_operation.h",
     "frame_sink_resource_manager.cc",
     "frame_sink_resource_manager.h",
     "input_trace.h",
@@ -33,8 +35,11 @@ source_set("exo") {
     "layer_tree_frame_sink_holder.h",
     "mime_utils.cc",
     "mime_utils.h",
+    "permission.cc",
+    "permission.h",
     "pointer.cc",
     "pointer.h",
+    "pointer_constraint_delegate.h",
     "pointer_delegate.h",
     "seat.cc",
     "seat.h",
@@ -71,7 +76,7 @@ source_set("exo") {
     "//gpu/command_buffer/client:raster_interface",
     "//net",
     "//services/data_decoder/public/cpp",
-    "//services/viz/privileged/interfaces/compositing",
+    "//services/viz/privileged/mojom/compositing",
     "//skia",
     "//third_party/blink/public/common",
     "//ui/aura",
@@ -80,7 +85,7 @@ source_set("exo") {
     "//ui/compositor_extra",
     "//ui/display/manager",
     "//ui/events/devices:devices",
-    "//ui/events/ozone:events_ozone_evdev",
+    "//ui/events/ozone",
     "//ui/gfx",
     "//ui/gfx/geometry",
     "//ui/gl",
@@ -96,8 +101,11 @@ source_set("exo") {
     deps += [
       "//ash/keyboard/ui",
       "//ash/public/cpp",
+      "//chromeos/constants",
     ]
     sources += [
+      "client_controlled_accelerators.cc",
+      "client_controlled_accelerators.h",
       "client_controlled_shell_surface.cc",
       "client_controlled_shell_surface.h",
       "gaming_seat.cc",
@@ -126,6 +134,7 @@ source_set("exo") {
   }
 
   if (is_chromecast) {
+    deps += [ "//ui/accessibility:accessibility" ]
     sources += [
       "fullscreen_shell_surface.cc",
       "fullscreen_shell_surface.h",
@@ -201,7 +210,7 @@ source_set("unit_tests") {
     "//ui/compositor_extra",
     "//ui/events:dom_keycode_converter",
     "//ui/events:test_support",
-    "//ui/events/ozone:events_ozone_evdev",
+    "//ui/events/ozone",
     "//ui/gfx",
     "//ui/message_center",
     "//ui/views",
@@ -228,6 +237,7 @@ source_set("unit_tests") {
       "gaming_seat_unittest.cc",
       "keyboard_unittest.cc",
       "notification_unittest.cc",
+      "permission_unittest.cc",
       "pointer_unittest.cc",
       "seat_unittest.cc",
       "shared_memory_unittest.cc",
@@ -236,6 +246,7 @@ source_set("unit_tests") {
       "surface_unittest.cc",
       "text_input_unittest.cc",
       "touch_unittest.cc",
+      "xdg_shell_surface_unittest.cc",
     ]
 
     deps += [
@@ -247,6 +258,7 @@ source_set("unit_tests") {
   }
 
   if (is_chromecast) {
+    deps += [ "//ui/accessibility:accessibility" ]
     sources += [ "fullscreen_shell_surface_unittest.cc" ]
   }
 }

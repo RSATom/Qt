@@ -9,9 +9,9 @@
 #include <cstdint>
 
 #include "net/third_party/quiche/src/quic/core/quic_types.h"
-#include "net/third_party/quiche/src/quic/platform/api/quic_endian.h"
 #include "net/third_party/quiche/src/quic/platform/api/quic_export.h"
 #include "net/third_party/quiche/src/quic/platform/api/quic_string_piece.h"
+#include "net/third_party/quiche/src/common/platform/api/quiche_endian.h"
 
 namespace quic {
 
@@ -39,7 +39,9 @@ class QUIC_EXPORT_PRIVATE QuicDataReader {
   QuicDataReader(const char* data, const size_t len);
   // Constructs a reader using the specified endianness.
   // Caller must provide an underlying buffer to work on.
-  QuicDataReader(const char* data, const size_t len, Endianness endianness);
+  QuicDataReader(const char* data,
+                 const size_t len,
+                 quiche::Endianness endianness);
   QuicDataReader(const QuicDataReader&) = delete;
   QuicDataReader& operator=(const QuicDataReader&) = delete;
 
@@ -110,6 +112,14 @@ class QUIC_EXPORT_PRIVATE QuicDataReader {
   // DOES NOT forward the internal iterator.
   QuicStringPiece PeekRemainingPayload() const;
 
+  // Returns the entire payload as a QuicStringPiece.
+  //
+  // NOTE: Does not copy but rather references strings in the underlying buffer.
+  // This should be kept in mind when handling memory management!
+  //
+  // DOES NOT forward the internal iterator.
+  QuicStringPiece FullPayload() const;
+
   // Reads a given number of bytes into the given buffer. The buffer
   // must be of adequate size.
   // Forwards the internal iterator on success.
@@ -143,8 +153,6 @@ class QUIC_EXPORT_PRIVATE QuicDataReader {
   //
   // DOES NOT forward the internal iterator.
   uint8_t PeekByte() const;
-
-  void set_endianness(Endianness endianness) { endianness_ = endianness; }
 
   // Read an IETF-encoded Variable Length Integer and place the result
   // in |*result|.
@@ -182,7 +190,7 @@ class QUIC_EXPORT_PRIVATE QuicDataReader {
   size_t pos_;
 
   // The endianness to read integers and floating numbers.
-  Endianness endianness_;
+  quiche::Endianness endianness_;
 };
 
 }  // namespace quic

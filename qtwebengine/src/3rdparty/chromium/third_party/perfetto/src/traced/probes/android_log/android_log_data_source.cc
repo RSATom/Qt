@@ -18,21 +18,21 @@
 
 #include "perfetto/base/logging.h"
 #include "perfetto/base/task_runner.h"
+#include "perfetto/base/time.h"
 #include "perfetto/ext/base/file_utils.h"
 #include "perfetto/ext/base/optional.h"
 #include "perfetto/ext/base/scoped_file.h"
 #include "perfetto/ext/base/string_splitter.h"
 #include "perfetto/ext/base/string_view.h"
-#include "perfetto/ext/base/time.h"
 #include "perfetto/ext/base/unix_socket.h"
 #include "perfetto/ext/tracing/core/trace_packet.h"
 #include "perfetto/ext/tracing/core/trace_writer.h"
 #include "perfetto/tracing/core/data_source_config.h"
 
-#include "perfetto/common/android_log_constants.pbzero.h"
-#include "perfetto/config/android/android_log_config.pbzero.h"
-#include "perfetto/trace/android/android_log.pbzero.h"
-#include "perfetto/trace/trace_packet.pbzero.h"
+#include "protos/perfetto/common/android_log_constants.pbzero.h"
+#include "protos/perfetto/config/android/android_log_config.pbzero.h"
+#include "protos/perfetto/trace/android/android_log.pbzero.h"
+#include "protos/perfetto/trace/trace_packet.pbzero.h"
 
 namespace perfetto {
 
@@ -97,7 +97,7 @@ AndroidLogDataSource::AndroidLogDataSource(DataSourceConfig ds_config,
 
   std::vector<uint32_t> log_ids;
   for (auto id = cfg.log_ids(); id; ++id)
-    log_ids.push_back(id->as_uint32());
+    log_ids.push_back(static_cast<uint32_t>(*id));
 
   if (log_ids.empty()) {
     // If no log id is specified, add the most popular ones.
@@ -124,7 +124,7 @@ AndroidLogDataSource::AndroidLogDataSource(DataSourceConfig ds_config,
   // their existence in the set.
   std::vector<std::pair<size_t, size_t>> tag_boundaries;
   for (auto it = cfg.filter_tags(); it; ++it) {
-    base::StringView tag(it->as_string());
+    base::StringView tag(*it);
     const size_t begin = filter_tags_strbuf_.size();
     filter_tags_strbuf_.insert(filter_tags_strbuf_.end(), tag.begin(),
                                tag.end());
@@ -148,7 +148,8 @@ AndroidLogDataSource::~AndroidLogDataSource() {
 }
 
 base::UnixSocketRaw AndroidLogDataSource::ConnectLogdrSocket() {
-  auto socket = base::UnixSocketRaw::CreateMayFail(base::SockType::kSeqPacket);
+  auto socket = base::UnixSocketRaw::CreateMayFail(base::SockFamily::kUnix,
+                                                   base::SockType::kSeqPacket);
   if (!socket || !socket.Connect(kLogdrSocket)) {
     PERFETTO_PLOG("Failed to connect to %s", kLogdrSocket);
     return base::UnixSocketRaw();

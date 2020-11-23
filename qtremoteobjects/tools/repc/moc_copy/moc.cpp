@@ -28,7 +28,6 @@
 ****************************************************************************/
 
 #include "moc.h"
-#include "generator.h"
 #include "qdatetime.h"
 #include "utils.h"
 #include "outputrevision.h"
@@ -903,138 +902,15 @@ void Moc::parse()
 
         if (it != classList.end()) {
             it->classInfoList += def.classInfoList;
-            it->enumDeclarations.unite(def.enumDeclarations);
+            it->enumDeclarations.insert(def.enumDeclarations);
             it->enumList += def.enumList;
-            it->flagAliases.unite(def.flagAliases);
+            it->flagAliases.insert(def.flagAliases);
         } else {
             knownGadgets.insert(def.classname, def.qualified);
             knownGadgets.insert(def.qualified, def.qualified);
             classList += def;
         }
     }
-}
-
-static bool any_type_contains(const QVector<PropertyDef> &properties, const QByteArray &pattern)
-{
-    for (const auto &p : properties) {
-        if (p.type.contains(pattern))
-            return true;
-    }
-    return false;
-}
-
-static bool any_arg_contains(const QVector<FunctionDef> &functions, const QByteArray &pattern)
-{
-    for (const auto &f : functions) {
-        for (const auto &arg : f.arguments) {
-            if (arg.normalizedType.contains(pattern))
-                return true;
-        }
-    }
-    return false;
-}
-
-static QByteArrayList make_candidates()
-{
-    QByteArrayList result;
-    result
-#define STREAM_SMART_POINTER(SMART_POINTER) << #SMART_POINTER
-        QT_FOR_EACH_AUTOMATIC_TEMPLATE_SMART_POINTER(STREAM_SMART_POINTER)
-#undef STREAM_SMART_POINTER
-#define STREAM_1ARG_TEMPLATE(TEMPLATENAME) << #TEMPLATENAME
-        QT_FOR_EACH_AUTOMATIC_TEMPLATE_1ARG(STREAM_1ARG_TEMPLATE)
-#undef STREAM_1ARG_TEMPLATE
-        ;
-    return result;
-}
-
-static QByteArrayList requiredQtContainers(const QVector<ClassDef> &classes)
-{
-    static const QByteArrayList candidates = make_candidates();
-
-    QByteArrayList required;
-    required.reserve(candidates.size());
-
-    for (const auto &candidate : candidates) {
-        const QByteArray pattern = candidate + '<';
-
-        for (const auto &c : classes) {
-            if (any_type_contains(c.propertyList, pattern) ||
-                    any_arg_contains(c.slotList, pattern) ||
-                    any_arg_contains(c.signalList, pattern) ||
-                    any_arg_contains(c.methodList, pattern)) {
-                required.push_back(candidate);
-                break;
-            }
-        }
-    }
-
-    return required;
-}
-
-void Moc::generate(FILE *out)
-{
-    QByteArray fn = filename;
-    int i = filename.length()-1;
-    while (i > 0 && filename.at(i - 1) != '/' && filename.at(i - 1) != '\\')
-        --i;                                // skip path
-    if (i >= 0)
-        fn = filename.mid(i);
-    fprintf(out, "/****************************************************************************\n"
-            "** Meta object code from reading C++ file '%s'\n**\n" , fn.constData());
-    fprintf(out, "** Created by: The Qt Meta Object Compiler version %d (Qt %s)\n**\n" , mocOutputRevision, QT_VERSION_STR);
-    fprintf(out, "** WARNING! All changes made in this file will be lost!\n"
-            "*****************************************************************************/\n\n");
-
-
-    if (!noInclude) {
-        if (includePath.size() && !includePath.endsWith('/'))
-            includePath += '/';
-        for (int i = 0; i < includeFiles.size(); ++i) {
-            QByteArray inc = includeFiles.at(i);
-            if (inc.at(0) != '<' && inc.at(0) != '"') {
-                if (includePath.size() && includePath != "./")
-                    inc.prepend(includePath);
-                inc = '\"' + inc + '\"';
-            }
-            fprintf(out, "#include %s\n", inc.constData());
-        }
-    }
-    if (classList.size() && classList.constFirst().classname == "Qt")
-        fprintf(out, "#include <QtCore/qobject.h>\n");
-
-    fprintf(out, "#include <QtCore/qbytearray.h>\n"); // For QByteArrayData
-    fprintf(out, "#include <QtCore/qmetatype.h>\n");  // For QMetaType::Type
-    if (mustIncludeQPluginH)
-        fprintf(out, "#include <QtCore/qplugin.h>\n");
-
-    const auto qtContainers = requiredQtContainers(classList);
-    for (const QByteArray &qtContainer : qtContainers)
-        fprintf(out, "#include <QtCore/%s>\n", qtContainer.constData());
-
-
-    fprintf(out, "#if !defined(Q_MOC_OUTPUT_REVISION)\n"
-            "#error \"The header file '%s' doesn't include <QObject>.\"\n", fn.constData());
-    fprintf(out, "#elif Q_MOC_OUTPUT_REVISION != %d\n", mocOutputRevision);
-    fprintf(out, "#error \"This file was generated using the moc from %s."
-            " It\"\n#error \"cannot be used with the include files from"
-            " this version of Qt.\"\n#error \"(The moc has changed too"
-            " much.)\"\n", QT_VERSION_STR);
-    fprintf(out, "#endif\n\n");
-
-    fprintf(out, "QT_BEGIN_MOC_NAMESPACE\n");
-    fprintf(out, "QT_WARNING_PUSH\n");
-    fprintf(out, "QT_WARNING_DISABLE_DEPRECATED\n");
-
-    fputs("", out);
-    for (i = 0; i < classList.size(); ++i) {
-        Generator generator(&classList[i], metaTypes, knownQObjectClasses, knownGadgets, out);
-        generator.generateCode();
-    }
-    fputs("", out);
-
-    fprintf(out, "QT_WARNING_POP\n");
-    fprintf(out, "QT_END_MOC_NAMESPACE\n");
 }
 
 void Moc::parseSlots(ClassDef *def, FunctionDef::Access access)

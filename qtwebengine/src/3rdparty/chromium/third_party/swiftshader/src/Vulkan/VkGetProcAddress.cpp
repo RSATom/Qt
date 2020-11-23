@@ -87,6 +87,12 @@ static const std::unordered_map<std::string, PFN_vkVoidFunction> instanceFunctio
 	MAKE_VULKAN_INSTANCE_ENTRY(vkGetPhysicalDeviceSurfaceCapabilitiesKHR),
 	MAKE_VULKAN_INSTANCE_ENTRY(vkGetPhysicalDeviceSurfaceFormatsKHR),
 	MAKE_VULKAN_INSTANCE_ENTRY(vkGetPhysicalDeviceSurfacePresentModesKHR),
+	MAKE_VULKAN_INSTANCE_ENTRY(vkGetPhysicalDevicePresentRectanglesKHR),
+#endif
+#ifdef VK_USE_PLATFORM_XCB_KHR
+	// VK_KHR_Xcb_surface
+	MAKE_VULKAN_INSTANCE_ENTRY(vkCreateXcbSurfaceKHR),
+	MAKE_VULKAN_INSTANCE_ENTRY(vkGetPhysicalDeviceXcbPresentationSupportKHR),
 #endif
 #ifdef VK_USE_PLATFORM_XLIB_KHR
 	// VK_KHR_xlib_surface
@@ -96,6 +102,15 @@ static const std::unordered_map<std::string, PFN_vkVoidFunction> instanceFunctio
 #ifdef VK_USE_PLATFORM_MACOS_MVK
     // VK_MVK_macos_surface
     MAKE_VULKAN_INSTANCE_ENTRY(vkCreateMacOSSurfaceMVK),
+#endif
+#ifdef VK_USE_PLATFORM_METAL_EXT
+    // VK_EXT_metal_surface
+    MAKE_VULKAN_INSTANCE_ENTRY(vkCreateMetalSurfaceEXT),
+#endif
+#ifdef VK_USE_PLATFORM_WIN32_KHR
+	// VK_KHR_win32_surface
+	MAKE_VULKAN_INSTANCE_ENTRY(vkCreateWin32SurfaceKHR),
+	MAKE_VULKAN_INSTANCE_ENTRY(vkGetPhysicalDeviceWin32PresentationSupportKHR),
 #endif
 };
 #undef MAKE_VULKAN_INSTANCE_ENTRY
@@ -308,6 +323,13 @@ static const std::vector<std::pair<const char*, std::unordered_map<std::string, 
 			MAKE_VULKAN_DEVICE_ENTRY(vkGetDescriptorSetLayoutSupportKHR),
 		}
 	},
+	// VK_EXT_line_rasterization
+	{
+		VK_EXT_LINE_RASTERIZATION_EXTENSION_NAME,
+		{
+			MAKE_VULKAN_DEVICE_ENTRY(vkCmdSetLineStippleEXT),
+		}
+	},
 #ifndef __ANDROID__
 	// VK_KHR_swapchain
 	{
@@ -317,9 +339,43 @@ static const std::vector<std::pair<const char*, std::unordered_map<std::string, 
 			MAKE_VULKAN_DEVICE_ENTRY(vkDestroySwapchainKHR),
 			MAKE_VULKAN_DEVICE_ENTRY(vkGetSwapchainImagesKHR),
 			MAKE_VULKAN_DEVICE_ENTRY(vkAcquireNextImageKHR),
+			MAKE_VULKAN_DEVICE_ENTRY(vkAcquireNextImage2KHR),
 			MAKE_VULKAN_DEVICE_ENTRY(vkQueuePresentKHR),
 			MAKE_VULKAN_DEVICE_ENTRY(vkGetDeviceGroupPresentCapabilitiesKHR),
 			MAKE_VULKAN_DEVICE_ENTRY(vkGetDeviceGroupSurfacePresentModesKHR),
+		}
+	},
+#endif
+
+#if SWIFTSHADER_EXTERNAL_SEMAPHORE_OPAQUE_FD
+	// VK_KHR_external_semaphore_fd
+	{
+		VK_KHR_EXTERNAL_SEMAPHORE_FD_EXTENSION_NAME,
+		{
+			MAKE_VULKAN_DEVICE_ENTRY(vkGetSemaphoreFdKHR),
+			MAKE_VULKAN_DEVICE_ENTRY(vkImportSemaphoreFdKHR),
+		}
+	},
+#endif
+
+#if VK_USE_PLATFORM_FUCHSIA
+	// VK_FUCHSIA_external_semaphore
+	{
+		VK_FUCHSIA_EXTERNAL_SEMAPHORE_EXTENSION_NAME,
+		{
+			MAKE_VULKAN_DEVICE_ENTRY(vkGetSemaphoreZirconHandleFUCHSIA),
+			MAKE_VULKAN_DEVICE_ENTRY(vkImportSemaphoreZirconHandleFUCHSIA),
+		}
+	},
+#endif
+
+#if SWIFTSHADER_EXTERNAL_MEMORY_OPAQUE_FD
+	// VK_KHR_external_memory_fd
+	{
+		VK_KHR_EXTERNAL_MEMORY_FD_EXTENSION_NAME,
+		{
+			MAKE_VULKAN_DEVICE_ENTRY(vkGetMemoryFdKHR),
+			MAKE_VULKAN_DEVICE_ENTRY(vkGetMemoryFdPropertiesKHR),
 		}
 	},
 #endif

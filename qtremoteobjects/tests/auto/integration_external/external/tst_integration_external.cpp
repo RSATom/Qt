@@ -81,9 +81,9 @@ private slots:
             env.insert("TEMPLATED_REMOTING", "true");
             serverProc.setProcessEnvironment(env);
         }
-        serverProc.start(findExecutable("server", {
+        serverProc.start(findExecutable("integration_external_server", {
             QCoreApplication::applicationDirPath() + "/../server/"
-        }));
+        }), QStringList());
         QVERIFY(serverProc.waitForStarted());
 
         // wait for server start
@@ -92,9 +92,9 @@ private slots:
         qDebug() << "Starting client process";
         QProcess clientProc;
         clientProc.setProcessChannelMode(QProcess::ForwardedChannels);
-        clientProc.start(findExecutable("client", {
+        clientProc.start(findExecutable("integration_external_client", {
             QCoreApplication::applicationDirPath() + "/../client/"
-        }));
+        }), QStringList());
         QVERIFY(clientProc.waitForStarted());
 
         QVERIFY(clientProc.waitForFinished());

@@ -76,10 +76,10 @@ Base.CircularGaugeStyle {
 
         Connections {
             target: control
-            onValueChanged: thickArc.requestPaint()
-            onMinimumValueChanged: thickArc.requestPaint()
-            onMaximumValueChanged: thickArc.requestPaint()
-            onEnabledChanged: {
+            function onValueChanged() { thickArc.requestPaint() }
+            function onMinimumValueChanged() { thickArc.requestPaint() }
+            function onMaximumValueChanged() { thickArc.requestPaint() }
+            function onEnabledChanged() {
                 thickArc.requestPaint();
                 thinArc.requestPaint();
             }

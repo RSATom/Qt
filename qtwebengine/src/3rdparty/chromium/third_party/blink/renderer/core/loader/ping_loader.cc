@@ -31,6 +31,8 @@
 
 #include "third_party/blink/renderer/core/loader/ping_loader.h"
 
+#include "base/feature_list.h"
+#include "third_party/blink/public/common/features.h"
 #include "third_party/blink/public/platform/web_url_request.h"
 #include "third_party/blink/renderer/core/dom/document.h"
 #include "third_party/blink/renderer/core/fileapi/file.h"
@@ -101,10 +103,12 @@ class BeaconBlob final : public Beacon {
     DCHECK(data_);
 
     scoped_refptr<EncodedFormData> entity_body = EncodedFormData::Create();
-    if (data_->HasBackingFile())
-      entity_body->AppendFile(To<File>(data_.Get())->GetPath());
-    else
+    if (data_->HasBackingFile()) {
+      entity_body->AppendFile(To<File>(data_.Get())->GetPath(),
+                              To<File>(data_.Get())->LastModifiedTime());
+    } else {
       entity_body->AppendBlob(data_->Uuid(), data_->GetBlobDataHandle());
+    }
 
     request.SetHttpBody(std::move(entity_body));
 
@@ -121,20 +125,27 @@ class BeaconBlob final : public Beacon {
 
 class BeaconDOMArrayBufferView final : public Beacon {
  public:
-  explicit BeaconDOMArrayBufferView(DOMArrayBufferView* data) : data_(data) {}
+  explicit BeaconDOMArrayBufferView(DOMArrayBufferView* data) : data_(data) {
+    CHECK(base::CheckedNumeric<wtf_size_t>(data->byteLengthAsSizeT()).IsValid())
+        << "EncodedFormData::Create cannot deal with huge ArrayBuffers.";
+  }
 
-  uint64_t size() const override { return data_->byteLength(); }
+  uint64_t size() const override { return data_->byteLengthAsSizeT(); }
 
   void Serialize(ResourceRequest& request) const override {
     DCHECK(data_);
 
-    scoped_refptr<EncodedFormData> entity_body =
-        EncodedFormData::Create(data_->BaseAddress(), data_->byteLength());
+    scoped_refptr<EncodedFormData> entity_body = EncodedFormData::Create(
+        data_->BaseAddress(),
+        base::checked_cast<wtf_size_t>(data_->byteLengthAsSizeT()));
     request.SetHttpBody(std::move(entity_body));
 
-    // FIXME: a reasonable choice, but not in the spec; should it give a
-    // default?
-    request.SetHTTPContentType(AtomicString("application/octet-stream"));
+    if (!base::FeatureList::IsEnabled(
+            features::kSuppressContentTypeForBeaconMadeWithArrayBufferView)) {
+      // FIXME: a reasonable choice, but not in the spec; should it give a
+      // default?
+      request.SetHTTPContentType(AtomicString("application/octet-stream"));
+    }
   }
 
   const AtomicString GetContentType() const override { return g_null_atom; }
@@ -228,12 +239,8 @@ void PingLoader::SendLinkAuditPing(LocalFrame* frame,
   request.SetKeepalive(true);
   // TODO(domfarolino): Add WPTs ensuring that pings do not have a referrer
   // header.
-  request.SetReferrerString(
-      Referrer::NoReferrer(),
-      ResourceRequest::SetReferrerStringLocation::kPingLoader);
-  request.SetReferrerPolicy(
-      network::mojom::ReferrerPolicy::kNever,
-      ResourceRequest::SetReferrerPolicyLocation::kPingLoader);
+  request.SetReferrerString(Referrer::NoReferrer());
+  request.SetReferrerPolicy(network::mojom::ReferrerPolicy::kNever);
   request.SetRequestContext(mojom::RequestContextType::PING);
   FetchParameters params(request);
   params.MutableOptions().initiator_info.name =
@@ -245,18 +252,10 @@ void PingLoader::SendLinkAuditPing(LocalFrame* frame,
 
 void PingLoader::SendViolationReport(LocalFrame* frame,
                                      const KURL& report_url,
-                                     scoped_refptr<EncodedFormData> report,
-                                     ViolationReportType type) {
+                                     scoped_refptr<EncodedFormData> report) {
   ResourceRequest request(report_url);
   request.SetHttpMethod(http_names::kPOST);
-  switch (type) {
-    case kContentSecurityPolicyViolationReport:
-      request.SetHTTPContentType("application/csp-report");
-      break;
-    case kXSSAuditorViolationReport:
-      request.SetHTTPContentType("application/xss-auditor-report");
-      break;
-  }
+  request.SetHTTPContentType("application/csp-report");
   request.SetKeepalive(true);
   request.SetHttpBody(std::move(report));
   request.SetCredentialsMode(network::mojom::CredentialsMode::kSameOrigin);

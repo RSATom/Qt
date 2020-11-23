@@ -146,29 +146,31 @@ DOMMatrixReadOnly* DOMMatrixReadOnly::CreateForSerialization(double sequence[],
 DOMMatrixReadOnly* DOMMatrixReadOnly::fromFloat32Array(
     NotShared<DOMFloat32Array> float32_array,
     ExceptionState& exception_state) {
-  if (float32_array.View()->length() != 6 &&
-      float32_array.View()->length() != 16) {
+  if (float32_array.View()->lengthAsSizeT() != 6 &&
+      float32_array.View()->lengthAsSizeT() != 16) {
     exception_state.ThrowTypeError(
         "The sequence must contain 6 elements for a 2D matrix or 16 elements a "
         "for 3D matrix.");
     return nullptr;
   }
   return MakeGarbageCollected<DOMMatrixReadOnly>(
-      float32_array.View()->Data(), float32_array.View()->length());
+      float32_array.View()->Data(),
+      static_cast<int>(float32_array.View()->lengthAsSizeT()));
 }
 
 DOMMatrixReadOnly* DOMMatrixReadOnly::fromFloat64Array(
     NotShared<DOMFloat64Array> float64_array,
     ExceptionState& exception_state) {
-  if (float64_array.View()->length() != 6 &&
-      float64_array.View()->length() != 16) {
+  if (float64_array.View()->lengthAsSizeT() != 6 &&
+      float64_array.View()->lengthAsSizeT() != 16) {
     exception_state.ThrowTypeError(
         "The sequence must contain 6 elements for a 2D matrix or 16 elements "
         "for a 3D matrix.");
     return nullptr;
   }
   return MakeGarbageCollected<DOMMatrixReadOnly>(
-      float64_array.View()->Data(), float64_array.View()->length());
+      float64_array.View()->Data(),
+      static_cast<int>(float64_array.View()->lengthAsSizeT()));
 }
 
 DOMMatrixReadOnly* DOMMatrixReadOnly::fromMatrix2D(
@@ -211,7 +213,7 @@ bool DOMMatrixReadOnly::is2D() const {
 }
 
 bool DOMMatrixReadOnly::isIdentity() const {
-  return matrix_->IsIdentity();
+  return matrix_.IsIdentity();
 }
 
 DOMMatrix* DOMMatrixReadOnly::multiply(DOMMatrixInit* other,
@@ -319,31 +321,28 @@ DOMPoint* DOMMatrixReadOnly::transformPoint(const DOMPointInit* point) {
 }
 
 DOMMatrixReadOnly::DOMMatrixReadOnly(const TransformationMatrix& matrix,
-                                     bool is2d) {
-  matrix_ = std::make_unique<TransformationMatrix>(matrix);
-  is2d_ = is2d;
-}
+                                     bool is2d)
+    : matrix_(matrix), is2d_(is2d) {}
 
 NotShared<DOMFloat32Array> DOMMatrixReadOnly::toFloat32Array() const {
   float array[] = {
-      static_cast<float>(matrix_->M11()), static_cast<float>(matrix_->M12()),
-      static_cast<float>(matrix_->M13()), static_cast<float>(matrix_->M14()),
-      static_cast<float>(matrix_->M21()), static_cast<float>(matrix_->M22()),
-      static_cast<float>(matrix_->M23()), static_cast<float>(matrix_->M24()),
-      static_cast<float>(matrix_->M31()), static_cast<float>(matrix_->M32()),
-      static_cast<float>(matrix_->M33()), static_cast<float>(matrix_->M34()),
-      static_cast<float>(matrix_->M41()), static_cast<float>(matrix_->M42()),
-      static_cast<float>(matrix_->M43()), static_cast<float>(matrix_->M44())};
+      static_cast<float>(matrix_.M11()), static_cast<float>(matrix_.M12()),
+      static_cast<float>(matrix_.M13()), static_cast<float>(matrix_.M14()),
+      static_cast<float>(matrix_.M21()), static_cast<float>(matrix_.M22()),
+      static_cast<float>(matrix_.M23()), static_cast<float>(matrix_.M24()),
+      static_cast<float>(matrix_.M31()), static_cast<float>(matrix_.M32()),
+      static_cast<float>(matrix_.M33()), static_cast<float>(matrix_.M34()),
+      static_cast<float>(matrix_.M41()), static_cast<float>(matrix_.M42()),
+      static_cast<float>(matrix_.M43()), static_cast<float>(matrix_.M44())};
 
   return NotShared<DOMFloat32Array>(DOMFloat32Array::Create(array, 16));
 }
 
 NotShared<DOMFloat64Array> DOMMatrixReadOnly::toFloat64Array() const {
-  double array[] = {
-      matrix_->M11(), matrix_->M12(), matrix_->M13(), matrix_->M14(),
-      matrix_->M21(), matrix_->M22(), matrix_->M23(), matrix_->M24(),
-      matrix_->M31(), matrix_->M32(), matrix_->M33(), matrix_->M34(),
-      matrix_->M41(), matrix_->M42(), matrix_->M43(), matrix_->M44()};
+  double array[] = {matrix_.M11(), matrix_.M12(), matrix_.M13(), matrix_.M14(),
+                    matrix_.M21(), matrix_.M22(), matrix_.M23(), matrix_.M24(),
+                    matrix_.M31(), matrix_.M32(), matrix_.M33(), matrix_.M34(),
+                    matrix_.M41(), matrix_.M42(), matrix_.M43(), matrix_.M44()};
 
   return NotShared<DOMFloat64Array>(DOMFloat64Array::Create(array, 16));
 }
@@ -483,7 +482,7 @@ void DOMMatrixReadOnly::SetMatrixValueFromString(
 
   if (auto* identifier_value = DynamicTo<CSSIdentifierValue>(value)) {
     DCHECK(identifier_value->GetValueID() == CSSValueID::kNone);
-    matrix_->MakeIdentity();
+    matrix_.MakeIdentity();
     is2d_ = true;
     return;
   }
@@ -506,8 +505,8 @@ void DOMMatrixReadOnly::SetMatrixValueFromString(
     return;
   }
 
-  matrix_->MakeIdentity();
-  operations.Apply(FloatSize(0, 0), *matrix_);
+  matrix_.MakeIdentity();
+  operations.Apply(FloatSize(0, 0), matrix_);
 
   is2d_ = !operations.Has3DOperation();
 

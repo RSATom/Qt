@@ -29,6 +29,7 @@
 #include "third_party/blink/renderer/core/dom/document.h"
 #include "third_party/blink/renderer/core/dom/text.h"
 #include "third_party/blink/renderer/core/events/mouse_event.h"
+#include "third_party/blink/renderer/core/frame/use_counter_helper.h"
 #include "third_party/blink/renderer/core/html/forms/date_time_field_elements.h"
 #include "third_party/blink/renderer/core/html/forms/date_time_fields_state.h"
 #include "third_party/blink/renderer/core/html/shadow/shadow_element_names.h"
@@ -43,8 +44,6 @@
 #include "third_party/blink/renderer/platform/wtf/date_math.h"
 
 namespace blink {
-
-using namespace html_names;
 
 class DateTimeEditBuilder : private DateTimeFormat::TokenHandler {
  public:
@@ -536,7 +535,7 @@ DateTimeEditElement::DateTimeEditElement(Document& document,
     : HTMLDivElement(document), edit_control_owner_(&edit_control_owner) {
   SetHasCustomStyleCallbacks();
   SetShadowPseudoId(AtomicString("-webkit-datetime-edit"));
-  setAttribute(kIdAttr, shadow_element_names::DateTimeEdit());
+  setAttribute(html_names::kIdAttr, shadow_element_names::DateTimeEdit());
 }
 
 DateTimeEditElement::~DateTimeEditElement() = default;
@@ -831,6 +830,20 @@ void DateTimeEditElement::SetEmptyValue(
     field->SetEmptyValue(DateTimeFieldElement::kDispatchNoEvent);
 }
 
+bool DateTimeEditElement::HasField(DateTimeField type) const {
+  for (const auto& field : fields_) {
+    if (field->Type() == type)
+      return true;
+  }
+
+  return false;
+}
+
+bool DateTimeEditElement::IsFirstFieldAMPM() const {
+  const auto* first_field = FieldAt(0);
+  return first_field && first_field->Type() == DateTimeField::kAMPM;
+}
+
 bool DateTimeEditElement::HasFocusedField() {
   return FocusedFieldIndex() != kInvalidFieldIndex;
 }
@@ -845,6 +858,24 @@ void DateTimeEditElement::SetOnlyYearMonthDay(const DateComponents& date) {
   date_time_fields_state.SetYear(date.FullYear());
   date_time_fields_state.SetMonth(date.Month() + 1);
   date_time_fields_state.SetDayOfMonth(date.MonthDay());
+  SetValueAsDateTimeFieldsState(date_time_fields_state);
+  edit_control_owner_->EditControlValueChanged();
+}
+
+void DateTimeEditElement::SetOnlyTime(const DateComponents& date) {
+  DCHECK_EQ(date.GetType(), DateComponents::kTime);
+
+  if (!edit_control_owner_)
+    return;
+
+  DateTimeFieldsState date_time_fields_state = ValueAsDateTimeFieldsState();
+  date_time_fields_state.SetHour(date.Hour() % 12 ? date.Hour() % 12 : 12);
+  date_time_fields_state.SetMinute(date.Minute());
+  date_time_fields_state.SetSecond(date.Second());
+  date_time_fields_state.SetMillisecond(date.Millisecond());
+  date_time_fields_state.SetAMPM(date.Hour() >= 12
+                                     ? DateTimeFieldsState::kAMPMValuePM
+                                     : DateTimeFieldsState::kAMPMValueAM);
   SetValueAsDateTimeFieldsState(date_time_fields_state);
   edit_control_owner_->EditControlValueChanged();
 }

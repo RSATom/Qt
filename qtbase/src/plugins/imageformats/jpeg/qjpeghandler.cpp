@@ -248,13 +248,12 @@ static bool ensureValidImage(QImage *dest, struct jpeg_decompress_struct *info,
 
 static bool read_jpeg_image(QImage *outImage,
                             QSize scaledSize, QRect scaledClipRect,
-                            QRect clipRect, volatile int inQuality,
+                            QRect clipRect, int quality,
                             Rgb888ToRgb32Converter converter,
                             j_decompress_ptr info, struct my_error_mgr* err  )
 {
     if (!setjmp(err->setjmp_buffer)) {
         // -1 means default quality.
-        int quality = inQuality;
         if (quality < 0)
             quality = 75;
 
@@ -529,17 +528,20 @@ static inline void write_icc_profile(const QImage &image, j_compress_ptr cinfo)
     }
 }
 
-static bool write_jpeg_image(const QImage &image, QIODevice *device, volatile int sourceQuality, const QString &description, bool optimize, bool progressive)
+static bool do_write_jpeg_image(struct jpeg_compress_struct &cinfo,
+                                JSAMPROW *row_pointer,
+                                const QImage &image,
+                                QIODevice *device,
+                                int sourceQuality,
+                                const QString &description,
+                                bool optimize,
+                                bool progressive)
 {
     bool success = false;
     const QVector<QRgb> cmap = image.colorTable();
 
     if (image.format() == QImage::Format_Invalid || image.format() == QImage::Format_Alpha8)
         return false;
-
-    struct jpeg_compress_struct cinfo;
-    JSAMPROW row_pointer[1];
-    row_pointer[0] = 0;
 
     struct my_jpeg_destination_mgr *iod_dest = new my_jpeg_destination_mgr(device);
     struct my_error_mgr jerr;
@@ -713,6 +715,27 @@ static bool write_jpeg_image(const QImage &image, QIODevice *device, volatile in
     }
 
     delete iod_dest;
+    return success;
+}
+
+static bool write_jpeg_image(const QImage &image,
+                             QIODevice *device,
+                             int sourceQuality,
+                             const QString &description,
+                             bool optimize,
+                             bool progressive)
+{
+    // protect these objects from the setjmp/longjmp pair inside
+    // do_write_jpeg_image (by making them non-local).
+    struct jpeg_compress_struct cinfo;
+    JSAMPROW row_pointer[1];
+    row_pointer[0] = nullptr;
+
+    const bool success = do_write_jpeg_image(cinfo, row_pointer,
+                                             image, device,
+                                             sourceQuality, description,
+                                             optimize, progressive);
+
     delete [] row_pointer[0];
     return success;
 }
@@ -728,7 +751,7 @@ public:
     };
 
     QJpegHandlerPrivate(QJpegHandler *qq)
-        : quality(75), transformation(QImageIOHandler::TransformationNone), iod_src(0),
+        : quality(75), transformation(QImageIOHandler::TransformationNone), iod_src(nullptr),
           rgb888ToRgb32ConverterPtr(qt_convert_rgb888_to_rgb32), state(Ready), optimize(false), progressive(false), q(qq)
     {}
 
@@ -738,7 +761,7 @@ public:
         {
             jpeg_destroy_decompress(&info);
             delete iod_src;
-            iod_src = 0;
+            iod_src = nullptr;
         }
     }
 
@@ -931,8 +954,9 @@ bool QJpegHandlerPrivate::readJpegHeader(QIODevice *device)
 
             QByteArray exifData;
 
-            for (jpeg_saved_marker_ptr marker = info.marker_list; marker != NULL; marker = marker->next) {
+            for (jpeg_saved_marker_ptr marker = info.marker_list; marker != nullptr; marker = marker->next) {
                 if (marker->marker == JPEG_COM) {
+#ifndef QT_NO_IMAGEIO_TEXT_LOADING
                     QString key, value;
                     QString s = QString::fromUtf8((const char *)marker->data, marker->data_length);
                     int index = s.indexOf(QLatin1String(": "));
@@ -948,6 +972,7 @@ bool QJpegHandlerPrivate::readJpegHeader(QIODevice *device)
                     description += key + QLatin1String(": ") + value.simplified();
                     readTexts.append(key);
                     readTexts.append(value);
+#endif
                 } else if (marker->marker == JPEG_APP0 + 1) {
                     exifData.append((const char*)marker->data, marker->data_length);
                 } else if (marker->marker == JPEG_APP0 + 2) {
@@ -1160,12 +1185,5 @@ void QJpegHandler::setOption(ImageOption option, const QVariant &value)
         break;
     }
 }
-
-#if QT_DEPRECATED_SINCE(5, 13)
-QByteArray QJpegHandler::name() const
-{
-    return "jpeg";
-}
-#endif
 
 QT_END_NAMESPACE

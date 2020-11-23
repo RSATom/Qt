@@ -33,9 +33,12 @@
 #include <utility>
 
 #include "base/macros.h"
-#include "mojo/public/cpp/bindings/binding.h"
+#include "mojo/public/cpp/bindings/receiver.h"
+#include "mojo/public/cpp/bindings/remote.h"
 #include "third_party/blink/public/mojom/permissions/permission.mojom-blink.h"
+#include "third_party/blink/public/mojom/permissions/permission_status.mojom-blink-forward.h"
 #include "third_party/blink/public/mojom/permissions/permission_status.mojom-blink.h"
+#include "third_party/blink/public/web/web_ax_enums.h"
 #include "third_party/blink/renderer/core/accessibility/ax_object_cache_base.h"
 #include "third_party/blink/renderer/core/execution_context/context_lifecycle_observer.h"
 #include "third_party/blink/renderer/core/frame/local_frame_view.h"
@@ -44,7 +47,7 @@
 #include "third_party/blink/renderer/platform/wtf/hash_map.h"
 #include "third_party/blink/renderer/platform/wtf/hash_set.h"
 #include "third_party/blink/renderer/platform/wtf/vector.h"
-#include "ui/accessibility/ax_enums.mojom-blink.h"
+#include "ui/accessibility/ax_enums.mojom-blink-forward.h"
 
 namespace blink {
 
@@ -117,7 +120,6 @@ class MODULES_EXPORT AXObjectCacheImpl
 
   bool HandleAttributeChanged(const QualifiedName& attr_name,
                               Element*) override;
-  void HandleAutofillStateChanged(Element*, bool) override;
   void HandleValidationMessageVisibilityChanged(
       const Element* form_control) override;
   void HandleFocusedUIElementChanged(Element* old_focused_element,
@@ -194,6 +196,8 @@ class MODULES_EXPORT AXObjectCacheImpl
   void HandleRoleChangeIfNotEditableWithCleanLayout(Node*);
   void HandleAriaExpandedChangeWithCleanLayout(Node*);
   void HandleAriaSelectedChangedWithCleanLayout(Node*);
+  void HandleNodeLostFocusWithCleanLayout(Node*);
+  void HandleNodeGainedFocusWithCleanLayout(Node*);
 
   bool InlineTextBoxAccessibilityEnabled();
 
@@ -256,6 +260,9 @@ class MODULES_EXPORT AXObjectCacheImpl
 
   void set_is_handling_action(bool value) { is_handling_action_ = value; }
 
+  WebAXAutofillState GetAutofillState(AXID id) const;
+  void SetAutofillState(AXID id, WebAXAutofillState state);
+
  protected:
   void PostPlatformNotification(
       AXObject*,
@@ -268,7 +275,7 @@ class MODULES_EXPORT AXObjectCacheImpl
   AXObject* CreateFromInlineTextBox(AbstractInlineTextBox*);
 
  private:
-  struct AXEventParams : public GarbageCollectedFinalized<AXEventParams> {
+  struct AXEventParams final : public GarbageCollected<AXEventParams> {
     AXEventParams(AXObject* target,
                   ax::mojom::Event event_type,
                   ax::mojom::EventFrom event_from)
@@ -280,10 +287,13 @@ class MODULES_EXPORT AXObjectCacheImpl
     void Trace(Visitor* visitor) { visitor->Trace(target); }
   };
 
-  struct TreeUpdateParams : public GarbageCollectedFinalized<TreeUpdateParams> {
-    TreeUpdateParams(Node* node, base::OnceClosure callback)
-        : node(node), callback(std::move(callback)) {}
+  struct TreeUpdateParams final : public GarbageCollected<TreeUpdateParams> {
+    TreeUpdateParams(Node* node,
+                     ax::mojom::EventFrom event_from,
+                     base::OnceClosure callback)
+        : node(node), event_from(event_from), callback(std::move(callback)) {}
     WeakMember<Node> node;
+    ax::mojom::EventFrom event_from;
     base::OnceClosure callback;
 
     void Trace(Visitor* visitor) { visitor->Trace(node); }
@@ -321,6 +331,12 @@ class MODULES_EXPORT AXObjectCacheImpl
 
   // ContextLifecycleObserver overrides.
   void ContextDestroyed(ExecutionContext*) override;
+
+  // Get the currently focused Node element.
+  Node* FocusedElement();
+
+  // GetOrCreate the focusable AXObject for a specific Node.
+  AXObject* GetOrCreateFocusedObjectFromNode(Node*);
 
   AXObject* FocusedImageMapUIElement(HTMLAreaElement*);
 
@@ -375,8 +391,9 @@ class MODULES_EXPORT AXObjectCacheImpl
   mojom::PermissionStatus accessibility_event_permission_;
   // The permission service, enabling us to check for event listener
   // permission.
-  mojom::blink::PermissionServicePtr permission_service_;
-  mojo::Binding<mojom::blink::PermissionObserver> permission_observer_binding_;
+  mojo::Remote<mojom::blink::PermissionService> permission_service_;
+  mojo::Receiver<mojom::blink::PermissionObserver>
+      permission_observer_receiver_{this};
 
   // The main document, plus any page popups.
   HeapHashSet<WeakMember<Document>> documents_;
@@ -384,6 +401,9 @@ class MODULES_EXPORT AXObjectCacheImpl
   TreeUpdateCallbackQueue tree_update_callback_queue_;
 
   bool is_handling_action_ = false;
+
+  // Maps ids to their object's autofill state.
+  HashMap<AXID, WebAXAutofillState> autofill_state_map_;
 
   DISALLOW_COPY_AND_ASSIGN(AXObjectCacheImpl);
 };

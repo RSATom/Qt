@@ -48,8 +48,7 @@
 #ifdef Q_OS_WIN
 #include "qrhid3d11_p_p.h"
 #endif
-//#ifdef Q_OS_DARWIN
-#ifdef Q_OS_MACOS
+#if defined(Q_OS_MACOS) || defined(Q_OS_IOS)
 #include "qrhimetal_p_p.h"
 #endif
 
@@ -578,6 +577,11 @@ Q_LOGGING_CATEGORY(QRHI_LOG_INFO, "qt.rhi.general")
     specifying a non-zero level in QRhiReadbackDescription leads to returning
     an all-zero image. In practice this feature will be unsupported with OpenGL
     ES 2.0, while it will likely be supported everywhere else.
+
+    \value TexelFetch Indicates that texelFetch() is available in shaders. In
+    practice this will be reported as unsupported with OpenGL ES 2.0 and OpenGL
+    2.x contexts, because GLSL 100 es and versions before 130 do not support
+    this function.
  */
 
 /*!
@@ -623,18 +627,27 @@ Q_LOGGING_CATEGORY(QRHI_LOG_INFO, "qt.rhi.general")
     is what some OpenGL ES implementations provide.
 
     \value FramesInFlight The number of frames the backend may keep "in
-    flight". The value has no relevance, and is unspecified, with backends like
-    OpenGL and Direct3D 11. With backends like Vulkan or Metal, it is the
-    responsibility of QRhi to block whenever starting a new frame and finding
-    the CPU is already \c{N - 1} frames ahead of the GPU (because the command
-    buffer submitted in frame no. \c{current} - \c{N} has not yet completed).
-    The value N is what is returned from here, and is typically 2. This can be
-    relevant to applications that integrate rendering done directly with the
-    graphics API, as such rendering code may want to perform double (if the
-    value is 2) buffering for resources, such as, buffers, similarly to the
-    QRhi backends themselves. The current frame slot index (a value running 0,
-    1, .., N-1, then wrapping around) is retrievable from
-    QRhi::currentFrameSlot().
+    flight": with backends like Vulkan or Metal, it is the responsibility of
+    QRhi to block whenever starting a new frame and finding the CPU is already
+    \c{N - 1} frames ahead of the GPU (because the command buffer submitted in
+    frame no. \c{current} - \c{N} has not yet completed). The value N is what
+    is returned from here, and is typically 2. This can be relevant to
+    applications that integrate rendering done directly with the graphics API,
+    as such rendering code may want to perform double (if the value is 2)
+    buffering for resources, such as, buffers, similarly to the QRhi backends
+    themselves. The current frame slot index (a value running 0, 1, .., N-1,
+    then wrapping around) is retrievable from QRhi::currentFrameSlot(). The
+    value is 1 for backends where the graphics API offers no such low level
+    control over the command submission process. Note that pipelining may still
+    happen even when this value is 1 (some backends, such as D3D11, are
+    designed to attempt to enable this, for instance, by using an update
+    strategy for uniform buffers that does not stall the pipeline), but that is
+    then not controlled by QRhi and so not reflected here in the API.
+
+    \value MaxAsyncReadbackFrames The number of \l{QRhi::endFrame()}{submitted}
+    frames (including the one that contains the readback) after which an
+    asynchronous texture or buffer readback is guaranteed to complete upon
+    \l{QRhi::beginFrame()}{starting a new frame}.
  */
 
 /*!
@@ -1947,6 +1960,40 @@ quint64 QRhiResource::globalResourceId() const
  */
 
 /*!
+    \class QRhiBuffer::NativeBuffer
+    \brief Contains information about the underlying native resources of a buffer.
+ */
+
+/*!
+    \variable QRhiBuffer::NativeBuffer::objects
+    \brief an array with pointers to the native object handles.
+
+    With OpenGL, the native handle is a GLuint value, so the elements in the \c
+    objects array are pointers to a GLuint. With Vulkan, the native handle is a
+    VkBuffer, so the elements of the array are pointers to a VkBuffer. With
+    Direct3D 11 and Metal the elements are pointers to a ID3D11Buffer or
+    MTLBuffer pointer, respectively.
+
+    \note Pay attention to the fact that the elements are always pointers to
+    the native buffer handle type, even if the native type itself is a pointer.
+ */
+
+/*!
+    \variable QRhiBuffer::NativeBuffer::slotCount
+    \brief Specifies the number of valid elements in the objects array.
+
+    The value can be 0, 1, 2, or 3 in practice. 0 indicates that the QRhiBuffer
+    is not backed by any native buffer objects. This can happen with
+    QRhiBuffers with the usage UniformBuffer when the underlying API does not
+    support (or the backend chooses not to use) native uniform buffers. 1 is
+    commonly used for Immutable and Static types (but some backends may
+    differ). 2 or 3 is typical when the type is Dynamic (but some backends may
+    differ).
+
+    \sa QRhi::currentFrameSlot(), QRhi::FramesInFlight
+ */
+
+/*!
     \internal
  */
 QRhiBuffer::QRhiBuffer(QRhiImplementation *rhi, Type type_, UsageFlags usage_, int size_)
@@ -1973,6 +2020,44 @@ QRhiResource::Type QRhiBuffer::resourceType() const
     \return \c true when successful, \c false when a graphics operation failed.
     Regardless of the return value, calling release() is always safe.
  */
+
+/*!
+    \return the underlying native resources for this buffer. The returned value
+    will be empty if exposing the underlying native resources is not supported by
+    the backend.
+
+    A QRhiBuffer may be backed by multiple native buffer objects, depending on
+    the type() and the QRhi backend in use. When this is the case, all of them
+    are returned in the objects array in the returned struct, with slotCount
+    specifying the number of native buffer objects. While
+    \l{QRhi::beginFrame()}{recording a frame}, QRhi::currentFrameSlot() can be
+    used to determine which of the native buffers QRhi is using for operations
+    that read or write from this QRhiBuffer within the frame being recorded.
+
+    In some cases a QRhiBuffer will not be backed by a native buffer object at
+    all. In this case slotCount will be set to 0 and no valid native objects
+    are returned. This is not an error, and is perfectly valid when a given
+    backend does not use native buffers for QRhiBuffers with certain types or
+    usages.
+
+    \note Be aware that QRhi backends may employ various buffer update
+    strategies. Unlike textures, where uploading image data always means
+    recording a buffer-to-image (or similar) copy command on the command
+    buffer, buffers, in particular Dynamic and UniformBuffer ones, can operate
+    in many different ways. For example, a QRhiBuffer with usage type
+    UniformBuffer may not even be backed by a native buffer object at all if
+    uniform buffers are not used or supported by a given backend and graphics
+    API. There are also differences to how data is written to the buffer and
+    the type of backing memory used. For buffers backed by host visible memory,
+    calling this function guarantees that pending host writes are executed for
+    all the returned native buffers.
+
+    \sa QRhi::currentFrameSlot(), QRhi::FramesInFlight
+ */
+QRhiBuffer::NativeBuffer QRhiBuffer::nativeBuffer()
+{
+    return {};
+}
 
 /*!
     \class QRhiRenderBuffer
@@ -2161,6 +2246,32 @@ QRhiResource::Type QRhiRenderBuffer::resourceType() const
  */
 
 /*!
+    \class QRhiTexture::NativeTexture
+    \brief Contains information about the underlying native resources of a texture.
+ */
+
+/*!
+    \variable QRhiTexture::NativeTexture::object
+    \brief a pointer to the native object handle.
+
+    With OpenGL, the native handle is a GLuint value, so \c object is then a
+    pointer to a GLuint. With Vulkan, the native handle is a VkImage, so \c
+    object is a pointer to a VkImage. With Direct3D 11 and Metal \c
+    object is a pointer to a ID3D11Texture2D or MTLTexture pointer, respectively.
+
+    \note Pay attention to the fact that \a object is always a pointer
+    to the native texture handle type, even if the native type itself is a
+    pointer.
+ */
+
+/*!
+    \variable QRhiTexture::NativeTexture::layout
+    \brief Specifies the current image layout for APIs like Vulkan.
+
+    For Vulkan, \c layout contains a \c VkImageLayout value.
+ */
+
+/*!
     \internal
  */
 QRhiTexture::QRhiTexture(QRhiImplementation *rhi, Format format_, const QSize &pixelSize_,
@@ -2190,21 +2301,20 @@ QRhiResource::Type QRhiTexture::resourceType() const
  */
 
 /*!
-    \return a pointer to a backend-specific QRhiNativeHandles subclass, such as
-    QRhiVulkanTextureNativeHandles. The returned value is null when exposing
-    the underlying native resources is not supported by the backend.
+    \return the underlying native resources for this texture. The returned value
+    will be empty if exposing the underlying native resources is not supported by
+    the backend.
 
-    \sa QRhiVulkanTextureNativeHandles, QRhiD3D11TextureNativeHandles,
-    QRhiMetalTextureNativeHandles, QRhiGles2TextureNativeHandles
+    \sa buildFrom()
  */
-const QRhiNativeHandles *QRhiTexture::nativeHandles()
+QRhiTexture::NativeTexture QRhiTexture::nativeTexture()
 {
-    return nullptr;
+    return {};
 }
 
 /*!
     Similar to build() except that no new native textures are created. Instead,
-    the texture from \a src is used.
+    the native texture resources specified by \a src is used.
 
     This allows importing an existing native texture object (which must belong
     to the same device or sharing context, depending on the graphics API) from
@@ -2220,15 +2330,38 @@ const QRhiNativeHandles *QRhiTexture::nativeHandles()
     does not free the object or any associated memory.
 
     The opposite of this operation, exposing a QRhiTexture-created native
-    texture object to a foreign engine, is possible via nativeHandles().
+    texture object to a foreign engine, is possible via nativeTexture().
 
-    \sa QRhiVulkanTextureNativeHandles, QRhiD3D11TextureNativeHandles,
-    QRhiMetalTextureNativeHandles, QRhiGles2TextureNativeHandles
- */
-bool QRhiTexture::buildFrom(const QRhiNativeHandles *src)
+*/
+bool QRhiTexture::buildFrom(QRhiTexture::NativeTexture src)
 {
     Q_UNUSED(src);
     return false;
+}
+
+/*!
+    With some graphics APIs, such as Vulkan, integrating custom rendering code
+    that uses the graphics API directly needs special care when it comes to
+    image layouts. This function allows communicating the expected layout the
+    image backing the QRhiTexture is in after the native rendering commands.
+
+    For example, consider rendering into a QRhiTexture's VkImage directly with
+    Vulkan in a code block enclosed by QRhiCommandBuffer::beginExternal() and
+    QRhiCommandBuffer::endExternal(), followed by using the image for texture
+    sampling in a QRhi-based render pass. To avoid potentially incorrect image
+    layout transitions, this function can be used to indicate what the image
+    layout will be once the commands recorded in said code block complete.
+
+    Calling this function makes sense only after
+    QRhiCommandBuffer::endExternal() and before a subsequent
+    QRhiCommandBuffer::beginPass().
+
+    This function has no effect with QRhi backends where the underlying
+    graphics API does not expose a concept of image layouts.
+ */
+void QRhiTexture::setNativeLayout(int layout)
+{
+    Q_UNUSED(layout);
 }
 
 /*!
@@ -2253,9 +2386,7 @@ bool QRhiTexture::buildFrom(const QRhiNativeHandles *src)
 
     \value Repeat
     \value ClampToEdge
-    \value Border
     \value Mirror
-    \value MirrorOnce
  */
 
 /*!
@@ -2277,11 +2408,10 @@ bool QRhiTexture::buildFrom(const QRhiNativeHandles *src)
  */
 QRhiSampler::QRhiSampler(QRhiImplementation *rhi,
                          Filter magFilter_, Filter minFilter_, Filter mipmapMode_,
-                         AddressMode u_, AddressMode v_)
+                         AddressMode u_, AddressMode v_, AddressMode w_)
     : QRhiResource(rhi),
       m_magFilter(magFilter_), m_minFilter(minFilter_), m_mipmapMode(mipmapMode_),
-      m_addressU(u_), m_addressV(v_),
-      m_addressW(QRhiSampler::ClampToEdge),
+      m_addressU(u_), m_addressV(v_), m_addressW(w_),
       m_compareOp(QRhiSampler::Never)
 {
 }
@@ -2322,8 +2452,26 @@ QRhiResource::Type QRhiRenderPassDescriptor::resourceType() const
 }
 
 /*!
+    \fn bool QRhiRenderPassDescriptor::isCompatible(const QRhiRenderPassDescriptor *other) const;
+
+    \return true if the \a other QRhiRenderPassDescriptor is compatible with
+    this one, meaning \c this and \a other can be used interchangebly in
+    QRhiGraphicsPipeline::setRenderPassDescriptor().
+
+    The concept of the compatibility of renderpass descriptors is similar to
+    the \l{QRhiShaderResourceBindings::isLayoutCompatible}{layout
+    compatibility} of QRhiShaderResourceBindings instances. They allow better
+    reuse of QRhiGraphicsPipeline instances: for example, a
+    QRhiGraphicsPipeline instance cache is expected to use these functions to
+    look for a matching pipeline, instead of just comparing pointers, thus
+    allowing a different QRhiRenderPassDescriptor and
+    QRhiShaderResourceBindings to be used in combination with the pipeline, as
+    long as they are compatible.
+ */
+
+/*!
     \return a pointer to a backend-specific QRhiNativeHandles subclass, such as
-    QRhiVulkanRenderPassNativeHandles. The returned value is null when exposing
+    QRhiVulkanRenderPassNativeHandles. The returned value is \nullptr when exposing
     the underlying native resources is not supported by the backend.
 
     \sa QRhiVulkanRenderPassNativeHandles
@@ -2737,16 +2885,57 @@ QRhiShaderResourceBinding QRhiShaderResourceBinding::uniformBufferWithDynamicOff
     \return a shader resource binding for the given binding number, pipeline
     stages, texture, and sampler specified by \a binding, \a stage, \a tex,
     \a sampler.
+
+    \note This function is equivalent to calling sampledTextures() with a
+    \c count of 1.
+
+    \sa sampledTextures()
  */
 QRhiShaderResourceBinding QRhiShaderResourceBinding::sampledTexture(
         int binding, StageFlags stage, QRhiTexture *tex, QRhiSampler *sampler)
 {
+    const TextureAndSampler texSampler = { tex, sampler };
+    return sampledTextures(binding, stage, 1, &texSampler);
+}
+
+/*!
+    \return a shader resource binding for the given binding number, pipeline
+    stages, and the array of texture-sampler pairs specified by \a binding, \a
+    stage, \a count, and \a texSamplers.
+
+    \note \a count must be at least 1, and not larger than 16.
+
+    \note When \a count is 1, this function is equivalent to sampledTexture().
+
+    This function is relevant when arrays of combined image samplers are
+    involved. For example, in GLSL \c{layout(binding = 5) uniform sampler2D
+    shadowMaps[8];} declares an array of combined image samplers. The
+    application is then expected provide a QRhiShaderResourceBinding for
+    binding point 5, set up by calling this function with \a count set to 8 and
+    a valid texture and sampler for each element of the array.
+
+    \warning All elements of the array must be specified. With the above
+    example, the only valid, portable approach is calling this function with a
+    \a count of 8. Additionally, all QRhiTexture and QRhiSampler instances must
+    be valid, meaning nullptr is not an accepted value. This is due to some of
+    the underlying APIs, such as, Vulkan, that require a valid image and
+    sampler object for each element in descriptor arrays. Applications are
+    advised to provide "dummy" samplers and textures if some array elements are
+    not relevant (due to not being accessed in the shader).
+
+    \sa sampledTexture()
+ */
+QRhiShaderResourceBinding QRhiShaderResourceBinding::sampledTextures(
+        int binding, StageFlags stage, int count, const TextureAndSampler *texSamplers)
+{
+    Q_ASSERT(count >= 1 && count <= Data::MAX_TEX_SAMPLER_ARRAY_SIZE);
     QRhiShaderResourceBinding b;
     b.d.binding = binding;
     b.d.stage = stage;
     b.d.type = SampledTexture;
-    b.d.u.stex.tex = tex;
-    b.d.u.stex.sampler = sampler;
+    b.d.u.stex.count = count;
+    for (int i = 0; i < count; ++i)
+        b.d.u.stex.texSamplers[i] = texSamplers[i];
     return b;
 }
 
@@ -2936,10 +3125,14 @@ bool operator==(const QRhiShaderResourceBinding &a, const QRhiShaderResourceBind
         }
         break;
     case QRhiShaderResourceBinding::SampledTexture:
-        if (da->u.stex.tex != db->u.stex.tex
-                || da->u.stex.sampler != db->u.stex.sampler)
-        {
+        if (da->u.stex.count != db->u.stex.count)
             return false;
+        for (int i = 0; i < da->u.stex.count; ++i) {
+            if (da->u.stex.texSamplers[i].tex != db->u.stex.texSamplers[i].tex
+                    || da->u.stex.texSamplers[i].sampler != db->u.stex.texSamplers[i].sampler)
+            {
+                return false;
+            }
         }
         break;
     case QRhiShaderResourceBinding::ImageLoad:
@@ -3014,10 +3207,13 @@ QDebug operator<<(QDebug dbg, const QRhiShaderResourceBinding &b)
                       << ')';
         break;
     case QRhiShaderResourceBinding::SampledTexture:
-        dbg.nospace() << " SampledTexture("
-                      << "texture=" << d->u.stex.tex
-                      << " sampler=" << d->u.stex.sampler
-                      << ')';
+        dbg.nospace() << " SampledTextures("
+                      << "count=" << d->u.stex.count;
+        for (int i = 0; i < d->u.stex.count; ++i) {
+            dbg.nospace() << " texture=" << d->u.stex.texSamplers[i].tex
+                          << " sampler=" << d->u.stex.texSamplers[i].sampler;
+        }
+        dbg.nospace() << ')';
         break;
     case QRhiShaderResourceBinding::ImageLoad:
         dbg.nospace() << " ImageLoad("
@@ -3901,6 +4097,12 @@ void QRhiImplementation::textureFormatInfo(QRhiTexture::Format format, const QSi
     case QRhiTexture::RGBA32F:
         bpc = 16;
         break;
+    case QRhiTexture::R16F:
+        bpc = 2;
+        break;
+    case QRhiTexture::R32F:
+        bpc = 4;
+        break;
 
     case QRhiTexture::D16:
         bpc = 2;
@@ -4049,8 +4251,7 @@ QRhi *QRhi::create(Implementation impl, QRhiInitParams *params, Flags flags, QRh
         break;
 #endif
     case Metal:
-//#ifdef Q_OS_DARWIN
-#ifdef Q_OS_MACOS
+#if defined(Q_OS_MACOS) || defined(Q_OS_IOS)
         r->d = new QRhiMetal(static_cast<QRhiMetalInitParams *>(params),
                              static_cast<QRhiMetalNativeHandles *>(importDevice));
         break;
@@ -4292,7 +4493,15 @@ void QRhiResourceUpdateBatch::uploadStaticBuffer(QRhiBuffer *buf, const void *da
     is supported only when the QRhi::ReadBackNonUniformBuffer feature is
     reported as supported.
 
-    \a readBackTexture(), QRhi::isFeatureSupported()
+   \note The asynchronous readback is guaranteed to have completed when one of
+   the following conditions is met: \l{QRhi::finish()}{finish()} has been
+   called; or, at least \c N frames have been \l{QRhi::endFrame()}{submitted},
+   including the frame that issued the readback operation, and the
+   \l{QRhi::beginFrame()}{recording of a new frame} has been started, where \c
+   N is the \l{QRhi::resourceLimit()}{resource limit value} returned for
+   QRhi::MaxAsyncReadbackFrames.
+
+   \sa readBackTexture(), QRhi::isFeatureSupported(), QRhi::resourceLimit()
  */
 void QRhiResourceUpdateBatch::readBackBuffer(QRhiBuffer *buf, int offset, int size, QRhiBufferReadbackResult *result)
 {
@@ -4383,6 +4592,16 @@ void QRhiResourceUpdateBatch::copyTexture(QRhiTexture *dst, QRhiTexture *src, co
    happens with a byte ordered format. A \l{QRhiTexture::RGBA8}{RGBA8} texture
    maps therefore to byte ordered QImage formats, such as,
    QImage::Format_RGBA8888.
+
+   \note The asynchronous readback is guaranteed to have completed when one of
+   the following conditions is met: \l{QRhi::finish()}{finish()} has been
+   called; or, at least \c N frames have been \l{QRhi::endFrame()}{submitted},
+   including the frame that issued the readback operation, and the
+   \l{QRhi::beginFrame()}{recording of a new frame} has been started, where \c
+   N is the \l{QRhi::resourceLimit()}{resource limit value} returned for
+   QRhi::MaxAsyncReadbackFrames.
+
+   \sa readBackBuffer(), QRhi::resourceLimit()
  */
 void QRhiResourceUpdateBatch::readBackTexture(const QRhiReadbackDescription &rb, QRhiReadbackResult *result)
 {
@@ -4890,7 +5109,7 @@ void QRhiCommandBuffer::dispatch(int x, int y, int z)
 
 /*!
     \return a pointer to a backend-specific QRhiNativeHandles subclass, such as
-    QRhiVulkanCommandBufferNativeHandles. The returned value is null when
+    QRhiVulkanCommandBufferNativeHandles. The returned value is \nullptr when
     exposing the underlying native resources is not supported by, or not
     applicable to, the backend.
 
@@ -5016,13 +5235,24 @@ bool QRhi::isYUpInNDC() const
 }
 
 /*!
-    \return \c true if the underlying graphics API uses depth 0 - 1 in clip
-    space.
+    \return \c true if the underlying graphics API uses depth range [0, 1] in
+    clip space.
 
-    In practice this is \c false for OpenGL only.
+    In practice this is \c false for OpenGL only, because OpenGL uses a
+    post-projection depth range of [-1, 1]. (not to be confused with the
+    NDC-to-window mapping controlled by glDepthRange(), which uses a range of
+    [0, 1], unless overridden by the QRhiViewport) In some OpenGL versions
+    glClipControl() could be used to change this, but the OpenGL backend of
+    QRhi does not use that function as it is not available in OpenGL ES or
+    OpenGL versions lower than 4.5.
 
     \note clipSpaceCorrMatrix() includes the corresponding adjustment in its
-    returned matrix.
+    returned matrix. Therefore, many users of QRhi do not need to take any
+    further measures apart from pre-multiplying their projection matrices with
+    clipSpaceCorrMatrix(). However, some graphics techniques, such as, some
+    types of shadow mapping, involve working with and outputting depth values
+    in the shaders. These will need to query and take the value of this
+    function into account as appropriate.
  */
 bool QRhi::isClipDepthZeroToOne() const
 {
@@ -5032,11 +5262,15 @@ bool QRhi::isClipDepthZeroToOne() const
 /*!
     \return a matrix that can be used to allow applications keep using
     OpenGL-targeted vertex data and perspective projection matrices (such as,
-    the ones generated by QMatrix4x4::perspective()), regardless of the
-    backend. Once \c{this_matrix * mvp} is used instead of just \c mvp, vertex
-    data with Y up and viewports with depth range 0 - 1 can be used without
-    considering what backend and so graphics API is going to be used at run
-    time.
+    the ones generated by QMatrix4x4::perspective()), regardless of the active
+    QRhi backend.
+
+    In a typical renderer, once \c{this_matrix * mvp} is used instead of just
+    \c mvp, vertex data with Y up and viewports with depth range 0 - 1 can be
+    used without considering what backend (and so graphics API) is going to be
+    used at run time. This way branching based on isYUpInNDC() and
+    isClipDepthZeroToOne() can be avoided (although such logic may still become
+    required when implementing certain advanced graphics techniques).
 
     See
     \l{https://matthewwellings.com/blog/the-new-vulkan-coordinate-system/}{this
@@ -5278,16 +5512,19 @@ QRhiTexture *QRhi::newTexture(QRhiTexture::Format format,
 
 /*!
     \return a new sampler with the specified magnification filter \a magFilter,
-    minification filter \a minFilter, mipmapping mode \a mipmapMpde, and S/T
-    addressing modes \a u and \a v.
+    minification filter \a minFilter, mipmapping mode \a mipmapMode, and the
+    addressing (wrap) modes \a addressU, \a addressV, and \a addressW.
 
     \sa QRhiResource::release()
  */
-QRhiSampler *QRhi::newSampler(QRhiSampler::Filter magFilter, QRhiSampler::Filter minFilter,
+QRhiSampler *QRhi::newSampler(QRhiSampler::Filter magFilter,
+                              QRhiSampler::Filter minFilter,
                               QRhiSampler::Filter mipmapMode,
-                              QRhiSampler:: AddressMode u, QRhiSampler::AddressMode v)
+                              QRhiSampler::AddressMode addressU,
+                              QRhiSampler::AddressMode addressV,
+                              QRhiSampler::AddressMode addressW)
 {
-    return d->createSampler(magFilter, minFilter, mipmapMode, u, v);
+    return d->createSampler(magFilter, minFilter, mipmapMode, addressU, addressV, addressW);
 }
 
 /*!

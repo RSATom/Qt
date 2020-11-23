@@ -14,7 +14,7 @@
 #include "content/browser/service_worker/service_worker_registration.h"
 #include "content/browser/service_worker/service_worker_test_utils.h"
 #include "content/browser/service_worker/service_worker_version.h"
-#include "content/public/test/test_browser_thread_bundle.h"
+#include "content/public/test/browser_task_environment.h"
 #include "content/public/test/test_utils.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
@@ -24,7 +24,7 @@ class ServiceWorkerContextCoreTest : public testing::Test,
                                      public ServiceWorkerContextCoreObserver {
  public:
   ServiceWorkerContextCoreTest()
-      : thread_bundle_(TestBrowserThreadBundle::IO_MAINLOOP) {}
+      : task_environment_(BrowserTaskEnvironment::IO_MAINLOOP) {}
 
   void SetUp() override {
     helper_.reset(new EmbeddedWorkerTestHelper(base::FilePath()));
@@ -63,7 +63,7 @@ class ServiceWorkerContextCoreTest : public testing::Test,
     blink::ServiceWorkerStatusCode status;
     int64_t registration_id;
     context()->RegisterServiceWorker(
-        script, options,
+        script, options, blink::mojom::FetchClientSettingsObject::New(),
         base::BindLambdaForTesting(
             [&](blink::ServiceWorkerStatusCode result_status,
                 const std::string& /* status_message */,
@@ -124,7 +124,7 @@ class ServiceWorkerContextCoreTest : public testing::Test,
   }
 
  private:
-  TestBrowserThreadBundle thread_bundle_;
+  BrowserTaskEnvironment task_environment_;
   std::unique_ptr<EmbeddedWorkerTestHelper> helper_;
   GURL scope_for_wait_for_activated_;
   base::OnceClosure quit_closure_for_wait_for_activated_;

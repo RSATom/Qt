@@ -121,6 +121,7 @@ Will assume a single universal form.</source>
     </message>
     <message>
         <source>%1 (%2)</source>
+        <extracomment>&lt;language&gt; (&lt;country&gt;)</extracomment>
         <translation></translation>
     </message>
     <message>

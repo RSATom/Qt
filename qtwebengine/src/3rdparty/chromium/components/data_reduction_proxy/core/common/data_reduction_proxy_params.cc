@@ -22,7 +22,6 @@
 #include "net/base/host_port_pair.h"
 #include "net/base/proxy_server.h"
 #include "net/http/http_status_code.h"
-#include "services/network/public/cpp/features.h"
 #include "url/url_constants.h"
 
 #if defined(OS_ANDROID)
@@ -111,6 +110,16 @@ bool IsIncludedInHoldbackFieldTrial() {
 
 std::string HoldbackFieldTrialGroup() {
   return base::FieldTrialList::FindFullName("DataCompressionProxyHoldback");
+}
+
+bool ForceEnableClientConfigServiceForAllDataSaverUsers() {
+  // Client config is enabled for all data users that are not in the
+  // kDataReductionProxyHoldback. Users that have kDataReductionProxyHoldback
+  // enabled have config service client enabled only if
+  // |force_enable_config_service_fetches| is set to true.
+  return GetFieldTrialParamByFeatureAsBool(
+      data_reduction_proxy::features::kDataReductionProxyHoldback,
+      "force_enable_config_service_fetches", false);
 }
 
 bool FetchWarmupProbeURLEnabled() {
@@ -224,11 +233,6 @@ GURL GetPingbackURL() {
   LOG(WARNING) << "The following page load metrics URL specified at the "
                << "command-line or variation is invalid: " << url;
   return GURL(kPingbackURL);
-}
-
-bool ShouldForceEnableDataReductionProxy() {
-  return base::CommandLine::ForCurrentProcess()->HasSwitch(
-      data_reduction_proxy::switches::kEnableDataReductionProxy);
 }
 
 int LitePageVersion() {
@@ -364,9 +368,8 @@ GURL GetSecureProxyCheckURL() {
 
 bool IsEnabledWithNetworkService() {
   return base::FeatureList::IsEnabled(
-             data_reduction_proxy::features::
-                 kDataReductionProxyEnabledWithNetworkService) &&
-         base::FeatureList::IsEnabled(network::features::kNetworkService);
+      data_reduction_proxy::features::
+          kDataReductionProxyEnabledWithNetworkService);
 }
 
 base::Optional<DataReductionProxyTypeInfo> FindConfiguredProxyInVector(

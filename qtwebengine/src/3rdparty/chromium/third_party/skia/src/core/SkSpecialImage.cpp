@@ -5,11 +5,12 @@
  * found in the LICENSE file
  */
 
+#include "src/core/SkSpecialImage.h"
+
 #include "include/core/SkBitmap.h"
 #include "include/core/SkCanvas.h"
 #include "include/core/SkImage.h"
 #include "src/core/SkBitmapCache.h"
-#include "src/core/SkSpecialImage.h"
 #include "src/core/SkSpecialSurface.h"
 #include "src/core/SkSurfacePriv.h"
 #include "src/image/SkImage_Base.h"
@@ -19,6 +20,7 @@
 #include "include/gpu/GrContext.h"
 #include "include/private/GrRecordingContext.h"
 #include "src/gpu/GrContextPriv.h"
+#include "src/gpu/GrImageInfo.h"
 #include "src/gpu/GrProxyProvider.h"
 #include "src/gpu/GrRecordingContextPriv.h"
 #include "src/gpu/GrSurfaceContext.h"
@@ -57,16 +59,17 @@ public:
     // from the content rect by the non-virtual makeSubset().
     virtual sk_sp<SkSpecialImage> onMakeSubset(const SkIRect& subset) const = 0;
 
-    virtual sk_sp<SkSpecialSurface> onMakeSurface(const SkImageFilter::OutputProperties& outProps,
-                                                  const SkISize& size, SkAlphaType at,
-                                                  const SkSurfaceProps* = nullptr) const = 0;
+    virtual sk_sp<SkSpecialSurface> onMakeSurface(
+            SkColorType colorType, const SkColorSpace* colorSpace, const SkISize& size,
+            SkAlphaType at, const SkSurfaceProps* = nullptr) const = 0;
 
     // This subset (when not null) is relative to the backing store's coordinate frame, it has
     // already been mapped from the content rect by the non-virtual asImage().
     virtual sk_sp<SkImage> onAsImage(const SkIRect* subset) const = 0;
 
-    virtual sk_sp<SkSurface> onMakeTightSurface(const SkImageFilter::OutputProperties& outProps,
-                                                const SkISize& size, SkAlphaType at) const = 0;
+    virtual sk_sp<SkSurface> onMakeTightSurface(
+            SkColorType colorType, const SkColorSpace* colorSpace,
+            const SkISize& size, SkAlphaType at) const = 0;
 
 private:
     typedef SkSpecialImage INHERITED;
@@ -85,13 +88,13 @@ SkSpecialImage::SkSpecialImage(const SkIRect& subset,
     , fUniqueID(kNeedNewImageUniqueID_SpecialImage == uniqueID ? SkNextID::ImageID() : uniqueID) {
 }
 
-sk_sp<SkSpecialImage> SkSpecialImage::makeTextureImage(GrRecordingContext* context) {
+sk_sp<SkSpecialImage> SkSpecialImage::makeTextureImage(GrRecordingContext* context) const {
 #if SK_SUPPORT_GPU
     if (!context) {
         return nullptr;
     }
     if (GrRecordingContext* curContext = as_SIB(this)->onGetContext()) {
-        return curContext->priv().matches(context) ? sk_sp<SkSpecialImage>(SkRef(this)) : nullptr;
+        return curContext->priv().matches(context) ? sk_ref_sp(this) : nullptr;
     }
 
     auto proxyProvider = context->priv().proxyProvider();
@@ -115,7 +118,7 @@ sk_sp<SkSpecialImage> SkSpecialImage::makeTextureImage(GrRecordingContext* conte
         return nullptr;
     }
 
-    const SkIRect rect = SkIRect::MakeWH(proxy->width(), proxy->height());
+    const SkIRect rect = SkIRect::MakeSize(proxy->dimensions());
 
     // GrMakeCachedBitmapProxy has uploaded only the specified subset of 'bmp' so we need not
     // bother with SkBitmap::getSubset
@@ -123,6 +126,7 @@ sk_sp<SkSpecialImage> SkSpecialImage::makeTextureImage(GrRecordingContext* conte
                                                rect,
                                                this->uniqueID(),
                                                std::move(proxy),
+                                               SkColorTypeToGrColorType(bmp.colorType()),
                                                sk_ref_sp(this->getColorSpace()),
                                                &this->props(),
                                                this->alphaType());
@@ -157,25 +161,26 @@ sk_sp<GrTextureProxy> SkSpecialImage::asTextureProxyRef(GrRecordingContext* cont
 }
 #endif
 
-sk_sp<SkSpecialSurface> SkSpecialImage::makeSurface(const SkImageFilter::OutputProperties& outProps,
-                                                    const SkISize& size, SkAlphaType at,
-                                                    const SkSurfaceProps* props) const {
-    return as_SIB(this)->onMakeSurface(outProps, size, at, props);
+sk_sp<SkSpecialSurface> SkSpecialImage::makeSurface(
+        SkColorType colorType, const SkColorSpace* colorSpace, const SkISize& size,
+        SkAlphaType at, const SkSurfaceProps* props) const {
+    return as_SIB(this)->onMakeSurface(colorType, colorSpace, size, at, props);
 }
 
-sk_sp<SkSurface> SkSpecialImage::makeTightSurface(const SkImageFilter::OutputProperties& outProps,
-                                                  const SkISize& size, SkAlphaType at) const {
-    return as_SIB(this)->onMakeTightSurface(outProps, size, at);
+sk_sp<SkSurface> SkSpecialImage::makeTightSurface(
+        SkColorType colorType, const SkColorSpace* colorSpace, const SkISize& size,
+        SkAlphaType at) const {
+    return as_SIB(this)->onMakeTightSurface(colorType, colorSpace, size, at);
 }
 
 sk_sp<SkSpecialImage> SkSpecialImage::makeSubset(const SkIRect& subset) const {
-    SkIRect absolute = subset.makeOffset(this->subset().x(), this->subset().y());
+    SkIRect absolute = subset.makeOffset(this->subset().topLeft());
     return as_SIB(this)->onMakeSubset(absolute);
 }
 
 sk_sp<SkImage> SkSpecialImage::asImage(const SkIRect* subset) const {
     if (subset) {
-        SkIRect absolute = subset->makeOffset(this->subset().x(), this->subset().y());
+        SkIRect absolute = subset->makeOffset(this->subset().topLeft());
         return as_SIB(this)->onAsImage(&absolute);
     } else {
         return as_SIB(this)->onAsImage(nullptr);
@@ -209,6 +214,7 @@ sk_sp<SkSpecialImage> SkSpecialImage::MakeFromImage(GrRecordingContext* context,
         }
 
         return MakeDeferredFromGpu(context, subset, image->uniqueID(), std::move(proxy),
+                                   SkColorTypeToGrColorType(image->colorType()),
                                    image->refColorSpace(), props);
     } else
 #endif
@@ -234,6 +240,8 @@ public:
     }
 
     SkAlphaType alphaType() const override { return fBitmap.alphaType(); }
+
+    SkColorType colorType() const override { return fBitmap.colorType(); }
 
     size_t getSize() const override { return fBitmap.computeByteSize(); }
 
@@ -263,13 +271,12 @@ public:
     }
 #endif
 
-    sk_sp<SkSpecialSurface> onMakeSurface(const SkImageFilter::OutputProperties& outProps,
+    sk_sp<SkSpecialSurface> onMakeSurface(SkColorType colorType, const SkColorSpace* colorSpace,
                                           const SkISize& size, SkAlphaType at,
                                           const SkSurfaceProps* props) const override {
-        SkColorSpace* colorSpace = outProps.colorSpace();
-        SkColorType colorType = kN32_SkColorType;   // TODO: find ways to allow f16
-        SkImageInfo info = SkImageInfo::Make(size.width(), size.height(), colorType, at,
-                                             sk_ref_sp(colorSpace));
+        // Ignore the requested color type, the raster backend currently only supports N32
+        colorType = kN32_SkColorType;   // TODO: find ways to allow f16
+        SkImageInfo info = SkImageInfo::Make(size, colorType, at, sk_ref_sp(colorSpace));
         return SkSpecialSurface::MakeRaster(info, props);
     }
 
@@ -292,12 +299,11 @@ public:
         return SkImage::MakeFromBitmap(fBitmap);
     }
 
-    sk_sp<SkSurface> onMakeTightSurface(const SkImageFilter::OutputProperties& outProps,
+sk_sp<SkSurface> onMakeTightSurface(SkColorType colorType, const SkColorSpace* colorSpace,
                                         const SkISize& size, SkAlphaType at) const override {
-        SkColorSpace* colorSpace = outProps.colorSpace();
-        SkColorType colorType = kN32_SkColorType;   // TODO: find ways to allow f16
-        SkImageInfo info = SkImageInfo::Make(size.width(), size.height(), colorType, at,
-                                             sk_ref_sp(colorSpace));
+        // Ignore the requested color type, the raster backend currently only supports N32
+        colorType = kN32_SkColorType;   // TODO: find ways to allow f16
+        SkImageInfo info = SkImageInfo::Make(size, colorType, at, sk_ref_sp(colorSpace));
         return SkSurface::MakeRaster(info);
     }
 
@@ -340,7 +346,7 @@ sk_sp<SkSpecialImage> SkSpecialImage::CopyFromRaster(const SkIRect& subset,
     }
 
     SkBitmap tmp;
-    SkImageInfo info = bm.info().makeWH(subset.width(), subset.height());
+    SkImageInfo info = bm.info().makeDimensions(subset.size());
     // As in MakeFromRaster, must force src to N32 for ImageFilters
     if (!valid_for_imagefilters(bm.info())) {
         info = info.makeColorType(kN32_SkColorType);
@@ -372,11 +378,12 @@ static sk_sp<SkImage> wrap_proxy_in_image(GrRecordingContext* context, sk_sp<GrT
 class SkSpecialImage_Gpu : public SkSpecialImage_Base {
 public:
     SkSpecialImage_Gpu(GrRecordingContext* context, const SkIRect& subset,
-                       uint32_t uniqueID, sk_sp<GrTextureProxy> proxy, SkAlphaType at,
-                       sk_sp<SkColorSpace> colorSpace, const SkSurfaceProps* props)
+                       uint32_t uniqueID, sk_sp<GrTextureProxy> proxy, GrColorType ct,
+                       SkAlphaType at, sk_sp<SkColorSpace> colorSpace, const SkSurfaceProps* props)
         : INHERITED(subset, uniqueID, props)
         , fContext(context)
         , fTextureProxy(std::move(proxy))
+        , fColorType(ct)
         , fAlphaType(at)
         , fColorSpace(std::move(colorSpace))
         , fAddedRasterVersionToCache(false) {
@@ -390,7 +397,11 @@ public:
 
     SkAlphaType alphaType() const override { return fAlphaType; }
 
-    size_t getSize() const override { return fTextureProxy->gpuMemorySize(); }
+    SkColorType colorType() const override { return GrColorTypeToSkColorType(fColorType); }
+
+    size_t getSize() const override {
+        return fTextureProxy->gpuMemorySize(*fContext->priv().caps());
+    }
 
     void onDraw(SkCanvas* canvas, SkScalar x, SkScalar y, const SkPaint* paint) const override {
         SkRect dst = SkRect::MakeXYWH(x, y,
@@ -432,9 +443,8 @@ public:
         if (!rec) {
             return false;
         }
-        sk_sp<GrSurfaceContext> sContext = fContext->priv().makeWrappedSurfaceContext(
-                fTextureProxy, SkColorTypeToGrColorType(info.colorType()), this->alphaType(),
-                fColorSpace);
+        auto sContext = fContext->priv().makeWrappedSurfaceContext(fTextureProxy, fColorType,
+                                                                   this->alphaType(), fColorSpace);
         if (!sContext) {
             return false;
         }
@@ -453,7 +463,7 @@ public:
         return fColorSpace.get();
     }
 
-    sk_sp<SkSpecialSurface> onMakeSurface(const SkImageFilter::OutputProperties& outProps,
+    sk_sp<SkSpecialSurface> onMakeSurface(SkColorType colorType, const SkColorSpace* colorSpace,
                                           const SkISize& size, SkAlphaType at,
                                           const SkSurfaceProps* props) const override {
         if (!fContext) {
@@ -461,8 +471,8 @@ public:
         }
 
         return SkSpecialSurface::MakeRenderTarget(fContext, size.width(), size.height(),
-                                                  SkColorTypeToGrColorType(outProps.colorType()),
-                                                  sk_ref_sp(outProps.colorSpace()), props);
+                                                  SkColorTypeToGrColorType(colorType),
+                                                  sk_ref_sp(colorSpace), props);
     }
 
     sk_sp<SkSpecialImage> onMakeSubset(const SkIRect& subset) const override {
@@ -470,6 +480,7 @@ public:
                                                    subset,
                                                    this->uniqueID(),
                                                    fTextureProxy,
+                                                   fColorType,
                                                    fColorSpace,
                                                    &this->props(),
                                                    fAlphaType);
@@ -481,10 +492,8 @@ public:
             // TODO: if this becomes a bottle neck we could base this logic on what the size
             // will be when it is finally instantiated - but that is more fraught.
             if (GrProxyProvider::IsFunctionallyExact(fTextureProxy.get()) &&
-                0 == subset->fLeft && 0 == subset->fTop &&
-                fTextureProxy->width() == subset->width() &&
-                fTextureProxy->height() == subset->height()) {
-                fTextureProxy->priv().exactify();
+                *subset == SkIRect::MakeSize(fTextureProxy->dimensions())) {
+                fTextureProxy->priv().exactify(false);
                 // The existing GrTexture is already tight so reuse it in the SkImage
                 return wrap_proxy_in_image(fContext, fTextureProxy, fAlphaType, fColorSpace);
             }
@@ -502,18 +511,19 @@ public:
             return wrap_proxy_in_image(fContext, std::move(subsetProxy), fAlphaType, fColorSpace);
         }
 
-        fTextureProxy->priv().exactify();
+        fTextureProxy->priv().exactify(true);
 
         return wrap_proxy_in_image(fContext, fTextureProxy, fAlphaType, fColorSpace);
     }
 
-    sk_sp<SkSurface> onMakeTightSurface(const SkImageFilter::OutputProperties& outProps,
+    sk_sp<SkSurface> onMakeTightSurface(SkColorType colorType, const SkColorSpace* colorSpace,
                                         const SkISize& size, SkAlphaType at) const override {
-        SkColorSpace* colorSpace = outProps.colorSpace();
-        SkColorType colorType = colorSpace && colorSpace->gammaIsLinear()
+        // TODO (michaelludwig): Why does this ignore colorType but onMakeSurface doesn't ignore it?
+        //    Once makeTightSurface() goes away, should this type overriding behavior be moved into
+        //    onMakeSurface() or is this unnecessary?
+        colorType = colorSpace && colorSpace->gammaIsLinear()
             ? kRGBA_F16_SkColorType : kRGBA_8888_SkColorType;
-        SkImageInfo info = SkImageInfo::Make(size.width(), size.height(), colorType, at,
-                                             sk_ref_sp(colorSpace));
+        SkImageInfo info = SkImageInfo::Make(size, colorType, at, sk_ref_sp(colorSpace));
         // CONTEXT TODO: remove this use of 'backdoor' to create an SkSurface
         return SkSurface::MakeRenderTarget(fContext->priv().backdoor(), SkBudgeted::kYes, info);
     }
@@ -521,6 +531,7 @@ public:
 private:
     GrRecordingContext*       fContext;
     sk_sp<GrTextureProxy>     fTextureProxy;
+    const GrColorType         fColorType;
     const SkAlphaType         fAlphaType;
     sk_sp<SkColorSpace>       fColorSpace;
     mutable std::atomic<bool> fAddedRasterVersionToCache;
@@ -532,6 +543,7 @@ sk_sp<SkSpecialImage> SkSpecialImage::MakeDeferredFromGpu(GrRecordingContext* co
                                                           const SkIRect& subset,
                                                           uint32_t uniqueID,
                                                           sk_sp<GrTextureProxy> proxy,
+                                                          GrColorType colorType,
                                                           sk_sp<SkColorSpace> colorSpace,
                                                           const SkSurfaceProps* props,
                                                           SkAlphaType at) {
@@ -539,7 +551,7 @@ sk_sp<SkSpecialImage> SkSpecialImage::MakeDeferredFromGpu(GrRecordingContext* co
         return nullptr;
     }
     SkASSERT_RELEASE(rect_fits(subset, proxy->width(), proxy->height()));
-    return sk_make_sp<SkSpecialImage_Gpu>(context, subset, uniqueID, std::move(proxy), at,
-                                          std::move(colorSpace), props);
+    return sk_make_sp<SkSpecialImage_Gpu>(context, subset, uniqueID, std::move(proxy), colorType,
+                                          at, std::move(colorSpace), props);
 }
 #endif

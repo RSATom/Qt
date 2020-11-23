@@ -51,10 +51,9 @@ std::set<int32_t> GetThrottledHashes() {
   // either downlink or uplink traffic and are expected to cause traffic
   // contention with the P2P traffic on slow connections.
   if (throttled_traffic_annotation_tags.empty()) {
-    // 6019475: safe_browsing_module_loader
-    // 82509217: safe_browsing_v4_update
     // 727528: metrics_report_uma
-    throttled_traffic_annotation_tags = "6019475,82509217,727528";
+    // 727478: metrics_report_uma
+    throttled_traffic_annotation_tags = "727528,727478";
   }
 
   const std::vector<std::string>& tokens =
@@ -343,6 +342,15 @@ bool ResourceSchedulerParamsManager::CanThrottleNetworkTrafficAnnotationHash(
   // cause the most traffic.
   return throttled_traffic_annotation_hashes_.find(unique_id_hash_code) !=
          throttled_traffic_annotation_hashes_.end();
+}
+
+base::TimeDelta ResourceSchedulerParamsManager::
+    TimeToPauseHeavyBrowserInitiatedRequestsAfterEndOfP2PConnections() {
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
+
+  return base::TimeDelta::FromSeconds(base::GetFieldTrialParamByFeatureAsInt(
+      features::kPauseBrowserInitiatedHeavyTrafficForP2P,
+      "seconds_to_pause_requests_after_end_of_p2p_connections", 60));
 }
 
 }  // namespace network

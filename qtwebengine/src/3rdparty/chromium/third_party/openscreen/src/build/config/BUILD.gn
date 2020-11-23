@@ -8,6 +8,9 @@ declare_args() {
 
   # Enable address sanitizer.
   is_asan = false
+
+  # Enable thread sanitizer.
+  is_tsan = false
 }
 
 config("compiler_defaults") {
@@ -71,6 +74,12 @@ config("openscreen_code") {
 
   if (is_gcc) {
     cflags += [ "-Wno-maybe-uninitialized" ]
+    cflags_cc += [
+      # GCC 7.2 reports noexcept errors that are not found in GCC 8.
+      # TODO(crbug.com/openscreen/40): Remove this when bots are upgraded to
+      # >= GCC 8.3.
+      "-Wno-noexcept-type",
+    ]
   }
 
   if (is_clang) {
@@ -109,6 +118,10 @@ config("openscreen_code") {
   defines = []
   if (dcheck_always_on) {
     defines += [ "DCHECK_ALWAYS_ON" ]
+  } else if (!is_debug) {
+    # C-style assertions in the standard library should match the behavior of
+    # OSP_DCHECKs. Thus, turn them off whenever OSP_DCHECKs would be turned off.
+    defines += [ "NDEBUG" ]
   }
 }
 
@@ -140,10 +153,17 @@ config("symbol_visibility_default") {
 }
 
 config("default_sanitizers") {
+  # NOTE: This is not an artificial restriction; clang doesn't allow these to be
+  # used together.
+  assert(!is_asan || !is_tsan)
+
   cflags = []
   ldflags = []
   if (is_asan) {
     cflags += [ "-fsanitize=address" ]
     ldflags += [ "-fsanitize=address" ]
+  } else if (is_tsan) {
+    cflags += [ "-fsanitize=thread" ]
+    ldflags += [ "-fsanitize=thread" ]
   }
 }

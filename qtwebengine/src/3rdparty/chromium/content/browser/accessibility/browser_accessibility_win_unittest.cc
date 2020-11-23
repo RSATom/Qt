@@ -13,7 +13,7 @@
 
 #include "base/macros.h"
 #include "base/strings/utf_string_conversions.h"
-#include "base/test/scoped_task_environment.h"
+#include "base/test/task_environment.h"
 #include "base/win/scoped_bstr.h"
 #include "base/win/scoped_variant.h"
 #include "content/browser/accessibility/browser_accessibility_manager.h"
@@ -22,7 +22,7 @@
 #include "content/browser/accessibility/test_browser_accessibility_delegate.h"
 #include "content/browser/renderer_host/legacy_render_widget_host_win.h"
 #include "content/common/accessibility_messages.h"
-#include "content/public/test/test_browser_thread_bundle.h"
+#include "content/public/test/browser_task_environment.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "ui/accessibility/accessibility_switches.h"
 #include "ui/accessibility/platform/ax_platform_node_win.h"
@@ -44,7 +44,7 @@ class BrowserAccessibilityWinTest : public testing::Test {
  private:
   void SetUp() override;
 
-  content::TestBrowserThreadBundle thread_bundle_;
+  content::BrowserTaskEnvironment task_environment_;
 
   DISALLOW_COPY_AND_ASSIGN(BrowserAccessibilityWinTest);
 };
@@ -609,9 +609,9 @@ TEST_F(BrowserAccessibilityWinTest, TestComplexHypertext) {
   // Get the text of the button.
   EXPECT_EQ(S_OK, root_obj->get_hyperlink(2, hyperlink.GetAddressOf()));
   EXPECT_EQ(S_OK, hyperlink.CopyTo(hypertext.GetAddressOf()));
-  EXPECT_EQ(S_OK,
+  EXPECT_EQ(S_FALSE,
             hypertext->get_text(0, IA2_TEXT_OFFSET_LENGTH, text.Receive()));
-  EXPECT_STREQ(button_text_name.c_str(), text);
+  EXPECT_EQ(nullptr, text);
   text.Reset();
   hyperlink.Reset();
   hypertext.Reset();
@@ -2290,13 +2290,6 @@ TEST_F(BrowserAccessibilityWinTest, TestInheritedStringAttributes) {
                          ax::mojom::StringAttribute::kFontFamily));
   EXPECT_EQ("Arial", child2_child2_accessible->GetInheritedStringAttribute(
                          ax::mojom::StringAttribute::kFontFamily));
-}
-
-TEST_F(BrowserAccessibilityWinTest, TestSanitizeStringAttributeForIA2) {
-  base::string16 input(L"\\:=,;");
-  base::string16 output;
-  BrowserAccessibilityComWin::SanitizeStringAttributeForIA2(input, &output);
-  EXPECT_EQ(L"\\\\\\:\\=\\,\\;", output);
 }
 
 TEST_F(BrowserAccessibilityWinTest, UniqueIdWinInvalidAfterDeletingTree) {

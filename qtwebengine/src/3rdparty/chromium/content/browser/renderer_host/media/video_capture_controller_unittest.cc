@@ -28,7 +28,7 @@
 #include "content/browser/renderer_host/media/video_capture_manager.h"
 #include "content/public/browser/browser_task_traits.h"
 #include "content/public/browser/browser_thread.h"
-#include "content/public/test/test_browser_thread_bundle.h"
+#include "content/public/test/browser_task_environment.h"
 #include "media/base/video_frame_metadata.h"
 #include "media/base/video_util.h"
 #include "media/capture/video/video_capture_buffer_pool_impl.h"
@@ -168,20 +168,20 @@ class VideoCaptureControllerTest
   void InitializeNewDeviceClientAndBufferPoolInstances() {
     buffer_pool_ = new media::VideoCaptureBufferPoolImpl(
         std::make_unique<media::VideoCaptureBufferTrackerFactoryImpl>(),
-        kPoolSize);
+        media::VideoCaptureBufferType::kSharedMemory, kPoolSize);
 #if defined(OS_CHROMEOS)
     device_client_.reset(new media::VideoCaptureDeviceClient(
         media::VideoCaptureBufferType::kSharedMemory,
         std::make_unique<media::VideoFrameReceiverOnTaskRunner>(
             controller_->GetWeakPtrForIOThread(),
-            base::CreateSingleThreadTaskRunnerWithTraits({BrowserThread::IO})),
+            base::CreateSingleThreadTaskRunner({BrowserThread::IO})),
         buffer_pool_, media::VideoCaptureJpegDecoderFactoryCB()));
 #else
     device_client_.reset(new media::VideoCaptureDeviceClient(
         media::VideoCaptureBufferType::kSharedMemory,
         std::make_unique<media::VideoFrameReceiverOnTaskRunner>(
             controller_->GetWeakPtrForIOThread(),
-            base::CreateSingleThreadTaskRunnerWithTraits({BrowserThread::IO})),
+            base::CreateSingleThreadTaskRunner({BrowserThread::IO})),
         buffer_pool_));
 #endif  // defined(OS_CHROMEOS)
   }
@@ -202,7 +202,7 @@ class VideoCaptureControllerTest
         base::TimeDelta(), frame_feedback_id);
   }
 
-  TestBrowserThreadBundle bundle_;
+  BrowserTaskEnvironment task_environment_;
   scoped_refptr<media::VideoCaptureBufferPool> buffer_pool_;
   std::unique_ptr<MockVideoCaptureControllerEventHandler> client_a_;
   std::unique_ptr<MockVideoCaptureControllerEventHandler> client_b_;
@@ -551,7 +551,7 @@ TEST_P(VideoCaptureControllerTest, NormalCaptureMultipleClients) {
   Mock::VerifyAndClearExpectations(client_b_.get());
 }
 
-INSTANTIATE_TEST_SUITE_P(,
+INSTANTIATE_TEST_SUITE_P(All,
                          VideoCaptureControllerTest,
                          ::testing::Values(media::PIXEL_FORMAT_I420,
                                            media::PIXEL_FORMAT_Y16));

@@ -17,12 +17,14 @@
 #include "base/optional.h"
 #include "base/time/time.h"
 #include "base/timer/timer.h"
+#include "pdf/document_layout.h"
 #include "pdf/document_loader.h"
 #include "pdf/pdf_engine.h"
 #include "pdf/pdfium/pdfium_form_filler.h"
 #include "pdf/pdfium/pdfium_page.h"
 #include "pdf/pdfium/pdfium_print.h"
 #include "pdf/pdfium/pdfium_range.h"
+#include "ppapi/c/private/ppp_pdf.h"
 #include "ppapi/cpp/completion_callback.h"
 #include "ppapi/cpp/dev/buffer_dev.h"
 #include "ppapi/cpp/image_data.h"
@@ -38,6 +40,7 @@
 namespace chrome_pdf {
 
 class PDFiumDocument;
+class PDFiumPermissions;
 
 namespace draw_utils {
 class ShadowMatrix;
@@ -84,6 +87,7 @@ class PDFiumEngine : public PDFEngine,
   void ZoomUpdated(double new_zoom_level) override;
   void RotateClockwise() override;
   void RotateCounterclockwise() override;
+  pp::Size ApplyDocumentLayout(const DocumentLayout::Options& options) override;
   std::string GetSelectedText() override;
   bool CanEditText() override;
   bool HasEditableText() override;
@@ -92,6 +96,8 @@ class PDFiumEngine : public PDFEngine,
   bool CanRedo() override;
   void Undo() override;
   void Redo() override;
+  void HandleAccessibilityAction(
+      const PP_PdfAccessibilityActionData& action_data) override;
   std::string GetLinkAtPosition(const pp::Point& point) override;
   bool HasPermission(DocumentPermission permission) const override;
   void SelectAll() override;
@@ -100,7 +106,6 @@ class PDFiumEngine : public PDFEngine,
   base::Optional<PDFEngine::NamedDestination> GetNamedDestination(
       const std::string& destination) override;
   int GetMostVisiblePage() override;
-  pp::Rect GetPageRect(int index) override;
   pp::Rect GetPageBoundsRect(int index) override;
   pp::Rect GetPageContentsRect(int index) override;
   pp::Rect GetPageScreenRect(int page_index) const override;
@@ -109,16 +114,18 @@ class PDFiumEngine : public PDFEngine,
   int GetCharCount(int page_index) override;
   pp::FloatRect GetCharBounds(int page_index, int char_index) override;
   uint32_t GetCharUnicode(int page_index, int char_index) override;
-  void GetTextRunInfo(int page_index,
-                      int start_char_index,
-                      uint32_t* out_len,
-                      double* out_font_size,
-                      pp::FloatRect* out_bounds) override;
+  base::Optional<pp::PDF::PrivateAccessibilityTextRunInfo> GetTextRunInfo(
+      int page_index,
+      int start_char_index) override;
+  std::vector<AccessibilityLinkInfo> GetLinkInfo(int page_index) override;
+  std::vector<AccessibilityImageInfo> GetImageInfo(int page_index) override;
+  std::vector<AccessibilityHighlightInfo> GetHighlightInfo(
+      int page_index) override;
   bool GetPrintScaling() override;
   int GetCopiesToPrint() override;
   int GetDuplexType() override;
   bool GetPageSizeAndUniformity(pp::Size* size) override;
-  void AppendBlankPages(int num_pages) override;
+  void AppendBlankPages(size_t num_pages) override;
   void AppendPage(PDFEngine* engine, int index) override;
   std::string GetMetadata(const std::string& key) override;
   std::vector<uint8_t> GetSaveData() override;
@@ -231,15 +238,29 @@ class PDFiumEngine : public PDFEngine,
   // If this has been run once, it will not notify the client again.
   void FinishLoadingDocument();
 
-  // Appends a PDFiumPage with |page_rect| to |pages_| or sets existing
-  // PDFiumPage for |page_index| to |page_rect|. |page_index| is 0-based.
-  void AppendPageRectToPages(const pp::Rect& page_rect,
-                             size_t page_index,
-                             bool reload);
+  // Loads information about the pages in the document and performs layout.
+  void LoadPageInfo();
 
-  // Loads information about the pages in the document and calculate the
-  // document size.
-  void LoadPageInfo(bool reload);
+  // Refreshes the document layout using the current pages and layout options.
+  void RefreshCurrentDocumentLayout();
+
+  // Proposes the next document layout using the current pages and
+  // |desired_layout_options_|.
+  void ProposeNextDocumentLayout();
+
+  // Updates |layout| using the current page sizes.
+  void UpdateDocumentLayout(DocumentLayout* layout);
+
+  // Loads information about the pages in the document, calculating and
+  // returning the individual page sizes.
+  //
+  // Note that the page rects of any new pages will be left uninitialized, so
+  // layout must be performed immediately after calling this method.
+  //
+  // TODO(kmoon): LoadPageSizes() is a bit misnomer, but LoadPageInfo() is
+  // taken right now...
+  std::vector<pp::Size> LoadPageSizes(
+      const DocumentLayout::Options& layout_options);
 
   void LoadBody();
 
@@ -267,6 +288,8 @@ class PDFiumEngine : public PDFEngine,
   // Helper function to get a given page's size in pixels.  This is not part of
   // PDFiumPage because we might not have that structure when we need this.
   pp::Size GetPageSize(int index);
+  pp::Size GetPageSizeForLayout(int index,
+                                const DocumentLayout::Options& layout_options);
 
   // Helper function for getting the inset sizes for the current layout. If
   // |two_up_view_| is true, the configuration of inset sizes depends on
@@ -508,14 +531,30 @@ class PDFiumEngine : public PDFEngine,
   pp::VarDictionary TraverseBookmarks(FPDF_BOOKMARK bookmark,
                                       unsigned int depth);
 
+  void ScrollBasedOnScrollAlignment(
+      const pp::Rect& scroll_rect,
+      const PP_PdfAccessibilityScrollAlignment& horizontal_scroll_alignment,
+      const PP_PdfAccessibilityScrollAlignment& vertical_scroll_alignment);
+
   // Set if the document has any local edits.
   void SetEditMode(bool edit_mode);
+
+  // Navigates to a link destination depending on the type of destination.
+  // Returns false if |area| is not a link.
+  bool NavigateToLinkDestination(PDFiumPage::Area area,
+                                 const PDFiumPage::LinkTarget& target,
+                                 WindowOpenDisposition disposition);
 
   // IFSDK_PAUSE callbacks
   static FPDF_BOOL Pause_NeedToPauseNow(IFSDK_PAUSE* param);
 
   PDFEngine::Client* const client_;
-  pp::Size document_size_;  // Size of document in pixels.
+
+  // The current document layout.
+  DocumentLayout layout_;
+
+  // The options for the desired document layout.
+  DocumentLayout::Options desired_layout_options_;
 
   // The scroll position in screen coordinates.
   pp::Point position_;
@@ -524,7 +563,6 @@ class PDFiumEngine : public PDFEngine,
   // The plugin size in screen coordinates.
   pp::Size plugin_size_;
   double current_zoom_ = 1.0;
-  unsigned int current_rotation_ = 0;
 
   std::unique_ptr<DocumentLoader> doc_loader_;  // Main document's loader.
   std::string url_;
@@ -542,6 +580,7 @@ class PDFiumEngine : public PDFEngine,
   PDFiumFormFiller form_filler_;
 
   std::unique_ptr<PDFiumDocument> document_;
+  bool document_loaded_ = false;
 
   // The page(s) of the document.
   std::vector<std::unique_ptr<PDFiumPage>> pages_;
@@ -553,7 +592,7 @@ class PDFiumEngine : public PDFEngine,
   std::vector<int> pending_pages_;
 
   // True if loading pages in two-up view layout. False if loading pages in
-  // single view layout.
+  // single view layout. Has to be in sync with |twoUpView_| in ViewportImpl.
   bool two_up_view_ = false;
 
   // During handling of input events we don't want to unload any pages in
@@ -606,11 +645,7 @@ class PDFiumEngine : public PDFEngine,
   // Where to resume searching. (0-based)
   base::Optional<size_t> resume_find_index_;
 
-  // Permissions bitfield.
-  unsigned long permissions_ = 0;
-
-  // Permissions security handler revision number. -1 for unknown.
-  int permissions_handler_revision_ = -1;
+  std::unique_ptr<PDFiumPermissions> permissions_;
 
   pp::Size default_page_size_;
 

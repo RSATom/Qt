@@ -11,8 +11,8 @@
 
 #include "base/bind.h"
 #include "base/files/scoped_file.h"
-#include "base/message_loop/message_loop.h"
 #include "base/stl_util.h"
+#include "base/test/task_environment.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "ui/events/event.h"
 #include "ui/events/keycodes/dom/dom_code.h"
@@ -22,7 +22,7 @@
 #include "ui/events/ozone/evdev/event_factory_evdev.h"
 #include "ui/events/ozone/evdev/keyboard_evdev.h"
 #include "ui/events/ozone/evdev/testing/fake_cursor_delegate_evdev.h"
-#include "ui/events/ozone/layout/keyboard_layout_engine_manager.h"
+#include "ui/events/ozone/layout/stub/stub_keyboard_layout_engine.h"
 #include "ui/events/test/scoped_event_test_tick_clock.h"
 
 namespace ui {
@@ -68,20 +68,20 @@ class EventConverterEvdevImplTest : public testing::Test {
     base::ScopedFD events_in(evdev_io[0]);
     events_out_.reset(evdev_io[1]);
 
-    cursor_.reset(new ui::FakeCursorDelegateEvdev());
+    cursor_ = std::make_unique<ui::FakeCursorDelegateEvdev>();
 
+    keyboard_layout_engine_ = std::make_unique<ui::StubKeyboardLayoutEngine>();
     device_manager_ = ui::CreateDeviceManagerForTest();
     event_factory_ = ui::CreateEventFactoryEvdevForTest(
-        cursor_.get(), device_manager_.get(),
-        ui::KeyboardLayoutEngineManager::GetKeyboardLayoutEngine(),
+        cursor_.get(), device_manager_.get(), keyboard_layout_engine_.get(),
         base::BindRepeating(&EventConverterEvdevImplTest::DispatchEventForTest,
                             base::Unretained(this)));
     dispatcher_ =
         ui::CreateDeviceEventDispatcherEvdevForTest(event_factory_.get());
-    device_.reset(new ui::MockEventConverterEvdevImpl(
-        std::move(events_in), cursor_.get(), dispatcher_.get()));
+    device_ = std::make_unique<ui::MockEventConverterEvdevImpl>(
+        std::move(events_in), cursor_.get(), dispatcher_.get());
 
-    test_clock_.reset(new ui::test::ScopedEventTestTickClock());
+    test_clock_ = std::make_unique<ui::test::ScopedEventTestTickClock>();
   }
 
   void TearDown() override {
@@ -128,8 +128,9 @@ class EventConverterEvdevImplTest : public testing::Test {
     dispatched_events_.push_back(std::move(cloned_event));
   }
 
-  base::MessageLoopForUI ui_loop_;
-
+  base::test::SingleThreadTaskEnvironment task_environment_{
+      base::test::SingleThreadTaskEnvironment::MainThreadType::UI};
+  std::unique_ptr<ui::KeyboardLayoutEngine> keyboard_layout_engine_;
   std::unique_ptr<ui::FakeCursorDelegateEvdev> cursor_;
   std::unique_ptr<ui::DeviceManager> device_manager_;
   std::unique_ptr<ui::EventFactoryEvdev> event_factory_;

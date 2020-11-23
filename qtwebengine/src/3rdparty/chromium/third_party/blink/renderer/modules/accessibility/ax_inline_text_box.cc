@@ -50,6 +50,17 @@ void AXInlineTextBox::Detach() {
   inline_text_box_ = nullptr;
 }
 
+bool AXInlineTextBox::IsLineBreakingObject() const {
+  if (IsDetached())
+    return AXObject::IsLineBreakingObject();
+
+  // If this object is a forced line break, or the parent is a <br>
+  // element, then this object is line breaking.
+  const AXObject* parent = ParentObject();
+  return inline_text_box_->IsLineBreak() ||
+         (parent && parent->RoleValue() == ax::mojom::Role::kLineBreak);
+}
+
 void AXInlineTextBox::GetRelativeBounds(AXObject** out_container,
                                         FloatRect& out_bounds_in_container,
                                         SkMatrix44& out_container_transform,
@@ -118,6 +129,13 @@ void AXInlineTextBox::GetWordBoundaries(Vector<int>& word_starts,
     word_starts.push_back(boundary.start_index);
     word_ends.push_back(boundary.end_index);
   }
+}
+
+unsigned AXInlineTextBox::TextOffsetInContainer(unsigned offset) const {
+  if (!inline_text_box_)
+    return 0;
+
+  return inline_text_box_->TextOffsetInContainer(offset);
 }
 
 String AXInlineTextBox::GetName(ax::mojom::NameFrom& name_from,

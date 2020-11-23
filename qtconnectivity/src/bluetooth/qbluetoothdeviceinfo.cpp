@@ -695,14 +695,14 @@ QByteArray QBluetoothDeviceInfo::manufacturerData(quint16 manufacturerId) const
 bool QBluetoothDeviceInfo::setManufacturerData(quint16 manufacturerId, const QByteArray &data)
 {
     Q_D(QBluetoothDeviceInfo);
-    QHash<quint16, QByteArray>::const_iterator it = d->manufacturerData.find(manufacturerId);
-    while (it != d->manufacturerData.end() && it.key() == manufacturerId) {
+    auto it = d->manufacturerData.constFind(manufacturerId);
+    while (it != d->manufacturerData.cend() && it.key() == manufacturerId) {
         if (*it == data)
             return false;
         it++;
     }
 
-    d->manufacturerData.insertMulti(manufacturerId, data);
+    d->manufacturerData.insert(manufacturerId, data);
     return true;
 }
 

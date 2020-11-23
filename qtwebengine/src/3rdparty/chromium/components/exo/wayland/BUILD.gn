@@ -19,6 +19,8 @@ source_set("wayland") {
   sources = [
     "scoped_wl.cc",
     "scoped_wl.h",
+    "serial_tracker.cc",
+    "serial_tracker.h",
     "server.cc",
     "server.h",
     "server_util.cc",
@@ -91,6 +93,8 @@ source_set("wayland") {
       "zcr_stylus_tools.h",
       "zwp_input_timestamps_manager.cc",
       "zwp_input_timestamps_manager.h",
+      "zwp_pointer_constraints.cc",
+      "zwp_pointer_constraints.h",
       "zwp_pointer_gestures.cc",
       "zwp_pointer_gestures.h",
       "zwp_relative_pointer_manager.cc",
@@ -107,8 +111,8 @@ source_set("wayland") {
     "//components/exo",
     "//components/exo/wayland/protocol:aura_shell_protocol",
     "//device/gamepad",
-    "//services/viz/privileged/interfaces/compositing",
-    "//services/viz/public/interfaces",
+    "//services/viz/privileged/mojom/compositing",
+    "//services/viz/public/mojom",
     "//skia",
     "//third_party/libsync",
     "//third_party/wayland:wayland_server",
@@ -120,6 +124,7 @@ source_set("wayland") {
     "//third_party/wayland-protocols:keyboard_extension_protocol",
     "//third_party/wayland-protocols:linux_explicit_synchronization_protocol",
     "//third_party/wayland-protocols:notification_shell_protocol",
+    "//third_party/wayland-protocols:pointer_constraints_protocol",
     "//third_party/wayland-protocols:pointer_gestures_protocol",
     "//third_party/wayland-protocols:presentation_time_protocol",
     "//third_party/wayland-protocols:relative_pointer_protocol",
@@ -156,7 +161,7 @@ source_set("wayland") {
     if (is_chromeos) {
       deps += [
         "//ash/public/cpp",
-        "//ui/events/ozone:events_ozone_layout",
+        "//ui/events/ozone/layout",
       ]
     }
   }

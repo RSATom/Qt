@@ -29,6 +29,7 @@
 
 #include <stdint.h>
 
+#include <memory>
 #include <string>
 #include <vector>
 
@@ -46,15 +47,9 @@
 #include "content/common/content_export.h"
 #include "net/base/net_errors.h"
 #include "services/network/public/cpp/shared_url_loader_factory.h"
-#include "storage/browser/blob/blob_data_handle.h"
 #include "url/origin.h"
 
 class GURL;
-
-namespace download {
-struct DownloadCreateInfo;
-class DownloadURLLoaderFactoryGetter;
-}  // namespace download
 
 namespace content {
 
@@ -114,37 +109,22 @@ class CONTENT_EXPORT DownloadManager : public base::SupportsUserData::Data,
     virtual ~Observer() {}
   };
 
-  // Called by a download source (Currently DownloadResourceHandler)
-  // to initiate the non-source portions of a download.
-  // If the DownloadCreateInfo specifies an id, that id will be used.
-  // If |url_loader_factory_getter| is provided, it can be used to issue
-  // parallel download requests.
-  virtual void StartDownload(
-      std::unique_ptr<download::DownloadCreateInfo> info,
-      std::unique_ptr<download::InputStream> stream,
-      scoped_refptr<download::DownloadURLLoaderFactoryGetter>
-          url_loader_factory_getter,
-      const download::DownloadUrlParameters::OnStartedCallback& on_started) = 0;
-
   // Remove downloads whose URLs match the |url_filter| and are within
   // the given time constraints - after remove_begin (inclusive) and before
   // remove_end (exclusive). You may pass in null Time values to do an unbounded
   // delete in either direction.
   virtual int RemoveDownloadsByURLAndTime(
-      const base::Callback<bool(const GURL&)>& url_filter,
+      const base::RepeatingCallback<bool(const GURL&)>& url_filter,
       base::Time remove_begin,
       base::Time remove_end) = 0;
 
   using SimpleDownloadManager::DownloadUrl;
-  // For downloads of blob URLs, the caller can pass a BlobDataHandle object so
-  // that the blob will remain valid until the download starts. The
-  // BlobDataHandle will be attached to the associated URLRequest.
-  // If |blob_data_handle| is unspecified, and the blob URL cannot be mapped to
-  // a blob by the time the download request starts, then the download will
-  // fail.
+  // For downloads of blob URLs, the caller can pass a URLLoaderFactory to
+  // use to load the Blob URL. If none is specified and the blob URL cannot be
+  // mapped to a blob by the time the download request starts, then the download
+  // will fail.
   virtual void DownloadUrl(
       std::unique_ptr<download::DownloadUrlParameters> parameters,
-      std::unique_ptr<storage::BlobDataHandle> blob_data_handle,
       scoped_refptr<network::SharedURLLoaderFactory>
           blob_url_loader_factory) = 0;
 

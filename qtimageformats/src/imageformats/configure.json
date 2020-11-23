@@ -155,7 +155,7 @@
         "webp": {
             "label": "WEBP",
             "disable": "input.webp == 'no'",
-            "condition": "features.imageformatplugin && !(config.winrt && arch.arm)",
+            "condition": "features.imageformatplugin",
             "output": [
                 "privateFeature"
             ]

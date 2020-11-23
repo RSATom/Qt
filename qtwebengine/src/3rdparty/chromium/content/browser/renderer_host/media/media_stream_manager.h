@@ -54,7 +54,7 @@
 #include "third_party/blink/public/common/mediastream/media_devices.h"
 #include "third_party/blink/public/common/mediastream/media_stream_controls.h"
 #include "third_party/blink/public/common/mediastream/media_stream_request.h"
-#include "third_party/blink/public/mojom/mediastream/media_stream.mojom-shared.h"
+#include "third_party/blink/public/mojom/mediastream/media_stream.mojom.h"
 
 namespace media {
 class AudioSystem;
@@ -176,16 +176,18 @@ class CONTENT_EXPORT MediaStreamManager
   // to determine where the infobar will appear to the user. |device_stopped_cb|
   // is set to receive device stopped notifications. |device_change_cb| is set
   // to receive device changed notifications.
-  void GenerateStream(int render_process_id,
-                      int render_frame_id,
-                      int requester_id,
-                      int page_request_id,
-                      const blink::StreamControls& controls,
-                      MediaDeviceSaltAndOrigin salt_and_origin,
-                      bool user_gesture,
-                      GenerateStreamCallback generate_stream_cb,
-                      DeviceStoppedCallback device_stopped_cb,
-                      DeviceChangedCallback device_changed_cb);
+  void GenerateStream(
+      int render_process_id,
+      int render_frame_id,
+      int requester_id,
+      int page_request_id,
+      const blink::StreamControls& controls,
+      MediaDeviceSaltAndOrigin salt_and_origin,
+      bool user_gesture,
+      blink::mojom::StreamSelectionInfoPtr audio_stream_selection_info_ptr,
+      GenerateStreamCallback generate_stream_cb,
+      DeviceStoppedCallback device_stopped_cb,
+      DeviceChangedCallback device_changed_cb);
 
   // Cancel an open request identified by |page_request_id| for the given frame.
   // Must be called on the IO thread.
@@ -264,7 +266,7 @@ class CONTENT_EXPORT MediaStreamManager
   // destroyed. So we need to know when IO thread is being destroyed so that
   // we can delete VideoCaptureManager and AudioInputDeviceManager.
   // Note: In tests it is sometimes necessary to invoke this explicitly when
-  // using TestBrowserThreadBundle because the notification happens too late.
+  // using BrowserTaskEnvironment because the notification happens too late.
   // (see http://crbug.com/247525#c14).
   void WillDestroyCurrentMessageLoop() override;
 
@@ -287,7 +289,7 @@ class CONTENT_EXPORT MediaStreamManager
   // Called on the IO thread.
   static void RegisterNativeLogCallback(
       int renderer_host_id,
-      const base::Callback<void(const std::string&)>& callback);
+      base::RepeatingCallback<void(const std::string&)> callback);
   static void UnregisterNativeLogCallback(int renderer_host_id);
 
   // Generates a hash of a device's unique ID usable by one
@@ -496,7 +498,7 @@ class CONTENT_EXPORT MediaStreamManager
   // Runs on the IO thread and does the actual [un]registration of callbacks.
   void DoNativeLogCallbackRegistration(
       int renderer_host_id,
-      const base::Callback<void(const std::string&)>& callback);
+      base::RepeatingCallback<void(const std::string&)> callback);
   void DoNativeLogCallbackUnregistration(int renderer_host_id);
 
   // Callback to handle the reply to a low-level enumeration request.
@@ -534,7 +536,8 @@ class CONTENT_EXPORT MediaStreamManager
       fake_ui_factory_;
 
   // Maps render process hosts to log callbacks. Used on the IO thread.
-  std::map<int, base::Callback<void(const std::string&)>> log_callbacks_;
+  std::map<int, base::RepeatingCallback<void(const std::string&)>>
+      log_callbacks_;
 
   std::unique_ptr<AudioServiceListener> audio_service_listener_;
 

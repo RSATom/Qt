@@ -161,7 +161,7 @@ QFontMetrics::QFontMetrics(const QFont &font)
     Constructs a font metrics object for \a font and \a paintdevice.
 
     The font metrics will be compatible with the paintdevice passed.
-    If the \a paintdevice is 0, the metrics will be screen-compatible,
+    If the \a paintdevice is \nullptr, the metrics will be screen-compatible,
     ie. the metrics you get if you use the font for drawing text on a
     \l{QWidget}{widgets} or \l{QPixmap}{pixmaps},
     not on a QPicture or QPrinter.
@@ -282,7 +282,7 @@ bool QFontMetrics::operator ==(const QFontMetrics &other) const
 int QFontMetrics::ascent() const
 {
     QFontEngine *engine = d->engineForScript(QChar::Script_Common);
-    Q_ASSERT(engine != 0);
+    Q_ASSERT(engine != nullptr);
     return qRound(engine->ascent());
 }
 
@@ -301,7 +301,7 @@ int QFontMetrics::ascent() const
 int QFontMetrics::capHeight() const
 {
     QFontEngine *engine = d->engineForScript(QChar::Script_Common);
-    Q_ASSERT(engine != 0);
+    Q_ASSERT(engine != nullptr);
     return qRound(engine->capHeight());
 }
 
@@ -318,7 +318,7 @@ int QFontMetrics::capHeight() const
 int QFontMetrics::descent() const
 {
     QFontEngine *engine = d->engineForScript(QChar::Script_Common);
-    Q_ASSERT(engine != 0);
+    Q_ASSERT(engine != nullptr);
     return qRound(engine->descent());
 }
 
@@ -332,7 +332,7 @@ int QFontMetrics::descent() const
 int QFontMetrics::height() const
 {
     QFontEngine *engine = d->engineForScript(QChar::Script_Common);
-    Q_ASSERT(engine != 0);
+    Q_ASSERT(engine != nullptr);
     return qRound(engine->ascent()) + qRound(engine->descent());
 }
 
@@ -346,7 +346,7 @@ int QFontMetrics::height() const
 int QFontMetrics::leading() const
 {
     QFontEngine *engine = d->engineForScript(QChar::Script_Common);
-    Q_ASSERT(engine != 0);
+    Q_ASSERT(engine != nullptr);
     return qRound(engine->leading());
 }
 
@@ -360,7 +360,7 @@ int QFontMetrics::leading() const
 int QFontMetrics::lineSpacing() const
 {
     QFontEngine *engine = d->engineForScript(QChar::Script_Common);
-    Q_ASSERT(engine != 0);
+    Q_ASSERT(engine != nullptr);
     return qRound(engine->leading()) + qRound(engine->ascent()) + qRound(engine->descent());
 }
 
@@ -377,7 +377,7 @@ int QFontMetrics::lineSpacing() const
 int QFontMetrics::minLeftBearing() const
 {
     QFontEngine *engine = d->engineForScript(QChar::Script_Common);
-    Q_ASSERT(engine != 0);
+    Q_ASSERT(engine != nullptr);
     return qRound(engine->minLeftBearing());
 }
 
@@ -394,7 +394,7 @@ int QFontMetrics::minLeftBearing() const
 int QFontMetrics::minRightBearing() const
 {
     QFontEngine *engine = d->engineForScript(QChar::Script_Common);
-    Q_ASSERT(engine != 0);
+    Q_ASSERT(engine != nullptr);
     return qRound(engine->minRightBearing());
 }
 
@@ -404,7 +404,7 @@ int QFontMetrics::minRightBearing() const
 int QFontMetrics::maxWidth() const
 {
     QFontEngine *engine = d->engineForScript(QChar::Script_Common);
-    Q_ASSERT(engine != 0);
+    Q_ASSERT(engine != nullptr);
     return qRound(engine->maxCharWidth());
 }
 
@@ -415,7 +415,7 @@ int QFontMetrics::maxWidth() const
 int QFontMetrics::xHeight() const
 {
     QFontEngine *engine = d->engineForScript(QChar::Script_Common);
-    Q_ASSERT(engine != 0);
+    Q_ASSERT(engine != nullptr);
     if (d->capital == QFont::SmallCaps)
         return qRound(d->smallCapsFontPrivate()->engineForScript(QChar::Script_Common)->ascent());
     return qRound(engine->xHeight());
@@ -429,7 +429,7 @@ int QFontMetrics::xHeight() const
 int QFontMetrics::averageCharWidth() const
 {
     QFontEngine *engine = d->engineForScript(QChar::Script_Common);
-    Q_ASSERT(engine != 0);
+    Q_ASSERT(engine != nullptr);
     return qRound(engine->averageCharWidth());
 }
 
@@ -450,7 +450,7 @@ bool QFontMetrics::inFontUcs4(uint ucs4) const
 {
     const int script = QChar::script(ucs4);
     QFontEngine *engine = d->engineForScript(script);
-    Q_ASSERT(engine != 0);
+    Q_ASSERT(engine != nullptr);
     if (engine->type() == QFontEngine::Box)
         return false;
     return engine->canRender(ucs4);
@@ -476,7 +476,7 @@ int QFontMetrics::leftBearing(QChar ch) const
         engine = d->smallCapsFontPrivate()->engineForScript(script);
     else
         engine = d->engineForScript(script);
-    Q_ASSERT(engine != 0);
+    Q_ASSERT(engine != nullptr);
     if (engine->type() == QFontEngine::Box)
         return 0;
 
@@ -509,7 +509,7 @@ int QFontMetrics::rightBearing(QChar ch) const
         engine = d->smallCapsFontPrivate()->engineForScript(script);
     else
         engine = d->engineForScript(script);
-    Q_ASSERT(engine != 0);
+    Q_ASSERT(engine != nullptr);
     if (engine->type() == QFontEngine::Box)
         return 0;
 
@@ -518,7 +518,7 @@ int QFontMetrics::rightBearing(QChar ch) const
     glyph_t glyph = engine->glyphIndex(ch.unicode());
 
     qreal rb;
-    engine->getGlyphBearings(glyph, 0, &rb);
+    engine->getGlyphBearings(glyph, nullptr, &rb);
     return qRound(rb);
 }
 
@@ -562,7 +562,7 @@ int QFontMetrics::width(const QString &text, int len, int flags) const
         int numGlyphs = len;
         QVarLengthGlyphLayoutArray glyphs(numGlyphs);
         QFontEngine *engine = d->engineForScript(QChar::Script_Common);
-        if (!engine->stringToCMap(text.data(), len, &glyphs, &numGlyphs, 0))
+        if (!engine->stringToCMap(text.data(), len, &glyphs, &numGlyphs, { }))
             Q_UNREACHABLE();
 
         QFixed width;
@@ -673,7 +673,7 @@ int QFontMetrics::horizontalAdvance(QChar ch) const
         engine = d->smallCapsFontPrivate()->engineForScript(script);
     else
         engine = d->engineForScript(script);
-    Q_ASSERT(engine != 0);
+    Q_ASSERT(engine != nullptr);
 
     d->alterCharForCapitalization(ch);
 
@@ -684,7 +684,7 @@ int QFontMetrics::horizontalAdvance(QChar ch) const
     glyphs.numGlyphs = 1;
     glyphs.glyphs = &glyph;
     glyphs.advances = &advance;
-    engine->recalcAdvances(&glyphs, 0);
+    engine->recalcAdvances(&glyphs, { });
 
     return qRound(advance);
 }
@@ -725,7 +725,7 @@ int QFontMetrics::charWidth(const QString &text, int pos) const
             engine = d->smallCapsFontPrivate()->engineForScript(script);
         else
             engine = d->engineForScript(script);
-        Q_ASSERT(engine != 0);
+        Q_ASSERT(engine != nullptr);
 
         d->alterCharForCapitalization(ch);
 
@@ -736,7 +736,7 @@ int QFontMetrics::charWidth(const QString &text, int pos) const
         glyphs.numGlyphs = 1;
         glyphs.glyphs = &glyph;
         glyphs.advances = &advance;
-        engine->recalcAdvances(&glyphs, 0);
+        engine->recalcAdvances(&glyphs, { });
 
         width = qRound(advance);
     }
@@ -802,7 +802,7 @@ QRect QFontMetrics::boundingRect(QChar ch) const
         engine = d->smallCapsFontPrivate()->engineForScript(script);
     else
         engine = d->engineForScript(script);
-    Q_ASSERT(engine != 0);
+    Q_ASSERT(engine != nullptr);
 
     d->alterCharForCapitalization(ch);
 
@@ -879,7 +879,7 @@ QRect QFontMetrics::boundingRect(const QRect &rect, int flags, const QString &te
     QRectF rb;
     QRectF rr(rect);
     qt_format_text(QFont(d.data()), rr, flags | Qt::TextDontPrint, text, &rb, tabStops, tabArray,
-                   tabArrayLen, 0);
+                   tabArrayLen, nullptr);
 
     return rb.toAlignedRect();
 }
@@ -997,7 +997,7 @@ QString QFontMetrics::elidedText(const QString &text, Qt::TextElideMode mode, in
 int QFontMetrics::underlinePos() const
 {
     QFontEngine *engine = d->engineForScript(QChar::Script_Common);
-    Q_ASSERT(engine != 0);
+    Q_ASSERT(engine != nullptr);
     return qRound(engine->underlinePosition());
 }
 
@@ -1033,7 +1033,7 @@ int QFontMetrics::strikeOutPos() const
 int QFontMetrics::lineWidth() const
 {
     QFontEngine *engine = d->engineForScript(QChar::Script_Common);
-    Q_ASSERT(engine != 0);
+    Q_ASSERT(engine != nullptr);
     return qRound(engine->lineThickness());
 }
 
@@ -1154,7 +1154,7 @@ QFontMetricsF::QFontMetricsF(const QFont &font)
     Constructs a font metrics object for \a font and \a paintdevice.
 
     The font metrics will be compatible with the paintdevice passed.
-    If the \a paintdevice is 0, the metrics will be screen-compatible,
+    If the \a paintdevice is \nullptr, the metrics will be screen-compatible,
     ie. the metrics you get if you use the font for drawing text on a
     \l{QWidget}{widgets} or \l{QPixmap}{pixmaps},
     not on a QPicture or QPrinter.
@@ -1251,7 +1251,7 @@ bool QFontMetricsF::operator ==(const QFontMetricsF &other) const
 qreal QFontMetricsF::ascent() const
 {
     QFontEngine *engine = d->engineForScript(QChar::Script_Common);
-    Q_ASSERT(engine != 0);
+    Q_ASSERT(engine != nullptr);
     return engine->ascent().toReal();
 }
 
@@ -1270,7 +1270,7 @@ qreal QFontMetricsF::ascent() const
 qreal QFontMetricsF::capHeight() const
 {
     QFontEngine *engine = d->engineForScript(QChar::Script_Common);
-    Q_ASSERT(engine != 0);
+    Q_ASSERT(engine != nullptr);
     return engine->capHeight().toReal();
 }
 
@@ -1288,7 +1288,7 @@ qreal QFontMetricsF::capHeight() const
 qreal QFontMetricsF::descent() const
 {
     QFontEngine *engine = d->engineForScript(QChar::Script_Common);
-    Q_ASSERT(engine != 0);
+    Q_ASSERT(engine != nullptr);
     return engine->descent().toReal();
 }
 
@@ -1302,7 +1302,7 @@ qreal QFontMetricsF::descent() const
 qreal QFontMetricsF::height() const
 {
     QFontEngine *engine = d->engineForScript(QChar::Script_Common);
-    Q_ASSERT(engine != 0);
+    Q_ASSERT(engine != nullptr);
 
     return (engine->ascent() + engine->descent()).toReal();
 }
@@ -1317,7 +1317,7 @@ qreal QFontMetricsF::height() const
 qreal QFontMetricsF::leading() const
 {
     QFontEngine *engine = d->engineForScript(QChar::Script_Common);
-    Q_ASSERT(engine != 0);
+    Q_ASSERT(engine != nullptr);
     return engine->leading().toReal();
 }
 
@@ -1331,7 +1331,7 @@ qreal QFontMetricsF::leading() const
 qreal QFontMetricsF::lineSpacing() const
 {
     QFontEngine *engine = d->engineForScript(QChar::Script_Common);
-    Q_ASSERT(engine != 0);
+    Q_ASSERT(engine != nullptr);
     return (engine->leading() + engine->ascent() + engine->descent()).toReal();
 }
 
@@ -1348,7 +1348,7 @@ qreal QFontMetricsF::lineSpacing() const
 qreal QFontMetricsF::minLeftBearing() const
 {
     QFontEngine *engine = d->engineForScript(QChar::Script_Common);
-    Q_ASSERT(engine != 0);
+    Q_ASSERT(engine != nullptr);
     return engine->minLeftBearing();
 }
 
@@ -1365,7 +1365,7 @@ qreal QFontMetricsF::minLeftBearing() const
 qreal QFontMetricsF::minRightBearing() const
 {
     QFontEngine *engine = d->engineForScript(QChar::Script_Common);
-    Q_ASSERT(engine != 0);
+    Q_ASSERT(engine != nullptr);
     return engine->minRightBearing();
 }
 
@@ -1375,7 +1375,7 @@ qreal QFontMetricsF::minRightBearing() const
 qreal QFontMetricsF::maxWidth() const
 {
     QFontEngine *engine = d->engineForScript(QChar::Script_Common);
-    Q_ASSERT(engine != 0);
+    Q_ASSERT(engine != nullptr);
     return engine->maxCharWidth();
 }
 
@@ -1386,7 +1386,7 @@ qreal QFontMetricsF::maxWidth() const
 qreal QFontMetricsF::xHeight() const
 {
     QFontEngine *engine = d->engineForScript(QChar::Script_Common);
-    Q_ASSERT(engine != 0);
+    Q_ASSERT(engine != nullptr);
     if (d->capital == QFont::SmallCaps)
         return d->smallCapsFontPrivate()->engineForScript(QChar::Script_Common)->ascent().toReal();
     return engine->xHeight().toReal();
@@ -1400,7 +1400,7 @@ qreal QFontMetricsF::xHeight() const
 qreal QFontMetricsF::averageCharWidth() const
 {
     QFontEngine *engine = d->engineForScript(QChar::Script_Common);
-    Q_ASSERT(engine != 0);
+    Q_ASSERT(engine != nullptr);
     return engine->averageCharWidth().toReal();
 }
 
@@ -1423,7 +1423,7 @@ bool QFontMetricsF::inFontUcs4(uint ucs4) const
 {
     const int script = QChar::script(ucs4);
     QFontEngine *engine = d->engineForScript(script);
-    Q_ASSERT(engine != 0);
+    Q_ASSERT(engine != nullptr);
     if (engine->type() == QFontEngine::Box)
         return false;
     return engine->canRender(ucs4);
@@ -1449,7 +1449,7 @@ qreal QFontMetricsF::leftBearing(QChar ch) const
         engine = d->smallCapsFontPrivate()->engineForScript(script);
     else
         engine = d->engineForScript(script);
-    Q_ASSERT(engine != 0);
+    Q_ASSERT(engine != nullptr);
     if (engine->type() == QFontEngine::Box)
         return 0;
 
@@ -1482,7 +1482,7 @@ qreal QFontMetricsF::rightBearing(QChar ch) const
         engine = d->smallCapsFontPrivate()->engineForScript(script);
     else
         engine = d->engineForScript(script);
-    Q_ASSERT(engine != 0);
+    Q_ASSERT(engine != nullptr);
     if (engine->type() == QFontEngine::Box)
         return 0;
 
@@ -1491,7 +1491,7 @@ qreal QFontMetricsF::rightBearing(QChar ch) const
     glyph_t glyph = engine->glyphIndex(ch.unicode());
 
     qreal rb;
-    engine->getGlyphBearings(glyph, 0, &rb);
+    engine->getGlyphBearings(glyph, nullptr, &rb);
     return rb;
 
 }
@@ -1611,7 +1611,7 @@ qreal QFontMetricsF::horizontalAdvance(QChar ch) const
         engine = d->smallCapsFontPrivate()->engineForScript(script);
     else
         engine = d->engineForScript(script);
-    Q_ASSERT(engine != 0);
+    Q_ASSERT(engine != nullptr);
 
     d->alterCharForCapitalization(ch);
 
@@ -1622,7 +1622,7 @@ qreal QFontMetricsF::horizontalAdvance(QChar ch) const
     glyphs.numGlyphs = 1;
     glyphs.glyphs = &glyph;
     glyphs.advances = &advance;
-    engine->recalcAdvances(&glyphs, 0);
+    engine->recalcAdvances(&glyphs, { });
 
     return advance.toReal();
 }
@@ -1682,7 +1682,7 @@ QRectF QFontMetricsF::boundingRect(QChar ch) const
         engine = d->smallCapsFontPrivate()->engineForScript(script);
     else
         engine = d->engineForScript(script);
-    Q_ASSERT(engine != 0);
+    Q_ASSERT(engine != nullptr);
 
     d->alterCharForCapitalization(ch);
 
@@ -1761,7 +1761,7 @@ QRectF QFontMetricsF::boundingRect(const QRectF &rect, int flags, const QString&
 
     QRectF rb;
     qt_format_text(QFont(d.data()), rect, flags | Qt::TextDontPrint, text, &rb, tabStops, tabArray,
-                   tabArrayLen, 0);
+                   tabArrayLen, nullptr);
     return rb;
 }
 
@@ -1881,7 +1881,7 @@ QString QFontMetricsF::elidedText(const QString &text, Qt::TextElideMode mode, q
 qreal QFontMetricsF::underlinePos() const
 {
     QFontEngine *engine = d->engineForScript(QChar::Script_Common);
-    Q_ASSERT(engine != 0);
+    Q_ASSERT(engine != nullptr);
     return engine->underlinePosition().toReal();
 }
 
@@ -1916,7 +1916,7 @@ qreal QFontMetricsF::strikeOutPos() const
 qreal QFontMetricsF::lineWidth() const
 {
     QFontEngine *engine = d->engineForScript(QChar::Script_Common);
-    Q_ASSERT(engine != 0);
+    Q_ASSERT(engine != nullptr);
     return engine->lineThickness().toReal();
 }
 

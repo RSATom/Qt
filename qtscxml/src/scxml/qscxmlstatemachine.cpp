@@ -1914,7 +1914,7 @@ QMetaObject::Connection QScxmlStateMachine::connectToStateImpl(const QString &sc
         types = QtPrivate::ConnectionTypes<QtPrivate::List<bool> >::types();
 
     Q_D(QScxmlStateMachine);
-    const int signalIndex = d->m_stateNameToSignalIndex.value(scxmlStateName);
+    const int signalIndex = d->m_stateNameToSignalIndex.value(scxmlStateName, -1);
     return signalIndex < 0 ? QMetaObject::Connection()
                            : QObjectPrivate::connectImpl(this, signalIndex, receiver, slot, slotObj,
                                                          type, types, d->m_metaObject);

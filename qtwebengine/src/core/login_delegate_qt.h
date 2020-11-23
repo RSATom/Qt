@@ -42,7 +42,6 @@
 
 #include "content/public/browser/content_browser_client.h"
 #include "content/public/browser/login_delegate.h"
-#include "content/public/browser/resource_request_info.h"
 #include "content/public/browser/web_contents_observer.h"
 #include "url/gurl.h"
 
@@ -67,8 +66,6 @@ public:
                     bool first_auth_attempt,
                     LoginAuthRequiredCallback auth_required_callback);
 
-    ~LoginDelegateQt() override;
-
     QUrl url() const;
     QString realm() const;
     QString host() const;
@@ -79,7 +76,6 @@ public:
 
 private:
     void triggerDialog();
-    void destroy();
 
     net::AuthChallengeInfo m_authInfo;
 

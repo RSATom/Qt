@@ -32,20 +32,12 @@ namespace {
 
 // ShapingLineBreaker computes using visual positions. This function flips
 // logical advance to visual, or vice versa.
-LayoutUnit FlipRtl(LayoutUnit value, TextDirection direction) {
+inline LayoutUnit FlipRtl(LayoutUnit value, TextDirection direction) {
   return IsLtr(direction) ? value : -value;
 }
 
-// Snaps a visual position to the line start direction.
-LayoutUnit SnapStart(float value, TextDirection direction) {
-  return IsLtr(direction) ? LayoutUnit::FromFloatFloor(value)
-                          : LayoutUnit::FromFloatCeil(value);
-}
-
-// Snaps a visual position to the line end direction.
-LayoutUnit SnapEnd(float value, TextDirection direction) {
-  return IsLtr(direction) ? LayoutUnit::FromFloatCeil(value)
-                          : LayoutUnit::FromFloatFloor(value);
+inline float FlipRtl(float value, TextDirection direction) {
+  return IsLtr(direction) ? value : -value;
 }
 
 inline bool IsBreakableSpace(UChar ch) {
@@ -216,21 +208,21 @@ scoped_refptr<const ShapeResultView> ShapingLineBreaker::ShapeLine(
   unsigned range_end = result_->EndIndex();
   DCHECK_GE(start, range_start);
   DCHECK_LT(start, range_end);
+  result_out->is_overflow = false;
   result_out->is_hyphenated = false;
   const String& text = GetText();
 
   // The start position in the original shape results.
-  float start_position_float =
-      result_->CachedPositionForOffset(start - range_start);
-  TextDirection direction = result_->Direction();
-  LayoutUnit start_position = SnapStart(start_position_float, direction);
+  float start_position = result_->CachedPositionForOffset(start - range_start);
 
   // Find a candidate break opportunity by identifying the last offset before
   // exceeding the available space and the determine the closest valid break
   // preceding the candidate.
-  LayoutUnit end_position = SnapEnd(start_position_float, direction) +
-                            FlipRtl(available_space, direction);
-  DCHECK_GE(FlipRtl(end_position - start_position, direction), LayoutUnit(0));
+  TextDirection direction = result_->Direction();
+  float end_position = start_position + FlipRtl(available_space, direction);
+  DCHECK_GE(FlipRtl(LayoutUnit::FromFloatCeil(end_position - start_position),
+                    direction),
+            LayoutUnit(0));
   unsigned candidate_break =
       result_->CachedOffsetForPosition(end_position) + range_start;
 
@@ -254,8 +246,8 @@ scoped_refptr<const ShapeResultView> ShapingLineBreaker::ShapeLine(
   // Find the next break opportunity after the candidate_break.
   BreakOpportunity break_opportunity =
       PreviousBreakOpportunity(candidate_break, start);
-  bool is_overflow = break_opportunity.offset <= start;
-  if (is_overflow) {
+  result_out->is_overflow = break_opportunity.offset <= start;
+  if (result_out->is_overflow) {
     if (options & kNoResultIfOverflow)
       return nullptr;
     // No need to scan past range_end for a break oppertunity.
@@ -282,11 +274,10 @@ scoped_refptr<const ShapeResultView> ShapingLineBreaker::ShapeLine(
       return ShapeResultView::Create(
           Shape(start, break_opportunity.offset).get());
     }
-    LayoutUnit original_width = FlipRtl(
-        SnapEnd(result_->CachedPositionForOffset(first_safe - range_start),
-                direction) -
-            start_position,
-        direction);
+    float first_safe_position =
+        result_->CachedPositionForOffset(first_safe - range_start);
+    LayoutUnit original_width = LayoutUnit::FromFloatCeil(
+        FlipRtl(first_safe_position - start_position, direction));
     line_start_result = Shape(start, first_safe);
     available_space += line_start_result->SnappedWidth() - original_width;
   }
@@ -309,10 +300,14 @@ scoped_refptr<const ShapeResultView> ShapingLineBreaker::ShapeLine(
       DCHECK_LE(start, break_opportunity.offset);
       last_safe =
           result_->CachedPreviousSafeToBreakOffset(break_opportunity.offset);
-      DCHECK_LE(last_safe, break_opportunity.offset);
       // No need to reshape the line end because this opportunity is safe.
       if (last_safe == break_opportunity.offset)
         break;
+      if (UNLIKELY(last_safe > break_opportunity.offset)) {
+        // TODO(crbug.com/1787026): This should not happen, but we see crashes.
+        NOTREACHED();
+        break;
+      }
 
       // Moved the opportunity back enough to require reshaping the whole line.
       if (UNLIKELY(last_safe < first_safe)) {
@@ -323,16 +318,16 @@ scoped_refptr<const ShapeResultView> ShapingLineBreaker::ShapeLine(
 
       // If previously determined to let it overflow, reshape the line end.
       DCHECK_LE(break_opportunity.offset, range_end);
-      if (UNLIKELY(is_overflow)) {
+      if (UNLIKELY(result_out->is_overflow)) {
         line_end_result = Shape(last_safe, break_opportunity.offset);
         break;
       }
 
       // Check if this opportunity can fit after reshaping the line end.
-      LayoutUnit safe_position = SnapStart(
-          result_->CachedPositionForOffset(last_safe - range_start), direction);
+      float safe_position =
+          result_->CachedPositionForOffset(last_safe - range_start);
       line_end_result = Shape(last_safe, break_opportunity.offset);
-      if (line_end_result->SnappedWidth() <=
+      if (line_end_result->Width() <=
           FlipRtl(end_position - safe_position, direction))
         break;
 
@@ -349,6 +344,7 @@ scoped_refptr<const ShapeResultView> ShapingLineBreaker::ShapeLine(
       // This line will overflow, but there are multiple choices to break,
       // because none can fit. The one after candidate_break is better for
       // ligatures, but the one before is better for kernings.
+      result_out->is_overflow = true;
       break_opportunity = PreviousBreakOpportunity(candidate_break, start);
       if (break_opportunity.offset <= start) {
         break_opportunity = NextBreakOpportunity(
@@ -359,7 +355,6 @@ scoped_refptr<const ShapeResultView> ShapingLineBreaker::ShapeLine(
         }
       }
       // Loop once more to compute last_safe for the new break opportunity.
-      is_overflow = true;
     }
   }
   // It is critical to move forward, or callers may end up in an infinite loop.

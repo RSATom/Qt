@@ -6,7 +6,7 @@
 
 #include <stdint.h>
 
-#include "ash/public/interfaces/constants.mojom.h"
+#include "ash/public/mojom/constants.mojom.h"
 #include "base/bind.h"
 #include "base/bind_helpers.h"
 #include "base/strings/string_number_conversions.h"
@@ -18,7 +18,6 @@
 #include "services/service_manager/public/cpp/connector.h"
 #include "ui/display/display.h"
 #include "ui/display/screen.h"
-#include "ui/events/devices/device_data_manager.h"
 #include "ui/events/devices/touchscreen_device.h"
 
 using content::BrowserThread;
@@ -42,13 +41,12 @@ bool IsWhiteListedVendorId(uint16_t vendor_id) {
 
 }  // namespace
 
-OobeDisplayChooser::OobeDisplayChooser()
-    : scoped_observer_(this), weak_ptr_factory_(this) {
+OobeDisplayChooser::OobeDisplayChooser() {
   // |connector| may be null in tests.
   auto* connector = content::GetSystemConnector();
   if (connector) {
-    connector->BindInterface(ash::mojom::kServiceName,
-                             &cros_display_config_ptr_);
+    connector->Connect(ash::mojom::kServiceName,
+                       cros_display_config_.BindNewPipeAndPassReceiver());
   }
 }
 
@@ -66,10 +64,9 @@ void OobeDisplayChooser::TryToPlaceUiOnTouchDisplay() {
       display::Screen::GetScreen()->GetPrimaryDisplay();
 
   if (primary_display.is_valid() && !TouchSupportAvailable(primary_display)) {
-    base::PostTaskWithTraits(
-        FROM_HERE, {BrowserThread::UI},
-        base::BindOnce(&OobeDisplayChooser::MaybeMoveToTouchDisplay,
-                       weak_ptr_factory_.GetWeakPtr()));
+    base::PostTask(FROM_HERE, {BrowserThread::UI},
+                   base::BindOnce(&OobeDisplayChooser::MaybeMoveToTouchDisplay,
+                                  weak_ptr_factory_.GetWeakPtr()));
   }
 }
 
@@ -97,7 +94,7 @@ void OobeDisplayChooser::MoveToTouchDisplay() {
         device.target_display_id != display::kInvalidDisplayId) {
       auto config_properties = ash::mojom::DisplayConfigProperties::New();
       config_properties->set_primary = true;
-      cros_display_config_ptr_->SetDisplayProperties(
+      cros_display_config_->SetDisplayProperties(
           base::NumberToString(device.target_display_id),
           std::move(config_properties), ash::mojom::DisplayConfigSource::kUser,
           base::DoNothing());

@@ -8,7 +8,9 @@
 #include <vector>
 
 #include "util/test.h"
+#include "util/flags.h"
 #include "util/logging.h"
+#include "util/malloc_counter.h"
 #include "util/strutil.h"
 #include "re2/prog.h"
 #include "re2/re2.h"
@@ -18,9 +20,9 @@
 
 static const bool UsingMallocCounter = false;
 
-DEFINE_int32(size, 8, "log2(number of DFA nodes)");
-DEFINE_int32(repeat, 2, "Repetition count.");
-DEFINE_int32(threads, 4, "number of threads");
+DEFINE_FLAG(int, size, 8, "log2(number of DFA nodes)");
+DEFINE_FLAG(int, repeat, 2, "Repetition count.");
+DEFINE_FLAG(int, threads, 4, "number of threads");
 
 namespace re2 {
 
@@ -34,7 +36,7 @@ static void DoBuild(Prog* prog) {
 TEST(Multithreaded, BuildEntireDFA) {
   // Create regexp with 2^FLAGS_size states in DFA.
   std::string s = "a";
-  for (int i = 0; i < FLAGS_size; i++)
+  for (int i = 0; i < GetFlag(FLAGS_size); i++)
     s += "[ab]";
   s += "b";
   Regexp* re = Regexp::Parse(s, Regexp::LikePerl, NULL);
@@ -52,14 +54,14 @@ TEST(Multithreaded, BuildEntireDFA) {
   }
 
   // Build the DFA simultaneously in a bunch of threads.
-  for (int i = 0; i < FLAGS_repeat; i++) {
+  for (int i = 0; i < GetFlag(FLAGS_repeat); i++) {
     Prog* prog = re->CompileToProg(0);
     ASSERT_TRUE(prog != NULL);
 
     std::vector<std::thread> threads;
-    for (int j = 0; j < FLAGS_threads; j++)
+    for (int j = 0; j < GetFlag(FLAGS_threads); j++)
       threads.emplace_back(DoBuild, prog);
-    for (int j = 0; j < FLAGS_threads; j++)
+    for (int j = 0; j < GetFlag(FLAGS_threads); j++)
       threads[j].join();
 
     // One more compile, to make sure everything is okay.
@@ -259,14 +261,14 @@ TEST(Multithreaded, SearchDFA) {
 
   // Run the search simultaneously in a bunch of threads.
   // Reuse same flags for Multithreaded.BuildDFA above.
-  for (int i = 0; i < FLAGS_repeat; i++) {
+  for (int i = 0; i < GetFlag(FLAGS_repeat); i++) {
     Prog* prog = re->CompileToProg(1<<n);
     ASSERT_TRUE(prog != NULL);
 
     std::vector<std::thread> threads;
-    for (int j = 0; j < FLAGS_threads; j++)
+    for (int j = 0; j < GetFlag(FLAGS_threads); j++)
       threads.emplace_back(DoSearch, prog, match, no_match);
-    for (int j = 0; j < FLAGS_threads; j++)
+    for (int j = 0; j < GetFlag(FLAGS_threads); j++)
       threads[j].join();
 
     delete prog;
@@ -295,7 +297,7 @@ ReverseTest reverse_tests[] = {
 
 TEST(DFA, ReverseMatch) {
   int nfail = 0;
-  for (int i = 0; i < arraysize(reverse_tests); i++) {
+  for (size_t i = 0; i < arraysize(reverse_tests); i++) {
     const ReverseTest& t = reverse_tests[i];
     Regexp* re = Regexp::Parse(t.regexp, Regexp::LikePerl, NULL);
     ASSERT_TRUE(re != NULL);
@@ -350,7 +352,7 @@ CallbackTest callback_tests[] = {
 
 TEST(DFA, Callback) {
   int nfail = 0;
-  for (int i = 0; i < arraysize(callback_tests); i++) {
+  for (size_t i = 0; i < arraysize(callback_tests); i++) {
     const CallbackTest& t = callback_tests[i];
     Regexp* re = Regexp::Parse(t.regexp, Regexp::LikePerl, NULL);
     ASSERT_TRUE(re != NULL);
@@ -360,12 +362,12 @@ TEST(DFA, Callback) {
     prog->BuildEntireDFA(Prog::kLongestMatch, [&](const int* next, bool match) {
       ASSERT_TRUE(next != NULL);
       if (!dump.empty())
-        StringAppendF(&dump, " ");
-      StringAppendF(&dump, match ? "[[" : "[");
+        dump += " ";
+      dump += match ? "[[" : "[";
       for (int b = 0; b < prog->bytemap_range() + 1; b++)
-        StringAppendF(&dump, "%d,", next[b]);
+        dump += StringPrintf("%d,", next[b]);
       dump.pop_back();
-      StringAppendF(&dump, match ? "]]" : "]");
+      dump += match ? "]]" : "]";
     });
     if (dump != t.dump) {
       LOG(ERROR) << t.regexp << " bytemap:\n" << prog->DumpByteMap();

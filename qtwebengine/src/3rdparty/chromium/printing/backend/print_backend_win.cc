@@ -26,6 +26,12 @@ namespace printing {
 
 namespace {
 
+ScopedPrinterHandle GetPrinterHandle(const std::string& printer_name) {
+  ScopedPrinterHandle handle;
+  handle.OpenPrinterWithName(base::UTF8ToWide(printer_name).c_str());
+  return handle;
+}
+
 HRESULT StreamOnHGlobalToString(IStream* stream, std::string* out) {
   DCHECK(stream);
   DCHECK(out);
@@ -160,7 +166,7 @@ void LoadDpi(const wchar_t* printer,
 
 class PrintBackendWin : public PrintBackend {
  public:
-  PrintBackendWin() {}
+  explicit PrintBackendWin(const std::string& locale) : PrintBackend(locale) {}
 
   // PrintBackend implementation.
   bool EnumeratePrinters(PrinterList* printer_list) override;
@@ -176,7 +182,7 @@ class PrintBackendWin : public PrintBackend {
   bool IsValidPrinter(const std::string& printer_name) override;
 
  protected:
-  ~PrintBackendWin() override {}
+  ~PrintBackendWin() override = default;
 };
 
 bool PrintBackendWin::EnumeratePrinters(PrinterList* printer_list) {
@@ -223,11 +229,9 @@ std::string PrintBackendWin::GetDefaultPrinterName() {
 
 bool PrintBackendWin::GetPrinterBasicInfo(const std::string& printer_name,
                                           PrinterBasicInfo* printer_info) {
-  ScopedPrinterHandle printer_handle;
-  if (!printer_handle.OpenPrinterWithName(
-          base::UTF8ToWide(printer_name).c_str())) {
+  ScopedPrinterHandle printer_handle = GetPrinterHandle(printer_name);
+  if (!printer_handle.IsValid())
     return false;
-  }
 
   if (!InitBasicPrinterInfo(printer_handle.Get(), printer_info))
     return false;
@@ -240,9 +244,8 @@ bool PrintBackendWin::GetPrinterBasicInfo(const std::string& printer_name,
 bool PrintBackendWin::GetPrinterSemanticCapsAndDefaults(
     const std::string& printer_name,
     PrinterSemanticCapsAndDefaults* printer_info) {
-  ScopedPrinterHandle printer_handle;
-  if (!printer_handle.OpenPrinterWithName(
-          base::UTF8ToWide(printer_name).c_str())) {
+  ScopedPrinterHandle printer_handle = GetPrinterHandle(printer_name);
+  if (!printer_handle.IsValid()) {
     LOG(WARNING) << "Failed to open printer, error = " << GetLastError();
     return false;
   }
@@ -378,22 +381,20 @@ bool PrintBackendWin::GetPrinterCapsAndDefaults(
 // Gets the information about driver for a specific printer.
 std::string PrintBackendWin::GetPrinterDriverInfo(
     const std::string& printer_name) {
-  ScopedPrinterHandle printer;
-  if (!printer.OpenPrinterWithName(base::UTF8ToWide(printer_name).c_str()))
-    return std::string();
-  return GetDriverInfo(printer.Get());
+  ScopedPrinterHandle printer = GetPrinterHandle(printer_name);
+  return printer.IsValid() ? GetDriverInfo(printer.Get()) : std::string();
 }
 
 bool PrintBackendWin::IsValidPrinter(const std::string& printer_name) {
-  ScopedPrinterHandle printer_handle;
-  return printer_handle.OpenPrinterWithName(
-      base::UTF8ToWide(printer_name).c_str());
+  ScopedPrinterHandle printer_handle = GetPrinterHandle(printer_name);
+  return printer_handle.IsValid();
 }
 
 // static
 scoped_refptr<PrintBackend> PrintBackend::CreateInstanceImpl(
-    const base::DictionaryValue* print_backend_settings) {
-  return base::MakeRefCounted<PrintBackendWin>();
+    const base::DictionaryValue* print_backend_settings,
+    const std::string& locale) {
+  return base::MakeRefCounted<PrintBackendWin>(locale);
 }
 
 }  // namespace printing

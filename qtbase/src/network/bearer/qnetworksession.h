@@ -40,12 +40,19 @@
 #ifndef QNETWORKSESSION_H
 #define QNETWORKSESSION_H
 
+#if 0
+#pragma qt_class(QNetworkSession)
+#endif
+
 #include <QtNetwork/qtnetworkglobal.h>
 #include <QtCore/qobject.h>
 #include <QtCore/qstring.h>
 #include <QtNetwork/qnetworkinterface.h>
 #include <QtCore/qvariant.h>
 #include <QtNetwork/qnetworkconfiguration.h>
+
+QT_WARNING_PUSH
+QT_WARNING_DISABLE_DEPRECATED
 
 #ifndef QT_NO_BEARERMANAGEMENT
 
@@ -57,7 +64,7 @@
 QT_BEGIN_NAMESPACE
 
 class QNetworkSessionPrivate;
-class Q_NETWORK_EXPORT QNetworkSession : public QObject
+class QT_DEPRECATED_BEARER_MANAGEMENT Q_NETWORK_EXPORT QNetworkSession : public QObject
 {
     Q_OBJECT
 
@@ -146,5 +153,7 @@ Q_DECLARE_METATYPE(QNetworkSession::SessionError)
 Q_DECLARE_METATYPE(QNetworkSession::UsagePolicies)
 
 #endif // QT_NO_BEARERMANAGEMENT
+
+QT_WARNING_POP
 
 #endif // QNETWORKSESSION_H

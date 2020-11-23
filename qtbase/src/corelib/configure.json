@@ -389,7 +389,8 @@
                     "# Block futimens() on Apple platforms unless it's available on ALL",
                     "# deployment targets. This simplifies the logic at the call site",
                     "# dramatically, as it isn't strictly needed compared to futimes().",
-                    "darwin: QMAKE_CXXFLAGS += -Werror=unguarded-availability"
+                    "darwin: QMAKE_CXXFLAGS += -Werror=unguarded-availability -Werror=unguarded-availability-new",
+                    "CONFIG += warn_on"
                 ]
             }
         },
@@ -1086,6 +1087,26 @@ Mozilla License) is included. The data is then also used in QNetworkCookieJar::v
         "win32_system_libs": {
             "label": "Windows System Libraries",
             "condition": "config.win32 && libs.advapi32 && libs.gdi32 && libs.kernel32 && libs.netapi32 && libs.ole32 && libs.shell32 && libs.uuid && libs.user32 && libs.winmm && libs.ws2_32"
+        },
+        "cborstreamreader": {
+            "label": "CBOR stream reading",
+            "purpose": "Provides support for reading the CBOR binary format.
+
+Note that this is required for plugin loading. Qt GUI needs QPA plugins for basic operation.",
+            "section": "Utilities",
+            "output": [ "publicFeature" ]
+        },
+        "cborstreamwriter": {
+            "label": "CBOR stream writing",
+            "purpose": "Provides support for writing the CBOR binary format.",
+            "section": "Utilities",
+            "output": [ "publicFeature" ]
+        },
+        "binaryjson": {
+            "label": "Binary JSON (deprecated)",
+            "purpose": "Provides support for the deprecated binary JSON format.",
+            "section": "Utilities",
+            "output": [ "publicFeature" ]
         }
     },
 

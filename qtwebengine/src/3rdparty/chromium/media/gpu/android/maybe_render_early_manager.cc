@@ -18,7 +18,7 @@ namespace media {
 // the actual rendering.
 class GpuMaybeRenderEarlyImpl {
  public:
-  GpuMaybeRenderEarlyImpl() : weak_factory_(this) {}
+  GpuMaybeRenderEarlyImpl() {}
   ~GpuMaybeRenderEarlyImpl() = default;
 
   void SetCodecImageGroup(scoped_refptr<CodecImageGroup> image_group) {
@@ -28,7 +28,7 @@ class GpuMaybeRenderEarlyImpl {
   void AddCodecImage(scoped_refptr<CodecImageHolder> codec_image_holder) {
     // Register to find out when this CodecImage is unused, so that we can try
     // to render a new image early.
-    codec_image_holder->codec_image_raw()->SetNowUnusedCB(base::BindOnce(
+    codec_image_holder->codec_image_raw()->AddUnusedCB(base::BindOnce(
         &GpuMaybeRenderEarlyImpl::OnImageUnused, weak_factory_.GetWeakPtr()));
 
     DCHECK(std::find(images_.begin(), images_.end(),
@@ -44,14 +44,10 @@ class GpuMaybeRenderEarlyImpl {
 
  private:
   void OnImageUnused(CodecImage* image) {
-    // |image| no longer needs a reference to the surface, so remove it from the
-    // current image group.
-    //
-    // It would be nice if this were sufficient to allow CodecImageGroup to skip
-    // adding a DestructionCB to CodecImage.  However, since we use a weak ptr
-    // for the callback, it isn't safe.  CodecImageGroup uses a strong ref.
+    // |image| is no longer used, so try to render a new image speculatively.
     DCHECK(std::find(images_.begin(), images_.end(), image) != images_.end());
-    image_group_->RemoveCodecImage(image);
+    // Remember that |image_group_| might not be the same one that |image|
+    // belongs to.
     base::Erase(images_, image);
     internal::MaybeRenderEarly(&images_);
   }
@@ -63,7 +59,7 @@ class GpuMaybeRenderEarlyImpl {
   // replace this when SetImageGroup() is called.
   scoped_refptr<CodecImageGroup> image_group_;
 
-  base::WeakPtrFactory<GpuMaybeRenderEarlyImpl> weak_factory_;
+  base::WeakPtrFactory<GpuMaybeRenderEarlyImpl> weak_factory_{this};
 
   DISALLOW_COPY_AND_ASSIGN(GpuMaybeRenderEarlyImpl);
 };

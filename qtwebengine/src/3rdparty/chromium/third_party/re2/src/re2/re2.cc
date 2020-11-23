@@ -24,11 +24,11 @@
 
 #include "util/util.h"
 #include "util/logging.h"
-#include "util/sparse_array.h"
 #include "util/strutil.h"
 #include "util/utf.h"
 #include "re2/prog.h"
 #include "re2/regexp.h"
+#include "re2/sparse_array.h"
 
 namespace re2 {
 
@@ -368,7 +368,7 @@ bool RE2::Replace(std::string* str,
                   const StringPiece& rewrite) {
   StringPiece vec[kVecSize];
   int nvec = 1 + MaxSubmatch(rewrite);
-  if (nvec > arraysize(vec))
+  if (nvec > static_cast<int>(arraysize(vec)))
     return false;
   if (!re.Match(*str, 0, str->size(), UNANCHORED, vec, nvec))
     return false;
@@ -377,8 +377,8 @@ bool RE2::Replace(std::string* str,
   if (!re.Rewrite(&s, rewrite, vec, nvec))
     return false;
 
-  assert(vec[0].begin() >= str->data());
-  assert(vec[0].end() <= str->data()+str->size());
+  assert(vec[0].data() >= str->data());
+  assert(vec[0].data() + vec[0].size() <= str->data() + str->size());
   str->replace(vec[0].data() - str->data(), vec[0].size(), s);
   return true;
 }
@@ -388,7 +388,7 @@ int RE2::GlobalReplace(std::string* str,
                        const StringPiece& rewrite) {
   StringPiece vec[kVecSize];
   int nvec = 1 + MaxSubmatch(rewrite);
-  if (nvec > arraysize(vec))
+  if (nvec > static_cast<int>(arraysize(vec)))
     return false;
 
   const char* p = str->data();
@@ -406,9 +406,9 @@ int RE2::GlobalReplace(std::string* str,
     if (!re.Match(*str, static_cast<size_t>(p - str->data()),
                   str->size(), UNANCHORED, vec, nvec))
       break;
-    if (p < vec[0].begin())
-      out.append(p, vec[0].begin() - p);
-    if (vec[0].begin() == lastend && vec[0].size() == 0) {
+    if (p < vec[0].data())
+      out.append(p, vec[0].data() - p);
+    if (vec[0].data() == lastend && vec[0].empty()) {
       // Disallow empty match at end of last match: skip ahead.
       //
       // fullrune() takes int, not ptrdiff_t. However, it just looks
@@ -439,7 +439,7 @@ int RE2::GlobalReplace(std::string* str,
       continue;
     }
     re.Rewrite(&out, rewrite, vec, nvec);
-    p = vec[0].end();
+    p = vec[0].data() + vec[0].size();
     lastend = p;
     count++;
   }
@@ -460,7 +460,7 @@ bool RE2::Extract(const StringPiece& text,
                   std::string* out) {
   StringPiece vec[kVecSize];
   int nvec = 1 + MaxSubmatch(rewrite);
-  if (nvec > arraysize(vec))
+  if (nvec > static_cast<int>(arraysize(vec)))
     return false;
 
   if (!re.Match(text, 0, text.size(), UNANCHORED, vec, nvec))
@@ -816,7 +816,7 @@ bool RE2::DoMatch(const StringPiece& text,
   StringPiece stkvec[kVecSize];
   StringPiece* heapvec = NULL;
 
-  if (nvec <= arraysize(stkvec)) {
+  if (nvec <= static_cast<int>(arraysize(stkvec))) {
     vec = stkvec;
   } else {
     vec = new StringPiece[nvec];
@@ -882,9 +882,10 @@ bool RE2::CheckRewriteString(const StringPiece& rewrite,
   }
 
   if (max_token > NumberOfCapturingGroups()) {
-    SStringPrintf(error, "Rewrite schema requests %d matches, "
-                  "but the regexp only has %d parenthesized subexpressions.",
-                  max_token, NumberOfCapturingGroups());
+    *error = StringPrintf(
+        "Rewrite schema requests %d matches, but the regexp only has %d "
+        "parenthesized subexpressions.",
+        max_token, NumberOfCapturingGroups());
     return false;
   }
   return true;
@@ -933,7 +934,7 @@ bool RE2::Rewrite(std::string* out,
         return false;
       }
       StringPiece snip = vec[n];
-      if (snip.size() > 0)
+      if (!snip.empty())
         out->append(snip.data(), snip.size());
     } else if (c == '\\') {
       out->push_back('\\');

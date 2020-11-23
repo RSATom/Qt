@@ -28,7 +28,7 @@
 #include "components/version_info/version_info.h"
 #include "components/web_resource/resource_request_allowed_notifier.h"
 #include "net/url_request/redirect_info.h"
-#include "services/network/public/cpp/resource_response.h"
+#include "services/network/public/mojom/url_response_head.mojom-forward.h"
 #include "url/gurl.h"
 
 class PrefService;
@@ -186,13 +186,16 @@ class VariationsService
   }
 
   // Wrapper around VariationsFieldTrialCreator::SetupFieldTrials().
-  bool SetupFieldTrials(const char* kEnableGpuBenchmarking,
-                        const char* kEnableFeatures,
-                        const char* kDisableFeatures,
-                        const std::set<std::string>& unforceable_field_trials,
-                        const std::vector<std::string>& variation_ids,
-                        std::unique_ptr<base::FeatureList> feature_list,
-                        variations::PlatformFieldTrials* platform_field_trials);
+  bool SetupFieldTrials(
+      const char* kEnableGpuBenchmarking,
+      const char* kEnableFeatures,
+      const char* kDisableFeatures,
+      const std::set<std::string>& unforceable_field_trials,
+      const std::vector<std::string>& variation_ids,
+      const std::vector<base::FeatureList::FeatureOverrideInfo>&
+          extra_overrides,
+      std::unique_ptr<base::FeatureList> feature_list,
+      variations::PlatformFieldTrials* platform_field_trials);
 
   // Overrides cached UI strings on the resource bundle once it is initialized.
   void OverrideCachedUIStrings();
@@ -314,7 +317,7 @@ class VariationsService
   // Called by SimpleURLLoader when |pending_seed_request_| load is redirected.
   void OnSimpleLoaderRedirect(
       const net::RedirectInfo& redirect_info,
-      const network::ResourceResponseHead& response_head,
+      const network::mojom::URLResponseHead& response_head,
       std::vector<std::string>* to_be_removed_headers);
 
   // Handles post-fetch events.

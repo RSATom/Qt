@@ -1348,8 +1348,10 @@ void QScriptEnginePrivate::collectGarbage()
 
 void QScriptEnginePrivate::reportAdditionalMemoryCost(int size)
 {
-    if (size > 0)
+    if (size > 0) {
+        QScript::APIShim shim(this);
         globalData->heap.reportExtraMemoryCost(size);
+    }
 }
 
 QScript::TimeoutCheckerProxy *QScriptEnginePrivate::timeoutChecker() const
@@ -2004,9 +2006,9 @@ QScriptValue::PropertyFlags QScriptEnginePrivate::propertyFlags(JSC::ExecState *
             JSC::JSValue proto = object->prototype();
             return propertyFlags(exec, proto, id, mode);
         }
-        return 0;
+        return {};
     }
-    QScriptValue::PropertyFlags result = 0;
+    QScriptValue::PropertyFlags result;
     if (attribs & JSC::ReadOnly)
         result |= QScriptValue::ReadOnly;
     if (attribs & JSC::DontEnum)

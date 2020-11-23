@@ -77,6 +77,8 @@ QSGRenderNodePrivate::QSGRenderNodePrivate()
     : m_matrix(nullptr)
     , m_clip_list(nullptr)
     , m_opacity(1)
+    , m_needsExternalRendering(true)
+    , m_prepareCallback(nullptr)
 {
 }
 
@@ -131,7 +133,7 @@ QSGRenderNodePrivate::QSGRenderNodePrivate()
   */
 QSGRenderNode::StateFlags QSGRenderNode::changedStates() const
 {
-    return nullptr;
+    return {};
 }
 
 /*!
@@ -311,7 +313,7 @@ void QSGRenderNode::releaseResources()
  */
 QSGRenderNode::RenderingFlags QSGRenderNode::flags() const
 {
-    return nullptr;
+    return {};
 }
 
 /*!

@@ -16,10 +16,9 @@
 
 namespace blink {
 
-class NullExecutionContext
-    : public GarbageCollectedFinalized<NullExecutionContext>,
-      public SecurityContext,
-      public ExecutionContext {
+class NullExecutionContext : public GarbageCollected<NullExecutionContext>,
+                             public SecurityContext,
+                             public ExecutionContext {
   USING_GARBAGE_COLLECTED_MIXIN(NullExecutionContext);
 
  public:
@@ -46,10 +45,6 @@ class NullExecutionContext
 
   SecurityContext& GetSecurityContext() final { return *this; }
   const SecurityContext& GetSecurityContext() const final { return *this; }
-  DOMTimerCoordinator* Timers() override { return nullptr; }
-  const base::UnguessableToken& GetAgentClusterID() const final {
-    return base::UnguessableToken::Null();
-  }
 
   void AddConsoleMessageImpl(ConsoleMessage*,
                              bool discard_duplicates) override {}
@@ -77,6 +72,8 @@ class NullExecutionContext
     SecurityContext::Trace(visitor);
     ExecutionContext::Trace(visitor);
   }
+
+  BrowserInterfaceBrokerProxy& GetBrowserInterfaceBroker() override;
 
  private:
   bool tasks_need_pause_;

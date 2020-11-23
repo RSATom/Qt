@@ -16,7 +16,7 @@
 #include "base/stl_util.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/utf_string_conversions.h"
-#include "base/test/scoped_task_environment.h"
+#include "base/test/task_environment.h"
 #include "build/build_config.h"
 #include "components/spellcheck/common/spellcheck_common.h"
 #include "components/spellcheck/common/spellcheck_result.h"
@@ -60,7 +60,7 @@ class SpellCheckTest : public testing::Test {
   }
 
   void UninitializeSpellCheck() {
-    spell_check_ = std::make_unique<SpellCheck>(nullptr, &embedder_provider_);
+    spell_check_ = std::make_unique<SpellCheck>(&embedder_provider_);
   }
 
   bool InitializeIfNeeded() {
@@ -70,9 +70,12 @@ class SpellCheckTest : public testing::Test {
   void InitializeSpellCheck(const std::string& language) {
     base::FilePath hunspell_directory = GetHunspellDirectory();
     EXPECT_FALSE(hunspell_directory.empty());
-    base::File file(
-        spellcheck::GetVersionedFileName(language, hunspell_directory),
-        base::File::FLAG_OPEN | base::File::FLAG_READ);
+    base::FilePath hunspell_file_path =
+        spellcheck::GetVersionedFileName(language, hunspell_directory);
+    base::File file(hunspell_file_path,
+                    base::File::FLAG_OPEN | base::File::FLAG_READ);
+    EXPECT_TRUE(file.IsValid()) << hunspell_file_path << " is not valid"
+                                << file.ErrorToString(file.GetLastFileError());
 #if defined(OS_MACOSX)
     // TODO(groby): Forcing spellcheck to use hunspell, even on OSX.
     // Instead, tests should exercise individual spelling engines.
@@ -103,7 +106,7 @@ class SpellCheckTest : public testing::Test {
   static void FillSuggestions(
       const std::vector<std::vector<base::string16>>& suggestions_list,
       std::vector<base::string16>* optional_suggestions) {
-    SpellCheck::FillSuggestions(suggestions_list, optional_suggestions);
+    spellcheck::FillSuggestions(suggestions_list, optional_suggestions);
   }
 
 #if !defined(OS_MACOSX)
@@ -127,7 +130,7 @@ class SpellCheckTest : public testing::Test {
  private:
   spellcheck::EmptyLocalInterfaceProvider embedder_provider_;
   std::unique_ptr<SpellCheck> spell_check_;
-  base::test::ScopedTaskEnvironment task_environment_;
+  base::test::SingleThreadTaskEnvironment task_environment_;
 };
 
 struct MockTextCheckingResult {
@@ -733,21 +736,20 @@ TEST_F(SpellCheckTest, SpellCheckText) {
     }, {
       // Serbo-Croatian (Serbian Latin)
       "sh",
-      L"Google-ova misija je da organizuje sve informacije na svetu i "
-      L"u\x010dini ih univerzal-no dostupnim i korisnim."
+      L"Guglova misija je organizirati svjetske informacije i u\x010diniti ih "
+      L"univerzalno dostupnim i korisnim."
     }, {
       // Serbian
       "sr",
-      L"\x0047\x006f\x006f\x0067\x006c\x0065\x002d\x043e\x0432\x0430 "
-      L"\x043c\x0438\x0441\x0438\x0458\x0430 \x0458\x0435 \x0434\x0430 "
-      L"\x043e\x0440\x0433\x0430\x043d\x0438\x0437\x0443\x0458\x0435 "
-      L"\x0441\x0432\x0435 "
-      L"\x0438\x043d\x0444\x043e\x0440\x043c\x0430\x0446\x0438\x0458\x0435 "
-      L"\x043d\x0430 \x0441\x0432\x0435\x0442\x0443 \x0438 "
-      L"\x0443\x0447\x0438\x043d\x0438 \x0438\x0445 "
-      L"\x0443\x043d\x0438\x0432\x0435\x0440\x0437\x0430\x043b\x043d\x043e "
-      L"\x0434\x043e\x0441\x0442\x0443\x043f\x043d\x0438\x043c \x0438 "
-      L"\x043a\x043e\x0440\x0438\x0441\x043d\x0438\x043c."
+      L"\x0413\x0443\x0433\x043B\x043E\x0432\x0430 "
+      L"\x043C\x0438\x0441\x0438\x0458\x0430 \x0458\x0435 \x0434\x0430 "
+      L"\x043E\x0440\x0433\x0430\x043D\x0438\x0437\x0443\x0458\x0435 "
+      L"\x0441\x0432\x0435\x0442\x0441\x043A\x0435 "
+      L"\x0438\x043D\x0444\x043E\x0440\x043C\x0430\x0446\x0438\x0458\x0435 "
+      L"\x0438 \x0443\x0447\x0438\x043D\x0438 \x0438\x0445 "
+      L"\x0443\x043D\x0438\x0432\x0435\x0440\x0437\x0430\x043B\x043D\x0438"
+      L"\x043C \x0434\x043E\x0441\x0442\x0443\x043F\x043D\x0438\x043C \x0438 "
+      L"\x043A\x043E\x0440\x0438\x0441\x043D\x0438\x043C."
     }, {
       // Slovak
       "sk-SK",
@@ -1338,29 +1340,16 @@ TEST_F(SpellCheckTest, EnglishWords) {
 
 // Checks that NOSUGGEST works in English dictionaries.
 TEST_F(SpellCheckTest, NoSuggest) {
+  ReinitializeSpellCheck("xx-XX");
+
   static const struct {
     const char* input;
     const char* suggestion;
-    const char* locale;
     bool should_pass;
-  } kTestCases[] = {
-    {"suckerbert", "cocksucker",  "en-GB", true},
-    {"suckerbert", "cocksucker",  "en-US", true},
-    {"suckerbert", "cocksucker",  "en-CA", true},
-    {"suckerbert", "cocksucker",  "en-AU", true},
-    {"suckerbert", "cocksuckers", "en-GB", true},
-    {"suckerbert", "cocksuckers", "en-US", true},
-    {"suckerbert", "cocksuckers", "en-CA", true},
-    {"suckerbert", "cocksuckers", "en-AU", true},
-    {"Batasunaa",  "Batasuna",    "ca-ES", true},
-    {"pornoo",     "porno",       "it-IT", true},
-    {"catass",     "catas",       "lt-LT", true},
-    {"kuracc",     "kurac",       "sl-SI", true},
-    {"pittt",      "pitt",        "sv-SE", true},
-  };
+  } kTestCases[] = {{"typograpy", "typographit", true},
+                    {"typograpy", "typographits", true}};
 
   for (const auto& test_case : kTestCases) {
-    ReinitializeSpellCheck(test_case.locale);
     size_t suggestion_length = 0;
     if (test_case.suggestion)
       suggestion_length = strlen(test_case.suggestion);
@@ -1374,10 +1363,8 @@ TEST_F(SpellCheckTest, NoSuggest) {
         suggestion_length, kNoTag, &misspelling_start, &misspelling_length,
         nullptr);
 
-    EXPECT_EQ(test_case.should_pass, result)
-        << test_case.suggestion << " in " << test_case.locale;
-    // TODO(cb/673424): Bring this back when suggestions are sped up.
-#if 0
+    EXPECT_EQ(test_case.should_pass, result) << test_case.suggestion;
+
     // Now verify that this test case does not show up as a suggestion.
     std::vector<base::string16> suggestions;
     size_t input_length = 0;
@@ -1387,19 +1374,18 @@ TEST_F(SpellCheckTest, NoSuggest) {
         base::ASCIIToUTF16(test_case.input).c_str(), kNoOffset,
         input_length, kNoTag, &misspelling_start,
         &misspelling_length, &suggestions);
+
     // Input word should be a misspelling.
-    EXPECT_FALSE(result) << test_case.input << " is not a misspelling in "
-                         << test_case.locale;
+    EXPECT_FALSE(result) << test_case.input << " is not a misspelling";
+
     // Check if the suggested words occur.
     for (const base::string16& suggestion : suggestions) {
       for (const auto& test_case_to_check : kTestCases) {
         int compare_result = suggestion.compare(
             base::ASCIIToUTF16(test_case_to_check.suggestion));
-        EXPECT_FALSE(compare_result == 0)
-            << test_case_to_check.suggestion << " in " << test_case.locale;
+        EXPECT_FALSE(compare_result == 0) << test_case_to_check.suggestion;
       }
     }
-#endif
   }
 }
 

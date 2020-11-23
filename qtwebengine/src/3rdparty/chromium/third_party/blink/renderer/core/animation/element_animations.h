@@ -46,8 +46,8 @@ class CSSAnimations;
 using AnimationCountedSet = HeapHashCountedSet<WeakMember<Animation>>;
 using WorkletAnimationSet = HeapHashSet<WeakMember<WorkletAnimationBase>>;
 
-class CORE_EXPORT ElementAnimations
-    : public GarbageCollectedFinalized<ElementAnimations> {
+class CORE_EXPORT ElementAnimations final
+    : public GarbageCollected<ElementAnimations> {
  public:
   ElementAnimations();
   ~ElementAnimations();
@@ -108,6 +108,8 @@ class CORE_EXPORT ElementAnimations
   // CSSAnimations checks if a style change is due to animation.
   friend class CSSAnimations;
   DISALLOW_COPY_AND_ASSIGN(ElementAnimations);
+
+  FRIEND_TEST_ALL_PREFIXES(StyleEngineTest, PseudoElementBaseComputedStyle);
 };
 
 }  // namespace blink

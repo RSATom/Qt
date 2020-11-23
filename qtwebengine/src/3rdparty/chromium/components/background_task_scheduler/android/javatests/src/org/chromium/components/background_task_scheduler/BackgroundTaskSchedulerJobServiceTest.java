@@ -6,7 +6,6 @@ package org.chromium.components.background_task_scheduler;
 
 import android.annotation.TargetApi;
 import android.app.job.JobInfo;
-import android.content.Context;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.PersistableBundle;
@@ -30,31 +29,14 @@ import java.util.concurrent.TimeUnit;
 @TargetApi(Build.VERSION_CODES.LOLLIPOP_MR1)
 @MinAndroidSdkLevel(Build.VERSION_CODES.LOLLIPOP_MR1)
 public class BackgroundTaskSchedulerJobServiceTest {
-    private static class TestBackgroundTask implements BackgroundTask {
-        @Override
-        public boolean onStartTask(
-                Context context, TaskParameters taskParameters, TaskFinishedCallback callback) {
-            return false;
-        }
-
-        @Override
-        public boolean onStopTask(Context context, TaskParameters taskParameters) {
-            return false;
-        }
-
-        @Override
-        public void reschedule(Context context) {}
-    }
-
-    private static final long CLOCK_TIME = 1415926535000L;
+    private static final long CLOCK_TIME_MS = 1415926535000L;
     private static final long TIME_50_MIN_TO_MS = TimeUnit.MINUTES.toMillis(50);
     private static final long TIME_100_MIN_TO_MS = TimeUnit.MINUTES.toMillis(100);
     private static final long TIME_200_MIN_TO_MS = TimeUnit.MINUTES.toMillis(200);
     private static final long END_TIME_WITH_DEADLINE_MS =
             TIME_200_MIN_TO_MS + BackgroundTaskSchedulerJobService.DEADLINE_DELTA_MS;
-    private static final long DEADLINE_TIME_MS = CLOCK_TIME + TIME_200_MIN_TO_MS;
 
-    private BackgroundTaskSchedulerJobService.Clock mClock = () -> CLOCK_TIME;
+    private BackgroundTaskSchedulerJobService.Clock mClock = () -> CLOCK_TIME_MS;
 
     @Before
     public void setUp() {
@@ -64,9 +46,9 @@ public class BackgroundTaskSchedulerJobServiceTest {
     @Test
     @SmallTest
     public void testOneOffTaskWithDeadline() {
-        TaskInfo oneOffTask = TaskInfo.createOneOffTask(TaskIds.TEST, TestBackgroundTask.class,
-                                              TIME_200_MIN_TO_MS)
-                                      .build();
+        TaskInfo.TimingInfo timingInfo =
+                TaskInfo.OneOffInfo.create().setWindowEndTimeMs(TIME_200_MIN_TO_MS).build();
+        TaskInfo oneOffTask = TaskInfo.createTask(TaskIds.TEST, timingInfo).build();
         JobInfo jobInfo = BackgroundTaskSchedulerJobService.createJobInfoFromTaskInfo(
                 InstrumentationRegistry.getTargetContext(), oneOffTask);
         Assert.assertEquals(oneOffTask.getTaskId(), jobInfo.getId());
@@ -77,24 +59,30 @@ public class BackgroundTaskSchedulerJobServiceTest {
     @Test
     @SmallTest
     public void testOneOffTaskWithDeadlineAndExpiration() {
-        TaskInfo oneOffTask = TaskInfo.createOneOffTask(TaskIds.TEST, TestBackgroundTask.class,
-                                              TIME_200_MIN_TO_MS)
-                                      .setExpiresAfterWindowEndTime(true)
-                                      .build();
+        TaskInfo.TimingInfo timingInfo = TaskInfo.OneOffInfo.create()
+                                                 .setWindowEndTimeMs(TIME_200_MIN_TO_MS)
+                                                 .setExpiresAfterWindowEndTime(true)
+                                                 .build();
+        TaskInfo oneOffTask = TaskInfo.createTask(TaskIds.TEST, timingInfo).build();
         JobInfo jobInfo = BackgroundTaskSchedulerJobService.createJobInfoFromTaskInfo(
                 InstrumentationRegistry.getTargetContext(), oneOffTask);
         Assert.assertEquals(END_TIME_WITH_DEADLINE_MS, jobInfo.getMaxExecutionDelayMillis());
-        Assert.assertEquals(DEADLINE_TIME_MS,
+        Assert.assertEquals(CLOCK_TIME_MS,
+                jobInfo.getExtras().getLong(BackgroundTaskSchedulerGcmNetworkManager
+                                                    .BACKGROUND_TASK_SCHEDULE_TIME_KEY));
+        Assert.assertEquals(TIME_200_MIN_TO_MS,
                 jobInfo.getExtras().getLong(
-                        BackgroundTaskSchedulerJobService.BACKGROUND_TASK_DEADLINE_KEY));
+                        BackgroundTaskSchedulerGcmNetworkManager.BACKGROUND_TASK_END_TIME_KEY));
     }
 
     @Test
     @SmallTest
     public void testOneOffTaskWithWindow() {
-        TaskInfo oneOffTask = TaskInfo.createOneOffTask(TaskIds.TEST, TestBackgroundTask.class,
-                                              TIME_100_MIN_TO_MS, TIME_200_MIN_TO_MS)
-                                      .build();
+        TaskInfo.TimingInfo timingInfo = TaskInfo.OneOffInfo.create()
+                                                 .setWindowStartTimeMs(TIME_100_MIN_TO_MS)
+                                                 .setWindowEndTimeMs(TIME_200_MIN_TO_MS)
+                                                 .build();
+        TaskInfo oneOffTask = TaskInfo.createTask(TaskIds.TEST, timingInfo).build();
         JobInfo jobInfo = BackgroundTaskSchedulerJobService.createJobInfoFromTaskInfo(
                 InstrumentationRegistry.getTargetContext(), oneOffTask);
         Assert.assertEquals(oneOffTask.getTaskId(), jobInfo.getId());
@@ -106,26 +94,31 @@ public class BackgroundTaskSchedulerJobServiceTest {
     @Test
     @SmallTest
     public void testOneOffTaskWithWindowAndExpiration() {
-        TaskInfo oneOffTask = TaskInfo.createOneOffTask(TaskIds.TEST, TestBackgroundTask.class,
-                                              TIME_100_MIN_TO_MS, TIME_200_MIN_TO_MS)
-                                      .setExpiresAfterWindowEndTime(true)
-                                      .build();
+        TaskInfo.TimingInfo timingInfo = TaskInfo.OneOffInfo.create()
+                                                 .setWindowStartTimeMs(TIME_100_MIN_TO_MS)
+                                                 .setWindowEndTimeMs(TIME_200_MIN_TO_MS)
+                                                 .setExpiresAfterWindowEndTime(true)
+                                                 .build();
+        TaskInfo oneOffTask = TaskInfo.createTask(TaskIds.TEST, timingInfo).build();
         JobInfo jobInfo = BackgroundTaskSchedulerJobService.createJobInfoFromTaskInfo(
                 InstrumentationRegistry.getTargetContext(), oneOffTask);
         Assert.assertEquals(
                 oneOffTask.getOneOffInfo().getWindowStartTimeMs(), jobInfo.getMinLatencyMillis());
         Assert.assertEquals(END_TIME_WITH_DEADLINE_MS, jobInfo.getMaxExecutionDelayMillis());
-        Assert.assertEquals(DEADLINE_TIME_MS,
+        Assert.assertEquals(CLOCK_TIME_MS,
+                jobInfo.getExtras().getLong(BackgroundTaskSchedulerGcmNetworkManager
+                                                    .BACKGROUND_TASK_SCHEDULE_TIME_KEY));
+        Assert.assertEquals(TIME_200_MIN_TO_MS,
                 jobInfo.getExtras().getLong(
-                        BackgroundTaskSchedulerJobService.BACKGROUND_TASK_DEADLINE_KEY));
+                        BackgroundTaskSchedulerGcmNetworkManager.BACKGROUND_TASK_END_TIME_KEY));
     }
 
     @Test
     @SmallTest
     public void testPeriodicTaskWithoutFlex() {
-        TaskInfo periodicTask = TaskInfo.createPeriodicTask(TaskIds.TEST, TestBackgroundTask.class,
-                                                TIME_200_MIN_TO_MS)
-                                        .build();
+        TaskInfo.TimingInfo timingInfo =
+                TaskInfo.PeriodicInfo.create().setIntervalMs(TIME_200_MIN_TO_MS).build();
+        TaskInfo periodicTask = TaskInfo.createTask(TaskIds.TEST, timingInfo).build();
         JobInfo jobInfo = BackgroundTaskSchedulerJobService.createJobInfoFromTaskInfo(
                 InstrumentationRegistry.getTargetContext(), periodicTask);
         Assert.assertEquals(periodicTask.getTaskId(), jobInfo.getId());
@@ -136,9 +129,11 @@ public class BackgroundTaskSchedulerJobServiceTest {
     @Test
     @SmallTest
     public void testPeriodicTaskWithFlex() {
-        TaskInfo periodicTask = TaskInfo.createPeriodicTask(TaskIds.TEST, TestBackgroundTask.class,
-                                                TIME_200_MIN_TO_MS, TIME_50_MIN_TO_MS)
-                                        .build();
+        TaskInfo.TimingInfo timingInfo = TaskInfo.PeriodicInfo.create()
+                                                 .setIntervalMs(TIME_200_MIN_TO_MS)
+                                                 .setFlexMs(TIME_50_MIN_TO_MS)
+                                                 .build();
+        TaskInfo periodicTask = TaskInfo.createTask(TaskIds.TEST, timingInfo).build();
         JobInfo jobInfo = BackgroundTaskSchedulerJobService.createJobInfoFromTaskInfo(
                 InstrumentationRegistry.getTargetContext(), periodicTask);
         Assert.assertEquals(TIME_200_MIN_TO_MS, jobInfo.getIntervalMillis());
@@ -154,10 +149,10 @@ public class BackgroundTaskSchedulerJobServiceTest {
         taskExtras.putString("foo", "bar");
         taskExtras.putBoolean("bools", true);
         taskExtras.putLong("longs", 1342543L);
-        TaskInfo oneOffTask = TaskInfo.createOneOffTask(TaskIds.TEST, TestBackgroundTask.class,
-                                              TIME_200_MIN_TO_MS)
-                                      .setExtras(taskExtras)
-                                      .build();
+        TaskInfo.TimingInfo timingInfo =
+                TaskInfo.OneOffInfo.create().setWindowEndTimeMs(TIME_200_MIN_TO_MS).build();
+        TaskInfo oneOffTask =
+                TaskInfo.createTask(TaskIds.TEST, timingInfo).setExtras(taskExtras).build();
         JobInfo jobInfo = BackgroundTaskSchedulerJobService.createJobInfoFromTaskInfo(
                 InstrumentationRegistry.getTargetContext(), oneOffTask);
         Assert.assertEquals(oneOffTask.getTaskId(), jobInfo.getId());
@@ -173,8 +168,9 @@ public class BackgroundTaskSchedulerJobServiceTest {
     @Test
     @SmallTest
     public void testTaskInfoWithManyConstraints() {
-        TaskInfo.Builder taskBuilder = TaskInfo.createOneOffTask(
-                TaskIds.TEST, TestBackgroundTask.class, TIME_200_MIN_TO_MS);
+        TaskInfo.TimingInfo timingInfo =
+                TaskInfo.OneOffInfo.create().setWindowEndTimeMs(TIME_200_MIN_TO_MS).build();
+        TaskInfo.Builder taskBuilder = TaskInfo.createTask(TaskIds.TEST, timingInfo);
 
         JobInfo jobInfo = BackgroundTaskSchedulerJobService.createJobInfoFromTaskInfo(
                 InstrumentationRegistry.getTargetContext(),

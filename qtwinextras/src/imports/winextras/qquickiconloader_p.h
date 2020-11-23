@@ -118,7 +118,7 @@ QQuickIconLoader::LoadResult
                            Object *receiver, void (Object::*function)(const QVariant &))
 {
     const QString scheme = url.scheme();
-    if (scheme.startsWith(QLatin1String("http"))) {
+    if (scheme.startsWith(u"http")) {
         if (QNetworkReply *reply = QQuickIconLoader::loadFromNetwork(url, engine)) {
             auto *handler = new QQuickIconLoaderNetworkReplyHandler(reply, type);
             QObject::connect(handler, &QQuickIconLoaderNetworkReplyHandler::finished, receiver, function);
@@ -126,7 +126,7 @@ QQuickIconLoader::LoadResult
         }
         return LoadError;
     }
-    const QVariant resource = scheme == QLatin1String("image")
+    const QVariant resource = scheme == u"image"
         ? QQuickIconLoader::loadFromImageProvider(url, engine, type, requestedSize)
         : QQuickIconLoader::loadFromFile(url, type); // qrc, file
     if (resource.isValid()) {

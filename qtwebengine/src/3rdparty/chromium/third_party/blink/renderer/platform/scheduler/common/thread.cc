@@ -29,16 +29,6 @@ namespace blink {
 
 namespace {
 
-// Controls whether we use ThreadPriority::DISPLAY for compositor thread.
-const base::Feature kBlinkCompositorUseDisplayThreadPriority {
-  "BlinkCompositorUseDisplayThreadPriority",
-#if defined(OS_ANDROID) || defined(OS_CHROMEOS)
-      base::FEATURE_ENABLED_BY_DEFAULT
-#else
-      base::FEATURE_DISABLED_BY_DEFAULT
-#endif
-};
-
 // Thread-local storage for "blink::Thread"s.
 Thread*& ThreadTLSSlot() {
   DEFINE_THREAD_SAFE_STATIC_LOCAL(WTF::ThreadSpecific<Thread*>, thread_tls_slot,
@@ -63,7 +53,7 @@ void Thread::UpdateThreadTLS(Thread* thread) {
   ThreadTLSSlot() = thread;
 }
 
-ThreadCreationParams::ThreadCreationParams(WebThreadType thread_type)
+ThreadCreationParams::ThreadCreationParams(ThreadType thread_type)
     : thread_type(thread_type),
       name(GetNameForThreadType(thread_type)),
       frame_or_worker_scheduler(nullptr),
@@ -93,26 +83,12 @@ std::unique_ptr<Thread> Thread::CreateThread(
   return std::move(thread);
 }
 
-std::unique_ptr<Thread> Thread::CreateWebAudioThread() {
-  ThreadCreationParams params(WebThreadType::kAudioWorkletThread);
-  params.supports_gc = true;
-
-  // WebAudio uses a thread with |DISPLAY| priority to avoid glitch when the
-  // system is under the high pressure. Note that the main browser thread also
-  // runs with same priority. (see: crbug.com/734539)
-  params.thread_priority =
-      base::FeatureList::IsEnabled(features::kAudioWorkletRealtimeThread)
-          ? base::ThreadPriority::REALTIME_AUDIO
-          : base::ThreadPriority::DISPLAY;
-
-  return CreateThread(params);
-}
-
 void Thread::CreateAndSetCompositorThread() {
   DCHECK(!GetCompositorThread());
 
-  ThreadCreationParams params(WebThreadType::kCompositorThread);
-  if (base::FeatureList::IsEnabled(kBlinkCompositorUseDisplayThreadPriority))
+  ThreadCreationParams params(ThreadType::kCompositorThread);
+  if (base::FeatureList::IsEnabled(
+          features::kBlinkCompositorUseDisplayThreadPriority))
     params.thread_priority = base::ThreadPriority::DISPLAY;
 
   auto compositor_thread =
@@ -120,7 +96,8 @@ void Thread::CreateAndSetCompositorThread() {
   compositor_thread->Init();
   GetCompositorThread() = std::move(compositor_thread);
 
-  if (base::FeatureList::IsEnabled(kBlinkCompositorUseDisplayThreadPriority)) {
+  if (base::FeatureList::IsEnabled(
+          features::kBlinkCompositorUseDisplayThreadPriority)) {
     // Chrome OS moves tasks between control groups on thread priority changes.
     // This is not possible inside the sandbox, so ask the browser to do it.
     // TODO(spang): Check if we can remove this on non-Chrome OS builds.

@@ -7,6 +7,7 @@
 
 #include <memory>
 #include <string>
+#include <vector>
 
 #include "base/supports_user_data.h"
 #include "build/build_config.h"
@@ -19,16 +20,18 @@
 #include "components/autofill/core/browser/autofill_manager.h"
 #include "mojo/public/cpp/bindings/associated_receiver.h"
 #include "mojo/public/cpp/bindings/associated_remote.h"
+#include "mojo/public/cpp/bindings/pending_receiver.h"
 
 namespace content {
 class NavigationHandle;
 class RenderFrameHost;
-}
+}  // namespace content
 
 namespace autofill {
 
 class AutofillClient;
 class AutofillProvider;
+class LogManager;
 
 // Class that drives autofill flow in the browser process based on
 // communication from the renderer and from the external world. There is one
@@ -55,17 +58,19 @@ class ContentAutofillDriver : public AutofillDriver,
   // AutofillDriver:
   bool IsIncognito() const override;
   bool IsInMainFrame() const override;
+  bool CanShowAutofillUi() const override;
   ui::AXTreeID GetAxTreeId() const override;
-  net::URLRequestContextGetter* GetURLRequestContext() override;
   scoped_refptr<network::SharedURLLoaderFactory> GetURLLoaderFactory() override;
   bool RendererIsAvailable() override;
   void ConnectToAuthenticator(
-      blink::mojom::InternalAuthenticatorRequest request) override;
+      mojo::PendingReceiver<blink::mojom::InternalAuthenticator> receiver)
+      override;
   void SendFormDataToRenderer(int query_id,
                               RendererFormDataAction action,
                               const FormData& data) override;
   void PropagateAutofillPredictions(
       const std::vector<autofill::FormStructure*>& forms) override;
+  void HandleParsedForms(const std::vector<FormStructure*>& forms) override;
   void SendAutofillTypePredictionsToRenderer(
       const std::vector<FormStructure*>& forms) override;
   void RendererShouldAcceptDataListSuggestion(
@@ -75,10 +80,12 @@ class ContentAutofillDriver : public AutofillDriver,
   void RendererShouldFillFieldWithValue(const base::string16& value) override;
   void RendererShouldPreviewFieldWithValue(
       const base::string16& value) override;
-  void RendererShouldSetSuggestionAvailability(bool available) override;
+  void RendererShouldSetSuggestionAvailability(
+      const mojom::AutofillState state) override;
   void PopupHidden() override;
   gfx::RectF TransformBoundingBoxToViewportCoordinates(
       const gfx::RectF& bounding_box) override;
+  net::NetworkIsolationKey NetworkIsolationKey() override;
 
   // mojom::AutofillDriver:
   void FormsSeen(const std::vector<FormData>& forms,
@@ -117,10 +124,6 @@ class ContentAutofillDriver : public AutofillDriver,
   // Called when the main frame has navigated. Explicitely will not trigger for
   // subframe navigations. See navigation_handle.h for details.
   void DidNavigateMainFrame(content::NavigationHandle* navigation_handle);
-
-  AutofillExternalDelegate* autofill_external_delegate() {
-    return autofill_external_delegate_.get();
-  }
 
   AutofillManager* autofill_manager() { return autofill_manager_; }
   AutofillHandler* autofill_handler() { return autofill_handler_.get(); }
@@ -172,6 +175,8 @@ class ContentAutofillDriver : public AutofillDriver,
   std::unique_ptr<AutofillExternalDelegate> autofill_external_delegate_;
 
   KeyPressHandlerManager key_press_handler_manager_;
+
+  LogManager* const log_manager_;
 
   mojo::AssociatedReceiver<mojom::AutofillDriver> receiver_{this};
 

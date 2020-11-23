@@ -7,6 +7,8 @@
 
 #include <vector>
 
+#include "base/component_export.h"
+#include "base/containers/flat_set.h"
 #include "base/files/file_path.h"
 #include "base/files/scoped_file.h"
 #include "base/macros.h"
@@ -14,9 +16,6 @@
 #include "ui/events/event.h"
 #include "ui/events/ozone/evdev/event_converter_evdev.h"
 #include "ui/events/ozone/evdev/event_device_info.h"
-#include "ui/events/ozone/evdev/events_ozone_evdev_export.h"
-#include "ui/events/ozone/gamepad/gamepad_mapping.h"
-#include "ui/events/ozone/gamepad/webgamepad_constants.h"
 
 struct input_event;
 
@@ -24,7 +23,7 @@ namespace ui {
 
 class DeviceEventDispatcherEvdev;
 
-class EVENTS_OZONE_EVDEV_EXPORT GamepadEventConverterEvdev
+class COMPONENT_EXPORT(EVDEV) GamepadEventConverterEvdev
     : public EventConverterEvdev {
  public:
   GamepadEventConverterEvdev(base::ScopedFD fd,
@@ -61,14 +60,6 @@ class EVENTS_OZONE_EVDEV_EXPORT GamepadEventConverterEvdev
   // This function reads current gamepad status and resyncs the gamepad.
   void ResyncGamepad();
 
-  void OnButtonChange(unsigned int code,
-                      unsigned int raw_code,
-                      double value,
-                      const base::TimeTicks& timestamp);
-  void OnAbsChange(unsigned int code,
-                   unsigned int raw_code,
-                   double value,
-                   const base::TimeTicks& timestamp);
   void OnSync(const base::TimeTicks& timestamp);
 
   // Sometimes, we want to drop abs values, when we do so, we no longer want to
@@ -76,49 +67,16 @@ class EVENTS_OZONE_EVDEV_EXPORT GamepadEventConverterEvdev
   // when each frame is sent. It is set to true when Btn or Abs event is sent.
   bool will_send_frame_;
 
-  // Internal representation of axis information.
+  std::vector<ui::GamepadDevice::Axis> axes_;
 
-  class Axis {
-   public:
-    Axis();
-    Axis(const input_absinfo& abs_info,
-         GamepadEventType mapped_type,
-         uint16_t mapped_code);
-
-    bool MapValue(int value, double* mapped_value);
-
-    GamepadEventType mapped_type();
-
-    uint16_t mapped_code();
-
-   private:
-    bool ValueChangeSignificantly(double new_value);
-    double last_value_;
-    double scale_;
-    double offset_;
-    double scaled_fuzz_;
-    double scaled_flat_;
-    GamepadEventType mapped_type_;
-    uint16_t mapped_code_;
-  };
-
-  Axis axes_[ABS_CNT];
-
-  std::vector<ui::GamepadDevice::Axis> raw_axes_;
-
-  // These values keeps the state of previous hat.
-  bool last_hat_left_press_;
-  bool last_hat_right_press_;
-  bool last_hat_up_press_;
-  bool last_hat_down_press_;
-
-  std::unique_ptr<GamepadMapper> mapper_;
+  // Evdev scancodes of pressed buttons.
+  base::flat_set<unsigned int> pressed_buttons_;
 
   // Input device file descriptor.
-  base::ScopedFD input_device_fd_;
+  const base::ScopedFD input_device_fd_;
 
   // Callbacks for dispatching events.
-  DeviceEventDispatcherEvdev* dispatcher_;
+  DeviceEventDispatcherEvdev* const dispatcher_;
 
   DISALLOW_COPY_AND_ASSIGN(GamepadEventConverterEvdev);
 };

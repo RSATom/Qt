@@ -48,12 +48,12 @@ std::vector<uint8_t> AuthenticatorGetInfoResponse::EncodeToCBOR(
         version == ProtocolVersion::kCtap2 ? kCtap2Version : kU2fVersion);
   }
   cbor::Value::MapValue device_info_map;
-  device_info_map.emplace(cbor::Value(1), cbor::Value(std::move(version_array)));
+  device_info_map.emplace(1, std::move(version_array));
 
   if (response.extensions)
     device_info_map.emplace(2, ToArrayValue(*response.extensions));
 
-  device_info_map.emplace(3, response.aaguid);
+  device_info_map.emplace(3, cbor::Value(response.aaguid));
   device_info_map.emplace(4, AsCBOR(response.options));
 
   if (response.max_msg_size) {
@@ -63,6 +63,16 @@ std::vector<uint8_t> AuthenticatorGetInfoResponse::EncodeToCBOR(
 
   if (response.pin_protocols) {
     device_info_map.emplace(6, ToArrayValue(*response.pin_protocols));
+  }
+
+  if (response.max_credential_count_in_list) {
+    device_info_map.emplace(
+        7, base::strict_cast<int64_t>(*response.max_credential_count_in_list));
+  }
+
+  if (response.max_credential_id_length) {
+    device_info_map.emplace(
+        8, base::strict_cast<int64_t>(*response.max_credential_id_length));
   }
 
   auto encoded_bytes =

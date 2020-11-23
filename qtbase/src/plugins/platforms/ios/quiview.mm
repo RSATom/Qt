@@ -56,7 +56,7 @@
 Q_LOGGING_CATEGORY(lcQpaTablet, "qt.qpa.input.tablet")
 
 @implementation QUIView {
-    QHash<UITouch *, QWindowSystemInterface::TouchPoint> m_activeTouches;
+    QHash<NSUInteger, QWindowSystemInterface::TouchPoint> m_activeTouches;
     UITouch *m_activePencilTouch;
     int m_nextTouchId;
     NSMutableArray<UIAccessibilityElement *> *m_accessibleElements;
@@ -100,13 +100,15 @@ Q_LOGGING_CATEGORY(lcQpaTablet, "qt.qpa.input.tablet")
 - (instancetype)initWithFrame:(CGRect)frame
 {
     if ((self = [super initWithFrame:frame])) {
-        // Set up EAGL layer
-        CAEAGLLayer *eaglLayer = static_cast<CAEAGLLayer *>(self.layer);
-        eaglLayer.opaque = TRUE;
-        eaglLayer.drawableProperties = @{
-            kEAGLDrawablePropertyRetainedBacking: @(YES),
-            kEAGLDrawablePropertyColorFormat: kEAGLColorFormatRGBA8
-        };
+        if ([self.layer isKindOfClass:[CAEAGLLayer class]]) {
+            // Set up EAGL layer
+            CAEAGLLayer *eaglLayer = static_cast<CAEAGLLayer *>(self.layer);
+            eaglLayer.opaque = TRUE;
+            eaglLayer.drawableProperties = @{
+                kEAGLDrawablePropertyRetainedBacking: @(YES),
+                kEAGLDrawablePropertyColorFormat: kEAGLColorFormatRGBA8
+            };
+        }
 
         if (isQtApplication())
             self.hidden = YES;
@@ -403,9 +405,19 @@ Q_LOGGING_CATEGORY(lcQpaTablet, "qt.qpa.input.tablet")
     }
 #endif
 
-    for (UITouch *uiTouch : m_activeTouches.keys()) {
-        QWindowSystemInterface::TouchPoint &touchPoint = m_activeTouches[uiTouch];
-        if (![touches containsObject:uiTouch]) {
+    if (m_activeTouches.isEmpty())
+        return;
+    for (auto it = m_activeTouches.begin(); it != m_activeTouches.end(); ++it) {
+        auto hash = it.key();
+        QWindowSystemInterface::TouchPoint &touchPoint = it.value();
+        UITouch *uiTouch = nil;
+        for (UITouch *touch in touches) {
+            if (touch.hash == hash) {
+                uiTouch = touch;
+                break;
+            }
+        }
+        if (!uiTouch) {
             touchPoint.state = Qt::TouchPointStationary;
         } else {
             touchPoint.state = state;
@@ -437,8 +449,6 @@ Q_LOGGING_CATEGORY(lcQpaTablet, "qt.qpa.input.tablet")
             }
         }
     }
-    if (m_activeTouches.isEmpty())
-            return;
 
     if ([self.window isKindOfClass:[QUIWindow class]] &&
             !static_cast<QUIWindow *>(self.window).sendingEvent) {
@@ -474,9 +484,9 @@ Q_LOGGING_CATEGORY(lcQpaTablet, "qt.qpa.input.tablet")
             m_activePencilTouch = touch;
         } else
         {
-            Q_ASSERT(!m_activeTouches.contains(touch));
+            Q_ASSERT(!m_activeTouches.contains(touch.hash));
 #endif
-            m_activeTouches[touch].id = m_nextTouchId++;
+            m_activeTouches[touch.hash].id = m_nextTouchId++;
 #if QT_CONFIG(tabletevent)
         }
 #endif
@@ -503,6 +513,7 @@ Q_LOGGING_CATEGORY(lcQpaTablet, "qt.qpa.input.tablet")
     [self handleTouches:touches withEvent:event withState:Qt::TouchPointReleased withTimestamp:ulong(event.timestamp * 1000)];
 
     // Remove ended touch points from the active set:
+#ifndef Q_OS_TVOS
     for (UITouch *touch in touches) {
 #if QT_CONFIG(tabletevent)
         if (touch.type == UITouchTypeStylus) {
@@ -510,9 +521,14 @@ Q_LOGGING_CATEGORY(lcQpaTablet, "qt.qpa.input.tablet")
         } else
 #endif
         {
-            m_activeTouches.remove(touch);
+            m_activeTouches.remove(touch.hash);
         }
     }
+#else
+    // tvOS only supports single touch
+    m_activeTouches.clear();
+#endif
+
     if (m_activeTouches.isEmpty() && !m_activePencilTouch)
         m_nextTouchId = 0;
 }
@@ -674,6 +690,25 @@ Q_LOGGING_CATEGORY(lcQpaTablet, "qt.qpa.input.tablet")
 }
 
 @end
+
+#ifdef Q_OS_IOS
+@implementation QUIMetalView
+
++ (Class)layerClass
+{
+#ifdef TARGET_IPHONE_SIMULATOR
+    if (@available(ios 13.0, *))
+#endif
+
+    return [CAMetalLayer class];
+
+#ifdef TARGET_IPHONE_SIMULATOR
+    return nil;
+#endif
+}
+
+@end
+#endif
 
 #ifndef QT_NO_ACCESSIBILITY
 // Include category as an alternative to using -ObjC (Apple QA1490)

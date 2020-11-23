@@ -2,7 +2,7 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "third_party/blink/public/web/modules/mediastream/mock_media_stream_video_source.h"
+#include "third_party/blink/renderer/modules/mediastream/mock_media_stream_video_source.h"
 
 #include "base/bind.h"
 #include "base/location.h"
@@ -55,11 +55,11 @@ void MockMediaStreamVideoSource::RequestRefreshFrame() {
     const scoped_refptr<media::VideoFrame> frame =
         media::VideoFrame::CreateColorFrame(format_.frame_size, 0, 0, 0,
                                             base::TimeDelta());
-    // TODO(crbug.com/964947): Remove the rebind of |frame_callback_|.
     PostCrossThreadTask(
         *io_task_runner(), FROM_HERE,
-        CrossThreadBindRepeating(frame_callback_, frame, base::TimeTicks()));
+        CrossThreadBindOnce(frame_callback_, frame, base::TimeTicks()));
   }
+  OnRequestRefreshFrame();
 }
 
 void MockMediaStreamVideoSource::OnHasConsumers(bool has_consumers) {
@@ -72,17 +72,20 @@ void MockMediaStreamVideoSource::DoChangeSource(
 }
 
 void MockMediaStreamVideoSource::StartSourceImpl(
-    const VideoCaptureDeliverFrameCB& frame_callback) {
+    VideoCaptureDeliverFrameCB frame_callback,
+    EncodedVideoFrameCB encoded_frame_callback) {
   DCHECK(frame_callback_.is_null());
+  DCHECK(encoded_frame_callback_.is_null());
   attempted_to_start_ = true;
-  frame_callback_ = frame_callback;
+  frame_callback_ = std::move(frame_callback);
+  encoded_frame_callback_ = std::move(encoded_frame_callback);
 }
 
 void MockMediaStreamVideoSource::StopSourceImpl() {}
 
 base::Optional<media::VideoCaptureFormat>
 MockMediaStreamVideoSource::GetCurrentFormat() const {
-  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
+  DCHECK_CALLED_ON_VALID_THREAD(thread_checker_);
   return base::Optional<media::VideoCaptureFormat>(format_);
 }
 
@@ -97,11 +100,18 @@ void MockMediaStreamVideoSource::DeliverVideoFrame(
     scoped_refptr<media::VideoFrame> frame) {
   DCHECK(!is_stopped_for_restart_);
   DCHECK(!frame_callback_.is_null());
-  // TODO(crbug.com/964947): Remove the rebind of |frame_callback_|.
-  PostCrossThreadTask(
-      *io_task_runner(), FROM_HERE,
-      CrossThreadBindRepeating(frame_callback_, std::move(frame),
-                               base::TimeTicks()));
+  PostCrossThreadTask(*io_task_runner(), FROM_HERE,
+                      CrossThreadBindOnce(frame_callback_, std::move(frame),
+                                          base::TimeTicks()));
+}
+
+void MockMediaStreamVideoSource::DeliverEncodedVideoFrame(
+    scoped_refptr<EncodedVideoFrame> frame) {
+  DCHECK(!is_stopped_for_restart_);
+  DCHECK(!encoded_frame_callback_.is_null());
+  PostCrossThreadTask(*io_task_runner(), FROM_HERE,
+                      CrossThreadBindOnce(encoded_frame_callback_,
+                                          std::move(frame), base::TimeTicks()));
 }
 
 void MockMediaStreamVideoSource::StopSourceForRestartImpl() {

@@ -25,16 +25,17 @@
 #include "net/http/http_auth_handler_factory.h"
 #include "net/http/http_network_session.h"
 #include "net/http/http_network_transaction.h"
-#include "net/http/http_server_properties_impl.h"
+#include "net/http/http_server_properties.h"
 #include "net/http/http_transaction_test_util.h"
 #include "net/http/transport_security_state.h"
 #include "net/log/net_log_with_source.h"
 #include "net/proxy_resolution/proxy_resolution_service.h"
+#include "net/quic/quic_context.h"
 #include "net/ssl/ssl_config_service_defaults.h"
 #include "net/test/cert_test_util.h"
 #include "net/test/gtest_util.h"
 #include "net/test/test_data_directory.h"
-#include "net/test/test_with_scoped_task_environment.h"
+#include "net/test/test_with_task_environment.h"
 #include "net/third_party/quiche/src/quic/platform/api/quic_string_piece.h"
 #include "net/third_party/quiche/src/quic/test_tools/crypto_test_utils.h"
 #include "net/third_party/quiche/src/quic/test_tools/quic_test_utils.h"
@@ -82,8 +83,7 @@ class TestTransactionFactory : public HttpTransactionFactory {
 
 }  // namespace
 
-class QuicEndToEndTest : public ::testing::Test,
-                         public WithScopedTaskEnvironment {
+class QuicEndToEndTest : public ::testing::Test, public WithTaskEnvironment {
  protected:
   QuicEndToEndTest()
       : host_resolver_impl_(CreateResolverImpl()),
@@ -101,7 +101,7 @@ class QuicEndToEndTest : public ::testing::Test,
 
     session_params_.enable_quic = true;
 
-    session_context_.quic_random = nullptr;
+    session_context_.quic_context = &quic_context_;
     session_context_.host_resolver = &host_resolver_;
     session_context_.cert_verifier = &cert_verifier_;
     session_context_.transport_security_state = &transport_security_state_;
@@ -141,7 +141,7 @@ class QuicEndToEndTest : public ::testing::Test,
 
     // To simplify the test, and avoid the race with the HTTP request, we force
     // QUIC for these requests.
-    session_params_.quic_params.origins_to_force_quic_on.insert(
+    quic_context_.params()->origins_to_force_quic_on.insert(
         HostPortPair::FromString("test.example.com:443"));
 
     transaction_factory_.reset(
@@ -212,6 +212,7 @@ class QuicEndToEndTest : public ::testing::Test,
     EXPECT_EQ(body, consumer.content());
   }
 
+  QuicContext quic_context_;
   std::unique_ptr<MockHostResolver> host_resolver_impl_;
   MappedHostResolver host_resolver_;
   MockCertVerifier cert_verifier_;
@@ -221,7 +222,7 @@ class QuicEndToEndTest : public ::testing::Test,
   std::unique_ptr<SSLConfigServiceDefaults> ssl_config_service_;
   std::unique_ptr<ProxyResolutionService> proxy_resolution_service_;
   std::unique_ptr<HttpAuthHandlerFactory> auth_handler_factory_;
-  HttpServerPropertiesImpl http_server_properties_;
+  HttpServerProperties http_server_properties_;
   HttpNetworkSession::Params session_params_;
   HttpNetworkSession::Context session_context_;
   std::unique_ptr<TestTransactionFactory> transaction_factory_;

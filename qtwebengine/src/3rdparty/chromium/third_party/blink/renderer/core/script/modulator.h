@@ -6,7 +6,7 @@
 #define THIRD_PARTY_BLINK_RENDERER_CORE_SCRIPT_MODULATOR_H_
 
 #include "base/single_thread_task_runner.h"
-#include "services/network/public/mojom/referrer_policy.mojom-blink.h"
+#include "services/network/public/mojom/referrer_policy.mojom-blink-forward.h"
 #include "third_party/blink/public/platform/web_url_request.h"
 #include "third_party/blink/renderer/bindings/core/v8/module_record.h"
 #include "third_party/blink/renderer/bindings/core/v8/sanitize_script_errors.h"
@@ -40,7 +40,7 @@ class ScriptValue;
 // module tree graph) load is complete and its corresponding entry is created in
 // module map.
 class CORE_EXPORT SingleModuleClient
-    : public GarbageCollectedFinalized<SingleModuleClient>,
+    : public GarbageCollected<SingleModuleClient>,
       public NameClient {
  public:
   virtual ~SingleModuleClient() = default;
@@ -54,9 +54,8 @@ class CORE_EXPORT SingleModuleClient
 
 // A ModuleTreeClient is notified when a module script and its whole descendent
 // tree load is complete.
-class CORE_EXPORT ModuleTreeClient
-    : public GarbageCollectedFinalized<ModuleTreeClient>,
-      public NameClient {
+class CORE_EXPORT ModuleTreeClient : public GarbageCollected<ModuleTreeClient>,
+                                     public NameClient {
  public:
   virtual ~ModuleTreeClient() = default;
   virtual void Trace(Visitor* visitor) {}
@@ -95,7 +94,7 @@ enum class ModuleScriptCustomFetchType {
 // https://html.spec.whatwg.org/C/#environment-settings-object
 //
 // A Modulator also serves as an entry point for various module spec algorithms.
-class CORE_EXPORT Modulator : public GarbageCollectedFinalized<Modulator>,
+class CORE_EXPORT Modulator : public GarbageCollected<Modulator>,
                               public V8PerContextData::Data,
                               public NameClient {
   USING_GARBAGE_COLLECTED_MIXIN(Modulator);
@@ -121,6 +120,7 @@ class CORE_EXPORT Modulator : public GarbageCollectedFinalized<Modulator>,
   // "scripting is disabled for settings's responsible browsing context"
   virtual bool IsScriptingDisabled() const = 0;
 
+  virtual bool ImportMapsEnabled() const = 0;
   virtual bool BuiltInModuleInfraEnabled() const = 0;
   virtual bool BuiltInModuleEnabled(layered_api::Module) const = 0;
   virtual void BuiltInModuleUseCount(layered_api::Module) const = 0;
@@ -174,17 +174,23 @@ class CORE_EXPORT Modulator : public GarbageCollectedFinalized<Modulator>,
                                   const ReferrerScriptInfo&,
                                   ScriptPromiseResolver*) = 0;
 
+  virtual ScriptValue CreateTypeError(const String& message) const = 0;
+  virtual ScriptValue CreateSyntaxError(const String& message) const = 0;
+
   // Import maps. https://github.com/WICG/import-maps
-  virtual void RegisterImportMap(const ImportMap*) = 0;
+  virtual void RegisterImportMap(const ImportMap*,
+                                 ScriptValue error_to_rethrow) = 0;
   virtual bool IsAcquiringImportMaps() const = 0;
   virtual void ClearIsAcquiringImportMaps() = 0;
+  virtual const ImportMap* GetImportMapForTest() const = 0;
 
   // https://html.spec.whatwg.org/C/#hostgetimportmetaproperties
-  virtual ModuleImportMeta HostGetImportMetaProperties(ModuleRecord) const = 0;
+  virtual ModuleImportMeta HostGetImportMetaProperties(
+      v8::Local<v8::Module>) const = 0;
 
   virtual bool HasValidContext() = 0;
 
-  virtual ScriptValue InstantiateModule(ModuleRecord) = 0;
+  virtual ScriptValue InstantiateModule(v8::Local<v8::Module>, const KURL&) = 0;
 
   struct ModuleRequest {
     String specifier;
@@ -193,7 +199,7 @@ class CORE_EXPORT Modulator : public GarbageCollectedFinalized<Modulator>,
         : specifier(specifier), position(position) {}
   };
   virtual Vector<ModuleRequest> ModuleRequestsFromModuleRecord(
-      ModuleRecord) = 0;
+      v8::Local<v8::Module>) = 0;
 
   enum class CaptureEvalErrorFlag : bool { kReport, kCapture };
 

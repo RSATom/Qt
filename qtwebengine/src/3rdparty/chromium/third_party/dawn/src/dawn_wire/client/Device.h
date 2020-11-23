@@ -15,9 +15,11 @@
 #ifndef DAWNWIRE_CLIENT_DEVICE_H_
 #define DAWNWIRE_CLIENT_DEVICE_H_
 
-#include <dawn/dawn.h>
+#include <dawn/webgpu.h>
 
 #include "dawn_wire/client/ObjectBase.h"
+
+#include <map>
 
 namespace dawn_wire { namespace client {
 
@@ -26,14 +28,27 @@ namespace dawn_wire { namespace client {
     class Device : public ObjectBase {
       public:
         Device(Client* client, uint32_t refcount, uint32_t id);
+        ~Device();
 
         Client* GetClient();
-        void HandleError(const char* message);
-        void SetErrorCallback(DawnDeviceErrorCallback errorCallback, void* errorUserdata);
+        void HandleError(WGPUErrorType errorType, const char* message);
+        void SetUncapturedErrorCallback(WGPUErrorCallback errorCallback, void* errorUserdata);
+
+        void PushErrorScope(WGPUErrorFilter filter);
+        bool RequestPopErrorScope(WGPUErrorCallback callback, void* userdata);
+        bool PopErrorScope(uint64_t requestSerial, WGPUErrorType type, const char* message);
 
       private:
+        struct ErrorScopeData {
+            WGPUErrorCallback callback = nullptr;
+            void* userdata = nullptr;
+        };
+        std::map<uint64_t, ErrorScopeData> mErrorScopes;
+        uint64_t mErrorScopeRequestSerial = 0;
+        uint64_t mErrorScopeStackSize = 0;
+
         Client* mClient = nullptr;
-        DawnDeviceErrorCallback mErrorCallback = nullptr;
+        WGPUErrorCallback mErrorCallback = nullptr;
         void* mErrorUserdata;
     };
 

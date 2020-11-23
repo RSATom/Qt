@@ -14,11 +14,13 @@
 #include "base/files/file_util.h"
 #include "base/guid.h"
 #include "base/lazy_instance.h"
+#include "base/memory/scoped_refptr.h"
 #include "base/metrics/histogram_macros.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/stringprintf.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/task/post_task.h"
+#include "chrome/browser/apps/app_service/app_launch_params.h"
 #include "chrome/browser/devtools/devtools_window.h"
 #include "chrome/browser/extensions/api/developer_private/developer_private_mangle.h"
 #include "chrome/browser/extensions/api/developer_private/entry_picker.h"
@@ -45,7 +47,6 @@
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ui/apps/app_info_dialog.h"
 #include "chrome/browser/ui/browser_finder.h"
-#include "chrome/browser/ui/extensions/app_launch_params.h"
 #include "chrome/browser/ui/extensions/application_launch.h"
 #include "chrome/browser/ui/tabs/tab_strip_model.h"
 #include "chrome/common/extensions/api/developer_private.h"
@@ -61,7 +62,6 @@
 #include "content/public/browser/render_frame_host.h"
 #include "content/public/browser/site_instance.h"
 #include "content/public/browser/storage_partition.h"
-#include "content/public/browser/system_connector.h"
 #include "content/public/browser/web_contents.h"
 #include "content/public/common/drop_data.h"
 #include "extensions/browser/api/file_handlers/app_file_handler_util.h"
@@ -94,11 +94,11 @@
 #include "extensions/common/permissions/permissions_data.h"
 #include "net/base/filename_util.h"
 #include "storage/browser/blob/shareable_file_reference.h"
-#include "storage/browser/fileapi/external_mount_points.h"
-#include "storage/browser/fileapi/file_system_context.h"
-#include "storage/browser/fileapi/file_system_operation.h"
-#include "storage/browser/fileapi/file_system_operation_runner.h"
-#include "storage/browser/fileapi/isolated_context.h"
+#include "storage/browser/file_system/external_mount_points.h"
+#include "storage/browser/file_system/file_system_context.h"
+#include "storage/browser/file_system/file_system_operation.h"
+#include "storage/browser/file_system/file_system_operation_runner.h"
+#include "storage/browser/file_system/isolated_context.h"
 #include "third_party/re2/src/re2/re2.h"
 #include "ui/base/l10n/l10n_util.h"
 
@@ -176,8 +176,9 @@ void GetManifestError(const std::string& error,
 
   // This will read the manifest and call AddFailure with the read manifest
   // contents.
-  base::PostTaskWithTraitsAndReplyWithResult(
-      FROM_HERE, {base::MayBlock(), base::TaskPriority::USER_BLOCKING},
+  base::PostTaskAndReplyWithResult(
+      FROM_HERE,
+      {base::ThreadPool(), base::MayBlock(), base::TaskPriority::USER_BLOCKING},
       base::BindOnce(&ReadFileToString,
                      extension_path.Append(kManifestFilename)),
       base::BindOnce(std::move(callback), extension_path, error, line));
@@ -323,7 +324,7 @@ std::unique_ptr<developer::ProfileInfo> DeveloperPrivateAPI::CreateProfileInfo(
   info->in_developer_mode =
       !info->is_supervised &&
       prefs->GetBoolean(prefs::kExtensionsUIDeveloperMode);
-  info->app_info_dialog_enabled = CanShowAppInfoDialog();
+  info->app_info_dialog_enabled = CanPlatformShowAppInfoDialog();
   info->can_load_unpacked =
       ExtensionManagementFactory::GetForBrowserContext(profile)
           ->HasWhitelistedExtension();
@@ -356,16 +357,7 @@ DeveloperPrivateAPI::DeveloperPrivateAPI(content::BrowserContext* context)
 }
 
 DeveloperPrivateEventRouter::DeveloperPrivateEventRouter(Profile* profile)
-    : extension_registry_observer_(this),
-      error_console_observer_(this),
-      process_manager_observer_(this),
-      app_window_registry_observer_(this),
-      warning_service_observer_(this),
-      extension_prefs_observer_(this),
-      extension_management_observer_(this),
-      command_service_observer_(this),
-      profile_(profile),
-      event_router_(EventRouter::Get(profile_)) {
+    : profile_(profile), event_router_(EventRouter::Get(profile_)) {
   extension_registry_observer_.Add(ExtensionRegistry::Get(profile_));
   error_console_observer_.Add(ErrorConsole::Get(profile));
   process_manager_observer_.Add(ProcessManager::Get(profile));
@@ -953,9 +945,8 @@ DeveloperPrivateUpdateExtensionConfigurationFunction::Run() {
   return RespondNow(NoArguments());
 }
 
-DeveloperPrivateReloadFunction::DeveloperPrivateReloadFunction()
-    : registry_observer_(this), error_reporter_observer_(this) {}
-DeveloperPrivateReloadFunction::~DeveloperPrivateReloadFunction() {}
+DeveloperPrivateReloadFunction::DeveloperPrivateReloadFunction() = default;
+DeveloperPrivateReloadFunction::~DeveloperPrivateReloadFunction() = default;
 
 ExtensionFunction::ResponseAction DeveloperPrivateReloadFunction::Run() {
   std::unique_ptr<Reload::Params> params(Reload::Params::Create(*args_));
@@ -1218,8 +1209,7 @@ DeveloperPrivateInstallDroppedFileFunction::Run() {
 
   ExtensionService* service = GetExtensionService(browser_context());
   if (path.MatchesExtension(FILE_PATH_LITERAL(".zip"))) {
-    ZipFileInstaller::Create(content::GetSystemConnector(),
-                             MakeRegisterInExtensionServiceCallback(service))
+    ZipFileInstaller::Create(MakeRegisterInExtensionServiceCallback(service))
         ->LoadFromZipFile(path);
   } else {
     auto prompt = std::make_unique<ExtensionInstallPrompt>(web_contents);
@@ -1472,9 +1462,10 @@ bool DeveloperPrivateLoadDirectoryFunction::LoadByFileSystemAPI(
 
   project_base_path_ = project_path;
 
-  base::PostTaskWithTraits(
+  base::PostTask(
       FROM_HERE,
-      {base::MayBlock(), base::TaskShutdownBehavior::SKIP_ON_SHUTDOWN},
+      {base::ThreadPool(), base::MayBlock(),
+       base::TaskShutdownBehavior::SKIP_ON_SHUTDOWN},
       base::BindOnce(
           &DeveloperPrivateLoadDirectoryFunction::ClearExistingDirectoryContent,
           this, project_base_path_));
@@ -1494,11 +1485,11 @@ void DeveloperPrivateLoadDirectoryFunction::Load() {
 void DeveloperPrivateLoadDirectoryFunction::ClearExistingDirectoryContent(
     const base::FilePath& project_path) {
   // Clear the project directory before copying new files.
-  base::DeleteFile(project_path, true /*recursive*/);
+  base::DeleteFileRecursively(project_path);
 
   pending_copy_operations_count_ = 1;
 
-  base::PostTaskWithTraits(
+  base::PostTask(
       FROM_HERE, {content::BrowserThread::IO},
       base::BindOnce(
           &DeveloperPrivateLoadDirectoryFunction::ReadDirectoryByFileSystemAPI,
@@ -1563,7 +1554,7 @@ void DeveloperPrivateLoadDirectoryFunction::ReadDirectoryByFileSystemAPICb(
     pending_copy_operations_count_--;
 
     if (!pending_copy_operations_count_) {
-      base::PostTaskWithTraits(
+      base::PostTask(
           FROM_HERE, {content::BrowserThread::UI},
           base::BindOnce(&DeveloperPrivateLoadDirectoryFunction::SendResponse,
                          this, success_));
@@ -1583,9 +1574,10 @@ void DeveloperPrivateLoadDirectoryFunction::SnapshotFileCallback(
     return;
   }
 
-  base::PostTaskWithTraits(
+  base::PostTask(
       FROM_HERE,
-      {base::MayBlock(), base::TaskShutdownBehavior::SKIP_ON_SHUTDOWN},
+      {base::ThreadPool(), base::MayBlock(),
+       base::TaskShutdownBehavior::SKIP_ON_SHUTDOWN},
       base::BindOnce(&DeveloperPrivateLoadDirectoryFunction::CopyFile, this,
                      src_path, target_path));
 }
@@ -1605,7 +1597,7 @@ void DeveloperPrivateLoadDirectoryFunction::CopyFile(
   pending_copy_operations_count_--;
 
   if (!pending_copy_operations_count_) {
-    base::PostTaskWithTraits(
+    base::PostTask(
         FROM_HERE, {content::BrowserThread::UI},
         base::BindOnce(&DeveloperPrivateLoadDirectoryFunction::Load, this));
   }
@@ -1710,8 +1702,9 @@ DeveloperPrivateRequestFileSourceFunction::Run() {
   if (properties.path_suffix == kManifestFile && !properties.manifest_key)
     return RespondNow(Error(kManifestKeyIsRequiredError));
 
-  base::PostTaskWithTraitsAndReplyWithResult(
-      FROM_HERE, {base::MayBlock(), base::TaskPriority::USER_VISIBLE},
+  base::PostTaskAndReplyWithResult(
+      FROM_HERE,
+      {base::ThreadPool(), base::MayBlock(), base::TaskPriority::USER_VISIBLE},
       base::Bind(&ReadFileToString, extension->path().Append(path_suffix)),
       base::Bind(&DeveloperPrivateRequestFileSourceFunction::Finish, this));
 
@@ -1817,7 +1810,7 @@ DeveloperPrivateOpenDevToolsFunction::Run() {
   // ... but some pages (popups and apps) don't have tabs, and some (background
   // pages) don't have an associated browser. For these, the inspector opens in
   // a new window, and our work is done.
-  if (!browser || !browser->is_type_tabbed())
+  if (!browser || !browser->is_type_normal())
     return RespondNow(NoArguments());
 
   TabStripModel* tab_strip = browser->tab_strip_model();
@@ -1886,11 +1879,10 @@ DeveloperPrivateRepairExtensionFunction::Run() {
   if (!web_contents)
     return RespondNow(Error(kCouldNotFindWebContentsError));
 
-  scoped_refptr<WebstoreReinstaller> reinstaller(new WebstoreReinstaller(
+  auto reinstaller = base::MakeRefCounted<WebstoreReinstaller>(
       web_contents, params->extension_id,
       base::BindOnce(
-          &DeveloperPrivateRepairExtensionFunction::OnReinstallComplete,
-          this)));
+          &DeveloperPrivateRepairExtensionFunction::OnReinstallComplete, this));
   reinstaller->BeginReinstall();
 
   return RespondLater();

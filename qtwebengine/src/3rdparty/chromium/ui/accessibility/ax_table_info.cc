@@ -5,6 +5,7 @@
 #include "ui/accessibility/ax_table_info.h"
 
 #include "ui/accessibility/ax_constants.mojom.h"
+#include "ui/accessibility/ax_enums.mojom.h"
 #include "ui/accessibility/ax_node.h"
 #include "ui/accessibility/ax_role_properties.h"
 #include "ui/accessibility/ax_tree.h"
@@ -26,7 +27,7 @@ namespace {
 // in-between a table row and its cells.
 void FindCellsInRow(AXNode* node, std::vector<AXNode*>* cell_nodes) {
   for (AXNode* child : node->children()) {
-    if (child->data().HasState(ax::mojom::State::kIgnored) ||
+    if (child->IsIgnored() ||
         child->data().role == ax::mojom::Role::kGenericContainer)
       FindCellsInRow(child, cell_nodes);
     else if (IsCellOrTableHeader(child->data().role))
@@ -41,18 +42,19 @@ void FindCellsInRow(AXNode* node, std::vector<AXNode*>* cell_nodes) {
 //
 // We only recursively check for the following roles in between a table and
 // its rows: generic containers like <div>, any nodes that are ignored, and
-// table sections (which have Role::kGroup).
+// table sections (which have Role::kRowGroup).
 void FindRowsAndThenCells(AXNode* node,
                           std::vector<AXNode*>* row_nodes,
                           std::vector<std::vector<AXNode*>>* cell_nodes_per_row,
                           int32_t& caption_node_id) {
   for (AXNode* child : node->children()) {
-    if (child->data().HasState(ax::mojom::State::kIgnored) ||
+    if (child->IsIgnored() ||
         child->data().role == ax::mojom::Role::kGenericContainer ||
-        child->data().role == ax::mojom::Role::kGroup) {
+        child->data().role == ax::mojom::Role::kGroup ||
+        child->data().role == ax::mojom::Role::kRowGroup) {
       FindRowsAndThenCells(child, row_nodes, cell_nodes_per_row,
                            caption_node_id);
-    } else if (child->data().role == ax::mojom::Role::kRow) {
+    } else if (IsTableRow(child->data().role)) {
       row_nodes->push_back(child);
       cell_nodes_per_row->push_back(std::vector<AXNode*>());
       FindCellsInRow(child, &cell_nodes_per_row->back());
@@ -341,23 +343,22 @@ void AXTableInfo::UpdateExtraMacNodes() {
   // The table header container is just a node with all of the headers in the
   // table as indirect children.
 
-  // One node for each column, and one more for the table header container.
-  size_t extra_node_count = col_count + 1;
-
-  if (extra_mac_nodes.size() != extra_node_count) {
+  if (!extra_mac_nodes.empty()) {
     // Delete old extra nodes.
     ClearExtraMacNodes();
-
-    // Resize.
-    extra_mac_nodes.resize(col_count + 1);
-
-    // Create column nodes.
-    for (size_t i = 0; i < col_count; i++)
-      extra_mac_nodes[i] = CreateExtraMacColumnNode(i);
-
-    // Create table header container node.
-    extra_mac_nodes[col_count] = CreateExtraMacTableHeaderNode();
   }
+
+  // One node for each column, and one more for the table header container.
+  size_t extra_node_count = col_count + 1;
+  // Resize.
+  extra_mac_nodes.resize(extra_node_count);
+
+  // Create column nodes.
+  for (size_t i = 0; i < col_count; i++)
+    extra_mac_nodes[i] = CreateExtraMacColumnNode(i);
+
+  // Create table header container node.
+  extra_mac_nodes[col_count] = CreateExtraMacTableHeaderNode();
 
   // Update the columns to reflect current state of the table.
   for (size_t i = 0; i < col_count; i++)

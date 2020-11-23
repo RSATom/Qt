@@ -139,8 +139,8 @@ SkSurface* Request::createCPUSurface() {
     auto colorSpace = kRGBA_F16_SkColorType == cap.fColorType
                     ? SkColorSpace::MakeSRGBLinear()
                     : SkColorSpace::MakeSRGB();
-    SkImageInfo info = SkImageInfo::Make(bounds.width(), bounds.height(), cap.fColorType,
-                                         kPremul_SkAlphaType, cap.fSRGB ? colorSpace : nullptr);
+    SkImageInfo info = SkImageInfo::Make(bounds.size(), cap.fColorType, kPremul_SkAlphaType,
+                                         cap.fSRGB ? colorSpace : nullptr);
     return SkSurface::MakeRaster(info).release();
 }
 
@@ -151,8 +151,8 @@ SkSurface* Request::createGPUSurface() {
     auto colorSpace = kRGBA_F16_SkColorType == cap.fColorType
                     ? SkColorSpace::MakeSRGBLinear()
                     : SkColorSpace::MakeSRGB();
-    SkImageInfo info = SkImageInfo::Make(bounds.width(), bounds.height(), cap.fColorType,
-                                         kPremul_SkAlphaType, cap.fSRGB ? colorSpace: nullptr);
+    SkImageInfo info = SkImageInfo::Make(bounds.size(), cap.fColorType, kPremul_SkAlphaType,
+                                         cap.fSRGB ? colorSpace : nullptr);
     SkSurface* surface = SkSurface::MakeRenderTarget(context, SkBudgeted::kNo, info).release();
     return surface;
 }
@@ -229,13 +229,13 @@ sk_sp<SkData> Request::getJsonOps(int n) {
     return stream.detachAsData();
 }
 
-sk_sp<SkData> Request::getJsonOpList(int n) {
+sk_sp<SkData> Request::getJsonOpsTask(int n) {
     SkCanvas* canvas = this->getCanvas();
     SkASSERT(fGPUEnabled);
     SkDynamicMemoryWStream stream;
     SkJSONWriter writer(&stream, SkJSONWriter::Mode::kFast);
 
-    fDebugCanvas->toJSONOpList(writer, n, canvas);
+    fDebugCanvas->toJSONOpsTask(writer, n, canvas);
 
     writer.flush();
     return stream.detachAsData();

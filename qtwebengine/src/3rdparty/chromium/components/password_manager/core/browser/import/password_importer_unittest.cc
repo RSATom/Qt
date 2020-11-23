@@ -9,8 +9,9 @@
 #include "base/files/file_util.h"
 #include "base/files/scoped_temp_dir.h"
 #include "base/strings/utf_string_conversions.h"
-#include "base/test/scoped_task_environment.h"
+#include "base/test/task_environment.h"
 #include "components/autofill/core/common/password_form.h"
+#include "components/password_manager/core/browser/import/csv_password_sequence.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
 namespace password_manager {
@@ -32,20 +33,25 @@ class PasswordImporterTest : public testing::Test {
 
  protected:
   void StartImportAndWaitForCompletion(const base::FilePath& input_file) {
-    PasswordImporter::Import(input_file,
-                             base::Bind(&PasswordImporterTest::OnImportFinished,
-                                        base::Unretained(this)));
+    PasswordImporter::Import(
+        input_file, base::BindOnce(&PasswordImporterTest::OnImportFinished,
+                                   base::Unretained(this)));
 
-    scoped_task_environment_.RunUntilIdle();
+    task_environment_.RunUntilIdle();
 
     ASSERT_TRUE(callback_called_);
   }
 
   void OnImportFinished(PasswordImporter::Result result,
-                        const std::vector<autofill::PasswordForm>& passwords) {
+                        CSVPasswordSequence seq) {
     callback_called_ = true;
     result_ = result;
-    imported_passwords_ = passwords;
+    imported_passwords_.clear();
+    if (result != password_manager::PasswordImporter::SUCCESS)
+      return;
+    for (const auto& pwd : seq) {
+      imported_passwords_.push_back(pwd.ParseValid());
+    }
   }
 
   const PasswordImporter::Result& result() { return result_; }
@@ -57,7 +63,7 @@ class PasswordImporterTest : public testing::Test {
   base::ScopedTempDir temp_directory_;
 
  private:
-  base::test::ScopedTaskEnvironment scoped_task_environment_;
+  base::test::TaskEnvironment task_environment_;
 
   bool callback_called_;
   PasswordImporter::Result result_;

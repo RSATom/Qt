@@ -2,6 +2,31 @@
 <!DOCTYPE TS>
 <TS version="2.1" language="da">
 <context>
+    <name>QQuickXmlListModel</name>
+    <message>
+        <source>&quot;%1&quot; duplicates a previous role name and will be disabled.</source>
+        <translation>&quot;%1&quot; duplikerer et tidligere rollenavn og deaktiveres.</translation>
+    </message>
+    <message>
+        <source>invalid query: &quot;%1&quot;</source>
+        <translation>ugyldig forespørgsel: &quot;%1&quot;</translation>
+    </message>
+</context>
+<context>
+    <name>QQuickXmlListModelRole</name>
+    <message>
+        <source>An XmlRole query must not start with &apos;/&apos;</source>
+        <translation>En XmlRole-forespørgsel må ikke begynde med &apos;/&apos;</translation>
+    </message>
+</context>
+<context>
+    <name>QQuickXmlRoleList</name>
+    <message>
+        <source>An XmlListModel query must start with &apos;/&apos; or &quot;//&quot;</source>
+        <translation>En XmlListModel-forespørgsel må ikke begynde med &apos;/&apos; eller &quot;//&quot;</translation>
+    </message>
+</context>
+<context>
     <name>QXmlPatternistCLI</name>
     <message>
         <source>Warning in %1, at line %2, column %3: %4</source>
@@ -917,7 +942,7 @@
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>Variety of member types of %1 must be atomic.</source>
+        <source>Variety of member types of %1 must be atomic or union.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>

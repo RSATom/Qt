@@ -183,7 +183,7 @@ private Q_SLOTS:
         // WHEN
         // we set an empty/null scene root...
         engine.setRootEntity(QEntityPtr());
-        QTimer::singleShot(1000, &eventLoop, SLOT(quit()));
+        QTimer::singleShot(600, &eventLoop, SLOT(quit()));
 
         // ...and allow events to process...
         eventLoop.exec();
@@ -247,21 +247,21 @@ private Q_SLOTS:
 
         // THEN
         QCOMPARE(engine.executeCommand("list aspects").toString(),
-                 QString("Loaded aspects:\n * fake"));
+                 QString("fake"));
 
         // WHEN
         engine.registerAspect("otherfake");
 
         // THEN
         QCOMPARE(engine.executeCommand("list aspects").toString(),
-                 QString("Loaded aspects:\n * fake\n * otherfake"));
+                 QString("fake\notherfake"));
 
         // WHEN
         engine.registerAspect(new FakeAspect3);
 
         // THEN
         QCOMPARE(engine.executeCommand("list aspects").toString(),
-                 QString("Loaded aspects:\n * fake\n * otherfake\n * <unnamed>"));
+                 QString("fake\notherfake\n<unnamed>"));
     }
 
     void shouldDelegateCommandsToAspects()

@@ -7,13 +7,20 @@
 
 #include <string>
 
+#include "base/component_export.h"
+#include "base/optional.h"
 #include "build/build_config.h"
 #include "ui/gfx/geometry/rect.h"
 #include "ui/gfx/native_widget_types.h"
 
 #if defined(OS_FUCHSIA)
 #include <fuchsia/ui/views/cpp/fidl.h>
+#include <lib/ui/scenic/cpp/view_ref_pair.h>
 #endif
+
+namespace gfx {
+class ImageSkia;
+}
 
 namespace ui {
 
@@ -22,6 +29,8 @@ enum class PlatformWindowType {
   kPopup,
   kMenu,
   kTooltip,
+  kDrag,
+  kBubble,
 };
 
 enum class PlatformWindowOpacity {
@@ -30,9 +39,15 @@ enum class PlatformWindowOpacity {
   kTranslucentWindow,
 };
 
+class WorkspaceExtensionDelegate;
+
+#if defined(OS_LINUX)
+class X11ExtensionDelegate;
+#endif
+
 // Initial properties which are passed to PlatformWindow to be initialized
 // with a desired set of properties.
-struct PlatformWindowInitProperties {
+struct COMPONENT_EXPORT(PLATFORM_WINDOW) PlatformWindowInitProperties {
   PlatformWindowInitProperties();
 
   // Initializes properties with the specified |bounds|.
@@ -55,9 +70,35 @@ struct PlatformWindowInitProperties {
 
 #if defined(OS_FUCHSIA)
   fuchsia::ui::views::ViewToken view_token;
+  scenic::ViewRefPair view_ref_pair;
 #endif
 
-  bool activatable = false;
+  bool activatable = true;
+  bool force_show_in_taskbar;
+  bool keep_on_top = false;
+  bool visible_on_all_workspaces = false;
+  bool remove_standard_frame = false;
+  std::string workspace;
+
+  WorkspaceExtensionDelegate* workspace_extension_delegate = nullptr;
+
+#if defined(OS_LINUX)
+  bool prefer_dark_theme = false;
+  gfx::ImageSkia* icon = nullptr;
+  base::Optional<int> background_color;
+
+  // Specifies the res_name and res_class fields,
+  // respectively, of the WM_CLASS window property. Controls window grouping
+  // and desktop file matching in Linux window managers.
+  std::string wm_role_name;
+  std::string wm_class_name;
+  std::string wm_class_class;
+
+  // Stores visual id for the system tray in X11.
+  base::Optional<int> x_visual_id;
+
+  X11ExtensionDelegate* x11_extension_delegate = nullptr;
+#endif
 };
 
 }  // namespace ui

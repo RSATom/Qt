@@ -11,12 +11,13 @@
 #include "test/test_main_lib.h"
 
 #include <fstream>
+#include <memory>
 #include <string>
 
 #include "absl/flags/flag.h"
 #include "absl/flags/parse.h"
-#include "absl/memory/memory.h"
 #include "rtc_base/checks.h"
+#include "rtc_base/event_tracer.h"
 #include "rtc_base/logging.h"
 #include "rtc_base/ssl_adapter.h"
 #include "rtc_base/ssl_stream_adapter.h"
@@ -26,8 +27,8 @@
 #include "test/field_trial.h"
 #include "test/gmock.h"
 #include "test/gtest.h"
-#include "test/testsupport/file_utils.h"
 #include "test/testsupport/perf_test.h"
+#include "test/testsupport/resources_dir_flag.h"
 
 #if defined(WEBRTC_WIN)
 #include "rtc_base/win32_socket_init.h"
@@ -69,10 +70,24 @@ ABSL_FLAG(
     "https://github.com/catapult-project/catapult/blob/master/dashboard/docs/"
     "data-format.md.");
 
+constexpr char kPlotAllMetrics[] = "all";
+ABSL_FLAG(std::vector<std::string>,
+          plot,
+          {},
+          "List of metrics that should be exported for plotting (if they are "
+          "available). Example: psnr,ssim,encode_time. To plot all available "
+          " metrics pass 'all' as flag value");
+
 #endif
 
 ABSL_FLAG(bool, logs, true, "print logs to stderr");
 ABSL_FLAG(bool, verbose, false, "verbose logs to stderr");
+
+ABSL_FLAG(std::string,
+          trace_event,
+          "",
+          "Path to collect trace events (json file) for chrome://tracing. "
+          "If not set, events aren't captured.");
 
 ABSL_FLAG(std::string,
           force_fieldtrials,
@@ -91,6 +106,11 @@ class TestMainImpl : public TestMain {
     ::testing::InitGoogleMock(argc, argv);
     absl::ParseCommandLine(*argc, argv);
 
+    // Make sure we always pull in the --resources_dir flag, even if the test
+    // binary doesn't link with fileutils (downstream expects all test mains to
+    // have this flag).
+    (void)absl::GetFlag(FLAGS_resources_dir);
+
     // Default to LS_INFO, even for release builds to provide better test
     // logging.
     if (rtc::LogMessage::GetLogToDebug() > rtc::LS_INFO)
@@ -102,12 +122,12 @@ class TestMainImpl : public TestMain {
     rtc::LogMessage::SetLogToStderr(absl::GetFlag(FLAGS_logs) ||
                                     absl::GetFlag(FLAGS_verbose));
 
-    // TODO(bugs.webrtc.org/9792): we need to reference something from
-    // fileutils.h so that our downstream hack where we replace fileutils.cc
-    // works. Otherwise the downstream flag implementation will take over and
-    // botch the flag introduced by the hack. Remove this awful thing once the
-    // downstream implementation has been eliminated.
-    (void)webrtc::test::JoinFilename("horrible", "hack");
+    std::string trace_event_path = absl::GetFlag(FLAGS_trace_event);
+    const bool capture_events = !trace_event_path.empty();
+    if (capture_events) {
+      rtc::tracing::SetupInternalTracer();
+      rtc::tracing::StartInternalCapture(trace_event_path.c_str());
+    }
 
     // InitFieldTrialsFromString stores the char*, so the char array must
     // outlive the application.
@@ -116,7 +136,7 @@ class TestMainImpl : public TestMain {
     webrtc::metrics::Enable();
 
 #if defined(WEBRTC_WIN)
-    winsock_init_ = absl::make_unique<rtc::WinsockInitializer>();
+    winsock_init_ = std::make_unique<rtc::WinsockInitializer>();
 #endif
 
     // Initialize SSL which are used by several tests.
@@ -131,6 +151,10 @@ class TestMainImpl : public TestMain {
     // automatically wrapped.
     rtc::ThreadManager::Instance()->WrapCurrentThread();
     RTC_CHECK(rtc::Thread::Current());
+
+    if (capture_events) {
+      rtc::tracing::StopInternalCapture();
+    }
     return 0;
   }
 
@@ -147,6 +171,14 @@ class TestMainImpl : public TestMain {
         absl::GetFlag(FLAGS_isolated_script_test_perf_output);
     if (!chartjson_result_file.empty()) {
       webrtc::test::WritePerfResults(chartjson_result_file);
+    }
+    std::vector<std::string> metrics_to_plot = absl::GetFlag(FLAGS_plot);
+    if (!metrics_to_plot.empty()) {
+      if (metrics_to_plot.size() == 1 &&
+          metrics_to_plot[0] == kPlotAllMetrics) {
+        metrics_to_plot.clear();
+      }
+      webrtc::test::PrintPlottableResults(metrics_to_plot);
     }
 
     std::string result_filename =
@@ -180,7 +212,7 @@ class TestMainImpl : public TestMain {
 }  // namespace
 
 std::unique_ptr<TestMain> TestMain::Create() {
-  return absl::make_unique<TestMainImpl>();
+  return std::make_unique<TestMainImpl>();
 }
 
 }  // namespace webrtc

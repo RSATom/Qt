@@ -10,7 +10,7 @@
 #include "platform/base/error.h"
 
 namespace openscreen {
-namespace mdns {
+namespace osp {
 
 namespace {
 
@@ -21,7 +21,7 @@ ErrorOr<DomainName> FromLabels(const std::vector<std::string>& labels) {
 template <typename T>
 T UnpackErrorOr(ErrorOr<T> error_or) {
   EXPECT_TRUE(error_or);
-  return error_or.MoveValue();
+  return std::move(error_or.value());
 }
 
 }  // namespace
@@ -162,7 +162,7 @@ TEST(DomainNameTest, GetLabels) {
   DomainName domain_name = UnpackErrorOr(FromLabels(labels));
 
   const auto actual_labels = domain_name.GetLabels();
-  for (auto i = 0; i < labels.size(); ++i) {
+  for (size_t i = 0; i < labels.size(); ++i) {
     EXPECT_EQ(labels[i], actual_labels[i]);
   }
 }
@@ -190,5 +190,5 @@ TEST(DomainNameTest, StreamEscaping) {
   }
 }
 
-}  // namespace mdns
+}  // namespace osp
 }  // namespace openscreen

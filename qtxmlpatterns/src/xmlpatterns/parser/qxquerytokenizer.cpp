@@ -2140,7 +2140,7 @@ Tokenizer::Token XQueryTokenizer::attributeAsRaw(const QChar sep,
     }
 }
 
-Tokenizer::Token XQueryTokenizer::nextToken(YYLTYPE *const sourceLocator)
+Tokenizer::Token XQueryTokenizer::nextToken(XPATHLTYPE *const sourceLocator)
 {
     sourceLocator->first_line = m_line;
     sourceLocator->first_column = m_pos - m_columnOffset + 1; /* Plus 1, since m_pos is 0-based. */

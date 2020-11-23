@@ -6,6 +6,7 @@
 #define MEDIA_CDM_SUPPORTED_CDM_VERSIONS_H_
 
 #include <array>
+#include <cstddef>
 
 #include "media/base/media_export.h"
 #include "media/cdm/api/content_decryption_module.h"
@@ -32,7 +33,7 @@ struct SupportedVersion {
   bool enabled;
 };
 
-constexpr std::array<SupportedVersion, 3> kSupportedCdmInterfaceVersions = {{
+constexpr std::array<SupportedVersion, 2> kSupportedCdmInterfaceVersions = {{
     {10, true},
     {11, false},
 }};

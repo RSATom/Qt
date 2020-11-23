@@ -9,7 +9,7 @@
 #include "base/bind.h"
 #include "base/macros.h"
 #include "base/run_loop.h"
-#include "base/test/scoped_task_environment.h"
+#include "base/test/task_environment.h"
 #include "media/base/decoder_buffer.h"
 #include "media/base/demuxer_stream.h"
 #include "testing/gtest/include/gtest/gtest.h"
@@ -103,8 +103,8 @@ class FakeDemuxerStreamTest : public testing::Test {
   void ReadAndExpect(ReadResult result) {
     EXPECT_FALSE(read_pending_);
     read_pending_ = true;
-    stream_->Read(base::Bind(&FakeDemuxerStreamTest::BufferReady,
-                             base::Unretained(this)));
+    stream_->Read(base::BindOnce(&FakeDemuxerStreamTest::BufferReady,
+                                 base::Unretained(this)));
     base::RunLoop().RunUntilIdle();
     ExpectReadResult(result);
   }
@@ -112,8 +112,8 @@ class FakeDemuxerStreamTest : public testing::Test {
   void ReadUntilPending() {
     while (1) {
       read_pending_ = true;
-      stream_->Read(base::Bind(&FakeDemuxerStreamTest::BufferReady,
-                               base::Unretained(this)));
+      stream_->Read(base::BindOnce(&FakeDemuxerStreamTest::BufferReady,
+                                   base::Unretained(this)));
       base::RunLoop().RunUntilIdle();
       if (read_pending_)
         break;
@@ -180,7 +180,7 @@ class FakeDemuxerStreamTest : public testing::Test {
     ReadAllBuffers(num_configs, num_buffers_in_one_config);
   }
 
-  base::test::ScopedTaskEnvironment scoped_task_environment_;
+  base::test::SingleThreadTaskEnvironment task_environment_;
   std::unique_ptr<FakeDemuxerStream> stream_;
 
   DemuxerStream::Status status_;

@@ -82,6 +82,13 @@ HBSOURCES += $(HB_DIRECTWRITE_sources)
 HBHEADERS += $(HB_DIRECTWRITE_headers)
 endif
 
+if HAVE_GDI
+HBCFLAGS += $(GDI_CXXFLAGS)
+HBNONPCLIBS += $(GDI_LIBS)
+HBSOURCES += $(HB_GDI_sources)
+HBHEADERS += $(HB_GDI_headers)
+endif
+
 if HAVE_CORETEXT
 HBCFLAGS += $(CORETEXT_CFLAGS)
 HBNONPCLIBS += $(CORETEXT_LIBS)
@@ -313,6 +320,7 @@ harfbuzz.cc: Makefile.sources
 		$(HB_FT_sources) \
 		$(HB_GRAPHITE2_sources) \
 		$(HB_UNISCRIBE_sources) \
+		$(HB_GDI_sources) \
 		$(HB_DIRECTWRITE_sources) \
 		$(HB_CORETEXT_sources) \
 		; do echo '#include "'$$f'"'; done | \
@@ -324,6 +332,7 @@ noinst_PROGRAMS = \
 	main \
 	test \
 	test-buffer-serialize \
+	test-ot-meta \
 	test-ot-name \
 	test-gpos-size-params \
 	test-gsub-would-substitute \
@@ -341,6 +350,10 @@ test_LDADD = libharfbuzz.la $(HBLIBS) $(FREETYPE_LIBS)
 test_buffer_serialize_SOURCES = test-buffer-serialize.cc
 test_buffer_serialize_CPPFLAGS = $(HBCFLAGS)
 test_buffer_serialize_LDADD = libharfbuzz.la $(HBLIBS)
+
+test_ot_meta_SOURCES = test-ot-meta.cc
+test_ot_meta_CPPFLAGS = $(HBCFLAGS)
+test_ot_meta_LDADD = libharfbuzz.la $(HBLIBS)
 
 test_ot_name_SOURCES = test-ot-name.cc
 test_ot_name_CPPFLAGS = $(HBCFLAGS)
@@ -398,7 +411,7 @@ dump_use_data_SOURCES = dump-use-data.cc hb-ot-shape-complex-use-table.cc
 dump_use_data_CPPFLAGS = $(HBCFLAGS)
 dump_use_data_LDADD = libharfbuzz.la $(HBLIBS)
 
-COMPILED_TESTS = test-algs test-iter test-meta test-ot-tag test-unicode-ranges test-bimap
+COMPILED_TESTS = test-algs test-iter test-meta test-number test-ot-tag test-unicode-ranges test-bimap
 COMPILED_TESTS_CPPFLAGS = $(HBCFLAGS) -DMAIN -UNDEBUG
 COMPILED_TESTS_LDADD = libharfbuzz.la $(HBLIBS)
 check_PROGRAMS += $(COMPILED_TESTS)
@@ -415,6 +428,10 @@ test_iter_LDADD = $(COMPILED_TESTS_LDADD)
 test_meta_SOURCES = test-meta.cc hb-static.cc
 test_meta_CPPFLAGS = $(COMPILED_TESTS_CPPFLAGS)
 test_meta_LDADD = $(COMPILED_TESTS_LDADD)
+
+test_number_SOURCES = test-number.cc hb-number.cc
+test_number_CPPFLAGS = $(COMPILED_TESTS_CPPFLAGS)
+test_number_LDADD = $(COMPILED_TESTS_LDADD)
 
 test_ot_tag_SOURCES = hb-ot-tag.cc
 test_ot_tag_CPPFLAGS = $(COMPILED_TESTS_CPPFLAGS)

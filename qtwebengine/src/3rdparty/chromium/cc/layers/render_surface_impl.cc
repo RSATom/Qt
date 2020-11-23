@@ -20,6 +20,7 @@
 #include "cc/trees/layer_tree_impl.h"
 #include "cc/trees/occlusion.h"
 #include "cc/trees/transform_node.h"
+#include "components/viz/common/display/de_jelly.h"
 #include "components/viz/common/quads/content_draw_quad_base.h"
 #include "components/viz/common/quads/debug_border_draw_quad.h"
 #include "components/viz/common/quads/render_pass.h"
@@ -121,20 +122,11 @@ float RenderSurfaceImpl::GetDebugBorderWidth() const {
       layer_tree_impl_ ? layer_tree_impl_->device_scale_factor() : 1);
 }
 
-LayerImpl* RenderSurfaceImpl::MaskLayer() {
-  int mask_layer_id = OwningEffectNode()->mask_layer_id;
-  return layer_tree_impl_->LayerById(mask_layer_id);
-}
-
 LayerImpl* RenderSurfaceImpl::BackdropMaskLayer() const {
   ElementId mask_element_id = OwningEffectNode()->backdrop_mask_element_id;
   if (!mask_element_id)
     return nullptr;
   return layer_tree_impl_->LayerByElementId(mask_element_id);
-}
-
-bool RenderSurfaceImpl::HasMask() const {
-  return OwningEffectNode()->mask_layer_id != Layer::INVALID_ID;
 }
 
 bool RenderSurfaceImpl::HasMaskingContributingSurface() const {
@@ -254,6 +246,9 @@ gfx::Rect RenderSurfaceImpl::CalculateClippedAccumulatedContentRect() {
         CalculateExpandedClipForFilters(target_to_surface);
   } else {
     clipped_accumulated_rect_in_target_space = clip_rect();
+  }
+  if (layer_tree_impl_->settings().allow_de_jelly_effect) {
+    clipped_accumulated_rect_in_target_space.Inset(0, -viz::MaxDeJellyHeight());
   }
   clipped_accumulated_rect_in_target_space.Intersect(
       accumulated_rect_in_target_space);
@@ -423,14 +418,7 @@ void RenderSurfaceImpl::AppendQuads(DrawMode draw_mode,
                               GetDebugBorderWidth());
   }
 
-  DCHECK(!(MaskLayer() && BackdropMaskLayer()))
-      << "Can't support both a mask_layer and a backdrop_mask_layer";
-  bool mask_applies_to_backdrop = BackdropMaskLayer();
-  PictureLayerImpl* mask_layer =
-      mask_applies_to_backdrop
-          ? static_cast<PictureLayerImpl*>(BackdropMaskLayer())
-          : static_cast<PictureLayerImpl*>(MaskLayer());
-
+  LayerImpl* mask_layer = BackdropMaskLayer();
   viz::ResourceId mask_resource_id = 0;
   gfx::Size mask_texture_size;
   gfx::RectF mask_uv_rect;
@@ -452,13 +440,17 @@ void RenderSurfaceImpl::AppendQuads(DrawMode draw_mode,
     gfx::SizeF mask_uv_size;
     mask_layer->GetContentsResourceId(&mask_resource_id, &mask_texture_size,
                                       &mask_uv_size);
-    gfx::SizeF unclipped_mask_target_size = gfx::ScaleSize(
-        gfx::SizeF(OwningEffectNode()->unscaled_mask_target_size),
-        surface_contents_scale.x(), surface_contents_scale.y());
+    gfx::SizeF unclipped_mask_target_size =
+        gfx::ScaleSize(gfx::SizeF(mask_layer->bounds()),
+                       surface_contents_scale.x(), surface_contents_scale.y());
+    gfx::Vector2dF mask_offset = gfx::ScaleVector2d(
+        mask_layer->offset_to_transform_parent(), surface_contents_scale.x(),
+        surface_contents_scale.y());
     // Convert content_rect from target space to normalized mask UV space.
     // Where |unclipped_mask_target_size| maps to |mask_uv_size|.
     mask_uv_rect = gfx::ScaleRect(
-        gfx::RectF(content_rect()),
+        // Translate content_rect into mask resource's space.
+        gfx::RectF(content_rect()) - mask_offset,
         mask_uv_size.width() / unclipped_mask_target_size.width(),
         mask_uv_size.height() / unclipped_mask_target_size.height());
   }
@@ -467,8 +459,7 @@ void RenderSurfaceImpl::AppendQuads(DrawMode draw_mode,
   auto* quad = render_pass->CreateAndAppendDrawQuad<viz::RenderPassDrawQuad>();
   quad->SetNew(shared_quad_state, content_rect(), unoccluded_content_rect, id(),
                mask_resource_id, mask_uv_rect, mask_texture_size,
-               mask_applies_to_backdrop, surface_contents_scale,
-               FiltersOrigin(), tex_coord_rect,
+               surface_contents_scale, FiltersOrigin(), tex_coord_rect,
                !layer_tree_impl_->settings().enable_edge_anti_aliasing,
                OwningEffectNode()->backdrop_filter_quality);
 }

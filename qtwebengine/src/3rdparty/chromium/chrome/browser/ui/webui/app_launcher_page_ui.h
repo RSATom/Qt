@@ -39,9 +39,9 @@ class AppLauncherPageUI : public content::WebUIController {
     // content::URLDataSource implementation.
     std::string GetSource() override;
     void StartDataRequest(
-        const std::string& path,
-        const content::ResourceRequestInfo::WebContentsGetter& wc_getter,
-        const content::URLDataSource::GotDataCallback& callback) override;
+        const GURL& url,
+        const content::WebContents::Getter& wc_getter,
+        content::URLDataSource::GotDataCallback callback) override;
     std::string GetMimeType(const std::string&) override;
     bool ShouldReplaceExistingSource() override;
     bool AllowCaching() override;

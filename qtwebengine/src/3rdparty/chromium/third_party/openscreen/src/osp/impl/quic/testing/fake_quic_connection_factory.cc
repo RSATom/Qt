@@ -7,9 +7,10 @@
 #include <algorithm>
 #include <memory>
 
-#include "platform/api/logging.h"
+#include "util/logging.h"
 
 namespace openscreen {
+namespace osp {
 
 FakeQuicConnectionFactoryBridge::FakeQuicConnectionFactoryBridge(
     const IPEndpoint& controller_endpoint)
@@ -51,13 +52,16 @@ void FakeQuicConnectionFactoryBridge::SetServerDelegate(
   receiver_endpoint_ = endpoint;
 }
 
-void FakeQuicConnectionFactoryBridge::RunTasks() {
-  idle_ = true;
-  if (!connections_.controller || !connections_.receiver)
+void FakeQuicConnectionFactoryBridge::RunTasks(bool is_client) {
+  bool* idle_flag = is_client ? &client_idle_ : &server_idle_;
+  *idle_flag = true;
+
+  if (!connections_.controller || !connections_.receiver) {
     return;
+  }
 
   if (connections_pending_) {
-    idle_ = false;
+    *idle_flag = false;
     connections_.receiver->delegate()->OnCryptoHandshakeComplete(
         connections_.receiver->id());
     connections_.controller->delegate()->OnCryptoHandshakeComplete(
@@ -80,9 +84,8 @@ void FakeQuicConnectionFactoryBridge::RunTasks() {
     std::vector<uint8_t> written_data = controller_stream->TakeWrittenData();
     OSP_DCHECK(controller_stream->TakeReceivedData().empty());
 
-    // TODO(jophba): Move to a task runner here.
     if (!written_data.empty()) {
-      idle_ = false;
+      *idle_flag = false;
       receiver_stream->delegate()->OnReceived(
           receiver_stream, reinterpret_cast<const char*>(written_data.data()),
           written_data.size());
@@ -92,7 +95,7 @@ void FakeQuicConnectionFactoryBridge::RunTasks() {
     OSP_DCHECK(receiver_stream->TakeReceivedData().empty());
 
     if (written_data.size()) {
-      idle_ = false;
+      *idle_flag = false;
       controller_stream->delegate()->OnReceived(
           controller_stream, reinterpret_cast<const char*>(written_data.data()),
           written_data.size());
@@ -158,14 +161,27 @@ void FakeClientQuicConnectionFactory::SetServerDelegate(
   OSP_DCHECK(false) << "don't call SetServerDelegate from QuicClient side";
 }
 
-void FakeClientQuicConnectionFactory::RunTasks() {
-  bridge_->RunTasks();
-}
-
 std::unique_ptr<QuicConnection> FakeClientQuicConnectionFactory::Connect(
     const IPEndpoint& endpoint,
     QuicConnection::Delegate* connection_delegate) {
   return bridge_->Connect(endpoint, connection_delegate);
+}
+
+void FakeClientQuicConnectionFactory::OnError(platform::UdpSocket* socket,
+                                              Error error) {
+  OSP_UNIMPLEMENTED();
+}
+
+void FakeClientQuicConnectionFactory::OnSendError(platform::UdpSocket* socket,
+                                                  Error error) {
+  OSP_UNIMPLEMENTED();
+}
+
+void FakeClientQuicConnectionFactory::OnRead(
+    platform::UdpSocket* socket,
+    ErrorOr<platform::UdpPacket> packet) {
+  bridge_->RunTasks(true);
+  idle_ = bridge_->client_idle();
 }
 
 FakeServerQuicConnectionFactory::FakeServerQuicConnectionFactory(
@@ -184,10 +200,6 @@ void FakeServerQuicConnectionFactory::SetServerDelegate(
                              endpoints.empty() ? IPEndpoint{} : endpoints[0]);
 }
 
-void FakeServerQuicConnectionFactory::RunTasks() {
-  bridge_->RunTasks();
-}
-
 std::unique_ptr<QuicConnection> FakeServerQuicConnectionFactory::Connect(
     const IPEndpoint& endpoint,
     QuicConnection::Delegate* connection_delegate) {
@@ -195,4 +207,22 @@ std::unique_ptr<QuicConnection> FakeServerQuicConnectionFactory::Connect(
   return nullptr;
 }
 
+void FakeServerQuicConnectionFactory::OnError(platform::UdpSocket* socket,
+                                              Error error) {
+  OSP_UNIMPLEMENTED();
+}
+
+void FakeServerQuicConnectionFactory::OnSendError(platform::UdpSocket* socket,
+                                                  Error error) {
+  OSP_UNIMPLEMENTED();
+}
+
+void FakeServerQuicConnectionFactory::OnRead(
+    platform::UdpSocket* socket,
+    ErrorOr<platform::UdpPacket> packet) {
+  bridge_->RunTasks(false);
+  idle_ = bridge_->server_idle();
+}
+
+}  // namespace osp
 }  // namespace openscreen

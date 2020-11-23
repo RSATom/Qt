@@ -10,6 +10,7 @@
 #include <memory>
 #include <vector>
 
+#include "core/fxcrt/fx_memory_wrappers.h"
 #include "core/fxcrt/fx_string.h"
 #include "core/fxcrt/retain_ptr.h"
 
@@ -19,12 +20,12 @@ class CFX_XMLElement;
 class CFX_XMLNode;
 class IFX_SeekableReadStream;
 
-class CFX_XMLParser {
+class CFX_XMLParser final {
  public:
   static bool IsXMLNameChar(wchar_t ch, bool bFirstChar);
 
   explicit CFX_XMLParser(const RetainPtr<IFX_SeekableReadStream>& pStream);
-  virtual ~CFX_XMLParser();
+  ~CFX_XMLParser();
 
   std::unique_ptr<CFX_XMLDocument> Parse();
 
@@ -55,7 +56,7 @@ class CFX_XMLParser {
 
   CFX_XMLNode* current_node_ = nullptr;
   RetainPtr<CFX_SeekableStreamProxy> stream_;
-  std::vector<wchar_t> current_text_;
+  std::vector<wchar_t, FxAllocAllocator<wchar_t>> current_text_;
   size_t xml_plane_size_ = 1024;
   int32_t entity_start_ = -1;
 };

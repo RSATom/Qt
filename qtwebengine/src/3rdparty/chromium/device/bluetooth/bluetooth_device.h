@@ -17,11 +17,13 @@
 
 #include "base/callback.h"
 #include "base/containers/flat_set.h"
+#include "base/containers/span.h"
 #include "base/gtest_prod_util.h"
 #include "base/macros.h"
 #include "base/memory/ref_counted.h"
 #include "base/optional.h"
 #include "base/strings/string16.h"
+#include "base/strings/string_piece_forward.h"
 #include "base/time/time.h"
 #include "build/build_config.h"
 #include "device/bluetooth/bluetooth_common.h"
@@ -369,7 +371,7 @@ class DEVICE_BLUETOOTH_EXPORT BluetoothDevice {
   // The ConnectErrorCallback is used for methods that can fail with an error,
   // passed back as an error code argument to this callback.
   // In the success case this callback is not called.
-  typedef base::Callback<void(enum ConnectErrorCode)> ConnectErrorCallback;
+  using ConnectErrorCallback = base::OnceCallback<void(enum ConnectErrorCode)>;
 
   typedef base::Callback<void(const ConnectionInfo&)> ConnectionInfoCallback;
 
@@ -421,8 +423,8 @@ class DEVICE_BLUETOOTH_EXPORT BluetoothDevice {
   // process and release the pairing delegate if user cancels the pairing and
   // closes the pairing UI.
   virtual void Connect(PairingDelegate* pairing_delegate,
-                       const base::Closure& callback,
-                       const ConnectErrorCallback& error_callback) = 0;
+                       base::OnceClosure callback,
+                       ConnectErrorCallback error_callback) = 0;
 
   // Pairs the device. This method triggers pairing unconditially, i.e. it
   // ignores the |IsPaired()| value.
@@ -431,8 +433,8 @@ class DEVICE_BLUETOOTH_EXPORT BluetoothDevice {
   // implemented on ChromeOS, Linux and Windows 10. On Windows, only pairing
   // with a pin code is currently supported.
   virtual void Pair(PairingDelegate* pairing_delegate,
-                    const base::Closure& callback,
-                    const ConnectErrorCallback& error_callback);
+                    base::OnceClosure callback,
+                    ConnectErrorCallback error_callback);
 
   // Sends the PIN code |pincode| to the remote device during pairing.
   //
@@ -514,10 +516,10 @@ class DEVICE_BLUETOOTH_EXPORT BluetoothDevice {
   // returned BluetoothGattConnection will be automatically marked as inactive.
   // To monitor the state of the connection, observe the
   // BluetoothAdapter::Observer::DeviceChanged method.
-  typedef base::Callback<void(std::unique_ptr<BluetoothGattConnection>)>
-      GattConnectionCallback;
-  virtual void CreateGattConnection(const GattConnectionCallback& callback,
-                                    const ConnectErrorCallback& error_callback);
+  using GattConnectionCallback =
+      base::OnceCallback<void(std::unique_ptr<BluetoothGattConnection>)>;
+  virtual void CreateGattConnection(GattConnectionCallback callback,
+                                    ConnectErrorCallback error_callback);
 
   // Set the gatt services discovery complete flag for this device.
   virtual void SetGattServicesDiscoveryComplete(bool complete);
@@ -536,7 +538,15 @@ class DEVICE_BLUETOOTH_EXPORT BluetoothDevice {
   // Returns the |address| in the canonical format: XX:XX:XX:XX:XX:XX, where
   // each 'X' is a hex digit.  If the input |address| is invalid, returns an
   // empty string.
-  static std::string CanonicalizeAddress(const std::string& address);
+  static std::string CanonicalizeAddress(base::StringPiece address);
+
+  // Parses a Bluetooth address to an output buffer. The output buffer must be
+  // exactly 6 bytes in size. The address can be formatted in one of three ways:
+  //
+  //   1A:2B:3C:4D:5E:6F
+  //   1A-2B-3C-4D-5E-6F
+  //   1A2B3C4D5E6F
+  static bool ParseAddress(base::StringPiece input, base::span<uint8_t> output);
 
   // Update the last time this device was seen.
   void UpdateTimestamp();
@@ -579,7 +589,6 @@ class DEVICE_BLUETOOTH_EXPORT BluetoothDevice {
   // Aborts all the previous prepare writes in a reliable write session.
   virtual void AbortWrite(const base::Closure& callback,
                           const AbortWriteErrorCallback& error_callback) = 0;
-#endif
 
   // Set the remaining battery of the device to show in the UI. This value must
   // be between 0 and 100, inclusive.
@@ -587,13 +596,7 @@ class DEVICE_BLUETOOTH_EXPORT BluetoothDevice {
   // ash::GattBatteryPoller and used only by Chrome OS. In the future, when
   // there is a unified Mojo service, this logic will be moved to
   // BluetoothDeviceInfo.
-  void set_battery_percentage(base::Optional<uint8_t> battery_percentage) {
-    if (battery_percentage) {
-      DCHECK(battery_percentage.value() >= 0 &&
-             battery_percentage.value() <= 100);
-    }
-    battery_percentage_ = battery_percentage;
-  }
+  void SetBatteryPercentage(base::Optional<uint8_t> battery_percentage);
 
   // Returns the remaining battery for the device.
   // TODO(https://crbug.com/973237): Battery percentage is populated by
@@ -603,6 +606,7 @@ class DEVICE_BLUETOOTH_EXPORT BluetoothDevice {
   const base::Optional<uint8_t>& battery_percentage() const {
     return battery_percentage_;
   }
+#endif
 
  protected:
   // BluetoothGattConnection is a friend to call Add/RemoveGattConnection.
@@ -737,13 +741,13 @@ class DEVICE_BLUETOOTH_EXPORT BluetoothDevice {
   // a device type for display when |name_| is empty.
   base::string16 GetAddressWithLocalizedDeviceTypeName() const;
 
+#if defined(OS_CHROMEOS)
   // Remaining battery level of the device.
-  // TODO(https://crbug.com/973237): This field is populated by
-  // ash::GattBatteryPoller and used only by Chrome OS. This field is different
-  // from others because it is not filled by the platform. In the future, when
-  // there is a unified Mojo service, this field will be moved to
-  // BluetoothDeviceInfo.
+  // TODO(https://crbug.com/973237): This field is different from others because
+  // it is not filled by the platform. In the future, when there is a unified
+  // Mojo service, this field will be moved to BluetoothDeviceInfo.
   base::Optional<uint8_t> battery_percentage_;
+#endif
 
   DISALLOW_COPY_AND_ASSIGN(BluetoothDevice);
 };

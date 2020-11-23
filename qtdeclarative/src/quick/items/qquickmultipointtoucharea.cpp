@@ -88,20 +88,18 @@ void QQuickTouchPoint::setPointId(int id)
     These properties hold the current position of the touch point.
 */
 
-void QQuickTouchPoint::setX(qreal x)
+void QQuickTouchPoint::setPosition(QPointF p)
 {
-    if (_x == x)
+    bool xch = (_x != p.x());
+    bool ych = (_y != p.y());
+    if (!xch && !ych)
         return;
-    _x = x;
-    emit xChanged();
-}
-
-void QQuickTouchPoint::setY(qreal y)
-{
-    if (_y == y)
-        return;
-    _y = y;
-    emit yChanged();
+    _x = p.x();
+    _y = p.y();
+    if (xch)
+        emit xChanged();
+    if (ych)
+        emit yChanged();
 }
 
 /*!
@@ -365,24 +363,18 @@ void QQuickTouchPoint::setUniqueId(const QPointingDeviceUniqueId &id)
 
     If minimumTouchPoints is set to a value greater than one, this signal will not be emitted until the minimum number
     of required touch points has been reached.
-
-    The corresponding handler is \c onPressed.
 */
 
 /*!
     \qmlsignal QtQuick::MultiPointTouchArea::updated(list<TouchPoint> touchPoints)
 
     This signal is emitted when existing touch points are updated. \a touchPoints is a list of these updated points.
-
-    The corresponding handler is \c onUpdated.
 */
 
 /*!
     \qmlsignal QtQuick::MultiPointTouchArea::released(list<TouchPoint> touchPoints)
 
     This signal is emitted when existing touch points are removed. \a touchPoints is a list of these removed points.
-
-    The corresponding handler is \c onReleased.
 */
 
 /*!
@@ -398,8 +390,6 @@ void QQuickTouchPoint::setUniqueId(const QPointingDeviceUniqueId &id)
     \c canceled should be handled in addition to \l released.
 
     \a touchPoints is the list of canceled points.
-
-    The corresponding handler is \c onCanceled.
 */
 
 /*!
@@ -413,8 +403,6 @@ void QQuickTouchPoint::setUniqueId(const QPointingDeviceUniqueId &id)
     gesture is not grabbed, the nesting Flickable, for example, would also have an opportunity to grab.
 
     The \a gesture object also includes information on the current set of \c touchPoints and the \c dragThreshold.
-
-    The corresponding handler is \c onGestureStarted.
 */
 
 /*!
@@ -423,8 +411,6 @@ void QQuickTouchPoint::setUniqueId(const QPointingDeviceUniqueId &id)
     This signal is emitted when the touch points handled by the MultiPointTouchArea change. This includes adding new touch points,
     removing or canceling previous touch points, as well as updating current touch point data. \a touchPoints is the list of all current touch
     points.
-
-    The corresponding handler is \c onTouchUpdated.
 */
 
 /*!
@@ -798,13 +784,14 @@ void QQuickMultiPointTouchArea::updateTouchPoint(QQuickTouchPoint *dtp, const QT
     //TODO: if !qmlDefined, could bypass setters.
     //      also, should only emit signals after all values have been set
     dtp->setUniqueId(p->uniqueId());
-    dtp->setX(p->pos().x());
-    dtp->setY(p->pos().y());
+    dtp->setPosition(p->pos());
     dtp->setEllipseDiameters(p->ellipseDiameters());
     dtp->setPressure(p->pressure());
     dtp->setRotation(p->rotation());
     dtp->setVelocity(p->velocity());
-    dtp->setArea(p->rect());
+    QRectF area(QPointF(), p->ellipseDiameters());
+    area.moveCenter(p->pos());
+    dtp->setArea(area);
     dtp->setStartX(p->startPos().x());
     dtp->setStartY(p->startPos().y());
     dtp->setPreviousX(p->lastPos().x());
@@ -817,8 +804,7 @@ void QQuickMultiPointTouchArea::updateTouchPoint(QQuickTouchPoint *dtp, const QM
 {
     dtp->setPreviousX(dtp->x());
     dtp->setPreviousY(dtp->y());
-    dtp->setX(e->localPos().x());
-    dtp->setY(e->localPos().y());
+    dtp->setPosition(e->localPos());
     if (e->type() == QEvent::MouseButtonPress) {
         dtp->setStartX(e->localPos().x());
         dtp->setStartY(e->localPos().y());

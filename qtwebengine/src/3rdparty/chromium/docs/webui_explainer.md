@@ -157,6 +157,12 @@ Visiting `chrome://donuts` should show in something like:
 
 Delicious success.
 
+By default $i18n{} escapes strings for HTML. $i18nRaw{} can be used for
+translations that embed HTML, and $i18nPolymer{} can be used for Polymer
+bindings. See
+[this comment](https://bugs.chromium.org/p/chromium/issues/detail?id=1010815#c1)
+for more information.
+
 ## C++ classes
 
 ### WebUI
@@ -218,7 +224,7 @@ void OvenHandler::RegisterMessages() {
       base::Bind(&OvenHandler::HandleBakeDonuts, base::Unretained(this)));
 }
 
-void OverHandler::HandleBakeDonuts(const base::ListValue* args) {
+void OvenHandler::HandleBakeDonuts(const base::ListValue* args) {
   AllowJavascript();
 
   CHECK_EQ(1u, args->GetSize());

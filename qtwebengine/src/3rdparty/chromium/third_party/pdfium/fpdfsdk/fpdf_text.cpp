@@ -11,6 +11,7 @@
 #include <vector>
 
 #include "build/build_config.h"
+#include "core/fpdfapi/font/cpdf_cidfont.h"
 #include "core/fpdfapi/font/cpdf_font.h"
 #include "core/fpdfapi/page/cpdf_page.h"
 #include "core/fpdfapi/page/cpdf_textobject.h"
@@ -22,11 +23,6 @@
 #include "third_party/base/numerics/safe_conversions.h"
 #include "third_party/base/ptr_util.h"
 #include "third_party/base/stl_util.h"
-
-#ifdef PDF_ENABLE_XFA
-#include "fpdfsdk/fpdfxfa/cpdfxfa_context.h"
-#include "fpdfsdk/fpdfxfa/cpdfxfa_page.h"
-#endif  // PDF_ENABLE_XFA
 
 #if defined(OS_WIN)
 #include <tchar.h>
@@ -108,17 +104,117 @@ FPDFText_GetFontInfo(FPDF_TEXTPAGE text_page,
   if (!charinfo.m_pTextObj)
     return 0;
 
-  CPDF_Font* font = charinfo.m_pTextObj->GetFont();
-  if (!font)
-    return 0;
-
+  RetainPtr<CPDF_Font> font = charinfo.m_pTextObj->GetFont();
   if (flags)
     *flags = font->GetFontFlags();
-  ByteString basefont = font->GetBaseFont();
+
+  ByteString basefont = font->GetBaseFontName();
   unsigned long length = basefont.GetLength() + 1;
   if (buffer && buflen >= length)
     memcpy(buffer, basefont.c_str(), length);
+
   return length;
+}
+
+FPDF_EXPORT int FPDF_CALLCONV FPDFText_GetFontWeight(FPDF_TEXTPAGE text_page,
+                                                     int index) {
+  CPDF_TextPage* textpage = GetTextPageForValidIndex(text_page, index);
+  if (!textpage)
+    return -1;
+
+  FPDF_CHAR_INFO charinfo;
+  textpage->GetCharInfo(index, &charinfo);
+  if (!charinfo.m_pTextObj)
+    return -1;
+
+  return charinfo.m_pTextObj->GetFont()->GetFontWeight();
+}
+
+FPDF_EXPORT FPDF_TEXT_RENDERMODE FPDF_CALLCONV
+FPDFText_GetTextRenderMode(FPDF_TEXTPAGE text_page, int index) {
+  CPDF_TextPage* textpage = GetTextPageForValidIndex(text_page, index);
+  if (!textpage)
+    return -1;
+
+  FPDF_CHAR_INFO charinfo;
+  textpage->GetCharInfo(index, &charinfo);
+  if (!charinfo.m_pTextObj)
+    return -1;
+
+  return static_cast<FPDF_TEXT_RENDERMODE>(
+      charinfo.m_pTextObj->GetTextRenderMode());
+}
+
+FPDF_EXPORT FPDF_BOOL FPDF_CALLCONV
+FPDFText_GetFillColor(FPDF_TEXTPAGE text_page,
+                      int index,
+                      unsigned int* R,
+                      unsigned int* G,
+                      unsigned int* B,
+                      unsigned int* A) {
+  CPDF_TextPage* textpage = GetTextPageForValidIndex(text_page, index);
+  if (!textpage || !R || !G || !B || !A)
+    return false;
+
+  FPDF_CHAR_INFO charinfo;
+  textpage->GetCharInfo(index, &charinfo);
+  if (!charinfo.m_pTextObj)
+    return false;
+
+  FX_COLORREF fill_color = charinfo.m_pTextObj->m_ColorState.GetFillColorRef();
+  *R = FXSYS_GetRValue(fill_color);
+  *G = FXSYS_GetGValue(fill_color);
+  *B = FXSYS_GetBValue(fill_color);
+  *A = FXSYS_GetUnsignedAlpha(
+      charinfo.m_pTextObj->m_GeneralState.GetFillAlpha());
+  return true;
+}
+
+FPDF_EXPORT FPDF_BOOL FPDF_CALLCONV
+FPDFText_GetStrokeColor(FPDF_TEXTPAGE text_page,
+                        int index,
+                        unsigned int* R,
+                        unsigned int* G,
+                        unsigned int* B,
+                        unsigned int* A) {
+  CPDF_TextPage* textpage = GetTextPageForValidIndex(text_page, index);
+  if (!textpage || !R || !G || !B || !A)
+    return false;
+
+  FPDF_CHAR_INFO charinfo;
+  textpage->GetCharInfo(index, &charinfo);
+  if (!charinfo.m_pTextObj)
+    return false;
+
+  FX_COLORREF stroke_color =
+      charinfo.m_pTextObj->m_ColorState.GetStrokeColorRef();
+  *R = FXSYS_GetRValue(stroke_color);
+  *G = FXSYS_GetGValue(stroke_color);
+  *B = FXSYS_GetBValue(stroke_color);
+  *A = FXSYS_GetUnsignedAlpha(
+      charinfo.m_pTextObj->m_GeneralState.GetStrokeAlpha());
+  return true;
+}
+
+FPDF_EXPORT double FPDF_CALLCONV FPDFText_GetCharAngle(FPDF_TEXTPAGE text_page,
+                                                       int index) {
+  CPDF_TextPage* textpage = GetTextPageForValidIndex(text_page, index);
+  if (!textpage)
+    return -1;
+
+  FPDF_CHAR_INFO charinfo;
+  textpage->GetCharInfo(index, &charinfo);
+  // On the left is our current Matrix and on the right a generic rotation
+  // matrix for our coordinate space.
+  // | a  b  0 |    | cos(t)  -sin(t)  0 |
+  // | c  d  0 |    | sin(t)   cos(t)  0 |
+  // | e  f  1 |    |   0        0     1 |
+  // Calculate the angle of the vector
+  double angle = atan2(charinfo.m_Matrix.c, charinfo.m_Matrix.a);
+  if (angle < 0)
+    angle = 2 * FX_PI + angle;
+
+  return angle;
 }
 
 FPDF_EXPORT FPDF_BOOL FPDF_CALLCONV FPDFText_GetCharBox(FPDF_TEXTPAGE text_page,
@@ -127,12 +223,75 @@ FPDF_EXPORT FPDF_BOOL FPDF_CALLCONV FPDFText_GetCharBox(FPDF_TEXTPAGE text_page,
                                                         double* right,
                                                         double* bottom,
                                                         double* top) {
+  if (!left || !right || !bottom || !top)
+    return false;
+
   CPDF_TextPage* textpage = GetTextPageForValidIndex(text_page, index);
   if (!textpage)
     return false;
 
   FPDF_CHAR_INFO charinfo;
   textpage->GetCharInfo(index, &charinfo);
+  *left = charinfo.m_CharBox.left;
+  *right = charinfo.m_CharBox.right;
+  *bottom = charinfo.m_CharBox.bottom;
+  *top = charinfo.m_CharBox.top;
+  return true;
+}
+
+FPDF_EXPORT FPDF_BOOL FPDF_CALLCONV
+FPDFText_GetLooseCharBox(FPDF_TEXTPAGE text_page,
+                         int index,
+                         double* left,
+                         double* right,
+                         double* bottom,
+                         double* top) {
+  if (!left || !right || !bottom || !top)
+    return false;
+
+  CPDF_TextPage* textpage = GetTextPageForValidIndex(text_page, index);
+  if (!textpage)
+    return false;
+
+  FPDF_CHAR_INFO charinfo;
+  textpage->GetCharInfo(index, &charinfo);
+
+  if (charinfo.m_pTextObj && !IsFloatZero(charinfo.m_FontSize)) {
+    bool is_vert_writing = charinfo.m_pTextObj->GetFont()->IsVertWriting();
+    if (is_vert_writing && charinfo.m_pTextObj->GetFont()->IsCIDFont()) {
+      CPDF_CIDFont* pCIDFont = charinfo.m_pTextObj->GetFont()->AsCIDFont();
+      uint16_t cid = pCIDFont->CIDFromCharCode(charinfo.m_Charcode);
+
+      short vx;
+      short vy;
+      pCIDFont->GetVertOrigin(cid, vx, vy);
+      double offsetx = (vx - 500) * charinfo.m_FontSize / 1000.0;
+      double offsety = vy * charinfo.m_FontSize / 1000.0;
+      short vert_width = pCIDFont->GetVertWidth(cid);
+      double height = vert_width * charinfo.m_FontSize / 1000.0;
+
+      *left = charinfo.m_Origin.x + offsetx;
+      *right = *left + charinfo.m_FontSize;
+      *bottom = charinfo.m_Origin.y + offsety;
+      *top = *bottom + height;
+      return true;
+    }
+
+    int ascent = charinfo.m_pTextObj->GetFont()->GetTypeAscent();
+    int descent = charinfo.m_pTextObj->GetFont()->GetTypeDescent();
+    if (ascent != descent) {
+      float width = charinfo.m_pTextObj->GetCharWidth(charinfo.m_Charcode);
+      float font_scale = charinfo.m_FontSize / (ascent - descent);
+
+      *left = charinfo.m_Origin.x;
+      *right = charinfo.m_Origin.x + (is_vert_writing ? -width : width);
+      *bottom = charinfo.m_Origin.y + descent * font_scale;
+      *top = charinfo.m_Origin.y + ascent * font_scale;
+      return true;
+    }
+  }
+
+  // Fallback to the tight bounds in empty text scenarios, or bad font metrics
   *left = charinfo.m_CharBox.left;
   *right = charinfo.m_CharBox.right;
   *bottom = charinfo.m_CharBox.bottom;

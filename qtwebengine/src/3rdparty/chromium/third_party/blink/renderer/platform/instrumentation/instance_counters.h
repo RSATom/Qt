@@ -38,25 +38,33 @@
 
 namespace blink {
 
-#define INSTANCE_COUNTERS_LIST(V)  \
-  V(AudioHandler)                  \
-  V(Document)                      \
-  V(Frame)                         \
-  V(JSEventListener)               \
-  V(LayoutObject)                  \
-  V(MediaKeySession)               \
-  V(MediaKeys)                     \
-  V(Node)                          \
-  V(Resource)                      \
-  V(ScriptPromise)                 \
-  V(ContextLifecycleStateObserver) \
-  V(V8PerContextData)              \
-  V(WorkerGlobalScope)             \
-  V(UACSSResource)                 \
-  V(RTCPeerConnection)             \
-  V(ResourceFetcher)               \
-  V(AdSubframe)                    \
-  V(DetachedScriptState)
+#define INSTANCE_COUNTERS_LIST(V)                \
+  V(AudioHandler)                                \
+  V(Document)                                    \
+  V(Frame)                                       \
+  V(JSEventListener)                             \
+  V(LayoutObject)                                \
+  V(MediaKeySession)                             \
+  V(MediaKeys)                                   \
+  V(Node)                                        \
+  V(Resource)                                    \
+  V(ContextLifecycleStateObserver)               \
+  V(V8PerContextData)                            \
+  V(WorkerGlobalScope)                           \
+  V(UACSSResource)                               \
+  V(RTCPeerConnection)                           \
+  V(ResourceFetcher)                             \
+  V(AdSubframe)                                  \
+  V(DetachedScriptState)                         \
+  V(V8CallInDetachedWindowByNavigation)          \
+  V(V8CallInDetachedWindowByNavigationAfter10s)  \
+  V(V8CallInDetachedWindowByNavigationAfter1min) \
+  V(V8CallInDetachedWindowByClosing)             \
+  V(V8CallInDetachedWindowByClosingAfter10s)     \
+  V(V8CallInDetachedWindowByClosingAfter1min)    \
+  V(V8CallInDetachedWindowByOtherReason)         \
+  V(V8CallInDetachedWindowByOtherReasonAfter10s) \
+  V(V8CallInDetachedWindowByOtherReasonAfter1min)
 
 // Atomic counters of the number of instances of objects that exist.
 //
@@ -81,7 +89,7 @@ class InstanceCounters {
     // should be avoided for the sake of performance. See crbug.com/641019
     if (type == kNodeCounter) {
       DCHECK(IsMainThread());
-      ++counters_[kNodeCounter];
+      ++node_counter_;
     } else {
       counters_[type].fetch_add(1, std::memory_order_relaxed);
     }
@@ -90,7 +98,7 @@ class InstanceCounters {
   static inline void DecrementCounter(CounterType type) {
     if (type == kNodeCounter) {
       DCHECK(IsMainThread());
-      --counters_[kNodeCounter];
+      --node_counter_;
     } else {
       counters_[type].fetch_sub(1, std::memory_order_relaxed);
     }

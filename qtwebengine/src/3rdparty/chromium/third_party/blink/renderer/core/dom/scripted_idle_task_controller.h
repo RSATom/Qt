@@ -8,6 +8,7 @@
 #include "third_party/blink/renderer/bindings/core/v8/v8_idle_request_callback.h"
 #include "third_party/blink/renderer/core/dom/idle_deadline.h"
 #include "third_party/blink/renderer/core/execution_context/context_lifecycle_state_observer.h"
+#include "third_party/blink/renderer/core/probe/async_task_id.h"
 #include "third_party/blink/renderer/platform/bindings/name_client.h"
 #include "third_party/blink/renderer/platform/heap/handle.h"
 #include "third_party/blink/renderer/platform/timer.h"
@@ -23,7 +24,7 @@ class IdleRequestOptions;
 class ThreadScheduler;
 
 class CORE_EXPORT ScriptedIdleTaskController
-    : public GarbageCollectedFinalized<ScriptedIdleTaskController>,
+    : public GarbageCollected<ScriptedIdleTaskController>,
       public ContextLifecycleStateObserver,
       public NameClient {
   USING_GARBAGE_COLLECTED_MIXIN(ScriptedIdleTaskController);
@@ -48,13 +49,16 @@ class CORE_EXPORT ScriptedIdleTaskController
 
   // |IdleTask| is an interface type which generalizes tasks which are invoked
   // on idle. The tasks need to define what to do on idle in |invoke|.
-  class IdleTask : public GarbageCollectedFinalized<IdleTask>,
-                   public NameClient {
+  class IdleTask : public GarbageCollected<IdleTask>, public NameClient {
    public:
     virtual void Trace(Visitor* visitor) {}
     const char* NameInHeapSnapshot() const override { return "IdleTask"; }
     virtual ~IdleTask() = default;
     virtual void invoke(IdleDeadline*) = 0;
+    probe::AsyncTaskId* async_task_id() { return &async_task_id_; }
+
+   private:
+    probe::AsyncTaskId async_task_id_;
   };
 
   // |V8IdleTask| is the adapter class for the conversion from
@@ -87,7 +91,7 @@ class CORE_EXPORT ScriptedIdleTaskController
                      IdleDeadline::CallbackType);
 
  private:
-  class QueuedIdleTask : public GarbageCollectedFinalized<QueuedIdleTask> {
+  class QueuedIdleTask : public GarbageCollected<QueuedIdleTask> {
    public:
     QueuedIdleTask(IdleTask*,
                    base::TimeTicks queue_timestamp,

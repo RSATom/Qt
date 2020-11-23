@@ -65,7 +65,7 @@
 #elif defined(Q_OS_DARWIN)
 #include "qlowenergycontroller_darwin_p.h"
 #else
-#include "qlowenergycontroller_p.h"
+#include "qlowenergycontroller_dummy_p.h"
 #endif
 
 #include <algorithm>

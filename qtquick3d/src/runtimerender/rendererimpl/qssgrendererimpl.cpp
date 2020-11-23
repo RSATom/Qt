@@ -36,6 +36,8 @@
 #include <QtQuick3DRuntimeRender/private/qssgrenderimage_p.h>
 #include <QtQuick3DRuntimeRender/private/qssgrenderbuffermanager_p.h>
 #include <QtQuick3DRuntimeRender/private/qssgrendercontextcore_p.h>
+#include <QtQuick3DRuntimeRender/private/qssgrendereffect_p.h>
+#include <QtQuick3DRuntimeRender/private/qssgrendereffectsystem_p.h>
 #include <QtQuick3DRuntimeRender/private/qssgrenderresourcemanager_p.h>
 #include <QtQuick3DRuntimeRender/private/qssgrendercustommaterialsystem_p.h>
 #include <QtQuick3DRuntimeRender/private/qssgrendershadercodegeneratorv2_p.h>
@@ -70,13 +72,19 @@ struct QSSGRenderableImage;
 struct QSSGShaderGeneratorGeneratedShader;
 struct QSSGSubsetRenderable;
 
-QSSGRendererImpl::QSSGRendererImpl(const QSSGRef<QSSGRenderContextInterface> &ctx)
+void QSSGRendererImpl::releaseResources()
+{
+    m_shaders.clear();
+    m_instanceRenderMap.clear();
+    m_constantBuffers.clear();
+}
+
+QSSGRendererImpl::QSSGRendererImpl(QSSGRenderContextInterface *ctx)
     : m_contextInterface(ctx)
     , m_context(ctx->renderContext())
     , m_bufferManager(ctx->bufferManager())
     , m_currentLayer(nullptr)
     , m_pickRenderPlugins(true)
-    , m_layerCachingEnabled(true)
     , m_layerGPuProfilingEnabled(false)
     , m_progressiveAARenderRequest(false)
 {
@@ -84,9 +92,11 @@ QSSGRendererImpl::QSSGRendererImpl(const QSSGRef<QSSGRenderContextInterface> &ct
 
 QSSGRendererImpl::~QSSGRendererImpl()
 {
-    m_shaders.clear();
-    m_instanceRenderMap.clear();
-    m_constantBuffers.clear();
+    m_contextInterface = nullptr;
+    Q_ASSERT(m_shaders.size() == 0);
+    Q_ASSERT(m_instanceRenderMap.size() == 0);
+    Q_ASSERT(m_constantBuffers.size() == 0);
+    releaseResources();
 }
 
 void QSSGRendererImpl::childrenUpdated(QSSGRenderNode &inParent)
@@ -324,35 +334,6 @@ void QSSGRendererImpl::drawScreenRect(QRectF inRect, const QVector3D &inColor)
     m_context->draw(QSSGRenderDrawMode::Lines, m_rectIndexBuffer->numIndices(), 0);
 }
 
-void QSSGRendererImpl::setupWidgetLayer()
-{
-    const QSSGRef<QSSGRenderContext> &theContext = m_contextInterface->renderContext();
-
-    if (!m_widgetTexture) {
-        const QSSGRef<QSSGResourceManager> &theManager = m_contextInterface->resourceManager();
-        m_widgetTexture = theManager->allocateTexture2D(m_beginFrameViewport.width(),
-                                                        m_beginFrameViewport.height(),
-                                                        QSSGRenderTextureFormat::RGBA8);
-        m_widgetFbo = theManager->allocateFrameBuffer();
-        m_widgetFbo->attach(QSSGRenderFrameBufferAttachment::Color0, QSSGRenderTextureOrRenderBuffer(m_widgetTexture));
-        theContext->setRenderTarget(m_widgetFbo);
-
-        // QSSGRenderRect theScissorRect( 0, 0, m_BeginFrameViewport.m_Width,
-        // m_BeginFrameViewport.m_Height );
-        // QSSGRenderContextScopedProperty<QSSGRenderRect> __scissorRect( theContext,
-        // &QSSGRenderContext::GetScissorRect, &QSSGRenderContext::SetScissorRect, theScissorRect );
-        QSSGRenderContextScopedProperty<bool> __scissorEnabled(*theContext,
-                                                                 &QSSGRenderContext::isScissorTestEnabled,
-                                                                 &QSSGRenderContext::setScissorTestEnabled,
-                                                                 false);
-        m_context->setClearColor(QVector4D(0, 0, 0, 0));
-        m_context->clear(QSSGRenderClearValues::Color);
-
-    } else {
-        theContext->setRenderTarget(m_widgetFbo);
-    }
-}
-
 void QSSGRendererImpl::addMaterialDirtyClear(QSSGRenderGraphObject *material)
 {
     m_materialClearDirty.insert(material);
@@ -363,7 +344,6 @@ void QSSGRendererImpl::beginFrame()
     for (int idx = 0, end = m_lastFrameLayers.size(); idx < end; ++idx)
         m_lastFrameLayers[idx]->resetForFrame();
     m_lastFrameLayers.clear();
-    m_beginFrameViewport = m_contextInterface->viewport();
     for (auto *matObj : qAsConst(m_materialClearDirty)) {
         if (matObj->type == QSSGRenderGraphObject::Type::CustomMaterial)
             static_cast<QSSGRenderCustomMaterial *>(matObj)->updateDirtyForFrame();
@@ -374,39 +354,6 @@ void QSSGRendererImpl::beginFrame()
 }
 void QSSGRendererImpl::endFrame()
 {
-    if (m_widgetTexture) {
-        // Releasing the widget FBO can set it as the active frame buffer.
-        QSSGRenderContextScopedProperty<const QSSGRef<QSSGRenderFrameBuffer> &> __fbo(*m_context,
-                                                                                    &QSSGRenderContext::renderTarget,
-                                                                                    &QSSGRenderContext::setRenderTarget);
-        QSSGTextureDetails theDetails = m_widgetTexture->textureDetails();
-        m_context->setBlendingEnabled(true);
-        // Colors are expected to be non-premultiplied, so we premultiply alpha into them at
-        // this point.
-        m_context->setBlendFunction(QSSGRenderBlendFunctionArgument(QSSGRenderSrcBlendFunc::One,
-                                                                      QSSGRenderDstBlendFunc::OneMinusSrcAlpha,
-                                                                      QSSGRenderSrcBlendFunc::One,
-                                                                      QSSGRenderDstBlendFunc::OneMinusSrcAlpha));
-        m_context->setBlendEquation(QSSGRenderBlendEquationArgument(QSSGRenderBlendEquation::Add, QSSGRenderBlendEquation::Add));
-
-        m_context->setDepthTestEnabled(false);
-        m_context->setScissorTestEnabled(false);
-        m_context->setViewport(m_beginFrameViewport);
-        QSSGRenderCamera theCamera;
-        theCamera.markDirty(QSSGRenderCamera::TransformDirtyFlag::TransformIsDirty);
-        theCamera.flags.setFlag(QSSGRenderCamera::Flag::Orthographic);
-        QVector2D theTextureDims(float(theDetails.width), float(theDetails.height));
-        theCamera.calculateGlobalVariables(QRectF(0, 0, theDetails.width, theDetails.height));
-        QMatrix4x4 theViewProj;
-        theCamera.calculateViewProjectionMatrix(theViewProj);
-        renderQuad(theTextureDims, theViewProj, *m_widgetTexture);
-
-        const QSSGRef<QSSGResourceManager> &theManager(m_contextInterface->resourceManager());
-        theManager->release(m_widgetFbo);
-        theManager->release(m_widgetTexture);
-        m_widgetTexture = nullptr;
-        m_widgetFbo = nullptr;
-    }
 }
 
 inline bool pickResultLessThan(const QSSGRenderPickResult &lhs, const QSSGRenderPickResult &rhs)
@@ -517,7 +464,10 @@ QSSGRenderPickResult QSSGRendererImpl::pick(QSSGRenderLayer &inLayer,
     return QSSGRenderPickResult();
 }
 
-QSSGRenderPickResult QSSGRendererImpl::syncPick(QSSGRenderLayer &inLayer, const QVector2D &inViewportDimensions, const QVector2D &inMouseCoords, bool inPickSiblings, bool inPickEverything)
+QSSGRenderPickResult QSSGRendererImpl::syncPick(const QSSGRenderLayer &layer,
+                                                const QSSGRef<QSSGBufferManager> &bufferManager,
+                                                const QVector2D &inViewportDimensions,
+                                                const QVector2D &inMouseCoords)
 {
     using PickResultList = QVarLengthArray<QSSGRenderPickResult, 20>; // Lets assume most items are filtered out already
     static const auto processResults = [](PickResultList &pickResults) {
@@ -531,17 +481,11 @@ QSSGRenderPickResult QSSGRendererImpl::syncPick(QSSGRenderLayer &inLayer, const 
     };
 
     PickResultList pickResults;
-    QSSGRenderLayer *layer = &inLayer;
-    while (layer != nullptr) {
-        if (layer->flags.testFlag(QSSGRenderLayer::Flag::Active)) {
-            pickResults.clear();
-            getLayerHitObjectList(*layer, inViewportDimensions, inMouseCoords, inPickEverything, pickResults);
-            QSSGPickResultProcessResult retval = processResults(pickResults);
-            if (retval.m_wasPickConsumed)
-                return retval;
-        }
-
-        layer = inPickSiblings ? getNextLayer(*layer) : nullptr;
+    if (layer.flags.testFlag(QSSGRenderLayer::Flag::Active)) {
+        getLayerHitObjectList(layer, bufferManager, inViewportDimensions, inMouseCoords, false, pickResults);
+        QSSGPickResultProcessResult retval = processResults(pickResults);
+        if (retval.m_wasPickConsumed)
+            return retval;
     }
 
     return QSSGPickResultProcessResult();
@@ -563,7 +507,7 @@ QSSGOption<QVector2D> QSSGRendererImpl::facePosition(QSSGRenderNode &inNode,
     // function
     // for completely offscreen layers that don't get rendered to the scene.
     bool wasRenderToTarget(theLayerData->layer.flags.testFlag(QSSGRenderLayer::Flag::LayerRenderToTarget));
-    if (!wasRenderToTarget || theLayerData->camera == nullptr || theLayerData->layerPrepResult.hasValue() == false)
+    if (!wasRenderToTarget || theLayerData->camera == nullptr || !theLayerData->layerPrepResult.hasValue())
         return QSSGEmpty();
 
     QVector2D theMouseCoords(inMouseCoords);
@@ -620,10 +564,6 @@ QVector3D QSSGRendererImpl::unprojectWithDepth(QSSGRenderNode &inNode, QVector3D
     QVector3D theTargetPosition = theRay.origin + theRay.direction * theDepth;
     if (inNode.parent != nullptr && inNode.parent->type != QSSGRenderGraphObject::Type::Layer)
         theTargetPosition = mat44::transform(inNode.parent->globalTransform.inverted(), theTargetPosition);
-    // Our default global space is right handed, so if you are left handed z means something
-    // opposite.
-    if (inNode.flags.testFlag(QSSGRenderNode::Flag::LeftHanded))
-        theTargetPosition.setZ(theTargetPosition.z() * -1);
     return theTargetPosition;
 }
 
@@ -757,23 +697,30 @@ void QSSGRendererImpl::releaseLayerRenderResources(QSSGRenderLayer &inLayer)
     }
 }
 
-void QSSGRendererImpl::renderQuad(const QVector2D inDimensions, const QMatrix4x4 &inMVP, QSSGRenderTexture2D &inQuadTexture)
+void QSSGRendererImpl::renderQuad()
 {
     m_context->setCullingEnabled(false);
-    QSSGRef<QSSGLayerSceneShader> theShader = getSceneLayerShader();
-    m_context->setActiveShader(theShader->shader);
-    theShader->mvp.set(inMVP);
-    theShader->dimensions.set(inDimensions);
-    theShader->sampler.set(&inQuadTexture);
-
     generateXYQuad();
     m_context->setInputAssembler(m_quadInputAssembler);
     m_context->draw(QSSGRenderDrawMode::Triangles, m_quadIndexBuffer->numIndices(), 0);
 }
 
-void QSSGRendererImpl::renderQuad()
+void QSSGRendererImpl::renderFlippedQuad(const QVector2D &inDimensions, const QMatrix4x4 &inMVP, QSSGRenderTexture2D &inQuadTexture, float opacity)
 {
     m_context->setCullingEnabled(false);
+    m_context->setBlendingEnabled(true);
+    m_context->setBlendFunction(
+                QSSGRenderBlendFunctionArgument(QSSGRenderSrcBlendFunc::One,
+                                                QSSGRenderDstBlendFunc::OneMinusSrcAlpha,
+                                                QSSGRenderSrcBlendFunc::One,
+                                                QSSGRenderDstBlendFunc::OneMinusSrcAlpha));
+    QSSGRef<QSSGFlippedQuadShader> theShader = getFlippedQuadShader();
+    m_context->setActiveShader(theShader->shader);
+    theShader->mvp.set(inMVP);
+    theShader->dimensions.set(inDimensions);
+    theShader->sampler.set(&inQuadTexture);
+    theShader->opacity.set(opacity);
+
     generateXYQuad();
     m_context->setInputAssembler(m_quadInputAssembler);
     m_context->draw(QSSGRenderDrawMode::Triangles, m_quadIndexBuffer->numIndices(), 0);
@@ -888,7 +835,8 @@ static void dfs(const QSSGRenderNode &node, RenderableList &renderables)
         dfs(*child, renderables);
 }
 
-void QSSGRendererImpl::getLayerHitObjectList(QSSGRenderLayer &layer,
+void QSSGRendererImpl::getLayerHitObjectList(const QSSGRenderLayer &layer,
+                                             const QSSGRef<QSSGBufferManager> &bufferManager,
                                              const QVector2D &inViewportDimensions,
                                              const QVector2D &inPresCoords,
                                              bool inPickEverything,
@@ -909,7 +857,6 @@ void QSSGRendererImpl::getLayerHitObjectList(QSSGRenderLayer &layer,
             for (QSSGRenderNode *childNode = layer.firstChild; childNode; childNode = childNode->nextSibling)
                 dfs(*childNode, renderables);
 
-            const auto &bufferManager = contextInterface()->bufferManager();
             for (int idx = renderables.size(), end = 0; idx > end; --idx) {
                 const auto &pickableObject = renderables.at(idx - 1);
                 if (inPickEverything || pickableObject->flags.testFlag(QSSGRenderNode::Flag::LocallyPickable))
@@ -927,15 +874,31 @@ void QSSGRendererImpl::intersectRayWithSubsetRenderable(const QSSGRef<QSSGBuffer
     if (node.type != QSSGRenderGraphObject::Type::Model)
         return;
 
-    const QSSGRenderModel *model = static_cast<const QSSGRenderModel *>(&node);
+    const QSSGRenderModel &model = static_cast<const QSSGRenderModel &>(node);
 
     // TODO: Technically we should have some guard here, as the meshes are usually loaded on a different thread,
     // so this isn't really nice (assumes all meshes are loaded before picking and none are removed, which currently should be the case).
-    auto mesh = bufferManager->getMesh(model->meshPath);
-    if (!mesh)
+    auto mesh = bufferManager->getMesh(model.meshPath);
+    if (!mesh && !model.geometry)
         return;
 
-    const auto &globalTransform = model->globalTransform;
+    const auto &globalTransform = model.globalTransform;
+    auto rayData = QSSGRenderRay::createRayData(globalTransform, inRay);
+
+    // If this is a custom mesh, then only test against the bounding box
+    if (model.geometry) {
+        QSSGBounds3 modelBounds(model.geometry->boundsMin(), model.geometry->boundsMax());
+        auto hit = QSSGRenderRay::intersectWithAABBv2(rayData, modelBounds);
+        if (!hit.intersects())
+            return;
+        auto intersectionResult = QSSGRenderRay::createIntersectionResult(rayData, hit);
+        outIntersectionResultList.push_back(QSSGRenderPickResult(model,
+                                                                 intersectionResult.rayLengthSquared,
+                                                                 intersectionResult.relXY,
+                                                                 intersectionResult.scenePosition));
+        return;
+    }
+
     const auto &subMeshes = mesh->subsets;
     QSSGBounds3 modelBounds = QSSGBounds3::empty();
     for (const auto &subMesh : subMeshes)
@@ -944,23 +907,48 @@ void QSSGRendererImpl::intersectRayWithSubsetRenderable(const QSSGRef<QSSGBuffer
     if (modelBounds.isEmpty())
         return;
 
-    QSSGRenderRay::IntersectionResult intersectionResult = inRay.intersectWithAABB(globalTransform, modelBounds);
+    auto hit = QSSGRenderRay::intersectWithAABBv2(rayData, modelBounds);
 
     // If we don't intersect with the model at all, then there's no need to go furher down!
-    if (!intersectionResult.intersects)
+    if (!hit.intersects())
         return;
 
+    // Check each submesh to find the closest intersection point
+    float minRayLength = std::numeric_limits<float>::max();
+    QSSGRenderRay::IntersectionResult intersectionResult;
+    QVector<QSSGRenderRay::IntersectionResult> results;
+
     for (const auto &subMesh : subMeshes) {
-        intersectionResult = inRay.intersectWithAABB(globalTransform, subMesh.bounds);
-        if (intersectionResult.intersects)
-            break;
+        QSSGRenderRay::IntersectionResult result;
+        if (subMesh.bvhRoot) {
+            hit = QSSGRenderRay::intersectWithAABBv2(rayData, subMesh.bvhRoot->boundingData);
+            if (hit.intersects()) {
+                results.clear();
+                inRay.intersectWithBVH(rayData, subMesh.bvhRoot, mesh, results);
+                float subMeshMinRayLength = std::numeric_limits<float>::max();
+                for (const auto &subMeshResult : qAsConst(results)) {
+                    if (subMeshResult.rayLengthSquared < subMeshMinRayLength) {
+                        result = subMeshResult;
+                        subMeshMinRayLength = result.rayLengthSquared;
+                    }
+                }
+            }
+        } else {
+            hit = QSSGRenderRay::intersectWithAABBv2(rayData, subMesh.bounds);
+            if (hit.intersects())
+                result = QSSGRenderRay::createIntersectionResult(rayData, hit);
+        }
+        if (result.intersects && result.rayLengthSquared < minRayLength) {
+            intersectionResult = result;
+            minRayLength = intersectionResult.rayLengthSquared;
+        }
     }
 
     if (!intersectionResult.intersects)
         return;
 
     outIntersectionResultList.push_back(
-                                QSSGRenderPickResult(*model,
+                                QSSGRenderPickResult(model,
                                                      intersectionResult.rayLengthSquared,
                                                      intersectionResult.relXY,
                                                      intersectionResult.scenePosition));
@@ -970,7 +958,7 @@ void QSSGRendererImpl::intersectRayWithSubsetRenderable(const QSSGRenderRay &inR
                                                         QSSGRenderableObject &inRenderableObject,
                                                         TPickResultArray &outIntersectionResultList)
 {
-    QSSGRenderRay::IntersectionResult intersectionResult = inRay.intersectWithAABB(inRenderableObject.globalTransform, inRenderableObject.bounds);
+    QSSGRenderRay::IntersectionResult intersectionResult = QSSGRenderRay::intersectWithAABB(inRenderableObject.globalTransform, inRenderableObject.bounds, inRay);
     if (!intersectionResult.intersects)
         return;
 
@@ -1226,94 +1214,11 @@ void QSSGRendererImpl::updateCbAoShadow(const QSSGRenderLayer *pLayer, const QSS
     }
 }
 
-// widget context implementation
 
-QSSGRef<QSSGRenderVertexBuffer> QSSGRendererImpl::getOrCreateVertexBuffer(const QByteArray &inStr,
-                                                                                quint32 stride,
-                                                                                QSSGByteView bufferData)
-{
-    const QSSGRef<QSSGRenderVertexBuffer> &retval = getVertexBuffer(inStr);
-    if (retval) {
-        // we update the buffer
-        retval->updateBuffer(bufferData);
-        return retval;
-    }
 
-    return *m_widgetVertexBuffers.insert(inStr, new QSSGRenderVertexBuffer(m_context, QSSGRenderBufferUsageType::Dynamic, stride, bufferData));
-}
-QSSGRef<QSSGRenderIndexBuffer> QSSGRendererImpl::getOrCreateIndexBuffer(const QByteArray &inStr,
-                                                                              QSSGRenderComponentType componentType,
-                                                                              QSSGByteView bufferData)
-{
-    const QSSGRef<QSSGRenderIndexBuffer> &retval = getIndexBuffer(inStr);
-    if (retval) {
-        // we update the buffer
-        retval->updateBuffer(bufferData);
-        return retval;
-    }
 
-    return *m_widgetIndexBuffers.insert(inStr, new QSSGRenderIndexBuffer(m_context, QSSGRenderBufferUsageType::Dynamic, componentType, bufferData));
-}
 
-QSSGRef<QSSGRenderAttribLayout> QSSGRendererImpl::createAttributeLayout(QSSGDataView<QSSGRenderVertexBufferEntry> attribs)
-{
-    // create our attribute layout
-    return m_context->createAttributeLayout(attribs);
-}
 
-QSSGRef<QSSGRenderInputAssembler> QSSGRendererImpl::getOrCreateInputAssembler(const QByteArray &inStr,
-                                                                                    const QSSGRef<QSSGRenderAttribLayout> &attribLayout,
-                                                                                    QSSGDataView<QSSGRef<QSSGRenderVertexBuffer>> buffers,
-                                                                                    const QSSGRef<QSSGRenderIndexBuffer> indexBuffer,
-                                                                                    QSSGDataView<quint32> strides,
-                                                                                    QSSGDataView<quint32> offsets)
-{
-    const QSSGRef<QSSGRenderInputAssembler> &retval = getInputAssembler(inStr);
-    if (retval)
-        return retval;
-
-    return *m_widgetInputAssembler.insert(inStr, m_context->createInputAssembler(attribLayout, buffers, indexBuffer, strides, offsets));
-}
-
-QSSGRef<QSSGRenderVertexBuffer> QSSGRendererImpl::getVertexBuffer(const QByteArray &inStr) const
-{
-    const auto theIter = m_widgetVertexBuffers.constFind(inStr);
-    if (theIter != m_widgetVertexBuffers.cend())
-        return theIter.value();
-    return nullptr;
-}
-
-QSSGRef<QSSGRenderIndexBuffer> QSSGRendererImpl::getIndexBuffer(const QByteArray &inStr) const
-{
-    const auto theIter = m_widgetIndexBuffers.constFind(inStr);
-    if (theIter != m_widgetIndexBuffers.cend())
-        return theIter.value();
-    return nullptr;
-}
-
-QSSGRef<QSSGRenderInputAssembler> QSSGRendererImpl::getInputAssembler(const QByteArray &inStr) const
-{
-    const auto theIter = m_widgetInputAssembler.constFind(inStr);
-    if (theIter != m_widgetInputAssembler.cend())
-        return theIter.value();
-    return nullptr;
-}
-
-QSSGRef<QSSGRenderShaderProgram> QSSGRendererImpl::getShader(const QByteArray &inStr) const
-{
-    const auto theIter = m_widgetShaders.constFind(inStr);
-    if (theIter != m_widgetShaders.cend())
-        return theIter.value();
-    return nullptr;
-}
-
-QSSGRef<QSSGRenderShaderProgram> QSSGRendererImpl::compileAndStoreShader(const QByteArray &inStr)
-{
-    const QSSGRef<QSSGRenderShaderProgram> &newProgram = getProgramGenerator()->compileGeneratedShader(inStr);
-    if (newProgram)
-        m_widgetShaders.insert(inStr, newProgram);
-    return newProgram;
-}
 
 const QSSGRef<QSSGShaderProgramGeneratorInterface> &QSSGRendererImpl::getProgramGenerator()
 {

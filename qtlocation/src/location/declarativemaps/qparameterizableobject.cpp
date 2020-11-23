@@ -37,12 +37,9 @@
 #include "qparameterizableobject_p.h"
 #include "qdeclarativegeomapparameter_p.h"
 #include <QtLocation/private/qgeomapparameter_p.h>
+#include <private/qobject_p.h>
 
 QT_BEGIN_NAMESPACE
-
-QParameterizableObject::QParameterizableObject(QObject *parent)
-    : QObject(parent)
-{}
 
 void QParameterizableObject::appendChild(QObject *v)
 {
@@ -83,6 +80,42 @@ void QParameterizableObject::clear(QQmlListProperty<QObject> *p)
 {
     QParameterizableObject *object = static_cast<QParameterizableObject*>(p->object);
     object->clearChildren();
+}
+
+class QParameterizableObjectData: public QAbstractDeclarativeData
+{
+public:
+    QParameterizableObjectData()
+    {
+        init();
+    }
+
+    static inline void init() {
+        static bool initialized = false;
+        if (!initialized) {
+            initialized = true;
+            QAbstractDeclarativeData::parentChanged = parentChanged;
+        }
+    }
+
+    static void parentChanged(QAbstractDeclarativeData *d, QObject *o, QObject *p);
+};
+
+Q_GLOBAL_STATIC(QParameterizableObjectData, parametrizableObjectData)
+
+QParameterizableObject::QParameterizableObject(QObject *parent)
+    : QObject(parent)
+{
+    QObjectPrivate::get(this)->declarativeData = parametrizableObjectData;
+}
+
+void QParameterizableObjectData::parentChanged(QAbstractDeclarativeData *d, QObject *o, QObject *p)
+{
+    Q_UNUSED(p)
+    Q_UNUSED(d)
+    QParameterizableObject *po = qobject_cast<QParameterizableObject *>(o);
+    if (po)
+        po->parentChanged();
 }
 
 QT_END_NAMESPACE

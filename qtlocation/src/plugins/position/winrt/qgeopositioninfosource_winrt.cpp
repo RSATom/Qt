@@ -115,6 +115,7 @@ enum class InitializationState {
 class QGeoPositionInfoSourceWinRTPrivate {
 public:
     ComPtr<IGeolocator> locator;
+    mutable ComPtr<IGeolocatorStatics> statics;
     QTimer periodicTimer;
     QTimer singleUpdateTimer;
     QGeoPositionInfo lastPosition;
@@ -638,21 +639,21 @@ HRESULT QGeoPositionInfoSourceWinRT::onStatusChanged(IGeolocator *, IStatusChang
 
 bool QGeoPositionInfoSourceWinRT::requestAccess() const
 {
+    Q_D(const QGeoPositionInfoSourceWinRT);
     qCDebug(lcPositioningWinRT) << __FUNCTION__;
     GeolocationAccessStatus accessStatus;
-    static ComPtr<IGeolocatorStatics> statics;
 
     ComPtr<IAsyncOperation<GeolocationAccessStatus>> op;
     HRESULT hr;
-    hr = QEventDispatcherWinRT::runOnXamlThread([&op]() {
+    hr = QEventDispatcherWinRT::runOnXamlThread([&op, d]() {
         HRESULT hr;
-        if (!statics) {
+        if (!d->statics) {
             hr = RoGetActivationFactory(HString::MakeReference(RuntimeClass_Windows_Devices_Geolocation_Geolocator).Get(),
-                                        IID_PPV_ARGS(&statics));
+                                        IID_PPV_ARGS(&d->statics));
             RETURN_HR_IF_FAILED("Could not access Geolocation Statics.");
         }
 
-        hr = statics->RequestAccessAsync(&op);
+        hr = d->statics->RequestAccessAsync(&op);
         return hr;
     });
     if (FAILED(hr)) {

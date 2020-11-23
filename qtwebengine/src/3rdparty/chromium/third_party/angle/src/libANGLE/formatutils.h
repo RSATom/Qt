@@ -1,5 +1,5 @@
 //
-// Copyright (c) 2013 The ANGLE Project Authors. All rights reserved.
+// Copyright 2013 The ANGLE Project Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 //
@@ -117,8 +117,11 @@ struct InternalFormat
                                                    GLuint *resultOut) const;
 
     bool isLUMA() const;
-    GLenum getReadPixelsFormat() const;
+    GLenum getReadPixelsFormat(const Extensions &extensions) const;
     GLenum getReadPixelsType(const Version &version) const;
+
+    // Support upload a portion of image?
+    bool supportSubImage() const;
 
     // Return true if the format is a required renderbuffer format in the given version of the core
     // spec. Note that it isn't always clear whether all the rules that apply to core required
@@ -127,6 +130,7 @@ struct InternalFormat
     bool isRequiredRenderbufferFormat(const Version &version) const;
 
     bool isInt() const;
+    bool isDepthOrStencil() const;
 
     bool operator==(const InternalFormat &other) const;
     bool operator!=(const InternalFormat &other) const;
@@ -204,6 +208,9 @@ const InternalFormat &GetInternalFormatInfo(GLenum internalFormat, GLenum type);
 // format is valid.
 GLenum GetUnsizedFormat(GLenum internalFormat);
 
+// Return whether the compressed format requires whole image/mip level to be uploaded to texture.
+bool CompressedFormatRequiresWholeImage(GLenum internalFormat);
+
 typedef std::set<GLenum> FormatSet;
 const FormatSet &GetAllSizedInternalFormats();
 
@@ -268,6 +275,11 @@ bool ValidES3InternalFormat(GLenum internalFormat);
 bool ValidES3Format(GLenum format);
 bool ValidES3Type(GLenum type);
 bool ValidES3FormatCombination(GLenum format, GLenum type, GLenum internalFormat);
+
+// Implemented in format_map_desktop.cpp
+bool ValidDesktopFormat(GLenum format);
+bool ValidDesktopType(GLenum type);
+bool ValidDesktopFormatCombination(GLenum format, GLenum type, GLenum internalFormat);
 
 // Implemented in es3_copy_conversion_table_autogen.cpp
 bool ValidES3CopyConversion(GLenum textureFormat, GLenum framebufferFormat);

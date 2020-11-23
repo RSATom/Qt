@@ -3,6 +3,7 @@
 // found in the LICENSE file.
 
 // Multiply-included file, hence no include guard.
+// NOLINT(build/header_guard)
 
 #include "build/build_config.h"
 #undef CONTENT_COMMON_ACCESSIBILITY_MESSAGES_H_
@@ -26,11 +27,6 @@
 #ifndef CONTENT_COMMON_DRAG_TRAITS_H_
 #error "Failed to include content/common/drag_traits.h"
 #endif
-#undef CONTENT_COMMON_FILEAPI_WEBBLOB_MESSAGES_H_
-#include "content/common/fileapi/webblob_messages.h"
-#ifndef CONTENT_COMMON_FILEAPI_WEBBLOB_MESSAGES_H_
-#error "Failed to include content/common/fileapi/webblob_messages.h"
-#endif
 #undef CONTENT_COMMON_FRAME_MESSAGES_H_
 #include "content/common/frame_messages.h"
 #ifndef CONTENT_COMMON_FRAME_MESSAGES_H_
@@ -45,12 +41,6 @@
 #include "content/common/media/media_player_delegate_messages.h"
 #ifndef CONTENT_COMMON_MEDIA_MEDIA_PLAYER_DELEGATE_MESSAGES_H_
 #error "Failed to include content/common/media/media_player_delegate_messages.h"
-#endif
-#undef CONTENT_COMMON_MEDIA_PEER_CONNECTION_TRACKER_MESSAGES_H_
-#include "content/common/media/peer_connection_tracker_messages.h"
-#ifndef CONTENT_COMMON_MEDIA_PEER_CONNECTION_TRACKER_MESSAGES_H_
-#error \
-    "Failed to include content/common/media/peer_connection_tracker_messages.h"
 #endif
 #undef CONTENT_COMMON_PAGE_MESSAGES_H_
 #include "content/common/page_messages.h"

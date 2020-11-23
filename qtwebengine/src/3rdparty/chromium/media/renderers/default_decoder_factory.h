@@ -44,6 +44,7 @@ class MEDIA_EXPORT DefaultDecoderFactory : public DecoderFactory {
 
   std::unique_ptr<DecoderFactory> external_decoder_factory_
       GUARDED_BY(shutdown_lock_);
+
   DISALLOW_COPY_AND_ASSIGN(DefaultDecoderFactory);
 };
 

@@ -32,18 +32,16 @@ declare_args() {
 }
 
 declare_args() {
-  # Whether we should use glib, a low level C utility library.
-  use_glib = is_linux && !use_ozone
-
   # Indicates if the UI toolkit depends on X11.
   use_x11 = is_linux && !use_ozone
 }
 
 declare_args() {
-
   # True means the UI is built using the "views" framework.
-  toolkit_views = (is_mac || is_win || is_chromeos || use_aura) &&
-                  !is_chromecast && !is_fuchsia
+  toolkit_views = is_mac || is_win || is_linux || (is_fuchsia && is_chromecast)
+
+  # Whether we should use glib, a low level C utility library.
+  use_glib = is_linux && !use_ozone
 
   use_xscrnsaver = !is_chromeos && use_x11
 }
@@ -52,11 +50,11 @@ declare_args() {
 #
 # These variables depend on other variables and can't be set externally.
 
-# Indicates if the UI toolkit depends on GTK.
-use_gtk = use_x11 && !use_qt
+# Make sure glib is not used if building for ChromeOS/Chromecast
+assert(!use_glib || (is_linux && !is_chromeos && !is_chromecast))
 
 # Whether to use atk, the Accessibility ToolKit library
-use_atk = is_desktop_linux && use_gtk
+use_atk = is_desktop_linux && !use_qt
 
 # =============================================
 #   PLEASE DO NOT ADD MORE FLAGS TO THIS FILE

@@ -8,12 +8,16 @@
 
 #include "base/feature_list.h"
 #include "base/logging.h"
+#include "base/stl_util.h"
+#include "base/strings/string_util.h"
 #include "base/strings/utf_string_conversions.h"
 #include "components/payments/content/payment_request_converter.h"
 #include "components/payments/core/features.h"
-#include "components/payments/core/payment_instrument.h"
+#include "components/payments/core/method_strings.h"
+#include "components/payments/core/payment_app.h"
 #include "components/payments/core/payment_method_data.h"
 #include "components/payments/core/payment_request_data_util.h"
+#include "components/payments/core/payments_experimental_features.h"
 #include "components/strings/grit/components_strings.h"
 #include "ui/base/l10n/l10n_util.h"
 
@@ -68,11 +72,11 @@ void PopulateValidatedMethodData(
       payment_method_identifiers_set, stringified_method_data);
 }
 
-}  // namespace
+std::string ToString(bool value) {
+  return value ? "true" : "false";
+}
 
-const char kBasicCardMethodName[] = "basic-card";
-const char kGooglePayMethodName[] = "https://google.com/pay";
-const char kAndroidPayMethodName[] = "https://android.com/pay";
+}  // namespace
 
 PaymentRequestSpec::PaymentRequestSpec(
     mojom::PaymentOptionsPtr options,
@@ -100,6 +104,18 @@ PaymentRequestSpec::PaymentRequestSpec(
       &supported_card_networks_set_, &supported_card_types_set_,
       &url_payment_method_identifiers_, &payment_method_identifiers_set_,
       &stringified_method_data_);
+
+  query_for_quota_ = stringified_method_data_;
+  if (base::Contains(payment_method_identifiers_set_, methods::kBasicCard) &&
+      PaymentsExperimentalFeatures::IsEnabled(
+          features::kStrictHasEnrolledAutofillInstrument)) {
+    query_for_quota_["basic-card-payment-options"] = {
+        base::ReplaceStringPlaceholders(
+            "{payerEmail:$1,payerName:$2,payerPhone:$3,shipping:$4}",
+            {ToString(request_payer_email()), ToString(request_payer_name()),
+             ToString(request_payer_phone()), ToString(request_shipping())},
+            nullptr)};
+  }
 }
 PaymentRequestSpec::~PaymentRequestSpec() {}
 
@@ -317,17 +333,17 @@ bool PaymentRequestSpec::IsMixedCurrency() const {
 }
 
 const mojom::PaymentItemPtr& PaymentRequestSpec::GetTotal(
-    PaymentInstrument* selected_instrument) const {
+    PaymentApp* selected_app) const {
   const mojom::PaymentDetailsModifierPtr* modifier =
-      GetApplicableModifier(selected_instrument);
+      GetApplicableModifier(selected_app);
   return modifier && (*modifier)->total ? (*modifier)->total : details_->total;
 }
 
 std::vector<const mojom::PaymentItemPtr*> PaymentRequestSpec::GetDisplayItems(
-    PaymentInstrument* selected_instrument) const {
+    PaymentApp* selected_app) const {
   std::vector<const mojom::PaymentItemPtr*> display_items;
   const mojom::PaymentDetailsModifierPtr* modifier =
-      GetApplicableModifier(selected_instrument);
+      GetApplicableModifier(selected_app);
   DCHECK(details_->display_items);
   for (const auto& item : *details_->display_items) {
     display_items.push_back(&item);
@@ -348,9 +364,8 @@ PaymentRequestSpec::GetShippingOptions() const {
 }
 
 const mojom::PaymentDetailsModifierPtr*
-PaymentRequestSpec::GetApplicableModifier(
-    PaymentInstrument* selected_instrument) const {
-  if (!selected_instrument ||
+PaymentRequestSpec::GetApplicableModifier(PaymentApp* selected_app) const {
+  if (!selected_app ||
       !base::FeatureList::IsEnabled(features::kWebPaymentsModifiers))
     return nullptr;
 
@@ -370,7 +385,7 @@ PaymentRequestSpec::GetApplicableModifier(
         &supported_types, &url_payment_method_identifiers,
         &payment_method_identifiers_set, &stringified_method_data);
 
-    if (selected_instrument->IsValidForModifier(
+    if (selected_app->IsValidForModifier(
             modifier->method_data->supported_method,
             !modifier->method_data->supported_networks.empty(),
             supported_card_networks_set,

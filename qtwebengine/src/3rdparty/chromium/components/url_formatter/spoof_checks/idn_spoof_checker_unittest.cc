@@ -14,6 +14,7 @@
 #include "build/build_config.h"
 #include "components/url_formatter/spoof_checks/idn_spoof_checker.h"
 #include "testing/gtest/include/gtest/gtest.h"
+#include "url/gurl.h"
 
 namespace url_formatter {
 
@@ -127,6 +128,13 @@ const IDNTestCase kIdnCases[] = {
     // Devanagari + Common
     {"xn---123-kbjl2j0bl2k.in", L"\x0939\x093f\x0928\x094d\x0926\x0940-123.in",
      true},
+
+    // Block mixed numeric + numeric lookalike (12.com, using U+0577).
+    {"xn--1-9dd.com", L"1\x0577.com", false},
+    // Block mixed numeric lookalike + numeric (੨0.com, uses U+0A68).
+    {"xn--0-6ee.com", L"\x0a680.com", false},
+    // Block fully numeric lookalikes (৪੨.com using U+09EA and U+0A68).
+    {"xn--47b6w.com", L"\x09ea\x0a68.com", false},
 
     // URL test with mostly numbers and one confusable character
     // Georgian 'd' 4000.com
@@ -355,40 +363,76 @@ const IDNTestCase kIdnCases[] = {
     {"xn--a1-eo4a.jp", L"a1\x30fe.jp", false},
 
     // Cyrillic labels made of Latin-look-alike Cyrillic letters.
-    // ѕсоре.com with ѕсоре in Cyrillic
+    // 1) ѕсоре.com with ѕсоре in Cyrillic.
     {"xn--e1argc3h.com", L"\x0455\x0441\x043e\x0440\x0435.com", false},
-    // ѕсоре123.com with ѕсоре in Cyrillic.
+    // 2) ѕсоре123.com with ѕсоре in Cyrillic.
     {"xn--123-qdd8bmf3n.com",
      L"\x0455\x0441\x043e\x0440\x0435"
      L"123.com",
      false},
-    // ѕсоре-рау.com with ѕсоре and рау in Cyrillic.
+    // 3) ѕсоре-рау.com with ѕсоре and рау in Cyrillic.
     {"xn----8sbn9akccw8m.com",
      L"\x0455\x0441\x043e\x0440\x0435-\x0440\x0430\x0443.com", false},
-    // ѕсоре·рау.com with scope and pay in Cyrillic and U+00B7 between them.
-    {"xn--uba29ona9akccw8m.com",
-     L"\x0455\x0441\x043e\x0440\x0435\u00b7\x0440\x0430\x0443.com", false},
+    // 4) ѕсоре1рау.com with scope and pay in Cyrillic and a non-letter between
+    // them.
+    {"xn--1-8sbn9akccw8m.com",
+     L"\x0455\x0441\x043e\x0440\x0435\x0031\x0440\x0430\x0443.com", false},
 
-    // The same as above three, but in IDN TLD.
+    // The same as above three, but in IDN TLD (рф).
+    // 1) ѕсоре.рф  with ѕсоре in Cyrillic.
     {"xn--e1argc3h.xn--p1ai", L"\x0455\x0441\x043e\x0440\x0435.\x0440\x0444",
      true},
+    // 2) ѕсоре123.рф with ѕсоре in Cyrillic.
     {"xn--123-qdd8bmf3n.xn--p1ai",
      L"\x0455\x0441\x043e\x0440\x0435"
      L"123.\x0440\x0444",
      true},
-    {"xn--uba29ona9akccw8m.xn--p1ai",
-     L"\x0455\x0441\x043e\x0440\x0435\u00b7\x0440\x0430\x0443.\x0440\x0444",
+    // 3) ѕсоре-рау.рф with ѕсоре and рау in Cyrillic.
+    {"xn----8sbn9akccw8m.xn--p1ai",
+     L"\x0455\x0441\x043e\x0440\x0435-\x0440\x0430\x0443.\x0440\x0444", true},
+    // 4) ѕсоре1рау.com with scope and pay in Cyrillic and a non-letter between
+    // them.
+    {"xn--1-8sbn9akccw8m.xn--p1ai",
+     L"\x0455\x0441\x043e\x0440\x0435\x0031\x0440\x0430\x0443.\x0440\x0444",
      true},
 
-    // ѕсоре-рау.한국 with ѕсоре and рау in Cyrillic.
-    {"xn----8sbn9akccw8m.xn--3e0b707e",
-     L"\x0455\x0441\x043e\x0440\x0435-\x0440\x0430\x0443.\xd55c\xad6d", true},
+    // Same as above three, but in .ru TLD.
+    // 1) ѕсоре.ru  with ѕсоре in Cyrillic.
+    {"xn--e1argc3h.ru", L"\x0455\x0441\x043e\x0440\x0435.ru", true},
+    // 2) ѕсоре123.ru with ѕсоре in Cyrillic.
+    {"xn--123-qdd8bmf3n.ru",
+     L"\x0455\x0441\x043e\x0440\x0435"
+     L"123.ru",
+     true},
+    // 3) ѕсоре-рау.ru with ѕсоре and рау in Cyrillic.
+    {"xn----8sbn9akccw8m.ru",
+     L"\x0455\x0441\x043e\x0440\x0435-\x0440\x0430\x0443.ru", true},
+    // 4) ѕсоре1рау.com with scope and pay in Cyrillic and a non-letter between
+    // them.
+    {"xn--1-8sbn9akccw8m.ru",
+     L"\x0455\x0441\x043e\x0440\x0435\x0031\x0440\x0430\x0443.ru", true},
+
+    // ѕсоре-рау.한국 with ѕсоре and рау in Cyrillic. The label will remain
+    // punycode while the TLD will be decoded.
+    {"xn----8sbn9akccw8m.xn--3e0b707e", L"xn----8sbn9akccw8m.\xd55c\xad6d",
+     true},
 
     // музей (museum in Russian) has characters without a Latin-look-alike.
     {"xn--e1adhj9a.com", L"\x043c\x0443\x0437\x0435\x0439.com", true},
 
     // ѕсоԗе.com is Cyrillic with Latin lookalikes.
     {"xn--e1ari3f61c.com", L"\x0455\x0441\x043e\x0517\x0435.com", false},
+
+    // ыоԍ.com is Cyrillic with Latin lookalikes.
+    {"xn--n1az74c.com", L"\x044b\x043e\x050d.com", false},
+
+    // сю.com is Cyrillic with Latin lookalikes.
+    {"xn--q1a0a.com", L"\x0441\x044e.com", false},
+
+    // googlе.한국 where е is Cyrillic. This tests the generic case when one
+    // label is not allowed but  other labels in the domain name are still
+    // decoded. Here, googlе is left in punycode but the TLD is decoded.
+    {"xn--googl-3we.xn--3e0b707e", L"xn--googl-3we.\xd55c\xad6d", true},
 
     // Combining Diacritic marks after a script other than Latin-Greek-Cyrillic
     {"xn--rsa2568fvxya.com", L"\xd55c\x0301\xae00.com", false},  // 한́글.com
@@ -562,6 +606,8 @@ const IDNTestCase kIdnCases[] = {
     // ӏԍԃ.com
     {"xn--s5a8h3a.com", L"\x04cf\x050d\x0503.com", false},
 
+    // 1շ34567890.com
+    {"xn--134567890-gnk.com", L"1շ34567890.com", false},
     // ꓲ2345б7890.com
     {"xn--23457890-e7g93622b.com",
      L"\xa4f2"
@@ -619,6 +665,8 @@ const IDNTestCase kIdnCases[] = {
      L"12\x10DE"
      L"4567890.com",
      false},
+    // 123ㄐ567890.com
+    {"xn--123567890-dr5h.com", L"123ㄐ567890.com", false},
     // 123Ꮞ567890.com
     {"xn--123567890-dm4b.com",
      L"123\x13ce"
@@ -629,6 +677,8 @@ const IDNTestCase kIdnCases[] = {
      L"12345\x0431"
      L"7890.com",
      false},
+    // 12345ճ7890.com
+    {"xn--123457890-fmk.com", L"12345ճ7890.com", false},
     // 1234567ȣ90.com
     {"xn--123456790-6od.com",
      L"1234567\x0223"
@@ -712,8 +762,9 @@ const IDNTestCase kIdnCases[] = {
      false},
     //  Deva digit + Beng digit
     {"xn--e4b0x.co.in", L"\x0967\x09e7.co.in", false},
-    // U+4E00 (CJK Ideograph One) is not a digit
-    {"xn--d12-s18d.cn", L"d12\x4e00.cn", true},
+    // U+4E00 (CJK Ideograph One) is not a digit, but it's not allowed next to
+    // non-Kana scripts including numbers.
+    {"xn--d12-s18d.cn", L"d12\x4e00.cn", false},
     // One that's really long that will force a buffer realloc
     {"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
      "aaaaaaa",
@@ -1042,6 +1093,9 @@ const IDNTestCase kIdnCases[] = {
     // U+4E00 and U+3127 should be blocked when next to non-CJK.
     {"xn--ipaddress-w75n.com", L"ip一address.com", false},
     {"xn--ipaddress-wx5h.com", L"ipㄧaddress.com", false},
+    // U+4E00 at the beginning and end of a string.
+    {"xn--google-gg5e.com", L"googleㄧ.com", false},
+    {"xn--google-9f5e.com", L"ㄧgoogle.com", false},
     // These are allowed because 一 is not immediately next to non-CJK.
     {"xn--gamer-fg1hz05u.com", L"一生gamer.com", true},
     {"xn--gamer-kg1hy05u.com", L"gamer生一.com", true},
@@ -1065,21 +1119,81 @@ const IDNTestCase kIdnCases[] = {
     {"xn--google-8m4e.com", L"google\x309A.com", false},
 
     // Small letter theta looks like a zero.
-    {"xn--123456789-yzg.com", L"123456789θ.com", false}};
+    {"xn--123456789-yzg.com", L"123456789θ.com", false},
+
+    {"xn--est-118d.net", L"七est.net", false},
+    {"xn--est-918d.net", L"丅est.net", false},
+    {"xn--est-e28d.net", L"丆est.net", false},
+    {"xn--est-t18d.net", L"丁est.net", false},
+    {"xn--3-cq6a.com", L"丩3.com", false},
+    {"xn--cxe-n68d.com", L"c丫xe.com", false},
+    {"xn--cye-b98d.com", L"cy乂e.com", false},
+
+    // U+05D7 can look like Latin n in many fonts.
+    {"xn--ceba.com", L"חח.com", false},
+
+    // U+00FE (þ) and U+00F0 (ð) are only allowed under the .is TLD.
+    {"xn--acdef-wva.com", L"aþcdef.com", false},
+    {"xn--mnpqr-jta.com", L"mnðpqr.com", false},
+    {"xn--acdef-wva.is", L"aþcdef.is", true},
+    {"xn--mnpqr-jta.is", L"mnðpqr.is", true},
+
+    // U+0259 (ə) is only allowed under the .az TLD.
+    {"xn--xample-vyc.com", L"əxample.com", false},
+    {"xn--xample-vyc.az", L"əxample.az", true},
+
+    // U+00B7 is only allowed on Catalan domains between two l's.
+    {"xn--googlecom-5pa.com", L"google·com.com", false},
+    {"xn--ll-0ea.com", L"l·l.com", false},
+    {"xn--ll-0ea.cat", L"l·l.cat", true},
+    {"xn--al-0ea.cat", L"a·l.cat", false},
+    {"xn--la-0ea.cat", L"l·a.cat", false},
+    {"xn--l-fda.cat", L"·l.cat", false},
+    {"xn--l-gda.cat", L"l·.cat", false},
+
+    {"xn--googlecom-gk6n.com", L"google丨com.com", false},   // (U+4E28)
+    {"xn--googlecom-0y6n.com", L"google乛com.com", false},   // (U+4E5B)
+    {"xn--googlecom-v85n.com", L"google七com.com", false},   // (U+4E03)
+    {"xn--googlecom-g95n.com", L"google丅com.com", false},   // (U+4E05)
+    {"xn--googlecom-go6n.com", L"google⼂com.com", false},   // (U+2F02)
+    {"xn--googlecom-b76o.com", L"google⼗com.com", false},   // (U+2F17)
+    {"xn--googlecom-b76o.com", L"google〸com.com", false},   // (U+3038)
+    {"xn--googlecom-ql3h.com", L"google〇com.com", false},   // (U+3007)
+    {"xn--googlecom-0r5h.com", L"googleㄒcom.com", false},   // (U+3112)
+    {"xn--googlecom-bu5h.com", L"googleㄚcom.com", false},   // (U+311A)
+    {"xn--googlecom-qv5h.com", L"googleㄟcom.com", false},   // (U+311F)
+    {"xn--googlecom-0x5h.com", L"googleㄧcom.com", false},   // (U+3127)
+    {"xn--googlecom-by5h.com", L"googleㄨcom.com", false},   // (U+3128)
+    {"xn--googlecom-ly5h.com", L"googleㄩcom.com", false},   // (U+3129)
+    {"xn--googlecom-5o5h.com", L"googleㄈcom.com", false},   // (U+3108)
+    {"xn--googlecom-075n.com", L"google㆒com.com", false},   // (U+3192)
+    {"xn--googlecom-046h.com", L"googleㆺcom.com", false},   // (U+31BA)
+    {"xn--googlecom-026h.com", L"googleㆳcom.com", false},   // (U+31B3)
+    {"xn--googlecom-lg9q.com", L"google工com.com", false},   // (U+5DE5)
+    {"xn--googlecom-g040a.com", L"google讠com.com", false},  // (U+8BA0)
+    {"xn--googlecom-b85n.com", L"google丁com.com", false},   // (U+4E01)
+};                                                           // namespace
 
 namespace test {
-#include "components/url_formatter/top_domains/test_domains-trie-inc.cc"
+#include "components/url_formatter/spoof_checks/top_domains/test_domains-trie-inc.cc"
 }
 
 }  // namespace
 
-TEST(IDNSpoofCheckerTest, IDNToUnicode) {
-  IDNSpoofChecker::HuffmanTrieParams trie_params{
-      test::kTopDomainsHuffmanTree, sizeof(test::kTopDomainsHuffmanTree),
-      test::kTopDomainsTrie, test::kTopDomainsTrieBits,
-      test::kTopDomainsRootPosition};
-  IDNSpoofChecker::SetTrieParamsForTesting(trie_params);
+class IDNSpoofCheckerTest : public ::testing::Test {
+ protected:
+  void SetUp() override {
+    IDNSpoofChecker::HuffmanTrieParams trie_params{
+        test::kTopDomainsHuffmanTree, sizeof(test::kTopDomainsHuffmanTree),
+        test::kTopDomainsTrie, test::kTopDomainsTrieBits,
+        test::kTopDomainsRootPosition};
+    IDNSpoofChecker::SetTrieParamsForTesting(trie_params);
+  }
 
+  void TearDown() override { IDNSpoofChecker::RestoreTrieParamsForTesting(); }
+};
+
+TEST_F(IDNSpoofCheckerTest, IDNToUnicode) {
   for (size_t i = 0; i < base::size(kIdnCases); i++) {
     base::string16 output(IDNToUnicode(kIdnCases[i].input));
     base::string16 expected(kIdnCases[i].unicode_allowed
@@ -1088,12 +1202,44 @@ TEST(IDNSpoofCheckerTest, IDNToUnicode) {
     EXPECT_EQ(expected, output)
         << "input # " << i << ": \"" << kIdnCases[i].input << "\"";
   }
-  IDNSpoofChecker::RestoreTrieParamsForTesting();
+}
+
+TEST_F(IDNSpoofCheckerTest, LookupSkeletonInTopDomains) {
+  {
+    TopDomainEntry entry =
+        IDNSpoofChecker().LookupSkeletonInTopDomains("d4OOO.corn");
+    EXPECT_EQ("d4000.com", entry.domain);
+    EXPECT_TRUE(entry.is_top_500);
+  }
+  {
+    TopDomainEntry entry =
+        IDNSpoofChecker().LookupSkeletonInTopDomains("digklrno68.corn");
+    EXPECT_EQ("digklmo68.com", entry.domain);
+    EXPECT_FALSE(entry.is_top_500);
+  }
+}
+
+// Same test as LookupSkeletonInTopDomains but using the real top domain list.
+TEST(IDNSpoofCheckerNoFixtureTest, LookupSkeletonInTopDomains) {
+  {
+    TopDomainEntry entry =
+        IDNSpoofChecker().LookupSkeletonInTopDomains("google.corn");
+    EXPECT_EQ("google.com", entry.domain);
+    EXPECT_TRUE(entry.is_top_500);
+  }
+  {
+    // This is data dependent, must be updated when the top domain list
+    // is updated.
+    TopDomainEntry entry =
+        IDNSpoofChecker().LookupSkeletonInTopDomains("google.sk");
+    EXPECT_EQ("google.sk", entry.domain);
+    EXPECT_FALSE(entry.is_top_500);
+  }
 }
 
 // Check the unsafe version of IDNToUnicode. Even though the input domain
 // matches a top domain, it should still be converted to unicode.
-TEST(IDNSpoofCheckerTest, UnsafeIDNToUnicodeWithDetails) {
+TEST(IDNSpoofCheckerNoFixtureTest, UnsafeIDNToUnicodeWithDetails) {
   const struct TestCase {
     // The IDNA/Punycode version of the domain (plain ASCII).
     const char* const punycode;
@@ -1103,25 +1249,30 @@ TEST(IDNSpoofCheckerTest, UnsafeIDNToUnicodeWithDetails) {
     const bool expected_has_idn;
     // The top domain that |punycode| matched to, if any.
     const char* const expected_matching_domain;
+    // If true, the matching top domain is expected to be in top 500.
+    const bool expected_is_top_500;
   } kTestCases[] = {
       {// An ASCII, top domain.
        "google.com", L"google.com", false,
        // Since it's not unicode, we won't attempt to match it to a top domain.
-       ""},
+       "",
+       // ...And since we don't match it to a top domain, we don't know if it's
+       // a top 500 domain.
+       false},
       {// An ASCII domain that's not a top domain.
-       "not-top-domain.com", L"not-top-domain.com", false, ""},
+       "not-top-domain.com", L"not-top-domain.com", false, "", false},
       {// A unicode domain that's valid according to all of the rules in IDN
        // spoof checker except that it matches a top domain. Should be
        // converted to punycode.
-       "xn--googl-fsa.com", L"googlé.com", true, "google.com"},
+       "xn--googl-fsa.com", L"googlé.com", true, "google.com", true},
       {// A unicode domain that's not valid according to the rules in IDN spoof
        // checker (mixed script) and it matches a top domain. Should be
        // converted to punycode.
-       "xn--80ak6aa92e.com", L"аррӏе.com", true, "apple.com"},
+       "xn--80ak6aa92e.com", L"аррӏе.com", true, "apple.com", true},
       {// A unicode domain that's not valid according to the rules in IDN spoof
        // checker (mixed script) but it doesn't match a top domain.
-       "xn--o-o-oai-26a223aia177a7ab7649d.com", L"ɴoτ-τoρ-ďoᛖaiɴ.com", true,
-       ""},
+       "xn--o-o-oai-26a223aia177a7ab7649d.com", L"ɴoτ-τoρ-ďoᛖaiɴ.com", true, "",
+       false},
   };
 
   for (const TestCase& test_case : kTestCases) {
@@ -1129,7 +1280,47 @@ TEST(IDNSpoofCheckerTest, UnsafeIDNToUnicodeWithDetails) {
         UnsafeIDNToUnicodeWithDetails(test_case.punycode);
     EXPECT_EQ(base::WideToUTF16(test_case.expected_unicode), result.result);
     EXPECT_EQ(test_case.expected_has_idn, result.has_idn_component);
-    EXPECT_EQ(test_case.expected_matching_domain, result.matching_top_domain);
+    EXPECT_EQ(test_case.expected_matching_domain,
+              result.matching_top_domain.domain);
+    EXPECT_EQ(test_case.expected_is_top_500,
+              result.matching_top_domain.is_top_500);
+  }
+}
+
+// Checks that skeletons are properly generated for domains with blocked
+// characters after using UnsafeIDNToUnicodeWithDetails.
+TEST(IDNSpoofCheckerNoFixtureTest, Skeletons) {
+  // All of these should produce the same skeleton. Not all of these are
+  // explicitly mapped in idn_spoof_checker.cc, ICU already handles some.
+  const char kDashSite[] = "test-site";
+  const struct TestCase {
+    const GURL url;
+    const char* const expected_skeleton;
+  } kTestCases[] = {
+      {GURL("http://test‐site"), kDashSite},   // U+2010 (Hyphen)
+      {GURL("http://test‑site"), kDashSite},   // U+2011 (Non breaking hyphen)
+      {GURL("http://test‒site"), kDashSite},   // U+2012 (Figure dash)
+      {GURL("http://test–site"), kDashSite},   // U+2013 (En dash)
+      {GURL("http://test—site"), kDashSite},   // U+2014 (Em dash)
+      {GURL("http://test―site"), kDashSite},   // U+2015 (Horizontal bar)
+      {GURL("http://test一site"), kDashSite},  // U+4E00 (一)
+      {GURL("http://test−site"), kDashSite},   // U+2212 (minus sign)
+      {GURL("http://test⸺site"), kDashSite},   // U+2E3A (two-em dash)
+      {GURL("http://test⸻site"), kDashSite},   // U+2E3B (three-em dash)
+      {GURL("http://七est.net"), "test.net"},
+      {GURL("http://丅est.net"), "test.net"},
+      {GURL("http://丆est.net"), "test.net"},
+      {GURL("http://c丫xe.com"), "cyxe.corn"},
+      {GURL("http://cy乂e.com"), "cyxe.corn"},
+      {GURL("http://丩3.com"), "43.corn"}};
+
+  IDNSpoofChecker checker;
+  for (const TestCase& test_case : kTestCases) {
+    const url_formatter::IDNConversionResult result =
+        UnsafeIDNToUnicodeWithDetails(test_case.url.host());
+    Skeletons skeletons = checker.GetSkeletons(result.result);
+    EXPECT_EQ(1u, skeletons.size());
+    EXPECT_EQ(test_case.expected_skeleton, *skeletons.begin());
   }
 }
 

@@ -13,7 +13,7 @@
 #include "base/memory/weak_ptr.h"
 #include "content/common/content_export.h"
 #include "content/public/browser/browser_thread.h"
-#include "content/public/browser/resource_request_info.h"
+#include "content/public/browser/web_contents.h"
 #include "net/ssl/client_cert_identity.h"
 #include "net/ssl/ssl_cert_request_info.h"
 
@@ -26,7 +26,7 @@ class X509Certificate;
 namespace content {
 
 // This class handles the approval and selection of a certificate for SSL client
-// authentication by the user. Should only be used on the IO thread. If the
+// authentication by the user. Should only be used on the UI thread. If the
 // SSLClientAuthHandler is destroyed before the certificate is selected, the
 // selection is canceled and the delegate never called.
 class SSLClientAuthHandler {
@@ -54,34 +54,17 @@ class SSLClientAuthHandler {
 
   // Creates a new SSLClientAuthHandler. The caller ensures that the handler
   // does not outlive |delegate|.
-  SSLClientAuthHandler(
-      std::unique_ptr<net::ClientCertStore> client_cert_store,
-      ResourceRequestInfo::WebContentsGetter web_contents_getter,
-      net::SSLCertRequestInfo* cert_request_info,
-      Delegate* delegate);
+  SSLClientAuthHandler(std::unique_ptr<net::ClientCertStore> client_cert_store,
+                       WebContents::Getter web_contents_getter,
+                       net::SSLCertRequestInfo* cert_request_info,
+                       Delegate* delegate);
   ~SSLClientAuthHandler();
 
   // Selects a certificate and resumes the URL request with that certificate.
   void SelectCertificate();
 
-  // Sets a UI-thread callback that can be used to close the UI associated with
-  // this certificate selection. The callback is run when SSLClientAuthHandler
-  // is destroyed.
-  void SetCancellationCallback(base::OnceClosure callback);
-
-  // Called to continue the request associated with |handler| using |cert|. This
-  // is static to avoid deleting |handler| while it is on the stack.
-  static void ContinueWithCertificate(
-      const base::WeakPtr<SSLClientAuthHandler>& handler,
-      scoped_refptr<net::X509Certificate> cert,
-      scoped_refptr<net::SSLPrivateKey> key);
-
-  // Called to abort the request associated with |handler|. This is static to
-  // avoid deleting |handler| while it is on the stack.
-  static void CancelCertificateSelection(
-      const base::WeakPtr<SSLClientAuthHandler>& handler);
-
  private:
+  class ClientCertificateDelegateImpl;
   class Core;
 
   // Called when |core_| is done retrieving the cert list.
@@ -96,7 +79,7 @@ class SSLClientAuthHandler {
   // will cancel the dialog corresponding to this certificate request.
   base::OnceClosure cancellation_callback_;
 
-  ResourceRequestInfo::WebContentsGetter web_contents_getter_;
+  WebContents::Getter web_contents_getter_;
 
   // The certs to choose from.
   scoped_refptr<net::SSLCertRequestInfo> cert_request_info_;

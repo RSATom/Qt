@@ -17,10 +17,12 @@ namespace network {
 class SharedURLLoaderFactory;
 }  // namespace network
 
-namespace content {
-
-class URLLoaderThrottle;
+namespace blink {
 class ThrottlingURLLoader;
+class URLLoaderThrottle;
+}  // namespace blink
+
+namespace content {
 
 // Sends a ping to the given |validity_url|. Current implementation is
 // primarily for measurement and does no actual validity check: it only
@@ -34,7 +36,7 @@ class CONTENT_EXPORT SignedExchangeValidityPinger
   static std::unique_ptr<SignedExchangeValidityPinger> CreateAndStart(
       const GURL& validity_url,
       scoped_refptr<network::SharedURLLoaderFactory> loader_factory,
-      std::vector<std::unique_ptr<URLLoaderThrottle>> throttles,
+      std::vector<std::unique_ptr<blink::URLLoaderThrottle>> throttles,
       const base::Optional<base::UnguessableToken>& throttling_profile_id,
       base::OnceClosure callback);
 
@@ -45,13 +47,13 @@ class CONTENT_EXPORT SignedExchangeValidityPinger
   void Start(
       const GURL& validity_url,
       scoped_refptr<network::SharedURLLoaderFactory> loader_factory,
-      std::vector<std::unique_ptr<URLLoaderThrottle>> throttles,
+      std::vector<std::unique_ptr<blink::URLLoaderThrottle>> throttles,
       const base::Optional<base::UnguessableToken>& throttling_profile_id);
 
   // network::mojom::URLLoaderClient
-  void OnReceiveResponse(const network::ResourceResponseHead& head) override;
+  void OnReceiveResponse(network::mojom::URLResponseHeadPtr head) override;
   void OnReceiveRedirect(const net::RedirectInfo& redirect_info,
-                         const network::ResourceResponseHead& head) override;
+                         network::mojom::URLResponseHeadPtr head) override;
   void OnUploadProgress(int64_t current_position,
                         int64_t total_size,
                         OnUploadProgressCallback callback) override;
@@ -68,7 +70,7 @@ class CONTENT_EXPORT SignedExchangeValidityPinger
 
   base::TimeTicks start_time_ = base::TimeTicks::Now();
 
-  std::unique_ptr<ThrottlingURLLoader> url_loader_;
+  std::unique_ptr<blink::ThrottlingURLLoader> url_loader_;
   std::unique_ptr<mojo::DataPipeDrainer> pipe_drainer_;
   base::OnceClosure callback_;
 

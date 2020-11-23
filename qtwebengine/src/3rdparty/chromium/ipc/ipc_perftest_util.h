@@ -7,6 +7,10 @@
 
 #include <string>
 
+#if defined(OS_WIN)
+#include <windows.h>
+#endif
+
 #include "base/callback.h"
 #include "base/macros.h"
 #include "base/memory/ref_counted.h"
@@ -19,8 +23,12 @@
 #include "ipc/ipc_message.h"
 #include "ipc/ipc_sender.h"
 #include "ipc/ipc_test.mojom.h"
-#include "mojo/public/cpp/bindings/binding.h"
+#include "mojo/public/cpp/bindings/receiver.h"
 #include "mojo/public/cpp/system/core.h"
+
+#if defined(OS_WIN)
+#include <windows.h>
+#endif
 
 namespace IPC {
 
@@ -111,7 +119,7 @@ class ReflectorImpl : public IPC::mojom::Reflector {
   void Quit() override;
 
   base::Closure quit_closure_;
-  mojo::Binding<IPC::mojom::Reflector> binding_;
+  mojo::Receiver<IPC::mojom::Reflector> receiver_;
 };
 
 }  // namespace IPC

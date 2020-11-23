@@ -199,6 +199,13 @@
     "extension_types": ["platform_app"],
     "platforms": ["chromeos"]
   },
+  "crashReportPrivate": {
+    "channel": "dev",
+    "extension_types": ["extension"],
+    "whitelist": [
+      "06BE211D5F014BAB34BC22D9DDA09C63A81D828E"   // http://crbug.com/946241
+    ]
+  },
   "declarativeNetRequest": {
     "channel": "beta",
     "extension_types": ["extension"],
@@ -251,14 +258,6 @@
     "channel": "stable",
     "extension_types": ["extension", "platform_app"],
     "platforms": ["chromeos"]
-  },
-  "extensionview": {
-    "channel": "stable",
-    "extension_types": ["platform_app"],
-    "whitelist": [
-      // Used in browser tests: http://crbug.com/515284
-      "BD2EB5085B5324203BCCC3DF3CF102B8AB850402"
-    ]
   },
   "externally_connectable.all_urls": {
     "channel": "stable",
@@ -572,11 +571,12 @@
       "min_manifest_version": 2
     },
     {
-      "channel": "dev",
+      "channel": "stable",
       "extension_types": ["login_screen_extension"],
       "min_manifest_version": 2,
       "whitelist": [
         "E219EE36A3B40612FD2A8CD6937B03EF0C97D3FE", // Imprivata (login screen)
+        "4DBFC1C52D6660DD90791976DF7FEF7B3D360509", // Imprivata (login screen) DEV
         "7FE4A999359A456C4B0FB7B7AD85CEA29CA50519"  // Login screen APIs test extension
       ]
     }

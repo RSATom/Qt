@@ -39,7 +39,7 @@ class TestIdentityManagerObserver;
 // not available; call MakePrimaryAccountAvailable() as needed.
 // NOTE: IdentityTestEnvironment requires that tests have a properly set up
 // task environment. If your test doesn't already have one, use a
-// base::test::ScopedTaskEnvironment instance variable to fulfill this
+// base::test::TaskEnvironment instance variable to fulfill this
 // requirement.
 class IdentityTestEnvironment : public IdentityManager::DiagnosticsObserver {
  public:
@@ -113,6 +113,14 @@ class IdentityTestEnvironment : public IdentityManager::DiagnosticsObserver {
   // all platforms, this method blocks until the primary account is available.
   // Returns the AccountInfo of the newly-available account.
   AccountInfo MakePrimaryAccountAvailable(const std::string& email);
+
+  // Combination of MakeAccountAvailable() and SetCookieAccounts() for a single
+  // account. It makes an account available for the given email address, and
+  // GAIA ID, setting the cookies and the refresh token that correspond uniquely
+  // to that email address. Blocks until the account is available. Returns the
+  // AccountInfo of the newly-available account.
+  AccountInfo MakeAccountAvailableWithCookies(const std::string& email,
+                                              const std::string& gaia_id);
 
   // Clears the primary account if present, with |policy| used to determine
   // whether to keep or remove all accounts. On non-ChromeOS, results in the
@@ -287,7 +295,7 @@ class IdentityTestEnvironment : public IdentityManager::DiagnosticsObserver {
       kPending,
       kAvailable,
     } state;
-    base::Optional<std::string> account_id;
+    base::Optional<CoreAccountId> account_id;
     base::OnceClosure on_available;
   };
 

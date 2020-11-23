@@ -517,7 +517,7 @@ QFont *QKdeThemePrivate::kdeFont(const QVariant &fontValue)
         // causing recursion.
         QString fontDescription;
         QString fontFamily;
-        if (fontValue.type() == QVariant::StringList) {
+        if (fontValue.userType() == QMetaType::QStringList) {
             const QStringList list = fontValue.toStringList();
             if (!list.isEmpty()) {
                 fontFamily = list.first();
@@ -641,7 +641,7 @@ QPlatformTheme *QKdeTheme::createKdeTheme()
 
     const QString kdeDirsVar = QFile::decodeName(qgetenv("KDEDIRS"));
     if (!kdeDirsVar.isEmpty())
-        kdeDirs += kdeDirsVar.split(QLatin1Char(':'), QString::SkipEmptyParts);
+        kdeDirs += kdeDirsVar.split(QLatin1Char(':'), Qt::SkipEmptyParts);
 
     const QString kdeVersionHomePath = QDir::homePath() + QLatin1String("/.kde") + QLatin1String(kdeVersionBA);
     if (QFileInfo(kdeVersionHomePath).isDir())

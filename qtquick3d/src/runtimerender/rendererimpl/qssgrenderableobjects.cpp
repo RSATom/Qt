@@ -263,7 +263,7 @@ void QSSGSubsetRenderable::render(const QVector2D &inCameraVec, const ShaderFeat
         }
     }
 
-    context->solveCullingOptions(material.cullingMode);
+    context->solveCullingOptions(material.cullMode);
     context->setInputAssembler(subset.inputAssembler);
     context->draw(subset.primitiveType, subset.count, subset.offset);
 }
@@ -276,7 +276,7 @@ void QSSGSubsetRenderable::renderDepthPass(const QVector2D &inCameraVec)
         if (theImage->m_mapType == QSSGImageMapTypes::Displacement)
             displacementImage = theImage;
     }
-    QSSGSubsetRenderableBase::renderDepthPass(inCameraVec, displacementImage, material.displaceAmount, material.cullingMode);
+    QSSGSubsetRenderableBase::renderDepthPass(inCameraVec, displacementImage, material.displaceAmount, material.cullMode);
 }
 
 QSSGCustomMaterialRenderable::QSSGCustomMaterialRenderable(QSSGRenderableObjectFlags inFlags,
@@ -332,7 +332,7 @@ void QSSGCustomMaterialRenderable::renderDepthPass(const QVector2D &inCameraVec,
                                                      const QSSGRenderTexture2D * /*inDepthTexture*/)
 {
 
-    QSSGRef<QSSGRenderContextInterface> contextInterface(generator->contextInterface());
+    const auto &contextInterface = generator->contextInterface();
     if (!contextInterface->customMaterialSystem()->renderDepthPrepass(modelContext.modelViewProjection, material, subset)) {
         QSSGRenderableImage *displacementImage = nullptr;
         for (QSSGRenderableImage *theImage = firstImage; theImage != nullptr && displacementImage == nullptr;
@@ -341,7 +341,7 @@ void QSSGCustomMaterialRenderable::renderDepthPass(const QVector2D &inCameraVec,
                 displacementImage = theImage;
         }
 
-        QSSGSubsetRenderableBase::renderDepthPass(inCameraVec, displacementImage, material.m_displaceAmount, material.cullingMode);
+        QSSGSubsetRenderableBase::renderDepthPass(inCameraVec, displacementImage, material.m_displaceAmount, material.cullMode);
     }
 }
 

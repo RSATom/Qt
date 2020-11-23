@@ -7,6 +7,7 @@
 #include <memory>
 
 #include "components/autofill/core/common/password_form.h"
+#include "components/password_manager/core/browser/password_manager_util.h"
 #include "components/password_manager/core/browser/statistics_table.h"
 
 using autofill::PasswordForm;
@@ -18,11 +19,11 @@ FakeFormFetcher::FakeFormFetcher() = default;
 FakeFormFetcher::~FakeFormFetcher() = default;
 
 void FakeFormFetcher::AddConsumer(Consumer* consumer) {
-  consumers_.insert(consumer);
+  consumers_.AddObserver(consumer);
 }
 
 void FakeFormFetcher::RemoveConsumer(Consumer* consumer) {
-  consumers_.erase(consumer);
+  consumers_.RemoveObserver(consumer);
 }
 
 FormFetcher::State FakeFormFetcher::GetState() const {
@@ -43,25 +44,41 @@ std::vector<const PasswordForm*> FakeFormFetcher::GetFederatedMatches() const {
   return federated_;
 }
 
-std::vector<const PasswordForm*> FakeFormFetcher::GetBlacklistedMatches()
+bool FakeFormFetcher::IsBlacklisted() const {
+  return is_blacklisted_;
+}
+
+const std::vector<const PasswordForm*>& FakeFormFetcher::GetAllRelevantMatches()
     const {
-  return blacklisted_;
+  return non_federated_same_scheme_;
+}
+
+const std::vector<const PasswordForm*>& FakeFormFetcher::GetBestMatches()
+    const {
+  return best_matches_;
+}
+
+const PasswordForm* FakeFormFetcher::GetPreferredMatch() const {
+  return preferred_match_;
 }
 
 void FakeFormFetcher::SetNonFederated(
     const std::vector<const PasswordForm*>& non_federated) {
   non_federated_ = non_federated;
+  password_manager_util::FindBestMatches(
+      non_federated_, scheme_,
+      /*sort_matches_by_date_last_used=*/false, &non_federated_same_scheme_,
+      &best_matches_, &preferred_match_);
 }
 
-void FakeFormFetcher::SetBlacklisted(
-    const std::vector<const PasswordForm*>& blacklisted) {
-  blacklisted_ = blacklisted;
+void FakeFormFetcher::SetBlacklisted(bool is_blacklisted) {
+  is_blacklisted_ = is_blacklisted;
 }
 
 void FakeFormFetcher::NotifyFetchCompleted() {
   state_ = State::NOT_WAITING;
-  for (Consumer* consumer : consumers_)
-    consumer->OnFetchCompleted();
+  for (Consumer& consumer : consumers_)
+    consumer.OnFetchCompleted();
 }
 
 void FakeFormFetcher::Fetch() {

@@ -25,11 +25,11 @@ class Point;
 class ScrollOffset;
 class SizeF;
 class Vector2dF;
-}
+}  // namespace gfx
 
 namespace ui {
 class LatencyInfo;
-}
+}  // namespace ui
 
 namespace cc {
 
@@ -53,6 +53,11 @@ struct CC_EXPORT InputHandlerPointerResult {
   // pointer event (due to the latency attribution that happens at the
   // InputHandlerProxy level).
   gfx::ScrollOffset scroll_offset;
+
+  // Used to determine which scroll_node needs to be scrolled. The primary
+  // purpose of this is to avoid hit testing for gestures that already know
+  // which scroller to target.
+  ElementId target_scroller;
 };
 
 struct CC_EXPORT InputHandlerScrollResult {
@@ -193,15 +198,17 @@ class CC_EXPORT InputHandler {
 
   virtual InputHandlerPointerResult MouseMoveAt(
       const gfx::Point& mouse_position) = 0;
-  virtual InputHandlerPointerResult MouseDown(
-      const gfx::PointF& mouse_position) = 0;
+  // TODO(arakeri): Pass in the modifier instead of a bool once the refactor
+  // (crbug.com/1022097) is done. For details, see crbug.com/1016955.
+  virtual InputHandlerPointerResult MouseDown(const gfx::PointF& mouse_position,
+                                              bool shift_modifier) = 0;
   virtual InputHandlerPointerResult MouseUp(
       const gfx::PointF& mouse_position) = 0;
   virtual void MouseLeave() = 0;
 
   // Stop scrolling the selected layer. Should only be called if ScrollBegin()
   // returned SCROLL_STARTED. Snap to a snap position if |should_snap| is true.
-  virtual void ScrollEnd(ScrollState* scroll_state, bool should_snap) = 0;
+  virtual void ScrollEnd(bool should_snap) = 0;
 
   // Requests a callback to UpdateRootLayerStateForSynchronousInputHandler()
   // giving the current root scroll and page scale information.
@@ -273,10 +280,10 @@ class CC_EXPORT InputHandler {
   // |natural_displacement_in_viewport| is the estimated total scrolling for
   // the active scroll sequence.
   // Returns false if their is no position to snap to.
-  virtual bool GetSnapFlingInfo(
+  virtual bool GetSnapFlingInfoAndSetSnapTarget(
       const gfx::Vector2dF& natural_displacement_in_viewport,
       gfx::Vector2dF* initial_offset,
-      gfx::Vector2dF* target_offset) const = 0;
+      gfx::Vector2dF* target_offset) = 0;
 
  protected:
   InputHandler() = default;

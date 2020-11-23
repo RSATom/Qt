@@ -35,7 +35,7 @@
 #include "third_party/blink/renderer/platform/platform_export.h"
 #include "third_party/blink/renderer/platform/wtf/allocator/allocator.h"
 #include "third_party/blink/renderer/platform/wtf/forward.h"
-#include "third_party/blink/renderer/platform/wtf/time.h"
+
 #include "third_party/blink/renderer/platform/wtf/vector.h"
 #include "third_party/skia/include/core/SkRWBuffer.h"
 #include "third_party/skia/include/core/SkRefCnt.h"
@@ -43,7 +43,6 @@
 namespace blink {
 
 class ImageFrameGenerator;
-class SharedBuffer;
 struct DeferredFrameData;
 
 class PLATFORM_EXPORT DeferredImageDecoder final {
@@ -120,6 +119,10 @@ class PLATFORM_EXPORT DeferredImageDecoder final {
   IntPoint hot_spot_;
   const PaintImage::ContentId complete_frame_content_id_;
   base::Optional<bool> incremental_decode_needed_;
+
+  // Caches an image's metadata so it can outlive |metadata_decoder_| after all
+  // data is received in cases where multiple generators are created.
+  base::Optional<cc::ImageHeaderMetadata> image_metadata_;
 
   // Caches frame state information.
   Vector<DeferredFrameData> frame_data_;

@@ -42,14 +42,6 @@
 
 namespace blink {
 
-using namespace html_names;
-
-namespace {
-
-const char kXSSDetected[] = "Token contains a reflected XSS vector";
-
-}  // namespace
-
 HTMLViewSourceDocument::HTMLViewSourceDocument(const DocumentInit& initializer,
                                                const String& mime_type)
     : HTMLDocument(initializer, kViewSourceDocumentClass), type_(mime_type) {
@@ -75,20 +67,19 @@ void HTMLViewSourceDocument::CreateContainingTable() {
   // Create a line gutter div that can be used to make sure the gutter extends
   // down the height of the whole document.
   auto* div = MakeGarbageCollected<HTMLDivElement>(*this);
-  div->setAttribute(kClassAttr, "line-gutter-backdrop");
+  div->setAttribute(html_names::kClassAttr, "line-gutter-backdrop");
   body->ParserAppendChild(div);
 
   auto* table = MakeGarbageCollected<HTMLTableElement>(*this);
   body->ParserAppendChild(table);
-  tbody_ = MakeGarbageCollected<HTMLTableSectionElement>(kTbodyTag, *this);
+  tbody_ = MakeGarbageCollected<HTMLTableSectionElement>(html_names::kTbodyTag,
+                                                         *this);
   table->ParserAppendChild(tbody_);
   current_ = tbody_;
   line_number_ = 0;
 }
 
-void HTMLViewSourceDocument::AddSource(const String& source,
-                                       HTMLToken& token,
-                                       SourceAnnotation annotation) {
+void HTMLViewSourceDocument::AddSource(const String& source, HTMLToken& token) {
   if (!current_)
     CreateContainingTable();
 
@@ -104,13 +95,13 @@ void HTMLViewSourceDocument::AddSource(const String& source,
       break;
     case HTMLToken::kStartTag:
     case HTMLToken::kEndTag:
-      ProcessTagToken(source, token, annotation);
+      ProcessTagToken(source, token);
       break;
     case HTMLToken::kComment:
       ProcessCommentToken(source, token);
       break;
     case HTMLToken::kCharacter:
-      ProcessCharacterToken(source, token, annotation);
+      ProcessCharacterToken(source, token);
       break;
   }
 }
@@ -130,9 +121,7 @@ void HTMLViewSourceDocument::ProcessEndOfFileToken(const String& source,
 }
 
 void HTMLViewSourceDocument::ProcessTagToken(const String& source,
-                                             HTMLToken& token,
-                                             SourceAnnotation annotation) {
-  MaybeAddSpanForAnnotation(annotation);
+                                             HTMLToken& token) {
   current_ = AddSpanWithClassName("html-tag");
 
   AtomicString tag_name(token.GetName());
@@ -156,21 +145,23 @@ void HTMLViewSourceDocument::ProcessTagToken(const String& source,
     index = AddRange(source, index, iter->NameRange().end - token.StartIndex(),
                      "html-attribute-name");
 
-    if (tag_name == kBaseTag && name == kHrefAttr)
+    if (tag_name == html_names::kBaseTag && name == html_names::kHrefAttr)
       AddBase(value);
 
     index =
         AddRange(source, index, iter->ValueRange().start - token.StartIndex(),
                  g_empty_atom);
 
-    if (name == kSrcsetAttr) {
+    if (name == html_names::kSrcsetAttr) {
       index =
           AddSrcset(source, index, iter->ValueRange().end - token.StartIndex());
     } else {
-      bool is_link = name == kSrcAttr || name == kHrefAttr;
+      bool is_link =
+          name == html_names::kSrcAttr || name == html_names::kHrefAttr;
       index =
           AddRange(source, index, iter->ValueRange().end - token.StartIndex(),
-                   "html-attribute-value", is_link, tag_name == kATag, value);
+                   "html-attribute-value", is_link,
+                   tag_name == html_names::kATag, value);
     }
 
     ++iter;
@@ -185,11 +176,9 @@ void HTMLViewSourceDocument::ProcessCommentToken(const String& source,
   current_ = td_;
 }
 
-void HTMLViewSourceDocument::ProcessCharacterToken(
-    const String& source,
-    HTMLToken&,
-    SourceAnnotation annotation) {
-  AddText(source, "", annotation);
+void HTMLViewSourceDocument::ProcessCharacterToken(const String& source,
+                                                   HTMLToken&) {
+  AddText(source, "");
 }
 
 Element* HTMLViewSourceDocument::AddSpanWithClassName(
@@ -200,7 +189,7 @@ Element* HTMLViewSourceDocument::AddSpanWithClassName(
   }
 
   auto* span = MakeGarbageCollected<HTMLSpanElement>(*this);
-  span->setAttribute(kClassAttr, class_name);
+  span->setAttribute(html_names::kClassAttr, class_name);
   current_->ParserAppendChild(span);
   return span;
 }
@@ -212,14 +201,15 @@ void HTMLViewSourceDocument::AddLine(const AtomicString& class_name) {
 
   // Create a cell that will hold the line number (it is generated in the
   // stylesheet using counters).
-  auto* td = MakeGarbageCollected<HTMLTableCellElement>(kTdTag, *this);
-  td->setAttribute(kClassAttr, "line-number");
-  td->SetIntegralAttribute(kValueAttr, ++line_number_);
+  auto* td =
+      MakeGarbageCollected<HTMLTableCellElement>(html_names::kTdTag, *this);
+  td->setAttribute(html_names::kClassAttr, "line-number");
+  td->SetIntegralAttribute(html_names::kValueAttr, ++line_number_);
   trow->ParserAppendChild(td);
 
   // Create a second cell for the line contents
-  td = MakeGarbageCollected<HTMLTableCellElement>(kTdTag, *this);
-  td->setAttribute(kClassAttr, "line-content");
+  td = MakeGarbageCollected<HTMLTableCellElement>(html_names::kTdTag, *this);
+  td->setAttribute(html_names::kClassAttr, "line-content");
   trow->ParserAppendChild(td);
   current_ = td_ = td;
 
@@ -241,8 +231,7 @@ void HTMLViewSourceDocument::FinishLine() {
 }
 
 void HTMLViewSourceDocument::AddText(const String& text,
-                                     const AtomicString& class_name,
-                                     SourceAnnotation annotation) {
+                                     const AtomicString& class_name) {
   if (text.IsEmpty())
     return;
 
@@ -261,7 +250,6 @@ void HTMLViewSourceDocument::AddText(const String& text,
       continue;
     }
     Element* old_element = current_;
-    MaybeAddSpanForAnnotation(annotation);
     current_->ParserAppendChild(Text::Create(*this, substring));
     current_ = old_element;
     if (i < size - 1)
@@ -295,7 +283,7 @@ int HTMLViewSourceDocument::AddRange(const String& source,
 
 Element* HTMLViewSourceDocument::AddBase(const AtomicString& href) {
   auto* base = MakeGarbageCollected<HTMLBaseElement>(*this);
-  base->setAttribute(kHrefAttr, href);
+  base->setAttribute(html_names::kHrefAttr, href);
   current_->ParserAppendChild(base);
   return base;
 }
@@ -312,13 +300,13 @@ Element* HTMLViewSourceDocument::AddLink(const AtomicString& url,
     class_value = "html-attribute-value html-external-link";
   else
     class_value = "html-attribute-value html-resource-link";
-  anchor->setAttribute(kClassAttr, class_value);
-  anchor->setAttribute(kTargetAttr, "_blank");
-  anchor->setAttribute(kHrefAttr, url);
-  anchor->setAttribute(kRelAttr, "noreferrer noopener");
+  anchor->setAttribute(html_names::kClassAttr, class_value);
+  anchor->setAttribute(html_names::kTargetAttr, "_blank");
+  anchor->setAttribute(html_names::kHrefAttr, url);
+  anchor->setAttribute(html_names::kRelAttr, "noreferrer noopener");
   // Disallow JavaScript hrefs. https://crbug.com/808407
   if (anchor->Url().ProtocolIsJavaScript())
-    anchor->setAttribute(kHrefAttr, "about:blank");
+    anchor->setAttribute(html_names::kHrefAttr, "about:blank");
   current_->ParserAppendChild(anchor);
   return anchor;
 }
@@ -345,14 +333,6 @@ int HTMLViewSourceDocument::AddSrcset(const String& source,
       AddText(",", "html-attribute-value");
   }
   return end;
-}
-
-void HTMLViewSourceDocument::MaybeAddSpanForAnnotation(
-    SourceAnnotation annotation) {
-  if (annotation == kAnnotateSourceAsXSS) {
-    current_ = AddSpanWithClassName("highlight");
-    current_->setAttribute(kTitleAttr, kXSSDetected);
-  }
 }
 
 void HTMLViewSourceDocument::Trace(Visitor* visitor) {

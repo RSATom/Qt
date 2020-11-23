@@ -15,7 +15,6 @@
 #include <bitset>
 #include <list>
 #include <map>
-#include <memory>
 #include <utility>
 #include <vector>
 
@@ -290,8 +289,21 @@ bool QueryRenderSupport(Display* dpy) {
   // We don't care about the version of Xrender since all the features which
   // we use are included in every version.
   static bool render_supported = XRenderQueryExtension(dpy, &dummy, &dummy);
-
   return render_supported;
+}
+
+bool QueryShmSupport() {
+  int major;
+  int minor;
+  x11::Bool pixmaps;
+  static bool supported =
+      XShmQueryVersion(gfx::GetXDisplay(), &major, &minor, &pixmaps);
+  return supported;
+}
+
+int ShmEventBase() {
+  static int event_base = XShmGetEventBase(gfx::GetXDisplay());
+  return event_base;
 }
 
 ::Cursor CreateReffedCustomXCursor(XcursorImage* image) {
@@ -947,6 +959,32 @@ void SetWMSpecState(XID window, bool enabled, XAtom state1, XAtom state2) {
              SubstructureRedirectMask | SubstructureNotifyMask, &xclient);
 }
 
+void DoWMMoveResize(XDisplay* display,
+                    XID root_window,
+                    XID window,
+                    const gfx::Point& location_px,
+                    int direction) {
+  // This handler is usually sent when the window has the implicit grab.  We
+  // need to dump it because what we're about to do is tell the window manager
+  // that it's now responsible for moving the window around; it immediately
+  // grabs when it receives the event below.
+  XUngrabPointer(display, x11::CurrentTime);
+
+  XEvent event;
+  memset(&event, 0, sizeof(event));
+  event.xclient.type = ClientMessage;
+  event.xclient.display = display;
+  event.xclient.window = window;
+  event.xclient.message_type = gfx::GetAtom("_NET_WM_MOVERESIZE");
+  event.xclient.format = 32;
+  event.xclient.data.l[0] = location_px.x();
+  event.xclient.data.l[1] = location_px.y();
+  event.xclient.data.l[2] = direction;
+
+  XSendEvent(display, root_window, x11::False,
+             SubstructureRedirectMask | SubstructureNotifyMask, &event);
+}
+
 bool HasWMSpecProperty(const base::flat_set<XAtom>& properties, XAtom atom) {
   return properties.find(atom) != properties.end();
 }
@@ -1253,6 +1291,34 @@ bool IsSyncExtensionAvailable() {
   return result;
 }
 
+SkColorType ColorTypeForVisual(void* visual) {
+  struct {
+    SkColorType color_type;
+    unsigned long red_mask;
+    unsigned long green_mask;
+    unsigned long blue_mask;
+  } color_infos[] = {
+      {kRGB_565_SkColorType, 0xf800, 0x7e0, 0x1f},
+      {kARGB_4444_SkColorType, 0xf000, 0xf00, 0xf0},
+      {kRGBA_8888_SkColorType, 0xff, 0xff00, 0xff0000},
+      {kBGRA_8888_SkColorType, 0xff0000, 0xff00, 0xff},
+      {kRGBA_1010102_SkColorType, 0x3ff, 0xffc00, 0x3ff00000},
+  };
+  Visual* vis = reinterpret_cast<Visual*>(visual);
+  for (const auto& color_info : color_infos) {
+    if (vis->red_mask == color_info.red_mask &&
+        vis->green_mask == color_info.green_mask &&
+        vis->blue_mask == color_info.blue_mask) {
+      return color_info.color_type;
+    }
+  }
+  LOG(FATAL) << "Unsupported visual with rgb mask 0x" << std::hex
+             << vis->red_mask << ", 0x" << vis->green_mask << ", 0x"
+             << vis->blue_mask
+             << ".  Please report this to https://crbug.com/1025266";
+  return kUnknown_SkColorType;
+}
+
 XRefcountedMemory::XRefcountedMemory(unsigned char* x11_data, size_t length)
     : x11_data_(length ? x11_data : nullptr), length_(length) {
 }
@@ -1285,6 +1351,10 @@ void XScopedCursor::reset(::Cursor cursor) {
   if (cursor_)
     XFreeCursor(display_, cursor_);
   cursor_ = cursor;
+}
+
+void XImageDeleter::operator()(XImage* image) const {
+  XDestroyImage(image);
 }
 
 namespace test {
@@ -1402,7 +1472,8 @@ XVisualManager::XVisualManager()
   gfx::XScopedPtr<XVisualInfo[]> visual_list(XGetVisualInfo(
       display_, VisualScreenMask, &visual_template, &visuals_len));
   for (int i = 0; i < visuals_len; ++i)
-    visuals_[visual_list[i].visualid].reset(new XVisualData(visual_list[i]));
+    visuals_[visual_list[i].visualid] =
+        std::make_unique<XVisualData>(visual_list[i]);
 
   XAtom NET_WM_CM_S0 = gfx::GetAtom("_NET_WM_CM_S0");
   using_compositing_wm_ =

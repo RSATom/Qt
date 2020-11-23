@@ -11,7 +11,6 @@
 #include "third_party/blink/renderer/platform/heap/garbage_collected.h"
 #include "third_party/blink/renderer/platform/heap/heap_allocator.h"
 #include "third_party/blink/renderer/platform/heap/member.h"
-#include "third_party/blink/renderer/platform/wtf/time.h"
 
 namespace blink {
 
@@ -21,8 +20,8 @@ class HTMLFrameOwnerElement;
 class ResourceRequest;
 class Visitor;
 
-class LazyLoadFrameObserver
-    : public GarbageCollectedFinalized<LazyLoadFrameObserver> {
+class LazyLoadFrameObserver final
+    : public GarbageCollected<LazyLoadFrameObserver> {
  public:
   // This enum is logged to histograms, so values should not be reordered or
   // reused, and it must match the corresponding enum

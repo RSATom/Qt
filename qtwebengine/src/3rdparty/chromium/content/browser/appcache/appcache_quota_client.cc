@@ -13,7 +13,6 @@
 #include "base/bind_helpers.h"
 #include "base/task/post_task.h"
 #include "content/browser/appcache/appcache_service_impl.h"
-#include "content/browser/loader/navigation_url_loader_impl.h"
 #include "content/public/browser/browser_task_traits.h"
 #include "third_party/blink/public/mojom/quota/quota_types.mojom.h"
 
@@ -40,13 +39,8 @@ void RunFront(content::AppCacheQuotaClient::RequestQueue* queue) {
 void RunDeleteOnIO(const base::Location& from_here,
                    net::CompletionRepeatingCallback callback,
                    int result) {
-  if (BrowserThread::CurrentlyOn(BrowserThread::IO)) {
-    std::move(callback).Run(result);
-    return;
-  }
-
-  base::PostTaskWithTraits(from_here, {BrowserThread::IO},
-                           base::BindOnce(std::move(callback), result));
+  base::PostTask(from_here, {BrowserThread::IO},
+                 base::BindOnce(std::move(callback), result));
 }
 }  // namespace
 
@@ -73,8 +67,6 @@ void AppCacheQuotaClient::OnQuotaManagerDestroyed() {
     current_delete_request_callback_.Reset();
     GetServiceDeleteCallback()->Cancel();
   }
-
-  delete this;
 }
 
 void AppCacheQuotaClient::GetOriginUsage(const url::Origin& origin,
@@ -89,9 +81,9 @@ void AppCacheQuotaClient::GetOriginUsage(const url::Origin& origin,
   }
 
   if (!appcache_is_ready_) {
-    pending_batch_requests_.push_back(
-        base::BindOnce(&AppCacheQuotaClient::GetOriginUsage, AsWeakPtr(),
-                       origin, type, std::move(callback)));
+    pending_batch_requests_.push_back(base::BindOnce(
+        &AppCacheQuotaClient::GetOriginUsage, base::RetainedRef(this), origin,
+        type, std::move(callback)));
     return;
   }
 
@@ -101,8 +93,7 @@ void AppCacheQuotaClient::GetOriginUsage(const url::Origin& origin,
   }
 
   base::PostTaskAndReplyWithResult(
-      FROM_HERE,
-      {NavigationURLLoaderImpl::GetLoaderRequestControllerThreadID()},
+      FROM_HERE, {BrowserThread::UI},
       base::BindOnce(
           [](base::WeakPtr<AppCacheServiceImpl> service,
              const url::Origin& origin) -> int64_t {
@@ -150,9 +141,9 @@ void AppCacheQuotaClient::DeleteOriginData(const url::Origin& origin,
   }
 
   if (!appcache_is_ready_ || !current_delete_request_callback_.is_null()) {
-    pending_serial_requests_.push_back(
-        base::BindOnce(&AppCacheQuotaClient::DeleteOriginData, AsWeakPtr(),
-                       origin, type, std::move(callback)));
+    pending_serial_requests_.push_back(base::BindOnce(
+        &AppCacheQuotaClient::DeleteOriginData, base::RetainedRef(this), origin,
+        type, std::move(callback)));
     return;
   }
 
@@ -162,8 +153,8 @@ void AppCacheQuotaClient::DeleteOriginData(const url::Origin& origin,
     return;
   }
 
-  NavigationURLLoaderImpl::RunOrPostTaskOnLoaderThread(
-      FROM_HERE,
+  base::PostTask(
+      FROM_HERE, {BrowserThread::UI},
       base::BindOnce(&AppCacheServiceImpl::DeleteAppCachesForOrigin, service_,
                      origin,
                      base::BindOnce(&RunDeleteOnIO, FROM_HERE,
@@ -197,9 +188,9 @@ void AppCacheQuotaClient::GetOriginsHelper(StorageType type,
   }
 
   if (!appcache_is_ready_) {
-    pending_batch_requests_.push_back(
-        base::BindOnce(&AppCacheQuotaClient::GetOriginsHelper, AsWeakPtr(),
-                       type, opt_host, std::move(callback)));
+    pending_batch_requests_.push_back(base::BindOnce(
+        &AppCacheQuotaClient::GetOriginsHelper, base::RetainedRef(this), type,
+        opt_host, std::move(callback)));
     return;
   }
 
@@ -209,8 +200,7 @@ void AppCacheQuotaClient::GetOriginsHelper(StorageType type,
   }
 
   base::PostTaskAndReplyWithResult(
-      FROM_HERE,
-      {NavigationURLLoaderImpl::GetLoaderRequestControllerThreadID()},
+      FROM_HERE, {BrowserThread::UI},
       base::BindOnce(
           [](base::WeakPtr<AppCacheServiceImpl> service,
              const std::string& opt_host) {
@@ -251,7 +241,7 @@ AppCacheQuotaClient::GetServiceDeleteCallback() {
         std::make_unique<net::CancelableCompletionRepeatingCallback>(
             base::BindRepeating(
                 &AppCacheQuotaClient::DidDeleteAppCachesForOrigin,
-                AsWeakPtr()));
+                base::RetainedRef(this)));
   }
   return service_delete_callback_.get();
 }
@@ -267,6 +257,7 @@ void AppCacheQuotaClient::NotifyAppCacheReady() {
 
 void AppCacheQuotaClient::NotifyAppCacheDestroyed() {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
+
   service_ = nullptr;
   service_is_destroyed_ = true;
   while (!pending_batch_requests_.empty())
@@ -280,6 +271,9 @@ void AppCacheQuotaClient::NotifyAppCacheDestroyed() {
         .Run(blink::mojom::QuotaStatusCode::kErrorAbort);
     GetServiceDeleteCallback()->Cancel();
   }
+
+  if (service_delete_callback_)
+    service_delete_callback_.reset();
 }
 
 }  // namespace content

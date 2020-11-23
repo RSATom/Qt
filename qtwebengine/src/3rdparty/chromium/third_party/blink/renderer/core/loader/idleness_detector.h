@@ -23,7 +23,7 @@ class ResourceFetcher;
 // seconds, and a network idle signal when there are 0 network connections
 // active in 0.5 seconds.
 class CORE_EXPORT IdlenessDetector
-    : public GarbageCollectedFinalized<IdlenessDetector>,
+    : public GarbageCollected<IdlenessDetector>,
       public base::sequence_manager::TaskTimeObserver {
  public:
   IdlenessDetector(
@@ -61,6 +61,10 @@ class CORE_EXPORT IdlenessDetector
                       base::TimeTicks end_time) override;
 
   void Stop();
+
+  // This method and the associated timer appear to have no effect, but they
+  // have the side effect of triggering a task, which will send WillProcessTask
+  // and DidProcessTask observer notifications.
   void NetworkQuietTimerFired(TimerBase*);
 
   Member<LocalFrame> local_frame_;

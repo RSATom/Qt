@@ -86,6 +86,16 @@ enough to appear in the channel at the top level as well - this helps keep the
 main channel clear of smaller status updates and makes it more like an index of
 the threads.
 
+### Monorail
+
+[Monorail] is our bug tracker. Hopefully you are already familiar with it.
+When sheriffing, you use Monorail to:
+
+* Look for existing bugs
+* File bugs when you revert CLs, explaining what happened and including any
+  stack traces or error messages
+* File bugs when you disable tests, again with as much information as practical
+
 ### The Waterfall
 
 The [CI console page], commonly referred to as "the waterfall" because of how it
@@ -164,7 +174,7 @@ To look at how flaky a specific test is across all builders:
 This gives you a UI listing the failures for the named test broken down by
 builder. At this point you should check to see where the flakes start
 revision-wise. If that helps you identify a culprit CL revert it and move on;
-otherwise, [disable the test][gtest-disable].
+otherwise, [disable the test][test-disable].
 
 For more advice on dealing with flaky tests, look at the "Test Failed" section
 below under "Diagnosing Build Failures".
@@ -200,7 +210,7 @@ see if the flakes started at a specific point, in which case you can look for
 culprit CLs around there. In general, for a flaky test, you should either:
 
 * Revert a culprit CL, if you can find it, or
-* [Disable the test][gtest-disable] it as narrowly as possible to fix the flake
+* [Disable the test][test-disable] it as narrowly as possible to fix the flake
   (eg, if the test is broken on Windows, only disable it on Windows)
 
 For more advice on dealing with flaky tests, look at the "Test Failed" section
@@ -267,7 +277,8 @@ If yes:
 * Start a new thread in Slack for one of the failures
 * Investigate the failure and figure out why it happened - see the "diagnosing
   build failures" section below
-* Fix what went wrong
+* Fix what went wrong, remembering to file a bug to document both the failure
+  and your fix
 * Snooze the failure, with a link to the bug if your investigation resulted in a
   bug
 
@@ -365,6 +376,13 @@ file called [SlowTests] that lists these tests and gives them more time to run;
 for Chromium tests you can just mark these as `DISABLED_` in those configurations
 if you want.
 
+When marking a Blink test as slow/flaky/etc, it's often not clear who to send
+the CL to, especially if the test is a WPT test imported from another repository
+or hasn't been edited in a while. In those situations, or when you just can't
+find the right owner for a test, feel free to TBR your CL to one of the other
+sheriffs on your rotation and kick it into the Blink triage queue (ie: mark the
+bug as Untriaged with component Blink).
+
 ### Infra Breakage
 
 If a bot turns purple rather than red, that indicates an infra failure of some
@@ -388,7 +406,7 @@ and hopefully someone else will be able to help you figure it out.
 [contacting-troopers]: https://chromium.googlesource.com/infra/infra/+/master/doc/users/contacting_troopers.md
 [get-the-code]: https://www.chromium.org/developers/how-tos/get-the-code
 [goma]: http://shortn/_Iox00npQJW
-[gtest-disable]: https://github.com/google/googletest/blob/master/googletest/docs/faq.md#how-do-i-temporarily-disable-a-test
+[test-disable]: https://www.chromium.org/developers/tree-sheriffs/sheriff-details-chromium#TOC-How-do-I-disable-a-flaky-test-
 [new flakiness dashboard]: https://analysis.chromium.org/p/chromium/flake-portal
 [old flakiness dashboard]: https://test-results.appspot.com/dashboards/flakiness_dashboard.html
 [sheriff-o-matic]: https://sheriff-o-matic.appspot.com/chromium

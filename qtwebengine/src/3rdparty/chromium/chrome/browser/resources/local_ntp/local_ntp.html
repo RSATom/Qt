@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="$i18n{language}"><!-- TODO(dbeam): dir="$i18n{textdirection}"? -->
+<html lang="$i18n{language}" dir="$i18n{textdirection}">
 <!-- Copyright 2015 The Chromium Authors. All rights reserved.
      Use of this source code is governed by a BSD-style license that can be
      found in the LICENSE file. -->
@@ -14,6 +14,8 @@
   $i18nRaw{bgPreloader}
   <meta http-equiv="Content-Security-Policy"
       content="$i18nRaw{contentSecurityPolicy}">
+  <script src="chrome-search://local-ntp/assert.js"
+      integrity="$i18n{assertIntegrity}"></script>
   <script src="chrome-search://local-ntp/animations.js"
       integrity="$i18n{animationsIntegrity}"></script>
   <script src="chrome-search://local-ntp/config.js"
@@ -63,14 +65,24 @@
       </div>
     </div>
 
-    <div id="fakebox-container">
+    <div id="fakebox-container" $i18n{hiddenIfRealboxEnabled}>
       <div id="fakebox">
-        <div id="fakebox-search-icon"></div>
+        <div class="search-icon"></div>
         <div id="fakebox-text"></div>
         <input id="fakebox-input" autocomplete="off" tabindex="-1" type="url"
             aria-hidden="true">
         <div id="fakebox-cursor"></div>
-        <button id="fakebox-microphone" hidden></button>
+        <button id="fakebox-microphone" class="microphone-icon" hidden></button>
+      </div>
+    </div>
+
+    <div id="realbox-container" $i18n{hiddenIfRealboxDisabled}>
+      <div id="realbox-input-wrapper">
+        <div id="realbox-icon" class="$i18n{realboxIconClass}"></div>
+        <input id="realbox" type="search" autocomplete="off" spellcheck="false"
+            aria-live="polite" autofocus>
+        <button id="realbox-microphone" class="microphone-icon" hidden></button>
+        <div id="realbox-matches"></div>
       </div>
     </div>
 
@@ -109,7 +121,7 @@
       <span id="edit-bg-text">$i18n{customizeButton}</span>
     </div>
 
-    <a id="custom-bg-attr"></a>
+    <div id="custom-bg-attr"></div>
   </div>
 
   <dialog div id="edit-bg-dialog">
@@ -145,10 +157,10 @@
       <button id="ddlsd-emb" class="ddlsd-sbtn"></button>
       <hr id="ddlsd-hr">
       <div id="ddlsd-link">
-        <button id="ddlsd-copy"></button>
         <span id="ddlsd-text-ctr">
           <input type="text" id="ddlsd-text" dir="ltr">
         </span>
+        <button id="ddlsd-copy"></button>
       </div>
     </div>
   </dialog>
@@ -230,7 +242,7 @@
         <div id="backgrounds-upload" class="bg-sel-tile-bg">
           <div id="backgrounds-upload-icon" class="bg-sel-tile" tabindex="-1"
               role="button" aria-label="$i18n{uploadImage}"
-              title="$i18n{uploadImage}" aria-pressed="false">
+              aria-pressed="false" title="$i18n{uploadImage}">
             <div id="backgrounds-upload-arrow"></div>
             <div id="backgrounds-upload-text">$i18n{uploadImage}</div>
           </div>
@@ -249,6 +261,15 @@
       </div>
       <div id="backgrounds-image-menu" class="menu-panel" tabindex="0"
           role="tabpanel" aria-label="$i18n{backgroundsOption}"></div>
+      <div id="backgrounds-disabled-menu" class="menu-panel" tabindex="0"
+          role="tabpanel" aria-label="$i18n{backgroundsOption}">
+        <div id="backgrounds-disabled-wrapper">
+          <div id="backgrounds-disabled-icon"></div>
+          <div id="backgrounds-disabled-title">
+            $i18n{customBackgroundDisabled}
+          </div>
+        </div>
+      </div>
       <div id="shortcuts-menu" class="menu-panel" tabindex="0" role="tabpanel"
           aria-label="$i18n{shortcutsOption}">
         <div id="sh-options">
@@ -309,7 +330,7 @@
           aria-label="$i18n{colorsOption}">
         <div id="colors-theme" tabindex="0">
             <div id="colors-theme-icon"></div>
-            <div>
+            <div id="colors-theme-info">
               <div id="colors-theme-name"></div>
               $i18n{installedThemeDesc}
             </div>
@@ -333,9 +354,10 @@
         </div>
         <div id="colors-default" class="bg-sel-tile-bg">
           <div id="colors-default-icon" class="bg-sel-tile" tabindex="-1"
-            aria-label="$i18n{defaultThemeLabel}"
-            title="$i18n{defaultThemeLabel}"
-            role="button" aria-pressed="false"></div>
+              aria-label="$i18n{defaultThemeLabel}"
+              title="$i18n{defaultThemeLabel}" tabindex="-1"
+              role="button" aria-pressed="false">
+          </div>
         </div>
       </div>
     </div>

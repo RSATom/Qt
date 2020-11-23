@@ -9,7 +9,6 @@
 #define SkTextBlobPriv_DEFINED
 
 #include "include/core/SkColorFilter.h"
-#include "include/core/SkDrawLooper.h"
 #include "include/core/SkFont.h"
 #include "include/core/SkImageFilter.h"
 #include "include/core/SkMaskFilter.h"
@@ -150,6 +149,8 @@ public:
                ? reinterpret_cast<char*>(this->clusterBuffer() + fCount)
                : nullptr;
     }
+
+    bool isLastRun() const { return SkToBool(fFlags & kLast_Flag); }
 
     static size_t StorageSize(uint32_t glyphCount, uint32_t textSize,
                               SkTextBlob::GlyphPositioning positioning,

@@ -206,6 +206,14 @@ public:
             qmlRegisterUncreatableType<QDeclarativeGeoMapItemBase, 14>(uri, major, minor, "GeoMapItemBase",
                                         QStringLiteral("GeoMapItemBase is not intended instantiable by developer."));
 
+            minor = 15;
+            qmlRegisterType<QDeclarativePolylineMapItem,  15>(uri, major, minor, "MapPolyline");
+            qmlRegisterType<QDeclarativePolygonMapItem,   15>(uri, major, minor, "MapPolygon");
+            qmlRegisterType<QDeclarativeRectangleMapItem, 15>(uri, major, minor, "MapRectangle");
+            qmlRegisterType<QDeclarativeCircleMapItem,    15>(uri, major, minor, "MapCircle");
+            qmlRegisterUncreatableType<QDeclarativeGeoMapItemBase, 15>(uri, major, minor, "GeoMapItemBase",
+                                        QStringLiteral("GeoMapItemBase is not intended instantiable by developer."));
+
             // Register the latest Qt version as QML type version
             qmlRegisterModule(uri, QT_VERSION_MAJOR, QT_VERSION_MINOR);
 

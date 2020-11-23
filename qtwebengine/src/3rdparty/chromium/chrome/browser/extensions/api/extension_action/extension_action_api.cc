@@ -27,12 +27,14 @@
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/browser_finder.h"
 #include "chrome/browser/ui/browser_window.h"
+#include "chrome/browser/ui/extensions/extensions_container.h"
 #include "chrome/browser/ui/tabs/tab_strip_model.h"
-#include "chrome/browser/ui/toolbar/toolbar_actions_bar.h"
 #include "chrome/common/extensions/api/extension_action/action_info.h"
 #include "content/public/browser/notification_service.h"
+#include "extensions/browser/api/declarative_net_request/constants.h"
 #include "extensions/browser/event_router.h"
 #include "extensions/browser/extension_host.h"
+#include "extensions/browser/extension_prefs.h"
 #include "extensions/browser/extension_registry.h"
 #include "extensions/browser/extension_util.h"
 #include "extensions/browser/notification_types.h"
@@ -47,9 +49,6 @@ using content::WebContents;
 namespace extensions {
 
 namespace {
-
-// Whether the browser action is visible in the toolbar.
-const char kBrowserActionVisible[] = "browser_action_visible";
 
 // Errors.
 const char kNoExtensionActionError[] =
@@ -113,29 +112,6 @@ void ExtensionActionAPI::RemoveObserver(Observer* observer) {
   observers_.RemoveObserver(observer);
 }
 
-bool ExtensionActionAPI::GetBrowserActionVisibility(
-    const std::string& extension_id) {
-  bool visible = false;
-  ExtensionPrefs* prefs = GetExtensionPrefs();
-  if (!prefs || !prefs->ReadPrefAsBoolean(extension_id,
-                                          kBrowserActionVisible,
-                                          &visible)) {
-    return true;
-  }
-  return visible;
-}
-
-void ExtensionActionAPI::SetBrowserActionVisibility(
-    const std::string& extension_id,
-    bool visible) {
-  if (GetBrowserActionVisibility(extension_id) == visible)
-    return;
-
-  GetExtensionPrefs()->UpdateExtensionPref(
-      extension_id, kBrowserActionVisible,
-      std::make_unique<base::Value>(visible));
-}
-
 bool ExtensionActionAPI::ShowExtensionActionPopup(
     const Extension* extension,
     Browser* browser,
@@ -150,12 +126,12 @@ bool ExtensionActionAPI::ShowExtensionActionPopup(
   if (!browser->SupportsWindowFeature(Browser::FEATURE_TOOLBAR))
     return false;
 
-  ToolbarActionsBar* toolbar_actions_bar =
-      browser->window()->GetToolbarActionsBar();
-  // ToolbarActionsBar could be null if, e.g., this is a popup window with no
-  // toolbar.
-  return toolbar_actions_bar &&
-         toolbar_actions_bar->ShowToolbarActionPopup(
+  ExtensionsContainer* extensions_container =
+      browser->window()->GetExtensionsContainer();
+  // The ExtensionsContainer could be null if, e.g., this is a popup window with
+  // no toolbar.
+  return extensions_container &&
+         extensions_container->ShowToolbarActionPopup(
              extension->id(), grant_active_tab_permissions);
 }
 
@@ -191,8 +167,16 @@ void ExtensionActionAPI::DispatchExtensionActionClicked(
 
   if (event_name) {
     std::unique_ptr<base::ListValue> args(new base::ListValue());
+    // The action APIs (browserAction, pageAction, action) are only available
+    // to blessed extension contexts. As such, we deterministically know that
+    // the right context type here is blessed.
+    constexpr Feature::Context context_type =
+        Feature::BLESSED_EXTENSION_CONTEXT;
+    ExtensionTabUtil::ScrubTabBehavior scrub_tab_behavior =
+        ExtensionTabUtil::GetScrubTabBehavior(extension, context_type,
+                                              web_contents);
     args->Append(ExtensionTabUtil::CreateTabObject(
-                     web_contents, ExtensionTabUtil::kScrubTab, extension)
+                     web_contents, scrub_tab_behavior, extension)
                      ->ToValue());
 
     DispatchEventToExtension(web_contents->GetBrowserContext(),
@@ -283,8 +267,7 @@ ExtensionFunction::ResponseAction ExtensionActionFunction::Run() {
   // Find the WebContents that contains this tab id if one is required.
   if (tab_id_ != ExtensionAction::kDefaultTabId) {
     ExtensionTabUtil::GetTabById(tab_id_, browser_context(),
-                                 include_incognito_information(), nullptr,
-                                 nullptr, &contents_, nullptr);
+                                 include_incognito_information(), &contents_);
     if (!contents_)
       return RespondNow(Error(kNoTabError, base::NumberToString(tab_id_)));
   } else {
@@ -494,8 +477,19 @@ ExtensionActionGetPopupFunction::RunExtensionAction() {
 
 ExtensionFunction::ResponseAction
 ExtensionActionGetBadgeTextFunction::RunExtensionAction() {
-  return RespondNow(OneArgument(
-      std::make_unique<base::Value>(extension_action_->GetBadgeText(tab_id_))));
+  // Return a placeholder value if the extension has called
+  // setActionCountAsBadgeText(true) and the badge count shown for this tab is
+  // the number of actions matched.
+  std::string badge_text =
+      extension_action_->UseDNRActionCountAsBadgeText(tab_id_)
+          ? declarative_net_request::kActionCountPlaceholderBadgeText
+          : extension_action_->GetExplicitlySetBadgeText(tab_id_);
+
+  // TODO(crbug.com/990224): Document this behavior once
+  // chrome.declarativeNetRequest.setActionCountAsBadgeText is promoted to beta
+  // from trunk.
+  return RespondNow(
+      OneArgument(std::make_unique<base::Value>(std::move(badge_text))));
 }
 
 ExtensionFunction::ResponseAction

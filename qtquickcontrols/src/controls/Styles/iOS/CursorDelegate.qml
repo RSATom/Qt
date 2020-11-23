@@ -53,7 +53,7 @@ Rectangle {
 
     Connections {
         target: input
-        onCursorPositionChanged: {
+        function onCursorPositionChanged() {
             state = "on"
             timer.restart()
         }

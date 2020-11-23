@@ -32,6 +32,7 @@
 #include "content/public/browser/web_ui.h"
 #include "google_apis/gaia/gaia_urls.h"
 #include "net/base/url_util.h"
+#include "services/network/public/mojom/cookie_manager.mojom.h"
 
 const char kSignInPromoQueryKeyShowAccountManagement[] =
     "showAccountManagement";
@@ -44,6 +45,10 @@ void InlineLoginHandler::RegisterMessages() {
   web_ui()->RegisterMessageCallback(
       "initialize",
       base::BindRepeating(&InlineLoginHandler::HandleInitializeMessage,
+                          base::Unretained(this)));
+  web_ui()->RegisterMessageCallback(
+      "authExtensionReady",
+      base::BindRepeating(&InlineLoginHandler::HandleAuthExtensionReadyMessage,
                           base::Unretained(this)));
   web_ui()->RegisterMessageCallback(
       "completeLogin",
@@ -158,11 +163,9 @@ void InlineLoginHandler::HandleCompleteLoginMessage(
       content::BrowserContext::GetStoragePartitionForSite(
           contents->GetBrowserContext(), signin::GetSigninPartitionURL());
 
-  net::CookieOptions cookie_options;
-  cookie_options.set_include_httponly();
-
   partition->GetCookieManagerForBrowserProcess()->GetCookieList(
-      GaiaUrls::GetInstance()->gaia_url(), cookie_options,
+      GaiaUrls::GetInstance()->gaia_url(),
+      net::CookieOptions::MakeAllInclusive(),
       base::BindOnce(&InlineLoginHandler::HandleCompleteLoginMessageWithCookies,
                      weak_ptr_factory_.GetWeakPtr(),
                      base::ListValue(args->GetList())));
@@ -170,7 +173,7 @@ void InlineLoginHandler::HandleCompleteLoginMessage(
 
 void InlineLoginHandler::HandleCompleteLoginMessageWithCookies(
     const base::ListValue& args,
-    const std::vector<net::CanonicalCookie>& cookies,
+    const net::CookieStatusList& cookies,
     const net::CookieStatusList& excluded_cookies) {
   const base::DictionaryValue* dict = nullptr;
   args.GetDictionary(0, &dict);
@@ -180,9 +183,9 @@ void InlineLoginHandler::HandleCompleteLoginMessageWithCookies(
   const std::string& gaia_id = dict->FindKey("gaiaId")->GetString();
 
   std::string auth_code;
-  for (const auto& cookie : cookies) {
-    if (cookie.Name() == "oauth_code")
-      auth_code = cookie.Value();
+  for (const auto& cookie_with_status : cookies) {
+    if (cookie_with_status.cookie.Name() == "oauth_code")
+      auth_code = cookie_with_status.cookie.Value();
   }
 
   bool skip_for_now = false;
@@ -233,6 +236,8 @@ void InlineLoginHandler::HandleNavigationButtonClicked(
 #if !defined(OS_CHROMEOS)
   NOTREACHED() << "The inline login handler is no longer used in a browser "
                   "or tab modal dialog.";
+#else
+  FireWebUIListener("navigateBackInWebview");
 #endif
 }
 

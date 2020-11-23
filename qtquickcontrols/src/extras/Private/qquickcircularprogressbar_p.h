@@ -59,7 +59,7 @@ public:
     QQuickCircularProgressBar(QQuickItem *parent = 0);
     ~QQuickCircularProgressBar();
 
-    void paint(QPainter *painter);
+    void paint(QPainter *painter) override;
 
     qreal progress() const;
     void setProgress(qreal progress);

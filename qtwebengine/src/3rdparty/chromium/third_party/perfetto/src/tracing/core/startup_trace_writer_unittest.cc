@@ -16,7 +16,6 @@
 
 #include "perfetto/ext/tracing/core/startup_trace_writer.h"
 
-#include <gtest/gtest.h>
 #include "perfetto/ext/tracing/core/startup_trace_writer_registry.h"
 #include "perfetto/ext/tracing/core/trace_packet.h"
 #include "perfetto/ext/tracing/core/tracing_service.h"
@@ -24,14 +23,14 @@
 #include "src/base/test/test_task_runner.h"
 #include "src/tracing/core/patch_list.h"
 #include "src/tracing/core/shared_memory_arbiter_impl.h"
-#include "src/tracing/core/sliced_protobuf_input_stream.h"
 #include "src/tracing/core/trace_buffer.h"
 #include "src/tracing/test/aligned_buffer_test.h"
 #include "src/tracing/test/fake_producer_endpoint.h"
+#include "test/gtest_and_gmock.h"
 
-#include "perfetto/trace/test_event.pbzero.h"
-#include "perfetto/trace/trace_packet.pb.h"
-#include "perfetto/trace/trace_packet.pbzero.h"
+#include "protos/perfetto/trace/test_event.pbzero.h"
+#include "protos/perfetto/trace/trace_packet.pb.h"
+#include "protos/perfetto/trace/trace_packet.pbzero.h"
 
 namespace perfetto {
 
@@ -55,7 +54,7 @@ class StartupTraceWriterTest : public AlignedBufferTest {
   std::unique_ptr<StartupTraceWriter> CreateUnboundWriter() {
     std::shared_ptr<StartupTraceWriterRegistryHandle> registry;
     return std::unique_ptr<StartupTraceWriter>(new StartupTraceWriter(
-        registry, SharedMemoryArbiter::BufferExhaustedPolicy::kDrop));
+        registry, BufferExhaustedPolicy::kDrop, max_buffer_size_bytes()));
   }
 
   bool BindWriter(StartupTraceWriter* writer, size_t chunks_per_batch = 0) {
@@ -85,9 +84,13 @@ class StartupTraceWriterTest : public AlignedBufferTest {
     return num_complete_chunks;
   }
 
-  void VerifyPackets(size_t expected_count) {
+  void VerifyPackets(size_t expected_count,
+                     bool expect_data_loss_packet = false) {
     SharedMemoryABI* abi = arbiter_->shmem_abi_for_testing();
     auto buffer = TraceBuffer::Create(abi->size());
+
+    if (expect_data_loss_packet)
+      expected_count++;
 
     size_t total_packets_count = 0;
     ChunkID current_max_chunk_id = 0;
@@ -143,16 +146,20 @@ class StartupTraceWriterTest : public AlignedBufferTest {
       EXPECT_EQ(static_cast<uid_t>(1),
                 sequence_properties.producer_uid_trusted);
 
-      SlicedProtobufInputStream stream(&packet.slices());
-      size_t size = 0;
-      for (const Slice& slice : packet.slices())
-        size += slice.size;
       protos::TracePacket parsed_packet;
-      bool success = parsed_packet.ParseFromBoundedZeroCopyStream(
-          &stream, static_cast<int>(size));
-      EXPECT_TRUE(success);
-      if (!success)
+      bool res = parsed_packet.ParseFromString(packet.GetRawBytesForTesting());
+      EXPECT_TRUE(res);
+      if (!res)
         break;
+
+      // If the buffer size was exceeded, the data loss packet should be the
+      // last committed packet.
+      if (expect_data_loss_packet && parsed_packet.previous_packet_dropped()) {
+        num_packets_read++;
+        EXPECT_EQ(expected_count, num_packets_read);
+        break;
+      }
+
       EXPECT_TRUE(parsed_packet.has_for_testing());
       EXPECT_EQ(kPacketPayload, parsed_packet.for_testing().str());
       num_packets_read++;
@@ -179,6 +186,12 @@ class StartupTraceWriterTest : public AlignedBufferTest {
     }
     return count;
   }
+
+  size_t GetTotalBufferSize(StartupTraceWriter* writer) const {
+    return writer->memory_buffer_->GetTotalSize();
+  }
+
+  size_t max_buffer_size_bytes() const { return page_size() * 5; }
 
  protected:
   static constexpr char kPacketPayload[] = "foo";
@@ -287,6 +300,34 @@ TEST_P(StartupTraceWriterTest, WriteMultipleChunksWhileUnboundAndBind) {
   VerifyPackets(kNumAdditionalPackets);
 }
 
+TEST_P(StartupTraceWriterTest, MaxBufferSizeExceeded) {
+  auto writer = CreateUnboundWriter();
+
+  // Write packets until the buffer is extended above kMaxBufferSizeBytes.
+  size_t valid_packets = 0;
+  while (GetTotalBufferSize(writer.get()) < max_buffer_size_bytes()) {
+    WritePackets(writer.get(), 1);
+    valid_packets++;
+  }
+
+  // The next packet should be dropped into a void.
+  WritePackets(writer.get(), 1);
+
+  // Binding the writer should cause the valid previously written packets to be
+  // written to the SMB and committed.
+  EXPECT_TRUE(BindWriter(writer.get()));
+
+  VerifyPackets(valid_packets, /*expect_data_loss_packet=*/true);
+
+  // Any further packets should be written to the SMB directly.
+  const size_t kNumAdditionalPackets = 16;
+  WritePackets(writer.get(), kNumAdditionalPackets);
+  // Finalizes the last packet and returns the chunk.
+  writer.reset();
+
+  VerifyPackets(kNumAdditionalPackets);
+}
+
 TEST_P(StartupTraceWriterTest, BindingWhileWritingFails) {
   auto writer = CreateUnboundWriter();
 
@@ -309,10 +350,10 @@ TEST_P(StartupTraceWriterTest, CreateAndBindViaRegistry) {
       new StartupTraceWriterRegistry());
 
   // Create unbound writers.
-  auto writer1 = registry->CreateUnboundTraceWriter(
-      SharedMemoryArbiter::BufferExhaustedPolicy::kDrop);
-  auto writer2 = registry->CreateUnboundTraceWriter(
-      SharedMemoryArbiter::BufferExhaustedPolicy::kDrop);
+  auto writer1 =
+      registry->CreateUnboundTraceWriter(BufferExhaustedPolicy::kDrop);
+  auto writer2 =
+      registry->CreateUnboundTraceWriter(BufferExhaustedPolicy::kDrop);
 
   EXPECT_EQ(2u, GetUnboundWriterCount(*registry));
 
@@ -410,8 +451,7 @@ TEST_P(StartupTraceWriterTest, BindAndCommitInBatchesWithSMBExhaustion) {
   static constexpr size_t kTotChunks = kNumPages;
   SharedMemoryABI::Chunk chunks[kTotChunks];
   for (size_t i = 0; i < kTotChunks; i++) {
-    chunks[i] = arbiter_->GetNewChunk(
-        {}, SharedMemoryArbiter::BufferExhaustedPolicy::kDrop);
+    chunks[i] = arbiter_->GetNewChunk({}, BufferExhaustedPolicy::kDrop);
     ASSERT_TRUE(chunks[i].is_valid());
   }
 

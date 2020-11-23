@@ -52,7 +52,7 @@ QT_BEGIN_NAMESPACE
 
 using namespace QPatternist;
 
-Tokenizer::Token SingleTokenContainer::nextToken(YYLTYPE *const location)
+Tokenizer::Token SingleTokenContainer::nextToken(XPATHLTYPE *const location)
 {
     if(m_hasDelivered)
         return Tokenizer::Token(T_END_OF_FILE);
@@ -777,7 +777,7 @@ void XSLTTokenizer::handleValidationAttributes(const bool isLRE) const
                              validationAttribute);
 }
 
-Tokenizer::Token XSLTTokenizer::nextToken(YYLTYPE *const sourceLocator)
+Tokenizer::Token XSLTTokenizer::nextToken(XPATHLTYPE *const sourceLocator)
 {
     Q_UNUSED(sourceLocator);
 
@@ -2687,9 +2687,9 @@ void XSLTTokenizer::insideFunction()
      * insideSequenceConstructor(). */
 }
 
-YYLTYPE XSLTTokenizer::currentSourceLocator() const
+XPATHLTYPE XSLTTokenizer::currentSourceLocator() const
 {
-    YYLTYPE retval;
+    XPATHLTYPE retval;
     retval.first_line = lineNumber();
     retval.first_column = columnNumber();
     return retval;

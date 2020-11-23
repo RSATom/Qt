@@ -93,7 +93,7 @@ void PopulateSyncedSessionWindowFromSpecifics(
   if (specifics.has_browser_type()) {
     if (specifics.browser_type() ==
         sync_pb::SessionWindow_BrowserType_TYPE_TABBED) {
-      session_window->type = sessions::SessionWindow::TYPE_TABBED;
+      session_window->type = sessions::SessionWindow::TYPE_NORMAL;
     } else {
       // Note: custom tabs are treated like popup windows on restore, as you can
       // restore a custom tab on a platform that doesn't support them.
@@ -213,18 +213,6 @@ std::set<int> SyncedSessionTracker::LookupTabNodeIds(
     const std::string& session_tag) const {
   const TrackedSession* session = LookupTrackedSession(session_tag);
   return session ? session->tab_node_pool.GetAllTabNodeIds() : std::set<int>();
-}
-
-std::vector<const sessions::SessionTab*>
-SyncedSessionTracker::LookupUnmappedTabs(const std::string& session_tag) const {
-  const TrackedSession* session = LookupTrackedSession(session_tag);
-  std::vector<const sessions::SessionTab*> unmapped_tabs;
-  if (session) {
-    for (const auto& unmapped_tab_entry : session->unmapped_tabs) {
-      unmapped_tabs.push_back(unmapped_tab_entry.second.get());
-    }
-  }
-  return unmapped_tabs;
 }
 
 const SyncedSession* SyncedSessionTracker::LookupLocalSession() const {

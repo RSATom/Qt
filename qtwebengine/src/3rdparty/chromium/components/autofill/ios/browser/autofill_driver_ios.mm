@@ -11,7 +11,7 @@
 #import "ios/web/common/origin_util.h"
 #include "ios/web/public/browser_state.h"
 #include "ios/web/public/js_messaging/web_frame_util.h"
-#import "ios/web/public/web_state/web_state.h"
+#import "ios/web/public/web_state.h"
 #include "services/network/public/cpp/shared_url_loader_factory.h"
 #include "services/network/public/cpp/weak_wrapper_shared_url_loader_factory.h"
 #include "ui/accessibility/ax_tree_id.h"
@@ -72,13 +72,13 @@ bool AutofillDriverIOS::IsInMainFrame() const {
   return web_frame ? web_frame->IsMainFrame() : true;
 }
 
+bool AutofillDriverIOS::CanShowAutofillUi() const {
+  return true;
+}
+
 ui::AXTreeID AutofillDriverIOS::GetAxTreeId() const {
   NOTIMPLEMENTED() << "See https://crbug.com/985933";
   return ui::AXTreeIDUnknown();
-}
-
-net::URLRequestContextGetter* AutofillDriverIOS::GetURLRequestContext() {
-  return web_state_->GetBrowserState()->GetRequestContext();
 }
 
 scoped_refptr<network::SharedURLLoaderFactory>
@@ -105,6 +105,15 @@ void AutofillDriverIOS::SendFormDataToRenderer(
 void AutofillDriverIOS::PropagateAutofillPredictions(
     const std::vector<autofill::FormStructure*>& forms) {
   autofill_manager_.client()->PropagateAutofillPredictions(nullptr, forms);
+}
+
+void AutofillDriverIOS::HandleParsedForms(
+    const std::vector<FormStructure*>& forms) {
+  web::WebFrame* web_frame = web::GetWebFrameWithId(web_state_, web_frame_id_);
+  if (!web_frame) {
+    return;
+  }
+  [bridge_ handleParsedForms:forms inFrame:web_frame];
 }
 
 void AutofillDriverIOS::SendAutofillTypePredictionsToRenderer(
@@ -135,7 +144,7 @@ void AutofillDriverIOS::RendererShouldPreviewFieldWithValue(
 }
 
 void AutofillDriverIOS::RendererShouldSetSuggestionAvailability(
-    bool available) {}
+    const mojom::AutofillState state) {}
 
 void AutofillDriverIOS::PopupHidden() {
 }
@@ -143,6 +152,22 @@ void AutofillDriverIOS::PopupHidden() {
 gfx::RectF AutofillDriverIOS::TransformBoundingBoxToViewportCoordinates(
     const gfx::RectF& bounding_box) {
   return bounding_box;
+}
+
+net::NetworkIsolationKey AutofillDriverIOS::NetworkIsolationKey() {
+  std::string main_web_frame_id = web::GetMainWebFrameId(web_state_);
+  web::WebFrame* main_web_frame =
+      web::GetWebFrameWithId(web_state_, main_web_frame_id);
+  if (!main_web_frame)
+    return net::NetworkIsolationKey();
+
+  web::WebFrame* web_frame = web::GetWebFrameWithId(web_state_, web_frame_id_);
+  if (!web_frame)
+    return net::NetworkIsolationKey();
+
+  return net::NetworkIsolationKey(
+      url::Origin::Create(main_web_frame->GetSecurityOrigin()),
+      url::Origin::Create(web_frame->GetSecurityOrigin()));
 }
 
 }  // namespace autofill

@@ -2,8 +2,8 @@
 #ifndef TypefaceFontProvider_DEFINED
 #define TypefaceFontProvider_DEFINED
 
-#include <include/private/SkTArray.h>
-#include <include/private/SkTHash.h>
+#include "include/private/SkTArray.h"
+#include "include/private/SkTHash.h"
 #include <string>
 #include <unordered_map>
 #include <vector>
@@ -84,6 +84,7 @@ private:
     SkTHashMap<SkString, sk_sp<TypefaceFontStyleSet>> fRegisteredFamilies;
     SkTArray<SkString> fFamilyNames;
 };
+
 }  // namespace textlayout
 }  // namespace skia
 

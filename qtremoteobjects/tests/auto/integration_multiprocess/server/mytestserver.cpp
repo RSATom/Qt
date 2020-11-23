@@ -35,6 +35,7 @@ MyTestServer::MyTestServer(QObject *parent)
     : MyInterfaceSimpleSource(parent)
 {
     qDebug() << "Server started";
+    setInitialValue(18);
 }
 
 MyTestServer::~MyTestServer()

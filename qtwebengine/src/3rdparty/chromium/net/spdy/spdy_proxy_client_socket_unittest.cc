@@ -41,7 +41,7 @@
 #include "net/test/cert_test_util.h"
 #include "net/test/gtest_util.h"
 #include "net/test/test_data_directory.h"
-#include "net/test/test_with_scoped_task_environment.h"
+#include "net/test/test_with_task_environment.h"
 #include "net/third_party/quiche/src/spdy/core/spdy_protocol.h"
 #include "net/traffic_annotation/network_traffic_annotation_test_helper.h"
 #include "testing/gmock/include/gmock/gmock.h"
@@ -92,7 +92,8 @@ base::WeakPtr<SpdySession> CreateSpdyProxySession(
       NetLogWithSource()));
 
   auto transport_params = base::MakeRefCounted<TransportSocketParams>(
-      key.host_port_pair(), OnHostResolutionCallback());
+      key.host_port_pair(), NetworkIsolationKey(),
+      false /* disable_secure_dns */, OnHostResolutionCallback());
 
   SSLConfig ssl_config;
   auto ssl_params = base::MakeRefCounted<SSLSocketParams>(
@@ -119,7 +120,7 @@ base::WeakPtr<SpdySession> CreateSpdyProxySession(
 }  // namespace
 
 class SpdyProxyClientSocketTest : public PlatformTest,
-                                  public WithScopedTaskEnvironment,
+                                  public WithTaskEnvironment,
                                   public ::testing::WithParamInterface<bool> {
  public:
   SpdyProxyClientSocketTest();
@@ -156,12 +157,10 @@ class SpdyProxyClientSocketTest : public PlatformTest,
   void AddAuthToCache() {
     const base::string16 kFoo(base::ASCIIToUTF16("foo"));
     const base::string16 kBar(base::ASCIIToUTF16("bar"));
-    session_->http_auth_cache()->Add(GURL(kProxyUrl),
-                                     "MyRealm1",
-                                     HttpAuth::AUTH_SCHEME_BASIC,
-                                     "Basic realm=MyRealm1",
-                                     AuthCredentials(kFoo, kBar),
-                                     "/");
+    session_->http_auth_cache()->Add(
+        GURL(kProxyUrl), HttpAuth::AUTH_PROXY, "MyRealm1",
+        HttpAuth::AUTH_SCHEME_BASIC, NetworkIsolationKey(),
+        "Basic realm=MyRealm1", AuthCredentials(kFoo, kBar), "/");
   }
 
   void ResumeAndRun() {
@@ -178,7 +177,7 @@ class SpdyProxyClientSocketTest : public PlatformTest,
   // Whether to use net::Socket::ReadIfReady() instead of net::Socket::Read().
   bool use_read_if_ready() const { return GetParam(); }
 
-  BoundTestNetLog net_log_;
+  RecordingBoundTestNetLog net_log_;
   SpdyTestUtil spdy_util_;
   std::unique_ptr<SpdyProxyClientSocket> sock_;
   TestCompletionCallback read_callback_;
@@ -215,7 +214,9 @@ SpdyProxyClientSocketTest::SpdyProxyClientSocketTest()
                                  proxy_,
                                  PRIVACY_MODE_DISABLED,
                                  SpdySessionKey::IsProxySession::kFalse,
-                                 SocketTag()),
+                                 SocketTag(),
+                                 NetworkIsolationKey(),
+                                 false /* disable_secure_dns */),
       ssl_(SYNCHRONOUS, OK) {
   session_deps_.net_log = net_log_.bound().net_log();
 }
@@ -267,8 +268,8 @@ void SpdyProxyClientSocketTest::Initialize(base::span<const MockRead> reads,
       spdy_stream, user_agent_, endpoint_host_port_pair_, net_log_.bound(),
       new HttpAuthController(
           HttpAuth::AUTH_PROXY, GURL("https://" + proxy_host_port_.ToString()),
-          session_->http_auth_cache(), session_->http_auth_handler_factory(),
-          session_->host_resolver()));
+          NetworkIsolationKey(), session_->http_auth_cache(),
+          session_->http_auth_handler_factory(), session_->host_resolver()));
 }
 
 scoped_refptr<IOBufferWithSize> SpdyProxyClientSocketTest::CreateBuffer(

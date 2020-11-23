@@ -35,11 +35,14 @@
 ****************************************************************************/
 
 #include "gltfimporter_p.h"
+
+#include <Qt3DCore/private/qloadgltf_p.h>
+
 #include <Qt3DAnimation/private/animationlogging_p.h>
 #include <Qt3DAnimation/private/fcurve_p.h>
 #include <Qt3DAnimation/private/keyframe_p.h>
 
-#include <QtGui/qopengl.h>
+#include <qopengl.h>
 #include <QtGui/qquaternion.h>
 #include <QtGui/qvector2d.h>
 #include <QtGui/qvector3d.h>
@@ -434,12 +437,7 @@ GLTFImporter::GLTFImporter()
 
 bool GLTFImporter::load(QIODevice *ioDev)
 {
-    QByteArray jsonData = ioDev->readAll();
-    QJsonDocument sceneDocument = QJsonDocument::fromBinaryData(jsonData);
-    if (sceneDocument.isNull())
-        sceneDocument = QJsonDocument::fromJson(jsonData);
-
-    if (Q_UNLIKELY(!setJSON(sceneDocument))) {
+    if (Q_UNLIKELY(!setJSON(qLoadGLTF(ioDev->readAll())))) {
         qWarning("not a JSON document");
         return false;
     }
@@ -517,7 +515,7 @@ GLTFImporter::AnimationNameAndChannels GLTFImporter::createAnimationData(int ani
         const auto interpolationType = gltfToQKeyFrameInterpolation(sampler.interpolationMode);
 
         if (sampler.inputAccessorIndex == -1 || sampler.outputAccessorIndex == -1) {
-            qWarning() << "Skipping channel due to invalid accessor indices in the sampler" << endl;
+            qWarning() << "Skipping channel due to invalid accessor indices in the sampler" << Qt::endl;
             continue;
         }
 

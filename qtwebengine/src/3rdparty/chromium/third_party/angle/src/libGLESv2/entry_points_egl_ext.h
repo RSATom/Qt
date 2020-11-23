@@ -1,5 +1,5 @@
 //
-// Copyright(c) 2014 The ANGLE Project Authors. All rights reserved.
+// Copyright 2014 The ANGLE Project Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 //
@@ -216,6 +216,12 @@ EGL_GetNativeClientBufferANDROID(const struct AHardwareBuffer *buffer);
 
 // EGL_ANDROID_native_fence_sync
 ANGLE_EXPORT EGLint EGLAPIENTRY EGL_DupNativeFenceFDANDROID(EGLDisplay dpy, EGLSyncKHR sync);
+
+// EGL_ANGLE_swap_with_frame_token
+ANGLE_EXPORT EGLBoolean EGLAPIENTRY
+EGL_SwapBuffersWithFrameTokenANGLE(EGLDisplay dpy,
+                                   EGLSurface surface,
+                                   EGLFrameTokenANGLE frametoken);
 
 }  // extern "C"
 

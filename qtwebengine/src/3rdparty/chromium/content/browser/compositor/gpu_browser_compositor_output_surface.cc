@@ -24,8 +24,11 @@
 namespace content {
 
 GpuBrowserCompositorOutputSurface::GpuBrowserCompositorOutputSurface(
-    scoped_refptr<viz::ContextProviderCommandBuffer> context)
-    : BrowserCompositorOutputSurface(std::move(context)) {
+    scoped_refptr<viz::ContextProviderCommandBuffer> context,
+    gpu::SurfaceHandle surface_handle)
+    : BrowserCompositorOutputSurface(std::move(context)),
+      surface_handle_(surface_handle) {
+  capabilities_.only_invalidates_damage_rect = false;
   if (capabilities_.uses_default_gl_framebuffer) {
     capabilities_.flipped_output_surface =
         context_provider()->ContextCapabilities().flips_vertically;
@@ -197,6 +200,19 @@ GpuBrowserCompositorOutputSurface::GetCommandBufferProxy() {
 
 unsigned GpuBrowserCompositorOutputSurface::UpdateGpuFence() {
   return 0;
+}
+
+void GpuBrowserCompositorOutputSurface::SetDisplayTransformHint(
+    gfx::OverlayTransform transform) {
+  display_transform_ = transform;
+}
+
+gfx::OverlayTransform GpuBrowserCompositorOutputSurface::GetDisplayTransform() {
+  return display_transform_;
+}
+
+gpu::SurfaceHandle GpuBrowserCompositorOutputSurface::GetSurfaceHandle() const {
+  return surface_handle_;
 }
 
 }  // namespace content

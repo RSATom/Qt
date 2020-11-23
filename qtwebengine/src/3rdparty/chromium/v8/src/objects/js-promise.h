@@ -24,12 +24,8 @@ namespace internal {
 // We also overlay the result and reactions fields on the JSPromise, since
 // the reactions are only necessary for pending promises, whereas the result
 // is only meaningful for settled promises.
-class JSPromise : public JSObject {
+class JSPromise : public TorqueGeneratedJSPromise<JSPromise, JSObject> {
  public:
-  // [reactions_or_result]: Smi 0 terminated list of PromiseReaction objects
-  // in case the JSPromise was not settled yet, otherwise the result.
-  DECL_ACCESSORS(reactions_or_result, Object)
-
   // [result]: Checks that the promise is settled and returns the result.
   inline Object result() const;
 
@@ -62,27 +58,23 @@ class JSPromise : public JSObject {
   V8_WARN_UNUSED_RESULT static MaybeHandle<Object> Resolve(
       Handle<JSPromise> promise, Handle<Object> resolution);
 
-  DECL_CAST(JSPromise)
-
   // Dispatched behavior.
   DECL_PRINTER(JSPromise)
   DECL_VERIFIER(JSPromise)
 
-  DEFINE_FIELD_OFFSET_CONSTANTS(JSObject::kHeaderSize,
-                                TORQUE_GENERATED_JSPROMISE_FIELDS)
-
   static const int kSizeWithEmbedderFields =
-      kSize + v8::Promise::kEmbedderFieldCount * kEmbedderDataSlotSize;
+      kHeaderSize + v8::Promise::kEmbedderFieldCount * kEmbedderDataSlotSize;
 
   // Flags layout.
   // The first two bits store the v8::Promise::PromiseState.
   static const int kStatusBits = 2;
   static const int kHasHandlerBit = 2;
   static const int kHandledHintBit = 3;
-  class AsyncTaskIdField : public BitField<int, kHandledHintBit + 1, 22> {};
+  using AsyncTaskIdField = base::BitField<int, kHandledHintBit + 1, 22>;
 
   static const int kStatusShift = 0;
   static const int kStatusMask = 0x3;
+  static const int kHasHandlerMask = 0x4;
   STATIC_ASSERT(v8::Promise::kPending == 0);
   STATIC_ASSERT(v8::Promise::kFulfilled == 1);
   STATIC_ASSERT(v8::Promise::kRejected == 2);
@@ -94,7 +86,7 @@ class JSPromise : public JSObject {
                                                 Handle<Object> argument,
                                                 PromiseReaction::Type type);
 
-  OBJECT_CONSTRUCTORS(JSPromise, JSObject);
+  TQ_OBJECT_CONSTRUCTORS(JSPromise)
 };
 
 }  // namespace internal

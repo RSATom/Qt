@@ -156,7 +156,7 @@ QT_BEGIN_NAMESPACE
     \sa setScreen()
 */
 QWindow::QWindow(QScreen *targetScreen)
-    : QObject(*new QWindowPrivate(), 0)
+    : QObject(*new QWindowPrivate(), nullptr)
     , QSurface(QSurface::Window)
 {
     Q_D(QWindow);
@@ -223,7 +223,7 @@ QWindow::~QWindow()
     // some cases end up becoming the focus window again. Clear it again
     // here as a workaround. See QTBUG-75326.
     if (QGuiApplicationPrivate::focus_window == this)
-        QGuiApplicationPrivate::focus_window = 0;
+        QGuiApplicationPrivate::focus_window = nullptr;
 }
 
 void QWindowPrivate::init(QScreen *targetScreen)
@@ -469,7 +469,7 @@ inline bool QWindowPrivate::windowRecreationRequired(QScreen *newScreen) const
 inline void QWindowPrivate::disconnectFromScreen()
 {
     if (topLevelScreen)
-        topLevelScreen = 0;
+        topLevelScreen = nullptr;
 }
 
 void QWindowPrivate::connectToScreen(QScreen *screen)
@@ -515,6 +515,11 @@ void QWindowPrivate::create(bool recursive, WId nativeHandle)
     if (platformWindow)
         return;
 
+    // avoid losing update requests when re-creating
+    const bool needsUpdate = updateRequestPending;
+    // the platformWindow, if there was one, is now gone, so make this flag reflect reality now
+    updateRequestPending = false;
+
     if (q->parent())
         q->parent()->create();
 
@@ -553,8 +558,8 @@ void QWindowPrivate::create(bool recursive, WId nativeHandle)
     QPlatformSurfaceEvent e(QPlatformSurfaceEvent::SurfaceCreated);
     QGuiApplication::sendEvent(q, &e);
 
-    if (updateRequestPending)
-        platformWindow->requestUpdate();
+    if (needsUpdate)
+        q->requestUpdate();
 }
 
 void QWindowPrivate::clearFocusObject()
@@ -732,7 +737,7 @@ void QWindow::setParent(QWindow *parent)
         if (parent)
             parent->create();
 
-        d->platformWindow->setParent(parent ? parent->d_func()->platformWindow : 0);
+        d->platformWindow->setParent(parent ? parent->d_func()->platformWindow : nullptr);
     }
 
     QGuiApplicationPrivate::updateBlockedStatus(this);
@@ -744,7 +749,7 @@ void QWindow::setParent(QWindow *parent)
 bool QWindow::isTopLevel() const
 {
     Q_D(const QWindow);
-    return d->parentWindow == 0;
+    return d->parentWindow == nullptr;
 }
 
 /*!
@@ -1048,6 +1053,71 @@ void QWindow::lower()
 
     if (d->platformWindow)
         d->platformWindow->lower();
+}
+
+/*!
+    \brief Start a system-specific resize operation
+    \since 5.15
+
+    Calling this will start an interactive resize operation on the window by platforms
+    that support it. The actual behavior may vary depending on the platform. Usually,
+    it will make the window resize so that its edge follows the mouse cursor.
+
+    On platforms that support it, this method of resizing windows is preferred over
+    \c setGeometry, because it allows a more native look-and-feel of resizing windows, e.g.
+    letting the window manager snap this window against other windows, or special resizing
+    behavior with animations when dragged to the edge of the screen.
+
+    \a edges should either be a single edge, or two adjacent edges (a corner). Other values
+    are not allowed.
+
+    Returns true if the operation was supported by the system.
+*/
+bool QWindow::startSystemResize(Qt::Edges edges)
+{
+    Q_D(QWindow);
+    if (Q_UNLIKELY(!isVisible() || !d->platformWindow || d->maximumSize == d->minimumSize))
+        return false;
+
+    const bool isSingleEdge = edges == Qt::TopEdge || edges == Qt::RightEdge || edges == Qt::BottomEdge || edges == Qt::LeftEdge;
+    const bool isCorner =
+            edges == (Qt::TopEdge | Qt::LeftEdge) ||
+            edges == (Qt::TopEdge | Qt::RightEdge) ||
+            edges == (Qt::BottomEdge | Qt::RightEdge) ||
+            edges == (Qt::BottomEdge | Qt::LeftEdge);
+
+    if (Q_UNLIKELY(!isSingleEdge && !isCorner)) {
+        qWarning() << "Invalid edges" << edges << "passed to QWindow::startSystemResize, ignoring.";
+        return false;
+    }
+
+    return d->platformWindow->startSystemResize(edges);
+}
+
+/*!
+    \brief Start a system-specific move operation
+    \since 5.15
+
+    Calling this will start an interactive move operation on the window by platforms
+    that support it. The actual behavior may vary depending on the platform. Usually,
+    it will make the window follow the mouse cursor until a mouse button is released.
+
+    On platforms that support it, this method of moving windows is preferred over
+    \c setPosition, because it allows a more native look-and-feel of moving windows, e.g.
+    letting the window manager snap this window against other windows, or special tiling
+    or resizing behavior with animations when dragged to the edge of the screen.
+    Furthermore, on some platforms such as Wayland, \c setPosition is not supported, so
+    this is the only way the application can influence its position.
+
+    Returns true if the operation was supported by the system.
+*/
+bool QWindow::startSystemMove()
+{
+    Q_D(QWindow);
+    if (Q_UNLIKELY(!isVisible() || !d->platformWindow))
+        return false;
+
+    return d->platformWindow->startSystemMove();
 }
 
 /*!
@@ -1797,7 +1867,10 @@ void QWindow::setFramePosition(const QPoint &point)
 
     The position is in relation to the virtualGeometry() of its screen.
 
-    \sa position()
+    For interactively moving windows, see startSystemMove(). For interactively
+    resizing windows, see startSystemResize().
+
+    \sa position(), startSystemMove()
 */
 void QWindow::setPosition(const QPoint &pt)
 {
@@ -1833,6 +1906,8 @@ void QWindow::setPosition(int posx, int posy)
 /*!
     set the size of the window, excluding any window frame, to a QSize
     constructed from width \a w and height \a h
+
+    For interactively resizing windows, see startSystemResize().
 
     \sa size(), geometry()
 */
@@ -2022,7 +2097,7 @@ void QWindow::setScreen(QScreen *newScreen)
     Q_D(QWindow);
     if (!newScreen)
         newScreen = QGuiApplication::primaryScreen();
-    d->setTopLevelScreen(newScreen, newScreen != 0);
+    d->setTopLevelScreen(newScreen, newScreen != nullptr);
 }
 
 /*!
@@ -2040,7 +2115,7 @@ void QWindow::setScreen(QScreen *newScreen)
   */
 QAccessibleInterface *QWindow::accessibleRoot() const
 {
-    return 0;
+    return nullptr;
 }
 
 /*!
@@ -2699,7 +2774,7 @@ QWindow *QWindow::fromWinId(WId id)
 {
     if (!QGuiApplicationPrivate::platformIntegration()->hasCapability(QPlatformIntegration::ForeignWindows)) {
         qWarning("QWindow::fromWinId(): platform plugin does not support foreign windows.");
-        return 0;
+        return nullptr;
     }
 
     QWindow *window = new QWindow;
@@ -2773,7 +2848,7 @@ void QWindow::setCursor(const QCursor &cursor)
 void QWindow::unsetCursor()
 {
     Q_D(QWindow);
-    d->setCursor(0);
+    d->setCursor(nullptr);
 }
 
 /*!

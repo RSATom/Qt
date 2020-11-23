@@ -34,6 +34,7 @@
 
 #include "base/macros.h"
 #include "third_party/blink/public/mojom/service_worker/service_worker_error_type.mojom-blink.h"
+#include "third_party/blink/public/platform/web_fetch_client_settings_object.h"
 #include "third_party/blink/public/platform/web_string.h"
 #include "third_party/blink/public/platform/web_url.h"
 #include "third_party/blink/renderer/bindings/core/v8/callback_promise_adapter.h"
@@ -62,6 +63,8 @@
 #include "third_party/blink/renderer/platform/bindings/v8_throw_exception.h"
 #include "third_party/blink/renderer/platform/heap/heap.h"
 #include "third_party/blink/renderer/platform/instrumentation/use_counter.h"
+#include "third_party/blink/renderer/platform/loader/fetch/resource_fetcher.h"
+#include "third_party/blink/renderer/platform/loader/fetch/resource_fetcher_properties.h"
 #include "third_party/blink/renderer/platform/weborigin/scheme_registry.h"
 #include "third_party/blink/renderer/platform/weborigin/security_violation_reporting_policy.h"
 #include "third_party/blink/renderer/platform/wtf/functional.h"
@@ -69,6 +72,23 @@
 namespace blink {
 
 namespace {
+
+void MaybeRecordThirdPartyServiceWorkerUsage(
+    ExecutionContext* execution_context) {
+  DCHECK(execution_context);
+  // ServiceWorkerContainer is only supported on documents.
+  Document* document = To<Document>(execution_context);
+  DCHECK(document);
+
+  // Don't record the use counter if the frame is same-origin to the top frame,
+  // or if we can't tell whether the frame was ever cross-origin or not.
+  if (!document->TopFrameOrigin() ||
+      document->TopFrameOrigin()->CanAccess(document->GetSecurityOrigin())) {
+    return;
+  }
+
+  UseCounter::Count(document, WebFeature::kThirdPartyServiceWorker);
+}
 
 bool HasFiredDomContentLoaded(const Document& document) {
   return !document.GetTiming().DomContentLoadedEventStart().is_null();
@@ -229,6 +249,7 @@ ScriptPromise ServiceWorkerContainer::registerServiceWorker(
       ServiceWorkerRegistration, ServiceWorkerErrorForUpdate>>(resolver);
 
   ExecutionContext* execution_context = ExecutionContext::From(script_state);
+  MaybeRecordThirdPartyServiceWorkerUsage(execution_context);
 
   // The IDL definition is expected to restrict service worker to secure
   // contexts.
@@ -340,8 +361,19 @@ ScriptPromise ServiceWorkerContainer::registerServiceWorker(
       ParseUpdateViaCache(options->updateViaCache());
   mojom::ScriptType type = ParseScriptType(options->type());
 
-  provider_->RegisterServiceWorker(scope_url, script_url, type,
-                                   update_via_cache, std::move(callbacks));
+  WebFetchClientSettingsObject fetch_client_settings_object(
+      execution_context->Fetcher()
+          ->GetProperties()
+          .GetFetchClientSettingsObject());
+  // The outgoing referrer is a required parameter. Use |script_url| if the
+  // ResourceFetcher doesn't provide it.
+  if (fetch_client_settings_object.outgoing_referrer.IsEmpty()) {
+    fetch_client_settings_object.outgoing_referrer = script_url;
+  }
+
+  provider_->RegisterServiceWorker(
+      scope_url, script_url, type, update_via_cache,
+      std::move(fetch_client_settings_object), std::move(callbacks));
   return promise;
 }
 
@@ -477,6 +509,7 @@ void ServiceWorkerContainer::SetController(
     return;
   controller_ = ServiceWorker::From(GetExecutionContext(), std::move(info));
   if (controller_) {
+    MaybeRecordThirdPartyServiceWorkerUsage(GetExecutionContext());
     UseCounter::Count(GetExecutionContext(),
                       WebFeature::kServiceWorkerControlledPage);
     GetExecutionContext()->GetScheduler()->RegisterStickyFeature(
@@ -621,16 +654,32 @@ void ServiceWorkerContainer::DispatchMessageEvent(
       MessagePort::EntanglePorts(*GetExecutionContext(), std::move(msg.ports));
   ServiceWorker* service_worker =
       ServiceWorker::From(GetExecutionContext(), std::move(source));
-  MessageEvent* event;
-  if (!msg.locked_agent_cluster_id ||
-      GetExecutionContext()->IsSameAgentCluster(*msg.locked_agent_cluster_id)) {
-    event = MessageEvent::Create(
-        ports, std::move(msg.message),
-        GetExecutionContext()->GetSecurityOrigin()->ToString(),
-        String() /* lastEventId */, service_worker);
-  } else {
-    event = MessageEvent::CreateError(
-        GetExecutionContext()->GetSecurityOrigin()->ToString(), service_worker);
+  Event* event = nullptr;
+  // TODO(crbug.com/1018092): Factor out these security checks so they aren't
+  // duplicated in so many places.
+  if (msg.message->IsOriginCheckRequired()) {
+    const SecurityOrigin* target_origin =
+        GetExecutionContext()->GetSecurityOrigin();
+    if (!msg.sender_origin ||
+        !msg.sender_origin->IsSameOriginWith(target_origin)) {
+      event = MessageEvent::CreateError(
+          GetExecutionContext()->GetSecurityOrigin()->ToString(),
+          service_worker);
+    }
+  }
+  if (!event) {
+    if (!msg.locked_agent_cluster_id ||
+        GetExecutionContext()->IsSameAgentCluster(
+            *msg.locked_agent_cluster_id)) {
+      event = MessageEvent::Create(
+          ports, std::move(msg.message),
+          GetExecutionContext()->GetSecurityOrigin()->ToString(),
+          String() /* lastEventId */, service_worker);
+    } else {
+      event = MessageEvent::CreateError(
+          GetExecutionContext()->GetSecurityOrigin()->ToString(),
+          service_worker);
+    }
   }
   // Schedule the event to be dispatched on the correct task source:
   // https://w3c.github.io/ServiceWorker/#dfn-client-message-queue

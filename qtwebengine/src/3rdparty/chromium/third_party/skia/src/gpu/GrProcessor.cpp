@@ -6,12 +6,12 @@
  */
 
 #include "include/gpu/GrContext.h"
-#include "include/gpu/GrSamplerState.h"
 #include "include/private/SkSpinlock.h"
 #include "src/gpu/GrContextPriv.h"
 #include "src/gpu/GrGeometryProcessor.h"
 #include "src/gpu/GrMemoryPool.h"
 #include "src/gpu/GrProcessor.h"
+#include "src/gpu/GrSamplerState.h"
 #include "src/gpu/GrTextureProxy.h"
 #include "src/gpu/GrXferProcessor.h"
 
@@ -57,7 +57,7 @@ SkTArray<GrXPFactoryTestFactory*, true>* GrXPFactoryTestFactory::GetFactories() 
  * manually adjusted.
  */
 #if SK_ALLOW_STATIC_GLOBAL_INITIALIZERS
-static const int kFPFactoryCount = 36;
+static const int kFPFactoryCount = 37;
 static const int kGPFactoryCount = 14;
 static const int kXPFactoryCount = 4;
 #else
@@ -116,8 +116,8 @@ public:
 #endif
 
     GrMemoryPool* pool() const {
-        static GrMemoryPool gPool(4096, 4096);
-        return &gPool;
+        static GrMemoryPool* gPool = new GrMemoryPool(4096, 4096);
+        return gPool;
     }
 };
 }

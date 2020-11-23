@@ -108,7 +108,12 @@ class SVGLength final : public SVGPropertyBase {
 
   // Helper functions
   bool IsRelative() const;
-  bool IsFontRelative() const { return value_->IsFontRelativeLength(); }
+  bool IsFontRelative() const {
+    // TODO(crbug.com/979895): This is the result of a refactoring, which might
+    // have revealed an existing bug with calculated lengths. Investigate.
+    return value_->IsNumericLiteralValue() &&
+           To<CSSNumericLiteralValue>(*value_).IsFontRelativeLength();
+  }
   bool IsCalculated() const { return value_->IsCalculated(); }
   bool IsPercentage() const { return value_->IsPercentage(); }
 
@@ -121,7 +126,7 @@ class SVGLength final : public SVGPropertyBase {
       const QualifiedName&);
 
   void Add(SVGPropertyBase*, SVGElement*) override;
-  void CalculateAnimatedValue(SVGAnimationElement*,
+  void CalculateAnimatedValue(const SVGAnimateElement&,
                               float percentage,
                               unsigned repeat_count,
                               SVGPropertyBase* from,

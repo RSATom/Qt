@@ -40,7 +40,7 @@ int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) {
   FuzzedDataProvider fuzzed_data(data, size);
 
   HTMLParserOptions options;
-  options.script_enabled = fuzzed_data.ConsumeBool();
+  options.scripting_flag = fuzzed_data.ConsumeBool();
 
   std::unique_ptr<CachedDocumentParameters> document_parameters =
       CachedDocumentParametersForFuzzing(fuzzed_data);
@@ -61,7 +61,7 @@ int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) {
   media_data.three_d_enabled = true;
   media_data.media_type = media_type_names::kScreen;
   media_data.strict_mode = true;
-  media_data.display_mode = kWebDisplayModeBrowser;
+  media_data.display_mode = blink::mojom::DisplayMode::kBrowser;
 
   MockResourcePreloader preloader;
 

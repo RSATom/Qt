@@ -5,6 +5,7 @@
 #include "osp/public/service_publisher.h"
 
 namespace openscreen {
+namespace osp {
 
 ServicePublisherError::ServicePublisherError() = default;
 ServicePublisherError::ServicePublisherError(Code error,
@@ -23,7 +24,9 @@ ServicePublisher::Metrics::~Metrics() = default;
 ServicePublisher::Config::Config() = default;
 ServicePublisher::Config::~Config() = default;
 
-ServicePublisher::ServicePublisher(Observer* observer) : observer_(observer) {}
+ServicePublisher::ServicePublisher(Observer* observer)
+    : state_(State::kStopped), observer_(observer) {}
 ServicePublisher::~ServicePublisher() = default;
 
+}  // namespace osp
 }  // namespace openscreen

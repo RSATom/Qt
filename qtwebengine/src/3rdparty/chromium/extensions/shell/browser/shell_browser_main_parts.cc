@@ -185,7 +185,7 @@ void ShellBrowserMainParts::PreMainMessageLoopRun() {
   shell::EnsureBrowserContextKeyedServiceFactoriesBuilt();
 
   // Initialize our "profile" equivalent.
-  browser_context_ = std::make_unique<ShellBrowserContext>(this);
+  browser_context_ = std::make_unique<ShellBrowserContext>();
 
   // app_shell only supports a single user, so all preferences live in the user
   // data directory, including the device-wide local state.
@@ -235,8 +235,8 @@ void ShellBrowserMainParts::PreMainMessageLoopRun() {
   // Track the task so it can be canceled if app_shell shuts down very quickly,
   // such as in browser tests.
   task_tracker_.PostTask(
-      base::CreateSingleThreadTaskRunnerWithTraits({BrowserThread::IO}).get(),
-      FROM_HERE, base::Bind(nacl::NaClProcessHost::EarlyStartup));
+      base::CreateSingleThreadTaskRunner({BrowserThread::IO}).get(), FROM_HERE,
+      base::Bind(nacl::NaClProcessHost::EarlyStartup));
 #endif
 
   content::ShellDevToolsManagerDelegate::StartHttpHandler(
@@ -248,7 +248,7 @@ void ShellBrowserMainParts::PreMainMessageLoopRun() {
 
   if (parameters_.ui_task) {
     // For running browser tests.
-    parameters_.ui_task->Run();
+    std::move(*parameters_.ui_task).Run();
     delete parameters_.ui_task;
     run_message_loop_ = false;
   } else {

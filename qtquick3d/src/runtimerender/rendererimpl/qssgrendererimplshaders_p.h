@@ -62,7 +62,7 @@ struct QSSGShaderTessellationProperties
     /// the tess shader
 
     QSSGShaderTessellationProperties() = default;
-    QSSGShaderTessellationProperties(QSSGRef<QSSGRenderShaderProgram> inShader)
+    QSSGShaderTessellationProperties(const QSSGRef<QSSGRenderShaderProgram> &inShader)
         : edgeTessLevel("tessLevelOuter", inShader)
         , insideTessLevel("tessLevelInner", inShader)
         , phongBlend("phongBlend", inShader)
@@ -85,7 +85,7 @@ struct QSSGShaderGeneratorGeneratedShader
     QSSGRenderCachedShaderProperty<QMatrix4x4> viewportMatrix;
     QSSGShaderTessellationProperties tessellation;
 
-    QSSGShaderGeneratorGeneratedShader(const QByteArray &inQueryString, QSSGRef<QSSGRenderShaderProgram> inShader)
+    QSSGShaderGeneratorGeneratedShader(const QByteArray &inQueryString, const QSSGRef<QSSGRenderShaderProgram> &inShader)
         : layerSetIndex(std::numeric_limits<quint32>::max())
         , queryString(inQueryString)
         , shader(inShader)
@@ -111,7 +111,7 @@ struct QSSGDefaultMaterialRenderableDepthShader
     QSSGRef<QSSGRenderShaderProgram> shader;
     QSSGRenderCachedShaderProperty<QMatrix4x4> mvp;
 
-    QSSGDefaultMaterialRenderableDepthShader(QSSGRef<QSSGRenderShaderProgram> inShader, QSSGRenderContext &inContext)
+    QSSGDefaultMaterialRenderableDepthShader(const QSSGRef<QSSGRenderShaderProgram> &inShader, QSSGRenderContext &inContext)
         : shader(inShader), mvp("modelViewProjection", inShader)
     {
         // TODO:
@@ -160,7 +160,7 @@ struct QSSGRenderableDepthPrepassShader
     // Cache the tessellation property name lookups
     QSSGShaderTessellationProperties tessellation;
 
-    QSSGRenderableDepthPrepassShader(QSSGRef<QSSGRenderShaderProgram> inShader, const QSSGRef<QSSGRenderContext> &inContext)
+    QSSGRenderableDepthPrepassShader(const QSSGRef<QSSGRenderShaderProgram> &inShader, const QSSGRef<QSSGRenderContext> &inContext)
         : shader(inShader)
         , mvp("modelViewProjection", inShader)
         , globalTransform("modelMatrix", inShader)
@@ -252,6 +252,17 @@ struct QSSGLayerProgAABlendShader
     }
 };
 
+struct QSSGCompositShader
+{
+    QAtomicInt ref;
+    QSSGRef<QSSGRenderShaderProgram> shader;
+    QSSGRenderCachedShaderProperty<QSSGRenderTexture2D *> lastFrame;
+    QSSGCompositShader(const QSSGRef<QSSGRenderShaderProgram> &inShader)
+        : shader(inShader), lastFrame("last_frame", inShader)
+    {
+    }
+};
+
 struct QSSGLayerLastFrameBlendShader
 {
     QAtomicInt ref;
@@ -264,7 +275,7 @@ struct QSSGLayerLastFrameBlendShader
     }
 };
 
-struct QSSGLayerSceneShader
+struct QSSGFlippedQuadShader
 {
     QAtomicInt ref;
     QSSGRef<QSSGRenderShaderProgram> shader;
@@ -274,15 +285,18 @@ struct QSSGLayerSceneShader
     QSSGRenderCachedShaderProperty<QVector2D> dimensions;
     // The fourth member of text color is the opacity
     QSSGRenderCachedShaderProperty<QSSGRenderTexture2D *> sampler;
+    // Opacity to use for rendering
+    QSSGRenderCachedShaderProperty<float> opacity;
 
-    QSSGLayerSceneShader(const QSSGRef<QSSGRenderShaderProgram> &inShader)
+    QSSGFlippedQuadShader(const QSSGRef<QSSGRenderShaderProgram> &inShader)
         : shader(inShader)
         , mvp("modelViewProjection", inShader)
         , dimensions("layer_dimensions", inShader)
         , sampler("layer_image", inShader)
+        , opacity("opacity", inShader)
     {
     }
-    ~QSSGLayerSceneShader() {}
+    ~QSSGFlippedQuadShader() {}
 };
 
 struct QSSGShadowmapPreblurShader

@@ -45,6 +45,7 @@ import android.app.Activity;
 import android.content.Context;
 import android.content.Intent;
 import android.content.pm.ActivityInfo;
+import android.content.pm.ApplicationInfo;
 import android.content.pm.PackageManager;
 import android.content.pm.PackageManager.NameNotFoundException;
 import android.content.res.AssetManager;
@@ -585,12 +586,14 @@ public class QtActivityDelegate
                       Method m = initClass.getMethod("setActivity", Activity.class, Object.class);
                       m.invoke(staticInitDataObject, m_activity, this);
                   } catch (Exception e) {
+                      e.printStackTrace();
                   }
 
                   try {
                       Method m = initClass.getMethod("setContext", Context.class);
                       m.invoke(staticInitDataObject, (Context)m_activity);
                   } catch (Exception e) {
+                      e.printStackTrace();
                   }
                 } catch (Exception e) {
                     e.printStackTrace();
@@ -694,12 +697,9 @@ public class QtActivityDelegate
             Bundle extras = m_activity.getIntent().getExtras();
             if (extras != null) {
                 try {
-                    // do NOT remove !!!!
-                    final String dc = "--Added-by-androiddeployqt--/debugger.command";
-                    new BufferedReader(new InputStreamReader(m_activity.getAssets().open(dc))).readLine();
-                    // do NOT remove !!!!
-                    // The previous lines are needed to check if the debug mode is enabled.
-                    // We are not allowed to use extraenvvars or extraappparams in a non debuggable environment.
+                    final boolean isDebuggable = (m_activity.getApplicationInfo().flags & ApplicationInfo.FLAG_DEBUGGABLE) != 0;
+                    if (!isDebuggable)
+                        throw new Exception();
 
                     if (extras.containsKey("extraenvvars")) {
                         try {
@@ -717,6 +717,8 @@ public class QtActivityDelegate
                         }
                     }
                 } catch (Exception e) {
+                    Log.e(QtNative.QtTAG, "Not in debug mode! It is not allowed to use " +
+                                          "extra arguments in non-debug mode.");
                     // This is not an error, so keep it silent
                     // e.printStackTrace();
                 }
@@ -892,7 +894,8 @@ public class QtActivityDelegate
 
     public void onPause()
     {
-        QtNative.setApplicationState(ApplicationInactive);
+        if (Build.VERSION.SDK_INT < 24 || !m_activity.isInMultiWindowMode())
+            QtNative.setApplicationState(ApplicationInactive);
     }
 
     public void onResume()

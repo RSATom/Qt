@@ -117,12 +117,12 @@ scoped_refptr<const NGLayoutResult> NGFieldsetLayoutAlgorithm::Layout() {
     intrinsic_block_size += padding.BlockSum();
   }
 
-  intrinsic_block_size =
-      ClampIntrinsicBlockSize(Node(), border_padding_, intrinsic_block_size);
+  intrinsic_block_size = ClampIntrinsicBlockSize(
+      ConstraintSpace(), Node(), border_padding_, intrinsic_block_size);
 
   // Recompute the block-axis size now that we know our content size.
   border_box_size.block_size = ComputeBlockSizeForFragment(
-      ConstraintSpace(), Node(), border_padding_, intrinsic_block_size);
+      ConstraintSpace(), Style(), border_padding_, intrinsic_block_size);
 
   // The above computation utility knows nothing about fieldset weirdness. The
   // legend may eat from the available content box block size. Make room for
@@ -130,8 +130,7 @@ scoped_refptr<const NGLayoutResult> NGFieldsetLayoutAlgorithm::Layout() {
   // Note that in size containment, we have to consider sizing as if we have no
   // contents, with the conjecture being that legend is part of the contents.
   // Thus, only do this adjustment if we do not contain size.
-  if (!Node().ShouldApplySizeContainment() &&
-      !Node().DisplayLockInducesSizeContainment()) {
+  if (!Node().ShouldApplySizeContainment()) {
     LayoutUnit minimum_border_box_block_size =
         borders_with_legend.BlockSum() + padding.BlockSum();
     border_box_size.block_size =
@@ -154,14 +153,10 @@ base::Optional<MinMaxSize> NGFieldsetLayoutAlgorithm::ComputeMinMaxSize(
   MinMaxSize sizes;
 
   bool apply_size_containment = node_.ShouldApplySizeContainment();
+  // TODO(crbug.com/1011842): Need to consider content-size here.
   if (apply_size_containment) {
     if (input.size_type == NGMinMaxSizeType::kContentBoxSize)
       return sizes;
-  } else if (node_.DisplayLockInducesSizeContainment()) {
-    sizes = node_.GetDisplayLockContext().GetLockedContentLogicalWidth();
-    if (input.size_type == NGMinMaxSizeType::kContentBoxSize)
-      return sizes;
-    apply_size_containment = true;
   }
 
   // Size containment does not consider the legend for sizing.
@@ -217,7 +212,7 @@ NGFieldsetLayoutAlgorithm::CreateConstraintSpaceForFieldsetContent(
   builder.SetAvailableSize(padding_box_size);
   builder.SetPercentageResolutionSize(
       ConstraintSpace().PercentageResolutionSize());
-  builder.SetIsFixedSizeBlock(padding_box_size.block_size != kIndefiniteSize);
+  builder.SetIsFixedBlockSize(padding_box_size.block_size != kIndefiniteSize);
   return builder.ToConstraintSpace();
 }
 

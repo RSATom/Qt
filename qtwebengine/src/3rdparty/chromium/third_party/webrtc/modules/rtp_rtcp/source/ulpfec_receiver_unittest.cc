@@ -15,7 +15,6 @@
 #include <list>
 #include <memory>
 
-#include "modules/rtp_rtcp/include/rtp_header_parser.h"
 #include "modules/rtp_rtcp/mocks/mock_recovered_packet_receiver.h"
 #include "modules/rtp_rtcp/mocks/mock_rtp_rtcp.h"
 #include "modules/rtp_rtcp/source/byte_io.h"
@@ -30,7 +29,6 @@ namespace {
 using ::testing::_;
 using ::testing::Args;
 using ::testing::ElementsAreArray;
-using ::testing::Return;
 
 using test::fec::AugmentedPacket;
 using Packet = ForwardErrorCorrection::Packet;
@@ -123,19 +121,13 @@ void UlpfecReceiverTest::PacketizeFrame(
 }
 
 void UlpfecReceiverTest::BuildAndAddRedMediaPacket(AugmentedPacket* packet) {
-  std::unique_ptr<AugmentedPacket> red_packet(
-      packet_generator_.BuildMediaRedPacket(*packet));
-  EXPECT_EQ(0, receiver_fec_->AddReceivedRedPacket(
-                   red_packet->header, red_packet->data, red_packet->length,
-                   kFecPayloadType));
+  RtpPacket red_packet = packet_generator_.BuildMediaRedPacket(*packet);
+  EXPECT_TRUE(receiver_fec_->AddReceivedRedPacket(red_packet, kFecPayloadType));
 }
 
 void UlpfecReceiverTest::BuildAndAddRedFecPacket(Packet* packet) {
-  std::unique_ptr<AugmentedPacket> red_packet(
-      packet_generator_.BuildUlpfecRedPacket(*packet));
-  EXPECT_EQ(0, receiver_fec_->AddReceivedRedPacket(
-                   red_packet->header, red_packet->data, red_packet->length,
-                   kFecPayloadType));
+  RtpPacket red_packet = packet_generator_.BuildUlpfecRedPacket(*packet);
+  EXPECT_TRUE(receiver_fec_->AddReceivedRedPacket(red_packet, kFecPayloadType));
 }
 
 void UlpfecReceiverTest::VerifyReconstructedMediaPacket(
@@ -144,8 +136,10 @@ void UlpfecReceiverTest::VerifyReconstructedMediaPacket(
   // Verify that the content of the reconstructed packet is equal to the
   // content of |packet|, and that the same content is received |times| number
   // of times in a row.
-  EXPECT_CALL(recovered_packet_receiver_, OnRecoveredPacket(_, packet.length))
-      .With(Args<0, 1>(ElementsAreArray(packet.data, packet.length)))
+  EXPECT_CALL(recovered_packet_receiver_,
+              OnRecoveredPacket(_, packet.data.size()))
+      .With(
+          Args<0, 1>(ElementsAreArray(packet.data.cdata(), packet.data.size())))
       .Times(times);
 }
 
@@ -176,15 +170,13 @@ void UlpfecReceiverTest::InjectGarbagePacketLength(size_t fec_garbage_offset) {
 void UlpfecReceiverTest::SurvivesMaliciousPacket(const uint8_t* data,
                                                  size_t length,
                                                  uint8_t ulpfec_payload_type) {
-  RTPHeader header;
-  std::unique_ptr<RtpHeaderParser> parser(RtpHeaderParser::Create());
-  ASSERT_TRUE(parser->Parse(data, length, &header));
-
   NullRecoveredPacketReceiver null_callback;
   std::unique_ptr<UlpfecReceiver> receiver_fec(
       UlpfecReceiver::Create(kMediaSsrc, &null_callback, {}));
 
-  receiver_fec->AddReceivedRedPacket(header, data, length, ulpfec_payload_type);
+  RtpPacket rtp_packet;
+  ASSERT_TRUE(rtp_packet.Parse(data, length));
+  receiver_fec->AddReceivedRedPacket(rtp_packet, ulpfec_payload_type);
 }
 
 TEST_F(UlpfecReceiverTest, TwoMediaOneFec) {

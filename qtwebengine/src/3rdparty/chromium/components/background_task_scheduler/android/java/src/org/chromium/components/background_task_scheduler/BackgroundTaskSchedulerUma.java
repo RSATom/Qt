@@ -6,9 +6,10 @@ package org.chromium.components.background_task_scheduler;
 
 import android.content.SharedPreferences;
 
+import androidx.annotation.VisibleForTesting;
+
 import org.chromium.base.ContextUtils;
 import org.chromium.base.ThreadUtils;
-import org.chromium.base.VisibleForTesting;
 import org.chromium.base.library_loader.LibraryLoader;
 import org.chromium.base.metrics.RecordHistogram;
 
@@ -139,6 +140,28 @@ class BackgroundTaskSchedulerUma {
         }
     }
 
+    /** Reports metrics for creating an exact tasks. */
+    public void reportExactTaskCreated(int taskId) {
+        cacheEvent("Android.BackgroundTaskScheduler.ExactTaskCreated",
+                toUmaEnumValueFromTaskId(taskId));
+    }
+
+    /** Reports metrics for task scheduling with the expiration feature activated. */
+    public void reportTaskCreatedAndExpirationState(int taskId, boolean expires) {
+        if (expires) {
+            cacheEvent("Android.BackgroundTaskScheduler.TaskCreated.WithExpiration",
+                    toUmaEnumValueFromTaskId(taskId));
+        } else {
+            cacheEvent("Android.BackgroundTaskScheduler.TaskCreated.WithoutExpiration",
+                    toUmaEnumValueFromTaskId(taskId));
+        }
+    }
+
+    /** Reports metrics for not starting a task because of expiration. */
+    public void reportTaskExpired(int taskId) {
+        cacheEvent("Android.BackgroundTaskScheduler.TaskExpired", toUmaEnumValueFromTaskId(taskId));
+    }
+
     /** Reports metrics for task canceling. */
     public void reportTaskCanceled(int taskId) {
         cacheEvent(
@@ -153,6 +176,12 @@ class BackgroundTaskSchedulerUma {
     /** Reports metrics for stopping a task. */
     public void reportTaskStopped(int taskId) {
         cacheEvent("Android.BackgroundTaskScheduler.TaskStopped", toUmaEnumValueFromTaskId(taskId));
+    }
+
+    /** Reports metrics for migrating scheduled tasks to Protocol Buffer data format. */
+    public void reportMigrationToProto(int taskId) {
+        cacheEvent("Android.BackgroundTaskScheduler.MigrationToProto",
+                toUmaEnumValueFromTaskId(taskId));
     }
 
     /**

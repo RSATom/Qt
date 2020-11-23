@@ -346,22 +346,22 @@ ReturnedValue QtObject::method_colorEqual(const FunctionObject *b, const Value *
     bool ok = false;
 
     QVariant lhs = scope.engine->toVariant(argv[0], -1);
-    if (lhs.userType() == QVariant::String) {
+    if (lhs.userType() == QMetaType::QString) {
         lhs = QQmlStringConverters::colorFromString(lhs.toString(), &ok);
         if (!ok) {
             THROW_GENERIC_ERROR("Qt.colorEqual(): Invalid color name");
         }
-    } else if (lhs.userType() != QVariant::Color) {
+    } else if (lhs.userType() != QMetaType::QColor) {
         THROW_GENERIC_ERROR("Qt.colorEqual(): Invalid arguments");
     }
 
     QVariant rhs = scope.engine->toVariant(argv[1], -1);
-    if (rhs.userType() == QVariant::String) {
+    if (rhs.userType() == QMetaType::QString) {
         rhs = QQmlStringConverters::colorFromString(rhs.toString(), &ok);
         if (!ok) {
             THROW_GENERIC_ERROR("Qt.colorEqual(): Invalid color name");
         }
-    } else if (rhs.userType() != QVariant::Color) {
+    } else if (rhs.userType() != QMetaType::QColor) {
         THROW_GENERIC_ERROR("Qt.colorEqual(): Invalid arguments");
     }
 
@@ -370,7 +370,7 @@ ReturnedValue QtObject::method_colorEqual(const FunctionObject *b, const Value *
 }
 
 /*!
-    \qmlmethod rect Qt::rect(int x, int y, int width, int height)
+    \qmlmethod rect Qt::rect(real x, real y, real width, real height)
 
     Returns a rect with the top-left corner at \a x, \a y and the specified \a width and \a height.
 */
@@ -389,7 +389,7 @@ ReturnedValue QtObject::method_rect(const FunctionObject *b, const Value *, cons
 }
 
 /*!
-    \qmlmethod point Qt::point(int x, int y)
+    \qmlmethod point Qt::point(real x, real y)
 
     Returns a point with the specified \a x and \a y coordinates.
 */
@@ -406,7 +406,7 @@ ReturnedValue QtObject::method_point(const FunctionObject *b, const Value *, con
 }
 
 /*!
-    \qmlmethod size Qt::size(int width, int height)
+    \qmlmethod size Qt::size(real width, real height)
 
     Returns a size with the specified \a width and \a height.
 */
@@ -612,13 +612,13 @@ ReturnedValue QtObject::method_lighter(const FunctionObject *b, const Value *, c
         THROW_GENERIC_ERROR("Qt.lighter(): Invalid arguments");
 
     QVariant v = scope.engine->toVariant(argv[0], -1);
-    if (v.userType() == QVariant::String) {
+    if (v.userType() == QMetaType::QString) {
         bool ok = false;
         v = QQmlStringConverters::colorFromString(v.toString(), &ok);
         if (!ok) {
             return QV4::Encode::null();
         }
-    } else if (v.userType() != QVariant::Color) {
+    } else if (v.userType() != QMetaType::QColor) {
         return QV4::Encode::null();
     }
 
@@ -652,13 +652,13 @@ ReturnedValue QtObject::method_darker(const FunctionObject *b, const Value *, co
         THROW_GENERIC_ERROR("Qt.darker(): Invalid arguments");
 
     QVariant v = scope.engine->toVariant(argv[0], -1);
-    if (v.userType() == QVariant::String) {
+    if (v.userType() == QMetaType::QString) {
         bool ok = false;
         v = QQmlStringConverters::colorFromString(v.toString(), &ok);
         if (!ok) {
             return QV4::Encode::null();
         }
-    } else if (v.userType() != QVariant::Color) {
+    } else if (v.userType() != QMetaType::QColor) {
         return QV4::Encode::null();
     }
 
@@ -703,142 +703,186 @@ ReturnedValue QtObject::method_tint(const FunctionObject *b, const Value *, cons
 
     // base color
     QVariant v1 = scope.engine->toVariant(argv[0], -1);
-    if (v1.userType() == QVariant::String) {
+    if (v1.userType() == QMetaType::QString) {
         bool ok = false;
         v1 = QQmlStringConverters::colorFromString(v1.toString(), &ok);
         if (!ok) {
             return QV4::Encode::null();
         }
-    } else if (v1.userType() != QVariant::Color) {
+    } else if (v1.userType() != QMetaType::QColor) {
         return QV4::Encode::null();
     }
 
     // tint color
     QVariant v2 = scope.engine->toVariant(argv[1], -1);
-    if (v2.userType() == QVariant::String) {
+    if (v2.userType() == QMetaType::QString) {
         bool ok = false;
         v2 = QQmlStringConverters::colorFromString(v2.toString(), &ok);
         if (!ok) {
             return QV4::Encode::null();
         }
-    } else if (v2.userType() != QVariant::Color) {
+    } else if (v2.userType() != QMetaType::QColor) {
         return QV4::Encode::null();
     }
 
     return scope.engine->fromVariant(QQml_colorProvider()->tint(v1, v2));
 }
 
-/*!
-\qmlmethod string Qt::formatDate(datetime date, variant format)
+namespace {
+template <typename T>
+QString formatDateTimeObjectUsingDateFormat(T formatThis, Qt::DateFormat format) {
+    switch (format) {
+    case Qt::TextDate:
+    case Qt::ISODate:
+    case Qt::RFC2822Date:
+    case Qt::ISODateWithMs:
+        return formatThis.toString(format);
+    // ### Qt 6: Remove all locale dependent cases
+    QT_WARNING_PUSH QT_WARNING_DISABLE_DEPRECATED
+    case Qt::SystemLocaleDate:
+        // case Qt::LocalDate: covered by SystemLocaleDate
+        return QLocale::system().toString(formatThis);
+    case Qt::LocaleDate:
+    case Qt::DefaultLocaleShortDate:
+        return QLocale().toString(formatThis, QLocale::ShortFormat);
+    case Qt::SystemLocaleShortDate:
+        return QLocale::system().toString(formatThis, QLocale::ShortFormat);
+    case Qt::SystemLocaleLongDate:
+        return QLocale::system().toString(formatThis, QLocale::LongFormat);
+    case Qt::DefaultLocaleLongDate:
+        return QLocale().toString(formatThis, QLocale::LongFormat);
+    }
+    QT_WARNING_POP
+    Q_UNREACHABLE();
+    return QString();
+}
 
-Returns a string representation of \a date, optionally formatted according
-to \a format.
+template <typename T>
+ReturnedValue formatDateTimeObject(const T &formatThis, const QV4::Scope &scope, const QString &functionName, int argc, const Value *argv) {
+
+    QString formatted;
+    if (argc >= 2) {
+        QV4::ScopedString s(scope, argv[1]);
+        if (s) {
+            if (argc == 3)
+                scope.engine->throwError(QLatin1String("%1(): Stay argument, third argument can only be used if second argument is a locale").arg(functionName));
+            QString format = s->toQString();
+            formatted = formatThis.toString(format);
+        } else if (argv[1].isNumber()) {
+            if (argc == 3)
+                scope.engine->throwError(QLatin1String("%1(): Stay argument, third argument can only be used if second argument is a locale").arg(functionName));
+            quint32 intFormat = argv[1].asDouble();
+            Qt::DateFormat format = Qt::DateFormat(intFormat);
+            formatted = formatDateTimeObjectUsingDateFormat(formatThis, format);
+        } else {
+            QLocale::FormatType formatOptions = QLocale::ShortFormat;
+            if (argc == 3) {
+                if (argv[2].isNumber())
+                    formatOptions = QLocale::FormatType(quint32(argv[2].asDouble()));
+                else
+                    scope.engine->throwError(QLatin1String("%1(): Third argument must be a Locale format option").arg(functionName));
+            }
+            auto enginePriv = QQmlEnginePrivate::get(scope.engine->qmlEngine());
+            auto localeMetaTypeId = qMetaTypeId<QLocale>();
+            QVariant locale = enginePriv->v4engine()->toVariant(argv[1], localeMetaTypeId);
+            if (!locale.canConvert(localeMetaTypeId))
+                scope.engine->throwError(QLatin1String("%1(): Bad second argument (must be either string, number or locale)").arg(functionName));
+            formatted = locale.value<QLocale>().toString(formatThis, formatOptions);
+        }
+    } else {
+        formatted = QLocale().toString(formatThis, QLocale::ShortFormat);
+    }
+
+    return Encode(scope.engine->newString(formatted));
+}
+
+}
+
+/*!
+\qmlmethod string Qt::formatDate(datetime date, variant format, variant localeFormatOption)
+
+Returns a string representation of \a date, optionally formatted using \a format.
 
 The \a date parameter may be a JavaScript \c Date object, a \l{date}{date}
-property, a QDate, or QDateTime value. The \a format parameter may be any of
-the possible format values as described for
+property, a QDate, or QDateTime value. The \a format and \a localeFormatOption
+parameter may be any of the possible format values as described for
 \l{QtQml::Qt::formatDateTime()}{Qt.formatDateTime()}.
 
 If \a format is not specified, \a date is formatted using
-\l {Qt::DefaultLocaleShortDate}{Qt.DefaultLocaleShortDate}.
+\l {QLocale::FormatType}{Locale.ShortFormat} using the
+default locale.
 
 \sa Locale
 */
 ReturnedValue QtObject::method_formatDate(const FunctionObject *b, const Value *, const Value *argv, int argc)
 {
     QV4::Scope scope(b);
-    if (argc < 1 || argc > 2)
-        THROW_GENERIC_ERROR("Qt.formatDate(): Invalid arguments");
+    if (argc < 1)
+        THROW_GENERIC_ERROR("Qt.formatDate(): Missing argument");
+    if (argc > 3)
+        THROW_GENERIC_ERROR("Qt.formatDate(): Stray arguments; formatDate takes at most 3 arguments.");
 
-    Qt::DateFormat enumFormat = Qt::DefaultLocaleShortDate;
     QDate date = scope.engine->toVariant(argv[0], -1).toDateTime().date();
-    QString formattedDate;
-    if (argc == 2) {
-        QV4::ScopedString s(scope, argv[1]);
-        if (s) {
-            QString format = s->toQString();
-            formattedDate = date.toString(format);
-        } else if (argv[1].isNumber()) {
-            quint32 intFormat = argv[1].asDouble();
-            Qt::DateFormat format = Qt::DateFormat(intFormat);
-            formattedDate = date.toString(format);
-        } else {
-            THROW_GENERIC_ERROR("Qt.formatDate(): Invalid date format");
-        }
-    } else {
-         formattedDate = date.toString(enumFormat);
-    }
-
-    return Encode(scope.engine->newString(formattedDate));
+    return formatDateTimeObject(date, scope, QLatin1String("Qt.formatDate"), argc, argv);
 }
 
 /*!
-\qmlmethod string Qt::formatTime(datetime time, variant format)
+\qmlmethod string Qt::formatTime(datetime time, variant format, variant localeFormatOption)
 
-Returns a string representation of \a time, optionally formatted according to
-\a format.
+Returns a string representation of \a time, optionally formatted using
+\a format, and, if provided, \a localeFormatOption.
 
 The \a time parameter may be a JavaScript \c Date object, a QTime, or QDateTime
-value. The \a format parameter may be any of the possible format values as
-described for \l{QtQml::Qt::formatDateTime()}{Qt.formatDateTime()}.
+value. The \a format and \a localeFormatOption parameter may be any of the
+possible format values as described for
+\l{QtQml::Qt::formatDateTime()}{Qt.formatDateTime()}.
 
 If \a format is not specified, \a time is formatted using
-\l {Qt::DefaultLocaleShortDate}{Qt.DefaultLocaleShortDate}.
+\l {QLocale::FormatType}{Locale.ShortFormat} using the default locale.
 
 \sa Locale
 */
 ReturnedValue QtObject::method_formatTime(const FunctionObject *b, const Value *, const Value *argv, int argc)
 {
     QV4::Scope scope(b);
-    if (argc < 1 || argc > 2)
-        THROW_GENERIC_ERROR("Qt.formatTime(): Invalid arguments");
+    if (argc < 1)
+        THROW_GENERIC_ERROR("Qt.formatTime(): Missing argument");
+    if (argc > 3)
+        THROW_GENERIC_ERROR("Qt.formatTime(): Stray arguments; formatTime takes at most 3 arguments.");
 
     QVariant argVariant = scope.engine->toVariant(argv[0], -1);
     QTime time;
-    if (argv[0].as<DateObject>() || (argVariant.type() == QVariant::String))
+    if (argv[0].as<DateObject>() || (argVariant.userType() == QMetaType::QString))
         time = argVariant.toDateTime().time();
     else // if (argVariant.type() == QVariant::Time), or invalid.
         time = argVariant.toTime();
-
-    Qt::DateFormat enumFormat = Qt::DefaultLocaleShortDate;
-    QString formattedTime;
-    if (argc == 2) {
-        QV4::ScopedString s(scope, argv[1]);
-        if (s) {
-            QString format = s->toQString();
-            formattedTime = time.toString(format);
-        } else if (argv[1].isNumber()) {
-            quint32 intFormat = argv[1].asDouble();
-            Qt::DateFormat format = Qt::DateFormat(intFormat);
-            formattedTime = time.toString(format);
-        } else {
-            THROW_GENERIC_ERROR("Qt.formatTime(): Invalid time format");
-        }
-    } else {
-         formattedTime = time.toString(enumFormat);
-    }
-
-    return Encode(scope.engine->newString(formattedTime));
+    return formatDateTimeObject(time, scope, QLatin1String("Qt.formatTime"), argc, argv);
 }
 
 /*!
-\qmlmethod string Qt::formatDateTime(datetime dateTime, variant format)
+\qmlmethod string Qt::formatDateTime(datetime dateTime, variant format, variant localeFormatOption)
 
-Returns a string representation of \a dateTime, optionally formatted according to
-\a format.
+Returns a string representation of \a dateTime, optionally formatted using
+\a format and \a localeFormatOption.
 
 The \a dateTime parameter may be a JavaScript \c Date object, a \l{date}{date}
 property, a QDate, QTime, or QDateTime value.
 
 If \a format is not provided, \a dateTime is formatted using
-\l {Qt::DefaultLocaleShortDate}{Qt.DefaultLocaleShortDate}. Otherwise,
-\a format should be either:
+\l {QLocale::FormatType}{Locale.ShortFormat} using the
+default locale. Otherwise, \a format should be either:
 
 \list
 \li One of the Qt::DateFormat enumeration values, such as
-   \c Qt.DefaultLocaleShortDate or \c Qt.ISODate
+   \c Qt.RFC2822Date or \c Qt.ISODate.
 \li A string that specifies the format of the returned string, as detailed below.
+\li A \c locale object.
 \endlist
+
+If \a format specifies a locale object, \dateTime is formatted
+with \l{QLocale::toString}. In this case, \a localeFormatOption can hold a value
+of type \l {QLocale::FormatType} to further tune the formatting. If none is
+provided, \l {QLocale::FormatType}{Locale.ShortFormat} is used.
 
 If \a format specifies a format string, it should use the following expressions
 to specify the date:
@@ -916,29 +960,13 @@ with the \a format values below to produce the following results:
 ReturnedValue QtObject::method_formatDateTime(const FunctionObject *b, const Value *, const Value *argv, int argc)
 {
     QV4::Scope scope(b);
-    if (argc < 1 || argc > 2)
-        THROW_GENERIC_ERROR("Qt.formatDateTime(): Invalid arguments");
+    if (argc < 1)
+        THROW_GENERIC_ERROR("Qt.formatDateTime(): Missing argument");
+    if (argc > 3)
+        THROW_GENERIC_ERROR("Qt.formatDateTime(): Stray arguments; formatDate takes at most 3 arguments.");
 
-    Qt::DateFormat enumFormat = Qt::DefaultLocaleShortDate;
     QDateTime dt = scope.engine->toVariant(argv[0], -1).toDateTime();
-    QString formattedDt;
-    if (argc == 2) {
-        QV4::ScopedString s(scope, argv[1]);
-        if (s) {
-            QString format = s->toQString();
-            formattedDt = dt.toString(format);
-        } else if (argv[1].isNumber()) {
-            quint32 intFormat = argv[1].asDouble();
-            Qt::DateFormat format = Qt::DateFormat(intFormat);
-            formattedDt = dt.toString(format);
-        } else {
-            THROW_GENERIC_ERROR("Qt.formatDateTime(): Invalid datetime format");
-        }
-    } else {
-         formattedDt = dt.toString(enumFormat);
-    }
-
-    return Encode(scope.engine->newString(formattedDt));
+    return formatDateTimeObject(dt, scope, QLatin1String("Qt.formatDateTime"), argc, argv);
 }
 
 /*!
@@ -1336,6 +1364,41 @@ ReturnedValue QtObject::method_createComponent(const FunctionObject *b, const Va
     QQmlData::get(c)->indestructible = false;
 
     return QV4::QObjectWrapper::wrap(scope.engine, c);
+}
+
+ReturnedValue QtObject::method_get_uiLanguage(const FunctionObject *b, const Value * /*thisObject*/, const Value * /*argv*/, int /*argc*/)
+{
+    QV4::Scope scope(b);
+    QJSEngine *jsEngine = scope.engine->jsEngine();
+    if (!jsEngine)
+        return Encode::null();
+
+    QQmlEnginePrivate *ep = QQmlEnginePrivate::get(scope.engine);
+    if (ep && ep->propertyCapture) {
+        static int propertyIndex = -1;
+        static int notifySignalIndex = -1;
+        if (propertyIndex < 0) {
+            QMetaProperty metaProperty =
+                    QQmlEngine::staticMetaObject.property(QQmlEngine::staticMetaObject.indexOfProperty("uiLanguage"));
+            propertyIndex = metaProperty.propertyIndex();
+            notifySignalIndex = metaProperty.notifySignalIndex();
+        }
+        ep->propertyCapture->captureProperty(QQmlEnginePrivate::get(ep), propertyIndex, notifySignalIndex);
+    }
+
+    return Encode(scope.engine->newString(QJSEnginePrivate::get(jsEngine)->uiLanguage));
+}
+
+ReturnedValue QtObject::method_set_uiLanguage(const FunctionObject *b, const Value * /*thisObject*/, const Value *argv, int argc)
+{
+    Scope scope(b);
+    if (!argc)
+        THROW_TYPE_ERROR();
+    QJSEngine *jsEngine = scope.engine->jsEngine();
+    if (!jsEngine)
+        THROW_TYPE_ERROR();
+    jsEngine->setUiLanguage(argv[0].toQString());
+    return Encode::undefined();
 }
 
 #if QT_CONFIG(qml_locale)
@@ -1834,6 +1897,14 @@ void QV4::GlobalExtensions::init(Object *globalObject, QJSEngine::Extensions ext
         globalObject->defineDefaultProperty(QStringLiteral("QT_TR_NOOP"), QV4::GlobalExtensions::method_qsTrNoOp);
         globalObject->defineDefaultProperty(QStringLiteral("qsTrId"), QV4::GlobalExtensions::method_qsTrId);
         globalObject->defineDefaultProperty(QStringLiteral("QT_TRID_NOOP"), QV4::GlobalExtensions::method_qsTrIdNoOp);
+
+        ScopedString qtName(scope, v4->newString(QStringLiteral("Qt")));
+        ScopedObject qt(scope, globalObject->get(qtName));
+        if (!qt) {
+            qt = v4->newObject();
+            globalObject->defineDefaultProperty(qtName, qt);
+        }
+        qt->defineAccessorProperty(QStringLiteral("uiLanguage"), QV4::QtObject::method_get_uiLanguage, QV4::QtObject::method_set_uiLanguage);
 
         // string prototype extension
         scope.engine->stringPrototype()->defineDefaultProperty(QStringLiteral("arg"), QV4::GlobalExtensions::method_string_arg);

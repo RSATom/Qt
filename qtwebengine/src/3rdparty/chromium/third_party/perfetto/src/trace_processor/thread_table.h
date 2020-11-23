@@ -20,7 +20,7 @@
 #include <limits>
 #include <memory>
 
-#include "src/trace_processor/table.h"
+#include "src/trace_processor/sqlite/sqlite_table.h"
 #include "src/trace_processor/trace_storage.h"
 
 namespace perfetto {
@@ -28,7 +28,7 @@ namespace trace_processor {
 
 // The implementation of the SQLite table containing each unique process with
 // the metadata for those processes.
-class ThreadTable : public Table {
+class ThreadTable : public SqliteTable {
  public:
   enum Column {
     kUtid = 0,
@@ -38,12 +38,14 @@ class ThreadTable : public Table {
     kStartTs = 4,
     kEndTs = 5,
   };
-  class Cursor : public Table::Cursor {
+  class Cursor : public SqliteTable::Cursor {
    public:
     Cursor(ThreadTable* table);
 
     // Implementation of Table::Cursor.
-    int Filter(const QueryConstraints&, sqlite3_value**) override;
+    int Filter(const QueryConstraints&,
+               sqlite3_value**,
+               FilterHistory) override;
     int Next() override;
     int Eof() override;
     int Column(sqlite3_context*, int N) override;
@@ -55,10 +57,10 @@ class ThreadTable : public Table {
     Cursor(Cursor&&) noexcept = default;
     Cursor& operator=(Cursor&&) = default;
 
-    UniqueTid min;
-    UniqueTid max;
-    UniqueTid current;
-    bool desc;
+    UniqueTid min_ = 0;
+    UniqueTid max_ = 0;
+    uint32_t index_ = 0;
+    bool desc_ = false;
 
     const TraceStorage* storage_ = nullptr;
     ThreadTable* table_ = nullptr;
@@ -69,8 +71,8 @@ class ThreadTable : public Table {
   ThreadTable(sqlite3*, const TraceStorage*);
 
   // Table implementation.
-  util::Status Init(int, const char* const*, Table::Schema*) override;
-  std::unique_ptr<Table::Cursor> CreateCursor() override;
+  util::Status Init(int, const char* const*, SqliteTable::Schema*) override;
+  std::unique_ptr<SqliteTable::Cursor> CreateCursor() override;
   int BestIndex(const QueryConstraints&, BestIndexInfo*) override;
 
  private:

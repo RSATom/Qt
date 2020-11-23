@@ -7,7 +7,6 @@
 #include "base/bind.h"
 #include "base/bind_helpers.h"
 #include "base/logging.h"
-#include "media/base/cdm_context.h"
 #include "media/base/content_decryption_module.h"
 #include "media/mojo/common/media_type_converters.h"
 #include "media/mojo/common/mojo_decoder_buffer_converter.h"
@@ -27,7 +26,7 @@ MojoAudioDecoderService::MojoAudioDecoderService(
 MojoAudioDecoderService::~MojoAudioDecoderService() = default;
 
 void MojoAudioDecoderService::Construct(
-    mojom::AudioDecoderClientAssociatedPtrInfo client) {
+    mojo::PendingAssociatedRemote<mojom::AudioDecoderClient> client) {
   DVLOG(1) << __func__;
   client_.Bind(std::move(client));
 }
@@ -37,21 +36,30 @@ void MojoAudioDecoderService::Initialize(const AudioDecoderConfig& config,
                                          InitializeCallback callback) {
   DVLOG(1) << __func__ << " " << config.AsHumanReadableString();
 
-  // Get CdmContext from cdm_id if the stream is encrypted.
-  CdmContext* cdm_context = nullptr;
-  if (config.is_encrypted()) {
-    auto cdm_context_ref = mojo_cdm_service_context_->GetCdmContextRef(cdm_id);
-    if (!cdm_context_ref) {
-      DVLOG(1) << "CdmContextRef not found for CDM id: " << cdm_id;
-      std::move(callback).Run(false, false);
+  // |cdm_context_ref_| must be kept as long as |cdm_context| is used by the
+  // |decoder_|. We do NOT support resetting |cdm_context_ref_| because in
+  // general we don't support resetting CDM in the media pipeline.
+  if (cdm_id != CdmContext::kInvalidCdmId) {
+    if (cdm_id_ == CdmContext::kInvalidCdmId) {
+      DCHECK(!cdm_context_ref_);
+      cdm_id_ = cdm_id;
+      cdm_context_ref_ = mojo_cdm_service_context_->GetCdmContextRef(cdm_id);
+    } else if (cdm_id != cdm_id_) {
+      // TODO(xhwang): Replace with mojo::ReportBadMessage().
+      NOTREACHED() << "The caller should not switch CDM";
+      OnInitialized(std::move(callback), false);
       return;
     }
+  }
 
-    // |cdm_context_ref_| must be kept as long as |cdm_context| is used by the
-    // |decoder_|.
-    cdm_context_ref_ = std::move(cdm_context_ref);
-    cdm_context = cdm_context_ref_->GetCdmContext();
-    DCHECK(cdm_context);
+  // Get CdmContext, which could be null.
+  CdmContext* cdm_context =
+      cdm_context_ref_ ? cdm_context_ref_->GetCdmContext() : nullptr;
+
+  if (config.is_encrypted() && !cdm_context) {
+    DVLOG(1) << "CdmContext for " << cdm_id << " not found for encrypted audio";
+    OnInitialized(std::move(callback), false);
+    return;
   }
 
   decoder_->Initialize(
@@ -92,7 +100,6 @@ void MojoAudioDecoderService::OnInitialized(InitializeCallback callback,
   DVLOG(1) << __func__ << " success:" << success;
 
   if (!success) {
-    cdm_context_ref_.reset();
     // Do not call decoder_->NeedsBitstreamConversion() if init failed.
     std::move(callback).Run(false, false);
     return;

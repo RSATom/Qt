@@ -73,12 +73,12 @@ void tst_QPdfWriter::basics()
     QCOMPARE(writer.pageSize(), QPdfWriter::A5);
     QCOMPARE(writer.pageSizeMM(), QSizeF(148, 210));
 
-    writer.setPageSize(QPdfWriter::A3);
+    writer.setPageSize(QPageSize(QPageSize::A3));
     QCOMPARE(writer.pageLayout().pageSize().id(), QPageSize::A3);
     QCOMPARE(writer.pageSize(), QPdfWriter::A3);
     QCOMPARE(writer.pageSizeMM(), QSizeF(297, 420));
 
-    writer.setPageSizeMM(QSize(210, 297));
+    writer.setPageSize(QPageSize(QSize(210, 297), QPageSize::Millimeter));
     QCOMPARE(writer.pageLayout().pageSize().id(), QPageSize::A4);
     QCOMPARE(writer.pageSize(), QPdfWriter::A4);
     QCOMPARE(writer.pageSizeMM(), QSizeF(210, 297));
@@ -101,9 +101,9 @@ void tst_QPdfWriter::basics()
     QCOMPARE(writer.margins().right, 20.0);
     QCOMPARE(writer.margins().top, 20.0);
     QCOMPARE(writer.margins().bottom, 20.0);
-    QPdfWriter::Margins margins = {50, 50, 50, 50};
-    writer.setMargins(margins);
-    QCOMPARE(writer.pageLayout().margins(), QMarginsF(50, 50, 50, 50));
+    const QMarginsF margins = {50, 50, 50, 50};
+    writer.setPageMargins(margins, QPageLayout::Millimeter);
+    QCOMPARE(writer.pageLayout().margins(), margins);
     QCOMPARE(writer.pageLayout().units(), QPageLayout::Millimeter);
     QCOMPARE(writer.margins().left, 50.0);
     QCOMPARE(writer.margins().right, 50.0);
@@ -112,12 +112,35 @@ void tst_QPdfWriter::basics()
 
     QCOMPARE(writer.pageLayout().fullRect(QPageLayout::Millimeter), QRectF(0, 0, 297, 210));
     QCOMPARE(writer.pageLayout().paintRect(QPageLayout::Millimeter), QRectF(50, 50, 197, 110));
+
+    QByteArray metadata (
+            "<?xpacket begin='' id='W5M0MpCehiHzreSzNTczkc9d'?>\n"
+            "<x:xmpmeta xmlns:x=\"adobe:ns:meta/\">\n"
+            "  <rdf:RDF xmlns:rdf=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\">\"\n"
+            "    <rdf:Description xmlns:dc=\"http://purl.org/dc/elements/1.1/\" rdf:about=\"\">\n"
+            "      <dc:title>\n"
+            "        <rdf:Alt>\n"
+            "          <rdf:li xml:lang=\"x-default\">TITLE</rdf:li>\n"
+            "        </rdf:Alt>\n"
+            "      </dc:title>\n"
+            "    </rdf:Description>\n"
+            "    <rdf:Description xmlns:xmp=\"http://ns.adobe.com/xap/1.0/\" rdf:about="" xmp:CreatorTool=\"OUR_OWN_XMP\" xmp:CreateDate=\"2019-12-16T00:00:00+01:00\" xmp:ModifyDate=\"2019-12-16T00:00:00+01:00\"/>\n"
+            "    <rdf:Description xmlns:pdf=\"http://ns.adobe.com/pdf/1.3/\" rdf:about="" pdf:Producer=\"MetaType Info Producer\"/>\n"
+            "    <rdf:Description xmlns:pdfaid=\"http://www.aiim.org/pdfa/ns/id/\" rdf:about=\"THI IS ALL ABOUT\" pdfaid:part=\"1\" pdfaid:conformance=\"B\"/>\n"
+            "  </rdf:RDF>\n"
+            "</x:xmpmeta>\n"
+            "<?xpacket end='w'?>\n"
+    );
+
+    QCOMPARE(writer.documentXmpMetadata(), QByteArray());
+    writer.setDocumentXmpMetadata(metadata);
+    QCOMPARE(writer.documentXmpMetadata(), metadata);
 }
 
 // Test the old page metrics methods, see also QPrinter tests for the same.
 void tst_QPdfWriter::testPageMetrics_data()
 {
-    QTest::addColumn<int>("pageSize");
+    QTest::addColumn<QPageSize::PageSizeId>("pageSizeId");
     QTest::addColumn<qreal>("widthMMf");
     QTest::addColumn<qreal>("heightMMf");
     QTest::addColumn<bool>("setMargins");
@@ -126,17 +149,24 @@ void tst_QPdfWriter::testPageMetrics_data()
     QTest::addColumn<qreal>("topMMf");
     QTest::addColumn<qreal>("bottomMMf");
 
-    QTest::newRow("A4")                << int(QPdfWriter::A4) << 210.0 << 297.0 << false <<  3.53 <<  3.53 <<  3.53 <<  3.53;
-    QTest::newRow("A4 Margins")        << int(QPdfWriter::A4) << 210.0 << 297.0 << true  << 20.0  << 30.0  << 40.0  << 50.0;
-    QTest::newRow("Portrait")          << -1                  << 345.0 << 678.0 << false <<  3.53 <<  3.53 <<  3.53 <<  3.53;
-    QTest::newRow("Portrait Margins")  << -1                  << 345.0 << 678.0 << true  << 20.0  << 30.0  << 40.0  << 50.0;
-    QTest::newRow("Landscape")         << -1                  << 678.0 << 345.0 << false <<  3.53 <<  3.53 <<  3.53 <<  3.53;
-    QTest::newRow("Landscape Margins") << -1                  << 678.0 << 345.0 << true  << 20.0  << 30.0  << 40.0  << 50.0;
+    QTest::newRow("A4")         << QPageSize::A4 << 210.0 << 297.0 << false
+                                << 3.53 <<  3.53 << 3.53 <<  3.53;
+    QTest::newRow("A4 Margins") << QPageSize::A4 << 210.0 << 297.0 << true
+                                << 20.0 << 30.0  << 40.0  << 50.0;
+
+    QTest::newRow("Portrait")          << QPageSize::Custom << 345.0 << 678.0 << false
+                                       << 3.53 << 3.53 << 3.53 <<  3.53;
+    QTest::newRow("Portrait Margins")  << QPageSize::Custom << 345.0 << 678.0 << true
+                                       << 20.0 << 30.0 << 40.0 << 50.0;
+    QTest::newRow("Landscape")         << QPageSize::Custom << 678.0 << 345.0 << false
+                                       << 3.53 << 3.53 << 3.53 << 3.53;
+    QTest::newRow("Landscape Margins") << QPageSize::Custom << 678.0 << 345.0 << true
+                                       << 20.0 << 30.0 << 40.0 << 50.0;
 }
 
 void tst_QPdfWriter::testPageMetrics()
 {
-    QFETCH(int, pageSize);
+    QFETCH(QPageSize::PageSizeId, pageSizeId);
     QFETCH(qreal, widthMMf);
     QFETCH(qreal, heightMMf);
     QFETCH(bool, setMargins);
@@ -161,17 +191,13 @@ void tst_QPdfWriter::testPageMetrics()
         QCOMPARE(writer.margins().bottom, bottomMMf);
     }
 
-
     // Set the given size, in Portrait mode
-    if (pageSize < 0) {
-        writer.setPageSize(QPageSize(sizeMMf, QPageSize::Millimeter));
-        QCOMPARE(writer.pageSize(), QPdfWriter::Custom);
-        QCOMPARE(writer.pageLayout().pageSize().id(), QPageSize::Custom);
-    } else {
-        writer.setPageSize(QPdfWriter::PageSize(pageSize));
-        QCOMPARE(writer.pageSize(), QPdfWriter::PageSize(pageSize));
-        QCOMPARE(writer.pageLayout().pageSize().id(), QPageSize::PageSizeId(pageSize));
-    }
+    const QPageSize pageSize = pageSizeId == QPageSize::Custom
+        ? QPageSize(sizeMMf, QPageSize::Millimeter) : QPageSize(pageSizeId);
+    writer.setPageSize(pageSize);
+    QCOMPARE(writer.pageLayout().pageSize().id(), pageSizeId);
+    QCOMPARE(int(writer.pageSize()), int(pageSizeId));
+
     QCOMPARE(writer.pageLayout().orientation(), QPageLayout::Portrait);
     QCOMPARE(writer.margins().left, leftMMf);
     QCOMPARE(writer.margins().right, rightMMf);
@@ -187,13 +213,8 @@ void tst_QPdfWriter::testPageMetrics()
 
     // Now switch to Landscape mode, size should be unchanged, but rect and metrics should change
     writer.setPageOrientation(QPageLayout::Landscape);
-    if (pageSize < 0) {
-        QCOMPARE(writer.pageSize(), QPdfWriter::Custom);
-        QCOMPARE(writer.pageLayout().pageSize().id(), QPageSize::Custom);
-    } else {
-        QCOMPARE(writer.pageSize(), QPdfWriter::PageSize(pageSize));
-        QCOMPARE(writer.pageLayout().pageSize().id(), QPageSize::PageSizeId(pageSize));
-    }
+    QCOMPARE(writer.pageLayout().pageSize().id(), pageSizeId);
+    QCOMPARE(int(writer.pageSize()), int(pageSizeId));
     QCOMPARE(writer.pageLayout().orientation(), QPageLayout::Landscape);
     QCOMPARE(writer.margins().left, leftMMf);
     QCOMPARE(writer.margins().right, rightMMf);
@@ -215,15 +236,9 @@ void tst_QPdfWriter::testPageMetrics()
 
 
     // Now while in Landscape mode, set the size again, results should be the same
-    if (pageSize < 0) {
-        writer.setPageSize(QPageSize(sizeMMf, QPageSize::Millimeter));
-        QCOMPARE(writer.pageSize(), QPdfWriter::Custom);
-        QCOMPARE(writer.pageLayout().pageSize().id(), QPageSize::Custom);
-    } else {
-        writer.setPageSize(QPdfWriter::PageSize(pageSize));
-        QCOMPARE(writer.pageSize(), QPdfWriter::PageSize(pageSize));
-        QCOMPARE(writer.pageLayout().pageSize().id(), QPageSize::PageSizeId(pageSize));
-    }
+    writer.setPageSize(pageSize);
+    QCOMPARE(writer.pageLayout().pageSize().id(), pageSizeId);
+    QCOMPARE(int(writer.pageSize()), int(pageSizeId));
     QCOMPARE(writer.pageLayout().orientation(), QPageLayout::Landscape);
     QCOMPARE(writer.margins().left, leftMMf);
     QCOMPARE(writer.margins().right, rightMMf);

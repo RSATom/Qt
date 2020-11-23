@@ -19,6 +19,7 @@
 #include "platform/base/macros.h"
 
 namespace openscreen {
+namespace osp {
 
 class ProtocolConnectionServer {
  public:
@@ -65,8 +66,6 @@ class ProtocolConnectionServer {
   // connections.
   virtual bool Resume() = 0;
 
-  virtual void RunTasks() = 0;
-
   // Synchronously open a new connection to an endpoint identified by
   // |endpoint_id|.  Returns nullptr if it can't be completed synchronously
   // (e.g. there are no existing open connections to that endpoint).
@@ -99,6 +98,7 @@ class ProtocolConnectionServer {
 std::ostream& operator<<(std::ostream& os,
                          ProtocolConnectionServer::State state);
 
+}  // namespace osp
 }  // namespace openscreen
 
 #endif  // OSP_PUBLIC_PROTOCOL_CONNECTION_SERVER_H_

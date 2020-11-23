@@ -247,18 +247,16 @@ size_t CFDE_TextEditEngine::CountCharsExceedingSize(const WideString& text,
   size_t chars_exceeding_size = 0;
   // TODO(dsinclair): Can this get changed to a binary search?
   for (size_t i = 0; i < num_to_check; i++) {
-    // This does a lot of string copying ....
-    // TODO(dsinclair): make CalcLogicSize take a WideStringC instead.
-    text_out->CalcLogicSize(WideString(temp), &text_rect);
-
+    text_out->CalcLogicSize(temp, &text_rect);
     if (limit_horizontal_area_ && text_rect.width <= available_width_)
       break;
     if (limit_vertical_area_ && text_rect.height <= vertical_height)
       break;
 
-    --length;
-    temp = temp.Mid(0, length);
     ++chars_exceeding_size;
+
+    --length;
+    temp = temp.Left(length);
   }
 
   return chars_exceeding_size;
@@ -1116,19 +1114,17 @@ void CFDE_TextEditEngine::RebuildPieces() {
       const CFX_BreakPiece* piece = text_break_.GetBreakPieceUnstable(i);
 
       FDE_TEXTEDITPIECE txtEdtPiece;
-      memset(&txtEdtPiece, 0, sizeof(FDE_TEXTEDITPIECE));
-
-      txtEdtPiece.nBidiLevel = piece->m_iBidiLevel;
-      txtEdtPiece.nCount = piece->GetLength();
-      txtEdtPiece.nStart = current_piece_start;
-      txtEdtPiece.dwCharStyles = piece->m_dwCharStyles;
-      if (FX_IsOdd(piece->m_iBidiLevel))
-        txtEdtPiece.dwCharStyles |= FX_TXTCHARSTYLE_OddBidiLevel;
-
       txtEdtPiece.rtPiece.left = piece->m_iStartPos / 20000.0f;
       txtEdtPiece.rtPiece.top = current_line_start;
       txtEdtPiece.rtPiece.width = piece->m_iWidth / 20000.0f;
       txtEdtPiece.rtPiece.height = line_spacing_;
+      txtEdtPiece.nStart = current_piece_start;
+      txtEdtPiece.nCount = piece->GetLength();
+      txtEdtPiece.nBidiLevel = piece->m_iBidiLevel;
+      txtEdtPiece.dwCharStyles = piece->m_dwCharStyles;
+      if (FX_IsOdd(piece->m_iBidiLevel))
+        txtEdtPiece.dwCharStyles |= FX_TXTCHARSTYLE_OddBidiLevel;
+
       text_piece_info_.push_back(txtEdtPiece);
 
       if (initialized_bounding_box) {

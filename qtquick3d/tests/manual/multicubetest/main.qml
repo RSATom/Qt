@@ -1,6 +1,6 @@
-import QtQuick 2.12
+import QtQuick 2.15
 import QtQuick.Window 2.12
-import QtQuick3D 1.0
+import QtQuick3D 1.15
 
 Window {
     id: window
@@ -53,7 +53,7 @@ Window {
         Model {
             source: "#Cube"
             scale: Qt.vector3d(0.1, 0.1, 0.1)
-            rotation: window.cubeRotation
+            eulerRotation: window.cubeRotation
             materials: DefaultMaterial {
                 diffuseColor: "white"
             }
@@ -76,7 +76,7 @@ Window {
 
         DirectionalLight {
             color: "green"
-            rotation: Qt.vector3d(0, 180, 0)
+            eulerRotation: Qt.vector3d(0, 180, 0)
         }
 
         Node {
@@ -86,15 +86,19 @@ Window {
 
             PerspectiveCamera {
                 id: camera
-                position: Qt.vector3d(0, 0, -700)
+                position: Qt.vector3d(0, 0, 700)
             }
 
-            rotation: Qt.vector3d(0, 90, 0)
+            eulerRotation: Qt.vector3d(0, 90, 0)
 
 
-            SequentialAnimation on rotation {
+            SequentialAnimation on eulerRotation.y {
                 loops: Animation.Infinite
-                PropertyAnimation { duration: 10000; to: Qt.vector3d(0, 360, 0); from: Qt.vector3d(0, 0, 0) }
+                PropertyAnimation {
+                    duration: 10000;
+                    from: 0
+                    to: 360
+                }
             }
         }
 
@@ -110,7 +114,7 @@ Window {
             let countZ = 20
             let offsetX = -spacing * countX * 0.5;
             let offsetY = -spacing * countY * 0.5;
-            let offsetZ = -spacing * countZ * 0.5;
+            let offsetZ = spacing * countZ * 0.5;
 
             for(var x = 0; x < countX; ++x)
             {
@@ -120,7 +124,7 @@ Window {
                     {
                         let posX = offsetX + x * spacing;
                         let posY = offsetY + y * spacing;
-                        let posZ = offsetZ + z * spacing;
+                        let posZ = offsetZ - z * spacing;
 
                         simpleCube.createObject(view.scene, {"x": posX, "y": posY, "z": posZ })
                     }
@@ -163,7 +167,7 @@ Window {
 
         NumberAnimation {
             target: greenRect
-            property: "rotation"
+            property: "eulerRotation"
             duration: 2000
             easing.type: Easing.InOutQuad
             from: 0

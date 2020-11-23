@@ -58,11 +58,32 @@
 #include <private/qqmlpropertycachevector_p.h>
 #include <private/qqmltype_p.h>
 #include <private/qqmlnullablevalue_p.h>
+#include <private/qqmlmetatype_p.h>
 
 QT_BEGIN_NAMESPACE
 
 class QQmlScriptData;
 class QQmlEnginePrivate;
+
+struct InlineComponentData {
+
+    InlineComponentData() = default;
+    InlineComponentData(const CompositeMetaTypeIds &typeIds, int objectIndex, int nameIndex, int totalObjectCount, int totalBindingCount, int totalParserStatusCount)
+        :   typeIds(typeIds)
+          , objectIndex(objectIndex)
+          , nameIndex(nameIndex)
+          , totalObjectCount(totalObjectCount)
+          , totalBindingCount(totalBindingCount)
+          , totalParserStatusCount(totalParserStatusCount) {}
+
+    CompositeMetaTypeIds typeIds;
+    int objectIndex = -1;
+    int nameIndex = -1;
+    int totalObjectCount = 0;
+    int totalBindingCount = 0;
+    int totalParserStatusCount = 0;
+};
+
 namespace QV4 {
 
 // index is per-object binding index
@@ -142,11 +163,16 @@ public:
     QHash<int, IdentifierHash> namedObjectsPerComponentCache;
     inline IdentifierHash namedObjectsPerComponent(int componentObjectIndex);
 
-    void finalizeCompositeType(QQmlEnginePrivate *qmlEngine);
+    void finalizeCompositeType(QQmlEnginePrivate *qmlEngine, CompositeMetaTypeIds typeIdsForComponent);
 
-    int totalBindingsCount = 0; // Number of bindings used in this type
-    int totalParserStatusCount = 0; // Number of instantiated types that are QQmlParserStatus subclasses
-    int totalObjectCount = 0; // Number of objects explicitly instantiated
+    int m_totalBindingsCount = 0; // Number of bindings used in this type
+    int m_totalParserStatusCount = 0; // Number of instantiated types that are QQmlParserStatus subclasses
+    int m_totalObjectCount = 0; // Number of objects explicitly instantiated
+    int icRoot = -1;
+
+    int totalBindingsCount() const;
+    int totalParserStatusCount() const;
+    int totalObjectCount() const;
 
     QVector<QQmlRefPointer<QQmlScriptData>> dependentScripts;
     ResolvedTypeReferenceMap resolvedTypes;
@@ -154,9 +180,13 @@ public:
 
     bool verifyChecksum(const CompiledData::DependentTypesHasher &dependencyHasher) const;
 
+    CompositeMetaTypeIds typeIdsForComponent(int objectid = 0) const;
+
     int metaTypeId = -1;
     int listMetaTypeId = -1;
     bool isRegisteredWithEngine = false;
+
+    QHash<int, InlineComponentData> inlineComponentData;
 
     QScopedPointer<CompilationUnitMapper> backingFile;
 
@@ -295,27 +325,73 @@ private:
 
 struct ResolvedTypeReference
 {
+public:
     ResolvedTypeReference()
-        : majorVersion(0)
-          , minorVersion(0)
-          , isFullyDynamicType(false)
+        : m_compilationUnit(nullptr)
+        , m_stronglyReferencesCompilationUnit(true)
+        , majorVersion(0)
+        , minorVersion(0)
+        , isFullyDynamicType(false)
     {}
 
-    QQmlType type;
-    QQmlRefPointer<QQmlPropertyCache> typePropertyCache;
-    QQmlRefPointer<QV4::ExecutableCompilationUnit> compilationUnit;
+    ~ResolvedTypeReference()
+    {
+        if (m_stronglyReferencesCompilationUnit && m_compilationUnit)
+            m_compilationUnit->release();
+    }
 
-    int majorVersion;
-    int minorVersion;
-    // Types such as QQmlPropertyMap can add properties dynamically at run-time and
-    // therefore cannot have a property cache installed when instantiated.
-    bool isFullyDynamicType;
+    QQmlRefPointer<QV4::ExecutableCompilationUnit> compilationUnit() { return m_compilationUnit; }
+    void setCompilationUnit(QQmlRefPointer<QV4::ExecutableCompilationUnit> unit)
+    {
+        if (m_compilationUnit == unit.data())
+            return;
+        if (m_stronglyReferencesCompilationUnit) {
+            if (m_compilationUnit)
+                m_compilationUnit->release();
+            m_compilationUnit = unit.take();
+        } else {
+            m_compilationUnit = unit.data();
+        }
+    }
+
+    bool referencesCompilationUnit() const { return m_stronglyReferencesCompilationUnit; }
+    void setReferencesCompilationUnit(bool doReference)
+    {
+        if (doReference == m_stronglyReferencesCompilationUnit)
+            return;
+        m_stronglyReferencesCompilationUnit = doReference;
+        if (!m_compilationUnit)
+            return;
+        if (doReference) {
+            m_compilationUnit->addref();
+        } else if (m_compilationUnit->count() == 1) {
+            m_compilationUnit->release();
+            m_compilationUnit = nullptr;
+        } else {
+            m_compilationUnit->release();
+        }
+    }
 
     QQmlRefPointer<QQmlPropertyCache> propertyCache() const;
     QQmlRefPointer<QQmlPropertyCache> createPropertyCache(QQmlEngine *);
     bool addToHash(QCryptographicHash *hash, QQmlEngine *engine);
 
     void doDynamicTypeCheck();
+
+    QQmlType type;
+    QQmlRefPointer<QQmlPropertyCache> typePropertyCache;
+private:
+    Q_DISABLE_COPY_MOVE(ResolvedTypeReference)
+
+    QV4::ExecutableCompilationUnit *m_compilationUnit;
+    bool m_stronglyReferencesCompilationUnit;
+
+public:
+    int majorVersion;
+    int minorVersion;
+    // Types such as QQmlPropertyMap can add properties dynamically at run-time and
+    // therefore cannot have a property cache installed when instantiated.
+    bool isFullyDynamicType;
 };
 
 IdentifierHash ExecutableCompilationUnit::namedObjectsPerComponent(int componentObjectIndex)

@@ -202,7 +202,7 @@ QToolButton::QToolButton(QWidget * parent)
 void QToolButtonPrivate::init()
 {
     Q_Q(QToolButton);
-    defaultAction = 0;
+    defaultAction = nullptr;
 #if QT_CONFIG(toolbar)
     if (qobject_cast<QToolBar*>(parent))
         autoRaise = true;
@@ -227,7 +227,7 @@ void QToolButtonPrivate::init()
 #endif
 
     setLayoutItemMargins(QStyle::SE_ToolButtonLayoutItem);
-    delay = q->style()->styleHint(QStyle::SH_ToolButton_PopupDelay, 0, q);
+    delay = q->style()->styleHint(QStyle::SH_ToolButton_PopupDelay, nullptr, q);
 }
 
 /*!
@@ -477,10 +477,10 @@ void QToolButton::actionEvent(QActionEvent *event)
         break;
     case QEvent::ActionRemoved:
         if (d->defaultAction == action)
-            d->defaultAction = 0;
+            d->defaultAction = nullptr;
 #if QT_CONFIG(menu)
         if (action == d->menuAction)
-            d->menuAction = 0;
+            d->menuAction = nullptr;
 #endif
         action->disconnect(this);
         break;
@@ -583,7 +583,7 @@ void QToolButton::changeEvent(QEvent *e)
                || e->type() == QEvent::MacSizeChange
 #endif
                ) {
-        d->delay = style()->styleHint(QStyle::SH_ToolButton_PopupDelay, 0, this);
+        d->delay = style()->styleHint(QStyle::SH_ToolButton_PopupDelay, nullptr, this);
         d->setLayoutItemMargins(QStyle::SE_ToolButtonLayoutItem);
     }
 #endif
@@ -649,7 +649,7 @@ void QToolButton::setMenu(QMenu* menu)
 {
     Q_D(QToolButton);
 
-    if (d->menuAction == (menu ? menu->menuAction() : 0))
+    if (d->menuAction == (menu ? menu->menuAction() : nullptr))
         return;
 
     if (d->menuAction)
@@ -659,7 +659,7 @@ void QToolButton::setMenu(QMenu* menu)
         d->menuAction = menu->menuAction();
         addAction(d->menuAction);
     } else {
-        d->menuAction = 0;
+        d->menuAction = nullptr;
     }
 
     // changing the menu set may change the size hint, so reset it
@@ -723,38 +723,12 @@ void QToolButtonPrivate::_q_buttonReleased()
     popupTimer.stop();
 }
 
-void QToolButtonPrivate::popupTimerDone()
+static QPoint positionMenu(const QToolButton *q, bool horizontal,
+                           const QSize &sh)
 {
-    Q_Q(QToolButton);
-    popupTimer.stop();
-    if (!menuButtonDown && !down)
-        return;
-
-    menuButtonDown = true;
-    QPointer<QMenu> actualMenu;
-    bool mustDeleteActualMenu = false;
-    if(menuAction) {
-        actualMenu = menuAction->menu();
-    } else if (defaultAction && defaultAction->menu()) {
-        actualMenu = defaultAction->menu();
-    } else {
-        actualMenu = new QMenu(q);
-        mustDeleteActualMenu = true;
-        for(int i = 0; i < actions.size(); i++)
-            actualMenu->addAction(actions.at(i));
-    }
-    repeat = q->autoRepeat();
-    q->setAutoRepeat(false);
-    bool horizontal = true;
-#if QT_CONFIG(toolbar)
-    QToolBar *tb = qobject_cast<QToolBar*>(parent);
-    if (tb && tb->orientation() == Qt::Vertical)
-        horizontal = false;
-#endif
     QPoint p;
     const QRect rect = q->rect(); // Find screen via point in case of QGraphicsProxyWidget.
     QRect screen = QDesktopWidgetPrivate::availableGeometry(q->mapToGlobal(rect.center()));
-    QSize sh = ((QToolButton*)(QMenu*)actualMenu)->receivers(SIGNAL(aboutToShow()))? QSize() : actualMenu->sizeHint();
     if (horizontal) {
         if (q->isRightToLeft()) {
             if (q->mapToGlobal(QPoint(0, rect.bottom())).y() + sh.height() <= screen.bottom()) {
@@ -788,6 +762,37 @@ void QToolButtonPrivate::popupTimerDone()
     }
     p.rx() = qMax(screen.left(), qMin(p.x(), screen.right() - sh.width()));
     p.ry() += 1;
+    return p;
+}
+
+void QToolButtonPrivate::popupTimerDone()
+{
+    Q_Q(QToolButton);
+    popupTimer.stop();
+    if (!menuButtonDown && !down)
+        return;
+
+    menuButtonDown = true;
+    QPointer<QMenu> actualMenu;
+    bool mustDeleteActualMenu = false;
+    if (menuAction) {
+        actualMenu = menuAction->menu();
+    } else if (defaultAction && defaultAction->menu()) {
+        actualMenu = defaultAction->menu();
+    } else {
+        actualMenu = new QMenu(q);
+        mustDeleteActualMenu = true;
+        for (int i = 0; i < actions.size(); i++)
+            actualMenu->addAction(actions.at(i));
+    }
+    repeat = q->autoRepeat();
+    q->setAutoRepeat(false);
+    bool horizontal = true;
+#if QT_CONFIG(toolbar)
+    QToolBar *tb = qobject_cast<QToolBar*>(parent);
+    if (tb && tb->orientation() == Qt::Vertical)
+        horizontal = false;
+#endif
     QPointer<QToolButton> that = q;
     actualMenu->setNoReplayFor(q);
     if (!mustDeleteActualMenu) //only if action are not in this widget
@@ -796,7 +801,12 @@ void QToolButtonPrivate::popupTimerDone()
     actualMenu->d_func()->causedPopup.widget = q;
     actualMenu->d_func()->causedPopup.action = defaultAction;
     actionsCopy = q->actions(); //(the list of action may be modified in slots)
-    actualMenu->exec(p);
+
+    // QTBUG-78966, Delay positioning until after aboutToShow().
+    auto positionFunction = [q, horizontal](const QSize &sizeHint) {
+        return positionMenu(q, horizontal, sizeHint); };
+    const auto initialPos = positionFunction(actualMenu->sizeHint());
+    actualMenu->d_func()->exec(initialPos, nullptr, positionFunction);
 
     if (!that)
         return;

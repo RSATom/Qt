@@ -150,7 +150,7 @@ void TestConfigParser::parse(const QString &path,
             }
         } else {
             if (predicate.isEmpty() || isDefined(predicate)) {
-                QStringList parts = line.split(separator, QString::KeepEmptyParts);
+                QStringList parts = line.split(separator, Qt::KeepEmptyParts);
                 for (int i = 0; i < parts.size(); ++i)
                     parts[i] = unescape(parts[i]);
                 client->configData(mode, parts);

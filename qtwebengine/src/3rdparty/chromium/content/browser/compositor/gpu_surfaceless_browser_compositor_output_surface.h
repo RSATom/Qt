@@ -36,6 +36,7 @@ class GpuSurfacelessBrowserCompositorOutputSurface
   // viz::OutputSurface implementation.
   void SwapBuffers(viz::OutputSurfaceFrame frame) override;
   void BindFramebuffer() override;
+  gfx::Rect GetCurrentFramebufferDamage() const override;
   uint32_t GetFramebufferCopyTextureFormat() override;
   void Reshape(const gfx::Size& size,
                float device_scale_factor,
@@ -46,8 +47,8 @@ class GpuSurfacelessBrowserCompositorOutputSurface
   unsigned GetOverlayTextureId() const override;
   gfx::BufferFormat GetOverlayBufferFormat() const override;
   unsigned UpdateGpuFence() override;
+
   void SetDrawRectangle(const gfx::Rect& damage) override;
-  gpu::SurfaceHandle GetSurfaceHandle() const override;
 
   // BrowserCompositorOutputSurface implementation.
   void OnGpuSwapBuffersCompleted(
@@ -65,7 +66,6 @@ class GpuSurfacelessBrowserCompositorOutputSurface
   uint32_t fbo_;
 
   gpu::GpuMemoryBufferManager* gpu_memory_buffer_manager_;
-  gpu::SurfaceHandle surface_handle_;
 };
 
 }  // namespace content

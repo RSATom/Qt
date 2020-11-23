@@ -134,7 +134,7 @@ static std::string ProgToString(Prog* prog, Workq* q) {
   for (Workq::iterator i = q->begin(); i != q->end(); ++i) {
     int id = *i;
     Prog::Inst* ip = prog->inst(id);
-    StringAppendF(&s, "%d. %s\n", id, ip->Dump().c_str());
+    s += StringPrintf("%d. %s\n", id, ip->Dump().c_str());
     AddToQueue(q, ip->out());
     if (ip->opcode() == kInstAlt || ip->opcode() == kInstAltMatch)
       AddToQueue(q, ip->out1());
@@ -147,9 +147,9 @@ static std::string FlattenedProgToString(Prog* prog, int start) {
   for (int id = start; id < prog->size(); id++) {
     Prog::Inst* ip = prog->inst(id);
     if (ip->last())
-      StringAppendF(&s, "%d. %s\n", id, ip->Dump().c_str());
+      s += StringPrintf("%d. %s\n", id, ip->Dump().c_str());
     else
-      StringAppendF(&s, "%d+ %s\n", id, ip->Dump().c_str());
+      s += StringPrintf("%d+ %s\n", id, ip->Dump().c_str());
   }
   return s;
 }
@@ -180,7 +180,7 @@ std::string Prog::DumpByteMap() {
     while (c < 256-1 && bytemap_[c+1] == b)
       c++;
     int hi = c;
-    StringAppendF(&map, "[%02x-%02x] -> %d\n", lo, hi, b);
+    map += StringPrintf("[%02x-%02x] -> %d\n", lo, hi, b);
   }
   return map;
 }
@@ -288,24 +288,24 @@ uint32_t Prog::EmptyFlags(const StringPiece& text, const char* p) {
   int flags = 0;
 
   // ^ and \A
-  if (p == text.begin())
+  if (p == text.data())
     flags |= kEmptyBeginText | kEmptyBeginLine;
   else if (p[-1] == '\n')
     flags |= kEmptyBeginLine;
 
   // $ and \z
-  if (p == text.end())
+  if (p == text.data() + text.size())
     flags |= kEmptyEndText | kEmptyEndLine;
-  else if (p < text.end() && p[0] == '\n')
+  else if (p < text.data() + text.size() && p[0] == '\n')
     flags |= kEmptyEndLine;
 
   // \b and \B
-  if (p == text.begin() && p == text.end()) {
+  if (p == text.data() && p == text.data() + text.size()) {
     // no word boundary here
-  } else if (p == text.begin()) {
+  } else if (p == text.data()) {
     if (IsWordChar(p[0]))
       flags |= kEmptyWordBoundary;
-  } else if (p == text.end()) {
+  } else if (p == text.data() + text.size()) {
     if (IsWordChar(p[-1]))
       flags |= kEmptyWordBoundary;
   } else {

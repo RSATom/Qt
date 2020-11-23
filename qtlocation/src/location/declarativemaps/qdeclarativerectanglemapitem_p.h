@@ -52,7 +52,7 @@
 #include <QtLocation/private/qdeclarativegeomapitembase_p.h>
 #include <QtLocation/private/qgeomapitemgeometry_p.h>
 #include <QtLocation/private/qdeclarativepolylinemapitem_p.h>
-#include <QtLocation/private/qdeclarativepolygonmapitem_p.h>
+#include <QtLocation/private/qdeclarativepolygonmapitem_p_p.h>
 #include <QtPositioning/private/qdoublevector2d_p.h>
 
 #include <QSGGeometryNode>
@@ -60,18 +60,26 @@
 
 QT_BEGIN_NAMESPACE
 
+class QDeclarativeRectangleMapItemPrivate;
 class Q_LOCATION_PRIVATE_EXPORT QDeclarativeRectangleMapItem: public QDeclarativeGeoMapItemBase
 {
     Q_OBJECT
+    Q_ENUMS(Backend)
 
     Q_PROPERTY(QGeoCoordinate topLeft READ topLeft WRITE setTopLeft NOTIFY topLeftChanged)
     Q_PROPERTY(QGeoCoordinate bottomRight READ bottomRight WRITE setBottomRight NOTIFY bottomRightChanged)
     Q_PROPERTY(QColor color READ color WRITE setColor NOTIFY colorChanged)
     Q_PROPERTY(QDeclarativeMapLineProperties *border READ border CONSTANT)
+    Q_PROPERTY(Backend backend READ backend WRITE setBackend NOTIFY backendChanged REVISION 15)
 
 public:
-    explicit QDeclarativeRectangleMapItem(QQuickItem *parent = 0);
-    ~QDeclarativeRectangleMapItem();
+    enum Backend {
+        Software = 0,
+        OpenGL = 1
+    };
+
+    explicit QDeclarativeRectangleMapItem(QQuickItem *parent = nullptr);
+    ~QDeclarativeRectangleMapItem() override;
 
     virtual void setMap(QDeclarativeGeoMap *quickMap, QGeoMap *map) override;
     //from QuickItem
@@ -92,29 +100,38 @@ public:
     const QGeoShape &geoShape() const override;
     void setGeoShape(const QGeoShape &shape) override;
 
+    Backend backend() const;
+    void setBackend(Backend b);
+
 Q_SIGNALS:
     void topLeftChanged(const QGeoCoordinate &topLeft);
     void bottomRightChanged(const QGeoCoordinate &bottomRight);
     void colorChanged(const QColor &color);
+    void backendChanged();
 
 protected:
-    void updatePath();
     void geometryChanged(const QRectF &newGeometry, const QRectF &oldGeometry) override;
     void updatePolish() override;
 
 protected Q_SLOTS:
     void markSourceDirtyAndUpdate();
+    void onLinePropertiesChanged();
     virtual void afterViewportChanged(const QGeoMapViewportChangeEvent &event) override;
 
 private:
-    QGeoRectangle rectangle_;
-    QDeclarativeMapLineProperties border_;
-    QColor color_;
-    bool dirtyMaterial_;
-    QGeoMapPolygonGeometry geometry_;
-    QGeoMapPolylineGeometry borderGeometry_;
-    bool updatingGeometry_;
-    QList<QDoubleVector2D> pathMercator_;
+    QGeoRectangle m_rectangle;
+    QDeclarativeMapLineProperties m_border;
+    QColor m_color;
+    bool m_dirtyMaterial;
+
+    bool m_updatingGeometry;
+    Backend m_backend = Software;
+
+    QScopedPointer<QDeclarativeRectangleMapItemPrivate> m_d;
+
+    friend class QDeclarativeRectangleMapItemPrivate;
+    friend class QDeclarativeRectangleMapItemPrivateCPU;
+    friend class QDeclarativeRectangleMapItemPrivateOpenGL;
 };
 
 //////////////////////////////////////////////////////////////////////

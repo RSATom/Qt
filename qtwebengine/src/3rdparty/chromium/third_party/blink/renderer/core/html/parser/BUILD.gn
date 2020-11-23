@@ -62,6 +62,7 @@ blink_core_sources("parser") {
     "input_stream_preprocessor.h",
     "markup_tokenizer_inlines.h",
     "nesting_level_incrementer.h",
+    "parser_scripting_flag_policy.h",
     "parser_synchronization_policy.h",
     "preload_request.cc",
     "preload_request.h",
@@ -73,10 +74,6 @@ blink_core_sources("parser") {
     "text_document_parser.h",
     "text_resource_decoder.cc",
     "text_resource_decoder.h",
-    "xss_auditor.cc",
-    "xss_auditor.h",
-    "xss_auditor_delegate.cc",
-    "xss_auditor_delegate.h",
   ]
 
   # Optimizing the HTML parser for speed yields significant gains in performance

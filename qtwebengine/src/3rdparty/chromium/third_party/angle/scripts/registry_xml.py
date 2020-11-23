@@ -10,7 +10,8 @@
 # List of supported extensions. Add to this list to enable new extensions
 # available in gl.xml.
 
-import sys, os
+import sys
+import os
 import xml.etree.ElementTree as etree
 
 xml_inputs = [
@@ -30,9 +31,11 @@ angle_extensions = [
     "GL_CHROMIUM_copy_texture",
     "GL_CHROMIUM_copy_compressed_texture",
     "GL_CHROMIUM_lose_context",
+    "GL_ANGLE_copy_texture_3d",
+    "GL_ANGLE_get_image",
+    "GL_ANGLE_program_binary",
     "GL_ANGLE_request_extension",
     "GL_ANGLE_robust_client_memory",
-    "GL_ANGLE_copy_texture_3d",
     "GL_ANGLE_texture_external_update",
 ]
 
@@ -48,9 +51,11 @@ gles1_extensions = [
 
 gles_extensions = [
     # ES2+
+    "GL_ANGLE_base_vertex_base_instance",
     "GL_ANGLE_framebuffer_blit",
     "GL_ANGLE_framebuffer_multisample",
     "GL_ANGLE_instanced_arrays",
+    "GL_ANGLE_multi_draw",
     "GL_ANGLE_provoking_vertex",
     "GL_ANGLE_texture_multisample",
     "GL_ANGLE_translated_shader_source",
@@ -59,19 +64,24 @@ gles_extensions = [
     "GL_EXT_discard_framebuffer",
     "GL_EXT_disjoint_timer_query",
     "GL_EXT_draw_buffers",
+    "GL_EXT_draw_elements_base_vertex",
     "GL_EXT_geometry_shader",
     "GL_EXT_instanced_arrays",
     "GL_EXT_map_buffer_range",
     "GL_EXT_memory_object",
     "GL_EXT_memory_object_fd",
+    "GL_EXT_multisampled_render_to_texture",
     "GL_EXT_occlusion_query_boolean",
     "GL_EXT_robustness",
     "GL_EXT_semaphore",
     "GL_EXT_semaphore_fd",
+    "GL_EXT_texture_filter_anisotropic",
     "GL_EXT_texture_storage",
     "GL_KHR_debug",
+    "GL_KHR_parallel_shader_compile",
     "GL_NV_fence",
     "GL_OES_EGL_image",
+    "GL_OES_draw_elements_base_vertex",
     "GL_OES_get_program_binary",
     "GL_OES_mapbuffer",
     "GL_OES_texture_3D",
@@ -80,8 +90,6 @@ gles_extensions = [
     "GL_OES_vertex_array_object",
     "GL_OVR_multiview",
     "GL_OVR_multiview2",
-    "GL_KHR_parallel_shader_compile",
-    "GL_ANGLE_multi_draw",
 ]
 
 supported_extensions = sorted(angle_extensions + gles1_extensions + gles_extensions)
@@ -96,10 +104,12 @@ supported_egl_extensions = [
     "EGL_ANGLE_device_creation",
     "EGL_ANGLE_device_d3d",
     "EGL_ANGLE_feature_control",
+    "EGL_ANGLE_ggp_stream_descriptor",
     "EGL_ANGLE_program_cache_control",
     "EGL_ANGLE_query_surface_pointer",
     "EGL_ANGLE_stream_producer_d3d_texture",
     "EGL_ANGLE_surface_d3d_texture_2d_share_handle",
+    "EGL_ANGLE_swap_with_frame_token",
     "EGL_ANGLE_window_fixed_size",
     "EGL_CHROMIUM_get_sync_values",
     "EGL_EXT_create_context_robustness",
@@ -109,8 +119,10 @@ supported_egl_extensions = [
     "EGL_KHR_debug",
     "EGL_KHR_fence_sync",
     "EGL_KHR_image",
+    "EGL_KHR_no_config_context",
     "EGL_KHR_stream",
     "EGL_KHR_stream_consumer_gltexture",
+    "EGL_KHR_surfaceless_context",
     "EGL_KHR_swap_buffers_with_damage",
     "EGL_KHR_wait_sync",
     "EGL_NV_post_sub_buffer",
@@ -123,6 +135,25 @@ strip_suffixes = ["ANGLE", "EXT", "KHR", "OES", "CHROMIUM"]
 # The EGL_ANGLE_explicit_context extension is generated differently from other extensions.
 # Toggle generation here.
 support_EGL_ANGLE_explicit_context = True
+
+# For ungrouped GLenum types
+default_enum_group_name = "DefaultGroup"
+
+# Group names that appear in command/param, but not present in groups/group
+unsupported_enum_group_names = {
+    'GetMultisamplePNameNV',
+    'BufferPNameARB',
+    'BufferPointerNameARB',
+    'VertexAttribPointerPropertyARB',
+    'VertexAttribPropertyARB',
+    'FenceParameterNameNV',
+    'FenceConditionNV',
+    'BufferPointerNameARB',
+    'MatrixIndexPointerTypeARB',
+    'PointParameterNameARB',
+    'ClampColorTargetARB',
+    'ClampColorModeARB',
+}
 
 
 def script_relative(path):

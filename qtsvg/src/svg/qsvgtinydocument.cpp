@@ -48,6 +48,7 @@
 #include "qbytearray.h"
 #include "qqueue.h"
 #include "qstack.h"
+#include "qtransform.h"
 #include "qdebug.h"
 
 #ifndef QT_NO_COMPRESS
@@ -126,6 +127,12 @@ QByteArray qt_inflateGZipDataFrom(QIODevice *device)
         do {
             // Prepare the destination buffer
             int oldSize = destination.size();
+            if (oldSize > INT_MAX - CHUNK_SIZE) {
+                inflateEnd(&zlibStream);
+                qCWarning(lcSvgHandler, "Error while inflating gzip file: integer size overflow");
+                return destination;
+            }
+
             destination.resize(oldSize + CHUNK_SIZE);
             zlibStream.next_out = reinterpret_cast<Bytef*>(
                     destination.data() + oldSize - zlibStream.avail_out);
@@ -140,8 +147,7 @@ QByteArray qt_inflateGZipDataFrom(QIODevice *device)
                     inflateEnd(&zlibStream);
                     qCWarning(lcSvgHandler, "Error while inflating gzip file: %s",
                             (zlibStream.msg != NULL ? zlibStream.msg : "Unknown error"));
-                    destination.chop(zlibStream.avail_out);
-                    return destination;
+                    return QByteArray();
                 }
             }
 
@@ -199,13 +205,16 @@ QSvgTinyDocument * QSvgTinyDocument::load(const QByteArray &contents)
     // Check for gzip magic number and inflate if appropriate
     if (contents.startsWith("\x1f\x8b")) {
         QBuffer buffer(const_cast<QByteArray *>(&contents));
-        return load(qt_inflateGZipDataFrom(&buffer));
+        const QByteArray inflated = qt_inflateGZipDataFrom(&buffer);
+        if (inflated.isNull())
+            return nullptr;
+        return load(inflated);
     }
 #endif
 
     QSvgHandler handler(contents);
 
-    QSvgTinyDocument *doc = 0;
+    QSvgTinyDocument *doc = nullptr;
     if (handler.ok()) {
         doc = handler.document();
         doc->m_animationDuration = handler.animationDuration();
@@ -335,6 +344,11 @@ void QSvgTinyDocument::setHeight(int len, bool percent)
     m_heightPercent = percent;
 }
 
+void QSvgTinyDocument::setPreserveAspectRatio(bool on)
+{
+    m_preserveAspectRatio = on;
+}
+
 void QSvgTinyDocument::setViewBox(const QRectF &rect)
 {
     m_viewBox = rect;
@@ -402,11 +416,11 @@ void QSvgTinyDocument::draw(QPainter *p, QSvgExtraStates &)
 void QSvgTinyDocument::mapSourceToTarget(QPainter *p, const QRectF &targetRect, const QRectF &sourceRect)
 {
     QRectF target = targetRect;
-    if (target.isNull()) {
+    if (target.isEmpty()) {
         QPaintDevice *dev = p->device();
         QRectF deviceRect(0, 0, dev->width(), dev->height());
-        if (deviceRect.isNull()) {
-            if (sourceRect.isNull())
+        if (deviceRect.isEmpty()) {
+            if (sourceRect.isEmpty())
                 target = QRectF(QPointF(0, 0), size());
             else
                 target = QRectF(QPointF(0, 0), sourceRect.size());
@@ -416,10 +430,10 @@ void QSvgTinyDocument::mapSourceToTarget(QPainter *p, const QRectF &targetRect, 
     }
 
     QRectF source = sourceRect;
-    if (source.isNull())
+    if (source.isEmpty())
         source = viewBox();
 
-    if (source != target && !source.isNull()) {
+    if (source != target && !qFuzzyIsNull(source.width()) && !qFuzzyIsNull(source.height())) {
 #if (QT_VERSION >= QT_VERSION_CHECK(5, 15, 0))
         if (m_implicitViewBox || !preserveAspectRatio()) {
             // Code path used when no view box is set, or IgnoreAspectRatio requested
@@ -470,13 +484,13 @@ bool QSvgTinyDocument::elementExists(const QString &id) const
     return (node!=0);
 }
 
-QMatrix QSvgTinyDocument::matrixForElement(const QString &id) const
+QTransform QSvgTinyDocument::transformForElement(const QString &id) const
 {
     QSvgNode *node = scopeNode(id);
 
     if (!node) {
         qCDebug(lcSvgHandler, "Couldn't find node %s. Skipping rendering.", qPrintable(id));
-        return QMatrix();
+        return QTransform();
     }
 
     QTransform t;
@@ -488,7 +502,7 @@ QMatrix QSvgTinyDocument::matrixForElement(const QString &id) const
         node = node->parent();
     }
 
-    return t.toAffine();
+    return t;
 }
 
 int QSvgTinyDocument::currentFrame() const

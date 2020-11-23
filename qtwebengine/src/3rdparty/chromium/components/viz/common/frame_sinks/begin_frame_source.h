@@ -18,6 +18,15 @@
 #include "components/viz/common/frame_sinks/begin_frame_args.h"
 #include "components/viz/common/frame_sinks/delay_based_time_source.h"
 
+namespace perfetto {
+namespace protos {
+namespace pbzero {
+class BeginFrameObserverState;
+class BeginFrameSourceState;
+}  // namespace pbzero
+}  // namespace protos
+}  // namespace perfetto
+
 namespace viz {
 
 // (Pure) Interface for observing BeginFrame messages from BeginFrameSource
@@ -98,7 +107,8 @@ class VIZ_COMMON_EXPORT BeginFrameObserverBase : public BeginFrameObserver {
   // Return true if the given argument is (or will be) used.
   virtual bool OnBeginFrameDerivedImpl(const BeginFrameArgs& args) = 0;
 
-  void AsValueInto(base::trace_event::TracedValue* state) const;
+  void AsProtozeroInto(
+      perfetto::protos::pbzero::BeginFrameObserverState* state) const;
 
   BeginFrameArgs last_begin_frame_args_;
   int64_t dropped_begin_frame_args_ = 0;
@@ -157,12 +167,8 @@ class VIZ_COMMON_EXPORT BeginFrameSource {
   // begin frames without waiting.
   virtual bool IsThrottled() const = 0;
 
-  virtual void AsValueInto(base::trace_event::TracedValue* state) const;
-
-  void AllowOneBeginFrameAfterGpuBusy() {
-    DCHECK(!is_gpu_busy_);
-    allow_one_begin_frame_after_gpu_busy_ = true;
-  }
+  virtual void AsProtozeroInto(
+      perfetto::protos::pbzero::BeginFrameSourceState* state) const;
 
  protected:
   // Returns whether begin-frames to clients should be withheld (because the gpu
@@ -196,8 +202,6 @@ class VIZ_COMMON_EXPORT BeginFrameSource {
   };
   GpuBusyThrottlingState gpu_busy_response_state_ =
       GpuBusyThrottlingState::kIdle;
-
-  bool allow_one_begin_frame_after_gpu_busy_ = false;
 
   DISALLOW_COPY_AND_ASSIGN(BeginFrameSource);
 };
@@ -335,7 +339,8 @@ class VIZ_COMMON_EXPORT ExternalBeginFrameSource : public BeginFrameSource {
   void RemoveObserver(BeginFrameObserver* obs) override;
   void DidFinishFrame(BeginFrameObserver* obs) override {}
   bool IsThrottled() const override;
-  void AsValueInto(base::trace_event::TracedValue* state) const override;
+  void AsProtozeroInto(
+      perfetto::protos::pbzero::BeginFrameSourceState* state) const override;
   void OnGpuNoLongerBusy() override;
 
   void OnSetBeginFrameSourcePaused(bool paused);

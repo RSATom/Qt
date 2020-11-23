@@ -35,9 +35,14 @@
 ****************************************************************************/
 
 #include "qshaderdescription_p_p.h"
+#include "qshader_p_p.h"
 #include <QDebug>
+#include <QDataStream>
 #include <QJsonObject>
 #include <QJsonArray>
+#include <QCborValue>
+#include <QCborMap>
+#include <QCborArray>
 
 QT_BEGIN_NAMESPACE
 
@@ -99,8 +104,8 @@ QT_BEGIN_NAMESPACE
     float \c opacity at offset 64.
 
     All this is described by a QShaderDescription object. QShaderDescription
-    can also be serialized to JSON and binary JSON, and can be deserialized
-    from binary JSON. In practice this is rarely needed since QShader
+    can also be serialized to JSON and CBOR, and can be deserialized
+    from CBOR. In practice this is rarely needed since QShader
     takes care of the associated QShaderDescription automatically, but if the
     QShaderDescription of the above shader would be written out as JSON, it
     would look like the following:
@@ -333,13 +338,14 @@ bool QShaderDescription::isValid() const
 }
 
 /*!
-    \return a serialized binary version of the data.
+   \return a serialized binary version of the data in CBOR (Concise Binary
+   Object Representation) format.
 
-    \sa toJson()
+   \sa QCborValue, toJson()
  */
-QByteArray QShaderDescription::toBinaryJson() const
+QByteArray QShaderDescription::toCbor() const
 {
-    return d->makeDoc().toBinaryData();
+    return QCborValue::fromJsonValue(d->makeDoc().object()).toCbor();
 }
 
 /*!
@@ -347,21 +353,60 @@ QByteArray QShaderDescription::toBinaryJson() const
 
     \note There is no deserialization method provided for JSON text.
 
-    \sa toBinaryJson()
+    \sa toCbor()
  */
 QByteArray QShaderDescription::toJson() const
 {
     return d->makeDoc().toJson();
 }
 
+void QShaderDescription::serialize(QDataStream *stream) const
+{
+    d->writeToStream(stream);
+}
+
+#if QT_CONFIG(binaryjson) && QT_DEPRECATED_SINCE(5, 15)
 /*!
+    \deprecated
+
     Deserializes the given binary JSON \a data and returns a new
     QShaderDescription.
+
+    \sa fromCbor()
  */
 QShaderDescription QShaderDescription::fromBinaryJson(const QByteArray &data)
 {
     QShaderDescription desc;
+QT_WARNING_PUSH
+QT_WARNING_DISABLE_DEPRECATED
     QShaderDescriptionPrivate::get(&desc)->loadDoc(QJsonDocument::fromBinaryData(data));
+QT_WARNING_POP
+    return desc;
+}
+#endif
+
+/*!
+    Deserializes the given CBOR \a data and returns a new QShaderDescription.
+ */
+QShaderDescription QShaderDescription::fromCbor(const QByteArray &data)
+{
+    QShaderDescription desc;
+    const QCborValue cbor = QCborValue::fromCbor(data);
+    if (cbor.isMap()) {
+        const QJsonDocument doc(cbor.toMap().toJsonObject());
+        QShaderDescriptionPrivate::get(&desc)->loadDoc(doc);
+    }
+    if (cbor.isArray()) {
+        const QJsonDocument doc(cbor.toArray().toJsonArray());
+        QShaderDescriptionPrivate::get(&desc)->loadDoc(doc);
+    }
+    return desc;
+}
+
+QShaderDescription QShaderDescription::deserialize(QDataStream *stream, int version)
+{
+    QShaderDescription desc;
+    QShaderDescriptionPrivate::get(&desc)->loadFromStream(stream, version);
     return desc;
 }
 
@@ -739,6 +784,8 @@ QDebug operator<<(QDebug dbg, const QShaderDescription::InOutVariable &var)
         dbg.nospace() << " imageFormat=" << imageFormatStr(var.imageFormat);
     if (var.imageFlags)
         dbg.nospace() << " imageFlags=" << var.imageFlags;
+    if (!var.arrayDims.isEmpty())
+        dbg.nospace() << " array=" << var.arrayDims;
     dbg.nospace() << ')';
     return dbg;
 }
@@ -834,6 +881,24 @@ static void addDeco(QJsonObject *obj, const QShaderDescription::InOutVariable &v
         (*obj)[imageFormatKey] = imageFormatStr(v.imageFormat);
     if (v.imageFlags)
         (*obj)[imageFlagsKey] = int(v.imageFlags);
+    if (!v.arrayDims.isEmpty()) {
+        QJsonArray dimArr;
+        for (int dim : v.arrayDims)
+            dimArr.append(dim);
+        (*obj)[arrayDimsKey] = dimArr;
+    }
+}
+
+static void serializeDecorations(QDataStream *stream, const QShaderDescription::InOutVariable &v)
+{
+    (*stream) << v.location;
+    (*stream) << v.binding;
+    (*stream) << v.descriptorSet;
+    (*stream) << int(v.imageFormat);
+    (*stream) << int(v.imageFlags);
+    (*stream) << v.arrayDims.count();
+    for (int dim : v.arrayDims)
+        (*stream) << dim;
 }
 
 static QJsonObject inOutObject(const QShaderDescription::InOutVariable &v)
@@ -843,6 +908,13 @@ static QJsonObject inOutObject(const QShaderDescription::InOutVariable &v)
     obj[typeKey] = typeStr(v.type);
     addDeco(&obj, v);
     return obj;
+}
+
+static void serializeInOutVar(QDataStream *stream, const QShaderDescription::InOutVariable &v)
+{
+    (*stream) << v.name;
+    (*stream) << int(v.type);
+    serializeDecorations(stream, v);
 }
 
 static QJsonObject blockMemberObject(const QShaderDescription::BlockVariable &v)
@@ -871,6 +943,23 @@ static QJsonObject blockMemberObject(const QShaderDescription::BlockVariable &v)
         obj[structMembersKey] = arr;
     }
     return obj;
+}
+
+static void serializeBlockMemberVar(QDataStream *stream, const QShaderDescription::BlockVariable &v)
+{
+    (*stream) << v.name;
+    (*stream) << int(v.type);
+    (*stream) << v.offset;
+    (*stream) << v.size;
+    (*stream) << v.arrayDims.count();
+    for (int dim : v.arrayDims)
+        (*stream) << dim;
+    (*stream) << v.arrayStride;
+    (*stream) << v.matrixStride;
+    (*stream) << v.matrixIsRowMajor;
+    (*stream) << v.structMembers.count();
+    for (const QShaderDescription::BlockVariable &sv : v.structMembers)
+        serializeBlockMemberVar(stream, sv);
 }
 
 QJsonDocument QShaderDescriptionPrivate::makeDoc()
@@ -971,6 +1060,67 @@ QJsonDocument QShaderDescriptionPrivate::makeDoc()
     return QJsonDocument(root);
 }
 
+void QShaderDescriptionPrivate::writeToStream(QDataStream *stream)
+{
+    (*stream) << inVars.count();
+    for (const QShaderDescription::InOutVariable &v : qAsConst(inVars))
+        serializeInOutVar(stream, v);
+
+    (*stream) << outVars.count();
+    for (const QShaderDescription::InOutVariable &v : qAsConst(outVars))
+        serializeInOutVar(stream, v);
+
+    (*stream) << uniformBlocks.count();
+    for (const QShaderDescription::UniformBlock &b : uniformBlocks) {
+        (*stream) << b.blockName;
+        (*stream) << b.structName;
+        (*stream) << b.size;
+        (*stream) << b.binding;
+        (*stream) << b.descriptorSet;
+        (*stream) << b.members.count();
+        for (const QShaderDescription::BlockVariable &v : b.members)
+            serializeBlockMemberVar(stream, v);
+    }
+
+    (*stream) << pushConstantBlocks.count();
+    for (const QShaderDescription::PushConstantBlock &b : pushConstantBlocks) {
+        (*stream) << b.name;
+        (*stream) << b.size;
+        (*stream) << b.members.count();
+        for (const QShaderDescription::BlockVariable &v : b.members)
+            serializeBlockMemberVar(stream, v);
+    }
+
+    (*stream) << storageBlocks.count();
+    for (const QShaderDescription::StorageBlock &b : storageBlocks) {
+        (*stream) << b.blockName;
+        (*stream) << b.instanceName;
+        (*stream) << b.knownSize;
+        (*stream) << b.binding;
+        (*stream) << b.descriptorSet;
+        (*stream) << b.members.count();
+        for (const QShaderDescription::BlockVariable &v : b.members)
+            serializeBlockMemberVar(stream, v);
+    }
+
+    (*stream) << combinedImageSamplers.count();
+    for (const QShaderDescription::InOutVariable &v : qAsConst(combinedImageSamplers)) {
+        (*stream) << v.name;
+        (*stream) << int(v.type);
+        serializeDecorations(stream, v);
+    }
+
+    (*stream) << storageImages.count();
+    for (const QShaderDescription::InOutVariable &v : qAsConst(storageImages)) {
+        (*stream) << v.name;
+        (*stream) << int(v.type);
+        serializeDecorations(stream, v);
+    }
+
+    for (size_t i = 0; i < 3; ++i)
+        (*stream) << localSize[i];
+}
+
 static QShaderDescription::InOutVariable inOutVar(const QJsonObject &obj)
 {
     QShaderDescription::InOutVariable var;
@@ -986,6 +1136,41 @@ static QShaderDescription::InOutVariable inOutVar(const QJsonObject &obj)
         var.imageFormat = mapImageFormat(obj[imageFormatKey].toString());
     if (obj.contains(imageFlagsKey))
         var.imageFlags = QShaderDescription::ImageFlags(obj[imageFlagsKey].toInt());
+    if (obj.contains(arrayDimsKey)) {
+        QJsonArray dimArr = obj[arrayDimsKey].toArray();
+        for (int i = 0; i < dimArr.count(); ++i)
+            var.arrayDims.append(dimArr.at(i).toInt());
+    }
+    return var;
+}
+
+static void deserializeDecorations(QDataStream *stream, int version, QShaderDescription::InOutVariable *v)
+{
+    (*stream) >> v->location;
+    (*stream) >> v->binding;
+    (*stream) >> v->descriptorSet;
+    int f;
+    (*stream) >> f;
+    v->imageFormat = QShaderDescription::ImageFormat(f);
+    (*stream) >> f;
+    v->imageFlags = QShaderDescription::ImageFlags(f);
+
+    if (version > QShaderPrivate::QSB_VERSION_WITHOUT_VAR_ARRAYDIMS) {
+        (*stream) >> f;
+        v->arrayDims.resize(f);
+        for (int i = 0; i < f; ++i)
+            (*stream) >> v->arrayDims[i];
+    }
+}
+
+static QShaderDescription::InOutVariable deserializeInOutVar(QDataStream *stream, int version)
+{
+    QShaderDescription::InOutVariable var;
+    (*stream) >> var.name;
+    int t;
+    (*stream) >> t;
+    var.type = QShaderDescription::VariableType(t);
+    deserializeDecorations(stream, version, &var);
     return var;
 }
 
@@ -1012,6 +1197,30 @@ static QShaderDescription::BlockVariable blockVar(const QJsonObject &obj)
         for (int i = 0; i < arr.count(); ++i)
             var.structMembers.append(blockVar(arr.at(i).toObject()));
     }
+    return var;
+}
+
+static QShaderDescription::BlockVariable deserializeBlockMemberVar(QDataStream *stream, int version)
+{
+    QShaderDescription::BlockVariable var;
+    (*stream) >> var.name;
+    int t;
+    (*stream) >> t;
+    var.type = QShaderDescription::VariableType(t);
+    (*stream) >> var.offset;
+    (*stream) >> var.size;
+    int count;
+    (*stream) >> count;
+    var.arrayDims.resize(count);
+    for (int i = 0; i < count; ++i)
+        (*stream) >> var.arrayDims[i];
+    (*stream) >> var.arrayStride;
+    (*stream) >> var.matrixStride;
+    (*stream) >> var.matrixIsRowMajor;
+    (*stream) >> count;
+    var.structMembers.resize(count);
+    for (int i = 0; i < count; ++i)
+        var.structMembers[i] = deserializeBlockMemberVar(stream, version);
     return var;
 }
 
@@ -1117,6 +1326,190 @@ void QShaderDescriptionPrivate::loadDoc(const QJsonDocument &doc)
                 localSize[i] = localSizeArr[i].toInt();
         }
     }
+}
+
+void QShaderDescriptionPrivate::loadFromStream(QDataStream *stream, int version)
+{
+    Q_ASSERT(ref.loadRelaxed() == 1); // must be detached
+
+    int count;
+    (*stream) >> count;
+    inVars.resize(count);
+    for (int i = 0; i < count; ++i)
+        inVars[i] = deserializeInOutVar(stream, version);
+
+    (*stream) >> count;
+    outVars.resize(count);
+    for (int i = 0; i < count; ++i)
+        outVars[i] = deserializeInOutVar(stream, version);
+
+    (*stream) >> count;
+    uniformBlocks.resize(count);
+    for (int i = 0; i < count; ++i) {
+        (*stream) >> uniformBlocks[i].blockName;
+        (*stream) >> uniformBlocks[i].structName;
+        (*stream) >> uniformBlocks[i].size;
+        (*stream) >> uniformBlocks[i].binding;
+        (*stream) >> uniformBlocks[i].descriptorSet;
+        int memberCount;
+        (*stream) >> memberCount;
+        uniformBlocks[i].members.resize(memberCount);
+        for (int memberIdx = 0; memberIdx < memberCount; ++memberIdx)
+            uniformBlocks[i].members[memberIdx] = deserializeBlockMemberVar(stream, version);
+    }
+
+    (*stream) >> count;
+    pushConstantBlocks.resize(count);
+    for (int i = 0; i < count; ++i) {
+        (*stream) >> pushConstantBlocks[i].name;
+        (*stream) >> pushConstantBlocks[i].size;
+        int memberCount;
+        (*stream) >> memberCount;
+        pushConstantBlocks[i].members.resize(memberCount);
+        for (int memberIdx = 0; memberIdx < memberCount; ++memberIdx)
+            pushConstantBlocks[i].members[memberIdx] = deserializeBlockMemberVar(stream, version);
+    }
+
+    (*stream) >> count;
+    storageBlocks.resize(count);
+    for (int i = 0; i < count; ++i) {
+        (*stream) >> storageBlocks[i].blockName;
+        (*stream) >> storageBlocks[i].instanceName;
+        (*stream) >> storageBlocks[i].knownSize;
+        (*stream) >> storageBlocks[i].binding;
+        (*stream) >> storageBlocks[i].descriptorSet;
+        int memberCount;
+        (*stream) >> memberCount;
+        storageBlocks[i].members.resize(memberCount);
+        for (int memberIdx = 0; memberIdx < memberCount; ++memberIdx)
+            storageBlocks[i].members[memberIdx] = deserializeBlockMemberVar(stream, version);
+    }
+
+    (*stream) >> count;
+    combinedImageSamplers.resize(count);
+    for (int i = 0; i < count; ++i) {
+        (*stream) >> combinedImageSamplers[i].name;
+        int t;
+        (*stream) >> t;
+        combinedImageSamplers[i].type = QShaderDescription::VariableType(t);
+        deserializeDecorations(stream, version, &combinedImageSamplers[i]);
+    }
+
+    (*stream) >> count;
+    storageImages.resize(count);
+    for (int i = 0; i < count; ++i) {
+        (*stream) >> storageImages[i].name;
+        int t;
+        (*stream) >> t;
+        storageImages[i].type = QShaderDescription::VariableType(t);
+        deserializeDecorations(stream, version, &storageImages[i]);
+    }
+
+    for (size_t i = 0; i < 3; ++i)
+        (*stream) >> localSize[i];
+}
+
+/*!
+    Returns \c true if the two QShaderDescription objects \a lhs and \a rhs are
+    equal.
+
+    \relates QShaderDescription
+ */
+bool operator==(const QShaderDescription &lhs, const QShaderDescription &rhs) Q_DECL_NOTHROW
+{
+    if (lhs.d == rhs.d)
+        return true;
+
+    return lhs.d->inVars == rhs.d->inVars
+            && lhs.d->outVars == rhs.d->outVars
+            && lhs.d->uniformBlocks == rhs.d->uniformBlocks
+            && lhs.d->pushConstantBlocks == rhs.d->pushConstantBlocks
+            && lhs.d->storageBlocks == rhs.d->storageBlocks
+            && lhs.d->combinedImageSamplers == rhs.d->combinedImageSamplers
+            && lhs.d->storageImages == rhs.d->storageImages
+            && lhs.d->localSize == rhs.d->localSize;
+}
+
+/*!
+    Returns \c true if the two InOutVariable objects \a lhs and \a rhs are
+    equal.
+
+    \relates QShaderDescription::InOutVariable
+ */
+bool operator==(const QShaderDescription::InOutVariable &lhs, const QShaderDescription::InOutVariable &rhs) Q_DECL_NOTHROW
+{
+    return lhs.name == rhs.name
+            && lhs.type == rhs.type
+            && lhs.location == rhs.location
+            && lhs.binding == rhs.binding
+            && lhs.descriptorSet == rhs.descriptorSet
+            && lhs.imageFormat == rhs.imageFormat
+            && lhs.imageFlags == rhs.imageFlags
+            && lhs.arrayDims == rhs.arrayDims;
+}
+
+/*!
+    Returns \c true if the two BlockVariable objects \a lhs and \a rhs are
+    equal.
+
+    \relates QShaderDescription::BlockVariable
+ */
+bool operator==(const QShaderDescription::BlockVariable &lhs, const QShaderDescription::BlockVariable &rhs) Q_DECL_NOTHROW
+{
+    return lhs.name == rhs.name
+            && lhs.type == rhs.type
+            && lhs.offset == rhs.offset
+            && lhs.size == rhs.size
+            && lhs.arrayDims == rhs.arrayDims
+            && lhs.arrayStride == rhs.arrayStride
+            && lhs.matrixStride == rhs.matrixStride
+            && lhs.matrixIsRowMajor == rhs.matrixIsRowMajor
+            && lhs.structMembers == rhs.structMembers;
+}
+
+/*!
+    Returns \c true if the two UniformBlock objects \a lhs and \a rhs are
+    equal.
+
+    \relates QShaderDescription::UniformBlock
+ */
+bool operator==(const QShaderDescription::UniformBlock &lhs, const QShaderDescription::UniformBlock &rhs) Q_DECL_NOTHROW
+{
+    return lhs.blockName == rhs.blockName
+            && lhs.structName == rhs.structName
+            && lhs.size == rhs.size
+            && lhs.binding == rhs.binding
+            && lhs.descriptorSet == rhs.descriptorSet
+            && lhs.members == rhs.members;
+}
+
+/*!
+    Returns \c true if the two PushConstantBlock objects \a lhs and \a rhs are
+    equal.
+
+    \relates QShaderDescription::PushConstantBlock
+ */
+bool operator==(const QShaderDescription::PushConstantBlock &lhs, const QShaderDescription::PushConstantBlock &rhs) Q_DECL_NOTHROW
+{
+    return lhs.name == rhs.name
+            && lhs.size == rhs.size
+            && lhs.members == rhs.members;
+}
+
+/*!
+    Returns \c true if the two StorageBlock objects \a lhs and \a rhs are
+    equal.
+
+    \relates QShaderDescription::StorageBlock
+ */
+bool operator==(const QShaderDescription::StorageBlock &lhs, const QShaderDescription::StorageBlock &rhs) Q_DECL_NOTHROW
+{
+    return lhs.blockName == rhs.blockName
+            && lhs.instanceName == rhs.instanceName
+            && lhs.knownSize == rhs.knownSize
+            && lhs.binding == rhs.binding
+            && lhs.descriptorSet == rhs.descriptorSet
+            && lhs.members == rhs.members;
 }
 
 QT_END_NAMESPACE

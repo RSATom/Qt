@@ -476,6 +476,9 @@ void QQuickTextNodeEngine::addTextObject(const QTextBlock &block, const QPointF 
             }
         }
 
+        // Use https://developer.mozilla.org/de/docs/Web/CSS/vertical-align as a reference
+        // The top/bottom positions are supposed to be higher/lower than the text and reference
+        // the line height, not the text height (using QFontMetrics)
         qreal ascent;
         QTextLine line = block.layout()->lineForTextPosition(pos - block.position());
         switch (format.verticalAlignment())
@@ -483,11 +486,10 @@ void QQuickTextNodeEngine::addTextObject(const QTextBlock &block, const QPointF 
         case QTextCharFormat::AlignTop:
             ascent = line.ascent();
             break;
-        case QTextCharFormat::AlignMiddle: {
-            QFontMetrics m(format.font());
-            ascent = (size.height() - m.xHeight()) / 2;
+        case QTextCharFormat::AlignMiddle:
+            //       Middlepoint of line (height - descent) + Half object height
+            ascent = (line.ascent() + line.descent()) / 2 - line.descent() + size.height() / 2;
             break;
-        }
         case QTextCharFormat::AlignBottom:
             ascent = size.height() - line.descent();
             break;
@@ -532,7 +534,7 @@ void QQuickTextNodeEngine::addGlyphsForRanges(const QVarLengthArray<QTextLayout:
     int remainingLength = end - start;
     for (int j=0; j<ranges.size(); ++j) {
         const QTextLayout::FormatRange &range = ranges.at(j);
-        if (range.start + range.length >= currentPosition
+        if (range.start + range.length > currentPosition
                 && range.start < currentPosition + remainingLength) {
 
             if (range.start > currentPosition) {
@@ -800,8 +802,8 @@ void  QQuickTextNodeEngine::addToSceneGraph(QQuickTextNode *parentNode,
     // Then, prepend all selection rectangles to the tree
     for (int i = 0; i < m_selectionRects.size(); ++i) {
         const QRectF &rect = m_selectionRects.at(i);
-
-        parentNode->addRectangleNode(rect, m_selectionColor);
+        if (m_selectionColor.alpha() != 0)
+            parentNode->addRectangleNode(rect, m_selectionColor);
     }
 
     // Add decorations for each node to the tree.

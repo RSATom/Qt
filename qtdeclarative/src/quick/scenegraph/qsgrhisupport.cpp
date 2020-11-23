@@ -38,7 +38,10 @@
 ****************************************************************************/
 
 #include "qsgrhisupport_p.h"
-#include "qsgdefaultrendercontext_p.h"
+#include "qsgcontext_p.h"
+#if QT_CONFIG(opengl)
+#  include "qsgdefaultrendercontext_p.h"
+#endif
 #include <QtGui/qwindow.h>
 
 #if QT_CONFIG(vulkan)
@@ -157,9 +160,13 @@ void QSGRhiSupport::applySettings()
         } else if (rhiBackend == QByteArrayLiteral("null")) {
             m_rhiBackend = QRhi::Null;
         } else {
+            if (!rhiBackend.isEmpty()) {
+                qWarning("Unknown key \"%s\" for QSG_RHI_BACKEND, falling back to default backend.",
+                         rhiBackend.constData());
+            }
 #if defined(Q_OS_WIN)
             m_rhiBackend = QRhi::D3D11;
-#elif defined(Q_OS_DARWIN)
+#elif defined(Q_OS_MACOS) || defined(Q_OS_IOS)
             m_rhiBackend = QRhi::Metal;
 #else
             m_rhiBackend = QRhi::OpenGLES2;
@@ -185,29 +192,10 @@ void QSGRhiSupport::applySettings()
     if (m_killDeviceFrameCount > 0 && m_rhiBackend == QRhi::D3D11)
         qDebug("Graphics device will be reset every %d frames", m_killDeviceFrameCount);
 
-    const char *backendName = "unknown";
-    switch (m_rhiBackend) {
-    case QRhi::Null:
-        backendName = "Null";
-        break;
-    case QRhi::Vulkan:
-        backendName = "Vulkan";
-        break;
-    case QRhi::OpenGLES2:
-        backendName = "OpenGL";
-        break;
-    case QRhi::D3D11:
-        backendName = "D3D11";
-        break;
-    case QRhi::Metal:
-        backendName = "Metal";
-        break;
-    default:
-        break;
-    }
+    const QString backendName = rhiBackendName();
     qCDebug(QSG_LOG_INFO,
             "Using QRhi with backend %s\n  graphics API debug/validation layers: %d\n  QRhi profiling and debug markers: %d",
-            backendName, m_debugLayer, m_profile);
+            qPrintable(backendName), m_debugLayer, m_profile);
     if (m_preferSoftwareRenderer)
         qCDebug(QSG_LOG_INFO, "Prioritizing software renderers");
 }
@@ -245,6 +233,27 @@ QSGRhiSupport *QSGRhiSupport::instance()
     if (!inst->m_set)
         inst->applySettings();
     return inst;
+}
+
+QString QSGRhiSupport::rhiBackendName() const
+{
+    if (m_enableRhi) {
+        switch (m_rhiBackend) {
+        case QRhi::Null:
+            return QLatin1String("Null");
+        case QRhi::Vulkan:
+            return QLatin1String("Vulkan");
+        case QRhi::OpenGLES2:
+            return QLatin1String("OpenGL");
+        case QRhi::D3D11:
+            return QLatin1String("D3D11");
+        case QRhi::Metal:
+            return QLatin1String("Metal");
+        default:
+            return QLatin1String("Unknown");
+        }
+    }
+    return QLatin1String("Unknown (RHI not enabled)");
 }
 
 QSGRendererInterface::GraphicsApi QSGRhiSupport::graphicsApi() const
@@ -350,7 +359,7 @@ static const void *qsgrhi_d3d11_rifResource(QSGRendererInterface::Resource res, 
 }
 #endif
 
-#ifdef Q_OS_DARWIN
+#if defined(Q_OS_MACOS) || defined(Q_OS_IOS)
 static const void *qsgrhi_mtl_rifResource(QSGRendererInterface::Resource res, const QRhiNativeHandles *nat,
                                     const QRhiNativeHandles *cbNat)
 {
@@ -379,8 +388,15 @@ static const void *qsgrhi_mtl_rifResource(QSGRendererInterface::Resource res, co
 }
 #endif
 
-const void *QSGRhiSupport::rifResource(QSGRendererInterface::Resource res, const QSGDefaultRenderContext *rc)
+const void *QSGRhiSupport::rifResource(QSGRendererInterface::Resource res,
+                                       const QSGDefaultRenderContext *rc)
 {
+// ### This condition is a temporary workaround to allow compilation
+// with -no-opengl, but Vulkan or Metal enabled, to succeed. Full
+// support for RHI-capable -no-opengl builds will be available in
+// Qt 6 once the direct OpenGL code path gets removed.
+#if QT_CONFIG(opengl)
+
     QRhi *rhi = rc->rhi();
     if (res == QSGRendererInterface::RhiResource || !rhi)
         return rhi;
@@ -408,7 +424,7 @@ const void *QSGRhiSupport::rifResource(QSGRendererInterface::Resource res, const
     case QRhi::D3D11:
         return qsgrhi_d3d11_rifResource(res, nat);
 #endif
-#ifdef Q_OS_DARWIN
+#if defined(Q_OS_MACOS) || defined(Q_OS_IOS)
     case QRhi::Metal:
     {
         QRhiCommandBuffer *cb = rc->currentFrameCommandBuffer();
@@ -418,6 +434,12 @@ const void *QSGRhiSupport::rifResource(QSGRendererInterface::Resource res, const
     default:
         return nullptr;
     }
+
+#else
+    Q_UNUSED(res);
+    Q_UNUSED(rc);
+    return nullptr;
+#endif
 }
 
 int QSGRhiSupport::chooseSampleCountForWindowWithRhi(QWindow *window, QRhi *rhi)
@@ -469,7 +491,7 @@ QRhi *QSGRhiSupport::createRhi(QWindow *window, QOffscreenSurface *offscreenSurf
 
     QRhi *rhi = nullptr;
 
-    QRhi::Flags flags = 0;
+    QRhi::Flags flags;
     if (isProfilingRequested())
         flags |= QRhi::EnableProfiling | QRhi::EnableDebugMarkers;
     if (isSoftwareRendererRequested())
@@ -513,7 +535,7 @@ QRhi *QSGRhiSupport::createRhi(QWindow *window, QOffscreenSurface *offscreenSurf
         rhi = QRhi::create(backend, &rhiParams, flags);
     }
 #endif
-#ifdef Q_OS_DARWIN
+#if defined(Q_OS_MACOS) || defined(Q_OS_IOS)
     if (backend == QRhi::Metal) {
         QRhiMetalInitParams rhiParams;
         rhi = QRhi::create(backend, &rhiParams, flags);
@@ -576,7 +598,7 @@ void QSGRhiProfileConnection::initialize(QRhi *rhi)
             profPort = 30667;
         qCDebug(QSG_LOG_INFO, "Sending RHI profiling output to %s:%d", qPrintable(profHost), profPort);
         m_profConn.reset(new QTcpSocket);
-        QObject::connect(m_profConn.data(), QOverload<QAbstractSocket::SocketError>::of(&QAbstractSocket::error), m_profConn.data(),
+        QObject::connect(m_profConn.data(), &QAbstractSocket::errorOccurred, m_profConn.data(),
                          [this](QAbstractSocket::SocketError socketError) { qWarning("  RHI profiler error: %d (%s)",
                                                                                      socketError, qPrintable(m_profConn->errorString())); });
         m_profConn->connectToHost(profHost, profPort);

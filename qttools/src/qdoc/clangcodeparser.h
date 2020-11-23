@@ -53,7 +53,7 @@ class ClangCodeParser : public CppCodeParser
 public:
     ~ClangCodeParser() override;
 
-    void initializeParser(const Config &config) override;
+    void initializeParser() override;
     void terminateParser() override;
     QString language() override;
     QStringList headerFileNameFilter() override;
@@ -62,6 +62,7 @@ public:
     void parseSourceFile(const Location &location, const QString &filePath) override;
     void precompileHeaders() override;
     Node *parseFnArg(const Location &location, const QString &fnArg) override;
+    static const QByteArray &fn() { return fn_; }
 
 private:
     void getDefaultArgs();
@@ -78,6 +79,8 @@ private:
     QVector<QByteArray> defines_;
     std::vector<const char *> args_;
     QVector<QByteArray> moreArgs_;
+    QStringList namespaceScope_;
+    static QByteArray fn_;
 };
 
 QT_END_NAMESPACE

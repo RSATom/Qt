@@ -1,0 +1,152 @@
+/****************************************************************************
+**
+** Copyright (C) 2020 The Qt Company Ltd.
+** Contact: https://www.qt.io/licensing/
+**
+** This file is part of the documentation of the Qt Toolkit.
+**
+** $QT_BEGIN_LICENSE:FDL$
+** Commercial License Usage
+** Licensees holding valid commercial Qt licenses may use this file in
+** accordance with the commercial license agreement provided with the
+** Software or, alternatively, in accordance with the terms contained in
+** a written agreement between you and The Qt Company. For licensing terms
+** and conditions see https://www.qt.io/terms-conditions. For further
+** information use the contact form at https://www.qt.io/contact-us.
+**
+** GNU Free Documentation License Usage
+** Alternatively, this file may be used under the terms of the GNU Free
+** Documentation License version 1.3 as published by the Free Software
+** Foundation and appearing in the file included in the packaging of
+** this file. Please review the following information to ensure
+** the GNU Free Documentation License version 1.3 requirements
+** will be met: https://www.gnu.org/licenses/fdl-1.3.html.
+** $QT_END_LICENSE$
+**
+****************************************************************************/
+/*!
+    \page android-platform-notes.html
+    \title Android Platform Notes
+
+    This page contains information particular to building and running Qt
+    applications on Android. Qt supports Android versions 5.0 (API level 21) or
+    later.
+
+    \section1 Android Development in Qt Creator
+
+    The easiest way to develop with Qt for Android is to use
+    \l{Qt Creator: Connecting Android Devices}{Qt Creator}. When you use an
+    \b{Android Kit} with a Qt Creator project, it builds your code in addition
+    to some Android specific files that are required for enabling Qt on Android
+    and generating your application bundle. Qt Creator adds these files in a
+    subdirectory of your project called \b android. For more information, see
+    \l{Android Package Templates}.
+
+    \section1 Application Package
+
+    On Android, apps are distributed to devices as \b{APK} packages. For
+    distributing apps in Google Play, a different format called \b{AAB} is used
+    instead. For more information, see \l{Publishing to Google Play}.
+
+    Use Qt Creator to build both \b{APK} and \b{AAB} package formats, or build
+    them manually. For more information, see \l{Deploying an Application on Android}.
+
+    \section1 Plugins and Imports Special Considerations
+
+    If an application uses plugins that depend on other modules, these modules
+    must be listed in the application's dependencies. For more information, see
+    \l{Dependencies Detection}.
+
+    \section1 Text Special Considerations
+
+    Because of a bug in some OpenGL drivers, the mechanism used by Qt to cache
+    text glyphs does not work as expected on all Android devices, causing text
+    to appear scrambled. To remedy this, a workaround is in place, but it can
+    increase memory consumption and can also affect text rendering performance.
+    The workaround is now used by default on all devices.
+
+    You can disable the workaround by setting the
+    \c QT_ANDROID_DISABLE_GLYPH_CACHE_WORKAROUND environment variable to \e 1 or
+    \e true. However, you should do so only after verifying that text appears
+    correctly on all targeted devices.
+
+    \section1 OpenGL Special Considerations
+
+    Modern devices often support OpenGL ES 3.0 or 3.1 in addition to 2.0. To get
+    a suitable OpenGL context, set the requested version via
+    \l{QSurfaceFormat::setVersion()}.
+
+    \note The header files, such as \e{gl31.h}, are only available in recent API
+    levels, and therefore you need to target API level 21. Keep in mind also that
+    using OpenGL ES 3.x features will result in the application breaking on older
+    devices that only support 2.0.
+
+    \section1 Multimedia Special Considerations
+
+    The \l{Qt Multimedia Widgets} module is not supported on Android, which means
+    video display is only available using the \l [QML]{QtMultimedia::}{Video}
+    QML Type.
+
+    \section1 Assets File System
+
+    Qt for Android provides a special, virtual file system which is based on
+    the \l{Android: Accessing original files}{Android Assets mechanism}.
+    Files that are put under the directory (\l{ANDROID_PACKAGE_SOURCE_DIR}/assets/)
+    are packaged as part of your application package. These can be accessed in
+    Qt by prefixing the paths with \c{assets:/}. For more information, see
+    \l{Porting to Android}{Porting Qt applications to Android}.
+
+    \section1 Android Supported Architectures
+
+    Qt for Android currently has binaries for \e{armv7a}, \e{arm64-v8a}, \e{x86}
+    and \e{x86-64}.
+
+    If you want to support several different ABIs in your application in Google
+    Play, the recommendation is to build an Application App Bundle (AAB)
+    containing binaries for each of the ABIs. Based on your AAB, Google Play
+    generates optimized Application Packages (APK) for each device requesting a
+    download.
+
+    For more information, see \l{Building the Android Application}.
+
+    \section1 Known Issues
+
+    Due to a bug on some devices, when you turn off predictive text with
+    \c{ImhNoPredictiveText}, this property is ignored and predictive text is
+    still enabled. To work around this, set the
+    \c{QT_ANDROID_ENABLE_WORKAROUND_TO_DISABLE_PREDICTIVE_TEXT} environment
+    variable to \c 1. However, one side effect is that this environment variable
+    can cause a problem with other keyboards such as Gboard. If you use a
+    language like Japanese, with Gboard, only a QWERTY keyboard is displayed.
+    This environment variable is queried each time the keyboard is displayed,
+    so it's possible to toggle the workaround on and off, as necessary.
+
+    \section1 Limitations
+
+    Some of the Qt modules might have features that are not supported on Android
+    or have limitations. For more information, see \l{QTBUG-72086}.
+
+    \section1 Frequently Asked Questions
+
+    \list
+        \li Should I use \c QtActivity or \l{Android: Activity}{Android Activity}
+            to create a custom Activity?
+
+        \c QtActivity extends \c Activity and implements the logic needed to load
+        the Qt libraries or handle events and native calls between Android and Qt.
+        In general, extending \c QtActivity is needed if you are using any native
+        calls. Otherwise, extending \c Activity should work.
+
+        \li Should I use \c QtService or \l{Android: Service}{Android Service}?
+
+        The same reasoning as \c QtActivity applies here. Unless you are using
+        features that require the Qt libraries to be loaded, like native calls.
+
+        \li Can \l{Android: Fragments}{Android Fragments} be used with Qt? What is
+            the equivalent for Fragment in Qt?
+
+        Android Fragments cannot be used with Qt. However, Qt offers it's own modular
+        components and views with QML. You can combine multiple components in one
+        QML view. For more information, see \l{Qt QML}.
+    \endlist
+*/

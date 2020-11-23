@@ -34,13 +34,15 @@ const char kListUsbDeviceMethod[] = "ListUsbDevices";
 const char kStartPluginVmMethod[] = "StartPluginVm";
 const char kGetDnsSettingsMethod[] = "GetDnsSettings";
 const char kStartArcVmMethod[] = "StartArcVm";
+const char kSetVmCpuRestrictionMethod[] = "SetVmCpuRestriction";
 
 const char kContainerStartupFailedSignal[] = "ContainerStartupFailed";
 const char kDiskImageProgressSignal[] = "DiskImageProgress";
 const char kDnsSettingsChangedSignal[] = "DnsSettingsChanged";
+const char kVmStartedSignal[] = "VmStartedSignal";
+const char kVmStoppedSignal[] = "VmStoppedSignal";
 
 }  // namespace concierge
 }  // namespace vm_tools
-
 
 #endif  // SYSTEM_API_DBUS_VM_CONCIERGE_DBUS_CONSTANTS_H_

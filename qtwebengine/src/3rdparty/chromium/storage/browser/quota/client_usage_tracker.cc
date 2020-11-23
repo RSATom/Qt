@@ -8,6 +8,7 @@
 
 #include "base/bind.h"
 #include "base/bind_helpers.h"
+#include "base/metrics/histogram_macros.h"
 #include "base/stl_util.h"
 #include "net/base/url_util.h"
 
@@ -47,6 +48,10 @@ bool OriginSetContainsOrigin(const OriginSetByHost& origins,
   return itr != origins.end() && base::Contains(itr->second, origin);
 }
 
+void RecordSkippedOriginHistogram(const InvalidOriginReason reason) {
+  UMA_HISTOGRAM_ENUMERATION("Quota.SkippedInvalidOriginUsage", reason);
+}
+
 void DidGetGlobalClientUsageForLimitedGlobalClientUsage(
     UsageCallback callback,
     int64_t total_global_usage,
@@ -58,7 +63,7 @@ void DidGetGlobalClientUsageForLimitedGlobalClientUsage(
 
 ClientUsageTracker::ClientUsageTracker(
     UsageTracker* tracker,
-    QuotaClient* client,
+    scoped_refptr<QuotaClient> client,
     blink::mojom::StorageType type,
     SpecialStoragePolicy* special_storage_policy)
     : client_(client),
@@ -353,16 +358,25 @@ void ClientUsageTracker::AccumulateOriginUsage(
   DCHECK_GT(info->pending_jobs, 0U);
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   if (origin.has_value()) {
-    DCHECK(!origin->GetURL().is_empty());
-    if (usage < 0)
-      usage = 0;
+    // TODO(https://crbug.com/941480): |origin| should not be opaque or have an
+    // empty url, but sometimes it is.
+    if (origin->opaque()) {
+      DVLOG(1) << "AccumulateOriginUsage for opaque origin!";
+      RecordSkippedOriginHistogram(InvalidOriginReason::kIsOpaque);
+    } else if (origin->GetURL().is_empty()) {
+      DVLOG(1) << "AccumulateOriginUsage for origin with empty url!";
+      RecordSkippedOriginHistogram(InvalidOriginReason::kIsEmpty);
+    } else {
+      if (usage < 0)
+        usage = 0;
 
-    if (IsStorageUnlimited(*origin))
-      info->unlimited_usage += usage;
-    else
-      info->limited_usage += usage;
-    if (IsUsageCacheEnabledForOrigin(*origin))
-      AddCachedOrigin(*origin, usage);
+      if (IsStorageUnlimited(*origin))
+        info->unlimited_usage += usage;
+      else
+        info->limited_usage += usage;
+      if (IsUsageCacheEnabledForOrigin(*origin))
+        AddCachedOrigin(*origin, usage);
+    }
   }
   if (--info->pending_jobs)
     return;

@@ -127,11 +127,9 @@ void TestBaseLine::toXML(XMLWriter &receiver) const
         case SchemaIsValid: /* Fallthrough. */
         case Text:
         {
-            QXmlAttributes inspectAtts;
-            inspectAtts.append(QLatin1String("role"), QString(),
-                               QLatin1String("role"), QLatin1String("principal"));
-            inspectAtts.append(QLatin1String("compare"), QString(),
-                               QLatin1String("compare"), displayName(m_type));
+            QXmlStreamAttributes inspectAtts;
+            inspectAtts.append(QLatin1String("role"), QLatin1String("principal"));
+            inspectAtts.append(QLatin1String("compare"), displayName(m_type));
             receiver.startElement(QLatin1String("output-file"), inspectAtts);
             receiver.characters(m_details);
             receiver.endElement(QLatin1String("output-file"));
@@ -144,11 +142,9 @@ void TestBaseLine::toXML(XMLWriter &receiver) const
         }
         case Inspect:
         {
-            QXmlAttributes inspectAtts;
-            inspectAtts.append(QLatin1String("role"), QString(),
-                               QLatin1String("role"), QLatin1String("principal"));
-            inspectAtts.append(QLatin1String("compare"), QString(),
-                               QLatin1String("compare"), QLatin1String("Inspect"));
+            QXmlStreamAttributes inspectAtts;
+            inspectAtts.append(QLatin1String("role"), QLatin1String("principal"));
+            inspectAtts.append(QLatin1String("compare"), QLatin1String("Inspect"));
             receiver.startElement(QLatin1String("output-file"), inspectAtts);
             receiver.characters(m_details);
             receiver.endElement(QLatin1String("output-file"));
@@ -310,19 +306,11 @@ TestResult::Status TestBaseLine::verify(const QString &serializedInput) const
                  * QDomDocument does whitespace stripping when calling setContent(QString). In other words,
                  * this workarounds a bug. */
 
-                QXmlInputSource source;
-                source.setData((m_type == XML ? serializedInput : QLatin1String("<r>") +
-                                                                  serializedInput +
-                                                                  QLatin1String("</r>")).toUtf8());
-
-                QString outputReadingError;
-
-                QXmlSimpleReader reader;
-                reader.setFeature(QLatin1String("http://xml.org/sax/features/namespace-prefixes"), true);
-
-                const bool success = output.setContent(&source,
-                                                       &reader,
-                                                       &outputReadingError);
+                const bool success =
+                        output.setContent((m_type == XML ? serializedInput
+                                                         : QLatin1String("<r>") + serializedInput
+                                                           + QLatin1String("</r>"))
+                                                  .toUtf8());
 
                 if(!success)
                     return TestResult::Fail;
@@ -332,19 +320,12 @@ TestResult::Status TestBaseLine::verify(const QString &serializedInput) const
 
             QDomDocument baseline;
             {
-                QXmlInputSource source;
-                source.setData((m_type == XML ? details() : QLatin1String("<r>") +
-                                                            details() +
-                                                            QLatin1String("</r>")).toUtf8());
                 QString baselineReadingError;
-
-                QXmlSimpleReader reader;
-                reader.setFeature(QLatin1String("http://xml.org/sax/features/namespace-prefixes"), true);
-
-                const bool success = baseline.setContent(&source,
-                                                         &reader,
-                                                         &baselineReadingError);
-
+                const bool success = baseline.setContent(
+                        (m_type == XML ? details()
+                                       : QLatin1String("<r>") + details() + QLatin1String("</r>"))
+                                .toUtf8(),
+                        &baselineReadingError);
                 if(!success)
                     return TestResult::Fail;
 

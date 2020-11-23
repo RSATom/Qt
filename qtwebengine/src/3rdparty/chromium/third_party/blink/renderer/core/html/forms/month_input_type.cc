@@ -40,11 +40,8 @@
 #include "third_party/blink/renderer/platform/wtf/date_math.h"
 #include "third_party/blink/renderer/platform/wtf/math_extras.h"
 #include "third_party/blink/renderer/platform/wtf/text/wtf_string.h"
-#include "third_party/blink/renderer/platform/wtf/time.h"
 
 namespace blink {
-
-using namespace html_names;
 
 static const int kMonthDefaultStep = 1;
 static const int kMonthDefaultStepBase = 0;
@@ -67,9 +64,11 @@ double MonthInputType::ValueAsDate() const {
   return msec;
 }
 
-String MonthInputType::SerializeWithMilliseconds(double value) const {
+String MonthInputType::SerializeWithDate(
+    const base::Optional<base::Time>& value) const {
   DateComponents date;
-  if (!date.SetMillisecondsSinceEpochForMonth(value))
+  if (!value ||
+      !date.SetMillisecondsSinceEpochForMonth(value->ToJsTimeIgnoringNull()))
     return String();
   return SerializeWithComponents(date);
 }
@@ -77,7 +76,7 @@ String MonthInputType::SerializeWithMilliseconds(double value) const {
 Decimal MonthInputType::DefaultValueForStepUp() const {
   DateComponents date;
   date.SetMillisecondsSinceEpochForMonth(
-      ConvertToLocalTime(base::Time::Now().ToDoubleT() * 1000.0));
+      ConvertToLocalTime(base::Time::Now()).InMillisecondsF());
   double months = date.MonthsSinceEpoch();
   DCHECK(std::isfinite(months));
   return Decimal::FromDouble(months);
@@ -146,11 +145,13 @@ void MonthInputType::SetupLayoutParameters(
     const DateComponents& date) const {
   layout_parameters.date_time_format = layout_parameters.locale.MonthFormat();
   layout_parameters.fallback_date_time_format = "yyyy-MM";
-  if (!ParseToDateComponents(GetElement().FastGetAttribute(kMinAttr),
-                             &layout_parameters.minimum))
+  if (!ParseToDateComponents(
+          GetElement().FastGetAttribute(html_names::kMinAttr),
+          &layout_parameters.minimum))
     layout_parameters.minimum = DateComponents();
-  if (!ParseToDateComponents(GetElement().FastGetAttribute(kMaxAttr),
-                             &layout_parameters.maximum))
+  if (!ParseToDateComponents(
+          GetElement().FastGetAttribute(html_names::kMaxAttr),
+          &layout_parameters.maximum))
     layout_parameters.maximum = DateComponents();
   layout_parameters.placeholder_for_month = "--";
   layout_parameters.placeholder_for_year = "----";

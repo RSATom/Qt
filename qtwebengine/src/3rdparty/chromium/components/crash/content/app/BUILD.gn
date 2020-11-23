@@ -41,16 +41,19 @@ source_set("crashpad_handler_main") {
 
 static_library("app") {
   sources = [
+    "client_upload_info.cc",
+    "client_upload_info.h",
     "crash_export_thunks.h",
     "crash_switches.cc",
     "crash_switches.h",
     "crashpad.h",
     "crashpad_android.cc",
+    "crashpad_linux.cc",
     "crashpad_mac.mm",
     "crashpad_win.cc",
   ]
 
-  if (is_mac || is_win || is_android) {
+  if (is_mac || is_win || is_android || is_linux) {
     sources += [ "crashpad.cc" ]
   }
 
@@ -69,9 +72,10 @@ static_library("app") {
   ]
   deps = [
     "//base",
+    "//build:branding_buildflags",
   ]
 
-  if (is_mac || is_win || is_android) {
+  if (is_mac || is_win || is_android || is_linux) {
     deps += [
       "//third_party/crashpad/crashpad/client",
       "//third_party/crashpad/crashpad/util",
@@ -95,13 +99,10 @@ static_library("app") {
       "//content/public/common:result_codes",
       "//sandbox",
     ]
+  }
 
-    if (is_linux) {
-      deps += [
-        "//content/public/common",
-        "//third_party/breakpad:client",
-      ]
-    }
+  if (is_linux) {
+    deps += [ "//third_party/breakpad:client" ]
   }
 
   if (is_win) {
@@ -129,6 +130,12 @@ static_library("app") {
 
   if (is_android) {
     libs = [ "log" ]
+  }
+
+  if (is_linux) {
+    data_deps = [
+      "//third_party/crashpad/crashpad/handler:crashpad_handler",
+    ]
   }
 }
 
@@ -213,7 +220,7 @@ if (is_win) {
   }
 }
 
-if (is_mac) {
+if (is_mac || is_android) {
   # We build a chromium-specific crashpad_handler executable so that we can
   # define custom UserStreamDataSources.
   executable("chrome_crashpad_handler") {
@@ -222,15 +229,11 @@ if (is_mac) {
     ]
 
     deps = [
-      "//components/gwp_asan/buildflags",
-      "//third_party/crashpad/crashpad/handler:handler",
+      ":crashpad_handler_main",
+      "//third_party/crashpad/crashpad/handler",
     ]
 
-    if (enable_gwp_asan) {
-      deps += [ "//components/gwp_asan/crash_handler" ]
-    }
-
-    if (is_component_build) {
+    if (is_mac && is_component_build) {
       ldflags = [
         # The handler is in
         # Chromium.app/Contents/Versions/X/Chromium Framework.framework/Versions/A/Helpers/
@@ -254,6 +257,26 @@ if (is_mac) {
         "@loader_path/..",
       ]
     }
+  }
+}
+
+if (is_android) {
+  # There is not any normal way to package native executables in an Android APK.
+  # It is normal to package native code as a loadable module but Android's APK
+  # installer will ignore files not named like a shared object, so give the
+  # handler executable an acceptable name.
+  copy("chrome_crashpad_handler_named_as_so") {
+    deps = [
+      ":chrome_crashpad_handler",
+    ]
+
+    sources = [
+      "$root_out_dir/chrome_crashpad_handler",
+    ]
+
+    outputs = [
+      "$root_out_dir/libchrome_crashpad_handler.so",
+    ]
   }
 }
 

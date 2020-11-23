@@ -8,6 +8,7 @@
 
 #include "base/metrics/histogram_macros.h"
 #include "skia/ext/image_operations.h"
+#include "third_party/blink/public/mojom/fetch/fetch_api_request.mojom-blink.h"
 #include "third_party/blink/renderer/core/execution_context/execution_context.h"
 #include "third_party/blink/renderer/platform/image-decoders/image_decoder.h"
 #include "third_party/blink/renderer/platform/image-decoders/image_frame.h"
@@ -15,6 +16,7 @@
 #include "third_party/blink/renderer/platform/loader/fetch/resource_loader_options.h"
 #include "third_party/blink/renderer/platform/loader/fetch/resource_request.h"
 #include "third_party/blink/renderer/platform/scheduler/public/post_cross_thread_task.h"
+#include "third_party/blink/renderer/platform/scheduler/public/thread.h"
 #include "third_party/blink/renderer/platform/scheduler/public/worker_pool.h"
 #include "third_party/blink/renderer/platform/weborigin/kurl.h"
 #include "third_party/blink/renderer/platform/wtf/cross_thread_functional.h"
@@ -150,10 +152,16 @@ void ThreadedIconLoader::DecodeAndResizeImageOnBackgroundThread(
   // Use the RESIZE_GOOD quality allowing the implementation to pick an
   // appropriate method for the resize. Can be increased to RESIZE_BETTER
   // or RESIZE_BEST if the quality looks poor.
-  decoded_icon_ = skia::ImageOperations::Resize(
+  SkBitmap resized_icon = skia::ImageOperations::Resize(
       decoded_icon_, skia::ImageOperations::RESIZE_GOOD, resized_width,
       resized_height);
 
+  if (resized_icon.isNull()) {
+    notify_complete(1.0);
+    return;
+  }
+
+  decoded_icon_ = std::move(resized_icon);
   notify_complete(scale);
 }
 

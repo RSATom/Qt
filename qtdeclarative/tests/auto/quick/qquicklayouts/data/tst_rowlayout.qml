@@ -1,6 +1,6 @@
 /****************************************************************************
 **
-** Copyright (C) 2016 The Qt Company Ltd.
+** Copyright (C) 2020 The Qt Company Ltd.
 ** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the test suite of the Qt Toolkit.
@@ -69,6 +69,14 @@ Item {
         }
 
         Component {
+            id: rectangle_Component
+            Rectangle {
+                width: 100
+                height: 50
+            }
+        }
+
+        Component {
             id: itemsWithAnchorsLayout_Component
             RowLayout {
                 spacing: 2
@@ -118,10 +126,10 @@ Item {
 
         function test_warnAboutLayoutItemsWithAnchors()
         {
-            var fullPath = Qt.resolvedUrl("tst_rowlayout.qml")
+            var regex = new RegExp("QML Item: Detected anchors on an item that is managed by a layout. "
+                                 + "This is undefined behavior; use Layout.alignment instead.")
             for (var i = 0; i < 7; ++i) {
-                ignoreWarning(fullPath + ":" + (75 + 5*i) +":17: QML Item: Detected anchors on an item that is managed by a layout. "
-                    + "This is undefined behavior; use Layout.alignment instead.")
+                ignoreWarning(regex)
             }
             var layout = itemsWithAnchorsLayout_Component.createObject(container)
             waitForRendering(layout)
@@ -193,8 +201,8 @@ Item {
                 }                                       '
 
             var tmp = Qt.createQmlObject(test_layoutStr, container, '');
-            tryCompare(tmp, 'implicitWidth', 15);
-            compare(tmp.implicitHeight, 20);
+            waitForRendering(tmp)
+            compare(tmp.implicitWidth, 15);
             compare(tmp.height, 20);
             tmp.width = 30
             compare(tmp.r1.width, 10);
@@ -242,6 +250,46 @@ Item {
             col.destroy()
         }
 
+        Component {
+            id: propagateImplicitWidthToParent_Component
+            Item {
+                width: 200
+                height: 20
+
+                // These might trigger a updateLayoutItems() before its component is completed...
+                implicitWidth: row.implicitWidth
+                implicitHeight: row.implicitHeight
+                RowLayout {
+                    id : row
+                    anchors.fill: parent
+                    property alias r1: _r1
+                    property alias r2: _r2
+                    spacing: 0
+                    Rectangle {
+                        id: _r1
+                        color: "red"
+                        implicitWidth: 50
+                        implicitHeight: 20
+                    }
+                    Rectangle {
+                        id: _r2
+                        color: "green"
+                        implicitWidth: 50
+                        implicitHeight: 20
+                        Layout.fillWidth: true
+                    }
+                }
+            }
+        }
+
+        function test_propagateImplicitWidthToParent() {
+            var item = createTemporaryObject(propagateImplicitWidthToParent_Component, container)
+            var row = item.children[0]
+            compare(row.width, 200)
+            compare(itemRect(row.r1), [0, 0, 50, 20])
+            compare(itemRect(row.r2), [50, 0, 150, 20])
+        }
+
         function test_implicitSize() {
             var test_layoutStr =
                'import QtQuick 2.2;                             \
@@ -272,6 +320,14 @@ Item {
             var row = Qt.createQmlObject(test_layoutStr, container, '');
             compare(row.implicitWidth, 50 + 10 + 40);
             compare(row.implicitHeight, 6);
+            var r2 = row.children[2]
+            r2.implicitWidth = 20
+            verify(waitForRendering(row))
+            compare(row.implicitWidth, 50 + 10 + 20)
+            var r3 = rectangle_Component.createObject(container)
+            r3.implicitWidth = 30
+            r3.parent = row
+            compare(row.implicitWidth, 50 + 10 + 20 + 30)
             row.destroy()
         }
 
@@ -382,7 +438,7 @@ Item {
 
         function test_addAndRemoveItems()
         {
-            var layout = layout_addAndRemoveItems_Component.createObject(container)
+            var layout = createTemporaryObject(layout_addAndRemoveItems_Component, container)
             compare(layout.implicitWidth, 0)
             compare(layout.implicitHeight, 0)
 
@@ -423,8 +479,6 @@ Item {
             wait(0)
             compare(layout.implicitWidth, 0)
             compare(layout.implicitHeight, 0)
-
-            layout.destroy()
         }
 
         Component {
@@ -543,6 +597,9 @@ Item {
                     Rectangle {
                         id: r1
                         color: "red"
+                        implicitWidth: 1
+                        implicitHeight: 1
+
                         Layout.minimumWidth: 1
                         Layout.preferredWidth: 2
                         Layout.maximumWidth: 3
@@ -622,13 +679,13 @@ Item {
             child.Layout.minimumWidth = -1
             compare(itemSizeHints(layout), [0, 2, 3])
             child.Layout.preferredWidth = -1
-            compare(itemSizeHints(layout), [0, 0, 3])
+            compare(itemSizeHints(layout), [0, 1, 3])
             child.Layout.maximumWidth = -1
-            compare(itemSizeHints(layout), [0, 0, Number.POSITIVE_INFINITY])
+            compare(itemSizeHints(layout), [0, 1, Number.POSITIVE_INFINITY])
             layout.Layout.maximumWidth = 1000
-            compare(itemSizeHints(layout), [0, 0, 1000])
+            compare(itemSizeHints(layout), [0, 1, 1000])
             layout.Layout.maximumWidth = -1
-            compare(itemSizeHints(layout), [0, 0, Number.POSITIVE_INFINITY])
+            compare(itemSizeHints(layout), [0, 1, Number.POSITIVE_INFINITY])
 
             layout.implicitWidthChangedCount = 0
             child.Layout.minimumWidth = 10
@@ -914,14 +971,6 @@ Item {
             layout.destroy()    // Do not crash
         }
 
-        Component {
-            id: rectangle_Component
-            Rectangle {
-                width: 100
-                height: 50
-            }
-        }
-
         function test_destroyImplicitInvisibleLayout()
         {
             var root = rectangle_Component.createObject(container)
@@ -1035,6 +1084,63 @@ Item {
         }
 
         Component {
+            id: rearrangeFixedSizeLayout_Component
+            RowLayout {
+                id: layout
+                width: 200
+                height: 20
+                spacing: 0
+                RowLayout {
+                    id: row
+                    spacing: 0
+                    Rectangle {
+                        id: r0
+                        color: 'red'
+                        implicitWidth: 20
+                        implicitHeight: 20
+                    }
+                    Rectangle {
+                        id: r1
+                        color: 'grey'
+                        implicitWidth: 80
+                        implicitHeight: 20
+                    }
+                }
+                ColumnLayout {
+                    id: row2
+                    spacing: 0
+                    Rectangle {
+                        id: r2_0
+                        color: 'blue'
+                        Layout.fillWidth: true
+                        implicitWidth: 100
+                        implicitHeight: 20
+                    }
+                }
+            }
+        }
+        function test_rearrangeFixedSizeLayout()
+        {
+            var layout = createTemporaryObject(rearrangeFixedSizeLayout_Component, testCase)
+            var row = layout.children[0]
+            var r0 = row.children[0]
+            var r1 = row.children[1]
+
+            waitForRendering(layout)
+            compare(itemRect(r0),  [0,0,20,20])
+            compare(itemRect(r1), [20,0,80,20])
+
+            // just swap their widths. The layout should keep the same size
+            r0.implicitWidth = 80
+            r1.implicitWidth = 20
+            waitForRendering(layout)
+            // even if the layout did not change size, it should rearrange its children
+            compare(itemRect(row), [0,0, 100, 20])
+            compare(itemRect(r0),  [0,0,80,20])
+            compare(itemRect(r1), [80,0,20,20])
+        }
+
+        Component {
             id: changeChildrenOfHiddenLayout_Component
             RowLayout {
                 property int childCount: 1
@@ -1122,10 +1228,6 @@ Item {
         function test_rowlayoutWithTextItems() {
             var layout = createTemporaryObject(rowlayoutWithTextItems_Component, container)
             waitForRendering(layout)
-            for (var i = 0; i < 3; i++) {
-                ignoreWarning(/Qt Quick Layouts: Detected recursive rearrange. Aborting after two iterations./)
-            }
-            ignoreWarning(/Qt Quick Layouts: Polish loop detected. Aborting after two iterations./)
             layout.width = layout.width - 2     // set the size to be smaller than its "minimum size"
             waitForRendering(layout)    // do not exit before all warnings have been received
 

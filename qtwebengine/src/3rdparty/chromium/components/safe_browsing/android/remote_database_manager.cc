@@ -22,10 +22,6 @@
 
 using content::BrowserThread;
 
-namespace net {
-class URLRequestContextGetter;
-}  // namespace net
-
 namespace safe_browsing {
 
 namespace {
@@ -63,17 +59,14 @@ class RemoteSafeBrowsingDatabaseManager::ClientRequest {
   RemoteSafeBrowsingDatabaseManager* db_manager_;
   GURL url_;
   base::ElapsedTimer timer_;
-  base::WeakPtrFactory<ClientRequest> weak_factory_;
+  base::WeakPtrFactory<ClientRequest> weak_factory_{this};
 };
 
 RemoteSafeBrowsingDatabaseManager::ClientRequest::ClientRequest(
     Client* client,
     RemoteSafeBrowsingDatabaseManager* db_manager,
     const GURL& url)
-    : client_(client),
-      db_manager_(db_manager),
-      url_(url),
-      weak_factory_(this) {}
+    : client_(client), db_manager_(db_manager), url_(url) {}
 
 // Static
 void RemoteSafeBrowsingDatabaseManager::ClientRequest::OnRequestDoneWeak(
@@ -95,6 +88,11 @@ void RemoteSafeBrowsingDatabaseManager::ClientRequest::OnRequestDone(
   UMA_HISTOGRAM_TIMES("SB2.RemoteCall.Elapsed", timer_.Elapsed());
   // CancelCheck() will delete *this.
   db_manager_->CancelCheck(client_);
+}
+
+RealTimeUrlLookupService*
+RemoteSafeBrowsingDatabaseManager::GetRealTimeUrlLookupService() {
+  return rt_url_lookup_service_.get();
 }
 
 //
@@ -241,8 +239,14 @@ RemoteSafeBrowsingDatabaseManager::CheckUrlForHighConfidenceAllowlist(
     const GURL& url,
     Client* client) {
   DCHECK_CURRENTLY_ON(BrowserThread::IO);
-  NOTREACHED();
-  return AsyncMatch::NO_MATCH;
+
+  if (!enabled_ || !CanCheckUrl(url))
+    return AsyncMatch::NO_MATCH;
+
+  // TODO(crbug.com/1014202): Make this call async.
+  SafeBrowsingApiHandler* api_handler = SafeBrowsingApiHandler::GetInstance();
+  bool is_match = api_handler->StartHighConfidenceAllowlistCheck(url);
+  return is_match ? AsyncMatch::MATCH : AsyncMatch::NO_MATCH;
 }
 
 bool RemoteSafeBrowsingDatabaseManager::CheckUrlForSubresourceFilter(
@@ -278,8 +282,17 @@ bool RemoteSafeBrowsingDatabaseManager::CheckUrlForSubresourceFilter(
 AsyncMatch RemoteSafeBrowsingDatabaseManager::CheckCsdWhitelistUrl(
     const GURL& url,
     Client* client) {
-  NOTREACHED();
-  return AsyncMatch::MATCH;
+  DCHECK_CURRENTLY_ON(BrowserThread::IO);
+
+  // If this URL's scheme isn't supported, call is safe.
+  if (!CanCheckUrl(url)) {
+    return AsyncMatch::MATCH;
+  }
+
+  // TODO(crbug.com/995926): Make this call async
+  SafeBrowsingApiHandler* api_handler = SafeBrowsingApiHandler::GetInstance();
+  bool is_match = api_handler->StartCSDAllowlistCheck(url);
+  return is_match ? AsyncMatch::MATCH : AsyncMatch::NO_MATCH;
 }
 
 bool RemoteSafeBrowsingDatabaseManager::MatchDownloadWhitelistString(
@@ -329,6 +342,10 @@ void RemoteSafeBrowsingDatabaseManager::StartOnIOThread(
     const V4ProtocolConfig& config) {
   VLOG(1) << "RemoteSafeBrowsingDatabaseManager starting";
   SafeBrowsingDatabaseManager::StartOnIOThread(url_loader_factory, config);
+
+  rt_url_lookup_service_ =
+      std::make_unique<RealTimeUrlLookupService>(url_loader_factory);
+
   enabled_ = true;
 }
 
@@ -345,6 +362,8 @@ void RemoteSafeBrowsingDatabaseManager::StopOnIOThread(bool shutdown) {
     req->OnRequestDone(SB_THREAT_TYPE_SAFE, ThreatMetadata());
   }
   enabled_ = false;
+
+  rt_url_lookup_service_.reset();
 
   SafeBrowsingDatabaseManager::StopOnIOThread(shutdown);
 }

@@ -37,10 +37,8 @@
 **
 ****************************************************************************/
 
+#include <QtQml/private/qtqmlglobal_p.h>
 #include <QtQml/qqmlextensionplugin.h>
-#include <QtQml/private/qqmlengine_p.h>
-#include <QtQml/private/qqmlcomponentattached_p.h>
-#include <QtQml/private/qqmlbind_p.h>
 
 #if QT_VERSION < QT_VERSION_CHECK(6, 0, 0)
 #include <QtQmlModels/private/qqmlmodelsmodule_p.h>
@@ -65,25 +63,33 @@ QT_BEGIN_NAMESPACE
 */
 
 //![class decl]
+#if QT_VERSION < QT_VERSION_CHECK(6, 0, 0)
 class QtQmlPlugin : public QQmlExtensionPlugin
 {
     Q_OBJECT
     Q_PLUGIN_METADATA(IID QQmlExtensionInterface_iid)
 public:
-    QtQmlPlugin(QObject *parent = nullptr) : QQmlExtensionPlugin(parent) { }
-    void registerTypes(const char *uri) override
+    QtQmlPlugin(QObject *parent = nullptr) : QQmlExtensionPlugin(parent)
     {
-        Q_ASSERT(QLatin1String(uri) == QLatin1String("QtQml"));
-        QQmlEnginePrivate::defineModule();
+        volatile auto registration = &qml_register_types_QtQml;
+        Q_UNUSED(registration);
+    }
 
-#if QT_VERSION < QT_VERSION_CHECK(6, 0, 0)
-        QQmlModelsModule::registerQmlTypes();
-#endif
-
-        // Auto-increment the import to stay in sync with ALL future QtQml minor versions from 5.11 onward
-        qmlRegisterModule(uri, 2, QT_VERSION_MINOR);
+    void registerTypes(const char *) override { QQmlModelsModule::registerQmlTypes(); }
+};
+#else
+class QtQmlPlugin : public QQmlEngineExtensionPlugin
+{
+    Q_OBJECT
+    Q_PLUGIN_METADATA(IID QQmlEngineExtensionInterface_iid)
+public:
+    QtQmlPlugin(QObject *parent = nullptr) : QQmlEngineExtensionPlugin(parent)
+    {
+        volatile auto registration = &qml_register_types_QtQml;
+        Q_UNUSED(registration);
     }
 };
+#endif
 //![class decl]
 
 QT_END_NAMESPACE

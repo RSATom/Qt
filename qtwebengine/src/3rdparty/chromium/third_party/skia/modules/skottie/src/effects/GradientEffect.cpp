@@ -23,12 +23,12 @@ public:
     explicit GradientRampEffectAdapter(sk_sp<sksg::RenderNode> child)
         : fRoot(sksg::ShaderEffect::Make(std::move(child))) {}
 
-    ADAPTER_PROPERTY(StartPoint, SkPoint , SkPoint::Make(0, 0))
-    ADAPTER_PROPERTY(EndPoint  , SkPoint , SkPoint::Make(0, 0))
-    ADAPTER_PROPERTY(StartColor, SkColor ,       SK_ColorBLACK)
-    ADAPTER_PROPERTY(EndColor  , SkColor ,       SK_ColorBLACK)
-    ADAPTER_PROPERTY(Blend     , SkScalar,                   0)
-    ADAPTER_PROPERTY(Scatter   , SkScalar,                   0)
+    ADAPTER_PROPERTY(StartPoint, SkPoint  , SkPoint::Make(0, 0))
+    ADAPTER_PROPERTY(EndPoint  , SkPoint  , SkPoint::Make(0, 0))
+    ADAPTER_PROPERTY(StartColor, SkColor4f,    SkColors::kBlack)
+    ADAPTER_PROPERTY(EndColor  , SkColor4f,    SkColors::kBlack)
+    ADAPTER_PROPERTY(Blend     , SkScalar ,                   0)
+    ADAPTER_PROPERTY(Scatter   , SkScalar ,                   0)
 
     // Really an enum: 1 -> linear, 7 -> radial (?!)
     ADAPTER_PROPERTY(Shape     , SkScalar,                   0)
@@ -110,31 +110,31 @@ sk_sp<sksg::RenderNode> EffectBuilder::attachGradientEffect(const skjson::ArrayV
 
     auto adapter = sk_make_sp<GradientRampEffectAdapter>(std::move(layer));
 
-    fBuilder->bindProperty<VectorValue>(GetPropValue(jprops, kStartPoint_Index), fScope,
+    fBuilder->bindProperty<VectorValue>(GetPropValue(jprops, kStartPoint_Index),
         [adapter](const VectorValue& p0) {
             adapter->setStartPoint(ValueTraits<VectorValue>::As<SkPoint>(p0));
         });
-    fBuilder->bindProperty<VectorValue>(GetPropValue(jprops, kEndPoint_Index), fScope,
+    fBuilder->bindProperty<VectorValue>(GetPropValue(jprops, kEndPoint_Index),
         [adapter](const VectorValue& p1) {
             adapter->setEndPoint(ValueTraits<VectorValue>::As<SkPoint>(p1));
         });
-    fBuilder->bindProperty<VectorValue>(GetPropValue(jprops, kStartColor_Index), fScope,
+    fBuilder->bindProperty<VectorValue>(GetPropValue(jprops, kStartColor_Index),
         [adapter](const VectorValue& c0) {
-            adapter->setStartColor(ValueTraits<VectorValue>::As<SkColor>(c0));
+            adapter->setStartColor(ValueTraits<VectorValue>::As<SkColor4f>(c0));
         });
-    fBuilder->bindProperty<VectorValue>(GetPropValue(jprops, kEndColor_Index), fScope,
+    fBuilder->bindProperty<VectorValue>(GetPropValue(jprops, kEndColor_Index),
         [adapter](const VectorValue& c1) {
-            adapter->setEndColor(ValueTraits<VectorValue>::As<SkColor>(c1));
+            adapter->setEndColor(ValueTraits<VectorValue>::As<SkColor4f>(c1));
         });
-    fBuilder->bindProperty<ScalarValue>(GetPropValue(jprops, kRampShape_Index), fScope,
+    fBuilder->bindProperty<ScalarValue>(GetPropValue(jprops, kRampShape_Index),
         [adapter](const ScalarValue& shape) {
             adapter->setShape(shape);
         });
-    fBuilder->bindProperty<ScalarValue>(GetPropValue(jprops, kBlendRatio_Index), fScope,
+    fBuilder->bindProperty<ScalarValue>(GetPropValue(jprops, kBlendRatio_Index),
         [adapter](const ScalarValue& blend) {
             adapter->setBlend(blend);
         });
-    fBuilder->bindProperty<ScalarValue>(GetPropValue(jprops, kRampScatter_Index), fScope,
+    fBuilder->bindProperty<ScalarValue>(GetPropValue(jprops, kRampScatter_Index),
         [adapter](const ScalarValue& scatter) {
             adapter->setScatter(scatter);
         });

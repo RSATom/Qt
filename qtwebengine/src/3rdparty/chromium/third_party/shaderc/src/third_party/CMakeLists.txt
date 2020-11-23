@@ -81,64 +81,21 @@ endif()
 if (SHADERC_ENABLE_SPVC)
   if (NOT TARGET spirv-cross-core)
     if (IS_DIRECTORY ${SHADERC_SPIRV_CROSS_DIR})
-      set(SPIRV_CROSS_EXCEPTIONS_TO_ASSERTIONS ${DISABLE_EXCEPTIONS} CACHE BOOL "tell SPIRV-Cross not to throw" FORCE)
-
-      # Add -fPIC to SPIRV-Cross build.
-      set(CXX_BACK ${CMAKE_CXX_FLAGS})
-      set(CMAKE_CXX_FLAGS ${CMAKE_CXX_FLAGS} "-fPIC")
-      # cmake inserts a semicolon, change it to a space.
-      string(REGEX REPLACE ";" " " CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS}")
-      add_subdirectory(${SHADERC_SPIRV_CROSS_DIR} spirv-cross)
-      set(CMAKE_CXX_FLAGS ${CXX_BACK})
+      # Add -fPIC to SPIRV-Cross build, if supported
+      check_cxx_compiler_flag(-fPIC COMPILER_SUPPORTS_PIC)
+      if (COMPILER_SUPPORTS_PIC)
+        set(CXX_BACK ${CMAKE_CXX_FLAGS})
+        set(CMAKE_CXX_FLAGS ${CMAKE_CXX_FLAGS} "-fPIC")
+        # cmake inserts a semicolon, change it to a space.
+        string(REGEX REPLACE ";" " " CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS}")
+        add_subdirectory(${SHADERC_SPIRV_CROSS_DIR} spirv-cross)
+        set(CMAKE_CXX_FLAGS ${CXX_BACK})
+      else()
+        add_subdirectory(${SHADERC_SPIRV_CROSS_DIR} spirv-cross)
+      endif()
     endif()
     if (NOT TARGET spirv-cross-core)
       message(FATAL_ERROR "SPIRV-Cross was not found - required for compilation")
     endif()
   endif()
 endif (SHADERC_ENABLE_SPVC)
-
-if(${SHADERC_ENABLE_TESTS})
-  # Configure out-of-source-directory tests for glslang.
-  # The glslang project uses a bash script called "runtests" to run tests.
-  # The runtests script assumes the glslangValidator executable exists in
-  # a location inside the source tree, but we build it elsewhere.
-  # We need to copy the test files, fix the path references, and then run tests.
-  # Use test directory named "Test" to match Glslangs Test directory, so
-  # that we get the right relative path names in the "include" test output.
-  set(GLSLANG_TEST_SRC_DIR ${SHADERC_GLSLANG_DIR}/Test)
-  set(GLSLANG_TEST_BIN_DIR
-        ${CMAKE_CURRENT_BINARY_DIR}/${CMAKE_CFG_INTDIR}/Test)
-
-  # If we are building in a multi-configuration setting we have
-  # to put the glslang tests into their respective subdirectories.
-  if (CMAKE_CONFIGURATION_TYPES)
-    set(GLSLANG_CONFIGURATION_DIR ${CMAKE_CFG_INTDIR})
-  endif()
-
-  add_custom_target(copy-tests-if-necessary ALL
-    COMMAND ${PYTHON_EXE}
-      ${shaderc_SOURCE_DIR}/utils/copy-tests-if-necessary.py
-      ${GLSLANG_TEST_SRC_DIR} ${GLSLANG_TEST_BIN_DIR} ${GLSLANG_CONFIGURATION_DIR}
-    COMMENT "Copying and patching glslang tests if needed")
-
-  # glslang-testsuite runs a bash script on Windows.
-  # Make sure to use '-o igncr' flag to ignore carriage returns (\r).
-  set(IGNORE_CR_FLAG "")
-  if(WIN32)
-    set(IGNORE_CR_FLAG -o igncr)
-  endif()
-
-  if (CMAKE_CONFIGURATION_TYPES)
-    # If we are running a multi-configuration project,
-    # the tests will be in ${Configuration}/Test
-    add_test(NAME glslang-testsuite
-      COMMAND bash ${IGNORE_CR_FLAG} runtests
-      WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/$<CONFIGURATION>/Test
-    )
-  else()
-    add_test(NAME glslang-testsuite
-      COMMAND bash ${IGNORE_CR_FLAG} runtests
-      WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/Test/
-    )
-  endif()
-endif()

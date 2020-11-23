@@ -65,6 +65,8 @@
 #include "third_party/blink/renderer/core/layout/layout_object.h"
 #include "third_party/blink/renderer/core/loader/empty_clients.h"
 #include "third_party/blink/renderer/core/page/page.h"
+#include "third_party/blink/renderer/core/svg/svg_style_element.h"
+#include "third_party/blink/renderer/core/svg/svg_use_element.h"
 #include "third_party/blink/renderer/platform/bindings/exception_state.h"
 #include "third_party/blink/renderer/platform/bindings/runtime_call_stats.h"
 #include "third_party/blink/renderer/platform/bindings/v8_per_isolate_data.h"
@@ -74,8 +76,6 @@
 #include "third_party/blink/renderer/platform/wtf/text/string_builder.h"
 
 namespace blink {
-
-using namespace html_names;
 
 class AttributeChange {
   DISALLOW_NEW();
@@ -134,8 +134,8 @@ static HTMLElement* AncestorToRetainStructureAndAppearanceForBlock(
   if (!common_ancestor_block)
     return nullptr;
 
-  if (common_ancestor_block->HasTagName(kTbodyTag) ||
-      IsHTMLTableRowElement(*common_ancestor_block))
+  if (common_ancestor_block->HasTagName(html_names::kTbodyTag) ||
+      IsA<HTMLTableRowElement>(*common_ancestor_block))
     return Traversal<HTMLTableElement>::FirstAncestor(*common_ancestor_block);
 
   if (IsNonTableCellHTMLBlockElement(common_ancestor_block))
@@ -209,8 +209,8 @@ static HTMLElement* HighestAncestorToWrapMarkup(
 
       // Retain the Mail quote level by including all ancestor mail block
       // quotes.
-      if (HTMLQuoteElement* highest_mail_blockquote =
-              ToHTMLQuoteElement(HighestEnclosingNodeOfType(
+      if (auto* highest_mail_blockquote =
+              To<HTMLQuoteElement>(HighestEnclosingNodeOfType(
                   first_node_position, IsMailHTMLBlockquoteElement,
                   kCanCrossEditingBoundary))) {
         special_common_ancestor = highest_mail_blockquote;
@@ -247,17 +247,16 @@ static HTMLElement* HighestAncestorToWrapMarkup(
   if (!special_common_ancestor &&
       IsTabHTMLSpanElementTextNode(common_ancestor)) {
     special_common_ancestor =
-        ToHTMLSpanElement(Strategy::Parent(*common_ancestor));
+        To<HTMLSpanElement>(Strategy::Parent(*common_ancestor));
   }
   if (!special_common_ancestor && IsTabHTMLSpanElement(common_ancestor))
-    special_common_ancestor = ToHTMLSpanElement(common_ancestor);
+    special_common_ancestor = To<HTMLSpanElement>(common_ancestor);
 
-  if (HTMLAnchorElement* enclosing_anchor =
-          ToHTMLAnchorElement(EnclosingElementWithTag(
-              Position::FirstPositionInNode(special_common_ancestor
-                                                ? *special_common_ancestor
-                                                : *common_ancestor),
-              kATag)))
+  if (auto* enclosing_anchor = To<HTMLAnchorElement>(EnclosingElementWithTag(
+          Position::FirstPositionInNode(special_common_ancestor
+                                            ? *special_common_ancestor
+                                            : *common_ancestor),
+          html_names::kATag)))
     special_common_ancestor = enclosing_anchor;
 
   return special_common_ancestor;
@@ -417,7 +416,8 @@ DocumentFragment* CreateFragmentFromMarkupWithContext(
       MakeGarbageCollected<Document>(DocumentInit::Create());
   tagged_document->SetContextFeatures(document.GetContextFeatures());
 
-  Element* root = Element::Create(QualifiedName::Null(), tagged_document);
+  auto* root =
+      MakeGarbageCollected<Element>(QualifiedName::Null(), tagged_document);
   root->AppendChild(tagged_fragment);
   tagged_document->AppendChild(root);
 
@@ -503,20 +503,21 @@ static void FillContainerFromString(ContainerNode* paragraph,
 
 bool IsPlainTextMarkup(Node* node) {
   DCHECK(node);
-  if (!IsHTMLDivElement(*node))
+  auto* element = DynamicTo<HTMLDivElement>(*node);
+  if (!element)
     return false;
 
-  HTMLDivElement& element = ToHTMLDivElement(*node);
-  if (!element.hasAttributes())
+  if (!element->hasAttributes())
     return false;
 
-  if (element.HasOneChild())
-    return element.firstChild()->IsTextNode() ||
-           element.firstChild()->hasChildren();
+  if (element->HasOneChild()) {
+    return element->firstChild()->IsTextNode() ||
+           element->firstChild()->hasChildren();
+  }
 
-  return element.HasChildCount(2) &&
-         IsTabHTMLSpanElementTextNode(element.firstChild()->firstChild()) &&
-         element.lastChild()->IsTextNode();
+  return element->HasChildCount(2) &&
+         IsTabHTMLSpanElementTextNode(element->firstChild()->firstChild()) &&
+         element->lastChild()->IsTextNode();
 }
 
 static bool ShouldPreserveNewline(const EphemeralRange& range) {
@@ -553,7 +554,7 @@ DocumentFragment* CreateFragmentFromText(const EphemeralRange& context,
     fragment->AppendChild(document.createTextNode(string));
     if (string.EndsWith('\n')) {
       auto* element = MakeGarbageCollected<HTMLBRElement>(document);
-      element->setAttribute(kClassAttr, AppleInterchangeNewline);
+      element->setAttribute(html_names::kClassAttr, AppleInterchangeNewline);
       fragment->AppendChild(element);
     }
     return fragment;
@@ -570,7 +571,7 @@ DocumentFragment* CreateFragmentFromText(const EphemeralRange& context,
   Element* block =
       EnclosingBlock(context.StartPosition().NodeAsRangeFirstNode());
   bool use_clones_of_enclosing_block =
-      block && !IsHTMLBodyElement(*block) && !IsHTMLHtmlElement(*block) &&
+      block && !IsA<HTMLBodyElement>(block) && !IsA<HTMLHtmlElement>(block) &&
       block != RootEditableElementOf(context.StartPosition());
 
   Vector<String> list;
@@ -583,7 +584,7 @@ DocumentFragment* CreateFragmentFromText(const EphemeralRange& context,
     if (s.IsEmpty() && i + 1 == num_lines) {
       // For last line, use the "magic BR" rather than a P.
       element = MakeGarbageCollected<HTMLBRElement>(document);
-      element->setAttribute(kClassAttr, AppleInterchangeNewline);
+      element->setAttribute(html_names::kClassAttr, AppleInterchangeNewline);
     } else {
       if (use_clones_of_enclosing_block)
         element = &block->CloneWithoutChildren();
@@ -604,7 +605,7 @@ DocumentFragment* CreateFragmentForInnerOuterHTML(
     ExceptionState& exception_state) {
   DCHECK(context_element);
   Document& document =
-      IsHTMLTemplateElement(*context_element)
+      IsA<HTMLTemplateElement>(*context_element)
           ? context_element->GetDocument().EnsureTemplateDocument()
           : context_element->GetDocument();
   DocumentFragment* fragment = DocumentFragment::Create(document);
@@ -686,8 +687,8 @@ DocumentFragment* CreateContextualFragment(
   Node* next_node = nullptr;
   for (Node* node = fragment->firstChild(); node; node = next_node) {
     next_node = node->nextSibling();
-    if (IsHTMLHtmlElement(*node) || IsHTMLHeadElement(*node) ||
-        IsHTMLBodyElement(*node)) {
+    if (IsA<HTMLHtmlElement>(node) || IsA<HTMLHeadElement>(node) ||
+        IsA<HTMLBodyElement>(node)) {
       auto* element = To<HTMLElement>(node);
       if (Node* first_child = element->firstChild())
         next_node = first_child;
@@ -768,6 +769,8 @@ static Document* CreateStagingDocumentForMarkupSanitization() {
   page->GetSettings().SetScriptEnabled(false);
   page->GetSettings().SetPluginsEnabled(false);
   page->GetSettings().SetAcceleratedCompositingEnabled(false);
+  page->GetSettings().SetParserScriptingFlagPolicy(
+      ParserScriptingFlagPolicy::kEnabled);
 
   LocalFrame* frame = MakeGarbageCollected<LocalFrame>(
       MakeGarbageCollected<EmptyLocalFrameClient>(), *page,
@@ -791,29 +794,80 @@ static Document* CreateStagingDocumentForMarkupSanitization() {
   return document;
 }
 
-String SanitizeMarkupWithContext(const String& raw_markup,
-                                 unsigned fragment_start,
-                                 unsigned fragment_end) {
+static bool ContainsStyleElements(const DocumentFragment& fragment) {
+  for (const Node& node : NodeTraversal::DescendantsOf(fragment)) {
+    if (IsA<HTMLStyleElement>(node) || IsA<SVGStyleElement>(node))
+      return true;
+  }
+  return false;
+}
+
+// Returns true if any svg <use> element is removed.
+static bool StripSVGUseDataURLs(Node& node) {
+  if (IsA<SVGUseElement>(node)) {
+    SVGUseElement& use = To<SVGUseElement>(node);
+    SVGURLReferenceResolver resolver(use.HrefString(), use.GetDocument());
+    if (resolver.AbsoluteUrl().ProtocolIsData())
+      node.remove();
+    return true;
+  }
+  bool stripped = false;
+  for (Node* child = node.firstChild(); child;) {
+    Node* next = child->nextSibling();
+    if (StripSVGUseDataURLs(*child))
+      stripped = true;
+    child = next;
+  }
+  return stripped;
+}
+
+DocumentFragment* CreateSanitizedFragmentFromMarkupWithContext(
+    Document& document,
+    const String& raw_markup,
+    unsigned fragment_start,
+    unsigned fragment_end,
+    const String& base_url) {
+  if (raw_markup.IsEmpty())
+    return nullptr;
+
   Document* staging_document = CreateStagingDocumentForMarkupSanitization();
   Element* body = staging_document->body();
 
   DocumentFragment* fragment = CreateFragmentFromMarkupWithContext(
       *staging_document, raw_markup, fragment_start, fragment_end, KURL(),
       kDisallowScriptingAndPluginContent);
+  if (!fragment) {
+    staging_document->GetPage()->WillBeDestroyed();
+    return nullptr;
+  }
+
+  bool needs_sanitization = false;
+  if (ContainsStyleElements(*fragment))
+    needs_sanitization = true;
+  if (StripSVGUseDataURLs(*fragment))
+    needs_sanitization = true;
+
+  if (!needs_sanitization) {
+    staging_document->GetPage()->WillBeDestroyed();
+    return CreateFragmentFromMarkupWithContext(
+        document, raw_markup, fragment_start, fragment_end, base_url,
+        kDisallowScriptingAndPluginContent);
+  }
 
   body->appendChild(fragment);
   staging_document->UpdateStyleAndLayout();
 
   // This sanitizes stylesheets in the markup into element inline styles
-  String result = CreateMarkup(Position::FirstPositionInNode(*body),
+  String markup = CreateMarkup(Position::FirstPositionInNode(*body),
                                Position::LastPositionInNode(*body),
                                CreateMarkupOptions::Builder()
                                    .SetShouldAnnotateForInterchange(true)
                                    .SetIsForMarkupSanitization(true)
                                    .Build());
-
   staging_document->GetPage()->WillBeDestroyed();
-  return result;
+
+  return CreateFragmentFromMarkup(document, markup, base_url,
+                                  kDisallowScriptingAndPluginContent);
 }
 
 template class CORE_TEMPLATE_EXPORT CreateMarkupAlgorithm<EditingStrategy>;

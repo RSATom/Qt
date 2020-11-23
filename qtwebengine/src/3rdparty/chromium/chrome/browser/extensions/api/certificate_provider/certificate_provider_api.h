@@ -19,18 +19,19 @@ namespace extensions {
 
 namespace api {
 namespace certificate_provider {
-// The maximum number of times per 10 minutes, extension is allowed to show PIN
-// dialog again after user closed the previous one.
-extern const int kMaxClosedDialogsPer10Mins;
+// The maximum number of times in the given interval the extension is allowed to
+// show the PIN dialog again after user closed the previous one.
+extern const int kMaxClosedDialogsPerMinute;
+extern const int kMaxClosedDialogsPer10Minutes;
 
 struct CertificateInfo;
 }
 }
 
 class CertificateProviderInternalReportCertificatesFunction
-    : public UIThreadExtensionFunction {
+    : public ExtensionFunction {
  private:
-  // UIThreadExtensionFunction:
+  // ExtensionFunction:
   ~CertificateProviderInternalReportCertificatesFunction() override;
   ResponseAction Run() override;
 
@@ -43,9 +44,9 @@ class CertificateProviderInternalReportCertificatesFunction
 };
 
 class CertificateProviderInternalReportSignatureFunction
-    : public UIThreadExtensionFunction {
+    : public ExtensionFunction {
  private:
-  // UIThreadExtensionFunction:
+  // ExtensionFunction:
   ~CertificateProviderInternalReportSignatureFunction() override;
   ResponseAction Run() override;
 
@@ -53,9 +54,9 @@ class CertificateProviderInternalReportSignatureFunction
                              CERTIFICATEPROVIDERINTERNAL_REPORTSIGNATURE)
 };
 
-class CertificateProviderRequestPinFunction : public UIThreadExtensionFunction {
+class CertificateProviderRequestPinFunction : public ExtensionFunction {
  private:
-  // UIThreadExtensionFunction:
+  // ExtensionFunction:
   ~CertificateProviderRequestPinFunction() override;
   ResponseAction Run() override;
   bool ShouldSkipQuotaLimiting() const override;
@@ -68,10 +69,9 @@ class CertificateProviderRequestPinFunction : public UIThreadExtensionFunction {
                              CERTIFICATEPROVIDER_REQUESTPIN)
 };
 
-class CertificateProviderStopPinRequestFunction
-    : public UIThreadExtensionFunction {
+class CertificateProviderStopPinRequestFunction : public ExtensionFunction {
  private:
-  // UIThreadExtensionFunction:
+  // ExtensionFunction:
   ~CertificateProviderStopPinRequestFunction() override;
   ResponseAction Run() override;
 

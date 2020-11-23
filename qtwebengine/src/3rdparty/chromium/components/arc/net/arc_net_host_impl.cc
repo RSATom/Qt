@@ -37,6 +37,10 @@
 namespace {
 
 constexpr int kGetNetworksListLimit = 100;
+// Delay in millisecond before asking for a network property update when no IP
+// configuration can be retrieved for a network.
+constexpr base::TimeDelta kNetworkPropertyUpdateDelay =
+    base::TimeDelta::FromMilliseconds(5000);
 
 chromeos::NetworkStateHandler* GetStateHandler() {
   return chromeos::NetworkHandler::Get()->network_state_handler();
@@ -173,6 +177,13 @@ arc::mojom::IPConfigurationPtr TranslateONCIPConfig(
   return configuration;
 }
 
+// Returns true if the IP configuration is valid enough for ARC. Empty IP
+// config objects can be generated when IPv4 DHCP or IPv6 autoconf has not
+// completed yet.
+bool IsValidIPConfiguration(const arc::mojom::IPConfiguration& ip_config) {
+  return !ip_config.ip_address.empty() && !ip_config.gateway.empty();
+}
+
 // Returns an IPConfiguration vector from the IPConfigs ONC property, which may
 // include multiple IP configurations (e.g. IPv4 and IPv6).
 std::vector<arc::mojom::IPConfigurationPtr> IPConfigurationsFromONCIPConfigs(
@@ -184,7 +195,7 @@ std::vector<arc::mojom::IPConfigurationPtr> IPConfigurationsFromONCIPConfigs(
   std::vector<arc::mojom::IPConfigurationPtr> result;
   for (const auto& entry : ip_config_list->GetList()) {
     arc::mojom::IPConfigurationPtr config = TranslateONCIPConfig(&entry);
-    if (config)
+    if (config && IsValidIPConfiguration(*config))
       result.push_back(std::move(config));
   }
   return result;
@@ -199,7 +210,7 @@ std::vector<arc::mojom::IPConfigurationPtr> IPConfigurationsFromONCProperty(
   if (!ip_dict)
     return {};
   arc::mojom::IPConfigurationPtr config = TranslateONCIPConfig(ip_dict);
-  if (!config)
+  if (!config || !IsValidIPConfiguration(*config))
     return {};
   std::vector<arc::mojom::IPConfigurationPtr> result;
   result.push_back(std::move(config));
@@ -230,7 +241,7 @@ arc::mojom::ConnectionStateType TranslateConnectionState(
       state == shill::kStateConfiguration)
     return arc::mojom::ConnectionStateType::CONNECTING;
   if ((state == shill::kStateIdle) || (state == shill::kStateFailure) ||
-      (state == ""))
+      (state == shill::kStateDisconnect) || (state == ""))
     return arc::mojom::ConnectionStateType::NOT_CONNECTED;
   if (chromeos::NetworkState::StateIsPortalled(state))
     return arc::mojom::ConnectionStateType::PORTAL;
@@ -239,7 +250,7 @@ arc::mojom::ConnectionStateType TranslateConnectionState(
 
   // The remaining cases defined in shill dbus-constants are legacy values from
   // Flimflam and are not expected to be encountered. These are: kStateCarrier,
-  // kStateActivationFailure, kStateDisconnect, and kStateOffline.
+  // kStateActivationFailure, and kStateOffline.
   NOTREACHED() << "Unknown connection state: " << state;
   return arc::mojom::ConnectionStateType::NOT_CONNECTED;
 }
@@ -269,6 +280,55 @@ void TranslateONCNetworkTypeDetails(const base::DictionaryValue* dict,
   }
 }
 
+// Add shill's Device properties to the given mojo NetworkConfiguration objects.
+// This adds the network interface and current IP configurations.
+void AddDeviceProperties(arc::mojom::NetworkConfiguration* network,
+                         const std::string& device_path) {
+  const auto* device = GetStateHandler()->GetDeviceState(device_path);
+  if (!device)
+    return;
+
+  network->network_interface = device->interface();
+
+  std::vector<arc::mojom::IPConfigurationPtr> ip_configs;
+  for (const auto& kv : device->ip_configs()) {
+    auto ip_config = arc::mojom::IPConfiguration::New();
+    if (const std::string* r =
+            kv.second->FindStringPath(shill::kAddressProperty))
+      ip_config->ip_address = *r;
+    if (const std::string* r =
+            kv.second->FindStringPath(shill::kGatewayProperty))
+      ip_config->gateway = *r;
+    ip_config->routing_prefix =
+        kv.second->FindIntPath(shill::kPrefixlenProperty).value_or(0);
+    ip_config->type = (ip_config->routing_prefix < 64)
+                          ? arc::mojom::IPAddressType::IPV4
+                          : arc::mojom::IPAddressType::IPV6;
+    if (const base::Value* dns_list =
+            kv.second->FindListKey(shill::kNameServersProperty)) {
+      for (const auto& dnsValue : dns_list->GetList()) {
+        const std::string& dns = dnsValue.GetString();
+        if (dns.empty())
+          continue;
+
+        // When manually setting DNS, up to 4 addresses can be specified in the
+        // UI. Unspecified entries can show up as 0.0.0.0 and should be removed.
+        if (dns == "0.0.0.0")
+          continue;
+
+        ip_config->name_servers.push_back(dns);
+      }
+    }
+    if (IsValidIPConfiguration(*ip_config))
+      ip_configs.push_back(std::move(ip_config));
+  }
+
+  // If the DeviceState had any IP configuration, always use them and ignore
+  // any other IP configuration previously obtained through NetworkState.
+  if (!ip_configs.empty())
+    network->ip_configs = std::move(ip_configs);
+}
+
 arc::mojom::NetworkConfigurationPtr TranslateONCConfiguration(
     const chromeos::NetworkState* network_state,
     const base::DictionaryValue* dict) {
@@ -293,8 +353,7 @@ arc::mojom::NetworkConfigurationPtr TranslateONCConfiguration(
     ip_configs = IPConfigurationsFromONCProperty(
         dict, onc::network_config::kSavedIPConfig);
   }
-  if (!ip_configs.empty())
-    mojo->ip_configs = std::move(ip_configs);
+  mojo->ip_configs = std::move(ip_configs);
 
   mojo->guid = GetStringFromONCDictionary(dict, onc::network_config::kGUID,
                                           true /* required */);
@@ -305,21 +364,10 @@ arc::mojom::NetworkConfigurationPtr TranslateONCConfiguration(
   if (network_state) {
     mojo->connection_state =
         TranslateConnectionState(network_state->connection_state());
-    const chromeos::DeviceState* device_state =
-        GetStateHandler()->GetDeviceState(network_state->device_path());
-    if (device_state)
-      mojo->network_interface = device_state->interface();
+    AddDeviceProperties(mojo.get(), network_state->device_path());
   }
 
   return mojo;
-}
-
-// Convenience helper for returning a mojo NetworkConfiguration from
-// a NetworkState.
-arc::mojom::NetworkConfigurationPtr TranslateNetworkState(
-    const chromeos::NetworkState* state) {
-  return TranslateONCConfiguration(
-      state, chromeos::network_util::TranslateNetworkStateToONC(state).get());
 }
 
 const chromeos::NetworkState* GetShillBackedNetwork(
@@ -338,6 +386,36 @@ const chromeos::NetworkState* GetShillBackedNetwork(
   // Connected Tether networks delegate to an underlying Wi-Fi network.
   DCHECK(!network->tether_guid().empty());
   return GetStateHandler()->GetNetworkStateFromGuid(network->tether_guid());
+}
+
+// Convenience helper for translating a vector of NetworkState objects to a
+// vector of mojo NetworkConfiguration objects.
+std::vector<arc::mojom::NetworkConfigurationPtr> TranslateNetworkStates(
+    const std::string& arc_vpn_path,
+    const chromeos::NetworkStateHandler::NetworkStateList& network_states) {
+  std::vector<arc::mojom::NetworkConfigurationPtr> networks;
+  for (const chromeos::NetworkState* state : network_states) {
+    const std::string& network_path = state->path();
+    if (network_path == arc_vpn_path) {
+      // Never tell Android about its own VPN.
+      continue;
+    }
+    // For tethered networks, the underlying WiFi networks are not part of
+    // active networks. Replace any such tethered network with its underlying
+    // backing network, because ARC cannot match its datapath with the tethered
+    // network configuration.
+    state = GetShillBackedNetwork(state);
+    if (!state) {
+      continue;
+    }
+    auto network = TranslateONCConfiguration(
+        state, chromeos::network_util::TranslateNetworkStateToONC(state).get());
+    network->is_default_network =
+        (network_path == GetStateHandler()->default_network_path());
+    network->service_name = network_path;
+    networks.push_back(std::move(network));
+  }
+  return networks;
 }
 
 void ForgetNetworkSuccessCallback(
@@ -458,7 +536,7 @@ ArcNetHostImpl* ArcNetHostImpl::GetForBrowserContextForTesting(
 
 ArcNetHostImpl::ArcNetHostImpl(content::BrowserContext* context,
                                ArcBridgeService* bridge_service)
-    : arc_bridge_service_(bridge_service), weak_factory_(this) {
+    : arc_bridge_service_(bridge_service) {
   arc_bridge_service_->net()->SetHost(this);
   arc_bridge_service_->net()->AddObserver(this);
 }
@@ -532,9 +610,8 @@ void ArcNetHostImpl::GetNetworks(mojom::GetNetworksRequestType type,
         kGetNetworksListLimit, &network_states);
   }
 
-  std::vector<mojom::NetworkConfigurationPtr> networks;
-  for (const chromeos::NetworkState* state : network_states)
-    networks.push_back(TranslateNetworkState(state));
+  std::vector<mojom::NetworkConfigurationPtr> networks =
+      TranslateNetworkStates(arc_vpn_service_path_, network_states);
   std::move(callback).Run(mojom::GetNetworksResponseType::New(
       arc::mojom::NetworkResult::SUCCESS, std::move(networks)));
 }
@@ -797,6 +874,14 @@ void ArcNetHostImpl::UpdateDefaultNetwork() {
 void ArcNetHostImpl::DefaultNetworkChanged(
     const chromeos::NetworkState* network) {
   UpdateDefaultNetwork();
+  UpdateActiveNetworks();
+}
+
+void ArcNetHostImpl::UpdateActiveNetworks() {
+  chromeos::NetworkStateHandler::NetworkStateList network_states;
+  GetStateHandler()->GetActiveNetworkListByType(
+      chromeos::NetworkTypePattern::Default(), &network_states);
+  ActiveNetworksChanged(network_states);
 }
 
 void ArcNetHostImpl::DeviceListChanged() {
@@ -844,7 +929,7 @@ std::unique_ptr<base::Value> ArcNetHostImpl::TranslateStringListToValue(
   std::unique_ptr<base::Value> result =
       std::make_unique<base::Value>(base::Value::Type::LIST);
   for (const auto& item : string_list) {
-    result->GetList().emplace_back(item);
+    result->Append(item);
   }
   return result;
 }
@@ -1023,10 +1108,42 @@ void ArcNetHostImpl::ActiveNetworksChanged(
   if (!net_instance)
     return;
 
-  std::vector<arc::mojom::NetworkConfigurationPtr> network_configurations;
-  for (const chromeos::NetworkState* state : active_networks)
-    network_configurations.push_back(TranslateNetworkState(state));
+  std::vector<arc::mojom::NetworkConfigurationPtr> network_configurations =
+      TranslateNetworkStates(arc_vpn_service_path_, active_networks);
+
+  // A newly connected network may not immediately have any usable IP config
+  // object if IPv4 dhcp or IPv6 autoconf have not completed yet. Schedule
+  // with a few seconds delay a forced property update for that service to
+  // ensure the IP configuration is sent to ARC. Ensure that at most one such
+  // request is scheduled for a given service.
+  for (const auto& network : network_configurations) {
+    if (!network->ip_configs->empty())
+      continue;
+
+    if (!network->service_name)
+      continue;
+
+    const std::string& path = network->service_name.value();
+    if (pending_service_property_requests_.insert(path).second) {
+      LOG(WARNING) << "No IP configuration for " << path;
+      // TODO(hugobenichi): add exponential backoff for the case when IP
+      // configuration stays unavailable.
+      base::ThreadTaskRunnerHandle::Get()->PostDelayedTask(
+          FROM_HERE,
+          base::BindOnce(&ArcNetHostImpl::RequestUpdateForNetwork,
+                         weak_factory_.GetWeakPtr(), path),
+          kNetworkPropertyUpdateDelay);
+    }
+  }
+
   net_instance->ActiveNetworksChanged(std::move(network_configurations));
+}
+
+void ArcNetHostImpl::RequestUpdateForNetwork(const std::string& service_path) {
+  // TODO(hugobenichi): skip the request if the IP configuration for this
+  // service has been received since then and ARC has been notified about it.
+  pending_service_property_requests_.erase(service_path);
+  GetStateHandler()->RequestUpdateForNetwork(service_path);
 }
 
 void ArcNetHostImpl::NetworkListChanged() {
@@ -1035,6 +1152,7 @@ void ArcNetHostImpl::NetworkListChanged() {
   // temporarily be ranked below "inferior" services.  This callback
   // informs us that shill's ordering has been updated.
   UpdateDefaultNetwork();
+  UpdateActiveNetworks();
 }
 
 void ArcNetHostImpl::OnShuttingDown() {

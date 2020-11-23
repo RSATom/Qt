@@ -35,6 +35,7 @@
 ****************************************************************************/
 
 #include "qdeclarativerectanglemapitem_p.h"
+#include "qdeclarativerectanglemapitem_p_p.h"
 #include "qdeclarativepolygonmapitem_p.h"
 #include "qlocationutils_p.h"
 #include <QPainterPath>
@@ -125,20 +126,71 @@ QT_BEGIN_NAMESPACE
     \since 5.14
 */
 
-QDeclarativeRectangleMapItem::QDeclarativeRectangleMapItem(QQuickItem *parent)
-:   QDeclarativeGeoMapItemBase(parent), border_(this), color_(Qt::transparent), dirtyMaterial_(true),
-    updatingGeometry_(false)
+struct RectangleBackendSelector
 {
+    RectangleBackendSelector()
+    {
+        backend = (qgetenv("QTLOCATION_OPENGL_ITEMS").toInt()) ? QDeclarativeRectangleMapItem::OpenGL : QDeclarativeRectangleMapItem::Software;
+    }
+    QDeclarativeRectangleMapItem::Backend backend = QDeclarativeRectangleMapItem::Software;
+};
+
+Q_GLOBAL_STATIC(RectangleBackendSelector, mapRectangleBackendSelector)
+
+QDeclarativeRectangleMapItem::QDeclarativeRectangleMapItem(QQuickItem *parent)
+:   QDeclarativeGeoMapItemBase(parent), m_border(this), m_color(Qt::transparent), m_dirtyMaterial(true),
+    m_updatingGeometry(false)
+  , m_d(new QDeclarativeRectangleMapItemPrivateCPU(*this))
+{
+    // ToDo: handle envvar, and switch implementation.
     m_itemType = QGeoMap::MapRectangle;
     setFlag(ItemHasContents, true);
-    QObject::connect(&border_, SIGNAL(colorChanged(QColor)),
-                     this, SLOT(markSourceDirtyAndUpdate()));
-    QObject::connect(&border_, SIGNAL(widthChanged(qreal)),
-                     this, SLOT(markSourceDirtyAndUpdate()));
+    QObject::connect(&m_border, SIGNAL(colorChanged(QColor)),
+                     this, SLOT(onLinePropertiesChanged()));
+    QObject::connect(&m_border, SIGNAL(widthChanged(qreal)),
+                     this, SLOT(onLinePropertiesChanged()));
+    setBackend(mapRectangleBackendSelector->backend);
 }
 
 QDeclarativeRectangleMapItem::~QDeclarativeRectangleMapItem()
 {
+}
+
+/*!
+    \qmlproperty MapRectangle.Backend QtLocation::MapRectangle::backend
+
+    This property holds which backend is in use to render the map item.
+    Valid values are \b MapRectangle.Software and \b{MapRectangle.OpenGL}.
+    The default value is \b{MapRectangle.Software}.
+
+    \note \b{The release of this API with Qt 5.15 is a Technology Preview}.
+    Ideally, as the OpenGL backends for map items mature, there will be
+    no more need to also offer the legacy software-projection backend.
+    So this property will likely disappear at some later point.
+    To select OpenGL-accelerated item backends without using this property,
+    it is also possible to set the environment variable \b QTLOCATION_OPENGL_ITEMS
+    to \b{1}.
+    Also note that all current OpenGL backends won't work as expected when enabling
+    layers on the individual item, or when running on OpenGL core profiles greater than 2.x.
+
+    \since 5.15
+*/
+QDeclarativeRectangleMapItem::Backend QDeclarativeRectangleMapItem::backend() const
+{
+    return m_backend;
+}
+
+void QDeclarativeRectangleMapItem::setBackend(QDeclarativeRectangleMapItem::Backend b)
+{
+    if (b == m_backend)
+        return;
+    m_backend = b;
+    QScopedPointer<QDeclarativeRectangleMapItemPrivate> d((m_backend == Software)
+                                                        ? static_cast<QDeclarativeRectangleMapItemPrivate *>(new QDeclarativeRectangleMapItemPrivateCPU(*this))
+                                                        : static_cast<QDeclarativeRectangleMapItemPrivate * >(new QDeclarativeRectangleMapItemPrivateOpenGL(*this)));
+    m_d.swap(d);
+    m_d->onGeoGeometryChanged();
+    emit backendChanged();
 }
 
 /*!
@@ -149,8 +201,7 @@ void QDeclarativeRectangleMapItem::setMap(QDeclarativeGeoMap *quickMap, QGeoMap 
     QDeclarativeGeoMapItemBase::setMap(quickMap,map);
     if (!map)
         return;
-    updatePath();
-    markSourceDirtyAndUpdate();
+    m_d->onMapSet();
 }
 
 /*!
@@ -167,7 +218,7 @@ void QDeclarativeRectangleMapItem::setMap(QDeclarativeGeoMap *quickMap, QGeoMap 
 */
 QDeclarativeMapLineProperties *QDeclarativeRectangleMapItem::border()
 {
-    return &border_;
+    return &m_border;
 }
 
 /*!
@@ -178,18 +229,17 @@ QDeclarativeMapLineProperties *QDeclarativeRectangleMapItem::border()
 */
 void QDeclarativeRectangleMapItem::setTopLeft(const QGeoCoordinate &topLeft)
 {
-    if (rectangle_.topLeft() == topLeft)
+    if (m_rectangle.topLeft() == topLeft)
         return;
 
-    rectangle_.setTopLeft(topLeft);
-    updatePath();
-    markSourceDirtyAndUpdate();
+    m_rectangle.setTopLeft(topLeft);
+    m_d->onGeoGeometryChanged();
     emit topLeftChanged(topLeft);
 }
 
 QGeoCoordinate QDeclarativeRectangleMapItem::topLeft()
 {
-    return rectangle_.topLeft();
+    return m_rectangle.topLeft();
 }
 
 /*!
@@ -197,9 +247,12 @@ QGeoCoordinate QDeclarativeRectangleMapItem::topLeft()
 */
 void QDeclarativeRectangleMapItem::markSourceDirtyAndUpdate()
 {
-    geometry_.markSourceDirty();
-    borderGeometry_.markSourceDirty();
-    polishAndUpdate();
+    m_d->markSourceDirtyAndUpdate();
+}
+
+void QDeclarativeRectangleMapItem::onLinePropertiesChanged()
+{
+    m_d->onLinePropertiesChanged();
 }
 
 /*!
@@ -210,18 +263,17 @@ void QDeclarativeRectangleMapItem::markSourceDirtyAndUpdate()
 */
 void QDeclarativeRectangleMapItem::setBottomRight(const QGeoCoordinate &bottomRight)
 {
-    if (rectangle_.bottomRight() == bottomRight)
+    if (m_rectangle.bottomRight() == bottomRight)
         return;
 
-    rectangle_.setBottomRight(bottomRight);
-    updatePath();
-    markSourceDirtyAndUpdate();
+    m_rectangle.setBottomRight(bottomRight);
+    m_d->onGeoGeometryChanged();
     emit bottomRightChanged(bottomRight);
 }
 
 QGeoCoordinate QDeclarativeRectangleMapItem::bottomRight()
 {
-    return rectangle_.bottomRight();
+    return m_rectangle.bottomRight();
 }
 
 /*!
@@ -232,17 +284,17 @@ QGeoCoordinate QDeclarativeRectangleMapItem::bottomRight()
 */
 QColor QDeclarativeRectangleMapItem::color() const
 {
-    return color_;
+    return m_color;
 }
 
 void QDeclarativeRectangleMapItem::setColor(const QColor &color)
 {
-    if (color_ == color)
+    if (m_color == color)
         return;
-    color_ = color;
-    dirtyMaterial_ = true;
+    m_color = color;
+    m_dirtyMaterial = true;
     polishAndUpdate();
-    emit colorChanged(color_);
+    emit colorChanged(m_color);
 }
 
 /*!
@@ -260,24 +312,7 @@ void QDeclarativeRectangleMapItem::setColor(const QColor &color)
 */
 QSGNode *QDeclarativeRectangleMapItem::updateMapItemPaintNode(QSGNode *oldNode, UpdatePaintNodeData *data)
 {
-    Q_UNUSED(data);
-
-    MapPolygonNode *node = static_cast<MapPolygonNode *>(oldNode);
-
-    if (!node) {
-        node = new MapPolygonNode();
-    }
-
-    //TODO: update only material
-    if (geometry_.isScreenDirty() || borderGeometry_.isScreenDirty() || dirtyMaterial_) {
-        node->update(color_, border_.color(), &geometry_, &borderGeometry_);
-        geometry_.setPreserveGeometry(false);
-        borderGeometry_.setPreserveGeometry(false);
-        geometry_.markClean();
-        borderGeometry_.markClean();
-        dirtyMaterial_ = false;
-    }
-    return node;
+    return m_d->updateMapItemPaintNode(oldNode, data);
 }
 
 /*!
@@ -287,55 +322,7 @@ void QDeclarativeRectangleMapItem::updatePolish()
 {
     if (!map() || map()->geoProjection().projectionType() != QGeoProjection::ProjectionWebMercator)
         return;
-    if (!topLeft().isValid() || !bottomRight().isValid()) {
-        geometry_.clear();
-        borderGeometry_.clear();
-        setWidth(0);
-        setHeight(0);
-        return;
-    }
-
-    const QGeoProjectionWebMercator &p = static_cast<const QGeoProjectionWebMercator&>(map()->geoProjection());
-
-    QScopedValueRollback<bool> rollback(updatingGeometry_);
-    updatingGeometry_ = true;
-
-    geometry_.setPreserveGeometry(true, rectangle_.topLeft());
-    geometry_.updateSourcePoints(*map(), pathMercator_);
-    geometry_.updateScreenPoints(*map(), border_.width());
-
-    QList<QGeoMapItemGeometry *> geoms;
-    geoms << &geometry_;
-    borderGeometry_.clear();
-
-    if (border_.color() != Qt::transparent && border_.width() > 0) {
-        QList<QDoubleVector2D> closedPath = pathMercator_;
-        closedPath << closedPath.first();
-
-        borderGeometry_.setPreserveGeometry(true, rectangle_.topLeft());
-        const QGeoCoordinate &geometryOrigin = geometry_.origin();
-
-        borderGeometry_.srcPoints_.clear();
-        borderGeometry_.srcPointTypes_.clear();
-
-        QDoubleVector2D borderLeftBoundWrapped;
-        QList<QList<QDoubleVector2D > > clippedPaths = borderGeometry_.clipPath(*map(), closedPath, borderLeftBoundWrapped);
-        if (clippedPaths.size()) {
-            borderLeftBoundWrapped = p.geoToWrappedMapProjection(geometryOrigin);
-            borderGeometry_.pathToScreen(*map(), clippedPaths, borderLeftBoundWrapped);
-            borderGeometry_.updateScreenPoints(*map(), border_.width());
-
-            geoms << &borderGeometry_;
-        } else {
-            borderGeometry_.clear();
-        }
-    }
-
-    QRectF combined = QGeoMapItemGeometry::translateToCommonOrigin(geoms);
-    setWidth(combined.width()  + 2 * border_.width());
-    setHeight(combined.height()  + 2 * border_.width());
-
-    setPositionOnMap(geometry_.origin(), geometry_.firstPointOffset());
+    m_d->updatePolish();
 }
 
 /*!
@@ -345,10 +332,7 @@ void QDeclarativeRectangleMapItem::afterViewportChanged(const QGeoMapViewportCha
 {
     if (event.mapSize.width() <= 0 || event.mapSize.height() <= 0)
         return;
-
-    geometry_.setPreserveGeometry(true, rectangle_.topLeft());
-    borderGeometry_.setPreserveGeometry(true, rectangle_.topLeft());
-    markSourceDirtyAndUpdate();
+    m_d->afterViewportChanged();
 }
 
 /*!
@@ -356,46 +340,29 @@ void QDeclarativeRectangleMapItem::afterViewportChanged(const QGeoMapViewportCha
 */
 bool QDeclarativeRectangleMapItem::contains(const QPointF &point) const
 {
-    return (geometry_.contains(point) || borderGeometry_.contains(point));
+    return m_d->contains(point);
 }
 
 const QGeoShape &QDeclarativeRectangleMapItem::geoShape() const
 {
-    return rectangle_;
+    return m_rectangle;
 }
 
 void QDeclarativeRectangleMapItem::setGeoShape(const QGeoShape &shape)
 {
-    if (shape == rectangle_)
+    if (shape == m_rectangle)
         return;
 
-    const QGeoRectangle rectangle = rectangle_.boundingGeoRectangle();
-    const bool tlHasChanged = rectangle.topLeft() != rectangle_.topLeft();
-    const bool brHasChanged = rectangle.bottomRight() != rectangle_.bottomRight();
-    rectangle_ = rectangle;
+    const QGeoRectangle rectangle = m_rectangle.boundingGeoRectangle();
+    const bool tlHasChanged = rectangle.topLeft() != m_rectangle.topLeft();
+    const bool brHasChanged = rectangle.bottomRight() != m_rectangle.bottomRight();
+    m_rectangle = rectangle;
 
-    updatePath();
-    markSourceDirtyAndUpdate();
+    m_d->onGeoGeometryChanged();
     if (tlHasChanged)
-        emit topLeftChanged(rectangle_.topLeft());
+        emit topLeftChanged(m_rectangle.topLeft());
     if (brHasChanged)
-        emit bottomRightChanged(rectangle_.bottomRight());
-}
-
-/*!
-    \internal
-*/
-void QDeclarativeRectangleMapItem::updatePath()
-{
-    if (!map())
-        return;
-    pathMercator_.clear();
-    pathMercator_ << QWebMercator::coordToMercator(rectangle_.topLeft());
-    pathMercator_ << QWebMercator::coordToMercator(
-                         QGeoCoordinate(rectangle_.topLeft().latitude(), rectangle_.bottomRight().longitude()));
-    pathMercator_ << QWebMercator::coordToMercator(rectangle_.bottomRight());
-    pathMercator_ << QWebMercator::coordToMercator(
-                         QGeoCoordinate(rectangle_.bottomRight().latitude(), rectangle_.topLeft().longitude()));
+        emit bottomRightChanged(m_rectangle.bottomRight());
 }
 
 /*!
@@ -403,7 +370,7 @@ void QDeclarativeRectangleMapItem::updatePath()
 */
 void QDeclarativeRectangleMapItem::geometryChanged(const QRectF &newGeometry, const QRectF &oldGeometry)
 {
-    if (!map() || !rectangle_.isValid() || updatingGeometry_ || newGeometry.topLeft() == oldGeometry.topLeft()) {
+    if (!map() || !m_rectangle.isValid() || m_updatingGeometry || newGeometry.topLeft() == oldGeometry.topLeft()) {
         QDeclarativeGeoMapItemBase::geometryChanged(newGeometry, oldGeometry);
         return;
     }
@@ -417,16 +384,19 @@ void QDeclarativeRectangleMapItem::geometryChanged(const QRectF &newGeometry, co
     if (offsetLati == 0.0 && offsetLongi == 0.0)
         return;
 
-    rectangle_.translate(offsetLati, offsetLongi);
-    updatePath();
-    geometry_.setPreserveGeometry(true, rectangle_.topLeft());
-    borderGeometry_.setPreserveGeometry(true, rectangle_.topLeft());
-    markSourceDirtyAndUpdate();
-    emit topLeftChanged(rectangle_.topLeft());
-    emit bottomRightChanged(rectangle_.bottomRight());
+    m_rectangle.translate(offsetLati, offsetLongi);
+    m_d->onItemGeometryChanged();
+    emit topLeftChanged(m_rectangle.topLeft());
+    emit bottomRightChanged(m_rectangle.bottomRight());
 
     // Not calling QDeclarativeGeoMapItemBase::geometryChanged() as it will be called from a nested
     // call to this function.
 }
+
+QDeclarativeRectangleMapItemPrivate::~QDeclarativeRectangleMapItemPrivate() {}
+
+QDeclarativeRectangleMapItemPrivateCPU::~QDeclarativeRectangleMapItemPrivateCPU() {}
+
+QDeclarativeRectangleMapItemPrivateOpenGL::~QDeclarativeRectangleMapItemPrivateOpenGL() {}
 
 QT_END_NAMESPACE

@@ -315,7 +315,7 @@ void QScriptDebuggerConsoleWidgetPrivate::_q_onCompletionTaskFinished()
 }
 
 QScriptDebuggerConsoleWidget::QScriptDebuggerConsoleWidget(QWidget *parent)
-    : QScriptDebuggerConsoleWidgetInterface(*new QScriptDebuggerConsoleWidgetPrivate, parent, 0)
+    : QScriptDebuggerConsoleWidgetInterface(*new QScriptDebuggerConsoleWidgetPrivate, parent, {})
 {
     Q_D(QScriptDebuggerConsoleWidget);
     d->commandLine = new CommandLine();

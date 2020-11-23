@@ -69,8 +69,7 @@ class PrintDataSetter : public content::WebContentsObserver {
 
  private:
   // Overridden from content::WebContentsObserver:
-  void DocumentLoadedInFrame(
-      content::RenderFrameHost* render_frame_host) override {
+  void DOMContentLoaded(content::RenderFrameHost* render_frame_host) override {
     GURL url = web_contents()->GetURL();
     if (cloud_devices::IsCloudPrintURL(url)) {
       base::string16 origin = base::UTF8ToUTF16(url.GetOrigin().spec());
@@ -130,8 +129,9 @@ void CreatePrintDialogForFile(content::BrowserContext* browser_context,
                               const base::string16& print_ticket,
                               const std::string& file_type) {
   DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
-  base::PostTaskWithTraitsAndReplyWithResult(
-      FROM_HERE, {base::MayBlock(), base::TaskPriority::USER_BLOCKING},
+  base::PostTaskAndReplyWithResult(
+      FROM_HERE,
+      {base::ThreadPool(), base::MayBlock(), base::TaskPriority::USER_BLOCKING},
       base::BindOnce(&ReadFile, path_to_file),
       base::BindOnce(&CreatePrintDialog, browser_context, print_job_title,
                      print_ticket, file_type));

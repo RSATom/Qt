@@ -67,28 +67,30 @@ DOMMatrix* DOMMatrix::CreateForSerialization(double sequence[], int size) {
 
 DOMMatrix* DOMMatrix::fromFloat32Array(NotShared<DOMFloat32Array> float32_array,
                                        ExceptionState& exception_state) {
-  if (float32_array.View()->length() != 6 &&
-      float32_array.View()->length() != 16) {
+  if (float32_array.View()->lengthAsSizeT() != 6 &&
+      float32_array.View()->lengthAsSizeT() != 16) {
     exception_state.ThrowTypeError(
         "The sequence must contain 6 elements for a 2D matrix or 16 elements "
         "for a 3D matrix.");
     return nullptr;
   }
-  return MakeGarbageCollected<DOMMatrix>(float32_array.View()->Data(),
-                                         float32_array.View()->length());
+  return MakeGarbageCollected<DOMMatrix>(
+      float32_array.View()->Data(),
+      static_cast<int>(float32_array.View()->lengthAsSizeT()));
 }
 
 DOMMatrix* DOMMatrix::fromFloat64Array(NotShared<DOMFloat64Array> float64_array,
                                        ExceptionState& exception_state) {
-  if (float64_array.View()->length() != 6 &&
-      float64_array.View()->length() != 16) {
+  if (float64_array.View()->lengthAsSizeT() != 6 &&
+      float64_array.View()->lengthAsSizeT() != 16) {
     exception_state.ThrowTypeError(
         "The sequence must contain 6 elements for a 2D matrix or 16 elements "
         "for a 3D matrix.");
     return nullptr;
   }
-  return MakeGarbageCollected<DOMMatrix>(float64_array.View()->Data(),
-                                         float64_array.View()->length());
+  return MakeGarbageCollected<DOMMatrix>(
+      float64_array.View()->Data(),
+      static_cast<int>(float64_array.View()->lengthAsSizeT()));
 }
 
 template <typename T>
@@ -126,22 +128,22 @@ void DOMMatrix::SetIs2D(bool value) {
 }
 
 void DOMMatrix::SetNAN() {
-  matrix_->SetM11(NAN);
-  matrix_->SetM12(NAN);
-  matrix_->SetM13(NAN);
-  matrix_->SetM14(NAN);
-  matrix_->SetM21(NAN);
-  matrix_->SetM22(NAN);
-  matrix_->SetM23(NAN);
-  matrix_->SetM24(NAN);
-  matrix_->SetM31(NAN);
-  matrix_->SetM32(NAN);
-  matrix_->SetM33(NAN);
-  matrix_->SetM34(NAN);
-  matrix_->SetM41(NAN);
-  matrix_->SetM42(NAN);
-  matrix_->SetM43(NAN);
-  matrix_->SetM44(NAN);
+  matrix_.SetM11(NAN);
+  matrix_.SetM12(NAN);
+  matrix_.SetM13(NAN);
+  matrix_.SetM14(NAN);
+  matrix_.SetM21(NAN);
+  matrix_.SetM22(NAN);
+  matrix_.SetM23(NAN);
+  matrix_.SetM24(NAN);
+  matrix_.SetM31(NAN);
+  matrix_.SetM32(NAN);
+  matrix_.SetM33(NAN);
+  matrix_.SetM34(NAN);
+  matrix_.SetM41(NAN);
+  matrix_.SetM42(NAN);
+  matrix_.SetM43(NAN);
+  matrix_.SetM44(NAN);
 }
 
 DOMMatrix* DOMMatrix::multiplySelf(DOMMatrixInit* other,
@@ -158,7 +160,7 @@ DOMMatrix* DOMMatrix::multiplySelf(const DOMMatrix& other_matrix) {
   if (!other_matrix.is2D())
     is2d_ = false;
 
-  *matrix_ *= other_matrix.Matrix();
+  matrix_ *= other_matrix.Matrix();
 
   return this;
 }
@@ -173,8 +175,8 @@ DOMMatrix* DOMMatrix::preMultiplySelf(DOMMatrixInit* other,
   if (!other_matrix->is2D())
     is2d_ = false;
 
-  TransformationMatrix& matrix = *matrix_;
-  *matrix_ = other_matrix->Matrix() * matrix;
+  TransformationMatrix& matrix = matrix_;
+  matrix_ = other_matrix->Matrix() * matrix;
 
   return this;
 }
@@ -187,9 +189,9 @@ DOMMatrix* DOMMatrix::translateSelf(double tx, double ty, double tz) {
     is2d_ = false;
 
   if (is2d_)
-    matrix_->Translate(tx, ty);
+    matrix_.Translate(tx, ty);
   else
-    matrix_->Translate3d(tx, ty, tz);
+    matrix_.Translate3d(tx, ty, tz);
 
   return this;
 }
@@ -216,9 +218,9 @@ DOMMatrix* DOMMatrix::scaleSelf(double sx,
     translateSelf(ox, oy, oz);
 
   if (is2d_)
-    matrix_->ScaleNonUniform(sx, sy);
+    matrix_.ScaleNonUniform(sx, sy);
   else
-    matrix_->Scale3d(sx, sy, sz);
+    matrix_.Scale3d(sx, sy, sz);
 
   if (has_translation)
     translateSelf(-ox, -oy, -oz);
@@ -243,15 +245,15 @@ DOMMatrix* DOMMatrix::rotateSelf(double rot_x, double rot_y) {
 
 DOMMatrix* DOMMatrix::rotateSelf(double rot_x, double rot_y, double rot_z) {
   if (rot_z)
-    matrix_->Rotate3d(0, 0, 1, rot_z);
+    matrix_.Rotate3d(0, 0, 1, rot_z);
 
   if (rot_y) {
-    matrix_->Rotate3d(0, 1, 0, rot_y);
+    matrix_.Rotate3d(0, 1, 0, rot_y);
     is2d_ = false;
   }
 
   if (rot_x) {
-    matrix_->Rotate3d(1, 0, 0, rot_x);
+    matrix_.Rotate3d(1, 0, 0, rot_x);
     is2d_ = false;
   }
 
@@ -259,7 +261,7 @@ DOMMatrix* DOMMatrix::rotateSelf(double rot_x, double rot_y, double rot_z) {
 }
 
 DOMMatrix* DOMMatrix::rotateFromVectorSelf(double x, double y) {
-  matrix_->Rotate(rad2deg(atan2(y, x)));
+  matrix_.Rotate(rad2deg(atan2(y, x)));
   return this;
 }
 
@@ -267,7 +269,7 @@ DOMMatrix* DOMMatrix::rotateAxisAngleSelf(double x,
                                           double y,
                                           double z,
                                           double angle) {
-  matrix_->Rotate3d(x, y, z, angle);
+  matrix_.Rotate3d(x, y, z, angle);
 
   if (x != 0 || y != 0)
     is2d_ = false;
@@ -276,30 +278,30 @@ DOMMatrix* DOMMatrix::rotateAxisAngleSelf(double x,
 }
 
 DOMMatrix* DOMMatrix::skewXSelf(double sx) {
-  matrix_->SkewX(sx);
+  matrix_.SkewX(sx);
   return this;
 }
 
 DOMMatrix* DOMMatrix::skewYSelf(double sy) {
-  matrix_->SkewY(sy);
+  matrix_.SkewY(sy);
   return this;
 }
 
 DOMMatrix* DOMMatrix::perspectiveSelf(double p) {
-  matrix_->ApplyPerspective(p);
+  matrix_.ApplyPerspective(p);
   return this;
 }
 
 DOMMatrix* DOMMatrix::invertSelf() {
   if (is2d_) {
-    AffineTransform affine_transform = matrix_->ToAffineTransform();
+    AffineTransform affine_transform = matrix_.ToAffineTransform();
     if (affine_transform.IsInvertible()) {
-      *matrix_ = affine_transform.Inverse();
+      matrix_ = affine_transform.Inverse();
       return this;
     }
   } else {
-    if (matrix_->IsInvertible()) {
-      *matrix_ = matrix_->Inverse();
+    if (matrix_.IsInvertible()) {
+      matrix_ = matrix_.Inverse();
       return this;
     }
   }

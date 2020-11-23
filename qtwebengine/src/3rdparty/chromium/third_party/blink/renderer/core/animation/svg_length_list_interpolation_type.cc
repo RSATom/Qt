@@ -10,6 +10,7 @@
 #include "third_party/blink/renderer/core/animation/svg_interpolation_environment.h"
 #include "third_party/blink/renderer/core/animation/svg_length_interpolation_type.h"
 #include "third_party/blink/renderer/core/animation/underlying_length_checker.h"
+#include "third_party/blink/renderer/core/svg/svg_element.h"
 #include "third_party/blink/renderer/core/svg/svg_length_list.h"
 #include "third_party/blink/renderer/platform/heap/heap.h"
 
@@ -41,7 +42,9 @@ InterpolationValue SVGLengthListInterpolationType::MaybeConvertSVGValue(
   auto result = std::make_unique<InterpolableList>(length_list.length());
   for (wtf_size_t i = 0; i < length_list.length(); i++) {
     InterpolationValue component =
-        SVGLengthInterpolationType::ConvertSVGLength(*length_list.at(i));
+        SVGLengthInterpolationType::MaybeConvertSVGLength(*length_list.at(i));
+    if (!component)
+      return nullptr;
     result->Set(i, std::move(component.interpolable_value));
   }
   return InterpolationValue(std::move(result));

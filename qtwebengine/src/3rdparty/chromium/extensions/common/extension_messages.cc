@@ -61,7 +61,8 @@ ExtensionMsg_Loaded_Params::~ExtensionMsg_Loaded_Params() {}
 
 ExtensionMsg_Loaded_Params::ExtensionMsg_Loaded_Params(
     const Extension* extension,
-    bool include_tab_permissions)
+    bool include_tab_permissions,
+    base::Optional<int> worker_activation_sequence)
     : manifest(static_cast<base::DictionaryValue&&>(
           extension->manifest()->value()->Clone())),
       location(extension->location()),
@@ -76,6 +77,7 @@ ExtensionMsg_Loaded_Params::ExtensionMsg_Loaded_Params(
       uses_default_policy_blocked_allowed_hosts(
           extension->permissions_data()->UsesDefaultPolicyHostRestrictions()),
       id(extension->id()),
+      worker_activation_sequence(worker_activation_sequence),
       creation_flags(extension->creation_flags()) {
   if (include_tab_permissions) {
     for (const auto& pair :
@@ -139,10 +141,7 @@ bool ParamTraits<URLPattern>::Read(const base::Pickle* m,
   // schemes after parsing the pattern. Update these method calls once we can
   // ignore scheme validation with URLPattern parse options. crbug.com/90544
   p->SetValidSchemes(URLPattern::SCHEME_ALL);
-  // Allow effective TLD wildcarding since this check is only needed on initial
-  // creation of URLPattern and not as part of deserialization.
-  URLPattern::ParseResult result =
-      p->Parse(spec, URLPattern::ALLOW_WILDCARD_FOR_EFFECTIVE_TLD);
+  URLPattern::ParseResult result = p->Parse(spec);
   p->SetValidSchemes(valid_schemes);
   return URLPattern::ParseResult::kSuccess == result;
 }
@@ -330,6 +329,7 @@ void ParamTraits<ExtensionMsg_Loaded_Params>::Write(base::Pickle* m,
   WriteParam(m, p.policy_blocked_hosts);
   WriteParam(m, p.policy_allowed_hosts);
   WriteParam(m, p.uses_default_policy_blocked_allowed_hosts);
+  WriteParam(m, p.worker_activation_sequence);
 }
 
 bool ParamTraits<ExtensionMsg_Loaded_Params>::Read(const base::Pickle* m,
@@ -344,7 +344,8 @@ bool ParamTraits<ExtensionMsg_Loaded_Params>::Read(const base::Pickle* m,
          ReadParam(m, iter, &p->tab_specific_permissions) &&
          ReadParam(m, iter, &p->policy_blocked_hosts) &&
          ReadParam(m, iter, &p->policy_allowed_hosts) &&
-         ReadParam(m, iter, &p->uses_default_policy_blocked_allowed_hosts);
+         ReadParam(m, iter, &p->uses_default_policy_blocked_allowed_hosts) &&
+         ReadParam(m, iter, &p->worker_activation_sequence);
 }
 
 void ParamTraits<ExtensionMsg_Loaded_Params>::Log(const param_type& p,

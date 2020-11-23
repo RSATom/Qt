@@ -56,9 +56,8 @@
 //! [1]
 int main(int argc, char **argv)
 {
+    QGuiApplication::setAttribute(Qt::AA_EnableHighDpiScaling);
     QGuiApplication app(argc, argv);
-
-    qmlRegisterType<BezierCurve>("CustomGeometry", 1, 0, "BezierCurve");
 
     QQuickView view;
     QSurfaceFormat format = view.format();

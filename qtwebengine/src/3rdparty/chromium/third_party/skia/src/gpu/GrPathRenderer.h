@@ -28,9 +28,9 @@ class SkMatrix;
 class SkPath;
 
 /**
- *  Base class for drawing paths into a GrOpList.
+ *  Base class for drawing paths into a GrOpsTask.
  */
-class SK_API GrPathRenderer : public SkRefCnt {
+class GrPathRenderer : public SkRefCnt {
 public:
     GrPathRenderer();
 
@@ -173,8 +173,7 @@ protected:
     // Helper for getting the device bounds of a path. Inverse filled paths will have bounds set
     // by devSize. Non-inverse path bounds will not necessarily be clipped to devSize.
     static void GetPathDevBounds(const SkPath& path,
-                                 int devW,
-                                 int devH,
+                                 SkISize devSize,
                                  const SkMatrix& matrix,
                                  SkRect* bounds);
 

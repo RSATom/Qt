@@ -32,12 +32,11 @@ WorkerScheduler::WorkerScheduler(WorkerThreadScheduler* worker_thread_scheduler,
       unpausable_task_queue_(
           worker_thread_scheduler->CreateTaskQueue("worker_unpausable_tq")),
       thread_scheduler_(worker_thread_scheduler) {
-  task_runners_.insert(
-      std::make_pair(throttleable_task_queue_,
-                     throttleable_task_queue_->CreateQueueEnabledVoter()));
-  task_runners_.insert(std::make_pair(
-      pausable_task_queue_, pausable_task_queue_->CreateQueueEnabledVoter()));
-  task_runners_.insert(std::make_pair(unpausable_task_queue_, nullptr));
+  task_runners_.emplace(throttleable_task_queue_,
+                        throttleable_task_queue_->CreateQueueEnabledVoter());
+  task_runners_.emplace(pausable_task_queue_,
+                        pausable_task_queue_->CreateQueueEnabledVoter());
+  task_runners_.emplace(unpausable_task_queue_, nullptr);
 
   thread_scheduler_->RegisterWorkerScheduler(this);
 
@@ -170,7 +169,7 @@ scoped_refptr<base::SingleThreadTaskRunner> WorkerScheduler::GetTaskRunner(
     case TaskType::kInternalMediaRealTime:
     case TaskType::kInternalUserInteraction:
     case TaskType::kInternalIntersectionObserver:
-    case TaskType::kInternalFreezableIPC:
+    case TaskType::kInternalNavigationAssociated:
     case TaskType::kInternalContinueScriptLoading:
       // UnthrottledTaskRunner is generally discouraged in future.
       // TODO(nhiroki): Identify which tasks can be throttled / suspendable and
@@ -178,10 +177,9 @@ scoped_refptr<base::SingleThreadTaskRunner> WorkerScheduler::GetTaskRunner(
       // Get(LocalFrame). (https://crbug.com/670534)
       return pausable_task_queue_->CreateTaskRunner(type);
     case TaskType::kDeprecatedNone:
-    case TaskType::kInternalIPC:
     case TaskType::kInternalInspector:
     case TaskType::kInternalTest:
-    case TaskType::kInternalNavigationAssociated:
+    case TaskType::kInternalNavigationAssociatedUnfreezable:
       // kWebLocks can be frozen if for entire page, but not for individual
       // frames. See https://crrev.com/c/1687716
     case TaskType::kWebLocks:
@@ -207,6 +205,8 @@ scoped_refptr<base::SingleThreadTaskRunner> WorkerScheduler::GetTaskRunner(
     case TaskType::kInternalTranslation:
     case TaskType::kServiceWorkerClientMessage:
     case TaskType::kInternalContentCapture:
+    case TaskType::kExperimentalWebScheduling:
+    case TaskType::kInternalFrameLifecycleControl:
     case TaskType::kCount:
       NOTREACHED();
       break;

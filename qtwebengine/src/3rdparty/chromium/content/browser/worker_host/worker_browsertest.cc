@@ -36,7 +36,6 @@
 #include "net/test/embedded_test_server/embedded_test_server.h"
 #include "net/test/spawned_test_server/spawned_test_server.h"
 #include "net/test/test_data_directory.h"
-#include "services/network/public/cpp/features.h"
 #include "url/gurl.h"
 
 namespace content {
@@ -89,7 +88,7 @@ class WorkerTest : public ContentBrowserTest {
     const base::string16 fail_title = base::ASCIIToUTF16("FAIL");
     TitleWatcher title_watcher(window->web_contents(), ok_title);
     title_watcher.AlsoWaitForTitle(fail_title);
-    NavigateToURL(window, url);
+    EXPECT_TRUE(NavigateToURL(window, url));
     base::string16 final_title = title_watcher.WaitAndGetTitle();
     EXPECT_EQ(expect_failure ? fail_title : ok_title, final_title);
   }
@@ -100,8 +99,7 @@ class WorkerTest : public ContentBrowserTest {
 
   static void QuitUIMessageLoop(base::OnceClosure callback,
                                 bool is_main_frame /* unused */) {
-    base::PostTaskWithTraits(FROM_HERE, {BrowserThread::UI},
-                             std::move(callback));
+    base::PostTask(FROM_HERE, {BrowserThread::UI}, std::move(callback));
   }
 
   void NavigateAndWaitForAuth(const GURL& url) {
@@ -254,7 +252,7 @@ IN_PROC_BROWSER_TEST_F(WorkerTest, WebSocketSharedWorker) {
   Shell* window = shell();
   const base::string16 expected_title = base::ASCIIToUTF16("OK");
   TitleWatcher title_watcher(window->web_contents(), expected_title);
-  NavigateToURL(window, url);
+  EXPECT_TRUE(NavigateToURL(window, url));
   base::string16 final_title = title_watcher.WaitAndGetTitle();
   EXPECT_EQ(expected_title, final_title);
 }
@@ -277,12 +275,7 @@ IN_PROC_BROWSER_TEST_F(WorkerTest,
 
 // Tests the value of |request_initiator| for shared worker resources.
 IN_PROC_BROWSER_TEST_F(WorkerTest, VerifyInitiatorSharedWorker) {
-  // TODO(cammie): Remove the condition that network service must be
-  // enabled once it is enabled on all platforms?
-  // The main body of the test won't currently work unless network service
-  // is enabled (e.g. not on cast-shell-linux as of 2019/04).
-  if (!SupportsSharedWorker() ||
-      !base::FeatureList::IsEnabled(network::features::kNetworkService))
+  if (!SupportsSharedWorker())
     return;
 
   const GURL start_url(embedded_test_server()->GetURL("/frame_tree/top.html"));
@@ -315,7 +308,6 @@ IN_PROC_BROWSER_TEST_F(WorkerTest, VerifyInitiatorSharedWorker) {
       [&](URLLoaderInterceptor::RequestParams* params) {
         auto it = expected_request_urls.find(params->url_request.url);
         if (it != expected_request_urls.end()) {
-          EXPECT_FALSE(params->url_request.top_frame_origin.has_value());
           EXPECT_TRUE(params->url_request.request_initiator.has_value());
           EXPECT_EQ(expected_origin,
                     params->url_request.request_initiator.value());

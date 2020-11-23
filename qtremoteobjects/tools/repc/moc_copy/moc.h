@@ -215,7 +215,6 @@ public:
     QMap<QString, QJsonArray> metaArgs;
 
     void parse();
-    void generate(FILE *out);
 
     bool parseClassHead(ClassDef *def);
     inline bool inClass(const ClassDef *def) const {

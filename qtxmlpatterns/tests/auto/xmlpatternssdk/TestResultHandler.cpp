@@ -41,10 +41,8 @@ TestResultHandler::TestResultHandler()
     m_comments.reserve(1000); /* Comments are only used for stuff that crash, more or less. */
 }
 
-bool TestResultHandler::startElement(const QString &namespaceURI,
-                                     const QString &localName,
-                                     const QString &,
-                                     const QXmlAttributes &atts)
+bool TestResultHandler::startElement(const QStringRef &namespaceURI, const QStringRef &localName,
+                                     const QStringRef &, const QXmlStreamAttributes &atts)
 {
     /* We only care about 'test-case', ignore everything else. */
     if(localName != QLatin1String("test-case") ||
@@ -55,12 +53,13 @@ bool TestResultHandler::startElement(const QString &namespaceURI,
     Q_ASSERT_X(atts.count() == 2 || atts.count() == 3, Q_FUNC_INFO,
                "The input appears to not conform to XQTSResult.xsd");
 
-    Q_ASSERT_X(!m_result.contains(atts.value(QLatin1String("name"))),
-               Q_FUNC_INFO,
+    Q_ASSERT_X(!m_result.contains(atts.value(QLatin1String("name")).toString()), Q_FUNC_INFO,
                qPrintable(QString::fromLatin1("A test result for test case %1 has "
-                                              "already been read(duplicate entry it seems).").arg(atts.value(QLatin1String("name")))));
+                                              "already been read(duplicate entry it seems).")
+                                  .arg(atts.value(QLatin1String("name")))));
 
-    m_result.insert(atts.value(0), TestResult::statusFromString(atts.value(QLatin1String("result"))));
+    m_result.insert(atts.at(0).value().toString(),
+                    TestResult::statusFromString(atts.value(QLatin1String("result")).toString()));
 
     return true;
 }

@@ -19,19 +19,17 @@
 #include "components/network_session_configurator/common/network_switches.h"
 #include "content/browser/browser_child_process_host_impl.h"
 #include "content/browser/renderer_host/render_process_host_impl.h"
-#include "content/browser/service_manager/service_manager_context.h"
+#include "content/browser/v8_snapshot_files.h"
 #include "content/common/child_process_host_impl.h"
 #include "content/common/in_process_child_thread_params.h"
-#include "content/common/service_manager/child_connection.h"
 #include "content/public/browser/browser_task_traits.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/content_browser_client.h"
+#include "content/public/common/content_client.h"
 #include "content/public/common/content_features.h"
 #include "content/public/common/content_switches.h"
 #include "content/public/common/process_type.h"
 #include "content/public/common/sandboxed_process_launcher_delegate.h"
-#include "content/public/common/service_manager_connection.h"
-#include "content/public/common/service_names.mojom.h"
 #include "media/base/media_switches.h"
 #include "media/webrtc/webrtc_switches.h"
 #include "services/network/public/cpp/network_switches.h"
@@ -219,13 +217,13 @@ UtilityProcessHost::UtilityProcessHost(std::unique_ptr<Client> client)
       started_(false),
       name_(base::ASCIIToUTF16("utility process")),
       client_(std::move(client)) {
-  process_.reset(new BrowserChildProcessHostImpl(PROCESS_TYPE_UTILITY, this,
-                                                 mojom::kUtilityServiceName));
+  process_.reset(new BrowserChildProcessHostImpl(
+      PROCESS_TYPE_UTILITY, this, ChildProcessHost::IpcMode::kNormal));
 }
 
 UtilityProcessHost::~UtilityProcessHost() {
   DCHECK_CURRENTLY_ON(BrowserThread::IO);
-  if (client_ && !in_process_thread_)
+  if (client_ && launch_state_ == LaunchState::kLaunchComplete)
     client_->OnProcessTerminatedNormally();
 }
 
@@ -260,13 +258,6 @@ bool UtilityProcessHost::Start() {
   return StartProcess();
 }
 
-void UtilityProcessHost::BindInterface(
-    const std::string& interface_name,
-    mojo::ScopedMessagePipeHandle interface_pipe) {
-  process_->child_connection()->BindInterface(interface_name,
-                                              std::move(interface_pipe));
-}
-
 void UtilityProcessHost::RunService(
     const std::string& service_name,
     mojo::PendingReceiver<service_manager::mojom::Service> receiver,
@@ -298,6 +289,11 @@ void UtilityProcessHost::SetServiceIdentity(
   service_identity_ = identity;
 }
 
+void UtilityProcessHost::SetExtraCommandLineSwitches(
+    std::vector<std::string> switches) {
+  extra_switches_ = std::move(switches);
+}
+
 mojom::ChildProcess* UtilityProcessHost::GetChildProcess() {
   return static_cast<ChildProcessHostImpl*>(process_->GetHost())
       ->child_process();
@@ -318,9 +314,8 @@ bool UtilityProcessHost::StartProcess() {
     // support single process mode this way.
     in_process_thread_.reset(
         g_utility_main_thread_factory(InProcessChildThreadParams(
-            base::CreateSingleThreadTaskRunnerWithTraits({BrowserThread::IO}),
-            process_->GetInProcessMojoInvitation(),
-            process_->child_connection()->service_token())));
+            base::CreateSingleThreadTaskRunner({BrowserThread::IO}),
+            process_->GetInProcessMojoInvitation())));
     in_process_thread_->Start();
   } else {
     const base::CommandLine& browser_command_line =
@@ -382,9 +377,9 @@ bool UtilityProcessHost::StartProcess() {
       network::switches::kIgnoreUrlFetcherCertRequests,
       network::switches::kLogNetLog,
       network::switches::kNetLogCaptureMode,
-      network::switches::kNoReferrers,
       network::switches::kExplicitlyAllowedPorts,
       service_manager::switches::kNoSandbox,
+      service_manager::switches::kEnableAudioServiceSandbox,
 #if defined(OS_MACOSX)
       service_manager::switches::kEnableSandboxLogging,
       os_crypt::switches::kUseMockKeychain,
@@ -411,11 +406,13 @@ bool UtilityProcessHost::StartProcess() {
 #if defined(OS_ANDROID)
       switches::kEnableReachedCodeProfiler,
 #endif
+      switches::kEnableExperimentalWebPlatformFeatures,
       // These flags are used by the audio service:
       switches::kAudioBufferSize,
       switches::kAudioServiceQuitTimeoutMs,
       switches::kDisableAudioOutput,
       switches::kFailAudioStreamCreation,
+      switches::kForceDisableWebRtcApmInAudioService,
       switches::kMuteAudio,
       switches::kUseFileForFakeAudioCapture,
       switches::kAgcStartupMinVolume,
@@ -424,11 +421,15 @@ bool UtilityProcessHost::StartProcess() {
       switches::kAlsaOutputDevice,
 #endif
 #if defined(OS_WIN)
+      switches::kDisableHighResTimer,
       switches::kEnableExclusiveAudio,
       switches::kForceWaveAudio,
       switches::kTrySupportedChannelLayouts,
       switches::kWaveOutBuffers,
       service_manager::switches::kAddXrAppContainerCaps,
+#endif
+#if defined(TOOLKIT_QT)
+      service_manager::switches::kApplicationName,
 #endif
     };
     cmd_line->CopySwitchesFrom(browser_command_line, kSwitchNames,
@@ -450,10 +451,14 @@ bool UtilityProcessHost::StartProcess() {
           *service_identity_, cmd_line.get());
     }
 
+    for (const auto& extra_switch : extra_switches_)
+      cmd_line->AppendSwitch(extra_switch);
+
     std::unique_ptr<UtilitySandboxedProcessLauncherDelegate> delegate =
         std::make_unique<UtilitySandboxedProcessLauncherDelegate>(
             sandbox_type_, env_, *cmd_line);
-    process_->Launch(std::move(delegate), std::move(cmd_line), true);
+    process_->LaunchWithPreloadedFiles(std::move(delegate), std::move(cmd_line),
+                                       GetV8SnapshotFilesToPreload(), true);
   }
 
   return true;
@@ -496,6 +501,12 @@ void UtilityProcessHost::OnProcessCrashed(int exit_code) {
   }
 #endif
   client->OnProcessCrashed();
+}
+
+base::Optional<std::string> UtilityProcessHost::GetServiceName() {
+  if (!service_identity_)
+    return metrics_name_;
+  return service_identity_->name();
 }
 
 }  // namespace content

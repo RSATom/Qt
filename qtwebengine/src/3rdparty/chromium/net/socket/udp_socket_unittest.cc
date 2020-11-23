@@ -30,7 +30,7 @@
 #include "net/socket/udp_client_socket.h"
 #include "net/socket/udp_server_socket.h"
 #include "net/test/gtest_util.h"
-#include "net/test/test_with_scoped_task_environment.h"
+#include "net/test/test_with_task_environment.h"
 #include "net/traffic_annotation/network_traffic_annotation_test_helper.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
@@ -67,7 +67,7 @@ bool CreateUDPAddress(const std::string& ip_str,
   return true;
 }
 
-class UDPSocketTest : public PlatformTest, public WithScopedTaskEnvironment {
+class UDPSocketTest : public PlatformTest, public WithTaskEnvironment {
  public:
   UDPSocketTest() : buffer_(base::MakeRefCounted<IOBufferWithSize>(kMaxRead)) {}
 
@@ -161,7 +161,7 @@ void UDPSocketTest::ConnectTest(bool use_nonblocking_io) {
 
   // Setup the server to listen.
   IPEndPoint server_address(IPAddress::IPv4Localhost(), 0 /* port */);
-  TestNetLog server_log;
+  RecordingTestNetLog server_log;
   std::unique_ptr<UDPServerSocket> server(
       new UDPServerSocket(&server_log, NetLogSource()));
   if (use_nonblocking_io)
@@ -172,7 +172,7 @@ void UDPSocketTest::ConnectTest(bool use_nonblocking_io) {
   ASSERT_THAT(server->GetLocalAddress(&server_address), IsOk());
 
   // Setup the client.
-  TestNetLog client_log;
+  RecordingTestNetLog client_log;
   auto client = std::make_unique<UDPClientSocket>(DatagramSocket::DEFAULT_BIND,
                                                   &client_log, NetLogSource());
   if (use_nonblocking_io)
@@ -199,9 +199,9 @@ void UDPSocketTest::ConnectTest(bool use_nonblocking_io) {
   // Test asynchronous read. Server waits for message.
   base::RunLoop run_loop;
   int read_result = 0;
-  int rv = server->RecvFrom(
-      buffer_.get(), kMaxRead, &recv_from_address_,
-      base::Bind(&ReadCompleteCallback, &read_result, run_loop.QuitClosure()));
+  int rv = server->RecvFrom(buffer_.get(), kMaxRead, &recv_from_address_,
+                            base::BindOnce(&ReadCompleteCallback, &read_result,
+                                           run_loop.QuitClosure()));
   EXPECT_THAT(rv, IsError(ERR_IO_PENDING));
 
   // Client sends to the server.
@@ -325,7 +325,7 @@ TEST_F(UDPSocketTest, MAYBE_LocalBroadcast) {
   IPEndPoint listen_address;
   ASSERT_TRUE(CreateUDPAddress("0.0.0.0", 0 /* port */, &listen_address));
 
-  TestNetLog server1_log, server2_log;
+  RecordingTestNetLog server1_log, server2_log;
   std::unique_ptr<UDPServerSocket> server1(
       new UDPServerSocket(&server1_log, NetLogSource()));
   std::unique_ptr<UDPServerSocket> server2(
@@ -1051,7 +1051,7 @@ TEST_F(UDPSocketTest, SendToCallsApisAfterDeferredInit) {
   EXPECT_CALL(api, CloseHandle(kFakeHandle1));
 }
 
-class DscpManagerTest : public TestWithScopedTaskEnvironment {
+class DscpManagerTest : public TestWithTaskEnvironment {
  protected:
   DscpManagerTest() {
     EXPECT_CALL(api_, qwave_supported()).WillRepeatedly(Return(true));

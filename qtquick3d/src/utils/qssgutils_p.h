@@ -44,7 +44,6 @@
 
 #include <QtQuick3DUtils/private/qtquick3dutilsglobal_p.h>
 #include <QtQuick3DUtils/private/qssgdataref_p.h>
-#include <QtQuick3DUtils/private/qssgrendereulerangles_p.h>
 
 #include <QtGui/QVector2D>
 #include <QtGui/QVector3D>
@@ -56,6 +55,7 @@
 #include <QtCore/QString>
 #include <QtCore/qloggingcategory.h>
 #include <QtCore/QIODevice>
+#include <QtCore/qmath.h>
 
 QT_BEGIN_NAMESPACE
 
@@ -94,7 +94,6 @@ QVector4D Q_QUICK3DUTILS_EXPORT rotate(const QMatrix4x4 &m, const QVector4D &v);
 QVector3D Q_QUICK3DUTILS_EXPORT transform(const QMatrix4x4 &m, const QVector3D &v);
 QVector4D Q_QUICK3DUTILS_EXPORT transform(const QMatrix4x4 &m, const QVector4D &v);
 QVector3D Q_QUICK3DUTILS_EXPORT getPosition(const QMatrix4x4 &m);
-QVector3D Q_QUICK3DUTILS_EXPORT getRotation(const QMatrix4x4 &m, EulerOrder order);
 QVector3D Q_QUICK3DUTILS_EXPORT getScale(const QMatrix4x4 &m);
 
 inline void flip(QMatrix4x4 &matrix)
@@ -134,11 +133,6 @@ QSSGDataRef<TDataType> PtrAtOffset(quint8 *baseData, quint32 offset, quint32 byt
 }
 
 Q_QUICK3DUTILS_EXPORT const char *nonNull(const char *src);
-
-Q_QUICK3DUTILS_EXPORT float radToDeg(const float a);
-Q_QUICK3DUTILS_EXPORT double radToDeg(const double a);
-Q_QUICK3DUTILS_EXPORT float degToRad(const float a);
-Q_QUICK3DUTILS_EXPORT double degToRad(const double a);
 
 inline QVector3D degToRad(const QVector3D &v) {
     return QVector3D(qDegreesToRadians(v.x()), qDegreesToRadians(v.y()), qDegreesToRadians(v.z()));

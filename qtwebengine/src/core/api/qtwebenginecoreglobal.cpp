@@ -40,23 +40,25 @@
 #include "qtwebenginecoreglobal_p.h"
 
 #include <QGuiApplication>
-#ifndef QT_NO_OPENGL
+#if QT_CONFIG(opengl)
 # include <QOpenGLContext>
 #ifdef Q_OS_MACOS
 #include <sys/types.h>
 #include <sys/sysctl.h>
+#include <QOffscreenSurface>
+#include "macos_context_type_helper.h"
 #endif
 #endif
 #include <QThread>
 
-#ifndef QT_NO_OPENGL
+#if QT_CONFIG(opengl)
 QT_BEGIN_NAMESPACE
 Q_GUI_EXPORT void qt_gl_set_global_share_context(QOpenGLContext *context);
 Q_GUI_EXPORT QOpenGLContext *qt_gl_global_share_context();
 QT_END_NAMESPACE
 #endif
 
-#ifndef QT_NO_OPENGL
+#if QT_CONFIG(opengl)
 #ifdef Q_OS_MACOS
 static bool needsOfflineRendererWorkaround()
 {
@@ -75,7 +77,7 @@ static bool needsOfflineRendererWorkaround()
 #endif
 
 namespace QtWebEngineCore {
-#ifndef QT_NO_OPENGL
+#if QT_CONFIG(opengl)
 static QOpenGLContext *shareContext;
 
 static void deleteShareContext()
@@ -94,7 +96,7 @@ static void deleteShareContext()
 
 Q_WEBENGINECORE_PRIVATE_EXPORT void initialize()
 {
-#ifndef QT_NO_OPENGL
+#if QT_CONFIG(opengl)
 #ifdef Q_OS_WIN32
     qputenv("QT_D3DCREATE_MULTITHREADED", "1");
 #endif
@@ -127,6 +129,52 @@ Q_WEBENGINECORE_PRIVATE_EXPORT void initialize()
     shareContext = new QOpenGLContext;
     QSurfaceFormat format = QSurfaceFormat::defaultFormat();
 //     format.setOption(QSurfaceFormat::ResetNotification);
+
+#ifdef Q_OS_MACOS
+    if (format == QSurfaceFormat()) {
+        QOpenGLContext testContext;
+
+        // Chromium turns off OpenGL for CoreProfiles with versions < 4.1
+        // The newest Mac that only supports 3.3 was released in Mid 2011,
+        // so it should be safe to request 4.1, but we still double check it
+        // works in order not to set an invalid default surface format.
+        format.setVersion(4, 1);
+        format.setProfile(QSurfaceFormat::CoreProfile);
+
+        testContext.setFormat(format);
+        if (testContext.create()) {
+            QOffscreenSurface surface;
+            surface.setFormat(format);
+            surface.create();
+
+            if (testContext.makeCurrent(&surface)) {
+               // The Cocoa QPA integration allows sharing between OpenGL 3.2 and 4.1 contexts,
+               // which means even though we requested a 4.1 context, if we only get a 3.2 context,
+               // it will still work an Chromium will not black list it.
+               if (testContext.format().version() >= qMakePair(3, 2) &&
+                   testContext.format().profile() == QSurfaceFormat::CoreProfile &&
+                   !isCurrentContextSoftware()) {
+                   QSurfaceFormat::setDefaultFormat(format);
+               } else {
+                   qWarning("The available OpenGL surface format was either not version 3.2 or higher or not a Core Profile.\n"
+                            "Chromium on macOS will fall back to software rendering in this case.\n"
+                            "Hardware acceleration and features such as WebGL will not be available.");
+                   format = QSurfaceFormat::defaultFormat();
+               }
+               testContext.doneCurrent();
+            }
+            surface.destroy();
+        }
+    } else {
+        // The user explicitly requested a specific surface format that does not fit Chromium's requirements. Warn them about this.
+        if (format.version() < qMakePair(3,2) || format.profile() != QSurfaceFormat::CoreProfile) {
+            qWarning("An OpenGL surfcace format was requested that is either not version 3.2 or higher or a not Core Profile.\n"
+                    "Chromium on macOS will fall back to software rendering in this case.\n"
+                    "Hardware acceleration and features such as WebGL will not be available.");
+        }
+    }
+#endif
+
     shareContext->setFormat(format);
     shareContext->create();
     qAddPostRoutine(deleteShareContext);
@@ -134,6 +182,6 @@ Q_WEBENGINECORE_PRIVATE_EXPORT void initialize()
 
     // Classes like QOpenGLWidget check for the attribute
     app->setAttribute(Qt::AA_ShareOpenGLContexts);
-#endif // QT_NO_OPENGL
+#endif // QT_CONFIG(opengl)
 }
 } // namespace QtWebEngineCore

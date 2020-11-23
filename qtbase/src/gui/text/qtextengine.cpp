@@ -72,7 +72,7 @@ public:
         : m_string(string),
         m_analysis(analysis),
         m_items(items),
-        m_splitter(0)
+        m_splitter(nullptr)
     {
     }
     ~Itemizer()
@@ -138,7 +138,7 @@ private:
         if (!m_splitter)
             m_splitter = new QTextBoundaryFinder(QTextBoundaryFinder::Word,
                                                  m_string.constData(), m_string.length(),
-                                                 /*buffer*/0, /*buffer size*/0);
+                                                 /*buffer*/nullptr, /*buffer size*/0);
 
         m_splitter->setPosition(start);
         QScriptAnalysis itemAnalysis = m_analysis[start];
@@ -1358,6 +1358,37 @@ void QTextEngine::shapeLine(const QScriptLine &line)
 extern bool qt_useHarfbuzzNG(); // defined in qfontengine.cpp
 #endif
 
+static void applyVisibilityRules(ushort ucs, QGlyphLayout *glyphs, uint glyphPosition, QFontEngine *fontEngine)
+{
+    // hide characters that should normally be invisible
+    switch (ucs) {
+    case QChar::LineFeed:
+    case 0x000c: // FormFeed
+    case QChar::CarriageReturn:
+    case QChar::LineSeparator:
+    case QChar::ParagraphSeparator:
+        glyphs->attributes[glyphPosition].dontPrint = true;
+        break;
+    case QChar::SoftHyphen:
+        if (!fontEngine->symbol) {
+            // U+00AD [SOFT HYPHEN] is a default ignorable codepoint,
+            // so we replace its glyph and metrics with ones for
+            // U+002D [HYPHEN-MINUS] and make it visible if it appears at line-break
+            const uint engineIndex = glyphs->glyphs[glyphPosition] & 0xff000000;
+            glyphs->glyphs[glyphPosition] = fontEngine->glyphIndex('-');
+            if (Q_LIKELY(glyphs->glyphs[glyphPosition] != 0)) {
+                glyphs->glyphs[glyphPosition] |= engineIndex;
+                QGlyphLayout tmp = glyphs->mid(glyphPosition, 1);
+                fontEngine->recalcAdvances(&tmp, { });
+            }
+            glyphs->attributes[glyphPosition].dontPrint = true;
+        }
+        break;
+    default:
+        break;
+    }
+}
+
 void QTextEngine::shapeText(int item) const
 {
     Q_ASSERT(item < layoutData->items.size());
@@ -1489,8 +1520,22 @@ void QTextEngine::shapeText(int item) const
             if (QChar::isHighSurrogate(string[i])
                     && i + 1 < itemLength
                     && QChar::isLowSurrogate(string[i + 1])) {
+                initialGlyphs.attributes[glyph_pos].dontPrint = !QChar::isPrint(QChar::surrogateToUcs4(string[i], string[i + 1]));
                 ++i;
                 log_clusters[i] = glyph_pos;
+
+            } else {
+                initialGlyphs.attributes[glyph_pos].dontPrint = !QChar::isPrint(string[i]);
+            }
+
+            if (Q_UNLIKELY(!initialGlyphs.attributes[glyph_pos].dontPrint)) {
+                QFontEngine *actualFontEngine = fontEngine;
+                if (actualFontEngine->type() == QFontEngine::Multi) {
+                    const uint engineIdx = initialGlyphs.glyphs[glyph_pos] >> 24;
+                    actualFontEngine = static_cast<QFontEngineMulti *>(fontEngine)->engine(engineIdx);
+                }
+
+                applyVisibilityRules(string[i], &initialGlyphs, glyph_pos, actualFontEngine);
             }
         }
 
@@ -1679,8 +1724,8 @@ int QTextEngine::shapeTextWithHarfbuzzNG(const QScriptItem &si,
         QGlyphLayout g = availableGlyphs(&si).mid(glyphs_shaped, num_glyphs);
         ushort *log_clusters = logClusters(&si) + item_pos;
 
-        hb_glyph_info_t *infos = hb_buffer_get_glyph_infos(buffer, 0);
-        hb_glyph_position_t *positions = hb_buffer_get_glyph_positions(buffer, 0);
+        hb_glyph_info_t *infos = hb_buffer_get_glyph_infos(buffer, nullptr);
+        hb_glyph_position_t *positions = hb_buffer_get_glyph_positions(buffer, nullptr);
         uint str_pos = 0;
         uint last_cluster = ~0u;
         uint last_glyph_pos = glyphs_shaped;
@@ -1702,31 +1747,7 @@ int QTextEngine::shapeTextWithHarfbuzzNG(const QScriptItem &si,
                 last_glyph_pos = i + glyphs_shaped;
                 last_cluster = cluster;
 
-                // hide characters that should normally be invisible
-                switch (string[item_pos + str_pos]) {
-                case QChar::LineFeed:
-                case 0x000c: // FormFeed
-                case QChar::CarriageReturn:
-                case QChar::LineSeparator:
-                case QChar::ParagraphSeparator:
-                    g.attributes[i].dontPrint = true;
-                    break;
-                case QChar::SoftHyphen:
-                    if (!actualFontEngine->symbol) {
-                        // U+00AD [SOFT HYPHEN] is a default ignorable codepoint,
-                        // so we replace its glyph and metrics with ones for
-                        // U+002D [HYPHEN-MINUS] and make it visible if it appears at line-break
-                        g.glyphs[i] = actualFontEngine->glyphIndex('-');
-                        if (Q_LIKELY(g.glyphs[i] != 0)) {
-                            QGlyphLayout tmp = g.mid(i, 1);
-                            actualFontEngine->recalcAdvances(&tmp, 0);
-                        }
-                        g.attributes[i].dontPrint = true;
-                    }
-                    break;
-                default:
-                    break;
-                }
+                applyVisibilityRules(string[item_pos + str_pos], &g, i, actualFontEngine);
             }
         }
         while (str_pos < item_length)
@@ -1761,7 +1782,10 @@ int QTextEngine::shapeTextWithHarfbuzzNG(const QScriptItem &si,
         }
 #endif
 
+QT_WARNING_PUSH
+QT_WARNING_DISABLE_DEPRECATED
         if (!actualFontEngine->supportsSubPixelPositions() || (actualFontEngine->fontDef.styleStrategy & QFont::ForceIntegerMetrics)) {
+QT_WARNING_POP
             for (uint i = 0; i < num_glyphs; ++i)
                 g.advances[i] = g.advances[i].round();
         }
@@ -1895,7 +1919,7 @@ int QTextEngine::shapeTextWithHarfbuzz(const QScriptItem &si, const ushort *stri
         }
 
         if (kerningEnabled && !shaper_item.kerning_applied)
-            actualFontEngine->doKerning(&g, option.useDesignMetrics() ? QFontEngine::DesignMetrics : QFontEngine::ShaperFlags(0));
+            actualFontEngine->doKerning(&g, option.useDesignMetrics() ? QFontEngine::DesignMetrics : QFontEngine::ShaperFlags{});
 
         if (engineIdx != 0) {
             for (quint32 i = 0; i < shaper_item.num_glyphs; ++i)
@@ -1916,12 +1940,12 @@ void QTextEngine::init(QTextEngine *e)
     e->visualMovement = false;
     e->delayDecorations = false;
 
-    e->layoutData = 0;
+    e->layoutData = nullptr;
 
     e->minWidth = 0;
     e->maxWidth = 0;
 
-    e->specialData = 0;
+    e->specialData = nullptr;
     e->stackEngine = false;
 #ifndef QT_NO_RAWFONT
     e->useRawFont = false;
@@ -1955,7 +1979,7 @@ const QCharAttributes *QTextEngine::attributes() const
 
     itemize();
     if (! ensureSpace(layoutData->string.length()))
-        return NULL;
+        return nullptr;
 
     QVarLengthArray<QUnicodeTools::ScriptItem> scriptItems(layoutData->items.size());
     for (int i = 0; i < layoutData->items.size(); ++i) {
@@ -2147,7 +2171,7 @@ void QTextEngine::itemize() const
             if (it == end || format != frag->format) {
                 if (s && position >= s->preeditPosition) {
                     position += s->preeditText.length();
-                    s = 0;
+                    s = nullptr;
                 }
                 Q_ASSERT(position <= length);
                 QFont::Capitalization capitalization =
@@ -2442,8 +2466,8 @@ QTextEngine::FontEngineCache::FontEngineCache()
 //input is common (and hard to cache at a higher level)
 QFontEngine *QTextEngine::fontEngine(const QScriptItem &si, QFixed *ascent, QFixed *descent, QFixed *leading) const
 {
-    QFontEngine *engine = 0;
-    QFontEngine *scaledEngine = 0;
+    QFontEngine *engine = nullptr;
+    QFontEngine *scaledEngine = nullptr;
     int script = si.analysis.script;
 
     QFont font = fnt;
@@ -2458,7 +2482,7 @@ QFontEngine *QTextEngine::fontEngine(const QScriptItem &si, QFixed *ascent, QFix
             engine->ref.ref();
             if (feCache.prevScaledFontEngine) {
                 releaseCachedFontEngine(feCache.prevScaledFontEngine);
-                feCache.prevScaledFontEngine = 0;
+                feCache.prevScaledFontEngine = nullptr;
             }
         }
         if (si.analysis.flags == QScriptAnalysis::SmallCaps) {
@@ -2537,7 +2561,7 @@ QFontEngine *QTextEngine::fontEngine(const QScriptItem &si, QFixed *ascent, QFix
                 feCache.prevScript = script;
                 feCache.prevPosition = -1;
                 feCache.prevLength = -1;
-                feCache.prevScaledFontEngine = 0;
+                feCache.prevScaledFontEngine = nullptr;
             }
         }
 
@@ -2580,7 +2604,7 @@ static void set(QJustificationPoint *point, int type, const QGlyphLayout &glyph,
             g.numGlyphs = 1;
             g.glyphs = &kashidaGlyph;
             g.advances = &point->kashidaWidth;
-            fe->recalcAdvances(&g, 0);
+            fe->recalcAdvances(&g, { });
 
             if (point->kashidaWidth == 0)
                 point->type = Justification_Prohibited;
@@ -2807,14 +2831,14 @@ void QScriptLine::setDefaultHeight(QTextEngine *eng)
 
 QTextEngine::LayoutData::LayoutData()
 {
-    memory = 0;
+    memory = nullptr;
     allocated = 0;
     memory_on_stack = false;
     used = 0;
     hasBidi = false;
     layoutState = LayoutEmpty;
     haveCharAttributes = false;
-    logClustersPtr = 0;
+    logClustersPtr = nullptr;
     available_glyphs = 0;
 }
 
@@ -2832,8 +2856,8 @@ QTextEngine::LayoutData::LayoutData(const QString &str, void **stack_memory, int
         allocated = 0;
 
         memory_on_stack = false;
-        memory = 0;
-        logClustersPtr = 0;
+        memory = nullptr;
+        logClustersPtr = nullptr;
     } else {
         memory_on_stack = true;
         memory = stack_memory;
@@ -2854,7 +2878,7 @@ QTextEngine::LayoutData::~LayoutData()
 {
     if (!memory_on_stack)
         free(memory);
-    memory = 0;
+    memory = nullptr;
 }
 
 bool QTextEngine::LayoutData::reallocate(int totalGlyphs)
@@ -2878,7 +2902,7 @@ bool QTextEngine::LayoutData::reallocate(int totalGlyphs)
         return false;
     }
 
-    void **newMem = (void **)::realloc(memory_on_stack ? 0 : memory, newAllocated*sizeof(void *));
+    void **newMem = (void **)::realloc(memory_on_stack ? nullptr : memory, newAllocated*sizeof(void *));
     if (!newMem) {
         layoutState = LayoutFailed;
         return false;
@@ -2927,7 +2951,7 @@ void QTextEngine::freeMemory()
 {
     if (!stackEngine) {
         delete layoutData;
-        layoutData = 0;
+        layoutData = nullptr;
     } else {
         layoutData->used = 0;
         layoutData->hasBidi = false;
@@ -3034,7 +3058,7 @@ void QTextEngine::setPreeditArea(int position, const QString &preeditText)
             return;
         if (specialData->formats.isEmpty()) {
             delete specialData;
-            specialData = 0;
+            specialData = nullptr;
         } else {
             specialData->preeditText = QString();
             specialData->preeditPosition = -1;
@@ -3056,7 +3080,7 @@ void QTextEngine::setFormats(const QVector<QTextLayout::FormatRange> &formats)
             return;
         if (specialData->preeditText.isEmpty()) {
             delete specialData;
-            specialData = 0;
+            specialData = nullptr;
         } else {
             specialData->formats.clear();
         }
@@ -3213,13 +3237,13 @@ QString QTextEngine::elidedText(Qt::TextElideMode mode, const QFixed &width, int
         glyphs.advances = &ellipsisWidth;
 
         if (glyph != 0) {
-            engine->recalcAdvances(&glyphs, 0);
+            engine->recalcAdvances(&glyphs, { });
 
             ellipsisText = ellipsisChar;
         } else {
             glyph = engine->glyphIndex('.');
             if (glyph != 0) {
-                engine->recalcAdvances(&glyphs, 0);
+                engine->recalcAdvances(&glyphs, { });
 
                 ellipsisWidth *= 3;
                 ellipsisText = QStringLiteral("...");
@@ -3894,12 +3918,7 @@ QStackTextEngine::QStackTextEngine(const QString &string, const QFont &f)
 }
 
 QTextItemInt::QTextItemInt(const QScriptItem &si, QFont *font, const QTextCharFormat &format)
-    : justified(false),
-      underlineStyle(QTextCharFormat::NoUnderline),
-      charFormat(format),
-      num_chars(0),
-      chars(nullptr),
-      logClusters(nullptr),
+    : charFormat(format),
       f(font),
       fontEngine(font->d->engineForScript(si.analysis.script))
 {
@@ -3909,13 +3928,9 @@ QTextItemInt::QTextItemInt(const QScriptItem &si, QFont *font, const QTextCharFo
 }
 
 QTextItemInt::QTextItemInt(const QGlyphLayout &g, QFont *font, const QChar *chars_, int numChars, QFontEngine *fe, const QTextCharFormat &format)
-    : flags(0),
-      justified(false),
-      underlineStyle(QTextCharFormat::NoUnderline),
-      charFormat(format),
+    : charFormat(format),
       num_chars(numChars),
       chars(chars_),
-      logClusters(nullptr),
       f(font),
       glyphs(g),
       fontEngine(fe)
@@ -3927,7 +3942,7 @@ void QTextItemInt::initWithScriptItem(const QScriptItem &si)
 {
     // explicitly initialize flags so that initFontAttributes can be called
     // multiple times on the same TextItem
-    flags = 0;
+    flags = { };
     if (si.analysis.bidiLevel %2)
         flags |= QTextItem::RightToLeft;
     ascent = si.ascent;
@@ -4012,7 +4027,7 @@ QTextLineItemIterator::QTextLineItemIterator(QTextEngine *_eng, int _lineNum, co
                                              const QTextLayout::FormatRange *_selection)
     : eng(_eng),
       line(eng->lines[_lineNum]),
-      si(0),
+      si(nullptr),
       lineNum(_lineNum),
       lineEnd(line.from + line.length),
       firstItem(eng->findItem(line.from)),

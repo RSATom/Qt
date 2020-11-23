@@ -31,7 +31,7 @@ double Mod(double x, double y) {
 }
 
 double GetLocalTZA() {
-  if (!FSDK_IsSandBoxPolicyEnabled(FPDF_POLICY_MACHINETIME_ACCESS))
+  if (!IsPDFSandboxPolicyEnabled(FPDF_POLICY_MACHINETIME_ACCESS))
     return 0;
   time_t t = 0;
   FXSYS_time(&t);
@@ -46,7 +46,7 @@ double GetLocalTZA() {
 }
 
 int GetDaylightSavingTA(double d) {
-  if (!FSDK_IsSandBoxPolicyEnabled(FPDF_POLICY_MACHINETIME_ACCESS))
+  if (!IsPDFSandboxPolicyEnabled(FPDF_POLICY_MACHINETIME_ACCESS))
     return 0;
   time_t t = (time_t)(d / 1000);
   struct tm* tmp = FXSYS_localtime(&t);
@@ -100,32 +100,23 @@ int DayWithinYear(double t) {
 }
 
 int MonthFromTime(double t) {
+  // Check for negative |day| values and check for January.
   int day = DayWithinYear(t);
-  int year = YearFromTime(t);
-  if (0 <= day && day < 31)
+  if (day < 0)
+    return -1;
+  if (day < 31)
     return 0;
-  if (31 <= day && day < 59 + IsLeapYear(year))
-    return 1;
-  if ((59 + IsLeapYear(year)) <= day && day < (90 + IsLeapYear(year)))
-    return 2;
-  if ((90 + IsLeapYear(year)) <= day && day < (120 + IsLeapYear(year)))
-    return 3;
-  if ((120 + IsLeapYear(year)) <= day && day < (151 + IsLeapYear(year)))
-    return 4;
-  if ((151 + IsLeapYear(year)) <= day && day < (181 + IsLeapYear(year)))
-    return 5;
-  if ((181 + IsLeapYear(year)) <= day && day < (212 + IsLeapYear(year)))
-    return 6;
-  if ((212 + IsLeapYear(year)) <= day && day < (243 + IsLeapYear(year)))
-    return 7;
-  if ((243 + IsLeapYear(year)) <= day && day < (273 + IsLeapYear(year)))
-    return 8;
-  if ((273 + IsLeapYear(year)) <= day && day < (304 + IsLeapYear(year)))
-    return 9;
-  if ((304 + IsLeapYear(year)) <= day && day < (334 + IsLeapYear(year)))
-    return 10;
-  if ((334 + IsLeapYear(year)) <= day && day < (365 + IsLeapYear(year)))
-    return 11;
+
+  if (IsLeapYear(YearFromTime(t)))
+    --day;
+
+  // Check for February onwards.
+  static constexpr int kCumulativeDaysInMonths[] = {
+      59, 90, 120, 151, 181, 212, 243, 273, 304, 334, 365};
+  for (size_t i = 0; i < FX_ArraySize(kCumulativeDaysInMonths); ++i) {
+    if (day < kCumulativeDaysInMonths[i])
+      return i + 1;
+  }
 
   return -1;
 }
@@ -188,7 +179,7 @@ static constexpr size_t KMonthAbbreviationLength = 3;  // Anything in |kMonths|.
 static constexpr size_t kLongestFullMonthLength = 9;   // September
 
 double FX_GetDateTime() {
-  if (!FSDK_IsSandBoxPolicyEnabled(FPDF_POLICY_MACHINETIME_ACCESS))
+  if (!IsPDFSandboxPolicyEnabled(FPDF_POLICY_MACHINETIME_ACCESS))
     return 0;
 
   time_t t = FXSYS_time(nullptr);

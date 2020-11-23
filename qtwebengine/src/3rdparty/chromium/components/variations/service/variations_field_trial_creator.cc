@@ -234,8 +234,12 @@ bool VariationsFieldTrialCreator::CreateTrialsFromSeed(
 std::unique_ptr<ClientFilterableState>
 VariationsFieldTrialCreator::GetClientFilterableStateForVersion(
     const base::Version& version) {
+  // Note that passing base::Unretained(client_) is safe here because |client_|
+  // lives until Chrome exits.
+  auto IsEnterpriseCallback = base::Bind(&VariationsServiceClient::IsEnterprise,
+                                         base::Unretained(client_));
   std::unique_ptr<ClientFilterableState> state =
-      std::make_unique<ClientFilterableState>();
+      std::make_unique<ClientFilterableState>(IsEnterpriseCallback);
   state->locale = application_locale_;
   state->reference_date = GetReferenceDateForExpiryChecks(local_state());
   state->version = version;
@@ -405,7 +409,7 @@ bool VariationsFieldTrialCreator::LoadSeed(VariationsSeed* seed,
   if (last_fetch_time.is_null()) {
     // If the last fetch time is missing and we have a seed, then this must be
     // the first run of Chrome. Store the current time as the last fetch time.
-    seed_store_->RecordLastFetchTime();
+    seed_store_->RecordLastFetchTime(base::Time::Now());
     RecordCreateTrialsSeedExpiry(VARIATIONS_SEED_EXPIRY_FETCH_TIME_MISSING);
     return true;
   }
@@ -446,6 +450,7 @@ bool VariationsFieldTrialCreator::SetupFieldTrials(
     const char* kDisableFeatures,
     const std::set<std::string>& unforceable_field_trials,
     const std::vector<std::string>& variation_ids,
+    const std::vector<base::FeatureList::FeatureOverrideInfo>& extra_overrides,
     std::unique_ptr<const base::FieldTrial::EntropyProvider>
         low_entropy_provider,
     std::unique_ptr<base::FeatureList> feature_list,
@@ -506,9 +511,23 @@ bool VariationsFieldTrialCreator::SetupFieldTrials(
       break;
   }
 
+  bool success = http_header_provider->ForceDisableVariationIds(
+      command_line->GetSwitchValueASCII(switches::kForceDisableVariationIds));
+  if (!success) {
+    ExitWithMessage(base::StringPrintf("Invalid --%s list specified.",
+                                       switches::kForceDisableVariationIds));
+  }
+
   feature_list->InitializeFromCommandLine(
       command_line->GetSwitchValueASCII(kEnableFeatures),
       command_line->GetSwitchValueASCII(kDisableFeatures));
+
+  // This needs to happen here: After the InitializeFromCommandLine() call,
+  // because the explicit cmdline --disable-features and --enable-features
+  // should take precedence over these extra overrides. Before the call to
+  // SetInstance(), because overrides cannot be registered after the FeatureList
+  // instance is set.
+  feature_list->RegisterExtraFeatureOverrides(extra_overrides);
 
   bool used_testing_config = false;
 #if BUILDFLAG(FIELDTRIAL_TESTING_ENABLED)

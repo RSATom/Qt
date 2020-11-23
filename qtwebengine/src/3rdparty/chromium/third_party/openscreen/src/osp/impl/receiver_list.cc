@@ -7,6 +7,7 @@
 #include <algorithm>
 
 namespace openscreen {
+namespace osp {
 
 ReceiverList::ReceiverList() = default;
 ReceiverList::~ReceiverList() = default;
@@ -21,7 +22,7 @@ Error ReceiverList::OnReceiverChanged(const ServiceInfo& info) {
                                       return x.service_id == info.service_id;
                                     });
   if (existing_info == receivers_.end())
-    return Error::Code::kNoItemFound;
+    return Error::Code::kItemNotFound;
 
   *existing_info = info;
   return Error::None();
@@ -30,7 +31,7 @@ Error ReceiverList::OnReceiverChanged(const ServiceInfo& info) {
 Error ReceiverList::OnReceiverRemoved(const ServiceInfo& info) {
   const auto it = std::remove(receivers_.begin(), receivers_.end(), info);
   if (it == receivers_.end())
-    return Error::Code::kNoItemFound;
+    return Error::Code::kItemNotFound;
 
   receivers_.erase(it, receivers_.end());
   return Error::None();
@@ -39,7 +40,8 @@ Error ReceiverList::OnReceiverRemoved(const ServiceInfo& info) {
 Error ReceiverList::OnAllReceiversRemoved() {
   const auto empty = receivers_.empty();
   receivers_.clear();
-  return empty ? Error::Code::kNoItemFound : Error::None();
+  return empty ? Error::Code::kItemNotFound : Error::None();
 }
 
+}  // namespace osp
 }  // namespace openscreen

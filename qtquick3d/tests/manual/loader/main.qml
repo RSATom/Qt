@@ -48,9 +48,9 @@
 **
 ****************************************************************************/
 
-import QtQuick 2.12
+import QtQuick 2.15
 import QtQuick.Window 2.12
-import QtQuick3D 1.0
+import QtQuick3D 1.15
 
 Window {
     visible: true
@@ -65,14 +65,12 @@ Window {
             materials: DefaultMaterial {
                 diffuseColor: "red"
             }
-            PropertyAnimation {
-                target: parent
-                property: "rotation.y"
+            PropertyAnimation on eulerRotation.x {
                 from: 0
                 to: 360
                 running: true
                 duration: 1000
-                loops: -1
+                loops: Animation.Infinite
             }
         }
     }
@@ -86,7 +84,7 @@ Window {
         }
 
         PerspectiveCamera {
-            z: -600
+            z: 600
         }
         Repeater3D {
             model: 100
@@ -98,7 +96,7 @@ Window {
                 source: "TestModel.qml"
 
                 Timer {
-                    interval: 30
+                    interval: 1000
                     running: true
                     repeat: true
                     property bool toggle: true

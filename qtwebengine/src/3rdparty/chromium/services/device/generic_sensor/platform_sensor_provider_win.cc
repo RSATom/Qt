@@ -22,14 +22,19 @@
 namespace device {
 
 PlatformSensorProviderWin::PlatformSensorProviderWin()
-    : com_sta_task_runner_(base::CreateCOMSTATaskRunnerWithTraits(
-          base::TaskPriority::USER_VISIBLE)) {}
+    : com_sta_task_runner_(base::CreateCOMSTATaskRunner(
+          {base::ThreadPool(), base::TaskPriority::USER_VISIBLE})) {}
 
 PlatformSensorProviderWin::~PlatformSensorProviderWin() = default;
 
 void PlatformSensorProviderWin::SetSensorManagerForTesting(
     Microsoft::WRL::ComPtr<ISensorManager> sensor_manager) {
   sensor_manager_ = sensor_manager;
+}
+
+scoped_refptr<base::SingleThreadTaskRunner>
+PlatformSensorProviderWin::GetComStaTaskRunnerForTesting() {
+  return com_sta_task_runner_;
 }
 
 void PlatformSensorProviderWin::CreateSensorInternal(

@@ -22,6 +22,7 @@
 
 namespace net {
 
+class NetworkIsolationKey;
 class ReportingContext;
 
 // The cache holds undelivered reports and clients (per-origin endpoint
@@ -189,6 +190,7 @@ class NET_EXPORT ReportingCache {
   // name |group| with include_subdomains enabled, this method would return
   // endpoints from that group from the earliest-inserted origin.
   virtual std::vector<ReportingEndpoint> GetCandidateEndpointsForDelivery(
+      const NetworkIsolationKey& network_isolation_key,
       const url::Origin& origin,
       const std::string& group_name) = 0;
 
@@ -198,6 +200,9 @@ class NET_EXPORT ReportingCache {
 
   // Gets the total number of endpoints in the cache across all origins.
   virtual size_t GetEndpointCount() const = 0;
+
+  // Flush the contents of the cache to disk, if applicable.
+  virtual void Flush() = 0;
 
   // Finds an endpoint for the given |origin|, |group_name|, and |url|,
   // otherwise returns an invalid ReportingEndpoint.

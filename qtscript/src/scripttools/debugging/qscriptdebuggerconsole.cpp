@@ -404,7 +404,7 @@ QScriptDebuggerConsoleCommandJob *QScriptDebuggerConsolePrivate::createJob(
         if (!tmp.isEmpty())
             args.append(tmp);
     } else {
-        args = tmp.split(QLatin1Char(' '), QString::SkipEmptyParts);
+        args = tmp.split(QLatin1Char(' '), Qt::SkipEmptyParts);
     }
     return cmd->createJob(args, q_func(), messageHandler, commandScheduler);
 }

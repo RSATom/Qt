@@ -14,7 +14,7 @@
 #include "base/stl_util.h"
 #include "base/strings/string_util.h"
 #include "base/strings/utf_string_conversions.h"
-#include "base/test/scoped_task_environment.h"
+#include "base/test/task_environment.h"
 #include "base/time/time.h"
 #include "components/os_crypt/os_crypt_mocker.h"
 #include "components/password_manager/core/browser/login_database.h"
@@ -51,7 +51,7 @@ class MockPasswordStoreConsumer : public PasswordStoreConsumer {
 // A mock LoginDatabase that simulates a failing Init() method.
 class BadLoginDatabase : public LoginDatabase {
  public:
-  BadLoginDatabase() : LoginDatabase(base::FilePath()) {}
+  BadLoginDatabase() : LoginDatabase(base::FilePath(), IsAccountStore(false)) {}
   ~BadLoginDatabase() override {}
 
   // LoginDatabase:
@@ -97,26 +97,22 @@ class PasswordStoreDefaultTestDelegate {
 
   base::FilePath test_login_db_file_path() const;
 
-  base::test::ScopedTaskEnvironment scoped_task_environment_;
+  base::test::TaskEnvironment task_environment_{base::test::TaskEnvironment::MainThreadType::UI};
   base::ScopedTempDir temp_dir_;
   scoped_refptr<PasswordStoreDefault> store_;
 
   DISALLOW_COPY_AND_ASSIGN(PasswordStoreDefaultTestDelegate);
 };
 
-PasswordStoreDefaultTestDelegate::PasswordStoreDefaultTestDelegate()
-    : scoped_task_environment_(
-          base::test::ScopedTaskEnvironment::MainThreadType::UI) {
+PasswordStoreDefaultTestDelegate::PasswordStoreDefaultTestDelegate() {
   OSCryptMocker::SetUp();
   SetupTempDir();
-  store_ = CreateInitializedStore(
-      std::make_unique<LoginDatabase>(test_login_db_file_path()));
+  store_ = CreateInitializedStore(std::make_unique<LoginDatabase>(
+      test_login_db_file_path(), IsAccountStore(false)));
 }
 
 PasswordStoreDefaultTestDelegate::PasswordStoreDefaultTestDelegate(
-    std::unique_ptr<LoginDatabase> database)
-    : scoped_task_environment_(
-          base::test::ScopedTaskEnvironment::MainThreadType::UI) {
+    std::unique_ptr<LoginDatabase> database) {
   OSCryptMocker::SetUp();
   SetupTempDir();
   store_ = CreateInitializedStore(std::move(database));
@@ -128,7 +124,7 @@ PasswordStoreDefaultTestDelegate::~PasswordStoreDefaultTestDelegate() {
 }
 
 void PasswordStoreDefaultTestDelegate::FinishAsyncProcessing() {
-  scoped_task_environment_.RunUntilIdle();
+  task_environment_.RunUntilIdle();
 }
 
 void PasswordStoreDefaultTestDelegate::SetupTempDir() {

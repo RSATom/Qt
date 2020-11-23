@@ -388,7 +388,7 @@ XsdWildcard::Ptr XsdSchemaHelper::wildcardIntersection(const XsdWildcard::Ptr &w
 
 static SchemaType::DerivationConstraints convertBlockingConstraints(const NamedSchemaComponent::BlockingConstraints &constraints)
 {
-    SchemaType::DerivationConstraints result = 0;
+    SchemaType::DerivationConstraints result;
 
     if (constraints & NamedSchemaComponent::RestrictionConstraint)
         result |= SchemaType::RestrictionConstraint;

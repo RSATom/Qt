@@ -50,7 +50,15 @@ QT_BEGIN_NAMESPACE
 QIOPipePrivate::QIOPipePrivate(QIODevice *iodevice, bool proxying)
     :  m_proxying(proxying), source(iodevice)
 {
-    const QIOPipe *parentPipe = qobject_cast<QIOPipe *>(iodevice);
+}
+
+QIOPipePrivate::~QIOPipePrivate()
+{
+}
+
+void QIOPipePrivate::initialize()
+{
+    const QIOPipe *parentPipe = qobject_cast<QIOPipe *>(source);
     if (parentPipe && parentPipe->d_func()->m_proxying) // with proxying parent,
         return;                                                     // don't do anything
 
@@ -58,10 +66,6 @@ QIOPipePrivate::QIOPipePrivate(QIODevice *iodevice, bool proxying)
     readAvailableData();
     // connect readyRead to onReadyRead
     QObjectPrivate::connect(source, &QIODevice::readyRead, this, &QIOPipePrivate::_q_onReadyRead);
-}
-
-QIOPipePrivate::~QIOPipePrivate()
-{
 }
 
 bool QIOPipePrivate::readAvailableData() {
@@ -130,6 +134,7 @@ void QIOPipePrivate::removeChildPipe(QIOPipe *childPipe)
 QIOPipe::QIOPipe(QIODevice *parent, Mode mode)
     : QIODevice(*new QIOPipePrivate(parent, mode == ProxyPipe), parent)
 {
+    this->d_func()->initialize();
     if (!parent->isOpen() && !parent->open(QIODevice::ReadOnly)) {
         qWarning() << "QIOPipe: Failed to open " << parent;
         return;

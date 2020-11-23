@@ -437,9 +437,10 @@ bool QRemoteObjectHostBase::proxy(const QUrl &registryUrl, const QUrl &hostUrl, 
     // myInternalHost is a node only visible on the device...
     QRemoteObjectHost myInternalHost("local:MyHost");
 
-    // Regular host node, listening on port 12123, so visible to other
-    // devices
-    QRemoteObjectHost proxyNode("tcp://localhost:12123");
+    // RegistryHost node, listening on port 12123, so visible to other
+    // devices.  The node must be a RegistryHost, so the Sources on
+    // the "outside" network can be forwarded to the inner network.
+    QRemoteObjectRegistryHost proxyNode("tcp://localhost:12123");
 
     // Enable proxying objects from nodes on the local machine's internal
     // QtRO bus.  Note the hostUrl parameter is now needed.
@@ -1640,6 +1641,19 @@ QRemoteObjectNode::QRemoteObjectNode(QRemoteObjectNodePrivate &dptr, QObject *pa
 }
 
 /*!
+    \qmltype Host
+    \instantiates QRemoteObjectHost
+    \inqmlmodule QtRemoteObjects
+    \brief A host node on a Qt Remote Objects network.
+
+    The Host type provides an entry point to a Qt Remote Objects network. A network
+    can be as simple as two nodes, or an arbitrarily complex set of processes and devices.
+
+    Hosts have the same capabilities as Nodes, but they can also be connected to and can
+    share source objects on the network.
+*/
+
+/*!
     \internal This is a base class for both QRemoteObjectHost and
     QRemoteObjectRegistryHost to provide the shared features/functions for
     sharing \l Source objects.
@@ -1817,6 +1831,21 @@ bool QRemoteObjectHostBase::setHostUrl(const QUrl &hostAddress, AllowedSchemas a
 }
 
 /*!
+    \qmlproperty url Host::hostUrl
+
+    The host address for the node.
+
+    This is the address where source objects remoted by this node will reside.
+*/
+
+/*!
+    \property QRemoteObjectHost::hostUrl
+    \brief The host address for the node.
+
+    This is the address where source objects remoted by this node will reside.
+*/
+
+/*!
     Returns the host address for the QRemoteObjectNode as a QUrl. If the Node
     is not a Host node, returns an empty QUrl.
 
@@ -1839,7 +1868,10 @@ QUrl QRemoteObjectHost::hostUrl() const
 */
 bool QRemoteObjectHost::setHostUrl(const QUrl &hostAddress, AllowedSchemas allowedSchemas)
 {
-    return QRemoteObjectHostBase::setHostUrl(hostAddress, allowedSchemas);
+    bool success = QRemoteObjectHostBase::setHostUrl(hostAddress, allowedSchemas);
+    if (success)
+        emit hostUrlChanged();
+    return success;
 }
 
 /*!
@@ -2163,11 +2195,29 @@ QRemoteObjectDynamicReplica *QRemoteObjectNode::acquireDynamic(const QString &na
 }
 
 /*!
+    \qmlmethod bool Host::enableRemoting(object object, string name)
+    Enables a host node to dynamically provide remote access to the QObject \a
+    object. Client nodes connected to the node hosting this object may obtain
+    Replicas of this Source.
+
+    The optional \a name defines the lookup-name under which the QObject can be acquired
+    using \l QRemoteObjectNode::acquire() . If not explicitly set then the name
+    given in the QCLASSINFO_REMOTEOBJECT_TYPE will be used. If no such macro
+    was defined for the QObject then the \l QObject::objectName() is used.
+
+    Returns \c false if the current node is a client node, or if the QObject is already
+    registered to be remoted, and \c true if remoting is successfully enabled
+    for the dynamic QObject.
+
+    \sa disableRemoting()
+*/
+
+/*!
     Enables a host node to dynamically provide remote access to the QObject \a
     object. Client nodes connected to the node
     hosting this object may obtain Replicas of this Source.
 
-    The \a name defines the lookup-name under which the QObject can be acquired
+    The optional \a name defines the lookup-name under which the QObject can be acquired
     using \l QRemoteObjectNode::acquire() . If not explicitly set then the name
     given in the QCLASSINFO_REMOTEOBJECT_TYPE will be used. If no such macro
     was defined for the QObject then the \l QObject::objectName() is used.
@@ -2282,6 +2332,18 @@ bool QRemoteObjectHostBase::enableRemoting(QObject *object, const SourceApiMap *
     Q_D(QRemoteObjectHostBase);
     return d->remoteObjectIo->enableRemoting(object, api, adapter);
 }
+
+/*!
+    \qmlmethod bool Host::disableRemoting(object remoteObject)
+    Disables remote access for the QObject \a remoteObject. Returns \c false if
+    the current node is a client node or if the \a remoteObject is not
+    registered, and returns \c true if remoting is successfully disabled for
+    the Source object.
+
+    \warning Replicas of this object will no longer be valid after calling this method.
+
+    \sa enableRemoting()
+*/
 
 /*!
     Disables remote access for the QObject \a remoteObject. Returns \c false if
@@ -2414,7 +2476,11 @@ ProxyInfo::~ProxyInfo() {
 
 bool ProxyInfo::setReverseProxy(QRemoteObjectHostBase::RemoteObjectNameFilter filter)
 {
-    const auto registry = proxyNode->registry();
+    if (qobject_cast<QRemoteObjectRegistryHost *>(parentNode) == nullptr) {
+        qWarning() << "Setting up reverseProxy() can only be done on a Registry node.";
+        return false;
+    }
+    const auto registry = parentNode->registry();
     this->reverseFilter = filter;
 
     connect(registry, &QRemoteObjectRegistry::remoteObjectAdded, this,
@@ -2439,12 +2505,17 @@ bool ProxyInfo::setReverseProxy(QRemoteObjectHostBase::RemoteObjectNameFilter fi
 void ProxyInfo::proxyObject(const QRemoteObjectSourceLocation &entry, ProxyDirection direction)
 {
     const QString name = entry.first;
-    Q_ASSERT(!proxiedReplicas.contains(name));
     const QString typeName = entry.second.typeName;
 
     if (direction == ProxyDirection::Forward) {
+        // If we are using the reverse proxy, this can be called when reverse proxy objects are added
+        // Don't try to proxy those back.  We can detect this because the hosting node will be our proxyNode.
+        auto host = qobject_cast<QRemoteObjectHost *>(proxyNode);
+        if (host && entry.second.hostUrl == host->hostUrl())
+            return;
         if (!proxyFilter(name, typeName))
             return;
+        Q_ASSERT(!proxiedReplicas.contains(name));
 
         qCDebug(QT_REMOTEOBJECT) << "Starting proxy for" << name << "from" << entry.second.hostUrl;
 
@@ -2460,8 +2531,15 @@ void ProxyInfo::proxyObject(const QRemoteObjectSourceLocation &entry, ProxyDirec
                     [rep, name, this]() { this->parentNode->enableRemoting(rep, name); });
         }
     } else {
+        // If we are using the reverse proxy, this can be called when proxy objects are added
+        // Don't try to proxy those back.  We can detect this because the hosting node will be the parentNode.
+        // Since we know the parentNode has to be a RegistryNode for reverse proxy to work, we compare against
+        // the registryUrl().
+        if (entry.second.hostUrl == parentNode->registryUrl())
+            return;
         if (!reverseFilter(name, typeName))
             return;
+        Q_ASSERT(!proxiedReplicas.contains(name));
 
         qCDebug(QT_REMOTEOBJECT) << "Starting reverse proxy for" << name << "from" << entry.second.hostUrl;
 

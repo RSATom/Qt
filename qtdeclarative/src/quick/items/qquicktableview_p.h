@@ -82,6 +82,10 @@ class Q_QUICK_PRIVATE_EXPORT QQuickTableView : public QQuickFlickable
     Q_PROPERTY(QQuickTableView *syncView READ syncView WRITE setSyncView NOTIFY syncViewChanged REVISION 14)
     Q_PROPERTY(Qt::Orientations syncDirection READ syncDirection WRITE setSyncDirection NOTIFY syncDirectionChanged REVISION 14)
 
+    QML_NAMED_ELEMENT(TableView)
+    QML_ADDED_IN_MINOR_VERSION(12)
+    QML_ATTACHED(QQuickTableViewAttached)
+
 public:
     QQuickTableView(QQuickItem *parent = nullptr);
     ~QQuickTableView() override;
@@ -100,8 +104,8 @@ public:
     QJSValue columnWidthProvider() const;
     void setColumnWidthProvider(const QJSValue &provider);
 
-    virtual QVariant model() const;
-    virtual void setModel(const QVariant &newModel);
+    QVariant model() const;
+    void setModel(const QVariant &newModel);
 
     QQmlComponent *delegate() const;
     void setDelegate(QQmlComponent *);
@@ -186,6 +190,5 @@ private:
 QT_END_NAMESPACE
 
 QML_DECLARE_TYPE(QQuickTableView)
-QML_DECLARE_TYPEINFO(QQuickTableView, QML_HAS_ATTACHED_PROPERTIES)
 
 #endif // QQUICKTABLEVIEW_P_H

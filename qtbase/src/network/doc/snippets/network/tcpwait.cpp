@@ -48,10 +48,8 @@
 **
 ****************************************************************************/
 
-#include <QtGui>
+#include <QCoreApplication>
 #include <QTcpSocket>
-
-#include "server.h"
 
 int main(int argv, char **args)
 {

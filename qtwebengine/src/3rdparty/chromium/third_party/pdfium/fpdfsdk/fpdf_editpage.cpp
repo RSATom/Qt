@@ -61,7 +61,7 @@ bool IsPageObject(CPDF_Page* pPage) {
     return false;
 
   const CPDF_Dictionary* pFormDict = pPage->GetDict();
-  if (!pFormDict || !pFormDict->KeyExist("Type"))
+  if (!pFormDict->KeyExist("Type"))
     return false;
 
   const CPDF_Object* pObject = pFormDict->GetObjectFor("Type")->GetDirect();
@@ -136,10 +136,6 @@ bool PageObjectContainsMark(CPDF_PageObject* pPageObj,
   return pMarkItem && pPageObj->m_ContentMarks.ContainsItem(pMarkItem);
 }
 
-unsigned int GetUnsignedAlpha(float alpha) {
-  return static_cast<unsigned int>(alpha * 255.f + 0.5f);
-}
-
 CPDF_FormObject* CPDFFormObjectFromFPDFPageObject(FPDF_PAGEOBJECT page_object) {
   auto* pPageObj = CPDFPageObjectFromFPDFPageObject(page_object);
   return pPageObj ? pPageObj->AsForm() : nullptr;
@@ -161,7 +157,7 @@ FPDF_EXPORT FPDF_DOCUMENT FPDF_CALLCONV FPDF_CreateNewDocument() {
 
   time_t currentTime;
   ByteString DateStr;
-  if (FSDK_IsSandBoxPolicyEnabled(FPDF_POLICY_MACHINETIME_ACCESS)) {
+  if (IsPDFSandboxPolicyEnabled(FPDF_POLICY_MACHINETIME_ACCESS)) {
     if (FXSYS_time(&currentTime) != -1) {
       tm* pTM = FXSYS_localtime(&currentTime);
       if (pTM) {
@@ -174,7 +170,7 @@ FPDF_EXPORT FPDF_DOCUMENT FPDF_CALLCONV FPDF_CreateNewDocument() {
 
   CPDF_Dictionary* pInfoDict = pDoc->GetInfo();
   if (pInfoDict) {
-    if (FSDK_IsSandBoxPolicyEnabled(FPDF_POLICY_MACHINETIME_ACCESS))
+    if (IsPDFSandboxPolicyEnabled(FPDF_POLICY_MACHINETIME_ACCESS))
       pInfoDict->SetNewFor<CPDF_String>("CreationDate", DateStr, false);
     pInfoDict->SetNewFor<CPDF_String>("Creator", L"PDFium");
   }
@@ -221,9 +217,8 @@ FPDF_EXPORT FPDF_PAGE FPDF_CALLCONV FPDFPage_New(FPDF_DOCUMENT document,
   pPageDict->SetNewFor<CPDF_Dictionary>(pdfium::page_object::kResources);
 
 #ifdef PDF_ENABLE_XFA
-  auto* pContext = static_cast<CPDFXFA_Context*>(pDoc->GetExtension());
-  if (pContext) {
-    auto pXFAPage = pdfium::MakeRetain<CPDFXFA_Page>(pContext, page_index);
+  if (pDoc->GetExtension()) {
+    auto pXFAPage = pdfium::MakeRetain<CPDFXFA_Page>(pDoc, page_index);
     pXFAPage->LoadPDFPageFromDict(pPageDict);
     return FPDFPageFromIPDFPage(pXFAPage.Leak());  // Caller takes ownership.
   }
@@ -708,11 +703,14 @@ FPDFPageObj_GetFillColor(FPDF_PAGEOBJECT page_object,
   if (!pPageObj || !R || !G || !B || !A)
     return false;
 
-  FX_COLORREF fillColor = pPageObj->m_ColorState.GetFillColorRef();
-  *R = FXSYS_GetRValue(fillColor);
-  *G = FXSYS_GetGValue(fillColor);
-  *B = FXSYS_GetBValue(fillColor);
-  *A = GetUnsignedAlpha(pPageObj->m_GeneralState.GetFillAlpha());
+  if (!pPageObj->m_ColorState.HasRef())
+    return false;
+
+  FX_COLORREF fill_color = pPageObj->m_ColorState.GetFillColorRef();
+  *R = FXSYS_GetRValue(fill_color);
+  *G = FXSYS_GetGValue(fill_color);
+  *B = FXSYS_GetBValue(fill_color);
+  *A = FXSYS_GetUnsignedAlpha(pPageObj->m_GeneralState.GetFillAlpha());
   return true;
 }
 
@@ -762,11 +760,14 @@ FPDFPageObj_GetStrokeColor(FPDF_PAGEOBJECT page_object,
   if (!pPageObj || !R || !G || !B || !A)
     return false;
 
-  FX_COLORREF strokeColor = pPageObj->m_ColorState.GetStrokeColorRef();
-  *R = FXSYS_GetRValue(strokeColor);
-  *G = FXSYS_GetGValue(strokeColor);
-  *B = FXSYS_GetBValue(strokeColor);
-  *A = GetUnsignedAlpha(pPageObj->m_GeneralState.GetStrokeAlpha());
+  if (!pPageObj->m_ColorState.HasRef())
+    return false;
+
+  FX_COLORREF stroke_color = pPageObj->m_ColorState.GetStrokeColorRef();
+  *R = FXSYS_GetRValue(stroke_color);
+  *G = FXSYS_GetGValue(stroke_color);
+  *B = FXSYS_GetBValue(stroke_color);
+  *A = FXSYS_GetUnsignedAlpha(pPageObj->m_GeneralState.GetStrokeAlpha());
   return true;
 }
 

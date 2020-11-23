@@ -13,6 +13,7 @@
 #include "base/debug/stack_trace.h"
 #include "base/i18n/icu_util.h"
 #include "base/logging.h"
+#include "base/message_loop/message_pump_type.h"
 #include "base/optional.h"
 #include "base/process/launch.h"
 #include "base/process/memory.h"
@@ -20,7 +21,7 @@
 #include "base/run_loop.h"
 #include "base/stl_util.h"
 #include "base/task/single_thread_task_executor.h"
-#include "base/task/thread_pool/thread_pool.h"
+#include "base/task/thread_pool/thread_pool_instance.h"
 #include "base/threading/thread.h"
 #include "base/trace_event/trace_config.h"
 #include "base/trace_event/trace_log.h"
@@ -79,6 +80,9 @@ constexpr size_t kMaximumMojoMessageSize = 128 * 1024 * 1024;
 
 // Setup signal-handling state: resanitize most signals, ignore SIGPIPE.
 void SetupSignalHandlers() {
+  // Always ignore SIGPIPE.  We check the return value of write().
+  CHECK_NE(SIG_ERR, signal(SIGPIPE, SIG_IGN));
+
   if (base::CommandLine::ForCurrentProcess()->HasSwitch(
           switches::kDisableInProcessStackTraces)) {
     // Don't interfere with sanitizer signal handlers.
@@ -96,13 +100,10 @@ void SetupSignalHandlers() {
   sigact.sa_handler = SIG_DFL;
   static const int signals_to_reset[] = {
       SIGHUP,  SIGINT,  SIGQUIT, SIGILL, SIGABRT, SIGFPE, SIGSEGV,
-      SIGALRM, SIGTERM, SIGCHLD, SIGBUS, SIGTRAP};  // SIGPIPE is set below.
+      SIGALRM, SIGTERM, SIGCHLD, SIGBUS, SIGTRAP};
   for (unsigned i = 0; i < base::size(signals_to_reset); i++) {
     CHECK_EQ(0, sigaction(signals_to_reset[i], &sigact, NULL));
   }
-
-  // Always ignore SIGPIPE.  We check the return value of write().
-  CHECK_NE(SIG_ERR, signal(SIGPIPE, SIG_IGN));
 }
 
 void PopulateFDsFromCommandLine() {
@@ -176,11 +177,11 @@ int RunServiceManager(MainDelegate* delegate) {
   NonEmbedderProcessInit();
 
   base::SingleThreadTaskExecutor main_thread_task_executor(
-      base::MessagePump::Type::UI);
+      base::MessagePumpType::UI);
 
   base::Thread ipc_thread("IPC thread");
   ipc_thread.StartWithOptions(
-      base::Thread::Options(base::MessagePump::Type::IO, 0));
+      base::Thread::Options(base::MessagePumpType::IO, 0));
   mojo::core::ScopedIPCSupport ipc_support(
       ipc_thread.task_runner(),
       mojo::core::ScopedIPCSupport::ShutdownPolicy::FAST);
@@ -217,7 +218,7 @@ int RunService(MainDelegate* delegate) {
   service_manager::ServiceExecutableEnvironment environment;
 
   base::SingleThreadTaskExecutor main_thread_task_executor(
-      base::MessagePump::Type::UI);
+      base::MessagePumpType::UI);
   base::RunLoop run_loop;
 
   std::string service_name =

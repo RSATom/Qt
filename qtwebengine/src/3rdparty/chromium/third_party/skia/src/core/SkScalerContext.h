@@ -20,7 +20,7 @@
 #include "src/core/SkGlyph.h"
 #include "src/core/SkMask.h"
 #include "src/core/SkMaskGamma.h"
-#include "src/core/SkStrikeInterface.h"
+#include "src/core/SkStrikeForGPU.h"
 #include "src/core/SkSurfacePriv.h"
 #include "src/core/SkWriteBuffer.h"
 
@@ -210,6 +210,19 @@ private:
 };
 SK_END_REQUIRE_DENSE
 
+// TODO: rename SkScalerContextEffects -> SkStrikeEffects
+struct SkScalerContextEffects {
+    SkScalerContextEffects() : fPathEffect(nullptr), fMaskFilter(nullptr) {}
+    SkScalerContextEffects(SkPathEffect* pe, SkMaskFilter* mf)
+            : fPathEffect(pe), fMaskFilter(mf) {}
+    explicit SkScalerContextEffects(const SkPaint& paint)
+            : fPathEffect(paint.getPathEffect())
+            , fMaskFilter(paint.getMaskFilter()) {}
+
+    SkPathEffect*   fPathEffect;
+    SkMaskFilter*   fMaskFilter;
+};
+
 //The following typedef hides from the rest of the implementation the number of
 //most significant bits to consider when creating mask gamma tables. Two bits
 //per channel was chosen as a balance between fidelity (more bits) and cache
@@ -242,6 +255,7 @@ public:
         // only meaningful if fMaskFormat is kA8
         kGenA8FromLCD_Flag        = 0x0800, // could be 0x200 (bit meaning dependent on fMaskFormat)
         kLinearMetrics_Flag       = 0x1000,
+        kBaselineSnap_Flag        = 0x2000,
     };
 
     // computed values
@@ -262,7 +276,7 @@ public:
         return SkToBool(fRec.fFlags & kSubpixelPositioning_Flag);
     }
 
-     bool isLinearMetrics() const {
+    bool isLinearMetrics() const {
         return SkToBool(fRec.fFlags & kLinearMetrics_Flag);
     }
 

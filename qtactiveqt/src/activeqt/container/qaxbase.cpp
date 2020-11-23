@@ -143,7 +143,7 @@ struct QAxMetaObject : public QMetaObject
 private:
     friend class MetaObjectGenerator;
     // save information about QAxEventSink connections, and connect when found in cache
-    QList<QUuid> connectionInterfaces;
+    QVector<QUuid> connectionInterfaces;
     // DISPID -> signal name
     QMap< QUuid, QMap<DISPID, QByteArray> > sigs;
     // DISPID -> property changed signal name
@@ -152,7 +152,7 @@ private:
     QMap< QUuid, QMap<DISPID, QByteArray> > props;
 
     // Prototype -> member info
-    QHash<QByteArray, QList<QByteArray> > memberInfo;
+    QHash<QByteArray, QByteArrayList> memberInfo;
     QMap<QByteArray, QByteArray> realPrototype;
 
     // DISPID cache
@@ -165,12 +165,10 @@ void QAxMetaObject::parsePrototype(const QByteArray &prototype)
     QByteArray parameters = realProto.mid(realProto.indexOf('(') + 1);
     parameters.truncate(parameters.length() - 1);
 
-    if (parameters.isEmpty()) {
-        memberInfo.insert(prototype, QList<QByteArray>());
-    } else {
-        QList<QByteArray> plist = parameters.split(',');
-        memberInfo.insert(prototype, plist);
-    }
+    if (parameters.isEmpty())
+        memberInfo.insert(prototype, {});
+    else
+        memberInfo.insert(prototype, parameters.split(','));
 }
 
 inline QByteArray QAxMetaObject::propertyType(const QByteArray &propertyName)
@@ -194,7 +192,7 @@ QByteArray QAxMetaObject::paramType(const QByteArray &prototype, int index, bool
     if (out)
         *out = false;
 
-    QList<QByteArray> plist = memberInfo.value(prototype);
+    const auto plist = memberInfo.value(prototype);
     if (index > plist.count() - 1)
         return QByteArray();
 
@@ -565,7 +563,8 @@ public:
     static bool signalHasReceivers(QObject *qobject, const char *signalName)
     {
         Q_ASSERT(qobject);
-        return static_cast<QAxObject *>(qobject)->receivers(QByteArray::number(QSIGNAL_CODE) + signalName);
+        const QByteArray name = QByteArray::number(QSIGNAL_CODE) + signalName;
+        return static_cast<QAxObject *>(qobject)->receivers(name.constData()) > 0;
     }
 
     IConnectionPoint *cpoint = nullptr;
@@ -1556,7 +1555,7 @@ public:
     void readEventInfo();
     void readEventInterface(ITypeInfo *eventinfo, IConnectionPoint *cpoint);
 
-    inline void addClassInfo(const char *key, const char *value)
+    inline void addClassInfo(const QByteArray &key, const  QByteArray &value)
     {
         classinfo_list.insert(key, value);
     }
@@ -1570,8 +1569,8 @@ private:
 
     QMetaObject *tryCache();
 
-    QByteArray createPrototype(FUNCDESC *funcdesc, ITypeInfo *typeinfo, const QList<QByteArray> &names,
-        QByteArray &type, QList<QByteArray> &parameters);
+    QByteArray createPrototype(FUNCDESC *funcdesc, ITypeInfo *typeinfo, const QByteArrayList &names,
+                               QByteArray &type, QByteArrayList &parameters);
 
     QByteArray usertypeToString(const TYPEDESC &tdesc, ITypeInfo *info, const QByteArray &function);
     QByteArray guessTypes(const TYPEDESC &tdesc, ITypeInfo *info, const QByteArray &function);
@@ -1583,12 +1582,12 @@ private:
         Bindable                = 0x02000000
     };
 
-    static inline QList<QByteArray> paramList(const QByteArray &prototype)
+    static inline QByteArrayList paramList(const QByteArray &prototype)
     {
         QByteArray parameters = prototype.mid(prototype.indexOf('(') + 1);
         parameters.truncate(parameters.length() - 1);
         if (parameters.isEmpty() || parameters == "void")
-            return QList<QByteArray>();
+            return {};
         return parameters.split(',');
     }
 
@@ -1614,9 +1613,8 @@ private:
     {
         QByteArray proto(prototype);
 
-        QList<QByteArray> plist = paramList(prototype);
-        for (int p = 0; p < plist.count(); ++p) {
-            const QByteArray &param = plist.at(p);
+        const auto plist = paramList(prototype);
+        for (const QByteArray &param : plist) {
             if (param != replaceType(param)) {
                 int type = 0;
                 while (type_conversion[type][0]) {
@@ -1902,7 +1900,7 @@ MetaObjectGenerator::~MetaObjectGenerator()
 }
 
 bool qax_dispatchEqualsIDispatch = true;
-QList<QByteArray> qax_qualified_usertypes;
+QByteArrayList qax_qualified_usertypes;
 
 QByteArray MetaObjectGenerator::usertypeToString(const TYPEDESC &tdesc, ITypeInfo *info, const QByteArray &function)
 {
@@ -2195,7 +2193,7 @@ void MetaObjectGenerator::readClassInfo()
     if (dispInfo && !typelib)
         dispInfo->GetContainingTypeLib(&typelib, &index);
 
-    if (!typelib) {
+    if (!typelib && !that->control().isEmpty()) {
         QSettings controls(QLatin1String("HKEY_LOCAL_MACHINE\\Software"), QSettings::NativeFormat);
         QString tlid = controls.value(QLatin1String("/Classes/CLSID/") + that->control() + QLatin1String("/TypeLib/.")).toString();
         QString tlfile;
@@ -2262,8 +2260,11 @@ void MetaObjectGenerator::readClassInfo()
         }
     }
 
-    if (!d || !dispInfo || !cacheKey.isEmpty() || !d->tryCache)
+    if (!d || !dispInfo || !cacheKey.isEmpty() || !d->tryCache) {
+        if (disp && !dispInfo)
+            qWarning("%s: IDispatch %p does not provide interface information", Q_FUNC_INFO, disp);
         return;
+    }
 
     TYPEATTR *typeattr = nullptr;
     dispInfo->GetTypeAttr(&typeattr);
@@ -2401,8 +2402,8 @@ void MetaObjectGenerator::addSetterSlot(const QByteArray &property)
     }
 }
 
-QByteArray MetaObjectGenerator::createPrototype(FUNCDESC *funcdesc, ITypeInfo *typeinfo, const QList<QByteArray> &names,
-                                             QByteArray &type, QList<QByteArray> &parameters)
+QByteArray MetaObjectGenerator::createPrototype(FUNCDESC *funcdesc, ITypeInfo *typeinfo, const QByteArrayList &names,
+                                                QByteArray &type, QByteArrayList &parameters)
 {
     const QByteArray &function = names.at(0);
     const QByteArray hresult("HRESULT");
@@ -2490,7 +2491,7 @@ void MetaObjectGenerator::readFuncsInfo(ITypeInfo *typeinfo, ushort nFuncs)
 
         QByteArray type;
         QByteArray prototype;
-        QList<QByteArray> parameters;
+        QByteArrayList parameters;
 
         // parse function description
         const QByteArrayList names = qaxTypeInfoNames(typeinfo, funcdesc->memid);
@@ -2813,7 +2814,7 @@ void MetaObjectGenerator::readEventInterface(ITypeInfo *eventinfo, IConnectionPo
         }
 
         QByteArray prototype;
-        QList<QByteArray> parameters;
+        QByteArrayList parameters;
 
         // parse event function description, get event function prototype
         const QByteArrayList names = qaxTypeInfoNames(eventinfo, funcdesc->memid);
@@ -3090,9 +3091,9 @@ QMetaObject *MetaObjectGenerator::metaObject(const QMetaObject *parentObject, co
         for (QMap<QByteArray, Method>::ConstIterator it = map.constBegin(); it != map.constEnd(); ++it) {
             QByteArray prototype(QMetaObject::normalizedSignature(it.key()));
             QByteArray name = prototype.left(prototype.indexOf('('));
-            QList<QByteArray> paramTypeNames = paramList(prototype);
-            const QList<QByteArray> paramNames = it.value().parameters.isEmpty() ?
-                                    QList<QByteArray>() : it.value().parameters.split(',');
+            const auto paramTypeNames = paramList(prototype);
+            const QByteArrayList paramNames = it.value().parameters.isEmpty()
+                ? QByteArrayList() : it.value().parameters.split(',');
             Q_ASSERT(paramTypeNames.size() == paramNames.size());
             if (!it.value().realPrototype.isEmpty())
                 metaobj->realPrototype.insert(prototype, it.value().realPrototype);
@@ -4202,7 +4203,7 @@ QAxObject *QAxBase::querySubObject(const char *name,
                                    const QVariant &var7,
                                    const QVariant &var8)
 {
-    QList<QVariant> vars;
+    QVariantList vars;
     QVariant var = var1;
     int argc = 1;
     while(var.isValid()) {

@@ -33,6 +33,7 @@
 #include <private/qqmljsast_p.h>
 
 #include "../../shared/util.h"
+#include "../../shared/qqmljsastdumper.h"
 
 #include <qtest.h>
 #include <QDir>
@@ -62,6 +63,11 @@ private slots:
     void typeAnnotations();
     void disallowedTypeAnnotations_data();
     void disallowedTypeAnnotations();
+    void semicolonPartOfExpressionStatement();
+    void typeAssertion_data();
+    void typeAssertion();
+    void annotations_data();
+    void annotations();
 
 private:
     QStringList excludedDirs;
@@ -132,6 +138,30 @@ struct TypeAnnotationObserver: public AST::Visitor
     virtual bool visit(AST::TypeAnnotation *)
     {
         typeAnnotationSeen = true;
+        return true;
+    }
+
+    void throwRecursionDepthError() final
+    {
+        QFAIL("Maximum statement or expression depth exceeded");
+    }
+};
+
+struct ExpressionStatementObserver: public AST::Visitor
+{
+    int expressionsSeen = 0;
+    bool endsWithSemicolon = true;
+
+    void operator()(AST::Node *node)
+    {
+        AST::Node::accept(node, this);
+    }
+
+    virtual bool visit(AST::ExpressionStatement *statement)
+    {
+        ++expressionsSeen;
+        endsWithSemicolon = endsWithSemicolon
+                && (statement->lastSourceLocation().end() == statement->semicolonToken.end());
         return true;
     }
 
@@ -436,6 +466,123 @@ void tst_qqmlparser::disallowedTypeAnnotations()
     bool ok = qmlMode ? parser.parse() : parser.parseProgram();
     QVERIFY(!ok);
     QVERIFY2(parser.errorMessage().startsWith("Type annotations are not permitted "), qPrintable(parser.errorMessage()));
+}
+
+void tst_qqmlparser::semicolonPartOfExpressionStatement()
+{
+    QQmlJS::Engine engine;
+    QQmlJS::Lexer lexer(&engine);
+    lexer.setCode(QLatin1String("A { property int x: 1+1; property int y: 2+2 \n"
+                                "tt: {'a': 5, 'b': 6}; ff: {'c': 'rrr'}}"), 1);
+    QQmlJS::Parser parser(&engine);
+    QVERIFY(parser.parse());
+
+    check::ExpressionStatementObserver observer;
+    observer(parser.rootNode());
+
+    QCOMPARE(observer.expressionsSeen, 4);
+    QVERIFY(observer.endsWithSemicolon);
+}
+
+void tst_qqmlparser::typeAssertion_data()
+{
+    QTest::addColumn<QString>("expression");
+    QTest::addRow("as A")
+            << QString::fromLatin1("A { onStuff: (b as A).happen() }");
+    QTest::addRow("as double paren")
+            << QString::fromLatin1("A { onStuff: console.log((12 as double)); }");
+    QTest::addRow("as double noparen")
+            << QString::fromLatin1("A { onStuff: console.log(12 as double); }");
+    QTest::addRow("property as double")
+            << QString::fromLatin1("A { prop: (12 as double); }");
+    QTest::addRow("property noparen as double")
+            << QString::fromLatin1("A { prop: 12 as double; }");
+
+    // rabbits cannot be discerned from types on a syntactical level.
+    // We could detect this on a semantical level, once we implement type assertions there.
+
+    QTest::addRow("as rabbit")
+            << QString::fromLatin1("A { onStuff: (b as rabbit).happen() }");
+    QTest::addRow("as rabbit paren")
+            << QString::fromLatin1("A { onStuff: console.log((12 as rabbit)); }");
+    QTest::addRow("as rabbit noparen")
+            << QString::fromLatin1("A { onStuff: console.log(12 as rabbit); }");
+    QTest::addRow("property as rabbit")
+            << QString::fromLatin1("A { prop: (12 as rabbit); }");
+    QTest::addRow("property noparen as rabbit")
+            << QString::fromLatin1("A { prop: 12 as rabbit; }");
+}
+
+void tst_qqmlparser::typeAssertion()
+{
+    QFETCH(QString, expression);
+
+    QQmlJS::Engine engine;
+    QQmlJS::Lexer lexer(&engine);
+    lexer.setCode(expression, 1);
+    QQmlJS::Parser parser(&engine);
+    QVERIFY(parser.parse());
+}
+
+void tst_qqmlparser::annotations_data()
+{
+    QTest::addColumn<QString>("file");
+    QTest::addColumn<QString>("refFile");
+
+    QString tests = dataDirectory() + "/annotations/";
+    QString compare = dataDirectory() + "/noannotations/";
+
+    QStringList files;
+    files << findFiles(QDir(tests));
+
+    QStringList refFiles;
+    refFiles << findFiles(QDir(compare));
+
+    for (const QString &file: qAsConst(files)) {
+        auto fileNameStart = file.lastIndexOf(QDir::separator());
+        QStringRef fileName(&file, fileNameStart, file.length()-fileNameStart);
+        auto ref=std::find_if(refFiles.constBegin(),refFiles.constEnd(), [fileName](const QString &s){ return s.endsWith(fileName); });
+        if (ref != refFiles.constEnd())
+            QTest::newRow(qPrintable(file)) << file << *ref;
+        else
+            QTest::newRow(qPrintable(file)) << file << QString();
+    }
+}
+
+void tst_qqmlparser::annotations()
+{
+    using namespace QQmlJS;
+
+    QFETCH(QString, file);
+    QFETCH(QString, refFile);
+
+    QString code;
+    QString refCode;
+
+    QFile f(file);
+    if (f.open(QFile::ReadOnly))
+        code = QString::fromUtf8(f.readAll());
+    QFile refF(refFile);
+    if (!refFile.isEmpty() && refF.open(QFile::ReadOnly))
+        refCode = QString::fromUtf8(refF.readAll());
+
+    const bool qmlMode = true;
+
+    Engine engine;
+    Lexer lexer(&engine);
+    lexer.setCode(code, 1, qmlMode);
+    Parser parser(&engine);
+    QVERIFY(parser.parse());
+
+    if (!refCode.isEmpty()) {
+        Engine engine2;
+        Lexer lexer2(&engine2);
+        lexer2.setCode(refCode, 1, qmlMode);
+        Parser parser2(&engine2);
+        QVERIFY(parser2.parse());
+
+        QCOMPARE(AstDumper::diff(parser.ast(), parser2.rootNode(), 3, DumperOptions::NoAnnotations | DumperOptions::NoLocations), QString());
+    }
 }
 
 QTEST_MAIN(tst_qqmlparser)

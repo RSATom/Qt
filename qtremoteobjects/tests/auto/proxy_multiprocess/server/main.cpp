@@ -56,7 +56,7 @@ private Q_SLOTS:
             parent.setSubClass(&subclass);
             parent.setTracks(&model);
             parent.setMyEnum(ParentClassSource::bar);
-            parent.setDate(Qt::SystemLocaleShortDate);
+            parent.setDate(Qt::RFC2822Date);
             parent.setNsEnum(NS::Bravo);
             parent.setNs2Enum(NS2::NamespaceEnum::Bravo);
             parent.setVariant(QVariant::fromValue(42.0f));
@@ -85,7 +85,7 @@ private Q_SLOTS:
         if (objectMode == QLatin1String("NullPointer"))
             parent.setTracks(&model);
         parent.setMyEnum(ParentClassSource::foobar);
-        parent.setDate(Qt::SystemLocaleLongDate);
+        parent.setDate(Qt::ISODateWithMs);
         parent.setNsEnum(NS::Charlie);
         parent.setNs2Enum(NS2::NamespaceEnum::Charlie);
         parent.setVariant(QVariant::fromValue(podValue));

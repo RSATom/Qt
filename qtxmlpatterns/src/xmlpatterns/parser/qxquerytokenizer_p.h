@@ -106,7 +106,7 @@ namespace QPatternist
                         const QUrl &location,
                         const State startingState = Default);
 
-        virtual Token nextToken(YYLTYPE *const sourceLocator);
+        virtual Token nextToken(XPATHLTYPE *const sourceLocator);
         virtual int commenceScanOnly();
         virtual void resumeTokenizationFrom(const int position);
 

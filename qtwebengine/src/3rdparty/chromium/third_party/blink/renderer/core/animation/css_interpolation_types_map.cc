@@ -7,6 +7,7 @@
 #include <memory>
 #include <utility>
 
+#include "third_party/blink/public/mojom/feature_policy/feature_policy_feature.mojom-blink.h"
 #include "third_party/blink/renderer/core/animation/css_angle_interpolation_type.h"
 #include "third_party/blink/renderer/core/animation/css_basic_shape_interpolation_type.h"
 #include "third_party/blink/renderer/core/animation/css_border_image_length_box_interpolation_type.h"
@@ -45,7 +46,7 @@
 #include "third_party/blink/renderer/core/animation/css_translate_interpolation_type.h"
 #include "third_party/blink/renderer/core/animation/css_var_cycle_interpolation_type.h"
 #include "third_party/blink/renderer/core/animation/css_visibility_interpolation_type.h"
-#include "third_party/blink/renderer/core/css/css_syntax_descriptor.h"
+#include "third_party/blink/renderer/core/css/css_syntax_definition.h"
 #include "third_party/blink/renderer/core/css/properties/css_property.h"
 #include "third_party/blink/renderer/core/css/property_registry.h"
 #include "third_party/blink/renderer/core/feature_policy/layout_animations_policy.h"
@@ -427,7 +428,7 @@ CreateInterpolationTypeForCSSSyntax(CSSSyntaxType syntax,
 InterpolationTypes
 CSSInterpolationTypesMap::CreateInterpolationTypesForCSSSyntax(
     const AtomicString& property_name,
-    const CSSSyntaxDescriptor& descriptor,
+    const CSSSyntaxDefinition& definition,
     const PropertyRegistration& registration) {
   PropertyHandle property(property_name);
   InterpolationTypes result;
@@ -436,7 +437,7 @@ CSSInterpolationTypesMap::CreateInterpolationTypesForCSSSyntax(
   result.push_back(
       std::make_unique<CSSVarCycleInterpolationType>(property, registration));
 
-  for (const CSSSyntaxComponent& component : descriptor.Components()) {
+  for (const CSSSyntaxComponent& component : definition.Components()) {
     std::unique_ptr<CSSInterpolationType> interpolation_type =
         CreateInterpolationTypeForCSSSyntax(component.GetType(), property,
                                             registration);
@@ -447,7 +448,7 @@ CSSInterpolationTypesMap::CreateInterpolationTypesForCSSSyntax(
     if (component.IsRepeatable()) {
       interpolation_type = std::make_unique<CSSCustomListInterpolationType>(
           property, &registration, std::move(interpolation_type),
-          component.GetRepeat());
+          component.GetType(), component.GetRepeat());
     }
 
     result.push_back(std::move(interpolation_type));

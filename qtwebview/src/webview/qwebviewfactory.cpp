@@ -100,6 +100,10 @@ QAbstractWebView *QWebViewFactory::createWebView()
 
 bool QWebViewFactory::requiresExtraInitializationSteps()
 {
+    // The call to loader->indexOf(pluginName) will mess up winrt's main thread.
+#ifdef Q_OS_WINRT
+    return false;
+#endif
     const QString pluginName = getPluginName();
     const int index = pluginName.isEmpty() ? 0 : qMax<int>(0, loader->indexOf(pluginName));
 

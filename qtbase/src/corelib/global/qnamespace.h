@@ -1,6 +1,6 @@
 /****************************************************************************
 **
-** Copyright (C) 2016 The Qt Company Ltd.
+** Copyright (C) 2020 The Qt Company Ltd.
 ** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the QtCore module of the Qt Toolkit.
@@ -356,7 +356,9 @@ public:
         WA_Disabled = 0,
         WA_UnderMouse = 1,
         WA_MouseTracking = 2,
-        WA_ContentsPropagated = 3, // ## deprecated
+#if QT_DEPRECATED_SINCE(5, 15) // commented as such since 4.5.1
+        WA_ContentsPropagated Q_DECL_ENUMERATOR_DEPRECATED = 3,
+#endif
         WA_OpaquePaintEvent = 4,
 #if QT_DEPRECATED_SINCE(5, 14)
         WA_NoBackground Q_DECL_ENUMERATOR_DEPRECATED = WA_OpaquePaintEvent,
@@ -411,14 +413,16 @@ public:
         WA_WState_Reparented = 63,
         WA_WState_ConfigPending = 64,
         WA_WState_Polished = 66,
-        WA_WState_DND = 67, // ## deprecated
+#if QT_DEPRECATED_SINCE(5, 15) // commented as such in 4.5.1
+        WA_WState_DND Q_DECL_ENUMERATOR_DEPRECATED = 67,
+#endif
         WA_WState_OwnSizePolicy = 68,
         WA_WState_ExplicitShowHide = 69,
 
-        WA_ShowModal = 70, // ## deprecated
+        WA_ShowModal = 70, // ## deprecated since since 4.5.1 but still in use :-(
         WA_MouseNoMask = 71,
-        WA_GroupLeader = 72, // ## deprecated
-        WA_NoMousePropagation = 73, // ## for now, might go away.
+        WA_GroupLeader = 72, // ## deprecated since since 4.5.1 but still in use :-(
+        WA_NoMousePropagation = 73, // for now, might go away.
         WA_Hover = 74,
         WA_InputMethodTransparent = 75, // Don't reset IM when user clicks on this (for virtual keyboards on embedded)
         WA_QuitOnClose = 76,
@@ -427,7 +431,9 @@ public:
 
         WA_AcceptDrops = 78,
         WA_DropSiteRegistered = 79, // internal
-        WA_ForceAcceptDrops = WA_DropSiteRegistered, // ## deprecated
+#if QT_DEPRECATED_SINCE(5, 15) // commented as such since 4.5.1
+        WA_ForceAcceptDrops Q_DECL_ENUMERATOR_DEPRECATED_X("WA_ForceAcceptDrops is deprecated. Use WA_DropSiteRegistered instead") = WA_DropSiteRegistered,
+#endif
 
         WA_WindowPropagation = 80,
 
@@ -523,6 +529,7 @@ public:
         AA_DontUseNativeMenuBar = 6,
         AA_MacDontSwapCtrlAndMeta = 7,
         AA_Use96Dpi = 8,
+        AA_DisableNativeVirtualKeyboard = 9,
 #if QT_DEPRECATED_SINCE(5, 14)
         AA_X11InitThreads Q_DECL_ENUMERATOR_DEPRECATED = 10,
 #endif
@@ -1266,14 +1273,16 @@ public:
     enum DateFormat {
         TextDate,      // default Qt
         ISODate,       // ISO 8601
-        SystemLocaleDate, // deprecated
-        LocalDate = SystemLocaleDate, // deprecated
-        LocaleDate,     // deprecated
-        SystemLocaleShortDate,
-        SystemLocaleLongDate,
-        DefaultLocaleShortDate,
-        DefaultLocaleLongDate,
-        RFC2822Date,        // RFC 2822 (+ 850 and 1036 during parsing)
+#if QT_DEPRECATED_SINCE(5, 15)
+        SystemLocaleDate Q_DECL_ENUMERATOR_DEPRECATED_X("Use QLocale"),
+        LocalDate Q_DECL_ENUMERATOR_DEPRECATED_X("Use QLocale") = 2, // i.e. SystemLocaleDate
+        LocaleDate Q_DECL_ENUMERATOR_DEPRECATED_X("Use QLocale"),
+        SystemLocaleShortDate Q_DECL_ENUMERATOR_DEPRECATED_X("Use QLocale"),
+        SystemLocaleLongDate Q_DECL_ENUMERATOR_DEPRECATED_X("Use QLocale"),
+        DefaultLocaleShortDate Q_DECL_ENUMERATOR_DEPRECATED_X("Use QLocale"),
+        DefaultLocaleLongDate Q_DECL_ENUMERATOR_DEPRECATED_X("Use QLocale"),
+#endif
+        RFC2822Date = 8, // RFC 2822 (+ 850 and 1036 during parsing)
         ISODateWithMs
     };
 
@@ -1575,9 +1584,12 @@ public:
         MatchContains = 1,
         MatchStartsWith = 2,
         MatchEndsWith = 3,
-        MatchRegExp = 4,
+#if QT_DEPRECATED_SINCE(5, 15)
+        MatchRegExp Q_DECL_ENUMERATOR_DEPRECATED_X("MatchRegExp is deprecated. Use MatchRegularExpression instead") = 4,
+#endif
         MatchWildcard = 5,
         MatchFixedString = 8,
+        MatchRegularExpression = 9,
         MatchCaseSensitive = 16,
         MatchWrap = 32,
         MatchRecursive = 64
@@ -1762,6 +1774,9 @@ public:
         RoundPreferFloor,
         PassThrough
     };
+
+    // QTBUG-48701
+    enum ReturnByValueConstant { ReturnByValue }; // ### Qt 7: Remove me
 
 #ifndef Q_QDOC
     // NOTE: Generally, do not add QT_Q_ENUM if a corresponding Q_Q_FLAG exists.

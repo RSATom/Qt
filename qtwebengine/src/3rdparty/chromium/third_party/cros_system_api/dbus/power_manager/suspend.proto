@@ -75,14 +75,26 @@ message SuspendImminent {
 // a suspend request. Each SuspendImminent signal will be followed by a
 // SuspendDone signal.
 message SuspendDone {
-  // Next ID to use: 3
+  // Next ID to use: 4
 
+  enum WakeupType {
+    UNKNOWN = 0;
+    // Set when last suspend failed.
+    NOT_APPLICABLE = 1;
+    // Resume is triggered by an input device.
+    INPUT = 2;
+    // Resume is triggered by non-input devices (RTC for example).
+    OTHER = 3;
+  }
   // Unique ID corresponding to the suspend request.
   optional int32 suspend_id = 1;
 
   // Wall time that the system was suspended, as given by
   // base::TimeDelta::ToInternalValue().
   optional int64 suspend_duration = 2;
+
+   // Type of wakeup source.
+  optional WakeupType wakeup_type = 3;
 }
 
 // Included in calls to powerd's RegisterSuspendDelay method.
@@ -91,7 +103,8 @@ message RegisterSuspendDelayRequest {
 
   // Upper bound on the amount of time that the power manager will wait for this
   // client to call HandleSuspendReadiness before suspending the system, as
-  // given by base::TimeDelta::ToInternalValue().
+  // given by base::TimeDelta::ToInternalValue(). Setting this to -1 will make
+  // power manager wait for the maximum time delay possible before resuspending.
   optional int64 timeout = 1;
 
   // Human-readable description of the delay's purpose (e.g. the name of
@@ -107,6 +120,10 @@ message RegisterSuspendDelayReply {
   // is included in later HandleSuspendReadiness and UnregisterSuspendDelay
   // calls.
   optional int32 delay_id = 1;
+
+  // Minimum delay the power manager will wait for, for the client that sent the
+  // corresponding |RegisterSuspendDelayRequest|, before resuspending.
+  optional int32 min_delay_timeout_ms = 2;
 }
 
 // Included in calls to powerd's UnregisterSuspendDelay method.

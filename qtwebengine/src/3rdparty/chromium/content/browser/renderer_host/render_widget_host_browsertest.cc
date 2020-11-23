@@ -22,6 +22,7 @@
 #include "content/common/widget_messages.h"
 #include "content/public/browser/web_contents.h"
 #include "content/public/browser/web_contents_observer.h"
+#include "content/public/common/content_switches.h"
 #include "content/public/test/browser_test_utils.h"
 #include "content/public/test/content_browser_test.h"
 #include "content/public/test/content_browser_test_utils.h"
@@ -43,6 +44,7 @@ namespace content {
 class RenderWidgetHostSitePerProcessTest : public ContentBrowserTest {
  public:
   void SetUpCommandLine(base::CommandLine* command_line) override {
+    ContentBrowserTest::SetUpCommandLine(command_line);
     IsolateAllSitesForTesting(command_line);
   }
 
@@ -108,9 +110,9 @@ class RenderWidgetHostTouchEmulatorBrowserTest : public ContentBrowserTest {
   void SetUpOnMainThread() override {
     ContentBrowserTest::SetUpOnMainThread();
 
-    NavigateToURL(shell(),
-                  GURL("data:text/html,<!doctype html>"
-                       "<body style='background-color: red;'></body>"));
+    EXPECT_TRUE(NavigateToURL(
+        shell(), GURL("data:text/html,<!doctype html>"
+                      "<body style='background-color: red;'></body>")));
 
     view_ = static_cast<RenderWidgetHostViewBase*>(
         shell()->web_contents()->GetRenderWidgetHostView());
@@ -215,8 +217,15 @@ IN_PROC_BROWSER_TEST_F(RenderWidgetHostTouchEmulatorBrowserTest,
 }
 #endif  // !defined(OS_ANDROID)
 
+// Todo(crbug.com/994353): The test is flaky(crash/timeout) on MSAN, TSAN, and
+// DEBUG builds.
+#if (!defined(NDEBUG) || defined(THREAD_SANITIZER) || defined(MEMORY_SANITIZER))
+#define MAYBE_TouchEmulator DISABLED_TouchEmulator
+#else
+#define MAYBE_TouchEmulator TouchEmulator
+#endif
 IN_PROC_BROWSER_TEST_F(RenderWidgetHostTouchEmulatorBrowserTest,
-                       TouchEmulator) {
+                       MAYBE_TouchEmulator) {
   host()->GetTouchEmulator()->Enable(
       TouchEmulator::Mode::kEmulatingTouchFromMouse,
       ui::GestureProviderConfigType::GENERIC_MOBILE);
@@ -440,7 +449,7 @@ IN_PROC_BROWSER_TEST_F(RenderWidgetHostSitePerProcessTest,
   GURL target_child_url = main_url.ReplaceComponents(replacement);
   DocumentLoadObserver child_frame_observer(shell()->web_contents(),
                                             target_child_url);
-  NavigateToURL(shell(), main_url);
+  EXPECT_TRUE(NavigateToURL(shell(), main_url));
   child_frame_observer.Wait();
   auto* filter = GetTouchActionFilterForWidget(web_contents()
                                                    ->GetFrameTree()

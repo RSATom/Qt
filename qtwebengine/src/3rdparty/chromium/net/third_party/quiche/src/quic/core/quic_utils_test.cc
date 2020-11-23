@@ -131,6 +131,8 @@ TEST_F(QuicUtilsTest, RetransmissionTypeToPacketState) {
       EXPECT_EQ(TLP_RETRANSMITTED, state);
     } else if (i == RTO_RETRANSMISSION) {
       EXPECT_EQ(RTO_RETRANSMITTED, state);
+    } else if (i == PTO_RETRANSMISSION) {
+      EXPECT_EQ(PTO_RETRANSMITTED, state);
     } else if (i == PROBING_RETRANSMISSION) {
       EXPECT_EQ(PROBE_RETRANSMITTED, state);
     } else {
@@ -163,6 +165,47 @@ TEST_F(QuicUtilsTest, IsIetfPacketHeader) {
   first_byte |= PACKET_PUBLIC_FLAGS_8BYTE_CONNECTION_ID;
   EXPECT_FALSE(QuicUtils::IsIetfPacketHeader(first_byte));
   EXPECT_FALSE(QuicUtils::IsIetfPacketShortHeader(first_byte));
+}
+
+TEST_F(QuicUtilsTest, ReplacementConnectionIdIsDeterministic) {
+  // Verify that two equal connection IDs get the same replacement.
+  QuicConnectionId connection_id64a = TestConnectionId(33);
+  QuicConnectionId connection_id64b = TestConnectionId(33);
+  EXPECT_EQ(connection_id64a, connection_id64b);
+  EXPECT_EQ(QuicUtils::CreateReplacementConnectionId(connection_id64a),
+            QuicUtils::CreateReplacementConnectionId(connection_id64b));
+  QuicConnectionId connection_id72a = TestConnectionIdNineBytesLong(42);
+  QuicConnectionId connection_id72b = TestConnectionIdNineBytesLong(42);
+  EXPECT_EQ(connection_id72a, connection_id72b);
+  EXPECT_EQ(QuicUtils::CreateReplacementConnectionId(connection_id72a),
+            QuicUtils::CreateReplacementConnectionId(connection_id72b));
+}
+
+TEST_F(QuicUtilsTest, ReplacementConnectionIdLengthIsCorrect) {
+  // Verify that all lengths get replaced by kQuicDefaultConnectionIdLength.
+  const char connection_id_bytes[kQuicMaxConnectionIdAllVersionsLength] = {};
+  for (uint8_t i = 0; i < sizeof(connection_id_bytes) - 1; ++i) {
+    QuicConnectionId connection_id(connection_id_bytes, i);
+    QuicConnectionId replacement_connection_id =
+        QuicUtils::CreateReplacementConnectionId(connection_id);
+    EXPECT_EQ(kQuicDefaultConnectionIdLength,
+              replacement_connection_id.length());
+  }
+}
+
+TEST_F(QuicUtilsTest, ReplacementConnectionIdHasEntropy) {
+  // Make sure all these test connection IDs have different replacements.
+  for (uint64_t i = 0; i < 256; ++i) {
+    QuicConnectionId connection_id_i = TestConnectionId(i);
+    EXPECT_NE(connection_id_i,
+              QuicUtils::CreateReplacementConnectionId(connection_id_i));
+    for (uint64_t j = i + 1; j <= 256; ++j) {
+      QuicConnectionId connection_id_j = TestConnectionId(j);
+      EXPECT_NE(connection_id_i, connection_id_j);
+      EXPECT_NE(QuicUtils::CreateReplacementConnectionId(connection_id_i),
+                QuicUtils::CreateReplacementConnectionId(connection_id_j));
+    }
+  }
 }
 
 TEST_F(QuicUtilsTest, RandomConnectionId) {
@@ -203,17 +246,17 @@ TEST_F(QuicUtilsTest, RandomConnectionIdVariableLength) {
 
 TEST_F(QuicUtilsTest, VariableLengthConnectionId) {
   EXPECT_FALSE(
-      QuicUtils::VariableLengthConnectionIdAllowedForVersion(QUIC_VERSION_39));
+      QuicUtils::VariableLengthConnectionIdAllowedForVersion(QUIC_VERSION_43));
   EXPECT_TRUE(QuicUtils::IsConnectionIdValidForVersion(
-      QuicUtils::CreateZeroConnectionId(QUIC_VERSION_39), QUIC_VERSION_39));
+      QuicUtils::CreateZeroConnectionId(QUIC_VERSION_43), QUIC_VERSION_43));
   EXPECT_TRUE(QuicUtils::IsConnectionIdValidForVersion(
       QuicUtils::CreateZeroConnectionId(QUIC_VERSION_99), QUIC_VERSION_99));
-  EXPECT_NE(QuicUtils::CreateZeroConnectionId(QUIC_VERSION_39),
+  EXPECT_NE(QuicUtils::CreateZeroConnectionId(QUIC_VERSION_43),
             EmptyQuicConnectionId());
   EXPECT_EQ(QuicUtils::CreateZeroConnectionId(QUIC_VERSION_99),
             EmptyQuicConnectionId());
   EXPECT_FALSE(QuicUtils::IsConnectionIdValidForVersion(EmptyQuicConnectionId(),
-                                                        QUIC_VERSION_39));
+                                                        QUIC_VERSION_43));
 }
 
 TEST_F(QuicUtilsTest, StatelessResetToken) {
@@ -225,7 +268,6 @@ TEST_F(QuicUtilsTest, StatelessResetToken) {
   QuicUint128 token2 = QuicUtils::GenerateStatelessResetToken(connection_id2);
   EXPECT_EQ(token1a, token1b);
   EXPECT_NE(token1a, token2);
-  EXPECT_EQ(token1a, MakeQuicUint128(0, 1));
 }
 
 }  // namespace

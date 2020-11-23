@@ -329,7 +329,7 @@ void QGeoTiledMapPrivate::changeCameraData(const QGeoCameraData &cameraData)
     m_mapScene->setCameraData(cam);
 
     updateScene();
-    q->sgNodeChanged();
+    q->sgNodeChanged(); // ToDo: explain why emitting twice
 }
 
 void QGeoTiledMapPrivate::updateScene()
@@ -371,7 +371,7 @@ void QGeoTiledMapPrivate::setVisibleArea(const QRectF &visibleArea)
      if (m_copyrightVisible)
         q->evaluateCopyrights(m_mapScene->visibleTiles());
     updateScene();
-    q->sgNodeChanged();
+    q->sgNodeChanged(); // ToDo: explain why emitting twice
 }
 
 QRectF QGeoTiledMapPrivate::visibleArea() const

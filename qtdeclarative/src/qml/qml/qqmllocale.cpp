@@ -314,7 +314,7 @@ ReturnedValue QQmlDateExtension::method_fromLocaleDateString(const QV4::Function
             QLocale locale;
             QString dateString = s->toQString();
             QDate date = locale.toDate(dateString);
-            RETURN_RESULT(engine->newDateObject(QDateTime(date)));
+            RETURN_RESULT(engine->newDateObject(date.startOfDay()));
         }
     }
 
@@ -341,7 +341,7 @@ ReturnedValue QQmlDateExtension::method_fromLocaleDateString(const QV4::Function
         dt = r->d()->locale->toDate(dateString, enumFormat);
     }
 
-    RETURN_RESULT(engine->newDateObject(QDateTime(dt)));
+    RETURN_RESULT(engine->newDateObject(dt.startOfDay()));
 }
 
 ReturnedValue QQmlDateExtension::method_timeZoneUpdated(const QV4::FunctionObject *b, const QV4::Value *, const QV4::Value *, int argc)
@@ -476,6 +476,23 @@ ReturnedValue QQmlLocaleData::method_get_firstDayOfWeek(const QV4::FunctionObjec
     if (fdow == 7)
         fdow = 0; // Qt::Sunday = 7, but Sunday is 0 in JS Date
     RETURN_RESULT(fdow);
+}
+
+ReturnedValue QQmlLocaleData::method_get_numberOptions(const QV4::FunctionObject *b, const QV4::Value *thisObject, const QV4::Value *, int) {
+    QV4::Scope scope(b);
+    const QLocale *locale = getThisLocale(scope, thisObject);
+    if (!locale)
+        return Encode::undefined();
+    int numberOptions = int(locale->numberOptions());
+    RETURN_RESULT(numberOptions);
+}
+
+ReturnedValue QQmlLocaleData::method_set_numberOptions(const QV4::FunctionObject *b, const QV4::Value *thisObject, const QV4::Value *argv, int argc) {
+    QV4::Scope scope(b);
+    QLocale *locale = getThisLocale(scope, thisObject);
+    int const numberOptions = argc ? int(argv[0].toNumber()) : QLocale::DefaultNumberOptions;
+    locale->setNumberOptions(QLocale::NumberOptions {numberOptions});
+    return Encode::undefined();
 }
 
 ReturnedValue QQmlLocaleData::method_get_measurementSystem(const QV4::FunctionObject *b, const QV4::Value *thisObject, const QV4::Value *, int)
@@ -701,6 +718,7 @@ QV4LocaleDataDeletable::QV4LocaleDataDeletable(QV4::ExecutionEngine *engine)
     o->defineAccessorProperty(QStringLiteral("amText"), QQmlLocaleData::method_get_amText, nullptr);
     o->defineAccessorProperty(QStringLiteral("measurementSystem"), QQmlLocaleData::method_get_measurementSystem, nullptr);
     o->defineAccessorProperty(QStringLiteral("exponential"), QQmlLocaleData::method_get_exponential, nullptr);
+    o->defineAccessorProperty(QStringLiteral("numberOptions"), QQmlLocaleData::method_get_numberOptions, QQmlLocaleData::method_set_numberOptions);
 
     prototype.set(engine, o);
 }
@@ -870,6 +888,16 @@ ReturnedValue QQmlLocale::method_localeCompare(const QV4::FunctionObject *b, con
     \qmlproperty string QtQml::Locale::groupSeparator
 
     Holds the group separator character of this locale.
+*/
+
+/*!
+    \qmlproperty enumeration QtQml::Locale::NumberOption
+
+    Holds a set of options for number-to-string and
+    string-to-number conversions.
+
+    \sa Number::toLocaleString()
+    \sa Number::fromLocaleString()
 */
 
 /*!

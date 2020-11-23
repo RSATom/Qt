@@ -305,7 +305,8 @@ bool PageSchedulerImpl::IsMainFrameLocal() const {
 }
 
 bool PageSchedulerImpl::IsLoading() const {
-  return main_thread_scheduler_->current_use_case() == UseCase::kLoading;
+  return main_thread_scheduler_->current_use_case() == UseCase::kEarlyLoading ||
+         main_thread_scheduler_->current_use_case() == UseCase::kLoading;
 }
 
 bool PageSchedulerImpl::IsOrdinary() const {
@@ -768,6 +769,12 @@ FrameSchedulerImpl* PageSchedulerImpl::SelectFrameForUkmAttribution() {
       return frame_scheduler;
   }
   return nullptr;
+}
+
+WebScopedVirtualTimePauser PageSchedulerImpl::CreateWebScopedVirtualTimePauser(
+    const String& name,
+    WebScopedVirtualTimePauser::VirtualTaskDuration duration) {
+  return WebScopedVirtualTimePauser(main_thread_scheduler_, duration, name);
 }
 
 // static

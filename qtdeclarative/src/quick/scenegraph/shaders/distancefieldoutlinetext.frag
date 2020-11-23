@@ -11,6 +11,7 @@ uniform mediump float outlineAlphaMax1;
 void main()
 {
     mediump float d = texture2D(_qt_texture, sampleCoord).a;
-    gl_FragColor = mix(styleColor, color, smoothstep(alphaMin, alphaMax, d))
-                       * smoothstep(outlineAlphaMax0, outlineAlphaMax1, d);
+    mediump float a = smoothstep(alphaMin, alphaMax, d);
+    gl_FragColor = step(1.0 - a, 1.0) * mix(styleColor, color, a)
+        * smoothstep(outlineAlphaMax0, outlineAlphaMax1, d);
 }

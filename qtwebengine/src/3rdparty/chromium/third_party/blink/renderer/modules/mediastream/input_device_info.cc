@@ -8,10 +8,13 @@
 
 #include "build/build_config.h"
 #include "media/base/sample_format.h"
-#include "third_party/blink/public/platform/modules/mediastream/media_stream_audio_processor_options.h"
-#include "third_party/blink/public/platform/modules/mediastream/media_stream_audio_source.h"
+#include "third_party/blink/public/mojom/mediastream/media_devices.mojom-blink.h"
 #include "third_party/blink/public/platform/web_media_stream_track.h"
+#include "third_party/blink/renderer/modules/mediastream/double_range.h"
+#include "third_party/blink/renderer/modules/mediastream/long_range.h"
 #include "third_party/blink/renderer/modules/mediastream/media_track_capabilities.h"
+#include "third_party/blink/renderer/platform/mediastream/media_stream_audio_processor_options.h"
+#include "third_party/blink/renderer/platform/mediastream/media_stream_audio_source.h"
 #include "third_party/webrtc/modules/audio_processing/include/audio_processing.h"
 
 namespace blink {
@@ -39,14 +42,6 @@ WebMediaStreamTrack::FacingMode ToWebFacingMode(mojom::FacingMode facing_mode) {
 
 }  // namespace
 
-InputDeviceInfo* InputDeviceInfo::Create(const String& device_id,
-                                         const String& label,
-                                         const String& group_id,
-                                         MediaDeviceType device_type) {
-  return MakeGarbageCollected<InputDeviceInfo>(device_id, label, group_id,
-                                               device_type);
-}
-
 InputDeviceInfo::InputDeviceInfo(const String& device_id,
                                  const String& label,
                                  const String& group_id,
@@ -67,9 +62,9 @@ void InputDeviceInfo::SetVideoInputCapabilities(
     float min_frame_rate = 1.0f;
     float max_frame_rate = min_frame_rate;
     for (const auto& format : video_input_capabilities->formats) {
-      max_width = std::max(max_width, format->frame_size.width);
-      max_height = std::max(max_height, format->frame_size.height);
-      max_frame_rate = std::max(max_frame_rate, format->frame_rate);
+      max_width = std::max(max_width, format.frame_size.width());
+      max_height = std::max(max_height, format.frame_size.height());
+      max_frame_rate = std::max(max_frame_rate, format.frame_rate);
     }
     platform_capabilities_.width = {1U, uint32_t(max_width)};
     platform_capabilities_.height = {1U, uint32_t(max_height)};

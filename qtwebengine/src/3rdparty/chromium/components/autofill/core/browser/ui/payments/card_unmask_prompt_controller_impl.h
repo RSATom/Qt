@@ -25,8 +25,15 @@ class CardUnmaskPromptControllerImpl : public CardUnmaskPromptController {
                                  bool is_off_the_record);
   virtual ~CardUnmaskPromptControllerImpl();
 
+  // This should be OnceCallback<unique_ptr<CardUnmaskPromptView>> but there are
+  // tests which don't do the ownership correctly.
+  using CardUnmaskPromptViewFactory =
+      base::OnceCallback<CardUnmaskPromptView*()>;
+
   // Functions called by ChromeAutofillClient.
-  void ShowPrompt(CardUnmaskPromptView* view,
+  // It is guaranteed that |view_factory| is called before this function
+  // returns, i.e., the callback will not outlive the stack frame of ShowPrompt.
+  void ShowPrompt(CardUnmaskPromptViewFactory view_factory,
                   const CreditCard& card,
                   AutofillClient::UnmaskCardReason reason,
                   base::WeakPtr<CardUnmaskDelegate> delegate);
@@ -35,10 +42,11 @@ class CardUnmaskPromptControllerImpl : public CardUnmaskPromptController {
 
   // CardUnmaskPromptController implementation.
   void OnUnmaskDialogClosed() override;
-  void OnUnmaskResponse(const base::string16& cvc,
-                        const base::string16& exp_month,
-                        const base::string16& exp_year,
-                        bool should_store_pan) override;
+  void OnUnmaskPromptAccepted(const base::string16& cvc,
+                              const base::string16& exp_month,
+                              const base::string16& exp_year,
+                              bool should_store_pan,
+                              bool enable_fido_auth) override;
   void NewCardLinkClicked() override;
   base::string16 GetWindowTitle() const override;
   base::string16 GetInstructionsMessage() const override;
@@ -47,6 +55,7 @@ class CardUnmaskPromptControllerImpl : public CardUnmaskPromptController {
   bool ShouldRequestExpirationDate() const override;
   bool CanStoreLocally() const override;
   bool GetStoreLocallyStartState() const override;
+  bool GetWebauthnOfferStartState() const override;
   bool InputCvcIsValid(const base::string16& input_text) const override;
   bool InputExpirationIsValid(const base::string16& month,
                               const base::string16& year) const override;
@@ -79,7 +88,7 @@ class CardUnmaskPromptControllerImpl : public CardUnmaskPromptController {
   // Timestamp of the last time the user clicked the Verify button.
   base::Time verify_timestamp_;
 
-  CardUnmaskDelegate::UnmaskResponse pending_response_;
+  CardUnmaskDelegate::UserProvidedUnmaskDetails pending_details_;
 
   base::WeakPtrFactory<CardUnmaskPromptControllerImpl> weak_pointer_factory_{
       this};

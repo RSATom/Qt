@@ -12,6 +12,7 @@
 #include "content/common/media/media_player_delegate_messages.h"
 #include "content/public/browser/overlay_window.h"
 #include "content/public/browser/web_contents_delegate.h"
+#include "content/public/common/content_client.h"
 #include "content/test/test_content_browser_client.h"
 #include "content/test/test_render_frame_host.h"
 #include "content/test/test_render_view_host.h"
@@ -72,7 +73,6 @@ class TestOverlayWindow : public OverlayWindow {
   }
   void SetPlaybackState(PlaybackState playback_state) override {}
   void SetAlwaysHidePlayPauseButton(bool is_visible) override {}
-  void SetMutedState(MutedState muted_state) override {}
   void SetSkipAdButtonVisibility(bool is_visible) override {}
   void SetNextTrackButtonVisibility(bool is_visible) override {}
   void SetPreviousTrackButtonVisibility(bool is_visible) override {}
@@ -162,8 +162,7 @@ TEST_F(PictureInPictureServiceImplTest, MAYBE_EnterPictureInPicture) {
 
   service().StartSession(
       kPlayerVideoOnlyId, surface_id, gfx::Size(42, 42),
-      true /* show_play_pause_button */, true /* show_mute_button */,
-      std::move(observer_remote),
+      true /* show_play_pause_button */, std::move(observer_remote),
       base::BindLambdaForTesting(
           [&](mojo::PendingRemote<blink::mojom::PictureInPictureSession> remote,
               const gfx::Size& b) {
@@ -205,8 +204,7 @@ TEST_F(PictureInPictureServiceImplTest, EnterPictureInPicture_NotSupported) {
 
   service().StartSession(
       kPlayerVideoOnlyId, surface_id, gfx::Size(42, 42),
-      true /* show_play_pause_button */, true /* show_mute_button */,
-      std::move(observer_remote),
+      true /* show_play_pause_button */, std::move(observer_remote),
       base::BindLambdaForTesting(
           [&](mojo::PendingRemote<blink::mojom::PictureInPictureSession> remote,
               const gfx::Size& b) {

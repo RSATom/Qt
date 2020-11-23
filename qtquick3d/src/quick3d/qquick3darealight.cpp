@@ -28,7 +28,7 @@
 ****************************************************************************/
 
 #include "qquick3darealight_p.h"
-#include "qquick3dobject_p_p.h"
+#include "qquick3dobject_p.h"
 
 #include <QtQuick3DRuntimeRender/private/qssgrenderlight_p.h>
 
@@ -47,7 +47,7 @@ QT_BEGIN_NAMESPACE
 
     Rotating, scaling and moving actions will all effect an area light.
 
-    \sa DirectionalLight, PointLight
+    \sa DirectionalLight, PointLight, SpotLight
 */
 
 /*!

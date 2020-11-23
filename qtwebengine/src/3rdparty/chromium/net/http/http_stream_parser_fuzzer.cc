@@ -7,6 +7,8 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include <fuzzer/FuzzedDataProvider.h>
+
 #include <algorithm>
 #include <memory>
 #include <string>
@@ -24,7 +26,6 @@
 #include "net/log/test_net_log.h"
 #include "net/socket/fuzzed_socket.h"
 #include "net/traffic_annotation/network_traffic_annotation_test_helper.h"
-#include "third_party/libFuzzer/src/utils/FuzzedDataProvider.h"
 #include "url/gurl.h"
 
 // Fuzzer for HttpStreamParser.
@@ -32,7 +33,7 @@
 // |data| is used to create a FuzzedSocket.
 extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) {
   net::TestCompletionCallback callback;
-  net::BoundTestNetLog bound_test_net_log;
+  net::RecordingBoundTestNetLog bound_test_net_log;
   FuzzedDataProvider data_provider(data, size);
   net::FuzzedSocket fuzzed_socket(&data_provider,
                                   bound_test_net_log.bound().net_log());

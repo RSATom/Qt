@@ -27,7 +27,6 @@
 
 /*!
     \page 03-qdoc-commands-markup.html
-    \contentspage QDoc Manual
     \previouspage Naming Things
     \nextpage Text Markup
 
@@ -109,7 +108,6 @@
 
 /*!
     \page 04-qdoc-commands-textmarkup.html
-    \contentspage QDoc Manual
     \previouspage Markup Commands
     \nextpage Document Structure
 
@@ -208,9 +206,9 @@
     text (which may include other QDoc commands) to which special
     formatting attributes should be applied.
 
-    An argument must be provided in curly braces, as in the qdoc
+    An argument must be provided in curly braces, as in the QDoc
     comment shown below. The argument is not interpreted but is used
-    as attribute(s) of the tag that is output by qdoc.
+    as attribute(s) of the tag that is output by QDoc.
 
     For example, we might want to render an inline image so that it
     floats to the right of the current block of text:
@@ -224,7 +222,7 @@
       * /
     \endcode
 
-    If qdoc is generating HTML, it will translate these commands to:
+    If QDoc is generating HTML, it will translate these commands to:
 
     \code
       <div class="float-right"><p><img src="images/qml-column.png" /></p></div>
@@ -239,21 +237,6 @@
           float: right; margin-left: 2em
        }
     \endcode
-
-    If qdoc is generating DITA XML, it will translate the commands to:
-
-    \code
-        <sectiondiv outputclass="float-right">
-            <p>
-                <fig>
-                    <image href="images/qml-column.png" placement="inline"/>
-                </fig>
-            </p>
-        </sectiondiv>
-    \endcode
-
-    Your DITA XML publishing program must then recognize the \e
-    {outputclass} attribute value.
 
     \note Note that the \b {\\div} command can be nested.
 
@@ -319,53 +302,6 @@
              \enddiv
             \enddiv
           \enddiv
-
-    When generating DITA XML, qdoc outputs the nested \e {div} commands as:
-
-    \code
-      <sectiondiv outputclass="indexbox guide">
-          <sectiondiv outputclass="heading">
-              <p>Qt Developer Guide</p>
-          </sectiondiv>
-          <sectiondiv outputclass="indexboxcont indexboxbar">
-              <sectiondiv outputclass="section indexIcon"/>
-              <sectiondiv outputclass="section">
-                  <p>Qt is a cross-platform application and UI
-                     framework. Using Qt, you can write
-                     web-enabled applications once and deploy
-                     them across desktop, mobile and embedded
-                     operating systems without rewriting the
-                     source code.
-                  </p>
-              </sectiondiv>
-              <sectiondiv outputclass="section sectionlist">
-                  <ul>
-                      <li>
-                          <xref href="gettingstarted.xml#id-606ee7a8-219b-47b7-8f94-91bc8c76e54c">Getting started</xref>
-                      </li>
-                      <li>
-                          <xref href="installation.xml#id-075c20e2-aa1e-4f88-a316-a46517e50443">Installation</xref>
-                      </li>
-                      <li>
-                          <xref href="how-to-learn-qt.xml#id-49f509b5-52f9-4cd9-9921-74217b9a5182">How to learn Qt</xref>
-                      </li>
-                      <li>
-                          <xref href="tutorials.xml#id-a737f955-a904-455f-b4aa-0dc69ed5a64f">Tutorials</xref>
-                      </li>
-                      <li>
-                          <xref href="all-examples.xml#id-98d95159-d65b-4706-b08f-13d80080448d">Examples</xref>
-                      </li>
-                      <li>
-                          <xref href="qt4-7-intro.xml#id-519ae0e3-4242-4c2a-b2be-e05d1e95f177">What's new in Qt 4.7</xref>
-                      </li>
-                  </ul>
-              </sectiondiv>
-          </sectiondiv>
-      </sectiondiv>
-    \endcode
-
-    Your DITA XML publishing program must recognize the values of the
-    \e {outputclass} attribute.
 
     See also \l {span-command} {\\span}.
 
@@ -640,7 +576,6 @@
 
     The \\uicontrol command is used to mark content as being used for UI
     control elements. When using HTML, the output is rendered in bold.
-    When using DITA XML the content is enclosed in a \c{uicontrol} tag.
 
     \sa \\b
 
@@ -722,7 +657,6 @@
 /*!
     \page 05-qdoc-commands-documentstructure.html
     \previouspage Text Markup
-    \contentspage QDoc Manual
     \nextpage Including Code Inline
 
     \title Document Structure
@@ -921,7 +855,6 @@
 /*!
     \page 06-qdoc-commands-includecodeinline.html
     \previouspage Document Structure
-    \contentspage QDoc Manual
     \nextpage Including External Code
 
     \title Including Code Inline
@@ -1154,7 +1087,6 @@
 /*!
     \page 07-0-qdoc-commands-includingexternalcode.html
     \previouspage Including Code Inline
-    \contentspage QDoc Manual
     \nextpage Creating Links
 
     \title Including External Code
@@ -1767,7 +1699,7 @@
     ...
     \endcode
 
-    By default, qdoc looks for \c{//!} as a code snippet marker.
+    By default, QDoc looks for \c{//!} as a code snippet marker.
     For \c{.pro}, \c{.py}, \c{.cmake}, and \c{CMakeLists.txt}
     files, \c {#!} is detected. Finally, \c{<!--} is accepted in
     \c{.html}, \c{.qrc}, \c{.ui}, \c{.xml}, \c{.dita}, and \c{.xq} files.
@@ -1785,7 +1717,6 @@
 /*!
     \page 08-qdoc-commands-creatinglinks.html
     \previouspage Including External Code
-    \contentspage QDoc Manual
     \nextpage Including Images
 
     \title Creating Links
@@ -1874,7 +1805,7 @@
 
     \li \c {\l QWidget::removeAction(QAction* action)} - The signature
     of a function with parameters. If an exact match is not found, the
-    link is not satisfied and qdoc reports a \e {Can't link to...} error.
+    link is not satisfied and QDoc reports a \e {Can't link to...} error.
 
     \li \c {\l <QtGlobal>} - The subject of a \l {headerfile-command}
     {\\headerfile} command.
@@ -1919,7 +1850,7 @@
     \section2 Fixing Ambiguous Links
 
     Because of the modularization of Qt beginning with Qt 5.0, The
-    possibility that qdoc will have to deal with ambiguous links has
+    possibility that QDoc will have to deal with ambiguous links has
     increased. An ambiguous link is one that has a matching target in
     more than one Qt module, e.g. the same section title can appear in
     more than one Qt module, or the name of a C++ class in one module
@@ -1928,7 +1859,7 @@
     namespace in QtCore and a QML type in QtQml.
 
     Suppose we want to link to the \l {Qt} {Qt C++ namespace}.  At the
-    time qdoc generated this HTML page, that link was correct.  Does
+    time QDoc generated this HTML page, that link was correct.  Does
     it still go to the C++ namespace? Qdoc generated that link from
     this link command:
 
@@ -1937,22 +1868,22 @@
     \endlist
 
     Now suppose we want to link to the \l [QML] {Qt} {Qt QML type}.
-    At the time qdoc generated this HTML page, that link was also
+    At the time QDoc generated this HTML page, that link was also
     correct, but we had to use this link command:
 
     \list
         \li \c {\l [QML] {Qt} {Qt QML type}}
     \endlist
 
-    The \e {QML} in \e {square brackets} tells qdoc to accept a
+    The \e {QML} in \e {square brackets} tells QDoc to accept a
     matching target only if the traget is on a QML page. Qdoc actually
     finds the C++ namespace target first, but since that target is on
-    a C++ page, qdoc ignores it and keeps looking until it finds the
+    a C++ page, QDoc ignores it and keeps looking until it finds the
     same target on a QML page.
 
     Without the guidance in the \e{\\l command} in the optional \e
-    {square bracket} argument, qdoc links to the first matching target
-    it finds. qdoc can't warn that the link was ambiguous in such
+    {square bracket} argument, QDoc links to the first matching target
+    it finds. QDoc can't warn that the link was ambiguous in such
     cases because it doesn't know that another matching target exists.
 
     \section2 What arguments can appear in square brackets?
@@ -1964,13 +1895,13 @@
 
     The \e {square bracket} argument is only allowed in the \c {\l
     (link)} command. The example above shows how \c QML is used as the
-    \e {square brackets} argument to force qdoc to match a QML target.
+    \e {square brackets} argument to force QDoc to match a QML target.
     Most often, this will be a QML type, but it can also be a QML
     member function of property.
 
-    In the example, qdoc didn't need a \e {square bracket} argument to
+    In the example, QDoc didn't need a \e {square bracket} argument to
     find the Qt C++ namespace page, because that one was the first
-    matching target qdoc found anyway. However, to force qdoc to find
+    matching target QDoc found anyway. However, to force QDoc to find
     a C++ target when a matching QML target gets in the way, \c CPP
     can be used as the \e {square bracket} argument. For example:
 
@@ -1978,11 +1909,11 @@
         \li \c {\l [CPP] {Qt} {Qt C++ namespace}}
     \endlist
 
-    ...will force qdoc to ignore the Qt QML type and continue
+    ...will force QDoc to ignore the Qt QML type and continue
     searching until it matches the Qt C++ namespace.
 
     If the link target is neither a C++ nor a QML entity, \c {DOC} can
-    be used as the \e {square bracket} argument to prevent qdoc from
+    be used as the \e {square bracket} argument to prevent QDoc from
     matching either of those. At this writing, there were no cases of
     ambiguous links where using \c {DOC} was required.
 
@@ -1997,7 +1928,7 @@
     \endlist
 
     When a module name is used as the \e {square bracket} argument,
-    qdoc will search for link the target in that module only. This
+    QDoc will search for link the target in that module only. This
     makes searching for link targets more efficient.
 
     Finally, the module name and entity type arguments can be
@@ -2182,7 +2113,6 @@
 /*!
     \page 09-qdoc-commands-includingimages.html
     \previouspage Creating Links
-    \contentspage QDoc Manual
     \nextpage Tables and Lists
 
     \title Including Images
@@ -2379,7 +2309,6 @@
 /*!
     \page 10-qdoc-commands-tablesandlists.html
     \previouspage Including Images
-    \contentspage QDoc Manual
     \nextpage Special Content
 
     \title Tables and Lists
@@ -2781,10 +2710,6 @@
                \li Tutorial and Examples
            \endlist
 
-    \warning There appears to be a bug in qdoc here. If you include
-    any of the argument types, you get a numeric list. We're looking
-    into it.
-
     If you provide 'A' as an argument to the \\list command, the
     bullets are replaced with characters in alphabetical order:
 
@@ -2836,13 +2761,6 @@
                \endlist
            * /
            \endcode
-
-    \note This doesn't work in DITA XML, so don't use it because it
-    produces a DITA XML file that doesn't validate. There probably is
-    a way to do this in DITA, so if we figure it out, we will put it
-    in. But this capability is not used anywhere other than right
-    here, so it probably isn't important. For now, if you use this
-    option, qdoc will ignore it and produce a list without it.
 
     QDoc renders this as:
 
@@ -2927,7 +2845,6 @@
 /*!
     \page 11-qdoc-commands-specialcontent.html
     \previouspage Tables and Lists
-    \contentspage QDoc Manual
     \nextpage Miscellaneous
 
     \title Special Content
@@ -3362,8 +3279,7 @@
 /*!
     \page 12-0-qdoc-commands-miscellaneous.html
     \previouspage Special Content
-    \contentspage QDoc Manual
-    \nextpage Creating DITA Maps
+    \nextpage The QDoc Configuration File
 
     \title Miscellaneous
 
@@ -3799,8 +3715,7 @@
     \target meta-command
     \section1 \\meta
 
-    The \\meta command is mainly used for including metadata in DITA
-    XML files. It is also used for adding metadata to example documentation,
+    The \\meta command is used for adding metadata to example documentation,
     and when generating HTML output for specifying the \e maintainer(s) of a
     C++ class.
 
@@ -3826,46 +3741,7 @@
     \endcode
 
     When running QDoc to generate HTML, the example above will have no
-    effect on the generated output, but if you run QDoc to generate
-    DITA XML, the example will generate the following:
-
-    \code
-    <?xml version="1.0" encoding="UTF-8"?>
-    <!DOCTYPE cxxClass PUBLIC "-//NOKIA//DTD DITA C++ API Class Reference Type v0.6.0//EN" "dtd/cxxClass.dtd">
-    <!--qwidget.cpp-->
-    <cxxClass id="id-9a14268e-6b09-4eee-b940-21a00a0961df">
-       <apiName>QWidget</apiName>
-       <shortdesc>the QWidget class is the base class of all user interface objects.</shortdesc>
-       <prolog>
-           <author>Qt Development Frameworks</author>
-           <publisher>Qt Project</publisher>
-           <copyright>
-               <copyryear year="2020"/>
-               <copyrholder>Qt Project</copyrholder>
-           </copyright>
-           <permissions view="all"/>
-           <metadata>
-               <audience type="designer"/>
-               <audience type="programmer"/>
-               <audience type="user"/>
-               <category>Class reference</category>
-               <prodinfo>
-                   <prodname>Qt Reference Documentation</prodname>
-                   <vrmlist>
-                       <vrm version="4" release="7" modification="3"/>
-                   </vrmlist>
-                   <component>QtGui</component>
-               </prodinfo>
-               <othermeta name="platform" content="MeeGo"/>
-               <othermeta name="platform" content="macOS 10.6"/>
-               <othermeta name="technology" content="User Interface"/>
-           </metadata>
-       </prolog>
-    \endcode
-
-    In the example output, several values have been set using default
-    values obtained from the QDoc configuration file. See \l
-    {Generating DITA XML Output} for details.
+    effect on the generated output.
 
     \b {Example Metadata}
 
@@ -3916,12 +3792,12 @@
 
     The command must stand on its own line. See \l {Qt Sensors QML Types} for
     an example. The page is generated from \c {qtsensors5.qdoc}. There you will
-    find a qdoc comment containing the \c{\qmlmodule} command for the QtSensors
-    module. The same qdoc comment contains two \c {\annotated-list} commands to
+    find a QDoc comment containing the \c{\qmlmodule} command for the QtSensors
+    module. The same QDoc comment contains two \c {\annotated-list} commands to
     list the QML types in two separate groups. The QML types have been divided
     into these two groups because it makes more sense to list them this way than
     it does to list them in a single alphabetical list. At the bottom of the
-    comment, \c {\noautolist} has been used to tell qdoc not to generate the
+    comment, \c {\noautolist} has been used to tell QDoc not to generate the
     automatic annotated list.
 
     This command was introduced in QDoc 5.6.
@@ -3984,8 +3860,7 @@
     The \\raw command and the corresponding
     \\endraw command delimit a block of raw mark-up language code.
 
-    \note Avoid using this command if possible, because it generates
-    DITA XML code that causes problems. If you are trying to generate
+    \note Avoid using this command if possible. If you are trying to generate
     special table or list behavior, try to get the behavior you want
     using the \l {span-command} {\\span} and \l {div-command} {\\div}
     commands in your \l {table-command} {\\table} or \l {list-command}
@@ -4037,7 +3912,7 @@
                \endraw
            \endquotation
 
-    \note But you can achieve the exact same thing using qdoc
+    \note But you can achieve the exact same thing using QDoc
     commands. In this case, all you have to do is include the color
     styles in your style.css file. Then you can write:
 

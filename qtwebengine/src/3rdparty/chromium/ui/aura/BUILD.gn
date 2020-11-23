@@ -36,8 +36,10 @@ jumbo_component("aura") {
     "input_state_lookup_win.h",
     "layout_manager.h",
     "null_window_targeter.h",
+    "scoped_enable_unadjusted_mouse_events.h",
     "scoped_keyboard_hook.h",
     "scoped_simple_keyboard_hook.h",
+    "scoped_window_event_targeting_blocker.h",
     "scoped_window_targeter.h",
     "window.h",
     "window_delegate.h",
@@ -80,6 +82,7 @@ jumbo_component("aura") {
     "null_window_targeter.cc",
     "scoped_keyboard_hook.cc",
     "scoped_simple_keyboard_hook.cc",
+    "scoped_window_event_targeting_blocker.cc",
     "scoped_window_targeter.cc",
     "window.cc",
     "window_delegate.cc",
@@ -161,6 +164,8 @@ jumbo_component("aura") {
     public += [ "screen_ozone.h" ]
     sources += [ "screen_ozone.cc" ]
   }
+
+  configs += [ "//build/config/compiler:noshadowing" ]
 }
 
 jumbo_static_library("test_support") {
@@ -246,12 +251,18 @@ jumbo_static_library("test_support") {
   }
 
   if (use_ozone) {
+    if (is_fuchsia) {
+      deps += [ "//ui/ozone" ]
+    }
     sources += [ "test/ui_controls_factory_ozone.cc" ]
+  }
+
+  if (is_linux) {
+    deps += [ "//ui/platform_window/common" ]
   }
 }
 
-executable("demo") {
-  output_name = "aura_demo"
+executable("aura_demo") {
   testonly = true
 
   sources = [
@@ -266,6 +277,7 @@ executable("demo") {
     "//build/win:default_exe_manifest",
     "//components/viz/host",
     "//components/viz/service",
+    "//mojo/core/embedder",
     "//skia",
     "//third_party/icu",
     "//ui/base",

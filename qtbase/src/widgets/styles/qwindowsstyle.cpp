@@ -78,12 +78,14 @@
 #endif
 #include <private/qmath_p.h>
 #include <qmath.h>
+#include <QtGui/qpainterpath.h>
 #include <QtGui/qscreen.h>
 #include <QtGui/qwindow.h>
 #include <qpa/qplatformtheme.h>
 #include <qpa/qplatformscreen.h>
 #include <private/qguiapplication_p.h>
 #include <private/qhighdpiscaling_p.h>
+#include <qpa/qplatformnativeinterface.h>
 #include <private/qwidget_p.h>
 
 #include <private/qstylehelper_p.h>
@@ -125,6 +127,22 @@ QWindowsStylePrivate::QWindowsStylePrivate() = default;
 qreal QWindowsStylePrivate::appDevicePixelRatio()
 {
     return qApp->devicePixelRatio();
+}
+
+bool QWindowsStylePrivate::isDarkMode()
+{
+    bool result = false;
+#ifdef Q_OS_WIN
+    // Windows only: Return whether dark mode style support is desired and
+    // dark mode is in effect.
+    if (auto ni = QGuiApplication::platformNativeInterface()) {
+        const QVariant darkModeStyleP = ni->property("darkModeStyle");
+        result = darkModeStyleP.type() == QVariant::Bool
+                 && darkModeStyleP.value<bool>()
+                 && ni->property("darkMode").value<bool>();
+    }
+#endif
+    return result;
 }
 
 // Returns \c true if the toplevel parent of \a widget has seen the Alt-key
@@ -531,6 +549,8 @@ int QWindowsStyle::styleHint(StyleHint hint, const QStyleOption *opt, const QWid
 
     switch (hint) {
     case SH_EtchDisabledText:
+        ret = d_func()->isDarkMode() ? 0 : 1;
+        break;
     case SH_Slider_SnapToValue:
     case SH_PrintDialog_RightAlignButtons:
     case SH_FontDialog_SelectAssociatedText:
@@ -1675,7 +1695,7 @@ void QWindowsStyle::drawControl(ControlElement ce, const QStyleOption *opt, QPai
             const bool vertical = pb->orientation == Qt::Vertical;
             const bool inverted = pb->invertedAppearance;
 
-            QMatrix m;
+            QTransform m;
             if (vertical) {
                 rect = QRect(rect.y(), rect.x(), rect.height(), rect.width()); // flip width and height
                 m.rotate(90);

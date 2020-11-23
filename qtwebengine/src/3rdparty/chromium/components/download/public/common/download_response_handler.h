@@ -15,9 +15,10 @@
 #include "components/download/public/common/download_stream.mojom.h"
 #include "components/download/public/common/download_url_parameters.h"
 #include "components/download/public/common/download_utils.h"
+#include "mojo/public/cpp/bindings/remote.h"
 #include "net/cert/cert_status_flags.h"
-#include "services/network/public/cpp/resource_response.h"
 #include "services/network/public/mojom/url_loader.mojom.h"
+#include "services/network/public/mojom/url_response_head.mojom.h"
 #include "url/origin.h"
 
 namespace download {
@@ -52,15 +53,14 @@ class COMPONENTS_DOWNLOAD_EXPORT DownloadResponseHandler
       const DownloadUrlParameters::RequestHeadersType& request_headers,
       const std::string& request_origin,
       DownloadSource download_source,
-      bool ignore_content_length_mismatch,
       std::vector<GURL> url_chain,
       bool is_background_mode);
   ~DownloadResponseHandler() override;
 
   // network::mojom::URLLoaderClient
-  void OnReceiveResponse(const network::ResourceResponseHead& head) override;
+  void OnReceiveResponse(network::mojom::URLResponseHeadPtr head) override;
   void OnReceiveRedirect(const net::RedirectInfo& redirect_info,
-                         const network::ResourceResponseHead& head) override;
+                         network::mojom::URLResponseHeadPtr head) override;
   void OnUploadProgress(int64_t current_position,
                         int64_t total_size,
                         OnUploadProgressCallback callback) override;
@@ -72,7 +72,7 @@ class COMPONENTS_DOWNLOAD_EXPORT DownloadResponseHandler
 
  private:
   std::unique_ptr<DownloadCreateInfo> CreateDownloadCreateInfo(
-      const network::ResourceResponseHead& head);
+      const network::mojom::URLResponseHead& head);
 
   // Helper method that is called when response is received.
   void OnResponseStarted(mojom::DownloadStreamHandlePtr stream_handle);
@@ -97,16 +97,17 @@ class COMPONENTS_DOWNLOAD_EXPORT DownloadResponseHandler
   std::string request_origin_;
   DownloadSource download_source_;
   net::CertStatus cert_status_;
-  bool ignore_content_length_mismatch_;
+  bool has_strong_validators_;
   base::Optional<url::Origin> request_initiator_;
+  net::NetworkIsolationKey network_isolation_key_;
   bool is_partial_request_;
   bool completed_;
 
   // The abort reason if this class decides to block the download.
   DownloadInterruptReason abort_reason_;
 
-  // Mojo interface ptr to send the completion status to the download sink.
-  mojom::DownloadStreamClientPtr client_ptr_;
+  // Mojo interface remote to send the completion status to the download sink.
+  mojo::Remote<mojom::DownloadStreamClient> client_remote_;
 
   // Whether the download is running in background mode.
   bool is_background_mode_;

@@ -12,7 +12,7 @@
 #include "base/stl_util.h"
 #include "base/strings/string_util.h"
 #include "base/strings/utf_string_conversions.h"
-#include "base/test/scoped_task_environment.h"
+#include "base/test/task_environment.h"
 #include "base/time/time.h"
 #include "net/base/auth.h"
 #include "net/base/load_timing_info.h"
@@ -27,11 +27,12 @@
 #include "net/http/http_proxy_connect_job.h"
 #include "net/http/http_request_headers.h"
 #include "net/http/http_response_headers.h"
-#include "net/http/http_server_properties_impl.h"
+#include "net/http/http_server_properties.h"
 #include "net/http/transport_security_state.h"
 #include "net/log/net_log_source.h"
 #include "net/log/net_log_with_source.h"
 #include "net/proxy_resolution/proxy_resolution_service.h"
+#include "net/quic/quic_context.h"
 #include "net/socket/connect_job_test_util.h"
 #include "net/socket/connection_attempts.h"
 #include "net/socket/next_proto.h"
@@ -42,7 +43,7 @@
 #include "net/ssl/ssl_config_service_defaults.h"
 #include "net/test/gtest_util.h"
 #include "net/test/test_certificate_data.h"
-#include "net/test/test_with_scoped_task_environment.h"
+#include "net/test/test_with_task_environment.h"
 #include "net/traffic_annotation/network_traffic_annotation_test_helper.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
@@ -73,26 +74,29 @@ void CheckConnectTimesExceptDnsSet(
   EXPECT_EQ(base::TimeTicks::Now(), connect_timing.connect_end);
 }
 
-class SSLConnectJobTest : public WithScopedTaskEnvironment,
-                          public testing::Test {
+class SSLConnectJobTest : public WithTaskEnvironment, public testing::Test {
  public:
   SSLConnectJobTest()
-      : WithScopedTaskEnvironment(
-            base::test::ScopedTaskEnvironment::TimeSource::MOCK_TIME_AND_NOW),
+      : WithTaskEnvironment(base::test::TaskEnvironment::TimeSource::MOCK_TIME),
         proxy_resolution_service_(ProxyResolutionService::CreateDirect()),
         ssl_config_service_(new SSLConfigServiceDefaults),
         http_auth_handler_factory_(HttpAuthHandlerFactory::CreateDefault()),
         session_(CreateNetworkSession()),
         direct_transport_socket_params_(
             new TransportSocketParams(HostPortPair("host", 443),
+                                      NetworkIsolationKey(),
+                                      false /* disable_secure_dns */,
                                       OnHostResolutionCallback())),
         proxy_transport_socket_params_(
             new TransportSocketParams(HostPortPair("proxy", 443),
+                                      NetworkIsolationKey(),
+                                      false /* disable_secure_dns */,
                                       OnHostResolutionCallback())),
         socks_socket_params_(
             new SOCKSSocketParams(proxy_transport_socket_params_,
                                   true,
                                   HostPortPair("sockshost", 443),
+                                  NetworkIsolationKey(),
                                   TRAFFIC_ANNOTATION_FOR_TESTS)),
         http_proxy_socket_params_(
             new HttpProxySocketParams(proxy_transport_socket_params_,
@@ -103,9 +107,7 @@ class SSLConnectJobTest : public WithScopedTaskEnvironment,
                                       /*tunnel=*/true,
                                       TRAFFIC_ANNOTATION_FOR_TESTS,
                                       NetworkIsolationKey())),
-        common_connect_job_params_(session_->CreateCommonConnectJobParams()) {
-    ssl_config_service_->GetSSLConfig(&ssl_config_);
-  }
+        common_connect_job_params_(session_->CreateCommonConnectJobParams()) {}
 
   ~SSLConnectJobTest() override = default;
 
@@ -124,7 +126,7 @@ class SSLConnectJobTest : public WithScopedTaskEnvironment,
                                             : nullptr,
         proxy == ProxyServer::SCHEME_SOCKS5 ? socks_socket_params_ : nullptr,
         proxy == ProxyServer::SCHEME_HTTP ? http_proxy_socket_params_ : nullptr,
-        HostPortPair("host", 443), ssl_config_, PRIVACY_MODE_DISABLED,
+        HostPortPair("host", 443), SSLConfig(), PRIVACY_MODE_DISABLED,
         NetworkIsolationKey());
   }
 
@@ -132,7 +134,8 @@ class SSLConnectJobTest : public WithScopedTaskEnvironment,
     const base::string16 kFoo(base::ASCIIToUTF16("foo"));
     const base::string16 kBar(base::ASCIIToUTF16("bar"));
     session_->http_auth_cache()->Add(
-        GURL("http://proxy:443/"), "MyRealm1", HttpAuth::AUTH_SCHEME_BASIC,
+        GURL("http://proxy:443/"), HttpAuth::AUTH_PROXY, "MyRealm1",
+        HttpAuth::AUTH_SCHEME_BASIC, NetworkIsolationKey(),
         "Basic realm=MyRealm1", AuthCredentials(kFoo, kBar), "/");
   }
 
@@ -149,6 +152,7 @@ class SSLConnectJobTest : public WithScopedTaskEnvironment,
     session_context.http_auth_handler_factory =
         http_auth_handler_factory_.get();
     session_context.http_server_properties = &http_server_properties_;
+    session_context.quic_context = &quic_context_;
     return new HttpNetworkSession(HttpNetworkSession::Params(),
                                   session_context);
   }
@@ -163,7 +167,8 @@ class SSLConnectJobTest : public WithScopedTaskEnvironment,
   const std::unique_ptr<ProxyResolutionService> proxy_resolution_service_;
   const std::unique_ptr<SSLConfigService> ssl_config_service_;
   const std::unique_ptr<HttpAuthHandlerFactory> http_auth_handler_factory_;
-  HttpServerPropertiesImpl http_server_properties_;
+  HttpServerProperties http_server_properties_;
+  QuicContext quic_context_;
   const std::unique_ptr<HttpNetworkSession> session_;
 
   scoped_refptr<TransportSocketParams> direct_transport_socket_params_;
@@ -172,7 +177,6 @@ class SSLConnectJobTest : public WithScopedTaskEnvironment,
   scoped_refptr<SOCKSSocketParams> socks_socket_params_;
   scoped_refptr<HttpProxySocketParams> http_proxy_socket_params_;
 
-  SSLConfig ssl_config_;
   const CommonConnectJobParams common_connect_job_params_;
 };
 
@@ -410,6 +414,30 @@ TEST_F(SSLConnectJobTest, RequestPriority) {
       ssl_connect_job->ChangePriority(
           static_cast<RequestPriority>(initial_priority));
       EXPECT_EQ(initial_priority, host_resolver_.request_priority(request_id));
+    }
+  }
+}
+
+TEST_F(SSLConnectJobTest, DisableSecureDns) {
+  for (bool disable_secure_dns : {false, true}) {
+    TestConnectJobDelegate test_delegate;
+    direct_transport_socket_params_ =
+        base::MakeRefCounted<TransportSocketParams>(
+            HostPortPair("host", 443), NetworkIsolationKey(),
+            disable_secure_dns, OnHostResolutionCallback());
+    auto common_connect_job_params = session_->CreateCommonConnectJobParams();
+    std::unique_ptr<ConnectJob> ssl_connect_job =
+        std::make_unique<SSLConnectJob>(DEFAULT_PRIORITY, SocketTag(),
+                                        &common_connect_job_params,
+                                        SSLParams(ProxyServer::SCHEME_DIRECT),
+                                        &test_delegate, nullptr /* net_log */);
+
+    EXPECT_THAT(ssl_connect_job->Connect(), test::IsError(ERR_IO_PENDING));
+    EXPECT_EQ(disable_secure_dns,
+              host_resolver_.last_secure_dns_mode_override().has_value());
+    if (disable_secure_dns) {
+      EXPECT_EQ(net::DnsConfig::SecureDnsMode::OFF,
+                host_resolver_.last_secure_dns_mode_override().value());
     }
   }
 }

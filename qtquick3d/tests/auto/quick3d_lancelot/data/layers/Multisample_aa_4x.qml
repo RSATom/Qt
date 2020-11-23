@@ -48,11 +48,10 @@
 **
 ****************************************************************************/
 
-import QtQuick3D 1.14
-import QtQuick 2.14
+import QtQuick3D 1.15
+import QtQuick 2.15
 
 import "../shared/"
-
 
 Rectangle {
     id: multisample_aa_4x
@@ -69,7 +68,8 @@ Rectangle {
         anchors.topMargin: parent.height * 0
         height: parent.height * 1
         environment: SceneEnvironment {
-            multisampleAAMode: SceneEnvironment.X4
+            antialiasingMode: SceneEnvironment.MSAA
+            antialiasingQuality: SceneEnvironment.High
             clearColor: Qt.rgba(0, 0, 0, 1)
             aoDither: true
             depthPrePassEnabled: true
@@ -77,21 +77,18 @@ Rectangle {
 
         PerspectiveCamera {
             id: camera
-            position: Qt.vector3d(0, 0, -600)
-            rotationOrder: Node.YZX
+            position: Qt.vector3d(0, 0, 600)
             clipFar: 5000
         }
 
         DirectionalLight {
             id: light
-            rotationOrder: Node.YZX
             shadowFactor: 10
         }
 
         Model {
             id: sphere
             position: Qt.vector3d(-354.989, 135.238, 0)
-            rotationOrder: Node.YZX
             source: "#Sphere"
             
             
@@ -113,7 +110,6 @@ Rectangle {
             id: cone
             position: Qt.vector3d(-365.912, -248.222, 0)
             scale: Qt.vector3d(2.89542, 3.13161, 1)
-            rotationOrder: Node.YZX
             source: "#Cone"
             
             
@@ -134,9 +130,8 @@ Rectangle {
         Model {
             id: cube
             position: Qt.vector3d(349.297, -228.053, 0)
-            rotation: Qt.vector3d(-28.0299, -33.3145, 17.1637)
+            rotation: Quaternion.fromEulerAngles(28.0299, 33.3145, 17.1637)
             scale: Qt.vector3d(2.00606, 1, 1)
-            rotationOrder: Node.YZX
             source: "#Cube"
             
             
@@ -156,17 +151,14 @@ Rectangle {
 
         Node {
             id: barrel
-            position: Qt.vector3d(-292.216, -304.023, 434)
-            rotation: Qt.vector3d(0, 0, -41.5)
+            position: Qt.vector3d(-292.216, -304.023, -434)
+            rotation: Quaternion.fromEulerAngles(0, 0, -41.5)
             scale: Qt.vector3d(10, 10, 10)
-            rotationOrder: Node.YZX
 
             Model {
                 id: barrel_1
-                rotation: Qt.vector3d(-90, 0, 0)
+                rotation: Quaternion.fromEulerAngles(-90, 0, 0)
                 scale: Qt.vector3d(100, 100, 100)
-                rotationOrder: Node.XYZr
-                orientation: Node.RightHanded
                 source: "../shared/models/barrel/meshes/Barrel.mesh"
                 
                 
@@ -188,9 +180,8 @@ Rectangle {
 
         Model {
             id: cylinder
-            position: Qt.vector3d(255.743, -27.1591, -185)
+            position: Qt.vector3d(255.743, -27.1591, 185)
             scale: Qt.vector3d(1.5, 1.5, 1.5)
-            rotationOrder: Node.YZX
             source: "#Cylinder"
             
             

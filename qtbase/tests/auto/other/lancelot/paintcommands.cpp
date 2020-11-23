@@ -31,6 +31,7 @@
 #include <qfile.h>
 #include <qfileinfo.h>
 #include <qpainter.h>
+#include <qpainterpath.h>
 #include <qbitmap.h>
 #include <qtextstream.h>
 #include <qtextlayout.h>
@@ -230,9 +231,9 @@ void PaintCommands::staticInit()
                       "begin_block <blockName>",
                       "begin_block blockName");
     DECL_PAINTCOMMAND("end_block", command_end_block,
-                      "^end_block$",
-                      "end_block",
-                      "end_block");
+                      "^end_block\\s*(\\w*)$",
+                      "end_block [blockName]",
+                      "end_block blockName");
     DECL_PAINTCOMMAND("repeat_block", command_repeat_block,
                       "^repeat_block\\s+(\\w*)$",
                       "repeat_block <blockName>",
@@ -744,6 +745,13 @@ void PaintCommands::runCommands()
     if (height <= 0)
         height = 800;
 
+    m_pathMap.clear();
+    m_imageMap.clear();
+    m_pixmapMap.clear();
+    m_regionMap.clear();
+    m_gradientStops.clear();
+    m_blockMap.clear();
+
     // paint background
     if (m_checkers_background) {
         QPixmap pm(20, 20);
@@ -883,7 +891,7 @@ void PaintCommands::command_import(QRegularExpressionMatch re)
     m_commands[m_currentCommandIndex] = QLatin1String("# import file (") + fileinfo.fileName()
         + QLatin1String(") start");
     QString rawContent = QString::fromUtf8(file->readAll());
-    QStringList importedData = rawContent.split('\n', QString::SkipEmptyParts);
+    QStringList importedData = rawContent.split('\n', Qt::SkipEmptyParts);
     importedData.append(QLatin1String("# import file (") + fileinfo.fileName() + QLatin1String(") end ---"));
     insertAt(m_currentCommandIndex, importedData);
 
@@ -901,6 +909,8 @@ void PaintCommands::command_begin_block(QRegularExpressionMatch re)
     const QString &blockName = re.captured(1);
     if (m_verboseMode)
         printf(" -(lance) begin_block (%s)\n", qPrintable(blockName));
+    if (m_blockMap.contains(blockName))
+        qFatal("Two blocks named (%s)", qPrintable(blockName));
 
     m_commands[m_currentCommandIndex] = QLatin1String("# begin block (") + blockName + QLatin1Char(')');
     QStringList newBlock;
@@ -1137,7 +1147,7 @@ void PaintCommands::command_drawPolygon(QRegularExpressionMatch re)
     static QRegularExpression separators("\\s");
     QStringList caps = re.capturedTexts();
     QString cap = caps.at(1);
-    QStringList numbers = cap.split(separators, QString::SkipEmptyParts);
+    QStringList numbers = cap.split(separators, Qt::SkipEmptyParts);
 
     QPolygonF array;
     for (int i=0; i + 1<numbers.size(); i+=2)
@@ -1153,7 +1163,7 @@ void PaintCommands::command_drawPolygon(QRegularExpressionMatch re)
 void PaintCommands::command_drawPolyline(QRegularExpressionMatch re)
 {
     static QRegularExpression separators("\\s");
-    QStringList numbers = re.captured(1).split(separators, QString::SkipEmptyParts);
+    QStringList numbers = re.captured(1).split(separators, Qt::SkipEmptyParts);
 
     QPolygonF array;
     for (int i=0; i + 1<numbers.size(); i+=2)
@@ -1446,7 +1456,7 @@ void PaintCommands::command_path_addPolygon(QRegularExpressionMatch re)
     QStringList caps = re.capturedTexts();
     QString name = caps.at(1);
     QString cap = caps.at(2);
-    QStringList numbers = cap.split(separators, QString::SkipEmptyParts);
+    QStringList numbers = cap.split(separators, Qt::SkipEmptyParts);
 
     QPolygonF array;
     for (int i=0; i + 1<numbers.size(); i+=2)
@@ -2677,7 +2687,7 @@ void PaintCommands::command_pen_setDashPattern(QRegularExpressionMatch re)
     static QRegularExpression separators("\\s");
     QStringList caps = re.capturedTexts();
     QString cap = caps.at(1);
-    QStringList numbers = cap.split(separators, QString::SkipEmptyParts);
+    QStringList numbers = cap.split(separators, Qt::SkipEmptyParts);
 
     QVector<qreal> pattern;
     for (int i=0; i<numbers.size(); ++i)
@@ -2713,7 +2723,7 @@ void PaintCommands::command_drawConvexPolygon(QRegularExpressionMatch re)
     static QRegularExpression separators("\\s");
     QStringList caps = re.capturedTexts();
     QString cap = caps.at(1);
-    QStringList numbers = cap.split(separators, QString::SkipEmptyParts);
+    QStringList numbers = cap.split(separators, Qt::SkipEmptyParts);
 
     QPolygonF array;
     for (int i=0; i + 1<numbers.size(); i+=2)

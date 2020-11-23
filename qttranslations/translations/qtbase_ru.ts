@@ -378,10 +378,6 @@ Press ESC to cancel</source>
         <translation>Показать сведения о версии.</translation>
     </message>
     <message>
-        <source>Displays this help.</source>
-        <translation>Показать эту справку.</translation>
-    </message>
-    <message>
         <source>Displays help on commandline options.</source>
         <translation>Вывод справки по параметрам командной строки.</translation>
     </message>
@@ -807,6 +803,69 @@ Press ESC to cancel</source>
     <message>
         <source>Closes the dock widget</source>
         <translation>Закрывает виджет</translation>
+    </message>
+</context>
+<context>
+    <name>QDomParser</name>
+    <message>
+        <source>Error occurred while processing XML declaration</source>
+        <translation>Возникла ошибка при обработке объявления XML</translation>
+    </message>
+    <message>
+        <source>Multiple DTD sections are not allowed</source>
+        <translation>Недопустимо более одной DTD секции</translation>
+    </message>
+    <message>
+        <source>Error occurred while processing document type declaration</source>
+        <translation>Возникла ошибка при обработке объявления типа документа</translation>
+    </message>
+    <message>
+        <source>Error occurred while processing comment</source>
+        <translation>Возникла ошибка при обработке комментария</translation>
+    </message>
+    <message>
+        <source>Error occurred while processing a processing instruction</source>
+        <translation>Возникла ошибка при обработке инструкции обработки</translation>
+    </message>
+    <message>
+        <source>Error occurred while processing a start element</source>
+        <translation>Возникла ошибка при обработке начального элемента</translation>
+    </message>
+    <message>
+        <source>Unexpected end element &apos;%1&apos;</source>
+        <translation>Неожиданный конечный элемент «%1»</translation>
+    </message>
+    <message>
+        <source>Error occurred while processing an end element</source>
+        <translation>Возникла ошибка при обработке конечного элемента</translation>
+    </message>
+    <message>
+        <source>Error occurred while processing the element content</source>
+        <translation>Возникла ошибка при обработке содержимого элемента</translation>
+    </message>
+    <message>
+        <source>Error occurred while processing comments</source>
+        <translation>Возникла ошибка при обработке комментариев</translation>
+    </message>
+    <message>
+        <source>Error occurred while processing an entity reference</source>
+        <translation>Возникла ошибка при обработке ссылки на объект</translation>
+    </message>
+    <message>
+        <source>Unexpected token</source>
+        <translation>Неожиданный токен</translation>
+    </message>
+    <message>
+        <source>Tag mismatch</source>
+        <translation>Теги не соответствуют</translation>
+    </message>
+    <message>
+        <source>Error occurred while processing entity declaration</source>
+        <translation>Возникла ошибка при обработке объявления объекта</translation>
+    </message>
+    <message>
+        <source>Error occurred while processing notation declaration</source>
+        <translation type="unfinished">Ошибка при обработке объявления нотации</translation>
     </message>
 </context>
 <context>
@@ -1761,10 +1820,6 @@ Do you want to delete it anyway?</source>
         <source>Host not found</source>
         <translation>Узел не найден</translation>
     </message>
-    <message>
-        <source>Unknown error (%1)</source>
-        <translation>Неизвестная ошибка (%1)</translation>
-    </message>
 </context>
 <context>
     <name>QHttp</name>
@@ -2190,10 +2245,6 @@ Do you want to delete it anyway?</source>
     <message>
         <source>Cannot unload library %1: %2</source>
         <translation>Невозможно выгрузить библиотеку %1: %2</translation>
-    </message>
-    <message>
-        <source>Cannot resolve symbol &quot;%1&quot; in %2: %3</source>
-        <translation>Невозможно разрешить символ «%1» в %2: %3</translation>
     </message>
     <message>
         <source>&apos;%1&apos; is not a valid Mach-O binary (%2)</source>
@@ -4013,22 +4064,6 @@ Please turn one of those options off.</source>
         <translation>Оттенки серого</translation>
     </message>
     <message>
-        <source>Duplex Printing</source>
-        <translation>Двусторонняя печать</translation>
-    </message>
-    <message>
-        <source>None</source>
-        <translation>Нет</translation>
-    </message>
-    <message>
-        <source>Long side</source>
-        <translation>По длинной стороне</translation>
-    </message>
-    <message>
-        <source>Short side</source>
-        <translation>По короткой стороне</translation>
-    </message>
-    <message>
         <source>Page Set:</source>
         <translation>Список страниц:</translation>
     </message>
@@ -4039,6 +4074,22 @@ Please turn one of those options off.</source>
     <message>
         <source>Specify pages or ranges separated by commas. Ranges are specified by two numbers separated by a hyphen. E.g: 3,5-7,9 prints pages 3, 5, 6, 7 and 9.</source>
         <translation>Укажите страницы или диапазоны, разделяя их запятыми. Диапазоны задаются двумя числами, разделёнными дефисом. Например: при указании 3,5-7,9 будут напечатаны страницы 3, 5, 6, 7 и 9.</translation>
+    </message>
+    <message>
+        <source>Double Sided Printing</source>
+        <translation>Двусторонняя печать</translation>
+    </message>
+    <message>
+        <source>Off</source>
+        <translation>Отключена</translation>
+    </message>
+    <message>
+        <source>Long side binding</source>
+        <translation>Переплёт по длинной стороне</translation>
+    </message>
+    <message>
+        <source>Short side binding</source>
+        <translation>Переплёт по короткой стороне</translation>
     </message>
 </context>
 <context>
@@ -4212,10 +4263,6 @@ Please turn one of those options off.</source>
         <translation>отсутствует завершающая ] для класса символов</translation>
     </message>
     <message>
-        <source>invalid escape sequence in character class</source>
-        <translation>некорректная ESC-последовательность в классе символов</translation>
-    </message>
-    <message>
         <source>range out of order in character class</source>
         <translation>некорректный диапазон в классе символов</translation>
     </message>
@@ -4244,20 +4291,12 @@ Please turn one of those options off.</source>
         <translation>внутренняя ошибка: переполнение кода</translation>
     </message>
     <message>
+        <source>missing closing parenthesis for condition</source>
+        <translation>отсутствует закрывающая скобка условия</translation>
+    </message>
+    <message>
         <source>lookbehind assertion is not fixed length</source>
         <translation>утверждение lookbehind не фиксированной длины</translation>
-    </message>
-    <message>
-        <source>malformed number or name after (?(</source>
-        <translation>некорректно сформировано число или имя после (?(</translation>
-    </message>
-    <message>
-        <source>conditional group contains more than two branches</source>
-        <translation>условная группа содержит более двух веток</translation>
-    </message>
-    <message>
-        <source>(?R or (?[+-]digits must be followed by )</source>
-        <translation>за (?R или (?[+-]цифры должна следовать )</translation>
     </message>
     <message>
         <source>unknown POSIX class name</source>
@@ -4268,20 +4307,8 @@ Please turn one of those options off.</source>
         <translation>POSIX-сортировка элементов не поддерживается</translation>
     </message>
     <message>
-        <source>invalid condition (?(0)</source>
-        <translation>некорректное условие (?(0)</translation>
-    </message>
-    <message>
-        <source>PCRE does not support \L, \l, \N{name}, \U, or \u</source>
-        <translation>PCRE не поддерживает \L, \l, \N{имя}, \U и \u</translation>
-    </message>
-    <message>
         <source>unrecognized character after (?P</source>
         <translation>не опознан символ после (?P</translation>
-    </message>
-    <message>
-        <source>syntax error in subpattern name (missing terminator)</source>
-        <translation>синтаксическая ошибка в имени подшаблона (отсутствует признак завершения)</translation>
     </message>
     <message>
         <source>malformed \P or \p sequence</source>
@@ -4300,32 +4327,12 @@ Please turn one of those options off.</source>
         <translation>внутренняя ошибка: ранее проверенный подшаблон не найден</translation>
     </message>
     <message>
-        <source>DEFINE group contains more than one branch</source>
-        <translation>группа DEFINE содержит более одной ветки</translation>
-    </message>
-    <message>
         <source>\g is not followed by a braced, angle-bracketed, or quoted name/number or by a plain number</source>
         <translation>за \g должно следовать число или название/число, заключённое в фигурные/угловые скобки или кавычки</translation>
     </message>
     <message>
-        <source>a numbered reference must not be zero</source>
-        <translation>нумерованная ссылка не должна быть нулём</translation>
-    </message>
-    <message>
-        <source>an argument is not allowed for (*ACCEPT), (*FAIL), or (*COMMIT)</source>
-        <translation>для (*ACCEPT), (*FAIL) и (*COMMIT) аргументы не допустимы</translation>
-    </message>
-    <message>
-        <source>number is too big</source>
-        <translation>число слишком велико</translation>
-    </message>
-    <message>
         <source>subpattern name expected</source>
         <translation>требуется имя подшаблона</translation>
-    </message>
-    <message>
-        <source>digit expected after (?+</source>
-        <translation>после (?+ требуется цифра</translation>
     </message>
     <message>
         <source>different names for subpatterns of the same number are not allowed</source>
@@ -4338,10 +4345,6 @@ Please turn one of those options off.</source>
     <message>
         <source>\k is not followed by a braced, angle-bracketed, or quoted name</source>
         <translation>за \k должно следовать название, заключённое в фигурные/угловые скобки или кавычки</translation>
-    </message>
-    <message>
-        <source>internal error: unknown opcode in find_fixedlength()</source>
-        <translation>внутренняя ошибка: неизвестный опкод в find_fixedlength()</translation>
     </message>
     <message>
         <source>\N is not supported in a class</source>
@@ -4368,16 +4371,56 @@ Please turn one of those options off.</source>
         <translation>отсутствует открывающая фигурная скобка после \o</translation>
     </message>
     <message>
+        <source>escape sequence is invalid in character class</source>
+        <translation>ESC-последовательность в классе символов не допустима</translation>
+    </message>
+    <message>
         <source>parentheses are too deeply nested</source>
         <translation>слишком большое вложение скобок</translation>
     </message>
     <message>
-        <source>invalid range in character class</source>
-        <translation>недопустимый диапазон в классе символов</translation>
+        <source>a relative value of zero is not allowed</source>
+        <translation>относительное значение нуль не допустимо</translation>
     </message>
     <message>
-        <source>group name must start with a non-digit</source>
-        <translation>имя группы не должно начинаться с цифры</translation>
+        <source>conditional subpattern contains more than two branches</source>
+        <translation>условный подшаблон содержит более двух вариантов</translation>
+    </message>
+    <message>
+        <source>digit expected after (?+ or (?-</source>
+        <translation>ожидается цифра после (?+ или (?-</translation>
+    </message>
+    <message>
+        <source>lookbehind is too complicated</source>
+        <translation>слишком сложный lookbehind</translation>
+    </message>
+    <message>
+        <source>\C is not allowed in a lookbehind assertion in UTF-16 mode</source>
+        <translation>\C не допустимо в утверждении lookbehind в режиме UTF-16</translation>
+    </message>
+    <message>
+        <source>PCRE2 does not support \F, \L, \l, \N{name}, \U, or \u</source>
+        <translation>PCRE2 не поддерживает \F, \L, \l, \N{name}, \U и \u</translation>
+    </message>
+    <message>
+        <source>syntax error in subpattern name (missing terminator?)</source>
+        <translation>синтаксическая ошибка в имени подшаблона (отсутствует терминатор?)</translation>
+    </message>
+    <message>
+        <source>subpattern name must start with a non-digit</source>
+        <translation>имя подшаблона не должно начинаться с цифры</translation>
+    </message>
+    <message>
+        <source>subpattern name is too long (maximum 32 code units)</source>
+        <translation>слишком длинное имя подшаблона (максимум 32 кодовых единицы)</translation>
+    </message>
+    <message>
+        <source>too many named subpatterns (maximum 10000)</source>
+        <translation>слишком много именованных подшаблонов (максимум 10000)</translation>
+    </message>
+    <message>
+        <source>invalid range in character class</source>
+        <translation>недопустимый диапазон в классе символов</translation>
     </message>
     <message>
         <source>quantifier does not follow a repeatable item</source>
@@ -4408,10 +4451,6 @@ Please turn one of those options off.</source>
         <translation>не соответствует закрывающая скобка</translation>
     </message>
     <message>
-        <source>letter or underscore expected after (?&lt; or (?&apos;</source>
-        <translation>после (?&lt; или (?&apos; требуется буква или подчёркивание</translation>
-    </message>
-    <message>
         <source>assertion expected after (?( or (?(?C)</source>
         <translation>после (?( или (?(?C) требуется утверждение</translation>
     </message>
@@ -4430,10 +4469,6 @@ Please turn one of those options off.</source>
     <message>
         <source>character code point value in \x{} or \o{} is too large</source>
         <translation>значение кодовой точки символа в \x{} или \o{} слишком большое</translation>
-    </message>
-    <message>
-        <source>\C is not allowed in a lookbehind assertion</source>
-        <translation>\C не допустимо в утверждениях lookbehind</translation>
     </message>
     <message>
         <source>number after (?C is greater than 255</source>
@@ -4456,24 +4491,36 @@ Please turn one of those options off.</source>
         <translation>эта версия PCRE2 не поддерживает \P, \p или \X</translation>
     </message>
     <message>
-        <source>subpattern name is too long (maximum 10000 characters)</source>
-        <translation>название подшаблона слишком велико (ограничено 10000 символов)</translation>
-    </message>
-    <message>
-        <source>too many named subpatterns (maximum 256)</source>
-        <translation>слишком много именованных подшаблонов (ограничено 256)</translation>
-    </message>
-    <message>
         <source>octal value is greater than \377 in 8-bit non-UTF-8 mode</source>
         <translation>восьмеричное число больше \377 в 8-битном не UTF-8 режиме</translation>
+    </message>
+    <message>
+        <source>DEFINE subpattern contains more than one branch</source>
+        <translation>подшаблон DEFINE содержит более одного варианта</translation>
     </message>
     <message>
         <source>internal error: unknown newline setting</source>
         <translation>внутренняя ошибка: неизвестный разделитель строк</translation>
     </message>
     <message>
+        <source>(?R (recursive pattern call) must be followed by a closing parenthesis</source>
+        <translation>(?R (рекурсивный вызов шаблона) должен завершаться закрывающей скобкой</translation>
+    </message>
+    <message>
+        <source>obsolete error (should not occur)</source>
+        <translation>устаревшая ошибка (возникать не должна)</translation>
+    </message>
+    <message>
         <source>(*VERB) not recognized or malformed</source>
         <translation>(*VERB) не опознан или неверен</translation>
+    </message>
+    <message>
+        <source>subpattern number is too big</source>
+        <translation>номер подшаблона слишком велик</translation>
+    </message>
+    <message>
+        <source>internal error: parsed pattern overflow</source>
+        <translation>внутренняя ошибка: переполнение разбора шаблона</translation>
     </message>
     <message>
         <source>\c must be followed by a printable ASCII character</source>
@@ -4482,10 +4529,6 @@ Please turn one of those options off.</source>
     <message>
         <source>\c must be followed by a letter or one of [\]^_?</source>
         <translation>после \c должна идти буква или один из [\]^_?</translation>
-    </message>
-    <message>
-        <source>SPARE ERROR</source>
-        <translation>ОШИБКА SPARE</translation>
     </message>
     <message>
         <source>using UTF is disabled by the application</source>
@@ -4500,12 +4543,20 @@ Please turn one of those options off.</source>
         <translation>значение кодовой точки символа в последовательности \u.... слишком большое</translation>
     </message>
     <message>
-        <source>digits missing in \x{} or \o{}</source>
-        <translation>отсутствуют цифры в \x{} или \o{}</translation>
+        <source>internal error: unknown meta code in check_lookbehinds()</source>
+        <translation>внутренняя ошибка: неизвестный мета-код в check_lookbehinds()</translation>
     </message>
     <message>
-        <source>syntax error in (?(VERSION condition</source>
-        <translation>синтаксическая ошибка в условии (?(VERSION</translation>
+        <source>callout string is too long</source>
+        <translation>слишком длинная строка callout</translation>
+    </message>
+    <message>
+        <source>digits missing in \x{} or \o{} or \N{U+}</source>
+        <translation>отсутствуют цифры в \x{}, \o{} или \N{U+}</translation>
+    </message>
+    <message>
+        <source>syntax error or number too big in (?(VERSION condition</source>
+        <translation>синтаксическая ошибка или число слишком велико в условии (?(VERSION</translation>
     </message>
     <message>
         <source>internal error: unknown opcode in auto_possessify()</source>
@@ -4542,6 +4593,46 @@ Please turn one of those options off.</source>
     <message>
         <source>pattern string is longer than the limit set by the application</source>
         <translation>строка шаблона больше ограничения, заданного приложением</translation>
+    </message>
+    <message>
+        <source>internal error: unknown code in parsed pattern</source>
+        <translation>внутренняя ошибка: неизвестный код в разобранном шаблоне</translation>
+    </message>
+    <message>
+        <source>internal error: bad code value in parsed_skip()</source>
+        <translation>внутренняя ошибка: неверное значение кода в parsed_skip()</translation>
+    </message>
+    <message>
+        <source>PCRE2_EXTRA_ALLOW_SURROGATE_ESCAPES is not allowed in UTF-16 mode</source>
+        <translation>PCRE2_EXTRA_ALLOW_SURROGATE_ESCAPES не допустим в режиме UTF-16</translation>
+    </message>
+    <message>
+        <source>invalid option bits with PCRE2_LITERAL</source>
+        <translation>неверные биты опций с PCRE2_LITERAL</translation>
+    </message>
+    <message>
+        <source>\N{U+dddd} is supported only in Unicode (UTF) mode</source>
+        <translation>\N{U+dddd} поддерживается только в режиме Unicode (UTF)</translation>
+    </message>
+    <message>
+        <source>invalid hyphen in option setting</source>
+        <translation>неверный дефис в настройке опции</translation>
+    </message>
+    <message>
+        <source>(*alpha_assertion) not recognized</source>
+        <translation>не распознана (*alpha_assertion)</translation>
+    </message>
+    <message>
+        <source>script runs require Unicode support, which this version of PCRE2 does not have</source>
+        <translation>для запуска скрипта необходима поддержка Unicode, которая отсутствует у этой версии PCRE2</translation>
+    </message>
+    <message>
+        <source>too many capturing groups (maximum 65535)</source>
+        <translation>слишком много захватываемых групп (максимум 65535)</translation>
+    </message>
+    <message>
+        <source>atomic assertion expected after (?( or (?(?C)</source>
+        <translation>требуется атомарное утверждение после (?( или (?(?C)</translation>
     </message>
     <message>
         <source>no match</source>
@@ -4754,8 +4845,32 @@ Please turn one of those options off.</source>
         <translation>вложенная рекурсия в той же позиции субъекта</translation>
     </message>
     <message>
-        <source>recursion limit exceeded</source>
-        <translation>предел рекурсии превышен</translation>
+        <source>matching depth limit exceeded</source>
+        <translation>глубина совпадений превышена</translation>
+    </message>
+    <message>
+        <source>match with end before start or start moved backwards is not supported</source>
+        <translation>не поддерживается сравнение с окончанием до начала или с началом смещенным назад</translation>
+    </message>
+    <message>
+        <source>bad serialized data</source>
+        <translation>неверные данные сериализации</translation>
+    </message>
+    <message>
+        <source>heap limit exceeded</source>
+        <translation>превышен предел кучи</translation>
+    </message>
+    <message>
+        <source>invalid syntax</source>
+        <translation>неверный синтаксис</translation>
+    </message>
+    <message>
+        <source>internal error - duplicate substitution match</source>
+        <translation>внутренняя ошибка: двойное совпадение для замены</translation>
+    </message>
+    <message>
+        <source>PCRE2_MATCH_INVALID_UTF is not supported for DFA matching</source>
+        <translation>PCRE2_MATCH_INVALID_UTF не поддерживается для сравнения DFA</translation>
     </message>
     <message>
         <source>requested value is not available</source>
@@ -4781,10 +4896,6 @@ Please turn one of those options off.</source>
         <source>bad substitution in replacement string</source>
         <translatorcomment>бред какой-то</translatorcomment>
         <translation>плохая замена в замещающей строке</translation>
-    </message>
-    <message>
-        <source>match with end before start is not supported</source>
-        <translation>поиск с концом перед началом не поддерживается</translation>
     </message>
     <message>
         <source>too many replacements (more than INT_MAX)</source>
@@ -4888,10 +4999,6 @@ Please turn one of those options off.</source>
     <message>
         <source>QSaveFile cannot open &apos;%1&apos; without direct write fallback enabled.</source>
         <translation>QSaveFile не может открыть «%1» без включения прямой записи.</translation>
-    </message>
-    <message>
-        <source>QSaveFile cannot open &apos;%1&apos; without direct write fallback enabled: path contains an Alternate Data Stream specifier</source>
-        <translation>QSaveFile не может открыть «%1» без включения прямой записи: путь содержит спецификатор альтернативного потока данных</translation>
     </message>
     <message>
         <source>Writing canceled by application</source>
@@ -5342,7 +5449,7 @@ Please turn one of those options off.</source>
     </message>
     <message>
         <source>Power Off</source>
-        <translation>Отключение питания</translation>
+        <translation>Выключение</translation>
     </message>
     <message>
         <source>Wake Up</source>
@@ -5362,7 +5469,7 @@ Please turn one of those options off.</source>
     </message>
     <message>
         <source>Sleep</source>
-        <translation>Спящий режим</translation>
+        <translation>Ждущий режим</translation>
     </message>
     <message>
         <source>LightBulb</source>
@@ -5686,7 +5793,7 @@ Please turn one of those options off.</source>
     </message>
     <message>
         <source>Hibernate</source>
-        <translation>Перейти в сон</translation>
+        <translation>Спящий режим</translation>
     </message>
     <message>
         <source>Media Rewind</source>
@@ -5698,7 +5805,7 @@ Please turn one of those options off.</source>
     </message>
     <message>
         <source>Power Down</source>
-        <translation>Выключить</translation>
+        <translation>Отключение питания</translation>
     </message>
     <message>
         <source>Microphone Mute</source>
@@ -6729,10 +6836,6 @@ Role of an accessible object</extracomment>
         <translation>Сбой SSL_CONF_CTX_new()</translation>
     </message>
     <message>
-        <source>OpenSSL version too old, need at least v1.0.2</source>
-        <translation>Версия OpenSSL очень старая, требуется минимум 1.0.2</translation>
-    </message>
-    <message>
         <source>Error creating SSL session, %1</source>
         <translation>Ошибка создания сессии SSL, %1</translation>
     </message>
@@ -6795,10 +6898,6 @@ Role of an accessible object</extracomment>
     <message>
         <source>Error during SSL handshake: %1</source>
         <translation>Ошибка квитирования SSL: %1</translation>
-    </message>
-    <message>
-        <source>DTLS server requires a &apos;VerifyNone&apos; mode with your version of OpenSSL</source>
-        <translation>Серверу DTLS требуется режим «VerifyNone» для текущей версии OpenSSL</translation>
     </message>
     <message>
         <source>TLS initialization failed</source>
@@ -7566,8 +7665,12 @@ The minimum Direct2D version required is %1. The Direct2D version on this system
         <translation>Требуются символьные данные.</translation>
     </message>
     <message>
-        <source>Recursive entity detected.</source>
-        <translation>Обнаружен рекурсивный объект.</translation>
+        <source>Self-referencing entity detected.</source>
+        <translation>Обнаружен объект, ссылающийся на себя.</translation>
+    </message>
+    <message>
+        <source>Entity expands to more characters than the entity expansion limit.</source>
+        <translation>При разворачивании объекта число символов превысило предел.</translation>
     </message>
     <message>
         <source>Start tag expected.</source>

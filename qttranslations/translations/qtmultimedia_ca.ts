@@ -153,7 +153,7 @@
     <name>CameraBinRecorder</name>
     <message>
         <source>QMediaRecorder::pause() is not supported by camerabin2.</source>
-        <translation>QMediaRecorder::pause() no és acceptat per «camerabin2».</translation>
+        <translation>QMediaRecorder::pause() no és admés pel «camerabin2».</translation>
     </message>
     <message>
         <source>Service has not been started</source>
@@ -179,7 +179,7 @@
     </message>
     <message>
         <source>Failed to connect graph</source>
-        <translation>Ha fallat en connectar amb el graf</translation>
+        <translation>Ha fallat en connectar amb el gràfic</translation>
     </message>
     <message>
         <source>Failed to get stream control</source>
@@ -203,15 +203,15 @@
     </message>
     <message>
         <source>Failed to create filter graph</source>
-        <translation>Ha fallat en crear el graf de filtres</translation>
+        <translation>Ha fallat en crear el gràfic de filtres</translation>
     </message>
     <message>
         <source>Failed to create graph builder</source>
-        <translation>Ha fallat en crear el constructor de grafs</translation>
+        <translation>Ha fallat en crear el constructor de gràfics</translation>
     </message>
     <message>
         <source>Failed to connect capture graph and filter graph</source>
-        <translation>Ha fallat en crear el graf de captures i el graf de filtres</translation>
+        <translation>Ha fallat en crear el gràfic de captures i el gràfic de filtres</translation>
     </message>
     <message>
         <source>No capture device found</source>
@@ -347,7 +347,7 @@
     <name>QAndroidCameraSession</name>
     <message>
         <source>Camera cannot be started without a viewfinder.</source>
-        <translation>La càmera no es pot iniciar sense un visor.</translation>
+        <translation type="vanished">La càmera no es pot iniciar sense un visor.</translation>
     </message>
     <message>
         <source>Camera not ready</source>
@@ -364,7 +364,7 @@
     </message>
     <message>
         <source>Camera preview failed to start.</source>
-        <translation>La vista prèvia de la càmara ha fallat en iniciar-se.</translation>
+        <translation>La vista prèvia de la càmera ha fallat en iniciar-se.</translation>
     </message>
     <message>
         <source>Could not open destination file: %1</source>

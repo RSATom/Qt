@@ -7,6 +7,7 @@
 #include "base/memory/ptr_util.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_split.h"
+#include "base/strings/string_util.h"
 #include "base/time/default_tick_clock.h"
 #include "base/time/tick_clock.h"
 #include "base/time/time.h"
@@ -127,7 +128,8 @@ base::Optional<CorsErrorStatus> PreflightResult::EnsureAllowedCrossOriginMethod(
 base::Optional<CorsErrorStatus>
 PreflightResult::EnsureAllowedCrossOriginHeaders(
     const net::HttpRequestHeaders& headers,
-    bool is_revalidating) const {
+    bool is_revalidating,
+    const base::flat_set<std::string>& extra_safelisted_header_names) const {
   if (!credentials_ && headers_.find("*") != headers_.end())
     return base::nullopt;
 
@@ -135,7 +137,8 @@ PreflightResult::EnsureAllowedCrossOriginHeaders(
   // beforehand. But user-agents may add these headers internally, and it's
   // fine.
   for (const auto& name : CorsUnsafeNotForbiddenRequestHeaderNames(
-           headers.GetHeaderVector(), is_revalidating)) {
+           headers.GetHeaderVector(), is_revalidating,
+           extra_safelisted_header_names)) {
     // Header list check is performed in case-insensitive way. Here, we have a
     // parsed header list set in lower case, and search each header in lower
     // case.

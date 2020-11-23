@@ -45,10 +45,12 @@
 #include <Qt3DRender/QNoPicking>
 #include <Qt3DRender/QPickEvent>
 #include <Qt3DRender/QPickTriangleEvent>
+#include <Qt3DRender/QPickingSettings>
 #include <Qt3DRender/private/nodemanagers_p.h>
 #include <Qt3DRender/private/managers_p.h>
 #include <Qt3DRender/private/entity_p.h>
 #include <Qt3DRender/qrenderaspect.h>
+#include <Qt3DRender/private/rendersettings_p.h>
 #include <Qt3DRender/private/qrenderaspect_p.h>
 #include <Qt3DRender/private/pickboundingvolumejob_p.h>
 #include <Qt3DRender/private/pickboundingvolumeutils_p.h>
@@ -181,7 +183,7 @@ void runRequiredJobs(Qt3DRender::TestAspect *test)
     updateWorldTransform.run();
 
     // For each buffer
-    QVector<Qt3DRender::Render::HBuffer> bufferHandles = test->nodeManagers()->bufferManager()->activeHandles();
+    const std::vector<Qt3DRender::Render::HBuffer> &bufferHandles = test->nodeManagers()->bufferManager()->activeHandles();
     for (auto bufferHandle : bufferHandles) {
         Qt3DRender::Render::LoadBufferJob loadBuffer(bufferHandle);
         loadBuffer.setNodeManager(test->nodeManagers());
@@ -207,7 +209,7 @@ void runRequiredJobs(Qt3DRender::TestAspect *test)
     updateTriangleList.run();
 
     // For each geometry id
-    QVector<Qt3DRender::Render::HGeometryRenderer> geometryRenderHandles = test->nodeManagers()->geometryRendererManager()->activeHandles();
+    const std::vector<Qt3DRender::Render::HGeometryRenderer> &geometryRenderHandles = test->nodeManagers()->geometryRendererManager()->activeHandles();
     for (auto geometryRenderHandle : geometryRenderHandles) {
         Qt3DCore::QNodeId geometryRendererId = test->nodeManagers()->geometryRendererManager()->data(geometryRenderHandle)->peerId();
         Qt3DRender::Render::CalcGeometryTriangleVolumes calcGeometryTriangles(geometryRendererId, test->nodeManagers());

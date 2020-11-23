@@ -45,16 +45,29 @@ void URLDataSource::GetSourceForURL(
     BrowserContext* browser_context,
     const GURL& url,
     base::OnceCallback<void(URLDataSource*)> callback) {
-  base::PostTaskWithTraitsAndReplyWithResult(
+  base::PostTaskAndReplyWithResult(
       FROM_HERE, {content::BrowserThread::IO},
       base::BindOnce(&GetSourceForURLHelper,
                      browser_context->GetResourceContext(), url),
       std::move(callback));
 }
 
+// static
+std::string URLDataSource::URLToRequestPath(const GURL& url) {
+  const std::string& spec = url.possibly_invalid_spec();
+  const url::Parsed& parsed = url.parsed_for_possibly_invalid_spec();
+  // + 1 to skip the slash at the beginning of the path.
+  int offset = parsed.CountCharactersBefore(url::Parsed::PATH, false) + 1;
+
+  if (offset < static_cast<int>(spec.size()))
+    return spec.substr(offset);
+
+  return std::string();
+}
+
 scoped_refptr<base::SingleThreadTaskRunner>
 URLDataSource::TaskRunnerForRequestPath(const std::string& path) {
-  return base::CreateSingleThreadTaskRunnerWithTraits({BrowserThread::UI});
+  return base::CreateSingleThreadTaskRunner({BrowserThread::UI});
 }
 
 bool URLDataSource::ShouldReplaceExistingSource() {
@@ -91,6 +104,10 @@ std::string URLDataSource::GetContentSecurityPolicyImgSrc() {
   return std::string();
 }
 
+std::string URLDataSource::GetContentSecurityPolicyWorkerSrc() {
+  return std::string();
+}
+
 bool URLDataSource::ShouldDenyXFrameOptions() {
   return true;
 }
@@ -110,10 +127,10 @@ std::string URLDataSource::GetAccessControlAllowOriginForOrigin(
   return std::string();
 }
 
-bool URLDataSource::IsGzipped(const std::string& path) {
+void URLDataSource::DisablePolymer2ForHost(const std::string& host) {}
+
+bool URLDataSource::ShouldReplaceI18nInJS() {
   return false;
 }
-
-void URLDataSource::DisablePolymer2ForHost(const std::string& host) {}
 
 }  // namespace content

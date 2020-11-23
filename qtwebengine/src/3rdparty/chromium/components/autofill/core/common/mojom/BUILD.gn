@@ -5,13 +5,14 @@
 import("//mojo/public/tools/bindings/mojom.gni")
 
 mojom("mojo_types") {
+  generate_java = true
   sources = [
     "autofill_types.mojom",
   ]
 
   public_deps = [
     "//mojo/public/mojom/base",
-    "//ui/gfx/geometry/mojo",
+    "//ui/gfx/geometry/mojom",
     "//url/mojom:url_mojom_gurl",
     "//url/mojom:url_mojom_origin",
   ]

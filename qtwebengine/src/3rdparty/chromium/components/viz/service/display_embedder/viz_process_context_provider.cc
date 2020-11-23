@@ -138,6 +138,10 @@ VizProcessContextProvider::~VizProcessContextProvider() {
     base::trace_event::MemoryDumpManager::GetInstance()->UnregisterDumpProvider(
         this);
   }
+
+  // cache_controller_ might ne nullptr if we failed to initialize
+  if (cache_controller_)
+    cache_controller_->SetGrContext(nullptr);
 }
 
 void VizProcessContextProvider::AddRef() const {
@@ -172,6 +176,7 @@ class GrContext* VizProcessContextProvider::GrContext() {
   gr_context_ = std::make_unique<skia_bindings::GrContextForGLES2Interface>(
       ContextGL(), ContextSupport(), ContextCapabilities(),
       max_resource_cache_bytes, max_glyph_cache_texture_bytes);
+  cache_controller_->SetGrContext(gr_context_->get());
   return gr_context_->get();
 }
 
@@ -297,6 +302,14 @@ bool VizProcessContextProvider::OnMemoryDump(
     const base::trace_event::MemoryDumpArgs& args,
     base::trace_event::ProcessMemoryDump* pmd) {
   DCHECK_EQ(context_result_, gpu::ContextResult::kSuccess);
+  if (args.level_of_detail ==
+      base::trace_event::MemoryDumpLevelOfDetail::BACKGROUND) {
+    if (gr_context_)
+      gpu::raster::DumpBackgroundGrMemoryStatistics(gr_context_->get(), pmd);
+
+    // Early out, no need for more detail in a BACKGROUND dump.
+    return true;
+  }
 
   gles2_implementation_->OnMemoryDump(args, pmd);
   gles2_helper_->OnMemoryDump(args, pmd);

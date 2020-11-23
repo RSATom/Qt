@@ -80,17 +80,15 @@ struct QNullTexture : public QRhiTexture
     ~QNullTexture();
     void release() override;
     bool build() override;
-    bool buildFrom(const QRhiNativeHandles *src) override;
-    const QRhiNativeHandles *nativeHandles() override;
+    bool buildFrom(NativeTexture src) override;
 
-    QRhiNullTextureNativeHandles nativeHandlesStruct;
     QImage image[QRhi::MAX_LAYERS][QRhi::MAX_LEVELS];
 };
 
 struct QNullSampler : public QRhiSampler
 {
     QNullSampler(QRhiImplementation *rhi, Filter magFilter, Filter minFilter, Filter mipmapMode,
-                 AddressMode u, AddressMode v);
+                 AddressMode u, AddressMode v, AddressMode w);
     ~QNullSampler();
     void release() override;
     bool build() override;
@@ -101,6 +99,7 @@ struct QNullRenderPassDescriptor : public QRhiRenderPassDescriptor
     QNullRenderPassDescriptor(QRhiImplementation *rhi);
     ~QNullRenderPassDescriptor();
     void release() override;
+    bool isCompatible(const QRhiRenderPassDescriptor *other) const override;
 };
 
 struct QNullRenderTargetData
@@ -213,9 +212,12 @@ public:
                                const QSize &pixelSize,
                                int sampleCount,
                                QRhiTexture::Flags flags) override;
-    QRhiSampler *createSampler(QRhiSampler::Filter magFilter, QRhiSampler::Filter minFilter,
+    QRhiSampler *createSampler(QRhiSampler::Filter magFilter,
+                               QRhiSampler::Filter minFilter,
                                QRhiSampler::Filter mipmapMode,
-                               QRhiSampler:: AddressMode u, QRhiSampler::AddressMode v) override;
+                               QRhiSampler:: AddressMode u,
+                               QRhiSampler::AddressMode v,
+                               QRhiSampler::AddressMode w) override;
 
     QRhiTextureRenderTarget *createTextureRenderTarget(const QRhiTextureRenderTargetDescription &desc,
                                                        QRhiTextureRenderTarget::Flags flags) override;

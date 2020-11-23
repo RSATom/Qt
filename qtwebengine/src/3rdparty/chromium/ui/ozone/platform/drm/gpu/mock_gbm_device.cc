@@ -108,13 +108,16 @@ std::unique_ptr<GbmBuffer> MockGbmDevice::CreateBufferWithModifiers(
     const gfx::Size& size,
     uint32_t flags,
     const std::vector<uint64_t>& modifiers) {
+  if (should_fail_allocations_)
+    return nullptr;
+
   uint32_t bytes_per_pixel;
   switch (format) {
     case DRM_FORMAT_XRGB8888:
     case DRM_FORMAT_ARGB8888:
       bytes_per_pixel = 4;
       break;
-    case DRM_FORMAT_UYVY:
+    case DRM_FORMAT_NV12:
       bytes_per_pixel = 2;
       break;
     default:

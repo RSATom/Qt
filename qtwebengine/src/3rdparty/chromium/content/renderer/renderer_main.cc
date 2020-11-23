@@ -10,6 +10,8 @@
 #include "base/debug/debugger.h"
 #include "base/debug/leak_annotations.h"
 #include "base/i18n/rtl.h"
+#include "base/message_loop/message_pump.h"
+#include "base/message_loop/message_pump_type.h"
 #include "base/metrics/histogram_macros.h"
 #include "base/pending_task.h"
 #include "base/run_loop.h"
@@ -87,12 +89,12 @@ std::unique_ptr<base::MessagePump> CreateMainThreadMessagePump() {
   // As long as scrollbars on Mac are painted with Cocoa, the message pump
   // needs to be backed by a Foundation-level loop to process NSTimers. See
   // http://crbug.com/306348#c24 for details.
-  return base::MessagePump::Create(base::MessagePump::Type::NS_RUNLOOP);
+  return base::MessagePump::Create(base::MessagePumpType::NS_RUNLOOP);
 #elif defined(OS_FUCHSIA)
   // Allow FIDL APIs on renderer main thread.
-  return base::MessagePump::Create(base::MessagePump::Type::IO);
+  return base::MessagePump::Create(base::MessagePumpType::IO);
 #else
-  return base::MessagePump::Create(base::MessagePump::Type::DEFAULT);
+  return base::MessagePump::Create(base::MessagePumpType::DEFAULT);
 #endif
 }
 
@@ -199,7 +201,8 @@ int RendererMain(const MainFunctionParams& parameters) {
 
 #ifndef TOOLKIT_QT
     // Setup tracing sampler profiler as early as possible.
-    tracing::TracingSamplerProfiler::CreateForCurrentThread();
+    auto tracing_sampler_profiler =
+        tracing::TracingSamplerProfiler::CreateOnMainThread();
 #endif
 
     if (need_sandbox)

@@ -1,5 +1,5 @@
 //
-// Copyright (c) 2017 The ANGLE Project Authors. All rights reserved.
+// Copyright 2017 The ANGLE Project Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 //
@@ -46,8 +46,8 @@ void SetActive(std::vector<VarT> *list, const std::string &name, ShaderType shad
 }
 
 // GLSL ES Spec 3.00.3, section 4.3.5.
-LinkMismatchError LinkValidateUniforms(const sh::Uniform &uniform1,
-                                       const sh::Uniform &uniform2,
+LinkMismatchError LinkValidateUniforms(const sh::ShaderVariable &uniform1,
+                                       const sh::ShaderVariable &uniform2,
                                        std::string *mismatchedStructFieldName)
 {
 #if ANGLE_PROGRAM_LINK_VALIDATE_UNIFORM_PRECISION == ANGLE_ENABLED
@@ -83,7 +83,7 @@ LinkMismatchError LinkValidateUniforms(const sh::Uniform &uniform1,
     return LinkMismatchError::NO_MISMATCH;
 }
 
-using ShaderUniform = std::pair<ShaderType, const sh::Uniform *>;
+using ShaderUniform = std::pair<ShaderType, const sh::ShaderVariable *>;
 
 bool ValidateGraphicsUniformsPerShader(Shader *shaderToLink,
                                        bool extendLinkedUniforms,
@@ -92,12 +92,12 @@ bool ValidateGraphicsUniformsPerShader(Shader *shaderToLink,
 {
     ASSERT(shaderToLink && linkedUniforms);
 
-    for (const sh::Uniform &uniform : shaderToLink->getUniforms())
+    for (const sh::ShaderVariable &uniform : shaderToLink->getUniforms())
     {
         const auto &entry = linkedUniforms->find(uniform.name);
         if (entry != linkedUniforms->end())
         {
-            const sh::Uniform &linkedUniform = *(entry->second.second);
+            const sh::ShaderVariable &linkedUniform = *(entry->second.second);
             std::string mismatchedStructFieldName;
             LinkMismatchError linkError =
                 LinkValidateUniforms(uniform, linkedUniform, &mismatchedStructFieldName);
@@ -123,13 +123,13 @@ GLuint GetMaximumShaderUniformVectors(ShaderType shaderType, const Caps &caps)
     switch (shaderType)
     {
         case ShaderType::Vertex:
-            return caps.maxVertexUniformVectors;
+            return static_cast<GLuint>(caps.maxVertexUniformVectors);
         case ShaderType::Fragment:
-            return caps.maxFragmentUniformVectors;
+            return static_cast<GLuint>(caps.maxFragmentUniformVectors);
 
         case ShaderType::Compute:
         case ShaderType::Geometry:
-            return caps.maxShaderUniformComponents[shaderType] / 4;
+            return static_cast<GLuint>(caps.maxShaderUniformComponents[shaderType]) / 4;
 
         default:
             UNREACHABLE();
@@ -248,7 +248,8 @@ class UniformBlockEncodingVisitor : public sh::VariableNameVisitor
     void visitNamedVariable(const sh::ShaderVariable &variable,
                             bool isRowMajor,
                             const std::string &name,
-                            const std::string &mappedName) override
+                            const std::string &mappedName,
+                            const std::vector<unsigned int> &arraySizes) override
     {
         // If getBlockMemberInfo returns false, the variable is optimized out.
         sh::BlockMemberInfo variableInfo;
@@ -308,7 +309,8 @@ class ShaderStorageBlockVisitor : public sh::BlockEncoderVisitor
     void visitNamedVariable(const sh::ShaderVariable &variable,
                             bool isRowMajor,
                             const std::string &name,
-                            const std::string &mappedName) override
+                            const std::string &mappedName,
+                            const std::vector<unsigned int> &arraySizes) override
     {
         if (mSkipEnabled)
             return;
@@ -375,7 +377,7 @@ class FlattenUniformVisitor : public sh::VariableNameVisitor
 {
   public:
     FlattenUniformVisitor(ShaderType shaderType,
-                          const sh::Uniform &uniform,
+                          const sh::ShaderVariable &uniform,
                           std::vector<LinkedUniform> *uniforms,
                           std::vector<LinkedUniform> *samplerUniforms,
                           std::vector<LinkedUniform> *imageUniforms,
@@ -397,15 +399,17 @@ class FlattenUniformVisitor : public sh::VariableNameVisitor
 
     void visitNamedSampler(const sh::ShaderVariable &sampler,
                            const std::string &name,
-                           const std::string &mappedName) override
+                           const std::string &mappedName,
+                           const std::vector<unsigned int> &arraySizes) override
     {
-        visitNamedVariable(sampler, false, name, mappedName);
+        visitNamedVariable(sampler, false, name, mappedName, arraySizes);
     }
 
     void visitNamedVariable(const sh::ShaderVariable &variable,
                             bool isRowMajor,
                             const std::string &name,
-                            const std::string &mappedName) override
+                            const std::string &mappedName,
+                            const std::vector<unsigned int> &arraySizes) override
     {
         bool isSampler                          = IsSamplerType(variable.type);
         bool isImage                            = IsImageType(variable.type);
@@ -465,9 +469,10 @@ class FlattenUniformVisitor : public sh::VariableNameVisitor
             LinkedUniform linkedUniform(variable.type, variable.precision, fullNameWithArrayIndex,
                                         variable.arraySizes, getBinding(), getOffset(), mLocation,
                                         -1, sh::kDefaultBlockMemberInfo);
-            linkedUniform.mappedName = fullMappedNameWithArrayIndex;
-            linkedUniform.active     = mMarkActive;
-            linkedUniform.staticUse  = mMarkStaticUse;
+            linkedUniform.mappedName      = fullMappedNameWithArrayIndex;
+            linkedUniform.active          = mMarkActive;
+            linkedUniform.staticUse       = mMarkStaticUse;
+            linkedUniform.outerArraySizes = arraySizes;
             if (variable.hasParentArrayIndex())
             {
                 linkedUniform.setParentArrayIndex(variable.parentArrayIndex());
@@ -665,7 +670,7 @@ void UniformLinker::getResults(std::vector<LinkedUniform> *uniforms,
 
 bool UniformLinker::link(const Caps &caps,
                          InfoLog &infoLog,
-                         const ProgramBindings &uniformLocationBindings)
+                         const ProgramAliasedBindings &uniformLocationBindings)
 {
     if (mState.getAttachedShader(ShaderType::Vertex) &&
         mState.getAttachedShader(ShaderType::Fragment))
@@ -709,7 +714,7 @@ bool UniformLinker::validateGraphicsUniforms(InfoLog &infoLog) const
         {
             if (shaderType == ShaderType::Vertex)
             {
-                for (const sh::Uniform &vertexUniform : currentShader->getUniforms())
+                for (const sh::ShaderVariable &vertexUniform : currentShader->getUniforms())
                 {
                     linkedUniforms[vertexUniform.name] =
                         std::make_pair(ShaderType::Vertex, &vertexUniform);
@@ -730,7 +735,8 @@ bool UniformLinker::validateGraphicsUniforms(InfoLog &infoLog) const
     return true;
 }
 
-bool UniformLinker::indexUniforms(InfoLog &infoLog, const ProgramBindings &uniformLocationBindings)
+bool UniformLinker::indexUniforms(InfoLog &infoLog,
+                                  const ProgramAliasedBindings &uniformLocationBindings)
 {
     // Locations which have been allocated for an unused uniform.
     std::set<GLuint> ignoredLocations;
@@ -825,7 +831,7 @@ bool UniformLinker::indexUniforms(InfoLog &infoLog, const ProgramBindings &unifo
 
 bool UniformLinker::gatherUniformLocationsAndCheckConflicts(
     InfoLog &infoLog,
-    const ProgramBindings &uniformLocationBindings,
+    const ProgramAliasedBindings &uniformLocationBindings,
     std::set<GLuint> *ignoredLocations,
     int *maxUniformLocation)
 {
@@ -922,7 +928,7 @@ bool UniformLinker::flattenUniformsAndCheckCapsForShader(
     InfoLog &infoLog)
 {
     ShaderUniformCount shaderUniformCount;
-    for (const sh::Uniform &uniform : shader->getUniforms())
+    for (const sh::ShaderVariable &uniform : shader->getUniforms())
     {
         FlattenUniformVisitor flattener(shader->getType(), uniform, &mUniforms, &samplerUniforms,
                                         &imageUniforms, &atomicCounterUniforms, &unusedUniforms);
@@ -960,21 +966,24 @@ bool UniformLinker::flattenUniformsAndCheckCapsForShader(
         return false;
     }
 
-    if (shaderUniformCount.samplerCount > caps.maxShaderTextureImageUnits[shaderType])
+    if (shaderUniformCount.samplerCount >
+        static_cast<GLuint>(caps.maxShaderTextureImageUnits[shaderType]))
     {
         LogUniformsExceedLimit(shaderType, UniformType::Sampler,
                                caps.maxShaderTextureImageUnits[shaderType], infoLog);
         return false;
     }
 
-    if (shaderUniformCount.imageCount > caps.maxShaderImageUniforms[shaderType])
+    if (shaderUniformCount.imageCount >
+        static_cast<GLuint>(caps.maxShaderImageUniforms[shaderType]))
     {
         LogUniformsExceedLimit(shaderType, UniformType::Image,
                                caps.maxShaderImageUniforms[shaderType], infoLog);
         return false;
     }
 
-    if (shaderUniformCount.atomicCounterCount > caps.maxShaderAtomicCounters[shaderType])
+    if (shaderUniformCount.atomicCounterCount >
+        static_cast<GLuint>(caps.maxShaderAtomicCounters[shaderType]))
     {
         LogUniformsExceedLimit(shaderType, UniformType::AtomicCounter,
                                caps.maxShaderAtomicCounters[shaderType], infoLog);
@@ -1021,7 +1030,7 @@ bool UniformLinker::checkMaxCombinedAtomicCounters(const Caps &caps, InfoLog &in
         if (IsAtomicCounterType(uniform.type) && uniform.active)
         {
             atomicCounterCount += uniform.getBasicTypeElementCount();
-            if (atomicCounterCount > caps.maxCombinedAtomicCounters)
+            if (atomicCounterCount > static_cast<GLuint>(caps.maxCombinedAtomicCounters))
             {
                 infoLog << "atomic counter count exceeds MAX_COMBINED_ATOMIC_COUNTERS"
                         << caps.maxCombinedAtomicCounters << ").";
@@ -1320,7 +1329,8 @@ void ProgramLinkedResourcesLinker::getAtomicCounterBufferSizeMap(
         // uniform and adding size of the uniform. For arrays, the size is the number of elements
         // times the element size (should always by 4 for atomic_units).
         unsigned dataOffset =
-            glUniform.offset + (glUniform.getBasicTypeElementCount() * glUniform.getElementSize());
+            glUniform.offset + static_cast<unsigned int>(glUniform.getBasicTypeElementCount() *
+                                                         glUniform.getElementSize());
         if (dataOffset > bufferDataSize)
         {
             bufferDataSize = dataOffset;

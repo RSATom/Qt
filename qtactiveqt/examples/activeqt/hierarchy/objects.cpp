@@ -104,7 +104,7 @@ QString QSubWidget::label() const
 QSize QSubWidget::sizeHint() const
 {
     QFontMetrics fm(font());
-    return QSize(fm.width(m_label), fm.height());
+    return QSize(fm.horizontalAdvance(m_label), fm.height());
 }
 
 void QSubWidget::paintEvent(QPaintEvent *)

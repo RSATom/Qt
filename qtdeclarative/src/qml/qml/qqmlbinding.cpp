@@ -43,6 +43,10 @@
 #include "qqmlcontext.h"
 #include "qqmlinfo.h"
 #include "qqmldata_p.h"
+
+#include <private/qqmldebugserviceinterfaces_p.h>
+#include <private/qqmldebugconnector_p.h>
+
 #include <private/qqmlprofiler_p.h>
 #include <private/qqmlexpression_p.h>
 #include <private/qqmlscriptstring_p.h>
@@ -53,6 +57,8 @@
 #include <private/qv4qobjectwrapper_p.h>
 #include <private/qv4variantobject_p.h>
 #include <private/qv4jscall_p.h>
+
+#include <qtqml_tracepoints_p.h>
 
 #include <QVariant>
 #include <QtCore/qdebug.h>
@@ -182,6 +188,8 @@ void QQmlBinding::update(QQmlPropertyData::WriteFlags flags)
     if (canUseAccessor())
         flags.setFlag(QQmlPropertyData::BypassInterceptor);
 
+    Q_TRACE_SCOPE(QQmlBinding, engine, function() ? function()->name()->toQString() : QString(),
+                  sourceLocation().sourceFile, sourceLocation().line, sourceLocation().column);
     QQmlBindingProfiler prof(QQmlEnginePrivate::get(engine)->profiler, function());
     doUpdate(watcher, flags, scope);
 
@@ -316,7 +324,7 @@ protected:
                 break;
             default:
                 if (const QV4::QQmlValueTypeWrapper *vtw = result.as<const QV4::QQmlValueTypeWrapper>()) {
-                    if (vtw->d()->valueType->metaType.id() == pd->propType()) {
+                    if (vtw->d()->valueType()->metaType.id() == pd->propType()) {
                         return vtw->write(m_target.data(), pd->coreIndex());
                     }
                 }
@@ -387,6 +395,11 @@ QQmlBinding *QQmlBinding::createTranslationBinding(const QQmlRefPointer<QV4::Exe
     b->setNotifyOnValueChanged(true);
     b->QQmlJavaScriptExpression::setContext(ctxt);
     b->setScopeObject(obj);
+
+    if (QQmlDebugTranslationService *service
+                 = QQmlDebugConnector::service<QQmlDebugTranslationService>()) {
+        service->foundTranslationBinding(b, obj, ctxt);
+    }
 
     return b;
 }
@@ -475,7 +488,7 @@ Q_NEVER_INLINE bool QQmlBinding::slowWrite(const QQmlPropertyData &core,
                 if (!propertyMetaObject.isNull())
                     propertyType = propertyMetaObject.className();
             }
-        } else if (userType != QVariant::Invalid) {
+        } else if (userType != QMetaType::UnknownType) {
             if (userType == QMetaType::Nullptr || userType == QMetaType::VoidStar)
                 valueType = "null";
             else

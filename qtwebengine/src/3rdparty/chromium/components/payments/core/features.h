@@ -49,6 +49,20 @@ extern const base::Feature kWebPaymentsPerMethodCanMakePaymentQuota;
 // ShippingAddressChangeEvent is redacted of fine-grained details.
 extern const base::Feature kWebPaymentsRedactShippingAddress;
 
+// Used to make autofill instrument more restrictive when responding to
+// hasEnrolledInstrument() queries.
+extern const base::Feature kStrictHasEnrolledAutofillInstrument;
+
+// Enables skip-to-GPay experimental flow.
+extern const base::Feature kPaymentRequestSkipToGPay;
+
+// Enables skip-to-GPay experimental flow, but only if user doesn't have an
+// eligible credit card.
+extern const base::Feature kPaymentRequestSkipToGPayIfNoCard;
+
+// Controls whether the microtransaction features are enabled.
+extern const base::Feature kWebPaymentMicrotransaction;
+
 }  // namespace features
 }  // namespace payments
 

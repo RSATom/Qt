@@ -5,10 +5,9 @@
 #include <fuchsia/net/oldhttp/cpp/fidl.h>
 #include <lib/fidl/cpp/binding.h>
 
-#include "base/fuchsia/scoped_service_binding.h"
-#include "base/fuchsia/service_directory.h"
+#include "base/message_loop/message_loop_current.h"
 #include "base/run_loop.h"
-#include "base/test/scoped_task_environment.h"
+#include "base/test/task_environment.h"
 #include "fuchsia/http/http_service_impl.h"
 #include "fuchsia/http/url_loader_impl.h"
 #include "net/base/net_errors.h"
@@ -31,8 +30,7 @@ using ResponseHeaders = std::multimap<std::string, std::string>;
 class HttpServiceTest : public ::testing::Test {
  public:
   HttpServiceTest()
-      : task_environment_(
-            base::test::ScopedTaskEnvironment::MainThreadType::IO),
+      : task_environment_(base::test::TaskEnvironment::MainThreadType::IO),
         binding_(&http_service_server_) {
     // Initialize the test server.
     test_server_.AddDefaultHandlers(
@@ -41,7 +39,7 @@ class HttpServiceTest : public ::testing::Test {
   }
 
  protected:
-  base::test::ScopedTaskEnvironment task_environment_;
+  base::test::TaskEnvironment task_environment_;
 
   void SetUp() override {
     ASSERT_TRUE(test_server_.Start());
@@ -203,7 +201,8 @@ void CheckResponseBuffer(const oldhttp::URLResponse& response,
 
 void CheckResponseHeaders(const oldhttp::URLResponse& response,
                           ResponseHeaders* expected_headers) {
-  for (auto& header : response.headers.get()) {
+  ASSERT_TRUE(response.headers.has_value());
+  for (auto& header : response.headers.value()) {
     const std::string header_name = header.name.data();
     const std::string header_value = header.value.data();
     auto iter = std::find_if(expected_headers->begin(), expected_headers->end(),
@@ -323,7 +322,8 @@ TEST_F(HttpServiceTest, AutoRedirect) {
   ExecuteRequest(url_loader, std::move(request));
   CheckResponseError(url_response(), net::OK);
   EXPECT_EQ(url_response().status_code, 200u);
-  EXPECT_EQ(url_response().url,
+  ASSERT_TRUE(url_response().url.has_value());
+  EXPECT_EQ(url_response().url.value(),
             http_test_server()->GetURL("/with-headers.html").spec());
 }
 
@@ -345,14 +345,14 @@ TEST_F(HttpServiceTest, ManualRedirect) {
       http_test_server()->GetURL("/with-headers.html").spec();
   CheckResponseError(url_response(), net::OK);
   EXPECT_EQ(url_response().status_code, 302u);
-  EXPECT_EQ(url_response().url, request_url);
-  EXPECT_EQ(url_response().redirect_url, final_url);
+  EXPECT_EQ(url_response().url.value_or(""), request_url);
+  EXPECT_EQ(url_response().redirect_url.value_or(""), final_url);
 
   base::RunLoop run_loop;
   url_loader->FollowRedirect(
       [&run_loop, &final_url](oldhttp::URLResponse response) {
         EXPECT_EQ(response.status_code, 200u);
-        EXPECT_EQ(response.url, final_url);
+        EXPECT_EQ(response.url.value_or(""), final_url);
         run_loop.Quit();
       });
   run_loop.Run();

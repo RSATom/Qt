@@ -337,17 +337,14 @@ bool CPDF_CIDFont::Load() {
   if (!pCIDFontDict)
     return false;
 
-  m_BaseFont = pCIDFontDict->GetStringFor("BaseFont");
-  if ((m_BaseFont.Compare("CourierStd") == 0 ||
-       m_BaseFont.Compare("CourierStd-Bold") == 0 ||
-       m_BaseFont.Compare("CourierStd-BoldOblique") == 0 ||
-       m_BaseFont.Compare("CourierStd-Oblique") == 0) &&
+  m_BaseFontName = pCIDFontDict->GetStringFor("BaseFont");
+  if ((m_BaseFontName.Compare("CourierStd") == 0 ||
+       m_BaseFontName.Compare("CourierStd-Bold") == 0 ||
+       m_BaseFontName.Compare("CourierStd-BoldOblique") == 0 ||
+       m_BaseFontName.Compare("CourierStd-Oblique") == 0) &&
       !IsEmbedded()) {
     m_bAdobeCourierStd = true;
   }
-  const CPDF_Dictionary* pFontDesc = pCIDFontDict->GetDictFor("FontDescriptor");
-  if (pFontDesc)
-    LoadFontDescriptor(pFontDesc);
 
   CPDF_Object* pEncoding = m_pFontDict->GetDirectObjectFor("Encoding");
   if (!pEncoding)
@@ -360,16 +357,17 @@ bool CPDF_CIDFont::Load() {
   if (pEncoding->IsName()) {
     ByteString cmap = pEncoding->GetString();
     m_pCMap = manager->GetPredefinedCMap(cmap);
-    if (!m_pCMap)
-      return false;
   } else if (CPDF_Stream* pStream = pEncoding->AsStream()) {
     auto pAcc = pdfium::MakeRetain<CPDF_StreamAcc>(pStream);
     pAcc->LoadAllDataFiltered();
-    m_pCMap = pdfium::MakeRetain<CPDF_CMap>();
-    m_pCMap->LoadEmbedded(pAcc->GetSpan());
+    m_pCMap = pdfium::MakeRetain<CPDF_CMap>(pAcc->GetSpan());
   } else {
     return false;
   }
+
+  const CPDF_Dictionary* pFontDesc = pCIDFontDict->GetDictFor("FontDescriptor");
+  if (pFontDesc)
+    LoadFontDescriptor(pFontDesc);
 
   m_Charset = m_pCMap->GetCharset();
   if (m_Charset == CIDSET_UNKNOWN) {
@@ -596,7 +594,7 @@ int CPDF_CIDFont::GlyphFromCharCode(uint32_t charcode, bool* pVertGlyph) {
   if (pVertGlyph)
     *pVertGlyph = false;
 
-  if (!m_pFontFile && !m_pStreamAcc) {
+  if (!m_pFontFile && (!m_pStreamAcc || m_pCID2UnicodeMap)) {
     uint16_t cid = CIDFromCharCode(charcode);
     wchar_t unicode = 0;
     if (m_bCIDIsGID) {
@@ -756,7 +754,7 @@ bool CPDF_CIDFont::IsUnicodeCompatible() const {
 void CPDF_CIDFont::LoadSubstFont() {
   pdfium::base::CheckedNumeric<int> safeStemV(m_StemV);
   safeStemV *= 5;
-  m_Font.LoadSubst(m_BaseFont, !m_bType1, m_Flags,
+  m_Font.LoadSubst(m_BaseFontName, !m_bType1, m_Flags,
                    safeStemV.ValueOrDefault(FXFONT_FW_NORMAL), m_ItalicAngle,
                    g_CharsetCPs[m_Charset], IsVertWriting());
 }
@@ -818,19 +816,18 @@ float CPDF_CIDFont::CIDTransformToFloat(uint8_t ch) {
 }
 
 void CPDF_CIDFont::LoadGB2312() {
-  m_BaseFont = m_pFontDict->GetStringFor("BaseFont");
-  const CPDF_Dictionary* pFontDesc = m_pFontDict->GetDictFor("FontDescriptor");
-  if (pFontDesc)
-    LoadFontDescriptor(pFontDesc);
-
+  m_BaseFontName = m_pFontDict->GetStringFor("BaseFont");
   m_Charset = CIDSET_GB1;
 
   CPDF_CMapManager* manager = CPDF_FontGlobals::GetInstance()->GetCMapManager();
   m_pCMap = manager->GetPredefinedCMap("GBK-EUC-H");
   m_pCID2UnicodeMap = manager->GetCID2UnicodeMap(m_Charset);
+  const CPDF_Dictionary* pFontDesc = m_pFontDict->GetDictFor("FontDescriptor");
+  if (pFontDesc)
+    LoadFontDescriptor(pFontDesc);
+
   if (!IsEmbedded())
     LoadSubstFont();
-
   CheckFontMetrics();
   m_bAnsiWidthsFixed = true;
 }

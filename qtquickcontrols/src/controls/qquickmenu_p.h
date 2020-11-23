@@ -117,8 +117,8 @@ public:
     QQuickMenu1(QObject *parent = 0);
     virtual ~QQuickMenu1();
 
-    void setVisible(bool);
-    void setEnabled(bool);
+    void setVisible(bool) override;
+    void setEnabled(bool) override;
 
     int selectedIndex() const { return m_selectedIndex; }
     void setSelectedIndex(int index);
@@ -144,7 +144,7 @@ public:
     QQuickItem *menuContentItem() const { return m_menuContentItem; }
     bool popupVisible() const { return m_popupVisible; }
 
-    bool isNative() { return m_platformMenu != 0; }
+    bool isNative() override { return m_platformMenu != 0; }
 
     QRect popupGeometry() const;
 
@@ -166,7 +166,7 @@ protected Q_SLOTS:
     void hideMenu();
     void clearPopupWindow();
 
-    void updateText();
+    void updateText() override;
     void windowVisibleChanged(bool);
     void platformMenuWindowVisibleChanged(bool);
 

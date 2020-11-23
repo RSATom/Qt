@@ -198,7 +198,7 @@ void QScriptDebuggerCodeWidgetPrivate::_q_onToolTipRequest(
 }
 
 QScriptDebuggerCodeWidget::QScriptDebuggerCodeWidget(QWidget *parent)
-    : QScriptDebuggerCodeWidgetInterface(*new QScriptDebuggerCodeWidgetPrivate, parent, 0)
+    : QScriptDebuggerCodeWidgetInterface(*new QScriptDebuggerCodeWidgetPrivate, parent, {})
 {
     Q_D(QScriptDebuggerCodeWidget);
     QVBoxLayout *vbox = new QVBoxLayout(this);

@@ -1,5 +1,5 @@
 //
-// Copyright (c) 2002-2010 The ANGLE Project Authors. All rights reserved.
+// Copyright 2002 The ANGLE Project Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 //
@@ -61,10 +61,12 @@ class RenderbufferState final : angle::NonCopyable
     InitState mInitState;
 };
 
-class Renderbuffer final : public RefCountObject, public egl::ImageSibling, public LabeledObject
+class Renderbuffer final : public RefCountObject<RenderbufferID>,
+                           public egl::ImageSibling,
+                           public LabeledObject
 {
   public:
-    Renderbuffer(rx::GLImplFactory *implFactory, GLuint id);
+    Renderbuffer(rx::GLImplFactory *implFactory, RenderbufferID id);
     ~Renderbuffer() override;
 
     void onDestroy(const Context *context) override;
@@ -112,6 +114,17 @@ class Renderbuffer final : public RefCountObject, public egl::ImageSibling, publ
 
     InitState initState(const ImageIndex &imageIndex) const override;
     void setInitState(const ImageIndex &imageIndex, InitState initState) override;
+
+    GLenum getImplementationColorReadFormat(const Context *context) const;
+    GLenum getImplementationColorReadType(const Context *context) const;
+
+    // We pass the pack buffer and state explicitly so they can be overridden during capture.
+    angle::Result getRenderbufferImage(const Context *context,
+                                       const PixelPackState &packState,
+                                       Buffer *packBuffer,
+                                       GLenum format,
+                                       GLenum type,
+                                       void *pixels) const;
 
   private:
     rx::FramebufferAttachmentObjectImpl *getAttachmentImpl() const override;

@@ -44,28 +44,44 @@
 
 QT_BEGIN_NAMESPACE
 
+template<typename T>
+class Singleton
+{
+public:
+    Singleton(const Singleton &) = delete;
+    Singleton &operator=(const Singleton &) = delete;
+    static T &instance()
+    {
+        static T instance;
+        return instance;
+    }
+
+protected:
+    Singleton() = default;
+};
+
 /*
   This struct contains all the information for
   one config variable found in a qdocconf file.
  */
 struct ConfigVar
 {
-    bool plus_;
-    QString name_;
-    QStringList values_;
-    QString currentPath_;
-    Location location_;
+    bool m_plus {};
+    QString m_name {};
+    QStringList m_values {};
+    QString m_currentPath {};
+    Location m_location {};
 
-    ConfigVar() : plus_(false) {}
+    ConfigVar() : m_plus(false) {}
 
     ConfigVar(const QString &name, const QStringList &values, const QString &dir)
-        : plus_(true), name_(name), values_(values), currentPath_(dir)
+        : m_plus(true), m_name(name), m_values(values), m_currentPath(dir)
     {
     }
 
     ConfigVar(const QString &name, const QStringList &values, const QString &dir,
               const Location &loc)
-        : plus_(false), name_(name), values_(values), currentPath_(dir), location_(loc)
+        : m_plus(false), m_name(name), m_values(values), m_currentPath(dir), m_location(loc)
     {
     }
 };
@@ -75,15 +91,17 @@ struct ConfigVar
  */
 typedef QMultiMap<QString, ConfigVar> ConfigVarMultimap;
 
-class Config
+class Config : public Singleton<Config>
 {
     Q_DECLARE_TR_FUNCTIONS(QDoc::Config)
 
 public:
-    Config(const QString &programName, const QStringList &args);
     ~Config();
 
-    bool getDebug() const { return debug_; }
+    enum QDocPass { Neither, Prepare, Generate };
+
+    void init(const QString &programName, const QStringList &args);
+    bool getDebug() const { return m_debug; }
 
     void clear();
     void reset();
@@ -93,9 +111,9 @@ public:
 
     void showHelp(int exitCode = 0) { m_parser.showHelp(exitCode); }
     QStringList qdocFiles() const { return m_parser.positionalArguments(); }
-    const QString &programName() const { return prog; }
-    const Location &location() const { return loc; }
-    const Location &lastLocation() const { return lastLocation_; }
+    const QString &programName() const { return m_prog; }
+    const Location &location() const { return m_location; }
+    const Location &lastLocation() const { return m_lastLocation; }
     bool getBool(const QString &var) const;
     int getInt(const QString &var) const;
 
@@ -117,6 +135,7 @@ public:
                                     const QSet<QString> &excludedFiles);
     QStringList getExampleImageFiles(const QSet<QString> &excludedDirs,
                                      const QSet<QString> &excludedFiles);
+    QString getExampleProjectFile(const QString &examplePath);
 
     static QStringList loadMaster(const QString &fileName);
     static bool isFileExcluded(const QString &fileName, const QSet<QString> &excludedFiles);
@@ -147,6 +166,7 @@ public:
     static QSet<QString> overrideOutputFormats;
 
     inline bool singleExec() const;
+    inline bool dualExec() const;
     QStringList &defines() { return m_defines; }
     QStringList &dependModules() { return m_dependModules; }
     QStringList &includePaths() { return m_includePaths; }
@@ -156,33 +176,41 @@ public:
     QString previousCurrentDir() const { return m_previousCurrentDir; }
     void setPreviousCurrentDir(const QString &path) { m_previousCurrentDir = path; }
 
+    QDocPass qdocPass() const { return m_qdocPass; }
+    void setQDocPass(const QDocPass &pass) { m_qdocPass = pass; };
+    bool preparing() const { return (m_qdocPass == Prepare); }
+    bool generating() const { return (m_qdocPass == Generate); }
+
 private:
     void processCommandLineOptions(const QStringList &args);
     void setIncludePaths();
     void setIndexDirs();
 
-    QStringList m_dependModules;
-    QStringList m_defines;
-    QStringList m_includePaths;
-    QStringList m_indexDirs;
-    QString m_currentDir;
-    QString m_previousCurrentDir;
+    QStringList m_dependModules {};
+    QStringList m_defines {};
+    QStringList m_includePaths {};
+    QStringList m_indexDirs {};
+    QStringList m_exampleFiles {};
+    QStringList m_exampleDirs {};
+    QString m_currentDir {};
+    QString m_previousCurrentDir {};
 
-    static bool debug_;
+    static bool m_debug;
     static bool isMetaKeyChar(QChar ch);
     void load(Location location, const QString &fileName);
 
-    QString prog;
-    Location loc;
-    Location lastLocation_;
-    ConfigVarMultimap configVars_;
+    QString m_prog {};
+    Location m_location {};
+    Location m_lastLocation {};
+    ConfigVarMultimap m_configVars {};
 
-    static QMap<QString, QString> uncompressedFiles;
-    static QMap<QString, QString> extractedDirs;
-    static int numInstances;
-    static QStack<QString> workingDirs_;
-    static QMap<QString, QStringList> includeFilesMap_;
-    QDocCommandLineParser m_parser;
+    static QMap<QString, QString> m_uncompressedFiles;
+    static QMap<QString, QString> m_extractedDirs;
+    static QStack<QString> m_workingDirs;
+    static QMap<QString, QStringList> m_includeFilesMap;
+    QDocCommandLineParser m_parser {};
+
+    QDocPass m_qdocPass { Neither };
 };
 
 struct ConfigStrings
@@ -199,7 +227,7 @@ struct ConfigStrings
     static QString DEFINES;
     static QString DEPENDS;
     static QString DESCRIPTION;
-    static QString EDITION;
+    static QString DOCBOOKEXTENSIONS;
     static QString ENDHEADER;
     static QString EXAMPLEDIRS;
     static QString EXAMPLES;
@@ -217,6 +245,7 @@ struct ConfigStrings
     static QString HOMETITLE;
     static QString IGNOREDIRECTIVES;
     static QString IGNORETOKENS;
+    static QString IGNORESINCE;
     static QString IGNOREWORDS;
     static QString IMAGEDIRS;
     static QString IMAGES;
@@ -225,6 +254,8 @@ struct ConfigStrings
     static QString LANDINGPAGE;
     static QString LANDINGTITLE;
     static QString LANGUAGE;
+    static QString LOCATIONINFO;
+    static QString LOGPROGRESS;
     static QString MACRO;
     static QString MANIFESTMETA;
     static QString MODULEHEADER;
@@ -256,6 +287,7 @@ struct ConfigStrings
     static QString SYNTAXHIGHLIGHTING;
     static QString TABSIZE;
     static QString TAGFILE;
+    static QString TIMESTAMPS;
     static QString TRANSLATORS;
     static QString URL;
     static QString VERSION;
@@ -281,7 +313,7 @@ struct ConfigStrings
 #define CONFIG_DEFINES ConfigStrings::DEFINES
 #define CONFIG_DEPENDS ConfigStrings::DEPENDS
 #define CONFIG_DESCRIPTION ConfigStrings::DESCRIPTION
-#define CONFIG_EDITION ConfigStrings::EDITION
+#define CONFIG_DOCBOOKEXTENSIONS ConfigStrings::DOCBOOKEXTENSIONS
 #define CONFIG_ENDHEADER ConfigStrings::ENDHEADER
 #define CONFIG_EXAMPLEDIRS ConfigStrings::EXAMPLEDIRS
 #define CONFIG_EXAMPLES ConfigStrings::EXAMPLES
@@ -298,6 +330,7 @@ struct ConfigStrings
 #define CONFIG_HOMEPAGE ConfigStrings::HOMEPAGE
 #define CONFIG_HOMETITLE ConfigStrings::HOMETITLE
 #define CONFIG_IGNOREDIRECTIVES ConfigStrings::IGNOREDIRECTIVES
+#define CONFIG_IGNORESINCE ConfigStrings::IGNORESINCE
 #define CONFIG_IGNORETOKENS ConfigStrings::IGNORETOKENS
 #define CONFIG_IGNOREWORDS ConfigStrings::IGNOREWORDS
 #define CONFIG_IMAGEDIRS ConfigStrings::IMAGEDIRS
@@ -307,6 +340,8 @@ struct ConfigStrings
 #define CONFIG_LANDINGPAGE ConfigStrings::LANDINGPAGE
 #define CONFIG_LANDINGTITLE ConfigStrings::LANDINGTITLE
 #define CONFIG_LANGUAGE ConfigStrings::LANGUAGE
+#define CONFIG_LOCATIONINFO ConfigStrings::LOCATIONINFO
+#define CONFIG_LOGPROGRESS ConfigStrings::LOGPROGRESS
 #define CONFIG_MACRO ConfigStrings::MACRO
 #define CONFIG_MANIFESTMETA ConfigStrings::MANIFESTMETA
 #define CONFIG_MODULEHEADER ConfigStrings::MODULEHEADER
@@ -338,6 +373,7 @@ struct ConfigStrings
 #define CONFIG_SYNTAXHIGHLIGHTING ConfigStrings::SYNTAXHIGHLIGHTING
 #define CONFIG_TABSIZE ConfigStrings::TABSIZE
 #define CONFIG_TAGFILE ConfigStrings::TAGFILE
+#define CONFIG_TIMESTAMPS ConfigStrings::TIMESTAMPS
 #define CONFIG_TRANSLATORS ConfigStrings::TRANSLATORS
 #define CONFIG_URL ConfigStrings::URL
 #define CONFIG_VERSION ConfigStrings::VERSION
@@ -353,6 +389,11 @@ struct ConfigStrings
 inline bool Config::singleExec() const
 {
     return getBool(CONFIG_SINGLEEXEC);
+}
+
+inline bool Config::dualExec() const
+{
+    return !getBool(CONFIG_SINGLEEXEC);
 }
 
 QT_END_NAMESPACE

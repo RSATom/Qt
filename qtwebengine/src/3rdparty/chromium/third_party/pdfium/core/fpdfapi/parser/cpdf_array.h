@@ -16,6 +16,7 @@
 #include "core/fpdfapi/parser/cpdf_indirect_object_holder.h"
 #include "core/fpdfapi/parser/cpdf_object.h"
 #include "core/fxcrt/fx_coordinates.h"
+#include "core/fxcrt/retain_ptr.h"
 #include "third_party/base/ptr_util.h"
 
 class CPDF_Array final : public CPDF_Object {
@@ -42,6 +43,7 @@ class CPDF_Array final : public CPDF_Object {
   const CPDF_Object* GetDirectObjectAt(size_t index) const;
   ByteString GetStringAt(size_t index) const;
   WideString GetUnicodeTextAt(size_t index) const;
+  bool GetBooleanAt(size_t index, bool bDefault) const;
   int GetIntegerAt(size_t index) const;
   float GetNumberAt(size_t index) const;
   CPDF_Dictionary* GetDictAt(size_t index);
@@ -143,7 +145,7 @@ class CPDF_ArrayLocker {
   }
 
  private:
-  UnownedPtr<const CPDF_Array> const m_pArray;
+  RetainPtr<const CPDF_Array> const m_pArray;
 };
 
 inline CPDF_Array* ToArray(CPDF_Object* obj) {

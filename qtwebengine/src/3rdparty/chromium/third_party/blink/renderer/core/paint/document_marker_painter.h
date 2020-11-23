@@ -15,7 +15,7 @@ class FloatRect;
 class GraphicsContext;
 class LayoutUnit;
 class StyleableMarker;
-class TextMatchMarker;
+class TextMarkerBase;
 struct TextPaintStyle;
 struct PhysicalOffset;
 struct PhysicalRect;
@@ -38,9 +38,9 @@ class DocumentMarkerPainter {
                                   const ComputedStyle& style,
                                   DocumentMarker::MarkerType marker_type,
                                   const PhysicalRect& local_rect);
-  static TextPaintStyle ComputeTextPaintStyleFrom(
-      const ComputedStyle& style,
-      const TextMatchMarker& marker);
+  static TextPaintStyle ComputeTextPaintStyleFrom(const ComputedStyle& style,
+                                                  const TextMarkerBase& marker,
+                                                  bool in_forced_colors_mode);
 };
 
 }  // namespace blink

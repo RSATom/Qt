@@ -37,6 +37,8 @@
 **
 ****************************************************************************/
 
+#include <QtNetwork/private/qtnetworkglobal_p.h>
+
 #include "qnetworkconfigmanager.h"
 
 #include "qnetworkconfigmanager_p.h"
@@ -68,7 +70,7 @@ static void connManager_cleanup()
     int shutdown = appShutdown.fetchAndStoreAcquire(1);
     Q_ASSERT(shutdown == 0);
     Q_UNUSED(shutdown);
-    QNetworkConfigurationManagerPrivate *cmp = connManager_ptr.fetchAndStoreAcquire(0);
+    QNetworkConfigurationManagerPrivate *cmp = connManager_ptr.fetchAndStoreAcquire(nullptr);
     if (cmp)
         cmp->cleanup();
 }
@@ -110,6 +112,7 @@ QNetworkConfigurationManagerPrivate *qNetworkConfigurationManagerPrivate()
 
 /*!
     \class QNetworkConfigurationManager
+    \obsolete
 
     \brief The QNetworkConfigurationManager class manages the network configurations provided
     by the system.
@@ -355,7 +358,7 @@ QNetworkConfigurationManager::Capabilities QNetworkConfigurationManager::capabil
     if (priv)
         return priv->capabilities();
 
-    return QNetworkConfigurationManager::Capabilities(0);
+    return {};
 }
 
 /*!

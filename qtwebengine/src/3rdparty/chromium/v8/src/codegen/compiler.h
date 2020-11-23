@@ -28,6 +28,7 @@ class OptimizedCompilationInfo;
 class OptimizedCompilationJob;
 class ParseInfo;
 class Parser;
+class RuntimeCallStats;
 class ScriptData;
 struct ScriptStreamingData;
 class TimedHistogram;
@@ -86,7 +87,7 @@ class V8_EXPORT_PRIVATE Compiler : public AllStatic {
   // Give the compiler a chance to perform low-latency initialization tasks of
   // the given {function} on its instantiation. Note that only the runtime will
   // offer this chance, optimized closure instantiation will not call this.
-  static void PostInstantiation(Handle<JSFunction> function, AllocationType);
+  static void PostInstantiation(Handle<JSFunction> function);
 
   // Parser::Parse, then Compiler::Analyze.
   static bool ParseAndAnalyze(ParseInfo* parse_info,
@@ -112,15 +113,20 @@ class V8_EXPORT_PRIVATE Compiler : public AllStatic {
       int eval_scope_position, int eval_position);
 
   struct ScriptDetails {
-    ScriptDetails() : line_offset(0), column_offset(0) {}
+    ScriptDetails()
+        : line_offset(0), column_offset(0), repl_mode(REPLMode::kNo) {}
     explicit ScriptDetails(Handle<Object> script_name)
-        : line_offset(0), column_offset(0), name_obj(script_name) {}
+        : line_offset(0),
+          column_offset(0),
+          name_obj(script_name),
+          repl_mode(REPLMode::kNo) {}
 
     int line_offset;
     int column_offset;
     i::MaybeHandle<i::Object> name_obj;
     i::MaybeHandle<i::Object> source_map_url;
     i::MaybeHandle<i::FixedArray> host_defined_options;
+    REPLMode repl_mode;
   };
 
   // Create a function that results from wrapping |source| in a function,
@@ -201,14 +207,10 @@ class V8_EXPORT_PRIVATE CompilationJob {
     kFailed,
   };
 
-  CompilationJob(uintptr_t stack_limit, State initial_state)
-      : state_(initial_state), stack_limit_(stack_limit) {
+  explicit CompilationJob(State initial_state) : state_(initial_state) {
     timer_.Start();
   }
   virtual ~CompilationJob() = default;
-
-  void set_stack_limit(uintptr_t stack_limit) { stack_limit_ = stack_limit; }
-  uintptr_t stack_limit() const { return stack_limit_; }
 
   State state() const { return state_; }
 
@@ -228,7 +230,6 @@ class V8_EXPORT_PRIVATE CompilationJob {
 
  private:
   State state_;
-  uintptr_t stack_limit_;
   base::ElapsedTimer timer_;
 };
 
@@ -242,9 +243,10 @@ class V8_EXPORT_PRIVATE CompilationJob {
 // Either of phases can either fail or succeed.
 class UnoptimizedCompilationJob : public CompilationJob {
  public:
-  UnoptimizedCompilationJob(intptr_t stack_limit, ParseInfo* parse_info,
+  UnoptimizedCompilationJob(uintptr_t stack_limit, ParseInfo* parse_info,
                             UnoptimizedCompilationInfo* compilation_info)
-      : CompilationJob(stack_limit, State::kReadyToExecute),
+      : CompilationJob(State::kReadyToExecute),
+        stack_limit_(stack_limit),
         parse_info_(parse_info),
         compilation_info_(compilation_info) {}
 
@@ -265,6 +267,8 @@ class UnoptimizedCompilationJob : public CompilationJob {
     return compilation_info_;
   }
 
+  uintptr_t stack_limit() const { return stack_limit_; }
+
  protected:
   // Overridden by the actual implementation.
   virtual Status ExecuteJobImpl() = 0;
@@ -272,6 +276,7 @@ class UnoptimizedCompilationJob : public CompilationJob {
                                  Isolate* isolate) = 0;
 
  private:
+  uintptr_t stack_limit_;
   ParseInfo* parse_info_;
   UnoptimizedCompilationInfo* compilation_info_;
   base::TimeDelta time_taken_to_execute_;
@@ -289,11 +294,10 @@ class UnoptimizedCompilationJob : public CompilationJob {
 // Each of the three phases can either fail or succeed.
 class OptimizedCompilationJob : public CompilationJob {
  public:
-  OptimizedCompilationJob(uintptr_t stack_limit,
-                          OptimizedCompilationInfo* compilation_info,
+  OptimizedCompilationJob(OptimizedCompilationInfo* compilation_info,
                           const char* compiler_name,
                           State initial_state = State::kReadyToPrepare)
-      : CompilationJob(stack_limit, initial_state),
+      : CompilationJob(initial_state),
         compilation_info_(compilation_info),
         compiler_name_(compiler_name) {}
 
@@ -302,7 +306,7 @@ class OptimizedCompilationJob : public CompilationJob {
 
   // Executes the compile job. Can be called on a background thread if
   // can_execute_on_background_thread() returns true.
-  V8_WARN_UNUSED_RESULT Status ExecuteJob();
+  V8_WARN_UNUSED_RESULT Status ExecuteJob(RuntimeCallStats* stats);
 
   // Finalizes the compile job. Must be called on the main thread.
   V8_WARN_UNUSED_RESULT Status FinalizeJob(Isolate* isolate);
@@ -327,7 +331,7 @@ class OptimizedCompilationJob : public CompilationJob {
  protected:
   // Overridden by the actual implementation.
   virtual Status PrepareJobImpl(Isolate* isolate) = 0;
-  virtual Status ExecuteJobImpl() = 0;
+  virtual Status ExecuteJobImpl(RuntimeCallStats* stats) = 0;
   virtual Status FinalizeJobImpl(Isolate* isolate) = 0;
 
  private:

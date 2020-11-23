@@ -16,6 +16,8 @@
 #include "third_party/blink/renderer/core/layout/layout_view.h"
 #include "third_party/blink/renderer/core/layout/ng/legacy_layout_tree_walking.h"
 #include "third_party/blink/renderer/core/layout/svg/svg_layout_support.h"
+#include "third_party/blink/renderer/core/page/link_highlight.h"
+#include "third_party/blink/renderer/core/page/page.h"
 #include "third_party/blink/renderer/core/paint/clip_path_clipper.h"
 #include "third_party/blink/renderer/core/paint/find_paint_offset_and_visual_rect_needing_update.h"
 #include "third_party/blink/renderer/core/paint/ng/ng_paint_fragment.h"
@@ -164,7 +166,8 @@ void PaintInvalidator::UpdatePaintingLayer(const LayoutObject& object,
 
   // Table collapsed borders are painted in PaintPhaseDescendantBlockBackgrounds
   // on the table's layer.
-  if (object.IsTable() && ToLayoutTable(object).HasCollapsedBorders())
+  if (object.IsTable() &&
+      ToInterface<LayoutNGTableInterface>(object).HasCollapsedBorders())
     context.painting_layer->SetNeedsPaintPhaseDescendantBlockBackgrounds();
 
   // The following flags are for descendants of the layer object only.
@@ -172,8 +175,8 @@ void PaintInvalidator::UpdatePaintingLayer(const LayoutObject& object,
     return;
 
   if (object.IsTableSection()) {
-    const auto& section = ToLayoutTableSection(object);
-    if (section.Table()->HasColElements())
+    const auto& section = ToInterface<LayoutNGTableSectionInterface>(object);
+    if (section.TableInterface()->HasColElements())
       context.painting_layer->SetNeedsPaintPhaseDescendantBlockBackgrounds();
   }
 
@@ -181,9 +184,10 @@ void PaintInvalidator::UpdatePaintingLayer(const LayoutObject& object,
     context.painting_layer->SetNeedsPaintPhaseDescendantOutlines();
 
   if (object.HasBoxDecorationBackground()
-      // We also paint overflow controls in background phase.
-      || (object.HasOverflowClip() &&
-          ToLayoutBox(object).GetScrollableArea()->HasOverflowControls())) {
+      // We also paint non-overlay overflow controls in background phase.
+      || (object.HasOverflowClip() && ToLayoutBox(object)
+                                          .GetScrollableArea()
+                                          ->HasNonOverlayOverflowControls())) {
     context.painting_layer->SetNeedsPaintPhaseDescendantBlockBackgrounds();
   } else {
     // Hit testing rects for touch action paint in the background phase.
@@ -197,7 +201,7 @@ void PaintInvalidator::UpdatePaintInvalidationContainer(
     PaintInvalidatorContext& context) {
   if (object.IsPaintInvalidationContainer()) {
     context.paint_invalidation_container = ToLayoutBoxModelObject(&object);
-    if (object.StyleRef().IsStackingContext())
+    if (object.StyleRef().IsStackingContext() || object.IsSVGRoot())
       context.paint_invalidation_container_for_stacked_contents =
           ToLayoutBoxModelObject(&object);
   } else if (object.IsLayoutView()) {
@@ -277,7 +281,14 @@ void PaintInvalidator::UpdateVisualRect(const LayoutObject& object,
       PropertyTreeState(*context.tree_builder_context_->current.transform,
                         *context.tree_builder_context_->current.clip,
                         *context.tree_builder_context_->current_effect),
-      context.old_visual_rect, fragment_data.VisualRect());
+      context.old_visual_rect, fragment_data.VisualRect(),
+      // Don't report a diff for a LayoutView. Any paint offset translation
+      // it has was inherited from the parent frame, and movements of a
+      // frame relative to its parent are tracked in the parent frame's
+      // LayoutShiftTracker, not the child frame's.
+      object.IsLayoutView()
+          ? FloatSize()
+          : context.tree_builder_context_->paint_offset_delta);
 }
 
 void PaintInvalidator::UpdateEmptyVisualRectFlag(
@@ -324,6 +335,16 @@ bool PaintInvalidator::InvalidatePaint(
 
   if (!object.ShouldCheckForPaintInvalidation() && !context.NeedsSubtreeWalk())
     return false;
+
+  if (!RuntimeEnabledFeatures::CompositeAfterPaintEnabled() &&
+      object.GetFrame()->GetPage()->GetLinkHighlight().NeedsHighlightEffect(
+          object)) {
+    // We need to recollect the foreign layers for link highlight when the
+    // geometry of the highlights may change. CompositeAfterPaint doesn't
+    // need this because we collect foreign layers during
+    // LocalFrameView::PaintTree() which is not controlled by the flag.
+    object.GetFrameView()->SetForeignLayerListNeedsUpdate();
+  }
 
   unsigned tree_builder_index = 0;
 

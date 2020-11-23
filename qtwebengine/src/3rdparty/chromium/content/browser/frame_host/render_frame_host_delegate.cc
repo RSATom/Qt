@@ -2,13 +2,15 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#include "content/browser/frame_host/render_frame_host_delegate.h"
+
 #include <stddef.h>
+#include <memory>
+#include <utility>
 
 #include "base/callback.h"
 #include "base/strings/string16.h"
 #include "build/build_config.h"
-#include "content/browser/frame_host/render_frame_host_delegate.h"
-#include "content/public/browser/file_select_listener.h"
 #include "ipc/ipc_message.h"
 #include "third_party/blink/public/mojom/mediastream/media_stream.mojom-shared.h"
 #include "ui/gfx/native_widget_types.h"
@@ -37,14 +39,14 @@ bool RenderFrameHostDelegate::DidAddMessageToConsole(
 
 void RenderFrameHostDelegate::RunFileChooser(
     RenderFrameHost* render_frame_host,
-    std::unique_ptr<FileSelectListener> listener,
+    std::unique_ptr<FileChooserImpl::FileSelectListenerImpl> listener,
     const blink::mojom::FileChooserParams& params) {
   listener->FileSelectionCanceled();
 }
 
 void RenderFrameHostDelegate::EnumerateDirectory(
     RenderFrameHost* render_frame_host,
-    std::unique_ptr<FileSelectListener> listener,
+    std::unique_ptr<FileChooserImpl::FileSelectListenerImpl> listener,
     const base::FilePath& path) {
   listener->FileSelectionCanceled();
 }
@@ -97,8 +99,13 @@ RenderFrameHostDelegate::GetGeolocationContext() {
 }
 
 #if defined(OS_ANDROID)
-void RenderFrameHostDelegate::GetNFC(device::mojom::NFCRequest request) {}
+void RenderFrameHostDelegate::GetNFC(
+    mojo::PendingReceiver<device::mojom::NFC> receiver) {}
 #endif
+
+bool RenderFrameHostDelegate::CanEnterFullscreenMode() {
+  return true;
+}
 
 bool RenderFrameHostDelegate::ShouldRouteMessageEvent(
     RenderFrameHost* target_rfh,
@@ -111,8 +118,21 @@ RenderFrameHostDelegate::GetFocusedFrameIncludingInnerWebContents() {
   return nullptr;
 }
 
+RenderFrameHostImpl* RenderFrameHostDelegate::GetMainFrame() {
+  return nullptr;
+}
+
 std::unique_ptr<WebUIImpl>
 RenderFrameHostDelegate::CreateWebUIForRenderFrameHost(const GURL& url) {
+  return nullptr;
+}
+
+RenderFrameHostDelegate* RenderFrameHostDelegate::CreateNewWindow(
+    RenderFrameHost* opener,
+    const mojom::CreateNewWindowParams& params,
+    bool is_new_browsing_instance,
+    bool has_user_gesture,
+    SessionStorageNamespace* session_storage_namespace) {
   return nullptr;
 }
 
@@ -144,9 +164,24 @@ ukm::SourceId RenderFrameHostDelegate::GetUkmSourceIdForLastCommittedSource()
   return ukm::kInvalidSourceId;
 }
 
+ukm::SourceId RenderFrameHostDelegate::
+    GetUkmSourceIdForLastCommittedSourceIncludingSameDocument() const {
+  return ukm::kInvalidSourceId;
+}
+
 RenderFrameHostImpl* RenderFrameHostDelegate::GetMainFrameForInnerDelegate(
     FrameTreeNode* frame_tree_node) {
   return nullptr;
+}
+
+media::MediaMetricsProvider::RecordAggregateWatchTimeCallback
+RenderFrameHostDelegate::GetRecordAggregateWatchTimeCallback() {
+  return base::NullCallback();
+}
+
+bool RenderFrameHostDelegate::IsFrameLowPriority(
+    const RenderFrameHost* render_frame_host) {
+  return false;
 }
 
 }  // namespace content

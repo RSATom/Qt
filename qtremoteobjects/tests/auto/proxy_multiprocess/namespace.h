@@ -1,3 +1,6 @@
+#ifndef __PROXY_MULTIPROCESS_NAMESPACE_H__
+#define __PROXY_MULTIPROCESS_NAMESPACE_H__
+
 #include <QMetaType>
 
 namespace NS
@@ -13,3 +16,5 @@ namespace NS2
     enum class NamespaceEnum : quint8 { Alpha=1, Bravo, Charlie };
     Q_ENUM_NS(NamespaceEnum)
 }
+
+#endif // include guard

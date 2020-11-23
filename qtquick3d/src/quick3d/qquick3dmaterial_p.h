@@ -41,7 +41,7 @@
 // We mean it.
 //
 
-#include <QtQuick3D/private/qquick3dobject_p.h>
+#include <QtQuick3D/qquick3dobject.h>
 #include <QtQuick3D/private/qquick3dtexture_p.h>
 
 #include <QtCore/QVector>
@@ -59,21 +59,25 @@ class Q_QUICK3D_EXPORT QQuick3DMaterial : public QQuick3DObject
 
     Q_PROPERTY(QQuick3DTexture *displacementMap READ displacementMap WRITE setDisplacementMap NOTIFY displacementMapChanged)
     Q_PROPERTY(float displacementAmount READ displacementAmount WRITE setDisplacementAmount NOTIFY displacementAmountChanged)
-    Q_PROPERTY(CullMode cullingMode READ cullingMode WRITE setCullingMode NOTIFY cullingModeChanged)
+    Q_PROPERTY(CullMode cullMode READ cullMode WRITE setCullMode NOTIFY cullModeChanged)
 
 public:
     enum CullMode {
-        BackfaceCulling = 1,
-        FrontfaceCulling = 2,
-        FrontAndBackfaceCulling = 3,
-        DisableCulling = 4,
+        BackFaceCulling = 1,
+        FrontFaceCulling = 2,
+        NoCulling = 3,
     };
     Q_ENUM(CullMode)
 
-    QQuick3DMaterial();
-    ~QQuick3DMaterial() override;
+    enum TextureChannelMapping {
+        R = 0,
+        G,
+        B,
+        A,
+    };
+    Q_ENUM(TextureChannelMapping)
 
-    QQuick3DObject::Type type() const override = 0;
+    ~QQuick3DMaterial() override;
 
     QQuick3DTexture *lightmapIndirect() const;
     QQuick3DTexture *lightmapRadiosity() const;
@@ -82,7 +86,7 @@ public:
 
     QQuick3DTexture *displacementMap() const;
     float displacementAmount() const;
-    CullMode cullingMode() const;
+    CullMode cullMode() const;
 
 public Q_SLOTS:
     void setLightmapIndirect(QQuick3DTexture *lightmapIndirect);
@@ -92,7 +96,7 @@ public Q_SLOTS:
 
     void setDisplacementMap(QQuick3DTexture *displacementMap);
     void setDisplacementAmount(float displacementAmount);
-    void setCullingMode(CullMode cullingMode);
+    void setCullMode(CullMode cullMode);
 
 Q_SIGNALS:
     void lightmapIndirectChanged(QQuick3DTexture *lightmapIndirect);
@@ -102,15 +106,16 @@ Q_SIGNALS:
 
     void displacementMapChanged(QQuick3DTexture *displacementMap);
     void displacementAmountChanged(float displacementAmount);
-    void cullingModeChanged(CullMode cullingMode);
+    void cullModeChanged(CullMode cullMode);
 
 protected:
+    explicit QQuick3DMaterial(QQuick3DObjectPrivate &dd, QQuick3DObject *parent = nullptr);
     QSSGRenderGraphObject *updateSpatialNode(QSSGRenderGraphObject *node) override;
     void itemChange(ItemChange, const ItemChangeData &) override;
 public:
-    void setDynamicTextureMap(QQuick3DTexture *textureMap);
+    void setDynamicTextureMap(QQuick3DTexture *textureMap, const QByteArray &name);
 private:
-    void updateSceneManager(QQuick3DSceneManager *sceneManager);
+    void updateSceneManager(const QSharedPointer<QQuick3DSceneManager> &sceneManager);
     QQuick3DTexture *m_lightmapIndirect = nullptr;
     QQuick3DTexture *m_lightmapRadiosity = nullptr;
     QQuick3DTexture *m_lightmapShadow = nullptr;
@@ -118,9 +123,9 @@ private:
 
     QQuick3DTexture *m_displacementMap = nullptr;
     float m_displacementAmount = 0.0f;
-    CullMode m_cullingMode = CullMode::BackfaceCulling;
+    CullMode m_cullMode = CullMode::BackFaceCulling;
 
-    QHash<QObject*, QMetaObject::Connection> m_connections;
+    QHash<QByteArray, QMetaObject::Connection> m_connections;
     QVector<QQuick3DTexture *> m_dynamicTextureMaps;
 };
 

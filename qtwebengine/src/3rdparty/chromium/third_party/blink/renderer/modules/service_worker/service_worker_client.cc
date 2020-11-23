@@ -32,7 +32,8 @@ ServiceWorkerClient::ServiceWorkerClient(
     : uuid_(info.client_uuid),
       url_(info.url.GetString()),
       type_(info.client_type),
-      frame_type_(info.frame_type) {}
+      frame_type_(info.frame_type),
+      lifecycle_state_(info.lifecycle_state) {}
 
 ServiceWorkerClient::~ServiceWorkerClient() = default;
 
@@ -71,9 +72,21 @@ String ServiceWorkerClient::frameType(ScriptState* script_state) const {
   return String();
 }
 
+String ServiceWorkerClient::lifecycleState() const {
+  switch (lifecycle_state_) {
+    case mojom::ServiceWorkerClientLifecycleState::kActive:
+      return "active";
+    case mojom::ServiceWorkerClientLifecycleState::kFrozen:
+      return "frozen";
+  }
+
+  NOTREACHED();
+  return String();
+}
+
 void ServiceWorkerClient::postMessage(ScriptState* script_state,
                                       const ScriptValue& message,
-                                      Vector<ScriptValue>& transfer,
+                                      HeapVector<ScriptValue>& transfer,
                                       ExceptionState& exception_state) {
   PostMessageOptions* options = PostMessageOptions::Create();
   if (!transfer.IsEmpty())
@@ -98,10 +111,17 @@ void ServiceWorkerClient::postMessage(ScriptState* script_state,
 
   BlinkTransferableMessage msg;
   msg.message = serialized_message;
+  msg.sender_origin = context->GetSecurityOrigin()->IsolatedCopy();
   msg.ports = MessagePort::DisentanglePorts(
       context, transferables.message_ports, exception_state);
   if (exception_state.HadException())
     return;
+
+  if (msg.message->IsLockedToAgentCluster()) {
+    msg.locked_agent_cluster_id = context->GetAgentClusterID();
+  } else {
+    msg.locked_agent_cluster_id = base::nullopt;
+  }
 
   To<ServiceWorkerGlobalScope>(context)
       ->GetServiceWorkerHost()

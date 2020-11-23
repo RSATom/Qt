@@ -10,8 +10,6 @@
 #include "url/origin.h"
 #if defined(OS_ANDROID)
 #include "content/browser/sms/sms_provider_android.h"
-#else
-#include "content/browser/sms/sms_provider_desktop.h"
 #endif
 
 namespace content {
@@ -25,7 +23,7 @@ std::unique_ptr<SmsProvider> SmsProvider::Create() {
 #if defined(OS_ANDROID)
   return std::make_unique<SmsProviderAndroid>();
 #else
-  return std::make_unique<SmsProviderDesktop>();
+  return nullptr;
 #endif
 }
 
@@ -38,16 +36,16 @@ void SmsProvider::RemoveObserver(const Observer* observer) {
 }
 
 void SmsProvider::NotifyReceive(const std::string& sms) {
-  base::Optional<url::Origin> origin = SmsParser::Parse(sms);
-  if (origin) {
-    NotifyReceive(*origin, sms);
-  }
+  base::Optional<SmsParser::Result> result = SmsParser::Parse(sms);
+  if (result)
+    NotifyReceive(result->origin, result->one_time_code, sms);
 }
 
 void SmsProvider::NotifyReceive(const url::Origin& origin,
+                                const std::string& one_time_code,
                                 const std::string& sms) {
   for (Observer& obs : observers_) {
-    bool handled = obs.OnReceive(origin, sms);
+    bool handled = obs.OnReceive(origin, one_time_code, sms);
     if (handled) {
       break;
     }

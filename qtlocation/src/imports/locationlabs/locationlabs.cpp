@@ -52,8 +52,8 @@ QT_BEGIN_NAMESPACE
 
 static QObject *singleton_type_factory(QQmlEngine *engine, QJSEngine *jsEngine)
 {
-    Q_UNUSED(engine);
-    Q_UNUSED(jsEngine);
+    Q_UNUSED(engine)
+    Q_UNUSED(jsEngine)
 
     return new LocationLabsSingleton;
 }
@@ -66,7 +66,7 @@ class QtLocationLabsDeclarativeModule: public QQmlExtensionPlugin
                       FILE "plugin.json")
 
 public:
-    QtLocationLabsDeclarativeModule(QObject *parent = 0) : QQmlExtensionPlugin(parent) { }
+    QtLocationLabsDeclarativeModule(QObject *parent = nullptr) : QQmlExtensionPlugin(parent) { }
     virtual void registerTypes(const char *uri)
     {
         if (QLatin1String(uri) == QLatin1String("Qt.labs.location")) {
@@ -82,9 +82,9 @@ public:
             qmlRegisterType<QMapCircleObject>(uri, major, minor, "MapCircleObject");
             qmlRegisterType<QMapPolygonObject>(uri, major, minor, "MapPolygonObject");
             qmlRegisterType<QMapPolylineObject>(uri, major, minor, "MapPolylineObject");
-            qmlRegisterType<QDeclarativeNavigationBasicDirections>();
+            qmlRegisterAnonymousType<QDeclarativeNavigationBasicDirections>(uri, major);
             qmlRegisterType<QDeclarativeNavigator>(uri, major, minor, "Navigator");
-            qmlRegisterType<QAbstractNavigator>();
+            qmlRegisterAnonymousType<QAbstractNavigator>(uri, major);
             qmlRegisterSingletonType<LocationLabsSingleton>(uri, major, minor, "QtLocationLabs", singleton_type_factory);
         } else {
             qDebug() << "Unsupported URI given to load location QML plugin: " << QLatin1String(uri);

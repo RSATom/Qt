@@ -28,11 +28,13 @@
 ****************************************************************************/
 
 #include "qquick3dscenemanager_p.h"
-#include "qquick3dobject_p_p.h"
+#include "qquick3dobject_p.h"
 #include "qquick3dviewport_p.h"
+#include "qquick3dmodel_p.h"
 
 #include <QtQuick3DRuntimeRender/private/qssgrenderlayer_p.h>
 #include <QtQuick3DRuntimeRender/private/qssgrendercontextcore_p.h>
+#include <QtQuick3DRuntimeRender/private/qssgrendermodel_p.h>
 QT_BEGIN_NAMESPACE
 
 QQuick3DSceneManager::QQuick3DSceneManager(QObject *parent)
@@ -40,6 +42,10 @@ QQuick3DSceneManager::QQuick3DSceneManager(QObject *parent)
     , dirtySpatialNodeList(nullptr)
     , dirtyResourceList(nullptr)
     , dirtyImageList(nullptr)
+{
+}
+
+QQuick3DSceneManager::~QQuick3DSceneManager()
 {
 }
 
@@ -83,6 +89,22 @@ void QQuick3DSceneManager::sync()
 
 }
 
+void QQuick3DSceneManager::updateBoundingBoxes(const QSSGRef<QSSGBufferManager> &mgr)
+{
+    const QList<QQuick3DObject *> dirtyList = dirtyBoundingBoxList;
+    for (auto object : dirtyList) {
+        QQuick3DObjectPrivate *itemPriv = QQuick3DObjectPrivate::get(object);
+        if (itemPriv->sceneManager == nullptr)
+            continue;
+        auto model = static_cast<QSSGRenderModel *>(itemPriv->spatialNode);
+        if (model) {
+            QSSGBounds3 bounds = model->getModelBounds(mgr);
+            static_cast<QQuick3DModel *>(object)->setBounds(bounds.minimum, bounds.maximum);
+        }
+        dirtyBoundingBoxList.removeOne(object);
+    }
+}
+
 void QQuick3DSceneManager::updateDirtyNodes()
 {
     cleanupNodes();
@@ -116,24 +138,26 @@ void QQuick3DSceneManager::updateDirtyNodes()
 void QQuick3DSceneManager::updateDirtyNode(QQuick3DObject *object)
 {
     // Different processing for resource nodes vs hierarchical nodes
-    switch (object->type()) {
-    case QQuick3DObject::Light:
-    case QQuick3DObject::Node:
-    case QQuick3DObject::Camera:
-    case QQuick3DObject::Model:
-    case QQuick3DObject::Text: {
+    switch (QQuick3DObjectPrivate::get(object)->type) {
+    case QQuick3DObjectPrivate::Type::Light:
+    case QQuick3DObjectPrivate::Type::Node:
+    case QQuick3DObjectPrivate::Type::Camera:
+    case QQuick3DObjectPrivate::Type::Model:
+    case QQuick3DObjectPrivate::Type::Item2D:
+    case QQuick3DObjectPrivate::Type::Text: {
         // handle hierarchical nodes
         QQuick3DNode *spatialNode = qobject_cast<QQuick3DNode *>(object);
         if (spatialNode)
             updateDirtySpatialNode(spatialNode);
     } break;
-    case QQuick3DObject::SceneEnvironment:
-    case QQuick3DObject::DefaultMaterial:
-    case QQuick3DObject::PrincipledMaterial:
-    case QQuick3DObject::Image:
-    case QQuick3DObject::CustomMaterial:
-    case QQuick3DObject::Lightmaps:
-    case QQuick3DObject::Geometry:
+    case QQuick3DObjectPrivate::Type::SceneEnvironment:
+    case QQuick3DObjectPrivate::Type::DefaultMaterial:
+    case QQuick3DObjectPrivate::Type::PrincipledMaterial:
+    case QQuick3DObjectPrivate::Type::Image:
+    case QQuick3DObjectPrivate::Type::Effect:
+    case QQuick3DObjectPrivate::Type::CustomMaterial:
+    case QQuick3DObjectPrivate::Type::Lightmaps:
+    case QQuick3DObjectPrivate::Type::Geometry:
         // handle resource nodes
         updateDirtyResource(object);
         break;
@@ -160,13 +184,24 @@ void QQuick3DSceneManager::updateDirtySpatialNode(QQuick3DNode *spatialNode)
 {
     QQuick3DObjectPrivate *itemPriv = QQuick3DObjectPrivate::get(spatialNode);
     quint32 dirty = itemPriv->dirtyAttributes;
-    Q_UNUSED(dirty)
     itemPriv->dirtyAttributes = 0;
     itemPriv->spatialNode = spatialNode->updateSpatialNode(itemPriv->spatialNode);
     if (itemPriv->spatialNode)
         m_nodeMap.insert(itemPriv->spatialNode, spatialNode);
 
     QSSGRenderNode *graphNode = static_cast<QSSGRenderNode *>(itemPriv->spatialNode);
+
+    if (graphNode && graphNode->parent && dirty & QQuick3DObjectPrivate::ParentChanged) {
+        QQuick3DNode *nodeParent = qobject_cast<QQuick3DNode *>(spatialNode->parentItem());
+        if (nodeParent) {
+            QSSGRenderNode *parentGraphNode = static_cast<QSSGRenderNode *>(
+                        QQuick3DObjectPrivate::get(nodeParent)->spatialNode);
+            if (parentGraphNode) {
+                graphNode->parent->removeChild(*graphNode);
+                parentGraphNode->addChild(*graphNode);
+            }
+        }
+    }
 
     if (graphNode && graphNode->parent == nullptr) {
         QQuick3DNode *nodeParent = qobject_cast<QQuick3DNode *>(spatialNode->parent());
@@ -180,18 +215,18 @@ void QQuick3DSceneManager::updateDirtySpatialNode(QQuick3DNode *spatialNode)
                     m_nodeMap.insert(parentNode->spatialNode, nodeParent);
                 parentGraphNode = static_cast<QSSGRenderNode *>(parentNode->spatialNode);
             }
-            parentGraphNode->addChild(*graphNode);
+            if (parentGraphNode)
+                parentGraphNode->addChild(*graphNode);
         } else {
             QQuick3DViewport *viewParent = qobject_cast<QQuick3DViewport *>(spatialNode->parent());
             if (viewParent) {
                 auto sceneRoot = QQuick3DObjectPrivate::get(viewParent->scene());
-                if (!sceneRoot->spatialNode) {
-                    // must have a sceen root spatial node first
+                if (!sceneRoot->spatialNode) // must have a scene root spatial node first
                     sceneRoot->spatialNode = viewParent->scene()->updateSpatialNode(sceneRoot->spatialNode);
-                    if (sceneRoot->spatialNode)
-                        m_nodeMap.insert(sceneRoot->spatialNode, viewParent->scene());
+                if (sceneRoot->spatialNode) {
+                    m_nodeMap.insert(sceneRoot->spatialNode, viewParent->scene());
+                    static_cast<QSSGRenderNode *>(sceneRoot->spatialNode)->addChild(*graphNode);
                 }
-                static_cast<QSSGRenderNode *>(sceneRoot->spatialNode)->addChild(*graphNode);
             }
         }
     }
@@ -211,7 +246,8 @@ void QQuick3DSceneManager::cleanupNodes()
         case QSSGRenderGraphObject::Type::Node:
         case QSSGRenderGraphObject::Type::Light:
         case QSSGRenderGraphObject::Type::Camera:
-        case QSSGRenderGraphObject::Type::Model: {
+        case QSSGRenderGraphObject::Type::Model:
+        case QSSGRenderGraphObject::Type::Item2D: {
             // handle hierarchical nodes
             QSSGRenderNode *spatialNode = static_cast<QSSGRenderNode *>(node);
             spatialNode->removeFromGraph();
@@ -221,6 +257,7 @@ void QQuick3DSceneManager::cleanupNodes()
         case QSSGRenderGraphObject::Type::DefaultMaterial:
         case QSSGRenderGraphObject::Type::PrincipledMaterial:
         case QSSGRenderGraphObject::Type::Image:
+        case QSSGRenderGraphObject::Type::Effect:
         case QSSGRenderGraphObject::Type::CustomMaterial:
         case QSSGRenderGraphObject::Type::Lightmaps:
         case QSSGRenderGraphObject::Type::Geometry:

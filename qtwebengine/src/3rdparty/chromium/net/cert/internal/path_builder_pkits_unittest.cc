@@ -35,8 +35,9 @@ class CrlCheckingPathBuilderDelegate : public SimplePathBuilderDelegate {
         verify_time_(verify_time),
         max_age_(max_age) {}
 
-  void CheckPathAfterVerification(CertPathBuilderResultPath* path) override {
-    SimplePathBuilderDelegate::CheckPathAfterVerification(path);
+  void CheckPathAfterVerification(const CertPathBuilder& path_builder,
+                                  CertPathBuilderResultPath* path) override {
+    SimplePathBuilderDelegate::CheckPathAfterVerification(path_builder, path);
 
     if (!path->IsValid())
       return;
@@ -50,7 +51,7 @@ class CrlCheckingPathBuilderDelegate : public SimplePathBuilderDelegate {
       size_t i = certs.size() - reverse_i - 1;
 
       // Trust anchors bypass OCSP/CRL revocation checks. (The only way to
-      // revoke trust anchors is via CRLSet or the built-in SPKI blacklist).
+      // revoke trust anchors is via CRLSet or the built-in SPKI block list).
       if (reverse_i == 0 && path->last_cert_trust.IsTrustAnchor())
         continue;
 
@@ -157,15 +158,14 @@ class PathBuilderPkitsTestDelegate {
           1024, SimplePathBuilderDelegate::DigestPolicy::kWeakAllowSha1);
     }
 
-    CertPathBuilder::Result result;
     CertPathBuilder path_builder(
         std::move(target_cert), &trust_store, path_builder_delegate.get(),
         info.time, KeyPurpose::ANY_EKU, info.initial_explicit_policy,
         info.initial_policy_set, info.initial_policy_mapping_inhibit,
-        info.initial_inhibit_any_policy, &result);
+        info.initial_inhibit_any_policy);
     path_builder.AddCertIssuerSource(&cert_issuer_source);
 
-    path_builder.Run();
+    CertPathBuilder::Result result = path_builder.Run();
 
     if (info.should_validate != result.HasValidPath()) {
       for (size_t i = 0; i < result.paths.size(); ++i) {

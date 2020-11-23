@@ -44,6 +44,18 @@ class DisplayLockBudgetTest : public RenderingTest,
     context->update_budget_ = std::move(budget);
   }
 
+  void LockElement(Element& element, bool update_lifecycle = true) {
+    element.setAttribute(html_names::kRendersubtreeAttr, "invisible");
+    if (update_lifecycle)
+      UpdateAllLifecyclePhasesForTest();
+  }
+
+  void CommitElement(Element& element, bool update_lifecycle = true) {
+    element.setAttribute(html_names::kRendersubtreeAttr, "");
+    if (update_lifecycle)
+      UpdateAllLifecyclePhasesForTest();
+  }
+
  protected:
   scoped_refptr<base::TestMockTimeTaskRunner> test_task_runner_;
 
@@ -65,11 +77,7 @@ TEST_F(DisplayLockBudgetTest, UnyieldingBudget) {
   )HTML");
 
   auto* element = GetDocument().getElementById("container");
-  {
-    auto* script_state = ToScriptStateForMainWorld(GetDocument().GetFrame());
-    ScriptState::Scope scope(script_state);
-    element->getDisplayLockForBindings()->acquire(script_state, nullptr);
-  }
+  LockElement(*element, false);
 
   ASSERT_TRUE(element->GetDisplayLockContext());
   UnyieldingDisplayLockBudget budget(element->GetDisplayLockContext());
@@ -112,11 +120,7 @@ TEST_F(DisplayLockBudgetTest, StrictYieldingBudget) {
   )HTML");
 
   auto* element = GetDocument().getElementById("container");
-  {
-    auto* script_state = ToScriptStateForMainWorld(GetDocument().GetFrame());
-    ScriptState::Scope scope(script_state);
-    element->getDisplayLockForBindings()->acquire(script_state, nullptr);
-  }
+  LockElement(*element, false);
 
   ASSERT_TRUE(element->GetDisplayLockContext());
   StrictYieldingDisplayLockBudget budget(element->GetDisplayLockContext());
@@ -287,11 +291,7 @@ TEST_F(DisplayLockBudgetTest,
   )HTML");
 
   auto* element = GetDocument().getElementById("container");
-  {
-    auto* script_state = ToScriptStateForMainWorld(GetDocument().GetFrame());
-    ScriptState::Scope scope(script_state);
-    element->getDisplayLockForBindings()->acquire(script_state, nullptr);
-  }
+  LockElement(*element, false);
 
   ASSERT_TRUE(element->GetDisplayLockContext());
   StrictYieldingDisplayLockBudget budget(element->GetDisplayLockContext());
@@ -334,11 +334,7 @@ TEST_F(DisplayLockBudgetTest, YieldingBudget) {
   )HTML");
 
   auto* element = GetDocument().getElementById("container");
-  {
-    auto* script_state = ToScriptStateForMainWorld(GetDocument().GetFrame());
-    ScriptState::Scope scope(script_state);
-    element->getDisplayLockForBindings()->acquire(script_state, nullptr);
-  }
+  LockElement(*element, false);
 
   ASSERT_TRUE(element->GetDisplayLockContext());
   YieldingDisplayLockBudget budget(element->GetDisplayLockContext());
@@ -468,12 +464,7 @@ TEST_F(DisplayLockBudgetTest, YieldingBudgetMarksNextPhase) {
   )HTML");
 
   auto* element = GetDocument().getElementById("container");
-  {
-    auto* script_state = ToScriptStateForMainWorld(GetDocument().GetFrame());
-    ScriptState::Scope scope(script_state);
-    element->getDisplayLockForBindings()->acquire(script_state, nullptr);
-  }
-  UpdateAllLifecyclePhasesForTest();
+  LockElement(*element);
 
   ASSERT_TRUE(element->GetDisplayLockContext());
   ASSERT_TRUE(element->GetDisplayLockContext()->IsLocked());
@@ -485,7 +476,7 @@ TEST_F(DisplayLockBudgetTest, YieldingBudgetMarksNextPhase) {
   {
     auto* script_state = ToScriptStateForMainWorld(GetDocument().GetFrame());
     ScriptState::Scope scope(script_state);
-    element->getDisplayLockForBindings()->update(script_state);
+    element->GetDisplayLockContext()->UpdateRendering(script_state);
     ResetBudget(std::move(budget_owned), element->GetDisplayLockContext());
   }
 
@@ -563,12 +554,7 @@ TEST_F(DisplayLockBudgetTest, UpdateHappensInLifecycleOnly) {
   )HTML");
 
   auto* element = GetDocument().getElementById("container");
-  {
-    auto* script_state = ToScriptStateForMainWorld(GetDocument().GetFrame());
-    ScriptState::Scope scope(script_state);
-    element->getDisplayLockForBindings()->acquire(script_state, nullptr);
-  }
-  UpdateAllLifecyclePhasesForTest();
+  LockElement(*element);
 
   ASSERT_TRUE(element->GetDisplayLockContext());
   ASSERT_TRUE(element->GetDisplayLockContext()->IsLocked());
@@ -579,7 +565,7 @@ TEST_F(DisplayLockBudgetTest, UpdateHappensInLifecycleOnly) {
   {
     auto* script_state = ToScriptStateForMainWorld(GetDocument().GetFrame());
     ScriptState::Scope scope(script_state);
-    element->getDisplayLockForBindings()->update(script_state);
+    element->GetDisplayLockContext()->UpdateRendering(script_state);
     ResetBudget(std::move(budget_owned), element->GetDisplayLockContext());
   }
 
@@ -600,21 +586,21 @@ TEST_F(DisplayLockBudgetTest, UpdateHappensInLifecycleOnly) {
 
   // Since we're not in a lifecycle, the budget itself should not want to do any
   // phases, even though the budget allows it.
-  EXPECT_FALSE(context->ShouldStyle(DisplayLockContext::kChildren));
-  EXPECT_FALSE(context->ShouldLayout(DisplayLockContext::kChildren));
-  EXPECT_FALSE(context->ShouldPrePaint(DisplayLockContext::kChildren));
+  EXPECT_FALSE(context->ShouldStyle(DisplayLockLifecycleTarget::kChildren));
+  EXPECT_FALSE(context->ShouldLayout(DisplayLockLifecycleTarget::kChildren));
+  EXPECT_FALSE(context->ShouldPrePaint(DisplayLockLifecycleTarget::kChildren));
 
   GetDocument().GetFrame()->View()->SetInLifecycleUpdateForTest(true);
 
-  EXPECT_TRUE(context->ShouldStyle(DisplayLockContext::kChildren));
-  EXPECT_TRUE(context->ShouldLayout(DisplayLockContext::kChildren));
-  EXPECT_TRUE(context->ShouldPrePaint(DisplayLockContext::kChildren));
+  EXPECT_TRUE(context->ShouldStyle(DisplayLockLifecycleTarget::kChildren));
+  EXPECT_TRUE(context->ShouldLayout(DisplayLockLifecycleTarget::kChildren));
+  EXPECT_TRUE(context->ShouldPrePaint(DisplayLockLifecycleTarget::kChildren));
 
   GetDocument().GetFrame()->View()->SetInLifecycleUpdateForTest(false);
 
-  EXPECT_FALSE(context->ShouldStyle(DisplayLockContext::kChildren));
-  EXPECT_FALSE(context->ShouldLayout(DisplayLockContext::kChildren));
-  EXPECT_FALSE(context->ShouldPrePaint(DisplayLockContext::kChildren));
+  EXPECT_FALSE(context->ShouldStyle(DisplayLockLifecycleTarget::kChildren));
+  EXPECT_FALSE(context->ShouldLayout(DisplayLockLifecycleTarget::kChildren));
+  EXPECT_FALSE(context->ShouldPrePaint(DisplayLockLifecycleTarget::kChildren));
 
   // Ensure to flush any tasks scheduled by context calls.
   test::RunPendingTasks();

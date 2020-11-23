@@ -49,16 +49,34 @@ QSSGRef<QSSGLoadedTexture> QSSGLoadedTexture::loadQImage(const QString &inPath,
 {
     Q_UNUSED(flipVertical)
     Q_UNUSED(renderContextType)
+    static constexpr bool systemIsLittleEndian = QSysInfo::ByteOrder == QSysInfo::LittleEndian;
     QSSGRef<QSSGLoadedTexture> retval(nullptr);
     QImage image(inPath);
     if (inFormat == QSSGRenderTextureFormat::Unknown) {
-        // Convert palleted images
-        if (image.format() == QImage::Format_Indexed8)
-            image = image.convertToFormat(QImage::Format_ARGB32_Premultiplied);
+        switch (image.format()) {
+        case QImage::Format_Indexed8: // Convert palleted images
+            image.convertTo(QImage::Format_RGBA8888_Premultiplied);
+            break;
+        case QImage::Format_RGBA64:
+            image.convertTo(QImage::Format_RGBA8888);
+            break;
+        case QImage::Format_RGBA64_Premultiplied:
+            image.convertTo(QImage::Format_RGBA8888_Premultiplied);
+            break;
+        case QImage::Format_RGBX64:
+            image.convertTo(QImage::Format_RGBX8888);
+            break;
+        default:
+            break;
+        }
     }
-
-    image = image.mirrored();
-    image = image.rgbSwapped();
+    bool swizzleNeeded = image.pixelFormat().colorModel() == QPixelFormat::RGB
+            && image.pixelFormat().typeInterpretation() == QPixelFormat::UnsignedInteger
+            && systemIsLittleEndian;
+    //??? What does inFormat mean? Is it even in use? Why always swizzle? Why do the musicians come out gradually?
+    if (swizzleNeeded || inFormat != QSSGRenderTextureFormat::Unknown)
+        image = std::move(image).rgbSwapped();
+    image = std::move(image).mirrored();
     retval = new QSSGLoadedTexture;
     retval->width = image.width();
     retval->height = image.height();
@@ -201,7 +219,7 @@ void decodeScanlineToTexture(RGBE *scanline, int width, void *outBuf, quint32 of
 
 }
 
-QSSGRef<QSSGLoadedTexture> QSSGLoadedTexture::loadHdrImage(QSharedPointer<QIODevice> source, QSSGRenderContextType renderContextType)
+QSSGRef<QSSGLoadedTexture> QSSGLoadedTexture::loadHdrImage(const QSharedPointer<QIODevice> &source, QSSGRenderContextType renderContextType)
 {
     Q_UNUSED(renderContextType)
     QSSGRef<QSSGLoadedTexture> imageData(nullptr);
@@ -373,7 +391,9 @@ bool QSSGLoadedTexture::scanForTransparency()
         }
     case QSSGRenderTextureFormat::Alpha8:
         return true;
+    case QSSGRenderTextureFormat::R8:
     case QSSGRenderTextureFormat::Luminance8:
+    case QSSGRenderTextureFormat::RG8:
         return false;
     case QSSGRenderTextureFormat::LuminanceAlpha8:
         if (!data) // dds

@@ -283,14 +283,14 @@ class QTranslatorPrivate : public QObjectPrivate
 {
     Q_DECLARE_PUBLIC(QTranslator)
 public:
-    enum { Contexts = 0x2f, Hashes = 0x42, Messages = 0x69, NumerusRules = 0x88, Dependencies = 0x96 };
+    enum { Contexts = 0x2f, Hashes = 0x42, Messages = 0x69, NumerusRules = 0x88, Dependencies = 0x96, Language = 0xa7 };
 
     QTranslatorPrivate() :
 #if defined(QT_USE_MMAP)
           used_mmap(0),
 #endif
-          unmapPointer(0), unmapLength(0), resource(0),
-          messageArray(0), offsetArray(0), contextArray(0), numerusRulesArray(0),
+          unmapPointer(nullptr), unmapLength(0), resource(nullptr),
+          messageArray(nullptr), offsetArray(nullptr), contextArray(nullptr), numerusRulesArray(nullptr),
           messageLength(0), offsetLength(0), contextLength(0), numerusRulesLength(0) {}
 
 #if defined(QT_USE_MMAP)
@@ -316,6 +316,9 @@ public:
     uint contextLength;
     uint numerusRulesLength;
 
+    QString language;
+    QString filePath;
+
     bool do_load(const QString &filename, const QString &directory);
     bool do_load(const uchar *data, qsizetype len, const QString &directory);
     QString do_translate(const char *context, const char *sourceText, const char *comment,
@@ -338,8 +341,9 @@ public:
     Translation files are created using \l{Qt Linguist}.
 
     The most common use of QTranslator is to: load a translation
-    file, install it using QCoreApplication::installTranslator(), and use
-    it via QObject::tr(). Here's an example \c main() function using the
+    file, and install it using QCoreApplication::installTranslator().
+
+    Here's an example \c main() function using the
     QTranslator:
 
     \snippet hellotrmain.cpp 0
@@ -539,7 +543,7 @@ bool QTranslatorPrivate::do_load(const QString &realname, const QString &directo
             ok = true;
         } else {
             delete resource;
-            resource = 0;
+            resource = nullptr;
         }
     }
 
@@ -597,8 +601,10 @@ bool QTranslatorPrivate::do_load(const QString &realname, const QString &directo
         }
     }
 
-    if (ok && d->do_load(reinterpret_cast<const uchar *>(d->unmapPointer), d->unmapLength, directory))
+    if (ok && d->do_load(reinterpret_cast<const uchar *>(d->unmapPointer), d->unmapLength, directory)) {
+        d->filePath = realname;
         return true;
+    }
 
 #if defined(QT_USE_MMAP)
     if (used_mmap) {
@@ -610,8 +616,8 @@ bool QTranslatorPrivate::do_load(const QString &realname, const QString &directo
         delete [] unmapPointer;
 
     delete d->resource;
-    d->resource = 0;
-    d->unmapPointer = 0;
+    d->resource = nullptr;
+    d->unmapPointer = nullptr;
     d->unmapLength = 0;
 
     return false;
@@ -829,7 +835,9 @@ bool QTranslatorPrivate::do_load(const uchar *data, qsizetype len, const QString
             break;
         }
 
-        if (tag == QTranslatorPrivate::Contexts) {
+        if (tag == QTranslatorPrivate::Language) {
+            language = QString::fromUtf8((const char*)data, blockLen);
+        } else if (tag == QTranslatorPrivate::Contexts) {
             contextArray = data;
             contextLength = blockLen;
         } else if (tag == QTranslatorPrivate::Hashes) {
@@ -874,10 +882,10 @@ bool QTranslatorPrivate::do_load(const uchar *data, qsizetype len, const QString
     }
 
     if (!ok) {
-        messageArray = 0;
-        contextArray = 0;
-        offsetArray = 0;
-        numerusRulesArray = 0;
+        messageArray = nullptr;
+        contextArray = nullptr;
+        offsetArray = nullptr;
+        numerusRulesArray = nullptr;
         messageLength = 0;
         contextLength = 0;
         offsetLength = 0;
@@ -890,7 +898,7 @@ bool QTranslatorPrivate::do_load(const uchar *data, qsizetype len, const QString
 static QString getMessage(const uchar *m, const uchar *end, const char *context,
                           const char *sourceText, const char *comment, uint numerus)
 {
-    const uchar *tn = 0;
+    const uchar *tn = nullptr;
     uint tn_length = 0;
     const uint sourceTextLen = uint(strlen(sourceText));
     const uint contextLen = uint(strlen(context));
@@ -957,11 +965,11 @@ end:
 QString QTranslatorPrivate::do_translate(const char *context, const char *sourceText,
                                          const char *comment, int n) const
 {
-    if (context == 0)
+    if (context == nullptr)
         context = "";
-    if (sourceText == 0)
+    if (sourceText == nullptr)
         sourceText = "";
-    if (comment == 0)
+    if (comment == nullptr)
         comment = "";
 
     uint numerus = 0;
@@ -1076,13 +1084,13 @@ void QTranslatorPrivate::clear()
     }
 
     delete resource;
-    resource = 0;
-    unmapPointer = 0;
+    resource = nullptr;
+    unmapPointer = nullptr;
     unmapLength = 0;
-    messageArray = 0;
-    contextArray = 0;
-    offsetArray = 0;
-    numerusRulesArray = 0;
+    messageArray = nullptr;
+    contextArray = nullptr;
+    offsetArray = nullptr;
+    numerusRulesArray = nullptr;
     messageLength = 0;
     contextLength = 0;
     offsetLength = 0;
@@ -1090,6 +1098,9 @@ void QTranslatorPrivate::clear()
 
     qDeleteAll(subTranslators);
     subTranslators.clear();
+
+    language.clear();
+    filePath.clear();
 
     if (QCoreApplicationPrivate::isTranslatorInstalled(q))
         QCoreApplication::postEvent(QCoreApplication::instance(),
@@ -1130,6 +1141,32 @@ bool QTranslator::isEmpty() const
     Q_D(const QTranslator);
     return !d->messageArray && !d->offsetArray && !d->contextArray
             && d->subTranslators.isEmpty();
+}
+
+/*!
+    \since 5.15
+
+    Returns the target language as stored in the translation file.
+ */
+QString QTranslator::language() const
+{
+    Q_D(const QTranslator);
+    return d->language;
+}
+
+/*!
+    \since 5.15
+
+    Returns the path of the loaded translation file.
+
+    The file path is empty if no translation was loaded yet,
+    the loading failed, or if the translation was not loaded
+    from a file.
+ */
+QString QTranslator::filePath() const
+{
+    Q_D(const QTranslator);
+    return d->filePath;
 }
 
 QT_END_NAMESPACE

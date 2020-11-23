@@ -2,6 +2,8 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#include <fuzzer/FuzzedDataProvider.h>
+
 #include "base/logging.h"
 #include "base/macros.h"
 #include "base/run_loop.h"
@@ -10,7 +12,6 @@
 #include "net/server/http_server.h"
 #include "net/socket/fuzzed_server_socket.h"
 #include "net/traffic_annotation/network_traffic_annotation_test_helper.h"
-#include "third_party/libFuzzer/src/utils/FuzzedDataProvider.h"
 
 namespace {
 
@@ -94,7 +95,7 @@ class WaitTillHttpCloseDelegate : public net::HttpServer::Delegate {
 //
 // |data| is used to create a FuzzedServerSocket.
 extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) {
-  net::TestNetLog test_net_log;
+  net::RecordingTestNetLog test_net_log;
   FuzzedDataProvider data_provider(data, size);
 
   std::unique_ptr<net::ServerSocket> server_socket(

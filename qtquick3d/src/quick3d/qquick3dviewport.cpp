@@ -29,7 +29,7 @@
 
 #include "qquick3dviewport_p.h"
 #include "qquick3dsceneenvironment_p.h"
-#include "qquick3dobject_p_p.h"
+#include "qquick3dobject_p.h"
 #include "qquick3dscenemanager_p.h"
 #include "qquick3dtexture_p.h"
 #include "qquick3dscenerenderer_p.h"
@@ -96,8 +96,9 @@ QQuick3DViewport::QQuick3DViewport(QQuickItem *parent)
     m_sceneRoot = new QQuick3DSceneRootNode(this);
     m_environment = new QQuick3DSceneEnvironment(m_sceneRoot);
     m_renderStats = new QQuick3DRenderStats(m_sceneRoot);
-    QQuick3DObjectPrivate::get(m_sceneRoot)->sceneManager = new QQuick3DSceneManager(m_sceneRoot);
-    connect(QQuick3DObjectPrivate::get(m_sceneRoot)->sceneManager, &QQuick3DSceneManager::needsUpdate,
+    QSharedPointer<QQuick3DSceneManager> sceneManager(new QQuick3DSceneManager(m_sceneRoot));
+    QQuick3DObjectPrivate::get(m_sceneRoot)->refSceneManager(sceneManager);
+    connect(QQuick3DObjectPrivate::get(m_sceneRoot)->sceneManager.data(), &QQuick3DSceneManager::needsUpdate,
             this, &QQuickItem::update);
 }
 
@@ -105,6 +106,10 @@ QQuick3DViewport::~QQuick3DViewport()
 {
     for (const auto &connection : qAsConst(m_connections))
         disconnect(connection);
+    // Do not delete scenemanager along with sceneroot
+    auto &sceneManager = QQuick3DObjectPrivate::get(m_sceneRoot)->sceneManager;
+    if (sceneManager)
+        sceneManager->setParent(nullptr);
     delete m_sceneRoot;
 }
 
@@ -203,6 +208,8 @@ QQuick3DNode *QQuick3DViewport::scene() const
 
     This property defines the reference node of the scene to render to the
     viewport. The node does not have to be a child of the View3D.
+    This referenced node becomes sibling with possible child nodes of View3D.
+    \note This property can only be set once, not removed or changed later.
 
     \sa Node
 */
@@ -241,6 +248,113 @@ QQuick3DRenderStats *QQuick3DViewport::renderStats() const
     return m_renderStats;
 }
 
+void QQuick3DViewport::setShaderCacheFile(const QUrl &shaderCacheFile)
+{
+    m_shaderCacheFile = shaderCacheFile;
+}
+
+QUrl QQuick3DViewport::shaderCacheFile()
+{
+    return m_shaderCacheFile;
+}
+
+void QQuick3DViewport::readShaderCache()
+{
+    QByteArray error;
+    if (!shaderCacheFile().isEmpty()) {
+        QFile file(QQmlFile::urlToLocalFileOrQrc(shaderCacheFile()));
+        if (file.open(QIODevice::ReadOnly))
+            m_shaderCacheData = qUncompress(file.readAll());
+
+        if (m_shaderCacheData.isEmpty()) {
+            error = QByteArrayLiteral("Failed to read or uncompress shader cache: ");
+            error.append(shaderCacheFile().toString().toUtf8());
+            error.append(" ");
+            error.append(file.errorString().toUtf8());
+        }
+    } else if (!m_shaderCacheImport.isEmpty()) {
+        m_shaderCacheData = qUncompress(m_shaderCacheImport);
+        if (m_shaderCacheData.isEmpty())
+            error = QByteArrayLiteral("Failed uncompress shader cache.");
+    }
+
+    if (!error.isEmpty())
+        Q_EMIT shaderCacheLoadErrors(error);
+}
+
+void QQuick3DViewport::writeShaderCache(const QUrl &shaderCacheFile)
+{
+    if (m_shaderCacheData.isEmpty()) {
+        Q_EMIT shaderCacheExported(false);
+        return; // Warning is already printed by export function
+    }
+    const QString filePath = shaderCacheFile.toLocalFile();
+    if (filePath.isEmpty()) {
+        qWarning() << __FUNCTION__ << "Warning: Invalid filename: " << shaderCacheFile;
+        Q_EMIT shaderCacheExported(false);
+        return;
+    }
+    QSaveFile file(filePath);
+    QFileInfo(filePath).dir().mkpath(QStringLiteral("."));
+    bool success = false;
+    if (file.open(QIODevice::WriteOnly) && file.write(m_shaderCacheData) != -1) {
+        file.commit();
+        success = true;
+    } else {
+        qWarning() << __FUNCTION__ << "Warning: Failed to write shader cache:"
+                   << shaderCacheFile << file.errorString();
+    }
+    Q_EMIT shaderCacheExported(success);
+}
+
+void QQuick3DViewport::doExportShaderCache()
+{
+    if (m_exportShaderCacheRequested) {
+        if (!QOpenGLContext::currentContext()) {
+            qWarning () << "Unable to export shader cache. No current context.";
+            m_exportShaderCacheRequested = false;
+            Q_EMIT shaderCacheExported(false);
+            return;
+        }
+        auto rci = QSSGRenderContextInterface::getRenderContextInterface(quintptr(window()));
+        if (rci) {
+            m_shaderCacheData = rci->shaderCache()->exportShaderCache(m_binaryShaders);
+            if (m_shaderCacheData.size()) {
+                m_shaderCacheData = qCompress(m_shaderCacheData, m_compressionLevel);
+                writeShaderCache(m_exportShaderCacheFile);
+            } else {
+                Q_EMIT shaderCacheExported(false);
+            }
+        }
+        m_exportShaderCacheRequested = false;
+    }
+}
+
+void QQuick3DViewport::doImportShaderCache()
+{
+    readShaderCache();
+    if (!m_shaderCacheData.isNull()) {
+        QByteArray error;
+        auto rci = QSSGRenderContextInterface::getRenderContextInterface(quintptr(window()));
+        rci->shaderCache()->importShaderCache(m_shaderCacheData, error);
+        if (!error.isEmpty())
+            Q_EMIT shaderCacheLoadErrors(error);
+    }
+}
+
+void QQuick3DViewport::exportShaderCache(const QUrl &shaderCacheFile, bool binaryShaders,
+                                         int compressionLevel)
+{
+    if (m_exportShaderCacheRequested) {
+        qWarning () << "Export shader cache already requested";
+        return;
+    }
+    m_exportShaderCacheFile = shaderCacheFile;
+    m_binaryShaders = binaryShaders;
+    m_compressionLevel = compressionLevel;
+    m_exportShaderCacheRequested = true;
+}
+
 QQuick3DSceneRenderer *QQuick3DViewport::createRenderer() const
 {
     return new QQuick3DSceneRenderer(this->window());
@@ -277,9 +391,29 @@ QSGTextureProvider *QQuick3DViewport::textureProvider() const
     return m_node;
 }
 
+class CleanupJob : public QRunnable
+{
+public:
+    CleanupJob(QQuick3DSGDirectRenderer *renderer) : m_renderer(renderer) { }
+    void run() override { delete m_renderer; }
+private:
+    QQuick3DSGDirectRenderer *m_renderer;
+};
+
 void QQuick3DViewport::releaseResources()
 {
+    if (m_directRenderer) {
+        window()->scheduleRenderJob(new CleanupJob(m_directRenderer), QQuickWindow::BeforeSynchronizingStage);
+        m_directRenderer = nullptr;
+    }
+
     m_node = nullptr;
+}
+
+void QQuick3DViewport::cleanupDirectRenderer()
+{
+    delete m_directRenderer;
+    m_directRenderer = nullptr;
 }
 
 void QQuick3DViewport::geometryChanged(const QRectF &newGeometry, const QRectF &oldGeometry)
@@ -309,8 +443,7 @@ QSGNode *QQuick3DViewport::updatePaintNode(QSGNode *node, QQuickItem::UpdatePain
 
     m_renderModeDirty = false;
 
-    auto *sceneManager = m_sceneRoot->sceneManager();
-    emit sceneManager->needsUpdate();
+    doExportShaderCache();
 
     if (m_renderMode == Offscreen) {
         SGFramebufferObjectNode *n = static_cast<SGFramebufferObjectNode *>(node);
@@ -327,6 +460,7 @@ QSGNode *QQuick3DViewport::updatePaintNode(QSGNode *node, QQuickItem::UpdatePain
             n->renderer->data = n;
             n->quickFbo = this;
             connect(window(), SIGNAL(screenChanged(QScreen*)), n, SLOT(handleScreenChange()));
+            doImportShaderCache();
         }
         QSize minFboSize = QQuickItemPrivate::get(this)->sceneGraphContext()->minimumFBOSize();
         QSize desiredFboSize(qMax<int>(minFboSize.width(), width()),
@@ -335,30 +469,14 @@ QSGNode *QQuick3DViewport::updatePaintNode(QSGNode *node, QQuickItem::UpdatePain
         n->devicePixelRatio = window()->effectiveDevicePixelRatio();
         desiredFboSize *= n->devicePixelRatio;
 
-        n->renderer->synchronize(this, desiredFboSize);
-
-        // Update QSGDynamicTextures that are used for source textures
-        // TODO: could be optimized to not update textures that aren't used or are on culled
-        // geometry.
-        auto *sceneManager = m_sceneRoot->sceneManager();
-        for (auto *texture : qAsConst(sceneManager->qsgDynamicTextures))
-            texture->updateTexture();
-        QQuick3DNode *scene = m_importScene;
-        while (scene) {
-            for (auto *texture : qAsConst(scene->sceneManager()->qsgDynamicTextures))
-                texture->updateTexture();
-
-            // if importScene has another import
-            QQuick3DSceneRootNode *rn = dynamic_cast<QQuick3DSceneRootNode *>(scene);
-            scene = rn ? rn->view3D()->importScene() : nullptr;
-        }
-
         n->setTextureCoordinatesTransform(QSGSimpleTextureNode::MirrorVertically);
         n->setFiltering(smooth() ? QSGTexture::Linear : QSGTexture::Nearest);
         n->setRect(0, 0, width(), height());
-
-        n->scheduleRender();
-
+        if (checkIsVisible() && isComponentComplete()) {
+            n->renderer->synchronize(this, desiredFboSize);
+            updateDynamicTextures();
+            n->scheduleRender();
+        }
         return n;
     } else if (m_renderMode == Underlay) {
         setupDirectRenderer(Underlay);
@@ -379,12 +497,16 @@ QSGNode *QQuick3DViewport::updatePaintNode(QSGNode *node, QQuickItem::UpdatePain
             n->window = window();
             n->renderer = createRenderer();
             n->renderer->data = n;
+            doImportShaderCache();
         }
 
         const QSize targetSize = window()->effectiveDevicePixelRatio() * QSize(width(), height());
 
-        n->renderer->synchronize(this, targetSize, false);
-        n->markDirty(QSGNode::DirtyMaterial);
+        if (isVisible() && isComponentComplete()) {
+            n->renderer->synchronize(this, targetSize, false);
+            updateDynamicTextures();
+            n->markDirty(QSGNode::DirtyMaterial);
+        }
 
         return n;
     }
@@ -420,7 +542,7 @@ void QQuick3DViewport::setEnvironment(QQuick3DSceneEnvironment *environment)
         return;
 
     m_environment = environment;
-    if (!m_environment->parentItem())
+    if (m_environment && !m_environment->parentItem())
         m_environment->setParentItem(m_sceneRoot);
     emit environmentChanged();
     update();
@@ -453,12 +575,12 @@ void QQuick3DViewport::setImportScene(QQuick3DNode *inScene)
         auto privateObject = QQuick3DObjectPrivate::get(m_importScene);
         // ### BUG: This will probably leak, need to think harder about this
         if (!privateObject->sceneManager) {
-            auto *manager = new QQuick3DSceneManager(m_importScene);
+            QSharedPointer<QQuick3DSceneManager> manager(new QQuick3DSceneManager(m_importScene));
             manager->setWindow(window());
             privateObject->refSceneManager(manager);
         }
 
-        connect(privateObject->sceneManager, &QQuick3DSceneManager::needsUpdate,
+        connect(privateObject->sceneManager.data(), &QQuick3DSceneManager::needsUpdate,
                 this, &QQuickItem::update);
 
         QQuick3DNode *scene = inScene;
@@ -467,7 +589,7 @@ void QQuick3DViewport::setImportScene(QQuick3DNode *inScene)
             scene = rn ? rn->view3D()->importScene() : nullptr;
 
             if (scene) {
-                connect(QQuick3DObjectPrivate::get(scene)->sceneManager,
+                connect(QQuick3DObjectPrivate::get(scene)->sceneManager.data(),
                         &QQuick3DSceneManager::needsUpdate,
                         this, &QQuickItem::update);
             }
@@ -489,180 +611,6 @@ void QQuick3DViewport::setRenderMode(QQuick3DViewport::RenderMode renderMode)
     update();
 }
 
-static QSurfaceFormat findIdealGLVersion(int samples)
-{
-    QSurfaceFormat fmt;
-    int defaultSamples = fmt.samples();
-    const bool multisampling = samples > 1;
-    fmt.setProfile(QSurfaceFormat::CoreProfile);
-
-    // Advanced: Try 4.3 core (so we get compute shaders for instance)
-    fmt.setVersion(4, 3);
-    fmt.setSamples(multisampling ? samples : defaultSamples);
-    QOpenGLContext ctx;
-    ctx.setFormat(fmt);
-    if (ctx.create() && ctx.format().version() >= qMakePair(4, 3)) {
-        qDebug("Requesting OpenGL 4.3 core context succeeded");
-        return ctx.format();
-    } else if (multisampling) {
-        // try without multisampling
-        fmt.setSamples(defaultSamples);
-        ctx.setFormat(fmt);
-        if (ctx.create() && ctx.format().version() >= qMakePair(4, 3)) {
-            qDebug("Requesting OpenGL 4.3 core context succeeded without multisampling");
-            return ctx.format();
-        }
-    }
-
-    // Basic: Stick with 3.3 for now to keep less fortunate, Mesa-based systems happy
-    fmt.setVersion(3, 3);
-    fmt.setSamples(multisampling ? samples : defaultSamples);
-    ctx.setFormat(fmt);
-    if (ctx.create() && ctx.format().version() >= qMakePair(3, 3)) {
-        qDebug("Requesting OpenGL 3.3 core context succeeded");
-        return ctx.format();
-    } else if (multisampling) {
-        // try without multisampling
-        fmt.setSamples(defaultSamples);
-        ctx.setFormat(fmt);
-        if (ctx.create() && ctx.format().version() >= qMakePair(3, 3)) {
-            qDebug("Requesting OpenGL 3.3 core context succeeded without multisampling");
-            return ctx.format();
-        }
-    }
-
-    qDebug("Impending doom");
-    return fmt;
-}
-
-static bool isBlackListedES3Driver(QOpenGLContext &ctx)
-{
-    static bool hasBeenTested = false;
-    static bool result = false;
-    if (!hasBeenTested) {
-        QOffscreenSurface offscreenSurface;
-        offscreenSurface.setFormat(ctx.format());
-        offscreenSurface.create();
-        if (ctx.makeCurrent(&offscreenSurface)) {
-            auto glFunctions = ctx.functions();
-            QString vendorString = QString::fromLatin1(reinterpret_cast<const char *>(glFunctions->glGetString(GL_RENDERER)));
-            ctx.doneCurrent();
-            if (vendorString == QStringLiteral("PowerVR Rogue GE8300"))
-                result = true;
-        } else {
-            qWarning("Context created successfully but makeCurrent() failed - this is bad.");
-        }
-        hasBeenTested = true;
-    }
-    return result;
-}
-
-
-static QSurfaceFormat findIdealGLESVersion(int samples)
-{
-    QSurfaceFormat fmt;
-    int defaultSamples = fmt.samples();
-    const bool multisampling = samples > 1;
-
-    // Advanced: Try 3.2
-    fmt.setVersion(3, 2);
-    fmt.setRenderableType(QSurfaceFormat::OpenGLES);
-    fmt.setSamples(multisampling ? samples : defaultSamples);
-    QOpenGLContext ctx;
-    ctx.setFormat(fmt);
-
-    qDebug("Testing OpenGL ES 3.2");
-    if (ctx.create() && ctx.format().version() >= qMakePair(3, 2)) {
-        qDebug("Requesting OpenGL ES 3.2 context succeeded");
-        return ctx.format();
-    } else if (multisampling) {
-        fmt.setSamples(defaultSamples);
-        ctx.setFormat(fmt);
-        if (ctx.create() && ctx.format().version() >= qMakePair(3, 2)) {
-            qDebug("Requesting OpenGL ES 3.2 context succeeded without multisampling");
-            return ctx.format();
-        }
-    }
-
-    // Advanced: Try 3.1 (so we get compute shaders for instance)
-    fmt.setVersion(3, 1);
-    fmt.setRenderableType(QSurfaceFormat::OpenGLES);
-    fmt.setSamples(multisampling ? samples : defaultSamples);
-    ctx.setFormat(fmt);
-
-    // Now, it's important to check the format with the actual version (parsed
-    // back from GL_VERSION) since some implementations, ANGLE for instance,
-    // are broken and succeed the 3.1 context request even though they only
-    // support and return a 3.0 context. This is against the spec since 3.0 is
-    // obviously not backwards compatible with 3.1, but hey...
-    qDebug("Testing OpenGL ES 3.1");
-    if (ctx.create() && ctx.format().version() >= qMakePair(3, 1)) {
-        qDebug("Requesting OpenGL ES 3.1 context succeeded");
-        return ctx.format();
-    } else if (multisampling) {
-        fmt.setSamples(defaultSamples);
-        ctx.setFormat(fmt);
-        if (ctx.create() && ctx.format().version() >= qMakePair(3, 1)) {
-            qDebug("Requesting OpenGL ES 3.1 context succeeded without multisampling");
-            return ctx.format();
-        }
-    }
-
-    // Basic: OpenGL ES 3.0 is a hard requirement at the moment since we can
-    // only generate 300 es shaders, uniform buffers are mandatory.
-    fmt.setVersion(3, 0);
-    fmt.setSamples(multisampling ? samples : defaultSamples);
-    ctx.setFormat(fmt);
-    qDebug("Testing OpenGL ES 3.0");
-    if (ctx.create() && ctx.format().version() >= qMakePair(3, 0) && !isBlackListedES3Driver(ctx)) {
-        qDebug("Requesting OpenGL ES 3.0 context succeeded");
-        return ctx.format();
-    } else if (multisampling) {
-        fmt.setSamples(defaultSamples);
-        ctx.setFormat(fmt);
-        if (ctx.create() && ctx.format().version() >= qMakePair(3, 0)
-                && !isBlackListedES3Driver(ctx)) {
-            qDebug("Requesting OpenGL ES 3.0 context succeeded without multisampling");
-            return ctx.format();
-        }
-    }
-
-    fmt.setVersion(2, 0);
-    fmt.setSamples(multisampling ? samples : defaultSamples);
-    ctx.setFormat(fmt);
-    qDebug("Testing OpenGL ES 2.0");
-    if (ctx.create()) {
-        qDebug("Requesting OpenGL ES 2.0 context succeeded");
-        return fmt;
-    } else if (multisampling) {
-        fmt.setSamples(defaultSamples);
-        ctx.setFormat(fmt);
-        if (ctx.create()) {
-            qDebug("Requesting OpenGL ES 2.0 context succeeded without multisampling");
-            return fmt;
-        }
-    }
-
-    qDebug("Impending doom");
-    return fmt;
-}
-
-QSurfaceFormat QQuick3DViewport::idealSurfaceFormat(int samples)
-{
-    static const QSurfaceFormat f = [samples] {
-        QSurfaceFormat fmt;
-        if (QOpenGLContext::openGLModuleType() == QOpenGLContext::LibGL) { // works in dynamic gl builds too because there's a qguiapp already
-            fmt = findIdealGLVersion(samples);
-        } else {
-            fmt = findIdealGLESVersion(samples);
-        }
-        fmt.setDepthBufferSize(24);
-        fmt.setStencilBufferSize(8);
-        // Ignore MSAA here as that is a per-layer setting.
-        return fmt;
-    }();
-    return f;
-}
 
 /*!
     \qmlmethod vector3d View3D::mapFrom3DScene(vector3d scenePos)
@@ -673,9 +621,6 @@ QSurfaceFormat QQuick3DViewport::idealSurfaceFormat(int samples)
     \a scenePos in scene coordinates. If the distance is negative, the point is behind the camera.
     If \a scenePos cannot be mapped to a position in the scene, a position of [0, 0, 0] is returned.
     This function requires that a camera is assigned to the view.
-
-    \note \a scenePos should be in the same \l {QtQuick3D::Node::}{orientation} as the camera
-    assigned to the view.
 
     \sa mapTo3DScene(), {Camera::mapToViewport()}{Camera.mapToViewport()}
 */
@@ -703,9 +648,6 @@ QVector3D QQuick3DViewport::mapFrom3DScene(const QVector3D &scenePos) const
     the distance from the near side of the frustum (clipNear) into the scene in scene
     coordinates. If \a viewPos cannot be mapped to a position in the scene, a
     position of [0, 0, 0] is returned.
-
-    \note the returned position will be in the same \l {QtQuick3D::Node::}{orientation}
-     as the camera assigned to the view.
 
     \sa mapFrom3DScene(), {Camera::mapFromViewport}{Camera.mapFromViewport()}
 */
@@ -783,18 +725,45 @@ QQuick3DSceneRenderer *QQuick3DViewport::getRenderer() const
     return renderer;
 }
 
+void QQuick3DViewport::updateDynamicTextures()
+{
+    // Update QSGDynamicTextures that are used for source textures and Quick items
+    // TODO: could be optimized to not update textures that aren't used or are on culled
+    // geometry.
+    const auto &sceneManager = QQuick3DObjectPrivate::get(m_sceneRoot)->sceneManager;
+    for (auto *texture : qAsConst(sceneManager->qsgDynamicTextures))
+        texture->updateTexture();
+    QQuick3DNode *scene = m_importScene;
+    while (scene) {
+        const auto &importSm = QQuick3DObjectPrivate::get(scene)->sceneManager;
+        if (importSm != sceneManager) {
+            for (auto *texture : qAsConst(importSm->qsgDynamicTextures))
+                texture->updateTexture();
+        }
+
+        // if importScene has another import
+        QQuick3DSceneRootNode *rn = dynamic_cast<QQuick3DSceneRootNode *>(scene);
+        scene = rn ? rn->view3D()->importScene() : nullptr;
+    }
+}
+
 void QQuick3DViewport::setupDirectRenderer(RenderMode mode)
 {
     auto renderMode = (mode == Underlay) ? QQuick3DSGDirectRenderer::Underlay
                                          : QQuick3DSGDirectRenderer::Overlay;
-    if (!m_directRenderer)
+    if (!m_directRenderer) {
         m_directRenderer = new QQuick3DSGDirectRenderer(createRenderer(), window(), renderMode);
+        connect(window(), &QQuickWindow::sceneGraphInvalidated, this, &QQuick3DViewport::cleanupDirectRenderer, Qt::DirectConnection);
+        doImportShaderCache();
+    }
     const QSizeF targetSize = window()->effectiveDevicePixelRatio() * QSizeF(width(), height());
-    m_directRenderer->renderer()->synchronize(this, targetSize.toSize(), false);
     m_directRenderer->setViewport(QRectF(window()->effectiveDevicePixelRatio() * mapToScene(QPointF(0, 0)), targetSize));
     m_directRenderer->setVisibility(isVisible());
-    if (isVisible())
+    if (isVisible()) {
+        m_directRenderer->renderer()->synchronize(this, targetSize.toSize(), false);
+        updateDynamicTextures();
         m_directRenderer->requestRender();
+    }
     updateClearBeforeRendering();
 }
 
@@ -802,6 +771,16 @@ void QQuick3DViewport::updateClearBeforeRendering()
 {
     // Don't clear window when rendering visible underlay
     window()->setClearBeforeRendering(m_renderMode != Underlay || !isVisible());
+}
+
+// This is used for offscreen mode since we need to check if
+// this item is used by an effect but hidden
+bool QQuick3DViewport::checkIsVisible() const
+{
+    auto childPrivate = QQuickItemPrivate::get(this);
+    return (childPrivate->explicitVisible ||
+            (childPrivate->extra.isAllocated() && childPrivate->extra->effectRefCount));
+
 }
 
 QT_END_NAMESPACE
